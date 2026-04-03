@@ -1,0 +1,86 @@
+# Vyx D-layer grammar (GBNF)
+# This is the single source of truth for the entire package.
+# builder.py derives Pydantic models from this.
+# parser.py derives its dispatch table from this.
+# Nothing else encodes Vyx structure.
+
+# --- Packet ---
+packet          ::= definition* envelope "\n" body?
+definition      ::= schema-def | template-def
+schema-def      ::= "S:" schema-name "=" "{" field-list "}"
+template-def    ::= "T:" tpl-name "=" env-field+
+schema-name     ::= [a-zA-Z0-9.]+
+tpl-name        ::= [a-zA-Z0-9]+
+field-list      ::= field-name (" " field-name)*
+field-name      ::= [a-zA-Z0-9_-]+
+
+# --- Envelope ---
+envelope        ::= (template-use " ")? performative (" " env-field)*
+template-use    ::= "%" tpl-name
+performative    ::= "!" std-perf | "!" custom-perf
+std-perf        ::= "R" | "I" | "P" | "C" | "U" | "S" | "A" | "N" | "O" | "E" | "H" | "W"
+custom-perf     ::= "X:" [A-Z0-9_]+
+env-field       ::= ontology | sender | receiver | msg-label | msg-ref | version | budget
+ontology        ::= "o:" ont-name
+ont-name        ::= [a-zA-Z0-9.]+
+sender          ::= "s" "!"? ":" agent-id
+receiver        ::= "r" "!"? ":" agent-id
+msg-label       ::= "&" ref-id
+msg-ref         ::= "^" ref-id
+version         ::= "v:" [0-9.]+
+agent-id        ::= "@"? [a-zA-Z0-9_-]+
+ref-id          ::= [a-zA-Z0-9_-]+
+budget          ::= "L" [0-9]+ "<"
+
+# --- Body ---
+body            ::= body-line+
+body-line       ::= nl-escape | nl-force | dict-def | table-block | seq-item | scope-line | kv-line | nl-text
+nl-escape       ::= "\\" "#"+
+nl-force        ::= "# " [^\n]*
+nl-text         ::= [^\n]*
+
+# --- Dict ---
+dict-def        ::= "D:" col-name? "{" dict-entry+ "}"
+col-name        ::= key
+dict-entry      ::= dict-code "=" value
+dict-code       ::= [a-zA-Z0-9]+
+
+# --- Table ---
+table-block     ::= "$" tag " [" count "]" ("{" field-list "}")? ":" "\n" table-row* row-annotation*
+table-row       ::= cell (" " cell)*
+row-annotation  ::= " "+ row-key "/" scope-path ":" (" " kv-pairs)? "\n" ann-child*
+ann-child       ::= " "+ " "+ body-line "\n"
+row-key         ::= cell
+tag             ::= [a-zA-Z0-9]+
+count           ::= [0-9]+ | "?"
+cell            ::= "**" | "*" | "$" tag | pipe-list | spread | ref | labeled-val | bare-val
+
+# --- Sequence ---
+seq-item        ::= " "* "- " ("&" ref-id " ")? item-head "\n" item-child*
+item-head       ::= kv-like-item (" " kv-like-item)*
+item-child      ::= " "+ " "+ body-line "\n"
+kv-like-item    ::= key ("=" value)? | quoted
+
+# --- Scope ---
+scope-line      ::= " "* scope-path (" " "&" ref-id)? ":" (" " kv-pairs)?
+scope-path      ::= scope-name ("/" scope-name)*
+scope-name      ::= [a-zA-Z0-9_-]+
+
+# --- Key-value ---
+kv-line         ::= " "* kv-pairs
+kv-pairs        ::= kv-pair (" " kv-pair)*
+kv-pair         ::= key "+=" value | key "=" value
+key             ::= [a-zA-Z0-9_-]+
+
+# --- Values ---
+value           ::= pipe-list | spread | ref | quoted | unquoted | null-val
+bare-val        ::= quoted | unquoted | null-val
+null-val        ::= "_"
+unquoted        ::= [!-%'-;=?-~]+
+quoted          ::= "\"" ([^\"\\\n] | escaped)* "\""
+escaped         ::= "\\" [\"\\nt|]
+pipe-list       ::= ("&" ref-id)? "|" (pipe-item ("|" pipe-item)*)?
+pipe-item       ::= spread | ref | "$" tag | labeled-val | bare-val
+labeled-val     ::= bare-val "&" ref-id
+ref             ::= "^" ref-id
+spread          ::= "~" ref-id

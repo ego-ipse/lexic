@@ -1,0 +1,124 @@
+root ::= packet
+
+# D.1
+nl-escape ::= \"\\\\\" \"#\"+
+nl-force ::= \"# \" [\\x21-\\x7E]*
+nl-text ::= [\\x20-\\x7E]*
+# deps: |LF
+
+# D.2
+value ::= pipe-list | spread | ref | quoted | unquoted | null-val
+bare-val ::= quoted | unquoted | null-val
+null-val ::= \"-\"
+unquoted ::= [\\x21-\\x25\\x27-\\x3B\\x3D\\x3F-\\x7E]+
+quoted ::= \"\\\"\" quoted-char* \"\\\"\"
+quoted-char ::= [\\x20-\\x21] | [\\x23-\\x7E] | escaped
+escaped ::= \"\\\\\" (\"\\\"\" | esc-char)
+esc-char ::= [\\\\nt|]
+# deps: |ref|spread|pipe_list|labeled_val
+
+# D.3
+kv-pair ::= key \"+=\" value | key \"=\" value
+kv-pairs ::= kv-pair (\" \" kv-pair)*
+kv-line ::= indent kv-pairs
+key ::= [a-zA-Z0-9_-]+
+kv-like-item ::= key (\"=\" value)? | quoted
+# deps: |value|indent|quoted
+
+# D.4
+pipe-list ::= (\"&\" ref-id)? \"|\" (pipe-item (\"|\" pipe-item)*)?
+pipe-item ::= spread | ref | subtable-ref | labeled-val | bare-val
+# deps: |ref_id|ref|spread|subtable_ref|labeled_val|bare_val
+
+# D.5
+scope-line ::= indent scope-path (\" \" \"&\" ref-id)? \":\" (\" \" kv-pairs)?
+scope-name ::= [a-zA-Z0-9_-]+
+scope-path ::= scope-name (\"/\" scope-name)*
+indent ::= \" \"*
+# deps: |ref_id|kv_pairs
+
+# D.6
+seq-item ::= seq-indent \"- \" (\"&\" ref-id \" \")? item-head \"\\n\" item-child*
+seq-indent ::= \" \"*
+item-head ::= kv-like-item (\" \" kv-like-item)*
+item-child ::= child-indent body-line \"\\n\"
+child-indent ::= seq-indent \" \"+"
+# deps: |ref_id|kv_like_item|body_line
+
+# D.7
+ref ::= \"^\" ref-id
+spread ::= \"~\" ref-id
+ref-id ::= [a-zA-Z0-9_-]+
+
+# D.8
+labeled-val ::= bare-val \"&\" ref-id
+# deps: |bare_val|ref_id
+
+# D.9
+table-block ::= table-header \"\\n\" (table-row \"\\n\")* row-annotation*
+table-header ::= \"$\" tag (\" \" \"&\" ref-id)? \" \" \"[\" count \"]\" (\"{\" field-list \"}\")? \":\"
+table-row ::= cell (\" \" cell)*
+tag ::= [a-zA-Z0-9]+
+count ::= [0-9]+
+field-list ::= field-name (\" \" field-name)*
+field-name ::= [a-zA-Z0-9_-]+
+cell ::= row-copy | col-copy | pipe-list | spread | ref | subtable-ref | labeled-val | bare-val
+row-copy ::= \"**\"
+col-copy ::= \"*\"
+subtable-ref ::= \"$\" tag
+row-annotation ::= ann-indent row-key \"/\" scope-path \":\" (\" \" kv-pairs)? \"\\n\" ann-child*
+ann-indent ::= \" \"+"
+ann-child ::= ann-indent ann-indent body-line \"\\n\"
+row-key ::= cell
+# deps: |ref_id|pipe_list|spread|ref|labeled_val|bare_val|scope_path|kv_pairs
+
+# D.10
+schema-def ::= \"S:\" schema-name \"=\" \"{\" field-list \"}\"
+schema-name ::= [a-zA-Z0-9.]+
+# deps: |field_list
+
+# D.11
+dict-def ::= \"D:\" col-name? \"{\" dict-entries \"}\"
+col-name ::= key
+dict-entries ::= dict-entry (\" \" dict-entry)*
+dict-entry ::= dict-code \"=\" value
+dict-code ::= [a-zA-Z0-9]+
+# deps: |key|value
+
+# D.12
+budget ::= \"L\" [0-9]+ \"<\"
+
+# D.14
+env-field ::= o-field | s-field | r-field | v-field | c-field | pref-field | n-field | label-field | ref-field | budget
+o-field ::= \"o:\" (pipe-list | bare-val)
+s-field ::= \"s:\" agent-id
+r-field ::= \"r:\" agent-id
+v-field ::= \"v:\" bare-val
+c-field ::= \"c:\" key \"=\" bare-val
+pref-field ::= \"pref:\" key \"=\" bare-val
+n-field ::= \"n:\" [0-9]+
+label-field ::= \"&\" ref-id
+ref-field ::= \"^\" ref-id
+agent-id ::= \"@\"? [a-zA-Z0-9_-]+
+# deps: |pipe_list|bare_val|ref_id|key|budget
+
+# D.15
+template-def ::= \"T:\" tpl-name \"=\" (env-field \" \")+
+template-use ::= \"%\" tpl-name
+tpl-name ::= [a-zA-Z0-9]+
+# deps: |env_field
+
+# D.16
+std-perf ::= \"R\" | \"I\" | \"P\" | \"C\" | \"U\" | \"S\" | \"A\" | \"N\" | \"O\" | \"E\" | \"H\" | \"W\"
+
+# D.17
+packet ::= definition* envelope \"\\n\" body?
+definition ::= template-def | schema-def
+envelope ::= (template-use \" \")? performative (\" \" env-field)*
+performative ::= \"!\" (std-perf | custom-perf)
+std-perf ::= \"R\" | \"I\" | \"P\" | \"C\" | \"U\" | \"S\" | \"A\" | \"N\" | \"O\" | \"E\" | \"H\" | \"W\"
+custom-perf ::= \"X:\" [A-Z0-9_]+
+body ::= body-content \">\"
+body-content ::= (body-line \"\\n\")*
+body-line ::= nl-escape | nl-force | dict-def | table-block | seq-item | scope-line | kv-line | nl-text
+# deps: |env_field|template_def|schema_def|template_use|nl_escape|nl_force|dict_def|table_block|seq_item|scope_line|kv_line|nl_text
