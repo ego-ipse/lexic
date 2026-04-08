@@ -209,7 +209,7 @@ def demo_model_building() -> None:
         print()
         return
 
-    from gbnf import GBNFParser
+    from ogbnf import GBNFParser
 
     grammar = Path(__file__).parent.parent.joinpath("grammar.gbnf").read_text()
     rules = GBNFParser().parse(grammar)

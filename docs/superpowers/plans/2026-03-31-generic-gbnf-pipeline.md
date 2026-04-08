@@ -12,16 +12,14 @@
 
 ## Codebase Context
 
-All source files live flat in `/home/mika/projects/vyx_2/` (no `src/` subdirectory).
+Source files live in `src/` (flat, no package). Tests live in `tests/`. `pyproject.toml` has `pythonpath = ["src"]` so tests import directly (e.g. `from gbnf import GBNFParser`).
 Grammar file: `spec_built/grammar.gbnf`.
 Reference implementations (read-only, do not modify): `project_meta/files/`.
 
 Key existing files:
-- `gbnf.py` — GBNF text → `GBNFNode` IR. **Do not modify.**
-- `builder.py` — `GBNFNode` IR → `VyxBase` subclasses. **Refactor in Task 2.**
-- `base.py` — `VyxBase`. Becomes unused after Task 2 — **do not delete**, harness.py still imports it.
-- `parser.py` — Vyx-specific parser. Superseded by `interpreter.py` — **do not delete or modify**.
-- `harness.py` — pydantic-ai agent harness. Update return types in Task 2.
+- `src/gbnf.py` — GBNF text → `GBNFNode` IR. **Do not modify.**
+- `src/builder.py` — `GBNFNode` IR → `BaseModel` subclasses (already refactored in Task 2).
+- `src/harness.py` — pydantic-ai agent harness (already updated in Task 2).
 
 ---
 
@@ -29,23 +27,23 @@ Key existing files:
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `gbnf.py` | unchanged | GBNF text → GBNFNode IR |
-| `builder.py` | refactor | Remove VyxBase, produce plain BaseModel subclasses |
-| `harness.py` | update | Change VyxBase return type annotations to BaseModel |
-| `interpreter.py` | create | PEG interpreter: GBNFNode IR + text → model instances |
-| `emitter.py` | create | model instances + GBNFNode IR → text |
-| `spec/__init__.py` | create | empty |
-| `spec/extractor.py` | create | markdown → (section_id, body_text) pairs |
-| `spec/models.py` | create | DSection, GrammarBlock, ErrorCode |
-| `spec/compiler.py` | create | body_text → DSection using interpreter |
-| `spec/enricher.py` | create | DSection → add validators to grammar models |
-| `tests/__init__.py` | create | empty |
-| `tests/conftest.py` | create | shared grammar fixture |
-| `tests/test_builder.py` | create | builder refactor tests |
+| `src/gbnf.py` | unchanged | GBNF text → GBNFNode IR |
+| `src/builder.py` | done | Plain BaseModel subclasses |
+| `src/harness.py` | done | BaseModel return types |
+| `src/interpreter.py` | create | PEG interpreter: GBNFNode IR + text → model instances |
+| `src/emitter.py` | create | model instances + GBNFNode IR → text |
+| `src/spec/__init__.py` | create | empty |
+| `src/spec/extractor.py` | create | markdown → (section_id, body_text) pairs |
+| `src/spec/models.py` | create | DSection, GrammarBlock, ErrorCode |
+| `src/spec/compiler.py` | create | body_text → DSection using interpreter |
+| `src/spec/enricher.py` | create | DSection → add validators to grammar models |
+| `tests/__init__.py` | done | empty |
+| `tests/conftest.py` | done | shared grammar fixture |
+| `tests/test_builder.py` | done | builder refactor tests |
 | `tests/test_interpreter.py` | create | interpreter unit tests |
 | `tests/test_emitter.py` | create | emitter unit tests |
 | `tests/test_roundtrip.py` | create | parse → emit → parse integration |
-| `tests/spec/__init__.py` | create | empty |
+| `tests/spec/__init__.py` | done | empty |
 | `tests/spec/test_extractor.py` | create | extractor tests |
 | `tests/spec/test_compiler.py` | create | compiler tests |
 | `tests/spec/test_enricher.py` | create | enricher tests |
@@ -461,7 +459,7 @@ PEG interpreter over `GBNFNode` IR. No Vyx-specific knowledge. Handles all 7 nod
 **Important — charclass patterns:** The grammar file stores hex ranges as `[\\xHH-\\xHH]` (two backslashes before `x`). Python's `re` engine needs one backslash (`[\xHH-\xHH]`). The helper `_charclass_to_re` applies `pattern.replace('\\\\', '\\')` before compiling.
 
 **Files:**
-- Create: `interpreter.py`
+- Create: `src/interpreter.py`
 - Create: `tests/test_interpreter.py`
 
 - [ ] **Step 1: Write failing tests for atoms**
@@ -859,7 +857,7 @@ Expected: All pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add interpreter.py tests/test_interpreter.py
+git add src/interpreter.py tests/test_interpreter.py
 git commit -m "feat: add PEG interpreter over GBNFNode IR"
 ```
 
@@ -870,7 +868,7 @@ git commit -m "feat: add PEG interpreter over GBNFNode IR"
 Emits text from a model instance using the same `GBNFNode` IR. Round-trip invariant: `parse(emit(instance)) == instance`.
 
 **Files:**
-- Create: `emitter.py`
+- Create: `src/emitter.py`
 - Create: `tests/test_emitter.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -1095,7 +1093,7 @@ Expected: All pass. If `test_emit_optional_absent` fails, check that `GBNFOption
 - [ ] **Step 5: Commit**
 
 ```bash
-git add emitter.py tests/test_emitter.py
+git add src/emitter.py tests/test_emitter.py
 git commit -m "feat: add text emitter, round-trip invariant for grammar-driven models"
 ```
 
@@ -1176,7 +1174,7 @@ git commit -m "test: add parse→emit→parse round-trip integration tests"
 Reads a markdown file, finds Vyx fences (`` ```@:section_id `` to `` ``` ``), returns `(section_id, body_text)` pairs. Pure string extraction — no Vyx parsing.
 
 **Files:**
-- Create: `spec/__init__.py`, `spec/extractor.py`
+- Create: `src/spec/__init__.py`, `src/spec/extractor.py`
 - Create: `tests/spec/test_extractor.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -1256,13 +1254,13 @@ uv run pytest tests/spec/test_extractor.py -v
 
 Expected: ImportError — `spec/extractor.py` does not exist.
 
-- [ ] **Step 3: Create spec/__init__.py and spec/extractor.py**
+- [ ] **Step 3: Create src/spec/__init__.py and src/spec/extractor.py**
 
 ```bash
-touch spec/__init__.py
+mkdir -p src/spec && touch src/spec/__init__.py
 ```
 
-Create `spec/extractor.py`:
+Create `src/spec/extractor.py`:
 
 ```python
 """Spec extractor — pulls Vyx fence blocks out of a markdown file.
@@ -1325,7 +1323,7 @@ Expected: All pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add spec/__init__.py spec/extractor.py tests/spec/test_extractor.py
+git add src/spec/__init__.py src/spec/extractor.py tests/spec/test_extractor.py
 git commit -m "feat: add spec extractor (markdown → Vyx fence body_text pairs)"
 ```
 
@@ -1336,7 +1334,7 @@ git commit -m "feat: add spec extractor (markdown → Vyx fence body_text pairs)
 Pydantic models for compiled spec output. These are the data structures the compiler populates and the enricher reads.
 
 **Files:**
-- Create: `spec/models.py`
+- Create: `src/spec/models.py`
 - Create: `tests/spec/test_models.py`
 
 - [ ] **Step 1: Write tests**
@@ -1440,7 +1438,7 @@ Expected: All pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add spec/models.py tests/spec/test_models.py
+git add src/spec/models.py tests/spec/test_models.py
 git commit -m "feat: add spec DSection, GrammarBlock, ErrorCode models"
 ```
 
@@ -1451,7 +1449,7 @@ git commit -m "feat: add spec DSection, GrammarBlock, ErrorCode models"
 Parses each `(section_id, body_text)` pair from the extractor using the interpreter against the Vyx grammar. Walks the resulting model instances to populate `DSection` fields.
 
 **Files:**
-- Create: `spec/compiler.py`
+- Create: `src/spec/compiler.py`
 - Create: `tests/spec/test_compiler.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -1781,7 +1779,7 @@ Expected: Most pass. `test_d3_has_grammar_block` and `test_d3_has_errors` are th
 - [ ] **Step 5: Commit**
 
 ```bash
-git add spec/compiler.py tests/spec/test_compiler.py
+git add src/spec/compiler.py tests/spec/test_compiler.py
 git commit -m "feat: add spec compiler (body_text → DSection models)"
 ```
 
@@ -1792,7 +1790,7 @@ git commit -m "feat: add spec compiler (body_text → DSection models)"
 Reads `DSection` models, derives field-level constraints and error codes, applies them to the grammar-derived `BaseModel` subclasses via `model_rebuild()`.
 
 **Files:**
-- Create: `spec/enricher.py`
+- Create: `src/spec/enricher.py`
 - Create: `tests/spec/test_enricher.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -1985,7 +1983,7 @@ Expected: `test_enrich_returns_dict`, `test_enriched_models_are_subclasses`, `te
 - [ ] **Step 5: Commit**
 
 ```bash
-git add spec/enricher.py tests/spec/test_enricher.py
+git add src/spec/enricher.py tests/spec/test_enricher.py
 git commit -m "feat: add spec enricher (DSection constraints → model validators)"
 ```
 

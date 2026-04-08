@@ -1,6 +1,6 @@
 """VyxHarness — grammar-driven agent harness via pydantic-ai.
 
-Grammar → models → pydantic-ai Agent → validated VyxBase.
+Grammar → models → pydantic-ai Agent → validated BaseModel.
 
 Provider string follows pydantic-ai conventions:
     "anthropic:claude-sonnet-4-6"
@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from base import VyxBase
+from pydantic import BaseModel
 from builder import GBNFModelBuilder
 from ogbnf import GBNFParser
 
@@ -128,11 +128,11 @@ class VyxHarness:
     # Core
     # ------------------------------------------------------------------
 
-    def emit(self, rule: str, prompt: str, **kwargs: Any) -> VyxBase:
+    def emit(self, rule: str, prompt: str, **kwargs: Any) -> BaseModel:
         """Return a validated model instance for the given grammar rule."""
         return self._agent(rule).run_sync(prompt, **kwargs).data
 
-    async def emit_async(self, rule: str, prompt: str, **kwargs: Any) -> VyxBase:
+    async def emit_async(self, rule: str, prompt: str, **kwargs: Any) -> BaseModel:
         """Async variant of emit."""
         result = await self._agent(rule).run(prompt, **kwargs)
         return result.data

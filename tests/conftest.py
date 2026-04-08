@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from gbnf import GBNFParser, GBNFNode
+from ogbnf import GBNFParser, GBNFNode
 
 GRAMMAR_PATH = Path(__file__).parent.parent / "spec_built" / "grammar.gbnf"
 

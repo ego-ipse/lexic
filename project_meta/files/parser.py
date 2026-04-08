@@ -20,7 +20,7 @@ from typing import Any
 
 from base import VyxBase
 from builder import GBNFModelBuilder
-from gbnf import GBNFNode, GBNFParser
+from ogbnf import GBNFNode, GBNFParser
 
 _GRAMMAR_PATH = Path(__file__).parent.parent / "grammar.gbnf"
 

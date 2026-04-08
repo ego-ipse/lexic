@@ -1,4 +1,4 @@
-from gbnf import GBNFParser, GBNFAlternation, GBNFRepetition, _unescape
+from ogbnf import GBNFParser, GBNFAlternation, GBNFRepetition, _unescape
 
 
 def test_unescape_backslash():

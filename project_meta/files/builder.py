@@ -29,7 +29,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from base import VyxBase
-from gbnf import (
+from ogbnf import (
     GBNFAlternation,
     GBNFCharClass,
     GBNFLiteral,
@@ -42,7 +42,7 @@ from gbnf import (
     _element_name,
     first_terminal,
 )
-from gbnf import (
+from ogbnf import (
     dispatch_table as _gbnf_dispatch_table,
 )
 from pydantic import Field, create_model
