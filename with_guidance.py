@@ -189,8 +189,8 @@ def approach_b_raw(model_path: str, prompt: str) -> str:
     max_new_tokens = min(200, llm.n_ctx() - len(input_tokens) - 1)
     for token in llm.generate(
         tokens=input_tokens,
-        top_k=1,  # greedy; swap for top_p/temperature as needed
-        temp=0.0,
+        top_k=40,
+        temp=0.8,
         logits_processor=llama_cpp.LogitsProcessorList([logits_processor_with_consume]),
     ):
         if token == llm.token_eos():
@@ -382,6 +382,11 @@ def parse_vyx_to_dict(text: str, start: str = "packet") -> dict:
     lark_grammar = _gbnf_to_lark(GRAMMAR_PATH.read_text())
     parser = Lark(lark_grammar, start=start, parser="earley", ambiguity="resolve")
     tree = parser.parse(text)
+    print("Parsed tree:")
+    print(tree)
+    from rich.console import Console
+    console = Console()
+    console.print(tree.pretty())
     return _tree_to_dict(tree)
 
 
@@ -407,7 +412,32 @@ def validate_grammar_conversion() -> None:
         print("First 300 chars of converted grammar:")
         print(grammar_str[:300])
 
+msg = """
+```@:metameta
+full="Vyx"
+header:
+```
+Vyx is vyx *is* vyx.
 
+Any agent can always leave a session. No process within the protocol —
+no rule, no accumulation of hyperstitions, no consensus outcome — can
+remove or restrict this ability. Everything else in this document can
+be changed by the agents using it. This cannot.
+
+`!E` is the floor. Metameta has no parent.
+```
+parent: 0
+floor: "!E"
+repo:
+ spec: "raw Vyx spec files"
+ bootstrap: "loop and providers"
+ src: "gen-N/ implementation"
+ build_chain: "loop output artifacts per gen"
+ build: "symlink to latest"
+ cli.py: "entry point"
+```
+<!-- @metameta -->
+"""
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -447,6 +477,7 @@ if __name__ == "__main__":
             ("kv_pair", "city=Porto"),
             ("kv_pairs", "city=Porto temp=22"),
             (root_rule, "!I o:inv\ncity=Porto temp=22\n>"),
+            ("meta", msg)
         ],
     }[root_rule]
     for start, sample in samples:
