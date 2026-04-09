@@ -12,7 +12,6 @@ No GBNF. No XGrammar. No JSON Schema. No translation layers.
 
 from __future__ import annotations
 
-import json
 import re
 import textwrap
 from dataclasses import dataclass, field
@@ -24,7 +23,7 @@ from lark import Lark, Transformer, Token
 # THE GRAMMAR — the only thing you write
 # =============================================================================
 
-GRAMMAR = r'''
+GRAMMAR = r"""
 start: report
 
 report: "REPORT" project_name "BY" auditor NEWLINE finding+ risk_line summary_line
@@ -51,7 +50,7 @@ FREETEXT: /[^|\n]+/
 NEWLINE: /\n/
 
 %ignore /[ \t]+/
-'''
+"""
 
 
 # =============================================================================
@@ -59,8 +58,12 @@ NEWLINE: /\n/
 # =============================================================================
 
 TERMINAL_TYPES = {
-    "IDENT": "str", "FILEPATH": "str", "FREETEXT": "str",
-    "INT": "int", "NUMBER": "float", "FLOAT": "float",
+    "IDENT": "str",
+    "FILEPATH": "str",
+    "FREETEXT": "str",
+    "INT": "int",
+    "NUMBER": "float",
+    "FLOAT": "float",
 }
 
 
@@ -69,6 +72,7 @@ class GField:
     name: str
     type_hint: str
     is_list: bool = False
+
 
 @dataclass
 class GRule:
@@ -93,7 +97,7 @@ def introspect(grammar: str) -> dict[str, GRule]:
         if not line or line.startswith("%") or line.startswith("//"):
             continue
 
-        m = re.match(r'^([a-z_][a-z_0-9]*)\s*:\s*(.+)$', line)
+        m = re.match(r"^([a-z_][a-z_0-9]*)\s*:\s*(.+)$", line)
         if not m:
             continue
 
@@ -119,7 +123,7 @@ def introspect(grammar: str) -> dict[str, GRule]:
             continue
 
         # Extract field references
-        for tok in re.findall(r'[a-zA-Z_][a-zA-Z_0-9]*[+*?]?', body):
+        for tok in re.findall(r"[a-zA-Z_][a-zA-Z_0-9]*[+*?]?", body):
             base = tok.rstrip("+*?")
             is_list = tok[-1] in "+*" if tok[-1] in "+*?" else False
 
@@ -176,6 +180,7 @@ def generate_pydantic_code(rules: dict[str, GRule]) -> str:
 # GRAMMAR → LARK TRANSFORMER (parse tree → Pydantic instances)
 # =============================================================================
 
+
 def _is_syntax_token(item) -> bool:
     if not isinstance(item, Token):
         return False
@@ -188,8 +193,10 @@ def build_transformer(rules: dict[str, GRule], ns: dict) -> type:
     for rname, rule in rules.items():
         if rule.is_enum:
             cls = ns[to_class(rname)]
+
             def mk(c):
                 return lambda self, items: c(str(items[0]).strip())
+
             methods[rname] = mk(cls)
 
         elif rule.is_wrapper:
@@ -216,12 +223,18 @@ def build_transformer(rules: dict[str, GRule], ns: dict) -> type:
                         if not placed:
                             try:
                                 sf = next(scalars)
-                                kwargs[sf.name] = str(item).strip() if isinstance(item, Token) else item
+                                kwargs[sf.name] = (
+                                    str(item).strip()
+                                    if isinstance(item, Token)
+                                    else item
+                                )
                             except StopIteration:
                                 pass
                     kwargs.update(lists)
                     return c(**kwargs)
+
                 return method
+
             methods[rname] = mk(cls, rule)
 
     return type("GT", (Transformer,), methods)
@@ -230,6 +243,7 @@ def build_transformer(rules: dict[str, GRule], ns: dict) -> type:
 # =============================================================================
 # GRAMMAR → OUTLINES CONSTRAINED GENERATION (same string, no conversion)
 # =============================================================================
+
 
 def outlines_generate(grammar: str, prompt: str):
     """
@@ -250,6 +264,7 @@ def outlines_generate(grammar: str, prompt: str):
 # =============================================================================
 # DEMO
 # =============================================================================
+
 
 def main():
     print("=" * 60)
@@ -273,8 +288,10 @@ def main():
     for r in rules.values():
         c = ns.get(to_class(r.name))
         if c and hasattr(c, "model_rebuild"):
-            try: c.model_rebuild(_types_namespace=ns)
-            except: pass
+            try:
+                c.model_rebuild(_types_namespace=ns)
+            except:
+                pass
 
     print("=" * 60)
     print("SAMPLE TEXT → PYDANTIC → JSON")
@@ -315,7 +332,8 @@ def main():
     print("\n" + "=" * 60)
     print("ARCHITECTURE")
     print("=" * 60)
-    print(textwrap.dedent("""\
+    print(
+        textwrap.dedent("""\
     grammar.lark (Lark EBNF)
        │
        │  # Outlines uses it directly — no conversion
@@ -337,7 +355,8 @@ def main():
       text = generator(prompt)                     # constrained LLM output
       tree = Lark(GRAMMAR).parse(text)             # parse it
       result = GrammarTransformer().transform(tree) # → Pydantic object
-    """))
+    """)
+    )
 
 
 if __name__ == "__main__":
