@@ -1,5 +1,5 @@
 from llama_cpp import Llama
-from llama_cpp.llama_grammar import LlamaGrammar, JSON_GBNF
+from llama_cpp.llama_grammar import LlamaGrammar
 from pathlib import Path
 
 llm = Llama(model_path="/home/mika/SmolLM2.q8.gguf", n_gpu_layers=-1)
@@ -19,7 +19,7 @@ print("Type 'exit' or 'quit' to end.\n")
 while True:
     user_input = input("You: ")
 
-    if user_input.lower() in ['exit', 'quit']:
+    if user_input.lower() in ["exit", "quit"]:
         break
 
     # 2. Append the user's new message to the history
@@ -34,7 +34,7 @@ while True:
     )
 
     # 4. Extract the assistant's reply
-    response = out['choices'][0]['message']['content'].strip()
+    response = out["choices"][0]["message"]["content"].strip()
     print(f"\nSmolLM2: {response}\n")
 
     # 5. Save the assistant's reply to the history so it remembers it for the next turn

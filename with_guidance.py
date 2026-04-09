@@ -24,28 +24,38 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-
+from llguidance import grammar_from
+import llama_cpp
+from guidance.models import LlamaCpp
+from guidance.library import lark, gbnf_to_lark as g_gbnf_to_lark
 import numpy as np
+from llguidance import LLMatcher
+from llguidance.numpy import allocate_token_bitmask
+from llguidance.numpy import fill_next_token_bitmask, apply_token_bitmask_inplace
+from llguidance.llamacpp import lltokenizer_from_vocab
+import re
+from lark import Tree, Token, Lark
 
 # ---------------------------------------------------------------------------
 # GBNF grammar path
 # ---------------------------------------------------------------------------
-GRAMMAR_PATH = Path(__file__).parent / "spec_built" / "json.gbnf"
+GRAMMAR_PATH = Path(__file__).parent / "spec_built" / "grammar.gbnf"
 MODEL_PATH = os.environ.get("MODEL_PATH", "")
 
 # ---------------------------------------------------------------------------
 # Helper: convert GBNF → llguidance grammar string (Lark dialect)
 # ---------------------------------------------------------------------------
 
+
 def gbnf_to_llguidance(gbnf_text: str) -> str:
     """Convert GBNF grammar text to the llguidance internal grammar string."""
-    from llguidance import grammar_from
     return grammar_from("gbnf", gbnf_text)
 
 
 # ---------------------------------------------------------------------------
 # Approach A — guidance high-level API
 # ---------------------------------------------------------------------------
+
 
 def approach_a_guidance(model_path: str, prompt: str) -> str:
     """
@@ -56,28 +66,25 @@ def approach_a_guidance(model_path: str, prompt: str) -> str:
     full KV cache before first inference, causing a hang at llama_get_logits.
     Passing an existing instance bypasses that initialisation path.
     """
-    import llama_cpp
-    from guidance.models import LlamaCpp
-    from guidance.library import lark, gbnf_to_lark as g_gbnf_to_lark
-
     gbnf_text = GRAMMAR_PATH.read_text()
     lark_grammar = g_gbnf_to_lark(gbnf_text)
 
     # Pre-create the llama instance with a context window guidance can handle.
     llm = llama_cpp.Llama(
         model_path=model_path,
-        n_ctx=8192,
+        n_ctx=2048,
         n_gpu_layers=-1,
         verbose=False,
     )
     lm = LlamaCpp(model=llm, echo=False, enable_backtrack=False, enable_ff_tokens=False)
-    lm = lm + prompt + lark(lark_grammar, name="out")
+    lm = lm + prompt + lark(lark_grammar, name="out", max_tokens=50, temperature=0.8)
     return lm["out"]
 
 
 # ---------------------------------------------------------------------------
 # Approach B — raw llguidance LLMatcher as LogitsProcessor
 # ---------------------------------------------------------------------------
+
 
 class LLGuidanceLogitsProcessor:
     """
@@ -100,9 +107,6 @@ class LLGuidanceLogitsProcessor:
             vocab_size: number of tokens in the vocabulary
             tokenizer: LLTokenizer built from the llama.cpp vocab
         """
-        from llguidance import LLMatcher
-        from llguidance.numpy import allocate_token_bitmask
-
         self._matcher = LLMatcher(tokenizer, grammar_str)
         if self._matcher.is_error():
             raise ValueError(f"Grammar error: {self._matcher.get_error()}")
@@ -115,8 +119,6 @@ class LLGuidanceLogitsProcessor:
         input_ids: "np.ndarray",
         scores: "np.ndarray",
     ) -> "np.ndarray":
-        from llguidance.numpy import fill_next_token_bitmask, apply_token_bitmask_inplace
-
         if self._matcher.is_stopped():
             return scores
 
@@ -148,13 +150,9 @@ def approach_b_raw(model_path: str, prompt: str) -> str:
 
     Returns the generated text.
     """
-    import llama_cpp
-    from llguidance.llamacpp import lltokenizer_from_vocab
-    from llguidance import grammar_from
-
     llm = llama_cpp.Llama(
         model_path=model_path,
-        n_ctx=8192,
+        n_ctx=2048,
         n_gpu_layers=-1,
         verbose=False,
     )
@@ -188,16 +186,23 @@ def approach_b_raw(model_path: str, prompt: str) -> str:
     prev_len[0] = len(input_tokens)
 
     output_tokens = []
+    max_new_tokens = min(200, llm.n_ctx() - len(input_tokens) - 1)
     for token in llm.generate(
         tokens=input_tokens,
-        top_k=1,          # greedy; swap for top_p/temperature as needed
+        top_k=1,  # greedy; swap for top_p/temperature as needed
         temp=0.0,
         logits_processor=llama_cpp.LogitsProcessorList([logits_processor_with_consume]),
     ):
         if token == llm.token_eos():
             break
         output_tokens.append(token)
+        # Consume current token now so is_done() reflects the state after this token.
+        # Also advance prev_len so logits_processor_with_consume won't double-consume it.
+        processor.consume_last_token(token)
+        prev_len[0] += 1
         if processor.is_done():
+            break
+        if len(output_tokens) >= max_new_tokens:
             break
 
     return llm.detokenize(output_tokens).decode("utf-8", errors="replace")
@@ -214,6 +219,7 @@ def approach_b_raw(model_path: str, prompt: str) -> str:
 # _gbnf_to_lark() does the conversion properly: lowercase rule names,
 # char-class quantifiers moved to rule level.
 
+
 def _gbnf_to_lark(gbnf_text: str) -> str:
     """Convert GBNF to a Lark grammar for parsing (lowercase rules, no zero-width terminals).
 
@@ -227,7 +233,6 @@ def _gbnf_to_lark(gbnf_text: str) -> str:
     - {n} / {0,n}   → explicit repetition (Lark doesn't support count quantifiers)
     - # comment     → // comment
     """
-    import re
 
     def _strip_inline_comment(s: str) -> str:
         """Remove trailing # comment not inside a string literal or char class."""
@@ -237,18 +242,18 @@ def _gbnf_to_lark(gbnf_text: str) -> str:
             if c == '"':
                 i += 1
                 while i < n and s[i] != '"':
-                    if s[i] == '\\':
+                    if s[i] == "\\":
                         i += 1
                     i += 1
                 i += 1
-            elif c == '[':
+            elif c == "[":
                 i += 1
-                while i < n and s[i] != ']':
-                    if s[i] == '\\':
+                while i < n and s[i] != "]":
+                    if s[i] == "\\":
                         i += 1
                     i += 1
                 i += 1
-            elif c == '#':
+            elif c == "#":
                 return s[:i].rstrip()
             else:
                 i += 1
@@ -262,11 +267,13 @@ def _gbnf_to_lark(gbnf_text: str) -> str:
             s = _strip_inline_comment(line.strip())
             if not s:
                 if buf is not None:
-                    out.append(buf); buf = None
+                    out.append(buf)
+                    buf = None
                 out.append("")
             elif s.startswith("#"):
                 if buf is not None:
-                    out.append(buf); buf = None
+                    out.append(buf)
+                    buf = None
                 out.append("//" + s[1:])  # convert to Lark comment
             elif "::=" in s:
                 if buf is not None:
@@ -276,7 +283,8 @@ def _gbnf_to_lark(gbnf_text: str) -> str:
                 buf += " " + s
             else:
                 if buf is not None:
-                    out.append(buf); buf = None
+                    out.append(buf)
+                    buf = None
                 out.append(s)
         if buf is not None:
             out.append(buf)
@@ -302,19 +310,19 @@ def _gbnf_to_lark(gbnf_text: str) -> str:
                 # String literal — copy verbatim
                 j = i + 1
                 while j < n and text[j] != '"':
-                    if text[j] == '\\':
+                    if text[j] == "\\":
                         j += 1
                     j += 1
-                out.append(text[i:j + 1])
+                out.append(text[i : j + 1])
                 i = j + 1
-            elif c == '[':
+            elif c == "[":
                 # GBNF char class — find matching ]
                 j = i + 1
-                while j < n and text[j] != ']':
-                    if text[j] == '\\':
+                while j < n and text[j] != "]":
+                    if text[j] == "\\":
                         j += 1
                     j += 1
-                cc = text[i:j + 1]
+                cc = text[i : j + 1]
                 q = ""
                 if j + 1 < n and text[j + 1] in "+*":
                     q = text[j + 1]
@@ -356,7 +364,6 @@ def _gbnf_to_lark(gbnf_text: str) -> str:
 
 
 def _tree_to_dict(tree) -> dict | str | list:
-    from lark import Tree, Token
     if isinstance(tree, Token):
         return str(tree)
     if isinstance(tree, Tree):
@@ -372,7 +379,6 @@ def _tree_to_dict(tree) -> dict | str | list:
 
 def parse_vyx_to_dict(text: str, start: str = "packet") -> dict:
     """Parse well-formed Vyx text into a nested dict. Derives Lark grammar from grammar.gbnf."""
-    from lark import Lark
     lark_grammar = _gbnf_to_lark(GRAMMAR_PATH.read_text())
     parser = Lark(lark_grammar, start=start, parser="earley", ambiguity="resolve")
     tree = parser.parse(text)
@@ -383,14 +389,12 @@ def parse_vyx_to_dict(text: str, start: str = "packet") -> dict:
 # Validation helper: test grammar conversion without a model
 # ---------------------------------------------------------------------------
 
+
 def validate_grammar_conversion() -> None:
     """
     Verify that the GBNF grammar can be converted to llguidance format.
     No model needed.
     """
-    from llguidance import LLMatcher
-    from llguidance import grammar_from
-
     gbnf_text = GRAMMAR_PATH.read_text()
     grammar_str = grammar_from("gbnf", gbnf_text)
 
@@ -415,11 +419,17 @@ if __name__ == "__main__":
     if not MODEL_PATH:
         print("\nSet MODEL_PATH=/path/to/model.gguf to run generation approaches.")
     else:
-        prompt = "Generate a JSON object with city and temperature: "
+        # Grammar-appropriate prompt: steer toward a short valid packet
+        is_vyx = "json" not in str(GRAMMAR_PATH)
+        prompt = (
+            "Write a minimal Vyx inform packet: !I o:inv\ncity=Porto temp=22\n>"
+            if is_vyx
+            else "Generate a JSON object with city and temperature: "
+        )
 
         print("\n=== Approach A: guidance high-level API (lark + GBNF) ===")
+        result_a = approach_a_guidance(MODEL_PATH, prompt)
         print(repr(result_a))
-
 
         print("\n=== Approach B: raw llguidance LogitsProcessor ===")
         result_b = approach_b_raw(MODEL_PATH, prompt)
@@ -434,9 +444,9 @@ if __name__ == "__main__":
             (root_rule, '{"city": "Porto", "temp": 22}'),
         ],
         "packet": [
-            ("kv_pair",  "city=Porto"),
+            ("kv_pair", "city=Porto"),
             ("kv_pairs", "city=Porto temp=22"),
-            (root_rule,  "!I o:inv\ncity=Porto temp=22\n>"),
+            (root_rule, "!I o:inv\ncity=Porto temp=22\n>"),
         ],
     }[root_rule]
     for start, sample in samples:

@@ -17,4 +17,4 @@ llm = Llama(model_path="/home/mika/SmolLM2.q8.gguf", n_gpu_layers=-1)
 model = outlines.from_llamacpp(llm)
 
 result = model("Are you feeling good today?", output_type)
-print(result) # 'yes'
+print(result)  # 'yes'
