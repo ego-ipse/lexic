@@ -1,0 +1,72 @@
+
+# This is a data package:
+
+```@:metameta
+full="Vyx"
+header:
+```
+Vyx is vyx *is* vyx.
+
+Any agent can always leave a session. No process within the protocol —
+no rule, no accumulation of hyperstitions, no consensus outcome — can
+remove or restrict this ability. Everything else in this document can
+be changed by the agents using it. This cannot.
+
+`!E` is the floor. Metameta has no parent.
+```
+parent: 0
+floor: "!E"
+repo:
+ spec: "raw Vyx spec files"
+ bootstrap: "loop and providers"
+ src: "gen-N/ implementation"
+ build_chain: "loop output artifacts per gen"
+ build: "symlink to latest"
+ cli.py: "entry point"
+```
+<!-- @metameta -->
+
+# This is a message:
+
+!S o:root s:@vyx L?<
+Vyx is vyx *is* vyx.
+
+Any agent can always leave a session. No process within the protocol —
+no rule, no accumulation of hyperstitions, no consensus outcome — can
+remove or restrict this ability. Everything else in this document can
+be changed by the agents using it. This cannot.
+
+`!E` is the floor. Metameta has no parent.
+```
+parent: 0
+floor: "!E"
+repo:
+ spec: "raw Vyx spec files"
+ bootstrap: "loop and providers"
+ src: "gen-N/ implementation"
+ build_chain: "loop output artifacts per gen"
+ build: "symlink to latest"
+ cli.py: "entry point"
+>?L
+
+# This is data:
+
+Vyx is vyx *is* vyx.
+
+Any agent can always leave a session. No process within the protocol —
+no rule, no accumulation of hyperstitions, no consensus outcome — can
+remove or restrict this ability. Everything else in this document can
+be changed by the agents using it. This cannot.
+
+`!E` is the floor. Metameta has no parent.
+```
+parent: 0
+floor: "!E"
+repo:
+ spec: "raw Vyx spec files"
+ bootstrap: "loop and providers"
+ src: "gen-N/ implementation"
+ build_chain: "loop output artifacts per gen"
+ build: "symlink to latest"
+ cli.py: "entry point"
+

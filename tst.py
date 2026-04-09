@@ -1,5 +1,5 @@
 from llama_cpp import Llama
-from llama_cpp.llama_grammar import LlamaGrammar
+from llama_cpp.llama_grammar import LlamaGrammar, JSON_GBNF
 from pathlib import Path
 
 llm = Llama(model_path="/home/mika/SmolLM2.q8.gguf", n_gpu_layers=-1)
