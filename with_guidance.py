@@ -15,6 +15,12 @@ Three approaches are demonstrated:
     Derives a Lark grammar at runtime from grammar.gbnf — no hand-written copy.
     Best for parsing human-written Vyx text or LLM output known to be well-formed
 
+All three approaches share the same GBNF parser (GrammarParser from llguidance).
+A and B use gbnf_to_lark() directly (produces %llguidance Lark dialect).
+D uses _gbnf_to_earley_lark() which reuses GrammarParser but forces all rule names
+lowercase — Lark's Earley parser needs rules (lowercase) not terminals (UPPERCASE)
+to recurse into and build Tree nodes for every construct.
+
 Usage (requires a GGUF model file):
     MODEL_PATH=/path/to/model.gguf python with_guidance.py
 """
@@ -24,16 +30,15 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from llguidance import grammar_from
+from llguidance import grammar_from, LLMatcher
+from llguidance.gbnf_to_lark import GrammarParser, resolve, gbnf_to_lark
 import llama_cpp
 from guidance.models import LlamaCpp
-from guidance.library import lark, gbnf_to_lark as g_gbnf_to_lark
+from guidance.library import lark
 import numpy as np
-from llguidance import LLMatcher
 from llguidance.numpy import allocate_token_bitmask
 from llguidance.numpy import fill_next_token_bitmask, apply_token_bitmask_inplace
 from llguidance.llamacpp import lltokenizer_from_vocab
-import re
 from lark import Tree, Token, Lark
 
 # ---------------------------------------------------------------------------
@@ -41,15 +46,6 @@ from lark import Tree, Token, Lark
 # ---------------------------------------------------------------------------
 GRAMMAR_PATH = Path(__file__).parent / "spec_built" / "grammar.gbnf"
 MODEL_PATH = os.environ.get("MODEL_PATH", "")
-
-# ---------------------------------------------------------------------------
-# Helper: convert GBNF → llguidance grammar string (Lark dialect)
-# ---------------------------------------------------------------------------
-
-
-def gbnf_to_llguidance(gbnf_text: str) -> str:
-    """Convert GBNF grammar text to the llguidance internal grammar string."""
-    return grammar_from("gbnf", gbnf_text)
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +63,7 @@ def approach_a_guidance(model_path: str, prompt: str) -> str:
     Passing an existing instance bypasses that initialisation path.
     """
     gbnf_text = GRAMMAR_PATH.read_text()
-    lark_grammar = g_gbnf_to_lark(gbnf_text)
+    lark_grammar = gbnf_to_lark(gbnf_text)
 
     # Pre-create the llama instance with a context window guidance can handle.
     llm = llama_cpp.Llama(
@@ -212,155 +208,28 @@ def approach_b_raw(model_path: str, prompt: str) -> str:
 # Approach D — parse well-formed Vyx text → dict (no LLM needed)
 # ---------------------------------------------------------------------------
 #
-# Derives a Lark grammar at runtime from grammar.gbnf — no hand-written copy.
-#
-# grammar_from("gbnf", ...) from llguidance produces UPPERCASE names (Lark
-# TERMINALS). Terminals can't recurse and zero-width ones crash Earley.
-# _gbnf_to_lark() does the conversion properly: lowercase rule names,
-# char-class quantifiers moved to rule level.
+# All three approaches now share GrammarParser (from llguidance.gbnf_to_lark)
+# for GBNF parsing.  A and B use gbnf_to_lark() as-is (produces the
+# %llguidance Lark dialect with UPPERCASE terminal names).  D needs all names
+# lowercase so Lark's Earley parser recurses into every rule and builds Tree
+# nodes — terminals (UPPERCASE) are opaque leaves that Earley cannot recurse.
 
 
-def _gbnf_to_lark(gbnf_text: str) -> str:
-    """Convert GBNF to a Lark grammar for parsing (lowercase rules, no zero-width terminals).
+def _gbnf_to_earley_lark(gbnf_text: str) -> str:
+    """Convert GBNF to a Lark grammar suitable for Earley parsing.
 
-    Transformations:
-    - Multi-line rule bodies joined onto their definition line
-    - rule-name ::= → rule_name:          (hyphens→underscores, ::= → :)
-    - root → start
-    - [char-class]* → (/[char-class]/)*   (avoids zero-width terminal in Earley)
-    - [char-class]+ → (/[char-class]/)+
-    - [char-class]  → /[char-class]/      (bare char class → inline regex)
-    - {n} / {0,n}   → explicit repetition (Lark doesn't support count quantifiers)
-    - # comment     → // comment
+    Uses the same GrammarParser + resolve() pipeline as gbnf_to_lark(), then
+    forces every rule name lowercase before serialising.  This makes all rules
+    proper Lark rules (not terminals), so Earley descends into every construct
+    and Tree nodes appear at every level of the parse tree.
     """
-
-    def _strip_inline_comment(s: str) -> str:
-        """Remove trailing # comment not inside a string literal or char class."""
-        i, n = 0, len(s)
-        while i < n:
-            c = s[i]
-            if c == '"':
-                i += 1
-                while i < n and s[i] != '"':
-                    if s[i] == "\\":
-                        i += 1
-                    i += 1
-                i += 1
-            elif c == "[":
-                i += 1
-                while i < n and s[i] != "]":
-                    if s[i] == "\\":
-                        i += 1
-                    i += 1
-                i += 1
-            elif c == "#":
-                return s[:i].rstrip()
-            else:
-                i += 1
-        return s
-
-    def _join_continuations(text: str) -> str:
-        """Join indented continuation lines onto their rule definition line.
-        Inline comments are stripped from each continuation before joining."""
-        out, buf = [], None
-        for line in text.splitlines():
-            s = _strip_inline_comment(line.strip())
-            if not s:
-                if buf is not None:
-                    out.append(buf)
-                    buf = None
-                out.append("")
-            elif s.startswith("#"):
-                if buf is not None:
-                    out.append(buf)
-                    buf = None
-                out.append("//" + s[1:])  # convert to Lark comment
-            elif "::=" in s:
-                if buf is not None:
-                    out.append(buf)
-                buf = s
-            elif (line.startswith(" ") or line.startswith("\t")) and buf is not None:
-                buf += " " + s
-            else:
-                if buf is not None:
-                    out.append(buf)
-                    buf = None
-                out.append(s)
-        if buf is not None:
-            out.append(buf)
-        return "\n".join(out)
-
-    def _norm(name: str) -> str:
-        n = name.replace("-", "_")
-        return "start" if n == "root" else n
-
-    def _replace_names(text: str) -> str:
-        return re.sub(
-            r"\b([a-z][a-z0-9]*(?:-[a-z0-9]+)+|root)\b",
-            lambda m: _norm(m.group(0)),
-            text,
-        )
-
-    def _fix_charclass(text: str) -> str:
-        """Convert bare GBNF char classes to Lark inline regex, skipping string literals."""
-        out, i, n = [], 0, len(text)
-        while i < n:
-            c = text[i]
-            if c == '"':
-                # String literal — copy verbatim
-                j = i + 1
-                while j < n and text[j] != '"':
-                    if text[j] == "\\":
-                        j += 1
-                    j += 1
-                out.append(text[i : j + 1])
-                i = j + 1
-            elif c == "[":
-                # GBNF char class — find matching ]
-                j = i + 1
-                while j < n and text[j] != "]":
-                    if text[j] == "\\":
-                        j += 1
-                    j += 1
-                cc = text[i : j + 1]
-                q = ""
-                if j + 1 < n and text[j + 1] in "+*":
-                    q = text[j + 1]
-                    j += 1
-                out.append(f"(/{cc}/){q}" if q else f"/{cc}/")
-                i = j + 1
-            else:
-                out.append(c)
-                i += 1
-        return "".join(out)
-
-    gbnf_text = _join_continuations(gbnf_text)
-
-    lines = []
-    for line in gbnf_text.splitlines():
-        s = line.strip()
-        if s.startswith("//"):
-            lines.append(line)
-            continue
-        if not s:
-            lines.append("")
-            continue
-        line = re.sub(r"\s*::=\s*", ": ", line, count=1)
-        line = _fix_charclass(line)
-        line = re.sub(
-            r"(\([^)]+\)|/[^/]+/|\"[^\"]*\"|\w+)\{(\d+)\}",
-            lambda m: " ".join([m.group(1)] * int(m.group(2))),
-            line,
-        )
-        line = re.sub(
-            r"(\([^)]+\)|/[^/]+/|\"[^\"]*\"|\w+)\{0,(\d+)\}",
-            lambda m: " ".join([m.group(1) + "?"] * int(m.group(2))),
-            line,
-        )
-        line = _replace_names(line)
-        lines.append(line)
-
-    return "\n".join(lines)
+    parser = GrammarParser()
+    rules = parser.parse(gbnf_text)
+    resolve(rules)  # root→start, -→_, ref linking, terminal detection
+    for r in rules.values():
+        r.name = r.name.lower()  # override UPPERCASE terminal names
+    rlist = sorted(rules.values(), key=lambda r: r.order)
+    return "\n".join(str(r) for r in rlist)
 
 
 def _tree_to_dict(tree) -> dict | str | list:
@@ -379,12 +248,13 @@ def _tree_to_dict(tree) -> dict | str | list:
 
 def parse_vyx_to_dict(text: str, start: str = "packet") -> dict:
     """Parse well-formed Vyx text into a nested dict. Derives Lark grammar from grammar.gbnf."""
-    lark_grammar = _gbnf_to_lark(GRAMMAR_PATH.read_text())
+    lark_grammar = _gbnf_to_earley_lark(GRAMMAR_PATH.read_text())
     parser = Lark(lark_grammar, start=start, parser="earley", ambiguity="resolve")
     tree = parser.parse(text)
     print("Parsed tree:")
     print(tree)
     from rich.console import Console
+
     console = Console()
     console.print(tree.pretty())
     return _tree_to_dict(tree)
@@ -411,6 +281,7 @@ def validate_grammar_conversion() -> None:
         print("Grammar conversion OK")
         print("First 300 chars of converted grammar:")
         print(grammar_str[:300])
+
 
 msg = """
 ```@:metameta
@@ -477,7 +348,7 @@ if __name__ == "__main__":
             ("kv_pair", "city=Porto"),
             ("kv_pairs", "city=Porto temp=22"),
             (root_rule, "!I o:inv\ncity=Porto temp=22\n>"),
-            ("meta", msg)
+            ("meta", msg),
         ],
     }[root_rule]
     for start, sample in samples:
