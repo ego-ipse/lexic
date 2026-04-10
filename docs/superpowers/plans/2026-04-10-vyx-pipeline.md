@@ -56,16 +56,52 @@ Extract Approach B from `with_guidance.py`. The `LLGuidanceLogitsProcessor` clas
 """Constrained Vyx generation via llguidance LLMatcher + llama-cpp-python."""
 from __future__ import annotations
 
+import ctypes
 from pathlib import Path
 from typing import Optional
 
 import llama_cpp
 import numpy as np
+import pynvml
 from llguidance import grammar_from, LLMatcher
 from llguidance.numpy import allocate_token_bitmask, fill_next_token_bitmask, apply_token_bitmask_inplace
 from llguidance.llamacpp import lltokenizer_from_vocab
 
 GRAMMAR_PATH = Path(__file__).parent.parent.parent / "grammar.gbnf"
+
+
+def max_gpu_layers(model_path: str) -> int:
+    """Return how many model layers to offload to GPU, or -1 for all.
+
+    Loads model metadata (vocab_only=True, fast) to get block count, then
+    queries NVML for free VRAM. Returns -1 if all layers fit, else the count
+    that fits (leaving 1.2 GB headroom), or 0 on any error.
+    """
+    try:
+        lib = llama_cpp.llama_cpp
+        params = lib.llama_model_default_params()
+        params.vocab_only = True
+        params.n_gpu_layers = 0
+        meta = lib.llama_load_model_from_file(model_path.encode(), params)
+        buf, key = ctypes.create_string_buffer(64), ctypes.create_string_buffer(128)
+        n_blocks = 0
+        for i in range(lib.llama_model_meta_count(meta)):
+            lib.llama_model_meta_key_by_index(meta, i, key, 128)
+            if key.value.decode().endswith(".block_count"):
+                lib.llama_model_meta_val_str_by_index(meta, i, buf, 64)
+                n_blocks = int(buf.value.decode())
+                break
+        lib.llama_free_model(meta)
+        pynvml.nvmlInit()
+        free_b = pynvml.nvmlDeviceGetMemoryInfo(
+            pynvml.nvmlDeviceGetHandleByIndex(0)
+        ).free
+        n_layers = n_blocks + 1
+        model_b = Path(model_path).stat().st_size
+        n = int((free_b - 1.2 * 1024**3) * n_layers / model_b)
+        return -1 if n >= n_layers else max(n, 0)
+    except Exception:
+        return -1
 
 
 class _LLGuidanceProcessor:
@@ -103,7 +139,7 @@ def generate(
     llm = llama_cpp.Llama(
         model_path=model_path,
         n_ctx=2048,
-        n_gpu_layers=-1,
+        n_gpu_layers=max_gpu_layers(model_path),
         verbose=False,
     )
     vocab_ptr = llama_cpp.llama_model_get_vocab(llm.model)
@@ -200,10 +236,16 @@ uv run pytest tests/test_builder.py -v
 
 Expected: FAIL with "builder.py failed" (builder doesn't exist yet).
 
-- [ ] **Step 6: Commit skeleton**
+- [ ] **Step 6: Add pynvml dependency**
 
 ```bash
-git add src/ tests/
+uv add pynvml
+```
+
+- [ ] **Step 7: Commit skeleton**
+
+```bash
+git add src/ tests/ pyproject.toml uv.lock
 git commit -m "feat: add vyx package skeleton and generate.py"
 ```
 
