@@ -27,12 +27,14 @@ Usage (requires a GGUF model file):
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 from pathlib import Path
 from llguidance import grammar_from, LLMatcher
 from llguidance.gbnf_to_lark import GrammarParser, resolve, gbnf_to_lark
 import llama_cpp
+import pynvml
 from guidance.models import LlamaCpp
 from guidance.library import lark
 import numpy as np
@@ -47,7 +49,39 @@ from lark import Tree, Token, Lark
 GRAMMAR_PATH = Path(__file__).parent / "spec_built" / "grammar.gbnf"
 MODEL_PATH = os.environ.get("MODEL_PATH", "")
 
+# ---------------------------------------------------------------------------
+# GPU layer auto-detection
+# ---------------------------------------------------------------------------
 
+
+def max_gpu_layers(model_path: str) -> int:
+    """Return how many model layers to offload to GPU, or -1 for all."""
+    try:
+        lib = llama_cpp.llama_cpp
+        params = lib.llama_model_default_params()
+        params.vocab_only = True
+        params.n_gpu_layers = 0
+        meta = lib.llama_load_model_from_file(model_path.encode(), params)
+        buf, key = ctypes.create_string_buffer(64), ctypes.create_string_buffer(128)
+        n_blocks = 0
+        for i in range(lib.llama_model_meta_count(meta)):
+            lib.llama_model_meta_key_by_index(meta, i, key, 128)
+            if key.value.decode().endswith(".block_count"):
+                lib.llama_model_meta_val_str_by_index(meta, i, buf, 64)
+                n_blocks = int(buf.value.decode())
+                break
+        lib.llama_free_model(meta)
+        pynvml.nvmlInit()
+        free_b = pynvml.nvmlDeviceGetMemoryInfo(pynvml.nvmlDeviceGetHandleByIndex(0)).free
+        n_layers = n_blocks + 1
+        model_b = Path(model_path).stat().st_size
+        n = int((free_b - 1.2 * 1024**3) * n_layers / model_b)
+        return -1 if n >= n_layers else max(n, 0)
+    except Exception:
+        return -1
+
+LAYERS = max_gpu_layers(MODEL_PATH) if MODEL_PATH else -1
+print(f"Using n_gpu_layers={LAYERS} for model at {MODEL_PATH}")
 # ---------------------------------------------------------------------------
 # Approach A — guidance high-level API
 # ---------------------------------------------------------------------------
@@ -68,8 +102,8 @@ def approach_a_guidance(model_path: str, prompt: str) -> str:
     # Pre-create the llama instance with a context window guidance can handle.
     llm = llama_cpp.Llama(
         model_path=model_path,
-        n_ctx=2048,
-        n_gpu_layers=-1,
+        #n_ctx=2048,
+        n_gpu_layers=LAYERS,
         verbose=False,
     )
     lm = LlamaCpp(model=llm, echo=False, enable_backtrack=False, enable_ff_tokens=False)
@@ -148,8 +182,8 @@ def approach_b_raw(model_path: str, prompt: str) -> str:
     """
     llm = llama_cpp.Llama(
         model_path=model_path,
-        n_ctx=2048,
-        n_gpu_layers=-1,
+        #n_ctx=2048,
+        n_gpu_layers=LAYERS,
         verbose=False,
     )
 

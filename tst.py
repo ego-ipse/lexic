@@ -1,8 +1,39 @@
-from llama_cpp import Llama
+import ctypes
+import pynvml
+from llama_cpp import Llama, llama_cpp as _lib
 from llama_cpp.llama_grammar import LlamaGrammar
 from pathlib import Path
 
-llm = Llama(model_path="/home/mika/SmolLM2.q8.gguf", n_gpu_layers=-1)
+MODEL_PATH = "/home/mika/gemma-4-26B-A4B-it-Q4_K_M.gguf"
+
+
+def _max_gpu_layers(model_path: str) -> int:
+    """Return how many model layers to offload to GPU, or -1 for all."""
+    try:
+        params = _lib.llama_model_default_params()
+        params.vocab_only = True
+        params.n_gpu_layers = 0
+        meta = _lib.llama_load_model_from_file(model_path.encode(), params)
+        buf, key = ctypes.create_string_buffer(64), ctypes.create_string_buffer(128)
+        n_blocks = 0
+        for i in range(_lib.llama_model_meta_count(meta)):
+            _lib.llama_model_meta_key_by_index(meta, i, key, 128)
+            if key.value.decode().endswith(".block_count"):
+                _lib.llama_model_meta_val_str_by_index(meta, i, buf, 64)
+                n_blocks = int(buf.value.decode())
+                break
+        _lib.llama_free_model(meta)
+        pynvml.nvmlInit()
+        free_b = pynvml.nvmlDeviceGetMemoryInfo(pynvml.nvmlDeviceGetHandleByIndex(0)).free
+        n_layers = n_blocks + 1
+        model_b = Path(model_path).stat().st_size
+        n = int((free_b - 1.2 * 1024**3) * n_layers / model_b)
+        return -1 if n >= n_layers else max(n, 0)
+    except Exception:
+        return -1
+
+
+llm = Llama(model_path=MODEL_PATH, n_gpu_layers=_max_gpu_layers(MODEL_PATH))
 
 # 1. Initialize conversation history with an optional system prompt
 messages = [
