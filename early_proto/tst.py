@@ -24,7 +24,9 @@ def _max_gpu_layers(model_path: str) -> int:
                 break
         _lib.llama_free_model(meta)
         pynvml.nvmlInit()
-        free_b = pynvml.nvmlDeviceGetMemoryInfo(pynvml.nvmlDeviceGetHandleByIndex(0)).free
+        free_b = pynvml.nvmlDeviceGetMemoryInfo(
+            pynvml.nvmlDeviceGetHandleByIndex(0)
+        ).free
         n_layers = n_blocks + 1
         model_b = Path(model_path).stat().st_size
         n = int((free_b - 1.2 * 1024**3) * n_layers / model_b)
@@ -33,7 +35,7 @@ def _max_gpu_layers(model_path: str) -> int:
         return -1
 
 
-llm = Llama(model_path=MODEL_PATH, n_gpu_layers=_max_gpu_layers(MODEL_PATH), n_ctx=4096)
+llm = Llama(model_path=MODEL_PATH, n_gpu_layers=_max_gpu_layers(MODEL_PATH))
 
 # 1. Initialize conversation history with an optional system prompt
 messages = [
@@ -41,7 +43,7 @@ messages = [
 ]
 
 
-grammar_text = Path("resources/vyx.gbnf").read_text()
+grammar_text = Path("spec_built/grammar.gbnf").read_text()
 
 
 print("--- Chat Session Started ---")
