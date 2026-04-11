@@ -1,21 +1,25 @@
-# src/vyx/generate.py
-"""Constrained Vyx generation via llguidance LLMatcher + llama-cpp-python."""
+# src/generate.py
+"""Grammar-agnostic constrained generation via llguidance LLMatcher + llama-cpp-python."""
+
 from __future__ import annotations
 
 import ctypes
+from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 import llama_cpp
 import numpy as np
 import pynvml
 from llguidance import grammar_from, LLMatcher
-from llguidance.numpy import allocate_token_bitmask, fill_next_token_bitmask, apply_token_bitmask_inplace
+from llguidance.numpy import (
+    allocate_token_bitmask,
+    fill_next_token_bitmask,
+    apply_token_bitmask_inplace,
+)
 from llguidance.llamacpp import lltokenizer_from_vocab
 
-GRAMMAR_PATH = Path(__file__).parent.parent.parent / "grammar.gbnf"
 
-
+@lru_cache(maxsize=8)
 def max_gpu_layers(model_path: str) -> int:
     """Return how many model layers to offload to GPU, or -1 for all.
 
@@ -75,17 +79,17 @@ class _LLGuidanceProcessor:
 def generate(
     model_path: str,
     prompt: str,
+    grammar_path: Path,
     *,
-    grammar_path: Path = GRAMMAR_PATH,
     max_new_tokens: int = 200,
     temp: float = 0.8,
     top_k: int = 40,
 ) -> str:
-    """Constrained Vyx generation. Returns raw Vyx text."""
+    """Constrained generation against a GBNF grammar. Returns raw generated text."""
     llm = llama_cpp.Llama(
         model_path=model_path,
-        n_ctx=2048,
-        n_gpu_layers=max_gpu_layers(model_path),
+        n_ctx=4096,
+        n_gpu_layers=max_gpu_layers(model_path)-3,
         verbose=False,
     )
     vocab_ptr = llama_cpp.llama_model_get_vocab(llm.model)

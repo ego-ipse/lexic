@@ -46,7 +46,7 @@ from lark import Tree, Token, Lark
 # ---------------------------------------------------------------------------
 # GBNF grammar path
 # ---------------------------------------------------------------------------
-GRAMMAR_PATH = Path(__file__).parent / "spec_built" / "grammar.gbnf"
+GRAMMAR_PATH = Path(__file__).parent / "resources" / "json_ws.gbnf"
 MODEL_PATH = os.environ.get("MODEL_PATH", "")
 
 # ---------------------------------------------------------------------------
@@ -72,13 +72,16 @@ def max_gpu_layers(model_path: str) -> int:
                 break
         lib.llama_free_model(meta)
         pynvml.nvmlInit()
-        free_b = pynvml.nvmlDeviceGetMemoryInfo(pynvml.nvmlDeviceGetHandleByIndex(0)).free
+        free_b = pynvml.nvmlDeviceGetMemoryInfo(
+            pynvml.nvmlDeviceGetHandleByIndex(0)
+        ).free
         n_layers = n_blocks + 1
         model_b = Path(model_path).stat().st_size
         n = int((free_b - 1.2 * 1024**3) * n_layers / model_b)
         return -1 if n >= n_layers else max(n, 0)
     except Exception:
         return -1
+
 
 LAYERS = max_gpu_layers(MODEL_PATH) if MODEL_PATH else -1
 print(f"Using n_gpu_layers={LAYERS} for model at {MODEL_PATH}")
@@ -102,7 +105,7 @@ def approach_a_guidance(model_path: str, prompt: str) -> str:
     # Pre-create the llama instance with a context window guidance can handle.
     llm = llama_cpp.Llama(
         model_path=model_path,
-        #n_ctx=2048,
+        # n_ctx=2048,
         n_gpu_layers=LAYERS,
         verbose=False,
     )
@@ -182,7 +185,7 @@ def approach_b_raw(model_path: str, prompt: str) -> str:
     """
     llm = llama_cpp.Llama(
         model_path=model_path,
-        #n_ctx=2048,
+        # n_ctx=2048,
         n_gpu_layers=LAYERS,
         verbose=False,
     )
