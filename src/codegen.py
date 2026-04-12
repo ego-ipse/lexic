@@ -406,15 +406,8 @@ def _build_class_code(rules: dict[str, RuleNode], grammar_stem: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def build(grammar_path: str | Path) -> dict[str, type]:
-    """Parse a GBNF grammar and return a dict of Pydantic model classes.
-
-    Returns:
-        Mapping of PascalCase class name → class object for every non-terminal rule.
-        Classes use SOLID inheritance: AlternativeNode rules produce abstract bases
-        with concrete typed subclasses; SequenceNode rules produce field models;
-        single-ref rules produce subclasses.
-    """
+def _parse_grammar(grammar_path: str | Path) -> tuple[dict, str]:
+    """Parse a GBNF grammar file and return (rules_dict, grammar_stem)."""
     path = Path(grammar_path)
     grammar_stem = path.stem
     text = path.read_text()
@@ -423,7 +416,7 @@ def build(grammar_path: str | Path) -> dict[str, type]:
     raw_rules = parser_obj.parse(text)
 
     # Capture original root name before resolve() mutates the dict
-    original_root = next(iter(raw_rules))  # noqa: F841 — kept for documentation
+    next(iter(raw_rules))  # noqa: F841 — side-effect-free peek
 
     resolve(raw_rules)  # mutates in-place; 'root' → 'start', terminals → UPPER
 
@@ -432,6 +425,33 @@ def build(grammar_path: str | Path) -> dict[str, type]:
         raw_rules["root"] = raw_rules.pop("start")
         raw_rules["root"].name = "root"
 
+    return raw_rules, grammar_stem
+
+
+def generate(grammar_path: str | Path) -> str:
+    """Parse a GBNF grammar and return the generated Python source code as a string.
+
+    The returned string is valid Python that, when executed, defines a set of
+    Pydantic model classes following the SOLID inheritance pattern.  It does
+    *not* execute anything — use :func:`build` to both generate and load the
+    classes into a live dict.
+    """
+    raw_rules, grammar_stem = _parse_grammar(grammar_path)
+    return _build_class_code(raw_rules, grammar_stem)
+
+
+def build(grammar_path: str | Path) -> dict[str, type]:
+    """Parse a GBNF grammar, generate Pydantic model source, and return live classes.
+
+    Calls :func:`generate` to produce the Python source then ``exec``s it,
+    returning a mapping of PascalCase class name → class object for every
+    non-terminal rule.
+
+    Classes use SOLID inheritance: AlternativeNode rules produce abstract bases
+    with concrete typed subclasses; SequenceNode rules produce field models;
+    single-ref rules produce subclasses.
+    """
+    raw_rules, grammar_stem = _parse_grammar(grammar_path)
     code_str = _build_class_code(raw_rules, grammar_stem)
 
     namespace: dict = {}
