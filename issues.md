@@ -35,3 +35,13 @@ Given a model and a text in that grammar, it can be parsed into the model.
 The data model can then transform the text back into the original or into json.
 The code that generates this should create classes that inherit properly.
 The code should be clean, not the mess we have right now.
+
+otes:
+1-Write all code to src/ .
+2-Do NOT use worktrees.
+3-Json can also be parsed back to pydantic. It's a round trip because:
+ printing in json is printing on some other grammar (in this case json).
+ A json parsed with json grammar into the pydantic and printed to json would print the
+ inital state since input and output grammar match.
+
+In other situations, there would be a translation.
