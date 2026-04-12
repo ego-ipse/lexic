@@ -1,8 +1,8 @@
-# Generated from arithmetic.gbnf by src/codegen.py — DO NOT EDIT
+# Generated from arithmetic.gbnf — DO NOT EDIT
 
 from __future__ import annotations
-from typing import Any, Optional, Union
 from pydantic import BaseModel, Field
+from typing import Any, Optional, Union
 
 class Root(BaseModel):
     items: list[tuple[Expr, Term]] = Field(default_factory=list)

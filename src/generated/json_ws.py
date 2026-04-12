@@ -1,11 +1,11 @@
-# Generated from json_ws.gbnf by src/codegen.py — DO NOT EDIT
+# Generated from json_ws.gbnf — DO NOT EDIT
 
 from __future__ import annotations
-from typing import Any, Optional, Union
 from pydantic import BaseModel, Field
+from typing import Any, Optional, Union
 
 class Object(BaseModel):
-    string: Optional[tuple[str, Value, list[tuple[str, Value]]]] = None
+    strings: Optional[tuple[str, Value, list[tuple[str, Value]]]] = None
 
 class Root(Object):
     pass
@@ -29,7 +29,7 @@ class ValueAlt4(Value):
     value: str
 
 class Array(BaseModel):
-    value: Optional[tuple[Value, list[Value]]] = None
+    values: Optional[tuple[Value, list[Value]]] = None
 
 
 Object.model_rebuild()
