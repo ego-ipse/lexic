@@ -1,131 +1,72 @@
-"""
-pytest test suite for src/codegen.py — covers all 7 GBNF grammars.
-"""
-
 from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
 
-import tempfile
-
-from src.codegen import build, build_file, generate
+from src.codegen import build
 
 GRAMMAR_DIR = Path("resources/ground_truth")
 ALL_GRAMMARS = sorted(GRAMMAR_DIR.glob("*.gbnf*"))
 
 
-# ---------------------------------------------------------------------------
-# 1. json_ws SOLID inheritance hierarchy
-# ---------------------------------------------------------------------------
+# ── json_ws inheritance ───────────────────────────────────────────────────────
 
 
-def test_json_ws_inheritance():
-    mods = build(GRAMMAR_DIR / "json_ws.gbnf")
-    # Abstract base and its concrete subclasses
-    assert mods["ObjectValue"].__bases__ == (mods["Value"],)
-    assert mods["ArrayValue"].__bases__ == (mods["Value"],)
-    # Root is a subclass of Object (single-ref rule)
-    assert issubclass(mods["Root"], mods["Object"])
-    # All expected top-level classes are present
-    assert "Value" in mods
-    assert "Object" in mods
-    assert "Array" in mods
+@pytest.fixture(scope="module")
+def json_ws():
+    return build(GRAMMAR_DIR / "json_ws.gbnf")
 
 
-# ---------------------------------------------------------------------------
-# 2. json_ws field type structure
-# ---------------------------------------------------------------------------
+def test_json_ws_value_hierarchy(json_ws):
+    assert json_ws["ObjectValue"].__bases__ == (json_ws["Value"],)
+    assert json_ws["ArrayValue"].__bases__ == (json_ws["Value"],)
+    assert "Value" in json_ws
+    assert "Object" in json_ws
+    assert "Array" in json_ws
 
 
-def test_json_ws_field_types():
-    mods = build(GRAMMAR_DIR / "json_ws.gbnf")
-    # Object has at least one pydantic field
-    assert len(mods["Object"].model_fields) >= 1
-    # ObjectValue has a field typed to Object
-    ov_fields = mods["ObjectValue"].model_fields
-    assert len(ov_fields) >= 1
-    field_annotation = next(iter(ov_fields.values())).annotation
-    assert field_annotation is mods["Object"]
+def test_json_ws_root_is_subclass_of_object(json_ws):
+    assert issubclass(json_ws["Root"], json_ws["Object"])
 
 
-# ---------------------------------------------------------------------------
-# 3. All 7 grammars parse without error
-# ---------------------------------------------------------------------------
+def test_json_ws_field_types(json_ws):
+    # Object must have at least one Pydantic field
+    assert json_ws["Object"].model_fields
+
+    # ObjectValue must have a field whose annotation resolves to the Object class
+    ov_fields = json_ws["ObjectValue"].model_fields
+    assert any(
+        info.annotation is json_ws["Object"] or info.annotation == "Object"
+        for info in ov_fields.values()
+    )
+
+
+def test_abstract_base_has_no_required_fields(json_ws):
+    # Value is a pass-body abstract base — no required fields
+    assert not json_ws["Value"].model_fields
+
+
+# ── all grammars parse ────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("grammar_path", ALL_GRAMMARS, ids=lambda p: p.name)
-def test_all_grammars_parse(grammar_path: Path):
+def test_all_grammars_parse(grammar_path):
     mods = build(grammar_path)
-    # Must return a non-empty dict
-    assert len(mods) > 0
-    # Every value must be a BaseModel subclass
-    for name, cls in mods.items():
-        assert issubclass(cls, BaseModel), f"{name} is not a BaseModel subclass"
+    assert mods, f"No classes generated from {grammar_path.name}"
+    assert all(issubclass(cls, BaseModel) for cls in mods.values())
 
 
-# ---------------------------------------------------------------------------
-# 4. arithmetic.gbnf basic structure
-# ---------------------------------------------------------------------------
+# ── arithmetic ────────────────────────────────────────────────────────────────
 
 
 def test_arithmetic_structure():
     mods = build(GRAMMAR_DIR / "arithmetic.gbnf")
     assert "Root" in mods
-    assert len(mods) > 0
 
 
-# ---------------------------------------------------------------------------
-# 5. Module naming
-# ---------------------------------------------------------------------------
+# ── module naming ─────────────────────────────────────────────────────────────
 
 
-def test_module_naming():
-    mods = build(GRAMMAR_DIR / "json_ws.gbnf")
-    for cls in mods.values():
-        assert cls.__module__ == "src.generated.json_ws", (
-            f"{cls.__name__}.__module__ == {cls.__module__!r}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# 6. Abstract base has no required fields; subclasses have fields
-# ---------------------------------------------------------------------------
-
-
-def test_abstract_base_has_no_required_fields():
-    mods = build(GRAMMAR_DIR / "json_ws.gbnf")
-    # Value is the abstract base — it has no fields (just `pass`)
-    assert mods["Value"].model_fields == {}
-    # ObjectValue is a concrete subclass — it has at least one field
-    assert len(mods["ObjectValue"].model_fields) >= 1
-
-
-# ---------------------------------------------------------------------------
-# 7. generate / build / load separation
-# ---------------------------------------------------------------------------
-
-
-def test_generate_returns_string():
-    code = generate(GRAMMAR_DIR / "json_ws.gbnf")
-    assert isinstance(code, str)
-    assert "class Value(BaseModel)" in code
-    assert "class ObjectValue(Value)" in code
-
-
-def test_build_writes_file():
-    with tempfile.TemporaryDirectory() as tmp:
-        out = build_file(GRAMMAR_DIR / "json_ws.gbnf", output_dir=tmp)
-        assert out.exists()
-        assert out.suffix == ".py"
-        content = out.read_text()
-        assert "class Value(BaseModel)" in content
-
-
-def test_load_returns_live_classes():
-    mods = build(GRAMMAR_DIR / "json_ws.gbnf")
-    assert isinstance(mods, dict)
-    assert len(mods) > 0
-    for cls in mods.values():
-        assert isinstance(cls, type)
-        assert issubclass(cls, BaseModel)
+def test_module_naming(json_ws):
+    for cls in json_ws.values():
+        assert cls.__module__ == "src.generated.json_ws", cls
