@@ -5,7 +5,11 @@ The vyx.gbnf is FUNDAMENTALLY broken.
 
 Take metameta.md and vyx.gbnf as intentions, NOT as ground truths.
 
+USE AS GROUND TRUTH ONLY: /home/mika/projects/vyx_2/resources/ground_truth
+
+
 - Tst.py and with_guidance.py were steps in the right direction.
+- Nonethelesss Approach A sort of works and Approach B produces nonsense
 To run them use uv run
 you may need to export MODEL_PATH=/home/mika/gemma-4-26B-A4B-it-Q4_K_M.gguf
 
