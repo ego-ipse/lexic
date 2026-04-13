@@ -40,7 +40,8 @@ _WS_NAMES = {"ws", "whitespace", "space", "opt_space", "opt_ws"}
 
 
 def to_class_name(name: str) -> str:
-    """snake_case / kebab-case → PascalCase."""
+    """snake_case / kebab-case / camelCase → PascalCase."""
+    name = re.sub(r"([a-z])([A-Z])", r"\1_\2", name)
     return "".join(p.capitalize() for p in re.split(r"[_\-]", name))
 
 
