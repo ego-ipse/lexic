@@ -3,15 +3,16 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field
 from typing import Any, Optional, Union
+from src.base import GrammarNode
 
-class Root(BaseModel):
+class Root(GrammarNode):
     items: list[tuple[Expr, Term]] = Field(default_factory=list)
 
-class Expr(BaseModel):
+class Expr(GrammarNode):
     term: Term
     terms: list[tuple[str, Term]] = Field(default_factory=list)
 
-class Term(BaseModel):
+class Term(GrammarNode):
     pass
 
 class IdentTerm(Term):

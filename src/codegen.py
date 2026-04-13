@@ -301,11 +301,16 @@ def _build_class_code(rules: dict[str, RuleNode]) -> str:
         "from __future__ import annotations",
         "from pydantic import BaseModel, Field",
         "from typing import Any, Optional, Union",
+        "from src.base import GrammarNode",
         "",
     ]
 
     for cd in ordered:
-        lines.append(f"class {cd.name}({cd.parent}):")
+        # Top-level classes inherit GrammarNode (which inherits BaseModel).
+        # Subclasses inherit their parent generated class, which eventually
+        # reaches GrammarNode through the hierarchy.
+        parent = "GrammarNode" if cd.parent == "BaseModel" else cd.parent
+        lines.append(f"class {cd.name}({parent}):")
         lines.extend(cd.body)
         lines.append("")
 
@@ -318,6 +323,8 @@ def _build_class_code(rules: dict[str, RuleNode]) -> str:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+_BUILD_CACHE: dict[Path, dict[str, type]] = {}
+
 
 def build(grammar_path: str | Path) -> dict[str, type]:
     """
@@ -326,7 +333,10 @@ def build(grammar_path: str | Path) -> dict[str, type]:
     Writes src/generated/<stem>.py and returns a dict mapping class name →
     live class object.
     """
-    path = Path(grammar_path)
+    path = Path(grammar_path).resolve()
+    if path in _BUILD_CACHE:
+        return _BUILD_CACHE[path]
+
     stem = path.stem
     text = path.read_text()
 
@@ -358,7 +368,7 @@ def build(grammar_path: str | Path) -> dict[str, type]:
 
     from pydantic import BaseModel
 
-    _skip = {"BaseModel", "Field", "Optional", "Any", "Union"}
+    _skip = {"BaseModel", "GrammarNode", "Field", "Optional", "Any", "Union"}
     mods = {
         k: v
         for k, v in namespace.items()
@@ -370,4 +380,5 @@ def build(grammar_path: str | Path) -> dict[str, type]:
     for cls in mods.values():
         cls.__module__ = f"src.generated.{stem}"
 
+    _BUILD_CACHE[path] = mods
     return mods

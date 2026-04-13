@@ -3,17 +3,18 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field
 from typing import Any, Optional, Union
+from src.base import GrammarNode
 
-class Root(BaseModel):
+class Root(GrammarNode):
     items: list[Declaration] = Field(default_factory=list)
 
-class Declaration(BaseModel):
+class Declaration(GrammarNode):
     datatype: str
     identifier: str
     parameter: Optional[str] = None
     statements: list[Statement] = Field(default_factory=list)
 
-class Statement(BaseModel):
+class Statement(GrammarNode):
     pass
 
 class StatementAlt0(Statement):
@@ -53,7 +54,7 @@ class SinglelinecommentStatement(Statement):
 class MultilinecommentStatement(Statement):
     value: str
 
-class ForInit(BaseModel):
+class ForInit(GrammarNode):
     pass
 
 class ForInitAlt0(ForInit):
@@ -65,24 +66,24 @@ class ForInitAlt1(ForInit):
     identifier: str
     expression: Expression
 
-class ForUpdate(BaseModel):
+class ForUpdate(GrammarNode):
     identifier: str
     expression: Expression
 
-class Condition(BaseModel):
+class Condition(GrammarNode):
     expression: Expression
     relationoperator: str
     expression_1: Expression
 
-class Expression(BaseModel):
+class Expression(GrammarNode):
     term: Term
     terms: list[tuple[str, Term]] = Field(default_factory=list)
 
-class Term(BaseModel):
+class Term(GrammarNode):
     factor: Factor
     factors: list[tuple[str, Factor]] = Field(default_factory=list)
 
-class Factor(BaseModel):
+class Factor(GrammarNode):
     pass
 
 class IdentifierFactor(Factor):
@@ -100,17 +101,17 @@ class FunccallFactor(Factor):
 class ParenexpressionFactor(Factor):
     parenexpression: ParenExpression
 
-class UnaryTerm(BaseModel):
+class UnaryTerm(GrammarNode):
     factor: Factor
 
-class FuncCall(BaseModel):
+class FuncCall(GrammarNode):
     identifier: str
     arglist: Optional[ArgList] = None
 
-class ParenExpression(BaseModel):
+class ParenExpression(GrammarNode):
     expression: Expression
 
-class ArgList(BaseModel):
+class ArgList(GrammarNode):
     expression: Expression
     expressions: list[Expression] = Field(default_factory=list)
 
