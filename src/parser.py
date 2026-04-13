@@ -261,7 +261,31 @@ def _build_for_annotation(annotation: Any, queue: list) -> Any:
     return queue.pop(0) if queue else None
 
 
+def _set_raw(instance: Any, text: str, node: Tree | Token) -> Any:
+    """If instance is a BaseModel and node has position info, store the raw text span."""
+    if not isinstance(instance, BaseModel):
+        return instance
+    if not (isinstance(node, Tree) and hasattr(node, "meta")):
+        return instance
+    meta = node.meta
+    if hasattr(meta, "start_pos") and hasattr(meta, "end_pos"):
+        raw = text[meta.start_pos : meta.end_pos]
+        instance.__dict__["_raw"] = raw
+    return instance
+
+
 def _transform(
+    node: Tree | Token,
+    mods: dict[str, type],
+    gbnf_rules: dict[str, RuleNode],
+    text: str,
+) -> Any:
+    """Public entry: delegates to _transform_impl and stamps _raw on the result."""
+    result = _transform_impl(node, mods, gbnf_rules, text)
+    return _set_raw(result, text, node)
+
+
+def _transform_impl(
     node: Tree | Token,
     mods: dict[str, type],
     gbnf_rules: dict[str, RuleNode],

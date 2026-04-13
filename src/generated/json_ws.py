@@ -3,14 +3,15 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field
 from typing import Any, Optional, Union
+from src.base import GrammarNode
 
-class Object(BaseModel):
+class Object(GrammarNode):
     strings: Optional[tuple[str, Value, list[tuple[str, Value]]]] = None
 
 class Root(Object):
     pass
 
-class Value(BaseModel):
+class Value(GrammarNode):
     pass
 
 class ObjectValue(Value):
@@ -28,7 +29,7 @@ class NumberValue(Value):
 class ValueAlt4(Value):
     value: str
 
-class Array(BaseModel):
+class Array(GrammarNode):
     values: Optional[tuple[Value, list[Value]]] = None
 
 
