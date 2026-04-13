@@ -41,7 +41,7 @@ messages = [
 ]
 
 
-grammar_text = Path("resources/vyx.gbnf").read_text()
+grammar_text = Path("resources/ground_truth/c.gbnf").read_text()
 
 
 print("--- Chat Session Started ---")
