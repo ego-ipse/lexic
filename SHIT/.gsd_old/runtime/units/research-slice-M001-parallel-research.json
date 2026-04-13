@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "unitType": "research-slice",
+  "unitId": "M001/parallel-research",
+  "startedAt": 1776105175951,
+  "updatedAt": 1776105175952,
+  "phase": "dispatched",
+  "wrapupWarningSent": false,
+  "continueHereFired": false,
+  "timeoutAt": null,
+  "lastProgressAt": 1776105175951,
+  "progressCount": 0,
+  "lastProgressKind": "dispatch",
+  "recoveryAttempts": 0
+}

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "unitType": "research-slice",
+  "unitId": "M001/S02",
+  "startedAt": 1776018794028,
+  "updatedAt": 1776020596300,
+  "phase": "paused",
+  "wrapupWarningSent": true,
+  "continueHereFired": true,
+  "timeoutAt": 1776020594040,
+  "lastProgressAt": 1776020010342,
+  "progressCount": 2,
+  "lastProgressKind": "idle-recovery-retry",
+  "recoveryAttempts": 3,
+  "lastRecoveryReason": "hard"
+}
