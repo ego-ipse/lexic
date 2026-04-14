@@ -1,10 +1,27 @@
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
+[project]
+name = "vyx-2"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "llama-cpp-python>=0.3.8",
+    "pydantic>=2.12.5",
+    "pynvml>=13.0.1",
+    "pyparsing>=3.3.2",
+    "rich>=14.3.3",
+    "ruff>=0.15.9",
+]
 
 [dependency-groups]
 dev = [
     "jinja2>=3.1.6",
+    "pytest>=8.0.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
