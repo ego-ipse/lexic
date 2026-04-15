@@ -55,7 +55,7 @@ class Num(Term):
 
 class Ws(BaseModel):
     """ws ::= [ \\t\\n]*"""
-    value: str
+    field1: str
 
 
 # Resolve forward references

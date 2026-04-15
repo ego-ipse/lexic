@@ -229,7 +229,9 @@ class Number(Factor):
 
 class SingleLineComment(Statement):
     """singleLineComment ::= \"//\" [^\\n]* \"\\n\""""
-    value: str
+    field1: str
+    field2: str
+    field3: str
 
 
 class MultiLineComment(Statement):
@@ -239,7 +241,7 @@ class MultiLineComment(Statement):
 
 class Ws(BaseModel):
     """ws ::= ([ \\t\\n]+)"""
-    value: str
+    field1: str
 
 
 # Resolve forward references
