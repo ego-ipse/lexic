@@ -1,5 +1,4 @@
-"""Auto-generated Pydantic models from c.gbnf."""
-
+"""Auto-generated Pydantic models from resources/ground_truth/c.gbnf."""
 from __future__ import annotations
 
 from abc import ABC
@@ -9,10 +8,12 @@ from pydantic import BaseModel
 
 
 class Root(BaseModel):
+    """root ::= (declaration)*"""
     field1: List[Declaration]
 
 
 class Declaration(BaseModel):
+    """declaration ::= dataType identifier \"(\" parameter? \")\" \"{\" statement* \"}\""""
     field1: DataType
     field2: Identifier
     field3: str
@@ -24,28 +25,34 @@ class Declaration(BaseModel):
 
 
 class DataType(BaseModel):
+    """dataType ::= \"int\" ws | \"float\" ws | \"char\" ws"""
     value: str
 
 
 class Factor(BaseModel, ABC):
+    """factor ::= identifier | number | unaryTerm | funcCall | parenExpression"""
     pass
 
 
 class Identifier(Factor):
+    """identifier ::= [a-zA-Z_] [a-zA-Z_0-9]*"""
     field1: str
     field2: str
 
 
 class Parameter(BaseModel):
+    """parameter ::= dataType identifier"""
     field1: DataType
     field2: Identifier
 
 
 class Statement(BaseModel, ABC):
+    """statement ::= (dataType identifier ws \"=\" ws expression \";\") | (identifier ws \"=\" ws expression \";\") | (identifier ws \"(\" argList? \")\" \";\") | (\"return\" ws expression \";\") | (\"while\" \"(\" condition \")\" \"{\" statement* \"}\") | (\"for\" \"(\" forInit \";\" ws condition \";\" ws forUpdate \")\" \"{\" statement* \"}\") | (\"if\" \"(\" condition \")\" \"{\" statement* \"}\" (\"else\" \"{\" statement* \"}\")?) | (singleLineComment) | (multiLineComment)"""
     pass
 
 
 class StatementArm1(Statement):
+    """Anonymous arm 1 of statement"""
     field1: DataType
     field2: Identifier
     field3: str
@@ -54,6 +61,7 @@ class StatementArm1(Statement):
 
 
 class StatementArm2(Statement):
+    """Anonymous arm 2 of statement"""
     field1: Identifier
     field2: str
     field3: Expression
@@ -61,6 +69,7 @@ class StatementArm2(Statement):
 
 
 class StatementArm3(Statement):
+    """Anonymous arm 3 of statement"""
     field1: Identifier
     field2: str
     field3: Optional[ArgList]
@@ -69,12 +78,14 @@ class StatementArm3(Statement):
 
 
 class StatementArm4(Statement):
+    """Anonymous arm 4 of statement"""
     field1: str
     field2: Expression
     field3: str
 
 
 class StatementArm5(Statement):
+    """Anonymous arm 5 of statement"""
     field1: str
     field2: str
     field3: Condition
@@ -85,6 +96,7 @@ class StatementArm5(Statement):
 
 
 class StatementArm6(Statement):
+    """Anonymous arm 6 of statement"""
     field1: str
     field2: str
     field3: ForInit
@@ -106,6 +118,7 @@ class StatementArm7Opt(BaseModel):
 
 
 class StatementArm7(Statement):
+    """Anonymous arm 7 of statement"""
     field1: str
     field2: str
     field3: Condition
@@ -117,10 +130,12 @@ class StatementArm7(Statement):
 
 
 class ForInit(BaseModel, ABC):
+    """forInit ::= dataType identifier ws \"=\" ws expression | identifier ws \"=\" ws expression"""
     pass
 
 
 class ForInitArm1(ForInit):
+    """Anonymous arm 1 of forInit"""
     field1: DataType
     field2: Identifier
     field3: str
@@ -128,24 +143,28 @@ class ForInitArm1(ForInit):
 
 
 class ForInitArm2(ForInit):
+    """Anonymous arm 2 of forInit"""
     field1: Identifier
     field2: str
     field3: Expression
 
 
 class ForUpdate(BaseModel):
+    """forUpdate ::= identifier ws \"=\" ws expression"""
     field1: Identifier
     field2: str
     field3: Expression
 
 
 class Condition(BaseModel):
+    """condition ::= expression relationOperator expression"""
     field1: Expression
     field2: RelationOperator
     field3: Expression
 
 
 class RelationOperator(BaseModel):
+    """relationOperator ::= (\"<=\" | \"<\" | \"==\" | \"!=\" | \">=\" | \">\")"""
     value: str
 
 
@@ -155,6 +174,7 @@ class ExpressionItem(BaseModel):
 
 
 class Expression(BaseModel):
+    """expression ::= term ((\"+\" | \"-\") term)*"""
     field1: Term
     field2: List[ExpressionItem]
 
@@ -165,16 +185,19 @@ class TermItem(BaseModel):
 
 
 class Term(BaseModel):
+    """term ::= factor ((\"*\" | \"/\") factor)*"""
     field1: Factor
     field2: List[TermItem]
 
 
 class UnaryTerm(Factor):
+    """unaryTerm ::= \"-\" factor"""
     field1: str
     field2: Factor
 
 
 class FuncCall(Factor):
+    """funcCall ::= identifier \"(\" argList? \")\""""
     field1: Identifier
     field2: str
     field3: Optional[ArgList]
@@ -182,6 +205,7 @@ class FuncCall(Factor):
 
 
 class ParenExpression(Factor):
+    """parenExpression ::= \"(\" ws expression ws \")\""""
     field1: str
     field2: Expression
     field3: str
@@ -193,23 +217,28 @@ class ArgListItem(BaseModel):
 
 
 class ArgList(BaseModel):
+    """argList ::= expression (\",\" ws expression)*"""
     field1: Expression
     field2: List[ArgListItem]
 
 
 class Number(Factor):
+    """number ::= [0-9]+"""
     field1: str
 
 
 class SingleLineComment(Statement):
+    """singleLineComment ::= \"//\" [^\\n]* \"\\n\""""
     value: str
 
 
 class MultiLineComment(Statement):
+    """multiLineComment ::= \"/*\" ([^*] | (\"*\" [^/]))* \"*/\""""
     value: str
 
 
 class Ws(BaseModel):
+    """ws ::= ([ \\t\\n]+)"""
     value: str
 
 

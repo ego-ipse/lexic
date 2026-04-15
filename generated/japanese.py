@@ -1,5 +1,4 @@
-"""Auto-generated Pydantic models from japanese.gbnf."""
-
+"""Auto-generated Pydantic models from resources/ground_truth/japanese.gbnf."""
 from __future__ import annotations
 
 from abc import ABC
@@ -14,27 +13,33 @@ class RootItem(BaseModel):
 
 
 class Root(BaseModel):
+    """root ::= jp-char+ ([ \\t\\n] jp-char+)*"""
     field1: List[JpChar]
     field2: List[RootItem]
 
 
 class JpChar(BaseModel, ABC):
+    """jp-char ::= hiragana | katakana | punctuation | cjk"""
     pass
 
 
 class Hiragana(JpChar):
+    """hiragana ::= [ぁ-ゟ]"""
     field1: str
 
 
 class Katakana(JpChar):
+    """katakana ::= [ァ-ヿ]"""
     field1: str
 
 
 class Punctuation(JpChar):
+    """punctuation ::= [、-〾]"""
     field1: str
 
 
 class Cjk(JpChar):
+    """cjk ::= [一-鿿]"""
     field1: str
 
 

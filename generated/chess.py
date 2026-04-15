@@ -1,5 +1,4 @@
-"""Auto-generated Pydantic models from chess.gbnf."""
-
+"""Auto-generated Pydantic models from resources/ground_truth/chess.gbnf."""
 from __future__ import annotations
 
 from typing import List, Optional, Union
@@ -18,6 +17,7 @@ class RootItem(BaseModel):
 
 
 class Root(BaseModel):
+    """root ::= \"1. \" move \" \" move \"\\n\" ([1-9] [0-9]? \". \" move \" \" move \"\\n\")+"""
     field1: str
     field2: Move
     field3: str
@@ -27,11 +27,13 @@ class Root(BaseModel):
 
 
 class Move(BaseModel):
+    """move ::= (pawn | nonpawn | castle) [+#]?"""
     field1: Union[Pawn, Nonpawn, Castle]
     field2: Optional[str]
 
 
 class Nonpawn(BaseModel):
+    """nonpawn ::= [NBKQR] [a-h]? [1-8]? \"x\"? [a-h] [1-8]"""
     field1: str
     field2: Optional[str]
     field3: Optional[str]
@@ -51,6 +53,7 @@ class PawnOpt2(BaseModel):
 
 
 class Pawn(BaseModel):
+    """pawn ::= ([a-h] \"x\")? [a-h] [1-8] (\"=\" [NBKQR])?"""
     field1: Optional[PawnOpt1]
     field2: str
     field3: str
@@ -58,6 +61,7 @@ class Pawn(BaseModel):
 
 
 class Castle(BaseModel):
+    """castle ::= \"O-O\" \"-O\"?"""
     field1: str
     field2: Optional[str]
 

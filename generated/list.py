@@ -1,5 +1,4 @@
-"""Auto-generated Pydantic models from list.gbnf."""
-
+"""Auto-generated Pydantic models from resources/ground_truth/list.gbnf."""
 from __future__ import annotations
 
 from typing import List
@@ -8,10 +7,12 @@ from pydantic import BaseModel
 
 
 class Root(BaseModel):
+    """root ::= item+"""
     field1: List[Item]
 
 
 class Item(BaseModel):
+    """item ::= \"- \" [^\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029]+ \"\\n\""""
     field1: str
     field2: str
     field3: str
