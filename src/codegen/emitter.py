@@ -345,6 +345,62 @@ def topo_sort(specs: list[ClassSpec]) -> list[ClassSpec]:
     return ordered
 
 
+# ── to_text() rendering ────────────────────────────────────────────────────
+
+def _to_text_expr(f: FieldSpec) -> str:
+    """Build the to_text() expression for a single field."""
+    t = f.type_str
+    name = f"self.{f.name}"
+
+    # str types
+    if t == "str":
+        return name
+    if t == "Optional[str]":
+        return f"({name} or \"\")"
+    if t == "List[str]":
+        return f'"".join({name})'
+
+    # Union[X, Y, ...] → .to_text()
+    if t.startswith("Union["):
+        return f"{name}.to_text()"
+
+    # List[X] where X is not str
+    if t.startswith("List["):
+        return f'"".join(i.to_text() for i in {name})'
+
+    # Optional[X] where X is not str
+    if t.startswith("Optional["):
+        return f'({name}.to_text() if {name} else "")'
+
+    # Bare named type
+    return f"{name}.to_text()"
+
+
+def _render_to_text(spec: ClassSpec) -> list[str]:
+    """Generate to_text() method lines for a ClassSpec."""
+    if spec.is_abstract:
+        return [
+            "    def to_text(self) -> str:",
+            "        raise NotImplementedError",
+        ]
+    if spec.is_value_str:
+        return [
+            "    def to_text(self) -> str:",
+            "        return self.value",
+        ]
+    if not spec.fields:
+        return [
+            "    def to_text(self) -> str:",
+            '        return ""',
+        ]
+    exprs = [_to_text_expr(f) for f in spec.fields]
+    body = " + ".join(exprs)
+    return [
+        "    def to_text(self) -> str:",
+        f"        return {body}",
+    ]
+
+
 # ── Source rendering ────────────────────────────────────────────────────────
 
 def render_source(specs: list[ClassSpec], grammar_path: str) -> str:
@@ -393,6 +449,7 @@ def render_source(specs: list[ClassSpec], grammar_path: str) -> str:
                 lines.append(f"    {f.name}: {f.type_str}")
         else:
             lines.append("    pass")
+        lines.extend(_render_to_text(spec))
         lines += ["", ""]
 
     lines.append("# Resolve forward references")
