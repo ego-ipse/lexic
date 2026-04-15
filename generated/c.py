@@ -1,4 +1,4 @@
-"""Auto-generated Pydantic models from /home/mika/projects/vyx_2/resources/ground_truth/c.gbnf."""
+"""Auto-generated Pydantic models from resources/ground_truth/c.gbnf."""
 from __future__ import annotations
 
 from abc import ABC
@@ -10,6 +10,8 @@ from pydantic import BaseModel
 class Root(BaseModel):
     """root ::= (declaration)*"""
     field1: List[Declaration]
+    def to_text(self) -> str:
+        return "".join(i.to_text() for i in self.field1)
 
 
 class Declaration(BaseModel):
@@ -22,33 +24,45 @@ class Declaration(BaseModel):
     field6: str
     field7: List[Statement]
     field8: str
+    def to_text(self) -> str:
+        return self.field1.to_text() + self.field2.to_text() + self.field3 + (self.field4.to_text() if self.field4 else "") + self.field5 + self.field6 + "".join(i.to_text() for i in self.field7) + self.field8
 
 
 class DataType(BaseModel):
     """dataType ::= \"int\" ws | \"float\" ws | \"char\" ws"""
     value: str
+    def to_text(self) -> str:
+        return self.value
 
 
 class Factor(BaseModel, ABC):
     """factor ::= identifier | number | unaryTerm | funcCall | parenExpression"""
     pass
+    def to_text(self) -> str:
+        raise NotImplementedError
 
 
 class Identifier(Factor):
     """identifier ::= [a-zA-Z_] [a-zA-Z_0-9]*"""
     field1: str
     field2: str
+    def to_text(self) -> str:
+        return self.field1 + self.field2
 
 
 class Parameter(BaseModel):
     """parameter ::= dataType identifier"""
     field1: DataType
     field2: Identifier
+    def to_text(self) -> str:
+        return self.field1.to_text() + self.field2.to_text()
 
 
 class Statement(BaseModel, ABC):
     """statement ::= (dataType identifier ws \"=\" ws expression \";\") | (identifier ws \"=\" ws expression \";\") | (identifier ws \"(\" argList? \")\" \";\") | (\"return\" ws expression \";\") | (\"while\" \"(\" condition \")\" \"{\" statement* \"}\") | (\"for\" \"(\" forInit \";\" ws condition \";\" ws forUpdate \")\" \"{\" statement* \"}\") | (\"if\" \"(\" condition \")\" \"{\" statement* \"}\" (\"else\" \"{\" statement* \"}\")?) | (singleLineComment) | (multiLineComment)"""
     pass
+    def to_text(self) -> str:
+        raise NotImplementedError
 
 
 class StatementArm1(Statement):
@@ -58,6 +72,8 @@ class StatementArm1(Statement):
     field3: str
     field4: Expression
     field5: str
+    def to_text(self) -> str:
+        return self.field1.to_text() + self.field2.to_text() + self.field3 + self.field4.to_text() + self.field5
 
 
 class StatementArm2(Statement):
@@ -66,6 +82,8 @@ class StatementArm2(Statement):
     field2: str
     field3: Expression
     field4: str
+    def to_text(self) -> str:
+        return self.field1.to_text() + self.field2 + self.field3.to_text() + self.field4
 
 
 class StatementArm3(Statement):
@@ -75,6 +93,8 @@ class StatementArm3(Statement):
     field3: Optional[ArgList]
     field4: str
     field5: str
+    def to_text(self) -> str:
+        return self.field1.to_text() + self.field2 + (self.field3.to_text() if self.field3 else "") + self.field4 + self.field5
 
 
 class StatementArm4(Statement):
@@ -82,6 +102,8 @@ class StatementArm4(Statement):
     field1: str
     field2: Expression
     field3: str
+    def to_text(self) -> str:
+        return self.field1 + self.field2.to_text() + self.field3
 
 
 class StatementArm5(Statement):
@@ -93,6 +115,8 @@ class StatementArm5(Statement):
     field5: str
     field6: List[Statement]
     field7: str
+    def to_text(self) -> str:
+        return self.field1 + self.field2 + self.field3.to_text() + self.field4 + self.field5 + "".join(i.to_text() for i in self.field6) + self.field7
 
 
 class StatementArm6(Statement):
@@ -108,6 +132,8 @@ class StatementArm6(Statement):
     field9: str
     field10: List[Statement]
     field11: str
+    def to_text(self) -> str:
+        return self.field1 + self.field2 + self.field3.to_text() + self.field4 + self.field5.to_text() + self.field6 + self.field7.to_text() + self.field8 + self.field9 + "".join(i.to_text() for i in self.field10) + self.field11
 
 
 class StatementArm7Opt(BaseModel):
@@ -115,6 +141,8 @@ class StatementArm7Opt(BaseModel):
     field2: str
     field3: List[Statement]
     field4: str
+    def to_text(self) -> str:
+        return self.field1 + self.field2 + "".join(i.to_text() for i in self.field3) + self.field4
 
 
 class StatementArm7(Statement):
@@ -127,11 +155,15 @@ class StatementArm7(Statement):
     field6: List[Statement]
     field7: str
     field8: Optional[StatementArm7Opt]
+    def to_text(self) -> str:
+        return self.field1 + self.field2 + self.field3.to_text() + self.field4 + self.field5 + "".join(i.to_text() for i in self.field6) + self.field7 + (self.field8.to_text() if self.field8 else "")
 
 
 class ForInit(BaseModel, ABC):
     """forInit ::= dataType identifier ws \"=\" ws expression | identifier ws \"=\" ws expression"""
     pass
+    def to_text(self) -> str:
+        raise NotImplementedError
 
 
 class ForInitArm1(ForInit):
@@ -140,6 +172,8 @@ class ForInitArm1(ForInit):
     field2: Identifier
     field3: str
     field4: Expression
+    def to_text(self) -> str:
+        return self.field1.to_text() + self.field2.to_text() + self.field3 + self.field4.to_text()
 
 
 class ForInitArm2(ForInit):
@@ -147,6 +181,8 @@ class ForInitArm2(ForInit):
     field1: Identifier
     field2: str
     field3: Expression
+    def to_text(self) -> str:
+        return self.field1.to_text() + self.field2 + self.field3.to_text()
 
 
 class ForUpdate(BaseModel):
@@ -154,6 +190,8 @@ class ForUpdate(BaseModel):
     field1: Identifier
     field2: str
     field3: Expression
+    def to_text(self) -> str:
+        return self.field1.to_text() + self.field2 + self.field3.to_text()
 
 
 class Condition(BaseModel):
@@ -161,39 +199,53 @@ class Condition(BaseModel):
     field1: Expression
     field2: RelationOperator
     field3: Expression
+    def to_text(self) -> str:
+        return self.field1.to_text() + self.field2.to_text() + self.field3.to_text()
 
 
 class RelationOperator(BaseModel):
     """relationOperator ::= (\"<=\" | \"<\" | \"==\" | \"!=\" | \">=\" | \">\")"""
     value: str
+    def to_text(self) -> str:
+        return self.value
 
 
 class ExpressionItem(BaseModel):
     field1: str
     field2: Term
+    def to_text(self) -> str:
+        return self.field1 + self.field2.to_text()
 
 
 class Expression(BaseModel):
     """expression ::= term ((\"+\" | \"-\") term)*"""
     field1: Term
     field2: List[ExpressionItem]
+    def to_text(self) -> str:
+        return self.field1.to_text() + "".join(i.to_text() for i in self.field2)
 
 
 class TermItem(BaseModel):
     field1: str
     field2: Factor
+    def to_text(self) -> str:
+        return self.field1 + self.field2.to_text()
 
 
 class Term(BaseModel):
     """term ::= factor ((\"*\" | \"/\") factor)*"""
     field1: Factor
     field2: List[TermItem]
+    def to_text(self) -> str:
+        return self.field1.to_text() + "".join(i.to_text() for i in self.field2)
 
 
 class UnaryTerm(Factor):
     """unaryTerm ::= \"-\" factor"""
     field1: str
     field2: Factor
+    def to_text(self) -> str:
+        return self.field1 + self.field2.to_text()
 
 
 class FuncCall(Factor):
@@ -202,6 +254,8 @@ class FuncCall(Factor):
     field2: str
     field3: Optional[ArgList]
     field4: str
+    def to_text(self) -> str:
+        return self.field1.to_text() + self.field2 + (self.field3.to_text() if self.field3 else "") + self.field4
 
 
 class ParenExpression(Factor):
@@ -209,22 +263,30 @@ class ParenExpression(Factor):
     field1: str
     field2: Expression
     field3: str
+    def to_text(self) -> str:
+        return self.field1 + self.field2.to_text() + self.field3
 
 
 class ArgListItem(BaseModel):
     field1: str
     field2: Expression
+    def to_text(self) -> str:
+        return self.field1 + self.field2.to_text()
 
 
 class ArgList(BaseModel):
     """argList ::= expression (\",\" ws expression)*"""
     field1: Expression
     field2: List[ArgListItem]
+    def to_text(self) -> str:
+        return self.field1.to_text() + "".join(i.to_text() for i in self.field2)
 
 
 class Number(Factor):
     """number ::= [0-9]+"""
     field1: str
+    def to_text(self) -> str:
+        return self.field1
 
 
 class SingleLineComment(Statement):
@@ -232,16 +294,22 @@ class SingleLineComment(Statement):
     field1: str
     field2: str
     field3: str
+    def to_text(self) -> str:
+        return self.field1 + self.field2 + self.field3
 
 
 class MultiLineComment(Statement):
     """multiLineComment ::= \"/*\" ([^*] | (\"*\" [^/]))* \"*/\""""
     value: str
+    def to_text(self) -> str:
+        return self.value
 
 
 class Ws(BaseModel):
     """ws ::= ([ \\t\\n]+)"""
     field1: str
+    def to_text(self) -> str:
+        return self.field1
 
 
 # Resolve forward references
