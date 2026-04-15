@@ -7,7 +7,6 @@ importable Python module with Pydantic models.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Optional
 
 from .ast import (
@@ -23,7 +22,6 @@ from .ast import (
 from .classify import (
     classify_rule,
     is_inline_literal_alt_group,
-    is_pure_literal_seq,
     is_single_ruleref,
     is_ws_item,
     strip_ws,
@@ -34,9 +32,11 @@ from .classify import (
 
 # ── Specs ───────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class FieldSpec:
     """A single field in a generated Pydantic model."""
+
     name: str
     type_str: str
     annotation: Any
@@ -45,6 +45,7 @@ class FieldSpec:
 @dataclass
 class ClassSpec:
     """Blueprint for a generated Pydantic model class."""
+
     name: str
     base: str  # "BaseModel" or a parent class name
     is_abstract: bool
@@ -55,13 +56,16 @@ class ClassSpec:
 
 # ── Field extraction (from a single sequence) ──────────────────────────────
 
+
 def _field_from_literal(fname: str, q: str | None) -> FieldSpec:
     if q == "?":
         return FieldSpec(fname, "Optional[str]", (Optional[str], ...))
     return FieldSpec(fname, "str", (str, ...))
 
 
-def _field_from_ruleref(fname: str, ref_name: str, q: str | None, name_map: dict[str, str]) -> FieldSpec:
+def _field_from_ruleref(
+    fname: str, ref_name: str, q: str | None, name_map: dict[str, str]
+) -> FieldSpec:
     ref_cls = name_map.get(ref_name, to_pascal(ref_name))
     if q is None:
         return FieldSpec(fname, ref_cls, (ref_cls, ...))
@@ -70,7 +74,9 @@ def _field_from_ruleref(fname: str, ref_name: str, q: str | None, name_map: dict
     return FieldSpec(fname, f"List[{ref_cls}]", (list, ...))
 
 
-def _field_from_inline_union(fname: str, inner_arms: list[Sequence], name_map: dict[str, str]) -> FieldSpec:
+def _field_from_inline_union(
+    fname: str, inner_arms: list[Sequence], name_map: dict[str, str]
+) -> FieldSpec:
     """D4: inline alternation of named rules → Union[A, B, ...]."""
     ref_names = [
         name_map.get(is_single_ruleref(a), to_pascal(is_single_ruleref(a)))
@@ -80,7 +86,10 @@ def _field_from_inline_union(fname: str, inner_arms: list[Sequence], name_map: d
 
 
 def _field_from_repeated_group(
-    fname: str, inner_arms: list[Sequence], class_name: str, name_map: dict[str, str],
+    fname: str,
+    inner_arms: list[Sequence],
+    class_name: str,
+    name_map: dict[str, str],
 ) -> tuple[FieldSpec, list[ClassSpec]]:
     """Repeated group (+ or *) → List[T] or List[HelperItem]."""
     helpers: list[ClassSpec] = []
@@ -93,7 +102,9 @@ def _field_from_repeated_group(
 
     helper_name = f"{class_name}Item"
     h_fields, h_helpers = seq_to_fields(
-        inner_arms[0], helper_name, name_map,
+        inner_arms[0],
+        helper_name,
+        name_map,
     )
     helpers.extend(h_helpers)
     helpers.append(ClassSpec(helper_name, "BaseModel", False, h_fields))
@@ -101,8 +112,12 @@ def _field_from_repeated_group(
 
 
 def _field_from_optional_group(
-    fname: str, inner_arms: list[Sequence], class_name: str, name_map: dict[str, str],
-    opt_idx: int, opt_count: int,
+    fname: str,
+    inner_arms: list[Sequence],
+    class_name: str,
+    name_map: dict[str, str],
+    opt_idx: int,
+    opt_count: int,
 ) -> tuple[FieldSpec, list[ClassSpec]]:
     """Optional group → Optional[T] or Optional[HelperOpt]."""
     helpers: list[ClassSpec] = []
@@ -112,7 +127,9 @@ def _field_from_optional_group(
             return FieldSpec(fname, "Optional[str]", (Optional[str], ...)), helpers
         if isinstance(inner_it.atom, RuleRef):
             ref_cls = name_map.get(inner_it.atom.name, to_pascal(inner_it.atom.name))
-            return FieldSpec(fname, f"Optional[{ref_cls}]", (Optional[str], ...)), helpers
+            return FieldSpec(
+                fname, f"Optional[{ref_cls}]", (Optional[str], ...)
+            ), helpers
         return FieldSpec(fname, "Optional[str]", (Optional[str], ...)), helpers
 
     helper_name = f"{class_name}Opt{opt_idx}" if opt_count > 1 else f"{class_name}Opt"
@@ -128,14 +145,20 @@ def _count_opt_groups(seq: Sequence) -> int:
         if is_ws_item(it):
             continue
         if it.quantifier == "?" and isinstance(it.atom, Group):
-            inner = it.atom.alt.seqs[0] if len(it.atom.alt.seqs) == 1 else it.atom.alt.seqs[0]
+            inner = (
+                it.atom.alt.seqs[0]
+                if len(it.atom.alt.seqs) == 1
+                else it.atom.alt.seqs[0]
+            )
             if len(strip_ws(inner).items) > 1:
                 count += 1
     return count
 
 
 def seq_to_fields(
-    seq: Sequence, class_name: str, name_map: dict[str, str],
+    seq: Sequence,
+    class_name: str,
+    name_map: dict[str, str],
 ) -> tuple[list[FieldSpec], list[ClassSpec]]:
     """Convert a sequence of items into a list of fields and any helper classes."""
     fields: list[FieldSpec] = []
@@ -157,12 +180,20 @@ def seq_to_fields(
 
         # RuleRef → typed reference
         elif isinstance(it.atom, RuleRef):
-            fields.append(_field_from_ruleref(fname, it.atom.name, it.quantifier, name_map))
+            fields.append(
+                _field_from_ruleref(fname, it.atom.name, it.quantifier, name_map)
+            )
 
         # Group → dispatch by shape
         elif isinstance(it.atom, Group):
             f, h, field_idx, opt_idx = _process_group_item(
-                it, fname, field_idx, class_name, name_map, opt_idx, opt_count,
+                it,
+                fname,
+                field_idx,
+                class_name,
+                name_map,
+                opt_idx,
+                opt_count,
             )
             fields.extend(f)
             helpers.extend(h)
@@ -171,22 +202,33 @@ def seq_to_fields(
 
 
 def _process_group_item(
-    it: Item, fname: str, field_idx: int, class_name: str,
-    name_map: dict[str, str], opt_idx: int, opt_count: int,
+    it: Item,
+    fname: str,
+    field_idx: int,
+    class_name: str,
+    name_map: dict[str, str],
+    opt_idx: int,
+    opt_count: int,
 ) -> tuple[list[FieldSpec], list[ClassSpec], int, int]:
     """Handle a group item, returning fields, helpers, and updated counters."""
     fields: list[FieldSpec] = []
     helpers: list[ClassSpec] = []
     q = it.quantifier
 
-    inner_arms = [a for a in (strip_ws(s) for s in it.atom.alt.seqs) if len(a.items) > 0]
+    inner_arms = [
+        a for a in (strip_ws(s) for s in it.atom.alt.seqs) if len(a.items) > 0
+    ]
 
     # Inline literal alternation → str
     if is_inline_literal_alt_group(it):
         fields.append(_field_from_literal(fname, q))
 
     # D4: inline union of named rules
-    elif q is None and len(inner_arms) > 1 and all(is_single_ruleref(a) is not None for a in inner_arms):
+    elif (
+        q is None
+        and len(inner_arms) > 1
+        and all(is_single_ruleref(a) is not None for a in inner_arms)
+    ):
         fields.append(_field_from_inline_union(fname, inner_arms, name_map))
 
     # Repeated group
@@ -198,7 +240,9 @@ def _process_group_item(
     # Optional group
     elif q == "?":
         opt_idx += 1
-        f, h = _field_from_optional_group(fname, inner_arms, class_name, name_map, opt_idx, opt_count)
+        f, h = _field_from_optional_group(
+            fname, inner_arms, class_name, name_map, opt_idx, opt_count
+        )
         fields.append(f)
         helpers.extend(h)
 
@@ -208,7 +252,9 @@ def _process_group_item(
         for inner_it in inner_arms[0].items:
             if is_ws_item(inner_it):
                 continue
-            sub_fields, sub_helpers = seq_to_fields(Sequence([inner_it]), class_name, name_map)
+            sub_fields, sub_helpers = seq_to_fields(
+                Sequence([inner_it]), class_name, name_map
+            )
             for sf in sub_fields:
                 field_idx += 1
                 sf.name = f"field{field_idx}"
@@ -223,8 +269,10 @@ def _process_group_item(
 
 # ── Spec construction ───────────────────────────────────────────────────────
 
+
 def _rule_text(rule: Rule) -> str:
     """Reconstruct a compact one-line representation of the rule for docstrings."""
+
     def _alt_text(alt: Alternation) -> str:
         return " | ".join(_seq_text(s) for s in alt.seqs)
 
@@ -253,9 +301,12 @@ def _rule_text(rule: Rule) -> str:
 
 def _build_value_str_spec(name: str, base: str, docstring: str) -> ClassSpec:
     return ClassSpec(
-        name, base, False,
+        name,
+        base,
+        False,
         [FieldSpec("value", "str", (str, ...))],
-        is_value_str=True, docstring=docstring,
+        is_value_str=True,
+        docstring=docstring,
     )
 
 
@@ -306,7 +357,15 @@ def build_specs(rules: list[Rule]) -> list[ClassSpec]:
                 arm_name = f"{cls_name}Arm{arm_idx}"
                 fields, h = seq_to_fields(arm_seq, arm_name, name_map)
                 all_specs.extend(h)
-                all_specs.append(ClassSpec(arm_name, cls_name, False, fields, docstring=f"Anonymous arm {arm_idx} of {r.name}"))
+                all_specs.append(
+                    ClassSpec(
+                        arm_name,
+                        cls_name,
+                        False,
+                        fields,
+                        docstring=f"Anonymous arm {arm_idx} of {r.name}",
+                    )
+                )
 
         elif cls == "sequence":
             alt = unwrap_group_alt(r.body)
@@ -316,12 +375,15 @@ def build_specs(rules: list[Rule]) -> list[ClassSpec]:
             else:
                 fields, h = seq_to_fields(arms[0], cls_name, name_map)
                 all_specs.extend(h)
-                all_specs.append(ClassSpec(cls_name, base, False, fields, docstring=docstring))
+                all_specs.append(
+                    ClassSpec(cls_name, base, False, fields, docstring=docstring)
+                )
 
     return all_specs
 
 
 # ── Topological ordering ───────────────────────────────────────────────────
+
 
 def topo_sort(specs: list[ClassSpec]) -> list[ClassSpec]:
     """Order specs so base classes appear before subclasses."""
@@ -347,6 +409,7 @@ def topo_sort(specs: list[ClassSpec]) -> list[ClassSpec]:
 
 # ── to_text() rendering ────────────────────────────────────────────────────
 
+
 def _to_text_expr(f: FieldSpec) -> str:
     """Build the to_text() expression for a single field."""
     t = f.type_str
@@ -356,7 +419,7 @@ def _to_text_expr(f: FieldSpec) -> str:
     if t == "str":
         return name
     if t == "Optional[str]":
-        return f"({name} or \"\")"
+        return f'({name} or "")'
     if t == "List[str]":
         return f'"".join({name})'
 
@@ -403,11 +466,14 @@ def _render_to_text(spec: ClassSpec) -> list[str]:
 
 # ── Source rendering ────────────────────────────────────────────────────────
 
+
 def render_source(specs: list[ClassSpec], grammar_path: str) -> str:
     """Render an importable Python source string from ordered ClassSpecs."""
     needs_abc = any(s.is_abstract for s in specs)
     needs_list = any(f.type_str.startswith("List[") for s in specs for f in s.fields)
-    needs_optional = any(f.type_str.startswith("Optional[") for s in specs for f in s.fields)
+    needs_optional = any(
+        f.type_str.startswith("Optional[") for s in specs for f in s.fields
+    )
     needs_union = any(f.type_str.startswith("Union[") for s in specs for f in s.fields)
 
     typing_parts = []
