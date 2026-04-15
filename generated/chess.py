@@ -1,4 +1,4 @@
-"""Auto-generated Pydantic models from resources/ground_truth/chess.gbnf."""
+"""Auto-generated Pydantic models from /home/mika/projects/vyx_2/resources/ground_truth/chess.gbnf."""
 from __future__ import annotations
 
 from typing import List, Optional, Union
