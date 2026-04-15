@@ -22,9 +22,6 @@ from .ast import (
     Sequence,
 )
 
-# Rules that are always semantic terminals regardless of structure.
-ALWAYS_SEMANTIC_TERMINAL = frozenset({"ws", "singleLineComment", "multiLineComment"})
-
 
 # ── Sequence helpers ────────────────────────────────────────────────────────
 
@@ -171,9 +168,6 @@ def is_structurally_complex(alt: Alternation) -> bool:
 
 def classify_rule(rule: Rule, rules_dict: dict[str, Rule]) -> str:
     """Classify a rule as semantic_terminal, pure_literal_alt, named_alt, or sequence."""
-    if rule.name in ALWAYS_SEMANTIC_TERMINAL:
-        return "semantic_terminal"
-
     alt = unwrap_group_alt(rule.body)
 
     if is_structurally_complex(alt):
