@@ -6,11 +6,10 @@ Expectations derived exclusively from .gsd/milestones/M001/slices/S01/S01-SCENAR
 from __future__ import annotations
 
 import importlib
-import inspect
 import sys
 from abc import ABC
 from pathlib import Path
-from typing import List, Optional, Union, get_args, get_origin, get_type_hints
+from typing import Union, get_args, get_origin, get_type_hints
 
 import pytest
 from pydantic import BaseModel
@@ -33,10 +32,13 @@ ALL_GRAMMARS = [
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _hint(cls: type, field: str) -> type:
     """Return the resolved annotation for a field on a Pydantic model class."""
     hints = get_type_hints(cls)
-    assert field in hints, f"{cls.__name__} has no field '{field}'; fields: {list(hints)}"
+    assert field in hints, (
+        f"{cls.__name__} has no field '{field}'; fields: {list(hints)}"
+    )
     return hints[field]
 
 
@@ -67,6 +69,7 @@ def _is_union_of(hint: type, *classes: type) -> bool:
 
 
 # ── Smoke tests: all 7 grammars ───────────────────────────────────────────────
+
 
 @pytest.mark.parametrize("grammar_file", ALL_GRAMMARS)
 def test_codegen_returns_nonempty_dict(grammar_file: str) -> None:
@@ -119,6 +122,7 @@ def test_no_exec_in_generated_file(grammar_file: str) -> None:
 
 
 # ── arithmetic.gbnf ───────────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def arithmetic_classes() -> dict[str, type]:
@@ -198,7 +202,9 @@ def test_arithmetic_ws_fields_are_str(arithmetic_classes):
     Ws = arithmetic_classes["Ws"]
     hints = get_type_hints(Ws)
     assert hints, "Ws must have at least one field"
-    assert all(t is str for t in hints.values()), f"All Ws fields must be str; got {hints}"
+    assert all(t is str for t in hints.values()), (
+        f"All Ws fields must be str; got {hints}"
+    )
 
 
 def test_arithmetic_circular_ref_resolved(arithmetic_classes):
@@ -214,6 +220,7 @@ def test_arithmetic_circular_ref_resolved(arithmetic_classes):
 
 
 # ── chess.gbnf ────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def chess_classes() -> dict[str, type]:
@@ -251,7 +258,9 @@ def test_chess_move_has_union_field(chess_classes):
     Nonpawn = chess_classes["Nonpawn"]
     Castle = chess_classes["Castle"]
     field1_hint = _hint(Move, "field1")
-    assert get_origin(field1_hint) is Union, "Move.field1 must be Union[Pawn, Nonpawn, Castle]"
+    assert get_origin(field1_hint) is Union, (
+        "Move.field1 must be Union[Pawn, Nonpawn, Castle]"
+    )
     args = set(get_args(field1_hint)) - {type(None)}
     assert args == {Pawn, Nonpawn, Castle}
 
@@ -270,6 +279,7 @@ def test_chess_rootitem_fields(chess_classes):
 
 
 # ── japanese.gbnf ─────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def japanese_classes() -> dict[str, type]:
@@ -312,6 +322,7 @@ def test_japanese_rootitem_fields(japanese_classes):
 
 # ── list.gbnf ─────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture(scope="module")
 def list_classes() -> dict[str, type]:
     return codegen(GRAMMAR_DIR / "list.gbnf")
@@ -339,6 +350,7 @@ def test_list_instantiation(list_classes):
 
 
 # ── json_ws.gbnf ──────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def json_ws_classes() -> dict[str, type]:
@@ -382,7 +394,9 @@ def test_json_ws_object_fields(json_ws_classes):
     assert hints["field1"] is str  # "{"
     assert hints["field3"] is str  # "}"
     # field2 is Optional[ObjectOpt]
-    assert get_origin(hints["field2"]) is Union or hints["field2"].__name__ == "ObjectOpt"
+    assert (
+        get_origin(hints["field2"]) is Union or hints["field2"].__name__ == "ObjectOpt"
+    )
 
 
 def test_json_ws_circular_ref_resolved(json_ws_classes):
@@ -402,6 +416,7 @@ def test_json_ws_no_arr_classes(json_ws_classes):
 
 
 # ── json_arr.gbnf ─────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def json_arr_classes() -> dict[str, type]:
@@ -432,6 +447,7 @@ def test_json_arr_arr_fields(json_arr_classes):
 
 
 # ── c.gbnf ────────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def c_classes() -> dict[str, type]:
@@ -479,7 +495,9 @@ def test_c_singlelinecomment_fields_are_str(c_classes):
     """SingleLineComment is a pure character-level rule — every field must be str."""
     hints = get_type_hints(c_classes["SingleLineComment"])
     assert hints, "SingleLineComment must have at least one field"
-    assert all(t is str for t in hints.values()), f"All SingleLineComment fields must be str; got {hints}"
+    assert all(t is str for t in hints.values()), (
+        f"All SingleLineComment fields must be str; got {hints}"
+    )
 
 
 def test_c_statement_arm5_has_list_statement(c_classes):
@@ -530,6 +548,7 @@ def test_c_circular_ref_resolved(c_classes):
 
 # ── No exec() in any generated file ──────────────────────────────────────────
 
+
 def test_no_exec_anywhere():
     """No generated file may contain exec()."""
     for f in GENERATED_DIR.glob("*.py"):
@@ -538,6 +557,7 @@ def test_no_exec_anywhere():
 
 
 # ── Q7: Negative tests ────────────────────────────────────────────────────────
+
 
 def test_codegen_missing_file_raises():
     """codegen() on a non-existent path must raise FileNotFoundError."""

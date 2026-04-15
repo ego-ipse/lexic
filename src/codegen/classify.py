@@ -25,6 +25,7 @@ from .ast import (
 
 # ── Sequence helpers ────────────────────────────────────────────────────────
 
+
 def is_ws_item(item: Item) -> bool:
     """True if the item is a reference to the ws rule."""
     return isinstance(item.atom, RuleRef) and item.atom.name == "ws"
@@ -105,6 +106,7 @@ def to_pascal(name: str) -> str:
 
 # ── Structural complexity detection (D10 heuristic) ────────────────────────
 
+
 def _has_any_ruleref(items: list[Item]) -> bool:
     for it in items:
         if is_ws_item(it):
@@ -165,6 +167,7 @@ def is_structurally_complex(alt: Alternation) -> bool:
 
 
 # ── Main classifier ────────────────────────────────────────────────────────
+
 
 def classify_rule(rule: Rule, rules_dict: dict[str, Rule]) -> str:
     """Classify a rule as semantic_terminal, pure_literal_alt, named_alt, or sequence."""
