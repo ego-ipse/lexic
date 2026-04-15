@@ -1,5 +1,4 @@
-"""Auto-generated Pydantic models from json_ws.gbnf."""
-
+"""Auto-generated Pydantic models from resources/ground_truth/json_ws.gbnf."""
 from __future__ import annotations
 
 from abc import ABC
@@ -9,14 +8,17 @@ from pydantic import BaseModel
 
 
 class Root(BaseModel):
+    """root ::= object"""
     field1: Object
 
 
 class Value(BaseModel, ABC):
+    """value ::= object | array | string | number | (\"true\" | \"false\" | \"null\") ws"""
     pass
 
 
 class ValueArm5(Value):
+    """Anonymous arm 5 of value"""
     field1: str
 
 
@@ -35,6 +37,7 @@ class ObjectOpt(BaseModel):
 
 
 class Object(Value):
+    """object ::= \"{\" ws (string \":\" ws value (\",\" ws string \":\" ws value)*)? \"}\" ws"""
     field1: str
     field2: Optional[ObjectOpt]
     field3: str
@@ -51,20 +54,24 @@ class ArrayOpt(BaseModel):
 
 
 class Array(Value):
+    """array ::= \"[\" ws (value (\",\" ws value)*)? \"]\" ws"""
     field1: str
     field2: Optional[ArrayOpt]
     field3: str
 
 
 class String(Value):
+    """string ::= \"\\\"\" ([^\"\\\\\\x7F\\x00-\\x1F] | \"\\\\\" ([\"\\\\bfnrt] | \"u\" [0-9a-fA-F]))* \"\\\"\" ws"""
     value: str
 
 
 class Number(Value):
+    """number ::= (\"-\"? ([0-9] | [1-9] [0-9])) (\".\" [0-9]+)? ([eE] [-+]? [0-9] [1-9])? ws"""
     value: str
 
 
 class Ws(BaseModel):
+    """ws ::=  | \" \" | \"\\n\" [ \\t]"""
     value: str
 
 
