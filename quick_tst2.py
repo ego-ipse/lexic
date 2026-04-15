@@ -1,4 +1,3 @@
-import json as _json
 import os
 import time
 from pathlib import Path
@@ -49,7 +48,13 @@ def _format_prompt(msgs: list[dict]) -> str:
     bos = llm.detokenize([llm.token_bos()]).decode("utf-8", errors="ignore")
     eos = llm.detokenize([llm.token_eos()]).decode("utf-8", errors="ignore")
     nl = llm.detokenize([llm.token_nl()]).decode("utf-8", errors="ignore")
-    return template.render(messages=msgs, bos_token=bos, eos_token=eos, nl_token=nl, add_generation_prompt=True)
+    return template.render(
+        messages=msgs,
+        bos_token=bos,
+        eos_token=eos,
+        nl_token=nl,
+        add_generation_prompt=True,
+    )
 
 
 # Shared resources — computed once, reused across approaches
@@ -64,6 +69,7 @@ llt = lltokenizer_from_vocab(llama_cpp.llama_model_get_vocab(llm.model))
 class _PreformattedTemplate(ChatTemplate):
     def get_role_start(self, role_name: str, **kwargs) -> str:
         return ""
+
     def get_role_end(self, role_name: str | None = None) -> str:
         return ""
 
@@ -72,11 +78,14 @@ class _PreformattedTemplate(ChatTemplate):
 # Approach A — guidance high-level API
 # ---------------------------------------------------------------------------
 
+
 def approach_a(use_grammar: bool = False) -> str:
     prompt = _format_prompt(grammar_messages if use_grammar else messages)
     lm = GuidanceLlamaCpp(
-        model=llm, echo=False,
-        enable_backtrack=False, enable_ff_tokens=False,
+        model=llm,
+        echo=False,
+        enable_backtrack=False,
+        enable_ff_tokens=False,
         chat_template=_PreformattedTemplate,
     )
     if use_grammar:
@@ -84,6 +93,7 @@ def approach_a(use_grammar: bool = False) -> str:
     else:
         lm = lm + prompt + gen(name="out", max_tokens=512)
     return lm["out"]
+
 
 # ---------------------------------------------------------------------------
 # Approach B — raw llguidance LLInterpreter with a manual generation loop
@@ -98,6 +108,7 @@ def approach_a(use_grammar: bool = False) -> str:
 # compute_mask_into requires a bytearray, not a numpy array.
 # ---------------------------------------------------------------------------
 
+
 def approach_b(use_grammar: bool = False) -> str:
     prompt = _format_prompt(grammar_messages if use_grammar else messages)
 
@@ -105,7 +116,8 @@ def approach_b(use_grammar: bool = False) -> str:
         return llm.create_completion(prompt, max_tokens=512)["choices"][0]["text"]
 
     interp = llguidance.LLInterpreter(
-        llt, grammar_str,
+        llt,
+        grammar_str,
         enable_backtrack=False,
         enable_ff_tokens=False,
         log_level=0,
@@ -148,15 +160,16 @@ def approach_b(use_grammar: bool = False) -> str:
 
     return llm.detokenize(generated).decode("utf-8", errors="ignore")
 
+
 # ---------------------------------------------------------------------------
 # Run and time
 # ---------------------------------------------------------------------------
 
 scenarios = [
     ("A no grammar", lambda: approach_a(False)),
-    ("A grammar",    lambda: approach_a(True)),
+    ("A grammar", lambda: approach_a(True)),
     ("B no grammar", lambda: approach_b(False)),
-    ("B grammar",    lambda: approach_b(True)),
+    ("B grammar", lambda: approach_b(True)),
 ]
 timings = {}
 results = {}
