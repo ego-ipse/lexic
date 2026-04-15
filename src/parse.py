@@ -96,6 +96,17 @@ def _literal_to_lark(value: str) -> str:
     return f'"{escaped}"'
 
 
+def _parse_repeat(q: str) -> tuple[int, int | None]:
+    """Parse a repeat quantifier like {4}, {0,15}, {1,} into (min, max|None)."""
+    inner = q[1:-1]  # strip braces
+    if "," in inner:
+        parts = inner.split(",", 1)
+        lo = int(parts[0])
+        hi = int(parts[1]) if parts[1] else None
+        return lo, hi
+    return int(inner), int(inner)
+
+
 def _charclass_to_lark(
     pattern: str, quantifier: str | None, terminals: dict[str, str]
 ) -> str:
@@ -108,6 +119,27 @@ def _charclass_to_lark(
             return f"{term_name}?"
         elif quantifier == "?":
             return f"/{pattern}/?"
+        elif quantifier.startswith("{"):
+            lo, hi = _parse_repeat(quantifier)
+            if lo == 0:
+                # Zero-minimum repeat: make non-zero-width terminal + optional
+                if hi is None:
+                    # {0,} is equivalent to *
+                    term_name = f"CC{len(terminals)}"
+                    terminals[term_name] = f"{pattern}+"
+                    return f"{term_name}?"
+                elif hi == 0:
+                    # {0,0} matches nothing — emit empty string
+                    return '""'
+                else:
+                    # {0,N} → terminal matches {1,N}, then make it optional
+                    term_name = f"CC{len(terminals)}"
+                    terminals[term_name] = f"{pattern}{{1,{hi}}}"
+                    return f"{term_name}?"
+            else:
+                term_name = f"CC{len(terminals)}"
+                terminals[term_name] = f"{pattern}{quantifier}"
+                return term_name
         else:
             term_name = f"CC{len(terminals)}"
             terminals[term_name] = f"{pattern}{quantifier}"

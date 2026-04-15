@@ -59,7 +59,7 @@ class _GBNFTransformer(LarkTransformer):
         return Item(items[0], str(items[1]))
 
     def item_repeat(self, items: list) -> Item:
-        return Item(items[0], None)
+        return Item(items[0], str(items[1]))
 
     def item_bare(self, items: list) -> Item:
         return Item(items[0], None)
