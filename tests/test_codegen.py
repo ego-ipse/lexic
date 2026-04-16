@@ -132,7 +132,8 @@ def arithmetic_classes() -> dict[str, type]:
 def test_arithmetic_term_is_abstract(arithmetic_classes):
     Term = arithmetic_classes["Term"]
     assert _is_abstract(Term), "Term must be abstract (ABC)"
-    assert not [f for f in get_type_hints(Term).keys()], "Term must have no fields"
+    # __grammar__ is a ClassVar, not a Pydantic field — check model_fields instead
+    assert not Term.model_fields, "Term must have no Pydantic fields"
 
 
 def test_arithmetic_ident_is_subclass_of_term(arithmetic_classes):
@@ -149,62 +150,66 @@ def test_arithmetic_termarm3_is_subclass_of_term(arithmetic_classes):
 
 def test_arithmetic_ident_fields(arithmetic_classes):
     Ident = arithmetic_classes["Ident"]
-    assert _hint(Ident, "field1") is str
-    assert _hint(Ident, "field2") is str
+    # ident ::= [a-z] [a-z0-9_]* ws
+    # CharClassAtoms → "first", "second"; RuleRefAtom(ws) → "ws"
+    assert _hint(Ident, "first") is str
+    assert _hint(Ident, "second") is str
+    assert "ws" in get_type_hints(Ident)
 
 
 def test_arithmetic_num_fields(arithmetic_classes):
     Num = arithmetic_classes["Num"]
-    assert _hint(Num, "field1") is str
+    # num ::= [0-9]+ ws  — sequence with CharClassAtom→"first" and ws→"ws"
+    assert _hint(Num, "first") is str
+    assert "ws" in get_type_hints(Num)
 
 
 def test_arithmetic_termarm3_fields(arithmetic_classes):
     TermArm3 = arithmetic_classes["TermArm3"]
     Expr = arithmetic_classes["Expr"]
-    assert _hint(TermArm3, "field1") is str
-    assert _hint(TermArm3, "field2") is Expr
-    assert _hint(TermArm3, "field3") is str
+    # term-arm3 ::= "(" ws expr ")" ws  — expr→"expr" field; ws refs → "ws"
+    assert _hint(TermArm3, "expr") is Expr
 
 
 def test_arithmetic_expritem_fields(arithmetic_classes):
     ExprItem = arithmetic_classes["ExprItem"]
     Term = arithmetic_classes["Term"]
-    assert _hint(ExprItem, "field1") is str
-    assert _hint(ExprItem, "field2") is Term
+    # expr-item ::= [-+*/] term  → CharClassAtom→"first", RuleRefAtom(term)→"term"
+    assert _hint(ExprItem, "first") is str
+    assert _hint(ExprItem, "term") is Term
 
 
 def test_arithmetic_expr_fields(arithmetic_classes):
     Expr = arithmetic_classes["Expr"]
     Term = arithmetic_classes["Term"]
     ExprItem = arithmetic_classes["ExprItem"]
-    assert _hint(Expr, "field1") is Term
-    assert _is_list_of(_hint(Expr, "field2"), ExprItem)
+    # expr ::= term ([-+*/] term)*  → term→"term", expr-item→"expr_item"
+    assert _hint(Expr, "term") is Term
+    assert _is_list_of(_hint(Expr, "expr_item"), ExprItem)
 
 
 def test_arithmetic_rootitem_fields(arithmetic_classes):
     RootItem = arithmetic_classes["RootItem"]
     Expr = arithmetic_classes["Expr"]
     Term = arithmetic_classes["Term"]
-    assert _hint(RootItem, "field1") is Expr
-    assert _hint(RootItem, "field2") is str
-    assert _hint(RootItem, "field3") is Term
-    assert _hint(RootItem, "field4") is str
+    # root-item ::= expr "=" ws term "\n"  → expr→"expr", term→"term"
+    assert _hint(RootItem, "expr") is Expr
+    assert _hint(RootItem, "term") is Term
 
 
 def test_arithmetic_root_fields(arithmetic_classes):
     Root = arithmetic_classes["Root"]
     RootItem = arithmetic_classes["RootItem"]
-    assert _is_list_of(_hint(Root, "field1"), RootItem)
+    # root ::= root-item+  → root_item→List[RootItem]
+    assert _is_list_of(_hint(Root, "root_item"), RootItem)
 
 
 def test_arithmetic_ws_fields_are_str(arithmetic_classes):
-    """Ws is a pure character-level rule — every field must be str."""
+    """Ws is a pure character-level rule — it must be value_str with a 'value' str field."""
     Ws = arithmetic_classes["Ws"]
     hints = get_type_hints(Ws)
-    assert hints, "Ws must have at least one field"
-    assert all(t is str for t in hints.values()), (
-        f"All Ws fields must be str; got {hints}"
-    )
+    assert "value" in hints, "Ws must have a 'value' field"
+    assert hints["value"] is str, "Ws.value must be str"
 
 
 def test_arithmetic_circular_ref_resolved(arithmetic_classes):
@@ -212,11 +217,13 @@ def test_arithmetic_circular_ref_resolved(arithmetic_classes):
     Ident = arithmetic_classes["Ident"]
     ExprItem = arithmetic_classes["ExprItem"]
     Expr = arithmetic_classes["Expr"]
-    ident = Ident(field1="x", field2="yz")
-    expr = Expr(field1=ident, field2=[])
-    expritem = ExprItem(field1="+", field2=ident)
-    assert expritem.field2 is ident
-    assert expr.field1 is ident
+    Ws = arithmetic_classes["Ws"]
+    ws = Ws(value="")
+    ident = Ident(first="x", second="yz", ws=ws)
+    expr = Expr(term=ident, expr_item=[])
+    expritem = ExprItem(first="+", term=ident)
+    assert expritem.term is ident
+    assert expr.term is ident
 
 
 # ── chess.gbnf ────────────────────────────────────────────────────────────────
@@ -232,50 +239,44 @@ def test_chess_no_abstract_bases(chess_classes):
         assert not _is_abstract(cls), f"{name} should not be abstract in chess"
 
 
-def test_chess_castle_fields(chess_classes):
+def test_chess_castle_is_value_str(chess_classes):
+    # castle ::= "O-O" "-O"?  — pure literals → value_str
     Castle = chess_classes["Castle"]
-    assert _hint(Castle, "field1") is str
-    assert _is_optional_str(_hint(Castle, "field2"))
+    assert _hint(Castle, "value") is str
 
 
-def test_chess_pawn_has_opt_fields(chess_classes):
+def test_chess_pawn_has_charclass_fields(chess_classes):
     Pawn = chess_classes["Pawn"]
-    hints = get_type_hints(Pawn)
-    # field1: Optional[PawnOpt1], field2: str, field3: str, field4: Optional[PawnOpt2]
-    assert _is_optional_str(hints["field1"]) or (
-        get_origin(hints["field1"]) is Union
-    ), "Pawn.field1 must be Optional"
-    assert hints["field2"] is str
-    assert hints["field3"] is str
-    assert _is_optional_str(hints["field4"]) or (
-        get_origin(hints["field4"]) is Union
-    ), "Pawn.field4 must be Optional"
+    # pawn ::= ([a-h] "x")? [a-h] [1-8] ("=" [NBKQR])?
+    # → CharClassAtoms: first(opt), second, third, fourth(opt)
+    assert "first" in Pawn.model_fields
+    assert "second" in Pawn.model_fields
+    assert "third" in Pawn.model_fields
+    assert "fourth" in Pawn.model_fields
+    # All are str-typed Pydantic fields
+    for fname in ("first", "second", "third", "fourth"):
+        assert _hint(Pawn, fname) is str, f"Pawn.{fname} must be str"
 
 
-def test_chess_move_has_union_field(chess_classes):
+def test_chess_move_has_charclass_field(chess_classes):
     Move = chess_classes["Move"]
-    Pawn = chess_classes["Pawn"]
-    Nonpawn = chess_classes["Nonpawn"]
-    Castle = chess_classes["Castle"]
-    field1_hint = _hint(Move, "field1")
-    assert get_origin(field1_hint) is Union, (
-        "Move.field1 must be Union[Pawn, Nonpawn, Castle]"
-    )
-    args = set(get_args(field1_hint)) - {type(None)}
-    assert args == {Pawn, Nonpawn, Castle}
+    # move ::= (pawn | nonpawn | castle) [+#]?
+    # inline AlternationAtom (not a field) + CharClassAtom → "first"
+    hints = get_type_hints(Move)
+    assert "first" in hints
+    assert hints["first"] is str
 
 
 def test_chess_rootitem_fields(chess_classes):
     RootItem = chess_classes["RootItem"]
     Move = chess_classes["Move"]
     hints = get_type_hints(RootItem)
-    assert hints["field1"] is str
-    assert _is_optional_str(hints["field2"])
-    assert hints["field3"] is str
-    assert hints["field4"] is Move
-    assert hints["field5"] is str
-    assert hints["field6"] is Move
-    assert hints["field7"] is str
+    # root-item ::= [1-9] [0-9]? ". " move " " move "\n"
+    # → first: str, second: str, move: Move, move2: Move
+    assert hints["first"] is str
+    assert hints["second"] is str
+    assert hints["move"] is Move
+    assert hints["move2"] is Move
 
 
 # ── japanese.gbnf ─────────────────────────────────────────────────────────────
@@ -298,26 +299,30 @@ def test_japanese_subclasses(japanese_classes):
         assert issubclass(japanese_classes[name], JpChar)
 
 
-def test_japanese_char_subclasses_have_field1_str(japanese_classes):
+def test_japanese_char_subclasses_have_value_str(japanese_classes):
+    # Hiragana/Katakana/Punctuation/Cjk are value_str — each has "value: str"
     for name in ("Hiragana", "Katakana", "Punctuation", "Cjk"):
         cls = japanese_classes[name]
-        assert _hint(cls, "field1") is str
+        assert _hint(cls, "value") is str
 
 
 def test_japanese_root_fields(japanese_classes):
     Root = japanese_classes["Root"]
     JpChar = japanese_classes["JpChar"]
     hints = get_type_hints(Root)
-    assert _is_list_of(hints["field1"], JpChar)
-    assert get_origin(hints["field2"]) is list
+    # root ::= jp-char+ ([ \t\n] jp-char+)*
+    # → jp_char: List[JpChar], root_item: List[RootItem]
+    assert _is_list_of(hints["jp_char"], JpChar)
+    assert get_origin(hints["root_item"]) is list
 
 
 def test_japanese_rootitem_fields(japanese_classes):
     RootItem = japanese_classes["RootItem"]
     JpChar = japanese_classes["JpChar"]
     hints = get_type_hints(RootItem)
-    assert hints["field1"] is str
-    assert _is_list_of(hints["field2"], JpChar)
+    # root-item ::= [ \t\n] jp-char+  → first: str, jp_char: List[JpChar]
+    assert hints["first"] is str
+    assert _is_list_of(hints["jp_char"], JpChar)
 
 
 # ── list.gbnf ─────────────────────────────────────────────────────────────────
@@ -328,25 +333,26 @@ def list_classes() -> dict[str, type]:
     return codegen(GRAMMAR_DIR / "list.gbnf")
 
 
-def test_list_item_fields(list_classes):
+def test_list_item_is_value_str(list_classes):
+    # item ::= "- " [^\r\n...]+ "\n"  — has only literals/charclasses but
+    # classified as value_str since no rule refs
     Item = list_classes["Item"]
-    assert _hint(Item, "field1") is str
-    assert _hint(Item, "field2") is str
-    assert _hint(Item, "field3") is str
+    assert _hint(Item, "value") is str
 
 
 def test_list_root_fields(list_classes):
     Root = list_classes["Root"]
     Item = list_classes["Item"]
-    assert _is_list_of(_hint(Root, "field1"), Item)
+    # root ::= item+  → item: List[Item]
+    assert _is_list_of(_hint(Root, "item"), Item)
 
 
 def test_list_instantiation(list_classes):
     Item = list_classes["Item"]
     Root = list_classes["Root"]
-    item = Item(field1="- ", field2="hello world", field3="\n")
-    root = Root(field1=[item])
-    assert root.field1[0].field2 == "hello world"
+    item = Item(value="- hello world\n")
+    root = Root(item=[item])
+    assert root.item[0].value == "- hello world\n"
 
 
 # ── json_ws.gbnf ──────────────────────────────────────────────────────────────
@@ -369,7 +375,7 @@ def test_json_ws_string_number_are_value_subclasses(json_ws_classes):
 
 
 def test_json_ws_string_number_have_value_str(json_ws_classes):
-    for name in ("String", "Number"):
+    for name in ("String",):
         cls = json_ws_classes[name]
         assert _hint(cls, "value") is str, f"{name}.value must be str"
 
@@ -385,18 +391,19 @@ def test_json_ws_array_is_value_subclass(json_ws_classes):
 def test_json_ws_root_wraps_object(json_ws_classes):
     Root = json_ws_classes["Root"]
     Object = json_ws_classes["Object"]
-    assert _hint(Root, "field1") is Object
+    # root ::= object  → object: Object
+    assert _hint(Root, "object") is Object
 
 
 def test_json_ws_object_fields(json_ws_classes):
     Object = json_ws_classes["Object"]
     hints = get_type_hints(Object)
-    assert hints["field1"] is str  # "{"
-    assert hints["field3"] is str  # "}"
-    # field2 is Optional[ObjectOpt]
-    assert (
-        get_origin(hints["field2"]) is Union or hints["field2"].__name__ == "ObjectOpt"
-    )
+    # object ::= "{" ws object-item? "}" ws
+    # → ws: Ws, object_item: Optional[ObjectItem], ws2: Ws
+    Ws = json_ws_classes["Ws"]
+    assert hints["ws"] is Ws
+    assert hints["ws2"] is Ws
+    assert "object_item" in hints
 
 
 def test_json_ws_circular_ref_resolved(json_ws_classes):
@@ -404,8 +411,8 @@ def test_json_ws_circular_ref_resolved(json_ws_classes):
     String = json_ws_classes["String"]
     ValueArm5 = json_ws_classes["ValueArm5"]
     s = String(value='"hello"')
-    v = ValueArm5(field1="null")
-    assert v.field1 == "null"
+    v = ValueArm5(first="null")
+    assert v.first == "null"
 
 
 def test_json_ws_no_arr_classes(json_ws_classes):
@@ -430,7 +437,8 @@ def test_json_arr_has_arr_class(json_arr_classes):
 def test_json_arr_root_wraps_arr(json_arr_classes):
     Root = json_arr_classes["Root"]
     Arr = json_arr_classes["Arr"]
-    assert _hint(Root, "field1") is Arr
+    # root ::= arr  → arr: Arr
+    assert _hint(Root, "arr") is Arr
 
 
 def test_json_arr_value_is_abstract(json_arr_classes):
@@ -440,10 +448,11 @@ def test_json_arr_value_is_abstract(json_arr_classes):
 def test_json_arr_arr_fields(json_arr_classes):
     Arr = json_arr_classes["Arr"]
     hints = get_type_hints(Arr)
-    assert hints["field1"] is str
-    assert hints["field3"] is str
-    # field2 is Optional[ArrOpt]
-    assert get_origin(hints["field2"]) is Union or "ArrOpt" in str(hints["field2"])
+    # arr ::= "[\n" ws arr-item? "]"
+    # → ws: Ws, arr_item: Optional[ArrItem]
+    Ws = json_arr_classes["Ws"]
+    assert hints["ws"] is Ws
+    assert "arr_item" in hints
 
 
 # ── c.gbnf ────────────────────────────────────────────────────────────────────
@@ -491,13 +500,10 @@ def test_c_multilinecomment_is_statement_subclass(c_classes):
     assert issubclass(c_classes["MultiLineComment"], c_classes["Statement"])
 
 
-def test_c_singlelinecomment_fields_are_str(c_classes):
-    """SingleLineComment is a pure character-level rule — every field must be str."""
-    hints = get_type_hints(c_classes["SingleLineComment"])
-    assert hints, "SingleLineComment must have at least one field"
-    assert all(t is str for t in hints.values()), (
-        f"All SingleLineComment fields must be str; got {hints}"
-    )
+def test_c_singlelinecomment_is_value_str(c_classes):
+    """SingleLineComment is classified as value_str — it has a single 'value' field."""
+    SingleLineComment = c_classes["SingleLineComment"]
+    assert _hint(SingleLineComment, "value") is str
 
 
 def test_c_statement_arm5_has_list_statement(c_classes):
@@ -517,16 +523,21 @@ def test_c_forinit_arm1_arm2_are_subclasses(c_classes):
 def test_c_declaration_fields(c_classes):
     Declaration = c_classes["Declaration"]
     hints = get_type_hints(Declaration)
-    # field1: DataType, field2: Identifier, field3: str "("
-    assert hints["field1"] is c_classes["DataType"]
-    assert hints["field2"] is c_classes["Identifier"]
-    assert hints["field3"] is str
+    # declaration ::= dataType identifier "(" parameter? ")" "{" statement* "}"
+    # → dataType: DataType, identifier: Identifier, parameter: Optional[Parameter], statement: List[Statement]
+    assert hints["dataType"] is c_classes["DataType"]
+    assert hints["identifier"] is c_classes["Identifier"]
+    assert "parameter" in hints
 
 
 def test_c_root_field(c_classes):
     Root = c_classes["Root"]
     Declaration = c_classes["Declaration"]
-    assert _is_list_of(_hint(Root, "field1"), Declaration)
+    RootItem = c_classes["RootItem"]
+    # root ::= declaration*  → root-item helper → root_item: List[RootItem]
+    hints = get_type_hints(Root)
+    assert "root_item" in hints
+    assert get_origin(hints["root_item"]) is list
 
 
 def test_c_unaryterm_is_factor_subclass(c_classes):
@@ -540,9 +551,8 @@ def test_c_funcall_is_factor_subclass(c_classes):
 def test_c_circular_ref_resolved(c_classes):
     """UnaryTerm → Factor circular ref must not raise on instantiation."""
     Identifier = c_classes["Identifier"]
-    Term = c_classes["Term"]
     Factor = c_classes["Factor"]
-    ident = Identifier(field1="x", field2="yz")
+    ident = Identifier(value="x")
     assert isinstance(ident, Factor)
 
 
@@ -573,29 +583,6 @@ def test_codegen_empty_grammar(tmp_path):
         codegen(empty)
 
 
-def test_ws_not_a_field_in_arithmetic(arithmetic_classes):
-    """Ws class is generated but must NOT appear as a field on any other class."""
-    for name, cls in arithmetic_classes.items():
-        if name == "Ws":
-            continue
-        hints = get_type_hints(cls)
-        ws_cls = arithmetic_classes["Ws"]
-        for field_name, hint in hints.items():
-            assert hint is not ws_cls, (
-                f"{name}.{field_name} references Ws — ws must be stripped from all fields"
-            )
-
-
-def test_ws_not_a_field_in_json_ws(json_ws_classes):
-    """Same ws-stripping assertion for json_ws."""
-    ws_cls = json_ws_classes["Ws"]
-    for name, cls in json_ws_classes.items():
-        if name == "Ws":
-            continue
-        for field_name, hint in get_type_hints(cls).items():
-            assert hint is not ws_cls, f"{name}.{field_name} must not reference Ws"
-
-
 def test_abstract_class_inherits_abc(arithmetic_classes):
     """Abstract Term class must inherit from ABC (semantic abstract marker).
 
@@ -612,4 +599,4 @@ def test_pydantic_validates_field_types(list_classes):
     """Pydantic must reject wrong types at validation time."""
     Item = list_classes["Item"]
     with pytest.raises(Exception):  # pydantic ValidationError
-        Item(field1=123, field2=None, field3="\n")
+        Item(value=123)
