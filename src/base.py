@@ -6,14 +6,11 @@ Knows nothing about codegen, Lark, or GBNF parsing.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, get_origin, get_type_hints
+from typing import Any, ClassVar, get_origin, get_type_hints
 
 from pydantic import BaseModel
 
 from codegen.ir import LiteralAtom, RuleRefAtom, RuleSpec
-
-if TYPE_CHECKING:
-    pass
 
 
 class GrammarModel(BaseModel):
@@ -43,10 +40,32 @@ class GrammarModel(BaseModel):
         try:
             hints = get_type_hints(type(self))
         except NameError:
+            # Fallback for local classes defined in test functions:
+            # Build localns from the instance's globals/locals and try again
             hints = {}
             for base in type(self).__mro__[::-1]:
                 if hasattr(base, "__annotations__"):
                     hints.update(base.__annotations__)
+
+            # Try to resolve string annotations using the frame where the class was defined
+            import inspect
+            frame = inspect.currentframe()
+            caller_locals = {}
+            caller_globals = {}
+            if frame and frame.f_back:
+                caller_locals = frame.f_back.f_locals
+                caller_globals = frame.f_back.f_globals
+
+            resolved_hints = {}
+            for k, v in hints.items():
+                if isinstance(v, str):
+                    try:
+                        resolved_hints[k] = eval(v, caller_globals, caller_locals)
+                    except Exception:
+                        resolved_hints[k] = v
+                else:
+                    resolved_hints[k] = v
+            hints = resolved_hints
 
         inv: dict[int, str] = {idx: name for name, idx in spec.field_map.items()}
         parts: list[str] = []
@@ -63,7 +82,7 @@ class GrammarModel(BaseModel):
                 continue
             hint = hints.get(field_name)
             origin = get_origin(hint)
-            if origin is list or (isinstance(hint, str) and hint.startswith("List")):
+            if origin is list:
                 parts.append("".join(
                     item.to_text() if isinstance(item, GrammarModel) else str(item)
                     for item in val
