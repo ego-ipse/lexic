@@ -79,11 +79,20 @@ class ModelEmitter:
         lines.append(f"from typing import {', '.join(sorted(typing_parts))}")
         lines.append("")
         lines.append("from base import GrammarModel")
-        lines.append(
-            "from codegen.ir import ("
-            "AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec"
-            ")"
-        )
+
+        # Only import atom types that are actually instantiated in this grammar.
+        all_atoms = [a for s in self._specs for a in s.items]
+        used_atoms = sorted({
+            name for name, cls in [
+                ("AlternationAtom", AlternationAtom),
+                ("CharClassAtom", CharClassAtom),
+                ("LiteralAtom", LiteralAtom),
+                ("RuleRefAtom", RuleRefAtom),
+            ]
+            if any(isinstance(a, cls) for a in all_atoms)
+        })
+        ir_imports = ", ".join(["RuleSpec"] + used_atoms)
+        lines.append(f"from codegen.ir import {ir_imports}")
         lines.append("")
         lines.append("")
 
