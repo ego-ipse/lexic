@@ -8,7 +8,9 @@ from lexic.codegen.parser import parse_gbnf
 from lexic.codegen.ir_builder import IRBuilder
 from lexic.codegen.lark_builder import LarkBuilder
 
-GRAMMAR_DIR = Path(__file__).parent.parent / "resources" / "ground_truth"
+GRAMMAR_DIR = (
+    Path(__file__).parent.parent.parent.parent.parent / "resources" / "ground_truth"
+)
 
 
 def _builder(grammar: str) -> LarkBuilder:

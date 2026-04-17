@@ -12,8 +12,10 @@ from lexic.base import GrammarModel
 from lexic.codegen import codegen
 from lexic.ir import RuleSpec
 
-GRAMMAR_DIR = Path(__file__).parent.parent / "resources" / "ground_truth"
-GENERATED_DIR = Path(__file__).parent.parent / "generated"
+GRAMMAR_DIR = (
+    Path(__file__).parent.parent.parent.parent.parent / "resources" / "ground_truth"
+)
+GENERATED_DIR = Path(__file__).parent.parent.parent.parent.parent / "generated"
 
 ALL_GRAMMARS = ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"]
 

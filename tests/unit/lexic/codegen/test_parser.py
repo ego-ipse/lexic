@@ -20,7 +20,9 @@ import pytest
 from lexic.parse import parse
 from lexic.base import GrammarModel
 
-GRAMMAR_DIR = Path(__file__).parent.parent / "resources" / "ground_truth"
+GRAMMAR_DIR = (
+    Path(__file__).parent.parent.parent.parent.parent / "resources" / "ground_truth"
+)
 
 
 def _roundtrip(text: str, grammar: str):
