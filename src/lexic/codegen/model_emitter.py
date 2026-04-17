@@ -113,25 +113,17 @@ class ModelEmitter:
         self._by_rule = {s.rule_name: s for s in specs}
 
     def render(self) -> str:
-        needs_list = any(
-            "List[" in _field_type(a, self._by_rule)
-            for s in self._specs
-            for fname, idx in s.field_map.items()
-            for a in [s.items[idx]]
-        )
-        needs_optional = any(
-            "Optional[" in _field_type(a, self._by_rule)
-            for s in self._specs
-            for fname, idx in s.field_map.items()
-            for a in [s.items[idx]]
-        )
+        needs_list = needs_optional = needs_union = False
         needs_abc = any(s.kind == "alternation" for s in self._specs)
-        needs_union = any(
-            "Union[" in _field_type(a, self._by_rule)
-            for s in self._specs
-            for fname, idx in s.field_map.items()
-            for a in [s.items[idx]]
-        )
+        for s in self._specs:
+            for _fname, idx in s.field_map.items():
+                ft = _field_type(s.items[idx], self._by_rule)
+                if "List[" in ft:
+                    needs_list = True
+                if "Optional[" in ft:
+                    needs_optional = True
+                if "Union[" in ft:
+                    needs_union = True
 
         typing_parts = ["ClassVar"]
         if needs_list:

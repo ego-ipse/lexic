@@ -95,41 +95,6 @@ def _is_single_ruleref(seq: Sequence) -> str | None:
     return None
 
 
-def _group_to_regex(group: Group, quantifier: str | None) -> str:
-    """Convert a GBNF Group (alternation of sequences) into a regex pattern string.
-
-    Used to represent complex inline groups (e.g. the string-char alternatives)
-    as a single regex-style CharClassAtom pattern for the Lark grammar.
-
-    Literals are emitted as-is (their GBNF escape sequences are valid regex escapes).
-    CharClass patterns are emitted verbatim.
-    """
-    arms: list[str] = []
-    for seq in group.alt.seqs:
-        parts: list[str] = []
-        for it in seq.items:
-            if isinstance(it.atom, Literal):
-                # Escape regex metacharacters in the literal so e.g. "*" becomes
-                # "\*" and doesn't look like a quantifier in the pattern.
-                # re.escape handles all regex special chars safely.
-                parts.append(re.escape(it.atom.value))
-            elif isinstance(it.atom, CharClass):
-                q = it.quantifier or ""
-                parts.append(it.atom.pattern + q)
-            elif isinstance(it.atom, Group):
-                nested = _group_to_regex(it.atom, it.quantifier)
-                parts.append(nested)
-            elif isinstance(it.atom, RuleRef):
-                # Can't inline a named rule ref — skip
-                pass
-        arms.append("".join(parts))
-    body = "|".join(arms)
-    result = f"({body})" if len(arms) > 1 else body
-    if quantifier:
-        result += quantifier
-    return result
-
-
 def _to_regex(group: Group) -> str:
     """Convert a GBNF Group to a regex pattern string for Lark terminals."""
     arms: list[str] = []

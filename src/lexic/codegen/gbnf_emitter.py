@@ -19,32 +19,6 @@ from lexic.ir import (
 from lexic.utils.quantifiers import bounds_to_quantifier
 
 
-def _normalize_charclass_pattern_for_gbnf(pattern: str) -> str:
-    """Convert a CharClassAtom pattern to valid GBNF syntax.
-
-    CharClassAtom patterns from IRBuilder may contain regex escape sequences
-    that don't parse as GBNF. This attempts to convert them back to GBNF literals.
-    """
-    # Pattern from IRBuilder._group_to_regex may contain backslash sequences
-    # that are meant for Lark regex, not GBNF. These look like \\\\\\\ in the
-    # Python string (which displays as \\\\\\ in GBNF).
-
-    # Strategy: look for problematic patterns and try to reconstruct GBNF literals.
-    # The pattern |\\\\( is particularly problematic - it represents | followed
-    # by a literal backslash and open paren, but GBNF can't parse \\ outside a string.
-
-    # Replace sequence: \\\\\\\\( becomes "\\\\\\\\("  (GBNF literal for \\()
-    # But this is complex because we need to match the right context.
-
-    # Simpler approach: wrap problematic parts in quotes
-    if "\\\\" in pattern and "|" in pattern:
-        # Look for patterns like |\\\\  which are invalid in GBNF
-        # and wrap them as literals
-        pattern = pattern.replace("|\\\\\\\\(", '|"\\\\\\\\\\\\"(')
-
-    return pattern
-
-
 def _atom_to_gbnf(atom) -> str:
     """Convert an Atom to GBNF string representation."""
     if isinstance(atom, LiteralAtom):
@@ -52,10 +26,8 @@ def _atom_to_gbnf(atom) -> str:
         # Don't escape again - just wrap in quotes.
         return f'"{atom.value}"'
     if isinstance(atom, CharClassAtom):
-        # Normalize pattern to ensure it's valid GBNF
-        pattern = _normalize_charclass_pattern_for_gbnf(atom.pattern)
         q = bounds_to_quantifier(atom.min, atom.max)
-        return f"{pattern}{q}"
+        return f"{atom.pattern}{q}"
     if isinstance(atom, RuleRefAtom):
         q = bounds_to_quantifier(atom.min, atom.max)
         return f"{atom.rule_name}{q}"

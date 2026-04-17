@@ -40,40 +40,6 @@ def _escape_lark_regex(s: str) -> str:
     return s.replace("/", "\\/")
 
 
-def _normalize_charclass_pattern(pattern: str) -> str:
-    """Convert a CharClassAtom pattern to a valid regex usable in Lark /regex/ syntax.
-
-    IRBuilder may store GBNF group expressions as patterns, e.g. '("+"|"-")' or
-    '("true"|"false"|"null")'. These contain GBNF-quoted literals which must be
-    unquoted to form valid regex.
-
-    Also handles \\n etc. stored as 2-char escape sequences.
-    """
-    import re as _re
-
-    # Strip GBNF-style double-quoted literals: replace "text" with text
-    # e.g. ("+"|"-") -> (+|-) -> [+\-] (simplified later)
-    # e.g. ("true"|"false"|"null") -> (true|false|null)
-    # e.g. ("."[0-9]) -> (\.[0-9])
-    def _unquote_literal(m: "_re.Match[str]") -> str:
-        inner = m.group(1)
-        # Escape regex special chars that appear literally in the GBNF quoted string
-        inner = _re.escape(inner)
-        return inner
-
-    # Only unquote if the pattern contains GBNF-style quoted strings
-    if '"' in pattern:
-        pattern = _re.sub(r'"([^"]*)"', _unquote_literal, pattern)
-
-    # Decode \\n etc. stored as 2-char sequences into real regex escape sequences
-    # In regex context: \n means actual newline, which is what we want
-    pattern = pattern.replace("\\\\n", "\\n")
-    pattern = pattern.replace("\\\\t", "\\t")
-    pattern = pattern.replace("\\\\r", "\\r")
-
-    return pattern
-
-
 def _atom_to_lark(atom) -> str:
     if isinstance(atom, LiteralAtom):
         # Decode GBNF escape sequences stored as 2-char sequences
@@ -100,18 +66,8 @@ def _atom_to_lark(atom) -> str:
         return f'"{escaped}"'
     if isinstance(atom, CharClassAtom):
         q = bounds_to_quantifier(atom.min, atom.max)
-        # Normalize: strip GBNF-style quotes, fix escape sequences.
-        # Skip normalization for complex regex patterns (from _group_to_regex)
-        # that already contain structural regex syntax — normalization would
-        # escape their ( ) | [ ] chars and break them.
-        p = atom.pattern
-        is_complex_regex = (
-            p.startswith("(") and "|" in p and not p.startswith("([")
-        ) or (p.startswith("(") and p.count("(") > 1)
-        normalized = p if is_complex_regex else _normalize_charclass_pattern(p)
-        # Escape / so Lark's grammar parser doesn't treat it as regex terminator
-        safe_pattern = _escape_lark_regex(normalized)
-        return f"/{safe_pattern}/{q}"
+        safe = _escape_lark_regex(atom.pattern)
+        return f"/{safe}/{q}"
     if isinstance(atom, RuleRefAtom):
         name = _to_lark_name(atom.rule_name)
         if atom.rule_name == "ws":
