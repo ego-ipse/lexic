@@ -1,25 +1,36 @@
-"""Auto-generated Pydantic models from resources/ground_truth/list.gbnf."""
+"""Auto-generated Pydantic models from /home/mika/projects/vyx_2/resources/ground_truth/list.gbnf."""
 from __future__ import annotations
 
-from typing import List
+from typing import ClassVar, List
 
-from pydantic import BaseModel
-
-
-class Root(BaseModel):
-    """root ::= item+"""
-    field1: List[Item]
-    def to_text(self) -> str:
-        return "".join(i.to_text() for i in self.field1)
+from base import GrammarModel
+from codegen.ir import RuleSpec, CharClassAtom, LiteralAtom, RuleRefAtom
 
 
-class Item(BaseModel):
-    """item ::= \"- \" [^\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029]+ \"\\n\""""
-    field1: str
-    field2: str
-    field3: str
-    def to_text(self) -> str:
-        return self.field1 + self.field2 + self.field3
+class Root(GrammarModel):
+    """root ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="root",
+        class_name="Root",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[RuleRefAtom("item", min=1, max=None)],
+        field_map={"item": 0},
+    )
+    item: List[Item]
+
+
+class Item(GrammarModel):
+    """item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="item",
+        class_name="Item",
+        parent_class_name="GrammarModel",
+        kind="value_str",
+        items=[LiteralAtom("- "), CharClassAtom("[^\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029]", min=1, max=None), LiteralAtom("\\n")],
+        field_map={},
+    )
+    value: str
 
 
 # Resolve forward references

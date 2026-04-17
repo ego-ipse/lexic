@@ -1,94 +1,104 @@
-"""Auto-generated Pydantic models from resources/ground_truth/chess.gbnf."""
+"""Auto-generated Pydantic models from /home/mika/projects/vyx_2/resources/ground_truth/chess.gbnf."""
 from __future__ import annotations
 
-from typing import List, Optional, Union
+from typing import ClassVar, List, Union
 
-from pydantic import BaseModel
-
-
-class RootItem(BaseModel):
-    field1: str
-    field2: Optional[str]
-    field3: str
-    field4: Move
-    field5: str
-    field6: Move
-    field7: str
-    def to_text(self) -> str:
-        return self.field1 + (self.field2 or "") + self.field3 + self.field4.to_text() + self.field5 + self.field6.to_text() + self.field7
+from base import GrammarModel
+from codegen.ir import RuleSpec, AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom
 
 
-class Root(BaseModel):
-    """root ::= \"1. \" move \" \" move \"\\n\" ([1-9] [0-9]? \". \" move \" \" move \"\\n\")+"""
-    field1: str
-    field2: Move
-    field3: str
-    field4: Move
-    field5: str
-    field6: List[RootItem]
-    def to_text(self) -> str:
-        return self.field1 + self.field2.to_text() + self.field3 + self.field4.to_text() + self.field5 + "".join(i.to_text() for i in self.field6)
+class Root(GrammarModel):
+    """root ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="root",
+        class_name="Root",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[LiteralAtom("1. "), RuleRefAtom("move", min=1, max=1), LiteralAtom(" "), RuleRefAtom("move", min=1, max=1), LiteralAtom("\\n"), RuleRefAtom("root-item", min=1, max=None)],
+        field_map={"move": 1, "move2": 3, "root_item": 5},
+    )
+    move: Move
+    move2: Move
+    root_item: List[RootItem]
 
 
-class Move(BaseModel):
-    """move ::= (pawn | nonpawn | castle) [+#]?"""
-    field1: Union[Pawn, Nonpawn, Castle]
-    field2: Optional[str]
-    def to_text(self) -> str:
-        return self.field1.to_text() + (self.field2 or "")
+class RootItem(GrammarModel):
+    """root-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="root-item",
+        class_name="RootItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[CharClassAtom("[1-9]", min=1, max=1), CharClassAtom("[0-9]", min=0, max=1), LiteralAtom(". "), RuleRefAtom("move", min=1, max=1), LiteralAtom(" "), RuleRefAtom("move", min=1, max=1), LiteralAtom("\\n")],
+        field_map={"first": 0, "second": 1, "move": 3, "move2": 5},
+    )
+    first: str
+    second: str
+    move: Move
+    move2: Move
 
 
-class Nonpawn(BaseModel):
-    """nonpawn ::= [NBKQR] [a-h]? [1-8]? \"x\"? [a-h] [1-8]"""
-    field1: str
-    field2: Optional[str]
-    field3: Optional[str]
-    field4: Optional[str]
-    field5: str
-    field6: str
-    def to_text(self) -> str:
-        return self.field1 + (self.field2 or "") + (self.field3 or "") + (self.field4 or "") + self.field5 + self.field6
+class Move(GrammarModel):
+    """move ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="move",
+        class_name="Move",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[AlternationAtom(["pawn", "nonpawn", "castle"]), CharClassAtom("[+#]", min=0, max=1)],
+        field_map={"value": 0, "first": 1},
+    )
+    value: Union[Pawn, Nonpawn, Castle]
+    first: str
 
 
-class PawnOpt1(BaseModel):
-    field1: str
-    field2: str
-    def to_text(self) -> str:
-        return self.field1 + self.field2
+class Nonpawn(GrammarModel):
+    """nonpawn ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="nonpawn",
+        class_name="Nonpawn",
+        parent_class_name="GrammarModel",
+        kind="value_str",
+        items=[CharClassAtom("[NBKQR]", min=1, max=1), CharClassAtom("[a-h]", min=0, max=1), CharClassAtom("[1-8]", min=0, max=1), CharClassAtom("\"x\"", min=0, max=1), CharClassAtom("[a-h]", min=1, max=1), CharClassAtom("[1-8]", min=1, max=1)],
+        field_map={},
+    )
+    value: str
 
 
-class PawnOpt2(BaseModel):
-    field1: str
-    field2: str
-    def to_text(self) -> str:
-        return self.field1 + self.field2
+class Pawn(GrammarModel):
+    """pawn ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="pawn",
+        class_name="Pawn",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[CharClassAtom("([a-h]\"x\")", min=0, max=1), CharClassAtom("[a-h]", min=1, max=1), CharClassAtom("[1-8]", min=1, max=1), CharClassAtom("(\"=\"[NBKQR])", min=0, max=1)],
+        field_map={"first": 0, "second": 1, "third": 2, "fourth": 3},
+    )
+    first: str
+    second: str
+    third: str
+    fourth: str
 
 
-class Pawn(BaseModel):
-    """pawn ::= ([a-h] \"x\")? [a-h] [1-8] (\"=\" [NBKQR])?"""
-    field1: Optional[PawnOpt1]
-    field2: str
-    field3: str
-    field4: Optional[PawnOpt2]
-    def to_text(self) -> str:
-        return (self.field1.to_text() if self.field1 else "") + self.field2 + self.field3 + (self.field4.to_text() if self.field4 else "")
-
-
-class Castle(BaseModel):
-    """castle ::= \"O-O\" \"-O\"?"""
-    field1: str
-    field2: Optional[str]
-    def to_text(self) -> str:
-        return self.field1 + (self.field2 or "")
+class Castle(GrammarModel):
+    """castle ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="castle",
+        class_name="Castle",
+        parent_class_name="GrammarModel",
+        kind="value_str",
+        items=[LiteralAtom("O-O"), CharClassAtom("\"-O\"", min=0, max=1)],
+        field_map={},
+    )
+    value: str
 
 
 # Resolve forward references
 _ns = {k: v for k, v in globals().items() if isinstance(v, type)}
-RootItem.model_rebuild(_types_namespace=_ns)
 Root.model_rebuild(_types_namespace=_ns)
+RootItem.model_rebuild(_types_namespace=_ns)
 Move.model_rebuild(_types_namespace=_ns)
 Nonpawn.model_rebuild(_types_namespace=_ns)
-PawnOpt1.model_rebuild(_types_namespace=_ns)
-PawnOpt2.model_rebuild(_types_namespace=_ns)
 Pawn.model_rebuild(_types_namespace=_ns)
 Castle.model_rebuild(_types_namespace=_ns)

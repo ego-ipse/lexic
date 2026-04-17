@@ -19,6 +19,26 @@ def _field_type(atom, specs_by_rule: dict[str, RuleSpec]) -> str:
         if atom.min == 0 and atom.max == 1:
             return f"Optional[{cls_name}]"
         return f"List[{cls_name}]"
+    if isinstance(atom, AlternationAtom):
+        # Inline alternation inside a sequence: use the common parent if all arms
+        # share one (and it's not the base GrammarModel), otherwise emit a Union.
+        arm_cls_names = [
+            specs_by_rule[name].class_name
+            for name in atom.arm_rule_names
+            if name in specs_by_rule
+        ]
+        parent_classes = {
+            specs_by_rule[name].parent_class_name
+            for name in atom.arm_rule_names
+            if name in specs_by_rule
+        }
+        if len(parent_classes) == 1:
+            parent = next(iter(parent_classes))
+            if parent != "GrammarModel":
+                return parent
+        if arm_cls_names:
+            return "Union[" + ", ".join(arm_cls_names) + "]"
+        return "GrammarModel"
     return "str"
 
 
@@ -62,12 +82,20 @@ class ModelEmitter:
             for a in [s.items[idx]]
         )
         needs_abc = any(s.kind == "alternation" for s in self._specs)
+        needs_union = any(
+            "Union[" in _field_type(a, self._by_rule)
+            for s in self._specs
+            for fname, idx in s.field_map.items()
+            for a in [s.items[idx]]
+        )
 
         typing_parts = ["ClassVar"]
         if needs_list:
             typing_parts.append("List")
         if needs_optional:
             typing_parts.append("Optional")
+        if needs_union:
+            typing_parts.append("Union")
 
         lines = [
             f'"""Auto-generated Pydantic models from {self._grammar_path}."""',
