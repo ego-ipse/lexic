@@ -1,10 +1,7 @@
 """GBNFEmitter reconstructs GBNF text from RuleSpec IR."""
 
 from __future__ import annotations
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
 from codegen.parser import parse_gbnf
