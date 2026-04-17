@@ -52,4 +52,52 @@ class AlternationAtom:
     arm_rule_names: list[str]
 
 
-Atom = LiteralAtom | CharClassAtom | RuleRefAtom | AlternationAtom
+@dataclass
+class QuantifiedLiteralAtom:
+    """A quoted literal with a quantifier — must be a Pydantic field.
+
+    e.g. "-"? becomes QuantifiedLiteralAtom(value="-", min=0, max=1).
+    Replaces the CharClassAtom('"-"', 0, 1) kludge.
+    """
+
+    value: str
+    min: int
+    max: int | None
+
+
+@dataclass
+class InlineRegexAtom:
+    """An inlined group compiled to both regex and GBNF forms at IR build time.
+
+    regex: ready for Lark /regex/ terminal.
+    gbnf:  ready for GBNFEmitter, e.g. ("true"|"false"|"null").
+    Replaces CharClassAtom('("true"|...)', ...) and the _normalize hack.
+    """
+
+    regex: str
+    gbnf: str
+    min: int
+    max: int | None
+
+
+@dataclass
+class InlineAlternationAtom:
+    """Inline alternation inside a sequence, e.g. (pawn | nonpawn | castle).
+
+    Only valid inside kind='sequence' RuleSpecs. Always in field_map.
+    No quantifier — quantified inline alternations become helper rules.
+    Replaces the AlternationAtom dual-contract problem.
+    """
+
+    arm_rule_names: list[str]
+
+
+Atom = (
+    LiteralAtom
+    | CharClassAtom
+    | QuantifiedLiteralAtom
+    | InlineRegexAtom
+    | RuleRefAtom
+    | AlternationAtom
+    | InlineAlternationAtom
+)
