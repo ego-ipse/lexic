@@ -4,6 +4,7 @@ Provides to_text(), to_gbnf(), and semantic_dump() driven entirely by
 __grammar__: RuleSpec on each concrete subclass.
 Knows nothing about codegen, Lark, or GBNF parsing.
 """
+
 from __future__ import annotations
 
 from typing import Any, ClassVar
@@ -45,8 +46,7 @@ class GrammarModel(BaseModel):
                 # Decode GBNF escape sequences stored as 2-char sequences
                 # (e.g. "\\n" → actual newline) before emitting.
                 decoded = (
-                    atom.value
-                    .replace("\\\\", "\x00BS\x00")
+                    atom.value.replace("\\\\", "\x00BS\x00")
                     .replace("\\n", "\n")
                     .replace("\\t", "\t")
                     .replace("\\r", "\r")
@@ -62,10 +62,12 @@ class GrammarModel(BaseModel):
             if val is None:
                 continue
             if isinstance(val, list):
-                parts.append("".join(
-                    item.to_text() if isinstance(item, GrammarModel) else str(item)
-                    for item in val
-                ))
+                parts.append(
+                    "".join(
+                        item.to_text() if isinstance(item, GrammarModel) else str(item)
+                        for item in val
+                    )
+                )
             elif isinstance(val, GrammarModel):
                 parts.append(val.to_text())
             else:
@@ -76,6 +78,7 @@ class GrammarModel(BaseModel):
     def to_gbnf(self) -> str:
         """Reconstruct the GBNF rule for this class's grammar spec."""
         from codegen.gbnf_emitter import GBNFEmitter
+
         return GBNFEmitter([self.__grammar__]).emit_rule(self.__grammar__)
 
     def semantic_dump(self) -> dict[str, Any]:

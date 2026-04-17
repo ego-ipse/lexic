@@ -64,7 +64,7 @@ Runtime:
 ```python
 @dataclass
 class LiteralAtom:
-    value: str                        # e.g. "=" or "(" 
+    value: str                        # e.g. "=" or "("
 
 @dataclass
 class CharClassAtom:

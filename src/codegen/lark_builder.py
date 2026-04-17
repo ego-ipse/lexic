@@ -2,6 +2,7 @@
 
 Single responsibility: knows Lark syntax. Knows nothing about Python source or GBNF text.
 """
+
 from __future__ import annotations
 
 from typing import get_args, get_origin, get_type_hints
@@ -45,12 +46,12 @@ def _decode_gbnf_escapes(s: str) -> str:
     # Order matters: decode \\ first so \\n isn't decoded as \<newline>.
     # Then decode \" as a literal doublequote (GBNF string escape).
     return (
-        s.replace("\\\\", "\x00BACKSLASH\x00")   # protect \\ temporarily
-         .replace("\\n", "\n")
-         .replace("\\t", "\t")
-         .replace("\\r", "\r")
-         .replace('\\"', '"')
-         .replace("\x00BACKSLASH\x00", "\\")
+        s.replace("\\\\", "\x00BACKSLASH\x00")  # protect \\ temporarily
+        .replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace("\\r", "\r")
+        .replace('\\"', '"')
+        .replace("\x00BACKSLASH\x00", "\\")
     )
 
 
@@ -129,9 +130,7 @@ def _atom_to_lark(atom) -> str:
         p = atom.pattern
         is_complex_regex = (
             p.startswith("(") and "|" in p and not p.startswith("([")
-        ) or (
-            p.startswith("(") and p.count("(") > 1
-        )
+        ) or (p.startswith("(") and p.count("(") > 1)
         normalized = p if is_complex_regex else _normalize_charclass_pattern(p)
         # Escape / so Lark's grammar parser doesn't treat it as regex terminator
         safe_pattern = _escape_lark_regex(normalized)
@@ -217,11 +216,18 @@ class LarkBuilder:
                 continue
 
             if spec.kind == "alternation":
+
                 def make_abstract(cn=spec.class_name):
                     def method(self_, items):
-                        children = [i for i in items if i is not None and not isinstance(i, Token)]
+                        children = [
+                            i
+                            for i in items
+                            if i is not None and not isinstance(i, Token)
+                        ]
                         return children[0] if children else None
+
                     return method
+
                 methods[lark_name] = make_abstract()
 
             elif spec.kind == "value_str":
@@ -246,7 +252,9 @@ class LarkBuilder:
                         result: list[str] = []
                         token_placed = False
                         for atom in sp.items:
-                            if isinstance(atom, LiteralAtom) and _literal_is_quoted(atom.value):
+                            if isinstance(atom, LiteralAtom) and _literal_is_quoted(
+                                atom.value
+                            ):
                                 result.append(_decode_gbnf_escapes(atom.value))
                             elif not token_placed:
                                 result.append(token_text)
@@ -254,14 +262,19 @@ class LarkBuilder:
                         if not token_placed:
                             result.append(token_text)
                         return ct(value="".join(result))
+
                     return method
+
                 methods[lark_name] = make_value()
 
             else:
+
                 def make_seq(ct=cls, sp=spec):
                     def method(self_, items):
                         return _build_instance(ct, sp, items)
+
                     return method
+
                 methods[lark_name] = make_seq()
 
         return type("GrammarTransformer", (Transformer,), methods)()
@@ -353,6 +366,8 @@ def _build_instance(cls, spec: RuleSpec, items: list):
                     kwargs[fname] = None
 
         else:
+            if hint is None:
+                continue
             # Non-optional, non-list field.
             # Check whether we have a compatible child; if not, supply a default.
             if child_idx < len(children):
