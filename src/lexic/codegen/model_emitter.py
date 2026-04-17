@@ -5,7 +5,7 @@ Single responsibility: knows Python/Pydantic syntax. Knows nothing about Lark or
 
 from __future__ import annotations
 
-from .ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
 
 
 def _field_type(atom, specs_by_rule: dict[str, RuleSpec]) -> str:
@@ -124,7 +124,7 @@ class ModelEmitter:
             }
         )
         ir_imports = ", ".join(["RuleSpec"] + used_atoms)
-        lines.append(f"from lexic.codegen.ir import {ir_imports}")
+        lines.append(f"from lexic.ir import {ir_imports}")
         lines.append("")
         lines.append("")
 

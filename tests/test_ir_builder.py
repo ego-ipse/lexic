@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from lexic.codegen.parser import parse_gbnf
 from lexic.codegen.ir_builder import IRBuilder
-from lexic.codegen.ir import (
+from lexic.ir import (
     AlternationAtom,
     CharClassAtom,
     LiteralAtom,

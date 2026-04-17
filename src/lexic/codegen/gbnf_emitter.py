@@ -6,7 +6,7 @@ Enables the reverse direction: Pydantic model classes → GBNF grammar file.
 
 from __future__ import annotations
 
-from .ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
 from lexic.utils.quantifiers import bounds_to_quantifier
 
 

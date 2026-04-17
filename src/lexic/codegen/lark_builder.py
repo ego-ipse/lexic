@@ -9,7 +9,7 @@ from typing import get_args, get_origin, get_type_hints
 
 from lark import Token, Transformer, Tree
 
-from .ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
 from lexic.utils.escapes import decode_gbnf_escapes
 from lexic.utils.quantifiers import bounds_to_quantifier
 

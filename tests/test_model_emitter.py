@@ -10,7 +10,7 @@ from typing import get_type_hints
 
 from lexic.base import GrammarModel
 from lexic.codegen import codegen
-from lexic.codegen.ir import RuleSpec
+from lexic.ir import RuleSpec
 
 GRAMMAR_DIR = Path(__file__).parent.parent / "resources" / "ground_truth"
 GENERATED_DIR = Path(__file__).parent.parent / "generated"

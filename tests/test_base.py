@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import ClassVar, List, Optional
 from lexic.base import GrammarModel
-from lexic.codegen.ir import CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.ir import CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
 
 
 # ── value_str ─────────────────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ def test_to_text_optional_absent():
 
 
 def test_to_text_alternation_raises():
-    from lexic.codegen.ir import AlternationAtom
+    from lexic.ir import AlternationAtom
     import pytest
 
     spec = RuleSpec(

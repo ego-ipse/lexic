@@ -10,7 +10,7 @@ import re
 from typing import cast
 
 from .ast import Alternation, CharClass, Group, Item, Literal, Rule, RuleRef, Sequence
-from .ir import (
+from lexic.ir import (
     AlternationAtom,
     Atom,
     CharClassAtom,

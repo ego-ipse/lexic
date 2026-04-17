@@ -62,7 +62,7 @@ def test_arithmetic_emitted_contains_root():
 
 def test_emit_rule_single_spec():
     """emit_rule() on one RuleSpec returns a single ::= line."""
-    from lexic.codegen.ir import CharClassAtom, RuleSpec
+    from lexic.ir import CharClassAtom, RuleSpec
 
     spec = RuleSpec(
         rule_name="ws",

@@ -11,7 +11,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel
 
-from lexic.codegen.ir import LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.ir import LiteralAtom, RuleRefAtom, RuleSpec
 from lexic.utils.escapes import decode_gbnf_escapes
 
 
