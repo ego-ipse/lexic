@@ -337,7 +337,9 @@ def _seq_to_atoms(
                 and len(inner_arms) > 1
                 and all(_is_single_ruleref(a) is not None for a in inner_arms)
             ):
-                arm_names: list[str] = [cast(str, _is_single_ruleref(a)) for a in inner_arms]
+                arm_names: list[str] = [
+                    cast(str, _is_single_ruleref(a)) for a in inner_arms
+                ]
                 atoms.append(AlternationAtom(arm_rule_names=arm_names))
                 continue
 

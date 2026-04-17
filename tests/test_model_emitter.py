@@ -4,9 +4,6 @@ import importlib
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import pytest
 from abc import ABC
 from typing import get_type_hints
