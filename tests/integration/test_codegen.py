@@ -1,4 +1,4 @@
-"""Pytest suite for src/codegen — verifies semantic correctness of generated Pydantic models.
+"""Pytest suite for src/lexic/codegen — verifies semantic correctness of generated Pydantic models.
 
 Expectations derived exclusively from .gsd/milestones/M001/slices/S01/S01-SCENARIOS.md.
 """

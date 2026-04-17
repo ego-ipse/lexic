@@ -21,7 +21,7 @@ from lexic.utils.escapes import decode_gbnf_escapes
 from lexic.utils.quantifiers import bounds_to_quantifier
 
 
-def _to_lark_name(rule_name: str) -> str:
+def to_lark_name(rule_name: str) -> str:
     """Convert GBNF rule name to a valid Lark rule identifier.
 
     Lark rules must be all-lowercase; terminals start with uppercase.
@@ -67,7 +67,7 @@ def _atom_to_lark(atom) -> str:
         safe = _escape_lark_regex(atom.pattern)
         return f"/{safe}/{q}"
     if isinstance(atom, RuleRefAtom):
-        name = _to_lark_name(atom.rule_name)
+        name = to_lark_name(atom.rule_name)
         if atom.rule_name == "ws":
             return "ws?"
         q = bounds_to_quantifier(atom.min, atom.max)
@@ -75,7 +75,7 @@ def _atom_to_lark(atom) -> str:
     if isinstance(atom, AlternationAtom):
         # Parenthesize so inline alternations inside a sequence don't bleed into
         # Lark's rule-level |-alternation.  e.g. (pawn | nonpawn | castle) /[+#]?/
-        return "(" + " | ".join(_to_lark_name(n) for n in atom.arm_rule_names) + ")"
+        return "(" + " | ".join(to_lark_name(n) for n in atom.arm_rule_names) + ")"
     if isinstance(atom, QuantifiedLiteralAtom):
         q = bounds_to_quantifier(atom.min, atom.max)
         decoded = decode_gbnf_escapes(atom.value)
@@ -86,7 +86,7 @@ def _atom_to_lark(atom) -> str:
         safe = _escape_lark_regex(atom.regex)
         return f"/{safe}/{q}"
     if isinstance(atom, InlineAlternationAtom):
-        return "(" + " | ".join(_to_lark_name(n) for n in atom.arm_rule_names) + ")"
+        return "(" + " | ".join(to_lark_name(n) for n in atom.arm_rule_names) + ")"
     return '""'
 
 
@@ -111,11 +111,11 @@ class LarkBuilder:
         if has_ws:
             lines.append(r"ws : /[ \t\n]+/")
 
-        start = _to_lark_name(self._specs[0].rule_name)
+        start = to_lark_name(self._specs[0].rule_name)
         return "\n".join(lines), start
 
     def _spec_to_lark_rule(self, spec: RuleSpec) -> str:
-        lark_name = _to_lark_name(spec.rule_name)
+        lark_name = to_lark_name(spec.rule_name)
         if spec.kind == "value_str":
             # If every item is a LiteralAtom, they are alternatives (disjunction),
             # not a concatenated sequence. Emit with | separators.
@@ -127,7 +127,7 @@ class LarkBuilder:
         if spec.kind == "alternation":
             alt_atom = spec.items[0] if spec.items else None
             if alt_atom and isinstance(alt_atom, AlternationAtom):
-                arms = " | ".join(_to_lark_name(n) for n in alt_atom.arm_rule_names)
+                arms = " | ".join(to_lark_name(n) for n in alt_atom.arm_rule_names)
                 return f"{lark_name} : {arms}"
             return f"{lark_name} :"
         # sequence

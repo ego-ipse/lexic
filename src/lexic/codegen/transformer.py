@@ -16,11 +16,7 @@ from lexic.ir import (
     RuleSpec,
 )
 from lexic.utils.escapes import decode_gbnf_escapes
-
-
-def _to_lark_name(rule_name: str) -> str:
-    """Convert GBNF rule name to a valid Lark rule identifier."""
-    return rule_name.replace("-", "_").lower()
+from lexic.codegen.lark_builder import to_lark_name
 
 
 def _flatten(tree_or_token) -> str:
@@ -191,7 +187,7 @@ def _build_instance(cls, spec: RuleSpec, items: list):
 def build_transformer(specs: list[RuleSpec], classes: dict[str, type]) -> Transformer:
     """Build a Lark Transformer that maps rule names to Pydantic constructors."""
     methods: dict[str, object] = {}
-    specs_by_lark = {_to_lark_name(s.rule_name): s for s in specs}
+    specs_by_lark = {to_lark_name(s.rule_name): s for s in specs}
 
     # ws: return a Ws instance if the class exists, otherwise return the joined text
     ws_cls = classes.get("Ws")

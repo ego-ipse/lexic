@@ -39,6 +39,3 @@ def codegen(grammar_path: str | Path) -> dict[str, type]:
         for s in specs
         if hasattr(mod, s.class_name)
     }
-
-
-generate_classes = codegen

@@ -72,7 +72,7 @@ Each emitter has a single responsibility and knows nothing about the others.
 
 - `RuleRefAtom("ws")` → field `ws`, `ws2`, `ws3` ...
 - `RuleRefAtom("expr")` → field `expr` (rule name is the field name)
-- `CharClassAtom` (first in sequence) → `first`, `second`, `third` by position; or `value` for `value_str` rules
+- `CharClassAtom` → semantic name via `_CHARCLASS_NAMES` lookup (e.g. `[0-9]` → `digit`, `[a-z]` → `lower`, `[a-zA-Z0-9_]` → `alnum`); falls back to `_sanitize_pattern(atom.pattern)`; or `value` for `value_str` rules
 - `LiteralAtom` → no field (emitted directly by `to_text()`)
 
 ### GrammarModel (`src/base.py`)

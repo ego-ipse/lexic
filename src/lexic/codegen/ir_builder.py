@@ -422,11 +422,7 @@ def _seq_to_atoms(
 
             # Inline literal alternation → InlineRegexAtom
             if all(_is_pure_literal_seq(a) for a in inner_arms):
-                atoms.append(
-                    _build_inline_regex(
-                        item.atom, min_ if min_ is not None else 1, max_
-                    )
-                )
+                atoms.append(_build_inline_regex(item.atom, min_, max_))
                 continue
 
             # Inline union of named rules (no quantifier) → InlineAlternationAtom
@@ -557,11 +553,7 @@ class IRBuilder:
                     elif isinstance(it.atom, Group):
                         # Inline group: convert to an InlineRegexAtom.
                         min_, max_ = _quantifier_to_bounds(it.quantifier)
-                        items.append(
-                            _build_inline_regex(
-                                it.atom, min_ if min_ is not None else 1, max_
-                            )
-                        )
+                        items.append(_build_inline_regex(it.atom, min_, max_))
             return [
                 RuleSpec(
                     rule_name=rule.name,
