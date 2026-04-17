@@ -276,6 +276,10 @@ def _sanitize_pattern(pattern: str) -> str:
     """Derive a readable name hint from a bracket expression.
 
     '[NBKQR]' → 'nbkqr', '[a-h]' → 'a_h', '[1-8]' → 'cc_1_8'
+
+    Note: backslash-heavy patterns (e.g. [\\\\n], [\\\\u2028]) produce an
+    empty string here — the caller falls back to a generic quantifier name.
+    Patterns in _CHARCLASS_NAMES are handled before this function is called.
     """
     inner = re.sub(r"[\[\]\^]", "", pattern)
     inner = inner.replace("-", "_").lower()
@@ -289,7 +293,7 @@ def _sanitize_pattern(pattern: str) -> str:
     # Python identifiers cannot start with a digit
     if inner[0].isdigit():
         inner = "cc_" + inner
-    return inner[:12]
+    return inner[:12].strip("_")
 
 
 def _charclass_field_name(atom: "CharClassAtom", min_: int, max_: int | None) -> str:
@@ -328,8 +332,7 @@ def _inline_regex_field_name(gbnf: str) -> str:
         return "inline"
     # Python identifiers cannot start with a digit
     if sanitized[0].isdigit():
-        sanitized = "val_" + sanitized
-        sanitized = sanitized[:12]
+        sanitized = ("val_" + sanitized)[:12].strip("_")
     return sanitized
 
 
@@ -338,7 +341,7 @@ def _assign_field_names(items: list[Atom]) -> dict[str, int]:
     field_map: dict[str, int] = {}
     name_counts: dict[str, int] = {}
 
-    def _unique(base: str, idx: int) -> str:
+    def _unique(base: str) -> str:
         count = name_counts.get(base, 0) + 1
         name_counts[base] = count
         return base if count == 1 else f"{base}{count}"
@@ -351,23 +354,23 @@ def _assign_field_names(items: list[Atom]) -> dict[str, int]:
             continue  # kind='alternation' rules have no fields
 
         if isinstance(atom, InlineAlternationAtom):
-            field_map[_unique("value", i)] = i
+            field_map[_unique("value")] = i
 
         elif isinstance(atom, RuleRefAtom):
             base = atom.rule_name.replace("-", "_")
-            field_map[_unique(base, i)] = i
+            field_map[_unique(base)] = i
 
         elif isinstance(atom, CharClassAtom):
             base = _charclass_field_name(atom, atom.min, atom.max)
-            field_map[_unique(base, i)] = i
+            field_map[_unique(base)] = i
 
         elif isinstance(atom, QuantifiedLiteralAtom):
             base = _quantified_literal_field_name(atom.value)
-            field_map[_unique(base, i)] = i
+            field_map[_unique(base)] = i
 
         elif isinstance(atom, InlineRegexAtom):
             base = _inline_regex_field_name(atom.gbnf)
-            field_map[_unique(base, i)] = i
+            field_map[_unique(base)] = i
 
     return field_map
 

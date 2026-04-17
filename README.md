@@ -17,17 +17,17 @@ Given a GBNF grammar file, Lexon:
 ## Quick start
 
 ```python
-from codegen import codegen
-from parse import parse
+from lexic.codegen import codegen
+from lexic.parse import parse
 
 # Generate Pydantic classes from a grammar
-classes = codegen("resources/ground_truth/arithmetic.gbnf")
+codegen("resources/ground_truth/arithmetic.gbnf")
 
 # Parse text into a typed instance
-result = parse("x = 1\n", "resources/ground_truth/arithmetic.gbnf")
+result = parse("x=1\n", "resources/ground_truth/arithmetic.gbnf")
 
 # Reconstruct original text
-assert result.to_text() == "x = 1\n"
+assert result.to_text() == "x=1\n"
 
 # Cross-grammar-portable data (no whitespace fields)
 result.semantic_dump()
@@ -87,14 +87,14 @@ Seven GBNF grammars in `resources/ground_truth/` serve as ground truth test targ
 uv run pytest tests/ -v
 ```
 
-220 tests across 8 test files covering IR, IRBuilder, ModelEmitter, GrammarModel, LarkBuilder, GBNFEmitter, and full parse round-trips.
+312 tests across unit, integration, and property layers covering IR, IRBuilder, ModelEmitter, GrammarModel, LarkBuilder, GBNFEmitter, full parse round-trips, and hypothesis-driven property tests for all 7 grammars.
 
 ## Upcoming: S04 Translation
 
 S04 is the cross-grammar translation layer — not yet implemented. It will provide:
 
 ```python
-from translate import translate
+from lexic.translate import translate
 
 # Translate a parsed instance from one grammar's format to another
 result_b = translate(result_a, TargetClass)
