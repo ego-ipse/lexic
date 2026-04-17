@@ -1,4 +1,88 @@
-Lexic -> Grammar engine
-Vyx -> meta on top.
+# Lexic
 
-Rename vyx_2 to lexic
+**Status: WIP**
+
+Lexic is the grammar engine layer of the Vyx agent-to-agent protocol. It turns GBNF grammar files into typed Pydantic model classes and back, enabling structured parsing, exact-fidelity text reconstruction, and (upcoming) cross-grammar translation between agent message formats.
+
+## What it does
+
+Given a GBNF grammar file, Lexon:
+
+1. **Generates** typed Pydantic model classes (`codegen`)
+2. **Parses** text into structured model instances (`parse`)
+3. **Reconstructs** the original text from an instance (`instance.to_text()`)
+4. **Reconstructs** the original GBNF from model classes (`instance.to_gbnf()`)
+5. **Dumps** semantic data excluding whitespace fields (`instance.semantic_dump()`) — used for S04 translation
+
+## Quick start
+
+```python
+from codegen import codegen
+from parse import parse
+
+# Generate Pydantic classes from a grammar
+classes = codegen("resources/ground_truth/arithmetic.gbnf")
+
+# Parse text into a typed instance
+result = parse("x = 1\n", "resources/ground_truth/arithmetic.gbnf")
+
+# Reconstruct original text
+assert result.to_text() == "x = 1\n"
+
+# Cross-grammar-portable data (no whitespace fields)
+result.semantic_dump()
+```
+
+## Pipeline
+
+```
+GBNF text
+  ↓  GBNFParser       (codegen/parser.py)
+GBNF AST              (codegen/ast.py)
+  ↓  IRBuilder        (codegen/ir_builder.py)
+RuleSpec IR           (codegen/ir.py)
+  ↓  ModelEmitter  →  generated/*.py     (Pydantic classes with __grammar__)
+  ↓  GBNFEmitter   →  GBNF text          (reverse direction)
+  ↓  LarkBuilder   →  Lark grammar       (drives parse())
+
+Runtime:
+  parse(text, grammar)     →  GrammarModel instance
+  instance.to_text()       →  original text (exact, whitespace-preserving)
+  instance.to_gbnf()       →  GBNF grammar text
+  instance.semantic_dump() →  dict excluding ws fields (S04 prep)
+```
+
+## Test grammars
+
+Seven GBNF grammars in `resources/ground_truth/` serve as ground truth test targets:
+
+| Grammar | Description |
+|---|---|
+| `arithmetic` | Identifiers, assignment, arithmetic expressions |
+| `list` | Markdown-style bullet lists |
+| `json_ws` | JSON with whitespace |
+| `json_arr` | JSON arrays |
+| `chess` | Algebraic chess notation |
+| `japanese` | Hiragana character sequences |
+| `c` | C-like declarations |
+
+## Running tests
+
+```bash
+uv run pytest tests/ -v
+```
+
+220 tests across 8 test files covering IR, IRBuilder, ModelEmitter, GrammarModel, LarkBuilder, GBNFEmitter, and full parse round-trips.
+
+## Upcoming: S04 Translation
+
+S04 is the cross-grammar translation layer — not yet implemented. It will provide:
+
+```python
+from translate import translate
+
+# Translate a parsed instance from one grammar's format to another
+result_b = translate(result_a, TargetClass)
+```
+
+`semantic_dump()` is already implemented on every `GrammarModel` instance as S04 prep — it returns `model_dump()` with `ws` fields excluded, producing a grammar-portable dict that S04 translation logic can reason about.
