@@ -2,6 +2,15 @@
 
 Lexic is the grammar engine layer of Vyx (an agent-to-agent protocol). The repo is currently named `vyx_2`; the canonical name is Lexic.
 
+## Style & structure
+
+Before writing or editing code in this repo, read:
+
+- **[STYLE.md](STYLE.md)** — coding standards: smaller methods, SOLID, avoid deep indentation, fix root causes (don't mute errors or patch symptoms), general Python practices. These rules apply to every change.
+- **[STRUCTURE.md](STRUCTURE.md)** — proposed file/class layout for `src/lexic/`, tied to the concerns in `OPUS_REVIEW_V3.md`. Consult before adding new modules or splitting existing ones.
+
+If a rule in `STYLE.md` conflicts with a specific instruction below, the specific instruction wins for its domain. Otherwise `STYLE.md` is the default.
+
 ## Commands
 
 Always prefix with `uv run`:
