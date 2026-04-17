@@ -88,6 +88,40 @@ def _is_single_ruleref(seq: Sequence) -> str | None:
     return None
 
 
+def _group_to_regex(group: Group, quantifier: str | None) -> str:
+    """Convert a GBNF Group (alternation of sequences) into a regex pattern string.
+
+    Used to represent complex inline groups (e.g. the string-char alternatives)
+    as a single regex-style CharClassAtom pattern for the Lark grammar.
+
+    Literals are emitted as-is (their GBNF escape sequences are valid regex escapes).
+    CharClass patterns are emitted verbatim.
+    """
+    arms: list[str] = []
+    for seq in group.alt.seqs:
+        parts: list[str] = []
+        for it in seq.items:
+            if isinstance(it.atom, Literal):
+                # Emit the literal value directly as a regex fragment.
+                # GBNF escapes like \\ are valid regex escapes.
+                parts.append(it.atom.value)
+            elif isinstance(it.atom, CharClass):
+                q = it.quantifier or ""
+                parts.append(it.atom.pattern + q)
+            elif isinstance(it.atom, Group):
+                nested = _group_to_regex(it.atom, it.quantifier)
+                parts.append(nested)
+            elif isinstance(it.atom, RuleRef):
+                # Can't inline a named rule ref — skip
+                pass
+        arms.append("".join(parts))
+    body = "|".join(arms)
+    result = f"({body})" if len(arms) > 1 else body
+    if quantifier:
+        result += quantifier
+    return result
+
+
 def _unwrap_group_alt(alt: Alternation) -> Alternation:
     if len(alt.seqs) != 1:
         return alt
@@ -184,11 +218,11 @@ _CC_NAMES = ["first", "second", "third", "fourth", "fifth"]
 
 
 def _assign_field_names(items: list[Atom]) -> dict[str, int]:
-    """Assign semantic field names to non-literal, non-alternation atoms.
+    """Assign semantic field names to non-literal atoms.
 
     Rules:
     - LiteralAtom → never a field
-    - AlternationAtom → never a field
+    - AlternationAtom in a sequence → field name "value" (holds the chosen arm)
     - RuleRefAtom(rule_name) → field name = rule_name (underscores for hyphens)
       Duplicates get suffix: 'ws', 'ws2', 'ws3', etc.
     - CharClassAtom → 'first', 'second', 'third', ... by position among char classes
@@ -198,7 +232,12 @@ def _assign_field_names(items: list[Atom]) -> dict[str, int]:
     cc_count = 0
 
     for i, atom in enumerate(items):
-        if isinstance(atom, (LiteralAtom, AlternationAtom)):
+        if isinstance(atom, LiteralAtom):
+            continue
+
+        if isinstance(atom, AlternationAtom):
+            # Inline alternation inside a sequence: store chosen arm as "value".
+            field_map["value"] = i
             continue
 
         if isinstance(atom, RuleRefAtom):
@@ -235,7 +274,9 @@ def _seq_to_atoms(
 
     for item in seq.items:
         if isinstance(item.atom, Literal):
-            if item.quantifier in ("+", "*"):
+            if item.quantifier in ("+", "*", "?"):
+                # Quantified literal: represent as CharClassAtom so the optional/
+                # repeated nature is preserved in the IR and Lark grammar.
                 min_, max_ = _quantifier_to_bounds(item.quantifier)
                 atoms.append(CharClassAtom(
                     pattern=f'"{item.atom.value}"',
@@ -387,7 +428,22 @@ class IRBuilder:
                         min_, max_ = _quantifier_to_bounds(it.quantifier)
                         items.append(CharClassAtom(it.atom.pattern, min_, max_))
                     elif isinstance(it.atom, Literal):
-                        items.append(LiteralAtom(it.atom.value))
+                        if it.quantifier in ("+", "*", "?"):
+                            # Quantified literal: represent as CharClassAtom to
+                            # preserve optionality/repetition in the IR.
+                            min_, max_ = _quantifier_to_bounds(it.quantifier)
+                            items.append(CharClassAtom(
+                                pattern=f'"{it.atom.value}"',
+                                min=min_,
+                                max=max_,
+                            ))
+                        else:
+                            items.append(LiteralAtom(it.atom.value))
+                    elif isinstance(it.atom, Group):
+                        # Inline group: convert to a regex pattern CharClassAtom.
+                        min_, max_ = _quantifier_to_bounds(it.quantifier)
+                        pattern = _group_to_regex(it.atom, None)
+                        items.append(CharClassAtom(pattern=pattern, min=min_, max=max_))
             return [RuleSpec(
                 rule_name=rule.name,
                 class_name=cls_name,

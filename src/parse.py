@@ -33,7 +33,6 @@ def parse(text: str, grammar_path: str | Path) -> object:
         parser="earley",
         ambiguity="resolve",
         start=start_rule,
-        keep_all_tokens=True,
     )
     tree = parser.parse(text)
     transformer = builder.build_transformer(classes)

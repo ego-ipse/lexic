@@ -42,7 +42,18 @@ class GrammarModel(BaseModel):
 
         for i, atom in enumerate(spec.items):
             if isinstance(atom, LiteralAtom):
-                parts.append(atom.value)
+                # Decode GBNF escape sequences stored as 2-char sequences
+                # (e.g. "\\n" → actual newline) before emitting.
+                decoded = (
+                    atom.value
+                    .replace("\\\\", "\x00BS\x00")
+                    .replace("\\n", "\n")
+                    .replace("\\t", "\t")
+                    .replace("\\r", "\r")
+                    .replace('\\"', '"')
+                    .replace("\x00BS\x00", "\\")
+                )
+                parts.append(decoded)
                 continue
             if i not in inv:
                 continue

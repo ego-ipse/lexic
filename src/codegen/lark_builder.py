@@ -42,11 +42,15 @@ def _decode_gbnf_escapes(s: str) -> str:
     IRBuilder stores \\n as the 2-char sequence '\\n', not an actual newline.
     This function converts them to real characters.
     """
+    # Order matters: decode \\ first so \\n isn't decoded as \<newline>.
+    # Then decode \" as a literal doublequote (GBNF string escape).
     return (
-        s.replace("\\n", "\n")
+        s.replace("\\\\", "\x00BACKSLASH\x00")   # protect \\ temporarily
+         .replace("\\n", "\n")
          .replace("\\t", "\t")
          .replace("\\r", "\r")
-         .replace("\\\\", "\\")
+         .replace('\\"', '"')
+         .replace("\x00BACKSLASH\x00", "\\")
     )
 
 
@@ -118,8 +122,17 @@ def _atom_to_lark(atom) -> str:
         return f'"{escaped}"'
     if isinstance(atom, CharClassAtom):
         q = _bounds_to_quantifier(atom.min, atom.max)
-        # Normalize: strip GBNF-style quotes, fix escape sequences
-        normalized = _normalize_charclass_pattern(atom.pattern)
+        # Normalize: strip GBNF-style quotes, fix escape sequences.
+        # Skip normalization for complex regex patterns (from _group_to_regex)
+        # that already contain structural regex syntax — normalization would
+        # escape their ( ) | [ ] chars and break them.
+        p = atom.pattern
+        is_complex_regex = (
+            p.startswith("(") and "|" in p and not p.startswith("([")
+        ) or (
+            p.startswith("(") and p.count("(") > 1
+        )
+        normalized = p if is_complex_regex else _normalize_charclass_pattern(p)
         # Escape / so Lark's grammar parser doesn't treat it as regex terminator
         safe_pattern = _escape_lark_regex(normalized)
         return f"/{safe_pattern}/{q}"
@@ -130,7 +143,9 @@ def _atom_to_lark(atom) -> str:
         q = _bounds_to_quantifier(atom.min, atom.max)
         return f"{name}{q}"
     if isinstance(atom, AlternationAtom):
-        return " | ".join(_to_lark_name(n) for n in atom.arm_rule_names)
+        # Parenthesize so inline alternations inside a sequence don't bleed into
+        # Lark's rule-level |-alternation.  e.g. (pawn | nonpawn | castle) /[+#]?/
+        return "(" + " | ".join(_to_lark_name(n) for n in atom.arm_rule_names) + ")"
     return '""'
 
 
@@ -210,10 +225,35 @@ class LarkBuilder:
                 methods[lark_name] = make_abstract()
 
             elif spec.kind == "value_str":
-                def make_value(ct=cls):
+                # With keep_all_tokens=False, Lark filters out quoted-literal
+                # tokens but keeps regex terminals. LiteralAtoms that contain
+                # control chars (\n \t \r) are emitted as /regex/ (kept as tokens);
+                # printable-only LiteralAtoms are emitted as "quoted" (filtered).
+                # We reconstruct the full text by inserting filtered literal text
+                # around the token stream in spec order.
+                def _literal_is_quoted(lit_value: str) -> bool:
+                    decoded = _decode_gbnf_escapes(lit_value)
+                    return not any(c in decoded for c in "\n\t\r")
+
+                def make_value(ct=cls, sp=spec):
                     def method(self_, items):
-                        val = "".join(str(i) for i in items if i is not None)
-                        return ct(value=val)
+                        # Token stream: all non-filtered content (charclass tokens +
+                        # regex-literal tokens like \n).
+                        token_text = "".join(str(i) for i in items if i is not None)
+                        # Reconstruct full text: walk spec, insert filtered literals
+                        # at their positions, place token_text at the first
+                        # non-filtered-literal position.
+                        result: list[str] = []
+                        token_placed = False
+                        for atom in sp.items:
+                            if isinstance(atom, LiteralAtom) and _literal_is_quoted(atom.value):
+                                result.append(_decode_gbnf_escapes(atom.value))
+                            elif not token_placed:
+                                result.append(token_text)
+                                token_placed = True
+                        if not token_placed:
+                            result.append(token_text)
+                        return ct(value="".join(result))
                     return method
                 methods[lark_name] = make_value()
 
@@ -236,7 +276,11 @@ def _flatten(tree_or_token) -> str:
 
 
 def _build_instance(cls, spec: RuleSpec, items: list):
-    """Build a Pydantic instance from Lark tree children using spec.field_map."""
+    """Build a Pydantic instance from Lark tree children using spec.field_map.
+
+    Uses spec.items[item_idx] to determine each atom's nature and provide
+    sensible defaults when optional atoms produce no Lark token/tree.
+    """
     from base import GrammarModel
 
     children = [i for i in items if i is not None]
@@ -249,10 +293,23 @@ def _build_instance(cls, spec: RuleSpec, items: list):
     except Exception:
         hints = {k: v for k, v in cls.__annotations__.items()}
 
+    def _atom_for(item_idx: int):
+        """Return the spec atom at item_idx, or None if out of range."""
+        if 0 <= item_idx < len(spec.items):
+            return spec.items[item_idx]
+        return None
+
+    def _is_ws_ref(atom) -> bool:
+        return isinstance(atom, RuleRefAtom) and atom.rule_name == "ws"
+
+    def _is_optional_char(atom) -> bool:
+        return isinstance(atom, CharClassAtom) and atom.min == 0
+
     for fname, item_idx in ordered:
         hint = hints.get(fname)
         origin = get_origin(hint)
         args = get_args(hint)
+        atom = _atom_for(item_idx)
 
         if origin is list:
             inner = args[0] if args else type(None)
@@ -268,6 +325,10 @@ def _build_instance(cls, spec: RuleSpec, items: list):
                 else:
                     if isinstance(c, GrammarModel) and isinstance(c, inner):
                         collected.append(c)
+                        child_idx += 1
+                    elif isinstance(c, (Token, str)):
+                        # Skip stray literal/regex tokens that sit between model
+                        # children (e.g. a '\n' token between two list items).
                         child_idx += 1
                     else:
                         break
@@ -292,12 +353,42 @@ def _build_instance(cls, spec: RuleSpec, items: list):
                     kwargs[fname] = None
 
         else:
+            # Non-optional, non-list field.
+            # Check whether we have a compatible child; if not, supply a default.
             if child_idx < len(children):
                 c = children[child_idx]
-                if isinstance(c, (Token, str)):
-                    kwargs[fname] = str(c)
+                if hint is str or hint is type(None):
+                    if isinstance(c, (Token, str)):
+                        kwargs[fname] = str(c)
+                        child_idx += 1
+                    elif _is_optional_char(atom):
+                        # CharClassAtom(min=0) matched nothing — default to ""
+                        kwargs[fname] = ""
+                    else:
+                        kwargs[fname] = str(c)
+                        child_idx += 1
                 else:
-                    kwargs[fname] = c
-                child_idx += 1
+                    # Expect a GrammarModel subclass (e.g. Ws)
+                    if isinstance(c, hint):
+                        kwargs[fname] = c
+                        child_idx += 1
+                    elif _is_ws_ref(atom):
+                        # ws? produced nothing; provide empty Ws instance
+                        kwargs[fname] = hint(value="")
+                    elif _is_optional_char(atom):
+                        kwargs[fname] = ""
+                    else:
+                        # Wrong type but nothing better — take the child anyway
+                        kwargs[fname] = c
+                        child_idx += 1
+            else:
+                # No children left
+                if hint is str or hint is type(None):
+                    kwargs[fname] = ""
+                elif _is_ws_ref(atom):
+                    kwargs[fname] = hint(value="")
+                elif _is_optional_char(atom):
+                    kwargs[fname] = ""
+                # else: leave unset and let Pydantic raise (required field truly missing)
 
     return cls(**kwargs)
