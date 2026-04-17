@@ -124,8 +124,21 @@ def _build_instance(cls, spec: RuleSpec, items: list):
                 c = children[child_idx]
                 if hint is str or hint is type(None):
                     if isinstance(c, (Token, str)):
-                        kwargs[fname] = str(c)
-                        child_idx += 1
+                        # CharClassAtom with max != 1 (e.g. [a-z0-9_]* or [0-9]+)
+                        # may produce multiple tokens (one per matched char). Consume
+                        # all consecutive string tokens so multi-char matches round-trip.
+                        if isinstance(atom, CharClassAtom) and atom.max != 1:
+                            parts = [str(c)]
+                            child_idx += 1
+                            while child_idx < len(children) and isinstance(
+                                children[child_idx], (Token, str)
+                            ):
+                                parts.append(str(children[child_idx]))
+                                child_idx += 1
+                            kwargs[fname] = "".join(parts)
+                        else:
+                            kwargs[fname] = str(c)
+                            child_idx += 1
                     elif _is_optional_char(atom):
                         # CharClassAtom(min=0) matched nothing — default to ""
                         kwargs[fname] = ""
