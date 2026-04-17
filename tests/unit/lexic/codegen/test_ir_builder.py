@@ -107,11 +107,11 @@ def test_arithmetic_ident_field_map():
     d = _by_rule(_build("arithmetic"))
     ident = d["ident"]
     fm = ident.field_map
-    assert "first" in fm  # [a-z]
-    assert "second" in fm  # [a-z0-9_]*
+    assert "lower" in fm  # [a-z]
+    assert "alnum" in fm  # [a-z0-9_]*
     assert "ws" in fm  # ws
-    assert fm["first"] == 0
-    assert fm["second"] == 1
+    assert fm["lower"] == 0
+    assert fm["alnum"] == 1
     assert fm["ws"] == 2
 
 
@@ -287,3 +287,42 @@ def test_topo_sort_root_is_first():
         assert specs[0].rule_name == "root", (
             f"{grammar}: first spec is {specs[0].rule_name!r}"
         )
+
+
+def test_ident_field_names_are_semantic():
+    """[a-z] → 'lower', [a-z0-9_]* → 'alnum', not 'first'/'second'."""
+    d = _by_rule(_build("arithmetic"))
+    ident = d["ident"]
+    assert "lower" in ident.field_map, f"Expected 'lower', got {list(ident.field_map)}"
+    assert "alnum" in ident.field_map, f"Expected 'alnum', got {list(ident.field_map)}"
+    assert "first" not in ident.field_map
+    assert "second" not in ident.field_map
+
+
+def test_chess_root_item_field_names():
+    """[1-9] → 'digit', not 'first'."""
+    d = _by_rule(_build("chess"))
+    root_item = d["root-item"]
+    assert "digit" in root_item.field_map, f"Got {list(root_item.field_map)}"
+    assert "first" not in root_item.field_map
+
+
+def test_no_positional_names_any_grammar():
+    """No field should be named 'first', 'second', 'third', 'fourth', 'fifth'."""
+    positional = {"first", "second", "third", "fourth", "fifth"}
+    for grammar in [
+        "arithmetic",
+        "c",
+        "chess",
+        "japanese",
+        "json_arr",
+        "json_ws",
+        "list",
+    ]:
+        specs = _build(grammar)
+        for spec in specs:
+            for fname in spec.field_map:
+                assert fname not in positional, (
+                    f"Grammar '{grammar}', rule '{spec.rule_name}': "
+                    f"field '{fname}' is a positional name"
+                )

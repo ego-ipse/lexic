@@ -108,10 +108,10 @@ def test_arithmetic_ident_parent_is_term(arithmetic_mod):
 
 def test_arithmetic_ident_fields(arithmetic_mod):
     hints = get_type_hints(arithmetic_mod.Ident)
-    assert "first" in hints
-    assert hints["first"] is str
-    assert "second" in hints
-    assert hints["second"] is str
+    assert "lower" in hints
+    assert hints["lower"] is str
+    assert "alnum" in hints
+    assert hints["alnum"] is str
     assert "ws" in hints
 
 

@@ -30,9 +30,9 @@ class RootItem(GrammarModel):
         parent_class_name="GrammarModel",
         kind="sequence",
         items=[CharClassAtom("[ \\t\\n]", min=1, max=1), RuleRefAtom("jp-char", min=1, max=None)],
-        field_map={"first": 0, "jp_char": 1},
+        field_map={"ws_char": 0, "jp_char": 1},
     )
-    first: str
+    ws_char: str
     jp_char: List[JpChar]
 
 

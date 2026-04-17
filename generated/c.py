@@ -324,9 +324,9 @@ class ExpressionItem(GrammarModel):
         parent_class_name="GrammarModel",
         kind="sequence",
         items=[InlineRegexAtom("(\\+|\\-)", "(\"+\"|\"-\")", min=1, max=1), RuleRefAtom("term", min=1, max=1)],
-        field_map={"first": 0, "term": 1},
+        field_map={"inline": 0, "term": 1},
     )
-    first: str
+    inline: str
     term: Term
 
 
@@ -352,9 +352,9 @@ class TermItem(GrammarModel):
         parent_class_name="GrammarModel",
         kind="sequence",
         items=[InlineRegexAtom("(\\*|/)", "(\"*\"|\"/\")", min=1, max=1), RuleRefAtom("factor", min=1, max=1)],
-        field_map={"first": 0, "factor": 1},
+        field_map={"inline": 0, "factor": 1},
     )
-    first: str
+    inline: str
     factor: Factor
 
 

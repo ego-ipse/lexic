@@ -43,9 +43,9 @@ class ExprItem(GrammarModel):
         parent_class_name="GrammarModel",
         kind="sequence",
         items=[CharClassAtom("[-+*/]", min=1, max=1), RuleRefAtom("term", min=1, max=1)],
-        field_map={"first": 0, "term": 1},
+        field_map={"op": 0, "term": 1},
     )
-    first: str
+    op: str
     term: Term
 
 
@@ -97,10 +97,10 @@ class Ident(Term):
         parent_class_name="Term",
         kind="sequence",
         items=[CharClassAtom("[a-z]", min=1, max=1), CharClassAtom("[a-z0-9_]", min=0, max=None), RuleRefAtom("ws", min=1, max=1)],
-        field_map={"first": 0, "second": 1, "ws": 2},
+        field_map={"lower": 0, "alnum": 1, "ws": 2},
     )
-    first: str
-    second: str
+    lower: str
+    alnum: str
     ws: Ws
 
 
@@ -112,9 +112,9 @@ class Num(Term):
         parent_class_name="Term",
         kind="sequence",
         items=[CharClassAtom("[0-9]", min=1, max=None), RuleRefAtom("ws", min=1, max=1)],
-        field_map={"first": 0, "ws": 1},
+        field_map={"digit": 0, "ws": 1},
     )
-    first: str
+    digit: str
     ws: Ws
 
 

@@ -233,49 +233,141 @@ def _classify(rule: Rule) -> str:
     return "named_alt"
 
 
-# ── Field naming ─────────────────────────────────────────────────────────────
+# ── Semantic field naming ─────────────────────────────────────────────────────
 
-_CC_NAMES = ["first", "second", "third", "fourth", "fifth"]
+_CHARCLASS_NAMES: dict[str, str] = {
+    "[0-9]": "digit",
+    "[1-9]": "digit",
+    "[0-9a-fA-F]": "hex",
+    "[a-fA-F0-9]": "hex",
+    "[a-f]": "hex_lower",
+    "[A-F]": "hex_upper",
+    "[a-z]": "lower",
+    "[A-Z]": "upper",
+    "[a-zA-Z]": "alpha",
+    "[a-z0-9_]": "alnum",
+    "[a-zA-Z_]": "name_start",
+    "[a-zA-Z0-9_]": "alnum",
+    "[a-zA-Z_0-9]": "alnum",
+    "[+\\-*/]": "op",
+    "[-+*/]": "op",
+    "[+#]": "annotation",
+    "[ \\t\\n]": "ws_char",
+    "[ \\t]": "hspace",
+    "[^\\n]": "non_newline",
+    '[^"\\\\]': "str_char",
+}
+
+_LITERAL_NAMES: dict[str, str] = {
+    "-": "sign",
+    "+": "sign",
+    ".": "dot",
+    ",": "comma",
+    ":": "colon",
+    ";": "semicolon",
+    "=": "eq",
+    "x": "x",
+    "e": "e",
+    "E": "E",
+}
+
+
+def _sanitize_pattern(pattern: str) -> str:
+    """Derive a readable name hint from a bracket expression.
+
+    '[NBKQR]' → 'nbkqr', '[a-h]' → 'a_h', '[1-8]' → 'cc_1_8'
+    """
+    inner = re.sub(r"[\[\]\^]", "", pattern)
+    inner = inner.replace("-", "_").lower()
+    # Remove any remaining non-identifier characters
+    inner = re.sub(r"[^a-z0-9_]", "", inner)
+    inner = inner.strip("_")
+    # Collapse repeated underscores
+    inner = re.sub(r"_+", "_", inner)
+    if not inner:
+        return ""
+    # Python identifiers cannot start with a digit
+    if inner[0].isdigit():
+        inner = "cc_" + inner
+    return inner[:12]
+
+
+def _charclass_field_name(atom: "CharClassAtom", min_: int, max_: int | None) -> str:
+    """Derive a semantic field name for a CharClassAtom."""
+    if atom.pattern in _CHARCLASS_NAMES:
+        return _CHARCLASS_NAMES[atom.pattern]
+    hint = _sanitize_pattern(atom.pattern)
+    if hint:
+        return hint
+    if max_ is None:
+        return "tail"
+    if min_ == 0 and max_ == 1:
+        return "opt"
+    return "cc"
+
+
+def _quantified_literal_field_name(value: str) -> str:
+    """Derive a field name for a QuantifiedLiteralAtom."""
+    if value in _LITERAL_NAMES:
+        return _LITERAL_NAMES[value]
+    sanitized = re.sub(r"[^a-zA-Z0-9]", "_", value).strip("_").lower()[:12]
+    return sanitized or "lit"
+
+
+def _inline_regex_field_name(gbnf: str) -> str:
+    """Derive a field name for an InlineRegexAtom from its first arm."""
+    body = gbnf.strip()
+    if body.startswith("(") and body.endswith(")"):
+        body = body[1:-1]
+    first_arm = body.split("|")[0].strip().strip('"')
+    sanitized = re.sub(r"[^a-zA-Z0-9]", "_", first_arm).strip("_").lower()
+    # Collapse repeated underscores
+    sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+    sanitized = sanitized[:12]
+    if not sanitized:
+        return "inline"
+    # Python identifiers cannot start with a digit
+    if sanitized[0].isdigit():
+        sanitized = "val_" + sanitized
+        sanitized = sanitized[:12]
+    return sanitized
 
 
 def _assign_field_names(items: list[Atom]) -> dict[str, int]:
-    """Assign semantic field names to non-literal atoms.
-
-    Rules:
-    - LiteralAtom → never a field
-    - AlternationAtom in a sequence → field name "value" (holds the chosen arm)
-    - RuleRefAtom(rule_name) → field name = rule_name (underscores for hyphens)
-      Duplicates get suffix: 'ws', 'ws2', 'ws3', etc.
-    - CharClassAtom → 'first', 'second', 'third', ... by position among char classes
-    """
+    """Assign semantic field names to non-literal atoms."""
     field_map: dict[str, int] = {}
-    rule_ref_counts: dict[str, int] = {}
-    cc_count = 0
+    name_counts: dict[str, int] = {}
+
+    def _unique(base: str, idx: int) -> str:
+        count = name_counts.get(base, 0) + 1
+        name_counts[base] = count
+        return base if count == 1 else f"{base}{count}"
 
     for i, atom in enumerate(items):
         if isinstance(atom, LiteralAtom):
             continue
 
-        if isinstance(atom, (AlternationAtom, InlineAlternationAtom)):
-            # Inline alternation inside a sequence: store chosen arm as "value".
-            field_map["value"] = i
-            continue
+        if isinstance(atom, AlternationAtom):
+            continue  # kind='alternation' rules have no fields
 
-        if isinstance(atom, RuleRefAtom):
+        if isinstance(atom, InlineAlternationAtom):
+            field_map[_unique("value", i)] = i
+
+        elif isinstance(atom, RuleRefAtom):
             base = atom.rule_name.replace("-", "_")
-            count = rule_ref_counts.get(base, 0) + 1
-            rule_ref_counts[base] = count
-            fname = base if count == 1 else f"{base}{count}"
-            field_map[fname] = i
+            field_map[_unique(base, i)] = i
 
-        elif isinstance(atom, (CharClassAtom, QuantifiedLiteralAtom, InlineRegexAtom)):
-            cc_count += 1
-            fname = (
-                _CC_NAMES[cc_count - 1]
-                if cc_count <= len(_CC_NAMES)
-                else f"cc{cc_count}"
-            )
-            field_map[fname] = i
+        elif isinstance(atom, CharClassAtom):
+            base = _charclass_field_name(atom, atom.min, atom.max)
+            field_map[_unique(base, i)] = i
+
+        elif isinstance(atom, QuantifiedLiteralAtom):
+            base = _quantified_literal_field_name(atom.value)
+            field_map[_unique(base, i)] = i
+
+        elif isinstance(atom, InlineRegexAtom):
+            base = _inline_regex_field_name(atom.gbnf)
+            field_map[_unique(base, i)] = i
 
     return field_map
 

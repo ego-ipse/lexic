@@ -30,10 +30,10 @@ class RootItem(GrammarModel):
         parent_class_name="GrammarModel",
         kind="sequence",
         items=[CharClassAtom("[1-9]", min=1, max=1), CharClassAtom("[0-9]", min=0, max=1), LiteralAtom(". "), RuleRefAtom("move", min=1, max=1), LiteralAtom(" "), RuleRefAtom("move", min=1, max=1), LiteralAtom("\\n")],
-        field_map={"first": 0, "second": 1, "move": 3, "move2": 5},
+        field_map={"digit": 0, "digit2": 1, "move": 3, "move2": 5},
     )
-    first: str
-    second: str
+    digit: str
+    digit2: str
     move: Move
     move2: Move
 
@@ -46,10 +46,10 @@ class Move(GrammarModel):
         parent_class_name="GrammarModel",
         kind="sequence",
         items=[InlineAlternationAtom(["pawn", "nonpawn", "castle"]), CharClassAtom("[+#]", min=0, max=1)],
-        field_map={"value": 0, "first": 1},
+        field_map={"value": 0, "annotation": 1},
     )
     value: Union[Pawn, Nonpawn, Castle]
-    first: str
+    annotation: str
 
 
 class Nonpawn(GrammarModel):
@@ -73,12 +73,12 @@ class Pawn(GrammarModel):
         parent_class_name="GrammarModel",
         kind="sequence",
         items=[InlineRegexAtom("[a-h]x", "[a-h]\"x\"", min=0, max=1), CharClassAtom("[a-h]", min=1, max=1), CharClassAtom("[1-8]", min=1, max=1), InlineRegexAtom("=[NBKQR]", "\"=\"[NBKQR]", min=0, max=1)],
-        field_map={"first": 0, "second": 1, "third": 2, "fourth": 3},
+        field_map={"a_h_x": 0, "a_h": 1, "cc_1_8": 2, "nbkqr": 3},
     )
-    first: str
-    second: str
-    third: str
-    fourth: str
+    a_h_x: str
+    a_h: str
+    cc_1_8: str
+    nbkqr: str
 
 
 class Castle(GrammarModel):

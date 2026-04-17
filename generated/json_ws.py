@@ -42,9 +42,9 @@ class ValueArm5(Value):
         parent_class_name="Value",
         kind="sequence",
         items=[InlineRegexAtom("(true|false|null)", "(\"true\"|\"false\"|\"null\")", min=1, max=1)],
-        field_map={"first": 0},
+        field_map={"true": 0},
     )
-    first: str
+    true: str
 
 
 class ObjectitemItem(GrammarModel):
@@ -154,12 +154,12 @@ class Number(Value):
         parent_class_name="Value",
         kind="sequence",
         items=[QuantifiedLiteralAtom("-", min=0, max=1), InlineRegexAtom("([0-9]|[1-9][0-9]{0,15})", "([0-9]|[1-9][0-9]{0,15})", min=1, max=1), InlineRegexAtom("\\.[0-9]+", "\".\"[0-9]+", min=0, max=1), InlineRegexAtom("[eE][-+]?[0-9][1-9]{0,15}", "[eE][-+]?[0-9][1-9]{0,15}", min=0, max=1), RuleRefAtom("ws", min=1, max=1)],
-        field_map={"first": 0, "second": 1, "third": 2, "fourth": 3, "ws": 4},
+        field_map={"sign": 0, "val_0_9": 1, "val_0_92": 2, "ee_0_9_1_9_0": 3, "ws": 4},
     )
-    first: str
-    second: str
-    third: str
-    fourth: str
+    sign: str
+    val_0_9: str
+    val_0_92: str
+    ee_0_9_1_9_0: str
     ws: Ws
 
 

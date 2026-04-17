@@ -157,16 +157,16 @@ def test_arithmetic_termarm3_is_subclass_of_term(arithmetic_classes):
 def test_arithmetic_ident_fields(arithmetic_classes):
     Ident = arithmetic_classes["Ident"]
     # ident ::= [a-z] [a-z0-9_]* ws
-    # CharClassAtoms → "first", "second"; RuleRefAtom(ws) → "ws"
-    assert _hint(Ident, "first") is str
-    assert _hint(Ident, "second") is str
+    # CharClassAtoms → "lower", "alnum"; RuleRefAtom(ws) → "ws"
+    assert _hint(Ident, "lower") is str
+    assert _hint(Ident, "alnum") is str
     assert "ws" in get_type_hints(Ident)
 
 
 def test_arithmetic_num_fields(arithmetic_classes):
     Num = arithmetic_classes["Num"]
-    # num ::= [0-9]+ ws  — sequence with CharClassAtom→"first" and ws→"ws"
-    assert _hint(Num, "first") is str
+    # num ::= [0-9]+ ws  — sequence with CharClassAtom→"digit" and ws→"ws"
+    assert _hint(Num, "digit") is str
     assert "ws" in get_type_hints(Num)
 
 
@@ -180,8 +180,8 @@ def test_arithmetic_termarm3_fields(arithmetic_classes):
 def test_arithmetic_expritem_fields(arithmetic_classes):
     ExprItem = arithmetic_classes["ExprItem"]
     Term = arithmetic_classes["Term"]
-    # expr-item ::= [-+*/] term  → CharClassAtom→"first", RuleRefAtom(term)→"term"
-    assert _hint(ExprItem, "first") is str
+    # expr-item ::= [-+*/] term  → CharClassAtom→"op", RuleRefAtom(term)→"term"
+    assert _hint(ExprItem, "op") is str
     assert _hint(ExprItem, "term") is Term
 
 
@@ -225,9 +225,9 @@ def test_arithmetic_circular_ref_resolved(arithmetic_classes):
     Expr = arithmetic_classes["Expr"]
     Ws = arithmetic_classes["Ws"]
     ws = Ws(value="")
-    ident = Ident(first="x", second="yz", ws=ws)
+    ident = Ident(lower="x", alnum="yz", ws=ws)
     expr = Expr(term=ident, expr_item=[])
-    expritem = ExprItem(first="+", term=ident)
+    expritem = ExprItem(op="+", term=ident)
     assert expritem.term is ident
     assert expr.term is ident
 
@@ -254,23 +254,23 @@ def test_chess_castle_is_value_str(chess_classes):
 def test_chess_pawn_has_charclass_fields(chess_classes):
     Pawn = chess_classes["Pawn"]
     # pawn ::= ([a-h] "x")? [a-h] [1-8] ("=" [NBKQR])?
-    # → CharClassAtoms: first(opt), second, third, fourth(opt)
-    assert "first" in Pawn.model_fields
-    assert "second" in Pawn.model_fields
-    assert "third" in Pawn.model_fields
-    assert "fourth" in Pawn.model_fields
+    # → InlineRegexAtom: a_h_x (opt), CharClassAtoms: a_h, cc_1_8, InlineRegexAtom: nbkqr (opt)
+    assert "a_h_x" in Pawn.model_fields
+    assert "a_h" in Pawn.model_fields
+    assert "cc_1_8" in Pawn.model_fields
+    assert "nbkqr" in Pawn.model_fields
     # All are str-typed Pydantic fields
-    for fname in ("first", "second", "third", "fourth"):
+    for fname in ("a_h_x", "a_h", "cc_1_8", "nbkqr"):
         assert _hint(Pawn, fname) is str, f"Pawn.{fname} must be str"
 
 
 def test_chess_move_has_charclass_field(chess_classes):
     Move = chess_classes["Move"]
     # move ::= (pawn | nonpawn | castle) [+#]?
-    # inline AlternationAtom (not a field) + CharClassAtom → "first"
+    # InlineAlternationAtom → "value", CharClassAtom([+#]) → "annotation"
     hints = get_type_hints(Move)
-    assert "first" in hints
-    assert hints["first"] is str
+    assert "annotation" in hints
+    assert hints["annotation"] is str
 
 
 def test_chess_rootitem_fields(chess_classes):
@@ -278,9 +278,9 @@ def test_chess_rootitem_fields(chess_classes):
     Move = chess_classes["Move"]
     hints = get_type_hints(RootItem)
     # root-item ::= [1-9] [0-9]? ". " move " " move "\n"
-    # → first: str, second: str, move: Move, move2: Move
-    assert hints["first"] is str
-    assert hints["second"] is str
+    # → digit: str, digit2: str, move: Move, move2: Move
+    assert hints["digit"] is str
+    assert hints["digit2"] is str
     assert hints["move"] is Move
     assert hints["move2"] is Move
 
@@ -326,8 +326,8 @@ def test_japanese_rootitem_fields(japanese_classes):
     RootItem = japanese_classes["RootItem"]
     JpChar = japanese_classes["JpChar"]
     hints = get_type_hints(RootItem)
-    # root-item ::= [ \t\n] jp-char+  → first: str, jp_char: List[JpChar]
-    assert hints["first"] is str
+    # root-item ::= [ \t\n] jp-char+  → ws_char: str, jp_char: List[JpChar]
+    assert hints["ws_char"] is str
     assert _is_list_of(hints["jp_char"], JpChar)
 
 
@@ -415,8 +415,8 @@ def test_json_ws_object_fields(json_ws_classes):
 def test_json_ws_circular_ref_resolved(json_ws_classes):
     """Object ↔ Value circular ref must resolve — instantiation proves it."""
     ValueArm5 = json_ws_classes["ValueArm5"]  # ("true"|"false"|"null") arm
-    v = ValueArm5(first="null")
-    assert v.first == "null"
+    v = ValueArm5(true="null")
+    assert v.true == "null"
 
 
 def test_json_ws_no_arr_classes(json_ws_classes):

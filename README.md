@@ -33,6 +33,21 @@ assert result.to_text() == "x = 1\n"
 result.semantic_dump()
 ```
 
+## Field naming
+
+Field names for character-class atoms are derived automatically from the pattern:
+
+| Pattern | Field name |
+|---|---|
+| `[0-9]` | `digit` |
+| `[a-z]` | `lower` |
+| `[a-zA-Z0-9_]` | `alnum` |
+| `[+#]` | `annotation` |
+| other | sanitized pattern content |
+
+**Planned:** Grammar authors will be able to override field names using inline GBNF
+comments (`# @field=captureFile`). This annotation mechanism is not yet implemented.
+
 ## Pipeline
 
 ```
