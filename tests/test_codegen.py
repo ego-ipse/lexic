@@ -408,9 +408,7 @@ def test_json_ws_object_fields(json_ws_classes):
 
 def test_json_ws_circular_ref_resolved(json_ws_classes):
     """Object ↔ Value circular ref must resolve — instantiation proves it."""
-    String = json_ws_classes["String"]
-    ValueArm5 = json_ws_classes["ValueArm5"]
-    s = String(value='"hello"')
+    ValueArm5 = json_ws_classes["ValueArm5"]  # ("true"|"false"|"null") arm
     v = ValueArm5(first="null")
     assert v.first == "null"
 
@@ -532,8 +530,6 @@ def test_c_declaration_fields(c_classes):
 
 def test_c_root_field(c_classes):
     Root = c_classes["Root"]
-    Declaration = c_classes["Declaration"]
-    RootItem = c_classes["RootItem"]
     # root ::= declaration*  → root-item helper → root_item: List[RootItem]
     hints = get_type_hints(Root)
     assert "root_item" in hints
