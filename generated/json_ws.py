@@ -5,7 +5,7 @@ from abc import ABC
 from typing import ClassVar, List, Optional
 
 from lexic.base import GrammarModel
-from lexic.ir import RuleSpec, AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom
+from lexic.ir import RuleSpec, AlternationAtom, CharClassAtom, InlineRegexAtom, LiteralAtom, QuantifiedLiteralAtom, RuleRefAtom
 
 
 class Root(GrammarModel):
@@ -41,7 +41,7 @@ class ValueArm5(Value):
         class_name="ValueArm5",
         parent_class_name="Value",
         kind="sequence",
-        items=[CharClassAtom("(\"true\"|\"false\"|\"null\")", min=1, max=1)],
+        items=[InlineRegexAtom("(true|false|null)", "(\"true\"|\"false\"|\"null\")", min=1, max=1)],
         field_map={"first": 0},
     )
     first: str
@@ -140,7 +140,7 @@ class String(Value):
         class_name="String",
         parent_class_name="Value",
         kind="value_str",
-        items=[LiteralAtom("\\\""), CharClassAtom("([^\"\\\\\\x7F\\x00-\\x1F]|\\\\\\\\([\"\\\\bfnrt]|u[0-9a-fA-F]{4}))", min=0, max=None), LiteralAtom("\\\"")],
+        items=[LiteralAtom("\\\""), InlineRegexAtom("([^\"\\\\\\x7F\\x00-\\x1F]|\\\\\\\\([\"\\\\bfnrt]|u[0-9a-fA-F]{4}))", "([^\"\\\\\\x7F\\x00-\\x1F]|\"\\\\\"([\"\\\\bfnrt]|\"u\"[0-9a-fA-F]{4}))", min=0, max=None), LiteralAtom("\\\"")],
         field_map={},
     )
     value: str
@@ -153,7 +153,7 @@ class Number(Value):
         class_name="Number",
         parent_class_name="Value",
         kind="sequence",
-        items=[CharClassAtom("\"-\"", min=0, max=1), CharClassAtom("([0-9]|[1-9][0-9])", min=1, max=1), CharClassAtom("(\".\"[0-9])", min=0, max=1), CharClassAtom("([eE][-+][0-9][1-9])", min=0, max=1), RuleRefAtom("ws", min=1, max=1)],
+        items=[QuantifiedLiteralAtom("-", min=0, max=1), InlineRegexAtom("([0-9]|[1-9][0-9]{0,15})", "([0-9]|[1-9][0-9]{0,15})", min=1, max=1), InlineRegexAtom("\\.[0-9]+", "\".\"[0-9]+", min=0, max=1), InlineRegexAtom("[eE][-+]?[0-9][1-9]{0,15}", "[eE][-+]?[0-9][1-9]{0,15}", min=0, max=1), RuleRefAtom("ws", min=1, max=1)],
         field_map={"first": 0, "second": 1, "third": 2, "fourth": 3, "ws": 4},
     )
     first: str

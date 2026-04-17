@@ -5,7 +5,7 @@ from abc import ABC
 from typing import ClassVar, List, Optional
 
 from lexic.base import GrammarModel
-from lexic.ir import RuleSpec, AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom
+from lexic.ir import RuleSpec, AlternationAtom, CharClassAtom, InlineRegexAtom, LiteralAtom, RuleRefAtom
 
 
 class Root(GrammarModel):
@@ -323,7 +323,7 @@ class ExpressionItem(GrammarModel):
         class_name="ExpressionItem",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[CharClassAtom("(\"+\"|\"-\")", min=1, max=1), RuleRefAtom("term", min=1, max=1)],
+        items=[InlineRegexAtom("(\\+|\\-)", "(\"+\"|\"-\")", min=1, max=1), RuleRefAtom("term", min=1, max=1)],
         field_map={"first": 0, "term": 1},
     )
     first: str
@@ -351,7 +351,7 @@ class TermItem(GrammarModel):
         class_name="TermItem",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[CharClassAtom("(\"*\"|\"/\")", min=1, max=1), RuleRefAtom("factor", min=1, max=1)],
+        items=[InlineRegexAtom("(\\*|/)", "(\"*\"|\"/\")", min=1, max=1), RuleRefAtom("factor", min=1, max=1)],
         field_map={"first": 0, "factor": 1},
     )
     first: str
@@ -474,7 +474,7 @@ class MultiLineComment(Statement):
         class_name="MultiLineComment",
         parent_class_name="Statement",
         kind="value_str",
-        items=[LiteralAtom("/*"), CharClassAtom("([^*]|\\*[^/])", min=0, max=None), LiteralAtom("*/")],
+        items=[LiteralAtom("/*"), InlineRegexAtom("([^*]|\\*[^/])", "([^*]|\"*\"[^/])", min=0, max=None), LiteralAtom("*/")],
         field_map={},
     )
     value: str

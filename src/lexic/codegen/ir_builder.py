@@ -14,7 +14,10 @@ from lexic.ir import (
     AlternationAtom,
     Atom,
     CharClassAtom,
+    InlineAlternationAtom,
+    InlineRegexAtom,
     LiteralAtom,
+    QuantifiedLiteralAtom,
     RuleRefAtom,
     RuleSpec,
 )
@@ -127,6 +130,57 @@ def _group_to_regex(group: Group, quantifier: str | None) -> str:
     return result
 
 
+def _to_regex(group: Group) -> str:
+    """Convert a GBNF Group to a regex pattern string for Lark terminals."""
+    arms: list[str] = []
+    for seq in group.alt.seqs:
+        parts: list[str] = []
+        for it in seq.items:
+            if isinstance(it.atom, Literal):
+                q = it.quantifier or ""
+                parts.append(re.escape(it.atom.value) + q)
+            elif isinstance(it.atom, CharClass):
+                q = it.quantifier or ""
+                parts.append(it.atom.pattern + q)
+            elif isinstance(it.atom, Group):
+                q = it.quantifier or ""
+                parts.append(_to_regex(it.atom) + q)
+            # RuleRef inside a group cannot be inlined — skip
+        arms.append("".join(parts))
+    body = "|".join(arms)
+    return f"({body})" if len(arms) > 1 else body
+
+
+def _to_gbnf(group: Group) -> str:
+    """Convert a GBNF Group back to GBNF syntax for GBNFEmitter."""
+    arms: list[str] = []
+    for seq in group.alt.seqs:
+        parts: list[str] = []
+        for it in seq.items:
+            if isinstance(it.atom, Literal):
+                q = it.quantifier or ""
+                parts.append(f'"{it.atom.value}"{q}')
+            elif isinstance(it.atom, CharClass):
+                q = it.quantifier or ""
+                parts.append(it.atom.pattern + q)
+            elif isinstance(it.atom, Group):
+                q = it.quantifier or ""
+                parts.append(_to_gbnf(it.atom) + q)
+        arms.append("".join(parts))
+    body = "|".join(arms)
+    return f"({body})" if len(arms) > 1 else body
+
+
+def _build_inline_regex(group: Group, min_: int, max_: int | None) -> InlineRegexAtom:
+    """Build an InlineRegexAtom from a pure-literal or mixed GBNF group."""
+    return InlineRegexAtom(
+        regex=_to_regex(group),
+        gbnf=_to_gbnf(group),
+        min=min_,
+        max=max_,
+    )
+
+
 def _unwrap_group_alt(alt: Alternation) -> Alternation:
     if len(alt.seqs) != 1:
         return alt
@@ -237,7 +291,7 @@ def _assign_field_names(items: list[Atom]) -> dict[str, int]:
         if isinstance(atom, LiteralAtom):
             continue
 
-        if isinstance(atom, AlternationAtom):
+        if isinstance(atom, (AlternationAtom, InlineAlternationAtom)):
             # Inline alternation inside a sequence: store chosen arm as "value".
             field_map["value"] = i
             continue
@@ -249,7 +303,7 @@ def _assign_field_names(items: list[Atom]) -> dict[str, int]:
             fname = base if count == 1 else f"{base}{count}"
             field_map[fname] = i
 
-        elif isinstance(atom, CharClassAtom):
+        elif isinstance(atom, (CharClassAtom, QuantifiedLiteralAtom, InlineRegexAtom)):
             cc_count += 1
             fname = (
                 _CC_NAMES[cc_count - 1]
@@ -280,16 +334,12 @@ def _seq_to_atoms(
 
     for item in seq.items:
         if isinstance(item.atom, Literal):
-            if item.quantifier in ("+", "*", "?"):
-                # Quantified literal: represent as CharClassAtom so the optional/
-                # repeated nature is preserved in the IR and Lark grammar.
+            if item.quantifier is not None:
+                # Quantified literal: emit as QuantifiedLiteralAtom so the optional/
+                # repeated nature is preserved in the IR and downstream emitters.
                 min_, max_ = _quantifier_to_bounds(item.quantifier)
                 atoms.append(
-                    CharClassAtom(
-                        pattern=f'"{item.atom.value}"',
-                        min=min_,
-                        max=max_,
-                    )
+                    QuantifiedLiteralAtom(value=item.atom.value, min=min_, max=max_)
                 )
             else:
                 atoms.append(LiteralAtom(value=item.atom.value))
@@ -310,28 +360,16 @@ def _seq_to_atoms(
                 if len(a.items) > 0
             ]
 
-            # Inline literal alternation → treat as single char-class-like atom
+            # Inline literal alternation → InlineRegexAtom
             if all(_is_pure_literal_seq(a) for a in inner_arms):
                 atoms.append(
-                    CharClassAtom(
-                        pattern="("
-                        + "|".join(
-                            "".join(
-                                f'"{it.atom.value}"'
-                                if isinstance(it.atom, Literal)
-                                else cast(CharClass, it.atom).pattern
-                                for it in a.items
-                            )
-                            for a in inner_arms
-                        )
-                        + ")",
-                        min=min_ if min_ is not None else 1,
-                        max=max_,
+                    _build_inline_regex(
+                        item.atom, min_ if min_ is not None else 1, max_
                     )
                 )
                 continue
 
-            # Inline union of named rules (no quantifier) → inline alternation atom
+            # Inline union of named rules (no quantifier) → InlineAlternationAtom
             if (
                 item.quantifier is None
                 and len(inner_arms) > 1
@@ -340,7 +378,7 @@ def _seq_to_atoms(
                 arm_names: list[str] = [
                     cast(str, _is_single_ruleref(a)) for a in inner_arms
                 ]
-                atoms.append(AlternationAtom(arm_rule_names=arm_names))
+                atoms.append(InlineAlternationAtom(arm_rule_names=arm_names))
                 continue
 
             # Unquantified single-arm group → inline its contents
@@ -445,24 +483,25 @@ class IRBuilder:
                         min_, max_ = _quantifier_to_bounds(it.quantifier)
                         items.append(CharClassAtom(it.atom.pattern, min_, max_))
                     elif isinstance(it.atom, Literal):
-                        if it.quantifier in ("+", "*", "?"):
-                            # Quantified literal: represent as CharClassAtom to
+                        if it.quantifier is not None:
+                            # Quantified literal: emit as QuantifiedLiteralAtom to
                             # preserve optionality/repetition in the IR.
                             min_, max_ = _quantifier_to_bounds(it.quantifier)
                             items.append(
-                                CharClassAtom(
-                                    pattern=f'"{it.atom.value}"',
-                                    min=min_,
-                                    max=max_,
+                                QuantifiedLiteralAtom(
+                                    value=it.atom.value, min=min_, max=max_
                                 )
                             )
                         else:
                             items.append(LiteralAtom(it.atom.value))
                     elif isinstance(it.atom, Group):
-                        # Inline group: convert to a regex pattern CharClassAtom.
+                        # Inline group: convert to an InlineRegexAtom.
                         min_, max_ = _quantifier_to_bounds(it.quantifier)
-                        pattern = _group_to_regex(it.atom, None)
-                        items.append(CharClassAtom(pattern=pattern, min=min_, max=max_))
+                        items.append(
+                            _build_inline_regex(
+                                it.atom, min_ if min_ is not None else 1, max_
+                            )
+                        )
             return [
                 RuleSpec(
                     rule_name=rule.name,
@@ -568,15 +607,11 @@ class IRBuilder:
             if spec:
                 ordered.append(spec)
 
+        # Seed with root first so it always appears at index 0
+        root_spec = next((s for s in specs if s.rule_name == "root"), None)
+        if root_spec:
+            visit(root_spec.class_name)
         for s in specs:
             visit(s.class_name)
-
-        # Ensure the root rule spec is always first
-        root_idx = next(
-            (i for i, s in enumerate(ordered) if s.rule_name == "root"), None
-        )
-        if root_idx is not None and root_idx != 0:
-            root_spec = ordered.pop(root_idx)
-            ordered.insert(0, root_spec)
 
         return ordered

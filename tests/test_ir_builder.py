@@ -8,7 +8,10 @@ from lexic.codegen.ir_builder import IRBuilder
 from lexic.ir import (
     AlternationAtom,
     CharClassAtom,
+    InlineAlternationAtom,
+    InlineRegexAtom,
     LiteralAtom,
+    QuantifiedLiteralAtom,
     RuleRefAtom,
     RuleSpec,
 )
@@ -202,3 +205,83 @@ def test_japanese_hyphen_rules_have_valid_class_names():
     jp = d["jp-char"]
     assert jp.class_name == "JpChar"  # PascalCase from hyphenated name
     assert jp.kind == "alternation"
+
+
+# ── New atom types ────────────────────────────────────────────────────────────
+
+
+def test_quantified_literal_atom_from_literal_with_quantifier():
+    """ "-"? in json_ws number should produce QuantifiedLiteralAtom, not CharClassAtom."""
+    text = (GRAMMAR_DIR / "json_ws.gbnf").read_text()
+    rules = parse_gbnf(text)
+    specs = IRBuilder(rules).build()
+    d = _by_rule(specs)
+    number = d["number"]
+    first = number.items[0]
+    assert isinstance(first, QuantifiedLiteralAtom), (
+        f"Expected QuantifiedLiteralAtom, got {type(first).__name__}"
+    )
+    assert first.value == "-"
+    assert first.min == 0
+    assert first.max == 1
+
+
+def test_inline_alternation_atom_in_sequence():
+    """(pawn | nonpawn | castle) in chess move should be InlineAlternationAtom."""
+    text = (GRAMMAR_DIR / "chess.gbnf").read_text()
+    rules = parse_gbnf(text)
+    specs = IRBuilder(rules).build()
+    d = _by_rule(specs)
+    move = d["move"]
+    inline_alts = [a for a in move.items if isinstance(a, InlineAlternationAtom)]
+    assert len(inline_alts) == 1
+    assert set(inline_alts[0].arm_rule_names) == {"pawn", "nonpawn", "castle"}
+
+
+def test_inline_regex_atom_for_pure_literal_group():
+    """("true"|"false"|"null") in json_ws should become InlineRegexAtom."""
+    text = (GRAMMAR_DIR / "json_ws.gbnf").read_text()
+    rules = parse_gbnf(text)
+    specs = IRBuilder(rules).build()
+    # find a spec that has an InlineRegexAtom with "true" in it
+    found = False
+    for spec in specs:
+        for a in spec.items:
+            if isinstance(a, InlineRegexAtom) and "true" in a.regex:
+                found = True
+                assert "true" in a.gbnf
+    assert found, "No InlineRegexAtom with 'true' found in json_ws specs"
+
+
+def test_quantifier_preserved_in_inline_group():
+    """[0-9]{0,15} inside a group arm must not lose the {0,15} quantifier."""
+    text = (GRAMMAR_DIR / "json_ws.gbnf").read_text()
+    rules = parse_gbnf(text)
+    specs = IRBuilder(rules).build()
+    # Find InlineRegexAtom containing [0-9] with quantifier
+    regex_atoms = [a for s in specs for a in s.items if isinstance(a, InlineRegexAtom)]
+    # At least one should have a quantifier like {0,15} or +
+    has_quantifier = any(
+        "{" in a.regex or "+" in a.regex or "*" in a.regex for a in regex_atoms
+    )
+    assert has_quantifier, (
+        f"No InlineRegexAtom with quantifier found. Atoms: {[a.regex for a in regex_atoms[:5]]}"
+    )
+
+
+def test_topo_sort_root_is_first():
+    """Root rule must always be the first spec in every grammar."""
+    for grammar in [
+        "arithmetic",
+        "c",
+        "chess",
+        "japanese",
+        "json_arr",
+        "json_ws",
+        "list",
+    ]:
+        text = (GRAMMAR_DIR / f"{grammar}.gbnf").read_text()
+        specs = IRBuilder(parse_gbnf(text)).build()
+        assert specs[0].rule_name == "root", (
+            f"{grammar}: first spec is {specs[0].rule_name!r}"
+        )

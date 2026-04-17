@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import ClassVar, List, Union
 
 from lexic.base import GrammarModel
-from lexic.ir import RuleSpec, AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom
+from lexic.ir import RuleSpec, CharClassAtom, InlineAlternationAtom, InlineRegexAtom, LiteralAtom, QuantifiedLiteralAtom, RuleRefAtom
 
 
 class Root(GrammarModel):
@@ -45,7 +45,7 @@ class Move(GrammarModel):
         class_name="Move",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[AlternationAtom(["pawn", "nonpawn", "castle"]), CharClassAtom("[+#]", min=0, max=1)],
+        items=[InlineAlternationAtom(["pawn", "nonpawn", "castle"]), CharClassAtom("[+#]", min=0, max=1)],
         field_map={"value": 0, "first": 1},
     )
     value: Union[Pawn, Nonpawn, Castle]
@@ -59,7 +59,7 @@ class Nonpawn(GrammarModel):
         class_name="Nonpawn",
         parent_class_name="GrammarModel",
         kind="value_str",
-        items=[CharClassAtom("[NBKQR]", min=1, max=1), CharClassAtom("[a-h]", min=0, max=1), CharClassAtom("[1-8]", min=0, max=1), CharClassAtom("\"x\"", min=0, max=1), CharClassAtom("[a-h]", min=1, max=1), CharClassAtom("[1-8]", min=1, max=1)],
+        items=[CharClassAtom("[NBKQR]", min=1, max=1), CharClassAtom("[a-h]", min=0, max=1), CharClassAtom("[1-8]", min=0, max=1), QuantifiedLiteralAtom("x", min=0, max=1), CharClassAtom("[a-h]", min=1, max=1), CharClassAtom("[1-8]", min=1, max=1)],
         field_map={},
     )
     value: str
@@ -72,7 +72,7 @@ class Pawn(GrammarModel):
         class_name="Pawn",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[CharClassAtom("([a-h]\"x\")", min=0, max=1), CharClassAtom("[a-h]", min=1, max=1), CharClassAtom("[1-8]", min=1, max=1), CharClassAtom("(\"=\"[NBKQR])", min=0, max=1)],
+        items=[InlineRegexAtom("[a-h]x", "[a-h]\"x\"", min=0, max=1), CharClassAtom("[a-h]", min=1, max=1), CharClassAtom("[1-8]", min=1, max=1), InlineRegexAtom("=[NBKQR]", "\"=\"[NBKQR]", min=0, max=1)],
         field_map={"first": 0, "second": 1, "third": 2, "fourth": 3},
     )
     first: str
@@ -88,7 +88,7 @@ class Castle(GrammarModel):
         class_name="Castle",
         parent_class_name="GrammarModel",
         kind="value_str",
-        items=[LiteralAtom("O-O"), CharClassAtom("\"-O\"", min=0, max=1)],
+        items=[LiteralAtom("O-O"), QuantifiedLiteralAtom("-O", min=0, max=1)],
         field_map={},
     )
     value: str

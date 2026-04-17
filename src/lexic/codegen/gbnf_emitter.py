@@ -66,7 +66,15 @@ def _atom_to_gbnf(atom) -> str:
         return f'"{atom.value}"{q}'
     if isinstance(atom, InlineRegexAtom):
         q = bounds_to_quantifier(atom.min, atom.max)
-        return f"{atom.gbnf}{q}"
+        if q:
+            # Wrap in parens so the quantifier applies to the whole group
+            body = (
+                atom.gbnf
+                if (atom.gbnf.startswith("(") and atom.gbnf.endswith(")"))
+                else f"({atom.gbnf})"
+            )
+            return f"{body}{q}"
+        return atom.gbnf
     if isinstance(atom, InlineAlternationAtom):
         return "(" + " | ".join(atom.arm_rule_names) + ")"
     return ""
