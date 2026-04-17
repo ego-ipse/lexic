@@ -7,6 +7,7 @@ Enables the reverse direction: Pydantic model classes → GBNF grammar file.
 from __future__ import annotations
 
 from .ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.utils.quantifiers import bounds_to_quantifier
 
 
 def _normalize_charclass_pattern_for_gbnf(pattern: str) -> str:
@@ -35,23 +36,6 @@ def _normalize_charclass_pattern_for_gbnf(pattern: str) -> str:
     return pattern
 
 
-def _bounds_to_gbnf_quantifier(min_: int, max_: int | None) -> str:
-    """Convert (min, max) bounds to GBNF quantifier syntax."""
-    if min_ == 1 and max_ == 1:
-        return ""
-    if min_ == 0 and max_ == 1:
-        return "?"
-    if min_ == 0 and max_ is None:
-        return "*"
-    if min_ == 1 and max_ is None:
-        return "+"
-    if max_ is None:
-        return f"{{{min_},}}"
-    if min_ == max_:
-        return f"{{{min_}}}"
-    return f"{{{min_},{max_}}}"
-
-
 def _atom_to_gbnf(atom) -> str:
     """Convert an Atom to GBNF string representation."""
     if isinstance(atom, LiteralAtom):
@@ -61,10 +45,10 @@ def _atom_to_gbnf(atom) -> str:
     if isinstance(atom, CharClassAtom):
         # Normalize pattern to ensure it's valid GBNF
         pattern = _normalize_charclass_pattern_for_gbnf(atom.pattern)
-        q = _bounds_to_gbnf_quantifier(atom.min, atom.max)
+        q = bounds_to_quantifier(atom.min, atom.max)
         return f"{pattern}{q}"
     if isinstance(atom, RuleRefAtom):
-        q = _bounds_to_gbnf_quantifier(atom.min, atom.max)
+        q = bounds_to_quantifier(atom.min, atom.max)
         return f"{atom.rule_name}{q}"
     if isinstance(atom, AlternationAtom):
         return " | ".join(atom.arm_rule_names)

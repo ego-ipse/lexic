@@ -10,6 +10,8 @@ from typing import get_args, get_origin, get_type_hints
 from lark import Token, Transformer, Tree
 
 from .ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.utils.escapes import decode_gbnf_escapes
+from lexic.utils.quantifiers import bounds_to_quantifier
 
 
 def _to_lark_name(rule_name: str) -> str:
@@ -19,40 +21,6 @@ def _to_lark_name(rule_name: str) -> str:
     Hyphens are not valid in identifiers, so we replace them with underscores.
     """
     return rule_name.replace("-", "_").lower()
-
-
-def _bounds_to_quantifier(min_: int, max_: int | None) -> str:
-    if min_ == 1 and max_ == 1:
-        return ""
-    if min_ == 0 and max_ == 1:
-        return "?"
-    if min_ == 0 and max_ is None:
-        return "*"
-    if min_ == 1 and max_ is None:
-        return "+"
-    if max_ is None:
-        return f"{{{min_},}}"
-    if min_ == max_:
-        return f"{{{min_}}}"
-    return f"{{{min_},{max_}}}"
-
-
-def _decode_gbnf_escapes(s: str) -> str:
-    """Decode GBNF string escape sequences stored as literal backslash sequences.
-
-    IRBuilder stores \\n as the 2-char sequence '\\n', not an actual newline.
-    This function converts them to real characters.
-    """
-    # Order matters: decode \\ first so \\n isn't decoded as \<newline>.
-    # Then decode \" as a literal doublequote (GBNF string escape).
-    return (
-        s.replace("\\\\", "\x00BACKSLASH\x00")  # protect \\ temporarily
-        .replace("\\n", "\n")
-        .replace("\\t", "\t")
-        .replace("\\r", "\r")
-        .replace('\\"', '"')
-        .replace("\x00BACKSLASH\x00", "\\")
-    )
 
 
 def _escape_lark_regex(s: str) -> str:
@@ -100,7 +68,7 @@ def _normalize_charclass_pattern(pattern: str) -> str:
 def _atom_to_lark(atom) -> str:
     if isinstance(atom, LiteralAtom):
         # Decode GBNF escape sequences stored as 2-char sequences
-        decoded = _decode_gbnf_escapes(atom.value)
+        decoded = decode_gbnf_escapes(atom.value)
         if any(c in decoded for c in "\n\t\r"):
             # Emit as regex so Lark handles control chars correctly.
             # Escape regex special chars that appear in the literal.
@@ -122,7 +90,7 @@ def _atom_to_lark(atom) -> str:
         escaped = decoded.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
     if isinstance(atom, CharClassAtom):
-        q = _bounds_to_quantifier(atom.min, atom.max)
+        q = bounds_to_quantifier(atom.min, atom.max)
         # Normalize: strip GBNF-style quotes, fix escape sequences.
         # Skip normalization for complex regex patterns (from _group_to_regex)
         # that already contain structural regex syntax — normalization would
@@ -139,7 +107,7 @@ def _atom_to_lark(atom) -> str:
         name = _to_lark_name(atom.rule_name)
         if atom.rule_name == "ws":
             return "ws?"
-        q = _bounds_to_quantifier(atom.min, atom.max)
+        q = bounds_to_quantifier(atom.min, atom.max)
         return f"{name}{q}"
     if isinstance(atom, AlternationAtom):
         # Parenthesize so inline alternations inside a sequence don't bleed into
@@ -238,7 +206,7 @@ class LarkBuilder:
                 # We reconstruct the full text by inserting filtered literal text
                 # around the token stream in spec order.
                 def _literal_is_quoted(lit_value: str) -> bool:
-                    decoded = _decode_gbnf_escapes(lit_value)
+                    decoded = decode_gbnf_escapes(lit_value)
                     return not any(c in decoded for c in "\n\t\r")
 
                 def make_value(ct=cls, sp=spec):
@@ -255,7 +223,7 @@ class LarkBuilder:
                             if isinstance(atom, LiteralAtom) and _literal_is_quoted(
                                 atom.value
                             ):
-                                result.append(_decode_gbnf_escapes(atom.value))
+                                result.append(decode_gbnf_escapes(atom.value))
                             elif not token_placed:
                                 result.append(token_text)
                                 token_placed = True

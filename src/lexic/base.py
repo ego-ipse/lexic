@@ -12,6 +12,7 @@ from typing import Any, ClassVar
 from pydantic import BaseModel
 
 from lexic.codegen.ir import LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.utils.escapes import decode_gbnf_escapes
 
 
 class GrammarModel(BaseModel):
@@ -45,14 +46,7 @@ class GrammarModel(BaseModel):
             if isinstance(atom, LiteralAtom):
                 # Decode GBNF escape sequences stored as 2-char sequences
                 # (e.g. "\\n" → actual newline) before emitting.
-                decoded = (
-                    atom.value.replace("\\\\", "\x00BS\x00")
-                    .replace("\\n", "\n")
-                    .replace("\\t", "\t")
-                    .replace("\\r", "\r")
-                    .replace('\\"', '"')
-                    .replace("\x00BS\x00", "\\")
-                )
+                decoded = decode_gbnf_escapes(atom.value)
                 parts.append(decoded)
                 continue
             if i not in inv:
