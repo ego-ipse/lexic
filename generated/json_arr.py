@@ -181,7 +181,7 @@ class String(Value):
         class_name="String",
         parent_class_name="Value",
         kind="value_str",
-        items=[LiteralAtom("\\\""), CharClassAtom("([^\"\\\\\\x7F\\x00-\\x1F]|\\\\([\"\\\\bfnrt]|u[0-9a-fA-F]{4}))", min=0, max=None), LiteralAtom("\\\"")],
+        items=[LiteralAtom("\\\""), CharClassAtom("([^\"\\\\\\x7F\\x00-\\x1F]|\\\\\\\\([\"\\\\bfnrt]|u[0-9a-fA-F]{4}))", min=0, max=None), LiteralAtom("\\\"")],
         field_map={},
     )
     value: str
