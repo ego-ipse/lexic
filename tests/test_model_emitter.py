@@ -8,6 +8,7 @@ import pytest
 from abc import ABC
 from typing import get_type_hints
 
+from base import GrammarModel
 from codegen import codegen
 from codegen.ir import RuleSpec
 
@@ -92,13 +93,15 @@ def arithmetic_mod():
 
 
 def test_arithmetic_term_is_abstract(arithmetic_mod):
-    assert issubclass(arithmetic_mod.Term, ABC)
-    assert arithmetic_mod.Term.__grammar__.kind == "alternation"
+    term: type[GrammarModel] = arithmetic_mod.Term
+    assert term.__grammar__.kind == "alternation"
+    assert issubclass(term, ABC)
 
 
 def test_arithmetic_ident_parent_is_term(arithmetic_mod):
-    assert issubclass(arithmetic_mod.Ident, arithmetic_mod.Term)
-    assert arithmetic_mod.Ident.__grammar__.kind == "sequence"
+    ident: type[GrammarModel] = arithmetic_mod.Ident
+    assert ident.__grammar__.kind == "sequence"
+    assert issubclass(ident, arithmetic_mod.Term)
 
 
 def test_arithmetic_ident_fields(arithmetic_mod):

@@ -1,23 +1,15 @@
-"""Auto-generated Pydantic models from /home/mika/projects/vyx_2/resources/ground_truth/c.gbnf."""
-
+"""Auto-generated Pydantic models from /home/mika/projects/lexic/resources/ground_truth/c.gbnf."""
 from __future__ import annotations
 
 from abc import ABC
 from typing import ClassVar, List, Optional
 
 from base import GrammarModel
-from codegen.ir import (
-    RuleSpec,
-    AlternationAtom,
-    CharClassAtom,
-    LiteralAtom,
-    RuleRefAtom,
-)
+from codegen.ir import RuleSpec, AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom
 
 
 class Root(GrammarModel):
     """root ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="root",
         class_name="Root",
@@ -31,7 +23,6 @@ class Root(GrammarModel):
 
 class RootItem(GrammarModel):
     """root-item ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="root-item",
         class_name="RootItem",
@@ -45,22 +36,12 @@ class RootItem(GrammarModel):
 
 class Declaration(GrammarModel):
     """declaration ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="declaration",
         class_name="Declaration",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            RuleRefAtom("dataType", min=1, max=1),
-            RuleRefAtom("identifier", min=1, max=1),
-            LiteralAtom("("),
-            RuleRefAtom("parameter", min=0, max=1),
-            LiteralAtom(")"),
-            LiteralAtom("{"),
-            RuleRefAtom("statement", min=0, max=None),
-            LiteralAtom("}"),
-        ],
+        items=[RuleRefAtom("dataType", min=1, max=1), RuleRefAtom("identifier", min=1, max=1), LiteralAtom("("), RuleRefAtom("parameter", min=0, max=1), LiteralAtom(")"), LiteralAtom("{"), RuleRefAtom("statement", min=0, max=None), LiteralAtom("}")],
         field_map={"dataType": 0, "identifier": 1, "parameter": 3, "statement": 6},
     )
     dataType: DataType
@@ -71,7 +52,6 @@ class Declaration(GrammarModel):
 
 class DataType(GrammarModel):
     """dataType ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="dataType",
         class_name="DataType",
@@ -85,17 +65,12 @@ class DataType(GrammarModel):
 
 class Factor(GrammarModel, ABC):
     """factor ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="factor",
         class_name="Factor",
         parent_class_name="GrammarModel",
         kind="alternation",
-        items=[
-            AlternationAtom(
-                ["identifier", "number", "unaryTerm", "funcCall", "parenExpression"]
-            )
-        ],
+        items=[AlternationAtom(["identifier", "number", "unaryTerm", "funcCall", "parenExpression"])],
         field_map={},
     )
     pass
@@ -103,16 +78,12 @@ class Factor(GrammarModel, ABC):
 
 class Identifier(Factor):
     """identifier ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="identifier",
         class_name="Identifier",
         parent_class_name="Factor",
         kind="value_str",
-        items=[
-            CharClassAtom("[a-zA-Z_]", min=1, max=1),
-            CharClassAtom("[a-zA-Z_0-9]", min=0, max=None),
-        ],
+        items=[CharClassAtom("[a-zA-Z_]", min=1, max=1), CharClassAtom("[a-zA-Z_0-9]", min=0, max=None)],
         field_map={},
     )
     value: str
@@ -120,16 +91,12 @@ class Identifier(Factor):
 
 class Parameter(GrammarModel):
     """parameter ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="parameter",
         class_name="Parameter",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            RuleRefAtom("dataType", min=1, max=1),
-            RuleRefAtom("identifier", min=1, max=1),
-        ],
+        items=[RuleRefAtom("dataType", min=1, max=1), RuleRefAtom("identifier", min=1, max=1)],
         field_map={"dataType": 0, "identifier": 1},
     )
     dataType: DataType
@@ -138,27 +105,12 @@ class Parameter(GrammarModel):
 
 class Statement(GrammarModel, ABC):
     """statement ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="statement",
         class_name="Statement",
         parent_class_name="GrammarModel",
         kind="alternation",
-        items=[
-            AlternationAtom(
-                [
-                    "statement-arm1",
-                    "statement-arm2",
-                    "statement-arm3",
-                    "statement-arm4",
-                    "statement-arm5",
-                    "statement-arm6",
-                    "statement-arm7",
-                    "singleLineComment",
-                    "multiLineComment",
-                ]
-            )
-        ],
+        items=[AlternationAtom(["statement-arm1", "statement-arm2", "statement-arm3", "statement-arm4", "statement-arm5", "statement-arm6", "statement-arm7", "singleLineComment", "multiLineComment"])],
         field_map={},
     )
     pass
@@ -166,19 +118,12 @@ class Statement(GrammarModel, ABC):
 
 class StatementArm1(Statement):
     """statement-arm1 ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="statement-arm1",
         class_name="StatementArm1",
         parent_class_name="Statement",
         kind="sequence",
-        items=[
-            RuleRefAtom("dataType", min=1, max=1),
-            RuleRefAtom("identifier", min=1, max=1),
-            LiteralAtom("="),
-            RuleRefAtom("expression", min=1, max=1),
-            LiteralAtom(";"),
-        ],
+        items=[RuleRefAtom("dataType", min=1, max=1), RuleRefAtom("identifier", min=1, max=1), LiteralAtom("="), RuleRefAtom("expression", min=1, max=1), LiteralAtom(";")],
         field_map={"dataType": 0, "identifier": 1, "expression": 3},
     )
     dataType: DataType
@@ -188,18 +133,12 @@ class StatementArm1(Statement):
 
 class StatementArm2(Statement):
     """statement-arm2 ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="statement-arm2",
         class_name="StatementArm2",
         parent_class_name="Statement",
         kind="sequence",
-        items=[
-            RuleRefAtom("identifier", min=1, max=1),
-            LiteralAtom("="),
-            RuleRefAtom("expression", min=1, max=1),
-            LiteralAtom(";"),
-        ],
+        items=[RuleRefAtom("identifier", min=1, max=1), LiteralAtom("="), RuleRefAtom("expression", min=1, max=1), LiteralAtom(";")],
         field_map={"identifier": 0, "expression": 2},
     )
     identifier: Identifier
@@ -208,19 +147,12 @@ class StatementArm2(Statement):
 
 class StatementArm3(Statement):
     """statement-arm3 ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="statement-arm3",
         class_name="StatementArm3",
         parent_class_name="Statement",
         kind="sequence",
-        items=[
-            RuleRefAtom("identifier", min=1, max=1),
-            LiteralAtom("("),
-            RuleRefAtom("argList", min=0, max=1),
-            LiteralAtom(")"),
-            LiteralAtom(";"),
-        ],
+        items=[RuleRefAtom("identifier", min=1, max=1), LiteralAtom("("), RuleRefAtom("argList", min=0, max=1), LiteralAtom(")"), LiteralAtom(";")],
         field_map={"identifier": 0, "argList": 2},
     )
     identifier: Identifier
@@ -229,17 +161,12 @@ class StatementArm3(Statement):
 
 class StatementArm4(Statement):
     """statement-arm4 ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="statement-arm4",
         class_name="StatementArm4",
         parent_class_name="Statement",
         kind="sequence",
-        items=[
-            LiteralAtom("return"),
-            RuleRefAtom("expression", min=1, max=1),
-            LiteralAtom(";"),
-        ],
+        items=[LiteralAtom("return"), RuleRefAtom("expression", min=1, max=1), LiteralAtom(";")],
         field_map={"expression": 1},
     )
     expression: Expression
@@ -247,21 +174,12 @@ class StatementArm4(Statement):
 
 class StatementArm5(Statement):
     """statement-arm5 ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="statement-arm5",
         class_name="StatementArm5",
         parent_class_name="Statement",
         kind="sequence",
-        items=[
-            LiteralAtom("while"),
-            LiteralAtom("("),
-            RuleRefAtom("condition", min=1, max=1),
-            LiteralAtom(")"),
-            LiteralAtom("{"),
-            RuleRefAtom("statement", min=0, max=None),
-            LiteralAtom("}"),
-        ],
+        items=[LiteralAtom("while"), LiteralAtom("("), RuleRefAtom("condition", min=1, max=1), LiteralAtom(")"), LiteralAtom("{"), RuleRefAtom("statement", min=0, max=None), LiteralAtom("}")],
         field_map={"condition": 2, "statement": 5},
     )
     condition: Condition
@@ -270,25 +188,12 @@ class StatementArm5(Statement):
 
 class StatementArm6(Statement):
     """statement-arm6 ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="statement-arm6",
         class_name="StatementArm6",
         parent_class_name="Statement",
         kind="sequence",
-        items=[
-            LiteralAtom("for"),
-            LiteralAtom("("),
-            RuleRefAtom("forInit", min=1, max=1),
-            LiteralAtom(";"),
-            RuleRefAtom("condition", min=1, max=1),
-            LiteralAtom(";"),
-            RuleRefAtom("forUpdate", min=1, max=1),
-            LiteralAtom(")"),
-            LiteralAtom("{"),
-            RuleRefAtom("statement", min=0, max=None),
-            LiteralAtom("}"),
-        ],
+        items=[LiteralAtom("for"), LiteralAtom("("), RuleRefAtom("forInit", min=1, max=1), LiteralAtom(";"), RuleRefAtom("condition", min=1, max=1), LiteralAtom(";"), RuleRefAtom("forUpdate", min=1, max=1), LiteralAtom(")"), LiteralAtom("{"), RuleRefAtom("statement", min=0, max=None), LiteralAtom("}")],
         field_map={"forInit": 2, "condition": 4, "forUpdate": 6, "statement": 9},
     )
     forInit: ForInit
@@ -299,18 +204,12 @@ class StatementArm6(Statement):
 
 class Statementarm7Item(GrammarModel):
     """statementarm7-item ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="statementarm7-item",
         class_name="Statementarm7Item",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            LiteralAtom("else"),
-            LiteralAtom("{"),
-            RuleRefAtom("statement", min=0, max=None),
-            LiteralAtom("}"),
-        ],
+        items=[LiteralAtom("else"), LiteralAtom("{"), RuleRefAtom("statement", min=0, max=None), LiteralAtom("}")],
         field_map={"statement": 2},
     )
     statement: List[Statement]
@@ -318,22 +217,12 @@ class Statementarm7Item(GrammarModel):
 
 class StatementArm7(Statement):
     """statement-arm7 ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="statement-arm7",
         class_name="StatementArm7",
         parent_class_name="Statement",
         kind="sequence",
-        items=[
-            LiteralAtom("if"),
-            LiteralAtom("("),
-            RuleRefAtom("condition", min=1, max=1),
-            LiteralAtom(")"),
-            LiteralAtom("{"),
-            RuleRefAtom("statement", min=0, max=None),
-            LiteralAtom("}"),
-            RuleRefAtom("statementarm7-item", min=0, max=1),
-        ],
+        items=[LiteralAtom("if"), LiteralAtom("("), RuleRefAtom("condition", min=1, max=1), LiteralAtom(")"), LiteralAtom("{"), RuleRefAtom("statement", min=0, max=None), LiteralAtom("}"), RuleRefAtom("statementarm7-item", min=0, max=1)],
         field_map={"condition": 2, "statement": 5, "statementarm7_item": 7},
     )
     condition: Condition
@@ -343,7 +232,6 @@ class StatementArm7(Statement):
 
 class ForInit(GrammarModel, ABC):
     """forInit ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="forInit",
         class_name="ForInit",
@@ -357,18 +245,12 @@ class ForInit(GrammarModel, ABC):
 
 class ForInitArm1(ForInit):
     """forInit-arm1 ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="forInit-arm1",
         class_name="ForInitArm1",
         parent_class_name="ForInit",
         kind="sequence",
-        items=[
-            RuleRefAtom("dataType", min=1, max=1),
-            RuleRefAtom("identifier", min=1, max=1),
-            LiteralAtom("="),
-            RuleRefAtom("expression", min=1, max=1),
-        ],
+        items=[RuleRefAtom("dataType", min=1, max=1), RuleRefAtom("identifier", min=1, max=1), LiteralAtom("="), RuleRefAtom("expression", min=1, max=1)],
         field_map={"dataType": 0, "identifier": 1, "expression": 3},
     )
     dataType: DataType
@@ -378,17 +260,12 @@ class ForInitArm1(ForInit):
 
 class ForInitArm2(ForInit):
     """forInit-arm2 ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="forInit-arm2",
         class_name="ForInitArm2",
         parent_class_name="ForInit",
         kind="sequence",
-        items=[
-            RuleRefAtom("identifier", min=1, max=1),
-            LiteralAtom("="),
-            RuleRefAtom("expression", min=1, max=1),
-        ],
+        items=[RuleRefAtom("identifier", min=1, max=1), LiteralAtom("="), RuleRefAtom("expression", min=1, max=1)],
         field_map={"identifier": 0, "expression": 2},
     )
     identifier: Identifier
@@ -397,19 +274,12 @@ class ForInitArm2(ForInit):
 
 class ForUpdate(GrammarModel):
     """forUpdate ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="forUpdate",
         class_name="ForUpdate",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            RuleRefAtom("identifier", min=1, max=1),
-            RuleRefAtom("ws", min=1, max=1),
-            LiteralAtom("="),
-            RuleRefAtom("ws", min=1, max=1),
-            RuleRefAtom("expression", min=1, max=1),
-        ],
+        items=[RuleRefAtom("identifier", min=1, max=1), RuleRefAtom("ws", min=1, max=1), LiteralAtom("="), RuleRefAtom("ws", min=1, max=1), RuleRefAtom("expression", min=1, max=1)],
         field_map={"identifier": 0, "ws": 1, "ws2": 3, "expression": 4},
     )
     identifier: Identifier
@@ -420,17 +290,12 @@ class ForUpdate(GrammarModel):
 
 class Condition(GrammarModel):
     """condition ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="condition",
         class_name="Condition",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            RuleRefAtom("expression", min=1, max=1),
-            RuleRefAtom("relationOperator", min=1, max=1),
-            RuleRefAtom("expression", min=1, max=1),
-        ],
+        items=[RuleRefAtom("expression", min=1, max=1), RuleRefAtom("relationOperator", min=1, max=1), RuleRefAtom("expression", min=1, max=1)],
         field_map={"expression": 0, "relationOperator": 1, "expression2": 2},
     )
     expression: Expression
@@ -440,20 +305,12 @@ class Condition(GrammarModel):
 
 class RelationOperator(GrammarModel):
     """relationOperator ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="relationOperator",
         class_name="RelationOperator",
         parent_class_name="GrammarModel",
         kind="value_str",
-        items=[
-            LiteralAtom("<="),
-            LiteralAtom("<"),
-            LiteralAtom("=="),
-            LiteralAtom("!="),
-            LiteralAtom(">="),
-            LiteralAtom(">"),
-        ],
+        items=[LiteralAtom("<="), LiteralAtom("<"), LiteralAtom("=="), LiteralAtom("!="), LiteralAtom(">="), LiteralAtom(">")],
         field_map={},
     )
     value: str
@@ -461,16 +318,12 @@ class RelationOperator(GrammarModel):
 
 class ExpressionItem(GrammarModel):
     """expression-item ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="expression-item",
         class_name="ExpressionItem",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            CharClassAtom('("+"|"-")', min=1, max=1),
-            RuleRefAtom("term", min=1, max=1),
-        ],
+        items=[CharClassAtom("(\"+\"|\"-\")", min=1, max=1), RuleRefAtom("term", min=1, max=1)],
         field_map={"first": 0, "term": 1},
     )
     first: str
@@ -479,16 +332,12 @@ class ExpressionItem(GrammarModel):
 
 class Expression(GrammarModel):
     """expression ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="expression",
         class_name="Expression",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            RuleRefAtom("term", min=1, max=1),
-            RuleRefAtom("expression-item", min=0, max=None),
-        ],
+        items=[RuleRefAtom("term", min=1, max=1), RuleRefAtom("expression-item", min=0, max=None)],
         field_map={"term": 0, "expression_item": 1},
     )
     term: Term
@@ -497,16 +346,12 @@ class Expression(GrammarModel):
 
 class TermItem(GrammarModel):
     """term-item ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="term-item",
         class_name="TermItem",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            CharClassAtom('("*"|"/")', min=1, max=1),
-            RuleRefAtom("factor", min=1, max=1),
-        ],
+        items=[CharClassAtom("(\"*\"|\"/\")", min=1, max=1), RuleRefAtom("factor", min=1, max=1)],
         field_map={"first": 0, "factor": 1},
     )
     first: str
@@ -515,16 +360,12 @@ class TermItem(GrammarModel):
 
 class Term(GrammarModel):
     """term ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="term",
         class_name="Term",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            RuleRefAtom("factor", min=1, max=1),
-            RuleRefAtom("term-item", min=0, max=None),
-        ],
+        items=[RuleRefAtom("factor", min=1, max=1), RuleRefAtom("term-item", min=0, max=None)],
         field_map={"factor": 0, "term_item": 1},
     )
     factor: Factor
@@ -533,7 +374,6 @@ class Term(GrammarModel):
 
 class UnaryTerm(Factor):
     """unaryTerm ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="unaryTerm",
         class_name="UnaryTerm",
@@ -547,18 +387,12 @@ class UnaryTerm(Factor):
 
 class FuncCall(Factor):
     """funcCall ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="funcCall",
         class_name="FuncCall",
         parent_class_name="Factor",
         kind="sequence",
-        items=[
-            RuleRefAtom("identifier", min=1, max=1),
-            LiteralAtom("("),
-            RuleRefAtom("argList", min=0, max=1),
-            LiteralAtom(")"),
-        ],
+        items=[RuleRefAtom("identifier", min=1, max=1), LiteralAtom("("), RuleRefAtom("argList", min=0, max=1), LiteralAtom(")")],
         field_map={"identifier": 0, "argList": 2},
     )
     identifier: Identifier
@@ -567,19 +401,12 @@ class FuncCall(Factor):
 
 class ParenExpression(Factor):
     """parenExpression ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="parenExpression",
         class_name="ParenExpression",
         parent_class_name="Factor",
         kind="sequence",
-        items=[
-            LiteralAtom("("),
-            RuleRefAtom("ws", min=1, max=1),
-            RuleRefAtom("expression", min=1, max=1),
-            RuleRefAtom("ws", min=1, max=1),
-            LiteralAtom(")"),
-        ],
+        items=[LiteralAtom("("), RuleRefAtom("ws", min=1, max=1), RuleRefAtom("expression", min=1, max=1), RuleRefAtom("ws", min=1, max=1), LiteralAtom(")")],
         field_map={"ws": 1, "expression": 2, "ws2": 3},
     )
     ws: Ws
@@ -589,7 +416,6 @@ class ParenExpression(Factor):
 
 class ArglistItem(GrammarModel):
     """arglist-item ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="arglist-item",
         class_name="ArglistItem",
@@ -603,16 +429,12 @@ class ArglistItem(GrammarModel):
 
 class ArgList(GrammarModel):
     """argList ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="argList",
         class_name="ArgList",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            RuleRefAtom("expression", min=1, max=1),
-            RuleRefAtom("arglist-item", min=0, max=None),
-        ],
+        items=[RuleRefAtom("expression", min=1, max=1), RuleRefAtom("arglist-item", min=0, max=None)],
         field_map={"expression": 0, "arglist_item": 1},
     )
     expression: Expression
@@ -621,7 +443,6 @@ class ArgList(GrammarModel):
 
 class Number(Factor):
     """number ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="number",
         class_name="Number",
@@ -635,17 +456,12 @@ class Number(Factor):
 
 class SingleLineComment(Statement):
     """singleLineComment ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="singleLineComment",
         class_name="SingleLineComment",
         parent_class_name="Statement",
         kind="value_str",
-        items=[
-            LiteralAtom("//"),
-            CharClassAtom("[^\\n]", min=0, max=None),
-            LiteralAtom("\\n"),
-        ],
+        items=[LiteralAtom("//"), CharClassAtom("[^\\n]", min=0, max=None), LiteralAtom("\\n")],
         field_map={},
     )
     value: str
@@ -653,17 +469,12 @@ class SingleLineComment(Statement):
 
 class MultiLineComment(Statement):
     """multiLineComment ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="multiLineComment",
         class_name="MultiLineComment",
         parent_class_name="Statement",
         kind="value_str",
-        items=[
-            LiteralAtom("/*"),
-            CharClassAtom("([^*]|\\*[^/])", min=0, max=None),
-            LiteralAtom("*/"),
-        ],
+        items=[LiteralAtom("/*"), CharClassAtom("([^*]|\\*[^/])", min=0, max=None), LiteralAtom("*/")],
         field_map={},
     )
     value: str
@@ -671,7 +482,6 @@ class MultiLineComment(Statement):
 
 class Ws(GrammarModel):
     """ws ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="ws",
         class_name="Ws",
