@@ -1,4 +1,4 @@
-"""Auto-generated Pydantic models from /home/mika/projects/vyx_2/resources/ground_truth/json_ws.gbnf."""
+"""Auto-generated Pydantic models from /home/mika/projects/lexic/resources/ground_truth/json_ws.gbnf."""
 from __future__ import annotations
 
 from abc import ABC

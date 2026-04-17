@@ -3,9 +3,11 @@
 Single responsibility: understanding GBNF semantics.
 Knows nothing about Lark, Python source, or Pydantic.
 """
+
 from __future__ import annotations
 
 import re
+from typing import cast
 
 from .ast import Alternation, CharClass, Group, Item, Literal, Rule, RuleRef, Sequence
 from .ir import (
@@ -64,7 +66,9 @@ def _is_pure_literal(item: Item) -> bool:
 
 def _is_pure_literal_seq(seq: Sequence) -> bool:
     stripped = _strip_ws(seq)
-    return len(stripped.items) > 0 and all(_is_pure_literal(it) for it in stripped.items)
+    return len(stripped.items) > 0 and all(
+        _is_pure_literal(it) for it in stripped.items
+    )
 
 
 def _is_single_ruleref(seq: Sequence) -> str | None:
@@ -171,12 +175,8 @@ def _is_structurally_complex(alt: Alternation) -> bool:
                 for inner_seq in it.atom.alt.seqs:
                     if _has_nontrivial_group(inner_seq.items):
                         return True
-    all_no_refs = not any(
-        _has_any_ruleref(_strip_ws(seq).items) for seq in alt.seqs
-    )
-    has_group_alt = any(
-        _has_group_with_alt(_strip_ws(seq).items) for seq in alt.seqs
-    )
+    all_no_refs = not any(_has_any_ruleref(_strip_ws(seq).items) for seq in alt.seqs)
+    has_group_alt = any(_has_group_with_alt(_strip_ws(seq).items) for seq in alt.seqs)
     return all_no_refs and has_group_alt
 
 
@@ -194,7 +194,9 @@ def _classify(rule: Rule) -> str:
         and len(arms[0].items) == 1
         and isinstance(arms[0].items[0].atom, Group)
         and arms[0].items[0].quantifier is None
-        and all(_is_pure_literal_seq(_strip_ws(s)) for s in arms[0].items[0].atom.alt.seqs)
+        and all(
+            _is_pure_literal_seq(_strip_ws(s)) for s in arms[0].items[0].atom.alt.seqs
+        )
     ):
         return "pure_literal_alt"
     if len(arms) > 1 and any(_is_single_ruleref(a) is not None for a in arms):
@@ -204,8 +206,7 @@ def _classify(rule: Rule) -> str:
         # Check if the full (non-stripped) sequences contain ANY rule reference (inc. ws)
         full_seqs = alt.seqs
         has_any_rule_ref = any(
-            any(isinstance(it.atom, RuleRef) for it in s.items)
-            for s in full_seqs
+            any(isinstance(it.atom, RuleRef) for it in s.items) for s in full_seqs
         )
         if not has_any_rule_ref and _is_pure_literal_seq(arms[0]):
             return "value_str"
@@ -250,7 +251,11 @@ def _assign_field_names(items: list[Atom]) -> dict[str, int]:
 
         elif isinstance(atom, CharClassAtom):
             cc_count += 1
-            fname = _CC_NAMES[cc_count - 1] if cc_count <= len(_CC_NAMES) else f"cc{cc_count}"
+            fname = (
+                _CC_NAMES[cc_count - 1]
+                if cc_count <= len(_CC_NAMES)
+                else f"cc{cc_count}"
+            )
             field_map[fname] = i
 
     return field_map
@@ -279,11 +284,13 @@ def _seq_to_atoms(
                 # Quantified literal: represent as CharClassAtom so the optional/
                 # repeated nature is preserved in the IR and Lark grammar.
                 min_, max_ = _quantifier_to_bounds(item.quantifier)
-                atoms.append(CharClassAtom(
-                    pattern=f'"{item.atom.value}"',
-                    min=min_,
-                    max=max_,
-                ))
+                atoms.append(
+                    CharClassAtom(
+                        pattern=f'"{item.atom.value}"',
+                        min=min_,
+                        max=max_,
+                    )
+                )
             else:
                 atoms.append(LiteralAtom(value=item.atom.value))
 
@@ -298,23 +305,30 @@ def _seq_to_atoms(
         elif isinstance(item.atom, Group):
             min_, max_ = _quantifier_to_bounds(item.quantifier)
             inner_arms = [
-                a for a in (_strip_ws(s) for s in item.atom.alt.seqs)
+                a
+                for a in (_strip_ws(s) for s in item.atom.alt.seqs)
                 if len(a.items) > 0
             ]
 
             # Inline literal alternation → treat as single char-class-like atom
             if all(_is_pure_literal_seq(a) for a in inner_arms):
-                atoms.append(CharClassAtom(
-                    pattern="(" + "|".join(
-                        "".join(
-                            f'"{it.atom.value}"' if isinstance(it.atom, Literal) else it.atom.pattern
-                            for it in a.items
+                atoms.append(
+                    CharClassAtom(
+                        pattern="("
+                        + "|".join(
+                            "".join(
+                                f'"{it.atom.value}"'
+                                if isinstance(it.atom, Literal)
+                                else cast(CharClass, it.atom).pattern
+                                for it in a.items
+                            )
+                            for a in inner_arms
                         )
-                        for a in inner_arms
-                    ) + ")",
-                    min=min_ if min_ is not None else 1,
-                    max=max_,
-                ))
+                        + ")",
+                        min=min_ if min_ is not None else 1,
+                        max=max_,
+                    )
+                )
                 continue
 
             # Inline union of named rules (no quantifier) → inline alternation atom
@@ -323,7 +337,9 @@ def _seq_to_atoms(
                 and len(inner_arms) > 1
                 and all(_is_single_ruleref(a) is not None for a in inner_arms)
             ):
-                arm_names = [_is_single_ruleref(a) for a in inner_arms]
+                arm_names: list[str] = [
+                    cast(str, _is_single_ruleref(a)) for a in inner_arms
+                ]
                 atoms.append(AlternationAtom(arm_rule_names=arm_names))
                 continue
 
@@ -433,11 +449,13 @@ class IRBuilder:
                             # Quantified literal: represent as CharClassAtom to
                             # preserve optionality/repetition in the IR.
                             min_, max_ = _quantifier_to_bounds(it.quantifier)
-                            items.append(CharClassAtom(
-                                pattern=f'"{it.atom.value}"',
-                                min=min_,
-                                max=max_,
-                            ))
+                            items.append(
+                                CharClassAtom(
+                                    pattern=f'"{it.atom.value}"',
+                                    min=min_,
+                                    max=max_,
+                                )
+                            )
                         else:
                             items.append(LiteralAtom(it.atom.value))
                     elif isinstance(it.atom, Group):
@@ -445,14 +463,16 @@ class IRBuilder:
                         min_, max_ = _quantifier_to_bounds(it.quantifier)
                         pattern = _group_to_regex(it.atom, None)
                         items.append(CharClassAtom(pattern=pattern, min=min_, max=max_))
-            return [RuleSpec(
-                rule_name=rule.name,
-                class_name=cls_name,
-                parent_class_name=parent_cls,
-                kind="value_str",
-                items=items,
-                field_map={},
-            )]
+            return [
+                RuleSpec(
+                    rule_name=rule.name,
+                    class_name=cls_name,
+                    parent_class_name=parent_cls,
+                    kind="value_str",
+                    items=items,
+                    field_map={},
+                )
+            ]
 
         # named_alt → abstract class + anonymous arm classes
         if classification == "named_alt":
@@ -479,14 +499,16 @@ class IRBuilder:
                     )
                     fm = _assign_field_names(atoms)
                     arm_specs.extend(helper_specs)
-                    arm_specs.append(RuleSpec(
-                        rule_name=arm_rule_name,
-                        class_name=arm_cls_name,
-                        parent_class_name=cls_name,
-                        kind="sequence",
-                        items=atoms,
-                        field_map=fm,
-                    ))
+                    arm_specs.append(
+                        RuleSpec(
+                            rule_name=arm_rule_name,
+                            class_name=arm_cls_name,
+                            parent_class_name=cls_name,
+                            kind="sequence",
+                            items=atoms,
+                            field_map=fm,
+                        )
+                    )
 
             abstract_spec = RuleSpec(
                 rule_name=rule.name,
@@ -504,17 +526,21 @@ class IRBuilder:
         full_arms = [s for s in alt.seqs if _strip_ws(s).items]
         arms = [_strip_ws(s) for s in full_arms]
         if not arms:
-            return [RuleSpec(
-                rule_name=rule.name,
-                class_name=cls_name,
-                parent_class_name=parent_cls,
-                kind="value_str",
-                items=[],
-                field_map={},
-            )]
+            return [
+                RuleSpec(
+                    rule_name=rule.name,
+                    class_name=cls_name,
+                    parent_class_name=parent_cls,
+                    kind="value_str",
+                    items=[],
+                    field_map={},
+                )
+            ]
 
         helper_specs_seq: list[RuleSpec] = []
-        atoms_seq = _seq_to_atoms(full_arms[0], cls_name, helper_specs_seq, self._name_map, parent_of)
+        atoms_seq = _seq_to_atoms(
+            full_arms[0], cls_name, helper_specs_seq, self._name_map, parent_of
+        )
         fm_seq = _assign_field_names(atoms_seq)
         seq_spec = RuleSpec(
             rule_name=rule.name,
@@ -546,7 +572,9 @@ class IRBuilder:
             visit(s.class_name)
 
         # Ensure the root rule spec is always first
-        root_idx = next((i for i, s in enumerate(ordered) if s.rule_name == "root"), None)
+        root_idx = next(
+            (i for i, s in enumerate(ordered) if s.rule_name == "root"), None
+        )
         if root_idx is not None and root_idx != 0:
             root_spec = ordered.pop(root_idx)
             ordered.insert(0, root_spec)

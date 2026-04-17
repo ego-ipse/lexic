@@ -3,9 +3,10 @@
 codegen(grammar_path) parses a .gbnf file, builds a RuleSpec IR,
 and writes an importable Python module to generated/<stem>.py.
 """
+
 from __future__ import annotations
 
-import importlib
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -28,8 +29,16 @@ def codegen(grammar_path: str | Path) -> dict[str, type]:
     module_name = f"generated.{grammar_path.stem}"
     if module_name in sys.modules:
         del sys.modules[module_name]
-    mod = importlib.import_module(module_name)
-    return {s.class_name: getattr(mod, s.class_name) for s in specs if hasattr(mod, s.class_name)}
+    spec = importlib.util.spec_from_file_location(module_name, out_path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = mod
+    spec.loader.exec_module(mod)
+    return {
+        s.class_name: getattr(mod, s.class_name)
+        for s in specs
+        if hasattr(mod, s.class_name)
+    }
 
 
 generate_classes = codegen

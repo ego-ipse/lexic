@@ -1,9 +1,6 @@
 # tests/test_lark_builder.py
 from __future__ import annotations
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 import lark
@@ -21,23 +18,27 @@ def _builder(grammar: str) -> LarkBuilder:
     return LarkBuilder(specs)
 
 
-@pytest.mark.parametrize("grammar", [
-    "arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"
-])
+@pytest.mark.parametrize(
+    "grammar", ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"]
+)
 def test_lark_grammar_is_parseable(grammar: str):
     builder = _builder(grammar)
     grammar_str, start_rule = builder.build_grammar()
     assert grammar_str.strip()
     assert start_rule
     # Must not raise
-    parser = lark.Lark(grammar_str, parser="earley", ambiguity="resolve", start=start_rule)
+    parser = lark.Lark(
+        grammar_str, parser="earley", ambiguity="resolve", start=start_rule
+    )
     assert parser is not None
 
 
 def test_arithmetic_lark_parses_simple():
     builder = _builder("arithmetic")
     grammar_str, start_rule = builder.build_grammar()
-    parser = lark.Lark(grammar_str, parser="earley", ambiguity="resolve", start=start_rule)
+    parser = lark.Lark(
+        grammar_str, parser="earley", ambiguity="resolve", start=start_rule
+    )
     tree = parser.parse("x=1\n")
     assert tree is not None
 
@@ -45,7 +46,9 @@ def test_arithmetic_lark_parses_simple():
 def test_list_lark_parses_item():
     builder = _builder("list")
     grammar_str, start_rule = builder.build_grammar()
-    parser = lark.Lark(grammar_str, parser="earley", ambiguity="resolve", start=start_rule)
+    parser = lark.Lark(
+        grammar_str, parser="earley", ambiguity="resolve", start=start_rule
+    )
     tree = parser.parse("- foo\n")
     assert tree is not None
 

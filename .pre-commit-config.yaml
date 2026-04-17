@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: lexic-checks
+        name: Lexic checks
+        entry: tools/run_checks.sh
+        language: system
+        pass_filenames: false
+        always_run: true

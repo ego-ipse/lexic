@@ -1,11 +1,12 @@
 # tests/test_ir.py
 from __future__ import annotations
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from codegen.ir import (
-    AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec,
+    AlternationAtom,
+    CharClassAtom,
+    LiteralAtom,
+    RuleRefAtom,
+    RuleSpec,
 )
 
 
