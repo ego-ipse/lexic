@@ -107,7 +107,7 @@ class ModelEmitter:
             lines.append("from abc import ABC")
         lines.append(f"from typing import {', '.join(sorted(typing_parts))}")
         lines.append("")
-        lines.append("from base import GrammarModel")
+        lines.append("from lexic.base import GrammarModel")
 
         # Only import atom types that are actually instantiated in this grammar.
         all_atoms = [a for s in self._specs for a in s.items]
@@ -124,7 +124,7 @@ class ModelEmitter:
             }
         )
         ir_imports = ", ".join(["RuleSpec"] + used_atoms)
-        lines.append(f"from codegen.ir import {ir_imports}")
+        lines.append(f"from lexic.codegen.ir import {ir_imports}")
         lines.append("")
         lines.append("")
 

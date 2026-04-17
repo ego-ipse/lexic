@@ -17,8 +17,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from parse import parse
-from base import GrammarModel
+from lexic.parse import parse
+from lexic.base import GrammarModel
 
 GRAMMAR_DIR = Path(__file__).parent.parent / "resources" / "ground_truth"
 

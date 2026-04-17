@@ -8,9 +8,9 @@ import pytest
 from abc import ABC
 from typing import get_type_hints
 
-from base import GrammarModel
-from codegen import codegen
-from codegen.ir import RuleSpec
+from lexic.base import GrammarModel
+from lexic.codegen import codegen
+from lexic.codegen.ir import RuleSpec
 
 GRAMMAR_DIR = Path(__file__).parent.parent / "resources" / "ground_truth"
 GENERATED_DIR = Path(__file__).parent.parent / "generated"
@@ -31,7 +31,7 @@ def _fresh(stem: str):
 
 @pytest.mark.parametrize("grammar", ALL_GRAMMARS)
 def test_all_classes_have_grammar(grammar: str):
-    from base import GrammarModel
+    from lexic.base import GrammarModel
 
     mod = _fresh(grammar)
     for name in dir(mod):
@@ -70,7 +70,7 @@ def test_generated_imports_grammar_model(grammar: str):
     codegen(GRAMMAR_DIR / f"{stem}.gbnf")
     source = (GENERATED_DIR / f"{stem}.py").read_text()
     assert "GrammarModel" in source, f"{stem}.py must import and use GrammarModel"
-    assert "from base import GrammarModel" in source or "GrammarModel" in source
+    assert "from lexic.base import GrammarModel" in source or "GrammarModel" in source
 
 
 @pytest.mark.parametrize("grammar", ALL_GRAMMARS)

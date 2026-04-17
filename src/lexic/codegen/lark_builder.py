@@ -294,7 +294,7 @@ def _build_instance(cls, spec: RuleSpec, items: list):
     Uses spec.items[item_idx] to determine each atom's nature and provide
     sensible defaults when optional atoms produce no Lark token/tree.
     """
-    from base import GrammarModel
+    from lexic.base import GrammarModel
 
     children = [i for i in items if i is not None]
     ordered = sorted(spec.field_map.items(), key=lambda x: x[1])

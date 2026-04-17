@@ -11,7 +11,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel
 
-from codegen.ir import LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.codegen.ir import LiteralAtom, RuleRefAtom, RuleSpec
 
 
 class GrammarModel(BaseModel):
@@ -77,7 +77,7 @@ class GrammarModel(BaseModel):
 
     def to_gbnf(self) -> str:
         """Reconstruct the GBNF rule for this class's grammar spec."""
-        from codegen.gbnf_emitter import GBNFEmitter
+        from lexic.codegen.gbnf_emitter import GBNFEmitter
 
         return GBNFEmitter([self.__grammar__]).emit_rule(self.__grammar__)
 

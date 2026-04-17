@@ -4,9 +4,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from codegen.parser import parse_gbnf
-from codegen.ir_builder import IRBuilder
-from codegen.gbnf_emitter import GBNFEmitter
+from lexic.codegen.parser import parse_gbnf
+from lexic.codegen.ir_builder import IRBuilder
+from lexic.codegen.gbnf_emitter import GBNFEmitter
 
 GRAMMAR_DIR = Path(__file__).parent.parent / "resources" / "ground_truth"
 
@@ -62,7 +62,7 @@ def test_arithmetic_emitted_contains_root():
 
 def test_emit_rule_single_spec():
     """emit_rule() on one RuleSpec returns a single ::= line."""
-    from codegen.ir import CharClassAtom, RuleSpec
+    from lexic.codegen.ir import CharClassAtom, RuleSpec
 
     spec = RuleSpec(
         rule_name="ws",

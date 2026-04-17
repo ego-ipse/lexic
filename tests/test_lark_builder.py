@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 import lark
-from codegen.parser import parse_gbnf
-from codegen.ir_builder import IRBuilder
-from codegen.lark_builder import LarkBuilder
+from lexic.codegen.parser import parse_gbnf
+from lexic.codegen.ir_builder import IRBuilder
+from lexic.codegen.lark_builder import LarkBuilder
 
 GRAMMAR_DIR = Path(__file__).parent.parent / "resources" / "ground_truth"
 

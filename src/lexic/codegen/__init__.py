@@ -21,7 +21,7 @@ def codegen(grammar_path: str | Path) -> dict[str, type]:
     rules = parse_gbnf(grammar_path.read_text())
     specs = IRBuilder(rules).build()
 
-    out_dir = Path(__file__).resolve().parent.parent.parent / "generated"
+    out_dir = Path(__file__).resolve().parent.parent.parent.parent / "generated"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{grammar_path.stem}.py"
     out_path.write_text(ModelEmitter(specs, str(grammar_path)).render())

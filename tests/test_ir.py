@@ -1,7 +1,7 @@
 # tests/test_ir.py
 from __future__ import annotations
 
-from codegen.ir import (
+from lexic.codegen.ir import (
     AlternationAtom,
     CharClassAtom,
     LiteralAtom,

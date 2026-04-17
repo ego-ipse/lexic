@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from codegen.parser import parse_gbnf
-from codegen.ir_builder import IRBuilder
-from codegen.ir import (
+from lexic.codegen.parser import parse_gbnf
+from lexic.codegen.ir_builder import IRBuilder
+from lexic.codegen.ir import (
     AlternationAtom,
     CharClassAtom,
     LiteralAtom,

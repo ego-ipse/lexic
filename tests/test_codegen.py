@@ -15,7 +15,7 @@ from typing import Union, get_args, get_origin, get_type_hints
 import pytest
 from pydantic import BaseModel
 
-from codegen import codegen
+from lexic.codegen import codegen
 
 GRAMMAR_DIR = Path(__file__).parent.parent / "resources" / "ground_truth"
 GENERATED_DIR = Path(__file__).parent.parent / "generated"
