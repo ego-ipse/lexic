@@ -2,6 +2,7 @@
 
 Single responsibility: knows Python/Pydantic syntax. Knows nothing about Lark or GBNF text.
 """
+
 from __future__ import annotations
 
 from .ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
@@ -110,15 +111,18 @@ class ModelEmitter:
 
         # Only import atom types that are actually instantiated in this grammar.
         all_atoms = [a for s in self._specs for a in s.items]
-        used_atoms = sorted({
-            name for name, cls in [
-                ("AlternationAtom", AlternationAtom),
-                ("CharClassAtom", CharClassAtom),
-                ("LiteralAtom", LiteralAtom),
-                ("RuleRefAtom", RuleRefAtom),
-            ]
-            if any(isinstance(a, cls) for a in all_atoms)
-        })
+        used_atoms = sorted(
+            {
+                name
+                for name, cls in [
+                    ("AlternationAtom", AlternationAtom),
+                    ("CharClassAtom", CharClassAtom),
+                    ("LiteralAtom", LiteralAtom),
+                    ("RuleRefAtom", RuleRefAtom),
+                ]
+                if any(isinstance(a, cls) for a in all_atoms)
+            }
+        )
         ir_imports = ", ".join(["RuleSpec"] + used_atoms)
         lines.append(f"from codegen.ir import {ir_imports}")
         lines.append("")
@@ -130,7 +134,9 @@ class ModelEmitter:
             lines.append("")
 
         lines.append("# Resolve forward references")
-        lines.append("_ns = {k: v for k, v in globals().items() if isinstance(v, type)}")
+        lines.append(
+            "_ns = {k: v for k, v in globals().items() if isinstance(v, type)}"
+        )
         for spec in self._specs:
             lines.append(f"{spec.class_name}.model_rebuild(_types_namespace=_ns)")
         lines.append("")
@@ -172,7 +178,9 @@ class ModelEmitter:
 
     def _render_grammar_attr(self, spec: RuleSpec) -> list[str]:
         items_repr = "[" + ", ".join(_repr_atom(a) for a in spec.items) + "]"
-        fm_repr = "{" + ", ".join(f'"{k}": {v}' for k, v in spec.field_map.items()) + "}"
+        fm_repr = (
+            "{" + ", ".join(f'"{k}": {v}' for k, v in spec.field_map.items()) + "}"
+        )
         lines = [
             "    __grammar__: ClassVar[RuleSpec] = RuleSpec(",
             f'        rule_name="{spec.rule_name}",',

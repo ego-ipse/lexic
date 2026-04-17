@@ -2,12 +2,19 @@
 from __future__ import annotations
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
 from codegen.parser import parse_gbnf
 from codegen.ir_builder import IRBuilder
-from codegen.ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from codegen.ir import (
+    AlternationAtom,
+    CharClassAtom,
+    LiteralAtom,
+    RuleRefAtom,
+    RuleSpec,
+)
 
 GRAMMAR_DIR = Path(__file__).parent.parent / "resources" / "ground_truth"
 
@@ -24,9 +31,10 @@ def _by_rule(specs: list[RuleSpec]) -> dict[str, RuleSpec]:
 
 # ── Smoke: all 7 grammars ─────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("grammar", [
-    "arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"
-])
+
+@pytest.mark.parametrize(
+    "grammar", ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"]
+)
 def test_all_grammars_produce_specs(grammar: str):
     specs = _build(grammar)
     assert len(specs) > 0
@@ -36,15 +44,16 @@ def test_all_grammars_produce_specs(grammar: str):
         assert spec.kind in ("sequence", "alternation", "value_str")
 
 
-@pytest.mark.parametrize("grammar", [
-    "arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"
-])
+@pytest.mark.parametrize(
+    "grammar", ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"]
+)
 def test_root_spec_is_first(grammar: str):
     specs = _build(grammar)
     assert specs[0].rule_name == "root"
 
 
 # ── arithmetic: rule kinds ───────────────────────────────────────────────────
+
 
 def test_arithmetic_ws_is_value_str():
     d = _by_rule(_build("arithmetic"))
@@ -73,6 +82,7 @@ def test_arithmetic_term_is_alternation():
 
 # ── arithmetic: ident items and field_map ────────────────────────────────────
 
+
 def test_arithmetic_ident_items():
     d = _by_rule(_build("arithmetic"))
     ident = d["ident"]
@@ -95,9 +105,9 @@ def test_arithmetic_ident_field_map():
     d = _by_rule(_build("arithmetic"))
     ident = d["ident"]
     fm = ident.field_map
-    assert "first" in fm        # [a-z]
-    assert "second" in fm       # [a-z0-9_]*
-    assert "ws" in fm           # ws
+    assert "first" in fm  # [a-z]
+    assert "second" in fm  # [a-z0-9_]*
+    assert "ws" in fm  # ws
     assert fm["first"] == 0
     assert fm["second"] == 1
     assert fm["ws"] == 2
@@ -108,7 +118,9 @@ def test_arithmetic_literals_not_in_field_map():
     # The helper RootItem has "=" and "\n" as LiteralAtoms — must not be fields
     specs = _build("arithmetic")
     # Find the helper class for the root group body
-    helper = next((s for s in specs if "root" in s.rule_name and s.rule_name != "root"), None)
+    helper = next(
+        (s for s in specs if "root" in s.rule_name and s.rule_name != "root"), None
+    )
     if helper:
         for fname in helper.field_map:
             assert fname not in ("=", "\\n", "\n"), (
@@ -120,6 +132,7 @@ def test_arithmetic_literals_not_in_field_map():
 
 # ── arithmetic: num ──────────────────────────────────────────────────────────
 
+
 def test_arithmetic_num_is_value_str_or_sequence():
     # num ::= [0-9]+ ws — single char class + ws ref; may be value_str or sequence
     d = _by_rule(_build("arithmetic"))
@@ -129,6 +142,7 @@ def test_arithmetic_num_is_value_str_or_sequence():
 
 
 # ── arithmetic: expr has list field ──────────────────────────────────────────
+
 
 def test_arithmetic_expr_has_list_ruleref():
     # expr ::= term ([-+*/] term)* — the * group → list field
@@ -142,9 +156,19 @@ def test_arithmetic_expr_has_list_ruleref():
 
 # ── field naming: no positional names ────────────────────────────────────────
 
+
 def test_no_fieldN_names_in_any_grammar():
     import re
-    for grammar in ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"]:
+
+    for grammar in [
+        "arithmetic",
+        "c",
+        "chess",
+        "japanese",
+        "json_arr",
+        "json_ws",
+        "list",
+    ]:
         specs = _build(grammar)
         for spec in specs:
             for fname in spec.field_map:
@@ -155,6 +179,7 @@ def test_no_fieldN_names_in_any_grammar():
 
 
 # ── parent class names ────────────────────────────────────────────────────────
+
 
 def test_arithmetic_ident_parent_is_term():
     d = _by_rule(_build("arithmetic"))
@@ -173,9 +198,10 @@ def test_arithmetic_term_parent_is_grammar_model():
 
 # ── japanese: hyphened rule names ─────────────────────────────────────────────
 
+
 def test_japanese_hyphen_rules_have_valid_class_names():
     d = _by_rule(_build("japanese"))
     assert "jp-char" in d
     jp = d["jp-char"]
-    assert jp.class_name == "JpChar"   # PascalCase from hyphenated name
+    assert jp.class_name == "JpChar"  # PascalCase from hyphenated name
     assert jp.kind == "alternation"

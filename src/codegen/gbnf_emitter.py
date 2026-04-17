@@ -3,6 +3,7 @@
 Single responsibility: knows GBNF syntax. Knows nothing about Lark or Python.
 Enables the reverse direction: Pydantic model classes → GBNF grammar file.
 """
+
 from __future__ import annotations
 
 from .ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
@@ -26,10 +27,10 @@ def _normalize_charclass_pattern_for_gbnf(pattern: str) -> str:
     # But this is complex because we need to match the right context.
 
     # Simpler approach: wrap problematic parts in quotes
-    if '\\\\' in pattern and '|' in pattern:
+    if "\\\\" in pattern and "|" in pattern:
         # Look for patterns like |\\\\  which are invalid in GBNF
         # and wrap them as literals
-        pattern = pattern.replace('|\\\\\\\\(', '|"\\\\\\\\\\\\"(')
+        pattern = pattern.replace("|\\\\\\\\(", '|"\\\\\\\\\\\\"(')
 
     return pattern
 

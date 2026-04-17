@@ -1,7 +1,9 @@
 """GBNFEmitter reconstructs GBNF text from RuleSpec IR."""
+
 from __future__ import annotations
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
@@ -25,9 +27,9 @@ def _roundtrip_gbnf(grammar: str) -> tuple[list, list]:
     return original_rules, rt_rules
 
 
-@pytest.mark.parametrize("grammar", [
-    "arithmetic", "list", "json_ws", "chess", "japanese"
-])
+@pytest.mark.parametrize(
+    "grammar", ["arithmetic", "list", "json_ws", "chess", "japanese"]
+)
 def test_emitted_gbnf_is_parseable(grammar: str):
     """Emitted GBNF must parse without errors."""
     original_text = (GRAMMAR_DIR / f"{grammar}.gbnf").read_text()
@@ -41,9 +43,7 @@ def test_emitted_gbnf_is_parseable(grammar: str):
     assert len(rt_rules) > 0
 
 
-@pytest.mark.parametrize("grammar", [
-    "arithmetic", "list", "json_ws"
-])
+@pytest.mark.parametrize("grammar", ["arithmetic", "list", "json_ws"])
 def test_emitted_gbnf_has_same_rule_names(grammar: str):
     original_rules, rt_rules = _roundtrip_gbnf(grammar)
     original_names = {r.name for r in original_rules}
@@ -66,6 +66,7 @@ def test_arithmetic_emitted_contains_root():
 def test_emit_rule_single_spec():
     """emit_rule() on one RuleSpec returns a single ::= line."""
     from codegen.ir import CharClassAtom, RuleSpec
+
     spec = RuleSpec(
         rule_name="ws",
         class_name="Ws",

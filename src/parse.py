@@ -2,6 +2,7 @@
 
 Thin entry point. Delegates to codegen (IR + ModelEmitter) and LarkBuilder.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
