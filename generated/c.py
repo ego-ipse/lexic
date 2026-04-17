@@ -474,7 +474,7 @@ class MultiLineComment(Statement):
         class_name="MultiLineComment",
         parent_class_name="Statement",
         kind="value_str",
-        items=[LiteralAtom("/*"), CharClassAtom("([^*]|*[^/])", min=0, max=None), LiteralAtom("*/")],
+        items=[LiteralAtom("/*"), CharClassAtom("([^*]|\\*[^/])", min=0, max=None), LiteralAtom("*/")],
         field_map={},
     )
     value: str
