@@ -6,7 +6,16 @@ Enables the reverse direction: Pydantic model classes → GBNF grammar file.
 
 from __future__ import annotations
 
-from lexic.ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.ir import (
+    AlternationAtom,
+    CharClassAtom,
+    InlineAlternationAtom,
+    InlineRegexAtom,
+    LiteralAtom,
+    QuantifiedLiteralAtom,
+    RuleRefAtom,
+    RuleSpec,
+)
 from lexic.utils.quantifiers import bounds_to_quantifier
 
 
@@ -52,6 +61,14 @@ def _atom_to_gbnf(atom) -> str:
         return f"{atom.rule_name}{q}"
     if isinstance(atom, AlternationAtom):
         return " | ".join(atom.arm_rule_names)
+    if isinstance(atom, QuantifiedLiteralAtom):
+        q = bounds_to_quantifier(atom.min, atom.max)
+        return f'"{atom.value}"{q}'
+    if isinstance(atom, InlineRegexAtom):
+        q = bounds_to_quantifier(atom.min, atom.max)
+        return f"{atom.gbnf}{q}"
+    if isinstance(atom, InlineAlternationAtom):
+        return "(" + " | ".join(atom.arm_rule_names) + ")"
     return ""
 
 

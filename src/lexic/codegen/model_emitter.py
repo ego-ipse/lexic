@@ -5,7 +5,16 @@ Single responsibility: knows Python/Pydantic syntax. Knows nothing about Lark or
 
 from __future__ import annotations
 
-from lexic.ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.ir import (
+    AlternationAtom,
+    CharClassAtom,
+    InlineAlternationAtom,
+    InlineRegexAtom,
+    LiteralAtom,
+    QuantifiedLiteralAtom,
+    RuleRefAtom,
+    RuleSpec,
+)
 
 
 def _field_type(atom, specs_by_rule: dict[str, RuleSpec]) -> str:
@@ -40,6 +49,28 @@ def _field_type(atom, specs_by_rule: dict[str, RuleSpec]) -> str:
         if arm_cls_names:
             return "Union[" + ", ".join(arm_cls_names) + "]"
         return "GrammarModel"
+    if isinstance(atom, QuantifiedLiteralAtom):
+        return "str"
+    if isinstance(atom, InlineRegexAtom):
+        return "str"
+    if isinstance(atom, InlineAlternationAtom):
+        arm_cls_names = [
+            specs_by_rule[n].class_name
+            for n in atom.arm_rule_names
+            if n in specs_by_rule
+        ]
+        parent_classes = {
+            specs_by_rule[n].parent_class_name
+            for n in atom.arm_rule_names
+            if n in specs_by_rule
+        }
+        if len(parent_classes) == 1:
+            parent = next(iter(parent_classes))
+            if parent != "GrammarModel":
+                return parent
+        if arm_cls_names:
+            return "Union[" + ", ".join(arm_cls_names) + "]"
+        return "GrammarModel"
     return "str"
 
 
@@ -58,6 +89,18 @@ def _repr_atom(atom) -> str:
     if isinstance(atom, AlternationAtom):
         names = ", ".join(f'"{n}"' for n in atom.arm_rule_names)
         return f"AlternationAtom([{names}])"
+    if isinstance(atom, QuantifiedLiteralAtom):
+        escaped = atom.value.replace("\\", "\\\\").replace('"', '\\"')
+        max_repr = "None" if atom.max is None else str(atom.max)
+        return f'QuantifiedLiteralAtom("{escaped}", min={atom.min}, max={max_repr})'
+    if isinstance(atom, InlineRegexAtom):
+        r = atom.regex.replace("\\", "\\\\").replace('"', '\\"')
+        g = atom.gbnf.replace("\\", "\\\\").replace('"', '\\"')
+        max_repr = "None" if atom.max is None else str(atom.max)
+        return f'InlineRegexAtom("{r}", "{g}", min={atom.min}, max={max_repr})'
+    if isinstance(atom, InlineAlternationAtom):
+        names = ", ".join(f'"{n}"' for n in atom.arm_rule_names)
+        return f"InlineAlternationAtom([{names}])"
     return "None"
 
 
@@ -117,7 +160,10 @@ class ModelEmitter:
                 for name, cls in [
                     ("AlternationAtom", AlternationAtom),
                     ("CharClassAtom", CharClassAtom),
+                    ("InlineAlternationAtom", InlineAlternationAtom),
+                    ("InlineRegexAtom", InlineRegexAtom),
                     ("LiteralAtom", LiteralAtom),
+                    ("QuantifiedLiteralAtom", QuantifiedLiteralAtom),
                     ("RuleRefAtom", RuleRefAtom),
                 ]
                 if any(isinstance(a, cls) for a in all_atoms)

@@ -9,7 +9,16 @@ from typing import get_args, get_origin, get_type_hints
 
 from lark import Token, Transformer, Tree
 
-from lexic.ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.ir import (
+    AlternationAtom,
+    CharClassAtom,
+    InlineAlternationAtom,
+    InlineRegexAtom,
+    LiteralAtom,
+    QuantifiedLiteralAtom,
+    RuleRefAtom,
+    RuleSpec,
+)
 from lexic.utils.escapes import decode_gbnf_escapes
 from lexic.utils.quantifiers import bounds_to_quantifier
 
@@ -112,6 +121,17 @@ def _atom_to_lark(atom) -> str:
     if isinstance(atom, AlternationAtom):
         # Parenthesize so inline alternations inside a sequence don't bleed into
         # Lark's rule-level |-alternation.  e.g. (pawn | nonpawn | castle) /[+#]?/
+        return "(" + " | ".join(_to_lark_name(n) for n in atom.arm_rule_names) + ")"
+    if isinstance(atom, QuantifiedLiteralAtom):
+        q = bounds_to_quantifier(atom.min, atom.max)
+        decoded = decode_gbnf_escapes(atom.value)
+        escaped = decoded.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"{q}'
+    if isinstance(atom, InlineRegexAtom):
+        q = bounds_to_quantifier(atom.min, atom.max)
+        safe = _escape_lark_regex(atom.regex)
+        return f"/{safe}/{q}"
+    if isinstance(atom, InlineAlternationAtom):
         return "(" + " | ".join(_to_lark_name(n) for n in atom.arm_rule_names) + ")"
     return '""'
 
