@@ -53,6 +53,22 @@ def _build_instance(cls, spec: RuleSpec, items: list):
     from lexic.base import GrammarModel
 
     children = [i for i in items if i is not None]
+
+    # LiteralAtoms containing control chars (\n \t \r) are emitted as Lark
+    # /regex/ terminals rather than quoted strings, so they are NOT filtered
+    # by keep_all_tokens=False and appear as Token objects in children.
+    # Strip them out so field positions are not displaced.
+    non_field_regex_values = {
+        decode_gbnf_escapes(a.value)
+        for a in spec.items
+        if isinstance(a, LiteralAtom) and not _literal_is_quoted(a.value)
+    }
+    if non_field_regex_values:
+        children = [
+            c
+            for c in children
+            if not (isinstance(c, Token) and str(c) in non_field_regex_values)
+        ]
     ordered = sorted(spec.field_map.items(), key=lambda x: x[1])
     kwargs: dict[str, object] = {}
     child_idx = 0

@@ -142,6 +142,40 @@ def _gen_inline_regex(
     return "".join(result)
 
 
+def _gen_value_str(spec: RuleSpec, rng: _random.Random) -> str:
+    """Generate a string for a value_str rule.
+
+    Two structural patterns appear in the 7 grammars:
+    - Sequential: LiteralAtoms interleaved with required CharClassAtoms
+      (e.g. item ::= "- " [^\\n]+ "\\n") — concatenate all items.
+    - Alternation arms: only LiteralAtoms / optional CharClassAtoms
+      (e.g. ws ::= | " " | "\\n") — pick one LiteralAtom arm randomly.
+
+    Distinguishing signal: presence of a required (min >= 1) CharClassAtom.
+    """
+    has_required_charclass = any(
+        isinstance(a, CharClassAtom) and a.min >= 1 for a in spec.items
+    )
+    if has_required_charclass:
+        # Sequential: concatenate literals + generate required char classes
+        parts: list[str] = []
+        for atom in spec.items:
+            if isinstance(atom, LiteralAtom):
+                parts.append(decode_gbnf_escapes(atom.value))
+            elif isinstance(atom, CharClassAtom) and atom.min >= 1:
+                parts.append(_gen_charclass(atom.pattern, atom.min, atom.max, rng))
+            elif isinstance(atom, QuantifiedLiteralAtom) and atom.min >= 1:
+                parts.append(decode_gbnf_escapes(atom.value) * atom.min)
+            elif isinstance(atom, InlineRegexAtom) and atom.min >= 1:
+                parts.append(_gen_inline_regex(atom.gbnf, atom.min, atom.min, rng))
+        return "".join(parts)
+    # Alternation: pick one LiteralAtom arm
+    literal_arms = [a for a in spec.items if isinstance(a, LiteralAtom)]
+    if literal_arms:
+        return decode_gbnf_escapes(rng.choice(literal_arms).value)
+    return ""
+
+
 def generate(
     rule_name: str,
     specs: dict[str, RuleSpec],
@@ -170,7 +204,9 @@ def generate(
                 if result:
                     return result
             return ""
-        # sequence / value_str: emit literals and minimum required chars.
+        if spec.kind == "value_str":
+            return _gen_value_str(spec, rng)
+        # sequence: emit literals and minimum required chars.
         # For required (min >= 1) rule refs, recurse at depth=0 so alternations
         # can pick a non-recursive arm (e.g. ident/num before term-arm3).
         parts: list[str] = []
@@ -200,6 +236,9 @@ def generate(
             return ""
         arm = rng.choice(arms)
         return generate(arm, specs, rng=rng, max_depth=max_depth - 1)
+
+    if spec.kind == "value_str":
+        return _gen_value_str(spec, rng)
 
     parts: list[str] = []
 
