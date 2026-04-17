@@ -102,9 +102,10 @@ def _group_to_regex(group: Group, quantifier: str | None) -> str:
         parts: list[str] = []
         for it in seq.items:
             if isinstance(it.atom, Literal):
-                # Emit the literal value directly as a regex fragment.
-                # GBNF escapes like \\ are valid regex escapes.
-                parts.append(it.atom.value)
+                # Escape regex metacharacters in the literal so e.g. "*" becomes
+                # "\*" and doesn't look like a quantifier in the pattern.
+                # re.escape handles all regex special chars safely.
+                parts.append(re.escape(it.atom.value))
             elif isinstance(it.atom, CharClass):
                 q = it.quantifier or ""
                 parts.append(it.atom.pattern + q)
