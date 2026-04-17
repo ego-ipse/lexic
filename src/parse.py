@@ -5,6 +5,8 @@ Thin entry point. Delegates to codegen (IR + ModelEmitter) and LarkBuilder.
 
 from __future__ import annotations
 
+from base import GrammarModel
+
 from pathlib import Path
 
 import lark
@@ -15,7 +17,7 @@ from codegen.lark_builder import LarkBuilder
 from codegen.parser import parse_gbnf
 
 
-def parse(text: str, grammar_path: str | Path) -> object:
+def parse(text: str, grammar_path: str | Path) -> GrammarModel:
     """Parse text against a GBNF grammar and return a typed GrammarModel instance."""
     grammar_path = Path(grammar_path)
 

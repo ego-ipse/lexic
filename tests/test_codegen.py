@@ -6,6 +6,7 @@ Expectations derived exclusively from .gsd/milestones/M001/slices/S01/S01-SCENAR
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import sys
 from abc import ABC
 from pathlib import Path
@@ -107,9 +108,14 @@ def test_generated_file_importable(grammar_file: str) -> None:
     """Generated .py file must be importable via importlib without errors."""
     stem = Path(grammar_file).stem
     module_name = f"generated.{stem}"
+    out_path = GENERATED_DIR / f"{stem}.py"
     if module_name in sys.modules:
         del sys.modules[module_name]
-    mod = importlib.import_module(module_name)
+    spec = importlib.util.spec_from_file_location(module_name, out_path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = mod
+    spec.loader.exec_module(mod)
     assert hasattr(mod, "Root")
 
 
