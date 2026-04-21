@@ -61,6 +61,19 @@ move that every later slice assumes. Concrete targets:
   predicates live as methods on a `GbnfRuleTree` wrapper and are
   unit-tested against hand-written AST fixtures. Closes V3 §2.
 
+  **(Brainstorm-resolved, 2026-04-21):** `Classification` is a union of
+  per-kind frozen dataclasses (`ValueStr | PureLiteralAlt | NamedAlt |
+  SequenceKind`), each carrying its variant-specific payload. Dispatch
+  is via `match`. See
+  `docs/superpowers/specs/2026-04-21-slice-a-design.md` §Q2.
+
+- **Split `IRBuilder._build_rule` into per-kind methods.** Relocated
+  into this Part B decomposition from the Part E SOLID-sweep pass,
+  since the per-kind methods naturally consume the Classification-union
+  variants landed alongside `Classifier`. (Relocated 2026-04-21;
+  preserved draft content at
+  `prototyping/next/draft/slice-b-moved.md`.)
+
 - **Table-driven transformer.** Replace `_build_instance` (267 lines,
   five interleaved policies — V3 §1) with:
 
@@ -125,6 +138,12 @@ move that every later slice assumes. Concrete targets:
   any method flagged by STYLE §2's signals. Split; do not abstract for
   hypothetical future needs (STYLE §4).
 
+  Note (2026-04-21): `IRBuilder._build_rule` splitting was originally
+  slated here but was relocated into the `Classifier` extraction bullet
+  above, since the per-kind split consumes the Classification union
+  variants directly. See `docs/superpowers/specs/2026-04-21-slice-a-design.md`
+  §B.
+
 ### Rationale
 
 Every item is prescribed by Docs 0–1 and is a pure cleanup — none
@@ -169,15 +188,19 @@ branches.
 
 ### Open questions
 
-- Exact contract of `BuildContext` and `FieldResult` — dataclasses,
-  dict-typed, or a child-cursor abstraction?
-- Should `Classifier` return a flat `Classification` dataclass or a
-  union of per-kind dataclasses (one per current `kind` value)?
-- Does `CompiledGrammar`'s memo key include only `(path, mtime)` or
-  also a content hash? (mtime is adequate for local dev, fragile on
-  network filesystems.)
-- Should `FieldNamer` be instantiated per `IRBuilder.build()` call
-  (stateful only within one build) or shared across builds?
+**All four resolved in brainstorming 2026-04-21. Full rationale:
+`docs/superpowers/specs/2026-04-21-slice-a-design.md`.**
+
+- ~~Exact contract of `BuildContext` and `FieldResult`~~ — **Resolved:**
+  frozen `BuildContext` (no mutation); orchestrator owns cursor;
+  builders return `FieldResult | SkipField` (tagged union, no sentinel).
+- ~~Flat `Classification` or union?~~ — **Resolved:** union of per-kind
+  frozen dataclasses; `match`-dispatched downstream.
+- ~~`CompiledGrammar` memo key~~ — **Resolved:** `(path, mtime, size)`;
+  `compile_text(text, *, cache_key)` primary, `compile(path)` thin
+  wrapper; one shared cache.
+- ~~`FieldNamer` lifetime~~ — **Resolved:** not a class. Module-level
+  `assign_field_names(atoms)` function. Per-rule scope unchanged.
 
 ---
 
