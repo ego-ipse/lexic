@@ -21,6 +21,7 @@ from lexic.ir import (
     RuleRefAtom,
     RuleSpec,
 )
+from lexic.codegen.helpers import HelperRuleRegistry
 from lexic.codegen.naming import assign_field_names
 from lexic.utils.names import to_pascal
 from lexic.utils.quantifiers import quantifier_to_bounds
@@ -213,14 +214,14 @@ def _classify(rule: Rule) -> str:
 def _seq_to_atoms(
     seq: Sequence,
     parent_class_name: str,
-    helper_specs: list[RuleSpec],
+    helpers: HelperRuleRegistry,
     name_map: dict[str, str],
     parent_of: dict[str, str],
 ) -> list[Atom]:
     """Convert a single grammar sequence into a list of IR atoms.
 
     When a quantified group is encountered, a helper RuleSpec is created and
-    appended to helper_specs, and a RuleRefAtom pointing to it is returned.
+    registered in helpers, and a RuleRefAtom pointing to it is returned.
     """
     atoms: list[Atom] = []
 
@@ -272,27 +273,19 @@ def _seq_to_atoms(
             # Unquantified single-arm group → inline its contents
             if item.quantifier is None and len(inner_arms) == 1:
                 inner_atoms = _seq_to_atoms(
-                    inner_arms[0], parent_class_name, helper_specs, name_map, parent_of
+                    inner_arms[0], parent_class_name, helpers, name_map, parent_of
                 )
                 atoms.extend(inner_atoms)
                 continue
 
             # Quantified group → create helper RuleSpec
-            helper_rule_name = f"{parent_class_name.lower()}-item"
-            # Deduplicate helper names
-            existing = {s.rule_name for s in helper_specs}
-            suffix = 2
-            candidate = helper_rule_name
-            while candidate in existing:
-                candidate = f"{helper_rule_name}{suffix}"
-                suffix += 1
-            helper_rule_name = candidate
+            helper_rule_name = helpers.reserve(f"{parent_class_name.lower()}-item")
 
             helper_class_name = to_pascal(helper_rule_name)
             helper_atoms = _seq_to_atoms(
                 inner_arms[0] if inner_arms else seq,
                 helper_class_name,
-                helper_specs,
+                helpers,
                 name_map,
                 parent_of,
             )
@@ -305,7 +298,7 @@ def _seq_to_atoms(
                 items=helper_atoms,
                 field_map=helper_fm,
             )
-            helper_specs.append(helper_spec)
+            helpers.register(helper_spec)
             atoms.append(RuleRefAtom(rule_name=helper_rule_name, min=min_, max=max_))
 
     return atoms
@@ -324,16 +317,15 @@ class IRBuilder:
         self._rules = rules
         self._rules_dict = {r.name: r for r in rules}
         self._name_map = {r.name: to_pascal(r.name) for r in rules}
+        self._helpers = HelperRuleRegistry()
 
     def build(self) -> list[RuleSpec]:
         """Build and return specs in grammar order (root first)."""
         parent_of = self._compute_parents()
-        all_specs: list[RuleSpec] = []
-
+        primary_specs: list[RuleSpec] = []
         for rule in self._rules:
-            specs = self._build_rule(rule, parent_of, all_specs)
-            all_specs.extend(specs)
-
+            primary_specs.extend(self._build_rule(rule, parent_of))
+        all_specs = primary_specs + self._helpers.all_specs()
         return self._topo_sort(all_specs)
 
     def _compute_parents(self) -> dict[str, str]:
@@ -355,7 +347,6 @@ class IRBuilder:
         self,
         rule: Rule,
         parent_of: dict[str, str],
-        existing_specs: list[RuleSpec],
     ) -> list[RuleSpec]:
         classification = _classify(rule)
         cls_name = self._name_map[rule.name]
@@ -416,12 +407,10 @@ class IRBuilder:
                     arm_rule_name = f"{rule.name}-arm{arm_idx}"
                     arm_cls_name = f"{cls_name}Arm{arm_idx}"
                     arm_rule_names.append(arm_rule_name)
-                    helper_specs: list[RuleSpec] = []
                     atoms = _seq_to_atoms(
-                        stripped, arm_cls_name, helper_specs, self._name_map, parent_of
+                        stripped, arm_cls_name, self._helpers, self._name_map, parent_of
                     )
                     fm = assign_field_names(atoms)
-                    arm_specs.extend(helper_specs)
                     arm_specs.append(
                         RuleSpec(
                             rule_name=arm_rule_name,
@@ -460,9 +449,8 @@ class IRBuilder:
                 )
             ]
 
-        helper_specs_seq: list[RuleSpec] = []
         atoms_seq = _seq_to_atoms(
-            full_arms[0], cls_name, helper_specs_seq, self._name_map, parent_of
+            full_arms[0], cls_name, self._helpers, self._name_map, parent_of
         )
         fm_seq = assign_field_names(atoms_seq)
         seq_spec = RuleSpec(
@@ -473,7 +461,7 @@ class IRBuilder:
             items=atoms_seq,
             field_map=fm_seq,
         )
-        return helper_specs_seq + [seq_spec]
+        return [seq_spec]
 
     def _topo_sort(self, specs: list[RuleSpec]) -> list[RuleSpec]:
         """Order specs so parent classes appear before subclasses, with root first."""
