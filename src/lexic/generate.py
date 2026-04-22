@@ -125,6 +125,11 @@ def _gen_value_str(spec: RuleSpec, rng: _random.Random) -> str:
     return ""
 
 
+def _get_alternation_arms(spec: RuleSpec) -> list[str]:
+    first = spec.items[0] if spec.items else None
+    return first.arm_rule_names if isinstance(first, AlternationAtom) else []
+
+
 def _gen_alternation(
     arms: list[str],
     specs: dict[str, RuleSpec],
@@ -205,9 +210,7 @@ def generate(
 
     if max_depth <= 0:
         if spec.kind == "alternation":
-            first = spec.items[0] if spec.items else None
-            arms = first.arm_rule_names if isinstance(first, AlternationAtom) else []
-            for arm in arms:
+            for arm in _get_alternation_arms(spec):
                 result = generate(arm, specs, rng=rng, max_depth=0)
                 if result:
                     return result
@@ -217,9 +220,7 @@ def generate(
         return _gen_sequence_min_depth(spec, specs, rng)
 
     if spec.kind == "alternation":
-        first = spec.items[0] if spec.items else None
-        arms = first.arm_rule_names if isinstance(first, AlternationAtom) else []
-        return _gen_alternation(arms, specs, rng, max_depth)
+        return _gen_alternation(_get_alternation_arms(spec), specs, rng, max_depth)
     if spec.kind == "value_str":
         return _gen_value_str(spec, rng)
     return _gen_sequence(spec, specs, rng, max_depth)

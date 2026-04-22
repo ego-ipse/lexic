@@ -75,6 +75,14 @@ def test_generate_different_with_different_seeds():
     assert len(results) > 1
 
 
+def test_generate_sequence_rule():
+    # arithmetic: root ::= expr "=" ws term "\n" — kind=sequence
+    specs = _specs("arithmetic")
+    result = generate("root", specs, rng=random.Random(42))
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
 def test_generate_alternation_rule():
     # arithmetic: term ::= ident | num | "(" ws expr ")" ws — kind=alternation
     specs = _specs("arithmetic")
