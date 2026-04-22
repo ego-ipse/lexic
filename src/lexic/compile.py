@@ -6,9 +6,9 @@ checks the cache to skip the file read on hit, and delegates to compile().
 
 One cache covers both entry points.
 
-Runtime→codegen seam: this module imports exactly two public symbols from
-lexic.codegen — build_classes_and_specs and LarkBuilder. No private-symbol
-imports cross the seam.
+Runtime→codegen seam: build_classes_and_specs from lexic.codegen (the
+package) and LarkBuilder from lexic.codegen.lark_builder (the sub-module).
+No private-symbol imports cross the seam.
 """
 
 from __future__ import annotations
