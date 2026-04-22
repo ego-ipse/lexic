@@ -7,7 +7,7 @@ fills in the real behaviour.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any
+from typing import Any, Union, get_args, get_origin
 
 from lark import Token
 
@@ -30,7 +30,6 @@ class LiteralSkipBuilder:
 
 class CharClassFieldBuilder:
     def build(self, atom, field_name: str, ctx: BuildContext) -> BuildResult:
-        # atom is CharClassAtom; no narrowing in signature to satisfy FieldBuilder protocol
         if ctx.exhausted():
             return FieldResult(value="", consumed=0)
         c = ctx.peek()
@@ -68,15 +67,11 @@ class InlineRegexBuilder:
 
 def _is_plain_type(hint) -> bool:
     """Return True only if hint is a plain class usable with isinstance()."""
-    from typing import get_origin
-
     return isinstance(hint, type) and get_origin(hint) is None
 
 
 def _unwrap_hint(hint):
     """Resolve a possibly-Optional/Union hint to its primary non-None type."""
-    from typing import get_args, get_origin, Union
-
     if hint is None or hint is str or _is_plain_type(hint):
         return hint
     origin = get_origin(hint)
@@ -88,7 +83,6 @@ def _unwrap_hint(hint):
 
 class RuleRefBuilder:
     def build(self, atom, field_name: str, ctx: BuildContext) -> BuildResult:
-        # atom is RuleRefAtom; no narrowing in signature to satisfy FieldBuilder protocol
         raw_hint = ctx.hints.get(field_name)
         hint = _unwrap_hint(raw_hint)
         is_ws = atom.rule_name == "ws"
@@ -99,7 +93,7 @@ class RuleRefBuilder:
                 # hint is always a concrete Ws subclass here; fall back only if
                 # somehow it isn't so we at least return an empty string.
                 if _is_plain_type(hint) and hint is not str:
-                    return FieldResult(value=hint(value=""), consumed=0)  # type: ignore[call-arg]
+                    return FieldResult(value=hint(value=""), consumed=0)  # type: ignore[call-arg]  # hint is a GrammarModel subclass narrowed by _is_plain_type guard; Pyright sees bare `type`
                 return FieldResult(value="", consumed=0)
             # non-ws + no child
             if hint is str or hint is None or not _is_plain_type(hint):
@@ -115,7 +109,7 @@ class RuleRefBuilder:
             if _is_plain_type(hint) and hint is not str and isinstance(c, hint):
                 return FieldResult(value=c, consumed=1)
             if _is_plain_type(hint) and hint is not str:
-                return FieldResult(value=hint(value=""), consumed=0)  # type: ignore[call-arg]
+                return FieldResult(value=hint(value=""), consumed=0)  # type: ignore[call-arg]  # hint is a GrammarModel subclass narrowed by _is_plain_type guard; Pyright sees bare `type`
             return FieldResult(value="", consumed=0)
 
         # non-ws with child present: only consume if child matches expected type
