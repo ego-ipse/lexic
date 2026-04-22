@@ -122,6 +122,7 @@ Never `from src.lexic...`.
 
 ## Key constraints
 
+- run `ruff format` and `ruff check --fix` before trying to fix ruff issues manually.
 - No `exec` or `eval` anywhere.
 - No grammar-specific hardcoding.
 - Generated files in `generated/` are write-once artifacts — fix template issues in `model_emitter.py`.
