@@ -1,6 +1,8 @@
 """Unit tests for src/lexic/utils/quantifiers.py"""
 
-from lexic.utils.quantifiers import bounds_to_quantifier
+import pytest
+
+from lexic.utils.quantifiers import bounds_to_quantifier, quantifier_to_bounds
 
 
 def test_required_singular():
@@ -29,3 +31,19 @@ def test_range():
 
 def test_min_with_no_max():
     assert bounds_to_quantifier(2, None) == "{2,}"
+
+
+@pytest.mark.parametrize(
+    "q, expected",
+    [
+        (None, (1, 1)),
+        ("?", (0, 1)),
+        ("*", (0, None)),
+        ("+", (1, None)),
+        ("{3}", (3, 3)),
+        ("{0,15}", (0, 15)),
+        ("{2,}", (2, None)),
+    ],
+)
+def test_quantifier_to_bounds(q, expected):
+    assert quantifier_to_bounds(q) == expected

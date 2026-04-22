@@ -21,6 +21,7 @@ from lexic.ir import (
     RuleRefAtom,
     RuleSpec,
 )
+from lexic.utils.quantifiers import quantifier_to_bounds
 
 
 # ── Name utilities ────────────────────────────────────────────────────────────
@@ -30,26 +31,6 @@ def to_pascal(name: str) -> str:
     """Convert 'jp-char' or 'json_ws' → 'JpChar' / 'JsonWs'."""
     parts = re.split(r"[-_]", name)
     return "".join(p[0].upper() + p[1:] if p else "" for p in parts)
-
-
-def _quantifier_to_bounds(q: str | None) -> tuple[int, int | None]:
-    """Parse GBNF quantifier string → (min, max). max=None means unbounded."""
-    if q is None:
-        return 1, 1
-    if q == "?":
-        return 0, 1
-    if q == "*":
-        return 0, None
-    if q == "+":
-        return 1, None
-    inner = q[1:-1]  # strip { }
-    if "," in inner:
-        parts = inner.split(",", 1)
-        lo = int(parts[0])
-        hi = int(parts[1]) if parts[1] else None
-        return lo, hi
-    n = int(inner)
-    return n, n
 
 
 # ── Classification helpers ────────────────────────────────────────────────────
@@ -397,7 +378,7 @@ def _seq_to_atoms(
             if item.quantifier is not None:
                 # Quantified literal: emit as QuantifiedLiteralAtom so the optional/
                 # repeated nature is preserved in the IR and downstream emitters.
-                min_, max_ = _quantifier_to_bounds(item.quantifier)
+                min_, max_ = quantifier_to_bounds(item.quantifier)
                 atoms.append(
                     QuantifiedLiteralAtom(value=item.atom.value, min=min_, max=max_)
                 )
@@ -405,15 +386,15 @@ def _seq_to_atoms(
                 atoms.append(LiteralAtom(value=item.atom.value))
 
         elif isinstance(item.atom, CharClass):
-            min_, max_ = _quantifier_to_bounds(item.quantifier)
+            min_, max_ = quantifier_to_bounds(item.quantifier)
             atoms.append(CharClassAtom(pattern=item.atom.pattern, min=min_, max=max_))
 
         elif isinstance(item.atom, RuleRef):
-            min_, max_ = _quantifier_to_bounds(item.quantifier)
+            min_, max_ = quantifier_to_bounds(item.quantifier)
             atoms.append(RuleRefAtom(rule_name=item.atom.name, min=min_, max=max_))
 
         elif isinstance(item.atom, Group):
-            min_, max_ = _quantifier_to_bounds(item.quantifier)
+            min_, max_ = quantifier_to_bounds(item.quantifier)
             inner_arms = [
                 a
                 for a in (_strip_ws(s) for s in item.atom.alt.seqs)
@@ -536,13 +517,13 @@ class IRBuilder:
             for seq in alt.seqs:
                 for it in seq.items:
                     if isinstance(it.atom, CharClass):
-                        min_, max_ = _quantifier_to_bounds(it.quantifier)
+                        min_, max_ = quantifier_to_bounds(it.quantifier)
                         items.append(CharClassAtom(it.atom.pattern, min_, max_))
                     elif isinstance(it.atom, Literal):
                         if it.quantifier is not None:
                             # Quantified literal: emit as QuantifiedLiteralAtom to
                             # preserve optionality/repetition in the IR.
-                            min_, max_ = _quantifier_to_bounds(it.quantifier)
+                            min_, max_ = quantifier_to_bounds(it.quantifier)
                             items.append(
                                 QuantifiedLiteralAtom(
                                     value=it.atom.value, min=min_, max=max_
@@ -552,7 +533,7 @@ class IRBuilder:
                             items.append(LiteralAtom(it.atom.value))
                     elif isinstance(it.atom, Group):
                         # Inline group: convert to an InlineRegexAtom.
-                        min_, max_ = _quantifier_to_bounds(it.quantifier)
+                        min_, max_ = quantifier_to_bounds(it.quantifier)
                         items.append(_build_inline_regex(it.atom, min_, max_))
             return [
                 RuleSpec(
