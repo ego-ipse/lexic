@@ -12,7 +12,7 @@ src/lexic/
   __init__.py
   base.py                       GrammarModel (runtime-only)
   parse.py                      parse(text, grammar) — thin; calls compile()
-  compile.py                    compile(grammar) → CompiledGrammar (memoised)
+  compile.py                    compile(text) + compile_from_path(path) → CompiledGrammar (memoised)
   generate.py                   generate(rule, specs, rng) — random generator
   grammar_rule.py               @grammar_rule decorator (lands in Slice D)
   exceptions.py                 Error classes (see §Error vocabulary)
@@ -23,7 +23,7 @@ src/lexic/
     spec.py                     RuleSpec dataclass
 
   codegen/                      build-time; runtime never imports this
-    __init__.py                 codegen(grammar_path, flavour="gbnf")
+    __init__.py                 codegen(text, *, stem) + codegen_from_path(path)
     classify.py                 Classifier (extracted from ir_builder)
     naming.py                   FieldNamer (extracted from ir_builder)
     helpers.py                  HelperRuleRegistry (global dedup)
@@ -54,9 +54,11 @@ Three packages, one ownership each:
   of `lexic`.
 - **`lexic.codegen`** — build-time. Produces and consumes IR; emits
   Python modules and grammar text. Has no runtime consumers except via
-  `GrammarModel.to_grammar`.
-- **`lexic` (root)** — runtime. Depends on `lexic.ir` and, for the
-  `to_grammar` entry point, on `lexic.codegen.gbnf.emitter`.
+  the two deliberate edges below (`GrammarModel.to_grammar` and
+  `compile()`).
+- **`lexic` (root)** — runtime. Depends on `lexic.ir`; bridges into
+  `lexic.codegen` at exactly two points: `base.py::to_grammar` and
+  `compile.py::compile`.
 
 ## Layering rules
 
@@ -66,14 +68,27 @@ Imports flow one way. Violating any arrow is a review-blocking offence.
 lexic.ir        ←  lexic.codegen        (codegen reads/writes IR)
 lexic.ir        ←  lexic (runtime)      (runtime reads IR)
 lexic (runtime) ←/  lexic.codegen       (runtime NEVER imports codegen
-                                         except the one edge below)
+                                         except the two edges below)
 ```
 
-**The one deliberate exception.** `GrammarModel.to_grammar(flavour)` in
-`base.py` imports `lexic.codegen.gbnf.emitter` at module scope and calls
-it. This edge is explicit, eager (not a lazy intra-function import),
-and exists because round-trip to grammar text is part of the runtime
-contract. It closes V3 §9.
+**The two deliberate exceptions.**
+
+1. `GrammarModel.to_grammar(flavour)` in `base.py` imports
+   `lexic.codegen.gbnf.emitter` at module scope and calls it. This edge
+   is explicit, eager (not a lazy intra-function import), and exists
+   because round-trip to grammar text is part of the runtime contract.
+   It closes V3 §9.
+2. `compile()` and its thin wrapper `compile_from_path()` in
+   `compile.py` import `lexic.codegen.codegen` at module scope. This
+   edge is explicit, eager, and exists because the runtime contract of
+   `compile(text) -> CompiledGrammar` is exactly "text → classes",
+   which fundamentally requires codegen at call time. `compile.py` is
+   the single runtime seam for this; every other runtime module that
+   needs compiled classes goes through it (notably `parse.py`). The
+   path-taking helpers (`compile_from_path`, `codegen_from_path`) are
+   read-file wrappers that delegate to the string-primary functions —
+   following the convention that the canonical operation takes the
+   string and IO sits at the edges.
 
 Every other runtime-touches-codegen path is forbidden. No lazy
 intra-function imports of `lexic.codegen` from runtime modules. No

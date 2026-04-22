@@ -24,7 +24,7 @@ latter relocated from Part E per §B of the design spec). Part C
 converts `transformer.py` into a `transformer/` sub-package with a
 `BUILDER_BY_ATOM` dispatch and an **immutable** `BuildContext` +
 `SkipField` tagged skip variant. Part D introduces `CompiledGrammar` +
-memoised `compile_text`/`compile()` so `parse()` stops regenerating
+memoised `compile()`/`compile_from_path()` so `parse()` stops regenerating
 modules on every call. Part E sweeps the remaining 40+-line method
 (principally `generate.py::generate`).
 
@@ -817,6 +817,14 @@ def test_all_specs_returned_in_registration_order():
     reg.register(_spec("q"))
     reg.register(_spec("r"))
     assert [s.rule_name for s in reg.all_specs()] == ["p", "q", "r"]
+
+
+def test_register_rejects_duplicate_name():
+    import pytest
+    reg = HelperRuleRegistry()
+    reg.register(_spec("x"))
+    with pytest.raises(ValueError, match=r"already registered"):
+        reg.register(_spec("x"))
 ```
 
 - [ ] **Step 2: Run; verify fail**
@@ -869,17 +877,85 @@ In `src/lexic/codegen/ir_builder.py`:
    ```python
    from lexic.codegen.helpers import HelperRuleRegistry
    ```
+
 2. In `IRBuilder.__init__`, add:
    ```python
    self._helpers = HelperRuleRegistry()
    ```
-3. Thread `self._helpers` through `_build_rule` and `_seq_to_atoms`
-   instead of the local `helper_specs: list[RuleSpec]` parameter.
-   Change the `_seq_to_atoms` signature to accept
-   `helpers: HelperRuleRegistry` in place of `helper_specs`.
-4. Replace the inline dedup block inside `_seq_to_atoms`:
+
+3. **Change `_seq_to_atoms` signature.** Replace the `helper_specs`
+   parameter with `helpers: HelperRuleRegistry`. Current signature
+   (`src/lexic/codegen/ir_builder.py:381`):
    ```python
-   # OLD
+   def _seq_to_atoms(
+       seq: Sequence,
+       parent_class_name: str,
+       helper_specs: list[RuleSpec],     # DELETE
+       name_map: dict[str, str],
+       parent_of: dict[str, str],
+   ) -> list[Atom]:
+   ```
+   becomes:
+   ```python
+   def _seq_to_atoms(
+       seq: Sequence,
+       parent_class_name: str,
+       helpers: HelperRuleRegistry,       # NEW
+       name_map: dict[str, str],
+       parent_of: dict[str, str],
+   ) -> list[Atom]:
+   ```
+
+4. **Update every call site of `_seq_to_atoms`.** There are three in
+   the current file (line numbers are approximate — grep to confirm):
+
+   a. **Recursive single-arm-group inline call** (~line 442). Change
+      the third positional arg from `helper_specs` to `helpers`.
+
+   b. **Recursive helper-group call** (~line 460). Same — third arg
+      becomes `helpers`.
+
+   c. **`_build_rule` named-alt arm call** (~line 587–592). The local
+      `helper_specs: list[RuleSpec] = []` goes away, and the trailing
+      `arm_specs.extend(helper_specs)` goes away. Current:
+      ```python
+      helper_specs: list[RuleSpec] = []
+      arm_atoms = _seq_to_atoms(
+          stripped, arm_cls_name, helper_specs, self._name_map, parent_of
+      )
+      ...
+      arm_specs.extend(helper_specs)
+      ```
+      becomes:
+      ```python
+      arm_atoms = _seq_to_atoms(
+          stripped, arm_cls_name, self._helpers, self._name_map, parent_of
+      )
+      # helpers are registered into self._helpers; no local accumulation.
+      ```
+
+   d. **`_build_rule` sequence-kind call** (~line 631–644). Delete the
+      local `helper_specs_seq`; return only the primary spec. Current:
+      ```python
+      helper_specs_seq: list[RuleSpec] = []
+      arm_atoms = _seq_to_atoms(
+          full_arms[0], cls_name, helper_specs_seq, self._name_map, parent_of
+      )
+      ...
+      return helper_specs_seq + [seq_spec]
+      ```
+      becomes:
+      ```python
+      arm_atoms = _seq_to_atoms(
+          full_arms[0], cls_name, self._helpers, self._name_map, parent_of
+      )
+      ...
+      return [seq_spec]
+      ```
+
+5. **Replace the inline dedup block inside `_seq_to_atoms`** (currently
+   ~line 449–457). Current:
+   ```python
    helper_rule_name = f"{parent_class_name.lower()}-item"
    existing = {s.rule_name for s in helper_specs}
    suffix = 2
@@ -889,17 +965,19 @@ In `src/lexic/codegen/ir_builder.py`:
        suffix += 1
    helper_rule_name = candidate
    ```
-   with:
+   becomes a single call into the registry:
    ```python
    helper_rule_name = helpers.reserve(f"{parent_class_name.lower()}-item")
    ```
-5. Replace `helper_specs.append(helper_spec)` with
+
+6. **Replace `helper_specs.append(helper_spec)`** (~line 476) with
    `helpers.register(helper_spec)`.
-6. In `build()`, collect per-rule output from `_build_rule` (non-helper
-   specs only), then prepend `self._helpers.all_specs()` before
-   topo-sort:
+
+7. **Rewrite `build()`** to gather helper specs from the registry once,
+   at the end:
    ```python
    def build(self) -> list[RuleSpec]:
+       """Build and return specs in grammar order (root first)."""
        parent_of = self._compute_parents()
        primary_specs: list[RuleSpec] = []
        for rule in self._rules:
@@ -907,6 +985,29 @@ In `src/lexic/codegen/ir_builder.py`:
        all_specs = primary_specs + self._helpers.all_specs()
        return self._topo_sort(all_specs)
    ```
+   Note: `_build_rule` no longer takes `existing_specs` — that
+   parameter existed purely to feed the old per-call helper dedup, and
+   the registry replaces it.
+
+8. **Update `_build_rule`'s signature.** Current:
+   ```python
+   def _build_rule(
+       self,
+       rule: Rule,
+       parent_of: dict[str, str],
+       existing_specs: list[RuleSpec],     # DELETE
+   ) -> list[RuleSpec]:
+   ```
+   becomes:
+   ```python
+   def _build_rule(
+       self,
+       rule: Rule,
+       parent_of: dict[str, str],
+   ) -> list[RuleSpec]:
+   ```
+   Every reference to `existing_specs` inside `_build_rule` was feeding
+   the inline helper dedup in `_seq_to_atoms`, which is now gone.
 
 - [ ] **Step 6: Run full suite; verify green**
 
@@ -922,7 +1023,11 @@ git commit -m "refactor(ir_builder): extract HelperRuleRegistry, global helper d
 ### Task 6: Extract `Classifier` into `codegen/classify.py` (union return)
 
 **Files:**
+- Create: `src/lexic/codegen/ast_utils.py` (shared GBNF-AST helpers —
+  the home for traversal helpers consumed by more than one codegen
+  module)
 - Create: `src/lexic/codegen/classify.py`
+- Create: `tests/unit/lexic/codegen/test_ast_utils.py`
 - Create: `tests/unit/lexic/codegen/test_classify.py`
 - Modify: `src/lexic/codegen/ir_builder.py`
 
@@ -933,6 +1038,15 @@ Rationale: closes V3 §2. Pulls ~150 lines of GBNF-AST analysis out of
 four per-kind frozen dataclasses. Each variant carries exactly the
 payload its downstream handler needs — eliminates AST re-traversal in
 callers.
+
+**Per plan-review finding P1.5:** `strip_ws`, `unwrap_group_alt`, and
+`single_ruleref_of` are consumed by both `classify.py` and the residual
+orchestrator code in `ir_builder.py` (`_compute_parents`,
+`_seq_to_atoms`, the per-kind build methods). They are AST utilities,
+not classifier internals — they live in `codegen/ast_utils.py` as
+first-class public functions. Never re-export via module-bottom aliases
+of leading-underscore names — that is the exact leaky abstraction this
+refactor closes.
 
 - [ ] **Step 1: Write failing unit tests**
 
@@ -1004,9 +1118,12 @@ def test_value_str_single_arm_no_refs():
 
 
 def test_structurally_complex_returns_value_str():
-    # A group-with-alt that is all-literal should collapse to value_str.
-    # (Fixture left to plan executor to construct per exact signal of _is_structurally_complex.)
-    pass
+    # A single arm whose only item is a multi-arm group, where no arm
+    # references a rule, is "structurally complex" (see _is_structurally_complex:
+    # all_no_refs and has_group_alt). It should collapse to ValueStr.
+    inner = _alt(_seq(_lit("a")), _seq(_lit("b")))
+    body = _alt(_seq(Item(atom=Group(alt=inner), quantifier=None)))
+    assert isinstance(Classifier().classify(_rule("choice", body)), ValueStr)
 
 
 def test_empty_arms_returns_value_str():
@@ -1016,7 +1133,149 @@ def test_empty_arms_returns_value_str():
 
 - [ ] **Step 2: Run; verify fail**
 
-- [ ] **Step 3: Implement `Classification` union + predicates**
+- [ ] **Step 3a: Implement shared AST helpers in `codegen/ast_utils.py`**
+
+Create `src/lexic/codegen/ast_utils.py`:
+
+```python
+"""Shared GBNF-AST traversal helpers.
+
+These three functions are consumed by both classify.py and the residual
+orchestration code in ir_builder.py. They are public (no leading
+underscore) because more than one module depends on them; the
+alternative — re-exporting underscore names — is a known leaky
+abstraction and is not used here.
+"""
+
+from __future__ import annotations
+
+from lexic.codegen.ast import (
+    Alternation,
+    Group,
+    Item,
+    RuleRef,
+    Sequence,
+)
+
+
+def is_ws_item(item: Item) -> bool:
+    return isinstance(item.atom, RuleRef) and item.atom.name == "ws"
+
+
+def strip_ws(seq: Sequence) -> Sequence:
+    """Drop `ws` rulerefs from a sequence; preserve order."""
+    return Sequence([it for it in seq.items if not is_ws_item(it)])
+
+
+def unwrap_group_alt(alt: Alternation) -> Alternation:
+    """If `alt` is a 1-arm wrapper around a single unquantified group,
+    return the inner alternation. Otherwise return `alt` unchanged."""
+    if len(alt.seqs) != 1:
+        return alt
+    stripped = strip_ws(alt.seqs[0])
+    if len(stripped.items) == 1:
+        it = stripped.items[0]
+        if isinstance(it.atom, Group) and it.quantifier is None:
+            return it.atom.alt
+    return alt
+
+
+def single_ruleref_of(seq: Sequence) -> str | None:
+    """If `seq` (ws-stripped) reduces to a single unquantified ruleref —
+    either directly or as a 1-item 1-arm group containing a ruleref —
+    return the referenced rule name. Otherwise return None."""
+    stripped = strip_ws(seq)
+    if len(stripped.items) != 1:
+        return None
+    it = stripped.items[0]
+    if it.quantifier is not None:
+        return None
+    if isinstance(it.atom, RuleRef):
+        return it.atom.name
+    if isinstance(it.atom, Group):
+        inner = it.atom.alt
+        if len(inner.seqs) == 1:
+            inner_stripped = strip_ws(inner.seqs[0])
+            if len(inner_stripped.items) == 1:
+                inner_it = inner_stripped.items[0]
+                if inner_it.quantifier is None and isinstance(inner_it.atom, RuleRef):
+                    return inner_it.atom.name
+    return None
+```
+
+- [ ] **Step 3b: Write failing unit tests for `ast_utils`**
+
+Create `tests/unit/lexic/codegen/test_ast_utils.py`:
+
+```python
+from lexic.codegen.ast import (
+    Alternation, CharClass, Group, Item, Literal, RuleRef, Sequence,
+)
+from lexic.codegen.ast_utils import (
+    is_ws_item,
+    single_ruleref_of,
+    strip_ws,
+    unwrap_group_alt,
+)
+
+
+def _item(atom, q=None):
+    return Item(atom=atom, quantifier=q)
+
+
+def test_strip_ws_drops_ws_rulerefs():
+    seq = Sequence(items=[
+        _item(Literal(value="a")),
+        _item(RuleRef(name="ws")),
+        _item(Literal(value="b")),
+    ])
+    assert [it.atom for it in strip_ws(seq).items] == [
+        Literal(value="a"), Literal(value="b"),
+    ]
+
+
+def test_is_ws_item_true_only_for_ws_ruleref():
+    assert is_ws_item(_item(RuleRef(name="ws"))) is True
+    assert is_ws_item(_item(RuleRef(name="other"))) is False
+    assert is_ws_item(_item(Literal(value="ws"))) is False
+
+
+def test_single_ruleref_direct():
+    seq = Sequence(items=[_item(RuleRef(name="expr"))])
+    assert single_ruleref_of(seq) == "expr"
+
+
+def test_single_ruleref_through_group():
+    inner = Alternation(seqs=[Sequence(items=[_item(RuleRef(name="inner"))])])
+    seq = Sequence(items=[_item(Group(alt=inner))])
+    assert single_ruleref_of(seq) == "inner"
+
+
+def test_single_ruleref_rejects_quantified():
+    seq = Sequence(items=[_item(RuleRef(name="expr"), q="+")])
+    assert single_ruleref_of(seq) is None
+
+
+def test_unwrap_group_alt_peels_single_arm_wrapper():
+    inner = Alternation(seqs=[
+        Sequence(items=[_item(Literal(value="a"))]),
+        Sequence(items=[_item(Literal(value="b"))]),
+    ])
+    outer = Alternation(seqs=[Sequence(items=[_item(Group(alt=inner))])])
+    assert unwrap_group_alt(outer) is inner
+
+
+def test_unwrap_group_alt_passes_through_multi_arm():
+    alt = Alternation(seqs=[
+        Sequence(items=[_item(Literal(value="a"))]),
+        Sequence(items=[_item(Literal(value="b"))]),
+    ])
+    assert unwrap_group_alt(alt) is alt
+```
+
+- [ ] **Step 3c: Run ast_utils tests; verify pass**
+
+- [ ] **Step 3d: Implement `Classification` union + classify-internal predicates**
 
 Create `src/lexic/codegen/classify.py`:
 
@@ -1025,8 +1284,9 @@ Create `src/lexic/codegen/classify.py`:
 
 Given a Rule from the GBNF AST, classify() returns one of four
 Classification variants, each carrying exactly the payload its
-downstream handler needs. AST-traversal predicates live as module
-helpers (used only by Classifier).
+downstream handler needs. Classify-internal predicates live as module
+helpers (underscore-prefixed); shared AST helpers are imported from
+codegen.ast_utils.
 """
 
 from __future__ import annotations
@@ -1042,6 +1302,12 @@ from lexic.codegen.ast import (
     Rule,
     RuleRef,
     Sequence,
+)
+from lexic.codegen.ast_utils import (
+    is_ws_item,
+    single_ruleref_of,
+    strip_ws,
+    unwrap_group_alt,
 )
 
 
@@ -1068,59 +1334,20 @@ class SequenceKind:
 Classification = ValueStr | PureLiteralAlt | NamedAlt | SequenceKind
 
 
-def _is_ws_item(item: Item) -> bool:
-    return isinstance(item.atom, RuleRef) and item.atom.name == "ws"
-
-
-def _strip_ws(seq: Sequence) -> Sequence:
-    return Sequence([it for it in seq.items if not _is_ws_item(it)])
-
-
 def _is_pure_literal(item: Item) -> bool:
     return isinstance(item.atom, (Literal, CharClass))
 
 
 def _is_pure_literal_seq(seq: Sequence) -> bool:
-    stripped = _strip_ws(seq)
+    stripped = strip_ws(seq)
     return len(stripped.items) > 0 and all(
         _is_pure_literal(it) for it in stripped.items
     )
 
 
-def _is_single_ruleref(seq: Sequence) -> str | None:
-    stripped = _strip_ws(seq)
-    if len(stripped.items) != 1:
-        return None
-    it = stripped.items[0]
-    if it.quantifier is not None:
-        return None
-    if isinstance(it.atom, RuleRef):
-        return it.atom.name
-    if isinstance(it.atom, Group):
-        inner = it.atom.alt
-        if len(inner.seqs) == 1:
-            inner_stripped = _strip_ws(inner.seqs[0])
-            if len(inner_stripped.items) == 1:
-                inner_it = inner_stripped.items[0]
-                if inner_it.quantifier is None and isinstance(inner_it.atom, RuleRef):
-                    return inner_it.atom.name
-    return None
-
-
-def _unwrap_group_alt(alt: Alternation) -> Alternation:
-    if len(alt.seqs) != 1:
-        return alt
-    stripped = _strip_ws(alt.seqs[0])
-    if len(stripped.items) == 1:
-        it = stripped.items[0]
-        if isinstance(it.atom, Group) and it.quantifier is None:
-            return it.atom.alt
-    return alt
-
-
 def _has_any_ruleref(items: list[Item]) -> bool:
     for it in items:
-        if _is_ws_item(it):
+        if is_ws_item(it):
             continue
         if isinstance(it.atom, RuleRef):
             return True
@@ -1149,20 +1376,20 @@ def _has_group_with_alt(items: list[Item]) -> bool:
 
 def _is_structurally_complex(alt: Alternation) -> bool:
     for seq in alt.seqs:
-        stripped = _strip_ws(seq)
+        stripped = strip_ws(seq)
         for it in stripped.items:
             if isinstance(it.atom, Group) and it.quantifier == "*":
                 for inner_seq in it.atom.alt.seqs:
                     if _has_nontrivial_group(inner_seq.items):
                         return True
-    all_no_refs = not any(_has_any_ruleref(_strip_ws(seq).items) for seq in alt.seqs)
-    has_group_alt = any(_has_group_with_alt(_strip_ws(seq).items) for seq in alt.seqs)
+    all_no_refs = not any(_has_any_ruleref(strip_ws(seq).items) for seq in alt.seqs)
+    has_group_alt = any(_has_group_with_alt(strip_ws(seq).items) for seq in alt.seqs)
     return all_no_refs and has_group_alt
 
 
 def _literal_strings_for_arm(seq: Sequence) -> list[str]:
     """Extract the literal values of a pure-literal arm (for PureLiteralAlt)."""
-    stripped = _strip_ws(seq)
+    stripped = strip_ws(seq)
     out: list[str] = []
     for it in stripped.items:
         if isinstance(it.atom, Literal):
@@ -1173,11 +1400,20 @@ def _literal_strings_for_arm(seq: Sequence) -> list[str]:
 
 
 class Classifier:
+    """Exhaustive GBNF-rule → Classification dispatch.
+
+    Every rule lands in exactly one of the four Classification variants.
+    Branches are ordered from most-specific to most-general; the final
+    arm is the multi-arm general case. Each return below must cover a
+    disjoint, exhaustive slice of the input space — adding a new branch
+    requires re-proving exhaustiveness.
+    """
+
     def classify(self, rule: Rule) -> Classification:
-        alt = _unwrap_group_alt(rule.body)
+        alt = unwrap_group_alt(rule.body)
         if _is_structurally_complex(alt):
             return ValueStr()
-        arms = [a for a in (_strip_ws(seq) for seq in alt.seqs) if len(a.items) > 0]
+        arms = [a for a in (strip_ws(seq) for seq in alt.seqs) if len(a.items) > 0]
         if not arms:
             return ValueStr()
         if len(arms) > 1 and all(_is_pure_literal_seq(a) for a in arms):
@@ -1188,16 +1424,14 @@ class Classifier:
             and isinstance(arms[0].items[0].atom, Group)
             and arms[0].items[0].quantifier is None
             and all(
-                _is_pure_literal_seq(_strip_ws(s))
+                _is_pure_literal_seq(strip_ws(s))
                 for s in arms[0].items[0].atom.alt.seqs
             )
         ):
-            inner_arms = [_strip_ws(s) for s in arms[0].items[0].atom.alt.seqs]
+            inner_arms = [strip_ws(s) for s in arms[0].items[0].atom.alt.seqs]
             return PureLiteralAlt(
                 arms=[_literal_strings_for_arm(a) for a in inner_arms]
             )
-        if len(arms) > 1 and any(_is_single_ruleref(a) is not None for a in arms):
-            return NamedAlt(arms=arms)
         if len(arms) == 1:
             full_seqs = alt.seqs
             has_any_rule_ref = any(
@@ -1207,6 +1441,9 @@ class Classifier:
             if not has_any_rule_ref and _is_pure_literal_seq(arms[0]):
                 return ValueStr()
             return SequenceKind(body=arms[0])
+        # len(arms) > 1 and not all-pure-literal → treat as named alternation,
+        # whether or not any arm is a single ruleref.
+        assert len(arms) > 1, "single-arm case handled above"
         return NamedAlt(arms=arms)
 ```
 
@@ -1221,8 +1458,14 @@ In `src/lexic/codegen/ir_builder.py`:
    `_has_any_ruleref`, `_has_nontrivial_group`, `_has_group_with_alt`,
    `_is_structurally_complex`, `_classify`. Keep `_to_regex`, `_to_gbnf`,
    `_build_inline_regex`.
-2. Add imports — **only what the orchestrator still needs**:
+2. Add imports — the orchestrator pulls classification variants from
+   `classify.py` and the shared AST helpers from `ast_utils.py`:
    ```python
+   from lexic.codegen.ast_utils import (
+       single_ruleref_of,
+       strip_ws,
+       unwrap_group_alt,
+   )
    from lexic.codegen.classify import (
        Classifier,
        NamedAlt,
@@ -1231,32 +1474,44 @@ In `src/lexic/codegen/ir_builder.py`:
        ValueStr,
    )
    ```
-   Note: unlike the pre-brainstorming draft, we do **not** re-export
-   the predicates. `_compute_parents` and `_seq_to_atoms` need tiny
-   helpers for `_strip_ws`/`_unwrap_group_alt`/`_is_single_ruleref` —
-   these become public helpers on a small module (`classify_helpers` or
-   exposed from `classify.py` as `strip_ws`/`unwrap_group_alt`/`single_ruleref_of`
-   without underscores), since the underscore-re-export pattern is the
-   exact leaky abstraction this refactor is closing.
-
-   Concretely: expose three names from `classify.py` without the
-   leading underscore:
-   ```python
-   # In classify.py, add at module bottom:
-   strip_ws = _strip_ws
-   unwrap_group_alt = _unwrap_group_alt
-   single_ruleref_of = _is_single_ruleref
-   ```
-   and import those from `ir_builder.py`.
+   Do **not** re-export underscore names from `classify.py` under new
+   aliases. `ast_utils.py` is the canonical home for shared helpers.
 3. In `IRBuilder.__init__`, add `self._classifier = Classifier()`.
+4. Rewrite `_compute_parents` to consume the `Classifier` / union
+   (replacing the old `_classify(rule) == "named_alt"` string compare
+   and ad-hoc helper calls):
+   ```python
+   def _compute_parents(self) -> dict[str, str]:
+       """For each rule that is a named arm of an alternation, record
+       its parent class."""
+       parent_of: dict[str, str] = {}
+       for rule in self._rules:
+           classification = self._classifier.classify(rule)
+           if not isinstance(classification, NamedAlt):
+               continue
+           parent_cls = self._name_map[rule.name]
+           for seq in classification.arms:
+               ref = single_ruleref_of(seq)
+               if ref is not None:
+                   parent_of[ref] = parent_cls
+       return parent_of
+   ```
+   Note: `classification.arms` is already ws-stripped (see
+   `NamedAlt.arms` in classify.py), so the outer `strip_ws` call from
+   the legacy implementation is no longer needed.
 
 - [ ] **Step 6: Run full suite; verify green**
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lexic/codegen/classify.py tests/unit/lexic/codegen/test_classify.py src/lexic/codegen/ir_builder.py
-git commit -m "refactor(ir_builder): extract Classifier with per-kind union return"
+git add \
+    src/lexic/codegen/ast_utils.py \
+    src/lexic/codegen/classify.py \
+    src/lexic/codegen/ir_builder.py \
+    tests/unit/lexic/codegen/test_ast_utils.py \
+    tests/unit/lexic/codegen/test_classify.py
+git commit -m "refactor(ir_builder): extract Classifier + ast_utils with per-kind union return"
 ```
 
 ---
@@ -1277,10 +1532,26 @@ content to consume the Classification union introduced in Task 6.
 
 - [ ] **Step 1: Read the current `_build_rule`; map each branch**
 
-Identify the three blocks:
-1. Lines ~532–566: `value_str` / `pure_literal_alt` → `_build_value_str`
-2. Lines ~568–612: `named_alt` → `_build_named_alt`
-3. Lines ~614–644: `sequence` → `_build_sequence`
+Open `src/lexic/codegen/ir_builder.py` and locate `_build_rule`. It
+currently contains three consecutive branches selected by the
+classification kind; after Task 6 lands, the selector is a match on
+the `Classification` union but the branch *bodies* are unchanged and
+re-used as-is. Identify:
+
+1. `value_str` / `pure_literal_alt` branch → becomes `_build_value_str`.
+   Starts at the comment `# value_str / pure_literal_alt → single
+   `value: str` field`. Ends just before the `# named_alt` comment.
+2. `named_alt` branch → becomes `_build_named_alt`. Starts at the
+   `# named_alt` comment, ends just before the sequence branch. Use the
+   `classification in (...)` / `if` marker in source to anchor the
+   boundary; do not rely on line numbers, since Task 5 changed the
+   surrounding file shape.
+3. `sequence` branch → becomes `_build_sequence`. The final branch;
+   runs through to the `return helper_specs_seq + [seq_spec]` (which
+   Task 5 already turned into `return [seq_spec]`).
+
+Copy each branch body verbatim into the corresponding new method in
+Step 2; the match dispatch in Step 3 will be the only call site.
 
 - [ ] **Step 2: Extract into three private methods**
 
@@ -1371,6 +1642,8 @@ Rewrite `_build_rule` as a match-dispatch on the `Classification`
 variant:
 
 ```python
+from typing import assert_never
+
 def _build_rule(self, rule, parent_of) -> list[RuleSpec]:
     classification = self._classifier.classify(rule)
     cls_name = self._name_map[rule.name]
@@ -1383,9 +1656,16 @@ def _build_rule(self, rule, parent_of) -> list[RuleSpec]:
             return self._build_named_alt(rule, cls_name, parent_cls, parent_of)
         case SequenceKind():
             return self._build_sequence(rule, cls_name, parent_cls, parent_of)
+        case _:
+            assert_never(classification)
 ```
 
 Delete the old `_build_rule` body.
+
+The `assert_never` default makes the match statically exhaustive: adding
+a sixth variant to the `Classification` union without adding a `case`
+here will fail `mypy` / `pyright` and raise at runtime rather than
+falling through silently.
 
 - [ ] **Step 3: Run the full suite**
 
@@ -1437,6 +1717,8 @@ builders that replace the nested type-hint branches.
 Create `tests/unit/lexic/codegen/test_transformer_builders.py`:
 
 ```python
+import dataclasses
+
 import pytest
 
 from lexic.ir import LiteralAtom, RuleSpec
@@ -1472,7 +1754,6 @@ def test_build_context_peek_exhausted():
 
 
 def test_field_result_is_frozen():
-    import dataclasses
     r = FieldResult(value=42, consumed=1)
     with pytest.raises((AttributeError, dataclasses.FrozenInstanceError)):
         r.value = 43
@@ -1515,14 +1796,19 @@ Create `src/lexic/codegen/transformer/context.py`:
 
 Per design spec §Q1: BuildContext is frozen; orchestrator owns cursor.
 Builders return FieldResult | SkipField (tagged union, no sentinels).
+
+FieldBuilder (the Protocol) lives here — next to the types it quantifies
+over (BuildContext, BuildResult) — so that builders.py implements it and
+registry.py consumes it without creating a registry→builders→registry
+import cycle.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol
 
-from lexic.ir import RuleSpec
+from lexic.ir import Atom, RuleSpec
 
 
 @dataclass(frozen=True)
@@ -1554,6 +1840,12 @@ class FieldResult:
 
 
 BuildResult = FieldResult | SkipField
+
+
+class FieldBuilder(Protocol):
+    def build(
+        self, atom: Atom, field_name: str, ctx: BuildContext
+    ) -> BuildResult: ...
 ```
 
 Create `src/lexic/codegen/transformer/registry.py`:
@@ -1562,8 +1854,6 @@ Create `src/lexic/codegen/transformer/registry.py`:
 """BUILDER_BY_ATOM dispatch table."""
 
 from __future__ import annotations
-
-from typing import Protocol
 
 from lexic.ir import (
     AlternationAtom,
@@ -1584,13 +1874,7 @@ from lexic.codegen.transformer.builders import (
     QuantifiedLiteralBuilder,
     RuleRefBuilder,
 )
-from lexic.codegen.transformer.context import BuildContext, BuildResult
-
-
-class FieldBuilder(Protocol):
-    def build(
-        self, atom: Atom, field_name: str, ctx: BuildContext
-    ) -> BuildResult: ...
+from lexic.codegen.transformer.context import FieldBuilder
 
 
 BUILDER_BY_ATOM: dict[type, FieldBuilder] = {
@@ -1821,19 +2105,81 @@ Behaviour to lift:
   if present, otherwise returns `""`.
 
 - **`RuleRefBuilder`** — field is a `GrammarModel` subclass named by
-  `ctx.hints[field_name]`. Four cases, each with its own test:
-  - ws rule, child available: consume and return the child.
-  - ws rule, no child: return `FieldResult(value=hint(value=""), consumed=0)`
-    (construct an empty `Ws`).
-  - non-ws rule, child available: consume and return the child.
-  - non-ws rule, no child: if the hint accepts a string, return
-    `FieldResult(value="", consumed=0)`. Otherwise return `SKIP_FIELD`.
+  `ctx.hints[field_name]`. Four cases; each has its own test (below).
 
 - **`InlineAlternationBuilder`** — field is `str` (via `value` field
   name). Consumes one string child.
 
 `AbstractAlternationBuilder` is handled at the orchestrator level, not
 per-field — the stub's `raise AssertionError` is correct.
+
+**`RuleRefBuilder` test matrix** — write these four tests verbatim into
+`tests/unit/lexic/codegen/test_transformer_builders.py`:
+
+```python
+from lexic.base import GrammarModel
+from lexic.ir import RuleRefAtom
+from lexic.codegen.transformer.builders import RuleRefBuilder
+
+
+class _Ws(GrammarModel):
+    value: str = ""
+
+
+class _Expr(GrammarModel):
+    value: str = ""
+
+
+def test_ruleref_ws_with_child_consumes():
+    atom = RuleRefAtom(rule_name="ws", min=1, max=1)
+    child = _Ws(value=" ")
+    ctx = BuildContext(
+        spec=_spec([atom]), children=(child,), hints={"ws": _Ws}
+    )
+    result = RuleRefBuilder().build(atom, "ws", ctx)
+    assert result == FieldResult(value=child, consumed=1)
+
+
+def test_ruleref_ws_without_child_returns_empty_instance():
+    atom = RuleRefAtom(rule_name="ws", min=0, max=1)
+    ctx = BuildContext(spec=_spec([atom]), children=(), hints={"ws": _Ws})
+    result = RuleRefBuilder().build(atom, "ws", ctx)
+    assert isinstance(result, FieldResult)
+    assert result.consumed == 0
+    assert isinstance(result.value, _Ws)
+
+
+def test_ruleref_nonws_with_child_consumes():
+    atom = RuleRefAtom(rule_name="expr", min=1, max=1)
+    child = _Expr(value="1+1")
+    ctx = BuildContext(
+        spec=_spec([atom]), children=(child,), hints={"expr": _Expr}
+    )
+    result = RuleRefBuilder().build(atom, "expr", ctx)
+    assert result == FieldResult(value=child, consumed=1)
+
+
+def test_ruleref_nonws_missing_child_with_str_hint_returns_empty():
+    atom = RuleRefAtom(rule_name="expr", min=0, max=1)
+    # Hint accepts str; the four-case matrix's "no child + str-accepting hint"
+    # case returns FieldResult(value="", consumed=0) rather than SKIP_FIELD.
+    ctx = BuildContext(spec=_spec([atom]), children=(), hints={"expr": str})
+    result = RuleRefBuilder().build(atom, "expr", ctx)
+    assert result == FieldResult(value="", consumed=0)
+
+
+def test_ruleref_nonws_missing_child_with_model_hint_skips():
+    atom = RuleRefAtom(rule_name="expr", min=0, max=1)
+    # Hint is a GrammarModel subclass with no default; the "no child +
+    # non-str hint" case returns SKIP_FIELD so the orchestrator omits it.
+    ctx = BuildContext(spec=_spec([atom]), children=(), hints={"expr": _Expr})
+    result = RuleRefBuilder().build(atom, "expr", ctx)
+    assert isinstance(result, SkipField)
+```
+
+The five tests (four primary + the SKIP_FIELD branch) cover every
+behavioral path of the `RuleRefBuilder` — no branch is exercised only
+by integration tests.
 
 - [ ] **Step 6: Run the full suite + new builder tests**
 
@@ -1898,6 +2244,29 @@ def test_list_collects_while_inner_matches():
     )
     result = wrapped.build(atom, "xs", ctx)
     assert result.consumed == 3
+
+
+def test_list_with_grammarmodel_inner_collects_matching_models():
+    """ListFieldBuilder must walk the GrammarModel branch (not just the
+    str branch). Covers the isinstance(c, GrammarModel) path at line
+    ~2233 of the implementation."""
+    from lexic.ir import RuleRefAtom
+    from lexic.codegen.transformer.builders import RuleRefBuilder
+
+    class _Item(GrammarModel):
+        value: str = ""
+
+    atom = RuleRefAtom(rule_name="item", min=0, max=None)
+    a, b = _Item(value="a"), _Item(value="b")
+    ctx = BuildContext(
+        spec=_spec([atom]),
+        children=(a, b),
+        hints={"items": list[_Item]},
+    )
+    wrapped = ListFieldBuilder(RuleRefBuilder(), inner_type=_Item)
+    result = wrapped.build(atom, "items", ctx)
+    assert result.value == [a, b]
+    assert result.consumed == 2
 ```
 
 - [ ] **Step 2: Run; verify fail**
@@ -1916,8 +2285,11 @@ from lexic.base import GrammarModel
 
 
 class OptionalFieldBuilder:
-    """Wraps an inner builder; returns FieldResult(None, 0) on exhaustion or
-    wrong-typed next child; otherwise delegates."""
+    """Wraps an inner builder; returns FieldResult(None, 0) when the
+    inner declines (SkipField, or FieldResult with consumed==0 and an
+    empty/None value). Otherwise delegates to the inner result."""
+
+    _EMPTY_VALUES: frozenset[object] = frozenset(("", None))
 
     def __init__(self, inner):
         self._inner = inner
@@ -1925,9 +2297,14 @@ class OptionalFieldBuilder:
     def build(self, atom, field_name: str, ctx: BuildContext) -> BuildResult:
         if ctx.exhausted():
             return FieldResult(value=None, consumed=0)
-        # Delegate — inner builder decides whether the next child is consumable.
         result = self._inner.build(atom, field_name, ctx)
-        if isinstance(result, FieldResult) and result.consumed == 0 and result.value in ("", None):
+        if isinstance(result, SkipField):
+            return FieldResult(value=None, consumed=0)
+        if (
+            isinstance(result, FieldResult)
+            and result.consumed == 0
+            and result.value in self._EMPTY_VALUES
+        ):
             return FieldResult(value=None, consumed=0)
         return result
 
@@ -2048,8 +2425,12 @@ def _build_instance(cls, spec: RuleSpec, items: list):
 
 - [ ] **Step 6: Delete now-dead helpers in `build_transformer.py`**
 
-Remove `_is_ws_ref` and `_is_optional_char` — their logic now lives in
-the per-atom builders. `_literal_is_quoted` stays.
+Remove `_is_ws_ref`, `_is_optional_char`, and the unused `_flatten`
+helper (dead code — no external callers; only self-recursive). Their
+logic (for the first two) now lives in the per-atom builders.
+`_literal_is_quoted` stays because the orchestrator still uses it to
+filter regex-terminal literal tokens out of `children` before
+dispatch.
 
 - [ ] **Step 7: Run the full suite**
 
@@ -2085,13 +2466,14 @@ Eliminates the per-call codegen in `parse()`. Closes V3 §8.
 **Per brainstorm decision (spec §Q3):**
 - Memo key: `(str(path), mtime, size)` — one-line upgrade over the
   pre-brainstorming draft's `(path, mtime)`.
-- Primary entry: `compile_text(text, *, cache_key=None)`.
-- `compile(path)` is the thin wrapper; both share one cache.
+- Primary entry: `compile(text, *, cache_key=None)` — the string-taker is
+  the canonical name; path-accepting is the wrapper.
+- `compile_from_path(path)` is the thin wrapper; both share one cache.
 - `CompiledGrammar.specs: dict[str, RuleSpec]` (matches roadmap).
 
 ---
 
-### Task 11: Introduce `CompiledGrammar`, `compile_text`, and `compile()`
+### Task 11: Introduce `CompiledGrammar`, `compile`, and `compile_from_path`
 
 **Files:**
 - Create: `src/lexic/compile.py`
@@ -2108,96 +2490,104 @@ from pathlib import Path
 
 import pytest
 
-from lexic.compile import CompiledGrammar, compile, compile_text, _cache_clear
+from lexic.compile import (
+    CompiledGrammar,
+    compile,
+    compile_from_path,
+    reset_cache_for_tests,
+)
 
 GROUND_TRUTH = Path(__file__).resolve().parents[2] / "resources" / "ground_truth"
 
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    _cache_clear()
+    reset_cache_for_tests()
     yield
-    _cache_clear()
+    reset_cache_for_tests()
 
 
-def test_compile_returns_compiled_grammar():
-    cg = compile(GROUND_TRUTH / "arithmetic.gbnf")
+def test_compile_from_path_returns_compiled_grammar():
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     assert isinstance(cg, CompiledGrammar)
     assert cg.classes
     assert isinstance(cg.specs, dict)
     assert cg.specs
 
 
-def test_compile_memoises_by_path_mtime_size():
+def test_compile_from_path_memoises_by_path_mtime_size():
     src = GROUND_TRUTH / "arithmetic.gbnf"
-    cg1 = compile(src)
-    cg2 = compile(src)
+    cg1 = compile_from_path(src)
+    cg2 = compile_from_path(src)
     assert cg1 is cg2
 
 
-def test_compile_invalidates_on_mtime_change(tmp_path):
+def test_compile_from_path_invalidates_on_mtime_change(tmp_path):
     src = tmp_path / "g.gbnf"
     src.write_text("root ::= \"a\"\n")
-    cg1 = compile(src)
+    cg1 = compile_from_path(src)
     time.sleep(0.01)
     src.write_text("root ::= \"b\"\n")
-    cg2 = compile(src)
+    cg2 = compile_from_path(src)
     assert cg1 is not cg2
 
 
-def test_compile_invalidates_on_size_change_same_mtime(tmp_path, monkeypatch):
+def test_compile_from_path_invalidates_on_size_change_same_mtime(tmp_path, monkeypatch):
     """Same mtime but different size should invalidate — catches test-FS edge case."""
     src = tmp_path / "g.gbnf"
     src.write_text("root ::= \"aa\"\n")
-    cg1 = compile(src)
+    cg1 = compile_from_path(src)
     # Preserve mtime; change size.
     original_mtime = src.stat().st_mtime
     src.write_text("root ::= \"bbb\"\n")
     import os
     os.utime(src, (original_mtime, original_mtime))
-    cg2 = compile(src)
+    cg2 = compile_from_path(src)
     assert cg1 is not cg2
 
 
-def test_compile_text_no_cache_by_default():
+def test_compile_no_cache_by_default():
     text = (GROUND_TRUTH / "arithmetic.gbnf").read_text()
-    cg1 = compile_text(text)
-    cg2 = compile_text(text)
+    cg1 = compile(text)
+    cg2 = compile(text)
     assert cg1 is not cg2  # no cache_key → no memoization
 
 
-def test_compile_text_with_cache_key():
+def test_compile_with_cache_key():
     text = (GROUND_TRUTH / "arithmetic.gbnf").read_text()
-    cg1 = compile_text(text, cache_key="fixture-a")
-    cg2 = compile_text(text, cache_key="fixture-a")
+    cg1 = compile(text, cache_key="fixture-a")
+    cg2 = compile(text, cache_key="fixture-a")
     assert cg1 is cg2
 
 
-def test_compile_and_compile_text_share_cache():
-    """compile(path) should cache-hit after a prior compile_text(text, cache_key=key)
+def test_compile_and_compile_from_path_share_cache():
+    """compile_from_path(path) should cache-hit after a prior compile(text, cache_key=key)
     with the same key — they use one _CACHE dict."""
     path = GROUND_TRUTH / "arithmetic.gbnf"
     resolved = str(path.resolve())
     stat = path.stat()
     key = (resolved, stat.st_mtime, stat.st_size)
-    cg1 = compile_text(path.read_text(), cache_key=key)
-    cg2 = compile(path)
+    cg1 = compile(path.read_text(), cache_key=key)
+    cg2 = compile_from_path(path)
     assert cg1 is cg2
 
 
 def test_compiled_grammar_parse_roundtrips():
-    cg = compile(GROUND_TRUTH / "arithmetic.gbnf")
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     inst = cg.parse("1+1")
     assert inst.to_text() == "1+1"
 
 
 def test_repeated_parse_is_fast():
-    cg = compile(GROUND_TRUTH / "arithmetic.gbnf")
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     cg.parse("1+1")  # warm
     start = time.perf_counter()
     for _ in range(100):
         cg.parse("1+1")
     elapsed = time.perf_counter() - start
+    # 0.5s = 5ms/call — 5x the <1ms/call design target (safety margin for
+    # CI) and 10x under the ~5s a regressed per-parse-codegen path would
+    # take. This gate catches regressions, not hair-splits.
     assert elapsed < 0.5, f"100 cached parses took {elapsed:.3f}s"
 ```
 
@@ -2210,15 +2600,16 @@ Create `src/lexic/compile.py`:
 ```python
 """CompiledGrammar: the compile-time artefacts parse() needs.
 
-compile_text(text, *, cache_key) is the primary entry. compile(path) is
-a thin wrapper that stats the file, builds a (path, mtime, size) key,
-checks the cache to skip the file read on hit, and delegates.
+compile(text, *, cache_key) is the primary entry. compile_from_path(path)
+is a thin wrapper that stats the file, builds a (path, mtime, size) key,
+checks the cache to skip the file read on hit, and delegates to compile().
 
 One cache covers both entry points.
 """
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Hashable
@@ -2250,8 +2641,15 @@ class CompiledGrammar:
 _CACHE: dict[Hashable, CompiledGrammar] = {}
 
 
-def _cache_clear() -> None:
+def reset_cache_for_tests() -> None:
+    """Public test seam: clear the compile cache. Public name so tests do
+    not reach into a leading-underscore symbol across modules."""
     _CACHE.clear()
+
+
+def _stem_for_text(text: str) -> str:
+    """Stable filename for a grammar string with no path."""
+    return "anon_" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
 
 def _compile_core(text: str) -> CompiledGrammar:
@@ -2259,11 +2657,9 @@ def _compile_core(text: str) -> CompiledGrammar:
     specs_list = IRBuilder(rules).build()
     specs = {s.rule_name: s for s in specs_list}
 
-    # codegen() currently takes a path; for compile_text we need a text-only
-    # variant. Delegate to the internal emit path.
-    # NOTE: this refactor is Slice A's responsibility; ensure codegen.codegen
-    # is refactored to accept text or use a shared primitive.
-    classes = codegen(text)  # placeholder — implementor to verify signature
+    # codegen(text, *, stem) is the string-primary entry in lexic.codegen;
+    # see the implementor note below for the required codegen factorisation.
+    classes = codegen(text, stem=_stem_for_text(text))
 
     builder = LarkBuilder(specs_list)
     grammar_str, start_rule = builder.build_grammar()
@@ -2277,7 +2673,7 @@ def _compile_core(text: str) -> CompiledGrammar:
     )
 
 
-def compile_text(text: str, *, cache_key: Hashable | None = None) -> CompiledGrammar:
+def compile(text: str, *, cache_key: Hashable | None = None) -> CompiledGrammar:
     """Compile from a grammar string. cache_key=None means 'do not memoize'."""
     if cache_key is not None:
         cached = _CACHE.get(cache_key)
@@ -2289,28 +2685,37 @@ def compile_text(text: str, *, cache_key: Hashable | None = None) -> CompiledGra
     return cg
 
 
-def compile(grammar_path: str | Path) -> CompiledGrammar:
-    """Compile from a file path; memoised by (path, mtime, size)."""
+def compile_from_path(grammar_path: str | Path) -> CompiledGrammar:
+    """Compile from a file path; memoised by (path, mtime, size).
+
+    Thin read-file wrapper over compile(text, ...).
+    """
     path = Path(grammar_path).resolve()
     stat = path.stat()
     key = (str(path), stat.st_mtime, stat.st_size)
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    return compile_text(path.read_text(), cache_key=key)
+    return compile(path.read_text(), cache_key=key)
 ```
 
-**Note for implementor:** `codegen()` today accepts a path, not text.
-Before `compile_text` can work from text alone, the internal emit path
-in `lexic.codegen.__init__` must factor out a text-accepting primitive.
-Concretely: extract `codegen_from_text(text: str) -> dict[str, type]`
-and make `codegen(path)` call `codegen_from_text(Path(path).read_text())`.
-Add this factorisation as the first step of this task if it isn't
-already present.
+**Note for implementor:** Today `codegen()` accepts a path, but the
+target API inverts the naming direction to match Pydantic's string-
+primary convention. Before `compile()` can work, the codegen surface in
+`lexic.codegen.__init__` must be flipped:
+- `codegen(text: str, *, stem: str) -> dict[str, type]` becomes the
+  primary string-taker.
+- `codegen_from_path(grammar_path: str | Path) -> dict[str, type]`
+  becomes the 2-line read-file wrapper that delegates to `codegen(...)`
+  with `stem=path.stem`.
+
+Add this flip as the first step of this task if it isn't already
+present. Every existing in-tree call site of `codegen(path)` must be
+updated to `codegen_from_path(path)`.
 
 - [ ] **Step 4: Run new tests; verify pass**
 
-- [ ] **Step 5: Rewrite `parse.py` on top of `compile()`**
+- [ ] **Step 5: Rewrite `parse.py` on top of `compile_from_path()`**
 
 Replace `src/lexic/parse.py` in full:
 
@@ -2325,12 +2730,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from lexic.base import GrammarModel
-from lexic.compile import compile
+from lexic.compile import compile_from_path
 
 
 def parse(text: str, grammar_path: str | Path) -> GrammarModel:
     """Parse text against a GBNF grammar and return a typed GrammarModel instance."""
-    return compile(grammar_path).parse(text)
+    return compile_from_path(grammar_path).parse(text)
 ```
 
 - [ ] **Step 6: Run the full suite**
@@ -2339,7 +2744,7 @@ def parse(text: str, grammar_path: str | Path) -> GrammarModel:
 
 ```bash
 git add src/lexic/compile.py tests/unit/lexic/test_compile.py src/lexic/parse.py
-git commit -m "feat(compile): introduce CompiledGrammar + compile_text + memoised compile()"
+git commit -m "feat(compile): introduce CompiledGrammar + compile(text) + compile_from_path"
 ```
 
 ---
@@ -2473,49 +2878,79 @@ uv run pytest tests/ -q
 ```bash
 wc -l src/lexic/codegen/ir_builder.py
 ```
+Expected: output's line count ≤ 200. The architecture doc's "<200 LoC
+target" is the hard gate for this audit.
 
 - [ ] **Step 3: Confirm every `FieldBuilder` has a unit test**
 
 ```bash
-uv run grep -l "class .*FieldBuilder\|class .*Builder" src/lexic/codegen/transformer/builders.py
+grep -n "^class .*Builder" src/lexic/codegen/transformer/builders.py
 uv run pytest tests/unit/lexic/codegen/test_transformer_builders.py -v --collect-only
 ```
+Expected: for each builder class listed in the first command, the
+second's output contains a `test_*` referencing it. Audit the two
+lists by eye; they must agree. `RuleRefBuilder` must have five
+collected tests (four behavioral branches + the SKIP_FIELD branch).
 
 - [ ] **Step 4: Confirm no atom-type `isinstance` cascade**
 
 ```bash
-uv run grep -n "isinstance.*Atom" src/lexic/codegen/transformer/builders.py
+grep -n "isinstance.*Atom" src/lexic/codegen/transformer/builders.py
 ```
-Expected: no matches.
+Expected: no matches. (Architecture doc §Closed-but-versioned
+prescribes dispatch-table lookups; ad-hoc isinstance cascades are not
+acceptable after Slice A.)
 
 - [ ] **Step 5: Confirm `parse()` uses `compile()` memo**
 
 ```bash
 uv run pytest tests/unit/lexic/test_compile.py::test_repeated_parse_is_fast -v
-uv run pytest tests/unit/lexic/test_compile.py::test_compile_memoises_by_path_mtime_size -v
+uv run pytest tests/unit/lexic/test_compile.py::test_compile_from_path_memoises_by_path_mtime_size -v
+uv run pytest tests/unit/lexic/test_compile.py::test_compile_and_compile_from_path_share_cache -v
 ```
+Expected: all three pass. If `test_repeated_parse_is_fast` fails on a
+slow CI runner but passes locally, inspect the elapsed number in the
+failure message before loosening the threshold — the test's purpose is
+to catch a regression where codegen runs per parse (typically ~50ms
+each, so 100 iterations of a regressed path would take ≥ 5s).
 
-- [ ] **Step 6: Confirm `base.py` has at most one `lexic.codegen` import**
+- [ ] **Step 6: Confirm runtime→codegen edges are exactly the two
+      deliberate ones**
 
 ```bash
-uv run grep -n "from lexic.codegen" src/lexic/base.py
+grep -n "from lexic.codegen" src/lexic/base.py
+grep -n "from lexic.codegen" src/lexic/compile.py
+grep -n "from lexic.codegen" src/lexic/parse.py
+grep -n "from lexic.codegen" src/lexic/generate.py
 ```
-Expected: exactly one.
+Expected:
+- `base.py`: exactly one module-scope import (the `to_grammar`/
+  `to_gbnf` edge).
+- `compile.py`: exactly one module-scope import (the `codegen` edge
+  documented as the second deliberate runtime↔codegen edge in
+  `prototyping/next/2_ARCHITECTURE.md` §Layering rules).
+- `parse.py`, `generate.py`: **no matches**. These runtime modules
+  must not import from `lexic.codegen` directly — parse goes through
+  `compile_from_path`.
 
-- [ ] **Step 7: Confirm no lazy intra-function `lexic.codegen` imports**
+- [ ] **Step 7: Confirm no lazy intra-function `lexic.codegen` imports
+      from runtime**
 
 ```bash
-uv run grep -rn "    from lexic.codegen" src/lexic/*.py
+grep -Ern "^\s{4,}from lexic\.codegen" src/lexic/base.py src/lexic/compile.py src/lexic/parse.py src/lexic/generate.py
 ```
-Expected: only the one inside `base.py::to_gbnf` (pre-existing; Slice B
-replaces wholesale).
+Expected: no matches. Every runtime→codegen import is at module
+scope; `TYPE_CHECKING` dodges and lazy intra-function imports from
+runtime modules are forbidden (see `2_ARCHITECTURE.md` §Layering
+rules).
 
 - [ ] **Step 8: Confirm `BuildContext` is frozen**
 
 ```bash
-uv run grep -n "@dataclass(frozen=True)" src/lexic/codegen/transformer/context.py
+grep -n "@dataclass(frozen=True)" src/lexic/codegen/transformer/context.py
 ```
-Expected: frozen=True on `BuildContext`, `FieldResult`, `SkipField`.
+Expected: `frozen=True` on `BuildContext`, `FieldResult`, and
+`SkipField` (three matches minimum).
 
 - [ ] **Step 9: Final lint**
 

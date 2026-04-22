@@ -96,11 +96,16 @@ Classification = ValueStr | PureLiteralAlt | NamedAlt | SequenceKind
 
 ### Q3. CompiledGrammar memoization
 
-**Resolution:**
-- Memo key: `(path_str, mtime, size)` — one-line upgrade over the draft's `(path, mtime)`, zero added cost (same `stat()` call).
-- Primary entry point: `compile_text(text: str, *, cache_key: Hashable | None = None) -> CompiledGrammar`.
-- Thin wrapper: `compile(path: str | Path) -> CompiledGrammar`. Builds the stat-based key; checks cache before reading; delegates to `compile_text` with the key on miss.
-- `CompiledGrammar.specs: dict[str, RuleSpec]` — matches the roadmap signature (the draft had `list`, which is a roadmap deviation).
+**Resolution.** Grammar compilation is fundamentally a `text → classes + specs + parser + transformer` pipeline. The canonical input is the string; reading a file is a convenience layer. Both the codegen and compile surfaces reflect this: the unqualified name takes the string, and the path-accepting name is the thin wrapper with a `_from_path` suffix.
+
+- **codegen API** (in `src/lexic/codegen/__init__.py`):
+  - `codegen(text: str, *, stem: str) -> dict[str, type]` — primary. Parses text, runs IR-build + model-emit, writes `generated/<stem>.py`, loads the module, returns `{class_name: type}`.
+  - `codegen_from_path(grammar_path: str | Path) -> dict[str, type]` — 2-line wrapper: `path = Path(grammar_path); return codegen(path.read_text(), stem=path.stem)`.
+- **compile API** (in `src/lexic/compile.py`):
+  - `compile(text: str, *, cache_key: Hashable | None = None) -> CompiledGrammar` — primary. `cache_key=None` means "do not memoize".
+  - `compile_from_path(grammar_path: str | Path) -> CompiledGrammar` — thin wrapper. Builds a `(str(resolved_path), mtime, size)` stat-based key, checks the cache before reading, delegates to `compile` with the key on miss.
+- **Memo key.** `(path_str, mtime, size)` — one-line upgrade over the draft's `(path, mtime)`, zero added cost (same `stat()` call). For the primary `compile`, the key is whatever the caller passes (or omitted).
+- **CompiledGrammar.specs type.** `dict[str, RuleSpec]` — matches the roadmap signature (the draft had `list`, which is a roadmap deviation).
 
 ```python
 # src/lexic/compile.py
@@ -117,8 +122,19 @@ class CompiledGrammar:
 _CACHE: dict[Hashable, CompiledGrammar] = {}
 
 
-def compile_text(text: str, *, cache_key: Hashable | None = None) -> CompiledGrammar:
-    """Compile from a grammar string. cache_key=None means 'do not memoize'."""
+def reset_cache_for_tests() -> None:
+    """Test seam: clear the compile cache. Public name so tests do not
+    reach into a leading-underscore symbol across modules."""
+    _CACHE.clear()
+
+
+def _stem_for_text(text: str) -> str:
+    """Stable filename for an anonymous grammar string. Used by compile()
+    when it needs to emit a module without a path."""
+    return "anon_" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
+def compile(text: str, *, cache_key: Hashable | None = None) -> CompiledGrammar:
     if cache_key is not None and (hit := _CACHE.get(cache_key)):
         return hit
     cg = _compile_core(text)
@@ -127,22 +143,26 @@ def compile_text(text: str, *, cache_key: Hashable | None = None) -> CompiledGra
     return cg
 
 
-def compile(grammar_path: str | Path) -> CompiledGrammar:
+def compile_from_path(grammar_path: str | Path) -> CompiledGrammar:
     path = Path(grammar_path).resolve()
     stat = path.stat()
     key = (str(path), stat.st_mtime, stat.st_size)
     if hit := _CACHE.get(key):
         return hit
-    return compile_text(path.read_text(), cache_key=key)
+    return compile(path.read_text(), cache_key=key)
 ```
+
+The hash-stem helper lives in `compile.py`, not `codegen/`. `codegen` requires an explicit `stem` from its caller; the "anonymous" naming policy is a `compile.py` concern (it's the module that invents a stem when the grammar came from a string).
 
 **Rationale.** `(path, mtime, size)` closes the draft's most likely real-world failure mode — tests that rewrite a grammar inside a single mtime tick. Adding `size` costs nothing (same `stat()`). Network-FS fragility remains inside the roadmap's documented risk budget.
 
-`compile_text` becomes the factorisation natural to the problem: every compile is `text → specs → artefacts`. `compile(path)` is a thin convenience. Both share one cache. A dynamically-generated grammar no longer needs a temp file to compile.
+The primary/wrapper direction (string-taker unqualified, path-taker suffixed) matches the reality of the pipeline: grammar text is the canonical input; file I/O is a convenience layer. It also matches Pydantic's convention (`model_validate_json(str)` is primary; path helpers wrap it) and the general Unix/functional rule that IO lives at the edges.
 
-The `compile` name shadows Python's builtin; this is acceptable (stdlib itself does this in `re.compile`, `codecs.compile` etc.) and matches the roadmap.
+The `compile` name shadows Python's builtin; this is acceptable (stdlib itself does this in `re.compile`, `codecs.compile` etc.) and matches the roadmap. Callers who dislike the shadowing can `import lexic` and call `lexic.compile(...)`.
 
-`_cache_clear()` stays underscored — it's a test seam, not public API.
+`reset_cache_for_tests()` is the public test seam — no cross-module underscore imports.
+
+**Layering note.** `compile.py` is runtime and imports `lexic.codegen.codegen` at module scope. This is explicitly permitted by `2_ARCHITECTURE.md` §Layering rules as the second of two deliberate runtime→codegen edges (alongside `base.py::to_grammar`). Both edges are eager, not lazy.
 
 ### Q4. FieldNamer lifetime
 
@@ -212,7 +232,7 @@ Slice A raises bare `ValueError` from `builder_for(atom)` when an atom type has 
 src/lexic/
   base.py                               GrammarModel (unchanged)
   parse.py                              parse(text, path) — one-liner over compile()
-  compile.py                            compile_text, compile, CompiledGrammar
+  compile.py                            compile, compile_from_path, CompiledGrammar
   generate.py                           split into per-kind helpers (Part E)
   ir/                                   unchanged; 7 atoms still (Slice B collapses to 5)
   codegen/

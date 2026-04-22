@@ -197,7 +197,7 @@ branches.
 - ~~Flat `Classification` or union?~~ — **Resolved:** union of per-kind
   frozen dataclasses; `match`-dispatched downstream.
 - ~~`CompiledGrammar` memo key~~ — **Resolved:** `(path, mtime, size)`;
-  `compile_text(text, *, cache_key)` primary, `compile(path)` thin
+  `compile(text, *, cache_key)` primary, `compile_from_path(path)` thin
   wrapper; one shared cache.
 - ~~`FieldNamer` lifetime~~ — **Resolved:** not a class. Module-level
   `assign_field_names(atoms)` function. Per-rule scope unchanged.
