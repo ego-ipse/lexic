@@ -21,6 +21,7 @@ from lexic.ir import (
     RuleRefAtom,
     RuleSpec,
 )
+from lexic.codegen.naming import assign_field_names
 from lexic.utils.names import to_pascal
 from lexic.utils.quantifiers import quantifier_to_bounds
 
@@ -206,148 +207,6 @@ def _classify(rule: Rule) -> str:
     return "named_alt"
 
 
-# ── Semantic field naming ─────────────────────────────────────────────────────
-
-_CHARCLASS_NAMES: dict[str, str] = {
-    "[0-9]": "digit",
-    "[1-9]": "digit",
-    "[0-9a-fA-F]": "hex",
-    "[a-fA-F0-9]": "hex",
-    "[a-f]": "hex_lower",
-    "[A-F]": "hex_upper",
-    "[a-z]": "lower",
-    "[A-Z]": "upper",
-    "[a-zA-Z]": "alpha",
-    "[a-z0-9_]": "alnum",
-    "[a-zA-Z_]": "name_start",
-    "[a-zA-Z0-9_]": "alnum",
-    "[a-zA-Z_0-9]": "alnum",
-    "[+\\-*/]": "op",
-    "[-+*/]": "op",
-    "[+#]": "annotation",
-    "[ \\t\\n]": "ws_char",
-    "[ \\t]": "hspace",
-    "[^\\n]": "non_newline",
-    '[^"\\\\]': "str_char",
-}
-
-_LITERAL_NAMES: dict[str, str] = {
-    "-": "sign",
-    "+": "sign",
-    ".": "dot",
-    ",": "comma",
-    ":": "colon",
-    ";": "semicolon",
-    "=": "eq",
-    "x": "x",
-    "e": "e",
-    "E": "E",
-}
-
-
-def _sanitize_pattern(pattern: str) -> str:
-    """Derive a readable name hint from a bracket expression.
-
-    '[NBKQR]' → 'nbkqr', '[a-h]' → 'a_h', '[1-8]' → 'cc_1_8'
-
-    Note: backslash-heavy patterns (e.g. [\\\\n], [\\\\u2028]) produce an
-    empty string here — the caller falls back to a generic quantifier name.
-    Patterns in _CHARCLASS_NAMES are handled before this function is called.
-    """
-    inner = re.sub(r"[\[\]\^]", "", pattern)
-    inner = inner.replace("-", "_").lower()
-    # Remove any remaining non-identifier characters
-    inner = re.sub(r"[^a-z0-9_]", "", inner)
-    inner = inner.strip("_")
-    # Collapse repeated underscores
-    inner = re.sub(r"_+", "_", inner)
-    if not inner:
-        return ""
-    # Python identifiers cannot start with a digit
-    if inner[0].isdigit():
-        inner = "cc_" + inner
-    return inner[:12].strip("_")
-
-
-def _charclass_field_name(atom: "CharClassAtom", min_: int, max_: int | None) -> str:
-    """Derive a semantic field name for a CharClassAtom."""
-    if atom.pattern in _CHARCLASS_NAMES:
-        return _CHARCLASS_NAMES[atom.pattern]
-    hint = _sanitize_pattern(atom.pattern)
-    if hint:
-        return hint
-    if max_ is None:
-        return "tail"
-    if min_ == 0 and max_ == 1:
-        return "opt"
-    return "cc"
-
-
-def _quantified_literal_field_name(value: str) -> str:
-    """Derive a field name for a QuantifiedLiteralAtom."""
-    if value in _LITERAL_NAMES:
-        return _LITERAL_NAMES[value]
-    sanitized = re.sub(r"[^a-zA-Z0-9]", "_", value).strip("_").lower()[:12]
-    return sanitized or "lit"
-
-
-def _inline_regex_field_name(gbnf: str) -> str:
-    """Derive a field name for an InlineRegexAtom from its first arm."""
-    body = gbnf.strip()
-    if body.startswith("(") and body.endswith(")"):
-        body = body[1:-1]
-    first_arm = body.split("|")[0].strip().strip('"')
-    sanitized = re.sub(r"[^a-zA-Z0-9]", "_", first_arm).strip("_").lower()
-    # Collapse repeated underscores
-    sanitized = re.sub(r"_+", "_", sanitized).strip("_")
-    sanitized = sanitized[:12]
-    if not sanitized:
-        return "inline"
-    # Python identifiers cannot start with a digit
-    if sanitized[0].isdigit():
-        sanitized = ("val_" + sanitized)[:12].strip("_")
-    return sanitized
-
-
-def _assign_field_names(items: list[Atom]) -> dict[str, int]:
-    """Assign semantic field names to non-literal atoms."""
-    field_map: dict[str, int] = {}
-    name_counts: dict[str, int] = {}
-
-    def _unique(base: str) -> str:
-        count = name_counts.get(base, 0) + 1
-        name_counts[base] = count
-        return base if count == 1 else f"{base}{count}"
-
-    for i, atom in enumerate(items):
-        if isinstance(atom, LiteralAtom):
-            continue
-
-        if isinstance(atom, AlternationAtom):
-            continue  # kind='alternation' rules have no fields
-
-        if isinstance(atom, InlineAlternationAtom):
-            field_map[_unique("value")] = i
-
-        elif isinstance(atom, RuleRefAtom):
-            base = atom.rule_name.replace("-", "_")
-            field_map[_unique(base)] = i
-
-        elif isinstance(atom, CharClassAtom):
-            base = _charclass_field_name(atom, atom.min, atom.max)
-            field_map[_unique(base)] = i
-
-        elif isinstance(atom, QuantifiedLiteralAtom):
-            base = _quantified_literal_field_name(atom.value)
-            field_map[_unique(base)] = i
-
-        elif isinstance(atom, InlineRegexAtom):
-            base = _inline_regex_field_name(atom.gbnf)
-            field_map[_unique(base)] = i
-
-    return field_map
-
-
 # ── Sequence → items ─────────────────────────────────────────────────────────
 
 
@@ -437,7 +296,7 @@ def _seq_to_atoms(
                 name_map,
                 parent_of,
             )
-            helper_fm = _assign_field_names(helper_atoms)
+            helper_fm = assign_field_names(helper_atoms)
             helper_spec = RuleSpec(
                 rule_name=helper_rule_name,
                 class_name=helper_class_name,
@@ -561,7 +420,7 @@ class IRBuilder:
                     atoms = _seq_to_atoms(
                         stripped, arm_cls_name, helper_specs, self._name_map, parent_of
                     )
-                    fm = _assign_field_names(atoms)
+                    fm = assign_field_names(atoms)
                     arm_specs.extend(helper_specs)
                     arm_specs.append(
                         RuleSpec(
@@ -605,7 +464,7 @@ class IRBuilder:
         atoms_seq = _seq_to_atoms(
             full_arms[0], cls_name, helper_specs_seq, self._name_map, parent_of
         )
-        fm_seq = _assign_field_names(atoms_seq)
+        fm_seq = assign_field_names(atoms_seq)
         seq_spec = RuleSpec(
             rule_name=rule.name,
             class_name=cls_name,
