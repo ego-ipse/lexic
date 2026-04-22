@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import cast
 
-from .ast import CharClass, Group, Item, Literal, Rule, RuleRef, Sequence
+from .ast import CharClass, Group, Literal, Rule, RuleRef, Sequence
 from lexic.ir import (
     AlternationAtom,
     Atom,
@@ -89,20 +89,6 @@ def _build_inline_regex(group: Group, min_: int, max_: int | None) -> InlineRege
     )
 
 
-# ── Local sequence-level helpers (not classification) ────────────────────────
-
-
-def _is_pure_literal(item: Item) -> bool:
-    return isinstance(item.atom, (Literal, CharClass))
-
-
-def _is_pure_literal_seq(seq: Sequence) -> bool:
-    stripped = strip_ws(seq)
-    return len(stripped.items) > 0 and all(
-        _is_pure_literal(it) for it in stripped.items
-    )
-
-
 # ── Sequence → items ─────────────────────────────────────────────────────────
 
 
@@ -147,7 +133,11 @@ def _seq_to_atoms(
             ]
 
             # Inline literal alternation → InlineRegexAtom
-            if all(_is_pure_literal_seq(a) for a in inner_arms):
+            if all(
+                len(arm.items) > 0
+                and all(isinstance(it.atom, (Literal, CharClass)) for it in arm.items)
+                for arm in inner_arms
+            ):
                 atoms.append(_build_inline_regex(item.atom, min_, max_))
                 continue
 
