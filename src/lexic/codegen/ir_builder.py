@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import cast
 
-from .ast import Alternation, CharClass, Group, Item, Literal, Rule, RuleRef, Sequence
+from .ast import CharClass, Group, Item, Literal, Rule, RuleRef, Sequence
 from lexic.ir import (
     AlternationAtom,
     Atom,
@@ -23,51 +23,19 @@ from lexic.ir import (
 )
 from lexic.codegen.helpers import HelperRuleRegistry
 from lexic.codegen.naming import assign_field_names
+from lexic.codegen.ast_utils import (
+    single_ruleref_of,
+    strip_ws,
+)
+from lexic.codegen.classify import (
+    Classifier,
+    NamedAlt,
+    PureLiteralAlt,
+    SequenceKind,
+    ValueStr,
+)
 from lexic.utils.names import to_pascal
 from lexic.utils.quantifiers import quantifier_to_bounds
-
-
-# ── Classification helpers ────────────────────────────────────────────────────
-
-
-def _is_ws_item(item: Item) -> bool:
-    return isinstance(item.atom, RuleRef) and item.atom.name == "ws"
-
-
-def _strip_ws(seq: Sequence) -> Sequence:
-    return Sequence([it for it in seq.items if not _is_ws_item(it)])
-
-
-def _is_pure_literal(item: Item) -> bool:
-    return isinstance(item.atom, (Literal, CharClass))
-
-
-def _is_pure_literal_seq(seq: Sequence) -> bool:
-    stripped = _strip_ws(seq)
-    return len(stripped.items) > 0 and all(
-        _is_pure_literal(it) for it in stripped.items
-    )
-
-
-def _is_single_ruleref(seq: Sequence) -> str | None:
-    """If sequence is exactly one unquantified rule ref (after ws strip), return name."""
-    stripped = _strip_ws(seq)
-    if len(stripped.items) != 1:
-        return None
-    it = stripped.items[0]
-    if it.quantifier is not None:
-        return None
-    if isinstance(it.atom, RuleRef):
-        return it.atom.name
-    if isinstance(it.atom, Group):
-        inner = it.atom.alt
-        if len(inner.seqs) == 1:
-            inner_stripped = _strip_ws(inner.seqs[0])
-            if len(inner_stripped.items) == 1:
-                inner_it = inner_stripped.items[0]
-                if inner_it.quantifier is None and isinstance(inner_it.atom, RuleRef):
-                    return inner_it.atom.name
-    return None
 
 
 def _to_regex(group: Group) -> str:
@@ -121,91 +89,18 @@ def _build_inline_regex(group: Group, min_: int, max_: int | None) -> InlineRege
     )
 
 
-def _unwrap_group_alt(alt: Alternation) -> Alternation:
-    if len(alt.seqs) != 1:
-        return alt
-    stripped = _strip_ws(alt.seqs[0])
-    if len(stripped.items) == 1:
-        it = stripped.items[0]
-        if isinstance(it.atom, Group) and it.quantifier is None:
-            return it.atom.alt
-    return alt
+# ── Local sequence-level helpers (not classification) ────────────────────────
 
 
-def _has_any_ruleref(items: list[Item]) -> bool:
-    for it in items:
-        if _is_ws_item(it):
-            continue
-        if isinstance(it.atom, RuleRef):
-            return True
-        if isinstance(it.atom, Group):
-            for seq in it.atom.alt.seqs:
-                if _has_any_ruleref(seq.items):
-                    return True
-    return False
+def _is_pure_literal(item: Item) -> bool:
+    return isinstance(item.atom, (Literal, CharClass))
 
 
-def _has_nontrivial_group(items: list[Item]) -> bool:
-    for it in items:
-        if isinstance(it.atom, Group):
-            for seq in it.atom.alt.seqs:
-                if any(isinstance(i.atom, Group) for i in seq.items):
-                    return True
-    return False
-
-
-def _has_group_with_alt(items: list[Item]) -> bool:
-    for it in items:
-        if isinstance(it.atom, Group) and len(it.atom.alt.seqs) > 1:
-            return True
-    return False
-
-
-def _is_structurally_complex(alt: Alternation) -> bool:
-    for seq in alt.seqs:
-        stripped = _strip_ws(seq)
-        for it in stripped.items:
-            if isinstance(it.atom, Group) and it.quantifier == "*":
-                for inner_seq in it.atom.alt.seqs:
-                    if _has_nontrivial_group(inner_seq.items):
-                        return True
-    all_no_refs = not any(_has_any_ruleref(_strip_ws(seq).items) for seq in alt.seqs)
-    has_group_alt = any(_has_group_with_alt(_strip_ws(seq).items) for seq in alt.seqs)
-    return all_no_refs and has_group_alt
-
-
-def _classify(rule: Rule) -> str:
-    alt = _unwrap_group_alt(rule.body)
-    if _is_structurally_complex(alt):
-        return "value_str"
-    arms = [a for a in (_strip_ws(seq) for seq in alt.seqs) if len(a.items) > 0]
-    if not arms:
-        return "value_str"
-    if len(arms) > 1 and all(_is_pure_literal_seq(a) for a in arms):
-        return "pure_literal_alt"
-    if (
-        len(arms) == 1
-        and len(arms[0].items) == 1
-        and isinstance(arms[0].items[0].atom, Group)
-        and arms[0].items[0].quantifier is None
-        and all(
-            _is_pure_literal_seq(_strip_ws(s)) for s in arms[0].items[0].atom.alt.seqs
-        )
-    ):
-        return "pure_literal_alt"
-    if len(arms) > 1 and any(_is_single_ruleref(a) is not None for a in arms):
-        return "named_alt"
-    if len(arms) == 1:
-        # Single arm with only literals/char classes (no rule refs at all) → value_str
-        # Check if the full (non-stripped) sequences contain ANY rule reference (inc. ws)
-        full_seqs = alt.seqs
-        has_any_rule_ref = any(
-            any(isinstance(it.atom, RuleRef) for it in s.items) for s in full_seqs
-        )
-        if not has_any_rule_ref and _is_pure_literal_seq(arms[0]):
-            return "value_str"
-        return "sequence"
-    return "named_alt"
+def _is_pure_literal_seq(seq: Sequence) -> bool:
+    stripped = strip_ws(seq)
+    return len(stripped.items) > 0 and all(
+        _is_pure_literal(it) for it in stripped.items
+    )
 
 
 # ── Sequence → items ─────────────────────────────────────────────────────────
@@ -248,9 +143,7 @@ def _seq_to_atoms(
         elif isinstance(item.atom, Group):
             min_, max_ = quantifier_to_bounds(item.quantifier)
             inner_arms = [
-                a
-                for a in (_strip_ws(s) for s in item.atom.alt.seqs)
-                if len(a.items) > 0
+                a for a in (strip_ws(s) for s in item.atom.alt.seqs) if len(a.items) > 0
             ]
 
             # Inline literal alternation → InlineRegexAtom
@@ -262,10 +155,10 @@ def _seq_to_atoms(
             if (
                 item.quantifier is None
                 and len(inner_arms) > 1
-                and all(_is_single_ruleref(a) is not None for a in inner_arms)
+                and all(single_ruleref_of(a) is not None for a in inner_arms)
             ):
                 arm_names: list[str] = [
-                    cast(str, _is_single_ruleref(a)) for a in inner_arms
+                    cast(str, single_ruleref_of(a)) for a in inner_arms
                 ]
                 atoms.append(InlineAlternationAtom(arm_rule_names=arm_names))
                 continue
@@ -318,6 +211,7 @@ class IRBuilder:
         self._rules_dict = {r.name: r for r in rules}
         self._name_map = {r.name: to_pascal(r.name) for r in rules}
         self._helpers = HelperRuleRegistry()
+        self._classifier = Classifier()
 
     def build(self) -> list[RuleSpec]:
         """Build and return specs in grammar order (root first)."""
@@ -332,13 +226,12 @@ class IRBuilder:
         """For each rule that is a named arm of an alternation, record its parent class."""
         parent_of: dict[str, str] = {}
         for rule in self._rules:
-            classification = _classify(rule)
-            if classification != "named_alt":
+            classification = self._classifier.classify(rule)
+            if not isinstance(classification, NamedAlt):
                 continue
-            alt = _unwrap_group_alt(rule.body)
             parent_cls = self._name_map[rule.name]
-            for seq in alt.seqs:
-                ref = _is_single_ruleref(_strip_ws(seq))
+            for seq in classification.arms:
+                ref = single_ruleref_of(seq)
                 if ref is not None:
                     parent_of[ref] = parent_cls
         return parent_of
@@ -348,13 +241,13 @@ class IRBuilder:
         rule: Rule,
         parent_of: dict[str, str],
     ) -> list[RuleSpec]:
-        classification = _classify(rule)
+        classification = self._classifier.classify(rule)
         cls_name = self._name_map[rule.name]
         parent_cls = parent_of.get(rule.name, "GrammarModel")
 
         # value_str / pure_literal_alt → single `value: str` field
-        if classification in ("value_str", "pure_literal_alt"):
-            alt = _unwrap_group_alt(rule.body)
+        if isinstance(classification, (ValueStr, PureLiteralAlt)):
+            alt = classification.alt
             items: list[Atom] = []
             for seq in alt.seqs:
                 for it in seq.items:
@@ -389,18 +282,12 @@ class IRBuilder:
             ]
 
         # named_alt → abstract class + anonymous arm classes
-        if classification == "named_alt":
-            alt = _unwrap_group_alt(rule.body)
+        elif isinstance(classification, NamedAlt):
             arm_rule_names: list[str] = []
             arm_specs: list[RuleSpec] = []
-            arm_idx = 0
 
-            for seq in alt.seqs:
-                stripped = _strip_ws(seq)
-                if not stripped.items:
-                    continue
-                arm_idx += 1
-                ref = _is_single_ruleref(stripped)
+            for arm_idx, stripped in enumerate(classification.arms, start=1):
+                ref = single_ruleref_of(stripped)
                 if ref is not None:
                     arm_rule_names.append(ref)
                 else:
@@ -433,35 +320,23 @@ class IRBuilder:
             return [abstract_spec] + arm_specs
 
         # sequence
-        alt = _unwrap_group_alt(rule.body)
-        # Use stripped arms only to check non-emptiness; pass full seqs to atom builder
-        full_arms = [s for s in alt.seqs if _strip_ws(s).items]
-        arms = [_strip_ws(s) for s in full_arms]
-        if not arms:
-            return [
-                RuleSpec(
-                    rule_name=rule.name,
-                    class_name=cls_name,
-                    parent_class_name=parent_cls,
-                    kind="value_str",
-                    items=[],
-                    field_map={},
-                )
-            ]
+        elif isinstance(classification, SequenceKind):
+            atoms_seq = _seq_to_atoms(
+                classification.body, cls_name, self._helpers, self._name_map, parent_of
+            )
+            fm_seq = assign_field_names(atoms_seq)
+            seq_spec = RuleSpec(
+                rule_name=rule.name,
+                class_name=cls_name,
+                parent_class_name=parent_cls,
+                kind="sequence",
+                items=atoms_seq,
+                field_map=fm_seq,
+            )
+            return [seq_spec]
 
-        atoms_seq = _seq_to_atoms(
-            full_arms[0], cls_name, self._helpers, self._name_map, parent_of
-        )
-        fm_seq = assign_field_names(atoms_seq)
-        seq_spec = RuleSpec(
-            rule_name=rule.name,
-            class_name=cls_name,
-            parent_class_name=parent_cls,
-            kind="sequence",
-            items=atoms_seq,
-            field_map=fm_seq,
-        )
-        return [seq_spec]
+        # Unreachable: Classification is a closed union
+        raise AssertionError(f"Unhandled classification type: {type(classification)}")
 
     def _topo_sort(self, specs: list[RuleSpec]) -> list[RuleSpec]:
         """Order specs so parent classes appear before subclasses, with root first."""
