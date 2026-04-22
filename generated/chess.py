@@ -22,22 +22,6 @@ class Root(GrammarModel):
     root_item: List[RootItem]
 
 
-class RootItem(GrammarModel):
-    """root-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="root-item",
-        class_name="RootItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[CharClassAtom("[1-9]", min=1, max=1), CharClassAtom("[0-9]", min=0, max=1), LiteralAtom(". "), RuleRefAtom("move", min=1, max=1), LiteralAtom(" "), RuleRefAtom("move", min=1, max=1), LiteralAtom("\\n")],
-        field_map={"digit": 0, "digit2": 1, "move": 3, "move2": 5},
-    )
-    digit: str
-    digit2: str
-    move: Move
-    move2: Move
-
-
 class Move(GrammarModel):
     """move ::= (see __grammar__)"""
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
@@ -94,11 +78,27 @@ class Castle(GrammarModel):
     value: str
 
 
+class RootItem(GrammarModel):
+    """root-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="root-item",
+        class_name="RootItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[CharClassAtom("[1-9]", min=1, max=1), CharClassAtom("[0-9]", min=0, max=1), LiteralAtom(". "), RuleRefAtom("move", min=1, max=1), LiteralAtom(" "), RuleRefAtom("move", min=1, max=1), LiteralAtom("\\n")],
+        field_map={"digit": 0, "digit2": 1, "move": 3, "move2": 5},
+    )
+    digit: str
+    digit2: str
+    move: Move
+    move2: Move
+
+
 # Resolve forward references
 _ns = {k: v for k, v in globals().items() if isinstance(v, type)}
 Root.model_rebuild(_types_namespace=_ns)
-RootItem.model_rebuild(_types_namespace=_ns)
 Move.model_rebuild(_types_namespace=_ns)
 Nonpawn.model_rebuild(_types_namespace=_ns)
 Pawn.model_rebuild(_types_namespace=_ns)
 Castle.model_rebuild(_types_namespace=_ns)
+RootItem.model_rebuild(_types_namespace=_ns)

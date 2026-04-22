@@ -22,20 +22,6 @@ class Root(GrammarModel):
     root_item: List[RootItem]
 
 
-class RootItem(GrammarModel):
-    """root-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="root-item",
-        class_name="RootItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[CharClassAtom("[ \\t\\n]", min=1, max=1), RuleRefAtom("jp-char", min=1, max=None)],
-        field_map={"ws_char": 0, "jp_char": 1},
-    )
-    ws_char: str
-    jp_char: List[JpChar]
-
-
 class JpChar(GrammarModel, ABC):
     """jp-char ::= (see __grammar__)"""
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
@@ -101,12 +87,26 @@ class Cjk(JpChar):
     value: str
 
 
+class RootItem(GrammarModel):
+    """root-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="root-item",
+        class_name="RootItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[CharClassAtom("[ \\t\\n]", min=1, max=1), RuleRefAtom("jp-char", min=1, max=None)],
+        field_map={"ws_char": 0, "jp_char": 1},
+    )
+    ws_char: str
+    jp_char: List[JpChar]
+
+
 # Resolve forward references
 _ns = {k: v for k, v in globals().items() if isinstance(v, type)}
 Root.model_rebuild(_types_namespace=_ns)
-RootItem.model_rebuild(_types_namespace=_ns)
 JpChar.model_rebuild(_types_namespace=_ns)
 Hiragana.model_rebuild(_types_namespace=_ns)
 Katakana.model_rebuild(_types_namespace=_ns)
 Punctuation.model_rebuild(_types_namespace=_ns)
 Cjk.model_rebuild(_types_namespace=_ns)
+RootItem.model_rebuild(_types_namespace=_ns)

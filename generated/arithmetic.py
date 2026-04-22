@@ -21,34 +21,6 @@ class Root(GrammarModel):
     root_item: List[RootItem]
 
 
-class RootItem(GrammarModel):
-    """root-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="root-item",
-        class_name="RootItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[RuleRefAtom("expr", min=1, max=1), LiteralAtom("="), RuleRefAtom("term", min=1, max=1), LiteralAtom("\\n")],
-        field_map={"expr": 0, "term": 2},
-    )
-    expr: Expr
-    term: Term
-
-
-class ExprItem(GrammarModel):
-    """expr-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="expr-item",
-        class_name="ExprItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[CharClassAtom("[-+*/]", min=1, max=1), RuleRefAtom("term", min=1, max=1)],
-        field_map={"op": 0, "term": 1},
-    )
-    op: str
-    term: Term
-
-
 class Expr(GrammarModel):
     """expr ::= (see __grammar__)"""
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
@@ -131,14 +103,42 @@ class Ws(GrammarModel):
     value: str
 
 
+class RootItem(GrammarModel):
+    """root-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="root-item",
+        class_name="RootItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[RuleRefAtom("expr", min=1, max=1), LiteralAtom("="), RuleRefAtom("term", min=1, max=1), LiteralAtom("\\n")],
+        field_map={"expr": 0, "term": 2},
+    )
+    expr: Expr
+    term: Term
+
+
+class ExprItem(GrammarModel):
+    """expr-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="expr-item",
+        class_name="ExprItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[CharClassAtom("[-+*/]", min=1, max=1), RuleRefAtom("term", min=1, max=1)],
+        field_map={"op": 0, "term": 1},
+    )
+    op: str
+    term: Term
+
+
 # Resolve forward references
 _ns = {k: v for k, v in globals().items() if isinstance(v, type)}
 Root.model_rebuild(_types_namespace=_ns)
-RootItem.model_rebuild(_types_namespace=_ns)
-ExprItem.model_rebuild(_types_namespace=_ns)
 Expr.model_rebuild(_types_namespace=_ns)
 Term.model_rebuild(_types_namespace=_ns)
 TermArm3.model_rebuild(_types_namespace=_ns)
 Ident.model_rebuild(_types_namespace=_ns)
 Num.model_rebuild(_types_namespace=_ns)
 Ws.model_rebuild(_types_namespace=_ns)
+RootItem.model_rebuild(_types_namespace=_ns)
+ExprItem.model_rebuild(_types_namespace=_ns)

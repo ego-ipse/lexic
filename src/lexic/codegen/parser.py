@@ -7,7 +7,16 @@ from __future__ import annotations
 
 from lark import Lark, Transformer as LarkTransformer
 
-from .ast import Alternation, CharClass, Group, Item, Literal, Rule, RuleRef, Sequence
+from lexic.codegen.ast import (
+    Alternation,
+    CharClass,
+    Group,
+    Item,
+    Literal,
+    Rule,
+    RuleRef,
+    Sequence,
+)
 
 _GBNF_META_GRAMMAR = r"""
 start: rule+

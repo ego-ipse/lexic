@@ -10,9 +10,9 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from .ir_builder import IRBuilder
-from .model_emitter import ModelEmitter
-from .parser import parse_gbnf
+from lexic.codegen.ir_builder import IRBuilder
+from lexic.codegen.model_emitter import ModelEmitter
+from lexic.codegen.parser import parse_gbnf
 
 
 def codegen(grammar_path: str | Path) -> dict[str, type]:

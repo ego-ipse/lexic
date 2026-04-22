@@ -47,35 +47,6 @@ class ValueArm5(Value):
     true: str
 
 
-class ObjectitemItem(GrammarModel):
-    """objectitem-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="objectitem-item",
-        class_name="ObjectitemItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[LiteralAtom(","), RuleRefAtom("string", min=1, max=1), LiteralAtom(":"), RuleRefAtom("value", min=1, max=1)],
-        field_map={"string": 1, "value": 3},
-    )
-    string: String
-    value: Value
-
-
-class ObjectItem(GrammarModel):
-    """object-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="object-item",
-        class_name="ObjectItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[RuleRefAtom("string", min=1, max=1), LiteralAtom(":"), RuleRefAtom("value", min=1, max=1), RuleRefAtom("objectitem-item", min=0, max=None)],
-        field_map={"string": 0, "value": 2, "objectitem_item": 3},
-    )
-    string: String
-    value: Value
-    objectitem_item: List[ObjectitemItem]
-
-
 class Object(Value):
     """object ::= (see __grammar__)"""
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
@@ -89,33 +60,6 @@ class Object(Value):
     ws: Ws
     object_item: Optional[ObjectItem] = None
     ws2: Ws
-
-
-class ArrayitemItem(GrammarModel):
-    """arrayitem-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="arrayitem-item",
-        class_name="ArrayitemItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[LiteralAtom(","), RuleRefAtom("value", min=1, max=1)],
-        field_map={"value": 1},
-    )
-    value: Value
-
-
-class ArrayItem(GrammarModel):
-    """array-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="array-item",
-        class_name="ArrayItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[RuleRefAtom("value", min=1, max=1), RuleRefAtom("arrayitem-item", min=0, max=None)],
-        field_map={"value": 0, "arrayitem_item": 1},
-    )
-    value: Value
-    arrayitem_item: List[ArrayitemItem]
 
 
 class Array(Value):
@@ -176,17 +120,73 @@ class Ws(GrammarModel):
     value: str
 
 
+class ObjectitemItem(GrammarModel):
+    """objectitem-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="objectitem-item",
+        class_name="ObjectitemItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[LiteralAtom(","), RuleRefAtom("string", min=1, max=1), LiteralAtom(":"), RuleRefAtom("value", min=1, max=1)],
+        field_map={"string": 1, "value": 3},
+    )
+    string: String
+    value: Value
+
+
+class ObjectItem(GrammarModel):
+    """object-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="object-item",
+        class_name="ObjectItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[RuleRefAtom("string", min=1, max=1), LiteralAtom(":"), RuleRefAtom("value", min=1, max=1), RuleRefAtom("objectitem-item", min=0, max=None)],
+        field_map={"string": 0, "value": 2, "objectitem_item": 3},
+    )
+    string: String
+    value: Value
+    objectitem_item: List[ObjectitemItem]
+
+
+class ArrayitemItem(GrammarModel):
+    """arrayitem-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="arrayitem-item",
+        class_name="ArrayitemItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[LiteralAtom(","), RuleRefAtom("value", min=1, max=1)],
+        field_map={"value": 1},
+    )
+    value: Value
+
+
+class ArrayItem(GrammarModel):
+    """array-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="array-item",
+        class_name="ArrayItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[RuleRefAtom("value", min=1, max=1), RuleRefAtom("arrayitem-item", min=0, max=None)],
+        field_map={"value": 0, "arrayitem_item": 1},
+    )
+    value: Value
+    arrayitem_item: List[ArrayitemItem]
+
+
 # Resolve forward references
 _ns = {k: v for k, v in globals().items() if isinstance(v, type)}
 Root.model_rebuild(_types_namespace=_ns)
 Value.model_rebuild(_types_namespace=_ns)
 ValueArm5.model_rebuild(_types_namespace=_ns)
-ObjectitemItem.model_rebuild(_types_namespace=_ns)
-ObjectItem.model_rebuild(_types_namespace=_ns)
 Object.model_rebuild(_types_namespace=_ns)
-ArrayitemItem.model_rebuild(_types_namespace=_ns)
-ArrayItem.model_rebuild(_types_namespace=_ns)
 Array.model_rebuild(_types_namespace=_ns)
 String.model_rebuild(_types_namespace=_ns)
 Number.model_rebuild(_types_namespace=_ns)
 Ws.model_rebuild(_types_namespace=_ns)
+ObjectitemItem.model_rebuild(_types_namespace=_ns)
+ObjectItem.model_rebuild(_types_namespace=_ns)
+ArrayitemItem.model_rebuild(_types_namespace=_ns)
+ArrayItem.model_rebuild(_types_namespace=_ns)

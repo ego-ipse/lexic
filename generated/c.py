@@ -21,19 +21,6 @@ class Root(GrammarModel):
     root_item: List[RootItem]
 
 
-class RootItem(GrammarModel):
-    """root-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="root-item",
-        class_name="RootItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[RuleRefAtom("declaration", min=1, max=1)],
-        field_map={"declaration": 0},
-    )
-    declaration: Declaration
-
-
 class Declaration(GrammarModel):
     """declaration ::= (see __grammar__)"""
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
@@ -202,19 +189,6 @@ class StatementArm6(Statement):
     statement: List[Statement]
 
 
-class Statementarm7Item(GrammarModel):
-    """statementarm7-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="statementarm7-item",
-        class_name="Statementarm7Item",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[LiteralAtom("else"), LiteralAtom("{"), RuleRefAtom("statement", min=0, max=None), LiteralAtom("}")],
-        field_map={"statement": 2},
-    )
-    statement: List[Statement]
-
-
 class StatementArm7(Statement):
     """statement-arm7 ::= (see __grammar__)"""
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
@@ -310,24 +284,10 @@ class RelationOperator(GrammarModel):
         class_name="RelationOperator",
         parent_class_name="GrammarModel",
         kind="value_str",
-        items=[LiteralAtom("<="), LiteralAtom("<"), LiteralAtom("=="), LiteralAtom("!="), LiteralAtom(">="), LiteralAtom(">")],
+        items=[InlineRegexAtom("(<=|<|==|!=|>=|>)", "(\"<=\"|\"<\"|\"==\"|\"!=\"|\">=\"|\">\")", min=1, max=1)],
         field_map={},
     )
     value: str
-
-
-class ExpressionItem(GrammarModel):
-    """expression-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="expression-item",
-        class_name="ExpressionItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[InlineRegexAtom("(\\+|\\-)", "(\"+\"|\"-\")", min=1, max=1), RuleRefAtom("term", min=1, max=1)],
-        field_map={"inline": 0, "term": 1},
-    )
-    inline: str
-    term: Term
 
 
 class Expression(GrammarModel):
@@ -342,20 +302,6 @@ class Expression(GrammarModel):
     )
     term: Term
     expression_item: List[ExpressionItem]
-
-
-class TermItem(GrammarModel):
-    """term-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="term-item",
-        class_name="TermItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[InlineRegexAtom("(\\*|/)", "(\"*\"|\"/\")", min=1, max=1), RuleRefAtom("factor", min=1, max=1)],
-        field_map={"inline": 0, "factor": 1},
-    )
-    inline: str
-    factor: Factor
 
 
 class Term(GrammarModel):
@@ -412,19 +358,6 @@ class ParenExpression(Factor):
     ws: Ws
     expression: Expression
     ws2: Ws
-
-
-class ArglistItem(GrammarModel):
-    """arglist-item ::= (see __grammar__)"""
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="arglist-item",
-        class_name="ArglistItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[LiteralAtom(","), RuleRefAtom("expression", min=1, max=1)],
-        field_map={"expression": 1},
-    )
-    expression: Expression
 
 
 class ArgList(GrammarModel):
@@ -493,10 +426,76 @@ class Ws(GrammarModel):
     value: str
 
 
+class RootItem(GrammarModel):
+    """root-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="root-item",
+        class_name="RootItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[RuleRefAtom("declaration", min=1, max=1)],
+        field_map={"declaration": 0},
+    )
+    declaration: Declaration
+
+
+class Statementarm7Item(GrammarModel):
+    """statementarm7-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="statementarm7-item",
+        class_name="Statementarm7Item",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[LiteralAtom("else"), LiteralAtom("{"), RuleRefAtom("statement", min=0, max=None), LiteralAtom("}")],
+        field_map={"statement": 2},
+    )
+    statement: List[Statement]
+
+
+class ExpressionItem(GrammarModel):
+    """expression-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="expression-item",
+        class_name="ExpressionItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[InlineRegexAtom("(\\+|\\-)", "(\"+\"|\"-\")", min=1, max=1), RuleRefAtom("term", min=1, max=1)],
+        field_map={"inline": 0, "term": 1},
+    )
+    inline: str
+    term: Term
+
+
+class TermItem(GrammarModel):
+    """term-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="term-item",
+        class_name="TermItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[InlineRegexAtom("(\\*|/)", "(\"*\"|\"/\")", min=1, max=1), RuleRefAtom("factor", min=1, max=1)],
+        field_map={"inline": 0, "factor": 1},
+    )
+    inline: str
+    factor: Factor
+
+
+class ArglistItem(GrammarModel):
+    """arglist-item ::= (see __grammar__)"""
+    __grammar__: ClassVar[RuleSpec] = RuleSpec(
+        rule_name="arglist-item",
+        class_name="ArglistItem",
+        parent_class_name="GrammarModel",
+        kind="sequence",
+        items=[LiteralAtom(","), RuleRefAtom("expression", min=1, max=1)],
+        field_map={"expression": 1},
+    )
+    expression: Expression
+
+
 # Resolve forward references
 _ns = {k: v for k, v in globals().items() if isinstance(v, type)}
 Root.model_rebuild(_types_namespace=_ns)
-RootItem.model_rebuild(_types_namespace=_ns)
 Declaration.model_rebuild(_types_namespace=_ns)
 DataType.model_rebuild(_types_namespace=_ns)
 Factor.model_rebuild(_types_namespace=_ns)
@@ -509,7 +508,6 @@ StatementArm3.model_rebuild(_types_namespace=_ns)
 StatementArm4.model_rebuild(_types_namespace=_ns)
 StatementArm5.model_rebuild(_types_namespace=_ns)
 StatementArm6.model_rebuild(_types_namespace=_ns)
-Statementarm7Item.model_rebuild(_types_namespace=_ns)
 StatementArm7.model_rebuild(_types_namespace=_ns)
 ForInit.model_rebuild(_types_namespace=_ns)
 ForInitArm1.model_rebuild(_types_namespace=_ns)
@@ -517,16 +515,18 @@ ForInitArm2.model_rebuild(_types_namespace=_ns)
 ForUpdate.model_rebuild(_types_namespace=_ns)
 Condition.model_rebuild(_types_namespace=_ns)
 RelationOperator.model_rebuild(_types_namespace=_ns)
-ExpressionItem.model_rebuild(_types_namespace=_ns)
 Expression.model_rebuild(_types_namespace=_ns)
-TermItem.model_rebuild(_types_namespace=_ns)
 Term.model_rebuild(_types_namespace=_ns)
 UnaryTerm.model_rebuild(_types_namespace=_ns)
 FuncCall.model_rebuild(_types_namespace=_ns)
 ParenExpression.model_rebuild(_types_namespace=_ns)
-ArglistItem.model_rebuild(_types_namespace=_ns)
 ArgList.model_rebuild(_types_namespace=_ns)
 Number.model_rebuild(_types_namespace=_ns)
 SingleLineComment.model_rebuild(_types_namespace=_ns)
 MultiLineComment.model_rebuild(_types_namespace=_ns)
 Ws.model_rebuild(_types_namespace=_ns)
+RootItem.model_rebuild(_types_namespace=_ns)
+Statementarm7Item.model_rebuild(_types_namespace=_ns)
+ExpressionItem.model_rebuild(_types_namespace=_ns)
+TermItem.model_rebuild(_types_namespace=_ns)
+ArglistItem.model_rebuild(_types_namespace=_ns)
