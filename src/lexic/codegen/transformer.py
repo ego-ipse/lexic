@@ -16,7 +16,7 @@ from lexic.ir import (
     RuleSpec,
 )
 from lexic.utils.escapes import decode_gbnf_escapes
-from lexic.codegen.lark_builder import to_lark_name
+from lexic.utils.names import to_lark_name
 
 
 def _flatten(tree_or_token) -> str:

@@ -21,16 +21,8 @@ from lexic.ir import (
     RuleRefAtom,
     RuleSpec,
 )
+from lexic.utils.names import to_pascal
 from lexic.utils.quantifiers import quantifier_to_bounds
-
-
-# ── Name utilities ────────────────────────────────────────────────────────────
-
-
-def to_pascal(name: str) -> str:
-    """Convert 'jp-char' or 'json_ws' → 'JpChar' / 'JsonWs'."""
-    parts = re.split(r"[-_]", name)
-    return "".join(p[0].upper() + p[1:] if p else "" for p in parts)
 
 
 # ── Classification helpers ────────────────────────────────────────────────────
