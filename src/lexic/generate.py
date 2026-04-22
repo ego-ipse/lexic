@@ -18,6 +18,7 @@ from lexic.ir import (
     RuleRefAtom,
     RuleSpec,
 )
+from lexic.utils.charclass import parse_charclass_chars
 from lexic.utils.escapes import decode_gbnf_escapes
 
 
@@ -41,58 +42,6 @@ def _pick_count(min_: int, max_: int | None, rng: _random.Random) -> int:
     return rng.randint(min_ + 1, hi)
 
 
-def _parse_escape(s: str, i: int) -> tuple[str, int]:
-    """Parse a GBNF escape sequence starting at s[i+1]. Returns (char, new_i)."""
-    c = s[i + 1]
-    if c == "n":
-        return "\n", i + 2
-    if c == "t":
-        return "\t", i + 2
-    if c == "r":
-        return "\r", i + 2
-    if c == '"':
-        return '"', i + 2
-    if c == "\\":
-        return "\\", i + 2
-    if c == "x" and i + 3 < len(s):
-        return chr(int(s[i + 2 : i + 4], 16)), i + 4
-    if c == "u" and i + 5 < len(s):
-        return chr(int(s[i + 2 : i + 6], 16)), i + 6
-    if c == "U" and i + 9 < len(s):
-        return chr(int(s[i + 2 : i + 10], 16)), i + 10
-    return c, i + 2
-
-
-def _parse_charclass_chars(inner: str) -> list[str]:
-    """Parse the interior of a GBNF bracket expression into a list of chars.
-
-    Supports ranges (a-z), direct Unicode, and escape sequences
-    (\\n \\t \\r \\xXX \\uXXXX \\UXXXXXXXX).
-    """
-    chars: list[str] = []
-    i = 0
-    while i < len(inner):
-        if inner[i] == "\\" and i + 1 < len(inner):
-            ch, i = _parse_escape(inner, i)
-            # Check for range after escape: e.g. \x00-\x1F
-            if i < len(inner) and inner[i] == "-" and i + 1 < len(inner):
-                if inner[i + 1] == "\\" and i + 2 < len(inner):
-                    end_ch, i = _parse_escape(inner, i + 1)
-                else:
-                    end_ch = inner[i + 1]
-                    i += 2
-                chars.extend(chr(c) for c in range(ord(ch), ord(end_ch) + 1))
-            else:
-                chars.append(ch)
-        elif i + 2 < len(inner) and inner[i + 1] == "-":
-            chars.extend(chr(c) for c in range(ord(inner[i]), ord(inner[i + 2]) + 1))
-            i += 3
-        else:
-            chars.append(inner[i])
-            i += 1
-    return chars
-
-
 # Printable ASCII used as the candidate pool for negated char classes.
 # Good enough for generating valid test strings across the 7 ground-truth grammars.
 # Future: replace with exrex for full Unicode-aware negation if grammars grow:
@@ -111,7 +60,7 @@ def _gen_charclass(
     negated = inner.startswith("^")
     if negated:
         inner = inner[1:]
-    chars = _parse_charclass_chars(inner)
+    chars = parse_charclass_chars(inner)
     if negated:
         excluded = set(chars)
         chars = [c for c in _ASCII_PRINTABLE if c not in excluded]
