@@ -10,6 +10,7 @@ import re
 from typing import cast
 
 from lexic.codegen.ast import (
+    Alternation,
     CharClass,
     Group,
     Literal,
@@ -173,3 +174,25 @@ def seq_to_atoms(
             atoms.append(RuleRefAtom(rule_name=helper_rule_name, min=min_, max=max_))
 
     return atoms
+
+
+def value_str_to_atoms(alt: Alternation) -> list[Atom]:
+    """Build the atom list for a value_str rule (no rule references, only literals/chars/groups)."""
+    items: list[Atom] = []
+    for seq in alt.seqs:
+        for it in seq.items:
+            if isinstance(it.atom, CharClass):
+                min_, max_ = quantifier_to_bounds(it.quantifier)
+                items.append(CharClassAtom(it.atom.pattern, min_, max_))
+            elif isinstance(it.atom, Literal):
+                if it.quantifier is not None:
+                    min_, max_ = quantifier_to_bounds(it.quantifier)
+                    items.append(
+                        QuantifiedLiteralAtom(value=it.atom.value, min=min_, max=max_)
+                    )
+                else:
+                    items.append(LiteralAtom(it.atom.value))
+            elif isinstance(it.atom, Group):
+                min_, max_ = quantifier_to_bounds(it.quantifier)
+                items.append(_build_inline_regex(it.atom, min_, max_))
+    return items

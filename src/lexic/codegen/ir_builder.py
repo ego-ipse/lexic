@@ -8,26 +8,11 @@ from __future__ import annotations
 
 from typing import assert_never
 
-from lexic.ir import (
-    AlternationAtom,
-    Atom,
-    CharClassAtom,
-    LiteralAtom,
-    QuantifiedLiteralAtom,
-    RuleSpec,
-)
-
-from lexic.codegen.ast import (
-    Alternation,
-    CharClass,
-    Group,
-    Literal,
-    Rule,
-    Sequence,
-)
+from lexic.ir import AlternationAtom, RuleSpec
+from lexic.codegen.ast import Alternation, Rule, Sequence
+from lexic.codegen.ast_utils import single_ruleref_of
 from lexic.codegen.helpers import HelperRuleRegistry
 from lexic.codegen.naming import assign_field_names
-from lexic.codegen.ast_utils import single_ruleref_of
 from lexic.codegen.classify import (
     Classifier,
     NamedAlt,
@@ -35,9 +20,8 @@ from lexic.codegen.classify import (
     SequenceKind,
     ValueStr,
 )
-from lexic.codegen.seq_to_atoms import _build_inline_regex, seq_to_atoms
+from lexic.codegen.seq_to_atoms import seq_to_atoms, value_str_to_atoms
 from lexic.utils.names import to_pascal
-from lexic.utils.quantifiers import quantifier_to_bounds
 
 
 # ── Main builder ─────────────────────────────────────────────────────────────
@@ -87,35 +71,13 @@ class IRBuilder:
         parent_cls: str,
     ) -> list[RuleSpec]:
         """Build a value_str rule from a ValueStr or PureLiteralAlt classification."""
-        items: list[Atom] = []
-        for seq in alt.seqs:
-            for it in seq.items:
-                if isinstance(it.atom, CharClass):
-                    min_, max_ = quantifier_to_bounds(it.quantifier)
-                    items.append(CharClassAtom(it.atom.pattern, min_, max_))
-                elif isinstance(it.atom, Literal):
-                    if it.quantifier is not None:
-                        # Quantified literal: emit as QuantifiedLiteralAtom to
-                        # preserve optionality/repetition in the IR.
-                        min_, max_ = quantifier_to_bounds(it.quantifier)
-                        items.append(
-                            QuantifiedLiteralAtom(
-                                value=it.atom.value, min=min_, max=max_
-                            )
-                        )
-                    else:
-                        items.append(LiteralAtom(it.atom.value))
-                elif isinstance(it.atom, Group):
-                    # Inline group: convert to an InlineRegexAtom.
-                    min_, max_ = quantifier_to_bounds(it.quantifier)
-                    items.append(_build_inline_regex(it.atom, min_, max_))
         return [
             RuleSpec(
                 rule_name=rule.name,
                 class_name=cls_name,
                 parent_class_name=parent_cls,
                 kind="value_str",
-                items=items,
+                items=value_str_to_atoms(alt),
                 field_map={},
             )
         ]
