@@ -10,23 +10,33 @@
 > use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Mechanical SOLID pass on Lexic's codegen pipeline — extract
-three collaborators from the 669-line `ir_builder.py`, convert the
-267-line imperative transformer into a table-driven `FieldBuilder`
-dispatch, introduce `CompiledGrammar` with memoised `compile()`, and
-finish the `utils/` extractions — all without changing any public API
-or generated-code shape.
+collaborators from the 669-line `ir_builder.py` (target: `<200` LoC
+orchestrator-only), convert the 267-line imperative transformer into a
+table-driven `FieldBuilder` dispatch, introduce `CompiledGrammar` with
+memoised `compile()`, and finish the `utils/` extractions — without
+changing any generated-code shape.
+
+`lexic.codegen`'s public surface changes per spec §Q3: `codegen(text, *,
+stem)` flips to string-primary with a `codegen_from_path(path)` wrapper,
+and a new `build_classes_and_specs(text, *, stem)` public entry exposes
+the shared parse+build pipeline so `compile.py` can call it without
+duplicating work. Lexic is pre-1.0 with no external consumers; the
+14 in-tree `codegen(path)` call sites migrate to `codegen_from_path(path)`
+inside Task 11 Step 0.
 
 **Architecture:** Five parts run sequentially; each part leaves the
 312-test suite green. Part A finishes the `utils/` extractions (pure
 helpers). Part B decomposes `ir_builder.py` into `assign_field_names` +
 `HelperRuleRegistry` + `Classifier` + per-kind `_build_*` methods (the
-latter relocated from Part E per §B of the design spec). Part C
-converts `transformer.py` into a `transformer/` sub-package with a
-`BUILDER_BY_ATOM` dispatch and an **immutable** `BuildContext` +
-`SkipField` tagged skip variant. Part D introduces `CompiledGrammar` +
-memoised `compile()`/`compile_from_path()` so `parse()` stops regenerating
-modules on every call. Part E sweeps the remaining 40+-line method
-(principally `generate.py::generate`).
+latter relocated from Part E per §B of the design spec) + `seq_to_atoms`
+extraction (Task 7b) so the orchestrator hits its `<200` LoC target.
+Part C converts `transformer.py` into a `transformer/` sub-package with
+a `BUILDER_BY_ATOM` dispatch and an **immutable** `BuildContext` +
+`SkipField` tagged skip variant. Part D flips `codegen`'s public
+surface to string-primary (Task 11 Step 0) and introduces
+`CompiledGrammar` + memoised `compile()`/`compile_from_path()` so
+`parse()` stops regenerating modules on every call. Part E sweeps the
+remaining 40+-line method (principally `generate.py::generate`).
 
 **Tech Stack:** Python 3.12, Pydantic v2, Lark, uv, pytest
 
@@ -1036,8 +1046,24 @@ Rationale: closes V3 §2. Pulls ~150 lines of GBNF-AST analysis out of
 
 **Per brainstorm decision (spec §Q2):** `Classification` is a union of
 four per-kind frozen dataclasses. Each variant carries exactly the
-payload its downstream handler needs — eliminates AST re-traversal in
-callers.
+payload its downstream `_build_*` handler consumes — `_build_rule`
+unpacks in the `match` arm and threads the payload through. No
+`_build_*` method re-calls `unwrap_group_alt` or `strip_ws` on
+`rule.body`.
+
+Payload shape (load-bearing):
+- `ValueStr(alt: Alternation)` — unwrapped alt; `_build_value_str`
+  iterates it.
+- `PureLiteralAlt(alt: Alternation)` — same shape as `ValueStr` so the
+  match can unify (`case ValueStr(alt=alt) | PureLiteralAlt(alt=alt):`).
+  Slice A does not carry extracted literal arm strings here; Slice C
+  adds that payload when it emits `Literal[...]`.
+- `NamedAlt(arms: list[Sequence])` — ws-stripped, non-empty; directly
+  iterated by `_build_named_alt`, which also dispatches each arm via
+  `single_ruleref_of` or passes it to `seq_to_atoms`.
+- `SequenceKind(body: Sequence)` — **non-stripped** first arm, because
+  `seq_to_atoms` preserves `ws` atoms in its output (required for
+  round-trip `to_text()`).
 
 **Per plan-review finding P1.5:** `strip_ws`, `unwrap_group_alt`, and
 `single_ruleref_of` are consumed by both `classify.py` and the residual
@@ -1091,44 +1117,59 @@ def _ref(name: str, q: str | None = None) -> Item:
     return Item(atom=RuleRef(name=name), quantifier=q)
 
 
-def test_pure_literal_alternation_returns_arms():
+def test_pure_literal_alternation_carries_alt():
     body = _alt(_seq(_lit("+")), _seq(_lit("-")), _seq(_lit("*")))
     result = Classifier().classify(_rule("op", body))
     assert isinstance(result, PureLiteralAlt)
-    assert result.arms == [["+"], ["-"], ["*"]]
+    assert len(result.alt.seqs) == 3
 
 
-def test_named_alternation_returns_arm_sequences():
+def test_named_alternation_returns_stripped_arm_sequences():
     body = _alt(_seq(_ref("a")), _seq(_ref("b")), _seq(_ref("c")))
     result = Classifier().classify(_rule("u", body))
     assert isinstance(result, NamedAlt)
     assert len(result.arms) == 3
+    # Arms are ws-stripped, non-empty; iterated directly by _build_named_alt.
+    assert all(len(a.items) > 0 for a in result.arms)
 
 
-def test_sequence_returns_body():
+def test_sequence_returns_non_stripped_first_arm():
+    # SequenceKind.body is non-stripped — ws atoms must survive for
+    # round-trip to_text(). seq_to_atoms preserves RuleRefAtom("ws", ...)
+    # entries in its output, and that requires a non-stripped input.
     body = _alt(_seq(_ref("expr"), _lit("="), _ref("expr")))
     result = Classifier().classify(_rule("assign", body))
     assert isinstance(result, SequenceKind)
-    assert len(result.body.items) == 3
+    # body is the first (non-stripped) arm of rule.body verbatim.
+    assert result.body.items == body.seqs[0].items
 
 
-def test_value_str_single_arm_no_refs():
+def test_value_str_single_arm_carries_unwrapped_alt():
     body = _alt(_seq(_cc("[0-9]", "+")))
-    assert isinstance(Classifier().classify(_rule("num", body)), ValueStr)
+    result = Classifier().classify(_rule("num", body))
+    assert isinstance(result, ValueStr)
+    assert len(result.alt.seqs) == 1
 
 
 def test_structurally_complex_returns_value_str():
     # A single arm whose only item is a multi-arm group, where no arm
     # references a rule, is "structurally complex" (see _is_structurally_complex:
-    # all_no_refs and has_group_alt). It should collapse to ValueStr.
+    # all_no_refs and has_group_alt). It should collapse to ValueStr and
+    # carry the unwrapped inner alt (the group contents).
     inner = _alt(_seq(_lit("a")), _seq(_lit("b")))
     body = _alt(_seq(Item(atom=Group(alt=inner), quantifier=None)))
-    assert isinstance(Classifier().classify(_rule("choice", body)), ValueStr)
+    result = Classifier().classify(_rule("choice", body))
+    assert isinstance(result, ValueStr)
+    assert result.alt is not None
 
 
 def test_empty_arms_returns_value_str():
     body = _alt()  # no sequences
-    assert isinstance(Classifier().classify(_rule("empty", body)), ValueStr)
+    result = Classifier().classify(_rule("empty", body))
+    assert isinstance(result, ValueStr)
+    # Even on the empty-arms fallback, ValueStr.alt is the unwrapped alt
+    # that _build_value_str will iterate (producing zero items).
+    assert result.alt is not None
 ```
 
 - [ ] **Step 2: Run; verify fail**
@@ -1313,22 +1354,22 @@ from lexic.codegen.ast_utils import (
 
 @dataclass(frozen=True)
 class ValueStr:
-    pass
+    alt: Alternation               # unwrapped alt; _build_value_str iterates
 
 
 @dataclass(frozen=True)
 class PureLiteralAlt:
-    arms: list[list[str]]          # literal strings per arm
+    alt: Alternation               # unwrapped alt; same shape as ValueStr
 
 
 @dataclass(frozen=True)
 class NamedAlt:
-    arms: list[Sequence]           # ws-stripped sequences, per arm
+    arms: list[Sequence]           # ws-stripped, non-empty; iterated by _build_named_alt
 
 
 @dataclass(frozen=True)
 class SequenceKind:
-    body: Sequence                 # single ws-stripped sequence
+    body: Sequence                 # NON-stripped first arm (seq_to_atoms preserves ws atoms)
 
 
 Classification = ValueStr | PureLiteralAlt | NamedAlt | SequenceKind
@@ -1387,18 +1428,6 @@ def _is_structurally_complex(alt: Alternation) -> bool:
     return all_no_refs and has_group_alt
 
 
-def _literal_strings_for_arm(seq: Sequence) -> list[str]:
-    """Extract the literal values of a pure-literal arm (for PureLiteralAlt)."""
-    stripped = strip_ws(seq)
-    out: list[str] = []
-    for it in stripped.items:
-        if isinstance(it.atom, Literal):
-            out.append(it.atom.value)
-        elif isinstance(it.atom, CharClass):
-            out.append(it.atom.pattern)
-    return out
-
-
 class Classifier:
     """Exhaustive GBNF-rule → Classification dispatch.
 
@@ -1407,17 +1436,34 @@ class Classifier:
     arm is the multi-arm general case. Each return below must cover a
     disjoint, exhaustive slice of the input space — adding a new branch
     requires re-proving exhaustiveness.
+
+    Payload convention (see spec §Q2):
+    - ValueStr / PureLiteralAlt carry the unwrapped `alt` (iterated item-
+      by-item downstream).
+    - NamedAlt carries stripped, non-empty arm sequences.
+    - SequenceKind carries the non-stripped first arm so that seq_to_atoms
+      can preserve ws atoms in the emitted IR.
     """
 
     def classify(self, rule: Rule) -> Classification:
         alt = unwrap_group_alt(rule.body)
         if _is_structurally_complex(alt):
-            return ValueStr()
-        arms = [a for a in (strip_ws(seq) for seq in alt.seqs) if len(a.items) > 0]
-        if not arms:
-            return ValueStr()
+            return ValueStr(alt=alt)
+        # non-stripped pairs (kept in parallel with stripped arms so we
+        # can return the non-stripped first arm for SequenceKind without
+        # re-walking rule.body downstream).
+        paired = [
+            (seq, strip_ws(seq))
+            for seq in alt.seqs
+            if len(strip_ws(seq).items) > 0
+        ]
+        if not paired:
+            return ValueStr(alt=alt)
+        full_arms = [full for full, _ in paired]
+        arms = [stripped for _, stripped in paired]
+
         if len(arms) > 1 and all(_is_pure_literal_seq(a) for a in arms):
-            return PureLiteralAlt(arms=[_literal_strings_for_arm(a) for a in arms])
+            return PureLiteralAlt(alt=alt)
         if (
             len(arms) == 1
             and len(arms[0].items) == 1
@@ -1428,10 +1474,7 @@ class Classifier:
                 for s in arms[0].items[0].atom.alt.seqs
             )
         ):
-            inner_arms = [strip_ws(s) for s in arms[0].items[0].atom.alt.seqs]
-            return PureLiteralAlt(
-                arms=[_literal_strings_for_arm(a) for a in inner_arms]
-            )
+            return PureLiteralAlt(alt=alt)
         if len(arms) == 1:
             full_seqs = alt.seqs
             has_any_rule_ref = any(
@@ -1439,8 +1482,9 @@ class Classifier:
                 for s in full_seqs
             )
             if not has_any_rule_ref and _is_pure_literal_seq(arms[0]):
-                return ValueStr()
-            return SequenceKind(body=arms[0])
+                return ValueStr(alt=alt)
+            # Sequence kind: carry the non-stripped first arm (ws preserved).
+            return SequenceKind(body=full_arms[0])
         # len(arms) > 1 and not all-pure-literal → treat as named alternation,
         # whether or not any arm is a single ruleref.
         assert len(arms) > 1, "single-arm case handled above"
@@ -1524,34 +1568,41 @@ git commit -m "refactor(ir_builder): extract Classifier + ast_utils with per-kin
 Rationale: `_build_rule` has three branches (`value_str`/`pure_literal_alt`,
 `named_alt`, `sequence`). Splitting mirrors the `Classification` union
 and makes each branch independently readable. Each helper receives the
-matched variant's payload directly.
+matched variant's payload directly — no re-traversal of `rule.body`.
 
 Source content preserved at
 `prototyping/next/draft/slice-b-moved.md`; this task adapts that
-content to consume the Classification union introduced in Task 6.
+content to consume the Classification union payloads introduced in
+Task 6 (spec §Q2).
+
+**Per brainstorm decision (spec §Q2):** Per-kind methods consume the
+Classification payload directly. No `_build_*` method calls
+`unwrap_group_alt` or `strip_ws` on `rule.body` — the Classifier has
+already done it. The match arms unpack the payload and thread it
+through.
 
 - [ ] **Step 1: Read the current `_build_rule`; map each branch**
 
 Open `src/lexic/codegen/ir_builder.py` and locate `_build_rule`. It
 currently contains three consecutive branches selected by the
 classification kind; after Task 6 lands, the selector is a match on
-the `Classification` union but the branch *bodies* are unchanged and
-re-used as-is. Identify:
+the `Classification` union. The branch bodies change shape because
+they now consume pre-extracted payloads instead of re-walking
+`rule.body`. Identify:
 
-1. `value_str` / `pure_literal_alt` branch → becomes `_build_value_str`.
-   Starts at the comment `# value_str / pure_literal_alt → single
-   `value: str` field`. Ends just before the `# named_alt` comment.
-2. `named_alt` branch → becomes `_build_named_alt`. Starts at the
-   `# named_alt` comment, ends just before the sequence branch. Use the
-   `classification in (...)` / `if` marker in source to anchor the
-   boundary; do not rely on line numbers, since Task 5 changed the
-   surrounding file shape.
-3. `sequence` branch → becomes `_build_sequence`. The final branch;
-   runs through to the `return helper_specs_seq + [seq_spec]` (which
-   Task 5 already turned into `return [seq_spec]`).
+1. `value_str` / `pure_literal_alt` branch → becomes `_build_value_str(rule, alt, ...)`.
+   Takes the unwrapped `alt: Alternation` from the Classification payload.
+2. `named_alt` branch → becomes `_build_named_alt(rule, arms, ...)`.
+   Takes the stripped, non-empty arm sequences directly.
+3. `sequence` branch → becomes `_build_sequence(rule, body, ...)`.
+   Takes the non-stripped first arm directly; `seq_to_atoms` preserves
+   ws atoms from this non-stripped input.
 
-Copy each branch body verbatim into the corresponding new method in
-Step 2; the match dispatch in Step 3 will be the only call site.
+Each method's body drops the initial `unwrap_group_alt` / `strip_ws`
+calls that today's code performs; the emptiness-guard on sequence
+(`if not arms: return value_str`) also goes away because the
+Classifier never produces `SequenceKind` for an empty-body rule — that
+case lands in `ValueStr` via the empty-arms fallback in `classify()`.
 
 - [ ] **Step 2: Extract into three private methods**
 
@@ -1559,8 +1610,9 @@ In `src/lexic/codegen/ir_builder.py`, add three methods to
 `IRBuilder`:
 
 ```python
-def _build_value_str(self, rule, cls_name, parent_cls) -> list[RuleSpec]:
-    alt = unwrap_group_alt(rule.body)
+def _build_value_str(
+    self, rule, alt: Alternation, cls_name, parent_cls
+) -> list[RuleSpec]:
     items: list[Atom] = []
     for seq in alt.seqs:
         for it in seq.items:
@@ -1582,17 +1634,15 @@ def _build_value_str(self, rule, cls_name, parent_cls) -> list[RuleSpec]:
     )]
 
 
-def _build_named_alt(self, rule, cls_name, parent_cls, parent_of) -> list[RuleSpec]:
-    alt = unwrap_group_alt(rule.body)
+def _build_named_alt(
+    self, rule, arms: list[Sequence], cls_name, parent_cls, parent_of
+) -> list[RuleSpec]:
+    # `arms` is already stripped and non-empty; no per-arm strip or
+    # empty-skip needed.
     arm_rule_names: list[str] = []
     arm_specs: list[RuleSpec] = []
-    arm_idx = 0
 
-    for seq in alt.seqs:
-        stripped = strip_ws(seq)
-        if not stripped.items:
-            continue
-        arm_idx += 1
+    for arm_idx, stripped in enumerate(arms, start=1):
         ref = single_ruleref_of(stripped)
         if ref is not None:
             arm_rule_names.append(ref)
@@ -1619,17 +1669,13 @@ def _build_named_alt(self, rule, cls_name, parent_cls, parent_of) -> list[RuleSp
     return [abstract_spec] + arm_specs
 
 
-def _build_sequence(self, rule, cls_name, parent_cls, parent_of) -> list[RuleSpec]:
-    alt = unwrap_group_alt(rule.body)
-    full_arms = [s for s in alt.seqs if strip_ws(s).items]
-    arms = [strip_ws(s) for s in full_arms]
-    if not arms:
-        return [RuleSpec(
-            rule_name=rule.name, class_name=cls_name, parent_class_name=parent_cls,
-            kind="value_str", items=[], field_map={},
-        )]
+def _build_sequence(
+    self, rule, body: Sequence, cls_name, parent_cls, parent_of
+) -> list[RuleSpec]:
+    # `body` is the non-stripped first arm; _seq_to_atoms preserves ws
+    # atoms so to_text() can reconstruct whitespace.
     atoms_seq = _seq_to_atoms(
-        full_arms[0], cls_name, self._helpers, self._name_map, parent_of,
+        body, cls_name, self._helpers, self._name_map, parent_of,
     )
     fm_seq = assign_field_names(atoms_seq)
     return [RuleSpec(
@@ -1639,23 +1685,23 @@ def _build_sequence(self, rule, cls_name, parent_cls, parent_of) -> list[RuleSpe
 ```
 
 Rewrite `_build_rule` as a match-dispatch on the `Classification`
-variant:
+variant, unpacking payloads in the match arms:
 
 ```python
 from typing import assert_never
 
 def _build_rule(self, rule, parent_of) -> list[RuleSpec]:
-    classification = self._classifier.classify(rule)
     cls_name = self._name_map[rule.name]
     parent_cls = parent_of.get(rule.name, "GrammarModel")
+    classification = self._classifier.classify(rule)
 
     match classification:
-        case ValueStr() | PureLiteralAlt():
-            return self._build_value_str(rule, cls_name, parent_cls)
-        case NamedAlt():
-            return self._build_named_alt(rule, cls_name, parent_cls, parent_of)
-        case SequenceKind():
-            return self._build_sequence(rule, cls_name, parent_cls, parent_of)
+        case ValueStr(alt=alt) | PureLiteralAlt(alt=alt):
+            return self._build_value_str(rule, alt, cls_name, parent_cls)
+        case NamedAlt(arms=arms):
+            return self._build_named_alt(rule, arms, cls_name, parent_cls, parent_of)
+        case SequenceKind(body=body):
+            return self._build_sequence(rule, body, cls_name, parent_cls, parent_of)
         case _:
             assert_never(classification)
 ```
@@ -1679,6 +1725,258 @@ Expected: all tests green.
 ```bash
 git add src/lexic/codegen/ir_builder.py
 git commit -m "refactor(ir_builder): split _build_rule into per-kind methods (match-dispatch)"
+```
+
+---
+
+### Task 7b: Extract `seq_to_atoms` + Group→pattern converters into `codegen/seq_to_atoms.py`
+
+**Files:**
+- Create: `src/lexic/codegen/seq_to_atoms.py`
+- Create: `tests/unit/lexic/codegen/test_seq_to_atoms.py`
+- Modify: `src/lexic/codegen/ir_builder.py` (delete moved functions,
+  import `seq_to_atoms`)
+
+Rationale: pulls the last piece of leaf-level atom construction out of
+`ir_builder.py` so the orchestrator hits the `<200` LoC exit criterion.
+`_seq_to_atoms` plus `_to_regex` / `_to_gbnf` / `_build_inline_regex`
+(Group→regex/gbnf/atom converters it calls) together account for ~150
+LoC of atom-construction logic that is not orchestrator concern.
+
+**Module boundary:** one new module. `seq_to_atoms` is public (imported
+by `ir_builder.py`'s `_build_named_alt` and `_build_sequence`); the
+three Group converters stay private to the new module (`_to_regex`,
+`_to_gbnf`, `_build_inline_regex`) because nothing outside `seq_to_atoms`
+uses them.
+
+Slice B will relocate this module again as part of the `PatternAtom`
+collapse (the Group converters become part of the pattern construction
+path). Extracting here is still the right Slice A move: ir_builder.py
+hits `<200` and Slice B's relocation is a file move rather than a
+first-time extraction.
+
+- [ ] **Step 1: Write focused unit tests**
+
+The existing per-grammar integration tests cover the logic end-to-end;
+this file targets the branches that are otherwise only exercised
+transitively:
+
+Create `tests/unit/lexic/codegen/test_seq_to_atoms.py`:
+
+```python
+from lexic.codegen.ast import (
+    Alternation, CharClass, Group, Item, Literal, RuleRef, Sequence,
+)
+from lexic.codegen.helpers import HelperRuleRegistry
+from lexic.codegen.seq_to_atoms import seq_to_atoms
+from lexic.ir import (
+    CharClassAtom, InlineAlternationAtom, InlineRegexAtom, LiteralAtom,
+    QuantifiedLiteralAtom, RuleRefAtom,
+)
+
+
+def _item(atom, q=None):
+    return Item(atom=atom, quantifier=q)
+
+
+def _seq(*items):
+    return Sequence(items=list(items))
+
+
+def test_literal_and_ruleref_passthrough():
+    seq = _seq(_item(Literal(value="=")), _item(RuleRef(name="expr")))
+    atoms = seq_to_atoms(seq, "Root", HelperRuleRegistry(), {"expr": "Expr"}, {})
+    assert atoms == [
+        LiteralAtom(value="="),
+        RuleRefAtom(rule_name="expr", min=1, max=1),
+    ]
+
+
+def test_quantified_literal_becomes_quantified_literal_atom():
+    seq = _seq(_item(Literal(value="-"), q="?"))
+    atoms = seq_to_atoms(seq, "Root", HelperRuleRegistry(), {}, {})
+    assert atoms == [QuantifiedLiteralAtom(value="-", min=0, max=1)]
+
+
+def test_charclass_with_quantifier():
+    seq = _seq(_item(CharClass(pattern="[0-9]"), q="+"))
+    atoms = seq_to_atoms(seq, "Root", HelperRuleRegistry(), {}, {})
+    assert atoms == [CharClassAtom(pattern="[0-9]", min=1, max=None)]
+
+
+def test_inline_literal_alternation_becomes_inline_regex():
+    """A (unquantified) group whose arms are all pure-literal sequences
+    folds into a single InlineRegexAtom."""
+    inner = Alternation(seqs=[_seq(_item(Literal(value="true"))),
+                              _seq(_item(Literal(value="false")))])
+    seq = _seq(_item(Group(alt=inner)))
+    atoms = seq_to_atoms(seq, "Root", HelperRuleRegistry(), {}, {})
+    assert len(atoms) == 1
+    assert isinstance(atoms[0], InlineRegexAtom)
+
+
+def test_inline_named_alternation_becomes_inline_alt():
+    """Unquantified group, multiple arms, each arm is a single ruleref
+    → InlineAlternationAtom."""
+    inner = Alternation(seqs=[_seq(_item(RuleRef(name="pawn"))),
+                              _seq(_item(RuleRef(name="king")))])
+    seq = _seq(_item(Group(alt=inner)))
+    atoms = seq_to_atoms(seq, "Move", HelperRuleRegistry(), {"pawn": "Pawn", "king": "King"}, {})
+    assert atoms == [InlineAlternationAtom(arm_rule_names=["pawn", "king"])]
+
+
+def test_single_arm_unquantified_group_inlines_contents():
+    inner = Alternation(seqs=[_seq(_item(Literal(value="x")),
+                                   _item(RuleRef(name="expr")))])
+    seq = _seq(_item(Group(alt=inner)))
+    atoms = seq_to_atoms(seq, "Root", HelperRuleRegistry(), {"expr": "Expr"}, {})
+    assert atoms == [LiteralAtom(value="x"), RuleRefAtom(rule_name="expr", min=1, max=1)]
+
+
+def test_quantified_group_creates_helper_ruleref():
+    """A quantified group (not a pure-literal or pure-ruleref one)
+    creates a helper rule and returns a RuleRefAtom to it."""
+    inner = Alternation(seqs=[_seq(_item(Literal(value="a")),
+                                   _item(RuleRef(name="expr")))])
+    seq = _seq(_item(Group(alt=inner), q="*"))
+    helpers = HelperRuleRegistry()
+    atoms = seq_to_atoms(seq, "Root", helpers, {"expr": "Expr"}, {})
+    assert len(atoms) == 1
+    assert isinstance(atoms[0], RuleRefAtom)
+    assert atoms[0].rule_name == "root-item"
+    assert atoms[0].min == 0
+    assert atoms[0].max is None
+    assert [s.rule_name for s in helpers.all_specs()] == ["root-item"]
+
+
+def test_quantified_group_dedup_across_calls():
+    """Two quantified groups under the same parent class → root-item,
+    root-item2 via the shared registry."""
+    inner = Alternation(seqs=[_seq(_item(Literal(value="a")),
+                                   _item(RuleRef(name="expr")))])
+    seq1 = _seq(_item(Group(alt=inner), q="*"))
+    seq2 = _seq(_item(Group(alt=inner), q="+"))
+    helpers = HelperRuleRegistry()
+    seq_to_atoms(seq1, "Root", helpers, {"expr": "Expr"}, {})
+    seq_to_atoms(seq2, "Root", helpers, {"expr": "Expr"}, {})
+    assert [s.rule_name for s in helpers.all_specs()] == ["root-item", "root-item2"]
+```
+
+- [ ] **Step 2: Run; verify ImportError**
+
+```bash
+uv run pytest tests/unit/lexic/codegen/test_seq_to_atoms.py -v
+```
+Expected: `ModuleNotFoundError: No module named 'lexic.codegen.seq_to_atoms'`.
+
+- [ ] **Step 3: Create the new module**
+
+Create `src/lexic/codegen/seq_to_atoms.py`. Move, verbatim from
+`ir_builder.py`:
+
+- `_seq_to_atoms` → renamed to `seq_to_atoms` (public; no leading
+  underscore)
+- `_to_regex` → stays `_to_regex` (private to this module)
+- `_to_gbnf` → stays `_to_gbnf` (private)
+- `_build_inline_regex` → stays `_build_inline_regex` (private)
+
+The moved `_seq_to_atoms` already takes `helpers: HelperRuleRegistry`
+(per Task 5) and `name_map: dict[str, str]` + `parent_of: dict[str, str]`.
+The public wrapper keeps that signature — the function is pure over its
+inputs.
+
+Imports at the top of the new module:
+
+```python
+from __future__ import annotations
+
+from typing import cast
+
+from lexic.codegen.ast import (
+    Alternation, CharClass, Group, Item, Literal, RuleRef, Sequence,
+)
+from lexic.codegen.ast_utils import strip_ws
+from lexic.codegen.classify import _is_pure_literal_seq  # see note below
+from lexic.codegen.helpers import HelperRuleRegistry
+from lexic.codegen.naming import assign_field_names
+from lexic.ir import (
+    Atom, CharClassAtom, InlineAlternationAtom, InlineRegexAtom,
+    LiteralAtom, QuantifiedLiteralAtom, RuleRefAtom, RuleSpec,
+)
+from lexic.utils.names import to_pascal
+from lexic.utils.quantifiers import quantifier_to_bounds
+```
+
+The function body is the current `_seq_to_atoms` from `ir_builder.py`,
+with internal calls updated:
+- `_strip_ws(...)` → `strip_ws(...)` (from `ast_utils`)
+- `_is_pure_literal_seq(...)` → `_is_pure_literal_seq(...)` (imported
+  from `classify`)
+- `_is_single_ruleref(...)` → `single_ruleref_of(...)` (from `ast_utils`)
+- `_quantifier_to_bounds(...)` → `quantifier_to_bounds(...)` (from `utils`)
+- `_build_inline_regex(...)` — now local to this module, stays private
+- `_assign_field_names(...)` → `assign_field_names(...)`
+- `to_pascal(...)` — imported from `utils.names`
+- Helper dedup uses the `HelperRuleRegistry` API per Task 5
+  (`helpers.reserve(...)`, `helpers.register(...)`).
+
+**Note on `_is_pure_literal_seq`:** today this is a classifier-internal
+predicate (underscored in `classify.py`). `seq_to_atoms` needs it to
+decide whether a Group's inner arms are all pure literal. Two options,
+pick whichever matches the existing idiom:
+
+- (a) Import the leading-underscore name across modules (acceptable here
+  because both modules are `codegen/` siblings; the underscore still
+  signals "classifier-internal" even if one caller reaches across).
+- (b) Promote `_is_pure_literal_seq` to a public name in `ast_utils.py`
+  (`is_pure_literal_seq`), since two `codegen/` modules now need it.
+
+Prefer (b) — the predicate is genuinely shared; making it public in
+`ast_utils.py` matches the precedent set by Task 6 for the other shared
+helpers. Update `classify.py` to import it from `ast_utils` rather than
+defining it locally.
+
+- [ ] **Step 4: Run new tests; verify pass**
+
+- [ ] **Step 5: Delete moved functions from `ir_builder.py`**
+
+In `src/lexic/codegen/ir_builder.py`:
+
+1. Delete `_seq_to_atoms`, `_to_regex`, `_to_gbnf`, `_build_inline_regex`.
+2. Add import:
+   ```python
+   from lexic.codegen.seq_to_atoms import seq_to_atoms
+   ```
+3. Replace each `_seq_to_atoms(...)` call site (inside `_build_named_alt`
+   and `_build_sequence`) with `seq_to_atoms(...)`.
+
+After this step, `ir_builder.py` should be down to roughly 180 LoC —
+the `IRBuilder` class with `__init__`, `build`, `_compute_parents`,
+`_build_rule` (match dispatch), `_build_value_str`, `_build_named_alt`,
+`_build_sequence`, and `_topo_sort`.
+
+- [ ] **Step 6: Run full suite + verify LoC target**
+
+```bash
+uv run pytest tests/ -q && uv run ruff check src/ tests/
+wc -l src/lexic/codegen/ir_builder.py
+```
+
+Expected: all tests green; `ir_builder.py` ≤ 200 LoC.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/lexic/codegen/seq_to_atoms.py tests/unit/lexic/codegen/test_seq_to_atoms.py src/lexic/codegen/ir_builder.py
+git commit -m "refactor(ir_builder): extract seq_to_atoms + Group converters into dedicated module"
+```
+
+If `ast_utils.py` was also modified (option (b) above, promoting
+`is_pure_literal_seq`), include it in the commit:
+
+```bash
+git add src/lexic/codegen/ast_utils.py src/lexic/codegen/classify.py
+git commit --amend --no-edit
 ```
 
 ---
@@ -2476,9 +2774,231 @@ Eliminates the per-call codegen in `parse()`. Closes V3 §8.
 ### Task 11: Introduce `CompiledGrammar`, `compile`, and `compile_from_path`
 
 **Files:**
-- Create: `src/lexic/compile.py`
-- Create: `tests/unit/lexic/test_compile.py`
-- Modify: `src/lexic/parse.py`
+- Modify: `src/lexic/codegen/__init__.py` (Step 0; flip to string-primary;
+  expose `build_classes_and_specs`)
+- Create: `tests/unit/lexic/codegen/test_codegen_surface.py` (Step 0)
+- Modify: `tests/integration/test_codegen.py`,
+  `tests/unit/lexic/codegen/test_model_emitter.py`,
+  `tests/unit/lexic/codegen/test_transformer.py` (Step 0; 14 call-site
+  migrations)
+- Modify: `src/lexic/__init__.py` (Step 0; re-export both `codegen` and
+  `codegen_from_path`)
+- Create: `src/lexic/compile.py` (Step 3)
+- Create: `tests/unit/lexic/test_compile.py` (Step 1)
+- Modify: `src/lexic/parse.py` (Step 5)
+
+Step 0 flips `codegen`'s public surface and introduces the shared
+`build_classes_and_specs` entry that `compile.py` consumes. Steps 1–7
+then layer `CompiledGrammar` on top of that.
+
+---
+
+- [ ] **Step 0: Flip `codegen` to string-primary; expose `build_classes_and_specs`**
+
+Per spec §Q3, `codegen`'s canonical input is the grammar *string*;
+path-reading is a thin wrapper. Additionally, `compile.py` needs access
+to both classes and specs in one call (avoiding the double parse+build
+that would result from separate `codegen()` + `parse_gbnf()` +
+`IRBuilder()` calls); `build_classes_and_specs` is the public entry
+point for that shared pipeline.
+
+- [ ] **Step 0a: Write failing tests for the new codegen surface**
+
+Create `tests/unit/lexic/codegen/test_codegen_surface.py`:
+
+```python
+from pathlib import Path
+
+import pytest
+
+from lexic.codegen import (
+    build_classes_and_specs, codegen, codegen_from_path,
+)
+from lexic.ir import RuleSpec
+
+GROUND_TRUTH = Path(__file__).resolve().parents[3] / "resources" / "ground_truth"
+
+
+def test_codegen_takes_string_and_stem():
+    text = (GROUND_TRUTH / "arithmetic.gbnf").read_text()
+    classes = codegen(text, stem="arithmetic")
+    assert classes
+    assert all(isinstance(v, type) for v in classes.values())
+
+
+def test_codegen_from_path_reads_and_delegates():
+    classes = codegen_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert classes
+
+
+def test_build_classes_and_specs_returns_both():
+    text = (GROUND_TRUTH / "arithmetic.gbnf").read_text()
+    classes, specs = build_classes_and_specs(text, stem="arithmetic")
+    assert classes
+    assert isinstance(specs, list)
+    assert specs
+    assert all(isinstance(s, RuleSpec) for s in specs)
+
+
+def test_codegen_and_build_classes_and_specs_produce_identical_classes():
+    """codegen() is a thin wrapper; class objects are instance-equal."""
+    text = (GROUND_TRUTH / "arithmetic.gbnf").read_text()
+    classes_only = codegen(text, stem="arithmetic_a")
+    classes_tuple, _ = build_classes_and_specs(text, stem="arithmetic_b")
+    # Different stems → different module objects → different class identities.
+    # But the class names (keys) must match.
+    assert set(classes_only.keys()) == set(classes_tuple.keys())
+
+
+def test_codegen_rejects_positional_stem():
+    """Stem must be keyword-only to prevent accidental path-as-text calls."""
+    text = (GROUND_TRUTH / "arithmetic.gbnf").read_text()
+    with pytest.raises(TypeError):
+        codegen(text, "arithmetic")  # type: ignore[misc]
+```
+
+- [ ] **Step 0b: Run; verify import / signature failures**
+
+- [ ] **Step 0c: Refactor `src/lexic/codegen/__init__.py`**
+
+Replace the current body with:
+
+```python
+"""GBNF → Pydantic codegen.
+
+Public surface:
+- build_classes_and_specs(text, *, stem) → (classes, specs) — full pipeline.
+- codegen(text, *, stem) → classes — thin wrapper for classes-only callers.
+- codegen_from_path(path) → classes — read-file wrapper over codegen().
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+
+from .ir_builder import IRBuilder
+from .model_emitter import ModelEmitter
+from .parser import parse_gbnf
+from lexic.ir import RuleSpec
+
+
+def _emit_and_load_module(
+    specs: list[RuleSpec], stem: str, *, source: str | None
+) -> dict[str, type]:
+    """Write `generated/<stem>.py`, load it, return {class_name: type}.
+
+    `source` is passed to ModelEmitter for its docstring source-hint; pass
+    None if the module came from an in-memory string with no file origin.
+    """
+    out_dir = Path(__file__).resolve().parent.parent.parent.parent / "generated"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{stem}.py"
+    out_path.write_text(ModelEmitter(specs, source or f"<string:{stem}>").render())
+
+    module_name = f"generated.{stem}"
+    if module_name in sys.modules:
+        del sys.modules[module_name]
+    spec = importlib.util.spec_from_file_location(module_name, out_path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = mod
+    spec.loader.exec_module(mod)
+    return {
+        s.class_name: getattr(mod, s.class_name)
+        for s in specs
+        if hasattr(mod, s.class_name)
+    }
+
+
+def build_classes_and_specs(
+    text: str, *, stem: str
+) -> tuple[dict[str, type], list[RuleSpec]]:
+    """Parse + IR-build + emit + load. Returns (classes, specs).
+
+    The single public entry for callers (compile.py) that need both;
+    avoids the double parse+build that would result from calling
+    codegen() after having built specs independently.
+    """
+    rules = parse_gbnf(text)
+    specs = IRBuilder(rules).build()
+    classes = _emit_and_load_module(specs, stem, source=None)
+    return classes, specs
+
+
+def codegen(text: str, *, stem: str) -> dict[str, type]:
+    """Classes-only wrapper. Equivalent to build_classes_and_specs(...)[0]."""
+    classes, _ = build_classes_and_specs(text, stem=stem)
+    return classes
+
+
+def codegen_from_path(grammar_path: str | Path) -> dict[str, type]:
+    """Read-file wrapper over codegen()."""
+    path = Path(grammar_path)
+    return codegen(path.read_text(), stem=path.stem)
+```
+
+- [ ] **Step 0d: Migrate in-tree `codegen(path)` call sites**
+
+Update these 14 call sites to use `codegen_from_path(path)`:
+
+- `tests/integration/test_codegen.py` — 8 call sites (lines 78, 86, 94,
+  102, 135, 240, 293, 339, 369, 434, 467, 577, 585). Use grep to confirm
+  the exact set; the migration is a straight rename from `codegen(path)`
+  to `codegen_from_path(path)`.
+- `tests/unit/lexic/codegen/test_model_emitter.py` — 3 call sites (lines
+  27, 72, 82).
+- `tests/unit/lexic/codegen/test_transformer.py` — 1 call site (line 19).
+
+Update the matching imports in those files from `from lexic.codegen
+import codegen` to `from lexic.codegen import codegen_from_path`.
+
+- [ ] **Step 0e: Update `src/lexic/__init__.py` re-export**
+
+Change:
+```python
+from lexic.codegen import codegen
+```
+to:
+```python
+from lexic.codegen import codegen, codegen_from_path
+```
+
+- [ ] **Step 0f: Update `src/lexic/parse.py` to the transitional form**
+
+`parse.py` gets rewritten entirely in Step 5, but between Step 0 and
+Step 5 it has to stay green. Change its one call site:
+
+```python
+classes = codegen(grammar_path)
+```
+to:
+```python
+classes = codegen_from_path(grammar_path)
+```
+
+Update the import correspondingly.
+
+- [ ] **Step 0g: Run full suite + new Step 0a tests**
+
+```bash
+uv run pytest tests/ -q && uv run ruff check src/ tests/
+```
+Expected: `312 + 5 new surface tests` passed; no flakes.
+
+- [ ] **Step 0h: Commit**
+
+```bash
+git add src/lexic/codegen/__init__.py src/lexic/__init__.py src/lexic/parse.py \
+    tests/unit/lexic/codegen/test_codegen_surface.py \
+    tests/integration/test_codegen.py \
+    tests/unit/lexic/codegen/test_model_emitter.py \
+    tests/unit/lexic/codegen/test_transformer.py
+git commit -m "refactor(codegen): flip to string-primary; expose build_classes_and_specs"
+```
+
+---
 
 - [ ] **Step 1: Write failing tests for `CompiledGrammar`**
 
@@ -2605,6 +3125,11 @@ is a thin wrapper that stats the file, builds a (path, mtime, size) key,
 checks the cache to skip the file read on hit, and delegates to compile().
 
 One cache covers both entry points.
+
+Runtime→codegen seam: this module imports two public symbols from
+lexic.codegen — `build_classes_and_specs` (produces classes + specs in
+one call; exposed in Step 0) and `LarkBuilder` (builds the lark parser
+and transformer). No private-symbol imports cross the seam.
 """
 
 from __future__ import annotations
@@ -2616,10 +3141,8 @@ from typing import TYPE_CHECKING, Hashable
 
 import lark
 
-from lexic.codegen import codegen
-from lexic.codegen.ir_builder import IRBuilder
+from lexic.codegen import build_classes_and_specs
 from lexic.codegen.lark_builder import LarkBuilder
-from lexic.codegen.parser import parse_gbnf
 
 if TYPE_CHECKING:
     from lexic.base import GrammarModel
@@ -2652,14 +3175,9 @@ def _stem_for_text(text: str) -> str:
     return "anon_" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
 
-def _compile_core(text: str) -> CompiledGrammar:
-    rules = parse_gbnf(text)
-    specs_list = IRBuilder(rules).build()
+def _compile_core(text: str, *, stem: str) -> CompiledGrammar:
+    classes, specs_list = build_classes_and_specs(text, stem=stem)
     specs = {s.rule_name: s for s in specs_list}
-
-    # codegen(text, *, stem) is the string-primary entry in lexic.codegen;
-    # see the implementor note below for the required codegen factorisation.
-    classes = codegen(text, stem=_stem_for_text(text))
 
     builder = LarkBuilder(specs_list)
     grammar_str, start_rule = builder.build_grammar()
@@ -2679,7 +3197,7 @@ def compile(text: str, *, cache_key: Hashable | None = None) -> CompiledGrammar:
         cached = _CACHE.get(cache_key)
         if cached is not None:
             return cached
-    cg = _compile_core(text)
+    cg = _compile_core(text, stem=_stem_for_text(text))
     if cache_key is not None:
         _CACHE[cache_key] = cg
     return cg
@@ -2699,19 +3217,11 @@ def compile_from_path(grammar_path: str | Path) -> CompiledGrammar:
     return compile(path.read_text(), cache_key=key)
 ```
 
-**Note for implementor:** Today `codegen()` accepts a path, but the
-target API inverts the naming direction to match Pydantic's string-
-primary convention. Before `compile()` can work, the codegen surface in
-`lexic.codegen.__init__` must be flipped:
-- `codegen(text: str, *, stem: str) -> dict[str, type]` becomes the
-  primary string-taker.
-- `codegen_from_path(grammar_path: str | Path) -> dict[str, type]`
-  becomes the 2-line read-file wrapper that delegates to `codegen(...)`
-  with `stem=path.stem`.
-
-Add this flip as the first step of this task if it isn't already
-present. Every existing in-tree call site of `codegen(path)` must be
-updated to `codegen_from_path(path)`.
+`compile.py`'s codegen imports are exactly two: `build_classes_and_specs`
+and `LarkBuilder`. This matches the architecture doc's layering rule —
+`compile.py` is the second of two deliberate runtime→codegen seams, and
+both symbols crossing the seam are public. Any additional codegen import
+added to this file is a review-blocking offence.
 
 - [ ] **Step 4: Run new tests; verify pass**
 
@@ -2926,12 +3436,37 @@ grep -n "from lexic.codegen" src/lexic/generate.py
 Expected:
 - `base.py`: exactly one module-scope import (the `to_grammar`/
   `to_gbnf` edge).
-- `compile.py`: exactly one module-scope import (the `codegen` edge
-  documented as the second deliberate runtime↔codegen edge in
-  `prototyping/next/2_ARCHITECTURE.md` §Layering rules).
+- `compile.py`: exactly two module-scope imports — `build_classes_and_specs`
+  (from `lexic.codegen`) and `LarkBuilder` (from `lexic.codegen.lark_builder`).
+  Both public symbols. No underscore-prefixed imports. Documented in
+  `prototyping/next/2_ARCHITECTURE.md` §Layering rules as the second
+  deliberate runtime↔codegen seam.
 - `parse.py`, `generate.py`: **no matches**. These runtime modules
   must not import from `lexic.codegen` directly — parse goes through
   `compile_from_path`.
+
+Additionally, verify no private symbols cross the seam:
+```bash
+grep -En "from lexic\.codegen[^\"']* import [^#]*\b_[a-zA-Z]" src/lexic/*.py
+```
+Expected: no matches. Private imports from codegen are forbidden from
+any runtime module.
+
+- [ ] **Step 6b: Confirm codegen surface is string-primary**
+
+```bash
+grep -En "^def (build_classes_and_specs|codegen|codegen_from_path)" src/lexic/codegen/__init__.py
+```
+Expected: all three function definitions present. `codegen` and
+`build_classes_and_specs` take `(text: str, *, stem: str)`;
+`codegen_from_path` takes `(grammar_path: str | Path)`.
+
+```bash
+grep -Rn "codegen(.*\.gbnf" src/ tests/ | grep -v "codegen_from_path"
+```
+Expected: no matches. Every `codegen(...)` call passes a string and a
+keyword `stem=`; any lingering `codegen(path/to/x.gbnf)` call signals
+a missed migration from Step 0d.
 
 - [ ] **Step 7: Confirm no lazy intra-function `lexic.codegen` imports
       from runtime**
@@ -2975,7 +3510,13 @@ git commit -m "chore: slice A exit-criteria audit fixes" || true
 - [x] Brainstorm decisions (spec §Q1–§Q4) are reflected in the task
       detail.
 - [x] Task 7 (was draft's Task 12) lives in Part B, consumes the
-      Classification union.
+      Classification union payloads (no re-traversal of `rule.body` in
+      any `_build_*` method — spec §Q2).
+- [x] Task 7b extracts `seq_to_atoms` so `ir_builder.py` hits `<200`
+      LoC on the Task 13 Step 2 audit.
+- [x] Task 11 Step 0 flips `codegen` to string-primary and exposes
+      `build_classes_and_specs` (spec §Q3); `compile.py` imports
+      exactly two public symbols from `lexic.codegen`.
 - [x] `CompiledGrammar.specs` is `dict[str, RuleSpec]` (matches
       roadmap).
 - [x] `BuildContext` is immutable; orchestrator owns cursor;

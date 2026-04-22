@@ -22,11 +22,16 @@ src/lexic/
     atoms.py                    five frozen dataclasses; no behaviour
     spec.py                     RuleSpec dataclass
 
-  codegen/                      build-time; runtime never imports this
-    __init__.py                 codegen(text, *, stem) + codegen_from_path(path)
-    classify.py                 Classifier (extracted from ir_builder)
-    naming.py                   FieldNamer (extracted from ir_builder)
+  codegen/                      build-time; runtime imports only the two
+                                deliberate seams (§Layering rules)
+    __init__.py                 build_classes_and_specs(text, *, stem)
+                                  + codegen(text, *, stem)
+                                  + codegen_from_path(path)
+    ast_utils.py                shared GBNF-AST helpers (strip_ws, etc.)
+    classify.py                 Classifier + Classification union
+    naming.py                   assign_field_names (module-level; not a class)
     helpers.py                  HelperRuleRegistry (global dedup)
+    seq_to_atoms.py             seq_to_atoms + Group→pattern converters
     ir_builder.py               IRBuilder orchestrator (<200 LoC target)
     model_emitter.py            ModelEmitter
     lark_builder.py             LarkBuilder (grammar text only)
@@ -79,16 +84,28 @@ lexic (runtime) ←/  lexic.codegen       (runtime NEVER imports codegen
    because round-trip to grammar text is part of the runtime contract.
    It closes V3 §9.
 2. `compile()` and its thin wrapper `compile_from_path()` in
-   `compile.py` import `lexic.codegen.codegen` at module scope. This
-   edge is explicit, eager, and exists because the runtime contract of
-   `compile(text) -> CompiledGrammar` is exactly "text → classes",
-   which fundamentally requires codegen at call time. `compile.py` is
-   the single runtime seam for this; every other runtime module that
-   needs compiled classes goes through it (notably `parse.py`). The
-   path-taking helpers (`compile_from_path`, `codegen_from_path`) are
-   read-file wrappers that delegate to the string-primary functions —
-   following the convention that the canonical operation takes the
-   string and IO sits at the edges.
+   `compile.py` import two public symbols from `lexic.codegen` at
+   module scope:
+   - `build_classes_and_specs(text, *, stem) -> (classes, specs)` from
+     `lexic.codegen`, which runs the full parse + IR-build + emit + load
+     pipeline once and returns both classes and specs. `compile.py`
+     needs both; calling `codegen()` for classes and then re-running
+     `parse_gbnf` + `IRBuilder` for specs would double the work and
+     widen this seam to four imports — `build_classes_and_specs`
+     exists precisely to keep the seam narrow.
+   - `LarkBuilder` from `lexic.codegen.lark_builder`, which builds the
+     lark grammar string and transformer factory.
+
+   Both imports are explicit, eager, and public (no underscore
+   symbols). The edge exists because the runtime contract of
+   `compile(text) -> CompiledGrammar` is exactly "text → classes +
+   specs + parser + transformer", which fundamentally requires codegen
+   at call time. `compile.py` is the single runtime seam for this;
+   every other runtime module that needs compiled classes goes through
+   it (notably `parse.py`). The path-taking helpers (`compile_from_path`,
+   `codegen_from_path`) are read-file wrappers that delegate to the
+   string-primary functions — following the convention that the
+   canonical operation takes the string and IO sits at the edges.
 
 Every other runtime-touches-codegen path is forbidden. No lazy
 intra-function imports of `lexic.codegen` from runtime modules. No
