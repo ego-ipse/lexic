@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 from typing import cast
 
-from .ast import CharClass, Group, Literal, Rule, RuleRef, Sequence
 from lexic.ir import (
     AlternationAtom,
     Atom,
@@ -20,6 +19,16 @@ from lexic.ir import (
     QuantifiedLiteralAtom,
     RuleRefAtom,
     RuleSpec,
+)
+
+from lexic.codegen.ast import (
+    Alternation,
+    CharClass,
+    Group,
+    Literal,
+    Rule,
+    RuleRef,
+    Sequence,
 )
 from lexic.codegen.helpers import HelperRuleRegistry
 from lexic.codegen.naming import assign_field_names
@@ -226,107 +235,138 @@ class IRBuilder:
                     parent_of[ref] = parent_cls
         return parent_of
 
+    def _build_value_str(
+        self,
+        rule: Rule,
+        alt: Alternation,
+        cls_name: str,
+        parent_cls: str,
+    ) -> list[RuleSpec]:
+        """Build a value_str rule from a ValueStr or PureLiteralAlt classification."""
+        items: list[Atom] = []
+        for seq in alt.seqs:
+            for it in seq.items:
+                if isinstance(it.atom, CharClass):
+                    min_, max_ = quantifier_to_bounds(it.quantifier)
+                    items.append(CharClassAtom(it.atom.pattern, min_, max_))
+                elif isinstance(it.atom, Literal):
+                    if it.quantifier is not None:
+                        # Quantified literal: emit as QuantifiedLiteralAtom to
+                        # preserve optionality/repetition in the IR.
+                        min_, max_ = quantifier_to_bounds(it.quantifier)
+                        items.append(
+                            QuantifiedLiteralAtom(
+                                value=it.atom.value, min=min_, max=max_
+                            )
+                        )
+                    else:
+                        items.append(LiteralAtom(it.atom.value))
+                elif isinstance(it.atom, Group):
+                    # Inline group: convert to an InlineRegexAtom.
+                    min_, max_ = quantifier_to_bounds(it.quantifier)
+                    items.append(_build_inline_regex(it.atom, min_, max_))
+        return [
+            RuleSpec(
+                rule_name=rule.name,
+                class_name=cls_name,
+                parent_class_name=parent_cls,
+                kind="value_str",
+                items=items,
+                field_map={},
+            )
+        ]
+
+    def _build_named_alt(
+        self,
+        rule: Rule,
+        arms: list[Sequence],
+        cls_name: str,
+        parent_cls: str,
+        parent_of: dict[str, str],
+    ) -> list[RuleSpec]:
+        """Build an alternation rule with named arm variants."""
+        arm_rule_names: list[str] = []
+        arm_specs: list[RuleSpec] = []
+
+        for arm_idx, stripped in enumerate(arms, start=1):
+            ref = single_ruleref_of(stripped)
+            if ref is not None:
+                arm_rule_names.append(ref)
+            else:
+                arm_rule_name = f"{rule.name}-arm{arm_idx}"
+                arm_cls_name = f"{cls_name}Arm{arm_idx}"
+                arm_rule_names.append(arm_rule_name)
+                atoms = _seq_to_atoms(
+                    stripped, arm_cls_name, self._helpers, self._name_map, parent_of
+                )
+                fm = assign_field_names(atoms)
+                arm_specs.append(
+                    RuleSpec(
+                        rule_name=arm_rule_name,
+                        class_name=arm_cls_name,
+                        parent_class_name=cls_name,
+                        kind="sequence",
+                        items=atoms,
+                        field_map=fm,
+                    )
+                )
+
+        abstract_spec = RuleSpec(
+            rule_name=rule.name,
+            class_name=cls_name,
+            parent_class_name=parent_cls,
+            kind="alternation",
+            items=[AlternationAtom(arm_rule_names=arm_rule_names)],
+            field_map={},
+        )
+        return [abstract_spec] + arm_specs
+
+    def _build_sequence(
+        self,
+        rule: Rule,
+        body: Sequence,
+        cls_name: str,
+        parent_cls: str,
+        parent_of: dict[str, str],
+    ) -> list[RuleSpec]:
+        """Build a sequence rule from a SequenceKind classification."""
+        atoms_seq = _seq_to_atoms(
+            body, cls_name, self._helpers, self._name_map, parent_of
+        )
+        fm_seq = assign_field_names(atoms_seq)
+        seq_spec = RuleSpec(
+            rule_name=rule.name,
+            class_name=cls_name,
+            parent_class_name=parent_cls,
+            kind="sequence",
+            items=atoms_seq,
+            field_map=fm_seq,
+        )
+        return [seq_spec]
+
     def _build_rule(
         self,
         rule: Rule,
         parent_of: dict[str, str],
     ) -> list[RuleSpec]:
-        classification = self._classifier.classify(rule)
+        """Build RuleSpec(s) for a GBNF Rule via match-dispatch on classification."""
+        from typing import assert_never
+
         cls_name = self._name_map[rule.name]
         parent_cls = parent_of.get(rule.name, "GrammarModel")
+        classification = self._classifier.classify(rule)
 
-        # value_str / pure_literal_alt → single `value: str` field
-        if isinstance(classification, (ValueStr, PureLiteralAlt)):
-            alt = classification.alt
-            items: list[Atom] = []
-            for seq in alt.seqs:
-                for it in seq.items:
-                    if isinstance(it.atom, CharClass):
-                        min_, max_ = quantifier_to_bounds(it.quantifier)
-                        items.append(CharClassAtom(it.atom.pattern, min_, max_))
-                    elif isinstance(it.atom, Literal):
-                        if it.quantifier is not None:
-                            # Quantified literal: emit as QuantifiedLiteralAtom to
-                            # preserve optionality/repetition in the IR.
-                            min_, max_ = quantifier_to_bounds(it.quantifier)
-                            items.append(
-                                QuantifiedLiteralAtom(
-                                    value=it.atom.value, min=min_, max=max_
-                                )
-                            )
-                        else:
-                            items.append(LiteralAtom(it.atom.value))
-                    elif isinstance(it.atom, Group):
-                        # Inline group: convert to an InlineRegexAtom.
-                        min_, max_ = quantifier_to_bounds(it.quantifier)
-                        items.append(_build_inline_regex(it.atom, min_, max_))
-            return [
-                RuleSpec(
-                    rule_name=rule.name,
-                    class_name=cls_name,
-                    parent_class_name=parent_cls,
-                    kind="value_str",
-                    items=items,
-                    field_map={},
+        match classification:
+            case ValueStr(alt=alt) | PureLiteralAlt(alt=alt):
+                return self._build_value_str(rule, alt, cls_name, parent_cls)
+            case NamedAlt(arms=arms):
+                return self._build_named_alt(
+                    rule, arms, cls_name, parent_cls, parent_of
                 )
-            ]
-
-        # named_alt → abstract class + anonymous arm classes
-        elif isinstance(classification, NamedAlt):
-            arm_rule_names: list[str] = []
-            arm_specs: list[RuleSpec] = []
-
-            for arm_idx, stripped in enumerate(classification.arms, start=1):
-                ref = single_ruleref_of(stripped)
-                if ref is not None:
-                    arm_rule_names.append(ref)
-                else:
-                    arm_rule_name = f"{rule.name}-arm{arm_idx}"
-                    arm_cls_name = f"{cls_name}Arm{arm_idx}"
-                    arm_rule_names.append(arm_rule_name)
-                    atoms = _seq_to_atoms(
-                        stripped, arm_cls_name, self._helpers, self._name_map, parent_of
-                    )
-                    fm = assign_field_names(atoms)
-                    arm_specs.append(
-                        RuleSpec(
-                            rule_name=arm_rule_name,
-                            class_name=arm_cls_name,
-                            parent_class_name=cls_name,
-                            kind="sequence",
-                            items=atoms,
-                            field_map=fm,
-                        )
-                    )
-
-            abstract_spec = RuleSpec(
-                rule_name=rule.name,
-                class_name=cls_name,
-                parent_class_name=parent_cls,
-                kind="alternation",
-                items=[AlternationAtom(arm_rule_names=arm_rule_names)],
-                field_map={},
-            )
-            return [abstract_spec] + arm_specs
-
-        # sequence
-        elif isinstance(classification, SequenceKind):
-            atoms_seq = _seq_to_atoms(
-                classification.body, cls_name, self._helpers, self._name_map, parent_of
-            )
-            fm_seq = assign_field_names(atoms_seq)
-            seq_spec = RuleSpec(
-                rule_name=rule.name,
-                class_name=cls_name,
-                parent_class_name=parent_cls,
-                kind="sequence",
-                items=atoms_seq,
-                field_map=fm_seq,
-            )
-            return [seq_spec]
-
-        # Unreachable: Classification is a closed union
-        raise AssertionError(f"Unhandled classification type: {type(classification)}")
+            case SequenceKind(body=body):
+                return self._build_sequence(rule, body, cls_name, parent_cls, parent_of)
+            case _:
+                assert_never(classification)
 
     def _topo_sort(self, specs: list[RuleSpec]) -> list[RuleSpec]:
         """Order specs so parent classes appear before subclasses, with root first."""
