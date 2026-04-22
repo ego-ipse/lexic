@@ -1,4 +1,4 @@
-"""Auto-generated Pydantic models from <string:arithmetic>."""
+"""Auto-generated Pydantic models from <string:anon_ab5da6638fc7>."""
 
 from __future__ import annotations
 

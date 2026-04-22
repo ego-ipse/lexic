@@ -73,3 +73,29 @@ def test_generate_different_with_different_seeds():
     specs = _specs("arithmetic")
     results = {generate("root", specs, rng=random.Random(i)) for i in range(20)}
     assert len(results) > 1
+
+
+def test_generate_alternation_rule():
+    # arithmetic: term ::= ident | num | "(" ws expr ")" ws — kind=alternation
+    specs = _specs("arithmetic")
+    for seed in range(10):
+        result = generate("term", specs, rng=random.Random(seed))
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+
+def test_generate_value_str_rule():
+    # arithmetic: ws ::= [ \t\n]* — kind=value_str
+    specs = _specs("arithmetic")
+    result = generate("ws", specs, rng=random.Random(0))
+    assert isinstance(result, str)
+
+
+def test_generate_max_depth_zero_picks_non_recursive_arm():
+    # With max_depth=0, generate must still return a valid non-empty string
+    # by picking a non-recursive arm (ident or num, not the "(" expr ")" arm)
+    specs = _specs("arithmetic")
+    for seed in range(10):
+        result = generate("term", specs, rng=random.Random(seed), max_depth=0)
+        assert isinstance(result, str)
+        assert len(result) > 0

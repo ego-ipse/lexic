@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from lark import Transformer
 
+from lexic.codegen.transformer import build_transformer
 from lexic.ir import (
     AlternationAtom,
     CharClassAtom,
@@ -128,6 +129,5 @@ class LarkBuilder:
 
     def build_transformer(self, classes: dict[str, type]) -> Transformer:
         """Build a Lark Transformer that maps rule names to Pydantic constructors."""
-        from lexic.codegen.transformer import build_transformer
 
         return build_transformer(self._specs, classes)

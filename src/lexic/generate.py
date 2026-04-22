@@ -125,6 +125,70 @@ def _gen_value_str(spec: RuleSpec, rng: _random.Random) -> str:
     return ""
 
 
+def _gen_alternation(
+    arms: list[str],
+    specs: dict[str, RuleSpec],
+    rng: _random.Random,
+    max_depth: int,
+) -> str:
+    if not arms:
+        return ""
+    arm = rng.choice(arms)
+    return generate(arm, specs, rng=rng, max_depth=max_depth - 1)
+
+
+def _gen_sequence(
+    spec: RuleSpec,
+    specs: dict[str, RuleSpec],
+    rng: _random.Random,
+    max_depth: int,
+) -> str:
+    parts: list[str] = []
+    for atom in spec.items:
+        if isinstance(atom, LiteralAtom):
+            parts.append(decode_gbnf_escapes(atom.value))
+        elif isinstance(atom, CharClassAtom):
+            parts.append(_gen_charclass(atom.pattern, atom.min, atom.max, rng))
+        elif isinstance(atom, QuantifiedLiteralAtom):
+            count = _pick_count(atom.min, atom.max, rng)
+            parts.append(decode_gbnf_escapes(atom.value) * count)
+        elif isinstance(atom, InlineRegexAtom):
+            parts.append(_gen_inline_regex(atom.gbnf, atom.min, atom.max, rng))
+        elif isinstance(atom, RuleRefAtom):
+            count = _pick_count(atom.min, atom.max, rng)
+            for _ in range(count):
+                parts.append(
+                    generate(atom.rule_name, specs, rng=rng, max_depth=max_depth - 1)
+                )
+        elif isinstance(atom, (InlineAlternationAtom, AlternationAtom)):
+            arm = rng.choice(atom.arm_rule_names)
+            parts.append(generate(arm, specs, rng=rng, max_depth=max_depth - 1))
+    return "".join(parts)
+
+
+def _gen_sequence_min_depth(
+    spec: RuleSpec,
+    specs: dict[str, RuleSpec],
+    rng: _random.Random,
+) -> str:
+    """Emit only the minimum-required atoms of a sequence rule (recursion cap)."""
+    parts: list[str] = []
+    for atom in spec.items:
+        if isinstance(atom, LiteralAtom):
+            parts.append(decode_gbnf_escapes(atom.value))
+        elif isinstance(atom, CharClassAtom) and atom.min >= 1:
+            parts.append(_gen_charclass(atom.pattern, atom.min, atom.min, rng))
+        elif isinstance(atom, QuantifiedLiteralAtom) and atom.min >= 1:
+            parts.append(decode_gbnf_escapes(atom.value) * atom.min)
+        elif isinstance(atom, InlineRegexAtom) and atom.min >= 1:
+            parts.append(_gen_inline_regex(atom.gbnf, atom.min, atom.min, rng))
+        elif isinstance(atom, RuleRefAtom) and atom.min >= 1:
+            # Keep depth at 0 — safe as long as every alternation has a non-recursive arm
+            parts.append(generate(atom.rule_name, specs, rng=rng, max_depth=0))
+        # Optional (min=0) rule refs and InlineAlternationAtom: skip
+    return "".join(parts)
+
+
 def generate(
     rule_name: str,
     specs: dict[str, RuleSpec],
@@ -132,19 +196,14 @@ def generate(
     rng: _random.Random | None = None,
     max_depth: int = 5,
 ) -> str:
-    """Generate a valid string for rule_name from a compiled RuleSpec dict.
-
-    Works with any grammar — pass {rule_name: spec} from IRBuilder.build().
-    max_depth caps recursion on self-referential rules (e.g., expr -> term -> expr).
-    rng accepts an explicit Random instance for deterministic generation.
-    """
+    """Generate a valid string for rule_name from a compiled RuleSpec dict."""
     if rng is None:
         rng = _random.Random()
+    spec = specs.get(rule_name)
+    if spec is None:
+        return ""
 
     if max_depth <= 0:
-        spec = specs.get(rule_name)
-        if spec is None:
-            return ""
         if spec.kind == "alternation":
             first = spec.items[0] if spec.items else None
             arms = first.arm_rule_names if isinstance(first, AlternationAtom) else []
@@ -155,69 +214,12 @@ def generate(
             return ""
         if spec.kind == "value_str":
             return _gen_value_str(spec, rng)
-        # sequence: emit literals and minimum required chars.
-        # For required (min >= 1) rule refs, recurse at depth=0 so alternations
-        # can pick a non-recursive arm (e.g. ident/num before term-arm3).
-        parts: list[str] = []
-        for atom in spec.items:
-            if isinstance(atom, LiteralAtom):
-                parts.append(decode_gbnf_escapes(atom.value))
-            elif isinstance(atom, CharClassAtom) and atom.min >= 1:
-                parts.append(_gen_charclass(atom.pattern, atom.min, atom.min, rng))
-            elif isinstance(atom, QuantifiedLiteralAtom) and atom.min >= 1:
-                parts.append(decode_gbnf_escapes(atom.value) * atom.min)
-            elif isinstance(atom, InlineRegexAtom) and atom.min >= 1:
-                parts.append(_gen_inline_regex(atom.gbnf, atom.min, atom.min, rng))
-            elif isinstance(atom, RuleRefAtom) and atom.min >= 1:
-                # Keep depth at 0 — safe as long as every alternation has a non-recursive arm
-                parts.append(generate(atom.rule_name, specs, rng=rng, max_depth=0))
-            # Optional (min=0) rule refs and InlineAlternationAtom: skip
-        return "".join(parts)
-
-    spec = specs.get(rule_name)
-    if spec is None:
-        return ""
+        return _gen_sequence_min_depth(spec, specs, rng)
 
     if spec.kind == "alternation":
         first = spec.items[0] if spec.items else None
         arms = first.arm_rule_names if isinstance(first, AlternationAtom) else []
-        if not arms:
-            return ""
-        arm = rng.choice(arms)
-        return generate(arm, specs, rng=rng, max_depth=max_depth - 1)
-
+        return _gen_alternation(arms, specs, rng, max_depth)
     if spec.kind == "value_str":
         return _gen_value_str(spec, rng)
-
-    parts: list[str] = []
-
-    for atom in spec.items:
-        if isinstance(atom, LiteralAtom):
-            parts.append(decode_gbnf_escapes(atom.value))
-
-        elif isinstance(atom, CharClassAtom):
-            parts.append(_gen_charclass(atom.pattern, atom.min, atom.max, rng))
-
-        elif isinstance(atom, QuantifiedLiteralAtom):
-            count = _pick_count(atom.min, atom.max, rng)
-            parts.append(decode_gbnf_escapes(atom.value) * count)
-
-        elif isinstance(atom, InlineRegexAtom):
-            parts.append(_gen_inline_regex(atom.gbnf, atom.min, atom.max, rng))
-
-        elif isinstance(atom, RuleRefAtom):
-            count = _pick_count(atom.min, atom.max, rng)
-            for _ in range(count):
-                parts.append(
-                    generate(atom.rule_name, specs, rng=rng, max_depth=max_depth - 1)
-                )
-
-        elif isinstance(atom, InlineAlternationAtom):
-            arm = rng.choice(atom.arm_rule_names)
-            parts.append(generate(arm, specs, rng=rng, max_depth=max_depth - 1))
-
-        elif isinstance(atom, AlternationAtom):
-            arm = rng.choice(atom.arm_rule_names)
-            parts.append(generate(arm, specs, rng=rng, max_depth=max_depth - 1))
-
-    return "".join(parts)
+    return _gen_sequence(spec, specs, rng, max_depth)

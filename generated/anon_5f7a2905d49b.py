@@ -1,4 +1,4 @@
-"""Auto-generated Pydantic models from <string:json_arr>."""
+"""Auto-generated Pydantic models from <string:anon_5f7a2905d49b>."""
 
 from __future__ import annotations
 
@@ -25,10 +25,10 @@ class Root(GrammarModel):
         class_name="Root",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[RuleRefAtom("arr", min=1, max=1)],
-        field_map={"arr": 0},
+        items=[RuleRefAtom("object", min=1, max=1)],
+        field_map={"object": 0},
     )
-    arr: Arr
+    object: Object
 
 
 class Value(GrammarModel, ABC):
@@ -61,26 +61,6 @@ class ValueArm5(Value):
         field_map={"true": 0},
     )
     true: str
-
-
-class Arr(GrammarModel):
-    """arr ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="arr",
-        class_name="Arr",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[
-            LiteralAtom("[\\n"),
-            RuleRefAtom("ws", min=1, max=1),
-            RuleRefAtom("arr-item", min=0, max=1),
-            LiteralAtom("]"),
-        ],
-        field_map={"ws": 1, "arr_item": 2},
-    )
-    ws: Ws
-    arr_item: Optional[ArrItem] = None
 
 
 class Object(Value):
@@ -165,16 +145,16 @@ class Number(Value):
             ),
             InlineRegexAtom("\\.[0-9]+", '"."[0-9]+', min=0, max=1),
             InlineRegexAtom(
-                "[eE][-+]?[1-9][0-9]{0,15}", "[eE][-+]?[1-9][0-9]{0,15}", min=0, max=1
+                "[eE][-+]?[0-9][1-9]{0,15}", "[eE][-+]?[0-9][1-9]{0,15}", min=0, max=1
             ),
             RuleRefAtom("ws", min=1, max=1),
         ],
-        field_map={"sign": 0, "val_0_9": 1, "val_0_92": 2, "ee_1_9_0_9_0": 3, "ws": 4},
+        field_map={"sign": 0, "val_0_9": 1, "val_0_92": 2, "ee_0_9_1_9_0": 3, "ws": 4},
     )
     sign: str
     val_0_9: str
     val_0_92: str
-    ee_1_9_0_9_0: str
+    ee_0_9_1_9_0: str
     ws: Ws
 
 
@@ -194,38 +174,6 @@ class Ws(GrammarModel):
         field_map={},
     )
     value: str
-
-
-class ArritemItem(GrammarModel):
-    """arritem-item ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="arritem-item",
-        class_name="ArritemItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[LiteralAtom(",\\n"), RuleRefAtom("value", min=1, max=1)],
-        field_map={"value": 1},
-    )
-    value: Value
-
-
-class ArrItem(GrammarModel):
-    """arr-item ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="arr-item",
-        class_name="ArrItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[
-            RuleRefAtom("value", min=1, max=1),
-            RuleRefAtom("arritem-item", min=0, max=None),
-        ],
-        field_map={"value": 0, "arritem_item": 1},
-    )
-    value: Value
-    arritem_item: List[ArritemItem]
 
 
 class ObjectitemItem(GrammarModel):
@@ -306,14 +254,11 @@ _ns = {k: v for k, v in globals().items() if isinstance(v, type)}
 Root.model_rebuild(_types_namespace=_ns)
 Value.model_rebuild(_types_namespace=_ns)
 ValueArm5.model_rebuild(_types_namespace=_ns)
-Arr.model_rebuild(_types_namespace=_ns)
 Object.model_rebuild(_types_namespace=_ns)
 Array.model_rebuild(_types_namespace=_ns)
 String.model_rebuild(_types_namespace=_ns)
 Number.model_rebuild(_types_namespace=_ns)
 Ws.model_rebuild(_types_namespace=_ns)
-ArritemItem.model_rebuild(_types_namespace=_ns)
-ArrItem.model_rebuild(_types_namespace=_ns)
 ObjectitemItem.model_rebuild(_types_namespace=_ns)
 ObjectItem.model_rebuild(_types_namespace=_ns)
 ArrayitemItem.model_rebuild(_types_namespace=_ns)
