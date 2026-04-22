@@ -15,7 +15,7 @@ from typing import Union, get_args, get_origin, get_type_hints
 import pytest
 from pydantic import BaseModel
 
-from lexic.codegen import codegen
+from lexic.codegen import codegen_from_path
 
 GRAMMAR_DIR = Path(__file__).parent.parent.parent / "resources" / "ground_truth"
 GENERATED_DIR = Path(__file__).parent.parent.parent / "generated"
@@ -75,7 +75,7 @@ def _is_union_of(hint: type, *classes: type) -> bool:
 @pytest.mark.parametrize("grammar_file", ALL_GRAMMARS)
 def test_codegen_returns_nonempty_dict(grammar_file: str) -> None:
     """codegen() must return a non-empty dict[str, type] for every grammar."""
-    classes = codegen(GRAMMAR_DIR / grammar_file)
+    classes = codegen_from_path(GRAMMAR_DIR / grammar_file)
     assert isinstance(classes, dict), "codegen must return a dict"
     assert len(classes) > 0, "codegen must return at least one class"
 
@@ -83,7 +83,7 @@ def test_codegen_returns_nonempty_dict(grammar_file: str) -> None:
 @pytest.mark.parametrize("grammar_file", ALL_GRAMMARS)
 def test_all_values_are_real_types(grammar_file: str) -> None:
     """Every value in the returned dict must be an actual type (not a string)."""
-    classes = codegen(GRAMMAR_DIR / grammar_file)
+    classes = codegen_from_path(GRAMMAR_DIR / grammar_file)
     for name, cls in classes.items():
         assert isinstance(cls, type), f"{name} is not a type: {cls!r}"
 
@@ -91,7 +91,7 @@ def test_all_values_are_real_types(grammar_file: str) -> None:
 @pytest.mark.parametrize("grammar_file", ALL_GRAMMARS)
 def test_all_classes_are_pydantic_models(grammar_file: str) -> None:
     """Every returned class must be a subclass of pydantic.BaseModel."""
-    classes = codegen(GRAMMAR_DIR / grammar_file)
+    classes = codegen_from_path(GRAMMAR_DIR / grammar_file)
     for name, cls in classes.items():
         assert issubclass(cls, BaseModel), f"{name} is not a BaseModel subclass"
 
@@ -99,7 +99,7 @@ def test_all_classes_are_pydantic_models(grammar_file: str) -> None:
 @pytest.mark.parametrize("grammar_file", ALL_GRAMMARS)
 def test_root_class_present(grammar_file: str) -> None:
     """A 'Root' class must always be present in the returned dict."""
-    classes = codegen(GRAMMAR_DIR / grammar_file)
+    classes = codegen_from_path(GRAMMAR_DIR / grammar_file)
     assert "Root" in classes, f"'Root' missing from {grammar_file} output"
 
 
@@ -132,7 +132,7 @@ def test_no_exec_in_generated_file(grammar_file: str) -> None:
 
 @pytest.fixture(scope="module")
 def arithmetic_classes() -> dict[str, type]:
-    return codegen(GRAMMAR_DIR / "arithmetic.gbnf")
+    return codegen_from_path(GRAMMAR_DIR / "arithmetic.gbnf")
 
 
 def test_arithmetic_term_is_abstract(arithmetic_classes):
@@ -237,7 +237,7 @@ def test_arithmetic_circular_ref_resolved(arithmetic_classes):
 
 @pytest.fixture(scope="module")
 def chess_classes() -> dict[str, type]:
-    return codegen(GRAMMAR_DIR / "chess.gbnf")
+    return codegen_from_path(GRAMMAR_DIR / "chess.gbnf")
 
 
 def test_chess_no_abstract_bases(chess_classes):
@@ -290,7 +290,7 @@ def test_chess_rootitem_fields(chess_classes):
 
 @pytest.fixture(scope="module")
 def japanese_classes() -> dict[str, type]:
-    return codegen(GRAMMAR_DIR / "japanese.gbnf")
+    return codegen_from_path(GRAMMAR_DIR / "japanese.gbnf")
 
 
 def test_japanese_jpchar_is_abstract(japanese_classes):
@@ -336,7 +336,7 @@ def test_japanese_rootitem_fields(japanese_classes):
 
 @pytest.fixture(scope="module")
 def list_classes() -> dict[str, type]:
-    return codegen(GRAMMAR_DIR / "list.gbnf")
+    return codegen_from_path(GRAMMAR_DIR / "list.gbnf")
 
 
 def test_list_item_is_value_str(list_classes):
@@ -366,7 +366,7 @@ def test_list_instantiation(list_classes):
 
 @pytest.fixture(scope="module")
 def json_ws_classes() -> dict[str, type]:
-    return codegen(GRAMMAR_DIR / "json_ws.gbnf")
+    return codegen_from_path(GRAMMAR_DIR / "json_ws.gbnf")
 
 
 def test_json_ws_value_is_abstract(json_ws_classes):
@@ -431,7 +431,7 @@ def test_json_ws_no_arr_classes(json_ws_classes):
 
 @pytest.fixture(scope="module")
 def json_arr_classes() -> dict[str, type]:
-    return codegen(GRAMMAR_DIR / "json_arr.gbnf")
+    return codegen_from_path(GRAMMAR_DIR / "json_arr.gbnf")
 
 
 def test_json_arr_has_arr_class(json_arr_classes):
@@ -464,7 +464,7 @@ def test_json_arr_arr_fields(json_arr_classes):
 
 @pytest.fixture(scope="module")
 def c_classes() -> dict[str, type]:
-    return codegen(GRAMMAR_DIR / "c.gbnf")
+    return codegen_from_path(GRAMMAR_DIR / "c.gbnf")
 
 
 def test_c_factor_is_abstract(c_classes):
@@ -574,7 +574,7 @@ def test_no_exec_anywhere():
 def test_codegen_missing_file_raises():
     """codegen() on a non-existent path must raise FileNotFoundError."""
     with pytest.raises(FileNotFoundError):
-        codegen(GRAMMAR_DIR / "does_not_exist.gbnf")
+        codegen_from_path(GRAMMAR_DIR / "does_not_exist.gbnf")
 
 
 def test_codegen_empty_grammar(tmp_path):
@@ -582,7 +582,7 @@ def test_codegen_empty_grammar(tmp_path):
     empty = tmp_path / "empty.gbnf"
     empty.write_text("")
     with pytest.raises(Exception):
-        codegen(empty)
+        codegen_from_path(empty)
 
 
 def test_abstract_class_inherits_abc(arithmetic_classes):

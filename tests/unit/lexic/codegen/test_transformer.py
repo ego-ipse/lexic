@@ -5,7 +5,7 @@ from pathlib import Path
 from lexic.codegen.parser import parse_gbnf
 from lexic.codegen.ir_builder import IRBuilder
 from lexic.codegen.lark_builder import LarkBuilder
-from lexic.codegen import codegen
+from lexic.codegen import codegen_from_path
 import lark
 
 # tests/unit/lexic/codegen/ -> tests/unit/lexic/ -> tests/unit/ -> tests/ -> project root
@@ -16,7 +16,7 @@ GRAMMAR_DIR = (
 
 def _parse_and_transform(text: str, grammar: str):
     gpath = GRAMMAR_DIR / f"{grammar}.gbnf"
-    classes = codegen(gpath)
+    classes = codegen_from_path(gpath)
     rules = parse_gbnf(gpath.read_text())
     specs = IRBuilder(rules).build()
     builder = LarkBuilder(specs)

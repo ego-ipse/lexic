@@ -9,7 +9,7 @@ from abc import ABC
 from typing import get_type_hints
 
 from lexic.base import GrammarModel
-from lexic.codegen import codegen
+from lexic.codegen import codegen_from_path
 from lexic.ir import RuleSpec
 
 GRAMMAR_DIR = (
@@ -24,7 +24,7 @@ def _fresh(stem: str):
     name = f"generated.{stem}"
     if name in sys.modules:
         del sys.modules[name]
-    codegen(GRAMMAR_DIR / f"{stem}.gbnf")
+    codegen_from_path(GRAMMAR_DIR / f"{stem}.gbnf")
     return importlib.import_module(name)
 
 
@@ -33,8 +33,6 @@ def _fresh(stem: str):
 
 @pytest.mark.parametrize("grammar", ALL_GRAMMARS)
 def test_all_classes_have_grammar(grammar: str):
-    from lexic.base import GrammarModel
-
     mod = _fresh(grammar)
     for name in dir(mod):
         cls = getattr(mod, name)
@@ -69,7 +67,7 @@ def test_no_field_n_names(grammar: str):
 @pytest.mark.parametrize("grammar", ALL_GRAMMARS)
 def test_generated_imports_grammar_model(grammar: str):
     stem = grammar
-    codegen(GRAMMAR_DIR / f"{stem}.gbnf")
+    codegen_from_path(GRAMMAR_DIR / f"{stem}.gbnf")
     source = (GENERATED_DIR / f"{stem}.py").read_text()
     assert "GrammarModel" in source, f"{stem}.py must import and use GrammarModel"
     assert "from lexic.base import GrammarModel" in source or "GrammarModel" in source
@@ -79,7 +77,7 @@ def test_generated_imports_grammar_model(grammar: str):
 def test_no_to_text_defined_in_source(grammar: str):
     """to_text() must NOT be defined in generated source — it is inherited."""
     stem = grammar
-    codegen(GRAMMAR_DIR / f"{stem}.gbnf")
+    codegen_from_path(GRAMMAR_DIR / f"{stem}.gbnf")
     source = (GENERATED_DIR / f"{stem}.py").read_text()
     assert "def to_text" not in source, (
         f"{stem}.py must not define to_text() — inherited from GrammarModel"

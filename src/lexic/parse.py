@@ -11,7 +11,7 @@ from pathlib import Path
 
 import lark
 
-from lexic.codegen import codegen
+from lexic.codegen import codegen_from_path
 from lexic.codegen.ir_builder import IRBuilder
 from lexic.codegen.lark_builder import LarkBuilder
 from lexic.codegen.parser import parse_gbnf
@@ -22,7 +22,7 @@ def parse(text: str, grammar_path: str | Path) -> GrammarModel:
     grammar_path = Path(grammar_path)
 
     # Generate (or regenerate) Pydantic model classes.
-    classes = codegen(grammar_path)
+    classes = codegen_from_path(grammar_path)
 
     # Rebuild specs to drive LarkBuilder (avoids storing state between calls).
     rules = parse_gbnf(grammar_path.read_text())
