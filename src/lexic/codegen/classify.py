@@ -13,15 +13,14 @@ from dataclasses import dataclass
 
 from lexic.codegen.ast import (
     Alternation,
-    CharClass,
     Group,
     Item,
-    Literal,
     Rule,
     RuleRef,
     Sequence,
 )
 from lexic.codegen.ast_utils import (
+    is_pure_literal_seq,
     is_ws_item,
     strip_ws,
     unwrap_group_alt,
@@ -49,17 +48,6 @@ class SequenceKind:
 
 
 Classification = ValueStr | PureLiteralAlt | NamedAlt | SequenceKind
-
-
-def _is_pure_literal(item: Item) -> bool:
-    return isinstance(item.atom, (Literal, CharClass))
-
-
-def _is_pure_literal_seq(seq: Sequence) -> bool:
-    stripped = strip_ws(seq)
-    return len(stripped.items) > 0 and all(
-        _is_pure_literal(it) for it in stripped.items
-    )
 
 
 def _has_any_ruleref(items: list[Item]) -> bool:
@@ -117,7 +105,7 @@ class Classifier:
         full_arms = [full for full, _ in paired]
         arms = [stripped for _, stripped in paired]
 
-        if len(arms) > 1 and all(_is_pure_literal_seq(a) for a in arms):
+        if len(arms) > 1 and all(is_pure_literal_seq(a) for a in arms):
             return PureLiteralAlt(alt=alt)
         if (
             len(arms) == 1
@@ -125,8 +113,7 @@ class Classifier:
             and isinstance(arms[0].items[0].atom, Group)
             and arms[0].items[0].quantifier is None
             and all(
-                _is_pure_literal_seq(strip_ws(s))
-                for s in arms[0].items[0].atom.alt.seqs
+                is_pure_literal_seq(strip_ws(s)) for s in arms[0].items[0].atom.alt.seqs
             )
         ):
             return PureLiteralAlt(alt=alt)
@@ -135,7 +122,7 @@ class Classifier:
             has_any_rule_ref = any(
                 any(isinstance(it.atom, RuleRef) for it in s.items) for s in full_seqs
             )
-            if not has_any_rule_ref and _is_pure_literal_seq(arms[0]):
+            if not has_any_rule_ref and is_pure_literal_seq(arms[0]):
                 return ValueStr(alt=alt)
             return SequenceKind(body=full_arms[0])
         assert len(arms) > 1, "single-arm case handled above"

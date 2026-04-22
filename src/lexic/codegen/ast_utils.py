@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from lexic.codegen.ast import (
     Alternation,
+    CharClass,
     Group,
     Item,
+    Literal,
     RuleRef,
     Sequence,
 )
@@ -36,6 +38,14 @@ def unwrap_group_alt(alt: Alternation) -> Alternation:
         if isinstance(it.atom, Group) and it.quantifier is None:
             return it.atom.alt
     return alt
+
+
+def is_pure_literal_seq(seq: Sequence) -> bool:
+    """True if seq (after ws-stripping) contains only Literal/CharClass items."""
+    stripped = strip_ws(seq)
+    return len(stripped.items) > 0 and all(
+        isinstance(it.atom, (Literal, CharClass)) for it in stripped.items
+    )
 
 
 def single_ruleref_of(seq: Sequence) -> str | None:
