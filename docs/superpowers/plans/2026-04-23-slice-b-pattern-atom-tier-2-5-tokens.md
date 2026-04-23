@@ -92,7 +92,7 @@ Every task in this phase is behaviour-preserving. The 414-test suite must remain
 - Create: `src/lexic/exceptions.py`
 - Test: (none — trivial class definitions; exercised by later tasks)
 
-- [ ] **Step 1: Write the module**
+- [x] **Step 1: Write the module**
 
 ```python
 # src/lexic/exceptions.py
@@ -135,12 +135,12 @@ class FieldValidationError(LexicError):
     """
 ```
 
-- [ ] **Step 2: Verify import path works**
+- [x] **Step 2: Verify import path works**
 
 Run: `uv run python -c "from lexic.exceptions import LexicError, UnsupportedConstructError, GrammarAuthoringError, FieldValidationError; print('ok')"`
 Expected: `ok`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/lexic/exceptions.py
@@ -158,7 +158,7 @@ GrammarAuthoringError and FieldValidationError (Slice C stubs)."
 - Create: `src/lexic/ir/regex_portable.py`
 - Test: (deferred to Phase 2 Task 17 — tested alongside atom shapes, since Phase 1 has no consumer wiring)
 
-- [ ] **Step 1: Write the module — scaffold only (`canonicalize_groups` lands in Phase 2)**
+- [x] **Step 1: Write the module — scaffold only (`canonicalize_groups` lands in Phase 2)**
 
 ```python
 # src/lexic/ir/regex_portable.py
@@ -329,7 +329,7 @@ def canonicalize_groups(regex: str) -> str:
 
 **Implementation note:** `sre_parse` is undocumented but stable across CPython 3.x. The module's AST shape is stable enough to rely on here; tests (Task 17) cover the behaviour against concrete regex inputs.
 
-- [ ] **Step 2: Verify the module imports**
+- [x] **Step 2: Verify the module imports**
 
 Run: `uv run python -c "from lexic.ir.regex_portable import PORTABLE_FEATURES, validate_portable, features_used, canonicalize_groups; print(sorted(PORTABLE_FEATURES))"`
 Expected: `['alternation', 'char_class', 'literal', 'negated_class', 'non_capturing_group', 'quantifier', 'shorthand', 'unicode_escape']`

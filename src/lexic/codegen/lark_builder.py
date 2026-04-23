@@ -129,5 +129,5 @@ class LarkBuilder:
 
     def build_transformer(self, classes: dict[str, type]) -> Transformer:
         """Build a Lark Transformer that maps rule names to Pydantic constructors."""
-
+        # This is broken.
         return build_transformer(self._specs, classes)
