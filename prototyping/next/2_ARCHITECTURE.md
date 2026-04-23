@@ -22,12 +22,24 @@ src/lexic/
     atoms.py                    five frozen dataclasses; no behaviour
     spec.py                     RuleSpec dataclass
 
-  codegen/                      build-time; runtime imports only the two
+  grammars/                     grammar-flavour layer; owns all flavour-specific code
+    __init__.py                 public endpoint: get_adapter(), adapter_for_extension(),
+                                  register_adapter() + eager GBNF bootstrap
+    flavours.py                 FlavourAdapter/Parser/Emitter protocols + ADAPTERS dict
+    gbnf/
+      __init__.py               re-exports GbnfAdapter
+      adapter.py                GbnfAdapter(FlavourAdapter)
+      ast.py                    (moved from codegen/ast.py)
+      parser.py                 (moved from codegen/parser.py)
+      emitter.py                (moved from codegen/gbnf_emitter.py)
+      escapes.py                (moved from utils/escapes.py)
+      charclass.py              (moved from utils/charclass.py)
+
+  codegen/                      build-time generic pipeline; runtime imports only the two
                                 deliberate seams (§Layering rules)
     __init__.py                 build_classes_and_specs(text, *, stem)
                                   + codegen(text, *, stem)
                                   + codegen_from_path(path)
-    ast_utils.py                shared GBNF-AST helpers (strip_ws, etc.)
     classify.py                 Classifier + Classification union
     naming.py                   assign_field_names (module-level; not a class)
     helpers.py                  HelperRuleRegistry (global dedup)
@@ -39,28 +51,25 @@ src/lexic/
       __init__.py               build_transformer(specs, classes)
       registry.py               BUILDER_BY_ATOM dispatch table
       builders.py               FieldBuilder subclasses + wrapping builders
-    gbnf/
-      __init__.py               GbnfAdapter bundling parser + ir_builder + emitter
-      ast.py                    (unchanged — moved)
-      parser.py                 (moved from codegen/parser.py)
-      emitter.py                (moved from codegen/gbnf_emitter.py)
 
   utils/
     __init__.py
-    escapes.py                  decode_gbnf_escapes
-    charclass.py                bracket-expression parsing (extracted from generate.py)
     names.py                    to_lark_name, to_pascal, to_snake
     quantifiers.py              bounds_to_quantifier
 ```
 
-Three packages, one ownership each:
+Four packages, one ownership each:
 
 - **`lexic.ir`** — the contract. Pure data. Imports nothing from the rest
   of `lexic`.
-- **`lexic.codegen`** — build-time. Produces and consumes IR; emits
-  Python modules and grammar text. Has no runtime consumers except via
-  the two deliberate edges below (`GrammarModel.to_grammar` and
-  `compile()`).
+- **`lexic.grammars`** — flavour layer. Owns all grammar-specific code:
+  the `FlavourAdapter`/`FlavourParser`/`FlavourEmitter` protocols, the
+  `ADAPTERS` registry, and every flavour implementation (e.g. `gbnf/`).
+  Imports from `lexic.ir` only.
+- **`lexic.codegen`** — build-time generic pipeline. Produces and consumes
+  IR; emits Python modules and grammar text. Gets flavour adapters via
+  `lexic.grammars`. Has no runtime consumers except via the two deliberate
+  edges below (`GrammarModel.to_grammar` and `compile()`).
 - **`lexic` (root)** — runtime. Depends on `lexic.ir`; bridges into
   `lexic.codegen` at exactly two points: `base.py::to_grammar` and
   `compile.py::compile`.
@@ -70,8 +79,10 @@ Three packages, one ownership each:
 Imports flow one way. Violating any arrow is a review-blocking offence.
 
 ```
+lexic.ir        ←  lexic.grammars       (grammars read/write IR)
 lexic.ir        ←  lexic.codegen        (codegen reads/writes IR)
 lexic.ir        ←  lexic (runtime)      (runtime reads IR)
+lexic.grammars  ←  lexic.codegen        (codegen gets adapters from grammars)
 lexic (runtime) ←/  lexic.codegen       (runtime NEVER imports codegen
                                          except the two edges below)
 ```
@@ -79,7 +90,7 @@ lexic (runtime) ←/  lexic.codegen       (runtime NEVER imports codegen
 **The two deliberate exceptions.**
 
 1. `GrammarModel.to_grammar(flavour)` in `base.py` imports
-   `lexic.codegen.gbnf.emitter` at module scope and calls it. This edge
+   `lexic.grammars.gbnf.emitter` at module scope and calls it. This edge
    is explicit, eager (not a lazy intra-function import), and exists
    because round-trip to grammar text is part of the runtime contract.
    It closes V3 §9.
@@ -193,13 +204,13 @@ class FlavourAdapter(Protocol):
     def emit(self, specs: list[RuleSpec]) -> str: ...
 ```
 
-`codegen/gbnf/__init__.py` exports the one implementation. Adding ABNF
+`grammars/gbnf/__init__.py` exports the one implementation. Adding ABNF
 (outside this arc's scope) means a new sibling subpackage
-`codegen/abnf/`; no changes to the core are needed.
+`grammars/abnf/`; no changes to the core are needed.
 
 ### Token reservation
 
-The GBNF parser (in `codegen/gbnf/parser.py`) detects `<...>` syntax
+The GBNF parser (in `grammars/gbnf/parser.py`) detects `<...>` syntax
 before any atom construction code runs. On any match it raises, with
 one of two error classes:
 

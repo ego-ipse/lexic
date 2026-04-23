@@ -10,7 +10,7 @@
 Slice B carries three bundled concerns:
 
 1. **Atom collapse.** `CharClassAtom`, `QuantifiedLiteralAtom`, and `InlineRegexAtom` merge into a single `PatternAtom`. `InlineAlternationAtom` reshapes from helper-rule-references to inline-atom-arms. Atoms become `frozen=True`.
-2. **Tier 2.5 flavour scaffolding.** The GBNF-specific parser, emitter, escape decoder, and bracket-expression parser move into `codegen/gbnf/`. A `FlavourAdapter` / `FlavourParser` / `FlavourEmitter` protocol triad lands in `codegen/flavours.py`. A `flavour="gbnf"` parameter is threaded through `codegen()`, `compile()`, and `GrammarModel.to_grammar()`.
+2. **Tier 2.5 flavour scaffolding.** The GBNF-specific parser, emitter, escape decoder, and bracket-expression parser move into `grammars/gbnf/`. A `FlavourAdapter` / `FlavourParser` / `FlavourEmitter` protocol triad lands in `grammars/flavours.py`. `grammars/__init__.py` is the public endpoint for adapter lookup and registration. A `flavour="gbnf"` parameter is threaded through `codegen()`, `compile()`, and `GrammarModel.to_grammar()`.
 3. **Token reservation.** The GBNF parser raises `UnsupportedConstructError` on `<name>`, `<[N]>`, and `!<name>` token references before any atom construction runs.
 
 Plus four bundled cleanups that share files with the above work:
@@ -65,7 +65,7 @@ def features_used(regex: str) -> frozenset[str]: ...
 ```
 
 ```python
-# codegen/flavours.py
+# grammars/flavours.py
 class FlavourEmitter(Protocol):
     supports: frozenset[str]        # ⊆ PORTABLE_FEATURES
     def emit(self, specs: list[RuleSpec]) -> str: ...
@@ -144,14 +144,14 @@ Inline-alt helper-rule synthesis in `seq_to_atoms.py` stops. `HelperRuleRegistry
 
 All atom dataclasses gain `frozen=True`. `CLAUDE.md` already describes them as "seven frozen Atom dataclasses" — the current `@dataclass` without `frozen=True` is a documentation/code mismatch that Slice B corrects.
 
-### D4. GBNF-specific code audit — move into `codegen/gbnf/`
+### D4. GBNF-specific code audit — move into `grammars/gbnf/`
 
-Your rule: anything GBNF-specific lives in `codegen/gbnf/`. Three modules currently in `utils/` or shared locations are actually GBNF-specific and move:
+Your rule: anything GBNF-specific lives in `grammars/gbnf/`. Three modules currently in `utils/` or shared locations are actually GBNF-specific and move:
 
 | Currently at | Moves to | Why |
 |---|---|---|
-| `utils/escapes.py` (`decode_gbnf_escapes`) | `codegen/gbnf/escapes.py` | Function name tells you it's GBNF. Only the GBNF adapter should know GBNF's escape syntax. |
-| `utils/charclass.py` (`parse_escape`, `parse_charclass_chars`) | `codegen/gbnf/charclass.py` | Parses GBNF bracket expressions (GBNF-flavored escapes). After Slice B the only consumer is the GBNF adapter. |
+| `utils/escapes.py` (`decode_gbnf_escapes`) | `grammars/gbnf/escapes.py` | Function name tells you it's GBNF. Only the GBNF adapter should know GBNF's escape syntax. |
+| `utils/charclass.py` (`parse_escape`, `parse_charclass_chars`) | `grammars/gbnf/charclass.py` | Parses GBNF bracket expressions (GBNF-flavored escapes). After Slice B the only consumer is the GBNF adapter. |
 
 `utils/quantifiers.py::bounds_to_quantifier` and `utils/names.py` stay in utils — they are genuinely shared across flavour-family concerns (quantifier syntax is common to GBNF, Lark, Python regex, ECMAScript).
 
@@ -180,6 +180,18 @@ src/lexic/
     atoms.py                      frozen; 5 atom types (was 7)
     regex_portable.py             NEW
     spec.py                       unchanged
+  grammars/
+    __init__.py                   NEW — public endpoint: get_adapter(), adapter_for_extension(),
+                                  register_adapter() + eager GBNF bootstrap
+    flavours.py                   NEW — FlavourAdapter/Parser/Emitter protocols + ADAPTERS dict
+    gbnf/
+      __init__.py                 NEW — re-exports GbnfAdapter
+      adapter.py                  NEW — class GbnfAdapter(FlavourAdapter)
+      parser.py                   moved from codegen/parser.py; wrapped as class GbnfParser(FlavourParser)
+      emitter.py                  moved from codegen/gbnf_emitter.py; wrapped as class GbnfEmitter(FlavourEmitter)
+      ast.py                      moved from codegen/ast.py (internal to GbnfParser)
+      escapes.py                  moved from utils/escapes.py
+      charclass.py                moved from utils/charclass.py
   codegen/
     __init__.py                   codegen(text, *, stem, flavour="gbnf")
                                   build_classes_and_specs(text, *, stem, flavour="gbnf")
@@ -191,21 +203,12 @@ src/lexic/
     ir_builder.py                 updated atom construction
     model_emitter.py              single PatternAtom branch; new InlineAlternationAtom
     lark_builder.py               single PatternAtom branch; delete build_transformer
-    flavours.py                   NEW — FlavourAdapter/Parser/Emitter protocols + ADAPTERS
     transformer/
       __init__.py                 unchanged public surface
       registry.py                 single PatternAtom entry; updated InlineAlternationAtom
       builders.py                 PatternFieldBuilder (merges three); updated InlineAlt
       build_transformer.py        unchanged
       context.py                  unchanged
-    gbnf/
-      __init__.py                 NEW — exports GbnfAdapter; side-effect registers it
-      adapter.py                  NEW — class GbnfAdapter(FlavourAdapter)
-      parser.py                   moved from codegen/parser.py; wrapped as class GbnfParser(FlavourParser)
-      emitter.py                  moved from codegen/gbnf_emitter.py; wrapped as class GbnfEmitter(FlavourEmitter)
-      ast.py                      moved from codegen/ast.py (internal to GbnfParser)
-      escapes.py                  moved from utils/escapes.py
-      charclass.py                moved from utils/charclass.py
   utils/
     __init__.py
     names.py                      unchanged
@@ -217,16 +220,17 @@ src/lexic/
 **Creates:**
 - `lexic/exceptions.py`
 - `lexic/ir/regex_portable.py`
-- `lexic/codegen/flavours.py`
-- `lexic/codegen/gbnf/__init__.py`
-- `lexic/codegen/gbnf/adapter.py`
+- `lexic/grammars/__init__.py`
+- `lexic/grammars/flavours.py`
+- `lexic/grammars/gbnf/__init__.py`
+- `lexic/grammars/gbnf/adapter.py`
 
 **Moves (via `git mv` for rename detection):**
-- `lexic/codegen/parser.py` → `lexic/codegen/gbnf/parser.py`
-- `lexic/codegen/ast.py` → `lexic/codegen/gbnf/ast.py`
-- `lexic/codegen/gbnf_emitter.py` → `lexic/codegen/gbnf/emitter.py`
-- `lexic/utils/escapes.py` → `lexic/codegen/gbnf/escapes.py`
-- `lexic/utils/charclass.py` → `lexic/codegen/gbnf/charclass.py`
+- `lexic/codegen/parser.py` → `lexic/grammars/gbnf/parser.py`
+- `lexic/codegen/ast.py` → `lexic/grammars/gbnf/ast.py`
+- `lexic/codegen/gbnf_emitter.py` → `lexic/grammars/gbnf/emitter.py`
+- `lexic/utils/escapes.py` → `lexic/grammars/gbnf/escapes.py`
+- `lexic/utils/charclass.py` → `lexic/grammars/gbnf/charclass.py`
 
 **Deletes:**
 - `LarkBuilder.build_transformer` method (keep the class; `build_grammar` still lives there).
@@ -316,13 +320,13 @@ def dispatch(atom: Atom, ctx: ...) -> ...:
 Sites to update:
 - `codegen/lark_builder.py::_atom_to_lark` (currently an `isinstance` chain with `return '""'` fallback).
 - `codegen/model_emitter.py` atom dispatch.
-- `codegen/gbnf/emitter.py` (formerly `gbnf_emitter.py`) atom dispatch.
+- `grammars/gbnf/emitter.py` (formerly `gbnf_emitter.py`) atom dispatch.
 - `codegen/transformer/registry.py::BUILDER_BY_ATOM` dispatch (already has an implicit `KeyError`; make it explicit via wrapping function).
 - `generate.py` atom dispatch.
 
 ## Flavour seam
 
-### `codegen/flavours.py` — protocols and registry
+### `grammars/flavours.py` — protocols and registry
 
 ```python
 from typing import Protocol
@@ -367,7 +371,7 @@ def adapter_for_extension(path: str | Path) -> FlavourAdapter:
     )
 ```
 
-### `codegen/gbnf/adapter.py`
+### `grammars/gbnf/adapter.py`
 
 ```python
 class GbnfAdapter:
@@ -379,7 +383,9 @@ class GbnfAdapter:
         self.emitter = GbnfEmitter()
 ```
 
-Registration lives in `codegen/flavours.py` itself — the module eagerly imports `lexic.codegen.gbnf.adapter` at module load and calls `register_adapter(GbnfAdapter())`. `codegen/gbnf/__init__.py` is a pure re-export with no side effects. This guarantees that `from lexic.codegen.flavours import get_adapter` returns a populated registry regardless of whether the caller also imported `lexic.codegen`.
+### `grammars/__init__.py` — public endpoint and bootstrap
+
+`grammars/__init__.py` re-exports `get_adapter`, `adapter_for_extension`, and `register_adapter` from `grammars.flavours`, and eagerly imports `lexic.grammars.gbnf.adapter` at module load, calling `register_adapter(GbnfAdapter())`. This guarantees that `from lexic.grammars import get_adapter` returns a populated registry regardless of whether the caller also imported `lexic.codegen`. `grammars/gbnf/__init__.py` is a pure re-export with no side effects.
 
 ### Public API surface
 
@@ -467,12 +473,12 @@ def features_used(regex: str) -> frozenset[str]:
     """
 ```
 
-Implementation walks `re.sre_parse.parse(regex)`'s tree. No hand-rolled regex parsing. Lives in `lexic/ir/` because it's an IR-contract concern (the allowed shape of `PatternAtom.regex`), not a codegen concern.
+Implementation walks `re._parser.parse(regex)`'s tree via private-but-stable stdlib internals (`re._parser`, `re._constants`) — the non-deprecated replacement for the removed `sre_parse`/`sre_constants` modules. No hand-rolled regex parsing. Lives in `lexic/ir/` because it's an IR-contract concern (the allowed shape of `PatternAtom.regex`), not a codegen concern.
 
 ### GBNF `supports` set
 
 ```python
-# codegen/gbnf/emitter.py
+# grammars/gbnf/emitter.py
 class GbnfEmitter:
     supports = frozenset({
         "literal",
@@ -528,7 +534,7 @@ Errors are raised from `GbnfParser.parse()` (not from `GbnfAdapter` or a higher 
 ### Phase 1 (scaffolding) — no behaviour change
 
 - All 414 existing tests green.
-- New `tests/unit/lexic/codegen/test_flavours.py`:
+- New `tests/unit/lexic/grammars/test_flavours.py`:
   - `get_adapter("gbnf")` returns the registered adapter.
   - `get_adapter("abnf")` raises `UnsupportedConstructError` with `"Supported: ['gbnf']"` in the message.
   - `adapter_for_extension("foo.gbnf")` returns the GBNF adapter.
@@ -546,7 +552,7 @@ Errors are raised from `GbnfParser.parse()` (not from `GbnfAdapter` or a higher 
   - `Arm.atoms` is a `tuple`, not a `list`.
   - `source_forms={}` equality works correctly.
   - `tuple` vs `list` in `arms` doesn't break pickling / `dataclasses.replace`.
-- New `tests/unit/lexic/codegen/gbnf/test_parser.py` (relocated + expanded from current `tests/unit/lexic/codegen/test_parser.py`):
+- New `tests/unit/lexic/grammars/gbnf/test_parser.py` (relocated + expanded from current `tests/unit/lexic/codegen/test_parser.py`):
   - Parses each ground-truth grammar.
   - Asserts `source_forms["gbnf"]` is populated pattern-only (no quantifier) on every `PatternAtom`: user wrote `[a-h]+` → `source_forms["gbnf"] == "[a-h]"`; user wrote `"foo"?` → `source_forms["gbnf"] == '"foo"'`.
   - Asserts `LiteralAtom.value` is canonical Python (GBNF escapes decoded into real characters); `PatternAtom.regex` uses **escape form** for control characters (user wrote `[a-z\n]` → `regex == "[a-z\\n]"`).
@@ -592,9 +598,10 @@ All changes that don't touch atom shapes or parser behaviour:
 
 - Create `lexic/exceptions.py` with four error classes.
 - Create `lexic/ir/regex_portable.py` with `PORTABLE_FEATURES`, `validate_portable`, `features_used`.
-- Create `lexic/codegen/flavours.py` with three protocols, `ADAPTERS`, `register_adapter`, `get_adapter`, `adapter_for_extension`, **and an eager import of `lexic.codegen.gbnf.adapter` with `register_adapter(GbnfAdapter())` at module load**.
-- `git mv` five files into `codegen/gbnf/` (parser, ast, emitter, escapes, charclass).
-- Create `codegen/gbnf/__init__.py` (pure re-export, no side effects), `codegen/gbnf/adapter.py`. Wrap `GbnfParser` and `GbnfEmitter` as classes implementing their protocols (currently module-level functions).
+- Create `lexic/grammars/flavours.py` with three protocols, `ADAPTERS`, `register_adapter`, `get_adapter`, `adapter_for_extension`.
+- Create `lexic/grammars/__init__.py` re-exporting `get_adapter`, `adapter_for_extension`, `register_adapter` **and eagerly importing `lexic.grammars.gbnf.adapter` with `register_adapter(GbnfAdapter())` at module load**.
+- `git mv` five files into `grammars/gbnf/` (parser, ast, emitter, escapes, charclass).
+- Create `grammars/gbnf/__init__.py` (pure re-export, no side effects), `grammars/gbnf/adapter.py`. Wrap `GbnfParser` and `GbnfEmitter` as classes implementing their protocols (currently module-level functions).
 - Add `GbnfEmitter.supports` frozenset.
 - Add `flavour="gbnf"` parameter to `codegen()`, `build_classes_and_specs()`, `compile()`, `GrammarModel.to_grammar()`. `to_gbnf()` becomes a two-line alias.
 - `codegen_from_path()` and `compile_from_path()` infer flavour from extension when `flavour=None`.
@@ -614,8 +621,8 @@ All atom-shape changes and their consumer updates:
 - `lexic/ir/__init__.py`: update re-exports.
 - `codegen/ir_builder.py`: atom construction produces `PatternAtom` where the three old types applied.
 - `codegen/seq_to_atoms.py`: inline-alt path produces `InlineAlternationAtom(arms=tuple(Arm(tuple(atoms_for_arm))))` directly, without helper-rule synthesis. Quantified-list helpers continue to use `HelperRuleRegistry`.
-- `codegen/gbnf/parser.py` (`GbnfParser.parse`): populate `source_forms["gbnf"]` on every `PatternAtom`. Lower shorthand `\d \w \s` into char classes at parse time. Decode GBNF escapes into canonical Python values in `LiteralAtom.value` and `PatternAtom.regex`.
-- `codegen/gbnf/emitter.py` (`GbnfEmitter.emit`): read `source_forms["gbnf"]` first, fall back to reconstructing from `regex`. Single `PatternAtom` dispatch branch. Explicit `default`-raise.
+- `grammars/gbnf/parser.py` (`GbnfParser.parse`): populate `source_forms["gbnf"]` on every `PatternAtom`. Lower shorthand `\d \w \s` into char classes at parse time. Decode GBNF escapes into canonical Python values in `LiteralAtom.value` and `PatternAtom.regex`.
+- `grammars/gbnf/emitter.py` (`GbnfEmitter.emit`): read `source_forms["gbnf"]` first, fall back to reconstructing from `regex`. Single `PatternAtom` dispatch branch. Explicit `default`-raise.
 - `codegen/lark_builder.py::_atom_to_lark`: collapse three `isinstance` branches into one `PatternAtom` branch. Handle new `InlineAlternationAtom.arms` by emitting a Lark alternation over inline atom sequences. Remove the `return '""'` fallback; replace with `UnsupportedConstructError`. Remove `decode_gbnf_escapes` usage (no longer needed — `LiteralAtom.value` is already decoded).
 - `codegen/model_emitter.py`: single `PatternAtom` dispatch. Update `InlineAlternationAtom` emission to descend into arm atoms. Explicit `default`-raise.
 - `codegen/transformer/registry.py` and `codegen/transformer/builders.py`: merge three builders into one `PatternFieldBuilder`. Update `InlineAlternationBuilder` to descend into `Arm.atoms`. Explicit `default`-raise in the dispatch wrapper.
@@ -623,14 +630,14 @@ All atom-shape changes and their consumer updates:
 - `codegen/naming.py`: handle new `InlineAlternationAtom.arms` shape when assigning field names.
 - Add codegen-time `validate_portable` + emitter-supports cross-check in `codegen.__init__`.
 - Regenerate seven ground-truth grammars; diff should show only atom-type renames and `source_forms={}` additions.
-- New test files land: `test_regex_portable.py`, `test_atom_shapes.py`, `tests/unit/lexic/codegen/gbnf/test_parser.py`, `test_source_forms_roundtrip.py`.
+- New test files land: `test_regex_portable.py`, `test_atom_shapes.py`, `tests/unit/lexic/grammars/gbnf/test_parser.py`, `test_source_forms_roundtrip.py`.
 - Existing tests that construct atoms by the old names are mechanically updated.
 
 Phase 2 ends green on all tests.
 
 ### Phase 3 — Token reservation
 
-- `codegen/gbnf/parser.py::GbnfParser.parse`: add pre-tokenisation regex scan for `<name>`, `<[N]>`, `!<name>`; raise `UnsupportedConstructError` on any match.
+- `grammars/gbnf/parser.py::GbnfParser.parse`: add pre-tokenisation regex scan for `<name>`, `<[N]>`, `!<name>`; raise `UnsupportedConstructError` on any match.
 - New `tests/integration/test_token_reservation.py`.
 
 Phase 3 ends green on all tests.
@@ -641,9 +648,10 @@ Phase 3 ends green on all tests.
 
 - [ ] `lexic/exceptions.py` exists with four error classes.
 - [ ] `lexic/ir/regex_portable.py` exists with `PORTABLE_FEATURES`, `validate_portable`, `features_used`.
-- [ ] `lexic/codegen/flavours.py` exists with three protocols + registry.
-- [ ] `lexic/codegen/gbnf/` package exists; `parser.py`, `ast.py`, `emitter.py`, `escapes.py`, `charclass.py` live inside it (via `git mv`, so history follows).
-- [ ] `lexic/codegen/gbnf/adapter.py::GbnfAdapter` exists and self-registers on import.
+- [ ] `lexic/grammars/flavours.py` exists with three protocols + registry.
+- [ ] `lexic/grammars/__init__.py` exists and bootstraps GBNF adapter registration on import.
+- [ ] `lexic/grammars/gbnf/` package exists; `parser.py`, `ast.py`, `emitter.py`, `escapes.py`, `charclass.py` live inside it (via `git mv`, so history follows).
+- [ ] `lexic/grammars/gbnf/adapter.py::GbnfAdapter` exists and self-registers on import via `grammars/__init__.py`.
 - [ ] `lexic/utils/escapes.py` and `lexic/utils/charclass.py` no longer exist.
 - [ ] `lexic/codegen/parser.py`, `lexic/codegen/ast.py`, `lexic/codegen/gbnf_emitter.py` no longer exist.
 - [ ] `codegen(flavour="gbnf")` works; `codegen(flavour="abnf")` raises `UnsupportedConstructError`.
@@ -662,10 +670,10 @@ Phase 3 ends green on all tests.
 - [ ] Seven ground-truth grammars regenerate identically modulo atom-type renames and `source_forms={...}` additions.
 - [ ] Property round-trips green on all seven grammars.
 - [ ] `source_forms["gbnf"]` populated on every `PatternAtom` produced by `GbnfParser`.
-- [ ] `generate.py`, `lark_builder.py`, `model_emitter.py`, `transformer/registry.py`, `codegen/gbnf/emitter.py` each have a single `PatternAtom` branch where they used to have three.
+- [ ] `generate.py`, `lark_builder.py`, `model_emitter.py`, `transformer/registry.py`, `grammars/gbnf/emitter.py` each have a single `PatternAtom` branch where they used to have three.
 - [ ] Every atom dispatch has an explicit `default` raise of `UnsupportedConstructError`.
 - [ ] Codegen-time `validate_portable` + emitter-supports cross-check in place.
-- [ ] New test files green: `test_regex_portable.py`, `test_atom_shapes.py`, `tests/unit/lexic/codegen/gbnf/test_parser.py`, `test_source_forms_roundtrip.py`.
+- [ ] New test files green: `test_regex_portable.py`, `test_atom_shapes.py`, `tests/unit/lexic/grammars/gbnf/test_parser.py`, `test_source_forms_roundtrip.py`.
 - [ ] All existing tests still green.
 - [ ] `uv run ruff check src/ tests/` clean.
 
@@ -685,7 +693,7 @@ Phase 3 ends green on all tests.
   - Scope: remove the `<<name>>` / `TokenAmbiguityError` bullet under "Token reservation".
   - Exit criteria: remove the `<<name>>` assertion line.
   - Open questions: strike-through the four resolved questions (matching the Slice A doc's convention).
-- `CLAUDE.md`: update the "Seven frozen Atom dataclasses" → "Five frozen Atom dataclasses" line; update the IR overview to reflect `PatternAtom` + `Arm` + reshaped `InlineAlternationAtom`; mention `codegen/gbnf/` layout; mention `flavour=` parameter.
+- `CLAUDE.md`: update the "Seven frozen Atom dataclasses" → "Five frozen Atom dataclasses" line; update the IR overview to reflect `PatternAtom` + `Arm` + reshaped `InlineAlternationAtom`; mention `grammars/gbnf/` layout; mention `flavour=` parameter.
 
 ## Implementation notes
 

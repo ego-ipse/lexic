@@ -37,18 +37,24 @@ src/lexic/
     __init__.py             re-exports Atom, atom types, RuleSpec
     atoms.py                seven frozen Atom dataclasses
     spec.py                 RuleSpec dataclass
+  grammars/                 flavour layer (Slice B target; see prototyping/next/2_ARCHITECTURE.md)
+    __init__.py             public endpoint: get_adapter(), adapter_for_extension(), register_adapter()
+    flavours.py             FlavourAdapter/Parser/Emitter protocols + ADAPTERS registry
+    gbnf/                   GBNF flavour implementation
+      adapter.py            GbnfAdapter
+      parser.py             GBNF text → AST (moved from codegen/parser.py)
+      emitter.py            GBNFEmitter: list[RuleSpec] → GBNF text (moved from codegen/gbnf_emitter.py)
+      ast.py                GBNF AST nodes (moved from codegen/ast.py)
+      escapes.py            decode_gbnf_escapes (moved from utils/escapes.py)
+      charclass.py          GBNF bracket-expression parsing (moved from utils/charclass.py)
   codegen/
     __init__.py             codegen(grammar_path) → dict[name, type]
-    ast.py                  GBNF AST nodes (stable — do not touch)
-    parser.py               GBNF text → AST (stable — do not touch)
     ir_builder.py           IRBuilder: GBNF AST → list[RuleSpec]
     model_emitter.py        ModelEmitter: list[RuleSpec] → Python source
-    gbnf_emitter.py         GBNFEmitter: list[RuleSpec] → GBNF text
     lark_builder.py         LarkBuilder: list[RuleSpec] → Lark grammar
-    transformer.py          build_transformer: Lark tree → Pydantic instance
+    transformer/            build_transformer: Lark tree → Pydantic instance
   utils/
     __init__.py
-    escapes.py              decode_gbnf_escapes
     quantifiers.py          bounds_to_quantifier
 tests/
   unit/lexic/{codegen,ir,utils}/    mirror of src layout
@@ -127,4 +133,4 @@ Never `from src.lexic...`.
 - No grammar-specific hardcoding.
 - Generated files in `generated/` are write-once artifacts — fix template issues in `model_emitter.py`.
 - `ast.py` and `parser.py` are stable dependencies — do not modify them.
-- Runtime (`lexic/base.py`, `lexic/parse.py`, `lexic/generate.py`) imports from `lexic.ir` and — for the one deliberate `to_gbnf` edge — from `lexic.codegen.gbnf_emitter`. All other codegen↔runtime edges are forbidden. See `prototyping/next/2_ARCHITECTURE.md` §Layering rules.
+- Runtime (`lexic/base.py`, `lexic/parse.py`, `lexic/generate.py`) imports from `lexic.ir` and — for the one deliberate `to_grammar` edge — from `lexic.grammars.gbnf.emitter`. All other codegen↔runtime edges are forbidden. See `prototyping/next/2_ARCHITECTURE.md` §Layering rules.
