@@ -1,0 +1,1 @@
+"""GBNF grammar for Lexic."""

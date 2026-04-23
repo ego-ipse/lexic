@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 import lark
-from lexic.codegen.parser import parse_gbnf
+from lexic.grammars.gbnf.parser import parse_gbnf
+from lexic.codegen import codegen_from_path
 from lexic.codegen.ir_builder import IRBuilder
 from lexic.codegen.lark_builder import LarkBuilder
 
@@ -63,3 +64,34 @@ def test_no_hyphen_in_lark_rule_names():
         if ":" in line:
             rule_name = line.split(":")[0].strip()
             assert "-" not in rule_name, f"Lark rule name has hyphen: '{rule_name}'"
+
+
+def _parse_and_transform(text: str, grammar: str):
+    gpath = GRAMMAR_DIR / f"{grammar}.gbnf"
+    classes = codegen_from_path(gpath)
+    rules = parse_gbnf(gpath.read_text())
+    specs = IRBuilder(rules).build()
+    builder = LarkBuilder(specs)
+    grammar_str, start = builder.build_grammar()
+    parser = lark.Lark(grammar_str, parser="earley", ambiguity="resolve", start=start)
+    tree = parser.parse(text)
+    transformer = builder.build_transformer(classes)
+    return transformer.transform(tree)
+
+
+def test_build_transformer_arithmetic():
+    result = _parse_and_transform("x=1\n", "arithmetic")
+    assert result is not None
+    assert result.to_text() == "x=1\n"
+
+
+def test_build_transformer_chess():
+    result = _parse_and_transform("1. e4 e5\n2. d4 d5\n", "chess")
+    assert result is not None
+    assert result.to_text() == "1. e4 e5\n2. d4 d5\n"
+
+
+def test_build_transformer_json():
+    result = _parse_and_transform("{}", "json_ws")
+    assert result is not None
+    assert result.to_text() == "{}"

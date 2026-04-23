@@ -3,7 +3,7 @@
 from __future__ import annotations
 import random
 from pathlib import Path
-from lexic.codegen.parser import parse_gbnf
+from lexic.grammars.gbnf.parser import parse_gbnf
 from lexic.codegen.ir_builder import IRBuilder
 from lexic.generate import generate
 

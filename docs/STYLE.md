@@ -323,6 +323,31 @@ Default to none. When you do write one:
   cases.** When a hypothesis seed catches a bug, convert it to a named
   regression test before fixing.
 
+### Test file structure mirrors source file structure
+
+`tests/unit/lexic/` is an exact structural mirror of `src/lexic/`. Every
+directory and every substantive source file has a counterpart:
+
+```
+src/lexic/foo/bar.py  →  tests/unit/lexic/foo/test_bar.py
+src/lexic/foo/        →  tests/unit/lexic/foo/  (with __init__.py)
+```
+
+**This rule is enforced on every structural change:**
+
+- Source file **created** → test file created in the mirrored location.
+- Source file **moved** → test file moved to the new mirrored location.
+- Source file **deleted** → test file deleted.
+- Source file **renamed** → test file renamed.
+
+Exceptions (no dedicated test file needed):
+- `__init__.py` files that only re-export symbols.
+- Pure-stub files with no executable logic (e.g. `exceptions.py`
+  containing only empty class definitions).
+
+Violating this rule silently orphans tests or leaves new code untested.
+Add it to the self-review checklist before committing.
+
 ---
 
 ## 11. Performance
@@ -385,5 +410,7 @@ Before committing, re-read the diff asking:
 - [ ] Have I edited `generated/*.py` instead of the emitter?
 - [ ] Did any test pass because of harness accident rather than the code
       under test?
+- [ ] Did I create, move, rename, or delete a source file? If so, did the
+      corresponding test file get the same treatment?
 
 If any answer is uncertain, the change isn't ready.

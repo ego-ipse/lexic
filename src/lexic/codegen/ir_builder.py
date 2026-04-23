@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import assert_never
 
 from lexic.ir import AlternationAtom, RuleSpec
-from lexic.codegen.ast import Alternation, Rule, Sequence
+from lexic.grammars.gbnf.ast import Alternation, Rule, Sequence
 from lexic.codegen.ast_utils import single_ruleref_of
 from lexic.codegen.helpers import HelperRuleRegistry
 from lexic.codegen.naming import assign_field_names

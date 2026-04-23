@@ -1,4 +1,4 @@
-from lexic.codegen.ast import (
+from lexic.grammars.gbnf.ast import (
     Alternation,
     CharClass,
     Group,

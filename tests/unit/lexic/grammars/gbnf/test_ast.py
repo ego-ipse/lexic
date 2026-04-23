@@ -1,6 +1,6 @@
 """Unit tests for src/lexic/codegen/ast.py"""
 
-from lexic.codegen.ast import (
+from lexic.grammars.gbnf.ast import (
     Literal,
     CharClass,
     RuleRef,

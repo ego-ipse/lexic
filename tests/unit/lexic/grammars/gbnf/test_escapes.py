@@ -1,6 +1,6 @@
 """Unit tests for src/lexic/utils/escapes.py"""
 
-from lexic.utils.escapes import decode_gbnf_escapes
+from lexic.grammars.gbnf.escapes import decode_gbnf_escapes
 
 
 def test_newline():

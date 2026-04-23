@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import cast
 
-from lexic.codegen.ast import (
+from lexic.grammars.gbnf.ast import (
     Alternation,
     CharClass,
     Group,

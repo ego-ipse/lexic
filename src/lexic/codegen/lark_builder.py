@@ -18,7 +18,7 @@ from lexic.ir import (
     RuleRefAtom,
     RuleSpec,
 )
-from lexic.utils.escapes import decode_gbnf_escapes
+from lexic.grammars.gbnf.escapes import decode_gbnf_escapes
 from lexic.utils.names import to_lark_name
 from lexic.utils.quantifiers import bounds_to_quantifier
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from lexic.codegen.ast import (
+from lexic.grammars.gbnf.ast import (
     Alternation,
     Group,
     Item,

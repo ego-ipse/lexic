@@ -16,7 +16,7 @@ If a rule in `docs/STYLE.md` conflicts with a specific instruction below, the sp
 Always prefix with `uv run`:
 
 ```bash
-uv run pytest tests/ -q                  # full suite (312 tests)
+uv run pytest tests/ -q                  # full suite
 uv run pytest tests/unit/lexic/ -q       # unit only
 uv run ruff check src/ tests/            # lint
 ```
@@ -134,3 +134,13 @@ Never `from src.lexic...`.
 - Generated files in `generated/` are write-once artifacts — fix template issues in `model_emitter.py`.
 - `ast.py` and `parser.py` are stable dependencies — do not modify them.
 - Runtime (`lexic/base.py`, `lexic/parse.py`, `lexic/generate.py`) imports from `lexic.ir` and — for the one deliberate `to_grammar` edge — from `lexic.grammars.gbnf.emitter`. All other codegen↔runtime edges are forbidden. See `prototyping/next/2_ARCHITECTURE.md` §Layering rules.
+
+## Test file structure
+
+`tests/unit/lexic/` is a structural mirror of `src/lexic/`:
+
+```
+src/lexic/foo/bar.py  →  tests/unit/lexic/foo/test_bar.py
+```
+
+**Whenever a source file is created, moved, renamed, or deleted, the corresponding test file must get the exact same treatment.** This is not optional. See `docs/STYLE.md` §10 for the full rule and exceptions.

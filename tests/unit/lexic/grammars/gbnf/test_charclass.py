@@ -1,4 +1,4 @@
-from lexic.utils.charclass import parse_charclass_chars, parse_escape
+from lexic.grammars.gbnf.charclass import parse_charclass_chars, parse_escape
 
 
 def test_parse_escape_basic():

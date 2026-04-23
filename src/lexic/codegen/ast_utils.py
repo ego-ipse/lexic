@@ -7,7 +7,7 @@ underscore) because more than one module depends on them.
 
 from __future__ import annotations
 
-from lexic.codegen.ast import (
+from lexic.grammars.gbnf.ast import (
     Alternation,
     CharClass,
     Group,

@@ -52,23 +52,31 @@ def _atom_to_gbnf(atom) -> str:
     return ""
 
 
-class GBNFEmitter:
-    """Emits GBNF grammar text from a list of RuleSpec objects.
+class GbnfEmitter:
+    """GBNF flavour emitter."""
 
-    Usage:
-        specs = IRBuilder(parse_gbnf(text)).build()
-        gbnf_text = GBNFEmitter(specs).emit()
-        # gbnf_text can be passed back to parse_gbnf() or saved as a .gbnf file
-    """
+    supports: frozenset[str] = frozenset(
+        {
+            "literal",
+            "char_class",
+            "negated_class",
+            "quantifier",
+            "alternation",
+            "non_capturing_group",
+            "unicode_escape",
+        }
+    )
+    # Notably absent: "shorthand". GbnfParser lowers \d \w \s to char classes
+    # at parse time, so GBNF-parsed IR never carries shorthand.
 
-    def __init__(self, specs: list[RuleSpec]):
+    def __init__(self, specs):
         self._specs = specs
 
-    def emit(self) -> str:
-        """Emit the full grammar as a GBNF string."""
-        lines = []
-        for spec in self._specs:
-            lines.append(self.emit_rule(spec))
+    def emit(self, specs=None) -> str:
+        """Emit a full GBNF grammar string from a list of RuleSpec."""
+        if specs is None:
+            specs = self._specs
+        lines = [self.emit_rule(s) for s in specs]
         return "\n".join(lines) + "\n"
 
     def emit_rule(self, spec: RuleSpec) -> str:
@@ -88,3 +96,8 @@ class GBNFEmitter:
         # sequence or other
         parts = [_atom_to_gbnf(a) for a in spec.items]
         return " ".join(p for p in parts if p)
+
+
+# Backwards compatibility for callers still importing GBNFEmitter.
+# Removed at end of Slice B (Task 32) after all imports are updated.
+GBNFEmitter = GbnfEmitter

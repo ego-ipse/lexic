@@ -3,7 +3,7 @@
 from __future__ import annotations
 from pathlib import Path
 import pytest
-from lexic.codegen.parser import parse_gbnf
+from lexic.grammars.gbnf.parser import parse_gbnf
 from lexic.codegen.ir_builder import IRBuilder
 
 GRAMMAR_DIR = Path(__file__).parent.parent.parent / "resources" / "ground_truth"
