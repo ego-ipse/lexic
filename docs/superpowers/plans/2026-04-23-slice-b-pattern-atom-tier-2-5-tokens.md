@@ -4,7 +4,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-04-23-slice-b-design.md`
 
-**Goal:** Collapse three atom types into `PatternAtom`, reshape `InlineAlternationAtom` to carry inline arm contents, move the GBNF-specific codebase into `codegen/gbnf/` under `FlavourAdapter`/`FlavourParser`/`FlavourEmitter` protocols, and reserve GBNF token syntax (`<name>`, `<[N]>`, `!<name>`) with a clear error.
+**Goal:** Collapse three atom types into `PatternAtom`, reshape `InlineAlternationAtom` to carry inline arm contents, move the GBNF-specific codebase into `grammars/gbnf/` under `FlavourAdapter`/`FlavourParser`/`FlavourEmitter` protocols, and reserve GBNF token syntax (`<name>`, `<[N]>`, `!<name>`) with a clear error.
 
 **Architecture:** Three phases landing inside one PR. Phase 1 and Phase 3 each land as one commit; Phase 2 lands as two commits (one isolated canonicalize_groups commit, then one bundled atom-migration commit that includes shape change + consumer migration + regen + cleanup — these must land together because the consumers-in-flight state isn't green).
 1. **Scaffolding** (Phase 1) — behaviour-preserving moves, new infrastructure modules, `flavour=` parameter threading, delete `LarkBuilder.build_transformer`, freeze atoms, doc cleanup.
@@ -24,22 +24,22 @@
 **Creates (new files):**
 - `src/lexic/exceptions.py` — four error classes.
 - `src/lexic/ir/regex_portable.py` — `PORTABLE_FEATURES`, `validate_portable`, `features_used`, `canonicalize_groups`.
-- `src/lexic/codegen/flavours.py` — `FlavourParser`/`FlavourEmitter`/`FlavourAdapter` protocols, `ADAPTERS` registry, eager GBNF registration.
-- `src/lexic/codegen/gbnf/__init__.py` — pure re-export (no side effects).
-- `src/lexic/codegen/gbnf/adapter.py` — `GbnfAdapter` class.
-- `tests/unit/lexic/codegen/test_flavours.py` — registry + protocol smoke tests.
-- `tests/unit/lexic/codegen/gbnf/__init__.py` — empty package marker.
+- `src/lexic/grammars/flavours.py` — `FlavourParser`/`FlavourEmitter`/`FlavourAdapter` protocols, `ADAPTERS` registry, eager GBNF registration.
+- `src/lexic/grammars/gbnf/__init__.py` — pure re-export (no side effects).
+- `src/lexic/grammars/gbnf/adapter.py` — `GbnfAdapter` class.
+- `tests/unit/lexic/grammars/test_flavours.py` — registry + protocol smoke tests.
+- `tests/unit/lexic/grammars/gbnf/__init__.py` — empty package marker.
 
 **Moves (git mv — history follows):**
-- `src/lexic/codegen/parser.py` → `src/lexic/codegen/gbnf/parser.py`
-- `src/lexic/codegen/ast.py` → `src/lexic/codegen/gbnf/ast.py`
-- `src/lexic/codegen/gbnf_emitter.py` → `src/lexic/codegen/gbnf/emitter.py`
-- `src/lexic/utils/escapes.py` → `src/lexic/codegen/gbnf/escapes.py`
-- `src/lexic/utils/charclass.py` → `src/lexic/codegen/gbnf/charclass.py`
-- `tests/unit/lexic/codegen/test_parser.py` → `tests/unit/lexic/codegen/gbnf/test_parser.py` (+ mirror tests for escapes/charclass if they exist)
+- `src/lexic/codegen/parser.py` → `src/lexic/grammars/gbnf/parser.py`
+- `src/lexic/codegen/ast.py` → `src/lexic/grammars/gbnf/ast.py`
+- `src/lexic/codegen/gbnf_emitter.py` → `src/lexic/grammars/gbnf/emitter.py`
+- `src/lexic/utils/escapes.py` → `src/lexic/grammars/gbnf/escapes.py`
+- `src/lexic/utils/charclass.py` → `src/lexic/grammars/gbnf/charclass.py`
+- `tests/unit/lexic/codegen/test_parser.py` → `tests/unit/lexic/grammars/gbnf/test_parser.py` (+ mirror tests for escapes/charclass if they exist)
 
 **Modifies:**
-- `src/lexic/base.py` — add `to_grammar(flavour)`; rewrite `to_gbnf()` as alias; eager import from `lexic.codegen.gbnf.emitter`.
+- `src/lexic/base.py` — add `to_grammar(flavour)`; rewrite `to_gbnf()` as alias; eager import from `lexic.grammars.gbnf.emitter`.
 - `src/lexic/codegen/__init__.py` — add `flavour` parameter to public functions.
 - `src/lexic/compile.py` — add `flavour` parameter.
 - `src/lexic/codegen/lark_builder.py` — delete `build_transformer` method.
@@ -53,13 +53,13 @@
 - `src/lexic/ir/atoms.py` — add `PatternAtom`, `Arm`; reshape `InlineAlternationAtom.arms` to `tuple[Arm, ...]`; reshape `AlternationAtom.arm_rule_names` to `tuple[str, ...]`; remove `CharClassAtom`, `QuantifiedLiteralAtom`, `InlineRegexAtom` (end of Phase 2 only — see per-task ordering).
 - `src/lexic/ir/__init__.py` — update re-exports.
 - `src/lexic/ir/regex_portable.py` — add `canonicalize_groups`.
-- `src/lexic/codegen/gbnf/parser.py` — emit `PatternAtom` with `source_forms["gbnf"]`; lower shorthand `\d \w \s`; decode GBNF escapes into canonical Python for `LiteralAtom.value` and `PatternAtom.regex`.
+- `src/lexic/grammars/gbnf/parser.py` — emit `PatternAtom` with `source_forms["gbnf"]`; lower shorthand `\d \w \s`; decode GBNF escapes into canonical Python for `LiteralAtom.value` and `PatternAtom.regex`.
 - `src/lexic/codegen/seq_to_atoms.py` — drop inline-alt helper-rule synthesis; construct `InlineAlternationAtom(arms=...)` directly.
 - `src/lexic/codegen/ir_builder.py` — atom construction updates (if any remaining outside `seq_to_atoms`).
 - `src/lexic/codegen/naming.py` — handle new `InlineAlternationAtom.arms` shape.
 - `src/lexic/codegen/lark_builder.py` — single `PatternAtom` branch in `_atom_to_lark`; explicit default raise; handle new `InlineAlternationAtom.arms`; drop `decode_gbnf_escapes` usage.
 - `src/lexic/codegen/model_emitter.py` — single `PatternAtom` branch in `_field_type` and `_repr_atom`; updated `InlineAlternationAtom` rendering; explicit default raise.
-- `src/lexic/codegen/gbnf/emitter.py` — single `PatternAtom` dispatch (read `source_forms["gbnf"]` first; else `NotImplementedError` stub); explicit default raise.
+- `src/lexic/grammars/gbnf/emitter.py` — single `PatternAtom` dispatch (read `source_forms["gbnf"]` first; else `NotImplementedError` stub); explicit default raise.
 - `src/lexic/codegen/transformer/registry.py`, `src/lexic/codegen/transformer/builders.py` — merge three builders into `PatternFieldBuilder`; update `InlineAlternationBuilder`; explicit default raise.
 - `src/lexic/generate.py` — regex-aware sampler for `PatternAtom` (replace bracket-expression + shorthand expansion); updated `InlineAlternationAtom` handling; explicit default raise.
 - `src/lexic/codegen/__init__.py` — wire `validate_portable` + `supports` cross-check.
@@ -69,13 +69,13 @@
 **Creates:**
 - `tests/unit/lexic/ir/test_atom_shapes.py`
 - `tests/unit/lexic/ir/test_regex_portable.py`
-- `tests/unit/lexic/codegen/gbnf/test_parser_source_forms.py`
+- `tests/unit/lexic/grammars/gbnf/test_parser_source_forms.py`
 - `tests/integration/test_source_forms_roundtrip.py`
 
 ### Phase 3 — token reservation
 
 **Modifies:**
-- `src/lexic/codegen/gbnf/parser.py` — pre-tokenisation scan at top of `parse()`.
+- `src/lexic/grammars/gbnf/parser.py` — pre-tokenisation scan at top of `parse()`.
 
 **Creates:**
 - `tests/integration/test_token_reservation.py`.
@@ -347,49 +347,49 @@ No consumers yet."
 
 ---
 
-## Task 3: Move GBNF-owned modules into `codegen/gbnf/`
+## Task 3: Move GBNF-owned modules into `grammars/gbnf/`
 
 Three `git mv`s (codegen) + two `git mv`s (utils), plus a new `__init__.py`. This task is pure rename — no content changes. All imports break and get fixed in Task 5.
 
 **Files:**
-- Move: `src/lexic/codegen/parser.py` → `src/lexic/codegen/gbnf/parser.py`
-- Move: `src/lexic/codegen/ast.py` → `src/lexic/codegen/gbnf/ast.py`
-- Move: `src/lexic/codegen/gbnf_emitter.py` → `src/lexic/codegen/gbnf/emitter.py`
-- Move: `src/lexic/utils/escapes.py` → `src/lexic/codegen/gbnf/escapes.py`
-- Move: `src/lexic/utils/charclass.py` → `src/lexic/codegen/gbnf/charclass.py`
-- Move: `tests/unit/lexic/codegen/test_parser.py` → `tests/unit/lexic/codegen/gbnf/test_parser.py`
-- Create: `src/lexic/codegen/gbnf/__init__.py`
-- Create: `tests/unit/lexic/codegen/gbnf/__init__.py`
+- Move: `src/lexic/codegen/parser.py` → `src/lexic/grammars/gbnf/parser.py`
+- Move: `src/lexic/codegen/ast.py` → `src/lexic/grammars/gbnf/ast.py`
+- Move: `src/lexic/codegen/gbnf_emitter.py` → `src/lexic/grammars/gbnf/emitter.py`
+- Move: `src/lexic/utils/escapes.py` → `src/lexic/grammars/gbnf/escapes.py`
+- Move: `src/lexic/utils/charclass.py` → `src/lexic/grammars/gbnf/charclass.py`
+- Move: `tests/unit/lexic/codegen/test_parser.py` → `tests/unit/lexic/grammars/gbnf/test_parser.py`
+- Create: `src/lexic/grammars/gbnf/__init__.py`
+- Create: `tests/unit/lexic/grammars/gbnf/__init__.py`
 
 - [ ] **Step 1: Run the moves**
 
 ```bash
-mkdir -p src/lexic/codegen/gbnf tests/unit/lexic/codegen/gbnf
-git mv src/lexic/codegen/parser.py       src/lexic/codegen/gbnf/parser.py
-git mv src/lexic/codegen/ast.py          src/lexic/codegen/gbnf/ast.py
-git mv src/lexic/codegen/gbnf_emitter.py src/lexic/codegen/gbnf/emitter.py
-git mv src/lexic/utils/escapes.py        src/lexic/codegen/gbnf/escapes.py
-git mv src/lexic/utils/charclass.py      src/lexic/codegen/gbnf/charclass.py
-git mv tests/unit/lexic/codegen/test_parser.py tests/unit/lexic/codegen/gbnf/test_parser.py
+mkdir -p src/lexic/grammars/gbnf tests/unit/lexic/grammars/gbnf
+git mv src/lexic/codegen/parser.py       src/lexic/grammars/gbnf/parser.py
+git mv src/lexic/codegen/ast.py          src/lexic/grammars/gbnf/ast.py
+git mv src/lexic/codegen/gbnf_emitter.py src/lexic/grammars/gbnf/emitter.py
+git mv src/lexic/utils/escapes.py        src/lexic/grammars/gbnf/escapes.py
+git mv src/lexic/utils/charclass.py      src/lexic/grammars/gbnf/charclass.py
+git mv tests/unit/lexic/codegen/test_parser.py tests/unit/lexic/grammars/gbnf/test_parser.py
 ```
 
 - [ ] **Step 2: Create the package markers**
 
 ```python
-# src/lexic/codegen/gbnf/__init__.py
+# src/lexic/grammars/gbnf/__init__.py
 """GBNF flavour adapter package.
 
-Pure re-export. Adapter registration lives in lexic.codegen.flavours so
+Pure re-export. Adapter registration lives in lexic.grammars so
 registry population is import-order independent.
 """
 
-from lexic.codegen.gbnf.adapter import GbnfAdapter
+from lexic.grammars.gbnf.adapter import GbnfAdapter
 
 __all__ = ["GbnfAdapter"]
 ```
 
 ```python
-# tests/unit/lexic/codegen/gbnf/__init__.py
+# tests/unit/lexic/grammars/gbnf/__init__.py
 ```
 
 (empty file — pytest package marker)
@@ -408,8 +408,8 @@ Expected: many import errors referencing `lexic.codegen.parser`, `lexic.utils.es
 `parse_gbnf` in `gbnf/parser.py` is currently a module-level function. `GBNFEmitter` is already a class. Wrap the parser as a class implementing `FlavourParser`, and add `supports` to `GBNFEmitter`.
 
 **Files:**
-- Modify: `src/lexic/codegen/gbnf/parser.py`
-- Modify: `src/lexic/codegen/gbnf/emitter.py`
+- Modify: `src/lexic/grammars/gbnf/parser.py`
+- Modify: `src/lexic/grammars/gbnf/emitter.py`
 
 - [ ] **Step 1: Add `GbnfParser` class to `gbnf/parser.py`**
 
@@ -433,7 +433,7 @@ class GbnfParser:
 
 - [ ] **Step 2: Rename `GBNFEmitter` → `GbnfEmitter` and add `supports`**
 
-In `src/lexic/codegen/gbnf/emitter.py`:
+In `src/lexic/grammars/gbnf/emitter.py`:
 
 - Rename class `GBNFEmitter` → `GbnfEmitter` (consistent with `GbnfParser` / `GbnfAdapter`).
 - Add class attribute `supports: frozenset[str]` before `__init__`:
@@ -479,11 +479,11 @@ At the bottom of `gbnf/emitter.py`:
 GBNFEmitter = GbnfEmitter
 ```
 
-This keeps `from lexic.codegen.gbnf.emitter import GBNFEmitter` working during Task 5's import sweep. Delete in Task 32.
+This keeps `from lexic.grammars.gbnf.emitter import GBNFEmitter` working during Task 5's import sweep. Delete in Task 32.
 
 - [ ] **Step 4: Verify imports work from the moved location**
 
-Run: `uv run python -c "from lexic.codegen.gbnf.parser import GbnfParser, parse_gbnf; from lexic.codegen.gbnf.emitter import GbnfEmitter, GBNFEmitter; print('ok')"`
+Run: `uv run python -c "from lexic.grammars.gbnf.parser import GbnfParser, parse_gbnf; from lexic.grammars.gbnf.emitter import GbnfEmitter, GBNFEmitter; print('ok')"`
 Expected: `ok`
 
 **Do not commit yet** — Task 14 commits Phase 1 as one unit.
@@ -495,11 +495,11 @@ Expected: `ok`
 Move every import of the moved modules to their new paths.
 
 **Files to edit (non-exhaustive — grep to find all):**
-- Any `from lexic.codegen.parser import ...` → `from lexic.codegen.gbnf.parser import ...`
-- Any `from lexic.codegen.ast import ...` → `from lexic.codegen.gbnf.ast import ...`
-- Any `from lexic.codegen.gbnf_emitter import ...` → `from lexic.codegen.gbnf.emitter import ...`
-- Any `from lexic.utils.escapes import ...` → `from lexic.codegen.gbnf.escapes import ...`
-- Any `from lexic.utils.charclass import ...` → `from lexic.codegen.gbnf.charclass import ...`
+- Any `from lexic.codegen.parser import ...` → `from lexic.grammars.gbnf.parser import ...`
+- Any `from lexic.codegen.ast import ...` → `from lexic.grammars.gbnf.ast import ...`
+- Any `from lexic.codegen.gbnf_emitter import ...` → `from lexic.grammars.gbnf.emitter import ...`
+- Any `from lexic.utils.escapes import ...` → `from lexic.grammars.gbnf.escapes import ...`
+- Any `from lexic.utils.charclass import ...` → `from lexic.grammars.gbnf.charclass import ...`
 
 - [ ] **Step 1: Find all call sites**
 
@@ -520,8 +520,8 @@ from lexic.codegen.gbnf_emitter import GBNFEmitter
 from lexic.utils.escapes import decode_gbnf_escapes
 
 # After:
-from lexic.codegen.gbnf.emitter import GbnfEmitter
-from lexic.codegen.gbnf.escapes import decode_gbnf_escapes
+from lexic.grammars.gbnf.emitter import GbnfEmitter
+from lexic.grammars.gbnf.escapes import decode_gbnf_escapes
 ```
 
 In `base.py`, also update `to_gbnf` to use `GbnfEmitter`:
@@ -555,24 +555,24 @@ Expected: clean. Ruff will flag any unused imports left from the sweep.
 ## Task 6: Create `GbnfAdapter`
 
 **Files:**
-- Create: `src/lexic/codegen/gbnf/adapter.py`
+- Create: `src/lexic/grammars/gbnf/adapter.py`
 
 - [ ] **Step 1: Write the adapter**
 
 ```python
-# src/lexic/codegen/gbnf/adapter.py
+# src/lexic/grammars/gbnf/adapter.py
 """GbnfAdapter composes GbnfParser and GbnfEmitter into a FlavourAdapter."""
 
 from __future__ import annotations
 
-from lexic.codegen.gbnf.emitter import GbnfEmitter
-from lexic.codegen.gbnf.parser import GbnfParser
+from lexic.grammars.gbnf.emitter import GbnfEmitter
+from lexic.grammars.gbnf.parser import GbnfParser
 
 
 class GbnfAdapter:
     """GBNF flavour adapter.
 
-    Implements FlavourAdapter (duck-typed against codegen.flavours.FlavourAdapter).
+    Implements FlavourAdapter (duck-typed against grammars.FlavourAdapter).
     """
 
     name = "gbnf"
@@ -593,26 +593,26 @@ class GbnfAdapter:
 
 - [ ] **Step 2: Verify import**
 
-Run: `uv run python -c "from lexic.codegen.gbnf.adapter import GbnfAdapter; a = GbnfAdapter(); print(a.name, a.extensions)"`
+Run: `uv run python -c "from lexic.grammars.gbnf.adapter import GbnfAdapter; a = GbnfAdapter(); print(a.name, a.extensions)"`
 Expected: `gbnf ('.gbnf',)`
 
 **Do not commit yet.**
 
 ---
 
-## Task 7: Create `codegen/flavours.py` with protocols, registry, eager registration
+## Task 7: Create `grammars/flavours.py` with protocols, registry, eager registration
 
 **Files:**
-- Create: `src/lexic/codegen/flavours.py`
+- Create: `src/lexic/grammars/flavours.py`
 
 - [ ] **Step 1: Write the module**
 
 ```python
-# src/lexic/codegen/flavours.py
+# src/lexic/grammars/flavours.py
 """FlavourAdapter protocol + ADAPTERS registry for lexic.
 
 The registry is populated eagerly at module import time. Callers that
-`from lexic.codegen.flavours import get_adapter` get a populated registry
+`from lexic.grammars import get_adapter` get a populated registry
 regardless of whether `lexic.codegen` was imported elsewhere.
 """
 
@@ -672,19 +672,19 @@ def adapter_for_extension(path: str | Path) -> FlavourAdapter:
 
 # Eager GBNF registration — populates ADAPTERS at import time so the registry
 # is usable regardless of import order. New adapters add analogous lines here.
-from lexic.codegen.gbnf.adapter import GbnfAdapter as _GbnfAdapter
+from lexic.grammars.gbnf.adapter import GbnfAdapter as _GbnfAdapter
 
 register_adapter(_GbnfAdapter())
 ```
 
-**Note on the bottom imports:** PEP 8 flags bottom-of-file imports, but the eager registration is intentional: it guarantees `ADAPTERS` is populated after `from lexic.codegen.flavours import ...`. The `as _GbnfAdapter` alias keeps the public module surface clean.
+**Note on the bottom imports:** PEP 8 flags bottom-of-file imports, but the eager registration is intentional: it guarantees `ADAPTERS` is populated after `from lexic.grammars import ...`. The `as _GbnfAdapter` alias keeps the public module surface clean.
 
 - [ ] **Step 2: Verify registration at import time**
 
 Run:
 ```bash
 uv run python -c "
-from lexic.codegen.flavours import ADAPTERS, get_adapter
+from lexic.grammars import ADAPTERS, get_adapter
 print('registered:', sorted(ADAPTERS))
 a = get_adapter('gbnf')
 print('gbnf adapter:', a.name, a.extensions)
@@ -700,7 +700,7 @@ gbnf adapter: gbnf ('.gbnf',)
 
 ```bash
 uv run python -c "
-from lexic.codegen.flavours import get_adapter
+from lexic.grammars import get_adapter
 from lexic.exceptions import UnsupportedConstructError
 try:
     get_adapter('abnf')
@@ -736,7 +736,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from lexic.codegen.flavours import adapter_for_extension, get_adapter
+from lexic.grammars import adapter_for_extension, get_adapter
 from lexic.codegen.ir_builder import IRBuilder
 from lexic.codegen.model_emitter import ModelEmitter
 from lexic.ir import RuleSpec
@@ -872,7 +872,7 @@ def compile_from_path(
     if cached is not None:
         return cached
     if flavour is None:
-        from lexic.codegen.flavours import adapter_for_extension
+        from lexic.grammars import adapter_for_extension
 
         flavour = adapter_for_extension(path).name
     return compile(path.read_text(), cache_key=key, flavour=flavour)
@@ -907,7 +907,7 @@ def to_grammar(self, flavour: str = "gbnf") -> str:
     Uses the FlavourEmitter protocol's emit(specs) — single-rule output
     strips the trailing newline.
     """
-    from lexic.codegen.flavours import get_adapter
+    from lexic.grammars import get_adapter
 
     adapter = get_adapter(flavour)
     return adapter.emitter.emit([self.__grammar__]).rstrip("\n")
@@ -919,7 +919,7 @@ def to_gbnf(self) -> str:
 
 **Protocol cleanliness:** `emit_rule(spec)` is a GBNF-specific method on `GbnfEmitter`. Protocol-level `emit(specs)` is what every emitter guarantees; `to_grammar` uses the protocol surface, not the concrete class's extra methods. `GbnfEmitter.emit(specs)` internally calls `emit_rule(s)` per spec and joins — `emit([one_spec])` produces exactly one rule's text plus a trailing newline, which `.rstrip("\n")` strips.
 
-**Note on import:** the spec calls for an eager module-level import (`base.py` imports `lexic.codegen.gbnf.emitter`). However, `get_adapter` lookups preserve flavour-agnostic `to_grammar` (keeping the edge flavour-neutral). Keep the import lazy **only for `to_grammar`** and accept that this is a principled lazy import — it exists so `base.py` does not bake `gbnf` into its module-level imports. `2_ARCHITECTURE.md` §Layering rules talks about "the two deliberate exceptions" — this is one of them. Add a module docstring note:
+**Note on import:** the spec calls for an eager module-level import (`base.py` imports `lexic.grammars.gbnf.emitter`). However, `get_adapter` lookups preserve flavour-agnostic `to_grammar` (keeping the edge flavour-neutral). Keep the import lazy **only for `to_grammar`** and accept that this is a principled lazy import — it exists so `base.py` does not bake `gbnf` into its module-level imports. `2_ARCHITECTURE.md` §Layering rules talks about "the two deliberate exceptions" — this is one of them. Add a module docstring note:
 
 ```python
 # At top of base.py after the existing module docstring:
@@ -941,7 +941,7 @@ from lexic.utils.escapes import decode_gbnf_escapes
 
 ```python
 def to_text(self) -> str:
-    from lexic.codegen.gbnf.escapes import decode_gbnf_escapes
+    from lexic.grammars.gbnf.escapes import decode_gbnf_escapes
     # ... rest unchanged ...
 ```
 
@@ -1146,19 +1146,19 @@ Expected: **414 passed**; ruff clean.
 ## Task 14: Add `test_flavours.py` + commit Phase 1
 
 **Files:**
-- Create: `tests/unit/lexic/codegen/test_flavours.py`
+- Create: `tests/unit/lexic/grammars/test_flavours.py`
 
 - [ ] **Step 1: Write the test file**
 
 ```python
-# tests/unit/lexic/codegen/test_flavours.py
+# tests/unit/lexic/grammars/test_flavours.py
 """Tests for the flavours registry and adapter lookup."""
 
 from __future__ import annotations
 
 import pytest
 
-from lexic.codegen.flavours import (
+from lexic.grammars import (
     ADAPTERS,
     FlavourAdapter,
     adapter_for_extension,
@@ -1229,7 +1229,7 @@ def test_get_adapter_via_direct_flavours_import():
     # Asserts eager-registration works without prior lexic.codegen import.
     import importlib
 
-    import lexic.codegen.flavours as flavours
+    import lexic.grammars as flavours
 
     importlib.reload(flavours)
     assert "gbnf" in flavours.ADAPTERS
@@ -1237,7 +1237,7 @@ def test_get_adapter_via_direct_flavours_import():
 
 - [ ] **Step 2: Run the new tests**
 
-Run: `uv run pytest tests/unit/lexic/codegen/test_flavours.py -v`
+Run: `uv run pytest tests/unit/lexic/grammars/test_flavours.py -v`
 Expected: all pass.
 
 - [ ] **Step 3: Run the full suite**
@@ -1265,13 +1265,13 @@ Creates:
 - lexic/ir/regex_portable.py: PORTABLE_FEATURES set + validate_portable /
   features_used sre_parse walkers + canonicalize_groups (no-op stub; Phase 2
   lands the real impl).
-- lexic/codegen/flavours.py: FlavourParser/FlavourEmitter/FlavourAdapter
+- lexic/grammars/flavours.py: FlavourParser/FlavourEmitter/FlavourAdapter
   protocols + ADAPTERS registry + eager GBNF registration at module load.
-- lexic/codegen/gbnf/: package with adapter.py (GbnfAdapter) and __init__.py.
+- lexic/grammars/gbnf/: package with adapter.py (GbnfAdapter) and __init__.py.
 
 Moves (git mv preserves history):
-- codegen/{parser,ast,gbnf_emitter}.py  -> codegen/gbnf/{parser,ast,emitter}.py
-- utils/{escapes,charclass}.py          -> codegen/gbnf/{escapes,charclass}.py
+- codegen/{parser,ast,gbnf_emitter}.py  -> grammars/gbnf/{parser,ast,emitter}.py
+- utils/{escapes,charclass}.py          -> grammars/gbnf/{escapes,charclass}.py
 
 Wraps GBNFEmitter as GbnfEmitter with supports: frozenset[str] (GBNF's
 portable-features subset; shorthand is absent — parser lowers \d \w \s to
@@ -1290,7 +1290,7 @@ Docs: drops <<name>>/TokenAmbiguityError references from 2_ARCHITECTURE.md
 and 3_ROADMAP.md (syntax does not exist in GBNF). Updates CLAUDE.md project
 layout to reflect the moves and flavour= parameter.
 
-Adds tests/unit/lexic/codegen/test_flavours.py.
+Adds tests/unit/lexic/grammars/test_flavours.py.
 
 All 421 tests green (414 original + 7 new). Ruff clean.
 
@@ -1763,43 +1763,43 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 18: `GbnfParser.parse` — emit `PatternAtom` from char classes + literals + inline regex
 
 **Files:**
-- Modify: `src/lexic/codegen/gbnf/parser.py` (or wherever atom construction happens — primarily `seq_to_atoms.py` at `src/lexic/codegen/seq_to_atoms.py`, see note below)
+- Modify: `src/lexic/grammars/gbnf/parser.py` (or wherever atom construction happens — primarily `seq_to_atoms.py` at `src/lexic/codegen/seq_to_atoms.py`, see note below)
 
 **Note on file layout:** Today the AST→IR conversion lives in `codegen/seq_to_atoms.py` and `codegen/ir_builder.py`, not in `gbnf/parser.py` (which is AST-only). Spec §Flavour seam §GbnfAdapter describes `GbnfParser.parse` as returning `list[RuleSpec]` — that's the target end-state. Phase 2 has two viable paths:
 
-- **Path A (recommended):** Keep `seq_to_atoms.py` and `ir_builder.py` where they are (inside `codegen/`, shared infrastructure) but have `GbnfParser.parse` call them after the AST stage. The "GBNF-specific" code in `seq_to_atoms.py` becomes the GBNF-AST → IR conversion, which is itself GBNF-specific → logically a `codegen/gbnf/` resident. Move both files into `codegen/gbnf/` as part of this task. This matches the "anything GBNF-specific lives in codegen/gbnf/" principle.
+- **Path A (recommended):** Keep `seq_to_atoms.py` and `ir_builder.py` where they are (inside `codegen/`, shared infrastructure) but have `GbnfParser.parse` call them after the AST stage. The "GBNF-specific" code in `seq_to_atoms.py` becomes the GBNF-AST → IR conversion, which is itself GBNF-specific → logically a `grammars/gbnf/` resident. Move both files into `grammars/gbnf/` as part of this task. This matches the "anything GBNF-specific lives in grammars/gbnf/" principle.
 - **Path B:** Keep `seq_to_atoms.py` and `ir_builder.py` at `codegen/` level; have `GbnfParser.parse` still return AST; have the public API call `IRBuilder(ast).build()` after `parser.parse()`. Cleaner for the per-adapter protocol boundary (`parse` returns `list[RuleSpec]`) but mixes GBNF-AST knowledge into `seq_to_atoms.py` while it lives at `codegen/` level.
 
 **Choose Path A.** It's consistent with the user's rule. The moves:
 
-- `git mv src/lexic/codegen/seq_to_atoms.py src/lexic/codegen/gbnf/seq_to_atoms.py`
-- `git mv src/lexic/codegen/ir_builder.py src/lexic/codegen/gbnf/ir_builder.py`
-- `git mv src/lexic/codegen/classify.py src/lexic/codegen/gbnf/classify.py` (it classifies GBNF AST)
-- `git mv src/lexic/codegen/ast_utils.py src/lexic/codegen/gbnf/ast_utils.py`
-- `git mv src/lexic/codegen/helpers.py src/lexic/codegen/gbnf/helpers.py` (helper-rule registry is used only by GBNF AST→IR)
-- `git mv src/lexic/codegen/naming.py src/lexic/codegen/gbnf/naming.py` (field naming operates on GBNF-derived atoms — today's `_CHARCLASS_NAMES` / `_LITERAL_NAMES` are GBNF-flavored)
+- `git mv src/lexic/codegen/seq_to_atoms.py src/lexic/grammars/gbnf/seq_to_atoms.py`
+- `git mv src/lexic/codegen/ir_builder.py src/lexic/grammars/gbnf/ir_builder.py`
+- `git mv src/lexic/codegen/classify.py src/lexic/grammars/gbnf/classify.py` (it classifies GBNF AST)
+- `git mv src/lexic/codegen/ast_utils.py src/lexic/grammars/gbnf/ast_utils.py`
+- `git mv src/lexic/codegen/helpers.py src/lexic/grammars/gbnf/helpers.py` (helper-rule registry is used only by GBNF AST→IR)
+- `git mv src/lexic/codegen/naming.py src/lexic/grammars/gbnf/naming.py` (field naming operates on GBNF-derived atoms — today's `_CHARCLASS_NAMES` / `_LITERAL_NAMES` are GBNF-flavored)
 - Update all imports across src/ and tests/.
 - `GbnfParser.parse(text)` returns `list[RuleSpec]` by calling parse→ast→`IRBuilder(...).build()` internally.
 - `build_classes_and_specs` in `codegen/__init__.py` drops its `IRBuilder` call; just uses `adapter.parser.parse(text)`.
 
 **This is a big task. Break into sub-steps.**
 
-- [ ] **Step 1: Move the six files into `codegen/gbnf/`**
+- [ ] **Step 1: Move the six files into `grammars/gbnf/`**
 
 ```bash
-git mv src/lexic/codegen/seq_to_atoms.py src/lexic/codegen/gbnf/seq_to_atoms.py
-git mv src/lexic/codegen/ir_builder.py   src/lexic/codegen/gbnf/ir_builder.py
-git mv src/lexic/codegen/classify.py     src/lexic/codegen/gbnf/classify.py
-git mv src/lexic/codegen/ast_utils.py    src/lexic/codegen/gbnf/ast_utils.py
-git mv src/lexic/codegen/helpers.py      src/lexic/codegen/gbnf/helpers.py
-git mv src/lexic/codegen/naming.py       src/lexic/codegen/gbnf/naming.py
+git mv src/lexic/codegen/seq_to_atoms.py src/lexic/grammars/gbnf/seq_to_atoms.py
+git mv src/lexic/codegen/ir_builder.py   src/lexic/grammars/gbnf/ir_builder.py
+git mv src/lexic/codegen/classify.py     src/lexic/grammars/gbnf/classify.py
+git mv src/lexic/codegen/ast_utils.py    src/lexic/grammars/gbnf/ast_utils.py
+git mv src/lexic/codegen/helpers.py      src/lexic/grammars/gbnf/helpers.py
+git mv src/lexic/codegen/naming.py       src/lexic/grammars/gbnf/naming.py
 ```
 
 - [ ] **Step 2: Sweep imports**
 
 Run: `grep -rn "from lexic.codegen.ir_builder\|from lexic.codegen.seq_to_atoms\|from lexic.codegen.classify\|from lexic.codegen.ast_utils\|from lexic.codegen.helpers\|from lexic.codegen.naming" src/ tests/`
 
-For each hit, rewrite to the `lexic.codegen.gbnf.*` path. The `model_emitter.py` still lives at `codegen/` level and imports from ir; its imports from `naming.py` become `from lexic.codegen.gbnf.naming import ...`.
+For each hit, rewrite to the `lexic.grammars.gbnf.*` path. The `model_emitter.py` still lives at `codegen/` level and imports from ir; its imports from `naming.py` become `from lexic.grammars.gbnf.naming import ...`.
 
 Wait — **`naming.py` shouldn't live in `gbnf/`**. It contains field-naming policy that applies *after* IR construction, consumed by `model_emitter.py` which lives at codegen level. Moving it into `gbnf/` would force `model_emitter` to import from `gbnf/`. That's backwards.
 
@@ -1808,12 +1808,12 @@ Wait — **`naming.py` shouldn't live in `gbnf/`**. It contains field-naming pol
 Corrected moves (skip `naming.py`):
 ```bash
 # Already done above, now reverse for naming:
-git mv src/lexic/codegen/gbnf/naming.py src/lexic/codegen/naming.py
+git mv src/lexic/grammars/gbnf/naming.py src/lexic/codegen/naming.py
 ```
 
 - [ ] **Step 3: Update `GbnfParser.parse` to return `list[RuleSpec]`**
 
-In `src/lexic/codegen/gbnf/parser.py`:
+In `src/lexic/grammars/gbnf/parser.py`:
 
 ```python
 # Existing parse_gbnf function stays.
@@ -1822,7 +1822,7 @@ class GbnfParser:
     """GBNF flavour parser — source text → list[RuleSpec]."""
 
     def parse(self, text: str):
-        from lexic.codegen.gbnf.ir_builder import IRBuilder  # lazy to avoid cycle
+        from lexic.grammars.gbnf.ir_builder import IRBuilder  # lazy to avoid cycle
 
         ast_rules = parse_gbnf(text)
         return IRBuilder(ast_rules).build()
@@ -1854,7 +1854,7 @@ Expected: all green. If tests fail with import errors, grep for stragglers.
 
 - [ ] **Step 6: Update `seq_to_atoms.py` to emit `PatternAtom` for char classes**
 
-In `src/lexic/codegen/gbnf/seq_to_atoms.py`:
+In `src/lexic/grammars/gbnf/seq_to_atoms.py`:
 
 - For the `CharClass` AST case (around line 114-116):
 
@@ -1928,7 +1928,7 @@ if all(is_pure_literal_seq(arm) for arm in inner_arms):
 GBNF source shouldn't contain `\d`/`\w`/`\s` (GBNF uses bracket expressions), so "lowering" is really a defensive path — today no GBNF source produces shorthand. Keep the lowering as a documented no-op function for now. Add:
 
 ```python
-# src/lexic/codegen/gbnf/parser.py (near the top)
+# src/lexic/grammars/gbnf/parser.py (near the top)
 _SHORTHAND_LOWER = {
     r"\d": "[0-9]",
     r"\w": "[a-zA-Z0-9_]",
@@ -1962,11 +1962,11 @@ Expected: green. Some tests may now need updates (old atom-type constructors in 
 
 ```bash
 git add -A
-git commit -m "refactor(gbnf): move GBNF-specific modules into codegen/gbnf/; emit PatternAtom
+git commit -m "refactor(gbnf): move GBNF-specific modules into grammars/gbnf/; emit PatternAtom
 
 Six modules move (git mv preserves history):
 - seq_to_atoms.py, ir_builder.py, classify.py, ast_utils.py, helpers.py
-  -> codegen/gbnf/
+  -> grammars/gbnf/
 - naming.py stays at codegen/ (atom-semantic, not GBNF-syntax).
 
 GbnfParser.parse(text) now returns list[RuleSpec] directly — calls
@@ -1990,7 +1990,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 19: `GbnfParser` inline-alt → `InlineAlternationAtom(arms=...)` (no helper rules)
 
 **Files:**
-- Modify: `src/lexic/codegen/gbnf/seq_to_atoms.py`
+- Modify: `src/lexic/grammars/gbnf/seq_to_atoms.py`
 
 - [ ] **Step 1: Replace the inline-alt branch**
 
@@ -2063,19 +2063,19 @@ If you want Phase 2 to ship in a single coherent batch without per-task test pas
 ## Task 20: `HelperRuleRegistry` — no inline-alt helpers; quantified-list helpers still work
 
 **Files:**
-- Modify: `src/lexic/codegen/gbnf/seq_to_atoms.py` (the existing helper-rule synthesis around line 153+)
+- Modify: `src/lexic/grammars/gbnf/seq_to_atoms.py` (the existing helper-rule synthesis around line 153+)
 
 - [ ] **Step 1: Confirm no changes needed for quantified-list helpers**
 
 The helper-rule path at `seq_to_atoms.py:153-173` handles *quantified groups* (`(a b c)+`), which are different from inline alternations. After Task 19, inline alts don't reach this path — they return early via `continue`. So the existing quantified-list path stays untouched.
 
-**Verify:** Run `uv run pytest tests/unit/lexic/codegen/gbnf/test_parser.py -v` and check that any "helper rule" tests still pass for quantified-group cases.
+**Verify:** Run `uv run pytest tests/unit/lexic/grammars/gbnf/test_parser.py -v` and check that any "helper rule" tests still pass for quantified-group cases.
 
 - [ ] **Step 2: Trace-test a canonical grammar**
 
 ```bash
 uv run python -c "
-from lexic.codegen.gbnf.parser import GbnfParser
+from lexic.grammars.gbnf.parser import GbnfParser
 specs = GbnfParser().parse('root ::= (\"a\" | \"b\" | \"c\")')
 for s in specs:
     print(s.rule_name, s.kind, s.items)
@@ -2321,10 +2321,10 @@ Expected: green. `tests/integration/test_codegen.py` regenerates grammars — th
 
 ---
 
-## Task 23: Update `codegen/gbnf/emitter.py` — single `PatternAtom` branch with `source_forms` read + stub fallback
+## Task 23: Update `grammars/gbnf/emitter.py` — single `PatternAtom` branch with `source_forms` read + stub fallback
 
 **Files:**
-- Modify: `src/lexic/codegen/gbnf/emitter.py`
+- Modify: `src/lexic/grammars/gbnf/emitter.py`
 
 - [ ] **Step 1: Update the atom dispatch**
 
@@ -2392,11 +2392,11 @@ Expected: green (round-trip tests on ground-truth grammars should pass: parse �
 
 - [ ] **Step 4: Add a unit test for the stub fallback**
 
-Append to `tests/unit/lexic/codegen/gbnf/test_emitter.py` (or create the file if missing):
+Append to `tests/unit/lexic/grammars/gbnf/test_emitter.py` (or create the file if missing):
 
 ```python
 import pytest
-from lexic.codegen.gbnf.emitter import GbnfEmitter
+from lexic.grammars.gbnf.emitter import GbnfEmitter
 from lexic.ir import PatternAtom
 
 
@@ -2780,7 +2780,7 @@ def test_cross_check_raises_on_shorthand_in_gbnf_flavour():
     """A PatternAtom with shorthand (not in GBNF supports) raises at codegen."""
     from unittest.mock import patch
     from lexic.codegen import build_classes_and_specs
-    from lexic.codegen.flavours import get_adapter
+    from lexic.grammars import get_adapter
     from lexic.exceptions import UnsupportedConstructError
     from lexic.ir import PatternAtom, RuleSpec
 
@@ -2806,22 +2806,22 @@ def test_cross_check_raises_on_shorthand_in_gbnf_flavour():
 
 ---
 
-## Task 28: Add `tests/unit/lexic/codegen/gbnf/test_parser_source_forms.py`
+## Task 28: Add `tests/unit/lexic/grammars/gbnf/test_parser_source_forms.py`
 
 **Files:**
-- Create: `tests/unit/lexic/codegen/gbnf/test_parser_source_forms.py`
+- Create: `tests/unit/lexic/grammars/gbnf/test_parser_source_forms.py`
 
 - [ ] **Step 1: Write the test file**
 
 ```python
-# tests/unit/lexic/codegen/gbnf/test_parser_source_forms.py
+# tests/unit/lexic/grammars/gbnf/test_parser_source_forms.py
 """Tests that GbnfParser populates PatternAtom.source_forms correctly."""
 
 from __future__ import annotations
 
 import pytest
 
-from lexic.codegen.gbnf.parser import GbnfParser
+from lexic.grammars.gbnf.parser import GbnfParser
 from lexic.ir import InlineAlternationAtom, LiteralAtom, PatternAtom, RuleRefAtom
 
 
@@ -2916,7 +2916,7 @@ def test_pattern_regex_is_canonical_python(source, expected_regex):
 
 - [ ] **Step 2: Run the tests**
 
-Run: `uv run pytest tests/unit/lexic/codegen/gbnf/test_parser_source_forms.py -v`
+Run: `uv run pytest tests/unit/lexic/grammars/gbnf/test_parser_source_forms.py -v`
 Expected: all pass.
 
 **No commit yet.**
@@ -2940,7 +2940,7 @@ from pathlib import Path
 
 import pytest
 
-from lexic.codegen.flavours import get_adapter
+from lexic.grammars import get_adapter
 from lexic.ir import Arm, InlineAlternationAtom, PatternAtom
 
 
@@ -3073,7 +3073,7 @@ Expected: green — all callers were migrated in Tasks 18-25.
 **Files:**
 - Modify: `src/lexic/ir/atoms.py`
 - Modify: `src/lexic/ir/__init__.py`
-- Modify: `src/lexic/codegen/gbnf/emitter.py`
+- Modify: `src/lexic/grammars/gbnf/emitter.py`
 
 - [ ] **Step 1: Delete `CharClassAtom`, `QuantifiedLiteralAtom`, `InlineRegexAtom` from `atoms.py`**
 
@@ -3121,7 +3121,7 @@ IR (atoms.py):
 - Removes CharClassAtom, QuantifiedLiteralAtom, InlineRegexAtom.
 - Atom union collapses from 7 → 5 types.
 
-GBNF parser/ir_builder (codegen/gbnf/):
+GBNF parser/ir_builder (grammars/gbnf/):
 - seq_to_atoms.py emits PatternAtom with source_forms['gbnf'] populated
   (pattern-only, no quantifier; quantifier lives in min, max).
 - Pure-literal inline alts produce InlineAlternationAtom with inline Arms
@@ -3129,7 +3129,7 @@ GBNF parser/ir_builder (codegen/gbnf/):
 - Named-rule inline alts produce Arms of single RuleRefAtom.
 - LiteralAtom.value is canonical Python (GBNF escapes decoded at parse time).
 - HelperRuleRegistry retains quantified-group synthesis.
-- Six GBNF-specific modules moved from codegen/ to codegen/gbnf/:
+- Six GBNF-specific modules moved from codegen/ to grammars/gbnf/:
   seq_to_atoms, ir_builder, classify, ast_utils, helpers. naming.py stays
   at codegen/ (atom-semantic, not GBNF-syntax).
 
@@ -3155,7 +3155,7 @@ new InlineAlternationAtom shape in __grammar__ literals.
 
 Adds tests:
 - tests/unit/lexic/ir/test_atom_shapes.py
-- tests/unit/lexic/codegen/gbnf/test_parser_source_forms.py
+- tests/unit/lexic/grammars/gbnf/test_parser_source_forms.py
 - tests/integration/test_source_forms_roundtrip.py
 
 All tests green. Ruff clean.
@@ -3170,12 +3170,12 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 33: Add pre-tokenisation scan to `GbnfParser.parse`
 
 **Files:**
-- Modify: `src/lexic/codegen/gbnf/parser.py`
+- Modify: `src/lexic/grammars/gbnf/parser.py`
 
 - [ ] **Step 1: Add the scan to `GbnfParser.parse`**
 
 ```python
-# src/lexic/codegen/gbnf/parser.py
+# src/lexic/grammars/gbnf/parser.py
 
 import re
 from lexic.exceptions import UnsupportedConstructError
@@ -3199,7 +3199,7 @@ class GbnfParser:
 
     def parse(self, text: str):
         _reject_token_syntax(text)
-        from lexic.codegen.gbnf.ir_builder import IRBuilder
+        from lexic.grammars.gbnf.ir_builder import IRBuilder
         ast_rules = parse_gbnf(text)
         return IRBuilder(ast_rules).build()
 
@@ -3242,7 +3242,7 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.codegen.gbnf.parser import GbnfParser
+from lexic.grammars.gbnf.parser import GbnfParser
 from lexic.exceptions import UnsupportedConstructError
 
 
@@ -3379,7 +3379,7 @@ gh pr create --title "Slice B: PatternAtom + Tier 2.5 + token reservation" --bod
 ## Summary
 - Collapses CharClassAtom / QuantifiedLiteralAtom / InlineRegexAtom into PatternAtom with source_forms flavour-shadow map
 - Reshapes InlineAlternationAtom.arms to tuple[Arm, ...] — inline atom arms, no helper-rule synthesis
-- Moves GBNF-specific code into codegen/gbnf/ behind FlavourAdapter/Parser/Emitter protocols
+- Moves GBNF-specific code into grammars/gbnf/ behind FlavourAdapter/Parser/Emitter protocols
 - Threads flavour="gbnf" through codegen(), compile(), to_grammar(); to_gbnf() is an alias
 - Freezes all atom dataclasses
 - Deletes LarkBuilder.build_transformer indirection
@@ -3414,8 +3414,8 @@ The implementation worker (or reviewer) should verify before marking each phase 
 **Phase 1:**
 - [ ] `lexic/exceptions.py` has `LexicError`, `UnsupportedConstructError`, `GrammarAuthoringError`, `FieldValidationError`.
 - [ ] `lexic/ir/regex_portable.py` has `PORTABLE_FEATURES`, `validate_portable`, `features_used`, `canonicalize_groups`.
-- [ ] `lexic/codegen/flavours.py` has three protocols, `ADAPTERS`, `register_adapter`, `get_adapter`, `adapter_for_extension`, and eagerly registers `GbnfAdapter`.
-- [ ] `lexic/codegen/gbnf/{adapter,parser,emitter,ast,escapes,charclass}.py` exist; `lexic/codegen/{parser,ast,gbnf_emitter}.py` and `lexic/utils/{escapes,charclass}.py` do not.
+- [ ] `lexic/grammars/flavours.py` has three protocols, `ADAPTERS`, `register_adapter`, `get_adapter`, `adapter_for_extension`, and eagerly registers `GbnfAdapter`.
+- [ ] `lexic/grammars/gbnf/{adapter,parser,emitter,ast,escapes,charclass}.py` exist; `lexic/codegen/{parser,ast,gbnf_emitter}.py` and `lexic/utils/{escapes,charclass}.py` do not.
 - [ ] `codegen(flavour="gbnf")` works; `codegen(flavour="abnf")` raises `UnsupportedConstructError`.
 - [ ] `GrammarModel.to_grammar("gbnf")` works; `to_gbnf()` is an alias.
 - [ ] `LarkBuilder.build_transformer` method is gone.
