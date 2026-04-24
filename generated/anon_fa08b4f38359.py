@@ -1,5 +1,4 @@
 """Auto-generated Pydantic models from <string:anon_fa08b4f38359>."""
-
 from __future__ import annotations
 
 from typing import ClassVar
@@ -10,7 +9,6 @@ from lexic.ir import RuleSpec, LiteralAtom
 
 class Root(GrammarModel):
     """root ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="root",
         class_name="Root",

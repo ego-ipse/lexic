@@ -1953,6 +1953,9 @@ def _lower_shorthand(regex: str) -> str:
 
 Callers in `seq_to_atoms.py` wrap `pattern` with `_lower_shorthand` before passing to `PatternAtom.regex`. Alternatively defer this to Phase 2.5 — GBNF never produces shorthand today, so the function is dead code. **Recommendation:** add the function + a single unit test, don't wire it into the parser. When a future flavour parser produces shorthand, it calls `_lower_shorthand`.
 
+- [ ] **Step 8b: Add back list[RuleSpec]: in src/lexic/grammars/flavours.py**
+  Undo the tmp change and make sure that no type errors remain
+
 - [ ] **Step 9: Verify existing tests still pass**
 
 Run: `uv run pytest tests/ -q`

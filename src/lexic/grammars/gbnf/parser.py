@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from lark import Lark, Transformer as LarkTransformer
 
+from lexic.grammars.flavours import FlavourParser
 from lexic.grammars.gbnf.ast import (
     Alternation,
     CharClass,
@@ -95,7 +96,7 @@ def parse_gbnf(text: str) -> list[Rule]:
     return _transformer.transform(tree)
 
 
-class GbnfParser:
+class GbnfParser(FlavourParser):
     """GBNF flavour parser.
 
     Thin class wrapper around parse_gbnf for the FlavourParser protocol.
@@ -103,6 +104,6 @@ class GbnfParser:
     live in IRBuilder, consuming the AST parse_gbnf returns).
     """
 
-    def parse(self, text: str):
-        """Return list[Rule] — the GBNF AST. Phase 2 will return list[RuleSpec]."""
+    def parse(self, text: str) -> list[Rule]:
+        """Return list[Rule] — the GBNF AST. Phase 2 (Task 18) will return list[RuleSpec]."""
         return parse_gbnf(text)

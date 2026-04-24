@@ -78,7 +78,7 @@ def test_compile_and_compile_from_path_share_cache():
     path = GROUND_TRUTH / "arithmetic.gbnf"
     resolved = str(path.resolve())
     stat = path.stat()
-    key = (resolved, stat.st_mtime, stat.st_size)
+    key = (resolved, stat.st_mtime, stat.st_size, "gbnf")
     cg1 = compile(path.read_text(), cache_key=key)
     cg2 = compile_from_path(path)
     assert cg1 is cg2

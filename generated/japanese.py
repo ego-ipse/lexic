@@ -1,5 +1,4 @@
 """Auto-generated Pydantic models from <string:japanese>."""
-
 from __future__ import annotations
 
 from abc import ABC
@@ -11,16 +10,12 @@ from lexic.ir import RuleSpec, AlternationAtom, CharClassAtom, RuleRefAtom
 
 class Root(GrammarModel):
     """root ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="root",
         class_name="Root",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            RuleRefAtom("jp-char", min=1, max=None),
-            RuleRefAtom("root-item", min=0, max=None),
-        ],
+        items=[RuleRefAtom("jp-char", min=1, max=None), RuleRefAtom("root-item", min=0, max=None)],
         field_map={"jp_char": 0, "root_item": 1},
     )
     jp_char: List[JpChar]
@@ -29,7 +24,6 @@ class Root(GrammarModel):
 
 class JpChar(GrammarModel, ABC):
     """jp-char ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="jp-char",
         class_name="JpChar",
@@ -43,7 +37,6 @@ class JpChar(GrammarModel, ABC):
 
 class Hiragana(JpChar):
     """hiragana ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="hiragana",
         class_name="Hiragana",
@@ -57,7 +50,6 @@ class Hiragana(JpChar):
 
 class Katakana(JpChar):
     """katakana ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="katakana",
         class_name="Katakana",
@@ -71,7 +63,6 @@ class Katakana(JpChar):
 
 class Punctuation(JpChar):
     """punctuation ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="punctuation",
         class_name="Punctuation",
@@ -85,7 +76,6 @@ class Punctuation(JpChar):
 
 class Cjk(JpChar):
     """cjk ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="cjk",
         class_name="Cjk",
@@ -99,16 +89,12 @@ class Cjk(JpChar):
 
 class RootItem(GrammarModel):
     """root-item ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="root-item",
         class_name="RootItem",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            CharClassAtom("[ \\t\\n]", min=1, max=1),
-            RuleRefAtom("jp-char", min=1, max=None),
-        ],
+        items=[CharClassAtom("[ \\t\\n]", min=1, max=1), RuleRefAtom("jp-char", min=1, max=None)],
         field_map={"ws_char": 0, "jp_char": 1},
     )
     ws_char: str

@@ -1,5 +1,4 @@
 """Auto-generated Pydantic models from <string:anon_ab5da6638fc7>."""
-
 from __future__ import annotations
 
 from abc import ABC
@@ -11,7 +10,6 @@ from lexic.ir import RuleSpec, AlternationAtom, CharClassAtom, LiteralAtom, Rule
 
 class Root(GrammarModel):
     """root ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="root",
         class_name="Root",
@@ -25,16 +23,12 @@ class Root(GrammarModel):
 
 class Expr(GrammarModel):
     """expr ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="expr",
         class_name="Expr",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            RuleRefAtom("term", min=1, max=1),
-            RuleRefAtom("expr-item", min=0, max=None),
-        ],
+        items=[RuleRefAtom("term", min=1, max=1), RuleRefAtom("expr-item", min=0, max=None)],
         field_map={"term": 0, "expr_item": 1},
     )
     term: Term
@@ -43,7 +37,6 @@ class Expr(GrammarModel):
 
 class Term(GrammarModel, ABC):
     """term ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="term",
         class_name="Term",
@@ -57,7 +50,6 @@ class Term(GrammarModel, ABC):
 
 class TermArm3(Term):
     """term-arm3 ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="term-arm3",
         class_name="TermArm3",
@@ -71,17 +63,12 @@ class TermArm3(Term):
 
 class Ident(Term):
     """ident ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="ident",
         class_name="Ident",
         parent_class_name="Term",
         kind="sequence",
-        items=[
-            CharClassAtom("[a-z]", min=1, max=1),
-            CharClassAtom("[a-z0-9_]", min=0, max=None),
-            RuleRefAtom("ws", min=1, max=1),
-        ],
+        items=[CharClassAtom("[a-z]", min=1, max=1), CharClassAtom("[a-z0-9_]", min=0, max=None), RuleRefAtom("ws", min=1, max=1)],
         field_map={"lower": 0, "alnum": 1, "ws": 2},
     )
     lower: str
@@ -91,16 +78,12 @@ class Ident(Term):
 
 class Num(Term):
     """num ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="num",
         class_name="Num",
         parent_class_name="Term",
         kind="sequence",
-        items=[
-            CharClassAtom("[0-9]", min=1, max=None),
-            RuleRefAtom("ws", min=1, max=1),
-        ],
+        items=[CharClassAtom("[0-9]", min=1, max=None), RuleRefAtom("ws", min=1, max=1)],
         field_map={"digit": 0, "ws": 1},
     )
     digit: str
@@ -109,7 +92,6 @@ class Num(Term):
 
 class Ws(GrammarModel):
     """ws ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="ws",
         class_name="Ws",
@@ -123,18 +105,12 @@ class Ws(GrammarModel):
 
 class RootItem(GrammarModel):
     """root-item ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="root-item",
         class_name="RootItem",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            RuleRefAtom("expr", min=1, max=1),
-            LiteralAtom("="),
-            RuleRefAtom("term", min=1, max=1),
-            LiteralAtom("\\n"),
-        ],
+        items=[RuleRefAtom("expr", min=1, max=1), LiteralAtom("="), RuleRefAtom("term", min=1, max=1), LiteralAtom("\\n")],
         field_map={"expr": 0, "term": 2},
     )
     expr: Expr
@@ -143,16 +119,12 @@ class RootItem(GrammarModel):
 
 class ExprItem(GrammarModel):
     """expr-item ::= (see __grammar__)"""
-
     __grammar__: ClassVar[RuleSpec] = RuleSpec(
         rule_name="expr-item",
         class_name="ExprItem",
         parent_class_name="GrammarModel",
         kind="sequence",
-        items=[
-            CharClassAtom("[-+*/]", min=1, max=1),
-            RuleRefAtom("term", min=1, max=1),
-        ],
+        items=[CharClassAtom("[-+*/]", min=1, max=1), RuleRefAtom("term", min=1, max=1)],
         field_map={"op": 0, "term": 1},
     )
     op: str

@@ -6,6 +6,7 @@ Enables the reverse direction: Pydantic model classes → GBNF grammar file.
 
 from __future__ import annotations
 
+from lexic.grammars.flavours import FlavourEmitter
 from lexic.ir import (
     AlternationAtom,
     CharClassAtom,
@@ -52,7 +53,7 @@ def _atom_to_gbnf(atom) -> str:
     return ""
 
 
-class GbnfEmitter:
+class GbnfEmitter(FlavourEmitter):
     """GBNF flavour emitter."""
 
     supports: frozenset[str] = frozenset(
@@ -69,10 +70,10 @@ class GbnfEmitter:
     # Notably absent: "shorthand". GbnfParser lowers \d \w \s to char classes
     # at parse time, so GBNF-parsed IR never carries shorthand.
 
-    def __init__(self, specs):
+    def __init__(self, specs: list[RuleSpec]) -> None:
         self._specs = specs
 
-    def emit(self, specs=None) -> str:
+    def emit(self, specs: list[RuleSpec] | None = None) -> str:
         """Emit a full GBNF grammar string from a list of RuleSpec."""
         if specs is None:
             specs = self._specs
