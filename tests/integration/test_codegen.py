@@ -15,7 +15,8 @@ from typing import Union, get_args, get_origin, get_type_hints
 import pytest
 from pydantic import BaseModel
 
-from lexic.codegen import codegen_from_path
+from lexic.codegen import build_classes_and_specs, codegen, codegen_from_path
+from lexic.ir import RuleSpec
 
 GRAMMAR_DIR = Path(__file__).parent.parent.parent / "resources" / "ground_truth"
 GENERATED_DIR = Path(__file__).parent.parent.parent / "generated"
@@ -602,3 +603,38 @@ def test_pydantic_validates_field_types(list_classes):
     Item = list_classes["Item"]
     with pytest.raises(Exception):  # pydantic ValidationError
         Item(value=123)
+
+
+# ── codegen() string-input path + build_classes_and_specs contract ───────────
+
+
+def test_codegen_takes_string_and_stem():
+    text = (GRAMMAR_DIR / "arithmetic.gbnf").read_text()
+    classes = codegen(text, stem="arithmetic")
+    assert classes
+    assert all(isinstance(v, type) for v in classes.values())
+
+
+def test_build_classes_and_specs_returns_both():
+    text = (GRAMMAR_DIR / "arithmetic.gbnf").read_text()
+    classes, specs = build_classes_and_specs(text, stem="arithmetic")
+    assert classes
+    assert isinstance(specs, list)
+    assert specs
+    assert all(isinstance(s, RuleSpec) for s in specs)
+
+
+def test_codegen_and_build_classes_and_specs_produce_identical_classes():
+    """codegen() is a thin wrapper; class sets are equal."""
+    text = (GRAMMAR_DIR / "arithmetic.gbnf").read_text()
+    classes_only = codegen(text, stem="arithmetic_a")
+    classes_tuple, _ = build_classes_and_specs(text, stem="arithmetic_b")
+    assert set(classes_only.keys()) == set(classes_tuple.keys())
+
+
+def test_build_classes_and_specs_explicit_gbnf_flavour():
+    text = (GRAMMAR_DIR / "arithmetic.gbnf").read_text()
+    classes, specs = build_classes_and_specs(text, stem="arithmetic", flavour="gbnf")
+    assert classes
+    assert specs
+    assert all(isinstance(s, RuleSpec) for s in specs)

@@ -19,7 +19,7 @@ from lexic.grammars.gbnf.ast import (
 )
 from lexic.codegen.ast_utils import is_pure_literal_seq, single_ruleref_of, strip_ws
 from lexic.codegen.helpers import HelperRuleRegistry
-from lexic.codegen.naming import assign_field_names
+from lexic.ir.naming import assign_field_names
 from lexic.ir import (
     Atom,
     CharClassAtom,

@@ -12,7 +12,7 @@ from lexic.ir import AlternationAtom, RuleSpec
 from lexic.grammars.gbnf.ast import Alternation, Rule, Sequence
 from lexic.codegen.ast_utils import single_ruleref_of
 from lexic.codegen.helpers import HelperRuleRegistry
-from lexic.codegen.naming import assign_field_names
+from lexic.ir.naming import assign_field_names
 from lexic.codegen.classify import (
     Classifier,
     NamedAlt,

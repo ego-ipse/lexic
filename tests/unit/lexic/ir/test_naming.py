@@ -7,7 +7,7 @@ from lexic.ir import (
     QuantifiedLiteralAtom,
     RuleRefAtom,
 )
-from lexic.codegen.naming import assign_field_names
+from lexic.ir.naming import assign_field_names
 
 
 def test_literal_atom_has_no_field():

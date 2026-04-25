@@ -1,9 +1,17 @@
 # tests/test_base.py
 from __future__ import annotations
 
+from pathlib import Path
 from typing import ClassVar, List, Optional
+
+import pytest
+
 from lexic.base import GrammarModel
+from lexic.compile import compile_from_path
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+
+GROUND_TRUTH = Path(__file__).resolve().parents[3] / "resources" / "ground_truth"
 
 
 # ── value_str ─────────────────────────────────────────────────────────────────
@@ -192,3 +200,35 @@ def test_semantic_dump_excludes_ws():
     d = inst.semantic_dump()
     assert "first" in d
     assert "ws" not in d
+
+
+# ── to_grammar ────────────────────────────────────────────────────────────────
+
+
+def test_to_grammar_returns_string_no_trailing_newline():
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    inst = cg.parse("x=1\n")
+    result = inst.to_grammar()
+    assert isinstance(result, str)
+    assert not result.endswith("\n")
+
+
+def test_to_grammar_default_flavour_is_gbnf():
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    inst = cg.parse("x=1\n")
+    assert inst.to_grammar() == inst.to_grammar("gbnf")
+
+
+def test_to_grammar_contains_rule_name():
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    inst = cg.parse("x=1\n")
+    result = inst.to_grammar()
+    assert inst.__grammar__.rule_name in result
+    assert "::=" in result
+
+
+def test_to_grammar_unknown_flavour_raises():
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    inst = cg.parse("x=1\n")
+    with pytest.raises(UnsupportedConstructError):
+        inst.to_grammar("abnf")

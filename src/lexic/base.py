@@ -1,8 +1,11 @@
 """GrammarModel: base class for all generated Pydantic models.
 
-Provides to_text(), to_gbnf(), and semantic_dump() driven entirely by
+Provides to_text(), to_grammar(), and semantic_dump() driven entirely by
 __grammar__: RuleSpec on each concrete subclass.
 Knows nothing about codegen, Lark, or GBNF parsing.
+
+Note: to_grammar() uses get_adapter() from lexic.grammars — the deliberate
+runtime→codegen seam described in 2_ARCHITECTURE.md §Layering rules.
 """
 
 from __future__ import annotations
@@ -11,7 +14,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel
 
-from lexic.grammars.gbnf.emitter import GBNFEmitter
+from lexic.grammars import get_adapter
 from lexic.ir import LiteralAtom, RuleRefAtom, RuleSpec
 from lexic.grammars.gbnf.escapes import decode_gbnf_escapes
 
@@ -32,6 +35,7 @@ class GrammarModel(BaseModel):
     __grammar__: ClassVar[RuleSpec]
 
     def to_text(self) -> str:
+        """Reconstruct the original grammar text for this instance."""
         spec = self.__grammar__
         if spec.kind == "value_str":
             return str(getattr(self, "value", ""))
@@ -70,9 +74,16 @@ class GrammarModel(BaseModel):
 
         return "".join(parts)
 
-    def to_gbnf(self) -> str:
-        """Reconstruct the GBNF rule for this class's grammar spec."""
-        return GBNFEmitter([self.__grammar__]).emit_rule(self.__grammar__)
+    def to_grammar(self, flavour: str = "gbnf") -> str:
+        """Reconstruct the grammar rule text for this class.
+
+        Default flavour is "gbnf". The emitter is resolved via the flavours
+        registry at call time so ADAPTERS populate regardless of import order.
+        Uses the FlavourEmitter protocol's emit(specs) — single-rule output
+        strips the trailing newline.
+        """
+        adapter = get_adapter(flavour)
+        return adapter.emitter.emit([self.__grammar__]).rstrip("\n")
 
     def semantic_dump(self) -> dict[str, Any]:
         """model_dump() excluding fields that map to RuleRefAtom('ws') in __grammar__.

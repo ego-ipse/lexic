@@ -9,6 +9,7 @@ from lexic.compile import (
     compile_from_path,
     reset_cache_for_tests,
 )
+from lexic.exceptions import UnsupportedConstructError
 
 GROUND_TRUTH = Path(__file__).resolve().parents[3] / "resources" / "ground_truth"
 
@@ -98,3 +99,29 @@ def test_repeated_parse_is_fast():
         cg.parse("x=1\n")
     elapsed = time.perf_counter() - start
     assert elapsed < 0.5, f"100 cached parses took {elapsed:.3f}s"
+
+
+def test_compile_explicit_gbnf_flavour():
+    text = (GROUND_TRUTH / "arithmetic.gbnf").read_text()
+    cg = compile(text, flavour="gbnf")
+    assert isinstance(cg, CompiledGrammar)
+    assert cg.classes
+    assert cg.specs
+
+
+def test_compile_from_path_explicit_gbnf_flavour():
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf", flavour="gbnf")
+    assert isinstance(cg, CompiledGrammar)
+    assert cg.classes
+    assert cg.specs
+
+
+def test_compile_unknown_flavour_raises():
+    text = (GROUND_TRUTH / "arithmetic.gbnf").read_text()
+    with pytest.raises(UnsupportedConstructError):
+        compile(text, flavour="abnf")
+
+
+def test_compile_from_path_unknown_flavour_raises():
+    with pytest.raises(UnsupportedConstructError):
+        compile_from_path(GROUND_TRUTH / "arithmetic.gbnf", flavour="abnf")

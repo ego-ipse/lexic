@@ -11,6 +11,12 @@ from lexic.ir.atoms import (
     RuleRefAtom,
 )
 from lexic.ir.spec import RuleSpec
+from lexic.ir.protocols import (
+    RuleClassifier,
+    SequenceConverter,
+    HelperRuleRegistry,
+    IRBuilder,
+)
 
 __all__ = [
     "Atom",
@@ -22,4 +28,8 @@ __all__ = [
     "QuantifiedLiteralAtom",
     "RuleRefAtom",
     "RuleSpec",
+    "RuleClassifier",
+    "SequenceConverter",
+    "HelperRuleRegistry",
+    "IRBuilder",
 ]
