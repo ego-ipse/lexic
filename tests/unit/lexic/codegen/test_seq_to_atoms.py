@@ -7,7 +7,7 @@ from lexic.grammars.gbnf.ast import (
     RuleRef,
     Sequence,
 )
-from lexic.codegen.helpers import HelperRuleRegistry
+from lexic.ir.helpers import HelperRuleRegistry
 from lexic.codegen.seq_to_atoms import seq_to_atoms
 from lexic.ir import (
     CharClassAtom,

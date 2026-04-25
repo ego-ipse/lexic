@@ -26,8 +26,9 @@ class RuleSpec:
     """
 
     rule_name: str
-    class_name: str  # PascalCase, e.g. "Ident"
-    parent_class_name: str  # e.g. "Term" or "GrammarModel"
+    class_name: str
+    parent_class_name: str
     kind: Literal["sequence", "alternation", "value_str"]
     items: list[Atom] = field(default_factory=list)
     field_map: dict[str, int] = field(default_factory=dict)
+    non_semantic_fields: frozenset[str] = field(default_factory=frozenset)

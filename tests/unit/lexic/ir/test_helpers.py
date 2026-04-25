@@ -1,8 +1,14 @@
+"""Tests for lexic.ir.helpers."""
+
+import pytest
+
+
 from lexic.ir import RuleSpec
-from lexic.codegen.helpers import HelperRuleRegistry
+from lexic.ir.helpers import HelperRuleRegistry
 
 
 def _spec(name: str) -> RuleSpec:
+    """Helper to create a dummy RuleSpec with the given name."""
     return RuleSpec(
         rule_name=name,
         class_name="X",
@@ -14,11 +20,13 @@ def _spec(name: str) -> RuleSpec:
 
 
 def test_reserve_returns_base_on_first_use():
+    """If base_name isn't taken, reserve() returns it as-is without mutation."""
     reg = HelperRuleRegistry()
     assert reg.reserve("arithmetic-item") == "arithmetic-item"
 
 
 def test_reserve_numbers_collisions():
+    """If base_name is taken, reserve() returns base_name2, then base_name3, etc."""
     reg = HelperRuleRegistry()
     reg.register(_spec("arithmetic-item"))
     assert reg.reserve("arithmetic-item") == "arithmetic-item2"
@@ -35,6 +43,7 @@ def test_reserve_is_idempotent_before_register():
 
 
 def test_all_specs_returned_in_registration_order():
+    """all_specs() returns all registered specs in the order they were registered."""
     reg = HelperRuleRegistry()
     reg.register(_spec("p"))
     reg.register(_spec("q"))
@@ -43,8 +52,7 @@ def test_all_specs_returned_in_registration_order():
 
 
 def test_register_rejects_duplicate_name():
-    import pytest
-
+    """Registering a spec with a name already in the registry raises ValueError."""
     reg = HelperRuleRegistry()
     reg.register(_spec("x"))
     with pytest.raises(ValueError, match=r"already registered"):

@@ -1,7 +1,7 @@
 """Unit tests for src/lexic/ir/atoms.py"""
 
 from __future__ import annotations
-import typing
+
 from lexic.ir import (
     Atom,
     AlternationAtom,
@@ -59,14 +59,17 @@ def test_inline_alternation_atom():
     assert a.arm_rule_names == ["pawn", "nonpawn", "castle"]
 
 
-def test_atom_union_contains_all_seven_types():
-    args = {t.__name__ for t in typing.get_args(Atom)}
-    assert args == {
-        "LiteralAtom",
-        "CharClassAtom",
-        "QuantifiedLiteralAtom",
-        "InlineRegexAtom",
-        "RuleRefAtom",
-        "AlternationAtom",
-        "InlineAlternationAtom",
-    }
+def test_all_concrete_atoms_satisfy_protocol():
+    instances = [
+        LiteralAtom("="),
+        CharClassAtom("[a-z]", 1, 1),
+        QuantifiedLiteralAtom("-", 0, 1),
+        InlineRegexAtom("(true|false)", '("true"|"false")', 1, 1),
+        RuleRefAtom("ws", 1, 1),
+        AlternationAtom(["a", "b"]),
+        InlineAlternationAtom(["x", "y"]),
+    ]
+    for atom in instances:
+        assert isinstance(atom, Atom), (
+            f"{type(atom).__name__} must satisfy Atom protocol"
+        )

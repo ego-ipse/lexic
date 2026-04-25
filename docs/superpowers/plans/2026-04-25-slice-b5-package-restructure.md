@@ -3109,7 +3109,7 @@ class GrammarModel(BaseModel):
     def to_grammar(self, flavour: str = "gbnf") -> str:
         from lexic.grammars import get_adapter
         adapter = get_adapter(flavour)
-        return adapter.emitter.emit([self.__grammar__]).rstrip("\n")
+        return adapter.emit([self.__grammar__]).rstrip("\n")
 
     def semantic_dump(self) -> dict[str, Any]:
         return self.model_dump(exclude=set(self.__grammar__.non_semantic_fields))

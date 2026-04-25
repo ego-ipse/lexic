@@ -1,8 +1,8 @@
 """Public IR surface — import everything from here."""
 
 from lexic.ir.atoms import (
-    Atom,
     AlternationAtom,
+    Atom,
     CharClassAtom,
     InlineAlternationAtom,
     InlineRegexAtom,
@@ -10,26 +10,40 @@ from lexic.ir.atoms import (
     QuantifiedLiteralAtom,
     RuleRefAtom,
 )
-from lexic.ir.spec import RuleSpec
+from lexic.ir.helpers import HelperRuleRegistry
 from lexic.ir.protocols import (
+    AtomEmitHandler,
+    EscapeCodec,
+    FieldHandler,
+    FlavourAdapter,
+    FlavourParser,
+    LarkHandler,
     RuleClassifier,
     SequenceConverter,
-    HelperRuleRegistry,
-    IRBuilder,
+    ToTextHandler,
+    TransformHandler,
 )
+from lexic.ir.spec import RuleSpec
 
 __all__ = [
-    "Atom",
     "AlternationAtom",
+    "Atom",
+    "AtomEmitHandler",
     "CharClassAtom",
+    "EscapeCodec",
+    "FieldHandler",
+    "FlavourAdapter",
+    "FlavourParser",
+    "HelperRuleRegistry",
     "InlineAlternationAtom",
     "InlineRegexAtom",
+    "LarkHandler",
     "LiteralAtom",
     "QuantifiedLiteralAtom",
+    "RuleClassifier",
     "RuleRefAtom",
     "RuleSpec",
-    "RuleClassifier",
     "SequenceConverter",
-    "HelperRuleRegistry",
-    "IRBuilder",
+    "ToTextHandler",
+    "TransformHandler",
 ]

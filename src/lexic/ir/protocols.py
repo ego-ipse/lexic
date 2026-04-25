@@ -1,98 +1,129 @@
-"""Generic IR-construction protocols + HelperRuleRegistry + IRBuilder.
+"""IR-construction Protocols, FlavourAdapter Protocol, and handler type aliases.
 
-IRBuilder[Node] is parameterised by a RuleClassifier and SequenceConverter
-so it contains zero flavour-specific knowledge.
+Type-only. No runtime classes live here — HelperRuleRegistry is in
+`lexic.ir.helpers`; IRBuilder is in `lexic.ir.builder`; FlavourEmitter ABC
+is in `lexic.ir.emit`.
 """
 
 from __future__ import annotations
 
-from typing import Generic, Literal, Protocol, TypeVar
+from typing import TYPE_CHECKING, Callable, Literal, Protocol, TypeVar
 
 from lexic.ir.atoms import Atom
 from lexic.ir.spec import RuleSpec
+
+if TYPE_CHECKING:
+    from lexic.ir.helpers import HelperRuleRegistry
 
 Node = TypeVar("Node")
 Node_contra = TypeVar("Node_contra", contravariant=True)
 
 
 class RuleClassifier(Protocol[Node]):
-    """Determines the IR kind and structure of a single grammar rule node."""
+    """AST-shape queries on a single rule node.
 
-    def rule_name(self, rule: Node) -> str: ...
+    Implementations live next to their grammar's AST (e.g. grammars/gbnf/ast_to_ir.py).
+    The generic IRBuilder receives one of these and calls the methods below to
+    extract the information it needs without knowing the AST node type.
+    """
 
-    def kind(self, rule: Node) -> Literal["sequence", "alternation", "value_str"]: ...
+    def rule_name(self, rule: Node) -> str:
+        """Return the grammar rule name used as the dict key and class-name seed."""
+        raise NotImplementedError("To be done")
+
+    def is_start_rule(self, rule: Node) -> bool:
+        """Return True if this rule is the grammar's start/root rule."""
+        raise NotImplementedError("To be done")
+
+    def kind(self, rule: Node) -> Literal["sequence", "alternation", "value_str"]:
+        """Classify the rule into one of the three IR kinds."""
+        raise NotImplementedError("To be done")
 
     def alternation_arm_nodes(self, rule: Node) -> list[Node]:
-        """For alternation rules: return the stripped arm nodes."""
-        ...
+        """For alternation rules: return the list of arm nodes in definition order."""
+        raise NotImplementedError("To be done")
 
     def sequence_body(self, rule: Node) -> Node:
-        """For sequence rules: return the body node to convert."""
-        ...
+        """For sequence rules: return the body node to pass to SequenceConverter."""
+        raise NotImplementedError("To be done")
+
+    def value_str_body(self, rule: Node) -> Node:
+        """For value_str rules: return the body node to pass to SequenceConverter."""
+        raise NotImplementedError("To be done")
 
     def single_ruleref(self, arm: Node) -> str | None:
         """If arm is a single unquantified rule reference, return its name; else None."""
-        ...
+        raise NotImplementedError("To be done")
 
 
 class SequenceConverter(Protocol[Node_contra]):
-    """Converts flavour AST nodes to IR Atoms + field_map."""
+    """AST → Atom conversion. Flavour supplies AST-shape logic; output is canonical Atoms."""
 
-    def value_str_atoms(self, rule: Node_contra) -> list[Atom]:
-        """Atoms for a value_str rule (literals/chars/groups only, no rule refs)."""
-        ...
+    def value_str_atoms(self, body: Node_contra) -> list[Atom]:
+        """Return atoms for a value_str rule body (literals/chars/groups; no rule refs)."""
+        raise NotImplementedError("To be done")
 
     def sequence_atoms(
         self,
         body: Node_contra,
-        cls_name: str,
+        parent_class_name: str,
         helpers: "HelperRuleRegistry",
-        name_map: dict[str, str],
-        parent_of: dict[str, str],
-    ) -> tuple[list[Atom], dict[str, int]]:
-        """Atoms + field_map for a sequence or alternation-arm body."""
-        ...
+    ) -> list[Atom]:
+        """Return atoms for a sequence or alternation-arm body."""
+        raise NotImplementedError("To be done")
 
 
-class HelperRuleRegistry:
-    """Accumulates synthesised helper RuleSpecs during IR construction."""
+class FlavourParser(Protocol):
+    """text → list[RuleSpec]. The intermediate AST is package-internal."""
 
-    def __init__(self) -> None:
-        self._specs: list[RuleSpec] = []
-        self._names: set[str] = set()
+    def parse(self, text: str) -> list[RuleSpec]:
+        """Parse grammar text and return a fully-built list of RuleSpecs."""
+        raise NotImplementedError("To be done")
 
-    def reserve(self, base_name: str) -> str:
-        """Return a unique rule_name without marking it as taken."""
-        if base_name not in self._names:
-            return base_name
-        suffix = 2
-        while f"{base_name}{suffix}" in self._names:
-            suffix += 1
-        return f"{base_name}{suffix}"
-
-    def register(self, spec: RuleSpec) -> None:
-        if spec.rule_name in self._names:
-            raise ValueError(f"Helper rule {spec.rule_name!r} already registered")
-        self._names.add(spec.rule_name)
-        self._specs.append(spec)
-
-    def all_specs(self) -> list[RuleSpec]:
-        return list(self._specs)
+    def trivia_rules(self) -> frozenset[str]:
+        """Return the set of rule names that are trivia (whitespace, comments, etc.)."""
+        raise NotImplementedError("To be done")
 
 
-class IRBuilder(Generic[Node]):
-    """Generic orchestrator: list[Node] → list[RuleSpec].
+class EscapeCodec(Protocol):
+    """Canonical Python string ↔ flavour-text escape conversion."""
 
-    Callers wire: IRBuilder(GbnfClassifier(), GbnfConverter()).build(ast_rules).
-    """
+    def encode(self, value: str) -> str:
+        """Encode a canonical Python string into the flavour's escape syntax."""
+        raise NotImplementedError("To be done")
 
-    def __init__(
-        self,
-        classifier: RuleClassifier[Node],
-        converter: SequenceConverter[Node],
-    ) -> None:
-        self._classifier = classifier
-        self._converter = converter
+    def decode(self, source: str) -> str:
+        """Decode a flavour-text escape sequence into a canonical Python string."""
+        raise NotImplementedError("To be done")
 
-    def build(self, rules: list[Node]) -> list[RuleSpec]:
-        raise NotImplementedError("Implemented in Task 3")
+
+# Per-consumer handler type aliases.
+AtomEmitHandler = Callable[[Atom, "object"], str]
+FieldHandler = Callable[..., object]  # signature finalised in Task 9
+LarkHandler = Callable[..., str]  # signature finalised in Task 8
+TransformHandler = Callable[..., object]  # signature finalised in Task 8
+ToTextHandler = Callable[..., str]  # signature finalised in Task 10
+
+
+class FlavourAdapter(Protocol):
+    """The full adapter surface a flavour package exposes to generic consumers."""
+
+    name: str
+    extensions: tuple[str, ...]
+    parser: FlavourParser
+    emitter: object  # FlavourEmitter; tightened to that type in Task 3 (ir/emit.py)
+    escapes: EscapeCodec
+    supports: frozenset[str]
+
+    field_handlers: dict[type, FieldHandler]
+    lark_handlers: dict[type, LarkHandler]
+    transform_handlers: dict[type, TransformHandler]
+    to_text_handlers: dict[type, ToTextHandler]
+
+    def emit(self, specs: list[RuleSpec]) -> str:
+        """Emit a list of RuleSpecs as grammar text; delegates to self.emitter."""
+        raise NotImplementedError("To be done")
+
+    def emit_rule(self, spec: RuleSpec) -> str:
+        """Emit a single RuleSpec as a grammar rule string; delegates to self.emitter."""
+        raise NotImplementedError("To be done")

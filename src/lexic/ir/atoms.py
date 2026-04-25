@@ -3,16 +3,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 
-@dataclass
+@runtime_checkable
+class Atom(Protocol):
+    """Marker protocol for IR atoms.
+
+    Concrete atoms are frozen dataclasses. Atoms with bounded repetition
+    expose `min: int` and `max: int | None`. The IR is open: flavours may
+    define their own atom dataclasses next to their adapter — they qualify
+    as `Atom` structurally.
+    """
+
+
+@dataclass(frozen=True)
 class LiteralAtom:
     """A quoted string literal in the grammar, e.g. '=' or '('."""
 
     value: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class CharClassAtom:
     """A character class with quantifier bounds, e.g. [a-z]{1,1} or [a-z0-9_]{0,}.
 
@@ -26,7 +38,7 @@ class CharClassAtom:
     max: int | None
 
 
-@dataclass
+@dataclass(frozen=True)
 class RuleRefAtom:
     """A reference to another rule, with quantifier bounds.
 
@@ -41,7 +53,7 @@ class RuleRefAtom:
     max: int | None
 
 
-@dataclass
+@dataclass(frozen=True)
 class AlternationAtom:
     """Names of the alternative arms of an alternation rule.
 
@@ -52,7 +64,7 @@ class AlternationAtom:
     arm_rule_names: list[str]
 
 
-@dataclass
+@dataclass(frozen=True)
 class QuantifiedLiteralAtom:
     """A quoted literal with a quantifier — must be a Pydantic field.
 
@@ -65,7 +77,7 @@ class QuantifiedLiteralAtom:
     max: int | None
 
 
-@dataclass
+@dataclass(frozen=True)
 class InlineRegexAtom:
     """An inlined group compiled to both regex and GBNF forms at IR build time.
 
@@ -80,7 +92,7 @@ class InlineRegexAtom:
     max: int | None
 
 
-@dataclass
+@dataclass(frozen=True)
 class InlineAlternationAtom:
     """Inline alternation inside a sequence, e.g. (pawn | nonpawn | castle).
 
@@ -90,14 +102,3 @@ class InlineAlternationAtom:
     """
 
     arm_rule_names: list[str]
-
-
-Atom = (
-    LiteralAtom
-    | CharClassAtom
-    | QuantifiedLiteralAtom
-    | InlineRegexAtom
-    | RuleRefAtom
-    | AlternationAtom
-    | InlineAlternationAtom
-)
