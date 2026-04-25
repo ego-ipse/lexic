@@ -373,7 +373,7 @@ Downstream consumers — pass `adapter` so each can merge its own handlers:
 
 ## ws rule handling (decision D2)
 
-All four sites lose their `"ws"` string special case:
+All five sites lose their `"ws"` string special case:
 
 1. **`parsing/lark_builder.py:64-65`** (`if atom.rule_name == "ws": return "ws?"`) — removed. IRBuilder sets `min=0` on every `RuleRefAtom` whose `rule_name ∈ trivia_rules`. The generic `RuleRefAtom` Lark handler emits `name?` from the bounds.
 
@@ -381,7 +381,9 @@ All four sites lose their `"ws"` string special case:
 
 3. **`parsing/transformer.py:88-100`** (special `ws_method` + `if spec.rule_name == "ws": continue`) — removed. The generic `value_str` handler builds `Ws(value=text)` if the class exists, else returns the joined text — identical behaviour.
 
-4. **`runtime/base.py:97`** (`if isinstance(atom, RuleRefAtom) and atom.rule_name == "ws"`) — removed. `semantic_dump` uses `RuleSpec.non_semantic_fields` populated by IRBuilder.
+4. **`parsing/transformer/builders.py:88-113`** (`is_ws = atom.rule_name == "ws"` in `RuleRefBuilder` — empty-`Ws` default construction on absence; type-compat skip on mismatch) — generalised. The `RuleRefBuilder` checks `field_name in spec.non_semantic_fields` (populated by IRBuilder for trivia refs) and applies the same "default-construct on absence; skip-don't-consume on type-mismatch" policy without referencing `"ws"` by name.
+
+5. **`runtime/base.py:97`** (`if isinstance(atom, RuleRefAtom) and atom.rule_name == "ws"`) — removed. `semantic_dump` uses `RuleSpec.non_semantic_fields` populated by IRBuilder.
 
 The `"ws"` string is now hardcoded in **one** place: `IRBuilder(trivia_rules={"ws"})` default. Future flavours can pass a different set or override the parameter to extend the trivia rule list.
 
@@ -569,6 +571,7 @@ Pure refactor + IR canonicalisation. All seven ground-truth grammars must round-
 **ws cleanup:**
 - [ ] `parsing/lark_builder.py` has no `if atom.rule_name == "ws"` and no `if spec.rule_name == "ws"`; no hardcoded `ws : /[ \t\n]+/` line.
 - [ ] `parsing/transformer.py` has no special `ws_method` and no `if spec.rule_name == "ws"`.
+- [ ] `parsing/transformer/builders.py:RuleRefBuilder` has no `is_ws = atom.rule_name == "ws"`; default-on-absence and type-compat-skip behaviour gated on `field_name in spec.non_semantic_fields`.
 - [ ] `runtime/base.py` has no `atom.rule_name == "ws"` check; `semantic_dump` uses `non_semantic_fields`.
 - [ ] The string `"ws"` appears at most once in `src/lexic/` (the IRBuilder default `trivia_rules={"ws"}`).
 
