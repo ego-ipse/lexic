@@ -18,7 +18,7 @@ from lexic.ir import (
     RuleRefAtom,
     RuleSpec,
 )
-from lexic.grammars.gbnf.syntax import decode_gbnf_escapes
+from lexic.grammars.gbnf.adapter import decode_gbnf_escapes
 from lexic.ir.charclass import parse_charclass_chars
 
 

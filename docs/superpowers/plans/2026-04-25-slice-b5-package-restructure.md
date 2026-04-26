@@ -46,7 +46,6 @@
 - `src/lexic/runtime/handlers/__init__.py`
 - `src/lexic/runtime/handlers/to_text.py`
 - `src/lexic/runtime/handlers/generate.py`
-- `src/lexic/grammars/gbnf/syntax.py` (replaces `escapes.py` + `charclass.py`; declares `GbnfEscapes(EscapeCodec)` subclass + `gbnf_bracket_to_canonical` / `canonical_to_gbnf_bracket`; encode/decode/read-escape inherited from `EscapeCodec`)
 - `src/lexic/grammars/gbnf/ast_to_ir.py` (collapses `codegen/classify.py` + `codegen/seq_to_atoms.py` + `codegen/ast_utils.py` into one module of AST queries)
 - `src/lexic/grammars/gbnf/emit.py` (slim `GbnfEmitter` extending `FlavourEmitter` ABC)
 - `tests/unit/lexic/ir/test_helpers.py` (move from `tests/unit/lexic/codegen/test_helpers.py`)
@@ -72,7 +71,6 @@
 - `tests/unit/lexic/runtime/test_handlers_to_text.py`
 - `tests/unit/lexic/runtime/test_handlers_generate.py`
 - `tests/unit/lexic/codegen/handlers/test_atom_fields.py`
-- `tests/unit/lexic/grammars/gbnf/test_syntax.py` (collapses `test_escapes.py` + `test_charclass.py`)
 - `tests/unit/lexic/grammars/gbnf/test_ast_to_ir.py` (replaces `test_classify.py` + `test_seq_to_atoms.py` + `test_ast_utils.py`)
 - `tests/unit/lexic/grammars/gbnf/test_emit.py` (replaces `test_emitter.py`)
 
@@ -97,8 +95,9 @@ Source moves are listed inline per task. All test mirror moves match. Notable:
 - `src/lexic/codegen/ast_utils.py`
 - `src/lexic/codegen/transformer/__init__.py` (subpackage gone)
 - `src/lexic/codegen/transformer/registry.py`
-- `src/lexic/grammars/gbnf/escapes.py` (content in `syntax.py`)
-- `src/lexic/grammars/gbnf/charclass.py` (content in `syntax.py`)
+- `src/lexic/grammars/gbnf/escapes.py` (folded into `adapter.py` via `GbnfEscapes(EscapeCodec)`)
+- `src/lexic/grammars/gbnf/charclass.py` (algorithm now in `lexic.ir.charclass`)
+- `src/lexic/grammars/gbnf/syntax.py` (Tasks 1–4 implementation file; folded into `adapter.py`)
 - `src/lexic/grammars/gbnf/emitter.py` (replaced by slim `emit.py`)
 - Test mirrors of every deletion above.
 
@@ -110,7 +109,7 @@ Source moves are listed inline per task. All test mirror moves match. Notable:
 - `src/lexic/ir/__init__.py` — re-exports.
 - `src/lexic/grammars/flavours.py` — `FlavourParser`/`FlavourEmitter`/`FlavourAdapter` Protocols **deleted**; replaced by re-exports from `lexic.ir.protocols`. The registry (`ADAPTERS`, `register_adapter`, `get_adapter`, `adapter_for_extension`) stays.
 - `src/lexic/grammars/gbnf/__init__.py` — re-exports `GbnfAdapter`.
-- `src/lexic/grammars/gbnf/adapter.py` — full handler-table wiring.
+- `src/lexic/grammars/gbnf/adapter.py` — declares `GbnfEscapes(EscapeCodec)` + module-level `decode_gbnf_escapes` / `encode_gbnf_escapes` aliases (formerly `syntax.py`); full handler-table wiring; passes its own `escapes` instance into the cached `GbnfEmitter`.
 - `src/lexic/grammars/gbnf/parser.py` — `GbnfParser.parse()` returns `list[RuleSpec]`.
 - `src/lexic/codegen/__init__.py` — drops `IRBuilder` import; calls `adapter.parser.parse(text)` directly; sets `__adapter__` on generated module.
 - `src/lexic/codegen/model_emitter.py` — handler-based atom rendering; emits the `__adapter__ = ...` line.
@@ -128,7 +127,7 @@ Tasks build bottom-up. Each task ends with a green test suite; tests stay green 
 | 1    | Foundations: protocols, RuleSpec, Atom Protocol marker, ir/helpers move, `EscapeCodec` ABC | — |
 | 2    | Generic algorithms: topo, classify, convert, builder, charclass | 1 |
 | 3    | FlavourEmitter ABC | 1 |
-| 4    | GBNF syntax helpers (`GbnfEscapes(EscapeCodec)` subclass + bracket converters) | 1 (needs `EscapeCodec` ABC) |
+| 4    | GBNF flavour: declare `GbnfEscapes(EscapeCodec)` in `adapter.py`; delete `escapes.py`/`charclass.py`/`syntax.py` | 1 (needs `EscapeCodec` ABC) |
 | 5    | GBNF ast_to_ir: GbnfClassifier + GbnfConverter; decode literals at parse time | 1, 2, 4 |
 | 6    | Slim GbnfEmitter | 3, 4 |
 | 7    | Drop InlineRegexAtom.gbnf — canonical regex form | 5, 6 |
@@ -1605,36 +1604,36 @@ render_inline_regex, encode); subclass override = class attrs only."
 
 ---
 
-## Task 4: GBNF syntax helpers — `GbnfEscapes(EscapeCodec)` + bracket converters
+## Task 4: GBNF flavour — fold escape codec into `adapter.py`; delete `escapes.py`/`charclass.py`/`syntax.py`
 
-Replace `escapes.py` and `charclass.py` with a slim `syntax.py` that subclasses `EscapeCodec` (Task 1) declaring only the GBNF escape tables, plus the bracket-canonicalisation pair. The encode/decode/read-escape algorithms are inherited; `parse_charclass_chars` no longer lives here (Task 2 lifted it to `lexic.ir.charclass`). Module-level `decode_gbnf_escapes` / `encode_gbnf_escapes` aliases are bound to a canonical instance for ergonomic functional callers downstream.
+`GbnfEscapes(EscapeCodec)` is declared at the top of `adapter.py` — the same file that already aggregates everything GBNF-specific. The encode/decode/read-escape algorithms are inherited from the ABC (Task 1).  Module-level `decode_gbnf_escapes` / `encode_gbnf_escapes` aliases are bound to a canonical instance for ergonomic functional callers downstream.  Bracket-canonicalisation helpers are dropped: today they are identities, and the GBNF parser/emitter can inline the conversion (or override `render_charclass`) when it ever stops being identity. `parse_charclass_chars` already lives in `lexic.ir.charclass` (Task 2).
+
+**Note (amendment):** an earlier revision of this task created `src/lexic/grammars/gbnf/syntax.py` with `GbnfEscapes` + bracket converters + free-function aliases. The amendment folds those contents into `adapter.py` and drops the bracket-converter functions (YAGNI: identity today, hypothetical future Unicode-property logic belongs on `render_charclass` / parser-side, not on free functions).
 
 **Files:**
-- Create: `src/lexic/grammars/gbnf/syntax.py`
+- Modify: `src/lexic/grammars/gbnf/adapter.py` (prepend `GbnfEscapes(EscapeCodec)` + `GBNF_ESCAPES` + `decode_gbnf_escapes`/`encode_gbnf_escapes` aliases above the existing `GbnfAdapter` class)
 - Delete: `src/lexic/grammars/gbnf/escapes.py`
 - Delete: `src/lexic/grammars/gbnf/charclass.py`
-- Create: `tests/unit/lexic/grammars/gbnf/test_syntax.py`
+- Modify: `tests/unit/lexic/grammars/gbnf/test_adapter.py` (absorb the GbnfEscapes / alias / encode-decode assertions; bracket-converter tests dropped)
 - Delete: `tests/unit/lexic/grammars/gbnf/test_escapes.py`
 - Delete: `tests/unit/lexic/grammars/gbnf/test_charclass.py`
-- Update imports in: `src/lexic/codegen/lark_builder.py`, `src/lexic/codegen/transformer/build_transformer.py`, `src/lexic/base.py`, `src/lexic/grammars/gbnf/emitter.py`, `src/lexic/generate.py`, `src/lexic/ir/regex_portable.py` (if any). Note: any `parse_charclass_chars` import goes to `lexic.ir.charclass`, not `lexic.grammars.gbnf.syntax`.
+- Update imports in: `src/lexic/codegen/lark_builder.py`, `src/lexic/codegen/transformer/build_transformer.py`, `src/lexic/base.py`, `src/lexic/grammars/gbnf/emitter.py`, `src/lexic/generate.py`, `src/lexic/ir/regex_portable.py` (if any). Note: `parse_charclass_chars` imports go to `lexic.ir.charclass`; everything else (`decode_gbnf_escapes`, `encode_gbnf_escapes`) goes to `lexic.grammars.gbnf.adapter`.
 
-- [ ] **Step 1: Write failing tests for `syntax.py`.**
+- [ ] **Step 1: Write failing tests in `tests/unit/lexic/grammars/gbnf/test_adapter.py`.**
 
-Create `tests/unit/lexic/grammars/gbnf/test_syntax.py`:
+Add the following block to the existing `test_adapter.py` (or create the section if absent):
 
 ```python
-"""GBNF flavour syntax — GbnfEscapes subclass + bracket converters."""
+"""Adapter-resident codec tests — GbnfEscapes subclass + module-level aliases."""
 from __future__ import annotations
 
 import pytest
 
-from lexic.grammars.gbnf.syntax import (
+from lexic.grammars.gbnf.adapter import (
     GBNF_ESCAPES,
     GbnfEscapes,
-    canonical_to_gbnf_bracket,
     decode_gbnf_escapes,
     encode_gbnf_escapes,
-    gbnf_bracket_to_canonical,
 )
 from lexic.ir.escapes import EscapeCodec
 
@@ -1648,30 +1647,19 @@ def test_module_aliases_are_bound_to_canonical_instance():
     assert encode_gbnf_escapes == GBNF_ESCAPES.encode
 
 
-# ── decode/encode (delegate to inherited algorithm) ──────────────────
-
 @pytest.mark.parametrize("src,expected", [
-    (r"\n", "\n"),
-    (r"\t", "\t"),
-    (r"\r", "\r"),
-    (r"\\", "\\"),
-    (r"\"", '"'),
-    (r"\x41", "A"),
-    ("A", "A"),
-    (r"hello\nworld", "hello\nworld"),
+    (r"\n", "\n"), (r"\t", "\t"), (r"\r", "\r"),
+    (r"\\", "\\"), (r"\"", '"'), (r"\x41", "A"),
+    ("A", "A"), (r"hello\nworld", "hello\nworld"),
 ])
 def test_decode_gbnf_escapes(src, expected):
     assert decode_gbnf_escapes(src) == expected
 
 
 @pytest.mark.parametrize("canonical,expected", [
-    ("\n", r"\n"),
-    ("\t", r"\t"),
-    ("\r", r"\r"),
-    ("\\", r"\\"),
-    ('"', r"\""),
-    ("hello\nworld", r"hello\nworld"),
-    ("plain", "plain"),
+    ("\n", r"\n"), ("\t", r"\t"), ("\r", r"\r"),
+    ("\\", r"\\"), ('"', r"\""),
+    ("hello\nworld", r"hello\nworld"), ("plain", "plain"),
 ])
 def test_encode_gbnf_escapes(canonical, expected):
     assert encode_gbnf_escapes(canonical) == expected
@@ -1685,45 +1673,22 @@ def test_decode_then_encode_roundtrip_on_pure_ascii():
 def test_encode_then_decode_roundtrip_on_canonical_python():
     s = "tab\there\nnewline"
     assert decode_gbnf_escapes(encode_gbnf_escapes(s)) == s
-
-
-# ── bracket canonicalisation ─────────────────────────────────────────
-
-def test_gbnf_bracket_to_canonical_passes_through_simple():
-    assert gbnf_bracket_to_canonical("[0-9]") == "[0-9]"
-    assert gbnf_bracket_to_canonical("[a-zA-Z_]") == "[a-zA-Z_]"
-
-
-def test_gbnf_bracket_to_canonical_handles_negation():
-    assert gbnf_bracket_to_canonical("[^abc]") == "[^abc]"
-
-
-def test_canonical_to_gbnf_bracket_passes_through():
-    # POSIX is already canonical; GBNF accepts it directly.
-    assert canonical_to_gbnf_bracket("[0-9]") == "[0-9]"
 ```
 
-- [ ] **Step 2: Run — expect ModuleNotFoundError.**
+Bracket-converter tests are intentionally dropped — the functions go away.
 
-- [ ] **Step 3: Create `src/lexic/grammars/gbnf/syntax.py`.**
+- [ ] **Step 2: Run — expect ImportError until adapter.py is updated.**
+
+- [ ] **Step 3: Prepend codec declaration to `src/lexic/grammars/gbnf/adapter.py`.**
+
+Add **above** the existing `GbnfAdapter` class:
 
 ```python
-"""GBNF flavour syntax — escape tables + bracket canonicalisation.
-
-GbnfEscapes subclasses EscapeCodec (lexic.ir.escapes); the GBNF flavour
-declares only its escape tables.  encode/decode/read_escape are inherited
-from the ABC.  Module-level `decode_gbnf_escapes`/`encode_gbnf_escapes` are
-bound to a canonical instance — convenient for module-level functional
-callers; behaviour is identical to `GBNF_ESCAPES.decode`/`.encode`.
-"""
-
-from __future__ import annotations
-
 from lexic.ir.escapes import EscapeCodec
 
 
 class GbnfEscapes(EscapeCodec):
-    """GBNF escape tables.  Algorithm is inherited."""
+    """GBNF escape tables.  Algorithm is inherited from EscapeCodec."""
 
     SHORT_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
     HEX_ESCAPES = (("x", 2), ("u", 4), ("U", 8))
@@ -1732,38 +1697,27 @@ class GbnfEscapes(EscapeCodec):
 GBNF_ESCAPES = GbnfEscapes()
 decode_gbnf_escapes = GBNF_ESCAPES.decode
 encode_gbnf_escapes = GBNF_ESCAPES.encode
-
-
-def gbnf_bracket_to_canonical(pattern: str) -> str:
-    """Convert a GBNF bracket expression to canonical POSIX form.
-
-    Today GBNF brackets are already POSIX-compatible for ASCII patterns;
-    this is identity. Future Unicode-property classes (\\p{...}) would be
-    expanded here.
-    """
-    return pattern
-
-
-def canonical_to_gbnf_bracket(pattern: str) -> str:
-    """Inverse of gbnf_bracket_to_canonical."""
-    return pattern
 ```
 
-- [ ] **Step 4: Run syntax tests — PASS.**
+The existing `GbnfAdapter` class stays (it is rewired in Task 11 to consume `GbnfEscapes` for `self.escapes`). For now, anything inside `GbnfAdapter` that referenced the old `syntax.py` aliases keeps working because the aliases are now declared in the same module.
 
-- [ ] **Step 5: Update all importers of `escapes.py` / `charclass.py`.**
+- [ ] **Step 4: Run codec tests — PASS.**
+
+- [ ] **Step 5: Redirect importers from `gbnf.syntax`/`gbnf.escapes`/`gbnf.charclass` to `gbnf.adapter`.**
 
 ```bash
-grep -rn "from lexic.grammars.gbnf.escapes\|from lexic.grammars.gbnf.charclass" src/ tests/
+grep -rn "from lexic.grammars.gbnf.escapes\|from lexic.grammars.gbnf.charclass\|from lexic.grammars.gbnf.syntax" src/ tests/
 ```
 
-Replace each `from lexic.grammars.gbnf.escapes import ...` and `from lexic.grammars.gbnf.charclass import ...` with `from lexic.grammars.gbnf.syntax import ...`. The `decode_gbnf_escapes` / `encode_gbnf_escapes` names continue to work via the module-level bound aliases.
+Bulk-rewrite the module path; the symbol names are unchanged (`decode_gbnf_escapes`, `encode_gbnf_escapes`, `GbnfEscapes`).
 
 ```bash
 grep -rl "lexic.grammars.gbnf.escapes" src/ tests/ | xargs sed -i \
-    's|lexic.grammars.gbnf.escapes|lexic.grammars.gbnf.syntax|g'
+    's|lexic.grammars.gbnf.escapes|lexic.grammars.gbnf.adapter|g'
 grep -rl "lexic.grammars.gbnf.charclass" src/ tests/ | xargs sed -i \
-    's|lexic.grammars.gbnf.charclass|lexic.grammars.gbnf.syntax|g'
+    's|lexic.grammars.gbnf.charclass|lexic.grammars.gbnf.adapter|g'
+grep -rl "lexic.grammars.gbnf.syntax" src/ tests/ | xargs sed -i \
+    's|lexic.grammars.gbnf.syntax|lexic.grammars.gbnf.adapter|g'
 ```
 
 - [ ] **Step 6: Redirect `parse_charclass_chars` imports to `lexic.ir.charclass`.**
@@ -1772,19 +1726,19 @@ grep -rl "lexic.grammars.gbnf.charclass" src/ tests/ | xargs sed -i \
 grep -rn "parse_charclass_chars" src/ tests/
 ```
 
-For each call site (today: `src/lexic/generate.py`, possibly tests), replace the `from lexic.grammars.gbnf.syntax import ...` line with `from lexic.ir.charclass import parse_charclass_chars`. If the line currently imports `parse_charclass_chars` alongside other names from `gbnf.syntax`, split it into two import lines. Also drop any `parse_escape` imports — that name is no longer exported (the function is now `EscapeCodec.read_escape` on a codec instance, used internally by `lexic.ir.charclass`).
+For each call site, replace the `from lexic.grammars.gbnf.adapter import ...` line with `from lexic.ir.charclass import parse_charclass_chars`. If the line imports `parse_charclass_chars` alongside other names, split into two lines. Also drop any `parse_escape` imports — that name no longer exists (it became `EscapeCodec.read_escape`, called only inside `lexic.ir.charclass`).
 
 Verification:
 ```bash
-grep -rn "from lexic.grammars.gbnf.syntax import .*parse_charclass_chars\|from lexic.grammars.gbnf.syntax import .*parse_escape" src/ tests/
+grep -rn "from lexic.grammars.gbnf.adapter import .*parse_charclass_chars\|from lexic.grammars.gbnf.adapter import .*parse_escape" src/ tests/
 # Expected: zero hits.
 ```
 
-- [ ] **Step 7: Delete `escapes.py` and `charclass.py`.**
+- [ ] **Step 7: Delete `escapes.py`, `charclass.py`, `syntax.py`, and their tests.**
 
 ```bash
-git rm src/lexic/grammars/gbnf/escapes.py src/lexic/grammars/gbnf/charclass.py
-git rm tests/unit/lexic/grammars/gbnf/test_escapes.py tests/unit/lexic/grammars/gbnf/test_charclass.py
+git rm src/lexic/grammars/gbnf/escapes.py src/lexic/grammars/gbnf/charclass.py src/lexic/grammars/gbnf/syntax.py
+git rm tests/unit/lexic/grammars/gbnf/test_escapes.py tests/unit/lexic/grammars/gbnf/test_charclass.py tests/unit/lexic/grammars/gbnf/test_syntax.py
 ```
 
 - [ ] **Step 8: Run full suite + ruff. Commit.**
@@ -1794,15 +1748,18 @@ uv run pytest tests/ -q
 uv run ruff check src/ tests/
 git add -A
 git commit -m "$(cat <<'EOF'
-refactor(grammars/gbnf): GbnfEscapes(EscapeCodec) subclass + bracket converters
+refactor(grammars/gbnf): fold escape codec into adapter.py; delete syntax.py
 
-- syntax.py shrinks to ~25 lines: GbnfEscapes declares SHORT_ESCAPES/
-  HEX_ESCAPES; encode/decode/read_escape are inherited from the ABC.
-- Module-level decode_gbnf_escapes/encode_gbnf_escapes aliases bound to
-  GBNF_ESCAPES.decode/.encode preserve the existing functional surface.
-- parse_charclass_chars import path moved from grammars.gbnf.syntax to
-  lexic.ir.charclass (canonical POSIX algorithm parameterised by codec).
-- escapes.py + charclass.py deleted.
+- GbnfEscapes(EscapeCodec) declared at the top of adapter.py — single home
+  for all GBNF flavour declarations.  encode/decode/read_escape inherited
+  from the ABC.
+- Module-level decode_gbnf_escapes/encode_gbnf_escapes aliases preserved
+  in adapter.py for downstream tasks 5–11; pruning deferred to end-of-B5.
+- gbnf_bracket_to_canonical / canonical_to_gbnf_bracket dropped (YAGNI:
+  identity today; future Unicode-property logic belongs on
+  render_charclass and parser-side, not on free functions).
+- parse_charclass_chars import path: lexic.ir.charclass (was gbnf.syntax).
+- syntax.py + escapes.py + charclass.py deleted.
 EOF
 )"
 ```
@@ -1968,7 +1925,7 @@ from lexic.grammars.gbnf.ast import (
     RuleRef,
     Sequence,
 )
-from lexic.grammars.gbnf.syntax import decode_gbnf_escapes, gbnf_bracket_to_canonical
+from lexic.grammars.gbnf.adapter import decode_gbnf_escapes
 from lexic.ir import (
     Atom,
     CharClassAtom,
@@ -2148,7 +2105,7 @@ def _to_canonical_regex_inner(group: Group) -> str:
                 parts.append(re.escape(decode_gbnf_escapes(it.atom.value)) + q)
             elif isinstance(it.atom, CharClass):
                 q = it.quantifier or ""
-                parts.append(gbnf_bracket_to_canonical(it.atom.pattern) + q)
+                parts.append(it.atom.pattern + q)  # canonical POSIX already
             elif isinstance(it.atom, Group):
                 q = it.quantifier or ""
                 parts.append(_to_canonical_regex_inner(it.atom) + q)
@@ -2175,7 +2132,7 @@ class GbnfConverter:
                 if isinstance(it.atom, CharClass):
                     lo, hi = quantifier_to_bounds(it.quantifier)
                     items.append(CharClassAtom(
-                        pattern=gbnf_bracket_to_canonical(it.atom.pattern),
+                        pattern=it.atom.pattern,  # GBNF bracket text == canonical POSIX (ASCII subset)
                         min=lo, max=hi,
                     ))
                 elif isinstance(it.atom, Literal):
@@ -2208,7 +2165,7 @@ class GbnfConverter:
             elif isinstance(item.atom, CharClass):
                 lo, hi = quantifier_to_bounds(item.quantifier)
                 atoms.append(CharClassAtom(
-                    pattern=gbnf_bracket_to_canonical(item.atom.pattern),
+                    pattern=item.atom.pattern,  # GBNF bracket text == canonical POSIX (ASCII subset)
                     min=lo, max=hi,
                 ))
             elif isinstance(item.atom, RuleRef):
@@ -2334,7 +2291,7 @@ def _atom_to_lark(atom) -> str:
     # ...
 ```
 
-Drop the `from lexic.grammars.gbnf.syntax import decode_gbnf_escapes` import.
+Drop the `from lexic.grammars.gbnf.adapter import decode_gbnf_escapes` import.
 
 Edit `src/lexic/codegen/transformer/build_transformer.py`:
 - Drop the `decode_gbnf_escapes` import.
@@ -2345,7 +2302,7 @@ Edit `src/lexic/base.py`:
 - Replace `decoded = decode_gbnf_escapes(atom.value)` with `decoded = atom.value`.
 
 Edit `src/lexic/grammars/gbnf/emitter.py`:
-- Add `from lexic.grammars.gbnf.syntax import encode_gbnf_escapes`.
+- Add `from lexic.grammars.gbnf.adapter import encode_gbnf_escapes`.
 - In the `LiteralAtom` and `QuantifiedLiteralAtom` branches of `_atom_to_gbnf`, wrap value with `encode_gbnf_escapes` before emitting:
   ```python
   if isinstance(atom, LiteralAtom):
@@ -2413,6 +2370,7 @@ Create `tests/unit/lexic/grammars/gbnf/test_emit.py`:
 """GbnfEmitter — slim subclass of FlavourEmitter; canonical IR → GBNF text."""
 from __future__ import annotations
 
+from lexic.grammars.gbnf.adapter import GbnfEscapes
 from lexic.grammars.gbnf.emit import GbnfEmitter
 from lexic.ir import (
     AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec,
@@ -2420,7 +2378,7 @@ from lexic.ir import (
 
 
 def _emitter():
-    return GbnfEmitter()
+    return GbnfEmitter(escapes=GbnfEscapes())
 
 
 def test_emit_literal_quotes_and_encodes():
@@ -2474,16 +2432,20 @@ def test_emit_alternation_uses_pipe_separator():
 
 from __future__ import annotations
 
-from lexic.grammars.gbnf.syntax import GbnfEscapes, canonical_to_gbnf_bracket
 from lexic.ir.emit import FlavourEmitter
 
 
 class GbnfEmitter(FlavourEmitter):
-    """GBNF flavour emitter."""
+    """GBNF flavour emitter.
 
-    # The defaults already match GBNF (rule_separator='::=', alt_separator=' | ',
-    # quote_char='"', wrap_group='(...)'); we only declare the escape codec and
-    # override the canonical-to-flavour bracket conversion.
+    The FlavourEmitter defaults already match GBNF (rule_separator='::=',
+    alt_separator=' | ', quote_char='"', wrap_group='(...)') and the
+    default render_charclass / render_inline_regex are identity, which is
+    correct for ASCII GBNF bracket and inline-regex syntax today.
+
+    The escape codec is injected by the caller (typically GbnfAdapter,
+    which holds the canonical GbnfEscapes() instance — see Task 11).
+    """
 
     @property
     def supports(self) -> frozenset[str]:
@@ -2491,20 +2453,9 @@ class GbnfEmitter(FlavourEmitter):
             "literal", "char_class", "negated_class", "quantifier",
             "alternation", "non_capturing_group", "unicode_escape",
         })
-
-    def __init__(self, handlers=None) -> None:
-        super().__init__(escapes=GbnfEscapes(), handlers=handlers)
-
-    def render_charclass(self, canonical_pattern: str) -> str:
-        return canonical_to_gbnf_bracket(canonical_pattern)
-
-    def render_inline_regex(self, canonical: str) -> str:
-        # Today: canonical regex form == GBNF inline form for the kinds of
-        # groups GbnfConverter produces (literal arms with re.escape). This
-        # method is the seam for future re-quoting if the canonical form
-        # diverges.
-        return canonical
 ```
+
+`GbnfEmitter` no longer overrides `__init__`, `render_charclass`, or `render_inline_regex` — `FlavourEmitter.__init__(escapes, handlers)` is the only constructor.  Anyone instantiating `GbnfEmitter` directly must now pass `escapes=GbnfEscapes()` (or get an emitter via `GbnfAdapter().emitter`, which does this for them).  Update existing test code that does `GbnfEmitter()` accordingly.
 
 - [ ] **Step 3: Run new emit tests — PASS.**
 
@@ -3411,7 +3362,12 @@ git commit -m "refactor(runtime): runtime/ package + per-module __adapter__ + ws
 Edit `src/lexic/grammars/gbnf/adapter.py`:
 
 ```python
-"""GbnfAdapter — wires every seam of the GBNF flavour."""
+"""GbnfAdapter — wires every seam of the GBNF flavour.
+
+GbnfEscapes (declared above in this same module — see Task 4) is the
+single instance the adapter exposes via `self.escapes` and passes into
+the emitter.  No second instantiation; no separate syntax module.
+"""
 
 from __future__ import annotations
 
@@ -3419,7 +3375,9 @@ from functools import cached_property
 
 from lexic.grammars.gbnf.emit import GbnfEmitter
 from lexic.grammars.gbnf.parser import GbnfParser
-from lexic.grammars.gbnf.syntax import GbnfEscapes
+
+# GbnfEscapes / GBNF_ESCAPES / decode_gbnf_escapes / encode_gbnf_escapes
+# are declared at module top by Task 4 — no import needed here.
 
 
 class GbnfAdapter:
@@ -3447,7 +3405,7 @@ class GbnfAdapter:
 
     @cached_property
     def emitter(self) -> GbnfEmitter:
-        return GbnfEmitter()
+        return GbnfEmitter(escapes=self.escapes)
 ```
 
 - [ ] **Step 2: Trim `grammars/flavours.py`.**
@@ -3511,7 +3469,7 @@ uv run ruff check src/ tests/
 - [ ] **Step 4: Confirm no orphan imports.**
 
 ```bash
-grep -rn "from lexic.codegen.helpers\|from lexic.codegen.classify\|from lexic.codegen.seq_to_atoms\|from lexic.codegen.ast_utils\|from lexic.codegen.transformer\|from lexic.codegen.lark_builder\|from lexic.codegen.ir_builder\|from lexic.grammars.gbnf.escapes\|from lexic.grammars.gbnf.charclass\|from lexic.grammars.gbnf.emitter\|from lexic.base\|from lexic.parse\|from lexic.generate" src/ tests/
+grep -rn "from lexic.codegen.helpers\|from lexic.codegen.classify\|from lexic.codegen.seq_to_atoms\|from lexic.codegen.ast_utils\|from lexic.codegen.transformer\|from lexic.codegen.lark_builder\|from lexic.codegen.ir_builder\|from lexic.grammars.gbnf.escapes\|from lexic.grammars.gbnf.charclass\|from lexic.grammars.gbnf.syntax\|from lexic.grammars.gbnf.emitter\|from lexic.base\|from lexic.parse\|from lexic.generate" src/ tests/
 ```
 
 Expected: zero results.
@@ -3641,13 +3599,13 @@ After all 12 tasks land, run this checklist against the spec exit criteria:
 - [ ] `lexic/ir/emit.py:FlavourEmitter` is an ABC with `DEFAULT_HANDLERS` and decorator hooks.
 - [ ] `lexic/ir/escapes.py:EscapeCodec` is an ABC; declares `encode`/`decode`/`read_escape` algorithms; subclasses provide only `SHORT_ESCAPES` and `HEX_ESCAPES` class attrs. `CANONICAL_ESCAPES` instance is the default for `parse_charclass_chars`.
 - [ ] `lexic/ir/charclass.py:parse_charclass_chars(inner, codec=CANONICAL_ESCAPES)` is the only place bracket-expression enumeration lives; no parallel implementation in `grammars/gbnf/`.
-- [ ] `grammars/gbnf/syntax.py` declares only `GbnfEscapes(EscapeCodec)` (≤ 5 lines of class body), `GBNF_ESCAPES` instance, module-level `decode_gbnf_escapes`/`encode_gbnf_escapes` aliases, and the two bracket converters. No inline encode/decode/parse_charclass logic.
+- [ ] `grammars/gbnf/adapter.py` declares `GbnfEscapes(EscapeCodec)` (≤ 5 lines of class body), `GBNF_ESCAPES` instance, and module-level `decode_gbnf_escapes`/`encode_gbnf_escapes` aliases (no separate `syntax.py`). No inline encode/decode/parse_charclass logic; no bracket-converter free functions.
 - [ ] `lexic/parsing/`, `lexic/runtime/` exist; `lexic/codegen/handlers/`, `lexic/parsing/handlers/`, `lexic/runtime/handlers/` exist with canonical-atom handler tables.
 - [ ] `lexic/codegen/{ir_builder,classify,seq_to_atoms,ast_utils,helpers}.py` and `lexic/codegen/transformer/` do not exist.
 - [ ] `src/lexic/{base,parse,generate}.py` do not exist (moved to `runtime/`).
-- [ ] `grammars/gbnf/{escapes,charclass,emitter}.py` do not exist (collapsed/renamed).
-- [ ] `grammars/gbnf/` contains: `__init__.py`, `adapter.py`, `parser.py`, `ast.py`, `ast_to_ir.py`, `emit.py`, `syntax.py`.
-- [ ] `grammars/gbnf/emit.py:GbnfEmitter` is ≤ 30 lines.
+- [ ] `grammars/gbnf/{escapes,charclass,syntax,emitter}.py` do not exist (collapsed/renamed; `syntax.py` was an interim file from an earlier revision of Task 4 — its contents are now in `adapter.py`).
+- [ ] `grammars/gbnf/` contains: `__init__.py`, `adapter.py`, `parser.py`, `ast.py`, `ast_to_ir.py`, `emit.py`.
+- [ ] `grammars/gbnf/emit.py:GbnfEmitter` is ≤ 20 lines (no custom `__init__`, no `render_charclass`/`render_inline_regex` overrides — defaults are correct for ASCII GBNF).
 - [ ] `grammars/gbnf/parser.py:GbnfParser.parse(text)` returns `list[RuleSpec]`.
 - [ ] `grammars/gbnf/ast_to_ir.py` defines `GbnfClassifier(RuleClassifier[Rule])` (memoised by `id(rule)`) and `GbnfConverter(SequenceConverter[Rule])`.
 - [ ] `GbnfAdapter` exposes `parser`, `emitter`, `escapes`, `supports`, `name`, `extensions`, and the four handler-extension dicts.

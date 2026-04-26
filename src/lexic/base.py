@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from lexic.grammars import get_adapter
 from lexic.ir import LiteralAtom, RuleRefAtom, RuleSpec
-from lexic.grammars.gbnf.syntax import decode_gbnf_escapes
+from lexic.grammars.gbnf.adapter import decode_gbnf_escapes
 
 
 class GrammarModel(BaseModel):
