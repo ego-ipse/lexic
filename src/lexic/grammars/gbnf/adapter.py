@@ -11,17 +11,10 @@ from __future__ import annotations
 from lexic.grammars.flavours import FlavourAdapter
 from lexic.grammars.gbnf.emitter import GbnfEmitter
 from lexic.grammars.gbnf.parser import GbnfParser
-from lexic.ir.escapes import EscapeCodec
+from lexic.ir.escapes import CANONICAL_ESCAPES
 
 
-class GbnfEscapes(EscapeCodec):
-    """GBNF escape tables.  Algorithm is inherited from EscapeCodec."""
-
-    SHORT_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
-    HEX_ESCAPES = (("x", 2), ("u", 4), ("U", 8))
-
-
-GBNF_ESCAPES = GbnfEscapes()
+GBNF_ESCAPES = CANONICAL_ESCAPES
 decode_gbnf_escapes = GBNF_ESCAPES.decode
 encode_gbnf_escapes = GBNF_ESCAPES.encode
 

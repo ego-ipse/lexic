@@ -7,14 +7,12 @@ import pytest
 from lexic.grammars.gbnf.adapter import (
     GBNF_ESCAPES,
     GbnfAdapter,
-    GbnfEscapes,
     decode_gbnf_escapes,
     encode_gbnf_escapes,
 )
 from lexic.grammars.gbnf.ast import Rule
 from lexic.grammars.gbnf.emitter import GbnfEmitter
 from lexic.grammars.gbnf.parser import GbnfParser
-from lexic.ir.escapes import EscapeCodec
 
 _ADAPTER = GbnfAdapter()
 
@@ -63,11 +61,6 @@ def test_adapter_emitter_emit_empty_specs_returns_newline():
 
 
 # ── GBNF escape codec (declared on this module) ──────────────────────
-
-
-def test_gbnf_escapes_is_subclass_of_escape_codec():
-    """GbnfEscapes inherits the algorithm from the EscapeCodec ABC."""
-    assert issubclass(GbnfEscapes, EscapeCodec)
 
 
 def test_module_aliases_are_bound_to_canonical_instance():
