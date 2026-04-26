@@ -13,7 +13,8 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence as Seq
 
-from lexic.ir import (
+
+from lexic.ir.atoms import (
     AlternationAtom,
     Atom,
     CharClassAtom,

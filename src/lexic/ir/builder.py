@@ -6,7 +6,7 @@ for any flavour whose classifier and converter satisfy the protocols.
 
 from __future__ import annotations
 
-from typing import Generator, Generic, TypeVar
+from typing import TYPE_CHECKING, Generator, Generic, TypeVar
 
 from lexic.ir.atoms import (
     AlternationAtom,
@@ -15,10 +15,12 @@ from lexic.ir.atoms import (
 )
 from lexic.ir.helpers import HelperRuleRegistry
 from lexic.ir.naming import assign_field_names
-from lexic.ir.protocols import RuleClassifier, SequenceConverter
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
 from lexic.utils.names import to_pascal
+
+if TYPE_CHECKING:
+    from lexic.ir.protocols import RuleClassifier, SequenceConverter
 
 Node = TypeVar("Node")
 

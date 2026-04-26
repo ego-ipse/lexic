@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Literal, Protocol, TypeVar
 
 from lexic.ir.atoms import Atom
+from lexic.ir.emit import FlavourEmitter
 from lexic.ir.spec import RuleSpec
 
 if TYPE_CHECKING:
@@ -67,7 +68,7 @@ class SequenceConverter(Protocol[Node_contra]):
         self,
         body: Node_contra,
         parent_class_name: str,
-        helpers: "HelperRuleRegistry",
+        helpers: HelperRuleRegistry,
     ) -> list[Atom]:
         """Return atoms for a sequence or alternation-arm body."""
         raise NotImplementedError("To be done")
@@ -98,7 +99,7 @@ class EscapeCodec(Protocol):
 
 
 # Per-consumer handler type aliases.
-AtomEmitHandler = Callable[[Atom, "object"], str]
+AtomEmitHandler = Callable[[Atom, FlavourEmitter], str]
 FieldHandler = Callable[..., object]  # signature finalised in Task 9
 LarkHandler = Callable[..., str]  # signature finalised in Task 8
 TransformHandler = Callable[..., object]  # signature finalised in Task 8
@@ -111,7 +112,7 @@ class FlavourAdapter(Protocol):
     name: str
     extensions: tuple[str, ...]
     parser: FlavourParser
-    emitter: object  # FlavourEmitter; tightened to that type in Task 3 (ir/emit.py)
+    emitter: FlavourEmitter
     escapes: EscapeCodec
     supports: frozenset[str]
 

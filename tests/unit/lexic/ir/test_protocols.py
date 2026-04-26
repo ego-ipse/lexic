@@ -13,6 +13,7 @@ from lexic.ir.protocols import (
     FieldHandler,
     FlavourAdapter,
     FlavourParser,
+    FlavourEmitter,
     LarkHandler,
     RuleClassifier,
     SequenceConverter,
@@ -170,6 +171,34 @@ def test_flavour_parser_structural_conformance():
 
 
 # ---------------------------------------------------------------------------
+# FlavourEmitter — structural conformance
+# ---------------------------------------------------------------------------
+
+
+class _FakeEmitter(FlavourEmitter):
+    """Minimal FlavourEmitter subclass for conformance tests."""
+
+    def __init__(self) -> None:
+        """Initialise with the no-op codec defined above."""
+        super().__init__(escapes=_FakeCodec())
+
+    @property
+    def supports(self) -> frozenset[str]:
+        """Report support for the literal atom type only."""
+        return frozenset({"literal"})
+
+
+def test_flavour_emitter_structural_conformance():
+    """A correctly-shaped subclass satisfies FlavourEmitter structurally."""
+    e: FlavourEmitter = _FakeEmitter()
+    assert "literal" in e.supports
+    spec = RuleSpec(
+        "r", "R", "GrammarModel", "sequence", items=[LiteralAtom("x")], field_map={}
+    )
+    assert e.emit_rule(spec) == 'r ::= "x"'
+
+
+# ---------------------------------------------------------------------------
 # FlavourAdapter — structural conformance
 # ---------------------------------------------------------------------------
 
@@ -180,7 +209,7 @@ class _FakeAdapter:
     name: str = "fake"
     extensions: tuple[str, ...] = (".fake",)
     parser: FlavourParser = _FakeParser()
-    emitter: object = object()  # placeholder; FlavourEmitter defined in Task 3
+    emitter: FlavourEmitter = _FakeEmitter()
     escapes: EscapeCodec = _FakeCodec()
     supports: frozenset[str] = frozenset({"literal"})
     field_handlers: dict[type, FieldHandler] = {}

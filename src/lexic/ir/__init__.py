@@ -10,6 +10,7 @@ from lexic.ir.atoms import (
     QuantifiedLiteralAtom,
     RuleRefAtom,
 )
+from lexic.ir.emit import FlavourEmitter
 from lexic.ir.helpers import HelperRuleRegistry
 from lexic.ir.protocols import (
     AtomEmitHandler,
@@ -37,6 +38,7 @@ __all__ = [
     "EscapeCodec",
     "FieldHandler",
     "FlavourAdapter",
+    "FlavourEmitter",
     "FlavourParser",
     "HelperRuleRegistry",
     "InlineAlternationAtom",
