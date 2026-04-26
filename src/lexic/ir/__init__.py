@@ -24,12 +24,16 @@ from lexic.ir.protocols import (
     TransformHandler,
 )
 from lexic.ir.spec import RuleSpec
+from lexic.ir.builder import IRBuilder
+from lexic.ir.classify import classify_rule
+from lexic.ir.topo import topo_sort
 
 __all__ = [
     "AlternationAtom",
     "Atom",
     "AtomEmitHandler",
     "CharClassAtom",
+    "classify_rule",
     "EscapeCodec",
     "FieldHandler",
     "FlavourAdapter",
@@ -37,6 +41,7 @@ __all__ = [
     "HelperRuleRegistry",
     "InlineAlternationAtom",
     "InlineRegexAtom",
+    "IRBuilder",
     "LarkHandler",
     "LiteralAtom",
     "QuantifiedLiteralAtom",
@@ -44,6 +49,7 @@ __all__ = [
     "RuleRefAtom",
     "RuleSpec",
     "SequenceConverter",
+    "topo_sort",
     "ToTextHandler",
     "TransformHandler",
 ]
