@@ -11,7 +11,7 @@ from lexic.ir import (
     LiteralAtom,
     RuleSpec,
 )
-from lexic.grammars.gbnf.escapes import decode_gbnf_escapes
+from lexic.grammars.gbnf.syntax import decode_gbnf_escapes
 from lexic.utils.names import to_lark_name
 from dataclasses import replace as dc_replace
 from typing import get_args, get_origin, get_type_hints

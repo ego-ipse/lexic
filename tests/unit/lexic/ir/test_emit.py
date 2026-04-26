@@ -13,18 +13,14 @@ from lexic.ir import (
     RuleSpec,
 )
 from lexic.ir.emit import FlavourEmitter
+from lexic.ir.escapes import EscapeCodec
 
 
-class FakeEscapes:
-    """A fake EscapeCodec that does nothing, for testing purposes."""
+class FakeEscapes(EscapeCodec):
+    """An identity EscapeCodec subclass — empty tables, so encode/decode are no-ops."""
 
-    def encode(self, value):
-        """Encode a string by returning it unchanged."""
-        return value
-
-    def decode(self, source):
-        """Decode a string by returning it unchanged."""
-        return source
+    SHORT_ESCAPES = {}
+    HEX_ESCAPES = ()
 
 
 class _TestEmitter(FlavourEmitter):

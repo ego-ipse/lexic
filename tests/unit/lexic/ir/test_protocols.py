@@ -122,24 +122,19 @@ def test_sequence_converter_structural_conformance():
 
 
 # ---------------------------------------------------------------------------
-# EscapeCodec — structural conformance
+# EscapeCodec — ABC subclass conformance
 # ---------------------------------------------------------------------------
 
 
-class _FakeCodec:
-    """Minimal EscapeCodec implementation for conformance tests."""
+class _FakeCodec(EscapeCodec):
+    """Minimal EscapeCodec subclass for conformance tests."""
 
-    def encode(self, value: str) -> str:
-        """Escape double-quotes."""
-        return value.replace('"', '\\"')
-
-    def decode(self, source: str) -> str:
-        """Unescape double-quotes."""
-        return source.replace('\\"', '"')
+    SHORT_ESCAPES = {'"': '"'}
+    HEX_ESCAPES = ()
 
 
-def test_escape_codec_structural_conformance():
-    """A correctly-shaped class satisfies EscapeCodec structurally."""
+def test_escape_codec_subclass_conformance():
+    """A subclass with declared tables inherits a working encode/decode."""
     ec: EscapeCodec = _FakeCodec()
     assert ec.encode('"') == '\\"'
     assert ec.decode('\\"') == '"'

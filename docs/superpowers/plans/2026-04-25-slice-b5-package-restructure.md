@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Restructure the codebase into four flavour-agnostic packages (`ir/`, `codegen/`, `parsing/`, `runtime/`) plus thin per-flavour adapters under `grammars/`, with a canonical IR (no flavour text in atoms), a generic `FlavourEmitter` ABC that owns emit algorithms with default canonical-atom handlers, an open atom set with adapter-bound consumer-handler tables, per-module `__adapter__` runtime binding, and the `"ws"` string special case removed at all five sites.
+**Goal:** Restructure the codebase into four flavour-agnostic packages (`ir/`, `codegen/`, `parsing/`, `runtime/`) plus thin per-flavour adapters under `grammars/`, with a canonical IR (no flavour text in atoms), generic `FlavourEmitter` and `EscapeCodec` ABCs that own emit/escape algorithms with default canonical-atom handlers, bracket-expression enumeration lifted into core (`ir/charclass.py`), an open atom set with adapter-bound consumer-handler tables, per-module `__adapter__` runtime binding, and the `"ws"` string special case removed at all five sites.
 
 **Architecture:** See `docs/superpowers/specs/2026-04-25-slice-b5-package-restructure-design.md`. Key invariants:
 - Canonical IR — `LiteralAtom.value` is canonical Python (escapes decoded); `CharClassAtom.pattern` is POSIX-style; `InlineRegexAtom.canonical: str` replaces the dual `regex`/`gbnf` fields; `RuleSpec.non_semantic_fields` carries the trivia-field set.
-- Generic algorithms in `ir/` (`IRBuilder`, `classify_rule`, generic `convert`, `FlavourEmitter` ABC); flavours supply only AST-shape queries (`RuleClassifier[Node]`, `SequenceConverter[Node]`), syntax constants, escape codecs, and atom handler extensions.
+- Generic algorithms in `ir/` (`IRBuilder`, `classify_rule`, generic `convert`, `FlavourEmitter` ABC, `EscapeCodec` ABC, `parse_charclass_chars`); flavours supply only AST-shape queries (`RuleClassifier[Node]`, `SequenceConverter[Node]`), syntax constants, escape tables (via `EscapeCodec` subclass), and atom handler extensions.
 - Per-consumer handler tables live in `<consumer>/handlers/` sub-packages (canonical defaults), merged with `adapter.<consumer>_handlers` (extensions) at construction time.
 - The string `"ws"` survives at exactly one site: `IRBuilder(trivia_rules={"ws"})` default.
 
@@ -20,13 +20,15 @@
 
 ### Creates
 
-- `src/lexic/ir/protocols.py` (rewrite — current draft is v2's; replace fully)
+- `src/lexic/ir/protocols.py` (rewrite — current draft is v2's; replace fully; `EscapeCodec` is now re-exported from `lexic.ir.escapes`, no longer declared here)
 - `src/lexic/ir/helpers.py` (move-from-codegen target)
 - `src/lexic/ir/topo.py`
 - `src/lexic/ir/classify.py`
 - `src/lexic/ir/convert.py`
 - `src/lexic/ir/builder.py`
 - `src/lexic/ir/emit.py` (`FlavourEmitter` ABC)
+- `src/lexic/ir/escapes.py` (`EscapeCodec` ABC + `CANONICAL_ESCAPES` instance)
+- `src/lexic/ir/charclass.py` (`parse_charclass_chars(inner, codec)`; codec defaults to `CANONICAL_ESCAPES`)
 - `src/lexic/codegen/handlers/__init__.py`
 - `src/lexic/codegen/handlers/atom_fields.py`
 - `src/lexic/parsing/__init__.py`
@@ -44,7 +46,7 @@
 - `src/lexic/runtime/handlers/__init__.py`
 - `src/lexic/runtime/handlers/to_text.py`
 - `src/lexic/runtime/handlers/generate.py`
-- `src/lexic/grammars/gbnf/syntax.py` (collapses `escapes.py` + `charclass.py`; adds `encode_gbnf_escapes`, `gbnf_bracket_to_canonical`, `canonical_to_gbnf_bracket`)
+- `src/lexic/grammars/gbnf/syntax.py` (replaces `escapes.py` + `charclass.py`; declares `GbnfEscapes(EscapeCodec)` subclass + `gbnf_bracket_to_canonical` / `canonical_to_gbnf_bracket`; encode/decode/read-escape inherited from `EscapeCodec`)
 - `src/lexic/grammars/gbnf/ast_to_ir.py` (collapses `codegen/classify.py` + `codegen/seq_to_atoms.py` + `codegen/ast_utils.py` into one module of AST queries)
 - `src/lexic/grammars/gbnf/emit.py` (slim `GbnfEmitter` extending `FlavourEmitter` ABC)
 - `tests/unit/lexic/ir/test_helpers.py` (move from `tests/unit/lexic/codegen/test_helpers.py`)
@@ -53,6 +55,8 @@
 - `tests/unit/lexic/ir/test_convert.py`
 - `tests/unit/lexic/ir/test_builder.py`
 - `tests/unit/lexic/ir/test_emit.py`
+- `tests/unit/lexic/ir/test_escapes.py`
+- `tests/unit/lexic/ir/test_charclass.py`
 - `tests/unit/lexic/parsing/__init__.py`
 - `tests/unit/lexic/parsing/test_lark_builder.py`
 - `tests/unit/lexic/parsing/test_transformer.py`
@@ -121,10 +125,10 @@ Tasks build bottom-up. Each task ends with a green test suite; tests stay green 
 
 | Task | Concern | Depends on |
 |------|---------|------------|
-| 1    | Foundations: protocols, RuleSpec, Atom Protocol marker, ir/helpers move | — |
-| 2    | Generic algorithms: topo, classify, convert, builder | 1 |
+| 1    | Foundations: protocols, RuleSpec, Atom Protocol marker, ir/helpers move, `EscapeCodec` ABC | — |
+| 2    | Generic algorithms: topo, classify, convert, builder, charclass | 1 |
 | 3    | FlavourEmitter ABC | 1 |
-| 4    | GBNF syntax helpers (collapse escapes + charclass; add encode + bracket-canonicalise) | — (parallel to 2/3) |
+| 4    | GBNF syntax helpers (`GbnfEscapes(EscapeCodec)` subclass + bracket converters) | 1 (needs `EscapeCodec` ABC) |
 | 5    | GBNF ast_to_ir: GbnfClassifier + GbnfConverter; decode literals at parse time | 1, 2, 4 |
 | 6    | Slim GbnfEmitter | 3, 4 |
 | 7    | Drop InlineRegexAtom.gbnf — canonical regex form | 5, 6 |
@@ -136,14 +140,16 @@ Tasks build bottom-up. Each task ends with a green test suite; tests stay green 
 
 ---
 
-## Task 1: Foundations — protocols, RuleSpec, Atom Protocol marker, ir/helpers move
+## Task 1: Foundations — protocols, RuleSpec, Atom Protocol marker, ir/helpers move, `EscapeCodec` ABC
 
-Replace v2's `ir/protocols.py` draft with the canonical version (full Protocol surface + handler aliases). Add `Atom` as a runtime-checkable Protocol marker. Add `non_semantic_fields` to `RuleSpec`. Move `HelperRuleRegistry` from `codegen/` to `ir/`.
+Replace v2's `ir/protocols.py` draft with the canonical version (full Protocol surface + handler aliases). Add `Atom` as a runtime-checkable Protocol marker. Add `non_semantic_fields` to `RuleSpec`. Move `HelperRuleRegistry` from `codegen/` to `ir/`. Create `EscapeCodec` ABC in `ir/escapes.py` (algorithm-owning base; subclasses declare only escape tables).
 
 **Files:**
 - Modify: `src/lexic/ir/atoms.py`
 - Modify: `src/lexic/ir/spec.py`
 - Replace: `src/lexic/ir/protocols.py`
+- Create: `src/lexic/ir/escapes.py`
+- Create: `tests/unit/lexic/ir/test_escapes.py`
 - Move: `src/lexic/codegen/helpers.py` → `src/lexic/ir/helpers.py`
 - Move: `tests/unit/lexic/codegen/test_helpers.py` → `tests/unit/lexic/ir/test_helpers.py`
 - Modify: `src/lexic/ir/__init__.py`
@@ -260,16 +266,188 @@ sed -i 's|from lexic.codegen.helpers import|from lexic.ir.helpers import|g' \
     tests/unit/lexic/codegen/test_seq_to_atoms.py
 ```
 
-- [ ] **Step 7: Replace `src/lexic/ir/protocols.py` with the canonical version.**
+- [ ] **Step 7: Write failing tests for `EscapeCodec` ABC.**
 
-Overwrite the entire file:
+Create `tests/unit/lexic/ir/test_escapes.py`:
+
+```python
+"""EscapeCodec ABC — encode/decode/read_escape via fake subclass + canonical instance."""
+from __future__ import annotations
+
+import pytest
+
+from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
+
+
+class _Codec(EscapeCodec):
+    SHORT_ESCAPES = {"n": "\n", "t": "\t", '"': '"', "\\": "\\"}
+    HEX_ESCAPES = (("x", 2), ("u", 4))
+
+
+_C = _Codec()
+
+
+@pytest.mark.parametrize("src,expected", [
+    (r"\n", "\n"),
+    (r"\t", "\t"),
+    (r"\\", "\\"),
+    (r"\"", '"'),
+    (r"\x41", "A"),
+    (r"é", "é"),
+    (r"hello\nworld", "hello\nworld"),
+    ("plain", "plain"),
+])
+def test_decode_short_and_hex(src, expected):
+    assert _C.decode(src) == expected
+
+
+@pytest.mark.parametrize("canonical,expected", [
+    ("\n", r"\n"),
+    ("\t", r"\t"),
+    ("\\", r"\\"),
+    ('"', r"\""),
+    ("hello\nworld", r"hello\nworld"),
+    ("plain", "plain"),
+])
+def test_encode_inverts_short_table(canonical, expected):
+    assert _C.encode(canonical) == expected
+
+
+def test_encode_decode_roundtrip_on_canonical_python():
+    s = "tab\there\nnewline"
+    assert _C.decode(_C.encode(s)) == s
+
+
+def test_read_escape_short():
+    assert _C.read_escape(r"\nrest", 0) == ("\n", 2)
+
+
+def test_read_escape_hex():
+    assert _C.read_escape(r"\x41rest", 0) == ("A", 4)
+
+
+def test_read_escape_unrecognised_returns_literal_char():
+    assert _C.read_escape(r"\zrest", 0) == ("z", 2)
+
+
+def test_canonical_escapes_supports_posix_meta():
+    # POSIX bracket-meta chars must be readable as themselves when escaped.
+    assert CANONICAL_ESCAPES.read_escape(r"\]rest", 0) == ("]", 2)
+    assert CANONICAL_ESCAPES.read_escape(r"\-rest", 0) == ("-", 2)
+    assert CANONICAL_ESCAPES.read_escape(r"\^rest", 0) == ("^", 2)
+
+
+def test_canonical_escapes_decodes_python_control_and_hex():
+    assert CANONICAL_ESCAPES.decode(r"a\nb\x41") == "a\nbA"
+```
+
+- [ ] **Step 8: Run — expect ModuleNotFoundError.**
+
+```bash
+uv run pytest tests/unit/lexic/ir/test_escapes.py -q
+```
+
+- [ ] **Step 9: Create `src/lexic/ir/escapes.py`.**
+
+```python
+"""EscapeCodec ABC — canonical Python ↔ flavour-text escape conversion.
+
+Subclasses declare two class attrs (SHORT_ESCAPES, HEX_ESCAPES); the
+encode/decode/read_escape algorithms are shared. Mirrors FlavourEmitter's
+ABC pattern: generic algorithm in core, syntax constants per flavour.
+"""
+
+from __future__ import annotations
+
+import re
+from abc import ABC
+from functools import cache
+from typing import ClassVar
+
+
+class EscapeCodec(ABC):
+    """Generic encode/decode/read_escape algorithms parameterised by tables."""
+
+    SHORT_ESCAPES: ClassVar[dict[str, str]] = {}
+    """Source follow-char → canonical char.  e.g. {"n": "\n", "\\": "\\"}"""
+
+    HEX_ESCAPES: ClassVar[tuple[tuple[str, int], ...]] = ()
+    """Hex tag chars + digit counts. e.g. (("x", 2), ("u", 4), ("U", 8))"""
+
+    def decode(self, source: str) -> str:
+        return self._decode_re().sub(self._replace, source)
+
+    def encode(self, value: str) -> str:
+        table = self._encode_table()
+        return "".join(table.get(c, c) for c in value)
+
+    def read_escape(self, source: str, i: int) -> tuple[str, int]:
+        """Parse one escape starting at source[i] == '\\'. Returns (char, new_i)."""
+        c = source[i + 1]
+        if c in self.SHORT_ESCAPES:
+            return self.SHORT_ESCAPES[c], i + 2
+        for tag, n in self.HEX_ESCAPES:
+            if c == tag and i + 1 + n < len(source):
+                return chr(int(source[i + 2 : i + 2 + n], 16)), i + 2 + n
+        return c, i + 2
+
+    @classmethod
+    @cache
+    def _encode_table(cls) -> dict[str, str]:
+        return {canon: f"\\{src}" for src, canon in cls.SHORT_ESCAPES.items()}
+
+    @classmethod
+    @cache
+    def _decode_re(cls) -> re.Pattern[str]:
+        parts: list[str] = []
+        if cls.SHORT_ESCAPES:
+            parts.append("[" + "".join(re.escape(c) for c in cls.SHORT_ESCAPES) + "]")
+        for tag, n in cls.HEX_ESCAPES:
+            parts.append(f"{re.escape(tag)}[0-9a-fA-F]{{{n}}}")
+        return re.compile(r"\\(?:" + "|".join(parts) + ")")
+
+    def _replace(self, m: re.Match[str]) -> str:
+        seq = m.group(0)
+        c = seq[1]
+        if c in self.SHORT_ESCAPES:
+            return self.SHORT_ESCAPES[c]
+        return chr(int(seq[2:], 16))
+
+
+class _CanonicalEscapes(EscapeCodec):
+    """Escape rules for canonical POSIX-style bracket strings stored in the IR.
+
+    Used by `ir/charclass.py` to enumerate chars from `CharClassAtom.pattern`.
+    Set is narrow on purpose — canonical patterns must round-trip across every
+    supported flavour.
+    """
+
+    SHORT_ESCAPES = {
+        "n": "\n", "t": "\t", "r": "\r", "\\": "\\",
+        "]": "]", "-": "-", "^": "^",
+    }
+    HEX_ESCAPES = (("x", 2), ("u", 4), ("U", 8))
+
+
+CANONICAL_ESCAPES: EscapeCodec = _CanonicalEscapes()
+```
+
+- [ ] **Step 10: Run escape tests — PASS.**
+
+```bash
+uv run pytest tests/unit/lexic/ir/test_escapes.py -q
+```
+
+- [ ] **Step 11: Replace `src/lexic/ir/protocols.py` with the canonical version.**
+
+`EscapeCodec` is no longer declared here — it is imported from `lexic.ir.escapes` and re-exported. Overwrite the entire file:
 
 ```python
 """IR-construction Protocols, FlavourAdapter Protocol, and handler type aliases.
 
 Type-only. No runtime classes live here — HelperRuleRegistry is in
 `lexic.ir.helpers`; IRBuilder is in `lexic.ir.builder`; FlavourEmitter ABC
-is in `lexic.ir.emit`.
+is in `lexic.ir.emit`; EscapeCodec ABC is in `lexic.ir.escapes`.
 """
 
 from __future__ import annotations
@@ -277,6 +455,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Literal, Protocol, TypeVar
 
 from lexic.ir.atoms import Atom
+from lexic.ir.escapes import EscapeCodec
 from lexic.ir.spec import RuleSpec
 
 if TYPE_CHECKING:
@@ -316,13 +495,6 @@ class FlavourParser(Protocol):
     def parse(self, text: str) -> list[RuleSpec]: ...
 
 
-class EscapeCodec(Protocol):
-    """Canonical Python ↔ flavour-text escape conversion."""
-
-    def encode(self, value: str) -> str: ...
-    def decode(self, source: str) -> str: ...
-
-
 # Per-consumer handler type aliases.
 AtomEmitHandler = Callable[[Atom, "FlavourEmitter"], str]
 FieldHandler = Callable[..., object]      # signature finalised in Task 9
@@ -345,9 +517,25 @@ class FlavourAdapter(Protocol):
     lark_handlers: dict[type, LarkHandler]
     transform_handlers: dict[type, TransformHandler]
     to_text_handlers: dict[type, ToTextHandler]
+
+
+__all__ = [
+    "AtomEmitHandler",
+    "EscapeCodec",
+    "FieldHandler",
+    "FlavourAdapter",
+    "FlavourParser",
+    "LarkHandler",
+    "RuleClassifier",
+    "SequenceConverter",
+    "ToTextHandler",
+    "TransformHandler",
+]
 ```
 
-- [ ] **Step 8: Update `src/lexic/ir/__init__.py`.**
+- [ ] **Step 12: Update `src/lexic/ir/__init__.py`.**
+
+`EscapeCodec` is sourced directly from `lexic.ir.escapes` (the ABC home); the rest comes from `protocols`.
 
 ```python
 """Public IR surface — import everything from here."""
@@ -362,10 +550,10 @@ from lexic.ir.atoms import (
     QuantifiedLiteralAtom,
     RuleRefAtom,
 )
+from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
 from lexic.ir.helpers import HelperRuleRegistry
 from lexic.ir.protocols import (
     AtomEmitHandler,
-    EscapeCodec,
     FieldHandler,
     FlavourAdapter,
     FlavourParser,
@@ -381,6 +569,7 @@ __all__ = [
     "AlternationAtom",
     "Atom",
     "AtomEmitHandler",
+    "CANONICAL_ESCAPES",
     "CharClassAtom",
     "EscapeCodec",
     "FieldHandler",
@@ -401,7 +590,7 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 9: Run the full suite to confirm nothing broke.**
+- [ ] **Step 13: Run the full suite to confirm nothing broke.**
 
 ```bash
 uv run pytest tests/ -q
@@ -410,17 +599,21 @@ uv run ruff check src/ tests/
 
 Expected: all green. (`ir/__init__.py` no longer re-exports `IRBuilder` — that lands in Task 2; `codegen/ir_builder.py:IRBuilder` is unaffected.)
 
-- [ ] **Step 10: Commit.**
+- [ ] **Step 14: Commit.**
 
 ```bash
 git add -A
 git commit -m "$(cat <<'EOF'
-refactor(ir): foundations — Protocol Atom, RuleSpec.non_semantic_fields, helpers move
+refactor(ir): foundations — Protocol Atom, RuleSpec.non_semantic_fields, EscapeCodec ABC, helpers move
 
 - Atom is a runtime-checkable Protocol marker (open atom set).
 - RuleSpec gains non_semantic_fields: frozenset[str] (used by D2 ws fix).
 - HelperRuleRegistry moved codegen/ → ir/helpers.py.
-- ir/protocols.py rewritten with full Protocol surface + handler aliases.
+- EscapeCodec is now an ABC in ir/escapes.py — owns encode/decode/read_escape;
+  subclasses declare only SHORT_ESCAPES/HEX_ESCAPES tables.  CANONICAL_ESCAPES
+  instance models POSIX bracket-string escape rules.
+- ir/protocols.py rewritten with full Protocol surface + handler aliases;
+  re-exports EscapeCodec from ir/escapes.py.
 - ir/__init__.py re-exports updated.
 EOF
 )"
@@ -428,20 +621,22 @@ EOF
 
 ---
 
-## Task 2: Generic algorithms — `topo`, `classify`, `convert`, `builder`
+## Task 2: Generic algorithms — `topo`, `classify`, `convert`, `builder`, `charclass`
 
-Implement the four generic algorithms in `ir/`. Tests use minimal fake `RuleClassifier`/`SequenceConverter` implementations — no GBNF dependency. The existing GBNF pipeline (`codegen/ir_builder.py:IRBuilder`) is untouched in this task; Task 5 wires GBNF to use the new generic builder.
+Implement the four generic algorithms in `ir/` plus `ir/charclass.py` (bracket-expression enumeration parameterised by `EscapeCodec`). Tests use minimal fake `RuleClassifier`/`SequenceConverter` implementations — no GBNF dependency. The existing GBNF pipeline (`codegen/ir_builder.py:IRBuilder`) is untouched in this task; Task 5 wires GBNF to use the new generic builder.
 
 **Files:**
 - Create: `src/lexic/ir/topo.py`
 - Create: `src/lexic/ir/classify.py`
 - Create: `src/lexic/ir/convert.py`
 - Create: `src/lexic/ir/builder.py`
+- Create: `src/lexic/ir/charclass.py`
 - Create: `tests/unit/lexic/ir/test_topo.py`
 - Create: `tests/unit/lexic/ir/test_classify.py`
 - Create: `tests/unit/lexic/ir/test_convert.py`
 - Create: `tests/unit/lexic/ir/test_builder.py`
-- Modify: `src/lexic/ir/__init__.py` (re-export `IRBuilder`, `topo_sort`, `classify_rule`)
+- Create: `tests/unit/lexic/ir/test_charclass.py`
+- Modify: `src/lexic/ir/__init__.py` (re-export `IRBuilder`, `topo_sort`, `classify_rule`, `parse_charclass_chars`)
 
 - [ ] **Step 1: Write failing tests for `topo_sort`.**
 
@@ -1005,34 +1200,146 @@ def _is_start_spec(self, spec: RuleSpec) -> bool:
 
 - [ ] **Step 16: Run builder tests — PASS.**
 
-- [ ] **Step 17: Update `src/lexic/ir/__init__.py` to re-export `IRBuilder`.**
+- [ ] **Step 17: Write failing tests for `parse_charclass_chars`.**
+
+Create `tests/unit/lexic/ir/test_charclass.py`:
+
+```python
+"""parse_charclass_chars — bracket-expression enumeration over canonical patterns."""
+from __future__ import annotations
+
+from lexic.ir.charclass import parse_charclass_chars
+from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
+
+
+def test_simple_range():
+    assert parse_charclass_chars("a-c") == ["a", "b", "c"]
+
+
+def test_multiple_ranges():
+    assert parse_charclass_chars("a-cA-C") == ["a", "b", "c", "A", "B", "C"]
+
+
+def test_literal_chars_only():
+    assert parse_charclass_chars("xyz") == ["x", "y", "z"]
+
+
+def test_mixed_range_and_literal():
+    assert parse_charclass_chars("a-c_") == ["a", "b", "c", "_"]
+
+
+def test_escape_in_range_endpoint():
+    # \x41 = 'A', \x43 = 'C'
+    assert parse_charclass_chars(r"\x41-\x43") == ["A", "B", "C"]
+
+
+def test_escaped_meta_passes_through():
+    # `\-` is a literal hyphen, not a range marker.
+    assert parse_charclass_chars(r"a\-z") == ["a", "-", "z"]
+
+
+def test_default_codec_is_canonical_escapes():
+    # Same call without explicit codec produces the same result.
+    assert parse_charclass_chars("a-c") == parse_charclass_chars("a-c", CANONICAL_ESCAPES)
+
+
+def test_codec_is_parametric():
+    # Custom codec exposes a different escape set.
+    class _Custom(EscapeCodec):
+        SHORT_ESCAPES = {"q": "Z"}
+        HEX_ESCAPES = ()
+    assert parse_charclass_chars(r"\q", _Custom()) == ["Z"]
+```
+
+- [ ] **Step 18: Run — expect ModuleNotFoundError.**
+
+```bash
+uv run pytest tests/unit/lexic/ir/test_charclass.py -q
+```
+
+- [ ] **Step 19: Create `src/lexic/ir/charclass.py`.**
+
+```python
+"""Bracket-expression enumeration over canonical POSIX patterns.
+
+`parse_charclass_chars` is the generic algorithm used by `runtime.generate`
+and any future flavour that needs to enumerate the chars of a CharClassAtom
+pattern. Escape-reading is delegated to an `EscapeCodec`; default codec is
+`CANONICAL_ESCAPES` since `CharClassAtom.pattern` is canonical POSIX.
+"""
+
+from __future__ import annotations
+
+from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
+
+
+def parse_charclass_chars(
+    inner: str,
+    codec: EscapeCodec = CANONICAL_ESCAPES,
+) -> list[str]:
+    """Parse the interior of a bracket expression into a list of chars.
+
+    `inner` is the body between `[` and `]`. Ranges (`a-z`) expand to all
+    characters between the endpoints inclusive. Escapes are read via
+    `codec.read_escape`.
+    """
+    chars: list[str] = []
+    i = 0
+    while i < len(inner):
+        ch, i = _read_char(inner, i, codec)
+        if i < len(inner) and inner[i] == "-" and i + 1 < len(inner):
+            end_ch, i = _read_char(inner, i + 1, codec)
+            chars.extend(chr(c) for c in range(ord(ch), ord(end_ch) + 1))
+        else:
+            chars.append(ch)
+    return chars
+
+
+def _read_char(s: str, i: int, codec: EscapeCodec) -> tuple[str, int]:
+    if s[i] == "\\" and i + 1 < len(s):
+        return codec.read_escape(s, i)
+    return s[i], i + 1
+```
+
+- [ ] **Step 20: Run charclass tests — PASS.**
+
+```bash
+uv run pytest tests/unit/lexic/ir/test_charclass.py -q
+```
+
+- [ ] **Step 21: Update `src/lexic/ir/__init__.py` to re-export `IRBuilder` and `parse_charclass_chars`.**
 
 Add:
 
 ```python
 from lexic.ir.builder import IRBuilder
+from lexic.ir.charclass import parse_charclass_chars
 from lexic.ir.classify import classify_rule
 from lexic.ir.topo import topo_sort
 ```
 
-And add `"IRBuilder"`, `"classify_rule"`, `"topo_sort"` to `__all__`.
+And add `"IRBuilder"`, `"classify_rule"`, `"parse_charclass_chars"`, `"topo_sort"` to `__all__`.
 
-- [ ] **Step 18: Run full suite + ruff.**
+- [ ] **Step 22: Run full suite + ruff.**
 
 ```bash
 uv run pytest tests/ -q
 uv run ruff check src/ tests/
 ```
 
-- [ ] **Step 19: Commit.**
+- [ ] **Step 23: Commit.**
 
 ```bash
 git add -A
-git commit -m "feat(ir): generic algorithms — topo, classify, convert, builder
+git commit -m "feat(ir): generic algorithms — topo, classify, convert, builder, charclass
 
 IRBuilder is generic over Node; takes classifier+converter; sets min=0 on
 trivia rule refs; populates RuleSpec.non_semantic_fields. Subclassable via
-named overridable methods. Tests use fake classifier/converter (no GBNF dep)."
+named overridable methods. Tests use fake classifier/converter (no GBNF dep).
+
+parse_charclass_chars lifted from grammars/gbnf into ir/charclass.py;
+parameterised by EscapeCodec; defaults to CANONICAL_ESCAPES since
+CharClassAtom.pattern is canonical POSIX."
 ```
 
 ---
@@ -1298,9 +1605,9 @@ render_inline_regex, encode); subclass override = class attrs only."
 
 ---
 
-## Task 4: GBNF syntax helpers — collapse `escapes` + `charclass`, add `encode`
+## Task 4: GBNF syntax helpers — `GbnfEscapes(EscapeCodec)` + bracket converters
 
-Create `grammars/gbnf/syntax.py` with `decode_gbnf_escapes`, `encode_gbnf_escapes` (new), `parse_charclass_chars`, `parse_escape`, `gbnf_bracket_to_canonical`, `canonical_to_gbnf_bracket`. Delete `escapes.py` and `charclass.py`.
+Replace `escapes.py` and `charclass.py` with a slim `syntax.py` that subclasses `EscapeCodec` (Task 1) declaring only the GBNF escape tables, plus the bracket-canonicalisation pair. The encode/decode/read-escape algorithms are inherited; `parse_charclass_chars` no longer lives here (Task 2 lifted it to `lexic.ir.charclass`). Module-level `decode_gbnf_escapes` / `encode_gbnf_escapes` aliases are bound to a canonical instance for ergonomic functional callers downstream.
 
 **Files:**
 - Create: `src/lexic/grammars/gbnf/syntax.py`
@@ -1309,29 +1616,39 @@ Create `grammars/gbnf/syntax.py` with `decode_gbnf_escapes`, `encode_gbnf_escape
 - Create: `tests/unit/lexic/grammars/gbnf/test_syntax.py`
 - Delete: `tests/unit/lexic/grammars/gbnf/test_escapes.py`
 - Delete: `tests/unit/lexic/grammars/gbnf/test_charclass.py`
-- Update imports in: `src/lexic/codegen/lark_builder.py`, `src/lexic/codegen/transformer/build_transformer.py`, `src/lexic/base.py`, `src/lexic/grammars/gbnf/emitter.py`, `src/lexic/generate.py`, `src/lexic/ir/regex_portable.py` (if any)
+- Update imports in: `src/lexic/codegen/lark_builder.py`, `src/lexic/codegen/transformer/build_transformer.py`, `src/lexic/base.py`, `src/lexic/grammars/gbnf/emitter.py`, `src/lexic/generate.py`, `src/lexic/ir/regex_portable.py` (if any). Note: any `parse_charclass_chars` import goes to `lexic.ir.charclass`, not `lexic.grammars.gbnf.syntax`.
 
 - [ ] **Step 1: Write failing tests for `syntax.py`.**
 
 Create `tests/unit/lexic/grammars/gbnf/test_syntax.py`:
 
 ```python
-"""GBNF syntax helpers — escapes (decode/encode) + bracket canonicalisation."""
+"""GBNF flavour syntax — GbnfEscapes subclass + bracket converters."""
 from __future__ import annotations
 
 import pytest
 
 from lexic.grammars.gbnf.syntax import (
+    GBNF_ESCAPES,
+    GbnfEscapes,
     canonical_to_gbnf_bracket,
     decode_gbnf_escapes,
     encode_gbnf_escapes,
     gbnf_bracket_to_canonical,
-    parse_charclass_chars,
-    parse_escape,
 )
+from lexic.ir.escapes import EscapeCodec
 
 
-# ── decode/encode ────────────────────────────────────────────────────
+def test_gbnf_escapes_is_subclass_of_escape_codec():
+    assert issubclass(GbnfEscapes, EscapeCodec)
+
+
+def test_module_aliases_are_bound_to_canonical_instance():
+    assert decode_gbnf_escapes == GBNF_ESCAPES.decode
+    assert encode_gbnf_escapes == GBNF_ESCAPES.encode
+
+
+# ── decode/encode (delegate to inherited algorithm) ──────────────────
 
 @pytest.mark.parametrize("src,expected", [
     (r"\n", "\n"),
@@ -1340,7 +1657,7 @@ from lexic.grammars.gbnf.syntax import (
     (r"\\", "\\"),
     (r"\"", '"'),
     (r"\x41", "A"),
-    (r"A", "A"),
+    ("A", "A"),
     (r"hello\nworld", "hello\nworld"),
 ])
 def test_decode_gbnf_escapes(src, expected):
@@ -1384,89 +1701,38 @@ def test_gbnf_bracket_to_canonical_handles_negation():
 def test_canonical_to_gbnf_bracket_passes_through():
     # POSIX is already canonical; GBNF accepts it directly.
     assert canonical_to_gbnf_bracket("[0-9]") == "[0-9]"
-
-
-# ── existing parse_charclass_chars / parse_escape (preserved) ────────
-
-def test_parse_escape_n():
-    ch, i = parse_escape(r"\nrest", 0)
-    assert ch == "\n"
-    assert i == 2
-
-
-def test_parse_charclass_chars_range():
-    assert parse_charclass_chars("a-c") == ["a", "b", "c"]
 ```
 
 - [ ] **Step 2: Run — expect ModuleNotFoundError.**
 
 - [ ] **Step 3: Create `src/lexic/grammars/gbnf/syntax.py`.**
 
-Combine the contents of the existing `escapes.py` and `charclass.py`, plus the new helpers:
-
 ```python
-"""GBNF lexical syntax helpers — escapes and bracket conversion.
+"""GBNF flavour syntax — escape tables + bracket canonicalisation.
 
-decode_gbnf_escapes:        GBNF-text escape sequences → canonical Python string
-encode_gbnf_escapes:        canonical Python string → GBNF-text escape sequences
-gbnf_bracket_to_canonical:  GBNF [...] → canonical POSIX [...] (today: identity for ASCII)
-canonical_to_gbnf_bracket:  canonical POSIX [...] → GBNF [...] (today: identity)
-parse_charclass_chars:      enumerate the characters of a bracket inner expression
-parse_escape:               low-level escape parser used by parse_charclass_chars
+GbnfEscapes subclasses EscapeCodec (lexic.ir.escapes); the GBNF flavour
+declares only its escape tables.  encode/decode/read_escape are inherited
+from the ABC.  Module-level `decode_gbnf_escapes`/`encode_gbnf_escapes` are
+bound to a canonical instance — convenient for module-level functional
+callers; behaviour is identical to `GBNF_ESCAPES.decode`/`.encode`.
 """
 
 from __future__ import annotations
 
-import re
-
-# ── escapes ─────────────────────────────────────────────────────────
-
-def decode_gbnf_escapes(s: str) -> str:
-    """Decode GBNF escape sequences to canonical Python characters.
-
-    Handles: \\n \\t \\r \\" \\\\ \\xXX \\uXXXX \\UXXXXXXXX
-    """
-    def _replace(m: re.Match) -> str:
-        seq = m.group(0)
-        c = seq[1]
-        if c == "n": return "\n"
-        if c == "t": return "\t"
-        if c == "r": return "\r"
-        if c == '"': return '"'
-        if c == "\\": return "\\"
-        if c == "x": return chr(int(seq[2:4], 16))
-        if c == "u": return chr(int(seq[2:6], 16))
-        if c == "U": return chr(int(seq[2:10], 16))
-        return seq
-    return re.sub(
-        r'\\(?:[ntr"\\]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})', _replace, s
-    )
+from lexic.ir.escapes import EscapeCodec
 
 
-def encode_gbnf_escapes(s: str) -> str:
-    """Encode canonical Python characters as GBNF escape sequences.
+class GbnfEscapes(EscapeCodec):
+    """GBNF escape tables.  Algorithm is inherited."""
 
-    Inverse of decode_gbnf_escapes for control chars, quotes, backslashes.
-    Other Unicode is left as-is — GBNF allows raw UTF-8.
-    """
-    out: list[str] = []
-    for ch in s:
-        if ch == "\n":
-            out.append(r"\n")
-        elif ch == "\t":
-            out.append(r"\t")
-        elif ch == "\r":
-            out.append(r"\r")
-        elif ch == "\\":
-            out.append(r"\\")
-        elif ch == '"':
-            out.append(r"\"")
-        else:
-            out.append(ch)
-    return "".join(out)
+    SHORT_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
+    HEX_ESCAPES = (("x", 2), ("u", 4), ("U", 8))
 
 
-# ── bracket canonicalisation ────────────────────────────────────────
+GBNF_ESCAPES = GbnfEscapes()
+decode_gbnf_escapes = GBNF_ESCAPES.decode
+encode_gbnf_escapes = GBNF_ESCAPES.encode
+
 
 def gbnf_bracket_to_canonical(pattern: str) -> str:
     """Convert a GBNF bracket expression to canonical POSIX form.
@@ -1481,50 +1747,6 @@ def gbnf_bracket_to_canonical(pattern: str) -> str:
 def canonical_to_gbnf_bracket(pattern: str) -> str:
     """Inverse of gbnf_bracket_to_canonical."""
     return pattern
-
-
-# ── escape parsing for character-class enumeration ──────────────────
-
-def parse_escape(s: str, i: int) -> tuple[str, int]:
-    """Parse a GBNF escape sequence starting at s[i+1]. Returns (char, new_i)."""
-    c = s[i + 1]
-    if c == "n": return "\n", i + 2
-    if c == "t": return "\t", i + 2
-    if c == "r": return "\r", i + 2
-    if c == '"': return '"', i + 2
-    if c == "\\": return "\\", i + 2
-    if c == "x" and i + 3 < len(s):
-        return chr(int(s[i + 2 : i + 4], 16)), i + 4
-    if c == "u" and i + 5 < len(s):
-        return chr(int(s[i + 2 : i + 6], 16)), i + 6
-    if c == "U" and i + 9 < len(s):
-        return chr(int(s[i + 2 : i + 10], 16)), i + 10
-    return c, i + 2
-
-
-def parse_charclass_chars(inner: str) -> list[str]:
-    """Parse the interior of a bracket expression into a list of chars."""
-    chars: list[str] = []
-    i = 0
-    while i < len(inner):
-        if inner[i] == "\\" and i + 1 < len(inner):
-            ch, i = parse_escape(inner, i)
-            if i < len(inner) and inner[i] == "-" and i + 1 < len(inner):
-                if inner[i + 1] == "\\" and i + 2 < len(inner):
-                    end_ch, i = parse_escape(inner, i + 1)
-                else:
-                    end_ch = inner[i + 1]
-                    i += 2
-                chars.extend(chr(c) for c in range(ord(ch), ord(end_ch) + 1))
-            else:
-                chars.append(ch)
-        elif i + 2 < len(inner) and inner[i + 1] == "-":
-            chars.extend(chr(c) for c in range(ord(inner[i]), ord(inner[i + 2]) + 1))
-            i += 3
-        else:
-            chars.append(inner[i])
-            i += 1
-    return chars
 ```
 
 - [ ] **Step 4: Run syntax tests — PASS.**
@@ -1535,9 +1757,7 @@ def parse_charclass_chars(inner: str) -> list[str]:
 grep -rn "from lexic.grammars.gbnf.escapes\|from lexic.grammars.gbnf.charclass" src/ tests/
 ```
 
-Replace each `from lexic.grammars.gbnf.escapes import ...` and `from lexic.grammars.gbnf.charclass import ...` with `from lexic.grammars.gbnf.syntax import ...`.
-
-Concrete sed:
+Replace each `from lexic.grammars.gbnf.escapes import ...` and `from lexic.grammars.gbnf.charclass import ...` with `from lexic.grammars.gbnf.syntax import ...`. The `decode_gbnf_escapes` / `encode_gbnf_escapes` names continue to work via the module-level bound aliases.
 
 ```bash
 grep -rl "lexic.grammars.gbnf.escapes" src/ tests/ | xargs sed -i \
@@ -1546,20 +1766,45 @@ grep -rl "lexic.grammars.gbnf.charclass" src/ tests/ | xargs sed -i \
     's|lexic.grammars.gbnf.charclass|lexic.grammars.gbnf.syntax|g'
 ```
 
-- [ ] **Step 6: Delete `escapes.py` and `charclass.py`.**
+- [ ] **Step 6: Redirect `parse_charclass_chars` imports to `lexic.ir.charclass`.**
+
+```bash
+grep -rn "parse_charclass_chars" src/ tests/
+```
+
+For each call site (today: `src/lexic/generate.py`, possibly tests), replace the `from lexic.grammars.gbnf.syntax import ...` line with `from lexic.ir.charclass import parse_charclass_chars`. If the line currently imports `parse_charclass_chars` alongside other names from `gbnf.syntax`, split it into two import lines. Also drop any `parse_escape` imports — that name is no longer exported (the function is now `EscapeCodec.read_escape` on a codec instance, used internally by `lexic.ir.charclass`).
+
+Verification:
+```bash
+grep -rn "from lexic.grammars.gbnf.syntax import .*parse_charclass_chars\|from lexic.grammars.gbnf.syntax import .*parse_escape" src/ tests/
+# Expected: zero hits.
+```
+
+- [ ] **Step 7: Delete `escapes.py` and `charclass.py`.**
 
 ```bash
 git rm src/lexic/grammars/gbnf/escapes.py src/lexic/grammars/gbnf/charclass.py
 git rm tests/unit/lexic/grammars/gbnf/test_escapes.py tests/unit/lexic/grammars/gbnf/test_charclass.py
 ```
 
-- [ ] **Step 7: Run full suite + ruff. Commit.**
+- [ ] **Step 8: Run full suite + ruff. Commit.**
 
 ```bash
 uv run pytest tests/ -q
 uv run ruff check src/ tests/
 git add -A
-git commit -m "refactor(grammars/gbnf): collapse escapes+charclass into syntax.py; add encode_gbnf_escapes"
+git commit -m "$(cat <<'EOF'
+refactor(grammars/gbnf): GbnfEscapes(EscapeCodec) subclass + bracket converters
+
+- syntax.py shrinks to ~25 lines: GbnfEscapes declares SHORT_ESCAPES/
+  HEX_ESCAPES; encode/decode/read_escape are inherited from the ABC.
+- Module-level decode_gbnf_escapes/encode_gbnf_escapes aliases bound to
+  GBNF_ESCAPES.decode/.encode preserve the existing functional surface.
+- parse_charclass_chars import path moved from grammars.gbnf.syntax to
+  lexic.ir.charclass (canonical POSIX algorithm parameterised by codec).
+- escapes.py + charclass.py deleted.
+EOF
+)"
 ```
 
 ---
@@ -2229,27 +2474,16 @@ def test_emit_alternation_uses_pipe_separator():
 
 from __future__ import annotations
 
-from lexic.grammars.gbnf.syntax import (
-    canonical_to_gbnf_bracket,
-    decode_gbnf_escapes,
-    encode_gbnf_escapes,
-)
+from lexic.grammars.gbnf.syntax import GbnfEscapes, canonical_to_gbnf_bracket
 from lexic.ir.emit import FlavourEmitter
-
-
-class _GbnfEscapes:
-    def encode(self, v: str) -> str:
-        return encode_gbnf_escapes(v)
-    def decode(self, v: str) -> str:
-        return decode_gbnf_escapes(v)
 
 
 class GbnfEmitter(FlavourEmitter):
     """GBNF flavour emitter."""
 
     # The defaults already match GBNF (rule_separator='::=', alt_separator=' | ',
-    # quote_char='"', wrap_group='(...)'); we only override the encode hook
-    # and the canonical-to-flavour bracket conversion.
+    # quote_char='"', wrap_group='(...)'); we only declare the escape codec and
+    # override the canonical-to-flavour bracket conversion.
 
     @property
     def supports(self) -> frozenset[str]:
@@ -2259,7 +2493,7 @@ class GbnfEmitter(FlavourEmitter):
         })
 
     def __init__(self, handlers=None) -> None:
-        super().__init__(escapes=_GbnfEscapes(), handlers=handlers)
+        super().__init__(escapes=GbnfEscapes(), handlers=handlers)
 
     def render_charclass(self, canonical_pattern: str) -> str:
         return canonical_to_gbnf_bracket(canonical_pattern)
@@ -3185,12 +3419,7 @@ from functools import cached_property
 
 from lexic.grammars.gbnf.emit import GbnfEmitter
 from lexic.grammars.gbnf.parser import GbnfParser
-from lexic.grammars.gbnf.syntax import decode_gbnf_escapes, encode_gbnf_escapes
-
-
-class _GbnfEscapes:
-    def encode(self, v): return encode_gbnf_escapes(v)
-    def decode(self, v): return decode_gbnf_escapes(v)
+from lexic.grammars.gbnf.syntax import GbnfEscapes
 
 
 class GbnfAdapter:
@@ -3214,7 +3443,7 @@ class GbnfAdapter:
 
     def __init__(self) -> None:
         self.parser = GbnfParser()
-        self.escapes = _GbnfEscapes()
+        self.escapes = GbnfEscapes()
 
     @cached_property
     def emitter(self) -> GbnfEmitter:
@@ -3405,11 +3634,14 @@ After all 12 tasks land, run this checklist against the spec exit criteria:
 - [ ] `LiteralAtom.value` is canonical Python everywhere downstream of `GbnfConverter` (no `decode_gbnf_escapes` calls outside `grammars/gbnf/`).
 - [ ] `CharClassAtom.pattern` is POSIX-style everywhere downstream.
 - [ ] `RuleSpec.non_semantic_fields` is populated by IRBuilder for trivia refs; consumed by `semantic_dump` and `RuleRefBuilder.build`.
-- [ ] `lexic/ir/protocols.py` declares `RuleClassifier`, `SequenceConverter`, `FlavourParser`, `EscapeCodec`, `FlavourAdapter`, and the five handler type aliases.
+- [ ] `lexic/ir/protocols.py` declares `RuleClassifier`, `SequenceConverter`, `FlavourParser`, `FlavourAdapter`, and the five handler type aliases; re-exports `EscapeCodec` from `lexic.ir.escapes`.
 - [ ] `lexic/ir/builder.py:IRBuilder` is generic over `Node`; takes `classifier`, `converter`, optional `helpers`, optional `trivia_rules`; sets `min=0` on trivia rule refs; populates `non_semantic_fields`.
 - [ ] `lexic/ir/classify.py:classify_rule` is a function; the `Classifier` class is gone.
 - [ ] `lexic/ir/convert.py` holds the generic conversion algorithm; dead `name_map`/`parent_of` parameters are gone.
 - [ ] `lexic/ir/emit.py:FlavourEmitter` is an ABC with `DEFAULT_HANDLERS` and decorator hooks.
+- [ ] `lexic/ir/escapes.py:EscapeCodec` is an ABC; declares `encode`/`decode`/`read_escape` algorithms; subclasses provide only `SHORT_ESCAPES` and `HEX_ESCAPES` class attrs. `CANONICAL_ESCAPES` instance is the default for `parse_charclass_chars`.
+- [ ] `lexic/ir/charclass.py:parse_charclass_chars(inner, codec=CANONICAL_ESCAPES)` is the only place bracket-expression enumeration lives; no parallel implementation in `grammars/gbnf/`.
+- [ ] `grammars/gbnf/syntax.py` declares only `GbnfEscapes(EscapeCodec)` (≤ 5 lines of class body), `GBNF_ESCAPES` instance, module-level `decode_gbnf_escapes`/`encode_gbnf_escapes` aliases, and the two bracket converters. No inline encode/decode/parse_charclass logic.
 - [ ] `lexic/parsing/`, `lexic/runtime/` exist; `lexic/codegen/handlers/`, `lexic/parsing/handlers/`, `lexic/runtime/handlers/` exist with canonical-atom handler tables.
 - [ ] `lexic/codegen/{ir_builder,classify,seq_to_atoms,ast_utils,helpers}.py` and `lexic/codegen/transformer/` do not exist.
 - [ ] `src/lexic/{base,parse,generate}.py` do not exist (moved to `runtime/`).

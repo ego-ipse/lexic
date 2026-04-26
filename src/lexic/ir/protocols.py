@@ -1,8 +1,8 @@
 """IR-construction Protocols, FlavourAdapter Protocol, and handler type aliases.
 
-Type-only. No runtime classes live here — HelperRuleRegistry is in
+Type-only.  No runtime classes live here — HelperRuleRegistry is in
 `lexic.ir.helpers`; IRBuilder is in `lexic.ir.builder`; FlavourEmitter ABC
-is in `lexic.ir.emit`.
+is in `lexic.ir.emit`; EscapeCodec ABC is in `lexic.ir.escapes`.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Callable, Literal, Protocol, TypeVar
 
 from lexic.ir.atoms import Atom
 from lexic.ir.emit import FlavourEmitter
+from lexic.ir.escapes import EscapeCodec
 from lexic.ir.spec import RuleSpec
 
 if TYPE_CHECKING:
@@ -83,18 +84,6 @@ class FlavourParser(Protocol):
 
     def trivia_rules(self) -> frozenset[str]:
         """Return the set of rule names that are trivia (whitespace, comments, etc.)."""
-        raise NotImplementedError("To be done")
-
-
-class EscapeCodec(Protocol):
-    """Canonical Python string ↔ flavour-text escape conversion."""
-
-    def encode(self, value: str) -> str:
-        """Encode a canonical Python string into the flavour's escape syntax."""
-        raise NotImplementedError("To be done")
-
-    def decode(self, source: str) -> str:
-        """Decode a flavour-text escape sequence into a canonical Python string."""
         raise NotImplementedError("To be done")
 
 

@@ -10,11 +10,14 @@ from lexic.ir.atoms import (
     QuantifiedLiteralAtom,
     RuleRefAtom,
 )
+from lexic.ir.builder import IRBuilder
+from lexic.ir.charclass import parse_charclass_chars
+from lexic.ir.classify import classify_rule
 from lexic.ir.emit import FlavourEmitter
+from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
 from lexic.ir.helpers import HelperRuleRegistry
 from lexic.ir.protocols import (
     AtomEmitHandler,
-    EscapeCodec,
     FieldHandler,
     FlavourAdapter,
     FlavourParser,
@@ -25,14 +28,13 @@ from lexic.ir.protocols import (
     TransformHandler,
 )
 from lexic.ir.spec import RuleSpec
-from lexic.ir.builder import IRBuilder
-from lexic.ir.classify import classify_rule
 from lexic.ir.topo import topo_sort
 
 __all__ = [
     "AlternationAtom",
     "Atom",
     "AtomEmitHandler",
+    "CANONICAL_ESCAPES",
     "CharClassAtom",
     "classify_rule",
     "EscapeCodec",
@@ -46,6 +48,7 @@ __all__ = [
     "IRBuilder",
     "LarkHandler",
     "LiteralAtom",
+    "parse_charclass_chars",
     "QuantifiedLiteralAtom",
     "RuleClassifier",
     "RuleRefAtom",
