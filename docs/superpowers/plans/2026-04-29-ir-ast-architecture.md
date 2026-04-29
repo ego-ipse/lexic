@@ -18,27 +18,29 @@
 
 ### Created
 
+- `TODOS.md` — project-root deferred-work tracker (cleanup pass after Phase E + future TODOs)
 - `src/lexic/ir/nodes.py` — IR AST dataclasses
 - `src/lexic/ir/walk.py` — `IrVisitor`, `IrTransformer`, `dump`
-- `src/lexic/ir/derive.py` — `derive_specs`, `classify_kind`, `compute_parents`, `hoist_helpers`
-- `src/lexic/ir/directives.py` — `Directives`, `parse_directives`
+- `src/lexic/ir/derive.py` — `derive_specs`, `classify_kind`, `compute_parents`, `hoist_helpers` (uses `IrTransformer`)
+- `src/lexic/ir/directives.py` — `Directives` (with `non_semantic` AND `start`), `parse_directives` (recognises `@non-semantic` and `@start`)
 - `src/lexic/grammars/flavour.py` — `Flavour` ABC
 - `src/lexic/parsing/__init__.py`
-- `src/lexic/parsing/meta_parser.py` — `MetaGrammarParser`, `_IrTagTransformer`
+- `src/lexic/parsing/meta_parser.py` — `MetaGrammarParser` (with per-flavour cache via `for_flavour(flavour)` factory; wraps Lark errors in `UnsupportedConstructError`), `_IrTagTransformer`
 - `src/lexic/grammars/gbnf/meta_grammar.py` — Lark grammar string
 - `src/lexic/grammars/gbnf/flavour.py` — `GbnfFlavour`
 - `src/lexic/grammars/abnf/__init__.py`
 - `src/lexic/grammars/abnf/meta_grammar.py`
 - `src/lexic/grammars/abnf/escapes.py` — `AbnfEscapes(EscapeCodec)`
-- `src/lexic/grammars/abnf/emitter.py` — `AbnfEmitter(FlavourEmitter)`
+- `src/lexic/grammars/abnf/emitter.py` — `AbnfEmitter(FlavourEmitter)` (overrides `place_quantifier` to prefix)
 - `src/lexic/grammars/abnf/flavour.py` — `AbnfFlavour`
+- `src/lexic/grammars/abnf/adapter.py` — `AbnfAdapter` with `flavour_cls = AbnfFlavour` (Phase D)
 - `tests/unit/lexic/ir/test_nodes.py`
 - `tests/unit/lexic/ir/test_walk.py`
 - `tests/unit/lexic/ir/test_derive.py`
-- `tests/unit/lexic/ir/test_directives.py`
+- `tests/unit/lexic/ir/test_directives.py` (covers `@non-semantic` AND `@start`)
 - `tests/unit/lexic/grammars/test_flavour.py`
 - `tests/unit/lexic/parsing/__init__.py`
-- `tests/unit/lexic/parsing/test_meta_parser.py`
+- `tests/unit/lexic/parsing/test_meta_parser.py` (covers parser caching + error wrapping)
 - `tests/unit/lexic/grammars/gbnf/test_meta_grammar.py`
 - `tests/unit/lexic/grammars/gbnf/test_flavour.py`
 - `tests/unit/lexic/grammars/abnf/__init__.py`
@@ -47,26 +49,39 @@
 - `tests/unit/lexic/grammars/abnf/test_flavour.py`
 - `tests/integration/test_compile_grammar_gbnf.py`
 - `tests/integration/test_compile_grammar_abnf.py`
-- `tests/integration/test_cross_flavour.py`
+- `tests/integration/test_cross_flavour.py` (extended in Task 18 with emit-and-reparse cycle)
+- `tests/integration/test_full_round_trip.py` — fixture-driven: compile → exec generated module → instantiate → `to_text() == original` for all 7 GBNF fixtures
+- `tests/integration/test_spec_success_criteria.py` — automated assertions for spec §Success criteria (no `"ws"` string under ir/ and grammars/gbnf/, file-list assertions, import-graph asserts that `lexic.ir` does not import from `lexic.grammars`)
+- `resources/ground_truth/arithmetic.abnf` — minimal ABNF fixture (Task 17)
 
 ### Modified
 
-- `src/lexic/ir/spec.py` — `items: list[IrItem]`
+- `src/lexic/ir/spec.py` — for sequence rules: `items: list[IrItem]`. For multi-arm value_str: items shape carries `IrAlternation` directly (no `IrGroup` wrapping). See decision C in GSTACK REVIEW REPORT.
 - `src/lexic/ir/__init__.py` — export new symbols, drop deleted
-- `src/lexic/ir/protocols.py` — drop `RuleClassifier`, `SequenceConverter`, `FlavourAdapter`; keep handler aliases
+- `src/lexic/ir/protocols.py` — drop `RuleClassifier`, `SequenceConverter`; keep handler aliases. `FlavourAdapter` Protocol stays in `lexic.grammars.flavours` only and gains `flavour_cls: type[Flavour]`.
+- `src/lexic/ir/emit.py` — add `place_quantifier(atom_str, q_str) -> str` decorator (default returns `atom_str + q_str`; AbnfEmitter overrides to prefix). Tighten `Flavour.emitter` to `ClassVar[FlavourEmitter]` once import cycle dissolves (Task 25e).
+- `src/lexic/ir/naming.py` — slim to data + utils only (`_CHARCLASS_NAMES`, `_LITERAL_NAMES`, `_sanitize_pattern`). Delete legacy atom-typed dispatch (`assign_field_names`, `_charclass_field_name`, `_quantified_literal_field_name`, `_inline_regex_field_name`). The IR-side equivalent lives in `ir/derive.py:_assign_ir_field_names`. (Decision E)
 - `src/lexic/grammars/__init__.py` — register `AbnfAdapter` alongside `GbnfAdapter` (post-cutover)
-- `src/lexic/grammars/gbnf/parser.py` — thin wrapper around `MetaGrammarParser(GbnfFlavour)`
-- `src/lexic/grammars/gbnf/emitter.py` — handle `IrItem`-shaped `RuleSpec.items`
-- `src/lexic/grammars/gbnf/adapter.py` — wire to new flavour
-- `src/lexic/codegen/__init__.py` — `build_classes_and_specs` uses new pipeline
-- `src/lexic/codegen/model_emitter.py` — consume new `RuleSpec` shape
-- `src/lexic/codegen/lark_builder.py` — consume new shape; remove old `decode_gbnf_escapes` reach-in
+- `src/lexic/grammars/flavours.py` — add `flavour_cls: type[Flavour]` field to `FlavourAdapter` Protocol. (Decision OV #6/#20)
+- `src/lexic/grammars/gbnf/parser.py` — thin wrapper around `MetaGrammarParser.for_flavour(GbnfFlavour)`
+- `src/lexic/grammars/gbnf/emitter.py` — handle `IrItem`-shaped `RuleSpec.items` AND `IrAlternation`-direct shape for multi-arm value_str. Implement full `IrGroup` rendering. Drop `name == "ws"` and similar grammar-specific hacks.
+- `src/lexic/grammars/gbnf/adapter.py` — wire to new flavour; expose `flavour_cls = GbnfFlavour`
+- `src/lexic/codegen/__init__.py` — `build_classes_and_specs` uses new pipeline; consumes `(start, list[RuleSpec])` tuple from `compile_grammar`
+- `src/lexic/codegen/model_emitter.py` — consume new `RuleSpec` shape; full `IrGroup` serialisation in `_repr_iritem` (no `# FIXME` placeholders); generated modules always import full IR AST surface from `lexic.ir.nodes`
+- `src/lexic/codegen/lark_builder.py` — consume new shape; remove old `decode_gbnf_escapes` reach-in; drop the `name == "ws"` hack — non-semantic optionality is driven by `RuleSpec.non_semantic_fields` and `IrItem.quantifier`
 - `src/lexic/codegen/transformer/build_transformer.py` — consume new shape
 - `src/lexic/codegen/transformer/builders.py` — consume new shape
-- `src/lexic/base.py` — consume new shape; remove `decode_gbnf_escapes` reach-in
-- `src/lexic/compile.py` — route through `compile_grammar`
+- `src/lexic/base.py` — consume new shape; remove `decode_gbnf_escapes` reach-in; handle multi-arm value_str via `IrAlternation` directly
+- `src/lexic/generate.py` — Task 24b: dual-shape support for `IrItem` atoms (mirror current `LiteralAtom`/`CharClassAtom`/`RuleRefAtom`/`AlternationAtom`/`InlineAlternationAtom`/`InlineRegexAtom`/`QuantifiedLiteralAtom` dispatch); legacy branches removed in Task 25e. (Decision OV #1)
+- `src/lexic/compile.py` — route through `compile_grammar`; bridge `flavour: str` to `type[Flavour]` via `get_adapter(name).flavour_cls`. Add `compile_grammar_from_path(path)` thin wrapper.
+- All 7 fixtures in `resources/ground_truth/*.gbnf` — add `# @non-semantic ws` directive at top (Task 13 step 1; preserves current implicit-ws behaviour under the new directive-driven pipeline). (Decision OV #15)
 
-### Deleted (Phase D)
+### Modified (test files, in lockstep with src moves)
+
+- `tests/unit/lexic/test_generate.py` — Task 24b dual-shape; full IR-AST shape after Task 25e
+- `tests/property/test_roundtrip.py` — Task 24b dual-shape; full IR-AST shape after Task 25e
+
+### Deleted (Phase D, mostly Task 25e)
 
 - `src/lexic/ir/atoms.py`
 - `src/lexic/ir/builder.py`
@@ -103,13 +118,75 @@
 
 | Phase | Tasks | Concern |
 |---|---|---|
-| A — IR foundations | 1–9 | IR AST types, walker, directives, Flavour ABC, derive_specs (4 sub-tasks), MetaGrammarParser |
-| B — GBNF migration | 10–13 | meta-grammar, GbnfFlavour, compile_grammar entry, GBNF round-trip |
-| C — ABNF stub | 14–18 | escapes, emitter, meta-grammar+flavour, ABNF round-trip, cross-flavour transpile |
-| D — Cutover | 19–26 | Shape adapter, update consumers (gbnf emitter, model_emitter, lark_builder, transformer, base.py), switch compile(), delete old machinery |
-| E — Housekeeping | 27 | CLAUDE.md, ARCHITECTURE, ROADMAP, v1 spec/plan supersession headers |
+| 0 — Pre-flight | 0 | Fix the 13 pre-existing test failures (json_ws parse + decode_gbnf_escapes round-trips). Suite must be green before Phase A. |
+| A — IR foundations | 1–9 | IR AST types, walker, directives (`@non-semantic` + `@start`), Flavour ABC, derive_specs (4 sub-tasks), MetaGrammarParser with caching + error wrapping |
+| B — GBNF migration | 10–13 | meta-grammar, GbnfFlavour with `flavour_cls` bridge, `compile_grammar` returning `(start, list[RuleSpec])`, fixture edits (`# @non-semantic ws`), GBNF round-trip |
+| C — ABNF stub | 14–18 | escapes, emitter (with `place_quantifier` decorator), meta-grammar+flavour, ABNF round-trip, cross-flavour emit-and-reparse cycle |
+| D — Cutover | 19–25 | Shape adapter (re-parse via `MetaGrammarParser`), update consumers (gbnf emitter, model_emitter, lark_builder, transformer, base.py, generate.py [Task 24b]), switch compile(), delete old machinery (Task 25 split into 25a–e) |
+| E — Housekeeping | 26 | CLAUDE.md, ARCHITECTURE (with new `lexic.parsing/` layering rule + ASCII diagrams), ROADMAP (B.6 follow-up slice), v1 spec/plan supersession headers |
 
-The suite is green at every commit.
+The suite is green at every commit. Phase 0 is the prerequisite.
+
+---
+
+## Phase 0 — Pre-flight
+
+## Task 0: Fix 13 pre-existing test failures (BLOCKER)
+
+The plan's "green at every commit" invariant requires a green suite as the starting state. Today's `main` has 13 failing tests:
+
+- `tests/integration/test_parse.py::test_json_ws_number_value`
+- `tests/integration/test_parse.py::test_json_ws_nested_object`
+- `tests/integration/test_parse.py::test_json_ws_array_value`
+- `tests/unit/lexic/test_parse.py::test_json_ws_simple_object`
+- `tests/unit/lexic/test_parse.py::test_json_ws_nested_object`
+- `tests/unit/lexic/test_parse.py::test_roundtrip_parametrized[json_ws-{"a":1}]`
+- 3 more `test_json_ws_*` tests in the parametrized round-trip suite
+- `tests/unit/lexic/grammars/gbnf/test_adapter.py::test_decode_gbnf_escapes[\\"-"]`
+- `tests/unit/lexic/grammars/gbnf/test_adapter.py::test_encode_gbnf_escapes["-\\"]`
+- `tests/unit/lexic/grammars/gbnf/test_adapter.py::test_decode_then_encode_roundtrip_on_pure_ascii`
+
+Failure surface: `lark.exceptions.UnexpectedCharacters` on `{"n":1}` parsing for `json_ws.gbnf`-derived grammars, and bidirectional `\\"` / `\"` escape mismatches in the `decode/encode_gbnf_escapes` round-trip.
+
+**Files (likely):**
+- `src/lexic/grammars/gbnf/parser.py` and/or `src/lexic/codegen/lark_builder.py` (the LITERAL/CHARCLASS regex chain) — the lark UnexpectedCharacters errors point here.
+- `src/lexic/ir/escapes.py:CANONICAL_ESCAPES` — the `\\"` round-trip failures point here.
+
+**Steps:**
+
+- [ ] **Step 1: Reproduce locally.**
+
+```bash
+uv run pytest tests/integration/test_parse.py::test_json_ws_number_value -x -v
+uv run pytest 'tests/unit/lexic/grammars/gbnf/test_adapter.py::test_decode_gbnf_escapes[\\"-"]' -x -v
+```
+
+- [ ] **Step 2: Diagnose root causes.** Read each failing test, the assertion that fired, the exception class. Distinguish the json_ws lark-parse failure from the escape-codec round-trip failure. The two are likely independent.
+
+- [ ] **Step 3: Fix root causes.** Per `docs/STYLE.md`: "fix root causes — don't mute errors or patch symptoms." Do NOT skip tests, do NOT loosen assertions. If the fix touches files the IR AST plan also modifies later (e.g. `parser.py`, `escapes.py`), keep the fix minimal so it survives Phase D rewrites.
+
+- [ ] **Step 4: Verify suite green.**
+
+```bash
+uv run pytest tests/ -q
+uv run ruff check src/ tests/
+```
+
+Expected: `0 failed`.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add <touched files>
+git commit -m "fix: resolve 13 pre-existing test failures (json_ws parse + escape round-trips)
+
+- json_ws lark parse: <root cause + fix in one line>
+- decode/encode_gbnf_escapes round-trip: <root cause + fix in one line>
+
+Unblocks Phase A of the IR AST architecture plan."
+```
+
+**Phase A cannot start until this is done.**
 
 ---
 
@@ -727,6 +804,53 @@ git commit -m "feat(ir): IrVisitor + IrTransformer + dump helper"
 ## Task 3: `ir/directives.py` — comment-channel directive parsing
 
 `Directives` dataclass + `parse_directives(text, line_comment) -> Directives`. Reads lines like `<line_comment> @<name> <args...>` from raw source text.
+
+**Decision D applies here:** the `Directives` dataclass includes BOTH `non_semantic` AND `start`. `parse_directives` recognises `@non-semantic` and `@start`. Test list below is extended.
+
+```python
+@dataclass(frozen=True, slots=True)
+class Directives:
+    non_semantic: frozenset[str] = frozenset()
+    start: str | None = None  # @start <rule_name>; None = "use first rule" fallback
+```
+
+In `parse_directives`, extend the directive switch with:
+
+```python
+elif name == "start":
+    if args:
+        start_rule = args[0]  # last @start wins on duplicates
+```
+
+Final return: `Directives(non_semantic=frozenset(non_semantic), start=start_rule)`.
+
+Append these tests to `tests/unit/lexic/ir/test_directives.py`:
+
+```python
+def test_start_directive_sets_start_rule():
+    text = "# @start expr\nroot ::= ws expr\nexpr ::= [0-9]+\n"
+    assert parse_directives(text, line_comment="#").start == "expr"
+
+
+def test_no_start_directive_leaves_start_none():
+    assert parse_directives("root ::= [a-z]+\n", line_comment="#").start is None
+
+
+def test_start_directive_respects_line_comment_marker():
+    assert parse_directives("; @start root\n", line_comment=";").start == "root"
+
+
+def test_start_and_non_semantic_coexist():
+    text = "# @start root\n# @non-semantic ws\nroot ::= ws value\n"
+    d = parse_directives(text, line_comment="#")
+    assert d.start == "root"
+    assert d.non_semantic == frozenset({"ws"})
+
+
+def test_start_directive_last_wins():
+    text = "# @start a\n# @start b\n"
+    assert parse_directives(text, line_comment="#").start == "b"
+```
 
 **Files:**
 - Create: `src/lexic/ir/directives.py`
@@ -1470,9 +1594,61 @@ git commit -m "feat(ir): compute_parents — alternation arm rules get parent cl
 
 ---
 
-## Task 7: `ir/derive.py` — `hoist_helpers`
+## Task 7: `ir/derive.py` — `hoist_helpers` via `IrTransformer`
 
 Hoist groups with non-trivial quantifiers and (multi-arm or ruleref content) into synthetic rules. Returns a rewritten `IrAst` and a list of helper `IrRule`s.
+
+**Decision CQ #3 applies here:** implement `hoist_helpers` as a subclass of `IrTransformer` (from Task 2), not as manual `_hoist_alt`/`_hoist_seq`/`_hoist_item` recursion. The `IrTransformer` is the canonical traversal mechanism; using it here exercises that code path and keeps traversal logic in one place.
+
+Reference shape:
+
+```python
+class _HoistTransformer(IrTransformer):
+    def __init__(self, parent_name: str, name_set: set[str]) -> None:
+        self._parent_name = parent_name
+        self._name_set = name_set
+        self.helpers: list[IrRule] = []
+
+    def visit_IrItem(self, node: IrItem) -> IrItem:
+        # Recurse first so nested groups are processed bottom-up.
+        new_atom = self.visit(node.atom)
+        if not isinstance(new_atom, IrGroup):
+            if new_atom is node.atom:
+                return node
+            return IrItem(atom=new_atom, quantifier=node.quantifier)
+
+        is_quantified = node.quantifier != Quantifier(1, 1)
+        is_multi_arm = len(_non_empty_arms(new_atom.body)) > 1
+        has_rulerefs = _has_ruleref(new_atom.body)
+        if is_quantified and (is_multi_arm or has_rulerefs):
+            helper_name = _reserve(self._parent_name, self._name_set)
+            self._name_set.add(helper_name)
+            self.helpers.append(IrRule(name=helper_name, body=new_atom.body))
+            return IrItem(atom=IrRuleRef(name=helper_name), quantifier=node.quantifier)
+        return IrItem(atom=new_atom, quantifier=node.quantifier)
+
+
+def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
+    name_set: set[str] = {r.name for r in ast.rules}
+    helpers: list[IrRule] = []
+    new_rules: list[IrRule] = []
+    for rule in ast.rules:
+        t = _HoistTransformer(parent_name=rule.name, name_set=name_set)
+        new_body = t.visit(rule.body)
+        helpers.extend(t.helpers)
+        new_rules.append(IrRule(rule.name, new_body))
+    return IrAst(rules=tuple(new_rules), start=ast.start), helpers
+```
+
+The 6 tests in the original Task 7 test list MUST still pass. Add one regression test:
+
+```python
+def test_hoist_uses_irtransformer():
+    """Sanity check: _HoistTransformer is an IrTransformer subclass."""
+    from lexic.ir.derive import _HoistTransformer
+    from lexic.ir.walk import IrTransformer
+    assert issubclass(_HoistTransformer, IrTransformer)
+```
 
 **Files:**
 - Modify: `src/lexic/ir/derive.py`
@@ -1766,15 +1942,82 @@ git commit -m "feat(ir): hoist_helpers — quantified groups become synthetic ru
 
 ## Task 8: `ir/derive.py` — `derive_specs` orchestrator + non-semantic marking
 
-The top-level entry. Hoists helpers, classifies, builds RuleSpecs, marks non-semantic fields, topo-sorts. Includes a small `_assign_ir_field_names(items)` helper that mirrors `naming.assign_field_names` but dispatches on `IrItem.atom` types.
+The top-level entry. Hoists helpers, classifies, builds RuleSpecs, marks non-semantic fields, topo-sorts. Includes a small `_assign_ir_field_names(items)` helper that dispatches on `IrItem.atom` types. (The legacy `naming.assign_field_names` is deleted in Task 25e per decision E; only `_CHARCLASS_NAMES`, `_LITERAL_NAMES`, and `_sanitize_pattern` survive in `naming.py`.)
 
 **Key conventions for `RuleSpec.items` in the new pipeline:**
 
 - `kind = "sequence"` → `items = post-hoist body.arms[0].items` (flat list of `IrItem`)
 - `kind = "alternation"` → `items = [IrItem(IrRuleRef(arm_name)) for each arm_rule_name]`; `field_map = {}`
-- `kind = "value_str"` → if single-arm: `items = arm.items` (flat); if multi-arm: `items = [IrItem(IrGroup(body))]` (wraps alternation so emitters can render `"+" | "-"`)
+- `kind = "value_str"` →
+  - single-arm: `items = arm.items` (flat list of `IrItem`)
+  - **multi-arm: `items = [IrAlternation(arms=...)]` — the IrAlternation node is placed directly in items, NOT wrapped in `IrGroup` (per decision C in GSTACK REVIEW REPORT). Emitters dispatch on `isinstance(items[0], IrAlternation)` and render arms with the flavour's alternation separator (no parenthesisation).** `field_map = {}` (no Pydantic field; the `value: str` field comes from the GrammarModel base via codegen).
 
-`RuleSpec.items` is typed `list[Atom]` in the existing `ir/spec.py`; `Atom` is a runtime-checkable Protocol marker, so it accepts `IrItem` structurally during transition. Phase D tightens the annotation.
+This means `RuleSpec.items` is a `list[IrItem | IrAlternation]` post-cutover. Adjust `ir/spec.py` typing in Task 25e accordingly. Sequence rules' items remain `list[IrItem]`; only multi-arm value_str rules carry an `IrAlternation` node directly.
+
+**Decision OV #11 applies here:** helper rules (synthesized by `hoist_helpers`) ALWAYS get `parent_class_name = "GrammarModel"`. `compute_parents` runs over source rules only — helpers are emitter-internal and do not participate in alternation-arm-driven inheritance. Document this in the `derive_specs` docstring and add a test:
+
+```python
+def test_helpers_always_get_grammar_model_parent():
+    """Hoisted helpers do not participate in alternation-driven parent inference."""
+    rule = IrRule(
+        "expr",
+        _alt(_seq(
+            _it(IrRuleRef("term")),
+            _it(IrGroup(_alt(_seq(_it(IrRuleRef("op")), _it(IrRuleRef("term"))))), Quantifier(0, None)),
+        )),
+    )
+    op = IrRule("op", _alt(_seq(_it(IrLiteral("+")))))
+    term = IrRule("term", _alt(_seq(_it(IrCharClass("a-z")))))
+    ast = IrAst(rules=(rule, op, term), start="expr")
+    specs = derive_specs(ast)
+    helper = next(s for s in specs if s.rule_name == "expr-item")
+    assert helper.parent_class_name == "GrammarModel"
+```
+
+Update `_build_value_str_spec` to match decision C:
+
+```python
+def _build_value_str_spec(rule: IrRule, cls_name: str, parent_cls: str) -> RuleSpec:
+    arms = _non_empty_arms(rule.body)
+    if len(arms) == 1:
+        items = list(arms[0].items)
+    else:
+        # Multi-arm value_str: place IrAlternation directly in items (decision C).
+        # Emitters dispatch on isinstance(items[0], IrAlternation) and render
+        # arms with the flavour's alternation separator, no parens.
+        items = [rule.body]  # rule.body IS an IrAlternation
+    return RuleSpec(
+        rule_name=rule.name,
+        class_name=cls_name,
+        parent_class_name=parent_cls,
+        kind="value_str",
+        items=items,
+        field_map={},
+    )
+```
+
+Update test `test_derive_value_str_multi_arm_wraps_in_group` (the one in original Task 8) — RENAME to `test_derive_value_str_multi_arm_uses_iralternation_directly` and update assertions:
+
+```python
+def test_derive_value_str_multi_arm_uses_iralternation_directly():
+    """Multi-arm value_str: IrAlternation directly in items, no IrGroup wrapping (decision C)."""
+    rule = IrRule(
+        "op",
+        _alt(_seq(_it(IrLiteral("+"))), _seq(_it(IrLiteral("-")))),
+    )
+    ast = IrAst(rules=(rule,), start="op")
+    specs = derive_specs(ast)
+    spec = specs[0]
+    assert spec.kind == "value_str"
+    assert len(spec.items) == 1
+    assert isinstance(spec.items[0], IrAlternation)
+    alt = spec.items[0]
+    assert len(alt.arms) == 2
+    assert alt.arms[0].items[0].atom == IrLiteral("+")
+    assert alt.arms[1].items[0].atom == IrLiteral("-")
+```
+
+`RuleSpec.items` typing: during Phase A, the existing `ir/spec.py` uses `list[Atom]` (Protocol marker accepts any structural type). Phase D tightens to `list[IrItem | IrAlternation]` in Task 25e Step 1.
 
 **Files:**
 - Modify: `src/lexic/ir/derive.py`
@@ -2203,6 +2446,127 @@ git commit -m "feat(ir): derive_specs orchestrator + non-semantic marking"
 
 Generic Lark-based parser that consumes any conforming `Flavour` and produces an `IrAst`. The transformer's eight tag methods (`ir_rule`, `ir_alternation`, …) live here.
 
+**Decisions applying to this task:**
+- **Arch #1 — error wrapping.** `MetaGrammarParser.parse` catches `lark.UnexpectedCharacters`, `lark.UnexpectedToken`, `lark.GrammarError`, and any `ValueError`/`KeyError` raised by `parse_quantifier`/`parse_charclass` during transform, and re-raises as `lexic.exceptions.UnsupportedConstructError` with a rule-first message.
+- **Arch #4 — ASCII diagram in module docstring** showing the parse pipeline.
+- **Perf — per-Flavour caching.** Add a class-method factory `MetaGrammarParser.for_flavour(flavour)` that memoises one parser per `Flavour` class via a module-level dict. `compile_grammar` and `gbnf/parser.py`/`abnf/parser.py` use this factory.
+
+Module-level docstring should include this diagram:
+
+```
+Parse pipeline (text → IrAst):
+
+  text  ──►  Lark(flavour.meta_grammar)  ──►  Tree
+                                                │
+                                                ▼
+                              _IrTagTransformer(flavour)
+                                                │
+                                                ▼
+                                              IrAst
+                                                │
+                                                ▼
+              parse_directives(text, flavour.line_comment)  (separately, in compile_grammar)
+                                                │
+                                                ▼
+                       Directives(non_semantic, start)
+
+Lark errors and Flavour token-parser ValueErrors are caught at this boundary
+and re-raised as UnsupportedConstructError with rule-first messages.
+```
+
+Add `for_flavour` to the class:
+
+```python
+class MetaGrammarParser:
+    _PARSERS: ClassVar[dict[type[Flavour], "MetaGrammarParser"]] = {}
+
+    @classmethod
+    def for_flavour(cls, flavour: type[Flavour]) -> "MetaGrammarParser":
+        """Return a memoised MetaGrammarParser for the given Flavour class."""
+        if flavour not in cls._PARSERS:
+            cls._PARSERS[flavour] = cls(flavour)
+        return cls._PARSERS[flavour]
+```
+
+Update `parse` to wrap errors:
+
+```python
+def parse(self, text: str) -> IrAst:
+    from lexic.exceptions import UnsupportedConstructError
+    try:
+        tree = self._lark.parse(text)
+        return self._transformer.transform(tree)
+    except (lark.UnexpectedCharacters, lark.UnexpectedToken, lark.GrammarError) as exc:
+        raise UnsupportedConstructError(
+            f"Failed to parse {self._flavour.name} grammar: {exc}"
+        ) from exc
+    except ValueError as exc:
+        # parse_quantifier or parse_charclass on bad token text.
+        raise UnsupportedConstructError(
+            f"Invalid token in {self._flavour.name} grammar: {exc}"
+        ) from exc
+```
+
+Add error-wrapping tests:
+
+```python
+def test_lark_error_wrapped_as_unsupported_construct():
+    from lexic.exceptions import UnsupportedConstructError
+    with pytest.raises(UnsupportedConstructError, match="Failed to parse"):
+        MetaGrammarParser.for_flavour(_StubFlavour).parse("bad ::= bad ((((")
+
+
+def test_parse_quantifier_value_error_wrapped():
+    """A flavour whose parse_quantifier raises ValueError should bubble up
+    as UnsupportedConstructError, not the raw ValueError."""
+
+    class _BadQuant(_StubFlavour):
+        @staticmethod
+        def parse_quantifier(text: str) -> Quantifier:
+            raise ValueError(f"unsupported quantifier: {text!r}")
+
+    from lexic.exceptions import UnsupportedConstructError
+    with pytest.raises(UnsupportedConstructError, match="Invalid token"):
+        MetaGrammarParser.for_flavour(_BadQuant).parse("foo = a+\n")
+
+
+def test_for_flavour_returns_same_instance():
+    p1 = MetaGrammarParser.for_flavour(_StubFlavour)
+    p2 = MetaGrammarParser.for_flavour(_StubFlavour)
+    assert p1 is p2
+```
+
+Also: per outside-voice item OV #8, the `_IrTagTransformer.ir_item` method that detects QUANTIFIER tokens via `isinstance(c, Token)` is fragile if a flavour ever returns a string from `normalize_literal`. Defensive guard:
+
+```python
+def ir_item(self, items: list) -> IrItem:
+    """Handle either prefix or suffix quantifier ordering."""
+    quantifier_token = None
+    atom = None
+    for c in items:
+        if isinstance(c, Token):
+            if quantifier_token is not None:
+                # Two QUANTIFIER tokens in one ir_item — defensive guard.
+                raise UnsupportedConstructError(
+                    f"ir_item received multiple quantifier tokens: {items!r}"
+                )
+            quantifier_token = c
+        else:
+            if atom is not None:
+                raise UnsupportedConstructError(
+                    f"ir_item received multiple atom children: {items!r}"
+                )
+            atom = c
+    if atom is None:
+        raise UnsupportedConstructError("ir_item missing atom child")
+    quantifier = (
+        self._flavour.parse_quantifier(str(quantifier_token))
+        if quantifier_token is not None
+        else Quantifier()
+    )
+    return IrItem(atom=atom, quantifier=quantifier)
+```
+
 **Files:**
 - Create: `src/lexic/parsing/__init__.py`
 - Create: `src/lexic/parsing/meta_parser.py`
@@ -2629,6 +2993,8 @@ git commit -m "feat(gbnf): META_GRAMMAR with canonical IR-AST tags"
 
 Bind everything together. `GbnfFlavour` declares constants, plugs in `META_GRAMMAR`, `GBNF_ESCAPES`, the existing `GbnfEmitter`, and provides `parse_quantifier` + `parse_charclass`. No `normalize_literal` override — GBNF literals are case-sensitive.
 
+**Note:** `flavour_cls = GbnfFlavour` is set on `GbnfAdapter` in Task 25a (per decisions OV #6/#20). Task 11 itself only defines `GbnfFlavour`; the adapter wiring lands at cutover.
+
 **Files:**
 - Create: `src/lexic/grammars/gbnf/flavour.py`
 - Create: `tests/unit/lexic/grammars/gbnf/test_flavour.py`
@@ -2774,7 +3140,110 @@ git commit -m "feat(gbnf): GbnfFlavour binds meta_grammar + escapes + emitter + 
 
 ## Task 12: `compile.py` — `compile_grammar` entry point (parallel to existing `compile`)
 
-Add a NEW function `compile_grammar(text, flavour, *, non_semantic_rules=None) -> list[RuleSpec]` that uses the new pipeline. Existing `compile()` (the cache + Lark parser bundle) is unchanged.
+Add a NEW function `compile_grammar(text, flavour, *, non_semantic_rules=None, start=None) -> tuple[str, list[RuleSpec]]` that uses the new pipeline. Existing `compile()` (the cache + Lark parser bundle) is unchanged until Task 25a.
+
+**Decisions applying to this task:**
+- **Decision OV #12:** signature returns `(start_rule_name, list[RuleSpec])` instead of `list[RuleSpec]`. Callers consume both. Rationale: `RuleSpec` has no `is_start` flag and the topo-first invariant is brittle.
+- **Decision D:** if `start` parameter is None, fall back to `Directives.start` (parsed from `@start` directive); if that's also None, fall back to `ast.rules[0].name` (positional first-rule).
+- **Decision OV #6/#20:** signature takes `type[Flavour]`; the string-keyed `compile()` bridges via `get_adapter(name).flavour_cls` (Task 25a).
+- **Arch #4 — ASCII diagram in compile_grammar's docstring** showing the full pipeline (text → directives + IrAst → derive_specs → RuleSpec).
+
+Reference docstring:
+
+```python
+def compile_grammar(
+    text: str,
+    flavour: type[Flavour],
+    *,
+    non_semantic_rules: frozenset[str] | None = None,
+    start: str | None = None,
+) -> tuple[str, list["RuleSpec"]]:
+    """Parse + derive RuleSpecs via the new IR-AST pipeline.
+
+    Pipeline:
+
+      text  ──┬──►  parse_directives  ──►  Directives(non_semantic, start)
+              │                                          │
+              │                                          ▼
+              │                       (resolve `start` arg precedence)
+              │
+              └──►  MetaGrammarParser.for_flavour(flavour)  ──►  IrAst
+                                                              │
+                                                              ▼
+                          derive_specs(ast, non_semantic_rules=...)
+                                                              │
+                                                              ▼
+                                              (start_name, list[RuleSpec])
+
+    `start` resolution precedence:
+      1. explicit `start` argument
+      2. `@start <rule>` directive in source comments
+      3. `ast.rules[0].name` (positional fallback)
+
+    `non_semantic_rules` resolution:
+      1. explicit `non_semantic_rules` argument
+      2. `@non-semantic <rule> ...` directives in source comments
+
+    Errors: malformed grammar source bubbles up as UnsupportedConstructError
+    (wrapped at MetaGrammarParser boundary).
+    """
+    from lexic.ir.derive import derive_specs
+    from lexic.ir.directives import parse_directives
+    from lexic.parsing.meta_parser import MetaGrammarParser
+
+    directives = parse_directives(text, flavour.line_comment)
+    if non_semantic_rules is None:
+        non_semantic_rules = directives.non_semantic
+    ast = MetaGrammarParser.for_flavour(flavour).parse(text)
+    if start is None:
+        start = directives.start or (ast.rules[0].name if ast.rules else "")
+    specs = derive_specs(ast, non_semantic_rules=non_semantic_rules)
+    return start, specs
+```
+
+Update integration tests in `tests/integration/test_compile_grammar_gbnf.py` — every call site changes from `specs = compile_grammar(...)` to `start, specs = compile_grammar(...)`. Add this test:
+
+```python
+def test_compile_grammar_uses_start_directive():
+    text = (
+        "# @start expr\n"
+        "root  ::= expr\n"
+        "expr  ::= [0-9]+\n"
+    )
+    start, specs = compile_grammar(text, GbnfFlavour)
+    assert start == "expr"
+
+
+def test_compile_grammar_falls_back_to_first_rule_when_no_directive():
+    text = "root ::= [0-9]+\n"
+    start, _ = compile_grammar(text, GbnfFlavour)
+    assert start == "root"
+
+
+def test_compile_grammar_explicit_start_wins_over_directive():
+    text = "# @start expr\nroot ::= expr\nexpr ::= [0-9]+\n"
+    start, _ = compile_grammar(text, GbnfFlavour, start="root")
+    assert start == "root"
+
+
+def test_compile_grammar_invalid_start_raises():
+    """@start pointing at a non-existent rule (validated at compile_grammar)."""
+    text = "# @start nonexistent\nroot ::= [0-9]+\n"
+    from lexic.exceptions import UnsupportedConstructError
+    with pytest.raises(UnsupportedConstructError, match="start"):
+        compile_grammar(text, GbnfFlavour)
+```
+
+Add a `start`-validation step inside `compile_grammar`:
+
+```python
+    if start and not any(r.name == start for r in ast.rules):
+        from lexic.exceptions import UnsupportedConstructError
+        raise UnsupportedConstructError(
+            f"start rule {start!r} not defined in grammar; "
+            f"available rules: {[r.name for r in ast.rules]}"
+        )
+```
 
 **Files:**
 - Modify: `src/lexic/compile.py` — add `compile_grammar`
@@ -2926,6 +3395,81 @@ git commit -m "feat(compile): compile_grammar(text, flavour) — new IR-AST pipe
 ## Task 13: GBNF round-trip validation against `resources/ground_truth/`
 
 Run `compile_grammar` over every ground-truth `.gbnf` and assert structural reasonableness (rules count > 0, no exceptions, kinds make sense). Then round-trip through GBNF emit + re-parse, comparing IRAst-equivalence-after-canonicalization.
+
+**Decision OV #15 applies here — fixture migration (CRITICAL).** The current `IRBuilder` hardcodes `trivia_rules = frozenset({"ws"})` as default. Every `.gbnf` fixture relies on this implicit convention. The new pipeline gates non-semantic on the `# @non-semantic ws` directive — and ZERO fixtures have it. When `compile()` switches to `compile_grammar` at Task 25a, every fixture silently loses ws-as-non-semantic, breaking `semantic_dump()` for all existing user grammars.
+
+Fix: add `# @non-semantic ws` to every fixture as Step 1 of Task 13.
+
+**Files (added/modified):**
+- Modify: `resources/ground_truth/arithmetic.gbnf` (add `# @non-semantic ws` at top)
+- Modify: `resources/ground_truth/c.gbnf` (likewise)
+- Modify: `resources/ground_truth/chess.gbnf` (likewise)
+- Modify: `resources/ground_truth/japanese.gbnf` (likewise)
+- Modify: `resources/ground_truth/json_arr.gbnf` (likewise)
+- Modify: `resources/ground_truth/json_ws.gbnf` (already named for ws — likewise)
+- Modify: `resources/ground_truth/list.gbnf` (likewise)
+- Create: `tests/integration/test_gbnf_ir_round_trip.py` (existing: parametrized over all 7 fixtures)
+- Create: `tests/integration/test_full_round_trip.py` — Decision Test 1: fixture-driven full round-trip (compile → exec generated module → instantiate → `to_text() == original`).
+
+**New step before the existing Step 1:**
+
+- [ ] **Step 0: Edit all 7 GBNF fixtures to add `# @non-semantic ws` directive.**
+
+For each fixture in `resources/ground_truth/*.gbnf`, prepend the directive:
+
+```bash
+for f in resources/ground_truth/*.gbnf; do
+  if ! grep -q "@non-semantic ws" "$f"; then
+    sed -i '1i# @non-semantic ws' "$f"
+  fi
+done
+```
+
+Verify: `grep -l '@non-semantic ws' resources/ground_truth/*.gbnf` should list all 7 files.
+
+**Test 1 (full round-trip) — Step (added at end of Task 13):**
+
+- [ ] **Step 6: Add `tests/integration/test_full_round_trip.py` (Decision Test 1).**
+
+```python
+"""Full fixture round-trip: compile → exec generated module → instantiate → to_text() == source.
+
+For each ground-truth fixture, run the entire pipeline end-to-end and assert
+the reconstructed text round-trips back to the source. This is the strongest
+regression gate during the 25a–e cutover.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from lexic.compile import compile
+
+GROUND_TRUTH = Path(__file__).resolve().parents[1] / "resources" / "ground_truth"
+
+# Pair each fixture with a sample input that should parse against it.
+FIXTURES = {
+    "arithmetic.gbnf": "1 + 2",
+    "json_arr.gbnf": '[1,2,3]',
+    "json_ws.gbnf": '{"a": 1}',
+    "list.gbnf": "a, b, c",
+    # c.gbnf, chess.gbnf, japanese.gbnf: input samples TBD by implementer
+    # based on each grammar's start rule and expected shape.
+}
+
+
+@pytest.mark.parametrize("fixture, sample", list(FIXTURES.items()))
+def test_full_round_trip(fixture, sample):
+    text = (GROUND_TRUTH / fixture).read_text(encoding="utf-8")
+    cg = compile(text, cache_key=fixture)
+    model = cg.parse(sample)
+    assert model.to_text() == sample, (
+        f"{fixture}: round-trip mismatch.\n"
+        f"  source: {sample!r}\n"
+        f"  to_text: {model.to_text()!r}"
+    )
+```
 
 **Files:**
 - Create: `tests/integration/test_gbnf_ir_round_trip.py`
@@ -3122,6 +3666,72 @@ git commit -m "feat(abnf): AbnfEscapes — identity codec for ABNF literals"
 ## Task 15: `grammars/abnf/emitter.py` — `AbnfEmitter(FlavourEmitter)`
 
 ABNF syntax constants. `=` instead of `::=`, `/` instead of `|`, prefix quantifiers, `%xNN` charclasses. Override `format_quantifier` (prefix), `render_charclass` (hex form), and `quote` (no escape encoding needed).
+
+**Decisions applying to this task:**
+
+- **Decision B — `supports` is `ClassVar[frozenset[str]]` ONLY.** DO NOT also declare `@property def supports(self)`. The original plan's draft had both — that's invalid Python (the property descriptor shadows the ClassVar at class-level reads). Drop the `@property`; keep ClassVar:
+
+  ```python
+  class AbnfEmitter(FlavourEmitter):
+      supports: ClassVar[frozenset[str]] = frozenset({
+          "literal", "char_class", "quantifier", "alternation", "non_capturing_group",
+      })
+      # NO @property def supports — ClassVar handles class-level reads correctly.
+  ```
+
+- **Decision OV #17 — `place_quantifier` decorator on `FlavourEmitter`.** The existing `FlavourEmitter.DEFAULT_HANDLERS` (in `ir/emit.py`) hardcodes suffix-quantifier order: `e.quote(a.value) + e.format_quantifier(...)`. ABNF needs prefix. Don't override every default handler in `AbnfEmitter`. Instead, refactor `FlavourEmitter` to compose via a `place_quantifier(atom_str, q_str) -> str` decorator that defaults to suffix:
+
+  ```python
+  # In src/lexic/ir/emit.py FlavourEmitter:
+  def place_quantifier(self, atom_str: str, q_str: str) -> str:
+      """Combine atom rendering with quantifier. Default suffix; ABNF overrides to prefix."""
+      return f"{atom_str}{q_str}"
+  ```
+
+  Then update default handlers to use it:
+
+  ```python
+  DEFAULT_HANDLERS: ClassVar[dict[type, AtomEmitHandler]] = make_handlers(
+      (LiteralAtom, lambda a, e: e.quote(a.value)),
+      (QuantifiedLiteralAtom,
+       lambda a, e: e.place_quantifier(e.quote(a.value), e.format_quantifier(a.min, a.max))),
+      (CharClassAtom,
+       lambda a, e: e.place_quantifier(e.render_charclass(a.pattern), e.format_quantifier(a.min, a.max))),
+      (RuleRefAtom,
+       lambda a, e: e.place_quantifier(a.rule_name, e.format_quantifier(a.min, a.max))),
+      ...
+  )
+  ```
+
+  And in `AbnfEmitter`, override:
+
+  ```python
+  def place_quantifier(self, atom_str: str, q_str: str) -> str:
+      return f"{q_str}{atom_str}" if q_str else atom_str
+  ```
+
+  Now AbnfEmitter no longer needs to override every legacy-atom handler — the prefix-vs-suffix concern lives in one place. Post-cutover (Task 25e), the IR-AST handlers in `ir/emit.py` use the same decorator.
+
+- **Files (added/modified):**
+  - Modify: `src/lexic/ir/emit.py` — add `place_quantifier` decorator to `FlavourEmitter` ABC, update DEFAULT_HANDLERS.
+  - Modify: `src/lexic/grammars/abnf/emitter.py` — `AbnfEmitter` overrides `place_quantifier` to prepend; remove the partial DEFAULT_HANDLERS override that the original Task 15 had.
+
+Update tests:
+
+```python
+def test_supports_is_a_classvar_frozenset_not_a_property():
+    """Decision B: supports is a ClassVar, not @property."""
+    # Class-level read returns the frozenset directly, not a property descriptor.
+    assert isinstance(AbnfEmitter.supports, frozenset)
+    assert "literal" in AbnfEmitter.supports
+
+
+def test_place_quantifier_prefix_for_abnf():
+    e = _emitter()
+    assert e.place_quantifier("ALPHA", "1*") == "1*ALPHA"
+    assert e.place_quantifier('"hi"', "*5") == '*5"hi"'
+    assert e.place_quantifier("X", "") == "X"  # no quantifier → identity
+```
 
 **Files:**
 - Create: `src/lexic/grammars/abnf/emitter.py`
@@ -3720,9 +4330,62 @@ git commit -m "test(integration): minimal ABNF arithmetic fixture parses via new
 
 ---
 
-## Task 18: Cross-flavour transpilation test
+## Task 18: Cross-flavour transpilation test (extended with emit-and-reparse cycle)
 
 The same arithmetic grammar in GBNF and ABNF should produce *structurally equivalent* `IrAst`s after canonicalization (modulo case-insensitive expansion that the GBNF version doesn't have).
+
+**Decision OV #13 / Test 2 applies here.** The original Task 18 only checked rule-name overlap and `op` arm shape — it never validated the architectural promise of "IR AST is the lingua franca for transpilation." Spec success criterion #3 demands GBNF → IrAst → ABNF text → IrAst' equivalence. Extend Task 18 with an emit-and-reparse cycle.
+
+Add this test to `tests/integration/test_cross_flavour.py`:
+
+```python
+def test_gbnf_to_abnf_to_gbnf_round_trip_via_iast():
+    """Architectural smoke: parse GBNF → emit ABNF → parse ABNF → IrAst' is structurally equal.
+
+    Equivalence is up to ABNF's case-insensitive literal expansion (alpha
+    literals expand to char-class groups). Use a non-alpha-literal-only fixture
+    to make the IrAst byte-equivalent.
+    """
+    from lexic.compile import compile_grammar
+    from lexic.parsing.meta_parser import MetaGrammarParser
+
+    # Hand-craft a small GBNF grammar with no alpha literals (avoids ABNF case
+    # expansion noise). Uses charclass + non-alpha literals only.
+    gbnf_text = (
+        "root  ::= digit (\"+\" digit)*\n"
+        "digit ::= [0-9]\n"
+    )
+    parser_g = MetaGrammarParser.for_flavour(GbnfFlavour)
+    ast_g = parser_g.parse(gbnf_text)
+
+    # Emit as ABNF via AbnfEmitter (consumes IrAst directly per spec §FlavourEmitter).
+    abnf_text = AbnfFlavour.emitter.emit_ast(ast_g)
+    # Parse the emitted ABNF back to IrAst.
+    parser_a = MetaGrammarParser.for_flavour(AbnfFlavour)
+    ast_a = parser_a.parse(abnf_text)
+
+    # Structural equivalence: same rule names, same body shapes (no IrLiteral
+    # case-expansion since we used only digits and "+"; ABNF's normalize_literal
+    # for "+" returns IrLiteral unchanged because no alphas).
+    assert {r.name for r in ast_g.rules} == {r.name for r in ast_a.rules}
+    for r_g in ast_g.rules:
+        r_a = next(r for r in ast_a.rules if r.name == r_g.name)
+        # Body comparison: alternation arm count + sequence shape per arm.
+        assert len(r_g.body.arms) == len(r_a.body.arms)
+```
+
+Note: this requires `FlavourEmitter` to expose `emit_ast(ast: IrAst) -> str` in addition to `emit(specs: list[RuleSpec]) -> str`. The spec §End-to-end flow says emitters can consume `IrAst` directly OR `list[RuleSpec]`. Add `emit_ast` to `FlavourEmitter` ABC in Task 15 (alongside the `place_quantifier` refactor):
+
+```python
+def emit_ast(self, ast: IrAst) -> str:
+    """Emit an IrAst directly as flavour text (used for transpilation)."""
+    lines = [self.emit_rule_from_ast(r) for r in ast.rules]
+    return "\n".join(lines) + "\n"
+
+def emit_rule_from_ast(self, rule: IrRule) -> str:
+    body = self._emit_alternation(rule.body)
+    return f"{rule.name} {self.rule_separator} {body}{self.rule_terminator}"
+```
 
 **Files:**
 - Create: `tests/integration/test_cross_flavour.py`
@@ -3813,7 +4476,71 @@ The OLD pipeline (`codegen/ir_builder.py:IRBuilder` + `IRBuilder` from `ir/build
 
 ## Task 19: Shape adapter — `ir/_legacy_shape.py` (transient)
 
-A minimal one-way function `legacy_to_iritems(spec)` that produces a new-shape `RuleSpec`. Only used during Phase D; deleted at the end of Task 25.
+A minimal one-way function `legacy_to_iritems(spec)` that produces a new-shape `RuleSpec`. Only used during Phase D; deleted at the end of Task 25e.
+
+**Decision H applies here.** The original `_convert_inline_regex_to_group` stuffed the source GBNF text into `IrLiteral.value`, producing a shape-invalid IR tree (literals carrying unparsed grammar source). Replace with re-parse via `MetaGrammarParser.for_flavour(GbnfFlavour)`:
+
+```python
+def _convert_inline_regex_to_group(atom: InlineRegexAtom) -> IrGroup:
+    """Re-parse the InlineRegexAtom.gbnf text into a real IrGroup using the
+    new pipeline. Produces a shape-valid IR tree.
+
+    Cost: one extra Lark parse per InlineRegexAtom during Phase D. Acceptable
+    because (a) the adapter is transient (deleted in Task 25e) and (b) the
+    parse is small (the atom carries a single group like `("a"|"b")`).
+    """
+    from lexic.grammars.gbnf.flavour import GbnfFlavour
+    from lexic.parsing.meta_parser import MetaGrammarParser
+
+    # Wrap the group text in a synthetic rule so the meta-grammar accepts it.
+    synthetic_text = f"_inline ::= {atom.gbnf}\n"
+    ast = MetaGrammarParser.for_flavour(GbnfFlavour).parse(synthetic_text)
+    rule = ast.rules[0]
+    # The body is an IrAlternation whose single arm is one IrItem(IrGroup(...)).
+    # Extract that group.
+    body_item = rule.body.arms[0].items[0]
+    if isinstance(body_item.atom, IrGroup):
+        return body_item.atom
+    # Fallback: wrap the body itself as an IrGroup (for atoms whose gbnf form
+    # isn't already wrapped in parens).
+    return IrGroup(body=rule.body)
+```
+
+Add a regression test:
+
+```python
+def test_inline_regex_adapter_produces_shape_valid_iri():
+    """Decision H: IrLiteral.value never carries source text after the adapter."""
+    atom = InlineRegexAtom(regex='("a"|"b")', gbnf='("a" | "b")', min=1, max=None)
+    out = legacy_to_iritems(_spec([atom]))
+    item = out.items[0]
+    assert isinstance(item.atom, IrGroup)
+
+    # Walk the group: every IrLiteral.value should be a canonical Python string,
+    # NOT contain raw GBNF source (no `(`, no `|`, no quotes-as-data).
+    def walk_literals(node):
+        if isinstance(node, IrLiteral):
+            assert "(" not in node.value
+            assert "|" not in node.value
+            assert "\"" not in node.value
+            return
+        if isinstance(node, IrGroup):
+            walk_literals(node.body)
+        if isinstance(node, IrAlternation):
+            for arm in node.arms:
+                walk_literals(arm)
+        if isinstance(node, IrSequence):
+            for it in node.items:
+                walk_literals(it.atom)
+
+    walk_literals(item.atom)
+
+    # Body should be a real IrAlternation with two arms.
+    arms = item.atom.body.arms
+    assert len(arms) == 2
+    assert arms[0].items[0].atom == IrLiteral("a")
+    assert arms[1].items[0].atom == IrLiteral("b")
+```
 
 **Files:**
 - Create: `src/lexic/ir/_legacy_shape.py`
@@ -4373,6 +5100,108 @@ git commit -m "feat(gbnf): emitter handles IrItem-shaped RuleSpec.items (legacy 
 
 Same dual-shape handling. New `_field_type_for_iritem(item, specs_by_rule)` and `_repr_iritem(item)` functions handle the new shape; legacy functions stay for transition.
 
+**Decisions applying to this task:**
+
+- **Decision CQ #1 — full IrGroup serialisation in `_repr_iritem`.** The original Task 21 draft returned a `# FIXME` placeholder for IrGroup atoms. `_repr_iritem` MUST produce real Python expressions for every IR shape, including IrGroup. Generated code never carries `# FIXME` comments — that violates `docs/STYLE.md`'s "don't ship half-finished" rule.
+
+  Reference recursive serialiser:
+
+  ```python
+  def _repr_quantifier(q: Quantifier) -> str:
+      return f"Quantifier({q.min}, {q.max!r})"
+
+
+  def _repr_atom_value(atom) -> str:
+      """Render any atom (leaf or group) as a Python constructor expression."""
+      if isinstance(atom, IrLiteral):
+          return f"IrLiteral({atom.value!r})"
+      if isinstance(atom, IrCharClass):
+          return f"IrCharClass({atom.pattern!r}, negated={atom.negated})"
+      if isinstance(atom, IrRuleRef):
+          return f"IrRuleRef({atom.name!r})"
+      if isinstance(atom, IrGroup):
+          return f"IrGroup({_repr_alternation(atom.body)})"
+      raise TypeError(f"Cannot serialise atom: {type(atom).__name__}")
+
+
+  def _repr_alternation(alt: IrAlternation) -> str:
+      arms = ", ".join(_repr_sequence(s) for s in alt.arms)
+      return f"IrAlternation(arms=({arms},))" if alt.arms else "IrAlternation()"
+
+
+  def _repr_sequence(seq: IrSequence) -> str:
+      items = ", ".join(_repr_iritem(it) for it in seq.items)
+      return f"IrSequence(items=({items},))" if seq.items else "IrSequence()"
+
+
+  def _repr_iritem(item: IrItem) -> str:
+      return f"IrItem({_repr_atom_value(item.atom)}, {_repr_quantifier(item.quantifier)})"
+  ```
+
+  Add a regression test that round-trips through eval/exec:
+
+  ```python
+  def test_irgroup_serialisation_round_trip():
+      """Generated __grammar__.items[i] for IrGroup atoms must be valid Python
+      that produces an equivalent IR tree on exec."""
+      from lexic.codegen.model_emitter import emit_module_source
+      from lexic.ir.spec import RuleSpec
+
+      group = IrGroup(IrAlternation((
+          IrSequence((IrItem(IrLiteral("a")),)),
+          IrSequence((IrItem(IrLiteral("b")),)),
+      )))
+      spec = RuleSpec(
+          rule_name="r", class_name="R", parent_class_name="GrammarModel",
+          kind="value_str",
+          items=[IrItem(group, Quantifier(1, None))],
+          field_map={},
+      )
+      src = emit_module_source([spec], stem="m")
+      # The generated module must import + exec cleanly.
+      assert "# FIXME" not in src
+      ns: dict = {}
+      exec(src, ns)
+      reconstructed = ns["R"].__grammar__.items[0]
+      assert reconstructed.quantifier == Quantifier(1, None)
+      assert isinstance(reconstructed.atom, IrGroup)
+      assert len(reconstructed.atom.body.arms) == 2
+  ```
+
+- **Decision CQ #4 — generated modules always import the full IR AST surface.** Don't detect-and-include — emit a fixed import line:
+
+  ```python
+  GENERATED_IMPORTS = """\
+  from lexic.ir.nodes import (
+      IrAlternation,
+      IrAst,
+      IrCharClass,
+      IrGroup,
+      IrItem,
+      IrLiteral,
+      IrRule,
+      IrRuleRef,
+      IrSequence,
+      Quantifier,
+  )
+  from lexic.ir.spec import RuleSpec
+  from lexic.base import GrammarModel
+  from typing import ClassVar, Optional, List, Union
+  from pydantic import Field
+  """
+  ```
+
+  No conditional logic. Generated files are throwaway artifacts; oversized imports are cheap. Add a sanity test that every generated module includes this exact import block.
+
+- **Decision C consequence:** for multi-arm value_str specs, `RuleSpec.items[0]` is an `IrAlternation` (not an `IrItem`). `_field_type_for_iritem` and `_repr_iritem` MUST also handle the bare-`IrAlternation` case at the top level of `RuleSpec.items`. Add helpers:
+
+  ```python
+  def _is_alternation_value_str(spec: RuleSpec) -> bool:
+      return spec.kind == "value_str" and len(spec.items) == 1 and isinstance(spec.items[0], IrAlternation)
+  ```
+
+  And dispatch accordingly when emitting field types and `__grammar__` reprs.
+
 **Files:**
 - Modify: `src/lexic/codegen/model_emitter.py`
 - Modify: `tests/unit/lexic/codegen/test_model_emitter.py`
@@ -4579,6 +5408,60 @@ git commit -m "feat(codegen): model_emitter dispatches on IrItem shape (legacy s
 ## Task 22: Update `codegen/lark_builder.py` for new-shape items
 
 Add `_iritem_to_lark(item)` alongside the existing `_atom_to_lark`. Same dual-shape pattern.
+
+**Decision CQ #2 applies here.** The original draft of `_iritem_to_lark` had:
+
+```python
+if atom.name == "ws":  # Phase D legacy hack — Task 25 removes this
+    return "ws?"
+```
+
+DO NOT add this hack. It (a) hardcodes a flavour-specific string in `lexic/codegen/`, violating CLAUDE.md's "No grammar-specific hardcoding" rule, and (b) makes the lark builder behave differently for any rule literally named `ws` in any flavour, including ABNF where ws may be irrelevant.
+
+Instead, drive optionality from `IrItem.quantifier`. `derive_specs` already sets `quantifier.min = 0` for non-semantic rulerefs (per Task 8 step "mark non-semantic"). The lark builder then naturally emits `?` or `*` via the existing `bounds_to_quantifier(q.min, q.max)` call. No name-string check.
+
+Reference for the correct `_iritem_to_lark` for `IrRuleRef`:
+
+```python
+def _iritem_to_lark(item: IrItem) -> str:
+    atom = item.atom
+    q = bounds_to_quantifier(item.quantifier.min, item.quantifier.max)
+    ...
+    if isinstance(atom, IrRuleRef):
+        name = to_lark_name(atom.name)
+        return f"{name}{q}"  # No name == "ws" branch.
+    ...
+```
+
+Add a regression test:
+
+```python
+def test_lark_builder_ws_optionality_via_quantifier_not_name():
+    """Decision CQ #2: a rule named 'ws' with min=0 quantifier emits '?' through
+    the standard quantifier path; a rule named 'ws' with min=1 stays required."""
+    from lexic.codegen.lark_builder import _iritem_to_lark
+    from lexic.ir.nodes import IrItem, IrRuleRef, Quantifier
+
+    # Non-semantic case: derive_specs already set min=0
+    optional_ws = IrItem(IrRuleRef("ws"), Quantifier(0, 1))
+    assert _iritem_to_lark(optional_ws).endswith("?")
+
+    # Semantic case (no @non-semantic ws): quantifier stays (1, 1)
+    required_ws = IrItem(IrRuleRef("ws"), Quantifier(1, 1))
+    assert "?" not in _iritem_to_lark(required_ws)
+    assert "*" not in _iritem_to_lark(required_ws)
+
+
+def test_lark_builder_no_grammar_specific_hardcoding():
+    """No string 'ws' should appear inside lark_builder.py logic."""
+    from pathlib import Path
+    src = Path("src/lexic/codegen/lark_builder.py").read_text()
+    # Allow "ws" inside docstrings or comments (e.g., "non-semantic ws field"),
+    # but no quoted-string equality check on 'ws' / "ws" in code.
+    assert 'atom.name == "ws"' not in src
+    assert "atom.name == 'ws'" not in src
+    assert 'rule_name == "ws"' not in src
+```
 
 **Files:**
 - Modify: `src/lexic/codegen/lark_builder.py`
@@ -4915,81 +5798,157 @@ git commit -m "feat(base): GrammarModel.to_text handles IrItem shape"
 
 ---
 
-## Task 25: Switch `compile()` to new pipeline + delete old machinery
+## Task 24b: Update `src/lexic/generate.py` for new-shape items
 
-The atomic cutover. `compile.compile()` now routes through `compile_grammar`; `codegen.build_classes_and_specs` uses the new pipeline; old `IRBuilder`, classifier/converter Protocols, atoms.py, ast.py, and ast_to_ir.py are deleted.
+`src/lexic/generate.py` (226 lines) is the third runtime consumer of `RuleSpec.items` (alongside `base.py` and the codegen pipeline). It imports all 7 legacy atom types and has 17+ `isinstance(a, AlternationAtom|InlineRegexAtom|...)` dispatch sites in `_gen_value_str`, `_gen_sequence`, `_gen_arms`, and helper functions. It is also exercised by `tests/unit/lexic/test_generate.py` and `tests/property/test_roundtrip.py`. The original plan omitted this consumer; without this task, Task 25e's deletion of `ir/atoms.py` raises `ImportError` at import time and breaks the suite-green invariant.
+
+This task mirrors the dual-shape pattern from Tasks 20–24: add `IrItem`-aware dispatch alongside legacy, leave both shapes working, then drop legacy in Task 25d.
 
 **Files:**
-- Modify: `src/lexic/codegen/__init__.py` — `build_classes_and_specs` uses `compile_grammar`
-- Modify: `src/lexic/compile.py` — drop legacy adapter usage
-- Modify: `src/lexic/grammars/gbnf/parser.py` — slim to thin wrapper
-- Modify: `src/lexic/grammars/gbnf/adapter.py` — wire to GbnfFlavour
-- Modify: `src/lexic/grammars/__init__.py` — register AbnfAdapter alongside Gbnf
-- Modify: `src/lexic/grammars/gbnf/emitter.py` — drop legacy branches; keep only IrItem
-- Modify: `src/lexic/codegen/model_emitter.py` — drop legacy branches
-- Modify: `src/lexic/codegen/lark_builder.py` — drop legacy branches; drop `decode_gbnf_escapes` import (no longer needed; literals are canonical)
-- Modify: `src/lexic/codegen/transformer/build_transformer.py` and `builders.py` — drop legacy branches
-- Modify: `src/lexic/base.py` — drop legacy branches; drop `decode_gbnf_escapes` import
-- Modify: `src/lexic/ir/protocols.py` — drop `RuleClassifier`, `SequenceConverter`, `FlavourAdapter` (FlavourAdapter Protocol stays in `lexic.grammars.flavours` only). Keep handler-type aliases.
-- Modify: `src/lexic/ir/__init__.py` — drop deleted exports; add new ones (`IrLiteral`, `IrCharClass`, `IrRuleRef`, `IrItem`, etc.)
-- Modify: `src/lexic/ir/spec.py` — tighten `items: list[IrItem]`
-- Delete: `src/lexic/ir/_legacy_shape.py` and its test
-- Delete: `src/lexic/ir/atoms.py` and `tests/unit/lexic/ir/test_atoms.py`
-- Delete: `src/lexic/ir/builder.py`, `ir/classify.py`, `ir/convert.py` and their tests
-- Delete: `src/lexic/grammars/gbnf/ast.py`, `tests/unit/lexic/grammars/gbnf/test_ast.py`
-- Delete: `src/lexic/grammars/gbnf/ast_to_ir.py`, `tests/unit/lexic/grammars/gbnf/test_ast_to_ir.py` (untracked WIP)
-- Delete: `src/lexic/codegen/ir_builder.py`, `codegen/classify.py`, `codegen/seq_to_atoms.py`, `codegen/ast_utils.py` and their tests
+- Modify: `src/lexic/generate.py`
+- Modify: `tests/unit/lexic/test_generate.py` (add IrItem-shaped cases)
+- Modify: `tests/property/test_roundtrip.py` (parametrize over both shapes during transition)
 
-This task is large — split into clear sub-stages.
+**Steps:**
 
-- [ ] **Step 1: Switch `compile.compile()` to new pipeline.**
+- [ ] **Step 1: Read `src/lexic/generate.py` and `tests/unit/lexic/test_generate.py` end to end.** Identify every dispatch site that takes a `spec.items[i]` or iterates `spec.items`. For each, you'll add an `IrItem` branch.
 
-Edit `src/lexic/compile.py`. In `_compile_core`, replace the call to `build_classes_and_specs` (which currently uses the legacy IRBuilder) with one that uses `compile_grammar`:
+- [ ] **Step 2: Add IrItem-aware tests alongside legacy ones.** Append to `tests/unit/lexic/test_generate.py`:
 
 ```python
-def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGrammar:
-    from lexic.compile import compile_grammar  # already in this module
-    from lexic.grammars import get_adapter
+from lexic.ir.nodes import IrCharClass, IrItem, IrLiteral, IrRuleRef, Quantifier
+from lexic.ir.spec import RuleSpec
 
-    adapter = get_adapter(flavour)
-    flavour_cls = adapter.flavour_cls  # added below
-    specs_list = compile_grammar(text, flavour_cls)
-    classes = _emit_and_load_module(specs_list, stem)  # existing helper, retargeted
-    specs = {s.rule_name: s for s in specs_list}
-    builder = LarkBuilder(specs_list)
-    grammar_str, start_rule = builder.build_grammar()
-    parser = lark.Lark(
-        grammar_str, parser="earley", ambiguity="resolve", start=start_rule
+
+def _new_value_str_spec(rule_name, items):
+    return RuleSpec(
+        rule_name=rule_name, class_name=rule_name.title(),
+        parent_class_name="GrammarModel", kind="value_str",
+        items=list(items), field_map={},
     )
-    transformer = builder.build_transformer(classes)
-    return CompiledGrammar(
-        classes=classes, specs=specs, parser=parser, transformer=transformer,
+
+
+def test_generate_iritem_literal():
+    from lexic.generate import generate
+    spec = _new_value_str_spec("greet", [IrItem(IrLiteral("hi"))])
+    rng = _random.Random(0)
+    out = generate(spec, {"greet": spec}, rng)
+    assert out == "hi"
+
+
+def test_generate_iritem_charclass_quantified():
+    from lexic.generate import generate
+    spec = _new_value_str_spec("d", [IrItem(IrCharClass("0-9"), Quantifier(1, 3))])
+    rng = _random.Random(0)
+    out = generate(spec, {"d": spec}, rng)
+    assert 1 <= len(out) <= 3 and out.isdigit()
+
+
+def test_generate_iritem_ruleref():
+    from lexic.generate import generate
+    inner = _new_value_str_spec("inner", [IrItem(IrLiteral("X"))])
+    outer = RuleSpec(
+        rule_name="outer", class_name="Outer", parent_class_name="GrammarModel",
+        kind="sequence", items=[IrItem(IrRuleRef("inner"))], field_map={"inner": 0},
     )
+    rng = _random.Random(0)
+    out = generate(outer, {"inner": inner, "outer": outer}, rng)
+    assert out == "X"
 ```
 
-You'll need an `_emit_and_load_module` (the model_emitter path) — check existing `codegen/__init__.py`'s `build_classes_and_specs` for that pattern; reuse it.
-
-- [ ] **Step 2: Update `grammars/gbnf/adapter.py` — expose `flavour_cls`.**
+- [ ] **Step 3: Add IrItem dispatch in `src/lexic/generate.py`.** For every `isinstance(atom, LegacyAtom)` chain, add a parallel `isinstance(item, IrItem)` branch that destructures `item.atom` and `item.quantifier`:
 
 ```python
-from lexic.grammars.gbnf.flavour import GbnfFlavour
+from lexic.ir.nodes import (
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrRuleRef,
+    Quantifier,
+)
 
-class GbnfAdapter(FlavourAdapter):
-    name = "gbnf"
-    extensions: tuple[str, ...] = (".gbnf",)
-    flavour_cls = GbnfFlavour
 
-    def __init__(self) -> None:
-        self.parser = GbnfParser()
-        self.emitter = GbnfEmitter([])
+def _gen_iritem(item: IrItem, specs: dict[str, RuleSpec], rng) -> str:
+    """Mirror of legacy atom dispatch for IrItem.atom variants."""
+    atom = item.atom
+    q = item.quantifier
+    if isinstance(atom, IrLiteral):
+        return atom.value * _pick_count(q.min, q.max, rng)
+    if isinstance(atom, IrCharClass):
+        chars = parse_charclass_chars(atom.pattern, _CANONICAL_CODEC)
+        n = _pick_count(q.min, q.max, rng)
+        return "".join(rng.choice(chars) for _ in range(n))
+    if isinstance(atom, IrRuleRef):
+        n = _pick_count(q.min, q.max, rng)
+        return "".join(_gen_rule(atom.name, specs, rng) for _ in range(n))
+    if isinstance(atom, IrGroup):
+        # Inline group: generate from one of the arms (literal-only group →
+        # regex pattern candidate; pick first arm and generate).
+        n = _pick_count(q.min, q.max, rng)
+        outs = []
+        for _ in range(n):
+            arm = rng.choice(atom.body.arms)
+            outs.append("".join(_gen_iritem(it, specs, rng) for it in arm.items))
+        return "".join(outs)
+    raise TypeError(f"Unsupported IR atom: {type(atom).__name__}")
 ```
 
-Add `flavour_cls` to `lexic.grammars.flavours.FlavourAdapter` Protocol.
+Then update `_gen_value_str`, `_gen_sequence`, `_gen_arms` (and any others) to detect `isinstance(spec.items[0], IrItem)` and route through `_gen_iritem`; keep legacy branches unchanged.
 
-- [ ] **Step 3: Slim `grammars/gbnf/parser.py`.**
+- [ ] **Step 4: Run — expect both old and new tests pass.**
+
+```bash
+uv run pytest tests/unit/lexic/test_generate.py tests/property/test_roundtrip.py -q
+uv run pytest tests/ -q
+```
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add src/lexic/generate.py tests/unit/lexic/test_generate.py tests/property/test_roundtrip.py
+git commit -m "feat(generate): dual-shape support for IrItem (legacy still supported, dropped in Task 25d)"
+```
+
+---
+
+## Task 25: Switch `compile()` to new pipeline + delete old machinery (split into 25a–e)
+
+Per decision F in the GSTACK REVIEW REPORT, the original 13-step "big bang" cutover is split into five tasks. Each is bisectable. The order: switch `compile()` first (25a), then drop legacy from each consumer one at a time (25b–25d), then deletions and final tightening (25e).
+
+| Sub-task | Scope | Bisect anchor |
+|---|---|---|
+| 25a | Switch `compile()` + register `AbnfAdapter` + `flavour_cls` bridge + slim `gbnf/parser.py` | "compile() now routes through compile_grammar" |
+| 25b | Drop legacy from `grammars/gbnf/emitter.py` | "gbnf emitter consumes IrItem only" |
+| 25c | Drop legacy from `codegen/model_emitter.py` and `codegen/lark_builder.py` | "model_emitter + lark_builder consume IrItem only" |
+| 25d | Drop legacy from `codegen/transformer/*`, `base.py`, and `generate.py` (Task 24b's dual-shape goes single-shape) | "transformer + base + generate consume IrItem only" |
+| 25e | Tighten typing (`RuleSpec.items: list[IrItem]`), tighten `Flavour.emitter: ClassVar[FlavourEmitter]`, slim `naming.py`, drop dead Protocols, update `ir/__init__.py`, delete legacy modules + tests, automated success-criteria checks | "Legacy IR layer removed" |
+
+The full suite is green after every commit. If 25b–d break consumers that 25a left routed through legacy, fix immediately before moving to the next sub-task.
+
+---
+
+## Task 25a: Switch `compile()` to new pipeline; register `AbnfAdapter`; bridge `flavour_cls`
+
+**Files:**
+- Modify: `src/lexic/compile.py` — `compile()` and `_compile_core` route through `compile_grammar`. Add `compile_grammar_from_path(path)` thin wrapper that uses `adapter_for_extension(path).flavour_cls`.
+- Modify: `src/lexic/codegen/__init__.py` — `build_classes_and_specs` consumes the `(start, list[RuleSpec])` tuple from `compile_grammar` (per decision OV #12).
+- Modify: `src/lexic/grammars/flavours.py` — add `flavour_cls: type[Flavour]` to `FlavourAdapter` Protocol (per decision OV #6/#20).
+- Modify: `src/lexic/grammars/gbnf/adapter.py` — set `flavour_cls = GbnfFlavour`.
+- Modify: `src/lexic/grammars/gbnf/parser.py` — slim to thin wrapper around `MetaGrammarParser.for_flavour(GbnfFlavour)`.
+- Create: `src/lexic/grammars/abnf/adapter.py` — `AbnfAdapter` with `flavour_cls = AbnfFlavour`.
+- Modify: `src/lexic/grammars/__init__.py` — register `AbnfAdapter()` alongside `GbnfAdapter()`.
+
+**Steps:**
+
+- [ ] **Step 1: Add `flavour_cls: type[Flavour]` to `FlavourAdapter` Protocol** in `lexic/grammars/flavours.py`.
+
+- [ ] **Step 2: Set `flavour_cls = GbnfFlavour`** on `GbnfAdapter` in `lexic/grammars/gbnf/adapter.py`.
+
+- [ ] **Step 3: Slim `lexic/grammars/gbnf/parser.py`:**
 
 ```python
-"""GbnfParser: thin wrapper around MetaGrammarParser(GbnfFlavour)."""
+"""GbnfParser: thin wrapper around MetaGrammarParser.for_flavour(GbnfFlavour)."""
 
 from __future__ import annotations
 
@@ -4999,48 +5958,40 @@ from lexic.ir.nodes import IrAst
 from lexic.parsing.meta_parser import MetaGrammarParser
 
 
-_parser = MetaGrammarParser(GbnfFlavour)
-
-
 def parse_gbnf(text: str) -> IrAst:
-    return _parser.parse(text)
+    return MetaGrammarParser.for_flavour(GbnfFlavour).parse(text)
 
 
 class GbnfParser(FlavourParser):
     def parse(self, text: str) -> IrAst:
-        return _parser.parse(text)
+        return MetaGrammarParser.for_flavour(GbnfFlavour).parse(text)
 ```
 
-- [ ] **Step 4: Run full suite. Expect failures from anything still using the legacy pipeline.**
-
-```bash
-uv run pytest tests/ -q
-```
-
-Iterate: each failure points to a place that needs the new pipeline. Fix in place.
-
-- [ ] **Step 5: Add ABNF adapter and register it.**
+- [ ] **Step 4: Create `lexic/grammars/abnf/adapter.py`:**
 
 ```python
-# src/lexic/grammars/abnf/adapter.py
 from lexic.grammars.abnf.flavour import AbnfFlavour
-from lexic.grammars.abnf.emitter import AbnfEmitter
-from lexic.grammars.abnf.escapes import ABNF_ESCAPES
 from lexic.grammars.flavours import FlavourAdapter
+from lexic.ir.nodes import IrAst
 from lexic.parsing.meta_parser import MetaGrammarParser
 
 
 class AbnfAdapter(FlavourAdapter):
     name = "abnf"
-    extensions = (".abnf",)
+    extensions: tuple[str, ...] = (".abnf",)
     flavour_cls = AbnfFlavour
 
     def __init__(self) -> None:
-        self.parser = MetaGrammarParser(AbnfFlavour)
+        self.parser = _AbnfParser()
         self.emitter = AbnfFlavour.emitter
+
+
+class _AbnfParser:
+    def parse(self, text: str) -> IrAst:
+        return MetaGrammarParser.for_flavour(AbnfFlavour).parse(text)
 ```
 
-Update `src/lexic/grammars/__init__.py`:
+- [ ] **Step 5: Register `AbnfAdapter` in `lexic/grammars/__init__.py`:**
 
 ```python
 from lexic.grammars.gbnf.adapter import GbnfAdapter
@@ -5050,190 +6001,329 @@ register_adapter(GbnfAdapter())
 register_adapter(AbnfAdapter())
 ```
 
-- [ ] **Step 6: Drop legacy branches from consumers updated in Tasks 20–24.**
-
-For each of `gbnf/emitter.py`, `model_emitter.py`, `lark_builder.py`, `transformer/*`, `base.py`:
-- Remove legacy-atom dispatch branches.
-- Remove imports of legacy atoms (`LiteralAtom`, `CharClassAtom`, `RuleRefAtom`, `AlternationAtom`, `InlineAlternationAtom`, `InlineRegexAtom`, `QuantifiedLiteralAtom`).
-- Remove `decode_gbnf_escapes` calls (literals are canonical from `MetaGrammarParser`).
-
-Run tests after each consumer is cleaned; commit per consumer for traceability.
-
-- [ ] **Step 7: Tighten `RuleSpec.items` typing.**
-
-Edit `src/lexic/ir/spec.py`:
+- [ ] **Step 6: Switch `_compile_core` in `src/lexic/compile.py`:**
 
 ```python
-from lexic.ir.nodes import IrItem
+def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGrammar:
+    from lexic.compile import compile_grammar
+    from lexic.grammars import get_adapter
 
-
-@dataclass
-class RuleSpec:
-    rule_name: str
-    class_name: str
-    parent_class_name: str
-    kind: Literal["sequence", "alternation", "value_str"]
-    items: list[IrItem] = field(default_factory=list)
-    field_map: dict[str, int] = field(default_factory=dict)
-    non_semantic_fields: frozenset[str] = field(default_factory=frozenset)
+    adapter = get_adapter(flavour)
+    flavour_cls = adapter.flavour_cls
+    start_rule, specs_list = compile_grammar(text, flavour_cls)
+    classes = _emit_and_load_module(specs_list, stem, source=None)
+    specs = {s.rule_name: s for s in specs_list}
+    builder = LarkBuilder(specs_list, start_rule=start_rule)
+    grammar_str, _ = builder.build_grammar()
+    parser = lark.Lark(grammar_str, parser="earley", ambiguity="resolve", start=start_rule)
+    transformer = builder.build_transformer(classes)
+    return CompiledGrammar(classes=classes, specs=specs, parser=parser, transformer=transformer)
 ```
 
-Drop the `from lexic.ir.atoms import Atom` import.
+Note the change: `compile_grammar` now returns `(start_rule, specs_list)` per decision OV #12. `LarkBuilder` accepts an explicit `start_rule` argument to avoid the topo-first invariant.
 
-- [ ] **Step 8: Drop dead Protocols from `ir/protocols.py`.**
-
-Delete `RuleClassifier`, `SequenceConverter`. Leave `FlavourParser`, `FlavourAdapter`, and the handler type aliases. Update `__all__`.
-
-- [ ] **Step 9: Update `ir/__init__.py`.**
-
-Drop legacy atom exports. Add new IR-AST exports:
+- [ ] **Step 7: Add `compile_grammar_from_path(path)` to `src/lexic/compile.py`:**
 
 ```python
-from lexic.ir.charclass import parse_charclass_chars
-from lexic.ir.derive import derive_specs, classify_kind, compute_parents, hoist_helpers
-from lexic.ir.directives import Directives, parse_directives
-from lexic.ir.emit import FlavourEmitter
-from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
-from lexic.ir.helpers import HelperRuleRegistry
-from lexic.ir.nodes import (
-    IrAlternation,
-    IrAst,
-    IrCharClass,
-    IrGroup,
-    IrItem,
-    IrLiteral,
-    IrRule,
-    IrRuleRef,
-    IrSequence,
-    Quantifier,
-)
-from lexic.ir.protocols import (
-    AtomEmitHandler,
-    FieldHandler,
-    FlavourAdapter,
-    FlavourParser,
-    LarkHandler,
-    ToTextHandler,
-    TransformHandler,
-)
-from lexic.ir.spec import RuleSpec
-from lexic.ir.topo import topo_sort
-from lexic.ir.walk import IrTransformer, IrVisitor, dump
-
-__all__ = [
-    "AtomEmitHandler",
-    "CANONICAL_ESCAPES",
-    "Directives",
-    "EscapeCodec",
-    "FieldHandler",
-    "FlavourAdapter",
-    "FlavourEmitter",
-    "FlavourParser",
-    "HelperRuleRegistry",
-    "IrAlternation",
-    "IrAst",
-    "IrCharClass",
-    "IrGroup",
-    "IrItem",
-    "IrLiteral",
-    "IrRule",
-    "IrRuleRef",
-    "IrSequence",
-    "IrTransformer",
-    "IrVisitor",
-    "LarkHandler",
-    "Quantifier",
-    "RuleSpec",
-    "ToTextHandler",
-    "TransformHandler",
-    "classify_kind",
-    "compute_parents",
-    "derive_specs",
-    "dump",
-    "hoist_helpers",
-    "parse_charclass_chars",
-    "parse_directives",
-    "topo_sort",
-]
+def compile_grammar_from_path(grammar_path: str | Path) -> tuple[str, list["RuleSpec"]]:
+    """Path-taking sibling of compile_grammar; infers flavour from extension."""
+    path = Path(grammar_path).resolve()
+    adapter = adapter_for_extension(path)
+    return compile_grammar(path.read_text(encoding="utf-8"), adapter.flavour_cls)
 ```
 
-- [ ] **Step 10: Delete dead modules and their tests.**
+- [ ] **Step 8: Run full suite. Iterate failures in place.**
 
 ```bash
-git rm src/lexic/ir/atoms.py
-git rm src/lexic/ir/builder.py
-git rm src/lexic/ir/classify.py
-git rm src/lexic/ir/convert.py
-git rm src/lexic/ir/_legacy_shape.py
-
-git rm tests/unit/lexic/ir/test_atoms.py
-git rm tests/unit/lexic/ir/test_builder.py
-git rm tests/unit/lexic/ir/test_classify.py
-git rm tests/unit/lexic/ir/test_convert.py
-git rm tests/unit/lexic/ir/test_legacy_shape.py
-
-git rm src/lexic/grammars/gbnf/ast.py
-git rm tests/unit/lexic/grammars/gbnf/test_ast.py
-
-# Untracked WIP — remove from filesystem (no `git rm`):
-rm src/lexic/grammars/gbnf/ast_to_ir.py
-rm tests/unit/lexic/grammars/gbnf/test_ast_to_ir.py
-
-git rm src/lexic/codegen/ir_builder.py
-git rm src/lexic/codegen/classify.py
-git rm src/lexic/codegen/seq_to_atoms.py
-git rm src/lexic/codegen/ast_utils.py
-
-git rm tests/unit/lexic/codegen/test_ir_builder.py
-git rm tests/unit/lexic/codegen/test_classify.py
-git rm tests/unit/lexic/codegen/test_seq_to_atoms.py
-git rm tests/unit/lexic/codegen/test_ast_utils.py
+uv run pytest tests/ -q
 ```
 
-- [ ] **Step 11: Run — full suite must pass after deletion.**
+- [ ] **Step 9: Commit.**
+
+```bash
+git add src/lexic/compile.py src/lexic/codegen/__init__.py src/lexic/grammars/
+git commit -m "feat(compile): route compile() through compile_grammar; register AbnfAdapter; flavour_cls bridge"
+```
+
+---
+
+## Task 25b: Drop legacy branches from `grammars/gbnf/emitter.py`
+
+**Files:**
+- Modify: `src/lexic/grammars/gbnf/emitter.py` — remove all `_legacy_atom_to_gbnf` / `_emit_legacy_shape` / legacy-atom imports. Keep only `IrItem`-shaped dispatch (including the new `IrAlternation`-direct shape for multi-arm value_str per decision C).
+- Modify: `tests/unit/lexic/grammars/gbnf/test_emitter.py` — delete legacy-shape tests.
+
+**Steps:**
+
+- [ ] **Step 1: Remove legacy code paths.** Delete `_legacy_atom_to_gbnf`, `_emit_legacy_shape`, and the imports of `LiteralAtom`, `CharClassAtom`, `RuleRefAtom`, `AlternationAtom`, `InlineAlternationAtom`, `InlineRegexAtom`, `QuantifiedLiteralAtom`. Inline `_emit_new_shape` into `_emit_body` since there's no longer a fork.
+
+- [ ] **Step 2: Delete legacy-shape tests** from `tests/unit/lexic/grammars/gbnf/test_emitter.py` (the ones constructed from `LiteralAtom`/`CharClassAtom`/etc.).
+
+- [ ] **Step 3: Run + commit.**
+
+```bash
+uv run pytest tests/unit/lexic/grammars/gbnf/test_emitter.py -q
+uv run pytest tests/ -q
+git add src/lexic/grammars/gbnf/emitter.py tests/unit/lexic/grammars/gbnf/test_emitter.py
+git commit -m "refactor(gbnf): drop legacy-atom dispatch from GbnfEmitter"
+```
+
+---
+
+## Task 25c: Drop legacy branches from `codegen/model_emitter.py` and `codegen/lark_builder.py`
+
+**Files:**
+- Modify: `src/lexic/codegen/model_emitter.py` — remove legacy-atom dispatch in `_field_type` and `_repr_atom`. Generated module template imports the full IR AST surface from `lexic.ir.nodes` (per decision CQ #4).
+- Modify: `src/lexic/codegen/lark_builder.py` — remove `_atom_to_lark_dispatched` fork, drop legacy-atom imports, drop the `decode_gbnf_escapes` import (literals are canonical from `MetaGrammarParser`). Remove the `name == "ws"` hack — non-semantic optionality is driven by `RuleSpec.non_semantic_fields` and `IrItem.quantifier` (per decision CQ #2).
+- Modify: their test files — delete legacy-shape tests.
+
+**Steps:**
+
+- [ ] **Step 1: Clean `model_emitter.py`.** Drop `_field_type` legacy branch, `_repr_atom` legacy branch, and legacy-atom imports.
+
+- [ ] **Step 2: Clean `lark_builder.py`.** Drop `_atom_to_lark`, `_atom_to_lark_dispatched`, the `if atom.name == "ws":` early-return in `_iritem_to_lark`, and `from lexic.grammars.gbnf.adapter import decode_gbnf_escapes`.
+
+- [ ] **Step 3: Run + commit.**
+
+```bash
+uv run pytest tests/unit/lexic/codegen/ -q
+uv run pytest tests/ -q
+git add src/lexic/codegen/model_emitter.py src/lexic/codegen/lark_builder.py tests/unit/lexic/codegen/
+git commit -m "refactor(codegen): drop legacy-atom dispatch from model_emitter + lark_builder"
+```
+
+---
+
+## Task 25d: Drop legacy branches from `codegen/transformer/*`, `base.py`, and `generate.py`
+
+**Files:**
+- Modify: `src/lexic/codegen/transformer/build_transformer.py` and `src/lexic/codegen/transformer/builders.py` — drop legacy-atom dispatch.
+- Modify: `src/lexic/base.py` — drop legacy-atom dispatch in `to_text()`. Drop `from lexic.grammars.gbnf.adapter import decode_gbnf_escapes`. Drop `LiteralAtom` and `RuleRefAtom` imports; use `IrLiteral` and `IrRuleRef` from `lexic.ir.nodes`.
+- Modify: `src/lexic/generate.py` — Task 24b's dual-shape goes to single-shape. Drop legacy-atom imports and dispatch (per decision OV #1).
+- Modify: their test files.
+
+**Steps:**
+
+- [ ] **Step 1: Clean transformer files.**
+- [ ] **Step 2: Clean base.py.**
+- [ ] **Step 3: Clean generate.py — single-shape only (IrItem dispatch from Task 24b).**
+- [ ] **Step 4: Run + commit.**
+
+```bash
+uv run pytest tests/ -q
+git add src/lexic/base.py src/lexic/generate.py src/lexic/codegen/transformer/ tests/
+git commit -m "refactor(runtime): drop legacy-atom dispatch from transformer + base + generate"
+```
+
+---
+
+## Task 25e: Tighten types, slim `naming.py`, delete dead modules, automate success criteria
+
+**Files:**
+- Modify: `src/lexic/ir/spec.py` — tighten `items: list[IrItem]` (drop `from lexic.ir.atoms import Atom`).
+- Modify: `src/lexic/ir/emit.py` — remove legacy DEFAULT_HANDLERS over `LiteralAtom`/etc.; replace with IR-AST handlers. Tighten `Flavour.emitter: ClassVar[FlavourEmitter]` in `lexic/grammars/flavour.py` once the import cycle dissolves (per decision Arch #3).
+- Modify: `src/lexic/ir/naming.py` — slim to data + utils only. Keep `_CHARCLASS_NAMES`, `_LITERAL_NAMES`, `_sanitize_pattern`. Delete `assign_field_names`, `_charclass_field_name`, `_quantified_literal_field_name`, `_inline_regex_field_name` (per decision E).
+- Modify: `src/lexic/ir/protocols.py` — drop `RuleClassifier` and `SequenceConverter`. Keep `FlavourParser`, `FlavourAdapter`, handler aliases.
+- Modify: `src/lexic/ir/__init__.py` — drop legacy atom exports; add new IR-AST exports.
+- Modify: `src/lexic/grammars/flavour.py` — tighten `Flavour.emitter: ClassVar[FlavourEmitter]`.
+- Delete: `src/lexic/ir/atoms.py`, `src/lexic/ir/builder.py`, `src/lexic/ir/classify.py`, `src/lexic/ir/convert.py`, `src/lexic/ir/_legacy_shape.py`.
+- Delete: `src/lexic/grammars/gbnf/ast.py`, `src/lexic/grammars/gbnf/ast_to_ir.py` (untracked WIP).
+- Delete: `src/lexic/codegen/ir_builder.py`, `src/lexic/codegen/classify.py`, `src/lexic/codegen/seq_to_atoms.py`, `src/lexic/codegen/ast_utils.py`.
+- Delete: matching test files for everything above.
+- Create: `tests/integration/test_spec_success_criteria.py` — automated assertions for spec §Success criteria (no `"ws"` string under ir/ or grammars/gbnf/, file-list assertions, import-graph asserts).
+
+**Steps:**
+
+- [ ] **Step 1: Tighten `RuleSpec.items: list[IrItem]`** in `src/lexic/ir/spec.py`. Drop `Atom` import.
+
+- [ ] **Step 2: Slim `naming.py`.** Delete `assign_field_names` and the legacy atom-typed helpers; keep only the dicts and `_sanitize_pattern`. Verify `derive.py:_assign_ir_field_names` is the only caller.
+
+- [ ] **Step 3: Tighten `Flavour.emitter` typing.** Replace `ClassVar[object]` with `ClassVar[FlavourEmitter]`. Drop the loose-typing comment.
+
+- [ ] **Step 4: Replace `FlavourEmitter.DEFAULT_HANDLERS`** in `src/lexic/ir/emit.py` to dispatch on IR AST types instead of legacy atoms.
+
+- [ ] **Step 5: Drop `RuleClassifier`, `SequenceConverter` from `ir/protocols.py`.** Update `__all__`.
+
+- [ ] **Step 6: Update `ir/__init__.py`.** Drop legacy atom exports; add IR-AST exports (`IrAlternation`, `IrAst`, `IrCharClass`, `IrGroup`, `IrItem`, `IrLiteral`, `IrRule`, `IrRuleRef`, `IrSequence`, `Quantifier`, `IrTransformer`, `IrVisitor`, `dump`, `Directives`, `parse_directives`, `derive_specs`, `classify_kind`, `compute_parents`, `hoist_helpers`).
+
+- [ ] **Step 7: Delete dead modules and tests:**
+
+```bash
+git rm src/lexic/ir/atoms.py src/lexic/ir/builder.py src/lexic/ir/classify.py src/lexic/ir/convert.py src/lexic/ir/_legacy_shape.py
+git rm tests/unit/lexic/ir/test_atoms.py tests/unit/lexic/ir/test_builder.py tests/unit/lexic/ir/test_classify.py tests/unit/lexic/ir/test_convert.py tests/unit/lexic/ir/test_legacy_shape.py
+git rm src/lexic/grammars/gbnf/ast.py tests/unit/lexic/grammars/gbnf/test_ast.py
+rm src/lexic/grammars/gbnf/ast_to_ir.py tests/unit/lexic/grammars/gbnf/test_ast_to_ir.py
+git rm src/lexic/codegen/ir_builder.py src/lexic/codegen/classify.py src/lexic/codegen/seq_to_atoms.py src/lexic/codegen/ast_utils.py
+git rm tests/unit/lexic/codegen/test_ir_builder.py tests/unit/lexic/codegen/test_classify.py tests/unit/lexic/codegen/test_seq_to_atoms.py tests/unit/lexic/codegen/test_ast_utils.py
+```
+
+- [ ] **Step 8: Create `tests/integration/test_spec_success_criteria.py`:**
+
+```python
+"""Automated assertions over the spec §Success criteria."""
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+IR_DIR = ROOT / "src" / "lexic" / "ir"
+GBNF_DIR = ROOT / "src" / "lexic" / "grammars" / "gbnf"
+ABNF_DIR = ROOT / "src" / "lexic" / "grammars" / "abnf"
+
+
+def test_no_ws_string_under_ir_or_gbnf():
+    result = subprocess.run(
+        ["grep", "-r", '"ws"', str(IR_DIR), str(GBNF_DIR)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 1, f"'ws' string found:\n{result.stdout}"
+
+
+def test_grammars_gbnf_is_5_or_6_files():
+    files = sorted(p.name for p in GBNF_DIR.iterdir() if p.is_file() and p.suffix == ".py")
+    expected = {"__init__.py", "meta_grammar.py", "escapes.py", "emitter.py", "flavour.py", "parser.py", "adapter.py"}
+    assert set(files) <= expected, f"Unexpected files: {set(files) - expected}"
+    assert "ast.py" not in files
+    assert "ast_to_ir.py" not in files
+
+
+def test_grammars_abnf_is_comparable_size():
+    files = sorted(p.name for p in ABNF_DIR.iterdir() if p.is_file() and p.suffix == ".py")
+    expected = {"__init__.py", "meta_grammar.py", "escapes.py", "emitter.py", "flavour.py", "adapter.py"}
+    assert set(files) <= expected
+
+
+def test_ir_does_not_import_from_grammars():
+    """Layering rule: lexic.ir imports nothing from lexic.grammars."""
+    for py in IR_DIR.rglob("*.py"):
+        content = py.read_text()
+        assert "from lexic.grammars" not in content, f"{py} imports from lexic.grammars"
+        assert "import lexic.grammars" not in content, f"{py} imports lexic.grammars"
+
+
+def test_parsing_meta_parser_imports_only_flavour_abc_from_grammars():
+    """lexic.parsing.meta_parser imports only the Flavour ABC from lexic.grammars."""
+    py = ROOT / "src" / "lexic" / "parsing" / "meta_parser.py"
+    content = py.read_text()
+    grammar_imports = [
+        line for line in content.splitlines()
+        if line.strip().startswith(("from lexic.grammars", "import lexic.grammars"))
+    ]
+    assert all("from lexic.grammars.flavour" in line for line in grammar_imports), (
+        f"meta_parser.py imports unexpected things from lexic.grammars: {grammar_imports}"
+    )
+
+
+def test_no_ruleclassifier_or_sequenceconverter_in_protocols():
+    py = ROOT / "src" / "lexic" / "ir" / "protocols.py"
+    content = py.read_text()
+    assert "class RuleClassifier" not in content
+    assert "class SequenceConverter" not in content
+
+
+def test_rulespec_items_typed_list_iritem():
+    py = ROOT / "src" / "lexic" / "ir" / "spec.py"
+    content = py.read_text()
+    assert "list[IrItem]" in content
+    assert "from lexic.ir.atoms import Atom" not in content
+```
+
+- [ ] **Step 9: Run full suite + ruff.**
 
 ```bash
 uv run pytest tests/ -q
 uv run ruff check src/ tests/
 ```
 
-If any test fails: it was relying on legacy code. Remove it (if it tested deleted machinery) or update it (if it tested behaviour that should still work). Iterate to green.
+If anything fails, iterate. Generated modules in `generated/` may need a regen; if so, rerun the generator.
 
-- [ ] **Step 12: Verify success criteria.**
-
-```bash
-# String "ws" should not appear under lexic/ir/ or lexic/grammars/gbnf/
-! grep -r '"ws"' /home/mika/projects/lexic/src/lexic/ir/ /home/mika/projects/lexic/src/lexic/grammars/gbnf/ || echo "FAIL: ws string still appears"
-
-# grammars/gbnf/ should be ~5 small files
-ls /home/mika/projects/lexic/src/lexic/grammars/gbnf/
-
-# grammars/abnf/ should have similar size
-ls /home/mika/projects/lexic/src/lexic/grammars/abnf/
-```
-
-- [ ] **Step 13: Final commit.**
+- [ ] **Step 10: Final commit.**
 
 ```bash
 git add -A
-git commit -m "refactor(ir): cutover to IR-AST pipeline; delete legacy IRBuilder/classifier/converter
+git commit -m "refactor(ir): cutover complete — IR-AST canonical pipeline; legacy IRBuilder/classifier/converter removed
 
-- compile() routes through MetaGrammarParser + derive_specs.
-- RuleSpec.items: list[IrItem]; legacy atoms removed.
-- Consumers (gbnf/emitter, model_emitter, lark_builder, transformer, base)
-  consume new shape only; decode_gbnf_escapes calls removed.
-- ir/atoms.py, ir/builder.py, ir/classify.py, ir/convert.py,
-  ir/_legacy_shape.py, grammars/gbnf/ast.py, grammars/gbnf/ast_to_ir.py,
-  codegen/{ir_builder,classify,seq_to_atoms,ast_utils}.py deleted.
-- ir/protocols.py: RuleClassifier and SequenceConverter dropped.
-- AbnfAdapter registered alongside GbnfAdapter."
+- RuleSpec.items typed list[IrItem]; legacy atoms gone.
+- ir/atoms.py, ir/builder.py, ir/classify.py, ir/convert.py, ir/_legacy_shape.py deleted.
+- grammars/gbnf/ast.py and ast_to_ir.py (untracked) deleted.
+- codegen/{ir_builder,classify,seq_to_atoms,ast_utils}.py deleted.
+- ir/protocols.py: RuleClassifier, SequenceConverter dropped.
+- ir/naming.py slimmed to data + utils only.
+- Flavour.emitter typing tightened to ClassVar[FlavourEmitter].
+- AbnfAdapter registered alongside GbnfAdapter.
+- tests/integration/test_spec_success_criteria.py automates spec §Success criteria."
 ```
 
 ---
 
+(Original Task 25 was a single 13-step task; replaced above by the 25a–e split per decision F.)
+
 ## Task 26: Phase E — Documentation supersession housekeeping
 
 A single task closing the slice. Update predecessor docs to reflect what shipped.
+
+**Decisions applying to this task:**
+
+- **Decision Arch #2 — `lexic.parsing/` package layering rule.** Update `prototyping/next/2_ARCHITECTURE.md` §Layering rules to add `lexic.parsing` as a sibling of `lexic.codegen`, depending on `lexic.ir` and `lexic.grammars`. The new diagram:
+
+  ```
+  lexic.ir        ←  lexic.grammars     (grammars read/write IR)
+  lexic.ir        ←  lexic.parsing      (parsing reads IR, writes IrAst)
+  lexic.ir        ←  lexic.codegen      (codegen reads/writes IR)
+  lexic.ir        ←  lexic (runtime)    (runtime reads IR)
+  lexic.grammars  ←  lexic.parsing      (parsing imports the Flavour ABC)
+  lexic.grammars  ←  lexic.codegen      (codegen gets adapters from grammars)
+  lexic.parsing   ←  lexic.codegen      (codegen drives parsing via compile_grammar)
+  lexic (runtime) ←/  lexic.codegen     (runtime NEVER imports codegen
+                                          except the deliberate seams below)
+  ```
+
+  Spell out the rule: `lexic.parsing.meta_parser` imports nothing from `lexic.grammars.gbnf` or `lexic.grammars.abnf` — only from `lexic.grammars.flavour` (the ABC).
+
+- **Decision Arch #4 — ASCII diagrams in 2_ARCHITECTURE.md.** Add the two pipeline diagrams (parse path + derive path). Reference shape:
+
+  ```
+  Compile pipeline:
+
+    text  ──►  parse_directives  ──►  Directives(non_semantic, start)
+              │
+              ▼
+       MetaGrammarParser.for_flavour(F).parse  ──►  IrAst
+              │
+              ▼
+       derive_specs(ast, non_semantic_rules=...)  ──►  list[RuleSpec]
+              │
+              ├──►  ModelEmitter        ──►  generated/<stem>.py (Pydantic)
+              ├──►  LarkBuilder         ──►  Lark grammar + Transformer
+              └──►  FlavourEmitter      ──►  text (transpilation)
+
+
+  derive_specs internals:
+
+    IrAst
+      │
+      ▼
+    hoist_helpers (via IrTransformer)  ──►  IrAst' + helpers: list[IrRule]
+      │
+      ▼
+    compute_parents (over source rules only)  ──►  parent_of: dict[str, str]
+      │
+      ▼
+    For each rule in source_rules + helpers:
+      classify_kind(rule)  ──►  "value_str" | "alternation" | "sequence"
+      build_*_spec(rule, parents.get(name, "GrammarModel"))
+      │
+      ▼
+    mark_non_semantic(spec, non_semantic_rules)
+      │
+      ▼
+    topo_sort(specs, is_start_rule=...)  ──►  list[RuleSpec]
+  ```
+
+- **Decision G — TODOS.md cleanup-pass entry.** Reference the file in CLAUDE.md (as a deferral marker) and ensure it exists at repo root. (Task 11 in this review's task list creates it.)
+
+- **ROADMAP update — add Slice B.6 follow-up.** v1's Tasks 6–12 (`parsing/`/`runtime/` package moves, handler-table dispatch) ship as a separate slice after this one lands. Add an entry in `prototyping/next/3_ROADMAP.md` pointing at the post-cutover layout as the starting state.
 
 **Files:**
 - Modify: `CLAUDE.md`
@@ -5363,22 +6453,100 @@ git commit -m "docs: supersession housekeeping — IR AST architecture closes Sl
 
 ## Self-review checklist
 
-After all 27 tasks land:
+### Prerequisites (Phase 0)
 
-- [ ] `compile_grammar(text, GbnfFlavour)` produces RuleSpec lists structurally equivalent to the prior pipeline for every `resources/ground_truth/*.gbnf`.
+- [ ] **Task 0 complete:** the 13 pre-existing test failures are fixed and the suite is green BEFORE Phase A starts. `uv run pytest tests/ -q` reports `0 failed`.
+
+### Final invariants (after all tasks land)
+
+- [ ] `compile_grammar(text, GbnfFlavour)` returns `(start, list[RuleSpec])` and the specs are structurally equivalent to the prior pipeline for every `resources/ground_truth/*.gbnf`.
 - [ ] `compile_grammar(text, AbnfFlavour)` succeeds for `resources/ground_truth/arithmetic.abnf` and the round-trip test passes.
-- [ ] `tests/integration/test_cross_flavour.py` is green.
+- [ ] `tests/integration/test_cross_flavour.py` is green AND includes the emit-and-reparse cycle test (Decision OV #13 / Test 2).
+- [ ] `tests/integration/test_full_round_trip.py` is green for all 7 GBNF fixtures (Decision Test 1).
+- [ ] `tests/integration/test_spec_success_criteria.py` is green (Decision Test 3 — automated assertions for all spec success criteria below).
 - [ ] `grep -r '"ws"' src/lexic/ir/ src/lexic/grammars/gbnf/` returns no hits.
+- [ ] `grep -E "atom\.name == ['\"]ws['\"]|rule_name == ['\"]ws['\"]" src/lexic/codegen/` returns no hits (Decision CQ #2).
 - [ ] `src/lexic/grammars/gbnf/` contains: `__init__.py`, `meta_grammar.py`, `escapes.py`, `emitter.py`, `flavour.py`, `parser.py`, `adapter.py`. No `ast.py`, no `ast_to_ir.py`, no classifier/converter classes.
-- [ ] `src/lexic/grammars/abnf/` contains a comparable file set.
+- [ ] `src/lexic/grammars/abnf/` contains a comparable file set including `adapter.py`.
 - [ ] `src/lexic/ir/derive.py` is the only file containing structural decomposition logic; no flavour imports.
 - [ ] `src/lexic/ir/atoms.py`, `ir/builder.py`, `ir/classify.py`, `ir/convert.py`, `ir/_legacy_shape.py` do not exist.
 - [ ] `src/lexic/codegen/{ir_builder,classify,seq_to_atoms,ast_utils}.py` do not exist.
+- [ ] `src/lexic/ir/naming.py` contains only `_CHARCLASS_NAMES`, `_LITERAL_NAMES`, `_sanitize_pattern` (Decision E); `assign_field_names` is gone.
 - [ ] `lexic.ir.protocols` does not declare `RuleClassifier` or `SequenceConverter`.
-- [ ] `RuleSpec.items` is typed `list[IrItem]`.
+- [ ] `RuleSpec.items` is typed `list[IrItem | IrAlternation]` (the `IrAlternation` admitted only for multi-arm value_str per Decision C).
 - [ ] `lexic.ir.derive` imports nothing from `lexic.grammars`.
 - [ ] `lexic.parsing.meta_parser` imports nothing from `lexic.grammars.gbnf` or `lexic.grammars.abnf` (only `lexic.grammars.flavour`).
-- [ ] CLAUDE.md, prototyping/next/2_ARCHITECTURE.md, prototyping/next/3_ROADMAP.md describe the new architecture; v1 spec/plan have supersession headers.
-- [ ] `uv run pytest tests/ -q` is green at every commit.
+- [ ] `Flavour.emitter: ClassVar[FlavourEmitter]` (tightened in Task 25e per Decision Arch #3).
+- [ ] `AbnfEmitter.supports` is a `ClassVar[frozenset[str]]`, NOT a `@property` (Decision B).
+- [ ] `FlavourEmitter.place_quantifier(atom_str, q_str)` decorator exists; `AbnfEmitter` overrides to prefix (Decision OV #17).
+- [ ] All 7 `resources/ground_truth/*.gbnf` fixtures begin with `# @non-semantic ws` (Decision OV #15).
+- [ ] `src/lexic/generate.py` consumes `IrItem` shape only post-cutover; legacy atom imports gone (Decision OV #1).
+- [ ] `tests/unit/lexic/test_generate.py` and `tests/property/test_roundtrip.py` are green.
+- [ ] `MetaGrammarParser.for_flavour(F)` returns a memoised parser per Flavour class (Decision Perf).
+- [ ] `MetaGrammarParser.parse` wraps Lark errors and `parse_quantifier`/`parse_charclass` ValueErrors as `UnsupportedConstructError` (Decision Arch #1).
+- [ ] `compile_grammar` returns `(start, list[RuleSpec])` and respects `@start` directive precedence (Decision OV #12, D).
+- [ ] `compile_grammar_from_path(path)` exists as a path-taking sibling; `FlavourAdapter.flavour_cls` bridges string ↔ class (Decision OV #6/#20).
+- [ ] CLAUDE.md, prototyping/next/2_ARCHITECTURE.md (with the new `lexic.parsing/` layering rule + 2 ASCII diagrams), prototyping/next/3_ROADMAP.md (with Slice B.6 follow-up entry) describe the new architecture; v1 spec/plan have supersession headers.
+- [ ] `TODOS.md` exists at repo root with the cleanup-pass entry (Decision G).
+- [ ] `uv run pytest tests/ -q` is green at every commit (including all Task 25 sub-tasks 25a–e).
 - [ ] `uv run ruff check src/ tests/` is clean.
+
+### Edge-case verification during T13/T17 (Decision OV minor)
+
+These outside-voice findings are smaller / inherent-tradeoff items. Verify each during the "iterate to green" steps of T13 (GBNF) and T17 (ABNF). If any fail, surface for decision rather than silently working around.
+
+- [ ] **OV #3 — char class escapes.** `json_ws.gbnf` uses `[^"\\\x7F\x00-\x1F]`. Verify the new pipeline preserves these escapes in `IrCharClass.pattern` (raw-string semantics) and that `parse_charclass_chars` at runtime expands them correctly.
+- [ ] **OV #4 — Unicode CJK char classes.** `japanese.gbnf` uses `[ぁ-ゟ]`, `[一-鿿]`. Verify `parse_charclass_chars` enumerates correctly under `re.UNICODE` semantics; verify the round-trip test for `japanese.gbnf` passes.
+- [ ] **OV #5 — c.gbnf:34 `multiLineComment`.** Has a multi-arm group of mixed shape (charclass arm + nested-sequence arm). Verify `derive_specs`'s "literal-only group → regex pattern, mixed group → hoist" decision handles it correctly.
+- [ ] **OV #7 — `RuleSpec` mutability.** `RuleSpec` is `@dataclass` (mutable) while IR AST nodes are frozen. If mutation of `RuleSpec.field_map` after construction causes any test failure, freeze `RuleSpec` and update construction sites. Otherwise, leave for cleanup pass.
+- [ ] **OV #8 — `_IrTagTransformer.ir_item` Token detection.** Verify the defensive guard added in Task 9 (multiple QUANTIFIER tokens raise `UnsupportedConstructError`) actually fires for malformed input.
+- [ ] **OV #18 — empty/single-rule/circular grammars.** Verify each path: empty grammar (Lark rejects), single-rule grammar (works), circular reference like `a ::= b\nb ::= a` (`topo_sort` raises). `@start` pointing at non-existent rule raises `UnsupportedConstructError` (added test in T12).
+- [ ] **OV #19 — `_legacy_shape` reparse risk.** The Phase D adapter (Task 19) re-parses `InlineRegexAtom.gbnf` via `MetaGrammarParser`. A bug in `derive_specs` could now masquerade as a bug in the adapter. Mitigation: during T13, if a fixture fails round-trip, run BOTH pipelines on the same source text (legacy `IRBuilder` + new `compile_grammar`) and compare specs directly — pinpoints which side has the bug.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Codex Review | `/codex review` | Independent 2nd opinion | 1 | issues_found | 20 findings; 9 substantive new (OV #1, 6, 9, 10, 11, 12, 13, 15, 17, 20); all resolved |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | issues_open | 26 issues found, 0 critical gaps, 0 unresolved |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+
+**OUTSIDE VOICE:** Codex unavailable; Claude subagent ran independent challenge. Surfaced 5 critical blind spots the inside review missed (generate.py forgotten consumer, fixture migration silently changes semantic_dump, string↔Flavour-class bridge missing, IrAst.start flow brittle, helper-rule parents unspecified). All resolved.
+
+**CROSS-MODEL:** Zero outright disagreements. Outside voice confirmed and tightened inside-review test gaps.
+
+**UNRESOLVED:** 0 decisions left open.
+
+**26 DECISIONS CAPTURED:**
+- A. Task 0 inserted: fix the 13 pre-existing test failures (json_ws parse + decode_gbnf_escapes round-trips) before Phase A.
+- B. `AbnfEmitter.supports`: drop the `@property`, keep `ClassVar[frozenset[str]]` only.
+- C. Multi-arm `value_str`: do NOT wrap in `IrGroup`; carry `IrAlternation` directly in `RuleSpec.items` (or refactor to `RuleSpec.body: IrAlternation` for value_str). Spec/plan need update.
+- D. Wire `@start` directive into `parse_directives` and `compile_grammar`; fall back to `rules[0].name` if absent.
+- E. Slim `naming.py` to data + utils (`_CHARCLASS_NAMES`, `_LITERAL_NAMES`, `_sanitize_pattern`); delete legacy atom-typed dispatch.
+- F. Split Task 25 into 25a–e: 25a switch compile() + ABNF adapter; 25b drop legacy from gbnf/emitter; 25c drop from model_emitter+lark_builder; 25d drop from transformer+base; 25e tighten typing + delete dead modules + protocols.
+- G. Plan stays as-is at 5384 lines (user hand-writes); cleanup pass deferred to TODOS.md as a follow-up.
+- H. `_legacy_shape.py` `_convert_inline_regex_to_group`: re-parse the GBNF source text via `MetaGrammarParser(GbnfFlavour)` instead of stuffing it into an `IrLiteral`.
+- Arch1. Wrap Lark errors and `ValueError` from `parse_quantifier`/`parse_charclass` at `MetaGrammarParser.parse` boundary → `UnsupportedConstructError` with rule-first message.
+- Arch2. Add `lexic.parsing` to architecture doc as a sibling of `lexic.codegen`, depending on `lexic.ir` and `lexic.grammars`.
+- Arch3. Tighten `Flavour.emitter` typing in Task 25e once the import cycle dissolves: `ClassVar[FlavourEmitter]`.
+- Arch4. Add 3 ASCII diagrams: `compile_grammar` docstring, `derive_specs` docstring, `prototyping/next/2_ARCHITECTURE.md`.
+- CQ1. Implement full `IrGroup` serialisation in `_repr_iritem` (no `# FIXME` in generated code).
+- CQ2. Remove the `if atom.name == "ws"` hack in `_iritem_to_lark`; let `derive_specs`-set quantifier drive optional behaviour.
+- CQ3. Refactor `hoist_helpers` to use `IrTransformer` (replaces manual recursion).
+- CQ4. Generated modules always import the full IR AST surface from `lexic.ir.nodes`.
+- Test 1. Add `tests/integration/test_full_round_trip.py` parametrized over 7 GBNF fixtures (compile_grammar → exec generated module → instantiate → to_text() == original).
+- Test 2. Extend `tests/integration/test_cross_flavour.py` with emit-and-reparse cycle (per OV #13 → wired to Task 18 extension).
+- Test 3. Add `tests/integration/test_spec_success_criteria.py` (grep-asserts, file-list assertions, import-graph asserts).
+- Perf. Cache `MetaGrammarParser` per `Flavour` class via `_PARSERS: dict[type[Flavour], MetaGrammarParser]` factory.
+- OV #1. Add Task 24b: dual-shape `generate.py` + update `tests/unit/lexic/test_generate.py` and `tests/property/test_roundtrip.py`; deletions in 25e.
+- OV #6/#20. Add `flavour_cls: ClassVar[type[Flavour]]` to `FlavourAdapter`; bridge via `get_adapter(name).flavour_cls`. Add `compile_grammar_from_path` thin wrapper.
+- OV #11. Helper rules always get `parent_class_name = 'GrammarModel'`; `compute_parents` runs over source rules only. Document in `derive_specs` docstring + add test.
+- OV #12. `compile_grammar` returns `(IrAst.start, list[RuleSpec])`; `LarkBuilder` consumes both.
+- OV #15. Edit all 7 GBNF fixtures: add `# @non-semantic ws` at top. Update Task 13 step 1 accordingly.
+- OV #17. Add `place_quantifier(atom_str, q_str) → str` decorator on `FlavourEmitter` (default suffix); `AbnfEmitter` overrides to prefix.
+- OV minor (3, 4, 5, 7, 8, 18, 19). Add to plan's `## Self-review checklist` as edge-case verification items during T13 (GBNF iterate-to-green) and T17 (ABNF iterate-to-green).
+- TODO. Create `TODOS.md` at repo root with cleanup-pass entry (post-Phase-E).
+
+**VERDICT:** ENG REVIEW CLEARED for implementation once the 26 decisions above are folded into the spec/plan/fixtures. Eng review produced findings; user will revise plan; plan is then ready for implementation.
 

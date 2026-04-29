@@ -101,3 +101,6 @@ result_b = translate(result_a, TargetClass)
 ```
 
 `semantic_dump()` is already implemented on every `GrammarModel` instance as S04 prep — it returns `model_dump()` with `ws` fields excluded, producing a grammar-portable dict that S04 translation logic can reason about.
+
+# Note to self.
+# Remind me after slice B. Codegen will bee refactored to use ast to generate code dynamically.
