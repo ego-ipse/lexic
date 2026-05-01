@@ -136,6 +136,7 @@ def test_transformer_preserves_quantifier_when_rewriting_atom():
     body = _alt(_seq(_it(IrLiteral("x"), Quantifier(0, None))))
     rule = IrRule("r", body)
     out = T().visit(rule)
+    assert isinstance(out, IrRule)
     item = out.body.arms[0].items[0]
     assert item.atom == IrLiteral("x!")
     assert item.quantifier == Quantifier(0, None)
@@ -156,6 +157,7 @@ def test_transformer_replacing_group_with_ruleref():
     )
     rule = IrRule("r", body)
     out = T().visit(rule)
+    assert isinstance(out, IrRule)
     item = out.body.arms[0].items[0]
     assert item.atom == IrRuleRef("hoisted")
     assert item.quantifier == Quantifier(1, None)
@@ -179,6 +181,7 @@ def test_transformer_walks_ast_top_level():
         start="a",
     )
     out = T().visit(ast)
+    assert isinstance(out, IrAst)
     assert out.rules[0].body.arms[0].items[0].atom == IrLiteral("x.")
     assert out.rules[1].body.arms[0].items[0].atom == IrLiteral("y.")
     assert out.start == "a"

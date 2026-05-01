@@ -9,6 +9,7 @@ not on leaves.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TypeAlias
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,3 +99,18 @@ class IrAst:
 
     rules: tuple[IrRule, ...] = ()
     start: str = ""
+
+
+# ── Protocols for conversion ─────────────────────────────────────────
+
+IrNode: TypeAlias = (
+    IrAst
+    | IrRule
+    | IrAlternation
+    | IrSequence
+    | IrItem
+    | IrGroup
+    | IrLiteral
+    | IrCharClass
+    | IrRuleRef
+)
