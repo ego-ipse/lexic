@@ -18,7 +18,7 @@ class Directives:
     """IR-level directives extracted from source comments."""
 
     non_semantic: frozenset[str] = frozenset()
-    start: str | None = None  # @start <rule_name>; None = "use first rule" fallback
+    start: str | None = None  # None = "use first rule" fallback
 
 
 def parse_directives(text: str, line_comment: str) -> Directives:

@@ -25,7 +25,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 
-_N = TypeVar("_N")
+_N = TypeVar("_N", bound=IrNode)
 _GetChildren: TypeAlias = Callable[[_N], tuple[IrNode, ...]]
 
 _LEAVES: tuple[type, ...] = (IrLiteral, IrCharClass, IrRuleRef)
