@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from lexic.ir.derive import classify_kind
+from lexic.ir.derive import classify_kind, compute_parents
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -150,3 +150,71 @@ def test_classify_value_str_for_complex_literal_group():
         ),
     )
     assert classify_kind(rule) == "value_str"
+
+
+# ── compute_parents ───────────────────────────────────────────────────
+
+
+def test_compute_parents_alternation_arms_get_parent():
+    """`term ::= num | ident` makes Num and Ident parents = Term."""
+    term = IrRule(
+        "term",
+        _alt(_seq(_it(IrRuleRef("num"))), _seq(_it(IrRuleRef("ident")))),
+    )
+    num = IrRule("num", _alt(_seq(_it(IrCharClass("0-9"), Quantifier(1, None)))))
+    ident = IrRule("ident", _alt(_seq(_it(IrCharClass("a-z"), Quantifier(1, None)))))
+    parents = compute_parents([term, num, ident])
+    assert parents == {"num": "Term", "ident": "Term"}
+
+
+def test_compute_parents_only_single_ruleref_arms_create_parent():
+    """A multi-item arm doesn't make its rulerefs into subclasses."""
+    rule = IrRule(
+        "value",
+        _alt(
+            _seq(_it(IrRuleRef("num"))),
+            _seq(_it(IrLiteral("(")), _it(IrRuleRef("expr")), _it(IrLiteral(")"))),
+        ),
+    )
+    inner = IrRule("num", _alt(_seq(_it(IrCharClass("0-9")))))
+    expr = IrRule("expr", _alt(_seq(_it(IrRuleRef("num")))))
+    parents = compute_parents([rule, inner, expr])
+    assert parents == {"num": "Value"}  # expr is in a multi-item arm; no parent
+
+
+def test_compute_parents_quantified_ruleref_arm_does_not_create_parent():
+    """`alt ::= a+ | b` — `a` has a quantifier, so it's not a 'single ref'."""
+    rule = IrRule(
+        "alt",
+        _alt(
+            _seq(_it(IrRuleRef("a"), Quantifier(1, None))),
+            _seq(_it(IrRuleRef("b"))),
+        ),
+    )
+    a_rule = IrRule("a", _alt(_seq(_it(IrLiteral("a")))))
+    b_rule = IrRule("b", _alt(_seq(_it(IrLiteral("b")))))
+    parents = compute_parents([rule, a_rule, b_rule])
+    assert parents == {"b": "Alt"}
+
+
+def test_compute_parents_only_alternations_contribute():
+    """Sequence rules don't create parent relationships."""
+    seq_rule = IrRule(
+        "expr",
+        _alt(_seq(_it(IrRuleRef("a")), _it(IrRuleRef("b")))),
+    )
+    a = IrRule("a", _alt(_seq(_it(IrLiteral("a")))))
+    b = IrRule("b", _alt(_seq(_it(IrLiteral("b")))))
+    assert not compute_parents([seq_rule, a, b])
+
+
+def test_compute_parents_uses_pascal_case_class_names():
+    """`json-value ::= num | ident` → parents use PascalCase class names."""
+    rule = IrRule(
+        "json-value",
+        _alt(_seq(_it(IrRuleRef("num"))), _seq(_it(IrRuleRef("ident")))),
+    )
+    num = IrRule("num", _alt(_seq(_it(IrCharClass("0-9")))))
+    ident = IrRule("ident", _alt(_seq(_it(IrCharClass("a-z")))))
+    parents = compute_parents([rule, num, ident])
+    assert parents == {"num": "JsonValue", "ident": "JsonValue"}
