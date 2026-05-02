@@ -5930,10 +5930,12 @@ The full suite is green after every commit. If 25b–d break consumers that 25a 
 
 ## Task 25a: Switch `compile()` to new pipeline; register `AbnfAdapter`; bridge `flavour_cls`
 
+> **NOTE:** `src/lexic/grammars/flavours.py` is 100% on the chopping block. The touch here is a minimal bridge only — `flavour_cls` is added purely to connect the old adapter registry to the new `Flavour` ABC. The entire file (`FlavourParser`, `FlavourEmitter`, `FlavourAdapter`, `ADAPTERS`, registry functions) must be deleted in Task 25e.
+
 **Files:**
 - Modify: `src/lexic/compile.py` — `compile()` and `_compile_core` route through `compile_grammar`. Add `compile_grammar_from_path(path)` thin wrapper that uses `adapter_for_extension(path).flavour_cls`.
 - Modify: `src/lexic/codegen/__init__.py` — `build_classes_and_specs` consumes the `(start, list[RuleSpec])` tuple from `compile_grammar` (per decision OV #12).
-- Modify: `src/lexic/grammars/flavours.py` — add `flavour_cls: type[Flavour]` to `FlavourAdapter` Protocol (per decision OV #6/#20).
+- Modify: `src/lexic/grammars/flavours.py` — add `flavour_cls: type[Flavour]` to `FlavourAdapter` Protocol (per decision OV #6/#20). **Minimal bridge only — file deleted in Task 25e.**
 - Modify: `src/lexic/grammars/gbnf/adapter.py` — set `flavour_cls = GbnfFlavour`.
 - Modify: `src/lexic/grammars/gbnf/parser.py` — slim to thin wrapper around `MetaGrammarParser.for_flavour(GbnfFlavour)`.
 - Create: `src/lexic/grammars/abnf/adapter.py` — `AbnfAdapter` with `flavour_cls = AbnfFlavour`.
