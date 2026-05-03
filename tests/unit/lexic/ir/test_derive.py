@@ -3,9 +3,15 @@
 
 from __future__ import annotations
 
-from lexic.ir.derive import classify_kind, compute_parents
+from lexic.ir.derive import (
+    _HoistTransformer,
+    classify_kind,
+    compute_parents,
+    hoist_helpers,
+)
 from lexic.ir.nodes import (
     IrAlternation,
+    IrAst,
     IrCharClass,
     IrGroup,
     IrItem,
@@ -15,6 +21,7 @@ from lexic.ir.nodes import (
     IrSequence,
     Quantifier,
 )
+from lexic.ir.walk import IrTransformer
 
 
 def _seq(*items):
@@ -218,3 +225,133 @@ def test_compute_parents_uses_pascal_case_class_names():
     ident = IrRule("ident", _alt(_seq(_it(IrCharClass("a-z")))))
     parents = compute_parents([rule, num, ident])
     assert parents == {"num": "JsonValue", "ident": "JsonValue"}
+
+
+# ── hoist_helpers ─────────────────────────────────────────────────────
+
+
+def test_hoist_no_groups_returns_unchanged():
+    """A rule with no groups is returned as-is."""
+    rule = IrRule("r", _alt(_seq(_it(IrRuleRef("x")))))
+    ast = IrAst(rules=(rule,), start="r")
+    out_ast, helpers = hoist_helpers(ast)
+    assert not helpers
+    assert out_ast == ast
+
+
+def test_hoist_unquantified_group_with_rulerefs_stays_inline():
+    """`(a | b)` no quantifier is an inline-alternation candidate; not hoisted."""
+    rule = IrRule(
+        "r",
+        _alt(
+            _seq(
+                _it(IrGroup(_alt(_seq(_it(IrRuleRef("a"))), _seq(_it(IrRuleRef("b"))))))
+            )
+        ),
+    )
+    ast = IrAst(rules=(rule,), start="r")
+    out_ast, helpers = hoist_helpers(ast)
+    assert not helpers
+    assert out_ast == ast
+
+
+def test_hoist_literal_only_quantified_group_stays_inline():
+    """`("foo"|"bar")+` is a regex pattern candidate; not hoisted."""
+    rule = IrRule(
+        "r",
+        _alt(
+            _seq(
+                _it(
+                    IrGroup(
+                        _alt(_seq(_it(IrLiteral("foo"))), _seq(_it(IrLiteral("bar"))))
+                    ),
+                    Quantifier(1, None),
+                )
+            )
+        ),
+    )
+    ast = IrAst(rules=(rule,), start="r")
+    out_ast, helpers = hoist_helpers(ast)
+    assert not helpers
+    assert out_ast == ast
+
+
+def test_hoist_quantified_multi_arm_group_with_rulerefs():
+    """`(a | b)+` → r-item ::= a | b; r body becomes (r-item)+."""
+    rule = IrRule(
+        "r",
+        _alt(
+            _seq(
+                _it(
+                    IrGroup(_alt(_seq(_it(IrRuleRef("a"))), _seq(_it(IrRuleRef("b"))))),
+                    Quantifier(1, None),
+                )
+            )
+        ),
+    )
+    ast = IrAst(rules=(rule,), start="r")
+    out_ast, helpers = hoist_helpers(ast)
+    assert len(helpers) == 1
+    helper = helpers[0]
+    assert helper.name == "r-item"
+    assert helper.body == _alt(_seq(_it(IrRuleRef("a"))), _seq(_it(IrRuleRef("b"))))
+    new_item = out_ast.rules[0].body.arms[0].items[0]
+    assert new_item.atom == IrRuleRef("r-item")
+    assert new_item.quantifier == Quantifier(1, None)
+
+
+def test_hoist_quantified_single_arm_group_with_rulerefs():
+    """`expr ::= term (op term)*` — the (op term)* group hoists to a helper."""
+    rule = IrRule(
+        "expr",
+        _alt(
+            _seq(
+                _it(IrRuleRef("term")),
+                _it(
+                    IrGroup(_alt(_seq(_it(IrRuleRef("op")), _it(IrRuleRef("term"))))),
+                    Quantifier(0, None),
+                ),
+            )
+        ),
+    )
+    ast = IrAst(rules=(rule,), start="expr")
+    out_ast, helpers = hoist_helpers(ast)
+    assert len(helpers) == 1
+    helper = helpers[0]
+    assert helper.name == "expr-item"
+    assert helper.body.arms[0].items[0].atom == IrRuleRef("op")
+    assert helper.body.arms[0].items[1].atom == IrRuleRef("term")
+    items = out_ast.rules[0].body.arms[0].items
+    assert items[0].atom == IrRuleRef("term")
+    assert items[1].atom == IrRuleRef("expr-item")
+    assert items[1].quantifier == Quantifier(0, None)
+
+
+def test_hoist_assigns_unique_names_when_multiple_helpers():
+    """Two hoisted groups in the same rule get distinct names."""
+    rule = IrRule(
+        "r",
+        _alt(
+            _seq(
+                _it(IrGroup(_alt(_seq(_it(IrRuleRef("a"))))), Quantifier(1, None)),
+                _it(IrGroup(_alt(_seq(_it(IrRuleRef("b"))))), Quantifier(1, None)),
+            )
+        ),
+    )
+    ast = IrAst(rules=(rule,), start="r")
+    _out_ast, helpers = hoist_helpers(ast)
+    assert sorted(h.name for h in helpers) == ["r-item", "r-item2"]
+
+
+def test_hoist_preserves_ast_start():
+    """The `start` field of IrAst is preserved after hoisting."""
+    rule = IrRule("root", _alt(_seq(_it(IrRuleRef("x")))))
+    other = IrRule("x", _alt(_seq(_it(IrLiteral("X")))))
+    ast = IrAst(rules=(rule, other), start="root")
+    out_ast, _helpers = hoist_helpers(ast)
+    assert out_ast.start == "root"
+
+
+def test_hoist_uses_irtransformer():
+    """_HoistTransformer must be an IrTransformer subclass (Decision CQ #3)."""
+    assert issubclass(_HoistTransformer, IrTransformer)

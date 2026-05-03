@@ -15,20 +15,16 @@ from typing import Callable, TypeAlias, TypeVar
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrCharClass,
     IrGroup,
     IrItem,
-    IrLiteral,
     IrNode,
     IrRule,
-    IrRuleRef,
     IrSequence,
+    IrLeaf,
 )
 
 _N = TypeVar("_N", bound=IrNode)
-_GetChildren: TypeAlias = Callable[[_N], tuple[IrNode, ...]]
-
-_LEAVES: tuple[type, ...] = (IrLiteral, IrCharClass, IrRuleRef)
+_GetChildren: TypeAlias = Callable[[_N], tuple[_N, ...]]
 
 _CHILDREN: dict[type, _GetChildren] = {
     IrAst: lambda n: n.rules,
@@ -39,7 +35,8 @@ _CHILDREN: dict[type, _GetChildren] = {
     IrGroup: lambda n: (n.body,),
 }
 
-_REBUILD: dict[type, Callable[..., IrNode]] = {
+_Rebuilder: TypeAlias = Callable[..., _N]
+_REBUILD: dict[type, _Rebuilder] = {
     IrAst: lambda n, ch: IrAst(rules=ch, start=n.start),
     IrRule: lambda n, ch: IrRule(name=n.name, body=ch[0]),
     IrAlternation: lambda n, ch: IrAlternation(arms=ch),
@@ -78,44 +75,46 @@ _DUMP: dict[type, Callable[..., str]] = {
 }
 
 
-class IrVisitor:
+class IrVisitor[_N]:
     """Walks the IR AST. Subclass + define `visit_<TypeName>` methods."""
 
-    leaves: tuple[type, ...] = _LEAVES
     children: dict[type, _GetChildren] = _CHILDREN
 
-    def visit(self, node: IrNode) -> None:
+    def visit(self, node: _N) -> None:
         """Visit a node."""
         method = getattr(self, f"visit_{type(node).__name__}", self.generic_visit)
         method(node)
 
-    def generic_visit(self, node: IrNode) -> None:
+    def generic_visit(self, node: _N) -> None:
         """Default visit method: visit all children."""
         getter = self.children.get(type(node))
         if getter is not None:
             for child in getter(node):
                 self.visit(child)
-        elif not isinstance(node, self.leaves):
+        elif not isinstance(node, IrLeaf):
             raise TypeError(f"generic_visit: unknown node type {type(node).__name__!r}")
 
 
-class IrTransformer:
+class IrTransformer[_N]:
     """Rewrites the IR AST. Each visit returns a (possibly new) node."""
 
-    leaves: tuple[type, ...] = _LEAVES
     children: dict[type, _GetChildren] = _CHILDREN
-    rebuild: dict[type, Callable[..., IrNode]] = _REBUILD
+    rebuild: dict[type, _Rebuilder] = _REBUILD
 
-    def visit(self, node: IrNode) -> IrNode:
-        """Visit a node and return a (possibly new) node."""
-        method = getattr(self, f"visit_{type(node).__name__}", self.generic_visit)
-        return method(node)
+    def visit(self, node: _N) -> _N:
+        """Visit a node and return a (possibly new) node of the same type."""
+        visit_fn: Callable[[_N], _N] | None = getattr(
+            self, f"visit_{type(node).__name__}", None
+        )
+        if visit_fn is not None:
+            return visit_fn(node)
+        return self.generic_visit(node)
 
-    def generic_visit(self, node: IrNode) -> IrNode:
+    def generic_visit(self, node: _N) -> _N:
         """Default visit method: rebuild the node with visited children."""
         getter = self.children.get(type(node))
         if getter is None:
-            if isinstance(node, self.leaves):
+            if isinstance(node, IrLeaf):
                 return node
             raise TypeError(f"generic_visit: unknown node type {type(node).__name__!r}")
         old_children = getter(node)
@@ -129,20 +128,3 @@ def dump(node: IrNode, *, indent: int = 0) -> str:
     """Pretty-print an IR AST node for debugging."""
     dumper = _DUMP.get(type(node))
     return dumper(node, indent) if dumper else repr(node)
-
-
-_ALL_NODES = {
-    IrAst,
-    IrRule,
-    IrAlternation,
-    IrSequence,
-    IrItem,
-    IrGroup,
-    *IrVisitor.leaves,
-}
-_REGISTERED = set(_CHILDREN) | set(IrVisitor.leaves)
-assert _ALL_NODES == _REGISTERED, (
-    f"Node registration mismatch.\n"
-    f"  Missing: {_ALL_NODES - _REGISTERED}\n"
-    f"  Unknown: {_REGISTERED - _ALL_NODES}"
-)

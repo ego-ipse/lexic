@@ -78,7 +78,7 @@ class IrGroup:
 class IrItem:
     """An atom (leaf or group) with a quantifier."""
 
-    atom: "IrLiteral | IrCharClass | IrRuleRef | IrGroup"
+    atom: "IrAtom"
     quantifier: Quantifier = field(default_factory=Quantifier)
 
 
@@ -103,14 +103,7 @@ class IrAst:
 
 # ── Protocols for conversion ─────────────────────────────────────────
 
-IrNode: TypeAlias = (
-    IrAst
-    | IrRule
-    | IrAlternation
-    | IrSequence
-    | IrItem
-    | IrGroup
-    | IrLiteral
-    | IrCharClass
-    | IrRuleRef
-)
+IrLeaf: TypeAlias = IrLiteral | IrCharClass | IrRuleRef
+IrAtom: TypeAlias = IrLeaf | IrGroup
+
+IrNode: TypeAlias = IrAst | IrRule | IrAlternation | IrSequence | IrItem | IrAtom
