@@ -2,23 +2,30 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Protocol, TypeVar
 
-from lexic.ir.spec import RuleSpec
+
+class _SpecLike(Protocol):
+    class_name: str
+    parent_class_name: str
+    rule_name: str
+
+
+_S = TypeVar("_S", bound=_SpecLike)
 
 
 def topo_sort(
-    specs: list[RuleSpec],
+    specs: list[_S],
     *,
-    is_start_rule: Callable[[RuleSpec], bool],
-) -> list[RuleSpec]:
+    is_start_rule: Callable[[_S], bool],
+) -> list[_S]:
     """Order specs so parent classes appear before subclasses, with the start rule first.
 
     `is_start_rule` is a flavour-supplied predicate. When it matches multiple
     specs, the first one in input order wins.
     """
     by_cls = {s.class_name: s for s in specs}
-    ordered: list[RuleSpec] = []
+    ordered: list[_S] = []
     visited: set[str] = set()
 
     def visit(cls_name: str) -> None:

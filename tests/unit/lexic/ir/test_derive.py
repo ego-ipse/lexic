@@ -8,6 +8,7 @@ from lexic.ir.derive import (
     classify_kind,
     compute_parents,
     hoist_helpers,
+    derive_specs,
 )
 from lexic.ir.nodes import (
     IrAlternation,
@@ -355,3 +356,217 @@ def test_hoist_preserves_ast_start():
 def test_hoist_uses_irtransformer():
     """_HoistTransformer must be an IrTransformer subclass (Decision CQ #3)."""
     assert issubclass(_HoistTransformer, IrTransformer)
+
+
+# ── derive_specs ──────────────────────────────────────────────────────
+
+
+def test_derive_value_str_single_arm():
+    """`digit ::= [0-9]+` → one value_str spec, items hold the charclass."""
+    rule = IrRule(
+        "digit",
+        _alt(_seq(_it(IrCharClass("0-9"), Quantifier(1, None)))),
+    )
+    ast = IrAst(rules=(rule,), start="digit")
+    specs = derive_specs(ast)
+    assert len(specs) == 1
+    spec = specs[0]
+    assert spec.rule_name == "digit"
+    assert spec.class_name == "Digit"
+    assert spec.kind == "value_str"
+    assert spec.field_map == {}
+    assert len(spec.items) == 1
+    assert isinstance(spec.items[0], IrItem)
+    assert spec.items[0].atom == IrCharClass("0-9")
+
+
+def test_derive_value_str_multi_arm_uses_iralternation_directly():
+    """Multi-arm value_str: IrAlternation directly in items, no IrGroup wrapping (decision C)."""
+    rule = IrRule(
+        "op",
+        _alt(_seq(_it(IrLiteral("+"))), _seq(_it(IrLiteral("-")))),
+    )
+    ast = IrAst(rules=(rule,), start="op")
+    specs = derive_specs(ast)
+    spec = specs[0]
+    assert spec.kind == "value_str"
+    assert len(spec.items) == 1
+    assert isinstance(spec.items[0], IrAlternation)
+    alt = spec.items[0]
+    assert len(alt.arms) == 2
+    assert alt.arms[0].items[0].atom == IrLiteral("+")
+    assert alt.arms[1].items[0].atom == IrLiteral("-")
+
+
+def test_derive_sequence_basic():
+    """`expr ::= term op term` → sequence spec; items flat."""
+    rule = IrRule(
+        "expr",
+        _alt(
+            _seq(_it(IrRuleRef("term")), _it(IrRuleRef("op")), _it(IrRuleRef("term"))),
+        ),
+    )
+    other = IrRule("term", _alt(_seq(_it(IrCharClass("a-z")))))
+    op = IrRule("op", _alt(_seq(_it(IrLiteral("+")))))
+    ast = IrAst(rules=(rule, other, op), start="expr")
+    specs = derive_specs(ast)
+    expr_spec = next(s for s in specs if s.rule_name == "expr")
+    assert expr_spec.kind == "sequence"
+    assert len(expr_spec.items) == 3
+    assert all(
+        isinstance(i, IrItem) and isinstance(i.atom, IrRuleRef) for i in expr_spec.items
+    )
+    # Field map maps "term" → 0, "op" → 1, "term2" → 2 (collision rename)
+    assert "term" in expr_spec.field_map
+    assert "op" in expr_spec.field_map
+    assert "term2" in expr_spec.field_map
+
+
+def test_derive_alternation_produces_abstract_plus_no_arm_specs_for_single_refs():
+    """`term ::= num | ident` → 3 specs (Term abstract + Num + Ident).
+
+    Term's items are [IrItem(IrRuleRef("num")), IrItem(IrRuleRef("ident"))];
+    Num and Ident have parent=Term.
+    """
+    term = IrRule(
+        "term",
+        _alt(_seq(_it(IrRuleRef("num"))), _seq(_it(IrRuleRef("ident")))),
+    )
+    num = IrRule("num", _alt(_seq(_it(IrCharClass("0-9"), Quantifier(1, None)))))
+    ident = IrRule("ident", _alt(_seq(_it(IrCharClass("a-z"), Quantifier(1, None)))))
+    ast = IrAst(rules=(term, num, ident), start="term")
+    specs = derive_specs(ast)
+    by = {s.rule_name: s for s in specs}
+    assert by["term"].kind == "alternation"
+    assert by["term"].field_map == {}
+    assert [i.atom for i in by["term"].items if isinstance(i, IrItem)] == [
+        IrRuleRef("num"),
+        IrRuleRef("ident"),
+    ]
+    assert by["num"].parent_class_name == "Term"
+    assert by["ident"].parent_class_name == "Term"
+
+
+def test_derive_alternation_with_multi_item_arm_synthesises_arm_spec():
+    """`value ::= num | "(" expr ")"` produces Value abstract + Num parent + ValueArm2."""
+    value = IrRule(
+        "value",
+        _alt(
+            _seq(_it(IrRuleRef("num"))),
+            _seq(_it(IrLiteral("(")), _it(IrRuleRef("expr")), _it(IrLiteral(")"))),
+        ),
+    )
+    num = IrRule("num", _alt(_seq(_it(IrCharClass("0-9"), Quantifier(1, None)))))
+    expr = IrRule("expr", _alt(_seq(_it(IrRuleRef("num")))))
+    ast = IrAst(rules=(value, num, expr), start="value")
+    specs = derive_specs(ast)
+    by = {s.rule_name: s for s in specs}
+    assert "value-arm2" in by
+    arm2 = by["value-arm2"]
+    assert arm2.kind == "sequence"
+    assert arm2.parent_class_name == "Value"
+    # Num still gets parent=Value (single-ref arm)
+    assert by["num"].parent_class_name == "Value"
+
+
+def test_derive_topo_sort_puts_start_first():
+    """Topo sort puts start rule first."""
+    a = IrRule("a", _alt(_seq(_it(IrLiteral("a")))))
+    root = IrRule("root", _alt(_seq(_it(IrRuleRef("a")))))
+    ast = IrAst(rules=(a, root), start="root")
+    specs = derive_specs(ast)
+    assert specs[0].rule_name == "root"
+
+
+def test_derive_helper_rules_appear_in_output():
+    """Hoisted helpers become real RuleSpecs in the result."""
+    rule = IrRule(
+        "expr",
+        _alt(
+            _seq(
+                _it(IrRuleRef("term")),
+                _it(
+                    IrGroup(_alt(_seq(_it(IrRuleRef("op")), _it(IrRuleRef("term"))))),
+                    Quantifier(0, None),
+                ),
+            )
+        ),
+    )
+    op = IrRule("op", _alt(_seq(_it(IrLiteral("+")))))
+    term = IrRule("term", _alt(_seq(_it(IrCharClass("a-z")))))
+    ast = IrAst(rules=(rule, op, term), start="expr")
+    specs = derive_specs(ast)
+    names = {s.rule_name for s in specs}
+    assert "expr-item" in names
+    helper = next(s for s in specs if s.rule_name == "expr-item")
+    assert helper.kind == "sequence"
+
+
+def test_derive_marks_non_semantic_field_min_zero():
+    """`expr ::= term ws op` with non_semantic_rules={"ws"} forces ws field min=0."""
+    expr = IrRule(
+        "expr",
+        _alt(_seq(_it(IrRuleRef("term")), _it(IrRuleRef("ws")), _it(IrRuleRef("op")))),
+    )
+    term = IrRule("term", _alt(_seq(_it(IrCharClass("a-z")))))
+    ws = IrRule("ws", _alt(_seq(_it(IrCharClass(" \\t"), Quantifier(0, None)))))
+    op = IrRule("op", _alt(_seq(_it(IrLiteral("+")))))
+    ast = IrAst(rules=(expr, term, ws, op), start="expr")
+    specs = derive_specs(ast, non_semantic_rules=frozenset({"ws"}))
+    expr_spec = next(s for s in specs if s.rule_name == "expr")
+    # Find the ws item
+    ws_item = next(
+        i
+        for i in expr_spec.items
+        if isinstance(i, IrItem)
+        and isinstance(i.atom, IrRuleRef)
+        and i.atom.name == "ws"
+    )
+    assert isinstance(ws_item, IrItem)
+    assert ws_item.quantifier.min == 0
+    assert "ws" in expr_spec.non_semantic_fields
+
+
+def test_derive_no_non_semantic_when_rule_not_in_set():
+    """Without `non_semantic_rules`, ws fields stay required."""
+    expr = IrRule(
+        "expr",
+        _alt(_seq(_it(IrRuleRef("term")), _it(IrRuleRef("ws")))),
+    )
+    term = IrRule("term", _alt(_seq(_it(IrCharClass("a-z")))))
+    ws = IrRule("ws", _alt(_seq(_it(IrCharClass(" \\t"), Quantifier(0, None)))))
+    ast = IrAst(rules=(expr, term, ws), start="expr")
+    specs = derive_specs(ast)  # no non_semantic_rules
+    expr_spec = next(s for s in specs if s.rule_name == "expr")
+    ws_item = next(
+        i
+        for i in expr_spec.items
+        if isinstance(i, IrItem)
+        and isinstance(i.atom, IrRuleRef)
+        and i.atom.name == "ws"
+    )
+    assert isinstance(ws_item, IrItem)
+    assert ws_item.quantifier.min == 1
+    assert expr_spec.non_semantic_fields == frozenset()
+
+
+def test_helpers_always_get_grammar_model_parent():
+    """Hoisted helpers do not participate in alternation-driven parent inference."""
+    rule = IrRule(
+        "expr",
+        _alt(
+            _seq(
+                _it(IrRuleRef("term")),
+                _it(
+                    IrGroup(_alt(_seq(_it(IrRuleRef("op")), _it(IrRuleRef("term"))))),
+                    Quantifier(0, None),
+                ),
+            )
+        ),
+    )
+    op = IrRule("op", _alt(_seq(_it(IrLiteral("+")))))
+    term = IrRule("term", _alt(_seq(_it(IrCharClass("a-z")))))
+    ast = IrAst(rules=(rule, op, term), start="expr")
+    specs = derive_specs(ast)
+    helper = next(s for s in specs if s.rule_name == "expr-item")
+    assert helper.parent_class_name == "GrammarModel"
