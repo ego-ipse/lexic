@@ -1,10 +1,26 @@
-"""CompiledGrammar: the compile-time artefacts parse() needs.
+"""compile_grammar / compile_text — grammar compilation entry points.
 
-compile(text, *, cache_key) is the primary entry. compile_from_path(path)
-is a thin wrapper that stats the file, builds a (path, mtime, size, flavour) key,
-checks the cache to skip the file read on hit, and delegates to compile().
+Pipeline (compile_grammar — new IR-AST path):
 
-One cache covers both entry points.
+  text  ──┬──►  parse_directives  ──►  Directives(non_semantic, start)
+          │                                          │
+          │                                          ▼
+          │                       (resolve `start` arg precedence)
+          │
+          └──►  MetaGrammarParser.for_flavour(flavour)  ──►  IrAst
+                                                          │
+                                                          ▼
+                      derive_specs(ast, non_semantic_rules=...)
+                                                          │
+                                                          ▼
+                                          (start_name, list[NewRuleSpec])
+
+compile_text(text, *, cache_key) is the old-pipeline primary entry; returns
+a CompiledGrammar (Lark parser + transformer + classes). Retired in Task 25a.
+compile_from_path(path) is a thin wrapper that stats the file, builds a
+(path, mtime, size, flavour) key, checks the cache to skip the file read on
+hit, and delegates to compile_text(). One cache covers both old-pipeline
+entry points.
 
 Runtime→codegen seam: build_classes_and_specs from lexic.codegen (the
 package) and LarkBuilder from lexic.codegen.lark_builder (the sub-module).
@@ -23,7 +39,13 @@ import lark
 
 from lexic.codegen import build_classes_and_specs
 from lexic.codegen.lark_builder import LarkBuilder
+from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import adapter_for_extension
+from lexic.grammars.flavour import Flavour
+from lexic.ir.derive import derive_specs
+from lexic.ir.directives import parse_directives
+from lexic.ir.spec import NewRuleSpec
+from lexic.parsing.meta_parser import MetaGrammarParser
 
 if TYPE_CHECKING:
     from lexic.base import GrammarModel
@@ -75,7 +97,7 @@ def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGra
     )
 
 
-def compile(  # pylint: disable=redefined-builtin
+def compile_text(
     text: str, *, cache_key: Hashable | None = None, flavour: str = "gbnf"
 ) -> CompiledGrammar:
     """Compile from a grammar string. cache_key=None means 'do not memoize'."""
@@ -101,4 +123,57 @@ def compile_from_path(
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    return compile(path.read_text(encoding="utf-8"), cache_key=key, flavour=flavour)
+    return compile_text(
+        path.read_text(encoding="utf-8"), cache_key=key, flavour=flavour
+    )
+
+
+def compile_grammar(
+    text: str,
+    flavour: type[Flavour],
+    *,
+    non_semantic_rules: frozenset[str] | None = None,
+    start: str | None = None,
+) -> tuple[str, list[NewRuleSpec]]:
+    """Parse + derive NewRuleSpecs via the new IR-AST pipeline.
+
+    Pipeline:
+
+      text  ──┬──►  parse_directives  ──►  Directives(non_semantic, start)
+              │                                          │
+              │                                          ▼
+              │                       (resolve `start` arg precedence)
+              │
+              └──►  MetaGrammarParser.for_flavour(flavour)  ──►  IrAst
+                                                              │
+                                                              ▼
+                          derive_specs(ast, non_semantic_rules=...)
+                                                              │
+                                                              ▼
+                                              (start_name, list[NewRuleSpec])
+
+    `start` resolution precedence:
+      1. explicit `start` argument
+      2. `@start <rule>` directive in source comments
+      3. `ast.rules[0].name` (positional fallback)
+
+    `non_semantic_rules` resolution:
+      1. explicit `non_semantic_rules` argument
+      2. `@non-semantic <rule> ...` directives in source comments
+
+    Errors: malformed grammar source bubbles up as UnsupportedConstructError
+    (wrapped at MetaGrammarParser boundary).
+    """
+    directives = parse_directives(text, flavour.line_comment)
+    if non_semantic_rules is None:
+        non_semantic_rules = directives.non_semantic
+    ast = MetaGrammarParser.for_flavour(flavour).parse(text)
+    if start is None:
+        start = directives.start or (ast.rules[0].name if ast.rules else "")
+    if start and not any(r.name == start for r in ast.rules):
+        raise UnsupportedConstructError(
+            f"start rule {start!r} not defined in grammar; "
+            f"available rules: {[r.name for r in ast.rules]}"
+        )
+    specs = derive_specs(ast, non_semantic_rules=non_semantic_rules)
+    return start, specs
