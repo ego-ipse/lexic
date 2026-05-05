@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import ClassVar
 
 from lexic.ir import (
     AlternationAtom,
@@ -26,10 +27,9 @@ class FakeEscapes(EscapeCodec):
 class _TestEmitter(FlavourEmitter):
     """A test emitter that uses the default handlers and a fake escape codec."""
 
-    @property
-    def supports(self):
-        """The set of atom types this emitter supports; for testing, support the default ones."""
-        return frozenset({"literal", "char_class", "alternation", "quantifier"})
+    supports: ClassVar[frozenset[str]] = frozenset(
+        {"literal", "char_class", "alternation", "quantifier"}
+    )
 
 
 @dataclass(frozen=True)

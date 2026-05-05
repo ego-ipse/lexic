@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import ClassVar, Literal
 
 from lexic.ir import LiteralAtom, RuleRefAtom, RuleSpec
 from lexic.ir.atoms import Atom
@@ -177,10 +177,7 @@ class _FakeEmitter(FlavourEmitter):
         """Initialise with the no-op codec defined above."""
         super().__init__(escapes=_FakeCodec())
 
-    @property
-    def supports(self) -> frozenset[str]:
-        """Report support for the literal atom type only."""
-        return frozenset({"literal"})
+    supports: ClassVar[frozenset[str]] = frozenset({"literal"})
 
 
 def test_flavour_emitter_structural_conformance():

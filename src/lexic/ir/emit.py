@@ -2,7 +2,7 @@
 
 Concrete flavour subclasses declare:
     - syntax constants (rule_separator, quote_char, alt_separator, ...)
-    - the @abstractmethod `supports` (set of capability names)
+    - the ClassVar[frozenset[str]] `supports` (set of capability names)
     - optional overrides: encode (escapes), render_charclass, render_inline_regex,
       format_quantifier, wrap_group, quote.
 
@@ -12,7 +12,7 @@ decorators above; subclasses can pass extended handler tables in __init__.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import TYPE_CHECKING, ClassVar, TypeVar, Callable
 
 from lexic.ir.atoms import (
@@ -83,15 +83,22 @@ class FlavourEmitter(ABC):
         (LiteralAtom, lambda a, e: e.quote(a.value)),
         (
             QuantifiedLiteralAtom,
-            lambda a, e: e.quote(a.value) + e.format_quantifier(a.min, a.max),
+            lambda a, e: e.place_quantifier(
+                e.quote(a.value), e.format_quantifier(a.min, a.max)
+            ),
         ),
         (
             CharClassAtom,
-            lambda a, e: (
-                e.render_charclass(a.pattern) + e.format_quantifier(a.min, a.max)
+            lambda a, e: e.place_quantifier(
+                e.render_charclass(a.pattern), e.format_quantifier(a.min, a.max)
             ),
         ),
-        (RuleRefAtom, lambda a, e: a.rule_name + e.format_quantifier(a.min, a.max)),
+        (
+            RuleRefAtom,
+            lambda a, e: e.place_quantifier(
+                a.rule_name, e.format_quantifier(a.min, a.max)
+            ),
+        ),
         (AlternationAtom, lambda a, e: e.alt_separator.join(a.arm_rule_names)),
         (
             InlineAlternationAtom,
@@ -99,8 +106,8 @@ class FlavourEmitter(ABC):
         ),
         (
             InlineRegexAtom,
-            lambda a, e: (
-                e.render_inline_regex(a.regex) + e.format_quantifier(a.min, a.max)
+            lambda a, e: e.place_quantifier(
+                e.render_inline_regex(a.regex), e.format_quantifier(a.min, a.max)
             ),
         ),
     )
@@ -119,11 +126,8 @@ class FlavourEmitter(ABC):
             dict(handlers) if handlers is not None else dict(self.DEFAULT_HANDLERS)
         )
 
-    @property
-    @abstractmethod
-    def supports(self) -> frozenset[str]:
-        """The set of atom types this emitter supports; used for testing."""
-        raise NotImplementedError()
+    supports: ClassVar[frozenset[str]]
+    """The set of atom types this emitter supports; used for testing."""
 
     # ── Decorators (overridable per flavour) ──────────────────────────
 
@@ -138,6 +142,10 @@ class FlavourEmitter(ABC):
     def format_quantifier(self, lo: int, hi: int | None) -> str:
         """Format the quantifier for the given bounds."""
         return bounds_to_quantifier(lo, hi)
+
+    def place_quantifier(self, atom_str: str, q_str: str) -> str:
+        """Combine atom rendering with quantifier. Default suffix."""
+        return f"{atom_str}{q_str}"
 
     def render_charclass(self, canonical_pattern: str) -> str:
         """Render a canonical char class pattern."""
