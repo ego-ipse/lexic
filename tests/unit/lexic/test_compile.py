@@ -2,7 +2,6 @@
 
 import os
 import time
-from pathlib import Path
 
 import pytest
 
@@ -15,8 +14,7 @@ from lexic.compile import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf.flavour import GbnfFlavour
-
-GROUND_TRUTH = Path(__file__).resolve().parents[3] / "resources" / "ground_truth"
+from tests.paths import GROUND_TRUTH
 
 
 @pytest.fixture(autouse=True)

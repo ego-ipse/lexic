@@ -1,10 +1,10 @@
 # tests/test_ir_builder.py
 from __future__ import annotations
-from pathlib import Path
 
 import pytest
-from lexic.grammars.gbnf.parser import parse_gbnf
+
 from lexic.codegen.ir_builder import IRBuilder
+from lexic.grammars.gbnf.parser import parse_gbnf
 from lexic.ir import (
     AlternationAtom,
     CharClassAtom,
@@ -15,10 +15,7 @@ from lexic.ir import (
     RuleRefAtom,
     RuleSpec,
 )
-
-GRAMMAR_DIR = (
-    Path(__file__).parent.parent.parent.parent.parent / "resources" / "ground_truth"
-)
+from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 
 def _build(grammar_name: str) -> list[RuleSpec]:

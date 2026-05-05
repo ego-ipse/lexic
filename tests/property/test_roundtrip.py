@@ -8,15 +8,13 @@ reproducible and replayable.
 from __future__ import annotations
 
 import random
-from pathlib import Path
 
 from hypothesis import HealthCheck, given, settings
 import hypothesis.strategies as st
 
 from lexic.generate import generate
 from lexic.parse import parse
-
-_GRAMMAR_DIR = Path(__file__).parent.parent.parent / "resources" / "ground_truth"
+from tests.paths import GROUND_TRUTH as _GRAMMAR_DIR
 
 
 def _roundtrip(grammar: str, specs: dict, seed: int) -> None:

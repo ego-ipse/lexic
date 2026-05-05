@@ -1,17 +1,14 @@
 # tests/test_lark_builder.py
 from __future__ import annotations
-from pathlib import Path
 
-import pytest
 import lark
-from lexic.grammars.gbnf.parser import parse_gbnf
+import pytest
+
 from lexic.codegen import codegen_from_path
 from lexic.codegen.ir_builder import IRBuilder
 from lexic.codegen.lark_builder import LarkBuilder
-
-GRAMMAR_DIR = (
-    Path(__file__).parent.parent.parent.parent.parent / "resources" / "ground_truth"
-)
+from lexic.grammars.gbnf.parser import parse_gbnf
+from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 
 def _builder(grammar: str) -> LarkBuilder:

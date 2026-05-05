@@ -1,10 +1,9 @@
 """Integration tests: parse() round-trips across all 7 grammars."""
 
 from __future__ import annotations
-from pathlib import Path
-from lexic.parse import parse
 
-GRAMMAR_DIR = Path(__file__).parent.parent.parent / "resources" / "ground_truth"
+from lexic.parse import parse
+from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 
 def _roundtrip(text: str, grammar: str) -> None:

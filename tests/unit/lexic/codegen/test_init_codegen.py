@@ -1,11 +1,8 @@
-from pathlib import Path
-
 import pytest
 
 from lexic.codegen import codegen, codegen_from_path
 from lexic.exceptions import UnsupportedConstructError
-
-GROUND_TRUTH = Path(__file__).resolve().parents[4] / "resources" / "ground_truth"
+from tests.paths import GROUND_TRUTH
 
 
 def test_codegen_rejects_positional_stem():

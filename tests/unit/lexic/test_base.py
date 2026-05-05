@@ -1,7 +1,6 @@
 # tests/test_base.py
 from __future__ import annotations
 
-from pathlib import Path
 from typing import ClassVar, List, Optional
 
 import pytest
@@ -10,8 +9,7 @@ from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
-
-GROUND_TRUTH = Path(__file__).resolve().parents[3] / "resources" / "ground_truth"
+from tests.paths import GROUND_TRUTH
 
 
 # ── value_str ─────────────────────────────────────────────────────────────────

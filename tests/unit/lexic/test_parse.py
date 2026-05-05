@@ -14,13 +14,12 @@ Grammar input notes:
 """
 
 from __future__ import annotations
-from pathlib import Path
 
 import pytest
-from lexic.parse import parse
-from lexic.base import GrammarModel
 
-GRAMMAR_DIR = Path(__file__).parent.parent.parent.parent / "resources" / "ground_truth"
+from lexic.base import GrammarModel
+from lexic.parse import parse
+from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 
 def _roundtrip(text: str, grammar: str):

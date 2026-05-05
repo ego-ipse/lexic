@@ -1,21 +1,17 @@
 # tests/test_model_emitter.py
 from __future__ import annotations
+
 import importlib
 import sys
-from pathlib import Path
-
-import pytest
 from abc import ABC
 from typing import get_type_hints
+
+import pytest
 
 from lexic.base import GrammarModel
 from lexic.codegen import codegen_from_path
 from lexic.ir import RuleSpec
-
-GRAMMAR_DIR = (
-    Path(__file__).parent.parent.parent.parent.parent / "resources" / "ground_truth"
-)
-GENERATED_DIR = Path(__file__).parent.parent.parent.parent.parent / "generated"
+from tests.paths import GENERATED as GENERATED_DIR, GROUND_TRUTH as GRAMMAR_DIR
 
 ALL_GRAMMARS = ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"]
 

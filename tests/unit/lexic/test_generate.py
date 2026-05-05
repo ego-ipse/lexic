@@ -1,13 +1,13 @@
 """Unit tests for src/lexic/generate.py"""
 
 from __future__ import annotations
+
 import random
-from pathlib import Path
-from lexic.grammars.gbnf.parser import parse_gbnf
+
 from lexic.codegen.ir_builder import IRBuilder
 from lexic.generate import generate
-
-GRAMMAR_DIR = Path(__file__).parent.parent.parent.parent / "resources" / "ground_truth"
+from lexic.grammars.gbnf.parser import parse_gbnf
+from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 
 def _specs(grammar: str) -> dict:

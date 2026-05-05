@@ -1,13 +1,14 @@
 """GBNF round-trip tests: grammar → IR → GBNFEmitter → re-parse → same rule names."""
 
 from __future__ import annotations
-from pathlib import Path
+
 import pytest
-from lexic.grammars.gbnf.parser import parse_gbnf
+
 from lexic.codegen.ir_builder import IRBuilder
 from lexic.grammars.gbnf.emitter import GBNFEmitter
+from lexic.grammars.gbnf.parser import parse_gbnf
+from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
-GRAMMAR_DIR = Path(__file__).parent.parent.parent / "resources" / "ground_truth"
 ALL_GRAMMARS = ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"]
 
 

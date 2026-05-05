@@ -1,12 +1,15 @@
 """Session-scoped RuleSpec fixtures for all 7 ground-truth grammars."""
 
 from __future__ import annotations
-from pathlib import Path
-import pytest
-from lexic.grammars.gbnf.parser import parse_gbnf
-from lexic.codegen.ir_builder import IRBuilder
 
-GRAMMAR_DIR = Path(__file__).parent.parent.parent / "resources" / "ground_truth"
+from pathlib import Path
+
+import pytest
+
+from lexic.codegen.ir_builder import IRBuilder
+from lexic.grammars.gbnf.parser import parse_gbnf
+from tests.paths import GROUND_TRUTH
+
 ALL_GRAMMARS = ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"]
 
 
@@ -14,7 +17,7 @@ ALL_GRAMMARS = ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "
 def all_grammar_specs() -> dict[str, dict]:
     result = {}
     for name in ALL_GRAMMARS:
-        text = (GRAMMAR_DIR / f"{name}.gbnf").read_text()
+        text = (GROUND_TRUTH / f"{name}.gbnf").read_text()
         specs = IRBuilder(parse_gbnf(text)).build()
         result[name] = {s.rule_name: s for s in specs}
     return result
@@ -22,4 +25,4 @@ def all_grammar_specs() -> dict[str, dict]:
 
 @pytest.fixture(scope="session")
 def grammar_dir() -> Path:
-    return GRAMMAR_DIR
+    return GROUND_TRUTH

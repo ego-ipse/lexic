@@ -7,16 +7,12 @@ regression gate during the 25a-e cutover.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from lexic.compile import compile_grammar, compile_text
 from lexic.grammars.gbnf.flavour import GbnfFlavour
 from lexic.parsing.meta_parser import MetaGrammarParser
-
-# parents[0]=tests/integration/, parents[1]=tests/, parents[2]=project root
-GROUND_TRUTH = Path(__file__).resolve().parents[2] / "resources" / "ground_truth"
+from tests.paths import GROUND_TRUTH
 
 # All 7 ground-truth fixtures produce "root" as the start rule.
 _ALL_FIXTURES = [
