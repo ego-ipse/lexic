@@ -5930,6 +5930,8 @@ The full suite is green after every commit. If 25b–d break consumers that 25a 
 
 ## Task 25a: Switch `compile()` to new pipeline; register `AbnfAdapter`; bridge `flavour_cls`
 
+> **Heals an xfail introduced in Task 13:** `test_full_round_trip[c.gbnf]` is currently `xfail(strict=True)` with input `"int foo(){}"`. The old pipeline strips `ws` from `to_text()` but the Lark grammar still requires whitespace between `dataType` and `identifier`, breaking the round-trip. Once `compile_text` routes through the new pipeline here, the new pipeline handles `ws` correctly via the `@non-semantic ws` directive and the xfail turns XPASS — remove the `xfail` mark from `test_full_round_trip[c.gbnf]` as part of this task.
+
 > **NOTE:** `src/lexic/grammars/flavours.py` is 100% on the chopping block. The touch here is a minimal bridge only — `flavour_cls` is added purely to connect the old adapter registry to the new `Flavour` ABC. The entire file (`FlavourParser`, `FlavourEmitter`, `FlavourAdapter`, `ADAPTERS`, registry functions) must be deleted in Task 25e.
 
 **Files:**

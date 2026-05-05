@@ -1,3 +1,4 @@
+# @non-semantic ws
 root ::= (declaration)*
 
 declaration ::= dataType identifier "(" parameter? ")" "{" statement* "}"

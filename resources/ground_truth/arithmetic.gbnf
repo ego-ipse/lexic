@@ -1,3 +1,4 @@
+# @non-semantic ws
 root  ::= (expr "=" ws term "\n")+
 expr  ::= term ([-+*/] term)*
 term  ::= ident | num | "(" ws expr ")" ws

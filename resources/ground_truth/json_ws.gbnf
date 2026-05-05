@@ -1,3 +1,5 @@
+# @non-semantic ws
+
 root   ::= object
 value  ::= object | array | string | number | ("true" | "false" | "null") ws
 
