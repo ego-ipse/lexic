@@ -1,0 +1,8 @@
+; @non-semantic WSP
+root = expr
+expr = term *(op term)
+term = num
+op   = "+" / "-" / "*" / "/"
+num  = 1*DIGIT
+DIGIT = %x30-39
+WSP  = %x20 / %x09
