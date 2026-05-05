@@ -11,6 +11,10 @@ Before writing or editing code in this repo, read:
 
 If a rule in `docs/STYLE.md` conflicts with a specific instruction below, the specific instruction wins for its domain. Otherwise `docs/STYLE.md` is the default.
 
+## Commits
+
+Never add `Co-Authored-By` lines to commit messages. Commits belong entirely to the user.
+
 ## Commands
 
 Always prefix with `uv run`:

@@ -54,6 +54,8 @@ class EscapeCodec(ABC):
             parts.append("[" + "".join(re.escape(c) for c in cls.SHORT_ESCAPES) + "]")
         for tag, n in cls.HEX_ESCAPES:
             parts.append(f"{re.escape(tag)}[0-9a-fA-F]{{{n}}}")
+        if not parts:
+            return re.compile(r"(?!)")
         return re.compile(r"\\(?:" + "|".join(parts) + ")")
 
     def _replace(self, m: re.Match[str]) -> str:
