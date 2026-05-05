@@ -57,27 +57,11 @@ from lexic.ir.nodes import (
 
 _IrBuilder: TypeAlias = Callable[[type[Flavour], list], object]
 
-
-def _build_ir_item(flavour: type[Flavour], children: list) -> IrItem:
-    """Partition Token (quantifier) from non-Token (atom); guard against malformed input."""
-    tokens = [c for c in children if isinstance(c, Token)]
-    atoms = [c for c in children if not isinstance(c, Token)]
-    if len(tokens) > 1:
-        raise UnsupportedConstructError(
-            f"ir_item: multiple quantifier tokens: {children!r}"
-        )
-    if len(atoms) != 1:
-        raise UnsupportedConstructError(f"ir_item: unexpected atom count: {children!r}")
-    quantifier = flavour.parse_quantifier(str(tokens[0])) if tokens else Quantifier()
-    return IrItem(atom=atoms[0], quantifier=quantifier)
-
-
 _IR_BUILDERS: dict[str, _IrBuilder] = {
     "start": lambda _f, c: IrAst(rules=tuple(c), start=c[0].name if c else ""),
     "ir_rule": lambda _f, c: IrRule(name=str(c[0]), body=c[1]),
     "ir_alternation": lambda _f, c: IrAlternation(arms=tuple(c)),
     "ir_sequence": lambda _f, c: IrSequence(items=tuple(c)),
-    "ir_item": _build_ir_item,
     "ir_literal": lambda f, c: f.normalize_literal(f.escapes.decode(str(c[0])[1:-1])),
     "ir_charclass": lambda f, c: IrCharClass(*f.parse_charclass(str(c[0]))),
     "ir_ruleref": lambda _f, c: IrRuleRef(name=str(c[0])),
@@ -99,6 +83,19 @@ class _IrTagTransformer(Transformer):
         if builder is None:
             return super().__default__(data, children, meta)
         return builder(self._flavour, children)
+
+    def ir_item(self, items: list) -> IrItem:
+        """Handle either prefix or suffix quantifier ordering."""
+        tokens = [c for c in items if isinstance(c, Token)]
+        atoms = [c for c in items if not isinstance(c, Token)]
+        if len(tokens) > 1:
+            raise ValueError(f"ir_item: multiple quantifier tokens: {items!r}")
+        if len(atoms) != 1:
+            raise ValueError(f"ir_item: unexpected atom count: {items!r}")
+        quantifier = (
+            self._flavour.parse_quantifier(str(tokens[0])) if tokens else Quantifier()
+        )
+        return IrItem(atom=atoms[0], quantifier=quantifier)
 
 
 # ── parser ────────────────────────────────────────────────────────────
