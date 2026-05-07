@@ -4822,8 +4822,11 @@ git commit -m "feat(ir): legacy_to_iritems shape adapter (transient, removed in 
 
 The GBNF emitter currently dispatches on legacy atom types. Update it to dispatch on `IrItem.atom` types. Remove the legacy-atom branches at the end of the task; we'll wire the legacy pipeline through `legacy_to_iritems` in Task 25.
 
+**Additional (added Task 18):** Once `GbnfEmitter` is updated to inherit from the `FlavourEmitter` ABC (`lexic.ir.emit.FlavourEmitter`) instead of the Protocol (`lexic.grammars.flavours.FlavourEmitter`), also update `Flavour.emitter` in `src/lexic/grammars/flavour.py` from `ClassVar[Any]` to `ClassVar[FlavourEmitter]` (with a `TYPE_CHECKING` import of the ABC from `lexic.ir.emit`). This restores proper typing for all `Flavour.emitter` accesses. The `ClassVar[Any]` is a temporary workaround; do not leave it in place past Task 20.
+
 **Files:**
 - Modify: `src/lexic/grammars/gbnf/emitter.py`
+- Modify: `src/lexic/grammars/flavour.py` (switch `ClassVar[Any]` → `ClassVar[FlavourEmitter]`)
 - Modify: `tests/unit/lexic/grammars/gbnf/test_emitter.py` (existing tests update)
 
 - [ ] **Step 1: Read existing test file; identify which tests use legacy atom shapes.**

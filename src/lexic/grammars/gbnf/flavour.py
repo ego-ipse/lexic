@@ -24,7 +24,7 @@ class GbnfFlavour(Flavour):
     escapes = GBNF_ESCAPES
     # The Phase D consumers will adopt the no-arg GbnfEmitter constructor; until
     # then we instantiate with an empty list (legacy signature).
-    emitter = GbnfEmitter([])
+    emitter: GbnfEmitter = GbnfEmitter([])  # type: ignore[assignment] REMOVE IN PHASE D
     line_comment = "#"
 
     @staticmethod

@@ -25,6 +25,18 @@ from lexic.ir.atoms import (
     QuantifiedLiteralAtom,
     RuleRefAtom,
 )
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrAtom,
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+)
 from lexic.ir.spec import RuleSpec
 from lexic.utils.quantifiers import bounds_to_quantifier
 
@@ -147,8 +159,8 @@ class FlavourEmitter(ABC):
         """Combine atom rendering with quantifier. Default suffix."""
         return f"{atom_str}{q_str}"
 
-    def render_charclass(self, canonical_pattern: str) -> str:
-        """Render a canonical char class pattern."""
+    def render_charclass(self, canonical_pattern: str, negated: bool = False) -> str:
+        """Render a canonical char class interior. Subclasses may use negated."""
         return canonical_pattern
 
     def render_inline_regex(self, canonical: str) -> str:
@@ -188,3 +200,42 @@ class FlavourEmitter(ABC):
                 f"{type(self).__name__} has no handler for {type(atom).__name__}"
             ) from exc
         return _handler(atom, self)
+
+    # ── IR-AST emit chain ────────────────────────────────────────────
+
+    def emit_ast(self, ast: IrAst) -> str:
+        """Emit all rules in an IrAst as a grammar string."""
+        lines = [self.emit_rule_from_ast(r) for r in ast.rules]
+        return "\n".join(lines) + "\n"
+
+    def emit_rule_from_ast(self, rule: IrRule) -> str:
+        """Emit a single IrRule as 'name sep body terminator'."""
+        body = self._emit_alternation(rule.body)
+        return f"{rule.name} {self.rule_separator} {body}{self.rule_terminator}"
+
+    def _emit_alternation(self, alt: IrAlternation) -> str:
+        """Emit an IrAlternation, joining arms with alt_separator."""
+        return self.alt_separator.join(self._emit_sequence(arm) for arm in alt.arms)
+
+    def _emit_sequence(self, seq: IrSequence) -> str:
+        """Emit an IrSequence, joining non-empty item strings with a space."""
+        parts = [p for p in (self._emit_item(item) for item in seq.items) if p]
+        return " ".join(parts) if parts else self.empty_body
+
+    def _emit_item(self, item: IrItem) -> str:
+        """Emit an IrItem: render the atom then apply the quantifier."""
+        atom_str = self._emit_ir_atom(item.atom)
+        q_str = self.format_quantifier(item.quantifier.min, item.quantifier.max)
+        return self.place_quantifier(atom_str, q_str)
+
+    def _emit_ir_atom(self, atom: IrAtom) -> str:
+        """Dispatch an IrAtom leaf or group to its render method."""
+        if isinstance(atom, IrLiteral):
+            return self.quote(atom.value)
+        if isinstance(atom, IrCharClass):
+            return self.render_charclass(atom.pattern, atom.negated)
+        if isinstance(atom, IrRuleRef):
+            return atom.name
+        if isinstance(atom, IrGroup):
+            return self.wrap_group(self._emit_alternation(atom.body))
+        raise NotImplementedError(f"No IR-atom handler for {type(atom).__name__}")

@@ -15,6 +15,18 @@ from lexic.ir import (
 )
 from lexic.ir.emit import FlavourEmitter
 from lexic.ir.escapes import EscapeCodec
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+    Quantifier,
+)
 
 
 class FakeEscapes(EscapeCodec):
@@ -137,3 +149,138 @@ def test_subclass_can_register_extra_handler():
         }
     )
     assert e.render_atom(CustomTestAtom(marker="x")) == "<x>"
+
+
+# ── IR-AST emit chain tests ───────────────────────────────────────────
+
+
+def _make_ast() -> IrAst:
+    """Build a 2-rule IrAst: root = digit; digit = [0-9]."""
+    digit_item = IrItem(atom=IrCharClass("0-9"), quantifier=Quantifier(1, 1))
+    digit_seq = IrSequence(items=(digit_item,))
+    digit_alt = IrAlternation(arms=(digit_seq,))
+    digit_rule = IrRule(name="digit", body=digit_alt)
+
+    ref_item = IrItem(atom=IrRuleRef("digit"), quantifier=Quantifier(1, 1))
+    ref_seq = IrSequence(items=(ref_item,))
+    ref_alt = IrAlternation(arms=(ref_seq,))
+    root_rule = IrRule(name="root", body=ref_alt)
+
+    return IrAst(rules=(root_rule, digit_rule), start="root")
+
+
+def test_emit_ast_produces_two_lines_terminated_with_newline():
+    """emit_ast joins rule lines with newline and appends a trailing newline."""
+    e = _new()
+    ast = _make_ast()
+    result = e.emit_ast(ast)
+    lines = result.split("\n")
+    # Two non-empty lines + trailing empty string from split
+    assert len(lines) == 3
+    assert lines[-1] == ""
+    assert result.endswith("\n")
+
+
+def test_emit_rule_from_ast_single_rule():
+    """emit_rule_from_ast produces 'name ::= body' for a single rule."""
+    e = _new()
+    digit_item = IrItem(atom=IrLiteral("x"), quantifier=Quantifier(1, 1))
+    digit_seq = IrSequence(items=(digit_item,))
+    digit_alt = IrAlternation(arms=(digit_seq,))
+    rule = IrRule(name="myrule", body=digit_alt)
+    result = e.emit_rule_from_ast(rule)
+    assert result == 'myrule ::= "x"'
+
+
+def test_emit_alternation_single_arm():
+    """Single-arm alternation emits just the arm text (no separator)."""
+    e = _new()
+    item = IrItem(atom=IrLiteral("a"), quantifier=Quantifier(1, 1))
+    rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
+    assert e.emit_rule_from_ast(rule) == 'r ::= "a"'
+
+
+def test_emit_alternation_two_arms_joins_with_alt_separator():
+    """Two-arm alternation joins arms with alt_separator."""
+    e = _new()
+    arm1 = IrSequence(items=(IrItem(IrLiteral("a"), Quantifier(1, 1)),))
+    arm2 = IrSequence(items=(IrItem(IrLiteral("b"), Quantifier(1, 1)),))
+    rule = IrRule(name="r", body=IrAlternation(arms=(arm1, arm2)))
+    assert e.emit_rule_from_ast(rule) == 'r ::= "a" | "b"'
+
+
+def test_emit_sequence_two_items():
+    """Two-item sequence emits items joined by a space."""
+    e = _new()
+    item1 = IrItem(atom=IrLiteral("x"), quantifier=Quantifier(1, 1))
+    item2 = IrItem(atom=IrRuleRef("y"), quantifier=Quantifier(1, 1))
+    rule = IrRule(
+        name="r", body=IrAlternation(arms=(IrSequence(items=(item1, item2)),))
+    )
+    assert e.emit_rule_from_ast(rule) == 'r ::= "x" y'
+
+
+def test_emit_item_literal_with_required_quantifier():
+    """Required literal (Quantifier(1,1)) emits with no quantifier suffix."""
+    e = _new()
+    item = IrItem(atom=IrLiteral("x"), quantifier=Quantifier(1, 1))
+    rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
+    assert e.emit_rule_from_ast(rule) == 'r ::= "x"'
+
+
+def test_emit_item_ruleref_with_optional_quantifier():
+    """Optional rule-ref (Quantifier(0,1)) emits with '?' suffix."""
+    e = _new()
+    item = IrItem(atom=IrRuleRef("expr"), quantifier=Quantifier(0, 1))
+    rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
+    assert e.emit_rule_from_ast(rule) == "r ::= expr?"
+
+
+def test_emit_ir_atom_literal():
+    """IrLiteral atom emits as a quoted string."""
+    e = _new()
+    item = IrItem(atom=IrLiteral("hello"), quantifier=Quantifier(1, 1))
+    rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
+    assert e.emit_rule_from_ast(rule) == 'r ::= "hello"'
+
+
+def test_emit_ir_atom_ruleref():
+    """IrRuleRef atom emits as the rule name."""
+    e = _new()
+    item = IrItem(atom=IrRuleRef("expr"), quantifier=Quantifier(1, 1))
+    rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
+    assert e.emit_rule_from_ast(rule) == "r ::= expr"
+
+
+def test_emit_ir_atom_charclass():
+    """IrCharClass atom passes interior pattern to render_charclass (base returns as-is)."""
+    e = _new()
+    item = IrItem(atom=IrCharClass("0-9"), quantifier=Quantifier(1, 1))
+    rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
+    assert e.emit_rule_from_ast(rule) == "r ::= 0-9"
+
+
+def test_emit_ir_atom_charclass_negated_forwarded():
+    """negated=True on IrCharClass is forwarded to render_charclass."""
+
+    class _NegationAware(_TestEmitter):
+        def render_charclass(
+            self, canonical_pattern: str, negated: bool = False
+        ) -> str:
+            return f"[^{canonical_pattern}]" if negated else f"[{canonical_pattern}]"
+
+    e = _NegationAware(escapes=FakeEscapes())
+    item = IrItem(atom=IrCharClass("0-9", negated=True), quantifier=Quantifier(1, 1))
+    rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
+    assert e.emit_rule_from_ast(rule) == "r ::= [^0-9]"
+
+
+def test_emit_ir_atom_group():
+    """IrGroup atom emits as a parenthesised alternation."""
+    e = _new()
+    arm = IrSequence(items=(IrItem(IrLiteral("a"), Quantifier(1, 1)),))
+    group_item = IrItem(
+        atom=IrGroup(body=IrAlternation(arms=(arm,))), quantifier=Quantifier(1, 1)
+    )
+    rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(group_item,)),)))
+    assert e.emit_rule_from_ast(rule) == 'r ::= ("a")'

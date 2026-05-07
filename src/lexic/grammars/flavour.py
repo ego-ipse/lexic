@@ -13,7 +13,7 @@ concepts into the IR AST itself: the hook returns canonical IR AST nodes.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import IrGroup, IrLiteral, Quantifier
@@ -26,7 +26,7 @@ class Flavour(ABC):
     extensions: ClassVar[tuple[str, ...]]
     meta_grammar: ClassVar[str]
     escapes: ClassVar[EscapeCodec]
-    emitter: ClassVar[object]  # FlavourEmitter — typed loosely to avoid import cycle
+    emitter: ClassVar[Any]  # FlavourEmitter — typed loosely to avoid import cycle
     line_comment: ClassVar[str] = ""
 
     @staticmethod
