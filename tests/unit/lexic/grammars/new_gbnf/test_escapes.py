@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from lexic.grammars.new_gbnf.escapes import GbnfEscapes as NewEscapes
 from lexic.grammars.gbnf.adapter import GbnfEscapes as LegacyEscapes
+from lexic.grammars.new_gbnf.escapes import GbnfEscapes as NewEscapes
 
 
 def test_decode_parity():

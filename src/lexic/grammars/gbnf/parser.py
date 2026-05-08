@@ -5,7 +5,8 @@ Parses GBNF text into a list of Rule AST nodes using an Earley meta-grammar.
 
 from __future__ import annotations
 
-from lark import Lark, Transformer as LarkTransformer
+from lark import Lark
+from lark import Transformer as LarkTransformer
 
 from lexic.grammars.flavours import FlavourParser
 from lexic.grammars.gbnf.ast import (

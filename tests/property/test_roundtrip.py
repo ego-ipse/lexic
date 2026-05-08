@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import random
 
-from hypothesis import HealthCheck, given, settings
 import hypothesis.strategies as st
+from hypothesis import HealthCheck, given, settings
 
 from lexic.generate import generate
 from lexic.parse import parse

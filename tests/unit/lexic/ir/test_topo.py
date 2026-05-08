@@ -1,6 +1,7 @@
 """topo_sort: orders specs so parent classes come before subclasses; start rule first."""
 
 from __future__ import annotations
+
 from collections.abc import Callable
 
 from lexic.ir import RuleSpec

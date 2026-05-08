@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from lexic.codegen.transformer.registry import BUILDER_BY_ATOM, builder_for
 from lexic.ir import (
     AlternationAtom,
     CharClassAtom,
@@ -13,7 +14,6 @@ from lexic.ir import (
     QuantifiedLiteralAtom,
     RuleRefAtom,
 )
-from lexic.codegen.transformer.registry import BUILDER_BY_ATOM, builder_for
 
 
 def test_all_atom_types_registered():

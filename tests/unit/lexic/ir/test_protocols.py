@@ -12,15 +12,14 @@ from lexic.ir.protocols import (
     EscapeCodec,
     FieldHandler,
     FlavourAdapter,
-    FlavourParser,
     FlavourEmitter,
+    FlavourParser,
     LarkHandler,
     RuleClassifier,
     SequenceConverter,
     ToTextHandler,
     TransformHandler,
 )
-
 
 # ---------------------------------------------------------------------------
 # Atom — runtime-checkable Protocol

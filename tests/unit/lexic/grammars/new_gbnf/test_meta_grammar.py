@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from lexic.grammars.new_gbnf.meta_grammar import META_GRAMMAR as NEW
 from lexic.grammars.gbnf.meta_grammar import META_GRAMMAR as LEGACY
+from lexic.grammars.new_gbnf.meta_grammar import META_GRAMMAR as NEW
 
 
 def test_meta_grammar_byte_identical():

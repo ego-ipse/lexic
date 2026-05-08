@@ -1,3 +1,4 @@
+from lexic.codegen.seq_to_atoms import seq_to_atoms
 from lexic.grammars.gbnf.ast import (
     Alternation,
     CharClass,
@@ -7,8 +8,6 @@ from lexic.grammars.gbnf.ast import (
     RuleRef,
     Sequence,
 )
-from lexic.ir.helpers import HelperRuleRegistry
-from lexic.codegen.seq_to_atoms import seq_to_atoms
 from lexic.ir import (
     CharClassAtom,
     InlineAlternationAtom,
@@ -17,6 +16,7 @@ from lexic.ir import (
     QuantifiedLiteralAtom,
     RuleRefAtom,
 )
+from lexic.ir.helpers import HelperRuleRegistry
 
 
 def _item(atom, q=None):

@@ -13,11 +13,11 @@ from lark import Token
 
 from lexic.base import GrammarModel
 from lexic.codegen.transformer.context import (
+    SKIP_FIELD,
     BuildContext,
     BuildResult,
     FieldResult,
     SkipField,
-    SKIP_FIELD,
 )
 
 

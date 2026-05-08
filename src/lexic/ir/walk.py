@@ -17,10 +17,10 @@ from lexic.ir.nodes import (
     IrAst,
     IrGroup,
     IrItem,
+    IrLeaf,
     IrNode,
     IrRule,
     IrSequence,
-    IrLeaf,
 )
 
 _N = TypeVar("_N", bound=IrNode)

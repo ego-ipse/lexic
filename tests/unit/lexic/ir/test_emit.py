@@ -1,6 +1,7 @@
 """FlavourEmitter ABC — DEFAULT_HANDLERS + decorators tested via a fake subclass."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import ClassVar
 

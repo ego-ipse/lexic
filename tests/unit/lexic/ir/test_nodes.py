@@ -17,7 +17,6 @@ from lexic.ir.nodes import (
     Quantifier,
 )
 
-
 # ── Quantifier ───────────────────────────────────────────────────────
 
 

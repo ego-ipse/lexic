@@ -1,3 +1,10 @@
+from lexic.codegen.classify import (
+    Classifier,
+    NamedAlt,
+    PureLiteralAlt,
+    SequenceKind,
+    ValueStr,
+)
 from lexic.grammars.gbnf.ast import (
     Alternation,
     CharClass,
@@ -7,13 +14,6 @@ from lexic.grammars.gbnf.ast import (
     Rule,
     RuleRef,
     Sequence,
-)
-from lexic.codegen.classify import (
-    Classifier,
-    NamedAlt,
-    PureLiteralAlt,
-    SequenceKind,
-    ValueStr,
 )
 
 

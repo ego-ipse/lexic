@@ -11,6 +11,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from lexic.codegen.ast_utils import (
+    is_pure_literal_seq,
+    is_ws_item,
+    strip_ws,
+    unwrap_group_alt,
+)
 from lexic.grammars.gbnf.ast import (
     Alternation,
     Group,
@@ -18,12 +24,6 @@ from lexic.grammars.gbnf.ast import (
     Rule,
     RuleRef,
     Sequence,
-)
-from lexic.codegen.ast_utils import (
-    is_pure_literal_seq,
-    is_ws_item,
-    strip_ws,
-    unwrap_group_alt,
 )
 
 

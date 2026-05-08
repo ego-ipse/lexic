@@ -11,7 +11,6 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
 from tests.paths import GROUND_TRUTH
 
-
 # ── value_str ─────────────────────────────────────────────────────────────────
 
 
@@ -151,8 +150,9 @@ def test_to_text_optional_absent():
 
 
 def test_to_text_alternation_raises():
-    from lexic.ir import AlternationAtom
     import pytest
+
+    from lexic.ir import AlternationAtom
 
     spec = RuleSpec(
         "base",

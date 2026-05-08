@@ -11,9 +11,9 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from lexic.grammars import adapter_for_extension, get_adapter
 from lexic.codegen.ir_builder import IRBuilder
 from lexic.codegen.model_emitter import ModelEmitter
+from lexic.grammars import adapter_for_extension, get_adapter
 from lexic.ir import RuleSpec
 
 

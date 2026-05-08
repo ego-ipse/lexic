@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random as _random
 
+from lexic.grammars.gbnf.adapter import decode_gbnf_escapes
 from lexic.ir import (
     AlternationAtom,
     CharClassAtom,
@@ -18,7 +19,6 @@ from lexic.ir import (
     RuleRefAtom,
     RuleSpec,
 )
-from lexic.grammars.gbnf.adapter import decode_gbnf_escapes
 from lexic.ir.charclass import parse_charclass_chars
 
 

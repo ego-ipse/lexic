@@ -6,13 +6,13 @@ from typing import ClassVar, List, Union
 
 from lexic.base import GrammarModel
 from lexic.ir import (
-    RuleSpec,
     CharClassAtom,
     InlineAlternationAtom,
     InlineRegexAtom,
     LiteralAtom,
     QuantifiedLiteralAtom,
     RuleRefAtom,
+    RuleSpec,
 )
 
 

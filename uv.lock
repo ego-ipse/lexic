@@ -125,6 +125,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "hypothesis" },
+    { name = "isort" },
     { name = "pre-commit" },
     { name = "pylint" },
     { name = "pyright" },
@@ -141,6 +142,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "hypothesis", specifier = ">=6.152.1" },
+    { name = "isort", specifier = ">=8.0.1" },
     { name = "pre-commit", specifier = ">=4.5.1" },
     { name = "pylint", specifier = ">=4.0.5" },
     { name = "pyright", specifier = ">=1.1.408" },

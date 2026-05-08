@@ -13,7 +13,7 @@ decorators above; subclasses can pass extended handler tables in __init__.
 from __future__ import annotations
 
 from abc import ABC
-from typing import TYPE_CHECKING, ClassVar, TypeVar, Callable
+from typing import TYPE_CHECKING, Callable, ClassVar, TypeVar
 
 from lexic.ir.atoms import (
     AlternationAtom,
@@ -41,7 +41,7 @@ from lexic.ir.spec import RuleSpec
 from lexic.utils.quantifiers import bounds_to_quantifier
 
 if TYPE_CHECKING:
-    from lexic.ir.protocols import EscapeCodec, AtomEmitHandler
+    from lexic.ir.protocols import AtomEmitHandler, EscapeCodec
 
 A = TypeVar("A", bound=Atom)
 

@@ -7,7 +7,6 @@ grammars they describe are equivalent for the unambiguous (non-alpha) parts.
 
 from __future__ import annotations
 
-
 from lexic.compile import compile_grammar
 from lexic.grammars.abnf.flavour import AbnfFlavour
 from lexic.grammars.gbnf.flavour import GbnfFlavour

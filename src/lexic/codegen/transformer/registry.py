@@ -2,16 +2,6 @@
 
 from __future__ import annotations
 
-from lexic.ir import (
-    AlternationAtom,
-    Atom,
-    CharClassAtom,
-    InlineAlternationAtom,
-    InlineRegexAtom,
-    LiteralAtom,
-    QuantifiedLiteralAtom,
-    RuleRefAtom,
-)
 from lexic.codegen.transformer.builders import (
     AbstractAlternationBuilder,
     CharClassFieldBuilder,
@@ -22,7 +12,16 @@ from lexic.codegen.transformer.builders import (
     RuleRefBuilder,
 )
 from lexic.codegen.transformer.context import FieldBuilder
-
+from lexic.ir import (
+    AlternationAtom,
+    Atom,
+    CharClassAtom,
+    InlineAlternationAtom,
+    InlineRegexAtom,
+    LiteralAtom,
+    QuantifiedLiteralAtom,
+    RuleRefAtom,
+)
 
 BUILDER_BY_ATOM: dict[type, FieldBuilder] = {
     LiteralAtom: LiteralSkipBuilder(),

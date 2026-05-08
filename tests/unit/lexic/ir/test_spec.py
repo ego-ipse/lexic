@@ -1,7 +1,8 @@
 """Unit tests for src/lexic/ir/spec.py"""
 
 from __future__ import annotations
-from lexic.ir import RuleSpec, CharClassAtom, RuleRefAtom
+
+from lexic.ir import CharClassAtom, RuleRefAtom, RuleSpec
 
 
 def test_rulespec_defaults():

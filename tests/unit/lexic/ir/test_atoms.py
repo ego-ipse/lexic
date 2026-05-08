@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from lexic.ir import (
-    Atom,
     AlternationAtom,
+    Atom,
     CharClassAtom,
     InlineAlternationAtom,
     InlineRegexAtom,

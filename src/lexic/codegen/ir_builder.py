@@ -8,11 +8,7 @@ from __future__ import annotations
 
 from typing import assert_never
 
-from lexic.ir import AlternationAtom, RuleSpec
-from lexic.grammars.gbnf.ast import Alternation, Rule, Sequence
 from lexic.codegen.ast_utils import single_ruleref_of
-from lexic.ir.helpers import HelperRuleRegistry
-from lexic.ir.naming import assign_field_names
 from lexic.codegen.classify import (
     Classifier,
     NamedAlt,
@@ -21,8 +17,11 @@ from lexic.codegen.classify import (
     ValueStr,
 )
 from lexic.codegen.seq_to_atoms import seq_to_atoms, value_str_to_atoms
+from lexic.grammars.gbnf.ast import Alternation, Rule, Sequence
+from lexic.ir import AlternationAtom, RuleSpec
+from lexic.ir.helpers import HelperRuleRegistry
+from lexic.ir.naming import assign_field_names
 from lexic.utils.names import to_pascal
-
 
 # ── Main builder ─────────────────────────────────────────────────────────────
 

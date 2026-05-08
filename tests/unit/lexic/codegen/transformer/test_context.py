@@ -4,13 +4,13 @@ import dataclasses
 
 import pytest
 
-from lexic.ir import RuleSpec
 from lexic.codegen.transformer.context import (
+    SKIP_FIELD,
     BuildContext,
     FieldResult,
-    SKIP_FIELD,
     SkipField,
 )
+from lexic.ir import RuleSpec
 
 
 def _spec(items):

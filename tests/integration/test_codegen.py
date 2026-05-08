@@ -17,7 +17,8 @@ from pydantic import BaseModel
 
 from lexic.codegen import build_classes_and_specs, codegen, codegen_from_path
 from lexic.ir import RuleSpec
-from tests.paths import GENERATED as GENERATED_DIR, GROUND_TRUTH as GRAMMAR_DIR
+from tests.paths import GENERATED as GENERATED_DIR
+from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 ALL_GRAMMARS = [
     "arithmetic.gbnf",

@@ -2,7 +2,6 @@
 
 import pytest
 
-
 from lexic.ir import RuleSpec
 from lexic.ir.helpers import HelperRuleRegistry
 

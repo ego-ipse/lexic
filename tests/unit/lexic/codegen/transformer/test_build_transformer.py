@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from lark import Lark, Transformer
-
-from lexic.grammars.gbnf.parser import parse_gbnf
-from lexic.codegen.ir_builder import IRBuilder
-from lexic.codegen.lark_builder import LarkBuilder
-from lexic.codegen.model_emitter import ModelEmitter
-from lexic.codegen.transformer.build_transformer import build_transformer
 import importlib.util
 import sys
 import tempfile
 from pathlib import Path
+
+from lark import Lark, Transformer
+
+from lexic.codegen.ir_builder import IRBuilder
+from lexic.codegen.lark_builder import LarkBuilder
+from lexic.codegen.model_emitter import ModelEmitter
+from lexic.codegen.transformer.build_transformer import build_transformer
+from lexic.grammars.gbnf.parser import parse_gbnf
 
 
 def _compile_grammar(gbnf_text: str, stem: str):

@@ -7,13 +7,13 @@ from typing import ClassVar, List, Optional
 
 from lexic.base import GrammarModel
 from lexic.ir import (
-    RuleSpec,
     AlternationAtom,
     CharClassAtom,
     InlineRegexAtom,
     LiteralAtom,
     QuantifiedLiteralAtom,
     RuleRefAtom,
+    RuleSpec,
 )
 
 

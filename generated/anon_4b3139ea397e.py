@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import ClassVar, List
 
 from lexic.base import GrammarModel
-from lexic.ir import RuleSpec, CharClassAtom, LiteralAtom, RuleRefAtom
+from lexic.ir import CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
 
 
 class Root(GrammarModel):

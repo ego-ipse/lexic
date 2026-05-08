@@ -13,7 +13,6 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence as Seq
 
-
 from lexic.ir.atoms import (
     AlternationAtom,
     Atom,
@@ -24,7 +23,6 @@ from lexic.ir.atoms import (
     QuantifiedLiteralAtom,
     RuleRefAtom,
 )
-
 
 _CHARCLASS_NAMES: dict[str, str] = {
     "[0-9]": "digit",

@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from typing import cast
 
+from lexic.codegen.ast_utils import is_pure_literal_seq, single_ruleref_of, strip_ws
 from lexic.grammars.gbnf.ast import (
     Alternation,
     CharClass,
@@ -17,9 +18,6 @@ from lexic.grammars.gbnf.ast import (
     RuleRef,
     Sequence,
 )
-from lexic.codegen.ast_utils import is_pure_literal_seq, single_ruleref_of, strip_ws
-from lexic.ir.helpers import HelperRuleRegistry
-from lexic.ir.naming import assign_field_names
 from lexic.ir import (
     Atom,
     CharClassAtom,
@@ -30,6 +28,8 @@ from lexic.ir import (
     RuleRefAtom,
     RuleSpec,
 )
+from lexic.ir.helpers import HelperRuleRegistry
+from lexic.ir.naming import assign_field_names
 from lexic.utils.names import to_pascal
 from lexic.utils.quantifiers import quantifier_to_bounds
 

@@ -5,20 +5,20 @@ Extracted from lark_builder.py so it can be tested and evolved independently.
 
 from __future__ import annotations
 
+from dataclasses import replace as dc_replace
+from typing import get_args, get_origin, get_type_hints
+
 from lark import Token, Transformer
 
+from lexic.codegen.transformer.builders import ListFieldBuilder, OptionalFieldBuilder
+from lexic.codegen.transformer.context import BuildContext, FieldResult, SkipField
+from lexic.codegen.transformer.registry import builder_for
+from lexic.grammars.gbnf.adapter import decode_gbnf_escapes
 from lexic.ir import (
     LiteralAtom,
     RuleSpec,
 )
-from lexic.grammars.gbnf.adapter import decode_gbnf_escapes
 from lexic.utils.names import to_lark_name
-from dataclasses import replace as dc_replace
-from typing import get_args, get_origin, get_type_hints
-
-from lexic.codegen.transformer.context import BuildContext, FieldResult, SkipField
-from lexic.codegen.transformer.registry import builder_for
-from lexic.codegen.transformer.builders import ListFieldBuilder, OptionalFieldBuilder
 
 
 def _literal_is_quoted(lit_value: str) -> bool:

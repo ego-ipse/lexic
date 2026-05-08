@@ -3,14 +3,6 @@
 from lark import Token
 
 from lexic.base import GrammarModel
-from lexic.ir import (
-    CharClassAtom,
-    InlineAlternationAtom,
-    InlineRegexAtom,
-    QuantifiedLiteralAtom,
-    RuleRefAtom,
-    RuleSpec,
-)
 from lexic.codegen.transformer.builders import (
     CharClassFieldBuilder,
     InlineAlternationBuilder,
@@ -21,6 +13,14 @@ from lexic.codegen.transformer.builders import (
     RuleRefBuilder,
 )
 from lexic.codegen.transformer.context import BuildContext, FieldResult, SkipField
+from lexic.ir import (
+    CharClassAtom,
+    InlineAlternationAtom,
+    InlineRegexAtom,
+    QuantifiedLiteralAtom,
+    RuleRefAtom,
+    RuleSpec,
+)
 
 
 def _spec(items):

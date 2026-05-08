@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from lexic.grammars.flavour import Flavour
 from lexic.grammars.gbnf.flavour import GbnfFlavour
-from lexic.ir.nodes import IrLiteral, Quantifier
 from lexic.ir.escapes import EscapeCodec
+from lexic.ir.nodes import IrLiteral, Quantifier
 
 
 def test_gbnf_flavour_is_a_flavour_subclass():

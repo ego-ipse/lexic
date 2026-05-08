@@ -1,13 +1,13 @@
 """Unit tests for src/lexic/codegen/ast.py"""
 
 from lexic.grammars.gbnf.ast import (
-    Literal,
-    CharClass,
-    RuleRef,
-    Item,
-    Sequence,
     Alternation,
+    CharClass,
+    Item,
+    Literal,
     Rule,
+    RuleRef,
+    Sequence,
 )
 
 

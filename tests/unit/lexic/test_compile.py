@@ -7,8 +7,8 @@ import pytest
 
 from lexic.compile import (
     CompiledGrammar,
-    compile_grammar,
     compile_from_path,
+    compile_grammar,
     compile_text,
     reset_cache_for_tests,
 )

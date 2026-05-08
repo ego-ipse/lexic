@@ -7,8 +7,8 @@ from lexic.ir.derive import (
     _HoistTransformer,
     classify_kind,
     compute_parents,
-    hoist_helpers,
     derive_specs,
+    hoist_helpers,
 )
 from lexic.ir.nodes import (
     IrAlternation,

@@ -6,7 +6,7 @@ from abc import ABC
 from typing import ClassVar, List
 
 from lexic.base import GrammarModel
-from lexic.ir import RuleSpec, AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom
+from lexic.ir import AlternationAtom, CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
 
 
 class Root(GrammarModel):

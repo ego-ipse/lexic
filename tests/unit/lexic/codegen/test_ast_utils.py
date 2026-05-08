@@ -1,3 +1,9 @@
+from lexic.codegen.ast_utils import (
+    is_ws_item,
+    single_ruleref_of,
+    strip_ws,
+    unwrap_group_alt,
+)
 from lexic.grammars.gbnf.ast import (
     Alternation,
     Group,
@@ -5,12 +11,6 @@ from lexic.grammars.gbnf.ast import (
     Literal,
     RuleRef,
     Sequence,
-)
-from lexic.codegen.ast_utils import (
-    is_ws_item,
-    single_ruleref_of,
-    strip_ws,
-    unwrap_group_alt,
 )
 
 
