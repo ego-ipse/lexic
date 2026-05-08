@@ -23,6 +23,7 @@ Replace the dual-shape migration with a **parallel-track** build:
 
 - The new shape lands in fresh modules (`new_gbnf/`, `new_codegen/`) or directly in their final destinations (`parsing/lark_builder.py`, `parsing/transformer/`) where the destination is empty.
 - The old shape stays untouched until cutover. No `isinstance(item, IrItem)` branches in legacy modules. No transient adapter.
+- **`new_codegen/` is built against the target generated-code shape**, not the legacy shape. Items 1–5 from `prototyping/curr/2_LEXIC_GENERATED_CODE_PROPOSAL.md` that are achievable on a clean codegen pass — module-level type aliases, `Annotated[str, StringConstraints(...)]` for pattern fields, `Literal[...]` for pure-literal alternations, Tier 2 + Tier 3 naming, `__grammar__` moved out of class body — land directly. Building against the legacy shape only to retrofit the target later is wasted work; the parallel-track build does it right the first time. The decorator path, discriminator synthesis, sidecar, `_raw`, and structural list-tail flattening from that proposal are out of scope and deferred to follow-up brainstorms.
 - A single cutover commit reroutes `compile.py`, deletes the legacy modules in one fell swoop, renames `new_*` → final names, and tightens types.
 
 The cutover commit has wide blast radius but is mostly mechanical (`git rm`, `git mv`, `sed` on imports). The integration suite is the safety net — if it passes, the rerouted pipeline is correct end-to-end.
@@ -158,23 +159,96 @@ Tests at `tests/unit/lexic/grammars/new_gbnf/` mirror the file layout.
 - The full suite stays green (nothing else imports `new_gbnf`).
 - `new_gbnf` modules import only from `lexic.ir`, `lexic.grammars.flavour`, `lexic.parsing.meta_parser`, and other `lexic.grammars.new_gbnf` siblings.
 
-### Slice 2 — `new_codegen/` (model_emitter only)
+### Slice 2 — `new_codegen/` (model_emitter only, target-shape)
+
+The clean-pass rewrite of `model_emitter` aimed directly at the target generated-code shape per `prototyping/curr/2_LEXIC_GENERATED_CODE_PROPOSAL.md`. Building against the legacy shape only to rewrite later in Slice C is wasted work; the parallel-track build does it right the first time. Five target-shape commitments land in this slice:
+
+**S2.1 Module-level type aliases.** Walk specs, collect unique pattern strings from `IrCharClass` atoms, emit module-top aliases. Reuse aliases for repeated patterns:
+
+```python
+Digits    = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]
+LowerChar = Annotated[str, StringConstraints(pattern=r"^[a-z]$")]
+```
+
+Alias names come from the same naming pipeline used for fields (Tier 2 library lookup, Tier 3 positional fallback). Identical patterns share an alias.
+
+**S2.2 `Annotated[str, StringConstraints(...)]` for pattern fields.** Replace today's `field: str` with the constrained type, anchored. Two atom shapes feed this:
+
+- `IrCharClass` field: pattern is `^` + `[pattern]` (with `^` interior if `negated`) + suffix from `IrItem.quantifier` + `$`. Example: `IrCharClass("0-9", negated=False)` with `Quantifier(1, None)` → `^[0-9]+$`.
+- `IrGroup` field with no `IrRuleRef` descendants (a "pure-pattern group" — today's `InlineRegexAtom` case, e.g. chess `([a-h] "x")?`): pattern is composed by a recursive walker. Arms are joined by `|`. Sequence items are concatenated. Nested groups are wrapped in `()`. Each item's quantifier is suffixed. Char classes render as bracket expressions; literals render as escaped strings. Result is wrapped in `^` … `$` and consumed as `pattern=` for `StringConstraints`. Example: `IrGroup` of `("a-h", IrLiteral("x"))` with outer `Quantifier(0, 1)` → `^([a-h]x)?$` → field type `Annotated[str, StringConstraints(pattern=r"^([a-h]x)?$")]`.
+
+`IrGroup` containing rulerefs is *not* a pattern field — it stays a Union of helper classes (or, for value_str rules, a discriminator-less `Union[...]` for now; discriminator synthesis is deferred).
+
+```python
+class Num(GrammarModel):
+    digits: Digits        # alias resolves to Annotated[str, StringConstraints(...)]
+class Pawn(GrammarModel):
+    capture_file_and_x: CaptureFileAndX = ""    # group composed via the walker
+    ...
+```
+
+Pydantic actually validates the field instead of trusting the parser.
+
+**S2.3 `Literal[...]` for pure-literal alternations.** Detect `kind="value_str"` rules whose `items[0]` is an `IrAlternation` with every arm being a single `IrLiteral` (`min=max=1`):
+
+```python
+class Op(GrammarModel):
+    value: Literal["+", "-", "*", "/"]
+```
+
+Mixed alternations (literal + ruleref, or quantified literals) keep the helper-class shape. Detection lives in `model_emitter`; no IR change.
+
+**S2.4 Tier 2 + Tier 3 naming.** Modest expansion of `lexic.ir.naming`:
+
+- **Tier 2 (existing):** the `_CHARCLASS_NAMES` and `_LITERAL_NAMES` lookup tables. Already drive `digits`, `digit`, `lower`, `ws`, `ws_inline`, etc. Extended to cover the full 10-entry `BUILTIN_PATTERNS` table from §6.2 of the proposal.
+- **Tier 3 (new):** structural positional fallback. When Tier 2 doesn't match for an `IrCharClass`, the field is named `head` for the first pattern field in the rule, `part_2`, `part_3`, … for subsequent pattern fields. For `IrGroup` containing rulerefs, the field is named `kind` (replacing today's `value`). For `X X*` shapes (sequence rule whose first field is `X` and whose helper-tail is `List[XHelper]`), name them `head` / `tail`.
+- **Rule-ref naming unchanged.** `IrRuleRef` fields keep the rule name as the field name (`expr: Expr`, `term: Term`). Tier 3 fires only for patterns and inline-alternation groups.
+- **Tier 1 (alias-aware, decorator-driven) is out of scope.** Requires the `@grammar_rule` decorator path. Deferred.
+- **Tier 4 (sidecar YAML) is out of scope.** Deferred.
+
+Implementation lives entirely in `lexic.ir.derive._field_map` plus a slimmer `lexic.ir.naming`. No IR shape change.
+
+**S2.5 `__grammar__` moved to module footer.** Class bodies hold only fields. After all classes are defined, the module emits a footer block that attaches `__grammar__` to each class:
+
+```python
+class Num(GrammarModel):
+    digits: Digits
+
+class Parens(GrammarModel):
+    expr: Expr
+
+# ── Grammar registration ───────────────────────────────────────────────
+Num.__grammar__ = RuleSpec(rule_name="num", class_name="Num", ...)
+Parens.__grammar__ = RuleSpec(rule_name="parens", class_name="Parens", ...)
+```
+
+Runtime lookups of `cls.__grammar__` in `base.py::to_text` and `generate.py` are unchanged — the attribute is still set, just from outside the class body. Topo order of class emission keeps mattering for inheritance, not for the registration block.
 
 `src/lexic/new_codegen/`:
 
 | File | Content |
 |---|---|
 | `__init__.py` | Public entry: `codegen(specs: list[RuleSpec], stem: str) -> dict[str, type]`. Internally renders Python source via `model_emitter`, writes `generated/<stem>.py`, imports the module, returns the class dict. **No flavour parameter. No text-parsing. No `IRBuilder`.** |
-| `model_emitter.py` | IrItem-only dispatch. Renders `RuleSpec` (with new-shape items) to Python source string. Emits the canonical `from lexic.ir.nodes import …` block per Decision CQ #4 (full IR AST surface, fixed import line, no detect-and-include). Emits real Python expressions for every IR shape including `IrGroup` per Decision CQ #1 (no `# FIXME` placeholders) |
+| `model_emitter.py` | Target-shape emission per S2.1–S2.5. IrItem-only dispatch. Emits the canonical fixed import block per Decision CQ #4 (full IR AST surface, fixed import line, no detect-and-include). Emits real Python expressions for every IR shape including `IrGroup` per Decision CQ #1 (no `# FIXME` placeholders) |
+| `aliases.py` | Pattern-alias collection: walks specs, collects unique `IrCharClass` patterns, names them via the naming pipeline, returns `dict[pattern, alias_name]`. Used by `model_emitter` for both alias emission and field-type substitution |
 
 Tests at `tests/unit/lexic/new_codegen/`.
 
 **Exit criteria:**
 - `tests/unit/lexic/new_codegen/` passes.
-- The full suite stays green.
+- The full suite stays green (modulo the 5 line-level test updates flagged below).
 - `new_codegen` imports only from `lexic.ir`, `lexic.base`, and stdlib.
 - No `# FIXME` strings in generated module source for any input shape (asserted in tests).
-- Module-level recursive `_repr_atom_value` / `_repr_alternation` / `_repr_sequence` / `_repr_iritem` produce eval-stable Python (round-trip test: `exec` the generated module, `__grammar__.items[i]` reconstructs the input IR).
+- Generated modules contain at least one module-level `Annotated[str, StringConstraints(...)]` alias for grammars with char-class fields (asserted on chess + json_ws).
+- Generated modules use `Literal[...]` for pure-literal alternations (asserted on a synthetic test grammar with `"int" | "float" | "char"`).
+- No `a_h_x`, `val_0_92`, `nbkqr`, `cc_1_8`, `ee_0_9_1_9_0` field names anywhere in generated chess / json_ws output (asserted via grep on regenerated files in a tmpdir).
+- Class bodies in generated source contain field declarations only — no `__grammar__` line inside the class body (asserted via AST walk on a generated module).
+- `Foo.__grammar__` lookup at runtime returns a populated `RuleSpec` (asserted via the existing round-trip path).
+- Module-level recursive `_repr_atom_value` / `_repr_alternation` / `_repr_sequence` / `_repr_iritem` produce eval-stable Python (round-trip test: `exec` the generated module, `Foo.__grammar__.items[i]` reconstructs the input IR).
+
+**Test fallout to update in this slice:**
+- `tests/unit/lexic/ir/test_naming.py:26` — `assert list(fm.keys())[0] == "nbkqr"` becomes the new positional name (`part_4` or whichever the Tier 3 rule produces).
+- `tests/integration/test_codegen.py:256-262` — chess assertions (`"a_h_x" in Pawn.model_fields` etc.) become assertions over the new positional names. The actual Tier 3 names are decided during implementation; tests update accordingly.
 
 ### Slice 3 — `parsing/lark_builder.py` + `parsing/transformer/`
 
@@ -345,10 +419,23 @@ The "one fell swoop." Single landable commit. Mostly mechanical.
 
 ## Out of scope
 
-- **Generalising negation across atoms.** Today `IrCharClass.negated` is the only carrier of negation. The user has flagged that negation should be applicable to anything quantifiable. This is a separate IR-shape change that needs its own brainstorm. Tracked for a follow-up cycle.
-- **Documentation supersession (Task 26).** Updating `prototyping/next/2_ARCHITECTURE.md` to reflect the post-cutover layering, adding ASCII pipeline diagrams, and rotating obsolete `prototyping/curr/` documents into `prototyping/old/` is deferred to a separate brainstorm after this work lands.
-- **Slice C/D/E from `prototyping/next/3_ROADMAP.md`** (type-driven IR, `@grammar_rule` decorator, error-quality pass). Unaffected by this work.
-- **ABNF parallel-track.** ABNF modules are already IR-AST shape (Tasks 14–17) and need no migration. They are untouched in this work.
+The following items from `prototyping/curr/2_LEXIC_GENERATED_CODE_PROPOSAL.md` are deferred. Each deserves its own brainstorm session.
+
+- **`@grammar_rule` decorator (proposal §4).** Slice D in the roadmap. Needs a template DSL parser, field-vs-template validation, IR build from template + class field types, forward-reference resolution. Substantial work.
+- **Discriminator synthesis (proposal §7.6).** Generated `_discriminate_*` functions, arm field-set ambiguity analysis, ambiguous-pair diagnostics. Real codegen work, not rearrangement.
+- **Sidecar YAML (proposal §6.4).** Schema, parser, structural merge with regenerated defaults, first-run default emission.
+- **`_raw` for whitespace fidelity (proposal §9).** Transformer-level change: `_raw: dict[str, str]` populated at parse time, excluded from `model_dump`/`__eq__`/`semantic_dump`. Not a codegen concern.
+- **List-tail flattening (proposal §4.1, §10).** Eliminating helper classes for `X (sep X)*` shapes via `List[X]` with separator annotation. Requires IR transformation; the head/tail *naming* in S2.4 is free, but actual structural flattening isn't.
+- **`PatternAtom` collapse (proposal §5.5).** `IrCharClass` plus future quantified-literal and inline-regex variants merging into a single atom with `regex` + `source_forms`. Slice B-equivalent in the roadmap. IR shape change.
+- **Tier 1 (alias-driven naming).** Requires the decorator path so the user can declare aliases; flows naturally with `@grammar_rule`.
+- **Tier 4 (sidecar naming).** Flows with the sidecar YAML brainstorm.
+
+Other items unaffected by this work:
+
+- **Generalising negation across atoms.** Today `IrCharClass.negated` is the only carrier of negation. The user has flagged that negation should be applicable to anything quantifiable. Separate IR-shape change. Tracked for a follow-up cycle.
+- **Documentation supersession (original Task 26).** Updating `prototyping/next/2_ARCHITECTURE.md` to reflect the post-cutover layering, adding ASCII pipeline diagrams, rotating obsolete `prototyping/curr/` documents into `prototyping/old/`. Deferred to a separate brainstorm after this work lands.
+- **Slices D/E from `prototyping/next/3_ROADMAP.md`** (`@grammar_rule` decorator, error-quality pass). Unaffected by this work.
+- **ABNF parallel-track.** ABNF modules are already IR-AST shape (Tasks 14–17) and need no migration. Untouched in this work.
 
 ## Risks and mitigations
 
@@ -360,6 +447,11 @@ The "one fell swoop." Single landable commit. Mostly mechanical.
 
 **R3. Generated module backwards compat.** Existing `generated/*.py` files were emitted by the legacy `model_emitter` and import legacy atoms. After cutover, those modules will fail to import.
 - Mitigation: `generated/` is git-ignored and write-once per project (per CLAUDE.md §"Project layout"). Any consumer regenerates on first use after pulling. The cutover commit itself does not need to regenerate them; consumers do so transparently via `compile()`.
+
+**R5. Visible generated-shape change.** Slice 2 changes the shape of generated code substantially: type aliases at module top, `Annotated[str, StringConstraints(...)]` types, `Literal[...]` for pure-literal alternations, positional names instead of pattern-derived names, `__grammar__` at module footer instead of class body. Code that imports from `generated/*.py` and accesses fields by their old names breaks.
+- Mitigation 1: in-repo, only the two test files flagged in Slice 2's "Test fallout to update" section reference old names; both are updated in the same slice.
+- Mitigation 2: integration tests that go through the public `compile()` / `parse()` surface (semantic round-trip, property tests) keep passing because they exercise behavior, not field names. Field-name changes surface in `semantic_dump()` output; tests that hardcode keys are updated as encountered.
+- Mitigation 3: the visible change is the *whole point* of the clean pass — once landed, the generated code looks like hand-written Pydantic and matches the proposal's target shape modulo deferred items.
 
 **R4. Decisions from Tasks 1–18 not preserved.** Several decisions in the original plan (Decision H, CQ #1, CQ #2, CQ #4, OV #1, OV #6, OV #12, OV #20, Arch #2, Arch #3) reflect architectural commitments that this spec must honour.
 - Mitigation: each decision is anchored in a slice's exit criterion or implementation note. Specifically:
@@ -378,10 +470,16 @@ None for this brainstorm. The IRCharClass negation generalisation and Task 26 do
 
 ## Success criteria (whole spec)
 
-- 312+ existing tests + new unit tests for `new_gbnf`, `new_codegen`, `parsing/lark_builder`, `parsing/transformer` all green at the end of every slice.
+- 312+ existing tests + new unit tests for `new_gbnf`, `new_codegen`, `parsing/lark_builder`, `parsing/transformer` all green at the end of every slice (modulo the two test files updated in Slice 2 for new field names).
 - Property round-trips green.
-- `compile_text(text, flavour="gbnf")` and `compile_text(text, flavour="abnf")` produce byte-identical results before and after the cutover for the seven ground-truth grammars.
+- `compile_text(text, flavour="gbnf")` and `compile_text(text, flavour="abnf")` produce semantically equivalent results before and after the cutover for the seven ground-truth grammars (round-trips, parse-then-emit, structural equivalence). Byte-identical output is *not* required — generated module shape changes by design in Slice 2.
 - `RuleSpec.items: list[IrItem]` typed strictly. `NewRuleSpec` collapsed.
 - `lexic.codegen` and `lexic.parsing` import nothing from `lexic.grammars.<flavour>`.
 - `lexic.grammars.flavours` does not exist.
 - No `# FIXME`, no `isinstance(item, IrItem)` shape forks, no `name == "ws"` hacks anywhere in the post-cutover tree.
+- **Generated-code target shape achieved (S2.1–S2.5):**
+  - Module-level `Annotated[str, StringConstraints(...)]` aliases for char-class patterns; aliases shared across rules with identical patterns.
+  - Pattern fields typed via aliases, not bare `str`.
+  - Pure-literal value_str rules emit `Literal[...]` typed fields.
+  - No `_sanitize_pattern`-derived field names (`a_h_x`, `val_0_92`, `nbkqr`, `cc_1_8`) anywhere in generated source.
+  - Class bodies contain only field declarations; `__grammar__` registration lives at module footer.
