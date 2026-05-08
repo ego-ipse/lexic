@@ -1,0 +1,11 @@
+"""META_GRAMMAR mirror parity."""
+
+from __future__ import annotations
+
+from lexic.grammars.new_gbnf.meta_grammar import META_GRAMMAR as NEW
+from lexic.grammars.gbnf.meta_grammar import META_GRAMMAR as LEGACY
+
+
+def test_meta_grammar_byte_identical():
+    """META_GRAMMAR is byte-identical between the two modules."""
+    assert NEW == LEGACY
