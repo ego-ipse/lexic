@@ -27,7 +27,7 @@ from lexic.ir.atoms import (
 CHARCLASS_NAMES: dict[str, str] = {
     "[0-9]": "digit",
     "[0-9a-fA-F]": "hex",
-    "[a-fA-F0-9]": "hex",
+    "[a-fA-F0-9]": "hex",  # same name — both orderings of hex digits normalise to "hex"
     "[a-f]": "hex_lower",
     "[A-F]": "hex_upper",
     "[a-z]": "lower",

@@ -162,9 +162,6 @@ def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
 
 # ── field naming ──────────────────────────────────────────────────────
 
-# atom → field-name hint. Each entry of _ATOM_HINT is registered against
-# the concrete atom subtype it accepts; the resolved lambda always sees
-# the matching subtype (see _ATOM_HINT below).
 _A = TypeVar("_A", bound=IrAtom)
 _FieldHint: TypeAlias = Callable[[_A], str]
 
@@ -179,13 +176,17 @@ def _ascii_token(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "_", value).strip("_").lower()[:12]
 
 
+# Always returns str (sanitize/fallback literals ensure no None).
+# Used only inside _group_hint to name the first child of a literal-only group.
+# _group_hint is forward-referenced safely: lambdas evaluate at call time.
 _ATOM_HINT: dict[type, _FieldHint] = {
     IrLiteral: lambda a: _LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
     IrCharClass: lambda a: (
         CHARCLASS_NAMES.get(_bracketed(a)) or _sanitize_pattern(_bracketed(a)) or "cc"
     ),
     IrRuleRef: lambda a: a.name.replace("-", "_"),
-    IrGroup: lambda a: "value" if _has_ruleref(a) else _group_hint(a),
+    # ruleref group → "kind" (structural slot); literal-only group → name from content
+    IrGroup: lambda a: "kind" if _has_ruleref(a) else _group_hint(a),
 }
 
 
@@ -203,9 +204,12 @@ def _group_field_base(a: IrGroup) -> str | None:
     if _has_ruleref(a):
         return "kind"
     h = _group_hint(a)
-    return h if h not in {None, "inline", "lit", "cc"} else None
+    return h if h not in {"inline", "lit", "cc"} else None
 
 
+# Returns str | None. None signals no Tier-2 match; _field_map falls through to
+# Tier-3 positional naming ("head" / "part_N"). Contrast with _ATOM_HINT which
+# always returns str and is used only for naming, never for fallback routing.
 FieldBase: TypeAlias = dict[type[_A], Callable[[_A], str | None]]
 _FIELD_BASE: FieldBase = {
     IrLiteral: lambda a: _LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
@@ -220,7 +224,8 @@ def _field_map(items: Sequence[IrItem]) -> dict[str, int]:
 
     Tier 2 (pattern library): CHARCLASS_NAMES / _LITERAL_NAMES lookup.
     Tier 3 (positional): first unmatched pattern field → 'head', rest → 'part_N'.
-    Rule-refs keep the rule name. Bare literals produce no field.
+    Rule-refs keep the rule name. Unquantified IrLiterals produce no field and
+    never reach Tier-3; quantified IrLiterals do produce a field via Tier-2.
     """
     result: dict[str, int] = {}
     counts: defaultdict[str, int] = defaultdict(int)

@@ -600,7 +600,7 @@ def test_field_map_tier2_match_takes_precedence_over_tier3():
 def test_field_map_mixed_tier2_and_tier3():
     """A Tier-2 hit + Tier-3 fallback in the same rule."""
     items = [
-        IrItem(IrCharClass("0-9"), Quantifier(1, None)),  # → 'digits'
+        IrItem(IrCharClass("0-9"), Quantifier(1, None)),  # → 'digit'
         IrItem(
             IrCharClass("xyz_unmatched"), Quantifier(1, 1)
         ),  # → 'head' (first Tier-3 pattern)
