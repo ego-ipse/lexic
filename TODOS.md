@@ -28,6 +28,18 @@ Project-level deferred work. Each entry: what, why, depends-on, where.
 
 ---
 
+## `src/lexic/utils/quantifiers.py` — revisit when adding IrNegation
+
+**What:** When implementing IrNegation (the deferred "negation should be applicable to anything a quantifier is" feature), revisit `quantifier_to_bounds` in `src/lexic/utils/quantifiers.py`. The empty-string edge case was patched (`"" → (1,1)`) during the parallel-track cutover. IrNegation may expose further assumptions in how quantifiers and negation compose.
+
+**Why:** The patch (treating `""` same as `None`) was expedient. IrNegation changes the semantic space of what a quantifier applies to — worth a deliberate review pass.
+
+**Depends on / blocked by:** IrNegation brainstorm + implementation.
+
+**Where to start:** `src/lexic/utils/quantifiers.py`, `src/lexic/ir/nodes.py` (IrCharClass.negated is the current negation anchor).
+
+---
+
 ## `<...>` GBNF token reservation
 
 **What:** Implement the `<token>` syntax detection that `prototyping/next/2_ARCHITECTURE.md` §"Token reservation" describes — `UnsupportedConstructError` for any GBNF source containing `<...>` token references, with the architecture-doc's two error classes (`UnsupportedConstructError` and `TokenAmbiguityError`).
