@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from lexic.ir.derive import (
+    _field_map,
     _HoistTransformer,
     classify_kind,
     compute_parents,
@@ -570,3 +571,70 @@ def test_helpers_always_get_grammar_model_parent():
     specs = derive_specs(ast)
     helper = next(s for s in specs if s.rule_name == "expr-item")
     assert helper.parent_class_name == "GrammarModel"
+
+
+def test_field_map_tier3_pattern_positional_head():
+    """First IrCharClass without Tier 2 match → 'head'."""
+    items = [IrItem(IrCharClass("xyz_unmatched"), Quantifier(1, 1))]
+    fm = _field_map(items)
+    assert list(fm.keys()) == ["head"]
+
+
+def test_field_map_tier3_pattern_positional_part_n():
+    """Second IrCharClass without Tier 2 match → 'part_2'."""
+    items = [
+        IrItem(IrCharClass("xyz_unmatched"), Quantifier(1, 1)),
+        IrItem(IrCharClass("abc_unmatched"), Quantifier(1, 1)),
+    ]
+    fm = _field_map(items)
+    assert list(fm.keys()) == ["head", "part_2"]
+
+
+def test_field_map_tier2_match_takes_precedence_over_tier3():
+    """An IrCharClass matching the Tier 2 library uses the library name."""
+    items = [IrItem(IrCharClass("0-9"), Quantifier(1, None))]
+    fm = _field_map(items)
+    assert list(fm.keys()) == ["digit"]
+
+
+def test_field_map_mixed_tier2_and_tier3():
+    """A Tier-2 hit + Tier-3 fallback in the same rule."""
+    items = [
+        IrItem(IrCharClass("0-9"), Quantifier(1, None)),  # → 'digits'
+        IrItem(
+            IrCharClass("xyz_unmatched"), Quantifier(1, 1)
+        ),  # → 'head' (first Tier-3 pattern)
+    ]
+    fm = _field_map(items)
+    assert list(fm.keys()) == ["digit", "head"]
+
+
+def test_field_map_irgroup_with_ruleref_named_kind():
+    """IrGroup containing rulerefs (inline alternation) → 'kind' (was 'value')."""
+    grp = IrGroup(
+        IrAlternation(
+            (
+                IrSequence((IrItem(IrRuleRef("a")),)),
+                IrSequence((IrItem(IrRuleRef("b")),)),
+            )
+        )
+    )
+    items = [IrItem(grp, Quantifier(1, 1))]
+    fm = _field_map(items)
+    assert list(fm.keys()) == ["kind"]
+
+
+def test_field_map_ruleref_unchanged_uses_rule_name():
+    """Tier 3 does NOT change ruleref naming. Field name stays the rule name."""
+    items = [IrItem(IrRuleRef("expr"), Quantifier(1, 1))]
+    fm = _field_map(items)
+    assert list(fm.keys()) == ["expr"]
+
+
+def test_pattern_field_falls_back_to_positional_not_sanitized():
+    """A non-Tier-2 pattern produces a positional Tier-3 name, not _sanitize_pattern output."""
+    items = [IrItem(IrCharClass("NBKQR"), Quantifier(1, 1))]
+    fm = _field_map(items)
+    # Tier 3: first pattern field → 'head' (not 'nbkqr')
+    assert list(fm.keys()) == ["head"]
+    assert "nbkqr" not in fm

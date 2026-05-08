@@ -179,15 +179,6 @@ def _ascii_token(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "_", value).strip("_").lower()[:12]
 
 
-def _group_hint(group: IrGroup) -> str:
-    """Name a literal-only group from the first atom of its first arm."""
-    if not (group.body.arms and group.body.arms[0].items):
-        return "inline"
-    first = group.body.arms[0].items[0].atom
-    hint = _ATOM_HINT.get(type(first))
-    return hint(first) if hint else "inline"
-
-
 _ATOM_HINT: dict[type, _FieldHint] = {
     IrLiteral: lambda a: _LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
     IrCharClass: lambda a: (
@@ -198,17 +189,53 @@ _ATOM_HINT: dict[type, _FieldHint] = {
 }
 
 
+def _group_hint(group: IrGroup) -> str:
+    """Name a literal-only group from the first atom of its first arm."""
+    if not (group.body.arms and group.body.arms[0].items):
+        return "inline"
+    first = group.body.arms[0].items[0].atom
+    hint = _ATOM_HINT.get(type(first))
+    return hint(first) if hint else "inline"
+
+
+def _group_field_base(a: IrGroup) -> str | None:
+    """Tier-2 name for a group atom, or None → Tier-3 positional fallback."""
+    if _has_ruleref(a):
+        return "kind"
+    h = _group_hint(a)
+    return h if h not in {None, "inline", "lit", "cc"} else None
+
+
+FieldBase: TypeAlias = dict[type[_A], Callable[[_A], str | None]]
+_FIELD_BASE: FieldBase = {
+    IrLiteral: lambda a: _LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
+    IrRuleRef: lambda a: a.name.replace("-", "_"),
+    IrCharClass: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
+    IrGroup: _group_field_base,
+}
+
+
 def _field_map(items: Sequence[IrItem]) -> dict[str, int]:
-    """Map atoms to field names."""
+    """Map atoms to Pydantic field names.
+
+    Tier 2 (pattern library): CHARCLASS_NAMES / _LITERAL_NAMES lookup.
+    Tier 3 (positional): first unmatched pattern field → 'head', rest → 'part_N'.
+    Rule-refs keep the rule name. Bare literals produce no field.
+    """
     result: dict[str, int] = {}
     counts: defaultdict[str, int] = defaultdict(int)
+    pattern_pos = 0
     for i, item in enumerate(items):
-        if isinstance(item.atom, IrLiteral) and item.quantifier == Quantifier(1, 1):
+        atom = item.atom
+        if isinstance(atom, IrLiteral) and item.quantifier == Quantifier(1, 1):
             continue
-        hint = _ATOM_HINT.get(type(item.atom))
-        if hint is None:
+        handler = _FIELD_BASE.get(type(atom))
+        if handler is None:
             continue
-        base = hint(item.atom)
+        base = handler(atom)
+        if base is None:
+            pattern_pos += 1
+            base = "head" if pattern_pos == 1 else f"part_{pattern_pos}"
         counts[base] += 1
         result[base if counts[base] == 1 else f"{base}{counts[base]}"] = i
     return result
