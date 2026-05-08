@@ -9,4 +9,4 @@ def test_imports():
     """Sanity: new_gbnf package re-exports the right names."""
     assert hasattr(new_gbnf, "GbnfEscapes")
     assert hasattr(new_gbnf, "META_GRAMMAR")
-    # assert hasattr(new_gbnf, "NewGbnfFlavour")  # Task 2
+    assert hasattr(new_gbnf, "GbnfFlavour")

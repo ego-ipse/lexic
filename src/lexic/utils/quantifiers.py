@@ -1,3 +1,5 @@
+"""Utility functions for working with quantifiers."""
+
 from __future__ import annotations
 
 
@@ -20,7 +22,7 @@ def bounds_to_quantifier(min_: int, max_: int | None) -> str:
 
 def quantifier_to_bounds(q: str | None) -> tuple[int, int | None]:
     """Parse a GBNF/Lark quantifier string into (min, max). max=None means unbounded."""
-    if q is None:
+    if not q:
         return 1, 1
     if q == "?":
         return 0, 1
