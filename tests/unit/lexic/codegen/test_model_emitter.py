@@ -105,8 +105,8 @@ def test_arithmetic_ident_fields(arithmetic_mod):
     hints = get_type_hints(arithmetic_mod.Ident)
     assert "lower" in hints
     assert hints["lower"] is str
-    assert "alnum" in hints
-    assert hints["alnum"] is str
+    assert "a_z0_9" in hints
+    assert hints["a_z0_9"] is str
     assert "ws" in hints
 
 

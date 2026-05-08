@@ -157,9 +157,9 @@ def test_arithmetic_termarm3_is_subclass_of_term(arithmetic_classes):
 def test_arithmetic_ident_fields(arithmetic_classes):
     Ident = arithmetic_classes["Ident"]
     # ident ::= [a-z] [a-z0-9_]* ws
-    # CharClassAtoms → "lower", "alnum"; RuleRefAtom(ws) → "ws"
+    # CharClassAtoms → "lower", "a_z0_9" (sanitized); RuleRefAtom(ws) → "ws"
     assert _hint(Ident, "lower") is str
-    assert _hint(Ident, "alnum") is str
+    assert _hint(Ident, "a_z0_9") is str
     assert "ws" in get_type_hints(Ident)
 
 
@@ -180,8 +180,8 @@ def test_arithmetic_termarm3_fields(arithmetic_classes):
 def test_arithmetic_expritem_fields(arithmetic_classes):
     ExprItem = arithmetic_classes["ExprItem"]
     Term = arithmetic_classes["Term"]
-    # expr-item ::= [-+*/] term  → CharClassAtom→"op", RuleRefAtom(term)→"term"
-    assert _hint(ExprItem, "op") is str
+    # expr-item ::= [-+*/] term  → CharClassAtom→"cc" (sanitized), RuleRefAtom(term)→"term"
+    assert _hint(ExprItem, "cc") is str
     assert _hint(ExprItem, "term") is Term
 
 
@@ -225,9 +225,9 @@ def test_arithmetic_circular_ref_resolved(arithmetic_classes):
     Expr = arithmetic_classes["Expr"]
     Ws = arithmetic_classes["Ws"]
     ws = Ws(value="")
-    ident = Ident(lower="x", alnum="yz", ws=ws)
+    ident = Ident(lower="x", a_z0_9="yz", ws=ws)
     expr = Expr(term=ident, expr_item=[])
-    expritem = ExprItem(op="+", term=ident)
+    expritem = ExprItem(cc="+", term=ident)
     assert expritem.term is ident
     assert expr.term is ident
 
@@ -267,10 +267,10 @@ def test_chess_pawn_has_charclass_fields(chess_classes):
 def test_chess_move_has_charclass_field(chess_classes):
     Move = chess_classes["Move"]
     # move ::= (pawn | nonpawn | castle) [+#]?
-    # InlineAlternationAtom → "value", CharClassAtom([+#]) → "annotation"
+    # InlineAlternationAtom → "value", CharClassAtom([+#]?) → "opt"
     hints = get_type_hints(Move)
-    assert "annotation" in hints
-    assert hints["annotation"] is str
+    assert "opt" in hints
+    assert hints["opt"] is str
 
 
 def test_chess_rootitem_fields(chess_classes):
@@ -278,9 +278,9 @@ def test_chess_rootitem_fields(chess_classes):
     Move = chess_classes["Move"]
     hints = get_type_hints(RootItem)
     # root-item ::= [1-9] [0-9]? ". " move " " move "\n"
-    # → digit: str, digit2: str, move: Move, move2: Move
+    # → cc_1_9: str, digit: str, move: Move, move2: Move
+    assert hints["cc_1_9"] is str
     assert hints["digit"] is str
-    assert hints["digit2"] is str
     assert hints["move"] is Move
     assert hints["move2"] is Move
 
@@ -326,8 +326,8 @@ def test_japanese_rootitem_fields(japanese_classes):
     RootItem = japanese_classes["RootItem"]
     JpChar = japanese_classes["JpChar"]
     hints = get_type_hints(RootItem)
-    # root-item ::= [ \t\n] jp-char+  → ws_char: str, jp_char: List[JpChar]
-    assert hints["ws_char"] is str
+    # root-item ::= [ \t\n] jp-char+  → tn: str (sanitized), jp_char: List[JpChar]
+    assert hints["tn"] is str
     assert _is_list_of(hints["jp_char"], JpChar)
 
 

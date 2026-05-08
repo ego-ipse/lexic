@@ -109,9 +109,9 @@ class RootItem(GrammarModel):
             CharClassAtom("[ \\t\\n]", min=1, max=1),
             RuleRefAtom("jp-char", min=1, max=None),
         ],
-        field_map={"ws_char": 0, "jp_char": 1},
+        field_map={"tn": 0, "jp_char": 1},
     )
-    ws_char: str
+    tn: str
     jp_char: List[JpChar]
 
 

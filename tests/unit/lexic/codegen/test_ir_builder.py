@@ -105,10 +105,10 @@ def test_arithmetic_ident_field_map():
     ident = d["ident"]
     fm = ident.field_map
     assert "lower" in fm  # [a-z]
-    assert "alnum" in fm  # [a-z0-9_]*
+    assert "a_z0_9" in fm  # [a-z0-9_]*
     assert "ws" in fm  # ws
     assert fm["lower"] == 0
-    assert fm["alnum"] == 1
+    assert fm["a_z0_9"] == 1
     assert fm["ws"] == 2
 
 
@@ -287,11 +287,13 @@ def test_topo_sort_root_is_first():
 
 
 def test_ident_field_names_are_semantic():
-    """[a-z] → 'lower', [a-z0-9_]* → 'alnum', not 'first'/'second'."""
+    """[a-z] → 'lower', [a-z0-9_]* → 'a_z0_9' (sanitized), not 'first'/'second'."""
     d = _by_rule(_build("arithmetic"))
     ident = d["ident"]
     assert "lower" in ident.field_map, f"Expected 'lower', got {list(ident.field_map)}"
-    assert "alnum" in ident.field_map, f"Expected 'alnum', got {list(ident.field_map)}"
+    assert "a_z0_9" in ident.field_map, (
+        f"Expected 'a_z0_9', got {list(ident.field_map)}"
+    )
     assert "first" not in ident.field_map
     assert "second" not in ident.field_map
 

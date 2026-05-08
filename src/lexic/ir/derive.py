@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from functools import cache
 from typing import Callable, Literal, TypeAlias, TypeVar
 
-from lexic.ir.naming import _CHARCLASS_NAMES, _LITERAL_NAMES, _sanitize_pattern
+from lexic.ir.naming import _LITERAL_NAMES, CHARCLASS_NAMES, _sanitize_pattern
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -191,7 +191,7 @@ def _group_hint(group: IrGroup) -> str:
 _ATOM_HINT: dict[type, _FieldHint] = {
     IrLiteral: lambda a: _LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
     IrCharClass: lambda a: (
-        _CHARCLASS_NAMES.get(_bracketed(a)) or _sanitize_pattern(_bracketed(a)) or "cc"
+        CHARCLASS_NAMES.get(_bracketed(a)) or _sanitize_pattern(_bracketed(a)) or "cc"
     ),
     IrRuleRef: lambda a: a.name.replace("-", "_"),
     IrGroup: lambda a: "value" if _has_ruleref(a) else _group_hint(a),

@@ -51,10 +51,10 @@ class Move(GrammarModel):
             InlineAlternationAtom(["pawn", "nonpawn", "castle"]),
             CharClassAtom("[+#]", min=0, max=1),
         ],
-        field_map={"value": 0, "annotation": 1},
+        field_map={"value": 0, "opt": 1},
     )
     value: Union[Pawn, Nonpawn, Castle]
-    annotation: str
+    opt: str
 
 
 class Nonpawn(GrammarModel):
@@ -131,10 +131,10 @@ class RootItem(GrammarModel):
             RuleRefAtom("move", min=1, max=1),
             LiteralAtom("\\n"),
         ],
-        field_map={"digit": 0, "digit2": 1, "move": 3, "move2": 5},
+        field_map={"cc_1_9": 0, "digit": 1, "move": 3, "move2": 5},
     )
+    cc_1_9: str
     digit: str
-    digit2: str
     move: Move
     move2: Move
 

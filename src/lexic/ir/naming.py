@@ -3,7 +3,7 @@
 Extracted from ir_builder.py so the naming policy can be evolved and
 tested independently of GBNF semantics. Slice C will replace this module
 with the four-tier cascade; for now the behaviour is identical to the
-pre-extraction _CHARCLASS_NAMES/_LITERAL_NAMES lookup.
+pre-extraction CHARCLASS_NAMES/_LITERAL_NAMES lookup.
 
 Stateless. Per-rule scope (collision counters reset per call).
 """
@@ -24,27 +24,16 @@ from lexic.ir.atoms import (
     RuleRefAtom,
 )
 
-_CHARCLASS_NAMES: dict[str, str] = {
+CHARCLASS_NAMES: dict[str, str] = {
     "[0-9]": "digit",
-    "[1-9]": "digit",
     "[0-9a-fA-F]": "hex",
     "[a-fA-F0-9]": "hex",
     "[a-f]": "hex_lower",
     "[A-F]": "hex_upper",
     "[a-z]": "lower",
     "[A-Z]": "upper",
-    "[a-zA-Z]": "alpha",
-    "[a-z0-9_]": "alnum",
-    "[a-zA-Z_]": "name_start",
-    "[a-zA-Z0-9_]": "alnum",
+    "[a-zA-Z]": "letter",
     "[a-zA-Z_0-9]": "alnum",
-    "[+\\-*/]": "op",
-    "[-+*/]": "op",
-    "[+#]": "annotation",
-    "[ \\t\\n]": "ws_char",
-    "[ \\t]": "hspace",
-    "[^\\n]": "non_newline",
-    '[^"\\\\]': "str_char",
 }
 
 _LITERAL_NAMES: dict[str, str] = {
@@ -75,8 +64,8 @@ def _sanitize_pattern(pattern: str) -> str:
 
 
 def _charclass_field_name(atom: CharClassAtom) -> str:
-    if atom.pattern in _CHARCLASS_NAMES:
-        return _CHARCLASS_NAMES[atom.pattern]
+    if atom.pattern in CHARCLASS_NAMES:
+        return CHARCLASS_NAMES[atom.pattern]
     hint = _sanitize_pattern(atom.pattern)
     if hint:
         return hint

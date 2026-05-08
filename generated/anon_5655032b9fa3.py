@@ -82,10 +82,10 @@ class Ident(Term):
             CharClassAtom("[a-z0-9_]", min=0, max=None),
             RuleRefAtom("ws", min=1, max=1),
         ],
-        field_map={"lower": 0, "alnum": 1, "ws": 2},
+        field_map={"lower": 0, "a_z0_9": 1, "ws": 2},
     )
     lower: str
-    alnum: str
+    a_z0_9: str
     ws: Ws
 
 
@@ -153,9 +153,9 @@ class ExprItem(GrammarModel):
             CharClassAtom("[-+*/]", min=1, max=1),
             RuleRefAtom("term", min=1, max=1),
         ],
-        field_map={"op": 0, "term": 1},
+        field_map={"cc": 0, "term": 1},
     )
-    op: str
+    cc: str
     term: Term
 
 
