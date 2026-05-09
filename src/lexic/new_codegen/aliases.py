@@ -123,10 +123,11 @@ class _PatternAliasVisitor(IrVisitor):
         """Initialize with empty state."""
         self.aliases: dict[str, PatternAlias] = {}
         self._name_counts: Counter[str] = Counter()
+        # Sentinel frame: never popped, keeps `[-1]` indexing safe at top level.
         self._ruleref_frames: list[bool] = [False]
 
     def visit_IrRuleRef(self, _: IrRuleRef) -> None:  # pylint: disable=invalid-name
-        """Mark the current frame as dirty, indicating that any enclosing group is not pure-pattern."""
+        """Mark the current frame dirty so the enclosing group is non-pure."""
         self._ruleref_frames[-1] = True
 
     def visit_IrItem(self, node: IrItem) -> None:  # pylint: disable=invalid-name

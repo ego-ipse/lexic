@@ -121,13 +121,78 @@ def test_collect_aliases_naming_via_tier_pipeline():
         "sequence",
         [
             IrItem(IrCharClass("a-z"), Quantifier(1, None)),  # Tier 2: lower → Lower
-            IrItem(IrCharClass("0-9"), Quantifier(1, None)),  # Tier 2: digit → Digit2
+            IrItem(IrCharClass("0-9"), Quantifier(1, None)),  # Tier 2: digit → Digit
         ],
     )
     aliases = collect_aliases([s])
     names = {a.name for a in aliases}
-    assert "Lower" in names
-    assert "Digit" in names or "Digit2" in names
+    assert names == {"Lower", "Digit"}
+
+
+def test_collect_aliases_disambiguates_same_base_name():
+    """Two distinct [0-9] regexes (different quantifiers) yield Digit + Digit2."""
+    s = _spec(
+        "r",
+        "sequence",
+        [
+            IrItem(IrCharClass("0-9"), Quantifier(1, 1)),
+            IrItem(IrCharClass("0-9"), Quantifier(1, None)),
+        ],
+    )
+    names = [a.name for a in collect_aliases([s])]
+    assert names == ["Digit", "Digit2"]
+
+
+def test_collect_aliases_skips_group_with_ruleref():
+    """A group containing an IrRuleRef does not produce a PatternAlias."""
+    grp = IrGroup(
+        IrAlternation(
+            (
+                IrSequence(
+                    (
+                        IrItem(IrLiteral("("), Quantifier(1, 1)),
+                        IrItem(IrRuleRef("expr"), Quantifier(1, 1)),
+                        IrItem(IrLiteral(")"), Quantifier(1, 1)),
+                    )
+                ),
+            )
+        )
+    )
+    s = _spec(
+        "r",
+        "sequence",
+        [IrItem(grp, Quantifier(1, 1))],
+        field_map={"kind": 0},
+    )
+    assert not collect_aliases([s])
+
+
+def test_collect_aliases_pure_group_with_inner_charclass_emits_both():
+    """Pure-pattern outer group + inner [0-9] both produce aliases."""
+    grp = IrGroup(
+        IrAlternation(
+            (
+                IrSequence(
+                    (
+                        IrItem(IrCharClass("0-9"), Quantifier(1, None)),
+                        IrItem(IrLiteral("x"), Quantifier(1, 1)),
+                    )
+                ),
+            )
+        )
+    )
+    s = _spec(
+        "r",
+        "sequence",
+        [IrItem(grp, Quantifier(0, 1))],
+        field_map={"head": 0},
+    )
+    aliases = collect_aliases([s])
+    regexes = {a.regex for a in aliases}
+    assert regexes == {r"^[0-9]+$", r"^([0-9]+x)?$"}
+    names = {a.name for a in aliases}
+    assert "Digit" in names
+    assert "Pattern" in names
 
 
 def test_collect_aliases_empty_for_no_patterns():
