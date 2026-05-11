@@ -12,13 +12,12 @@ from lexic.ir.nodes import (
     IrSequence,
     Quantifier,
 )
-from lexic.ir.spec import RuleSpec
+from lexic.ir.spec import NewRuleSpec
 from lexic.new_codegen.model_emitter import emit_module_source
 
 
 def _spec(name, kind, items, parent="GrammarModel", field_map=None):
-    """Helper to create a RuleSpec with the given items."""
-    return RuleSpec(
+    return NewRuleSpec(
         rule_name=name,
         class_name=name.title(),
         parent_class_name=parent,
@@ -82,13 +81,57 @@ def test_emit_list_field_for_quantifier_unbounded():
     assert "List[Expr]" in src
 
 
+def test_emit_list_field_for_quantifier_zero_or_more():
+    """Quantifier {0,+inf} also emits List[...] field."""
+    inner = _spec(
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), Quantifier(1, None))]
+    )
+    outer = _spec(
+        "r",
+        "sequence",
+        [IrItem(IrRuleRef("expr"), Quantifier(0, None))],
+        field_map={"expr": 0},
+    )
+    src = emit_module_source([outer, inner], stem="m")
+    assert "List[Expr]" in src
+
+
+def test_emit_alternation_kind_emits_pass():
+    """Alternation-kind specs emit only __grammar__ + pass (no fields)."""
+    spec = _spec("node", "alternation", [], field_map={})
+    src = emit_module_source([spec], stem="m")
+    assert "class Node(GrammarModel):" in src
+    assert "pass" in src
+    assert "value:" not in src
+
+
+def test_emit_value_str_multi_arm():
+    """Multi-arm value_str (IrAlternation in items) serialises without FIXME."""
+    spec = _spec(
+        "tok",
+        "value_str",
+        [
+            IrAlternation(
+                (
+                    IrSequence((IrItem(IrLiteral("a")),)),
+                    IrSequence((IrItem(IrLiteral("b")),)),
+                )
+            )
+        ],
+    )
+    src = emit_module_source([spec], stem="m")
+    assert "class Tok(GrammarModel):" in src
+    assert "FIXME" not in src
+    assert "IrAlternation" in src
+
+
 def test_emitted_module_has_canonical_imports():
     """Emitted modules have canonical imports."""
     spec = _spec("r", "value_str", [IrItem(IrLiteral("x"))])
     src = emit_module_source([spec], stem="m")
     expected_lines = [
         "from lexic.base import GrammarModel",
-        "from lexic.ir.spec import RuleSpec",
+        "from lexic.ir.spec import NewRuleSpec",
         "from lexic.ir.nodes import",
     ]
     for line in expected_lines:

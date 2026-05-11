@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import Callable, TypeAlias, TypeVar
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -104,14 +105,21 @@ class IrDispatch[_N, _T]:
         """Walk children via _CHILDREN, recurse, and delegate to ``_combine``."""
         getter = self.children.get(type(node))
         if getter is None and not isinstance(node, IrLeaf):
-            raise TypeError(f"generic_visit: unknown node type {type(node).__name__!r}")
+            raise UnsupportedConstructError(
+                f"generic_visit: unknown node type {type(node).__name__!r}"
+            )
         old_children = getter(node) if getter else ()
         new_children = tuple(self.visit(c) for c in old_children)
         return self._combine(node, old_children, new_children)
 
     def _combine(self, node: _N, old_children: tuple, new_children: tuple) -> _T:
         """Combine visited children into a result for ``node``. Subclass overrides."""
-        return self.action[type(node)](node, old_children, new_children)
+        try:
+            return self.action[type(node)](node, old_children, new_children)
+        except KeyError as exc:
+            raise UnsupportedConstructError(
+                f"no action handler for node type {type(node).__name__!r}"
+            ) from exc
 
 
 class IrVisitor[_N](IrDispatch[_N, None]):
