@@ -1,11 +1,19 @@
-"""IrVisitor and IrTransformer — Python-ast-style traversal for the IR AST.
+"""IrDispatch, IrVisitor, IrTransformer — Python-ast-style traversal for the IR AST.
 
-`IrVisitor` walks; subclass and define `visit_<NodeType>` methods.
-`IrTransformer` rewrites; methods return a (possibly new) node.
+``IrDispatch[_N, _T]`` is the shared parent. ``visit()`` dispatches to
+``visit_<TypeName>`` methods; missing types fall to ``generic_visit`` which
+walks children via ``_CHILDREN`` and delegates to ``_combine`` (subclass
+override). The two canonical instantiations are:
 
-Both use module-level dispatch tables so the child-structure of each node type
-is defined once. Leaves (IrLiteral, IrCharClass, IrRuleRef) have no children.
-Unknown node types raise TypeError.
+  IrVisitor[_N]      = IrDispatch[_N, None]   walks for side effects.
+  IrTransformer[_N]  = IrDispatch[_N, _N]     rewrites via ``_REBUILD``.
+
+Other folds-to-T can subclass ``IrDispatch`` directly when state is needed.
+For stateless reductions to a value (e.g. pretty-print, source rendering),
+prefer a top-level function with a per-type dispatch dict — see ``dump``.
+
+Leaves (IrLiteral, IrCharClass, IrRuleRef) have no children. Unknown node
+types raise TypeError.
 """
 
 from __future__ import annotations
@@ -75,53 +83,55 @@ _DUMP: dict[type, Callable[..., str]] = {
 }
 
 
-class IrVisitor[_N]:
-    """Walks the IR AST. Subclass + define `visit_<TypeName>` methods."""
+class IrDispatch[_N, _T]:
+    """Type-name dispatch over IR nodes; parent of IrVisitor and IrTransformer.
+
+    ``visit(node)`` returns whatever ``visit_<TypeName>(node)`` returns. If no
+    matching method exists, ``generic_visit`` walks ``node``'s children via
+    ``_CHILDREN``, recurses, and combines the visited children into a result
+    of type ``_T`` via ``_combine`` (subclass override).
+    """
 
     children: dict[type, _GetChildren] = _CHILDREN
+    action: dict[type, Callable[..., _T]]
 
-    def visit(self, node: _N) -> None:
-        """Visit a node."""
+    def visit(self, node: _N) -> _T:
+        """Dispatch to ``visit_<TypeName>(node)`` and return its result."""
         method = getattr(self, f"visit_{type(node).__name__}", self.generic_visit)
-        method(node)
+        return method(node)
 
-    def generic_visit(self, node: _N) -> None:
-        """Default visit method: visit all children."""
+    def generic_visit(self, node: _N) -> _T:
+        """Walk children via _CHILDREN, recurse, and delegate to ``_combine``."""
         getter = self.children.get(type(node))
-        if getter is not None:
-            for child in getter(node):
-                self.visit(child)
-        elif not isinstance(node, IrLeaf):
+        if getter is None and not isinstance(node, IrLeaf):
             raise TypeError(f"generic_visit: unknown node type {type(node).__name__!r}")
-
-
-class IrTransformer[_N]:
-    """Rewrites the IR AST. Each visit returns a (possibly new) node."""
-
-    children: dict[type, _GetChildren] = _CHILDREN
-    rebuild: dict[type, _Rebuilder] = _REBUILD
-
-    def visit(self, node: _N) -> _N:
-        """Visit a node and return a (possibly new) node of the same type."""
-        visit_fn: Callable[[_N], _N] | None = getattr(
-            self, f"visit_{type(node).__name__}", None
-        )
-        if visit_fn is not None:
-            return visit_fn(node)
-        return self.generic_visit(node)
-
-    def generic_visit(self, node: _N) -> _N:
-        """Default visit method: rebuild the node with visited children."""
-        getter = self.children.get(type(node))
-        if getter is None:
-            if isinstance(node, IrLeaf):
-                return node
-            raise TypeError(f"generic_visit: unknown node type {type(node).__name__!r}")
-        old_children = getter(node)
+        old_children = getter(node) if getter else ()
         new_children = tuple(self.visit(c) for c in old_children)
+        return self._combine(node, old_children, new_children)
+
+    def _combine(self, node: _N, old_children: tuple, new_children: tuple) -> _T:
+        """Combine visited children into a result for ``node``. Subclass overrides."""
+        return self.action[type(node)](node, old_children, new_children)
+
+
+class IrVisitor[_N](IrDispatch[_N, None]):
+    """Walks the IR for side effects. Subclass + define ``visit_<TypeName>`` methods."""
+
+    def _combine(self, node: _N, old_children: tuple, new_children: tuple) -> None:
+        return None
+
+
+class IrTransformer[_N](IrDispatch[_N, _N]):
+    """Rewrites the IR. Each ``visit_<TypeName>`` returns a (possibly new) node."""
+
+    action: dict[type, _Rebuilder] = _REBUILD
+
+    def _combine(self, node: _N, old_children: tuple, new_children: tuple) -> _N:
+        if not old_children:
+            return node
         if all(nc is oc for nc, oc in zip(new_children, old_children)):
             return node
-        return self.rebuild[type(node)](node, new_children)
+        return self.action[type(node)](node, new_children)
 
 
 def dump(node: IrNode, *, indent: int = 0) -> str:
