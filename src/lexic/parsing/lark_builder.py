@@ -42,7 +42,6 @@ def _atom_to_lark(item: IrItem) -> str:
     atom = item.atom
     q = _quant(item.quantifier)
     if isinstance(atom, IrLiteral):
-        # Lark literal: "..."
         escaped = atom.value.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"{q}'
     if isinstance(atom, IrCharClass):

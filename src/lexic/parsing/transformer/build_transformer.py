@@ -34,7 +34,8 @@ def _build_value_str(cls: type, spec: NewRuleSpec, items: list) -> object:
 
 
 def _build_sequence(cls: type, spec: NewRuleSpec, children: list) -> object:
-    """Pair each non-filtered item with its Lark child via zip; assign named fields."""
+    """Lark only passes children that appear in the grammar; map positions back
+    through field_map using pre-filtered (non-literal) item indices."""
     inv = {v: k for k, v in spec.field_map.items()}
     lark_items = [
         (idx, item)

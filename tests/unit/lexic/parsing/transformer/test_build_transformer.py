@@ -17,7 +17,6 @@ def test_transformer_round_trip_value_str_literal():
     builder = LarkBuilder([spec])
     grammar_str, start = builder.build_grammar()
 
-    # Build a class for greet
     class Greet(GrammarModel):
         """Greeting"""
 

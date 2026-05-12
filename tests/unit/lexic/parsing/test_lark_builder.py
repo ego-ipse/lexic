@@ -84,5 +84,4 @@ def test_build_lark_returns_parser_and_transformer_factory():
     grammar_str, parser, transformer = build_lark([outer, inner], classes, "root")
     assert isinstance(grammar_str, str)
     assert isinstance(parser, lark.Lark)
-    # transformer is a lark.Transformer instance
     assert isinstance(transformer, lark.Transformer)
