@@ -36,7 +36,7 @@ def test_emit_value_str_class_body():
     )
     src = emit_module_source([spec], stem="m")
     assert "class Digit(GrammarModel):" in src
-    assert 'value: Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]' in src
+    assert "value: Digit" in src
 
 
 def test_emit_sequence_class_with_ruleref_field():
@@ -169,8 +169,8 @@ def test_negated_charclass_field_inverts_pattern():
     assert 'Annotated[str, StringConstraints(pattern=r"^[^"]$")]' in src
 
 
-def test_charclass_field_in_sequence_emits_annotated():
-    """IrCharClass named field in a sequence spec emits Annotated[str, StringConstraints(...)]."""
+def test_charclass_field_in_sequence_emits_alias():
+    """IrCharClass named field in a sequence spec references the module-level alias."""
     spec = _spec(
         "row",
         "sequence",
@@ -178,11 +178,11 @@ def test_charclass_field_in_sequence_emits_annotated():
         field_map={"lower": 0},
     )
     src = emit_module_source([spec], stem="m")
-    assert 'lower: Annotated[str, StringConstraints(pattern=r"^[a-z]+$")]' in src
+    assert "lower: Lower" in src
 
 
 def test_pure_pattern_group_field_composes_regex():
-    """([a-h] 'x')? → Annotated[str, StringConstraints(pattern=r"^([a-h]x)?$")]."""
+    """([a-h] 'x')? → alias Pattern2; field references the alias."""
     grp = IrGroup(
         IrAlternation(
             (
@@ -199,7 +199,12 @@ def test_pure_pattern_group_field_composes_regex():
         "p", "sequence", [IrItem(grp, Quantifier(0, 1))], field_map={"head": 0}
     )
     src = emit_module_source([spec], stem="m")
-    assert 'Annotated[str, StringConstraints(pattern=r"^([a-h]x)?$")]' in src
+    # Alias is declared at module level
+    assert 'Pattern2 = Annotated[str, StringConstraints(pattern=r"^([a-h]x)?$")]' in src
+    # Field references the alias, not the inline form
+    assert "head: Pattern2" in src
+    class_section = src.split("class P(")[1] if "class P(" in src else ""
+    assert "Annotated[" not in class_section.split("\n\n")[0]
 
 
 def test_pure_literal_alternation_emits_literal_type():

@@ -14,7 +14,7 @@ Decision CQ #4 (fixed imports): emit a canonical import block always.
 from __future__ import annotations
 
 from io import StringIO
-from typing import Callable
+from typing import Callable, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.derive import has_ruleref
@@ -195,12 +195,16 @@ def _value_str_field_type(
     item = spec.items[0]
     if isinstance(item, IrAlternation):
         if _is_pure_literal_alt(item):
-            literals = ", ".join(f'"{arm.items[0].atom.value}"' for arm in item.arms)
+            literals = ", ".join(
+                f'"{cast(IrLiteral, arm.items[0].atom).value}"' for arm in item.arms
+            )
             return f"Literal[{literals}]"
         return "str"
     if isinstance(item, IrItem):
         return _field_type(item, by_rule, aliases)
-    return "str"
+    raise UnsupportedConstructError(
+        f"_value_str_field_type: unexpected item type {type(item).__name__!r}"
+    )
 
 
 # ── ModuleEmitter ─────────────────────────────────────────────────────────────
