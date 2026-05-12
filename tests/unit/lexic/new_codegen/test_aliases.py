@@ -12,7 +12,7 @@ from lexic.ir.nodes import (
     IrSequence,
     Quantifier,
 )
-from lexic.ir.spec import RuleSpec
+from lexic.ir.spec import NewRuleSpec
 from lexic.new_codegen.aliases import (
     PatternAlias,
     collect_aliases,
@@ -22,8 +22,8 @@ from lexic.new_codegen.aliases import (
 
 
 def _spec(name, kind, items, field_map=None):
-    """Helper to create a RuleSpec with the given items."""
-    return RuleSpec(
+    """Helper to create a NewRuleSpec with the given items."""
+    return NewRuleSpec(
         rule_name=name,
         class_name=name.title(),
         parent_class_name="GrammarModel",

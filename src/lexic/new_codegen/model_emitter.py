@@ -1,7 +1,7 @@
 """Model emitter — IrItem-shape NewRuleSpec → Python source string.
 
 Target-shape commitments land incrementally:
-  Task 9 (this task): class body skeleton + canonical imports.
+  Task 9: class body skeleton + canonical imports.
   Task 10: Annotated[str, StringConstraints(...)] for pattern fields.
   Task 11: Literal[...] for pure-literal alternations.
   Task 12: Module-level type aliases hoisted from collect_aliases().
@@ -17,6 +17,7 @@ from io import StringIO
 from typing import Callable
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.derive import has_ruleref
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -30,13 +31,18 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.spec import NewRuleSpec
 from lexic.ir.walk import IrDispatch
+from lexic.new_codegen.aliases import (
+    PatternAlias,
+    collect_aliases,
+    regex_for_charclass,
+    regex_for_group,
+)
 
 CANONICAL_IMPORTS = """\
 from __future__ import annotations
-from typing import ClassVar, List, Literal, Optional, Union
+from typing import Annotated, ClassVar, List, Literal, Optional, Union
 
 from pydantic import Field, StringConstraints
-from typing_extensions import Annotated
 
 from lexic.base import GrammarModel
 from lexic.ir.nodes import (
@@ -107,11 +113,9 @@ class _IrRepr(IrDispatch[IrNode, str]):
 
 # ── Field type emission ───────────────────────────────────────────────────────
 #
-# _field_type maps an IrItem to a Python type annotation string via a
-# module-level dispatch table keyed on item.atom type.
-# Quantifier context stays on the IrItem; atom helpers receive it explicitly.
-# Skeleton stage: IrCharClass and pure-pattern IrGroup both emit 'str'.
-# Task 10 replaces those entries with Annotated[str, StringConstraints(...)].
+# _field_type maps an IrItem to a Python type annotation string.
+# Pattern atoms consult the alias map first; if the regex is registered there,
+# the alias name is returned instead of an inline Annotated[...] expression.
 
 
 def _ruleref_type(name: str, q: Quantifier, specs: dict[str, NewRuleSpec]) -> str:
@@ -136,25 +140,67 @@ def _group_type(atom: IrGroup, specs: dict[str, NewRuleSpec]) -> str:
             for n in arm_refs
         ]
         return f"Union[{', '.join(cls_names)}]"
-    return "str"
+    raise UnsupportedConstructError(
+        "_group_type: ruleref group has no single-ref arms — derive should have hoisted this"
+    )
+
+
+def _pattern_type(regex: str, aliases: dict[str, str]) -> str:
+    """Return the alias name if registered, otherwise an inline Annotated[...] string."""
+    if regex in aliases:
+        return aliases[regex]
+    return f'Annotated[str, StringConstraints(pattern=r"{regex}")]'
 
 
 _ATOM_FIELD_TYPE: dict[type, Callable] = {
-    IrLiteral: lambda a, q, s: "str",
-    IrCharClass: lambda a, q, s: "str",
-    IrRuleRef: lambda a, q, s: _ruleref_type(a.name, q, s),
-    IrGroup: lambda a, q, s: _group_type(a, s),
+    IrLiteral: lambda a, q, s, al: "str",
+    IrCharClass: lambda a, q, s, al: _pattern_type(regex_for_charclass(a, q), al),
+    IrRuleRef: lambda a, q, s, al: _ruleref_type(a.name, q, s),
+    IrGroup: lambda a, q, s, al: (
+        _pattern_type(regex_for_group(a, q), al)
+        if not has_ruleref(a)
+        else _group_type(a, s)
+    ),
 }
 
 
-def _field_type(item: IrItem, specs: dict[str, NewRuleSpec]) -> str:
+def _field_type(
+    item: IrItem, specs: dict[str, NewRuleSpec], aliases: dict[str, str]
+) -> str:
     """Return the Python type annotation string for an IrItem."""
     handler = _ATOM_FIELD_TYPE.get(type(item.atom))
     if handler is None:
         raise UnsupportedConstructError(
             f"_field_type: no handler for atom type {type(item.atom).__name__!r}"
         )
-    return handler(item.atom, item.quantifier, specs)
+    return handler(item.atom, item.quantifier, specs, aliases)
+
+
+def _is_pure_literal_alt(alt: IrAlternation) -> bool:
+    """True when every arm is a single unquantified IrLiteral."""
+    return all(
+        len(arm.items) == 1
+        and isinstance(arm.items[0].atom, IrLiteral)
+        and arm.items[0].quantifier == Quantifier(1, 1)
+        for arm in alt.arms
+    )
+
+
+def _value_str_field_type(
+    spec: NewRuleSpec, by_rule: dict[str, NewRuleSpec], aliases: dict[str, str]
+) -> str:
+    """Return the field type annotation for a value_str spec."""
+    if len(spec.items) != 1:
+        return "str"
+    item = spec.items[0]
+    if isinstance(item, IrAlternation):
+        if _is_pure_literal_alt(item):
+            literals = ", ".join(f'"{arm.items[0].atom.value}"' for arm in item.arms)
+            return f"Literal[{literals}]"
+        return "str"
+    if isinstance(item, IrItem):
+        return _field_type(item, by_rule, aliases)
+    return "str"
 
 
 # ── ModuleEmitter ─────────────────────────────────────────────────────────────
@@ -171,6 +217,9 @@ class ModuleEmitter:
         self._specs = specs
         self._by_rule: dict[str, NewRuleSpec] = {s.rule_name: s for s in specs}
         self._repr = _IrRepr()
+        alias_list: list[PatternAlias] = collect_aliases(specs)
+        self._alias_decls = alias_list
+        self._aliases: dict[str, str] = {a.regex: a.name for a in alias_list}
 
     def emit(self, *, stem: str) -> str:
         """Render all specs to a module source string."""
@@ -179,12 +228,17 @@ class ModuleEmitter:
             f'"""Generated module: {stem}. Do not edit; regenerated from grammar."""\n'
         )
         out.write(CANONICAL_IMPORTS)
+        for alias in self._alias_decls:
+            out.write(
+                f'\n{alias.name} = Annotated[str, StringConstraints(pattern=r"{alias.regex}")]\n'
+            )
         for spec in self._specs:
             out.write(self.emit_class(spec))
+        self._write_footer(out)
         return out.getvalue()
 
     def emit_class(self, spec: NewRuleSpec) -> str:
-        """Render one spec to a class definition string (no module header)."""
+        """Render one spec to a class definition string (no module header or footer)."""
         out = StringIO()
         self._write_class(spec, out)
         return out.getvalue()
@@ -193,22 +247,29 @@ class ModuleEmitter:
         out.write(f"\n\nclass {spec.class_name}({spec.parent_class_name}):\n")
         inv = {idx: name for name, idx in spec.field_map.items()}
         body_lines: list[str] = []
-        body_lines.append(
-            f"    __grammar__: ClassVar[NewRuleSpec] = {self._repr_rulespec(spec)}"
-        )
         if spec.kind == "value_str":
-            body_lines.append("    value: str")
+            body_lines.append(
+                f"    value: {_value_str_field_type(spec, self._by_rule, self._aliases)}"
+            )
         elif spec.kind == "alternation":
             pass
         else:
             for idx, item in enumerate(spec.items):
                 if not isinstance(item, IrItem) or idx not in inv:
                     continue
-                body_lines.append(f"    {inv[idx]}: {_field_type(item, self._by_rule)}")
-        if all(line.startswith("    __grammar__") for line in body_lines):
+                body_lines.append(
+                    f"    {inv[idx]}: {_field_type(item, self._by_rule, self._aliases)}"
+                )
+        if not body_lines:
             body_lines.append("    pass")
         for line in body_lines:
             out.write(line + "\n")
+
+    def _write_footer(self, out: StringIO) -> None:
+        for spec in self._specs:
+            out.write(
+                f"\n\n{spec.class_name}.__grammar__ = {self._repr_rulespec(spec)}\n"
+            )
 
     def _repr_rulespec(self, spec: NewRuleSpec) -> str:
         return (

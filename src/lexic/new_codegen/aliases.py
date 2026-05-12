@@ -19,6 +19,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -30,7 +31,7 @@ from lexic.ir.nodes import (
     IrSequence,
     Quantifier,
 )
-from lexic.ir.spec import RuleSpec
+from lexic.ir.spec import NewRuleSpec
 from lexic.ir.walk import IrVisitor
 from lexic.utils.quantifiers import bounds_to_quantifier
 
@@ -77,7 +78,9 @@ def _atom_regex_fragment(item: IrItem) -> str:
         return _bracket(atom.pattern, atom.negated) + q
     if isinstance(atom, IrGroup):
         return f"({_alt_regex_fragment(atom.body)}){q}"
-    raise TypeError(f"Pattern fragment cannot include {type(atom).__name__}")
+    raise UnsupportedConstructError(
+        f"Pattern fragment cannot include {type(atom).__name__}"
+    )
 
 
 def _seq_regex_fragment(seq: IrSequence) -> str:
@@ -163,7 +166,7 @@ class _PatternAliasVisitor(IrVisitor):
         self.aliases[regex] = PatternAlias(name=name, regex=regex)
 
 
-def collect_aliases(specs: list[RuleSpec]) -> list[PatternAlias]:
+def collect_aliases(specs: list[NewRuleSpec]) -> list[PatternAlias]:
     """Return one PatternAlias per unique pattern regex across all specs.
 
     Order is insertion order — first appearance wins for naming. Different

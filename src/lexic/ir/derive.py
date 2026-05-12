@@ -47,8 +47,8 @@ class _RuleRefFinder(IrVisitor):
 
 
 @cache
-def _has_ruleref(node: IrNode) -> bool:
-    """Keep your existing visitor logic, but cache the result per node instance"""
+def has_ruleref(node: IrNode) -> bool:
+    """Return True if any IrRuleRef exists anywhere in the node subtree."""
     finder = _RuleRefFinder()
     finder.visit(node)
     return finder.found
@@ -66,7 +66,7 @@ def classify_kind(rule: IrRule) -> Literal["sequence", "alternation", "value_str
     - alternation: multiple non-empty arms with rulerefs.
     - sequence: single non-empty arm with rulerefs.
     """
-    if not _has_ruleref(rule.body):
+    if not has_ruleref(rule.body):
         return "value_str"
     if len(_non_empty_arms(rule.body)) > 1:
         return "alternation"
@@ -139,7 +139,7 @@ class _HoistTransformer(IrTransformer):
                 return node
             return IrItem(atom=new_atom, quantifier=node.quantifier)
         is_quantified = node.quantifier != Quantifier(1, 1)
-        if is_quantified and _has_ruleref(new_atom.body):
+        if is_quantified and has_ruleref(new_atom.body):
             helper_name = _reserve_helper_name(self._parent_name, self._name_set)
             self._name_set.add(helper_name)
             self.helpers.append(IrRule(name=helper_name, body=new_atom.body))
@@ -186,7 +186,7 @@ _ATOM_HINT: dict[type, _FieldHint] = {
     ),
     IrRuleRef: lambda a: a.name.replace("-", "_"),
     # ruleref group → "kind" (structural slot); literal-only group → name from content
-    IrGroup: lambda a: "kind" if _has_ruleref(a) else _group_hint(a),
+    IrGroup: lambda a: "kind" if has_ruleref(a) else _group_hint(a),
 }
 
 
@@ -201,7 +201,7 @@ def _group_hint(group: IrGroup) -> str:
 
 def _group_field_base(a: IrGroup) -> str | None:
     """Tier-2 name for a group atom, or None → Tier-3 positional fallback."""
-    if _has_ruleref(a):
+    if has_ruleref(a):
         return "kind"
     h = _group_hint(a)
     return h if h not in {"inline", "lit", "cc"} else None

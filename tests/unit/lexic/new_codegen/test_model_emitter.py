@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ast import AnnAssign, ClassDef, Name, parse
+
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -28,14 +30,13 @@ def _spec(name, kind, items, parent="GrammarModel", field_map=None):
 
 
 def test_emit_value_str_class_body():
-    """Value-str classes emit a single `value: str` field."""
+    """Value-str with a charclass item emits a constrained value field."""
     spec = _spec(
         "digit", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))]
     )
     src = emit_module_source([spec], stem="m")
     assert "class Digit(GrammarModel):" in src
-    # Skeleton stage: pattern field emitted as plain `str`. Refined in Task 10.
-    assert "value: str" in src
+    assert 'value: Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]' in src
 
 
 def test_emit_sequence_class_with_ruleref_field():
@@ -152,3 +153,161 @@ def test_no_fixme_in_emitted_source():
     src = emit_module_source([spec], stem="m")
     assert "# FIXME" not in src
     assert "FIXME" not in src
+
+
+def test_charclass_field_emits_annotated_string_constraints():
+    """IrCharClass sequence field emits Annotated[str, StringConstraints(...)]."""
+    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    src = emit_module_source([spec], stem="m")
+    assert 'Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]' in src
+
+
+def test_negated_charclass_field_inverts_pattern():
+    """Negated IrCharClass emits [^...] in the regex."""
+    spec = _spec("nq", "value_str", [IrItem(IrCharClass('"', negated=True))])
+    src = emit_module_source([spec], stem="m")
+    assert 'Annotated[str, StringConstraints(pattern=r"^[^"]$")]' in src
+
+
+def test_charclass_field_in_sequence_emits_annotated():
+    """IrCharClass named field in a sequence spec emits Annotated[str, StringConstraints(...)]."""
+    spec = _spec(
+        "row",
+        "sequence",
+        [IrItem(IrCharClass("a-z"), Quantifier(1, None))],
+        field_map={"lower": 0},
+    )
+    src = emit_module_source([spec], stem="m")
+    assert 'lower: Annotated[str, StringConstraints(pattern=r"^[a-z]+$")]' in src
+
+
+def test_pure_pattern_group_field_composes_regex():
+    """([a-h] 'x')? → Annotated[str, StringConstraints(pattern=r"^([a-h]x)?$")]."""
+    grp = IrGroup(
+        IrAlternation(
+            (
+                IrSequence(
+                    (
+                        IrItem(IrCharClass("a-h"), Quantifier(1, 1)),
+                        IrItem(IrLiteral("x"), Quantifier(1, 1)),
+                    )
+                ),
+            )
+        )
+    )
+    spec = _spec(
+        "p", "sequence", [IrItem(grp, Quantifier(0, 1))], field_map={"head": 0}
+    )
+    src = emit_module_source([spec], stem="m")
+    assert 'Annotated[str, StringConstraints(pattern=r"^([a-h]x)?$")]' in src
+
+
+def test_pure_literal_alternation_emits_literal_type():
+    """Alternation of pure literals emits a Literal[...] field."""
+    alt = IrAlternation(
+        (
+            IrSequence((IrItem(IrLiteral("int"), Quantifier(1, 1)),)),
+            IrSequence((IrItem(IrLiteral("float"), Quantifier(1, 1)),)),
+            IrSequence((IrItem(IrLiteral("char"), Quantifier(1, 1)),)),
+        )
+    )
+    spec = _spec("ty", "value_str", [alt])
+    src = emit_module_source([spec], stem="m")
+    assert 'value: Literal["int", "float", "char"]' in src
+
+
+def test_mixed_alternation_does_not_emit_literal():
+    """Arms mixing literal + ruleref keep the helper-class shape (no Literal)."""
+    alt = IrAlternation(
+        (
+            IrSequence((IrItem(IrLiteral("int"), Quantifier(1, 1)),)),
+            IrSequence((IrItem(IrRuleRef("typename"), Quantifier(1, 1)),)),
+        )
+    )
+    spec = _spec("t", "value_str", [alt])
+    src = emit_module_source([spec], stem="m")
+    assert "Literal[" not in src.split("class T")[1].split("\n\n")[0]
+
+
+def test_quantified_literal_arm_does_not_emit_literal():
+    """An arm with a quantified literal (min!=max!=1) is not a pure-literal."""
+    alt = IrAlternation(
+        (
+            IrSequence((IrItem(IrLiteral("a"), Quantifier(1, 1)),)),
+            IrSequence((IrItem(IrLiteral("b"), Quantifier(0, 1)),)),  # quantified
+        )
+    )
+    spec = _spec("t", "value_str", [alt])
+    src = emit_module_source([spec], stem="m")
+    assert "Literal[" not in src.split("class T")[1].split("\n\n")[0]
+
+
+def test_module_emits_pattern_aliases_at_top():
+    """Patterns get module-level aliases; field types reference the alias."""
+    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    src = emit_module_source([spec], stem="m")
+    # Tier 2 hit: [0-9]+ → 'digit' → CamelCase 'Digit'
+    assert 'Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]' in src
+    # Field type uses the alias, not the inline form
+    assert "value: Digit" in src
+    # The inline form should NOT appear in the class body section
+    class_section = src.split("class D(")[1] if "class D(" in src else ""
+    assert "Annotated[" not in class_section.split("\n\n")[0]
+
+
+def test_repeated_pattern_shares_one_alias():
+    """Two rules with [0-9]+ produce one alias."""
+    s1 = _spec("a", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    s2 = _spec("b", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    src = emit_module_source([s1, s2], stem="m")
+    # One alias declaration
+    assert src.count("Digit = Annotated[") == 1
+    # Both classes reference Digit
+    assert "value: Digit" in src
+
+
+def test_class_body_has_no_grammar_assignment():
+    """Class body contains only field declarations (and pass for empty)."""
+    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    src = emit_module_source([spec], stem="m")
+    tree = parse(src)
+    classes = [n for n in tree.body if isinstance(n, ClassDef)]
+    assert len(classes) == 1
+    # No __grammar__ assignment inside class body
+    for stmt in classes[0].body:
+        if isinstance(stmt, AnnAssign) and isinstance(stmt.target, Name):
+            assert stmt.target.id != "__grammar__", "__grammar__ leaked into class body"
+
+
+def test_module_footer_registers_grammar():
+    """Footer block sets cls.__grammar__ for each class."""
+    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    src = emit_module_source([spec], stem="m")
+    assert "D.__grammar__ = NewRuleSpec(" in src
+
+
+def test_emitted_module_executes_and_grammar_attribute_present():
+    """The emitted source runs and Foo.__grammar__ is reachable at runtime."""
+    spec = _spec("d", "value_str", [IrItem(IrLiteral("x"))])
+    src = emit_module_source([spec], stem="m")
+    ns: dict = {}
+    exec(compile(src, "<m>", "exec"), ns)
+    cls = ns["D"]
+    assert hasattr(cls, "__grammar__")
+    assert cls.__grammar__.rule_name == "d"
+
+
+def test_grammar_round_trip_through_exec():
+    """exec the source, reconstruct __grammar__.items[0] == original IR."""
+    grp_spec = _spec(
+        "r",
+        "sequence",
+        [IrItem(IrCharClass("0-9"), Quantifier(1, None))],
+        field_map={"digit": 0},
+    )
+    src = emit_module_source([grp_spec], stem="m")
+    ns: dict = {}
+    exec(compile(src, "<m>", "exec"), ns)
+    item0 = ns["R"].__grammar__.items[0]
+    assert item0.atom == IrCharClass("0-9")
+    assert item0.quantifier == Quantifier(1, None)
