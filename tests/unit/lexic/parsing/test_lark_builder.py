@@ -21,8 +21,6 @@ def test_build_grammar_simple_literal():
     """build_grammar(specs) returns a Lark grammar string."""
     s = make_spec("greet", "value_str", [IrItem(IrLiteral("hi"))])
     grammar, start = LarkBuilder([s]).build_grammar()
-    s = make_spec("greet", "value_str", [IrItem(IrLiteral("hi"))])
-    grammar, start = LarkBuilder([s]).build_grammar()
     assert start == "greet"
     parser = lark.Lark(grammar, parser="earley", start=start)
     assert parser.parse("hi") is not None
