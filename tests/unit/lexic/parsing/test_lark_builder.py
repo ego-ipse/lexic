@@ -14,6 +14,7 @@ from lexic.ir.nodes import (
     Quantifier,
 )
 from lexic.parsing.lark_builder import LarkBuilder, build_lark
+from tests._ir_fixtures import item, spec
 from tests.unit.lexic.parsing.conftest import make_spec
 
 
@@ -85,3 +86,19 @@ def test_build_lark_returns_parser_and_transformer_factory():
     assert isinstance(grammar_str, str)
     assert isinstance(parser, lark.Lark)
     assert isinstance(transformer, lark.Transformer)
+
+
+def test_literal_with_newline_escapes_to_n() -> None:
+    """Raw \\n must round-trip through Lark as the escape sequence \\n."""
+    s = spec("line", "sequence", items=[item(IrLiteral("\n"))], field_map={"lit": 0})
+    grammar, start = LarkBuilder([s]).build_grammar()
+    assert '"\\n"' in grammar
+    lark.Lark(grammar, parser="earley", start=start)  # must not raise
+
+
+def test_charclass_with_slash_escapes_in_regex() -> None:
+    """`/` inside a char class must be backslash-escaped in the Lark regex."""
+    s = spec("op", "sequence", items=[item(IrCharClass("-+*/"))], field_map={"head": 0})
+    grammar, start = LarkBuilder([s]).build_grammar()
+    assert "/[-+*\\/]/" in grammar
+    lark.Lark(grammar, parser="earley", start=start)  # must not raise

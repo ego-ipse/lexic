@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import random
 
-from lexic.codegen.ir_builder import IRBuilder
+from lexic.compile import compile_grammar
 from lexic.generate import generate
-from lexic.grammars.gbnf.parser import parse_gbnf
+from lexic.grammars.gbnf.flavour import GbnfFlavour
 from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 
 def _specs(grammar: str) -> dict:
     text = (GRAMMAR_DIR / f"{grammar}.gbnf").read_text()
-    return {s.rule_name: s for s in IRBuilder(parse_gbnf(text)).build()}
+    _, specs_list = compile_grammar(text, GbnfFlavour)
+    return {s.rule_name: s for s in specs_list}
 
 
 def test_generate_returns_string():
@@ -56,7 +57,6 @@ def test_generate_japanese_is_parseable():
 
 
 def test_generate_respects_max_depth():
-    # arithmetic has recursive rules — max_depth must prevent infinite recursion
     specs = _specs("arithmetic")
     text = generate("root", specs, rng=random.Random(0), max_depth=3)
     assert isinstance(text, str)
@@ -76,7 +76,6 @@ def test_generate_different_with_different_seeds():
 
 
 def test_generate_sequence_rule():
-    # arithmetic: root ::= expr "=" ws term "\n" — kind=sequence
     specs = _specs("arithmetic")
     result = generate("root", specs, rng=random.Random(42))
     assert isinstance(result, str)
@@ -84,7 +83,6 @@ def test_generate_sequence_rule():
 
 
 def test_generate_alternation_rule():
-    # arithmetic: term ::= ident | num | "(" ws expr ")" ws — kind=alternation
     specs = _specs("arithmetic")
     for seed in range(10):
         result = generate("term", specs, rng=random.Random(seed))
@@ -93,15 +91,12 @@ def test_generate_alternation_rule():
 
 
 def test_generate_value_str_rule():
-    # arithmetic: ws ::= [ \t\n]* — kind=value_str
     specs = _specs("arithmetic")
     result = generate("ws", specs, rng=random.Random(0))
     assert isinstance(result, str)
 
 
 def test_generate_max_depth_zero_picks_non_recursive_arm():
-    # With max_depth=0, generate must still return a valid non-empty string
-    # by picking a non-recursive arm (ident or num, not the "(" expr ")" arm)
     specs = _specs("arithmetic")
     for seed in range(10):
         result = generate("term", specs, rng=random.Random(seed), max_depth=0)

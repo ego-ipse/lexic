@@ -1,4 +1,4 @@
-"""Generated module: anon_5655032b9fa3. Do not edit; regenerated from grammar."""
+"""Generated module: arith_test. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 
@@ -41,20 +41,20 @@ class Term(GrammarModel):
 
 
 class TermArm3(Term):
-    ws: Optional[Ws] = None
+    ws: Optional[Ws]
     expr: Expr
-    ws2: Optional[Ws] = None
+    ws2: Optional[Ws]
 
 
 class Ident(Term):
     lower: Lower
     head: Pattern
-    ws: Optional[Ws] = None
+    ws: Optional[Ws]
 
 
 class Num(Term):
     digit: Digit
-    ws: Optional[Ws] = None
+    ws: Optional[Ws]
 
 
 class Ws(GrammarModel):
@@ -63,7 +63,7 @@ class Ws(GrammarModel):
 
 class RootItem(GrammarModel):
     expr: Expr
-    ws: Optional[Ws] = None
+    ws: Optional[Ws]
     term: Term
 
 

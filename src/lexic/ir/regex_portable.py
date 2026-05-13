@@ -24,6 +24,41 @@ _rc: Any = _rc_impl
 _rp: Any = _rp_impl
 
 
+_LITERAL_REGEX_ESCAPES: dict[str, str] = {
+    # Control characters → regex escape sequences
+    "\n": r"\n",
+    "\r": r"\r",
+    "\t": r"\t",
+    # Backslash must come first so we don't double-escape other entries
+    "\\": r"\\",
+    # Lark regex delimiter
+    "/": r"\/",
+    # Regex metacharacters
+    ".": r"\.",
+    "^": r"\^",
+    "$": r"\$",
+    "*": r"\*",
+    "+": r"\+",
+    "?": r"\?",
+    "{": r"\{",
+    "}": r"\}",
+    "[": r"\[",
+    "]": r"\]",
+    "(": r"\(",
+    ")": r"\)",
+    "|": r"\|",
+}
+
+
+def literal_to_regex_pattern(value: str) -> str:
+    """Escape a literal string so it matches exactly when used inside a regex pattern.
+
+    Handles control characters (\\n, \\r, \\t), the backslash, regex
+    metacharacters, and the Lark regex delimiter (/).
+    """
+    return "".join(_LITERAL_REGEX_ESCAPES.get(c, c) for c in value)
+
+
 PORTABLE_FEATURES: frozenset[str] = frozenset(
     {
         "literal",

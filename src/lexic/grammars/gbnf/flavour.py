@@ -1,15 +1,8 @@
-"""GbnfFlavour — single-source GBNF flavour binding.
-
-Composes META_GRAMMAR, GBNF_ESCAPES, GbnfEmitter, and the two token-value
-parsers. No imperative pipeline code — the IR-side machinery
-(MetaGrammarParser, derive_specs) does the work.
-"""
-
-from __future__ import annotations
+"""GBNF flavour for Lexic."""
 
 from lexic.grammars.flavour import Flavour
-from lexic.grammars.gbnf.adapter import GBNF_ESCAPES
 from lexic.grammars.gbnf.emitter import GbnfEmitter
+from lexic.grammars.gbnf.escapes import GBNF_ESCAPES
 from lexic.grammars.gbnf.meta_grammar import META_GRAMMAR
 from lexic.ir.nodes import Quantifier
 from lexic.utils.quantifiers import quantifier_to_bounds
@@ -22,9 +15,7 @@ class GbnfFlavour(Flavour):
     extensions = (".gbnf",)
     meta_grammar = META_GRAMMAR
     escapes = GBNF_ESCAPES
-    # The Phase D consumers will adopt the no-arg GbnfEmitter constructor; until
-    # then we instantiate with an empty list (legacy signature).
-    emitter: GbnfEmitter = GbnfEmitter([])  # type: ignore[assignment] REMOVE IN PHASE D
+    emitter = GbnfEmitter
     line_comment = "#"
 
     @staticmethod

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from lexic.codegen.ir_builder import IRBuilder
-from lexic.grammars.gbnf.parser import parse_gbnf
+from lexic.compile import compile_grammar
+from lexic.grammars.gbnf.flavour import GbnfFlavour
 from tests.paths import GROUND_TRUTH
 
 ALL_GRAMMARS = ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"]
@@ -18,8 +18,8 @@ def all_grammar_specs() -> dict[str, dict]:
     result = {}
     for name in ALL_GRAMMARS:
         text = (GROUND_TRUTH / f"{name}.gbnf").read_text()
-        specs = IRBuilder(parse_gbnf(text)).build()
-        result[name] = {s.rule_name: s for s in specs}
+        _, specs_list = compile_grammar(text, GbnfFlavour)
+        result[name] = {s.rule_name: s for s in specs_list}
     return result
 
 

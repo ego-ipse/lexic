@@ -128,14 +128,6 @@ def test_meta_grammar_parser_round_trip_idempotent(fixture: str) -> None:
 #                    requires whitespace between dataType and identifier; any non-trivial
 #                    C declaration fails the round-trip. Fixed at Task 25a when compile_text
 #                    switches to the new pipeline. strict=True so we notice if it heals.
-_C_XFAIL = pytest.mark.xfail(
-    reason=(
-        "Old pipeline strips ws from to_text() but Lark grammar requires whitespace "
-        "between dataType and identifier. Fixed when compile_text switches to the new "
-        "pipeline at Task 25a."
-    ),
-    strict=True,
-)
 
 _FIXTURES = [
     ("arithmetic.gbnf", "x=1\n"),
@@ -144,7 +136,7 @@ _FIXTURES = [
     ("list.gbnf", "- apple\n"),
     ("chess.gbnf", "1. e4 e5\n2. d4 d5\n"),
     ("japanese.gbnf", "こんにちは"),
-    pytest.param("c.gbnf", "int foo(){}", marks=_C_XFAIL),
+    pytest.param("c.gbnf", "int foo(){}"),
 ]
 
 

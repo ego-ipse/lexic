@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
+
+
 from lexic.base import GrammarModel
 from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     Quantifier,
 )
-from lexic.ir.spec import NewRuleSpec
+from lexic.ir.spec import RuleSpec
 
 
 class Greet(GrammarModel):
     value: str
 
 
-Greet.__grammar__ = NewRuleSpec(
+Greet.__grammar__ = RuleSpec(
     rule_name="greet",
     class_name="Greet",
     parent_class_name="GrammarModel",

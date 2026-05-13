@@ -1,125 +1,318 @@
-# tests/test_model_emitter.py
+"""Model emitter — class-body emission (skeleton)."""
+
 from __future__ import annotations
 
-import importlib
-import sys
-from abc import ABC
-from typing import get_type_hints
+from ast import AnnAssign, ClassDef, Name, parse
 
-import pytest
-
-from lexic.base import GrammarModel
-from lexic.codegen import codegen_from_path
-from lexic.ir import RuleSpec
-from tests.paths import GENERATED as GENERATED_DIR
-from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
-
-ALL_GRAMMARS = ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"]
-
-
-def _fresh(stem: str):
-    name = f"generated.{stem}"
-    if name in sys.modules:
-        del sys.modules[name]
-    codegen_from_path(GRAMMAR_DIR / f"{stem}.gbnf")
-    return importlib.import_module(name)
+from lexic.codegen.model_emitter import emit_module_source
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrRuleRef,
+    IrSequence,
+    Quantifier,
+)
+from lexic.ir.spec import RuleSpec
 
 
-# ── All grammars: __grammar__ present ─────────────────────────────────────────
-
-
-@pytest.mark.parametrize("grammar", ALL_GRAMMARS)
-def test_all_classes_have_grammar(grammar: str):
-    mod = _fresh(grammar)
-    for name in dir(mod):
-        cls = getattr(mod, name)
-        if not (
-            isinstance(cls, type) and issubclass(cls, __import__("pydantic").BaseModel)
-        ):
-            continue
-        if cls is GrammarModel:
-            continue
-        assert hasattr(cls, "__grammar__") and isinstance(
-            cls.__dict__.get("__grammar__"), RuleSpec
-        ), f"{grammar}.{name} is missing __grammar__ or it is not a RuleSpec instance"
-
-
-@pytest.mark.parametrize("grammar", ALL_GRAMMARS)
-def test_no_field_n_names(grammar: str):
-    import re
-
-    mod = _fresh(grammar)
-    for name in dir(mod):
-        cls = getattr(mod, name)
-        if not (
-            isinstance(cls, type) and issubclass(cls, __import__("pydantic").BaseModel)
-        ):
-            continue
-        for fname in get_type_hints(cls):
-            assert not re.fullmatch(r"field\d+", fname), (
-                f"{grammar}.{name} has positional field name '{fname}'"
-            )
-
-
-@pytest.mark.parametrize("grammar", ALL_GRAMMARS)
-def test_generated_imports_grammar_model(grammar: str):
-    stem = grammar
-    codegen_from_path(GRAMMAR_DIR / f"{stem}.gbnf")
-    source = (GENERATED_DIR / f"{stem}.py").read_text()
-    assert "GrammarModel" in source, f"{stem}.py must import and use GrammarModel"
-    assert "from lexic.base import GrammarModel" in source or "GrammarModel" in source
-
-
-@pytest.mark.parametrize("grammar", ALL_GRAMMARS)
-def test_no_to_text_defined_in_source(grammar: str):
-    """to_text() must NOT be defined in generated source — it is inherited."""
-    stem = grammar
-    codegen_from_path(GRAMMAR_DIR / f"{stem}.gbnf")
-    source = (GENERATED_DIR / f"{stem}.py").read_text()
-    assert "def to_text" not in source, (
-        f"{stem}.py must not define to_text() — inherited from GrammarModel"
+def _spec(name, kind, items, parent="GrammarModel", field_map=None):
+    return RuleSpec(
+        rule_name=name,
+        class_name=name.title(),
+        parent_class_name=parent,
+        kind=kind,
+        items=list(items),
+        field_map=field_map or {},
     )
 
 
-# ── arithmetic: specific class structure ──────────────────────────────────────
+def test_emit_value_str_class_body():
+    """Value-str with a charclass item emits a constrained value field."""
+    spec = _spec(
+        "digit", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))]
+    )
+    src = emit_module_source([spec], stem="m")
+    assert "class Digit(GrammarModel):" in src
+    assert "value: Digit" in src
 
 
-@pytest.fixture(scope="module")
-def arithmetic_mod():
-    return _fresh("arithmetic")
+def test_emit_sequence_class_with_ruleref_field():
+    """Sequence classes with rulerefs emit fields of the referred type."""
+    inner = _spec(
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), Quantifier(1, None))]
+    )
+    outer = _spec(
+        "root", "sequence", [IrItem(IrRuleRef("expr"))], field_map={"expr": 0}
+    )
+    src = emit_module_source([outer, inner], stem="m")
+    assert "class Root(GrammarModel):" in src
+    assert "expr: Expr" in src
 
 
-def test_arithmetic_term_is_abstract(arithmetic_mod):
-    term: type[GrammarModel] = arithmetic_mod.Term
-    assert term.__grammar__.kind == "alternation"
-    assert issubclass(term, ABC)
+def test_emit_optional_field_for_quantifier_0_1():
+    """Quantifier {0,1} emits Optional[...] field."""
+    inner = _spec(
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), Quantifier(1, None))]
+    )
+    outer = _spec(
+        "r",
+        "sequence",
+        [IrItem(IrRuleRef("expr"), Quantifier(0, 1))],
+        field_map={"expr": 0},
+    )
+    src = emit_module_source([outer, inner], stem="m")
+    assert "Optional[Expr]" in src or "Expr | None" in src
 
 
-def test_arithmetic_ident_parent_is_term(arithmetic_mod):
-    ident: type[GrammarModel] = arithmetic_mod.Ident
-    assert ident.__grammar__.kind == "sequence"
-    assert issubclass(ident, arithmetic_mod.Term)
+def test_emit_list_field_for_quantifier_unbounded():
+    """Quantifier {1,+inf} emits List[...] field."""
+    inner = _spec(
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), Quantifier(1, None))]
+    )
+    outer = _spec(
+        "r",
+        "sequence",
+        [IrItem(IrRuleRef("expr"), Quantifier(1, None))],
+        field_map={"expr": 0},
+    )
+    src = emit_module_source([outer, inner], stem="m")
+    assert "List[Expr]" in src
 
 
-def test_arithmetic_ident_fields(arithmetic_mod):
-    hints = get_type_hints(arithmetic_mod.Ident)
-    assert "lower" in hints
-    assert hints["lower"] is str
-    assert "a_z0_9" in hints
-    assert hints["a_z0_9"] is str
-    assert "ws" in hints
+def test_emit_list_field_for_quantifier_zero_or_more():
+    """Quantifier {0,+inf} also emits List[...] field."""
+    inner = _spec(
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), Quantifier(1, None))]
+    )
+    outer = _spec(
+        "r",
+        "sequence",
+        [IrItem(IrRuleRef("expr"), Quantifier(0, None))],
+        field_map={"expr": 0},
+    )
+    src = emit_module_source([outer, inner], stem="m")
+    assert "List[Expr]" in src
 
 
-def test_arithmetic_ws_is_value_str(arithmetic_mod):
-    assert arithmetic_mod.Ws.__grammar__.kind == "value_str"
-    hints = get_type_hints(arithmetic_mod.Ws)
-    assert "value" in hints
-    assert hints["value"] is str
+def test_emit_alternation_kind_emits_pass():
+    """Alternation-kind specs emit only __grammar__ + pass (no fields)."""
+    spec = _spec("node", "alternation", [], field_map={})
+    src = emit_module_source([spec], stem="m")
+    assert "class Node(GrammarModel):" in src
+    assert "pass" in src
+    assert "value:" not in src
 
 
-def test_arithmetic_root_has_list_field(arithmetic_mod):
-    from typing import get_origin
+def test_emit_value_str_multi_arm():
+    """Multi-arm value_str (IrAlternation in items) serialises without FIXME."""
+    spec = _spec(
+        "tok",
+        "value_str",
+        [
+            IrAlternation(
+                (
+                    IrSequence((IrItem(IrLiteral("a")),)),
+                    IrSequence((IrItem(IrLiteral("b")),)),
+                )
+            )
+        ],
+    )
+    src = emit_module_source([spec], stem="m")
+    assert "class Tok(GrammarModel):" in src
+    assert "FIXME" not in src
+    assert "IrAlternation" in src
 
-    hints = get_type_hints(arithmetic_mod.Root)
-    list_fields = [f for f, h in hints.items() if get_origin(h) is list]
-    assert len(list_fields) >= 1, "Root must have at least one List field"
+
+def test_emitted_module_has_canonical_imports():
+    """Emitted modules have canonical imports."""
+    spec = _spec("r", "value_str", [IrItem(IrLiteral("x"))])
+    src = emit_module_source([spec], stem="m")
+    expected_lines = [
+        "from lexic.base import GrammarModel",
+        "from lexic.ir.spec import RuleSpec",
+        "from lexic.ir.nodes import",
+    ]
+    for line in expected_lines:
+        assert line in src, f"missing canonical import: {line}"
+
+
+def test_no_fixme_in_emitted_source():
+    """Decision CQ #1: never emit # FIXME placeholders."""
+    grp = IrGroup(
+        IrAlternation(
+            (
+                IrSequence((IrItem(IrLiteral("a")),)),
+                IrSequence((IrItem(IrLiteral("b")),)),
+            )
+        )
+    )
+    spec = _spec("r", "value_str", [IrItem(grp, Quantifier(1, 1))])
+    src = emit_module_source([spec], stem="m")
+    assert "# FIXME" not in src
+    assert "FIXME" not in src
+
+
+def test_charclass_field_emits_annotated_string_constraints():
+    """IrCharClass sequence field emits Annotated[str, StringConstraints(...)]."""
+    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    src = emit_module_source([spec], stem="m")
+    assert 'Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]' in src
+
+
+def test_negated_charclass_field_inverts_pattern():
+    """Negated IrCharClass emits [^...] in the regex."""
+    spec = _spec("nq", "value_str", [IrItem(IrCharClass('"', negated=True))])
+    src = emit_module_source([spec], stem="m")
+    assert "Annotated[str, StringConstraints(pattern=r'^[^\"]$')]" in src
+
+
+def test_charclass_field_in_sequence_emits_alias():
+    """IrCharClass named field in a sequence spec references the module-level alias."""
+    spec = _spec(
+        "row",
+        "sequence",
+        [IrItem(IrCharClass("a-z"), Quantifier(1, None))],
+        field_map={"lower": 0},
+    )
+    src = emit_module_source([spec], stem="m")
+    assert "lower: Lower" in src
+
+
+def test_pure_pattern_group_field_composes_regex():
+    """([a-h] 'x')? → alias Pattern2; field references the alias."""
+    grp = IrGroup(
+        IrAlternation(
+            (
+                IrSequence(
+                    (
+                        IrItem(IrCharClass("a-h"), Quantifier(1, 1)),
+                        IrItem(IrLiteral("x"), Quantifier(1, 1)),
+                    )
+                ),
+            )
+        )
+    )
+    spec = _spec(
+        "p", "sequence", [IrItem(grp, Quantifier(0, 1))], field_map={"head": 0}
+    )
+    src = emit_module_source([spec], stem="m")
+    # Alias is declared at module level
+    assert 'Pattern2 = Annotated[str, StringConstraints(pattern=r"^([a-h]x)?$")]' in src
+    # Field references the alias, not the inline form
+    assert "head: Pattern2" in src
+    class_section = src.split("class P(")[1] if "class P(" in src else ""
+    assert "Annotated[" not in class_section.split("\n\n")[0]
+
+
+def test_pure_literal_alternation_emits_literal_type():
+    """Alternation of pure literals emits a Literal[...] field."""
+    alt = IrAlternation(
+        (
+            IrSequence((IrItem(IrLiteral("int"), Quantifier(1, 1)),)),
+            IrSequence((IrItem(IrLiteral("float"), Quantifier(1, 1)),)),
+            IrSequence((IrItem(IrLiteral("char"), Quantifier(1, 1)),)),
+        )
+    )
+    spec = _spec("ty", "value_str", [alt])
+    src = emit_module_source([spec], stem="m")
+    assert 'value: Literal["int", "float", "char"]' in src
+
+
+def test_mixed_alternation_does_not_emit_literal():
+    """Arms mixing literal + ruleref keep the helper-class shape (no Literal)."""
+    alt = IrAlternation(
+        (
+            IrSequence((IrItem(IrLiteral("int"), Quantifier(1, 1)),)),
+            IrSequence((IrItem(IrRuleRef("typename"), Quantifier(1, 1)),)),
+        )
+    )
+    spec = _spec("t", "value_str", [alt])
+    src = emit_module_source([spec], stem="m")
+    assert "Literal[" not in src.split("class T")[1].split("\n\n")[0]
+
+
+def test_quantified_literal_arm_does_not_emit_literal():
+    """An arm with a quantified literal (min!=max!=1) is not a pure-literal."""
+    alt = IrAlternation(
+        (
+            IrSequence((IrItem(IrLiteral("a"), Quantifier(1, 1)),)),
+            IrSequence((IrItem(IrLiteral("b"), Quantifier(0, 1)),)),  # quantified
+        )
+    )
+    spec = _spec("t", "value_str", [alt])
+    src = emit_module_source([spec], stem="m")
+    assert "Literal[" not in src.split("class T")[1].split("\n\n")[0]
+
+
+def test_module_emits_pattern_aliases_at_top():
+    """Patterns get module-level aliases; field types reference the alias."""
+    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    src = emit_module_source([spec], stem="m")
+    # Tier 2 hit: [0-9]+ → 'digit' → CamelCase 'Digit'
+    assert 'Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]' in src
+    # Field type uses the alias, not the inline form
+    assert "value: Digit" in src
+    # The inline form should NOT appear in the class body section
+    class_section = src.split("class D(")[1] if "class D(" in src else ""
+    assert "Annotated[" not in class_section.split("\n\n")[0]
+
+
+def test_repeated_pattern_shares_one_alias():
+    """Two rules with [0-9]+ produce one alias."""
+    s1 = _spec("a", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    s2 = _spec("b", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    src = emit_module_source([s1, s2], stem="m")
+    # One alias declaration
+    assert src.count("Digit = Annotated[") == 1
+    # Both classes reference Digit
+    assert "value: Digit" in src
+
+
+def test_class_body_has_no_grammar_assignment():
+    """Class body contains only field declarations (and pass for empty)."""
+    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    src = emit_module_source([spec], stem="m")
+    tree = parse(src)
+    classes = [n for n in tree.body if isinstance(n, ClassDef)]
+    assert len(classes) == 1
+    # No __grammar__ assignment inside class body
+    for stmt in classes[0].body:
+        if isinstance(stmt, AnnAssign) and isinstance(stmt.target, Name):
+            assert stmt.target.id != "__grammar__", "__grammar__ leaked into class body"
+
+
+def test_module_footer_registers_grammar():
+    """Footer block sets cls.__grammar__ for each class."""
+    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    src = emit_module_source([spec], stem="m")
+    assert "D.__grammar__ = RuleSpec(" in src
+
+
+def test_emitted_module_executes_and_grammar_attribute_present():
+    """The emitted source runs and Foo.__grammar__ is reachable at runtime."""
+    spec = _spec("d", "value_str", [IrItem(IrLiteral("x"))])
+    src = emit_module_source([spec], stem="m")
+    ns: dict = {}
+    exec(compile(src, "<m>", "exec"), ns)
+    cls = ns["D"]
+    assert hasattr(cls, "__grammar__")
+    assert cls.__grammar__.rule_name == "d"
+
+
+def test_grammar_round_trip_through_exec():
+    """exec the source, reconstruct __grammar__.items[0] == original IR."""
+    grp_spec = _spec(
+        "r",
+        "sequence",
+        [IrItem(IrCharClass("0-9"), Quantifier(1, None))],
+        field_map={"digit": 0},
+    )
+    src = emit_module_source([grp_spec], stem="m")
+    ns: dict = {}
+    exec(compile(src, "<m>", "exec"), ns)
+    item0 = ns["R"].__grammar__.items[0]
+    assert item0.atom == IrCharClass("0-9")
+    assert item0.quantifier == Quantifier(1, None)

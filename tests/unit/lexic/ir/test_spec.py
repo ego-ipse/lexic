@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from lexic.ir import CharClassAtom, RuleRefAtom, RuleSpec
+from lexic.ir.nodes import IrCharClass, IrItem, IrRuleRef
+from lexic.ir.spec import RuleSpec
 
 
 def test_rulespec_defaults():
@@ -17,7 +18,7 @@ def test_rulespec_field_map_populated():
         "Ident",
         "GrammarModel",
         "sequence",
-        items=[CharClassAtom("[a-z]", 1, 1), RuleRefAtom("ws", 1, 1)],
+        items=[IrItem(IrCharClass("a-z")), IrItem(IrRuleRef("ws"))],
         field_map={"first": 0, "ws": 1},
     )
     assert spec.field_map["first"] == 0
@@ -28,3 +29,15 @@ def test_rulespec_kind_literals():
     for kind in ("sequence", "alternation", "value_str"):
         spec = RuleSpec("r", "R", "GrammarModel", kind)
         assert spec.kind == kind
+
+
+def test_rulespec_non_semantic_fields_default_empty():
+    spec = RuleSpec("r", "R", "GrammarModel", "sequence")
+    assert spec.non_semantic_fields == frozenset()
+
+
+def test_rulespec_non_semantic_fields_set():
+    spec = RuleSpec(
+        "r", "R", "GrammarModel", "sequence", non_semantic_fields=frozenset({"ws"})
+    )
+    assert "ws" in spec.non_semantic_fields

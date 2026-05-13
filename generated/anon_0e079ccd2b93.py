@@ -1,149 +1,219 @@
-"""Auto-generated Pydantic models from <string:anon_0e079ccd2b93>."""
+"""Generated module: anon_0e079ccd2b93. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 
-from typing import ClassVar, List, Union
+from typing import Annotated, List, Union
+
+from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir import (
-    CharClassAtom,
-    InlineAlternationAtom,
-    InlineRegexAtom,
-    LiteralAtom,
-    QuantifiedLiteralAtom,
-    RuleRefAtom,
-    RuleSpec,
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrRuleRef,
+    IrSequence,
+    Quantifier,
 )
+from lexic.ir.spec import RuleSpec
+
+Pattern = Annotated[str, StringConstraints(pattern=r"^[+#]?$")]
+
+Pattern2 = Annotated[str, StringConstraints(pattern=r"^[NBKQR]$")]
+
+Pattern3 = Annotated[str, StringConstraints(pattern=r"^[a-h]?$")]
+
+Pattern4 = Annotated[str, StringConstraints(pattern=r"^[1-8]?$")]
+
+Pattern5 = Annotated[str, StringConstraints(pattern=r"^[a-h]$")]
+
+Pattern6 = Annotated[str, StringConstraints(pattern=r"^[1-8]$")]
+
+Pattern7 = Annotated[str, StringConstraints(pattern=r"^([a-h]x)?$")]
+
+Pattern8 = Annotated[str, StringConstraints(pattern=r"^(=[NBKQR])?$")]
+
+Pattern9 = Annotated[str, StringConstraints(pattern=r"^[1-9]$")]
+
+Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]?$")]
 
 
 class Root(GrammarModel):
-    """root ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="root",
-        class_name="Root",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[
-            LiteralAtom("1. "),
-            RuleRefAtom("move", min=1, max=1),
-            LiteralAtom(" "),
-            RuleRefAtom("move", min=1, max=1),
-            LiteralAtom("\\n"),
-            RuleRefAtom("root-item", min=1, max=None),
-        ],
-        field_map={"move": 1, "move2": 3, "root_item": 5},
-    )
     move: Move
     move2: Move
     root_item: List[RootItem]
 
 
 class Move(GrammarModel):
-    """move ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="move",
-        class_name="Move",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[
-            InlineAlternationAtom(["pawn", "nonpawn", "castle"]),
-            CharClassAtom("[+#]", min=0, max=1),
-        ],
-        field_map={"value": 0, "opt": 1},
-    )
-    value: Union[Pawn, Nonpawn, Castle]
-    opt: str
+    kind: Union[Pawn, Nonpawn, Castle]
+    head: Pattern = None
 
 
 class Nonpawn(GrammarModel):
-    """nonpawn ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="nonpawn",
-        class_name="Nonpawn",
-        parent_class_name="GrammarModel",
-        kind="value_str",
-        items=[
-            CharClassAtom("[NBKQR]", min=1, max=1),
-            CharClassAtom("[a-h]", min=0, max=1),
-            CharClassAtom("[1-8]", min=0, max=1),
-            QuantifiedLiteralAtom("x", min=0, max=1),
-            CharClassAtom("[a-h]", min=1, max=1),
-            CharClassAtom("[1-8]", min=1, max=1),
-        ],
-        field_map={},
-    )
     value: str
 
 
 class Pawn(GrammarModel):
-    """pawn ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="pawn",
-        class_name="Pawn",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[
-            InlineRegexAtom("[a-h]x", '[a-h]"x"', min=0, max=1),
-            CharClassAtom("[a-h]", min=1, max=1),
-            CharClassAtom("[1-8]", min=1, max=1),
-            InlineRegexAtom("=[NBKQR]", '"="[NBKQR]', min=0, max=1),
-        ],
-        field_map={"a_h_x": 0, "a_h": 1, "cc_1_8": 2, "nbkqr": 3},
-    )
-    a_h_x: str
-    a_h: str
-    cc_1_8: str
-    nbkqr: str
+    value: str
 
 
 class Castle(GrammarModel):
-    """castle ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="castle",
-        class_name="Castle",
-        parent_class_name="GrammarModel",
-        kind="value_str",
-        items=[LiteralAtom("O-O"), QuantifiedLiteralAtom("-O", min=0, max=1)],
-        field_map={},
-    )
     value: str
 
 
 class RootItem(GrammarModel):
-    """root-item ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="root-item",
-        class_name="RootItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[
-            CharClassAtom("[1-9]", min=1, max=1),
-            CharClassAtom("[0-9]", min=0, max=1),
-            LiteralAtom(". "),
-            RuleRefAtom("move", min=1, max=1),
-            LiteralAtom(" "),
-            RuleRefAtom("move", min=1, max=1),
-            LiteralAtom("\\n"),
-        ],
-        field_map={"cc_1_9": 0, "digit": 1, "move": 3, "move2": 5},
-    )
-    cc_1_9: str
-    digit: str
+    head: Pattern9
+    digit: Digit = None
     move: Move
     move2: Move
 
 
-# Resolve forward references
-_ns = {k: v for k, v in globals().items() if isinstance(v, type)}
-Root.model_rebuild(_types_namespace=_ns)
-Move.model_rebuild(_types_namespace=_ns)
-Nonpawn.model_rebuild(_types_namespace=_ns)
-Pawn.model_rebuild(_types_namespace=_ns)
-Castle.model_rebuild(_types_namespace=_ns)
-RootItem.model_rebuild(_types_namespace=_ns)
+Root.__grammar__ = RuleSpec(
+    rule_name="root",
+    class_name="Root",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrLiteral("1. "), Quantifier(1, 1)),
+        IrItem(IrRuleRef("move"), Quantifier(1, 1)),
+        IrItem(IrLiteral(" "), Quantifier(1, 1)),
+        IrItem(IrRuleRef("move"), Quantifier(1, 1)),
+        IrItem(IrLiteral("\n"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("root-item"), Quantifier(1, None)),
+    ],
+    field_map={"move": 1, "move2": 3, "root_item": 5},
+    non_semantic_fields=frozenset([]),
+)
+
+
+Move.__grammar__ = RuleSpec(
+    rule_name="move",
+    class_name="Move",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(
+            IrGroup(
+                IrAlternation(
+                    arms=(
+                        IrSequence(
+                            items=(IrItem(IrRuleRef("pawn"), Quantifier(1, 1)),)
+                        ),
+                        IrSequence(
+                            items=(IrItem(IrRuleRef("nonpawn"), Quantifier(1, 1)),)
+                        ),
+                        IrSequence(
+                            items=(IrItem(IrRuleRef("castle"), Quantifier(1, 1)),)
+                        ),
+                    )
+                )
+            ),
+            Quantifier(1, 1),
+        ),
+        IrItem(IrCharClass("+#", negated=False), Quantifier(0, 1)),
+    ],
+    field_map={"kind": 0, "head": 1},
+    non_semantic_fields=frozenset([]),
+)
+
+
+Nonpawn.__grammar__ = RuleSpec(
+    rule_name="nonpawn",
+    class_name="Nonpawn",
+    parent_class_name="GrammarModel",
+    kind="value_str",
+    items=[
+        IrItem(IrCharClass("NBKQR", negated=False), Quantifier(1, 1)),
+        IrItem(IrCharClass("a-h", negated=False), Quantifier(0, 1)),
+        IrItem(IrCharClass("1-8", negated=False), Quantifier(0, 1)),
+        IrItem(IrLiteral("x"), Quantifier(0, 1)),
+        IrItem(IrCharClass("a-h", negated=False), Quantifier(1, 1)),
+        IrItem(IrCharClass("1-8", negated=False), Quantifier(1, 1)),
+    ],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
+Pawn.__grammar__ = RuleSpec(
+    rule_name="pawn",
+    class_name="Pawn",
+    parent_class_name="GrammarModel",
+    kind="value_str",
+    items=[
+        IrItem(
+            IrGroup(
+                IrAlternation(
+                    arms=(
+                        IrSequence(
+                            items=(
+                                IrItem(
+                                    IrCharClass("a-h", negated=False), Quantifier(1, 1)
+                                ),
+                                IrItem(IrLiteral("x"), Quantifier(1, 1)),
+                            )
+                        ),
+                    )
+                )
+            ),
+            Quantifier(0, 1),
+        ),
+        IrItem(IrCharClass("a-h", negated=False), Quantifier(1, 1)),
+        IrItem(IrCharClass("1-8", negated=False), Quantifier(1, 1)),
+        IrItem(
+            IrGroup(
+                IrAlternation(
+                    arms=(
+                        IrSequence(
+                            items=(
+                                IrItem(IrLiteral("="), Quantifier(1, 1)),
+                                IrItem(
+                                    IrCharClass("NBKQR", negated=False),
+                                    Quantifier(1, 1),
+                                ),
+                            )
+                        ),
+                    )
+                )
+            ),
+            Quantifier(0, 1),
+        ),
+    ],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
+Castle.__grammar__ = RuleSpec(
+    rule_name="castle",
+    class_name="Castle",
+    parent_class_name="GrammarModel",
+    kind="value_str",
+    items=[
+        IrItem(IrLiteral("O-O"), Quantifier(1, 1)),
+        IrItem(IrLiteral("-O"), Quantifier(0, 1)),
+    ],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
+RootItem.__grammar__ = RuleSpec(
+    rule_name="root-item",
+    class_name="RootItem",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrCharClass("1-9", negated=False), Quantifier(1, 1)),
+        IrItem(IrCharClass("0-9", negated=False), Quantifier(0, 1)),
+        IrItem(IrLiteral(". "), Quantifier(1, 1)),
+        IrItem(IrRuleRef("move"), Quantifier(1, 1)),
+        IrItem(IrLiteral(" "), Quantifier(1, 1)),
+        IrItem(IrRuleRef("move"), Quantifier(1, 1)),
+        IrItem(IrLiteral("\n"), Quantifier(1, 1)),
+    ],
+    field_map={"head": 0, "digit": 1, "move": 3, "move2": 5},
+    non_semantic_fields=frozenset([]),
+)

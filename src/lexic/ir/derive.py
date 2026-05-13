@@ -1,4 +1,4 @@
-"""derive_specs — IR AST → list[NewRuleSpec] (the codegen view)."""
+"""derive_specs — IR AST → list[RuleSpec] (the codegen view)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from functools import cache
 from typing import Callable, Literal, TypeAlias, TypeVar
 
-from lexic.ir.naming import _LITERAL_NAMES, CHARCLASS_NAMES, _sanitize_pattern
+from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -23,7 +23,7 @@ from lexic.ir.nodes import (
     IrSequence,
     Quantifier,
 )
-from lexic.ir.spec import NewRuleSpec
+from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
 from lexic.ir.walk import IrTransformer, IrVisitor
 from lexic.utils.names import to_pascal
@@ -176,11 +176,24 @@ def _ascii_token(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "_", value).strip("_").lower()[:12]
 
 
+def _sanitize_pattern(pattern: str) -> str:
+    inner = re.sub(r"[\[\]\^]", "", pattern)
+    inner = inner.replace("-", "_").lower()
+    inner = re.sub(r"[^a-z0-9_]", "", inner)
+    inner = inner.strip("_")
+    inner = re.sub(r"_+", "_", inner)
+    if not inner:
+        return ""
+    if inner[0].isdigit():
+        inner = "cc_" + inner
+    return inner[:12].strip("_")
+
+
 # Always returns str (sanitize/fallback literals ensure no None).
 # Used only inside _group_hint to name the first child of a literal-only group.
 # _group_hint is forward-referenced safely: lambdas evaluate at call time.
 _ATOM_HINT: dict[type, _FieldHint] = {
-    IrLiteral: lambda a: _LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
+    IrLiteral: lambda a: LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
     IrCharClass: lambda a: (
         CHARCLASS_NAMES.get(_bracketed(a)) or _sanitize_pattern(_bracketed(a)) or "cc"
     ),
@@ -212,7 +225,7 @@ def _group_field_base(a: IrGroup) -> str | None:
 # always returns str and is used only for naming, never for fallback routing.
 FieldBase: TypeAlias = dict[type[_A], Callable[[_A], str | None]]
 _FIELD_BASE: FieldBase = {
-    IrLiteral: lambda a: _LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
+    IrLiteral: lambda a: LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
     IrRuleRef: lambda a: a.name.replace("-", "_"),
     IrCharClass: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
     IrGroup: _group_field_base,
@@ -222,7 +235,7 @@ _FIELD_BASE: FieldBase = {
 def _field_map(items: Sequence[IrItem]) -> dict[str, int]:
     """Map atoms to Pydantic field names.
 
-    Tier 2 (pattern library): CHARCLASS_NAMES / _LITERAL_NAMES lookup.
+    Tier 2 (pattern library): CHARCLASS_NAMES / LITERAL_NAMES lookup.
     Tier 3 (positional): first unmatched pattern field → 'head', rest → 'part_N'.
     Rule-refs keep the rule name. Unquantified IrLiterals produce no field and
     never reach Tier-3; quantified IrLiterals do produce a field via Tier-2.
@@ -250,36 +263,34 @@ def _field_map(items: Sequence[IrItem]) -> dict[str, int]:
 
 # rule → list of NewRuleSpecs for that rule's kind. Each builder consumes the
 # rule plus its assigned class name and parent class name.
-_KindBuilder: TypeAlias = Callable[[IrRule, str, str], list[NewRuleSpec]]
+_KindBuilder: TypeAlias = Callable[[IrRule, str, str], list[RuleSpec]]
 
 
-def _build_value_str(rule: IrRule, cls_name: str, parent: str) -> list[NewRuleSpec]:
-    """Build a NewRuleSpec for a value_str rule."""
+def _build_value_str(rule: IrRule, cls_name: str, parent: str) -> list[RuleSpec]:
+    """Build a RuleSpec for a value_str rule."""
     arms = _non_empty_arms(rule.body)
     # Multi-arm: place IrAlternation directly; emitters dispatch on
     # isinstance(items[0], IrAlternation). (Decision C.)
     items: list[IrItem | IrAlternation] = (
         [rule.body] if len(arms) > 1 else list(arms[0].items)
     )
-    return [NewRuleSpec(rule.name, cls_name, parent, "value_str", items, {})]
+    return [RuleSpec(rule.name, cls_name, parent, "value_str", items, {})]
 
 
-def _build_sequence(rule: IrRule, cls_name: str, parent: str) -> list[NewRuleSpec]:
-    """Build a NewRuleSpec for a sequence rule."""
+def _build_sequence(rule: IrRule, cls_name: str, parent: str) -> list[RuleSpec]:
+    """Build a RuleSpec for a sequence rule."""
     arms = _non_empty_arms(rule.body)
     arm_items = arms[0].items if arms else ()
     items: list[IrItem | IrAlternation] = list(arm_items)
     return [
-        NewRuleSpec(
-            rule.name, cls_name, parent, "sequence", items, _field_map(arm_items)
-        )
+        RuleSpec(rule.name, cls_name, parent, "sequence", items, _field_map(arm_items))
     ]
 
 
-def _build_alternation(rule: IrRule, cls_name: str, parent: str) -> list[NewRuleSpec]:
-    """Build a NewRuleSpec for an alternation rule."""
+def _build_alternation(rule: IrRule, cls_name: str, parent: str) -> list[RuleSpec]:
+    """Build a RuleSpec for an alternation rule."""
     arm_names: list[str] = []
-    arm_specs: list[NewRuleSpec] = []
+    arm_specs: list[RuleSpec] = []
     for idx, arm in enumerate(_non_empty_arms(rule.body), start=1):
         ref = _single_unquantified_ruleref(arm)
         if ref is not None:
@@ -289,7 +300,7 @@ def _build_alternation(rule: IrRule, cls_name: str, parent: str) -> list[NewRule
         arm_names.append(arm_name)
         arm_items: list[IrItem | IrAlternation] = list(arm.items)
         arm_specs.append(
-            NewRuleSpec(
+            RuleSpec(
                 arm_name,
                 f"{cls_name}Arm{idx}",
                 cls_name,
@@ -301,9 +312,7 @@ def _build_alternation(rule: IrRule, cls_name: str, parent: str) -> list[NewRule
     abstract_items: list[IrItem | IrAlternation] = [
         IrItem(atom=IrRuleRef(name=n)) for n in arm_names
     ]
-    abstract = NewRuleSpec(
-        rule.name, cls_name, parent, "alternation", abstract_items, {}
-    )
+    abstract = RuleSpec(rule.name, cls_name, parent, "alternation", abstract_items, {})
     return [abstract] + arm_specs
 
 
@@ -335,7 +344,7 @@ def _relax_item(
     return item
 
 
-def _apply_non_semantic(spec: NewRuleSpec, rules: frozenset[str]) -> NewRuleSpec:
+def _apply_non_semantic(spec: RuleSpec, rules: frozenset[str]) -> RuleSpec:
     """Relax non-semantic ruleref quantifiers and record their field names."""
     if not rules:
         return spec
@@ -347,7 +356,7 @@ def _apply_non_semantic(spec: NewRuleSpec, rules: frozenset[str]) -> NewRuleSpec
     )
     if new_items == spec.items and non_sem == spec.non_semantic_fields:
         return spec
-    return NewRuleSpec(
+    return RuleSpec(
         spec.rule_name,
         spec.class_name,
         spec.parent_class_name,
@@ -365,8 +374,8 @@ def derive_specs(
     ast: IrAst,
     *,
     non_semantic_rules: frozenset[str] = frozenset(),
-) -> list[NewRuleSpec]:
-    """Walk the IR AST; produce the codegen NewRuleSpec view.
+) -> list[RuleSpec]:
+    """Walk the IR AST; produce the codegen RuleSpec view.
 
     Pure function. No flavour reference.
 
@@ -379,7 +388,7 @@ def derive_specs(
     parents = compute_parents(rules)
     names = {r.name: to_pascal(r.name) for r in rules}
 
-    specs: list[NewRuleSpec] = []
+    specs: list[RuleSpec] = []
     for rule in rules:
         cls_name = names[rule.name]
         parent = parents.get(rule.name, "GrammarModel")

@@ -1,8 +1,6 @@
-"""Codegen public surface.
+"""codegen — IR → Pydantic Python source.
 
-- build_classes_and_specs(text, *, stem, flavour="gbnf") → (classes, specs)
-- codegen(text, *, stem, flavour="gbnf") → classes
-- codegen_from_path(path, *, flavour=None) → classes  (infers flavour from ext)
+Renamed to lexic.codegen at cutover (Slice 4).
 """
 
 from __future__ import annotations
@@ -11,59 +9,53 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from lexic.codegen.ir_builder import IRBuilder
-from lexic.codegen.model_emitter import ModelEmitter
-from lexic.grammars import adapter_for_extension, get_adapter
-from lexic.ir import RuleSpec
+from lexic.codegen.model_emitter import emit_module_source
+from lexic.ir.spec import RuleSpec
+
+__all__ = ["codegen", "emit_module_source"]
 
 
-def _emit_and_load_module(
-    specs: list[RuleSpec], stem: str, *, source: str | None
-) -> dict[str, type]:
-    out_dir = Path(__file__).resolve().parent.parent.parent.parent / "generated"
+def _resolve_generated_dir() -> Path:
+    """Locate the project's generated/ directory.
+
+    Searches up from this file's location to the repo root, then drops down
+    into generated/. Falls back to a cwd-relative `generated/` (created on
+    demand) if the repo-root layout isn't found.
+    """
+    here = Path(__file__).resolve()
+    # src/lexic/codegen/__init__.py → repo root four levels up
+    candidate = here.parent.parent.parent.parent / "generated"
+    if candidate.exists():
+        return candidate
+    # Fallback: cwd-relative
+    cwd_candidate = Path.cwd() / "generated"
+    cwd_candidate.mkdir(parents=True, exist_ok=True)
+    return cwd_candidate
+
+
+def codegen(specs: list[RuleSpec], stem: str) -> dict[str, type]:
+    """Emit a Pydantic module from specs; return the dict of generated classes.
+
+    Side effect: writes `generated/<stem>.py`. The file is regenerated on
+    every call.
+    """
+    out_dir = _resolve_generated_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{stem}.py"
-    out_path.write_text(ModelEmitter(specs, source or f"<string:{stem}>").render())
+    out_path.write_text(emit_module_source(specs, stem=stem))
 
     module_name = f"generated.{stem}"
     if module_name in sys.modules:
         del sys.modules[module_name]
     spec = importlib.util.spec_from_file_location(module_name, out_path)
-    assert spec is not None and spec.loader is not None
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load generated module from {out_path}")
     mod = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = mod
     spec.loader.exec_module(mod)
+
     return {
         s.class_name: getattr(mod, s.class_name)
         for s in specs
         if hasattr(mod, s.class_name)
     }
-
-
-def build_classes_and_specs(
-    text: str, *, stem: str, flavour: str = "gbnf"
-) -> tuple[dict[str, type], list[RuleSpec]]:
-    """Parse + IR-build + emit + load. Returns (classes, specs)."""
-    adapter = get_adapter(flavour)
-    # Phase 1: adapter.parser.parse returns AST; pass through IRBuilder.
-    # Phase 2: adapter.parser.parse returns list[RuleSpec] directly.
-    ast_rules = adapter.parser.parse(text)
-    specs = IRBuilder(ast_rules).build()
-    classes = _emit_and_load_module(specs, stem, source=None)
-    return classes, specs
-
-
-def codegen(text: str, *, stem: str, flavour: str = "gbnf") -> dict[str, type]:
-    """Classes-only wrapper."""
-    classes, _ = build_classes_and_specs(text, stem=stem, flavour=flavour)
-    return classes
-
-
-def codegen_from_path(
-    grammar_path: str | Path, *, flavour: str | None = None
-) -> dict[str, type]:
-    """Read-file wrapper; infers flavour from extension if flavour=None."""
-    path = Path(grammar_path)
-    if flavour is None:
-        flavour = adapter_for_extension(path).name
-    return codegen(path.read_text(), stem=path.stem, flavour=flavour)

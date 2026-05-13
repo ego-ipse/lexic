@@ -1,7 +1,7 @@
-"""Lexic — GBNF grammar engine."""
+"""Lexic — Grammar engine."""
 
-from lexic.codegen import codegen, codegen_from_path
+from lexic.compile import compile_from_path, compile_text
 from lexic.generate import generate
 from lexic.parse import parse
 
-__all__ = ["parse", "codegen", "codegen_from_path", "generate"]
+__all__ = ["compile_from_path", "compile_text", "generate", "parse"]

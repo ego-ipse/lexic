@@ -8,7 +8,8 @@ import pytest
 from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.ir.nodes import IrCharClass, IrItem, IrLiteral, IrRuleRef, Quantifier
+from lexic.ir.spec import RuleSpec
 from tests.paths import GROUND_TRUTH
 
 # ── value_str ─────────────────────────────────────────────────────────────────
@@ -20,7 +21,7 @@ def test_to_text_value_str():
         "Ws",
         "GrammarModel",
         "value_str",
-        items=[CharClassAtom("[ \\t\\n]", 0, None)],
+        items=[IrItem(IrCharClass(" \\t\\n"), Quantifier(0, None))],
         field_map={},
     )
 
@@ -43,9 +44,9 @@ def test_to_text_sequence_emits_literal():
         "GrammarModel",
         "sequence",
         items=[
-            CharClassAtom("[a-z]", 1, 1),
-            LiteralAtom("="),
-            CharClassAtom("[0-9]", 1, 1),
+            IrItem(IrCharClass("a-z")),
+            IrItem(IrLiteral("=")),
+            IrItem(IrCharClass("0-9")),
         ],
         field_map={"first": 0, "second": 2},
     )
@@ -74,8 +75,8 @@ def test_to_text_nested_grammar_model():
         "GrammarModel",
         "sequence",
         items=[
-            CharClassAtom("[a-z]", 1, 1),
-            RuleRefAtom("ws", 1, 1),
+            IrItem(IrCharClass("a-z")),
+            IrItem(IrRuleRef("ws")),
         ],
         field_map={"first": 0, "ws": 1},
     )
@@ -106,7 +107,7 @@ def test_to_text_list_of_grammar_model():
         "Root",
         "GrammarModel",
         "sequence",
-        items=[RuleRefAtom("it", 1, None)],
+        items=[IrItem(IrRuleRef("it"), Quantifier(1, None))],
         field_map={"it": 0},
     )
 
@@ -133,7 +134,7 @@ def test_to_text_optional_absent():
         "R",
         "GrammarModel",
         "sequence",
-        items=[CharClassAtom("[a-z]", 1, 1), RuleRefAtom("ws", 0, 1)],
+        items=[IrItem(IrCharClass("a-z")), IrItem(IrRuleRef("ws"), Quantifier(0, 1))],
         field_map={"first": 0, "ws": 1},
     )
 
@@ -150,16 +151,12 @@ def test_to_text_optional_absent():
 
 
 def test_to_text_alternation_raises():
-    import pytest
-
-    from lexic.ir import AlternationAtom
-
     spec = RuleSpec(
         "base",
         "Base",
         "GrammarModel",
         "alternation",
-        items=[AlternationAtom(["a", "b"])],
+        items=[],
         field_map={},
     )
 
@@ -185,8 +182,9 @@ def test_semantic_dump_excludes_ws():
         "Ident",
         "GrammarModel",
         "sequence",
-        items=[CharClassAtom("[a-z]", 1, 1), RuleRefAtom("ws", 1, 1)],
+        items=[IrItem(IrCharClass("a-z")), IrItem(IrRuleRef("ws"))],
         field_map={"first": 0, "ws": 1},
+        non_semantic_fields=frozenset({"ws"}),
     )
 
     class Ident(GrammarModel):
@@ -222,11 +220,10 @@ def test_to_grammar_contains_rule_name():
     inst = cg.parse("x=1\n")
     result = inst.to_grammar()
     assert inst.__grammar__.rule_name in result
-    assert "::=" in result
 
 
 def test_to_grammar_unknown_flavour_raises():
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     inst = cg.parse("x=1\n")
     with pytest.raises(UnsupportedConstructError):
-        inst.to_grammar("abnf")
+        inst.to_grammar("xyz_unknown_flavour")

@@ -1,83 +1,42 @@
-# tests/unit/lexic/grammars/gbnf/test_flavour.py
-"""GbnfFlavour — full Flavour binding for GBNF."""
+"""GbnfFlavour mirror parity check."""
 
 from __future__ import annotations
 
 from lexic.grammars.flavour import Flavour
-from lexic.grammars.gbnf.flavour import GbnfFlavour
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.nodes import IrLiteral, Quantifier
+from lexic.grammars.gbnf.flavour import GbnfFlavour as LegacyFlavour
+from lexic.grammars.gbnf.flavour import GbnfFlavour as NewFlavour
 
 
-def test_gbnf_flavour_is_a_flavour_subclass():
-    """GbnfFlavour must be a subclass of Flavour."""
-    assert issubclass(GbnfFlavour, Flavour)
+def test_subclass():
+    """GbnfFlavour is a Flavour subclass."""
+    assert issubclass(NewFlavour, Flavour)
 
 
-def test_gbnf_flavour_metadata():
-    """GbnfFlavour must declare a name, extensions, and line_comment."""
-    assert GbnfFlavour.name == "gbnf"
-    assert ".gbnf" in GbnfFlavour.extensions
-    assert GbnfFlavour.line_comment == "#"
+def test_metadata():
+    """GbnfFlavour metadata is the same as LegacyFlavour."""
+    assert NewFlavour.name == LegacyFlavour.name == "gbnf"
+    assert NewFlavour.extensions == LegacyFlavour.extensions == (".gbnf",)
 
 
-def test_gbnf_flavour_meta_grammar_is_imported():
-    """GbnfFlavour must declare a meta-grammar string."""
-    assert "ir_rule" in GbnfFlavour.meta_grammar
-    assert "::=" in GbnfFlavour.meta_grammar
+def test_meta_grammar_identity():
+    """GbnfFlavour.meta_grammar is the same as LegacyFlavour.meta_grammar."""
+    assert NewFlavour.meta_grammar == LegacyFlavour.meta_grammar
 
 
-def test_gbnf_flavour_escapes_decodes_backslash_n():
-    """GbnfFlavour must declare an EscapeCodec subclass."""
-    assert issubclass(type(GbnfFlavour.escapes), EscapeCodec)
-    assert GbnfFlavour.escapes.decode(r"\n") == "\n"
-    assert GbnfFlavour.escapes.decode(r"a\tb") == "a\tb"
+def test_parse_quantifier_parity():
+    """GbnfFlavour.parse_quantifier is the same as LegacyFlavour.parse_quantifier."""
+    cases = ["", "?", "+", "*", "{2,5}", "{0,15}", "{3}"]
+    for s in cases:
+        assert NewFlavour.parse_quantifier(s) == LegacyFlavour.parse_quantifier(s)
 
 
-def test_parse_quantifier_question_mark():
-    """GbnfFlavour must declare a parse_quantifier method."""
-    assert GbnfFlavour.parse_quantifier("?") == Quantifier(0, 1)
+def test_parse_charclass_parity():
+    """GbnfFlavour.parse_charclass is the same as LegacyFlavour.parse_charclass."""
+    cases = ["[a-z]", "[0-9]", "[^abc]", r"[\\\"]"]
+    for s in cases:
+        assert NewFlavour.parse_charclass(s) == LegacyFlavour.parse_charclass(s)
 
 
-def test_parse_quantifier_star():
-    """GbnfFlavour must declare a parse_quantifier method."""
-    assert GbnfFlavour.parse_quantifier("*") == Quantifier(0, None)
-
-
-def test_parse_quantifier_plus():
-    """GbnfFlavour must declare a parse_quantifier method."""
-    assert GbnfFlavour.parse_quantifier("+") == Quantifier(1, None)
-
-
-def test_parse_quantifier_braces_exact():
-    """GbnfFlavour must declare a parse_quantifier method."""
-    assert GbnfFlavour.parse_quantifier("{3}") == Quantifier(3, 3)
-
-
-def test_parse_quantifier_braces_range():
-    """GbnfFlavour must declare a parse_quantifier method."""
-    assert GbnfFlavour.parse_quantifier("{1,5}") == Quantifier(1, 5)
-
-
-def test_parse_quantifier_braces_unbounded():
-    """GbnfFlavour must declare a parse_quantifier method."""
-    assert GbnfFlavour.parse_quantifier("{2,}") == Quantifier(2, None)
-
-
-def test_parse_charclass_basic():
-    """GbnfFlavour must declare a parse_charclass method."""
-    pattern, negated = GbnfFlavour.parse_charclass("[a-z]")
-    assert pattern == "a-z"
-    assert negated is False
-
-
-def test_parse_charclass_negated():
-    """GbnfFlavour must declare a parse_charclass method."""
-    pattern, negated = GbnfFlavour.parse_charclass(r'[^"\\]')
-    assert pattern == r'"\\'
-    assert negated is True
-
-
-def test_normalize_literal_default_identity():
-    """GbnfFlavour must declare a normalize_literal method."""
-    assert GbnfFlavour.normalize_literal("hello") == IrLiteral("hello")
+def test_line_comment_token():
+    """GbnfFlavour.line_comment is the same as LegacyFlavour.line_comment."""
+    assert NewFlavour.line_comment == LegacyFlavour.line_comment

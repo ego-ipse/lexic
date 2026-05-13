@@ -13,18 +13,9 @@ decorators above; subclasses can pass extended handler tables in __init__.
 from __future__ import annotations
 
 from abc import ABC
-from typing import TYPE_CHECKING, Callable, ClassVar, TypeVar
+from typing import TYPE_CHECKING, ClassVar
 
-from lexic.ir.atoms import (
-    AlternationAtom,
-    Atom,
-    CharClassAtom,
-    InlineAlternationAtom,
-    InlineRegexAtom,
-    LiteralAtom,
-    QuantifiedLiteralAtom,
-    RuleRefAtom,
-)
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -41,9 +32,7 @@ from lexic.ir.spec import RuleSpec
 from lexic.utils.quantifiers import bounds_to_quantifier
 
 if TYPE_CHECKING:
-    from lexic.ir.protocols import AtomEmitHandler, EscapeCodec
-
-A = TypeVar("A", bound=Atom)
+    from lexic.ir.escapes import EscapeCodec
 
 
 class FlavourEmitter(ABC):
@@ -58,88 +47,12 @@ class FlavourEmitter(ABC):
     group_close: str = ")"
     empty_body: str = '""'
 
-    @staticmethod
-    def handler(
-        atom_type: type[A], fn: Callable[[A, FlavourEmitter], str]
-    ) -> AtomEmitHandler:
-        """Helper to make an AtomEmitHandler for a specific atom type from a simpler function."""
-
-        def _handler(a: Atom, e: FlavourEmitter) -> str:
-            """Handler that checks the atom type and delegates to the simpler function."""
-            assert isinstance(a, atom_type)
-            return fn(a, e)
-
-        return _handler
-
-    @staticmethod
-    def make_handlers(
-        *handlers: tuple[type, Callable[..., str]],
-    ) -> dict[type, AtomEmitHandler]:
-        """Helper to make a dict of AtomEmitHandlers from simpler functions."""
-        handlers_dict: dict[type, AtomEmitHandler] = {}
-        for atom_type, fn in handlers:
-
-            def _handler(
-                a: Atom,
-                e: FlavourEmitter,
-                _t: type = atom_type,
-                _f: Callable[..., str] = fn,
-            ) -> str:
-                assert isinstance(a, _t)
-                return _f(a, e)
-
-            handlers_dict[atom_type] = _handler
-        return handlers_dict
-
-    DEFAULT_HANDLERS: ClassVar[dict[type, AtomEmitHandler]] = make_handlers(
-        (LiteralAtom, lambda a, e: e.quote(a.value)),
-        (
-            QuantifiedLiteralAtom,
-            lambda a, e: e.place_quantifier(
-                e.quote(a.value), e.format_quantifier(a.min, a.max)
-            ),
-        ),
-        (
-            CharClassAtom,
-            lambda a, e: e.place_quantifier(
-                e.render_charclass(a.pattern), e.format_quantifier(a.min, a.max)
-            ),
-        ),
-        (
-            RuleRefAtom,
-            lambda a, e: e.place_quantifier(
-                a.rule_name, e.format_quantifier(a.min, a.max)
-            ),
-        ),
-        (AlternationAtom, lambda a, e: e.alt_separator.join(a.arm_rule_names)),
-        (
-            InlineAlternationAtom,
-            lambda a, e: e.wrap_group(e.alt_separator.join(a.arm_rule_names)),
-        ),
-        (
-            InlineRegexAtom,
-            lambda a, e: e.place_quantifier(
-                e.render_inline_regex(a.regex), e.format_quantifier(a.min, a.max)
-            ),
-        ),
-    )
-
-    def __init__(
-        self,
-        escapes: EscapeCodec,
-        handlers: dict[type, AtomEmitHandler] | None = None,
-    ) -> None:
-        """Initialise with an escape codec and optional atom handlers.
-
-        Defaults to DEFAULT_HANDLERS.
-        """
-        self._escapes = escapes
-        self._handlers: dict[type, AtomEmitHandler] = (
-            dict(handlers) if handlers is not None else dict(self.DEFAULT_HANDLERS)
-        )
-
     supports: ClassVar[frozenset[str]]
     """The set of atom types this emitter supports; used for testing."""
+
+    def __init__(self, escapes: EscapeCodec) -> None:
+        """Initialise with an escape codec and optional atom handlers."""
+        self._escapes = escapes
 
     # ── Decorators (overridable per flavour) ──────────────────────────
 
@@ -184,22 +97,17 @@ class FlavourEmitter(ABC):
         return f"{spec.rule_name} {self.rule_separator} {body}{self.rule_terminator}"
 
     def _emit_body(self, spec: RuleSpec) -> str:
-        """Emit the body of a rule spec by rendering its atoms and joining with spaces."""
-        parts = [self.render_atom(a) for a in spec.items]
-        parts = [p for p in parts if p]
-        if not parts:
+        if not spec.items:
             return self.empty_body
-        return " ".join(parts)
-
-    def render_atom(self, atom: Atom) -> str:
-        """Render an atom using the appropriate handler."""
-        try:
-            _handler = self._handlers[type(atom)]
-        except KeyError as exc:
-            raise NotImplementedError(
-                f"{type(self).__name__} has no handler for {type(atom).__name__}"
-            ) from exc
-        return _handler(atom, self)
+        if spec.kind == "alternation":
+            return self.alt_separator.join(
+                self._emit_item(it) for it in spec.items if isinstance(it, IrItem)
+            )
+        first = spec.items[0]
+        if isinstance(first, IrAlternation):
+            return self._emit_alternation(first)
+        parts = [self._emit_item(it) for it in spec.items if isinstance(it, IrItem)]
+        return " ".join(p for p in parts if p) or self.empty_body
 
     # ── IR-AST emit chain ────────────────────────────────────────────
 
@@ -238,4 +146,6 @@ class FlavourEmitter(ABC):
             return atom.name
         if isinstance(atom, IrGroup):
             return self.wrap_group(self._emit_alternation(atom.body))
-        raise NotImplementedError(f"No IR-atom handler for {type(atom).__name__}")
+        raise UnsupportedConstructError(
+            f"No IR-atom handler for {type(atom).__name__!r}"
+        )

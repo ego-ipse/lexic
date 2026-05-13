@@ -1,232 +1,304 @@
-"""ModelEmitter: renders list[RuleSpec] into an importable Python source file.
+"""Model emitter — IrItem-shape RuleSpec → Python source string.
 
-Single responsibility: knows Python/Pydantic syntax. Knows nothing about Lark or GBNF text.
+Target-shape commitments land incrementally:
+  Task 9: class body skeleton + canonical imports.
+  Task 10: Annotated[str, StringConstraints(...)] for pattern fields.
+  Task 11: Literal[...] for pure-literal alternations.
+  Task 12: Module-level type aliases hoisted from collect_aliases().
+  Task 13: __grammar__ moved to module footer.
+
+Decision CQ #1 (no # FIXME): _REPR_ACTION covers every IR shape.
+Decision CQ #4 (fixed imports): emit a canonical import block always.
 """
 
 from __future__ import annotations
 
-from lexic.ir import (
-    AlternationAtom,
-    CharClassAtom,
-    InlineAlternationAtom,
-    InlineRegexAtom,
-    LiteralAtom,
-    QuantifiedLiteralAtom,
-    RuleRefAtom,
-    RuleSpec,
+from io import StringIO
+from typing import Callable, cast
+
+from lexic.codegen.aliases import (
+    PatternAlias,
+    collect_aliases,
+    regex_for_charclass,
+    regex_for_group,
 )
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.derive import has_ruleref
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrNode,
+    IrRuleRef,
+    IrSequence,
+    Quantifier,
+)
+from lexic.ir.spec import RuleSpec
+from lexic.ir.walk import IrDispatch
+
+CANONICAL_IMPORTS = """\
+from __future__ import annotations
+from typing import Annotated, ClassVar, List, Literal, Optional, Union
+
+from pydantic import Field, StringConstraints
+
+from lexic.base import GrammarModel
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+    Quantifier,
+)
+from lexic.ir.spec import RuleSpec
+"""
 
 
-def _field_type(atom, specs_by_rule: dict[str, RuleSpec]) -> str:
-    """Return the Pydantic field type string for a non-literal atom."""
-    if isinstance(atom, CharClassAtom):
-        return "str"
-    if isinstance(atom, RuleRefAtom):
-        ref = specs_by_rule.get(atom.rule_name)
-        cls_name = ref.class_name if ref else atom.rule_name.replace("-", "_").title()
-        if atom.min == 1 and atom.max == 1:
-            return cls_name
-        if atom.min == 0 and atom.max == 1:
-            return f"Optional[{cls_name}]"
-        return f"List[{cls_name}]"
-    if isinstance(atom, AlternationAtom):
-        # Inline alternation inside a sequence: use the common parent if all arms
-        # share one (and it's not the base GrammarModel), otherwise emit a Union.
-        arm_cls_names = [
-            specs_by_rule[name].class_name
-            for name in atom.arm_rule_names
-            if name in specs_by_rule
+def _is_required(q: Quantifier) -> bool:
+    return q.min == 1 and q.max == 1
+
+
+def _is_optional(q: Quantifier) -> bool:
+    return q.min == 0 and q.max == 1
+
+
+# ── IR repr emission ──────────────────────────────────────────────────────────
+#
+# _IrRepr folds an IR item subtree to a Python-repr string suitable for
+# embedding in __grammar__ = RuleSpec(...) assignments in emitted source.
+#
+# The dispatch table maps each node type to a (node, old_children, new_children)
+# → str callable.  new_children carries already-visited child strings, so
+# IrGroup, IrAlternation, IrSequence, and IrItem just interpolate nc[i].
+
+_REPR_ACTION: dict[type, Callable[..., str]] = {
+    IrLiteral: lambda n, oc, nc: f"IrLiteral({n.value!r})",
+    IrCharClass: lambda n, oc, nc: f"IrCharClass({n.pattern!r}, negated={n.negated})",
+    IrRuleRef: lambda n, oc, nc: f"IrRuleRef({n.name!r})",
+    IrGroup: lambda n, oc, nc: f"IrGroup({nc[0]})",
+    IrAlternation: lambda n, oc, nc: (
+        "IrAlternation(arms=())"
+        if not nc
+        else f"IrAlternation(arms=({', '.join(nc)},))"
+    ),
+    IrSequence: lambda n, oc, nc: (
+        "IrSequence(items=())" if not nc else f"IrSequence(items=({', '.join(nc)},))"
+    ),
+    IrItem: lambda n, oc, nc: (
+        f"IrItem({nc[0]}, Quantifier({n.quantifier.min}, {n.quantifier.max!r}))"
+    ),
+}
+
+
+class _IrRepr(IrDispatch[IrNode, str]):
+    """Fold an IR item subtree to a Python-repr string."""
+
+    action = _REPR_ACTION
+
+    def _combine(self, node: IrNode, old_children: tuple, new_children: tuple) -> str:
+        try:
+            return self.action[type(node)](node, old_children, new_children)
+        except KeyError as exc:
+            raise UnsupportedConstructError(
+                f"_IrRepr: no repr handler for {type(node).__name__!r}",
+            ) from exc
+
+
+# ── Field type emission ───────────────────────────────────────────────────────
+#
+# _field_type maps an IrItem to a Python type annotation string.
+# Pattern atoms consult the alias map first; if the regex is registered there,
+# the alias name is returned instead of an inline Annotated[...] expression.
+
+
+def _ruleref_type(name: str, q: Quantifier, specs: dict[str, RuleSpec]) -> str:
+    ref = specs.get(name)
+    cls = ref.class_name if ref else name.replace("-", "_").title()
+    if _is_required(q):
+        return cls
+    if _is_optional(q):
+        return f"Optional[{cls}]"
+    return f"List[{cls}]"
+
+
+def _group_type(atom: IrGroup, specs: dict[str, RuleSpec]) -> str:
+    arm_refs = [
+        arm.items[0].atom.name
+        for arm in atom.body.arms
+        if len(arm.items) == 1 and isinstance(arm.items[0].atom, IrRuleRef)
+    ]
+    if arm_refs:
+        cls_names = [
+            specs[n].class_name if n in specs else n.replace("-", "_").title()
+            for n in arm_refs
         ]
-        parent_classes = {
-            specs_by_rule[name].parent_class_name
-            for name in atom.arm_rule_names
-            if name in specs_by_rule
-        }
-        if len(parent_classes) == 1:
-            parent = next(iter(parent_classes))
-            if parent != "GrammarModel":
-                return parent
-        if arm_cls_names:
-            return "Union[" + ", ".join(arm_cls_names) + "]"
-        return "GrammarModel"
-    if isinstance(atom, QuantifiedLiteralAtom):
-        return "str"
-    if isinstance(atom, InlineRegexAtom):
-        return "str"
-    if isinstance(atom, InlineAlternationAtom):
-        arm_cls_names = [
-            specs_by_rule[n].class_name
-            for n in atom.arm_rule_names
-            if n in specs_by_rule
-        ]
-        parent_classes = {
-            specs_by_rule[n].parent_class_name
-            for n in atom.arm_rule_names
-            if n in specs_by_rule
-        }
-        if len(parent_classes) == 1:
-            parent = next(iter(parent_classes))
-            if parent != "GrammarModel":
-                return parent
-        if arm_cls_names:
-            return "Union[" + ", ".join(arm_cls_names) + "]"
-        return "GrammarModel"
+        return f"Union[{', '.join(cls_names)}]"
     return "str"
 
 
-def _repr_atom(atom) -> str:
-    """Render an atom as a Python constructor call for the __grammar__ literal."""
-    if isinstance(atom, LiteralAtom):
-        escaped = atom.value.replace("\\", "\\\\").replace('"', '\\"')
-        return f'LiteralAtom("{escaped}")'
-    if isinstance(atom, CharClassAtom):
-        escaped = atom.pattern.replace("\\", "\\\\").replace('"', '\\"')
-        max_repr = "None" if atom.max is None else str(atom.max)
-        return f'CharClassAtom("{escaped}", min={atom.min}, max={max_repr})'
-    if isinstance(atom, RuleRefAtom):
-        max_repr = "None" if atom.max is None else str(atom.max)
-        return f'RuleRefAtom("{atom.rule_name}", min={atom.min}, max={max_repr})'
-    if isinstance(atom, AlternationAtom):
-        names = ", ".join(f'"{n}"' for n in atom.arm_rule_names)
-        return f"AlternationAtom([{names}])"
-    if isinstance(atom, QuantifiedLiteralAtom):
-        escaped = atom.value.replace("\\", "\\\\").replace('"', '\\"')
-        max_repr = "None" if atom.max is None else str(atom.max)
-        return f'QuantifiedLiteralAtom("{escaped}", min={atom.min}, max={max_repr})'
-    if isinstance(atom, InlineRegexAtom):
-        r = atom.regex.replace("\\", "\\\\").replace('"', '\\"')
-        g = atom.gbnf.replace("\\", "\\\\").replace('"', '\\"')
-        max_repr = "None" if atom.max is None else str(atom.max)
-        return f'InlineRegexAtom("{r}", "{g}", min={atom.min}, max={max_repr})'
-    if isinstance(atom, InlineAlternationAtom):
-        names = ", ".join(f'"{n}"' for n in atom.arm_rule_names)
-        return f"InlineAlternationAtom([{names}])"
-    return "None"
+def _r_string(pattern: str) -> str:
+    quote = "'" if '"' in pattern else '"'
+    return f"r{quote}{pattern}{quote}"
 
 
-class ModelEmitter:
-    """Renders a list of RuleSpec objects into an importable Python source string."""
+def _pattern_type(regex: str, aliases: dict[str, str]) -> str:
+    """Return the alias name if registered, otherwise an inline Annotated[...] string."""
+    if regex in aliases:
+        return aliases[regex]
+    return f"Annotated[str, StringConstraints(pattern={_r_string(regex)})]"
 
-    def __init__(self, specs: list[RuleSpec], grammar_path: str):
-        self._specs = specs
-        self._grammar_path = grammar_path
-        self._by_rule = {s.rule_name: s for s in specs}
 
-    def render(self) -> str:
-        needs_list = needs_optional = needs_union = False
-        needs_abc = any(s.kind == "alternation" for s in self._specs)
-        for s in self._specs:
-            for _fname, idx in s.field_map.items():
-                ft = _field_type(s.items[idx], self._by_rule)
-                if "List[" in ft:
-                    needs_list = True
-                if "Optional[" in ft:
-                    needs_optional = True
-                if "Union[" in ft:
-                    needs_union = True
+_ATOM_FIELD_TYPE: dict[type, Callable] = {
+    IrLiteral: lambda a, q, s, al: "str",
+    IrCharClass: lambda a, q, s, al: _pattern_type(regex_for_charclass(a, q), al),
+    IrRuleRef: lambda a, q, s, al: _ruleref_type(a.name, q, s),
+    IrGroup: lambda a, q, s, al: (
+        _pattern_type(regex_for_group(a, q), al)
+        if not has_ruleref(a)
+        else _group_type(a, s)
+    ),
+}
 
-        typing_parts = ["ClassVar"]
-        if needs_list:
-            typing_parts.append("List")
-        if needs_optional:
-            typing_parts.append("Optional")
-        if needs_union:
-            typing_parts.append("Union")
 
-        lines = [
-            f'"""Auto-generated Pydantic models from {self._grammar_path}."""',
-            "from __future__ import annotations",
-            "",
-        ]
-        if needs_abc:
-            lines.append("from abc import ABC")
-        lines.append(f"from typing import {', '.join(sorted(typing_parts))}")
-        lines.append("")
-        lines.append("from lexic.base import GrammarModel")
-
-        # Only import atom types that are actually instantiated in this grammar.
-        all_atoms = [a for s in self._specs for a in s.items]
-        used_atoms = sorted(
-            {
-                name
-                for name, cls in [
-                    ("AlternationAtom", AlternationAtom),
-                    ("CharClassAtom", CharClassAtom),
-                    ("InlineAlternationAtom", InlineAlternationAtom),
-                    ("InlineRegexAtom", InlineRegexAtom),
-                    ("LiteralAtom", LiteralAtom),
-                    ("QuantifiedLiteralAtom", QuantifiedLiteralAtom),
-                    ("RuleRefAtom", RuleRefAtom),
-                ]
-                if any(isinstance(a, cls) for a in all_atoms)
-            }
+def _field_type(
+    item: IrItem, specs: dict[str, RuleSpec], aliases: dict[str, str]
+) -> str:
+    """Return the Python type annotation string for an IrItem."""
+    handler = _ATOM_FIELD_TYPE.get(type(item.atom))
+    if handler is None:
+        raise UnsupportedConstructError(
+            f"_field_type: no handler for atom type {type(item.atom).__name__!r}"
         )
-        ir_imports = ", ".join(["RuleSpec"] + used_atoms)
-        lines.append(f"from lexic.ir import {ir_imports}")
-        lines.append("")
-        lines.append("")
+    return handler(item.atom, item.quantifier, specs, aliases)
 
-        for spec in self._specs:
-            lines.extend(self._render_class(spec))
-            lines.append("")
-            lines.append("")
 
-        lines.append("# Resolve forward references")
-        lines.append(
-            "_ns = {k: v for k, v in globals().items() if isinstance(v, type)}"
-        )
-        for spec in self._specs:
-            lines.append(f"{spec.class_name}.model_rebuild(_types_namespace=_ns)")
-        lines.append("")
-        return "\n".join(lines)
+def _is_pure_literal_alt(alt: IrAlternation) -> bool:
+    """True when every arm is a single unquantified IrLiteral."""
+    return all(
+        len(arm.items) == 1
+        and isinstance(arm.items[0].atom, IrLiteral)
+        and arm.items[0].quantifier == Quantifier(1, 1)
+        for arm in alt.arms
+    )
 
-    def _render_class(self, spec: RuleSpec) -> list[str]:
-        if spec.kind == "alternation":
-            bases = (
-                f"{spec.parent_class_name}, ABC"
-                if spec.parent_class_name != "GrammarModel"
-                else "GrammarModel, ABC"
+
+def _value_str_field_type(
+    spec: RuleSpec, by_rule: dict[str, RuleSpec], aliases: dict[str, str]
+) -> str:
+    """Return the field type annotation for a value_str spec."""
+    if len(spec.items) != 1:
+        return "str"
+    item = spec.items[0]
+    if isinstance(item, IrAlternation):
+        if _is_pure_literal_alt(item):
+            literals = ", ".join(
+                f'"{cast(IrLiteral, arm.items[0].atom).value}"' for arm in item.arms
             )
-        else:
-            bases = spec.parent_class_name
+            return f"Literal[{literals}]"
+        return "str"
+    if isinstance(item, IrItem):
+        return _field_type(item, by_rule, aliases)
+    raise UnsupportedConstructError(
+        f"_value_str_field_type: unexpected item type {type(item).__name__!r}"
+    )
 
-        lines = [f"class {spec.class_name}({bases}):"]
-        lines.append(f'    """{spec.rule_name} ::= (see __grammar__)"""')
-        lines.extend(self._render_grammar_attr(spec))
 
-        if spec.kind == "alternation":
-            lines.append("    pass")
-        elif spec.kind == "value_str":
-            lines.append("    value: str")
-        else:
-            # sequence fields
-            ordered = sorted(spec.field_map.items(), key=lambda x: x[1])
-            if ordered:
-                for fname, idx in ordered:
-                    atom = spec.items[idx]
-                    ftype = _field_type(atom, self._by_rule)
-                    if ftype.startswith("Optional["):
-                        lines.append(f"    {fname}: {ftype} = None")
-                    else:
-                        lines.append(f"    {fname}: {ftype}")
-            else:
-                lines.append("    pass")
+# ── ModuleEmitter ─────────────────────────────────────────────────────────────
 
-        return lines
 
-    def _render_grammar_attr(self, spec: RuleSpec) -> list[str]:
-        items_repr = "[" + ", ".join(_repr_atom(a) for a in spec.items) + "]"
-        fm_repr = (
-            "{" + ", ".join(f'"{k}": {v}' for k, v in spec.field_map.items()) + "}"
+class ModuleEmitter:
+    """Render a list of NewRuleSpecs to a Python module source string.
+
+    Owns the _IrRepr instance and the specs index so all emission helpers
+    share state without threading it through every call.
+    """
+
+    def __init__(self, specs: list[RuleSpec]) -> None:
+        self._specs = specs
+        self._by_rule: dict[str, RuleSpec] = {s.rule_name: s for s in specs}
+        self._repr = _IrRepr()
+        alias_list: list[PatternAlias] = collect_aliases(specs)
+        self._alias_decls = alias_list
+        self._aliases: dict[str, str] = {a.regex: a.name for a in alias_list}
+
+    def emit(self, *, stem: str) -> str:
+        """Render all specs to a module source string."""
+        out = StringIO()
+        out.write(
+            f'"""Generated module: {stem}. Do not edit; regenerated from grammar."""\n'
         )
-        lines = [
-            "    __grammar__: ClassVar[RuleSpec] = RuleSpec(",
-            f'        rule_name="{spec.rule_name}",',
-            f'        class_name="{spec.class_name}",',
-            f'        parent_class_name="{spec.parent_class_name}",',
-            f'        kind="{spec.kind}",',
-            f"        items={items_repr},",
-            f"        field_map={fm_repr},",
-            "    )",
-        ]
-        return lines
+        out.write(CANONICAL_IMPORTS)
+        for alias in self._alias_decls:
+            out.write(
+                f"\n{alias.name} = Annotated[str, StringConstraints(pattern=r{chr(39) if chr(34) in alias.regex else chr(34)}{alias.regex}{chr(39) if chr(34) in alias.regex else chr(34)})]\n"
+            )
+        for spec in self._specs:
+            out.write(self.emit_class(spec))
+        self._write_footer(out)
+        return out.getvalue()
+
+    def emit_class(self, spec: RuleSpec) -> str:
+        """Render one spec to a class definition string (no module header or footer)."""
+        out = StringIO()
+        self._write_class(spec, out)
+        return out.getvalue()
+
+    def _write_class(self, spec: RuleSpec, out: StringIO) -> None:
+        out.write(f"\n\nclass {spec.class_name}({spec.parent_class_name}):\n")
+        inv = {idx: name for name, idx in spec.field_map.items()}
+        body_lines: list[str] = []
+        if spec.kind == "value_str":
+            body_lines.append(
+                f"    value: {_value_str_field_type(spec, self._by_rule, self._aliases)}"
+            )
+        elif spec.kind == "alternation":
+            pass
+        else:
+            for idx, item in enumerate(spec.items):
+                if not isinstance(item, IrItem) or idx not in inv:
+                    continue
+                type_str = _field_type(item, self._by_rule, self._aliases)
+                default = " = None" if _is_optional(item.quantifier) else ""
+                body_lines.append(f"    {inv[idx]}: {type_str}{default}")
+        if not body_lines:
+            body_lines.append("    pass")
+        for line in body_lines:
+            out.write(line + "\n")
+
+    def _write_footer(self, out: StringIO) -> None:
+        for spec in self._specs:
+            out.write(
+                f"\n\n{spec.class_name}.__grammar__ = {self._repr_rulespec(spec)}\n"
+            )
+
+    def _repr_rulespec(self, spec: RuleSpec) -> str:
+        return (
+            f"RuleSpec(\n"
+            f"        rule_name={spec.rule_name!r},\n"
+            f"        class_name={spec.class_name!r},\n"
+            f"        parent_class_name={spec.parent_class_name!r},\n"
+            f"        kind={spec.kind!r},\n"
+            f"        items={self._repr_items(spec)},\n"
+            f"        field_map={self._repr_field_map(spec)},\n"
+            f"        non_semantic_fields=frozenset({sorted(spec.non_semantic_fields)!r}),\n"
+            f"    )"
+        )
+
+    def _repr_items(self, spec: RuleSpec) -> str:
+        return "[" + ", ".join(self._repr.visit(item) for item in spec.items) + "]"
+
+    def _repr_field_map(self, spec: RuleSpec) -> str:
+        pairs = ", ".join(f"{k!r}: {v}" for k, v in spec.field_map.items())
+        return "{" + pairs + "}"
+
+
+def emit_module_source(specs: list[RuleSpec], *, stem: str) -> str:
+    """Render specs to a Python module source string."""
+    return ModuleEmitter(specs).emit(stem=stem)

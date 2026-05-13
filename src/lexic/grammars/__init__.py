@@ -1,9 +1,4 @@
-"""Grammar-flavour layer — public endpoint.
-
-During the parallel-track cutover this module exposes both registries: the
-legacy ADAPTERS dict driven by FlavourAdapter, and the new _FLAVOURS dict
-driven by Flavour subclasses. The legacy half is removed in Phase 2.
-"""
+"""Grammar-flavour layer — public endpoint."""
 
 from __future__ import annotations
 
@@ -12,19 +7,7 @@ from pathlib import Path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf.flavour import AbnfFlavour
 from lexic.grammars.flavour import Flavour
-from lexic.grammars.flavours import (
-    ADAPTERS,
-    FlavourAdapter,
-    FlavourEmitter,
-    FlavourParser,
-    adapter_for_extension,
-    get_adapter,
-    register_adapter,
-)
-from lexic.grammars.gbnf.adapter import GbnfAdapter
-from lexic.grammars.new_gbnf.flavour import GbnfFlavour as _NewGbnfFlavour
-
-register_adapter(GbnfAdapter())
+from lexic.grammars.gbnf.flavour import GbnfFlavour
 
 _FLAVOURS: dict[str, type[Flavour]] = {}
 
@@ -56,20 +39,8 @@ def flavour_for_extension(path: str | Path) -> type[Flavour]:
     )
 
 
-register_flavour(_NewGbnfFlavour)
+register_flavour(GbnfFlavour)
 register_flavour(AbnfFlavour)
 
 
-__all__ = [
-    "ADAPTERS",
-    "Flavour",
-    "FlavourAdapter",
-    "FlavourEmitter",
-    "FlavourParser",
-    "adapter_for_extension",
-    "flavour_for_extension",
-    "get_adapter",
-    "get_flavour",
-    "register_adapter",
-    "register_flavour",
-]
+__all__ = ["Flavour", "flavour_for_extension", "get_flavour", "register_flavour"]

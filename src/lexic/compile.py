@@ -13,7 +13,7 @@ Pipeline (compile_grammar — new IR-AST path):
                       derive_specs(ast, non_semantic_rules=...)
                                                           │
                                                           ▼
-                                          (start_name, list[NewRuleSpec])
+                                          (start_name, list[RuleSpec])
 
 compile_text(text, *, cache_key) is the old-pipeline primary entry; returns
 a CompiledGrammar (Lark parser + transformer + classes). Retired in Task 25a.
@@ -37,14 +37,14 @@ from typing import TYPE_CHECKING
 
 import lark
 
-from lexic.codegen import build_classes_and_specs
-from lexic.codegen.lark_builder import LarkBuilder
+from lexic.codegen import codegen
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars import adapter_for_extension
+from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.grammars.flavour import Flavour
 from lexic.ir.derive import derive_specs
 from lexic.ir.directives import parse_directives
-from lexic.ir.spec import NewRuleSpec
+from lexic.ir.spec import RuleSpec
+from lexic.parsing.lark_builder import build_lark
 from lexic.parsing.meta_parser import MetaGrammarParser
 
 if TYPE_CHECKING:
@@ -81,19 +81,15 @@ def _stem_for_text(text: str) -> str:
 
 
 def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGrammar:
-    classes, specs_list = build_classes_and_specs(text, stem=stem, flavour=flavour)
-    specs = {s.rule_name: s for s in specs_list}
-
-    builder = LarkBuilder(specs_list)
-    grammar_str, start_rule = builder.build_grammar()
-    parser = lark.Lark(
-        grammar_str, parser="earley", ambiguity="resolve", start=start_rule
-    )
-    # Task 11 deletes LarkBuilder.build_transformer; for now it still works.
-    transformer = builder.build_transformer(classes)
-
+    flavour_cls = get_flavour(flavour)
+    start_rule, specs_list = compile_grammar(text, flavour_cls)
+    classes = codegen(specs_list, stem)
+    _, parser, transformer = build_lark(specs_list, classes, start_rule)
     return CompiledGrammar(
-        classes=classes, specs=specs, parser=parser, transformer=transformer
+        classes=classes,
+        specs={s.rule_name: s for s in specs_list},
+        parser=parser,
+        transformer=transformer,
     )
 
 
@@ -118,7 +114,7 @@ def compile_from_path(
     path = Path(grammar_path).resolve()
     stat = path.stat()
     if flavour is None:
-        flavour = adapter_for_extension(path).name
+        flavour = flavour_for_extension(path).name
     key = (str(path), stat.st_mtime, stat.st_size, flavour)
     cached = _CACHE.get(key)
     if cached is not None:
@@ -134,7 +130,7 @@ def compile_grammar(
     *,
     non_semantic_rules: frozenset[str] | None = None,
     start: str | None = None,
-) -> tuple[str, list[NewRuleSpec]]:
+) -> tuple[str, list[RuleSpec]]:
     """Parse + derive NewRuleSpecs via the new IR-AST pipeline.
 
     Pipeline:
@@ -150,7 +146,7 @@ def compile_grammar(
                           derive_specs(ast, non_semantic_rules=...)
                                                               │
                                                               ▼
-                                              (start_name, list[NewRuleSpec])
+                                              (start_name, list[RuleSpec])
 
     `start` resolution precedence:
       1. explicit `start` argument

@@ -13,7 +13,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     Quantifier,
 )
-from lexic.ir.spec import NewRuleSpec
+from lexic.ir.spec import RuleSpec
 
 Lower = Annotated[str, StringConstraints(pattern=r"^[a-z]+$")]
 
@@ -26,7 +26,7 @@ class Expr(GrammarModel):
     value: Lower
 
 
-Root.__grammar__ = NewRuleSpec(
+Root.__grammar__ = RuleSpec(
     rule_name="root",
     class_name="Root",
     parent_class_name="GrammarModel",
@@ -37,7 +37,7 @@ Root.__grammar__ = NewRuleSpec(
 )
 
 
-Expr.__grammar__ = NewRuleSpec(
+Expr.__grammar__ = RuleSpec(
     rule_name="expr",
     class_name="Expr",
     parent_class_name="GrammarModel",

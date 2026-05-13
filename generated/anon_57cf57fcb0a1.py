@@ -1,320 +1,542 @@
-"""Auto-generated Pydantic models from <string:anon_57cf57fcb0a1>."""
+"""Generated module: anon_57cf57fcb0a1. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 
-from abc import ABC
-from typing import ClassVar, List, Optional
+from typing import Annotated, List, Optional
+
+from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir import (
-    AlternationAtom,
-    CharClassAtom,
-    InlineRegexAtom,
-    LiteralAtom,
-    QuantifiedLiteralAtom,
-    RuleRefAtom,
-    RuleSpec,
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrRuleRef,
+    IrSequence,
+    Quantifier,
 )
+from lexic.ir.spec import RuleSpec
+
+Pattern = Annotated[str, StringConstraints(pattern=r"^(true|false|null)$")]
+
+Pattern2 = Annotated[str, StringConstraints(pattern=r'^[^"\\\x7F\x00-\x1F]$')]
+
+Pattern3 = Annotated[str, StringConstraints(pattern=r'^["\\bfnrt]$')]
+
+Hex = Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{4}$")]
+
+Pattern4 = Annotated[str, StringConstraints(pattern=r'^(["\\bfnrt]|u[0-9a-fA-F]{4})$')]
+
+Pattern5 = Annotated[
+    str,
+    StringConstraints(
+        pattern=r'^([^"\\\x7F\x00-\x1F]|\\(["\\bfnrt]|u[0-9a-fA-F]{4}))*$'
+    ),
+]
+
+Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]$")]
+
+Pattern6 = Annotated[str, StringConstraints(pattern=r"^[1-9]$")]
+
+Digit2 = Annotated[str, StringConstraints(pattern=r"^[0-9]{0,15}$")]
+
+Pattern7 = Annotated[str, StringConstraints(pattern=r"^([0-9]|[1-9][0-9]{0,15})$")]
+
+Pattern8 = Annotated[str, StringConstraints(pattern=r"^(\-?([0-9]|[1-9][0-9]{0,15}))$")]
+
+Digit3 = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]
+
+Pattern9 = Annotated[str, StringConstraints(pattern=r"^(\.[0-9]+)?$")]
+
+Pattern10 = Annotated[str, StringConstraints(pattern=r"^[eE]$")]
+
+Pattern11 = Annotated[str, StringConstraints(pattern=r"^[-+]?$")]
+
+Pattern12 = Annotated[str, StringConstraints(pattern=r"^([eE][-+]?[1-9][0-9]{0,15})?$")]
+
+Pattern13 = Annotated[str, StringConstraints(pattern=r"^[ \t]{0,20}$")]
 
 
 class Root(GrammarModel):
-    """root ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="root",
-        class_name="Root",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[RuleRefAtom("arr", min=1, max=1)],
-        field_map={"arr": 0},
-    )
     arr: Arr
 
 
-class Value(GrammarModel, ABC):
-    """value ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="value",
-        class_name="Value",
-        parent_class_name="GrammarModel",
-        kind="alternation",
-        items=[AlternationAtom(["object", "array", "string", "number", "value-arm5"])],
-        field_map={},
-    )
+class Value(GrammarModel):
     pass
 
 
 class ValueArm5(Value):
-    """value-arm5 ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="value-arm5",
-        class_name="ValueArm5",
-        parent_class_name="Value",
-        kind="sequence",
-        items=[
-            InlineRegexAtom(
-                "(true|false|null)", '("true"|"false"|"null")', min=1, max=1
-            )
-        ],
-        field_map={"true": 0},
-    )
-    true: str
+    true: Pattern
+    ws: Optional[Ws] = None
 
 
 class Arr(GrammarModel):
-    """arr ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="arr",
-        class_name="Arr",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[
-            LiteralAtom("[\\n"),
-            RuleRefAtom("ws", min=1, max=1),
-            RuleRefAtom("arr-item", min=0, max=1),
-            LiteralAtom("]"),
-        ],
-        field_map={"ws": 1, "arr_item": 2},
-    )
-    ws: Ws
-    arr_item: Optional[ArrItem] = None
+    ws: Optional[Ws] = None
+    arr_item2: Optional[ArrItem2] = None
 
 
 class Object(Value):
-    """object ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="object",
-        class_name="Object",
-        parent_class_name="Value",
-        kind="sequence",
-        items=[
-            LiteralAtom("{"),
-            RuleRefAtom("ws", min=1, max=1),
-            RuleRefAtom("object-item", min=0, max=1),
-            LiteralAtom("}"),
-            RuleRefAtom("ws", min=1, max=1),
-        ],
-        field_map={"ws": 1, "object_item": 2, "ws2": 4},
-    )
-    ws: Ws
-    object_item: Optional[ObjectItem] = None
-    ws2: Ws
+    ws: Optional[Ws] = None
+    object_item2: Optional[ObjectItem2] = None
+    ws2: Optional[Ws] = None
 
 
 class Array(Value):
-    """array ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="array",
-        class_name="Array",
-        parent_class_name="Value",
-        kind="sequence",
-        items=[
-            LiteralAtom("["),
-            RuleRefAtom("ws", min=1, max=1),
-            RuleRefAtom("array-item", min=0, max=1),
-            LiteralAtom("]"),
-            RuleRefAtom("ws", min=1, max=1),
-        ],
-        field_map={"ws": 1, "array_item": 2, "ws2": 4},
-    )
-    ws: Ws
-    array_item: Optional[ArrayItem] = None
-    ws2: Ws
+    ws: Optional[Ws] = None
+    array_item2: Optional[ArrayItem2] = None
+    ws2: Optional[Ws] = None
 
 
 class String(Value):
-    """string ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="string",
-        class_name="String",
-        parent_class_name="Value",
-        kind="value_str",
-        items=[
-            LiteralAtom('\\"'),
-            InlineRegexAtom(
-                '([^"\\\\\\x7F\\x00-\\x1F]|\\\\\\\\(["\\\\bfnrt]|u[0-9a-fA-F]{4}))',
-                '([^"\\\\\\x7F\\x00-\\x1F]|"\\\\"(["\\\\bfnrt]|"u"[0-9a-fA-F]{4}))',
-                min=0,
-                max=None,
-            ),
-            LiteralAtom('\\"'),
-        ],
-        field_map={},
-    )
-    value: str
+    x7fx00_x1f: Pattern5
+    ws: Optional[Ws] = None
 
 
 class Number(Value):
-    """number ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="number",
-        class_name="Number",
-        parent_class_name="Value",
-        kind="sequence",
-        items=[
-            QuantifiedLiteralAtom("-", min=0, max=1),
-            InlineRegexAtom(
-                "([0-9]|[1-9][0-9]{0,15})", "([0-9]|[1-9][0-9]{0,15})", min=1, max=1
-            ),
-            InlineRegexAtom("\\.[0-9]+", '"."[0-9]+', min=0, max=1),
-            InlineRegexAtom(
-                "[eE][-+]?[1-9][0-9]{0,15}", "[eE][-+]?[1-9][0-9]{0,15}", min=0, max=1
-            ),
-            RuleRefAtom("ws", min=1, max=1),
-        ],
-        field_map={"sign": 0, "val_0_9": 1, "val_0_92": 2, "ee_1_9_0_9_0": 3, "ws": 4},
-    )
-    sign: str
-    val_0_9: str
-    val_0_92: str
-    ee_1_9_0_9_0: str
-    ws: Ws
+    sign: Pattern8
+    dot: Pattern9 = None
+    ee: Pattern12 = None
+    ws: Optional[Ws] = None
 
 
 class Ws(GrammarModel):
-    """ws ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="ws",
-        class_name="Ws",
-        parent_class_name="GrammarModel",
-        kind="value_str",
-        items=[
-            LiteralAtom(" "),
-            LiteralAtom("\\n"),
-            CharClassAtom("[ \\t]", min=0, max=20),
-        ],
-        field_map={},
-    )
     value: str
 
 
-class ArritemItem(GrammarModel):
-    """arritem-item ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="arritem-item",
-        class_name="ArritemItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[LiteralAtom(",\\n"), RuleRefAtom("value", min=1, max=1)],
-        field_map={"value": 1},
-    )
-    value: Value
-
-
 class ArrItem(GrammarModel):
-    """arr-item ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="arr-item",
-        class_name="ArrItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[
-            RuleRefAtom("value", min=1, max=1),
-            RuleRefAtom("arritem-item", min=0, max=None),
-        ],
-        field_map={"value": 0, "arritem_item": 1},
-    )
+    ws: Optional[Ws] = None
     value: Value
-    arritem_item: List[ArritemItem]
 
 
-class ObjectitemItem(GrammarModel):
-    """objectitem-item ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="objectitem-item",
-        class_name="ObjectitemItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[
-            LiteralAtom(","),
-            RuleRefAtom("string", min=1, max=1),
-            LiteralAtom(":"),
-            RuleRefAtom("value", min=1, max=1),
-        ],
-        field_map={"string": 1, "value": 3},
-    )
-    string: String
+class ArrItem2(GrammarModel):
     value: Value
+    arr_item: List[ArrItem]
 
 
 class ObjectItem(GrammarModel):
-    """object-item ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="object-item",
-        class_name="ObjectItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[
-            RuleRefAtom("string", min=1, max=1),
-            LiteralAtom(":"),
-            RuleRefAtom("value", min=1, max=1),
-            RuleRefAtom("objectitem-item", min=0, max=None),
-        ],
-        field_map={"string": 0, "value": 2, "objectitem_item": 3},
-    )
+    ws: Optional[Ws] = None
     string: String
+    ws2: Optional[Ws] = None
     value: Value
-    objectitem_item: List[ObjectitemItem]
 
 
-class ArrayitemItem(GrammarModel):
-    """arrayitem-item ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="arrayitem-item",
-        class_name="ArrayitemItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[LiteralAtom(","), RuleRefAtom("value", min=1, max=1)],
-        field_map={"value": 1},
-    )
+class ObjectItem2(GrammarModel):
+    string: String
+    ws: Optional[Ws] = None
     value: Value
+    object_item: List[ObjectItem]
 
 
 class ArrayItem(GrammarModel):
-    """array-item ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="array-item",
-        class_name="ArrayItem",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[
-            RuleRefAtom("value", min=1, max=1),
-            RuleRefAtom("arrayitem-item", min=0, max=None),
-        ],
-        field_map={"value": 0, "arrayitem_item": 1},
-    )
+    ws: Optional[Ws] = None
     value: Value
-    arrayitem_item: List[ArrayitemItem]
 
 
-# Resolve forward references
-_ns = {k: v for k, v in globals().items() if isinstance(v, type)}
-Root.model_rebuild(_types_namespace=_ns)
-Value.model_rebuild(_types_namespace=_ns)
-ValueArm5.model_rebuild(_types_namespace=_ns)
-Arr.model_rebuild(_types_namespace=_ns)
-Object.model_rebuild(_types_namespace=_ns)
-Array.model_rebuild(_types_namespace=_ns)
-String.model_rebuild(_types_namespace=_ns)
-Number.model_rebuild(_types_namespace=_ns)
-Ws.model_rebuild(_types_namespace=_ns)
-ArritemItem.model_rebuild(_types_namespace=_ns)
-ArrItem.model_rebuild(_types_namespace=_ns)
-ObjectitemItem.model_rebuild(_types_namespace=_ns)
-ObjectItem.model_rebuild(_types_namespace=_ns)
-ArrayitemItem.model_rebuild(_types_namespace=_ns)
-ArrayItem.model_rebuild(_types_namespace=_ns)
+class ArrayItem2(GrammarModel):
+    value: Value
+    array_item: List[ArrayItem]
+
+
+Root.__grammar__ = RuleSpec(
+    rule_name="root",
+    class_name="Root",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[IrItem(IrRuleRef("arr"), Quantifier(1, 1))],
+    field_map={"arr": 0},
+    non_semantic_fields=frozenset([]),
+)
+
+
+Value.__grammar__ = RuleSpec(
+    rule_name="value",
+    class_name="Value",
+    parent_class_name="GrammarModel",
+    kind="alternation",
+    items=[
+        IrItem(IrRuleRef("object"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("array"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("string"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("number"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("value-arm5"), Quantifier(1, 1)),
+    ],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
+ValueArm5.__grammar__ = RuleSpec(
+    rule_name="value-arm5",
+    class_name="ValueArm5",
+    parent_class_name="Value",
+    kind="sequence",
+    items=[
+        IrItem(
+            IrGroup(
+                IrAlternation(
+                    arms=(
+                        IrSequence(
+                            items=(IrItem(IrLiteral("true"), Quantifier(1, 1)),)
+                        ),
+                        IrSequence(
+                            items=(IrItem(IrLiteral("false"), Quantifier(1, 1)),)
+                        ),
+                        IrSequence(
+                            items=(IrItem(IrLiteral("null"), Quantifier(1, 1)),)
+                        ),
+                    )
+                )
+            ),
+            Quantifier(1, 1),
+        ),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+    ],
+    field_map={"true": 0, "ws": 1},
+    non_semantic_fields=frozenset(["ws"]),
+)
+
+
+Arr.__grammar__ = RuleSpec(
+    rule_name="arr",
+    class_name="Arr",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrLiteral("[\n"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+        IrItem(IrRuleRef("arr-item2"), Quantifier(0, 1)),
+        IrItem(IrLiteral("]"), Quantifier(1, 1)),
+    ],
+    field_map={"ws": 1, "arr_item2": 2},
+    non_semantic_fields=frozenset(["ws"]),
+)
+
+
+Object.__grammar__ = RuleSpec(
+    rule_name="object",
+    class_name="Object",
+    parent_class_name="Value",
+    kind="sequence",
+    items=[
+        IrItem(IrLiteral("{"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+        IrItem(IrRuleRef("object-item2"), Quantifier(0, 1)),
+        IrItem(IrLiteral("}"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+    ],
+    field_map={"ws": 1, "object_item2": 2, "ws2": 4},
+    non_semantic_fields=frozenset(["ws", "ws2"]),
+)
+
+
+Array.__grammar__ = RuleSpec(
+    rule_name="array",
+    class_name="Array",
+    parent_class_name="Value",
+    kind="sequence",
+    items=[
+        IrItem(IrLiteral("["), Quantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+        IrItem(IrRuleRef("array-item2"), Quantifier(0, 1)),
+        IrItem(IrLiteral("]"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+    ],
+    field_map={"ws": 1, "array_item2": 2, "ws2": 4},
+    non_semantic_fields=frozenset(["ws", "ws2"]),
+)
+
+
+String.__grammar__ = RuleSpec(
+    rule_name="string",
+    class_name="String",
+    parent_class_name="Value",
+    kind="sequence",
+    items=[
+        IrItem(IrLiteral('"'), Quantifier(1, 1)),
+        IrItem(
+            IrGroup(
+                IrAlternation(
+                    arms=(
+                        IrSequence(
+                            items=(
+                                IrItem(
+                                    IrCharClass('"\\\\\\x7F\\x00-\\x1F', negated=True),
+                                    Quantifier(1, 1),
+                                ),
+                            )
+                        ),
+                        IrSequence(
+                            items=(
+                                IrItem(IrLiteral("\\"), Quantifier(1, 1)),
+                                IrItem(
+                                    IrGroup(
+                                        IrAlternation(
+                                            arms=(
+                                                IrSequence(
+                                                    items=(
+                                                        IrItem(
+                                                            IrCharClass(
+                                                                '"\\\\bfnrt',
+                                                                negated=False,
+                                                            ),
+                                                            Quantifier(1, 1),
+                                                        ),
+                                                    )
+                                                ),
+                                                IrSequence(
+                                                    items=(
+                                                        IrItem(
+                                                            IrLiteral("u"),
+                                                            Quantifier(1, 1),
+                                                        ),
+                                                        IrItem(
+                                                            IrCharClass(
+                                                                "0-9a-fA-F",
+                                                                negated=False,
+                                                            ),
+                                                            Quantifier(4, 4),
+                                                        ),
+                                                    )
+                                                ),
+                                            )
+                                        )
+                                    ),
+                                    Quantifier(1, 1),
+                                ),
+                            )
+                        ),
+                    )
+                )
+            ),
+            Quantifier(0, None),
+        ),
+        IrItem(IrLiteral('"'), Quantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+    ],
+    field_map={"x7fx00_x1f": 1, "ws": 3},
+    non_semantic_fields=frozenset(["ws"]),
+)
+
+
+Number.__grammar__ = RuleSpec(
+    rule_name="number",
+    class_name="Number",
+    parent_class_name="Value",
+    kind="sequence",
+    items=[
+        IrItem(
+            IrGroup(
+                IrAlternation(
+                    arms=(
+                        IrSequence(
+                            items=(
+                                IrItem(IrLiteral("-"), Quantifier(0, 1)),
+                                IrItem(
+                                    IrGroup(
+                                        IrAlternation(
+                                            arms=(
+                                                IrSequence(
+                                                    items=(
+                                                        IrItem(
+                                                            IrCharClass(
+                                                                "0-9", negated=False
+                                                            ),
+                                                            Quantifier(1, 1),
+                                                        ),
+                                                    )
+                                                ),
+                                                IrSequence(
+                                                    items=(
+                                                        IrItem(
+                                                            IrCharClass(
+                                                                "1-9", negated=False
+                                                            ),
+                                                            Quantifier(1, 1),
+                                                        ),
+                                                        IrItem(
+                                                            IrCharClass(
+                                                                "0-9", negated=False
+                                                            ),
+                                                            Quantifier(0, 15),
+                                                        ),
+                                                    )
+                                                ),
+                                            )
+                                        )
+                                    ),
+                                    Quantifier(1, 1),
+                                ),
+                            )
+                        ),
+                    )
+                )
+            ),
+            Quantifier(1, 1),
+        ),
+        IrItem(
+            IrGroup(
+                IrAlternation(
+                    arms=(
+                        IrSequence(
+                            items=(
+                                IrItem(IrLiteral("."), Quantifier(1, 1)),
+                                IrItem(
+                                    IrCharClass("0-9", negated=False),
+                                    Quantifier(1, None),
+                                ),
+                            )
+                        ),
+                    )
+                )
+            ),
+            Quantifier(0, 1),
+        ),
+        IrItem(
+            IrGroup(
+                IrAlternation(
+                    arms=(
+                        IrSequence(
+                            items=(
+                                IrItem(
+                                    IrCharClass("eE", negated=False), Quantifier(1, 1)
+                                ),
+                                IrItem(
+                                    IrCharClass("-+", negated=False), Quantifier(0, 1)
+                                ),
+                                IrItem(
+                                    IrCharClass("1-9", negated=False), Quantifier(1, 1)
+                                ),
+                                IrItem(
+                                    IrCharClass("0-9", negated=False), Quantifier(0, 15)
+                                ),
+                            )
+                        ),
+                    )
+                )
+            ),
+            Quantifier(0, 1),
+        ),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+    ],
+    field_map={"sign": 0, "dot": 1, "ee": 2, "ws": 3},
+    non_semantic_fields=frozenset(["ws"]),
+)
+
+
+Ws.__grammar__ = RuleSpec(
+    rule_name="ws",
+    class_name="Ws",
+    parent_class_name="GrammarModel",
+    kind="value_str",
+    items=[
+        IrAlternation(
+            arms=(
+                IrSequence(items=()),
+                IrSequence(items=(IrItem(IrLiteral(" "), Quantifier(1, 1)),)),
+                IrSequence(
+                    items=(
+                        IrItem(IrLiteral("\n"), Quantifier(1, 1)),
+                        IrItem(IrCharClass(" \\t", negated=False), Quantifier(0, 20)),
+                    )
+                ),
+            )
+        )
+    ],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
+ArrItem.__grammar__ = RuleSpec(
+    rule_name="arr-item",
+    class_name="ArrItem",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrLiteral(",\n"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+        IrItem(IrRuleRef("value"), Quantifier(1, 1)),
+    ],
+    field_map={"ws": 1, "value": 2},
+    non_semantic_fields=frozenset(["ws"]),
+)
+
+
+ArrItem2.__grammar__ = RuleSpec(
+    rule_name="arr-item2",
+    class_name="ArrItem2",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrRuleRef("value"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("arr-item"), Quantifier(0, None)),
+    ],
+    field_map={"value": 0, "arr_item": 1},
+    non_semantic_fields=frozenset([]),
+)
+
+
+ObjectItem.__grammar__ = RuleSpec(
+    rule_name="object-item",
+    class_name="ObjectItem",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrLiteral(","), Quantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+        IrItem(IrRuleRef("string"), Quantifier(1, 1)),
+        IrItem(IrLiteral(":"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+        IrItem(IrRuleRef("value"), Quantifier(1, 1)),
+    ],
+    field_map={"ws": 1, "string": 2, "ws2": 4, "value": 5},
+    non_semantic_fields=frozenset(["ws", "ws2"]),
+)
+
+
+ObjectItem2.__grammar__ = RuleSpec(
+    rule_name="object-item2",
+    class_name="ObjectItem2",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrRuleRef("string"), Quantifier(1, 1)),
+        IrItem(IrLiteral(":"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+        IrItem(IrRuleRef("value"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("object-item"), Quantifier(0, None)),
+    ],
+    field_map={"string": 0, "ws": 2, "value": 3, "object_item": 4},
+    non_semantic_fields=frozenset(["ws"]),
+)
+
+
+ArrayItem.__grammar__ = RuleSpec(
+    rule_name="array-item",
+    class_name="ArrayItem",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrLiteral(","), Quantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+        IrItem(IrRuleRef("value"), Quantifier(1, 1)),
+    ],
+    field_map={"ws": 1, "value": 2},
+    non_semantic_fields=frozenset(["ws"]),
+)
+
+
+ArrayItem2.__grammar__ = RuleSpec(
+    rule_name="array-item2",
+    class_name="ArrayItem2",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrRuleRef("value"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("array-item"), Quantifier(0, None)),
+    ],
+    field_map={"value": 0, "array_item": 1},
+    non_semantic_fields=frozenset([]),
+)

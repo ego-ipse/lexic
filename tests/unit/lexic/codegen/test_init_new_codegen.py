@@ -1,17 +1,17 @@
-"""Sanity: new_codegen package importable."""
+"""Sanity: codegen package importable."""
 
 from __future__ import annotations
 
 import inspect
 from pathlib import Path
 
+from lexic.codegen import codegen
 from lexic.ir.nodes import IrCharClass, IrItem, IrLiteral, IrRuleRef, Quantifier
-from lexic.ir.spec import NewRuleSpec
-from lexic.new_codegen import codegen
+from lexic.ir.spec import RuleSpec
 
 
 def _spec(name, kind, items, field_map=None):
-    return NewRuleSpec(
+    return RuleSpec(
         rule_name=name,
         class_name=name.title(),
         parent_class_name="GrammarModel",

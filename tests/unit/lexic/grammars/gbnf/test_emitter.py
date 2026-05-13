@@ -1,77 +1,124 @@
-"""GBNFEmitter reconstructs GBNF text from RuleSpec IR."""
+"""GbnfEmitter (IrItem-shape only)."""
 
 from __future__ import annotations
 
-import pytest
+from typing import Literal
 
-from lexic.codegen.ir_builder import IRBuilder
-from lexic.grammars.gbnf.emitter import GBNFEmitter
-from lexic.grammars.gbnf.parser import parse_gbnf
-from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
-
-
-def _roundtrip_gbnf(grammar: str) -> tuple[list, list]:
-    """Parse grammar, build IR, emit GBNF, re-parse. Return (original_rules, rt_rules)."""
-    original_text = (GRAMMAR_DIR / f"{grammar}.gbnf").read_text()
-    original_rules = parse_gbnf(original_text)
-    specs = IRBuilder(original_rules).build()
-
-    emitter = GBNFEmitter(specs)
-    emitted_text = emitter.emit()
-
-    rt_rules = parse_gbnf(emitted_text)
-    return original_rules, rt_rules
-
-
-@pytest.mark.parametrize(
-    "grammar", ["arithmetic", "list", "json_ws", "chess", "japanese"]
+from lexic.grammars.gbnf.emitter import GbnfEmitter
+from lexic.grammars.gbnf.escapes import GBNF_ESCAPES
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrRuleRef,
+    IrSequence,
+    Quantifier,
 )
-def test_emitted_gbnf_is_parseable(grammar: str):
-    """Emitted GBNF must parse without errors."""
-    original_text = (GRAMMAR_DIR / f"{grammar}.gbnf").read_text()
-    original_rules = parse_gbnf(original_text)
-    specs = IRBuilder(original_rules).build()
-
-    emitted = GBNFEmitter(specs).emit()
-    assert emitted.strip()
-    # Must parse without raising
-    rt_rules = parse_gbnf(emitted)
-    assert len(rt_rules) > 0
+from lexic.ir.spec import RuleSpec
 
 
-@pytest.mark.parametrize("grammar", ["arithmetic", "list", "json_ws"])
-def test_emitted_gbnf_has_same_rule_names(grammar: str):
-    original_rules, rt_rules = _roundtrip_gbnf(grammar)
-    original_names = {r.name for r in original_rules}
-    rt_names = {r.name for r in rt_rules}
-    # All original rule names must appear in the emitted grammar
-    assert original_names <= rt_names, (
-        f"Missing rule names after GBNFEmitter: {original_names - rt_names}"
-    )
-
-
-def test_arithmetic_emitted_contains_root():
-    original_text = (GRAMMAR_DIR / "arithmetic.gbnf").read_text()
-    specs = IRBuilder(parse_gbnf(original_text)).build()
-    emitted = GBNFEmitter(specs).emit()
-    assert "root" in emitted
-    assert "ident" in emitted
-    assert "::=" in emitted
-
-
-def test_emit_rule_single_spec():
-    """emit_rule() on one RuleSpec returns a single ::= line."""
-    from lexic.ir import CharClassAtom, RuleSpec
-
-    spec = RuleSpec(
-        rule_name="ws",
-        class_name="Ws",
+def _spec(
+    name: str,
+    kind: Literal["sequence", "alternation", "value_str"],
+    items,
+    field_map=None,
+):
+    """Helper for test_emit_*."""
+    return RuleSpec(
+        rule_name=name,
+        class_name=name.title(),
         parent_class_name="GrammarModel",
-        kind="value_str",
-        items=[CharClassAtom("[ \\t\\n]", 0, None)],
-        field_map={},
+        kind=kind,
+        items=list(items),
+        field_map=field_map or {},
     )
-    emitter = GBNFEmitter([spec])
-    line = emitter.emit_rule(spec)
-    assert "ws" in line
-    assert "::=" in line
+
+
+def test_emit_literal():
+    """IrItem(IrLiteral) emits as expected."""
+    s = _spec("greet", "value_str", [IrItem(IrLiteral("hello"))])
+    out = GbnfEmitter(GBNF_ESCAPES).emit_rule(s)
+    assert out == 'greet ::= "hello"'
+
+
+def test_emit_charclass_with_quantifier():
+    """IrItem(IrCharClass) with quantifier emits as expected."""
+    s = _spec("digit", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    assert GbnfEmitter(GBNF_ESCAPES).emit_rule(s) == "digit ::= [0-9]+"
+
+
+def test_emit_negated_charclass():
+    """IrItem(IrCharClass) with negated=True emits as expected."""
+    s = _spec("nq", "value_str", [IrItem(IrCharClass('"', negated=True))])
+    assert GbnfEmitter(GBNF_ESCAPES).emit_rule(s) == 'nq ::= [^"]'
+
+
+def test_emit_ruleref_with_quantifier():
+    """IrItem(IrRuleRef) with quantifier emits as expected."""
+    s = _spec("expr", "sequence", [IrItem(IrRuleRef("term"), Quantifier(1, None))])
+    assert GbnfEmitter(GBNF_ESCAPES).emit_rule(s) == "expr ::= term+"
+
+
+def test_emit_group_inline_alternation():
+    """IrGroup(IrAlternation) emits as expected, with parentheses."""
+    grp = IrGroup(
+        IrAlternation(
+            (
+                IrSequence((IrItem(IrRuleRef("a")),)),
+                IrSequence((IrItem(IrRuleRef("b")),)),
+            )
+        )
+    )
+    s = _spec("r", "sequence", [IrItem(grp)])
+    assert "(a | b)" in GbnfEmitter(GBNF_ESCAPES).emit_rule(s)
+
+
+def test_emit_group_with_quantifier():
+    """IrGroup(IrAlternation) with quantifier emits as expected."""
+    grp = IrGroup(
+        IrAlternation(
+            (
+                IrSequence((IrItem(IrLiteral("foo")),)),
+                IrSequence((IrItem(IrLiteral("bar")),)),
+            )
+        )
+    )
+    s = _spec("r", "value_str", [IrItem(grp, Quantifier(1, None))])
+    out = GbnfEmitter(GBNF_ESCAPES).emit_rule(s)
+    assert out.endswith("+")
+    assert '"foo"' in out and '"bar"' in out
+
+
+def test_emit_alternation_kind():
+    """kind='alternation': items are IrItem(IrRuleRef(arm_name)) per arm."""
+    s = _spec(
+        "kind", "alternation", [IrItem(IrRuleRef("num")), IrItem(IrRuleRef("ident"))]
+    )
+    assert GbnfEmitter(GBNF_ESCAPES).emit_rule(s) == "kind ::= num | ident"
+
+
+def test_emit_value_str_multi_arm_via_bare_alternation():
+    """Decision C: multi-arm value_str places IrAlternation at items[0]."""
+    alt = IrAlternation(
+        (
+            IrSequence((IrItem(IrLiteral("int")),)),
+            IrSequence((IrItem(IrLiteral("float")),)),
+        )
+    )
+    s = _spec("ty", "value_str", [alt])
+    out = GbnfEmitter(GBNF_ESCAPES).emit_rule(s)
+    assert out == 'ty ::= "int" | "float"'
+
+
+def test_emit_full_grammar_concatenates():
+    """Concatenation of all rules in a grammar emits as expected."""
+    specs = [
+        _spec("root", "sequence", [IrItem(IrRuleRef("expr"))], {"expr": 0}),
+        _spec("expr", "value_str", [IrItem(IrCharClass("a-z"), Quantifier(1, None))]),
+    ]
+    out = GbnfEmitter(GBNF_ESCAPES).emit(specs)
+    assert "root ::= expr" in out
+    assert "expr ::= [a-z]+" in out
+    assert out.endswith("\n")

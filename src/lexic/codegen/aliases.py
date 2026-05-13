@@ -31,7 +31,7 @@ from lexic.ir.nodes import (
     IrSequence,
     Quantifier,
 )
-from lexic.ir.spec import NewRuleSpec
+from lexic.ir.spec import RuleSpec
 from lexic.ir.walk import IrVisitor
 from lexic.utils.quantifiers import bounds_to_quantifier
 
@@ -166,7 +166,7 @@ class _PatternAliasVisitor(IrVisitor):
         self.aliases[regex] = PatternAlias(name=name, regex=regex)
 
 
-def collect_aliases(specs: list[NewRuleSpec]) -> list[PatternAlias]:
+def collect_aliases(specs: list[RuleSpec]) -> list[PatternAlias]:
     """Return one PatternAlias per unique pattern regex across all specs.
 
     Order is insertion order — first appearance wins for naming. Different

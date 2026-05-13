@@ -1,22 +1,15 @@
-"""Flavour ABC — the contract every grammar flavour fulfils.
-
-A flavour module is configuration: a Lark meta-grammar string with
-canonical-tagged productions, an EscapeCodec subclass, a FlavourEmitter
-subclass, and two staticmethods that parse quantifier and char-class
-token strings. No imperative pipeline code per flavour.
-
-The optional `normalize_literal` hook allows flavour-specific sugar
-expansion (e.g. ABNF case-insensitive literals) without leaking flavour
-concepts into the IR AST itself: the hook returns canonical IR AST nodes.
-"""
+"""Flavour ABC — the contract every grammar flavour fulfils."""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import IrGroup, IrLiteral, Quantifier
+
+if TYPE_CHECKING:
+    from lexic.ir.emit import FlavourEmitter
 
 
 class Flavour(ABC):
@@ -26,7 +19,7 @@ class Flavour(ABC):
     extensions: ClassVar[tuple[str, ...]]
     meta_grammar: ClassVar[str]
     escapes: ClassVar[EscapeCodec]
-    emitter: ClassVar[Any]  # FlavourEmitter — typed loosely to avoid import cycle
+    emitter: ClassVar[type["FlavourEmitter"]]
     line_comment: ClassVar[str] = ""
 
     @staticmethod

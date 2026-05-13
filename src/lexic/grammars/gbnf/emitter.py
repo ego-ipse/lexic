@@ -1,62 +1,67 @@
-"""GBNFEmitter: reconstructs GBNF text from list[RuleSpec].
+"""GbnfEmitter: RuleSpec list (IrItem-shape) → GBNF text.
 
-Single responsibility: knows GBNF syntax. Knows nothing about Lark or Python.
-Enables the reverse direction: Pydantic model classes → GBNF grammar file.
+Single-shape only — no legacy-atom dispatch. The mirror replaces
+grammars/gbnf/emitter.py at cutover (Slice 4).
 """
 
 from __future__ import annotations
 
-from lexic.grammars.flavours import FlavourEmitter
-from lexic.ir import (
-    AlternationAtom,
-    CharClassAtom,
-    InlineAlternationAtom,
-    InlineRegexAtom,
-    LiteralAtom,
-    QuantifiedLiteralAtom,
-    RuleRefAtom,
-    RuleSpec,
+from typing import ClassVar
+
+from lexic.ir.emit import FlavourEmitter
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrRuleRef,
+    IrSequence,
 )
+from lexic.ir.spec import RuleSpec
 from lexic.utils.quantifiers import bounds_to_quantifier
 
 
-def _atom_to_gbnf(atom) -> str:
-    """Convert an Atom to GBNF string representation."""
-    if isinstance(atom, LiteralAtom):
-        # LiteralAtom.value already contains escape sequences from GBNF source.
-        # Don't escape again - just wrap in quotes.
-        return f'"{atom.value}"'
-    if isinstance(atom, CharClassAtom):
-        q = bounds_to_quantifier(atom.min, atom.max)
-        return f"{atom.pattern}{q}"
-    if isinstance(atom, RuleRefAtom):
-        q = bounds_to_quantifier(atom.min, atom.max)
-        return f"{atom.rule_name}{q}"
-    if isinstance(atom, AlternationAtom):
-        return " | ".join(atom.arm_rule_names)
-    if isinstance(atom, QuantifiedLiteralAtom):
-        q = bounds_to_quantifier(atom.min, atom.max)
+def _quant_suffix(q) -> str:
+    """Convert (min, max) bounds to a GBNF/Lark quantifier string."""
+    return bounds_to_quantifier(q.min, q.max)
+
+
+def _bracket(pattern: str, negated: bool) -> str:
+    """Convert (min, max) bounds to a GBNF/Lark quantifier string."""
+    return f"[{'^' if negated else ''}{pattern}]"
+
+
+def _atom_to_gbnf_item(item: IrItem) -> str:
+    """Convert (min, max) bounds to a GBNF/Lark quantifier string."""
+    atom = item.atom
+    q = _quant_suffix(item.quantifier)
+    if isinstance(atom, IrLiteral):
         return f'"{atom.value}"{q}'
-    if isinstance(atom, InlineRegexAtom):
-        q = bounds_to_quantifier(atom.min, atom.max)
-        if q:
-            # Wrap in parens so the quantifier applies to the whole group
-            body = (
-                atom.gbnf
-                if (atom.gbnf.startswith("(") and atom.gbnf.endswith(")"))
-                else f"({atom.gbnf})"
-            )
-            return f"{body}{q}"
-        return atom.gbnf
-    if isinstance(atom, InlineAlternationAtom):
-        return "(" + " | ".join(atom.arm_rule_names) + ")"
-    return ""
+    if isinstance(atom, IrCharClass):
+        return _bracket(atom.pattern, atom.negated) + q
+    if isinstance(atom, IrRuleRef):
+        return atom.name + q
+    if isinstance(atom, IrGroup):
+        body = _alt_to_gbnf(atom.body)
+        return f"({body}){q}" if q else f"({body})"
+    raise TypeError(f"Unsupported IR atom for GBNF emit: {type(atom).__name__}")
+
+
+def _seq_to_gbnf(seq: IrSequence) -> str:
+    """Convert (min, max) bounds to a GBNF/Lark quantifier string."""
+    return " ".join(_atom_to_gbnf_item(it) for it in seq.items)
+
+
+def _alt_to_gbnf(alt: IrAlternation) -> str:
+    """Convert (min, max) bounds to a GBNF/Lark quantifier string."""
+    return " | ".join(_seq_to_gbnf(s) for s in alt.arms)
 
 
 class GbnfEmitter(FlavourEmitter):
-    """GBNF flavour emitter."""
+    """Emit GBNF text from RuleSpec list with IrItem-shaped items."""
 
-    supports: frozenset[str] = frozenset(
+    supports: ClassVar[frozenset[str]] = frozenset(
         {
             "literal",
             "char_class",
@@ -67,38 +72,31 @@ class GbnfEmitter(FlavourEmitter):
             "unicode_escape",
         }
     )
-    # Notably absent: "shorthand". GbnfParser lowers \d \w \s to char classes
-    # at parse time, so GBNF-parsed IR never carries shorthand.
 
-    def __init__(self, specs: list[RuleSpec]) -> None:
-        self._specs = specs
-
-    def emit(self, specs: list[RuleSpec] | None = None) -> str:
-        """Emit a full GBNF grammar string from a list of RuleSpec."""
-        if specs is None:
-            specs = self._specs
-        lines = [self.emit_rule(s) for s in specs]
-        return "\n".join(lines) + "\n"
+    def emit(self, specs: list[RuleSpec]) -> str:
+        """Emit the given list of RuleSpecs as a GBNF grammar string."""
+        return "\n".join(self.emit_rule(s) for s in specs) + "\n"
 
     def emit_rule(self, spec: RuleSpec) -> str:
-        """Emit a single rule as 'name ::= body'."""
-        body = self._emit_body(spec)
-        return f"{spec.rule_name} ::= {body}"
+        """Emit the given RuleSpec as a GBNF rule string."""
+        return f"{spec.rule_name} ::= {self._emit_body(spec)}"
 
     def _emit_body(self, spec: RuleSpec) -> str:
-        """Emit the right-hand side of a rule based on its kind."""
-        if spec.kind == "value_str":
-            parts = [_atom_to_gbnf(a) for a in spec.items]
-            return " ".join(parts) if parts else '""'
-        if spec.kind == "alternation":
-            if spec.items and isinstance(spec.items[0], AlternationAtom):
-                return " | ".join(spec.items[0].arm_rule_names)
+        """Emit the given RuleSpec's body as a GBNF rule string."""
+        if not spec.items:
             return '""'
-        # sequence or other
-        parts = [_atom_to_gbnf(a) for a in spec.items]
-        return " ".join(p for p in parts if p)
-
-
-# Backwards compatibility for callers still importing GBNFEmitter.
-# Removed at end of Slice B (Task 32) after all imports are updated.
-GBNFEmitter = GbnfEmitter
+        if spec.kind == "alternation":
+            # items are IrItem(IrRuleRef(arm_name)) per arm
+            return " | ".join(
+                it.atom.name
+                for it in spec.items
+                if isinstance(it, IrItem) and isinstance(it.atom, IrRuleRef)
+            )
+        first = spec.items[0]
+        if isinstance(first, IrAlternation):
+            # Multi-arm value_str: bare IrAlternation at items[0]
+            return _alt_to_gbnf(first)
+        # Sequence of IrItems
+        return " ".join(
+            _atom_to_gbnf_item(it) for it in spec.items if isinstance(it, IrItem)
+        )

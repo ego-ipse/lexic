@@ -8,6 +8,7 @@ from typing import ClassVar
 import pytest
 
 from lexic.grammars.flavour import Flavour
+from lexic.ir.emit import FlavourEmitter
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -35,7 +36,7 @@ def test_concrete_flavour_with_required_attrs_works():
         extensions = (".fake",)
         meta_grammar = "start: NAME\nNAME: /[a-z]+/\n"
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[object] = object()
+        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
         line_comment = "#"
 
         @staticmethod
@@ -58,7 +59,7 @@ def test_concrete_flavour_missing_abstract_methods_fails():
         extensions = (".bad",)
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[object] = object()
+        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
         # Missing parse_quantifier and parse_charclass
 
     cls: type = _Bad
@@ -74,7 +75,7 @@ def test_normalize_literal_default_is_identity():
         extensions = ()
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[object] = object()
+        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
         def parse_quantifier(text: str) -> Quantifier:
@@ -95,7 +96,7 @@ def test_normalize_literal_can_be_overridden_to_return_group():
         extensions = ()
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[object] = object()
+        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
         def parse_quantifier(text: str) -> Quantifier:
@@ -127,7 +128,7 @@ def test_default_line_comment_is_empty_string():
         extensions = ()
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[object] = object()
+        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
         def parse_quantifier(text: str) -> Quantifier:

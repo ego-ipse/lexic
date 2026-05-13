@@ -1,46 +1,58 @@
-"""Auto-generated Pydantic models from <string:anon_4b3139ea397e>."""
+"""Generated module: anon_4b3139ea397e. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 
-from typing import ClassVar, List
+from typing import Annotated, List
+
+from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir import CharClassAtom, LiteralAtom, RuleRefAtom, RuleSpec
+from lexic.ir.nodes import (
+    IrCharClass,
+    IrItem,
+    IrLiteral,
+    IrRuleRef,
+    Quantifier,
+)
+from lexic.ir.spec import RuleSpec
+
+Pattern = Annotated[
+    str, StringConstraints(pattern=r"^[^\r\n\x0b\x0c\x85\u2028\u2029]+$")
+]
 
 
 class Root(GrammarModel):
-    """root ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="root",
-        class_name="Root",
-        parent_class_name="GrammarModel",
-        kind="sequence",
-        items=[RuleRefAtom("item", min=1, max=None)],
-        field_map={"item": 0},
-    )
     item: List[Item]
 
 
 class Item(GrammarModel):
-    """item ::= (see __grammar__)"""
-
-    __grammar__: ClassVar[RuleSpec] = RuleSpec(
-        rule_name="item",
-        class_name="Item",
-        parent_class_name="GrammarModel",
-        kind="value_str",
-        items=[
-            LiteralAtom("- "),
-            CharClassAtom("[^\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029]", min=1, max=None),
-            LiteralAtom("\\n"),
-        ],
-        field_map={},
-    )
     value: str
 
 
-# Resolve forward references
-_ns = {k: v for k, v in globals().items() if isinstance(v, type)}
-Root.model_rebuild(_types_namespace=_ns)
-Item.model_rebuild(_types_namespace=_ns)
+Root.__grammar__ = RuleSpec(
+    rule_name="root",
+    class_name="Root",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[IrItem(IrRuleRef("item"), Quantifier(1, None))],
+    field_map={"item": 0},
+    non_semantic_fields=frozenset([]),
+)
+
+
+Item.__grammar__ = RuleSpec(
+    rule_name="item",
+    class_name="Item",
+    parent_class_name="GrammarModel",
+    kind="value_str",
+    items=[
+        IrItem(IrLiteral("- "), Quantifier(1, 1)),
+        IrItem(
+            IrCharClass("\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029", negated=True),
+            Quantifier(1, None),
+        ),
+        IrItem(IrLiteral("\n"), Quantifier(1, 1)),
+    ],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)

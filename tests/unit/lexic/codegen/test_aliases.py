@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from lexic.codegen.aliases import (
+    PatternAlias,
+    collect_aliases,
+    regex_for_charclass,
+    regex_for_group,
+)
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -12,18 +18,12 @@ from lexic.ir.nodes import (
     IrSequence,
     Quantifier,
 )
-from lexic.ir.spec import NewRuleSpec
-from lexic.new_codegen.aliases import (
-    PatternAlias,
-    collect_aliases,
-    regex_for_charclass,
-    regex_for_group,
-)
+from lexic.ir.spec import RuleSpec
 
 
 def _spec(name, kind, items, field_map=None):
-    """Helper to create a NewRuleSpec with the given items."""
-    return NewRuleSpec(
+    """Helper to create a RuleSpec with the given items."""
+    return RuleSpec(
         rule_name=name,
         class_name=name.title(),
         parent_class_name="GrammarModel",
