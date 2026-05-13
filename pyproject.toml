@@ -24,6 +24,7 @@ dev = [
     "hypothesis>=6.152.1",
     "isort>=8.0.1",
     "pre-commit>=4.5.1",
+    "pydeps>=3.0.6",
     "pylint>=4.0.5",
     "pyright>=1.1.408",
     "pytest>=9.0.3",
