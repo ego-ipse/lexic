@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from lexic.compile import compile_from_path, compile_grammar, compile_text
+import importlib
+
+from lexic.compile import (
+    compile_from_path,
+    compile_grammar,
+    compile_text,
+    reset_cache_for_tests,
+)
 from lexic.grammars.gbnf.flavour import GbnfFlavour
 from lexic.ir.nodes import IrItem, IrRuleRef
 from tests.paths import GROUND_TRUTH
@@ -95,10 +102,6 @@ def test_alternation_produces_correct_subclass():
 
 def test_compile_from_path_uses_filename_stem():
     """compile_from_path uses the grammar filename stem as the generated module name."""
-    import importlib
-
-    from lexic.compile import reset_cache_for_tests
-
     reset_cache_for_tests()
     cg = compile_from_path(GROUND_TRUTH / "list.gbnf")
     mod = importlib.import_module("generated.list")
@@ -108,10 +111,6 @@ def test_compile_from_path_uses_filename_stem():
 
 def test_compile_from_path_ground_truth_uses_filename_stem():
     """compile_from_path on a ground truth grammar uses the .gbnf stem as module name."""
-    import importlib
-
-    from lexic.compile import reset_cache_for_tests
-
     reset_cache_for_tests()
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     mod = importlib.import_module("generated.arithmetic")

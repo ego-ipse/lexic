@@ -15,6 +15,7 @@ Grammar input notes:
 
 from __future__ import annotations
 
+import lark.exceptions
 import pytest
 
 from lexic.base import GrammarModel
@@ -73,10 +74,12 @@ def test_arithmetic_type_dispatch():
 
 
 def test_list_single_item():
+    """Round-trip a single list item."""
     _roundtrip("- foo\n", "list")
 
 
 def test_list_multiple_items():
+    """Round-trip multiple list items."""
     _roundtrip("- foo\n- bar\n- baz\n", "list")
 
 
@@ -140,6 +143,7 @@ def test_japanese_single_char():
     ],
 )
 def test_roundtrip_parametrized(grammar: str, text: str):
+    """Parametrized round-trip test for all grammars."""
     _roundtrip(text, grammar)
 
 
@@ -148,7 +152,5 @@ def test_roundtrip_parametrized(grammar: str, text: str):
 
 def test_parse_invalid_raises():
     """Completely invalid input for arithmetic must raise a parse error."""
-    import lark
-
     with pytest.raises((lark.exceptions.UnexpectedInput, Exception)):
         parse("THIS IS NOT VALID ARITHMETIC !!!\n", GRAMMAR_DIR / "arithmetic.gbnf")

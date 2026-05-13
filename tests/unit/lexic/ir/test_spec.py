@@ -8,8 +8,8 @@ from lexic.ir.spec import RuleSpec
 
 def test_rulespec_defaults():
     spec = RuleSpec("ws", "Ws", "GrammarModel", "value_str")
-    assert spec.items == []
-    assert spec.field_map == {}
+    assert not spec.items
+    assert not spec.field_map
 
 
 def test_rulespec_field_map_populated():

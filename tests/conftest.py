@@ -11,4 +11,5 @@ from tests.paths import GROUND_TRUTH
 
 @pytest.fixture(scope="session")
 def ground_truth() -> Path:
+    """Return the ground-truth grammars directory."""
     return GROUND_TRUTH

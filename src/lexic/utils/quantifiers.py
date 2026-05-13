@@ -5,19 +5,21 @@ from __future__ import annotations
 
 def bounds_to_quantifier(min_: int, max_: int | None) -> str:
     """Convert (min, max) bounds to a GBNF/Lark quantifier string."""
-    if min_ == 1 and max_ == 1:
-        return ""
-    if min_ == 0 and max_ == 1:
-        return "?"
-    if min_ == 0 and max_ is None:
-        return "*"
-    if min_ == 1 and max_ is None:
-        return "+"
-    if max_ is None:
-        return f"{{{min_},}}"
-    if min_ == max_:
-        return f"{{{min_}}}"
-    return f"{{{min_},{max_}}}"
+    _table: dict[tuple[int, int | None], str] = {
+        (1, 1): "",
+        (0, 1): "?",
+        (0, None): "*",
+        (1, None): "+",
+    }
+    result = _table.get((min_, max_))
+    if result is None:
+        if max_ is None:
+            result = f"{{{min_},}}"
+        elif min_ == max_:
+            result = f"{{{min_}}}"
+        else:
+            result = f"{{{min_},{max_}}}"
+    return result
 
 
 def quantifier_to_bounds(q: str | None) -> tuple[int, int | None]:

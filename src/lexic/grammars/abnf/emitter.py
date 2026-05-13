@@ -78,7 +78,7 @@ class AbnfEmitter(FlavourEmitter):
         """Combine atom rendering with quantifier. ABNF overrides to prefix."""
         return f"{q_str}{atom_str}"
 
-    def render_charclass(self, canonical_pattern: str, negated: bool = False) -> str:
+    def render_charclass(self, canonical_pattern: str, _negated: bool = False) -> str:
         segments = _split_charclass_segments(canonical_pattern)
         rendered = [_hex_range_segment(s) for s in segments]
         if len(rendered) == 1:

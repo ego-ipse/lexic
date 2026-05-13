@@ -99,7 +99,7 @@ def _build_alternation(_cls: type, _spec: RuleSpec, children: list) -> object:
     return non_tokens[0] if non_tokens else None
 
 
-def _build_value_str(cls: type, spec: RuleSpec, children: list) -> object:
+def _build_value_str(cls: type, _spec: RuleSpec, children: list) -> object:
     # All atoms in value_str rules are generated as regex terminals (see lark_builder.py),
     # so every matched character produces a Token in children — just join them.
     return cls(value="".join(str(c) for c in children))
@@ -149,21 +149,13 @@ _SIMPLE_HANDLER: dict[str, Callable[[type, RuleSpec, list], object]] = {
 
 def _make_method(cls: type, spec: RuleSpec, by_rule: dict[str, type]) -> Callable:
     if spec.kind == "sequence":
-
-        def method(_, items: list) -> object:
-            return _build_sequence(cls, spec, items, by_rule)
-
-        return method
+        return lambda _, items: _build_sequence(cls, spec, items, by_rule)
     handler = _SIMPLE_HANDLER.get(spec.kind)
     if handler is None:
         raise UnsupportedConstructError(
             f"build_transformer: unknown kind {spec.kind!r}"
         )
-
-    def method(_, items: list) -> object:
-        return handler(cls, spec, items)
-
-    return method
+    return lambda _, items: handler(cls, spec, items)
 
 
 def build_transformer(specs: list[RuleSpec], classes: dict[str, type]) -> Transformer:

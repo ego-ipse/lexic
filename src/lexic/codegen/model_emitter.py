@@ -238,8 +238,10 @@ class ModuleEmitter:
         )
         out.write(CANONICAL_IMPORTS)
         for alias in self._alias_decls:
+            quote = chr(39) if chr(34) in alias.regex else chr(34)
+            pattern = f"r{quote}{alias.regex}{quote}"
             out.write(
-                f"\n{alias.name} = Annotated[str, StringConstraints(pattern=r{chr(39) if chr(34) in alias.regex else chr(34)}{alias.regex}{chr(39) if chr(34) in alias.regex else chr(34)})]\n"
+                f"\n{alias.name} = Annotated[str, StringConstraints(pattern={pattern})]\n"
             )
         for spec in self._specs:
             out.write(self.emit_class(spec))

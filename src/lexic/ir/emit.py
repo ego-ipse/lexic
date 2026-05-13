@@ -72,7 +72,7 @@ class FlavourEmitter(ABC):
         """Combine atom rendering with quantifier. Default suffix."""
         return f"{atom_str}{q_str}"
 
-    def render_charclass(self, canonical_pattern: str, negated: bool = False) -> str:
+    def render_charclass(self, canonical_pattern: str, _negated: bool = False) -> str:
         """Render a canonical char class interior. Subclasses may use negated."""
         return canonical_pattern
 

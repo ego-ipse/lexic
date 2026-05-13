@@ -15,6 +15,7 @@ ALL_GRAMMARS = ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "
 
 @pytest.fixture(scope="session")
 def all_grammar_specs() -> dict[str, dict]:
+    """Compile all ground-truth grammars once and return {name: {rule_name: spec}}."""
     result = {}
     for name in ALL_GRAMMARS:
         text = (GROUND_TRUTH / f"{name}.gbnf").read_text()
@@ -25,4 +26,5 @@ def all_grammar_specs() -> dict[str, dict]:
 
 @pytest.fixture(scope="session")
 def grammar_dir() -> Path:
+    """Return the ground-truth grammars directory."""
     return GROUND_TRUTH

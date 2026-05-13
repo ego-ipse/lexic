@@ -1,3 +1,5 @@
+"""Name conversion utilities: snake_case, PascalCase, Lark identifiers."""
+
 from __future__ import annotations
 
 import re

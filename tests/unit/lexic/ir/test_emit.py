@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import ClassVar
 
 import pytest
@@ -53,6 +54,7 @@ def _new() -> _TestEmitter:
 
 
 def test_emit_item_literal_quotes():
+    """Emit a literal with default quoting."""
     e = _new()
     assert e._emit_item(IrItem(IrLiteral("hi"))) == '"hi"'
 
@@ -131,8 +133,6 @@ def test_subclass_overrides_quote_char():
 
 
 def test_unknown_atom_raises():
-    from dataclasses import dataclass
-
     @dataclass
     class _Unknown:
         pass
