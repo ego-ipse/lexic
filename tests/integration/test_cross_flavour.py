@@ -80,7 +80,7 @@ def test_gbnf_to_abnf_to_gbnf_round_trip_via_iast():
     ast_g = parser_g.parse(gbnf_text)
 
     # Emit as ABNF via AbnfEmitter (consumes IrAst directly per spec §FlavourEmitter).
-    abnf_text = AbnfFlavour.emitter.emit_ast(ast_g)
+    abnf_text = AbnfFlavour.emitter(escapes=AbnfFlavour.escapes).emit_ast(ast_g)
     # Parse the emitted ABNF back to IrAst.
     parser_a = MetaGrammarParser.for_flavour(AbnfFlavour)
     ast_a = parser_a.parse(abnf_text)

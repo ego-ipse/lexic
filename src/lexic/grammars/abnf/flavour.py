@@ -24,7 +24,7 @@ class AbnfFlavour(Flavour):
     extensions = (".abnf",)
     meta_grammar = META_GRAMMAR
     escapes = ABNF_ESCAPES
-    emitter = AbnfEmitter(escapes=ABNF_ESCAPES)
+    emitter = AbnfEmitter
     line_comment = ";"
 
     @staticmethod
