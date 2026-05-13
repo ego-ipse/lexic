@@ -14,7 +14,7 @@ Read these documents before editing code:
 - **[prototyping/next/1_NORTH_STAR.md](prototyping/next/1_NORTH_STAR.md)** — invariants every slice must preserve.
 - **[prototyping/next/2_ARCHITECTURE.md](prototyping/next/2_ARCHITECTURE.md)** — target module layout and layering rules. Consult before adding modules or splitting files.
 - **[prototyping/next/3_ROADMAP.md](prototyping/next/3_ROADMAP.md)** — five slices A–E. Place all work in the right slice.
-- **Active plan:** `docs/superpowers/plans/2026-05-08-parallel-track-ir-cutover.md` — parallel-track IR cutover. Tasks 1, 2, 4, 6, 7 done; Tasks 8–18 pending.
+- **Cutover complete (2026-05-13).** The IrItem-based pipeline is the only pipeline. Old Atom shape, `atoms.py`, `new_gbnf/`, `flavours.py` are all gone. See `.wiki/lexic/cutover-plan.md` and `.wiki/lexic/slice-b-status.md` for what remains.
 
 Specific instructions in this file override `docs/STYLE.md` for their domain.
 
@@ -27,7 +27,7 @@ Never add `Co-Authored-By` lines. Commits belong entirely to the user.
 Always prefix with `uv run`. Never run `pytest` or `ruff` bare.
 
 ```bash
-uv run pytest tests/ -q                  # full suite (743 tests + 1 xfail)
+uv run pytest tests/ -q                  # full suite (448 tests)
 uv run pytest tests/unit/lexic/ -q       # unit only
 uv run pytest tests/integration/ -q      # integration only
 uv run ruff check src/ tests/            # lint
@@ -38,99 +38,76 @@ uv run pylint src/lexic/path/to/file.py  # per-file quality gate
 
 If `ruff` flags files in `generated/`, fix the template in `src/lexic/codegen/model_emitter.py`, not the generated file.
 
-## Current state — two pipelines in parallel
+## Current state — single IrItem pipeline
 
-The codebase is mid-transition. Two pipelines coexist and must not be mixed:
+The IrItem-based cutover is complete. There is one pipeline:
 
-| | Old pipeline | New pipeline |
-|---|---|---|
-| IR shape | `Atom` dataclasses (`atoms.py`) | `IrItem`-based nodes (`nodes.py`) |
-| Spec type | `RuleSpec` | `NewRuleSpec` |
-| Entry | `codegen/` + `grammars/gbnf/` | `compile_grammar()` + `new_gbnf/` |
-| Status | Production; all tests green | Parallel track; Tasks 8–18 pending |
-
-Cutover (Task 18) renames `new_gbnf/` → `gbnf/`, installs `new_codegen/` → `codegen/`, and deletes `flavours.py`. Until then both live side-by-side.
+- IR shape: `IrItem`-based nodes (`ir/nodes.py`) — `IrLiteral`, `IrCharClass`, `IrRuleRef`, `IrGroup`, `IrItem(atom, quantifier)`.
+- Spec type: `RuleSpec` (in `ir/spec.py`).
+- Entry: `compile_text` / `compile_from_path` in `compile.py` → `compile_grammar` → `codegen` → `build_lark`.
+- Old `atoms.py`, `new_gbnf/`, `flavours.py`, `codegen/ir_builder.py`, `codegen/lark_builder.py`, `codegen/transformer/` are all gone.
 
 ## Project layout
 
 ```
 src/lexic/
   __init__.py
-  base.py               GrammarModel base — to_text(), to_gbnf(), semantic_dump()
-  compile.py            compile_grammar() [new pipeline] | compile_text/compile_from_path [old]
+  base.py               GrammarModel base — to_text(), to_grammar(), semantic_dump()
+  compile.py            compile_text(), compile_from_path(), compile_grammar()
   exceptions.py         LexicError hierarchy (see §Error vocabulary)
   parse.py              parse(text, grammar_path) → GrammarModel  [thin wrapper over compile]
   generate.py           random string generator from RuleSpec
 
   ir/
-    __init__.py         re-exports old Atom types, RuleSpec, IRBuilder, all protocols
-    atoms.py            seven frozen Atom dataclasses  [OLD shape — used by codegen/]
+    __init__.py         re-exports IrItem nodes, RuleSpec
     nodes.py            IrLiteral, IrCharClass, IrRuleRef, IrGroup, IrItem,
-                        IrSequence, IrAlternation, IrRule, IrAst, Quantifier  [NEW shape]
-    spec.py             RuleSpec (old) + NewRuleSpec (new) — both in one file
-    builder.py          IRBuilder[Node] — generic orchestrator parameterised by
-                        RuleClassifier + SequenceConverter protocols
+                        IrSequence, IrAlternation, IrRule, IrAst, Quantifier
+    spec.py             RuleSpec(rule_name, class_name, parent_class_name, kind,
+                                items: list[IrItem | IrAlternation], field_map,
+                                non_semantic_fields)
     charclass.py        parse_charclass_chars()
-    classify.py         classify_rule() — sequence / alternation / value_str
-    convert.py          IrItem → Atom conversion helpers
-    derive.py           derive_specs(IrAst, non_semantic_rules) → list[NewRuleSpec]
+    derive.py           derive_specs(IrAst, non_semantic_rules) → list[RuleSpec]
     directives.py       parse_directives() — extracts @start / @non-semantic
                         from grammar source comments before the meta-grammar parser runs
     emit.py             FlavourEmitter ABC — generic emit algorithm + default atom handlers
     escapes.py          EscapeCodec ABC + CANONICAL_ESCAPES
     helpers.py          HelperRuleRegistry — per-build synthetic rule naming (dedup)
-    naming.py           CHARCLASS_NAMES, _LITERAL_NAMES, assign_field_names()
-    protocols.py        RuleClassifier, SequenceConverter, FlavourAdapter,
-                        handler type aliases — type-only, no runtime classes
-    regex_portable.py   portable Python-re construction utilities
+    naming.py           CHARCLASS_NAMES, _LITERAL_NAMES, _field_map()
+    regex_portable.py   literal_to_regex_pattern(); PORTABLE_FEATURES, validate_portable
     topo.py             topo_sort(specs, is_start_rule) — dependency ordering
-    walk.py             IrVisitor, IrTransformer — recursive tree walkers
+    walk.py             IrDispatch — recursive tree walker / fold
 
   grammars/
-    __init__.py         get_adapter(), adapter_for_extension(), register_adapter()
-                        bootstraps GBNF adapter on import
+    __init__.py         get_flavour(), flavour_for_extension(), register_flavour()
+                        eagerly registers GbnfFlavour and AbnfFlavour on import
     flavour.py          Flavour ABC — config bundle every flavour subclasses
-    flavours.py         OLD Protocol registry (FlavourAdapter/Parser/Emitter + ADAPTERS);
-                        deleted at cutover (Task 18)
-    gbnf/               GBNF — OLD pipeline
-      adapter.py        GbnfAdapter — wires parser + IRBuilder + emitter for old pipeline
-      ast.py            GBNF AST node types  [stable; do not modify]
-      charclass.py      bracket-expression parser
+    gbnf/               GBNF flavour
       emitter.py        GbnfEmitter: list[RuleSpec] → GBNF text
-      escapes.py        GBNF escape encode/decode
-      flavour.py        GbnfFlavour(Flavour) — binds meta_grammar, escapes, emitter
-      meta_grammar.py   Lark meta-grammar string for GBNF
-      parser.py         GBNF text → list[Rule] (AST)  [stable; do not modify]
-    new_gbnf/           GBNF — NEW pipeline (replaces gbnf/ at cutover)
-      emitter.py        GbnfEmitter: list[NewRuleSpec | IrItem] → GBNF text
       escapes.py        GbnfEscapes identity codec
       flavour.py        GbnfFlavour(Flavour)
-      meta_grammar.py   Lark meta-grammar string (copy)
+      meta_grammar.py   Lark meta-grammar string for GBNF
     abnf/               ABNF flavour
-      emitter.py        AbnfEmitter: list[NewRuleSpec] → ABNF text
+      emitter.py        AbnfEmitter: list[RuleSpec] → ABNF text
       escapes.py        AbnfEscapes codec
       flavour.py        AbnfFlavour(Flavour)
       meta_grammar.py   ABNF Lark meta-grammar
 
-  codegen/              OLD pipeline build-time layer  (Atom-based)
-    __init__.py         build_classes_and_specs(), codegen(), codegen_from_path()
-    ir_builder.py       IRBuilder: GBNF AST → list[RuleSpec]  (old; wired to GbnfAdapter)
-    model_emitter.py    ModelEmitter: list[RuleSpec] → Python source
-    lark_builder.py     LarkBuilder: list[RuleSpec] → Lark grammar string + transformer
-    ast_utils.py        GBNF AST helpers
-    classify.py         rule classification helpers
-    seq_to_atoms.py     sequence node → list[Atom] conversion
-    transformer/
-      build_transformer.py   builds a Lark Transformer from classes + specs
-      builders.py            per-atom FieldBuilder subclasses
-      context.py             build context for transformer construction
-      registry.py            BUILDER_BY_ATOM dispatch table
+  codegen/
+    __init__.py         codegen(specs, stem) → dict[str, type]
+                        writes generated/<stem>.py (ruff-formatted), loads and returns classes
+    aliases.py          PatternAlias, collect_aliases() — module-level type alias hoisting
+    model_emitter.py    emit_module_source(specs, stem) → str
+                        IrItem-shape RuleSpec list → Python source string
 
   parsing/
     meta_parser.py      MetaGrammarParser — Lark-driven IrAst builder, flavour-agnostic.
                         Knows canonical tag names (ir_rule, ir_item, ir_literal, …);
                         dispatches token values to Flavour.parse_quantifier /
                         parse_charclass. Wraps Lark errors as UnsupportedConstructError.
+    lark_builder.py     LarkBuilder: list[RuleSpec] → Lark grammar string;
+                        build_lark(specs, classes, start_rule) → (grammar_str, parser, transformer)
+    transformer/
+      build_transformer.py   build_transformer(specs, classes) → lark.Transformer
 
   utils/
     names.py            to_pascal(), to_snake(), to_lark_name()
@@ -138,39 +115,22 @@ src/lexic/
 
 tests/
   unit/lexic/           structural mirror of src/lexic/
-  integration/          test_codegen, test_compile_grammar_{gbnf,abnf},
-                        test_cross_flavour, test_full_round_trip, test_parse, …
+  integration/          test_compile_grammar_{gbnf,abnf}, test_cross_flavour,
+                        test_full_round_trip, test_layering_invariants, test_parse, …
   property/             hypothesis round-trip tests
   paths.py              GROUND_TRUTH, GENERATED path constants
 
 resources/ground_truth/ seven .gbnf test grammars (arithmetic, c, chess, japanese,
                         json_arr, json_ws, list)
-generated/              auto-generated Pydantic modules — git-ignored; never edit directly
+generated/              auto-generated Pydantic modules — git-ignored; never edit directly.
+                        compile_from_path writes <grammar-stem>.py (e.g. arithmetic.py);
+                        compile_text writes anon_<sha1>.py. Files are ruff-formatted.
 ```
 
 ## Architecture
 
 ### Pipeline flow
 
-**Old pipeline (production):**
-```
-GBNF text ──► gbnf/parser.py ──► GBNF AST (list[Rule])
-                                        │
-                                        ▼
-                         codegen/ir_builder.py (IRBuilder)
-                                        │
-                                        ▼
-                         list[RuleSpec]  (Atom-based)
-                                        │
-                     ┌──────────────────┼──────────────────┐
-                     ▼                  ▼                   ▼
-             ModelEmitter          GbnfEmitter          LarkBuilder
-            generated/*.py         GBNF text       Lark grammar + transformer
-```
-
-Entry points: `compile_text()`, `compile_from_path()` in `compile.py`; `codegen()`, `codegen_from_path()` in `codegen/__init__.py`.
-
-**New pipeline (parallel track):**
 ```
 grammar text ──► parse_directives(text, flavour.line_comment) ──► Directives
              └──► MetaGrammarParser.for_flavour(Flavour) ──► IrAst
@@ -179,12 +139,20 @@ grammar text ──► parse_directives(text, flavour.line_comment) ──► Di
                                derive_specs(ast, non_semantic_rules=…)
                                                                    │
                                                                    ▼
-                                              (start_name, list[NewRuleSpec])
+                                              (start_name, list[RuleSpec])
                                                                    │
-                                                       new_codegen/  ← Tasks 8–18
+                         ┌─────────────────────────────────────────┤
+                         ▼                                         ▼
+                  codegen(specs, stem)                   GbnfEmitter / AbnfEmitter
+              writes generated/<stem>.py                    to_grammar(flavour)
+              returns dict[str, type]
+                         │
+                         ▼
+                   build_lark(specs, classes, start_rule)
+                   → (grammar_str, lark.Lark, lark.Transformer)
 ```
 
-Entry point: `compile_grammar(text, flavour)` in `compile.py`. Returns `(start_name, list[NewRuleSpec])`.
+Entry points: `compile_text(text, flavour)` and `compile_from_path(path)` in `compile.py`. Both call `compile_grammar` then `codegen` then `build_lark` and return a `CompiledGrammar`.
 
 ### Layering rules
 
@@ -200,29 +168,11 @@ lexic (runtime) ↗ lexic.codegen        runtime NEVER imports codegen — two e
 
 **The two deliberate exceptions:**
 1. `base.py` imports `lexic.grammars.gbnf.emitter` at module scope for `to_gbnf()`. Explicit, eager, one import.
-2. `compile.py` imports `build_classes_and_specs` from `lexic.codegen` and `LarkBuilder` from `lexic.codegen.lark_builder`. Both explicit and public. This is the single runtime seam for compilation.
+2. `compile.py` imports `codegen` from `lexic.codegen` and `build_lark` from `lexic.parsing.lark_builder`. Both explicit and public. This is the single runtime seam for compilation.
 
 No `TYPE_CHECKING` dodges. No lazy intra-function imports of `lexic.codegen` from runtime modules. If a runtime module needs something that lives in codegen, move the thing.
 
-## IR types
-
-### Old shape (`ir/atoms.py` + `ir/spec.py`)
-
-Seven frozen Atom dataclasses, re-exported from `lexic.ir`:
-
-| Atom | Fields | Notes |
-|---|---|---|
-| `LiteralAtom` | `value` | Never a Pydantic field; emitted directly |
-| `CharClassAtom` | `pattern, min, max` | Character class with quantifier bounds |
-| `QuantifiedLiteralAtom` | `value, min, max` | Literal with `?`/`+`/`*`/`{m,n}` |
-| `InlineRegexAtom` | `regex, gbnf, min, max` | Literal-only group → regex |
-| `RuleRefAtom` | `rule_name, min, max` | Reference to another rule |
-| `AlternationAtom` | `arm_rule_names` | Top-level named alternation |
-| `InlineAlternationAtom` | `arm_rule_names` | Alternation nested inside a sequence |
-
-`RuleSpec(rule_name, class_name, parent_class_name, kind, items: list[Atom], field_map)` — one rule.
-
-### New shape (`ir/nodes.py` + `ir/spec.py`)
+## IR types (`ir/nodes.py` + `ir/spec.py`)
 
 Quantifiers travel on `IrItem`, not on leaves.
 
@@ -234,9 +184,9 @@ IrNode   = IrAst | IrRule | IrAlternation | IrSequence | IrItem | IrAtom
 
 `IrItem(atom: IrAtom, quantifier: Quantifier)` — the universal wrapper.
 
-`NewRuleSpec(rule_name, class_name, parent_class_name, kind, items: list[IrItem | IrAlternation], field_map)` — one rule.
+`RuleSpec(rule_name, class_name, parent_class_name, kind, items: list[IrItem | IrAlternation], field_map, non_semantic_fields)` — one rule.
 
-### `kind` semantics (same in both shapes)
+### `kind` semantics
 
 - `"value_str"` — no `IrRuleRef` anywhere in the body; emits a single `value: str` field.
 - `"alternation"` — abstract class; `items` holds the arm refs; `field_map` is empty.
@@ -286,7 +236,7 @@ Unquantified `IrLiteral` (quantifier `(1,1)`) → no field, never reaches Tier 3
 
 Every generated class carries `__grammar__: ClassVar[RuleSpec]`.
 
-- `to_text()` — emits `LiteralAtom.value` directly; looks up other atoms via `field_map`; recurses into nested models.
+- `to_text()` — emits unquantified `IrLiteral` values directly; looks up other fields via `field_map`; recurses into nested models.
 - `to_gbnf()` — delegates to `GbnfEmitter`.
 - `semantic_dump()` — `model_dump()` minus `non_semantic_fields` (e.g. whitespace refs).
 
@@ -329,21 +279,19 @@ From `prototyping/next/1_NORTH_STAR.md`:
 - No `exec` or `eval` anywhere.
 - No grammar-specific hardcoding in generic code.
 - `grammars/gbnf/ast.py` and `grammars/gbnf/parser.py` are stable; do not modify them.
-- `new_gbnf/` and future `new_codegen/` use `NewRuleSpec` + `IrItem`. Never mix them with old `RuleSpec` + `Atom`.
 - Generated files in `generated/` are write-once — fix template issues in `model_emitter.py`.
-- The two deliberate runtime→codegen import edges are the only ones permitted.
+- The two deliberate runtime→codegen import edges (`base.py` → `lexic.grammars.gbnf.emitter`; `compile.py` → `lexic.codegen` and `lexic.parsing.lark_builder`) are the only ones permitted.
 
 ## Import paths
 
 ```python
-from lexic.ir import RuleSpec, LiteralAtom, ...          # old shape
-from lexic.ir.nodes import IrItem, IrAst, Quantifier, ...  # new shape
-from lexic.ir.spec import NewRuleSpec                      # new spec
+from lexic.ir.nodes import IrItem, IrAst, Quantifier, IrLiteral, IrCharClass, IrRuleRef, IrGroup
+from lexic.ir.spec import RuleSpec
 from lexic.ir.derive import derive_specs
 from lexic.base import GrammarModel
-from lexic.compile import compile_grammar, compile_text
+from lexic.compile import compile_grammar, compile_text, compile_from_path
 from lexic.grammars.flavour import Flavour
-from lexic.grammars import get_adapter, adapter_for_extension
+from lexic.grammars import get_flavour, flavour_for_extension
 ```
 
 Never `from src.lexic...`. `pyproject.toml` sets `pythonpath = ["src"]`.

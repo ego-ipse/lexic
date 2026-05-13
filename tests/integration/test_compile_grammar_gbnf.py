@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from lexic.compile import compile_from_path, compile_grammar, compile_text
 from lexic.grammars.gbnf.flavour import GbnfFlavour
 from lexic.ir.nodes import IrItem, IrRuleRef
