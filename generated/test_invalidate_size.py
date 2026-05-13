@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-
-
 from lexic.base import GrammarModel
 from lexic.ir.nodes import (
     IrItem,

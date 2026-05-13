@@ -19,13 +19,25 @@ __all__ = ["codegen", "emit_module_source"]
 
 
 def _ruff_format(source: str) -> str:
+    ruff = find_ruff_bin()
     try:
-        result = subprocess.run(
-            [find_ruff_bin(), "format", "-"],
+        fixed = subprocess.run(
+            [ruff, "check", "--fix", "-"],
             input=source,
             capture_output=True,
             text=True,
             timeout=10,
+            check=False,
+        )
+        if fixed.returncode in (0, 1):
+            source = fixed.stdout or source
+        result = subprocess.run(
+            [ruff, "format", "-"],
+            input=source,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         if result.returncode == 0:
             return result.stdout
