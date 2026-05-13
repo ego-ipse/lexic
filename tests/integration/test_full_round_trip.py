@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.compile import compile_grammar, compile_text
+from lexic.compile import compile_from_path, compile_grammar
 from lexic.grammars.gbnf.flavour import GbnfFlavour
 from lexic.parsing.meta_parser import MetaGrammarParser
 from tests.paths import GROUND_TRUTH
@@ -116,19 +116,6 @@ def test_meta_grammar_parser_round_trip_idempotent(fixture: str) -> None:
     )
 
 
-# Pair each fixture with a sample that must round-trip through the old pipeline.
-#
-# arithmetic.gbnf  — "x=1\n": ws is non-semantic so stripped; no spaces in sample.
-# json_arr.gbnf    — "[\n1\n]": arr literal starts with "[\n"; ws stripped.
-# json_ws.gbnf     — '{"a":1}': ws stripped; no spaces.
-# list.gbnf        — "- apple\n": item starts with literal "- ".
-# chess.gbnf       — "1. e4 e5\n2. d4 d5\n": root needs hardcoded "1. " line then 1+ more.
-# japanese.gbnf    — "こんにちは": five hiragana chars, all in [ぁ-ゟ].
-# c.gbnf           — XFAIL: old pipeline strips ws from to_text() but the Lark grammar
-#                    requires whitespace between dataType and identifier; any non-trivial
-#                    C declaration fails the round-trip. Fixed at Task 25a when compile_text
-#                    switches to the new pipeline. strict=True so we notice if it heals.
-
 _FIXTURES = [
     ("arithmetic.gbnf", "x=1\n"),
     ("json_arr.gbnf", "[\n1\n]"),
@@ -136,15 +123,14 @@ _FIXTURES = [
     ("list.gbnf", "- apple\n"),
     ("chess.gbnf", "1. e4 e5\n2. d4 d5\n"),
     ("japanese.gbnf", "こんにちは"),
-    pytest.param("c.gbnf", "int foo(){}"),
+    ("c.gbnf", "int foo(){}"),
 ]
 
 
 @pytest.mark.parametrize("fixture, sample", _FIXTURES)
 def test_full_round_trip(fixture: str, sample: str) -> None:
-    """Old pipeline: compile_text → parse(sample) → to_text() == sample."""
-    text = (GROUND_TRUTH / fixture).read_text(encoding="utf-8")
-    cg = compile_text(text, cache_key=fixture)
+    """compile_from_path → parse(sample) → to_text() == sample."""
+    cg = compile_from_path(GROUND_TRUTH / fixture)
     model = cg.parse(sample)
     assert model.to_text() == sample, (
         f"{fixture}: round-trip mismatch.\n"

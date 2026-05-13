@@ -1,4 +1,4 @@
-"""Generated module: anon_a6c86be53bc7. Do not edit; regenerated from grammar."""
+"""Generated module: anon_fc45e2ea37f2. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrLiteral("bbb"), Quantifier(1, 1))],
+    items=[IrItem(IrLiteral("x"), Quantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

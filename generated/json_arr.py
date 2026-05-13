@@ -1,4 +1,4 @@
-"""Generated module: anon_57cf57fcb0a1. Do not edit; regenerated from grammar."""
+"""Generated module: json_arr. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 
@@ -96,8 +96,8 @@ class String(Value):
 
 class Number(Value):
     sign: Pattern8
-    dot: Pattern9 = None
-    ee: Pattern12 = None
+    dot: Optional[Pattern9] = None
+    ee: Optional[Pattern12] = None
     ws: Optional[Ws] = None
 
 

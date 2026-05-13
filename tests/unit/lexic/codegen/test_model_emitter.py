@@ -202,7 +202,7 @@ def test_pure_pattern_group_field_composes_regex():
     # Alias is declared at module level
     assert 'Pattern2 = Annotated[str, StringConstraints(pattern=r"^([a-h]x)?$")]' in src
     # Field references the alias, not the inline form
-    assert "head: Pattern2" in src
+    assert "head: Optional[Pattern2]" in src
     class_section = src.split("class P(")[1] if "class P(" in src else ""
     assert "Annotated[" not in class_section.split("\n\n")[0]
 

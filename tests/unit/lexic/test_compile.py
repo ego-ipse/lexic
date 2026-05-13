@@ -44,7 +44,7 @@ def test_compile_from_path_memoises_by_path_mtime_size():
 
 def test_compile_from_path_invalidates_on_mtime_change(tmp_path):
     """Same mtime but different size should invalidate."""
-    src = tmp_path / "g.gbnf"
+    src = tmp_path / "test_invalidate_mtime.gbnf"
     src.write_text('root ::= "a"\n')
     cg1 = compile_from_path(src)
     time.sleep(0.01)
@@ -55,7 +55,7 @@ def test_compile_from_path_invalidates_on_mtime_change(tmp_path):
 
 def test_compile_from_path_invalidates_on_size_change_same_mtime(tmp_path):
     """Same mtime but different size should invalidate."""
-    src = tmp_path / "g.gbnf"
+    src = tmp_path / "test_invalidate_size.gbnf"
     src.write_text('root ::= "aa"\n')
     cg1 = compile_from_path(src)
     original_mtime = src.stat().st_mtime

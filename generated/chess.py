@@ -1,8 +1,8 @@
-"""Generated module: anon_0e079ccd2b93. Do not edit; regenerated from grammar."""
+"""Generated module: chess. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 
-from typing import Annotated, List, Union
+from typing import Annotated, List, Optional, Union
 
 from pydantic import StringConstraints
 
@@ -48,7 +48,7 @@ class Root(GrammarModel):
 
 class Move(GrammarModel):
     kind: Union[Pawn, Nonpawn, Castle]
-    head: Pattern = None
+    head: Optional[Pattern] = None
 
 
 class Nonpawn(GrammarModel):
@@ -65,7 +65,7 @@ class Castle(GrammarModel):
 
 class RootItem(GrammarModel):
     head: Pattern9
-    digit: Digit = None
+    digit: Optional[Digit] = None
     move: Move
     move2: Move
 

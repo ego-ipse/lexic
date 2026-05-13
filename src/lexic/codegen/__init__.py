@@ -6,13 +6,32 @@ Renamed to lexic.codegen at cutover (Slice 4).
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
+
+from ruff import find_ruff_bin
 
 from lexic.codegen.model_emitter import emit_module_source
 from lexic.ir.spec import RuleSpec
 
 __all__ = ["codegen", "emit_module_source"]
+
+
+def _ruff_format(source: str) -> str:
+    try:
+        result = subprocess.run(
+            [find_ruff_bin(), "format", "-"],
+            input=source,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            return result.stdout
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return source
 
 
 def _resolve_generated_dir() -> Path:
@@ -42,7 +61,7 @@ def codegen(specs: list[RuleSpec], stem: str) -> dict[str, type]:
     out_dir = _resolve_generated_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{stem}.py"
-    out_path.write_text(emit_module_source(specs, stem=stem))
+    out_path.write_text(_ruff_format(emit_module_source(specs, stem=stem)))
 
     module_name = f"generated.{stem}"
     if module_name in sys.modules:

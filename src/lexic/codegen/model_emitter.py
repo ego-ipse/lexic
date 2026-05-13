@@ -139,6 +139,8 @@ def _group_type(atom: IrGroup, specs: dict[str, RuleSpec]) -> str:
             specs[n].class_name if n in specs else n.replace("-", "_").title()
             for n in arm_refs
         ]
+        if len(cls_names) == 1:
+            return cls_names[0]
         return f"Union[{', '.join(cls_names)}]"
     return "str"
 
@@ -265,6 +267,10 @@ class ModuleEmitter:
                 if not isinstance(item, IrItem) or idx not in inv:
                     continue
                 type_str = _field_type(item, self._by_rule, self._aliases)
+                if _is_optional(item.quantifier) and not type_str.startswith(
+                    "Optional["
+                ):
+                    type_str = f"Optional[{type_str}]"
                 default = " = None" if _is_optional(item.quantifier) else ""
                 body_lines.append(f"    {inv[idx]}: {type_str}{default}")
         if not body_lines:

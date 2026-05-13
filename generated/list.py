@@ -1,4 +1,4 @@
-"""Generated module: anon_4b3139ea397e. Do not edit; regenerated from grammar."""
+"""Generated module: list. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 

@@ -1,8 +1,8 @@
-"""Generated module: anon_b267766ccaa2. Do not edit; regenerated from grammar."""
+"""Generated module: c. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 
-from typing import Annotated, List, Optional, Union
+from typing import Annotated, List, Optional
 
 from pydantic import StringConstraints
 
@@ -119,11 +119,11 @@ class StatementArm7(Statement):
 
 
 class StatementArm8(Statement):
-    kind: Union[SingleLineComment]
+    kind: SingleLineComment
 
 
 class StatementArm9(Statement):
-    kind: Union[MultiLineComment]
+    kind: MultiLineComment
 
 
 class ForInit(GrammarModel):

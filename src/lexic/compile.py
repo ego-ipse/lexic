@@ -49,7 +49,6 @@ from lexic.parsing.meta_parser import MetaGrammarParser
 
 if TYPE_CHECKING:
     from lexic.base import GrammarModel
-    from lexic.ir import RuleSpec
 
 
 @dataclass(frozen=True)
@@ -57,7 +56,7 @@ class CompiledGrammar:
     """Parse-ready artefacts produced by compile()."""
 
     classes: dict[str, type]
-    specs: dict[str, "RuleSpec"]
+    specs: dict[str, RuleSpec]
     parser: "lark.Lark"
     transformer: "lark.Transformer"
 
@@ -119,9 +118,20 @@ def compile_from_path(
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    return compile_text(
-        path.read_text(encoding="utf-8"), cache_key=key, flavour=flavour
+    stem = path.stem
+    text = path.read_text(encoding="utf-8")
+    flavour_cls = get_flavour(flavour)
+    start_rule, specs_list = compile_grammar(text, flavour_cls)
+    classes = codegen(specs_list, stem)
+    _, parser, transformer = build_lark(specs_list, classes, start_rule)
+    cg = CompiledGrammar(
+        classes=classes,
+        specs={s.rule_name: s for s in specs_list},
+        parser=parser,
+        transformer=transformer,
     )
+    _CACHE[key] = cg
+    return cg
 
 
 def compile_grammar(
