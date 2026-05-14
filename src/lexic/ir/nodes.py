@@ -16,11 +16,18 @@ from __future__ import annotations
 import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Generic, Self, TypeAlias, TypeVar, Unpack
+from typing import (
+    Any,
+    ClassVar,
+    Generic,
+    Self,
+    TypeAlias,
+    TypeVar,
+    TypeVarTuple,
+    Unpack,
+)
 
-from typing_extensions import TypeVarTuple
-
-_T_co = TypeVar("_T_co", bound="IrNode", covariant=True)
+_T = TypeVar("_T", bound="IrNode")
 _Ts = TypeVarTuple("_Ts")
 
 
@@ -95,7 +102,7 @@ class IrStructure(IrNode, ABC):
 # ── Variable-length homogeneous branch nodes ──────────────────────────
 
 
-class IrCollection(IrStructure, Generic[_T_co]):
+class IrCollection(IrStructure, Generic[_T]):
     """Branch node carrying a single variable-length tuple of homogeneous children.
 
     Concrete subclasses declare:
@@ -107,14 +114,14 @@ class IrCollection(IrStructure, Generic[_T_co]):
 
     _items_attr: ClassVar[str]
 
-    def children(self) -> tuple[_T_co, ...]:
+    def children(self) -> tuple[_T, ...]:
         """Return the homogeneous children tuple.
 
         :returns: Tuple of child nodes.
         """
         return getattr(self, self._items_attr)
 
-    def rebuild(self, new_children: tuple[_T_co, ...]) -> Self:
+    def rebuild(self, new_children: tuple[_T, ...]) -> Self:
         """Reconstruct, replacing the items field with new_children.
 
         :param new_children: Replacement children tuple.
