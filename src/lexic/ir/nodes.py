@@ -1,92 +1,114 @@
 """IR AST node dataclasses — canonical, frozen, hashable.
 
-The IR AST is the lingua franca for transpilation. Every flavour produces
-this AST from its source text. Leaves carry canonical values (escapes
-decoded, POSIX-style char classes); quantifiers travel on `IrItem`,
-not on leaves.
+Every IR node implements the structural protocol from IrNode:
+  - children() -> tuple[IrNode, ...]   children in traversal order
+  - rebuild(new_children) -> IrNode    reconstruct under transformation
+  - emit(indent=0) -> str              default string rendering (debug)
+
+Flavour-specific rendering bypasses `emit()` via the per-flavour action
+dispatch table on `Flavour` (an IrEmitter subclass).
 """
 
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass, field
 from typing import TypeAlias
 
 
-@dataclass(frozen=True, slots=True)
-class Quantifier:
-    """Repetition bounds. `max=None` means unbounded."""
+class IrNode(ABC):
+    """Structural protocol every IR node implements."""
 
-    min: int = 1
-    max: int | None = 1
+    def children(self) -> tuple[IrNode, ...]:
+        """Children in traversal order. Default: leaf — no children."""
+        return ()
+
+    def rebuild(self, new_children: tuple[IrNode, ...]) -> IrNode:  # pylint: disable=unused-argument
+        """Reconstruct with new children. Default: identity (leaves)."""
+        return self
+
+    def emit(self, indent: int = 0) -> str:
+        """Default string rendering used by IrEmit. Subclasses override
+        with a node-appropriate format. Flavour emitters bypass this via
+        their action dispatch table.
+        """
+        return f"{'  ' * indent}{self!r}"
 
 
 # ── Leaves ───────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True)
-class IrLiteral:
+class IrLiteral(IrNode):
     """Literal string. `value` is canonical Python (escapes decoded)."""
 
     value: str
 
 
 @dataclass(frozen=True, slots=True)
-class IrCharClass:
-    """Character class. `pattern` is the canonical POSIX-style interior
-    (e.g. 'a-z0-9'). `negated` is True if the source had `[^…]`.
-    """
+class IrCharClass(IrNode):
+    """Character class. `pattern` is canonical POSIX-style interior."""
 
     pattern: str
     negated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
-class IrRuleRef:
+class IrRuleRef(IrNode):
     """Reference to another rule by name."""
 
     name: str
 
 
-# ── Structure (forward-declared for IrItem.atom union) ───────────────
+# ── Quantifier (also a leaf IrNode) ──────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True)
-class IrSequence:
+class Quantifier(IrNode):
+    """Repetition bounds. `max=None` means unbounded.
+
+    Will be renamed to IrQuantifier in Task 2.1; staying as Quantifier
+    in Task 1.x to keep step 1 a pure protocol-introduction change.
+    """
+
+    min: int = 1
+    max: int | None = 1
+
+
+# ── Structure ────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class IrSequence(IrNode):
     """Concatenation of items."""
 
-    items: tuple["IrItem", ...] = ()
+    items: tuple[IrItem, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class IrAlternation:
-    """Choice between sequences. Always >= 1 arm; single-arm is bare seq."""
+class IrAlternation(IrNode):
+    """Choice between sequences. Always >= 1 arm."""
 
     arms: tuple[IrSequence, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class IrGroup:
+class IrGroup(IrNode):
     """Parenthesised group. Body is always an IrAlternation."""
 
     body: IrAlternation
 
 
-# ── Wrapper ──────────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True, slots=True)
-class IrItem:
+class IrItem(IrNode):
     """An atom (leaf or group) with a quantifier."""
 
-    atom: "IrAtom"
+    atom: IrAtom
     quantifier: Quantifier = field(default_factory=Quantifier)
 
 
-# ── Top-level ────────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True, slots=True)
-class IrRule:
+class IrRule(IrNode):
     """A named rule. Body is always an IrAlternation, even single-arm."""
 
     name: str
@@ -94,16 +116,14 @@ class IrRule:
 
 
 @dataclass(frozen=True, slots=True)
-class IrAst:
+class IrAst(IrNode):
     """Full grammar: rules + start-rule name."""
 
     rules: tuple[IrRule, ...] = ()
     start: str = ""
 
 
-# ── Protocols for conversion ─────────────────────────────────────────
+# ── Type aliases (structural unions) ─────────────────────────────────
 
 IrLeaf: TypeAlias = IrLiteral | IrCharClass | IrRuleRef
 IrAtom: TypeAlias = IrLeaf | IrGroup
-
-IrNode: TypeAlias = IrAst | IrRule | IrAlternation | IrSequence | IrItem | IrAtom

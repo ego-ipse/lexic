@@ -11,6 +11,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNode,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -167,3 +168,35 @@ def test_structurally_equal_asts_compare_equal():
         start="r",
     )
     assert a == b
+
+
+# ── Tests for lexic.ir.nodes — structural protocol on IrNode. ────────
+
+
+def test_irnode_is_abc_base_class():
+    """Every concrete IR node inherits from IrNode."""
+    for cls in (
+        IrAst,
+        IrRule,
+        IrAlternation,
+        IrSequence,
+        IrItem,
+        IrGroup,
+        IrLiteral,
+        IrCharClass,
+        IrRuleRef,
+    ):
+        assert issubclass(cls, IrNode), f"{cls.__name__} must inherit IrNode"
+
+
+def test_irnode_default_children_is_empty_tuple():
+    """Leaves inherit empty-tuple default."""
+    assert not IrLiteral("x").children()
+    assert not IrCharClass("a-z").children()
+    assert not IrRuleRef("foo").children()
+
+
+def test_irnode_default_rebuild_is_identity():
+    """Leaves inherit identity rebuild."""
+    leaf = IrLiteral("x")
+    assert leaf.rebuild(()) is leaf
