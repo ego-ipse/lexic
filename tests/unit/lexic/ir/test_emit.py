@@ -13,6 +13,7 @@ from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
+    IrAtom,
     IrCharClass,
     IrGroup,
     IrItem,
@@ -39,6 +40,14 @@ class _TestEmitter(FlavourEmitter):
         {"literal", "char_class", "alternation", "quantifier"}
     )
 
+    def emit_item(self, item: IrItem) -> str:
+        """Public proxy for testing the protected _emit_item method."""
+        return self._emit_item(item)
+
+    def emit_ir_atom(self, atom: IrAtom) -> str:
+        """Public proxy for testing the protected _emit_ir_atom method."""
+        return self._emit_ir_atom(atom)
+
 
 class SingleQuote(_TestEmitter):
     """A test emitter subclass that overrides the quote character for literals."""
@@ -56,25 +65,29 @@ def _new() -> _TestEmitter:
 def test_emit_item_literal_quotes():
     """Emit a literal with default quoting."""
     e = _new()
-    assert e._emit_item(IrItem(IrLiteral("hi"))) == '"hi"'
+    assert e.emit_item(IrItem(IrLiteral("hi"))) == '"hi"'
 
 
 def test_emit_item_quantified_literal_appends_quantifier():
+    """Test that quantified literals append the quantifier suffix."""
     e = _new()
-    assert e._emit_item(IrItem(IrLiteral("-"), Quantifier(0, 1))) == '"-"?'
+    assert e.emit_item(IrItem(IrLiteral("-"), Quantifier(0, 1))) == '"-"?'
 
 
 def test_emit_item_charclass_appends_quantifier():
+    """Test that quantified character classes append the quantifier suffix."""
     e = _new()
-    assert e._emit_item(IrItem(IrCharClass("0-9"), Quantifier(1, None))) == "0-9+"
+    assert e.emit_item(IrItem(IrCharClass("0-9"), Quantifier(1, None))) == "0-9+"
 
 
 def test_emit_item_ruleref_appends_quantifier():
+    """Test that quantified rule references append the quantifier suffix."""
     e = _new()
-    assert e._emit_item(IrItem(IrRuleRef("x"), Quantifier(0, 1))) == "x?"
+    assert e.emit_item(IrItem(IrRuleRef("x"), Quantifier(0, 1))) == "x?"
 
 
 def test_emit_body_alternation_kind_joins_arms():
+    """Test that alternation rules join arms with the separator."""
     e = _new()
     spec = RuleSpec(
         "r",
@@ -88,12 +101,14 @@ def test_emit_body_alternation_kind_joins_arms():
 
 
 def test_emit_ir_atom_group_wraps_with_parens():
+    """Test that groups are wrapped with parentheses."""
     e = _new()
     arm = IrSequence(items=(IrItem(IrRuleRef("a")),))
-    assert e._emit_ir_atom(IrGroup(body=IrAlternation(arms=(arm,)))) == "(a)"
+    assert e.emit_ir_atom(IrGroup(body=IrAlternation(arms=(arm,)))) == "(a)"
 
 
 def test_emit_rule_renders_value_str_body():
+    """Test that value_str rules are emitted correctly."""
     spec = RuleSpec(
         "num",
         "Num",
@@ -107,6 +122,7 @@ def test_emit_rule_renders_value_str_body():
 
 
 def test_emit_joins_rules_with_newlines():
+    """Test that multiple rules are joined with newlines."""
     a = RuleSpec(
         "a",
         "A",
@@ -128,18 +144,21 @@ def test_emit_joins_rules_with_newlines():
 
 
 def test_subclass_overrides_quote_char():
+    """Test that subclasses can override the quote character."""
     e = SingleQuote(escapes=FakeEscapes())
-    assert e._emit_item(IrItem(IrLiteral("hi"))) == "'hi'"
+    assert e.emit_item(IrItem(IrLiteral("hi"))) == "'hi'"
 
 
 def test_unknown_atom_raises():
+    """Test that emitting an unknown atom type raises UnsupportedConstructError."""
+
     @dataclass
     class _Unknown:
         pass
 
     e = _new()
     with pytest.raises(UnsupportedConstructError):
-        e._emit_ir_atom(_Unknown())  # type: ignore[arg-type]
+        e.emit_ir_atom(_Unknown())  # type: ignore[arg-type]
 
 
 # ── IR-AST emit chain tests ───────────────────────────────────────────
@@ -161,6 +180,7 @@ def _make_ast() -> IrAst:
 
 
 def test_emit_ast_produces_two_lines_terminated_with_newline():
+    """Test that emitting an AST produces lines terminated with a newline."""
     e = _new()
     ast = _make_ast()
     result = e.emit_ast(ast)
@@ -171,6 +191,7 @@ def test_emit_ast_produces_two_lines_terminated_with_newline():
 
 
 def test_emit_rule_from_ast_single_rule():
+    """Test that a single rule is emitted correctly from AST."""
     e = _new()
     digit_item = IrItem(atom=IrLiteral("x"), quantifier=Quantifier(1, 1))
     digit_seq = IrSequence(items=(digit_item,))
@@ -180,6 +201,7 @@ def test_emit_rule_from_ast_single_rule():
 
 
 def test_emit_alternation_single_arm():
+    """Test that an alternation with a single arm is emitted correctly."""
     e = _new()
     item = IrItem(atom=IrLiteral("a"), quantifier=Quantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
@@ -187,6 +209,7 @@ def test_emit_alternation_single_arm():
 
 
 def test_emit_alternation_two_arms_joins_with_alt_separator():
+    """Test that alternation with multiple arms joins them with the separator."""
     e = _new()
     arm1 = IrSequence(items=(IrItem(IrLiteral("a"), Quantifier(1, 1)),))
     arm2 = IrSequence(items=(IrItem(IrLiteral("b"), Quantifier(1, 1)),))
@@ -195,6 +218,7 @@ def test_emit_alternation_two_arms_joins_with_alt_separator():
 
 
 def test_emit_sequence_two_items():
+    """Test that sequences with multiple items are emitted in order."""
     e = _new()
     item1 = IrItem(atom=IrLiteral("x"), quantifier=Quantifier(1, 1))
     item2 = IrItem(atom=IrRuleRef("y"), quantifier=Quantifier(1, 1))
@@ -205,6 +229,7 @@ def test_emit_sequence_two_items():
 
 
 def test_emit_item_literal_with_required_quantifier():
+    """Test that a required-quantifier literal does not emit the quantifier."""
     e = _new()
     item = IrItem(atom=IrLiteral("x"), quantifier=Quantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
@@ -212,6 +237,7 @@ def test_emit_item_literal_with_required_quantifier():
 
 
 def test_emit_item_ruleref_with_optional_quantifier():
+    """Test that an optional-quantifier rule ref emits the quantifier."""
     e = _new()
     item = IrItem(atom=IrRuleRef("expr"), quantifier=Quantifier(0, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
@@ -219,6 +245,7 @@ def test_emit_item_ruleref_with_optional_quantifier():
 
 
 def test_emit_ir_atom_literal():
+    """Test that literals are emitted with quotes."""
     e = _new()
     item = IrItem(atom=IrLiteral("hello"), quantifier=Quantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
@@ -226,6 +253,7 @@ def test_emit_ir_atom_literal():
 
 
 def test_emit_ir_atom_ruleref():
+    """Test that rule references are emitted without quotes."""
     e = _new()
     item = IrItem(atom=IrRuleRef("expr"), quantifier=Quantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
@@ -233,6 +261,7 @@ def test_emit_ir_atom_ruleref():
 
 
 def test_emit_ir_atom_charclass():
+    """Test that character classes are emitted correctly."""
     e = _new()
     item = IrItem(atom=IrCharClass("0-9"), quantifier=Quantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
@@ -240,6 +269,8 @@ def test_emit_ir_atom_charclass():
 
 
 def test_emit_ir_atom_charclass_negated_forwarded():
+    """Test that negated character classes are forwarded to render_charclass."""
+
     class _NegationAware(_TestEmitter):
         def render_charclass(
             self, canonical_pattern: str, negated: bool = False
@@ -253,6 +284,7 @@ def test_emit_ir_atom_charclass_negated_forwarded():
 
 
 def test_emit_ir_atom_group():
+    """Test that groups are emitted with parentheses around their body."""
     e = _new()
     arm = IrSequence(items=(IrItem(IrLiteral("a"), Quantifier(1, 1)),))
     group_item = IrItem(

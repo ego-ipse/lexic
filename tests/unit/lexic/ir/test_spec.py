@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from lexic.ir.nodes import IrCharClass, IrItem, IrRuleRef
 from lexic.ir.spec import RuleSpec
+from tests.unit.lexic.conftest import make_ident_spec
 
 
 def test_rulespec_defaults():
@@ -15,14 +15,7 @@ def test_rulespec_defaults():
 
 def test_rulespec_field_map_populated():
     """Field map is stored and indexable."""
-    spec = RuleSpec(
-        "ident",
-        "Ident",
-        "GrammarModel",
-        "sequence",
-        items=[IrItem(IrCharClass("a-z")), IrItem(IrRuleRef("ws"))],
-        field_map={"first": 0, "ws": 1},
-    )
+    spec = make_ident_spec()
     assert spec.field_map["first"] == 0
     assert spec.field_map["ws"] == 1
 

@@ -12,6 +12,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.nodes import IrCharClass, IrItem, IrLiteral, IrRuleRef, Quantifier
 from lexic.ir.spec import RuleSpec
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.conftest import make_ident_spec
 
 # ── value_str ─────────────────────────────────────────────────────────────────
 
@@ -205,15 +206,7 @@ def test_semantic_dump_excludes_ws():
         __grammar__: ClassVar[RuleSpec] = ws_spec
         value: str
 
-    spec = RuleSpec(
-        "ident",
-        "Ident",
-        "GrammarModel",
-        "sequence",
-        items=[IrItem(IrCharClass("a-z")), IrItem(IrRuleRef("ws"))],
-        field_map={"first": 0, "ws": 1},
-        non_semantic_fields=frozenset({"ws"}),
-    )
+    spec = make_ident_spec(non_semantic_fields=frozenset({"ws"}))
 
     class Ident(GrammarModel):
         """Identifier model."""

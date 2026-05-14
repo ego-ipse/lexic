@@ -15,18 +15,8 @@ from lexic.ir.nodes import (
     IrSequence,
     Quantifier,
 )
-from lexic.ir.spec import RuleSpec
-
-
-def _spec(name, kind, items, parent="GrammarModel", field_map=None):
-    return RuleSpec(
-        rule_name=name,
-        class_name=name.title(),
-        parent_class_name=parent,
-        kind=kind,
-        items=list(items),
-        field_map=field_map or {},
-    )
+from tests.unit.lexic.codegen.conftest import make_charclass_literal_group
+from tests.unit.lexic.conftest import make_spec as _spec
 
 
 def test_emit_value_str_class_body():
@@ -183,18 +173,7 @@ def test_charclass_field_in_sequence_emits_alias():
 
 def test_pure_pattern_group_field_composes_regex():
     """([a-h] 'x')? → alias Pattern2; field references the alias."""
-    grp = IrGroup(
-        IrAlternation(
-            (
-                IrSequence(
-                    (
-                        IrItem(IrCharClass("a-h"), Quantifier(1, 1)),
-                        IrItem(IrLiteral("x"), Quantifier(1, 1)),
-                    )
-                ),
-            )
-        )
-    )
+    grp = make_charclass_literal_group()
     spec = _spec(
         "p", "sequence", [IrItem(grp, Quantifier(0, 1))], field_map={"head": 0}
     )

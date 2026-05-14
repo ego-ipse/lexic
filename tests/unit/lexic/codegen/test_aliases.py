@@ -18,19 +18,8 @@ from lexic.ir.nodes import (
     IrSequence,
     Quantifier,
 )
-from lexic.ir.spec import RuleSpec
-
-
-def _spec(name, kind, items, field_map=None):
-    """Helper to create a RuleSpec with the given items."""
-    return RuleSpec(
-        rule_name=name,
-        class_name=name.title(),
-        parent_class_name="GrammarModel",
-        kind=kind,
-        items=list(items),
-        field_map=field_map or {},
-    )
+from tests.unit.lexic.codegen.conftest import make_charclass_literal_group
+from tests.unit.lexic.conftest import make_spec as _spec
 
 
 def test_regex_for_charclass_simple():
@@ -59,18 +48,7 @@ def test_regex_for_charclass_optional():
 
 def test_regex_for_group_pure_pattern():
     """([a-h] 'x')? → ^([a-h]x)?$."""
-    grp = IrGroup(
-        IrAlternation(
-            (
-                IrSequence(
-                    (
-                        IrItem(IrCharClass("a-h"), Quantifier(1, 1)),
-                        IrItem(IrLiteral("x"), Quantifier(1, 1)),
-                    )
-                ),
-            )
-        )
-    )
+    grp = make_charclass_literal_group()
     assert regex_for_group(grp, Quantifier(0, 1)) == r"^([a-h]x)?$"
 
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from lexic.grammars.gbnf.emitter import GbnfEmitter
 from lexic.grammars.gbnf.escapes import GBNF_ESCAPES
 from lexic.ir.nodes import (
@@ -16,24 +14,7 @@ from lexic.ir.nodes import (
     IrSequence,
     Quantifier,
 )
-from lexic.ir.spec import RuleSpec
-
-
-def _spec(
-    name: str,
-    kind: Literal["sequence", "alternation", "value_str"],
-    items,
-    field_map=None,
-):
-    """Helper for test_emit_*."""
-    return RuleSpec(
-        rule_name=name,
-        class_name=name.title(),
-        parent_class_name="GrammarModel",
-        kind=kind,
-        items=list(items),
-        field_map=field_map or {},
-    )
+from tests.unit.lexic.conftest import make_spec as _spec
 
 
 def test_emit_literal():
