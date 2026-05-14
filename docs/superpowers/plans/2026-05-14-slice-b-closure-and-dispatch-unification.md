@@ -28,7 +28,7 @@
 
 ### Modified
 - `src/lexic/ir/nodes.py` — `IrNode` becomes ABC; `Quantifier` renamed `IrQuantifier`; every concrete node implements `children/rebuild/emit`
-- `src/lexic/ir/walk.py` — adds `IrEmitter[_N]` + `IrEmit`; deletes `_CHILDREN`/`_REBUILD`/`_DUMP`
+- `src/lexic/ir/walk.py` — adds `IrEmitter[_N]` + `IrMetaEmitter`; deletes `_CHILDREN`/`_REBUILD`/`_DUMP`
 - `src/lexic/ir/emit.py` — keeps only `render_specs()`; `FlavourEmitter` ABC deleted
 - `src/lexic/grammars/flavour.py` — `Flavour` subclasses `IrEmitter[IrNode]`; gains `action`, `quantifier_symbols`, `pre_parse_check`
 - `src/lexic/grammars/gbnf/flavour.py` — populates `action` table with renderers; adds `pre_parse_check`
@@ -56,6 +56,37 @@
 - `src/lexic/grammars/gbnf/emitter.py` + `tests/unit/lexic/grammars/gbnf/test_emitter.py`
 - `src/lexic/grammars/abnf/emitter.py` + `tests/unit/lexic/grammars/abnf/test_emitter.py`
 - `.wiki/lexic/slice-b-status.md` (slice closes)
+
+---
+
+## Flavour-as-singleton convention
+
+Flavours carry only class-level state (the `action` table, `quantifier_symbols`,
+the punctuation constants). Instantiation is `cls()` with no args. To avoid
+the class-vs-instance ambiguity that would otherwise dog every call site
+(does `LarkFlavour` mean the class or an instance? `flavour.visit(node)`
+needs an instance because `visit` uses `self.action`), each flavour module
+exports a module-level singleton:
+
+```
+src/lexic/grammars/gbnf/flavour.py   exports  GbnfFlavour  AND  GBNF = GbnfFlavour()
+src/lexic/grammars/abnf/flavour.py   exports  AbnfFlavour  AND  ABNF = AbnfFlavour()
+src/lexic/grammars/lark/flavour.py   exports  LarkFlavour  AND  LARK = LarkFlavour()
+src/lexic/grammars/__init__.py       re-exports GBNF, ABNF, LARK
+```
+
+Consumers that call `flavour.visit(node)` use the singleton
+(base.py.to_grammar, lark_builder.build_lark, cross-flavour transpile
+tests, render_specs callers). `CompiledGrammar.flavour` is the singleton
+matching the source flavour. Adopt from Task 3.3 onwards; each `action`
+dict population task also defines the singleton in the same file.
+
+**Exception — `meta_parser.py` keeps the class form.** Meta-parser uses
+only class-level attributes (`flavour.meta_grammar`, `flavour.line_comment`,
+`parse_quantifier`/`parse_charclass`/`normalize_literal`/`pre_parse_check`
+— all `@classmethod` or `@staticmethod`). It never calls `.visit()`. The
+`MetaGrammarParser.for_flavour(flavour_cls)` cache is keyed on the class.
+Don't change it; pass the class as before.
 
 ---
 
@@ -168,11 +199,16 @@ class IrNode(ABC):
         return self
 
     def emit(self, indent: int = 0) -> str:
-        """Default string rendering used by IrEmit. Subclasses override
-        with a node-appropriate format. Flavour emitters bypass this via
-        their action dispatch table.
+        """Default string rendering used by IrMetaEmitter.
+
+        Leaves return repr(self), ignoring indent: they appear inline
+        inside a branch's emit() output and must not inject whitespace.
+        Branches override to render themselves at `'  ' * indent`, then
+        recurse with `indent + 1`. (Matches legacy _DUMP, which fell
+        through to repr() for any node type without an entry.) Flavour
+        emitters bypass this via their action dispatch table.
         """
-        return f"{'  ' * indent}{self!r}"
+        return repr(self)
 
 
 # ── Leaves ───────────────────────────────────────────────────────────
@@ -291,15 +327,15 @@ TypeAlias union form is replaced by nominal inheritance."
 Append to `tests/unit/lexic/ir/test_nodes.py`:
 
 ```python
-def test_iritem_children_returns_atom():
-    item = IrItem(IrLiteral("x"))
-    assert item.children() == (item.atom,)
-
-
-def test_iritem_rebuild_replaces_atom_preserves_quantifier():
+def test_iritem_children_returns_atom_and_quantifier():
     item = IrItem(IrLiteral("x"), Quantifier(0, None))
-    new = item.rebuild((IrLiteral("y"),))
-    assert new == IrItem(IrLiteral("y"), Quantifier(0, None))
+    assert item.children() == (item.atom, item.quantifier)
+
+
+def test_iritem_rebuild_replaces_both():
+    item = IrItem(IrLiteral("x"), Quantifier(0, None))
+    new = item.rebuild((IrLiteral("y"), Quantifier(1, 1)))
+    assert new == IrItem(IrLiteral("y"), Quantifier(1, 1))
 
 
 def test_irsequence_children_returns_items():
@@ -408,10 +444,15 @@ class IrItem(IrNode):
     quantifier: Quantifier = field(default_factory=Quantifier)
 
     def children(self) -> tuple[IrNode, ...]:
-        return (self.atom,)
+        # Both atom and quantifier are IrNode subclasses — exposing both
+        # makes IrTransformer/IrVisitor walks see the full structure.
+        # Required for byte-parity dump tests that recurse over every
+        # subnode, and lets future passes rewrite quantifiers via the
+        # standard transformer machinery.
+        return (self.atom, self.quantifier)
 
     def rebuild(self, new_children: tuple[IrNode, ...]) -> IrNode:
-        return IrItem(atom=new_children[0], quantifier=self.quantifier)
+        return IrItem(atom=new_children[0], quantifier=new_children[1])
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,55 +511,53 @@ implement structural protocol overrides. Leaves use IrNode defaults."
 Append to `tests/unit/lexic/ir/test_nodes.py`:
 
 ```python
-def test_irliteral_emit_matches_repr():
-    assert IrLiteral("x").emit() == repr(IrLiteral("x"))
+import pytest
+
+from lexic.ir.walk import dump as _legacy_dump
 
 
-def test_iritem_emit_indented():
-    item = IrItem(IrLiteral("x"))
-    out = item.emit(indent=1)
-    # Matches old _DUMP[IrItem] shape: '  IrItem(<atom>, q=...)'
-    assert out.startswith("  IrItem(")
-    assert "q=" in out
+def _sample_tree() -> IrAst:
+    """Representative tree exercising every node type."""
+    return IrAst(
+        rules=(
+            IrRule(
+                "r",
+                IrAlternation((
+                    IrSequence((
+                        IrItem(IrLiteral("a")),
+                        IrItem(IrCharClass("0-9", negated=True), Quantifier(0, None)),
+                        IrItem(IrRuleRef("other"), Quantifier(1, 2)),
+                        IrItem(IrGroup(IrAlternation((IrSequence(()),))), Quantifier(0, 1)),
+                    )),
+                    IrSequence(()),
+                )),
+            ),
+            IrRule("empty", IrAlternation(())),
+        ),
+        start="r",
+    )
 
 
-def test_irsequence_emit_empty():
-    assert IrSequence(()).emit(indent=0) == "IrSequence([])"
+def _all_subnodes(node):
+    yield node
+    for child in node.children():
+        yield from _all_subnodes(child)
 
 
-def test_irsequence_emit_populated():
-    seq = IrSequence((IrItem(IrLiteral("a")),))
-    out = seq.emit(indent=0)
-    assert out.startswith("IrSequence([\n")
-    assert out.endswith("\n])")
-
-
-def test_iralternation_emit_empty():
-    assert IrAlternation(()).emit(indent=0) == "IrAlternation([])"
-
-
-def test_irrule_emit():
-    rule = IrRule("r", IrAlternation(()))
-    out = rule.emit(indent=0)
-    assert out.startswith("IrRule('r',")
-
-
-def test_irast_emit():
-    ast = IrAst((IrRule("r", IrAlternation(())),), "r")
-    out = ast.emit(indent=0)
-    assert out.startswith("IrAst(start='r', rules=[\n")
-    assert out.endswith("\n])")
-
-
-def test_irgroup_emit():
-    grp = IrGroup(IrAlternation(()))
-    out = grp.emit(indent=0)
-    assert out.startswith("IrGroup(")
+@pytest.mark.parametrize("indent", [0, 1, 3])
+def test_emit_matches_legacy_dump_for_every_node(indent):
+    """node.emit(i) must equal the old _DUMP[type(node)](node, i) for every
+    subnode of a representative tree. This is the byte-parity contract."""
+    tree = _sample_tree()
+    for sub in _all_subnodes(tree):
+        assert sub.emit(indent) == _legacy_dump(sub, indent=indent), (
+            f"emit() diverged from _DUMP for {type(sub).__name__} at indent={indent}"
+        )
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `uv run pytest tests/unit/lexic/ir/test_nodes.py::test_irsequence_emit_populated -v`
+Run: `uv run pytest tests/unit/lexic/ir/test_nodes.py::test_emit_matches_legacy_dump_for_every_node -v`
 Expected: FAIL — default `emit()` returns `repr(self)`.
 
 - [ ] **Step 3: Implement `emit()` overrides matching the existing `_DUMP` format**
@@ -700,7 +739,7 @@ class IrTransformer[_N](IrDispatch[_N, _N]):
 def dump(node: IrNode, *, indent: int = 0) -> str:
     """Pretty-print an IR AST node for debugging.
 
-    Thin wrapper over node.emit() for now; will be subsumed by IrEmit
+    Thin wrapper over node.emit() for now; will be subsumed by IrMetaEmitter
     in Task 3.x.
     """
     return node.emit(indent)
@@ -750,11 +789,15 @@ by implementing three methods, no walk.py edits required."
 - `src/lexic/grammars/flavour.py`
 - `src/lexic/grammars/gbnf/flavour.py`
 - `src/lexic/grammars/abnf/flavour.py`
-- `src/lexic/grammars/gbnf/emitter.py`
-- `src/lexic/grammars/abnf/emitter.py`
 - `src/lexic/ir/emit.py`
 - `src/lexic/generate.py`
 - Any test files in `tests/`
+
+Files deliberately omitted (they get deleted in Task 3.7, no point
+renaming first): `src/lexic/grammars/gbnf/emitter.py`,
+`src/lexic/grammars/abnf/emitter.py`,
+`src/lexic/utils/quantifiers.py`. The `sed` command in Step 3 below
+must exclude these paths.
 
 - [ ] **Step 1: Confirm exhaustive list**
 
@@ -782,10 +825,13 @@ Also update the `field(default_factory=Quantifier)` on `IrItem` to `field(defaul
 
 - [ ] **Step 3: Rename every other reference**
 
-Run (one site at a time, or via sed if confident):
+Run (one site at a time, or via sed if confident), excluding the
+soon-to-delete files:
 
 ```bash
-rg -l "\bQuantifier\b" src/ tests/ | xargs sed -i 's/\bQuantifier\b/IrQuantifier/g'
+rg -l "\bQuantifier\b" src/ tests/ \
+  | grep -v -E '(grammars/(gbnf|abnf)/emitter\.py|utils/quantifiers\.py)' \
+  | xargs sed -i 's/\bQuantifier\b/IrQuantifier/g'
 ```
 
 ⚠️ Verify no false positives. `Quantifier` is a unique identifier, so this should be safe — but inspect the diff before committing.
@@ -811,11 +857,166 @@ change; mechanical rename across ~30 call sites."
 
 ---
 
-## Step 3 — IrEmitter, IrEmit, and unified flavour emit
+### Task 2.2: Replace `RuleSpec.items` with `body: IrAlternation`
 
-This is the largest step. The substeps build up `IrEmitter` and `IrEmit`, then progressively migrate each flavour onto the new dispatch table while keeping the suite green.
+> ⚠️ **Execute AFTER Task 3.7.** Even though this task is grouped under
+> Step 2 for narrative continuity (it's a RuleSpec shape change, close
+> in spirit to the IrQuantifier rename), it must run after Task 3.7
+> deletes `GbnfEmitter` / `AbnfEmitter`. Those legacy emitters read
+> `spec.items` and would break the suite mid-Step-3 otherwise.
 
-### Task 3.1: Add `IrEmitter[_N]` and `IrEmit` to `walk.py`
+`RuleSpec` currently carries `items: list[IrItem | IrAlternation]` — a
+flattened union that pre-discriminates rule body shape based on `kind`,
+forcing every consumer (and any future projection like `to_ir_rule`) to
+dispatch on `kind` + `isinstance` to reconstruct an IrAlternation.
+
+Replace with `body: IrAlternation` taken verbatim from the source
+`IrRule.body`. The `kind` discriminator stays — codegen needs it to
+choose which Pydantic shape to generate — but body shape becomes
+opaque to `RuleSpec` itself and to anything that just wants to render
+or walk the rule.
+
+**Files:**
+- Modify: `src/lexic/ir/spec.py` (field replacement + `to_ir_rule()`)
+- Modify: `src/lexic/ir/derive.py` (no more flattening — store source body directly)
+- Modify: `src/lexic/base.py:39` (to_text iteration)
+- Modify: `src/lexic/codegen/aliases.py:178`
+- Modify: `src/lexic/codegen/model_emitter.py:198,200,268,303` (and any other `spec.items` reads)
+- Test mirrors for each, plus any test reading `spec.items`
+
+- [ ] **Step 1: Verify the consumer set**
+
+```bash
+rg -n "spec\.items|\.items\b" src/lexic/ tests/ --type py
+```
+
+The hit list should match: base.py (1), codegen/aliases.py (1),
+codegen/model_emitter.py (~5), plus tests. If a new consumer appears,
+include it in this task.
+
+- [ ] **Step 2: Update `RuleSpec`**
+
+Edit `src/lexic/ir/spec.py`:
+
+```python
+from lexic.ir.nodes import IrAlternation, IrRule
+
+
+@dataclass(frozen=True, slots=True)
+class RuleSpec:
+    rule_name: str
+    class_name: str
+    parent_class_name: str | None
+    kind: Literal["value_str", "sequence", "alternation"]
+    body: IrAlternation
+    field_map: dict[str, int]
+    non_semantic_fields: set[str]
+
+    def to_ir_rule(self) -> IrRule:
+        """Canonical projection to IR. Loses codegen metadata
+        (class_name, field_map, etc.); keeps the grammar body verbatim.
+        Type-blind: knows nothing about IrNode subclasses.
+
+        Task 3.5 introduced this method with a transitional
+        `items`-based dispatch. Now that `items` is gone, the body is
+        stored canonically and this collapses to one line."""
+        return IrRule(self.rule_name, self.body)
+```
+
+- [ ] **Step 3: Update `derive_specs`**
+
+In `src/lexic/ir/derive.py`, each of the four per-kind builders
+(`_build_value_str`, `_build_sequence`, `_build_alternation`, plus the
+single-arm value_str branch) constructs an `IrAlternation` body
+appropriate to that kind. This is NOT a single "wrap source body"
+operation — the body for an alternation-kind spec is **synthesized**
+from arm-name refs, not the original `IrRule.body`. Concretely:
+
+| Kind | `RuleSpec.body` is |
+|---|---|
+| `value_str` (multi-arm) | the source `rule.body` (it's already an IrAlternation) |
+| `value_str` (single-arm) | `IrAlternation((IrSequence(arms[0].items),))` |
+| `sequence` | `IrAlternation((IrSequence(arms[0].items),))` |
+| `alternation` | `IrAlternation(tuple(IrSequence((IrItem(IrRuleRef(name=arm_name)),)) for arm_name in arm_names))` — synthesized choice of arm refs (the lifted/named arm classes) |
+
+Per-kind construction is the natural place for this — each builder
+already knows its kind and has the source IR available. There's no
+shared "_build_body" helper with a dispatch table; each branch builds
+its own body directly. The result: `RuleSpec` itself holds no body-shape
+knowledge, and `to_ir_rule` is `IrRule(self.rule_name, self.body)` —
+type-blind.
+
+Classification (deciding `kind`) is a separate, single-purpose function
+operating on the source `IrRule.body`. That function legitimately
+dispatches on node types because classification IS its job — distinct
+from the body shape carried on `RuleSpec`.
+
+- [ ] **Step 4: Update ALL `spec.items` consumers in one commit**
+
+This is a breaking shape change. Every reader of `spec.items` must
+update in the same commit or the suite breaks. Sites (verified via
+`rg "spec\.items|\.items\b" src/lexic/ tests/`):
+
+- `src/lexic/base.py:39` — `to_text()` iterates positional items (sequence kind)
+- `src/lexic/codegen/aliases.py:178`
+- `src/lexic/codegen/model_emitter.py:~198, 200, 268, 303`
+- any test that constructs `RuleSpec(items=...)`
+
+(`GbnfEmitter` / `AbnfEmitter` are not listed — they were deleted in
+Task 3.7, which this task runs after.)
+
+Update map:
+
+| Old read | New read |
+|---|---|
+| `spec.items` (sequence kind) | `spec.body.arms[0].items` |
+| `spec.items` (alternation kind) | `[arm.items[0] for arm in spec.body.arms]` (the synthesized arm-ref IrItems) |
+| `spec.items` (value_str multi-arm) | `(spec.body,)` — single-element |
+| `spec.items` (value_str single-arm) | `spec.body.arms[0].items` |
+
+The dispatch on `kind` stays in codegen — that's its legitimate
+discriminator. The dispatch on `isinstance(item, IrAlternation)` to
+detect multi-arm value_str disappears: `kind == "value_str" and
+len(spec.body.arms) > 1` is the explicit test.
+
+
+- [ ] **Step 5: Update tests**
+
+`grep -rn "items=" tests/` for any spec constructions; switch each to
+`body=IrAlternation((IrSequence(items),))` or the equivalent. The
+flattened form is gone.
+
+- [ ] **Step 6: Run**
+
+```bash
+tools/auto_fix.sh
+uv run pytest -q
+```
+
+PASS expected. If a consumer was missed, it'll surface as an
+`AttributeError: 'RuleSpec' object has no attribute 'items'`. Fix the
+read site; don't add a backward-compat `items` property.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add -A
+git commit -m "ir/spec: store rule body verbatim as IrAlternation
+
+RuleSpec.items (the flattened IrItem|IrAlternation union) replaced by
+RuleSpec.body: IrAlternation — taken straight from the source IrRule.
+to_ir_rule() becomes IrRule(name, body), type-blind. Codegen keeps its
+kind-based dispatch (legitimate); the closed-world dispatch on body
+shape moves out of every read site."
+```
+
+---
+
+## Step 3 — IrEmitter, IrMetaEmitter, and unified flavour emit
+
+This is the largest step. The substeps build up `IrEmitter` and `IrMetaEmitter`, then progressively migrate each flavour onto the new dispatch table while keeping the suite green.
+
+### Task 3.1: Add `IrEmitter[_N]` and `IrMetaEmitter` to `walk.py`
 
 **Files:**
 - Modify: `src/lexic/ir/walk.py`
@@ -827,12 +1028,12 @@ Append to `tests/unit/lexic/ir/test_walk.py`:
 
 ```python
 def test_iremit_falls_through_to_node_emit():
-    """IrEmit subclass with empty action dispatches to node.emit()."""
+    """IrMetaEmitter subclass with empty action dispatches to node.emit()."""
     from lexic.ir.nodes import IrLiteral, IrSequence, IrItem
-    from lexic.ir.walk import IrEmit
+    from lexic.ir.walk import IrMetaEmitter
 
     seq = IrSequence((IrItem(IrLiteral("x")),))
-    assert IrEmit().visit(seq) == seq.emit()
+    assert IrMetaEmitter().visit(seq) == seq.emit()
 
 
 def test_iremitter_action_overrides_node_emit():
@@ -863,7 +1064,7 @@ def test_iremitter_recurse_into_children():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/lexic/ir/test_walk.py -v`
-Expected: FAIL — `IrEmitter` and `IrEmit` do not exist.
+Expected: FAIL — `IrEmitter` and `IrMetaEmitter` do not exist.
 
 - [ ] **Step 3: Implement in `src/lexic/ir/walk.py`**
 
@@ -877,9 +1078,15 @@ class IrEmitter[_N](IrDispatch[_N, str]):
     Default behaviour when `action` has no entry for a node type: call
     `node.emit()` — the per-node default rendering. Subclasses populate
     `action` to override per-type rendering for a specific target format.
+
+    `action` is a class-level dict by design (every Flavour subclass
+    declares its own action table once, at class scope). Instances never
+    mutate it — IrEmitter is conceptually stateless. The class-level
+    default `{}` is shared but never written to; subclasses always
+    shadow it with their own dict.
     """
 
-    action: dict[type, Callable[..., str]] = {}
+    action: ClassVar[dict[type, Callable[..., str]]] = {}
 
     def visit(self, node: _N) -> str:
         handler = self.action.get(type(node))
@@ -891,7 +1098,7 @@ class IrEmitter[_N](IrDispatch[_N, str]):
         return node.emit()
 
 
-class IrEmit(IrEmitter[IrNode]):
+class IrMetaEmitter(IrEmitter[IrNode]):
     """The trivial emitter: pure fallthrough to each node's emit() method.
 
     Used for debug output. Equivalent to the top-level dump() but slots
@@ -899,7 +1106,8 @@ class IrEmit(IrEmitter[IrNode]):
     flavours use.
     """
 
-    action: dict[type, Callable[..., str]] = {}
+    # Empty action — every node falls through to node.emit().
+    action: ClassVar[dict[type, Callable[..., str]]] = {}
 ```
 
 - [ ] **Step 4: Run tests**
@@ -911,12 +1119,12 @@ Run: `uv run pytest -q` — PASS.
 
 ```bash
 git add src/lexic/ir/walk.py tests/unit/lexic/ir/test_walk.py
-git commit -m "ir: add IrEmitter (T=str) and IrEmit (debug default)
+git commit -m "ir: add IrEmitter (T=str) and IrMetaEmitter (debug default)
 
 IrEmitter is the third canonical IrDispatch instantiation, alongside
 IrVisitor (T=None) and IrTransformer (T=_N). It falls through to
 node.emit() when the action table has no entry, so flavour emitters
-override selectively. IrEmit is the trivial subclass used for debug
+override selectively. IrMetaEmitter is the trivial subclass used for debug
 dump output."
 ```
 
@@ -967,14 +1175,11 @@ for source-text validation that runs before the meta-grammar parser.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Callable, ClassVar
+from typing import Callable, ClassVar
 
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import IrGroup, IrLiteral, IrNode, IrQuantifier
 from lexic.ir.walk import IrEmitter
-
-if TYPE_CHECKING:
-    from lexic.ir.emit import FlavourEmitter
 
 
 class Flavour(IrEmitter[IrNode], ABC):
@@ -984,17 +1189,22 @@ class Flavour(IrEmitter[IrNode], ABC):
     extensions: ClassVar[tuple[str, ...]]
     meta_grammar: ClassVar[str]
     escapes: ClassVar[EscapeCodec]
-    emitter: ClassVar[type["FlavourEmitter"]]  # legacy; removed in Task 3.7
+    # NOTE: the `emitter` ClassVar that the legacy ABC declared is dropped
+    # here. Concrete subclasses still carry `emitter = GbnfEmitter` etc. as
+    # plain class attributes for the duration of Tasks 3.3-3.6 (base.py
+    # reads `flavour_cls.emitter`); the lines disappear in Task 3.7
+    # alongside FlavourEmitter itself. The ABC annotation is purely
+    # informational, so removing it now avoids needing a TYPE_CHECKING
+    # forward-reference (which CLAUDE.md forbids).
     line_comment: ClassVar[str] = ""
 
-    # Punctuation constants (migrated from FlavourEmitter). Used by render_specs.
-    rule_separator: ClassVar[str] = "::="
-    rule_terminator: ClassVar[str] = ""
-    alt_separator: ClassVar[str] = " | "
-    quote_char: ClassVar[str] = '"'
-    group_open: ClassVar[str] = "("
-    group_close: ClassVar[str] = ")"
-    empty_body: ClassVar[str] = '""'
+    # Punctuation (rule_separator, alt_separator, quote_char, group_open,
+    # group_close, empty_body, rule_terminator) is NOT carried as ClassVars.
+    # Every per-flavour difference lives inside the action lambdas
+    # (action[IrRule] knows its own separator, action[IrAlternation] knows
+    # its own joiner, action[IrSequence] handles empty bodies via
+    # `or '""'`). Adding ClassVars would duplicate state that lives in
+    # exactly one place — the action table.
 
     # Quantifier symbol table: keyed on (min, max). The action[IrQuantifier]
     # renderer consults this first, falls through to {n,m}-style for misses.
@@ -1146,21 +1356,25 @@ class GbnfFlavour(Flavour):
     ...
     quantifier_symbols = {(1, 1): "", (0, 1): "?", (0, None): "*", (1, None): "+"}
 
+    # IrLiteral: emits the raw atom.value (no escapes.encode) — preserves
+    # the existing GbnfEmitter behaviour at src/lexic/grammars/gbnf/emitter.py:40.
+    # The escape codec is used only on the decode side (parsing input grammar
+    # text into IR), not on emit. Changing this is a round-trip regression risk.
     action = {
-        IrLiteral:     lambda n, _r: f'"{GbnfFlavour.escapes.encode(n.value)}"',
+        IrLiteral:     lambda n, _r: f'"{n.value}"',
         IrCharClass:   lambda n, _r: f"[{'^' if n.negated else ''}{n.pattern}]",
         IrRuleRef:     lambda n, _r: n.name,
         IrGroup:       lambda n, r:  f"({r(n.body)})",
         IrQuantifier:  _emit_gbnf_quantifier,
         IrItem:        lambda n, r:  f"{r(n.atom)}{r(n.quantifier)}",
         IrSequence:    lambda n, r:  " ".join(r(it) for it in n.items) or '""',
-        IrAlternation: lambda n, r:  " | ".join(r(arm) for arm in n.arms),
+        IrAlternation: lambda n, r:  " | ".join(r(arm) for arm in n.arms) or '""',
         IrRule:        lambda n, r:  f"{n.name} ::= {r(n.body)}",
         IrAst:         lambda n, r:  "\n".join(r(rule) for rule in n.rules) + "\n",
     }
 ```
 
-Verify `GbnfFlavour.escapes` is an instance (not a class). If it's a class, change the `IrLiteral` lambda accordingly: `GbnfFlavour.escapes.encode(...)` works for either an instance or a class with a classmethod `encode`. Inspect `grammars/gbnf/escapes.py` to confirm.
+Verify against `src/lexic/grammars/gbnf/emitter.py:40` — the existing emitter does NOT encode literals on the way out. The plan deliberately omits `escapes.encode` to preserve byte-equal round-trip. If a future slice wants symmetric encoding, that's a separate design.
 
 - [ ] **Step 4: Run tests**
 
@@ -1228,7 +1442,47 @@ def test_abnf_renders_item_prefix_order():
 
 Add to `src/lexic/grammars/abnf/flavour.py`:
 
+Port the existing `_hex_range_segment`, `_split_charclass_segments`, and
+`render_charclass` helpers from `src/lexic/grammars/abnf/emitter.py:22-86`
+into module-level functions in `abnf/flavour.py`. Then:
+
 ```python
+def _hex_range_segment(seg: str) -> str:
+    """Convert one POSIX range segment ('a-z' or single char) to ABNF hex.
+    Ported from grammars/abnf/emitter.py — keep byte-equal."""
+    if len(seg) == 3 and seg[1] == "-":
+        lo, hi = seg[0], seg[2]
+        return f"%x{ord(lo):02X}-{ord(hi):02X}"
+    if len(seg) == 1:
+        return f"%x{ord(seg):02X}"
+    return " / ".join(f"%x{ord(c):02X}" for c in seg)
+
+
+def _split_charclass_segments(pattern: str) -> list[str]:
+    """Split a POSIX bracket interior into 3-char ranges and 1-char literals.
+    Ported from grammars/abnf/emitter.py — keep byte-equal."""
+    segments: list[str] = []
+    i = 0
+    while i < len(pattern):
+        if i + 2 < len(pattern) and pattern[i + 1] == "-":
+            segments.append(pattern[i : i + 3])
+            i += 3
+        else:
+            segments.append(pattern[i])
+            i += 1
+    return segments
+
+
+def _render_abnf_charclass(n, _r):
+    """Match the existing AbnfEmitter.render_charclass output:
+    single segment → bare; multiple → '(' / joined ')'."""
+    segments = _split_charclass_segments(n.pattern)
+    rendered = [_hex_range_segment(s) for s in segments]
+    if len(rendered) == 1:
+        return rendered[0]
+    return "(" + " / ".join(rendered) + ")"
+
+
 def _emit_abnf_quantifier(q, _r):
     if q.min == 1 and q.max == 1:
         return ""
@@ -1241,26 +1495,32 @@ def _emit_abnf_quantifier(q, _r):
 
 class AbnfFlavour(Flavour):
     ...
-    rule_separator = "="
-    alt_separator = " / "
+    # No punctuation ClassVars — each per-flavour difference lives in the
+    # action lambda for the relevant IR node type (action[IrRule] uses
+    # "=" as separator, action[IrAlternation] uses " / " as joiner).
     quantifier_symbols = {}  # ABNF uses generic form for all; no symbolic shortcuts
 
+    # IrLiteral: raw value, no encode (mirrors GBNF rationale — existing
+    # AbnfEmitter does not encode on emit).
     action = {
-        IrLiteral:     lambda n, _r: f'"{AbnfFlavour.escapes.encode(n.value)}"',
-        IrCharClass:   lambda n, _r: f"%x{n.pattern}",  # adjust per existing AbnfEmitter.render_charclass
+        IrLiteral:     lambda n, _r: f'"{n.value}"',
+        IrCharClass:   _render_abnf_charclass,
         IrRuleRef:     lambda n, _r: n.name,
         IrGroup:       lambda n, r:  f"({r(n.body)})",
         IrQuantifier:  _emit_abnf_quantifier,
         # PREFIX placement: quantifier first, then atom.
         IrItem:        lambda n, r:  f"{r(n.quantifier)}{r(n.atom)}",
         IrSequence:    lambda n, r:  " ".join(r(it) for it in n.items) or '""',
-        IrAlternation: lambda n, r:  " / ".join(r(arm) for arm in n.arms),  # ABNF uses /
+        IrAlternation: lambda n, r:  " / ".join(r(arm) for arm in n.arms) or '""',
         IrRule:        lambda n, r:  f"{n.name} = {r(n.body)}",
         IrAst:         lambda n, r:  "\n".join(r(rule) for rule in n.rules) + "\n",
     }
 ```
 
-⚠️ **Verify** the ABNF specifics (`/` separator, `=` rule operator, char-class form `%x...`) match the current `AbnfEmitter`. Read `src/lexic/grammars/abnf/emitter.py` carefully and port any rendering details exactly. The tests for the existing `AbnfEmitter` (in `tests/unit/lexic/grammars/abnf/test_emitter.py`) are the contract.
+⚠️ The two helpers and `_render_abnf_charclass` must reproduce the existing
+`AbnfEmitter.render_charclass` output byte-for-byte. The existing
+`tests/unit/lexic/grammars/abnf/test_emitter.py` is the contract — those
+assertions migrate to `test_flavour.py` (Task 3.4 test list above) verbatim.
 
 - [ ] **Step 4: Run tests**
 
@@ -1305,12 +1565,13 @@ def test_render_specs_round_trips_gbnf_simple_rule():
     )
     from lexic.ir.spec import RuleSpec
 
+    body = IrAlternation((IrSequence((IrItem(IrLiteral("x"), IrQuantifier(1, 1)),)),))
     spec = RuleSpec(
         rule_name="r",
         class_name="R",
         parent_class_name=None,
         kind="value_str",
-        items=[IrItem(IrLiteral("x"), IrQuantifier(1, 1))],
+        body=body,
         field_map={},
         non_semantic_fields=set(),
     )
@@ -1318,47 +1579,84 @@ def test_render_specs_round_trips_gbnf_simple_rule():
     assert 'r ::= "x"' in out
 ```
 
-- [ ] **Step 3: Implement `render_specs`**
+- [ ] **Step 3a: Add `RuleSpec.to_ir_rule()` (legacy items-based)**
+
+`render_specs` calls `spec.to_ir_rule()` to get an `IrRule` to hand to
+the flavour. Until Task 2.2 (which runs after Task 3.7) replaces
+`RuleSpec.items` with `RuleSpec.body`, the method has to dispatch on
+the legacy `items` shape:
+
+```python
+# In src/lexic/ir/spec.py:
+
+from lexic.ir.nodes import IrAlternation, IrItem, IrRule, IrSequence
+
+
+@dataclass(...)
+class RuleSpec:
+    ...
+    def to_ir_rule(self) -> IrRule:
+        """Canonical IR projection for grammar rendering.
+
+        Transitional implementation (legacy `items` shape). Task 2.2
+        replaces `items` with `body: IrAlternation` post-Task-3.7;
+        at that point this method collapses to
+        `IrRule(self.rule_name, self.body)`.
+        """
+        if self.kind == "alternation":
+            arms = tuple(IrSequence((it,)) for it in self.items if isinstance(it, IrItem))
+            return IrRule(self.rule_name, IrAlternation(arms))
+        if self.items and isinstance(self.items[0], IrAlternation):
+            return IrRule(self.rule_name, self.items[0])
+        items = tuple(it for it in self.items if isinstance(it, IrItem))
+        return IrRule(self.rule_name, IrAlternation((IrSequence(items),)))
+```
+
+The closed-world dispatch here is temporary — Task 2.2 deletes it
+along with the `items` field.
+
+- [ ] **Step 3b: Implement `render_specs`**
 
 Append to `src/lexic/ir/emit.py`:
 
 ```python
-def render_specs(specs: list[RuleSpec], flavour) -> str:
-    """Render a list of RuleSpecs as a grammar string using flavour.visit().
+from typing import Callable
 
-    Each spec is rendered as a rule line. Empty bodies use flavour.empty_body
-    (defaulting to '""' from the Flavour ABC).
+
+def render_specs(specs, flavour, *, rule_prefix=None):
+    """Render a list of RuleSpecs as a grammar string.
+
+    Trivial composition over Flavour and RuleSpec.to_ir_rule():
+
+      - `flavour` is either a Flavour instance (used uniformly) or a
+        picker `spec -> Flavour` (per-spec dispatch — Lark uses this).
+      - `rule_prefix` is an optional `spec -> str` hook; only Lark uses
+        it, to apply `!` to value_str rules.
+
+    Knows nothing about IR node types or spec body shape — that lives
+    on RuleSpec.to_ir_rule() and the Flavour's action table. Duck-typed
+    on `flavour`: any object with a callable `.visit(node)` works.
     """
-    lines: list[str] = []
-    for spec in specs:
-        body = _render_spec_body(spec, flavour)
-        lines.append(f"{spec.rule_name} {flavour.rule_separator} {body}{flavour.rule_terminator}")
-    return "\n".join(lines) + "\n"
-
-
-def _render_spec_body(spec: RuleSpec, flavour) -> str:
-    if not spec.items:
-        return flavour.empty_body
-    if spec.kind == "alternation":
-        parts = [flavour.visit(it) for it in spec.items if isinstance(it, IrItem)]
-        return flavour.alt_separator.join(parts)
-    first = spec.items[0]
-    if isinstance(first, IrAlternation):
-        return flavour.visit(first)
-    parts = [flavour.visit(it) for it in spec.items if isinstance(it, IrItem)]
-    return " ".join(p for p in parts if p) or flavour.empty_body
+    pick = flavour if callable(flavour) else (lambda _spec: flavour)
+    prefix = rule_prefix or (lambda _spec: "")
+    parts = [
+        f"{prefix(s)}{pick(s).visit(s.to_ir_rule())}" for s in specs
+    ]
+    return "\n".join(parts) + "\n"
 ```
 
-Required imports at top of `ir/emit.py` if not present:
+Imports at top of `ir/emit.py`:
 
 ```python
-from lexic.ir.nodes import IrAlternation, IrItem
-from lexic.ir.spec import RuleSpec
+from typing import Callable
+# That's it. No Flavour import — duck-typed. No IrAlternation/IrItem —
+# the type-aware work happens in RuleSpec.to_ir_rule() and the flavour's
+# action table, neither of which lives here.
 ```
 
-Note: `Flavour` inherits `rule_separator`, `alt_separator`, `empty_body`, `rule_terminator` as ClassVars (added in spec). If the legacy `Flavour` ABC doesn't have them yet, add them in Task 3.2's update. (Cross-reference Task 3.2 — the spec ABC needs those ClassVars.)
-
-If the rule_separator/alt_separator/empty_body/rule_terminator constants don't currently exist on `Flavour`, **return to Task 3.2** and add them. Update both tasks before committing.
+R1 (the `TYPE_CHECKING`-or-duck-typing question) dissolves: `render_specs`
+no longer needs to know that `flavour` is a `Flavour`. It calls
+`flavour.visit(rule)` and that's the entire contract.
 
 - [ ] **Step 4: Run tests**
 
@@ -1506,7 +1804,27 @@ def parse_quantifier(text: str) -> IrQuantifier:
     return IrQuantifier(n, n)
 ```
 
-ABNF version: read `src/lexic/grammars/abnf/flavour.py` for the existing logic and inline equivalently.
+ABNF version (ported from the existing `abnf/flavour.py:31-43`):
+
+```python
+@staticmethod
+def parse_quantifier(text: str) -> IrQuantifier:
+    # ABNF forms: '*', '*N', 'N*', 'N*M', 'N'
+    if text == "*":
+        return IrQuantifier(0, None)
+    if text.startswith("*"):
+        return IrQuantifier(0, int(text[1:]))
+    if "*" in text:
+        lo_str, hi_str = text.split("*", 1)
+        lo = int(lo_str)
+        hi = int(hi_str) if hi_str else None
+        return IrQuantifier(lo, hi)
+    n = int(text)
+    return IrQuantifier(n, n)
+```
+
+Same algorithm as today; only the class rename (`Quantifier` →
+`IrQuantifier`) changes. No `quantifier_to_bounds` import.
 
 - [ ] **Step 4: Delete files**
 
@@ -1519,7 +1837,7 @@ rm tests/unit/lexic/grammars/abnf/test_emitter.py
 rm tests/unit/lexic/utils/test_quantifiers.py
 ```
 
-Edit `src/lexic/ir/emit.py` to remove `FlavourEmitter` class entirely, leaving only `render_specs` and `_render_spec_body`. The `emitter` ClassVar on `Flavour` should be removed too.
+Edit `src/lexic/ir/emit.py` to remove `FlavourEmitter` class entirely, leaving only `render_specs`. The `emitter` ClassVar on `Flavour` should be removed too.
 
 - [ ] **Step 5: Edit `Flavour` to drop `emitter` ClassVar**
 
@@ -1556,7 +1874,7 @@ parse_quantifier; emit logic inlined in each flavour's action table."
 
 ---
 
-### Task 3.8: Switch top-level `dump()` to `IrEmit().visit()`
+### Task 3.8: Switch top-level `dump()` to `IrMetaEmitter().visit()`
 
 **Files:**
 - Modify: `src/lexic/ir/walk.py`
@@ -1568,9 +1886,9 @@ Replace the shim in `walk.py`:
 
 ```python
 def dump(node: IrNode, *, indent: int = 0) -> str:
-    """Pretty-print an IR AST node for debugging via IrEmit."""
+    """Pretty-print an IR AST node for debugging via IrMetaEmitter."""
     if indent == 0:
-        return IrEmit().visit(node)
+        return IrMetaEmitter().visit(node)
     return node.emit(indent)
 ```
 
@@ -1584,10 +1902,10 @@ Run: `uv run pytest -q` — PASS.
 
 ```bash
 git add src/lexic/ir/walk.py
-git commit -m "ir: route dump() through IrEmit().visit()
+git commit -m "ir: route dump() through IrMetaEmitter().visit()
 
 The free-standing dump() function now uses the IrEmitter machinery.
-Future debug renderers extend IrEmit instead of editing dump()."
+Future debug renderers extend IrMetaEmitter instead of editing dump()."
 ```
 
 ---
@@ -1725,7 +2043,12 @@ Out of scope (raise UnsupportedConstructError at meta_parser boundary):
 META_GRAMMAR = r"""
 start: ir_rule+
 
-ir_rule: NAME ":" ir_alternation _NL?
+// A rule definition. The LHS NAME may be lowercase (a regular rule) or
+// uppercase (a Lark terminal). Both produce the same IrRule shape; the
+// uppercase/terminal distinction is a Lark-side parser concern that does
+// not surface in the IR. Terminal bodies are typically a single
+// /regex/ form — represented as an IrCharClass + quantifier.
+ir_rule: NAME ":" ir_alternation
 
 ir_alternation: ir_sequence ("|" ir_sequence)*
 
@@ -1740,11 +2063,19 @@ ir_atom: ir_literal
        | ir_group
 
 ir_literal: ESCAPED_STRING
-ir_charclass: "/" CHARCLASS_INTERIOR "/"
+// /[chars]<quant>?/ — a regex terminal. The body must be a single
+// bracketed char-class optionally followed by an internal quantifier,
+// which lifts onto the surrounding IrItem. Out-of-scope regex features
+// (anchors, lookaround, groups inside the slashes) trip
+// UnsupportedConstructError at the meta_parser boundary.
+ir_charclass: "/" CHARCLASS_INTERIOR INTERNAL_QUANTIFIER? "/"
 ir_ruleref: NAME
 ir_group: "(" ir_alternation ")"
 
 IR_QUANTIFIER: "?" | "*" | "+"
+// Internal quantifier inside a regex terminal: + * ? {n} {n,} {n,m}.
+// Lifted onto the IrItem during meta-parsing.
+INTERNAL_QUANTIFIER: /[+*?]|\{[0-9]+(,[0-9]*)?\}/
 
 NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
 ESCAPED_STRING: /"([^"\\]|\\.)*"/
@@ -1752,15 +2083,46 @@ CHARCLASS_INTERIOR: /\[[^\/\n]+\]/
 
 COMMENT: /\/\/[^\n]*/
 %ignore COMMENT
-%ignore /[ \t]+/
-
-_NL: /\r?\n/+
+%ignore /[ \t\n\r]+/   // wholesale whitespace incl. blank lines between rules — matches GBNF meta-grammar convention
 """
 ```
 
-⚠️ **Sharp edge:** Lark's full meta-grammar supports more than this subset (e.g. `~n..m` quantifier, `[...]` regex chars inside `/.../`, terminal vs rule distinction with uppercase NAME). Start with this minimal subset and add features only when a ground-truth `.lark` grammar demands them in Task 4.5. Out-of-scope features must produce `UnsupportedConstructError` via `MetaGrammarParser`'s default fallthrough.
+**Meta-grammar extension rationale (D1-B decision).** Beyond the minimal
+subset, this meta-grammar accepts:
 
-- [ ] **Step 3: Commit (no test yet)**
+1. **Uppercase NAME on the LHS** (Lark terminal definitions like
+   `NUMBER:`). The IrRule shape is identical to a lowercase-named rule;
+   the Lark-side terminal-vs-rule distinction is reconstructed at codegen
+   time from the case of `spec.rule_name`.
+
+2. **Internal quantifier inside `/regex/`** (e.g. `/[0-9]+/`). Lifted onto
+   the surrounding `IrItem.quantifier` during meta-parsing. So
+   `NUMBER: /[0-9]+/` becomes an `IrRule` whose body is
+   `IrItem(IrCharClass("0-9"), IrQuantifier(1, None))`.
+
+⚠️ **Still out of scope** (trip `UnsupportedConstructError` at the
+meta_parser boundary): `~n..m` quantifier, multi-char regex bodies
+(anything beyond a single bracketed char class), regex anchors / groups
+/ lookaround, `[...]` tree-shaping operators, templates, `%declare` /
+`%ignore` / `%import` directives.
+
+- [ ] **Step 3: Wire INTERNAL_QUANTIFIER lifting in `MetaGrammarParser`**
+
+The meta-grammar captures `INTERNAL_QUANTIFIER` inside `ir_charclass`, but
+the IR shape attaches quantifiers to the surrounding `IrItem`, not to the
+`IrCharClass` leaf. The meta-parser's transformer (in
+`src/lexic/parsing/meta_parser.py`) handles `ir_item` construction; that
+code needs a Lark-specific branch: when an `ir_charclass` token carries
+an `INTERNAL_QUANTIFIER`, parse the quantifier via
+`flavour.parse_quantifier(text)` and apply it to the constructed
+`IrItem`. If the surrounding `ir_item` *also* declares an outer
+quantifier (e.g. `/[0-9]+/*`), reject with `UnsupportedConstructError` —
+double quantification is not a meaningful shape.
+
+Verify with a test for `NUMBER: /[0-9]+/` parsing into
+`IrRule("NUMBER", IrAlternation((IrSequence((IrItem(IrCharClass("0-9"), IrQuantifier(1, None)),)),)))`.
+
+- [ ] **Step 4: Commit (no test yet)**
 
 ```bash
 git add src/lexic/grammars/lark/meta_grammar.py
@@ -1782,7 +2144,12 @@ fallthrough."
 
 - [ ] **Step 1: Read current `parsing/lark_builder.py`**
 
-Already reviewed during planning. Note the regex-terminal vs string-literal distinction (`_atom_to_lark` vs `_atom_to_lark_regex`) and the literal-only-group regex coercion. This logic moves into `LarkFlavour.action`.
+Already reviewed during planning. The non-value_str helpers
+(`_atom_to_lark`, `_seq_to_lark`, `_regex_terminal`, `_bracket`,
+including the literal-only-group coercion at line 76-85) move into
+`LarkFlavour.action`. The value_str helpers (`_atom_to_lark_regex`,
+`_seq_to_lark_regex`) are not ported — Task 4.5 replaces them with
+Lark's `!` rule prefix.
 
 - [ ] **Step 2: Write failing test**
 
@@ -1850,33 +2217,94 @@ from lexic.ir.nodes import (
     IrAlternation, IrAst, IrCharClass, IrGroup, IrItem, IrLiteral,
     IrQuantifier, IrRule, IrRuleRef, IrSequence,
 )
+from lexic.utils.names import to_lark_name
 
 
 _LARK_TERMINAL_QUANTS = frozenset({"", "?", "*", "+"})
 
 
 def _emit_lark_quantifier(q, _r):
+    """Render a quantifier in Lark suffix-syntax. Matches the existing
+    bounds_to_quantifier output in utils/quantifiers.py — preserves
+    byte-equality with the legacy lark_builder. (Lark's `~n..m` form is
+    accepted parse-side but never produced on emit.)
+    """
     key = (q.min, q.max)
     if key in LarkFlavour.quantifier_symbols:
         return LarkFlavour.quantifier_symbols[key]
-    if q.min == q.max:
-        return f"~{q.min}"
     if q.max is None:
-        return f"~{q.min}.."
-    return f"~{q.min}..{q.max}"
+        return f"{{{q.min},}}"
+    if q.min == q.max:
+        return f"{{{q.min}}}"
+    return f"{{{q.min},{q.max}}}"
+
+
+def _bracket(pattern, negated):
+    """Lark bracket form for a char-class, with `/` escaped (Lark regex delim)."""
+    return f"[{'^' if negated else ''}{pattern.replace('/', chr(92) + '/')}]"
+
+
+def _bounds_to_regex(q):
+    """{n}/{n,}/{n,m} form for embedding inside a regex."""
+    if q.min == q.max:
+        return f"{{{q.min}}}"
+    if q.max is None:
+        return f"{{{q.min},}}"
+    return f"{{{q.min},{q.max}}}"
+
+
+def _regex_terminal(pattern, q):
+    """Render a Lark regex terminal `/pattern/<quantifier>` with zero-width fix.
+
+    Ported from src/lexic/parsing/lark_builder.py:47-60. Lark only allows
+    ?/*/+ as *external* quantifiers; bounded forms must embed inside the
+    regex. Q(0,n) with finite n would produce `/pattern{0,n}/` which is
+    zero-width — rejected by Lark's dynamic Earley. Rewrite to
+    `/pattern{1,n}/?` (same language).
+    """
+    if q.min == 1 and q.max == 1:
+        return f"/{pattern}/"
+    if q.min == 0 and q.max == 1:
+        return f"/{pattern}/?"
+    if q.min == 0 and q.max is None:
+        return f"/{pattern}/*"
+    if q.min == 1 and q.max is None:
+        return f"/{pattern}/+"
+    if q.min == 0 and q.max is not None:
+        return f"/{pattern}{_bounds_to_regex(IrQuantifier(1, q.max))}/?"
+    return f"/{pattern}{_bounds_to_regex(q)}/"
+
+
+def _is_literal_only_group(group):
+    """True if every atom under the group is an IrLiteral. Lark drops
+    anonymous string terminals — these need regex-form rendering."""
+    return all(
+        isinstance(sub.atom, IrLiteral)
+        for arm in group.body.arms
+        for sub in arm.items
+        if isinstance(sub, IrItem)
+    )
 
 
 def _emit_lark_item(item, recurse):
-    """Render an IrItem — regex-terminal coercion for char-classes."""
+    """Render an IrItem. Ports lark_builder._atom_to_lark including:
+    - LarkEscapes.encode on literal values
+    - slash-escape inside char classes
+    - literal-only-group → regex form coercion
+    - zero-width fix for Q(0, finite)
+    """
     atom = item.atom
-    q_str = recurse(item.quantifier)
+    q = item.quantifier
+    q_str = recurse(q)
     if isinstance(atom, IrLiteral):
         return f'"{LarkEscapes.encode(atom.value)}"{q_str}'
     if isinstance(atom, IrCharClass):
-        return _regex_terminal(_bracket(atom.pattern, atom.negated), item.quantifier)
+        return _regex_terminal(_bracket(atom.pattern, atom.negated), q)
     if isinstance(atom, IrRuleRef):
-        return f"{atom.name}{q_str}"
+        return f"{recurse(atom)}{q_str}"
     if isinstance(atom, IrGroup):
+        if _is_literal_only_group(atom):
+            return _emit_literal_group_as_regex(atom, q)
         body = recurse(atom.body)
         return f"({body}){q_str}"
     raise UnsupportedConstructError(
@@ -1884,20 +2312,22 @@ def _emit_lark_item(item, recurse):
     )
 
 
-def _bracket(pattern, negated):
-    return f"[{'^' if negated else ''}{pattern}]"
-
-
-def _regex_terminal(pattern, q):
-    """Lark terminal: external ?/*/+ allowed; {n,m} bounds embed inside regex."""
-    q_str = _emit_lark_quantifier(q, None)
-    if q_str in _LARK_TERMINAL_QUANTS or q_str == "":
-        return f"/{pattern}/{q_str}"
-    # ~n.. or ~n..m → embed inside regex
-    inside = q_str.replace("~", "{").replace("..", ",")
-    if not inside.endswith("}"):
-        inside = inside + "}"
-    return f"/{pattern}{inside}/"
+def _emit_literal_group_as_regex(group, q):
+    """A group whose arms are all literals must render via regex so Lark
+    preserves the matched token in children. Used inside non-value_str
+    rules — value_str rules instead use the `!` rule prefix (Task 4.5)
+    which preserves anonymous tokens rule-wide. Ports the literal-only
+    branch of the legacy _atom_to_lark (lark_builder.py:76-85)."""
+    from lexic.ir.regex_portable import literal_to_regex_pattern
+    arm_patterns = []
+    for arm in group.body.arms:
+        parts = []
+        for sub in arm.items:
+            if isinstance(sub, IrItem) and isinstance(sub.atom, IrLiteral):
+                parts.append(literal_to_regex_pattern(sub.atom.value))
+        arm_patterns.append("".join(parts))
+    pattern = "|".join(arm_patterns)
+    return _regex_terminal(f"({pattern})", q)
 
 
 class LarkFlavour(Flavour):
@@ -1907,26 +2337,26 @@ class LarkFlavour(Flavour):
     escapes = LarkEscapes
     line_comment = "//"
 
-    rule_separator = ":"
-    rule_terminator = ""
-    alt_separator = " | "
-    quote_char = '"'
-    group_open = "("
-    group_close = ")"
-    empty_body = '""'
+    # No punctuation ClassVars — `action[IrRule]` below uses ":" as the
+    # rule separator; `action[IrAlternation]` uses " | " as the joiner;
+    # the empty-body sentinel `""` lives in `action[IrSequence]`'s
+    # `or '""'` fallthrough.
 
     quantifier_symbols = {(1, 1): "", (0, 1): "?", (0, None): "*", (1, None): "+"}
 
+    # Note: IrRuleRef and IrRule names go through to_lark_name() — Lark
+    # rejects hyphens in rule names, while GBNF/ABNF allow them. This is
+    # a Lark-specific normalisation, not a general IR concern.
     action = {
         IrLiteral:     lambda n, _r: f'"{LarkEscapes.encode(n.value)}"',
         IrCharClass:   lambda n, _r: f"/[{'^' if n.negated else ''}{n.pattern}]/",
-        IrRuleRef:     lambda n, _r: n.name,
+        IrRuleRef:     lambda n, _r: to_lark_name(n.name),
         IrGroup:       lambda n, r:  f"({r(n.body)})",
         IrQuantifier:  _emit_lark_quantifier,
         IrItem:        _emit_lark_item,
         IrSequence:    lambda n, r:  " ".join(r(it) for it in n.items) or '""',
-        IrAlternation: lambda n, r:  " | ".join(r(arm) for arm in n.arms),
-        IrRule:        lambda n, r:  f"{n.name}: {r(n.body)}",
+        IrAlternation: lambda n, r:  " | ".join(r(arm) for arm in n.arms) or '""',
+        IrRule:        lambda n, r:  f"{to_lark_name(n.name)}: {r(n.body)}",
         IrAst:         lambda n, r:  "\n".join(r(rule) for rule in n.rules) + "\n",
     }
 
@@ -2032,95 +2462,66 @@ git commit -m "grammars: register LarkFlavour for .lark extension"
 
 - [ ] **Step 1: Read current `lark_builder.py` and confirm what stays**
 
-Already reviewed. Most of the helpers (`_atom_to_lark`, `_atom_to_lark_regex`, `_seq_to_lark`, etc.) become dispatch entries on `LarkFlavour`. The `LarkBuilder` class structure can stay as a thin orchestrator OR collapse into the `build_lark` function.
+The non-value_str helpers (`_atom_to_lark`, `_seq_to_lark`, `_regex_terminal`,
+`_bracket`) become dispatch entries on `LarkFlavour` (covered in Task 4.3).
+The value_str regex-coercion path (`_atom_to_lark_regex`, `_seq_to_lark_regex`)
+is **deleted entirely** — replaced by Lark's `!` rule-prefix.
 
-- [ ] **Step 2: Decide regex-mode handling**
+**Why `!` instead of regex coercion** (empirically verified 2026-05-14):
 
-`_atom_to_lark_regex` exists because value_str rules need regex-form rendering for token preservation. Two options:
+Lark's `!` rule prefix keeps every matched token (including anonymous
+string literals) in the rule's `children` list. A `value_str` rule
+contains only literals, char classes, and groups of those (no rule
+refs per CLAUDE.md). Under `!`:
 
-(A) **Two LarkFlavour instances** — one with `action` populating string-literal forms, one with regex-literal forms. Pick which to use based on `spec.kind == "value_str"`.
+  - Literal `"+"` → `Token('PLUS', '+')` child.
+  - Char class `/[0-9]/+` → one `Token('__ANON_X', d)` per matched char.
+  - Group `("+"|"-")` → one Token for whichever arm matched.
 
-(B) **Stateful flavour** — `LarkFlavour(regex_mode=True)`. Not great because `Flavour` is currently stateless.
+The existing `_build_value_str` transformer at
+`src/lexic/parsing/transformer/build_transformer.py:105` already
+joins child Token values: `"".join(str(c) for c in children)`.
+Works unchanged under `!`. No transformer edit needed.
 
-(C) **Keep `lark_builder.py` partly bespoke** — use `LarkFlavour` for the simple case; keep `_atom_to_lark_regex` as a helper called when `spec.kind == "value_str"`.
+Net effect: drop `_atom_to_lark_regex`, `_seq_to_lark_regex`, and the
+`if spec.kind == "value_str"` regex branch in `_emit_rule`. The
+`_is_literal_only_group` coercion in `_atom_to_lark` (for non-value_str
+rules with literal-only groups) **stays** — `!` is per-rule, not
+per-atom; non-value_str rules can't use it without changing the
+transformer's position-based field binding.
 
-**Recommendation: (A).** Define `LarkRegexFlavour` as a subclass of `LarkFlavour` overriding `action` to use the regex forms. `lark_builder.py` picks the right one per spec.
-
-- [ ] **Step 3: Implement `LarkRegexFlavour`**
-
-Append to `src/lexic/grammars/lark/flavour.py`:
-
-```python
-def _emit_lark_item_regex(item, recurse):
-    """Variant for value_str rules — literals become /regex/ terminals."""
-    atom = item.atom
-    if isinstance(atom, IrLiteral):
-        from lexic.ir.regex_portable import literal_to_regex_pattern
-        return _regex_terminal(literal_to_regex_pattern(atom.value), item.quantifier)
-    return _emit_lark_item(item, recurse)
-
-
-class LarkRegexFlavour(LarkFlavour):
-    """LarkFlavour variant that emits literals as regex terminals.
-
-    Used for value_str rules — Lark drops anonymous string-literal tokens
-    from children, so we force regex form to preserve tokens.
-    """
-
-    action = {
-        **LarkFlavour.action,
-        IrItem: _emit_lark_item_regex,
-    }
-```
-
-- [ ] **Step 4: Rewrite `parsing/lark_builder.py`**
+- [ ] **Step 2: Rewrite `parsing/lark_builder.py`**
 
 ```python
-"""LarkBuilder — RuleSpec list → Lark grammar + Transformer.
+"""lark_builder — RuleSpec list → Lark grammar + Transformer.
 
-Thin orchestrator over LarkFlavour.visit() / LarkRegexFlavour.visit().
+Thin orchestrator over render_specs() with the single LARK singleton.
+value_str rules get the Lark `!` rule prefix so their matched literal
+tokens survive Lark's anonymous-terminal filter.
 """
 
 from __future__ import annotations
 
 import lark
 
-from lexic.grammars.lark.flavour import LarkFlavour, LarkRegexFlavour
-from lexic.ir.nodes import IrAlternation, IrItem
+from lexic.grammars.lark.flavour import LARK
+from lexic.ir.emit import render_specs
 from lexic.ir.spec import RuleSpec
 from lexic.parsing.transformer.build_transformer import build_transformer
 from lexic.utils.names import to_lark_name
 
 
-_NORMAL = LarkFlavour()
-_REGEX = LarkRegexFlavour()
-
-
-def _emit_rule(spec: RuleSpec) -> str:
-    name = to_lark_name(spec.rule_name)
-    flavour = _REGEX if spec.kind == "value_str" else _NORMAL
-    if not spec.items:
-        return f'{name}: ""'
-    if spec.kind == "alternation":
-        body = " | ".join(
-            to_lark_name(it.atom.name)
-            for it in spec.items
-            if isinstance(it, IrItem)
-        )
-        return f"{name}: {body}"
-    first = spec.items[0]
-    if isinstance(first, IrAlternation):
-        body = flavour.visit(first)
-    else:
-        body = " ".join(flavour.visit(it) for it in spec.items if isinstance(it, IrItem))
-    return f"{name}: {body or chr(34) * 2}"
+def _lark_rule_prefix(spec: RuleSpec) -> str:
+    """`!` keeps anonymous tokens; value_str rules need it so the
+    transformer's child-joining recovers the matched string."""
+    return "!" if spec.kind == "value_str" else ""
 
 
 def build_lark(
     specs: list[RuleSpec], classes: dict[str, type], start_rule: str
 ) -> tuple[str, lark.Lark, lark.Transformer]:
     """One-call helper for compile.py: specs → (grammar_str, parser, transformer)."""
-    grammar_str = "\n".join(_emit_rule(s) for s in specs) + "\n"
+    grammar_str = render_specs(specs, LARK, rule_prefix=_lark_rule_prefix)
     parser = lark.Lark(
         grammar_str,
         parser="earley",
@@ -2131,26 +2532,41 @@ def build_lark(
     return grammar_str, parser, transformer
 ```
 
-- [ ] **Step 5: Run tests**
+This requires `render_specs` (defined in Task 3.5) to already accept the
+`rule_prefix=` kwarg. Task 3.5's signature already covers this — no
+rewrite needed here. `render_specs` itself stays the 4-line composition;
+all per-flavour punctuation lives inside the action lambdas. Lark is the
+only consumer that passes `rule_prefix`; GBNF/ABNF pass `None`.
+
+Name normalisation note: `render_specs` calls `flavour.visit(spec.to_ir_rule())`,
+which routes through `action[IrRule]`. LarkFlavour's `action[IrRule]` runs
+the rule name through `to_lark_name`. So Lark output is hyphen-free at
+the action layer, not at the render_specs layer. No name-transform hook
+on `render_specs` is needed.
+
+- [ ] **Step 3: Run tests**
 
 ```bash
 tools/auto_fix.sh
 uv run pytest -q
 ```
 
-Expected: PASS. The runtime parser construction now goes through `LarkFlavour`/`LarkRegexFlavour` instead of bespoke helpers.
+Expected: PASS. The runtime parser construction now goes through `LARK` +
+`!` prefix instead of the regex-coercion path.
 
 If integration tests fail, the most likely cause is a subtle rendering mismatch (e.g. char-class form, escape encoding). Compare the produced grammar string against what the old `lark_builder.py` produced for the same input.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add -A
-git commit -m "parsing: route lark_builder through LarkFlavour/LarkRegexFlavour
+git commit -m "parsing: route lark_builder through LARK + ! prefix for value_str
 
-Bespoke renderers (_atom_to_lark, _atom_to_lark_regex, _seq_to_lark)
-absorbed into LarkFlavour.action and a regex-mode subclass. Builder
-collapses to a thin orchestrator picking the right flavour per spec.kind."
+Single LarkFlavour singleton drives all Lark codegen. value_str rules
+get Lark's '!' rule prefix, which keeps anonymous-literal tokens in
+the parse tree — the existing transformer joins child Token values
+without changes. The legacy regex-coercion path (_atom_to_lark_regex,
+_seq_to_lark_regex) is deleted; LarkRegexFlavour is not created."
 ```
 
 ---
@@ -2213,6 +2629,49 @@ If failures occur, iterate on the Lark meta-grammar in `src/lexic/grammars/lark/
 ```bash
 git add resources/ground_truth/arithmetic.lark tests/integration/test_compile_grammar_lark.py
 git commit -m "lark: end-to-end integration test for .lark file compilation"
+```
+
+---
+
+### Task 4.6b: Extend `test_full_round_trip.py` to cover `.lark`
+
+**Files:**
+- Modify: `tests/integration/test_full_round_trip.py`
+
+The existing round-trip suite parametrises over the seven `.gbnf` files
+in `resources/ground_truth/`. The "every ground-truth round-trips
+byte-equal" invariant (spec §Invariants) needs explicit Lark coverage
+now that LarkFlavour is a peer.
+
+- [ ] **Step 1: Add `arithmetic.lark` to the parametrize list**
+
+Open `tests/integration/test_full_round_trip.py`, find the
+`@pytest.mark.parametrize("filename", [...])` block, and add
+`"arithmetic.lark"` alongside the seven `.gbnf` files. Make sure the
+fixture/expected-rules table (line ~31, `"arithmetic.gbnf": frozenset(...)`)
+gets an entry for `"arithmetic.lark"` — the rule set is the same.
+
+- [ ] **Step 2: Confirm the round-trip helper handles `.lark`**
+
+The helper likely picks the flavour via `flavour_for_extension`. After
+Task 4.4 registers `.lark`, this should "just work" — but verify.
+
+- [ ] **Step 3: Run**
+
+```bash
+uv run pytest tests/integration/test_full_round_trip.py -q
+```
+
+PASS expected. If the Lark byte-equal claim fails, it means the LarkFlavour
+emit path is producing a different string than what the Lark meta-parser
+read in — typically whitespace, quantifier form, or charclass form. Fix
+the emit table, not the test.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/integration/test_full_round_trip.py
+git commit -m "test: round-trip arithmetic.lark alongside the seven gbnf grammars"
 ```
 
 ---
@@ -2317,14 +2776,16 @@ def test_indexed_token_not_rejected_in_this_slice():
         pass  # other failure modes acceptable; the scope here is just the scan
 
 
-def test_negation_token_not_rejected_in_this_slice():
-    """!<name> stays available — deferred to a future slice."""
-    try:
-        compile_text('root ::= !<x>', flavour="gbnf")
-    except UnsupportedConstructError as exc:
-        assert "positional token-reference" not in str(exc)
-    except Exception:
-        pass
+def test_negation_token_not_rejected_by_positional_scanner():
+    """!<name> may fail elsewhere (the GBNF meta-grammar parser doesn't
+    know it), but must NOT trip the positional-token-reference scanner.
+    This test asserts the scanner specifically — the failure mode that
+    matters here is which error path fires."""
+    from lexic.grammars.gbnf.flavour import _check_no_positional_token_syntax
+    # The scanner must accept !<x> without raising.
+    _check_no_positional_token_syntax('root ::= !<x>')
+    # End-to-end compile may still fail at meta-grammar parse — that's
+    # outside this scanner's contract. We only assert the scanner.
 ```
 
 - [ ] **Step 2: Implement the scanner**
@@ -2378,13 +2839,13 @@ def _check_no_positional_token_syntax(text: str) -> None:
     deferred to a future slice.
     """
     stripped = _strip_comments_and_strings(text)
-    # Skip <[ — that's the indexed form, left alone in this slice.
-    # Skip !< — that's the negation form, left alone.
+    # The regex below requires an identifier-start char after `<`, so
+    # the indexed form `<[N]>` is structurally excluded (no need for an
+    # explicit skip). The negation form `!<name>` does match, so we
+    # check the preceding character.
     for match in _POSITIONAL_TOKEN.finditer(stripped):
         start = match.start()
         if start > 0 and stripped[start - 1] == "!":
-            continue
-        if stripped[start:start + 2] == "<[":
             continue
         raise UnsupportedConstructError(
             f"GBNF positional token-reference syntax {match.group()!r} is "
@@ -2473,24 +2934,11 @@ exercised dead code. Deletion is safe."
 
 ---
 
-### Task 6.2: Inline `LarkBuilder.build_transformer` (or keep as helper)
+### Task 6.2: (deleted)
 
-**Files:**
-- Modify: `src/lexic/parsing/lark_builder.py`
-
-After Task 4.5, `LarkBuilder` is already gone (function-only file). If `build_transformer` is still called via a wrapper, leave it; if it's only used in one place inside `build_lark`, inline it.
-
-- [ ] **Step 1: Inspect current shape**
-
-Run: `cat src/lexic/parsing/lark_builder.py`
-
-If `build_lark` already does `transformer = build_transformer(specs, classes)` directly, no work needed — skip to step 3.
-
-- [ ] **Step 2: Inline if needed** (likely no-op)
-
-- [ ] **Step 3: Commit only if changes made**
-
-If unchanged, no commit. Skip and move on.
+Task 4.5 already collapses `LarkBuilder` into `build_lark` with an
+inline `build_transformer(specs, classes)` call. Nothing remains for
+this task. Skip and renumber if needed.
 
 ---
 
@@ -2507,13 +2955,17 @@ If unchanged, no commit. Skip and move on.
 - Delete: `.wiki/lexic/slice-b-status.md`
 - Modify: `CLAUDE.md` — update import-exception list
 
-- [ ] **Step 1: Update CLAUDE.md import exceptions**
+- [ ] **Step 1: Update CLAUDE.md import exceptions AND the slice-b-status reference**
 
 Find the section listing runtime → codegen import edges (around line "The two deliberate exceptions"). The first exception currently reads: `base.py imports lexic.grammars.gbnf.emitter at module scope for to_gbnf()`. Replace the target — `GbnfEmitter` is gone. New text:
 
 > 1. `base.py` imports `lexic.grammars.gbnf.flavour.GbnfFlavour` at module scope for `to_grammar()`. Explicit, eager, one import.
 
 Verify the other exception still applies — `compile.py` → `lexic.codegen` and `lexic.parsing.lark_builder`. That stands.
+
+Also strip the reference to `.wiki/lexic/slice-b-status.md` from CLAUDE.md
+("Cutover complete… See `.wiki/lexic/cutover-plan.md` and
+`.wiki/lexic/slice-b-status.md`") — slice-b-status retires in Step 7.
 
 - [ ] **Step 2: Update `.wiki/lexic/architecture.md`**
 
@@ -2626,7 +3078,7 @@ The runtime → codegen edge count is unchanged (two exceptions); only the targe
 - [ ] **Step 4: Confirm cleanup**
 
 ```bash
-rg "FlavourEmitter|GbnfEmitter|AbnfEmitter|bounds_to_quantifier|quantifier_to_bounds|HelperRuleRegistry" src/ tests/
+rg "FlavourEmitter|GbnfEmitter|AbnfEmitter|bounds_to_quantifier|quantifier_to_bounds|HelperRuleRegistry" src/ tests/ --type py
 ```
 
 Expected: no matches.
