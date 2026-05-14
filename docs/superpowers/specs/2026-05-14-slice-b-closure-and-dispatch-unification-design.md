@@ -29,7 +29,7 @@ This spec closes Slice B and inverts the dispatch architecture in one campaign.
 
 **Cut 1 — intrinsic vs external.** Intrinsic data about a node's shape moves onto the node as a method protocol. External operations whose meaning depends on the asker (target flavour, codegen pass) stay in dispatch tables.
 
-**Cut 2 — unified flavour emit dispatch.** Replace the `FlavourEmitter` ABC hierarchy with a single `Flavour.emit: dict[type[IrNode], Callable]` table per flavour, keyed on IR node type. Quantifier rendering, atom rendering, group rendering — all flow through one lookup.
+**Cut 2 — `IrEmitter` as the canonical string-producing dispatcher.** `IrDispatch[_N, _T]` already has two canonical instantiations: `IrVisitor` (T=None, side-effects) and `IrTransformer` (T=_N, rewrites). The third is `IrEmitter` (T=str). Every operation that walks the IR and produces a string IS an `IrEmitter`: GBNF rendering, ABNF rendering, Lark rendering, debug dump — all subclasses of one class, sharing one mechanism. `FlavourEmitter` ABC and the `dump` top-level function both collapse into `IrEmitter` subclasses.
 
 **Cut 3 — `IrQuantifier` as IrNode.** Rename `Quantifier` → `IrQuantifier`, make it an `IrNode` subclass (leaf). One data-carrying class — no subclass hierarchy. Per-flavour symbol mapping handles weird syntax (`!` = `(1,2)`, `%` = `(47,47)`, etc.) without subclassing.
 
@@ -47,7 +47,7 @@ Inherited from prior slices unchanged. This spec adds two:
 
 **P10. Intrinsic data lives on the node.** Per-type structural data (children layout, reconstruction shape, debug repr) belongs in methods on the IR node type, not in central registries. External operations (emission, codegen, derivation passes) keep their dispatch tables.
 
-**P11. Emission is one table.** Each `Flavour` declares emission as a single dispatch table keyed on `type[IrNode]`. The `FlavourEmitter` ABC and per-flavour emitter subclasses are removed. Per-node renderers compose via a single recursive `render()` entry point.
+**P11. String output is `IrEmitter`.** Any operation that walks the IR and yields a string is an `IrEmitter[IrNode]` subclass — the T=str instantiation of `IrDispatch`. Flavour emitters and debug dump share one mechanism. The `FlavourEmitter` ABC and per-flavour emitter subclasses are removed; a `Flavour` *is* (or owns) an `IrEmitter`. New string-producing IR operations subclass `IrEmitter`; they don't get bespoke entry points.
 
 ## Architecture
 
@@ -58,7 +58,9 @@ class IrNode(ABC):
     """Structural protocol every IR node implements.
 
     Subclasses own their shape: how to enumerate children, how to rebuild
-    themselves, how to render for debug. No central registry of any of this.
+    themselves, and how to render themselves as a string by default
+    (consumed by IrEmit; flavour emitters override via dispatch).
+    No central registry of any of this.
     """
 
     def children(self) -> tuple[IrNode, ...]:
@@ -69,8 +71,10 @@ class IrNode(ABC):
         """Reconstruct with new children. Default: identity (leaves)."""
         return self
 
-    def dump(self, indent: int = 0) -> str:
-        """Indented debug repr. Default: repr()."""
+    def emit(self, indent: int = 0) -> str:
+        """Default string rendering — used by IrEmit. Subclasses override
+        with a node-appropriate format. Flavour emitters bypass this via
+        their dispatch table."""
         return f"{'  ' * indent}{self!r}"
 ```
 
@@ -88,8 +92,8 @@ class IrItem(IrNode):
     def rebuild(self, new_children):
         return IrItem(atom=new_children[0], quantifier=self.quantifier)
 
-    def dump(self, indent=0):
-        return f"{'  ' * indent}IrItem({self.atom.dump(indent+1)}, q={self.quantifier})"
+    def emit(self, indent=0):
+        return f"{'  ' * indent}IrItem({self.atom.emit(indent+1)}, q={self.quantifier})"
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,15 +103,17 @@ class IrSequence(IrNode):
     def rebuild(self, new_children): return IrSequence(items=new_children)
 ```
 
-Leaves (`IrLiteral`, `IrCharClass`, `IrRuleRef`, `IrQuantifier`) inherit defaults.
+Leaves (`IrLiteral`, `IrCharClass`, `IrRuleRef`, `IrQuantifier`) inherit default `children`/`rebuild`; they override `emit()` with a node-appropriate format.
 
-### `walk.py` collapse
+### `walk.py` collapse and `IrEmitter`
 
-`_CHILDREN`, `_REBUILD`, `_DUMP` central dicts **delete**. `IrDispatch.generic_visit` calls `node.children()`. `IrTransformer._combine` calls `node.rebuild(new_children)`. Top-level `dump()` calls `node.dump()`.
+`_CHILDREN`, `_REBUILD`, `_DUMP` central dicts **delete**. `IrDispatch.generic_visit` calls `node.children()`. `IrTransformer._combine` calls `node.rebuild(new_children)`. The top-level `dump()` function deletes; debug rendering is replaced by `IrEmit` (see below).
+
+`IrDispatch[_N, _T]` gains a third canonical instantiation: `IrEmitter` (T=str).
 
 ```python
 class IrDispatch[_N, _T]:
-    action: dict[type, Callable[..., _T]]  # only for external operations
+    action: dict[type, Callable[..., _T]]  # external operations only
 
     def visit(self, node: _N) -> _T:
         method = getattr(self, f"visit_{type(node).__name__}", self.generic_visit)
@@ -119,18 +125,49 @@ class IrDispatch[_N, _T]:
         return self._combine(node, old_children, new_children)
 
 
+class IrVisitor[_N](IrDispatch[_N, None]):
+    """Side-effect walks. T=None."""
+
+
 class IrTransformer[_N](IrDispatch[_N, _N]):
+    """Rewrites. T=_N. Combines via node.rebuild()."""
     def _combine(self, node, old_children, new_children):
         if not old_children or all(nc is oc for nc, oc in zip(new_children, old_children)):
             return node
         return node.rebuild(new_children)
 
 
-def dump(node: IrNode, *, indent: int = 0) -> str:
-    return node.dump(indent)
+class IrEmitter[_N](IrDispatch[_N, str]):
+    """String emission. T=str. The base class for every string-producing
+    IR walk: flavour emitters, debug dump, anything that turns IR into text.
+
+    Default behaviour when `action` has no entry for a node type: call
+    `node.emit()` — the per-node default rendering. Subclasses populate
+    `action` to override per-type rendering for a specific target format.
+    """
+    action: dict[type, Callable[..., str]] = {}
+
+    def visit(self, node: _N) -> str:
+        handler = self.action.get(type(node))
+        if handler is not None:
+            return handler(node, self.visit)
+        method = getattr(self, f"visit_{type(node).__name__}", None)
+        if method is not None:
+            return method(node)
+        return node.emit()  # fallback to node's default rendering
+
+
+class IrEmit(IrEmitter[IrNode]):
+    """The trivial emitter: pure fallthrough to each node's `emit()` method.
+
+    Used for debug output. Equivalent to the old top-level `dump()` function
+    but slots into the IrEmitter hierarchy so it composes with the same
+    mechanism flavours use.
+    """
+    action = {}  # empty — everything falls through to node.emit()
 ```
 
-`IrDispatch` keeps its role for *external* dispatch (cross-cutting passes whose answer depends on the asker). The action-table pattern survives; only the intrinsic-data tables disappear.
+The action-table pattern survives for *external* dispatch (operations whose answer depends on the asker). Only the intrinsic-data tables (`_CHILDREN`, `_REBUILD`, `_DUMP`) disappear.
 
 ### `IrQuantifier`
 
@@ -139,17 +176,19 @@ def dump(node: IrNode, *, indent: int = 0) -> str:
 class IrQuantifier(IrNode):
     min: int = 1
     max: int | None = 1
-    # IrNode protocol: leaf — inherits no-children/identity-rebuild/default-dump.
+    # IrNode protocol: leaf — inherits no-children/identity-rebuild/default-emit.
 ```
 
 That is the entire type. No subclass hierarchy. No `accepts()`. No `bounds()`. No `relax_to_optional()`. Just data that satisfies the IrNode protocol, like `IrLiteral` or `IrRuleRef`.
 
 Weird quantifier syntax (per-flavour `!` for `(1,2)`, `%` for `(47,47)`, etc.) is handled by the per-flavour symbol table, not by quantifier subclasses.
 
-### Unified flavour emit dispatch
+### `Flavour` as `IrEmitter`
+
+A `Flavour` *is* an `IrEmitter`. The emit dispatch table is `Flavour.action` — the same field every `IrDispatch` subclass uses. No separate `render()` function; `flavour.visit(node)` produces the grammar string.
 
 ```python
-class Flavour(ABC):
+class Flavour(IrEmitter[IrNode], ABC):
     name: ClassVar[str]
     extensions: ClassVar[tuple[str, ...]]
     meta_grammar: ClassVar[str]
@@ -165,14 +204,13 @@ class Flavour(ABC):
     group_close: ClassVar[str] = ")"
     empty_body: ClassVar[str] = '""'
 
-    # The one emit dispatch table. Keyed on IR node type.
-    # Renderers receive (node, render) where `render` is the recursive
-    # entry point — so a renderer can recurse into its children.
-    emit: ClassVar[dict[type[IrNode], Callable[[IrNode, Callable[[IrNode], str]], str]]]
+    # The emit dispatch table (inherited slot from IrDispatch).
+    # Keyed on IR node type. Renderers receive (node, recurse).
+    action: ClassVar[dict[type[IrNode], Callable[[IrNode, Callable[[IrNode], str]], str]]]
 
-    # Quantifier sub-dispatch — keyed on (min, max) for symbolic forms;
-    # the emit[IrQuantifier] renderer consults this then falls through to
-    # the flavour's generic {n,m}-style formatting for unmapped bounds.
+    # Quantifier sub-dispatch — keyed on (min, max) for symbolic forms.
+    # The action[IrQuantifier] renderer consults this then falls through
+    # to the flavour's generic {n,m}-style formatting for unmapped bounds.
     quantifier_symbols: ClassVar[dict[tuple[int, int | None], str]]
 
     @staticmethod
@@ -185,35 +223,24 @@ class Flavour(ABC):
 
     @classmethod
     def pre_parse_check(cls, text: str) -> None:
-        """Hook for flavour-specific source-text validation.
+        """Flavour-specific source-text validation hook.
 
         Called from MetaGrammarParser.parse() before the Lark parse runs.
         Default: no-op. GbnfFlavour overrides to scan for reserved
         token-reference syntax.
         """
-```
-
-### Render entry point
-
-```python
-def render(node: IrNode, flavour: type[Flavour]) -> str:
-    def recurse(n: IrNode) -> str:
-        try:
-            handler = flavour.emit[type(n)]
-        except KeyError as exc:
-            raise UnsupportedConstructError(
-                f"{flavour.name} has no renderer for {type(n).__name__!r}"
-            ) from exc
-        return handler(n, recurse)
-    return recurse(node)
 
 
-def render_specs(specs: list[RuleSpec], flavour: type[Flavour]) -> str:
-    """RuleSpec-list entry point for grammar emission."""
+def render_specs(specs: list[RuleSpec], flavour: Flavour) -> str:
+    """RuleSpec-list entry point for grammar emission.
+
+    Composes per-rule rendering via flavour.visit(). Thin orchestration
+    around the existing IrDispatch machinery.
+    """
     ...
 ```
 
-These live in `ir/emit.py` — the "small shell" that survives the FlavourEmitter deletion.
+`ir/emit.py` survives as a small shell holding `IrEmitter`, `IrEmit`, and `render_specs`. Or `IrEmitter` and `IrEmit` may live in `ir/walk.py` alongside `IrVisitor` / `IrTransformer`, with `ir/emit.py` containing only the `render_specs` helper. Decided at execution; placement is purely organizational.
 
 ### Example: `GbnfFlavour`
 
@@ -236,7 +263,7 @@ class GbnfFlavour(Flavour):
 
     quantifier_symbols = {(1,1): "", (0,1): "?", (0,None): "*", (1,None): "+"}
 
-    emit = {
+    action = {
         IrLiteral:     lambda n, _r: f'"{GbnfFlavour.escapes.encode(n.value)}"',
         IrCharClass:   lambda n, _r: f"[{'^' if n.negated else ''}{n.pattern}]",
         IrRuleRef:     lambda n, _r: n.name,
@@ -260,7 +287,7 @@ class GbnfFlavour(Flavour):
         _check_no_positional_token_syntax(text)  # § Token reservation
 ```
 
-`AbnfFlavour` mirrors this structure with prefix-placement on `emit[IrItem]` (quantifier before atom) and its own `_emit_abnf_quantifier`. No `place_quantifier` / `format_quantifier` decorators — the per-type lambda owns its layout.
+`AbnfFlavour` mirrors this structure with prefix-placement on `action[IrItem]` (quantifier before atom) and its own `_emit_abnf_quantifier`. No `place_quantifier` / `format_quantifier` decorators — the per-type lambda owns its layout.
 
 ### `LarkFlavour` — promotion to full peer
 
@@ -288,15 +315,15 @@ Configuration:
 
 ```python
 def build_lark(specs, classes, start_rule):
-    grammar_str = render_specs(specs, LarkFlavour)
+    grammar_str = render_specs(specs, LarkFlavour())
     parser = lark.Lark(grammar_str, start=start_rule, parser="lalr", ...)
     transformer = build_transformer(specs, classes)
     return grammar_str, parser, transformer
 ```
 
-The bespoke `_regex_terminal`, `_bracket`, and per-atom helpers in the current `lark_builder.py` migrate into `LarkFlavour.emit` entries. The internal codegen use case (runtime parser construction) and the user-facing use case (compile `.lark` files) share one Flavour.
+The bespoke `_regex_terminal`, `_bracket`, and per-atom helpers in the current `lark_builder.py` migrate into `LarkFlavour.action` entries. The internal codegen use case (runtime parser construction) and the user-facing use case (compile `.lark` files) share one Flavour.
 
-**Sharp edge to flag for execution:** `LarkFlavour.emit[IrItem]` needs the regex-terminal vs rule-token distinction — when bounds can't be expressed as suffix quantifiers (`?`/`*`/`+`), the atom must be rendered as `/pattern/` with `{n,m}` embedded inside the regex. This is the trickiest renderer in the migration.
+**Sharp edge to flag for execution:** `LarkFlavour.action[IrItem]` needs the regex-terminal vs rule-token distinction — when bounds can't be expressed as suffix quantifiers (`?`/`*`/`+`), the atom must be rendered as `/pattern/` with `{n,m}` embedded inside the regex. This is the trickiest renderer in the migration.
 
 ### Token reservation (positional only)
 
@@ -328,8 +355,9 @@ src/lexic/
     nodes.py            IrNode protocol + all IR node types incl. IrQuantifier
     spec.py · derive.py · directives.py · charclass.py · escapes.py
     naming.py · topo.py
-    walk.py             IrDispatch (action table only); no _CHILDREN/_REBUILD/_DUMP
-    emit.py             render() / render_specs() — stateless shell
+    walk.py             IrDispatch + IrVisitor + IrTransformer + IrEmitter + IrEmit;
+                        no _CHILDREN/_REBUILD/_DUMP
+    emit.py             render_specs() — small RuleSpec-list shell
     regex_portable.py   unchanged (kept for future portability gate)
     [helpers.py]        DELETED
   grammars/
@@ -360,15 +388,15 @@ src/lexic/
 
 Single campaign; tests are the safety net. The 448-test suite stays green at every numbered step.
 
-1. **IrNode structural protocol.** Add `children()` / `rebuild()` / `dump()` to every IrNode subclass. Delete `_CHILDREN` / `_REBUILD` / `_DUMP` in `walk.py`. Generic-visit and transformer-combine now go through node methods. Pure mechanical move; tests pass.
+1. **IrNode structural protocol.** Add `children()` / `rebuild()` / `emit()` to every IrNode subclass. Delete `_CHILDREN` / `_REBUILD` / `_DUMP` in `walk.py`. Generic-visit and transformer-combine now go through node methods. The top-level `dump()` function is preserved temporarily by delegating to `node.emit()` until step 3 introduces `IrEmit`. Pure mechanical move; tests pass.
 
 2. **`IrQuantifier` rename + IrNode subclass.** Rename `Quantifier` → `IrQuantifier`, make it inherit `IrNode` (leaf). Mechanical rename across all call sites. No semantic change.
 
-3. **Unified flavour emit dispatch.** Add `Flavour.emit` table, `Flavour.quantifier_symbols`, `Flavour.pre_parse_check`. Add `render()` / `render_specs()` in `ir/emit.py`. Migrate `GbnfFlavour` and `AbnfFlavour` to populate their `emit` tables. Delete `FlavourEmitter`, `GbnfEmitter`, `AbnfEmitter`. Delete `utils/quantifiers.py`. Per-flavour emit tests cover what `test_quantifiers.py` used to.
+3. **`IrEmitter` + `IrEmit` + unified flavour emit.** Add `IrEmitter[_N]` (the T=str instantiation of `IrDispatch`) and `IrEmit` (debug-default) to `ir/walk.py`. Refactor `Flavour` to subclass `IrEmitter[IrNode]`; add `Flavour.action` (emit table), `Flavour.quantifier_symbols`, `Flavour.pre_parse_check`. Add `render_specs()` shell in `ir/emit.py`. Migrate `GbnfFlavour` and `AbnfFlavour` to populate their `action` tables. Delete `FlavourEmitter`, `GbnfEmitter`, `AbnfEmitter`. Delete `utils/quantifiers.py`. Per-flavour emit tests cover what `test_quantifiers.py` used to. Replace top-level `dump()` call sites with `IrEmit().visit(node)`.
 
    If this step gets messy in practice, split into 3a (add dispatch alongside FlavourEmitter, migrate consumers one-by-one) and 3b (delete FlavourEmitter once nothing references it).
 
-4. **Promote `LarkFlavour`.** Create `grammars/lark/`. Register `.lark`. Migrate `parsing/lark_builder.py` to use `render_specs(specs, LarkFlavour)`. Add `tests/unit/lexic/grammars/lark/`, `tests/integration/test_compile_grammar_lark.py`; extend `test_cross_flavour.py` with Lark conversions.
+4. **Promote `LarkFlavour`.** Create `grammars/lark/`. Register `.lark`. Migrate `parsing/lark_builder.py` to use `render_specs(specs, LarkFlavour())`. Add `tests/unit/lexic/grammars/lark/`, `tests/integration/test_compile_grammar_lark.py`; extend `test_cross_flavour.py` with Lark conversions.
 
    Sub-strategy: start with a tiny `.lark` grammar (one rule, one terminal), incrementally add features until the existing GBNF ground-truth grammars can be expressed as `.lark` equivalents.
 
@@ -390,7 +418,7 @@ Single campaign; tests are the safety net. The 448-test suite stays green at eve
 - **Step 3** is the largest single hop. Mitigation: split 3a/3b if needed.
 - **Step 4** Lark meta-grammar is new code with no prior coverage. Mitigation: incremental build against `.lark` versions of existing ground-truth grammars.
 - **Step 1** is easy to under-cover (miss a node type). Mitigation: temporarily assert in `IrDispatch.generic_visit` that `node.children()` matches what the old `_CHILDREN[type(node)]` would have returned, during the cutover step.
-- **`base.py` → `lexic.grammars.gbnf.emitter` import edge** (CLAUDE.md-documented runtime→codegen exception) changes target when `GbnfEmitter` deletes. The new edge points at `GbnfFlavour.emit` / `render()`. Update CLAUDE.md and `.wiki/lexic/architecture.md` accordingly.
+- **`base.py` → `lexic.grammars.gbnf.emitter` import edge** (CLAUDE.md-documented runtime→codegen exception) changes target when `GbnfEmitter` deletes. The new edge points at `GbnfFlavour` (its `action` table + `visit()` method, inherited from `IrEmitter`). Update CLAUDE.md and `.wiki/lexic/architecture.md` accordingly.
 
 ## Out of scope
 
@@ -403,5 +431,5 @@ Single campaign; tests are the safety net. The 448-test suite stays green at eve
 ## Open execution-time decisions
 
 - **`LarkBuilder.build_transformer` (Task 11)** — inline into `build_lark` or keep as a separate helper. Either is acceptable; decided at execution.
-- **Module rename for `ir/emit.py`** — once it shrinks to two stateless functions (`render`, `render_specs`), `ir/render.py` may be a clearer name. Decided at execution.
+- **Placement of `IrEmitter` / `IrEmit`** — `ir/walk.py` (next to `IrVisitor` / `IrTransformer`) or `ir/emit.py` (with `render_specs`). Both are defensible; decided at execution.
 - **Lark `parse_quantifier` ambiguity with `~`** — Lark's `~n..m` is unusual syntax; sub-decision during step 4 whether to support full Lark quantifier richness or scope to the `?`/`*`/`+`/`{n,m}` core.
