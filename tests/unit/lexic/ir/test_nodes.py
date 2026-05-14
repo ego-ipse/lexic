@@ -211,17 +211,17 @@ def test_irnode_default_emit_returns_repr():
     assert leaf.emit(indent=3) == repr(leaf)
 
 
-def test_iritem_children_returns_atom():
+def test_iritem_children_returns_atom_and_quantifier():
     """An IrItem's children are its atom and quantifier."""
-    item = IrItem(IrLiteral("x"))
-    assert item.children() == (item.atom,)
-
-
-def test_iritem_rebuild_replaces_atom_preserves_quantifier():
-    """Rebuilding an IrItem replaces the atom but preserves the quantifier."""
     item = IrItem(IrLiteral("x"), Quantifier(0, None))
-    new = item.rebuild((IrLiteral("y"),))
-    assert new == IrItem(IrLiteral("y"), Quantifier(0, None))
+    assert item.children() == (item.atom, item.quantifier)
+
+
+def test_iritem_rebuild_replaces_atom_and_quantifier():
+    """Rebuilding an IrItem replaces both atom and quantifier from new_children."""
+    item = IrItem(IrLiteral("x"), Quantifier(0, None))
+    new = item.rebuild((IrLiteral("y"), Quantifier(1, 3)))
+    assert new == IrItem(IrLiteral("y"), Quantifier(1, 3))
 
 
 def test_irsequence_children_returns_items():
