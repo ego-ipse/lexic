@@ -1,12 +1,14 @@
-"""IR AST node dataclasses — IrCollection/IrComposite hierarchy prototype.
+"""IR AST node dataclasses — canonical, frozen, hashable.
 
-Side-by-side alternative to nodes.py. Key differences:
-  - IrNode is a true ABC: children() and rebuild() are abstract
-  - IrLeaf(IrNode) provides identity implementations for all leaf nodes
-  - IrStructure(IrNode) is the abstract base for all non-leaf nodes
-  - IrCollection[_T] handles variable-length homogeneous children
-  - IrComposite[*_Ts] handles fixed-arity heterogeneous children
-  - No type: ignore anywhere
+Every IR node implements the structural protocol from IrNode:
+  - children() -> tuple[IrNode, ...]   children in traversal order
+  - rebuild(new_children) -> IrNode    reconstruct under transformation
+  - emit(indent=0) -> str              default string rendering (debug)
+
+Hierarchy:
+  IrNode (ABC) ── IrLeaf          leaves: IrLiteral, IrCharClass, IrRuleRef, Quantifier
+               └─ IrStructure ─── IrCollection[_T]    homogeneous variable-length children
+                                └─ IrComposite[*_Ts]  heterogeneous fixed-arity children
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from typing import Any, ClassVar, Generic, Self, TypeAlias, TypeVar, Unpack
 
 from typing_extensions import TypeVarTuple
 
-_T = TypeVar("_T", bound="IrNode")
+_T_co = TypeVar("_T_co", bound="IrNode", covariant=True)
 _Ts = TypeVarTuple("_Ts")
 
 
@@ -68,7 +70,7 @@ class IrLeaf(IrNode):
         """
         return ()
 
-    def rebuild(self, new_children: tuple) -> Self:  # pylint: disable=unused-argument
+    def rebuild(self, new_children: tuple[IrNode, ...]) -> Self:  # pylint: disable=unused-argument
         """Leaves reconstruct as identity.
 
         :param new_children: Ignored.
@@ -83,23 +85,17 @@ class IrLeaf(IrNode):
 class IrStructure(IrNode, ABC):
     """Abstract base for all non-leaf IR nodes.
 
-    Declares __dataclass_fields__ so that dataclasses.fields() accepts
+    Declares __dataclass_fields__ so that dataclasses.replace() accepts
     concrete subclasses without a cast.
     """
 
     __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
 
-    @abstractmethod
-    def children(self) -> tuple[IrNode, ...]: ...
-
-    @abstractmethod
-    def rebuild(self, new_children: tuple) -> Self: ...
-
 
 # ── Variable-length homogeneous branch nodes ──────────────────────────
 
 
-class IrCollection(IrStructure, Generic[_T]):
+class IrCollection(IrStructure, Generic[_T_co]):
     """Branch node carrying a single variable-length tuple of homogeneous children.
 
     Concrete subclasses declare:
@@ -111,27 +107,20 @@ class IrCollection(IrStructure, Generic[_T]):
 
     _items_attr: ClassVar[str]
 
-    def children(self) -> tuple[_T, ...]:
+    def children(self) -> tuple[_T_co, ...]:
         """Return the homogeneous children tuple.
 
         :returns: Tuple of child nodes.
         """
         return getattr(self, self._items_attr)
 
-    def rebuild(self, new_children: tuple[_T, ...]) -> Self:
+    def rebuild(self, new_children: tuple[_T_co, ...]) -> Self:
         """Reconstruct, replacing the items field with new_children.
-
-        Extra fields (those not named by _items_attr) are preserved unchanged.
 
         :param new_children: Replacement children tuple.
         :returns: New instance with updated children.
         """
-        extras = {
-            f.name: getattr(self, f.name)
-            for f in dataclasses.fields(self)
-            if f.name != self._items_attr
-        }
-        return type(self)(**{self._items_attr: new_children}, **extras)
+        return dataclasses.replace(self, **{self._items_attr: new_children})
 
 
 # ── Fixed-arity heterogeneous branch nodes ────────────────────────────
@@ -164,21 +153,10 @@ class IrComposite(IrStructure, Generic[*_Ts]):
     def rebuild(self, new_children: tuple[Unpack[_Ts]]) -> Self:
         """Reconstruct, replacing child attrs from new_children in order.
 
-        Extra fields (those not named in _child_attrs) are preserved unchanged.
-
         :param new_children: Replacement children, matching _child_attrs order.
         :returns: New instance with updated children.
         """
-        child_set = set(self._child_attrs)
-        extras = {
-            f.name: getattr(self, f.name)
-            for f in dataclasses.fields(self)
-            if f.name not in child_set
-        }
-        return type(self)(
-            **dict(zip(self._child_attrs, new_children)),
-            **extras,
-        )
+        return dataclasses.replace(self, **dict(zip(self._child_attrs, new_children)))
 
 
 # ── Leaves ────────────────────────────────────────────────────────────
