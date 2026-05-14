@@ -1,3 +1,5 @@
+"""Unit tests for src/lexic/utils/names.py"""
+
 import pytest
 
 from lexic.utils.names import to_lark_name, to_pascal, to_snake
@@ -13,6 +15,7 @@ from lexic.utils.names import to_lark_name, to_pascal, to_snake
     ],
 )
 def test_to_lark_name(inp, expected):
+    """to_lark_name converts hyphens and case correctly."""
     assert to_lark_name(inp) == expected
 
 
@@ -27,6 +30,7 @@ def test_to_lark_name(inp, expected):
     ],
 )
 def test_to_pascal(inp, expected):
+    """to_pascal converts snake/hyphen to PascalCase."""
     assert to_pascal(inp) == expected
 
 
@@ -40,4 +44,5 @@ def test_to_pascal(inp, expected):
     ],
 )
 def test_to_snake(inp, expected):
+    """to_snake converts PascalCase to snake_case."""
     assert to_snake(inp) == expected

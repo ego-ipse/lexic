@@ -19,12 +19,14 @@ def test_no_directives_in_grammar_returns_empty():
 
 
 def test_non_semantic_single_arg():
+    """A single @non-semantic directive extracts one rule name."""
     text = "# @non-semantic ws\nroot ::= ws value"
     d = parse_directives(text, line_comment="#")
     assert d.non_semantic == frozenset({"ws"})
 
 
 def test_non_semantic_multiple_args():
+    """Multiple @non-semantic arguments are all collected."""
     text = "# @non-semantic ws comment_block\nroot ::= ws value"
     d = parse_directives(text, line_comment="#")
     assert d.non_semantic == frozenset({"ws", "comment_block"})
@@ -44,6 +46,7 @@ def test_directive_respects_line_comment_marker():
 
 
 def test_unknown_directive_is_ignored():
+    """Unknown directives are silently ignored."""
     text = "# @future-thing foo\n# @non-semantic ws"
     d = parse_directives(text, line_comment="#")
     assert d.non_semantic == frozenset({"ws"})
@@ -63,24 +66,29 @@ def test_empty_line_comment_disables_directive_parsing():
 
 
 def test_directives_dataclass_has_default_empty_frozenset():
+    """Directives() defaults to an empty frozenset."""
     d = Directives()
     assert d.non_semantic == frozenset()
 
 
 def test_start_directive_sets_start_rule():
+    """@start overrides the default start rule."""
     text = "# @start expr\nroot ::= ws expr\nexpr ::= [0-9]+\n"
     assert parse_directives(text, line_comment="#").start == "expr"
 
 
 def test_no_start_directive_leaves_start_none():
+    """No @start directive means start is None."""
     assert parse_directives("root ::= [a-z]+\n", line_comment="#").start is None
 
 
 def test_start_directive_respects_line_comment_marker():
+    """@start respects the line_comment marker."""
     assert parse_directives("; @start root\n", line_comment=";").start == "root"
 
 
 def test_start_and_non_semantic_coexist():
+    """Multiple directives can appear in the same source."""
     text = "# @start root\n# @non-semantic ws\nroot ::= ws value\n"
     d = parse_directives(text, line_comment="#")
     assert d.start == "root"
@@ -88,5 +96,6 @@ def test_start_and_non_semantic_coexist():
 
 
 def test_start_directive_last_wins():
+    """Multiple @start directives: last value wins."""
     text = "# @start a\n# @start b\n"
     assert parse_directives(text, line_comment="#").start == "b"

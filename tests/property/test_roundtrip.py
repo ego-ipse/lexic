@@ -44,34 +44,40 @@ def _roundtrip(grammar: str, specs: dict, seed: int) -> None:
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
 @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow])
 def test_arithmetic_roundtrip(seed: int, all_grammar_specs: dict) -> None:
+    """Arithmetic grammar round-trips for random seeds."""
     _roundtrip("arithmetic", all_grammar_specs["arithmetic"], seed)
 
 
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
 @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow])
 def test_list_roundtrip(seed: int, all_grammar_specs: dict) -> None:
+    """List grammar round-trips for random seeds."""
     _roundtrip("list", all_grammar_specs["list"], seed)
 
 
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
 @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
 def test_japanese_roundtrip(seed: int, all_grammar_specs: dict) -> None:
+    """Japanese grammar round-trips for random seeds."""
     _roundtrip("japanese", all_grammar_specs["japanese"], seed)
 
 
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
 @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
 def test_chess_roundtrip(seed: int, all_grammar_specs: dict) -> None:
+    """Chess grammar round-trips for random seeds."""
     _roundtrip("chess", all_grammar_specs["chess"], seed)
 
 
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
 @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
 def test_json_ws_roundtrip(seed: int, all_grammar_specs: dict) -> None:
+    """JSON-with-whitespace grammar round-trips for random seeds."""
     _roundtrip("json_ws", all_grammar_specs["json_ws"], seed)
 
 
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
 @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
 def test_json_arr_roundtrip(seed: int, all_grammar_specs: dict) -> None:
+    """JSON-array grammar round-trips for random seeds."""
     _roundtrip("json_arr", all_grammar_specs["json_arr"], seed)

@@ -1,4 +1,5 @@
-# tests/test_base.py
+"""Unit tests for src/lexic/ir/test_base.py"""
+
 from __future__ import annotations
 
 from typing import ClassVar, List, Optional
@@ -16,6 +17,7 @@ from tests.paths import GROUND_TRUTH
 
 
 def test_to_text_value_str():
+    """to_text() emits the raw value for value_str specs."""
     spec = RuleSpec(
         "ws",
         "Ws",
@@ -26,6 +28,8 @@ def test_to_text_value_str():
     )
 
     class Ws(GrammarModel):
+        """Whitespace rule."""
+
         __grammar__: ClassVar[RuleSpec] = spec
         value: str
 
@@ -38,6 +42,7 @@ def test_to_text_value_str():
 
 
 def test_to_text_sequence_emits_literal():
+    """to_text() concatenates literal tokens between field values."""
     spec = RuleSpec(
         "eq-expr",
         "EqExpr",
@@ -52,6 +57,8 @@ def test_to_text_sequence_emits_literal():
     )
 
     class EqExpr(GrammarModel):
+        """Equality expression."""
+
         __grammar__: ClassVar[RuleSpec] = spec
         first: str
         second: str
@@ -63,9 +70,12 @@ def test_to_text_sequence_emits_literal():
 
 
 def test_to_text_nested_grammar_model():
+    """Nested GrammarModel fields are emitted recursively."""
     ws_spec = RuleSpec("ws", "Ws", "GrammarModel", "value_str", items=[], field_map={})
 
     class Ws(GrammarModel):
+        """Whitespace model."""
+
         __grammar__: ClassVar[RuleSpec] = ws_spec
         value: str
 
@@ -82,6 +92,8 @@ def test_to_text_nested_grammar_model():
     )
 
     class Ident(GrammarModel):
+        """Identifier model."""
+
         __grammar__: ClassVar[RuleSpec] = ident_spec
         first: str
         ws: Ws
@@ -94,11 +106,14 @@ def test_to_text_nested_grammar_model():
 
 
 def test_to_text_list_of_grammar_model():
+    """List-typed fields emit each element in order."""
     item_spec = RuleSpec(
         "it", "It", "GrammarModel", "value_str", items=[], field_map={}
     )
 
     class It(GrammarModel):
+        """Item model."""
+
         __grammar__: ClassVar[RuleSpec] = item_spec
         value: str
 
@@ -112,6 +127,8 @@ def test_to_text_list_of_grammar_model():
     )
 
     class Root(GrammarModel):
+        """Root model."""
+
         __grammar__: ClassVar[RuleSpec] = root_spec
         it: List[It]
 
@@ -123,9 +140,12 @@ def test_to_text_list_of_grammar_model():
 
 
 def test_to_text_optional_absent():
+    """Optional-typed fields that are None are omitted from output."""
     ws_spec = RuleSpec("ws", "Ws", "GrammarModel", "value_str", items=[], field_map={})
 
     class Ws(GrammarModel):
+        """Whitespace model."""
+
         __grammar__: ClassVar[RuleSpec] = ws_spec
         value: str
 
@@ -139,6 +159,8 @@ def test_to_text_optional_absent():
     )
 
     class R(GrammarModel):
+        """R model with optional whitespace."""
+
         __grammar__: ClassVar[RuleSpec] = spec
         first: str
         ws: Optional[Ws] = None
@@ -151,6 +173,7 @@ def test_to_text_optional_absent():
 
 
 def test_to_text_alternation_raises():
+    """Calling to_text() on an abstract alternation class raises NotImplementedError."""
     spec = RuleSpec(
         "base",
         "Base",
@@ -161,6 +184,8 @@ def test_to_text_alternation_raises():
     )
 
     class Base(GrammarModel):
+        """Abstract base model."""
+
         __grammar__: ClassVar[RuleSpec] = spec
 
     with pytest.raises(NotImplementedError):
@@ -171,9 +196,12 @@ def test_to_text_alternation_raises():
 
 
 def test_semantic_dump_excludes_ws():
+    """semantic_dump() omits fields listed in non_semantic_fields."""
     ws_spec = RuleSpec("ws", "Ws", "GrammarModel", "value_str", items=[], field_map={})
 
     class Ws(GrammarModel):
+        """Whitespace model."""
+
         __grammar__: ClassVar[RuleSpec] = ws_spec
         value: str
 
@@ -188,6 +216,8 @@ def test_semantic_dump_excludes_ws():
     )
 
     class Ident(GrammarModel):
+        """Identifier model."""
+
         __grammar__: ClassVar[RuleSpec] = spec
         first: str
         ws: Ws
@@ -202,6 +232,7 @@ def test_semantic_dump_excludes_ws():
 
 
 def test_to_grammar_returns_string_no_trailing_newline():
+    """to_grammar() returns a string with no trailing newline."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     inst = cg.parse("x=1\n")
     result = inst.to_grammar()
@@ -210,12 +241,14 @@ def test_to_grammar_returns_string_no_trailing_newline():
 
 
 def test_to_grammar_default_flavour_is_gbnf():
+    """Default flavour for to_grammar() is gbnf."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     inst = cg.parse("x=1\n")
     assert inst.to_grammar() == inst.to_grammar("gbnf")
 
 
 def test_to_grammar_contains_rule_name():
+    """to_grammar() output contains the rule name."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     inst = cg.parse("x=1\n")
     result = inst.to_grammar()
@@ -223,6 +256,7 @@ def test_to_grammar_contains_rule_name():
 
 
 def test_to_grammar_unknown_flavour_raises():
+    """Unknown flavour raises UnsupportedConstructError."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     inst = cg.parse("x=1\n")
     with pytest.raises(UnsupportedConstructError):

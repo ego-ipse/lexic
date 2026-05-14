@@ -33,12 +33,14 @@ def test_quantifier_unbounded_max_is_none():
 
 
 def test_quantifier_is_frozen():
+    """Frozen dataclass rejects attribute mutation."""
     q = Quantifier(0, 1)
     with pytest.raises(AttributeError):
         setattr(q, "min", 5)
 
 
 def test_quantifier_is_hashable():
+    """Equal quantifiers are deduplicated in a set."""
     assert len({Quantifier(0, 1), Quantifier(0, 1)}) == 1
 
 
@@ -58,6 +60,7 @@ def test_ir_literal_canonical_python_newline():
 
 
 def test_ir_literal_is_frozen_and_hashable():
+    """Frozen dataclass is hashable and deduplicates in sets."""
     assert len({IrLiteral("a"), IrLiteral("a")}) == 1
 
 
@@ -144,6 +147,7 @@ def test_ir_ast_holds_rules_and_start():
 
 
 def test_ir_ast_is_frozen():
+    """Frozen dataclass rejects attribute mutation on IrAst."""
     ast = IrAst(rules=(), start="root")
     with pytest.raises(AttributeError):
         setattr(ast, "start", "other")
