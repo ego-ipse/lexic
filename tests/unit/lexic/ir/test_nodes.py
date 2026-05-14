@@ -170,7 +170,7 @@ def test_structurally_equal_asts_compare_equal():
     assert a == b
 
 
-# ── Tests for lexic.ir.nodes — structural protocol on IrNode. ────────
+# ── IrNode structural protocol ───────────────────────────────────────
 
 
 def test_irnode_is_abc_base_class():
@@ -185,6 +185,7 @@ def test_irnode_is_abc_base_class():
         IrLiteral,
         IrCharClass,
         IrRuleRef,
+        Quantifier,
     ):
         assert issubclass(cls, IrNode), f"{cls.__name__} must inherit IrNode"
 
@@ -194,9 +195,17 @@ def test_irnode_default_children_is_empty_tuple():
     assert not IrLiteral("x").children()
     assert not IrCharClass("a-z").children()
     assert not IrRuleRef("foo").children()
+    assert not Quantifier().children()
 
 
 def test_irnode_default_rebuild_is_identity():
     """Leaves inherit identity rebuild."""
     leaf = IrLiteral("x")
     assert leaf.rebuild(()) is leaf
+
+
+def test_irnode_default_emit_returns_repr():
+    """Leaf default returns repr(self), ignoring indent."""
+    leaf = IrLiteral("x")
+    assert leaf.emit() == repr(leaf)
+    assert leaf.emit(indent=3) == repr(leaf)

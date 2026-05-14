@@ -20,19 +20,35 @@ class IrNode(ABC):
     """Structural protocol every IR node implements."""
 
     def children(self) -> tuple[IrNode, ...]:
-        """Children in traversal order. Default: leaf — no children."""
+        """Children in traversal order. Default: leaf — no children.
+
+        :returns: A tuple of the node's children.
+        """
         return ()
 
     def rebuild(self, new_children: tuple[IrNode, ...]) -> IrNode:  # pylint: disable=unused-argument
-        """Reconstruct with new children. Default: identity (leaves)."""
+        """Reconstruct with new children. Default: identity (leaves).
+
+        Leaves inherit identity rebuild.
+        Structural nodes must override to reconstruct with new children.
+        Unused argument is accepted to satisfy the protocol.
+
+        :param new_children: Tuple of new child nodes to rebuild with.
+        :returns: A new IrNode instance with the new children, or self if unchanged.
+        """
         return self
 
-    def emit(self, indent: int = 0) -> str:
-        """Default string rendering used by IrEmit. Subclasses override
-        with a node-appropriate format. Flavour emitters bypass this via
-        their action dispatch table.
+    def emit(self, indent: int = 0) -> str:  # pylint: disable=unused-argument
+        """Default string rendering used by IrMetaEmitter.
+
+        Leaves return repr(self).
+        Branches override to render themselves at indent indent + 1
+        Flavour emitters bypass this via their action dispatch table.
+
+        :param indent: Indentation depth (number of two-space levels). Ignored by leaves.
+        :returns: String representation of the node.
         """
-        return f"{'  ' * indent}{self!r}"
+        return repr(self)
 
 
 # ── Leaves ───────────────────────────────────────────────────────────
