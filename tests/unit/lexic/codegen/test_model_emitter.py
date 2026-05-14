@@ -15,7 +15,7 @@ from lexic.ir.nodes import (
     IrSequence,
     Quantifier,
 )
-from tests.unit.lexic.codegen.conftest import make_charclass_literal_group
+from tests.unit.lexic.codegen.conftest import load_emitted, make_charclass_literal_group
 from tests.unit.lexic.conftest import make_spec as _spec
 
 
@@ -270,19 +270,17 @@ def test_module_footer_registers_grammar():
     assert "D.__grammar__ = RuleSpec(" in src
 
 
-def test_emitted_module_executes_and_grammar_attribute_present():
-    """The emitted source runs and Foo.__grammar__ is reachable at runtime."""
+def test_emitted_module_loads_and_grammar_attribute_present():
+    """The emitted source loads and D.__grammar__ is reachable at runtime."""
     spec = _spec("d", "value_str", [IrItem(IrLiteral("x"))])
     src = emit_module_source([spec], stem="m")
-    ns: dict = {}
-    exec(compile(src, "<m>", "exec"), ns)
-    cls = ns["D"]
-    assert hasattr(cls, "__grammar__")
-    assert cls.__grammar__.rule_name == "d"
+    mod = load_emitted(src)
+    assert hasattr(mod.D, "__grammar__")
+    assert mod.D.__grammar__.rule_name == "d"
 
 
-def test_grammar_round_trip_through_exec():
-    """exec the source, reconstruct __grammar__.items[0] == original IR."""
+def test_grammar_round_trip_through_load():
+    """Load the emitted source; verify __grammar__.items[0] == original IR."""
     grp_spec = _spec(
         "r",
         "sequence",
@@ -290,8 +288,7 @@ def test_grammar_round_trip_through_exec():
         field_map={"digit": 0},
     )
     src = emit_module_source([grp_spec], stem="m")
-    ns: dict = {}
-    exec(compile(src, "<m>", "exec"), ns)
-    item0 = ns["R"].__grammar__.items[0]
+    mod = load_emitted(src)
+    item0 = mod.R.__grammar__.items[0]
     assert item0.atom == IrCharClass("0-9")
     assert item0.quantifier == Quantifier(1, None)
