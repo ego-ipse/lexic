@@ -209,3 +209,83 @@ def test_irnode_default_emit_returns_repr():
     leaf = IrLiteral("x")
     assert leaf.emit() == repr(leaf)
     assert leaf.emit(indent=3) == repr(leaf)
+
+
+def test_iritem_children_returns_atom():
+    """An IrItem's children are its atom and quantifier."""
+    item = IrItem(IrLiteral("x"))
+    assert item.children() == (item.atom,)
+
+
+def test_iritem_rebuild_replaces_atom_preserves_quantifier():
+    """Rebuilding an IrItem replaces the atom but preserves the quantifier."""
+    item = IrItem(IrLiteral("x"), Quantifier(0, None))
+    new = item.rebuild((IrLiteral("y"),))
+    assert new == IrItem(IrLiteral("y"), Quantifier(0, None))
+
+
+def test_irsequence_children_returns_items():
+    """An IrSequence's children are its items."""
+    a, b = IrItem(IrLiteral("a")), IrItem(IrLiteral("b"))
+    seq = IrSequence((a, b))
+    assert seq.children() == (a, b)
+
+
+def test_irsequence_rebuild_replaces_items():
+    """Rebuilding an IrSequence replaces its items."""
+    a, b = IrItem(IrLiteral("a")), IrItem(IrLiteral("b"))
+    seq = IrSequence((a,))
+    assert seq.rebuild((a, b)) == IrSequence((a, b))
+
+
+def test_iralternation_children_returns_arms():
+    """An IrAlternation's children are its arms."""
+    s = IrSequence(())
+    alt = IrAlternation((s,))
+    assert alt.children() == (s,)
+
+
+def test_iralternation_rebuild_replaces_arms():
+    """Rebuilding an IrAlternation replaces its arms."""
+    s1, s2 = IrSequence(()), IrSequence(())
+    assert IrAlternation((s1,)).rebuild((s1, s2)) == IrAlternation((s1, s2))
+
+
+def test_irgroup_children_returns_body():
+    """An IrGroup's children are its body."""
+    body = IrAlternation(())
+    grp = IrGroup(body)
+    assert grp.children() == (body,)
+
+
+def test_irgroup_rebuild_replaces_body():
+    """Rebuilding an IrGroup replaces its body."""
+    b1, b2 = IrAlternation(()), IrAlternation((IrSequence(()),))
+    assert IrGroup(b1).rebuild((b2,)) == IrGroup(b2)
+
+
+def test_irrule_children_returns_body():
+    """An IrRule's children are its body."""
+    body = IrAlternation(())
+    rule = IrRule("r", body)
+    assert rule.children() == (body,)
+
+
+def test_irrule_rebuild_replaces_body_preserves_name():
+    """Rebuilding an IrRule replaces its body but preserves the name."""
+    b1, b2 = IrAlternation(()), IrAlternation((IrSequence(()),))
+    assert IrRule("r", b1).rebuild((b2,)) == IrRule("r", b2)
+
+
+def test_irast_children_returns_rules():
+    """An IrAst's children are its rules."""
+    r = IrRule("x", IrAlternation(()))
+    ast = IrAst((r,), "x")
+    assert ast.children() == (r,)
+
+
+def test_irast_rebuild_replaces_rules_preserves_start():
+    """Rebuilding an IrAst replaces its rules but preserves the start name."""
+    r1 = IrRule("a", IrAlternation(()))
+    r2 = IrRule("b", IrAlternation(()))
+    assert IrAst((r1,), "a").rebuild((r1, r2)) == IrAst((r1, r2), "a")

@@ -13,20 +13,22 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import TypeAlias
+from typing import Generic, Self, TypeAlias, TypeVar
+
+ChildNode = TypeVar("ChildNode", bound="IrNode")
 
 
-class IrNode(ABC):
+class IrNode(ABC, Generic[ChildNode]):
     """Structural protocol every IR node implements."""
 
-    def children(self) -> tuple[IrNode, ...]:
+    def children(self) -> tuple[ChildNode, ...]:
         """Children in traversal order. Default: leaf — no children.
 
         :returns: A tuple of the node's children.
         """
         return ()
 
-    def rebuild(self, new_children: tuple[IrNode, ...]) -> IrNode:  # pylint: disable=unused-argument
+    def rebuild(self, new_children: tuple[ChildNode, ...]) -> Self:  # pylint: disable=unused-argument
         """Reconstruct with new children. Default: identity (leaves).
 
         Leaves inherit identity rebuild.
@@ -95,48 +97,123 @@ class Quantifier(IrNode):
 
 
 @dataclass(frozen=True, slots=True)
-class IrSequence(IrNode):
+class IrSequence(IrNode["IrItem"]):
     """Concatenation of items."""
 
     items: tuple[IrItem, ...] = ()
 
+    def children(self) -> tuple[IrItem, ...]:
+        """Children in traversal order.
+
+        :returns: A tuple of the node's children.
+        """
+        return self.items
+
+    def rebuild(self, new_children: tuple[IrItem, ...]) -> IrSequence:
+        """Reconstruct with new children.
+
+        :param new_children: Tuple of new child nodes to rebuild with.
+        :returns: A new IrNode instance with the new children, or self if unchanged.
+        """
+        return IrSequence(items=new_children)
+
 
 @dataclass(frozen=True, slots=True)
-class IrAlternation(IrNode):
+class IrAlternation(IrNode["IrSequence"]):
     """Choice between sequences. Always >= 1 arm."""
 
     arms: tuple[IrSequence, ...] = ()
 
+    def children(self) -> tuple[IrSequence, ...]:
+        """Children in traversal order."""
+        return self.arms
+
+    def rebuild(self, new_children: tuple[IrSequence, ...]) -> IrAlternation:
+        """Reconstruct with new children.
+
+        :param new_children: Tuple of new child nodes to rebuild with.
+        :returns: A new IrNode instance with the new children, or self if unchanged.
+        """
+        return IrAlternation(arms=new_children)
+
 
 @dataclass(frozen=True, slots=True)
-class IrGroup(IrNode):
+class IrGroup(IrNode["IrAlternation"]):
     """Parenthesised group. Body is always an IrAlternation."""
 
     body: IrAlternation
 
+    def children(self) -> tuple[IrAlternation, ...]:
+        """Children in traversal order."""
+        return (self.body,)
+
+    def rebuild(self, new_children: tuple[IrAlternation, ...]) -> IrGroup:
+        """Reconstruct with new children.
+
+        :param new_children: Tuple of new child nodes to rebuild with.
+        :returns: A new IrNode instance with the new children, or self if unchanged.
+        """
+        return IrGroup(body=new_children[0])
+
 
 @dataclass(frozen=True, slots=True)
-class IrItem(IrNode):
+class IrItem(IrNode["IrAtom"]):
     """An atom (leaf or group) with a quantifier."""
 
     atom: IrAtom
     quantifier: Quantifier = field(default_factory=Quantifier)
 
+    def children(self) -> tuple[IrAtom, ...]:
+        """Children in traversal order."""
+        return (self.atom,)
+
+    def rebuild(self, new_children: tuple[IrAtom, ...]) -> IrItem:
+        """Reconstruct with new children.
+
+        :param new_children: Tuple of new child nodes to rebuild with.
+        :returns: A new IrNode instance with the new children, or self if unchanged.
+        """
+        return IrItem(atom=new_children[0], quantifier=self.quantifier)
+
 
 @dataclass(frozen=True, slots=True)
-class IrRule(IrNode):
+class IrRule(IrNode["IrAlternation"]):
     """A named rule. Body is always an IrAlternation, even single-arm."""
 
     name: str
     body: IrAlternation
 
+    def children(self) -> tuple[IrAlternation, ...]:
+        """Children in traversal order."""
+        return (self.body,)
+
+    def rebuild(self, new_children: tuple[IrAlternation, ...]) -> IrRule:
+        """Reconstruct with new children.
+
+        :param new_children: Tuple of new child nodes to rebuild with.
+        :returns: A new IrNode instance with the new children, or self if unchanged.
+        """
+        return IrRule(name=self.name, body=new_children[0])
+
 
 @dataclass(frozen=True, slots=True)
-class IrAst(IrNode):
+class IrAst(IrNode["IrRule"]):
     """Full grammar: rules + start-rule name."""
 
     rules: tuple[IrRule, ...] = ()
     start: str = ""
+
+    def children(self) -> tuple[IrRule, ...]:
+        """Children in traversal order."""
+        return self.rules
+
+    def rebuild(self, new_children: tuple[IrRule, ...]) -> IrAst:
+        """Reconstruct with new children.
+
+        :param new_children: Tuple of new child nodes to rebuild with.
+        :returns: A new IrNode instance with the new children, or self if unchanged.
+        """
+        return IrAst(rules=new_children, start=self.start)
 
 
 # ── Type aliases (structural unions) ─────────────────────────────────
