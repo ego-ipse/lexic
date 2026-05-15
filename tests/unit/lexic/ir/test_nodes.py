@@ -289,3 +289,70 @@ def test_irast_rebuild_replaces_rules_preserves_start():
     r1 = IrRule("a", IrAlternation(()))
     r2 = IrRule("b", IrAlternation(()))
     assert IrAst((r1,), "a").rebuild((r1, r2)) == IrAst((r1, r2), "a")
+
+
+def test_str_irliteral():
+    """An IrLiteral's string is its value."""
+    assert str(IrLiteral("a")) == "LITERAL('a')"
+
+
+def test_str_ircharclass():
+    """An IrCharClass's string is its pattern and negation."""
+    assert str(IrCharClass("a-z")) == "CHARCLASS('a-z')"
+    assert str(IrCharClass("0-9", negated=True)) == "CHARCLASS('0-9', negated)"
+
+
+def test_str_irruleref():
+    """An IrRuleRef's string is its name."""
+    assert str(IrRuleRef("expr")) == "REF('expr')"
+
+
+def test_str_quantifier():
+    """A Quantifier's string is its bounds."""
+    assert str(Quantifier(1, 1)) == "Q[1]"
+    assert str(Quantifier(0, 1)) == "Q[0..1]"
+    assert str(Quantifier(0, None)) == "Q[0..*]"
+    assert str(Quantifier(2, 5)) == "Q[2..5]"
+
+
+def test_str_irsequence():
+    """An IrSequence's string is its items."""
+    seq = IrSequence((IrItem(IrLiteral("a")), IrItem(IrLiteral("b"))))
+    assert str(seq) == "SEQ(ITEM(LITERAL('a'), Q[1]), ITEM(LITERAL('b'), Q[1]))"
+
+
+def test_str_irrule_includes_name():
+    """An IrRule's string is its name and body."""
+    rule = IrRule("r", IrAlternation((IrSequence(()),)))
+    assert str(rule) == "RULE('r', ALT(SEQ()))"
+
+
+def test_str_irast_includes_start():
+    """An IrAst's string is its start and rules."""
+    ast = IrAst(rules=(IrRule("r", IrAlternation(())),), start="r")
+    assert str(ast) == "AST(start='r', RULE('r', ALT()))"
+
+
+# __repr__ — indented debug walk
+def test_repr_irliteral_is_dataclass_default():
+    """An IrLiteral's repr is the default dataclass repr."""
+    assert repr(IrLiteral("a")) == "IrLiteral(value='a')"
+
+
+def test_repr_irsequence_is_indented_multiline():
+    """An IrSequence's repr is an indented multiline walk of its items."""
+    seq = IrSequence((IrItem(IrLiteral("a")),))
+    assert repr(seq) == (
+        "IrSequence(\n"
+        "  IrItem(\n"
+        "    IrLiteral(value='a'),\n"
+        "    Quantifier(min=1, max=1)\n"
+        "  )\n"
+        ")"
+    )
+
+
+def test_repr_irrule_shows_non_child_fields_too():
+    """name appears alongside the recursed body."""
+    rule = IrRule("r", IrAlternation(()))
+    assert repr(rule) == ("IrRule(\n  name='r',\n  IrAlternation()\n)")

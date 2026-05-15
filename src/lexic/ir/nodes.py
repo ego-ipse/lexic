@@ -9,6 +9,17 @@ Hierarchy:
   IrNode (ABC) ── IrLeaf          leaves: IrLiteral, IrCharClass, IrRuleRef, Quantifier
                └─ IrStructure ─── IrCollection[_T]    homogeneous variable-length children
                                 └─ IrComposite[*_Ts]  heterogeneous fixed-arity children
+
+``__str__`` is templated at IrNode level as:
+
+    f"{_str_name}{_str_opener}{_inner_str()}{_str_closer}"
+
+``_str_name`` is auto-derived (strip ``Ir``, uppercase) unless overridden.
+``_str_opener``/``_str_closer`` default to ``(``/``)``.
+Quantifier uses ``[``/``]`` — subscript/bounds notation, distinct from
+constructor-call ``()``.
+``_inner_str()`` is abstract; IrLeaf defaults to ``repr(first_field)``,
+IrStructure to comma-joined extras and children.
 """
 
 from __future__ import annotations
@@ -35,7 +46,35 @@ _Ts = TypeVarTuple("_Ts")
 
 
 class IrNode(ABC):
-    """Structural protocol every IR node implements."""
+    """Structural protocol every IR node implements.
+
+    ``_str_name`` is auto-derived by ``__init_subclass__``: strip the ``Ir``
+    prefix and uppercase the remainder (e.g. ``IrRule`` → ``RULE``).
+    Subclasses that want a different name (e.g. ``SEQ`` instead of
+    ``SEQUENCE``) declare ``_str_name: ClassVar[str] = "SEQ"`` explicitly.
+    """
+
+    _str_name: ClassVar[str]
+    _str_opener: ClassVar[str] = "("
+    _str_closer: ClassVar[str] = ")"
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if "_str_name" in cls.__dict__:
+            return
+        cls._str_name = cls.__name__.removeprefix("Ir").upper()
+
+    @abstractmethod
+    def _inner_str(self) -> str:
+        """Content between the brackets in __str__.
+
+        :returns: Inner string content.
+        """
+
+    def __str__(self) -> str:
+        return (
+            f"{self._str_name}{self._str_opener}{self._inner_str()}{self._str_closer}"
+        )
 
     @abstractmethod
     def children(self) -> tuple[IrNode, ...]:
@@ -68,7 +107,21 @@ class IrNode(ABC):
 
 
 class IrLeaf(IrNode):
-    """Base for all leaf nodes — identity implementations of the structural protocol."""
+    """Base for all leaf nodes — identity implementations of the structural protocol.
+
+    Default ``_inner_str`` renders ``repr(first_field)``.
+    Leaves with multi-field or non-standard formatting override it.
+    """
+
+    __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
+
+    def _inner_str(self) -> str:
+        """Default: repr of the first dataclass field.
+
+        :returns: ``repr(first_field_value)``.
+        """
+        flds = dataclasses.fields(self)
+        return repr(getattr(self, flds[0].name))
 
     def children(self) -> tuple[IrNode, ...]:
         """Leaves have no children.
@@ -94,9 +147,53 @@ class IrStructure(IrNode, ABC):
 
     Declares __dataclass_fields__ so that dataclasses.replace() accepts
     concrete subclasses without a cast.
+
+    Concrete structural subclasses must carry ``@dataclass(repr=False)`` —
+    repr=False is required per-class because @dataclass runs after
+    __init_subclass__ and would otherwise overwrite IrStructure.__repr__.
     """
 
     __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
+
+    @abstractmethod
+    def _extra_field_names(self) -> tuple[str, ...]:
+        """Names of dataclass fields that are non-child extras.
+
+        :returns: Tuple of field names excluded from children().
+        """
+
+    def _extra_reprs(self) -> list[str]:
+        """``key=repr(val)`` strings for each extra field.
+
+        :returns: List of ``name=repr(value)`` strings.
+        """
+        return [f"{n}={getattr(self, n)!r}" for n in self._extra_field_names()]
+
+    def _extra_str_parts(self) -> list[str]:
+        """Canonical str parts for extra fields.
+
+        IrCollection renders extras as ``key=repr(val)``.
+        IrComposite overrides to render positionally (just ``repr(val)``).
+
+        :returns: List of formatted extra-field strings.
+        """
+        return self._extra_reprs()
+
+    def _inner_str(self) -> str:
+        """Comma-joined extras and children for __str__.
+
+        :returns: Inner string content.
+        """
+        return ", ".join(self._extra_str_parts() + [str(c) for c in self.children()])
+
+    def __repr__(self) -> str:
+        """Debug raw visualization."""
+        parts = self._extra_reprs() + [repr(c) for c in self.children()]
+        if not parts:
+            return f"{type(self).__name__}()"
+        body = ",\n".join(parts)
+        indented = "  " + body.replace("\n", "\n  ")
+        return f"{type(self).__name__}(\n{indented}\n)"
 
 
 # ── Variable-length homogeneous branch nodes ──────────────────────────
@@ -108,11 +205,21 @@ class IrCollection(IrStructure, Generic[_T]):
     Concrete subclasses declare:
         _items_attr: ClassVar[str] = "<field_name>"
 
-    children() and rebuild() are fully auto-implemented from that declaration.
+    ``_str_name`` is auto-derived from the class name unless overridden.
+    children() and rebuild() are fully auto-implemented from _items_attr.
     Extra dataclass fields (e.g. IrAst.start) are preserved on rebuild.
     """
 
     _items_attr: ClassVar[str]
+
+    def _extra_field_names(self) -> tuple[str, ...]:
+        """Fields that are not the homogeneous items tuple.
+
+        :returns: Tuple of extra field names.
+        """
+        return tuple(
+            f.name for f in dataclasses.fields(self) if f.name != self._items_attr
+        )
 
     def children(self) -> tuple[_T, ...]:
         """Return the homogeneous children tuple.
@@ -139,6 +246,7 @@ class IrComposite(IrStructure, Generic[*_Ts]):
     Concrete subclasses declare:
         _child_attrs: ClassVar[tuple[str, ...]] = ("<attr1>", "<attr2>", ...)
 
+    ``_str_name`` is auto-derived from the class name unless overridden.
     children() returns them in declaration order as tuple[IrNode, ...].
     rebuild() zips new_children back onto those attribute names.
     Extra fields (those not in _child_attrs) are preserved on rebuild.
@@ -149,6 +257,22 @@ class IrComposite(IrStructure, Generic[*_Ts]):
     """
 
     _child_attrs: ClassVar[tuple[str, ...]]
+
+    def _extra_field_names(self) -> tuple[str, ...]:
+        """Fields that are not named child attributes.
+
+        :returns: Tuple of extra field names.
+        """
+        return tuple(
+            f.name for f in dataclasses.fields(self) if f.name not in self._child_attrs
+        )
+
+    def _extra_str_parts(self) -> list[str]:
+        """Extra fields rendered positionally (just repr(val), no key prefix).
+
+        :returns: List of ``repr(value)`` strings.
+        """
+        return [repr(getattr(self, n)) for n in self._extra_field_names()]
 
     def children(self) -> tuple[IrNode, ...]:
         """Return children in _child_attrs declaration order.
@@ -183,45 +307,70 @@ class IrCharClass(IrLeaf):
     pattern: str
     negated: bool = False
 
+    def _inner_str(self) -> str:
+        """Pattern plus optional negated flag.
+
+        :returns: Inner string content.
+        """
+        return f"{self.pattern!r}, negated" if self.negated else repr(self.pattern)
+
 
 @dataclass(frozen=True, slots=True)
 class IrRuleRef(IrLeaf):
     """Reference to another rule by name."""
 
+    _str_name: ClassVar[str] = "REF"
     name: str
-
-
-# ── Quantifier (also a leaf IrNode) ──────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True)
 class Quantifier(IrLeaf):
-    """Repetition bounds. `max=None` means unbounded."""
+    """Repetition bounds. `max=None` means unbounded.
+
+    Uses ``[``/``]`` brackets — subscript/bounds notation, distinct from
+    the constructor-call ``(``/``)`` used by all other nodes.
+    """
+
+    _str_name: ClassVar[str] = "Q"
+    _str_opener: ClassVar[str] = "["
+    _str_closer: ClassVar[str] = "]"
 
     min: int = 1
     max: int | None = 1
+
+    def _inner_str(self) -> str:
+        """Compact bounds notation: ``n`` for exact, ``m..n`` for range.
+
+        :returns: Inner string content.
+        """
+        if self.min == self.max:
+            return str(self.min)
+        hi = "*" if self.max is None else str(self.max)
+        return f"{self.min}..{hi}"
 
 
 # ── Collection nodes ──────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class IrSequence(IrCollection["IrItem"]):
     """Concatenation of items."""
 
     _items_attr: ClassVar[str] = "items"
+    _str_name: ClassVar[str] = "SEQ"
     items: tuple[IrItem, ...] = ()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class IrAlternation(IrCollection["IrSequence"]):
     """Choice between sequences. Always >= 1 arm."""
 
     _items_attr: ClassVar[str] = "arms"
+    _str_name: ClassVar[str] = "ALT"
     arms: tuple[IrSequence, ...] = ()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class IrAst(IrCollection["IrRule"]):
     """Full grammar: rules + start-rule name."""
 
@@ -233,7 +382,7 @@ class IrAst(IrCollection["IrRule"]):
 # ── Composite nodes ───────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class IrGroup(IrComposite["IrAlternation"]):
     """Parenthesised group. Body is always an IrAlternation."""
 
@@ -241,7 +390,7 @@ class IrGroup(IrComposite["IrAlternation"]):
     body: IrAlternation
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class IrItem(IrComposite["IrAtom", "Quantifier"]):
     """An atom (leaf or group) with a quantifier."""
 
@@ -250,7 +399,7 @@ class IrItem(IrComposite["IrAtom", "Quantifier"]):
     quantifier: Quantifier = field(default_factory=Quantifier)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class IrRule(IrComposite["IrAlternation"]):
     """A named rule. Body is always an IrAlternation, even single-arm."""
 
