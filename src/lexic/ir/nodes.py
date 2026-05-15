@@ -3,7 +3,6 @@
 Every IR node implements the structural protocol from IrNode:
   - children() -> tuple[IrNode, ...]   children in traversal order
   - rebuild(new_children) -> IrNode    reconstruct under transformation
-  - emit(indent=0) -> str              default string rendering (debug)
 
 Hierarchy:
   IrNode (ABC) ── IrLeaf          leaves: IrLiteral, IrCharClass, IrRuleRef, Quantifier
@@ -90,17 +89,6 @@ class IrNode(ABC):
         :param new_children: Tuple of new child nodes to rebuild with.
         :returns: A new IrNode instance with the new children.
         """
-
-    def emit(self, indent: int = 0) -> str:  # pylint: disable=unused-argument
-        """Default string rendering used by IrMetaEmitter.
-
-        Leaves return repr(self), ignoring indent.
-        Flavour emitters bypass this via their action dispatch table.
-
-        :param indent: Indentation depth (number of two-space levels).
-        :returns: String representation of the node.
-        """
-        return repr(self)
 
 
 # ── Leaf base ─────────────────────────────────────────────────────────

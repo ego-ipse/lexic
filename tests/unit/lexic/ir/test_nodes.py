@@ -204,13 +204,6 @@ def test_irnode_default_rebuild_is_identity():
     assert leaf.rebuild(()) is leaf
 
 
-def test_irnode_default_emit_returns_repr():
-    """Leaf default returns repr(self), ignoring indent."""
-    leaf = IrLiteral("x")
-    assert leaf.emit() == repr(leaf)
-    assert leaf.emit(indent=3) == repr(leaf)
-
-
 def test_iritem_children_returns_atom_and_quantifier():
     """An IrItem's children are its atom and quantifier."""
     item = IrItem(IrLiteral("x"), Quantifier(0, None))
@@ -356,3 +349,43 @@ def test_repr_irrule_shows_non_child_fields_too():
     """name appears alongside the recursed body."""
     rule = IrRule("r", IrAlternation(()))
     assert repr(rule) == ("IrRule(\n  name='r',\n  IrAlternation()\n)")
+
+
+def test_str_iralternation():
+    """An IrAlternation's string is its arms."""
+    alt = IrAlternation((IrSequence(()),))
+    assert str(alt) == "ALT(SEQ())"
+
+
+def test_str_irgroup():
+    """An IrGroup's string is its body."""
+    grp = IrGroup(IrAlternation(()))
+    assert str(grp) == "GROUP(ALT())"
+
+
+def test_str_iritem():
+    """An IrItem's string is its atom and quantifier."""
+    assert str(IrItem(IrLiteral("a"))) == "ITEM(LITERAL('a'), Q[1])"
+
+
+# __repr__ — additional coverage
+
+
+def test_repr_empty_structural_node():
+    """An empty structural node renders as ClassName() without a newline."""
+    assert repr(IrSequence(())) == "IrSequence()"
+    assert repr(IrAlternation(())) == "IrAlternation()"
+
+
+def test_repr_irgroup_no_extras():
+    """IrGroup (IrComposite with no extras) indents its only child."""
+    grp = IrGroup(IrAlternation(()))
+    assert repr(grp) == "IrGroup(\n  IrAlternation()\n)"
+
+
+def test_repr_irast_with_extras_and_children():
+    """IrAst renders start= extra then indented rule children."""
+    ast = IrAst(rules=(IrRule("r", IrAlternation(())),), start="r")
+    assert repr(ast) == (
+        "IrAst(\n  start='r',\n  IrRule(\n    name='r',\n    IrAlternation()\n  )\n)"
+    )
