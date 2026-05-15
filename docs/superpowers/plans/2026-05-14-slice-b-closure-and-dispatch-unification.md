@@ -824,90 +824,260 @@ the API. Output is a placeholder notation; eventual IrFlavour replaces it."
 
 ---
 
-### Task 1.4: `IrAction` leaf; `IrDispatch` becomes an `IrCollection["IrAction"]`; delete `_CHILDREN`/`_REBUILD`/`_DUMP`/`dump()`/`visit`/`generic_visit`
+### Task 1.4: `IrAction` + `IrOp` algebra in `src/lexic/ir/action.py`; `IrDispatch` interprets `IrOp`; delete `_CHILDREN`/`_REBUILD`/`_DUMP`/`dump()`/`visit`/`generic_visit`
 
 **Files:**
-- Modify: `src/lexic/ir/nodes.py` (add `IrAction`)
+- Create: `src/lexic/ir/action.py` (new file — `IrAction` + `IrOp` hierarchy)
+- Create: `tests/unit/lexic/ir/test_action.py`
 - Modify: `src/lexic/ir/walk.py`
 - Modify: `tests/unit/lexic/ir/test_walk.py`
-- Grep + adjust: any caller of `dump(...)` switches to `repr(...)`; any caller of `dispatcher.visit(node)` switches to `dispatcher(node)`.
+- Modify: `src/lexic/ir/__init__.py` (re-export `IrAction`, `IrOp`, plus the concrete ops users typically build with)
+- Migrate: `src/lexic/ir/derive.py`, `src/lexic/codegen/aliases.py`, `src/lexic/codegen/model_emitter.py` (concrete plan in Step 7)
 
-**Scope of the revision (2026-05-15).** Two structural cleanups land together:
+**Scope of the revision (2026-05-15).**
 
-1. **`IrDispatch` becomes structural.** It already inherits from `IrNode` (B-level), but treating it as a leaf with `children() == ()` is dishonest — a dispatcher's whole point is its action table. We promote each action-table entry to a leaf `IrAction(IrLeaf)` wrapping `(target_type, handler)`. `IrDispatch` then inherits from `IrCollection["IrAction"]` with `_items_attr = "actions"` — children are its actions, rebuild reconstructs the table. C-level marker: when actions grow internal structure (a small algebra of typesetting/transformation sub-ops), `IrAction` becomes the abstract base of a hierarchy — `IrDispatch` doesn't change.
+1. **`IrAction` is structural from day one.** `IrAction(IrComposite["IrOp"])` carries `target_type: type` and `body: IrOp`. The body is a tree of typesetting / transformation operations expressible as IR nodes — no opaque callable. Parsable / codegenable: a future `IrFlavour` grammar parses into a tree of `IrAction(IrOp...)`, and a `PyFlavourCodegenRenderer` emits Python flavour file source from that tree. The dispatch system around `IrAction` doesn't have to change to enable that end-game.
 
-2. **Dispatch logic collapses.** `visit` + `generic_visit` + `_combine` + `getattr("visit_<TypeName>", ...)` were rote scaffolding when the action table held metadata. With actions as structural IR data, the dispatcher *is* a callable that walks children, then either reads the action table or falls back. One method (`__call__`) and one extension point (`default`).
+2. **`IrOp` algebra.** A small set of typesetting / transformation primitives:
+   - `IrText(text)` — literal text
+   - `IrField(field_name)` — `str` of a non-IrNode field on the dispatched node
+   - `IrRecurse(field_name)` — result of dispatching into a named IrNode child (looked up in already-visited children)
+   - `IrSeq(parts)` — concatenate sub-op results in order
+   - `IrJoin(field_name, separator, empty="")` — iterate a tuple-of-IrNode field, look up each result, join with separator (or return `empty` when field is empty)
+   - `IrCond(field_name, then_op, else_op)` — boolean field guard
+   - `IrCallable(handler)` — escape hatch wrapping an opaque `Callable[[IrNode, tuple[_T, ...]], _T]` for procedural cases (`_HoistTransformer`'s rebuild logic, `_RuleRefFinder`'s side-effect flag, complex emitters that can't be expressed structurally yet)
 
-**Empty-vs-truthy actions semantics.** `actions == ()` means "no flavour overrides — use `default` for everything" (this is the `IrMetaEmitter`-style use case). A non-empty `actions` tuple means "the flavour declared a closed world — a node-type miss is a real error". `UnsupportedConstructError` for the miss.
+3. **`IrDispatch` becomes structural.** `IrDispatch(IrCollection["IrAction"])` with `_items_attr = "actions"`. Children are the actions; rebuild reconstructs the table.
+
+4. **Dispatch logic collapses.** `visit` + `generic_visit` + `_combine` + `getattr("visit_<TypeName>", ...)` are replaced by `__call__`: walk children first, look up the action for `type(node)`, evaluate its `body` against `(node, new_children)`. One method, one extension point (`default`).
+
+5. **Soft dispatch at the base.** `__call__` always falls through to `default` on table miss. Closed-world strictness is a flavour concern: `IrEmitter.default` (Task 3.1) raises `UnsupportedConstructError` when `self.actions` is truthy and the type missed. Partial transformers / visitors register actions for the types they care about; everything else falls through to `default` and walks identity (`IrTransformer`) or no-ops (`IrVisitor`).
 
 - [ ] **Step 1: Read existing walk tests for context**
 
 Run: `uv run pytest tests/unit/lexic/ir/test_walk.py -v`. Confirm green pre-change.
 
-- [ ] **Step 2: Locate call sites that need migration**
+- [ ] **Step 2: Locate call sites needing migration**
 
 ```bash
-uv run rg -n "\bdump\(|\.visit\(" src/ tests/
+uv run rg -n "\bdump\(|\.visit\(|IrDispatch\[" src/ tests/
 ```
 
-Note each site — `dump(node)` → `repr(node)` and `dispatcher.visit(node)` → `dispatcher(node)`.
+Concrete sites (as of 2026-05-15): `src/lexic/ir/derive.py` (`_RuleRefFinder`, `_HoistTransformer`), `src/lexic/codegen/aliases.py` (`_PatternAliasVisitor`), `src/lexic/codegen/model_emitter.py` (`_IrRepr`). Migration plan per file in Step 7.
 
-- [ ] **Step 3: Add `IrAction(IrLeaf)` in `src/lexic/ir/nodes.py`**
-
-`IrAction` uses the same template-method pattern from Task 1.3. `_str_name` auto-derives to `"ACTION"`. The default `_inner_str` would `repr(target_type)` (yielding `<class 'IrLiteral'>`); we override to render `target_type.__name__` for readability.
+- [ ] **Step 3: Create `src/lexic/ir/action.py` — `IrOp` algebra + `IrAction`**
 
 ```python
-@dataclass(frozen=True, slots=True, hash=False, eq=False)
-class IrAction(IrLeaf):
-    """A single dispatch entry: a (target_type, handler) pair.
+"""IrAction + IrOp — structural action algebra.
 
-    Identity semantics: ``eq=False, hash=False`` falls back to ``object``
-    defaults. This is deliberate — ``handler`` is a callable, and
-    structural equality on functions is murky (two inline lambdas compare
-    unequal even though their bodies match). The rest of the IR hierarchy
-    keeps the default ``eq=True`` because their fields are structurally
-    comparable; IrAction is the carve-out.
+An IrDispatch's action table is a tuple of IrAction nodes. Each IrAction
+maps a target IrNode type to an IrOp body that describes how to handle
+nodes of that type. The IrOp algebra is the small language in which
+flavour emitters express their per-type rendering rules:
 
-    TODO(C-level): handler grows into an IrAction subtree expressing a
-    typesetting/transformation sub-algebra. At that point IrAction stops
-    being a leaf — its operations become its children — and the
-    ``handler: Callable`` field is replaced by structural children. The
-    dispatch system above (IrDispatch) does not need to change: it
-    already treats actions as IrNode children via IrCollection. Once
-    handler is gone, IrAction can drop the ``eq=False, hash=False``
-    carve-out and recover structural equality.
+  IrText("|")                                    literal text
+  IrField("name")                                str of a non-IrNode field
+  IrRecurse("body")                              result of dispatching self.body
+  IrSeq((part1, part2, ...))                     concat sub-op results
+  IrJoin("arms", " | ")                          join tuple-field children
+  IrCond("negated", IrText("^"), IrText(""))     boolean field guard
+  IrCallable(fn)                                 escape hatch for procedural ops
+
+Because actions are structural IR data, a Flavour can be parsed from
+grammar text and emitted as Python source — actions are IR, not opaque code.
+
+For procedural cases (transformers that do complex rebuild logic, visitors
+with side effects, emitter actions not yet expressible structurally), wrap
+the logic in IrCallable. Structural ops are preferred where they fit.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable, ClassVar
+
+from lexic.ir.nodes import IrCollection, IrComposite, IrLeaf, IrNode
+
+if TYPE_CHECKING:
+    from lexic.ir.walk import IrDispatch
+
+
+# ── IrOp algebra ──────────────────────────────────────────────────────
+
+
+class IrOp(IrNode, ABC):
+    """A typesetting / transformation operation; the body of an IrAction.
+
+    Each op subclass implements ``eval`` to compute its contribution to
+    the dispatched result given the parent dispatcher, the dispatched
+    node, and the already-visited children's results.
     """
 
-    target_type: type
+    @abstractmethod
+    def eval(
+        self,
+        dispatcher: "IrDispatch[Any]",
+        node: IrNode,
+        new_children: tuple,
+    ) -> Any:
+        """Evaluate this op.
+
+        :param dispatcher: Parent dispatcher (the IrDispatch whose action
+            body this is). Available for ops that need to re-dispatch.
+        :param node: The dispatched node.
+        :param new_children: Already-visited results for ``node.children()``,
+            aligned by position.
+        :returns: This op's contribution to the dispatched result.
+        """
+
+
+@dataclass(frozen=True, slots=True)
+class IrText(IrOp, IrLeaf):
+    """Emit a literal string."""
+
+    text: str
+
+    def eval(self, dispatcher, node, new_children) -> str:
+        return self.text
+
+
+@dataclass(frozen=True, slots=True)
+class IrField(IrOp, IrLeaf):
+    """Emit ``str(getattr(node, field_name))`` from a non-IrNode field."""
+
+    field_name: str
+
+    def eval(self, dispatcher, node, new_children) -> str:
+        return str(getattr(node, self.field_name))
+
+
+@dataclass(frozen=True, slots=True)
+class IrRecurse(IrOp, IrLeaf):
+    """Emit the already-visited result for ``self.<field_name>``.
+
+    The field must hold an IrNode that appears in ``node.children()``;
+    its result is looked up in ``new_children`` by identity.
+    """
+
+    field_name: str
+
+    def eval(self, dispatcher, node, new_children) -> Any:
+        target = getattr(node, self.field_name)
+        for old, new in zip(node.children(), new_children):
+            if old is target:
+                return new
+        # Fallback: not in children (shouldn't happen for valid usage).
+        return dispatcher(target)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class IrSeq(IrOp, IrCollection["IrOp"]):
+    """Concatenate sub-op results."""
+
+    _items_attr: ClassVar[str] = "parts"
+    parts: tuple[IrOp, ...] = ()
+
+    def eval(self, dispatcher, node, new_children) -> str:
+        return "".join(op.eval(dispatcher, node, new_children) for op in self.parts)
+
+
+@dataclass(frozen=True, slots=True)
+class IrJoin(IrOp, IrLeaf):
+    """Iterate a tuple-of-IrNode field; join already-visited results with separator.
+
+    If the field is empty, returns ``empty`` (typically ``""`` or a sentinel
+    like ``'""'`` for GBNF's empty sequence).
+    """
+
+    field_name: str
+    separator: str
+    empty: str = ""
+
+    def eval(self, dispatcher, node, new_children) -> str:
+        field_value = getattr(node, self.field_name)
+        if not field_value:
+            return self.empty
+        lookup = {id(old): new for old, new in zip(node.children(), new_children)}
+        return self.separator.join(lookup[id(fv)] for fv in field_value)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class IrCond(IrOp, IrComposite["IrOp", "IrOp"]):
+    """If ``bool(getattr(node, field_name))``, eval ``then_op``; else ``else_op``."""
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("then_op", "else_op")
+    field_name: str
+    then_op: IrOp
+    else_op: IrOp
+
+    def eval(self, dispatcher, node, new_children) -> Any:
+        branch = self.then_op if getattr(node, self.field_name) else self.else_op
+        return branch.eval(dispatcher, node, new_children)
+
+
+@dataclass(frozen=True, slots=True, hash=False, eq=False)
+class IrCallable(IrOp, IrLeaf):
+    """Escape hatch: wraps an opaque ``Callable[[IrNode, tuple], _T]``.
+
+    For procedural transformers / visitors and any flavour action that
+    can't yet be expressed structurally. Once everything has a structural
+    form, IrCallable can be deleted.
+
+    Identity semantics (``eq=False, hash=False``) — callables don't have
+    structural equality. Same carve-out as IrAction.
+    """
+
     handler: Callable[..., Any]
 
-    def _inner_str(self) -> str:
-        """Render the target type's short name (not repr) for readability.
+    def eval(self, dispatcher, node, new_children) -> Any:
+        return self.handler(node, new_children)
 
-        :returns: e.g. ``IrLiteral`` for ``IrAction(IrLiteral, fn)``.
-        """
-        return self.target_type.__name__
+    def _inner_str(self) -> str:
+        name = getattr(self.handler, "__name__", "callable")
+        return f"<{name}>"
+
+
+# ── IrAction ──────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True, hash=False, eq=False, repr=False)
+class IrAction(IrComposite["IrOp"]):
+    """A dispatch entry: a (target_type, body) pair.
+
+    ``target_type`` is the IrNode subclass this action handles; ``body``
+    is the IrOp tree describing what to do with such a node. Identity
+    semantics (``eq=False, hash=False``) because ``target_type`` is a
+    type object and body may contain IrCallable, neither of which
+    compares structurally well.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
+    target_type: type
+    body: IrOp
+
+    def _inner_str(self) -> str:
+        return f"{self.target_type.__name__}, {self.body}"
 ```
 
-`str(IrAction(IrLiteral, fn))` → `ACTION(IrLiteral)`. (`Callable` and `Any` must be imported in nodes.py.)
-
-- [ ] **Step 4: Rewrite `src/lexic/ir/walk.py`**
+- [ ] **Step 4: Rewrite `src/lexic/ir/walk.py` — `IrDispatch` interprets `IrOp`**
 
 ```python
 """IrDispatch, IrVisitor, IrTransformer — generic IR traversal.
 
 IrDispatch is an IrCollection["IrAction"]. Its children() are the
-dispatch table — each action is a structural IrNode. Calling the
-dispatcher walks an IR subtree and applies the actions.
+dispatch table; calling the dispatcher walks an IR subtree applying
+the actions. Each action's body is an IrOp tree — evaluated by op.eval
+against the dispatched node and its already-visited children.
 
 Canonical instantiations:
 
   IrVisitor       = IrDispatch[None]    walks for side effects
   IrTransformer   = IrDispatch[IrNode]  rewrites via node.rebuild()
   IrEmitter       = IrDispatch[str]     produces strings (Task 3.1);
-                                        default = str(node) (the node's
-                                        intrinsic canonical action from
-                                        __str__).
+                                        default = str(node); closed-world
+                                        flavours override default to raise
+                                        on unhandled types.
 
 Per-node intrinsic data (children layout, rebuild constructor, canonical
 form, debug repr) lives on the node itself — there is no central
@@ -918,11 +1088,10 @@ children/rebuild from IrLeaf/IrCollection/IrComposite.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import cached_property
-from typing import Any, Callable, ClassVar, Generic, TypeVar, cast
+from typing import Any, ClassVar, Generic, TypeVar, cast
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.nodes import IrAction, IrCollection, IrNode
+from lexic.ir.action import IrAction
+from lexic.ir.nodes import IrCollection, IrNode
 
 _T = TypeVar("_T")
 
@@ -932,55 +1101,40 @@ class IrDispatch(IrCollection["IrAction"], Generic[_T]):
     """A tree-walking operation. children() are its IrActions; calling
     the dispatcher walks an IR subtree applying those actions.
 
-    Subclass semantics:
-      - `actions` empty  → every node passes through `default`
-      - `actions` truthy → every walked node must have a matching IrAction;
-                           a miss raises UnsupportedConstructError
-                           (the flavour declared a closed world).
+    Soft dispatch: a node-type miss falls through to ``default``.
+    Strictness (raising on miss) is a per-subclass concern, expressed by
+    overriding ``default`` (see IrEmitter in Task 3.1).
 
-    :ivar actions: Tuple of dispatch entries. Each `IrAction` carries a
-        target node type and the handler that runs for that type.
+    :ivar actions: Tuple of dispatch entries. Each ``IrAction`` carries a
+        target node type and an ``IrOp`` body describing the operation.
     """
 
     _items_attr: ClassVar[str] = "actions"
     actions: tuple[IrAction, ...] = ()
 
-    @cached_property
-    def _table(self) -> dict[type, Callable[[IrNode, tuple[_T, ...]], _T]]:
-        """Lookup table derived from self.actions on first access.
-
-        :returns: Mapping from target type to handler callable.
-        """
-        return {a.target_type: a.handler for a in self.actions}
+    @property
+    def _table(self) -> dict[type, IrAction]:
+        # cached_property doesn't combine with frozen dataclasses; recompute
+        # is cheap (small dict) and keeps frozen semantics intact.
+        return {a.target_type: a for a in self.actions}
 
     def __call__(self, node: IrNode) -> _T:
-        """Walk the subtree: recurse children, then dispatch this node.
+        """Walk the subtree: recurse children, then evaluate this node's action.
 
         :param node: Root of the IR subtree to operate on.
         :returns: Dispatcher-specific result.
-        :raises UnsupportedConstructError: if actions is non-empty and
-            no handler is registered for node's type.
         """
         new_children: tuple[_T, ...] = tuple(self(c) for c in node.children())
-        if not self.actions:
-            return self.default(node, new_children)
-        try:
-            handler = self._table[type(node)]
-        except KeyError as exc:
-            raise UnsupportedConstructError(
-                f"{type(self).__name__} has no action for {type(node).__name__!r}"
-            ) from exc
-        return handler(node, new_children)
+        action = self._table.get(type(node))
+        if action is not None:
+            return cast("_T", action.body.eval(self, node, new_children))
+        return self.default(node, new_children)
 
     def default(self, node: IrNode, new_children: tuple[_T, ...]) -> _T:
-        """Behaviour when `actions` is empty. Subclasses describe their `_T`.
+        """Behaviour when no action is registered for node's type.
 
-        Base passes `node` through as `_T` — the natural identity for
-        IrTransformer. IrEmitter and IrVisitor override.
-
-        :param node: Node being defaulted.
-        :param new_children: Already-visited children results.
-        :returns: A `_T` value (subclass-specific shape).
+        Base passes ``node`` through as ``_T`` — the identity that works
+        for IrTransformer's no-op case. IrVisitor and IrEmitter override.
         """
         return cast("_T", node)
 
@@ -995,7 +1149,7 @@ class IrVisitor(IrDispatch[None]):
 
 @dataclass(frozen=True, slots=True, repr=False)
 class IrTransformer(IrDispatch[IrNode]):
-    """Rewrites the IR. T=IrNode. Default: pass node through; rebuild on change."""
+    """Rewrites the IR. Default: pass node through; rebuild on change."""
 
     def default(self, node: IrNode, new_children: tuple[IrNode, ...]) -> IrNode:
         if any(nc is not oc for nc, oc in zip(new_children, node.children())):
@@ -1003,95 +1157,322 @@ class IrTransformer(IrDispatch[IrNode]):
         return node
 
 
-# IrEmitter is added in Task 3.1. Sketch for orientation:
+# IrEmitter is added in Task 3.1. Sketch:
 #
 # @dataclass(frozen=True, slots=True, repr=False)
 # class IrEmitter(IrDispatch[str]):
 #     def default(self, node: IrNode, new_children: tuple[str, ...]) -> str:
-#         return str(node)
+#         if self.actions:
+#             raise UnsupportedConstructError(
+#                 f"{type(self).__name__} has no action for {type(node).__name__!r}"
+#             )
+#         return str(node)         # IrMetaEmitter-style: no flavour, intrinsic str()
 ```
 
-Note: `IrDispatch` and its concrete subclasses are `@dataclass(repr=False)` because they participate in the IR node hierarchy through `IrCollection`. The `repr=False` is required so `IrStructure.__repr__` (from Task 1.3) is inherited rather than shadowed. The auto-derived `_str_name` from Task 1.3's `__init_subclass__` is preserved: `DISPATCH`, `VISITOR`, `TRANSFORMER`, `EMITTER`. So `str(IrTransformer(actions=(IrAction(IrLiteral, fn),)))` → `TRANSFORMER(ACTION(IrLiteral))`.
+Note: `frozen=True` dataclasses can't use `cached_property` because the descriptor needs to write to an instance attribute on first access. `_table` is a regular `@property` instead; the dict is small (one entry per node type the dispatcher cares about) so per-call construction is negligible.
 
 `_CHILDREN`, `_REBUILD`, `_DUMP`, `dump()`, `visit`, `generic_visit`, `_combine`, and any `visit_<TypeName>` getattr indirection are all gone.
 
-- [ ] **Step 5: Update call sites**
+- [ ] **Step 5: Update `src/lexic/ir/__init__.py`**
 
-For each `dump(node)` found in Step 2 → `repr(node)`. For each `dispatcher.visit(node)` → `dispatcher(node)`. Adjust tests that asserted on the legacy `_DUMP` strings: the new debug format is the indented `__repr__` from Task 1.3.
+Re-export `IrAction`, `IrOp`, and the concrete ops most code constructs with:
 
-- [ ] **Step 6: Update `tests/unit/lexic/ir/test_walk.py`**
+```python
+from lexic.ir.action import (
+    IrAction,
+    IrCallable,
+    IrCond,
+    IrField,
+    IrJoin,
+    IrOp,
+    IrRecurse,
+    IrSeq,
+    IrText,
+)
+```
 
-Remove tests asserting on `_CHILDREN`/`_REBUILD`/`_DUMP`. Replace with:
+Add them to `__all__`.
+
+- [ ] **Step 6: Run tests baseline**
+
+Run: `uv run pytest -q`. Expect failures in `derive.py` / `model_emitter.py` / `aliases.py` callers and in `test_walk.py` (legacy assertions on `_DUMP` etc.). Step 7 fixes them.
+
+- [ ] **Step 7: Migrate the four caller files**
+
+Each subclass becomes a constructor that builds an `IrDispatch` with an `actions` tuple. Per-instance mutable state (helpers, found-flag, alias map) is **hoisted out of the frozen dataclass** into a closure or a caller-owned object — `IrDispatch` itself stays frozen.
+
+**`src/lexic/ir/derive.py` — `_RuleRefFinder` and `_HoistTransformer`:**
+
+Replace both with builder functions that capture mutable state in a closure and bind an `IrCallable` action.
+
+```python
+from lexic.ir.action import IrAction, IrCallable
+from lexic.ir.walk import IrTransformer, IrVisitor
+
+
+def _rule_ref_finder() -> tuple[IrVisitor, Callable[[], bool]]:
+    """Build a visitor that records whether any IrRuleRef appeared.
+
+    :returns: ``(visitor, was_found)`` — call ``visitor(tree)`` then ``was_found()``.
+    """
+    state = {"found": False}
+
+    def _on_ruleref(node: IrRuleRef, new_children: tuple) -> None:
+        state["found"] = True
+
+    visitor = IrVisitor(actions=(
+        IrAction(IrRuleRef, IrCallable(_on_ruleref)),
+    ))
+    return visitor, lambda: state["found"]
+
+
+@cache
+def has_ruleref(node: IrNode) -> bool:
+    visitor, found = _rule_ref_finder()
+    visitor(node)
+    return found()
+```
+
+Note: the original `_RuleRefFinder` overrode `visit` to short-circuit once `found=True`. With soft dispatch and no override hook, we lose that optimization; the visitor walks the whole subtree. Acceptable — the use case (boolean classification) is cached via `@cache`, so the cost is paid once per node identity.
+
+For `_HoistTransformer`:
+
+```python
+def _hoist_transformer(parent_name: str, name_set: set[str]) -> tuple[IrTransformer, list[IrRule]]:
+    """Build a transformer that hoists quantified groups with rulerefs.
+
+    :returns: ``(transformer, helpers_list)`` — the list is appended to as the
+        transformer runs.
+    """
+    helpers: list[IrRule] = []
+
+    def _on_iritem(node: IrItem, new_children: tuple) -> IrItem:
+        new_atom, new_quantifier = new_children
+        if not isinstance(new_atom, IrGroup):
+            if new_atom is node.atom and new_quantifier is node.quantifier:
+                return node
+            return IrItem(atom=new_atom, quantifier=new_quantifier)
+        is_quantified = new_quantifier != Quantifier(1, 1)
+        if is_quantified and has_ruleref(new_atom.body):
+            helper_name = _reserve_helper_name(parent_name, name_set)
+            name_set.add(helper_name)
+            helpers.append(IrRule(name=helper_name, body=new_atom.body))
+            return IrItem(atom=IrRuleRef(name=helper_name), quantifier=new_quantifier)
+        return IrItem(atom=new_atom, quantifier=new_quantifier)
+
+    transformer = IrTransformer(actions=(
+        IrAction(IrItem, IrCallable(_on_iritem)),
+    ))
+    return transformer, helpers
+
+
+def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
+    name_set: set[str] = {r.name for r in ast.rules}
+    all_helpers: list[IrRule] = []
+    new_rules: list[IrRule] = []
+    for rule in ast.rules:
+        transformer, helpers = _hoist_transformer(rule.name, name_set)
+        new_body = transformer(rule.body)
+        all_helpers.extend(helpers)
+        new_rules.append(IrRule(rule.name, new_body))
+    return IrAst(rules=tuple(new_rules), start=ast.start), all_helpers
+```
+
+**`src/lexic/codegen/aliases.py` — `_PatternAliasVisitor`:**
+
+The visitor maintains an alias map and a stack of ruleref-frames. Hoist both into closure state; bind two `IrCallable` actions (`IrRuleRef`, `IrItem`).
+
+```python
+def _pattern_alias_collector() -> tuple[IrVisitor, dict[str, PatternAlias]]:
+    aliases: dict[str, PatternAlias] = {}
+    name_counts: Counter[str] = Counter()
+    ruleref_frames: list[bool] = [False]
+
+    def _record(regex: str, name: str) -> None:
+        # ... (lifted verbatim from the old class) ...
+        ...
+
+    def _on_ruleref(node: IrRuleRef, new_children: tuple) -> None:
+        ruleref_frames[-1] = True
+
+    def _on_iritem(node: IrItem, new_children: tuple) -> None:
+        atom, q = node.atom, node.quantifier
+        if isinstance(atom, IrGroup):
+            # ... group handling (push/pop frame, record on clean exit) ...
+            ...
+            return
+        if isinstance(atom, IrCharClass):
+            _record(regex_for_charclass(atom, q), _name_for_charclass(atom) or "Pattern")
+
+    visitor = IrVisitor(actions=(
+        IrAction(IrRuleRef, IrCallable(_on_ruleref)),
+        IrAction(IrItem, IrCallable(_on_iritem)),
+    ))
+    return visitor, aliases
+
+
+def collect_aliases(ast: IrAst) -> dict[str, PatternAlias]:
+    visitor, aliases = _pattern_alias_collector()
+    visitor(ast)
+    return aliases
+```
+
+**`src/lexic/codegen/model_emitter.py` — `_IrRepr`:**
+
+Each of the seven repr-action lambdas becomes an `IrAction(NodeType, IrCallable(lambda))`. The class collapses to a constructor.
+
+```python
+from lexic.ir.action import IrAction, IrCallable
+from lexic.ir.walk import IrEmitter   # added in Task 3.1
+
+
+def _ir_repr() -> IrEmitter:
+    return IrEmitter(actions=(
+        IrAction(IrLiteral,     IrCallable(lambda n, nc: f"IrLiteral({n.value!r})")),
+        IrAction(IrCharClass,   IrCallable(lambda n, nc: f"IrCharClass({n.pattern!r}, negated={n.negated})")),
+        IrAction(IrRuleRef,     IrCallable(lambda n, nc: f"IrRuleRef({n.name!r})")),
+        IrAction(IrGroup,       IrCallable(lambda n, nc: f"IrGroup({nc[0]})")),
+        IrAction(IrAlternation, IrCallable(lambda n, nc: (
+            "IrAlternation(arms=())" if not nc else f"IrAlternation(arms=({', '.join(nc)},))"
+        ))),
+        IrAction(IrSequence,    IrCallable(lambda n, nc: (
+            "IrSequence(items=())" if not nc else f"IrSequence(items=({', '.join(nc)},))"
+        ))),
+        IrAction(IrItem,        IrCallable(lambda n, nc: (
+            f"IrItem({nc[0]}, Quantifier({n.quantifier.min}, {n.quantifier.max!r}))"
+        ))),
+    ))
+```
+
+Callers swap `self._repr.visit(item)` for `self._repr(item)` (the dispatcher is callable).
+
+Note: `_IrRepr` predates Task 3.1's `IrEmitter`. Until Task 3.1 lands, `model_emitter.py`'s repr-emitter uses `IrTransformer[str]`... wait, that breaks the type. The clean order is: ship Task 3.1 (`IrEmitter`) before this migration, OR `_IrRepr` uses a custom `IrDispatch[str]` subclass interim. Pick whichever order keeps the suite green at every step. *Decision at execution time: see Step 9.*
+
+- [ ] **Step 8: Update `tests/unit/lexic/ir/test_walk.py`**
+
+Remove tests on `_CHILDREN` / `_REBUILD` / `_DUMP`. Add:
 
 ```python
 def test_irdispatch_is_an_ircollection_of_actions():
-    """IrDispatch.children() returns its IrAction tuple; rebuild reconstructs."""
-    from lexic.ir.nodes import IrAction, IrCollection, IrLiteral
+    from lexic.ir.action import IrAction, IrCallable
+    from lexic.ir.nodes import IrCollection, IrLiteral
     from lexic.ir.walk import IrTransformer
 
-    a = IrAction(IrLiteral, lambda n, _kids: n)
+    a = IrAction(IrLiteral, IrCallable(lambda n, _: n))
     t = IrTransformer(actions=(a,))
-
     assert isinstance(t, IrCollection)
     assert t.children() == (a,)
-    a2 = IrAction(IrLiteral, lambda n, _kids: n)
-    rebuilt = t.rebuild((a2,))
-    assert rebuilt.actions == (a2,)
-
-
-def test_iraction_str_uses_target_type_name():
-    """IrAction renders as ACTION(<short type name>)."""
-    from lexic.ir.nodes import IrAction, IrLiteral
-    assert str(IrAction(IrLiteral, lambda n, _kids: n)) == "ACTION(IrLiteral)"
+    a2 = IrAction(IrLiteral, IrCallable(lambda n, _: n))
+    assert t.rebuild((a2,)).actions == (a2,)
 
 
 def test_irtransformer_empty_actions_is_identity():
-    """Empty actions → default passes everything through (rebuild if children change)."""
     from lexic.ir.nodes import IrItem, IrLiteral, IrSequence
     from lexic.ir.walk import IrTransformer
-
     seq = IrSequence((IrItem(IrLiteral("a")),))
     assert IrTransformer()(seq) == seq
 
 
-def test_irdispatch_truthy_actions_raise_on_miss():
-    """Non-empty actions → miss is loud."""
-    from lexic.exceptions import UnsupportedConstructError
-    from lexic.ir.nodes import IrAction, IrLiteral, IrSequence
+def test_irdispatch_partial_actions_falls_through_to_default():
+    """Miss falls through to default (soft dispatch)."""
+    from lexic.ir.action import IrAction, IrCallable
+    from lexic.ir.nodes import IrLiteral, IrSequence, IrItem
     from lexic.ir.walk import IrTransformer
 
-    # Action covers IrLiteral only; visiting an IrSequence misses.
-    t = IrTransformer(actions=(IrAction(IrLiteral, lambda n, _kids: n),))
-    with pytest.raises(UnsupportedConstructError):
-        t(IrSequence(()))
+    # Action covers IrLiteral only; visiting an IrSequence falls to default
+    # (which does identity rebuild). Should not raise.
+    t = IrTransformer(actions=(IrAction(IrLiteral, IrCallable(lambda n, _: n)),))
+    seq = IrSequence((IrItem(IrLiteral("a")),))
+    assert t(seq) == seq
 ```
 
-- [ ] **Step 7: Run tests**
+And in `tests/unit/lexic/ir/test_action.py`:
 
-Run: `uv run pytest -q` — PASS. Any failure is most likely an unmigrated `dump()` or `.visit()` caller, or a test asserting on the legacy `_DUMP` format. Fix each at its callsite (don't reintroduce the deleted names).
+```python
+def test_iraction_str_uses_target_type_name():
+    from lexic.ir.action import IrAction, IrText
+    from lexic.ir.nodes import IrLiteral
+    a = IrAction(IrLiteral, IrText("hello"))
+    assert "IrLiteral" in str(a)
 
-- [ ] **Step 8: Commit**
+
+def test_irtext_eval_returns_literal():
+    from lexic.ir.action import IrText
+    assert IrText("x").eval(None, None, ()) == "x"
+
+
+def test_irseq_eval_concatenates():
+    from lexic.ir.action import IrSeq, IrText
+    op = IrSeq((IrText("a"), IrText("b"), IrText("c")))
+    assert op.eval(None, None, ()) == "abc"
+
+
+def test_irfield_eval_reads_str_of_field():
+    from dataclasses import dataclass
+    from lexic.ir.action import IrField
+    @dataclass
+    class _N: name: str
+    assert IrField("name").eval(None, _N("x"), ()) == "x"
+
+
+def test_irjoin_eval_joins_children_by_field():
+    """IrJoin looks up each item in new_children via identity."""
+    from lexic.ir.action import IrJoin
+    from lexic.ir.nodes import IrItem, IrLiteral, IrSequence
+    a, b = IrItem(IrLiteral("a")), IrItem(IrLiteral("b"))
+    seq = IrSequence((a, b))
+    # Simulate already-dispatched children with string results.
+    assert IrJoin("items", " | ").eval(None, seq, ("A", "B")) == "A | B"
+    assert IrJoin("items", " | ", empty='""').eval(None, IrSequence(()), ()) == '""'
+
+
+def test_ircond_eval_branches_on_field():
+    from lexic.ir.action import IrCond, IrText
+    from lexic.ir.nodes import IrCharClass
+    op = IrCond("negated", IrText("yes"), IrText("no"))
+    assert op.eval(None, IrCharClass("a-z", negated=True), ()) == "yes"
+    assert op.eval(None, IrCharClass("a-z", negated=False), ()) == "no"
+
+
+def test_ircallable_eval_invokes_handler():
+    from lexic.ir.action import IrCallable
+    op = IrCallable(lambda n, nc: ("hit", n, nc))
+    assert op.eval(None, "node", ("a", "b")) == ("hit", "node", ("a", "b"))
+```
+
+- [ ] **Step 9: Run tests**
+
+Run: `uv run pytest -q` — PASS. Resolve any caller-migration fallout. If `model_emitter.py`'s `_IrRepr` depends on `IrEmitter` not yet introduced, either:
+- Land Task 3.1 first (out of order), then come back to migrate `_IrRepr`; or
+- Migrate `_IrRepr` to a local `IrDispatch[str]` subclass that overrides `default` to raise (interim shape until Task 3.1 lands).
+
+Pick whichever keeps the suite green at the smallest commit. The order doesn't affect Slice B's end state.
+
+- [ ] **Step 10: Commit**
 
 ```bash
-git add src/lexic/ir/nodes.py src/lexic/ir/walk.py tests/unit/lexic/ir/test_walk.py <any caller files>
-git commit -m "ir: IrDispatch is an IrCollection[IrAction]; __call__ replaces visit
+git add src/lexic/ir/action.py src/lexic/ir/walk.py src/lexic/ir/__init__.py \
+        src/lexic/ir/derive.py src/lexic/codegen/aliases.py src/lexic/codegen/model_emitter.py \
+        tests/unit/lexic/ir/test_action.py tests/unit/lexic/ir/test_walk.py
+git commit -m "ir: IrAction + IrOp algebra; IrDispatch interprets structural action bodies
 
-IrAction is a new IrLeaf wrapping (target_type, handler) — each entry of
-a dispatcher's action table is now structural IR data. IrAction
-participates in the Task 1.3 template-method __str__ pattern: auto-
-derived _str_name='ACTION'; _inner_str overridden to render
-target_type.__name__ (so str(IrAction(IrLiteral, fn)) is ACTION(IrLiteral)).
+IrAction is now an IrComposite[IrOp] with target_type + body. The body
+is a tree of structural typesetting / transformation ops — IrText,
+IrField, IrRecurse, IrSeq, IrJoin, IrCond — with IrCallable as the
+procedural escape hatch. Lives in new src/lexic/ir/action.py alongside
+the IrOp hierarchy.
 
-IrDispatch inherits from IrCollection['IrAction']: children() are the
-actions, rebuild() reconstructs from a new action tuple. visit /
-generic_visit / _combine / visit_<TypeName> getattr indirection are all
-replaced by __call__: walk children, dispatch via the table, fall back
-to default when actions is empty, raise UnsupportedConstructError when
-actions is truthy and the type misses.
+IrDispatch is an IrCollection[IrAction]: children() are the actions,
+rebuild() reconstructs from a new action tuple. __call__ walks children,
+looks up the action for type(node), evaluates the body's IrOp tree
+against (node, new_children). Soft dispatch: a miss falls through to
+default. Closed-world strictness moves to IrEmitter.default (Task 3.1).
 
-_CHILDREN/_REBUILD/_DUMP and the top-level dump() function are gone —
-callers use repr(node). TODO marker on IrAction documents the C-level
-destination where handler grows into a structural sub-tree."
+_CHILDREN/_REBUILD/_DUMP/dump()/visit/generic_visit/_combine and
+visit_<TypeName> getattr indirection are gone. Callers in derive.py,
+codegen/aliases.py, and codegen/model_emitter.py migrate to action-table
+form using IrCallable for their procedural logic; mutable per-instance
+state is hoisted out of the frozen dataclasses into closures."
 ```
 
 ---
@@ -1346,104 +1727,101 @@ shape moves out of every read site."
 
 This is the largest step. The substeps build up `IrEmitter` and `IrMetaEmitter`, then progressively migrate each flavour onto the new dispatch table while keeping the suite green.
 
-### Task 3.1: Add `IrEmitter[_N]` and `IrMetaEmitter` to `walk.py`
+### Task 3.1: Add `IrEmitter` to `walk.py`
 
 **Files:**
 - Modify: `src/lexic/ir/walk.py`
-- Test: `tests/unit/lexic/ir/test_walk.py`
+- Modify: `tests/unit/lexic/ir/test_walk.py`
 
-**Revision note (2026-05-15).** Update this task's implementation so:
-- `IrEmitter.visit` falls back to **`str(node)`** (not the now-deleted `node.emit()`). The intrinsic canonical-form action lives on `__str__` (Task 1.3).
-- `IrMetaEmitter` is **not a dump backend**. Its purpose is "walk an IR tree applying only intrinsic `__str__` actions (no flavour overrides)" — useful for producing the IR's canonical text without a Flavour. Debug visualization goes through `repr(node)`, not `IrMetaEmitter`.
-- The pseudocode below references `node.emit()`; substitute `str(node)` mentally as you implement. Same shape, different name.
+**Scope (revised 2026-05-15).** Task 1.4 sketched `IrEmitter` in a commented-out block. This task makes it concrete:
 
-- [ ] **Step 1: Write failing test**
+- `IrEmitter(IrDispatch[str])`. `default(node, new_children) -> str`: returns `str(node)` (the node's intrinsic canonical-form action from Task 1.3) when `self.actions` is empty; raises `UnsupportedConstructError` when `self.actions` is non-empty (a flavour-emitter declared a closed world and saw a node it doesn't know).
+- The trivial canonical-emit walker is just `IrEmitter()` with no actions. No separate `IrMetaEmitter` class is needed — it's a degenerate `IrEmitter`. If a name is convenient at the use site, expose a thin alias / factory in `ir/__init__.py` (`def canonical_emitter() -> IrEmitter: return IrEmitter()`).
+- The original `IrMetaEmitter`-as-dump-backend role is gone (dump = `repr(node)` from Task 1.3 / 1.4).
+
+- [ ] **Step 1: Write failing tests**
 
 Append to `tests/unit/lexic/ir/test_walk.py`:
 
 ```python
-def test_iremit_falls_through_to_node_emit():
-    """IrMetaEmitter subclass with empty action dispatches to node.emit()."""
-    from lexic.ir.nodes import IrLiteral, IrSequence, IrItem
-    from lexic.ir.walk import IrMetaEmitter
-
-    seq = IrSequence((IrItem(IrLiteral("x")),))
-    assert IrMetaEmitter().visit(seq) == seq.emit()
-
-
-def test_iremitter_action_overrides_node_emit():
-    """Per-type action entries override the node.emit() fallback."""
-    from lexic.ir.nodes import IrLiteral, IrNode
+def test_iremitter_empty_actions_returns_intrinsic_str():
+    """Empty actions → default returns str(node) (intrinsic __str__ from Task 1.3)."""
+    from lexic.ir.nodes import IrLiteral
     from lexic.ir.walk import IrEmitter
 
-    class _Upper(IrEmitter[IrNode]):
-        action = {IrLiteral: lambda n, _r: n.value.upper()}
-
-    assert _Upper().visit(IrLiteral("hi")) == "HI"
+    e = IrEmitter()
+    assert e(IrLiteral("a")) == str(IrLiteral("a"))  # "LITERAL('a')"
 
 
-def test_iremitter_recurse_into_children():
-    """Action handlers receive a recurse fn that calls visit() on children."""
-    from lexic.ir.nodes import IrItem, IrLiteral, IrNode
+def test_iremitter_truthy_actions_raise_on_miss():
+    """Non-empty actions → closed world; miss raises UnsupportedConstructError."""
+    from lexic.exceptions import UnsupportedConstructError
+    from lexic.ir.action import IrAction, IrText
+    from lexic.ir.nodes import IrLiteral, IrSequence
     from lexic.ir.walk import IrEmitter
 
-    class _Wrap(IrEmitter[IrNode]):
-        action = {
-            IrLiteral: lambda n, _r: f"[{n.value}]",
-            IrItem:    lambda n, r: f"<{r(n.atom)}>",
-        }
+    # Action covers IrLiteral only; visiting IrSequence has no action → default → raise.
+    e = IrEmitter(actions=(IrAction(IrLiteral, IrText("LIT")),))
+    with pytest.raises(UnsupportedConstructError):
+        e(IrSequence(()))
 
-    assert _Wrap().visit(IrItem(IrLiteral("x"))) == "<[x]>"
+
+def test_iremitter_action_overrides_intrinsic():
+    """Per-type action entries override the str(node) fallback."""
+    from lexic.ir.action import IrAction, IrText
+    from lexic.ir.nodes import IrLiteral
+    from lexic.ir.walk import IrEmitter
+
+    e = IrEmitter(actions=(IrAction(IrLiteral, IrText("LIT")),))
+    assert e(IrLiteral("anything")) == "LIT"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/unit/lexic/ir/test_walk.py -v`
-Expected: FAIL — `IrEmitter` and `IrMetaEmitter` do not exist.
+Expected: FAIL — `IrEmitter` is still a commented-out sketch.
 
-- [ ] **Step 3: Implement in `src/lexic/ir/walk.py`**
+- [ ] **Step 3: Implement `IrEmitter` in `src/lexic/ir/walk.py`**
 
-Append at the end of `walk.py`:
+Replace the commented-out sketch from Task 1.4 with:
 
 ```python
-class IrEmitter[_N](IrDispatch[_N, str]):
-    """String emission. T=str. The base class for every string-producing
-    IR walk: flavour emitters, debug dump, anything that turns IR into text.
+@dataclass(frozen=True, slots=True, repr=False)
+class IrEmitter(IrDispatch[str]):
+    """String emission. T=str.
 
-    Default behaviour when `action` has no entry for a node type: call
-    `node.emit()` — the per-node default rendering. Subclasses populate
-    `action` to override per-type rendering for a specific target format.
+    Empty actions → default returns ``str(node)`` (the intrinsic canonical
+    form from Task 1.3). This is the trivial "canonical emit" use case —
+    walk a tree and produce its placeholder-notation text.
 
-    `action` is a class-level dict by design (every Flavour subclass
-    declares its own action table once, at class scope). Instances never
-    mutate it — IrEmitter is conceptually stateless. The class-level
-    default `{}` is shared but never written to; subclasses always
-    shadow it with their own dict.
+    Non-empty actions → the dispatcher has declared a closed world.
+    A missing handler for a node type means the flavour doesn't support
+    that construct; default raises ``UnsupportedConstructError``.
+    Flavours (Task 3.2) populate ``actions`` with the node types their
+    target grammar covers; users get a loud error on unknown constructs.
     """
 
-    action: ClassVar[dict[type, Callable[..., str]]] = {}
-
-    def visit(self, node: _N) -> str:
-        handler = self.action.get(type(node))
-        if handler is not None:
-            return handler(node, self.visit)
-        method = getattr(self, f"visit_{type(node).__name__}", None)
-        if method is not None:
-            return method(node)
-        return node.emit()
-
-
-class IrMetaEmitter(IrEmitter[IrNode]):
-    """The trivial emitter: pure fallthrough to each node's emit() method.
-
-    Used for debug output. Equivalent to the top-level dump() but slots
-    into the IrEmitter hierarchy so it composes with the mechanism
-    flavours use.
-    """
-
-    # Empty action — every node falls through to node.emit().
-    action: ClassVar[dict[type, Callable[..., str]]] = {}
+    def default(self, node: IrNode, new_children: tuple[str, ...]) -> str:
+        if self.actions:
+            raise UnsupportedConstructError(
+                f"{type(self).__name__} has no action for {type(node).__name__!r}"
+            )
+        return str(node)
 ```
+
+Add a convenience function in `src/lexic/ir/__init__.py`:
+
+```python
+def canonical_emitter() -> IrEmitter:
+    """The trivial IrEmitter: no actions, every node renders via its __str__.
+
+    Equivalent to constructing ``IrEmitter()`` directly; exposed as a named
+    factory for documentation at use sites.
+    """
+    return IrEmitter()
+```
+
+(Re-export `IrEmitter` and `canonical_emitter` in `__all__`.)
 
 - [ ] **Step 4: Run tests**
 
@@ -1453,14 +1831,16 @@ Run: `uv run pytest -q` — PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lexic/ir/walk.py tests/unit/lexic/ir/test_walk.py
-git commit -m "ir: add IrEmitter (T=str) and IrMetaEmitter (debug default)
+git add src/lexic/ir/walk.py src/lexic/ir/__init__.py tests/unit/lexic/ir/test_walk.py
+git commit -m "ir: add IrEmitter; closed-world strictness via default override
 
-IrEmitter is the third canonical IrDispatch instantiation, alongside
-IrVisitor (T=None) and IrTransformer (T=_N). It falls through to
-node.emit() when the action table has no entry, so flavour emitters
-override selectively. IrMetaEmitter is the trivial subclass used for debug
-dump output."
+IrEmitter(IrDispatch[str]) makes the sketch from Task 1.4 concrete.
+default returns str(node) when actions is empty (the canonical-emit
+walker) and raises UnsupportedConstructError when actions is truthy
+and the node-type misses (flavour declared a closed world). The
+canonical_emitter() factory in ir/__init__.py exposes the empty-actions
+case at use sites. IrMetaEmitter from the original spec is retired —
+the same role is served by canonical_emitter() / IrEmitter()."
 ```
 
 ---
