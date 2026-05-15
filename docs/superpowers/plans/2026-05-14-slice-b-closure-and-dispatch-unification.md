@@ -510,21 +510,39 @@ implement structural protocol overrides. Leaves use IrNode defaults."
 
 ---
 
-### Task 1.3: Implement `__str__` and `__repr__` on IR nodes (placeholder canonical form + indented debug walk)
+### Task 1.3: Template-method `__str__` on IrNode; mechanical `__repr__` on IrStructure; placeholder canonical notation
 
 **Files:**
 - Modify: `src/lexic/ir/nodes.py`
 - Modify: `tests/unit/lexic/ir/test_nodes.py`
 
-**Scope of the revision.** The original Task 1.3 had per-node `emit(indent=0)` methods matching the legacy `_DUMP` byte-for-byte. That is replaced by:
-- **`__str__`** — canonical-form rendering, the node's *intrinsic action*. `IrEmitter.__call__` (Task 1.4 / Task 3.1) falls through to `str(node)` when no `IrAction` is registered for the type. Output for now is a placeholder notation, deliberately not any user grammar syntax, that the eventual `IrFlavour` will replace.
-- **`__repr__`** — debug raw visualization. `IrStructure` defines a generic indented multi-line walk over `children()` and non-child dataclass extras. Leaves use the dataclass default.
+**Scope of the revision (2026-05-15).** The original Task 1.3 had per-node `emit(indent=0)` methods matching the legacy `_DUMP` byte-for-byte. Replaced by Python's dunder protocol with a template-method shape on `IrNode`:
 
-The free function `dump()` and the `_DUMP` dict in `walk.py` are deleted in Task 1.4 — callers switch to `repr(node)`. No `emit()` method exists on `IrNode`.
+- **`__str__`** — canonical-form rendering, the node's *intrinsic action*. `IrEmitter.__call__` (Task 1.4 / Task 3.1) falls through to `str(node)` when no `IrAction` is registered for the type. Output for now is a placeholder notation (`LITERAL('a')`, `SEQ(...)`, `Q[0..*]`), deliberately not any user grammar syntax. The eventual `IrFlavour` will replace it.
+- **`__repr__`** — debug raw visualization. `IrStructure` defines a generic indented multi-line walk over `_extra_reprs()` + `children()`. Leaves use the dataclass default.
 
-**Elegance principle.** `__str__` and `__repr__` derive from each branch base's declared structure, the same way `children()` and `rebuild()` do in Task 1.2. `IrCollection` declares `_items_attr`; `IrComposite` declares `_child_attrs`. From these declarations, `IrStructure` mechanically derives both the canonical and debug renderings — no per-node string assembly.
+The free function `dump()` and the `_DUMP` dict in `walk.py` are deleted in Task 1.4. No `emit()` method exists on `IrNode`.
 
-**Placeholder `__str__` notation (Q4=B in the brainstorm).** Output is unambiguously *not* GBNF/ABNF/Lark — chosen so no consumer can accidentally couple to it before `IrFlavour` is designed:
+**Template-method `__str__`.** Every IR node renders as:
+
+```
+f"{_str_name}{_str_opener}{_inner_str()}{_str_closer}"
+```
+
+The three ClassVars are declared at `IrNode`. Defaults:
+- `_str_name` is **auto-derived in `__init_subclass__`** by stripping `Ir` prefix and uppercasing — `IrRule` → `RULE`, `IrItem` → `ITEM`. Subclasses set it explicitly only when the auto-derivation isn't what we want (e.g. `IrRuleRef` → `REF`, `IrSequence` → `SEQ`, `IrAlternation` → `ALT`, `Quantifier` → `Q`).
+- `_str_opener` / `_str_closer` default to `(` and `)`. `Quantifier` overrides to `[` and `]` (subscript/bounds notation, distinct from constructor calls).
+- `_inner_str(self) -> str` is the only abstract extension point. `IrLeaf` and `IrStructure` provide defaults; concrete classes override only when they need a non-default shape.
+
+`IrLeaf._inner_str` default: `repr(first_dataclass_field)`. Single-field leaves (`IrLiteral`, `IrRuleRef`) get the right output for free. Multi-field leaves (`IrCharClass`, `Quantifier`) override.
+
+`IrStructure._inner_str` default: `", ".join(_extra_str_parts() + [str(c) for c in children()])`. Extras are non-child dataclass fields, computed via each branch base's `_extra_field_names()` (mirrors `_items_attr` / `_child_attrs` from Task 1.2).
+
+Extras rendering differs by branch flavour:
+- `IrCollection._extra_str_parts` → `key=repr(val)` for each extra. Used by `IrAst.start` → `AST(start='r', ...)`.
+- `IrComposite._extra_str_parts` → positional `repr(val)` (no `key=` prefix). Used by `IrRule.name` → `RULE('r', ...)`.
+
+**Placeholder `__str__` notation (Q4=B).**
 
 | Node | `str(node)` |
 |---|---|
@@ -535,18 +553,15 @@ The free function `dump()` and the `_DUMP` dict in `walk.py` are deleted in Task
 | `Quantifier(1, 1)` | `Q[1]` |
 | `Quantifier(0, 1)` | `Q[0..1]` |
 | `Quantifier(0, None)` | `Q[0..*]` |
-| `IrSequence((a, b))` | `SEQ(LITERAL('a'), LITERAL('b'))` |
+| `IrSequence((IrItem(IrLiteral("a")),))` | `SEQ(ITEM(LITERAL('a'), Q[1]))` |
 | `IrAlternation((s1, s2))` | `ALT(SEQ(...), SEQ(...))` |
-| `IrItem(atom, q)` | `ITEM(LITERAL('a'), Q[1])` |
 | `IrGroup(body)` | `GROUP(ALT(...))` |
-| `IrRule("r", body)` | `RULE(name='r', ALT(...))` |
-| `IrAst((r1, r2), "root")` | `AST(start='root', RULE(...), RULE(...))` |
-
-Non-child fields (`IrRule.name`, `IrAst.start`) render as `name=value!r`, derived mechanically from `dataclasses.fields(self)` minus the child fields declared by `_items_attr` / `_child_attrs`.
+| `IrRule("r", body)` | `RULE('r', ALT(...))` |
+| `IrAst((r,), "r")` | `AST(start='r', RULE('r', ALT(...)))` |
 
 - [ ] **Step 1: Write failing tests**
 
-Replace prior emit/dump tests in `tests/unit/lexic/ir/test_nodes.py` with `__str__` and `__repr__` tests:
+Add to `tests/unit/lexic/ir/test_nodes.py`:
 
 ```python
 def test_str_irliteral():
@@ -569,19 +584,19 @@ def test_str_quantifier():
     assert str(Quantifier(2, 5)) == "Q[2..5]"
 
 
-def test_str_irsequence_joins_children():
+def test_str_irsequence_joins_items():
     seq = IrSequence((IrItem(IrLiteral("a")), IrItem(IrLiteral("b"))))
     assert str(seq) == "SEQ(ITEM(LITERAL('a'), Q[1]), ITEM(LITERAL('b'), Q[1]))"
 
 
-def test_str_irrule_shows_name_extra():
+def test_str_irrule_shows_name_positional():
     rule = IrRule("r", IrAlternation((IrSequence(()),)))
-    assert str(rule) == "RULE(name='r', ALT(SEQ()))"
+    assert str(rule) == "RULE('r', ALT(SEQ()))"
 
 
-def test_str_irast_shows_start_extra():
+def test_str_irast_shows_start_keyed():
     ast = IrAst(rules=(IrRule("r", IrAlternation(())),), start="r")
-    assert str(ast) == "AST(start='r', RULE(name='r', ALT()))"
+    assert str(ast) == "AST(start='r', RULE('r', ALT()))"
 
 
 # __repr__ — indented debug walk
@@ -603,52 +618,66 @@ def test_repr_irsequence_is_indented_multiline():
 
 def test_repr_irrule_shows_non_child_fields_too():
     rule = IrRule("r", IrAlternation(()))
-    assert repr(rule) == (
-        "IrRule(\n"
-        "  name='r',\n"
-        "  IrAlternation()\n"
-        ")"
-    )
+    assert repr(rule) == "IrRule(\n  name='r',\n  IrAlternation()\n)"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+Run: `uv run pytest tests/unit/lexic/ir/test_nodes.py -v` — should FAIL.
 
-Run: `uv run pytest tests/unit/lexic/ir/test_nodes.py -v`
-Expected: FAIL — `__str__` currently falls back to `__repr__`, and `__repr__` is the flat dataclass default.
-
-- [ ] **Step 3: Implement on `IrStructure`, `IrCollection`, `IrComposite`, and per leaf**
-
-Edit `src/lexic/ir/nodes.py`.
-
-**On `IrStructure`** — generic `__str__` and `__repr__` that delegate to the base-class declaration of "which fields are extras":
+- [ ] **Step 2: Implement the template on `IrNode`**
 
 ```python
+class IrNode(ABC):
+    """..."""
+
+    _str_name: ClassVar[str]
+    _str_opener: ClassVar[str] = "("
+    _str_closer: ClassVar[str] = ")"
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if "_str_name" in cls.__dict__:
+            return
+        cls._str_name = cls.__name__.removeprefix("Ir").upper()
+
+    @abstractmethod
+    def _inner_str(self) -> str:
+        """Content between the brackets in __str__.
+
+        :returns: Inner string content.
+        """
+
+    def __str__(self) -> str:
+        return f"{self._str_name}{self._str_opener}{self._inner_str()}{self._str_closer}"
+
+    # children() / rebuild() unchanged from Task 1.2
+```
+
+- [ ] **Step 3: Defaults on `IrLeaf` and `IrStructure`**
+
+```python
+class IrLeaf(IrNode):
+    """..."""
+    def _inner_str(self) -> str:
+        flds = dataclasses.fields(self)
+        return repr(getattr(self, flds[0].name))
+
+
 class IrStructure(IrNode, ABC):
-    """Abstract base for all non-leaf IR nodes. Declares __dataclass_fields__
-    for typed dataclass operations, plus mechanical __str__/__repr__ derived
-    from each subclass's declared structural fields (_items_attr on
-    IrCollection, _child_attrs on IrComposite).
-
-    Concrete structural-node dataclasses MUST use ``@dataclass(..., repr=False)``
-    so the inherited indented __repr__ is not shadowed by the dataclass-
-    generated one. (Leaves keep the default; the flat repr is fine for them.)
-    """
-
+    """..."""
     __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
 
     @abstractmethod
-    def _extra_field_names(self) -> tuple[str, ...]:
-        """Names of dataclass fields that are non-child extras.
-
-        :returns: Tuple of field names not enumerated by children().
-        """
+    def _extra_field_names(self) -> tuple[str, ...]: ...
 
     def _extra_reprs(self) -> list[str]:
         return [f"{n}={getattr(self, n)!r}" for n in self._extra_field_names()]
 
-    def __str__(self) -> str:
-        parts = self._extra_reprs() + [str(c) for c in self.children()]
-        return f"{type(self).__name__}({', '.join(parts)})"
+    def _extra_str_parts(self) -> list[str]:
+        """IrCollection renders extras keyed; IrComposite overrides for positional."""
+        return self._extra_reprs()
+
+    def _inner_str(self) -> str:
+        return ", ".join(self._extra_str_parts() + [str(c) for c in self.children()])
 
     def __repr__(self) -> str:
         parts = self._extra_reprs() + [repr(c) for c in self.children()]
@@ -657,115 +686,140 @@ class IrStructure(IrNode, ABC):
         body = ",\n".join(parts)
         indented = "  " + body.replace("\n", "\n  ")
         return f"{type(self).__name__}(\n{indented}\n)"
-```
 
-**On `IrCollection` and `IrComposite`** — each implements `_extra_field_names` from its declared structure:
 
-```python
 class IrCollection(IrStructure, Generic[_T]):
     _items_attr: ClassVar[str]
-
     def _extra_field_names(self) -> tuple[str, ...]:
-        """Extras = all dataclass fields except the items tuple.
-
-        :returns: Field-name tuple in declaration order.
-        """
         return tuple(f.name for f in dataclasses.fields(self) if f.name != self._items_attr)
-
-    # children() / rebuild() unchanged from Task 1.2
+    # children() / rebuild() unchanged
 
 
 class IrComposite(IrStructure, Generic[*_Ts]):
     _child_attrs: ClassVar[tuple[str, ...]]
-
     def _extra_field_names(self) -> tuple[str, ...]:
-        """Extras = all dataclass fields not in _child_attrs.
-
-        :returns: Field-name tuple in declaration order.
-        """
         return tuple(f.name for f in dataclasses.fields(self) if f.name not in self._child_attrs)
-
-    # children() / rebuild() unchanged from Task 1.2
+    def _extra_str_parts(self) -> list[str]:
+        """Positional extras: just repr(val), no key prefix."""
+        return [repr(getattr(self, n)) for n in self._extra_field_names()]
+    # children() / rebuild() unchanged
 ```
 
-**Per-leaf `__str__`** — each leaf renders itself with the placeholder notation:
+- [ ] **Step 4: Per-leaf overrides (minimal)**
 
 ```python
 @dataclass(frozen=True, slots=True)
 class IrLiteral(IrLeaf):
+    # _str_name auto = "LITERAL"; _inner_str default = repr(value). Nothing to override.
     value: str
-    def __str__(self) -> str:
-        return f"LITERAL({self.value!r})"
 
 
 @dataclass(frozen=True, slots=True)
 class IrCharClass(IrLeaf):
+    # _str_name auto = "CHARCLASS"; multi-field → override _inner_str.
     pattern: str
     negated: bool = False
-    def __str__(self) -> str:
-        return f"CHARCLASS({self.pattern!r}, negated)" if self.negated else f"CHARCLASS({self.pattern!r})"
+    def _inner_str(self) -> str:
+        return f"{self.pattern!r}, negated" if self.negated else repr(self.pattern)
 
 
 @dataclass(frozen=True, slots=True)
 class IrRuleRef(IrLeaf):
+    _str_name: ClassVar[str] = "REF"   # auto would be "RULEREF"
     name: str
-    def __str__(self) -> str:
-        return f"REF({self.name!r})"
+    # _inner_str default = repr(name)
 
 
 @dataclass(frozen=True, slots=True)
 class Quantifier(IrLeaf):
+    _str_name: ClassVar[str] = "Q"
+    _str_opener: ClassVar[str] = "["
+    _str_closer: ClassVar[str] = "]"
     min: int = 1
     max: int | None = 1
-    def __str__(self) -> str:
+    def _inner_str(self) -> str:
         if self.min == self.max:
-            return f"Q[{self.min}]"
-        hi = "*" if self.max is None else self.max
-        return f"Q[{self.min}..{hi}]"
+            return str(self.min)
+        hi = "*" if self.max is None else str(self.max)
+        return f"{self.min}..{hi}"
 ```
 
-Leaves keep the dataclass-generated `__repr__` (e.g., `IrLiteral(value='a')`).
-
-**Concrete branch classes** — add `repr=False` so the inherited `IrStructure.__repr__` is not shadowed:
+- [ ] **Step 5: Structural classes (overrides only for non-default `_str_name`)**
 
 ```python
 @dataclass(frozen=True, slots=True, repr=False)
-class IrSequence(IrCollection["IrItem"]): ...
+class IrSequence(IrCollection["IrItem"]):
+    _items_attr: ClassVar[str] = "items"
+    _str_name: ClassVar[str] = "SEQ"   # auto would be "SEQUENCE"
+    items: tuple[IrItem, ...] = ()
+
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrAlternation(IrCollection["IrSequence"]): ...
+class IrAlternation(IrCollection["IrSequence"]):
+    _items_attr: ClassVar[str] = "arms"
+    _str_name: ClassVar[str] = "ALT"
+    arms: tuple[IrSequence, ...] = ()
+
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrAst(IrCollection["IrRule"]): ...
+class IrAst(IrCollection["IrRule"]):
+    # _str_name auto = "AST"
+    _items_attr: ClassVar[str] = "rules"
+    rules: tuple[IrRule, ...] = ()
+    start: str = ""
+
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrGroup(IrComposite["IrAlternation"]): ...
+class IrGroup(IrComposite["IrAlternation"]):
+    # _str_name auto = "GROUP"
+    _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
+    body: IrAlternation
+
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrItem(IrComposite["IrAtom", "Quantifier"]): ...
+class IrItem(IrComposite["IrAtom", "Quantifier"]):
+    # _str_name auto = "ITEM"
+    _child_attrs: ClassVar[tuple[str, ...]] = ("atom", "quantifier")
+    atom: IrAtom
+    quantifier: Quantifier = field(default_factory=Quantifier)
+
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrRule(IrComposite["IrAlternation"]): ...
+class IrRule(IrComposite["IrAlternation"]):
+    # _str_name auto = "RULE"
+    _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
+    name: str
+    body: IrAlternation
 ```
 
-- [ ] **Step 4: Run tests**
+`@dataclass(..., repr=False)` is **required** per concrete structural class so the inherited `IrStructure.__repr__` is not shadowed by the dataclass-generated one. (Dataclass runs *after* `__init_subclass__`, so the auto-derived `_str_name` survives.)
+
+- [ ] **Step 6: Run tests**
 
 Run: `uv run pytest tests/unit/lexic/ir/test_nodes.py -v` — PASS.
-Run: `uv run pytest -q` — PASS (no regressions; old emit/dump tests should already be removed).
+Run: `uv run pytest -q` — PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/lexic/ir/nodes.py tests/unit/lexic/ir/test_nodes.py
-git commit -m "ir: __str__ as intrinsic action, __repr__ as indented debug walk
+git commit -m "ir: template-method __str__ on IrNode; mechanical __repr__ on IrStructure
 
-IrStructure carries mechanical __str__/__repr__ derived from each
-subclass's declared structural fields — IrCollection declares
-_items_attr, IrComposite declares _child_attrs, _extra_field_names()
-follows from each. Concrete leaves implement __str__ with placeholder
-notation; concrete structural dataclasses use repr=False so the
-inherited __repr__ is not shadowed. No emit() method, no dump()
-function — Python's dunder protocol is the API."
+__str__ is templated at IrNode level as
+f'{_str_name}{_str_opener}{_inner_str()}{_str_closer}'. _str_name is
+auto-derived in __init_subclass__ from the class name (strip Ir,
+uppercase) unless a subclass declares it explicitly. _str_opener and
+_str_closer default to () but Quantifier overrides to []. _inner_str
+is the only per-class extension point: IrLeaf default returns
+repr(first_field); IrStructure default joins extras and children;
+IrComposite renders extras positionally, IrCollection keyed.
+
+__repr__ on IrStructure produces an indented multi-line walk over
+extras and children. Concrete structural dataclasses use repr=False
+so the inherited __repr__ is not shadowed.
+
+No emit() method, no dump() function — Python's dunder protocol is
+the API. Output is a placeholder notation; eventual IrFlavour replaces it."
 ```
 
 ---
@@ -778,7 +832,7 @@ function — Python's dunder protocol is the API."
 - Modify: `tests/unit/lexic/ir/test_walk.py`
 - Grep + adjust: any caller of `dump(...)` switches to `repr(...)`; any caller of `dispatcher.visit(node)` switches to `dispatcher(node)`.
 
-**Scope of the revision.** Two structural cleanups land together because they're entangled:
+**Scope of the revision (2026-05-15).** Two structural cleanups land together:
 
 1. **`IrDispatch` becomes structural.** It already inherits from `IrNode` (B-level), but treating it as a leaf with `children() == ()` is dishonest — a dispatcher's whole point is its action table. We promote each action-table entry to a leaf `IrAction(IrLeaf)` wrapping `(target_type, handler)`. `IrDispatch` then inherits from `IrCollection["IrAction"]` with `_items_attr = "actions"` — children are its actions, rebuild reconstructs the table. C-level marker: when actions grow internal structure (a small algebra of typesetting/transformation sub-ops), `IrAction` becomes the abstract base of a hierarchy — `IrDispatch` doesn't change.
 
@@ -800,27 +854,42 @@ Note each site — `dump(node)` → `repr(node)` and `dispatcher.visit(node)` �
 
 - [ ] **Step 3: Add `IrAction(IrLeaf)` in `src/lexic/ir/nodes.py`**
 
+`IrAction` uses the same template-method pattern from Task 1.3. `_str_name` auto-derives to `"ACTION"`. The default `_inner_str` would `repr(target_type)` (yielding `<class 'IrLiteral'>`); we override to render `target_type.__name__` for readability.
+
 ```python
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, hash=False, eq=False)
 class IrAction(IrLeaf):
     """A single dispatch entry: a (target_type, handler) pair.
+
+    Identity semantics: ``eq=False, hash=False`` falls back to ``object``
+    defaults. This is deliberate — ``handler`` is a callable, and
+    structural equality on functions is murky (two inline lambdas compare
+    unequal even though their bodies match). The rest of the IR hierarchy
+    keeps the default ``eq=True`` because their fields are structurally
+    comparable; IrAction is the carve-out.
 
     TODO(C-level): handler grows into an IrAction subtree expressing a
     typesetting/transformation sub-algebra. At that point IrAction stops
     being a leaf — its operations become its children — and the
-    `handler: Callable` field is replaced by structural children. The
+    ``handler: Callable`` field is replaced by structural children. The
     dispatch system above (IrDispatch) does not need to change: it
-    already treats actions as IrNode children via IrCollection.
+    already treats actions as IrNode children via IrCollection. Once
+    handler is gone, IrAction can drop the ``eq=False, hash=False``
+    carve-out and recover structural equality.
     """
 
     target_type: type
     handler: Callable[..., Any]
 
-    def __str__(self) -> str:
-        return f"ACTION({self.target_type.__name__})"
+    def _inner_str(self) -> str:
+        """Render the target type's short name (not repr) for readability.
+
+        :returns: e.g. ``IrLiteral`` for ``IrAction(IrLiteral, fn)``.
+        """
+        return self.target_type.__name__
 ```
 
-(`Callable` and `Any` already imported in nodes.py; ensure both are present.)
+`str(IrAction(IrLiteral, fn))` → `ACTION(IrLiteral)`. (`Callable` and `Any` must be imported in nodes.py.)
 
 - [ ] **Step 4: Rewrite `src/lexic/ir/walk.py`**
 
@@ -848,7 +917,7 @@ children/rebuild from IrLeaf/IrCollection/IrComposite.
 
 from __future__ import annotations
 
-from abc import ABC
+from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Callable, ClassVar, Generic, TypeVar, cast
 
@@ -858,6 +927,7 @@ from lexic.ir.nodes import IrAction, IrCollection, IrNode
 _T = TypeVar("_T")
 
 
+@dataclass(frozen=True, slots=True, repr=False)
 class IrDispatch(IrCollection["IrAction"], Generic[_T]):
     """A tree-walking operation. children() are its IrActions; calling
     the dispatcher walks an IR subtree applying those actions.
@@ -876,7 +946,7 @@ class IrDispatch(IrCollection["IrAction"], Generic[_T]):
     actions: tuple[IrAction, ...] = ()
 
     @cached_property
-    def _table(self) -> dict[type, Callable[..., _T]]:
+    def _table(self) -> dict[type, Callable[[IrNode, tuple[_T, ...]], _T]]:
         """Lookup table derived from self.actions on first access.
 
         :returns: Mapping from target type to handler callable.
@@ -891,7 +961,7 @@ class IrDispatch(IrCollection["IrAction"], Generic[_T]):
         :raises UnsupportedConstructError: if actions is non-empty and
             no handler is registered for node's type.
         """
-        new_children = tuple(self(c) for c in node.children())
+        new_children: tuple[_T, ...] = tuple(self(c) for c in node.children())
         if not self.actions:
             return self.default(node, new_children)
         try:
@@ -902,7 +972,7 @@ class IrDispatch(IrCollection["IrAction"], Generic[_T]):
             ) from exc
         return handler(node, new_children)
 
-    def default(self, node: IrNode, new_children: tuple) -> _T:
+    def default(self, node: IrNode, new_children: tuple[_T, ...]) -> _T:
         """Behaviour when `actions` is empty. Subclasses describe their `_T`.
 
         Base passes `node` through as `_T` — the natural identity for
@@ -915,27 +985,33 @@ class IrDispatch(IrCollection["IrAction"], Generic[_T]):
         return cast("_T", node)
 
 
+@dataclass(frozen=True, slots=True, repr=False)
 class IrVisitor(IrDispatch[None]):
     """Side-effect walker. T=None."""
 
-    def default(self, node, new_children) -> None:
+    def default(self, node: IrNode, new_children: tuple[None, ...]) -> None:
         return None
 
 
+@dataclass(frozen=True, slots=True, repr=False)
 class IrTransformer(IrDispatch[IrNode]):
     """Rewrites the IR. T=IrNode. Default: pass node through; rebuild on change."""
 
-    def default(self, node, new_children) -> IrNode:
+    def default(self, node: IrNode, new_children: tuple[IrNode, ...]) -> IrNode:
         if any(nc is not oc for nc, oc in zip(new_children, node.children())):
             return node.rebuild(new_children)
         return node
 
 
-# IrEmitter is added in Task 3.1; sketch here for orientation:
+# IrEmitter is added in Task 3.1. Sketch for orientation:
+#
+# @dataclass(frozen=True, slots=True, repr=False)
 # class IrEmitter(IrDispatch[str]):
-#     def default(self, node, new_children) -> str:
+#     def default(self, node: IrNode, new_children: tuple[str, ...]) -> str:
 #         return str(node)
 ```
+
+Note: `IrDispatch` and its concrete subclasses are `@dataclass(repr=False)` because they participate in the IR node hierarchy through `IrCollection`. The `repr=False` is required so `IrStructure.__repr__` (from Task 1.3) is inherited rather than shadowed. The auto-derived `_str_name` from Task 1.3's `__init_subclass__` is preserved: `DISPATCH`, `VISITOR`, `TRANSFORMER`, `EMITTER`. So `str(IrTransformer(actions=(IrAction(IrLiteral, fn),)))` → `TRANSFORMER(ACTION(IrLiteral))`.
 
 `_CHILDREN`, `_REBUILD`, `_DUMP`, `dump()`, `visit`, `generic_visit`, `_combine`, and any `visit_<TypeName>` getattr indirection are all gone.
 
@@ -950,7 +1026,7 @@ Remove tests asserting on `_CHILDREN`/`_REBUILD`/`_DUMP`. Replace with:
 ```python
 def test_irdispatch_is_an_ircollection_of_actions():
     """IrDispatch.children() returns its IrAction tuple; rebuild reconstructs."""
-    from lexic.ir.nodes import IrLiteral, IrAction, IrCollection
+    from lexic.ir.nodes import IrAction, IrCollection, IrLiteral
     from lexic.ir.walk import IrTransformer
 
     a = IrAction(IrLiteral, lambda n, _kids: n)
@@ -963,9 +1039,15 @@ def test_irdispatch_is_an_ircollection_of_actions():
     assert rebuilt.actions == (a2,)
 
 
+def test_iraction_str_uses_target_type_name():
+    """IrAction renders as ACTION(<short type name>)."""
+    from lexic.ir.nodes import IrAction, IrLiteral
+    assert str(IrAction(IrLiteral, lambda n, _kids: n)) == "ACTION(IrLiteral)"
+
+
 def test_irtransformer_empty_actions_is_identity():
     """Empty actions → default passes everything through (rebuild if children change)."""
-    from lexic.ir.nodes import IrLiteral, IrSequence, IrItem
+    from lexic.ir.nodes import IrItem, IrLiteral, IrSequence
     from lexic.ir.walk import IrTransformer
 
     seq = IrSequence((IrItem(IrLiteral("a")),))
@@ -974,8 +1056,8 @@ def test_irtransformer_empty_actions_is_identity():
 
 def test_irdispatch_truthy_actions_raise_on_miss():
     """Non-empty actions → miss is loud."""
-    from lexic.ir.nodes import IrLiteral, IrSequence, IrItem, IrAction
     from lexic.exceptions import UnsupportedConstructError
+    from lexic.ir.nodes import IrAction, IrLiteral, IrSequence
     from lexic.ir.walk import IrTransformer
 
     # Action covers IrLiteral only; visiting an IrSequence misses.
@@ -992,19 +1074,24 @@ Run: `uv run pytest -q` — PASS. Any failure is most likely an unmigrated `dump
 
 ```bash
 git add src/lexic/ir/nodes.py src/lexic/ir/walk.py tests/unit/lexic/ir/test_walk.py <any caller files>
-git commit -m "ir: IrDispatch is an IrCollection[IrAction]; visit/generic_visit collapse to __call__
+git commit -m "ir: IrDispatch is an IrCollection[IrAction]; __call__ replaces visit
 
 IrAction is a new IrLeaf wrapping (target_type, handler) — each entry of
-a dispatcher's action table is now structural IR data. IrDispatch
-inherits from IrCollection['IrAction']: children() are the actions,
-rebuild() reconstructs from a new action tuple. visit / generic_visit /
-_combine / visit_<TypeName> getattr indirection are all replaced by
-__call__: walk children, dispatch via the table, fall back to default
-when actions is empty, raise UnsupportedConstructError when actions is
-truthy and the type misses. _CHILDREN/_REBUILD/_DUMP and the top-level
-dump() function are gone — callers use repr(node). TODO marker on
-IrAction documents the C-level destination where handler grows into a
-structural sub-tree."
+a dispatcher's action table is now structural IR data. IrAction
+participates in the Task 1.3 template-method __str__ pattern: auto-
+derived _str_name='ACTION'; _inner_str overridden to render
+target_type.__name__ (so str(IrAction(IrLiteral, fn)) is ACTION(IrLiteral)).
+
+IrDispatch inherits from IrCollection['IrAction']: children() are the
+actions, rebuild() reconstructs from a new action tuple. visit /
+generic_visit / _combine / visit_<TypeName> getattr indirection are all
+replaced by __call__: walk children, dispatch via the table, fall back
+to default when actions is empty, raise UnsupportedConstructError when
+actions is truthy and the type misses.
+
+_CHILDREN/_REBUILD/_DUMP and the top-level dump() function are gone —
+callers use repr(node). TODO marker on IrAction documents the C-level
+destination where handler grows into a structural sub-tree."
 ```
 
 ---

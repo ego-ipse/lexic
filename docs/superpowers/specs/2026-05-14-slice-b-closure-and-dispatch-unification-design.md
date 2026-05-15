@@ -34,7 +34,19 @@ Tasks 1.1 and 1.2 landed with deviations from the literal spec code; Tasks 1.3 a
 
    `default(self, node, new_children) -> _T` is *not* abstract. The base returns `cast("_T", node)` — the identity pass-through, sensible for `IrTransformer[IrNode]`. `IrEmitter[str]` overrides to return `str(node)` (the node's intrinsic canonical action from `__str__`). `IrVisitor[None]` overrides to return `None`. Two overrides, one inherited default.
 
-5. **`__str__` and `__repr__` are mechanical too.** They live on `IrStructure` and derive from each subclass's declared structure exactly like `children()` and `rebuild()`: `IrCollection` declares `_items_attr`, `IrComposite` declares `_child_attrs`, and a new `_extra_field_names()` method on each returns the non-child fields. `IrStructure.__str__` and `IrStructure.__repr__` use `_extra_field_names()` to assemble the canonical / debug renderings without per-node code. Concrete leaves implement `__str__` directly with the placeholder notation (`LITERAL('a')`, `Q[0..*]`, etc.); concrete structural classes use `@dataclass(..., repr=False)` so the inherited `__repr__` isn't shadowed.
+5. **`__str__` is a template method; `__repr__` is mechanical.** `IrNode.__str__` is a single template:
+
+   ```
+   f"{_str_name}{_str_opener}{_inner_str()}{_str_closer}"
+   ```
+
+   Three ClassVars (`_str_name`, `_str_opener`, `_str_closer`) and one abstract method (`_inner_str`) drive everything. `_str_name` is **auto-derived in `__init_subclass__`** from the class name (strip `Ir`, uppercase) — `IrRule` → `"RULE"`, `IrItem` → `"ITEM"`. Subclasses set it explicitly only when the auto-derivation isn't what we want (`IrRuleRef` → `"REF"`, `IrSequence` → `"SEQ"`, `IrAlternation` → `"ALT"`, `Quantifier` → `"Q"`). `_str_opener` / `_str_closer` default to `(` / `)`; `Quantifier` overrides to `[` / `]` (subscript/bounds notation).
+
+   `_inner_str` is the only per-class extension point. `IrLeaf` default: `repr(first_dataclass_field)` — single-field leaves get it free. `IrStructure` default: `", ".join(_extra_str_parts() + [str(c) for c in children()])`. Extras come from each branch base's `_extra_field_names()` (mirrors `_items_attr` / `_child_attrs` from Task 1.2). `IrCollection` renders extras keyed (`start='r'` → `AST(start='r', ...)`); `IrComposite` renders them positionally (`'r'` → `RULE('r', ...)`).
+
+   `__repr__` on `IrStructure` produces an indented multi-line walk over extras and children. Concrete structural dataclasses use `@dataclass(..., repr=False)` so the inherited `__repr__` isn't shadowed (dataclass runs after `__init_subclass__`, so the auto-derived `_str_name` survives).
+
+   Adding a new IR node type is small: declare the dataclass, inherit from `IrLeaf` / `IrCollection` / `IrComposite`, override `_inner_str` only if the default doesn't fit, override `_str_name` only if the auto-derivation isn't right.
 
 Sections §IrNode structural protocol and §`walk.py` collapse and `IrEmitter` below are retained for historical traceability. Where they conflict with this revision, the revision wins. Concrete shapes appear in the revised implementation plan (Tasks 1.3 and 1.4).
 
