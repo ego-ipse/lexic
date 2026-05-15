@@ -1,9 +1,42 @@
 # Slice B closure + dispatch unification: intrinsic-on-node, unified flavour emit, LarkFlavour promotion
 
 **Date:** 2026-05-14
-**Status:** Approved (brainstormed)
+**Status:** Approved (brainstormed); revised 2026-05-15 mid-execution — see §Revision 2026-05-15.
 **Supersedes (in part):** `docs/superpowers/plans/2026-04-23-slice-b-pattern-atom-tier-2-5-tokens.md` — closes the remaining Slice B Phase 3 deliverable (positional token reservation), folds in cleanup of stragglers (helpers.py, utils/quantifiers.py, FlavourEmitter), and adds a larger architectural cut.
-**Implementation plan:** to be written.
+**Implementation plan:** `docs/superpowers/plans/2026-05-14-slice-b-closure-and-dispatch-unification.md`.
+
+## Revision 2026-05-15
+
+Tasks 1.1 and 1.2 landed with deviations from the literal spec code; Tasks 1.3 and 1.4 were rebrainstormed before execution. Three concrete changes from the original §Architecture below:
+
+1. **Richer node hierarchy.** Instead of every concrete IR node subclassing `IrNode` and implementing `children` / `rebuild` independently, the implementation grew an intermediate layer:
+
+   ```
+   IrNode (ABC) ─┬─ IrLeaf                     identity defaults (children=(), rebuild=self)
+                 └─ IrStructure (ABC) ─┬─ IrCollection[_T]      homogeneous variable-length
+                                       └─ IrComposite[*_Ts]    heterogeneous fixed-arity
+   ```
+
+   Concrete leaves inherit `IrLeaf`. Concrete branches inherit `IrCollection` (declaring `_items_attr: ClassVar[str]`) or `IrComposite` (declaring `_child_attrs: ClassVar[tuple[str, ...]]`). `children()` and `rebuild()` are auto-implemented on the bases via `getattr` and `dataclasses.replace`. No per-node overrides needed. `IrStructure` declares `__dataclass_fields__: ClassVar[...]` so `dataclasses.replace(self, ...)` typechecks without a cast. The TypeVarTuple variant on `IrComposite` lets `IrItem(IrComposite["IrAtom", "Quantifier"])` carry precise heterogeneous-child types.
+
+2. **`__str__` / `__repr__` replace `emit()` and `dump()`.** The original spec collapsed both concerns onto a single `emit(indent)` method whose default matched the legacy `_DUMP` byte-for-byte. Two failure modes followed: it conflated *canonical rendering* (what an `IrEmitter` action does in the absence of a flavour override) with *debug visualization* (a raw structural dump), and it tied the IR's intrinsic API to a format we want to discard. The revision drops both `emit()` and `dump()` in favour of Python's dunder protocol:
+
+   - **`__str__(self) -> str`** — the node's canonical-form string. This is the intrinsic action: an `IrEmitter.visit` falls back to `str(node)` when its `action.get(type(node))` returns `None`. New IR node types implement `__str__`; flavour overrides intercept via the action table without touching the node. For now the output is a placeholder notation (`LITERAL('a')`, `SEQ(...)`, `ALT(...)`, etc.) — deliberately not any user-facing grammar syntax. The eventual canonical IR-self-notation ("IrFlavour") is designed and slotted in as a Flavour like any other; until then the placeholder exercises the architecture without committing to syntax.
+   - **`__repr__(self) -> str`** — debug raw visualization. `IrStructure` defines a generic indented multi-line `__repr__` that walks `children()` recursively. Concrete structural classes use `@dataclass(frozen=True, slots=True, repr=False)` so the dataclass-generated `__repr__` doesn't shadow it. Leaves use the dataclass-default `__repr__`. New IR node types participate automatically through `children()` and dataclass defaults.
+
+   The `dump()` free function in `walk.py` is deleted. Callers use `repr(node)`. The `IrEmitter` fallback uses `str(node)`. No `emit()` method exists.
+
+3. **`IrDispatch` is structural — an `IrCollection["IrAction"]`.** Treating it as a leaf with `children() == ()` was dishonest: a dispatcher's whole point is its action table. So a new leaf type `IrAction(IrLeaf)` wraps each `(target_type, handler)` pair, and `IrDispatch` inherits from `IrCollection["IrAction"]` with `_items_attr = "actions"`. The `children()` of a dispatcher are its actions; `rebuild()` reconstructs from a new action tuple. A `@cached_property _table: dict[type, Callable]` is derived from `actions` for O(1) lookup at dispatch time. TODO marker on `IrAction` documents the C-level destination: when the `handler` callable grows into a structural sub-algebra of typesetting/transformation operations, `IrAction` stops being a leaf — its operations become its children — and `IrDispatch` doesn't need to change. A Flavour then becomes a literal tree of IR nodes expressible *in* IR.
+
+4. **Dispatch logic collapses.** With actions structural, the `visit` / `generic_visit` / `_combine` / `visit_<TypeName>` getattr indirection becomes rote scaffolding. The dispatcher is just `__call__`: walk children first, then either look up the handler in `_table` or fall back to `default`. Two semantic modes:
+   - `actions == ()` — no flavour overrides; every node uses `self.default(node, new_children)`. This is the `IrMetaEmitter`-style use case.
+   - `actions != ()` — the dispatcher has declared a closed world; a type miss raises `UnsupportedConstructError`. This is the flavour-as-emitter use case.
+
+   `default(self, node, new_children) -> _T` is *not* abstract. The base returns `cast("_T", node)` — the identity pass-through, sensible for `IrTransformer[IrNode]`. `IrEmitter[str]` overrides to return `str(node)` (the node's intrinsic canonical action from `__str__`). `IrVisitor[None]` overrides to return `None`. Two overrides, one inherited default.
+
+5. **`__str__` and `__repr__` are mechanical too.** They live on `IrStructure` and derive from each subclass's declared structure exactly like `children()` and `rebuild()`: `IrCollection` declares `_items_attr`, `IrComposite` declares `_child_attrs`, and a new `_extra_field_names()` method on each returns the non-child fields. `IrStructure.__str__` and `IrStructure.__repr__` use `_extra_field_names()` to assemble the canonical / debug renderings without per-node code. Concrete leaves implement `__str__` directly with the placeholder notation (`LITERAL('a')`, `Q[0..*]`, etc.); concrete structural classes use `@dataclass(..., repr=False)` so the inherited `__repr__` isn't shadowed.
+
+Sections §IrNode structural protocol and §`walk.py` collapse and `IrEmitter` below are retained for historical traceability. Where they conflict with this revision, the revision wins. Concrete shapes appear in the revised implementation plan (Tasks 1.3 and 1.4).
 
 ## Background
 
@@ -47,7 +80,9 @@ Inherited from prior slices unchanged. This spec adds two:
 
 **P10. Intrinsic data lives on the node.** Per-type structural data (children layout, reconstruction shape, debug repr) belongs in methods on the IR node type, not in central registries. External operations (emission, codegen, derivation passes) keep their dispatch tables.
 
-**P11. String output is `IrEmitter`.** Any operation that walks the IR and yields a string is an `IrEmitter[IrNode]` subclass — the T=str instantiation of `IrDispatch`. Flavour emitters and debug dump share one mechanism. The `FlavourEmitter` ABC and per-flavour emitter subclasses are removed; a `Flavour` *is* (or owns) an `IrEmitter`. New string-producing IR operations subclass `IrEmitter`; they don't get bespoke entry points.
+**P11. String output is `IrEmitter`.** Any *flavour-controlled* operation that walks the IR and yields a string is an `IrEmitter[IrNode]` subclass — the T=str instantiation of `IrDispatch`. The `FlavourEmitter` ABC and per-flavour emitter subclasses are removed; a `Flavour` *is* (or owns) an `IrEmitter`. New string-producing IR operations subclass `IrEmitter`; they don't get bespoke entry points. *(Revised 2026-05-15: debug `dump()` does NOT go through this mechanism — see P12. The intrinsic canonical form is `__str__`; `IrEmitter` falls through to `str(node)` when its action table has no entry.)*
+
+**P12. IR is open; flavours are closed.** New IR node types can be added at any time without touching any flavour or central dispatcher. They bring their own `__str__` (intrinsic canonical action) and inherit `__repr__`, `children()`, and `rebuild()` from the `IrLeaf` / `IrCollection` / `IrComposite` bases. Flavours are inherently closed — each one fixes the syntax of a target grammar format and provides actions for the node types it knows. The two meet at the `IrEmitter` action table's `.get()` fallthrough into `str(node)`. Debug `repr()` is likewise open: it uses only the node protocol (`children()`, dataclass defaults on leaves) — no per-type registry, no closed dispatcher.
 
 ## Architecture
 
