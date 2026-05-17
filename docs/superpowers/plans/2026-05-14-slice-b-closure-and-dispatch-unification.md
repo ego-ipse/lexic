@@ -4,9 +4,9 @@
 
 **Goal:** Close Slice B (positional token reservation + cleanup) while inverting the IR dispatch architecture: intrinsic data lives on the node, all string emission flows through a unified `IrEmitter` hierarchy. Lexic gains `.lark` as a third user-facing grammar format.
 
-**Architecture:** `IrNode` is an ABC with structural protocol (`children`, `rebuild`, plus Python's `__str__` and `__repr__`). `__str__` is the node's intrinsic canonical-form action — what an `IrEmitter` action would do for this node type in the absence of a flavour override; `IrEmitter` falls through to `str(node)` when its action table has no entry. `__repr__` is debug raw visualization — `IrStructure` defines a generic indented walk over `children()`; leaves use the dataclass default. No `emit()` method, no `dump()` function. `IrDispatch` itself *is* an `IrNode` (trivial `children`/`rebuild` for now; the long-term destination is actions-as-IrNodes — TODO marker in code). `IrDispatch` gains `IrEmitter` (T=str) as its third canonical instantiation; `Flavour` *is* an `IrEmitter[IrNode]` populated via per-type action tables. `FlavourEmitter` ABC + concrete emitters are deleted. `Quantifier` → `IrQuantifier` (an IrNode leaf). `LarkFlavour` joins `GbnfFlavour` and `AbnfFlavour` as a first-class peer.
+**Architecture:** `IrNode` is an ABC with structural protocol (`children`, `rebuild`, plus Python's `__str__` and `__repr__`). `__str__` is the node's intrinsic canonical-form action — what an `IrEmitter` action would do for this node type in the absence of a flavour override; `IrEmitter` falls through to `str(node)` when no action handles the type. `__repr__` is debug raw visualization — `IrStructure` defines a generic indented walk over `children()`; leaves use the dataclass default. No `emit()` method, no `dump()` function. `IrDispatch` is itself an `IrCollection["IrAction"]` — actions are structural IR data, not opaque callables. `IrAction(target_type, body)` carries an `IrOp` body: a small algebra of typesetting / transformation primitives (`IrText`, `IrField`, `IrRecurse`, `IrSeq`, `IrJoin`, `IrCond`) plus `IrCallable` as an escape hatch for procedural cases. Action bodies are walkable IR trees, so a `Flavour` is expressible in IR — the substrate for the long-stated goal of generating Flavour files from a grammar. `IrDispatch.__call__` walks children, evaluates the action body, falls through to `default` on miss. `IrEmitter` (T=str) is the third canonical instantiation; `Flavour` *is* an `IrEmitter[IrNode]` populated via per-type actions. `FlavourEmitter` ABC + concrete emitters are deleted. `Quantifier` → `IrQuantifier` (an IrNode leaf). `LarkFlavour` joins `GbnfFlavour` and `AbnfFlavour` as a first-class peer.
 
-**Open vs. closed:** Flavours are inherently closed — each fixes the syntax of a target grammar format and may not know every node type. The IR is open — new node types are added without touching any flavour or dispatcher. The two meet at the `IrEmitter` action table's `.get()` fallthrough into `str(node)`.
+**Open vs. closed.** Flavours are inherently closed — each fixes the syntax of a target grammar format and may not know every node type. The IR is open — new node types are added without touching any flavour or dispatcher. The two meet at the action-table miss falling through to `default`; soft for partial transformers / visitors, loud for closed-world flavour emitters (`IrEmitter.default` raises `UnsupportedConstructError` when its action table is non-empty and the type missed).
 
 **Tech Stack:** Python 3.12+ · Pydantic v2 · Lark (Earley) · uv · pytest · ruff · pylint
 
@@ -1845,11 +1845,16 @@ the same role is served by canonical_emitter() / IrEmitter()."
 
 ---
 
-### Task 3.2: Add `action`, `quantifier_symbols`, `pre_parse_check` to `Flavour`; subclass `IrEmitter`
+### Task 3.2: Add `actions`, `quantifier_symbols`, `pre_parse_check` to `Flavour`; subclass `IrEmitter`
 
 **Files:**
 - Modify: `src/lexic/grammars/flavour.py`
 - Test: `tests/unit/lexic/grammars/test_flavour.py`
+
+**Revision note (2026-05-15).** The original task added `action: dict[type, Callable]` to `Flavour`. With Task 1.4's `IrAction[IrOp]` design, that becomes `actions: tuple[IrAction, ...]` (inherited from `IrEmitter` via `IrDispatch` → `IrCollection[IrAction]`). Each entry is an `IrAction(target_type, body)` where `body` is an `IrOp` tree. The pseudocode below still references the `action` dict — substitute as you implement:
+- `action: ClassVar[dict[type[IrNode], Callable]]` → `actions: ClassVar[tuple[IrAction, ...]]` (inherited)
+- `Flavour.action[NodeType] = lambda n, r: ...` → `IrAction(NodeType, <IrOp tree>)`
+See Task 3.3 / 3.4 for the per-flavour structural action sets.
 
 - [ ] **Step 1: Read current Flavour file**
 
@@ -1971,6 +1976,23 @@ validation hook used by Step 5 (token reservation)."
 **Files:**
 - Modify: `src/lexic/grammars/gbnf/flavour.py`
 - Test: `tests/unit/lexic/grammars/gbnf/test_flavour.py`
+
+**Revision note (2026-05-15).** Per Task 1.4 the action table is `actions: tuple[IrAction, ...]` where each `IrAction(target_type, body)` carries a structural `IrOp` body. Replace each lambda in the table below with the equivalent `IrOp` tree. The full op set is in `src/lexic/ir/action.py` (Task 1.4); the GBNF translations are:
+
+| Old lambda | New `IrAction` body |
+|---|---|
+| `IrLiteral: lambda n, _: f'"{escape(n.value)}"'` | `IrAction(IrLiteral, IrCallable(_emit_gbnf_literal))` — encoding requires the flavour-specific escape codec; keep procedural for now |
+| `IrCharClass: lambda n, _: f"[{'^' if n.negated else ''}{n.pattern}]"` | `IrAction(IrCharClass, IrSeq((IrText("["), IrCond("negated", IrText("^"), IrText("")), IrField("pattern"), IrText("]"))))` |
+| `IrRuleRef: lambda n, _: n.name` | `IrAction(IrRuleRef, IrField("name"))` |
+| `IrGroup: lambda n, r: f"({r(n.body)})"` | `IrAction(IrGroup, IrSeq((IrText("("), IrRecurse("body"), IrText(")"))))` |
+| `IrQuantifier: _emit_gbnf_quantifier` | `IrAction(Quantifier, IrCallable(_emit_gbnf_quantifier))` — quantifier-symbol lookup is procedural |
+| `IrItem: lambda n, r: f"{r(n.atom)}{r(n.quantifier)}"` | `IrAction(IrItem, IrSeq((IrRecurse("atom"), IrRecurse("quantifier"))))` |
+| `IrSequence: lambda n, r: " ".join(r(it) for it in n.items) or '""'` | `IrAction(IrSequence, IrJoin("items", " ", empty='""'))` |
+| `IrAlternation: lambda n, r: " \| ".join(r(arm) for arm in n.arms)` | `IrAction(IrAlternation, IrJoin("arms", " \| "))` |
+| `IrRule: lambda n, r: f"{n.name} ::= {r(n.body)}"` | `IrAction(IrRule, IrSeq((IrField("name"), IrText(" ::= "), IrRecurse("body"))))` |
+| `IrAst: lambda n, r: "\n".join(r(rule) for rule in n.rules) + "\n"` | `IrAction(IrAst, IrSeq((IrJoin("rules", "\n"), IrText("\n"))))` |
+
+Two entries stay `IrCallable` because their logic isn't structurally expressible (yet): `IrLiteral` (needs flavour-specific escape codec invocation) and `Quantifier` (consults `quantifier_symbols` dict). The rest become structural — making the GBNF flavour parseable / codegenable from grammar text in the long-term direction.
 
 - [ ] **Step 1: Read the current GbnfFlavour file**
 
@@ -2116,6 +2138,12 @@ tasks; for now both pipelines coexist."
 - Test: `tests/unit/lexic/grammars/abnf/test_flavour.py`
 
 The structure mirrors Task 3.3 but with ABNF prefix-placement on `IrItem` and a different quantifier format.
+
+**Revision note (2026-05-15).** Same translation contract as Task 3.3: `actions: tuple[IrAction, ...]`, each `IrAction(target_type, body)` carries an `IrOp` body. ABNF-specific differences from GBNF:
+- `IrAction(IrItem, IrSeq((IrRecurse("quantifier"), IrRecurse("atom"))))` — prefix-placed quantifier (vs. GBNF's atom-then-quantifier).
+- `IrAction(Quantifier, IrCallable(_emit_abnf_quantifier))` — ABNF's `n*m` form lives in the procedural quantifier renderer.
+- `IrAction(IrLiteral, IrCallable(_emit_abnf_literal))` — same flavour-specific escape reason as GBNF.
+- The remaining entries (`IrRuleRef`, `IrCharClass`, `IrGroup`, `IrSequence`, `IrAlternation`, `IrRule`, `IrAst`) map to the same `IrOp` shapes as GBNF, modulo separator strings and rule-syntax (`=` instead of `::=`).
 
 - [ ] **Step 1: Read current AbnfFlavour and AbnfEmitter**
 

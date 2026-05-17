@@ -26,13 +26,24 @@ Tasks 1.1 and 1.2 landed with deviations from the literal spec code; Tasks 1.3 a
 
    The `dump()` free function in `walk.py` is deleted. Callers use `repr(node)`. The `IrEmitter` fallback uses `str(node)`. No `emit()` method exists.
 
-3. **`IrDispatch` is structural — an `IrCollection["IrAction"]`.** Treating it as a leaf with `children() == ()` was dishonest: a dispatcher's whole point is its action table. So a new leaf type `IrAction(IrLeaf)` wraps each `(target_type, handler)` pair, and `IrDispatch` inherits from `IrCollection["IrAction"]` with `_items_attr = "actions"`. The `children()` of a dispatcher are its actions; `rebuild()` reconstructs from a new action tuple. A `@cached_property _table: dict[type, Callable]` is derived from `actions` for O(1) lookup at dispatch time. TODO marker on `IrAction` documents the C-level destination: when the `handler` callable grows into a structural sub-algebra of typesetting/transformation operations, `IrAction` stops being a leaf — its operations become its children — and `IrDispatch` doesn't need to change. A Flavour then becomes a literal tree of IR nodes expressible *in* IR.
+3. **`IrDispatch` is structural — an `IrCollection["IrAction"]` — and `IrAction` is structural from day one.** Treating `IrDispatch` as a leaf was dishonest; its whole point is its action table. The fix lives in a new module `src/lexic/ir/action.py`:
+   - **`IrAction(IrComposite["IrOp"])`** carries `target_type: type` and `body: IrOp`. The body is a tree of typesetting / transformation operations expressible as IR nodes — no opaque callable carried by `IrAction` itself.
+   - **`IrOp` algebra:** `IrText(text)`, `IrField(field_name)`, `IrRecurse(field_name)`, `IrSeq(parts)`, `IrJoin(field_name, separator, empty="")`, `IrCond(field_name, then_op, else_op)`, and `IrCallable(handler)` as an escape hatch for procedural cases (`_HoistTransformer`'s rebuild logic, `_RuleRefFinder`'s side-effect flag, flavour actions that consult external symbol tables like quantifier-encoding).
+   - **`IrDispatch(IrCollection["IrAction"])`** has the actions as its `children()` (`_items_attr = "actions"`); `rebuild()` reconstructs from a new action tuple. `_table: dict[type, IrAction]` is derived as a `@property` (frozen-dataclass-compatible) for lookup at dispatch time.
+   - Because `IrAction.body` is an `IrOp` tree of IR nodes, a `Flavour` is expressible *in* IR: parse a future `IrFlavour` grammar text into a tree of `IrAction(IrOp...)`, and a `PyFlavourCodegenRenderer` emits Python flavour-file source from that same tree. This is the substrate for the long-stated goal of generating Flavour files from a grammar. No further structural promotion needed once `IrAction` ships.
 
-4. **Dispatch logic collapses.** With actions structural, the `visit` / `generic_visit` / `_combine` / `visit_<TypeName>` getattr indirection becomes rote scaffolding. The dispatcher is just `__call__`: walk children first, then either look up the handler in `_table` or fall back to `default`. Two semantic modes:
-   - `actions == ()` — no flavour overrides; every node uses `self.default(node, new_children)`. This is the `IrMetaEmitter`-style use case.
-   - `actions != ()` — the dispatcher has declared a closed world; a type miss raises `UnsupportedConstructError`. This is the flavour-as-emitter use case.
+4. **Dispatch logic collapses.** With actions structural, the `visit` / `generic_visit` / `_combine` / `visit_<TypeName>` getattr indirection becomes rote scaffolding. The dispatcher is just `__call__`:
 
-   `default(self, node, new_children) -> _T` is *not* abstract. The base returns `cast("_T", node)` — the identity pass-through, sensible for `IrTransformer[IrNode]`. `IrEmitter[str]` overrides to return `str(node)` (the node's intrinsic canonical action from `__str__`). `IrVisitor[None]` overrides to return `None`. Two overrides, one inherited default.
+   ```
+   walk children → look up IrAction for type(node) → evaluate body.eval(self, node, new_children) → fall through to default on miss
+   ```
+
+   The dispatch is always **soft** at the `IrDispatch` base — a type miss falls through to `default(node, new_children)`. Closed-world strictness is a per-subclass concern, expressed by overriding `default`:
+   - `IrTransformer.default` — identity pass-through; rebuild on changed children.
+   - `IrVisitor.default` — return `None`.
+   - `IrEmitter.default` (Task 3.1) — return `str(node)` when `self.actions` is empty (the canonical-emit walker); raise `UnsupportedConstructError` when `self.actions` is non-empty (closed-world flavour saw an unknown type).
+
+   The original spec's "non-empty actions → strict miss at the base" semantic broke partial transformers / visitors (`_HoistTransformer`, `_RuleRefFinder`, `_PatternAliasVisitor` register actions for one or two types and rely on walk-through for the rest). Moving strictness into `IrEmitter.default` keeps the flavour-emitter loud while letting partial dispatchers stay soft.
 
 5. **`__str__` is a template method; `__repr__` is mechanical.** `IrNode.__str__` is a single template:
 
