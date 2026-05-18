@@ -3,11 +3,18 @@
 Every IR node implements the structural protocol from IrNode:
   - children() -> tuple[IrNode, ...]   children in traversal order
   - rebuild(new_children) -> IrNode    reconstruct under transformation
+  - __call__(dispatch, node, new_children) -> _T_co   evaluate as an action body
 
 Hierarchy:
-  IrNode (ABC) ── IrLeaf          leaves: IrLiteral, IrCharClass, IrRuleRef, Quantifier
-               └─ IrStructure ─── IrCollection[_T]    homogeneous variable-length children
-                                └─ IrComposite[*_Ts]  heterogeneous fixed-arity children
+  IrNode[_T_co] (ABC) ── IrLeaf[_T_co]      leaves: IrLiteral, IrCharClass, IrRuleRef,
+                                              Quantifier
+                       └─ IrStructure ─── IrCollection[_T_co]   homogeneous variable-
+                                                         length children
+                       └─ IrComposite[_T_co]  heterogeneous fixed-
+                                                         arity children
+                       └─ IrAtom[_T_co]      role marker for nodes IrItem can wrap:
+                                      IrLiteral, IrCharClass, IrRuleRef, IrGroup
+                                      (NOT Quantifier — leaf but not quantifiable)
 
 ``__str__`` is templated at IrNode level as:
 
@@ -19,6 +26,13 @@ Quantifier uses ``[``/``]`` — subscript/bounds notation, distinct from
 constructor-call ``()``.
 ``_inner_str()`` is abstract; IrLeaf defaults to ``repr(first_field)``,
 IrStructure to comma-joined extras and children.
+
+Generic parameter ``_T_co`` is the return type of ``__call__`` — the value
+this node produces when invoked as an action body inside an IrDispatch
+walk. A single module-scope TypeVar with ``default="IrNode"`` threads
+through IrLeaf / IrCollection / IrComposite; subclasses that don't
+override the parameter inherit ``_T_co = IrNode``. Subclasses that pin
+``_T_co`` (e.g. ``IrLiteral(IrLeaf[str])``) must override ``__call__``.
 """
 
 from __future__ import annotations
@@ -33,24 +47,38 @@ from typing import (
     Self,
     TypeAlias,
     TypeVar,
-    TypeVarTuple,
-    Unpack,
 )
 
-_T = TypeVar("_T", bound="IrNode")
-_Ts = TypeVarTuple("_Ts")
+# Separate TypeVar for IrAtom — defaults to ``object`` rather than ``IrNode``
+# so bare ``IrAtom`` resolves to ``IrAtom[object]``, the universal supertype
+# that covariantly accepts any concrete atom (``IrAtom[str]``, ``IrAtom[IrNode]``,
+# …). Keeps ``IrItem.atom: IrAtom`` unparameterized at the field site.
+_Tsuper_co = TypeVar("_Tsuper_co", default=object, covariant=True)
+
+TsuperCo: TypeAlias = _Tsuper_co
+
+
+# Return type of ``__call__`` when this node is invoked as an action body.
+# Default fires when a subclass omits the parameter:
+# ``class IrCharClass(IrLeaf):`` → ``IrLeaf[IrNode]``.
+_T_co = TypeVar("_T_co", default="IrNode", covariant=True, bound=TsuperCo)
 
 
 # ── Root protocol ─────────────────────────────────────────────────────
 
 
-class IrNode(ABC):
+class IrNode(Generic[_T_co], ABC):
     """Structural protocol every IR node implements.
 
     ``_str_name`` is auto-derived by ``__init_subclass__``: strip the ``Ir``
     prefix and uppercase the remainder (e.g. ``IrRule`` → ``RULE``).
     Subclasses that want a different name (e.g. ``SEQ`` instead of
     ``SEQUENCE``) declare ``_str_name: ClassVar[str] = "SEQ"`` explicitly.
+
+    Generic in ``_T_co`` — the return type of ``__call__`` when this node is
+    invoked as an action body. Subclasses either pin ``_T_co`` by
+    parameterizing the structural base (``IrLeaf[str]`` for ``IrLiteral``)
+    or accept the default ``_T_co = IrNode``.
     """
 
     _str_name: ClassVar[str]
@@ -90,15 +118,38 @@ class IrNode(ABC):
         :returns: A new IrNode instance with the new children.
         """
 
+    @abstractmethod
+    def __call__(
+        self,
+        dispatch: IrNode | None,
+        node: IrNode | None,
+        new_children: tuple,
+    ) -> _T_co:
+        """Evaluate this node as an action body.
+
+        :param dispatch: Dispatcher driving the surrounding walk. ``None``
+            when this node is invoked outside a dispatch (unit tests or
+            pure-data bodies needing no context).
+        :param node: The dispatched domain node providing sibling-lookup
+            context. ``None`` outside a dispatch.
+        :param new_children: The dispatched domain node's already-walked
+            children, aligned to ``node.children()`` order.
+        :returns: This node's contribution to the surrounding evaluation.
+        """
+
 
 # ── Leaf base ─────────────────────────────────────────────────────────
 
 
-class IrLeaf(IrNode):
+class IrLeaf(IrNode[_T_co], Generic[_T_co]):
     """Base for all leaf nodes — identity implementations of the structural protocol.
 
     Default ``_inner_str`` renders ``repr(first_field)``.
-    Leaves with multi-field or non-standard formatting override it.
+    Default ``__call__`` returns ``self`` (statically typed as ``_T_co``,
+    which defaults to ``IrNode``).
+    Leaves with multi-field or non-standard formatting override ``_inner_str``.
+    Leaves that pin ``_T_co`` (e.g. ``IrLeaf[str]`` for ``IrLiteral``) must
+    override ``__call__``.
     """
 
     __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
@@ -118,7 +169,7 @@ class IrLeaf(IrNode):
         """
         return ()
 
-    def rebuild(self, new_children: tuple[IrNode, ...]) -> Self:  # pylint: disable=unused-argument
+    def rebuild(self, new_children: tuple[_T_co, ...]) -> Self:  # pylint: disable=unused-argument
         """Leaves reconstruct as identity.
 
         :param new_children: Ignored.
@@ -126,11 +177,24 @@ class IrLeaf(IrNode):
         """
         return self
 
+    def __call__(
+        self,
+        _dispatch: IrNode | None,
+        _node: IrNode | None,
+        _new_children: tuple,
+    ) -> _T_co:
+        """Default leaf evaluation: return ``self``.
+
+        Typechecks because every IrLeaf IS-A IrNode (the default for ``_T_co``).
+        Subclasses that re-parameterize ``_T_co`` must override.
+        """
+        return self  # type: ignore[return-value]
+
 
 # ── Branch-node abstract base ─────────────────────────────────────────
 
 
-class IrStructure(IrNode, ABC):
+class IrStructure(IrNode[_T_co], Generic[_T_co], ABC):
     """Abstract base for all non-leaf IR nodes.
 
     Declares __dataclass_fields__ so that dataclasses.replace() accepts
@@ -187,8 +251,8 @@ class IrStructure(IrNode, ABC):
 # ── Variable-length homogeneous branch nodes ──────────────────────────
 
 
-class IrCollection(IrStructure, Generic[_T]):
-    """Branch node carrying a single variable-length tuple of homogeneous children.
+class IrCollection(IrStructure[_T_co], Generic[_T_co]):
+    """Branch node carrying a single variable-length tuple of children.
 
     Concrete subclasses declare:
         _items_attr: ClassVar[str] = "<field_name>"
@@ -196,6 +260,13 @@ class IrCollection(IrStructure, Generic[_T]):
     ``_str_name`` is auto-derived from the class name unless overridden.
     children() and rebuild() are fully auto-implemented from _items_attr.
     Extra dataclass fields (e.g. IrAst.start) are preserved on rebuild.
+
+    Default ``__call__`` rebuilds Self with each child invoked. Subclasses
+    that re-parameterize ``_T_co`` must override.
+
+    Element type is pinned per-subclass via the dataclass field annotation
+    (e.g. ``items: tuple[IrItem, ...]``); IrCollection itself does not
+    parameterize over element type.
     """
 
     _items_attr: ClassVar[str]
@@ -209,14 +280,14 @@ class IrCollection(IrStructure, Generic[_T]):
             f.name for f in dataclasses.fields(self) if f.name != self._items_attr
         )
 
-    def children(self) -> tuple[_T, ...]:
+    def children(self) -> tuple[IrNode, ...]:
         """Return the homogeneous children tuple.
 
         :returns: Tuple of child nodes.
         """
         return getattr(self, self._items_attr)
 
-    def rebuild(self, new_children: tuple[_T, ...]) -> Self:
+    def rebuild(self, new_children: tuple[_T_co, ...]) -> Self:
         """Reconstruct, replacing the items field with new_children.
 
         :param new_children: Replacement children tuple.
@@ -224,12 +295,26 @@ class IrCollection(IrStructure, Generic[_T]):
         """
         return dataclasses.replace(self, **{self._items_attr: new_children})
 
+    def __call__(
+        self,
+        dispatch: IrNode | None,
+        node: IrNode | None,
+        new_children: tuple,
+    ) -> _T_co:
+        """Default collection evaluation: rebuild with each child invoked.
+
+        Typechecks because every IrCollection IS-A IrNode (the default for
+        ``_T_co``). Subclasses that re-parameterize ``_T_co`` must override.
+        """
+        called = tuple(c(dispatch, node, new_children) for c in self.children())
+        return self.rebuild(called)  # type: ignore[return-value]
+
 
 # ── Fixed-arity heterogeneous branch nodes ────────────────────────────
 
 
-class IrComposite(IrStructure, Generic[*_Ts]):
-    """Branch node carrying a fixed, named set of typed children.
+class IrComposite(IrStructure[_T_co], Generic[_T_co]):
+    """Branch node carrying a fixed, named set of children.
 
     Concrete subclasses declare:
         _child_attrs: ClassVar[tuple[str, ...]] = ("<attr1>", "<attr2>", ...)
@@ -239,9 +324,12 @@ class IrComposite(IrStructure, Generic[*_Ts]):
     rebuild() zips new_children back onto those attribute names.
     Extra fields (those not in _child_attrs) are preserved on rebuild.
 
-    The TypeVarTuple *_Ts encodes each child's precise type, which benefits
-    rebuild() callers and field-level type checks; children() intentionally
-    returns the covariant-safe tuple[IrNode, ...].
+    Default ``__call__`` rebuilds Self with each child invoked. Subclasses
+    that re-parameterize ``_T_co`` must override.
+
+    Child types are pinned per-subclass via the dataclass field annotations
+    (e.g. ``body: IrAlternation``); IrComposite itself does not parameterize
+    over child types.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]]
@@ -269,7 +357,7 @@ class IrComposite(IrStructure, Generic[*_Ts]):
         """
         return tuple(getattr(self, a) for a in self._child_attrs)
 
-    def rebuild(self, new_children: tuple[Unpack[_Ts]]) -> Self:
+    def rebuild(self, new_children: tuple[_T_co, ...]) -> Self:
         """Reconstruct, replacing child attrs from new_children in order.
 
         :param new_children: Replacement children, matching _child_attrs order.
@@ -277,19 +365,66 @@ class IrComposite(IrStructure, Generic[*_Ts]):
         """
         return dataclasses.replace(self, **dict(zip(self._child_attrs, new_children)))
 
+    def __call__(
+        self,
+        dispatch: IrNode | None,
+        node: IrNode | None,
+        new_children: tuple,
+    ) -> _T_co:
+        """Default composite evaluation: rebuild with each child invoked.
+
+        Typechecks because every IrComposite IS-A IrNode (the default for
+        ``_T_co``). Subclasses that re-parameterize ``_T_co`` must override.
+        """
+        called = tuple(c(dispatch, node, new_children) for c in self.children())
+        return self.rebuild(called)  # type: ignore[return-value]
+
+
+# ── Superset role ─────────────────────────────────────────────────────────
+
+
+class IrSuperSet(IrNode[_Tsuper_co]):
+    """Superset of IrCollection"""
+
+
+class IrAtom(IrSuperSet):
+    """Role marker for IR nodes that ``IrItem`` can wrap with a quantifier.
+
+    Decoupled from leaf-vs-composite structure. ``IrLiteral`` /
+    ``IrCharClass`` / ``IrRuleRef`` are leaves AND atoms; ``IrGroup`` is a
+    composite AND an atom; ``Quantifier`` is a leaf but NOT an atom
+    (you can't quantify a quantifier).
+
+    Concrete atoms multi-inherit: ``class IrLiteral(IrLeaf[str], IrAtom[str])``.
+    Open-set: a future atom type just adds ``IrAtom`` to its bases.
+    """
+
 
 # ── Leaves ────────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True)
-class IrLiteral(IrLeaf):
-    """Literal string. `value` is canonical Python (escapes decoded)."""
+class IrLiteral(IrAtom, IrLeaf[str]):
+    """Literal string. `value` is canonical Python (escapes decoded).
+
+    Overrides ``__call__`` to return ``self.value`` directly — keeps
+    ``__str__`` free for debug output (``LITERAL('foo')``) while ``__call__``
+    returns the string content for emission. Subsumes the ``IrText`` role.
+    """
 
     value: str
 
+    def __call__(
+        self,
+        _dispatch: IrNode | None,
+        _node: IrNode | None,
+        _new_children: tuple,
+    ) -> str:
+        return self.value
+
 
 @dataclass(frozen=True, slots=True)
-class IrCharClass(IrLeaf):
+class IrCharClass(IrAtom, IrLeaf):
     """Character class. `pattern` is canonical POSIX-style interior."""
 
     pattern: str
@@ -304,7 +439,7 @@ class IrCharClass(IrLeaf):
 
 
 @dataclass(frozen=True, slots=True)
-class IrRuleRef(IrLeaf):
+class IrRuleRef(IrAtom, IrLeaf):
     """Reference to another rule by name."""
 
     _str_name: ClassVar[str] = "REF"
@@ -341,7 +476,7 @@ class Quantifier(IrLeaf):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrSequence(IrCollection["IrItem"]):
+class IrSequence(IrCollection):
     """Concatenation of items."""
 
     _items_attr: ClassVar[str] = "items"
@@ -350,7 +485,7 @@ class IrSequence(IrCollection["IrItem"]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrAlternation(IrCollection["IrSequence"]):
+class IrAlternation(IrCollection):
     """Choice between sequences. Always >= 1 arm."""
 
     _items_attr: ClassVar[str] = "arms"
@@ -359,7 +494,7 @@ class IrAlternation(IrCollection["IrSequence"]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrAst(IrCollection["IrRule"]):
+class IrAst(IrCollection):
     """Full grammar: rules + start-rule name."""
 
     _items_attr: ClassVar[str] = "rules"
@@ -371,7 +506,7 @@ class IrAst(IrCollection["IrRule"]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrGroup(IrComposite["IrAlternation"]):
+class IrGroup(IrAtom, IrComposite):
     """Parenthesised group. Body is always an IrAlternation."""
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
@@ -379,7 +514,7 @@ class IrGroup(IrComposite["IrAlternation"]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrItem(IrComposite["IrAtom", "Quantifier"]):
+class IrItem(IrComposite):
     """An atom (leaf or group) with a quantifier."""
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("atom", "quantifier")
@@ -388,14 +523,9 @@ class IrItem(IrComposite["IrAtom", "Quantifier"]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrRule(IrComposite["IrAlternation"]):
+class IrRule(IrComposite):
     """A named rule. Body is always an IrAlternation, even single-arm."""
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
     name: str
     body: IrAlternation
-
-
-# ── Type aliases (structural unions) ──────────────────────────────────
-
-IrAtom: TypeAlias = IrLeaf | IrGroup

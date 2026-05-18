@@ -389,3 +389,43 @@ def test_repr_irast_with_extras_and_children():
     assert repr(ast) == (
         "IrAst(\n  start='r',\n  IrRule(\n    name='r',\n    IrAlternation()\n  )\n)"
     )
+
+
+def test_irliteral_call_returns_value_as_str():
+    """IrLiteral(IrLeaf[str]) overrides __call__ to return self.value.
+
+    Subsumes the IrText role.
+    """
+    result: str = IrLiteral("hello")(None, None, ())
+    assert result == "hello"
+
+
+def test_ircharclass_call_inherits_identity_default():
+    """IrCharClass(IrLeaf) inherits the default __call__ — returns self.
+    Statically typed as IrNode; runtime identity to the concrete instance."""
+    cc = IrCharClass("a-z")
+    result = cc(None, None, ())  # statically IrNode; runtime IrCharClass
+    assert result is cc
+
+
+def test_irruleref_call_inherits_identity_default():
+    """IrRuleRef(IrLeaf) inherits the default __call__ — returns self."""
+    ref = IrRuleRef("foo")
+    assert ref(None, None, ()) is ref
+
+
+def test_irast_call_inherits_rebuild_default():
+    """IrAst(IrCollection) inherits __call__: rebuild with called rules."""
+    empty = IrAst(rules=(), start="r")
+    result = empty(None, None, ())
+    assert isinstance(result, IrAst)
+    assert result.rules == ()
+    assert result.start == "r"
+
+
+def test_irgroup_call_inherits_rebuild_default():
+    """IrGroup(IrComposite) inherits __call__ via rebuild(called children)."""
+    g = IrGroup(body=IrAlternation())
+    result = g(None, None, ())
+    assert isinstance(result, IrGroup)
+    assert isinstance(result.body, IrAlternation)
