@@ -468,7 +468,7 @@ Note: the canonical version's `str()` coercion isn't needed — `IrNode[str]` al
 ```python
 @dataclass(frozen=True, slots=True, repr=False)
 class IrJoin(IrComposite[str]):
-    """Variable-arity join. ``_T = str`` — overrides the Self default.
+    """Variable-arity join. ``_T = str`` — overrides the IrNode default.
 
     Evaluates ``children_op`` (typically ``IrChildren[IrLiteral]("items")``)
     to get a tuple of stringifiable results; joins with ``separator.value``;
@@ -1926,7 +1926,7 @@ git commit -m "ir: delete helpers.py (HelperRuleRegistry — zero production cal
 - [ ] **Step 1: Update `architecture.md`**
 
 Sections to add/update:
-- **Substrate** — `IrNode[_T]` generic with `__call__(dispatch, node, new_children) -> _T`. Structural bases (`IrLeaf`, `IrCollection`, `IrComposite`) default `_T = Self` via PEP 696. `IrAction` binds a target type to a callable IrNode body. Action-algebra nodes (`IrField`, `IrCallable`, `IrChild`, `IrChildren`, `IrConcat`, `IrJoin`, `IrCond`, `IrReturn`).
+- **Substrate** — `IrNode[_T]` generic with `__call__(dispatch, node, new_children) -> _T`. A single module-scope `_T = TypeVar("_T", default="IrNode")` threads through `IrLeaf`, `IrCollection`, `IrComposite`; subclasses without explicit params inherit `_T = IrNode`. `IrAction` binds a target type to a callable IrNode body. Action-algebra nodes (`IrField`, `IrCallable`, `IrChild`, `IrChildren`, `IrConcat`, `IrJoin`, `IrCond`, `IrReturn`).
 - **Dispatch mechanics** — auto-walk via `node.children()`, MRO-resolve concrete-first, `IrReturn` raising `_Return`. `IrDispatch[_T]` is an `IrCollection[_T, IrAction]`; its `children()` returns the actions tuple. `__call__` takes 3 positional-only args (LSP-compatible with the IrNode action-body protocol); only the first is meaningful at the entry call site.
 - **Presets** — `IrVisitor` / `IrTransformer` / `IrEmitter` as concrete subclasses; default behaviours per preset.
 - **IR-pass-by-action-table convention** — `has_ruleref`, `hoist_helpers` as examples.
@@ -1937,7 +1937,7 @@ Sections to add/update:
 - [ ] **Step 2: Update `flavour-system.md`** — per-flavour singleton convention, action tuple structure, `IrCallable` usage guidelines (the four warranted cases).
 
 - [ ] **Step 3: Update `ir-shapes.md`**
-- `IrNode[_T]` generic; structural bases default `_T = Self`.
+- `IrNode[_T]` generic; module-scope TypeVar defaults `_T = IrNode` for all bases that don't override.
 - `IrQuantifier` rename note.
 - `IrLiteral` dual role (grammar literal + string constant).
 - Drop any `IrText` or `IrOp` references.
@@ -1949,7 +1949,7 @@ Sections to add/update:
 - P15 (concrete-first MRO; `IrAction(IrNode, …)` as default-override).
 - P16 (short-circuit intrinsic to `IrReturn` via `_Return`).
 - P17 (`IrLiteral` absorbs string-constant role; `IrText` deleted).
-- P18 (every IR node is callable via `__call__(d, n, nc) -> _T`; structural bases default `_T = Self` via PEP 696).
+- P18 (every IR node is callable via `__call__(d, n, nc) -> _T`; `_T` defaults to `IrNode` via a single module-scope TypeVar shared across structural bases).
 
 - [ ] **Step 5: Add `log.md` entry**
 
@@ -1957,8 +1957,9 @@ Sections to add/update:
 ## 2026-05-18 — Slice B closed: action substrate + Flavour-as-IrEmitter
 
 Replaced the closed-subclass IrDispatch (visit_<TypeName>) with an action-table
-substrate. Every IrNode is now callable; structural bases default _T = Self.
-IrText deleted (IrLiteral absorbs the role). Flavour becomes an IrEmitter;
+substrate. Every IrNode is now callable; module-scope TypeVar defaults _T to
+IrNode across IrLeaf / IrCollection / IrComposite. IrText deleted (IrLiteral
+absorbs the role). Flavour becomes an IrEmitter;
 GBNF and ABNF are now module-level singletons with action tuples. See
 spec docs/superpowers/specs/2026-05-18-slice-b-substrate-design.md and
 plan docs/superpowers/plans/2026-05-18-slice-b-substrate.md.
@@ -1991,7 +1992,7 @@ git commit -am "wiki + docs: document slice B substrate + Flavour-as-IrEmitter
 
 - [ ] **Step 1: Full suite** — `uv run pytest -q`. Expect 448+ tests pass.
 - [ ] **Step 2: Lint clean** — `uv run ruff check src/ tests/`.
-- [ ] **Step 3: Type-check clean** — run the project's type-checker; expect zero `type: ignore` and zero unresolved errors. If `Self` as PEP 696 default was rejected by the type-checker at Task 1.1, the explicit-parameter fallback applies throughout; rerun to confirm.
+- [ ] **Step 3: Type-check clean** — run the project's type-checker; expect zero `type: ignore` and zero unresolved errors. Module-scope `_T = TypeVar("_T", default="IrNode")` from `typing_extensions` should resolve cleanly under pyright (verified via PoC).
 - [ ] **Step 4: Round-trip spot-check** — `uv run pytest tests/integration/test_full_round_trip.py -v`. Every ground-truth grammar round-trips byte-equal.
 - [ ] **Step 5: Anti-creep audit**
 
