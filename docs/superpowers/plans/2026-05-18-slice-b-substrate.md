@@ -430,6 +430,29 @@ def test_irseq_is_an_ircollection_with_parts_as_children():
 
     op = IrConcat((IrText("a"), IrText("b")))
     assert op.children() == (IrText("a"), IrText("b"))
+
+
+def test_irconcat_eval_does_not_recurse_through_dispatcher():
+    """IrConcat.eval calls part.eval directly — it does NOT feed parts back
+    through the dispatcher. P13 (IR-describes-IR) makes parts structural
+    children for introspection; that does not make them dispatch targets
+    when an IrConcat appears as an IrAction body.
+    """
+    from lexic.ir.action import IrConcat, IrText
+    from lexic.ir.nodes import IrLiteral
+
+    sentinel = object()
+
+    class _Watcher:
+        """Stand-in for IrDispatch; raises if anyone tries to dispatch a part."""
+
+        def __call__(self, _node):
+            raise AssertionError("IrConcat must not dispatch its parts")
+
+    op = IrConcat((IrText("a"), IrText("b")))
+    # Pass the watcher as the dispatcher; if eval re-dispatched any part,
+    # the watcher would raise. The eval path is part.eval(d, node, nc) — not d(part).
+    assert op.eval(_Watcher(), IrLiteral("x"), ()) == "ab"  # type: ignore[arg-type]
 ```
 
 - [ ] **Step 2: Fail.**
@@ -667,8 +690,27 @@ def test_iraction_target_type_is_not_a_child():
     from lexic.ir.action import IrAction, IrText
     from lexic.ir.nodes import IrLiteral
 
+    body = IrText("X")
+    a = IrAction(IrLiteral, body)
+    children = a.children()
+    assert children == (body,)
+    assert len(children) == 1
+    # The type object itself must not surface as a child.
+    assert IrLiteral not in children
+    for c in children:
+        assert not isinstance(c, type)
+
+
+def test_iraction_rebuild_preserves_target_type():
+    """``rebuild((new_body,))`` keeps ``target_type`` intact."""
+    from lexic.ir.action import IrAction, IrText
+    from lexic.ir.nodes import IrLiteral, IrRuleRef
+
     a = IrAction(IrLiteral, IrText("X"))
-    assert IrLiteral not in a.children()
+    rebuilt = a.rebuild((IrText("Y"),))
+    assert rebuilt.target_type is IrLiteral
+    assert rebuilt.body == IrText("Y")
+    assert rebuilt.target_type is not IrRuleRef
 
 
 def test_iraction_eval_delegates_to_body():
@@ -939,6 +981,20 @@ def test_frozen_dispatcher_cannot_rebind_resolve_cache_slot():
     d = IrVisitor()
     with pytest.raises(FrozenInstanceError):
         d._resolve_cache = {}  # type: ignore[misc]
+
+
+def test_cache_contents_are_mutable_even_though_slot_is_frozen():
+    """Cache mutation (adding entries) is permitted; only slot rebinding is blocked."""
+    from lexic.ir.walk import IrVisitor
+
+    d = IrVisitor(actions=(IrAction(IrLiteral, IrCallable(lambda d, n, nc: None)),))
+    # Initially empty.
+    assert d._resolve_cache == {}  # type: ignore[attr-defined]
+    # Dispatching populates the cache.
+    d(IrLiteral("x"))
+    assert IrLiteral in d._resolve_cache  # type: ignore[attr-defined]
+    # And dispatching again still works (cache was mutated, not rebound).
+    d(IrLiteral("y"))
 ```
 
 - [ ] **Step 2: Run; expect failures** (old walk.py still in place).
@@ -991,11 +1047,8 @@ class IrDispatch(IrCollection["IrAction"], Generic[_T]):
     _items_attr: ClassVar[str] = "actions"
     actions: tuple[IrAction, ...] = ()
     _resolve_cache: dict[type, IrAction | None] = field(
-        init=False, hash=False, compare=False, repr=False,
+        init=False, default_factory=dict, hash=False, compare=False, repr=False,
     )
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "_resolve_cache", {})
 
     def __call__(self, node: IrNode) -> _T:
         """Entry point. Catches ``_Return`` once at the top.
@@ -1171,32 +1224,153 @@ Run: `uv run rg -n "\\.visit\\(|generic_visit|visit_Ir|_combine" src/lexic/codeg
 
 Expected: hits in `aliases.py` (`_PatternAliasVisitor.visit_*`) and `model_emitter.py` (`_IrRepr.visit_*`).
 
-- [ ] **Step 2: Strategy**
+- [ ] **Step 2: Current shapes (as of 2026-05-18)**
 
-Both `_PatternAliasVisitor` and `_IrRepr` rely on `visit_<TypeName>` dispatch. Since we removed that, the mechanical fix is to give each a small `__call__` method that does an inline `getattr` dispatch — preserving the closed-subclass behaviour at the per-file level without depending on the new `IrDispatch`.
+`_PatternAliasVisitor` in `src/lexic/codegen/aliases.py:111` is:
 
-For `_PatternAliasVisitor`: convert to a plain class (not subclass of `IrDispatch`) that walks the tree itself. The visitor's external API is `collect_aliases(ast) -> dict`; keep that. The internal walk becomes a recursive method.
+```python
+class _PatternAliasVisitor(IrVisitor):
+    def __init__(self) -> None:
+        self.aliases: dict[str, PatternAlias] = {}
+        self._name_counts: Counter[str] = Counter()
+        self._ruleref_frames: list[bool] = [False]
 
-For `_IrRepr`: same — convert to a plain class with a `repr(node)` method that does the dispatch inline. Migration to `IrEmitter` happens in Task 6/7 alongside flavour migration (or in Step 3 if convenient — see deferred section §4 of the spec).
+    def visit_IrRuleRef(self, _: IrRuleRef) -> None:
+        self._ruleref_frames[-1] = True
 
-- [ ] **Step 3: Implement `_PatternAliasVisitor` mechanical fix**
+    def visit_IrItem(self, node: IrItem) -> None:
+        atom, q = node.atom, node.quantifier
+        if isinstance(atom, IrGroup):
+            self._visit_group_item(atom, q, node)
+            return
+        if isinstance(atom, IrCharClass):
+            self._record(regex_for_charclass(atom, q),
+                         _name_for_charclass(atom) or "Pattern")
+        self.generic_visit(node)
 
-Replace the inheritance and `visit_*` methods. Read current implementation first:
+    def _visit_group_item(self, atom, q, node) -> None:
+        self._ruleref_frames.append(False)
+        self.generic_visit(node)
+        group_had_ruleref = self._ruleref_frames.pop()
+        if group_had_ruleref:
+            self._ruleref_frames[-1] = True
+        else:
+            self._record(regex_for_group(atom, q), "Pattern")
 
-```bash
-cat src/lexic/codegen/aliases.py
+    def _record(self, regex: str, base: str) -> None:
+        if regex in self.aliases:
+            return
+        self._name_counts[base] += 1
+        n = self._name_counts[base]
+        name = base if n == 1 else f"{base}{n}"
+        self.aliases[regex] = PatternAlias(name=name, regex=regex)
 ```
 
-Then rewrite as a plain recursive collector class. The new class:
-- Stores `aliases`, `name_counts`, `ruleref_frames` as instance attributes.
-- Has an entry method `collect(ast)` that walks the tree.
-- Per-type handling lives in private methods called by name from a single recursive dispatch.
+Called from `collect_aliases(specs)` via `visitor.visit(item)` for each spec item.
 
-The exact code depends on the current `aliases.py` shape — see file before writing. The conversion is mechanical: replace `self.visit(child)` with a recursive `self._walk(child)`, replace `visit_<TypeName>` with `_handle_<TypeName>` selected by `type(node).__name__`.
+`_IrRepr` in `src/lexic/codegen/model_emitter.py:100` is:
 
-- [ ] **Step 4: Implement `_IrRepr` mechanical fix**
+```python
+class _IrRepr(IrDispatch[IrNode, str]):
+    action = _REPR_ACTION   # dict[type, Callable[..., str]]
+    def _combine(self, node, old_children, new_children) -> str:
+        try:
+            return self.action[type(node)](node, old_children, new_children)
+        except KeyError as exc:
+            raise UnsupportedConstructError(...) from exc
+```
 
-Same pattern. Convert to plain class with `repr(node)` method dispatching per-type.
+Both depend on the old `IrDispatch`'s `visit` / `generic_visit` / `_combine` machinery, which the rewrite removes.
+
+- [ ] **Step 3: Convert `_PatternAliasVisitor` to plain recursive class**
+
+Replace the `IrVisitor` inheritance with a self-contained walker. The two `visit_<TypeName>` methods become `_handle_<TypeName>` private methods, selected by name in a single recursive dispatch:
+
+```python
+# src/lexic/codegen/aliases.py — replace the _PatternAliasVisitor class
+
+class _PatternAliasVisitor:
+    """Closed-set walker collecting pattern aliases. Plain class (no
+    IrDispatch dependency) per scope-companion §3.
+    """
+
+    def __init__(self) -> None:
+        self.aliases: dict[str, PatternAlias] = {}
+        self._name_counts: Counter[str] = Counter()
+        self._ruleref_frames: list[bool] = [False]
+
+    def visit(self, node: IrNode) -> None:
+        """Entry point; dispatches by type name."""
+        handler = getattr(self, f"_handle_{type(node).__name__}", None)
+        if handler is not None:
+            handler(node)
+            return
+        self._generic(node)
+
+    def _generic(self, node: IrNode) -> None:
+        """Walk children for nodes with no specific handler."""
+        for child in node.children():
+            self.visit(child)
+
+    def _handle_IrRuleRef(self, _: IrRuleRef) -> None:
+        self._ruleref_frames[-1] = True
+
+    def _handle_IrItem(self, node: IrItem) -> None:
+        atom, q = node.atom, node.quantifier
+        if isinstance(atom, IrGroup):
+            self._visit_group_item(atom, q, node)
+            return
+        if isinstance(atom, IrCharClass):
+            self._record(regex_for_charclass(atom, q),
+                         _name_for_charclass(atom) or "Pattern")
+        self._generic(node)
+
+    def _visit_group_item(self, atom: IrGroup, q: Quantifier, node: IrItem) -> None:
+        self._ruleref_frames.append(False)
+        self._generic(node)
+        group_had_ruleref = self._ruleref_frames.pop()
+        if group_had_ruleref:
+            self._ruleref_frames[-1] = True
+        else:
+            self._record(regex_for_group(atom, q), "Pattern")
+
+    def _record(self, regex: str, base: str) -> None:
+        if regex in self.aliases:
+            return
+        self._name_counts[base] += 1
+        n = self._name_counts[base]
+        name = base if n == 1 else f"{base}{n}"
+        self.aliases[regex] = PatternAlias(name=name, regex=regex)
+```
+
+`collect_aliases(specs)` keeps its existing call: `visitor.visit(item)` works because the new class has its own `visit` method.
+
+- [ ] **Step 4: Convert `_IrRepr` to plain recursive class**
+
+```python
+# src/lexic/codegen/model_emitter.py — replace _IrRepr
+
+class _IrRepr:
+    """Fold an IR subtree to its Python-repr string. Plain class (no
+    IrDispatch dependency) per scope-companion §3.
+    """
+
+    def __init__(self) -> None:
+        self.action = _REPR_ACTION  # dict[type, Callable[..., str]]
+
+    def visit(self, node: IrNode) -> str:
+        """Entry point; recurse children then combine via action table."""
+        old_children = node.children()
+        new_children = tuple(self.visit(c) for c in old_children)
+        try:
+            return self.action[type(node)](node, old_children, new_children)
+        except KeyError as exc:
+            raise UnsupportedConstructError(
+                f"_IrRepr: no repr handler for {type(node).__name__!r}",
+            ) from exc
+```
+
+Existing callers `self._repr.visit(item)` keep working.
 
 - [ ] **Step 5: Run full suite**
 
@@ -1263,22 +1437,30 @@ def test_has_ruleref_returns_false_for_subtree_without_ruleref():
 
 
 def test_has_ruleref_short_circuits_after_first_hit():
-    """A tree with rulerefs at multiple positions should only visit until the first."""
-    from lexic.ir.derive import _HAS_RULEREF
-
-    # Build a tree where the first ruleref is at depth 4 and there are many siblings after.
-    # The visitor's action-table dispatch should short-circuit on the first hit.
-    # We can't easily count visits without modifying internals — instead, assert that the
-    # call completes very quickly even on a large tree (cheap proxy).
-    # NOTE: this test guards against accidental full-tree walks; tighten if performance suspect.
+    """Construct a tree with many IrRuleRefs; visit only the first."""
+    from lexic.ir.action import IrAction, IrCallable
     from lexic.ir.nodes import IrAlternation, IrItem, IrRuleRef, IrSequence
+    from lexic.ir.walk import IrVisitor
 
+    # Build a tree with 1000 IrRuleRefs across sibling arms.
     deep = IrAlternation(arms=tuple(
         IrSequence(items=(IrItem(atom=IrRuleRef(f"r{i}")),))
         for i in range(1000)
     ))
-    # If this short-circuits, it returns True immediately.
-    assert bool(_HAS_RULEREF(deep)) is True
+
+    visit_count = 0
+
+    def _on_ref(_d, _n, _nc):
+        nonlocal visit_count
+        visit_count += 1
+        from lexic.ir.action import _Return
+        raise _Return(True)   # mimic IrReturn(True).eval semantics
+
+    counting = IrVisitor(actions=(IrAction(IrRuleRef, IrCallable(_on_ref)),))
+    result = counting(deep)
+    assert result is True
+    # The whole point of short-circuit: we visit exactly one IrRuleRef out of 1000.
+    assert visit_count == 1
 ```
 
 - [ ] **Step 2: Fail (current `_RuleRefFinder` may still exist alongside).**
@@ -1328,6 +1510,14 @@ IrReturn raising _Return, which unwinds to the dispatcher's entry."
 ```
 
 ### Task 3.2: Hoist — `_EXTRACT_BODY` sub-dispatcher + transformer factory
+
+**Naming note — `Quantifier` vs `IrQuantifier`.** The class is still named
+`Quantifier` at this point in the plan; Step 4 renames it. The test code
+and implementation below use `Quantifier` deliberately. Step 4's sed
+pass catches every occurrence in this task's commits — including the
+new tests added here — and renames them in a single mechanical change.
+Do NOT preemptively write `IrQuantifier` in this task; the symbol
+does not exist yet.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1585,10 +1775,20 @@ quantifier: IrQuantifier = field(default_factory=IrQuantifier)
 Mechanical search-and-replace, but verify each file. For each in the site list above (excluding the deleted-soon files):
 
 ```bash
-uv run sed -i 's/\\bQuantifier\\b/IrQuantifier/g' <path>
+# GNU sed (Linux):
+sed -i 's/\bQuantifier\b/IrQuantifier/g' <path>
+
+# macOS / BSD sed lacks \b — use Python instead:
+python3 -c "
+import re, sys
+p = sys.argv[1]
+with open(p) as f: t = f.read()
+t = re.sub(r'\bQuantifier\b', 'IrQuantifier', t)
+with open(p, 'w') as f: f.write(t)
+" <path>
 ```
 
-Then visually verify the diff.
+Then visually verify the diff (`git diff <path>`).
 
 **Files to exclude from sed:**
 
@@ -1732,9 +1932,30 @@ class Flavour(IrEmitter, ABC):
 
 Note: import `EscapeCodec` from its existing location if available; the local stub above is a fallback. Check `src/lexic/ir/escapes.py` for the real definition.
 
-- [ ] **Step 4: Run tests; pass.**
+- [ ] **Step 4: Verify `MetaGrammarParser.for_flavour` still works**
 
-- [ ] **Step 5: Commit**
+Risk: `Flavour` is now a frozen dataclass (via `IrEmitter`). `for_flavour(GbnfFlavour)` takes the class object and pulls `meta_grammar`, `line_comment`, `parse_quantifier`, `parse_charclass` off it as ClassVar lookups. Verify that these class-level accesses still resolve on a frozen-dataclass subclass:
+
+```python
+# tests/unit/lexic/parsing/test_meta_parser.py — add
+def test_for_flavour_resolves_classvars_on_iremitter_subclass():
+    from lexic.grammars.gbnf.flavour import GbnfFlavour
+    from lexic.parsing.meta_parser import MetaGrammarParser
+
+    # ClassVar reads on a frozen-dataclass subclass.
+    assert isinstance(GbnfFlavour.meta_grammar, str)
+    assert callable(GbnfFlavour.parse_quantifier)
+    assert callable(GbnfFlavour.parse_charclass)
+    # for_flavour caches on the class — must accept the class object.
+    parser = MetaGrammarParser.for_flavour(GbnfFlavour)
+    assert parser is not None
+```
+
+This test is added now (Task 5.1) but truly validates after Step 6 / 7 land — meta_parser still uses the class.
+
+- [ ] **Step 5: Run tests; pass.**
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git commit -am "grammars/flavour: Flavour becomes IrEmitter subclass
@@ -1795,10 +2016,110 @@ def test_render_specs_invokes_flavour_per_rule():
 
 def test_render_specs_joins_with_newlines_and_trailing_newline():
     out = render_specs([_spec("a"), _spec("b")], lambda r: "X")
-    assert out == "X\\nX\\n"
+    assert out == "X\nX\n"
 ```
 
-This test depends on `RuleSpec.to_ir_rule()` existing — check `src/lexic/ir/spec.py`; add the method if missing (it should return an `IrRule` reconstituting the spec's `items` into an `IrAlternation` body).
+This test depends on `RuleSpec.to_ir_rule() -> IrRule` existing. Task 5.2a below adds it.
+
+### Task 5.2a: Add `RuleSpec.to_ir_rule()` if missing
+
+**Files:**
+- Modify: `src/lexic/ir/spec.py`
+- Modify: `tests/unit/lexic/ir/test_spec.py`
+
+- [ ] **Step 1: Check whether the method exists**
+
+```bash
+grep -n "to_ir_rule" src/lexic/ir/spec.py
+```
+
+If present, skip this task. If absent, continue.
+
+- [ ] **Step 2: Write failing test**
+
+```python
+# tests/unit/lexic/ir/test_spec.py — append
+def test_rulespec_to_ir_rule_wraps_items_in_iralternation():
+    from lexic.ir.nodes import IrAlternation, IrItem, IrLiteral, IrRule, IrSequence
+    from lexic.ir.spec import RuleSpec
+
+    spec = RuleSpec(
+        rule_name="r",
+        class_name="R",
+        parent_class_name="GrammarModel",
+        kind="value_str",
+        items=[IrItem(atom=IrLiteral("x"))],
+        field_map={},
+    )
+    rule = spec.to_ir_rule()
+    assert isinstance(rule, IrRule)
+    assert rule.name == "r"
+    assert isinstance(rule.body, IrAlternation)
+    assert len(rule.body.arms) == 1
+    assert isinstance(rule.body.arms[0], IrSequence)
+    assert rule.body.arms[0].items == (IrItem(atom=IrLiteral("x")),)
+
+
+def test_rulespec_to_ir_rule_with_alternation_item_passes_through():
+    """A multi-arm value_str carries IrAlternation in items[0]; to_ir_rule
+    must use it directly as the body, not wrap it again.
+    """
+    from lexic.ir.nodes import IrAlternation, IrItem, IrLiteral, IrRule, IrSequence
+    from lexic.ir.spec import RuleSpec
+
+    alt = IrAlternation(arms=(
+        IrSequence(items=(IrItem(atom=IrLiteral("a")),)),
+        IrSequence(items=(IrItem(atom=IrLiteral("b")),)),
+    ))
+    spec = RuleSpec(
+        rule_name="r",
+        class_name="R",
+        parent_class_name="GrammarModel",
+        kind="value_str",
+        items=[alt],
+        field_map={},
+    )
+    rule = spec.to_ir_rule()
+    assert rule.body == alt
+```
+
+- [ ] **Step 3: Implement**
+
+```python
+# src/lexic/ir/spec.py — add method to RuleSpec
+def to_ir_rule(self) -> IrRule:
+    """Reconstitute this spec as an IrRule.
+
+    For sequence / value_str kinds, wraps ``items`` in a single
+    IrAlternation arm. If ``items`` already contains a top-level
+    IrAlternation (multi-arm value_str), it's used as the body
+    directly.
+
+    :returns: An IrRule whose body is an IrAlternation.
+    """
+    if len(self.items) == 1 and isinstance(self.items[0], IrAlternation):
+        body = self.items[0]
+    else:
+        # All entries are IrItems for sequence / single-arm value_str.
+        items_tuple = tuple(it for it in self.items if isinstance(it, IrItem))
+        body = IrAlternation(arms=(IrSequence(items=items_tuple),))
+    return IrRule(name=self.rule_name, body=body)
+```
+
+(Imports needed: `from lexic.ir.nodes import IrAlternation, IrItem, IrRule, IrSequence`.)
+
+- [ ] **Step 4: Run tests; pass.**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git commit -am "ir/spec: add RuleSpec.to_ir_rule() — reconstitute spec as IrRule
+
+Needed by render_specs (Task 5.2) to walk each spec back through the
+flavour's IrEmitter actions. For sequence and single-arm value_str
+kinds, wraps items in a single IrAlternation arm; for multi-arm
+value_str, uses the already-present IrAlternation directly."
+```
 
 - [ ] **Step 2: Fail.**
 
@@ -1824,7 +2145,7 @@ def render_specs(specs: list, flavour: Callable[[IrNode], str]) -> str:
     :returns: Newline-joined rule strings.
     """
     rules = [spec.to_ir_rule() for spec in specs]
-    return "\\n".join(flavour(rule) for rule in rules) + "\\n"
+    return "\n".join(flavour(rule) for rule in rules) + "\n"
 ```
 
 Note: `spec.to_ir_rule()` may need adding to `RuleSpec` if not already present — see the spec's mention of `RuleSpec.to_ir_rule()` and check `src/lexic/ir/spec.py`.
@@ -1875,12 +2196,78 @@ def _gbnf_quantifier(_d, node, _nc) -> str:
 
 def _gbnf_ast(d, node, new_children) -> str:
     """Render rules joined by newlines, trailing newline."""
-    return "\\n".join(new_children) + "\\n"
+    return "\n".join(new_children) + "\n"
 ```
 
 - [ ] **Step 2: Write tests for each callable**
 
-Per-callable unit tests in `tests/unit/lexic/grammars/gbnf/test_flavour.py`. Keep them tight — these are pure functions over IR nodes.
+```python
+# tests/unit/lexic/grammars/gbnf/test_flavour.py — add
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars.gbnf.flavour import (
+    _gbnf_encode_literal, _gbnf_charclass, _gbnf_quantifier, _gbnf_ast,
+)
+from lexic.ir.nodes import IrCharClass, IrLiteral, Quantifier
+
+
+def test_gbnf_encode_literal_returns_escaped_value():
+    """Verify the literal goes through GbnfEscapes.encode."""
+    out = _gbnf_encode_literal(None, IrLiteral('hello'), ())
+    # GbnfEscapes is identity for the simple case (per ir/escapes.py).
+    assert out == "hello"
+
+
+def test_gbnf_encode_literal_escapes_quote():
+    """A literal containing a double quote must be escaped per GBNF rules."""
+    out = _gbnf_encode_literal(None, IrLiteral('a"b'), ())
+    # Expected escape form per GbnfEscapes — adjust to match the codec.
+    assert '\\"' in out or '"' not in out[1:-1]   # codec-dependent
+
+
+def test_gbnf_charclass_renders_brackets_without_negation():
+    out = _gbnf_charclass(None, IrCharClass("a-z", negated=False), ())
+    assert out == "[a-z]"
+
+
+def test_gbnf_charclass_renders_brackets_with_negation_prefix():
+    out = _gbnf_charclass(None, IrCharClass("a-z", negated=True), ())
+    assert out == "[^a-z]"
+
+
+def test_gbnf_quantifier_returns_empty_string_for_exact_one():
+    out = _gbnf_quantifier(None, Quantifier(1, 1), ())
+    assert out == ""
+
+
+def test_gbnf_quantifier_returns_question_for_optional():
+    assert _gbnf_quantifier(None, Quantifier(0, 1), ()) == "?"
+
+
+def test_gbnf_quantifier_returns_star_for_zero_or_more():
+    assert _gbnf_quantifier(None, Quantifier(0, None), ()) == "*"
+
+
+def test_gbnf_quantifier_returns_plus_for_one_or_more():
+    assert _gbnf_quantifier(None, Quantifier(1, None), ()) == "+"
+
+
+def test_gbnf_quantifier_raises_for_unsupported_bounds():
+    with pytest.raises(UnsupportedConstructError):
+        _gbnf_quantifier(None, Quantifier(2, 5), ())
+
+
+def test_gbnf_ast_joins_rules_with_newlines_and_trailing_newline():
+    out = _gbnf_ast(None, None, ("rule-1", "rule-2", "rule-3"))
+    assert out == "rule-1\nrule-2\nrule-3\n"
+
+
+def test_gbnf_ast_empty_rules_produces_trailing_newline_only():
+    out = _gbnf_ast(None, None, ())
+    assert out == "\n"
+```
+
+Note: the literal-escape test's expected form is codec-dependent (check `GbnfEscapes` in `src/lexic/grammars/gbnf/escapes.py` before writing the assertion). The other tests are exact.
 
 - [ ] **Step 3: Implement; commit**
 
@@ -2032,16 +2419,27 @@ This file holds the canonical rendering for each IR-type case. Copy each method'
 
 - [ ] **Step 2: Add four module-private helpers to `abnf/flavour.py`**
 
+**Before writing**, read `src/lexic/grammars/abnf/emitter.py` to harvest exact strings for: literal-encoding format, char-class syntax (ABNF uses `%x41-5A` style, not `[A-Z]`), quantifier-symbol mapping, AST join behaviour. Each helper body below is illustrative; replace the body content with the exact logic from the existing emitter:
+
 ```python
 def _abnf_encode_literal(_d, node, _nc) -> str:
-    """Encode IrLiteral per ABNF rules (consult AbnfEmitter for exact escapes)."""
+    """Encode IrLiteral per ABNF rules. Body lifted from AbnfEmitter."""
     return AbnfEscapes.encode(node.value)
 
 
 def _abnf_charclass(_d, node, _nc) -> str:
-    """Render IrCharClass per ABNF syntax — verify existing AbnfEmitter for format."""
-    # ABNF uses %x... or [%x...] forms; copy verbatim from AbnfEmitter.
-    ...
+    """Render IrCharClass per ABNF %x syntax. Copy verbatim from AbnfEmitter.
+
+    ABNF char-class form is %x<HH>-<HH> for ranges, %x<HH> for single chars,
+    optionally bracketed for negation or alternation. Implement using the
+    exact production rules currently in AbnfEmitter.
+    """
+    # PLACEHOLDER: replace with verbatim logic from grammars/abnf/emitter.py
+    # The implementation must produce byte-equal output to the existing
+    # emitter on every ground-truth ABNF grammar.
+    raise NotImplementedError(
+        "Lift body from src/lexic/grammars/abnf/emitter.py before running tests"
+    )
 
 
 def _abnf_quantifier(_d, node, _nc) -> str:
@@ -2056,11 +2454,11 @@ def _abnf_quantifier(_d, node, _nc) -> str:
 
 
 def _abnf_ast(_d, _node, new_children) -> str:
-    """Render rules joined per ABNF source convention."""
-    return "\\n".join(new_children) + "\\n"
+    """Render rules joined per ABNF source convention. Verify against AbnfEmitter."""
+    return "\n".join(new_children) + "\n"
 ```
 
-(The `_abnf_charclass` body needs to come straight from `AbnfEmitter`; ABNF char-class syntax is `%x41-5A` style, not `[A-Z]` like GBNF.)
+The `_abnf_charclass` body MUST be lifted from the existing `AbnfEmitter` — placeholder above raises so accidental tests fail loudly until the engineer does the lift. Run `uv run pytest tests/integration/test_compile_grammar_abnf.py -v` after replacing the placeholder; round-trip on the ground-truth ABNF grammars is the verification.
 
 - [ ] **Step 3: Write unit tests for each helper** — same shape as `test_gbnf_flavour.py`'s tests in Task 6.1, but with ABNF expected strings.
 
@@ -2119,15 +2517,22 @@ class AbnfFlavour(Flavour):
     }
 
     @staticmethod
-    def parse_quantifier(text: str) -> IrQuantifier: ...
+    def parse_quantifier(text: str) -> IrQuantifier:
+        # Lift verbatim from the existing AbnfFlavour.parse_quantifier
+        # in src/lexic/grammars/abnf/flavour.py (pre-migration).
+        # Only the return type changes (Quantifier → IrQuantifier per Step 4).
+        raise NotImplementedError("Lift from pre-migration AbnfFlavour")
+
     @staticmethod
-    def parse_charclass(text: str) -> tuple[str, bool]: ...
+    def parse_charclass(text: str) -> tuple[str, bool]:
+        # Same — lift verbatim.
+        raise NotImplementedError("Lift from pre-migration AbnfFlavour")
 
 
 ABNF: AbnfFlavour = AbnfFlavour(actions=_ABNF_ACTIONS)
 ```
 
-Verify the separator strings (` `, ` / `, ` = `) and quantifier symbols against the existing `AbnfEmitter` — those are the authoritative source. The `parse_quantifier` / `parse_charclass` bodies stay verbatim from the existing `AbnfFlavour`.
+Verify the separator strings (` `, ` / `, ` = `) and quantifier symbols against the existing `AbnfEmitter` — those are the authoritative source. The `parse_quantifier` / `parse_charclass` bodies stay verbatim from the existing `AbnfFlavour` — the placeholders above raise so the engineer cannot forget to lift them. After lifting, full suite must be green.
 
 - [ ] **Step 2: Run full test suite**
 
