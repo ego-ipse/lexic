@@ -1,142 +1,75 @@
 # Slice B — IrAction/IrOp substrate + Flavour-as-IrEmitter
 
 **Date:** 2026-05-18
-**Status:** Draft (brainstormed).
-**Scope companion:** `2026-05-17-slice-b-deferred-work.md` — authoritative list of what is deliberately **out** of this slice.
-**Supersedes:** `2026-05-17-slice-b-substrate-and-flavour-as-emitter-design.md` (a prior draft of the same slice that overcommitted on mechanism and was rejected). The 2026-05-17 draft stays in tree for traceability; where it conflicts with this one, this one wins.
+**Status:** Draft.
+**Scope companion:** `2026-05-17-slice-b-deferred-work.md` — authoritative list of what is deliberately out of this slice.
+**Supersedes:** `2026-05-17-slice-b-substrate-and-flavour-as-emitter-design.md` — a prior draft that overcommitted on mechanism (pre-recurse hook, sentinel short-circuit). Where the two conflict, this one wins.
 **Implementation plan:** to be written next.
 
-## Architectural principles
+## Architectural principles added in this slice
 
-Inherited unchanged from prior slices. This slice adds:
+**P10. Intrinsic data lives on the node.** Per-type structural shape — `children()`, `rebuild()`, `__str__`, `__repr__` — belongs on the IR node type, not in central registries.
 
-**P10. Intrinsic data lives on the node.** Per-type structural shape (`children()`, `rebuild()`, `__str__`, `__repr__`) belongs in methods on the IR node type. *(From 2026-05-14, restated.)*
+**P11. String output is an `IrEmitter`.** Any flavour-controlled walk that yields a string is an `IrEmitter` instance loaded with actions. `FlavourEmitter` and per-flavour emitter subclasses go away.
 
-**P11. String output is an `IrEmitter`.** Any flavour-controlled walk that yields a string is an `IrEmitter` instance loaded with actions. The `FlavourEmitter` ABC and per-flavour emitter subclasses are removed.
+**P12. IR is open; behaviour is data.** Adding behaviour for a new IR node type is adding an `IrAction` to a table, not subclassing a dispatcher. No production pass within this slice's scope is a closed `IrDispatch` subclass with `visit_<TypeName>` overrides. (Closed-subclass visitors inside `codegen/` and `parsing/transformer/` stay closed per scope-companion §3 / §4 — mechanical fixes only.)
 
-**P12. IR is open; behaviour is data.** New IR node types can be added at any time without touching any existing dispatcher or pass. Behaviour for them is *adding an `IrAction` to a table*, not subclassing. No production pass in the codebase is a closed `IrDispatch` subclass with `visit_<TypeName>` overrides — within the scope of this slice. (Closed-subclass visitors inside `codegen/` and `parsing/transformer/` are deferred per the scope companion §3 / §4; they keep working through mechanical fixes only.)
+**P13. The IR describes the IR.** `IrAction` and every `IrOp` variant are `IrNode` subclasses. `IrDispatch` (and its presets `IrTransformer` / `IrVisitor` / `IrEmitter` / `Flavour`) are `IrNode` subclasses. They inherit `children()` / `rebuild()` / `__str__` / `__repr__` mechanically from `IrCollection` / `IrComposite`.
 
-**P13. The IR describes the IR.** `IrAction` and every `IrOp` variant are `IrNode` subclasses. `IrDispatch` (and its `IrTransformer` / `IrVisitor` / `IrEmitter` / `Flavour` subclasses) are `IrNode` subclasses. They inherit `children()` / `rebuild()` / `__str__` / `__repr__` mechanically from `IrCollection` / `IrComposite`.
+**P14. `IrDispatch` does not bound its result type.** `IrDispatch` is generic on `_T`. Each preset pins `_T` (`IrVisitor: None`, `IrTransformer: IrNode`, `IrEmitter: str`). A dispatcher with no matching action returns the preset default for the dispatched node; a dispatcher carrying actions whose bodies produce different concrete types is duck-typed in the Python sense.
 
-**P14. `IrDispatch` does not bound its result type.** `IrDispatch` is generic on `_T`. Each preset pins `_T` to a different concrete type (`IrVisitor: None`, `IrTransformer: IrNode`, `IrEmitter: str`). The dispatcher's contract is "evaluate the matched action's body against `(node, new_children)`, or use the preset default if no action matches" — not "produce a value of fixed type `T` for every node universally".
+**P15. Action `target_type` participates in the type hierarchy.** Action lookup walks `type(node).__mro__` concrete-first. An `IrAction` keyed on an abstract base (`IrLeaf`, `IrStructure`, `IrOp`, even `IrNode`) matches every subclass. A user-supplied `IrAction(IrNode, …)` is therefore a per-instance default-override that wins over the preset default.
 
-**P15. Action `target_type` participates in the type hierarchy.** Action lookup walks `type(node).__mro__` concrete-first. An `IrAction` keyed on an abstract base (`IrLeaf`, `IrStructure`, `IrOp`, even `IrNode`) matches every subclass. Concrete keys win over abstract keys. A user-supplied `IrAction(IrNode, …)` therefore acts as a per-instance default-override; the preset's built-in default is the type-system equivalent of the catch-all the dispatcher falls through to when no action — including an `IrNode`-keyed one — matches.
+**P16. Short-circuit is intrinsic to `IrReturn`, not to the dispatcher.** Evaluating an `IrReturn(value)` op raises a control-flow exception that unwinds the recursion. The dispatcher's entry catches it once at the top. There is no `pre_recurse` hook, no `_SKIP_RECURSION` sentinel, no engine inspection of return values. A leaf doesn't recurse because `children()` is empty; `IrReturn` returns because it raises. Both behaviours are intrinsic to the thing that has them — *nomen est omen*.
 
-**P16. Skip-recursion is intrinsic to `IrReturn`, not to the dispatcher.** `IrReturn(value)` raises a control-flow exception (`_Return`, subclass of `BaseException`) when evaluated. The exception unwinds through every nested `__call__` frame on its own; the dispatcher's entry point catches it and returns the carried value. There is no `pre_recurse` hook, no `_SKIP_RECURSION` sentinel, no engine-level inspection of return values. Leaves don't recurse because `children()` is empty; `IrReturn` returns because it raises. Both behaviours are intrinsic to the thing that has them.
+## Substrate
 
-## Architecture
+### `IrAction` and `IrOp` — `src/lexic/ir/action.py`
 
-### `IrAction` and `IrOp` algebra — `src/lexic/ir/action.py`
-
-`IrOp[_T]` is `Generic[_T]`, an `IrNode` subclass. Concrete variants either pin `_T` (e.g. `IrText(IrOp[str])`) or re-parameterize (e.g. `IrSeq(IrOp[_T], Generic[_T])`).
+`IrOp[_T]` is generic on `_T`, an `IrNode` subclass. Concrete variants either pin `_T` (`IrText: IrOp[str]`) or re-parameterize (`IrReturn[_T]`, `IrCond[_T]`, `IrCallable[_T]`).
 
 Canonical inventory — nine variants:
 
-| Op | Purpose |
-|---|---|
-| `IrReturn[_T](value)` | Control-flow short-circuit. `eval` raises `_Return(value)`. |
-| `IrChild(name)` | Fixed-arity child result. Looks up `name` in the dispatched node's `_child_attrs` (an `IrComposite`) and returns the corresponding entry from `new_children`. Single result. |
-| `IrChildren(name)` | Variable-arity children. Asserts `name == node._items_attr` (an `IrCollection`) and returns the full `new_children` tuple. |
-| `IrSeq(parts)` | Sequence/concat. `IrOp[str]` — evaluates `parts` in order and returns `"".join(str(p.eval(...)) for p in self.parts)`. Used in emit contexts; not used by visitor / transformer passes in this slice. |
-| `IrText(text)` | Literal `str`. `IrOp[str]`. |
-| `IrField(name)` | Non-IrNode attribute on the dispatched node, returned as `str` (via `str()` of the value). |
-| `IrCond[_T](field, then, else)` | Truthy-field branch. Evaluates `then` if `getattr(node, field)` is truthy, else `else`. |
-| `IrJoin(children_op, separator, empty)` | Variable-arity join. `children_op` is typically `IrChildren(name)`; returns `separator.join(...)` of the children tuple, or `empty` if empty. `IrOp[str]`. |
-| `IrCallable[_T](handler)` | Escape hatch. Procedural body: `handler(dispatch, node, new_children) -> _T`. |
+| Op | `_T` | What it does |
+|---|---|---|
+| `IrReturn[_T](value)` | `_T` | Raises a control-flow exception carrying `value`. Unwinds to the dispatcher's entry. |
+| `IrChild(name)` | result of dispatching that child | Returns `new_children[i]` where `i = type(node)._child_attrs.index(name)`. Fixed-arity. |
+| `IrChildren(name)` | tuple of child results | Asserts `name == type(node)._items_attr`; returns the full `new_children` tuple. Variable-arity. |
+| `IrSeq(parts)` | `str` | Evaluates parts in order; returns `"".join(str(...))` of results. Emit-side primitive. |
+| `IrText(text)` | `str` | Literal `text`. |
+| `IrField(name)` | `str` | `str(getattr(node, name))` — non-IrNode attribute on the dispatched node. |
+| `IrCond[_T](field, then, else)` | `_T` | Truthy-field branch. |
+| `IrJoin(children_op, sep, empty)` | `str` | `sep.text.join(...)` of `children_op`'s result tuple; or `empty.text` if the tuple is empty. |
+| `IrCallable[_T](handler)` | `_T` | Escape hatch. `handler(dispatch, node, new_children) -> _T`. |
 
-`IrAction(IrComposite["IrOp"])` carries `target_type: type` (metadata, not a child) and `body: IrOp` (the single child, via `_child_attrs = ("body",)`). `__str__` renders `target_type.__name__` inline.
+`IrAction(IrComposite["IrOp"])` carries `target_type: type` (rendered as `__str__` metadata, not a child) and `body: IrOp` (its one child, via `_child_attrs = ("body",)`).
 
-Dataclass decoration on all op variants and `IrAction`: `@dataclass(frozen=True, slots=True, repr=False)`. `IrCallable` is `@dataclass(frozen=True, slots=True, eq=False, hash=False, repr=False)` because callables don't have structural equality.
+All op variants and `IrAction`: `@dataclass(frozen=True, slots=True, repr=False)`. `IrCallable` is additionally `eq=False, hash=False` because callables don't compare structurally.
 
-### `IrDispatch` — action-driven, an `IrNode` itself — `src/lexic/ir/walk.py`
+### `IrDispatch` — `src/lexic/ir/walk.py`
 
-```python
-@dataclass(frozen=True, slots=True, repr=False)
-class IrDispatch(IrCollection["IrAction"], Generic[_T]):
-    """Action-driven IR walker. children() is the actions tuple.
+`IrDispatch(IrCollection["IrAction"], Generic[_T])`. Instantiable directly (not an ABC). `children()` is the actions tuple. `_items_attr = "actions"`. Frozen, slotted.
 
-    __call__(node) walks node.children() automatically, builds the
-    new_children tuple, resolves the matching action via concrete-first
-    MRO walk on type(node), and calls action.body.eval(self, node,
-    new_children). On no match, falls through to the preset default.
+**Behaviour.** Calling `dispatcher(node)`:
 
-    Skip-recursion is intrinsic to IrReturn (raises _Return); the entry
-    point catches once at the top, so the exception unwinds through every
-    nested __call__ frame on its own.
+1. Recurse into `node.children()`, building a `new_children` tuple by dispatching each child.
+2. Resolve the matching action by walking `type(node).__mro__` concrete-first, scanning `self.actions`. The MRO walk is memoized per dispatcher instance.
+3. If an action matches, evaluate its body against `(self, node, new_children)` and return the result.
+4. Otherwise, return the preset default for `(node, new_children)`.
 
-    Caches (_resolve_cache) are init=False fields opted out of eq/hash/
-    repr — implementation detail, not identity. Mutating dict contents
-    inside a frozen slot is permitted; frozen blocks slot rebinding only.
-    """
-    actions: tuple[IrAction, ...] = ()
-    _resolve_cache: dict[type, IrAction | None] = field(
-        init=False, hash=False, compare=False, repr=False,
-    )
-    _items_attr: ClassVar[str] = "actions"
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "_resolve_cache", {})
-
-    def __call__(self, node: IrNode) -> _T:
-        try:
-            return self._walk(node)
-        except _Return as ret:
-            return ret.value
-
-    def _walk(self, node: IrNode) -> _T:
-        new_children = tuple(self._walk(c) for c in node.children())
-        action = self._resolve(type(node))
-        if action is not None:
-            return action.body.eval(self, node, new_children)
-        return self._default(node, new_children)
-
-    def _resolve(self, node_type: type) -> IrAction | None:
-        cache = self._resolve_cache
-        if node_type in cache:
-            return cache[node_type]
-        for cls in node_type.__mro__:
-            for action in self.actions:
-                if action.target_type is cls:
-                    cache[node_type] = action
-                    return action
-        cache[node_type] = None
-        return None
-
-    def _default(self, node: IrNode, new_children: tuple) -> _T:
-        # Preset subclasses override.
-        ...
-```
-
-Entry/recursion split: `__call__` catches `_Return` once; `_walk` is the recursive engine and doesn't catch. The exception unwinds through every `_walk` frame to the single catch point in `__call__`.
+**Skip-recursion.** `IrReturn.eval` raises a `_Return` exception (`BaseException` subclass — `Exception` would risk swallowing in `IrCallable` bodies that do `except Exception:`). The exception unwinds through every recursive call until the dispatcher's entry catches it once and returns the carried value. Internal recursion intentionally does not catch; this is one paragraph of implementation, not a design concept.
 
 ### Presets
 
-```python
-class IrVisitor(IrDispatch[None]):
-    def _default(self, node, new_children) -> None:
-        return None
+- `IrVisitor(IrDispatch[None])` — preset default: `None`.
+- `IrTransformer(IrDispatch[IrNode])` — preset default: `node.rebuild(new_children)` if any child differs from the corresponding `node.children()` entry, else `node`. Identity transformer when given no actions.
+- `IrEmitter(IrDispatch[str])` — preset default: `str(node)` if `self.actions` is empty (canonical-form fallthrough); `raise UnsupportedConstructError` if non-empty (closed-world flavour saw an unhandled type).
 
-class IrTransformer(IrDispatch[IrNode]):
-    def _default(self, node, new_children) -> IrNode:
-        old = node.children()
-        if not old or all(nc is oc for nc, oc in zip(new_children, old)):
-            return node
-        return node.rebuild(new_children)
-
-class IrEmitter(IrDispatch[str]):
-    def _default(self, node, new_children) -> str:
-        if not self.actions:
-            return str(node)         # canonical-form fallback
-        raise UnsupportedConstructError(
-            f"{type(self).__name__}: no action for {type(node).__name__!r}"
-        )
-```
-
-All three are concrete subclasses, instantiable directly with an `actions=` tuple. Per-instance default override is `IrAction(IrNode, …)` — MRO catches it before the preset default fires.
+All three are concrete subclasses, instantiable with an `actions=` tuple.
 
 ## IR-internal pass migrations
 
-### `has_ruleref` — module-level singleton, two-action visitor
+### `has_ruleref`
 
 ```python
 _HAS_RULEREF = IrVisitor(actions=(IrAction(IrRuleRef, IrReturn(True)),))
@@ -146,77 +79,35 @@ def has_ruleref(node: IrNode) -> bool:
     return bool(_HAS_RULEREF(node))
 ```
 
-Walk hits an `IrRuleRef`; action body is `IrReturn(True)`; `_Return(True)` raises and unwinds to `__call__`'s catch; result is `True`. Siblings and parents never see the unwind explicitly — they're just absent from the trace. Short-circuit comes from the exception, not from any flag or sentinel.
+Module-level singleton; one action. The first `IrRuleRef` reached raises `_Return(True)`; the rest of the subtree is never visited. `_RuleRefFinder` is deleted.
 
-`_RuleRefFinder` is deleted.
+### Hoist
 
-### Hoist — factory + sub-dispatcher, no method on `IrAtom`
-
-`IrAtom` stays as `IrLeaf | IrGroup` (`TypeAlias`). Recognition lives in a `derive.py`-internal sub-dispatcher:
+`IrAtom` stays as `IrLeaf | IrGroup` (`TypeAlias`). Recognition lives in a `derive.py`-internal sub-dispatcher; an `IrAction(IrNode, …)` provides the "no extraction" fallthrough:
 
 ```python
-def _group_extract(_d, group, _nc):
-    return group.body if has_ruleref(group.body) else None
-
-def _no_extract(_d, _n, _nc):
-    return None
-
 _EXTRACT_BODY: IrDispatch[IrAlternation | None] = IrDispatch(actions=(
     IrAction(IrGroup, IrCallable(_group_extract)),
-    IrAction(IrNode, IrCallable(_no_extract)),       # default override
+    IrAction(IrNode,  IrCallable(_no_extract)),
 ))
 ```
 
-The hoist factory builds an `IrTransformer` with a single action whose body is an `IrCallable`:
+A future hoistable atom type registers an action in `_EXTRACT_BODY`; the surrounding pass needs no change. Open-set.
 
-```python
-def _hoist_transformer(
-    parent_name: str, name_set: set[str]
-) -> tuple[IrTransformer, list[IrRule]]:
-    helpers: list[IrRule] = []
+The hoist transformer becomes a factory returning an `IrTransformer` with a single action whose body is an `IrCallable`. Inside that body: `rebuilt = item.rebuild(new_children)`; check the quantifier directly (it's a property of the *containing* `IrItem`, not the atom); ask `_EXTRACT_BODY(rebuilt.atom)` for a body to extract. If `None`, return `rebuilt`. Otherwise allocate a helper name, append `IrRule(name, body)` to a closure-captured helpers list, and return `IrItem(IrRuleRef(name), rebuilt.quantifier)`.
 
-    def _hoist_body(_d, item, new_children):
-        rebuilt = item.rebuild(new_children)
-        if rebuilt.quantifier == IrQuantifier(1, 1):
-            return rebuilt
-        body = _EXTRACT_BODY(rebuilt.atom)
-        if body is None:
-            return rebuilt
-        name = _reserve_helper_name(parent_name, name_set)
-        name_set.add(name)
-        helpers.append(IrRule(name, body))
-        return IrItem(IrRuleRef(name), rebuilt.quantifier)
-
-    return IrTransformer(actions=(IrAction(IrItem, IrCallable(_hoist_body)),)), helpers
-
-
-def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
-    name_set = {r.name for r in ast.rules}
-    all_helpers: list[IrRule] = []
-    new_rules: list[IrRule] = []
-    for rule in ast.rules:
-        t, helpers = _hoist_transformer(rule.name, name_set)
-        new_body = t(rule.body)
-        all_helpers.extend(helpers)
-        new_rules.append(IrRule(rule.name, new_body))
-    return IrAst(rules=tuple(new_rules), start=ast.start), all_helpers
-```
-
-Recognition is via dispatch table; the only constructed types are the *synthesized* `IrItem(IrRuleRef(name), q)` and `IrRule(name, body)` — pure node creation, irreducible. Quantifier triviality stays a direct attribute check because it's a property of the containing `IrItem`, not the atom.
+The only typed construction in the body is the synthesized `IrItem(IrRuleRef, q)` and helper `IrRule` — pure node creation, not classification.
 
 `_HoistTransformer` is deleted.
 
-### `_PatternAliasVisitor` — stays closed-subclass
+### Other passes
 
-Deferred per scope companion §3. Mechanical fixes only: the migrated `IrDispatch` API may force minor signature adjustments (e.g. callers swap `dispatch.visit(node)` for `dispatch(node)`). No behavioural rewrite to action-table form.
-
-### `_IrRepr` in `codegen/model_emitter.py`
-
-Migrates to action-table form using `IrEmitter` — each per-type repr lambda becomes `IrAction(NodeType, IrCallable(...))`. This is mechanical; the closed-subclass version was always a stand-in for "we don't have IrEmitter yet."
+- `_PatternAliasVisitor` (`codegen/aliases.py`) — stays closed-subclass per scope-companion §3. Mechanical fixes only.
+- `_IrRepr` (`codegen/model_emitter.py`) — migrates to `IrEmitter` with action-table form. The closed-subclass version was always a stand-in for "no `IrEmitter` yet."
 
 ## Flavour migration
 
-### `Flavour` becomes `IrEmitter` subclass
+`Flavour` becomes `IrEmitter` subclass:
 
 ```python
 class Flavour(IrEmitter, ABC):
@@ -235,9 +126,9 @@ class Flavour(IrEmitter, ABC):
     def parse_charclass(text: str) -> tuple[str, bool]: ...
 ```
 
-Per-flavour metadata lives as `ClassVar`s; per-flavour behaviour lives in the `actions` tuple inherited from `IrEmitter`.
+Per-flavour metadata is `ClassVar`s; per-flavour behaviour is the `actions` tuple inherited from `IrEmitter`. Per-flavour modules build the tuple at module scope and export a singleton.
 
-### GBNF flavour
+### GBNF action tuple — the structural cases
 
 ```python
 _GBNF_ACTIONS: tuple[IrAction, ...] = (
@@ -252,138 +143,104 @@ _GBNF_ACTIONS: tuple[IrAction, ...] = (
     IrAction(IrRule,       IrSeq((IrField("name"), IrText(" ::= "), IrChild("body")))),
     IrAction(IrAst,        IrCallable(_gbnf_ast)),
 )
-
-class GbnfFlavour(Flavour):
-    name = "gbnf"
-    extensions = (".gbnf",)
-    meta_grammar = GBNF_META_GRAMMAR
-    escapes = GbnfEscapes
-    line_comment = "#"
-    quantifier_symbols = {(1, 1): "", (0, 1): "?", (0, None): "*", (1, None): "+"}
-    @staticmethod
-    def parse_quantifier(text: str) -> IrQuantifier: ...
-    @staticmethod
-    def parse_charclass(text: str) -> tuple[str, bool]: ...
-
 GBNF = GbnfFlavour(actions=_GBNF_ACTIONS)
 ```
 
-`IrCallable` is used for: literal-escape encoding (`_gbnf_encode_literal`), char-class negation prefix (`_gbnf_charclass`), quantifier symbol-table lookup (`_gbnf_quantifier`), AST newline-join (`_gbnf_ast`). Structurally simple cases (`IrRuleRef`, `IrGroup`, `IrItem`, `IrSequence`, `IrAlternation`, `IrRule`) are pure IrOp.
+`IrCallable` is permitted for: literal-escape encoding, char-class negation prefix, quantifier symbol-table lookup, AST newline-join + trailing newline. The structurally simple cases (`IrRuleRef`, `IrGroup`, `IrItem`, `IrSequence`, `IrAlternation`, `IrRule`) are pure IrOp — this is the discipline that proves the substrate.
 
-### ABNF flavour
+### ABNF
 
-Mirrors GBNF with:
-- Prefix-quantifier ordering on `IrItem`: `IrSeq((IrChild("quantifier"), IrChild("atom")))`.
-- Its own `quantifier_symbols` table.
-- Its own `_abnf_*` callables for escape encoding and other procedural cases.
-
-`AbnfFlavour` + `ABNF = AbnfFlavour(actions=_ABNF_ACTIONS)` at module scope.
+Mirrors GBNF with prefix-quantifier ordering on `IrItem` (`IrSeq((IrChild("quantifier"), IrChild("atom")))`), its own quantifier-symbols table, and its own per-flavour `IrCallable` bodies. `ABNF = AbnfFlavour(actions=_ABNF_ACTIONS)` at module scope.
 
 ### Consumers
 
-- `base.py` — `to_gbnf()` flips from importing `GbnfEmitter` to calling `GBNF(self.__grammar__...)`. The deliberate runtime→codegen edge documented in CLAUDE.md changes target from `lexic.grammars.gbnf.emitter` to the `GBNF` singleton in `lexic.grammars.gbnf.flavour`.
-- `parsing/lark_builder.py` — mechanical fixes only; stays the internal codegen target, not a registered Flavour.
-- `codegen/aliases.py`, `codegen/model_emitter.py` — mechanical fixes for `IrDispatch` API changes; closed-subclass visitors stay closed per deferred §3.
-- `MetaGrammarParser.for_flavour(GbnfFlavour)` still takes the class. Its only-class-attrs constraint stands.
+- `base.py`: `to_gbnf()` flips from importing `GbnfEmitter` to calling the `GBNF` singleton. CLAUDE.md's first runtime→codegen exception's import target changes from `lexic.grammars.gbnf.emitter` to the `GBNF` singleton in `lexic.grammars.gbnf.flavour`.
+- `parsing/lark_builder.py`: mechanical fixes only. Stays the internal codegen target; not a registered Flavour.
+- `codegen/`: mechanical fixes for any `IrDispatch` API change; closed-subclass visitors stay closed per scope-companion §3.
+- `MetaGrammarParser.for_flavour(GbnfFlavour)`: still takes the class. Its class-attrs-only constraint stands.
 
-## File structure
+## Other in-scope work
+
+- `Quantifier` → `IrQuantifier` rename across `nodes.py`, `derive.py`, `parsing/`, `codegen/`, `generate.py`, tests. Pure rename, separate step for blame clarity.
+- Delete `FlavourEmitter`, `GbnfEmitter`, `AbnfEmitter`, `utils/quantifiers.py`.
+- Opportunistic deletion of `ir/helpers.py` if trivially safe (scope-companion §9).
+
+## File structure after the slice
 
 ```
 src/lexic/
   ir/
     action.py       NEW — IrOp + 9 variants + IrAction
     walk.py         IrDispatch + IrVisitor + IrTransformer + IrEmitter
-                    No _CHILDREN / _REBUILD / _DUMP / dump() / visit() / visit_<TypeName>
+                    No _CHILDREN / _REBUILD / _DUMP / dump() / visit_<TypeName>
     derive.py       has_ruleref via singleton _HAS_RULEREF
                     hoist_helpers via factory + _EXTRACT_BODY sub-dispatcher
                     No _RuleRefFinder / _HoistTransformer classes
-    emit.py         render_specs(specs, flavour) thin shell
-    nodes.py        Quantifier → IrQuantifier rename; otherwise unchanged
-    [helpers.py]    Opportunistic deletion if trivially safe (see deferred §9)
+    emit.py         render_specs(specs, flavour) — thin shell
+    nodes.py        Quantifier → IrQuantifier; otherwise unchanged
+    [helpers.py]    Opportunistic deletion if trivially safe
   grammars/
-    flavour.py      Flavour(IrEmitter, ABC) + metadata ClassVars + parse abstract methods
+    flavour.py      Flavour(IrEmitter, ABC) + metadata ClassVars + abstract parse methods
                     No pre_parse_check
     gbnf/
-      flavour.py    GbnfFlavour + GBNF singleton + _GBNF_ACTIONS tuple
-      escapes.py · meta_grammar.py
+      flavour.py    GbnfFlavour + GBNF singleton + _GBNF_ACTIONS
       [emitter.py]  DELETED
     abnf/
-      flavour.py    AbnfFlavour + ABNF singleton + _ABNF_ACTIONS tuple
-      escapes.py · meta_grammar.py
+      flavour.py    AbnfFlavour + ABNF singleton + _ABNF_ACTIONS
       [emitter.py]  DELETED
   parsing/
-    meta_parser.py    unchanged
-    lark_builder.py   unchanged except mechanical fixes
-    transformer/      unchanged
+    lark_builder.py     mechanical fixes only
+    meta_parser.py · transformer/    unchanged
   codegen/
-    aliases.py        _PatternAliasVisitor stays closed (deferred §3)
-    model_emitter.py  _IrRepr migrates to IrEmitter; other closed visitors stay closed
+    aliases.py          _PatternAliasVisitor stays closed (deferred §3)
+    model_emitter.py    _IrRepr migrates to IrEmitter; other closed visitors stay closed
   utils/
-    names.py
-    [quantifiers.py]  DELETED
-  base.py             to_gbnf() flips to GBNF singleton
-  compile.py · exceptions.py · parse.py · generate.py
+    [quantifiers.py]    DELETED
+  base.py               to_gbnf() flips to GBNF singleton
 ```
 
 ## Migration strategy
 
-Single campaign. Full 448-test suite green at every numbered step. Each step independently revertable.
+Single campaign. Test suite green at every numbered step. Each step independently revertable.
 
-1. **Introduce `ir/action.py`.** `IrOp` ABC + nine canonical variants + `IrAction`. Standalone; no consumers migrated yet. Unit tests cover each variant's `eval` in isolation.
-
-2. **Rewrite `ir/walk.py`.** New `IrDispatch` + `IrVisitor` + `IrTransformer` + `IrEmitter`. Entry/recursion split (`__call__` catches `_Return`, `_walk` recurses). Delete `_CHILDREN`, `_REBUILD`, `_DUMP`, `dump()`, `visit()`, `generic_visit()`, `_combine()`, `visit_<TypeName>` discovery. Apply minimum mechanical fixes to `codegen/aliases.py`, `codegen/model_emitter.py` so they keep compiling.
-
-3. **Migrate `_RuleRefFinder` and `_HoistTransformer`.** Convert to module-level singleton (`_HAS_RULEREF`) and factory (`_hoist_transformer` + `_EXTRACT_BODY`). Delete the closed-subclass declarations.
-
-4. **`Quantifier` → `IrQuantifier`.** Mechanical rename across `nodes.py`, `derive.py`, `parsing/`, `codegen/`, `generate.py`, tests. Pure rename, no behaviour change.
-
-5. **`Flavour` as `IrEmitter`.** Refactor `grammars/flavour.py`: `Flavour(IrEmitter, ABC)` with metadata ClassVars + abstract `parse_quantifier` / `parse_charclass`. Add `render_specs(specs, flavour)` in `ir/emit.py`.
-
-6. **Migrate `GbnfFlavour`.** Build `_GBNF_ACTIONS`. Construct `GBNF = GbnfFlavour(actions=_GBNF_ACTIONS)` at module scope. Delete `grammars/gbnf/emitter.py`.
-
-7. **Migrate `AbnfFlavour`.** Same. Delete `grammars/abnf/emitter.py`.
-
-8. **Migrate consumers.** `base.py` → `GBNF` singleton. Codegen / `lark_builder.py` mechanical adjustments. Delete `utils/quantifiers.py`.
-
-9. **Opportunistic cleanup.** If `ir/helpers.py` is trivially safe to delete at this point, delete it (and its test + export).
-
-10. **Wiki + docs.** Update `.wiki/lexic/architecture.md`, `flavour-system.md`, `ir-shapes.md` for: the substrate, IR-pass-by-action-table convention, IrQuantifier, Flavour-as-IrEmitter, module map shift. Decision entries for P12-strengthened, P13, P14, P15, P16. `log.md` entry. Update CLAUDE.md's two-exceptions wording: first exception's import target flips to the `GBNF` singleton.
+1. Introduce `ir/action.py` — nine canonical `IrOp` variants + `IrAction`. Standalone, no consumers yet. Unit tests cover each variant's eval semantics.
+2. Rewrite `ir/walk.py` — new `IrDispatch` + three presets. Apply minimum mechanical fixes to `codegen/aliases.py` and `codegen/model_emitter.py` so they keep compiling.
+3. Migrate `_RuleRefFinder` and `_HoistTransformer` to the substrate (singleton `_HAS_RULEREF`; factory + `_EXTRACT_BODY` for hoist). Delete the closed-subclass declarations.
+4. `Quantifier` → `IrQuantifier` rename.
+5. `Flavour` becomes `IrEmitter`. Add `render_specs(specs, flavour)` in `ir/emit.py`.
+6. Migrate `GbnfFlavour` — build `_GBNF_ACTIONS`, construct `GBNF` singleton. Delete `gbnf/emitter.py`.
+7. Migrate `AbnfFlavour` — same. Delete `abnf/emitter.py`.
+8. Migrate consumers — `base.py`, `lark_builder.py`. Delete `utils/quantifiers.py`.
+9. Opportunistic cleanup — `ir/helpers.py` if trivially safe.
+10. Wiki + CLAUDE.md updates: P12-strengthened, P13, P14, P15, P16; substrate; IR-pass-by-action-table convention; IrQuantifier; Flavour-as-IrEmitter; module map shift; `log.md` entry.
 
 ## Invariants enforced throughout
 
 - Full test suite green after each numbered step.
-- Round-trip fidelity: every existing ground-truth grammar still round-trips byte-equal under its source flavour.
+- Round-trip fidelity: every ground-truth grammar still round-trips byte-equal under its source flavour.
 - Layering: no new runtime→codegen import edges beyond the two documented exceptions. The first exception's target changes per step 10.
 - No new `# type: ignore` / `# pylint: disable`. The two existing entries in `regex_portable.py` stay as-is.
-- `has_ruleref` short-circuit MUST work — verified by test: a deep tree with `IrRuleRef` at depth N is visited only as far as the first hit. Acceptance criterion is performance (no full-tree walk), not just correctness.
+- `has_ruleref` short-circuit MUST work — verified by a test that constructs a tree with `IrRuleRef` at depth N and asserts visit count, not just truthiness. Performance regression here is not acceptable.
 - No closed-subclass `IrDispatch` with `visit_<TypeName>` overrides remains in `ir/` after step 3.
 - No `IrOp` variant beyond the nine canonical ones is introduced.
 - `pre_parse_check` does not appear in `Flavour` or any subclass.
 
 ## Risk areas
 
-- **Step 2 is the deepest cut.** `IrDispatch` semantics change for every existing consumer in the same step. Mitigation: if the rewrite is hairier than expected, land it as 2a (introduce new `IrDispatch` alongside old under a different name, migrate consumers one by one) and 2b (rename + delete old). The plan can split this if needed.
-
-- **`IrCallable` discipline.** Easy to reach for the escape hatch on every action. Mitigation: the GBNF and ABNF action tables MUST express structurally simple cases (`IrRuleRef`, `IrGroup`, `IrItem`, `IrSequence`, `IrAlternation`, `IrRule`) in pure IrOp. `IrCallable` is permitted for `IrLiteral`, `IrCharClass`, `IrQuantifier`, `IrAst`. Any other `IrCallable` use during execution is a flag-for-discussion item.
-
-- **`_Return` exception class.** Must inherit `BaseException`, not `Exception`. Otherwise an `IrCallable` body with a blanket `except Exception:` could swallow it. Test: an `IrCallable` body that catches `Exception` does not affect `IrReturn`'s unwinding.
-
-- **MRO-walk lookup correctness.** A dispatcher loaded with both `IrAction(IrLeaf, body_a)` and `IrAction(IrLiteral, body_b)` must invoke `body_b` for `IrLiteral` and `body_a` for any other leaf. The `_resolve_cache` must also handle the negative case (cached `None` for genuine misses) so the fall-through to `_default` isn't bypassed.
-
-- **`IrAction.target_type` is a `type`, not an `IrNode`.** It must NOT appear in `children()`. `IrComposite` machinery (`_child_attrs` / `_extra_field_names`) renders it as `__str__` metadata without claiming it as a child.
-
-- **Frozen-slot dict mutation.** `_resolve_cache[node_type] = ...` mutates dict *contents* inside a frozen slot — allowed. Slot rebinding (`object.__setattr__(self, "_resolve_cache", new_dict)`) is allowed only inside `__post_init__`.
+- **Step 2 is the deepest cut.** `IrDispatch` semantics change for every existing consumer in the same step. If the rewrite is hairier than expected, the plan may split it (2a introduce new dispatcher under a temporary name, migrate consumers one by one; 2b rename + delete old). The spec doesn't pre-commit.
+- **`IrCallable` discipline.** Easy to reach for the escape hatch on every action. GBNF and ABNF action tables MUST express the structurally simple cases in pure IrOp; `IrCallable` is permitted only for the four documented per-flavour cases. Any other `IrCallable` use is a flag-for-discussion item, not silent acceptance.
+- **`_Return` must inherit `BaseException`.** Tests assert that an `IrCallable` body wrapping its work in `except Exception:` does not swallow an `IrReturn` raised by inner ops.
+- **MRO lookup correctness.** A dispatcher loaded with both `IrAction(IrLeaf, body_a)` and `IrAction(IrLiteral, body_b)` must invoke `body_b` for `IrLiteral` and `body_a` for any other leaf. The resolve cache must also memoize negative hits so fall-through to the preset default isn't bypassed.
+- **`IrAction.target_type` is a `type`, not an `IrNode`.** It must not appear in `children()`. `IrComposite`'s extra-fields machinery renders it as `__str__` metadata.
 
 ## Out of scope
 
-Authoritative list: `2026-05-17-slice-b-deferred-work.md`. Brief restatement of the largest items:
+Authoritative list: `2026-05-17-slice-b-deferred-work.md`. Headline items:
 
 - LarkFlavour promotion / `.lark` as user-facing extension — deferred.
-- Positional / indexed / negation token-reference syntax + `Flavour.pre_parse_check` hook — deferred. The hook does not exist in this slice.
-- Codegen-side closed-subclass visitor migration (`_PatternAliasVisitor` and others inside `codegen/`) — deferred.
-- Pure-IrOp expression of stateful passes (`_HoistTransformer`, `_RuleRefFinder` migrate to action tables but keep `IrCallable` bodies where needed) — deferred.
-- Hoist elimination — `_HoistTransformer` deletion + inline-group codegen — deferred (§11 of the scope companion).
+- Positional / indexed / negation token-reference syntax + `Flavour.pre_parse_check` — deferred.
+- Codegen-side closed-subclass visitor migration — deferred (§3).
+- Pure-IrOp expression of stateful passes — deferred (§5). `_HoistTransformer`'s body stays `IrCallable` in this slice.
+- Hoist elimination — `_HoistTransformer` deletion + inline-group codegen — deferred (§11).
 - New IrOp variants beyond the canonical nine — deferred.
-- Self-description bonus features (`PyFlavourCodegenRenderer`, `IrFlavour` text format) — deferred. P13's structural claim is paid for here; the renderers built on top of it are not.
-
-Anti-creep enforcement: see the deferred-work doc's "Anti-creep rules" section.
+- Self-description bonus features (`PyFlavourCodegenRenderer`, `IrFlavour` text format) — deferred. P13's structural claim is paid for here; the renderers on top of it are not.
