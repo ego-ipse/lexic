@@ -6,26 +6,27 @@
 
 1. **`IrOp` ABC deleted.** "Action body" is a structural protocol: any `IrNode[_T]` whose `__call__(dispatch, node, new_children) -> _T` returns a usable value.
 2. **`IrText` deleted.** `IrLiteral` absorbs the "string-constant action primitive" role with an explicit `__call__` returning `self.value`.
-3. **`IrNode` becomes generic over return type: `IrNode[_T]`.** PEP 695 generic class syntax (Python 3.14).
-4. **Structural bases default `_T = Self` via PEP 696 defaults** (Python 3.14):
-   - `IrLeaf[_T = Self]` — default `__call__ -> Self` returns `self`.
-   - `IrCollection[_T = Self, _U = Any]` — default `__call__ -> Self` returns `self.rebuild(called children)`.
-   - `IrComposite[_T = Self]` — default `__call__ -> Self` returns `self.rebuild(called children)`.
+3. **`IrNode` becomes generic over return type: `IrNode[_T]`.**
+4. **`_T` defaults to `IrNode` via a single module-scope TypeVar declaration** (PEP 696, available via `typing_extensions.TypeVar`):
+   ```python
+   _T = TypeVar("_T", default="IrNode")
+   class IrNode(Generic[_T], ABC): ...
+   class IrLeaf(IrNode[_T], Generic[_T]): ...
+   class IrCollection(IrStructure, IrNode[_T], Generic[_T]): ...
+   class IrComposite(IrStructure, IrNode[_T], Generic[_T]): ...
+   ```
+   One declaration at module top; threads through the hierarchy. The default fires when a subclass omits the parameter — `class IrCharClass(IrLeaf):` resolves to `IrLeaf[IrNode]`.
 
-   When a subclass overrides `_T` (e.g. `IrComposite[str]`), it must also override `__call__` — the type-checker enforces this and rejects the inherited body. **Zero `type: ignore` needed.**
+   Why not `Self` as default: pyright rejects `Self` as a TypeVar default (`"Self" is not valid in this context`) at both module scope AND inside PEP 695 class headers. Verified by pre-flight. `IrNode` as the default loses precise Self-typing on AST-node calls (the inherited `__call__` is typed `IrNode`, not the concrete subclass) — acceptable because consumers always go through `IrDispatch[_T]` which carries its own precision.
 5. **`__call__` signature accepts `None` for `dispatch` and `node`** (`IrDispatch[Any] | None`, `IrNode | None`). Honest at the type level — unit tests that invoke a node outside a dispatch pass `None` without any ignores.
-6. **Grammar AST nodes get free `__call__`:** `IrSequence`, `IrAlternation`, `IrAst`, `IrGroup`, `IrItem`, `IrRule`, `IrCharClass`, `IrRuleRef`, `Quantifier` all inherit the `Self`-typed default (identity for leaves, rebuild-with-called-children for structures). No per-class `__call__` needed.
+6. **Grammar AST nodes get free `__call__`:** `IrSequence`, `IrAlternation`, `IrAst`, `IrGroup`, `IrItem`, `IrRule`, `IrCharClass`, `IrRuleRef`, `Quantifier` all inherit the default `__call__` (identity for leaves, rebuild-with-called-children for structures). Statically typed `IrNode`; at runtime returns the concrete subclass. No per-class `__call__` needed.
 7. **`IrLiteral(IrLeaf[str])`** explicitly overrides — `__call__` returns `self.value`. Keeps `__str__` for debug output (single-purpose).
 8. **Action-algebra classes that return `str`** (`IrField`, `IrConcat`, `IrJoin`) parameterize the structural base as `[str]` and override `__call__`.
 9. **Action-algebra generics:** `IrChild[_U]`, `IrChildren[_U]`, `IrCallable[_T]`, `IrCond[_T]`, `IrReturn[_T]`. Each parameterizes `_T` / `_U` independently and overrides `__call__`.
 10. **`.eval(...)` renamed to `__call__(...)`** throughout. Call sites use `body(d, n, nc)`.
 11. **`IrAction.body: IrNode[Any]`** (was `IrOp`). The body must be callable with the dispatch signature.
 
-**PEP 696 + `Self` as default — supported under pyright (project's type-checker).** `pyproject.toml` requires Python `>=3.14` (bumped 2026-05-18 alongside this plan; PEP 695 generic-class syntax + PEP 696 TypeVar defaults are both required). The project lists `pyright` in dev dependencies and not `mypy`, so the canonical type-check is pyright — and pyright accepts `Self` in PEP 696 defaults. The pre-flight check at Task 1.1 still runs to verify on the installed pyright version, but the typing story isn't experimental for this codebase.
-
-**Fallback if pre-flight fails:** explicit per-subclass parameterization (`class IrItem(IrComposite["IrItem"]):`) plus a one-line `__call__` override on every concrete grammar AST class. Loses the inheritance saving (~9 lines of one-liners) but keeps everything else intact — the `IrOp`/`IrText` collapse, the `IrNode[_T]` generic, the action substrate.
-
-Trade-off accepted: structural bases carry concrete default `__call__` bodies that only typecheck when `_T = Self`. Subclasses that re-parameterize must override; pyright catches misses. Buys: zero `type: ignore`, ~9 fewer one-line `__call__` definitions in `ir/nodes.py`, the obvious AST-walk pattern is the inherited default.
+Trade-off accepted: AST-node `__call__` return type is statically `IrNode` (not the concrete subclass). Consumers that need precise typing go through `IrDispatch[_T]`, which is parameterized correctly. Buys: zero `type: ignore`, no pre-flight check needed, no per-class `__call__` overrides on grammar AST classes, no per-base default-parameter duplication.
 
 ---
 
@@ -33,45 +34,17 @@ Trade-off accepted: structural bases carry concrete default `__call__` bodies th
 
 The substrate is `IrNode[_T]` with an abstract `__call__`; every concrete IR node implements its own. `ir/action.py` adds the action-specific node types (`IrField`, `IrCallable`, `IrChild`, `IrChildren`, `IrConcat`, `IrJoin`, `IrCond`, `IrReturn`, `IrAction`) and the `_Return` short-circuit exception.
 
-### Task 1.1: Generic `IrNode[_T]` + `Self`-defaulted `__call__` on structural bases + IrLiteral override
+### Task 1.1: Generic `IrNode[_T]` + default `__call__` on structural bases + IrLiteral override
 
 **Files:**
 - Modify: `src/lexic/ir/nodes.py`
 - Modify: `tests/unit/lexic/ir/test_nodes.py`
 
-**Pre-flight check before starting:** confirm runtime parses the PEP 695 / 696 syntax AND pyright accepts `Self` as a TypeVar default.
-
-```bash
-# 1. Runtime parse check — proves Python interpreter accepts the syntax.
-uv run python -c "
-from typing import Self
-class Box[_T = Self]:
-    def value(self) -> _T: ...
-class IntBox(Box[int]): ...
-class StrBox(Box): ...
-print('runtime OK')
-"
-
-# 2. Pyright type-check — proves the type-checker resolves Self correctly.
-cat > /tmp/preflight_self_default.py <<'EOF'
-from typing import Self
-class Box[_T = Self]:
-    def value(self, _: object = None) -> _T: ...
-class IntBox(Box[int]):
-    def value(self, _: object = None) -> int: return 0
-class StrBox(Box):
-    def value(self, _: object = None) -> "StrBox": return self
-reveal_type(StrBox().value())  # expect: StrBox
-reveal_type(IntBox().value())  # expect: int
-EOF
-uv run pyright /tmp/preflight_self_default.py
-```
-
-If either step fails, **fall back to explicit per-subclass parameterization** for the entire Step 1: every grammar AST class becomes `class IrItem(IrComposite["IrItem"]):` (etc.), plus a one-line `__call__` override on each. The substrate's other wins (`IrOp`/`IrText` collapse, `IrNode[_T]` generic, action algebra) remain intact — only the inheritance saving evaporates.
+**Pre-flight already done:** pyright rejects `Self` as a TypeVar default at module scope AND in PEP 695 class headers (`"Self" is not valid in this context`). Confirmed via the PoC in `tst.py`. We use `default=IrNode` instead — a single module-scope `TypeVar` from `typing_extensions` threads through the hierarchy.
 
 - [ ] **Step 1: Write failing tests**
 
-`__call__` signature is `(IrDispatch[Any] | None, IrNode | None, tuple) -> _T`. `None` is accepted at the type level — no test-side ignores.
+`__call__` signature is `(IrDispatch[Any] | None, IrNode | None, tuple) -> _T`. `None` is accepted at the type level — no test-side ignores. Annotations on `result` use `IrNode` (the default) — runtime `is` / `isinstance` assertions still verify the concrete subclass.
 
 ```python
 # tests/unit/lexic/ir/test_nodes.py — append
@@ -84,35 +57,36 @@ def test_irliteral_call_returns_value_as_str():
     assert result == "hello"
 
 
-def test_ircharclass_call_inherits_self_identity():
-    """IrCharClass(IrLeaf) inherits the Self-typed default — __call__ returns self."""
+def test_ircharclass_call_inherits_identity_default():
+    """IrCharClass(IrLeaf) inherits the default __call__ — returns self.
+    Statically typed as IrNode; runtime identity to the concrete instance."""
     from lexic.ir.nodes import IrCharClass
     cc = IrCharClass("a-z")
-    result: IrCharClass = cc(None, None, ())
+    result = cc(None, None, ())   # statically IrNode; runtime IrCharClass
     assert result is cc
 
 
-def test_irruleref_call_inherits_self_identity():
+def test_irruleref_call_inherits_identity_default():
     from lexic.ir.nodes import IrRuleRef
     ref = IrRuleRef("foo")
     assert ref(None, None, ()) is ref
 
 
-def test_irast_call_inherits_rebuild_self_default():
-    """IrAst(IrCollection) inherits __call__ -> Self: rebuild Self with called rules."""
+def test_irast_call_inherits_rebuild_default():
+    """IrAst(IrCollection) inherits __call__: rebuild with called rules."""
     from lexic.ir.nodes import IrAst
     empty = IrAst(rules=(), start="r")
-    result: IrAst = empty(None, None, ())
+    result = empty(None, None, ())
     assert isinstance(result, IrAst)
     assert result.rules == ()
     assert result.start == "r"
 
 
-def test_irgroup_call_inherits_rebuild_self_default():
-    """IrGroup(IrComposite) inherits __call__ -> Self via rebuild(called children)."""
+def test_irgroup_call_inherits_rebuild_default():
+    """IrGroup(IrComposite) inherits __call__ via rebuild(called children)."""
     from lexic.ir.nodes import IrGroup, IrAlternation
     g = IrGroup(body=IrAlternation())
-    result: IrGroup = g(None, None, ())
+    result = g(None, None, ())
     assert isinstance(result, IrGroup)
     assert isinstance(result.body, IrAlternation)
 ```
@@ -121,25 +95,29 @@ def test_irgroup_call_inherits_rebuild_self_default():
 
 - [ ] **Step 3: Implement**
 
-In `src/lexic/ir/nodes.py` — `IrNode[_T]` generic; structural bases provide `Self`-typed default `__call__`; `IrLiteral` overrides.
+In `src/lexic/ir/nodes.py` — module-scope `_T` with `default=IrNode`; `IrNode[_T]` generic; structural bases provide default `__call__`; `IrLiteral` overrides.
 
 ```python
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar
+from typing_extensions import TypeVar    # PEP 696 `default=`; stdlib gains it 3.13+
 
-# IrNode is generic; concrete bases default _T to Self via PEP 696.
+# One TypeVar threads through the hierarchy. Default fires when a subclass
+# omits the parameter: `class IrCharClass(IrLeaf):` → `IrLeaf[IrNode]`.
+# Forward-ref because IrNode is defined below.
+_T = TypeVar("_T", default="IrNode")
 
-class IrNode[_T](ABC):
+
+class IrNode(Generic[_T], ABC):
     """Structural protocol every IR node implements.
 
     Generic in ``_T`` — the type returned by ``__call__`` when this node is
-    invoked as an action body. Subclasses pin ``_T`` by parameterizing the
-    structural base they inherit (``IrLeaf[_T]`` / ``IrComposite[_T]`` /
-    ``IrCollection[_T, _U]``); they default to ``_T = Self``, the common
-    AST-walk case.
+    invoked as an action body. Subclasses either pin ``_T`` by parameterizing
+    the structural base (``IrLeaf[str]`` for ``IrLiteral``) or accept the
+    default (`_T = IrNode`).
 
-    Override ``__call__`` whenever ``_T`` is *not* ``Self`` — the inherited
-    default returns ``self`` (or a rebuilt Self) and the type-checker will
-    reject anything else.
+    Override ``__call__`` whenever ``_T`` is not ``IrNode`` — the inherited
+    default returns ``self`` (or a rebuilt ``self``) which is statically
+    typed as the base's ``_T``.
     """
 
     # ... existing _str_name machinery, children, rebuild — unchanged ...
@@ -164,33 +142,30 @@ class IrNode[_T](ABC):
         """
 ```
 
-Structural bases — each provides a `Self`-typed default `__call__`:
+Structural bases — share the module-scope `_T`; default `__call__` typechecks because every IrLeaf/IrCollection/IrComposite IS-A IrNode:
 
 ```python
-class IrLeaf[_T = Self](IrNode[_T]):
+class IrLeaf(IrNode[_T], Generic[_T]):
     """Base for all leaf nodes.
 
-    Default ``__call__`` returns ``self`` — typed as ``_T = Self``. Subclasses
-    that re-parameterize (e.g. ``IrLeaf[str]``) must override ``__call__``.
+    Default ``__call__`` returns ``self``. Statically typed as ``_T`` (which
+    defaults to ``IrNode``); runtime returns the concrete subclass.
+    Subclasses that re-parameterize (``IrLeaf[str]``) must override.
     """
 
     __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
 
     def __call__(self, _d, _n, _nc) -> _T:
-        return self  # type-checks because _T defaults to Self
+        return self  # type-checks: IrLeaf IS-A IrNode (the default for _T)
 
     # ... existing _inner_str / children / rebuild unchanged ...
 
 
-class IrCollection[_T = Self, _U = Any](IrStructure, IrNode[_T]):
+class IrCollection(IrStructure, IrNode[_T], Generic[_T]):
     """Branch node with a single variable-length tuple of homogeneous children.
 
-    Default ``__call__`` rebuilds Self with called children. Subclasses
-    that re-parameterize ``_T`` (e.g. ``IrCollection[str, IrNode[str]]``)
-    must override ``__call__``.
-
-    ``_U`` is the element type, propagated to the items tuple but
-    independent of the call return type.
+    Default ``__call__`` rebuilds with called children. Subclasses that
+    re-parameterize ``_T`` must override.
     """
 
     _items_attr: ClassVar[str]
@@ -201,11 +176,11 @@ class IrCollection[_T = Self, _U = Any](IrStructure, IrNode[_T]):
     # ... existing _extra_field_names / children / rebuild unchanged ...
 
 
-class IrComposite[_T = Self](IrStructure, IrNode[_T]):
+class IrComposite(IrStructure, IrNode[_T], Generic[_T]):
     """Branch node with a fixed, named set of typed children.
 
-    Default ``__call__`` rebuilds Self with called children. Subclasses
-    that re-parameterize ``_T`` must override ``__call__``.
+    Default ``__call__`` rebuilds with called children. Subclasses that
+    re-parameterize ``_T`` must override.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]]
@@ -215,6 +190,8 @@ class IrComposite[_T = Self](IrStructure, IrNode[_T]):
 
     # ... existing implementations unchanged ...
 ```
+
+Note: the previous draft had `IrCollection[_T, _U]` (two parameters — return type and element type). Drop `_U` — the element type is already pinned per-subclass via existing `_items_attr` machinery and the existing PEP 695 `IrCollection["IrItem"]` style in `nodes.py`. Stick with single `_T`.
 
 `IrLiteral` is the only grammar AST class that overrides:
 
@@ -236,37 +213,28 @@ class IrLiteral(IrLeaf[str]):
 **Every other grammar AST class inherits the default `__call__`** — no `__call__` is written for them. Their *existing* fields, `@dataclass` decorators, `_str_name` overrides, `_inner_str` methods, etc. **all stay unchanged** — the only change to each class is what it inherits from its base. The snippets below show only the lines that change; everything else in `ir/nodes.py` stays as-is.
 
 ```python
-# IrCharClass: no change to class body. Base changes from IrLeaf to IrLeaf
-# (no-op — IrLeaf is now the new generic-default form). __call__ inherited.
+# All grammar AST classes that don't override _T inherit the default
+# (_T = IrNode via the module-scope TypeVar). __call__ inherited; statically
+# typed IrNode, runtime returns the concrete instance.
 
-# IrRuleRef: same.
+class IrCharClass(IrLeaf): ...     # _T = IrNode
+class IrRuleRef(IrLeaf): ...       # _T = IrNode
+class Quantifier(IrLeaf): ...      # renamed to IrQuantifier in Step 4
 
-# Quantifier: same. (Renamed to IrQuantifier in Step 4; same class shape here.)
+class IrSequence(IrCollection): ...     # _T = IrNode
+class IrAlternation(IrCollection): ...  # _T = IrNode
 
-# IrSequence: base parameter list adds the element type for typing
-class IrSequence(IrCollection["IrSequence", "IrItem"]):
-    # existing _items_attr, items field, _inner_str, etc. unchanged
-    # inherited __call__ rebuilds Self with called items
-
-# IrAlternation: same pattern
-class IrAlternation(IrCollection["IrAlternation", "IrSequence"]): ...
-
-# IrAst: same pattern (extra `start` field preserved)
-class IrAst(IrCollection["IrAst", "IrRule"]):
+class IrAst(IrCollection):
     _items_attr: ClassVar[str] = "rules"
     rules: tuple["IrRule", ...] = ()
     start: str = ""
 
-# IrGroup, IrItem, IrRule: no explicit type parameter needed —
-# IrComposite's _T defaults to Self via PEP 696
-class IrGroup(IrComposite): ...
-class IrItem(IrComposite): ...
-class IrRule(IrComposite): ...
+class IrGroup(IrComposite): ...    # _T = IrNode
+class IrItem(IrComposite): ...     # _T = IrNode
+class IrRule(IrComposite): ...     # _T = IrNode
 ```
 
-**Note on the `IrCollection["X", "Y"]` explicit-Self form:** PEP 673's `Self` only resolves inside the body of a class or method, *not* in a base-class argument position at definition time (`class IrSequence(IrCollection[Self, "IrItem"]):` is ambiguous). The explicit string `"IrSequence"` is the safe form. PEP 696's default-to-`Self` *is* legal because it's resolved when a subclass omits the parameter — `class IrGroup(IrComposite):` works.
-
-For `IrCollection`, we need both type parameters when subclassing because `_U` (element type) has no `Self` default. If the PEP 696 pre-flight passes, an alternative is `_U = TypeVar("_U", default="IrNode")` so most subclasses can write `class IrSequence(IrCollection):` and only override `_T` / `_U` when narrowing matters. Decide during implementation.
+No explicit type parameter on any subclass — they all accept the `_T = IrNode` default from the module-scope TypeVar.
 
 - [ ] **Step 4: Run; verify pass.**
 
@@ -274,14 +242,15 @@ For `IrCollection`, we need both type parameters when subclassing because `_U` (
 
 ```bash
 git add src/lexic/ir/nodes.py tests/unit/lexic/ir/test_nodes.py
-git commit -m "ir/nodes: generic IrNode[_T] with Self-defaulted __call__ on structural bases
+git commit -m "ir/nodes: generic IrNode[_T] with default __call__ on structural bases
 
-IrNode is generic in _T (the action-body return type). IrLeaf, IrCollection,
-IrComposite default _T = Self via PEP 696, with concrete __call__ bodies
-that typecheck naturally when _T = Self (identity for leaves; rebuild-Self
-for structures). Grammar AST classes inherit the default; IrLiteral
-overrides explicitly to return self.value (subsumes the IrText role).
-IrText deleted."
+IrNode is generic in _T (the action-body return type). One module-scope
+TypeVar with default=IrNode threads through IrLeaf, IrCollection,
+IrComposite. Default __call__ on each typechecks because every leaf/
+collection/composite IS-A IrNode. Grammar AST classes inherit the
+default (statically typed IrNode, runtime returns the concrete subclass);
+IrLiteral overrides explicitly to return self.value (subsumes the IrText
+role). IrText deleted."
 ```
 
 ---
@@ -2050,7 +2019,7 @@ Expect zero hits in action-related code (every action body call uses `(...)` not
 
 ## Risk-area mitigations (reminders during execution)
 
-- **Task 1.1 pre-flight is load-bearing.** If `Self` as PEP 696 default isn't accepted by the project's type-checker, the entire Step 1 falls back to explicit per-subclass parameterization (`class IrItem(IrComposite["IrItem"]):`, etc.). Mechanical but adds ~9 lines of boilerplate. Verify before writing the rest of Step 1.
+- **Typing precision loss on grammar AST `__call__`.** With `default=IrNode`, AST-node `__call__` returns are statically typed `IrNode`, not the concrete subclass. Verified acceptable because consumers go through `IrDispatch[_T]` for precision. If a test or call site genuinely needs the concrete return type, add a local `isinstance` narrow or parameterize the base explicitly (`class IrFooThing(IrLeaf["IrFooThing"]):`) at that single site.
 - **Step 2 (Task 2.1) is the deepest cut.** If the rewrite is hairier than expected, split into 2.1a (introduce new dispatcher under a temporary name, migrate consumers one by one) and 2.1b (rename + delete old).
 - **IrCallable discipline (Steps 6/7).** If a flavour action ends up using `IrCallable` for a case that should be a pure IrNode body (one of `IrRuleRef`, `IrGroup`, `IrItem`, `IrSequence`, `IrAlternation`, `IrRule`), stop and surface — that's the substrate failing to express something it should. Permitted `IrCallable` use is limited to the four documented per-flavour cases.
 - **`_Return` semantics.** Run the explicit test that an `IrCallable` body wrapping its work in `except Exception:` does not swallow `_Return`. If that test fails, the inheritance is wrong.

@@ -41,7 +41,7 @@ def _ruff_format(source: str) -> str:
         )
         if result.returncode == 0:
             return result.stdout
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         pass
     return source
 
