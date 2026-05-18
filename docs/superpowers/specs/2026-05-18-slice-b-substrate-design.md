@@ -35,7 +35,7 @@ Canonical inventory — nine variants:
 | `IrReturn[_T](value)` | `_T` | Raises a control-flow exception carrying `value`. Unwinds to the dispatcher's entry. |
 | `IrChild(name)` | result of dispatching that child | Returns `new_children[i]` where `i = type(node)._child_attrs.index(name)`. Fixed-arity. |
 | `IrChildren(name)` | tuple of child results | Asserts `name == type(node)._items_attr`; returns the full `new_children` tuple. Variable-arity. |
-| `IrSeq(parts)` | `str` | Evaluates parts in order; returns `"".join(str(...))` of results. Emit-side primitive. |
+| `IrConcat(parts)` | `str` | Evaluates parts in order; returns `"".join(str(...))` of results. Emit-side primitive. |
 | `IrText(text)` | `str` | Literal `text`. |
 | `IrField(name)` | `str` | `str(getattr(node, name))` — non-IrNode attribute on the dispatched node. |
 | `IrCond[_T](field, then, else)` | `_T` | Truthy-field branch. |
@@ -132,15 +132,15 @@ Per-flavour metadata is `ClassVar`s; per-flavour behaviour is the `actions` tupl
 
 ```python
 _GBNF_ACTIONS: tuple[IrAction, ...] = (
-    IrAction(IrLiteral,    IrSeq((IrText('"'), IrCallable(_gbnf_encode_literal), IrText('"')))),
+    IrAction(IrLiteral,    IrConcat((IrText('"'), IrCallable(_gbnf_encode_literal), IrText('"')))),
     IrAction(IrCharClass,  IrCallable(_gbnf_charclass)),
     IrAction(IrRuleRef,    IrField("name")),
-    IrAction(IrGroup,      IrSeq((IrText("("), IrChild("body"), IrText(")")))),
+    IrAction(IrGroup,      IrConcat((IrText("("), IrChild("body"), IrText(")")))),
     IrAction(IrQuantifier, IrCallable(_gbnf_quantifier)),
-    IrAction(IrItem,       IrSeq((IrChild("atom"), IrChild("quantifier")))),
+    IrAction(IrItem,       IrConcat((IrChild("atom"), IrChild("quantifier")))),
     IrAction(IrSequence,   IrJoin(IrChildren("items"), IrText(" "), IrText('""'))),
     IrAction(IrAlternation,IrJoin(IrChildren("arms"), IrText(" | "), IrText(""))),
-    IrAction(IrRule,       IrSeq((IrField("name"), IrText(" ::= "), IrChild("body")))),
+    IrAction(IrRule,       IrConcat((IrField("name"), IrText(" ::= "), IrChild("body")))),
     IrAction(IrAst,        IrCallable(_gbnf_ast)),
 )
 GBNF = GbnfFlavour(actions=_GBNF_ACTIONS)
@@ -150,7 +150,7 @@ GBNF = GbnfFlavour(actions=_GBNF_ACTIONS)
 
 ### ABNF
 
-Mirrors GBNF with prefix-quantifier ordering on `IrItem` (`IrSeq((IrChild("quantifier"), IrChild("atom")))`), its own quantifier-symbols table, and its own per-flavour `IrCallable` bodies. `ABNF = AbnfFlavour(actions=_ABNF_ACTIONS)` at module scope.
+Mirrors GBNF with prefix-quantifier ordering on `IrItem` (`IrConcat((IrChild("quantifier"), IrChild("atom")))`), its own quantifier-symbols table, and its own per-flavour `IrCallable` bodies. `ABNF = AbnfFlavour(actions=_ABNF_ACTIONS)` at module scope.
 
 ### Consumers
 

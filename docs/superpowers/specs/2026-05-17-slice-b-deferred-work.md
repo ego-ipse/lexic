@@ -23,7 +23,7 @@ No silent inclusion. No "while we're here." No "it's small."
 
 A reader of this document should be able to identify what is NOT in this list — those items are in the fresh plan:
 
-- New `ir/action.py` with `IrAction` and the `IrOp` algebra (`IrText`, `IrField`, `IrRecurse`, `IrSeq`, `IrJoin`, `IrCond`, `IrCallable`).
+- New `ir/action.py` with `IrAction` and the `IrOp` algebra (nine canonical variants per the 2026-05-18 spec: `IrReturn`, `IrChild`, `IrChildren`, `IrConcat`, `IrText`, `IrField`, `IrCond`, `IrJoin`, `IrCallable`).
 - `IrDispatch` rewritten in `ir/walk.py` to be unbounded-T, action-driven, no `visit_<TypeName>` getattr, no `_CHILDREN`/`_REBUILD`/`_DUMP`, no top-level `dump()`.
 - `IrTransformer` and `IrVisitor` reduced to thin presets over the new `IrDispatch`.
 - `_HoistTransformer` and `_RuleRefFinder` cease to be closed subclasses; they become factory functions returning loaded `IrTransformer` / `IrVisitor` instances.
@@ -170,7 +170,7 @@ Re-entry: a future "Slice X — eliminate hoist + codegen for inline groups" pla
 
 4. **No task in the fresh plan may replace an `IrCallable` body with a pure IrOp tree** for `_HoistTransformer` or `_RuleRefFinder`. `IrCallable` is the explicit body for both in this slice.
 
-5. **No task in the fresh plan may introduce a new IrOp variant beyond** the canonical set: `IrText`, `IrField`, `IrRecurse`, `IrSeq`, `IrJoin`, `IrCond`, `IrCallable`. If a flavour action needs something else, the action body uses `IrCallable` until a future slice expands the algebra.
+5. **No task in the fresh plan may introduce a new IrOp variant beyond** the canonical nine (per the 2026-05-18 spec): `IrReturn`, `IrChild`, `IrChildren`, `IrConcat`, `IrText`, `IrField`, `IrCond`, `IrJoin`, `IrCallable`. If a flavour action needs something else, the action body uses `IrCallable` until a future slice expands the algebra.
 
 6. **No task may add wiki / docs content for any deferred feature.** Updates are limited to documenting what landed.
 

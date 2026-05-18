@@ -405,30 +405,30 @@ class IrChildren(IrOp[tuple], IrLeaf):
 git commit -am "ir/action: IrChild + IrChildren"
 ```
 
-### Task 1.6: `IrSeq` — string concatenation
+### Task 1.6: `IrConcat` — string concatenation
 
 - [ ] **Step 1: Write failing tests**
 
 ```python
 def test_irseq_concatenates_op_results():
-    from lexic.ir.action import IrSeq, IrText
+    from lexic.ir.action import IrConcat, IrText
 
-    op = IrSeq((IrText("a"), IrText("b"), IrText("c")))
+    op = IrConcat((IrText("a"), IrText("b"), IrText("c")))
     assert op.eval(None, None, ()) == "abc"  # type: ignore[arg-type]
 
 
 def test_irseq_coerces_non_str_results_with_str():
-    """IrSeq is the emit-side primitive; non-str results pass through str()."""
-    from lexic.ir.action import IrSeq, IrCallable, IrText
+    """IrConcat is the emit-side primitive; non-str results pass through str()."""
+    from lexic.ir.action import IrConcat, IrCallable, IrText
 
-    op = IrSeq((IrText("n="), IrCallable(lambda d, n, nc: 42)))
+    op = IrConcat((IrText("n="), IrCallable(lambda d, n, nc: 42)))
     assert op.eval(None, None, ()) == "n=42"  # type: ignore[arg-type]
 
 
 def test_irseq_is_an_ircollection_with_parts_as_children():
-    from lexic.ir.action import IrSeq, IrText
+    from lexic.ir.action import IrConcat, IrText
 
-    op = IrSeq((IrText("a"), IrText("b")))
+    op = IrConcat((IrText("a"), IrText("b")))
     assert op.children() == (IrText("a"), IrText("b"))
 ```
 
@@ -438,7 +438,7 @@ def test_irseq_is_an_ircollection_with_parts_as_children():
 
 ```python
 @dataclass(frozen=True, slots=True, repr=False)
-class IrSeq(IrOp[str], IrCollection["IrOp"]):
+class IrConcat(IrOp[str], IrCollection["IrOp"]):
     """Evaluate ``parts`` in order; return ``"".join(str(...))`` of results.
 
     Emit-side primitive — not used by visitor / transformer passes in
@@ -457,7 +457,7 @@ class IrSeq(IrOp[str], IrCollection["IrOp"]):
 - [ ] **Step 5: Commit.**
 
 ```bash
-git commit -am "ir/action: IrSeq"
+git commit -am "ir/action: IrConcat"
 ```
 
 ### Task 1.7: `IrJoin` — variable-arity join with separator
@@ -731,7 +731,7 @@ def test_ir_init_reexports_action_module():
         IrJoin,
         IrOp,
         IrReturn,
-        IrSeq,
+        IrConcat,
         IrText,
     )
     assert IrAction.__name__ == "IrAction"
@@ -753,7 +753,7 @@ from lexic.ir.action import (
     IrJoin,
     IrOp,
     IrReturn,
-    IrSeq,
+    IrConcat,
     IrText,
 )
 ```
@@ -1907,7 +1907,7 @@ Or, more practically: ensure existing integration tests still pass after the sin
 ```python
 # Continuing from Task 6.1's helpers
 from lexic.ir.action import (
-    IrAction, IrCallable, IrChild, IrChildren, IrField, IrJoin, IrSeq, IrText,
+    IrAction, IrCallable, IrChild, IrChildren, IrField, IrJoin, IrConcat, IrText,
 )
 from lexic.ir.nodes import (
     IrAlternation, IrAst, IrCharClass, IrGroup, IrItem, IrLiteral,
@@ -1916,15 +1916,15 @@ from lexic.ir.nodes import (
 
 
 _GBNF_ACTIONS: tuple[IrAction, ...] = (
-    IrAction(IrLiteral,    IrSeq((IrText('"'), IrCallable(_gbnf_encode_literal), IrText('"')))),
+    IrAction(IrLiteral,    IrConcat((IrText('"'), IrCallable(_gbnf_encode_literal), IrText('"')))),
     IrAction(IrCharClass,  IrCallable(_gbnf_charclass)),
     IrAction(IrRuleRef,    IrField("name")),
-    IrAction(IrGroup,      IrSeq((IrText("("), IrChild("body"), IrText(")")))),
+    IrAction(IrGroup,      IrConcat((IrText("("), IrChild("body"), IrText(")")))),
     IrAction(IrQuantifier, IrCallable(_gbnf_quantifier)),
-    IrAction(IrItem,       IrSeq((IrChild("atom"), IrChild("quantifier")))),
+    IrAction(IrItem,       IrConcat((IrChild("atom"), IrChild("quantifier")))),
     IrAction(IrSequence,   IrJoin(IrChildren("items"), IrText(" "), IrText('""'))),
     IrAction(IrAlternation,IrJoin(IrChildren("arms"), IrText(" | "), IrText(""))),
-    IrAction(IrRule,       IrSeq((IrField("name"), IrText(" ::= "), IrChild("body")))),
+    IrAction(IrRule,       IrConcat((IrField("name"), IrText(" ::= "), IrChild("body")))),
     IrAction(IrAst,        IrCallable(_gbnf_ast)),
 )
 
@@ -2078,7 +2078,7 @@ Mirrors `_GBNF_ACTIONS` with two differences: prefix-quantifier ordering on `IrI
 
 ```python
 from lexic.ir.action import (
-    IrAction, IrCallable, IrChild, IrChildren, IrField, IrJoin, IrSeq, IrText,
+    IrAction, IrCallable, IrChild, IrChildren, IrField, IrJoin, IrConcat, IrText,
 )
 from lexic.ir.nodes import (
     IrAlternation, IrAst, IrCharClass, IrGroup, IrItem, IrLiteral,
@@ -2090,13 +2090,13 @@ _ABNF_ACTIONS: tuple[IrAction, ...] = (
     IrAction(IrLiteral,    IrCallable(_abnf_encode_literal)),
     IrAction(IrCharClass,  IrCallable(_abnf_charclass)),
     IrAction(IrRuleRef,    IrField("name")),
-    IrAction(IrGroup,      IrSeq((IrText("("), IrChild("body"), IrText(")")))),
+    IrAction(IrGroup,      IrConcat((IrText("("), IrChild("body"), IrText(")")))),
     IrAction(IrQuantifier, IrCallable(_abnf_quantifier)),
     # KEY DIFFERENCE FROM GBNF: quantifier BEFORE atom for ABNF prefix form.
-    IrAction(IrItem,       IrSeq((IrChild("quantifier"), IrChild("atom")))),
+    IrAction(IrItem,       IrConcat((IrChild("quantifier"), IrChild("atom")))),
     IrAction(IrSequence,   IrJoin(IrChildren("items"), IrText(" "), IrText(""))),
     IrAction(IrAlternation,IrJoin(IrChildren("arms"), IrText(" / "), IrText(""))),
-    IrAction(IrRule,       IrSeq((IrField("name"), IrText(" = "), IrChild("body")))),
+    IrAction(IrRule,       IrConcat((IrField("name"), IrText(" = "), IrChild("body")))),
     IrAction(IrAst,        IrCallable(_abnf_ast)),
 )
 
