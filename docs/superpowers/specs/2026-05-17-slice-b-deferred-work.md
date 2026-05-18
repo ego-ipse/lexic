@@ -141,6 +141,23 @@ If deleted: also delete `tests/unit/lexic/ir/test_helpers.py` and remove `Helper
 
 Already-resolved decision from the 2026-05-14 spec: **inlined into `build_lark`**. That decision stays. The fresh plan executes it as part of the consumer-migration work, not as a separate task.
 
+### 11. Hoist elimination — `_HoistTransformer` deletion + inline-group codegen
+
+`_HoistTransformer` (in `ir/derive.py`) synthesizes helper `<parent>-item[N]` rules for quantified `IrGroup`s containing rulerefs. It exists because `RuleSpec.kind` classification doesn't represent an inline quantified ruleref-group, and `codegen/model_emitter.py` therefore can't emit a Pydantic field for that shape.
+
+In this slice, `_HoistTransformer` migrates to the new substrate (action-table form, `extract_body_under` recognition method on `IrAtom`/`IrGroup`). The pass itself stays.
+
+Eliminating the pass entirely is deferred. The full re-entry covers:
+
+- Delete `hoist_helpers` and `_HoistTransformer` from `ir/derive.py`.
+- `derive_specs` stops synthesizing helper rules; `RuleSpec.items` now legitimately carries `IrItem(atom=IrGroup(…), quantifier=non-trivial)` post-derive.
+- `codegen/model_emitter.py` learns to emit a nested Pydantic class for the inline group, with the parent field typed as `list[Group]` / `Group | None` / `Group` per quantifier.
+- Class naming for the inline group (no more `<parent>-item[N]` rule name to base it on).
+- `codegen/aliases.py` `_PatternAliasVisitor` audit — the ruleref-frame stack exists to detect pure-literal groups (the complement of what hoist catches). Without hoist, this machinery may simplify or disappear.
+- Ground-truth tests that pin the helper-rule shape need regenerating; round-trip behaviour for `(foo bar)+` shifts (today's emit can render synthesized helpers; without hoist, the inline group renders directly).
+
+Re-entry: a future "Slice X — eliminate hoist + codegen for inline groups" plan. Depends on this slice's substrate landing first.
+
 ---
 
 ## Anti-creep rules
