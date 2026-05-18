@@ -77,30 +77,38 @@ An IrDispatch's action table is a tuple of IrAction nodes. Each IrAction
 binds a target IrNode type to an IrOp body. The IrOp algebra is the small
 language flavour emitters and IR passes use to describe per-type behaviour.
 
-For procedural cases (helper-name allocation, side-effect flags,
-escape encoding), wrap the logic in IrCallable. Pure-IrOp bodies are
-preferred where they fit.
+For procedural cases (helper-name allocation, side-effect flags, escape
+encoding), wrap the logic in IrCallable. Pure-IrOp bodies are preferred
+where they fit.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generic
+
+from typing_extensions import TypeVar  # PEP 696 `default=`; stdlib gains it 3.13+
 
 from lexic.ir.nodes import IrCollection, IrComposite, IrLeaf, IrNode
 
 if TYPE_CHECKING:
     from lexic.ir.walk import IrDispatch
 
-_T = TypeVar("_T")
+# `_T` defaults to ``IrNode``: the substrate is centred on IrNode trees, and
+# the most common preset (``IrTransformer``, ``_T=IrNode``) produces IrNode.
+# Bare ``IrOp`` therefore reads as ``IrOp[IrNode]``. ``default`` is a default,
+# not a bound — concrete variants still pin their producer type explicitly
+# (``IrText(IrOp[str])``, ``IrJoin(IrOp[str])``, etc.) and any caller can
+# parameterize freely.
+_T = TypeVar("_T", default=IrNode)
 
 
 class _Return(BaseException):
     """Control-flow exception raised by ``IrReturn.eval``.
 
-    Inherits BaseException (not Exception) so IrCallable bodies that
-    wrap their work in ``except Exception:`` cannot swallow it.
+    Inherits BaseException (not Exception) so IrCallable bodies that wrap
+    their work in ``except Exception:`` cannot swallow it.
     """
 
     def __init__(self, value: Any) -> None:
@@ -111,25 +119,26 @@ class _Return(BaseException):
 class IrOp(IrNode, Generic[_T], ABC):
     """One operation in an IrAction body.
 
-    Concrete variants either pin _T (e.g. IrText: IrOp[str]) or
-    re-parameterize (e.g. IrReturn[_T]). Every IrOp is an IrNode subclass
-    and inherits children() / rebuild() / __str__ / __repr__ from
-    IrLeaf / IrCollection / IrComposite.
+    Concrete variants either pin ``_T`` (e.g. ``IrText: IrOp[str]``) or
+    re-parameterize (e.g. ``IrReturn[_T]``, ``IrCond[_T]``). Every IrOp is
+    an IrNode subclass and inherits ``children()`` / ``rebuild()`` /
+    ``__str__`` / ``__repr__`` from ``IrLeaf`` / ``IrCollection`` /
+    ``IrComposite``.
     """
 
     @abstractmethod
     def eval(
         self,
-        dispatch: "IrDispatch[Any]",
+        dispatch: IrDispatch[Any],
         node: IrNode,
         new_children: tuple,
     ) -> _T:
         """Evaluate this op.
 
         :param dispatch: The dispatcher running this action body.
-        :param node: The dispatched node.
-        :param new_children: Already-dispatched children, aligned to
-            ``node.children()`` order.
+        :param node: The dispatched-on node (NOT ``self``; ``self`` is the op).
+        :param new_children: Already-dispatched children of ``node``, aligned
+            to ``node.children()`` order.
         :returns: This op's contribution to the dispatched result.
         """
 ```
