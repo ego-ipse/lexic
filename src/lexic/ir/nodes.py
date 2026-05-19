@@ -124,7 +124,7 @@ class IrNode(Generic[_T_co], ABC):
         dispatch: IrNode | None,
         node: IrNode | None,
         new_children: tuple,
-    ) -> _T_co:
+    ) -> _T_co | Self:
         """Evaluate this node as an action body.
 
         :param dispatch: Dispatcher driving the surrounding walk. ``None``
@@ -169,7 +169,7 @@ class IrLeaf(IrNode[_T_co], Generic[_T_co]):
         """
         return ()
 
-    def rebuild(self, new_children: tuple[_T_co, ...]) -> Self:  # pylint: disable=unused-argument
+    def rebuild(self, new_children: tuple[_T_co, ...]) -> Self:
         """Leaves reconstruct as identity.
 
         :param new_children: Ignored.
@@ -182,13 +182,13 @@ class IrLeaf(IrNode[_T_co], Generic[_T_co]):
         _dispatch: IrNode | None,
         _node: IrNode | None,
         _new_children: tuple,
-    ) -> _T_co:
+    ) -> _T_co | Self:
         """Default leaf evaluation: return ``self``.
 
         Typechecks because every IrLeaf IS-A IrNode (the default for ``_T_co``).
         Subclasses that re-parameterize ``_T_co`` must override.
         """
-        return self  # type: ignore[return-value]
+        return self
 
 
 # ── Branch-node abstract base ─────────────────────────────────────────
@@ -287,8 +287,13 @@ class IrCollection(IrStructure[_T_co], Generic[_T_co]):
         """
         return getattr(self, self._items_attr)
 
-    def rebuild(self, new_children: tuple[_T_co, ...]) -> Self:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
         """Reconstruct, replacing the items field with new_children.
+
+        ``U`` is a method-level TypeVar (PEP 695), independent of the
+        class's ``_T_co``. Lets the default ``__call__`` body pass
+        dispatch-walked children regardless of their per-child return type.
+        Semantic constraint (children should be IrNode-shaped) is informal.
 
         :param new_children: Replacement children tuple.
         :returns: New instance with updated children.
@@ -300,14 +305,14 @@ class IrCollection(IrStructure[_T_co], Generic[_T_co]):
         dispatch: IrNode | None,
         node: IrNode | None,
         new_children: tuple,
-    ) -> _T_co:
+    ) -> _T_co | Self:
         """Default collection evaluation: rebuild with each child invoked.
 
         Typechecks because every IrCollection IS-A IrNode (the default for
         ``_T_co``). Subclasses that re-parameterize ``_T_co`` must override.
         """
         called = tuple(c(dispatch, node, new_children) for c in self.children())
-        return self.rebuild(called)  # type: ignore[return-value]
+        return self.rebuild(called)
 
 
 # ── Fixed-arity heterogeneous branch nodes ────────────────────────────
@@ -357,8 +362,13 @@ class IrComposite(IrStructure[_T_co], Generic[_T_co]):
         """
         return tuple(getattr(self, a) for a in self._child_attrs)
 
-    def rebuild(self, new_children: tuple[_T_co, ...]) -> Self:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
         """Reconstruct, replacing child attrs from new_children in order.
+
+        ``U`` is a method-level TypeVar (PEP 695), independent of the
+        class's ``_T_co``. Lets the default ``__call__`` body pass
+        dispatch-walked children regardless of their per-child return type.
+        Semantic constraint (children should be IrNode-shaped) is informal.
 
         :param new_children: Replacement children, matching _child_attrs order.
         :returns: New instance with updated children.
@@ -370,21 +380,21 @@ class IrComposite(IrStructure[_T_co], Generic[_T_co]):
         dispatch: IrNode | None,
         node: IrNode | None,
         new_children: tuple,
-    ) -> _T_co:
+    ) -> _T_co | Self:
         """Default composite evaluation: rebuild with each child invoked.
 
         Typechecks because every IrComposite IS-A IrNode (the default for
         ``_T_co``). Subclasses that re-parameterize ``_T_co`` must override.
         """
         called = tuple(c(dispatch, node, new_children) for c in self.children())
-        return self.rebuild(called)  # type: ignore[return-value]
+        return self.rebuild(called)
 
 
 # ── Superset role ─────────────────────────────────────────────────────────
 
 
-class IrSuperSet(IrNode[_Tsuper_co]):
-    """Superset of IrCollection"""
+class IrSuperSet[_Tsuper_co](IrNode[_Tsuper_co]):
+    """Universal supertype marker for IR nodes allowed in IrItem.atom."""
 
 
 class IrAtom(IrSuperSet):
@@ -404,7 +414,7 @@ class IrAtom(IrSuperSet):
 
 
 @dataclass(frozen=True, slots=True)
-class IrLiteral(IrAtom, IrLeaf[str]):
+class IrLiteral(IrLeaf[str], IrAtom):
     """Literal string. `value` is canonical Python (escapes decoded).
 
     Overrides ``__call__`` to return ``self.value`` directly — keeps
@@ -424,7 +434,7 @@ class IrLiteral(IrAtom, IrLeaf[str]):
 
 
 @dataclass(frozen=True, slots=True)
-class IrCharClass(IrAtom, IrLeaf):
+class IrCharClass(IrLeaf, IrAtom):
     """Character class. `pattern` is canonical POSIX-style interior."""
 
     pattern: str
@@ -439,7 +449,7 @@ class IrCharClass(IrAtom, IrLeaf):
 
 
 @dataclass(frozen=True, slots=True)
-class IrRuleRef(IrAtom, IrLeaf):
+class IrRuleRef(IrLeaf, IrAtom):
     """Reference to another rule by name."""
 
     _str_name: ClassVar[str] = "REF"
