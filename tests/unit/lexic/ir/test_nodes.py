@@ -417,10 +417,13 @@ def test_irruleref_call_inherits_identity_default():
 def test_irast_call_inherits_rebuild_default():
     """IrAst(IrCollection) inherits __call__: rebuild with called rules."""
     empty = IrAst(rules=(), start="r")
-    result = empty(None, None, ())
+    result: IrAst = empty(None, None, ())
     assert isinstance(result, IrAst)
-    assert not result.rules
-    assert result.start == "r"
+    if isinstance(
+        result, IrAst
+    ):  # Pylint can't infer the type here, but we know it must be IrAst.
+        assert not result.rules
+        assert result.start == "r"
 
 
 def test_irgroup_call_inherits_rebuild_default():
