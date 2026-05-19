@@ -103,7 +103,7 @@ class IrNode[_T_co](ABC):
         """
 
     @abstractmethod
-    def rebuild(self, new_children: tuple) -> Self:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
         """Reconstruct with new children.
 
         :param new_children: Tuple of new child nodes to rebuild with.
@@ -161,7 +161,7 @@ class IrLeaf[_T_co](IrNode):
         """
         return ()
 
-    def rebuild(self, new_children: tuple[_T_co, ...]) -> Self:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
         """Leaves reconstruct as identity.
 
         :param new_children: Ignored.
