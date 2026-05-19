@@ -15,6 +15,7 @@ from lexic.ir.helpers import HelperRuleRegistry
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
+    IrAtom,
     IrCharClass,
     IrCollection,
     IrComposite,
@@ -27,6 +28,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
     IrStructure,
+    IrSuperSet,
     Quantifier,
 )
 from lexic.ir.spec import RuleSpec
@@ -41,6 +43,7 @@ __all__ = [
     "HelperRuleRegistry",
     "IrAlternation",
     "IrAst",
+    "IrAtom",
     "IrCharClass",
     "IrCollection",
     "IrComposite",
@@ -53,6 +56,7 @@ __all__ = [
     "IrRuleRef",
     "IrSequence",
     "IrStructure",
+    "IrSuperSet",
     "IrTransformer",
     "IrVisitor",
     "Quantifier",

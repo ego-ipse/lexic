@@ -12,12 +12,12 @@ Hierarchy:
                                                          length children
                                         └─ IrComposite[_T_co]  heterogeneous fixed-
                                                          arity children
-                       └─ IrSuperSet[_Tsuper_co] ─── IrAtom    role marker for nodes
+                       └─ IrSuperSet  ─── IrAtom    role marker for nodes
                                       IrItem can wrap: IrLiteral, IrCharClass, IrRuleRef,
                                       IrGroup (NOT Quantifier — leaf but not quantifiable).
-                                      IrSuperSet uses a class-local PEP 695 TypeVar so
-                                      bare IrAtom doesn't conflict with IrLeaf's IrNode
-                                      parameterization in multi-inheritance.
+                                      IrSuperSet and IrAtom carry no TypeVar; multi-
+                                      inheritance works because they are abstract and
+                                      provide no conflicting __call__ implementations.
 
 ``__str__`` is templated at IrNode level as:
 
