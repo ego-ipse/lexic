@@ -1,6 +1,7 @@
 """Generated module: anon_714657e37009. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
+
 from typing import Annotated
 
 from pydantic import StringConstraints

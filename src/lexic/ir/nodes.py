@@ -10,11 +10,14 @@ Hierarchy:
                                               Quantifier
                        └─ IrStructure ─── IrCollection[_T_co]   homogeneous variable-
                                                          length children
-                       └─ IrComposite[_T_co]  heterogeneous fixed-
+                                        └─ IrComposite[_T_co]  heterogeneous fixed-
                                                          arity children
-                       └─ IrAtom[_T_co]      role marker for nodes IrItem can wrap:
-                                      IrLiteral, IrCharClass, IrRuleRef, IrGroup
-                                      (NOT Quantifier — leaf but not quantifiable)
+                       └─ IrSuperSet[_Tsuper_co] ─── IrAtom    role marker for nodes
+                                      IrItem can wrap: IrLiteral, IrCharClass, IrRuleRef,
+                                      IrGroup (NOT Quantifier — leaf but not quantifiable).
+                                      IrSuperSet uses a class-local PEP 695 TypeVar so
+                                      bare IrAtom doesn't conflict with IrLeaf's IrNode
+                                      parameterization in multi-inheritance.
 
 ``__str__`` is templated at IrNode level as:
 
@@ -49,10 +52,11 @@ from typing import (
     TypeVar,
 )
 
-# Separate TypeVar for IrAtom — defaults to ``object`` rather than ``IrNode``
-# so bare ``IrAtom`` resolves to ``IrAtom[object]``, the universal supertype
-# that covariantly accepts any concrete atom (``IrAtom[str]``, ``IrAtom[IrNode]``,
-# …). Keeps ``IrItem.atom: IrAtom`` unparameterized at the field site.
+# Module-scope TypeVar used as the bound for ``_T_co``. Defaults to ``object``
+# (the universal supertype) — keeps the IR's covariant ``_T_co`` from being
+# constrained to a narrower type while still expressing "_T_co is some kind
+# of upper-bounded thing." Accessed via the ``TsuperCo`` TypeAlias because
+# pyright accepts ``bound=<TypeAlias>`` but not ``bound=<TypeVar>`` directly.
 _Tsuper_co = TypeVar("_Tsuper_co", default=object, covariant=True)
 
 TsuperCo: TypeAlias = _Tsuper_co
@@ -394,7 +398,19 @@ class IrComposite(IrStructure[_T_co], Generic[_T_co]):
 
 
 class IrSuperSet[_Tsuper_co](IrNode[_Tsuper_co]):
-    """Universal supertype marker for IR nodes allowed in IrItem.atom."""
+    """IrNode parent of IrAtom — declares a class-local PEP 695 TypeVar
+    (``_Tsuper_co``, distinct from the module-scope one with the same name).
+
+    Why the indirection: when a concrete atom multi-inherits, e.g.
+    ``class IrLiteral(IrLeaf[str], IrAtom)``, both branches reach ``IrNode``.
+    Pyright's multiple-inheritance check requires identical parameterizations
+    for the same generic base. The class-local TypeVar on ``IrSuperSet`` lets
+    pyright treat unparameterized ``IrAtom`` as unbound/implicit rather than
+    committing to a specific ``IrNode[X]``, so it doesn't conflict with the
+    sibling's ``IrNode[str]`` (or whatever ``_T_co`` IrLeaf brings).
+
+    No methods, no behaviour — purely a typing-layer construct.
+    """
 
 
 class IrAtom(IrSuperSet):
@@ -405,7 +421,14 @@ class IrAtom(IrSuperSet):
     composite AND an atom; ``Quantifier`` is a leaf but NOT an atom
     (you can't quantify a quantifier).
 
-    Concrete atoms multi-inherit: ``class IrLiteral(IrLeaf[str], IrAtom[str])``.
+    Concrete atoms multi-inherit (IrAtom is unparameterized — IrSuperSet's
+    class-local TypeVar makes that work in multi-inheritance):
+
+      class IrLiteral(IrLeaf[str], IrAtom): ...
+      class IrCharClass(IrLeaf, IrAtom): ...
+      class IrRuleRef(IrLeaf, IrAtom): ...
+      class IrGroup(IrAtom, IrComposite): ...
+
     Open-set: a future atom type just adds ``IrAtom`` to its bases.
     """
 
