@@ -48,30 +48,18 @@ from typing import (
     ClassVar,
     Generic,
     Self,
-    TypeAlias,
     TypeVar,
 )
-
-# Module-scope TypeVar used as the bound for ``_T_co``. Defaults to ``object``
-# (the universal supertype) — keeps the IR's covariant ``_T_co`` from being
-# constrained to a narrower type while still expressing "_T_co is some kind
-# of upper-bounded thing." Accessed via the ``TsuperCo`` TypeAlias because
-# pyright accepts ``bound=<TypeAlias>`` but not ``bound=<TypeVar>`` directly.
-_Tsuper_co = TypeVar("_Tsuper_co", default=object, covariant=True)
-
-TsuperCo: TypeAlias = _Tsuper_co
-
 
 # Return type of ``__call__`` when this node is invoked as an action body.
 # Default fires when a subclass omits the parameter:
 # ``class IrCharClass(IrLeaf):`` → ``IrLeaf[IrNode]``.
-_T_co = TypeVar("_T_co", default="IrNode", covariant=True, bound=TsuperCo)
-
+_T_co = TypeVar("_T_co", default="IrNode", covariant=True, bound=object)
 
 # ── Root protocol ─────────────────────────────────────────────────────
 
 
-class IrNode(Generic[_T_co], ABC):
+class IrNode[_T_co](ABC):
     """Structural protocol every IR node implements.
 
     ``_str_name`` is auto-derived by ``__init_subclass__``: strip the ``Ir``
@@ -145,7 +133,7 @@ class IrNode(Generic[_T_co], ABC):
 # ── Leaf base ─────────────────────────────────────────────────────────
 
 
-class IrLeaf(IrNode[_T_co], Generic[_T_co]):
+class IrLeaf[_T_co](IrNode):
     """Base for all leaf nodes — identity implementations of the structural protocol.
 
     Default ``_inner_str`` renders ``repr(first_field)``.
@@ -164,7 +152,7 @@ class IrLeaf(IrNode[_T_co], Generic[_T_co]):
         :returns: ``repr(first_field_value)``.
         """
         flds = dataclasses.fields(self)
-        return repr(getattr(self, flds[0].name))
+        return repr(getattr(self, flds[0].name)) if flds else ""
 
     def children(self) -> tuple[IrNode, ...]:
         """Leaves have no children.
@@ -198,8 +186,14 @@ class IrLeaf(IrNode[_T_co], Generic[_T_co]):
 # ── Branch-node abstract base ─────────────────────────────────────────
 
 
-class IrStructure(IrNode[_T_co], Generic[_T_co], ABC):
+class IrStructure(IrNode[_T_co], Generic[_T_co]):
     """Abstract base for all non-leaf IR nodes.
+
+    PYLINT is bugged here: Use Generic to thread the ``_T_co`` parameter through IrCollection
+    until https://github.com/pylint-dev/astroid/pull/3061 is in release.
+
+    Update to IrStructure[_T_co](IrNode): once that lands.
+
 
     Declares __dataclass_fields__ so that dataclasses.replace() accepts
     concrete subclasses without a cast.
@@ -207,6 +201,7 @@ class IrStructure(IrNode[_T_co], Generic[_T_co], ABC):
     Concrete structural subclasses must carry ``@dataclass(repr=False)`` —
     repr=False is required per-class because @dataclass runs after
     __init_subclass__ and would otherwise overwrite IrStructure.__repr__.
+
     """
 
     __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
@@ -251,11 +246,25 @@ class IrStructure(IrNode[_T_co], Generic[_T_co], ABC):
         indented = "  " + body.replace("\n", "\n  ")
         return f"{type(self).__name__}(\n{indented}\n)"
 
+    def __call__(
+        self,
+        dispatch: IrNode | None,
+        node: IrNode | None,
+        new_children: tuple,
+    ) -> _T_co | Self:
+        """Default structural evaluation: rebuild with each child invoked.
+
+        Typechecks because every IrStructure IS-A IrNode (the default for
+        ``_T_co``). Subclasses that re-parameterize ``_T_co`` must override.
+        """
+        called = tuple(c(dispatch, node, new_children) for c in self.children())
+        return self.rebuild(called)
+
 
 # ── Variable-length homogeneous branch nodes ──────────────────────────
 
 
-class IrCollection(IrStructure[_T_co], Generic[_T_co]):
+class IrCollection(IrStructure[_T_co]):
     """Branch node carrying a single variable-length tuple of children.
 
     Concrete subclasses declare:
@@ -304,25 +313,11 @@ class IrCollection(IrStructure[_T_co], Generic[_T_co]):
         """
         return dataclasses.replace(self, **{self._items_attr: new_children})
 
-    def __call__(
-        self,
-        dispatch: IrNode | None,
-        node: IrNode | None,
-        new_children: tuple,
-    ) -> _T_co | Self:
-        """Default collection evaluation: rebuild with each child invoked.
-
-        Typechecks because every IrCollection IS-A IrNode (the default for
-        ``_T_co``). Subclasses that re-parameterize ``_T_co`` must override.
-        """
-        called = tuple(c(dispatch, node, new_children) for c in self.children())
-        return self.rebuild(called)
-
 
 # ── Fixed-arity heterogeneous branch nodes ────────────────────────────
 
 
-class IrComposite(IrStructure[_T_co], Generic[_T_co]):
+class IrComposite(IrStructure[_T_co]):
     """Branch node carrying a fixed, named set of children.
 
     Concrete subclasses declare:
@@ -379,38 +374,12 @@ class IrComposite(IrStructure[_T_co], Generic[_T_co]):
         """
         return dataclasses.replace(self, **dict(zip(self._child_attrs, new_children)))
 
-    def __call__(
-        self,
-        dispatch: IrNode | None,
-        node: IrNode | None,
-        new_children: tuple,
-    ) -> _T_co | Self:
-        """Default composite evaluation: rebuild with each child invoked.
-
-        Typechecks because every IrComposite IS-A IrNode (the default for
-        ``_T_co``). Subclasses that re-parameterize ``_T_co`` must override.
-        """
-        called = tuple(c(dispatch, node, new_children) for c in self.children())
-        return self.rebuild(called)
-
 
 # ── Superset role ─────────────────────────────────────────────────────────
 
 
-class IrSuperSet[_Tsuper_co](IrNode[_Tsuper_co]):
-    """IrNode parent of IrAtom — declares a class-local PEP 695 TypeVar
-    (``_Tsuper_co``, distinct from the module-scope one with the same name).
-
-    Why the indirection: when a concrete atom multi-inherits, e.g.
-    ``class IrLiteral(IrLeaf[str], IrAtom)``, both branches reach ``IrNode``.
-    Pyright's multiple-inheritance check requires identical parameterizations
-    for the same generic base. The class-local TypeVar on ``IrSuperSet`` lets
-    pyright treat unparameterized ``IrAtom`` as unbound/implicit rather than
-    committing to a specific ``IrNode[X]``, so it doesn't conflict with the
-    sibling's ``IrNode[str]`` (or whatever ``_T_co`` IrLeaf brings).
-
-    No methods, no behaviour — purely a typing-layer construct.
-    """
+class IrSuperSet(IrNode):
+    """IrNode parent of IrAtom role marker and any future supersets."""
 
 
 class IrAtom(IrSuperSet):
@@ -437,7 +406,7 @@ class IrAtom(IrSuperSet):
 
 
 @dataclass(frozen=True, slots=True)
-class IrLiteral(IrLeaf[str], IrAtom):
+class IrLiteral[_T_co: str](IrLeaf, IrAtom):
     """Literal string. `value` is canonical Python (escapes decoded).
 
     Overrides ``__call__`` to return ``self.value`` directly — keeps

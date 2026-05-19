@@ -419,7 +419,7 @@ def test_irast_call_inherits_rebuild_default():
     empty = IrAst(rules=(), start="r")
     result = empty(None, None, ())
     assert isinstance(result, IrAst)
-    assert result.rules == ()
+    assert not result.rules
     assert result.start == "r"
 
 
