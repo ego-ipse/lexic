@@ -12,6 +12,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNode,
+    IrNone,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -396,7 +397,7 @@ def test_irliteral_call_returns_value_as_str():
 
     Subsumes the IrText role.
     """
-    result: str = IrLiteral("hello")(None, None, ())
+    result: str = IrLiteral("hello")(IrNone, IrNone, ())
     assert result == "hello"
 
 
@@ -404,20 +405,20 @@ def test_ircharclass_call_inherits_identity_default():
     """IrCharClass(IrLeaf) inherits the default __call__ — returns self.
     Statically typed as IrNode; runtime identity to the concrete instance."""
     cc = IrCharClass("a-z")
-    result = cc(None, None, ())  # statically IrNode; runtime IrCharClass
+    result = cc(IrNone, IrNone, ())  # statically IrNode; runtime IrCharClass
     assert result is cc
 
 
 def test_irruleref_call_inherits_identity_default():
     """IrRuleRef(IrLeaf) inherits the default __call__ — returns self."""
     ref = IrRuleRef("foo")
-    assert ref(None, None, ()) is ref
+    assert ref(IrNone, IrNone, ()) is ref
 
 
 def test_irast_call_inherits_rebuild_default():
     """IrAst(IrCollection) inherits __call__: rebuild with called rules."""
     empty = IrAst(rules=(), start="r")
-    result: IrAst = empty(None, None, ())
+    result: IrAst = empty(IrNone, IrNone, ())
     assert isinstance(result, IrAst)
     if isinstance(
         result, IrAst
@@ -429,6 +430,6 @@ def test_irast_call_inherits_rebuild_default():
 def test_irgroup_call_inherits_rebuild_default():
     """IrGroup(IrComposite) inherits __call__ via rebuild(called children)."""
     g = IrGroup(body=IrAlternation())
-    result = g(None, None, ())
+    result = g(IrNone, IrNone, ())
     assert isinstance(result, IrGroup)
     assert isinstance(result.body, IrAlternation)
