@@ -42,7 +42,7 @@ Expr.__grammar__ = RuleSpec(
     class_name="Expr",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass("a-z", negated=False), Quantifier(1, None))],
+    items=[IrItem(IrCharClass("a-z"), Quantifier(1, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

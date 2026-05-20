@@ -66,7 +66,7 @@ Num.__grammar__ = RuleSpec(
     class_name="Num",
     parent_class_name="Term",
     kind="value_str",
-    items=[IrItem(IrCharClass("0-9", negated=False), Quantifier(1, None))],
+    items=[IrItem(IrCharClass("0-9"), Quantifier(1, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -77,7 +77,7 @@ Ident.__grammar__ = RuleSpec(
     class_name="Ident",
     parent_class_name="Term",
     kind="value_str",
-    items=[IrItem(IrCharClass("a-z", negated=False), Quantifier(1, None))],
+    items=[IrItem(IrCharClass("a-z"), Quantifier(1, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

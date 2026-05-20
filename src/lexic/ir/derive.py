@@ -18,6 +18,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNode,
+    IrNot,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -166,9 +167,13 @@ _A = TypeVar("_A", bound=IrAtom)
 _FieldHint: TypeAlias = Callable[[_A], str]
 
 
-def _bracketed(cc: IrCharClass) -> str:
-    """Name a char class from its pattern"""
-    return f"[{'^' if cc.negated else ''}{cc.pattern}]"
+def _bracketed(atom: IrAtom) -> str:
+    """Return the bracket-form of a charclass or negated-charclass atom."""
+    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
+        return f"[^{atom.body.pattern}]"
+    if isinstance(atom, IrCharClass):
+        return f"[{atom.pattern}]"
+    return ""
 
 
 def _ascii_token(value: str) -> str:
@@ -195,6 +200,9 @@ def _sanitize_pattern(pattern: str) -> str:
 _ATOM_HINT: dict[type, _FieldHint] = {
     IrLiteral: lambda a: LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
     IrCharClass: lambda a: (
+        CHARCLASS_NAMES.get(_bracketed(a)) or _sanitize_pattern(_bracketed(a)) or "cc"
+    ),
+    IrNot: lambda a: (
         CHARCLASS_NAMES.get(_bracketed(a)) or _sanitize_pattern(_bracketed(a)) or "cc"
     ),
     IrRuleRef: lambda a: a.name.replace("-", "_"),
@@ -228,6 +236,7 @@ _FIELD_BASE: FieldBase = {
     IrLiteral: lambda a: LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
     IrRuleRef: lambda a: a.name.replace("-", "_"),
     IrCharClass: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
+    IrNot: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
     IrGroup: _group_field_base,
 }
 

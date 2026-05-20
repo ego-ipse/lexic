@@ -15,6 +15,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -100,15 +101,15 @@ def test_parses_charclass():
     """Parse a charclass"""
     rule = _ast_first_rule("digit = [0-9]\n")
     item = rule.body.arms[0].items[0]
-    assert item.atom == IrCharClass("0-9", negated=False)
+    assert item.atom == IrCharClass("0-9")
 
 
 def test_parses_negated_charclass():
-    """Parse a negated charclass"""
+    """Parse a negated charclass — atom is IrNot(IrCharClass(...))."""
     rule = _ast_first_rule(r'r = [^"\\]' + "\n")
     item = rule.body.arms[0].items[0]
-    assert isinstance(item.atom, IrCharClass)
-    assert item.atom.negated is True
+    assert isinstance(item.atom, IrNot)
+    assert isinstance(item.atom.body, IrCharClass)
 
 
 def test_parses_ruleref():

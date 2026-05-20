@@ -11,6 +11,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRuleRef,
     IrSequence,
     Quantifier,
@@ -153,8 +154,8 @@ def test_charclass_field_emits_annotated_string_constraints():
 
 
 def test_negated_charclass_field_inverts_pattern():
-    """Negated IrCharClass emits [^...] in the regex."""
-    spec = _spec("nq", "value_str", [IrItem(IrCharClass('"', negated=True))])
+    """IrNot(IrCharClass) emits [^...] in the regex."""
+    spec = _spec("nq", "value_str", [IrItem(IrNot(IrCharClass('"')))])
     src = emit_module_source([spec], stem="m")
     assert "Annotated[str, StringConstraints(pattern=r'^[^\"]$')]" in src
 

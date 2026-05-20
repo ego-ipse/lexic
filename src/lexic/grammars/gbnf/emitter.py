@@ -15,6 +15,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRuleRef,
     IrSequence,
 )
@@ -38,8 +39,10 @@ def _atom_to_gbnf_item(item: IrItem) -> str:
     q = _quant_suffix(item.quantifier)
     if isinstance(atom, IrLiteral):
         return f'"{atom.value}"{q}'
+    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
+        return _bracket(atom.body.pattern, True) + q
     if isinstance(atom, IrCharClass):
-        return _bracket(atom.pattern, atom.negated) + q
+        return _bracket(atom.pattern, False) + q
     if isinstance(atom, IrRuleRef):
         return atom.name + q
     if isinstance(atom, IrGroup):

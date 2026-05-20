@@ -64,7 +64,7 @@ Ws.__grammar__ = RuleSpec(
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(" \\t", negated=False), Quantifier(0, None))],
+    items=[IrItem(IrCharClass(" \\t"), Quantifier(0, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

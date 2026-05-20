@@ -13,6 +13,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRuleRef,
     IrSequence,
     Quantifier,
@@ -233,7 +234,7 @@ String.__grammar__ = RuleSpec(
                         IrSequence(
                             items=(
                                 IrItem(
-                                    IrCharClass('"\\\\\\x7F\\x00-\\x1F', negated=True),
+                                    IrNot(IrCharClass('"\\\\\\x7F\\x00-\\x1F')),
                                     Quantifier(1, 1),
                                 ),
                             )
@@ -248,10 +249,7 @@ String.__grammar__ = RuleSpec(
                                                 IrSequence(
                                                     items=(
                                                         IrItem(
-                                                            IrCharClass(
-                                                                '"\\\\bfnrt',
-                                                                negated=False,
-                                                            ),
+                                                            IrCharClass('"\\\\bfnrt'),
                                                             Quantifier(1, 1),
                                                         ),
                                                     )
@@ -263,10 +261,7 @@ String.__grammar__ = RuleSpec(
                                                             Quantifier(1, 1),
                                                         ),
                                                         IrItem(
-                                                            IrCharClass(
-                                                                "0-9a-fA-F",
-                                                                negated=False,
-                                                            ),
+                                                            IrCharClass("0-9a-fA-F"),
                                                             Quantifier(4, 4),
                                                         ),
                                                     )
@@ -311,9 +306,7 @@ Number.__grammar__ = RuleSpec(
                                                 IrSequence(
                                                     items=(
                                                         IrItem(
-                                                            IrCharClass(
-                                                                "0-9", negated=False
-                                                            ),
+                                                            IrCharClass("0-9"),
                                                             Quantifier(1, 1),
                                                         ),
                                                     )
@@ -321,15 +314,11 @@ Number.__grammar__ = RuleSpec(
                                                 IrSequence(
                                                     items=(
                                                         IrItem(
-                                                            IrCharClass(
-                                                                "1-9", negated=False
-                                                            ),
+                                                            IrCharClass("1-9"),
                                                             Quantifier(1, 1),
                                                         ),
                                                         IrItem(
-                                                            IrCharClass(
-                                                                "0-9", negated=False
-                                                            ),
+                                                            IrCharClass("0-9"),
                                                             Quantifier(0, 15),
                                                         ),
                                                     )
@@ -353,10 +342,7 @@ Number.__grammar__ = RuleSpec(
                         IrSequence(
                             items=(
                                 IrItem(IrLiteral("."), Quantifier(1, 1)),
-                                IrItem(
-                                    IrCharClass("0-9", negated=False),
-                                    Quantifier(1, None),
-                                ),
+                                IrItem(IrCharClass("0-9"), Quantifier(1, None)),
                             )
                         ),
                     )
@@ -370,18 +356,10 @@ Number.__grammar__ = RuleSpec(
                     arms=(
                         IrSequence(
                             items=(
-                                IrItem(
-                                    IrCharClass("eE", negated=False), Quantifier(1, 1)
-                                ),
-                                IrItem(
-                                    IrCharClass("-+", negated=False), Quantifier(0, 1)
-                                ),
-                                IrItem(
-                                    IrCharClass("0-9", negated=False), Quantifier(1, 1)
-                                ),
-                                IrItem(
-                                    IrCharClass("1-9", negated=False), Quantifier(0, 15)
-                                ),
+                                IrItem(IrCharClass("eE"), Quantifier(1, 1)),
+                                IrItem(IrCharClass("-+"), Quantifier(0, 1)),
+                                IrItem(IrCharClass("0-9"), Quantifier(1, 1)),
+                                IrItem(IrCharClass("1-9"), Quantifier(0, 15)),
                             )
                         ),
                     )
@@ -409,7 +387,7 @@ Ws.__grammar__ = RuleSpec(
                 IrSequence(
                     items=(
                         IrItem(IrLiteral("\n"), Quantifier(1, 1)),
-                        IrItem(IrCharClass(" \\t", negated=False), Quantifier(0, 20)),
+                        IrItem(IrCharClass(" \\t"), Quantifier(0, 20)),
                     )
                 ),
             )

@@ -28,6 +28,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLeaf,
     IrNode,
+    IrNot,
     IrRule,
     IrSequence,
 )
@@ -42,6 +43,7 @@ _CHILDREN: dict[type, _GetChildren] = {
     IrSequence: lambda n: n.items,
     IrItem: lambda n: (n.atom,),
     IrGroup: lambda n: (n.body,),
+    IrNot: lambda n: (n.body,),
 }
 
 _Rebuilder: TypeAlias = Callable[..., _N]
@@ -52,6 +54,7 @@ _REBUILD: dict[type, _Rebuilder] = {
     IrSequence: lambda n, ch: IrSequence(items=ch),
     IrItem: lambda n, ch: IrItem(atom=ch[0], quantifier=n.quantifier),
     IrGroup: lambda n, ch: IrGroup(body=ch[0]),
+    IrNot: lambda n, ch: IrNot(body=ch[0]),
 }
 
 _DUMP: dict[type, Callable[..., str]] = {
@@ -81,6 +84,7 @@ _DUMP: dict[type, Callable[..., str]] = {
         f"{'  ' * i}IrItem({dump(n.atom, indent=i + 1)}, q={n.quantifier})"
     ),
     IrGroup: lambda n, i: f"{'  ' * i}IrGroup({dump(n.body, indent=i + 1)})",
+    IrNot: lambda n, i: f"{'  ' * i}IrNot({dump(n.body, indent=i + 1)})",
 }
 
 

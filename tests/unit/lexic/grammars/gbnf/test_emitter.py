@@ -10,6 +10,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRuleRef,
     IrSequence,
     Quantifier,
@@ -31,8 +32,8 @@ def test_emit_charclass_with_quantifier():
 
 
 def test_emit_negated_charclass():
-    """IrItem(IrCharClass) with negated=True emits as expected."""
-    s = _spec("nq", "value_str", [IrItem(IrCharClass('"', negated=True))])
+    """IrItem(IrNot(IrCharClass)) emits as expected."""
+    s = _spec("nq", "value_str", [IrItem(IrNot(IrCharClass('"')))])
     assert GbnfEmitter(GBNF_ESCAPES).emit_rule(s) == 'nq ::= [^"]'
 
 

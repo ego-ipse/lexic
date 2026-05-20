@@ -11,6 +11,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRuleRef,
     IrSequence,
     Quantifier,
@@ -32,13 +33,15 @@ def _pick_count(q: Quantifier, rng: _random.Random) -> int:
     return rng.randint(q.min + 1, hi)
 
 
-def _gen_charclass(atom: IrCharClass, q: Quantifier, rng: _random.Random) -> str:
+def _gen_charclass(
+    atom: IrCharClass, q: Quantifier, rng: _random.Random, *, negated: bool = False
+) -> str:
     """Generate for a charclass by picking random chars from it and applying the quantifier."""
     count = _pick_count(q, rng)
     if count == 0:
         return ""
     chars = parse_charclass_chars(atom.pattern)
-    if atom.negated:
+    if negated:
         excluded = set(chars)
         chars = [c for c in _ASCII_PRINTABLE if c not in excluded]
     if not chars:
@@ -74,6 +77,8 @@ def _gen_atom(
     atom, q = item.atom, item.quantifier
     if isinstance(atom, IrLiteral):
         return atom.value * _pick_count(q, rng) if q != Quantifier(1, 1) else atom.value
+    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
+        return _gen_charclass(atom.body, q, rng, negated=True)
     if isinstance(atom, IrCharClass):
         return _gen_charclass(atom, q, rng)
     if isinstance(atom, IrRuleRef):

@@ -13,6 +13,7 @@ from lexic.ir.nodes import (
     IrLiteral,
     IrNode,
     IrNone,
+    IrNot,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -66,17 +67,18 @@ def test_ir_literal_is_frozen_and_hashable():
     assert len({IrLiteral("a"), IrLiteral("a")}) == 1
 
 
-def test_ir_charclass_default_not_negated():
-    """Test that the IR character class is not negated by default."""
+def test_ir_charclass_holds_pattern():
+    """Test that the IR character class holds the pattern."""
     cc = IrCharClass(pattern="a-z")
     assert cc.pattern == "a-z"
-    assert cc.negated is False
 
 
-def test_ir_charclass_negated_flag():
-    """Test that the IR character class holds the correct negation flag."""
-    cc = IrCharClass(pattern="\\n", negated=True)
-    assert cc.negated is True
+def test_ir_not_wraps_charclass():
+    """Test that IrNot wraps a charclass atom."""
+    cc = IrCharClass(pattern="\\n")
+    node = IrNot[IrCharClass](body=cc)
+    assert node.body is cc
+    assert node.body.pattern == "\\n"
 
 
 def test_ir_ruleref_holds_name():
@@ -291,9 +293,13 @@ def test_str_irliteral():
 
 
 def test_str_ircharclass():
-    """An IrCharClass's string is its pattern and negation."""
+    """An IrCharClass's string is its pattern."""
     assert str(IrCharClass("a-z")) == "CHARCLASS('a-z')"
-    assert str(IrCharClass("0-9", negated=True)) == "CHARCLASS('0-9', negated)"
+
+
+def test_str_irnot_wrapping_charclass():
+    """IrNot wrapping a charclass includes the negation in its str."""
+    assert str(IrNot(IrCharClass("0-9"))) == "NOT(CHARCLASS('0-9'))"
 
 
 def test_str_irruleref():
@@ -392,13 +398,14 @@ def test_repr_irast_with_extras_and_children():
     )
 
 
-def test_irliteral_call_returns_value_as_str():
-    """IrLiteral(IrLeaf[str]) overrides __call__ to return self.value.
+def test_irliteral_eval_returns_literal_value():
+    """IrLiteral overrides ``eval`` to surface ``self.value`` as a str.
 
-    Subsumes the IrText role.
+    ``__call__`` remains identity (returns self) via :class:`IrSelf`;
+    ``eval`` is the value-producing protocol.
     """
     lit = IrLiteral("hello")
-    result: str = lit(IrNone, IrNone, ())
+    result: str = lit.eval(IrNone, IrNone, ())
     assert result == "hello"
 
 

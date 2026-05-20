@@ -30,8 +30,8 @@ def test_regex_for_charclass_simple():
 
 def test_regex_for_charclass_negated():
     """[^"] → ^[^"]$."""
-    cc = IrCharClass('"', negated=True)
-    assert regex_for_charclass(cc, Quantifier(1, 1)) == r'^[^"]$'
+    cc = IrCharClass('"')
+    assert regex_for_charclass(cc, Quantifier(1, 1), negated=True) == r'^[^"]$'
 
 
 def test_regex_for_charclass_bounded_quantifier():

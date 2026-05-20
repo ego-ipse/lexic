@@ -31,6 +31,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNode,
+    IrNot,
     IrRuleRef,
     IrSequence,
     Quantifier,
@@ -52,6 +53,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -80,7 +82,8 @@ def _is_optional(q: Quantifier) -> bool:
 
 _REPR_ACTION: dict[type, Callable[..., str]] = {
     IrLiteral: lambda n, oc, nc: f"IrLiteral({n.value!r})",
-    IrCharClass: lambda n, oc, nc: f"IrCharClass({n.pattern!r}, negated={n.negated})",
+    IrCharClass: lambda n, oc, nc: f"IrCharClass({n.pattern!r})",
+    IrNot: lambda n, oc, nc: f"IrNot({nc[0]})",
     IrRuleRef: lambda n, oc, nc: f"IrRuleRef({n.name!r})",
     IrGroup: lambda n, oc, nc: f"IrGroup({nc[0]})",
     IrAlternation: lambda n, oc, nc: (
@@ -160,6 +163,11 @@ def _pattern_type(regex: str, aliases: dict[str, str]) -> str:
 _ATOM_FIELD_TYPE: dict[type, Callable] = {
     IrLiteral: lambda a, q, s, al: "str",
     IrCharClass: lambda a, q, s, al: _pattern_type(regex_for_charclass(a, q), al),
+    IrNot: lambda a, q, s, al: (
+        _pattern_type(regex_for_charclass(a.body, q, negated=True), al)
+        if isinstance(a.body, IrCharClass)
+        else "str"
+    ),
     IrRuleRef: lambda a, q, s, al: _ruleref_type(a.name, q, s),
     IrGroup: lambda a, q, s, al: (
         _pattern_type(regex_for_group(a, q), al)

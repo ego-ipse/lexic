@@ -135,8 +135,8 @@ Ident.__grammar__ = RuleSpec(
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(IrCharClass("a-z", negated=False), Quantifier(1, 1)),
-        IrItem(IrCharClass("a-z0-9_", negated=False), Quantifier(0, None)),
+        IrItem(IrCharClass("a-z"), Quantifier(1, 1)),
+        IrItem(IrCharClass("a-z0-9_"), Quantifier(0, None)),
         IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
     ],
     field_map={"lower": 0, "head": 1, "ws": 2},
@@ -150,7 +150,7 @@ Num.__grammar__ = RuleSpec(
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(IrCharClass("0-9", negated=False), Quantifier(1, None)),
+        IrItem(IrCharClass("0-9"), Quantifier(1, None)),
         IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
     ],
     field_map={"digit": 0, "ws": 1},
@@ -163,7 +163,7 @@ Ws.__grammar__ = RuleSpec(
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(" \\t\\n", negated=False), Quantifier(0, None))],
+    items=[IrItem(IrCharClass(" \\t\\n"), Quantifier(0, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -192,7 +192,7 @@ ExprItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrCharClass("-+*/", negated=False), Quantifier(1, 1)),
+        IrItem(IrCharClass("-+*/"), Quantifier(1, 1)),
         IrItem(IrRuleRef("term"), Quantifier(1, 1)),
     ],
     field_map={"head": 0, "term": 1},

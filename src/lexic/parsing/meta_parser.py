@@ -44,9 +44,11 @@ from lexic.grammars.flavour import Flavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
+    IrAtom,
     IrCharClass,
     IrGroup,
     IrItem,
+    IrNot,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -57,13 +59,26 @@ from lexic.ir.nodes import (
 
 _IrBuilder: TypeAlias = Callable[[type[Flavour], list], object]
 
+
+def _build_charclass(flavour: type[Flavour], children: list) -> IrAtom:
+    """Build an IrCharClass, wrapping in IrNot when the pattern is negated.
+
+    :param flavour: The flavour providing ``parse_charclass``.
+    :param children: Lark tree children; ``children[0]`` is the bracket token.
+    :returns: ``IrCharClass(pattern)`` or ``IrNot(IrCharClass(pattern))``.
+    """
+    pattern, negated = flavour.parse_charclass(str(children[0]))
+    atom: IrAtom = IrCharClass(pattern)
+    return IrNot(atom) if negated else atom
+
+
 _IR_BUILDERS: dict[str, _IrBuilder] = {
     "start": lambda _f, c: IrAst(rules=tuple(c), start=c[0].name if c else ""),
     "ir_rule": lambda _f, c: IrRule(name=str(c[0]), body=c[1]),
     "ir_alternation": lambda _f, c: IrAlternation(arms=tuple(c)),
     "ir_sequence": lambda _f, c: IrSequence(items=tuple(c)),
     "ir_literal": lambda f, c: f.normalize_literal(f.escapes.decode(str(c[0])[1:-1])),
-    "ir_charclass": lambda f, c: IrCharClass(*f.parse_charclass(str(c[0]))),
+    "ir_charclass": _build_charclass,
     "ir_ruleref": lambda _f, c: IrRuleRef(name=str(c[0])),
     "ir_group": lambda _f, c: IrGroup(body=c[0]),
 }

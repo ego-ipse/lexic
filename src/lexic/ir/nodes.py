@@ -46,12 +46,12 @@ from __future__ import annotations
 import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self, cast
 
 # ── Identity mixin — decoupled from IrNode hierarchy ──────────────────
 
 
-class IrSelf[Ir_co]:
+class IrSelf[Ir_co = "IrSelf"]:
     """Generic identity mixin.
 
     Subclasses bind ``Ir_co`` to themselves via inheritance and inherit a
@@ -67,35 +67,45 @@ class IrSelf[Ir_co]:
 
         class IrCharClass(IrLeaf["IrCharClass"], IrAtom):
             pattern: str
-            negated: bool = False
             # __call__ inherited from IrSelf — returns IrCharClass
 
     :param Ir_co: the class binding ``self`` for the identity return type.
     """
 
-    def __call__(self: Ir_co, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> Ir_co:
-        """Return ``self`` typed as ``Ir_co``.
-
-        ``_d`` / ``_n`` are typed as ``IrSelf`` — the root of the IR
-        hierarchy — so that any IrNode (including ``IrNone``) is acceptable
-        without referencing ``IrNode`` from this module-level class.
+    def __call__(self, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> Self:
+        """Identity. Returns ``self`` typed via PEP 673 ``Self`` so
+        subclasses auto-thread the concrete type with no ``[X]`` binding.
         """
         return self
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> Ir_co:
+        """Action-body protocol: default delegates to ``__call__``.
+
+        Default returns ``self`` cast to ``Ir_co`` — sound when ``Ir_co``
+        is the default ``IrSelf`` (identity nodes) since ``Self <: IrSelf``.
+        Value-producing subclasses override ``eval`` with a typed return
+        (``-> str``, etc.) without colliding with the Self-shaped identity
+        of ``__call__``.
+        """
+        return cast(Ir_co, self(d, n, nc))
 
 
 # ── Absence sentinel ──────────────────────────────────────────────────
 
 
-IrNone: IrSelf = IrSelf()  # pylint: disable=invalid-name
-"""Singleton sentinel — an ``IrSelf`` instance used wherever a missing
-dispatch slot needs a value. Pass ``IrNone`` directly (no call):
+class _IrNoneSentinel(IrSelf):  # pylint: disable=too-few-public-methods
+    """Singleton sentinel — an ``IrSelf`` instance used wherever a missing
+    dispatch slot needs a value. Pass ``IrNone`` directly (no call):
 
-    result = some_node(IrNone, IrNone, ())
+        result = some_node(IrNone, IrNone, ())
 
-``IrNone`` is structurally inside ``IrSelf``: its type IS ``IrSelf``,
-which means it satisfies the ``_d: IrSelf`` / ``_n: IrSelf`` parameters
-of every ``__call__`` without bringing back a ``| None`` union.
-"""
+    ``IrNone`` is structurally inside ``IrSelf``: its type IS ``IrSelf``,
+    which means it satisfies the ``_d: IrSelf`` / ``_n: IrSelf`` parameters
+    of every ``__call__`` without bringing back a ``| None`` union.
+    """
+
+
+IrNone = _IrNoneSentinel()  # pylint: disable=invalid-name
 
 
 # ── Root protocol ─────────────────────────────────────────────────────
@@ -147,7 +157,7 @@ class IrNode[Ir_co = IrSelf](IrSelf[Ir_co], ABC):
         """
 
     @abstractmethod
-    def rebuild[U](self, new_children: tuple[U, ...]) -> IrSelf[IrNode]:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
         """Reconstruct with new children.
 
         :param new_children: Tuple of replacements (method-level ``U``
@@ -187,7 +197,7 @@ class IrLeaf[Ir_co = IrSelf](IrNode[Ir_co]):
         """
         return ()
 
-    def rebuild[U](self, new_children: tuple[U, ...]) -> IrSelf:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
         """Leaves reconstruct as identity.
 
         :param _new_children: Ignored.
@@ -279,7 +289,7 @@ class IrCollection[Ir_co = IrSelf](IrStructure[Ir_co]):
         """
         return getattr(self, self._items_attr)
 
-    def rebuild[U](self, new_children: tuple[U, ...]) -> IrSelf:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
         """Reconstruct, replacing the items field with ``new_children``.
 
         :param new_children: Replacement children tuple.
@@ -324,7 +334,7 @@ class IrComposite[Ir_co = IrSelf](IrStructure[Ir_co]):
         """
         return tuple(getattr(self, a) for a in self._child_attrs)
 
-    def rebuild[U](self, new_children: tuple[U, ...]) -> IrSelf:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
         """Reconstruct, replacing child attrs from ``new_children`` in order.
 
         :param new_children: Replacements matching ``_child_attrs`` order.
@@ -363,20 +373,18 @@ class IrAtom[Ir_co](IrSuperSet[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True)
-class IrLiteral[Ir_co:str=str](IrLeaf[Ir_co], IrAtom[Ir_co]):
+class IrLiteral[Ir_co: str = str](IrLeaf[Ir_co], IrAtom[Ir_co]):
     """Literal string. ``value`` is canonical Python (escapes decoded).
 
-    Overrides ``__call__`` to return ``self.value`` — keeps ``__str__``
-    free for debug output while ``__call__`` returns the string content
-    for emission.
+    ``__call__`` stays identity (returns self). Override ``eval`` to
+    surface the typed string for action-algebra consumers.
     """
 
     value: Ir_co
 
-    def __call__(self, _d, _n, _nc: tuple, /) -> Ir_co:
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> Ir_co:
         """Return the literal string value."""
         return self.value
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,14 +392,6 @@ class IrCharClass(IrLeaf, IrAtom):
     """Character class. ``pattern`` is canonical POSIX-style interior."""
 
     pattern: str
-    negated: bool = False
-
-    def _inner_str(self) -> str:
-        """Pattern plus optional negated flag.
-
-        :returns: Inner string content.
-        """
-        return f"{self.pattern!r}, negated" if self.negated else repr(self.pattern)
 
 
 @dataclass(frozen=True, slots=True)
@@ -450,7 +450,7 @@ class IrAlternation(IrCollection):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrAst(IrCollection["IrAst"]):
+class IrAst(IrCollection):
     """Full grammar: rules + start-rule name."""
 
     _items_attr: ClassVar[str] = "rules"
@@ -467,6 +467,14 @@ class IrGroup(IrComposite, IrAtom):
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
     body: IrAlternation
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class IrNot[Ir_co: IrAtom = IrAtom](IrComposite, IrAtom):
+    """Negation. Wraps an atom; ``IrNot(IrCharClass("a-z"))`` is ``[^a-z]``."""
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
+    body: Ir_co
 
 
 @dataclass(frozen=True, slots=True, repr=False)

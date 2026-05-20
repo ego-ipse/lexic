@@ -18,6 +18,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -269,7 +270,7 @@ def test_emit_ir_atom_charclass():
 
 
 def test_emit_ir_atom_charclass_negated_forwarded():
-    """Test that negated character classes are forwarded to render_charclass."""
+    """Test that IrNot(IrCharClass) is forwarded to render_charclass with negated=True."""
 
     class _NegationAware(_TestEmitter):
         def render_charclass(
@@ -278,7 +279,7 @@ def test_emit_ir_atom_charclass_negated_forwarded():
             return f"[^{canonical_pattern}]" if negated else f"[{canonical_pattern}]"
 
     e = _NegationAware(escapes=FakeEscapes())
-    item = IrItem(atom=IrCharClass("0-9", negated=True), quantifier=Quantifier(1, 1))
+    item = IrItem(atom=IrNot(IrCharClass("0-9")), quantifier=Quantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
     assert e.emit_rule_from_ast(rule) == "r ::= [^0-9]"
 

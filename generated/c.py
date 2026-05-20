@@ -13,6 +13,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRuleRef,
     IrSequence,
     Quantifier,
@@ -342,8 +343,8 @@ Identifier.__grammar__ = RuleSpec(
     parent_class_name="Factor",
     kind="value_str",
     items=[
-        IrItem(IrCharClass("a-zA-Z_", negated=False), Quantifier(1, 1)),
-        IrItem(IrCharClass("a-zA-Z_0-9", negated=False), Quantifier(0, None)),
+        IrItem(IrCharClass("a-zA-Z_"), Quantifier(1, 1)),
+        IrItem(IrCharClass("a-zA-Z_0-9"), Quantifier(0, None)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -867,7 +868,7 @@ Number.__grammar__ = RuleSpec(
     class_name="Number",
     parent_class_name="Factor",
     kind="value_str",
-    items=[IrItem(IrCharClass("0-9", negated=False), Quantifier(1, None))],
+    items=[IrItem(IrCharClass("0-9"), Quantifier(1, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -880,7 +881,7 @@ SingleLineComment.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrItem(IrLiteral("//"), Quantifier(1, 1)),
-        IrItem(IrCharClass("\\n", negated=True), Quantifier(0, None)),
+        IrItem(IrNot(IrCharClass("\\n")), Quantifier(0, None)),
         IrItem(IrLiteral("\n"), Quantifier(1, 1)),
     ],
     field_map={},
@@ -900,11 +901,7 @@ MultiLineComment.__grammar__ = RuleSpec(
                 IrAlternation(
                     arms=(
                         IrSequence(
-                            items=(
-                                IrItem(
-                                    IrCharClass("*", negated=True), Quantifier(1, 1)
-                                ),
-                            )
+                            items=(IrItem(IrNot(IrCharClass("*")), Quantifier(1, 1)),)
                         ),
                         IrSequence(
                             items=(
@@ -919,9 +916,7 @@ MultiLineComment.__grammar__ = RuleSpec(
                                                             Quantifier(1, 1),
                                                         ),
                                                         IrItem(
-                                                            IrCharClass(
-                                                                "/", negated=True
-                                                            ),
+                                                            IrNot(IrCharClass("/")),
                                                             Quantifier(1, 1),
                                                         ),
                                                     )
@@ -956,12 +951,7 @@ Ws.__grammar__ = RuleSpec(
                 IrAlternation(
                     arms=(
                         IrSequence(
-                            items=(
-                                IrItem(
-                                    IrCharClass(" \\t\\n", negated=False),
-                                    Quantifier(1, None),
-                                ),
-                            )
+                            items=(IrItem(IrCharClass(" \\t\\n"), Quantifier(1, None)),)
                         ),
                     )
                 )

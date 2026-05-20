@@ -11,6 +11,7 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRuleRef,
     Quantifier,
 )
@@ -48,7 +49,7 @@ Item.__grammar__ = RuleSpec(
     items=[
         IrItem(IrLiteral("- "), Quantifier(1, 1)),
         IrItem(
-            IrCharClass("\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029", negated=True),
+            IrNot(IrCharClass("\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029")),
             Quantifier(1, None),
         ),
         IrItem(IrLiteral("\n"), Quantifier(1, 1)),

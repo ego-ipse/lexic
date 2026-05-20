@@ -24,6 +24,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -140,8 +141,10 @@ class FlavourEmitter(ABC):
         """Dispatch an IrAtom leaf or group to its render method."""
         if isinstance(atom, IrLiteral):
             return self.quote(atom.value)
+        if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
+            return self.render_charclass(atom.body.pattern, True)
         if isinstance(atom, IrCharClass):
-            return self.render_charclass(atom.pattern, atom.negated)
+            return self.render_charclass(atom.pattern, False)
         if isinstance(atom, IrRuleRef):
             return atom.name
         if isinstance(atom, IrGroup):

@@ -112,7 +112,7 @@ Move.__grammar__ = RuleSpec(
             ),
             Quantifier(1, 1),
         ),
-        IrItem(IrCharClass("+#", negated=False), Quantifier(0, 1)),
+        IrItem(IrCharClass("+#"), Quantifier(0, 1)),
     ],
     field_map={"kind": 0, "head": 1},
     non_semantic_fields=frozenset([]),
@@ -125,12 +125,12 @@ Nonpawn.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(IrCharClass("NBKQR", negated=False), Quantifier(1, 1)),
-        IrItem(IrCharClass("a-h", negated=False), Quantifier(0, 1)),
-        IrItem(IrCharClass("1-8", negated=False), Quantifier(0, 1)),
+        IrItem(IrCharClass("NBKQR"), Quantifier(1, 1)),
+        IrItem(IrCharClass("a-h"), Quantifier(0, 1)),
+        IrItem(IrCharClass("1-8"), Quantifier(0, 1)),
         IrItem(IrLiteral("x"), Quantifier(0, 1)),
-        IrItem(IrCharClass("a-h", negated=False), Quantifier(1, 1)),
-        IrItem(IrCharClass("1-8", negated=False), Quantifier(1, 1)),
+        IrItem(IrCharClass("a-h"), Quantifier(1, 1)),
+        IrItem(IrCharClass("1-8"), Quantifier(1, 1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -149,9 +149,7 @@ Pawn.__grammar__ = RuleSpec(
                     arms=(
                         IrSequence(
                             items=(
-                                IrItem(
-                                    IrCharClass("a-h", negated=False), Quantifier(1, 1)
-                                ),
+                                IrItem(IrCharClass("a-h"), Quantifier(1, 1)),
                                 IrItem(IrLiteral("x"), Quantifier(1, 1)),
                             )
                         ),
@@ -160,8 +158,8 @@ Pawn.__grammar__ = RuleSpec(
             ),
             Quantifier(0, 1),
         ),
-        IrItem(IrCharClass("a-h", negated=False), Quantifier(1, 1)),
-        IrItem(IrCharClass("1-8", negated=False), Quantifier(1, 1)),
+        IrItem(IrCharClass("a-h"), Quantifier(1, 1)),
+        IrItem(IrCharClass("1-8"), Quantifier(1, 1)),
         IrItem(
             IrGroup(
                 IrAlternation(
@@ -169,10 +167,7 @@ Pawn.__grammar__ = RuleSpec(
                         IrSequence(
                             items=(
                                 IrItem(IrLiteral("="), Quantifier(1, 1)),
-                                IrItem(
-                                    IrCharClass("NBKQR", negated=False),
-                                    Quantifier(1, 1),
-                                ),
+                                IrItem(IrCharClass("NBKQR"), Quantifier(1, 1)),
                             )
                         ),
                     )
@@ -206,8 +201,8 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrCharClass("1-9", negated=False), Quantifier(1, 1)),
-        IrItem(IrCharClass("0-9", negated=False), Quantifier(0, 1)),
+        IrItem(IrCharClass("1-9"), Quantifier(1, 1)),
+        IrItem(IrCharClass("0-9"), Quantifier(0, 1)),
         IrItem(IrLiteral(". "), Quantifier(1, 1)),
         IrItem(IrRuleRef("move"), Quantifier(1, 1)),
         IrItem(IrLiteral(" "), Quantifier(1, 1)),

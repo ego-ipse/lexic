@@ -27,6 +27,7 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNot,
     IrRuleRef,
     IrSequence,
     Quantifier,
@@ -63,9 +64,17 @@ def _camel(s: str) -> str:
     return "".join(p.capitalize() for p in s.split("_"))
 
 
-def regex_for_charclass(cc: IrCharClass, q: Quantifier) -> str:
-    """Build the anchored regex for an IrCharClass at the given Quantifier."""
-    return f"^{_bracket(cc.pattern, cc.negated)}{_suffix(q)}$"
+def regex_for_charclass(
+    cc: IrCharClass, q: Quantifier, *, negated: bool = False
+) -> str:
+    """Build the anchored regex for an IrCharClass at the given Quantifier.
+
+    :param cc: The character class node.
+    :param q: The quantifier to apply.
+    :param negated: Whether to emit ``[^...]`` instead of ``[...]``.
+    :returns: Anchored regex string.
+    """
+    return f"^{_bracket(cc.pattern, negated)}{_suffix(q)}$"
 
 
 def _atom_regex_fragment(item: IrItem) -> str:
@@ -74,8 +83,10 @@ def _atom_regex_fragment(item: IrItem) -> str:
     q = _suffix(item.quantifier)
     if isinstance(atom, IrLiteral):
         return re.escape(atom.value) + q
+    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
+        return _bracket(atom.body.pattern, True) + q
     if isinstance(atom, IrCharClass):
-        return _bracket(atom.pattern, atom.negated) + q
+        return _bracket(atom.pattern, False) + q
     if isinstance(atom, IrGroup):
         return f"({_alt_regex_fragment(atom.body)}){q}"
     raise UnsupportedConstructError(
@@ -98,13 +109,17 @@ def regex_for_group(grp: IrGroup, q: Quantifier) -> str:
     return f"^({_alt_regex_fragment(grp.body)}){_suffix(q)}$"
 
 
-def _name_for_charclass(cc: IrCharClass) -> str:
+def _name_for_charclass(cc: IrCharClass, *, negated: bool = False) -> str:
     """Return the Tier-2 CamelCase name for ``cc``, or empty string if no match.
 
     Looks up the bracket-only form (no quantifier suffix) in CHARCLASS_NAMES.
     Quantifier-driven disambiguation happens in the collector.
+
+    :param cc: The character class node.
+    :param negated: Whether this charclass is negated (wrapped in IrNot).
+    :returns: CamelCase tier-2 name, or empty string if no Tier-2 match.
     """
-    tier2 = CHARCLASS_NAMES.get(_bracket(cc.pattern, cc.negated))
+    tier2 = CHARCLASS_NAMES.get(_bracket(cc.pattern, negated))
     return _camel(tier2) if tier2 else ""
 
 
@@ -139,7 +154,12 @@ class _PatternAliasVisitor(IrVisitor):
         if isinstance(atom, IrGroup):
             self._visit_group_item(atom, q, node)
             return
-        if isinstance(atom, IrCharClass):
+        if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
+            self._record(
+                regex_for_charclass(atom.body, q, negated=True),
+                _name_for_charclass(atom.body, negated=True) or "Pattern",
+            )
+        elif isinstance(atom, IrCharClass):
             self._record(
                 regex_for_charclass(atom, q),
                 _name_for_charclass(atom) or "Pattern",

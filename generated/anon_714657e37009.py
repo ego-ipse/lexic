@@ -84,7 +84,7 @@ Op.__grammar__ = RuleSpec(
     class_name="Op",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass("-+*/", negated=False), Quantifier(1, 1))],
+    items=[IrItem(IrCharClass("-+*/"), Quantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -95,7 +95,7 @@ Num.__grammar__ = RuleSpec(
     class_name="Num",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass("0-9", negated=False), Quantifier(1, None))],
+    items=[IrItem(IrCharClass("0-9"), Quantifier(1, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
