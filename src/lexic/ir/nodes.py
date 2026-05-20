@@ -46,12 +46,12 @@ from __future__ import annotations
 import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar
 
 # ── Identity mixin — decoupled from IrNode hierarchy ──────────────────
 
 
-class IrSelf[Ir_co = "IrSelf"]:
+class IrSelf[Ir_co]:
     """Generic identity mixin.
 
     Subclasses bind ``Ir_co`` to themselves via inheritance and inherit a
@@ -86,7 +86,7 @@ class IrSelf[Ir_co = "IrSelf"]:
 # ── Absence sentinel ──────────────────────────────────────────────────
 
 
-IrNone: IrSelf = IrSelf()
+IrNone: IrSelf = IrSelf()  # pylint: disable=invalid-name
 """Singleton sentinel — an ``IrSelf`` instance used wherever a missing
 dispatch slot needs a value. Pass ``IrNone`` directly (no call):
 
@@ -101,7 +101,7 @@ of every ``__call__`` without bringing back a ``| None`` union.
 # ── Root protocol ─────────────────────────────────────────────────────
 
 
-class IrNode[Ir_co](IrSelf[Ir_co], ABC):
+class IrNode[Ir_co = IrSelf](IrSelf[Ir_co], ABC):
     """Structural protocol every IR node implements.
 
     Generic in ``Ir_co`` — the return type of ``__call__`` when this node is
@@ -147,7 +147,7 @@ class IrNode[Ir_co](IrSelf[Ir_co], ABC):
         """
 
     @abstractmethod
-    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> IrSelf[IrNode]:
         """Reconstruct with new children.
 
         :param new_children: Tuple of replacements (method-level ``U``
@@ -162,7 +162,7 @@ class IrNode[Ir_co](IrSelf[Ir_co], ABC):
 # ── Leaf base ─────────────────────────────────────────────────────────
 
 
-class IrLeaf[Ir_co](IrNode[Ir_co]):
+class IrLeaf[Ir_co = IrSelf](IrNode[Ir_co]):
     """Base for all leaf nodes.
 
     Provides identity ``children()`` (empty) and ``rebuild()`` (no-op).
@@ -187,7 +187,7 @@ class IrLeaf[Ir_co](IrNode[Ir_co]):
         """
         return ()
 
-    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> IrSelf:
         """Leaves reconstruct as identity.
 
         :param _new_children: Ignored.
@@ -199,7 +199,7 @@ class IrLeaf[Ir_co](IrNode[Ir_co]):
 # ── Branch-node abstract base ─────────────────────────────────────────
 
 
-class IrStructure[Ir_co](IrNode[Ir_co]):
+class IrStructure[Ir_co = IrSelf](IrNode[Ir_co]):
     """Abstract base for non-leaf IR nodes.
 
     Provides ``_inner_str`` / ``__repr__`` machinery for nodes with extras
@@ -253,7 +253,7 @@ class IrStructure[Ir_co](IrNode[Ir_co]):
 # ── Variable-length homogeneous branch nodes ──────────────────────────
 
 
-class IrCollection[Ir_co](IrStructure[Ir_co]):
+class IrCollection[Ir_co = IrSelf](IrStructure[Ir_co]):
     """Branch node carrying a single variable-length tuple of children.
 
     Concrete subclasses declare::
@@ -279,7 +279,7 @@ class IrCollection[Ir_co](IrStructure[Ir_co]):
         """
         return getattr(self, self._items_attr)
 
-    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> IrSelf:
         """Reconstruct, replacing the items field with ``new_children``.
 
         :param new_children: Replacement children tuple.
@@ -291,7 +291,7 @@ class IrCollection[Ir_co](IrStructure[Ir_co]):
 # ── Fixed-arity heterogeneous branch nodes ────────────────────────────
 
 
-class IrComposite[Ir_co](IrStructure[Ir_co]):
+class IrComposite[Ir_co = IrSelf](IrStructure[Ir_co]):
     """Branch node carrying a fixed, named set of children.
 
     Concrete subclasses declare::
@@ -324,7 +324,7 @@ class IrComposite[Ir_co](IrStructure[Ir_co]):
         """
         return tuple(getattr(self, a) for a in self._child_attrs)
 
-    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
+    def rebuild[U](self, new_children: tuple[U, ...]) -> IrSelf:
         """Reconstruct, replacing child attrs from ``new_children`` in order.
 
         :param new_children: Replacements matching ``_child_attrs`` order.
@@ -336,7 +336,7 @@ class IrComposite[Ir_co](IrStructure[Ir_co]):
 # ── Superset role ─────────────────────────────────────────────────────
 
 
-class IrSuperSet(IrNode):
+class IrSuperSet[Ir_co](IrNode[Ir_co]):
     """IrNode parent of ``IrAtom`` and any future role-marker supersets.
 
     Class-local ``Ir_co`` TypeVar so concrete atoms can multi-inherit with
@@ -344,7 +344,7 @@ class IrSuperSet(IrNode):
     """
 
 
-class IrAtom(IrSuperSet):
+class IrAtom[Ir_co](IrSuperSet[Ir_co]):
     """Role marker for IR nodes that ``IrItem`` can wrap with a quantifier.
 
     Decoupled from leaf-vs-composite structure. Concrete atoms multi-
@@ -363,7 +363,7 @@ class IrAtom(IrSuperSet):
 
 
 @dataclass(frozen=True, slots=True)
-class IrLiteral(IrLeaf[str], IrAtom):
+class IrLiteral[Ir_co:str=str](IrLeaf[Ir_co], IrAtom[Ir_co]):
     """Literal string. ``value`` is canonical Python (escapes decoded).
 
     Overrides ``__call__`` to return ``self.value`` — keeps ``__str__``
@@ -371,11 +371,12 @@ class IrLiteral(IrLeaf[str], IrAtom):
     for emission.
     """
 
-    value: str
+    value: Ir_co
 
-    def __call__(self, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> str:
+    def __call__(self, _d, _n, _nc: tuple, /) -> Ir_co:
         """Return the literal string value."""
         return self.value
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,7 +450,7 @@ class IrAlternation(IrCollection):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrAst(IrCollection):
+class IrAst(IrCollection["IrAst"]):
     """Full grammar: rules + start-rule name."""
 
     _items_attr: ClassVar[str] = "rules"

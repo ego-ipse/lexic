@@ -397,7 +397,8 @@ def test_irliteral_call_returns_value_as_str():
 
     Subsumes the IrText role.
     """
-    result: str = IrLiteral("hello")(IrNone, IrNone, ())
+    lit = IrLiteral("hello")
+    result: str = lit(IrNone, IrNone, ())
     assert result == "hello"
 
 
