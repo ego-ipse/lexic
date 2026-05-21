@@ -57,7 +57,12 @@ class IrField[Ir_co: str = str](IrLeaf[Ir_co]):
     name: Ir_co
 
     def eval(self, _d: IrSelf, n: IrSelf, _nc: tuple, /) -> Ir_co:
-        """Return ``getattr(n, self.name)`` — assumed to be ``Ir_co``-typed."""
+        """Read ``getattr(n, self.name)`` and coerce via ``self.bound(value)``.
+
+        For ``Ir_co=str`` the coercion is ``str(value)`` — a no-op on string
+        attributes, a stringification on non-string attributes (``True`` →
+        ``"True"``).
+        """
         return self.bound(getattr(n, self.name))
 
 

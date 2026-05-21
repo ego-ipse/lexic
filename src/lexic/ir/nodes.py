@@ -98,6 +98,11 @@ class IrSelf[Ir_co = "IrSelf"]:
         own methods (``self.bound.join(...)``) without hardcoding the
         concrete class at the call site.
 
+        Reads ``type(self).__type_params__[0]`` directly — only walks the
+        immediate concrete class, not the MRO. A subclass that does NOT
+        re-declare ``[Ir_co: …]`` will raise here. Add MRO traversal if
+        such a subclass is ever introduced.
+
         :raises TypeError: if the class declares no type parameters or
             ``Ir_co`` has no bound.
         :returns: The bound class, typed as ``type[Ir_co]``.
