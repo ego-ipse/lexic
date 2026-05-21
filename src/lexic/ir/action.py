@@ -219,20 +219,26 @@ class IrCond[Ir_co = IrSelf](IrComposite[Ir_co]):
 # ── Short-circuit return ──────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True)
-class IrReturn[Ir_co = IrSelf](IrLeaf[Ir_co]):
-    """Short-circuit. Evaluating raises ``_Return(self.value)``.
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
+class IrReturn[Ir_co = IrSelf](IrLeaf[Ir_co], _Return):
+    """Short-circuit IR node that IS-A control-flow exception.
 
-    ``Ir_co`` is the static return type the surrounding dispatcher will
-    yield once it catches the ``_Return``; ``eval`` never returns
-    normally.
+    ``IrReturn`` mixes :class:`IrLeaf` (structural IR contract) with
+    :class:`_Return` (BaseException machinery). ``eval`` raises ``self``;
+    the surrounding dispatcher catches the IrReturn instance and may
+    surface ``self.value`` or the instance itself, depending on its
+    return-shape contract.
     """
 
     value: Ir_co
 
+    def __post_init__(self) -> None:
+        """Initialise the BaseException machinery (``self.args``)."""
+        BaseException.__init__(self)
+
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> Ir_co:
-        """Raise :class:`_Return` carrying ``self.value``."""
-        raise _Return(self.value)
+        """Raise ``self`` — unwinds to the dispatcher's catch."""
+        raise self
 
 
 # ── Action binding ────────────────────────────────────────────────────

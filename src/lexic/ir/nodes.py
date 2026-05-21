@@ -89,6 +89,17 @@ class IrSelf[Ir_co = "IrSelf"]:
         """
         return cast(Ir_co, self(d, n, nc))
 
+    def children(self) -> tuple[IrSelf, ...]:
+        """Default: no children.
+
+        Sentinels and non-structural ``IrSelf`` subclasses use this empty
+        default. Structural IR nodes (``IrCollection``, ``IrComposite``)
+        override to return their actual children.
+
+        :returns: Empty tuple.
+        """
+        return ()
+
     @property
     def bound(self) -> type[Ir_co]:
         """Runtime handle to the static bound of ``Ir_co``.
@@ -176,13 +187,6 @@ class IrNode[Ir_co = IrSelf](IrSelf[Ir_co], ABC):
         )
 
     @abstractmethod
-    def children(self) -> tuple[IrNode, ...]:
-        """Children in traversal order.
-
-        :returns: Tuple of child nodes.
-        """
-
-    @abstractmethod
     def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
         """Reconstruct with new children.
 
@@ -215,13 +219,6 @@ class IrLeaf[Ir_co = IrSelf](IrNode[Ir_co]):
         """
         flds = dataclasses.fields(self)
         return repr(getattr(self, flds[0].name)) if flds else ""
-
-    def children(self) -> tuple[IrNode, ...]:
-        """Leaves have no children.
-
-        :returns: Empty tuple.
-        """
-        return ()
 
     def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
         """Leaves reconstruct as identity.
