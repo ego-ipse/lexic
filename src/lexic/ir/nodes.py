@@ -46,7 +46,7 @@ from __future__ import annotations
 import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Self, cast
+from typing import Any, ClassVar, Self, TypeVar, cast
 
 # ── Identity mixin — decoupled from IrNode hierarchy ──────────────────
 
@@ -88,6 +88,27 @@ class IrSelf[Ir_co = "IrSelf"]:
         of ``__call__``.
         """
         return cast(Ir_co, self(d, n, nc))
+
+    @property
+    def bound(self) -> type[Ir_co]:
+        """Runtime handle to the static bound of ``Ir_co``.
+
+        For a class declared ``class Foo[Ir_co: str](IrSelf[Ir_co])`` this
+        returns the ``str`` class itself — useful for invoking the bound's
+        own methods (``self.bound.join(...)``) without hardcoding the
+        concrete class at the call site.
+
+        :raises TypeError: if the class declares no type parameters or
+            ``Ir_co`` has no bound.
+        :returns: The bound class, typed as ``type[Ir_co]``.
+        """
+        params = type(self).__type_params__
+        if not params or not isinstance(params[0], TypeVar):
+            raise TypeError(f"{type(self).__name__}: no TypeVar parameter")
+        bound = params[0].__bound__
+        if bound is None:
+            raise TypeError(f"{type(self).__name__}: Ir_co has no bound")
+        return cast(type[Ir_co], bound)
 
 
 # ── Absence sentinel ──────────────────────────────────────────────────

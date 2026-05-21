@@ -173,7 +173,7 @@ def test_irconcat_empty_parts_returns_empty_string():
 
 def test_irjoin_joins_items_with_separator():
     """IrJoin evaluates children_op and joins results with separator.value."""
-    op = IrJoin[str](
+    op = IrJoin(
         children_op=IrCallable[tuple[str, ...]](lambda _d, _n, _nc: ("a", "b", "c")),
         separator=IrLiteral(" | "),
         empty=IrLiteral(""),
@@ -183,7 +183,7 @@ def test_irjoin_joins_items_with_separator():
 
 def test_irjoin_returns_empty_value_when_no_items():
     """IrJoin returns empty.value when children_op produces an empty tuple."""
-    op = IrJoin[str](
+    op = IrJoin(
         children_op=IrCallable[tuple[str, ...]](lambda _d, _n, _nc: ()),
         separator=IrLiteral(" | "),
         empty=IrLiteral("<empty>"),

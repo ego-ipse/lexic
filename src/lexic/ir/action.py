@@ -15,13 +15,12 @@ to a slot that has no relevant value.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, ClassVar
+from typing import Callable, ClassVar, cast
 
 from lexic.ir.nodes import (
     IrCollection,
     IrComposite,
     IrLeaf,
-    IrLiteral,
     IrNode,
     IrSelf,
 )
@@ -48,26 +47,25 @@ class _Return(BaseException):
 
 @dataclass(frozen=True, slots=True)
 class IrField[Ir_co: str = str](IrLeaf[Ir_co]):
-    """``getattr(n, name)`` — read a string attribute of ``n``.
+    """Read a ``str``-typed attribute from the dispatched node ``n``.
 
     Generic in ``Ir_co`` (bounded by ``str``, defaulting to ``str``) so
-    that ``LiteralString`` and other narrower str types thread through.
-    Used to lift simple node fields (``name``, etc.) into the action
-    algebra.
+    narrower string types (``LiteralString``, branded ``NewType`` over
+    ``str``) thread through the result.
     """
 
     name: Ir_co
 
     def eval(self, _d: IrSelf, n: IrSelf, _nc: tuple, /) -> Ir_co:
         """Return ``getattr(n, self.name)`` — assumed to be ``Ir_co``-typed."""
-        return getattr(n, self.name)
+        return self.bound(getattr(n, self.name))
 
 
 # ── Procedural escape hatch ───────────────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class IrCallable[Ir_co](IrLeaf[Ir_co]):
+class IrCallable[Ir_co = IrSelf](IrLeaf[Ir_co]):
     """Procedural body. ``handler(d, n, nc) -> Ir_co``.
 
     Generic in ``Ir_co``; callers narrow at construction:
@@ -90,7 +88,7 @@ class IrCallable[Ir_co](IrLeaf[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True)
-class IrChild[Ir_co](IrLeaf[Ir_co]):
+class IrChild[Ir_co = IrSelf](IrLeaf[Ir_co]):
     """Single dispatched child by name from ``n``'s ``_child_attrs``.
 
     ``Ir_co`` is the dispatcher's per-child result type — ``str`` under
@@ -115,7 +113,7 @@ class IrChild[Ir_co](IrLeaf[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True)
-class IrChildren[Ir_co](IrLeaf[tuple[Ir_co, ...]]):
+class IrChildren[Ir_co = IrSelf](IrLeaf[tuple[Ir_co, ...]]):
     """Full tuple of dispatched children from ``n``'s ``_items_attr``.
 
     ``Ir_co`` is the dispatcher's per-child result type. Return type is
@@ -148,54 +146,56 @@ class IrChildren[Ir_co](IrLeaf[tuple[Ir_co, ...]]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrConcat(IrCollection[str]):
-    """Evaluate ``parts`` in order; return ``"".join(...)`` of results.
+class IrConcat[Ir_co: str = str](IrCollection[Ir_co]):
+    """Evaluate ``parts`` in order; return ``empty.join(...)`` of results.
 
-    Each part is ``IrNode[str]`` so the join is type-safe.
+    Generic in ``Ir_co`` (bounded by ``str``, defaulting to ``str``).
+    ``empty`` is the neutral string used as the join base — its concrete
+    type determines the ``Ir_co`` of the result, avoiding any
+    runtime/type-system bridging.
     """
 
     _items_attr: ClassVar[str] = "parts"
-    parts: tuple[IrNode[str], ...] = ()
+    parts: tuple[IrNode[Ir_co], ...] = ()
 
-    def _extra_field_names(self) -> tuple[str, ...]:
-        """No extras — only ``parts``."""
-        return ()
-
-    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> str:
-        """Evaluate each part and concatenate the resulting strings."""
-        return "".join(p.eval(d, n, nc) for p in self.parts)
+    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> Ir_co:
+        """Concatenate evaluated parts using the bound's empty literal."""
+        return cast(Ir_co, self.bound().join(p.eval(d, n, nc) for p in self.parts))
 
 
 # ── Variable-arity join with separator ────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrJoin[Ir_co](IrComposite[str]):
-    """Evaluate ``children_op`` to get an iterable, then join with
-    ``separator.value``; fall back to ``empty.value`` when empty.
+class IrJoin[Ir_co: str = str](IrComposite[Ir_co]):
+    """Variable-arity join. Evaluate ``children_op`` to get an iterable,
+    then join with ``separator``; fall back to ``empty`` when no items.
 
-    Generic in ``Ir_co`` — the element type of the tuple yielded by
-    ``children_op``. Elements are stringified for joining.
+    Generic in ``Ir_co`` (bounded by ``str``, defaulting to ``str``).
+    ``separator`` and ``empty`` are ``IrNode[Ir_co]`` rather than concrete
+    ``IrLiteral`` so the separator or fallback can be computed
+    (``IrField``, ``IrCallable``, …) — not just a static literal.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("children_op", "separator", "empty")
     children_op: IrNode[tuple[Ir_co, ...]]
-    separator: IrLiteral
-    empty: IrLiteral
+    separator: IrNode[Ir_co]
+    empty: IrNode[Ir_co]
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> str:
-        """Compute items via ``children_op`` and join with the separator."""
+    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> Ir_co:
+        """Evaluate items; join with ``separator`` or return ``empty``."""
         items = self.children_op.eval(d, n, nc)
         if not items:
-            return self.empty.value
-        return self.separator.value.join(str(it) for it in items)
+            return self.empty.eval(d, n, nc)
+        sep: Ir_co = self.separator.eval(d, n, nc)
+        return cast(Ir_co, self.bound.join(sep, items))
 
 
 # ── Truthy-field branch ───────────────────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrCond[Ir_co](IrComposite[Ir_co]):
+class IrCond[Ir_co = IrSelf](IrComposite[Ir_co]):
     """If ``bool(getattr(n, field))`` is true, evaluate ``then_op``;
     else ``else_op``. Both branches must share ``Ir_co``.
     """
@@ -215,7 +215,7 @@ class IrCond[Ir_co](IrComposite[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True)
-class IrReturn[Ir_co](IrLeaf[Ir_co]):
+class IrReturn[Ir_co = IrSelf](IrLeaf[Ir_co]):
     """Short-circuit. Evaluating raises ``_Return(self.value)``.
 
     ``Ir_co`` is the static return type the surrounding dispatcher will
@@ -234,16 +234,16 @@ class IrReturn[Ir_co](IrLeaf[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class IrAction[Ir_co](IrComposite[Ir_co]):
+class IrAction[Ir_co = IrSelf](IrComposite[Ir_co]):
     """Bind a target IR node type to a callable IrNode body.
 
-    ``target_type`` is metadata (a ``type``, rendered in ``__str__`` but
-    excluded from ``children()`` via ``_child_attrs``). ``body`` is the
-    single IrNode child invoked under dispatch.
+    ``target_type`` is metadata (a concrete IR-node type, rendered in
+    ``__str__`` but excluded from ``children()`` via ``_child_attrs``).
+    ``body`` is the single IrNode child invoked under dispatch.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
-    target_type: type
+    target_type: type[IrSelf]
     body: IrNode[Ir_co]
 
     def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> Ir_co:
