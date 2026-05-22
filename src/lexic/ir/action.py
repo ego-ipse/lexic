@@ -22,6 +22,7 @@ from lexic.ir.nodes import (
     IrComposite,
     IrLeaf,
     IrNode,
+    IrNone,
     IrSelf,
 )
 
@@ -239,6 +240,45 @@ class IrReturn[Ir_co = IrSelf](IrLeaf[Ir_co], _Return):
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> Ir_co:
         """Raise ``self`` — unwinds to the dispatcher's catch."""
         raise self
+
+
+# ── Default bodies ────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class IrPass(IrLeaf[IrSelf]):
+    """No-op body — evaluates to :data:`IrNone`.
+
+    Canonical body for visitor defaults: the dispatcher's action matched
+    but there is nothing meaningful to produce. Equivalent to Python's
+    ``pass``.
+    """
+
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> IrSelf:
+        """Return :data:`IrNone`."""
+        return IrNone
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class IrRebuild(IrLeaf[IrNode]):
+    """Walk ``n``'s children via ``d``, then rebuild ``n`` with the result.
+
+    Canonical body for transformer defaults. Always rebuilds — change
+    detection lives in callers if they want it.
+
+    :raises: whatever ``d.eval`` or ``n.rebuild`` raises.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> IrNode:
+        """Walk ``n.children()`` via ``d`` (or accept ``nc``), then rebuild.
+
+        :param d: Dispatcher driving child recursion.
+        :param n: Node to rebuild. Runtime contract: ``IrNode``.
+        :param nc: Pre-dispatched children, if any.
+        :returns: ``n.rebuild(new_children)``.
+        """
+        new_children = nc or tuple(d.eval(d, c, ()) for c in n.children())
+        return cast(IrNode, n.rebuild(new_children))
 
 
 # ── Action binding ────────────────────────────────────────────────────

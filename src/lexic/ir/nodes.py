@@ -100,6 +100,17 @@ class IrSelf[Ir_co = "IrSelf"]:
         """
         return ()
 
+    def rebuild[U](self, _new_children: tuple[U, ...]) -> Self:
+        """Default: identity rebuild.
+
+        Sentinels and leaves return ``self``. Structural IR nodes
+        override to reconstruct with new children.
+
+        :param _new_children: Ignored at this level.
+        :returns: ``self`` unchanged.
+        """
+        return self
+
     @property
     def bound(self) -> type[Ir_co]:
         """Runtime handle to the static bound of ``Ir_co``.

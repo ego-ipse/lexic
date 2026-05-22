@@ -30,8 +30,8 @@ from dataclasses import dataclass, field
 from typing import ClassVar, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction, IrReturn
-from lexic.ir.nodes import IrCollection, IrNode, IrSelf
+from lexic.ir.action import IrAction, IrPass, IrRebuild, IrReturn
+from lexic.ir.nodes import IrCollection, IrLiteral, IrNode, IrSelf
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -83,8 +83,9 @@ class IrDispatch[Ir_co = IrSelf](IrCollection[Ir_co]):
         """
         try:
             return self._resolve(type(n)).body.eval(d, n, nc)
-        except IrReturn as ret:
-            return cast(Ir_co, ret)
+        except IrReturn[Ir_co] as ret:
+            # IrReturn is a control-flow exception; surface its value to the caller.
+            return ret.value
 
     def apply(self, root: IrNode) -> Ir_co:
         """Friendly entry — equivalent to ``self.eval(self, root, ())``.
@@ -96,6 +97,8 @@ class IrDispatch[Ir_co = IrSelf](IrCollection[Ir_co]):
 
     def _resolve(self, node_type: type) -> IrAction[Ir_co]:
         """Concrete-first MRO walk against ``self.actions``; memoised.
+
+        Should be O(1) after the first call for a given node_type.
 
         :param node_type: Runtime type of the dispatched node.
         :returns: The matching action.
@@ -113,3 +116,47 @@ class IrDispatch[Ir_co = IrSelf](IrCollection[Ir_co]):
         raise UnsupportedConstructError(
             f"{type(self).__name__}: no action for {node_type.__name__!r}"
         )
+
+
+# ── Presets ──────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class IrVisitor(IrDispatch):
+    """Side-effect walker. ``Ir_co = IrSelf`` (inherited default).
+
+    The default action catches every node and returns :data:`IrNone` via
+    :class:`IrPass`. User actions resolve first via MRO and may produce
+    side effects. To compose, include :class:`IrPass` at the end of your
+    ``actions`` tuple explicitly.
+    """
+
+    actions: tuple[IrAction[IrSelf], ...] = (
+        IrAction(IrSelf, IrPass()),
+    )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class IrTransformer(IrDispatch[IrNode]):
+    """Rewrites IR trees. ``Ir_co = IrNode``.
+
+    The default action walks each node's children via ``d`` and rebuilds
+    the node — :class:`IrRebuild` is the canonical body. User actions
+    resolve first; matching actions can return any ``IrNode``.
+    """
+
+    actions: tuple[IrAction[IrNode], ...] = (
+        IrAction(IrNode, IrRebuild()),
+    )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class IrEmitter(IrDispatch[IrLiteral]):
+    """Produces :class:`IrLiteral`-wrapped strings. ``Ir_co = IrLiteral``.
+
+    No default action — users define per-type emit actions and unmatched
+    types raise :exc:`UnsupportedConstructError`. The "emit ``str(n)``"
+    fallback is a use-case-specific convenience, not a default.
+    """
+
+    actions: tuple[IrAction[IrLiteral], ...] = ()
