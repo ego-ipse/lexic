@@ -24,6 +24,7 @@ from lexic.ir.nodes import (
     IrNode,
     IrNone,
     IrSelf,
+    IrStr,
 )
 
 # ── Control-flow exception ────────────────────────────────────────────
@@ -47,22 +48,21 @@ class _Return(BaseException):
 
 
 @dataclass(frozen=True, slots=True)
-class IrField[Ir_co: str = str](IrLeaf[Ir_co]):
-    """Read a ``str``-typed attribute from the dispatched node ``n``.
+class IrField[Ir_co: IrStr = IrStr](IrLeaf[Ir_co]):
+    """Read a typed attribute from the dispatched node ``n``.
 
-    Generic in ``Ir_co`` (bounded by ``str``, defaulting to ``str``) so
-    narrower string types (``LiteralString``, branded ``NewType`` over
-    ``str``) thread through the result.
+    Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
+    :class:`IrStr` itself). Output is wrapped via ``self.bound(value)``
+    so it carries both ``str`` shape AND the IrSelf protocol.
     """
 
-    name: Ir_co
+    name: str
 
     def eval(self, _d: IrSelf, n: IrSelf, _nc: tuple, /) -> Ir_co:
-        """Read ``getattr(n, self.name)`` and coerce via ``self.bound(value)``.
+        """Read ``getattr(n, self.name)`` and wrap via ``self.bound(value)``.
 
-        For ``Ir_co=str`` the coercion is ``str(value)`` — a no-op on string
-        attributes, a stringification on non-string attributes (``True`` →
-        ``"True"``).
+        For ``Ir_co=IrStr`` the wrap is ``IrStr(value)`` — a no-op on
+        string-derived attributes, a stringification on non-string ones.
         """
         return self.bound(getattr(n, self.name))
 
@@ -152,35 +152,35 @@ class IrChildren[Ir_co = IrSelf](IrLeaf[tuple[Ir_co, ...]]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrConcat[Ir_co: str = str](IrCollection[Ir_co]):
-    """Evaluate ``parts`` in order; return ``empty.join(...)`` of results.
+class IrConcat[Ir_co: IrStr = IrStr](IrCollection[Ir_co]):
+    """Evaluate ``parts`` in order; return ``bound().join(...)`` of results.
 
-    Generic in ``Ir_co`` (bounded by ``str``, defaulting to ``str``).
-    ``empty`` is the neutral string used as the join base — its concrete
-    type determines the ``Ir_co`` of the result, avoiding any
-    runtime/type-system bridging.
+    Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
+    :class:`IrStr`). The bound's neutral element (``IrStr()`` → ``""``)
+    serves as the join base, and the bound's own ``.join`` is the
+    type-native join — no casts needed.
     """
 
     _items_attr: ClassVar[str] = "parts"
     parts: tuple[IrNode[Ir_co], ...] = ()
 
     def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> Ir_co:
-        """Concatenate evaluated parts using the bound's empty literal."""
-        return cast(Ir_co, self.bound().join(p.eval(d, n, nc) for p in self.parts))
+        """Concatenate evaluated parts via the bound's neutral element."""
+        return self.bound(self.bound().join(p.eval(d, n, nc) for p in self.parts))
 
 
 # ── Variable-arity join with separator ────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrJoin[Ir_co: str = str](IrComposite[Ir_co]):
+class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
     """Variable-arity join. Evaluate ``children_op`` to get an iterable,
     then join with ``separator``; fall back to ``empty`` when no items.
 
-    Generic in ``Ir_co`` (bounded by ``str``, defaulting to ``str``).
-    ``separator`` and ``empty`` are ``IrNode[Ir_co]`` rather than concrete
-    ``IrLiteral`` so the separator or fallback can be computed
-    (``IrField``, ``IrCallable``, …) — not just a static literal.
+    Generic in ``Ir_co`` (bounded by :class:`IrType`, defaulting to
+    :class:`IrStr`). ``separator`` and ``empty`` are ``IrNode[Ir_co]`` so
+    both can be computed at eval time (``IrField``, ``IrCallable``,
+    nested ``IrJoin``) rather than restricted to static values.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("children_op", "separator", "empty")
@@ -193,8 +193,8 @@ class IrJoin[Ir_co: str = str](IrComposite[Ir_co]):
         items = self.children_op.eval(d, n, nc)
         if not items:
             return self.empty.eval(d, n, nc)
-        sep: Ir_co = self.separator.eval(d, n, nc)
-        return cast(Ir_co, self.bound.join(sep, items))
+        sep = self.separator.eval(d, n, nc)
+        return self.bound(self.bound(sep).join(items))
 
 
 # ── Truthy-field branch ───────────────────────────────────────────────

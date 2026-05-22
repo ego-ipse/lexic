@@ -26,6 +26,7 @@ from lexic.ir.nodes import (
     IrNone,
     IrRuleRef,
     IrSequence,
+    IrStr,
     Quantifier,
 )
 
@@ -159,7 +160,9 @@ def test_irchildren_raises_when_items_attr_mismatches():
 
 def test_irconcat_joins_parts_in_order():
     """IrConcat evaluates parts and concatenates results."""
-    op = IrConcat(parts=(IrLiteral('"'), IrLiteral("x"), IrLiteral('"')))
+    op = IrConcat(
+        parts=(IrLiteral(IrStr('"')), IrLiteral(IrStr("x")), IrLiteral(IrStr('"')))
+    )
     assert op.eval(IrNone, IrNone, ()) == '"x"'
 
 
@@ -174,9 +177,11 @@ def test_irconcat_empty_parts_returns_empty_string():
 def test_irjoin_joins_items_with_separator():
     """IrJoin evaluates children_op and joins results with separator.value."""
     op = IrJoin(
-        children_op=IrCallable[tuple[str, ...]](lambda _d, _n, _nc: ("a", "b", "c")),
-        separator=IrLiteral(" | "),
-        empty=IrLiteral(""),
+        children_op=IrCallable[tuple[IrStr, ...]](
+            lambda _d, _n, _nc: (IrStr("a"), IrStr("b"), IrStr("c"))
+        ),
+        separator=IrLiteral(IrStr(" | ")),
+        empty=IrLiteral(IrStr("")),
     )
     assert op.eval(IrNone, IrNone, ()) == "a | b | c"
 
@@ -184,9 +189,9 @@ def test_irjoin_joins_items_with_separator():
 def test_irjoin_returns_empty_value_when_no_items():
     """IrJoin returns empty.value when children_op produces an empty tuple."""
     op = IrJoin(
-        children_op=IrCallable[tuple[str, ...]](lambda _d, _n, _nc: ()),
-        separator=IrLiteral(" | "),
-        empty=IrLiteral("<empty>"),
+        children_op=IrCallable[tuple[IrStr, ...]](lambda _d, _n, _nc: ()),
+        separator=IrLiteral(IrStr(" | ")),
+        empty=IrLiteral(IrStr("<empty>")),
     )
     assert op.eval(IrNone, IrNone, ()) == "<empty>"
 
@@ -254,5 +259,5 @@ def test_iraction_str_includes_target_type_name():
 def test_action_call_is_identity():
     """Action algebra inherits IrSelf's __call__ → returns self.
     Typed value extraction is .eval(); __call__ is for identity."""
-    op = IrConcat(parts=(IrLiteral("x"),))
+    op = IrConcat(parts=(IrLiteral(IrStr("x")),))
     assert op(IrNone, IrNone, ()) is op

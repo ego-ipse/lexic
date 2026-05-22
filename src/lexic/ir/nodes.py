@@ -52,25 +52,19 @@ from typing import Any, ClassVar, Self, TypeVar, cast
 
 
 class IrSelf[Ir_co = "IrSelf"]:
-    """Generic identity mixin.
+    """Generic identity mixin and IR-protocol root.
 
-    Subclasses bind ``Ir_co`` to themselves via inheritance and inherit a
-    ``__call__`` that returns ``self`` typed as ``Ir_co``. The ``self: Ir_co``
-    self-type annotation is what lets pyright prove ``Self <: Ir_co`` without
-    a ``cast`` or an ignore.
+    Subclasses inherit ``__call__`` (returns self via PEP 673 ``Self``)
+    and ``eval`` (returns ``Ir_co`` — cast of self by default; overridden
+    by value-producing subclasses).
 
-    ``__call__`` is signature-permissive: ``*_args: object`` accepts the
-    ``(d, n, nc)`` triple imposed by the IrNode protocol — or anything
-    else. IrSelf intentionally does not reference IrNode.
+    ``IrSelf(bound)`` invokes the factory inherited from :class:`IrMeta`,
+    producing typed neutral singletons (see :data:`Str`).
 
-    Usage::
-
-        class IrCharClass(IrLeaf["IrCharClass"], IrAtom):
-            pattern: str
-            # __call__ inherited from IrSelf — returns IrCharClass
-
-    :param Ir_co: the class binding ``self`` for the identity return type.
+    :param Ir_co: the return type of ``eval``.
     """
+
+    _bound: ClassVar[type]
 
     def __call__(self, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> Self:
         """Identity. Returns ``self`` typed via PEP 673 ``Self`` so
@@ -113,28 +107,29 @@ class IrSelf[Ir_co = "IrSelf"]:
 
     @property
     def bound(self) -> type[Ir_co]:
-        """Runtime handle to the static bound of ``Ir_co``.
+        """Runtime handle to the static bound of ``Ir_co``, instance-cached.
 
-        For a class declared ``class Foo[Ir_co: str](IrSelf[Ir_co])`` this
-        returns the ``str`` class itself — useful for invoking the bound's
-        own methods (``self.bound.join(...)``) without hardcoding the
-        concrete class at the call site.
-
-        Reads ``type(self).__type_params__[0]`` directly — only walks the
-        immediate concrete class, not the MRO. A subclass that does NOT
-        re-declare ``[Ir_co: …]`` will raise here. Add MRO traversal if
-        such a subclass is ever introduced.
+        First access: read ``type(self).__type_params__[0].__bound__``,
+        memoise on the instance as ``self._bound`` (via
+        ``object.__setattr__`` to bypass frozen-dataclass guards).
+        Subsequent accesses return the cached value directly.
 
         :raises TypeError: if the class declares no type parameters or
             ``Ir_co`` has no bound.
         :returns: The bound class, typed as ``type[Ir_co]``.
         """
-        params = type(self).__type_params__
+        try:
+            return self._bound
+        except AttributeError:
+            pass
+        cls = type(self)
+        params = cls.__type_params__
         if not params or not isinstance(params[0], TypeVar):
-            raise TypeError(f"{type(self).__name__}: no TypeVar parameter")
+            raise TypeError(f"{cls.__name__}: no TypeVar parameter")
         bound = params[0].__bound__
         if bound is None:
-            raise TypeError(f"{type(self).__name__}: Ir_co has no bound")
+            raise TypeError(f"{cls.__name__}: Ir_co has no bound")
+        object.__setattr__(self, "_bound", bound)
         return cast(type[Ir_co], bound)
 
 
@@ -154,6 +149,40 @@ class _IrNoneSentinel(IrSelf):  # pylint: disable=too-few-public-methods
 
 
 IrNone = _IrNoneSentinel()  # pylint: disable=invalid-name
+
+
+# ── Typed-output base and concrete typed classes ──────────────────────
+
+
+class IrType(IrSelf):
+    """Typed-output base.
+
+    Subclasses multi-inherit ``(IrType, <python type>)`` so instances are
+    both ``IrSelf``-shaped (full protocol) AND a concrete Python type
+    (full native methods). ``_bound`` records the python type for the
+    cached :attr:`IrSelf.bound` property; ``eval`` returns the bound's
+    neutral element (``str()`` → ``""``, ``int()`` → ``0``, …).
+
+    Usable as a TypeVar bound: ``Ir_co: IrType = IrStr`` lets pyright
+    accept the type at the bound site while preserving the IrSelf
+    protocol on the produced value.
+    """
+
+    _bound: ClassVar[type]
+
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> Self:
+        """Return the bound's neutral element (``self._bound()``)."""
+        return type(self)._bound()
+
+
+class IrStr(IrType, str):
+    """``IrSelf+str`` typed class. ``IrStr()`` is the empty-str singleton.
+
+    ``IrStr`` IS-A ``str`` so all string methods (notably ``.join``)
+    work natively; it IS-A ``IrSelf`` so the IR protocol applies.
+    """
+
+    _bound: ClassVar[type[str]] = str
 
 
 # ── Root protocol ─────────────────────────────────────────────────────
@@ -197,18 +226,6 @@ class IrNode[Ir_co = IrSelf](IrSelf[Ir_co], ABC):
             f"{self._str_name}{self._str_opener}{self._inner_str()}{self._str_closer}"
         )
 
-    @abstractmethod
-    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
-        """Reconstruct with new children.
-
-        :param new_children: Tuple of replacements (method-level ``U``
-            keeps this free of ``Any``).
-        :returns: A new instance of the same concrete class.
-        """
-
-    # __call__ inherited from IrSelf[Ir_co] — concrete identity (returns self typed
-    # as Ir_co). Value-producing subclasses override.
-
 
 # ── Leaf base ─────────────────────────────────────────────────────────
 
@@ -230,14 +247,6 @@ class IrLeaf[Ir_co = IrSelf](IrNode[Ir_co]):
         """
         flds = dataclasses.fields(self)
         return repr(getattr(self, flds[0].name)) if flds else ""
-
-    def rebuild[U](self, new_children: tuple[U, ...]) -> Self:
-        """Leaves reconstruct as identity.
-
-        :param _new_children: Ignored.
-        :returns: ``self`` unchanged.
-        """
-        return self
 
 
 # ── Branch-node abstract base ─────────────────────────────────────────

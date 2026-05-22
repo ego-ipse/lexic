@@ -131,9 +131,7 @@ class IrVisitor(IrDispatch):
     ``actions`` tuple explicitly.
     """
 
-    actions: tuple[IrAction[IrSelf], ...] = (
-        IrAction(IrSelf, IrPass()),
-    )
+    actions: tuple[IrAction[IrSelf], ...] = (IrAction(IrSelf, IrPass()),)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -145,9 +143,7 @@ class IrTransformer(IrDispatch[IrNode]):
     resolve first; matching actions can return any ``IrNode``.
     """
 
-    actions: tuple[IrAction[IrNode], ...] = (
-        IrAction(IrNode, IrRebuild()),
-    )
+    actions: tuple[IrAction[IrNode], ...] = (IrAction(IrNode, IrRebuild()),)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
