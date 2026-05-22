@@ -105,34 +105,21 @@ class IrSelf[Ir_co = "IrSelf"]:
         """
         return self
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # Resolve bound once per class definition
+        for ancestor in cls.__mro__:
+            params = getattr(ancestor, "__type_params__", ())
+            if params and isinstance(params[0], TypeVar):
+                bound = params[0].__bound__
+                if bound is not None:
+                    cls._bound = bound
+                    break
+
     @property
     def bound(self) -> type[Ir_co]:
-        """Runtime handle to the static bound of ``Ir_co``, instance-cached.
-
-        Walks ``type(self).__mro__`` to find the first class declaring a
-        ``TypeVar`` parameter with a bound — concrete leaves may inherit
-        their bound from a generic ancestor (e.g. :class:`IrStrLeaf`).
-        Result is memoised on the instance as ``self._bound`` via
-        ``object.__setattr__`` to bypass frozen-dataclass guards.
-
-        :raises TypeError: if no class in the MRO declares a bounded
-            ``TypeVar`` parameter.
-        :returns: The bound class, typed as ``type[Ir_co]``.
-        """
-        try:
-            return self._bound
-        except AttributeError:
-            pass
-        for ancestor in type(self).__mro__:
-            params = getattr(ancestor, "__type_params__", ())
-            if not params or not isinstance(params[0], TypeVar):
-                continue
-            bound = params[0].__bound__
-            if bound is None:
-                continue
-            object.__setattr__(self, "_bound", bound)
-            return cast(type[Ir_co], bound)
-        raise TypeError(f"{type(self).__name__}: no bounded TypeVar in MRO")
+        """O(1) class-level lookup, no instance mutation required"""
+        return type(self)._bound
 
 
 # ── Absence sentinel ──────────────────────────────────────────────────
