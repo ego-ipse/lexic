@@ -109,28 +109,30 @@ class IrSelf[Ir_co = "IrSelf"]:
     def bound(self) -> type[Ir_co]:
         """Runtime handle to the static bound of ``Ir_co``, instance-cached.
 
-        First access: read ``type(self).__type_params__[0].__bound__``,
-        memoise on the instance as ``self._bound`` (via
-        ``object.__setattr__`` to bypass frozen-dataclass guards).
-        Subsequent accesses return the cached value directly.
+        Walks ``type(self).__mro__`` to find the first class declaring a
+        ``TypeVar`` parameter with a bound — concrete leaves may inherit
+        their bound from a generic ancestor (e.g. :class:`IrStrLeaf`).
+        Result is memoised on the instance as ``self._bound`` via
+        ``object.__setattr__`` to bypass frozen-dataclass guards.
 
-        :raises TypeError: if the class declares no type parameters or
-            ``Ir_co`` has no bound.
+        :raises TypeError: if no class in the MRO declares a bounded
+            ``TypeVar`` parameter.
         :returns: The bound class, typed as ``type[Ir_co]``.
         """
         try:
             return self._bound
         except AttributeError:
             pass
-        cls = type(self)
-        params = cls.__type_params__
-        if not params or not isinstance(params[0], TypeVar):
-            raise TypeError(f"{cls.__name__}: no TypeVar parameter")
-        bound = params[0].__bound__
-        if bound is None:
-            raise TypeError(f"{cls.__name__}: Ir_co has no bound")
-        object.__setattr__(self, "_bound", bound)
-        return cast(type[Ir_co], bound)
+        for ancestor in type(self).__mro__:
+            params = getattr(ancestor, "__type_params__", ())
+            if not params or not isinstance(params[0], TypeVar):
+                continue
+            bound = params[0].__bound__
+            if bound is None:
+                continue
+            object.__setattr__(self, "_bound", bound)
+            return cast(type[Ir_co], bound)
+        raise TypeError(f"{type(self).__name__}: no bounded TypeVar in MRO")
 
 
 # ── Absence sentinel ──────────────────────────────────────────────────
@@ -415,34 +417,49 @@ class IrAtom[Ir_co](IrSuperSet[Ir_co]):
 # ── Leaves ────────────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True)
-class IrLiteral[Ir_co: str = str](IrLeaf[Ir_co], IrAtom[Ir_co]):
-    """Literal string. ``value`` is canonical Python (escapes decoded).
+@dataclass(frozen=True, slots=True, init=False)
+class IrStrLeaf[Ir_co: IrStr = IrStr](IrLeaf[Ir_co]):
+    """Base for leaves carrying a single :class:`IrStr`-shaped value.
 
-    ``__call__`` stays identity (returns self). Override ``eval`` to
-    surface the typed string for action-algebra consumers.
+    Provides a unified ``__init__(value: str)`` that coerces the raw
+    ``str`` to the bound ``Ir_co`` (an :class:`IrStr` subclass) via
+    :attr:`IrSelf.bound`. Concrete string-leaves (:class:`IrLiteral`,
+    :class:`IrCharClass`, :class:`IrRuleRef`) inherit this constructor
+    unchanged — their identity is the class, the payload is ``.value``.
+
+    Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
+    :class:`IrStr`).
     """
 
     value: Ir_co
 
+    def __init__(self, value: str) -> None:
+        """Coerce ``value`` to the bound ``Ir_co`` (typically :class:`IrStr`).
+
+        :param value: Raw ``str`` payload; coerced via ``self.bound(value)``.
+        """
+        object.__setattr__(self, "value", self.bound(value))
+
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> Ir_co:
-        """Return the literal string value."""
+        """Return the stored value (already coerced to ``Ir_co``)."""
         return self.value
 
 
-@dataclass(frozen=True, slots=True)
-class IrCharClass(IrLeaf, IrAtom):
-    """Character class. ``pattern`` is canonical POSIX-style interior."""
-
-    pattern: str
+@dataclass(frozen=True, slots=True, init=False)
+class IrLiteral(IrStrLeaf, IrAtom):
+    """Literal string. ``.value`` is canonical Python (escapes decoded)."""
 
 
-@dataclass(frozen=True, slots=True)
-class IrRuleRef(IrLeaf, IrAtom):
-    """Reference to another rule by name."""
+@dataclass(frozen=True, slots=True, init=False)
+class IrCharClass(IrStrLeaf, IrAtom):
+    """Character class. ``.value`` is the canonical POSIX-style interior."""
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class IrRuleRef(IrStrLeaf, IrAtom):
+    """Reference to another rule. ``.value`` is the rule name."""
 
     _str_name: ClassVar[str] = "REF"
-    name: str
 
 
 @dataclass(frozen=True, slots=True)

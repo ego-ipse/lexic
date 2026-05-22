@@ -79,7 +79,7 @@ _IR_BUILDERS: dict[str, _IrBuilder] = {
     "ir_sequence": lambda _f, c: IrSequence(items=tuple(c)),
     "ir_literal": lambda f, c: f.normalize_literal(f.escapes.decode(str(c[0])[1:-1])),
     "ir_charclass": _build_charclass,
-    "ir_ruleref": lambda _f, c: IrRuleRef(name=str(c[0])),
+    "ir_ruleref": lambda _f, c: IrRuleRef(str(c[0])),
     "ir_group": lambda _f, c: IrGroup(body=c[0]),
 }
 

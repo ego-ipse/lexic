@@ -69,22 +69,22 @@ def test_ir_literal_is_frozen_and_hashable():
 
 def test_ir_charclass_holds_pattern():
     """Test that the IR character class holds the pattern."""
-    cc = IrCharClass(pattern="a-z")
-    assert cc.pattern == "a-z"
+    cc = IrCharClass("a-z")
+    assert cc.value == "a-z"
 
 
 def test_ir_not_wraps_charclass():
     """Test that IrNot wraps a charclass atom."""
-    cc = IrCharClass(pattern="\\n")
+    cc = IrCharClass("\\n")
     node = IrNot[IrCharClass](body=cc)
     assert node.body is cc
-    assert node.body.pattern == "\\n"
+    assert node.body.value == "\\n"
 
 
 def test_ir_ruleref_holds_name():
     """Test that the IR rule reference holds the correct name."""
-    r = IrRuleRef(name="expr")
-    assert r.name == "expr"
+    r = IrRuleRef(value="expr")
+    assert r.value == "expr"
 
 
 # ── IrItem ───────────────────────────────────────────────────────────

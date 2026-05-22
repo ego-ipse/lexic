@@ -74,7 +74,7 @@ def regex_for_charclass(
     :param negated: Whether to emit ``[^...]`` instead of ``[...]``.
     :returns: Anchored regex string.
     """
-    return f"^{_bracket(cc.pattern, negated)}{_suffix(q)}$"
+    return f"^{_bracket(cc.value, negated)}{_suffix(q)}$"
 
 
 def _atom_regex_fragment(item: IrItem) -> str:
@@ -84,9 +84,9 @@ def _atom_regex_fragment(item: IrItem) -> str:
     if isinstance(atom, IrLiteral):
         return re.escape(atom.value) + q
     if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return _bracket(atom.body.pattern, True) + q
+        return _bracket(atom.body.value, True) + q
     if isinstance(atom, IrCharClass):
-        return _bracket(atom.pattern, False) + q
+        return _bracket(atom.value, False) + q
     if isinstance(atom, IrGroup):
         return f"({_alt_regex_fragment(atom.body)}){q}"
     raise UnsupportedConstructError(
@@ -119,7 +119,7 @@ def _name_for_charclass(cc: IrCharClass, *, negated: bool = False) -> str:
     :param negated: Whether this charclass is negated (wrapped in IrNot).
     :returns: CamelCase tier-2 name, or empty string if no Tier-2 match.
     """
-    tier2 = CHARCLASS_NAMES.get(_bracket(cc.pattern, negated))
+    tier2 = CHARCLASS_NAMES.get(_bracket(cc.value, negated))
     return _camel(tier2) if tier2 else ""
 
 

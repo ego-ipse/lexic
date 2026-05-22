@@ -1,7 +1,6 @@
 """Generated module: c. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
-
 from typing import Annotated, List, Optional
 
 from pydantic import StringConstraints

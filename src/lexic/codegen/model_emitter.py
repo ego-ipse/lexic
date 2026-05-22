@@ -82,9 +82,9 @@ def _is_optional(q: Quantifier) -> bool:
 
 _REPR_ACTION: dict[type, Callable[..., str]] = {
     IrLiteral: lambda n, oc, nc: f"IrLiteral({n.value!r})",
-    IrCharClass: lambda n, oc, nc: f"IrCharClass({n.pattern!r})",
+    IrCharClass: lambda n, oc, nc: f"IrCharClass({n.value!r})",
     IrNot: lambda n, oc, nc: f"IrNot({nc[0]})",
-    IrRuleRef: lambda n, oc, nc: f"IrRuleRef({n.name!r})",
+    IrRuleRef: lambda n, oc, nc: f"IrRuleRef({n.value!r})",
     IrGroup: lambda n, oc, nc: f"IrGroup({nc[0]})",
     IrAlternation: lambda n, oc, nc: (
         "IrAlternation(arms=())"
@@ -133,7 +133,7 @@ def _ruleref_type(name: str, q: Quantifier, specs: dict[str, RuleSpec]) -> str:
 
 def _group_type(atom: IrGroup, specs: dict[str, RuleSpec]) -> str:
     arm_refs = [
-        arm.items[0].atom.name
+        arm.items[0].atom.value
         for arm in atom.body.arms
         if len(arm.items) == 1 and isinstance(arm.items[0].atom, IrRuleRef)
     ]
@@ -168,7 +168,7 @@ _ATOM_FIELD_TYPE: dict[type, Callable] = {
         if isinstance(a.body, IrCharClass)
         else "str"
     ),
-    IrRuleRef: lambda a, q, s, al: _ruleref_type(a.name, q, s),
+    IrRuleRef: lambda a, q, s, al: _ruleref_type(a.value, q, s),
     IrGroup: lambda a, q, s, al: (
         _pattern_type(regex_for_group(a, q), al)
         if not has_ruleref(a)

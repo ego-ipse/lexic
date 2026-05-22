@@ -69,14 +69,14 @@ def _atom_to_lark(item: IrItem) -> str:
         return f'"{_LARK_ESCAPES.encode(atom.value)}"{q_str}'
     if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.body.pattern.replace("/", "\\/"), True), item.quantifier
+            _bracket(atom.body.value.replace("/", "\\/"), True), item.quantifier
         )
     if isinstance(atom, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.pattern.replace("/", "\\/"), False), item.quantifier
+            _bracket(atom.value.replace("/", "\\/"), False), item.quantifier
         )
     if isinstance(atom, IrRuleRef):
-        return f"{to_lark_name(atom.name)}{q_str}"
+        return f"{to_lark_name(atom.value)}{q_str}"
     if isinstance(atom, IrGroup):
         # Literal-only group arms are dropped by Lark (anonymous string terminals).
         # Use regex form so the matched token is preserved in children.
@@ -106,14 +106,14 @@ def _atom_to_lark_regex(item: IrItem) -> str:
         return _regex_terminal(literal_to_regex_pattern(atom.value), item.quantifier)
     if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.body.pattern.replace("/", "\\/"), True), item.quantifier
+            _bracket(atom.body.value.replace("/", "\\/"), True), item.quantifier
         )
     if isinstance(atom, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.pattern.replace("/", "\\/"), False), item.quantifier
+            _bracket(atom.value.replace("/", "\\/"), False), item.quantifier
         )
     if isinstance(atom, IrRuleRef):
-        return f"{to_lark_name(atom.name)}{q_str}"
+        return f"{to_lark_name(atom.value)}{q_str}"
     if isinstance(atom, IrGroup):
         body = " | ".join(_seq_to_lark_regex(s) for s in atom.body.arms)
         return f"({body}){q_str}"
@@ -155,7 +155,7 @@ class LarkBuilder:
             return '""'
         if spec.kind == "alternation":
             return " | ".join(
-                to_lark_name(it.atom.name)
+                to_lark_name(it.atom.value)
                 for it in spec.items
                 if isinstance(it, IrItem) and isinstance(it.atom, IrRuleRef)
             )

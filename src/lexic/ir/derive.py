@@ -86,7 +86,7 @@ def _single_unquantified_ruleref(arm: IrSequence) -> str | None:
         return None
     if item.quantifier != Quantifier(1, 1):
         return None
-    return item.atom.name
+    return item.atom.value
 
 
 def compute_parents(rules: list[IrRule]) -> dict[str, str]:
@@ -144,7 +144,7 @@ class _HoistTransformer(IrTransformer):
             helper_name = _reserve_helper_name(self._parent_name, self._name_set)
             self._name_set.add(helper_name)
             self.helpers.append(IrRule(name=helper_name, body=new_atom.body))
-            return IrItem(atom=IrRuleRef(name=helper_name), quantifier=node.quantifier)
+            return IrItem(atom=IrRuleRef(helper_name), quantifier=node.quantifier)
         return IrItem(atom=new_atom, quantifier=node.quantifier)
 
 
@@ -170,9 +170,9 @@ _FieldHint: TypeAlias = Callable[[_A], str]
 def _bracketed(atom: IrAtom) -> str:
     """Return the bracket-form of a charclass or negated-charclass atom."""
     if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return f"[^{atom.body.pattern}]"
+        return f"[^{atom.body.value}]"
     if isinstance(atom, IrCharClass):
-        return f"[{atom.pattern}]"
+        return f"[{atom.value}]"
     return ""
 
 
@@ -205,7 +205,7 @@ _ATOM_HINT: dict[type, _FieldHint] = {
     IrNot: lambda a: (
         CHARCLASS_NAMES.get(_bracketed(a)) or _sanitize_pattern(_bracketed(a)) or "cc"
     ),
-    IrRuleRef: lambda a: a.name.replace("-", "_"),
+    IrRuleRef: lambda a: a.value.replace("-", "_"),
     # ruleref group → "kind" (structural slot); literal-only group → name from content
     IrGroup: lambda a: "kind" if has_ruleref(a) else _group_hint(a),
 }
@@ -234,7 +234,7 @@ def _group_field_base(a: IrGroup) -> str | None:
 FieldBase: TypeAlias = dict[type[_A], Callable[[_A], str | None]]
 _FIELD_BASE: FieldBase = {
     IrLiteral: lambda a: LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
-    IrRuleRef: lambda a: a.name.replace("-", "_"),
+    IrRuleRef: lambda a: a.value.replace("-", "_"),
     IrCharClass: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
     IrNot: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
     IrGroup: _group_field_base,
@@ -319,7 +319,7 @@ def _build_alternation(rule: IrRule, cls_name: str, parent: str) -> list[RuleSpe
             )
         )
     abstract_items: list[IrItem | IrAlternation] = [
-        IrItem(atom=IrRuleRef(name=n)) for n in arm_names
+        IrItem(atom=IrRuleRef(n)) for n in arm_names
     ]
     abstract = RuleSpec(rule.name, cls_name, parent, "alternation", abstract_items, {})
     return [abstract] + arm_specs
@@ -337,7 +337,7 @@ _BUILDERS: dict[str, _KindBuilder] = {
 
 def _is_non_sem_ref(item: IrItem, rules: frozenset[str]) -> bool:
     """Return True if `item` is an IrItem with an IrRuleRef that references a non-semantic rule."""
-    return isinstance(item.atom, IrRuleRef) and item.atom.name in rules
+    return isinstance(item.atom, IrRuleRef) and item.atom.value in rules
 
 
 def _relax_item(

@@ -521,7 +521,7 @@ def test_derive_marks_non_semantic_field_min_zero():
         for i in expr_spec.items
         if isinstance(i, IrItem)
         and isinstance(i.atom, IrRuleRef)
-        and i.atom.name == "ws"
+        and i.atom.value == "ws"
     )
     assert isinstance(ws_item, IrItem)
     assert ws_item.quantifier.min == 0
@@ -544,7 +544,7 @@ def test_derive_no_non_semantic_when_rule_not_in_set():
         for i in expr_spec.items
         if isinstance(i, IrItem)
         and isinstance(i.atom, IrRuleRef)
-        and i.atom.name == "ws"
+        and i.atom.value == "ws"
     )
     assert isinstance(ws_item, IrItem)
     assert ws_item.quantifier.min == 1

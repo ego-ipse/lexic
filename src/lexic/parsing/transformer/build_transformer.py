@@ -120,7 +120,7 @@ def _build_sequence(
         if isinstance(item.atom, IrRuleRef) and item.quantifier == Quantifier(0, 1):
             # Adjacent optional rule-refs are ambiguous by position alone: ws can match
             # empty, producing a child even when "absent". Check type to disambiguate.
-            expected = by_rule.get(item.atom.name)
+            expected = by_rule.get(item.atom.value)
             if pos < len(children) and not isinstance(children[pos], Token):
                 if expected is None or isinstance(children[pos], expected):
                     val, pos = children[pos], pos + 1

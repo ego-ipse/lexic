@@ -142,11 +142,11 @@ class FlavourEmitter(ABC):
         if isinstance(atom, IrLiteral):
             return self.quote(atom.value)
         if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-            return self.render_charclass(atom.body.pattern, True)
+            return self.render_charclass(atom.body.value, True)
         if isinstance(atom, IrCharClass):
-            return self.render_charclass(atom.pattern, False)
+            return self.render_charclass(atom.value, False)
         if isinstance(atom, IrRuleRef):
-            return atom.name
+            return atom.value
         if isinstance(atom, IrGroup):
             return self.wrap_group(self._emit_alternation(atom.body))
         raise UnsupportedConstructError(

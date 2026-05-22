@@ -45,8 +45,8 @@ def test_visitor_dispatches_by_type():
             seen.append(("lit", node.value))
 
         def visit_IrRuleRef(self, node):  # pylint: disable=invalid-name
-            """Visit an IrRuleRef and record its name."""
-            seen.append(("ref", node.name))
+            """Visit an IrRuleRef and record its value."""
+            seen.append(("ref", node.value))
 
     v = V()
     v.visit(IrLiteral("a"))
@@ -216,8 +216,8 @@ def test_dispatch_visit_returns_value():
 
 _FOLD_2: dict = {
     IrLiteral: lambda n, oc, nc: repr(n.value),
-    IrCharClass: lambda n, oc, nc: f"[{n.pattern}]",
-    IrRuleRef: lambda n, oc, nc: f"ref:{n.name}",
+    IrCharClass: lambda n, oc, nc: f"[{n.value}]",
+    IrRuleRef: lambda n, oc, nc: f"ref:{n.value}",
     IrGroup: lambda n, oc, nc: f"({nc[0]})",
     IrAlternation: lambda n, oc, nc: " | ".join(nc) if nc else "",
     IrSequence: lambda n, oc, nc: " ".join(nc) if nc else "",

@@ -3,7 +3,7 @@
 `parse_charclass_chars` is the generic algorithm used by `runtime.generate`
 and any future flavour that needs to enumerate the chars of a CharClassAtom
 pattern.  Escape-reading is delegated to an `EscapeCodec`; default codec is
-`CANONICAL_ESCAPES` since `CharClassAtom.pattern` is canonical POSIX.
+`CANONICAL_ESCAPES` since `CharClassAtom.value` is canonical POSIX.
 """
 
 from __future__ import annotations

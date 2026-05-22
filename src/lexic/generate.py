@@ -40,7 +40,7 @@ def _gen_charclass(
     count = _pick_count(q, rng)
     if count == 0:
         return ""
-    chars = parse_charclass_chars(atom.pattern)
+    chars = parse_charclass_chars(atom.value)
     if negated:
         excluded = set(chars)
         chars = [c for c in _ASCII_PRINTABLE if c not in excluded]
@@ -84,7 +84,7 @@ def _gen_atom(
     if isinstance(atom, IrRuleRef):
         count = _pick_count(q, rng)
         return "".join(
-            generate(atom.name, specs, rng=rng, max_depth=max_depth - 1)
+            generate(atom.value, specs, rng=rng, max_depth=max_depth - 1)
             for _ in range(count)
         )
     if isinstance(atom, IrGroup):
@@ -123,7 +123,7 @@ def _gen_alternation_kind(
 ) -> str:
     """Generate for an alternation rule by picking a random arm."""
     arm_names = [
-        it.atom.name
+        it.atom.value
         for it in spec.items
         if isinstance(it, IrItem) and isinstance(it.atom, IrRuleRef)
     ]

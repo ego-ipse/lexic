@@ -70,13 +70,13 @@ def test_return_not_swallowed_by_except_exception():
 def test_irfield_reads_string_attribute():
     """IrField returns the attribute value (assumed to be ``Ir_co``-typed)."""
     node = IrRuleRef("my_rule")
-    assert IrField("name").eval(IrNone, node, ()) == "my_rule"
+    assert IrField("value").eval(IrNone, node, ()) == "my_rule"
 
 
 def test_irfield_reads_charclass_pattern():
-    """IrField reads any string attribute, not just ``name``."""
+    """IrField reads any string attribute, not just ``value``."""
     node = IrCharClass("a-z")
-    assert IrField("pattern").eval(IrNone, node, ()) == "a-z"
+    assert IrField("value").eval(IrNone, node, ()) == "a-z"
 
 
 # ── IrCallable ───────────────────────────────────────────────────────
