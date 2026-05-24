@@ -46,12 +46,12 @@ from __future__ import annotations
 import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Self, TypeVar, cast, Sequence
+from typing import Any, ClassVar, Self, Sequence, TypeVar, cast
 
 # ── Identity mixin — decoupled from IrNode hierarchy ──────────────────
 
 
-class IrSelf[Ir_co : "IrSelf"]:
+class IrSelf[Ir_co: "IrSelf"]:
     """Generic identity mixin and IR-protocol root.
 
     Subclasses inherit ``__call__`` (returns self via PEP 673 ``Self``)
@@ -163,6 +163,7 @@ class IrType(IrSelf):
     accept the type at the bound site while preserving the IrSelf
     protocol on the produced value.
     """
+
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Self:
         """Return the bound's neutral element (``self._bound()``)."""
         return type(self)._bound()
@@ -179,20 +180,19 @@ class IrStr(IrType, str):
 
 
 class IrTuple[T](IrType, tuple):
-    """ M """
+    """M"""
 
     _bound: ClassVar[type[tuple]] = tuple
 
     def __new__(cls, *args) -> IrTuple[T]:
-        """ N"""
+        """N"""
         return super().__new__(cls, args)
-
 
 
 # ── Root protocol ─────────────────────────────────────────────────────
 
 
-class IrNode[Ir_co : IrSelf = IrSelf](IrSelf[Ir_co], ABC):
+class IrNode[Ir_co: IrSelf = IrSelf](IrSelf[Ir_co], ABC):
     """Structural protocol every IR node implements.
 
     Generic in ``Ir_co`` — the return type of ``__call__`` when this node is
@@ -234,7 +234,7 @@ class IrNode[Ir_co : IrSelf = IrSelf](IrSelf[Ir_co], ABC):
 # ── Leaf base ─────────────────────────────────────────────────────────
 
 
-class IrLeaf[Ir_co : IrSelf](IrNode[Ir_co]):
+class IrLeaf[Ir_co: IrSelf](IrNode[Ir_co]):
     """Base for all leaf nodes.
 
     Provides identity ``children()`` (empty) and ``rebuild()`` (no-op).
@@ -256,7 +256,7 @@ class IrLeaf[Ir_co : IrSelf](IrNode[Ir_co]):
 # ── Branch-node abstract base ─────────────────────────────────────────
 
 
-class IrStructure[Ir_co : IrSelf](IrNode[Ir_co]):
+class IrStructure[Ir_co: IrSelf](IrNode[Ir_co]):
     """Abstract base for non-leaf IR nodes.
 
     Provides ``_inner_str`` / ``__repr__`` machinery for nodes with extras
@@ -310,7 +310,7 @@ class IrStructure[Ir_co : IrSelf](IrNode[Ir_co]):
 # ── Variable-length homogeneous branch nodes ──────────────────────────
 
 
-class IrCollection[Ir_co : IrSelf](IrStructure[Ir_co]):
+class IrCollection[Ir_co: IrSelf](IrStructure[Ir_co]):
     """Branch node carrying a single variable-length tuple of children.
 
     Concrete subclasses declare::
@@ -348,7 +348,7 @@ class IrCollection[Ir_co : IrSelf](IrStructure[Ir_co]):
 # ── Fixed-arity heterogeneous branch nodes ────────────────────────────
 
 
-class IrComposite[Ir_co : IrSelf](IrStructure[Ir_co]):
+class IrComposite[Ir_co: IrSelf](IrStructure[Ir_co]):
     """Branch node carrying a fixed, named set of children.
 
     Concrete subclasses declare::
@@ -393,7 +393,7 @@ class IrComposite[Ir_co : IrSelf](IrStructure[Ir_co]):
 # ── Superset role ─────────────────────────────────────────────────────
 
 
-class IrSuperSet[Ir_co : IrSelf = IrSelf](IrNode[Ir_co]):
+class IrSuperSet[Ir_co: IrSelf = IrSelf](IrNode[Ir_co]):
     """IrNode parent of ``IrAtom`` and any future role-marker supersets.
 
     Class-local ``Ir_co`` TypeVar so concrete atoms can multi-inherit with
@@ -401,7 +401,7 @@ class IrSuperSet[Ir_co : IrSelf = IrSelf](IrNode[Ir_co]):
     """
 
 
-class IrAtom[Ir_co : IrSelf = IrSelf](IrSuperSet[Ir_co]):
+class IrAtom[Ir_co: IrSelf = IrSelf](IrSuperSet[Ir_co]):
     """Role marker for IR nodes that ``IrItem`` can wrap with a quantifier.
 
     Decoupled from leaf-vs-composite structure. Concrete atoms multi-
@@ -555,7 +555,3 @@ class IrRule(IrComposite):
     _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
     name: IrStr
     body: IrAlternation
-
-body = IrAlternation(IrTuple())
-rule = IrRule(IrStr("r"), body)
-rule2 = IrRule("r", body)

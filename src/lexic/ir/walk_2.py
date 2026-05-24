@@ -35,7 +35,7 @@ from lexic.ir.nodes import IrCollection, IrLiteral, IrNode, IrSelf, IrTuple
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrDispatch[Ir_co : IrSelf](IrCollection[Ir_co]):
+class IrDispatch[Ir_co: IrSelf](IrCollection[Ir_co]):
     """Action-driven IR dispatcher.
 
     Holds a per-type ``actions`` table. ``eval`` (or ``apply``) resolves

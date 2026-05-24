@@ -21,6 +21,7 @@ from lexic.ir.nodes import (
     IrCollection,
     IrComposite,
     IrLeaf,
+    IrLiteral,
     IrNode,
     IrNone,
     IrSelf,
@@ -72,7 +73,7 @@ class IrField[Ir_co: IrStr = IrStr](IrLeaf[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class IrCallable[Ir_co : IrSelf](IrLeaf[Ir_co]):
+class IrCallable[Ir_co: IrSelf](IrLeaf[Ir_co]):
     """Procedural body. ``handler(d, n, nc) -> Ir_co``.
 
     Generic in ``Ir_co``; callers narrow at construction:
@@ -95,7 +96,7 @@ class IrCallable[Ir_co : IrSelf](IrLeaf[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True)
-class IrChild[Ir_co : IrSelf](IrLeaf[Ir_co]):
+class IrChild[Ir_co: IrSelf](IrLeaf[Ir_co]):
     """Single dispatched child by name from ``n``'s ``_child_attrs``.
 
     ``Ir_co`` is the dispatcher's per-child result type — ``str`` under
@@ -111,16 +112,16 @@ class IrChild[Ir_co : IrSelf](IrLeaf[Ir_co]):
         attrs = getattr(type(n), "_child_attrs", ())
         try:
             idx = attrs.index(self.name)
-            return self.bind(new_children[idx])
-        except IndexError as exc:
+        except ValueError as exc:
             raise ValueError(
                 f"IrChild({self.name!r}): {type(n).__name__} has no such child "
                 f"(known: {attrs})"
             ) from exc
+        return self.bind(new_children[idx])
 
 
 @dataclass(frozen=True, slots=True)
-class IrChildren[Ir_co : IrSelf = IrSelf](IrLeaf[Ir_co]):
+class IrChildren[Ir_co: IrSelf = IrSelf](IrLeaf[Ir_co]):
     """Full tuple of dispatched children from ``n``'s ``_items_attr``.
 
     ``Ir_co`` is the dispatcher's per-child result type. Return type is
@@ -149,6 +150,7 @@ class IrChildren[Ir_co : IrSelf = IrSelf](IrLeaf[Ir_co]):
 
         return self.bind(new_children)
 
+
 # ── String concatenation ──────────────────────────────────────────────
 
 
@@ -174,35 +176,34 @@ class IrConcat[Ir_co: IrStr = IrStr](IrCollection[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrJoin[Ir_co: IrStr](IrComposite[Ir_co]):
-    """Variable-arity join. Evaluate ``children_op`` to get an iterable,
-    then join with ``separator``; fall back to ``empty`` when no items.
+class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
+    """Evaluate ``parts`` in order; join non-empty results with ``separator``,
+    fall back to ``empty`` when ``parts`` is empty.
 
-    Generic in ``Ir_co`` (bounded by :class:`IrType`, defaulting to
-    :class:`IrStr`). ``separator`` and ``empty`` are ``IrNode[Ir_co]`` so
-    both can be computed at eval time (``IrField``, ``IrCallable``,
-    nested ``IrJoin``) rather than restricted to static values.
+    All three children are :class:`IrNode`\\ s and participate in tree
+    walks / rebuilds. ``parts`` is an :class:`IrTuple` (itself an IrNode
+    via :class:`IrType`); ``separator`` and ``empty`` are arbitrary IrNodes
+    computed at eval time.
     """
 
-    _child_attrs: ClassVar[tuple[str, ...]] = ("children_op", "separator", "empty")
-    children_op: IrNode[Ir_co]
-    separator: IrNode[Ir_co]
-    empty: IrNode[Ir_co]
+    _child_attrs: ClassVar[tuple[str, ...]] = ("parts", "separator", "empty")
+    parts: IrTuple = IrTuple()
+    separator: IrNode[Ir_co] = IrLiteral("")
+    empty: IrNode[Ir_co] = IrLiteral("")
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Evaluate items; join with ``separator`` or return ``empty``."""
-        items = self.children_op.eval(d, n, nc)
-        if not items:
+        """Evaluate parts; join with ``separator`` or return ``empty``."""
+        if not self.parts:
             return self.empty.eval(d, n, nc)
         sep = self.separator.eval(d, n, nc)
-        return self.bound(self.bound(sep).join(items))
+        return self.bound(self.bound(sep).join(p.eval(d, n, nc) for p in self.parts))
 
 
 # ── Truthy-field branch ───────────────────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrCond[Ir_co : IrSelf](IrComposite[Ir_co]):
+class IrCond[Ir_co: IrSelf](IrComposite[Ir_co]):
     """If ``bool(getattr(n, field))`` is true, evaluate ``then_op``;
     else ``else_op``. Both branches must share ``Ir_co``.
     """
@@ -286,7 +287,7 @@ class IrRebuild(IrLeaf):
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class IrAction[Ir_co : IrSelf](IrComposite[Ir_co]):
+class IrAction[Ir_co: IrSelf](IrComposite[Ir_co]):
     """Bind a target IR node type to a callable IrNode body.
 
     ``target_type`` is metadata (a concrete IR-node type, rendered in

@@ -91,7 +91,13 @@ def test_ircallable_invokes_handler_with_all_args():
         received.append((d, n, nc))
         return IrStr("ok")
 
-    result = IrCallable[IrStr](handler).eval(IrNone, IrNone, IrTuple("c",))
+    result = IrCallable[IrStr](handler).eval(
+        IrNone,
+        IrNone,
+        IrTuple(
+            "c",
+        ),
+    )
     assert result == "ok"
     assert received == [(IrNone, IrNone, ("c",))]
 
@@ -125,7 +131,7 @@ def test_irchild_reads_dispatched_child_by_name():
 def test_irchild_reads_second_child():
     """IrChild("quantifier") returns new_children[1] for an IrItem."""
     item = IrItem(atom=IrLiteral("x"))
-    new_children = IrTuple("dispatched_atom", "dispatched_quantifier")
+    new_children = IrTuple(IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
     result = IrChild[IrStr]("quantifier").eval(IrNone, item, new_children)
     assert result == "dispatched_quantifier"
 
@@ -139,10 +145,15 @@ def test_irchild_raises_on_unknown_name():
 
 # ── IrChildren ───────────────────────────────────────────────────────
 
+
 def test_irchildren_returns_full_new_children_tuple():
     """IrChildren("items") returns new_children for a node whose
     _items_attr is "items"."""
-    seq = IrSequence(items=IrTuple(IrItem(IrLiteral("a")),))
+    seq = IrSequence(
+        items=IrTuple(
+            IrItem(IrLiteral("a")),
+        )
+    )
     new_children = IrTuple("result_a")
     result = IrChildren[IrStr]("items").eval(IrNone, seq, new_children)
     assert result == ("result_a",)
@@ -161,7 +172,9 @@ def test_irchildren_raises_when_items_attr_mismatches():
 def test_irconcat_joins_parts_in_order():
     """IrConcat evaluates parts and concatenates results."""
     op = IrConcat(
-        parts=IrTuple(IrLiteral(IrStr('"')), IrLiteral(IrStr("x")), IrLiteral(IrStr('"')))
+        parts=IrTuple(
+            IrLiteral(IrStr('"')), IrLiteral(IrStr("x")), IrLiteral(IrStr('"'))
+        )
     )
     assert op.eval(IrNone, IrNone, ()) == '"x"'
 
@@ -175,9 +188,11 @@ def test_irconcat_empty_parts_returns_empty_string():
 
 
 def test_irjoin_joins_items_with_separator():
-    """IrJoin evaluates children_op and joins results with separator.value."""
+    """IrJoin evaluates parts and joins results with separator.value."""
     op = IrJoin(
-        children_op=IrSequence(IrTuple(IrStr("a"), IrStr("b"), IrStr("c"))),
+        parts=IrTuple(
+            IrLiteral(IrStr("a")), IrLiteral(IrStr("b")), IrLiteral(IrStr("c"))
+        ),
         separator=IrLiteral(IrStr(" | ")),
         empty=IrLiteral(IrStr("")),
     )
@@ -185,9 +200,9 @@ def test_irjoin_joins_items_with_separator():
 
 
 def test_irjoin_returns_empty_value_when_no_items():
-    """IrJoin returns empty.value when children_op produces an empty tuple."""
+    """IrJoin returns empty.value when parts is empty."""
     op = IrJoin(
-        children_op=IrSequence(IrTuple()),
+        parts=IrTuple(),
         separator=IrLiteral(IrStr(" | ")),
         empty=IrLiteral(IrStr("<empty>")),
     )
