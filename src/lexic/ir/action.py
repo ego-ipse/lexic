@@ -49,7 +49,7 @@ class _Return(BaseException):
 # ── Attribute reader ──────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class IrField[Ir_co: IrStr = IrStr](IrLeaf[Ir_co]):
     """Read a typed attribute from the dispatched node ``n``.
 
@@ -72,7 +72,7 @@ class IrField[Ir_co: IrStr = IrStr](IrLeaf[Ir_co]):
 # ── Procedural escape hatch ───────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, eq=False)
+@dataclass(frozen=True, slots=True, eq=False, init=False)
 class IrCallable[Ir_co: IrSelf](IrLeaf[Ir_co]):
     """Procedural body. ``handler(d, n, nc) -> Ir_co``.
 
@@ -95,7 +95,7 @@ class IrCallable[Ir_co: IrSelf](IrLeaf[Ir_co]):
 # ── Sibling lookup ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class IrChild[Ir_co: IrSelf](IrLeaf[Ir_co]):
     """Single dispatched child by name from ``n``'s ``_child_attrs``.
 
@@ -120,7 +120,7 @@ class IrChild[Ir_co: IrSelf](IrLeaf[Ir_co]):
         return self.bind(new_children[idx])
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class IrChildren[Ir_co: IrSelf = IrSelf](IrLeaf[Ir_co]):
     """Full tuple of dispatched children from ``n``'s ``_items_attr``.
 
@@ -154,7 +154,7 @@ class IrChildren[Ir_co: IrSelf = IrSelf](IrLeaf[Ir_co]):
 # ── String concatenation ──────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrConcat[Ir_co: IrStr = IrStr](IrCollection[Ir_co]):
     """Evaluate ``parts`` in order; return ``bound().join(...)`` of results.
 
@@ -175,7 +175,7 @@ class IrConcat[Ir_co: IrStr = IrStr](IrCollection[Ir_co]):
 # ── Variable-arity join with separator ────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
     """Evaluate ``parts`` in order; join non-empty results with ``separator``,
     fall back to ``empty`` when ``parts`` is empty.
@@ -202,7 +202,7 @@ class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
 # ── Truthy-field branch ───────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrCond[Ir_co: IrSelf](IrComposite[Ir_co]):
     """If ``bool(getattr(n, field))`` is true, evaluate ``then_op``;
     else ``else_op``. Both branches must share ``Ir_co``.
@@ -222,7 +222,7 @@ class IrCond[Ir_co: IrSelf](IrComposite[Ir_co]):
 # ── Short-circuit return ──────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, eq=False, repr=False)
+@dataclass(frozen=True, slots=True, eq=False, init=False, repr=False)
 class IrReturn[Ir_co](IrLeaf, _Return):
     """Short-circuit IR node that IS-A control-flow exception.
 
@@ -247,7 +247,7 @@ class IrReturn[Ir_co](IrLeaf, _Return):
 # ── Default bodies ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrPass(IrLeaf[IrSelf]):
     """No-op body — evaluates to :data:`IrNone`.
 
@@ -261,7 +261,7 @@ class IrPass(IrLeaf[IrSelf]):
         return IrNone
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrRebuild(IrLeaf):
     """Walk ``n``'s children via ``d``, then rebuild ``n`` with the result.
 
@@ -286,7 +286,7 @@ class IrRebuild(IrLeaf):
 # ── Action binding ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, eq=False, repr=False)
+@dataclass(frozen=True, slots=True, eq=False, init=False, repr=False)
 class IrAction[Ir_co: IrSelf](IrComposite[Ir_co]):
     """Bind a target IR node type to a callable IrNode body.
 

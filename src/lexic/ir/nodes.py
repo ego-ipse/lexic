@@ -44,8 +44,10 @@ uses ``[``/``]``.
 from __future__ import annotations
 
 import dataclasses
+import functools
+import typing
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field
 from typing import Any, ClassVar, Self, Sequence, TypeVar, cast
 
 # ── Identity mixin — decoupled from IrNode hierarchy ──────────────────
@@ -168,6 +170,17 @@ class IrType(IrSelf):
         """Return the bound's neutral element (``self._bound()``)."""
         return type(self)._bound()
 
+    @classmethod
+    def coerce(cls, value: Any) -> Self:
+        """Wrap ``value`` as an instance of ``cls``. Default: single-arg ctor.
+
+        Subclasses override when the constructor shape differs
+        (see :meth:`IrTuple.coerce`). The ``cls`` call is dynamically
+        dispatched — concrete subclasses (e.g. :class:`IrStr`) provide
+        the value-accepting constructor via their native python base.
+        """
+        return value if isinstance(value, cls) else cast(Any, cls)(value)
+
 
 class IrStr(IrType, str):
     """``IrSelf+str`` typed class. ``IrStr()`` is the empty-str singleton.
@@ -180,18 +193,24 @@ class IrStr(IrType, str):
 
 
 class IrTuple[T](IrType, tuple):
-    """M"""
+    """``IrSelf+tuple`` typed class. ``IrTuple()`` is the empty-tuple singleton."""
 
     _bound: ClassVar[type[tuple]] = tuple
 
     def __new__(cls, *args) -> IrTuple[T]:
-        """N"""
+        """Build from positional items: ``IrTuple(a, b, c)``."""
         return super().__new__(cls, args)
+
+    @classmethod
+    def coerce(cls, value: Any) -> Self:
+        """Iterable → IrTuple via ``cls(*value)``; pass through if already ``cls``."""
+        return value if isinstance(value, cls) else cls(*value)
 
 
 # ── Root protocol ─────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrNode[Ir_co: IrSelf = IrSelf](IrSelf[Ir_co], ABC):
     """Structural protocol every IR node implements.
 
@@ -206,6 +225,17 @@ class IrNode[Ir_co: IrSelf = IrSelf](IrSelf[Ir_co], ABC):
     ``_str_name`` is auto-derived by ``__init_subclass__``: strip the ``Ir``
     prefix, uppercase the remainder. Override the class attribute to
     customise (e.g. ``_str_name: ClassVar[str] = "SEQ"``).
+
+    Construction
+    ------------
+    Every subclass declared with ``@dataclass(..., init=False)`` inherits
+    :meth:`__init__`. It accepts positional or keyword args matching the
+    subclass's dataclass fields, and for any field annotated as an
+    :class:`IrType` subclass it delegates widening to
+    :meth:`IrType.coerce` — so callers can pass raw ``str`` where
+    :class:`IrStr` is expected, raw iterables where :class:`IrTuple` is
+    expected, etc. Missing fields fall back to the dataclass default; if
+    none, the field's ``IrType`` neutral element is used.
     """
 
     _str_name: ClassVar[str]
@@ -217,6 +247,40 @@ class IrNode[Ir_co: IrSelf = IrSelf](IrSelf[Ir_co], ABC):
         if "_str_name" in cls.__dict__:
             return
         cls._str_name = cls.__name__.removeprefix("Ir").upper()
+
+    @classmethod
+    @functools.cache
+    def _ir_field_types(cls) -> dict[str, type[IrType] | None]:
+        """Per-field ``IrType`` subclass (origin) when annotated, else ``None``."""
+        out: dict[str, type[IrType] | None] = {}
+        for name, hint in typing.get_type_hints(cls).items():
+            origin = typing.get_origin(hint) or hint
+            out[name] = (
+                origin
+                if isinstance(origin, type) and issubclass(origin, IrType)
+                else None
+            )
+        return out
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        cls = type(self)
+        fields_list = dataclasses.fields(cls)
+        ir_types = cls._ir_field_types()
+        kwargs.update({fields_list[i].name: a for i, a in enumerate(args)})
+        for f in fields_list:
+            ir = ir_types.get(f.name)
+            if f.name in kwargs:
+                v = kwargs[f.name]
+                val = ir.coerce(v) if ir is not None else v
+            elif f.default is not MISSING:
+                val = f.default
+            elif f.default_factory is not MISSING:
+                val = f.default_factory()
+            elif ir is not None:
+                val = ir()
+            else:
+                raise TypeError(f"{cls.__name__}: missing field {f.name!r}")
+            object.__setattr__(self, f.name, val)
 
     @abstractmethod
     def _inner_str(self) -> str:
@@ -423,24 +487,12 @@ class IrAtom[Ir_co: IrSelf = IrSelf](IrSuperSet[Ir_co]):
 class IrStrLeaf[Ir_co: IrStr](IrLeaf[Ir_co]):
     """Base for leaves carrying a single :class:`IrStr`-shaped value.
 
-    Provides a unified ``__init__(value: str)`` that coerces the raw
-    ``str`` to the bound ``Ir_co`` (an :class:`IrStr` subclass) via
-    :attr:`IrSelf.bound`. Concrete string-leaves (:class:`IrLiteral`,
-    :class:`IrCharClass`, :class:`IrRuleRef`) inherit this constructor
-    unchanged — their identity is the class, the payload is ``.value``.
-
     Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
-    :class:`IrStr`).
+    :class:`IrStr`). The base :meth:`IrNode.__init__` coerces the raw
+    ``str`` payload via :meth:`IrStr.coerce`.
     """
 
     value: Ir_co
-
-    def __init__(self, value: str) -> None:
-        """Coerce ``value`` to the bound ``Ir_co`` (typically :class:`IrStr`).
-
-        :param value: Raw ``str`` payload; coerced via ``self.bound(value)``.
-        """
-        object.__setattr__(self, "value", self.bound(value))
 
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
         """Return the stored value (already coerced to ``Ir_co``)."""
@@ -464,7 +516,7 @@ class IrRuleRef(IrStrLeaf, IrAtom):
     _str_name: ClassVar[str] = "REF"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class Quantifier(IrLeaf):
     """Repetition bounds. ``max=None`` means unbounded.
 
@@ -493,7 +545,7 @@ class Quantifier(IrLeaf):
 # ── Collection nodes ──────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrSequence(IrCollection):
     """Concatenation of items."""
 
@@ -502,7 +554,7 @@ class IrSequence(IrCollection):
     items: IrTuple[IrItem] = IrTuple()
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrAlternation(IrCollection):
     """Choice between sequences. Always >= 1 arm."""
 
@@ -511,7 +563,7 @@ class IrAlternation(IrCollection):
     arms: IrTuple[IrSequence] = IrTuple()
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrAst(IrCollection):
     """Full grammar: rules + start-rule name."""
 
@@ -523,7 +575,7 @@ class IrAst(IrCollection):
 # ── Composite nodes ───────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrGroup(IrComposite, IrAtom):
     """Parenthesised group. Body is always an ``IrAlternation``."""
 
@@ -531,7 +583,7 @@ class IrGroup(IrComposite, IrAtom):
     body: IrAlternation
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrNot[Ir_co: IrAtom = IrAtom](IrComposite, IrAtom):
     """Negation. Wraps an atom; ``IrNot(IrCharClass("a-z"))`` is ``[^a-z]``."""
 
@@ -539,7 +591,7 @@ class IrNot[Ir_co: IrAtom = IrAtom](IrComposite, IrAtom):
     body: Ir_co
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrItem(IrComposite):
     """An atom (leaf or group) with a quantifier."""
 
@@ -548,7 +600,7 @@ class IrItem(IrComposite):
     quantifier: Quantifier = field(default_factory=Quantifier)
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrRule(IrComposite):
     """A named rule. Body is always an ``IrAlternation``, even single-arm."""
 
