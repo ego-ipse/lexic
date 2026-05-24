@@ -15,7 +15,7 @@ to a slot that has no relevant value.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, ClassVar, cast
+from typing import Callable, ClassVar, Sequence
 
 from lexic.ir.nodes import (
     IrCollection,
@@ -25,6 +25,7 @@ from lexic.ir.nodes import (
     IrNone,
     IrSelf,
     IrStr,
+    IrTuple,
 )
 
 # ── Control-flow exception ────────────────────────────────────────────
@@ -58,7 +59,7 @@ class IrField[Ir_co: IrStr = IrStr](IrLeaf[Ir_co]):
 
     name: str
 
-    def eval(self, _d: IrSelf, n: IrSelf, _nc: tuple, /) -> Ir_co:
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
         """Read ``getattr(n, self.name)`` and wrap via ``self.bound(value)``.
 
         For ``Ir_co=IrStr`` the wrap is ``IrStr(value)`` — a no-op on
@@ -71,16 +72,16 @@ class IrField[Ir_co: IrStr = IrStr](IrLeaf[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class IrCallable[Ir_co = IrSelf](IrLeaf[Ir_co]):
+class IrCallable[Ir_co : IrSelf](IrLeaf[Ir_co]):
     """Procedural body. ``handler(d, n, nc) -> Ir_co``.
 
     Generic in ``Ir_co``; callers narrow at construction:
     ``IrCallable[str](my_handler)``.
     """
 
-    handler: Callable[[IrSelf, IrSelf, tuple], Ir_co]
+    handler: Callable[[IrSelf, IrSelf, Sequence[IrSelf]], Ir_co]
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Forward to the wrapped handler."""
         return self.handler(d, n, nc)
 
@@ -94,7 +95,7 @@ class IrCallable[Ir_co = IrSelf](IrLeaf[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True)
-class IrChild[Ir_co = IrSelf](IrLeaf[Ir_co]):
+class IrChild[Ir_co : IrSelf](IrLeaf[Ir_co]):
     """Single dispatched child by name from ``n``'s ``_child_attrs``.
 
     ``Ir_co`` is the dispatcher's per-child result type — ``str`` under
@@ -105,21 +106,21 @@ class IrChild[Ir_co = IrSelf](IrLeaf[Ir_co]):
 
     name: str
 
-    def eval(self, _d: IrSelf, n: IrSelf, new_children: tuple, /) -> Ir_co:
+    def eval(self, _d: IrSelf, n: IrSelf, new_children: Sequence[IrSelf], /) -> Ir_co:
         """Index into ``new_children`` at the position of ``self.name``."""
         attrs = getattr(type(n), "_child_attrs", ())
         try:
             idx = attrs.index(self.name)
-        except ValueError as exc:
+            return self.bind(new_children[idx])
+        except IndexError as exc:
             raise ValueError(
                 f"IrChild({self.name!r}): {type(n).__name__} has no such child "
                 f"(known: {attrs})"
             ) from exc
-        return new_children[idx]
 
 
 @dataclass(frozen=True, slots=True)
-class IrChildren[Ir_co = IrSelf](IrLeaf[tuple[Ir_co, ...]]):
+class IrChildren[Ir_co : IrSelf = IrSelf](IrLeaf[Ir_co]):
     """Full tuple of dispatched children from ``n``'s ``_items_attr``.
 
     ``Ir_co`` is the dispatcher's per-child result type. Return type is
@@ -135,9 +136,9 @@ class IrChildren[Ir_co = IrSelf](IrLeaf[tuple[Ir_co, ...]]):
         self,
         _d: IrSelf,
         n: IrSelf,
-        new_children: tuple,
+        new_children: Sequence[IrSelf],
         /,
-    ) -> tuple[Ir_co, ...]:
+    ) -> Ir_co:
         """Return ``new_children`` after checking it matches ``_items_attr``."""
         items_attr = getattr(type(n), "_items_attr", None)
         if items_attr != self.name:
@@ -145,8 +146,8 @@ class IrChildren[Ir_co = IrSelf](IrLeaf[tuple[Ir_co, ...]]):
                 f"IrChildren({self.name!r}): {type(n).__name__} _items_attr "
                 f"is {items_attr!r}"
             )
-        return new_children
 
+        return self.bind(new_children)
 
 # ── String concatenation ──────────────────────────────────────────────
 
@@ -162,9 +163,9 @@ class IrConcat[Ir_co: IrStr = IrStr](IrCollection[Ir_co]):
     """
 
     _items_attr: ClassVar[str] = "parts"
-    parts: tuple[IrNode[Ir_co], ...] = ()
+    parts: IrTuple = IrTuple()
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Concatenate evaluated parts via the bound's neutral element."""
         return self.bound(self.bound().join(p.eval(d, n, nc) for p in self.parts))
 
@@ -173,7 +174,7 @@ class IrConcat[Ir_co: IrStr = IrStr](IrCollection[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
+class IrJoin[Ir_co: IrStr](IrComposite[Ir_co]):
     """Variable-arity join. Evaluate ``children_op`` to get an iterable,
     then join with ``separator``; fall back to ``empty`` when no items.
 
@@ -184,11 +185,11 @@ class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("children_op", "separator", "empty")
-    children_op: IrNode[tuple[Ir_co, ...]]
+    children_op: IrNode[Ir_co]
     separator: IrNode[Ir_co]
     empty: IrNode[Ir_co]
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Evaluate items; join with ``separator`` or return ``empty``."""
         items = self.children_op.eval(d, n, nc)
         if not items:
@@ -201,7 +202,7 @@ class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrCond[Ir_co = IrSelf](IrComposite[Ir_co]):
+class IrCond[Ir_co : IrSelf](IrComposite[Ir_co]):
     """If ``bool(getattr(n, field))`` is true, evaluate ``then_op``;
     else ``else_op``. Both branches must share ``Ir_co``.
     """
@@ -211,7 +212,7 @@ class IrCond[Ir_co = IrSelf](IrComposite[Ir_co]):
     then_op: IrNode[Ir_co]
     else_op: IrNode[Ir_co]
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Branch on the truthiness of ``getattr(n, self.field)``."""
         branch = self.then_op if getattr(n, self.field) else self.else_op
         return branch.eval(d, n, nc)
@@ -221,7 +222,7 @@ class IrCond[Ir_co = IrSelf](IrComposite[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class IrReturn[Ir_co = IrSelf](IrLeaf[Ir_co], _Return):
+class IrReturn[Ir_co](IrLeaf, _Return):
     """Short-circuit IR node that IS-A control-flow exception.
 
     ``IrReturn`` mixes :class:`IrLeaf` (structural IR contract) with
@@ -237,7 +238,7 @@ class IrReturn[Ir_co = IrSelf](IrLeaf[Ir_co], _Return):
         """Initialise the BaseException machinery (``self.args``)."""
         BaseException.__init__(self)
 
-    def eval(self, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> Ir_co:
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
         """Raise ``self`` — unwinds to the dispatcher's catch."""
         raise self
 
@@ -254,13 +255,13 @@ class IrPass(IrLeaf[IrSelf]):
     ``pass``.
     """
 
-    def eval(self, _d: IrSelf, _n: IrSelf, _nc: tuple, /) -> IrSelf:
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
         """Return :data:`IrNone`."""
         return IrNone
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrRebuild(IrLeaf[IrNode]):
+class IrRebuild(IrLeaf):
     """Walk ``n``'s children via ``d``, then rebuild ``n`` with the result.
 
     Canonical body for transformer defaults. Always rebuilds — change
@@ -269,7 +270,7 @@ class IrRebuild(IrLeaf[IrNode]):
     :raises: whatever ``d.eval`` or ``n.rebuild`` raises.
     """
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> IrNode:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Walk ``n.children()`` via ``d`` (or accept ``nc``), then rebuild.
 
         :param d: Dispatcher driving child recursion.
@@ -277,15 +278,15 @@ class IrRebuild(IrLeaf[IrNode]):
         :param nc: Pre-dispatched children, if any.
         :returns: ``n.rebuild(new_children)``.
         """
-        new_children = nc or tuple(d.eval(d, c, ()) for c in n.children())
-        return cast(IrNode, n.rebuild(new_children))
+        new_children = nc or IrTuple(d.eval(d, c, ()) for c in n.children())
+        return n.rebuild(new_children)
 
 
 # ── Action binding ────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class IrAction[Ir_co = IrSelf](IrComposite[Ir_co]):
+class IrAction[Ir_co : IrSelf](IrComposite[Ir_co]):
     """Bind a target IR node type to a callable IrNode body.
 
     ``target_type`` is metadata (a concrete IR-node type, rendered in
@@ -297,7 +298,7 @@ class IrAction[Ir_co = IrSelf](IrComposite[Ir_co]):
     target_type: type[IrSelf]
     body: IrNode[Ir_co]
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Delegate to the body."""
         return self.body.eval(d, n, nc)
 

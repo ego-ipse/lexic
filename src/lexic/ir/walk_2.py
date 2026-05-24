@@ -27,15 +27,15 @@ A bare :class:`_Return` (not an IrReturn) propagates past the dispatcher.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar, cast
+from typing import ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction, IrPass, IrRebuild, IrReturn
-from lexic.ir.nodes import IrCollection, IrLiteral, IrNode, IrSelf
+from lexic.ir.nodes import IrCollection, IrLiteral, IrNode, IrSelf, IrTuple
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrDispatch[Ir_co = IrSelf](IrCollection[Ir_co]):
+class IrDispatch[Ir_co : IrSelf](IrCollection[Ir_co]):
     """Action-driven IR dispatcher.
 
     Holds a per-type ``actions`` table. ``eval`` (or ``apply``) resolves
@@ -68,7 +68,7 @@ class IrDispatch[Ir_co = IrSelf](IrCollection[Ir_co]):
         """
         return ()
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: tuple, /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Resolve an action for ``type(n)`` and invoke its body.
 
         :param d: The dispatcher driving the walk. Action bodies use this
@@ -83,9 +83,11 @@ class IrDispatch[Ir_co = IrSelf](IrCollection[Ir_co]):
         """
         try:
             return self._resolve(type(n)).body.eval(d, n, nc)
-        except IrReturn[Ir_co] as ret:
-            # IrReturn is a control-flow exception; surface its value to the caller.
-            return ret.value
+        except IrReturn as ret:
+            ret_val = ret.value
+            if not isinstance(ret_val, self.bound):
+                raise ret
+            return ret_val
 
     def apply(self, root: IrNode) -> Ir_co:
         """Friendly entry — equivalent to ``self.eval(self, root, ())``.
@@ -93,7 +95,7 @@ class IrDispatch[Ir_co = IrSelf](IrCollection[Ir_co]):
         :param root: Root IR node to dispatch.
         :returns: The dispatched ``Ir_co`` value.
         """
-        return self.eval(cast(IrSelf, self), root, ())
+        return self.eval(self, root, IrTuple())
 
     def _resolve(self, node_type: type) -> IrAction[Ir_co]:
         """Concrete-first MRO walk against ``self.actions``; memoised.
