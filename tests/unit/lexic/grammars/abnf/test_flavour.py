@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from lexic.grammars.abnf.flavour import AbnfFlavour
 from lexic.grammars.flavour import Flavour
-from lexic.ir.nodes import IrCharClass, IrGroup, IrLiteral, Quantifier
+from lexic.ir.nodes import IrCharClass, IrGroup, IrLiteral, IrQuantifier
 from lexic.parsing.meta_parser import MetaGrammarParser
 
 
@@ -25,29 +25,29 @@ def test_abnf_flavour_metadata():
 
 
 def test_parse_quantifier_star_means_zero_or_more():
-    """`"*"` -> `Quantifier(0, None)`"""
-    assert AbnfFlavour.parse_quantifier("*") == Quantifier(0, None)
+    """`"*"` -> `IrQuantifier(0, None)`"""
+    assert AbnfFlavour.parse_quantifier("*") == IrQuantifier(0, None)
 
 
 def test_parse_quantifier_n_star_means_n_or_more():
-    """`"1*"` -> `Quantifier(1, None)`"""
-    assert AbnfFlavour.parse_quantifier("1*") == Quantifier(1, None)
-    assert AbnfFlavour.parse_quantifier("3*") == Quantifier(3, None)
+    """`"1*"` -> `IrQuantifier(1, None)`"""
+    assert AbnfFlavour.parse_quantifier("1*") == IrQuantifier(1, None)
+    assert AbnfFlavour.parse_quantifier("3*") == IrQuantifier(3, None)
 
 
 def test_parse_quantifier_star_n_means_zero_to_n():
-    """`"*5"` -> `Quantifier(0, 5)`"""
-    assert AbnfFlavour.parse_quantifier("*5") == Quantifier(0, 5)
+    """`"*5"` -> `IrQuantifier(0, 5)`"""
+    assert AbnfFlavour.parse_quantifier("*5") == IrQuantifier(0, 5)
 
 
 def test_parse_quantifier_n_star_m_means_n_to_m():
-    """`"2*5"` -> `Quantifier(2, 5)`"""
-    assert AbnfFlavour.parse_quantifier("2*5") == Quantifier(2, 5)
+    """`"2*5"` -> `IrQuantifier(2, 5)`"""
+    assert AbnfFlavour.parse_quantifier("2*5") == IrQuantifier(2, 5)
 
 
 def test_parse_quantifier_n_alone_means_exactly_n():
-    """`"3"` -> `Quantifier(3, 3)"""
-    assert AbnfFlavour.parse_quantifier("3") == Quantifier(3, 3)
+    """`"3"` -> `IrQuantifier(3, 3)"""
+    assert AbnfFlavour.parse_quantifier("3") == IrQuantifier(3, 3)
 
 
 # ── parse_charclass ──────────────────────────────────────────────────

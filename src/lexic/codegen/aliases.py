@@ -28,9 +28,9 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNot,
+    IrQuantifier,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 from lexic.ir.walk import IrVisitor
@@ -54,8 +54,8 @@ def _bracket(pattern: str, negated: bool) -> str:
     return f"[{'^' if negated else ''}{pattern}]"
 
 
-def _suffix(q: Quantifier) -> str:
-    """Render a Quantifier as its regex suffix."""
+def _suffix(q: IrQuantifier) -> str:
+    """Render a IrQuantifier as its regex suffix."""
     return bounds_to_quantifier(q.min, q.max)
 
 
@@ -65,9 +65,9 @@ def _camel(s: str) -> str:
 
 
 def regex_for_charclass(
-    cc: IrCharClass, q: Quantifier, *, negated: bool = False
+    cc: IrCharClass, q: IrQuantifier, *, negated: bool = False
 ) -> str:
-    """Build the anchored regex for an IrCharClass at the given Quantifier.
+    """Build the anchored regex for an IrCharClass at the given IrQuantifier.
 
     :param cc: The character class node.
     :param q: The quantifier to apply.
@@ -104,8 +104,8 @@ def _alt_regex_fragment(alt: IrAlternation) -> str:
     return "|".join(_seq_regex_fragment(s) for s in alt.arms)
 
 
-def regex_for_group(grp: IrGroup, q: Quantifier) -> str:
-    """Build the anchored regex for a pure-pattern IrGroup at the given Quantifier."""
+def regex_for_group(grp: IrGroup, q: IrQuantifier) -> str:
+    """Build the anchored regex for a pure-pattern IrGroup at the given IrQuantifier."""
     return f"^({_alt_regex_fragment(grp.body)}){_suffix(q)}$"
 
 
@@ -113,7 +113,7 @@ def _name_for_charclass(cc: IrCharClass, *, negated: bool = False) -> str:
     """Return the Tier-2 CamelCase name for ``cc``, or empty string if no match.
 
     Looks up the bracket-only form (no quantifier suffix) in CHARCLASS_NAMES.
-    Quantifier-driven disambiguation happens in the collector.
+    IrQuantifier-driven disambiguation happens in the collector.
 
     :param cc: The character class node.
     :param negated: Whether this charclass is negated (wrapped in IrNot).
@@ -166,7 +166,7 @@ class _PatternAliasVisitor(IrVisitor):
             )
         self.generic_visit(node)
 
-    def _visit_group_item(self, atom: IrGroup, q: Quantifier, node: IrItem) -> None:
+    def _visit_group_item(self, atom: IrGroup, q: IrQuantifier, node: IrItem) -> None:
         """Push a ruleref frame, descend, then decide whether the group is pure-pattern."""
         self._ruleref_frames.append(False)
         self.generic_visit(node)

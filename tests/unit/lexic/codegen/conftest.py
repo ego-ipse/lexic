@@ -14,8 +14,8 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrSequence,
-    Quantifier,
 )
 
 
@@ -48,8 +48,8 @@ def make_charclass_literal_group() -> IrGroup:
             (
                 IrSequence(
                     (
-                        IrItem(IrCharClass("a-h"), Quantifier(1, 1)),
-                        IrItem(IrLiteral("x"), Quantifier(1, 1)),
+                        IrItem(IrCharClass("a-h"), IrQuantifier(1, 1)),
+                        IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
                     )
                 ),
             )

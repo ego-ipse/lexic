@@ -37,13 +37,13 @@ from lexic.ir.nodes import (
     IrNode,
     IrNone,
     IrNot,
+    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSelf,
     IrSequence,
     IrStructure,
     IrSuperSet,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
@@ -85,7 +85,7 @@ __all__ = [
     "IrSuperSet",
     "IrTransformer",
     "IrVisitor",
-    "Quantifier",
+    "IrQuantifier",
     "RuleSpec",
     "classify_kind",
     "compute_parents",

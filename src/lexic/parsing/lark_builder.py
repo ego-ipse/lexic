@@ -19,9 +19,9 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNot,
+    IrQuantifier,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from lexic.ir.regex_portable import literal_to_regex_pattern
 from lexic.ir.spec import RuleSpec
@@ -45,7 +45,7 @@ def _bracket(pattern: str, negated: bool) -> str:
     return f"[{'^' if negated else ''}{pattern}]"
 
 
-def _regex_terminal(pattern: str, q: Quantifier) -> str:
+def _regex_terminal(pattern: str, q: IrQuantifier) -> str:
     """Format a regex pattern as a Lark terminal with the quantifier.
 
     Lark terminal syntax only supports ?, *, + as external quantifiers.

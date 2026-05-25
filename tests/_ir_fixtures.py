@@ -4,17 +4,17 @@ from __future__ import annotations
 
 from typing import Iterable, Literal
 
-from lexic.ir.nodes import IrItem, Quantifier
+from lexic.ir.nodes import IrItem, IrQuantifier
 from lexic.ir.spec import RuleSpec
 
-REQ = Quantifier(1, 1)
-OPT = Quantifier(0, 1)
-PLUS = Quantifier(1, None)
+REQ = IrQuantifier(1, 1)
+OPT = IrQuantifier(0, 1)
+PLUS = IrQuantifier(1, None)
 
 Kind = Literal["sequence", "alternation", "value_str"]
 
 
-def item(atom, q: Quantifier = REQ) -> IrItem:
+def item(atom, q: IrQuantifier = REQ) -> IrItem:
     """Create an IrItem with the given atom and quantifier."""
     return IrItem(atom=atom, quantifier=q)
 

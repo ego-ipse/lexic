@@ -12,8 +12,8 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrSequence,
-    Quantifier,
 )
 
 
@@ -28,19 +28,19 @@ class AbnfFlavour(Flavour):
     line_comment = ";"
 
     @staticmethod
-    def parse_quantifier(text: str) -> Quantifier:
+    def parse_quantifier(text: str) -> IrQuantifier:
         # Forms: '*', '*N', 'N*', 'N*M', 'N'
         if text == "*":
-            return Quantifier(0, None)
+            return IrQuantifier(0, None)
         if text.startswith("*"):
-            return Quantifier(0, int(text[1:]))
+            return IrQuantifier(0, int(text[1:]))
         if "*" in text:
             lo_str, hi_str = text.split("*", 1)
             lo = int(lo_str)
             hi = int(hi_str) if hi_str else None
-            return Quantifier(lo, hi)
+            return IrQuantifier(lo, hi)
         n = int(text)
-        return Quantifier(n, n)
+        return IrQuantifier(n, n)
 
     @staticmethod
     def parse_charclass(text: str) -> tuple[str, bool]:

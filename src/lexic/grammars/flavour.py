@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
 from lexic.ir.escapes import EscapeCodec
-from lexic.ir.nodes import IrGroup, IrLiteral, Quantifier
+from lexic.ir.nodes import IrGroup, IrLiteral, IrQuantifier
 
 if TYPE_CHECKING:
     from lexic.ir.emit import FlavourEmitter
@@ -24,7 +24,7 @@ class Flavour(ABC):
 
     @staticmethod
     @abstractmethod
-    def parse_quantifier(text: str) -> Quantifier:
+    def parse_quantifier(text: str) -> IrQuantifier:
         """Parse a flavour-specific quantifier token text into canonical bounds."""
 
     @staticmethod

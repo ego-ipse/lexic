@@ -32,9 +32,9 @@ from lexic.ir.nodes import (
     IrLiteral,
     IrNode,
     IrNot,
+    IrQuantifier,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 from lexic.ir.walk import IrDispatch
@@ -57,17 +57,17 @@ from lexic.ir.nodes import (
     IrRule,
     IrRuleRef,
     IrSequence,
-    Quantifier,
+    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 """
 
 
-def _is_required(q: Quantifier) -> bool:
+def _is_required(q: IrQuantifier) -> bool:
     return q.min == 1 and q.max == 1
 
 
-def _is_optional(q: Quantifier) -> bool:
+def _is_optional(q: IrQuantifier) -> bool:
     return q.min == 0 and q.max == 1
 
 
@@ -95,7 +95,7 @@ _REPR_ACTION: dict[type, Callable[..., str]] = {
         "IrSequence(items=())" if not nc else f"IrSequence(items=({', '.join(nc)},))"
     ),
     IrItem: lambda n, oc, nc: (
-        f"IrItem({nc[0]}, Quantifier({n.quantifier.min}, {n.quantifier.max!r}))"
+        f"IrItem({nc[0]}, IrQuantifier({n.quantifier.min}, {n.quantifier.max!r}))"
     ),
 }
 
@@ -121,7 +121,7 @@ class _IrRepr(IrDispatch[IrNode, str]):
 # the alias name is returned instead of an inline Annotated[...] expression.
 
 
-def _ruleref_type(name: str, q: Quantifier, specs: dict[str, RuleSpec]) -> str:
+def _ruleref_type(name: str, q: IrQuantifier, specs: dict[str, RuleSpec]) -> str:
     ref = specs.get(name)
     cls = ref.class_name if ref else name.replace("-", "_").title()
     if _is_required(q):
@@ -194,7 +194,7 @@ def _is_pure_literal_alt(alt: IrAlternation) -> bool:
     return all(
         len(arm.items) == 1
         and isinstance(arm.items[0].atom, IrLiteral)
-        and arm.items[0].quantifier == Quantifier(1, 1)
+        and arm.items[0].quantifier == IrQuantifier(1, 1)
         for arm in alt.arms
     )
 

@@ -12,8 +12,8 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNot,
+    IrQuantifier,
     IrRuleRef,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -35,7 +35,7 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(IrRuleRef("item"), Quantifier(1, None))],
+    items=[IrItem(IrRuleRef("item"), IrQuantifier(1, None))],
     field_map={"item": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -47,12 +47,12 @@ Item.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(IrLiteral("- "), Quantifier(1, 1)),
+        IrItem(IrLiteral("- "), IrQuantifier(1, 1)),
         IrItem(
             IrNot(IrCharClass("\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029")),
-            Quantifier(1, None),
+            IrQuantifier(1, None),
         ),
-        IrItem(IrLiteral("\n"), Quantifier(1, 1)),
+        IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),

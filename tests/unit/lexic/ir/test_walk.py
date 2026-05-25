@@ -10,10 +10,10 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from lexic.ir.walk import IrDispatch, IrTransformer, IrVisitor
 
@@ -27,7 +27,7 @@ def _alt(*arms):
 
 
 def _it(atom, q=None):
-    return IrItem(atom, q if q else Quantifier())
+    return IrItem(atom, q if q else IrQuantifier())
 
 
 # ── IrVisitor ────────────────────────────────────────────────────────
@@ -135,13 +135,13 @@ def test_transformer_preserves_quantifier_when_rewriting_atom():
             """Rewrite an IrLiteral but preserve the quantifier from the parent IrItem."""
             return IrLiteral(node.value + "!")
 
-    body = _alt(_seq(_it(IrLiteral("x"), Quantifier(0, None))))
+    body = _alt(_seq(_it(IrLiteral("x"), IrQuantifier(0, None))))
     rule = IrRule("r", body)
     out = T().visit(rule)
     assert isinstance(out, IrRule)
     item = out.body.arms[0].items[0]
     assert item.atom == IrLiteral("x!")
-    assert item.quantifier == Quantifier(0, None)
+    assert item.quantifier == IrQuantifier(0, None)
 
 
 def test_transformer_replacing_group_with_ruleref():
@@ -155,14 +155,14 @@ def test_transformer_replacing_group_with_ruleref():
             return IrRuleRef("hoisted")
 
     body = _alt(
-        _seq(_it(IrGroup(_alt(_seq(_it(IrLiteral("a"))))), Quantifier(1, None)))
+        _seq(_it(IrGroup(_alt(_seq(_it(IrLiteral("a"))))), IrQuantifier(1, None)))
     )
     rule = IrRule("r", body)
     out = T().visit(rule)
     assert isinstance(out, IrRule)
     item = out.body.arms[0].items[0]
     assert item.atom == IrRuleRef("hoisted")
-    assert item.quantifier == Quantifier(1, None)
+    assert item.quantifier == IrQuantifier(1, None)
 
 
 def test_transformer_walks_ast_top_level():

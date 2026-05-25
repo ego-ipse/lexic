@@ -24,11 +24,11 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNone,
+    IrQuantifier,
     IrRuleRef,
     IrSequence,
     IrStr,
     IrTuple,
-    Quantifier,
 )
 
 # ── _Return ──────────────────────────────────────────────────────────
@@ -214,14 +214,14 @@ def test_irjoin_returns_empty_value_when_no_items():
 
 def test_ircond_evaluates_then_when_truthy():
     """IrCond picks then_op when getattr(n, field) is truthy."""
-    node = Quantifier(min=1, max=1)
+    node = IrQuantifier(min=1, max=1)
     op = IrCond[IrStr](field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no"))
     assert op.eval(IrNone, node, ()) == "yes"
 
 
 def test_ircond_evaluates_else_when_falsy():
     """IrCond picks else_op when getattr(n, field) is falsy."""
-    node = Quantifier(min=0, max=1)
+    node = IrQuantifier(min=0, max=1)
     op = IrCond[IrStr](field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no"))
     assert op.eval(IrNone, node, ()) == "no"
 

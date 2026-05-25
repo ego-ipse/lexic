@@ -12,8 +12,8 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrRuleRef,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 from lexic.utils.names import to_lark_name
@@ -27,7 +27,7 @@ _Consumer = Callable[[IrItem, list, int], tuple[object, int]]
 
 
 def _consume_terminal(item: IrItem, ch: list, pos: int) -> tuple[str, int]:
-    if item.quantifier == Quantifier(1, 1):
+    if item.quantifier == IrQuantifier(1, 1):
         return (
             (str(ch[pos]), pos + 1)
             if pos < len(ch) and isinstance(ch[pos], Token)
@@ -114,10 +114,10 @@ def _build_sequence(
     for idx, item in enumerate(spec.items):
         if not isinstance(item, IrItem):
             continue
-        if isinstance(item.atom, IrLiteral) and item.quantifier == Quantifier(1, 1):
+        if isinstance(item.atom, IrLiteral) and item.quantifier == IrQuantifier(1, 1):
             continue
         val: object
-        if isinstance(item.atom, IrRuleRef) and item.quantifier == Quantifier(0, 1):
+        if isinstance(item.atom, IrRuleRef) and item.quantifier == IrQuantifier(0, 1):
             # Adjacent optional rule-refs are ambiguous by position alone: ws can match
             # empty, producing a child even when "absent". Check type to disambiguate.
             expected = by_rule.get(item.atom.value)

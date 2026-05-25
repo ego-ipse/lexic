@@ -16,8 +16,8 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrSequence,
-    Quantifier,
 )
 
 
@@ -40,15 +40,15 @@ def test_concrete_flavour_with_required_attrs_works():
         line_comment = "#"
 
         @staticmethod
-        def parse_quantifier(text: str) -> Quantifier:
-            return Quantifier(1, 1)
+        def parse_quantifier(text: str) -> IrQuantifier:
+            return IrQuantifier(1, 1)
 
         @staticmethod
         def parse_charclass(text: str) -> tuple[str, bool]:
             return text, False
 
     assert _Fake.name == "fake"
-    assert _Fake.parse_quantifier("?") == Quantifier(1, 1)
+    assert _Fake.parse_quantifier("?") == IrQuantifier(1, 1)
 
 
 def test_concrete_flavour_missing_abstract_methods_fails():
@@ -78,8 +78,8 @@ def test_normalize_literal_default_is_identity():
         emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
-        def parse_quantifier(text: str) -> Quantifier:
-            return Quantifier()
+        def parse_quantifier(text: str) -> IrQuantifier:
+            return IrQuantifier()
 
         @staticmethod
         def parse_charclass(text: str) -> tuple[str, bool]:
@@ -99,8 +99,8 @@ def test_normalize_literal_can_be_overridden_to_return_group():
         emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
-        def parse_quantifier(text: str) -> Quantifier:
-            return Quantifier()
+        def parse_quantifier(text: str) -> IrQuantifier:
+            return IrQuantifier()
 
         @staticmethod
         def parse_charclass(text: str) -> tuple[str, bool]:
@@ -131,8 +131,8 @@ def test_default_line_comment_is_empty_string():
         emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
-        def parse_quantifier(text: str) -> Quantifier:
-            return Quantifier()
+        def parse_quantifier(text: str) -> IrQuantifier:
+            return IrQuantifier()
 
         @staticmethod
         def parse_charclass(text: str) -> tuple[str, bool]:

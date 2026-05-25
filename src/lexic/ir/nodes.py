@@ -37,7 +37,7 @@ Hierarchy
   IrSelf[Ir_co]            generic identity mixin (NOT an IrNode subclass)
 
 ``_str_name`` is auto-derived (strip ``Ir``, uppercase) unless overridden.
-``_str_opener``/``_str_closer`` default to ``(``/``)``. ``Quantifier``
+``_str_opener``/``_str_closer`` default to ``(``/``)``. ``IrQuantifier``
 uses ``[``/``]``.
 """
 
@@ -210,7 +210,7 @@ class IrTuple[T](IrType, tuple):
 # ── Root protocol ─────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, init=False)
 class IrNode[Ir_co: IrSelf = IrSelf](IrSelf[Ir_co], ABC):
     """Structural protocol every IR node implements.
 
@@ -362,15 +362,6 @@ class IrStructure[Ir_co: IrSelf](IrNode[Ir_co]):
         """
         return ", ".join(self._extra_str_parts() + [str(c) for c in self.children()])
 
-    def __repr__(self) -> str:
-        """Debug raw visualisation."""
-        parts = self._extra_reprs() + [repr(c) for c in self.children()]
-        if not parts:
-            return f"{type(self).__name__}()"
-        body = ",\n".join(parts)
-        indented = "  " + body.replace("\n", "\n  ")
-        return f"{type(self).__name__}(\n{indented}\n)"
-
 
 # ── Variable-length homogeneous branch nodes ──────────────────────────
 
@@ -518,7 +509,7 @@ class IrRuleRef(IrStrLeaf, IrAtom):
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Quantifier(IrLeaf):
+class IrQuantifier(IrLeaf):
     """Repetition bounds. ``max=None`` means unbounded.
 
     Uses ``[``/``]`` brackets — subscript/bounds notation, distinct from
@@ -546,7 +537,7 @@ class Quantifier(IrLeaf):
 # ── Collection nodes ──────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, init=False)
 class IrSequence(IrCollection):
     """Concatenation of items."""
 
@@ -555,7 +546,7 @@ class IrSequence(IrCollection):
     items: IrTuple[IrItem] = IrTuple()
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, init=False)
 class IrAlternation(IrCollection):
     """Choice between sequences. Always >= 1 arm."""
 
@@ -564,7 +555,7 @@ class IrAlternation(IrCollection):
     arms: IrTuple[IrSequence] = IrTuple()
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, init=False)
 class IrAst(IrCollection):
     """Full grammar: rules + start-rule name."""
 
@@ -576,7 +567,7 @@ class IrAst(IrCollection):
 # ── Composite nodes ───────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, init=False)
 class IrGroup(IrComposite, IrAtom):
     """Parenthesised group. Body is always an ``IrAlternation``."""
 
@@ -584,7 +575,7 @@ class IrGroup(IrComposite, IrAtom):
     body: IrAlternation
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, init=False)
 class IrNot[Ir_co: IrAtom = IrAtom](IrComposite, IrAtom):
     """Negation. Wraps an atom; ``IrNot(IrCharClass("a-z"))`` is ``[^a-z]``."""
 
@@ -592,16 +583,16 @@ class IrNot[Ir_co: IrAtom = IrAtom](IrComposite, IrAtom):
     body: Ir_co
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, init=False)
 class IrItem(IrComposite):
     """An atom (leaf or group) with a quantifier."""
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("atom", "quantifier")
     atom: IrAtom
-    quantifier: Quantifier = field(default_factory=Quantifier)
+    quantifier: IrQuantifier = field(default_factory=IrQuantifier)
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, init=False)
 class IrRule(IrComposite):
     """A named rule. Body is always an ``IrAlternation``, even single-arm."""
 

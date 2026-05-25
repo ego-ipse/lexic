@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from lexic.grammars.flavour import Flavour
 from lexic.grammars.gbnf.flavour import GbnfFlavour
-from lexic.ir.nodes import Quantifier
+from lexic.ir.nodes import IrQuantifier
 
 
 def test_subclass():
@@ -25,16 +25,16 @@ def test_meta_grammar_identity():
 
 
 def test_parse_quantifier_parity():
-    """parse_quantifier produces expected Quantifier values."""
+    """parse_quantifier produces expected IrQuantifier values."""
     cases = ["", "?", "+", "*", "{2,5}", "{0,15}", "{3}"]
     expected = [
-        Quantifier(1, 1),
-        Quantifier(0, 1),
-        Quantifier(1, None),
-        Quantifier(0, None),
-        Quantifier(2, 5),
-        Quantifier(0, 15),
-        Quantifier(3, 3),
+        IrQuantifier(1, 1),
+        IrQuantifier(0, 1),
+        IrQuantifier(1, None),
+        IrQuantifier(0, None),
+        IrQuantifier(2, 5),
+        IrQuantifier(0, 15),
+        IrQuantifier(3, 3),
     ]
     for s, exp in zip(cases, expected):
         assert GbnfFlavour.parse_quantifier(s) == exp

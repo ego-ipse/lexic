@@ -14,39 +14,39 @@ from lexic.ir.nodes import (
     IrNode,
     IrNone,
     IrNot,
+    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
     IrStr,
     IrTuple,
-    Quantifier,
 )
 
-# ── Quantifier ───────────────────────────────────────────────────────
+# ── IrQuantifier ───────────────────────────────────────────────────────
 
 
 def test_quantifier_default_is_one_one():
     """Test that the default quantifier has min=1 and max=1."""
-    q = Quantifier()
+    q = IrQuantifier()
     assert q.min == 1 and q.max == 1
 
 
 def test_quantifier_unbounded_max_is_none():
     """Test that the unbounded quantifier has max=None."""
-    q = Quantifier(min=1, max=None)
+    q = IrQuantifier(min=1, max=None)
     assert q.max is None
 
 
 def test_quantifier_is_frozen():
     """Frozen dataclass rejects attribute mutation."""
-    q = Quantifier(0, 1)
+    q = IrQuantifier(0, 1)
     with pytest.raises(AttributeError):
         setattr(q, "min", 5)
 
 
 def test_quantifier_is_hashable():
     """Equal quantifiers are deduplicated in a set."""
-    assert len({Quantifier(0, 1), Quantifier(0, 1)}) == 1
+    assert len({IrQuantifier(0, 1), IrQuantifier(0, 1)}) == 1
 
 
 # ── Leaves ───────────────────────────────────────────────────────────
@@ -95,12 +95,12 @@ def test_ir_ruleref_holds_name():
 def test_ir_item_default_quantifier():
     """Test that the IR item has the correct default quantifier."""
     it = IrItem(atom=IrLiteral("x"))
-    assert it.quantifier == Quantifier()
+    assert it.quantifier == IrQuantifier()
 
 
 def test_ir_item_with_explicit_quantifier():
     """Test that the IR item can have an explicit quantifier."""
-    it = IrItem(atom=IrCharClass("a-z"), quantifier=Quantifier(0, None))
+    it = IrItem(atom=IrCharClass("a-z"), quantifier=IrQuantifier(0, None))
     assert it.quantifier.min == 0
     assert it.quantifier.max is None
 
@@ -118,7 +118,7 @@ def test_ir_item_atom_can_be_group():
             )
         )
     )
-    it = IrItem(atom=grp, quantifier=Quantifier(1, None))
+    it = IrItem(atom=grp, quantifier=IrQuantifier(1, None))
     assert isinstance(it.atom, IrGroup)
 
 
@@ -259,7 +259,7 @@ def test_irnode_is_abc_base_class():
         IrLiteral,
         IrCharClass,
         IrRuleRef,
-        Quantifier,
+        IrQuantifier,
     ):
         assert issubclass(cls, IrNode), f"{cls.__name__} must inherit IrNode"
 
@@ -269,7 +269,7 @@ def test_irnode_default_children_is_empty_tuple():
     assert not IrLiteral("x").children()
     assert not IrCharClass("a-z").children()
     assert not IrRuleRef("foo").children()
-    assert not Quantifier().children()
+    assert not IrQuantifier().children()
 
 
 def test_irnode_default_rebuild_is_identity():
@@ -280,15 +280,15 @@ def test_irnode_default_rebuild_is_identity():
 
 def test_iritem_children_returns_atom_and_quantifier():
     """An IrItem's children are its atom and quantifier."""
-    item = IrItem(IrLiteral("x"), Quantifier(0, None))
+    item = IrItem(IrLiteral("x"), IrQuantifier(0, None))
     assert item.children() == (item.atom, item.quantifier)
 
 
 def test_iritem_rebuild_replaces_atom_and_quantifier():
     """Rebuilding an IrItem replaces both atom and quantifier from new_children."""
-    item = IrItem(IrLiteral("x"), Quantifier(0, None))
-    new = item.rebuild((IrLiteral("y"), Quantifier(1, 3)))
-    assert new == IrItem(IrLiteral("y"), Quantifier(1, 3))
+    item = IrItem(IrLiteral("x"), IrQuantifier(0, None))
+    new = item.rebuild((IrLiteral("y"), IrQuantifier(1, 3)))
+    assert new == IrItem(IrLiteral("y"), IrQuantifier(1, 3))
 
 
 def test_irsequence_children_returns_items():
@@ -415,11 +415,11 @@ def test_str_irruleref():
 
 
 def test_str_quantifier():
-    """A Quantifier's string is its bounds."""
-    assert str(Quantifier(1, 1)) == "Q[1]"
-    assert str(Quantifier(0, 1)) == "Q[0..1]"
-    assert str(Quantifier(0, None)) == "Q[0..*]"
-    assert str(Quantifier(2, 5)) == "Q[2..5]"
+    """A IrQuantifier's string is its bounds."""
+    assert str(IrQuantifier(1, 1)) == "Q[1]"
+    assert str(IrQuantifier(0, 1)) == "Q[0..1]"
+    assert str(IrQuantifier(0, None)) == "Q[0..*]"
+    assert str(IrQuantifier(2, 5)) == "Q[2..5]"
 
 
 def test_str_irsequence():
@@ -458,27 +458,23 @@ def test_repr_irliteral_is_dataclass_default():
     assert repr(IrLiteral("a")) == "IrLiteral(value='a')"
 
 
-def test_repr_irsequence_is_indented_multiline():
-    """An IrSequence's repr is an indented multiline walk of its items."""
+def test_repr_irsequence_is_dataclass_default():
+    """An IrSequence's repr is the default dataclass repr."""
     seq = IrSequence(
         IrTuple(
             IrItem(IrLiteral("a")),
         )
     )
     assert repr(seq) == (
-        "IrSequence(\n"
-        "  IrItem(\n"
-        "    IrLiteral(value='a'),\n"
-        "    Quantifier(min=1, max=1)\n"
-        "  )\n"
-        ")"
+        "IrSequence(items=(IrItem(atom=IrLiteral(value='a'), "
+        "quantifier=IrQuantifier(min=1, max=1)),))"
     )
 
 
 def test_repr_irrule_shows_non_child_fields_too():
     """name appears alongside the recursed body."""
     rule = IrRule(IrStr("r"), IrAlternation(IrTuple()))
-    assert repr(rule) == ("IrRule(\n  name='r',\n  IrAlternation()\n)")
+    assert repr(rule) == "IrRule(name='r', body=IrAlternation(arms=()))"
 
 
 def test_str_iralternation():
@@ -505,20 +501,20 @@ def test_str_iritem():
 # __repr__ — additional coverage
 
 
-def test_repr_empty_structural_node():
-    """An empty structural node renders as ClassName() without a newline."""
-    assert repr(IrSequence(IrTuple())) == "IrSequence()"
-    assert repr(IrAlternation(IrTuple())) == "IrAlternation()"
+def test_repr_empty_structural_node_is_dataclass_default():
+    """An empty structural node uses the default dataclass repr."""
+    assert repr(IrSequence(IrTuple())) == "IrSequence(items=())"
+    assert repr(IrAlternation(IrTuple())) == "IrAlternation(arms=())"
 
 
-def test_repr_irgroup_no_extras():
-    """IrGroup (IrComposite with no extras) indents its only child."""
+def test_repr_irgroup_is_dataclass_default():
+    """IrGroup uses the default dataclass repr."""
     grp = IrGroup(IrAlternation(IrTuple()))
-    assert repr(grp) == "IrGroup(\n  IrAlternation()\n)"
+    assert repr(grp) == "IrGroup(body=IrAlternation(arms=()))"
 
 
-def test_repr_irast_with_extras_and_children():
-    """IrAst renders start= extra then indented rule children."""
+def test_repr_irast_is_dataclass_default():
+    """IrAst uses the default dataclass repr."""
     ast = IrAst(
         rules=IrTuple(
             IrRule(IrStr("r"), IrAlternation(IrTuple())),
@@ -526,7 +522,7 @@ def test_repr_irast_with_extras_and_children():
         start=IrStr("r"),
     )
     assert repr(ast) == (
-        "IrAst(\n  start='r',\n  IrRule(\n    name='r',\n    IrAlternation()\n  )\n)"
+        "IrAst(rules=(IrRule(name='r', body=IrAlternation(arms=())),), start='r')"
     )
 
 

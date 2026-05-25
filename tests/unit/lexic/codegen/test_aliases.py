@@ -14,9 +14,9 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from tests.unit.lexic.codegen.conftest import make_charclass_literal_group
 from tests.unit.lexic.conftest import make_spec as _spec
@@ -25,31 +25,31 @@ from tests.unit.lexic.conftest import make_spec as _spec
 def test_regex_for_charclass_simple():
     """[0-9]+ → ^[0-9]+$."""
     cc = IrCharClass("0-9")
-    assert regex_for_charclass(cc, Quantifier(1, None)) == r"^[0-9]+$"
+    assert regex_for_charclass(cc, IrQuantifier(1, None)) == r"^[0-9]+$"
 
 
 def test_regex_for_charclass_negated():
     """[^"] → ^[^"]$."""
     cc = IrCharClass('"')
-    assert regex_for_charclass(cc, Quantifier(1, 1), negated=True) == r'^[^"]$'
+    assert regex_for_charclass(cc, IrQuantifier(1, 1), negated=True) == r'^[^"]$'
 
 
 def test_regex_for_charclass_bounded_quantifier():
     """[0-9]{0,15} → ^[0-9]{0,15}$."""
     cc = IrCharClass("0-9")
-    assert regex_for_charclass(cc, Quantifier(0, 15)) == r"^[0-9]{0,15}$"
+    assert regex_for_charclass(cc, IrQuantifier(0, 15)) == r"^[0-9]{0,15}$"
 
 
 def test_regex_for_charclass_optional():
     """[a-z]? → ^[a-z]?$."""
     cc = IrCharClass("a-z")
-    assert regex_for_charclass(cc, Quantifier(0, 1)) == r"^[a-z]?$"
+    assert regex_for_charclass(cc, IrQuantifier(0, 1)) == r"^[a-z]?$"
 
 
 def test_regex_for_group_pure_pattern():
     """([a-h] 'x')? → ^([a-h]x)?$."""
     grp = make_charclass_literal_group()
-    assert regex_for_group(grp, Quantifier(0, 1)) == r"^([a-h]x)?$"
+    assert regex_for_group(grp, IrQuantifier(0, 1)) == r"^([a-h]x)?$"
 
 
 def test_regex_for_group_alternation():
@@ -57,18 +57,18 @@ def test_regex_for_group_alternation():
     grp = IrGroup(
         IrAlternation(
             (
-                IrSequence((IrItem(IrLiteral("foo"), Quantifier(1, 1)),)),
-                IrSequence((IrItem(IrLiteral("bar"), Quantifier(1, 1)),)),
+                IrSequence((IrItem(IrLiteral("foo"), IrQuantifier(1, 1)),)),
+                IrSequence((IrItem(IrLiteral("bar"), IrQuantifier(1, 1)),)),
             )
         )
     )
-    assert regex_for_group(grp, Quantifier(1, None)) == r"^(foo|bar)+$"
+    assert regex_for_group(grp, IrQuantifier(1, None)) == r"^(foo|bar)+$"
 
 
 def test_collect_aliases_dedupes_identical_patterns():
     """Two rules with identical [0-9]+ pattern share one alias."""
-    s1 = _spec("a", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
-    s2 = _spec("b", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    s1 = _spec("a", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))])
+    s2 = _spec("b", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))])
     aliases = collect_aliases([s1, s2])
     assert len(aliases) == 1
     a = aliases[0]
@@ -83,8 +83,8 @@ def test_collect_aliases_distinguishes_different_quantifiers():
         "r",
         "sequence",
         [
-            IrItem(IrCharClass("0-9"), Quantifier(1, 1)),
-            IrItem(IrCharClass("0-9"), Quantifier(1, None)),
+            IrItem(IrCharClass("0-9"), IrQuantifier(1, 1)),
+            IrItem(IrCharClass("0-9"), IrQuantifier(1, None)),
         ],
     )
     aliases = collect_aliases([s])
@@ -98,8 +98,8 @@ def test_collect_aliases_naming_via_tier_pipeline():
         "r",
         "sequence",
         [
-            IrItem(IrCharClass("a-z"), Quantifier(1, None)),  # Tier 2: lower → Lower
-            IrItem(IrCharClass("0-9"), Quantifier(1, None)),  # Tier 2: digit → Digit
+            IrItem(IrCharClass("a-z"), IrQuantifier(1, None)),  # Tier 2: lower → Lower
+            IrItem(IrCharClass("0-9"), IrQuantifier(1, None)),  # Tier 2: digit → Digit
         ],
     )
     aliases = collect_aliases([s])
@@ -113,8 +113,8 @@ def test_collect_aliases_disambiguates_same_base_name():
         "r",
         "sequence",
         [
-            IrItem(IrCharClass("0-9"), Quantifier(1, 1)),
-            IrItem(IrCharClass("0-9"), Quantifier(1, None)),
+            IrItem(IrCharClass("0-9"), IrQuantifier(1, 1)),
+            IrItem(IrCharClass("0-9"), IrQuantifier(1, None)),
         ],
     )
     names = [a.name for a in collect_aliases([s])]
@@ -128,9 +128,9 @@ def test_collect_aliases_skips_group_with_ruleref():
             (
                 IrSequence(
                     (
-                        IrItem(IrLiteral("("), Quantifier(1, 1)),
-                        IrItem(IrRuleRef("expr"), Quantifier(1, 1)),
-                        IrItem(IrLiteral(")"), Quantifier(1, 1)),
+                        IrItem(IrLiteral("("), IrQuantifier(1, 1)),
+                        IrItem(IrRuleRef("expr"), IrQuantifier(1, 1)),
+                        IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
                     )
                 ),
             )
@@ -139,7 +139,7 @@ def test_collect_aliases_skips_group_with_ruleref():
     s = _spec(
         "r",
         "sequence",
-        [IrItem(grp, Quantifier(1, 1))],
+        [IrItem(grp, IrQuantifier(1, 1))],
         field_map={"kind": 0},
     )
     assert not collect_aliases([s])
@@ -152,8 +152,8 @@ def test_collect_aliases_pure_group_with_inner_charclass_emits_both():
             (
                 IrSequence(
                     (
-                        IrItem(IrCharClass("0-9"), Quantifier(1, None)),
-                        IrItem(IrLiteral("x"), Quantifier(1, 1)),
+                        IrItem(IrCharClass("0-9"), IrQuantifier(1, None)),
+                        IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
                     )
                 ),
             )
@@ -162,7 +162,7 @@ def test_collect_aliases_pure_group_with_inner_charclass_emits_both():
     s = _spec(
         "r",
         "sequence",
-        [IrItem(grp, Quantifier(0, 1))],
+        [IrItem(grp, IrQuantifier(0, 1))],
         field_map={"head": 0},
     )
     aliases = collect_aliases([s])
@@ -179,8 +179,8 @@ def test_collect_aliases_empty_for_no_patterns():
         "r",
         "sequence",
         [
-            IrItem(IrLiteral("hi"), Quantifier(1, 1)),
-            IrItem(IrRuleRef("expr"), Quantifier(1, 1)),
+            IrItem(IrLiteral("hi"), IrQuantifier(1, 1)),
+            IrItem(IrRuleRef("expr"), IrQuantifier(1, 1)),
         ],
     )
     assert not collect_aliases([s])

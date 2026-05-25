@@ -19,10 +19,10 @@ from lexic.ir.nodes import (
     IrLiteral,
     IrNode,
     IrNot,
+    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
@@ -78,13 +78,13 @@ def classify_kind(rule: IrRule) -> Literal["sequence", "alternation", "value_str
 
 
 def _single_unquantified_ruleref(arm: IrSequence) -> str | None:
-    """If arm is a single IrItem(IrRuleRef, Quantifier(1,1)), return the ref name."""
+    """If arm is a single IrItem(IrRuleRef, IrQuantifier(1,1)), return the ref name."""
     if len(arm.items) != 1:
         return None
     item = arm.items[0]
     if not isinstance(item.atom, IrRuleRef):
         return None
-    if item.quantifier != Quantifier(1, 1):
+    if item.quantifier != IrQuantifier(1, 1):
         return None
     return item.atom.value
 
@@ -139,7 +139,7 @@ class _HoistTransformer(IrTransformer):
             if new_atom is node.atom:
                 return node
             return IrItem(atom=new_atom, quantifier=node.quantifier)
-        is_quantified = node.quantifier != Quantifier(1, 1)
+        is_quantified = node.quantifier != IrQuantifier(1, 1)
         if is_quantified and has_ruleref(new_atom.body):
             helper_name = _reserve_helper_name(self._parent_name, self._name_set)
             self._name_set.add(helper_name)
@@ -254,7 +254,7 @@ def _field_map(items: Sequence[IrItem]) -> dict[str, int]:
     pattern_pos = 0
     for i, item in enumerate(items):
         atom = item.atom
-        if isinstance(atom, IrLiteral) and item.quantifier == Quantifier(1, 1):
+        if isinstance(atom, IrLiteral) and item.quantifier == IrQuantifier(1, 1):
             continue
         handler = _FIELD_BASE.get(type(atom))
         if handler is None:
@@ -349,7 +349,7 @@ def _relax_item(
         and _is_non_sem_ref(item, rules)
         and item.quantifier.min > 0
     ):
-        return IrItem(item.atom, Quantifier(0, item.quantifier.max))
+        return IrItem(item.atom, IrQuantifier(0, item.quantifier.max))
     return item
 
 

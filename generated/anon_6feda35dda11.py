@@ -10,8 +10,8 @@ from lexic.base import GrammarModel
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
+    IrQuantifier,
     IrRuleRef,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -41,7 +41,7 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(IrRuleRef("term"), Quantifier(1, 1))],
+    items=[IrItem(IrRuleRef("term"), IrQuantifier(1, 1))],
     field_map={"term": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -53,8 +53,8 @@ Term.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="alternation",
     items=[
-        IrItem(IrRuleRef("num"), Quantifier(1, 1)),
-        IrItem(IrRuleRef("ident"), Quantifier(1, 1)),
+        IrItem(IrRuleRef("num"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("ident"), IrQuantifier(1, 1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -66,7 +66,7 @@ Num.__grammar__ = RuleSpec(
     class_name="Num",
     parent_class_name="Term",
     kind="value_str",
-    items=[IrItem(IrCharClass("0-9"), Quantifier(1, None))],
+    items=[IrItem(IrCharClass("0-9"), IrQuantifier(1, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -77,7 +77,7 @@ Ident.__grammar__ = RuleSpec(
     class_name="Ident",
     parent_class_name="Term",
     kind="value_str",
-    items=[IrItem(IrCharClass("a-z"), Quantifier(1, None))],
+    items=[IrItem(IrCharClass("a-z"), IrQuantifier(1, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
