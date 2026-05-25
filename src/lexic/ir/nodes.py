@@ -201,6 +201,11 @@ class IrTuple[T](IrType, tuple):
         """Build from positional items: ``IrTuple(a, b, c)``."""
         return super().__new__(cls, args)
 
+    @classmethod
+    def coerce(cls, value: Any) -> Self:
+        """Iterable → IrTuple via ``cls(*value)``; pass through if already ``cls``."""
+        return value if isinstance(value, cls) else cls(*value)
+
 
 # ── Root protocol ─────────────────────────────────────────────────────
 

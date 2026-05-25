@@ -279,7 +279,7 @@ class IrRebuild(IrLeaf):
         :param nc: Pre-dispatched children, if any.
         :returns: ``n.rebuild(new_children)``.
         """
-        new_children = nc or IrTuple(d.eval(d, c, ()) for c in n.children())
+        new_children = nc or IrTuple(*(d.eval(d, c, ()) for c in n.children()))
         return n.rebuild(new_children)
 
 

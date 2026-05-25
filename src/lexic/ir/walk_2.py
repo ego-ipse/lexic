@@ -34,7 +34,7 @@ from lexic.ir.action import IrAction, IrPass, IrRebuild, IrReturn
 from lexic.ir.nodes import IrCollection, IrLiteral, IrNode, IrSelf, IrTuple
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrDispatch[Ir_co: IrSelf](IrCollection[Ir_co]):
     """Action-driven IR dispatcher.
 
@@ -81,13 +81,7 @@ class IrDispatch[Ir_co: IrSelf](IrCollection[Ir_co]):
         :raises UnsupportedConstructError: If no action matches
             ``type(n)`` in the MRO walk.
         """
-        try:
-            return self._resolve(type(n)).body.eval(d, n, nc)
-        except IrReturn as ret:
-            ret_val = ret.value
-            if not isinstance(ret_val, self.bound):
-                raise ret
-            return ret_val
+        return self._resolve(type(n)).body.eval(d, n, nc)
 
     def apply(self, root: IrNode) -> Ir_co:
         """Friendly entry — equivalent to ``self.eval(self, root, ())``.
@@ -95,7 +89,14 @@ class IrDispatch[Ir_co: IrSelf](IrCollection[Ir_co]):
         :param root: Root IR node to dispatch.
         :returns: The dispatched ``Ir_co`` value.
         """
-        return self.eval(self, root, IrTuple())
+        try:
+            return self.eval(self, root, IrTuple())
+        except IrReturn as ret:
+            if isinstance(ret.value, self.bound):
+                return ret.value
+            if isinstance(ret, self.bound):
+                return ret
+            raise ret
 
     def _resolve(self, node_type: type) -> IrAction[Ir_co]:
         """Concrete-first MRO walk against ``self.actions``; memoised.
@@ -123,7 +124,7 @@ class IrDispatch[Ir_co: IrSelf](IrCollection[Ir_co]):
 # ── Presets ──────────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrVisitor(IrDispatch):
     """Side-effect walker. ``Ir_co = IrSelf`` (inherited default).
 
@@ -136,7 +137,7 @@ class IrVisitor(IrDispatch):
     actions: tuple[IrAction[IrSelf], ...] = (IrAction(IrSelf, IrPass()),)
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrTransformer(IrDispatch[IrNode]):
     """Rewrites IR trees. ``Ir_co = IrNode``.
 
@@ -148,7 +149,7 @@ class IrTransformer(IrDispatch[IrNode]):
     actions: tuple[IrAction[IrNode], ...] = (IrAction(IrNode, IrRebuild()),)
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrEmitter(IrDispatch[IrLiteral]):
     """Produces :class:`IrLiteral`-wrapped strings. ``Ir_co = IrLiteral``.
 
