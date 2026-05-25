@@ -201,11 +201,6 @@ class IrTuple[T](IrType, tuple):
         """Build from positional items: ``IrTuple(a, b, c)``."""
         return super().__new__(cls, args)
 
-    @classmethod
-    def coerce(cls, value: Any) -> Self:
-        """Iterable → IrTuple via ``cls(*value)``; pass through if already ``cls``."""
-        return value if isinstance(value, cls) else cls(*value)
-
 
 # ── Root protocol ─────────────────────────────────────────────────────
 
@@ -263,6 +258,7 @@ class IrNode[Ir_co: IrSelf = IrSelf](IrSelf[Ir_co], ABC):
         return out
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Construct from positional or keyword args."""
         cls = type(self)
         fields_list = dataclasses.fields(cls)
         ir_types = cls._ir_field_types()
