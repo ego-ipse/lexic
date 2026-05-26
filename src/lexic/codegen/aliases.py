@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.action import IrAction, IrCallable
 from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -27,13 +28,15 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrNone,
     IrNot,
     IrQuantifier,
     IrRuleRef,
+    IrSelf,
     IrSequence,
 )
 from lexic.ir.spec import RuleSpec
-from lexic.ir.walk import IrVisitor
+from lexic.ir.walk_2 import IrVisitor
 from lexic.utils.quantifiers import bounds_to_quantifier
 
 
@@ -123,6 +126,62 @@ def _name_for_charclass(cc: IrCharClass, *, negated: bool = False) -> str:
     return _camel(tier2) if tier2 else ""
 
 
+# ── Handler functions (defined before the class to resolve forward refs) ──────
+
+
+def _mark_ruleref(d: _PatternAliasVisitor, _n: IrRuleRef, _nc: object) -> IrSelf:
+    """Mark the current frame dirty so the enclosing group is non-pure.
+
+    :param d: The visitor driving the walk.
+    :param _n: The IrRuleRef node (unused beyond type dispatch).
+    :param _nc: Pre-dispatched children (unused).
+    :returns: :data:`IrNone`.
+    """
+    d.ruleref_frames[-1] = True
+    return IrNone
+
+
+def _visit_item(d: _PatternAliasVisitor, item: IrItem, _nc: object) -> IrSelf:
+    """Handle IrItem dispatch — group frames, pattern recording, then recurse.
+
+    For IrGroup atoms: push a ruleref frame, recurse, then either propagate
+    the dirty flag up or record the group as a pure-pattern alias.
+    For IrCharClass and negated IrCharClass atoms: record the alias, then
+    recurse into the atom's children.
+
+    :param d: The visitor driving the walk.
+    :param item: The IrItem node being dispatched.
+    :param _nc: Pre-dispatched children (unused — we control recursion here).
+    :returns: :data:`IrNone`.
+    """
+    atom, q = item.atom, item.quantifier
+    if isinstance(atom, IrGroup):
+        d.ruleref_frames.append(False)
+        d.eval(d, atom, ())
+        group_had_ruleref = d.ruleref_frames.pop()
+        if group_had_ruleref:
+            d.ruleref_frames[-1] = True
+        else:
+            d.record(regex_for_group(atom, q), "Pattern")
+        return IrNone
+    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
+        d.record(
+            regex_for_charclass(atom.body, q, negated=True),
+            _name_for_charclass(atom.body, negated=True) or "Pattern",
+        )
+    elif isinstance(atom, IrCharClass):
+        d.record(
+            regex_for_charclass(atom, q),
+            _name_for_charclass(atom) or "Pattern",
+        )
+    d.eval(d, atom, ())
+    return IrNone
+
+
+# ── Stateful visitor ──────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class _PatternAliasVisitor(IrVisitor):
     """Single-pass collector that emits a PatternAlias per pure-pattern subtree.
 
@@ -137,47 +196,26 @@ class _PatternAliasVisitor(IrVisitor):
     ``[0-9]+`` collide on ``Digit``) get a numeric suffix on later occurrences.
     """
 
-    def __init__(self) -> None:
-        """Initialize with empty state."""
-        self.aliases: dict[str, PatternAlias] = {}
-        self._name_counts: Counter[str] = Counter()
-        # Sentinel frame: never popped, keeps `[-1]` indexing safe at top level.
-        self._ruleref_frames: list[bool] = [False]
+    aliases: dict[str, PatternAlias] = field(
+        default_factory=dict, hash=False, compare=False
+    )
+    _name_counts: Counter[str] = field(
+        default_factory=Counter, hash=False, compare=False
+    )
+    ruleref_frames: list[bool] = field(
+        default_factory=lambda: [False], hash=False, compare=False
+    )
+    actions: tuple[IrAction, ...] = (
+        IrAction(IrRuleRef, IrCallable(_mark_ruleref)),
+        IrAction(IrItem, IrCallable(_visit_item)),
+    )
 
-    def visit_IrRuleRef(self, _: IrRuleRef) -> None:  # pylint: disable=invalid-name
-        """Mark the current frame dirty so the enclosing group is non-pure."""
-        self._ruleref_frames[-1] = True
+    def record(self, regex: str, base: str) -> None:
+        """Record an alias for ``regex`` (idempotent on regex); name from ``base``.
 
-    def visit_IrItem(self, node: IrItem) -> None:  # pylint: disable=invalid-name
-        """Visit an IrItem; if it's a pattern atom, record its alias."""
-        atom, q = node.atom, node.quantifier
-        if isinstance(atom, IrGroup):
-            self._visit_group_item(atom, q, node)
-            return
-        if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-            self._record(
-                regex_for_charclass(atom.body, q, negated=True),
-                _name_for_charclass(atom.body, negated=True) or "Pattern",
-            )
-        elif isinstance(atom, IrCharClass):
-            self._record(
-                regex_for_charclass(atom, q),
-                _name_for_charclass(atom) or "Pattern",
-            )
-        self.generic_visit(node)
-
-    def _visit_group_item(self, atom: IrGroup, q: IrQuantifier, node: IrItem) -> None:
-        """Push a ruleref frame, descend, then decide whether the group is pure-pattern."""
-        self._ruleref_frames.append(False)
-        self.generic_visit(node)
-        group_had_ruleref = self._ruleref_frames.pop()
-        if group_had_ruleref:
-            self._ruleref_frames[-1] = True
-        else:
-            self._record(regex_for_group(atom, q), "Pattern")
-
-    def _record(self, regex: str, base: str) -> None:
-        """Record an alias for ``regex`` (idempotent on regex); name from ``base``."""
+        :param regex: The anchored regex string.
+        :param base: CamelCase base name (Tier-2 or ``"Pattern"``).
+        """
         if regex in self.aliases:
             return
         self._name_counts[base] += 1
@@ -192,9 +230,12 @@ def collect_aliases(specs: list[RuleSpec]) -> list[PatternAlias]:
     Order is insertion order — first appearance wins for naming. Different
     regexes that resolve to the same Tier-2 base name get a numeric suffix on
     later occurrences (``Digit``, ``Digit2``).
+
+    :param specs: All rule specs to scan.
+    :returns: Deduplicated list of pattern aliases in first-appearance order.
     """
     visitor = _PatternAliasVisitor()
     for spec in specs:
         for item in spec.items:
-            visitor.visit(item)
+            visitor.apply(item)
     return list(visitor.aliases.values())
