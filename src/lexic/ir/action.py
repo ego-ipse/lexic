@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, ClassVar, Sequence
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.nodes import (
     IrCollection,
     IrComposite,
@@ -249,16 +250,76 @@ class IrReturn[Ir_co](IrLeaf, _Return):
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrPass(IrLeaf[IrSelf]):
-    """No-op body — evaluates to :data:`IrNone`.
+    """No-op body — evaluates to :data:`IrNone` without recursing.
 
-    Canonical body for visitor defaults: the dispatcher's action matched
-    but there is nothing meaningful to produce. Equivalent to Python's
-    ``pass``.
+    Use when an action matches but neither a value nor a child walk is
+    desired. Equivalent to Python's ``pass``. Not the default for
+    :class:`~lexic.ir.walk_2.IrVisitor` — that role belongs to
+    :class:`IrWalk`.
     """
 
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
         """Return :data:`IrNone`."""
         return IrNone
+
+
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class IrWalk(IrLeaf[IrSelf]):
+    """Walk ``n``'s children via ``d``; return :data:`IrNone`.
+
+    Canonical body for visitor defaults — the visitor analogue of
+    :class:`IrRebuild`. Side-effect-only: child results are dispatched
+    for their effects and discarded. Honours ``nc``: if the caller has
+    already dispatched children, no re-walk happens.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Walk children unless they were pre-dispatched; return :data:`IrNone`.
+
+        :param d: Dispatcher driving child recursion.
+        :param n: Node whose children to walk. Runtime contract: ``IrNode``.
+        :param nc: Pre-dispatched children, if any — skips the walk when truthy.
+        :returns: :data:`IrNone`.
+        """
+        if not nc:
+            for c in n.children():
+                d.eval(d, c, ())
+        return IrNone
+
+
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class IrRaise(IrLeaf[IrSelf]):
+    """Body that raises a configured exception on dispatch.
+
+    Strict-default body for :class:`~lexic.ir.walk_2.IrDispatch`. When
+    no action in the dispatcher's table matches ``type(n).__mro__``,
+    the dispatcher falls through to ``self.default`` — when that is
+    :class:`IrRaise`, this body raises ``exc_type`` with a formatted
+    message. The default ``exc_type`` is
+    :exc:`~lexic.exceptions.UnsupportedConstructError`.
+
+    :param exc_type: Exception class to raise.
+    :param message: ``str.format``-style template. Substitutions:
+        ``{dispatcher}`` → ``type(d).__name__``; ``{node_type}`` →
+        ``type(n).__name__``.
+    """
+
+    exc_type: type[BaseException] = UnsupportedConstructError
+    message: str = "{dispatcher}: no action for {node_type!r}"
+
+    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
+        """Raise ``self.exc_type`` with the formatted message.
+
+        :param d: Dispatcher driving the walk.
+        :param n: Node whose type had no matching action.
+        :raises BaseException: Always — instance of ``self.exc_type``.
+        """
+        raise self.exc_type(
+            self.message.format(
+                dispatcher=type(d).__name__,
+                node_type=type(n).__name__,
+            )
+        )
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)

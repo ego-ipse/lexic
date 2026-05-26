@@ -29,8 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import ClassVar, Sequence
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction, IrPass, IrRebuild, IrReturn
+from lexic.ir.action import IrAction, IrRaise, IrRebuild, IrReturn, IrWalk
 from lexic.ir.nodes import IrCollection, IrLiteral, IrNode, IrSelf, IrTuple
 
 
@@ -47,12 +46,15 @@ class IrDispatch[Ir_co: IrSelf](IrCollection[Ir_co]):
     ``d`` is the dispatcher driving the call.
 
     :param actions: Action table. Concrete ``target_type`` keys win over
-        abstract ones via MRO order. A user-supplied default catch-all is
-        expressed as ``IrAction(IrSelf, …)`` at the end of the tuple.
+        abstract ones via MRO order.
+    :param default: Body invoked when no action matches ``type(n).__mro__``.
+        Base default is :class:`~lexic.ir.action.IrRaise`; presets
+        override (e.g. :class:`IrVisitor` → :class:`~lexic.ir.action.IrWalk`).
     """
 
     _items_attr: ClassVar[str] = "actions"
     actions: tuple[IrAction[Ir_co], ...] = ()
+    default: IrNode = IrRaise()
     _resolve_cache: dict[type, IrAction[Ir_co]] = field(
         init=False,
         default_factory=dict,
@@ -116,9 +118,9 @@ class IrDispatch[Ir_co: IrSelf](IrCollection[Ir_co]):
                 if action.target_type is cls:
                     cache[node_type] = action
                     return action
-        raise UnsupportedConstructError(
-            f"{type(self).__name__}: no action for {node_type.__name__!r}"
-        )
+        action = IrAction[Ir_co](node_type, self.default)
+        cache[node_type] = action
+        return action
 
 
 # ── Presets ──────────────────────────────────────────────────────────
@@ -128,13 +130,15 @@ class IrDispatch[Ir_co: IrSelf](IrCollection[Ir_co]):
 class IrVisitor(IrDispatch):
     """Side-effect walker. ``Ir_co = IrSelf`` (inherited default).
 
-    The default action catches every node and returns :data:`IrNone` via
-    :class:`IrPass`. User actions resolve first via MRO and may produce
-    side effects. To compose, include :class:`IrPass` at the end of your
-    ``actions`` tuple explicitly.
+    The default action catches every node, recurses into its children
+    via :class:`IrWalk`, and returns :data:`IrNone`. User actions
+    resolve first via MRO and may produce side effects; a body that
+    wants to stop the walk for a given type simply registers a more
+    specific action that doesn't recurse (e.g. :class:`IrPass`,
+    :class:`IrReturn`).
     """
 
-    actions: tuple[IrAction[IrSelf], ...] = (IrAction(IrSelf, IrPass()),)
+    default: IrNode = IrWalk()
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
@@ -146,16 +150,15 @@ class IrTransformer(IrDispatch[IrNode]):
     resolve first; matching actions can return any ``IrNode``.
     """
 
-    actions: tuple[IrAction[IrNode], ...] = (IrAction(IrNode, IrRebuild()),)
+    default: IrNode = IrRebuild()
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrEmitter(IrDispatch[IrLiteral]):
     """Produces :class:`IrLiteral`-wrapped strings. ``Ir_co = IrLiteral``.
 
-    No default action — users define per-type emit actions and unmatched
-    types raise :exc:`UnsupportedConstructError`. The "emit ``str(n)``"
-    fallback is a use-case-specific convenience, not a default.
+    Inherits the strict :class:`IrRaise` default — unmatched types
+    raise :exc:`~lexic.exceptions.UnsupportedConstructError`. Users
+    define per-type emit actions; the "emit ``str(n)``" fallback is a
+    use-case-specific convenience that callers wire up via ``default=``.
     """
-
-    actions: tuple[IrAction[IrLiteral], ...] = ()

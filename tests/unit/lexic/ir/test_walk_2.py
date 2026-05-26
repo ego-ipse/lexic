@@ -26,8 +26,8 @@ re-raises and propagates past the dispatcher (same as bare :class:`_Return`).
 
 Presets
 -------
-``IrVisitor``       Side-effect walker. Default action :class:`IrPass` returns
-                    :data:`IrNone`.
+``IrVisitor``       Side-effect walker. Default action :class:`IrWalk` recurses
+                    into children and returns :data:`IrNone`.
 ``IrTransformer``   Rewrites IR. Default action :class:`IrRebuild` walks
                     children via ``d`` and rebuilds the node.
 ``IrEmitter``       Produces :class:`IrLiteral`. No default action — unmatched
@@ -86,7 +86,7 @@ def test_irdispatch_is_an_ircollection_of_actions():
 
 
 def test_irdispatch_apply_with_no_actions_invokes_preset_default():
-    """``IrVisitor``'s preset default :class:`IrPass` returns :data:`IrNone`."""
+    """``IrVisitor``'s preset default :class:`IrWalk` returns :data:`IrNone`."""
     assert IrVisitor().apply(IrLiteral("a")) is IrNone
 
 
@@ -231,9 +231,40 @@ def test_dispatcher_is_frozen_actions_immutable():
 
 
 def test_irvisitor_empty_actions_returns_irnone():
-    """IrVisitor with no user actions falls through to :class:`IrPass`."""
+    """IrVisitor with no user actions walks via :class:`IrWalk` and returns :data:`IrNone`."""
     assert IrVisitor().apply(IrLiteral("a")) is IrNone
     assert IrVisitor().apply(_tiny_ast()) is IrNone
+
+
+def test_irvisitor_default_walks_into_children():
+    """The default :class:`IrWalk` body recurses into every child node."""
+    visited: list[type] = []
+
+    def _record(_d, n, _nc):
+        visited.append(type(n))
+        return IrNone
+
+    d = IrVisitor(actions=(IrAction(IrLiteral, IrCallable[IrNode](_record)),))
+    ast = IrAst(
+        rules=IrTuple(
+            IrRule(
+                name="r",
+                body=IrAlternation(
+                    arms=IrTuple(
+                        IrSequence(
+                            items=IrTuple(
+                                IrItem(atom=IrLiteral("a")),
+                                IrItem(atom=IrLiteral("b")),
+                            )
+                        )
+                    )
+                ),
+            )
+        ),
+        start="r",
+    )
+    d.apply(ast)
+    assert visited == [IrLiteral, IrLiteral]
 
 
 # ── IrTransformer ────────────────────────────────────────────────────
