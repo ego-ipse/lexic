@@ -30,8 +30,9 @@ Presets
                     into children and returns :data:`IrNone`.
 ``IrTransformer``   Rewrites IR. Default action :class:`IrRebuild` walks
                     children via ``d`` and rebuilds the node.
-``IrEmitter``       Produces :class:`IrLiteral`. No default action — unmatched
-                    types raise :class:`UnsupportedConstructError`.
+``IrEmitter``       Produces :class:`IrLiteral`. Default action :class:`IrEmit`
+                    wraps ``str(n)`` in :class:`IrLiteral`; override with
+                    ``default=IrRaise()`` to refuse unmatched types.
 """
 
 from dataclasses import FrozenInstanceError
@@ -303,6 +304,18 @@ def test_iremitter_empty_actions_emits_str_of_node():
     """Default :class:`IrEmit` body wraps ``str(n)`` in :class:`IrLiteral`."""
     out = IrEmitter().apply(IrLiteral("hi"))
     assert out == IrLiteral(str(IrLiteral("hi")))
+
+
+def test_iremitter_irreturn_with_non_irliteral_value_reraises_past_apply():
+    """``IrReturn`` carrying a non-:class:`IrLiteral` payload doesn't satisfy
+    the emitter's bound — it propagates past :meth:`IrDispatch.apply`."""
+
+    def _raise(_d, _n, _nc):
+        raise IrReturn[IrNode](IrRuleRef("not-a-literal"))
+
+    e = IrEmitter(actions=(IrAction(IrLiteral, IrCallable[IrNode](_raise)),))
+    with pytest.raises(IrReturn):
+        e.apply(IrLiteral("x"))
 
 
 def test_iremitter_with_strict_default_raises_on_unhandled_type():

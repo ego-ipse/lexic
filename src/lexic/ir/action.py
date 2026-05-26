@@ -254,7 +254,7 @@ class IrPass(IrLeaf[IrSelf]):
 
     Use when an action matches but neither a value nor a child walk is
     desired. Equivalent to Python's ``pass``. Not the default for
-    :class:`~lexic.ir.walk_2.IrVisitor` — that role belongs to
+    :class:`~lexic.ir.walk.IrVisitor` — that role belongs to
     :class:`IrWalk`.
     """
 
@@ -291,7 +291,7 @@ class IrWalk(IrLeaf[IrSelf]):
 class IrRaise[Ir_co: IrSelf](IrLeaf[Ir_co]):
     """Body that raises a configured exception on dispatch.
 
-    Strict-default body for :class:`~lexic.ir.walk_2.IrDispatch`. When
+    Strict-default body for :class:`~lexic.ir.walk.IrDispatch`. When
     no action in the dispatcher's table matches ``type(n).__mro__``,
     the dispatcher falls through to ``self.default`` — when that is
     :class:`IrRaise`, this body raises ``exc_type`` with a formatted
@@ -323,7 +323,7 @@ class IrRaise[Ir_co: IrSelf](IrLeaf[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
-class IrEmit(IrLeaf[IrLiteral]):
+class IrEmit[Ir_co: IrLiteral](IrLeaf[Ir_co]):
     """Body that emits ``IrLiteral(str(n))`` for the dispatched node.
 
     Default body for :class:`~lexic.ir.walk_2.IrEmitter`. Stringifies
@@ -334,13 +334,13 @@ class IrEmit(IrLeaf[IrLiteral]):
     :class:`IrRaise` to refuse unmatched types instead.
     """
 
-    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrLiteral:
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
         """Return ``IrLiteral(str(n))``.
 
         :param n: The dispatched node.
         :returns: ``IrLiteral`` wrapping the node's string form.
         """
-        return IrLiteral(str(n))
+        return self.bound(str(n))
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)

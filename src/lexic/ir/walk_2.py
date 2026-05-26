@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Sequence
 
 from lexic.ir.action import IrAction, IrEmit, IrRaise, IrRebuild, IrReturn, IrWalk
-from lexic.ir.nodes import IrCollection, IrLiteral, IrNode, IrSelf, IrTuple
+from lexic.ir.nodes import IrCollection, IrNode, IrSelf, IrLiteral, IrTuple
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
@@ -154,7 +154,7 @@ class IrTransformer(IrDispatch[IrNode]):
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
-class IrEmitter(IrDispatch[IrLiteral]):
+class IrEmitter[Ir_co: IrLiteral](IrDispatch[Ir_co]):
     """Produces :class:`IrLiteral`-wrapped strings. ``Ir_co = IrLiteral``.
 
     Default body is :class:`IrEmit` — unmatched nodes degrade to
@@ -162,4 +162,4 @@ class IrEmitter(IrDispatch[IrLiteral]):
     via ``default=IrRaise()`` to refuse unmatched types instead.
     """
 
-    default: IrNode[IrLiteral] = IrEmit()
+    default: IrNode[Ir_co] = IrEmit()
