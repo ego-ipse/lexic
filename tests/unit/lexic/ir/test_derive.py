@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from lexic.ir.derive import (
+    _EXTRACT_BODY,
     _field_map,
     _HoistTransformer,
     classify_kind,
@@ -24,7 +25,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.walk import IrTransformer
+from lexic.ir.walk_2 import IrTransformer
 
 
 def _seq(*items):
@@ -654,3 +655,25 @@ def test_has_ruleref_returns_false_for_subtree_without_ruleref():
     """Subtree with only literals → False."""
     body = _alt(_seq(_it(IrLiteral("a"))))
     assert has_ruleref(body) is False
+
+
+# ── _EXTRACT_BODY ─────────────────────────────────────────────────────
+
+
+def test_extract_body_returns_alternation_for_group_with_rulerefs():
+    """IrGroup whose body contains a ruleref → the body is returned."""
+    body = _alt(_seq(_it(IrRuleRef("x"))))
+    g = IrGroup(body)
+    assert _EXTRACT_BODY.apply(g) == body
+
+
+def test_extract_body_returns_none_for_pure_literal_group():
+    """IrGroup with no rulerefs anywhere → ``None``."""
+    body = _alt(_seq(_it(IrLiteral("x"))))
+    assert _EXTRACT_BODY.apply(IrGroup(body)) is None
+
+
+def test_extract_body_returns_none_for_non_group_atom():
+    """Non-IrGroup atoms — IrLiteral and IrRuleRef — always return ``None``."""
+    assert _EXTRACT_BODY.apply(IrLiteral("x")) is None
+    assert _EXTRACT_BODY.apply(IrRuleRef("y")) is None

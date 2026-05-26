@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from functools import cache
 from typing import Callable, Literal, TypeAlias, TypeVar
 
-from lexic.ir.action import IrAction, IrReturn
+from lexic.ir.action import IrAction, IrCallable, IrReturn
 from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -28,8 +29,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
-from lexic.ir.walk import IrTransformer
-from lexic.ir.walk_2 import IrVisitor
+from lexic.ir.walk_2 import IrDispatch, IrTransformer, IrVisitor
 from lexic.utils.names import to_pascal
 
 # ── classification ────────────────────────────────────────────────────
@@ -118,46 +118,104 @@ def _reserve_helper_name(parent_name: str, taken: set[str]) -> str:
     return f"{base}{n}"
 
 
-class _HoistTransformer(IrTransformer):
-    """Quantified IrGroup with rulerefs → synthetic helper rule + IrRuleRef.
+def _extract_group(_d: object, group: IrGroup, _nc: object) -> IrAlternation | None:
+    """Return the group body if it contains a ruleref, else ``None``.
 
-    Pure-literal groups (no IrRuleRef anywhere) are left intact regardless
-    of their quantifier so codegen can treat them as regex patterns.
+    :param _d: Dispatcher (unused).
+    :param group: The :class:`IrGroup` atom being examined.
+    :param _nc: Pre-dispatched children (unused).
+    :returns: ``group.body`` when hoistable, else ``None``.
+    """
+    return group.body if has_ruleref(group.body) else None
+
+
+def _extract_none(_d: object, _n: object, _nc: object) -> None:
+    """Default override for non-IrGroup atoms — never hoist.
+
+    :param _d: Dispatcher (unused).
+    :param _n: Node (unused).
+    :param _nc: Pre-dispatched children (unused).
+    :returns: ``None``.
+    """
+    return None
+
+
+_EXTRACT_BODY: IrDispatch = IrDispatch(
+    actions=(IrAction(IrGroup, IrCallable(_extract_group)),),
+    default=IrCallable(_extract_none),
+)
+
+
+def _hoist_item(d: "_HoistTransformer", item: IrItem, _nc: object) -> IrItem:
+    """Recurse into the atom; hoist the group into a helper rule when needed.
+
+    If the rebuilt atom is a quantified :class:`IrGroup` containing a ruleref,
+    allocate a synthetic helper rule and replace the group with an
+    :class:`IrRuleRef`. Otherwise rebuild only if the atom changed.
+
+    :param d: The :class:`_HoistTransformer` dispatcher driving the walk.
+    :param item: The :class:`IrItem` being rewritten.
+    :param _nc: Pre-dispatched children (unused — we control recursion here).
+    :returns: Rewritten :class:`IrItem`.
+    """
+    new_atom = d.eval(d, item.atom, ())
+    is_quantified = item.quantifier != IrQuantifier(1, 1)
+    if not is_quantified:
+        return (
+            item
+            if new_atom is item.atom
+            else IrItem(atom=new_atom, quantifier=item.quantifier)
+        )
+    extracted = _EXTRACT_BODY.apply(new_atom)
+    if extracted is None:
+        return (
+            item
+            if new_atom is item.atom
+            else IrItem(atom=new_atom, quantifier=item.quantifier)
+        )
+    name = _reserve_helper_name(d.parent_name, d.name_set)
+    d.name_set.add(name)
+    d.helpers.append(IrRule(name=name, body=extracted))
+    return IrItem(atom=IrRuleRef(name), quantifier=item.quantifier)
+
+
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class _HoistTransformer(IrTransformer):
+    """Hoist quantified groups-with-rulerefs into synthetic helper rules.
+
+    Pure-literal groups (no :class:`IrRuleRef` anywhere) are left intact
+    regardless of their quantifier so codegen can treat them as regex patterns.
+
+    :ivar parent_name: Enclosing rule name; used to derive helper names.
+    :ivar name_set: Mutable set of taken rule names. Shared across per-rule
+        dispatchers so allocation stays globally unique.
+    :ivar helpers: Mutable list of emitted helper rules — per-rule fresh.
     """
 
-    def __init__(self, parent_name: str, name_set: set[str]) -> None:
-        """Keep your existing visitor logic, but cache the result per node instance"""
-        self._parent_name = parent_name
-        self._name_set = name_set
-        self.helpers: list[IrRule] = []
-
-    def visit_IrItem(self, node: IrItem) -> IrItem:  # pylint: disable=invalid-name
-        """Recurse into the atom first so nested groups are processed bottom-up."""
-        new_atom = self.visit(node.atom)
-        if not isinstance(new_atom, IrGroup):
-            if new_atom is node.atom:
-                return node
-            return IrItem(atom=new_atom, quantifier=node.quantifier)
-        is_quantified = node.quantifier != IrQuantifier(1, 1)
-        if is_quantified and has_ruleref(new_atom.body):
-            helper_name = _reserve_helper_name(self._parent_name, self._name_set)
-            self._name_set.add(helper_name)
-            self.helpers.append(IrRule(name=helper_name, body=new_atom.body))
-            return IrItem(atom=IrRuleRef(helper_name), quantifier=node.quantifier)
-        return IrItem(atom=new_atom, quantifier=node.quantifier)
+    parent_name: str
+    name_set: set[str] = field(default_factory=set, hash=False, compare=False)
+    helpers: list[IrRule] = field(default_factory=list, hash=False, compare=False)
+    actions: tuple[IrAction, ...] = (IrAction(IrItem, IrCallable(_hoist_item)),)
 
 
 def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
-    """Rewrite quantified groups containing rulerefs into synthetic rules."""
+    """Rewrite quantified groups containing rulerefs into synthetic rules.
+
+    ``name_set`` is shared across per-rule dispatchers (global uniqueness);
+    ``helpers`` is per-rule fresh.
+
+    :param ast: Source AST.
+    :returns: ``(new_ast, all_helpers)``.
+    """
     name_set: set[str] = {r.name for r in ast.rules}
-    helpers: list[IrRule] = []
+    all_helpers: list[IrRule] = []
     new_rules: list[IrRule] = []
     for rule in ast.rules:
         t = _HoistTransformer(parent_name=rule.name, name_set=name_set)
-        new_body = t.visit(rule.body)
-        helpers.extend(t.helpers)
+        new_body = t.apply(rule.body)
+        all_helpers.extend(t.helpers)
         new_rules.append(IrRule(rule.name, new_body))
-    return IrAst(rules=tuple(new_rules), start=ast.start), helpers
+    return IrAst(rules=tuple(new_rules), start=ast.start), all_helpers
 
 
 # ── field naming ──────────────────────────────────────────────────────
