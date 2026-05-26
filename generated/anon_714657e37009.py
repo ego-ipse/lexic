@@ -1,7 +1,6 @@
 """Generated module: anon_714657e37009. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
-
 from typing import Annotated
 
 from pydantic import StringConstraints
@@ -10,8 +9,8 @@ from lexic.base import GrammarModel
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
-    IrQuantifier,
     IrRuleRef,
+    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -47,7 +46,7 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(IrRuleRef("expr"), IrQuantifier(1, 1))],
+    items=[IrItem(atom=IrRuleRef(value="expr"), quantifier=IrQuantifier(min=1, max=1))],
     field_map={"expr": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -59,9 +58,9 @@ Expr.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("term"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("op"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("term"), IrQuantifier(1, 1)),
+        IrItem(atom=IrRuleRef(value="term"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef(value="op"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef(value="term"), quantifier=IrQuantifier(min=1, max=1)),
     ],
     field_map={"term": 0, "op": 1, "term2": 2},
     non_semantic_fields=frozenset([]),
@@ -73,7 +72,7 @@ Term.__grammar__ = RuleSpec(
     class_name="Term",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(IrRuleRef("num"), IrQuantifier(1, 1))],
+    items=[IrItem(atom=IrRuleRef(value="num"), quantifier=IrQuantifier(min=1, max=1))],
     field_map={"num": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -84,7 +83,9 @@ Op.__grammar__ = RuleSpec(
     class_name="Op",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass("-+*/"), IrQuantifier(1, 1))],
+    items=[
+        IrItem(atom=IrCharClass(value="-+*/"), quantifier=IrQuantifier(min=1, max=1))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -95,7 +96,9 @@ Num.__grammar__ = RuleSpec(
     class_name="Num",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass("0-9"), IrQuantifier(1, None))],
+    items=[
+        IrItem(atom=IrCharClass(value="0-9"), quantifier=IrQuantifier(min=1, max=None))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

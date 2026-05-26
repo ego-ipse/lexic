@@ -1,7 +1,6 @@
 """Generated module: anon_6feda35dda11. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
-
 from typing import Annotated
 
 from pydantic import StringConstraints
@@ -10,8 +9,8 @@ from lexic.base import GrammarModel
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
-    IrQuantifier,
     IrRuleRef,
+    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -41,7 +40,7 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(IrRuleRef("term"), IrQuantifier(1, 1))],
+    items=[IrItem(atom=IrRuleRef(value="term"), quantifier=IrQuantifier(min=1, max=1))],
     field_map={"term": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -53,8 +52,8 @@ Term.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="alternation",
     items=[
-        IrItem(IrRuleRef("num"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ident"), IrQuantifier(1, 1)),
+        IrItem(atom=IrRuleRef(value="num"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef(value="ident"), quantifier=IrQuantifier(min=1, max=1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -66,7 +65,9 @@ Num.__grammar__ = RuleSpec(
     class_name="Num",
     parent_class_name="Term",
     kind="value_str",
-    items=[IrItem(IrCharClass("0-9"), IrQuantifier(1, None))],
+    items=[
+        IrItem(atom=IrCharClass(value="0-9"), quantifier=IrQuantifier(min=1, max=None))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -77,7 +78,9 @@ Ident.__grammar__ = RuleSpec(
     class_name="Ident",
     parent_class_name="Term",
     kind="value_str",
-    items=[IrItem(IrCharClass("a-z"), IrQuantifier(1, None))],
+    items=[
+        IrItem(atom=IrCharClass(value="a-z"), quantifier=IrQuantifier(min=1, max=None))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

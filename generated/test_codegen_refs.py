@@ -1,7 +1,6 @@
 """Generated module: test_codegen_refs. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
-
 from typing import Annotated
 
 from pydantic import StringConstraints
@@ -10,8 +9,8 @@ from lexic.base import GrammarModel
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
-    IrQuantifier,
     IrRuleRef,
+    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -31,7 +30,7 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(IrRuleRef("expr"), IrQuantifier(1, 1))],
+    items=[IrItem(atom=IrRuleRef(value="expr"), quantifier=IrQuantifier(min=1, max=1))],
     field_map={"expr": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -42,7 +41,9 @@ Expr.__grammar__ = RuleSpec(
     class_name="Expr",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass("a-z"), IrQuantifier(1, None))],
+    items=[
+        IrItem(atom=IrCharClass(value="a-z"), quantifier=IrQuantifier(min=1, max=None))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

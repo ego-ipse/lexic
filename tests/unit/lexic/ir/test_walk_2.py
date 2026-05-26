@@ -39,7 +39,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction, IrCallable, IrRebuild, IrReturn
+from lexic.ir.action import IrAction, IrCallable, IrRaise, IrRebuild, IrReturn
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -299,15 +299,18 @@ def test_irtransformer_rebuilds_with_replaced_child():
 # ── IrEmitter ────────────────────────────────────────────────────────
 
 
-def test_iremitter_empty_actions_raises_on_dispatch():
-    """No default action: empty :class:`IrEmitter` raises on any node."""
-    with pytest.raises(UnsupportedConstructError):
-        IrEmitter().apply(IrLiteral("hi"))
+def test_iremitter_empty_actions_emits_str_of_node():
+    """Default :class:`IrEmit` body wraps ``str(n)`` in :class:`IrLiteral`."""
+    out = IrEmitter().apply(IrLiteral("hi"))
+    assert out == IrLiteral(str(IrLiteral("hi")))
 
 
-def test_iremitter_with_actions_raises_on_unhandled_type():
-    """If actions are configured but none match, raise UnsupportedConstructError."""
-    e = IrEmitter(actions=(IrAction(IrLiteral, IrLiteral("L")),))
+def test_iremitter_with_strict_default_raises_on_unhandled_type():
+    """Overriding ``default=IrRaise()`` opts back into strict refusal."""
+    e = IrEmitter(
+        actions=(IrAction(IrLiteral, IrLiteral("L")),),
+        default=IrRaise(),
+    )
     with pytest.raises(UnsupportedConstructError):
         e.apply(IrRuleRef("x"))
 

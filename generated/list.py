@@ -1,7 +1,6 @@
 """Generated module: list. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
-
 from typing import Annotated, List
 
 from pydantic import StringConstraints
@@ -12,8 +11,8 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNot,
-    IrQuantifier,
     IrRuleRef,
+    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -35,7 +34,9 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(IrRuleRef("item"), IrQuantifier(1, None))],
+    items=[
+        IrItem(atom=IrRuleRef(value="item"), quantifier=IrQuantifier(min=1, max=None))
+    ],
     field_map={"item": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -47,12 +48,12 @@ Item.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(IrLiteral("- "), IrQuantifier(1, 1)),
+        IrItem(atom=IrLiteral(value="- "), quantifier=IrQuantifier(min=1, max=1)),
         IrItem(
-            IrNot(IrCharClass("\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029")),
-            IrQuantifier(1, None),
+            atom=IrNot(body=IrCharClass(value="\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029")),
+            quantifier=IrQuantifier(min=1, max=None),
         ),
-        IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
+        IrItem(atom=IrLiteral(value="\n"), quantifier=IrQuantifier(min=1, max=1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),

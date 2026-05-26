@@ -288,7 +288,7 @@ class IrWalk(IrLeaf[IrSelf]):
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
-class IrRaise(IrLeaf[IrSelf]):
+class IrRaise[Ir_co: IrSelf](IrLeaf[Ir_co]):
     """Body that raises a configured exception on dispatch.
 
     Strict-default body for :class:`~lexic.ir.walk_2.IrDispatch`. When
@@ -307,7 +307,7 @@ class IrRaise(IrLeaf[IrSelf]):
     exc_type: type[BaseException] = UnsupportedConstructError
     message: str = "{dispatcher}: no action for {node_type!r}"
 
-    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
+    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
         """Raise ``self.exc_type`` with the formatted message.
 
         :param d: Dispatcher driving the walk.
@@ -320,6 +320,27 @@ class IrRaise(IrLeaf[IrSelf]):
                 node_type=type(n).__name__,
             )
         )
+
+
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class IrEmit(IrLeaf[IrLiteral]):
+    """Body that emits ``IrLiteral(str(n))`` for the dispatched node.
+
+    Default body for :class:`~lexic.ir.walk_2.IrEmitter`. Stringifies
+    ``n`` via its ``__str__`` cascade
+    (:attr:`~lexic.ir.nodes.IrNode._str_name` plus
+    :meth:`~lexic.ir.nodes.IrNode._inner_str`) and wraps the result as
+    an :class:`IrLiteral`. Override an emitter's ``default`` with
+    :class:`IrRaise` to refuse unmatched types instead.
+    """
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrLiteral:
+        """Return ``IrLiteral(str(n))``.
+
+        :param n: The dispatched node.
+        :returns: ``IrLiteral`` wrapping the node's string form.
+        """
+        return IrLiteral(str(n))
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)

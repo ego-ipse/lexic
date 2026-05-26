@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import ClassVar, Sequence
 
-from lexic.ir.action import IrAction, IrRaise, IrRebuild, IrReturn, IrWalk
+from lexic.ir.action import IrAction, IrEmit, IrRaise, IrRebuild, IrReturn, IrWalk
 from lexic.ir.nodes import IrCollection, IrLiteral, IrNode, IrSelf, IrTuple
 
 
@@ -54,7 +54,7 @@ class IrDispatch[Ir_co: IrSelf](IrCollection[Ir_co]):
 
     _items_attr: ClassVar[str] = "actions"
     actions: tuple[IrAction[Ir_co], ...] = ()
-    default: IrNode = IrRaise()
+    default: IrNode[Ir_co] = IrRaise()
     _resolve_cache: dict[type, IrAction[Ir_co]] = field(
         init=False,
         default_factory=dict,
@@ -150,15 +150,16 @@ class IrTransformer(IrDispatch[IrNode]):
     resolve first; matching actions can return any ``IrNode``.
     """
 
-    default: IrNode = IrRebuild()
+    default: IrNode[IrNode] = IrRebuild()
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrEmitter(IrDispatch[IrLiteral]):
     """Produces :class:`IrLiteral`-wrapped strings. ``Ir_co = IrLiteral``.
 
-    Inherits the strict :class:`IrRaise` default — unmatched types
-    raise :exc:`~lexic.exceptions.UnsupportedConstructError`. Users
-    define per-type emit actions; the "emit ``str(n)``" fallback is a
-    use-case-specific convenience that callers wire up via ``default=``.
+    Default body is :class:`IrEmit` — unmatched nodes degrade to
+    ``IrLiteral(str(n))`` via the node's ``__str__`` cascade. Override
+    via ``default=IrRaise()`` to refuse unmatched types instead.
     """
+
+    default: IrNode[IrLiteral] = IrEmit()

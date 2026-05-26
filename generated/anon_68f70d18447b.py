@@ -1,7 +1,6 @@
 """Generated module: anon_68f70d18447b. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
-
 from typing import Annotated, Optional
 
 from pydantic import StringConstraints
@@ -11,8 +10,8 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrQuantifier,
     IrRuleRef,
+    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -39,9 +38,9 @@ Root.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrRuleRef("value"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
+        IrItem(atom=IrRuleRef(value="ws"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(atom=IrRuleRef(value="value"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef(value="ws"), quantifier=IrQuantifier(min=0, max=1)),
     ],
     field_map={"ws": 0, "value": 1, "ws2": 2},
     non_semantic_fields=frozenset(["ws", "ws2"]),
@@ -53,7 +52,7 @@ Value.__grammar__ = RuleSpec(
     class_name="Value",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrLiteral("x"), IrQuantifier(1, 1))],
+    items=[IrItem(atom=IrLiteral(value="x"), quantifier=IrQuantifier(min=1, max=1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -64,7 +63,9 @@ Ws.__grammar__ = RuleSpec(
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(" \\t"), IrQuantifier(0, None))],
+    items=[
+        IrItem(atom=IrCharClass(value=" \\t"), quantifier=IrQuantifier(min=0, max=None))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
