@@ -13,9 +13,9 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -76,12 +76,14 @@ Root.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrLiteral("1. "), Quantifier(1, 1)),
-        IrItem(IrRuleRef("move"), Quantifier(1, 1)),
-        IrItem(IrLiteral(" "), Quantifier(1, 1)),
-        IrItem(IrRuleRef("move"), Quantifier(1, 1)),
-        IrItem(IrLiteral("\n"), Quantifier(1, 1)),
-        IrItem(IrRuleRef("root-item"), Quantifier(1, None)),
+        IrItem(atom=IrLiteral(value="1. "), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef(value="move"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrLiteral(value=" "), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef(value="move"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrLiteral(value="\n"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(
+            atom=IrRuleRef(value="root-item"), quantifier=IrQuantifier(min=1, max=None)
+        ),
     ],
     field_map={"move": 1, "move2": 3, "root_item": 5},
     non_semantic_fields=frozenset([]),
@@ -95,24 +97,39 @@ Move.__grammar__ = RuleSpec(
     kind="sequence",
     items=[
         IrItem(
-            IrGroup(
-                IrAlternation(
+            atom=IrGroup(
+                body=IrAlternation(
                     arms=(
                         IrSequence(
-                            items=(IrItem(IrRuleRef("pawn"), Quantifier(1, 1)),)
+                            items=(
+                                IrItem(
+                                    atom=IrRuleRef(value="pawn"),
+                                    quantifier=IrQuantifier(min=1, max=1),
+                                ),
+                            )
                         ),
                         IrSequence(
-                            items=(IrItem(IrRuleRef("nonpawn"), Quantifier(1, 1)),)
+                            items=(
+                                IrItem(
+                                    atom=IrRuleRef(value="nonpawn"),
+                                    quantifier=IrQuantifier(min=1, max=1),
+                                ),
+                            )
                         ),
                         IrSequence(
-                            items=(IrItem(IrRuleRef("castle"), Quantifier(1, 1)),)
+                            items=(
+                                IrItem(
+                                    atom=IrRuleRef(value="castle"),
+                                    quantifier=IrQuantifier(min=1, max=1),
+                                ),
+                            )
                         ),
                     )
                 )
             ),
-            Quantifier(1, 1),
+            quantifier=IrQuantifier(min=1, max=1),
         ),
-        IrItem(IrCharClass("+#"), Quantifier(0, 1)),
+        IrItem(atom=IrCharClass(value="+#"), quantifier=IrQuantifier(min=0, max=1)),
     ],
     field_map={"kind": 0, "head": 1},
     non_semantic_fields=frozenset([]),
@@ -125,12 +142,12 @@ Nonpawn.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(IrCharClass("NBKQR"), Quantifier(1, 1)),
-        IrItem(IrCharClass("a-h"), Quantifier(0, 1)),
-        IrItem(IrCharClass("1-8"), Quantifier(0, 1)),
-        IrItem(IrLiteral("x"), Quantifier(0, 1)),
-        IrItem(IrCharClass("a-h"), Quantifier(1, 1)),
-        IrItem(IrCharClass("1-8"), Quantifier(1, 1)),
+        IrItem(atom=IrCharClass(value="NBKQR"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrCharClass(value="a-h"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(atom=IrCharClass(value="1-8"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(atom=IrLiteral(value="x"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(atom=IrCharClass(value="a-h"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrCharClass(value="1-8"), quantifier=IrQuantifier(min=1, max=1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -144,36 +161,48 @@ Pawn.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrItem(
-            IrGroup(
-                IrAlternation(
+            atom=IrGroup(
+                body=IrAlternation(
                     arms=(
                         IrSequence(
                             items=(
-                                IrItem(IrCharClass("a-h"), Quantifier(1, 1)),
-                                IrItem(IrLiteral("x"), Quantifier(1, 1)),
+                                IrItem(
+                                    atom=IrCharClass(value="a-h"),
+                                    quantifier=IrQuantifier(min=1, max=1),
+                                ),
+                                IrItem(
+                                    atom=IrLiteral(value="x"),
+                                    quantifier=IrQuantifier(min=1, max=1),
+                                ),
                             )
                         ),
                     )
                 )
             ),
-            Quantifier(0, 1),
+            quantifier=IrQuantifier(min=0, max=1),
         ),
-        IrItem(IrCharClass("a-h"), Quantifier(1, 1)),
-        IrItem(IrCharClass("1-8"), Quantifier(1, 1)),
+        IrItem(atom=IrCharClass(value="a-h"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrCharClass(value="1-8"), quantifier=IrQuantifier(min=1, max=1)),
         IrItem(
-            IrGroup(
-                IrAlternation(
+            atom=IrGroup(
+                body=IrAlternation(
                     arms=(
                         IrSequence(
                             items=(
-                                IrItem(IrLiteral("="), Quantifier(1, 1)),
-                                IrItem(IrCharClass("NBKQR"), Quantifier(1, 1)),
+                                IrItem(
+                                    atom=IrLiteral(value="="),
+                                    quantifier=IrQuantifier(min=1, max=1),
+                                ),
+                                IrItem(
+                                    atom=IrCharClass(value="NBKQR"),
+                                    quantifier=IrQuantifier(min=1, max=1),
+                                ),
                             )
                         ),
                     )
                 )
             ),
-            Quantifier(0, 1),
+            quantifier=IrQuantifier(min=0, max=1),
         ),
     ],
     field_map={},
@@ -187,8 +216,8 @@ Castle.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(IrLiteral("O-O"), Quantifier(1, 1)),
-        IrItem(IrLiteral("-O"), Quantifier(0, 1)),
+        IrItem(atom=IrLiteral(value="O-O"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrLiteral(value="-O"), quantifier=IrQuantifier(min=0, max=1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -201,13 +230,13 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrCharClass("1-9"), Quantifier(1, 1)),
-        IrItem(IrCharClass("0-9"), Quantifier(0, 1)),
-        IrItem(IrLiteral(". "), Quantifier(1, 1)),
-        IrItem(IrRuleRef("move"), Quantifier(1, 1)),
-        IrItem(IrLiteral(" "), Quantifier(1, 1)),
-        IrItem(IrRuleRef("move"), Quantifier(1, 1)),
-        IrItem(IrLiteral("\n"), Quantifier(1, 1)),
+        IrItem(atom=IrCharClass(value="1-9"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrCharClass(value="0-9"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(atom=IrLiteral(value=". "), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef(value="move"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrLiteral(value=" "), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef(value="move"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrLiteral(value="\n"), quantifier=IrQuantifier(min=1, max=1)),
     ],
     field_map={"head": 0, "digit": 1, "move": 3, "move2": 5},
     non_semantic_fields=frozenset([]),

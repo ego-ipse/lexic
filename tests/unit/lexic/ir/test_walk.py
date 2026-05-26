@@ -1,280 +1,356 @@
-# tests/unit/lexic/ir/test_walk.py
-"""IrVisitor and IrTransformer — Python-ast-style traversal for IR AST."""
+"""Tests for ``ir/walk.py`` — action-driven dispatcher on the IrSelf substrate.
 
-from __future__ import annotations
+The dispatcher is an :class:`IrCollection` whose items are the action table.
+``apply(root)`` is the entry verb — chosen over ``__call__`` because
+``__call__`` is reserved for IrSelf-identity (returns ``Self``). Overriding
+it on the dispatcher would violate LSP.
 
+Walk semantics
+--------------
+The dispatcher does **not** recurse children automatically. ``apply(root)``
+calls ``eval(self, root, ())`` once; the resolved action's body is responsible
+for any recursion (typically by calling ``d.eval(d, c, ())`` on each child it
+cares about, or by leveraging :class:`IrRebuild` which walks then rebuilds).
+
+Action resolution
+-----------------
+The matching :class:`IrAction` is resolved via concrete-first MRO walk over
+the action table (memoised). When no action matches, the dispatcher raises
+:class:`UnsupportedConstructError`.
+
+Short-circuit
+-------------
+A body raising :class:`IrReturn` is caught at ``eval`` — its ``.value`` is
+returned provided it satisfies the dispatcher's ``Ir_co`` bound; otherwise it
+re-raises and propagates past the dispatcher (same as bare :class:`_Return`).
+
+Presets
+-------
+``IrVisitor``       Side-effect walker. Default action :class:`IrWalk` recurses
+                    into children and returns :data:`IrNone`.
+``IrTransformer``   Rewrites IR. Default action :class:`IrRebuild` walks
+                    children via ``d`` and rebuilds the node.
+``IrEmitter``       Produces :class:`IrLiteral`. Default action :class:`IrEmit`
+                    wraps ``str(n)`` in :class:`IrLiteral`; override with
+                    ``default=IrRaise()`` to refuse unmatched types.
+"""
+
+from dataclasses import FrozenInstanceError
+
+import pytest
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.action import IrAction, IrCallable, IrRaise, IrRebuild, IrReturn
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrCharClass,
-    IrGroup,
+    IrCollection,
     IrItem,
+    IrLeaf,
     IrLiteral,
+    IrNode,
+    IrNone,
     IrRule,
     IrRuleRef,
     IrSequence,
-    Quantifier,
+    IrTuple,
 )
-from lexic.ir.walk import IrDispatch, IrTransformer, IrVisitor
+from lexic.ir.walk import IrDispatch, IrEmitter, IrTransformer, IrVisitor
+
+# ── Fixtures ─────────────────────────────────────────────────────────
 
 
-def _seq(*items):
-    return IrSequence(tuple(items))
+def _tiny_ast() -> IrAst:
+    """Build a small AST for traversal tests.
+
+    :returns: An IrAst with a single rule ``r`` referencing itself.
+    """
+    rule = IrRule(
+        name="r",
+        body=IrAlternation(
+            arms=IrTuple(IrSequence(items=IrTuple(IrItem(atom=IrRuleRef("r")))))
+        ),
+    )
+    return IrAst(rules=IrTuple(rule), start="r")
 
 
-def _alt(*arms):
-    return IrAlternation(tuple(arms))
+# ── IrDispatch fundamentals ──────────────────────────────────────────
 
 
-def _it(atom, q=None):
-    return IrItem(atom, q if q else Quantifier())
+def test_irdispatch_is_an_ircollection_of_actions():
+    """IrDispatch IS an IrCollection — children are the actions tuple."""
+    a = IrAction(IrLiteral, IrLiteral("x"))
+    d = IrVisitor(actions=(a,))
+    assert isinstance(d, IrCollection)
+    assert d.children() == (a,)
+    assert d.actions == (a,)
+
+
+def test_irdispatch_apply_with_no_actions_invokes_preset_default():
+    """``IrVisitor``'s preset default :class:`IrWalk` returns :data:`IrNone`."""
+    assert IrVisitor().apply(IrLiteral("a")) is IrNone
+
+
+def test_irdispatch_concrete_action_wins_over_abstract():
+    """A concrete-type action wins over an IrLeaf/IrNode-keyed catch-all."""
+    seen: list[str] = []
+    leaf_action = IrAction(
+        IrLeaf, IrCallable[IrNode](lambda _d, _n, _nc: seen.append("leaf") or IrNone)
+    )
+    lit_action = IrAction(
+        IrLiteral, IrCallable[IrNode](lambda _d, _n, _nc: seen.append("lit") or IrNone)
+    )
+    IrVisitor(actions=(leaf_action, lit_action)).apply(IrLiteral("x"))
+    assert seen == ["lit"]
+
+
+def test_irdispatch_falls_through_to_abstract_action_when_no_concrete_match():
+    """An IrLeaf-keyed action catches IrRuleRef (which IS-A IrLeaf)."""
+    seen: list[str] = []
+    leaf_action = IrAction(
+        IrLeaf, IrCallable[IrNode](lambda _d, _n, _nc: seen.append("leaf") or IrNone)
+    )
+    IrVisitor(actions=(leaf_action,)).apply(IrRuleRef("r"))
+    assert seen == ["leaf"]
+
+
+def test_action_body_can_recurse_explicitly_via_dispatcher():
+    """The dispatcher does not auto-walk. A body that wants child recursion
+    calls ``d.eval(d, c, ())`` on each child itself."""
+    visited: list[type] = []
+
+    def _on(d, n, _nc):
+        visited.append(type(n))
+        for c in n.children():
+            d.eval(d, c, ())
+        return IrNone
+
+    d = IrVisitor(actions=(IrAction(IrNode, IrCallable[IrNode](_on)),))
+    d.apply(_tiny_ast())
+    assert IrAst in visited
+    assert IrRuleRef in visited
+    assert IrItem in visited
+
+
+def test_action_body_receives_pre_dispatched_children_when_caller_supplies_them():
+    """``nc`` is empty at entry but populated when an outer body pre-walked.
+    Calling ``d.eval(d, n, nc)`` directly hands the body its ``nc``."""
+    captured: list[tuple] = []
+
+    def _on(_d, _n, new_children):
+        captured.append(tuple(new_children))
+        return IrNone
+
+    d = IrVisitor(actions=(IrAction(IrItem, IrCallable[IrNode](_on)),))
+    item = IrItem(atom=IrLiteral("x"))
+    pre = IrTuple(IrLiteral("PRE"), IrLiteral("Q"))
+    d.eval(d, item, pre)
+    assert captured == [(IrLiteral("PRE"), IrLiteral("Q"))]
+
+
+# ── IrReturn short-circuit ───────────────────────────────────────────
+
+
+def test_irreturn_short_circuits_subtree_walk():
+    """A body that recurses children and raises IrReturn unwinds to ``eval``.
+    The remaining siblings are never visited."""
+    visit_count = 0
+
+    def _on_ref(_d, _n, _nc):
+        nonlocal visit_count
+        visit_count += 1
+        raise IrReturn[IrNode](IrNone)
+
+    def _walk(d, n, _nc):
+        for c in n.children():
+            d.eval(d, c, ())
+        return IrNone
+
+    ast = IrAst(
+        rules=IrTuple(
+            IrRule(
+                name="r",
+                body=IrAlternation(
+                    arms=IrTuple(
+                        IrSequence(
+                            items=IrTuple(
+                                IrItem(atom=IrRuleRef("a")),
+                                IrItem(atom=IrRuleRef("b")),
+                            )
+                        )
+                    )
+                ),
+            )
+        ),
+        start="r",
+    )
+    d = IrVisitor(
+        actions=(
+            IrAction(IrRuleRef, IrCallable[IrNode](_on_ref)),
+            IrAction(IrNode, IrCallable[IrNode](_walk)),
+        )
+    )
+    assert d.apply(ast) is IrNone
+    assert visit_count == 1
+
+
+def test_irreturn_value_returned_when_satisfies_bound():
+    """``IrReturn`` whose ``.value`` satisfies the dispatcher's bound is
+    returned as the dispatched value."""
+    d = IrVisitor(actions=(IrAction(IrRuleRef, IrReturn[IrNode](IrNone)),))
+    assert d.apply(IrRuleRef("x")) is IrNone
+
+
+# ── Resolve cache (observable) ───────────────────────────────────────
+
+
+def test_repeated_dispatch_does_not_rebuild_action_table():
+    """Cache hit: repeated apply on same root type produces consistent
+    behaviour with no observable re-resolution side effects."""
+    resolve_calls: list[type] = []
+
+    def _on(_d, n, _nc):
+        resolve_calls.append(type(n))
+        return IrNone
+
+    d = IrVisitor(actions=(IrAction(IrLiteral, IrCallable[IrNode](_on)),))
+    d.apply(IrLiteral("a"))
+    d.apply(IrLiteral("b"))
+    d.apply(IrLiteral("c"))
+    assert resolve_calls == [IrLiteral, IrLiteral, IrLiteral]
+
+
+def test_dispatcher_is_frozen_actions_immutable():
+    """Frozen dataclass: actions field cannot be rebound after construction."""
+    d = IrVisitor()
+    with pytest.raises(FrozenInstanceError):
+        # Frozen-dataclass __setattr__ raises; setattr() goes through it.
+        setattr(d, "actions", ())
 
 
 # ── IrVisitor ────────────────────────────────────────────────────────
 
 
-def test_visitor_dispatches_by_type():
-    """Test that the visitor dispatches to the correct visit method based on node type."""
-    seen = []
-
-    class V(IrVisitor):
-        """Visit IrLiteral and IrRuleRef nodes and record their values."""
-
-        def visit_IrLiteral(self, node):  # pylint: disable=invalid-name
-            """Visit an IrLiteral and record its value."""
-            seen.append(("lit", node.value))
-
-        def visit_IrRuleRef(self, node):  # pylint: disable=invalid-name
-            """Visit an IrRuleRef and record its name."""
-            seen.append(("ref", node.name))
-
-    v = V()
-    v.visit(IrLiteral("a"))
-    v.visit(IrRuleRef("r"))
-    assert seen == [("lit", "a"), ("ref", "r")]
+def test_irvisitor_empty_actions_returns_irnone():
+    """IrVisitor with no user actions walks via :class:`IrWalk` and returns :data:`IrNone`."""
+    assert IrVisitor().apply(IrLiteral("a")) is IrNone
+    assert IrVisitor().apply(_tiny_ast()) is IrNone
 
 
-def test_visitor_generic_visit_walks_children():
-    """Test that the generic visit implementation walks into child nodes."""
-    counts = {"literals": 0, "refs": 0}
+def test_irvisitor_default_walks_into_children():
+    """The default :class:`IrWalk` body recurses into every child node."""
+    visited: list[type] = []
 
-    class V(IrVisitor):
-        """Count literals and rule references in the IR tree."""
+    def _record(_d, n, _nc):
+        visited.append(type(n))
+        return IrNone
 
-        def visit_IrLiteral(self, _):  # pylint: disable=invalid-name
-            """Visit an IrLiteral and count it."""
-            counts["literals"] += 1
-
-        def visit_IrRuleRef(self, _):  # pylint: disable=invalid-name
-            """Visit an IrRuleRef and count it."""
-            counts["refs"] += 1
-
-    body = _alt(
-        _seq(_it(IrLiteral("a")), _it(IrRuleRef("x"))),
-        _seq(_it(IrLiteral("b"))),
+    d = IrVisitor(actions=(IrAction(IrLiteral, IrCallable[IrNode](_record)),))
+    ast = IrAst(
+        rules=IrTuple(
+            IrRule(
+                name="r",
+                body=IrAlternation(
+                    arms=IrTuple(
+                        IrSequence(
+                            items=IrTuple(
+                                IrItem(atom=IrLiteral("a")),
+                                IrItem(atom=IrLiteral("b")),
+                            )
+                        )
+                    )
+                ),
+            )
+        ),
+        start="r",
     )
-    rule = IrRule("r", body)
-    V().visit(rule)
-    assert counts == {"literals": 2, "refs": 1}
-
-
-def test_visitor_walks_groups():
-    """Test that the visitor can walk into IrGroup nodes."""
-    counts = {"chars": 0}
-
-    class V(IrVisitor):
-        """Count IrCharClass nodes, even when nested inside groups."""
-
-        def visit_IrCharClass(self, _):  # pylint: disable=invalid-name
-            """Visit an IrCharClass and count it."""
-            counts["chars"] += 1
-
-    seq = _seq(
-        _it(IrGroup(_alt(_seq(_it(IrCharClass("a-z")), _it(IrCharClass("0-9")))))),
-    )
-    V().visit(seq)
-    assert counts["chars"] == 2
+    d.apply(ast)
+    assert visited == [IrLiteral, IrLiteral]
 
 
 # ── IrTransformer ────────────────────────────────────────────────────
 
 
-def test_transformer_returns_node_unchanged_by_default():
-    """Test that the default transformer implementation returns the node unchanged."""
-    lit = IrLiteral("a")
-    out = IrTransformer().visit(lit)
-    assert out == lit
+def test_irtransformer_empty_actions_rebuilds_to_equal_tree():
+    """IrTransformer with no user actions walks via :class:`IrRebuild` and
+    produces a tree equal to the input."""
+    seq = IrSequence(items=IrTuple(IrItem(atom=IrLiteral("a"))))
+    assert IrTransformer().apply(seq) == seq
 
 
-def test_transformer_can_rewrite_a_leaf():
-    """Test that the transformer can rewrite a leaf node like IrLiteral."""
+def test_irtransformer_rebuilds_with_replaced_child():
+    """A user action returning a different child causes the parent to be
+    rebuilt with that child in place."""
 
-    class T(IrTransformer):
-        """Rewrite an IrLiteral to uppercase."""
+    def _swap(_d, _n, _nc):
+        return IrLiteral("Z")
 
-        def visit_IrLiteral(self, node):  # pylint: disable=invalid-name
-            """Rewrite an IrLiteral to uppercase."""
-            return IrLiteral(node.value.upper())
-
-    body = _alt(_seq(_it(IrLiteral("a")), _it(IrLiteral("b"))))
-    rule = IrRule("r", body)
-    out = T().visit(rule)
-    assert isinstance(out, IrRule)
-    arm = out.body.arms[0]
-    assert arm.items[0].atom == IrLiteral("A")
-    assert arm.items[1].atom == IrLiteral("B")
-
-
-def test_transformer_preserves_quantifier_when_rewriting_atom():
-    """Test when transformer rewrites an atom, it preserves quantifier from parent IrItem."""
-
-    class T(IrTransformer):
-        """Rewrite an IrLiteral but preserve the quantifier from the parent IrItem."""
-
-        def visit_IrLiteral(self, node):  # pylint: disable=invalid-name
-            """Rewrite an IrLiteral but preserve the quantifier from the parent IrItem."""
-            return IrLiteral(node.value + "!")
-
-    body = _alt(_seq(_it(IrLiteral("x"), Quantifier(0, None))))
-    rule = IrRule("r", body)
-    out = T().visit(rule)
-    assert isinstance(out, IrRule)
-    item = out.body.arms[0].items[0]
-    assert item.atom == IrLiteral("x!")
-    assert item.quantifier == Quantifier(0, None)
-
-
-def test_transformer_replacing_group_with_ruleref():
-    """Helper-rule hoisting use case: replace IrGroup with IrRuleRef."""
-
-    class T(IrTransformer):
-        """Visit an IrGroup and replace it with an IrRuleRef to a hoisted rule."""
-
-        def visit_IrGroup(self, _):  # pylint: disable=invalid-name
-            """Hoist the group into a separate rule and return a reference to it."""
-            return IrRuleRef("hoisted")
-
-    body = _alt(
-        _seq(_it(IrGroup(_alt(_seq(_it(IrLiteral("a"))))), Quantifier(1, None)))
+    t = IrTransformer(
+        actions=(
+            IrAction(IrLiteral, IrCallable[IrNode](_swap)),
+            IrAction(IrNode, IrRebuild()),
+        )
     )
-    rule = IrRule("r", body)
-    out = T().visit(rule)
-    assert isinstance(out, IrRule)
-    item = out.body.arms[0].items[0]
-    assert item.atom == IrRuleRef("hoisted")
-    assert item.quantifier == Quantifier(1, None)
+    item = IrItem(atom=IrLiteral("a"))
+    new = t.apply(item)
+    assert isinstance(new, IrItem)
+    assert new.atom == IrLiteral("Z")
 
 
-def test_transformer_walks_ast_top_level():
-    """Test that the transformer can visit the top-level IrAst node and rewrite it."""
+# ── IrEmitter ────────────────────────────────────────────────────────
 
-    class T(IrTransformer):
-        """Visit the IrAst and rewrite the start rule name."""
 
-        def visit_IrLiteral(self, node):  # pylint: disable=invalid-name
-            """Rewrite an IrLiteral by appending a dot."""
-            return IrLiteral(node.value + ".")
+def test_iremitter_empty_actions_emits_str_of_node():
+    """Default :class:`IrEmit` body wraps ``str(n)`` in :class:`IrLiteral`."""
+    out = IrEmitter().apply(IrLiteral("hi"))
+    assert out == IrLiteral(str(IrLiteral("hi")))
 
-    ast = IrAst(
-        rules=(
-            IrRule("a", _alt(_seq(_it(IrLiteral("x"))))),
-            IrRule("b", _alt(_seq(_it(IrLiteral("y"))))),
-        ),
-        start="a",
+
+def test_iremitter_irreturn_with_non_irliteral_value_reraises_past_apply():
+    """``IrReturn`` carrying a non-:class:`IrLiteral` payload doesn't satisfy
+    the emitter's bound — it propagates past :meth:`IrDispatch.apply`."""
+
+    def _raise(_d, _n, _nc):
+        raise IrReturn[IrNode](IrRuleRef("not-a-literal"))
+
+    e = IrEmitter(actions=(IrAction(IrLiteral, IrCallable[IrNode](_raise)),))
+    with pytest.raises(IrReturn):
+        e.apply(IrLiteral("x"))
+
+
+def test_iremitter_with_strict_default_raises_on_unhandled_type():
+    """Overriding ``default=IrRaise()`` opts back into strict refusal."""
+    e = IrEmitter(
+        actions=(IrAction(IrLiteral, IrLiteral("L")),),
+        default=IrRaise(),
     )
-    out = T().visit(ast)
-    assert isinstance(out, IrAst)
-    assert out.rules[0].body.arms[0].items[0].atom == IrLiteral("x.")
-    assert out.rules[1].body.arms[0].items[0].atom == IrLiteral("y.")
-    assert out.start == "a"
+    with pytest.raises(UnsupportedConstructError):
+        e.apply(IrRuleRef("x"))
 
 
-# ── IrDispatch (generic fold) ─────────────────────────────────────────
-
-_FOLD: dict = {
-    IrLiteral: lambda n, oc, nc: n.value,
-    IrItem: lambda n, oc, nc: nc[0],
-    IrSequence: lambda n, oc, nc: " ".join(nc),
-    IrAlternation: lambda n, oc, nc: " | ".join(nc),
-}
-
-
-def test_dispatch_visit_returns_value():
-    """IrDispatch.visit returns the result of _combine — not None like IrVisitor."""
-
-    class Folder(IrDispatch):
-        """Fold IR nodes to strings."""
-
-        action = _FOLD
-
-        def _combine(self, node, old_children, new_children):
-            return self.action[type(node)](node, old_children, new_children)
-
-    result = Folder().visit(_it(IrLiteral("hi")))
-    assert result == "hi"
-
-
-_FOLD_2: dict = {
-    IrLiteral: lambda n, oc, nc: repr(n.value),
-    IrCharClass: lambda n, oc, nc: f"[{n.pattern}]",
-    IrRuleRef: lambda n, oc, nc: f"ref:{n.name}",
-    IrGroup: lambda n, oc, nc: f"({nc[0]})",
-    IrAlternation: lambda n, oc, nc: " | ".join(nc) if nc else "",
-    IrSequence: lambda n, oc, nc: " ".join(nc) if nc else "",
-    IrItem: lambda n, oc, nc: nc[0],
-}
-
-
-def test_dispatch_fold_tree_to_string():
-    """IrDispatch folds a nested alternation tree to a string."""
-
-    class Folder(IrDispatch):
-        """Fold IR nodes to strings via dispatch table."""
-
-        action = _FOLD_2
-
-        def _combine(self, node, old_children, new_children):
-            return self.action[type(node)](node, old_children, new_children)
-
-    body = _alt(
-        _seq(_it(IrLiteral("a")), _it(IrRuleRef("x"))),
-        _seq(_it(IrLiteral("b"))),
+def test_iremitter_action_on_irnode_acts_as_per_instance_default():
+    """User-supplied IrAction(IrNode, ...) catches everything; preset default never fires."""
+    e = IrEmitter(
+        actions=(
+            IrAction(IrLiteral, IrLiteral("L")),
+            IrAction(IrNode, IrLiteral("ANY")),
+        )
     )
-    assert Folder().visit(body) == "'a' ref:x | 'b'"
+    assert e.apply(IrRuleRef("x")) == "ANY"
+    assert e.apply(IrLiteral("y")) == "L"
 
 
-def test_dispatch_combine_receives_empty_tuples_for_leaves():
-    """For leaf nodes, _combine is called with old_children=() and new_children=()."""
-
-    combine_args: list = []
-
-    class Recorder(IrDispatch):
-        """Record _combine calls."""
-
-        action = {}
-
-        def _combine(self, node, old_children, new_children):
-            combine_args.append((type(node).__name__, old_children, new_children))
-            return ""
-
-    Recorder().visit(IrLiteral("x"))
-    assert combine_args == [("IrLiteral", (), ())]
+# ── Dispatcher passed to action bodies ───────────────────────────────
 
 
-def test_dispatch_new_children_are_visited_results():
-    """new_children passed to _combine are the results of visiting each child."""
+def test_action_body_receives_dispatcher_as_first_arg():
+    """``action.body.eval(self, node, new_children)`` — first arg is the dispatcher."""
+    captured: list[IrDispatch] = []
 
-    class Counter(IrDispatch):
-        """Count visits and record new_children length."""
+    def _on(d, _n, _nc):
+        captured.append(d)
+        return IrNone
 
-        action = {}
-        results: list = []
-
-        def _combine(self, node, old_children, new_children):
-            self.results.append(len(new_children))
-            return len(new_children)
-
-    # IrItem has one child (its atom); IrLiteral has none.
-    c = Counter()
-    c.visit(_it(IrLiteral("z")))
-    assert c.results == [0, 1]  # IrLiteral: 0 children; IrItem: 1 child visited
+    d = IrVisitor(actions=(IrAction(IrLiteral, IrCallable[IrNode](_on)),))
+    d.apply(IrLiteral("a"))
+    assert captured == [d]

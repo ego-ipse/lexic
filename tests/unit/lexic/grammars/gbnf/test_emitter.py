@@ -11,9 +11,9 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNot,
+    IrQuantifier,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from tests.unit.lexic.conftest import make_spec as _spec
 
@@ -27,7 +27,7 @@ def test_emit_literal():
 
 def test_emit_charclass_with_quantifier():
     """IrItem(IrCharClass) with quantifier emits as expected."""
-    s = _spec("digit", "value_str", [IrItem(IrCharClass("0-9"), Quantifier(1, None))])
+    s = _spec("digit", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))])
     assert GbnfEmitter(GBNF_ESCAPES).emit_rule(s) == "digit ::= [0-9]+"
 
 
@@ -39,7 +39,7 @@ def test_emit_negated_charclass():
 
 def test_emit_ruleref_with_quantifier():
     """IrItem(IrRuleRef) with quantifier emits as expected."""
-    s = _spec("expr", "sequence", [IrItem(IrRuleRef("term"), Quantifier(1, None))])
+    s = _spec("expr", "sequence", [IrItem(IrRuleRef("term"), IrQuantifier(1, None))])
     assert GbnfEmitter(GBNF_ESCAPES).emit_rule(s) == "expr ::= term+"
 
 
@@ -67,7 +67,7 @@ def test_emit_group_with_quantifier():
             )
         )
     )
-    s = _spec("r", "value_str", [IrItem(grp, Quantifier(1, None))])
+    s = _spec("r", "value_str", [IrItem(grp, IrQuantifier(1, None))])
     out = GbnfEmitter(GBNF_ESCAPES).emit_rule(s)
     assert out.endswith("+")
     assert '"foo"' in out and '"bar"' in out
@@ -98,7 +98,7 @@ def test_emit_full_grammar_concatenates():
     """Concatenation of all rules in a grammar emits as expected."""
     specs = [
         _spec("root", "sequence", [IrItem(IrRuleRef("expr"))], {"expr": 0}),
-        _spec("expr", "value_str", [IrItem(IrCharClass("a-z"), Quantifier(1, None))]),
+        _spec("expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, None))]),
     ]
     out = GbnfEmitter(GBNF_ESCAPES).emit(specs)
     assert "root ::= expr" in out

@@ -1,152 +1,165 @@
-"""IrDispatch, IrVisitor, IrTransformer — Python-ast-style traversal for the IR AST.
+"""Action-driven IR dispatcher on the IrSelf substrate.
 
-``IrDispatch[_N, _T]`` is the shared parent. ``visit()`` dispatches to
-``visit_<TypeName>`` methods; missing types fall to ``generic_visit`` which
-walks children via ``_CHILDREN`` and delegates to ``_combine`` (subclass
-override). The two canonical instantiations are:
+:class:`IrDispatch` is an :class:`IrCollection` whose items are the per-type
+action table. It does NOT walk children automatically — the action body
+is responsible for any recursion (typically by calling ``d.eval(d, c, ())``
+on each child it cares about, or by reading pre-dispatched ``nc``).
 
-  IrVisitor[_N]      = IrDispatch[_N, None]   walks for side effects.
-  IrTransformer[_N]  = IrDispatch[_N, _N]     rewrites via ``_REBUILD``.
+Entry forms
+-----------
+- ``dispatcher.eval(d, n, nc)`` — protocol-shaped. ``d`` is the outer
+  dispatcher driving the call (often ``self`` for entry); ``n`` is the
+  IR node to dispatch; ``nc`` is the pre-dispatched children (empty when
+  called as entry).
+- ``dispatcher.apply(root)`` — friendly façade that seeds ``d = self``
+  and ``nc = ()``.
 
-Other folds-to-T can subclass ``IrDispatch`` directly when state is needed.
-For stateless reductions to a value (e.g. pretty-print, source rendering),
-prefer a top-level function with a per-type dispatch dict — see ``dump``.
+Short-circuit
+-------------
+A body that raises :class:`IrReturn` unwinds to the dispatcher's catch.
+The IrReturn instance itself is returned — it IS-A :class:`IrNode`
+IS-A :class:`IrSelf`, fitting the dispatcher's ``Ir_co: IrSelf`` bound.
+Callers needing the carried value read ``.value`` from the result.
 
-Leaves (IrLiteral, IrCharClass, IrRuleRef) have no children. Unknown node
-types raise TypeError.
+A bare :class:`_Return` (not an IrReturn) propagates past the dispatcher.
 """
 
 from __future__ import annotations
 
-from typing import Callable, TypeAlias, TypeVar
+from dataclasses import dataclass, field
+from typing import ClassVar, Sequence
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.nodes import (
-    IrAlternation,
-    IrAst,
-    IrGroup,
-    IrItem,
-    IrLeaf,
-    IrNode,
-    IrNot,
-    IrRule,
-    IrSequence,
-)
-
-_N = TypeVar("_N", bound=IrNode)
-_GetChildren: TypeAlias = Callable[[_N], tuple[_N, ...]]
-
-_CHILDREN: dict[type, _GetChildren] = {
-    IrAst: lambda n: n.rules,
-    IrRule: lambda n: (n.body,),
-    IrAlternation: lambda n: n.arms,
-    IrSequence: lambda n: n.items,
-    IrItem: lambda n: (n.atom,),
-    IrGroup: lambda n: (n.body,),
-    IrNot: lambda n: (n.body,),
-}
-
-_Rebuilder: TypeAlias = Callable[..., _N]
-_REBUILD: dict[type, _Rebuilder] = {
-    IrAst: lambda n, ch: IrAst(rules=ch, start=n.start),
-    IrRule: lambda n, ch: IrRule(name=n.name, body=ch[0]),
-    IrAlternation: lambda n, ch: IrAlternation(arms=ch),
-    IrSequence: lambda n, ch: IrSequence(items=ch),
-    IrItem: lambda n, ch: IrItem(atom=ch[0], quantifier=n.quantifier),
-    IrGroup: lambda n, ch: IrGroup(body=ch[0]),
-    IrNot: lambda n, ch: IrNot(body=ch[0]),
-}
-
-_DUMP: dict[type, Callable[..., str]] = {
-    IrAst: lambda n, i: (
-        f"{'  ' * i}IrAst(start={n.start!r}, rules=[\n"
-        + "\n".join(dump(r, indent=i + 1) for r in n.rules)
-        + f"\n{'  ' * i}])"
-    ),
-    IrRule: lambda n, i: (
-        f"{'  ' * i}IrRule({n.name!r},\n{dump(n.body, indent=i + 1)}\n{'  ' * i})"
-    ),
-    IrAlternation: lambda n, i: (
-        f"{'  ' * i}IrAlternation([])"
-        if not n.arms
-        else f"{'  ' * i}IrAlternation([\n"
-        + ",\n".join(dump(a, indent=i + 1) for a in n.arms)
-        + f"\n{'  ' * i}])"
-    ),
-    IrSequence: lambda n, i: (
-        f"{'  ' * i}IrSequence([])"
-        if not n.items
-        else f"{'  ' * i}IrSequence([\n"
-        + ",\n".join(dump(it, indent=i + 1) for it in n.items)
-        + f"\n{'  ' * i}])"
-    ),
-    IrItem: lambda n, i: (
-        f"{'  ' * i}IrItem({dump(n.atom, indent=i + 1)}, q={n.quantifier})"
-    ),
-    IrGroup: lambda n, i: f"{'  ' * i}IrGroup({dump(n.body, indent=i + 1)})",
-    IrNot: lambda n, i: f"{'  ' * i}IrNot({dump(n.body, indent=i + 1)})",
-}
+from lexic.ir.action import IrAction, IrEmit, IrRaise, IrRebuild, IrReturn, IrWalk
+from lexic.ir.nodes import IrCollection, IrLiteral, IrNode, IrSelf, IrTuple
 
 
-class IrDispatch[_N, _T]:
-    """Type-name dispatch over IR nodes; parent of IrVisitor and IrTransformer.
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class IrDispatch[Ir_co: IrSelf](IrCollection[Ir_co]):
+    """Action-driven IR dispatcher.
 
-    ``visit(node)`` returns whatever ``visit_<TypeName>(node)`` returns. If no
-    matching method exists, ``generic_visit`` walks ``node``'s children via
-    ``_CHILDREN``, recurses, and combines the visited children into a result
-    of type ``_T`` via ``_combine`` (subclass override).
+    Holds a per-type ``actions`` table. ``eval`` (or ``apply``) resolves
+    the matching :class:`IrAction` for ``type(n)`` via concrete-first MRO
+    walk (memoised) and invokes its body.
+
+    The dispatcher does no children-walking on its own. Action bodies that
+    need pre-dispatched children call ``d.eval(d, c, ())`` themselves —
+    ``d`` is the dispatcher driving the call.
+
+    :param actions: Action table. Concrete ``target_type`` keys win over
+        abstract ones via MRO order.
+    :param default: Body invoked when no action matches ``type(n).__mro__``.
+        Base default is :class:`~lexic.ir.action.IrRaise`; presets
+        override (e.g. :class:`IrVisitor` → :class:`~lexic.ir.action.IrWalk`).
     """
 
-    children: dict[type, _GetChildren] = _CHILDREN
-    action: dict[type, Callable[..., _T]]
+    _items_attr: ClassVar[str] = "actions"
+    actions: tuple[IrAction[Ir_co], ...] = ()
+    default: IrNode[Ir_co] = IrRaise()
+    _resolve_cache: dict[type, IrAction[Ir_co]] = field(
+        init=False,
+        default_factory=dict,
+        hash=False,
+        compare=False,
+        repr=False,
+    )
 
-    def visit(self, node: _N) -> _T:
-        """Dispatch to ``visit_<TypeName>(node)`` and return its result."""
-        method = getattr(self, f"visit_{type(node).__name__}", self.generic_visit)
-        return method(node)
+    def _extra_field_names(self) -> tuple[str, ...]:
+        """``actions`` is items; ``_resolve_cache`` is internal — no extras.
 
-    def generic_visit(self, node: _N) -> _T:
-        """Walk children via _CHILDREN, recurse, and delegate to ``_combine``."""
-        getter = self.children.get(type(node))
-        if getter is None and not isinstance(node, IrLeaf):
-            raise UnsupportedConstructError(
-                f"generic_visit: unknown node type {type(node).__name__!r}"
-            )
-        old_children = getter(node) if getter else ()
-        new_children = tuple(self.visit(c) for c in old_children)
-        return self._combine(node, old_children, new_children)
+        :returns: Empty tuple.
+        """
+        return ()
 
-    def _combine(self, node: _N, old_children: tuple, new_children: tuple) -> _T:
-        """Combine visited children into a result for ``node``. Subclass overrides."""
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+        """Resolve an action for ``type(n)`` and invoke its body.
+
+        :param d: The dispatcher driving the walk. Action bodies use this
+            for recursive sub-dispatch.
+        :param n: The IR node to dispatch.
+        :param nc: Pre-dispatched children of ``n`` (empty when called as
+            an entry; populated when an outer action body pre-walked).
+        :returns: The action body's ``Ir_co`` result, or the IrReturn
+            instance if a body raised one.
+        :raises UnsupportedConstructError: If no action matches
+            ``type(n)`` in the MRO walk.
+        """
+        return self._resolve(type(n)).body.eval(d, n, nc)
+
+    def apply(self, root: IrNode) -> Ir_co:
+        """Friendly entry — equivalent to ``self.eval(self, root, ())``.
+
+        :param root: Root IR node to dispatch.
+        :returns: The dispatched ``Ir_co`` value.
+        """
         try:
-            return self.action[type(node)](node, old_children, new_children)
-        except KeyError as exc:
-            raise UnsupportedConstructError(
-                f"no action handler for node type {type(node).__name__!r}"
-            ) from exc
+            return self.eval(self, root, IrTuple())
+        except IrReturn as ret:
+            if isinstance(ret.value, self.bound):
+                return ret.value
+            if isinstance(ret, self.bound):
+                return ret
+            raise ret
+
+    def _resolve(self, node_type: type) -> IrAction[Ir_co]:
+        """Concrete-first MRO walk against ``self.actions``; memoised.
+
+        Should be O(1) after the first call for a given node_type.
+
+        :param node_type: Runtime type of the dispatched node.
+        :returns: The matching action.
+        :raises UnsupportedConstructError: If no ``target_type`` in
+            ``node_type.__mro__`` matches any action in the table.
+        """
+        cache = self._resolve_cache
+        if node_type in cache:
+            return cache[node_type]
+        for cls in node_type.__mro__:
+            for action in self.actions:
+                if action.target_type is cls:
+                    cache[node_type] = action
+                    return action
+        action = IrAction[Ir_co](node_type, self.default)
+        cache[node_type] = action
+        return action
 
 
-class IrVisitor[_N](IrDispatch[_N, None]):
-    """Walks the IR for side effects. Subclass + define ``visit_<TypeName>`` methods."""
-
-    def _combine(self, node: _N, old_children: tuple, new_children: tuple) -> None:
-        return None
+# ── Presets ──────────────────────────────────────────────────────────
 
 
-class IrTransformer[_N](IrDispatch[_N, _N]):
-    """Rewrites the IR. Each ``visit_<TypeName>`` returns a (possibly new) node."""
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class IrVisitor(IrDispatch):
+    """Side-effect walker. ``Ir_co = IrSelf`` (inherited default).
 
-    action: dict[type, _Rebuilder] = _REBUILD
+    The default action catches every node, recurses into its children
+    via :class:`IrWalk`, and returns :data:`IrNone`. User actions
+    resolve first via MRO and may produce side effects; a body that
+    wants to stop the walk for a given type simply registers a more
+    specific action that doesn't recurse (e.g. :class:`IrPass`,
+    :class:`IrReturn`).
+    """
 
-    def _combine(self, node: _N, old_children: tuple, new_children: tuple) -> _N:
-        if not old_children:
-            return node
-        if all(nc is oc for nc, oc in zip(new_children, old_children)):
-            return node
-        return self.action[type(node)](node, new_children)
+    default: IrNode = IrWalk()
 
 
-def dump(node: IrNode, *, indent: int = 0) -> str:
-    """Pretty-print an IR AST node for debugging."""
-    dumper = _DUMP.get(type(node))
-    return dumper(node, indent) if dumper else repr(node)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class IrTransformer(IrDispatch[IrNode]):
+    """Rewrites IR trees. ``Ir_co = IrNode``.
+
+    The default action walks each node's children via ``d`` and rebuilds
+    the node — :class:`IrRebuild` is the canonical body. User actions
+    resolve first; matching actions can return any ``IrNode``.
+    """
+
+    default: IrNode[IrNode] = IrRebuild()
+
+
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class IrEmitter[Ir_co: IrLiteral](IrDispatch[Ir_co]):
+    """Produces :class:`IrLiteral`-wrapped strings. ``Ir_co = IrLiteral``.
+
+    Default body is :class:`IrEmit` — unmatched nodes degrade to
+    ``IrLiteral(str(n))`` via the node's ``__str__`` cascade. Override
+    via ``default=IrRaise()`` to refuse unmatched types instead.
+    """
+
+    default: IrNode[Ir_co] = IrEmit()

@@ -69,7 +69,7 @@ class EscapeCodec(ABC):
 class _CanonicalEscapes(EscapeCodec):
     """Escape rules for canonical POSIX-style bracket strings stored in the IR.
 
-    Used by `ir/charclass.py` to enumerate chars from `CharClassAtom.pattern`.
+    Used by `ir/charclass.py` to enumerate chars from `CharClassAtom.value`.
     Set is narrow on purpose — canonical patterns must round-trip across every
     supported flavour.
     """

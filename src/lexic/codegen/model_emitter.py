@@ -7,7 +7,6 @@ Target-shape commitments land incrementally:
   Task 12: Module-level type aliases hoisted from collect_aliases().
   Task 13: __grammar__ moved to module footer.
 
-Decision CQ #1 (no # FIXME): _REPR_ACTION covers every IR shape.
 Decision CQ #4 (fixed imports): emit a canonical import block always.
 """
 
@@ -30,14 +29,11 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
-    IrNode,
     IrNot,
+    IrQuantifier,
     IrRuleRef,
-    IrSequence,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
-from lexic.ir.walk import IrDispatch
 
 CANONICAL_IMPORTS = """\
 from __future__ import annotations
@@ -57,61 +53,18 @@ from lexic.ir.nodes import (
     IrRule,
     IrRuleRef,
     IrSequence,
-    Quantifier,
+    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 """
 
 
-def _is_required(q: Quantifier) -> bool:
+def _is_required(q: IrQuantifier) -> bool:
     return q.min == 1 and q.max == 1
 
 
-def _is_optional(q: Quantifier) -> bool:
+def _is_optional(q: IrQuantifier) -> bool:
     return q.min == 0 and q.max == 1
-
-
-# ── IR repr emission ──────────────────────────────────────────────────────────
-#
-# _IrRepr folds an IR item subtree to a Python-repr string suitable for
-# embedding in __grammar__ = RuleSpec(...) assignments in emitted source.
-#
-# The dispatch table maps each node type to a (node, old_children, new_children)
-# → str callable.  new_children carries already-visited child strings, so
-# IrGroup, IrAlternation, IrSequence, and IrItem just interpolate nc[i].
-
-_REPR_ACTION: dict[type, Callable[..., str]] = {
-    IrLiteral: lambda n, oc, nc: f"IrLiteral({n.value!r})",
-    IrCharClass: lambda n, oc, nc: f"IrCharClass({n.pattern!r})",
-    IrNot: lambda n, oc, nc: f"IrNot({nc[0]})",
-    IrRuleRef: lambda n, oc, nc: f"IrRuleRef({n.name!r})",
-    IrGroup: lambda n, oc, nc: f"IrGroup({nc[0]})",
-    IrAlternation: lambda n, oc, nc: (
-        "IrAlternation(arms=())"
-        if not nc
-        else f"IrAlternation(arms=({', '.join(nc)},))"
-    ),
-    IrSequence: lambda n, oc, nc: (
-        "IrSequence(items=())" if not nc else f"IrSequence(items=({', '.join(nc)},))"
-    ),
-    IrItem: lambda n, oc, nc: (
-        f"IrItem({nc[0]}, Quantifier({n.quantifier.min}, {n.quantifier.max!r}))"
-    ),
-}
-
-
-class _IrRepr(IrDispatch[IrNode, str]):
-    """Fold an IR item subtree to a Python-repr string."""
-
-    action = _REPR_ACTION
-
-    def _combine(self, node: IrNode, old_children: tuple, new_children: tuple) -> str:
-        try:
-            return self.action[type(node)](node, old_children, new_children)
-        except KeyError as exc:
-            raise UnsupportedConstructError(
-                f"_IrRepr: no repr handler for {type(node).__name__!r}",
-            ) from exc
 
 
 # ── Field type emission ───────────────────────────────────────────────────────
@@ -121,7 +74,7 @@ class _IrRepr(IrDispatch[IrNode, str]):
 # the alias name is returned instead of an inline Annotated[...] expression.
 
 
-def _ruleref_type(name: str, q: Quantifier, specs: dict[str, RuleSpec]) -> str:
+def _ruleref_type(name: str, q: IrQuantifier, specs: dict[str, RuleSpec]) -> str:
     ref = specs.get(name)
     cls = ref.class_name if ref else name.replace("-", "_").title()
     if _is_required(q):
@@ -133,7 +86,7 @@ def _ruleref_type(name: str, q: Quantifier, specs: dict[str, RuleSpec]) -> str:
 
 def _group_type(atom: IrGroup, specs: dict[str, RuleSpec]) -> str:
     arm_refs = [
-        arm.items[0].atom.name
+        arm.items[0].atom.value
         for arm in atom.body.arms
         if len(arm.items) == 1 and isinstance(arm.items[0].atom, IrRuleRef)
     ]
@@ -168,7 +121,7 @@ _ATOM_FIELD_TYPE: dict[type, Callable] = {
         if isinstance(a.body, IrCharClass)
         else "str"
     ),
-    IrRuleRef: lambda a, q, s, al: _ruleref_type(a.name, q, s),
+    IrRuleRef: lambda a, q, s, al: _ruleref_type(a.value, q, s),
     IrGroup: lambda a, q, s, al: (
         _pattern_type(regex_for_group(a, q), al)
         if not has_ruleref(a)
@@ -194,7 +147,7 @@ def _is_pure_literal_alt(alt: IrAlternation) -> bool:
     return all(
         len(arm.items) == 1
         and isinstance(arm.items[0].atom, IrLiteral)
-        and arm.items[0].quantifier == Quantifier(1, 1)
+        and arm.items[0].quantifier == IrQuantifier(1, 1)
         for arm in alt.arms
     )
 
@@ -226,14 +179,13 @@ def _value_str_field_type(
 class ModuleEmitter:
     """Render a list of NewRuleSpecs to a Python module source string.
 
-    Owns the _IrRepr instance and the specs index so all emission helpers
-    share state without threading it through every call.
+    Owns the specs index so all emission helpers share state without
+    threading it through every call.
     """
 
     def __init__(self, specs: list[RuleSpec]) -> None:
         self._specs = specs
         self._by_rule: dict[str, RuleSpec] = {s.rule_name: s for s in specs}
-        self._repr = _IrRepr()
         alias_list: list[PatternAlias] = collect_aliases(specs)
         self._alias_decls = alias_list
         self._aliases: dict[str, str] = {a.regex: a.name for a in alias_list}
@@ -308,7 +260,7 @@ class ModuleEmitter:
         )
 
     def _repr_items(self, spec: RuleSpec) -> str:
-        return "[" + ", ".join(self._repr.visit(item) for item in spec.items) + "]"
+        return "[" + ", ".join(repr(item) for item in spec.items) + "]"
 
     def _repr_field_map(self, spec: RuleSpec) -> str:
         pairs = ", ".join(f"{k!r}: {v}" for k, v in spec.field_map.items())

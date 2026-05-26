@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from functools import cache
 from typing import Callable, Literal, TypeAlias, TypeVar
 
+from lexic.ir.action import IrAction, IrCallable, IrReturn
 from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -18,41 +20,38 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNode,
+    IrNone,
     IrNot,
+    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
-from lexic.ir.walk import IrTransformer, IrVisitor
+from lexic.ir.walk import IrDispatch, IrTransformer, IrVisitor
 from lexic.utils.names import to_pascal
 
 # ── classification ────────────────────────────────────────────────────
 
-
-class _RuleRefFinder(IrVisitor):
-    """Visitor that sets `found` when any IrRuleRef is encountered."""
-
-    def __init__(self) -> None:
-        self.found = False
-
-    def visit(self, node: IrNode) -> None:
-        if not self.found:
-            super().visit(node)
-
-    def visit_IrRuleRef(self, _node: IrRuleRef) -> None:  # pylint: disable=invalid-name
-        """Set found flag — presence of any IrRuleRef is sufficient."""
-        self.found = True
+_HAS_RULEREF: IrVisitor = IrVisitor(
+    actions=(IrAction(IrRuleRef, IrReturn(True)),),
+)
 
 
 @cache
 def has_ruleref(node: IrNode) -> bool:
-    """Return True if any IrRuleRef exists anywhere in the node subtree."""
-    finder = _RuleRefFinder()
-    finder.visit(node)
-    return finder.found
+    """True if any :class:`IrRuleRef` exists in the node subtree.
+
+    Short-circuits on first hit: the singleton :class:`IrVisitor` carries
+    an :class:`IrReturn` body for :class:`IrRuleRef`, which raises a
+    control-flow exception caught by :meth:`IrDispatch.apply`. Cached on
+    node identity for repeat queries.
+
+    :param node: Root of the subtree to scan.
+    :returns: ``True`` if an :class:`IrRuleRef` was found, else ``False``.
+    """
+    return _HAS_RULEREF.apply(node) is not IrNone
 
 
 def _non_empty_arms(body: IrAlternation) -> list[IrSequence]:
@@ -78,15 +77,15 @@ def classify_kind(rule: IrRule) -> Literal["sequence", "alternation", "value_str
 
 
 def _single_unquantified_ruleref(arm: IrSequence) -> str | None:
-    """If arm is a single IrItem(IrRuleRef, Quantifier(1,1)), return the ref name."""
+    """If arm is a single IrItem(IrRuleRef, IrQuantifier(1,1)), return the ref name."""
     if len(arm.items) != 1:
         return None
     item = arm.items[0]
     if not isinstance(item.atom, IrRuleRef):
         return None
-    if item.quantifier != Quantifier(1, 1):
+    if item.quantifier != IrQuantifier(1, 1):
         return None
-    return item.atom.name
+    return item.atom.value
 
 
 def compute_parents(rules: list[IrRule]) -> dict[str, str]:
@@ -119,46 +118,104 @@ def _reserve_helper_name(parent_name: str, taken: set[str]) -> str:
     return f"{base}{n}"
 
 
-class _HoistTransformer(IrTransformer):
-    """Quantified IrGroup with rulerefs → synthetic helper rule + IrRuleRef.
+def _extract_group(_d: object, group: IrGroup, _nc: object) -> IrAlternation | None:
+    """Return the group body if it contains a ruleref, else ``None``.
 
-    Pure-literal groups (no IrRuleRef anywhere) are left intact regardless
-    of their quantifier so codegen can treat them as regex patterns.
+    :param _d: Dispatcher (unused).
+    :param group: The :class:`IrGroup` atom being examined.
+    :param _nc: Pre-dispatched children (unused).
+    :returns: ``group.body`` when hoistable, else ``None``.
+    """
+    return group.body if has_ruleref(group.body) else None
+
+
+def _extract_none(_d: object, _n: object, _nc: object) -> None:
+    """Default override for non-IrGroup atoms — never hoist.
+
+    :param _d: Dispatcher (unused).
+    :param _n: Node (unused).
+    :param _nc: Pre-dispatched children (unused).
+    :returns: ``None``.
+    """
+    return None
+
+
+_EXTRACT_BODY: IrDispatch = IrDispatch(
+    actions=(IrAction(IrGroup, IrCallable(_extract_group)),),
+    default=IrCallable(_extract_none),
+)
+
+
+def _hoist_item(d: "_HoistTransformer", item: IrItem, _nc: object) -> IrItem:
+    """Recurse into the atom; hoist the group into a helper rule when needed.
+
+    If the rebuilt atom is a quantified :class:`IrGroup` containing a ruleref,
+    allocate a synthetic helper rule and replace the group with an
+    :class:`IrRuleRef`. Otherwise rebuild only if the atom changed.
+
+    :param d: The :class:`_HoistTransformer` dispatcher driving the walk.
+    :param item: The :class:`IrItem` being rewritten.
+    :param _nc: Pre-dispatched children (unused — we control recursion here).
+    :returns: Rewritten :class:`IrItem`.
+    """
+    new_atom = d.eval(d, item.atom, ())
+    is_quantified = item.quantifier != IrQuantifier(1, 1)
+    if not is_quantified:
+        return (
+            item
+            if new_atom is item.atom
+            else IrItem(atom=new_atom, quantifier=item.quantifier)
+        )
+    extracted = _EXTRACT_BODY.apply(new_atom)
+    if extracted is None:
+        return (
+            item
+            if new_atom is item.atom
+            else IrItem(atom=new_atom, quantifier=item.quantifier)
+        )
+    name = _reserve_helper_name(d.parent_name, d.name_set)
+    d.name_set.add(name)
+    d.helpers.append(IrRule(name=name, body=extracted))
+    return IrItem(atom=IrRuleRef(name), quantifier=item.quantifier)
+
+
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class _HoistTransformer(IrTransformer):
+    """Hoist quantified groups-with-rulerefs into synthetic helper rules.
+
+    Pure-literal groups (no :class:`IrRuleRef` anywhere) are left intact
+    regardless of their quantifier so codegen can treat them as regex patterns.
+
+    :ivar parent_name: Enclosing rule name; used to derive helper names.
+    :ivar name_set: Mutable set of taken rule names. Shared across per-rule
+        dispatchers so allocation stays globally unique.
+    :ivar helpers: Mutable list of emitted helper rules — per-rule fresh.
     """
 
-    def __init__(self, parent_name: str, name_set: set[str]) -> None:
-        """Keep your existing visitor logic, but cache the result per node instance"""
-        self._parent_name = parent_name
-        self._name_set = name_set
-        self.helpers: list[IrRule] = []
-
-    def visit_IrItem(self, node: IrItem) -> IrItem:  # pylint: disable=invalid-name
-        """Recurse into the atom first so nested groups are processed bottom-up."""
-        new_atom = self.visit(node.atom)
-        if not isinstance(new_atom, IrGroup):
-            if new_atom is node.atom:
-                return node
-            return IrItem(atom=new_atom, quantifier=node.quantifier)
-        is_quantified = node.quantifier != Quantifier(1, 1)
-        if is_quantified and has_ruleref(new_atom.body):
-            helper_name = _reserve_helper_name(self._parent_name, self._name_set)
-            self._name_set.add(helper_name)
-            self.helpers.append(IrRule(name=helper_name, body=new_atom.body))
-            return IrItem(atom=IrRuleRef(name=helper_name), quantifier=node.quantifier)
-        return IrItem(atom=new_atom, quantifier=node.quantifier)
+    parent_name: str
+    name_set: set[str] = field(default_factory=set, hash=False, compare=False)
+    helpers: list[IrRule] = field(default_factory=list, hash=False, compare=False)
+    actions: tuple[IrAction, ...] = (IrAction(IrItem, IrCallable(_hoist_item)),)
 
 
 def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
-    """Rewrite quantified groups containing rulerefs into synthetic rules."""
+    """Rewrite quantified groups containing rulerefs into synthetic rules.
+
+    ``name_set`` is shared across per-rule dispatchers (global uniqueness);
+    ``helpers`` is per-rule fresh.
+
+    :param ast: Source AST.
+    :returns: ``(new_ast, all_helpers)``.
+    """
     name_set: set[str] = {r.name for r in ast.rules}
-    helpers: list[IrRule] = []
+    all_helpers: list[IrRule] = []
     new_rules: list[IrRule] = []
     for rule in ast.rules:
         t = _HoistTransformer(parent_name=rule.name, name_set=name_set)
-        new_body = t.visit(rule.body)
-        helpers.extend(t.helpers)
+        new_body = t.apply(rule.body)
+        all_helpers.extend(t.helpers)
         new_rules.append(IrRule(rule.name, new_body))
-    return IrAst(rules=tuple(new_rules), start=ast.start), helpers
+    return IrAst(rules=tuple(new_rules), start=ast.start), all_helpers
 
 
 # ── field naming ──────────────────────────────────────────────────────
@@ -170,9 +227,9 @@ _FieldHint: TypeAlias = Callable[[_A], str]
 def _bracketed(atom: IrAtom) -> str:
     """Return the bracket-form of a charclass or negated-charclass atom."""
     if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return f"[^{atom.body.pattern}]"
+        return f"[^{atom.body.value}]"
     if isinstance(atom, IrCharClass):
-        return f"[{atom.pattern}]"
+        return f"[{atom.value}]"
     return ""
 
 
@@ -205,7 +262,7 @@ _ATOM_HINT: dict[type, _FieldHint] = {
     IrNot: lambda a: (
         CHARCLASS_NAMES.get(_bracketed(a)) or _sanitize_pattern(_bracketed(a)) or "cc"
     ),
-    IrRuleRef: lambda a: a.name.replace("-", "_"),
+    IrRuleRef: lambda a: a.value.replace("-", "_"),
     # ruleref group → "kind" (structural slot); literal-only group → name from content
     IrGroup: lambda a: "kind" if has_ruleref(a) else _group_hint(a),
 }
@@ -234,7 +291,7 @@ def _group_field_base(a: IrGroup) -> str | None:
 FieldBase: TypeAlias = dict[type[_A], Callable[[_A], str | None]]
 _FIELD_BASE: FieldBase = {
     IrLiteral: lambda a: LITERAL_NAMES.get(a.value) or _ascii_token(a.value) or "lit",
-    IrRuleRef: lambda a: a.name.replace("-", "_"),
+    IrRuleRef: lambda a: a.value.replace("-", "_"),
     IrCharClass: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
     IrNot: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
     IrGroup: _group_field_base,
@@ -254,7 +311,7 @@ def _field_map(items: Sequence[IrItem]) -> dict[str, int]:
     pattern_pos = 0
     for i, item in enumerate(items):
         atom = item.atom
-        if isinstance(atom, IrLiteral) and item.quantifier == Quantifier(1, 1):
+        if isinstance(atom, IrLiteral) and item.quantifier == IrQuantifier(1, 1):
             continue
         handler = _FIELD_BASE.get(type(atom))
         if handler is None:
@@ -319,7 +376,7 @@ def _build_alternation(rule: IrRule, cls_name: str, parent: str) -> list[RuleSpe
             )
         )
     abstract_items: list[IrItem | IrAlternation] = [
-        IrItem(atom=IrRuleRef(name=n)) for n in arm_names
+        IrItem(atom=IrRuleRef(n)) for n in arm_names
     ]
     abstract = RuleSpec(rule.name, cls_name, parent, "alternation", abstract_items, {})
     return [abstract] + arm_specs
@@ -337,7 +394,7 @@ _BUILDERS: dict[str, _KindBuilder] = {
 
 def _is_non_sem_ref(item: IrItem, rules: frozenset[str]) -> bool:
     """Return True if `item` is an IrItem with an IrRuleRef that references a non-semantic rule."""
-    return isinstance(item.atom, IrRuleRef) and item.atom.name in rules
+    return isinstance(item.atom, IrRuleRef) and item.atom.value in rules
 
 
 def _relax_item(
@@ -349,7 +406,7 @@ def _relax_item(
         and _is_non_sem_ref(item, rules)
         and item.quantifier.min > 0
     ):
-        return IrItem(item.atom, Quantifier(0, item.quantifier.max))
+        return IrItem(item.atom, IrQuantifier(0, item.quantifier.max))
     return item
 
 

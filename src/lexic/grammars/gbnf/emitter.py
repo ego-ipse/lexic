@@ -40,11 +40,11 @@ def _atom_to_gbnf_item(item: IrItem) -> str:
     if isinstance(atom, IrLiteral):
         return f'"{atom.value}"{q}'
     if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return _bracket(atom.body.pattern, True) + q
+        return _bracket(atom.body.value, True) + q
     if isinstance(atom, IrCharClass):
-        return _bracket(atom.pattern, False) + q
+        return _bracket(atom.value, False) + q
     if isinstance(atom, IrRuleRef):
-        return atom.name + q
+        return atom.value + q
     if isinstance(atom, IrGroup):
         body = _alt_to_gbnf(atom.body)
         return f"({body}){q}" if q else f"({body})"
@@ -91,7 +91,7 @@ class GbnfEmitter(FlavourEmitter):
         if spec.kind == "alternation":
             # items are IrItem(IrRuleRef(arm_name)) per arm
             return " | ".join(
-                it.atom.name
+                it.atom.value
                 for it in spec.items
                 if isinstance(it, IrItem) and isinstance(it.atom, IrRuleRef)
             )

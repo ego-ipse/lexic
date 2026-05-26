@@ -11,8 +11,8 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrRuleRef,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -39,9 +39,9 @@ Root.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
-        IrItem(IrRuleRef("value"), Quantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), Quantifier(0, 1)),
+        IrItem(atom=IrRuleRef(value="ws"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(atom=IrRuleRef(value="value"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef(value="ws"), quantifier=IrQuantifier(min=0, max=1)),
     ],
     field_map={"ws": 0, "value": 1, "ws2": 2},
     non_semantic_fields=frozenset(["ws", "ws2"]),
@@ -53,7 +53,7 @@ Value.__grammar__ = RuleSpec(
     class_name="Value",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrLiteral("x"), Quantifier(1, 1))],
+    items=[IrItem(atom=IrLiteral(value="x"), quantifier=IrQuantifier(min=1, max=1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -64,7 +64,9 @@ Ws.__grammar__ = RuleSpec(
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(" \\t"), Quantifier(0, None))],
+    items=[
+        IrItem(atom=IrCharClass(value=" \\t"), quantifier=IrQuantifier(min=0, max=None))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

@@ -16,10 +16,10 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNot,
+    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from lexic.parsing.meta_parser import MetaGrammarParser
 
@@ -60,15 +60,15 @@ QUANTIFIER: /[?*+]/
 """
 
     @staticmethod
-    def parse_quantifier(text: str) -> Quantifier:
-        """Parse a quantifier string into a Quantifier object."""
+    def parse_quantifier(text: str) -> IrQuantifier:
+        """Parse a quantifier string into a IrQuantifier object."""
         if text == "?":
-            return Quantifier(0, 1)
+            return IrQuantifier(0, 1)
         if text == "*":
-            return Quantifier(0, None)
+            return IrQuantifier(0, None)
         if text == "+":
-            return Quantifier(1, None)
-        return Quantifier(1, 1)
+            return IrQuantifier(1, None)
+        return IrQuantifier(1, 1)
 
     @staticmethod
     def parse_charclass(text: str) -> tuple[str, bool]:
@@ -131,9 +131,9 @@ def test_parses_quantifiers():
     """Parse quantifiers"""
     rule = _ast_first_rule("expr = a? b* c+\n")
     items = rule.body.arms[0].items
-    assert items[0].quantifier == Quantifier(0, 1)
-    assert items[1].quantifier == Quantifier(0, None)
-    assert items[2].quantifier == Quantifier(1, None)
+    assert items[0].quantifier == IrQuantifier(0, 1)
+    assert items[1].quantifier == IrQuantifier(0, None)
+    assert items[2].quantifier == IrQuantifier(1, None)
 
 
 def test_parses_group():

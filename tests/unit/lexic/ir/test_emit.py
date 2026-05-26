@@ -19,10 +19,10 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNot,
+    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -72,19 +72,19 @@ def test_emit_item_literal_quotes():
 def test_emit_item_quantified_literal_appends_quantifier():
     """Test that quantified literals append the quantifier suffix."""
     e = _new()
-    assert e.emit_item(IrItem(IrLiteral("-"), Quantifier(0, 1))) == '"-"?'
+    assert e.emit_item(IrItem(IrLiteral("-"), IrQuantifier(0, 1))) == '"-"?'
 
 
 def test_emit_item_charclass_appends_quantifier():
     """Test that quantified character classes append the quantifier suffix."""
     e = _new()
-    assert e.emit_item(IrItem(IrCharClass("0-9"), Quantifier(1, None))) == "0-9+"
+    assert e.emit_item(IrItem(IrCharClass("0-9"), IrQuantifier(1, None))) == "0-9+"
 
 
 def test_emit_item_ruleref_appends_quantifier():
     """Test that quantified rule references append the quantifier suffix."""
     e = _new()
-    assert e.emit_item(IrItem(IrRuleRef("x"), Quantifier(0, 1))) == "x?"
+    assert e.emit_item(IrItem(IrRuleRef("x"), IrQuantifier(0, 1))) == "x?"
 
 
 def test_emit_body_alternation_kind_joins_arms():
@@ -115,7 +115,7 @@ def test_emit_rule_renders_value_str_body():
         "Num",
         "GrammarModel",
         "value_str",
-        items=[IrItem(IrCharClass("0-9"), Quantifier(1, None))],
+        items=[IrItem(IrCharClass("0-9"), IrQuantifier(1, None))],
         field_map={},
     )
     e = _new()
@@ -167,12 +167,12 @@ def test_unknown_atom_raises():
 
 def _make_ast() -> IrAst:
     """Build a 2-rule IrAst: root = digit; digit = [0-9]."""
-    digit_item = IrItem(atom=IrCharClass("0-9"), quantifier=Quantifier(1, 1))
+    digit_item = IrItem(atom=IrCharClass("0-9"), quantifier=IrQuantifier(1, 1))
     digit_seq = IrSequence(items=(digit_item,))
     digit_alt = IrAlternation(arms=(digit_seq,))
     digit_rule = IrRule(name="digit", body=digit_alt)
 
-    ref_item = IrItem(atom=IrRuleRef("digit"), quantifier=Quantifier(1, 1))
+    ref_item = IrItem(atom=IrRuleRef("digit"), quantifier=IrQuantifier(1, 1))
     ref_seq = IrSequence(items=(ref_item,))
     ref_alt = IrAlternation(arms=(ref_seq,))
     root_rule = IrRule(name="root", body=ref_alt)
@@ -194,7 +194,7 @@ def test_emit_ast_produces_two_lines_terminated_with_newline():
 def test_emit_rule_from_ast_single_rule():
     """Test that a single rule is emitted correctly from AST."""
     e = _new()
-    digit_item = IrItem(atom=IrLiteral("x"), quantifier=Quantifier(1, 1))
+    digit_item = IrItem(atom=IrLiteral("x"), quantifier=IrQuantifier(1, 1))
     digit_seq = IrSequence(items=(digit_item,))
     digit_alt = IrAlternation(arms=(digit_seq,))
     rule = IrRule(name="myrule", body=digit_alt)
@@ -204,7 +204,7 @@ def test_emit_rule_from_ast_single_rule():
 def test_emit_alternation_single_arm():
     """Test that an alternation with a single arm is emitted correctly."""
     e = _new()
-    item = IrItem(atom=IrLiteral("a"), quantifier=Quantifier(1, 1))
+    item = IrItem(atom=IrLiteral("a"), quantifier=IrQuantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
     assert e.emit_rule_from_ast(rule) == 'r ::= "a"'
 
@@ -212,8 +212,8 @@ def test_emit_alternation_single_arm():
 def test_emit_alternation_two_arms_joins_with_alt_separator():
     """Test that alternation with multiple arms joins them with the separator."""
     e = _new()
-    arm1 = IrSequence(items=(IrItem(IrLiteral("a"), Quantifier(1, 1)),))
-    arm2 = IrSequence(items=(IrItem(IrLiteral("b"), Quantifier(1, 1)),))
+    arm1 = IrSequence(items=(IrItem(IrLiteral("a"), IrQuantifier(1, 1)),))
+    arm2 = IrSequence(items=(IrItem(IrLiteral("b"), IrQuantifier(1, 1)),))
     rule = IrRule(name="r", body=IrAlternation(arms=(arm1, arm2)))
     assert e.emit_rule_from_ast(rule) == 'r ::= "a" | "b"'
 
@@ -221,8 +221,8 @@ def test_emit_alternation_two_arms_joins_with_alt_separator():
 def test_emit_sequence_two_items():
     """Test that sequences with multiple items are emitted in order."""
     e = _new()
-    item1 = IrItem(atom=IrLiteral("x"), quantifier=Quantifier(1, 1))
-    item2 = IrItem(atom=IrRuleRef("y"), quantifier=Quantifier(1, 1))
+    item1 = IrItem(atom=IrLiteral("x"), quantifier=IrQuantifier(1, 1))
+    item2 = IrItem(atom=IrRuleRef("y"), quantifier=IrQuantifier(1, 1))
     rule = IrRule(
         name="r", body=IrAlternation(arms=(IrSequence(items=(item1, item2)),))
     )
@@ -232,7 +232,7 @@ def test_emit_sequence_two_items():
 def test_emit_item_literal_with_required_quantifier():
     """Test that a required-quantifier literal does not emit the quantifier."""
     e = _new()
-    item = IrItem(atom=IrLiteral("x"), quantifier=Quantifier(1, 1))
+    item = IrItem(atom=IrLiteral("x"), quantifier=IrQuantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
     assert e.emit_rule_from_ast(rule) == 'r ::= "x"'
 
@@ -240,7 +240,7 @@ def test_emit_item_literal_with_required_quantifier():
 def test_emit_item_ruleref_with_optional_quantifier():
     """Test that an optional-quantifier rule ref emits the quantifier."""
     e = _new()
-    item = IrItem(atom=IrRuleRef("expr"), quantifier=Quantifier(0, 1))
+    item = IrItem(atom=IrRuleRef("expr"), quantifier=IrQuantifier(0, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
     assert e.emit_rule_from_ast(rule) == "r ::= expr?"
 
@@ -248,7 +248,7 @@ def test_emit_item_ruleref_with_optional_quantifier():
 def test_emit_ir_atom_literal():
     """Test that literals are emitted with quotes."""
     e = _new()
-    item = IrItem(atom=IrLiteral("hello"), quantifier=Quantifier(1, 1))
+    item = IrItem(atom=IrLiteral("hello"), quantifier=IrQuantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
     assert e.emit_rule_from_ast(rule) == 'r ::= "hello"'
 
@@ -256,7 +256,7 @@ def test_emit_ir_atom_literal():
 def test_emit_ir_atom_ruleref():
     """Test that rule references are emitted without quotes."""
     e = _new()
-    item = IrItem(atom=IrRuleRef("expr"), quantifier=Quantifier(1, 1))
+    item = IrItem(atom=IrRuleRef("expr"), quantifier=IrQuantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
     assert e.emit_rule_from_ast(rule) == "r ::= expr"
 
@@ -264,7 +264,7 @@ def test_emit_ir_atom_ruleref():
 def test_emit_ir_atom_charclass():
     """Test that character classes are emitted correctly."""
     e = _new()
-    item = IrItem(atom=IrCharClass("0-9"), quantifier=Quantifier(1, 1))
+    item = IrItem(atom=IrCharClass("0-9"), quantifier=IrQuantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
     assert e.emit_rule_from_ast(rule) == "r ::= 0-9"
 
@@ -279,7 +279,7 @@ def test_emit_ir_atom_charclass_negated_forwarded():
             return f"[^{canonical_pattern}]" if negated else f"[{canonical_pattern}]"
 
     e = _NegationAware(escapes=FakeEscapes())
-    item = IrItem(atom=IrNot(IrCharClass("0-9")), quantifier=Quantifier(1, 1))
+    item = IrItem(atom=IrNot(IrCharClass("0-9")), quantifier=IrQuantifier(1, 1))
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(item,)),)))
     assert e.emit_rule_from_ast(rule) == "r ::= [^0-9]"
 
@@ -287,9 +287,9 @@ def test_emit_ir_atom_charclass_negated_forwarded():
 def test_emit_ir_atom_group():
     """Test that groups are emitted with parentheses around their body."""
     e = _new()
-    arm = IrSequence(items=(IrItem(IrLiteral("a"), Quantifier(1, 1)),))
+    arm = IrSequence(items=(IrItem(IrLiteral("a"), IrQuantifier(1, 1)),))
     group_item = IrItem(
-        atom=IrGroup(body=IrAlternation(arms=(arm,))), quantifier=Quantifier(1, 1)
+        atom=IrGroup(body=IrAlternation(arms=(arm,))), quantifier=IrQuantifier(1, 1)
     )
     rule = IrRule(name="r", body=IrAlternation(arms=(IrSequence(items=(group_item,)),)))
     assert e.emit_rule_from_ast(rule) == 'r ::= ("a")'

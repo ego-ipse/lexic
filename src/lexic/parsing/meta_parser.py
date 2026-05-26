@@ -49,10 +49,10 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrNot,
+    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 
 # ── builder functions ─────────────────────────────────────────────────
@@ -79,7 +79,7 @@ _IR_BUILDERS: dict[str, _IrBuilder] = {
     "ir_sequence": lambda _f, c: IrSequence(items=tuple(c)),
     "ir_literal": lambda f, c: f.normalize_literal(f.escapes.decode(str(c[0])[1:-1])),
     "ir_charclass": _build_charclass,
-    "ir_ruleref": lambda _f, c: IrRuleRef(name=str(c[0])),
+    "ir_ruleref": lambda _f, c: IrRuleRef(str(c[0])),
     "ir_group": lambda _f, c: IrGroup(body=c[0]),
 }
 
@@ -108,7 +108,7 @@ class _IrTagTransformer(Transformer):
         if len(atoms) != 1:
             raise ValueError(f"ir_item: unexpected atom count: {items!r}")
         quantifier = (
-            self._flavour.parse_quantifier(str(tokens[0])) if tokens else Quantifier()
+            self._flavour.parse_quantifier(str(tokens[0])) if tokens else IrQuantifier()
         )
         return IrItem(atom=atoms[0], quantifier=quantifier)
 

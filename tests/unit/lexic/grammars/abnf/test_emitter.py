@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from lexic.grammars.abnf.emitter import AbnfEmitter
 from lexic.grammars.abnf.escapes import ABNF_ESCAPES
-from lexic.ir.nodes import IrCharClass, IrItem, IrLiteral, IrRuleRef, Quantifier
+from lexic.ir.nodes import IrCharClass, IrItem, IrLiteral, IrQuantifier, IrRuleRef
 
 
 class _TestAbnfEmitter(AbnfEmitter):
@@ -78,19 +78,19 @@ def test_place_quantifier_prefix_for_abnf():
 def test_emit_item_ruleref_with_quantifier_is_prefix():
     """Test that rule references with quantifiers use prefix notation."""
     e = _emitter()
-    item = IrItem(IrRuleRef("ALPHA"), Quantifier(1, None))
+    item = IrItem(IrRuleRef("ALPHA"), IrQuantifier(1, None))
     assert e.emit_item(item) == "1*ALPHA"
 
 
 def test_emit_item_charclass_with_quantifier_is_prefix():
     """Test that character classes with quantifiers use prefix notation."""
     e = _emitter()
-    item = IrItem(IrCharClass("a-z"), Quantifier(0, None))
+    item = IrItem(IrCharClass("a-z"), IrQuantifier(0, None))
     assert e.emit_item(item) == "*%x61-7A"
 
 
 def test_emit_item_quantified_literal_is_prefix():
     """Test that quantified literals use prefix notation."""
     e = _emitter()
-    item = IrItem(IrLiteral("-"), Quantifier(0, 1))
+    item = IrItem(IrLiteral("-"), IrQuantifier(0, 1))
     assert e.emit_item(item) == '*1"-"'

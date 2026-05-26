@@ -12,16 +12,16 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNot,
+    IrQuantifier,
     IrRuleRef,
     IrSequence,
-    Quantifier,
 )
 from lexic.ir.spec import RuleSpec
 
 _ASCII_PRINTABLE = [chr(c) for c in range(32, 127)]
 
 
-def _pick_count(q: Quantifier, rng: _random.Random) -> int:
+def _pick_count(q: IrQuantifier, rng: _random.Random) -> int:
     """Pick a repetition count."""
     if q.min == 0:
         return 0
@@ -34,13 +34,13 @@ def _pick_count(q: Quantifier, rng: _random.Random) -> int:
 
 
 def _gen_charclass(
-    atom: IrCharClass, q: Quantifier, rng: _random.Random, *, negated: bool = False
+    atom: IrCharClass, q: IrQuantifier, rng: _random.Random, *, negated: bool = False
 ) -> str:
     """Generate for a charclass by picking random chars from it and applying the quantifier."""
     count = _pick_count(q, rng)
     if count == 0:
         return ""
-    chars = parse_charclass_chars(atom.pattern)
+    chars = parse_charclass_chars(atom.value)
     if negated:
         excluded = set(chars)
         chars = [c for c in _ASCII_PRINTABLE if c not in excluded]
@@ -51,7 +51,7 @@ def _gen_charclass(
 
 def _gen_group(
     atom: IrGroup,
-    q: Quantifier,
+    q: IrQuantifier,
     specs: dict[str, RuleSpec],
     rng: _random.Random,
     max_depth: int,
@@ -76,7 +76,9 @@ def _gen_atom(
     """Generate for an atom rule by its kind."""
     atom, q = item.atom, item.quantifier
     if isinstance(atom, IrLiteral):
-        return atom.value * _pick_count(q, rng) if q != Quantifier(1, 1) else atom.value
+        return (
+            atom.value * _pick_count(q, rng) if q != IrQuantifier(1, 1) else atom.value
+        )
     if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
         return _gen_charclass(atom.body, q, rng, negated=True)
     if isinstance(atom, IrCharClass):
@@ -84,7 +86,7 @@ def _gen_atom(
     if isinstance(atom, IrRuleRef):
         count = _pick_count(q, rng)
         return "".join(
-            generate(atom.name, specs, rng=rng, max_depth=max_depth - 1)
+            generate(atom.value, specs, rng=rng, max_depth=max_depth - 1)
             for _ in range(count)
         )
     if isinstance(atom, IrGroup):
@@ -123,7 +125,7 @@ def _gen_alternation_kind(
 ) -> str:
     """Generate for an alternation rule by picking a random arm."""
     arm_names = [
-        it.atom.name
+        it.atom.value
         for it in spec.items
         if isinstance(it, IrItem) and isinstance(it.atom, IrRuleRef)
     ]
