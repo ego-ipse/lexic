@@ -43,6 +43,7 @@ def test_rulespec_non_semantic_fields_set():
 
 
 def test_rulespec_to_ir_rule_wraps_items_in_iralternation():
+    """to_ir_rule wraps a flat items list in a single-arm IrAlternation."""
     spec = RuleSpec(
         rule_name="r",
         class_name="R",
@@ -61,6 +62,7 @@ def test_rulespec_to_ir_rule_wraps_items_in_iralternation():
 
 
 def test_rulespec_to_ir_rule_with_alternation_item_passes_through():
+    """to_ir_rule passes through a top-level IrAlternation directly as the body."""
     alt = IrAlternation(
         arms=(
             IrSequence(items=(IrItem(atom=IrLiteral("a")),)),

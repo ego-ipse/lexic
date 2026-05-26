@@ -137,10 +137,12 @@ def test_default_line_comment_is_empty_string():
 
 
 def test_irflavour_is_subclass_of_iremitter():
+    """IrFlavour inherits from IrEmitter."""
     assert issubclass(IrFlavour, IrEmitter)
 
 
 def test_irflavour_requires_parse_quantifier_and_parse_charclass():
+    """IrFlavour declares both parse_quantifier and parse_charclass as abstract."""
     assert issubclass(IrFlavour, ABC)
     abstract = IrFlavour.__abstractmethods__
     assert "parse_quantifier" in abstract
