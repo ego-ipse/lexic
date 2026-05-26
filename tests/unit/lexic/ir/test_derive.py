@@ -9,6 +9,7 @@ from lexic.ir.derive import (
     classify_kind,
     compute_parents,
     derive_specs,
+    has_ruleref,
     hoist_helpers,
 )
 from lexic.ir.nodes import (
@@ -638,3 +639,18 @@ def test_pattern_field_falls_back_to_positional_not_sanitized():
     # Tier 3: first pattern field → 'head' (not 'nbkqr')
     assert list(fm.keys()) == ["head"]
     assert "nbkqr" not in fm
+
+
+# ── has_ruleref ───────────────────────────────────────────────────────
+
+
+def test_has_ruleref_returns_true_when_subtree_contains_ruleref():
+    """Subtree with an IrRuleRef anywhere → True."""
+    body = _alt(_seq(_it(IrRuleRef("foo"))))
+    assert has_ruleref(body) is True
+
+
+def test_has_ruleref_returns_false_for_subtree_without_ruleref():
+    """Subtree with only literals → False."""
+    body = _alt(_seq(_it(IrLiteral("a"))))
+    assert has_ruleref(body) is False

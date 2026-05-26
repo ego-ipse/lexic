@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from functools import cache
 from typing import Callable, Literal, TypeAlias, TypeVar
 
+from lexic.ir.action import IrAction, IrReturn
 from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -18,6 +19,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrNode,
+    IrNone,
     IrNot,
     IrQuantifier,
     IrRule,
@@ -26,33 +28,30 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
-from lexic.ir.walk import IrTransformer, IrVisitor
+from lexic.ir.walk import IrTransformer
+from lexic.ir.walk_2 import IrVisitor
 from lexic.utils.names import to_pascal
 
 # ── classification ────────────────────────────────────────────────────
 
-
-class _RuleRefFinder(IrVisitor):
-    """Visitor that sets `found` when any IrRuleRef is encountered."""
-
-    def __init__(self) -> None:
-        self.found = False
-
-    def visit(self, node: IrNode) -> None:
-        if not self.found:
-            super().visit(node)
-
-    def visit_IrRuleRef(self, _node: IrRuleRef) -> None:  # pylint: disable=invalid-name
-        """Set found flag — presence of any IrRuleRef is sufficient."""
-        self.found = True
+_HAS_RULEREF: IrVisitor = IrVisitor(
+    actions=(IrAction(IrRuleRef, IrReturn(True)),),
+)
 
 
 @cache
 def has_ruleref(node: IrNode) -> bool:
-    """Return True if any IrRuleRef exists anywhere in the node subtree."""
-    finder = _RuleRefFinder()
-    finder.visit(node)
-    return finder.found
+    """True if any :class:`IrRuleRef` exists in the node subtree.
+
+    Short-circuits on first hit: the singleton :class:`IrVisitor` carries
+    an :class:`IrReturn` body for :class:`IrRuleRef`, which raises a
+    control-flow exception caught by :meth:`IrDispatch.apply`. Cached on
+    node identity for repeat queries.
+
+    :param node: Root of the subtree to scan.
+    :returns: ``True`` if an :class:`IrRuleRef` was found, else ``False``.
+    """
+    return _HAS_RULEREF.apply(node) is not IrNone
 
 
 def _non_empty_arms(body: IrAlternation) -> list[IrSequence]:
