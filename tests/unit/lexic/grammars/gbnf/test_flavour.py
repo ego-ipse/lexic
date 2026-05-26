@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from lexic.grammars.flavour import Flavour
+from lexic.grammars.flavour import IrFlavour
 from lexic.grammars.gbnf.flavour import GbnfFlavour
 from lexic.ir.nodes import IrQuantifier
 
 
 def test_subclass():
-    """GbnfFlavour is a Flavour subclass."""
-    assert issubclass(GbnfFlavour, Flavour)
+    """GbnfFlavour is a IrFlavour subclass."""
+    assert issubclass(GbnfFlavour, IrFlavour)
 
 
 def test_metadata():

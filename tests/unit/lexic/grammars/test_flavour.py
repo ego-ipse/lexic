@@ -1,5 +1,5 @@
 # tests/unit/lexic/grammars/test_flavour.py
-"""Flavour ABC contract tests — using a minimal fake flavour."""
+"""IrFlavour ABC contract tests — using a minimal fake flavour."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import ClassVar
 
 import pytest
 
-from lexic.grammars.flavour import Flavour
+from lexic.grammars.flavour import IrFlavour
 from lexic.ir.emit import FlavourEmitter
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.nodes import (
@@ -23,7 +23,7 @@ from lexic.ir.nodes import (
 
 def test_flavour_is_abstract_cannot_instantiate_directly():
     """Direct instantiation of the ABC raises TypeError."""
-    cls: type = Flavour
+    cls: type = IrFlavour
     with pytest.raises(TypeError):
         cls()  # pylint: disable=abstract-class-instantiated
 
@@ -31,7 +31,7 @@ def test_flavour_is_abstract_cannot_instantiate_directly():
 def test_concrete_flavour_with_required_attrs_works():
     """A fully-specified concrete subclass can be defined and used."""
 
-    class _Fake(Flavour):
+    class _Fake(IrFlavour):
         name = "fake"
         extensions = (".fake",)
         meta_grammar = "start: NAME\nNAME: /[a-z]+/\n"
@@ -54,7 +54,7 @@ def test_concrete_flavour_with_required_attrs_works():
 def test_concrete_flavour_missing_abstract_methods_fails():
     """A subclass that omits the abstract methods cannot be instantiated."""
 
-    class _Bad(Flavour):
+    class _Bad(IrFlavour):
         name = "bad"
         extensions = (".bad",)
         meta_grammar = ""
@@ -70,7 +70,7 @@ def test_concrete_flavour_missing_abstract_methods_fails():
 def test_normalize_literal_default_is_identity():
     """Default normalize_literal returns IrLiteral wrapping the decoded string."""
 
-    class _F(Flavour):
+    class _F(IrFlavour):
         name = "f"
         extensions = ()
         meta_grammar = ""
@@ -91,7 +91,7 @@ def test_normalize_literal_default_is_identity():
 def test_normalize_literal_can_be_overridden_to_return_group():
     """ABNF-style: case-insensitive 'abc' expands to a char-class group."""
 
-    class _F(Flavour):
+    class _F(IrFlavour):
         name = "f"
         extensions = ()
         meta_grammar = ""
@@ -123,7 +123,7 @@ def test_normalize_literal_can_be_overridden_to_return_group():
 def test_default_line_comment_is_empty_string():
     """line_comment defaults to empty string when not set by a subclass."""
 
-    class _F(Flavour):
+    class _F(IrFlavour):
         name = "f"
         extensions = ()
         meta_grammar = ""

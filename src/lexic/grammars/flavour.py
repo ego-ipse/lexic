@@ -1,4 +1,4 @@
-"""Flavour ABC — the contract every grammar flavour fulfils."""
+"""IrFlavour ABC — the contract every grammar flavour fulfils."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from lexic.ir.emit import FlavourEmitter
 
 
-class Flavour(ABC):
+class IrFlavour(ABC):
     """Per-flavour configuration. Subclass and fill in class attributes."""
 
     name: ClassVar[str]

@@ -6,18 +6,18 @@ from pathlib import Path
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf.flavour import AbnfFlavour
-from lexic.grammars.flavour import Flavour
+from lexic.grammars.flavour import IrFlavour
 from lexic.grammars.gbnf.flavour import GbnfFlavour
 
-_FLAVOURS: dict[str, type[Flavour]] = {}
+_FLAVOURS: dict[str, type[IrFlavour]] = {}
 
 
-def register_flavour(flavour_cls: type[Flavour]) -> None:
+def register_flavour(flavour_cls: type[IrFlavour]) -> None:
     """Register a flavour."""
     _FLAVOURS[flavour_cls.name] = flavour_cls
 
 
-def get_flavour(name: str) -> type[Flavour]:
+def get_flavour(name: str) -> type[IrFlavour]:
     """Get a flavour by name."""
     try:
         return _FLAVOURS[name]
@@ -27,7 +27,7 @@ def get_flavour(name: str) -> type[Flavour]:
         ) from None
 
 
-def flavour_for_extension(path: str | Path) -> type[Flavour]:
+def flavour_for_extension(path: str | Path) -> type[IrFlavour]:
     """Get a flavour by extension."""
     suffix = Path(path).suffix
     for fc in _FLAVOURS.values():
@@ -43,4 +43,4 @@ register_flavour(GbnfFlavour)
 register_flavour(AbnfFlavour)
 
 
-__all__ = ["Flavour", "flavour_for_extension", "get_flavour", "register_flavour"]
+__all__ = ["IrFlavour", "flavour_for_extension", "get_flavour", "register_flavour"]

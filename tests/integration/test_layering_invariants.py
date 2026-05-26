@@ -41,7 +41,7 @@ def test_parsing_imports_grammars_only_via_flavour_abc():
             stripped = line.strip()
             if stripped.startswith(("from lexic.grammars", "import lexic.grammars")):
                 assert "lexic.grammars.flavour" in stripped, (
-                    f"{p}: imports lexic.grammars beyond the Flavour ABC: {stripped}"
+                    f"{p}: imports lexic.grammars beyond the IrFlavour ABC: {stripped}"
                 )
 
 

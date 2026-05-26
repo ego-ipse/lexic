@@ -5,7 +5,7 @@ from __future__ import annotations
 from lexic.grammars.abnf.emitter import AbnfEmitter
 from lexic.grammars.abnf.escapes import ABNF_ESCAPES
 from lexic.grammars.abnf.meta_grammar import META_GRAMMAR
-from lexic.grammars.flavour import Flavour
+from lexic.grammars.flavour import IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -17,8 +17,8 @@ from lexic.ir.nodes import (
 )
 
 
-class AbnfFlavour(Flavour):
-    """Flavour for the minimal ABNF subset. See `AbnfEmitter` and `AbnfEscapes`."""
+class AbnfFlavour(IrFlavour):
+    """IrFlavour for the minimal ABNF subset. See `AbnfEmitter` and `AbnfEscapes`."""
 
     name = "abnf"
     extensions = (".abnf",)

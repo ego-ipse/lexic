@@ -4,7 +4,7 @@ Knows a fixed set of canonical tag names (ir_rule, ir_alternation, ir_sequence,
 ir_item, ir_literal, ir_charclass, ir_ruleref, ir_group). The flavour's Lark
 meta-grammar uses these names to label productions; this module dispatches each
 tag to the appropriate IR AST constructor. Token-value handling (escape decoding,
-charclass parsing, quantifier parsing) delegates to the Flavour.
+charclass parsing, quantifier parsing) delegates to the IrFlavour.
 
 Parse pipeline (text → IrAst):
 
@@ -22,7 +22,7 @@ Parse pipeline (text → IrAst):
                                                 ▼
                        Directives(non_semantic, start)
 
-Lark errors and Flavour token-parser ValueErrors are caught at this boundary
+Lark errors and IrFlavour token-parser ValueErrors are caught at this boundary
 and re-raised as UnsupportedConstructError with rule-first messages.
 """
 
@@ -40,7 +40,7 @@ from lark import (
 )
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.flavour import Flavour
+from lexic.grammars.flavour import IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -57,10 +57,10 @@ from lexic.ir.nodes import (
 
 # ── builder functions ─────────────────────────────────────────────────
 
-_IrBuilder: TypeAlias = Callable[[type[Flavour], list], object]
+_IrBuilder: TypeAlias = Callable[[type[IrFlavour], list], object]
 
 
-def _build_charclass(flavour: type[Flavour], children: list) -> IrAtom:
+def _build_charclass(flavour: type[IrFlavour], children: list) -> IrAtom:
     """Build an IrCharClass, wrapping in IrNot when the pattern is negated.
 
     :param flavour: The flavour providing ``parse_charclass``.
@@ -89,7 +89,7 @@ _IR_BUILDERS: dict[str, _IrBuilder] = {
 class _IrTagTransformer(Transformer):
     """Thin Lark Transformer — dispatches all ir_* tags via _IR_BUILDERS."""
 
-    def __init__(self, flavour: type[Flavour]) -> None:
+    def __init__(self, flavour: type[IrFlavour]) -> None:
         super().__init__()
         self._flavour = flavour
 
@@ -119,16 +119,16 @@ class _IrTagTransformer(Transformer):
 class MetaGrammarParser:
     """Generic IR-AST parser. Stateless after construction."""
 
-    _PARSERS: ClassVar[dict[type[Flavour], MetaGrammarParser]] = {}
+    _PARSERS: ClassVar[dict[type[IrFlavour], MetaGrammarParser]] = {}
 
-    def __init__(self, flavour: type[Flavour]) -> None:
+    def __init__(self, flavour: type[IrFlavour]) -> None:
         self._flavour = flavour
         self._lark = Lark(flavour.meta_grammar, parser="earley", ambiguity="resolve")
         self._transformer = _IrTagTransformer(flavour)
 
     @classmethod
-    def for_flavour(cls, flavour: type[Flavour]) -> MetaGrammarParser:
-        """Return a memoised MetaGrammarParser for the given Flavour class."""
+    def for_flavour(cls, flavour: type[IrFlavour]) -> MetaGrammarParser:
+        """Return a memoised MetaGrammarParser for the given IrFlavour class."""
         if flavour not in cls._PARSERS:
             cls._PARSERS[flavour] = cls(flavour)
         return cls._PARSERS[flavour]

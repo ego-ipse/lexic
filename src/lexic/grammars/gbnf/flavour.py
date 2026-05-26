@@ -1,6 +1,6 @@
 """GBNF flavour for Lexic."""
 
-from lexic.grammars.flavour import Flavour
+from lexic.grammars.flavour import IrFlavour
 from lexic.grammars.gbnf.emitter import GbnfEmitter
 from lexic.grammars.gbnf.escapes import GBNF_ESCAPES
 from lexic.grammars.gbnf.meta_grammar import META_GRAMMAR
@@ -8,7 +8,7 @@ from lexic.ir.nodes import IrQuantifier
 from lexic.utils.quantifiers import quantifier_to_bounds
 
 
-class GbnfFlavour(Flavour):
+class GbnfFlavour(IrFlavour):
     """GBNF flavour"""
 
     name = "gbnf"

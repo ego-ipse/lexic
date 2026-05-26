@@ -1,17 +1,17 @@
 # tests/unit/lexic/grammars/abnf/test_flavour.py
-"""AbnfFlavour — full Flavour binding for the minimal-ABNF subset."""
+"""AbnfFlavour — full IrFlavour binding for the minimal-ABNF subset."""
 
 from __future__ import annotations
 
 from lexic.grammars.abnf.flavour import AbnfFlavour
-from lexic.grammars.flavour import Flavour
+from lexic.grammars.flavour import IrFlavour
 from lexic.ir.nodes import IrCharClass, IrGroup, IrLiteral, IrQuantifier
 from lexic.parsing.meta_parser import MetaGrammarParser
 
 
 def test_abnf_flavour_is_a_flavour():
-    """`AbnfFlavour` is a `Flavour"""
-    assert issubclass(AbnfFlavour, Flavour)
+    """`AbnfFlavour` is a `IrFlavour"""
+    assert issubclass(AbnfFlavour, IrFlavour)
 
 
 def test_abnf_flavour_metadata():

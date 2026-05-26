@@ -6,7 +6,7 @@ Tested with a tiny stub flavour that exists only in this test file.
 
 from __future__ import annotations
 
-from lexic.grammars.flavour import Flavour
+from lexic.grammars.flavour import IrFlavour
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
@@ -31,7 +31,7 @@ class _StubEscapes(EscapeCodec):
     HEX_ESCAPES = ()
 
 
-class _StubFlavour(Flavour):
+class _StubFlavour(IrFlavour):
     """Mini-language: `name = body`; quantifiers `?`, `*`, `+`; charclasses `[...]`."""
 
     name = "stub"
