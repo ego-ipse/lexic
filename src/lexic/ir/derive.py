@@ -29,7 +29,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
-from lexic.ir.walk_2 import IrDispatch, IrTransformer, IrVisitor
+from lexic.ir.walk import IrDispatch, IrTransformer, IrVisitor
 from lexic.utils.names import to_pascal
 
 # ── classification ────────────────────────────────────────────────────

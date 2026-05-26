@@ -36,7 +36,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.spec import RuleSpec
-from lexic.ir.walk_2 import IrVisitor
+from lexic.ir.walk import IrVisitor
 from lexic.utils.quantifiers import bounds_to_quantifier
 
 

@@ -326,7 +326,7 @@ class IrRaise[Ir_co: IrSelf](IrLeaf[Ir_co]):
 class IrEmit[Ir_co: IrLiteral](IrLeaf[Ir_co]):
     """Body that emits ``IrLiteral(str(n))`` for the dispatched node.
 
-    Default body for :class:`~lexic.ir.walk_2.IrEmitter`. Stringifies
+    Default body for :class:`~lexic.ir.walk.IrEmitter`. Stringifies
     ``n`` via its ``__str__`` cascade
     (:attr:`~lexic.ir.nodes.IrNode._str_name` plus
     :meth:`~lexic.ir.nodes.IrNode._inner_str`) and wraps the result as

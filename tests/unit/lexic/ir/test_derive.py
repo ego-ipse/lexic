@@ -25,7 +25,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.walk_2 import IrTransformer
+from lexic.ir.walk import IrTransformer
 
 
 def _seq(*items):
