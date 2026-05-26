@@ -20,7 +20,7 @@ from lexic.ir.derive import (
     hoist_helpers,
 )
 from lexic.ir.directives import Directives, parse_directives
-from lexic.ir.emit import FlavourEmitter
+from lexic.ir.emit import render_specs
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
 from lexic.ir.helpers import HelperRuleRegistry
 from lexic.ir.nodes import (
@@ -53,7 +53,7 @@ __all__ = [
     "CANONICAL_ESCAPES",
     "Directives",
     "EscapeCodec",
-    "FlavourEmitter",
+    "render_specs",
     "HelperRuleRegistry",
     "IrAction",
     "IrAlternation",

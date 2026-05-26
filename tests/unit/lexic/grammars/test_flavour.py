@@ -3,12 +3,11 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from abc import ABC
 
 import pytest
 
 from lexic.grammars.flavour import IrFlavour
-from lexic.ir.emit import FlavourEmitter
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -19,6 +18,7 @@ from lexic.ir.nodes import (
     IrQuantifier,
     IrSequence,
 )
+from lexic.ir.walk import IrEmitter
 
 
 def test_flavour_is_abstract_cannot_instantiate_directly():
@@ -36,7 +36,6 @@ def test_concrete_flavour_with_required_attrs_works():
         extensions = (".fake",)
         meta_grammar = "start: NAME\nNAME: /[a-z]+/\n"
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
         line_comment = "#"
 
         @staticmethod
@@ -59,7 +58,6 @@ def test_concrete_flavour_missing_abstract_methods_fails():
         extensions = (".bad",)
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
         # Missing parse_quantifier and parse_charclass
 
     cls: type = _Bad
@@ -75,7 +73,6 @@ def test_normalize_literal_default_is_identity():
         extensions = ()
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
         def parse_quantifier(text: str) -> IrQuantifier:
@@ -96,7 +93,6 @@ def test_normalize_literal_can_be_overridden_to_return_group():
         extensions = ()
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
         def parse_quantifier(text: str) -> IrQuantifier:
@@ -128,7 +124,6 @@ def test_default_line_comment_is_empty_string():
         extensions = ()
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
         def parse_quantifier(text: str) -> IrQuantifier:
@@ -139,3 +134,14 @@ def test_default_line_comment_is_empty_string():
             return text, False
 
     assert _F.line_comment == ""
+
+
+def test_irflavour_is_subclass_of_iremitter():
+    assert issubclass(IrFlavour, IrEmitter)
+
+
+def test_irflavour_requires_parse_quantifier_and_parse_charclass():
+    assert issubclass(IrFlavour, ABC)
+    abstract = IrFlavour.__abstractmethods__
+    assert "parse_quantifier" in abstract
+    assert "parse_charclass" in abstract

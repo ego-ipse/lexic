@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from lexic.ir.nodes import IrAlternation, IrItem
+from lexic.ir.nodes import IrAlternation, IrItem, IrRule, IrSequence
 
 
 @dataclass
@@ -34,3 +34,20 @@ class RuleSpec:
     items: list[IrItem | IrAlternation] = field(default_factory=list)
     field_map: dict[str, int] = field(default_factory=dict)
     non_semantic_fields: frozenset[str] = field(default_factory=frozenset)
+
+    def to_ir_rule(self) -> IrRule:
+        """Reconstitute this spec as an IrRule.
+
+        For sequence / value_str kinds, wraps ``items`` in a single
+        IrAlternation arm. If ``items`` already contains a top-level
+        IrAlternation (multi-arm value_str), it's used as the body
+        directly.
+
+        :returns: An IrRule whose body is an IrAlternation.
+        """
+        if len(self.items) == 1 and isinstance(self.items[0], IrAlternation):
+            body = self.items[0]
+        else:
+            items_tuple = tuple(it for it in self.items if isinstance(it, IrItem))
+            body = IrAlternation(arms=(IrSequence(items=items_tuple),))
+        return IrRule(name=self.rule_name, body=body)
