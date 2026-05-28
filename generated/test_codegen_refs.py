@@ -1,7 +1,6 @@
 """Generated module: test_codegen_refs. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
-
 from typing import Annotated
 
 from pydantic import StringConstraints
@@ -10,8 +9,8 @@ from lexic.base import GrammarModel
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
-    IrQuantifier,
     IrRuleRef,
+    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 

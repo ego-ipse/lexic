@@ -1,23 +1,13 @@
 """Tests for ir/emit.py — render_specs."""
 
-from typing import Literal
-
 from lexic.ir.emit import render_specs
 from lexic.ir.nodes import IrItem, IrLiteral
 from lexic.ir.spec import RuleSpec
+from tests._ir_fixtures import Kind, spec
 
 
-def _spec(
-    name: str, kind: Literal["sequence", "alternation", "value_str"] = "value_str"
-) -> RuleSpec:
-    return RuleSpec(
-        rule_name=name,
-        class_name=name.title(),
-        parent_class_name="GrammarModel",
-        kind=kind,
-        items=[IrItem(atom=IrLiteral("x"))],
-        field_map={},
-    )
+def _spec(name: str, kind: Kind = "value_str") -> RuleSpec:
+    return spec(name, kind, [IrItem(atom=IrLiteral("x"))])
 
 
 def test_render_specs_invokes_flavour_per_rule():

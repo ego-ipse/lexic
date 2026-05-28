@@ -151,6 +151,9 @@ class IrChildren[Ir_co: IrSelf = IrSelf](IrLeaf[Ir_co]):
 
         Hybrid: eager when ``nc`` is populated (caller pre-walked) —
         return it as-is; lazy otherwise — dispatch each item via ``d``.
+        Both paths validate ``self.name`` against ``type(n)._items_attr``.
+
+        :raises ValueError: if ``self.name`` does not match ``n``'s ``_items_attr``.
         """
         items_attr = getattr(type(n), "_items_attr", None)
         if items_attr != self.name:

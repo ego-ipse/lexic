@@ -3,7 +3,12 @@
 Bundles the escape codec, action tuple, and parse helpers in one module.
 :data:`GBNF_FLAVOUR` is the singleton :class:`IrFlavour`/:class:`IrEmitter`
 consumed by :func:`lexic.grammars.get_flavour`.
+
+Explicit disable of duplicate-code. The end-goal is to have this file be
+completely auto-generated.
 """
+
+# pylint: disable=duplicate-code
 
 from __future__ import annotations
 
@@ -12,7 +17,6 @@ from typing import ClassVar
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrFlavour
-from lexic.grammars.gbnf.meta_grammar import META_GRAMMAR
 from lexic.ir.action import (
     IrAction,
     IrCallable,
@@ -38,6 +42,33 @@ from lexic.ir.nodes import (
     IrStr,
 )
 from lexic.utils.quantifiers import quantifier_to_bounds
+
+META_GRAMMAR = r"""
+start: rule+
+
+rule: NAME "::=" alternation     -> ir_rule
+alternation: sequence ("|" sequence)*  -> ir_alternation
+sequence: item*                  -> ir_sequence
+item: atom QUANTIFIER?           -> ir_item
+
+atom: LITERAL                    -> ir_literal
+    | CHARCLASS                  -> ir_charclass
+    | NAME                       -> ir_ruleref
+    | "(" alternation ")"        -> ir_group
+
+NAME: /[a-zA-Z_][a-zA-Z0-9_-]*/
+LITERAL: /"([^"\\]|\\.)*"/
+CHARCLASS: /\[(?:\^)?(?:[^\]\\]|\\.)*\]/
+QUANTIFIER: /[?*+]|\{[0-9]+(?:,[0-9]*)?\}/
+
+%ignore /[ \t\n\r]+/
+%ignore /#[^\n]*/
+"""
+"""GBNF meta-grammar — Lark grammar string with canonical IR-AST tags.
+
+The MetaGrammarParser dispatches productions tagged `ir_rule`, `ir_literal`,
+etc. to its generic IR-AST constructor. This file is data; no logic.
+"""
 
 
 class _GbnfEscapes(EscapeCodec):
@@ -135,14 +166,13 @@ GBNF_ACTIONS = (
 class _GbnfFlavour(IrFlavour):
     """GBNF flavour singleton class."""
 
-    actions: tuple = GBNF_ACTIONS
+    actions: tuple[IrAction, ...] = GBNF_ACTIONS
 
     name: ClassVar[str] = "gbnf"
     extensions: ClassVar[tuple[str, ...]] = (".gbnf",)
     meta_grammar: ClassVar[str] = META_GRAMMAR
     escapes: ClassVar[EscapeCodec] = GBNF_ESCAPES
     line_comment: ClassVar[str] = "#"
-    quantifier_symbols: ClassVar[dict[tuple[int, int | None], str]] = GBNF_QUANT_SYMBOLS
 
     @staticmethod
     def parse_quantifier(text: str) -> IrQuantifier:

@@ -8,7 +8,12 @@ ABNF differs from GBNF in two key ways: prefix quantifier ordering on
 :class:`IrItem` (the quantifier emits before the atom) and ``%xNN``-style
 hex char-class rendering. ABNF has no native negated char classes — IrNot
 raises.
+
+Explicit disable of duplicate-code. The end-goal is to have this file be
+completely auto-generated.
 """
+
+# pylint: disable=duplicate-code
 
 from __future__ import annotations
 
@@ -16,7 +21,6 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.abnf.meta_grammar import META_GRAMMAR
 from lexic.grammars.flavour import IrFlavour
 from lexic.ir.action import (
     IrAction,
@@ -43,6 +47,38 @@ from lexic.ir.nodes import (
     IrStr,
 )
 
+META_GRAMMAR = r"""
+start: rule+
+
+rule: NAME "=" alternation        -> ir_rule
+alternation: sequence ("/" sequence)*  -> ir_alternation
+sequence: item*                   -> ir_sequence
+item: QUANTIFIER? atom            -> ir_item
+
+atom: LITERAL                     -> ir_literal
+    | HEXCC                       -> ir_charclass
+    | NAME                        -> ir_ruleref
+    | "(" alternation ")"         -> ir_group
+
+NAME: /[A-Za-z][A-Za-z0-9_-]*/
+LITERAL: /"[^"\r\n]*"/
+HEXCC: /%x[0-9A-Fa-f]+(?:-[0-9A-Fa-f]+)?/
+QUANTIFIER: /[0-9]+\*[0-9]*|\*[0-9]+|\*|[0-9]+/
+
+%ignore /[ \t\r\n]+/
+%ignore /;[^\n]*/
+"""
+"""ABNF (subset) meta-grammar with canonical IR-AST tags.
+
+Subset:
+  - `name = body` (single =, not ::=)
+  - alternation by `/`
+  - prefix quantifiers `*N`, `n*`, `n*m`, `n`
+  - charclasses via `%xNN` or `%xNN-MM`
+  - case-insensitive `"abc"` literals (expansion via normalize_literal)
+  - groups `(...)`, comments starting with `;`
+"""
+
 
 class _AbnfEscapes(EscapeCodec):
     """Identity codec — ABNF literals are canonical Python."""
@@ -53,14 +89,6 @@ class _AbnfEscapes(EscapeCodec):
 
 ABNF_ESCAPES = _AbnfEscapes()
 """Singleton escape codec for ABNF."""
-
-
-ABNF_QUANT_SYMBOLS: dict[tuple[int, int | None], str] = {
-    (1, 1): "",
-    (0, 1): "*1",
-    (0, None): "*",
-    (1, None): "1*",
-}
 
 
 def _abnf_format_quantifier(lo: int, hi: int | None) -> str:
@@ -170,14 +198,13 @@ ABNF_ACTIONS = (
 class _AbnfFlavour(IrFlavour):
     """ABNF flavour singleton class."""
 
-    actions: tuple = ABNF_ACTIONS
+    actions: tuple[IrAction, ...] = ABNF_ACTIONS
 
     name: ClassVar[str] = "abnf"
     extensions: ClassVar[tuple[str, ...]] = (".abnf",)
     meta_grammar: ClassVar[str] = META_GRAMMAR
     escapes: ClassVar[EscapeCodec] = ABNF_ESCAPES
     line_comment: ClassVar[str] = ";"
-    quantifier_symbols: ClassVar[dict[tuple[int, int | None], str]] = ABNF_QUANT_SYMBOLS
 
     @staticmethod
     def parse_quantifier(text: str) -> IrQuantifier:

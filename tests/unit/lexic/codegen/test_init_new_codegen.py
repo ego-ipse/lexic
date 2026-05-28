@@ -7,18 +7,11 @@ from pathlib import Path
 
 from lexic.codegen import codegen
 from lexic.ir.nodes import IrCharClass, IrItem, IrLiteral, IrQuantifier, IrRuleRef
-from lexic.ir.spec import RuleSpec
+from tests._ir_fixtures import spec as _build_spec
 
 
 def _spec(name, kind, items, field_map=None):
-    return RuleSpec(
-        rule_name=name,
-        class_name=name.title(),
-        parent_class_name="GrammarModel",
-        kind=kind,
-        items=list(items),
-        field_map=field_map or {},
-    )
+    return _build_spec(name, kind, items, field_map=field_map)
 
 
 def test_codegen_returns_dict_of_classes(tmp_path, monkeypatch):

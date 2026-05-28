@@ -26,7 +26,6 @@ class IrFlavour(IrEmitter, ABC):
     :cvar meta_grammar: Lark meta-grammar string for parsing source.
     :cvar escapes: EscapeCodec subclass for literal escape handling.
     :cvar line_comment: Line-comment prefix; empty disables @directive parsing.
-    :cvar quantifier_symbols: Map from (min, max) bounds to emit text.
     """
 
     name: ClassVar[str]
@@ -34,7 +33,6 @@ class IrFlavour(IrEmitter, ABC):
     meta_grammar: ClassVar[str]
     escapes: ClassVar[EscapeCodec]
     line_comment: ClassVar[str] = ""
-    quantifier_symbols: ClassVar[dict[tuple[int, int | None], str]]
 
     @staticmethod
     @abstractmethod

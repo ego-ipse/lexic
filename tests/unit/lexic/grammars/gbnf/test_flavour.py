@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from lexic.grammars.flavour import IrFlavour
-from lexic.grammars.gbnf.flavour import GBNF_ESCAPES, GBNF_FLAVOUR
+from lexic.grammars.gbnf.flavour import GBNF_ESCAPES, GBNF_FLAVOUR, META_GRAMMAR
 from lexic.ir.nodes import IrQuantifier
 
 
@@ -113,3 +113,9 @@ def test_round_trip():
     escapes = GBNF_ESCAPES
     for raw in ["\n", "\t", "\\", '"', "hello", "\x00"]:
         assert escapes.decode(escapes.encode(raw)) == raw
+
+
+def test_meta_grammar_is_non_empty_string():
+    """META_GRAMMAR is a non-empty string."""
+    assert isinstance(META_GRAMMAR, str)
+    assert len(META_GRAMMAR) > 0

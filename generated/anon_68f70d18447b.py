@@ -1,7 +1,6 @@
 """Generated module: anon_68f70d18447b. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
-
 from typing import Annotated, Optional
 
 from pydantic import StringConstraints
@@ -11,8 +10,8 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrQuantifier,
     IrRuleRef,
+    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 
