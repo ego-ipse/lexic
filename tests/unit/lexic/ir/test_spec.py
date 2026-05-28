@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lexic.ir.nodes import IrAlternation, IrItem, IrLiteral, IrRule, IrSequence
 from lexic.ir.spec import RuleSpec
 from tests.unit.lexic.conftest import make_ident_spec
 
@@ -39,3 +40,42 @@ def test_rulespec_non_semantic_fields_set():
         "r", "R", "GrammarModel", "sequence", non_semantic_fields=frozenset({"ws"})
     )
     assert "ws" in spec.non_semantic_fields
+
+
+def test_rulespec_to_ir_rule_wraps_items_in_iralternation():
+    """to_ir_rule wraps a flat items list in a single-arm IrAlternation."""
+    spec = RuleSpec(
+        rule_name="r",
+        class_name="R",
+        parent_class_name="GrammarModel",
+        kind="value_str",
+        items=[IrItem(atom=IrLiteral("x"))],
+        field_map={},
+    )
+    rule = spec.to_ir_rule()
+    assert isinstance(rule, IrRule)
+    assert rule.name == "r"
+    assert isinstance(rule.body, IrAlternation)
+    assert len(rule.body.arms) == 1
+    assert isinstance(rule.body.arms[0], IrSequence)
+    assert rule.body.arms[0].items == (IrItem(atom=IrLiteral("x")),)
+
+
+def test_rulespec_to_ir_rule_with_alternation_item_passes_through():
+    """to_ir_rule passes through a top-level IrAlternation directly as the body."""
+    alt = IrAlternation(
+        arms=(
+            IrSequence(items=(IrItem(atom=IrLiteral("a")),)),
+            IrSequence(items=(IrItem(atom=IrLiteral("b")),)),
+        )
+    )
+    spec = RuleSpec(
+        rule_name="r",
+        class_name="R",
+        parent_class_name="GrammarModel",
+        kind="value_str",
+        items=[alt],
+        field_map={},
+    )
+    rule = spec.to_ir_rule()
+    assert rule.body == alt

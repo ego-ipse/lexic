@@ -13,7 +13,7 @@ from lexic.compile import (
     reset_cache_for_tests,
 )
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.gbnf.flavour import GbnfFlavour
+from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
 from tests.paths import GROUND_TRUTH
 
 
@@ -145,7 +145,7 @@ def test_compile_from_path_unknown_flavour_raises():
 
 def test_compile_grammar_returns_start_and_specs():
     """compile_grammar returns (start_name, specs) tuple."""
-    start, specs = compile_grammar('root ::= "x"\n', GbnfFlavour)
+    start, specs = compile_grammar('root ::= "x"\n', GBNF_FLAVOUR)
     assert start == "root"
     assert len(specs) == 1
     assert specs[0].rule_name == "root"
@@ -153,25 +153,25 @@ def test_compile_grammar_returns_start_and_specs():
 
 def test_compile_grammar_falls_back_to_first_rule():
     """start defaults to the first rule when no directive."""
-    start, _ = compile_grammar("root ::= [0-9]+\n", GbnfFlavour)
+    start, _ = compile_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR)
     assert start == "root"
 
 
 def test_compile_grammar_start_directive_wins_over_first_rule():
     """@start directive overrides positional first-rule fallback."""
     text = "# @start expr\nroot ::= expr\nexpr ::= [0-9]+\n"
-    start, _ = compile_grammar(text, GbnfFlavour)
+    start, _ = compile_grammar(text, GBNF_FLAVOUR)
     assert start == "expr"
 
 
 def test_compile_grammar_explicit_start_wins_over_directive():
     """Explicit start= argument wins over @start directive."""
     text = "# @start expr\nroot ::= expr\nexpr ::= [0-9]+\n"
-    start, _ = compile_grammar(text, GbnfFlavour, start="root")
+    start, _ = compile_grammar(text, GBNF_FLAVOUR, start="root")
     assert start == "root"
 
 
 def test_compile_grammar_invalid_start_raises():
     """Unresolvable start rule raises UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError, match="start"):
-        compile_grammar("root ::= [0-9]+\n", GbnfFlavour, start="nonexistent")
+        compile_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR, start="nonexistent")

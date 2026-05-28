@@ -1,14 +1,13 @@
 # tests/unit/lexic/grammars/test_flavour.py
-"""Flavour ABC contract tests — using a minimal fake flavour."""
+"""IrFlavour ABC contract tests — using a minimal fake flavour."""
 
 from __future__ import annotations
 
-from typing import ClassVar
+from abc import ABC
 
 import pytest
 
-from lexic.grammars.flavour import Flavour
-from lexic.ir.emit import FlavourEmitter
+from lexic.grammars.flavour import IrFlavour
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -19,11 +18,12 @@ from lexic.ir.nodes import (
     IrQuantifier,
     IrSequence,
 )
+from lexic.ir.walk import IrEmitter
 
 
 def test_flavour_is_abstract_cannot_instantiate_directly():
     """Direct instantiation of the ABC raises TypeError."""
-    cls: type = Flavour
+    cls: type = IrFlavour
     with pytest.raises(TypeError):
         cls()  # pylint: disable=abstract-class-instantiated
 
@@ -31,12 +31,11 @@ def test_flavour_is_abstract_cannot_instantiate_directly():
 def test_concrete_flavour_with_required_attrs_works():
     """A fully-specified concrete subclass can be defined and used."""
 
-    class _Fake(Flavour):
+    class _Fake(IrFlavour):
         name = "fake"
         extensions = (".fake",)
         meta_grammar = "start: NAME\nNAME: /[a-z]+/\n"
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
         line_comment = "#"
 
         @staticmethod
@@ -54,12 +53,11 @@ def test_concrete_flavour_with_required_attrs_works():
 def test_concrete_flavour_missing_abstract_methods_fails():
     """A subclass that omits the abstract methods cannot be instantiated."""
 
-    class _Bad(Flavour):
+    class _Bad(IrFlavour):
         name = "bad"
         extensions = (".bad",)
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
         # Missing parse_quantifier and parse_charclass
 
     cls: type = _Bad
@@ -70,12 +68,11 @@ def test_concrete_flavour_missing_abstract_methods_fails():
 def test_normalize_literal_default_is_identity():
     """Default normalize_literal returns IrLiteral wrapping the decoded string."""
 
-    class _F(Flavour):
+    class _F(IrFlavour):
         name = "f"
         extensions = ()
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
         def parse_quantifier(text: str) -> IrQuantifier:
@@ -91,12 +88,11 @@ def test_normalize_literal_default_is_identity():
 def test_normalize_literal_can_be_overridden_to_return_group():
     """ABNF-style: case-insensitive 'abc' expands to a char-class group."""
 
-    class _F(Flavour):
+    class _F(IrFlavour):
         name = "f"
         extensions = ()
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
         def parse_quantifier(text: str) -> IrQuantifier:
@@ -123,12 +119,11 @@ def test_normalize_literal_can_be_overridden_to_return_group():
 def test_default_line_comment_is_empty_string():
     """line_comment defaults to empty string when not set by a subclass."""
 
-    class _F(Flavour):
+    class _F(IrFlavour):
         name = "f"
         extensions = ()
         meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-        emitter: ClassVar[type[FlavourEmitter]] = FlavourEmitter
 
         @staticmethod
         def parse_quantifier(text: str) -> IrQuantifier:
@@ -139,3 +134,16 @@ def test_default_line_comment_is_empty_string():
             return text, False
 
     assert _F.line_comment == ""
+
+
+def test_irflavour_is_subclass_of_iremitter():
+    """IrFlavour inherits from IrEmitter."""
+    assert issubclass(IrFlavour, IrEmitter)
+
+
+def test_irflavour_requires_parse_quantifier_and_parse_charclass():
+    """IrFlavour declares both parse_quantifier and parse_charclass as abstract."""
+    assert issubclass(IrFlavour, ABC)
+    abstract = IrFlavour.__abstractmethods__
+    assert "parse_quantifier" in abstract
+    assert "parse_charclass" in abstract

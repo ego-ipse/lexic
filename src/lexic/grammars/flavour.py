@@ -1,38 +1,62 @@
-"""Flavour ABC — the contract every grammar flavour fulfils."""
+"""IrFlavour ABC — config bundle every grammar flavour subclasses.
+
+An IrFlavour:
+- Carries per-flavour metadata as ClassVars (name, extensions, etc.).
+- Inherits IrEmitter — its ``actions`` tuple holds the per-IR-type
+  rendering rules.
+- Declares ``parse_quantifier`` / ``parse_charclass`` as abstract
+  staticmethods consumed by the meta-parser.
+"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import IrGroup, IrLiteral, IrQuantifier
-
-if TYPE_CHECKING:
-    from lexic.ir.emit import FlavourEmitter
+from lexic.ir.walk import IrEmitter
 
 
-class Flavour(ABC):
-    """Per-flavour configuration. Subclass and fill in class attributes."""
+class IrFlavour(IrEmitter, ABC):
+    """Base for every grammar flavour.
+
+    :cvar name: Short flavour identifier (e.g. ``"gbnf"``).
+    :cvar extensions: Tuple of file extensions handled.
+    :cvar meta_grammar: Lark meta-grammar string for parsing source.
+    :cvar escapes: EscapeCodec subclass for literal escape handling.
+    :cvar line_comment: Line-comment prefix; empty disables @directive parsing.
+    """
 
     name: ClassVar[str]
     extensions: ClassVar[tuple[str, ...]]
     meta_grammar: ClassVar[str]
     escapes: ClassVar[EscapeCodec]
-    emitter: ClassVar[type["FlavourEmitter"]]
     line_comment: ClassVar[str] = ""
 
     @staticmethod
     @abstractmethod
     def parse_quantifier(text: str) -> IrQuantifier:
-        """Parse a flavour-specific quantifier token text into canonical bounds."""
+        """Parse a quantifier symbol into an IrQuantifier.
+
+        :param text: Flavour-specific quantifier token.
+        :returns: Canonical ``IrQuantifier(min, max)``.
+        """
 
     @staticmethod
     @abstractmethod
     def parse_charclass(text: str) -> tuple[str, bool]:
-        """Parse a bracket-expression token. Return (canonical_pattern, negated)."""
+        """Parse a char class into ``(pattern, negated)``.
+
+        :param text: Bracket-expression token text.
+        :returns: Tuple of canonical pattern and negation flag.
+        """
 
     @classmethod
     def normalize_literal(cls, decoded: str) -> IrLiteral | IrGroup:
-        """Optional sugar-expansion hook. Default: identity (return IrLiteral)."""
+        """Optional sugar-expansion hook. Default: identity (return IrLiteral).
+
+        :param decoded: Decoded literal string.
+        :returns: ``IrLiteral`` wrapping the decoded string.
+        """
         return IrLiteral(decoded)

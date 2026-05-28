@@ -206,6 +206,10 @@ class IrTuple[T](IrType, tuple):
         """Iterable → IrTuple via ``cls(*value)``; pass through if already ``cls``."""
         return value if isinstance(value, cls) else cls(*value)
 
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Self:
+        """Dispatch each element via its own ``.eval`` and rebuild the tuple."""
+        return type(self)(*(p.eval(d, n, nc) for p in self))
+
 
 # ── Root protocol ─────────────────────────────────────────────────────
 

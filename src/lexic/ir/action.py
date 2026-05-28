@@ -108,8 +108,12 @@ class IrChild[Ir_co: IrSelf](IrLeaf[Ir_co]):
 
     name: str
 
-    def eval(self, _d: IrSelf, n: IrSelf, new_children: Sequence[IrSelf], /) -> Ir_co:
-        """Index into ``new_children`` at the position of ``self.name``."""
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+        """Resolve the named child.
+
+        Hybrid: eager when ``nc`` is populated (caller pre-walked) — index
+        into it; lazy otherwise — dispatch the looked-up child via ``d``.
+        """
         attrs = getattr(type(n), "_child_attrs", ())
         try:
             idx = attrs.index(self.name)
@@ -118,7 +122,9 @@ class IrChild[Ir_co: IrSelf](IrLeaf[Ir_co]):
                 f"IrChild({self.name!r}): {type(n).__name__} has no such child "
                 f"(known: {attrs})"
             ) from exc
-        return self.bind(new_children[idx])
+        if nc:
+            return self.bind(nc[idx])
+        return self.bind(d.eval(d, n.children()[idx], IrTuple()))
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -136,20 +142,28 @@ class IrChildren[Ir_co: IrSelf = IrSelf](IrLeaf[Ir_co]):
 
     def eval(
         self,
-        _d: IrSelf,
+        d: IrSelf,
         n: IrSelf,
-        new_children: Sequence[IrSelf],
+        nc: Sequence[IrSelf],
         /,
     ) -> Ir_co:
-        """Return ``new_children`` after checking it matches ``_items_attr``."""
+        """Resolve the named items collection.
+
+        Hybrid: eager when ``nc`` is populated (caller pre-walked) —
+        return it as-is; lazy otherwise — dispatch each item via ``d``.
+        Both paths validate ``self.name`` against ``type(n)._items_attr``.
+
+        :raises ValueError: if ``self.name`` does not match ``n``'s ``_items_attr``.
+        """
         items_attr = getattr(type(n), "_items_attr", None)
         if items_attr != self.name:
             raise ValueError(
                 f"IrChildren({self.name!r}): {type(n).__name__} _items_attr "
                 f"is {items_attr!r}"
             )
-
-        return self.bind(new_children)
+        if nc:
+            return self.bind(nc)
+        return self.bind(IrTuple(*(d.eval(d, c, IrTuple()) for c in n.children())))
 
 
 # ── String concatenation ──────────────────────────────────────────────
@@ -188,16 +202,17 @@ class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("parts", "separator", "empty")
-    parts: IrTuple = IrTuple()
+    parts: IrSelf = IrTuple()
     separator: IrNode[Ir_co] = IrLiteral("")
     empty: IrNode[Ir_co] = IrLiteral("")
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Evaluate parts; join with ``separator`` or return ``empty``."""
-        if not self.parts:
+        """Evaluate ``parts`` (any IrNode producing a sequence); join or return empty."""
+        rendered = self.parts.eval(d, n, nc)
+        if not rendered:
             return self.empty.eval(d, n, nc)
         sep = self.separator.eval(d, n, nc)
-        return self.bound(self.bound(sep).join(p.eval(d, n, nc) for p in self.parts))
+        return self.bound(self.bound(sep).join(rendered))
 
 
 # ── Truthy-field branch ───────────────────────────────────────────────

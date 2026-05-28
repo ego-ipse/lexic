@@ -40,7 +40,7 @@ import lark
 from lexic.codegen import codegen
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
-from lexic.grammars.flavour import Flavour
+from lexic.grammars.flavour import IrFlavour
 from lexic.ir.derive import derive_specs
 from lexic.ir.directives import parse_directives
 from lexic.ir.spec import RuleSpec
@@ -136,7 +136,7 @@ def compile_from_path(
 
 def compile_grammar(
     text: str,
-    flavour: type[Flavour],
+    flavour: IrFlavour,
     *,
     non_semantic_rules: frozenset[str] | None = None,
     start: str | None = None,

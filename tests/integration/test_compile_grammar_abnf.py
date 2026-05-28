@@ -1,9 +1,9 @@
-"""compile_grammar(text, AbnfFlavour) — end-to-end via new pipeline."""
+"""compile_grammar(text, ABNF_FLAVOUR) — end-to-end via new pipeline."""
 
 from __future__ import annotations
 
 from lexic.compile import compile_grammar
-from lexic.grammars.abnf.flavour import AbnfFlavour
+from lexic.grammars.abnf.flavour import ABNF_FLAVOUR
 from lexic.ir.nodes import IrGroup, IrItem
 from tests.paths import GROUND_TRUTH
 
@@ -11,7 +11,7 @@ from tests.paths import GROUND_TRUTH
 def test_compile_arithmetic_abnf_succeeds():
     """All expected rule names are present and structural kinds are correct."""
     text = (GROUND_TRUTH / "arithmetic.abnf").read_text(encoding="utf-8")
-    _start, specs = compile_grammar(text, AbnfFlavour)
+    _start, specs = compile_grammar(text, ABNF_FLAVOUR)
     by = {s.rule_name: s for s in specs}
     assert {"root", "expr", "term", "op", "num", "DIGIT", "WSP"} <= set(by)
     assert by["op"].kind == "value_str"
@@ -28,7 +28,7 @@ def test_compile_abnf_non_semantic_directive_propagates_to_referencing_rule():
         "DIGIT = %x30-39\n"
         "WSP  = %x20 / %x09\n"
     )
-    _, specs = compile_grammar(text, AbnfFlavour)
+    _, specs = compile_grammar(text, ABNF_FLAVOUR)
     by = {s.rule_name: s for s in specs}
     assert "WSP" in by["root"].non_semantic_fields
 
@@ -36,7 +36,7 @@ def test_compile_abnf_non_semantic_directive_propagates_to_referencing_rule():
 def test_compile_abnf_case_insensitive_literal_expanded():
     """`root = "Hi"` in ABNF → IrGroup of char classes, not a single literal."""
     text = 'root = "Hi"\n'
-    _start, specs = compile_grammar(text, AbnfFlavour)
+    _start, specs = compile_grammar(text, ABNF_FLAVOUR)
     spec = specs[0]
     # The rule classifies as value_str (no rulerefs); the IrItem inside should
     # carry an IrGroup atom (from normalize_literal expansion).

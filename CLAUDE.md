@@ -27,7 +27,7 @@ Never add `Co-Authored-By` lines. Commits belong entirely to the user.
 Always prefix with `uv run`. Never run `pytest` or `ruff` bare.
 
 ```bash
-uv run pytest tests/ -q                  # full suite (448 tests)
+uv run pytest tests/ -q                  # full suite (474 tests)
 uv run pytest tests/unit/lexic/ -q       # unit only
 uv run pytest tests/integration/ -q      # integration only
 uv run ruff check src/ tests/            # lint
@@ -60,37 +60,46 @@ src/lexic/
 
   ir/
     __init__.py         re-exports IrItem nodes, RuleSpec
-    nodes.py            IrLiteral, IrCharClass, IrRuleRef, IrGroup, IrItem,
-                        IrSequence, IrAlternation, IrRule, IrAst, Quantifier
+    nodes.py            IrSelf mixin; IrNode[Ir_co] generic ABC; IrType/IrStr/IrTuple
+                        typed bases; IrLeaf/IrStructure/IrCollection/IrComposite;
+                        IrLiteral, IrCharClass, IrRuleRef, IrGroup, IrNot, IrItem,
+                        IrQuantifier, IrSequence, IrAlternation, IrRule, IrAst;
+                        IrNone absence sentinel
+    action.py           Action-algebra nodes: IrField, IrCallable, IrChild, IrChildren,
+                        IrConcat, IrJoin, IrCond, IrReturn, IrAction; default bodies
+                        IrPass, IrWalk, IrRaise, IrEmit, IrRebuild
+    walk.py             IrDispatch[Ir_co] — IrCollection of IrActions; presets
+                        IrVisitor, IrTransformer, IrEmitter. Does NOT walk children
+                        automatically — action bodies own recursion
+    emit.py             render_specs() helper — list[RuleSpec] → text via a flavour
+                        singleton. Currently only consumed by its own test; may be
+                        wired into the broader pipeline later
+    escapes.py          EscapeCodec ABC + CANONICAL_ESCAPES
     spec.py             RuleSpec(rule_name, class_name, parent_class_name, kind,
                                 items: list[IrItem | IrAlternation], field_map,
-                                non_semantic_fields)
+                                non_semantic_fields); to_ir_rule()
     charclass.py        parse_charclass_chars()
     derive.py           derive_specs(IrAst, non_semantic_rules) → list[RuleSpec]
     directives.py       parse_directives() — extracts @start / @non-semantic
                         from grammar source comments before the meta-grammar parser runs
-    emit.py             FlavourEmitter ABC — generic emit algorithm + default atom handlers
-    escapes.py          EscapeCodec ABC + CANONICAL_ESCAPES
-    helpers.py          HelperRuleRegistry — per-build synthetic rule naming (dedup)
     naming.py           CHARCLASS_NAMES, _LITERAL_NAMES, _field_map()
     regex_portable.py   literal_to_regex_pattern(); PORTABLE_FEATURES, validate_portable
     topo.py             topo_sort(specs, is_start_rule) — dependency ordering
-    walk.py             IrDispatch — recursive tree walker / fold
 
   grammars/
     __init__.py         get_flavour(), flavour_for_extension(), register_flavour()
-                        eagerly registers GbnfFlavour and AbnfFlavour on import
-    flavour.py          Flavour ABC — config bundle every flavour subclasses
+                        eagerly registers GBNF_FLAVOUR and ABNF_FLAVOUR singletons
+                        on import
+    flavour.py          IrFlavour ABC — IrEmitter subclass + ClassVars (name,
+                        extensions, meta_grammar, escapes: EscapeCodec instance,
+                        line_comment) + abstract parse_quantifier / parse_charclass
     gbnf/               GBNF flavour
-      emitter.py        GbnfEmitter: list[RuleSpec] → GBNF text
-      escapes.py        GbnfEscapes identity codec
-      flavour.py        GbnfFlavour(Flavour)
-      meta_grammar.py   Lark meta-grammar string for GBNF
+      flavour.py        META_GRAMMAR string; _GbnfEscapes (private) + GBNF_ESCAPES
+                        singleton; GBNF_ACTIONS tuple of IrActions; _GbnfFlavour
+                        (private) + GBNF_FLAVOUR singleton
     abnf/               ABNF flavour
-      emitter.py        AbnfEmitter: list[RuleSpec] → ABNF text
-      escapes.py        AbnfEscapes codec
-      flavour.py        AbnfFlavour(Flavour)
-      meta_grammar.py   ABNF Lark meta-grammar
+      flavour.py        META_GRAMMAR string; _AbnfEscapes + ABNF_ESCAPES singleton;
+                        ABNF_ACTIONS tuple; _AbnfFlavour + ABNF_FLAVOUR singleton
 
   codegen/
     __init__.py         codegen(specs, stem) → dict[str, type]
@@ -111,7 +120,9 @@ src/lexic/
 
   utils/
     names.py            to_pascal(), to_snake(), to_lark_name()
-    quantifiers.py      quantifier_to_bounds(text) → (min, max | None)
+    quantifiers.py      bounds_to_quantifier() — consumed by parsing/lark_builder.py
+                        and codegen/aliases.py; flavours no longer use it.
+                        Scheduled for later cleanup.
 
 tests/
   unit/lexic/           structural mirror of src/lexic/
@@ -133,7 +144,7 @@ generated/              auto-generated Pydantic modules — git-ignored; never e
 
 ```
 grammar text ──► parse_directives(text, flavour.line_comment) ──► Directives
-             └──► MetaGrammarParser.for_flavour(Flavour) ──► IrAst
+             └──► MetaGrammarParser.for_flavour(IrFlavour) ──► IrAst
                                                                    │
                                                                    ▼
                                derive_specs(ast, non_semantic_rules=…)
@@ -143,9 +154,9 @@ grammar text ──► parse_directives(text, flavour.line_comment) ──► Di
                                                                    │
                          ┌─────────────────────────────────────────┤
                          ▼                                         ▼
-                  codegen(specs, stem)                   GbnfEmitter / AbnfEmitter
-              writes generated/<stem>.py                    to_grammar(flavour)
-              returns dict[str, type]
+                  codegen(specs, stem)                  GBNF_FLAVOUR / ABNF_FLAVOUR
+              writes generated/<stem>.py              flavour_singleton.apply(node)
+              returns dict[str, type]                  (IrEmitter on IR-AST tree)
                          │
                          ▼
                    build_lark(specs, classes, start_rule)
@@ -167,24 +178,36 @@ lexic (runtime) ↗ lexic.codegen        runtime NEVER imports codegen — two e
 ```
 
 **The two deliberate exceptions:**
-1. `base.py` imports `lexic.grammars.gbnf.emitter` at module scope for `to_gbnf()`. Explicit, eager, one import.
+1. `base.py` imports `get_flavour` from `lexic.grammars` to drive `to_grammar()` (which calls `flavour_singleton.apply(self.__grammar__.to_ir_rule())`). The GBNF singleton is `lexic.grammars.gbnf.flavour.GBNF_FLAVOUR`. Explicit, eager.
 2. `compile.py` imports `codegen` from `lexic.codegen` and `build_lark` from `lexic.parsing.lark_builder`. Both explicit and public. This is the single runtime seam for compilation.
 
 No `TYPE_CHECKING` dodges. No lazy intra-function imports of `lexic.codegen` from runtime modules. If a runtime module needs something that lives in codegen, move the thing.
 
-## IR types (`ir/nodes.py` + `ir/spec.py`)
+## IR types (`ir/nodes.py` + `ir/action.py` + `ir/spec.py`)
 
-Quantifiers travel on `IrItem`, not on leaves.
+Every IR node is callable: `node.__call__(d, n, nc) -> Ir_co` where `Ir_co` defaults to `IrSelf` (identity). The `IrSelf` mixin supplies the default identity `__call__` and the action-protocol `eval(d, n, nc) -> Ir_co`. Value-producing nodes override `eval`. `IrNode[Ir_co]` is a generic dataclass ABC that extends `IrSelf[Ir_co]`.
+
+**Typed bases:** `IrType` is the base for `IrSelf`-shaped nodes that are also Python natives. `IrStr` is `IrType + str`; `IrTuple[T]` is `IrType + tuple` whose `eval` dispatches each element via `d` and rebuilds the tuple.
+
+**Grammar AST nodes:**
 
 ```
-IrLeaf   = IrLiteral | IrCharClass | IrRuleRef
-IrAtom   = IrLeaf | IrGroup
-IrNode   = IrAst | IrRule | IrAlternation | IrSequence | IrItem | IrAtom
+IrLeaf       = IrLiteral | IrCharClass | IrRuleRef        (+ IrQuantifier)
+IrAtom       = IrLeaf | IrGroup | IrNot                   (role marker)
+IrStructure  = IrCollection | IrComposite                  (branch nodes)
+IrCollection: IrSequence, IrAlternation, IrAst             (homogeneous items)
+IrComposite:  IrGroup, IrNot, IrItem, IrRule               (named children)
 ```
 
-`IrItem(atom: IrAtom, quantifier: Quantifier)` — the universal wrapper.
+`IrItem(atom: IrAtom, quantifier: IrQuantifier)` — the universal wrapper. `IrQuantifier(min, max | None)` carries repetition bounds. The pair `(_child_attrs, _items_attr)` declares which dataclass fields are dispatched children.
 
-`RuleSpec(rule_name, class_name, parent_class_name, kind, items: list[IrItem | IrAlternation], field_map, non_semantic_fields)` — one rule.
+`IrLiteral` carries a **dual role**: as a grammar AST leaf (the literal string in a rule body) and as an action-language constant (a baked-in string an action body returns). The two are distinguished at eval time by the `nc` (node-children) parameter — see [[ir-shapes]].
+
+**Action-algebra nodes** (`ir/action.py`) extend the IR with operations beyond identity: `IrField` reads a typed attribute from the dispatched node; `IrCallable` is the procedural escape hatch; `IrChild` / `IrChildren` resolve sibling children by name (hybrid: pre-walked from `nc` when populated, otherwise dispatched lazily via `d.eval`); `IrConcat` and `IrJoin` build strings; `IrCond` branches on a truthy field; `IrReturn` short-circuits via a `_Return` BaseException; `IrAction(target_type, body)` binds a target IR-node type to a callable IR body. Default bodies: `IrPass`, `IrWalk`, `IrRaise`, `IrEmit`, `IrRebuild`.
+
+**Dispatch** (`ir/walk.py`): `IrDispatch[Ir_co]` is an `IrCollection[Ir_co]` whose items are the action table. It does **not** walk children automatically — action bodies do their own recursion. Resolution is concrete-first MRO walk, memoised. Entry seams are `eval(d, n, nc)` (protocol shape) and `apply(root)` (friendly façade). Presets: `IrVisitor` (side-effect walker; default `IrWalk`), `IrTransformer[IrNode]` (tree rewrites; default `IrRebuild`), `IrEmitter[IrLiteral]` (string emission; default `IrEmit`).
+
+`RuleSpec(rule_name, class_name, parent_class_name, kind, items: list[IrItem | IrAlternation], field_map, non_semantic_fields)` — one rule. Carries `to_ir_rule()` for emission via a flavour.
 
 ### `kind` semantics
 
@@ -196,28 +219,32 @@ Multi-arm `value_str`: `items = [IrAlternation(...)]`; emitters dispatch on `isi
 
 ## Flavour system (`grammars/flavour.py`)
 
-Every grammar flavour subclasses `Flavour` and declares class attributes only — no imperative code:
+An `IrFlavour` IS-AN `IrEmitter` — its `actions` tuple holds the per-IR-type rendering rules, and `apply(root)` walks an IR tree to a string. Each flavour module exposes the class as **private** (`_GbnfFlavour`) and the constructed singleton as **public** (`GBNF_FLAVOUR`).
 
 ```python
-class MyFlavour(Flavour):
-    name = "myflavour"
-    extensions = (".mf",)
-    meta_grammar = "..."          # Lark grammar with canonical ir_* tag names
-    escapes = MyEscapeCodec       # EscapeCodec subclass
-    emitter = MyEmitter           # FlavourEmitter subclass (class ref, not instance)
-    line_comment = "#"            # empty string disables @directive parsing
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class _MyFlavour(IrFlavour):
+    actions: tuple[IrAction, ...] = MY_ACTIONS   # class-level default
+
+    name: ClassVar[str] = "myflavour"
+    extensions: ClassVar[tuple[str, ...]] = (".mf",)
+    meta_grammar: ClassVar[str] = META_GRAMMAR
+    escapes: ClassVar[EscapeCodec] = MY_ESCAPES   # instance, not class
+    line_comment: ClassVar[str] = "#"             # empty disables @directive parsing
 
     @staticmethod
-    def parse_quantifier(text: str) -> Quantifier: ...
-
+    def parse_quantifier(text: str) -> IrQuantifier: ...
     @staticmethod
-    def parse_charclass(text: str) -> tuple[str, bool]: ...  # (pattern, negated)
-
+    def parse_charclass(text: str) -> tuple[str, bool]: ...   # (pattern, negated)
     @classmethod
     def normalize_literal(cls, decoded: str) -> IrLiteral | IrGroup: ...  # optional
+
+MY_FLAVOUR = _MyFlavour()
 ```
 
-`MetaGrammarParser.for_flavour(MyFlavour)` builds the Lark parser and transformer from the meta-grammar; `parse(text)` returns `IrAst`. The flavour only controls token values; the tree-walking is generic.
+`MY_ACTIONS` is a `tuple[IrAction, ...]` mapping each IR-AST node type (`IrLiteral`, `IrCharClass`, `IrNot`, `IrRuleRef`, `IrGroup`, `IrQuantifier`, `IrItem`, `IrSequence`, `IrAlternation`, `IrRule`, `IrAst`) to a callable IR body — pure algebra (`IrConcat`, `IrJoin`, `IrField`, `IrChild`, `IrChildren`) wherever possible, with `IrCallable(handler)` as the procedural escape hatch when needed.
+
+`MetaGrammarParser.for_flavour(flavour)` builds the Lark parser and transformer from the meta-grammar; `parse(text)` returns `IrAst`. The flavour only controls token values; tree-walking is generic.
 
 ## Field naming (`ir/naming.py`)
 
@@ -237,7 +264,7 @@ Unquantified `IrLiteral` (quantifier `(1,1)`) → no field, never reaches Tier 3
 Every generated class carries `__grammar__: ClassVar[RuleSpec]`.
 
 - `to_text()` — emits unquantified `IrLiteral` values directly; looks up other fields via `field_map`; recurses into nested models.
-- `to_gbnf()` — delegates to `GbnfEmitter`.
+- `to_grammar(flavour="gbnf")` — looks up the flavour singleton and calls `flavour.apply(self.__grammar__.to_ir_rule())`.
 - `semantic_dump()` — `model_dump()` minus `non_semantic_fields` (e.g. whitespace refs).
 
 ## Directives (`ir/directives.py`)
@@ -280,18 +307,20 @@ From `prototyping/next/1_NORTH_STAR.md`:
 - No grammar-specific hardcoding in generic code.
 - `grammars/gbnf/ast.py` and `grammars/gbnf/parser.py` are stable; do not modify them.
 - Generated files in `generated/` are write-once — fix template issues in `model_emitter.py`.
-- The two deliberate runtime→codegen import edges (`base.py` → `lexic.grammars.gbnf.emitter`; `compile.py` → `lexic.codegen` and `lexic.parsing.lark_builder`) are the only ones permitted.
+- The two deliberate runtime→codegen import edges (`base.py` → `lexic.grammars` for the flavour singleton; `compile.py` → `lexic.codegen` and `lexic.parsing.lark_builder`) are the only ones permitted.
 
 ## Import paths
 
 ```python
-from lexic.ir.nodes import IrItem, IrAst, Quantifier, IrLiteral, IrCharClass, IrRuleRef, IrGroup
+from lexic.ir.nodes import IrItem, IrAst, IrQuantifier, IrLiteral, IrCharClass, IrRuleRef, IrGroup
+from lexic.ir.action import IrAction, IrCallable, IrChild, IrChildren, IrConcat, IrJoin, IrField
+from lexic.ir.walk import IrDispatch, IrVisitor, IrTransformer, IrEmitter
 from lexic.ir.spec import RuleSpec
 from lexic.ir.derive import derive_specs
 from lexic.base import GrammarModel
 from lexic.compile import compile_grammar, compile_text, compile_from_path
-from lexic.grammars.flavour import Flavour
-from lexic.grammars import get_flavour, flavour_for_extension
+from lexic.grammars.flavour import IrFlavour
+from lexic.grammars import get_flavour, flavour_for_extension, GBNF_FLAVOUR, ABNF_FLAVOUR
 ```
 
 Never `from src.lexic...`. `pyproject.toml` sets `pythonpath = ["src"]`.

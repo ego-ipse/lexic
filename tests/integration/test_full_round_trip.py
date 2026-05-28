@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_from_path, compile_grammar
-from lexic.grammars.gbnf.flavour import GbnfFlavour
+from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
 from lexic.parsing.meta_parser import MetaGrammarParser
 from tests.paths import GROUND_TRUTH
 
@@ -57,7 +57,7 @@ def test_compile_grammar_succeeds_on_ground_truth(fixture: str) -> None:
     """compile_grammar returns sane specs for every ground-truth fixture."""
     text = (GROUND_TRUTH / fixture).read_text(encoding="utf-8")
     # Directives (@non-semantic ws) are read from the file automatically.
-    start, specs = compile_grammar(text, GbnfFlavour)
+    start, specs = compile_grammar(text, GBNF_FLAVOUR)
 
     assert start == "root", f"{fixture}: expected start='root', got {start!r}"
     assert len(specs) > 0, f"{fixture}: compile_grammar returned no specs"
@@ -104,7 +104,7 @@ def test_compile_grammar_succeeds_on_ground_truth(fixture: str) -> None:
 def test_meta_grammar_parser_round_trip_idempotent(fixture: str) -> None:
     """Parse → IrAst → parse again of the *original text* yields equal IrAst objects."""
     text = (GROUND_TRUTH / fixture).read_text(encoding="utf-8")
-    parser = MetaGrammarParser.for_flavour(GbnfFlavour)
+    parser = MetaGrammarParser.for_flavour(GBNF_FLAVOUR)
     ast1 = parser.parse(text)
     ast2 = parser.parse(text)
     assert ast1 == ast2, (

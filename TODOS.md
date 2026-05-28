@@ -53,3 +53,6 @@ Project-level deferred work. Each entry: what, why, depends-on, where.
 **Depends on / blocked by:** IR AST architecture slice complete.
 
 **Where to start:** `prototyping/next/2_ARCHITECTURE.md` §"Token reservation" describes the contract.
+
+# Note to self.
+# Remind me after slice B. Codegen will bee refactored to use ast to generate code dynamically.
