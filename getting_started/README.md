@@ -5,11 +5,11 @@ self-contained — `uv run python getting_started/<file>.py`.
 
 | Script | What it shows |
 |---|---|
-| [`ex01_hello_grammar.py`](01_hello_grammar.py) | Inline GBNF → `compile_text` → parse → round-trip. The core invariant. |
-| [`02_compile_from_file.py`](02_compile_from_file.py) | `compile_from_path` on a bundled ground-truth `.gbnf` (`list.gbnf`). |
-| [`03_parse_json.py`](03_parse_json.py) | Parsing nested JSON via `json_ws.gbnf`; `to_text()` and `semantic_dump()`. |
-| [`04_transpile_flavours.py`](04_transpile_flavours.py) | GBNF → IR AST → ABNF via `MetaGrammarParser` + flavour singleton. |
-| [`05_inspect_ir.py`](05_inspect_ir.py) | Walking `model.__grammar__` (`RuleSpec`) + emitting via either flavour. |
+| [`ex01_hello_grammar.py`](ex01_hello_grammar.py) | Inline GBNF → `compile_text` → parse → round-trip. The core invariant. |
+| [`ex02_compile_from_file.py`](ex02_compile_from_file.py) | `compile_from_path` on a bundled ground-truth `.gbnf` (`list.gbnf`). |
+| [`ex03_parse_json.py`](ex03_parse_json.py) | Parsing nested JSON via `json_ws.gbnf`; `to_text()` and `semantic_dump()`. |
+| [`ex04_transpile_flavours.py`](ex04_transpile_flavours.py) | GBNF → IR AST → ABNF via `MetaGrammarParser` + flavour singleton. |
+| [`ex05_inspect_ir.py`](ex05_inspect_ir.py) | Walking `model.__grammar__` (`RuleSpec`) + emitting via either flavour. |
 
 ## What you'll learn
 
