@@ -41,7 +41,6 @@ from lexic.ir.nodes import (
     IrSequence,
     IrStr,
 )
-from lexic.utils.quantifiers import quantifier_to_bounds
 
 META_GRAMMAR = r"""
 start: rule+
@@ -176,9 +175,20 @@ class _GbnfFlavour(IrFlavour):
 
     @staticmethod
     def parse_quantifier(text: str) -> IrQuantifier:
-        """GBNF quantifier parser."""
-        lo, hi = quantifier_to_bounds(text)
-        return IrQuantifier(min=lo, max=hi)
+        """GBNF quantifier parser.
+
+        Forms: ``""``, ``?``, ``*``, ``+``, ``{N}``, ``{N,}``, ``{N,M}``.
+        """
+        symbol_to_bounds = {sym: bounds for bounds, sym in GBNF_QUANT_SYMBOLS.items()}
+        bounds = symbol_to_bounds.get(text or "")
+        if bounds is not None:
+            return IrQuantifier(*bounds)
+        inner = text[1:-1]
+        if "," in inner:
+            lo_str, hi_str = inner.split(",", 1)
+            return IrQuantifier(int(lo_str), int(hi_str) if hi_str else None)
+        n = int(inner)
+        return IrQuantifier(n, n)
 
     @staticmethod
     def parse_charclass(text: str) -> tuple[str, bool]:

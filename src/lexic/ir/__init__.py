@@ -22,7 +22,6 @@ from lexic.ir.derive import (
 from lexic.ir.directives import Directives, parse_directives
 from lexic.ir.emit import render_specs
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
-from lexic.ir.helpers import HelperRuleRegistry
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -54,7 +53,6 @@ __all__ = [
     "Directives",
     "EscapeCodec",
     "render_specs",
-    "HelperRuleRegistry",
     "IrAction",
     "IrAlternation",
     "IrAst",
