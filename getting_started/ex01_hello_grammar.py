@@ -21,13 +21,13 @@ name ::= [A-Za-z]+
 
 
 def main() -> None:
+    """Compile, parse a sample, print the model, round-trip back to text."""
     compiled = compile_text(GRAMMAR, cache_key="hello")
 
     text = "Hello World!"
     model = compiled.parse(text)
     print("Parsed model:", model)
-    print("Salutation:  ", model.salutation)
-    print("Name:        ", model.name)
+    print("Fields:      ", model.model_dump())
     print()
     print("Round-trip:  ", repr(model.to_text()))
     assert model.to_text() == text, "round-trip must be lossless"

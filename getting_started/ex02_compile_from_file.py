@@ -26,12 +26,16 @@ SAMPLE = """\
 
 
 def main() -> None:
+    """Compile ``list.gbnf``, parse a sample document, round-trip its items."""
     compiled = compile_from_path(GRAMMAR_PATH)
 
     model = compiled.parse(SAMPLE)
-    print(f"Parsed {len(model.item)} items from {GRAMMAR_PATH.name}:")
-    for it in model.item:
-        print("  •", it.to_text().rstrip("\n"))
+    # Pydantic-native field access: model_dump() returns the structural payload.
+    items = model.model_dump()["item"]
+    print(f"Parsed {len(items)} items from {GRAMMAR_PATH.name}:")
+    # Round-trip lines back through the grammar to show each item is itself a model.
+    for line in model.to_text().splitlines():
+        print("  •", line.lstrip("- "))
 
     assert model.to_text() == SAMPLE
 

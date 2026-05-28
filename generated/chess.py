@@ -1,6 +1,7 @@
 """Generated module: chess. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
+
 from typing import Annotated, List, Optional, Union
 
 from pydantic import StringConstraints
@@ -12,9 +13,9 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrRuleRef,
     IrSequence,
-    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 

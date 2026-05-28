@@ -33,6 +33,7 @@ SAMPLE = (
 
 
 def main() -> None:
+    """Compile ``json_ws.gbnf``, parse nested JSON, show round-trip + semantic dump."""
     compiled = compile_from_path(GRAMMAR_PATH)
 
     model = compiled.parse(SAMPLE)

@@ -24,6 +24,7 @@ digit ::= [0-9]
 
 
 def main() -> None:
+    """Parse a GBNF grammar, emit it as ABNF, confirm the ABNF re-parses cleanly."""
     # GBNF source → IR AST.
     gbnf_ast = MetaGrammarParser(GBNF_FLAVOUR).parse(GBNF_SOURCE)
 
