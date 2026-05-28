@@ -32,7 +32,7 @@ class IrFlavour(IrEmitter, ABC):
     name: ClassVar[str]
     extensions: ClassVar[tuple[str, ...]]
     meta_grammar: ClassVar[str]
-    escapes: ClassVar[type[EscapeCodec]]
+    escapes: ClassVar[EscapeCodec]
     line_comment: ClassVar[str] = ""
     quantifier_symbols: ClassVar[dict[tuple[int, int | None], str]]
 

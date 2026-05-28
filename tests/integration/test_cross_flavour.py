@@ -8,8 +8,8 @@ grammars they describe are equivalent for the unambiguous (non-alpha) parts.
 from __future__ import annotations
 
 from lexic.compile import compile_grammar
-from lexic.grammars.abnf.flavour import AbnfFlavour
-from lexic.grammars.gbnf.flavour import GbnfFlavour
+from lexic.grammars.abnf.flavour import ABNF_FLAVOUR
+from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
 from lexic.ir.nodes import IrLiteral
 from lexic.parsing.meta_parser import MetaGrammarParser
 from tests.paths import GROUND_TRUTH
@@ -25,8 +25,8 @@ def test_arithmetic_grammars_have_same_rule_names():
     """
     gbnf_text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
     abnf_text = (GROUND_TRUTH / "arithmetic.abnf").read_text(encoding="utf-8")
-    gbnf_ast = MetaGrammarParser(GbnfFlavour).parse(gbnf_text)
-    abnf_ast = MetaGrammarParser(AbnfFlavour).parse(abnf_text)
+    gbnf_ast = MetaGrammarParser(GBNF_FLAVOUR).parse(gbnf_text)
+    abnf_ast = MetaGrammarParser(ABNF_FLAVOUR).parse(abnf_text)
 
     gbnf_rules = {r.name.lower() for r in gbnf_ast.rules}
     abnf_rules = {r.name.lower() for r in abnf_ast.rules}
@@ -40,7 +40,7 @@ def test_abnf_op_rule_expands_literals_into_groups():
     """The ABNF "+", "-", "*", "/" each become IrGroup (case-insens-expanded)
     or IrLiteral (no alpha chars). Verify shape."""
     abnf_text = (GROUND_TRUTH / "arithmetic.abnf").read_text(encoding="utf-8")
-    ast = MetaGrammarParser(AbnfFlavour).parse(abnf_text)
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse(abnf_text)
     op = next(r for r in ast.rules if r.name == "op")
     # All four arms are non-alpha literals, so they stay IrLiteral.
 
@@ -54,10 +54,10 @@ def test_compile_grammar_works_for_both_flavours_on_arithmetic():
     gbnf_text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
     abnf_text = (GROUND_TRUTH / "arithmetic.abnf").read_text(encoding="utf-8")
     gbnf_start, gbnf_specs = compile_grammar(
-        gbnf_text, GbnfFlavour, non_semantic_rules=frozenset({"ws"})
+        gbnf_text, GBNF_FLAVOUR, non_semantic_rules=frozenset({"ws"})
     )
     abnf_start, abnf_specs = compile_grammar(
-        abnf_text, AbnfFlavour, non_semantic_rules=frozenset({"WSP"})
+        abnf_text, ABNF_FLAVOUR, non_semantic_rules=frozenset({"WSP"})
     )
     assert gbnf_start == "root"
     assert abnf_start == "root"
@@ -76,13 +76,13 @@ def test_gbnf_to_abnf_to_gbnf_round_trip_via_iast():
     # Hand-craft a small GBNF grammar with no alpha literals (avoids ABNF case
     # expansion noise). Uses charclass + non-alpha literals only.
     gbnf_text = 'root  ::= digit ("+" digit)*\ndigit ::= [0-9]\n'
-    parser_g = MetaGrammarParser.for_flavour(GbnfFlavour)
+    parser_g = MetaGrammarParser.for_flavour(GBNF_FLAVOUR)
     ast_g = parser_g.parse(gbnf_text)
 
-    # Emit as ABNF via AbnfEmitter (consumes IrAst directly per spec §FlavourEmitter).
-    abnf_text = AbnfFlavour.emitter(escapes=AbnfFlavour.escapes).emit_ast(ast_g)
+    # Emit as ABNF via the ABNF singleton flavour (consumes IrAst directly).
+    abnf_text = str(ABNF_FLAVOUR.apply(ast_g))
     # Parse the emitted ABNF back to IrAst.
-    parser_a = MetaGrammarParser.for_flavour(AbnfFlavour)
+    parser_a = MetaGrammarParser.for_flavour(ABNF_FLAVOUR)
     ast_a = parser_a.parse(abnf_text)
 
     # Structural equivalence: same rule names, same body shapes (no IrLiteral

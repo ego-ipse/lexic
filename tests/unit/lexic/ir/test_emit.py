@@ -1,11 +1,15 @@
 """Tests for ir/emit.py — render_specs."""
 
+from typing import Literal
+
 from lexic.ir.emit import render_specs
 from lexic.ir.nodes import IrItem, IrLiteral
 from lexic.ir.spec import RuleSpec
 
 
-def _spec(name: str, kind: str = "value_str") -> RuleSpec:
+def _spec(
+    name: str, kind: Literal["sequence", "alternation", "value_str"] = "value_str"
+) -> RuleSpec:
     return RuleSpec(
         rule_name=name,
         class_name=name.title(),

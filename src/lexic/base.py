@@ -60,9 +60,7 @@ class GrammarModel(BaseModel):
 
     def to_grammar(self, flavour: str = "gbnf") -> str:
         """Emit grammar text for this model instance."""
-        flavour_cls = get_flavour(flavour)
-        emitter = flavour_cls.emitter(escapes=flavour_cls.escapes)
-        return emitter.emit([self.__grammar__]).rstrip("\n")
+        return str(get_flavour(flavour).apply(self.__grammar__.to_ir_rule()))
 
     def semantic_dump(self) -> dict[str, Any]:
         """Dump only semantic fields."""

@@ -6,14 +6,14 @@ import random
 
 from lexic.compile import compile_grammar
 from lexic.generate import generate
-from lexic.grammars.gbnf.flavour import GbnfFlavour
+from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
 from lexic.parse import parse
 from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 
 def _specs(grammar: str) -> dict:
     text = (GRAMMAR_DIR / f"{grammar}.gbnf").read_text()
-    _, specs_list = compile_grammar(text, GbnfFlavour)
+    _, specs_list = compile_grammar(text, GBNF_FLAVOUR)
     return {s.rule_name: s for s in specs_list}
 
 

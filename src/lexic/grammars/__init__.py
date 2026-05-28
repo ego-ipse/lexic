@@ -5,20 +5,20 @@ from __future__ import annotations
 from pathlib import Path
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.abnf.flavour import AbnfFlavour
+from lexic.grammars.abnf.flavour import ABNF_FLAVOUR
 from lexic.grammars.flavour import IrFlavour
-from lexic.grammars.gbnf.flavour import GbnfFlavour
+from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
 
-_FLAVOURS: dict[str, type[IrFlavour]] = {}
-
-
-def register_flavour(flavour_cls: type[IrFlavour]) -> None:
-    """Register a flavour."""
-    _FLAVOURS[flavour_cls.name] = flavour_cls
+_FLAVOURS: dict[str, IrFlavour] = {}
 
 
-def get_flavour(name: str) -> type[IrFlavour]:
-    """Get a flavour by name."""
+def register_flavour(flavour: IrFlavour) -> None:
+    """Register a flavour singleton."""
+    _FLAVOURS[type(flavour).name] = flavour
+
+
+def get_flavour(name: str) -> IrFlavour:
+    """Get a flavour singleton by name."""
     try:
         return _FLAVOURS[name]
     except KeyError:
@@ -27,20 +27,27 @@ def get_flavour(name: str) -> type[IrFlavour]:
         ) from None
 
 
-def flavour_for_extension(path: str | Path) -> type[IrFlavour]:
-    """Get a flavour by extension."""
+def flavour_for_extension(path: str | Path) -> IrFlavour:
+    """Get a flavour singleton by extension."""
     suffix = Path(path).suffix
-    for fc in _FLAVOURS.values():
-        if suffix in fc.extensions:
-            return fc
-    known = sorted({ext for fc in _FLAVOURS.values() for ext in fc.extensions})
+    for fl in _FLAVOURS.values():
+        if suffix in type(fl).extensions:
+            return fl
+    known = sorted({ext for fl in _FLAVOURS.values() for ext in type(fl).extensions})
     raise UnsupportedConstructError(
         f"No flavour for extension {suffix!r}. Supported: {known}"
     )
 
 
-register_flavour(GbnfFlavour)
-register_flavour(AbnfFlavour)
+register_flavour(GBNF_FLAVOUR)
+register_flavour(ABNF_FLAVOUR)
 
 
-__all__ = ["IrFlavour", "flavour_for_extension", "get_flavour", "register_flavour"]
+__all__ = [
+    "ABNF_FLAVOUR",
+    "GBNF_FLAVOUR",
+    "IrFlavour",
+    "flavour_for_extension",
+    "get_flavour",
+    "register_flavour",
+]

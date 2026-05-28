@@ -57,10 +57,10 @@ from lexic.ir.nodes import (
 
 # ── builder functions ─────────────────────────────────────────────────
 
-_IrBuilder: TypeAlias = Callable[[type[IrFlavour], list], object]
+_IrBuilder: TypeAlias = Callable[[IrFlavour, list], object]
 
 
-def _build_charclass(flavour: type[IrFlavour], children: list) -> IrAtom:
+def _build_charclass(flavour: IrFlavour, children: list) -> IrAtom:
     """Build an IrCharClass, wrapping in IrNot when the pattern is negated.
 
     :param flavour: The flavour providing ``parse_charclass``.
@@ -89,7 +89,7 @@ _IR_BUILDERS: dict[str, _IrBuilder] = {
 class _IrTagTransformer(Transformer):
     """Thin Lark Transformer — dispatches all ir_* tags via _IR_BUILDERS."""
 
-    def __init__(self, flavour: type[IrFlavour]) -> None:
+    def __init__(self, flavour: IrFlavour) -> None:
         super().__init__()
         self._flavour = flavour
 
@@ -119,16 +119,16 @@ class _IrTagTransformer(Transformer):
 class MetaGrammarParser:
     """Generic IR-AST parser. Stateless after construction."""
 
-    _PARSERS: ClassVar[dict[type[IrFlavour], MetaGrammarParser]] = {}
+    _PARSERS: ClassVar[dict[IrFlavour, MetaGrammarParser]] = {}
 
-    def __init__(self, flavour: type[IrFlavour]) -> None:
+    def __init__(self, flavour: IrFlavour) -> None:
         self._flavour = flavour
         self._lark = Lark(flavour.meta_grammar, parser="earley", ambiguity="resolve")
         self._transformer = _IrTagTransformer(flavour)
 
     @classmethod
-    def for_flavour(cls, flavour: type[IrFlavour]) -> MetaGrammarParser:
-        """Return a memoised MetaGrammarParser for the given IrFlavour class."""
+    def for_flavour(cls, flavour: IrFlavour) -> MetaGrammarParser:
+        """Return a memoised MetaGrammarParser for the given IrFlavour singleton."""
         if flavour not in cls._PARSERS:
             cls._PARSERS[flavour] = cls(flavour)
         return cls._PARSERS[flavour]

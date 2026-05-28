@@ -38,7 +38,6 @@ class _StubFlavour(IrFlavour):
     extensions = (".stub",)
     line_comment = "#"
     escapes = _StubEscapes()
-    emitter = None  # type: ignore[assignment]
     meta_grammar = r"""
 start: rule+
 rule: NAME "=" alternation     -> ir_rule
@@ -82,7 +81,7 @@ QUANTIFIER: /[?*+]/
 
 def _ast_first_rule(text: str) -> IrRule:
     """Return the first rule in an ast."""
-    ast = MetaGrammarParser(_StubFlavour).parse(text)
+    ast = MetaGrammarParser(_StubFlavour()).parse(text)
     return ast.rules[0]
 
 
@@ -91,7 +90,7 @@ def _ast_first_rule(text: str) -> IrRule:
 
 def test_parses_single_rule_with_literal():
     """Parse a single rule with a literal."""
-    ast = MetaGrammarParser(_StubFlavour).parse('foo = "hi"\n')
+    ast = MetaGrammarParser(_StubFlavour()).parse('foo = "hi"\n')
     assert isinstance(ast, IrAst)
     assert ast.rules[0].name == "foo"
     assert ast.rules[0].body == IrAlternation((IrSequence((IrItem(IrLiteral("hi")),)),))
@@ -156,7 +155,7 @@ def test_decodes_literal_escapes_via_flavour_codec():
 
 def test_start_rule_is_first_rule_in_source():
     """Parse a single rule with a literal."""
-    ast = MetaGrammarParser(_StubFlavour).parse('root = "x"\nfoo = "y"\n')
+    ast = MetaGrammarParser(_StubFlavour()).parse('root = "x"\nfoo = "y"\n')
     assert ast.start == "root"
 
 
@@ -178,7 +177,7 @@ class _CaseInsensitiveStub(_StubFlavour):
 def test_normalize_literal_override_expands_to_group():
     """A flavour can override normalize_literal to expand sugar to canonical IR."""
 
-    ast = MetaGrammarParser(_CaseInsensitiveStub).parse('r = "ab"\n')
+    ast = MetaGrammarParser(_CaseInsensitiveStub()).parse('r = "ab"\n')
     item = ast.rules[0].body.arms[0].items[0]
     assert isinstance(item.atom, IrGroup)
     inner_items = item.atom.body.arms[0].items

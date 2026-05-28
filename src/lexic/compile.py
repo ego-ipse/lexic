@@ -136,7 +136,7 @@ def compile_from_path(
 
 def compile_grammar(
     text: str,
-    flavour: type[IrFlavour],
+    flavour: IrFlavour,
     *,
     non_semantic_rules: frozenset[str] | None = None,
     start: str | None = None,

@@ -10,7 +10,7 @@ from lexic.compile import (
     compile_text,
     reset_cache_for_tests,
 )
-from lexic.grammars.gbnf.flavour import GbnfFlavour
+from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
 from lexic.ir.nodes import IrItem, IrRuleRef
 from tests.paths import GROUND_TRUTH
 
@@ -32,7 +32,7 @@ def test_simple_arithmetic_parses_and_round_trips():
         "op    ::= [-+*/]\n"
         "num   ::= [0-9]+\n"
     )
-    _, specs = compile_grammar(text, GbnfFlavour)
+    _, specs = compile_grammar(text, GBNF_FLAVOUR)
     by = {s.rule_name: s for s in specs}
     assert by["expr"].kind == "sequence"
     assert by["op"].kind == "value_str"
@@ -46,7 +46,7 @@ def test_simple_arithmetic_parses_and_round_trips():
 def test_non_semantic_ws_transparent_to_round_trip():
     """@non-semantic ws: ws is in IR but absent from to_text output."""
     text = '# @non-semantic ws\nroot ::= ws value ws\nvalue ::= "x"\nws ::= [ \\t]*\n'
-    _, specs = compile_grammar(text, GbnfFlavour)
+    _, specs = compile_grammar(text, GBNF_FLAVOUR)
     by = {s.rule_name: s for s in specs}
     root = by["root"]
     ws_item = next(
@@ -68,7 +68,7 @@ def test_non_semantic_ws_transparent_to_round_trip():
 def test_explicit_non_semantic_overrides_directive():
     """non_semantic_rules=frozenset() overrides @non-semantic directive — ws stays required."""
     text = '# @non-semantic ws\nroot ::= ws value\nvalue ::= "x"\nws ::= [ \\t]*\n'
-    _, specs = compile_grammar(text, GbnfFlavour, non_semantic_rules=frozenset())
+    _, specs = compile_grammar(text, GBNF_FLAVOUR, non_semantic_rules=frozenset())
     by = {s.rule_name: s for s in specs}
     root = by["root"]
     ws_item = next(
@@ -85,7 +85,7 @@ def test_explicit_non_semantic_overrides_directive():
 def test_alternation_produces_correct_subclass():
     """Alternation rule: concrete arm is the right subclass and parses correctly."""
     text = "root ::= term\nterm ::= num | ident\nnum ::= [0-9]+\nident ::= [a-z]+\n"
-    _, specs = compile_grammar(text, GbnfFlavour)
+    _, specs = compile_grammar(text, GBNF_FLAVOUR)
     by = {s.rule_name: s for s in specs}
     assert by["term"].kind == "alternation"
     assert by["num"].parent_class_name == "Term"
