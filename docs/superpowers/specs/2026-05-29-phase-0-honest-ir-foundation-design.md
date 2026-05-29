@@ -134,13 +134,22 @@ unboundedness** (no stored `None`):
   `arity == 1`, testable with the same `IrCompare` machinery — no special
   predicate, no boolean-`NOT`.
 
-### 0b.2 Compatibility facade
+### 0b.2 Forward migration — no compat facade
 
-Constructor accepts `(min:int, max:int|None)`, normalizing `max=None` → arity-1.
-Accessors `.min`→`IrInt`, `.max`→`IrInt | None` (`None` = open), `.arity`→`int`.
-Representation is honest (arity-encoded `IrInt`, no stored `None`); the facade is
-a view that keeps the ~20 construction sites and `derive._relax_item`'s
-`IrQuantifier(0, item.quantifier.max)` working with zero churn.
+No `max=None` survives anywhere; we move forward, not bridge backward.
+Unboundedness is **arity**: an open quantifier is constructed as a 1-arity
+interval, never `(n, None)`. Construction is arity-honest — the default
+`IrQuantifier()` stays `(1,1)`; a clean interval constructor builds a 1- or
+2-arity `IrTuple[IrInt]` (exact ergonomics settled in the plan; `IrInt` coercion
+of raw `int` args is normal `IrNode` behavior). Accessors do **not** reintroduce
+`None`: `.min`→`IrInt`, `.arity`→`int`; the upper bound is read arity-guarded
+(`max` is meaningful only when `arity == 2` — exactly where the canonical
+action's `IrField("max")` runs). Consumers migrate forward:
+- **`parse_quantifier`** (both flavours) constructs arity-1 for `*`/`+`/`{n,}`
+  instead of `(…, None)`.
+- **`derive._relax_item`** is rewritten arity-aware (rebuild `min`→0 preserving
+  the upper bound / arity), replacing `IrQuantifier(0, item.quantifier.max)`.
+- The ~20 construction sites move to the arity-honest form.
 
 ### 0b.3 The Cure
 
