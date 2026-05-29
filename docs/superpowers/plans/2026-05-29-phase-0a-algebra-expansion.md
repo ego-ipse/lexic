@@ -16,10 +16,10 @@
 
 - **Modify** `src/lexic/ir/nodes.py` — add `IrInt(IrType, int)` next to `IrStr`.
 - **Modify** `src/lexic/ir/action.py` — add `Cmp`, `IrCompare`, `IrAnd`; reshape `IrCond`; rework `IrField` (`out` field).
-- **Modify** `src/lexic/ir/__init__.py` — export `IrInt`, `IrCompare`, `IrAnd`, `Cmp`.
+- **Modify** `src/lexic/ir/__init__.py` — export `IrInt` (nodes import block), `IrCompare`/`IrAnd`/`Cmp` (action import block), all into `__all__`.
 - **Modify** `tests/unit/lexic/ir/test_nodes.py` — `IrInt` tests.
 - **Modify** `tests/unit/lexic/ir/test_action.py` — `IrField`/`IrCompare`/`IrAnd` tests; update `IrCond` tests.
-- **Modify** `CLAUDE.md` + **append** `.wiki/lexic/log.md` — canonical-op amendment.
+- **Modify** `CLAUDE.md` + **append** `.wiki/log.md` — canonical-op amendment.
 
 **Conventions (from CLAUDE.md):** always `uv run ...`; run `tools/auto_fix.sh` before hand-fixing lint; **never** add `Co-Authored-By` to commits; Sphinx-style docstrings (`:param:`/`:returns:`).
 
@@ -34,7 +34,7 @@
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `tests/unit/lexic/ir/test_nodes.py` (extend the existing import from `lexic.ir.nodes` to include `IrInt` and `IrNone`):
+Add to `tests/unit/lexic/ir/test_nodes.py` (extend the existing import from `lexic.ir.nodes` to include `IrInt`; `IrNone` is already imported):
 
 ```python
 def test_irint_holds_value_and_is_int():
@@ -73,7 +73,10 @@ class IrInt(IrType, int):
     ``IrSelf`` so the IR protocol applies. Unlike :class:`IrStr` (whose
     constant role is carried by :class:`IrLiteral`), ``IrInt`` doubles as its
     own int-constant action primitive: ``eval`` returns the value, making it a
-    valid self-evaluating operand for ``IrCompare``.
+    valid self-evaluating operand for ``IrCompare``. The ``eval`` override is
+    **required** (not cosmetic): ``IrSelf.__init_subclass__`` resolves ``_bound``
+    to ``IrSelf``, so the inherited ``IrType.eval`` neutral-element path is
+    unusable here. The ``_bound`` line below mirrors ``IrStr`` for symmetry.
     """
 
     _bound: ClassVar[type[int]] = int
@@ -96,7 +99,7 @@ Expected: PASS (4 tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-uv run ruff check src/lexic/ir/nodes.py src/lexic/ir/__init__.py
+tools/auto_fix.sh
 git add src/lexic/ir/nodes.py src/lexic/ir/__init__.py tests/unit/lexic/ir/test_nodes.py
 git commit -m "ir/nodes: add IrInt typed value"
 ```
@@ -111,7 +114,7 @@ git commit -m "ir/nodes: add IrInt typed value"
 
 - [ ] **Step 1: Write the failing test**
 
-In `tests/unit/lexic/ir/test_action.py`, extend imports to include `IrInt` and `IrQuantifier` (from `lexic.ir.nodes`), then add under the `# ── IrField ──` section:
+In `tests/unit/lexic/ir/test_action.py`, extend imports to include `IrInt` (from `lexic.ir.nodes`; `IrQuantifier` is already imported), then add under the `# ── IrField ──` section:
 
 ```python
 def test_irfield_out_irint_reads_int_without_stringifying():
@@ -137,10 +140,9 @@ class IrField(IrLeaf):
 
     The read value is wrapped in ``out`` (an :class:`IrType` subclass,
     default :class:`IrStr`). Pass ``out=IrInt`` to read integer attributes
-    (e.g. quantifier bounds) without stringifying them.
-
-    :ivar name: Attribute name to read from ``n``.
-    :ivar out: IrType subclass the value is wrapped in.
+    (e.g. quantifier bounds) without stringifying them. The subscript form
+    ``IrField[IrInt]`` is **not** used — pass ``out`` positionally
+    (``IrField("min", IrInt)``).
     """
 
     name: str
@@ -165,7 +167,7 @@ Expected: PASS — `test_irfield_reads_string_attribute`, `test_irfield_reads_ch
 - [ ] **Step 5: Commit**
 
 ```bash
-uv run ruff check src/lexic/ir/action.py
+tools/auto_fix.sh
 git add src/lexic/ir/action.py tests/unit/lexic/ir/test_action.py
 git commit -m "ir/action: IrField gains explicit out type (reads IrInt)"
 ```
@@ -201,6 +203,7 @@ def test_ircompare_lt_and_gt():
     assert IrCompare(IrInt(1), Cmp.LT, IrInt(2)).eval(IrNone, IrNone, ()) == 1
     assert IrCompare(IrInt(2), Cmp.GT, IrInt(1)).eval(IrNone, IrNone, ()) == 1
     assert IrCompare(IrInt(2), Cmp.LT, IrInt(1)).eval(IrNone, IrNone, ()) == 0
+    assert IrCompare(IrInt(1), Cmp.GT, IrInt(2)).eval(IrNone, IrNone, ()) == 0
 
 
 def test_ircompare_reads_field_operand():
@@ -243,11 +246,8 @@ class IrCompare(IrComposite[IrInt]):
 
     Operands are evaluated via ``.eval`` and compared with native builtins
     (``IrInt`` IS-A ``int``). A truth value is an ``IrInt`` in the domain
-    ``IrQuantifier(0, 1)`` — there is no ``IrBool``.
-
-    :ivar left: Left operand node.
-    :ivar op: Comparison operator.
-    :ivar right: Right operand node.
+    ``IrQuantifier(0, 1)`` — there is no ``IrBool``. ``left``/``right`` are
+    operand nodes; ``op`` is the comparison.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("left", "right")
@@ -265,7 +265,7 @@ class IrCompare(IrComposite[IrInt]):
         return IrInt(1) if _CMP_OPS[self.op](left_val, right_val) else IrInt(0)
 ```
 
-Export `IrCompare` and `Cmp` from `src/lexic/ir/__init__.py` (import + `__all__`).
+Export `IrCompare` and `Cmp` — add them to the `from lexic.ir.action import (...)` block in `src/lexic/ir/__init__.py` and to `__all__`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -275,7 +275,7 @@ Expected: PASS (4 tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-uv run ruff check src/lexic/ir/action.py src/lexic/ir/__init__.py
+tools/auto_fix.sh
 git add src/lexic/ir/action.py src/lexic/ir/__init__.py tests/unit/lexic/ir/test_action.py
 git commit -m "ir/action: add Cmp enum and IrCompare predicate"
 ```
@@ -291,7 +291,7 @@ git commit -m "ir/action: add Cmp enum and IrCompare predicate"
 
 - [ ] **Step 1: Write the failing tests**
 
-Extend `test_action.py` imports to include `IrAnd`, then add:
+Extend `test_action.py` imports to include `IrAnd` (`IrCallable` is already imported), then add:
 
 ```python
 # ── IrAnd ─────────────────────────────────────────────────────────────
@@ -319,6 +319,19 @@ def test_irand_one_false_short_circuits():
 
 def test_irand_empty_is_vacuously_true():
     assert IrAnd(()).eval(IrNone, IrNone, ()) == 1
+
+
+def test_irand_short_circuits_on_first_false():
+    # Proves the second part is NOT evaluated once the first is false.
+    calls: list[int] = []
+
+    def _record(_d, _n, _nc):
+        calls.append(1)
+        return IrInt(1)
+
+    a = IrAnd((IrCompare(IrInt(1), Cmp.EQ, IrInt(0)), IrCallable(_record)))
+    assert a.eval(IrNone, IrNone, ()) == 0
+    assert calls == []
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -335,13 +348,11 @@ After `IrCompare` in `src/lexic/ir/action.py`, add:
 class IrAnd(IrCollection[IrInt]):
     """Short-circuit conjunction; eval to ``IrInt(1)`` iff every part is truthy.
 
-    Empty ``parts`` is vacuously true.
-
-    :ivar parts: Operand predicate nodes.
+    Empty ``parts`` is vacuously true. ``parts`` are the operand predicate nodes.
     """
 
     _items_attr: ClassVar[str] = "parts"
-    parts: IrTuple = IrTuple()
+    parts: IrTuple[IrNode] = IrTuple()
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """AND the truthiness of each evaluated part, short-circuiting.
@@ -354,7 +365,7 @@ class IrAnd(IrCollection[IrInt]):
         return IrInt(1)
 ```
 
-Export `IrAnd` from `src/lexic/ir/__init__.py` (import + `__all__`).
+Export `IrAnd` — add it to the `from lexic.ir.action import (...)` block in `src/lexic/ir/__init__.py` and to `__all__`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -364,7 +375,7 @@ Expected: PASS (3 tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-uv run ruff check src/lexic/ir/action.py src/lexic/ir/__init__.py
+tools/auto_fix.sh
 git add src/lexic/ir/action.py src/lexic/ir/__init__.py tests/unit/lexic/ir/test_action.py
 git commit -m "ir/action: add IrAnd conjunction"
 ```
@@ -418,10 +429,7 @@ class IrCond[Ir_co: IrSelf](IrComposite[Ir_co]):
 
     ``test`` is any IrNode whose ``eval`` yields a truthy/falsy value
     (e.g. :class:`IrCompare`, :class:`IrAnd`). Both branches share ``Ir_co``.
-
-    :ivar test: Predicate node evaluated for truthiness.
-    :ivar then_op: Branch taken when ``test`` is truthy.
-    :ivar else_op: Branch taken when ``test`` is falsy.
+    ``test`` is the predicate; ``then_op``/``else_op`` are the branches.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("test", "then_op", "else_op")
@@ -448,7 +456,7 @@ Expected: PASS — full suite green.
 - [ ] **Step 6: Commit**
 
 ```bash
-uv run ruff check src/lexic/ir/action.py
+tools/auto_fix.sh
 git add src/lexic/ir/action.py tests/unit/lexic/ir/test_action.py
 git commit -m "ir/action: generalize IrCond field:str -> test:IrNode"
 ```
@@ -459,7 +467,7 @@ git commit -m "ir/action: generalize IrCond field:str -> test:IrNode"
 
 **Files:**
 - Modify: `CLAUDE.md`
-- Append: `.wiki/lexic/log.md`
+- Append: `.wiki/log.md`
 
 - [ ] **Step 1: Update the `nodes.py` line in CLAUDE.md**
 
@@ -492,13 +500,14 @@ Replace the first two lines with:
 
 - [ ] **Step 3: Record the amendment in the wiki log**
 
-Append to `.wiki/lexic/log.md` (verify the path exists; it is the wiki change log per CLAUDE.md):
+Append to `.wiki/log.md` (verify the path exists; it is the wiki change log per CLAUDE.md):
 
 ```markdown
 - 2026-05-29 — Canonical-op amendment (Phase 0a). The frozen op list is corrected
   (`IrLiteral`, not `IrText`) and extended: added `IrInt`, `IrCompare`, `IrAnd`;
   `IrCond` reshaped (`field:str` → `test:IrNode`); `IrField` gains an `out` type
-  (default `IrStr`, e.g. `IrInt`). A truth value is `IrInt ∈ IrQuantifier(0,1)` —
+  (default `IrStr`, e.g. `IrInt`) — the subscript form `IrField[IrInt]` is retired,
+  pass `out` positionally. A truth value is `IrInt ∈ IrQuantifier(0,1)` —
   no `IrBool`. `IrRanged` (runtime bounded value) recorded as the deferred home
   for unified complement-negation and Slice-C constraint codegen. `IrCallable`
   remains the sanctioned escape hatch. See
@@ -509,7 +518,7 @@ Append to `.wiki/lexic/log.md` (verify the path exists; it is the wiki change lo
 
 ```bash
 uv run pytest tests/ -q
-git add CLAUDE.md .wiki/lexic/log.md
+git add CLAUDE.md .wiki/log.md
 git commit -m "docs: canonical-op amendment for Phase 0a algebra"
 ```
 
