@@ -24,11 +24,12 @@ transitional frontier node (below) with structured composites.
 
 ---
 
-## 1. What "backend" means (the three layers)
+## 1. What "backend" means (the three pipeline layers)
 
 The pipeline has three layers, and a Lark *input/output* flavour touches them
 very differently. Naming them removes the ambiguity in "without changing the
-backend."
+backend." (This is orthogonal to the *IR-internal* level model in §4 — that one
+is about how the IR stratifies; this one is about pipeline seams.)
 
 - **Layer 1 — execution backend.** `derive_specs` → `codegen` → `build_lark`
   (`parsing/lark_builder.py`) + the internal Lark parser and transformer. Turns
@@ -76,16 +77,22 @@ distinguished by *how* they fail:
    `lark_builder._regex_terminal` and immediately discarded.*
 2. **Template / parameterized rules** (`separated{x, sep}: ...`).
 3. **Grammar directives** (`%import`, `%ignore`, `%declare`, `%override`,
-   `%extend`). `%ignore` is Lark's primary whitespace mechanism; Lexic models
-   non-semantic content by a *different* mechanism (`@non-semantic` + `min=0`).
+   `%extend`).
 4. **Tree-shaping modifiers** (`?rule`, `_rule`/`_TERM`, `!rule`, `-> alias`,
    Lark's `[item]` maybe-placeholder semantics).
 5. **Priorities** (`TERMINAL.2:`, `rule.5:`).
 
 **Tier 1 — representable semantically, surface round-trip lossy.** Terminal-vs-
-rule kind (collapses to `IrRule`/`IrRuleRef`); `"a".."z"` string-range surface;
-`"foo"i` case-insensitive; `~n`/`~n..m` (cross-flavour lossy); `%ignore`-vs-
-`@non-semantic` whitespace model mismatch.
+rule kind (today collapses to `IrRule`/`IrRuleRef`); `"a".."z"` string-range
+surface; `"foo"i` case-insensitive; `~n`/`~n..m` (cross-flavour lossy).
+
+> **Correction (this revision).** The earlier draft listed "`%ignore` vs.
+> `@non-semantic` whitespace model mismatch" here as a *lossy translation*. That
+> was wrong by our own principle (§4). Non-semantic is **one Lexic-level
+> concept** with per-flavour *emissions*: `%ignore` is how Lark emits it,
+> `@non-semantic` is a Lexic shim parked in GBNF's comment space (not GBNF
+> itself). There is no surface-to-surface translation and no inherent loss — both
+> flavour parsers feed the one `IrNonSemantic`.
 
 **Tier 2 — representable, but emit is broken/partial (the denatured tax).**
 General bounds `{n,m}` (IR holds it; GBNF `_gbnf_quantifier` *raises* —
@@ -95,26 +102,27 @@ re-derivation from the blob on every emit.
 
 ---
 
-## 3. The keystone principle — one compositional algebra
+## 3. Keystone principle — one compositional algebra
 
 **A regex and a grammar rule are the same algebra at different levels.**
 `/[0-9]+\.[0-9]+/` is structurally `sequence(charclass+, ".", charclass+)` —
 identical shape to an `IrRule` body. The terminal/rule distinction Lark draws is
-a **kind marker**, not a structural difference. So the existing IR skeleton
-already covers the *context-free core* of regex. Regex adds only a small closed
-set beyond the grammar IR: any-char, shorthands, anchors, and the genuinely
-non-CFG features (lookaround, backreferences, non-greedy).
+intrinsic structure (a node *kind*, see §4), not a parsing accident. So the
+existing IR skeleton already covers the *context-free core* of regex. Regex adds
+only a small closed set beyond the grammar IR: any-char, anchors, and the
+genuinely non-CFG features (lookaround, backreferences, non-greedy).
 
 This yields a single design, not a fork:
 
 - **One open algebra.** Trivial atoms (`IrLiteral`, `IrCharClass`, `IrAnyChar`,
-  `IrShorthand`, `IrAnchor`, `IrRuleRef`) plus irreducible leaves (`IrBackref`
-  references a capture — a leaf, still a trivial atom).
-- **Complex constructs are composites over that algebra.**
-  `IrLookahead(body: IrSequence)`, greed (lazy/possessive) as *data on*
-  `IrQuantifier`, groups, negation — all built from trivial nodes. "Fully
-  structured" is "the algebra with more composite types defined," **not** a
-  different representation.
+  `IrAnchor`, `IrRuleRef`) plus irreducible leaves (`IrBackref` references a
+  capture — a leaf, still a trivial atom). *Note `\d`/`\w`/`\s` are **not** a
+  separate atom — they are `IrCharClass` NamedSet members; `"a".."z"` is a Range
+  member. `IrShorthand` is struck.*
+- **Complex constructs are composites over that algebra.** `IrLookaround(body:
+  IrSequence)`, greed as a quantifier variant, groups, negation — all built from
+  trivial nodes. "Fully structured" is "the algebra with more composite types
+  defined," **not** a different representation.
 - **`IrRawRegex` is the typed frontier, not a rival philosophy.** It holds
   exactly the constructs for which a structured composite has not been written
   *yet*. When every Lark construct has a node, the parser stops emitting it.
@@ -124,62 +132,142 @@ This yields a single design, not a fork:
   "full coverage now" and the lever for "iterate later."
 
 **Cross-flavour emit honesty falls out for free.** Emit is per-flavour open-table
-dispatch (the open-classes principle: policy on tables, intrinsic logic on
-nodes). The Lark table defines actions for `IrAnyChar`/`IrAnchor`/`IrLookahead`/
-`IrRawRegex`; the GBNF/ABNF tables do not, so they raise
-`UnsupportedConstructError` exactly as `_abnf_not` does today. Transpile works
-for the CFG-portable subset and refuses, loudly, beyond it. No generic code needs
-to know — cross-flavour lossiness is *correct* when the target formalism is
+dispatch (policy on tables, intrinsic logic on nodes). The Lark table defines
+actions for `IrAnyChar`/`IrAnchor`/`IrLookaround`/`IrRawRegex`; the GBNF/ABNF
+tables do not, so they raise `UnsupportedConstructError` exactly as `_abnf_not`
+does today (or render a deliberately lossy form where one is defined). Transpile
+works for the CFG-portable subset and refuses, loudly, beyond it. No generic code
+needs to know — cross-flavour lossiness is *correct* when the target formalism is
 weaker.
 
 ---
 
-## 4. Phase decomposition
+## 4. The IR-internal model — levels of `IrSelf` related by dispatch
+
+Everything in the IR is, in the end, an `IrSelf`. The IR is therefore not "nodes
++ fields + sidecar metadata"; it is **`IrSelf` stratified into levels, where a
+higher level *dispatches on* the level below.** This is not a new mechanism — a
+**flavour is already an `IrEmitter`**, i.e. a higher-level `IrSelf` (an
+`IrDispatch`) that dispatches on the grammar to produce text. Three levels:
+
+### 4.1 Grammar level — the language itself (intrinsics are *types/structure*)
+
+A flavour-neutral distinction that changes the accepted language or its structure
+is a **type or structure**, never a property read off a field. (An enum field is
+a closed alternation smuggled in as data; the codebase dispatches on type instead
+— working notes §2.3.)
+
+- **Productions:** `IrProduction` base → `IrRule` | `IrTerminal`. **`kind` is a
+  type distinction, not a property.**
+- **Skeleton:** `IrAst`, `IrAlternation`, `IrSequence`, `IrItem`.
+- **Quantifier:** `IrQuantifier` with **greed (greedy/lazy/possessive) as a
+  variant**, not a field.
+- **Composites:** `IrGroup`, `IrNot`.
+- **Atoms:** `IrLiteral` (**case-insensitivity dissolves to structure** — a set
+  of strings, à la ABNF's existing expansion; the surface `i` is emit-table
+  recognition, not a field or node), structured `IrCharClass`
+  (Char/Range/NamedSet + negation; absorbs `\d\w\s` and `"a".."z"`), `IrAnyChar`,
+  `IrAnchor`, `IrRuleRef`.
+- **Frontier:** `IrRawRegex` (transitional only).
+- **Deferred-structure (Phase 4):** `IrLookaround`, `IrBackref` (non-CFG).
+
+### 4.2 Lexic level — rules *about* the grammar (`IrDispatch`-derived)
+
+A distinction that does **not** change the accepted language — it changes how the
+grammar projects to a model, or how the parser disambiguates — is a **Lexic-level
+`IrSelf` that dispatches on the grammar level.** It is its own node, holding a
+dispatch edge down onto the grammar; it is *not* a property on a grammar node.
+
+- **`IrNonSemantic(IrDispatch)`** — the worked example. A dispatch over the
+  grammar that marks its named targets as structural. `@non-semantic`
+  (Lexic-shim emission into GBNF comment space) and Lark `%ignore` (native
+  emission) both **parse into the one `IrNonSemantic`**; each flavour's emit
+  table renders it back to its own surface (or raises/loses where it cannot).
+- **`inline`, `alias`, `priority`** follow the *same shape* — Lexic-level
+  `IrDispatch`-derived rules over the grammar, **not** node fields. (`alias` is
+  open-valued data carried by such a rule; `priority` likewise.)
+
+This retires the earlier "carrier properties" idea and the retracted "promote
+non-semantic to a property on `IrRule`."
+
+### 4.3 Emit level — flavours (`IrEmitter`, already `IrDispatch`)
+
+`GBNF_FLAVOUR`, `ABNF_FLAVOUR`, and the new `LARK_FLAVOUR` are `IrEmitter`s that
+dispatch on the grammar and Lexic levels to produce text. Already the shape in
+the codebase; the program adds a third table, it does not add a mechanism.
+
+---
+
+## 5. Destination IR inventory (the upper bound)
+
+The complete target vocabulary, so early phases build toward it rather than
+toward flavour-specific encodings that get rewritten later.
+
+| Level | Element | Notes |
+|---|---|---|
+| Grammar | `IrAst, IrAlternation, IrSequence, IrItem` | skeleton (exists) |
+| Grammar | `IrProduction → IrRule \| IrTerminal` | kind as **type** |
+| Grammar | `IrQuantifier` (+ greed variant) | honest bounds (Phase 0); greed (Phase 4) |
+| Grammar | `IrGroup`, `IrNot` | composites (exist) |
+| Grammar | `IrLiteral` | case-fold → structure, not a field |
+| Grammar | `IrCharClass` (Char/Range/NamedSet + neg) | absorbs `\d\w\s`, `"a".."z"` |
+| Grammar | `IrAnyChar`, `IrAnchor`, `IrRuleRef` | atoms |
+| Grammar | `IrRawRegex` | **transitional frontier** — empty at destination |
+| Grammar | `IrLookaround`, `IrBackref` | non-CFG; Phase 4 |
+| Lexic | `IrNonSemantic(IrDispatch)` | worked example |
+| Lexic | `inline`, `alias`, `priority` rules | same `IrDispatch` shape |
+| Module | `IrImport, IrDeclare, IrOverride, IrExtend, IrTemplate/IrTemplateRef` | `IrAst` children; Lark↔Lark |
+| Emit | `LARK_FLAVOUR` (`IrEmitter`) | third action table |
+
+`IrRawRegex` non-emptiness in a parsed Lark grammar *measures* remaining Phase-4
+work. `%ignore` is **not** a module node — it is Lark's *emission* of
+`IrNonSemantic` (§4.2).
+
+---
+
+## 6. Phase decomposition
 
 Each phase is its own spec. Ordering encodes hard dependencies.
 
 | Phase | Scope | Delivers | Depends on |
 |---|---|---|---|
-| **0 — Honest-IR foundation** | The working-notes §3 sequence: `IrInt`; generalize `IrCond` + add `IrCompare`; honest `IrQuantifier` (bounds, greed-ready); structured `IrCharClass` (composite of `Char`/`Range`/`NamedSet`). | Fixes Tier 2; unifies the three flavours' shared shapes; fixes the latent GBNF `{n,m}` bug. New atoms in later phases inherit a clean substrate, not the denatured tax. | **Canonical-nine amendment** (ledger #8). |
-| **1 — Regex/grammar unification** | Terminal/rule **kind**; trivial regex atoms (`IrAnyChar`, `IrShorthand`, `IrAnchor`); the `IrRawRegex` frontier node; a Lark flavour that parses regex bodies into the algebra and parks the undecomposed tail in the frontier; Lark `actions` table + meta-grammar + escapes. | **Full *syntactic* coverage of Lark terminals** — common cases structured, frontier catches the rest. The novel architectural piece. | Phase 0. |
-| **2 — Carrier metadata** | Priorities; tree-shaping (`?`, `_`, `!`, `-> alias`, `[maybe]`); case-insensitive flag — additive node fields **plus** their mapping into Lexic model generation (`_rule` ↔ non-semantic, `-> alias` ↔ field naming, `?rule` ↔ inlining). | Faithful tree-shape and Pydantic-model fidelity. | Phase 1. |
-| **3 — Module-level constructs** | `%import`, `%ignore`, `%declare`, `%override`, `%extend`, templates — nodes hanging off `IrAst`. Lark↔Lark; dropped/translated for GBNF/ABNF. | Full *grammar-file* coverage. | Phase 1 (templates may want Phase 2). |
-| **4 — Structure the frontier (iterate)** | Replace `IrRawRegex` occurrences with `IrLookahead`/`IrLookbehind`/`IrBackref`/greed-on-quantifier as cross-flavour or generation value justifies. | Deepening fidelity. Coverage is already complete after Phase 3. | Phases 1–3. |
+| **0 — Honest-IR foundation** | Working-notes §3 sequence: `IrInt`; generalize `IrCond` + add `IrCompare`; honest `IrQuantifier`; structured `IrCharClass`. **Plus the reference Lexic-level dispatch:** migrate `@non-semantic` from directive-frozenset to **`IrNonSemantic(IrDispatch)`** as the worked example of §4.2. | Fixes Tier 2; fixes latent GBNF `{n,m}` bug; establishes the Lexic-level dispatch pattern. | **Canonical-nine amendment** (ledger #8). |
+| **1 — Regex/grammar unification** | `IrProduction → IrRule \| IrTerminal` (kind as type); regex atoms `IrAnyChar`, `IrAnchor`; `IrRawRegex` frontier; case-fold → structure; `LARK_FLAVOUR` (meta-grammar, escapes, `IrEmitter` table) parsing regex bodies into the algebra, parking the tail in the frontier. | **Full *syntactic* coverage of Lark terminals.** The novel architectural piece. | Phase 0. |
+| **2 — Lexic-level rules** | `inline`, `alias`, `priority` as `IrDispatch` rules following the `IrNonSemantic` pattern; their per-flavour emission and their mapping into Lexic model generation (`_rule`/`?rule` ↔ non-semantic/inline, `-> alias` ↔ field naming). | Faithful tree-shape and Pydantic-model fidelity. | Phases 0–1. |
+| **3 — Module-level constructs** | `%import`, `%declare`, `%override`, `%extend`, templates — `IrAst` children. Lark↔Lark; dropped/translated for GBNF/ABNF. *(`%ignore` is **not** here — it ships with the Lark flavour in Phase 1 as the emission of `IrNonSemantic`.)* | Full *grammar-file* coverage. | Phase 1 (templates may want Phase 2). |
+| **4 — Structure the frontier (iterate)** | Replace `IrRawRegex` with `IrLookaround`/`IrBackref` and consume greed-variant quantifiers as cross-flavour or generation value justifies. | Deepening fidelity. Coverage already complete after Phase 3. | Phases 1–3. |
 
 ---
 
-## 5. Open sub-decisions (deferred to phase specs, recorded here)
+## 7. Open sub-decisions (deferred to phase specs)
 
-- **Terminal/rule: `IrTerminal` type vs. `kind` marker on a shared node.**
-  (Phase 1.) Leaning toward a kind marker to keep one rule-shaped node; revisit
-  if terminal-only fields (priority, regex-only atoms) make a distinct type
-  cleaner.
-- **Greed representation** — lazy/possessive as an enum field on `IrQuantifier`
-  vs. wrapper nodes. (Phase 0 readies the quantifier; Phase 4 may consume it.)
-- **`%ignore` ↔ `@non-semantic` mapping** — structural translation in both
-  directions, lossy. (Phase 3.)
+- **Greed encoding** — `IrQuantifier` *subtypes* vs. a typed variant member.
+  (Phase 0 readies the quantifier; Phase 4 consumes.)
 - **Templates: monomorphize (lose template structure) vs. dedicated
   `IrTemplate`/`IrTemplateRef` nodes (true round-trip).** Full coverage argues
   for nodes. (Phase 3.)
-- **`IrShorthand` vs. `IrCharClass`** — whether `\d`/`\w`/`\s` are their own atom
-  or a named char-class form. (Phase 1, informed by Phase 0's structured
-  charclass.)
+- **`%ignore` scope** — Lark `%ignore` is global; once it parses into
+  `IrNonSemantic`, decide whether global-vs-per-target scope needs carrying.
+  (Phase 1/3.)
 - **Parser class** — already Earley everywhere; record explicitly that no LALR
   commitment is implied. (Phase 1.)
 
+*(Settled this revision, no longer open: kind → types; greed → variant; case-fold
+→ structure; `IrShorthand` struck; non-semantic → `IrDispatch`, not a property.)*
+
 ---
 
-## 6. Invariants preserved
+## 8. Invariants preserved
 
 From `1_NORTH_STAR.md`, unchanged by this program:
 
 - **Grammar is canonical.** Every class keeps a lossless `to_grammar(flavour)`
   path *for flavours that can express its nodes*; cross-flavour emit raises
-  honestly when it cannot.
+  honestly (or renders a declared lossy form) when it cannot.
 - **Round-trip fidelity.** `parse(text, grammar).to_text() == text` on every
   valid input, per flavour.
-- **Arrows go one way.** No new runtime→codegen edges. The two sanctioned edges
-  are untouched.
+- **Arrows go one way.** No new runtime→codegen edges; the two sanctioned edges
+  are untouched. The `ir ← grammars` arrow is preserved (see §9).
 - **One way per task.** One parse function, one emit method per flavour, one
   round-trip method. The frontier node does not add an alternate API — it is one
   atom in the single algebra.
@@ -187,10 +275,16 @@ From `1_NORTH_STAR.md`, unchanged by this program:
 
 ---
 
-## 7. Explicitly out of scope for this umbrella
+## 9. Explicitly out of scope for this umbrella
 
-- Any code. This is a map; each phase is separately specced and separately
-  authorized.
+- Any code. This is a map; each phase is separately specced and authorized.
+- **`IrTokenConstr` / flavour-defined *structural* self-dispatching nodes**, and
+  the **protocol-only generic-seam** commitment they would require (`derive`,
+  `codegen`, `build_lark` touching such nodes purely via the `IrSelf`/`IrDispatch`
+  protocol so the `ir ← grammars` arrow is not inverted). Powerful, but a large
+  reversal of the current "policy on external tables" split. Demo placeholder at
+  most this pass; cross-flavour an unsupported flavour-local node **raises or is
+  defined lossily**, like any other unsupported node.
 - Re-opening deferred ledger items not on the phase critical path.
 - The longer-arc "meta-grammar-as-IR / self-describing flavour" vision (working
   notes §5) — further out than Phase 4; aspiration, not roadmap.
