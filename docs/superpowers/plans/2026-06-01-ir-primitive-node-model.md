@@ -20,6 +20,7 @@
 - Docstrings: Sphinx style (`:param:`/`:returns:`/`:raises:`).
 - Commits carry **no** `Co-Authored-By` line.
 - Test mirror rule: a source file's test lives at the mirrored path under `tests/unit/lexic/`; `__init__.py` modules use `test_init_<pkg>.py`.
+- **Preserve docstrings.** Porting/rewriting must carry over the original modules' comprehensive Sphinx docstrings (`:param:`/`:returns:`/`:raises:`) and write full docstrings for new constructs. The terse docstrings in this plan's illustrative code blocks are **not** a license to strip documentation — match (or exceed) the density of the file being rewritten.
 
 ### Test handling — port, never delete
 
@@ -100,9 +101,8 @@ def test_irself_identity_call_returns_self():
 def test_irnone_is_final_singleton_and_is_irself():
     assert IrNone is IrNoneType()           # public value IS the singleton instance
     assert isinstance(IrNone, (IrSelf, IrNoneType))
-    with pytest.raises(TypeError):
-        class Sub(IrNoneType):               # @final blocks subclassing
-            __slots__ = ()
+    # NOTE: @final is a STATIC-only guarantee (pyright flags subclassing); we do
+    # NOT assert a runtime TypeError on subclassing — there is no runtime guard.
 
 
 def test_iratom_is_non_generic_marker():

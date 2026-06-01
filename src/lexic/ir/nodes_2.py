@@ -18,7 +18,7 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import dataclass, fields, replace
 from typing import Any, ClassVar, Self, Sequence, TypeVar, cast, final
 
@@ -202,11 +202,12 @@ class IrNode[Ir_co: IrSelf = IrSelf](IrSelf[Ir_co], ABC):
     the identity ``__call__ -> X`` from ``IrSelf``. Value-producing nodes
     (where ``Ir_co != Self``) override ``__call__``.
 
-    **repr-is-codegen:** every concrete ``IrNode`` subclass implements
-    ``__repr__`` so that the returned string is a valid Python constructor call
-    that reconstructs an equal node. There is no separate ``__str__`` or
-    ``_str_name``/``_inner_str`` cascade — that was deliberately removed in the
-    G3 rewrite. Only ``__repr__`` exists.
+    **repr-is-codegen:** ``__repr__`` returns a valid Python constructor call
+    that reconstructs an equal node. ``IrNode`` supplies a zero-argument default
+    (``ClassName()``); field-bearing subclasses (``IrStr``/``IrTuple``/
+    ``IrComposite``) override it to render their payload/children/fields. There
+    is no separate ``__str__`` or ``_str_name``/``_inner_str`` cascade — that was
+    deliberately removed in the G3 rewrite. Only ``__repr__`` exists.
 
     Dispatch slots carry bare ``IrNode`` types; absence is represented by
     :data:`IrNone`, not ``None``, keeping the signature union-free.
@@ -216,12 +217,18 @@ class IrNode[Ir_co: IrSelf = IrSelf](IrSelf[Ir_co], ABC):
 
     __slots__ = ()
 
-    @abstractmethod
     def __repr__(self) -> str:
-        """Reproduce the constructor call (repr-is-codegen).
+        """Codegen default: a zero-argument constructor call ``ClassName()``.
+
+        Field-bearing nodes override this — ``IrStr`` leaves render their string
+        payload, ``IrTuple`` collections their elements, ``IrComposite`` records
+        their dataclass fields. Zero-field nodes (the default action bodies
+        ``IrPass``/``IrWalk``/``IrEmit``/``IrRebuild``) inherit this default,
+        which is already valid codegen for them.
 
         :returns: A valid Python expression that constructs an equal node.
         """
+        return f"{type(self).__name__}()"
 
 
 class IrLeaf[Ir_co: IrSelf](IrNode[Ir_co]):
