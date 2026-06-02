@@ -16,7 +16,9 @@ from lexic.ir.meta import Borg, Singleton
 def test_borg_dict_instances_are_distinct_objects():
     """Test that Borg returns separate objects rather than one cached instance."""
 
-    class C(metaclass=Borg):
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Dict-backed Borg fixture: distinct objects, shared state."""
+
         def __init__(self, value=None):
             self.value = value
 
@@ -26,7 +28,9 @@ def test_borg_dict_instances_are_distinct_objects():
 def test_borg_slots_instances_are_distinct_objects():
     """Test that distinct objects also hold for slotted Borg classes."""
 
-    class C(metaclass=Borg):
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: distinct objects, shared state."""
+
         __slots__ = ("value",)
 
         def __init__(self, value=None):
@@ -38,7 +42,9 @@ def test_borg_slots_instances_are_distinct_objects():
 def test_borg_dict_state_is_shared_live():
     """Test that mutating one dict-backed Borg instance is visible through another."""
 
-    class C(metaclass=Borg):
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Dict-backed Borg fixture for shared-state mutation test."""
+
         def __init__(self, value=None):
             self.value = value
 
@@ -50,7 +56,9 @@ def test_borg_dict_state_is_shared_live():
 def test_borg_slots_state_is_shared_live():
     """Test that mutating one slotted Borg instance is visible through another."""
 
-    class C(metaclass=Borg):
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture for shared-state mutation test."""
+
         __slots__ = ("value",)
 
         def __init__(self, value=None):
@@ -67,7 +75,9 @@ def test_borg_slots_state_is_shared_live():
 def test_borg_dict_newest_construction_overwrites_state():
     """Test that a later dict-backed construction overwrites the shared state."""
 
-    class C(metaclass=Borg):
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Dict-backed Borg fixture: newest-wins state overwrite."""
+
         def __init__(self, value=None):
             self.value = value
 
@@ -78,7 +88,9 @@ def test_borg_dict_newest_construction_overwrites_state():
 def test_borg_slots_newest_construction_overwrites_state():
     """Test that a later slotted construction overwrites the shared state."""
 
-    class C(metaclass=Borg):
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: newest-wins state overwrite."""
+
         __slots__ = ("value",)
 
         def __init__(self, value=None):
@@ -94,7 +106,9 @@ def test_borg_slots_newest_construction_overwrites_state():
 def test_borg_slots_are_rewritten_into_properties():
     """Test that first construction converts every slot into a shared-state property."""
 
-    class C(metaclass=Borg):
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: slot-to-property rewrite verification."""
+
         __slots__ = ("value",)
 
         def __init__(self, value=None):
@@ -107,7 +121,9 @@ def test_borg_slots_are_rewritten_into_properties():
 def test_borg_slots_proxies_unset_slots():
     """Test that slots unset on first construction are still proxied and shareable."""
 
-    class C(metaclass=Borg):
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: unset-slot proxy verification."""
+
         __slots__ = ("a", "b")
 
         def __init__(self, a="a"):
@@ -125,7 +141,9 @@ def test_borg_slots_proxies_unset_slots():
 def test_borg_slots_reject_unknown_attribute():
     """Test that assigning a non-slot attribute on a slotted Borg instance raises."""
 
-    class C(metaclass=Borg):
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: unknown-attribute rejection."""
+
         __slots__ = ("value",)
 
         def __init__(self, value=None):
@@ -139,7 +157,9 @@ def test_borg_slots_reject_unknown_attribute():
 def test_borg_dict_shares_dynamically_added_attribute():
     """Test that an attribute added after construction is shared in dict mode."""
 
-    class C(metaclass=Borg):
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Dict-backed Borg fixture: dynamic-attribute sharing."""
+
         def __init__(self, value=None):
             self.value = value
 
@@ -154,11 +174,15 @@ def test_borg_dict_shares_dynamically_added_attribute():
 def test_borg_state_is_isolated_per_class():
     """Test that two Borg classes keep independent shared state."""
 
-    class A(metaclass=Borg):
+    class A(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """First dict-backed Borg fixture for isolation test."""
+
         def __init__(self, value=None):
             self.value = value
 
-    class B(metaclass=Borg):
+    class B(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Second dict-backed Borg fixture for isolation test."""
+
         def __init__(self, value=None):
             self.value = value
 
@@ -172,13 +196,17 @@ def test_borg_reentrant_construction_does_not_deadlock():
     done: list[int] = []
 
     def build() -> None:
-        class Inner(metaclass=Borg):
+        class Inner(metaclass=Borg):  # pylint: disable=too-few-public-methods
+            """Slotted inner Borg fixture for reentrancy test."""
+
             __slots__ = ("v",)
 
             def __init__(self, v=1):
                 self.v = v
 
-        class Outer(metaclass=Borg):
+        class Outer(metaclass=Borg):  # pylint: disable=too-few-public-methods
+            """Slotted outer Borg fixture for reentrancy test."""
+
             __slots__ = ("inner",)
 
             def __init__(self):
@@ -197,7 +225,9 @@ def test_borg_class_is_collectable_when_unreferenced():
     """Test that the weak registry lets a dropped Borg class be garbage-collected."""
 
     def make() -> weakref.ReferenceType:
-        class Tmp(metaclass=Borg):
+        class Tmp(metaclass=Borg):  # pylint: disable=too-few-public-methods
+            """Slotted Borg fixture for garbage-collection test."""
+
             __slots__ = ("v",)
 
             def __init__(self, v=1):
@@ -217,7 +247,9 @@ def test_borg_class_is_collectable_when_unreferenced():
 def test_singleton_dict_returns_same_instance():
     """Test that a dict-backed Singleton returns one cached object for every call."""
 
-    class S(metaclass=Singleton):
+    class S(metaclass=Singleton):  # pylint: disable=too-few-public-methods
+        """Dict-backed Singleton fixture: same-instance verification."""
+
         def __init__(self, value=None):
             self.value = value
 
@@ -227,7 +259,9 @@ def test_singleton_dict_returns_same_instance():
 def test_singleton_slots_returns_same_instance():
     """Test that a slotted Singleton returns one cached object for every call."""
 
-    class S(metaclass=Singleton):
+    class S(metaclass=Singleton):  # pylint: disable=too-few-public-methods
+        """Slotted Singleton fixture: same-instance verification."""
+
         __slots__ = ("value",)
 
         def __init__(self, value=None):
@@ -239,7 +273,9 @@ def test_singleton_slots_returns_same_instance():
 def test_singleton_ignores_constructor_args_after_first():
     """Test that later Singleton calls reuse the first instance and ignore new args."""
 
-    class S(metaclass=Singleton):
+    class S(metaclass=Singleton):  # pylint: disable=too-few-public-methods
+        """Dict-backed Singleton fixture: constructor-args-ignored test."""
+
         def __init__(self, value=None):
             self.value = value
 
@@ -251,11 +287,15 @@ def test_singleton_ignores_constructor_args_after_first():
 def test_singleton_is_isolated_per_class():
     """Test that distinct Singleton classes cache independent instances."""
 
-    class A(metaclass=Singleton):
+    class A(metaclass=Singleton):  # pylint: disable=too-few-public-methods
+        """First Singleton fixture for class-isolation test."""
+
         def __init__(self):
             self.tag = "a"
 
-    class B(metaclass=Singleton):
+    class B(metaclass=Singleton):  # pylint: disable=too-few-public-methods
+        """Second Singleton fixture for class-isolation test."""
+
         def __init__(self):
             self.tag = "b"
 
@@ -269,13 +309,17 @@ def test_singleton_reentrant_construction_does_not_deadlock():
     done: list[int] = []
 
     def build() -> None:
-        class Inner(metaclass=Singleton):
+        class Inner(metaclass=Singleton):  # pylint: disable=too-few-public-methods
+            """Slotted inner Singleton fixture for reentrancy test."""
+
             __slots__ = ("v",)
 
             def __init__(self, v=1):
                 self.v = v
 
-        class Outer(metaclass=Singleton):
+        class Outer(metaclass=Singleton):  # pylint: disable=too-few-public-methods
+            """Slotted outer Singleton fixture for reentrancy test."""
+
             __slots__ = ("inner",)
 
             def __init__(self):

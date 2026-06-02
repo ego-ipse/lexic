@@ -69,7 +69,7 @@ class Borg[**P, T](type):
 class Singleton[**P, T](type):
     """One cached instance per class; works with ``__dict__`` or ``__slots__``."""
 
-    _instances: ClassVar[dict[type, Any]] = dict()
+    _instances: ClassVar[dict[type, Any]] = {}
     _lock: ClassVar[RLock] = RLock()
 
     def __call__(cls, *args: P.args, **kwargs: P.kwargs) -> T:

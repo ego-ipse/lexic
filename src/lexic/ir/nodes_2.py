@@ -126,6 +126,20 @@ class IrSelf[Ir_co: "IrSelf"]:
         if params and isinstance(params[0], TypeVar) and params[0].__bound__:
             cls._bound = params[0].__bound__
 
+    @classmethod
+    def bound_type(cls) -> type:
+        """Return the concrete type bound to ``Ir_co`` for this class.
+
+        Exposes the ``_bound`` ClassVar set by :meth:`__init_subclass__` or an
+        explicit declaration on the concrete subclass.  Use this for class-level
+        introspection (e.g. tests verifying derivation); use the :attr:`bound`
+        instance property when you have an instance.
+
+        :returns: The runtime class recorded as ``_bound`` on this class.
+        :raises AttributeError: If ``_bound`` was never resolved for this class.
+        """
+        return cls._bound
+
     @property
     def bound(self) -> type[Ir_co]:
         """Concrete type bound to ``Ir_co`` for this instance.

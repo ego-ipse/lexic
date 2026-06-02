@@ -46,7 +46,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action_2 import IrAction, IrCallable, IrRaise, IrRebuild, IrReturn
+from lexic.ir.action_2 import IrAction, IrCallable, IrEmit, IrRaise, IrRebuild, IrReturn
 from lexic.ir.nodes_2 import (
     IrAlternation,
     IrAst,
@@ -95,13 +95,11 @@ def test_irdispatch_is_composite():
     assert isinstance(d, IrComposite)
     assert d.actions == (a,)
     # actions is NOT in _child_attrs — dispatcher is not walked as a grammar node
-    assert d.children() == ()
+    assert not d.children()
 
 
 def test_dispatch_resolves_action():
     """IrDispatch resolves the registered action and applies it."""
-    from lexic.ir.action_2 import IrEmit
-
     d = IrDispatch(actions=(IrAction(IrLiteral, IrEmit()),))
     assert isinstance(d, IrComposite)
     assert d.apply(IrLiteral("x")) == "x"

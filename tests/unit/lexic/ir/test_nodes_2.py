@@ -395,10 +395,15 @@ def test_irgroup_call_inherits_identity_default():
 
 
 def test_irself_identity_call_returns_self():
+    """IrSelf.__call__ is identity: returns self regardless of d/n/nc args."""
+
     class L(IrLeaf):
+        """Minimal IrLeaf subclass for testing identity call."""
+
         __slots__ = ()
 
         def __repr__(self) -> str:
+            """Return a fixed repr string."""
             return "L()"
 
     leaf = L()
@@ -406,18 +411,21 @@ def test_irself_identity_call_returns_self():
 
 
 def test_irnone_is_final_singleton_and_is_irself():
+    """IrNone is a singleton: all constructions return the same instance."""
     assert IrNone is IrNoneType()  # public value IS the singleton instance
     assert isinstance(IrNone, (IrSelf, IrNoneType))
     # @final is a STATIC-only guarantee (pyright flags subclassing); no runtime raise.
 
 
 def test_iratom_is_non_generic_marker():
+    """IrAtom carries no type parameters of its own and is an IrNode subclass."""
     # IrAtom has no type parameters of its own
-    assert getattr(IrAtom, "__type_params__", ()) == ()
+    assert not getattr(IrAtom, "__type_params__", ())
     assert issubclass(IrAtom, IrNode)
 
 
 def test_str_leaf_is_str_and_atom():
+    """IrLiteral is simultaneously a str and an IrAtom — no wrapper boxing."""
     lit = IrLiteral("x")
     assert isinstance(lit, str) and isinstance(lit, IrAtom)
     assert lit == "x"  # native str equality
@@ -425,17 +433,20 @@ def test_str_leaf_is_str_and_atom():
 
 
 def test_str_leaf_new_returns_own_subtype():
+    """IrRuleRef.__new__ returns IrRuleRef, not the IrStr base — Self is preserved."""
     # the -> Self bug guard: must NOT collapse to IrStr
-    assert type(IrRuleRef("r")) is IrRuleRef
+    assert isinstance(IrRuleRef("r"), IrRuleRef)
     assert isinstance(IrRuleRef("r"), IrAtom)
 
 
 def test_str_leaf_repr_is_codegen():
+    """repr() on str-leaves reproduces the constructor call."""
     assert repr(IrLiteral("x")) == "IrLiteral('x')"
     assert repr(IrCharClass("0-9")) == "IrCharClass('0-9')"
 
 
 def test_tuple_node_is_variadic_and_native_eq():
+    """IrSequence is both a tuple and an IrNode; IrAlternation equality is order-sensitive."""
     seq = IrSequence(IrItem(IrLiteral("a")), IrItem(IrLiteral("b")))
     assert isinstance(seq, tuple) and isinstance(seq, IrNode)
     a, b = IrSequence(IrItem(IrLiteral("a"))), IrSequence(IrItem(IrLiteral("b")))
@@ -444,6 +455,7 @@ def test_tuple_node_is_variadic_and_native_eq():
 
 
 def test_tuple_children_and_rebuild_roundtrip():
+    """IrAlternation.children() yields arms; rebuild() splices in new arms."""
     p, q, r = (
         IrSequence(IrItem(IrLiteral("p"))),
         IrSequence(IrItem(IrLiteral("q"))),
@@ -455,18 +467,21 @@ def test_tuple_children_and_rebuild_roundtrip():
 
 
 def test_tuple_repr_is_codegen():
+    """repr() on an IrSequence reproduces the constructor call."""
     assert repr(IrSequence(IrItem(IrLiteral("a")))) == (
         "IrSequence(IrItem(atom=IrLiteral('a'), quantifier=IrQuantifier(min=1, max=1)))"
     )
 
 
 def test_quantifier_plain_int_fields():
+    """IrQuantifier stores min/max as plain ints; frozen dataclass equality applies."""
     q = IrQuantifier(0, None)
     assert (q.min, q.max) == (0, None)
     assert IrQuantifier(1, 1) == IrQuantifier(1, 1)  # frozen dataclass eq
 
 
 def test_item_accepts_atom_subclasses():
+    """IrItem wraps any IrAtom subclass; children() yields (atom, quantifier)."""
     it = IrItem(IrLiteral("x"))  # IrLiteral IS-A IrAtom
     assert it.atom == "x"
     assert isinstance(it.quantifier, IrQuantifier)
@@ -474,18 +489,21 @@ def test_item_accepts_atom_subclasses():
 
 
 def test_group_and_not_are_atoms():
+    """IrGroup and IrNot are IrAtom instances — they can appear in IrItem.atom."""
     body = IrAlternation(IrSequence())
     assert isinstance(IrGroup(body), IrAtom)
     assert isinstance(IrNot(IrLiteral("a")), IrAtom)
 
 
 def test_composite_repr_is_codegen():
+    """repr() on IrRule reproduces the constructor call."""
     assert (
         repr(IrRule("r", IrAlternation())) == "IrRule(name='r', body=IrAlternation())"
     )
 
 
 def test_composite_is_dataclass_base():
+    """IrQuantifier and IrItem are IrComposite instances (frozen dataclasses)."""
     assert isinstance(IrQuantifier(0, 1), IrComposite)
     assert isinstance(IrItem(IrLiteral("x")), IrComposite)
 
@@ -495,8 +513,8 @@ def test_composite_is_dataclass_base():
 
 def test_bound_explicit_declaration_wins():
     """A class-level ``_bound`` (IrStr/IrTuple) is kept verbatim, not derived."""
-    assert IrStr._bound is str
-    assert IrTuple._bound is tuple
+    assert IrStr.bound_type() is str
+    assert IrTuple.bound_type() is tuple
 
 
 def test_bound_inherited_explicit_is_not_reclobbered_via_mro():
@@ -506,18 +524,18 @@ def test_bound_inherited_explicit_is_not_reclobbered_via_mro():
     ``IrSequence._bound`` as ``IrSelf`` (from ``IrTuple``'s ``T: IrSelf`` param).
     The own-``__type_params__``-only rule must leave it as the inherited ``tuple``.
     """
-    assert IrSequence._bound is tuple
-    assert IrAlternation._bound is tuple
-    assert IrLiteral._bound is str
-    assert IrCharClass._bound is str
-    assert IrRuleRef._bound is str
+    assert IrSequence.bound_type() is tuple
+    assert IrAlternation.bound_type() is tuple
+    assert IrLiteral.bound_type() is str
+    assert IrCharClass.bound_type() is str
+    assert IrRuleRef.bound_type() is str
 
 
 def test_bound_derived_from_own_typevar_bound():
     """A class with its OWN bounded TypeVar derives ``_bound`` from that bound."""
-    assert IrNot._bound is IrAtom  # IrNot[Ir_co: IrAtom] -> IrAtom
+    assert IrNot.bound_type() is IrAtom  # IrNot[Ir_co: IrAtom] -> IrAtom
 
     class _Probe[T: IrLiteral](IrComposite):  # own bounded TypeVar -> derived
         pass
 
-    assert _Probe._bound is IrLiteral
+    assert _Probe.bound_type() is IrLiteral

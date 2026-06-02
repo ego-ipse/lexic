@@ -7,6 +7,7 @@ Action algebra uses ``.eval(d, n, nc)`` to produce typed values.
 
 import pytest
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action_2 import (
     IrAction,
     IrCallable,
@@ -26,11 +27,13 @@ from lexic.ir.action_2 import (
     _Return,
 )
 from lexic.ir.nodes_2 import (
+    IrAlternation,
     IrComposite,
     IrItem,
     IrLiteral,
     IrNone,
     IrQuantifier,
+    IrRule,
     IrSelf,
     IrSequence,
     IrStr,
@@ -81,8 +84,6 @@ def test_irfield_reads_string_attribute():
     field. IrField reads a named attribute of a composite node.  Here we read
     ``name`` from an :class:`~lexic.ir.nodes_2.IrRule`.
     """
-    from lexic.ir.nodes_2 import IrAlternation, IrRule
-
     rule = IrRule("greet", IrAlternation())
     out = IrField("name").eval(IrNone, rule, ())
     assert out == "greet" and isinstance(out, IrStr)
@@ -90,8 +91,6 @@ def test_irfield_reads_string_attribute():
 
 def test_irfield_reads_scalar_and_wraps_to_irstr():
     """IrField reads a named attribute and wraps the result via bound (IrStr)."""
-    from lexic.ir.nodes_2 import IrAlternation, IrRule
-
     rule = IrRule("greet", IrAlternation())
     out = IrField("name").eval(IrNone, rule, ())
     assert out == "greet" and isinstance(out, IrStr)
@@ -100,13 +99,11 @@ def test_irfield_reads_scalar_and_wraps_to_irstr():
 def test_irfield_is_composite_no_children():
     """IrField is an IrComposite record-leaf with no IR-node children."""
     assert isinstance(IrField("x"), IrComposite)
-    assert IrField("x").children() == ()
+    assert not IrField("x").children()
 
 
 def test_irfield_reads_charclass_pattern():
     """IrField reads any string attribute of a composite node."""
-    from lexic.ir.nodes_2 import IrAlternation, IrRule
-
     rule = IrRule("r", IrAlternation())
     # Confirm the read attribute is a plain str that wraps to IrStr
     assert IrField("name").eval(IrNone, rule, ()) == "r"
@@ -376,7 +373,5 @@ def test_action_call_is_identity():
 
 def test_irraise_raises_unsupported_construct_error_by_default():
     """IrRaise.eval raises UnsupportedConstructError by default."""
-    from lexic.exceptions import UnsupportedConstructError
-
     with pytest.raises(UnsupportedConstructError):
         IrRaise().eval(IrNone, IrLiteral("x"), ())
