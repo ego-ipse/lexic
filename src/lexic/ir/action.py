@@ -1,15 +1,21 @@
-"""Action-algebra IrNodes.
+"""Action-algebra IrNodes — primitive-node model.
 
 Every class here is a plain :class:`IrNode` (via :class:`IrLeaf` /
-:class:`IrCollection` / :class:`IrComposite`) that overrides ``eval`` to
-do work other than identity. The action algebra adds operations the
-grammar AST nodes don't cover: sibling lookup, joining, branching,
-short-circuit, and procedural escape hatches.
+:class:`IrComposite`) that overrides ``eval`` to do work other than
+identity. The action algebra adds operations the grammar AST nodes don't
+cover: attribute reads, sibling lookup, joining, branching, short-circuit,
+and a procedural escape hatch.
 
 All nodes inherit ``__call__ -> Self`` from :class:`IrSelf` (identity).
 The value-producing protocol is ``eval(d, n, nc) -> Ir_co`` — every class
 here overrides ``eval`` to produce its typed result. Pass :data:`IrNone`
 to a slot that has no relevant value.
+
+**Node-shape note (G3):** record-leaf actions (``IrField``, ``IrCallable``,
+``IrChild``, ``IrChildren``) and the string/branch operators (``IrConcat``,
+``IrJoin``, ``IrCond``) are :class:`IrComposite` dataclasses — the sole
+dataclass base in the primitive model. The default bodies (``IrPass``,
+``IrWalk``, ``IrEmit``, ``IrRebuild``) are plain ``__slots__``.
 """
 
 from __future__ import annotations
@@ -19,7 +25,6 @@ from typing import Callable, ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.nodes import (
-    IrCollection,
     IrComposite,
     IrLeaf,
     IrLiteral,
@@ -42,7 +47,10 @@ class _Return(BaseException):
     """
 
     def __init__(self, value: object) -> None:
-        """Initialise with the value to surface to the dispatcher."""
+        """Initialise with the value to surface to the dispatcher.
+
+        :param value: The value carried out to the catching dispatcher.
+        """
         super().__init__()
         self.value = value
 
@@ -50,13 +58,23 @@ class _Return(BaseException):
 # ── Attribute reader ──────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, init=False)
-class IrField[Ir_co: IrStr = IrStr](IrLeaf[Ir_co]):
+@dataclass(frozen=True, slots=True, repr=False)
+class IrField[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
     """Read a typed attribute from the dispatched node ``n``.
 
     Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
     :class:`IrStr` itself). Output is wrapped via ``self.bound(value)``
     so it carries both ``str`` shape AND the IrSelf protocol.
+
+    Use ``IrField`` only where a node has a *named* field to read (e.g.
+    ``IrField("name")`` on an :class:`~lexic.ir.nodes.IrRule`). A
+    str-leaf that IS its own value should be emitted directly via
+    :class:`IrEmit` instead.
+
+    A record-leaf: an :class:`IrComposite` with ``_child_attrs = ()`` (the
+    inherited default), so it carries no IR-node children.
+
+    :param Ir_co: the str-typed result type (defaults to :class:`IrStr`).
     """
 
     name: str
@@ -66,6 +84,11 @@ class IrField[Ir_co: IrStr = IrStr](IrLeaf[Ir_co]):
 
         For ``Ir_co=IrStr`` the wrap is ``IrStr(value)`` — a no-op on
         string-derived attributes, a stringification on non-string ones.
+
+        :param _d: Dispatcher (unused — no recursion).
+        :param n: Node whose attribute to read.
+        :param _nc: Pre-walked children (unused).
+        :returns: The attribute value wrapped in ``self.bound``.
         """
         return self.bound(getattr(n, self.name))
 
@@ -73,36 +96,46 @@ class IrField[Ir_co: IrStr = IrStr](IrLeaf[Ir_co]):
 # ── Procedural escape hatch ───────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, eq=False, init=False)
-class IrCallable[Ir_co: IrSelf](IrLeaf[Ir_co]):
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
+class IrCallable[Ir_co: IrSelf](IrComposite[Ir_co]):
     """Procedural body. ``handler(d, n, nc) -> Ir_co``.
 
-    Generic in ``Ir_co``; callers narrow at construction:
-    ``IrCallable[str](my_handler)``.
+    The escape hatch for logic the algebra can't express. Generic in
+    ``Ir_co``; callers narrow at construction: ``IrCallable[IrStr](handler)``.
+
+    ``eq=False`` because callables are not value-comparable. A record-leaf:
+    an :class:`IrComposite` with no IR-node children.
+
+    :param Ir_co: the result type the handler produces.
     """
 
     handler: Callable[[IrSelf, IrSelf, Sequence[IrSelf]], Ir_co]
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Forward to the wrapped handler."""
-        return self.handler(d, n, nc)
+        """Forward to the wrapped handler.
 
-    def _inner_str(self) -> str:
-        """Reflect the handler's ``__name__`` for debug output."""
-        name = getattr(self.handler, "__name__", "callable")
-        return f"<{name}>"
+        :param d: Dispatcher forwarded to the handler.
+        :param n: Current node forwarded to the handler.
+        :param nc: Pre-walked children forwarded to the handler.
+        :returns: Whatever the handler returns.
+        """
+        return self.handler(d, n, nc)
 
 
 # ── Sibling lookup ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, init=False)
-class IrChild[Ir_co: IrSelf](IrLeaf[Ir_co]):
+@dataclass(frozen=True, slots=True, repr=False)
+class IrChild[Ir_co: IrSelf](IrComposite[Ir_co]):
     """Single dispatched child by name from ``n``'s ``_child_attrs``.
 
-    ``Ir_co`` is the dispatcher's per-child result type — ``str`` under
+    ``Ir_co`` is the dispatcher's per-child result type — ``IrStr`` under
     an emitter, ``IrNode`` under a transformer.
 
+    A record-leaf: an :class:`IrComposite` with no IR-node children of its
+    own (it resolves a child of the *dispatched* node ``n``, not its own).
+
+    :param Ir_co: the dispatcher's per-child result type.
     :raises ValueError: if ``self.name`` is not in ``type(n)._child_attrs``.
     """
 
@@ -113,6 +146,12 @@ class IrChild[Ir_co: IrSelf](IrLeaf[Ir_co]):
 
         Hybrid: eager when ``nc`` is populated (caller pre-walked) — index
         into it; lazy otherwise — dispatch the looked-up child via ``d``.
+
+        :param d: Dispatcher used for lazy sub-dispatch.
+        :param n: Node whose child to resolve.
+        :param nc: Pre-walked children, if any.
+        :returns: The resolved child, type-checked against ``self.bound``.
+        :raises ValueError: if ``self.name`` is not in ``type(n)._child_attrs``.
         """
         attrs = getattr(type(n), "_child_attrs", ())
         try:
@@ -127,40 +166,31 @@ class IrChild[Ir_co: IrSelf](IrLeaf[Ir_co]):
         return self.bind(d.eval(d, n.children()[idx], IrTuple()))
 
 
-@dataclass(frozen=True, slots=True, init=False)
-class IrChildren[Ir_co: IrSelf = IrSelf](IrLeaf[Ir_co]):
-    """Full tuple of dispatched children from ``n``'s ``_items_attr``.
+@dataclass(frozen=True, slots=True, repr=False)
+class IrChildren[Ir_co: IrSelf = IrSelf](IrComposite[Ir_co]):
+    """Full tuple of dispatched children of ``n`` (reads ``n.children()``).
 
-    ``Ir_co`` is the dispatcher's per-child result type. Return type is
-    ``tuple[Ir_co, ...]`` — distinct from :class:`IrChild` at the type
+    ``Ir_co`` is the dispatcher's per-child result type. The result is the
+    whole children sequence — distinct from :class:`IrChild` at the type
     level.
 
-    :raises ValueError: if ``self.name`` does not match ``type(n)._items_attr``.
+    A record-leaf: an :class:`IrComposite` with no IR-node children of its
+    own.
+
+    :param Ir_co: the dispatcher's per-child result type.
     """
 
-    name: str
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+        """Resolve the children collection.
 
-    def eval(
-        self,
-        d: IrSelf,
-        n: IrSelf,
-        nc: Sequence[IrSelf],
-        /,
-    ) -> Ir_co:
-        """Resolve the named items collection.
+        Hybrid: eager when ``nc`` is populated (caller pre-walked) — return
+        it as-is; lazy otherwise — dispatch each child via ``d``.
 
-        Hybrid: eager when ``nc`` is populated (caller pre-walked) —
-        return it as-is; lazy otherwise — dispatch each item via ``d``.
-        Both paths validate ``self.name`` against ``type(n)._items_attr``.
-
-        :raises ValueError: if ``self.name`` does not match ``n``'s ``_items_attr``.
+        :param d: Dispatcher used for lazy per-child sub-dispatch.
+        :param n: Node whose children to resolve.
+        :param nc: Pre-walked children, if any.
+        :returns: The children sequence, type-checked against ``self.bound``.
         """
-        items_attr = getattr(type(n), "_items_attr", None)
-        if items_attr != self.name:
-            raise ValueError(
-                f"IrChildren({self.name!r}): {type(n).__name__} _items_attr "
-                f"is {items_attr!r}"
-            )
         if nc:
             return self.bind(nc)
         return self.bind(IrTuple(*(d.eval(d, c, IrTuple()) for c in n.children())))
@@ -169,45 +199,68 @@ class IrChildren[Ir_co: IrSelf = IrSelf](IrLeaf[Ir_co]):
 # ── String concatenation ──────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
-class IrConcat[Ir_co: IrStr = IrStr](IrCollection[Ir_co]):
+@dataclass(frozen=True, slots=True, repr=False)
+class IrConcat[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
     """Evaluate ``parts`` in order; return ``bound().join(...)`` of results.
 
     Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
     :class:`IrStr`). The bound's neutral element (``IrStr()`` → ``""``)
     serves as the join base, and the bound's own ``.join`` is the
     type-native join — no casts needed.
+
+    **Shape note (Task 6):** ``IrConcat`` is an :class:`IrComposite` holding
+    ``parts: IrTuple``, NOT an :class:`IrTuple` subclass. The
+    generic-``+``-``IrTuple`` form breaks ``bound`` under pyright (the dual
+    generic lineage ``Ir_co: IrStr`` vs inherited ``IrTuple[IrSelf]`` makes
+    ``self.bound().join(...)`` error). The composite form matches
+    :class:`IrJoin` and is pyright-clean.
+
+    :param Ir_co: the str-typed result type (defaults to :class:`IrStr`).
     """
 
-    _items_attr: ClassVar[str] = "parts"
+    _child_attrs: ClassVar[tuple[str, ...]] = ("parts",)
     parts: IrTuple = IrTuple()
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Concatenate evaluated parts via the bound's neutral element."""
+        """Concatenate evaluated parts via the bound's neutral element.
+
+        :param d: Dispatcher forwarded to each part's ``eval``.
+        :param n: Current node forwarded to each part's ``eval``.
+        :param nc: Pre-walked children forwarded to each part's ``eval``.
+        :returns: The concatenation of all parts wrapped in ``self.bound``.
+        """
         return self.bound(self.bound().join(p.eval(d, n, nc) for p in self.parts))
 
 
 # ── Variable-arity join with separator ────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
-    """Evaluate ``parts`` in order; join non-empty results with ``separator``,
-    fall back to ``empty`` when ``parts`` is empty.
+    r"""Evaluate ``parts``; join results with ``separator``, fall back to
+    ``empty`` when ``parts`` evaluates empty.
 
     All three children are :class:`IrNode`\\ s and participate in tree
-    walks / rebuilds. ``parts`` is an :class:`IrTuple` (itself an IrNode
-    via :class:`IrType`); ``separator`` and ``empty`` are arbitrary IrNodes
-    computed at eval time.
+    walks / rebuilds. ``parts`` is typically an :class:`IrTuple` (itself an
+    IrNode); ``separator`` and ``empty`` are arbitrary IrNodes computed at
+    eval time.
+
+    :param Ir_co: the str-typed result type (defaults to :class:`IrStr`).
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("parts", "separator", "empty")
     parts: IrSelf = IrTuple()
-    separator: IrNode[Ir_co] = IrLiteral("")
-    empty: IrNode[Ir_co] = IrLiteral("")
+    separator: IrSelf = IrLiteral("")
+    empty: IrSelf = IrLiteral("")
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Evaluate ``parts`` (any IrNode producing a sequence); join or return empty."""
+        """Evaluate ``parts``; join or return the empty fallback.
+
+        :param d: Dispatcher forwarded to each child's ``eval``.
+        :param n: Current node forwarded to each child's ``eval``.
+        :param nc: Pre-walked children forwarded to each child's ``eval``.
+        :returns: The separator-joined parts, or ``empty`` when parts is empty.
+        """
         rendered = self.parts.eval(d, n, nc)
         if not rendered:
             return self.empty.eval(d, n, nc)
@@ -218,52 +271,34 @@ class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
 # ── Truthy-field branch ───────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class IrCond[Ir_co: IrSelf](IrComposite[Ir_co]):
     """If ``bool(getattr(n, field))`` is true, evaluate ``then_op``;
     else ``else_op``. Both branches must share ``Ir_co``.
+
+    :param Ir_co: the shared result type of both branches.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("then_op", "else_op")
     field: str
-    then_op: IrNode[Ir_co]
-    else_op: IrNode[Ir_co]
+    then_op: IrSelf
+    else_op: IrSelf
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Branch on the truthiness of ``getattr(n, self.field)``."""
+        """Branch on the truthiness of ``getattr(n, self.field)``.
+
+        :param d: Dispatcher forwarded to the chosen branch's ``eval``.
+        :param n: Node whose ``field`` attribute selects the branch.
+        :param nc: Pre-walked children forwarded to the chosen branch.
+        :returns: The chosen branch's result.
+        """
         branch = self.then_op if getattr(n, self.field) else self.else_op
         return branch.eval(d, n, nc)
-
-
-# ── Short-circuit return ──────────────────────────────────────────────
-
-
-@dataclass(frozen=True, slots=True, eq=False, init=False, repr=False)
-class IrReturn[Ir_co](IrLeaf, _Return):
-    """Short-circuit IR node that IS-A control-flow exception.
-
-    ``IrReturn`` mixes :class:`IrLeaf` (structural IR contract) with
-    :class:`_Return` (BaseException machinery). ``eval`` raises ``self``;
-    the surrounding dispatcher catches the IrReturn instance and may
-    surface ``self.value`` or the instance itself, depending on its
-    return-shape contract.
-    """
-
-    value: Ir_co
-
-    def __post_init__(self) -> None:
-        """Initialise the BaseException machinery (``self.args``)."""
-        BaseException.__init__(self)
-
-    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
-        """Raise ``self`` — unwinds to the dispatcher's catch."""
-        raise self
 
 
 # ── Default bodies ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrPass(IrLeaf[IrSelf]):
     """No-op body — evaluates to :data:`IrNone` without recursing.
 
@@ -273,12 +308,19 @@ class IrPass(IrLeaf[IrSelf]):
     :class:`IrWalk`.
     """
 
+    __slots__ = ()
+
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
-        """Return :data:`IrNone`."""
+        """Return :data:`IrNone`.
+
+        :param _d: Dispatcher (unused).
+        :param _n: Node (unused).
+        :param _nc: Pre-walked children (unused).
+        :returns: :data:`IrNone`.
+        """
         return IrNone
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
 class IrWalk(IrLeaf[IrSelf]):
     """Walk ``n``'s children via ``d``; return :data:`IrNone`.
 
@@ -287,6 +329,8 @@ class IrWalk(IrLeaf[IrSelf]):
     for their effects and discarded. Honours ``nc``: if the caller has
     already dispatched children, no re-walk happens.
     """
+
+    __slots__ = ()
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Walk children unless they were pre-dispatched; return :data:`IrNone`.
@@ -302,8 +346,73 @@ class IrWalk(IrLeaf[IrSelf]):
         return IrNone
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
-class IrRaise[Ir_co: IrSelf](IrLeaf[Ir_co]):
+class IrEmit[Ir_co: IrLiteral](IrLeaf[Ir_co]):
+    """Body that emits ``IrLiteral(str(n))`` for the dispatched node.
+
+    Default body for :class:`~lexic.ir.walk.IrEmitter`. Stringifies
+    ``n`` via its ``__str__`` (str-leaves ARE their value; other nodes fall
+    back to their str form) and wraps the result as an :class:`IrLiteral`.
+    Override an emitter's ``default`` with :class:`IrRaise` to refuse
+    unmatched types instead.
+
+    A plain ``__slots__`` leaf with an explicit ``_bound`` (no PEP 695 type
+    parameter carries the bound at construction here, so it is declared).
+
+    :param Ir_co: the :class:`IrLiteral`-typed result type.
+    """
+
+    __slots__ = ()
+    _bound: ClassVar[type] = IrLiteral
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
+        """Return ``IrLiteral(str(n))``.
+
+        :param _d: Dispatcher (unused).
+        :param n: The dispatched node.
+        :param _nc: Pre-walked children (unused).
+        :returns: ``IrLiteral`` wrapping the node's string form.
+        """
+        return self.bound(str(n))
+
+
+class IrRebuild(IrLeaf[IrNode]):
+    """Walk ``n``'s children via ``d``, then rebuild ``n`` with the result.
+
+    Canonical body for transformer defaults. Always rebuilds — change
+    detection lives in callers if they want it.
+
+    A plain ``__slots__`` leaf. ``n`` is
+    narrowed with an explicit :func:`isinstance` guard that raises
+    :exc:`~lexic.exceptions.UnsupportedConstructError` — no suppression
+    (matches the codebase's "explicit raise in every dispatch path" rule).
+
+    :raises UnsupportedConstructError: if ``n`` is not an :class:`IrNode`.
+    """
+
+    __slots__ = ()
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNode:
+        """Walk ``n.children()`` via ``d`` (or accept ``nc``), then rebuild.
+
+        :param d: Dispatcher driving child recursion.
+        :param n: Node to rebuild. Must be an :class:`IrNode`.
+        :param nc: Pre-dispatched children, if any.
+        :returns: ``n.rebuild(new_children)``.
+        :raises UnsupportedConstructError: if ``n`` is not an :class:`IrNode`.
+        """
+        if not isinstance(n, IrNode):  # narrow: only IrNodes can be rebuilt
+            raise UnsupportedConstructError(
+                f"IrRebuild: cannot rebuild {type(n).__name__}"
+            )
+        new_children = nc or IrTuple(*(d.eval(d, c, ()) for c in n.children()))
+        return n.rebuild(new_children)
+
+
+# ── Strict default ────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class IrRaise[Ir_co: IrSelf](IrComposite[Ir_co]):
     """Body that raises a configured exception on dispatch.
 
     Strict-default body for :class:`~lexic.ir.walk.IrDispatch`. When
@@ -313,6 +422,7 @@ class IrRaise[Ir_co: IrSelf](IrLeaf[Ir_co]):
     message. The default ``exc_type`` is
     :exc:`~lexic.exceptions.UnsupportedConstructError`.
 
+    :param Ir_co: the (never-produced) result type.
     :param exc_type: Exception class to raise.
     :param message: ``str.format``-style template. Substitutions:
         ``{dispatcher}`` → ``type(d).__name__``; ``{node_type}`` →
@@ -327,7 +437,9 @@ class IrRaise[Ir_co: IrSelf](IrLeaf[Ir_co]):
 
         :param d: Dispatcher driving the walk.
         :param n: Node whose type had no matching action.
-        :raises BaseException: Always — instance of ``self.exc_type``.
+        :param _nc: Pre-walked children (unused).
+        :returns: Never returns normally.
+        :raises BaseException: Always — an instance of ``self.exc_type``.
         """
         raise self.exc_type(
             self.message.format(
@@ -337,69 +449,70 @@ class IrRaise[Ir_co: IrSelf](IrLeaf[Ir_co]):
         )
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
-class IrEmit[Ir_co: IrLiteral](IrLeaf[Ir_co]):
-    """Body that emits ``IrLiteral(str(n))`` for the dispatched node.
+# ── Short-circuit return ──────────────────────────────────────────────
 
-    Default body for :class:`~lexic.ir.walk.IrEmitter`. Stringifies
-    ``n`` via its ``__str__`` cascade
-    (:attr:`~lexic.ir.nodes.IrNode._str_name` plus
-    :meth:`~lexic.ir.nodes.IrNode._inner_str`) and wraps the result as
-    an :class:`IrLiteral`. Override an emitter's ``default`` with
-    :class:`IrRaise` to refuse unmatched types instead.
+
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
+class IrReturn[Ir_co: IrSelf](IrComposite[Ir_co], _Return):
+    """Short-circuit IR node that IS-A control-flow exception.
+
+    ``IrReturn`` mixes :class:`IrComposite` (structural IR contract) with
+    :class:`_Return` (BaseException machinery). ``eval`` raises ``self``;
+    the surrounding dispatcher catches the IrReturn instance and may
+    surface ``self.value`` or the instance itself, depending on its
+    return-shape contract.
+
+    ``eq=False`` because ``BaseException`` identity semantics take
+    precedence over dataclass value equality.
+
+    :param Ir_co: the type of the carried value.
     """
 
-    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
-        """Return ``IrLiteral(str(n))``.
+    value: Ir_co
 
-        :param n: The dispatched node.
-        :returns: ``IrLiteral`` wrapping the node's string form.
+    def __post_init__(self) -> None:
+        """Initialise the BaseException machinery (``self.args``)."""
+        BaseException.__init__(self)
+
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
+        """Raise ``self`` — unwinds to the dispatcher's catch.
+
+        :param _d: Dispatcher (unused).
+        :param _n: Node (unused).
+        :param _nc: Pre-walked children (unused).
+        :returns: Never returns normally.
+        :raises IrReturn: Always — raises ``self``.
         """
-        return self.bound(str(n))
-
-
-@dataclass(frozen=True, slots=True, init=False, repr=False)
-class IrRebuild(IrLeaf):
-    """Walk ``n``'s children via ``d``, then rebuild ``n`` with the result.
-
-    Canonical body for transformer defaults. Always rebuilds — change
-    detection lives in callers if they want it.
-
-    :raises: whatever ``d.eval`` or ``n.rebuild`` raises.
-    """
-
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
-        """Walk ``n.children()`` via ``d`` (or accept ``nc``), then rebuild.
-
-        :param d: Dispatcher driving child recursion.
-        :param n: Node to rebuild. Runtime contract: ``IrNode``.
-        :param nc: Pre-dispatched children, if any.
-        :returns: ``n.rebuild(new_children)``.
-        """
-        new_children = nc or IrTuple(*(d.eval(d, c, ()) for c in n.children()))
-        return n.rebuild(new_children)
+        raise self
 
 
 # ── Action binding ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, eq=False, init=False, repr=False)
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
 class IrAction[Ir_co: IrSelf](IrComposite[Ir_co]):
     """Bind a target IR node type to a callable IrNode body.
 
-    ``target_type`` is metadata (a concrete IR-node type, rendered in
-    ``__str__`` but excluded from ``children()`` via ``_child_attrs``).
-    ``body`` is the single IrNode child invoked under dispatch.
+    ``target_type`` is metadata (a concrete IR-node type, excluded from
+    ``children()`` via ``_child_attrs``). ``body`` is the single IrNode
+    child invoked under dispatch.
+
+    ``eq=False`` because ``target_type`` is a class object and ``body`` may
+    be a non-comparable :class:`IrCallable`.
+
+    :param Ir_co: the result type the body produces.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
     target_type: type[IrSelf]
-    body: IrNode[Ir_co]
+    body: IrSelf
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Delegate to the body."""
-        return self.body.eval(d, n, nc)
+        """Delegate to the body.
 
-    def _inner_str(self) -> str:
-        """Render the target-type name plus the body."""
-        return f"{self.target_type.__name__}, {self.body}"
+        :param d: Dispatcher forwarded to the body's ``eval``.
+        :param n: Current node forwarded to the body's ``eval``.
+        :param nc: Pre-walked children forwarded to the body's ``eval``.
+        :returns: The body's result.
+        """
+        return self.body.eval(d, n, nc)

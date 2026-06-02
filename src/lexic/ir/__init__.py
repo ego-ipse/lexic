@@ -27,7 +27,6 @@ from lexic.ir.nodes import (
     IrAst,
     IrAtom,
     IrCharClass,
-    IrCollection,
     IrComposite,
     IrGroup,
     IrItem,
@@ -41,8 +40,6 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSelf,
     IrSequence,
-    IrStructure,
-    IrSuperSet,
 )
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
@@ -61,7 +58,6 @@ __all__ = [
     "IrCharClass",
     "IrChild",
     "IrChildren",
-    "IrCollection",
     "IrComposite",
     "IrConcat",
     "IrCond",
@@ -79,8 +75,6 @@ __all__ = [
     "IrRuleRef",
     "IrSelf",
     "IrSequence",
-    "IrStructure",
-    "IrSuperSet",
     "IrTransformer",
     "IrVisitor",
     "IrQuantifier",

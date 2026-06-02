@@ -140,7 +140,7 @@ GBNF_ACTIONS = (
     IrAction(
         IrSequence,
         IrJoin(
-            parts=IrChildren("items"),
+            parts=IrChildren(),
             separator=IrLiteral(" "),
             empty=IrLiteral('""'),
         ),
@@ -148,7 +148,7 @@ GBNF_ACTIONS = (
     IrAction(
         IrAlternation,
         IrJoin(
-            parts=IrChildren("arms"),
+            parts=IrChildren(),
             separator=IrLiteral(" | "),
             empty=IrLiteral(""),
         ),
