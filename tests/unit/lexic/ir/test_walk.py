@@ -114,10 +114,10 @@ def test_irdispatch_concrete_action_wins_over_abstract():
     """A concrete-type action wins over an IrLeaf/IrNode-keyed catch-all."""
     seen: list[str] = []
     leaf_action = IrAction(
-        IrLeaf, IrCallable[IrSelf](lambda _d, _n, _nc: seen.append("leaf") or IrNone)
+        IrLeaf, IrCallable(lambda _d, _n, _nc: seen.append("leaf") or IrNone)
     )
     lit_action = IrAction(
-        IrLiteral, IrCallable[IrSelf](lambda _d, _n, _nc: seen.append("lit") or IrNone)
+        IrLiteral, IrCallable(lambda _d, _n, _nc: seen.append("lit") or IrNone)
     )
     IrVisitor(actions=(leaf_action, lit_action)).apply(IrLiteral("x"))
     assert seen == ["lit"]
@@ -127,7 +127,7 @@ def test_irdispatch_falls_through_to_abstract_action_when_no_concrete_match():
     """An IrLeaf-keyed action catches IrRuleRef (which IS-A IrLeaf)."""
     seen: list[str] = []
     leaf_action = IrAction(
-        IrLeaf, IrCallable[IrSelf](lambda _d, _n, _nc: seen.append("leaf") or IrNone)
+        IrLeaf, IrCallable(lambda _d, _n, _nc: seen.append("leaf") or IrNone)
     )
     IrVisitor(actions=(leaf_action,)).apply(IrRuleRef("r"))
     assert seen == ["leaf"]
@@ -144,7 +144,7 @@ def test_action_body_can_recurse_explicitly_via_dispatcher():
             d.eval(d, c, ())
         return IrNone
 
-    d = IrVisitor(actions=(IrAction(IrNode, IrCallable[IrSelf](_on)),))
+    d = IrVisitor(actions=(IrAction(IrNode, IrCallable(_on)),))
     d.apply(_tiny_ast())
     assert IrAst in visited
     assert IrRuleRef in visited
@@ -160,7 +160,7 @@ def test_action_body_receives_pre_dispatched_children_when_caller_supplies_them(
         captured.append(tuple(new_children))
         return IrNone
 
-    d = IrVisitor(actions=(IrAction(IrItem, IrCallable[IrSelf](_on)),))
+    d = IrVisitor(actions=(IrAction(IrItem, IrCallable(_on)),))
     item = IrItem(atom=IrLiteral("x"))
     pre = IrTuple(IrLiteral("PRE"), IrLiteral("Q"))
     d.eval(d, item, pre)
@@ -365,3 +365,24 @@ def test_action_body_receives_dispatcher_as_first_arg():
     d = IrVisitor(actions=(IrAction(IrLiteral, IrCallable[IrSelf](_on)),))
     d.apply(IrLiteral("a"))
     assert captured == [d]
+
+
+# ── IrReturn() surfaces the matched node (find-first pattern) ─────────
+
+
+def test_irvisitor_irreturn_surfaces_matched_node():
+    """``IrAction(<type>, IrReturn())`` short-circuits the walk and surfaces the
+    matched node itself through ``apply`` — the ``has_ruleref`` find-first
+    pattern. ``IrReturn()`` defaults to ``IrThis``, which evaluates to ``n``.
+    """
+    visitor = IrVisitor(actions=(IrAction(IrRuleRef, IrReturn()),))
+    tree = IrAlternation(IrSequence(IrItem(IrRuleRef("foo"))))
+    assert visitor.apply(tree) == IrRuleRef("foo")
+
+
+def test_irvisitor_irreturn_returns_irnone_when_no_match():
+    """With no matching node the walk completes without short-circuiting and
+    ``apply`` returns :data:`IrNone` (the IrWalk default result)."""
+    visitor = IrVisitor(actions=(IrAction(IrRuleRef, IrReturn()),))
+    tree = IrAlternation(IrSequence(IrItem(IrLiteral("x"))))
+    assert visitor.apply(tree) is IrNone

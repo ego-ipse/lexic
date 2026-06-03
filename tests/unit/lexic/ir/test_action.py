@@ -23,6 +23,7 @@ from lexic.ir.action import (
     IrRaise,
     IrRebuild,
     IrReturn,
+    IrThis,
     IrWalk,
     _Return,
 )
@@ -34,6 +35,7 @@ from lexic.ir.nodes import (
     IrNone,
     IrQuantifier,
     IrRule,
+    IrRuleRef,
     IrSelf,
     IrSequence,
     IrStr,
@@ -68,7 +70,7 @@ def test_return_not_swallowed_by_except_exception():
         except Exception:  # pylint: disable=broad-exception-caught
             return IrStr("swallowed")
 
-    op = IrCallable[IrStr](body_that_catches_exception)
+    op = IrCallable[IrSelf, IrStr](body_that_catches_exception)
     with pytest.raises(_Return) as exc_info:
         op.eval(IrNone, IrNone, ())
     assert exc_info.value.value == 99
@@ -120,7 +122,7 @@ def test_ircallable_invokes_handler_with_all_args():
         received.append((d, n, nc))
         return IrStr("ok")
 
-    result = IrCallable[IrStr](handler).eval(
+    result = IrCallable[IrSelf, IrStr](handler).eval(
         IrNone,
         IrNone,
         IrTuple(
@@ -143,12 +145,12 @@ def test_ircallable_repr_contains_handler_name():
     def my_handler(_d, _n, _nc):
         return IrStr()
 
-    assert "my_handler" in repr(IrCallable[IrStr](my_handler))
+    assert "my_handler" in repr(IrCallable[IrSelf, IrStr](my_handler))
 
 
 def test_ircallable_repr_fallback_for_lambda():
     """Lambdas appear in ``repr(IrCallable)``; rendering never crashes."""
-    assert "lambda" in repr(IrCallable[IrStr](lambda _d, _n, _nc: IrStr()))
+    assert "lambda" in repr(IrCallable[IrSelf, IrStr](lambda _d, _n, _nc: IrStr()))
 
 
 # ── IrChild ──────────────────────────────────────────────────────────
@@ -159,7 +161,7 @@ def test_irchild_reads_dispatched_child_by_name():
     (_child_attrs=("atom","quantifier"))."""
     item = IrItem(atom=IrLiteral("x"))
     new_children = (IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild[IrStr]("atom").eval(IrNone, item, new_children)
+    result = IrChild[IrSelf, IrStr]("atom").eval(IrNone, item, new_children)
     assert result == "dispatched_atom"
 
 
@@ -167,7 +169,7 @@ def test_irchild_reads_second_child():
     """IrChild("quantifier") returns new_children[1] for an IrItem."""
     item = IrItem(atom=IrLiteral("x"))
     new_children = IrTuple(IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild[IrStr]("quantifier").eval(IrNone, item, new_children)
+    result = IrChild[IrSelf, IrStr]("quantifier").eval(IrNone, item, new_children)
     assert result == "dispatched_quantifier"
 
 
@@ -175,7 +177,7 @@ def test_irchild_raises_on_unknown_name():
     """IrChild raises ValueError when the name is not in _child_attrs."""
     item = IrItem(atom=IrLiteral("x"))
     with pytest.raises(ValueError, match="no such child"):
-        IrChild[IrStr]("nonexistent").eval(
+        IrChild[IrSelf, IrStr]("nonexistent").eval(
             IrNone, item, IrTuple(IrStr("a"), IrStr("b"))
         )
 
@@ -190,7 +192,7 @@ def test_irchildren_returns_full_new_children_tuple():
     """
     seq = IrSequence(IrItem(IrLiteral("a")))
     new_children = IrTuple(IrStr("result_a"))
-    result = IrChildren[IrStr]().eval(IrNone, seq, new_children)
+    result = IrChildren[IrSelf, IrStr]().eval(IrNone, seq, new_children)
     assert result == ("result_a",)
 
 
@@ -245,15 +247,42 @@ def test_irjoin_returns_empty_value_when_no_items():
 def test_ircond_evaluates_then_when_truthy():
     """IrCond picks then_op when getattr(n, field) is truthy."""
     node = IrQuantifier(min=1, max=1)
-    op = IrCond[IrStr](field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no"))
+    op = IrCond[IrSelf, IrStr](
+        field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no")
+    )
     assert op.eval(IrNone, node, ()) == "yes"
 
 
 def test_ircond_evaluates_else_when_falsy():
     """IrCond picks else_op when getattr(n, field) is falsy."""
     node = IrQuantifier(min=0, max=1)
-    op = IrCond[IrStr](field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no"))
+    op = IrCond[IrSelf, IrStr](
+        field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no")
+    )
     assert op.eval(IrNone, node, ()) == "no"
+
+
+# ── IrThis ───────────────────────────────────────────────────────────
+
+
+def test_irthis_eval_returns_dispatched_node():
+    """IrThis.eval returns the dispatched node ``n`` unchanged — the
+    declarative ``lambda d, n, nc: n`` identity body."""
+    n = IrRuleRef("term")
+    assert IrThis().eval(IrNone, n, ()) is n
+
+
+def test_irthis_is_plain_leaf_with_no_children():
+    """IrThis is a plain IrLeaf body carrying no IR-node children."""
+    assert isinstance(IrThis(), IrLeaf)
+    assert not IrThis().children()
+
+
+def test_irthis_call_is_identity_not_node():
+    """IrThis inherits IrSelf.__call__ (returns the body itself); only ``eval``
+    surfaces the dispatched node. The two must not be conflated."""
+    t = IrThis()
+    assert t(IrNone, IrLiteral("x"), ()) is t
 
 
 # ── Default bodies (Tasks 7 contract tests) ──────────────────────────
@@ -330,6 +359,56 @@ def test_irreturn_never_returns_normally():
     r = IrReturn[IrStr](value=IrStr("x"))
     with pytest.raises(_Return):
         r.eval(IrNone, IrNone, ())
+
+
+def test_irreturn_defaults_to_dispatched_node():
+    """``IrReturn()`` defaults its body to :class:`IrThis`, so evaluating it
+    surfaces the dispatched node — the ``has_ruleref`` find-first pattern.
+
+    The re-raised IrReturn carries the *evaluated* node, not the original
+    body, so ``exc.value.value is n``.
+    """
+    n = IrRuleRef("term")
+    with pytest.raises(IrReturn) as exc:
+        IrReturn().eval(IrNone, n, ())
+    assert exc.value.value is n
+
+
+def test_irreturn_lazy_evaluates_irthis_body_against_context():
+    """An explicit ``IrThis()`` body lazily evaluates to the dispatched node."""
+    n = IrRuleRef("x")
+    with pytest.raises(IrReturn) as exc:
+        IrReturn(IrThis()).eval(IrNone, n, ())
+    assert exc.value.value is n
+
+
+def test_irreturn_lazy_evaluates_leaf_body_to_itself():
+    """Under lazy_eval, a leaf body evaluates to itself (leaf eval is identity),
+    so ``IrReturn(IrLiteral("v"))`` still surfaces ``IrLiteral("v")``."""
+    with pytest.raises(IrReturn) as exc:
+        IrReturn(IrLiteral("v")).eval(IrNone, IrNone, ())
+    assert exc.value.value == IrLiteral("v")
+
+
+def test_irreturn_non_lazy_carries_static_body_unevaluated():
+    """``lazy_eval=False`` raises ``self`` carrying the body object as-is,
+    without evaluating it against the dispatch context."""
+    body = IrThis()
+    r = IrReturn(body, lazy_eval=False)
+    with pytest.raises(IrReturn) as exc:
+        r.eval(IrNone, IrLiteral("x"), ())
+    assert exc.value is r
+    assert exc.value.value is body
+
+
+def test_irreturn_non_irself_value_raises_self_unevaluated():
+    """A non-IrSelf payload (e.g. a plain ``bool``) is never evaluated; eval
+    raises ``self`` carrying that payload verbatim."""
+    r = IrReturn(True)
+    with pytest.raises(IrReturn) as exc:
+        r.eval(IrNone, IrNone, ())
+    assert exc.value is r
+    assert exc.value.value is True
 
 
 # ── IrAction ─────────────────────────────────────────────────────────

@@ -36,7 +36,7 @@ from lexic.ir.nodes import IrComposite, IrLiteral, IrNode, IrSelf, IrTuple
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrDispatch[Ir_co: IrSelf](IrComposite[Ir_co]):
+class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](IrComposite[Iri, Ir_co]):
     """Action-driven IR dispatcher.
 
     Holds a per-type ``actions`` table. ``eval`` (or ``apply``) resolves
@@ -155,7 +155,7 @@ class IrVisitor(IrDispatch):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrTransformer(IrDispatch[IrNode]):
+class IrTransformer[Iri: IrSelf, Ir_co: IrNode](IrDispatch[Iri, Ir_co]):
     """Rewrites IR trees. ``Ir_co = IrNode``.
 
     The default action walks each node's children via ``d`` and rebuilds
@@ -168,7 +168,7 @@ class IrTransformer(IrDispatch[IrNode]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrEmitter[Ir_co: IrLiteral](IrDispatch[Ir_co]):
+class IrEmitter[Iri: IrSelf, Ir_co: IrLiteral](IrDispatch[Iri, Ir_co]):
     """Produces :class:`~lexic.ir.nodes.IrLiteral`-wrapped strings.
     ``Ir_co = IrLiteral``.
 

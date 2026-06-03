@@ -25,7 +25,7 @@ from typing import Any, ClassVar, Self, Sequence, TypeVar, cast, final
 # ── Spine ─────────────────────────────────────────────────────────────
 
 
-class IrSelf[Ir_co: "IrSelf"]:
+class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri]:
     """Generic identity root and IR-protocol base.
 
     Every IR node inherits from ``IrSelf``. ``Ir_co`` is a return-position
@@ -47,7 +47,7 @@ class IrSelf[Ir_co: "IrSelf"]:
     __slots__ = ()
     _bound: ClassVar[type]
 
-    def __call__(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Self:
+    def __call__(self, _d: Iri, _n: Iri, _nc: Sequence[Iri], /) -> Self:
         """Identity: return ``self`` typed via PEP 673 ``Self``.
 
         Subclasses that produce values (rather than returning themselves) override
@@ -61,7 +61,7 @@ class IrSelf[Ir_co: "IrSelf"]:
         """
         return self
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
         """Action-body protocol: default delegates to identity ``__call__``.
 
         Default returns ``self`` cast to ``Ir_co`` — sound when ``Ir_co`` is
@@ -110,11 +110,16 @@ class IrSelf[Ir_co: "IrSelf"]:
         2. Otherwise, inspect ``cls.__dict__["__type_params__"]`` (OWN params
            only — never walk the MRO, to avoid inheriting a parent's bound
            when the subclass introduces no new type parameters).
-        3. If the first own type parameter is a ``TypeVar`` with a ``__bound__``,
-           record it as ``cls._bound``.
+        3. Select the **last** own type parameter — the covariant return type
+           ``Ir_co`` the :attr:`bound` property exposes (``type[Ir_co]``). It is
+           the second of the ``[Iri, Ir_co]`` pair, or the sole parameter on
+           single-parameter nodes. Taking the *last* (not the first) keeps the
+           derivation correct now that nodes carry an input ``Iri`` parameter
+           ahead of ``Ir_co``. If that ``TypeVar`` has a ``__bound__``, record
+           it as ``cls._bound``.
 
-        This means leaf classes declared as ``class IrFoo[Ir_co: IrSelf](…)``
-        automatically acquire ``_bound = IrSelf`` without any explicit
+        This means nodes declared as ``class IrFoo[Iri: IrSelf, Ir_co: IrStr]``
+        automatically acquire ``_bound = IrStr`` without any explicit
         assignment.
 
         :param kwargs: Forwarded to ``super().__init_subclass__``.
@@ -123,8 +128,8 @@ class IrSelf[Ir_co: "IrSelf"]:
         if "_bound" in cls.__dict__:  # explicit _bound wins (IrStr/IrTuple)
             return
         params = cls.__dict__.get("__type_params__", ())  # OWN params — never MRO
-        if params and isinstance(params[0], TypeVar) and params[0].__bound__:
-            cls._bound = params[0].__bound__
+        if params and isinstance(params[-1], TypeVar) and params[-1].__bound__:
+            cls._bound = params[-1].__bound__
 
     @classmethod
     def bound_type(cls) -> type:
@@ -208,7 +213,7 @@ class IrNoneType(IrSelf):
 IrNone = IrNoneType()
 
 
-class IrNode[Ir_co: IrSelf = IrSelf](IrSelf[Ir_co], ABC):
+class IrNode[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrSelf[Iri, Ir_co], ABC):
     """ABC marker for all structural IR nodes.
 
     Generic in ``Ir_co`` — the return type of ``__call__`` when this node is
@@ -245,7 +250,7 @@ class IrNode[Ir_co: IrSelf = IrSelf](IrSelf[Ir_co], ABC):
         return f"{type(self).__name__}()"
 
 
-class IrLeaf[Ir_co: IrSelf](IrNode[Ir_co]):
+class IrLeaf[Iri: IrSelf, Ir_co: IrSelf](IrNode[Iri, Ir_co]):
     """Base for all leaf nodes: no children, identity rebuild.
 
     Provides the default empty ``children()`` and identity ``rebuild()``
@@ -319,6 +324,29 @@ class IrStr(IrLeaf, str):
         :returns: ``self``.
         """
         return self
+
+    def __eq__(self, other: object) -> bool:
+        """Type-aware equality between IR leaves.
+
+        Two ``IrStr`` leaves compare equal only when they are the *same*
+        concrete subtype carrying the same characters — so ``IrLiteral('x')``
+        is **not** equal to ``IrRuleRef('x')`` even though each equals the
+        plain string ``'x'``.  Without this, distinct leaf kinds with the same
+        text would collide in structural equality and hashing (poisoning
+        ``@cache`` and any node-keyed dict/set).  Comparison against a
+        non-``IrStr`` value falls back to native ``str`` equality, preserving
+        the leaf-IS-A-``str`` convenience used for plain-``str`` dict/set keys.
+
+        :param other: The value to compare against.
+        :returns: ``True`` when equal under the rules above.
+        """
+        if isinstance(other, IrStr) and type(self) is not type(other):
+            return False
+        return str.__eq__(self, other)
+
+    # Native str hash: same-text leaves of different kinds collide but compare
+    # unequal (eq is the tiebreaker), and a leaf still matches its plain-str key.
+    __hash__ = str.__hash__
 
     def __repr__(self) -> str:
         """Codegen repr: ``ClassName('payload')``.
@@ -458,7 +486,7 @@ class IrAlternation(IrTuple["IrSequence"]):
 # ── Composite dataclass tier ──────────────────────────────────────────
 
 
-class IrComposite[Ir_co: IrSelf = IrSelf](IrNode[Ir_co]):
+class IrComposite[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
     """Dataclass record base for fixed-arity IR nodes.
 
     All concrete composite nodes are ``@dataclass(frozen=True, slots=True,

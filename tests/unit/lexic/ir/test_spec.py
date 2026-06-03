@@ -56,18 +56,16 @@ def test_rulespec_to_ir_rule_wraps_items_in_iralternation():
     assert isinstance(rule, IrRule)
     assert rule.name == "r"
     assert isinstance(rule.body, IrAlternation)
-    assert len(rule.body.arms) == 1
-    assert isinstance(rule.body.arms[0], IrSequence)
-    assert rule.body.arms[0].items == (IrItem(atom=IrLiteral("x")),)
+    assert len(rule.body) == 1
+    assert isinstance(rule.body[0], IrSequence)
+    assert tuple(rule.body[0]) == (IrItem(atom=IrLiteral("x")),)
 
 
 def test_rulespec_to_ir_rule_with_alternation_item_passes_through():
     """to_ir_rule passes through a top-level IrAlternation directly as the body."""
     alt = IrAlternation(
-        arms=(
-            IrSequence(items=(IrItem(atom=IrLiteral("a")),)),
-            IrSequence(items=(IrItem(atom=IrLiteral("b")),)),
-        )
+        IrSequence(IrItem(atom=IrLiteral("a"))),
+        IrSequence(IrItem(atom=IrLiteral("b"))),
     )
     spec = RuleSpec(
         rule_name="r",

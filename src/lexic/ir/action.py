@@ -59,7 +59,7 @@ class _Return(BaseException):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrField[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
+class IrField[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
     """Read a typed attribute from the dispatched node ``n``.
 
     Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
@@ -79,7 +79,7 @@ class IrField[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
 
     name: str
 
-    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
+    def eval(self, _d: Iri, n: Iri, _nc: Sequence[Iri], /) -> Ir_co:
         """Read ``getattr(n, self.name)`` and wrap via ``self.bound(value)``.
 
         For ``Ir_co=IrStr`` the wrap is ``IrStr(value)`` — a no-op on
@@ -97,7 +97,7 @@ class IrField[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class IrCallable[Ir_co: IrSelf](IrComposite[Ir_co]):
+class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrComposite[Iri, Ir_co]):
     """Procedural body. ``handler(d, n, nc) -> Ir_co``.
 
     The escape hatch for logic the algebra can't express. Generic in
@@ -109,9 +109,9 @@ class IrCallable[Ir_co: IrSelf](IrComposite[Ir_co]):
     :param Ir_co: the result type the handler produces.
     """
 
-    handler: Callable[[IrSelf, IrSelf, Sequence[IrSelf]], Ir_co]
+    handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co]
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
         """Forward to the wrapped handler.
 
         :param d: Dispatcher forwarded to the handler.
@@ -126,7 +126,7 @@ class IrCallable[Ir_co: IrSelf](IrComposite[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrChild[Ir_co: IrSelf](IrComposite[Ir_co]):
+class IrChild[Iri: IrSelf, Ir_co: IrSelf](IrComposite[Iri, Ir_co]):
     """Single dispatched child by name from ``n``'s ``_child_attrs``.
 
     ``Ir_co`` is the dispatcher's per-child result type — ``IrStr`` under
@@ -141,7 +141,7 @@ class IrChild[Ir_co: IrSelf](IrComposite[Ir_co]):
 
     name: str
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
         """Resolve the named child.
 
         Hybrid: eager when ``nc`` is populated (caller pre-walked) — index
@@ -167,7 +167,7 @@ class IrChild[Ir_co: IrSelf](IrComposite[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrChildren[Ir_co: IrSelf = IrSelf](IrComposite[Ir_co]):
+class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrComposite[Iri, Ir_co]):
     """Full tuple of dispatched children of ``n`` (reads ``n.children()``).
 
     ``Ir_co`` is the dispatcher's per-child result type. The result is the
@@ -180,7 +180,7 @@ class IrChildren[Ir_co: IrSelf = IrSelf](IrComposite[Ir_co]):
     :param Ir_co: the dispatcher's per-child result type.
     """
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
         """Resolve the children collection.
 
         Hybrid: eager when ``nc`` is populated (caller pre-walked) — return
@@ -200,7 +200,7 @@ class IrChildren[Ir_co: IrSelf = IrSelf](IrComposite[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrConcat[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
+class IrConcat[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
     """Evaluate ``parts`` in order; return ``bound().join(...)`` of results.
 
     Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
@@ -221,7 +221,7 @@ class IrConcat[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
     _child_attrs: ClassVar[tuple[str, ...]] = ("parts",)
     parts: IrTuple = IrTuple()
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
         """Concatenate evaluated parts via the bound's neutral element.
 
         :param d: Dispatcher forwarded to each part's ``eval``.
@@ -236,7 +236,7 @@ class IrConcat[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
+class IrJoin[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
     r"""Evaluate ``parts``; join results with ``separator``, fall back to
     ``empty`` when ``parts`` evaluates empty.
 
@@ -253,7 +253,7 @@ class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
     separator: IrSelf = IrLiteral("")
     empty: IrSelf = IrLiteral("")
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
         """Evaluate ``parts``; join or return the empty fallback.
 
         :param d: Dispatcher forwarded to each child's ``eval``.
@@ -272,7 +272,7 @@ class IrJoin[Ir_co: IrStr = IrStr](IrComposite[Ir_co]):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrCond[Ir_co: IrSelf](IrComposite[Ir_co]):
+class IrCond[Iri: IrSelf, Ir_co: IrSelf](IrComposite[Iri, Ir_co]):
     """If ``bool(getattr(n, field))`` is true, evaluate ``then_op``;
     else ``else_op``. Both branches must share ``Ir_co``.
 
@@ -299,7 +299,28 @@ class IrCond[Ir_co: IrSelf](IrComposite[Ir_co]):
 # ── Default bodies ────────────────────────────────────────────────────
 
 
-class IrPass(IrLeaf[IrSelf]):
+class IrThis(IrLeaf[IrSelf, IrSelf]):
+    """Identity body — evaluates to the dispatched node ``n`` as-is.
+
+    Use when an action matches and the dispatcher's return-shape contract
+    is satisfied by the dispatched node itself. Equivalent to Python's
+    ``lambda d, n, nc: n``.
+    """
+
+    __slots__ = ()
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
+        """Return the dispatched node ``n``.
+
+        :param _d: Dispatcher (unused).
+        :param n: Node to return as-is.
+        :param _nc: Pre-walked children (unused).
+        :returns: The dispatched node ``n``.
+        """
+        return n
+
+
+class IrPass(IrLeaf[IrSelf, IrSelf]):
     """No-op body — evaluates to :data:`IrNone` without recursing.
 
     Use when an action matches but neither a value nor a child walk is
@@ -321,7 +342,7 @@ class IrPass(IrLeaf[IrSelf]):
         return IrNone
 
 
-class IrWalk(IrLeaf[IrSelf]):
+class IrWalk(IrLeaf[IrSelf, IrSelf]):
     """Walk ``n``'s children via ``d``; return :data:`IrNone`.
 
     Canonical body for visitor defaults — the visitor analogue of
@@ -346,7 +367,7 @@ class IrWalk(IrLeaf[IrSelf]):
         return IrNone
 
 
-class IrEmit[Ir_co: IrLiteral](IrLeaf[Ir_co]):
+class IrEmit[Iri: IrSelf, Ir_co: IrLiteral](IrLeaf[Iri, Ir_co]):
     """Body that emits ``IrLiteral(str(n))`` for the dispatched node.
 
     Default body for :class:`~lexic.ir.walk.IrEmitter`. Stringifies
@@ -375,7 +396,7 @@ class IrEmit[Ir_co: IrLiteral](IrLeaf[Ir_co]):
         return self.bound(str(n))
 
 
-class IrRebuild(IrLeaf[IrNode]):
+class IrRebuild(IrLeaf[IrSelf, IrNode]):
     """Walk ``n``'s children via ``d``, then rebuild ``n`` with the result.
 
     Canonical body for transformer defaults. Always rebuilds — change
@@ -468,13 +489,16 @@ class IrReturn[Ir_co: IrSelf](IrComposite[Ir_co], _Return):
     :param Ir_co: the type of the carried value.
     """
 
-    value: Ir_co
+    value: object = (
+        IrThis()
+    )  # default to the dispatched node itself when no value is given
+    lazy_eval: bool = True
 
     def __post_init__(self) -> None:
         """Initialise the BaseException machinery (``self.args``)."""
         BaseException.__init__(self)
 
-    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Raise ``self`` — unwinds to the dispatcher's catch.
 
         :param _d: Dispatcher (unused).
@@ -483,6 +507,9 @@ class IrReturn[Ir_co: IrSelf](IrComposite[Ir_co], _Return):
         :returns: Never returns normally.
         :raises IrReturn: Always — raises ``self``.
         """
+
+        if self.lazy_eval and isinstance(self.value, IrSelf):
+            raise self.__class__(self.value.eval(d, n, nc))
         raise self
 
 

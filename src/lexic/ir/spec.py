@@ -49,5 +49,5 @@ class RuleSpec:
             body = self.items[0]
         else:
             items_tuple = tuple(it for it in self.items if isinstance(it, IrItem))
-            body = IrAlternation(arms=(IrSequence(items=items_tuple),))
-        return IrRule(name=self.rule_name, body=body)
+            body = IrAlternation(IrSequence(*items_tuple))
+        return IrRule(self.rule_name, body)
