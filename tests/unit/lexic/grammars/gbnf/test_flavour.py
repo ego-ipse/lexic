@@ -5,18 +5,9 @@ from __future__ import annotations
 from lexic.grammars.flavour import IrFlavour
 from lexic.grammars.gbnf.flavour import GBNF_ESCAPES, GBNF_FLAVOUR, META_GRAMMAR
 from lexic.ir.nodes import (
-    IrAlternation,
-    IrAst,
-    IrCharClass,
-    IrGroup,
-    IrItem,
-    IrLiteral,
-    IrNot,
     IrQuantifier,
-    IrRule,
-    IrRuleRef,
-    IrSequence,
 )
+from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
 
 
 def test_subclass():
@@ -141,18 +132,5 @@ def test_gbnf_emitter_iremit_default_unreachable():
     This test locks that the default is structurally unreachable for GBNF.
     """
     registered = {action.target_type for action in GBNF_FLAVOUR.actions}
-    grammar_ast_types = {
-        IrLiteral,
-        IrCharClass,
-        IrNot,
-        IrRuleRef,
-        IrGroup,
-        IrQuantifier,
-        IrItem,
-        IrSequence,
-        IrAlternation,
-        IrRule,
-        IrAst,
-    }
-    missing = grammar_ast_types - registered
+    missing = GRAMMAR_AST_TYPES - registered
     assert not missing, f"GBNF_FLAVOUR missing explicit actions for: {missing}"

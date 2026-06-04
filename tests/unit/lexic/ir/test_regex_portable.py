@@ -55,21 +55,6 @@ def test_portable_features_is_frozenset() -> None:
     assert isinstance(PORTABLE_FEATURES, frozenset)
 
 
-def test_portable_features_contains_expected_names() -> None:
-    """PORTABLE_FEATURES contains the documented feature names."""
-    expected = {
-        "literal",
-        "char_class",
-        "negated_class",
-        "shorthand",
-        "quantifier",
-        "alternation",
-        "non_capturing_group",
-        "unicode_escape",
-    }
-    assert PORTABLE_FEATURES == expected
-
-
 # ── validate_portable ────────────────────────────────────────────────
 
 

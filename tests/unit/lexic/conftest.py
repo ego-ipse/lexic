@@ -2,8 +2,37 @@
 
 from __future__ import annotations
 
-from lexic.ir.nodes import IrCharClass, IrItem, IrRuleRef
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrNot,
+    IrQuantifier,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+)
 from lexic.ir.spec import RuleSpec
+
+# Canonical set of all grammar-AST IR types that every flavour must cover.
+GRAMMAR_AST_TYPES: frozenset[type] = frozenset(
+    {
+        IrLiteral,
+        IrCharClass,
+        IrNot,
+        IrRuleRef,
+        IrGroup,
+        IrQuantifier,
+        IrItem,
+        IrSequence,
+        IrAlternation,
+        IrRule,
+        IrAst,
+    }
+)
 
 
 def make_spec(name, kind, items, field_map=None, *, parent="GrammarModel"):

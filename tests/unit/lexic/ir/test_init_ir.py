@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib
 
-import lexic.ir as ir
+from lexic import ir
+from lexic.ir.nodes import IrNone as _IrNone
+from lexic.ir.nodes import IrNoneType as _IrNoneType
 
 
 def test_module_has_all() -> None:
@@ -33,16 +35,12 @@ def test_all_names_present_in_namespace() -> None:
 def test_ir_none_exported() -> None:
     """IrNone sentinel is re-exported from lexic.ir."""
     assert hasattr(ir, "IrNone")
-    from lexic.ir.nodes import IrNone as _IrNone
-
     assert ir.IrNone is _IrNone
 
 
 def test_ir_none_type_exported() -> None:
     """IrNoneType is re-exported from lexic.ir."""
     assert "IrNoneType" in ir.__all__
-    from lexic.ir.nodes import IrNoneType as _IrNoneType
-
     assert ir.IrNoneType is _IrNoneType
 
 

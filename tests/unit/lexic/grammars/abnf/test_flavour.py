@@ -9,19 +9,13 @@ from lexic.grammars.abnf.flavour import ABNF_ESCAPES, ABNF_FLAVOUR, META_GRAMMAR
 from lexic.grammars.flavour import IrFlavour
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
-    IrAlternation,
-    IrAst,
     IrCharClass,
     IrGroup,
-    IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
-    IrRule,
-    IrRuleRef,
-    IrSequence,
 )
 from lexic.parsing.meta_parser import MetaGrammarParser
+from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
 
 
 def test_abnf_flavour_is_a_flavour():
@@ -231,18 +225,5 @@ def test_abnf_emitter_iremit_default_unreachable():
     This test locks that the default is structurally unreachable for ABNF.
     """
     registered = {action.target_type for action in ABNF_FLAVOUR.actions}
-    grammar_ast_types = {
-        IrLiteral,
-        IrCharClass,
-        IrNot,
-        IrRuleRef,
-        IrGroup,
-        IrQuantifier,
-        IrItem,
-        IrSequence,
-        IrAlternation,
-        IrRule,
-        IrAst,
-    }
-    missing = grammar_ast_types - registered
+    missing = GRAMMAR_AST_TYPES - registered
     assert not missing, f"ABNF_FLAVOUR missing explicit actions for: {missing}"
