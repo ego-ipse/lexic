@@ -7,6 +7,15 @@ with **full coverage** of the Lark grammar surface. This document authorizes
 the architecture and dependencies once, so every phase-spec has a stable
 contract to reference.
 
+> **V2 substrate note (2026-06-04).** The primitive node model
+> (`2026-06-01-ir-primitive-node-model.md`) landed after this umbrella was
+> written: `IrType`/`coerce`/`IrCollection`/`_items_attr` are gone, nodes now
+> subclass their payload. The **arc, principles, and phase decomposition below
+> are unchanged** — they describe Layer-2 growth, which V2 did not alter. Only
+> Phase-0's concrete node shapes are re-derived (see
+> `2026-06-04-phase-0-v2-realignment-design.md`). Inline `path:line` references
+> below are indicative, not pinned.
+
 **Relationship to prior notes:**
 - Builds on `2026-05-29-charclass-quantifier-and-lark.md` (working notes). That
   note's §3 sequence (`IrInt` → generalized `IrCond`/`IrCompare` → honest
@@ -66,7 +75,7 @@ distinguished by *how* they fail:
 
 **Tier 0 — cannot be represented at all (no node).**
 1. **Arbitrary regex terminals** — the headline gap. The only pattern primitive
-   is `IrCharClass` = the interior of *one* bracket (`nodes.py:505`). It cannot
+   is `IrCharClass` = the interior of *one* bracket (`ir/nodes.py`). It cannot
    hold `.` any-char, in-token alternation `/foo|bar/`, a mixed sequence that
    must stay one token (`/[0-9]+\.[0-9]+/`), quantified sub-groups inside a
    terminal, anchors, lookaround, backreferences, non-greedy, or inline flags.
@@ -96,7 +105,7 @@ surface; `"foo"i` case-insensitive; `~n`/`~n..m` (cross-flavour lossy).
 
 **Tier 2 — representable, but emit is broken/partial (the denatured tax).**
 General bounds `{n,m}` (IR holds it; GBNF `_gbnf_quantifier` *raises* —
-`gbnf/flavour.py:117` — the latent parse-but-can't-emit bug); negation across
+`gbnf/flavour.py` — the latent parse-but-can't-emit bug); negation across
 flavours (`_gbnf_not` partial, `_abnf_not` raises); ABNF char-class
 re-derivation from the blob on every emit.
 
