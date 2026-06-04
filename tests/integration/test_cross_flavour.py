@@ -44,8 +44,8 @@ def test_abnf_op_rule_expands_literals_into_groups():
     op = next(r for r in ast.rules if r.name == "op")
     # All four arms are non-alpha literals, so they stay IrLiteral.
 
-    for arm in op.body.arms:
-        assert isinstance(arm.items[0].atom, IrLiteral)
+    for arm in op.body:
+        assert isinstance(arm[0].atom, IrLiteral)
 
 
 def test_compile_grammar_works_for_both_flavours_on_arithmetic():
@@ -91,4 +91,4 @@ def test_gbnf_to_abnf_to_gbnf_round_trip_via_iast():
     assert {r.name for r in ast_g.rules} == {r.name for r in ast_a.rules}
     for r_g in ast_g.rules:
         r_a = next(r for r in ast_a.rules if r.name == r_g.name)
-        assert len(r_g.body.arms) == len(r_a.body.arms)
+        assert len(r_g.body) == len(r_a.body)

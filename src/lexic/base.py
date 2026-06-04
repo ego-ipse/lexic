@@ -55,7 +55,7 @@ class GrammarModel(BaseModel):
                 else:
                     parts.append(str(val))
             elif isinstance(item.atom, IrLiteral):
-                parts.append(item.atom.value)
+                parts.append(item.atom)
         return "".join(parts)
 
     def to_grammar(self, flavour: str = "gbnf") -> str:

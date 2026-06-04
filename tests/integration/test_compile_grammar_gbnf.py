@@ -52,9 +52,7 @@ def test_non_semantic_ws_transparent_to_round_trip():
     ws_item = next(
         i
         for i in root.items
-        if isinstance(i, IrItem)
-        and isinstance(i.atom, IrRuleRef)
-        and i.atom.value == "ws"
+        if isinstance(i, IrItem) and isinstance(i.atom, IrRuleRef) and i.atom == "ws"
     )
     assert ws_item.quantifier.min == 0
     assert "ws" in root.non_semantic_fields
@@ -74,9 +72,7 @@ def test_explicit_non_semantic_overrides_directive():
     ws_item = next(
         i
         for i in root.items
-        if isinstance(i, IrItem)
-        and isinstance(i.atom, IrRuleRef)
-        and i.atom.value == "ws"
+        if isinstance(i, IrItem) and isinstance(i.atom, IrRuleRef) and i.atom == "ws"
     )
     assert ws_item.quantifier.min == 1
     assert root.non_semantic_fields == frozenset()
