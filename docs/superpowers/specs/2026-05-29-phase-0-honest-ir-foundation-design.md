@@ -6,6 +6,13 @@ detail; **0d** (`IrNonSemantic`) is a tracked forward-pointer that becomes its
 own spec. This document **opens** the canonical-op slice deferred by the
 `2026-05-17`/`-18` specs (ledger #8) — see §0a.4.
 
+> **Realigned to the V2 primitive node model (2026-06-04).** The V2 migration
+> (`2026-06-01-ir-primitive-node-model.md`) landed before this phase was built,
+> removing `IrType`/`coerce`/`IrCollection`/`_items_attr`. §0a–§0c below are
+> re-derived against the V2 substrate per
+> `2026-06-04-phase-0-v2-realignment-design.md` — read that for the rationale and
+> the exact node shapes.
+
 **Relationship to prior notes.** Supersedes the working notes
 `2026-05-29-charclass-quantifier-and-lark.md` §2–§3 with concrete decisions
 reached 2026-05-29. Two corrections to those notes, both code-verified:
@@ -57,17 +64,25 @@ built from the algebra). Layering holds: `ir ← grammars`, `ir ← parsing`,
 
 ### 0a.1 New ops
 
-- **`IrInt(IrType, int)`** — exact sibling of `IrStr`. `_bound = int`, neutral
-  `0`, single-arg `coerce`. Exists to be the **honest operand** for comparison,
-  so no raw Python int is smuggled through `getattr` (the stringly-escape §2.3
-  forbids).
+- **`IrScalar`** — a new **pure marker** base (no `coerce`, no neutral element,
+  no behavior) for "constructible-from-a-Python-scalar value leaf". Not a revival
+  of `IrType` (which carried coercion). `IrStr` re-parents onto it; `IrInt` is
+  its new sibling.
+- **`IrInt(IrScalar, int)`** — exact sibling of `IrStr`. `_bound = int`;
+  self-evaluating (`eval` returns `self`); **no `coerce`** (V2 removed it —
+  construct `IrInt(3)` directly). Native int equality (no sibling int-leaf kinds
+  to disambiguate). Exists to be the **honest operand** for comparison, so no raw
+  Python int is smuggled through `getattr` (the stringly-escape §2.3 forbids).
 - **`IrCompare(left: IrNode, op: Cmp, right: IrNode)`** — `Cmp` a closed enum,
   **`EQ | LT | GT`** only. `eval` evaluates both sides via `.eval` and compares
   with native builtins (`IrInt` *is-a* `int`). **Returns `IrInt(0)`/`IrInt(1)`**;
   `IrCond` tests it by native truthiness (`bool(IrInt(0))` is `False`).
-- **`IrAnd(parts: IrTuple[IrNode])`** — conjunction; `eval` is AND over the
-  truthiness of evaluated parts, yielding `IrInt(0/1)`. `IrOr` and boolean-`NOT`
-  are **not** built (no Phase-0 consumer; see §0a.5).
+- **`IrAnd(IrTuple[IrNode, IrInt])`** — conjunction, an **`IrTuple` subclass**
+  (it IS its operand tuple); `eval` is short-circuit AND over the truthiness of
+  evaluated parts, yielding `IrInt(0/1)`. Requires `IrTuple` to gain a result
+  type parameter so its reducer `eval` returns `IrInt` rather than the inherited
+  rebuild `-> Self` (realignment design §3.4). `IrOr` and boolean-`NOT` are
+  **not** built (no Phase-0 consumer; see §0a.5).
 
 ### 0a.2 Generalized `IrCond`
 
@@ -76,12 +91,17 @@ built from the algebra). Layering holds: `ir ← grammars`, `ir ← parsing`,
 coercion** (zero callers). This is the only shape change to an existing
 canonical op besides §0a.3.
 
-### 0a.3 `IrField` bound widening
+### 0a.3 `IrField` reads non-string attributes via a runtime `out`
 
-`IrField[Ir_co: IrStr = IrStr]` → **`IrField[Ir_co: IrType = IrStr]`** so it can
-read `IrInt`-typed attributes (`IrField[IrInt]("min")`). Required by 0b's
-algebraic quantifier emit (comparing bounds without `getattr`-int smuggling).
-Default stays `IrStr` — existing string field-reads are unaffected.
+PEP 695 type parameters are **erased at runtime**, so the landed
+`IrField[Ir_co: IrStr]` — which wraps via `self.bound`, pinned to `IrStr` at
+class-definition — **cannot** be retargeted by subscripting: `IrField[IrInt]("min")`
+would still build `IrStr`. The output constructor must be a **runtime value**.
+`IrField` gains `out: type[Ir_co] = IrStr` (`Ir_co` bound `IrScalar`), and `eval`
+returns `self.out(getattr(n, name))`. Read an int with `IrField("min", IrInt)`.
+Required by 0b's algebraic quantifier emit (comparing bounds without
+`getattr`-int smuggling). Default `out=IrStr` keeps existing string field-reads
+unaffected.
 
 ### 0a.4 Booleans, with no `IrBool` node (decision X)
 
@@ -107,8 +127,9 @@ This section **formally amends** the op freeze of `2026-05-17` §rule-5 / `2026-
 - **Name correction:** the canonical body ops are
   `IrReturn, IrChild, IrChildren, IrConcat, IrField, IrCond, IrJoin, IrCallable,
   IrLiteral` — **not** `IrText` (which does not exist).
-- **Additions:** `IrInt`, `IrCompare`, `IrAnd`; `IrCond` reshaped (§0a.2);
-  `IrField` bound widened (§0a.3).
+- **Additions:** `IrScalar` (value marker), `IrInt`, `IrCompare`, `IrAnd`;
+  `IrCond` reshaped (§0a.2); `IrField` gains a runtime `out` (§0a.3); `IrTuple`
+  gains a result type parameter (§0a.1 `IrAnd`).
 - **Unchanged rules:** `IrCallable` remains the sanctioned procedural escape
   hatch; any op beyond this amended set requires a further amendment.
 
@@ -124,8 +145,10 @@ each `Cmp` over `IrInt` operands; `IrAnd` truthiness; generalized `IrCond` with 
 
 ### 0b.1 Representation
 
-`IrQuantifier` becomes an **arity-encoded tuple of `IrInt`**; **arity encodes
-unboundedness** (no stored `None`):
+`IrQuantifier` becomes an **arity-encoded `IrTuple[IrInt, IrQuantifier]`**;
+**arity encodes unboundedness** (no stored `None`). This also **removes a V2
+inconsistency**: the landed `IrQuantifier` still carries `max: int | None`,
+contradicting V2's union-free / `IrNone` ethos — 0b drops that union.
 - arity 2 = closed interval `[lo, hi]`; arity 1 = half-open `[lo, ∞)`.
 - `(0,)`→`*`, `(1,)`→`+`, `(0,1)`→`?`, `(n,n)`→`{n}`, `(n,)`→`{n,}`,
   `(n,m)`→`{n,m}`. Pinned convention: `(n,)` is *at least n*; *exactly n* is
@@ -191,11 +214,14 @@ Remove `tests/unit/lexic/utils/test_quantifiers.py`.
 
 ### 0c.1 Node shape
 
-`IrCharClass` stops being a `value:str` leaf and becomes an **`IrCollection` of
-typed members**, retaining `IrAtom` by multi-inheritance (as `IrGroup` does):
-- `IrChar(value: str)` — one decoded, canonical character.
-- `IrRange(lo: IrChar, hi: IrChar)` — inclusive range (a codepoint interval; a
-  second future customer for `IrRanged`/Y, recorded not forced).
+`IrCharClass` stops being a `value:str` leaf and becomes an **`IrTuple`-of-members
+subclass** (`IrCollection` was removed in V2), retaining `IrAtom` by
+multi-inheritance (as `IrGroup` does):
+- `IrChar` — one decoded, canonical character; a scalar/str-style leaf (the char
+  IS the payload), not a `value:str` composite.
+- `IrRange(lo: IrChar, hi: IrChar)` — inclusive range, an `IrComposite` (a
+  codepoint interval; a second future customer for `IrRanged`/Y, recorded not
+  forced).
 - A member base marker (`IrCharClassMember`).
 - **`NamedSet` (`\d`/`\w`/`\s`/POSIX) is defined in the hierarchy but not built**
   — no GBNF/ABNF or ground-truth consumer; it arrives with Lark/regex in Phase 1
