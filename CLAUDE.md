@@ -40,7 +40,7 @@ If `ruff` flags files in `generated/`, fix the template in `src/lexic/codegen/mo
 
 ## Current state — single IrItem pipeline
 
-The IrItem-based cutover is complete. There is one pipeline:
+The IrItem-based cutover is complete, and the **primitive-node model (V2)** migration is done: nodes now *are* their payload (str-leaves subclass `str`, variadic collections subclass `tuple`, fixed-arity records are `IrComposite` dataclasses) — `IrType`/`coerce`/`IrStrLeaf`/`IrCollection`/`_items_attr` are gone. See §IR types. There is one pipeline:
 
 - IR shape: `IrItem`-based nodes (`ir/nodes.py`) — `IrLiteral`, `IrCharClass`, `IrRuleRef`, `IrGroup`, `IrItem(atom, quantifier)`.
 - Spec type: `RuleSpec` (in `ir/spec.py`).
@@ -60,17 +60,18 @@ src/lexic/
 
   ir/
     __init__.py         re-exports IrItem nodes, RuleSpec
-    nodes.py            IrSelf mixin; IrNode[Ir_co] generic ABC; IrType/IrStr/IrTuple
-                        typed bases; IrLeaf/IrStructure/IrCollection/IrComposite;
-                        IrLiteral, IrCharClass, IrRuleRef, IrGroup, IrNot, IrItem,
-                        IrQuantifier, IrSequence, IrAlternation, IrRule, IrAst;
-                        IrNone absence sentinel
+    nodes.py            IrSelf[Iri,Ir_co] generic root; IrNode ABC; IrAtom role
+                        marker; three tiers: IrStr str-leaves (IrLiteral, IrCharClass,
+                        IrRuleRef), IrTuple variadic (IrSequence, IrAlternation),
+                        IrComposite frozen-dataclass records (IrItem, IrQuantifier,
+                        IrGroup, IrNot, IrRule, IrAst); IrNoneType/IrNone sentinel.
+                        IrStr.__eq__ is type-aware (distinct leaf kinds never equal)
     action.py           Action-algebra nodes: IrField, IrCallable, IrChild, IrChildren,
-                        IrConcat, IrJoin, IrCond, IrReturn, IrAction; default bodies
-                        IrPass, IrWalk, IrRaise, IrEmit, IrRebuild
-    walk.py             IrDispatch[Ir_co] — IrCollection of IrActions; presets
-                        IrVisitor, IrTransformer, IrEmitter. Does NOT walk children
-                        automatically — action bodies own recursion
+                        IrConcat, IrJoin, IrCond, IrThis, IrReturn, IrAction; default
+                        bodies IrPass, IrWalk, IrRaise, IrEmit, IrRebuild
+    walk.py             IrDispatch[Iri,Ir_co] — IrComposite; actions tuple is the
+                        table; presets IrVisitor, IrTransformer, IrEmitter. Does NOT
+                        walk children automatically — action bodies own recursion
     emit.py             render_specs() helper — list[RuleSpec] → text via a flavour
                         singleton. Currently only consumed by its own test; may be
                         wired into the broader pipeline later
@@ -185,27 +186,31 @@ No `TYPE_CHECKING` dodges. No lazy intra-function imports of `lexic.codegen` fro
 
 ## IR types (`ir/nodes.py` + `ir/action.py` + `ir/spec.py`)
 
-Every IR node is callable: `node.__call__(d, n, nc) -> Ir_co` where `Ir_co` defaults to `IrSelf` (identity). The `IrSelf` mixin supplies the default identity `__call__` and the action-protocol `eval(d, n, nc) -> Ir_co`. Value-producing nodes override `eval`. `IrNode[Ir_co]` is a generic dataclass ABC that extends `IrSelf[Ir_co]`.
+The **primitive-node model** ("V2"): a node *is* its payload. Every IR node is callable: `node.__call__(d, n, nc) -> Self` (identity) and carries the action protocol `eval(d, n, nc) -> Ir_co`. `IrSelf[Iri, Ir_co]` is the generic root supplying the identity `__call__`, default `eval`, `children`/`rebuild`, and the `bound`/`bind` helpers. `Iri` is the input node type; `Ir_co` the covariant return type. `_bound` is auto-derived from the **last** own type parameter (`Ir_co`) or set explicitly (`IrStr._bound = str`, `IrTuple._bound = tuple`, `IrEmit._bound = IrLiteral`). `IrNode[Iri, Ir_co](IrSelf, ABC)` adds `__repr__`-is-codegen (no `__str__`/`_str_name` cascade).
 
-**Typed bases:** `IrType` is the base for `IrSelf`-shaped nodes that are also Python natives. `IrStr` is `IrType + str`; `IrTuple[T]` is `IrType + tuple` whose `eval` dispatches each element via `d` and rebuilds the tuple.
+**Absence** is the singleton `IrNone` — the value of `@final IrNoneType(IrSelf)`, never Python `None`. It IS-A `IrSelf`, so it fits every dispatch slot and keeps signatures union-free. Use `IrNoneType` for `isinstance`/annotations; pass bare `IrNone`; compare `x is IrNone`.
 
-**Grammar AST nodes:**
+**Three tiers — the node IS its payload (there are NO `.value` / `.items` / `.arms` accessors):**
 
 ```
-IrLeaf       = IrLiteral | IrCharClass | IrRuleRef        (+ IrQuantifier)
-IrAtom       = IrLeaf | IrGroup | IrNot                   (role marker)
-IrStructure  = IrCollection | IrComposite                  (branch nodes)
-IrCollection: IrSequence, IrAlternation, IrAst             (homogeneous items)
-IrComposite:  IrGroup, IrNot, IrItem, IrRule               (named children)
+str-leaves   IrStr(IrLeaf, str)         IrLiteral, IrCharClass, IrRuleRef   — the node IS the string
+variadic     IrTuple[T](IrNode, tuple)  IrSequence, IrAlternation           — the node IS its children tuple
+records      IrComposite (frozen dataclass)  IrItem, IrQuantifier, IrGroup, IrNot, IrRule, IrAst
 ```
 
-`IrItem(atom: IrAtom, quantifier: IrQuantifier)` — the universal wrapper. `IrQuantifier(min, max | None)` carries repetition bounds. The pair `(_child_attrs, _items_attr)` declares which dataclass fields are dispatched children.
+`IrAtom(IrNode)` is a **non-generic role marker** mixed into atoms (`IrLiteral`/`IrCharClass`/`IrRuleRef`/`IrGroup`/`IrNot`); `IrItem.atom: IrAtom` accepts any.
 
-`IrLiteral` carries a **dual role**: as a grammar AST leaf (the literal string in a rule body) and as an action-language constant (a baked-in string an action body returns). The two are distinguished at eval time by the `nc` (node-children) parameter — see [[ir-shapes]].
+- **str-leaves** subclass `str` — use the leaf directly as a `str` (`leaf == "x"`, `LITERAL_NAMES.get(leaf)`). `IrStr.__eq__` is **type-aware**: `IrLiteral("x") != IrRuleRef("x")` (distinct leaf kinds never compare equal) yet `IrLiteral("x") == "x"` (plain-`str` compatibility preserved); `__hash__` stays native `str.__hash__`. This keeps structural tree equality/hashing honest (so `@cache`, dict/set keys, and `tree == tree` work) while leaves still match plain-`str` dict keys.
+- **variadic collections** subclass `tuple` — iterate/index the node directly (`seq[0]`, `for arm in alt`). Construct variadically: `IrSequence(*items)`, `IrAlternation(seq1, seq2)`, `IrAst(IrTuple(*rules), start)`.
+- **records** are frozen `@dataclass(slots=True, repr=False)` `IrComposite` subclasses. The ClassVar `_child_attrs` names the dataclass fields that are dispatched children (no `_items_attr` — `IrCollection` is gone). `IrItem(atom, quantifier)`, `IrQuantifier(min, max | None)` (plain ints), `IrRule(name: str, body: IrAlternation)`, `IrAst(rules: IrTuple, start: str)` — note `IrAst.children()` returns `(rules_tuple,)`, so code wanting the rules iterates `ast.rules`.
 
-**Action-algebra nodes** (`ir/action.py`) extend the IR with operations beyond identity: `IrField` reads a typed attribute from the dispatched node; `IrCallable` is the procedural escape hatch; `IrChild` / `IrChildren` resolve sibling children by name (hybrid: pre-walked from `nc` when populated, otherwise dispatched lazily via `d.eval`); `IrConcat` and `IrJoin` build strings; `IrCond` branches on a truthy field; `IrReturn` short-circuits via a `_Return` BaseException; `IrAction(target_type, body)` binds a target IR-node type to a callable IR body. Default bodies: `IrPass`, `IrWalk`, `IrRaise`, `IrEmit`, `IrRebuild`.
+`IrLiteral` keeps a **dual role**: a grammar-AST leaf and an action-language constant — distinguished at eval time by the `nc` parameter; see [[ir-shapes]].
 
-**Dispatch** (`ir/walk.py`): `IrDispatch[Ir_co]` is an `IrCollection[Ir_co]` whose items are the action table. It does **not** walk children automatically — action bodies do their own recursion. Resolution is concrete-first MRO walk, memoised. Entry seams are `eval(d, n, nc)` (protocol shape) and `apply(root)` (friendly façade). Presets: `IrVisitor` (side-effect walker; default `IrWalk`), `IrTransformer[IrNode]` (tree rewrites; default `IrRebuild`), `IrEmitter[IrLiteral]` (string emission; default `IrEmit`).
+**Action-algebra nodes** (`ir/action.py`): `IrField` reads a named attribute; `IrCallable` is the procedural escape hatch; `IrChild`/`IrChildren` resolve children; `IrConcat`/`IrJoin` build strings (`parts: IrTuple`); `IrCond` branches on a truthy field; `IrThis` is the identity body returning the dispatched node `n`; `IrReturn` short-circuits — it lazy-evaluates its body against `(d, n, nc)` and re-raises the result via the `_Return` BaseException, defaulting to `IrThis()` so `IrReturn()` surfaces the matched node (the find-first pattern); `IrAction(target_type, body)` binds a node type to a body. Default bodies: `IrPass`, `IrWalk`, `IrRaise`, `IrEmit`, `IrRebuild`.
+
+**Dispatch** (`ir/walk.py`): `IrDispatch[Iri, Ir_co]` is an `IrComposite` whose `actions` tuple is the table (a plain field, **not** a dispatched child). It does **not** walk children automatically — action bodies own recursion. Resolution is concrete-first MRO walk, memoised. Entry seams: `eval(d, n, nc)` (protocol) and `apply(root)` (façade). Presets: `IrVisitor` (default `IrWalk`), `IrTransformer` (default `IrRebuild`), `IrEmitter` (default `IrEmit`).
+
+> **Open-set note (deferred rework).** Consumers (`derive`, `codegen`, `parsing`, `generate`) still carry closed-set `isinstance` ladders and `dict[type, …]` tables. A separate, deferred effort re-homes node-intrinsic logic onto the nodes and consumer policy onto open `IrDispatch` tables (see the open-classes principle). Until then those ladders are legacy, not the target shape.
 
 `RuleSpec(rule_name, class_name, parent_class_name, kind, items: list[IrItem | IrAlternation], field_map, non_semantic_fields)` — one rule. Carries `to_ir_rule()` for emission via a flavour.
 
@@ -222,9 +227,11 @@ Multi-arm `value_str`: `items = [IrAlternation(...)]`; emitters dispatch on `isi
 An `IrFlavour` IS-AN `IrEmitter` — its `actions` tuple holds the per-IR-type rendering rules, and `apply(root)` walks an IR tree to a string. Each flavour module exposes the class as **private** (`_GbnfFlavour`) and the constructed singleton as **public** (`GBNF_FLAVOUR`).
 
 ```python
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class _MyFlavour(IrFlavour):
     actions: tuple[IrAction, ...] = MY_ACTIONS   # class-level default
+    # NOTE: do NOT use init=False — it suppresses the generated __init__ so
+    # `actions` silently resolves to the empty IrDispatch default at runtime.
 
     name: ClassVar[str] = "myflavour"
     extensions: ClassVar[tuple[str, ...]] = (".mf",)
