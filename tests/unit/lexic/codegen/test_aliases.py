@@ -56,10 +56,8 @@ def test_regex_for_group_alternation():
     """('foo' | 'bar')+ → ^(foo|bar)+$."""
     grp = IrGroup(
         IrAlternation(
-            (
-                IrSequence((IrItem(IrLiteral("foo"), IrQuantifier(1, 1)),)),
-                IrSequence((IrItem(IrLiteral("bar"), IrQuantifier(1, 1)),)),
-            )
+            IrSequence(IrItem(IrLiteral("foo"), IrQuantifier(1, 1))),
+            IrSequence(IrItem(IrLiteral("bar"), IrQuantifier(1, 1))),
         )
     )
     assert regex_for_group(grp, IrQuantifier(1, None)) == r"^(foo|bar)+$"
@@ -125,14 +123,10 @@ def test_collect_aliases_skips_group_with_ruleref():
     """A group containing an IrRuleRef does not produce a PatternAlias."""
     grp = IrGroup(
         IrAlternation(
-            (
-                IrSequence(
-                    (
-                        IrItem(IrLiteral("("), IrQuantifier(1, 1)),
-                        IrItem(IrRuleRef("expr"), IrQuantifier(1, 1)),
-                        IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
-                    )
-                ),
+            IrSequence(
+                IrItem(IrLiteral("("), IrQuantifier(1, 1)),
+                IrItem(IrRuleRef("expr"), IrQuantifier(1, 1)),
+                IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
             )
         )
     )
@@ -149,13 +143,9 @@ def test_collect_aliases_pure_group_with_inner_charclass_emits_both():
     """Pure-pattern outer group + inner [0-9] both produce aliases."""
     grp = IrGroup(
         IrAlternation(
-            (
-                IrSequence(
-                    (
-                        IrItem(IrCharClass("0-9"), IrQuantifier(1, None)),
-                        IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
-                    )
-                ),
+            IrSequence(
+                IrItem(IrCharClass("0-9"), IrQuantifier(1, None)),
+                IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
             )
         )
     )

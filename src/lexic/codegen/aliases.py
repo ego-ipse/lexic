@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction, IrCallable
@@ -77,7 +78,7 @@ def regex_for_charclass(
     :param negated: Whether to emit ``[^...]`` instead of ``[...]``.
     :returns: Anchored regex string.
     """
-    return f"^{_bracket(cc.value, negated)}{_suffix(q)}$"
+    return f"^{_bracket(cc, negated)}{_suffix(q)}$"
 
 
 def _atom_regex_fragment(item: IrItem) -> str:
@@ -85,11 +86,11 @@ def _atom_regex_fragment(item: IrItem) -> str:
     atom = item.atom
     q = _suffix(item.quantifier)
     if isinstance(atom, IrLiteral):
-        return re.escape(atom.value) + q
+        return re.escape(atom) + q
     if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return _bracket(atom.body.value, True) + q
+        return _bracket(atom.body, True) + q
     if isinstance(atom, IrCharClass):
-        return _bracket(atom.value, False) + q
+        return _bracket(atom, False) + q
     if isinstance(atom, IrGroup):
         return f"({_alt_regex_fragment(atom.body)}){q}"
     raise UnsupportedConstructError(
@@ -99,12 +100,12 @@ def _atom_regex_fragment(item: IrItem) -> str:
 
 def _seq_regex_fragment(seq: IrSequence) -> str:
     """Concatenate regex fragments for each item in the sequence."""
-    return "".join(_atom_regex_fragment(it) for it in seq.items)
+    return "".join(_atom_regex_fragment(it) for it in seq)
 
 
 def _alt_regex_fragment(alt: IrAlternation) -> str:
     """Pipe-join regex fragments for the arms of the alternation."""
-    return "|".join(_seq_regex_fragment(s) for s in alt.arms)
+    return "|".join(_seq_regex_fragment(s) for s in alt)
 
 
 def regex_for_group(grp: IrGroup, q: IrQuantifier) -> str:
@@ -122,18 +123,18 @@ def _name_for_charclass(cc: IrCharClass, *, negated: bool = False) -> str:
     :param negated: Whether this charclass is negated (wrapped in IrNot).
     :returns: CamelCase tier-2 name, or empty string if no Tier-2 match.
     """
-    tier2 = CHARCLASS_NAMES.get(_bracket(cc.value, negated))
+    tier2 = CHARCLASS_NAMES.get(_bracket(cc, negated))
     return _camel(tier2) if tier2 else ""
 
 
 # ── Handler functions (defined before the class to resolve forward refs) ──────
 
 
-def _mark_ruleref(d: _PatternAliasVisitor, _n: IrRuleRef, _nc: object) -> IrSelf:
+def _mark_ruleref(d: _PatternAliasVisitor, _n: IrSelf, _nc: Sequence[IrSelf]) -> IrSelf:
     """Mark the current frame dirty so the enclosing group is non-pure.
 
     :param d: The visitor driving the walk.
-    :param _n: The IrRuleRef node (unused beyond type dispatch).
+    :param _n: The dispatched node (dispatch guarantees IrRuleRef; unused).
     :param _nc: Pre-dispatched children (unused).
     :returns: :data:`IrNone`.
     """
@@ -141,7 +142,7 @@ def _mark_ruleref(d: _PatternAliasVisitor, _n: IrRuleRef, _nc: object) -> IrSelf
     return IrNone
 
 
-def _visit_item(d: _PatternAliasVisitor, item: IrItem, _nc: object) -> IrSelf:
+def _visit_item(d: _PatternAliasVisitor, n: IrSelf, _nc: Sequence[IrSelf]) -> IrSelf:
     """Handle IrItem dispatch — group frames, pattern recording, then recurse.
 
     For IrGroup atoms: push a ruleref frame, recurse, then either propagate
@@ -150,11 +151,16 @@ def _visit_item(d: _PatternAliasVisitor, item: IrItem, _nc: object) -> IrSelf:
     recurse into the atom's children.
 
     :param d: The visitor driving the walk.
-    :param item: The IrItem node being dispatched.
+    :param n: The dispatched node (dispatch guarantees IrItem).
     :param _nc: Pre-dispatched children (unused — we control recursion here).
     :returns: :data:`IrNone`.
+    :raises UnsupportedConstructError: If ``n`` is not an IrItem.
     """
-    atom, q = item.atom, item.quantifier
+    if not isinstance(n, IrItem):
+        raise UnsupportedConstructError(
+            f"_visit_item: expected IrItem, got {type(n).__name__}"
+        )
+    atom, q = n.atom, n.quantifier
     if isinstance(atom, IrGroup):
         d.ruleref_frames.append(False)
         d.eval(d, atom, ())
@@ -181,7 +187,7 @@ def _visit_item(d: _PatternAliasVisitor, item: IrItem, _nc: object) -> IrSelf:
 # ── Stateful visitor ──────────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class _PatternAliasVisitor(IrVisitor):
     """Single-pass collector that emits a PatternAlias per pure-pattern subtree.
 

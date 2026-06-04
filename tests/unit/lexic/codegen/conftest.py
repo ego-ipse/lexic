@@ -45,13 +45,9 @@ def make_charclass_literal_group() -> IrGroup:
     """Return the IrGroup for ([a-h] 'x') used in alias and emitter tests."""
     return IrGroup(
         IrAlternation(
-            (
-                IrSequence(
-                    (
-                        IrItem(IrCharClass("a-h"), IrQuantifier(1, 1)),
-                        IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
-                    )
-                ),
+            IrSequence(
+                IrItem(IrCharClass("a-h"), IrQuantifier(1, 1)),
+                IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
             )
         )
     )

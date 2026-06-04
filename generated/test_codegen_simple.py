@@ -20,7 +20,7 @@ Greet.__grammar__ = RuleSpec(
     class_name="Greet",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(atom=IrLiteral(value="hi"), quantifier=IrQuantifier(min=1, max=1))],
+    items=[IrItem(atom=IrLiteral("hi"), quantifier=IrQuantifier(min=1, max=1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

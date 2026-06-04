@@ -53,6 +53,7 @@ from lexic.ir.nodes import (
     IrRule,
     IrRuleRef,
     IrSequence,
+    IrTuple,
 )
 
 # ── builder functions ─────────────────────────────────────────────────
@@ -73,10 +74,10 @@ def _build_charclass(flavour: IrFlavour, children: list) -> IrAtom:
 
 
 _IR_BUILDERS: dict[str, _IrBuilder] = {
-    "start": lambda _f, c: IrAst(rules=tuple(c), start=c[0].name if c else ""),
+    "start": lambda _f, c: IrAst(rules=IrTuple(*c), start=c[0].name if c else ""),
     "ir_rule": lambda _f, c: IrRule(name=str(c[0]), body=c[1]),
-    "ir_alternation": lambda _f, c: IrAlternation(arms=tuple(c)),
-    "ir_sequence": lambda _f, c: IrSequence(items=tuple(c)),
+    "ir_alternation": lambda _f, c: IrAlternation(*c),
+    "ir_sequence": lambda _f, c: IrSequence(*c),
     "ir_literal": lambda f, c: f.normalize_literal(f.escapes.decode(str(c[0])[1:-1])),
     "ir_charclass": _build_charclass,
     "ir_ruleref": lambda _f, c: IrRuleRef(str(c[0])),

@@ -78,9 +78,7 @@ Root.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(
-            atom=IrRuleRef(value="root-item"), quantifier=IrQuantifier(min=1, max=None)
-        )
+        IrItem(atom=IrRuleRef("root-item"), quantifier=IrQuantifier(min=1, max=None))
     ],
     field_map={"root_item": 0},
     non_semantic_fields=frozenset([]),
@@ -93,10 +91,8 @@ Expr.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(atom=IrRuleRef(value="term"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(
-            atom=IrRuleRef(value="expr-item"), quantifier=IrQuantifier(min=0, max=None)
-        ),
+        IrItem(atom=IrRuleRef("term"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef("expr-item"), quantifier=IrQuantifier(min=0, max=None)),
     ],
     field_map={"term": 0, "expr_item": 1},
     non_semantic_fields=frozenset([]),
@@ -109,11 +105,9 @@ Term.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="alternation",
     items=[
-        IrItem(atom=IrRuleRef(value="ident"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrRuleRef(value="num"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(
-            atom=IrRuleRef(value="term-arm3"), quantifier=IrQuantifier(min=1, max=1)
-        ),
+        IrItem(atom=IrRuleRef("ident"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef("num"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef("term-arm3"), quantifier=IrQuantifier(min=1, max=1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -126,11 +120,11 @@ TermArm3.__grammar__ = RuleSpec(
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(atom=IrLiteral(value="("), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrRuleRef(value="ws"), quantifier=IrQuantifier(min=0, max=1)),
-        IrItem(atom=IrRuleRef(value="expr"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrLiteral(value=")"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrRuleRef(value="ws"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(atom=IrLiteral("("), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef("ws"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(atom=IrRuleRef("expr"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrLiteral(")"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef("ws"), quantifier=IrQuantifier(min=0, max=1)),
     ],
     field_map={"ws": 1, "expr": 2, "ws2": 4},
     non_semantic_fields=frozenset(["ws", "ws2"]),
@@ -143,11 +137,9 @@ Ident.__grammar__ = RuleSpec(
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(atom=IrCharClass(value="a-z"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(
-            atom=IrCharClass(value="a-z0-9_"), quantifier=IrQuantifier(min=0, max=None)
-        ),
-        IrItem(atom=IrRuleRef(value="ws"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(atom=IrCharClass("a-z"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrCharClass("a-z0-9_"), quantifier=IrQuantifier(min=0, max=None)),
+        IrItem(atom=IrRuleRef("ws"), quantifier=IrQuantifier(min=0, max=1)),
     ],
     field_map={"lower": 0, "head": 1, "ws": 2},
     non_semantic_fields=frozenset(["ws"]),
@@ -160,8 +152,8 @@ Num.__grammar__ = RuleSpec(
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(atom=IrCharClass(value="0-9"), quantifier=IrQuantifier(min=1, max=None)),
-        IrItem(atom=IrRuleRef(value="ws"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(atom=IrCharClass("0-9"), quantifier=IrQuantifier(min=1, max=None)),
+        IrItem(atom=IrRuleRef("ws"), quantifier=IrQuantifier(min=0, max=1)),
     ],
     field_map={"digit": 0, "ws": 1},
     non_semantic_fields=frozenset(["ws"]),
@@ -174,9 +166,7 @@ Ws.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(
-            atom=IrCharClass(value=" \\t\\n"), quantifier=IrQuantifier(min=0, max=None)
-        )
+        IrItem(atom=IrCharClass(" \\t\\n"), quantifier=IrQuantifier(min=0, max=None))
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -189,11 +179,11 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(atom=IrRuleRef(value="expr"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrLiteral(value="="), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrRuleRef(value="ws"), quantifier=IrQuantifier(min=0, max=1)),
-        IrItem(atom=IrRuleRef(value="term"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrLiteral(value="\n"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef("expr"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrLiteral("="), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef("ws"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(atom=IrRuleRef("term"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrLiteral("\n"), quantifier=IrQuantifier(min=1, max=1)),
     ],
     field_map={"expr": 0, "ws": 2, "term": 3},
     non_semantic_fields=frozenset(["ws"]),
@@ -206,8 +196,8 @@ ExprItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(atom=IrCharClass(value="-+*/"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrRuleRef(value="term"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrCharClass("-+*/"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef("term"), quantifier=IrQuantifier(min=1, max=1)),
     ],
     field_map={"head": 0, "term": 1},
     non_semantic_fields=frozenset([]),

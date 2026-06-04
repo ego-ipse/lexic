@@ -8,7 +8,19 @@ from lark import Lark
 from lexic.grammars.abnf.flavour import ABNF_ESCAPES, ABNF_FLAVOUR, META_GRAMMAR
 from lexic.grammars.flavour import IrFlavour
 from lexic.ir.escapes import EscapeCodec
-from lexic.ir.nodes import IrCharClass, IrGroup, IrLiteral, IrQuantifier
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrCharClass,
+    IrGroup,
+    IrItem,
+    IrLiteral,
+    IrNot,
+    IrQuantifier,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+)
 from lexic.parsing.meta_parser import MetaGrammarParser
 
 
@@ -77,19 +89,19 @@ def test_normalize_literal_alpha_expands_to_charclass_group():
     """`"abc"` in ABNF is case-insensitive; expand to ([aA] [bB] [cC])."""
     out = ABNF_FLAVOUR.normalize_literal("abc")
     assert isinstance(out, IrGroup)
-    items = out.body.arms[0].items
-    assert items[0].atom == IrCharClass("aA")
-    assert items[1].atom == IrCharClass("bB")
-    assert items[2].atom == IrCharClass("cC")
+    arm = out.body[0]
+    assert arm[0].atom == IrCharClass("aA")
+    assert arm[1].atom == IrCharClass("bB")
+    assert arm[2].atom == IrCharClass("cC")
 
 
 def test_normalize_literal_all_caps_still_expands():
     """All-caps is still case-expanded."""
     out = ABNF_FLAVOUR.normalize_literal("XY")
     assert isinstance(out, IrGroup)
-    items = out.body.arms[0].items
-    assert items[0].atom == IrCharClass("xX")
-    assert items[1].atom == IrCharClass("yY")
+    arm = out.body[0]
+    assert arm[0].atom == IrCharClass("xX")
+    assert arm[1].atom == IrCharClass("yY")
 
 
 def test_normalize_literal_non_alpha_stays_literal():
@@ -102,9 +114,9 @@ def test_normalize_literal_mixed_alphanumeric():
     """Letters case-expanded, digits stay literal — emit as group with mixed leaves."""
     out = ABNF_FLAVOUR.normalize_literal("a1")
     assert isinstance(out, IrGroup)
-    items = out.body.arms[0].items
-    assert items[0].atom == IrCharClass("aA")
-    assert items[1].atom == IrLiteral("1")
+    arm = out.body[0]
+    assert arm[0].atom == IrCharClass("aA")
+    assert arm[1].atom == IrLiteral("1")
 
 
 # ── End-to-end: parse a small ABNF sample ────────────────────────────
@@ -209,3 +221,28 @@ def test_meta_grammar_parses_alternation_with_slash():
     """ABNF alternation uses `/` not `|`."""
     parser = Lark(META_GRAMMAR, parser="earley", ambiguity="resolve")
     parser.parse('foo = "a" / "b" / "c"\n')
+
+
+def test_abnf_emitter_iremit_default_unreachable():
+    """Every IR-AST node type has an explicit action — IrEmit default never fires.
+
+    If any type is missing an action, the emitter would fall through to its
+    IrEmit default body and silently emit ``str(n)`` instead of raising.
+    This test locks that the default is structurally unreachable for ABNF.
+    """
+    registered = {action.target_type for action in ABNF_FLAVOUR.actions}
+    grammar_ast_types = {
+        IrLiteral,
+        IrCharClass,
+        IrNot,
+        IrRuleRef,
+        IrGroup,
+        IrQuantifier,
+        IrItem,
+        IrSequence,
+        IrAlternation,
+        IrRule,
+        IrAst,
+    }
+    missing = grammar_ast_types - registered
+    assert not missing, f"ABNF_FLAVOUR missing explicit actions for: {missing}"
