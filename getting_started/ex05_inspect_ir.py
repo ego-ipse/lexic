@@ -37,7 +37,7 @@ def main() -> None:
         print(f"  items[{len(spec.items)}]:")
         for i, item in enumerate(spec.items):
             if isinstance(item, IrAlternation):
-                arms = [arm.items[0].atom for arm in item]
+                arms = [arm[0].atom for arm in item]
                 print(f"    [{i}] alternation arms: {arms}")
             elif isinstance(item, IrItem):
                 atom = item.atom
