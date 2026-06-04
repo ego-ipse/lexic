@@ -7,16 +7,21 @@ import pytest
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
+    IrAtom,
     IrCharClass,
+    IrComposite,
     IrGroup,
     IrItem,
+    IrLeaf,
     IrLiteral,
     IrNode,
     IrNone,
+    IrNoneType,
     IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
     IrSequence,
     IrStr,
     IrTuple,
@@ -54,25 +59,25 @@ def test_quantifier_is_hashable():
 
 def test_ir_literal_holds_canonical_value():
     """Test that the IR literal holds a canonical value."""
-    lit = IrLiteral(value="hello")
-    assert lit.value == "hello"
+    lit = IrLiteral("hello")
+    assert lit == "hello"
 
 
 def test_ir_literal_canonical_python_newline():
     """Test that the IR literal holds a canonical Python newline."""
-    lit = IrLiteral(value="a\nb")
-    assert lit.value == "a\nb"
+    lit = IrLiteral("a\nb")
+    assert lit == "a\nb"
 
 
 def test_ir_literal_is_frozen_and_hashable():
-    """Frozen dataclass is hashable and deduplicates in sets."""
+    """Str leaves are hashable and deduplicate in sets."""
     assert len({IrLiteral("a"), IrLiteral("a")}) == 1
 
 
 def test_ir_charclass_holds_pattern():
     """Test that the IR character class holds the pattern."""
     cc = IrCharClass("a-z")
-    assert cc.value == "a-z"
+    assert cc == "a-z"
 
 
 def test_ir_not_wraps_charclass():
@@ -80,13 +85,13 @@ def test_ir_not_wraps_charclass():
     cc = IrCharClass("\\n")
     node = IrNot[IrCharClass](body=cc)
     assert node.body is cc
-    assert node.body.value == "\\n"
+    assert node.body == "\\n"
 
 
 def test_ir_ruleref_holds_name():
     """Test that the IR rule reference holds the correct name."""
-    r = IrRuleRef(value="expr")
-    assert r.value == "expr"
+    r = IrRuleRef("expr")
+    assert r == "expr"
 
 
 # ── IrItem ───────────────────────────────────────────────────────────
@@ -107,17 +112,7 @@ def test_ir_item_with_explicit_quantifier():
 
 def test_ir_item_atom_can_be_group():
     """Test that the IR item can have a group as its atom."""
-    grp = IrGroup(
-        IrAlternation(
-            IrTuple(
-                IrSequence(
-                    IrTuple(
-                        IrItem(IrLiteral("a")),
-                    )
-                ),
-            )
-        )
-    )
+    grp = IrGroup(IrAlternation(IrSequence(IrItem(IrLiteral("a")))))
     it = IrItem(atom=grp, quantifier=IrQuantifier(1, None))
     assert isinstance(it.atom, IrGroup)
 
@@ -127,77 +122,44 @@ def test_ir_item_atom_can_be_group():
 
 def test_ir_sequence_items_are_tuple():
     """Test that the IR sequence holds its items in a tuple."""
-    seq = IrSequence(IrTuple(IrItem(IrLiteral("a")), IrItem(IrLiteral("b"))))
-    assert isinstance(seq.items, tuple)
-    assert len(seq.items) == 2
+    seq = IrSequence(IrItem(IrLiteral("a")), IrItem(IrLiteral("b")))
+    assert isinstance(seq, tuple)
+    assert len(seq) == 2
 
 
 def test_ir_alternation_arms_are_tuple():
     """Test that the IR alternation holds its arms in a tuple."""
-    alt = IrAlternation(
-        IrTuple(
-            IrSequence(
-                IrTuple(
-                    IrItem(IrLiteral("a")),
-                )
-            ),
-        )
-    )
-    assert isinstance(alt.arms, tuple)
+    alt = IrAlternation(IrSequence(IrItem(IrLiteral("a"))))
+    assert isinstance(alt, tuple)
 
 
 def test_ir_group_wraps_alternation():
     """An IR group should wrap an IrAlternation body."""
-    alt = IrAlternation(
-        IrTuple(
-            IrSequence(
-                IrTuple(
-                    IrItem(IrLiteral("x")),
-                )
-            ),
-        )
-    )
+    alt = IrAlternation(IrSequence(IrItem(IrLiteral("x"))))
     grp = IrGroup(body=alt)
     assert grp.body is alt
 
 
 def test_ir_rule_has_alternation_body():
     """An IR rule should have a body that is an IrAlternation, even if single-arm."""
-    body = IrAlternation(
-        IrTuple(
-            IrSequence(
-                IrTuple(
-                    IrItem(IrLiteral("x")),
-                )
-            ),
-        )
-    )
-    rule = IrRule(name=IrStr("r"), body=body)
+    body = IrAlternation(IrSequence(IrItem(IrLiteral("x"))))
+    rule = IrRule("r", body=body)
     assert rule.name == "r"
     assert rule.body is body
 
 
 def test_ir_ast_holds_rules_and_start():
     """An IR AST should hold a tuple of rules and the name of the start rule."""
-    body = IrAlternation(
-        IrTuple(
-            IrSequence(IrTuple()),
-        )
-    )
-    rule = IrRule(name=IrStr("root"), body=body)
-    ast = IrAst(
-        rules=IrTuple(
-            rule,
-        ),
-        start=IrStr("root"),
-    )
+    body = IrAlternation(IrSequence())
+    rule = IrRule("root", body=body)
+    ast = IrAst(IrTuple(rule), "root")
     assert ast.start == "root"
     assert ast.rules == (rule,)
 
 
 def test_ir_ast_is_frozen():
     """Frozen dataclass rejects attribute mutation on IrAst."""
-    ast = IrAst(rules=IrTuple(), start=IrStr("root"))
+    ast = IrAst(IrTuple(), "root")
     with pytest.raises(AttributeError):
         setattr(ast, "start", "other")
 
@@ -208,38 +170,22 @@ def test_ir_ast_is_frozen():
 def test_structurally_equal_asts_compare_equal():
     """Two IR ASTs with the same structure and values should compare equal."""
     a = IrAst(
-        rules=IrTuple(
+        IrTuple(
             IrRule(
-                IrStr("r"),
-                IrAlternation(
-                    IrTuple(
-                        IrSequence(
-                            IrTuple(
-                                IrItem(IrLiteral("x")),
-                            )
-                        ),
-                    )
-                ),
+                "r",
+                IrAlternation(IrSequence(IrItem(IrLiteral("x")))),
             ),
         ),
-        start=IrStr("r"),
+        "r",
     )
     b = IrAst(
-        rules=IrTuple(
+        IrTuple(
             IrRule(
-                IrStr("r"),
-                IrAlternation(
-                    IrTuple(
-                        IrSequence(
-                            IrTuple(
-                                IrItem(IrLiteral("x")),
-                            )
-                        ),
-                    )
-                ),
+                "r",
+                IrAlternation(IrSequence(IrItem(IrLiteral("x")))),
             ),
         ),
-        start=IrStr("r"),
+        "r",
     )
     assert a == b
 
@@ -281,7 +227,7 @@ def test_irnode_default_rebuild_is_identity():
 def test_iritem_children_returns_atom_and_quantifier():
     """An IrItem's children are its atom and quantifier."""
     item = IrItem(IrLiteral("x"), IrQuantifier(0, None))
-    assert item.children() == (item.atom, item.quantifier)
+    assert tuple(item.children()) == (item.atom, item.quantifier)
 
 
 def test_iritem_rebuild_replaces_atom_and_quantifier():
@@ -294,240 +240,118 @@ def test_iritem_rebuild_replaces_atom_and_quantifier():
 def test_irsequence_children_returns_items():
     """An IrSequence's children are its items."""
     a, b = IrItem(IrLiteral("a")), IrItem(IrLiteral("b"))
-    seq = IrSequence(IrTuple(a, b))
-    assert seq.children() == (a, b)
+    seq = IrSequence(a, b)
+    assert tuple(seq.children()) == (a, b)
 
 
 def test_irsequence_rebuild_replaces_items():
     """Rebuilding an IrSequence replaces its items."""
     a, b = IrItem(IrLiteral("a")), IrItem(IrLiteral("b"))
-    seq = IrSequence(
-        IrTuple(
-            a,
-        )
-    )
-    assert seq.rebuild((a, b)) == IrSequence(IrTuple(a, b))
+    seq = IrSequence(a)
+    assert seq.rebuild((a, b)) == IrSequence(a, b)
 
 
 def test_iralternation_children_returns_arms():
     """An IrAlternation's children are its arms."""
-    s = IrSequence(IrTuple())
-    alt = IrAlternation(
-        IrTuple(
-            s,
-        )
-    )
-    assert alt.children() == (s,)
+    s = IrSequence()
+    alt = IrAlternation(s)
+    assert tuple(alt.children()) == (s,)
 
 
 def test_iralternation_rebuild_replaces_arms():
     """Rebuilding an IrAlternation replaces its arms."""
-    s1, s2 = IrSequence(IrTuple()), IrSequence(IrTuple())
-    assert IrAlternation(
-        IrTuple(
-            s1,
-        )
-    ).rebuild((s1, s2)) == IrAlternation(IrTuple(s1, s2))
+    s1, s2 = IrSequence(), IrSequence()
+    assert IrAlternation(s1).rebuild((s1, s2)) == IrAlternation(s1, s2)
 
 
 def test_irgroup_children_returns_body():
     """An IrGroup's children are its body."""
-    body = IrAlternation(IrTuple())
+    body = IrAlternation()
     grp = IrGroup(body)
-    assert grp.children() == (body,)
+    assert tuple(grp.children()) == (body,)
 
 
 def test_irgroup_rebuild_replaces_body():
     """Rebuilding an IrGroup replaces its body."""
-    b1, b2 = (
-        IrAlternation(IrTuple()),
-        IrAlternation(
-            IrTuple(
-                IrSequence(IrTuple()),
-            )
-        ),
-    )
+    b1, b2 = IrAlternation(), IrAlternation(IrSequence())
     assert IrGroup(b1).rebuild((b2,)) == IrGroup(b2)
 
 
 def test_irrule_children_returns_body():
     """An IrRule's children are its body."""
-    body = IrAlternation(IrTuple())
-    rule = IrRule(IrStr("r"), body)
-    assert rule.children() == (body,)
+    body = IrAlternation()
+    rule = IrRule("r", body)
+    assert tuple(rule.children()) == (body,)
 
 
 def test_irrule_rebuild_replaces_body_preserves_name():
     """Rebuilding an IrRule replaces its body but preserves the name."""
-    b1, b2 = (
-        IrAlternation(IrTuple()),
-        IrAlternation(
-            IrTuple(
-                IrSequence(IrTuple()),
-            )
-        ),
-    )
-    assert IrRule(IrStr("r"), b1).rebuild((b2,)) == IrRule(IrStr("r"), b2)
+    b1, b2 = IrAlternation(), IrAlternation(IrSequence())
+    assert IrRule("r", b1).rebuild((b2,)) == IrRule("r", b2)
 
 
-def test_irast_children_returns_rules():
-    """An IrAst's children are its rules."""
-    r = IrRule(IrStr("x"), IrAlternation(IrTuple()))
-    ast = IrAst(
-        IrTuple(
-            r,
-        ),
-        IrStr("x"),
-    )
-    assert ast.children() == (r,)
+def test_irast_children_returns_rules_tuple():
+    """An IrAst's children are the wrapping rules IrTuple (G3 shape change).
+
+    ``IrComposite``
+    returns a 1-tuple wrapping the rules ``IrTuple`` — iterate ``ast.rules``
+    to reach individual rules.
+    """
+    r = IrRule("x", IrAlternation())
+    ast = IrAst(IrTuple(r), "x")
+    assert tuple(ast.children()) == (IrTuple(r),)
+    assert ast.rules == (r,)
 
 
 def test_irast_rebuild_replaces_rules_preserves_start():
     """Rebuilding an IrAst replaces its rules but preserves the start name."""
-    r1 = IrRule(IrStr("a"), IrAlternation(IrTuple()))
-    r2 = IrRule(IrStr("b"), IrAlternation(IrTuple()))
-    assert IrAst(
-        IrTuple(
-            r1,
-        ),
-        IrStr("a"),
-    ).rebuild((r1, r2)) == IrAst(IrTuple(r1, r2), IrStr("a"))
+    r1 = IrRule("a", IrAlternation())
+    r2 = IrRule("b", IrAlternation())
+    rebuilt = IrAst(IrTuple(r1), "a").rebuild((IrTuple(r1, r2),))
+    assert rebuilt == IrAst(IrTuple(r1, r2), "a")
 
 
-def test_str_irliteral():
-    """An IrLiteral's string is its value."""
-    assert str(IrLiteral("a")) == "LITERAL('a')"
+def test_repr_irliteral_is_codegen():
+    """An IrLiteral's repr reproduces its constructor call."""
+    assert repr(IrLiteral("a")) == "IrLiteral('a')"
 
 
-def test_str_ircharclass():
-    """An IrCharClass's string is its pattern."""
-    assert str(IrCharClass("a-z")) == "CHARCLASS('a-z')"
-
-
-def test_str_irnot_wrapping_charclass():
-    """IrNot wrapping a charclass includes the negation in its str."""
-    assert str(IrNot(IrCharClass("0-9"))) == "NOT(CHARCLASS('0-9'))"
-
-
-def test_str_irruleref():
-    """An IrRuleRef's string is its name."""
-    assert str(IrRuleRef("expr")) == "REF('expr')"
-
-
-def test_str_quantifier():
-    """A IrQuantifier's string is its bounds."""
-    assert str(IrQuantifier(1, 1)) == "Q[1]"
-    assert str(IrQuantifier(0, 1)) == "Q[0..1]"
-    assert str(IrQuantifier(0, None)) == "Q[0..*]"
-    assert str(IrQuantifier(2, 5)) == "Q[2..5]"
-
-
-def test_str_irsequence():
-    """An IrSequence's string is its items."""
-    seq = IrSequence(IrTuple(IrItem(IrLiteral("a")), IrItem(IrLiteral("b"))))
-    assert str(seq) == "SEQ(ITEM(LITERAL('a'), Q[1]), ITEM(LITERAL('b'), Q[1]))"
-
-
-def test_str_irrule_includes_name():
-    """An IrRule's string is its name and body."""
-    rule = IrRule(
-        IrStr("r"),
-        IrAlternation(
-            IrTuple(
-                IrSequence(IrTuple()),
-            )
-        ),
-    )
-    assert str(rule) == "RULE('r', ALT(SEQ()))"
-
-
-def test_str_irast_includes_start():
-    """An IrAst's string is its start and rules."""
-    ast = IrAst(
-        rules=IrTuple(
-            IrRule(IrStr("r"), IrAlternation(IrTuple())),
-        ),
-        start=IrStr("r"),
-    )
-    assert str(ast) == "AST(start='r', RULE('r', ALT()))"
-
-
-# __repr__ — indented debug walk
-def test_repr_irliteral_is_dataclass_default():
-    """An IrLiteral's repr is the default dataclass repr."""
-    assert repr(IrLiteral("a")) == "IrLiteral(value='a')"
-
-
-def test_repr_irsequence_is_dataclass_default():
-    """An IrSequence's repr is the default dataclass repr."""
-    seq = IrSequence(
-        IrTuple(
-            IrItem(IrLiteral("a")),
-        )
-    )
+def test_repr_irsequence_is_codegen():
+    """An IrSequence's repr reproduces its constructor call."""
+    seq = IrSequence(IrItem(IrLiteral("a")))
     assert repr(seq) == (
-        "IrSequence(items=(IrItem(atom=IrLiteral(value='a'), "
-        "quantifier=IrQuantifier(min=1, max=1)),))"
+        "IrSequence(IrItem(atom=IrLiteral('a'), quantifier=IrQuantifier(min=1, max=1)))"
     )
 
 
 def test_repr_irrule_shows_non_child_fields_too():
     """name appears alongside the recursed body."""
-    rule = IrRule(IrStr("r"), IrAlternation(IrTuple()))
-    assert repr(rule) == "IrRule(name='r', body=IrAlternation(arms=()))"
+    rule = IrRule("r", IrAlternation())
+    assert repr(rule) == "IrRule(name='r', body=IrAlternation())"
 
 
-def test_str_iralternation():
-    """An IrAlternation's string is its arms."""
-    alt = IrAlternation(
-        IrTuple(
-            IrSequence(IrTuple()),
-        )
-    )
-    assert str(alt) == "ALT(SEQ())"
+def test_repr_empty_structural_node_is_codegen():
+    """An empty structural node reproduces its constructor call."""
+    assert repr(IrSequence()) == "IrSequence()"
+    assert repr(IrAlternation()) == "IrAlternation()"
 
 
-def test_str_irgroup():
-    """An IrGroup's string is its body."""
-    grp = IrGroup(IrAlternation(IrTuple()))
-    assert str(grp) == "GROUP(ALT())"
+def test_repr_irgroup_is_codegen():
+    """IrGroup reproduces its constructor call."""
+    grp = IrGroup(IrAlternation())
+    assert repr(grp) == "IrGroup(body=IrAlternation())"
 
 
-def test_str_iritem():
-    """An IrItem's string is its atom and quantifier."""
-    assert str(IrItem(IrLiteral("a"))) == "ITEM(LITERAL('a'), Q[1])"
-
-
-# __repr__ — additional coverage
-
-
-def test_repr_empty_structural_node_is_dataclass_default():
-    """An empty structural node uses the default dataclass repr."""
-    assert repr(IrSequence(IrTuple())) == "IrSequence(items=())"
-    assert repr(IrAlternation(IrTuple())) == "IrAlternation(arms=())"
-
-
-def test_repr_irgroup_is_dataclass_default():
-    """IrGroup uses the default dataclass repr."""
-    grp = IrGroup(IrAlternation(IrTuple()))
-    assert repr(grp) == "IrGroup(body=IrAlternation(arms=()))"
-
-
-def test_repr_irast_is_dataclass_default():
-    """IrAst uses the default dataclass repr."""
-    ast = IrAst(
-        rules=IrTuple(
-            IrRule(IrStr("r"), IrAlternation(IrTuple())),
-        ),
-        start=IrStr("r"),
-    )
+def test_repr_irast_is_codegen():
+    """IrAst reproduces its constructor call."""
+    ast = IrAst(IrTuple(IrRule("r", IrAlternation())), "r")
     assert repr(ast) == (
-        "IrAst(rules=(IrRule(name='r', body=IrAlternation(arms=())),), start='r')"
+        "IrAst(rules=IrTuple(IrRule(name='r', body=IrAlternation())), start='r')"
     )
 
 
 def test_irliteral_eval_returns_literal_value():
-    """IrLiteral overrides ``eval`` to surface ``self.value`` as a str.
+    """IrLiteral surfaces itself (the string) as a str via ``eval``.
 
     ``__call__`` remains identity (returns self) via :class:`IrSelf`;
     ``eval`` is the value-producing protocol.
@@ -538,34 +362,180 @@ def test_irliteral_eval_returns_literal_value():
 
 
 def test_ircharclass_call_inherits_identity_default():
-    """IrCharClass(IrLeaf) inherits the default __call__ — returns self.
-    Statically typed as IrNode; runtime identity to the concrete instance."""
+    """IrCharClass(IrStr) inherits the default __call__ — returns self."""
     cc = IrCharClass("a-z")
-    result = cc(IrNone, IrNone, ())  # statically IrNode; runtime IrCharClass
+    result = cc(IrNone, IrNone, ())
     assert result is cc
 
 
 def test_irruleref_call_inherits_identity_default():
-    """IrRuleRef(IrLeaf) inherits the default __call__ — returns self."""
+    """IrRuleRef(IrStr) inherits the default __call__ — returns self."""
     ref = IrRuleRef("foo")
     assert ref(IrNone, IrNone, ()) is ref
 
 
-def test_irast_call_inherits_rebuild_default():
-    """IrAst(IrCollection) inherits __call__: rebuild with called rules."""
-    empty = IrAst(rules=IrTuple(), start=IrStr("r"))
-    result: IrAst = empty(IrNone, IrNone, ())
+def test_irast_call_inherits_identity_default():
+    """IrAst inherits the default __call__ — returns self."""
+    empty = IrAst(IrTuple(), "r")
+    result = empty(IrNone, IrNone, ())
     assert isinstance(result, IrAst)
-    if isinstance(
-        result, IrAst
-    ):  # Pylint can't infer the type here, but we know it must be IrAst.
-        assert not result.rules
-        assert result.start == "r"
+    assert not result.rules
+    assert result.start == "r"
 
 
-def test_irgroup_call_inherits_rebuild_default():
-    """IrGroup(IrComposite) inherits __call__ via rebuild(called children)."""
+def test_irgroup_call_inherits_identity_default():
+    """IrGroup inherits the default __call__ — returns self."""
     g = IrGroup(body=IrAlternation())
     result = g(IrNone, IrNone, ())
     assert isinstance(result, IrGroup)
     assert isinstance(result.body, IrAlternation)
+
+
+# ── Contract tests (plan Tasks 1–4) ──────────────────────────────────
+
+
+def test_irself_identity_call_returns_self():
+    """IrSelf.__call__ is identity: returns self regardless of d/n/nc args."""
+
+    class L(IrLeaf):
+        """Minimal IrLeaf subclass for testing identity call."""
+
+        __slots__ = ()
+
+        def __repr__(self) -> str:
+            """Return a fixed repr string."""
+            return "L()"
+
+    leaf = L()
+    assert leaf(IrNone, IrNone, ()) is leaf
+
+
+def test_irnone_is_final_singleton_and_is_irself():
+    """IrNone is a singleton: all constructions return the same instance."""
+    assert IrNone is IrNoneType()  # public value IS the singleton instance
+    assert isinstance(IrNone, (IrSelf, IrNoneType))
+    # @final is a STATIC-only guarantee (pyright flags subclassing); no runtime raise.
+
+
+def test_iratom_is_non_generic_marker():
+    """IrAtom carries no type parameters of its own and is an IrNode subclass."""
+    # IrAtom has no type parameters of its own
+    assert not getattr(IrAtom, "__type_params__", ())
+    assert issubclass(IrAtom, IrNode)
+
+
+def test_str_leaf_is_str_and_atom():
+    """IrLiteral is simultaneously a str and an IrAtom — no wrapper boxing."""
+    lit = IrLiteral("x")
+    assert isinstance(lit, str) and isinstance(lit, IrAtom)
+    assert lit == "x"  # native str equality
+    assert lit.upper() == "X"  # native str methods
+
+
+def test_str_leaf_new_returns_own_subtype():
+    """IrRuleRef.__new__ returns IrRuleRef, not the IrStr base — Self is preserved."""
+    # the -> Self bug guard: must NOT collapse to IrStr
+    assert isinstance(IrRuleRef("r"), IrRuleRef)
+    assert isinstance(IrRuleRef("r"), IrAtom)
+
+
+def test_str_leaf_repr_is_codegen():
+    """repr() on str-leaves reproduces the constructor call."""
+    assert repr(IrLiteral("x")) == "IrLiteral('x')"
+    assert repr(IrCharClass("0-9")) == "IrCharClass('0-9')"
+
+
+def test_tuple_node_is_variadic_and_native_eq():
+    """IrSequence is both a tuple and an IrNode; IrAlternation equality is order-sensitive."""
+    seq = IrSequence(IrItem(IrLiteral("a")), IrItem(IrLiteral("b")))
+    assert isinstance(seq, tuple) and isinstance(seq, IrNode)
+    a, b = IrSequence(IrItem(IrLiteral("a"))), IrSequence(IrItem(IrLiteral("b")))
+    assert IrAlternation(a, b) == IrAlternation(a, b)
+    assert IrAlternation(a, b) != IrAlternation(b, a)  # order is identity
+
+
+def test_tuple_children_and_rebuild_roundtrip():
+    """IrAlternation.children() yields arms; rebuild() splices in new arms."""
+    p, q, r = (
+        IrSequence(IrItem(IrLiteral("p"))),
+        IrSequence(IrItem(IrLiteral("q"))),
+        IrSequence(IrItem(IrLiteral("r"))),
+    )
+    alt = IrAlternation(p, q)
+    assert tuple(alt.children()) == (p, q)
+    assert alt.rebuild((r,)) == IrAlternation(r)
+
+
+def test_tuple_repr_is_codegen():
+    """repr() on an IrSequence reproduces the constructor call."""
+    assert repr(IrSequence(IrItem(IrLiteral("a")))) == (
+        "IrSequence(IrItem(atom=IrLiteral('a'), quantifier=IrQuantifier(min=1, max=1)))"
+    )
+
+
+def test_quantifier_plain_int_fields():
+    """IrQuantifier stores min/max as plain ints; frozen dataclass equality applies."""
+    q = IrQuantifier(0, None)
+    assert (q.min, q.max) == (0, None)
+    assert IrQuantifier(1, 1) == IrQuantifier(1, 1)  # frozen dataclass eq
+
+
+def test_item_accepts_atom_subclasses():
+    """IrItem wraps any IrAtom subclass; children() yields (atom, quantifier)."""
+    it = IrItem(IrLiteral("x"))  # IrLiteral IS-A IrAtom
+    assert it.atom == "x"
+    assert isinstance(it.quantifier, IrQuantifier)
+    assert tuple(it.children()) == (it.atom, it.quantifier)
+
+
+def test_group_and_not_are_atoms():
+    """IrGroup and IrNot are IrAtom instances — they can appear in IrItem.atom."""
+    body = IrAlternation(IrSequence())
+    assert isinstance(IrGroup(body), IrAtom)
+    assert isinstance(IrNot(IrLiteral("a")), IrAtom)
+
+
+def test_composite_repr_is_codegen():
+    """repr() on IrRule reproduces the constructor call."""
+    assert (
+        repr(IrRule("r", IrAlternation())) == "IrRule(name='r', body=IrAlternation())"
+    )
+
+
+def test_composite_is_dataclass_base():
+    """IrQuantifier and IrItem are IrComposite instances (frozen dataclasses)."""
+    assert isinstance(IrQuantifier(0, 1), IrComposite)
+    assert isinstance(IrItem(IrLiteral("x")), IrComposite)
+
+
+# ── _bound derivation (own __type_params__ only; explicit wins; never MRO) ──
+
+
+def test_bound_explicit_declaration_wins():
+    """A class-level ``_bound`` (IrStr/IrTuple) is kept verbatim, not derived."""
+    assert IrStr.bound_type() is str
+    assert IrTuple.bound_type() is tuple
+
+
+def test_bound_inherited_explicit_is_not_reclobbered_via_mro():
+    """A subclass with no OWN type params keeps the inherited explicit ``_bound``.
+
+    This guards the precise attempt-0 root cause: an MRO walk would re-derive
+    ``IrSequence._bound`` as ``IrSelf`` (from ``IrTuple``'s ``T: IrSelf`` param).
+    The own-``__type_params__``-only rule must leave it as the inherited ``tuple``.
+    """
+    assert IrSequence.bound_type() is tuple
+    assert IrAlternation.bound_type() is tuple
+    assert IrLiteral.bound_type() is str
+    assert IrCharClass.bound_type() is str
+    assert IrRuleRef.bound_type() is str
+
+
+def test_bound_derived_from_own_typevar_bound():
+    """A class with its OWN bounded TypeVar derives ``_bound`` from that bound."""
+    assert IrNot.bound_type() is IrAtom  # IrNot[Ir_co: IrAtom] -> IrAtom
+
+    class _Probe[T: IrLiteral](IrComposite):  # own bounded TypeVar -> derived
+        pass
+
+    assert _Probe.bound_type() is IrLiteral

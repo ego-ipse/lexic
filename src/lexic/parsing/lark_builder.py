@@ -66,28 +66,28 @@ def _atom_to_lark(item: IrItem) -> str:
     atom = item.atom
     q_str = bounds_to_quantifier(item.quantifier.min, item.quantifier.max)
     if isinstance(atom, IrLiteral):
-        return f'"{_LARK_ESCAPES.encode(atom.value)}"{q_str}'
+        return f'"{_LARK_ESCAPES.encode(atom)}"{q_str}'
     if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.body.value.replace("/", "\\/"), True), item.quantifier
+            _bracket(atom.body.replace("/", "\\/"), True), item.quantifier
         )
     if isinstance(atom, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.value.replace("/", "\\/"), False), item.quantifier
+            _bracket(atom.replace("/", "\\/"), False), item.quantifier
         )
     if isinstance(atom, IrRuleRef):
-        return f"{to_lark_name(atom.value)}{q_str}"
+        return f"{to_lark_name(atom)}{q_str}"
     if isinstance(atom, IrGroup):
         # Literal-only group arms are dropped by Lark (anonymous string terminals).
         # Use regex form so the matched token is preserved in children.
         literal_only = all(
             isinstance(sub.atom, IrLiteral)
-            for arm in atom.body.arms
-            for sub in arm.items
+            for arm in atom.body
+            for sub in arm
             if isinstance(sub, IrItem)
         )
         seq_fn = _seq_to_lark_regex if literal_only else _seq_to_lark
-        body = " | ".join(seq_fn(s) for s in atom.body.arms)
+        body = " | ".join(seq_fn(s) for s in atom.body)
         return f"({body}){q_str}"
     raise UnsupportedConstructError(
         f"_atom_to_lark: no handler for atom type {type(atom).__name__!r}"
@@ -103,19 +103,19 @@ def _atom_to_lark_regex(item: IrItem) -> str:
     atom = item.atom
     q_str = bounds_to_quantifier(item.quantifier.min, item.quantifier.max)
     if isinstance(atom, IrLiteral):
-        return _regex_terminal(literal_to_regex_pattern(atom.value), item.quantifier)
+        return _regex_terminal(literal_to_regex_pattern(atom), item.quantifier)
     if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.body.value.replace("/", "\\/"), True), item.quantifier
+            _bracket(atom.body.replace("/", "\\/"), True), item.quantifier
         )
     if isinstance(atom, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.value.replace("/", "\\/"), False), item.quantifier
+            _bracket(atom.replace("/", "\\/"), False), item.quantifier
         )
     if isinstance(atom, IrRuleRef):
-        return f"{to_lark_name(atom.value)}{q_str}"
+        return f"{to_lark_name(atom)}{q_str}"
     if isinstance(atom, IrGroup):
-        body = " | ".join(_seq_to_lark_regex(s) for s in atom.body.arms)
+        body = " | ".join(_seq_to_lark_regex(s) for s in atom.body)
         return f"({body}){q_str}"
     raise UnsupportedConstructError(
         f"_atom_to_lark_regex: no handler for atom type {type(atom).__name__!r}"
@@ -124,11 +124,11 @@ def _atom_to_lark_regex(item: IrItem) -> str:
 
 def _seq_to_lark(seq: IrSequence) -> str:
     """Convert an IrSequence to a Lark sequence string."""
-    return " ".join(_atom_to_lark(it) for it in seq.items)
+    return " ".join(_atom_to_lark(it) for it in seq)
 
 
 def _seq_to_lark_regex(seq: IrSequence) -> str:
-    return " ".join(_atom_to_lark_regex(it) for it in seq.items)
+    return " ".join(_atom_to_lark_regex(it) for it in seq)
 
 
 class LarkBuilder:
@@ -155,7 +155,7 @@ class LarkBuilder:
             return '""'
         if spec.kind == "alternation":
             return " | ".join(
-                to_lark_name(it.atom.value)
+                to_lark_name(it.atom)
                 for it in spec.items
                 if isinstance(it, IrItem) and isinstance(it.atom, IrRuleRef)
             )
@@ -165,12 +165,12 @@ class LarkBuilder:
             # Lark drops anonymous string-literal tokens, which breaks reconstruction
             # of value_str fields when optional literals are present.
             if isinstance(first, IrAlternation):
-                return " | ".join(_seq_to_lark_regex(s) for s in first.arms)
+                return " | ".join(_seq_to_lark_regex(s) for s in first)
             return " ".join(
                 _atom_to_lark_regex(it) for it in spec.items if isinstance(it, IrItem)
             )
         if isinstance(first, IrAlternation):
-            return " | ".join(_seq_to_lark(s) for s in first.arms)
+            return " | ".join(_seq_to_lark(s) for s in first)
         return " ".join(
             _atom_to_lark(it) for it in spec.items if isinstance(it, IrItem)
         )

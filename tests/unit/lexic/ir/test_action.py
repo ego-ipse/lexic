@@ -2,11 +2,12 @@
 
 Action algebra uses ``.eval(d, n, nc)`` to produce typed values.
 ``__call__(d, n, nc)`` remains identity-shaped (returns self) via
-:class:`IrSelf`.
+:class:`~lexic.ir.nodes.IrSelf`.
 """
 
 import pytest
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import (
     IrAction,
     IrCallable,
@@ -14,18 +15,28 @@ from lexic.ir.action import (
     IrChildren,
     IrConcat,
     IrCond,
+    IrEmit,
     IrField,
     IrJoin,
+    IrLeaf,
+    IrPass,
+    IrRaise,
+    IrRebuild,
     IrReturn,
+    IrThis,
+    IrWalk,
     _Return,
 )
 from lexic.ir.nodes import (
-    IrCharClass,
+    IrAlternation,
+    IrComposite,
     IrItem,
     IrLiteral,
     IrNone,
     IrQuantifier,
+    IrRule,
     IrRuleRef,
+    IrSelf,
     IrSequence,
     IrStr,
     IrTuple,
@@ -59,7 +70,7 @@ def test_return_not_swallowed_by_except_exception():
         except Exception:  # pylint: disable=broad-exception-caught
             return IrStr("swallowed")
 
-    op = IrCallable[IrStr](body_that_catches_exception)
+    op = IrCallable[IrSelf, IrStr](body_that_catches_exception)
     with pytest.raises(_Return) as exc_info:
         op.eval(IrNone, IrNone, ())
     assert exc_info.value.value == 99
@@ -69,15 +80,35 @@ def test_return_not_swallowed_by_except_exception():
 
 
 def test_irfield_reads_string_attribute():
-    """IrField returns the attribute value (assumed to be ``Ir_co``-typed)."""
-    node = IrRuleRef("my_rule")
-    assert IrField("value").eval(IrNone, node, ()) == "my_rule"
+    """IrField returns the attribute value wrapped in IrStr.
+
+    IrRuleRef IS-A str — the node itself is the payload; there is no ``.value``
+    field. IrField reads a named attribute of a composite node.  Here we read
+    ``name`` from an :class:`~lexic.ir.nodes.IrRule`.
+    """
+    rule = IrRule("greet", IrAlternation())
+    out = IrField("name").eval(IrNone, rule, ())
+    assert out == "greet" and isinstance(out, IrStr)
+
+
+def test_irfield_reads_scalar_and_wraps_to_irstr():
+    """IrField reads a named attribute and wraps the result via bound (IrStr)."""
+    rule = IrRule("greet", IrAlternation())
+    out = IrField("name").eval(IrNone, rule, ())
+    assert out == "greet" and isinstance(out, IrStr)
+
+
+def test_irfield_is_composite_no_children():
+    """IrField is an IrComposite record-leaf with no IR-node children."""
+    assert isinstance(IrField("x"), IrComposite)
+    assert not IrField("x").children()
 
 
 def test_irfield_reads_charclass_pattern():
-    """IrField reads any string attribute, not just ``value``."""
-    node = IrCharClass("a-z")
-    assert IrField("value").eval(IrNone, node, ()) == "a-z"
+    """IrField reads any string attribute of a composite node."""
+    rule = IrRule("r", IrAlternation())
+    # Confirm the read attribute is a plain str that wraps to IrStr
+    assert IrField("name").eval(IrNone, rule, ()) == "r"
 
 
 # ── IrCallable ───────────────────────────────────────────────────────
@@ -91,29 +122,35 @@ def test_ircallable_invokes_handler_with_all_args():
         received.append((d, n, nc))
         return IrStr("ok")
 
-    result = IrCallable[IrStr](handler).eval(
+    result = IrCallable[IrSelf, IrStr](handler).eval(
         IrNone,
         IrNone,
         IrTuple(
-            "c",
+            IrStr("c"),
         ),
     )
     assert result == "ok"
     assert received == [(IrNone, IrNone, ("c",))]
 
 
-def test_ircallable_str_uses_handler_name():
-    """``str(IrCallable)`` reflects the handler's ``__name__`` for debug output."""
+def test_ircallable_repr_contains_handler_name():
+    """``repr(IrCallable)`` contains the handler's ``__name__`` for debug output.
+
+    In the primitive-node model, ``IrCallable`` uses ``IrComposite.__repr__``
+    (``repr=False`` dataclass, field rendered as ``handler=<...>``).
+    The old ``CALLABLE(<name>)`` str was specific to the original action.py's
+    custom ``__str__``; action.py uses the generic composite repr instead.
+    """
 
     def my_handler(_d, _n, _nc):
         return IrStr()
 
-    assert str(IrCallable[IrStr](my_handler)) == "CALLABLE(<my_handler>)"
+    assert "my_handler" in repr(IrCallable[IrSelf, IrStr](my_handler))
 
 
-def test_ircallable_str_fallback_for_lambda():
-    """Lambdas have ``__name__ == '<lambda>'``; ``str`` still renders."""
-    assert "<" in str(IrCallable[IrStr](lambda _d, _n, _nc: IrStr()))
+def test_ircallable_repr_fallback_for_lambda():
+    """Lambdas appear in ``repr(IrCallable)``; rendering never crashes."""
+    assert "lambda" in repr(IrCallable[IrSelf, IrStr](lambda _d, _n, _nc: IrStr()))
 
 
 # ── IrChild ──────────────────────────────────────────────────────────
@@ -124,7 +161,7 @@ def test_irchild_reads_dispatched_child_by_name():
     (_child_attrs=("atom","quantifier"))."""
     item = IrItem(atom=IrLiteral("x"))
     new_children = (IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild[IrStr]("atom").eval(IrNone, item, new_children)
+    result = IrChild[IrSelf, IrStr]("atom").eval(IrNone, item, new_children)
     assert result == "dispatched_atom"
 
 
@@ -132,7 +169,7 @@ def test_irchild_reads_second_child():
     """IrChild("quantifier") returns new_children[1] for an IrItem."""
     item = IrItem(atom=IrLiteral("x"))
     new_children = IrTuple(IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild[IrStr]("quantifier").eval(IrNone, item, new_children)
+    result = IrChild[IrSelf, IrStr]("quantifier").eval(IrNone, item, new_children)
     assert result == "dispatched_quantifier"
 
 
@@ -140,30 +177,23 @@ def test_irchild_raises_on_unknown_name():
     """IrChild raises ValueError when the name is not in _child_attrs."""
     item = IrItem(atom=IrLiteral("x"))
     with pytest.raises(ValueError, match="no such child"):
-        IrChild[IrStr]("nonexistent").eval(IrNone, item, IrTuple("a", "b"))
+        IrChild[IrSelf, IrStr]("nonexistent").eval(
+            IrNone, item, IrTuple(IrStr("a"), IrStr("b"))
+        )
 
 
 # ── IrChildren ───────────────────────────────────────────────────────
 
 
 def test_irchildren_returns_full_new_children_tuple():
-    """IrChildren("items") returns new_children for a node whose
-    _items_attr is "items"."""
-    seq = IrSequence(
-        items=IrTuple(
-            IrItem(IrLiteral("a")),
-        )
-    )
-    new_children = IrTuple("result_a")
-    result = IrChildren[IrStr]("items").eval(IrNone, seq, new_children)
+    """IrChildren() returns new_children for a node with children.
+
+    IrChildren carries no name argument in the new model (R2).
+    """
+    seq = IrSequence(IrItem(IrLiteral("a")))
+    new_children = IrTuple(IrStr("result_a"))
+    result = IrChildren[IrSelf, IrStr]().eval(IrNone, seq, new_children)
     assert result == ("result_a",)
-
-
-def test_irchildren_raises_when_items_attr_mismatches():
-    """IrChildren raises ValueError when the name doesn't match _items_attr."""
-    seq = IrSequence(items=IrTuple())
-    with pytest.raises(ValueError, match="_items_attr"):
-        IrChildren[IrStr]("arms").eval(IrNone, seq, ())
 
 
 # ── IrConcat ─────────────────────────────────────────────────────────
@@ -171,11 +201,7 @@ def test_irchildren_raises_when_items_attr_mismatches():
 
 def test_irconcat_joins_parts_in_order():
     """IrConcat evaluates parts and concatenates results."""
-    op = IrConcat(
-        parts=IrTuple(
-            IrLiteral(IrStr('"')), IrLiteral(IrStr("x")), IrLiteral(IrStr('"'))
-        )
-    )
+    op = IrConcat(parts=IrTuple(IrLiteral('"'), IrLiteral("x"), IrLiteral('"')))
     assert op.eval(IrNone, IrNone, ()) == '"x"'
 
 
@@ -184,27 +210,33 @@ def test_irconcat_empty_parts_returns_empty_string():
     assert IrConcat().eval(IrNone, IrNone, ()) == ""
 
 
+def test_concat_joins_parts():
+    """IrConcat is an IrComposite; evaluates parts and concatenates."""
+    c = IrConcat(parts=IrTuple(IrLiteral("a"), IrLiteral("b")))
+    assert isinstance(c, IrComposite)
+    out = c.eval(IrNone, IrNone, ())
+    assert out == "ab" and isinstance(out, IrStr)
+
+
 # ── IrJoin ───────────────────────────────────────────────────────────
 
 
 def test_irjoin_joins_items_with_separator():
-    """IrJoin evaluates parts and joins results with separator.value."""
+    """IrJoin evaluates parts and joins results with separator."""
     op = IrJoin(
-        parts=IrTuple(
-            IrLiteral(IrStr("a")), IrLiteral(IrStr("b")), IrLiteral(IrStr("c"))
-        ),
-        separator=IrLiteral(IrStr(" | ")),
-        empty=IrLiteral(IrStr("")),
+        parts=IrTuple(IrLiteral("a"), IrLiteral("b"), IrLiteral("c")),
+        separator=IrLiteral(" | "),
+        empty=IrLiteral(""),
     )
     assert op.eval(IrNone, IrNone, ()) == "a | b | c"
 
 
 def test_irjoin_returns_empty_value_when_no_items():
-    """IrJoin returns empty.value when parts is empty."""
+    """IrJoin returns empty when parts is empty."""
     op = IrJoin(
         parts=IrTuple(),
-        separator=IrLiteral(IrStr(" | ")),
-        empty=IrLiteral(IrStr("<empty>")),
+        separator=IrLiteral(" | "),
+        empty=IrLiteral("<empty>"),
     )
     assert op.eval(IrNone, IrNone, ()) == "<empty>"
 
@@ -215,15 +247,100 @@ def test_irjoin_returns_empty_value_when_no_items():
 def test_ircond_evaluates_then_when_truthy():
     """IrCond picks then_op when getattr(n, field) is truthy."""
     node = IrQuantifier(min=1, max=1)
-    op = IrCond[IrStr](field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no"))
+    op = IrCond[IrSelf, IrStr](
+        field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no")
+    )
     assert op.eval(IrNone, node, ()) == "yes"
 
 
 def test_ircond_evaluates_else_when_falsy():
     """IrCond picks else_op when getattr(n, field) is falsy."""
     node = IrQuantifier(min=0, max=1)
-    op = IrCond[IrStr](field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no"))
+    op = IrCond[IrSelf, IrStr](
+        field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no")
+    )
     assert op.eval(IrNone, node, ()) == "no"
+
+
+# ── IrThis ───────────────────────────────────────────────────────────
+
+
+def test_irthis_eval_returns_dispatched_node():
+    """IrThis.eval returns the dispatched node ``n`` unchanged — the
+    declarative ``lambda d, n, nc: n`` identity body."""
+    n = IrRuleRef("term")
+    assert IrThis().eval(IrNone, n, ()) is n
+
+
+def test_irthis_is_plain_leaf_with_no_children():
+    """IrThis is a plain IrLeaf body carrying no IR-node children."""
+    assert isinstance(IrThis(), IrLeaf)
+    assert not IrThis().children()
+
+
+def test_irthis_call_is_identity_not_node():
+    """IrThis inherits IrSelf.__call__ (returns the body itself); only ``eval``
+    surfaces the dispatched node. The two must not be conflated."""
+    t = IrThis()
+    assert t(IrNone, IrLiteral("x"), ()) is t
+
+
+# ── Default bodies (Tasks 7 contract tests) ──────────────────────────
+
+
+def test_default_bodies_are_plain_leaves():
+    """IrPass, IrWalk, IrEmit, IrRebuild are all IrLeaf instances."""
+    for body in (IrPass(), IrWalk(), IrEmit(), IrRebuild()):
+        assert isinstance(body, IrLeaf)
+
+
+def test_irpass_returns_irnone():
+    """IrPass.eval returns IrNone without recursing."""
+    assert IrPass().eval(IrNone, IrNone, ()) is IrNone
+
+
+def test_irwalk_returns_irnone_after_walking_children():
+    """IrWalk.eval walks children for side effects and returns IrNone."""
+    visited: list[IrSelf] = []
+
+    class _Tracker(IrSelf):
+        __slots__ = ()
+
+        def children(self) -> tuple[IrSelf, ...]:
+            return (IrLiteral("child"),)
+
+    class _RecordingDispatch(IrSelf):
+        __slots__ = ()
+
+        def eval(self, _d: IrSelf, n: IrSelf, _nc, /) -> IrSelf:
+            visited.append(n)
+            return IrNone
+
+    result = IrWalk().eval(_RecordingDispatch(), _Tracker(), ())
+    assert result is IrNone
+    assert IrLiteral("child") in visited
+
+
+def test_iremit_wraps_str_of_node_as_irliteral():
+    """IrEmit returns IrLiteral(str(n)) for the dispatched node."""
+    lit = IrLiteral("hi")
+    out = IrEmit().eval(IrNone, lit, ())
+    assert out == IrLiteral(str(lit))
+    assert isinstance(out, IrLiteral)
+
+
+def test_irreturn_raises_self_and_is_composite():
+    """IrReturn is an IrComposite and a BaseException; eval raises self."""
+    r = IrReturn(IrLiteral("v"))
+    assert isinstance(r, IrComposite) and isinstance(r, BaseException)
+    with pytest.raises(IrReturn):
+        r.eval(IrNone, IrNone, ())
+
+
+def test_iraction_delegates_to_body():
+    """IrAction.eval delegates to body.eval."""
+    a = IrAction(IrLiteral, IrEmit())
+    assert a.target_type is IrLiteral
 
 
 # ── IrReturn ─────────────────────────────────────────────────────────
@@ -239,9 +356,59 @@ def test_irreturn_raises_return_with_value():
 
 def test_irreturn_never_returns_normally():
     """IrReturn always raises — it never returns a value."""
-    r = IrReturn[int](value=42)
+    r = IrReturn[IrStr](value=IrStr("x"))
     with pytest.raises(_Return):
         r.eval(IrNone, IrNone, ())
+
+
+def test_irreturn_defaults_to_dispatched_node():
+    """``IrReturn()`` defaults its body to :class:`IrThis`, so evaluating it
+    surfaces the dispatched node — the ``has_ruleref`` find-first pattern.
+
+    The re-raised IrReturn carries the *evaluated* node, not the original
+    body, so ``exc.value.value is n``.
+    """
+    n = IrRuleRef("term")
+    with pytest.raises(IrReturn) as exc:
+        IrReturn().eval(IrNone, n, ())
+    assert exc.value.value is n
+
+
+def test_irreturn_lazy_evaluates_irthis_body_against_context():
+    """An explicit ``IrThis()`` body lazily evaluates to the dispatched node."""
+    n = IrRuleRef("x")
+    with pytest.raises(IrReturn) as exc:
+        IrReturn(IrThis()).eval(IrNone, n, ())
+    assert exc.value.value is n
+
+
+def test_irreturn_lazy_evaluates_leaf_body_to_itself():
+    """Under lazy_eval, a leaf body evaluates to itself (leaf eval is identity),
+    so ``IrReturn(IrLiteral("v"))`` still surfaces ``IrLiteral("v")``."""
+    with pytest.raises(IrReturn) as exc:
+        IrReturn(IrLiteral("v")).eval(IrNone, IrNone, ())
+    assert exc.value.value == IrLiteral("v")
+
+
+def test_irreturn_non_lazy_carries_static_body_unevaluated():
+    """``lazy_eval=False`` raises ``self`` carrying the body object as-is,
+    without evaluating it against the dispatch context."""
+    body = IrThis()
+    r = IrReturn(body, lazy_eval=False)
+    with pytest.raises(IrReturn) as exc:
+        r.eval(IrNone, IrLiteral("x"), ())
+    assert exc.value is r
+    assert exc.value.value is body
+
+
+def test_irreturn_non_irself_value_raises_self_unevaluated():
+    """A non-IrSelf payload (e.g. a plain ``bool``) is never evaluated; eval
+    raises ``self`` carrying that payload verbatim."""
+    r = IrReturn(True)
+    with pytest.raises(IrReturn) as exc:
+        r.eval(IrNone, IrNone, ())
+    assert exc.value is r
+    assert exc.value.value is True
 
 
 # ── IrAction ─────────────────────────────────────────────────────────
@@ -272,5 +439,14 @@ def test_iraction_str_includes_target_type_name():
 def test_action_call_is_identity():
     """Action algebra inherits IrSelf's __call__ → returns self.
     Typed value extraction is .eval(); __call__ is for identity."""
-    op = IrConcat(parts=IrTuple(IrLiteral(IrStr("x"))))
+    op = IrConcat(parts=IrTuple(IrLiteral("x")))
     assert op(IrNone, IrNone, ()) is op
+
+
+# ── IrRaise ───────────────────────────────────────────────────────────
+
+
+def test_irraise_raises_unsupported_construct_error_by_default():
+    """IrRaise.eval raises UnsupportedConstructError by default."""
+    with pytest.raises(UnsupportedConstructError):
+        IrRaise().eval(IrNone, IrLiteral("x"), ())

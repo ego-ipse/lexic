@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from lexic.grammars.flavour import IrFlavour
 from lexic.grammars.gbnf.flavour import GBNF_ESCAPES, GBNF_FLAVOUR, META_GRAMMAR
-from lexic.ir.nodes import IrQuantifier
+from lexic.ir.nodes import (
+    IrQuantifier,
+)
+from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
 
 
 def test_subclass():
@@ -119,3 +122,15 @@ def test_meta_grammar_is_non_empty_string():
     """META_GRAMMAR is a non-empty string."""
     assert isinstance(META_GRAMMAR, str)
     assert len(META_GRAMMAR) > 0
+
+
+def test_gbnf_emitter_iremit_default_unreachable():
+    """Every IR-AST node type has an explicit action — IrEmit default never fires.
+
+    If any type is missing an action, the emitter would fall through to its
+    IrEmit default body and silently emit ``str(n)`` instead of raising.
+    This test locks that the default is structurally unreachable for GBNF.
+    """
+    registered = {action.target_type for action in GBNF_FLAVOUR.actions}
+    missing = GRAMMAR_AST_TYPES - registered
+    assert not missing, f"GBNF_FLAVOUR missing explicit actions for: {missing}"

@@ -105,15 +105,15 @@ def test_normalize_literal_can_be_overridden_to_return_group():
         @classmethod
         def normalize_literal(cls, decoded: str) -> IrGroup:
             seq = IrSequence(
-                tuple(IrItem(IrCharClass(f"{c.lower()}{c.upper()}")) for c in decoded)
+                *(IrItem(IrCharClass(f"{c.lower()}{c.upper()}")) for c in decoded)
             )
-            return IrGroup(IrAlternation((seq,)))
+            return IrGroup(IrAlternation(seq))
 
     out = _F.normalize_literal("ab")
     assert isinstance(out, IrGroup)
-    items = out.body.arms[0].items
-    assert items[0].atom == IrCharClass("aA")
-    assert items[1].atom == IrCharClass("bB")
+    arm = out.body[0]
+    assert arm[0].atom == IrCharClass("aA")
+    assert arm[1].atom == IrCharClass("bB")
 
 
 def test_default_line_comment_is_empty_string():

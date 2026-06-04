@@ -28,6 +28,7 @@ from lexic.ir.action import (
     IrChild,
     IrChildren,
     IrConcat,
+    IrEmit,
     IrField,
     IrJoin,
 )
@@ -45,6 +46,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
     IrStr,
+    IrTuple,
 )
 
 META_GRAMMAR = r"""
@@ -128,12 +130,12 @@ def _split_charclass_segments(pattern: str) -> list[str]:
 
 def _abnf_encode_literal(_d, n, _nc) -> IrStr:
     """Wrap the literal value in double quotes."""
-    return IrStr(f'"{ABNF_ESCAPES.encode(n.value)}"')
+    return IrStr(f'"{ABNF_ESCAPES.encode(n)}"')
 
 
 def _abnf_charclass(_d, n, _nc) -> IrStr:
     """Render a char class as ABNF hex range(s)."""
-    segments = _split_charclass_segments(n.value)
+    segments = _split_charclass_segments(n)
     rendered = [_hex_range_segment(s) for s in segments]
     if len(rendered) == 1:
         return IrStr(rendered[0])
@@ -162,18 +164,18 @@ ABNF_ACTIONS = (
     IrAction(IrLiteral, IrCallable(_abnf_encode_literal)),
     IrAction(IrCharClass, IrCallable(_abnf_charclass)),
     IrAction(IrNot, IrCallable(_abnf_not)),
-    IrAction(IrRuleRef, IrField("value")),
+    IrAction(IrRuleRef, IrEmit()),
     IrAction(
         IrGroup,
-        IrConcat(parts=(IrLiteral("("), IrChild("body"), IrLiteral(")"))),
+        IrConcat(parts=IrTuple(IrLiteral("("), IrChild("body"), IrLiteral(")"))),
     ),
     IrAction(IrQuantifier, IrCallable(_abnf_quantifier)),
     # Prefix quantifier ordering: quantifier before atom.
-    IrAction(IrItem, IrConcat(parts=(IrChild("quantifier"), IrChild("atom")))),
+    IrAction(IrItem, IrConcat(parts=IrTuple(IrChild("quantifier"), IrChild("atom")))),
     IrAction(
         IrSequence,
         IrJoin(
-            parts=IrChildren("items"),
+            parts=IrChildren(),
             separator=IrLiteral(" "),
             empty=IrLiteral('""'),
         ),
@@ -181,20 +183,20 @@ ABNF_ACTIONS = (
     IrAction(
         IrAlternation,
         IrJoin(
-            parts=IrChildren("arms"),
+            parts=IrChildren(),
             separator=IrLiteral(" / "),
             empty=IrLiteral(""),
         ),
     ),
     IrAction(
         IrRule,
-        IrConcat(parts=(IrField("name"), IrLiteral(" = "), IrChild("body"))),
+        IrConcat(parts=IrTuple(IrField("name"), IrLiteral(" = "), IrChild("body"))),
     ),
     IrAction(IrAst, IrCallable(_abnf_ast)),
 )
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class _AbnfFlavour(IrFlavour):
     """ABNF flavour singleton class."""
 
@@ -241,7 +243,7 @@ class _AbnfFlavour(IrFlavour):
                 items.append(IrItem(atom=IrCharClass(f"{c.lower()}{c.upper()}")))
             else:
                 items.append(IrItem(atom=IrLiteral(c)))
-        return IrGroup(body=IrAlternation((IrSequence(tuple(items)),)))
+        return IrGroup(body=IrAlternation(IrSequence(*items)))
 
 
 ABNF_FLAVOUR = _AbnfFlavour()

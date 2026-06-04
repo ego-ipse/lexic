@@ -104,10 +104,8 @@ def test_emit_value_str_multi_arm():
         "value_str",
         [
             IrAlternation(
-                (
-                    IrSequence((IrItem(IrLiteral("a")),)),
-                    IrSequence((IrItem(IrLiteral("b")),)),
-                )
+                IrSequence(IrItem(IrLiteral("a"))),
+                IrSequence(IrItem(IrLiteral("b"))),
             )
         ],
     )
@@ -134,10 +132,8 @@ def test_no_fixme_in_emitted_source():
     """Decision CQ #1: never emit # FIXME placeholders."""
     grp = IrGroup(
         IrAlternation(
-            (
-                IrSequence((IrItem(IrLiteral("a")),)),
-                IrSequence((IrItem(IrLiteral("b")),)),
-            )
+            IrSequence(IrItem(IrLiteral("a"))),
+            IrSequence(IrItem(IrLiteral("b"))),
         )
     )
     spec = _spec("r", "value_str", [IrItem(grp, IrQuantifier(1, 1))])
@@ -190,11 +186,9 @@ def test_pure_pattern_group_field_composes_regex():
 def test_pure_literal_alternation_emits_literal_type():
     """Alternation of pure literals emits a Literal[...] field."""
     alt = IrAlternation(
-        (
-            IrSequence((IrItem(IrLiteral("int"), IrQuantifier(1, 1)),)),
-            IrSequence((IrItem(IrLiteral("float"), IrQuantifier(1, 1)),)),
-            IrSequence((IrItem(IrLiteral("char"), IrQuantifier(1, 1)),)),
-        )
+        IrSequence(IrItem(IrLiteral("int"), IrQuantifier(1, 1))),
+        IrSequence(IrItem(IrLiteral("float"), IrQuantifier(1, 1))),
+        IrSequence(IrItem(IrLiteral("char"), IrQuantifier(1, 1))),
     )
     spec = _spec("ty", "value_str", [alt])
     src = emit_module_source([spec], stem="m")
@@ -204,10 +198,8 @@ def test_pure_literal_alternation_emits_literal_type():
 def test_mixed_alternation_does_not_emit_literal():
     """Arms mixing literal + ruleref keep the helper-class shape (no Literal)."""
     alt = IrAlternation(
-        (
-            IrSequence((IrItem(IrLiteral("int"), IrQuantifier(1, 1)),)),
-            IrSequence((IrItem(IrRuleRef("typename"), IrQuantifier(1, 1)),)),
-        )
+        IrSequence(IrItem(IrLiteral("int"), IrQuantifier(1, 1))),
+        IrSequence(IrItem(IrRuleRef("typename"), IrQuantifier(1, 1))),
     )
     spec = _spec("t", "value_str", [alt])
     src = emit_module_source([spec], stem="m")
@@ -217,10 +209,8 @@ def test_mixed_alternation_does_not_emit_literal():
 def test_quantified_literal_arm_does_not_emit_literal():
     """An arm with a quantified literal (min!=max!=1) is not a pure-literal."""
     alt = IrAlternation(
-        (
-            IrSequence((IrItem(IrLiteral("a"), IrQuantifier(1, 1)),)),
-            IrSequence((IrItem(IrLiteral("b"), IrQuantifier(0, 1)),)),  # quantified
-        )
+        IrSequence(IrItem(IrLiteral("a"), IrQuantifier(1, 1))),
+        IrSequence(IrItem(IrLiteral("b"), IrQuantifier(0, 1))),  # quantified
     )
     spec = _spec("t", "value_str", [alt])
     src = emit_module_source([spec], stem="m")

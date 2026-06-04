@@ -86,9 +86,9 @@ def _ruleref_type(name: str, q: IrQuantifier, specs: dict[str, RuleSpec]) -> str
 
 def _group_type(atom: IrGroup, specs: dict[str, RuleSpec]) -> str:
     arm_refs = [
-        arm.items[0].atom.value
-        for arm in atom.body.arms
-        if len(arm.items) == 1 and isinstance(arm.items[0].atom, IrRuleRef)
+        arm[0].atom
+        for arm in atom.body
+        if len(arm) == 1 and isinstance(arm[0].atom, IrRuleRef)
     ]
     if arm_refs:
         cls_names = [
@@ -121,7 +121,7 @@ _ATOM_FIELD_TYPE: dict[type, Callable] = {
         if isinstance(a.body, IrCharClass)
         else "str"
     ),
-    IrRuleRef: lambda a, q, s, al: _ruleref_type(a.value, q, s),
+    IrRuleRef: lambda a, q, s, al: _ruleref_type(a, q, s),
     IrGroup: lambda a, q, s, al: (
         _pattern_type(regex_for_group(a, q), al)
         if not has_ruleref(a)
@@ -145,10 +145,10 @@ def _field_type(
 def _is_pure_literal_alt(alt: IrAlternation) -> bool:
     """True when every arm is a single unquantified IrLiteral."""
     return all(
-        len(arm.items) == 1
-        and isinstance(arm.items[0].atom, IrLiteral)
-        and arm.items[0].quantifier == IrQuantifier(1, 1)
-        for arm in alt.arms
+        len(arm) == 1
+        and isinstance(arm[0].atom, IrLiteral)
+        and arm[0].quantifier == IrQuantifier(1, 1)
+        for arm in alt
     )
 
 
@@ -161,9 +161,7 @@ def _value_str_field_type(
     item = spec.items[0]
     if isinstance(item, IrAlternation):
         if _is_pure_literal_alt(item):
-            literals = ", ".join(
-                f'"{cast(IrLiteral, arm.items[0].atom).value}"' for arm in item.arms
-            )
+            literals = ", ".join(f'"{cast(IrLiteral, arm[0].atom)}"' for arm in item)
             return f"Literal[{literals}]"
         return "str"
     if isinstance(item, IrItem):

@@ -23,6 +23,7 @@ from lexic.ir.action import (
     IrChild,
     IrChildren,
     IrConcat,
+    IrEmit,
     IrField,
     IrJoin,
 )
@@ -40,6 +41,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
     IrStr,
+    IrTuple,
 )
 
 META_GRAMMAR = r"""
@@ -91,19 +93,19 @@ GBNF_QUANT_SYMBOLS: dict[tuple[int, int | None], str] = {
 
 def _gbnf_encode_literal(_d, n, _nc) -> IrStr:
     """Escape the literal value per GBNF rules and wrap in quotes."""
-    return IrStr(f'"{GBNF_ESCAPES.encode(n.value)}"')
+    return IrStr(f'"{GBNF_ESCAPES.encode(n)}"')
 
 
 def _gbnf_charclass(_d, n, _nc) -> IrStr:
     """Render a char class as ``[value]``."""
-    return IrStr(f"[{n.value}]")
+    return IrStr(f"[{n}]")
 
 
 def _gbnf_not(_d, n, _nc) -> IrStr:
     """Render ``IrNot(IrCharClass(...))`` as ``[^value]``."""
     inner = n.body
     if isinstance(inner, IrCharClass):
-        return IrStr(f"[^{inner.value}]")
+        return IrStr(f"[^{inner}]")
     raise UnsupportedConstructError(
         f"GBNF IrNot only supports IrCharClass body, got {type(inner).__name__}"
     )
@@ -130,17 +132,17 @@ GBNF_ACTIONS = (
     IrAction(IrLiteral, IrCallable(_gbnf_encode_literal)),
     IrAction(IrCharClass, IrCallable(_gbnf_charclass)),
     IrAction(IrNot, IrCallable(_gbnf_not)),
-    IrAction(IrRuleRef, IrField("value")),
+    IrAction(IrRuleRef, IrEmit()),
     IrAction(
         IrGroup,
-        IrConcat(parts=(IrLiteral("("), IrChild("body"), IrLiteral(")"))),
+        IrConcat(parts=IrTuple(IrLiteral("("), IrChild("body"), IrLiteral(")"))),
     ),
     IrAction(IrQuantifier, IrCallable(_gbnf_quantifier)),
-    IrAction(IrItem, IrConcat(parts=(IrChild("atom"), IrChild("quantifier")))),
+    IrAction(IrItem, IrConcat(parts=IrTuple(IrChild("atom"), IrChild("quantifier")))),
     IrAction(
         IrSequence,
         IrJoin(
-            parts=IrChildren("items"),
+            parts=IrChildren(),
             separator=IrLiteral(" "),
             empty=IrLiteral('""'),
         ),
@@ -148,20 +150,20 @@ GBNF_ACTIONS = (
     IrAction(
         IrAlternation,
         IrJoin(
-            parts=IrChildren("arms"),
+            parts=IrChildren(),
             separator=IrLiteral(" | "),
             empty=IrLiteral(""),
         ),
     ),
     IrAction(
         IrRule,
-        IrConcat(parts=(IrField("name"), IrLiteral(" ::= "), IrChild("body"))),
+        IrConcat(parts=IrTuple(IrField("name"), IrLiteral(" ::= "), IrChild("body"))),
     ),
     IrAction(IrAst, IrCallable(_gbnf_ast)),
 )
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class _GbnfFlavour(IrFlavour):
     """GBNF flavour singleton class."""
 

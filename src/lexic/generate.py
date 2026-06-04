@@ -40,7 +40,7 @@ def _gen_charclass(
     count = _pick_count(q, rng)
     if count == 0:
         return ""
-    chars = parse_charclass_chars(atom.value)
+    chars = parse_charclass_chars(atom)
     if negated:
         excluded = set(chars)
         chars = [c for c in _ASCII_PRINTABLE if c not in excluded]
@@ -62,7 +62,7 @@ def _gen_group(
         return ""
     out: list[str] = []
     for _ in range(count):
-        arm = rng.choice(atom.body.arms)
+        arm = rng.choice(atom.body)
         out.append(_gen_sequence(arm, specs, rng, max_depth))
     return "".join(out)
 
@@ -76,9 +76,7 @@ def _gen_atom(
     """Generate for an atom rule by its kind."""
     atom, q = item.atom, item.quantifier
     if isinstance(atom, IrLiteral):
-        return (
-            atom.value * _pick_count(q, rng) if q != IrQuantifier(1, 1) else atom.value
-        )
+        return atom * _pick_count(q, rng) if q != IrQuantifier(1, 1) else atom
     if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
         return _gen_charclass(atom.body, q, rng, negated=True)
     if isinstance(atom, IrCharClass):
@@ -86,7 +84,7 @@ def _gen_atom(
     if isinstance(atom, IrRuleRef):
         count = _pick_count(q, rng)
         return "".join(
-            generate(atom.value, specs, rng=rng, max_depth=max_depth - 1)
+            generate(atom, specs, rng=rng, max_depth=max_depth - 1)
             for _ in range(count)
         )
     if isinstance(atom, IrGroup):
@@ -101,7 +99,7 @@ def _gen_sequence(
     max_depth: int,
 ) -> str:
     """Generate for a sequence rule by concatenating its items."""
-    return "".join(_gen_atom(it, specs, rng, max_depth) for it in seq.items)
+    return "".join(_gen_atom(it, specs, rng, max_depth) for it in seq)
 
 
 def _gen_alternation(
@@ -111,9 +109,9 @@ def _gen_alternation(
     max_depth: int,
 ) -> str:
     """Generate for an alternation rule by picking a random arm."""
-    if not alt.arms:
+    if not alt:
         return ""
-    arm = rng.choice(alt.arms)
+    arm = rng.choice(alt)
     return _gen_sequence(arm, specs, rng, max_depth)
 
 
@@ -125,7 +123,7 @@ def _gen_alternation_kind(
 ) -> str:
     """Generate for an alternation rule by picking a random arm."""
     arm_names = [
-        it.atom.value
+        it.atom
         for it in spec.items
         if isinstance(it, IrItem) and isinstance(it.atom, IrRuleRef)
     ]

@@ -56,8 +56,8 @@ def _consume_rule_ref(item: IrItem, ch: list, pos: int) -> tuple[object, int]:
 def _group_has_ruleref(group: IrGroup) -> bool:
     return any(
         isinstance(sub.atom, IrRuleRef)
-        for arm in group.body.arms
-        for sub in arm.items
+        for arm in group.body
+        for sub in arm
         if isinstance(sub, IrItem)
     )
 
@@ -120,7 +120,7 @@ def _build_sequence(
         if isinstance(item.atom, IrRuleRef) and item.quantifier == IrQuantifier(0, 1):
             # Adjacent optional rule-refs are ambiguous by position alone: ws can match
             # empty, producing a child even when "absent". Check type to disambiguate.
-            expected = by_rule.get(item.atom.value)
+            expected = by_rule.get(item.atom)
             if pos < len(children) and not isinstance(children[pos], Token):
                 if expected is None or isinstance(children[pos], expected):
                     val, pos = children[pos], pos + 1

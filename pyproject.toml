@@ -46,3 +46,9 @@ profile = "black"
 
 [tool.pylint.design]
 max-parents = 15
+
+[tool.pylint.basic]
+# Preserve pylint's default good-names and allow the mixed-case singleton
+# values that mirror Python's own (e.g. IrNone, like None). Root-fix so no
+# inline `# pylint: disable=invalid-name` is needed at the definition sites.
+good-names = ["i", "j", "k", "ex", "Run", "_", "IrNone"]

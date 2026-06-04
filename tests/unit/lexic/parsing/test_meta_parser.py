@@ -93,20 +93,20 @@ def test_parses_single_rule_with_literal():
     ast = MetaGrammarParser(_StubFlavour()).parse('foo = "hi"\n')
     assert isinstance(ast, IrAst)
     assert ast.rules[0].name == "foo"
-    assert ast.rules[0].body == IrAlternation((IrSequence((IrItem(IrLiteral("hi")),)),))
+    assert ast.rules[0].body == IrAlternation(IrSequence(IrItem(IrLiteral("hi"))))
 
 
 def test_parses_charclass():
     """Parse a charclass"""
     rule = _ast_first_rule("digit = [0-9]\n")
-    item = rule.body.arms[0].items[0]
+    item = rule.body[0][0]
     assert item.atom == IrCharClass("0-9")
 
 
 def test_parses_negated_charclass():
     """Parse a negated charclass — atom is IrNot(IrCharClass(...))."""
     rule = _ast_first_rule(r'r = [^"\\]' + "\n")
-    item = rule.body.arms[0].items[0]
+    item = rule.body[0][0]
     assert isinstance(item.atom, IrNot)
     assert isinstance(item.atom.body, IrCharClass)
 
@@ -114,22 +114,22 @@ def test_parses_negated_charclass():
 def test_parses_ruleref():
     """Parse a rule reference"""
     rule = _ast_first_rule("a = b\n")
-    item = rule.body.arms[0].items[0]
+    item = rule.body[0][0]
     assert item.atom == IrRuleRef("b")
 
 
 def test_parses_alternation():
     """Parse an alternation"""
     rule = _ast_first_rule('op = "+" | "-"\n')
-    assert len(rule.body.arms) == 2
-    assert rule.body.arms[0].items[0].atom == IrLiteral("+")
-    assert rule.body.arms[1].items[0].atom == IrLiteral("-")
+    assert len(rule.body) == 2
+    assert rule.body[0][0].atom == IrLiteral("+")
+    assert rule.body[1][0].atom == IrLiteral("-")
 
 
 def test_parses_quantifiers():
     """Parse quantifiers"""
     rule = _ast_first_rule("expr = a? b* c+\n")
-    items = rule.body.arms[0].items
+    items = rule.body[0]
     assert items[0].quantifier == IrQuantifier(0, 1)
     assert items[1].quantifier == IrQuantifier(0, None)
     assert items[2].quantifier == IrQuantifier(1, None)
@@ -138,15 +138,15 @@ def test_parses_quantifiers():
 def test_parses_group():
     """Parse a group"""
     rule = _ast_first_rule("expr = (a | b)\n")
-    item = rule.body.arms[0].items[0]
+    item = rule.body[0][0]
     assert isinstance(item.atom, IrGroup)
-    assert len(item.atom.body.arms) == 2
+    assert len(item.atom.body) == 2
 
 
 def test_decodes_literal_escapes_via_flavour_codec():
-    """`\\n` in source becomes a real newline in IrLiteral.value."""
+    """`\\n` in source becomes a real newline in IrLiteral."""
     rule = _ast_first_rule(r'r = "a\nb"' + "\n")
-    item = rule.body.arms[0].items[0]
+    item = rule.body[0][0]
     assert item.atom == IrLiteral("a\nb")  # 3 chars: a, newline, b
 
 
@@ -169,17 +169,17 @@ class _CaseInsensitiveStub(_StubFlavour):
     def normalize_literal(cls, decoded: str):
         """`a` becomes `[aA]`."""
         seq = IrSequence(
-            tuple(IrItem(IrCharClass(f"{c.lower()}{c.upper()}")) for c in decoded)
+            *(IrItem(IrCharClass(f"{c.lower()}{c.upper()}")) for c in decoded)
         )
-        return IrGroup(IrAlternation((seq,)))
+        return IrGroup(IrAlternation(seq))
 
 
 def test_normalize_literal_override_expands_to_group():
     """A flavour can override normalize_literal to expand sugar to canonical IR."""
 
     ast = MetaGrammarParser(_CaseInsensitiveStub()).parse('r = "ab"\n')
-    item = ast.rules[0].body.arms[0].items[0]
+    item = ast.rules[0].body[0][0]
     assert isinstance(item.atom, IrGroup)
-    inner_items = item.atom.body.arms[0].items
+    inner_items = item.atom.body[0]
     assert inner_items[0].atom == IrCharClass("aA")
     assert inner_items[1].atom == IrCharClass("bB")

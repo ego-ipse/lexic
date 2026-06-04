@@ -1,605 +1,655 @@
-"""IR AST node dataclasses — canonical, frozen, hashable.
+"""IR AST node dataclasses — primitive node model.
 
-Every IR node implements the structural protocol from ``IrNode``:
-  - ``children() -> tuple[IrNode, ...]``    children in traversal order
-  - ``rebuild(new_children) -> Self``       reconstruct under transformation
-  - ``__call__(d, n, nc) -> Ir_co``         evaluate as an action body
+Nodes *are* their payload:
 
-Identity vs. value-producing nodes
-----------------------------------
-Identity nodes (those whose dispatched value IS themselves) multi-inherit
-from :class:`IrSelf` to pick up the identity ``__call__`` for free.
-``IrSelf[Ir_co]`` is a generic mixin — decoupled from the ``IrNode`` hierarchy
-— whose ``__call__`` returns ``self`` typed as ``T``. Subclasses bind
-``T`` to their own class name (forward-string ref):
+- str-leaves subclass :class:`str` (``IrStr`` tier);
+- variadic collections subclass :class:`tuple` (``IrTuple`` tier);
+- fixed-arity records are :class:`IrComposite` dataclasses.
 
-    class IrCharClass(IrLeaf["IrCharClass"], IrAtom):
-        ...
+Every IR node implements the structural protocol from :class:`IrSelf`:
 
-Value-producing nodes (``IrLiteral``, action-algebra nodes) override
-``__call__`` themselves.
+- ``__call__(d, n, nc) -> Self``       identity evaluation
+- ``eval(d, n, nc) -> Ir_co``          action-body protocol
+- ``children() -> Sequence[Ir_co]``    children in traversal order
+- ``rebuild(new_children) -> Self``    reconstruct under transformation
 
-Absence in dispatch slots
--------------------------
-``IrNone[Ir_co]`` is a sentinel ``IrNode[None]`` that replaces the historical
-``IrNode | None`` slots in ``__call__``'s signature. Callers pass
-``IrNone[IrNode]()`` instead of ``None`` — ``IrNone`` IS an ``IrNode``,
-so the union collapses.
-
-Hierarchy
----------
-  IrNode[Ir_co] (ABC) ── IrLeaf[Ir_co]
-                       └─ IrStructure[Ir_co] ─── IrCollection[Ir_co]
-                                              └─ IrComposite[Ir_co]
-                       └─ IrSuperSet[Ir_co] ── IrAtom    role marker
-                       └─ IrNone[Ir_co]                       absence sentinel
-
-  IrSelf[Ir_co]            generic identity mixin (NOT an IrNode subclass)
-
-``_str_name`` is auto-derived (strip ``Ir``, uppercase) unless overridden.
-``_str_opener``/``_str_closer`` default to ``(``/``)``. ``IrQuantifier``
-uses ``[``/``]``.
+``__repr__`` is codegen: every node reproduces its own constructor call.
 """
 
 from __future__ import annotations
 
-import dataclasses
-import functools
-import typing
-from abc import ABC, abstractmethod
-from dataclasses import MISSING, dataclass, field
-from typing import Any, ClassVar, Self, Sequence, TypeVar, cast
+from abc import ABC
+from dataclasses import dataclass, fields, replace
+from typing import Any, ClassVar, Self, Sequence, TypeVar, cast, final
 
-# ── Identity mixin — decoupled from IrNode hierarchy ──────────────────
+# ── Spine ─────────────────────────────────────────────────────────────
 
 
-class IrSelf[Ir_co: "IrSelf"]:
-    """Generic identity mixin and IR-protocol root.
+class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri]:
+    """Generic identity root and IR-protocol base.
 
-    Subclasses inherit ``__call__`` (returns self via PEP 673 ``Self``)
-    and ``eval`` (returns ``Ir_co`` — cast of self by default; overridden
-    by value-producing subclasses).
+    Every IR node inherits from ``IrSelf``. ``Ir_co`` is a return-position
+    TypeVar only — PEP 695 infers it covariant. The class provides:
 
-    ``IrSelf(bound)`` invokes the factory inherited from :class:`IrMeta`,
-    producing typed neutral singletons (see :data:`Str`).
+    - ``__call__(d, n, nc) -> Self``   identity evaluation (returns ``self``)
+    - ``eval(d, n, nc) -> Ir_co``      action-body protocol (default: delegates to ``__call__``)
+    - ``children() -> Sequence[Ir_co]`` structural children in traversal order
+    - ``rebuild(new_children) -> Self`` reconstruct self under transformation
+    - ``bound`` property               the concrete type materialised from ``Ir_co``
+    - ``bind(other) -> Ir_co``         type-safe cast enforcing ``bound``
+
+    ``__repr__`` is codegen on every subclass — each node reproduces its own
+    constructor call so that ``eval(repr(node))`` is a valid Python expression.
 
     :param Ir_co: the return type of ``eval``.
     """
 
+    __slots__ = ()
     _bound: ClassVar[type]
 
-    def __call__(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Self:
-        """Identity. Returns ``self`` typed via PEP 673 ``Self`` so
-        subclasses auto-thread the concrete type with no ``[X]`` binding.
+    def __call__(self, _d: Iri, _n: Iri, _nc: Sequence[Iri], /) -> Self:
+        """Identity: return ``self`` typed via PEP 673 ``Self``.
+
+        Subclasses that produce values (rather than returning themselves) override
+        ``eval`` instead; ``__call__`` stays identity so the dispatch machinery
+        can always obtain ``self`` regardless of parameterisation.
+
+        :param _d: Dispatcher (unused at identity level).
+        :param _n: Current parent node (unused at identity level).
+        :param _nc: Pre-walked node-children sequence (unused at identity level).
+        :returns: ``self``, typed as the concrete subclass via ``Self``.
         """
         return self
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Action-body protocol: default delegates to ``__call__``.
+    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+        """Action-body protocol: default delegates to identity ``__call__``.
 
-        Default returns ``self`` cast to ``Ir_co`` — sound when ``Ir_co``
-        is the default ``IrSelf`` (identity nodes) since ``Self <: IrSelf``.
-        Value-producing subclasses override ``eval`` with a typed return
-        (``-> str``, etc.) without colliding with the Self-shaped identity
-        of ``__call__``.
+        Default returns ``self`` cast to ``Ir_co`` — sound when ``Ir_co`` is
+        the default ``IrSelf`` (identity nodes) because ``Self <: IrSelf``.
+        Value-producing subclasses (e.g. ``IrStr`` leaves) override ``eval``
+        with a typed return (``-> Self``) without colliding with the
+        ``Self``-shaped identity of ``__call__``.
+
+        :param d: Dispatcher — an ``IrDispatch`` or equivalent.
+        :param n: Current parent node.
+        :param nc: Pre-walked node-children sequence (populated by the dispatcher).
+        :returns: Evaluation result typed as ``Ir_co``.
         """
         return cast(Ir_co, self(d, n, nc))
 
     def children(self) -> Sequence[Ir_co]:
-        """Default: no children.
+        """Return structural children in traversal order.
 
-        Sentinels and non-structural ``IrSelf`` subclasses use this empty
-        default. Structural IR nodes (``IrCollection``, ``IrComposite``)
-        override to return their actual children.
+        Default: empty tuple — used by sentinels, leaves, and any
+        ``IrSelf`` subclass that carries no IR-node children.
+        Structural nodes (``IrTuple``, ``IrComposite``) override this.
 
         :returns: Empty tuple.
         """
         return ()
 
     def rebuild(self, _new_children: Sequence[Ir_co]) -> Self:
-        """Default: identity rebuild.
+        """Reconstruct self under a tree transformation.
 
-        Sentinels and leaves return ``self``. Structural IR nodes
-        override to reconstruct with new children.
+        Default: identity — return ``self`` unchanged.  Structural nodes
+        override to splice in the transformed children supplied by a walker.
 
-        :param _new_children: Ignored at this level.
+        :param _new_children: Replacement children (ignored at this level).
         :returns: ``self`` unchanged.
         """
         return self
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Auto-derive ``_bound`` from the class's OWN PEP 695 type parameters.
+
+        Resolution strategy (applied once per class definition):
+
+        1. If the subclass already declares ``_bound`` in its own ``__dict__``
+           (e.g. ``IrStr._bound = str``, ``IrTuple._bound = tuple``), skip —
+           the explicit declaration wins.
+        2. Otherwise, inspect ``cls.__dict__["__type_params__"]`` (OWN params
+           only — never walk the MRO, to avoid inheriting a parent's bound
+           when the subclass introduces no new type parameters).
+        3. Select the **last** own type parameter — the covariant return type
+           ``Ir_co`` the :attr:`bound` property exposes (``type[Ir_co]``). It is
+           the second of the ``[Iri, Ir_co]`` pair, or the sole parameter on
+           single-parameter nodes. Taking the *last* (not the first) keeps the
+           derivation correct now that nodes carry an input ``Iri`` parameter
+           ahead of ``Ir_co``. If that ``TypeVar`` has a ``__bound__``, record
+           it as ``cls._bound``.
+
+        This means nodes declared as ``class IrFoo[Iri: IrSelf, Ir_co: IrStr]``
+        automatically acquire ``_bound = IrStr`` without any explicit
+        assignment.
+
+        :param kwargs: Forwarded to ``super().__init_subclass__``.
+        """
         super().__init_subclass__(**kwargs)
-        # Resolve bound once per class definition
-        for ancestor in cls.__mro__:
-            params = getattr(ancestor, "__type_params__", ())
-            if not params or not isinstance(params[0], TypeVar):
-                continue
-            bound = params[0].__bound__
-            if bound is not None:
-                cls._bound = bound
-                break
+        if "_bound" in cls.__dict__:  # explicit _bound wins (IrStr/IrTuple)
+            return
+        params = cls.__dict__.get("__type_params__", ())  # OWN params — never MRO
+        if params and isinstance(params[-1], TypeVar) and params[-1].__bound__:
+            cls._bound = params[-1].__bound__
+
+    @classmethod
+    def bound_type(cls) -> type:
+        """Return the concrete type bound to ``Ir_co`` for this class.
+
+        Exposes the ``_bound`` ClassVar set by :meth:`__init_subclass__` or an
+        explicit declaration on the concrete subclass.  Use this for class-level
+        introspection (e.g. tests verifying derivation); use the :attr:`bound`
+        instance property when you have an instance.
+
+        :returns: The runtime class recorded as ``_bound`` on this class.
+        :raises AttributeError: If ``_bound`` was never resolved for this class.
+        """
+        return cls._bound
 
     @property
     def bound(self) -> type[Ir_co]:
-        """O(1) class-level lookup, no instance mutation required"""
+        """Concrete type bound to ``Ir_co`` for this instance.
+
+        Used by generic action nodes (``IrDispatch``, ``IrTransformer``) to
+        materialise their result type at runtime — this is NOT coercion;
+        no value conversion happens here.  The property delegates to the
+        class-level ``_bound`` ClassVar set by ``__init_subclass__`` or an
+        explicit declaration on the concrete subclass.
+
+        :returns: The runtime class recorded as ``_bound`` on ``type(self)``.
+        :raises AttributeError: If ``_bound`` was never resolved for this class.
+        """
         return type(self)._bound
 
     def bind(self, other: Any) -> Ir_co:
-        """Object is bound to Ir_co or exploded"""
+        """Return ``other`` typed as ``Ir_co`` if it satisfies ``_bound``, else raise.
+
+        A lightweight type-safe cast used by action-algebra nodes to convert
+        an untyped dispatch result back to the expected ``Ir_co``.  Does NOT
+        construct or coerce — the value must already be the right type.
+
+        :param other: Candidate value to bind.
+        :returns: ``other`` as ``Ir_co``.
+        :raises TypeError: If ``other`` is not an instance of ``_bound``.
+        """
         if isinstance(other, self._bound):
             return other
         raise TypeError(f"Cannot bind {other!r} to {self!r}")
 
 
-# ── Absence sentinel ──────────────────────────────────────────────────
+@final
+class IrNoneType(IrSelf):
+    """Type of the absence sentinel, mirroring ``NoneType``/``None``.
 
+    ``IrNoneType`` is marked ``@final`` — subclassing is a **static** error
+    (pyright/mypy flag it at type-check time).  No runtime ``__init_subclass__``
+    guard is installed; ``@final`` is intentionally a static-only guarantee.
 
-class _IrNoneSentinel(IrSelf):  # pylint: disable=too-few-public-methods
-    """Singleton sentinel — an ``IrSelf`` instance used wherever a missing
-    dispatch slot needs a value. Pass ``IrNone`` directly (no call):
+    ``IrNoneType`` IS-A ``IrSelf``, so the singleton :data:`IrNone` fits every
+    dispatch slot typed ``IrSelf`` without introducing a ``| None`` union.  This
+    collapses the historical ``IrNode | None`` pattern to a single concrete type.
 
-        result = some_node(IrNone, IrNone, ())
+    The class is public so callers can write ``isinstance(x, IrNoneType)`` or
+    annotate parameters as ``IrSelf | IrNoneType``; the *value* to pass is
+    always the singleton :data:`IrNone`.
 
-    ``IrNone`` is structurally inside ``IrSelf``: its type IS ``IrSelf``,
-    which means it satisfies the ``_d: IrSelf`` / ``_n: IrSelf`` parameters
-    of every ``__call__`` without bringing back a ``| None`` union.
+    Implementation: singleton via ``__new__`` with a ``_instance`` ClassVar.
+    The first call allocates; subsequent calls return the cached instance.
     """
 
+    __slots__ = ()
+    _instance: ClassVar[Self | None] = None
 
-IrNone = _IrNoneSentinel()  # pylint: disable=invalid-name
+    def __new__(cls) -> Self:
+        """Return the singleton instance, allocating it on the first call.
 
-
-# ── Typed-output base and concrete typed classes ──────────────────────
-
-
-class IrType(IrSelf):
-    """Typed-output base.
-
-    Subclasses multi-inherit ``(IrType, <python type>)`` so instances are
-    both ``IrSelf``-shaped (full protocol) AND a concrete Python type
-    (full native methods). ``_bound`` records the python type for the
-    cached :attr:`IrSelf.bound` property; ``eval`` returns the bound's
-    neutral element (``str()`` → ``""``, ``int()`` → ``0``, …).
-
-    Usable as a TypeVar bound: ``Ir_co: IrType = IrStr`` lets pyright
-    accept the type at the bound site while preserving the IrSelf
-    protocol on the produced value.
-    """
-
-    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Self:
-        """Return the bound's neutral element (``self._bound()``)."""
-        return type(self)._bound()
-
-    @classmethod
-    def coerce(cls, value: Any) -> Self:
-        """Wrap ``value`` as an instance of ``cls``. Default: single-arg ctor.
-
-        Subclasses override when the constructor shape differs
-        (see :meth:`IrTuple.coerce`). The ``cls`` call is dynamically
-        dispatched — concrete subclasses (e.g. :class:`IrStr`) provide
-        the value-accepting constructor via their native python base.
+        :returns: The single ``IrNoneType`` instance.
         """
-        return value if isinstance(value, cls) else cast(Any, cls)(value)
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
 
-class IrStr(IrType, str):
-    """``IrSelf+str`` typed class. ``IrStr()`` is the empty-str singleton.
-
-    ``IrStr`` IS-A ``str`` so all string methods (notably ``.join``)
-    work natively; it IS-A ``IrSelf`` so the IR protocol applies.
-    """
-
-    _bound: ClassVar[type[str]] = str
+# Public singleton VALUE — callers pass bare `IrNone`
+IrNone = IrNoneType()
 
 
-class IrTuple[T](IrType, tuple):
-    """``IrSelf+tuple`` typed class. ``IrTuple()`` is the empty-tuple singleton."""
-
-    _bound: ClassVar[type[tuple]] = tuple
-
-    def __new__(cls, *args) -> IrTuple[T]:
-        """Build from positional items: ``IrTuple(a, b, c)``."""
-        return super().__new__(cls, args)
-
-    @classmethod
-    def coerce(cls, value: Any) -> Self:
-        """Iterable → IrTuple via ``cls(*value)``; pass through if already ``cls``."""
-        return value if isinstance(value, cls) else cls(*value)
-
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Self:
-        """Dispatch each element via its own ``.eval`` and rebuild the tuple."""
-        return type(self)(*(p.eval(d, n, nc) for p in self))
-
-
-# ── Root protocol ─────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class IrNode[Ir_co: IrSelf = IrSelf](IrSelf[Ir_co], ABC):
-    """Structural protocol every IR node implements.
+class IrNode[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrSelf[Iri, Ir_co], ABC):
+    """ABC marker for all structural IR nodes.
 
     Generic in ``Ir_co`` — the return type of ``__call__`` when this node is
     invoked as an action body. ``IrNode[X]`` IS-AN ``IrSelf[X]`` and inherits
     the identity ``__call__ -> X`` from ``IrSelf``. Value-producing nodes
-    (``Ir_co != Self``) override ``__call__``.
+    (where ``Ir_co != Self``) override ``__call__``.
 
-    Dispatch slots use bare ``IrNode`` types — absence is carried by
-    :class:`IrNone`, not ``None``. The signature is union-free.
+    **repr-is-codegen:** ``__repr__`` returns a valid Python constructor call
+    that reconstructs an equal node. ``IrNode`` supplies a zero-argument default
+    (``ClassName()``); field-bearing subclasses (``IrStr``/``IrTuple``/
+    ``IrComposite``) override it to render their payload/children/fields. There
+    is no separate ``__str__`` or ``_str_name``/``_inner_str`` cascade — that was
+    deliberately removed in the G3 rewrite. Only ``__repr__`` exists.
 
-    ``_str_name`` is auto-derived by ``__init_subclass__``: strip the ``Ir``
-    prefix, uppercase the remainder. Override the class attribute to
-    customise (e.g. ``_str_name: ClassVar[str] = "SEQ"``).
+    Dispatch slots carry bare ``IrNode`` types; absence is represented by
+    :data:`IrNone`, not ``None``, keeping the signature union-free.
 
-    Construction
-    ------------
-    Every subclass declared with ``@dataclass(..., init=False)`` inherits
-    :meth:`__init__`. It accepts positional or keyword args matching the
-    subclass's dataclass fields, and for any field annotated as an
-    :class:`IrType` subclass it delegates widening to
-    :meth:`IrType.coerce` — so callers can pass raw ``str`` where
-    :class:`IrStr` is expected, raw iterables where :class:`IrTuple` is
-    expected, etc. Missing fields fall back to the dataclass default; if
-    none, the field's ``IrType`` neutral element is used.
+    :param Ir_co: the return type of ``eval`` (defaults to ``IrSelf``).
     """
 
-    _str_name: ClassVar[str]
-    _str_opener: ClassVar[str] = "("
-    _str_closer: ClassVar[str] = ")"
+    __slots__ = ()
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-        if "_str_name" in cls.__dict__:
-            return
-        cls._str_name = cls.__name__.removeprefix("Ir").upper()
+    def __repr__(self) -> str:
+        """Codegen default: a zero-argument constructor call ``ClassName()``.
 
-    @classmethod
-    @functools.cache
-    def _ir_field_types(cls) -> dict[str, type[IrType] | None]:
-        """Per-field ``IrType`` subclass (origin) when annotated, else ``None``."""
-        out: dict[str, type[IrType] | None] = {}
-        for name, hint in typing.get_type_hints(cls).items():
-            origin = typing.get_origin(hint) or hint
-            out[name] = (
-                origin
-                if isinstance(origin, type) and issubclass(origin, IrType)
-                else None
-            )
-        return out
+        Field-bearing nodes override this — ``IrStr`` leaves render their string
+        payload, ``IrTuple`` collections their elements, ``IrComposite`` records
+        their dataclass fields. Zero-field nodes (the default action bodies
+        ``IrPass``/``IrWalk``/``IrEmit``/``IrRebuild``) inherit this default,
+        which is already valid codegen for them.
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        """Construct from positional or keyword args."""
-        cls = type(self)
-        fields_list = dataclasses.fields(cls)
-        ir_types = cls._ir_field_types()
-        kwargs.update({fields_list[i].name: a for i, a in enumerate(args)})
-        for f in fields_list:
-            ir = ir_types.get(f.name)
-            if f.name in kwargs:
-                v = kwargs[f.name]
-                val = ir.coerce(v) if ir is not None else v
-            elif f.default is not MISSING:
-                val = f.default
-            elif f.default_factory is not MISSING:
-                val = f.default_factory()
-            elif ir is not None:
-                val = ir()
-            else:
-                raise TypeError(f"{cls.__name__}: missing field {f.name!r}")
-            object.__setattr__(self, f.name, val)
-
-    @abstractmethod
-    def _inner_str(self) -> str:
-        """Content between the brackets in ``__str__``.
-
-        :returns: Inner string content.
+        :returns: A valid Python expression that constructs an equal node.
         """
-
-    def __str__(self) -> str:
-        return (
-            f"{self._str_name}{self._str_opener}{self._inner_str()}{self._str_closer}"
-        )
+        return f"{type(self).__name__}()"
 
 
-# ── Leaf base ─────────────────────────────────────────────────────────
+class IrLeaf[Iri: IrSelf, Ir_co: IrSelf](IrNode[Iri, Ir_co]):
+    """Base for all leaf nodes: no children, identity rebuild.
 
+    Provides the default empty ``children()`` and identity ``rebuild()``
+    from ``IrSelf``.  Concrete leaves inherit from ``IrStr`` (str-typed
+    leaves) or from ``IrComposite`` (fixed-field records); ``IrLeaf`` itself
+    carries no fields.
 
-class IrLeaf[Ir_co: IrSelf](IrNode[Ir_co]):
-    """Base for all leaf nodes.
-
-    Provides identity ``children()`` (empty) and ``rebuild()`` (no-op).
-    Does NOT provide ``__call__`` — concrete leaves either multi-inherit
-    ``IrSelf[Self]`` (identity) or override ``__call__`` (value-producing).
+    Does NOT provide ``__call__`` — concrete leaves either inherit the
+    identity from ``IrSelf`` or override ``eval`` (e.g. ``IrStr.eval``).
     """
 
-    __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
-
-    def _inner_str(self) -> str:
-        """Default: ``repr`` of the first dataclass field.
-
-        :returns: ``repr(first_field_value)``.
-        """
-        flds = dataclasses.fields(self)
-        return repr(getattr(self, flds[0].name)) if flds else ""
+    __slots__ = ()
 
 
-# ── Branch-node abstract base ─────────────────────────────────────────
+class IrAtom(IrNode):
+    """NON-generic role marker — mixed into atoms by plain inheritance.
 
+    ``IrItem.atom: IrAtom`` accepts any ``IrAtom`` subclass; an
+    ``isinstance(x, IrAtom)`` check is genuine MRO at zero runtime cost.
 
-class IrStructure[Ir_co: IrSelf](IrNode[Ir_co]):
-    """Abstract base for non-leaf IR nodes.
+    ``IrAtom`` is intentionally non-generic (no ``[Ir_co]`` parameter) to
+    avoid TypeVar conflicts when concrete atoms multi-inherit from both
+    a parameterised structural base and ``IrAtom``.
 
-    Provides ``_inner_str`` / ``__repr__`` machinery for nodes with extras
-    and children. Does NOT provide ``__call__``.
-
-    Concrete structural subclasses must carry ``@dataclass(repr=False)`` —
-    ``repr=False`` is required per-class because ``@dataclass`` runs after
-    ``__init_subclass__`` and would otherwise overwrite ``__repr__``.
+    Open-set: a future atom type simply adds ``IrAtom`` to its bases without
+    modifying any dispatch table.
     """
 
-    __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
-
-    @abstractmethod
-    def _extra_field_names(self) -> tuple[str, ...]:
-        """Names of dataclass fields that are non-child extras.
-
-        :returns: Tuple of field names excluded from ``children()``.
-        """
-
-    def _extra_reprs(self) -> list[str]:
-        """``key=repr(val)`` strings for each extra field.
-
-        :returns: List of formatted extra-field strings.
-        """
-        return [f"{n}={getattr(self, n)!r}" for n in self._extra_field_names()]
-
-    def _extra_str_parts(self) -> list[str]:
-        """Canonical str parts for extra fields.
-
-        :returns: List of formatted extra-field strings.
-        """
-        return self._extra_reprs()
-
-    def _inner_str(self) -> str:
-        """Comma-joined extras and children for ``__str__``.
-
-        :returns: Inner string content.
-        """
-        return ", ".join(self._extra_str_parts() + [str(c) for c in self.children()])
+    __slots__ = ()
 
 
-# ── Variable-length homogeneous branch nodes ──────────────────────────
+# ── Primitive str tier ────────────────────────────────────────────────
 
 
-class IrCollection[Ir_co: IrSelf](IrStructure[Ir_co]):
-    """Branch node carrying a single variable-length tuple of children.
+class IrStr(IrLeaf, str):
+    """``IrSelf + str`` primitive tier. The node IS the string — no ``value`` field.
 
-    Concrete subclasses declare::
+    ``IrStr`` multi-inherits ``IrLeaf`` and ``str`` so instances are both
+    full IR nodes (protocol, ``children``, ``rebuild``, ``eval``) AND native
+    Python strings (all str methods including ``.join``, ``.upper``, slicing).
 
-        _items_attr: ClassVar[str] = "<field_name>"
+    **Design note:** ``IrLeaf`` is left unparameterised (``Ir_co`` takes its
+    ``IrSelf`` default).  Do **not** write ``IrLeaf[str]`` — ``str`` violates
+    the ``Ir_co: IrSelf`` bound and triggers "mutually incompatible bases" on
+    every str-leaf subclass.
+
+    ``_bound`` is explicitly set to ``str`` so :attr:`IrSelf.bound` resolves
+    correctly without relying on the ``__type_params__`` auto-derivation
+    (``IrStr`` introduces no PEP 695 type parameters).
+
+    ``__repr__`` is codegen: ``IrLiteral('hello')`` reproduces the constructor.
     """
 
-    _items_attr: ClassVar[str]
+    __slots__ = ()
+    _bound: ClassVar[type[str]] = str
 
-    def _extra_field_names(self) -> tuple[str, ...]:
-        """Fields that are not the homogeneous items tuple.
+    def __new__(cls, value: str = "") -> Self:
+        """Construct via ``str.__new__``, returning the concrete subtype.
 
-        :returns: Tuple of extra field names.
+        :param value: The string payload; defaults to the empty string.
+        :returns: A new instance of the concrete subclass (not ``IrStr``).
         """
-        return tuple(
-            f.name for f in dataclasses.fields(self) if f.name != self._items_attr
-        )
+        return super().__new__(cls, value)
 
-    def children(self) -> Sequence[Ir_co]:
-        """Return the homogeneous children tuple.
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Self:
+        """Return ``self`` — the node IS the value, no further dispatch needed.
 
-        :returns: Tuple of child nodes.
+        :param _d: Dispatcher (unused).
+        :param _n: Parent node (unused).
+        :param _nc: Pre-walked children (unused).
+        :returns: ``self``.
         """
-        return getattr(self, self._items_attr)
+        return self
 
-    def rebuild(self, new_children: Sequence[Ir_co]) -> Self:
-        """Reconstruct, replacing the items field with ``new_children``.
+    def __eq__(self, other: object) -> bool:
+        """Type-aware equality between IR leaves.
 
-        :param new_children: Replacement children tuple.
-        :returns: New instance with updated children.
+        Two ``IrStr`` leaves compare equal only when they are the *same*
+        concrete subtype carrying the same characters — so ``IrLiteral('x')``
+        is **not** equal to ``IrRuleRef('x')`` even though each equals the
+        plain string ``'x'``.  Without this, distinct leaf kinds with the same
+        text would collide in structural equality and hashing (poisoning
+        ``@cache`` and any node-keyed dict/set).  Comparison against a
+        non-``IrStr`` value falls back to native ``str`` equality, preserving
+        the leaf-IS-A-``str`` convenience used for plain-``str`` dict/set keys.
+
+        :param other: The value to compare against.
+        :returns: ``True`` when equal under the rules above.
         """
-        return dataclasses.replace(self, **{self._items_attr: new_children})
+        if isinstance(other, IrStr) and type(self) is not type(other):
+            return False
+        return str.__eq__(self, other)
+
+    # Native str hash: same-text leaves of different kinds collide but compare
+    # unequal (eq is the tiebreaker), and a leaf still matches its plain-str key.
+    __hash__ = str.__hash__
+
+    def __repr__(self) -> str:
+        """Codegen repr: ``ClassName('payload')``.
+
+        Uses ``str.__repr__`` for the payload to ensure proper quoting and
+        escape rendering.
+
+        :returns: Constructor call reproducing this node.
+        """
+        return f"{type(self).__name__}({str.__repr__(self)})"
 
 
-# ── Fixed-arity heterogeneous branch nodes ────────────────────────────
+class IrLiteral(IrStr, IrAtom):
+    """Literal string. The string itself is the payload (escapes already decoded).
 
+    Carries a dual role in the IR:
 
-class IrComposite[Ir_co: IrSelf](IrStructure[Ir_co]):
-    """Branch node carrying a fixed, named set of children.
+    - As a grammar AST leaf: the literal characters that must appear verbatim.
+    - As an action-language constant: a baked-in string an action body returns.
 
-    Concrete subclasses declare::
-
-        _child_attrs: ClassVar[tuple[str, ...]] = ("<attr1>", "<attr2>", ...)
+    The two roles are distinguished at eval time by the ``nc`` parameter — see
+    the IR-shapes wiki entry.  Both roles produce the same ``str`` value, so
+    the same node class serves both.
     """
 
-    _child_attrs: ClassVar[tuple[str, ...]]
+    __slots__ = ()
 
-    def _extra_field_names(self) -> tuple[str, ...]:
-        """Fields that are not named child attributes.
 
-        :returns: Tuple of extra field names.
+class IrCharClass(IrStr, IrAtom):
+    """Character class. The string is the canonical POSIX-style interior pattern.
+
+    Examples: ``'a-z'``, ``'0-9'``, ``'a-zA-Z_'``.  The surrounding ``[``/``]``
+    brackets are NOT stored — they are emitted by the flavour renderer.
+    """
+
+    __slots__ = ()
+
+
+class IrRuleRef(IrStr, IrAtom):
+    """Reference to another rule. The string is the rule name.
+
+    Used in rule bodies to denote a non-terminal; the name matches the
+    ``IrRule.name`` of the referenced rule.
+    """
+
+    __slots__ = ()
+
+
+# ── Primitive tuple tier ──────────────────────────────────────────────
+
+
+class IrTuple[T: IrSelf](IrNode, tuple):
+    """``IrSelf + tuple`` primitive tier. A variadic node IS its children.
+
+    ``IrTuple`` multi-inherits ``IrNode`` and ``tuple`` so instances are both
+    full IR nodes and native Python tuples (indexing, iteration, equality,
+    hashing all work natively).
+
+    The node's children ARE the tuple elements; ``children()`` returns
+    ``self`` and ``rebuild(new_children)`` constructs a new instance from the
+    replacement elements via the variadic ``*items`` constructor.
+
+    ``_bound`` is explicitly set to ``tuple`` (parallel to ``IrStr._bound = str``)
+    so :attr:`IrSelf.bound` resolves correctly without PEP 695 auto-derivation.
+
+    ``__repr__`` is codegen: ``IrSequence(IrItem(...), IrItem(...))`` reproduces
+    the constructor call.
+
+    :param T: The element type, bounded by ``IrSelf``.
+    """
+
+    __slots__ = ()
+    _bound: ClassVar[type[tuple]] = tuple
+
+    def __new__(cls, *items: T) -> Self:
+        """Construct from variadic positional items.
+
+        :param items: Zero or more child nodes.
+        :returns: A new instance of the concrete subclass containing ``items``.
         """
-        return tuple(
-            f.name for f in dataclasses.fields(self) if f.name not in self._child_attrs
-        )
+        return super().__new__(cls, items)
 
-    def _extra_str_parts(self) -> list[str]:
-        """Extras rendered positionally.
+    def children(self) -> Sequence[T]:
+        """Return the tuple elements as the structural children.
 
-        :returns: List of ``repr(value)`` strings.
+        :returns: ``self`` (the tuple IS the children sequence).
         """
-        return [repr(getattr(self, n)) for n in self._extra_field_names()]
+        return self
+
+    def rebuild(self, new_children: Sequence[IrSelf]) -> Self:
+        """Reconstruct with replacement children.
+
+        :param new_children: Replacement elements; must be compatible with ``T``.
+        :returns: New instance of the same concrete type containing ``new_children``.
+        """
+        # base-compatible param (Sequence[IrSelf]); cast for the *items: T ctor
+        return type(self)(*cast(Sequence[Any], new_children))
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Self:
+        """Dispatch each element via its own ``eval`` and rebuild the tuple.
+
+        :param d: Dispatcher forwarded to each element's ``eval``.
+        :param n: Parent node forwarded to each element's ``eval``.
+        :param nc: Pre-walked children forwarded to each element's ``eval``.
+        :returns: New instance containing the evaluated elements.
+        """
+        return type(self)(*(p.eval(d, n, nc) for p in self))
+
+    def __repr__(self) -> str:
+        """Codegen repr: ``ClassName(elem0, elem1, …)``.
+
+        :returns: Constructor call reproducing this node.
+        """
+        return f"{type(self).__name__}({', '.join(map(repr, self))})"
+
+
+class IrSequence(IrTuple["IrItem"]):
+    """Concatenation (sequence) of ``IrItem`` nodes.
+
+    Represents an ordered sequence of grammar items that must all match in
+    order.  Corresponds to the ``items`` tuple in a single alternation arm.
+    """
+
+    __slots__ = ()
+
+
+class IrAlternation(IrTuple["IrSequence"]):
+    """Ordered choice (alternation) between ``IrSequence`` arms.
+
+    Represents the ``|``-separated alternatives in a grammar rule body.
+    Each arm is an ``IrSequence``; the first matching arm wins.
+    """
+
+    __slots__ = ()
+
+
+# ── Composite dataclass tier ──────────────────────────────────────────
+
+
+class IrComposite[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
+    """Dataclass record base for fixed-arity IR nodes.
+
+    All concrete composite nodes are ``@dataclass(frozen=True, slots=True,
+    repr=False)`` subclasses. They declare:
+
+    - ``_child_attrs: ClassVar[tuple[str, ...]]`` — names of dataclass fields
+      that are IR-node children (in traversal order).  Records with no
+      IR-node children declare ``_child_attrs = ()`` (the default).
+    - The remaining dataclass fields (not in ``_child_attrs``) are non-child
+      payload: names, bounds, flags, etc.
+
+    ``__repr__`` is codegen: all dataclass fields are rendered as ``name=repr(value)``
+    keyword arguments in declaration order, giving a valid constructor call.
+
+    ``__dataclass_fields__`` is declared on the base class so that pyright
+    accepts ``dataclasses.fields(self)`` / ``dataclasses.replace(self, …)``
+    calls on ``IrComposite``-typed references, even though ``IrComposite``
+    itself carries no ``@dataclass`` decorator.  Without this declaration,
+    pyright reports ``"__dataclass_fields__ is not present"``.
+
+    :param Ir_co: the return type of ``eval`` (defaults to ``IrSelf``).
+    """
+
+    __slots__ = ()
+    # Declared so pyright accepts ``fields(self)``/``replace(self, …)`` on the
+    # base even though IrComposite itself is not @dataclass-decorated (concrete
+    # subclasses are). Without this the base errors with "__dataclass_fields__
+    # is not present".
+    __dataclass_fields__: ClassVar[dict[str, Any]]
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
 
     def children(self) -> Sequence[Ir_co]:
         """Return children in ``_child_attrs`` declaration order.
 
-        :returns: Tuple of child nodes.
+        :returns: Tuple of child IR nodes.
         """
         return tuple(getattr(self, a) for a in self._child_attrs)
 
     def rebuild(self, new_children: Sequence[Ir_co]) -> Self:
         """Reconstruct, replacing child attrs from ``new_children`` in order.
 
+        Uses ``dataclasses.replace`` so frozen-dataclass immutability is
+        respected; non-child payload fields are preserved unchanged.
+
         :param new_children: Replacements matching ``_child_attrs`` order.
         :returns: New instance with updated children.
         """
-        return dataclasses.replace(self, **dict(zip(self._child_attrs, new_children)))
+        return replace(self, **dict(zip(self._child_attrs, new_children)))
+
+    def __repr__(self) -> str:
+        """Codegen repr: ``ClassName(field=val, …)`` for all dataclass fields.
+
+        All fields — both child attrs and non-child payload — are rendered
+        as ``name=repr(value)`` keyword arguments in dataclass declaration
+        order.  This ensures the output is a valid Python constructor call.
+
+        :returns: Constructor call reproducing this node.
+        """
+        inner = ", ".join(f"{f.name}={getattr(self, f.name)!r}" for f in fields(self))
+        return f"{type(self).__name__}({inner})"
 
 
-# ── Superset role ─────────────────────────────────────────────────────
+@dataclass(frozen=True, slots=True, repr=False)
+class IrQuantifier(IrComposite):
+    """Repetition bounds for an ``IrItem``.
 
+    ``min`` and ``max`` mirror POSIX/PCRE repetition bounds:
 
-class IrSuperSet[Ir_co: IrSelf = IrSelf](IrNode[Ir_co]):
-    """IrNode parent of ``IrAtom`` and any future role-marker supersets.
+    - ``IrQuantifier(1, 1)`` — exactly once (the default; no postfix operator).
+    - ``IrQuantifier(0, 1)`` — optional (``?``).
+    - ``IrQuantifier(0, None)`` — zero-or-more (``*``).
+    - ``IrQuantifier(1, None)`` — one-or-more (``+``).
+    - ``IrQuantifier(m, n)`` — between ``m`` and ``n`` times (``{m,n}``).
 
-    Class-local ``Ir_co`` TypeVar so concrete atoms can multi-inherit with
-    parameterised leaves without TypeVar conflicts.
+    ``max=None`` means unbounded (no upper limit).  ``IrQuantifier`` carries
+    no IR-node children (``_child_attrs = ()`` inherited default).
     """
-
-
-class IrAtom[Ir_co: IrSelf = IrSelf](IrSuperSet[Ir_co]):
-    """Role marker for IR nodes that ``IrItem`` can wrap with a quantifier.
-
-    Decoupled from leaf-vs-composite structure. Concrete atoms multi-
-    inherit ``IrAtom`` alongside their structural base::
-
-        class IrLiteral(IrLeaf[str], IrAtom): ...
-        class IrCharClass(IrLeaf["IrCharClass"], IrAtom): ...
-        class IrRuleRef(IrLeaf["IrRuleRef"], IrAtom): ...
-        class IrGroup(IrComposite["IrGroup"], IrAtom): ...
-
-    Open-set: a future atom type just adds ``IrAtom`` to its bases.
-    """
-
-
-# ── Leaves ────────────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class IrStrLeaf[Ir_co: IrStr](IrLeaf[Ir_co]):
-    """Base for leaves carrying a single :class:`IrStr`-shaped value.
-
-    Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
-    :class:`IrStr`). The base :meth:`IrNode.__init__` coerces the raw
-    ``str`` payload via :meth:`IrStr.coerce`.
-    """
-
-    value: Ir_co
-
-    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
-        """Return the stored value (already coerced to ``Ir_co``)."""
-        return self.value
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class IrLiteral(IrStrLeaf, IrAtom):
-    """Literal string. ``.value`` is canonical Python (escapes decoded)."""
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class IrCharClass(IrStrLeaf, IrAtom):
-    """Character class. ``.value`` is the canonical POSIX-style interior."""
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class IrRuleRef(IrStrLeaf, IrAtom):
-    """Reference to another rule. ``.value`` is the rule name."""
-
-    _str_name: ClassVar[str] = "REF"
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class IrQuantifier(IrLeaf):
-    """Repetition bounds. ``max=None`` means unbounded.
-
-    Uses ``[``/``]`` brackets — subscript/bounds notation, distinct from
-    the constructor-call ``(``/``)`` used by all other nodes.
-    """
-
-    _str_name: ClassVar[str] = "Q"
-    _str_opener: ClassVar[str] = "["
-    _str_closer: ClassVar[str] = "]"
 
     min: int = 1
     max: int | None = 1
 
-    def _inner_str(self) -> str:
-        """Compact bounds notation: ``n`` for exact, ``m..n`` for range.
 
-        :returns: Inner string content.
-        """
-        if self.min == self.max:
-            return str(self.min)
-        hi = "*" if self.max is None else str(self.max)
-        return f"{self.min}..{hi}"
+@dataclass(frozen=True, slots=True, repr=False)
+class IrItem(IrComposite):
+    """An atom paired with a quantifier — the universal wrapper node.
 
+    ``IrItem`` is the fundamental unit of a grammar sequence.  Every element
+    in an ``IrSequence`` is an ``IrItem``.  The ``atom`` field accepts any
+    ``IrAtom`` subclass (``IrLiteral``, ``IrCharClass``, ``IrRuleRef``,
+    ``IrGroup``, ``IrNot``).
 
-# ── Collection nodes ──────────────────────────────────────────────────
+    Children (in ``_child_attrs`` order): ``atom``, ``quantifier``.
+    """
 
-
-@dataclass(frozen=True, slots=True, init=False)
-class IrSequence(IrCollection):
-    """Concatenation of items."""
-
-    _items_attr: ClassVar[str] = "items"
-    _str_name: ClassVar[str] = "SEQ"
-    items: IrTuple[IrItem] = IrTuple()
+    _child_attrs: ClassVar[tuple[str, ...]] = ("atom", "quantifier")
+    atom: IrAtom
+    quantifier: IrQuantifier = IrQuantifier()
 
 
-@dataclass(frozen=True, slots=True, init=False)
-class IrAlternation(IrCollection):
-    """Choice between sequences. Always >= 1 arm."""
-
-    _items_attr: ClassVar[str] = "arms"
-    _str_name: ClassVar[str] = "ALT"
-    arms: IrTuple[IrSequence] = IrTuple()
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class IrAst(IrCollection):
-    """Full grammar: rules + start-rule name."""
-
-    _items_attr: ClassVar[str] = "rules"
-    rules: IrTuple[IrRule] = IrTuple()
-    start: IrStr = IrStr("")
-
-
-# ── Composite nodes ───────────────────────────────────────────────────
-
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class IrGroup(IrComposite, IrAtom):
-    """Parenthesised group. Body is always an ``IrAlternation``."""
+    """Parenthesised group — an ``IrAtom`` whose body is an ``IrAlternation``.
+
+    Corresponds to ``( … )`` in GBNF/ABNF.  Because ``IrGroup`` IS-AN
+    ``IrAtom``, it can be wrapped by ``IrItem`` and appear anywhere an atom
+    is expected — including as the ``atom`` field of another ``IrItem``.
+
+    Children: the single ``body`` ``IrAlternation``.
+    """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
     body: IrAlternation
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class IrNot[Ir_co: IrAtom = IrAtom](IrComposite, IrAtom):
-    """Negation. Wraps an atom; ``IrNot(IrCharClass("a-z"))`` is ``[^a-z]``."""
+    """Negation — an ``IrAtom`` that inverts a character class or atom.
+
+    Corresponds to ``[^…]`` (negated character class) in GBNF.  The ``body``
+    field is typically an ``IrCharClass`` but accepts any ``IrAtom`` subtype
+    via the ``Ir_co`` parameter.
+
+    Because ``IrNot`` IS-AN ``IrAtom``, it can be wrapped by ``IrItem``
+    like any other atom.
+
+    Children: the single ``body`` atom.
+
+    :param Ir_co: Concrete atom type of the wrapped body (defaults to ``IrAtom``).
+    """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
     body: Ir_co
 
 
-@dataclass(frozen=True, slots=True, init=False)
-class IrItem(IrComposite):
-    """An atom (leaf or group) with a quantifier."""
-
-    _child_attrs: ClassVar[tuple[str, ...]] = ("atom", "quantifier")
-    atom: IrAtom
-    quantifier: IrQuantifier = field(default_factory=IrQuantifier)
-
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class IrRule(IrComposite):
-    """A named rule. Body is always an ``IrAlternation``, even single-arm."""
+    """A named grammar rule.
+
+    The ``body`` is always an ``IrAlternation``, even for single-arm rules
+    (a single arm is an ``IrAlternation`` containing one ``IrSequence``).
+
+    Children: the single ``body`` ``IrAlternation``.
+    Non-child payload: ``name`` (the rule identifier string).
+    """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
-    name: IrStr
+    name: str
     body: IrAlternation
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class IrAst(IrComposite):
+    """Full grammar AST: a collection of rules plus the start-rule name.
+
+    ``rules`` is an ``IrTuple`` of ``IrRule`` nodes (wrapped so a single
+    child attribute can hold the whole collection and be replaced atomically
+    by tree transformations).  ``start`` is the plain string name of the
+    start rule.
+
+    Children: the single ``rules`` ``IrTuple``.
+    Non-child payload: ``start`` (start-rule name).
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("rules",)
+    rules: IrTuple = IrTuple()
+    start: str = ""
