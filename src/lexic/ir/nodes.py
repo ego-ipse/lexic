@@ -285,78 +285,92 @@ class IrAtom(IrNode):
 # ── Primitive str tier ────────────────────────────────────────────────
 
 
-class IrStr(IrLeaf, str):
-    """``IrSelf + str`` primitive tier. The node IS the string — no ``value`` field.
+class IrScalar(IrLeaf):
+    """Base for value-carrying leaves (:class:`IrStr`, :class:`IrInt`).
 
-    ``IrStr`` multi-inherits ``IrLeaf`` and ``str`` so instances are both
-    full IR nodes (protocol, ``children``, ``rebuild``, ``eval``) AND native
-    Python strings (all str methods including ``.join``, ``.upper``, slicing).
-
-    **Design note:** ``IrLeaf`` is left unparameterised (``Ir_co`` takes its
-    ``IrSelf`` default).  Do **not** write ``IrLeaf[str]`` — ``str`` violates
-    the ``Ir_co: IrSelf`` bound and triggers "mutually incompatible bases" on
-    every str-leaf subclass.
-
-    ``_bound`` is explicitly set to ``str`` so :attr:`IrSelf.bound` resolves
-    correctly without relying on the ``__type_params__`` auto-derivation
-    (``IrStr`` introduces no PEP 695 type parameters).
-
-    ``__repr__`` is codegen: ``IrLiteral('hello')`` reproduces the constructor.
+    Hosts the behaviour shared by all value leaves: self-evaluating ``eval``,
+    type-aware equality/hash (distinct leaf kinds never compare equal), and
+    codegen ``__repr__``. Each subclass sets ``_bound`` to its primitive base
+    (``str``/``int``), which drives payload comparison, hashing and rendering.
     """
 
     __slots__ = ()
-    _bound: ClassVar[type[str]] = str
-
-    def __new__(cls, value: str = "") -> Self:
-        """Construct via ``str.__new__``, returning the concrete subtype.
-
-        :param value: The string payload; defaults to the empty string.
-        :returns: A new instance of the concrete subclass (not ``IrStr``).
-        """
-        return super().__new__(cls, value)
 
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Self:
-        """Return ``self`` — the node IS the value, no further dispatch needed.
+        """Return ``self`` — the node IS the value.
 
-        :param _d: Dispatcher (unused).
-        :param _n: Parent node (unused).
-        :param _nc: Pre-walked children (unused).
         :returns: ``self``.
         """
         return self
 
     def __eq__(self, other: object) -> bool:
-        """Type-aware equality between IR leaves.
+        """Type-aware equality: distinct leaf kinds never compare equal.
 
-        Two ``IrStr`` leaves compare equal only when they are the *same*
-        concrete subtype carrying the same characters — so ``IrLiteral('x')``
-        is **not** equal to ``IrRuleRef('x')`` even though each equals the
-        plain string ``'x'``.  Without this, distinct leaf kinds with the same
-        text would collide in structural equality and hashing (poisoning
-        ``@cache`` and any node-keyed dict/set).  Comparison against a
-        non-``IrStr`` value falls back to native ``str`` equality, preserving
-        the leaf-IS-A-``str`` convenience used for plain-``str`` dict/set keys.
+        ``IrLiteral('x') != IrRuleRef('x')`` even though each equals plain
+        ``'x'`` — otherwise same-payload leaves of different kinds would collide
+        in structural equality/hashing. Falls back to the primitive's equality
+        (so a leaf still matches its plain-``str``/``int`` value).
 
         :param other: The value to compare against.
         :returns: ``True`` when equal under the rules above.
         """
-        if isinstance(other, IrStr) and type(self) is not type(other):
+        if isinstance(other, IrScalar) and type(self) is not type(other):
             return False
-        return str.__eq__(self, other)
+        return super().__eq__(other)
 
-    # Native str hash: same-text leaves of different kinds collide but compare
-    # unequal (eq is the tiebreaker), and a leaf still matches its plain-str key.
-    __hash__ = str.__hash__
+    def __ne__(self, other: object) -> bool:
+        """Negation of :meth:`__eq__`, kept consistent with it.
+
+        ``str``/``int`` supply their own ``__ne__`` (which ignores the
+        leaf-kind check), so without this override ``a != b`` would disagree
+        with ``not (a == b)`` for distinct same-payload leaves.
+
+        :param other: The value to compare against.
+        :returns: ``True`` when not equal under :meth:`__eq__`.
+        """
+        return not self == other
+
+    def __hash__(self) -> int:
+        """Hash by primitive payload, so a leaf matches its plain value as a key.
+
+        :returns: The native ``str``/``int`` hash of the payload.
+        """
+        return super().__hash__()
 
     def __repr__(self) -> str:
-        """Codegen repr: ``ClassName('payload')``.
+        """Codegen repr: ``ClassName(payload)`` via the primitive's ``repr``.
 
-        Uses ``str.__repr__`` for the payload to ensure proper quoting and
-        escape rendering.
+        ``self._bound(self)`` strips the subclass to a plain ``str``/``int`` so
+        ``!r`` renders the bare payload (quoted string / bare int), not a
+        recursive node repr.
 
         :returns: Constructor call reproducing this node.
         """
-        return f"{type(self).__name__}({str.__repr__(self)})"
+        return f"{type(self).__name__}({self._bound(self)!r})"
+
+
+class IrStr(IrScalar, str):
+    """``IrSelf + str`` value leaf — the node IS the string.
+
+    Multi-inherits :class:`IrScalar` and ``str`` so instances are both IR nodes
+    and native strings. ``_bound`` is set explicitly (no PEP 695 type params).
+
+    **Design note:** do **not** write ``IrLeaf[str]`` — ``str`` violates the
+    ``Ir_co: IrSelf`` bound and triggers "mutually incompatible bases".
+    """
+
+    __slots__ = ()
+    _bound: ClassVar[type[str]] = str
+
+
+class IrInt(IrScalar, int):
+    """Int-typed value leaf — the node IS the integer. Sibling of :class:`IrStr`.
+
+    ``_bound`` is set explicitly (no PEP 695 type params).
+    """
+
+    __slots__ = ()
+    _bound: ClassVar[type[int]] = int
 
 
 class IrLiteral(IrStr, IrAtom):

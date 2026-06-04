@@ -11,6 +11,7 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrComposite,
     IrGroup,
+    IrInt,
     IrItem,
     IrLeaf,
     IrLiteral,
@@ -21,6 +22,7 @@ from lexic.ir.nodes import (
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrScalar,
     IrSelf,
     IrSequence,
     IrStr,
@@ -539,3 +541,64 @@ def test_bound_derived_from_own_typevar_bound():
         pass
 
     assert _Probe.bound_type() is IrLiteral
+
+
+# ── IrScalar / IrInt (Task 1) ─────────────────────────────────────────
+
+
+def test_irscalar_is_a_leaf_and_parents_the_value_leaves():
+    """IrScalar is an IrLeaf subclass; IrStr and IrInt both inherit from it."""
+    assert issubclass(IrScalar, IrLeaf)
+    assert issubclass(IrStr, IrScalar)
+    assert issubclass(IrInt, IrScalar)
+
+
+def test_irscalar_eval_is_self_for_both_value_leaves():
+    """Value leaves are self-evaluating: eval returns self (the scalar value)."""
+    assert IrInt(5).eval(IrNone, IrNone, ()) == 5  # inherited from IrScalar
+    assert IrLiteral("x").eval(IrNone, IrNone, ()) == "x"  # IrStr leaf, inherited
+
+
+def test_irint_is_int_and_scalar():
+    """IrInt is simultaneously an int and an IrScalar — no wrapper boxing."""
+    assert isinstance(IrInt(5), int)
+    assert isinstance(IrInt(5), IrScalar)
+    assert IrInt(5) == 5  # native int equality
+    assert IrInt(5) + 1 == 6  # native int arithmetic
+
+
+def test_irint_default_is_zero():
+    """IrInt() with no argument defaults to 0, matching int() behaviour."""
+    assert IrInt() == 0
+
+
+def test_irint_bound_is_int():
+    """IrInt._bound resolves to int (explicit ClassVar, parallel to IrStr._bound = str)."""
+    assert IrInt.bound_type() is int
+
+
+def test_irint_repr_is_codegen():
+    """repr(IrInt(5)) produces the constructor call 'IrInt(5)' (repr-is-codegen)."""
+    assert repr(IrInt(5)) == "IrInt(5)"
+
+
+def test_irscalar_eq_hash_delegate_to_primitive():
+    """IrScalar.__eq__/__hash__ reach str/int (not object identity) via super().
+
+    Regression guard: if a future refactor inserts an __eq__/__hash__ between
+    IrScalar and str/int in the MRO — or breaks the super() delegation — these
+    fall back to object identity and silently break value equality and keying.
+    """
+    assert IrLiteral("x") == "x"  # str.__eq__, not object identity
+    assert IrInt(5) == 5  # int.__eq__, not object identity
+    assert hash(IrLiteral("x")) == hash("x")  # str.__hash__
+    assert hash(IrInt(5)) == hash(5)  # int.__hash__
+    by_primitive: dict[str, int] = {IrLiteral("x"): 1}  # leaf keys by primitive value
+    assert by_primitive["x"] == 1
+
+
+def test_irscalar_eq_is_type_aware_across_kinds():
+    """Distinct value-leaf kinds never compare equal, even same payload / across tiers."""
+    assert IrLiteral("x") != IrRuleRef("x")  # distinct str-leaf kinds
+    assert IrInt(5) != IrLiteral("5")  # int leaf vs str leaf
+    assert len({IrLiteral("a"), IrLiteral("a"), IrRuleRef("a")}) == 2
