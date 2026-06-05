@@ -61,13 +61,19 @@ src/lexic/
   ir/
     __init__.py         re-exports IrItem nodes, RuleSpec
     nodes.py            IrSelf[Iri,Ir_co] generic root; IrNode ABC; IrAtom role
-                        marker; three tiers: IrStr str-leaves (IrLiteral, IrCharClass,
-                        IrRuleRef), IrTuple variadic (IrSequence, IrAlternation),
-                        IrComposite frozen-dataclass records (IrItem, IrQuantifier,
-                        IrGroup, IrNot, IrRule, IrAst); IrNoneType/IrNone sentinel.
-                        IrStr.__eq__ is type-aware (distinct leaf kinds never equal)
-    action.py           Action-algebra nodes: IrField, IrCallable, IrChild, IrChildren,
-                        IrConcat, IrJoin, IrCond, IrThis, IrReturn, IrAction; default
+                        marker; three tiers: IrScalar value-leaves (IrStr ⇒
+                        IrLiteral/IrCharClass/IrRuleRef; IrInt), IrTuple variadic
+                        (IrSequence, IrAlternation; eval -> IrSelf so reducers may
+                        override), IrComposite frozen-dataclass records (IrItem,
+                        IrQuantifier, IrGroup, IrNot, IrRule, IrAst); IrNoneType/IrNone
+                        sentinel. IrScalar hosts eval/eq/ne/hash/repr (type-aware:
+                        distinct leaf kinds never equal); IrScalar.__new__ forwards the
+                        payload to str/int (so type[IrScalar] is constructor-callable);
+                        IrStr/IrInt carry only _bound
+    action.py           Action-algebra nodes: IrField (out: type[IrScalar], reads
+                        typed attrs), IrOp(IrStr) operator leaf + IrCompare/IrAnd
+                        (-> IrInt), IrCallable, IrChild, IrChildren, IrConcat, IrJoin,
+                        IrCond (test: IrSelf), IrThis, IrReturn, IrAction; default
                         bodies IrPass, IrWalk, IrRaise, IrEmit, IrRebuild
     walk.py             IrDispatch[Iri,Ir_co] — IrComposite; actions tuple is the
                         table; presets IrVisitor, IrTransformer, IrEmitter. Does NOT
@@ -193,20 +199,22 @@ The **primitive-node model** ("V2"): a node *is* its payload. Every IR node is c
 **Three tiers — the node IS its payload (there are NO `.value` / `.items` / `.arms` accessors):**
 
 ```
-str-leaves   IrStr(IrLeaf, str)         IrLiteral, IrCharClass, IrRuleRef   — the node IS the string
+value-leaves IrScalar(IrLeaf)           IrStr ⇒ IrLiteral/IrCharClass/IrRuleRef; IrInt — the node IS the scalar
 variadic     IrTuple[T](IrNode, tuple)  IrSequence, IrAlternation           — the node IS its children tuple
 records      IrComposite (frozen dataclass)  IrItem, IrQuantifier, IrGroup, IrNot, IrRule, IrAst
 ```
 
+`IrScalar(IrLeaf)` is the value-leaf base; it hosts `eval` (self-evaluating), the type-aware `__eq__`/`__ne__`, `__hash__`, and codegen `__repr__` — all delegating to the primitive via `super()` / `self._bound`. `IrScalar.__new__(*args)` forwards the payload to `str`/`int`, which (a) lets `object.__init__` tolerate the construction arg and (b) makes `type[IrScalar]` constructor-callable (used by `IrField.out`). `IrStr(IrScalar, str)` and `IrInt(IrScalar, int)` carry only their explicit `_bound`. A **truth value is `IrInt ∈ {0,1}` — there is no `IrBool`** (`IrCompare`/`IrAnd`/`IrOp` return it).
+
 `IrAtom(IrNode)` is a **non-generic role marker** mixed into atoms (`IrLiteral`/`IrCharClass`/`IrRuleRef`/`IrGroup`/`IrNot`); `IrItem.atom: IrAtom` accepts any.
 
-- **str-leaves** subclass `str` — use the leaf directly as a `str` (`leaf == "x"`, `LITERAL_NAMES.get(leaf)`). `IrStr.__eq__` is **type-aware**: `IrLiteral("x") != IrRuleRef("x")` (distinct leaf kinds never compare equal) yet `IrLiteral("x") == "x"` (plain-`str` compatibility preserved); `__hash__` stays native `str.__hash__`. This keeps structural tree equality/hashing honest (so `@cache`, dict/set keys, and `tree == tree` work) while leaves still match plain-`str` dict keys.
+- **str-leaves** subclass `str` — use the leaf directly as a `str` (`leaf == "x"`, `LITERAL_NAMES.get(leaf)`). The type-aware `__eq__`/`__ne__`/`__hash__` live on `IrScalar` (shared by `IrStr` and `IrInt`): `IrLiteral("x") != IrRuleRef("x")` (distinct leaf kinds never compare equal) yet `IrLiteral("x") == "x"` (plain-primitive compatibility preserved). This keeps structural tree equality/hashing honest (so `@cache`, dict/set keys, and `tree == tree` work) while leaves still match plain-`str`/`int` dict keys.
 - **variadic collections** subclass `tuple` — iterate/index the node directly (`seq[0]`, `for arm in alt`). Construct variadically: `IrSequence(*items)`, `IrAlternation(seq1, seq2)`, `IrAst(IrTuple(*rules), start)`.
 - **records** are frozen `@dataclass(slots=True, repr=False)` `IrComposite` subclasses. The ClassVar `_child_attrs` names the dataclass fields that are dispatched children (no `_items_attr` — `IrCollection` is gone). `IrItem(atom, quantifier)`, `IrQuantifier(min, max | None)` (plain ints), `IrRule(name: str, body: IrAlternation)`, `IrAst(rules: IrTuple, start: str)` — note `IrAst.children()` returns `(rules_tuple,)`, so code wanting the rules iterates `ast.rules`.
 
 `IrLiteral` keeps a **dual role**: a grammar-AST leaf and an action-language constant — distinguished at eval time by the `nc` parameter; see [[ir-shapes]].
 
-**Action-algebra nodes** (`ir/action.py`): `IrField` reads a named attribute; `IrCallable` is the procedural escape hatch; `IrChild`/`IrChildren` resolve children; `IrConcat`/`IrJoin` build strings (`parts: IrTuple`); `IrCond` branches on a truthy field; `IrThis` is the identity body returning the dispatched node `n`; `IrReturn` short-circuits — it lazy-evaluates its body against `(d, n, nc)` and re-raises the result via the `_Return` BaseException, defaulting to `IrThis()` so `IrReturn()` surfaces the matched node (the find-first pattern); `IrAction(target_type, body)` binds a node type to a body. Default bodies: `IrPass`, `IrWalk`, `IrRaise`, `IrEmit`, `IrRebuild`.
+**Action-algebra nodes** (`ir/action.py`): `IrField` reads a named attribute and wraps it via a runtime `out: type[IrScalar]` (default `IrStr`; `IrField("min", IrInt)` reads an int) — cast-free, open (any `IrScalar` subtype), no enumerated union; `IrOp(IrStr)` is an infix-operator leaf (the node IS its operator string, e.g. `IrOp(">")`; **no `Cmp` enum**) whose `eval` applies the mapped `operator` builtin to the operands in `nc`; `IrCompare(left, op: IrOp, right)` evals both operands and hands them to `op` → `IrInt(0/1)`; `IrAnd(IrTuple[IrSelf])` is a short-circuit conjunction → `IrInt`; `IrCallable` is the procedural escape hatch; `IrChild`/`IrChildren` resolve children; `IrConcat`/`IrJoin` build strings (`parts: IrTuple`); `IrCond(test: IrSelf, then_op, else_op)` branches on `test.eval(...)` (truthy ⇒ `then_op`); `IrThis` is the identity body returning the dispatched node `n`; `IrReturn` short-circuits — it lazy-evaluates its body against `(d, n, nc)` and re-raises the result via the `_Return` BaseException, defaulting to `IrThis()` so `IrReturn()` surfaces the matched node (the find-first pattern); `IrAction(target_type, body)` binds a node type to a body. Default bodies: `IrPass`, `IrWalk`, `IrRaise`, `IrEmit`, `IrRebuild`. Comparison/branch operands are typed `IrSelf` (not `IrNode`) because `IrNode`'s `Ir_co` is invariant — a value operand like `IrField` wouldn't be assignable to a bare `IrNode` slot.
 
 **Dispatch** (`ir/walk.py`): `IrDispatch[Iri, Ir_co]` is an `IrComposite` whose `actions` tuple is the table (a plain field, **not** a dispatched child). It does **not** walk children automatically — action bodies own recursion. Resolution is concrete-first MRO walk, memoised. Entry seams: `eval(d, n, nc)` (protocol) and `apply(root)` (façade). Presets: `IrVisitor` (default `IrWalk`), `IrTransformer` (default `IrRebuild`), `IrEmitter` (default `IrEmit`).
 
