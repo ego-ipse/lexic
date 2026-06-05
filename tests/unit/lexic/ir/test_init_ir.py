@@ -144,3 +144,10 @@ def test_package_reimport_is_idempotent() -> None:
     """Re-importing lexic.ir returns the same module object."""
     mod = importlib.import_module("lexic.ir")
     assert mod is ir
+
+
+def test_new_algebra_ops_are_public() -> None:
+    """Phase-0a algebra ops are re-exported (IrOp replaces the abandoned Cmp)."""
+    for name in ("IrScalar", "IrInt", "IrOp", "IrCompare", "IrAnd"):
+        assert hasattr(ir, name), name
+        assert name in ir.__all__, name
