@@ -471,8 +471,12 @@ class IrTuple[T: IrSelf](IrNode, tuple):
         # base-compatible param (Sequence[IrSelf]); cast for the *items: T ctor
         return type(self)(*cast(Sequence[Any], new_children))
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Self:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Dispatch each element via its own ``eval`` and rebuild the tuple.
+
+        Returns ``IrSelf`` (not ``Self``) so reducer subclasses like ``IrAnd``
+        may override ``eval`` with a non-tuple result (e.g. ``IrInt``); for
+        rebuild collections the runtime result is still ``type(self)(...)``.
 
         :param d: Dispatcher forwarded to each element's ``eval``.
         :param n: Parent node forwarded to each element's ``eval``.

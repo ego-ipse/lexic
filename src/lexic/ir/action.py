@@ -153,6 +153,34 @@ class IrCompare[Iri: IrSelf](IrComposite[Iri, IrInt]):
         return self.op.eval(d, n, operands)
 
 
+# ── Conjunction ───────────────────────────────────────────────────────
+
+
+class IrAnd(IrTuple[IrSelf]):
+    """Short-circuit conjunction — an :class:`~lexic.ir.nodes.IrTuple` subclass.
+
+    The node IS its operand tuple. ``eval`` ANDs the truthiness of each
+    evaluated operand, short-circuiting on the first falsy one, and yields
+    ``IrInt(1)`` (all truthy / empty / vacuously true) or ``IrInt(0)``.
+    Construct variadically: ``IrAnd(pred1, pred2, …)``.
+    """
+
+    __slots__ = ()
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
+        """AND the truthiness of each evaluated operand, short-circuiting.
+
+        :param d: Dispatcher forwarded to each operand's ``eval``.
+        :param n: Current node forwarded to each operand's ``eval``.
+        :param nc: Pre-walked children forwarded to each operand's ``eval``.
+        :returns: ``IrInt(0)`` on the first falsy operand, else ``IrInt(1)``.
+        """
+        for part in self:
+            if not part.eval(d, n, nc):
+                return IrInt(0)
+        return IrInt(1)
+
+
 # ── Procedural escape hatch ───────────────────────────────────────────
 
 
