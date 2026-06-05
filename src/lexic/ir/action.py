@@ -20,12 +20,14 @@ dataclass base in the primitive model. The default bodies (``IrPass``,
 
 from __future__ import annotations
 
+import operator
 from dataclasses import dataclass
 from typing import Callable, ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.nodes import (
     IrComposite,
+    IrInt,
     IrLeaf,
     IrLiteral,
     IrNode,
@@ -88,6 +90,67 @@ class IrField(IrComposite[IrSelf, IrScalar]):
         :returns: The attribute value wrapped in ``self.out`` (an ``IrScalar``).
         """
         return self.out(getattr(n, self.name))
+
+
+# ── Comparison ────────────────────────────────────────────────────────
+
+
+class IrOp(IrStr):
+    """Infix operator leaf — the node IS the operator string (e.g. ``IrOp(">")``).
+
+    No enum: the operator is its own string, keyed directly into ``_OPS`` (an
+    ``IrStr`` leaf matches its plain-``str`` key). ``eval`` applies the mapped
+    builtin to the operands handed in as ``nc`` and returns the truth value as
+    ``IrInt(0/1)`` — the consumer (:class:`IrCompare`) supplies both operands.
+    """
+
+    _OPS: ClassVar[dict[str, Callable[..., bool]]] = {
+        "==": operator.eq,
+        "<": operator.lt,
+        ">": operator.gt,
+        "<=": operator.le,
+        ">=": operator.ge,
+    }
+
+    def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
+        """Apply this operator to the operands in ``nc``.
+
+        :param _d: Dispatcher (unused).
+        :param _n: Current node (unused).
+        :param nc: The pre-evaluated operands (two, for a binary operator).
+        :returns: ``IrInt(1)`` if the comparison holds, else ``IrInt(0)``.
+        """
+        return IrInt(self._OPS[self](*nc))
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class IrCompare[Iri: IrSelf](IrComposite[Iri, IrInt]):
+    """Compare two operand nodes; eval to ``IrInt(1)`` (true) or ``IrInt(0)``.
+
+    Evaluates ``left`` and ``right`` and hands the results to ``op`` (an
+    :class:`IrOp`), which applies the comparison. A truth value is an ``IrInt``
+    in ``{0, 1}`` — there is no ``IrBool``. Operands are typed ``IrSelf`` (not
+    ``IrNode``): ``IrNode``'s ``Ir_co`` is invariant, so a value operand like
+    ``IrField`` would not be assignable to a bare ``IrNode`` slot.
+
+    :param Iri: the dispatcher input type.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("left", "right")
+    left: IrSelf
+    op: IrOp
+    right: IrSelf
+
+    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> IrInt:
+        """Evaluate both operands and apply ``self.op``.
+
+        :param d: Dispatcher forwarded to each operand's ``eval``.
+        :param n: Current node forwarded to each operand's ``eval``.
+        :param nc: Pre-walked children forwarded to each operand's ``eval``.
+        :returns: ``IrInt(1)`` if the comparison holds, else ``IrInt(0)``.
+        """
+        operands = (self.left.eval(d, n, nc), self.right.eval(d, n, nc))
+        return self.op.eval(d, n, operands)
 
 
 # ── Procedural escape hatch ───────────────────────────────────────────

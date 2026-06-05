@@ -13,12 +13,14 @@ from lexic.ir.action import (
     IrCallable,
     IrChild,
     IrChildren,
+    IrCompare,
     IrConcat,
     IrCond,
     IrEmit,
     IrField,
     IrJoin,
     IrLeaf,
+    IrOp,
     IrPass,
     IrRaise,
     IrRebuild,
@@ -118,6 +120,51 @@ def test_irfield_out_irint_reads_int_without_stringifying():
     result = IrField("min", IrInt).eval(IrNone, q, ())
     assert result == 3
     assert isinstance(result, IrInt)
+
+
+# ── IrOp / IrCompare ──────────────────────────────────────────────────
+
+
+def test_irop_is_a_str_leaf():
+    """IrOp is its operator string — a plain IrStr leaf, no enum."""
+    assert IrOp(">") == ">"
+    assert isinstance(IrOp(">"), IrStr)
+
+
+def test_irop_eval_applies_operator_to_nc_operands():
+    """IrOp.eval applies the mapped builtin to the operands handed in as nc."""
+    assert IrOp(">").eval(IrNone, IrNone, (IrInt(2), IrInt(1))) == 1
+    assert IrOp("<").eval(IrNone, IrNone, (IrInt(2), IrInt(1))) == 0
+    result = IrOp("==").eval(IrNone, IrNone, (IrInt(1), IrInt(1)))
+    assert result == 1
+    assert isinstance(result, IrInt)
+
+
+def test_ircompare_eq_true_returns_irint_one():
+    """A satisfied comparison evaluates to IrInt(1)."""
+    result = IrCompare(IrInt(1), IrOp("=="), IrInt(1)).eval(IrNone, IrNone, ())
+    assert result == 1
+    assert isinstance(result, IrInt)
+
+
+def test_ircompare_eq_false_returns_irint_zero():
+    """An unsatisfied comparison evaluates to IrInt(0)."""
+    assert IrCompare(IrInt(1), IrOp("=="), IrInt(0)).eval(IrNone, IrNone, ()) == 0
+
+
+def test_ircompare_lt_and_gt():
+    """< and > compare operands and yield IrInt(1)/IrInt(0)."""
+    assert IrCompare(IrInt(1), IrOp("<"), IrInt(2)).eval(IrNone, IrNone, ()) == 1
+    assert IrCompare(IrInt(2), IrOp(">"), IrInt(1)).eval(IrNone, IrNone, ()) == 1
+    assert IrCompare(IrInt(2), IrOp("<"), IrInt(1)).eval(IrNone, IrNone, ()) == 0
+    assert IrCompare(IrInt(1), IrOp(">"), IrInt(2)).eval(IrNone, IrNone, ()) == 0
+
+
+def test_ircompare_reads_field_operand():
+    """An IrField operand is evaluated against the dispatched node before compare."""
+    q = IrQuantifier(min=0, max=1)
+    cmp = IrCompare(IrField("min", IrInt), IrOp("=="), IrInt(0))
+    assert cmp.eval(IrNone, q, ()) == 1
 
 
 # ── IrCallable ───────────────────────────────────────────────────────
