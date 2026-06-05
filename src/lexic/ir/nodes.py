@@ -296,6 +296,18 @@ class IrScalar(IrLeaf):
 
     __slots__ = ()
 
+    def __new__(cls, *args: object) -> Self:
+        """Forward construction to the primitive base (``str``/``int``).
+
+        Exists so ``type[IrScalar]`` is callable with a payload (e.g. for
+        :attr:`~lexic.ir.action.IrField.out`); subclasses carry no ``__new__``.
+        No args ⇒ the primitive's own default (``""`` / ``0``).
+
+        :param args: The payload, forwarded to the primitive ``__new__``.
+        :returns: A new value-leaf instance.
+        """
+        return super().__new__(cls, *args)
+
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Self:
         """Return ``self`` — the node IS the value.
 

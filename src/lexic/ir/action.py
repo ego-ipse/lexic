@@ -30,6 +30,7 @@ from lexic.ir.nodes import (
     IrLiteral,
     IrNode,
     IrNone,
+    IrScalar,
     IrSelf,
     IrStr,
     IrTuple,
@@ -59,38 +60,34 @@ class _Return(BaseException):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class IrField[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
-    """Read a typed attribute from the dispatched node ``n``.
+class IrField(IrComposite[IrSelf, IrScalar]):
+    """Read a typed attribute from the dispatched node ``n`` and wrap it.
 
-    Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
-    :class:`IrStr` itself). Output is wrapped via ``self.bound(value)``
-    so it carries both ``str`` shape AND the IrSelf protocol.
+    The read value is wrapped via the **runtime** constructor ``out`` — a
+    value-leaf type such as :class:`~lexic.ir.nodes.IrStr` / :class:`IrInt`
+    (default ``IrStr``). Read an int with ``IrField("min", IrInt)``; the default
+    ``out=IrStr`` keeps every existing ``IrField("name")`` caller unchanged.
 
-    Use ``IrField`` only where a node has a *named* field to read (e.g.
-    ``IrField("name")`` on an :class:`~lexic.ir.nodes.IrRule`). A
-    str-leaf that IS its own value should be emitted directly via
-    :class:`IrEmit` instead.
+    Cast-free and open: ``out`` is any ``type[IrScalar]`` — callable with the
+    payload thanks to :meth:`IrScalar.__new__`, so ``self.out(value)``
+    type-checks without a cast and a new ``IrScalar`` subtype needs no change
+    here (no enumerated leaf-type union).
 
-    A record-leaf: an :class:`IrComposite` with ``_child_attrs = ()`` (the
-    inherited default), so it carries no IR-node children.
-
-    :param Ir_co: the str-typed result type (defaults to :class:`IrStr`).
+    A record-leaf: an :class:`IrComposite` with no IR-node children.
     """
 
     name: str
+    out: type[IrScalar] = IrStr
 
-    def eval(self, _d: Iri, n: Iri, _nc: Sequence[Iri], /) -> Ir_co:
-        """Read ``getattr(n, self.name)`` and wrap via ``self.bound(value)``.
-
-        For ``Ir_co=IrStr`` the wrap is ``IrStr(value)`` — a no-op on
-        string-derived attributes, a stringification on non-string ones.
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrScalar:
+        """Read ``getattr(n, self.name)`` and wrap via ``self.out(value)``.
 
         :param _d: Dispatcher (unused — no recursion).
         :param n: Node whose attribute to read.
         :param _nc: Pre-walked children (unused).
-        :returns: The attribute value wrapped in ``self.bound``.
+        :returns: The attribute value wrapped in ``self.out`` (an ``IrScalar``).
         """
-        return self.bound(getattr(n, self.name))
+        return self.out(getattr(n, self.name))
 
 
 # ── Procedural escape hatch ───────────────────────────────────────────

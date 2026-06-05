@@ -30,6 +30,7 @@ from lexic.ir.action import (
 from lexic.ir.nodes import (
     IrAlternation,
     IrComposite,
+    IrInt,
     IrItem,
     IrLiteral,
     IrNone,
@@ -109,6 +110,14 @@ def test_irfield_reads_charclass_pattern():
     rule = IrRule("r", IrAlternation())
     # Confirm the read attribute is a plain str that wraps to IrStr
     assert IrField("name").eval(IrNone, rule, ()) == "r"
+
+
+def test_irfield_out_irint_reads_int_without_stringifying():
+    """IrField('min', IrInt) reads an int attribute and wraps it as IrInt."""
+    q = IrQuantifier(min=3, max=5)
+    result = IrField("min", IrInt).eval(IrNone, q, ())
+    assert result == 3
+    assert isinstance(result, IrInt)
 
 
 # ── IrCallable ───────────────────────────────────────────────────────
