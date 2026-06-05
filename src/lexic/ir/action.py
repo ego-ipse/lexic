@@ -356,31 +356,36 @@ class IrJoin[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
         return self.bound(self.bound(sep).join(rendered))
 
 
-# ── Truthy-field branch ───────────────────────────────────────────────
+# ── Conditional branch ────────────────────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True, repr=False)
 class IrCond[Iri: IrSelf, Ir_co: IrSelf](IrComposite[Iri, Ir_co]):
-    """If ``bool(getattr(n, field))`` is true, evaluate ``then_op``;
-    else ``else_op``. Both branches must share ``Ir_co``.
+    """If ``test`` evaluates truthy, evaluate ``then_op``; else ``else_op``.
+
+    ``test`` is any node whose ``eval`` yields a truthy/falsy value (e.g.
+    :class:`IrCompare`, :class:`IrAnd`). Typed ``IrSelf`` (not ``IrNode``) for
+    the same reason as :class:`IrCompare`'s operands — ``IrNode``'s ``Ir_co`` is
+    invariant, which rejects value operands like ``IrField``. Both branches
+    share ``Ir_co``.
 
     :param Ir_co: the shared result type of both branches.
     """
 
-    _child_attrs: ClassVar[tuple[str, ...]] = ("then_op", "else_op")
-    field: str
+    _child_attrs: ClassVar[tuple[str, ...]] = ("test", "then_op", "else_op")
+    test: IrSelf
     then_op: IrSelf
     else_op: IrSelf
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Branch on the truthiness of ``getattr(n, self.field)``.
+        """Branch on the truthiness of ``self.test.eval(d, n, nc)``.
 
-        :param d: Dispatcher forwarded to the chosen branch's ``eval``.
-        :param n: Node whose ``field`` attribute selects the branch.
-        :param nc: Pre-walked children forwarded to the chosen branch.
+        :param d: Dispatcher forwarded to the test and the chosen branch.
+        :param n: Current node forwarded to the test and the chosen branch.
+        :param nc: Pre-walked children forwarded onward.
         :returns: The chosen branch's result.
         """
-        branch = self.then_op if getattr(n, self.field) else self.else_op
+        branch = self.then_op if self.test.eval(d, n, nc) else self.else_op
         return branch.eval(d, n, nc)
 
 

@@ -350,20 +350,20 @@ def test_irjoin_returns_empty_value_when_no_items():
 # ── IrCond ───────────────────────────────────────────────────────────
 
 
-def test_ircond_evaluates_then_when_truthy():
-    """IrCond picks then_op when getattr(n, field) is truthy."""
+def test_ircond_evaluates_then_when_test_truthy():
+    """IrCond picks then_op when the test node evals truthy."""
     node = IrQuantifier(min=1, max=1)
     op = IrCond[IrSelf, IrStr](
-        field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no")
+        test=IrField("min", IrInt), then_op=IrLiteral("yes"), else_op=IrLiteral("no")
     )
     assert op.eval(IrNone, node, ()) == "yes"
 
 
-def test_ircond_evaluates_else_when_falsy():
-    """IrCond picks else_op when getattr(n, field) is falsy."""
+def test_ircond_evaluates_else_when_test_falsy():
+    """IrCond picks else_op when the test node evals falsy."""
     node = IrQuantifier(min=0, max=1)
     op = IrCond[IrSelf, IrStr](
-        field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no")
+        test=IrField("min", IrInt), then_op=IrLiteral("yes"), else_op=IrLiteral("no")
     )
     assert op.eval(IrNone, node, ()) == "no"
 
