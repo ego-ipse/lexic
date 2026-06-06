@@ -4,29 +4,26 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.ir.base import (
+    IrAtom,
+    IrComposite,
+    IrInt,
+    IrNode,
+    IrNone,
+    IrTuple,
+)
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrAtom,
     IrCharClass,
-    IrComposite,
     IrGroup,
-    IrInt,
     IrItem,
-    IrLeaf,
     IrLiteral,
-    IrNode,
-    IrNone,
-    IrNoneType,
     IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
-    IrScalar,
-    IrSelf,
     IrSequence,
-    IrStr,
-    IrTuple,
 )
 
 # ── IrQuantifier ───────────────────────────────────────────────────────
@@ -396,36 +393,6 @@ def test_irgroup_call_inherits_identity_default():
 # ── Contract tests (plan Tasks 1–4) ──────────────────────────────────
 
 
-def test_irself_identity_call_returns_self():
-    """IrSelf.__call__ is identity: returns self regardless of d/n/nc args."""
-
-    class L(IrLeaf):
-        """Minimal IrLeaf subclass for testing identity call."""
-
-        __slots__ = ()
-
-        def __repr__(self) -> str:
-            """Return a fixed repr string."""
-            return "L()"
-
-    leaf = L()
-    assert leaf(IrNone, IrNone, ()) is leaf
-
-
-def test_irnone_is_final_singleton_and_is_irself():
-    """IrNone is a singleton: all constructions return the same instance."""
-    assert IrNone is IrNoneType()  # public value IS the singleton instance
-    assert isinstance(IrNone, (IrSelf, IrNoneType))
-    # @final is a STATIC-only guarantee (pyright flags subclassing); no runtime raise.
-
-
-def test_iratom_is_non_generic_marker():
-    """IrAtom carries no type parameters of its own and is an IrNode subclass."""
-    # IrAtom has no type parameters of its own
-    assert not getattr(IrAtom, "__type_params__", ())
-    assert issubclass(IrAtom, IrNode)
-
-
 def test_str_leaf_is_str_and_atom():
     """IrLiteral is simultaneously a str and an IrAtom — no wrapper boxing."""
     lit = IrLiteral("x")
@@ -513,12 +480,6 @@ def test_composite_is_dataclass_base():
 # ── _bound derivation (own __type_params__ only; explicit wins; never MRO) ──
 
 
-def test_bound_explicit_declaration_wins():
-    """A class-level ``_bound`` (IrStr/IrTuple) is kept verbatim, not derived."""
-    assert IrStr.bound_type() is str
-    assert IrTuple.bound_type() is tuple
-
-
 def test_bound_inherited_explicit_is_not_reclobbered_via_mro():
     """A subclass with no OWN type params keeps the inherited explicit ``_bound``.
 
@@ -543,62 +504,12 @@ def test_bound_derived_from_own_typevar_bound():
     assert _Probe.bound_type() is IrLiteral
 
 
-# ── IrScalar / IrInt (Task 1) ─────────────────────────────────────────
-
-
-def test_irscalar_is_a_leaf_and_parents_the_value_leaves():
-    """IrScalar is an IrLeaf subclass; IrStr and IrInt both inherit from it."""
-    assert issubclass(IrScalar, IrLeaf)
-    assert issubclass(IrStr, IrScalar)
-    assert issubclass(IrInt, IrScalar)
-
-
-def test_irscalar_eval_is_self_for_both_value_leaves():
-    """Value leaves are self-evaluating: eval returns self (the scalar value)."""
-    assert IrInt(5).eval(IrNone, IrNone, ()) == 5  # inherited from IrScalar
-    assert IrLiteral("x").eval(IrNone, IrNone, ()) == "x"  # IrStr leaf, inherited
-
-
-def test_irint_is_int_and_scalar():
-    """IrInt is simultaneously an int and an IrScalar — no wrapper boxing."""
-    assert isinstance(IrInt(5), int)
-    assert isinstance(IrInt(5), IrScalar)
-    assert IrInt(5) == 5  # native int equality
-    assert IrInt(5) + 1 == 6  # native int arithmetic
-
-
-def test_irint_default_is_zero():
-    """IrInt() with no argument defaults to 0, matching int() behaviour."""
-    assert IrInt() == 0
-
-
-def test_irint_bound_is_int():
-    """IrInt._bound resolves to int (explicit ClassVar, parallel to IrStr._bound = str)."""
-    assert IrInt.bound_type() is int
-
-
-def test_irint_repr_is_codegen():
-    """repr(IrInt(5)) produces the constructor call 'IrInt(5)' (repr-is-codegen)."""
-    assert repr(IrInt(5)) == "IrInt(5)"
-
-
-def test_irscalar_eq_hash_delegate_to_primitive():
-    """IrScalar.__eq__/__hash__ reach str/int (not object identity) via super().
-
-    Regression guard: if a future refactor inserts an __eq__/__hash__ between
-    IrScalar and str/int in the MRO — or breaks the super() delegation — these
-    fall back to object identity and silently break value equality and keying.
-    """
-    assert IrLiteral("x") == "x"  # str.__eq__, not object identity
-    assert IrInt(5) == 5  # int.__eq__, not object identity
-    assert hash(IrLiteral("x")) == hash("x")  # str.__hash__
-    assert hash(IrInt(5)) == hash(5)  # int.__hash__
-    by_primitive: dict[str, int] = {IrLiteral("x"): 1}  # leaf keys by primitive value
-    assert by_primitive["x"] == 1
+# ── Concrete str-leaf kinds ───────────────────────────────────────────
+# (IrScalar/IrInt spine behaviour lives in test_base.py)
 
 
 def test_irscalar_eq_is_type_aware_across_kinds():
-    """Distinct value-leaf kinds never compare equal, even same payload / across tiers."""
+    """Distinct concrete value-leaf kinds never compare equal, same payload or not."""
     assert IrLiteral("x") != IrRuleRef("x")  # distinct str-leaf kinds
     assert IrInt(5) != IrLiteral("5")  # int leaf vs str leaf
     assert len({IrLiteral("a"), IrLiteral("a"), IrRuleRef("a")}) == 2

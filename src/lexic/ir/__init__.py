@@ -14,6 +14,17 @@ from lexic.ir.action import (
     IrOp,
     IrReturn,
 )
+from lexic.ir.base import (
+    IrAtom,
+    IrComposite,
+    IrInt,
+    IrLeaf,
+    IrNode,
+    IrNone,
+    IrNoneType,
+    IrScalar,
+    IrSelf,
+)
 from lexic.ir.charclass import parse_charclass_chars
 from lexic.ir.derive import (
     classify_kind,
@@ -28,23 +39,14 @@ from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrAtom,
     IrCharClass,
-    IrComposite,
     IrGroup,
-    IrInt,
     IrItem,
-    IrLeaf,
     IrLiteral,
-    IrNode,
-    IrNone,
-    IrNoneType,
     IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
-    IrScalar,
-    IrSelf,
     IrSequence,
 )
 from lexic.ir.spec import RuleSpec

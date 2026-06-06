@@ -32,7 +32,8 @@ from dataclasses import dataclass, field
 from typing import Sequence
 
 from lexic.ir.action import IrAction, IrEmit, IrRaise, IrRebuild, IrReturn, IrWalk
-from lexic.ir.nodes import IrComposite, IrLiteral, IrNode, IrSelf, IrTuple
+from lexic.ir.base import IrComposite, IrNode, IrSelf, IrTuple
+from lexic.ir.nodes import IrLiteral
 
 
 @dataclass(frozen=True, slots=True, repr=False)

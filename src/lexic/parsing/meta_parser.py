@@ -41,10 +41,10 @@ from lark import (
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrFlavour
+from lexic.ir.base import IrAtom, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrAtom,
     IrCharClass,
     IrGroup,
     IrItem,
@@ -53,7 +53,6 @@ from lexic.ir.nodes import (
     IrRule,
     IrRuleRef,
     IrSequence,
-    IrTuple,
 )
 
 # ── builder functions ─────────────────────────────────────────────────

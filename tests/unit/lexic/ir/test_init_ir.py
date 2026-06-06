@@ -5,8 +5,8 @@ from __future__ import annotations
 import importlib
 
 from lexic import ir
-from lexic.ir.nodes import IrNone as _IrNone
-from lexic.ir.nodes import IrNoneType as _IrNoneType
+from lexic.ir.base import IrNone as _IrNone
+from lexic.ir.base import IrNoneType as _IrNoneType
 
 
 def test_module_has_all() -> None:

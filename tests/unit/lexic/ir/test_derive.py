@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from lexic.ir.base import IrNone, IrTuple
 from lexic.ir.derive import (
     _EXTRACT_BODY,
     _field_map,
@@ -20,12 +21,10 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
-    IrNone,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
-    IrTuple,
 )
 from lexic.ir.walk import IrTransformer
 

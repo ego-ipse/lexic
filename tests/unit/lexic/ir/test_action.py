@@ -30,20 +30,15 @@ from lexic.ir.action import (
     IrWalk,
     _Return,
 )
+from lexic.ir.base import IrComposite, IrInt, IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
-    IrComposite,
-    IrInt,
     IrItem,
     IrLiteral,
-    IrNone,
     IrQuantifier,
     IrRule,
     IrRuleRef,
-    IrSelf,
     IrSequence,
-    IrStr,
-    IrTuple,
 )
 
 # ── _Return ──────────────────────────────────────────────────────────

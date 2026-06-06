@@ -10,25 +10,20 @@ from functools import cache
 from typing import Callable, Literal, TypeAlias, TypeVar
 
 from lexic.ir.action import IrAction, IrCallable, IrReturn
+from lexic.ir.base import IrAtom, IrNode, IrNone, IrNoneType, IrSelf, IrTuple
 from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrAtom,
     IrCharClass,
     IrGroup,
     IrItem,
     IrLiteral,
-    IrNode,
-    IrNone,
-    IrNoneType,
     IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
-    IrSelf,
     IrSequence,
-    IrTuple,
 )
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from lexic.ir.nodes import IrNode
+from lexic.ir.base import IrNode
 
 
 def render_specs(specs: list, flavour: Callable[[IrNode], str]) -> str:

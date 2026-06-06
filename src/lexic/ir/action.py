@@ -25,11 +25,10 @@ from dataclasses import dataclass
 from typing import Callable, ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.nodes import (
+from lexic.ir.base import (
     IrComposite,
     IrInt,
     IrLeaf,
-    IrLiteral,
     IrNode,
     IrNone,
     IrScalar,
@@ -37,6 +36,7 @@ from lexic.ir.nodes import (
     IrStr,
     IrTuple,
 )
+from lexic.ir.nodes import IrLiteral
 
 # ── Control-flow exception ────────────────────────────────────────────
 
@@ -110,6 +110,9 @@ class IrOp(IrStr):
         ">": operator.gt,
         "<=": operator.le,
         ">=": operator.ge,
+        "!": operator.not_,
+        "&": operator.and_,
+        "|": operator.or_,
     }
 
     def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
@@ -157,6 +160,24 @@ class IrCompare[Iri: IrSelf](IrComposite[Iri, IrInt]):
 
 
 # ── Conjunction ───────────────────────────────────────────────────────
+
+
+class IrOpNode(IrTuple[IrSelf]):
+    """Operator application node: an :class:`IrTuple` of operands with an operator."""
+
+    __slots__ = ()
+
+    op: IrOp
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
+        """Apply the operator to the operands in this tuple.
+
+        :param d: Dispatcher forwarded to each operand's ``eval``.
+        :param n: Current node forwarded to each operand's ``eval``.
+        :param nc: Pre-walked children forwarded to each operand's ``eval``.
+        :returns: The result of applying the operator to the operands.
+        """
+        return self.op.eval(d, n, [part.eval(d, n, nc) for part in self])
 
 
 class IrAnd(IrTuple[IrSelf]):

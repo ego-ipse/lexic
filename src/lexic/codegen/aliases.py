@@ -22,6 +22,7 @@ from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction, IrCallable
+from lexic.ir.base import IrNone, IrSelf
 from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -29,11 +30,9 @@ from lexic.ir.nodes import (
     IrGroup,
     IrItem,
     IrLiteral,
-    IrNone,
     IrNot,
     IrQuantifier,
     IrRuleRef,
-    IrSelf,
     IrSequence,
 )
 from lexic.ir.spec import RuleSpec

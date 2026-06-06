@@ -47,20 +47,15 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction, IrCallable, IrEmit, IrRaise, IrRebuild, IrReturn
+from lexic.ir.base import IrComposite, IrLeaf, IrNode, IrNone, IrSelf, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrComposite,
     IrItem,
-    IrLeaf,
     IrLiteral,
-    IrNode,
-    IrNone,
     IrRule,
     IrRuleRef,
-    IrSelf,
     IrSequence,
-    IrTuple,
 )
 from lexic.ir.walk import IrDispatch, IrEmitter, IrTransformer, IrVisitor
 

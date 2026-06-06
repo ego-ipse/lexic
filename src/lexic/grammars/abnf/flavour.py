@@ -32,6 +32,7 @@ from lexic.ir.action import (
     IrField,
     IrJoin,
 )
+from lexic.ir.base import IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
@@ -45,8 +46,6 @@ from lexic.ir.nodes import (
     IrRule,
     IrRuleRef,
     IrSequence,
-    IrStr,
-    IrTuple,
 )
 
 META_GRAMMAR = r"""
