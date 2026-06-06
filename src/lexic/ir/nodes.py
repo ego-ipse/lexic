@@ -286,18 +286,25 @@ class IrAtom(IrNode):
 
 
 class IrScalar(IrLeaf):
-    """Base for value-carrying leaves (:class:`IrStr`, :class:`IrInt`).
+    """Abstract base for value-carrying leaves (:class:`IrStr`, :class:`IrInt`).
 
     Hosts the behaviour shared by all value leaves: self-evaluating ``eval``,
     type-aware equality/hash (distinct leaf kinds never compare equal), and
-    codegen ``__repr__``. Each subclass sets ``_bound`` to its primitive base
-    (``str``/``int``), which drives payload comparison, hashing and rendering.
+    codegen ``__repr__``. Each subclass sets ``_bound`` to its primitive base,
+    which drives payload comparison, hashing and rendering.
+
+    Abstract **by convention**: instantiate a concrete leaf (``IrStr``/``IrInt``),
+    never ``IrScalar`` itself — it has no primitive base to hold a payload, so
+    ``IrScalar("x")`` fails. (Not an ``@abstractmethod`` ABC: the concrete leaves
+    override no method to mark abstract, and an abstract ``IrScalar`` would make
+    ``type[IrScalar]`` — e.g. :attr:`~lexic.ir.action.IrField.out` — un-callable
+    for the type checker.)
     """
 
     __slots__ = ()
 
     def __new__(cls, *args: object) -> Self:
-        """Forward construction to the primitive base (``str``/``int``).
+        """Forward construction to the primitive base.
 
         Exists so ``type[IrScalar]`` is callable with a payload (e.g. for
         :attr:`~lexic.ir.action.IrField.out`); subclasses carry no ``__new__``.
@@ -569,14 +576,26 @@ class IrComposite[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
     def __repr__(self) -> str:
         """Codegen repr: ``ClassName(field=val, …)`` for all dataclass fields.
 
-        All fields — both child attrs and non-child payload — are rendered
-        as ``name=repr(value)`` keyword arguments in dataclass declaration
-        order.  This ensures the output is a valid Python constructor call.
+        Fields render as ``name=value`` keyword arguments in declaration order.
+        A field holding a class (e.g. ``IrField.out``, ``IrAction.target_type``)
+        renders as the bare class name (``out=IrInt``) so the result stays valid
+        codegen; every other value uses ``repr``.
 
         :returns: Constructor call reproducing this node.
         """
-        inner = ", ".join(f"{f.name}={getattr(self, f.name)!r}" for f in fields(self))
+        inner = ", ".join(
+            f"{f.name}={self._field_repr(getattr(self, f.name))}" for f in fields(self)
+        )
         return f"{type(self).__name__}({inner})"
+
+    @staticmethod
+    def _field_repr(value: object) -> str:
+        """Render one field value as codegen: a class as its bare name, else ``repr``.
+
+        :param value: The field value to render.
+        :returns: ``value.__name__`` for a class, otherwise ``repr(value)``.
+        """
+        return value.__name__ if isinstance(value, type) else repr(value)
 
 
 @dataclass(frozen=True, slots=True, repr=False)

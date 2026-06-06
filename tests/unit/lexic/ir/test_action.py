@@ -115,6 +115,12 @@ def test_irfield_reads_charclass_pattern():
     assert IrField("name").eval(IrNone, rule, ()) == "r"
 
 
+def test_irfield_repr_is_valid_codegen():
+    """IrField repr renders the class-valued `out` as a bare name (eval round-trips)."""
+    assert repr(IrField("min", IrInt)) == "IrField(name='min', out=IrInt)"
+    assert repr(IrField("name")) == "IrField(name='name', out=IrStr)"
+
+
 def test_irfield_out_irint_reads_int_without_stringifying():
     """IrField('min', IrInt) reads an int attribute and wraps it as IrInt."""
     q = IrQuantifier(min=3, max=5)
@@ -139,6 +145,12 @@ def test_irop_eval_applies_operator_to_nc_operands():
     result = IrOp("==").eval(IrNone, IrNone, (IrInt(1), IrInt(1)))
     assert result == 1
     assert isinstance(result, IrInt)
+
+
+def test_irop_unknown_operator_raises_unsupported():
+    """An operator string not in _OPS raises UnsupportedConstructError, not KeyError."""
+    with pytest.raises(UnsupportedConstructError):
+        IrOp("!=").eval(IrNone, IrNone, (IrInt(1), IrInt(1)))
 
 
 def test_ircompare_eq_true_returns_irint_one():

@@ -119,7 +119,10 @@ class IrOp(IrStr):
         :param _n: Current node (unused).
         :param nc: The pre-evaluated operands (two, for a binary operator).
         :returns: ``IrInt(1)`` if the comparison holds, else ``IrInt(0)``.
+        :raises UnsupportedConstructError: if the operator string is not in ``_OPS``.
         """
+        if self not in self._OPS:
+            raise UnsupportedConstructError(f"Unknown operator: {self!r}")
         return IrInt(self._OPS[self](*nc))
 
 
