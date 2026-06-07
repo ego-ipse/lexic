@@ -6,29 +6,22 @@ graph, so a concrete grammar atom such as ``IrNot`` (defined in ``nodes.py``)
 can subclass :class:`IrOpNode` here without an ``ir.nodes`` ↔ ``ir.operators``
 cycle.
 
-Two complementary shapes for "an operator applied to operands" live here:
+Contents:
 
-- :class:`IrOpNode` — the **shape-agnostic contract** (option B). It fixes the
-  operator (``op``) and the evaluation rule (apply ``op`` to the evaluated
-  operands) but leaves *how operands are stored* to the subclass via the
-  abstract :meth:`IrOpNode.operands`. A record node like ``IrNot`` (one
-  ``body`` field) can satisfy it without changing shape.
-- :class:`IrOpTuple` — the **tuple realization** (option A). The node IS its
-  operand tuple; :meth:`operands` returns ``self``. The natural base for a
-  variadic operator like a conjunction.
-
-``IrOpTuple`` IS-AN ``IrOpNode``, so the contract is the single source of the
-evaluation rule and the tuple form is just one storage choice under it.
+- :class:`IrOp` — the operator leaf (the node IS the operator string).
+- :class:`IrOpNode` — an operator applied to operands, stored as the
+  heterogeneous tuple ``(op, *operands)``: ``op`` is element ``[0]``
+  (positionally type-checked as an :class:`IrOp`), the operands are the
+  variadic tail. ``eval`` evaluates the operands and applies ``op``.
 """
 
 from __future__ import annotations
 
 import operator
-from abc import abstractmethod
 from typing import Callable, ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrInt, IrNode, IrSelf, IrStr, IrTuple
+from lexic.ir.base import IrInt, IrSelf, IrStr, IrTuple
 
 # ── Operator leaf ─────────────────────────────────────────────────────
 
@@ -68,11 +61,45 @@ class IrOp(IrStr):
         return IrInt(self._OPS[self](*nc))
 
 
-# ── Operator node
+# ── Operator node — heterogeneous (op, *operands) ─────────────────────
 
-class IrOpNode(IrTuple[IrOp, ...], IrNode):
+
+class IrOpNode(IrTuple[IrOp, *tuple[IrSelf, ...]]):
+    """Operator applied to operands — the node IS the tuple ``(op, *operands)``.
+
+    A heterogeneous :class:`~lexic.ir.base.IrTuple` whose head element is the
+    :class:`IrOp` (positionally type-checked at ``[0]``) and whose tail is the
+    variadic operands. ``eval`` evaluates each operand and applies ``op``.
+    Construct as ``IrOpNode(IrOp("!"), operand)`` or
+    ``IrOpNode(IrOp("&"), p, q)``.
+
+    Both a conjunction and a future record atom like ``IrNot`` can be expressed
+    as operator nodes over this shape.
     """
-    """
 
-    op: IrOp
+    __slots__ = ()
 
+    @property
+    def op(self) -> IrOp:
+        """The operator — element ``[0]`` of the tuple.
+
+        :returns: The :class:`IrOp` head.
+        """
+        return self[0]
+
+    def operands(self) -> tuple[IrSelf, ...]:
+        """The operand nodes — elements ``[1:]``.
+
+        :returns: The operand tail.
+        """
+        return self[1:]
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
+        """Evaluate each operand and apply :attr:`op`.
+
+        :param d: Dispatcher forwarded to each operand's ``eval``.
+        :param n: Current node forwarded to each operand's ``eval``.
+        :param nc: Pre-walked children forwarded to each operand's ``eval``.
+        :returns: ``IrInt(1)`` if the operation holds, else ``IrInt(0)``.
+        """
+        return self.op.eval(d, n, [o.eval(d, n, nc) for o in self.operands()])

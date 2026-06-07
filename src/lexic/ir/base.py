@@ -403,61 +403,71 @@ class IrInt(IrScalar, int):
 # ── Primitive tuple tier ──────────────────────────────────────────────
 
 
-class IrTuple[T: IrSelf, *Ts](IrNode[IrSelf], tuple[*tuple[T, ...]]):
-    """``IrSelf + tuple`` primitive tier. A variadic node IS its children.
+class IrTuple[*Ts](IrNode, tuple[*Ts]):
+    """``IrSelf + tuple`` primitive tier — a **heterogeneous** node IS its children.
 
-    ``IrTuple`` multi-inherits ``IrNode`` and ``tuple`` so instances are both
-    full IR nodes and native Python tuples (indexing, iteration, equality,
-    hashing all work natively).
+    ``IrTuple`` is generic over a :pep:`646` ``TypeVarTuple`` (``*Ts``), so its
+    type parameters ARE its positional element types, mirroring ``tuple``:
 
-    The node's children ARE the tuple elements; ``children()`` returns
-    ``self`` and ``rebuild(new_children)`` constructs a new instance from the
-    replacement elements via the variadic ``*items`` constructor.
+    - ``IrTuple[*tuple[IrItem, ...]]`` — homogeneous, variable length
+      (what ``IrSequence``/``IrAlternation``/``IrAnd`` use).
+    - ``IrTuple[IrOp, *tuple[IrSelf, ...]]`` — a fixed head followed by a
+      variadic tail (an operator node: ``op`` at ``[0]``, then operands). The
+      head is positionally type-checked.
+    - ``IrTuple[IrAtom, IrQuantifier]`` — a fixed positional record (the shape
+      ``IrComposite`` records could later fold into, e.g. as a ``NamedTuple``).
 
-    ``_bound`` is explicitly set to ``tuple`` (parallel to ``IrStr._bound = str``)
-    so :attr:`IrSelf.bound` resolves correctly without PEP 695 auto-derivation.
+    It multi-inherits ``IrNode`` and ``tuple[*Ts]`` so instances are both full
+    IR nodes and native Python tuples (indexing, iteration, equality, hashing
+    all work natively). The node's children ARE the tuple elements;
+    ``children()`` returns ``self`` and ``rebuild(new_children)`` constructs a
+    new instance from the replacement elements.
+
+    ``_bound`` is explicitly ``tuple`` (parallel to ``IrStr._bound = str``); a
+    ``TypeVarTuple`` carries no ``__bound__``, so :meth:`IrSelf.__init_subclass__`
+    cannot derive it. Element-level ``IrSelf`` bounding is **not** expressible
+    through ``*Ts`` (a ``TypeVarTuple`` cannot be bounded) — element types are
+    constrained per use site / subclass parameterisation instead.
 
     ``__repr__`` is codegen: ``IrSequence(IrItem(...), IrItem(...))`` reproduces
     the constructor call.
 
-    :param T: The element type, bounded by ``IrSelf``.
+    :param Ts: The positional element types (a ``TypeVarTuple`` — fixed,
+        variadic, or mixed).
     """
 
     __slots__ = ()
     _bound: ClassVar[type[tuple]] = tuple
 
-    # Overload 1: Handles specific structured types using TypeVarTuple
-    @overload
-    def __new__(cls, *items: *Ts) -> Self: ...
-
-    # Overload 2: (Optional) Handles homogeneous/arbitrary lists if needed
-    @overload
-    def __new__(cls, *items: T) -> Self: ...
-
-
-    def __new__(cls, *items: Any) -> Self:
+    def __new__(cls, *items: *Ts) -> Self:
         """Construct from variadic positional items.
 
-        :param items: Zero or more child nodes.
+        :param items: Zero or more child nodes, positionally typed by ``*Ts``.
         :returns: A new instance of the concrete subclass containing ``items``.
         """
         return super().__new__(cls, items)
 
-    def children(self) -> Sequence[T]:
+    def children(self) -> Sequence[IrSelf]:
         """Return the tuple elements as the structural children.
 
-        :returns: ``self`` (the tuple IS the children sequence).
+        The precise positional element types stay available on the tuple
+        itself (``self[0]`` etc., typed by ``*Ts``); ``children()`` exposes the
+        walker-protocol view — a homogeneous ``IrSelf`` sequence. The cast is
+        sound because every element is an ``IrSelf`` by construction; ``*Ts``
+        simply cannot carry that bound.
+
+        :returns: ``self`` as an ``IrSelf`` sequence.
         """
-        return self
+        return cast(Sequence[IrSelf], self)
 
     def rebuild(self, new_children: Sequence[IrSelf]) -> Self:
         """Reconstruct with replacement children.
 
-        :param new_children: Replacement elements; must be compatible with ``T``.
+        :param new_children: Replacement elements (each an ``IrSelf``).
         :returns: New instance of the same concrete type containing ``new_children``.
         """
-        # base-compatible param (Sequence[IrSelf]); cast for the *items: T ctor
-        return type(self)(*cast(Sequence[Any], new_children))
+        # cast to *Ts: runtime elements satisfy it; *Ts cannot carry the bound
+        return type(self)(*cast(tuple[*Ts], tuple(new_children)))
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Dispatch each element via its own ``eval`` and rebuild the tuple.
@@ -471,7 +481,8 @@ class IrTuple[T: IrSelf, *Ts](IrNode[IrSelf], tuple[*tuple[T, ...]]):
         :param nc: Pre-walked children forwarded to each element's ``eval``.
         :returns: New instance containing the evaluated elements.
         """
-        return type(self)(*(p.eval(d, n, nc) for p in self))
+        evaluated = (p.eval(d, n, nc) for p in cast(tuple[IrSelf, ...], self))
+        return type(self)(*cast("tuple[*Ts]", tuple(evaluated)))
 
     def __repr__(self) -> str:
         """Codegen repr: ``ClassName(elem0, elem1, …)``.
@@ -479,6 +490,31 @@ class IrTuple[T: IrSelf, *Ts](IrNode[IrSelf], tuple[*tuple[T, ...]]):
         :returns: Constructor call reproducing this node.
         """
         return f"{type(self).__name__}({', '.join(map(repr, self))})"
+
+
+class IrSeq[T: IrSelf](IrTuple[*tuple[T, ...]]):
+    """Generic **homogeneous** tuple — every element is a ``T`` (bounded ``IrSelf``).
+
+    ``IrSeq[T]`` is ``IrTuple[*tuple[T, ...]]`` given a name. Because ``T`` is an
+    ordinary bounded ``TypeVar`` (not a member of ``*Ts``), it **recovers the
+    element bound** that the heterogeneous :class:`IrTuple` cannot express:
+    ``IrSeq[int]`` is rejected, and ``IrSeq[IrItem](IrItem(...), x)`` rejects any
+    ``x`` that is not an ``IrItem``.
+
+    Variadic-length homogeneous collections subclass it instead of spelling the
+    ``*tuple[X, ...]`` unpack at every site::
+
+        class IrSequence(IrSeq["IrItem"]): ...
+
+    ``_bound`` is re-declared ``tuple`` so :meth:`IrSelf.__init_subclass__` does
+    not derive ``IrSelf`` from the own ``T`` parameter (the heterogeneous
+    ``IrTuple`` already pins ``tuple``; subclasses with no own params inherit it).
+
+    :param T: The single element type, bounded by ``IrSelf``.
+    """
+
+    __slots__ = ()
+    _bound: ClassVar[type[tuple]] = tuple
 
 
 # ── Composite dataclass tier ──────────────────────────────────────────
@@ -557,18 +593,3 @@ class IrComposite[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
         :returns: ``value.__name__`` for a class, otherwise ``repr(value)``.
         """
         return value.__name__ if isinstance(value, type) else repr(value)
-
-
-
-aj : IrTuple[IrSelf, IrInt, IrStr] = IrTuple(IrInt(1), IrStr("2"))
-ak : IrTuple[IrSelf, IrInt, IrStr] = IrTuple(IrInt(1), IrInt(1))
-
-bb : IrTuple[IrInt, IrInt, IrInt] = IrTuple(IrInt(2), IrInt(1))
-cc : IrTuple[IrInt, IrInt, IrInt] = IrTuple(IrInt(3), IrStr("4"))
-
-dd : IrTuple[IrInt, *tuple[IrSelf, ...]] = IrTuple(IrInt(4), IrInt(5), IrStr("6"))
-ee : IrTuple[IrInt, *tuple[IrSelf, ...]] = IrTuple(IrInt(4), IrStr("5"), IrInt(6))
-
-ff : IrTuple[IrStr, *tuple[IrInt, ...]] = IrTuple(IrInt(2), IrInt(1))
-gg : IrTuple[IrInt, *tuple[IrInt, ...]] = IrTuple(IrInt(3), IrInt(4))
-

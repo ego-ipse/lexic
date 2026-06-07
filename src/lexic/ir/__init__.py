@@ -23,6 +23,7 @@ from lexic.ir.base import (
     IrNoneType,
     IrScalar,
     IrSelf,
+    IrSeq,
 )
 from lexic.ir.charclass import parse_charclass_chars
 from lexic.ir.derive import (
@@ -48,6 +49,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrOp, IrOpNode
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
 from lexic.ir.walk import IrTransformer, IrVisitor
@@ -82,11 +84,13 @@ __all__ = [
     "IrNoneType",
     "IrNot",
     "IrOp",
+    "IrOpNode",
     "IrReturn",
     "IrRule",
     "IrRuleRef",
     "IrScalar",
     "IrSelf",
+    "IrSeq",
     "IrSequence",
     "IrTransformer",
     "IrVisitor",

@@ -31,6 +31,7 @@ from typing import ClassVar
 from lexic.ir.base import (
     IrAtom,
     IrComposite,
+    IrSeq,
     IrStr,
     IrTuple,
 )
@@ -93,21 +94,23 @@ class IrRuleRef(IrStr, IrAtom):
 # ── Concrete tuple-tier collections ───────────────────────────────────
 
 
-class IrSequence(IrTuple["IrItem"]):
+class IrSequence(IrSeq["IrItem"]):
     """Concatenation (sequence) of ``IrItem`` nodes.
 
     Represents an ordered sequence of grammar items that must all match in
     order.  Corresponds to the ``items`` tuple in a single alternation arm.
+    A homogeneous :class:`IrSeq` of ``IrItem``.
     """
 
     __slots__ = ()
 
 
-class IrAlternation(IrTuple["IrSequence"]):
+class IrAlternation(IrSeq["IrSequence"]):
     """Ordered choice (alternation) between ``IrSequence`` arms.
 
     Represents the ``|``-separated alternatives in a grammar rule body.
     Each arm is an ``IrSequence``; the first matching arm wins.
+    A homogeneous :class:`IrSeq` of ``IrSequence``.
     """
 
     __slots__ = ()

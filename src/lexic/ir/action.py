@@ -32,6 +32,7 @@ from lexic.ir.base import (
     IrNone,
     IrScalar,
     IrSelf,
+    IrSeq,
     IrStr,
     IrTuple,
 )
@@ -128,8 +129,8 @@ class IrCompare[Iri: IrSelf](IrComposite[Iri, IrInt]):
 # ── Conjunction ───────────────────────────────────────────────────────
 
 
-class IrAnd(IrTuple[IrSelf]):
-    """Short-circuit conjunction — an :class:`~lexic.ir.nodes.IrTuple` subclass.
+class IrAnd(IrSeq[IrSelf]):
+    """Short-circuit conjunction — a homogeneous :class:`~lexic.ir.base.IrSeq`.
 
     The node IS its operand tuple. ``eval`` ANDs the truthiness of each
     evaluated operand, short-circuiting on the first falsy one, and yields
