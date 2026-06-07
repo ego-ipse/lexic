@@ -1,10 +1,10 @@
 """Action-algebra IrNodes — primitive-node model.
 
-Every class here is a plain :class:`IrNode` (via :class:`IrLeaf` /
-:class:`IrComposite`) that overrides ``eval`` to do work other than
-identity. The action algebra adds operations the grammar AST nodes don't
-cover: attribute reads, sibling lookup, joining, branching, short-circuit,
-and a procedural escape hatch.
+Every class here is a plain :class:`IrNode` (via :class:`IrNamedTuple`,
+:class:`IrSeq`, or an :class:`IrLeaf`/:class:`IrNode` leaf) that overrides
+``eval`` to do work other than identity. The action algebra adds operations the
+grammar AST nodes don't cover: attribute reads, sibling lookup, joining,
+branching, short-circuit, and a procedural escape hatch.
 
 All nodes inherit ``__call__ -> Self`` from :class:`IrSelf` (identity).
 The value-producing protocol is ``eval(d, n, nc) -> Ir_co`` — every class
@@ -14,20 +14,19 @@ to a slot that has no relevant value.
 **Node shapes:** the record-style actions (``IrField``, ``IrCompare``,
 ``IrChild``, ``IrChildren``, ``IrConcat``, ``IrJoin``, ``IrCond``, ``IrRaise``,
 ``IrAction``) are :class:`IrNamedTuple` records; ``IrAnd`` is an :class:`IrSeq`;
-``IrCallable`` is an :class:`IrNode` leaf wrapping a handler. Only ``IrReturn``
-remains an :class:`IrComposite` — it also IS-A ``BaseException``, which a tuple
-cannot be. The default bodies (``IrPass``, ``IrWalk``, ``IrEmit``,
-``IrRebuild``) are plain ``__slots__`` leaves.
+``IrCallable`` is an :class:`IrNode` leaf wrapping a handler; ``IrReturn`` is an
+:class:`IrNode` leaf that also IS-A ``BaseException`` (object-based bases, unlike
+a tuple, coexist with its layout). No action node is an :class:`IrComposite`.
+The default bodies (``IrPass``, ``IrWalk``, ``IrEmit``, ``IrRebuild``) are plain
+``__slots__`` leaves.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Callable, ClassVar, Self, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import (
-    IrComposite,
     IrInt,
     IrLeaf,
     IrNamedTuple,
@@ -567,30 +566,32 @@ class IrRaise[Ir_co: IrSelf](IrNamedTuple[type[BaseException], str]):
 # ── Short-circuit return ──────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, eq=False, repr=False)
-class IrReturn[Ir_co: IrSelf](IrComposite[Ir_co], _Return):
+class IrReturn[Ir_co: IrSelf](IrNode[IrSelf, Ir_co], _Return):
     """Short-circuit IR node that IS-A control-flow exception.
 
-    ``IrReturn`` mixes :class:`IrComposite` (structural IR contract) with
-    :class:`_Return` (BaseException machinery). ``eval`` raises ``self``;
-    the surrounding dispatcher catches the IrReturn instance and may
-    surface ``self.value`` or the instance itself, depending on its
-    return-shape contract.
-
-    ``eq=False`` because ``BaseException`` identity semantics take
-    precedence over dataclass value equality.
+    ``IrReturn`` mixes :class:`IrNode` (structural IR contract) with
+    :class:`_Return` (BaseException machinery). Both are object-based — unlike a
+    tuple, they coexist with ``BaseException``'s instance layout — so it is a
+    plain :class:`IrNode` leaf, not an :class:`IrComposite`. ``eval`` raises
+    ``self``; the dispatcher catches the instance and surfaces ``self.value`` or
+    the instance itself. Equality is by identity (``BaseException`` semantics).
 
     :param Ir_co: the type of the carried value.
     """
 
-    value: object = (
-        IrThis()
-    )  # default to the dispatched node itself when no value is given
-    lazy_eval: bool = True
+    __slots__ = ()
+    lazy_eval: bool
 
-    def __post_init__(self) -> None:
-        """Initialise the BaseException machinery (``self.args``)."""
-        BaseException.__init__(self)
+    def __init__(self, value: object = IrThis(), lazy_eval: bool = True) -> None:
+        """Carry ``value`` and initialise the ``BaseException`` machinery.
+
+        :param value: Value to surface — defaults to the dispatched node (via
+            :class:`IrThis`) when none is given.
+        :param lazy_eval: When ``True``, an ``IrSelf`` value is ``eval``\\ ed
+            before the exception unwinds.
+        """
+        _Return.__init__(self, value)
+        self.lazy_eval = lazy_eval
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Raise ``self`` — unwinds to the dispatcher's catch.

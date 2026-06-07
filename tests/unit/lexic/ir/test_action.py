@@ -31,9 +31,9 @@ from lexic.ir.action import (
     _Return,
 )
 from lexic.ir.base import (
-    IrComposite,
     IrInt,
     IrNamedTuple,
+    IrNode,
     IrNone,
     IrSelf,
     IrStr,
@@ -450,10 +450,10 @@ def test_iremit_wraps_str_of_node_as_irliteral():
     assert isinstance(out, IrLiteral)
 
 
-def test_irreturn_raises_self_and_is_composite():
-    """IrReturn is an IrComposite and a BaseException; eval raises self."""
+def test_irreturn_raises_self_and_is_node_and_exception():
+    """IrReturn is an IrNode leaf and a BaseException; eval raises self."""
     r = IrReturn(IrLiteral("v"))
-    assert isinstance(r, IrComposite) and isinstance(r, BaseException)
+    assert isinstance(r, IrNode) and isinstance(r, BaseException)
     with pytest.raises(IrReturn):
         r.eval(IrNone, IrNone, ())
 
