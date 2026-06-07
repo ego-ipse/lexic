@@ -26,7 +26,6 @@ from lexic.ir.derive import has_ruleref
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrNot,
@@ -46,7 +45,6 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrNot,
@@ -84,10 +82,10 @@ def _ruleref_type(name: str, q: IrQuantifier, specs: dict[str, RuleSpec]) -> str
     return f"List[{cls}]"
 
 
-def _group_type(atom: IrGroup, specs: dict[str, RuleSpec]) -> str:
+def _group_type(atom: IrAlternation, specs: dict[str, RuleSpec]) -> str:
     arm_refs = [
         arm[0].atom
-        for arm in atom.body
+        for arm in atom
         if len(arm) == 1 and isinstance(arm[0].atom, IrRuleRef)
     ]
     if arm_refs:
@@ -122,7 +120,7 @@ _ATOM_FIELD_TYPE: dict[type, Callable] = {
         else "str"
     ),
     IrRuleRef: lambda a, q, s, al: _ruleref_type(a, q, s),
-    IrGroup: lambda a, q, s, al: (
+    IrAlternation: lambda a, q, s, al: (
         _pattern_type(regex_for_group(a, q), al)
         if not has_ruleref(a)
         else _group_type(a, s)

@@ -16,7 +16,6 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrNot,
@@ -117,7 +116,7 @@ def _reserve_helper_name(parent_name: str, taken: set[str]) -> str:
 
 
 def _extract_group(
-    _d: object, group: IrGroup, _nc: object
+    _d: object, group: IrAlternation, _nc: object
 ) -> IrAlternation | IrNoneType:
     """Return the group body if it contains a ruleref, else ``None``.
 
@@ -126,7 +125,7 @@ def _extract_group(
     :param _nc: Pre-dispatched children (unused).
     :returns: ``group.body`` when hoistable, else ``None``.
     """
-    return group.body if has_ruleref(group.body) else IrNone
+    return group if has_ruleref(group) else IrNone
 
 
 def _extract_none(_d: object, _n: object, _nc: object) -> IrNoneType:
@@ -141,7 +140,7 @@ def _extract_none(_d: object, _n: object, _nc: object) -> IrNoneType:
 
 
 _EXTRACT_BODY: IrDispatch = IrDispatch(
-    actions=(IrAction(IrGroup, IrCallable(_extract_group)),),
+    actions=(IrAction(IrAlternation, IrCallable(_extract_group)),),
     default=IrCallable(_extract_none),
 )
 
@@ -266,20 +265,20 @@ _ATOM_HINT: dict[type, _FieldHint] = {
     ),
     IrRuleRef: lambda a: a.replace("-", "_"),
     # ruleref group → "kind" (structural slot); literal-only group → name from content
-    IrGroup: lambda a: "kind" if has_ruleref(a) else _group_hint(a),
+    IrAlternation: lambda a: "kind" if has_ruleref(a) else _group_hint(a),
 }
 
 
-def _group_hint(group: IrGroup) -> str:
+def _group_hint(group: IrAlternation) -> str:
     """Name a literal-only group from the first atom of its first arm."""
-    if not (group.body and group.body[0]):
+    if not (group and group[0]):
         return "inline"
-    first = group.body[0][0].atom
+    first = group[0][0].atom
     hint = _ATOM_HINT.get(type(first))
     return hint(first) if hint else "inline"
 
 
-def _group_field_base(a: IrGroup) -> str | None:
+def _group_field_base(a: IrAlternation) -> str | None:
     """Tier-2 name for a group atom, or None → Tier-3 positional fallback."""
     if has_ruleref(a):
         return "kind"
@@ -296,7 +295,7 @@ _FIELD_BASE: FieldBase = {
     IrRuleRef: lambda a: a.replace("-", "_"),
     IrCharClass: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
     IrNot: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
-    IrGroup: _group_field_base,
+    IrAlternation: _group_field_base,
 }
 
 

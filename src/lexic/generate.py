@@ -8,7 +8,6 @@ from lexic.ir.charclass import parse_charclass_chars
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrNot,
@@ -50,7 +49,7 @@ def _gen_charclass(
 
 
 def _gen_group(
-    atom: IrGroup,
+    atom: IrAlternation,
     q: IrQuantifier,
     specs: dict[str, RuleSpec],
     rng: _random.Random,
@@ -62,7 +61,7 @@ def _gen_group(
         return ""
     out: list[str] = []
     for _ in range(count):
-        arm = rng.choice(atom.body)
+        arm = rng.choice(atom)
         out.append(_gen_sequence(arm, specs, rng, max_depth))
     return "".join(out)
 
@@ -87,7 +86,7 @@ def _gen_atom(
             generate(atom, specs, rng=rng, max_depth=max_depth - 1)
             for _ in range(count)
         )
-    if isinstance(atom, IrGroup):
+    if isinstance(atom, IrAlternation):
         return _gen_group(atom, q, specs, rng, max_depth)
     return ""
 

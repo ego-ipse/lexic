@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from lexic.compile import compile_grammar
 from lexic.grammars.abnf.flavour import ABNF_FLAVOUR
-from lexic.ir.nodes import IrGroup, IrItem
+from lexic.ir.nodes import IrAlternation, IrItem
 from tests.paths import GROUND_TRUTH
 
 
@@ -46,4 +46,4 @@ def test_compile_abnf_case_insensitive_literal_expanded():
 
 def _has_group_in(item: IrItem) -> bool:
     """Is the item's atom an IrGroup?"""
-    return isinstance(item.atom, IrGroup)
+    return isinstance(item.atom, IrAlternation)

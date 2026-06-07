@@ -1,7 +1,7 @@
 """Pattern-alias collection: walk specs once, emit unique pattern regexes.
 
 A "pattern" is either an IrCharClass with a quantifier or a pure-pattern
-IrGroup (no IrRuleRef descendants). Each unique regex produces one PatternAlias
+IrAlternation. Each unique regex produces one PatternAlias
 that the emitter renders as a module-level type alias.
 
 Naming cascade:
@@ -27,7 +27,6 @@ from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrNot,
@@ -90,8 +89,8 @@ def _atom_regex_fragment(item: IrItem) -> str:
         return _bracket(atom.body, True) + q
     if isinstance(atom, IrCharClass):
         return _bracket(atom, False) + q
-    if isinstance(atom, IrGroup):
-        return f"({_alt_regex_fragment(atom.body)}){q}"
+    if isinstance(atom, IrAlternation):
+        return f"({_alt_regex_fragment(atom)}){q}"
     raise UnsupportedConstructError(
         f"Pattern fragment cannot include {type(atom).__name__}"
     )
@@ -107,9 +106,9 @@ def _alt_regex_fragment(alt: IrAlternation) -> str:
     return "|".join(_seq_regex_fragment(s) for s in alt)
 
 
-def regex_for_group(grp: IrGroup, q: IrQuantifier) -> str:
+def regex_for_group(grp: IrAlternation, q: IrQuantifier) -> str:
     """Build the anchored regex for a pure-pattern IrGroup at the given IrQuantifier."""
-    return f"^({_alt_regex_fragment(grp.body)}){_suffix(q)}$"
+    return f"^({_alt_regex_fragment(grp)}){_suffix(q)}$"
 
 
 def _name_for_charclass(cc: IrCharClass, *, negated: bool = False) -> str:
@@ -160,7 +159,7 @@ def _visit_item(d: _PatternAliasVisitor, n: IrSelf, _nc: Sequence[IrSelf]) -> Ir
             f"_visit_item: expected IrItem, got {type(n).__name__}"
         )
     atom, q = n.atom, n.quantifier
-    if isinstance(atom, IrGroup):
+    if isinstance(atom, IrAlternation):
         d.ruleref_frames.append(False)
         d.eval(d, atom, ())
         group_had_ruleref = d.ruleref_frames.pop()

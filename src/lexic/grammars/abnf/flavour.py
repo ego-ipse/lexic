@@ -38,7 +38,6 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrNot,
@@ -159,18 +158,22 @@ def _abnf_ast(d, n, _nc) -> IrStr:
     return IrStr("\n".join(parts) + "\n")
 
 
+def _abnf_item(d, n, _nc) -> IrStr:
+    """Render ABNF prefix ``quantifier`` then ``atom``; parenthesise an alternation atom."""
+    atom = str(d.eval(d, n.atom, ()))
+    if isinstance(n.atom, IrAlternation):
+        atom = f"({atom})"
+    return IrStr(str(d.eval(d, n.quantifier, ())) + atom)
+
+
 ABNF_ACTIONS = (
     IrAction(IrLiteral, IrCallable(_abnf_encode_literal)),
     IrAction(IrCharClass, IrCallable(_abnf_charclass)),
     IrAction(IrNot, IrCallable(_abnf_not)),
     IrAction(IrRuleRef, IrEmit()),
-    IrAction(
-        IrGroup,
-        IrConcat(parts=IrTuple(IrLiteral("("), IrChild("body"), IrLiteral(")"))),
-    ),
     IrAction(IrQuantifier, IrCallable(_abnf_quantifier)),
     # Prefix quantifier ordering: quantifier before atom.
-    IrAction(IrItem, IrConcat(parts=IrTuple(IrChild("quantifier"), IrChild("atom")))),
+    IrAction(IrItem, IrCallable(_abnf_item)),
     IrAction(
         IrSequence,
         IrJoin(
@@ -232,7 +235,7 @@ class _AbnfFlavour(IrFlavour):
         return chr(int(body, 16)), False
 
     @classmethod
-    def normalize_literal(cls, decoded: str) -> IrLiteral | IrGroup:
+    def normalize_literal(cls, decoded: str) -> IrLiteral | IrAlternation:
         """Case-insensitive expansion: ``abc`` → ``([aA][bB][cC])``; leave non-alpha as-is."""
         if not any(c.isalpha() for c in decoded):
             return IrLiteral(decoded)
@@ -242,7 +245,7 @@ class _AbnfFlavour(IrFlavour):
                 items.append(IrItem(atom=IrCharClass(f"{c.lower()}{c.upper()}")))
             else:
                 items.append(IrItem(atom=IrLiteral(c)))
-        return IrGroup(body=IrAlternation(IrSequence(*items)))
+        return IrAlternation(IrSequence(*items))
 
 
 ABNF_FLAVOUR = _AbnfFlavour()

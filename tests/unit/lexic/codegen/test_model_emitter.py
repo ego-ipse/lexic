@@ -8,7 +8,6 @@ from lexic.codegen.model_emitter import emit_module_source
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrNot,
@@ -130,12 +129,11 @@ def test_emitted_module_has_canonical_imports():
 
 def test_no_fixme_in_emitted_source():
     """Decision CQ #1: never emit # FIXME placeholders."""
-    grp = IrGroup(
-        IrAlternation(
-            IrSequence(IrItem(IrLiteral("a"))),
-            IrSequence(IrItem(IrLiteral("b"))),
-        )
+    grp = IrAlternation(
+        IrSequence(IrItem(IrLiteral("a"))),
+        IrSequence(IrItem(IrLiteral("b"))),
     )
+
     spec = _spec("r", "value_str", [IrItem(grp, IrQuantifier(1, 1))])
     src = emit_module_source([spec], stem="m")
     assert "# FIXME" not in src

@@ -9,8 +9,8 @@ from lexic.grammars.abnf.flavour import ABNF_ESCAPES, ABNF_FLAVOUR, META_GRAMMAR
 from lexic.grammars.flavour import IrFlavour
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
+    IrAlternation,
     IrCharClass,
-    IrGroup,
     IrLiteral,
     IrQuantifier,
 )
@@ -82,8 +82,8 @@ def test_parse_charclass_hex_range():
 def test_normalize_literal_alpha_expands_to_charclass_group():
     """`"abc"` in ABNF is case-insensitive; expand to ([aA] [bB] [cC])."""
     out = ABNF_FLAVOUR.normalize_literal("abc")
-    assert isinstance(out, IrGroup)
-    arm = out.body[0]
+    assert isinstance(out, IrAlternation)
+    arm = out[0]
     assert arm[0].atom == IrCharClass("aA")
     assert arm[1].atom == IrCharClass("bB")
     assert arm[2].atom == IrCharClass("cC")
@@ -92,8 +92,8 @@ def test_normalize_literal_alpha_expands_to_charclass_group():
 def test_normalize_literal_all_caps_still_expands():
     """All-caps is still case-expanded."""
     out = ABNF_FLAVOUR.normalize_literal("XY")
-    assert isinstance(out, IrGroup)
-    arm = out.body[0]
+    assert isinstance(out, IrAlternation)
+    arm = out[0]
     assert arm[0].atom == IrCharClass("xX")
     assert arm[1].atom == IrCharClass("yY")
 
@@ -107,8 +107,8 @@ def test_normalize_literal_non_alpha_stays_literal():
 def test_normalize_literal_mixed_alphanumeric():
     """Letters case-expanded, digits stay literal — emit as group with mixed leaves."""
     out = ABNF_FLAVOUR.normalize_literal("a1")
-    assert isinstance(out, IrGroup)
-    arm = out.body[0]
+    assert isinstance(out, IrAlternation)
+    arm = out[0]
     assert arm[0].atom == IrCharClass("aA")
     assert arm[1].atom == IrLiteral("1")
 

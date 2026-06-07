@@ -33,7 +33,6 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrNot,
@@ -127,17 +126,21 @@ def _gbnf_ast(d, n, _nc) -> IrStr:
     return IrStr("\n".join(parts) + "\n")
 
 
+def _gbnf_item(d, n, _nc) -> IrStr:
+    """Render ``atom`` then ``quantifier``; parenthesise an alternation atom."""
+    atom = str(d.eval(d, n.atom, ()))
+    if isinstance(n.atom, IrAlternation):
+        atom = f"({atom})"
+    return IrStr(atom + str(d.eval(d, n.quantifier, ())))
+
+
 GBNF_ACTIONS = (
     IrAction(IrLiteral, IrCallable(_gbnf_encode_literal)),
     IrAction(IrCharClass, IrCallable(_gbnf_charclass)),
     IrAction(IrNot, IrCallable(_gbnf_not)),
     IrAction(IrRuleRef, IrEmit()),
-    IrAction(
-        IrGroup,
-        IrConcat(parts=IrTuple(IrLiteral("("), IrChild("body"), IrLiteral(")"))),
-    ),
     IrAction(IrQuantifier, IrCallable(_gbnf_quantifier)),
-    IrAction(IrItem, IrConcat(parts=IrTuple(IrChild("atom"), IrChild("quantifier")))),
+    IrAction(IrItem, IrCallable(_gbnf_item)),
     IrAction(
         IrSequence,
         IrJoin(

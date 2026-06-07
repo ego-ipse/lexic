@@ -55,7 +55,6 @@ def test_core_node_types_exported() -> None:
         "IrLiteral",
         "IrCharClass",
         "IrRuleRef",
-        "IrGroup",
         "IrNot",
         "IrItem",
         "IrSequence",

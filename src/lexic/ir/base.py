@@ -567,9 +567,14 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode):
     __slots__ = ()
     _fields: ClassVar[tuple[str, ...]] = ()
     _field_defaults: ClassVar[dict[str, object]] = {}
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Record field names/defaults and install a positional accessor each.
+
+        ``_child_attrs`` defaults to the field tuple (all fields are dispatched
+        children); a record with scalar payload declares its own narrower
+        ``_child_attrs`` in the class body, which is preserved.
 
         :param kwargs: Forwarded to ``super().__init_subclass__``.
         """
@@ -581,6 +586,8 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode):
             for name in flds
             if name in cls.__dict__ and not isinstance(cls.__dict__[name], property)
         }
+        if "_child_attrs" not in cls.__dict__:
+            cls._child_attrs = flds
         for index, name in enumerate(flds):
             setattr(cls, name, property(lambda self, i=index: self[i]))
 
@@ -602,7 +609,7 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode):
                 raise TypeError(f"{cls.__name__} missing required field {name!r}")
         if kwargs:
             raise TypeError(f"{cls.__name__} got unexpected fields {list(kwargs)}")
-        return super().__new__(cls, *cast("tuple[*Ts]", tuple(values)))
+        return super().__new__(cls, *cast(tuple[*Ts], tuple(values)))
 
 
 # ── Composite dataclass tier ──────────────────────────────────────────

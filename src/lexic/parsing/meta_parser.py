@@ -46,7 +46,6 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrNot,
     IrQuantifier,
@@ -80,7 +79,7 @@ _IR_BUILDERS: dict[str, _IrBuilder] = {
     "ir_literal": lambda f, c: f.normalize_literal(f.escapes.decode(str(c[0])[1:-1])),
     "ir_charclass": _build_charclass,
     "ir_ruleref": lambda _f, c: IrRuleRef(str(c[0])),
-    "ir_group": lambda _f, c: IrGroup(body=c[0]),
+    "ir_group": lambda _f, c: c[0],
 }
 
 # ── transformer ───────────────────────────────────────────────────────

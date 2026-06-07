@@ -15,7 +15,6 @@ from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrNot,
@@ -77,17 +76,17 @@ def _atom_to_lark(item: IrItem) -> str:
         )
     if isinstance(atom, IrRuleRef):
         return f"{to_lark_name(atom)}{q_str}"
-    if isinstance(atom, IrGroup):
+    if isinstance(atom, IrAlternation):
         # Literal-only group arms are dropped by Lark (anonymous string terminals).
         # Use regex form so the matched token is preserved in children.
         literal_only = all(
             isinstance(sub.atom, IrLiteral)
-            for arm in atom.body
+            for arm in atom
             for sub in arm
             if isinstance(sub, IrItem)
         )
         seq_fn = _seq_to_lark_regex if literal_only else _seq_to_lark
-        body = " | ".join(seq_fn(s) for s in atom.body)
+        body = " | ".join(seq_fn(s) for s in atom)
         return f"({body}){q_str}"
     raise UnsupportedConstructError(
         f"_atom_to_lark: no handler for atom type {type(atom).__name__!r}"
@@ -114,8 +113,8 @@ def _atom_to_lark_regex(item: IrItem) -> str:
         )
     if isinstance(atom, IrRuleRef):
         return f"{to_lark_name(atom)}{q_str}"
-    if isinstance(atom, IrGroup):
-        body = " | ".join(_seq_to_lark_regex(s) for s in atom.body)
+    if isinstance(atom, IrAlternation):
+        body = " | ".join(_seq_to_lark_regex(s) for s in atom)
         return f"({body}){q_str}"
     raise UnsupportedConstructError(
         f"_atom_to_lark_regex: no handler for atom type {type(atom).__name__!r}"

@@ -8,8 +8,8 @@ from lark import Token, Transformer
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.nodes import (
+    IrAlternation,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -53,10 +53,10 @@ def _consume_rule_ref(item: IrItem, ch: list, pos: int) -> tuple[object, int]:
     )
 
 
-def _group_has_ruleref(group: IrGroup) -> bool:
+def _group_has_ruleref(group: IrAlternation) -> bool:
     return any(
         isinstance(sub.atom, IrRuleRef)
-        for arm in group.body
+        for arm in group
         for sub in arm
         if isinstance(sub, IrItem)
     )
@@ -87,7 +87,7 @@ _CONSUME: dict[type, _Consumer] = {
     IrLiteral: _consume_terminal,
     IrCharClass: _consume_terminal,
     IrRuleRef: _consume_rule_ref,
-    IrGroup: _consume_group,
+    IrAlternation: _consume_group,
 }
 
 

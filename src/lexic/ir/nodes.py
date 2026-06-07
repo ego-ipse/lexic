@@ -47,7 +47,6 @@ __all__ = [
     "IrAlternation",
     "IrQuantifier",
     "IrItem",
-    "IrGroup",
     "IrNot",
     "IrRule",
     "IrAst",
@@ -107,7 +106,7 @@ class IrSequence(IrSeq["IrItem"]):
     __slots__ = ()
 
 
-class IrAlternation(IrSeq[IrSequence]):
+class IrAlternation(IrSeq[IrSequence], IrAtom):
     """Ordered choice (alternation) between ``IrSequence`` arms.
 
     Represents the ``|``-separated alternatives in a grammar rule body.
@@ -140,40 +139,23 @@ class IrQuantifier(IrLeaf, IrNamedTuple[int, int | None]):
     max: int | None = 1
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrItem(IrComposite):
+class IrItem(IrNamedTuple[IrAtom, IrQuantifier]):
     """An atom paired with a quantifier — the universal wrapper node.
 
     ``IrItem`` is the fundamental unit of a grammar sequence.  Every element
     in an ``IrSequence`` is an ``IrItem``.  The ``atom`` field accepts any
     ``IrAtom`` subclass (``IrLiteral``, ``IrCharClass``, ``IrRuleRef``,
-    ``IrGroup``, ``IrNot``).
+    ``IrNot``).
 
-    Children (in ``_child_attrs`` order): ``atom``, ``quantifier``.
+    Children: ``atom``, ``quantifier`` (both IR nodes — the whole tuple).
     """
 
-    _child_attrs: ClassVar[tuple[str, ...]] = ("atom", "quantifier")
+    __slots__ = ()
     atom: IrAtom
     quantifier: IrQuantifier = IrQuantifier()
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrGroup(IrComposite, IrAtom):
-    """Parenthesised group — an ``IrAtom`` whose body is an ``IrAlternation``.
-
-    Corresponds to ``( … )`` in GBNF/ABNF.  Because ``IrGroup`` IS-AN
-    ``IrAtom``, it can be wrapped by ``IrItem`` and appear anywhere an atom
-    is expected — including as the ``atom`` field of another ``IrItem``.
-
-    Children: the single ``body`` ``IrAlternation``.
-    """
-
-    _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
-    body: IrAlternation
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class IrNot[Ir_co: IrAtom = IrAtom](IrComposite, IrAtom):
+class IrNot[Ir_co: IrAtom = IrAtom](IrNamedTuple[Ir_co], IrAtom):
     """Negation — an ``IrAtom`` that inverts a character class or atom.
 
     Corresponds to ``[^…]`` (negated character class) in GBNF.  The ``body``
@@ -188,7 +170,7 @@ class IrNot[Ir_co: IrAtom = IrAtom](IrComposite, IrAtom):
     :param Ir_co: Concrete atom type of the wrapped body (defaults to ``IrAtom``).
     """
 
-    _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
+    __slots__ = ()
     body: Ir_co
 
 
