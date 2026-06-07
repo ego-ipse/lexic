@@ -8,6 +8,7 @@ from lexic.ir.base import (
     IrAtom,
     IrComposite,
     IrInt,
+    IrNamedTuple,
     IrNode,
     IrNone,
     IrSeq,
@@ -302,7 +303,7 @@ def test_repr_irsequence_is_codegen():
 def test_repr_irrule_shows_non_child_fields_too():
     """name appears alongside the recursed body."""
     rule = IrRule("r", IrAlternation())
-    assert repr(rule) == "IrRule(name='r', body=IrAlternation())"
+    assert repr(rule) == "IrRule('r', IrAlternation())"
 
 
 def test_repr_empty_structural_node_is_codegen():
@@ -314,7 +315,7 @@ def test_repr_empty_structural_node_is_codegen():
 def test_repr_irast_is_codegen():
     """IrAst reproduces its constructor call."""
     ast = IrAst(IrSeq(IrRule("r", IrAlternation())), "r")
-    assert repr(ast) == ("IrAst(IrSeq(IrRule(name='r', body=IrAlternation())), 'r')")
+    assert repr(ast) == ("IrAst(IrSeq(IrRule('r', IrAlternation())), 'r')")
 
 
 def test_irliteral_eval_returns_literal_value():
@@ -425,19 +426,19 @@ def test_alternation_and_not_are_atoms():
 
 def test_composite_repr_is_codegen():
     """repr() on IrRule reproduces the constructor call."""
-    assert (
-        repr(IrRule("r", IrAlternation())) == "IrRule(name='r', body=IrAlternation())"
-    )
+    assert repr(IrRule("r", IrAlternation())) == "IrRule('r', IrAlternation())"
 
 
-def test_composite_is_dataclass_base():
-    """The remaining dataclass records (e.g. IrRule) are IrComposite instances.
-
-    ``IrQuantifier``/``IrItem``/``IrGroup``/``IrNot`` were folded onto
-    :class:`IrNamedTuple`, so they are no longer ``IrComposite``; the records
-    still backed by a frozen dataclass (``IrRule``, ``IrAst``) are.
-    """
-    assert isinstance(IrRule("r", IrAlternation()), IrComposite)
+def test_all_grammar_records_are_named_tuples():
+    """Every grammar-AST record is now an IrNamedTuple (IrComposite fully folded)."""
+    for node in (
+        IrQuantifier(),
+        IrItem(IrLiteral("x")),
+        IrNot(IrLiteral("a")),
+        IrRule("r", IrAlternation()),
+        IrAst(),
+    ):
+        assert isinstance(node, IrNamedTuple)
 
 
 # ── _bound derivation (own __type_params__ only; explicit wins; never MRO) ──

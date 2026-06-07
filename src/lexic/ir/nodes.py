@@ -3,8 +3,8 @@
 Nodes *are* their payload:
 
 - str-leaves subclass :class:`str` (``IrStr`` tier);
-- variadic collections subclass :class:`tuple` (``IrTuple`` tier);
-- fixed-arity records are :class:`IrComposite` dataclasses.
+- variadic collections subclass :class:`tuple` (``IrSeq`` tier);
+- fixed-arity records are :class:`IrNamedTuple` named tuples.
 
 The abstract spine — :class:`IrSelf`, :class:`IrNode`, :class:`IrLeaf`,
 :class:`IrAtom`, the primitive bases :class:`IrScalar`/:class:`IrStr`/
@@ -25,12 +25,10 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import ClassVar
 
 from lexic.ir.base import (
     IrAtom,
-    IrComposite,
     IrLeaf,
     IrNamedTuple,
     IrSeq,
@@ -174,8 +172,7 @@ class IrNot[Ir_co: IrAtom = IrAtom](IrNamedTuple[Ir_co], IrAtom):
     body: Ir_co
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrRule(IrComposite):
+class IrRule(IrNamedTuple[IrStr, IrAlternation]):
     """A named grammar rule.
 
     The ``body`` is always an ``IrAlternation``, even for single-arm rules
