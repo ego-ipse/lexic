@@ -10,7 +10,7 @@ from functools import cache
 from typing import Callable, Literal, TypeAlias, TypeVar
 
 from lexic.ir.action import IrAction, IrCallable, IrReturn
-from lexic.ir.base import IrAtom, IrNode, IrNone, IrNoneType, IrSelf, IrTuple
+from lexic.ir.base import IrAtom, IrNode, IrNone, IrNoneType, IrSelf, IrSeq
 from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -216,7 +216,7 @@ def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
         new_body = t.apply(rule.body)
         all_helpers.extend(t.helpers)
         new_rules.append(IrRule(rule.name, new_body))
-    return IrAst(rules=IrTuple(*new_rules), start=ast.start), all_helpers
+    return IrAst(rules=IrSeq(*new_rules), start=ast.start), all_helpers
 
 
 # ── field naming ──────────────────────────────────────────────────────

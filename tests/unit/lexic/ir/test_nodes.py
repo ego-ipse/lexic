@@ -10,7 +10,7 @@ from lexic.ir.base import (
     IrInt,
     IrNode,
     IrNone,
-    IrTuple,
+    IrSeq,
 )
 from lexic.ir.nodes import (
     IrAlternation,
@@ -143,14 +143,14 @@ def test_ir_ast_holds_rules_and_start():
     """An IR AST should hold a tuple of rules and the name of the start rule."""
     body = IrAlternation(IrSequence())
     rule = IrRule("root", body=body)
-    ast = IrAst(IrTuple(rule), "root")
+    ast = IrAst(IrSeq(rule), "root")
     assert ast.start == "root"
     assert ast.rules == (rule,)
 
 
 def test_ir_ast_is_frozen():
     """Frozen dataclass rejects attribute mutation on IrAst."""
-    ast = IrAst(IrTuple(), "root")
+    ast = IrAst(IrSeq(), "root")
     with pytest.raises(AttributeError):
         setattr(ast, "start", "other")
 
@@ -161,7 +161,7 @@ def test_ir_ast_is_frozen():
 def test_structurally_equal_asts_compare_equal():
     """Two IR ASTs with the same structure and values should compare equal."""
     a = IrAst(
-        IrTuple(
+        IrSeq(
             IrRule(
                 "r",
                 IrAlternation(IrSequence(IrItem(IrLiteral("x")))),
@@ -170,7 +170,7 @@ def test_structurally_equal_asts_compare_equal():
         "r",
     )
     b = IrAst(
-        IrTuple(
+        IrSeq(
             IrRule(
                 "r",
                 IrAlternation(IrSequence(IrItem(IrLiteral("x")))),
@@ -275,8 +275,8 @@ def test_irast_children_returns_rules_tuple():
     to reach individual rules.
     """
     r = IrRule("x", IrAlternation())
-    ast = IrAst(IrTuple(r), "x")
-    assert tuple(ast.children()) == (IrTuple(r),)
+    ast = IrAst(IrSeq(r), "x")
+    assert tuple(ast.children()) == (IrSeq(r),)
     assert ast.rules == (r,)
 
 
@@ -284,8 +284,8 @@ def test_irast_rebuild_replaces_rules_preserves_start():
     """Rebuilding an IrAst replaces its rules but preserves the start name."""
     r1 = IrRule("a", IrAlternation())
     r2 = IrRule("b", IrAlternation())
-    rebuilt = IrAst(IrTuple(r1), "a").rebuild((IrTuple(r1, r2),))
-    assert rebuilt == IrAst(IrTuple(r1, r2), "a")
+    rebuilt = IrAst(IrSeq(r1), "a").rebuild((IrSeq(r1, r2),))
+    assert rebuilt == IrAst(IrSeq(r1, r2), "a")
 
 
 def test_repr_irliteral_is_codegen():
@@ -313,10 +313,8 @@ def test_repr_empty_structural_node_is_codegen():
 
 def test_repr_irast_is_codegen():
     """IrAst reproduces its constructor call."""
-    ast = IrAst(IrTuple(IrRule("r", IrAlternation())), "r")
-    assert repr(ast) == (
-        "IrAst(rules=IrTuple(IrRule(name='r', body=IrAlternation())), start='r')"
-    )
+    ast = IrAst(IrSeq(IrRule("r", IrAlternation())), "r")
+    assert repr(ast) == ("IrAst(IrSeq(IrRule(name='r', body=IrAlternation())), 'r')")
 
 
 def test_irliteral_eval_returns_literal_value():
@@ -345,7 +343,7 @@ def test_irruleref_call_inherits_identity_default():
 
 def test_irast_call_inherits_identity_default():
     """IrAst inherits the default __call__ — returns self."""
-    empty = IrAst(IrTuple(), "r")
+    empty = IrAst(IrSeq(), "r")
     result = empty(IrNone, IrNone, ())
     assert isinstance(result, IrAst)
     assert not result.rules

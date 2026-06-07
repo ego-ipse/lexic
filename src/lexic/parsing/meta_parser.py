@@ -41,7 +41,7 @@ from lark import (
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrFlavour
-from lexic.ir.base import IrAtom, IrTuple
+from lexic.ir.base import IrAtom, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -72,7 +72,7 @@ def _build_charclass(flavour: IrFlavour, children: list) -> IrAtom:
 
 
 _IR_BUILDERS: dict[str, _IrBuilder] = {
-    "start": lambda _f, c: IrAst(rules=IrTuple(*c), start=c[0].name if c else ""),
+    "start": lambda _f, c: IrAst(rules=IrSeq(*c), start=c[0].name if c else ""),
     "ir_rule": lambda _f, c: IrRule(name=str(c[0]), body=c[1]),
     "ir_alternation": lambda _f, c: IrAlternation(*c),
     "ir_sequence": lambda _f, c: IrSequence(*c),

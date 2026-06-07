@@ -30,6 +30,7 @@ from abc import ABC
 from dataclasses import fields, replace
 from typing import (
     Any,
+    Callable,
     ClassVar,
     Self,
     Sequence,
@@ -37,6 +38,7 @@ from typing import (
     cast,
     dataclass_transform,
     final,
+    get_origin,
 )
 
 # ── Spine ─────────────────────────────────────────────────────────────
@@ -579,7 +581,8 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode):
         :param kwargs: Forwarded to ``super().__init_subclass__``.
         """
         super().__init_subclass__(**kwargs)
-        flds = tuple(cls.__dict__.get("__annotations__", {}))
+        anns = cls.__dict__.get("__annotations__", {})
+        flds = tuple(name for name, ann in anns.items() if not cls._is_classvar(ann))
         cls._fields = flds
         cls._field_defaults = {
             name: cls.__dict__[name]
@@ -610,6 +613,52 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode):
         if kwargs:
             raise TypeError(f"{cls.__name__} got unexpected fields {list(kwargs)}")
         return super().__new__(cls, *cast(tuple[*Ts], tuple(values)))
+
+    @staticmethod
+    def _is_classvar(annotation: object) -> bool:
+        """True if ``annotation`` denotes ``typing.ClassVar`` (so it is not a field).
+
+        Handles both stringised annotations (``from __future__ import
+        annotations``) and the live ``ClassVar`` form, so records can declare
+        ``ClassVar`` class data (e.g. ``_child_attrs``) without it becoming a field.
+
+        :param annotation: A value from a class ``__annotations__`` mapping.
+        :returns: ``True`` when the annotation is a ``ClassVar``.
+        """
+        if isinstance(annotation, str):
+            return annotation.lstrip().startswith(("ClassVar", "typing.ClassVar"))
+        return annotation is ClassVar or get_origin(annotation) is ClassVar
+
+    def children(self) -> Sequence[IrSelf]:
+        """Return the fields named in ``_child_attrs`` (the IR-node children).
+
+        Overrides :class:`IrTuple` so a record with scalar payload (a field not
+        in ``_child_attrs``) excludes that payload from the walk.
+
+        :returns: The child fields, in declaration order.
+        """
+        attrs = self._child_attrs
+        return cast(
+            Sequence[IrSelf],
+            tuple(self[i] for i, name in enumerate(self._fields) if name in attrs),
+        )
+
+    def rebuild(self, new_children: Sequence[IrSelf]) -> Self:
+        """Splice ``new_children`` into the child positions; keep scalar payload.
+
+        :param new_children: Replacements for the ``_child_attrs`` fields, in order.
+        :returns: A new instance with children replaced and payload preserved.
+        """
+        repl = list(new_children)
+        values: list[object] = []
+        k = 0
+        for i, name in enumerate(self._fields):
+            if name in self._child_attrs:
+                values.append(repl[k])
+                k += 1
+            else:
+                values.append(self[i])
+        return cast(Callable[..., Self], type(self))(*values)
 
 
 # ── Composite dataclass tier ──────────────────────────────────────────

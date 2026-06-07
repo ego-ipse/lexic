@@ -47,7 +47,7 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction, IrCallable, IrEmit, IrRaise, IrRebuild, IrReturn
-from lexic.ir.base import IrComposite, IrLeaf, IrNode, IrNone, IrSelf, IrTuple
+from lexic.ir.base import IrComposite, IrLeaf, IrNode, IrNone, IrSelf, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -71,7 +71,7 @@ def _tiny_ast() -> IrAst:
         "r",
         IrAlternation(IrSequence(IrItem(atom=IrRuleRef("r")))),
     )
-    return IrAst(rules=IrTuple(rule), start="r")
+    return IrAst(rules=IrSeq(rule), start="r")
 
 
 # ── IrDispatch fundamentals ──────────────────────────────────────────
@@ -157,7 +157,7 @@ def test_action_body_receives_pre_dispatched_children_when_caller_supplies_them(
 
     d = IrVisitor(actions=(IrAction(IrItem, IrCallable(_on)),))
     item = IrItem(atom=IrLiteral("x"))
-    pre = IrTuple(IrLiteral("PRE"), IrLiteral("Q"))
+    pre = IrSeq(IrLiteral("PRE"), IrLiteral("Q"))
     d.eval(d, item, pre)
     assert captured == [(IrLiteral("PRE"), IrLiteral("Q"))]
 
@@ -181,7 +181,7 @@ def test_irreturn_short_circuits_subtree_walk():
         return IrNone
 
     ast = IrAst(
-        rules=IrTuple(
+        rules=IrSeq(
             IrRule(
                 "r",
                 IrAlternation(
@@ -257,7 +257,7 @@ def test_irvisitor_default_walks_into_children():
 
     d = IrVisitor(actions=(IrAction(IrLiteral, IrCallable[IrSelf](_record)),))
     ast = IrAst(
-        rules=IrTuple(
+        rules=IrSeq(
             IrRule(
                 "r",
                 IrAlternation(

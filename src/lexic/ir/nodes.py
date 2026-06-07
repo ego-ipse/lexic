@@ -35,7 +35,6 @@ from lexic.ir.base import (
     IrNamedTuple,
     IrSeq,
     IrStr,
-    IrTuple,
 )
 
 __all__ = [
@@ -131,10 +130,11 @@ class IrQuantifier(IrLeaf, IrNamedTuple[int, int | None]):
     - ``IrQuantifier(1, None)`` — one-or-more (``+``).
     - ``IrQuantifier(m, n)`` — between ``m`` and ``n`` times (``{m,n}``).
 
-    ``max=None`` means unbounded (no upper limit).  ``IrQuantifier`` carries
-    no IR-node children (``_child_attrs = ()`` inherited default).
+    ``max=None`` means unbounded (no upper limit).  ``min``/``max`` are scalar
+    payload, not IR-node children, so ``_child_attrs`` is empty.
     """
 
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
     min: int = 1
     max: int | None = 1
 
@@ -190,8 +190,7 @@ class IrRule(IrComposite):
     body: IrAlternation
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrAst(IrComposite):
+class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr]):
     """Full grammar AST: a collection of rules plus the start-rule name.
 
     ``rules`` is an ``IrTuple`` of ``IrRule`` nodes (wrapped so a single
@@ -204,5 +203,6 @@ class IrAst(IrComposite):
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("rules",)
-    rules: IrTuple = IrTuple()
+
+    rules: IrSeq = IrSeq()
     start: str = ""
