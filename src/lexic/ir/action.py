@@ -63,8 +63,7 @@ class _Return(BaseException):
 # ── Attribute reader ──────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrField(IrComposite[IrSelf, IrScalar]):
+class IrField(IrNamedTuple[str, type[IrScalar]]):
     """Read a typed attribute from the dispatched node ``n`` and wrap it.
 
     The read value is wrapped via the **runtime** constructor ``out`` — a
@@ -77,9 +76,11 @@ class IrField(IrComposite[IrSelf, IrScalar]):
     type-checks without a cast and a new ``IrScalar`` subtype needs no change
     here (no enumerated leaf-type union).
 
-    A record-leaf: an :class:`IrComposite` with no IR-node children.
+    A record-leaf: ``name`` and the class-valued ``out`` are scalar payload
+    (``_child_attrs = ()``); the class-aware repr renders ``out`` as a bare name.
     """
 
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
     name: str
     out: type[IrScalar] = IrStr
 
@@ -492,8 +493,7 @@ class IrRebuild(IrLeaf[IrSelf, IrNode]):
 # ── Strict default ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrRaise[Ir_co: IrSelf](IrComposite[Ir_co]):
+class IrRaise[Ir_co: IrSelf](IrNamedTuple[type[BaseException], str]):
     """Body that raises a configured exception on dispatch.
 
     Strict-default body for :class:`~lexic.ir.walk.IrDispatch`. When
@@ -576,16 +576,13 @@ class IrReturn[Ir_co: IrSelf](IrComposite[Ir_co], _Return):
 # ── Action binding ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, eq=False, repr=False)
-class IrAction[Ir_co: IrSelf](IrComposite[Ir_co]):
+class IrAction[Ir_co: IrSelf](IrNamedTuple[type[IrSelf], IrSelf]):
     """Bind a target IR node type to a callable IrNode body.
 
-    ``target_type`` is metadata (a concrete IR-node type, excluded from
-    ``children()`` via ``_child_attrs``). ``body`` is the single IrNode
-    child invoked under dispatch.
-
-    ``eq=False`` because ``target_type`` is a class object and ``body`` may
-    be a non-comparable :class:`IrCallable`.
+    ``target_type`` is metadata (a concrete IR-node type, scalar payload
+    excluded from ``children()`` via ``_child_attrs``); the class-aware repr
+    renders it as a bare name. ``body`` is the single IrNode child invoked
+    under dispatch.
 
     :param Ir_co: the result type the body produces.
     """

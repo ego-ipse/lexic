@@ -505,9 +505,17 @@ class IrTuple[*Ts](tuple[*Ts], IrNode[IrSelf, IrSelf]):
     def __repr__(self) -> str:
         """Codegen repr: ``ClassName(elem0, elem1, …)``.
 
+        A class-valued element renders as its bare ``__name__`` (e.g.
+        ``IrField('min', IrInt)``) so the result stays valid codegen; homogeneous
+        collections never hold classes, so this is a no-op for them.
+
         :returns: Constructor call reproducing this node.
         """
-        return f"{type(self).__name__}({', '.join(map(repr, self))})"
+        inner = ", ".join(
+            element.__name__ if isinstance(element, type) else repr(element)
+            for element in self
+        )
+        return f"{type(self).__name__}({inner})"
 
 
 class IrSeq[T: IrSelf](IrTuple[*tuple[T, ...]], IrNode[IrSelf, IrSelf]):

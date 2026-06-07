@@ -106,8 +106,8 @@ def test_irfield_reads_scalar_and_wraps_to_irstr():
 
 
 def test_irfield_is_composite_no_children():
-    """IrField is an IrComposite record-leaf with no IR-node children."""
-    assert isinstance(IrField("x"), IrComposite)
+    """IrField is an IrNamedTuple record-leaf with no IR-node children."""
+    assert isinstance(IrField("x"), IrNamedTuple)
     assert not IrField("x").children()
 
 
@@ -120,8 +120,8 @@ def test_irfield_reads_charclass_pattern():
 
 def test_irfield_repr_is_valid_codegen():
     """IrField repr renders the class-valued `out` as a bare name (eval round-trips)."""
-    assert repr(IrField("min", IrInt)) == "IrField(name='min', out=IrInt)"
-    assert repr(IrField("name")) == "IrField(name='name', out=IrStr)"
+    assert repr(IrField("min", IrInt)) == "IrField('min', IrInt)"
+    assert repr(IrField("name")) == "IrField('name', IrStr)"
 
 
 def test_irfield_out_irint_reads_int_without_stringifying():
