@@ -11,7 +11,6 @@ from lexic.ir.action import (
     IrCond,
     IrField,
     IrJoin,
-    IrOp,
     IrReturn,
 )
 from lexic.ir.base import (

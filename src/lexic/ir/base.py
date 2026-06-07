@@ -403,7 +403,7 @@ class IrInt(IrScalar, int):
 # ── Primitive tuple tier ──────────────────────────────────────────────
 
 
-class IrTuple[T: IrSelf](IrNode, tuple):
+class IrTuple[T: IrSelf, *Ts](IrNode[IrSelf], tuple[*tuple[T, ...]]):
     """``IrSelf + tuple`` primitive tier. A variadic node IS its children.
 
     ``IrTuple`` multi-inherits ``IrNode`` and ``tuple`` so instances are both
@@ -426,7 +426,16 @@ class IrTuple[T: IrSelf](IrNode, tuple):
     __slots__ = ()
     _bound: ClassVar[type[tuple]] = tuple
 
-    def __new__(cls, *items: T) -> Self:
+    # Overload 1: Handles specific structured types using TypeVarTuple
+    @overload
+    def __new__(cls, *items: *Ts) -> Self: ...
+
+    # Overload 2: (Optional) Handles homogeneous/arbitrary lists if needed
+    @overload
+    def __new__(cls, *items: T) -> Self: ...
+
+
+    def __new__(cls, *items: Any) -> Self:
         """Construct from variadic positional items.
 
         :param items: Zero or more child nodes.
@@ -548,3 +557,18 @@ class IrComposite[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
         :returns: ``value.__name__`` for a class, otherwise ``repr(value)``.
         """
         return value.__name__ if isinstance(value, type) else repr(value)
+
+
+
+aj : IrTuple[IrSelf, IrInt, IrStr] = IrTuple(IrInt(1), IrStr("2"))
+ak : IrTuple[IrSelf, IrInt, IrStr] = IrTuple(IrInt(1), IrInt(1))
+
+bb : IrTuple[IrInt, IrInt, IrInt] = IrTuple(IrInt(2), IrInt(1))
+cc : IrTuple[IrInt, IrInt, IrInt] = IrTuple(IrInt(3), IrStr("4"))
+
+dd : IrTuple[IrInt, *tuple[IrSelf, ...]] = IrTuple(IrInt(4), IrInt(5), IrStr("6"))
+ee : IrTuple[IrInt, *tuple[IrSelf, ...]] = IrTuple(IrInt(4), IrStr("5"), IrInt(6))
+
+ff : IrTuple[IrStr, *tuple[IrInt, ...]] = IrTuple(IrInt(2), IrInt(1))
+gg : IrTuple[IrInt, *tuple[IrInt, ...]] = IrTuple(IrInt(3), IrInt(4))
+

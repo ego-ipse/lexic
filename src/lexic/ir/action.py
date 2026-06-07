@@ -20,7 +20,6 @@ dataclass base in the primitive model. The default bodies (``IrPass``,
 
 from __future__ import annotations
 
-import operator
 from dataclasses import dataclass
 from typing import Callable, ClassVar, Sequence
 
@@ -37,6 +36,7 @@ from lexic.ir.base import (
     IrTuple,
 )
 from lexic.ir.nodes import IrLiteral
+from lexic.ir.operators import IrOp
 
 # ── Control-flow exception ────────────────────────────────────────────
 
@@ -95,40 +95,6 @@ class IrField(IrComposite[IrSelf, IrScalar]):
 # ── Comparison ────────────────────────────────────────────────────────
 
 
-class IrOp(IrStr):
-    """Infix operator leaf — the node IS the operator string (e.g. ``IrOp(">")``).
-
-    No enum: the operator is its own string, keyed directly into ``_OPS`` (an
-    ``IrStr`` leaf matches its plain-``str`` key). ``eval`` applies the mapped
-    builtin to the operands handed in as ``nc`` and returns the truth value as
-    ``IrInt(0/1)`` — the consumer (:class:`IrCompare`) supplies both operands.
-    """
-
-    _OPS: ClassVar[dict[str, Callable[..., bool]]] = {
-        "==": operator.eq,
-        "<": operator.lt,
-        ">": operator.gt,
-        "<=": operator.le,
-        ">=": operator.ge,
-        "!": operator.not_,
-        "&": operator.and_,
-        "|": operator.or_,
-    }
-
-    def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
-        """Apply this operator to the operands in ``nc``.
-
-        :param _d: Dispatcher (unused).
-        :param _n: Current node (unused).
-        :param nc: The pre-evaluated operands (two, for a binary operator).
-        :returns: ``IrInt(1)`` if the comparison holds, else ``IrInt(0)``.
-        :raises UnsupportedConstructError: if the operator string is not in ``_OPS``.
-        """
-        if self not in self._OPS:
-            raise UnsupportedConstructError(f"Unknown operator: {self!r}")
-        return IrInt(self._OPS[self](*nc))
-
-
 @dataclass(frozen=True, slots=True, repr=False)
 class IrCompare[Iri: IrSelf](IrComposite[Iri, IrInt]):
     """Compare two operand nodes; eval to ``IrInt(1)`` (true) or ``IrInt(0)``.
@@ -160,24 +126,6 @@ class IrCompare[Iri: IrSelf](IrComposite[Iri, IrInt]):
 
 
 # ── Conjunction ───────────────────────────────────────────────────────
-
-
-class IrOpNode(IrTuple[IrSelf]):
-    """Operator application node: an :class:`IrTuple` of operands with an operator."""
-
-    __slots__ = ()
-
-    op: IrOp
-
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
-        """Apply the operator to the operands in this tuple.
-
-        :param d: Dispatcher forwarded to each operand's ``eval``.
-        :param n: Current node forwarded to each operand's ``eval``.
-        :param nc: Pre-walked children forwarded to each operand's ``eval``.
-        :returns: The result of applying the operator to the operands.
-        """
-        return self.op.eval(d, n, [part.eval(d, n, nc) for part in self])
 
 
 class IrAnd(IrTuple[IrSelf]):
