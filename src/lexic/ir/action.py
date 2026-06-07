@@ -21,7 +21,7 @@ dataclass base in the primitive model. The default bodies (``IrPass``,
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, ClassVar, Sequence
+from typing import Callable, ClassVar, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import (
@@ -184,23 +184,25 @@ class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrComposite[Iri, 
 # ── Sibling lookup ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrChild[Iri: IrSelf, Ir_co: IrSelf](IrComposite[Iri, Ir_co]):
+class IrChild[Ir_co: IrSelf](IrNamedTuple[str]):
     """Single dispatched child by name from ``n``'s ``_child_attrs``.
 
     ``Ir_co`` is the dispatcher's per-child result type — ``IrStr`` under
-    an emitter, ``IrNode`` under a transformer.
+    an emitter, ``IrNode`` under a transformer. ``_bound`` is derived from
+    ``Ir_co`` (see :meth:`IrSelf.__init_subclass__`), so :meth:`IrSelf.bind`
+    type-checks the resolved child.
 
-    A record-leaf: an :class:`IrComposite` with no IR-node children of its
-    own (it resolves a child of the *dispatched* node ``n``, not its own).
+    A record-leaf: ``name`` is scalar payload (``_child_attrs = ()``); it
+    resolves a child of the *dispatched* node ``n``, not its own.
 
     :param Ir_co: the dispatcher's per-child result type.
     :raises ValueError: if ``self.name`` is not in ``type(n)._child_attrs``.
     """
 
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
     name: str
 
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Resolve the named child.
 
         Hybrid: eager when ``nc`` is populated (caller pre-walked) — index
@@ -221,25 +223,23 @@ class IrChild[Iri: IrSelf, Ir_co: IrSelf](IrComposite[Iri, Ir_co]):
                 f"(known: {attrs})"
             ) from exc
         if nc:
-            return self.bind(nc[idx])
-        return self.bind(d.eval(d, n.children()[idx], IrTuple()))
+            return cast(Ir_co, self.bind(nc[idx]))
+        return cast(Ir_co, self.bind(d.eval(d, n.children()[idx], IrTuple())))
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrComposite[Iri, Ir_co]):
+class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNamedTuple):
     """Full tuple of dispatched children of ``n`` (reads ``n.children()``).
 
     ``Ir_co`` is the dispatcher's per-child result type. The result is the
     whole children sequence — distinct from :class:`IrChild` at the type
-    level.
+    level. ``_bound`` is derived from ``Ir_co`` so :meth:`IrSelf.bind` works.
 
-    A record-leaf: an :class:`IrComposite` with no IR-node children of its
-    own.
+    A fieldless record-leaf: it has no fields of its own.
 
     :param Ir_co: the dispatcher's per-child result type.
     """
 
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Resolve the children collection.
 
         Hybrid: eager when ``nc`` is populated (caller pre-walked) — return
@@ -251,28 +251,24 @@ class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrComposite[Iri, Ir_co]):
         :returns: The children sequence, type-checked against ``self.bound``.
         """
         if nc:
-            return self.bind(nc)
-        return self.bind(IrTuple(*(d.eval(d, c, IrTuple()) for c in n.children())))
+            return cast(Ir_co, self.bind(nc))
+        return cast(
+            Ir_co, self.bind(IrTuple(*(d.eval(d, c, IrTuple()) for c in n.children())))
+        )
 
 
 # ── String concatenation ──────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrConcat[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
+class IrConcat[Ir_co: IrStr = IrStr](IrNamedTuple[IrTuple]):
     """Evaluate ``parts`` in order; return ``bound().join(...)`` of results.
 
     Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
-    :class:`IrStr`). The bound's neutral element (``IrStr()`` → ``""``)
-    serves as the join base, and the bound's own ``.join`` is the
-    type-native join — no casts needed.
-
-    **Shape note (Task 6):** ``IrConcat`` is an :class:`IrComposite` holding
-    ``parts: IrTuple``, NOT an :class:`IrTuple` subclass. The
-    generic-``+``-``IrTuple`` form breaks ``bound`` under pyright (the dual
-    generic lineage ``Ir_co: IrStr`` vs inherited ``IrTuple[IrSelf]`` makes
-    ``self.bound().join(...)`` error). The composite form matches
-    :class:`IrJoin` and is pyright-clean.
+    :class:`IrStr`). ``_bound`` is derived from ``Ir_co``, so at runtime the
+    bound's neutral element (``IrStr()`` → ``""``) is the join base. As an
+    :class:`IrNamedTuple` the ``bound`` property statically reports the base's
+    ``IrSelf`` (no ``.join``), so ``eval`` casts ``self.bound`` to
+    ``type[Ir_co]`` — the runtime value already satisfies it.
 
     :param Ir_co: the str-typed result type (defaults to :class:`IrStr`).
     """
@@ -280,7 +276,7 @@ class IrConcat[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
     _child_attrs: ClassVar[tuple[str, ...]] = ("parts",)
     parts: IrTuple = IrTuple()
 
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Concatenate evaluated parts via the bound's neutral element.
 
         :param d: Dispatcher forwarded to each part's ``eval``.
@@ -288,14 +284,14 @@ class IrConcat[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
         :param nc: Pre-walked children forwarded to each part's ``eval``.
         :returns: The concatenation of all parts wrapped in ``self.bound``.
         """
-        return self.bound(self.bound().join(p.eval(d, n, nc) for p in self.parts))
+        bound = cast(type[Ir_co], self.bound)
+        return bound(bound().join(p.eval(d, n, nc) for p in self.parts))
 
 
 # ── Variable-arity join with separator ────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrJoin[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
+class IrJoin[Ir_co: IrStr = IrStr](IrNamedTuple[IrSelf, IrSelf, IrSelf]):
     r"""Evaluate ``parts``; join results with ``separator``, fall back to
     ``empty`` when ``parts`` evaluates empty.
 
@@ -312,7 +308,7 @@ class IrJoin[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
     separator: IrSelf = IrLiteral("")
     empty: IrSelf = IrLiteral("")
 
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Evaluate ``parts``; join or return the empty fallback.
 
         :param d: Dispatcher forwarded to each child's ``eval``.
@@ -322,15 +318,16 @@ class IrJoin[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
         """
         rendered = self.parts.eval(d, n, nc)
         if not rendered:
-            return self.empty.eval(d, n, nc)
+            return cast("Ir_co", self.empty.eval(d, n, nc))
         sep = self.separator.eval(d, n, nc)
-        return self.bound(self.bound(sep).join(rendered))
+        bound = cast("type[Ir_co]", self.bound)
+        return bound(bound(sep).join(rendered))
 
 
 # ── Conditional branch ────────────────────────────────────────────────
 
 
-class IrCond[Iri: IrSelf, Ir_co: IrSelf](IrNamedTuple[IrSelf, IrSelf, IrSelf]):
+class IrCond[Ir_co: IrSelf](IrNamedTuple[IrSelf, IrSelf, IrSelf]):
     """If ``test`` evaluates truthy, evaluate ``then_op``; else ``else_op``.
 
     ``test`` is any node whose ``eval`` yields a truthy/falsy value (e.g.

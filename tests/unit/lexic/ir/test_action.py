@@ -30,7 +30,15 @@ from lexic.ir.action import (
     IrWalk,
     _Return,
 )
-from lexic.ir.base import IrComposite, IrInt, IrNone, IrSelf, IrStr, IrTuple
+from lexic.ir.base import (
+    IrComposite,
+    IrInt,
+    IrNamedTuple,
+    IrNone,
+    IrSelf,
+    IrStr,
+    IrTuple,
+)
 from lexic.ir.nodes import (
     IrAlternation,
     IrItem,
@@ -274,7 +282,7 @@ def test_irchild_reads_dispatched_child_by_name():
     (_child_attrs=("atom","quantifier"))."""
     item = IrItem(atom=IrLiteral("x"))
     new_children = (IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild[IrSelf, IrStr]("atom").eval(IrNone, item, new_children)
+    result = IrChild[IrStr]("atom").eval(IrNone, item, new_children)
     assert result == "dispatched_atom"
 
 
@@ -282,7 +290,7 @@ def test_irchild_reads_second_child():
     """IrChild("quantifier") returns new_children[1] for an IrItem."""
     item = IrItem(atom=IrLiteral("x"))
     new_children = IrTuple(IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild[IrSelf, IrStr]("quantifier").eval(IrNone, item, new_children)
+    result = IrChild[IrStr]("quantifier").eval(IrNone, item, new_children)
     assert result == "dispatched_quantifier"
 
 
@@ -290,7 +298,7 @@ def test_irchild_raises_on_unknown_name():
     """IrChild raises ValueError when the name is not in _child_attrs."""
     item = IrItem(atom=IrLiteral("x"))
     with pytest.raises(ValueError, match="no such child"):
-        IrChild[IrSelf, IrStr]("nonexistent").eval(
+        IrChild[IrStr]("nonexistent").eval(
             IrNone, item, IrTuple(IrStr("a"), IrStr("b"))
         )
 
@@ -324,9 +332,9 @@ def test_irconcat_empty_parts_returns_empty_string():
 
 
 def test_concat_joins_parts():
-    """IrConcat is an IrComposite; evaluates parts and concatenates."""
+    """IrConcat is an IrNamedTuple; evaluates parts and concatenates."""
     c = IrConcat(parts=IrTuple(IrLiteral("a"), IrLiteral("b")))
-    assert isinstance(c, IrComposite)
+    assert isinstance(c, IrNamedTuple)
     out = c.eval(IrNone, IrNone, ())
     assert out == "ab" and isinstance(out, IrStr)
 
@@ -360,7 +368,7 @@ def test_irjoin_returns_empty_value_when_no_items():
 def test_ircond_evaluates_then_when_test_truthy():
     """IrCond picks then_op when the test node evals truthy."""
     node = IrQuantifier(min=1, max=1)
-    op = IrCond[IrSelf, IrStr](
+    op = IrCond[IrStr](
         test=IrField("min", IrInt), then_op=IrLiteral("yes"), else_op=IrLiteral("no")
     )
     assert op.eval(IrNone, node, ()) == "yes"
@@ -369,7 +377,7 @@ def test_ircond_evaluates_then_when_test_truthy():
 def test_ircond_evaluates_else_when_test_falsy():
     """IrCond picks else_op when the test node evals falsy."""
     node = IrQuantifier(min=0, max=1)
-    op = IrCond[IrSelf, IrStr](
+    op = IrCond[IrStr](
         test=IrField("min", IrInt), then_op=IrLiteral("yes"), else_op=IrLiteral("no")
     )
     assert op.eval(IrNone, node, ()) == "no"
