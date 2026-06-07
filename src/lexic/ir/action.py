@@ -28,6 +28,7 @@ from lexic.ir.base import (
     IrComposite,
     IrInt,
     IrLeaf,
+    IrNamedTuple,
     IrNode,
     IrNone,
     IrScalar,
@@ -96,8 +97,7 @@ class IrField(IrComposite[IrSelf, IrScalar]):
 # ── Comparison ────────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrCompare[Iri: IrSelf](IrComposite[Iri, IrInt]):
+class IrCompare(IrNamedTuple[IrSelf, IrOp, IrSelf]):
     """Compare two operand nodes; eval to ``IrInt(1)`` (true) or ``IrInt(0)``.
 
     Evaluates ``left`` and ``right`` and hands the results to ``op`` (an
@@ -105,8 +105,6 @@ class IrCompare[Iri: IrSelf](IrComposite[Iri, IrInt]):
     in ``{0, 1}`` — there is no ``IrBool``. Operands are typed ``IrSelf`` (not
     ``IrNode``): ``IrNode``'s ``Ir_co`` is invariant, so a value operand like
     ``IrField`` would not be assignable to a bare ``IrNode`` slot.
-
-    :param Iri: the dispatcher input type.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("left", "right")
@@ -114,7 +112,7 @@ class IrCompare[Iri: IrSelf](IrComposite[Iri, IrInt]):
     op: IrOp
     right: IrSelf
 
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> IrInt:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """Evaluate both operands and apply ``self.op``.
 
         :param d: Dispatcher forwarded to each operand's ``eval``.
@@ -332,8 +330,7 @@ class IrJoin[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
 # ── Conditional branch ────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrCond[Iri: IrSelf, Ir_co: IrSelf](IrComposite[Iri, Ir_co]):
+class IrCond[Iri: IrSelf, Ir_co: IrSelf](IrNamedTuple[IrSelf, IrSelf, IrSelf]):
     """If ``test`` evaluates truthy, evaluate ``then_op``; else ``else_op``.
 
     ``test`` is any node whose ``eval`` yields a truthy/falsy value (e.g.

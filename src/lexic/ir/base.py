@@ -421,7 +421,7 @@ class IrInt(IrScalar, int):
 # ── Primitive tuple tier ──────────────────────────────────────────────
 
 
-class IrTuple[*Ts](tuple[*Ts], IrNode):
+class IrTuple[*Ts](tuple[*Ts], IrNode[IrSelf, IrSelf]):
     """``IrSelf + tuple`` primitive tier — a **heterogeneous** node IS its children.
 
     ``IrTuple`` is generic over a :pep:`646` ``TypeVarTuple`` (``*Ts``), so its
@@ -510,7 +510,7 @@ class IrTuple[*Ts](tuple[*Ts], IrNode):
         return f"{type(self).__name__}({', '.join(map(repr, self))})"
 
 
-class IrSeq[T: IrSelf](IrTuple[*tuple[T, ...]], IrNode):
+class IrSeq[T: IrSelf](IrTuple[*tuple[T, ...]], IrNode[IrSelf, IrSelf]):
     """Generic **homogeneous** tuple — every element is a ``T`` (bounded ``IrSelf``).
 
     ``IrSeq[T]`` is ``IrTuple[*tuple[T, ...]]`` given a name. Because ``T`` is an
@@ -536,7 +536,7 @@ class IrSeq[T: IrSelf](IrTuple[*tuple[T, ...]], IrNode):
 
 
 @dataclass_transform(eq_default=True, frozen_default=True)
-class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode):
+class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
     """Fixed-arity **named** tuple — the node IS its fields, by name or by index.
 
     Each class-body annotation is a field, in declaration order: the *i*-th
