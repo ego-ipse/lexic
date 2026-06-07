@@ -319,7 +319,7 @@ def test_repr_irsequence_is_codegen():
     """An IrSequence's repr reproduces its constructor call."""
     seq = IrSequence(IrItem(IrLiteral("a")))
     assert repr(seq) == (
-        "IrSequence(IrItem(atom=IrLiteral('a'), quantifier=IrQuantifier(min=1, max=1)))"
+        "IrSequence(IrItem(atom=IrLiteral('a'), quantifier=IrQuantifier(1, 1)))"
     )
 
 
@@ -438,7 +438,7 @@ def test_tuple_children_and_rebuild_roundtrip():
 def test_tuple_repr_is_codegen():
     """repr() on an IrSequence reproduces the constructor call."""
     assert repr(IrSequence(IrItem(IrLiteral("a")))) == (
-        "IrSequence(IrItem(atom=IrLiteral('a'), quantifier=IrQuantifier(min=1, max=1)))"
+        "IrSequence(IrItem(atom=IrLiteral('a'), quantifier=IrQuantifier(1, 1)))"
     )
 
 
@@ -472,8 +472,11 @@ def test_composite_repr_is_codegen():
 
 
 def test_composite_is_dataclass_base():
-    """IrQuantifier and IrItem are IrComposite instances (frozen dataclasses)."""
-    assert isinstance(IrQuantifier(0, 1), IrComposite)
+    """IrItem is an IrComposite instance (a frozen dataclass record).
+
+    ``IrQuantifier`` was folded onto :class:`IrNamedTuple`, so it is no longer
+    an ``IrComposite``; the remaining dataclass records still are.
+    """
     assert isinstance(IrItem(IrLiteral("x")), IrComposite)
 
 

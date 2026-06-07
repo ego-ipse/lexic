@@ -35,7 +35,7 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(atom=IrRuleRef("item"), quantifier=IrQuantifier(min=1, max=None))],
+    items=[IrItem(atom=IrRuleRef("item"), quantifier=IrQuantifier(1, None))],
     field_map={"item": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -47,12 +47,12 @@ Item.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(atom=IrLiteral("- "), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrLiteral("- "), quantifier=IrQuantifier(1, 1)),
         IrItem(
             atom=IrNot(body=IrCharClass("\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029")),
-            quantifier=IrQuantifier(min=1, max=None),
+            quantifier=IrQuantifier(1, None),
         ),
-        IrItem(atom=IrLiteral("\n"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrLiteral("\n"), quantifier=IrQuantifier(1, 1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),

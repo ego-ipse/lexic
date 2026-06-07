@@ -28,7 +28,16 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import fields, replace
-from typing import Any, ClassVar, Self, Sequence, TypeVar, cast, final
+from typing import (
+    Any,
+    ClassVar,
+    Self,
+    Sequence,
+    TypeVar,
+    cast,
+    dataclass_transform,
+    final,
+)
 
 # ── Spine ─────────────────────────────────────────────────────────────
 
@@ -272,6 +281,13 @@ class IrLeaf[Iri: IrSelf, Ir_co: IrSelf](IrNode[Iri, Ir_co]):
 
     __slots__ = ()
 
+    def children(self) -> Sequence[Ir_co]:
+        """Leaf nodes have no children by definition.
+
+        :returns: The empty tuple.
+        """
+        return ()
+
 
 class IrAtom(IrNode):
     """NON-generic role marker — mixed into atoms by plain inheritance.
@@ -403,7 +419,7 @@ class IrInt(IrScalar, int):
 # ── Primitive tuple tier ──────────────────────────────────────────────
 
 
-class IrTuple[*Ts](IrNode, tuple[*Ts]):
+class IrTuple[*Ts](tuple[*Ts], IrNode):
     """``IrSelf + tuple`` primitive tier — a **heterogeneous** node IS its children.
 
     ``IrTuple`` is generic over a :pep:`646` ``TypeVarTuple`` (``*Ts``), so its
@@ -482,7 +498,7 @@ class IrTuple[*Ts](IrNode, tuple[*Ts]):
         :returns: New instance containing the evaluated elements.
         """
         evaluated = (p.eval(d, n, nc) for p in cast(tuple[IrSelf, ...], self))
-        return type(self)(*cast("tuple[*Ts]", tuple(evaluated)))
+        return type(self)(*cast(tuple[*Ts], tuple(evaluated)))
 
     def __repr__(self) -> str:
         """Codegen repr: ``ClassName(elem0, elem1, …)``.
@@ -492,7 +508,7 @@ class IrTuple[*Ts](IrNode, tuple[*Ts]):
         return f"{type(self).__name__}({', '.join(map(repr, self))})"
 
 
-class IrSeq[T: IrSelf](IrTuple[*tuple[T, ...]]):
+class IrSeq[T: IrSelf](IrTuple[*tuple[T, ...]], IrNode):
     """Generic **homogeneous** tuple — every element is a ``T`` (bounded ``IrSelf``).
 
     ``IrSeq[T]`` is ``IrTuple[*tuple[T, ...]]`` given a name. Because ``T`` is an
@@ -515,6 +531,78 @@ class IrSeq[T: IrSelf](IrTuple[*tuple[T, ...]]):
 
     __slots__ = ()
     _bound: ClassVar[type[tuple]] = tuple
+
+
+@dataclass_transform(eq_default=True, frozen_default=True)
+class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode):
+    """Fixed-arity **named** tuple — the node IS its fields, by name or by index.
+
+    Each class-body annotation is a field, in declaration order: the *i*-th
+    field reads element ``[i]``. Storage is the tuple itself — a tuple subtype
+    cannot carry non-empty ``__slots__``, so there is no separate per-field
+    storage — and instances are immutable. :func:`~typing.dataclass_transform`
+    makes the type checker synthesise a typed constructor from the fields
+    (positional, keyword and defaults all checked); :meth:`__new__` builds the
+    tuple from the same arguments at runtime.
+
+    This is the :class:`typing.NamedTuple` mechanism generalised over
+    :class:`IrTuple`: a record is simultaneously a positional heterogeneous
+    tuple and a named record::
+
+        class IrItemRec(IrNamedTuple[IrAtom, IrQuantifier]):
+            __slots__ = ()
+            atom: IrAtom
+            quantifier: IrQuantifier
+
+        rec = IrItemRec(atom, quant)
+        rec.atom is rec[0]            # named access == positional access
+
+    pyright reads the bare annotation for each named accessor's type, while the
+    descriptor installed in :meth:`__init_subclass__` provides the runtime read
+    as ``self[i]``. This is the base that ``IrComposite`` records can fold onto.
+
+    :param Ts: The positional field types, in declaration order.
+    """
+
+    __slots__ = ()
+    _fields: ClassVar[tuple[str, ...]] = ()
+    _field_defaults: ClassVar[dict[str, object]] = {}
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Record field names/defaults and install a positional accessor each.
+
+        :param kwargs: Forwarded to ``super().__init_subclass__``.
+        """
+        super().__init_subclass__(**kwargs)
+        flds = tuple(cls.__dict__.get("__annotations__", {}))
+        cls._fields = flds
+        cls._field_defaults = {
+            name: cls.__dict__[name]
+            for name in flds
+            if name in cls.__dict__ and not isinstance(cls.__dict__[name], property)
+        }
+        for index, name in enumerate(flds):
+            setattr(cls, name, property(lambda self, i=index: self[i]))
+
+    def __new__[**P](cls, *args: P.args, **kwargs: P.kwargs) -> Self:
+        """Build the tuple from positional args, keywords, and field defaults.
+
+        :param args: Leading field values, positionally.
+        :param kwargs: Remaining field values, by name.
+        :returns: A new instance with the fields stored as tuple elements.
+        :raises TypeError: On a missing field or an unexpected keyword.
+        """
+        values = list(args)
+        for name in cls._fields[len(args) :]:
+            if name in kwargs:
+                values.append(kwargs.pop(name))
+            elif name in cls._field_defaults:
+                values.append(cls._field_defaults[name])
+            else:
+                raise TypeError(f"{cls.__name__} missing required field {name!r}")
+        if kwargs:
+            raise TypeError(f"{cls.__name__} got unexpected fields {list(kwargs)}")
+        return super().__new__(cls, *cast("tuple[*Ts]", tuple(values)))
 
 
 # ── Composite dataclass tier ──────────────────────────────────────────

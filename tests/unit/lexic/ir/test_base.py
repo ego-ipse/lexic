@@ -1,27 +1,32 @@
 """IR spine — base classes shared by every IR node (``lexic.ir.base``).
 
-Covers the abstract machinery in isolation, importing only from
-``lexic.ir.base``: ``IrSelf`` identity/protocol, the ``IrNone`` sentinel, the
-``IrAtom`` marker, ``_bound`` derivation, and the primitive value-leaf bases
-(``IrScalar``/``IrStr``/``IrInt``). Where a concrete subclass is needed it is
-defined locally — the base module never depends on ``lexic.ir.nodes``.
+Covers the abstract machinery: ``IrSelf`` identity/protocol, the ``IrNone``
+sentinel, the ``IrAtom`` marker, ``_bound`` derivation, the primitive
+value-leaf bases (``IrScalar``/``IrStr``/``IrInt``), and the tuple tier
+(``IrTuple``/``IrSeq``/``IrNamedTuple``). Where a concrete subclass is needed
+it is defined locally.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from lexic.ir.base import (
     IrAtom,
     IrComposite,
     IrInt,
     IrLeaf,
+    IrNamedTuple,
     IrNode,
     IrNone,
     IrNoneType,
     IrScalar,
     IrSelf,
+    IrSeq,
     IrStr,
     IrTuple,
 )
+from lexic.ir.nodes import IrAlternation, IrSequence
 
 # ── IrSelf / IrNone / IrAtom contract ─────────────────────────────────
 
@@ -138,3 +143,128 @@ def test_irscalar_eq_is_type_aware_across_tiers():
 
     assert IrStr("x") != _OtherStr("x")  # same payload, distinct kinds
     assert len({IrStr("a"), IrStr("a"), _OtherStr("a")}) == 2
+
+
+# ── IrTuple ───────────────────────────────────────────────────────────
+
+
+def test_irtuple_construction_and_indexing():
+    """IrTuple is constructed variadically; elements are accessible by index."""
+    a, b = IrInt(1), IrStr("x")
+    t = IrTuple(a, b)
+    assert t[0] is a
+    assert t[1] is b
+    assert len(t) == 2
+
+
+def test_irtuple_children_returns_elements():
+    """IrTuple.children() returns self as an IrSelf sequence (elements in order)."""
+    a, b = IrInt(3), IrStr("y")
+    t = IrTuple(a, b)
+    assert tuple(t.children()) == (a, b)
+
+
+def test_irtuple_rebuild_produces_same_type():
+    """IrTuple.rebuild(new_children) constructs a new instance of the same type."""
+    a, b, c = IrInt(1), IrInt(2), IrInt(3)
+    t = IrTuple(a, b)
+    rebuilt = t.rebuild((b, c))
+    assert type(rebuilt) is type(t)
+    assert rebuilt[0] is b
+    assert rebuilt[1] is c
+
+
+def test_irtuple_repr_is_codegen():
+    """repr(IrTuple(...)) reproduces the constructor call."""
+    t = IrTuple(IrStr("a"), IrInt(7))
+    assert repr(t) == "IrTuple(IrStr('a'), IrInt(7))"
+
+
+def test_irtuple_eval_rebuilds_with_evaluated_elements():
+    """IrTuple.eval walks each element via eval and rebuilds the tuple."""
+    a, b = IrInt(1), IrStr("z")
+    t = IrTuple(a, b)
+    result = t.eval(IrNone, IrNone, ())
+    # self-evaluating leaves → same values, fresh tuple
+    assert result == t
+    assert isinstance(result, IrTuple)
+
+
+def test_irtuple_is_tuple_subclass():
+    """IrTuple instances are native Python tuples (subtype, not wrapper)."""
+    t = IrTuple(IrInt(0), IrInt(1))
+    assert isinstance(t, tuple)
+    assert list(t) == [IrInt(0), IrInt(1)]
+
+
+def test_irtuple_empty_construction():
+    """IrTuple() with no arguments produces an empty tuple node."""
+    t = IrTuple()
+    assert len(t) == 0
+    assert not tuple(t.children())
+
+
+# ── IrSeq ─────────────────────────────────────────────────────────────
+
+
+def test_irseq_is_irtuple_subclass():
+    """IrSeq is a subclass of IrTuple (and thus of tuple)."""
+    assert issubclass(IrSeq, IrTuple)
+    assert issubclass(IrSeq, tuple)
+
+
+def test_irseq_bound_type_is_tuple():
+    """IrSeq._bound is tuple — inherited from IrTuple, not re-derived from T."""
+    assert IrSeq.bound_type() is tuple
+
+
+def test_irseq_concrete_subclasses_are_irseq():
+    """IrSequence and IrAlternation are IrSeq subclasses."""
+    assert issubclass(IrSequence, IrSeq)
+    assert issubclass(IrAlternation, IrSeq)
+
+
+# ── IrNamedTuple ──────────────────────────────────────────────────────
+
+
+class _Rec(IrNamedTuple[IrStr, IrInt]):
+    """Local test record: two named fields over positional tuple elements."""
+
+    __slots__ = ()
+    a: IrStr
+    b: IrInt
+
+
+def test_irnamedtuple_named_access_equals_positional():
+    """Named field accessors read the same element as positional indexing."""
+    r = _Rec(IrStr("hello"), IrInt(42))
+    assert r.a is r[0]
+    assert r.b is r[1]
+
+
+def test_irnamedtuple_construction_is_positional():
+    """_Rec is constructed positionally (inherited IrTuple.__new__)."""
+    r = _Rec(IrStr("x"), IrInt(3))
+    assert len(r) == 2
+    assert r[0] == "x"
+    assert r[1] == 3
+
+
+def test_irnamedtuple_is_a_tuple():
+    """IrNamedTuple instances are native Python tuples."""
+    r = _Rec(IrStr("t"), IrInt(0))
+    assert isinstance(r, tuple)
+
+
+def test_irnamedtuple_is_immutable():
+    """Assigning to a named field raises AttributeError (tuples are immutable)."""
+    r = _Rec(IrStr("v"), IrInt(1))
+    with pytest.raises(AttributeError):
+        r.a = IrStr("other")  # type: ignore[misc]
+
+
+def test_irnamedtuple_children_returns_all_elements():
+    """IrNamedTuple.children() yields all positional elements in order."""
+    a, b = IrStr("p"), IrInt(9)
+    r = _Rec(a, b)
+    assert tuple(r.children()) == (a, b)

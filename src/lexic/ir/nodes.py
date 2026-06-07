@@ -31,6 +31,8 @@ from typing import ClassVar
 from lexic.ir.base import (
     IrAtom,
     IrComposite,
+    IrLeaf,
+    IrNamedTuple,
     IrSeq,
     IrStr,
     IrTuple,
@@ -105,7 +107,7 @@ class IrSequence(IrSeq["IrItem"]):
     __slots__ = ()
 
 
-class IrAlternation(IrSeq["IrSequence"]):
+class IrAlternation(IrSeq[IrSequence]):
     """Ordered choice (alternation) between ``IrSequence`` arms.
 
     Represents the ``|``-separated alternatives in a grammar rule body.
@@ -119,8 +121,7 @@ class IrAlternation(IrSeq["IrSequence"]):
 # ── Concrete composite records ────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrQuantifier(IrComposite):
+class IrQuantifier(IrLeaf, IrNamedTuple[int, int | None]):
     """Repetition bounds for an ``IrItem``.
 
     ``min`` and ``max`` mirror POSIX/PCRE repetition bounds:

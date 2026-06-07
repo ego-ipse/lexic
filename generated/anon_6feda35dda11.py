@@ -41,7 +41,7 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(atom=IrRuleRef("term"), quantifier=IrQuantifier(min=1, max=1))],
+    items=[IrItem(atom=IrRuleRef("term"), quantifier=IrQuantifier(1, 1))],
     field_map={"term": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -53,8 +53,8 @@ Term.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="alternation",
     items=[
-        IrItem(atom=IrRuleRef("num"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrRuleRef("ident"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(atom=IrRuleRef("num"), quantifier=IrQuantifier(1, 1)),
+        IrItem(atom=IrRuleRef("ident"), quantifier=IrQuantifier(1, 1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -66,7 +66,7 @@ Num.__grammar__ = RuleSpec(
     class_name="Num",
     parent_class_name="Term",
     kind="value_str",
-    items=[IrItem(atom=IrCharClass("0-9"), quantifier=IrQuantifier(min=1, max=None))],
+    items=[IrItem(atom=IrCharClass("0-9"), quantifier=IrQuantifier(1, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -77,7 +77,7 @@ Ident.__grammar__ = RuleSpec(
     class_name="Ident",
     parent_class_name="Term",
     kind="value_str",
-    items=[IrItem(atom=IrCharClass("a-z"), quantifier=IrQuantifier(min=1, max=None))],
+    items=[IrItem(atom=IrCharClass("a-z"), quantifier=IrQuantifier(1, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
