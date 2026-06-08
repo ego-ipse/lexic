@@ -725,9 +725,14 @@ class Field(IrNode):
 
 
 @dataclass_transform(eq_default=True, frozen_default=True, field_specifiers=(Field,))
-class IrCachingTuple[*Ts](IrNamedTuple[*Ts]):
+class IrCachingTuple[*Ts](IrNamedTuple[*Ts], IrNode[IrSelf, IrSelf]):
     """An :class:`IrNamedTuple` whose subclasses inherit its field layout and whose
-    :class:`Field` defaults are resolved to fresh per-instance values."""
+    :class:`Field` defaults are resolved to fresh per-instance values.
+
+    ``IrNode[IrSelf, IrSelf]`` is re-listed (it is already reached via
+    ``IrNamedTuple``) to mirror :class:`IrNamedTuple`/:class:`IrTuple`: a sole
+    base subscripted with the bare ``*Ts`` defeats astroid's MRO resolution, and
+    the concrete second base restores it."""
 
     __slots__ = ()
 
@@ -744,24 +749,22 @@ class IrCachingTuple[*Ts](IrNamedTuple[*Ts]):
         own_fields, own_defaults = cls._fields, cls._field_defaults
         merged_fields: tuple[str, ...] = ()
         merged_defaults: dict[str, object] = {}
-        for base in reversed(cls.__mro__):
+        nearest_child_attrs = cls._child_attrs
+        for base in reversed(cls.__mro__):  # most-base first
             if base is cls or base is IrCachingTuple:
                 continue
             if not issubclass(base, IrCachingTuple):
                 continue
             merged_fields += tuple(f for f in base._fields if f not in merged_fields)
             merged_defaults |= base._field_defaults
+            if base._fields:  # last write wins ⇒ nearest field-bearing base
+                nearest_child_attrs = base._child_attrs
         cls._fields = merged_fields + tuple(
             f for f in own_fields if f not in merged_fields
         )
         cls._field_defaults = merged_defaults | own_defaults
         if not own_child_attrs:
-            for base in cls.__mro__[1:]:  # nearest field-bearing caching base
-                if base is IrCachingTuple or not issubclass(base, IrCachingTuple):
-                    continue
-                if base._fields:
-                    cls._child_attrs = base._child_attrs
-                    break
+            cls._child_attrs = nearest_child_attrs
         cls._install_accessors()
 
     def __new__[**P](cls, *args: P.args, **kwargs: P.kwargs) -> Self:
