@@ -202,7 +202,7 @@ class _PatternAliasVisitor(IrVisitor):
     __slots__ = ()
     aliases: dict[str, PatternAlias] = Field(default_factory=dict)
     _name_counts: Counter[str] = Field(default_factory=Counter)
-    ruleref_frames: list[bool] = Field(default_factory=lambda: [False])
+    ruleref_frames: list[bool] = Field(default=[False])
     actions: tuple[IrAction, ...] = (
         IrAction(IrRuleRef, IrCallable(_mark_ruleref)),
         IrAction(IrItem, IrCallable(_visit_item)),

@@ -26,6 +26,7 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 
 from __future__ import annotations
 
+import copy
 from abc import ABC
 from typing import (
     Any,
@@ -684,6 +685,10 @@ class Field(IrNode):
 
     Typed (via the overloads) as the field's own type, so ``x: T = Field(...)``
     is assignable at the declaration site exactly like ``dataclasses.field``.
+
+    Exactly one of ``default`` / ``default_factory`` is required: the overloads
+    reject ``Field()`` statically, and :meth:`__new__` raises ``TypeError`` at
+    runtime so a field never silently carries the missing-value sentinel.
     """
 
     __slots__ = ("default", "default_factory")
@@ -698,14 +703,25 @@ class Field(IrNode):
         default: T = _MISSING,
         default_factory: Callable[[], T] | None = None,
     ) -> T:
+        if (default is _MISSING) == (default_factory is None):
+            raise TypeError(
+                "Field requires exactly one of 'default' or 'default_factory'"
+            )
         self = object.__new__(cls)
         self.default = default
         self.default_factory = default_factory
         return cast(T, self)
 
     def build(self) -> object:
-        """A fresh default — the factory result, or the plain default value."""
-        return self.default if self.default_factory is None else self.default_factory()
+        """A fresh default — the factory result, or a deep copy of the default value.
+
+        The default is deep-copied so a mutable ``default`` (e.g. ``[False]``)
+        yields an independent value per instance instead of one object shared
+        across every instance and every construction.
+        """
+        if self.default_factory is not None:
+            return self.default_factory()
+        return copy.deepcopy(self.default)
 
 
 @dataclass_transform(eq_default=True, frozen_default=True, field_specifiers=(Field,))
@@ -716,22 +732,37 @@ class IrCachingTuple[*Ts](IrNamedTuple[*Ts]):
     __slots__ = ()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Prepend the nearest caching base's fields, then reinstall accessors."""
+        """Merge every caching base's fields ahead of own, then reinstall accessors.
+
+        Bases are folded in reverse-MRO order (most-base first, dedup'd) — the
+        ``dataclasses`` convention — so the layout is well defined under multiple
+        inheritance, not just a single linear chain. ``super()`` has already set
+        ``cls._fields`` / ``cls._field_defaults`` to this class's *own* fields.
+        """
         own_child_attrs = "_child_attrs" in cls.__dict__
         super().__init_subclass__(**kwargs)
-        for base in cls.__mro__[1:]:
-            if base is IrCachingTuple or not issubclass(base, IrCachingTuple):
+        own_fields, own_defaults = cls._fields, cls._field_defaults
+        merged_fields: tuple[str, ...] = ()
+        merged_defaults: dict[str, object] = {}
+        for base in reversed(cls.__mro__):
+            if base is cls or base is IrCachingTuple:
                 continue
-            if not base._fields:
+            if not issubclass(base, IrCachingTuple):
                 continue
-            cls._fields = base._fields + tuple(
-                f for f in cls._fields if f not in base._fields
-            )
-            cls._field_defaults = base._field_defaults | cls._field_defaults
-            if not own_child_attrs:
-                cls._child_attrs = base._child_attrs
-            cls._install_accessors()
-            return
+            merged_fields += tuple(f for f in base._fields if f not in merged_fields)
+            merged_defaults |= base._field_defaults
+        cls._fields = merged_fields + tuple(
+            f for f in own_fields if f not in merged_fields
+        )
+        cls._field_defaults = merged_defaults | own_defaults
+        if not own_child_attrs:
+            for base in cls.__mro__[1:]:  # nearest field-bearing caching base
+                if base is IrCachingTuple or not issubclass(base, IrCachingTuple):
+                    continue
+                if base._fields:
+                    cls._child_attrs = base._child_attrs
+                    break
+        cls._install_accessors()
 
     def __new__[**P](cls, *args: P.args, **kwargs: P.kwargs) -> Self:
         """Resolve :class:`Field` factories, then build via :class:`IrNamedTuple`."""

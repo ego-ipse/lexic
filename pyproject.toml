@@ -44,6 +44,13 @@ pythonVersion = "3.14"
 [tool.isort]
 profile = "black"
 
+[tool.pylint.main]
+# Teach astroid PEP 681 dataclass_transform field inference (Field specifier on
+# IrNamedTuple/IrCachingTuple). Root-fix so no inline disables are needed at the
+# field read sites. See tools/pylint_lexic.py.
+init-hook = "import sys; sys.path.insert(0, 'tools')"
+load-plugins = ["pylint_lexic"]
+
 [tool.pylint.design]
 max-parents = 15
 

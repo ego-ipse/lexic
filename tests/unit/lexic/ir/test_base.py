@@ -12,7 +12,9 @@ from __future__ import annotations
 import pytest
 
 from lexic.ir.base import (
+    Field,
     IrAtom,
+    IrCachingTuple,
     IrInt,
     IrLeaf,
     IrNamedTuple,
@@ -267,3 +269,92 @@ def test_irnamedtuple_children_returns_all_elements():
     a, b = IrStr("p"), IrInt(9)
     r = _Rec(a, b)
     assert tuple(r.children()) == (a, b)
+
+
+# ── Field / IrCachingTuple ────────────────────────────────────────────
+
+
+class _Cfg(IrCachingTuple[list, int]):
+    """Local caching record: a mutable-default field and a factory field."""
+
+    __slots__ = ()
+    flags: list = Field(default=[False])
+    total: int = Field(default_factory=int)
+
+
+def test_field_requires_a_default_or_factory():
+    """``Field()`` with neither (nor both) argument raises at construction."""
+    with pytest.raises(TypeError):
+        Field()  # type: ignore[call-overload]  # intentional misuse under test
+
+
+def test_field_default_factory_produces_fresh_values():
+    """A ``default_factory`` field yields an independent value per instance."""
+    a, b = _Cfg(), _Cfg()
+    assert a.total == 0
+    a_flags, b_flags = a.flags, b.flags
+    assert a_flags is not b_flags
+
+
+def test_field_mutable_default_is_isolated_per_instance():
+    """A mutable ``default`` is deep-copied, not shared across instances."""
+    first = _Cfg()
+    first.flags.append(True)
+    second = _Cfg()
+    assert first.flags == [False, True]
+    assert second.flags == [False]
+
+
+class _Base(IrCachingTuple[int]):
+    """Caching record with a single field, to be extended by a subclass."""
+
+    __slots__ = ()
+    x: int = Field(default=5)
+
+
+class _Derived(_Base):
+    """Subclass that adds a field; should inherit ``_Base``'s field layout."""
+
+    __slots__ = ()
+    y: int = Field(default=7)
+
+
+def test_ircachingtuple_subclass_inherits_base_fields():
+    """A subclass prepends its base's fields, in base-then-own order."""
+    assert _Derived._fields == ("x", "y")
+
+
+def test_ircachingtuple_resolves_inherited_and_own_defaults():
+    """Construction resolves both the inherited and the own field defaults."""
+    d = _Derived()
+    assert (d.x, d.y) == (5, 7)
+    assert tuple(d) == (5, 7)
+
+
+class _LeftMixin(IrCachingTuple[int]):
+    """One field-bearing caching base for the multiple-inheritance case."""
+
+    __slots__ = ()
+    a: int = Field(default=1)
+
+
+class _RightMixin(IrCachingTuple[int]):
+    """A second, independent field-bearing caching base."""
+
+    __slots__ = ()
+    b: int = Field(default=2)
+
+
+class _Diamond(_LeftMixin, _RightMixin):
+    """Combines two caching bases plus an own field."""
+
+    __slots__ = ()
+    c: int = Field(default=3)
+
+
+def test_ircachingtuple_merges_all_bases_under_multiple_inheritance():
+    """Fields from every caching base are merged (reverse-MRO order), then own."""
+    assert _Diamond._fields == ("b", "a", "c")  # reverse-MRO: RightMixin, LeftMixin
+    d = _Diamond()
+    assert (d.a, d.b, d.c) == (1, 2, 3)
+    assert tuple(d) == (2, 1, 3)
