@@ -8,7 +8,7 @@ Nodes *are* their payload:
 
 The abstract spine — :class:`IrSelf`, :class:`IrNode`, :class:`IrLeaf`,
 :class:`IrAtom`, the primitive bases :class:`IrScalar`/:class:`IrStr`/
-:class:`IrInt`/:class:`IrTuple`/:class:`IrComposite`, and the absence sentinel
+:class:`IrInt`/:class:`IrTuple`/:class:`IrNamedTuple`, and the absence sentinel
 :data:`IrNone` — lives in :mod:`lexic.ir.base` and is re-exported here so that
 ``from lexic.ir.nodes import IrSelf`` keeps working. This module defines the
 *concrete* grammar-AST nodes built on those bases.

@@ -16,7 +16,7 @@ to a slot that has no relevant value.
 ``IrAction``) are :class:`IrNamedTuple` records; ``IrAnd`` is an :class:`IrSeq`;
 ``IrCallable`` is an :class:`IrNode` leaf wrapping a handler; ``IrReturn`` is an
 :class:`IrNode` leaf that also IS-A ``BaseException`` (object-based bases, unlike
-a tuple, coexist with its layout). No action node is an :class:`IrComposite`.
+a tuple, coexist with its layout). No action node is an :class:`IrNamedTuple`.
 The default bodies (``IrPass``, ``IrWalk``, ``IrEmit``, ``IrRebuild``) are plain
 ``__slots__`` leaves.
 """
@@ -572,7 +572,7 @@ class IrReturn[Ir_co: IrSelf](IrNode[IrSelf, Ir_co], _Return):
     ``IrReturn`` mixes :class:`IrNode` (structural IR contract) with
     :class:`_Return` (BaseException machinery). Both are object-based — unlike a
     tuple, they coexist with ``BaseException``'s instance layout — so it is a
-    plain :class:`IrNode` leaf, not an :class:`IrComposite`. ``eval`` raises
+    plain :class:`IrNode` leaf, not an :class:`IrNamedTuple`. ``eval`` raises
     ``self``; the dispatcher catches the instance and surfaces ``self.value`` or
     the instance itself. Equality is by identity (``BaseException`` semantics).
 

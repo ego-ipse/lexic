@@ -12,7 +12,6 @@ completely auto-generated.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import ClassVar
 
 from lexic.exceptions import UnsupportedConstructError
@@ -165,10 +164,10 @@ GBNF_ACTIONS = (
 )
 
 
-@dataclass(frozen=True, slots=True, repr=False)
 class _GbnfFlavour(IrFlavour):
     """GBNF flavour singleton class."""
 
+    __slots__ = ()
     actions: tuple[IrAction, ...] = GBNF_ACTIONS
 
     name: ClassVar[str] = "gbnf"

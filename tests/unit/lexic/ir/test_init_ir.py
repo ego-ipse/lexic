@@ -66,7 +66,6 @@ def test_core_node_types_exported() -> None:
         "IrNode",
         "IrLeaf",
         "IrAtom",
-        "IrComposite",
     ):
         assert hasattr(ir, name), f"Core node type {name!r} missing from lexic.ir"
         assert name in ir.__all__, f"Core node type {name!r} missing from __all__"

@@ -6,7 +6,7 @@ This module holds the reusable, grammar-agnostic machinery:
 - :class:`IrNoneType` / :data:`IrNone` — the absence sentinel.
 - :class:`IrNode` / :class:`IrLeaf` / :class:`IrAtom` — structural markers.
 - the three primitive tiers' *base* classes: :class:`IrScalar` (with
-  :class:`IrStr` / :class:`IrInt`), :class:`IrTuple`, and :class:`IrComposite`.
+  :class:`IrStr` / :class:`IrInt`), :class:`IrTuple`, and :class:`IrNamedTuple`.
 
 Concrete grammar-AST nodes (``IrLiteral``, ``IrItem``, ``IrNot``, …) live in
 :mod:`lexic.ir.nodes`, which imports and re-exports everything here.
@@ -27,7 +27,6 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 from __future__ import annotations
 
 from abc import ABC
-from dataclasses import fields, replace
 from typing import (
     Any,
     Callable,
@@ -39,6 +38,7 @@ from typing import (
     dataclass_transform,
     final,
     get_origin,
+    overload,
 )
 
 # ── Spine ─────────────────────────────────────────────────────────────
@@ -101,7 +101,7 @@ class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri]:
 
         Default: empty tuple — used by sentinels, leaves, and any
         ``IrSelf`` subclass that carries no IR-node children.
-        Structural nodes (``IrTuple``, ``IrComposite``) override this.
+        Structural nodes (``IrTuple``, ``IrNamedTuple``) override this.
 
         :returns: Empty tuple.
         """
@@ -243,7 +243,7 @@ class IrNode[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrSelf[Iri, Ir_co], ABC):
     **repr-is-codegen:** ``__repr__`` returns a valid Python constructor call
     that reconstructs an equal node. ``IrNode`` supplies a zero-argument default
     (``ClassName()``); field-bearing subclasses (``IrStr``/``IrTuple``/
-    ``IrComposite``) override it to render their payload/children/fields. There
+    ``IrNamedTuple``) override it to render their payload/children/fields. There
     is no separate ``__str__`` or ``_str_name``/``_inner_str`` cascade — that was
     deliberately removed in the G3 rewrite. Only ``__repr__`` exists.
 
@@ -259,7 +259,7 @@ class IrNode[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrSelf[Iri, Ir_co], ABC):
         """Codegen default: a zero-argument constructor call ``ClassName()``.
 
         Field-bearing nodes override this — ``IrStr`` leaves render their string
-        payload, ``IrTuple`` collections their elements, ``IrComposite`` records
+        payload, ``IrTuple`` collections their elements, ``IrNamedTuple`` records
         their dataclass fields. Zero-field nodes (the default action bodies
         ``IrPass``/``IrWalk``/``IrEmit``/``IrRebuild``) inherit this default,
         which is already valid codegen for them.
@@ -274,7 +274,7 @@ class IrLeaf[Iri: IrSelf, Ir_co: IrSelf](IrNode[Iri, Ir_co]):
 
     Provides the default empty ``children()`` and identity ``rebuild()``
     from ``IrSelf``.  Concrete leaves inherit from ``IrStr`` (str-typed
-    leaves) or from ``IrComposite`` (fixed-field records); ``IrLeaf`` itself
+    leaves) or from ``IrNamedTuple`` (fixed-field records); ``IrLeaf`` itself
     carries no fields.
 
     Does NOT provide ``__call__`` — concrete leaves either inherit the
@@ -433,7 +433,7 @@ class IrTuple[*Ts](tuple[*Ts], IrNode[IrSelf, IrSelf]):
       variadic tail (an operator node: ``op`` at ``[0]``, then operands). The
       head is positionally type-checked.
     - ``IrTuple[IrAtom, IrQuantifier]`` — a fixed positional record (the shape
-      ``IrComposite`` records could later fold into, e.g. as a ``NamedTuple``).
+      ``IrNamedTuple`` records could later fold into, e.g. as a ``NamedTuple``).
 
     It multi-inherits ``IrNode`` and ``tuple[*Ts]`` so instances are both full
     IR nodes and native Python tuples (indexing, iteration, equality, hashing
@@ -569,7 +569,7 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
 
     pyright reads the bare annotation for each named accessor's type, while the
     descriptor installed in :meth:`__init_subclass__` provides the runtime read
-    as ``self[i]``. This is the base that ``IrComposite`` records can fold onto.
+    as ``self[i]``. This is the base that ``IrNamedTuple`` records can fold onto.
 
     :param Ts: The positional field types, in declaration order.
     """
@@ -599,7 +599,12 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
         }
         if "_child_attrs" not in cls.__dict__:
             cls._child_attrs = flds
-        for index, name in enumerate(flds):
+        cls._install_accessors()
+
+    @classmethod
+    def _install_accessors(cls) -> None:
+        """Install a positional read accessor (``self[i]``) for each field."""
+        for index, name in enumerate(cls._fields):
             setattr(cls, name, property(lambda self, i=index: self[i]))
 
     def __new__[**P](cls, *args: P.args, **kwargs: P.kwargs) -> Self:
@@ -669,79 +674,73 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
         return cast(Callable[..., Self], type(self))(*values)
 
 
-# ── Composite dataclass tier ──────────────────────────────────────────
+_MISSING: Any = object()
 
 
-class IrComposite[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
-    """Dataclass record base for fixed-arity IR nodes.
+@final
+class Field(IrNode):
+    """A default value or per-instance factory for an :class:`IrCachingTuple`
+    field — the ``dataclasses.field`` analogue, and itself an :class:`IrNode`.
 
-    All concrete composite nodes are ``@dataclass(frozen=True, slots=True,
-    repr=False)`` subclasses. They declare:
-
-    - ``_child_attrs: ClassVar[tuple[str, ...]]`` — names of dataclass fields
-      that are IR-node children (in traversal order).  Records with no
-      IR-node children declare ``_child_attrs = ()`` (the default).
-    - The remaining dataclass fields (not in ``_child_attrs``) are non-child
-      payload: names, bounds, flags, etc.
-
-    ``__repr__`` is codegen: all dataclass fields are rendered as ``name=repr(value)``
-    keyword arguments in declaration order, giving a valid constructor call.
-
-    ``__dataclass_fields__`` is declared on the base class so that pyright
-    accepts ``dataclasses.fields(self)`` / ``dataclasses.replace(self, …)``
-    calls on ``IrComposite``-typed references, even though ``IrComposite``
-    itself carries no ``@dataclass`` decorator.  Without this declaration,
-    pyright reports ``"__dataclass_fields__ is not present"``.
-
-    :param Ir_co: the return type of ``eval`` (defaults to ``IrSelf``).
+    Typed (via the overloads) as the field's own type, so ``x: T = Field(...)``
+    is assignable at the declaration site exactly like ``dataclasses.field``.
     """
 
+    __slots__ = ("default", "default_factory")
+
+    @overload
+    def __new__[T](cls, *, default: T) -> T: ...
+    @overload
+    def __new__[T](cls, *, default_factory: Callable[[], T]) -> T: ...
+    def __new__[T](
+        cls,
+        *,
+        default: T = _MISSING,
+        default_factory: Callable[[], T] | None = None,
+    ) -> T:
+        self = object.__new__(cls)
+        self.default = default
+        self.default_factory = default_factory
+        return cast(T, self)
+
+    def build(self) -> object:
+        """A fresh default — the factory result, or the plain default value."""
+        return self.default if self.default_factory is None else self.default_factory()
+
+
+@dataclass_transform(eq_default=True, frozen_default=True, field_specifiers=(Field,))
+class IrCachingTuple[*Ts](IrNamedTuple[*Ts]):
+    """An :class:`IrNamedTuple` whose subclasses inherit its field layout and whose
+    :class:`Field` defaults are resolved to fresh per-instance values."""
+
     __slots__ = ()
-    # Declared so pyright accepts ``fields(self)``/``replace(self, …)`` on the
-    # base even though IrComposite itself is not @dataclass-decorated (concrete
-    # subclasses are). Without this the base errors with "__dataclass_fields__
-    # is not present".
-    __dataclass_fields__: ClassVar[dict[str, Any]]
-    _child_attrs: ClassVar[tuple[str, ...]] = ()
 
-    def children(self) -> Sequence[Ir_co]:
-        """Return children in ``_child_attrs`` declaration order.
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Prepend the nearest caching base's fields, then reinstall accessors."""
+        own_child_attrs = "_child_attrs" in cls.__dict__
+        super().__init_subclass__(**kwargs)
+        for base in cls.__mro__[1:]:
+            if base is IrCachingTuple or not issubclass(base, IrCachingTuple):
+                continue
+            if not base._fields:
+                continue
+            cls._fields = base._fields + tuple(
+                f for f in cls._fields if f not in base._fields
+            )
+            cls._field_defaults = base._field_defaults | cls._field_defaults
+            if not own_child_attrs:
+                cls._child_attrs = base._child_attrs
+            cls._install_accessors()
+            return
 
-        :returns: Tuple of child IR nodes.
-        """
-        return tuple(getattr(self, a) for a in self._child_attrs)
-
-    def rebuild(self, new_children: Sequence[Ir_co]) -> Self:
-        """Reconstruct, replacing child attrs from ``new_children`` in order.
-
-        Uses ``dataclasses.replace`` so frozen-dataclass immutability is
-        respected; non-child payload fields are preserved unchanged.
-
-        :param new_children: Replacements matching ``_child_attrs`` order.
-        :returns: New instance with updated children.
-        """
-        return replace(self, **dict(zip(self._child_attrs, new_children)))
-
-    def __repr__(self) -> str:
-        """Codegen repr: ``ClassName(field=val, …)`` for all dataclass fields.
-
-        Fields render as ``name=value`` keyword arguments in declaration order.
-        A field holding a class (e.g. ``IrField.out``, ``IrAction.target_type``)
-        renders as the bare class name (``out=IrInt``) so the result stays valid
-        codegen; every other value uses ``repr``.
-
-        :returns: Constructor call reproducing this node.
-        """
-        inner = ", ".join(
-            f"{f.name}={self._field_repr(getattr(self, f.name))}" for f in fields(self)
-        )
-        return f"{type(self).__name__}({inner})"
-
-    @staticmethod
-    def _field_repr(value: object) -> str:
-        """Render one field value as codegen: a class as its bare name, else ``repr``.
-
-        :param value: The field value to render.
-        :returns: ``value.__name__`` for a class, otherwise ``repr(value)``.
-        """
-        return value.__name__ if isinstance(value, type) else repr(value)
+    def __new__[**P](cls, *args: P.args, **kwargs: P.kwargs) -> Self:
+        """Resolve :class:`Field` factories, then build via :class:`IrNamedTuple`."""
+        if cls.__abstractmethods__:
+            raise TypeError(f"Can't instantiate abstract class {cls.__name__}")
+        given = set(cls._fields[: len(args)]) | set(kwargs)
+        kwargs |= {
+            name: spec.build()
+            for name, spec in cls._field_defaults.items()
+            if name not in given and isinstance(spec, Field)
+        }
+        return super().__new__(cls, *args, **kwargs)

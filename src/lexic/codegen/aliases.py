@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction, IrCallable
-from lexic.ir.base import IrNone, IrSelf
+from lexic.ir.base import Field, IrNone, IrSelf
 from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -185,7 +185,6 @@ def _visit_item(d: _PatternAliasVisitor, n: IrSelf, _nc: Sequence[IrSelf]) -> Ir
 # ── Stateful visitor ──────────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
 class _PatternAliasVisitor(IrVisitor):
     """Single-pass collector that emits a PatternAlias per pure-pattern subtree.
 
@@ -200,15 +199,10 @@ class _PatternAliasVisitor(IrVisitor):
     ``[0-9]+`` collide on ``Digit``) get a numeric suffix on later occurrences.
     """
 
-    aliases: dict[str, PatternAlias] = field(
-        default_factory=dict, hash=False, compare=False
-    )
-    _name_counts: Counter[str] = field(
-        default_factory=Counter, hash=False, compare=False
-    )
-    ruleref_frames: list[bool] = field(
-        default_factory=lambda: [False], hash=False, compare=False
-    )
+    __slots__ = ()
+    aliases: dict[str, PatternAlias] = Field(default_factory=dict)
+    _name_counts: Counter[str] = Field(default_factory=Counter)
+    ruleref_frames: list[bool] = Field(default_factory=lambda: [False])
     actions: tuple[IrAction, ...] = (
         IrAction(IrRuleRef, IrCallable(_mark_ruleref)),
         IrAction(IrItem, IrCallable(_visit_item)),

@@ -5,12 +5,19 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 from functools import cache
 from typing import Callable, Literal, TypeAlias, TypeVar
 
 from lexic.ir.action import IrAction, IrCallable, IrReturn
-from lexic.ir.base import IrAtom, IrNode, IrNone, IrNoneType, IrSelf, IrSeq
+from lexic.ir.base import (
+    Field,
+    IrAtom,
+    IrNode,
+    IrNone,
+    IrNoneType,
+    IrSelf,
+    IrSeq,
+)
 from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -180,7 +187,6 @@ def _hoist_item(d: IrNode, item: IrItem, _nc: object) -> IrItem:
     return IrItem(atom=IrRuleRef(name), quantifier=item.quantifier)
 
 
-@dataclass(frozen=True, slots=True, repr=False)
 class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     """Hoist quantified groups-with-rulerefs into synthetic helper rules.
 
@@ -193,9 +199,10 @@ class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     :ivar helpers: Mutable list of emitted helper rules — per-rule fresh.
     """
 
-    parent_name: str = field(default="", hash=False, compare=False)
-    name_set: set[str] = field(default_factory=set, hash=False, compare=False)
-    helpers: list[IrRule] = field(default_factory=list, hash=False, compare=False)
+    __slots__ = ()
+    parent_name: str = ""
+    name_set: set[str] = Field(default_factory=set)
+    helpers: list[IrRule] = Field(default_factory=list)
     actions: tuple[IrAction, ...] = (IrAction(IrItem, IrCallable(_hoist_item)),)
 
 

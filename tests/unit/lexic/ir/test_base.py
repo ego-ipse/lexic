@@ -13,7 +13,6 @@ import pytest
 
 from lexic.ir.base import (
     IrAtom,
-    IrComposite,
     IrInt,
     IrLeaf,
     IrNamedTuple,
@@ -73,7 +72,7 @@ def test_bound_explicit_declaration_wins():
 def test_bound_derived_from_own_typevar_bound():
     """A class with its OWN bounded TypeVar derives ``_bound`` from that bound."""
 
-    class _Probe[T: IrInt](IrComposite):  # own bounded TypeVar -> derived
+    class _Probe[T: IrInt](IrNode):  # own bounded TypeVar -> derived
         pass
 
     assert _Probe.bound_type() is IrInt

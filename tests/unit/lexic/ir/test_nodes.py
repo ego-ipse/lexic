@@ -6,7 +6,6 @@ import pytest
 
 from lexic.ir.base import (
     IrAtom,
-    IrComposite,
     IrInt,
     IrNamedTuple,
     IrNode,
@@ -271,7 +270,7 @@ def test_irrule_rebuild_replaces_body_preserves_name():
 def test_irast_children_returns_rules_tuple():
     """An IrAst's children are the wrapping rules IrTuple (G3 shape change).
 
-    ``IrComposite``
+    ``IrNamedTuple``
     returns a 1-tuple wrapping the rules ``IrTuple`` — iterate ``ast.rules``
     to reach individual rules.
     """
@@ -430,7 +429,7 @@ def test_composite_repr_is_codegen():
 
 
 def test_all_grammar_records_are_named_tuples():
-    """Every grammar-AST record is now an IrNamedTuple (IrComposite fully folded)."""
+    """Every grammar-AST record is now an IrNamedTuple (IrNamedTuple fully folded)."""
     for node in (
         IrQuantifier(),
         IrItem(IrLiteral("x")),
@@ -462,7 +461,7 @@ def test_bound_derived_from_own_typevar_bound():
     """A class with its OWN bounded TypeVar derives ``_bound`` from that bound."""
     assert IrNot.bound_type() is IrAtom  # IrNot[Ir_co: IrAtom] -> IrAtom
 
-    class _Probe[T: IrLiteral](IrComposite):  # own bounded TypeVar -> derived
+    class _Probe[T: IrLiteral](IrNode):  # own bounded TypeVar -> derived
         pass
 
     assert _Probe.bound_type() is IrLiteral

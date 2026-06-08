@@ -15,7 +15,6 @@ from lexic.ir.action import (
 )
 from lexic.ir.base import (
     IrAtom,
-    IrComposite,
     IrInt,
     IrLeaf,
     IrNamedTuple,
@@ -69,7 +68,6 @@ __all__ = [
     "IrChild",
     "IrChildren",
     "IrCompare",
-    "IrComposite",
     "IrConcat",
     "IrCond",
     "IrField",

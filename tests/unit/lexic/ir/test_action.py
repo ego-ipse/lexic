@@ -257,7 +257,7 @@ def test_ircallable_invokes_handler_with_all_args():
 def test_ircallable_repr_contains_handler_name():
     """``repr(IrCallable)`` contains the handler's ``__name__`` for debug output.
 
-    In the primitive-node model, ``IrCallable`` uses ``IrComposite.__repr__``
+    In the primitive-node model, ``IrCallable`` uses ``IrNode.__repr__``
     (``repr=False`` dataclass, field rendered as ``handler=<...>``).
     The old ``CALLABLE(<name>)`` str was specific to the original action.py's
     custom ``__str__``; action.py uses the generic composite repr instead.
