@@ -11,12 +11,14 @@ Two layers:
   the operator's own property: comparisons are binary, ``!`` unary, ``&``/``|``
   variadic folds.
 - :class:`IrOpNode` and its three arity bases :class:`MonadicOp`,
-  :class:`DyadicOp`, :class:`VariadicOp`. **Arity is encoded in the ``body``
-  field type**, so a wrong operand count is a static type error rather than a
-  runtime crash: ``DyadicOp`` holds an ``IrTuple[IrSelf, IrSelf]`` (exactly
-  two), ``MonadicOp`` a single ``IrSelf``, ``VariadicOp`` an ``IrSeq`` (any).
-  Concrete operator nodes (:class:`IrEq`, :class:`IrAnd`, :class:`IrNot`)
-  fix the operator and inherit ``eval``.
+  :class:`DyadicOp`, :class:`VariadicOp`. **An operator node IS its operand
+  tuple** — operands are the tuple elements, constructed flat
+  (``IrEq(a, b)``, ``IrAnd(a, b, c)``, ``IrNot(x)``). Arity is the tuple's own
+  parameterisation, so a wrong operand count is a static type error (a
+  positional-argument mismatch) rather than a runtime crash. The operator is a
+  ``ClassVar`` — type-level, not a field — so concrete nodes (:class:`IrNot`,
+  :class:`IrEq`, :class:`IrAnd`) only pin ``op`` and inherit the single shared
+  ``eval``.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ import operator
 from typing import Callable, ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrAtom, IrInt, IrNamedTuple, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir.base import IrAtom, IrInt, IrSelf, IrSeq, IrStr, IrTuple
 
 # ── Operator leaf ─────────────────────────────────────────────────────
 
@@ -70,25 +72,24 @@ class IrOp(IrStr):
         return IrInt(self._OPS[self](*nc))
 
 
-# ── Operator node — (body, op), arity carried by the body type ────────
+# ── Operator node — the node IS its operand tuple, op is type-level ───
 
 
-class IrOpNode[T: IrTuple](IrNamedTuple[T, IrOp], IrAtom):
-    """An operator applied to its operands — IS-AN :class:`IrAtom`.
+class IrOpNode(IrAtom):
+    """Operator behaviour — the :class:`ClassVar` :attr:`op` plus the shared ``eval``.
 
-    The node is the named tuple ``(body, op)``: ``body`` holds the operands and
-    ``op`` is the :class:`IrOp` applied to them. ``op`` comes second so a
-    concrete subclass can pin it with a default while ``body`` stays required.
+    Mixed into one of our tuple types by an arity base, so a concrete operator
+    node IS its operand tuple: operands are the elements, in order, and the
+    operator is type-level. ``eval`` walks the operand children, evaluates each,
+    and applies :attr:`op`.
 
-    Arity lives in ``T`` — the static type of ``body`` — so an off-arity
-    construction is a type error, not a runtime crash. Subclasses fix the shape
-    of ``T`` (see :class:`MonadicOp`/:class:`DyadicOp`/:class:`VariadicOp`) and
-    supply :meth:`operands`; ``eval`` is shared.
+    Arity is the tuple the arity base mixes in (see :class:`MonadicOp`/
+    :class:`DyadicOp`/:class:`VariadicOp`); the operator is fixed by the concrete
+    node (:attr:`op`). Construction is flat — ``IrEq(left, right)``.
     """
 
     __slots__ = ()
-    body: T
-    op: IrOp
+    op: ClassVar[IrOp]
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """Evaluate each operand and apply :attr:`op` to the results.
@@ -98,41 +99,25 @@ class IrOpNode[T: IrTuple](IrNamedTuple[T, IrOp], IrAtom):
         :param nc: Pre-walked children forwarded to each operand's ``eval``.
         :returns: ``IrInt(1)`` if the operation holds, else ``IrInt(0)``.
         """
-        return self.op.eval(d, n, [o.eval(d, n, nc) for o in self.body])
+        return self.op.eval(d, n, [o.eval(d, n, nc) for o in self.children()])
 
 
-# The sort of thing that wars are fought over.
-type Monad[T: IrSelf] = T
-type Dyad[T: IrSelf] = IrTuple[T, T]
-type Variad[T: IrSelf] = IrSeq[T]
-
-
-class MonadicOp(IrOpNode[Monad]):
-    """Unary operator node — ``body`` is a single operand."""
+class MonadicOp(IrOpNode, IrTuple[IrSelf]):
+    """Unary operator node — exactly one operand element."""
 
     __slots__ = ()
-    body: Monad
-    op: IrOp
-
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
-        """Evaluate each operand and apply :attr:`op` to the results."""
-        return self.op.eval(d, n, [self.body.eval(d, n, nc)])
 
 
-class DyadicOp(IrOpNode[Dyad]):
-    """Binary operator node — ``body`` is an exactly-two operand tuple."""
+class DyadicOp(IrOpNode, IrTuple[IrSelf, IrSelf]):
+    """Binary operator node — exactly two operand elements."""
 
     __slots__ = ()
-    body: Dyad
-    op: IrOp
 
 
-class VariadicOp(IrOpNode[Variad]):
-    """Variadic operator node — ``body`` is an :class:`IrSeq` of any length."""
+class VariadicOp(IrOpNode, IrSeq[IrSelf]):
+    """Variadic operator node — any number of operand elements."""
 
     __slots__ = ()
-    body: Variad
-    op: IrOp
 
 
 # ── Fixed-operator nodes ──────────────────────────────────────────────
@@ -141,39 +126,33 @@ class VariadicOp(IrOpNode[Variad]):
 class IrNot(MonadicOp):
     """Negation atom — a :class:`MonadicOp` over ``IrOp("!")``.
 
-    Construct as ``IrNot(operand)``; ``op`` defaults to ``!``. Being an
-    :class:`IrAtom` it can be wrapped by ``IrItem``; inherited ``eval`` applies
-    ``operator.not_`` to the single evaluated ``body`` (a truth value or any
-    evaluable operand).
+    Construct flat as ``IrNot(operand)``. Being an :class:`IrAtom` it can be
+    wrapped by ``IrItem``; the shared ``eval`` applies ``operator.not_`` to the
+    single evaluated operand (a truth value or any evaluable operand).
     """
 
     __slots__ = ()
-    body: Monad
-    op: IrOp = IrOp("!")
+    op: ClassVar[IrOp] = IrOp("!")
 
 
 class IrEq(DyadicOp):
     """Equality comparison — a :class:`DyadicOp` over ``IrOp("==")``.
 
-    Construct as ``IrEq(IrTuple(left, right))``; ``op`` defaults to ``==``.
-    Inherited ``eval`` evaluates both operands and returns ``IrInt(1)`` when
-    they compare equal, else ``IrInt(0)``.
+    Construct flat as ``IrEq(left, right)``. The shared ``eval`` evaluates both
+    operands and returns ``IrInt(1)`` when they compare equal, else ``IrInt(0)``.
     """
 
     __slots__ = ()
-    body: Dyad
-    op: IrOp = IrOp("==")
+    op: ClassVar[IrOp] = IrOp("==")
 
 
 class IrAnd(VariadicOp):
     """Conjunction — a :class:`VariadicOp` over ``IrOp("&")``.
 
-    Construct as ``IrAnd(IrSeq(p, q, …))``; ``op`` defaults to ``&``. The
-    operator folds the truthiness of every evaluated operand via ``all`` and
-    yields ``IrInt(0/1)``. The empty conjunction is the fold identity,
-    ``IrInt(1)``.
+    Construct flat as ``IrAnd(p, q, …)``. The operator folds the truthiness of
+    every evaluated operand via ``all`` and yields ``IrInt(0/1)``. The empty
+    conjunction is the fold identity, ``IrInt(1)``.
     """
 
     __slots__ = ()
-    body: Variad = IrSeq()
-    op: IrOp = IrOp("&")
+    op: ClassVar[IrOp] = IrOp("&")
