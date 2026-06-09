@@ -27,7 +27,7 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 from __future__ import annotations
 
 import copy
-from abc import ABC
+from abc import ABC, ABCMeta
 from typing import (
     Any,
     Callable,
@@ -45,7 +45,35 @@ from typing import (
 # ── Spine ─────────────────────────────────────────────────────────────
 
 
-class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri]:
+class IrMeta(ABCMeta):
+    """Metaclass that gives every IR class an empty ``__slots__`` by default.
+
+    IR nodes keep their payload in the primitive they subclass (``str``/``int``/
+    ``tuple``) or in their tuple elements — never in a per-instance ``__dict__``,
+    and a ``tuple``/``str`` subclass *must* have empty ``__slots__`` to stay
+    dict-free. ``__slots__`` has to be in the class namespace before the class
+    object is built, which only a metaclass can guarantee (``__init_subclass__``
+    runs too late). Derives from :class:`abc.ABCMeta` so it composes with
+    ``IrNode``'s ``ABC`` base. A class that needs its own slots (e.g.
+    :class:`Field`) just declares ``__slots__`` — ``setdefault`` leaves it alone.
+    """
+
+    def __new__(
+        mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], /, **kw: Any
+    ) -> type:
+        """Inject ``__slots__ = ()`` unless the class declared its own.
+
+        :param name: New class name.
+        :param bases: Base classes.
+        :param namespace: Class body namespace (mutated in place).
+        :param kw: Remaining class keyword arguments.
+        :returns: The constructed class.
+        """
+        namespace.setdefault("__slots__", ())
+        return super().__new__(mcs, name, bases, namespace, **kw)
+
+
+class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri](metaclass=IrMeta):
     """Generic identity root and IR-protocol base.
 
     Every IR node inherits from ``IrSelf``. ``Ir_co`` is a return-position
@@ -64,7 +92,6 @@ class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri]:
     :param Ir_co: the return type of ``eval``.
     """
 
-    __slots__ = ()
     _bound: ClassVar[type]
 
     def __call__(self, _d: Iri, _n: Iri, _nc: Sequence[Iri], /) -> Self:
@@ -216,7 +243,6 @@ class IrNoneType(IrSelf):
     The first call allocates; subsequent calls return the cached instance.
     """
 
-    __slots__ = ()
     _instance: ClassVar[Self | None] = None
 
     def __new__(cls) -> Self:
@@ -254,8 +280,6 @@ class IrNode[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrSelf[Iri, Ir_co], ABC):
     :param Ir_co: the return type of ``eval`` (defaults to ``IrSelf``).
     """
 
-    __slots__ = ()
-
     def __repr__(self) -> str:
         """Codegen default: a zero-argument constructor call ``ClassName()``.
 
@@ -282,8 +306,6 @@ class IrLeaf[Iri: IrSelf, Ir_co: IrSelf](IrNode[Iri, Ir_co]):
     identity from ``IrSelf`` or override ``eval`` (e.g. ``IrStr.eval``).
     """
 
-    __slots__ = ()
-
     def children(self) -> Sequence[Ir_co]:
         """Leaf nodes have no children by definition.
 
@@ -306,8 +328,6 @@ class IrAtom(IrNode):
     modifying any dispatch table.
     """
 
-    __slots__ = ()
-
 
 # ── Primitive str tier ────────────────────────────────────────────────
 
@@ -327,8 +347,6 @@ class IrScalar(IrLeaf):
     ``type[IrScalar]`` — e.g. :attr:`~lexic.ir.action.IrField.out` — un-callable
     for the type checker.)
     """
-
-    __slots__ = ()
 
     def __new__(cls, *args: object) -> Self:
         """Forward construction to the primitive base.
@@ -405,7 +423,6 @@ class IrStr(IrScalar, str):
     ``Ir_co: IrSelf`` bound and triggers "mutually incompatible bases".
     """
 
-    __slots__ = ()
     _bound: ClassVar[type[str]] = str
 
 
@@ -415,7 +432,6 @@ class IrInt(IrScalar, int):
     ``_bound`` is set explicitly (no PEP 695 type params).
     """
 
-    __slots__ = ()
     _bound: ClassVar[type[int]] = int
 
 
@@ -455,7 +471,6 @@ class IrTuple[*Ts](tuple[*Ts], IrNode[IrSelf, IrSelf]):
         variadic, or mixed).
     """
 
-    __slots__ = ()
     _bound: ClassVar[type[tuple]] = tuple
 
     def __new__(cls, *items: *Ts) -> Self:
@@ -540,7 +555,6 @@ class IrSeq[T: IrSelf](IrTuple[*tuple[T, ...]], IrNode[IrSelf, IrSelf]):
     :param T: The single element type, bounded by ``IrSelf``.
     """
 
-    __slots__ = ()
     _bound: ClassVar[type[tuple]] = tuple
 
 
@@ -561,7 +575,6 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
     tuple and a named record::
 
         class IrItemRec(IrNamedTuple[IrAtom, IrQuantifier]):
-            __slots__ = ()
             atom: IrAtom
             quantifier: IrQuantifier
 
@@ -575,7 +588,6 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
     :param Ts: The positional field types, in declaration order.
     """
 
-    __slots__ = ()
     _fields: ClassVar[tuple[str, ...]] = ()
     _field_defaults: ClassVar[dict[str, object]] = {}
     _child_attrs: ClassVar[tuple[str, ...]] = ()
@@ -733,8 +745,6 @@ class IrCachingTuple[*Ts](IrNamedTuple[*Ts], IrNode[IrSelf, IrSelf]):
     ``IrNamedTuple``) to mirror :class:`IrNamedTuple`/:class:`IrTuple`: a sole
     base subscripted with the bare ``*Ts`` defeats astroid's MRO resolution, and
     the concrete second base restores it."""
-
-    __slots__ = ()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Merge every caching base's fields ahead of own, then reinstall accessors.

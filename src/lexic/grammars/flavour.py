@@ -28,7 +28,6 @@ class IrFlavour(IrEmitter, ABC):
     :cvar line_comment: Line-comment prefix; empty disables @directive parsing.
     """
 
-    __slots__ = ()
     name: ClassVar[str]
     extensions: ClassVar[tuple[str, ...]]
     meta_grammar: ClassVar[str]

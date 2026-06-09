@@ -167,7 +167,6 @@ GBNF_ACTIONS = (
 class _GbnfFlavour(IrFlavour):
     """GBNF flavour singleton class."""
 
-    __slots__ = ()
     actions: tuple[IrAction, ...] = GBNF_ACTIONS
 
     name: ClassVar[str] = "gbnf"

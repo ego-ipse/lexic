@@ -48,7 +48,6 @@ class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](
     :param default: Body invoked when no action matches (presets override).
     """
 
-    __slots__ = ()
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     actions: tuple[IrAction[Ir_co], ...] = ()
     default: IrSelf = IrRaise()
@@ -109,7 +108,6 @@ class IrVisitor(IrDispatch):
     """Side-effect walker. Default action :class:`~lexic.ir.action.IrWalk`
     recurses into children and returns :data:`~lexic.ir.base.IrNone`."""
 
-    __slots__ = ()
     default: IrSelf = IrWalk()
 
 
@@ -117,7 +115,6 @@ class IrTransformer[Iri: IrSelf, Ir_co: IrNode](IrDispatch[Iri, Ir_co]):
     """Rewrites IR trees. Default action :class:`~lexic.ir.action.IrRebuild`
     walks each node's children via ``d`` and rebuilds the node."""
 
-    __slots__ = ()
     default: IrSelf = IrRebuild()
 
 
@@ -125,5 +122,4 @@ class IrEmitter[Iri: IrSelf, Ir_co: IrLiteral](IrDispatch[Iri, Ir_co]):
     """Produces :class:`~lexic.ir.nodes.IrLiteral` strings. Default body
     :class:`~lexic.ir.action.IrEmit`; override with ``default=IrRaise()``."""
 
-    __slots__ = ()
     default: IrSelf = IrEmit()

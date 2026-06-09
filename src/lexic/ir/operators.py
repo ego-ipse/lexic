@@ -88,7 +88,6 @@ class IrOpNode(IrAtom):
     node (:attr:`op`). Construction is flat — ``IrEq(left, right)``.
     """
 
-    __slots__ = ()
     op: ClassVar[IrOp]
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
@@ -105,19 +104,13 @@ class IrOpNode(IrAtom):
 class MonadicOp(IrOpNode, IrTuple[IrSelf]):
     """Unary operator node — exactly one operand element."""
 
-    __slots__ = ()
-
 
 class DyadicOp(IrOpNode, IrTuple[IrSelf, IrSelf]):
     """Binary operator node — exactly two operand elements."""
 
-    __slots__ = ()
-
 
 class VariadicOp(IrOpNode, IrSeq[IrSelf]):
     """Variadic operator node — any number of operand elements."""
-
-    __slots__ = ()
 
 
 # ── Fixed-operator nodes ──────────────────────────────────────────────
@@ -131,7 +124,6 @@ class IrNot(MonadicOp):
     single evaluated operand (a truth value or any evaluable operand).
     """
 
-    __slots__ = ()
     op: ClassVar[IrOp] = IrOp("!")
 
 
@@ -142,7 +134,6 @@ class IrEq(DyadicOp):
     operands and returns ``IrInt(1)`` when they compare equal, else ``IrInt(0)``.
     """
 
-    __slots__ = ()
     op: ClassVar[IrOp] = IrOp("==")
 
 
@@ -154,5 +145,4 @@ class IrAnd(VariadicOp):
     conjunction is the fold identity, ``IrInt(1)``.
     """
 
-    __slots__ = ()
     op: ClassVar[IrOp] = IrOp("&")

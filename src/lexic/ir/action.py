@@ -138,8 +138,6 @@ class IrAnd(IrSeq[IrSelf]):
     Construct variadically: ``IrAnd(pred1, pred2, …)``.
     """
 
-    __slots__ = ()
-
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """AND the truthiness of each evaluated operand, short-circuiting.
 
@@ -401,8 +399,6 @@ class IrThis(IrLeaf[IrSelf, IrSelf]):
     ``lambda d, n, nc: n``.
     """
 
-    __slots__ = ()
-
     def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
         """Return the dispatched node ``n``.
 
@@ -423,8 +419,6 @@ class IrPass(IrLeaf[IrSelf, IrSelf]):
     :class:`IrWalk`.
     """
 
-    __slots__ = ()
-
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
         """Return :data:`IrNone`.
 
@@ -444,8 +438,6 @@ class IrWalk(IrLeaf[IrSelf, IrSelf]):
     for their effects and discarded. Honours ``nc``: if the caller has
     already dispatched children, no re-walk happens.
     """
-
-    __slots__ = ()
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Walk children unless they were pre-dispatched; return :data:`IrNone`.
@@ -476,7 +468,6 @@ class IrEmit[Iri: IrSelf, Ir_co: IrLiteral](IrLeaf[Iri, Ir_co]):
     :param Ir_co: the :class:`IrLiteral`-typed result type.
     """
 
-    __slots__ = ()
     _bound: ClassVar[type] = IrLiteral
 
     def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
@@ -503,8 +494,6 @@ class IrRebuild(IrLeaf[IrSelf, IrNode]):
 
     :raises UnsupportedConstructError: if ``n`` is not an :class:`IrNode`.
     """
-
-    __slots__ = ()
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNode:
         """Walk ``n.children()`` via ``d`` (or accept ``nc``), then rebuild.
@@ -579,7 +568,6 @@ class IrReturn[Ir_co: IrSelf](IrNode[IrSelf, Ir_co], _Return):
     :param Ir_co: the type of the carried value.
     """
 
-    __slots__ = ()
     lazy_eval: bool
 
     def __init__(self, value: object = IrThis(), lazy_eval: bool = True) -> None:

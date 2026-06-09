@@ -199,7 +199,6 @@ class _PatternAliasVisitor(IrVisitor):
     ``[0-9]+`` collide on ``Digit``) get a numeric suffix on later occurrences.
     """
 
-    __slots__ = ()
     aliases: dict[str, PatternAlias] = Field(default_factory=dict)
     _name_counts: Counter[str] = Field(default_factory=Counter)
     ruleref_frames: list[bool] = Field(default=[False])

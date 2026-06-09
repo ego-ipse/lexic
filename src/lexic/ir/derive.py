@@ -199,7 +199,6 @@ class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     :ivar helpers: Mutable list of emitted helper rules — per-rule fresh.
     """
 
-    __slots__ = ()
     parent_name: str = ""
     name_set: set[str] = Field(default_factory=set)
     helpers: list[IrRule] = Field(default_factory=list)

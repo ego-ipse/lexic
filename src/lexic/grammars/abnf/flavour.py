@@ -200,7 +200,6 @@ ABNF_ACTIONS = (
 class _AbnfFlavour(IrFlavour):
     """ABNF flavour singleton class."""
 
-    __slots__ = ()
     actions: tuple[IrAction, ...] = ABNF_ACTIONS
 
     name: ClassVar[str] = "abnf"

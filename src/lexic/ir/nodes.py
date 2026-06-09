@@ -66,8 +66,6 @@ class IrLiteral(IrStr, IrAtom):
     the same node class serves both.
     """
 
-    __slots__ = ()
-
 
 class IrCharClass(IrStr, IrAtom):
     """Character class. The string is the canonical POSIX-style interior pattern.
@@ -76,8 +74,6 @@ class IrCharClass(IrStr, IrAtom):
     brackets are NOT stored — they are emitted by the flavour renderer.
     """
 
-    __slots__ = ()
-
 
 class IrRuleRef(IrStr, IrAtom):
     """Reference to another rule. The string is the rule name.
@@ -85,8 +81,6 @@ class IrRuleRef(IrStr, IrAtom):
     Used in rule bodies to denote a non-terminal; the name matches the
     ``IrRule.name`` of the referenced rule.
     """
-
-    __slots__ = ()
 
 
 # ── Concrete tuple-tier collections ───────────────────────────────────
@@ -100,8 +94,6 @@ class IrSequence(IrSeq["IrItem"]):
     A homogeneous :class:`IrSeq` of ``IrItem``.
     """
 
-    __slots__ = ()
-
 
 class IrAlternation(IrSeq[IrSequence], IrAtom):
     """Ordered choice (alternation) between ``IrSequence`` arms.
@@ -110,8 +102,6 @@ class IrAlternation(IrSeq[IrSequence], IrAtom):
     Each arm is an ``IrSequence``; the first matching arm wins.
     A homogeneous :class:`IrSeq` of ``IrSequence``.
     """
-
-    __slots__ = ()
 
 
 # ── Concrete composite records ────────────────────────────────────────
@@ -148,7 +138,6 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier]):
     Children: ``atom``, ``quantifier`` (both IR nodes — the whole tuple).
     """
 
-    __slots__ = ()
     atom: IrAtom
     quantifier: IrQuantifier = IrQuantifier()
 
@@ -168,7 +157,6 @@ class IrNot[Ir_co: IrAtom = IrAtom](IrNamedTuple[Ir_co], IrAtom):
     :param Ir_co: Concrete atom type of the wrapped body (defaults to ``IrAtom``).
     """
 
-    __slots__ = ()
     body: Ir_co
 
 
