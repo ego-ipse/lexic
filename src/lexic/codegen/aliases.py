@@ -29,11 +29,11 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 from lexic.ir.walk import IrVisitor
 from lexic.utils.quantifiers import bounds_to_quantifier
@@ -85,8 +85,10 @@ def _atom_regex_fragment(item: IrItem) -> str:
     q = _suffix(item.quantifier)
     if isinstance(atom, IrLiteral):
         return re.escape(atom) + q
-    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return _bracket(atom.body, True) + q
+    if isinstance(atom, IrNot):
+        inner = atom[0]
+        if isinstance(inner, IrCharClass):
+            return _bracket(inner, True) + q
     if isinstance(atom, IrCharClass):
         return _bracket(atom, False) + q
     if isinstance(atom, IrAlternation):
@@ -168,11 +170,13 @@ def _visit_item(d: _PatternAliasVisitor, n: IrSelf, _nc: Sequence[IrSelf]) -> Ir
         else:
             d.record(regex_for_group(atom, q), "Pattern")
         return IrNone
-    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        d.record(
-            regex_for_charclass(atom.body, q, negated=True),
-            _name_for_charclass(atom.body, negated=True) or "Pattern",
-        )
+    if isinstance(atom, IrNot):
+        inner = atom[0]
+        if isinstance(inner, IrCharClass):
+            d.record(
+                regex_for_charclass(inner, q, negated=True),
+                _name_for_charclass(inner, negated=True) or "Pattern",
+            )
     elif isinstance(atom, IrCharClass):
         d.record(
             regex_for_charclass(atom, q),

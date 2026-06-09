@@ -25,12 +25,12 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
 from lexic.ir.walk import IrDispatch, IrTransformer, IrVisitor
@@ -233,8 +233,8 @@ _FieldHint: TypeAlias = Callable[[_A], str]
 
 def _bracketed(atom: IrAtom) -> str:
     """Return the bracket-form of a charclass or negated-charclass atom."""
-    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return f"[^{atom.body}]"
+    if isinstance(atom, IrNot) and isinstance(atom[0], IrCharClass):
+        return f"[^{atom[0]}]"
     if isinstance(atom, IrCharClass):
         return f"[{atom}]"
     return ""

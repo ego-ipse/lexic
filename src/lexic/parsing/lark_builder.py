@@ -17,11 +17,11 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.regex_portable import literal_to_regex_pattern
 from lexic.ir.spec import RuleSpec
 from lexic.parsing.transformer.build_transformer import build_transformer
@@ -66,10 +66,12 @@ def _atom_to_lark(item: IrItem) -> str:
     q_str = bounds_to_quantifier(item.quantifier.min, item.quantifier.max)
     if isinstance(atom, IrLiteral):
         return f'"{_LARK_ESCAPES.encode(atom)}"{q_str}'
-    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return _regex_terminal(
-            _bracket(atom.body.replace("/", "\\/"), True), item.quantifier
-        )
+    if isinstance(atom, IrNot):
+        inner = atom[0]
+        if isinstance(inner, IrCharClass):
+            return _regex_terminal(
+                _bracket(inner.replace("/", "\\/"), True), item.quantifier
+            )
     if isinstance(atom, IrCharClass):
         return _regex_terminal(
             _bracket(atom.replace("/", "\\/"), False), item.quantifier
@@ -103,10 +105,12 @@ def _atom_to_lark_regex(item: IrItem) -> str:
     q_str = bounds_to_quantifier(item.quantifier.min, item.quantifier.max)
     if isinstance(atom, IrLiteral):
         return _regex_terminal(literal_to_regex_pattern(atom), item.quantifier)
-    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return _regex_terminal(
-            _bracket(atom.body.replace("/", "\\/"), True), item.quantifier
-        )
+    if isinstance(atom, IrNot):
+        inner = atom[0]
+        if isinstance(inner, IrCharClass):
+            return _regex_terminal(
+                _bracket(inner.replace("/", "\\/"), True), item.quantifier
+            )
     if isinstance(atom, IrCharClass):
         return _regex_terminal(
             _bracket(atom.replace("/", "\\/"), False), item.quantifier

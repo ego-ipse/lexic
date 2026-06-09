@@ -10,7 +10,6 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import (
     IrAction,
-    IrAnd,
     IrCallable,
     IrChild,
     IrChildren,
@@ -181,55 +180,6 @@ def test_ircompare_reads_field_operand():
     q = IrQuantifier(min=0, max=1)
     cmp = IrCompare(IrField("min", IrInt), IrOp("=="), IrInt(0))
     assert cmp.eval(IrNone, q, ()) == 1
-
-
-# ── IrAnd ─────────────────────────────────────────────────────────────
-
-
-def test_irand_is_an_irtuple_subclass():
-    """IrAnd IS its operand tuple — an IrTuple/tuple, not a dataclass record."""
-    assert isinstance(IrAnd(), tuple)
-    assert isinstance(IrAnd(), IrTuple)
-
-
-def test_irand_all_true_yields_one():
-    """Every operand truthy ⇒ IrInt(1)."""
-    a = IrAnd(
-        IrCompare(IrInt(1), IrOp("=="), IrInt(1)),
-        IrCompare(IrInt(2), IrOp(">"), IrInt(1)),
-    )
-    result = a.eval(IrNone, IrNone, ())
-    assert result == 1
-    assert isinstance(result, IrInt)
-
-
-def test_irand_one_false_yields_zero():
-    """A single falsy operand ⇒ IrInt(0)."""
-    a = IrAnd(
-        IrCompare(IrInt(1), IrOp("=="), IrInt(1)),
-        IrCompare(IrInt(1), IrOp("=="), IrInt(0)),
-    )
-    assert a.eval(IrNone, IrNone, ()) == 0
-
-
-def test_irand_empty_is_vacuously_true():
-    """An empty conjunction is vacuously true ⇒ IrInt(1)."""
-    assert IrAnd().eval(IrNone, IrNone, ()) == 1
-
-
-def test_irand_short_circuits_on_first_false():
-    """IrAnd stops at the first falsy operand and never evals later ones."""
-    calls: list[int] = []
-
-    def _record(_d, _n, _nc):
-        calls.append(1)
-        return IrInt(1)
-
-    a = IrAnd(
-        IrCompare(IrInt(1), IrOp("=="), IrInt(0)), IrCallable[IrSelf, IrInt](_record)
-    )
-    assert a.eval(IrNone, IrNone, ()) == 0
-    assert not calls
 
 
 # ── IrCallable ───────────────────────────────────────────────────────

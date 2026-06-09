@@ -8,12 +8,12 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 
 # Canonical set of all grammar-AST IR types that every flavour must cover.

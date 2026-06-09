@@ -47,12 +47,12 @@ from lexic.ir.nodes import (
     IrAst,
     IrCharClass,
     IrItem,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 
 # ── builder functions ─────────────────────────────────────────────────
 

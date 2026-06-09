@@ -12,11 +12,11 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 
 Pattern = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z_]$")]

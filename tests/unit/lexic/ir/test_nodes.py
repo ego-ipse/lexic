@@ -18,12 +18,12 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 
 # ── IrQuantifier ───────────────────────────────────────────────────────
 
@@ -81,9 +81,9 @@ def test_ir_charclass_holds_pattern():
 def test_ir_not_wraps_charclass():
     """Test that IrNot wraps a charclass atom."""
     cc = IrCharClass("\\n")
-    node = IrNot[IrCharClass](body=cc)
-    assert node.body is cc
-    assert node.body == "\\n"
+    node = IrNot(cc)
+    assert node[0] is cc
+    assert node[0] == "\\n"
 
 
 def test_ir_ruleref_holds_name():
@@ -433,7 +433,6 @@ def test_all_grammar_records_are_named_tuples():
     for node in (
         IrQuantifier(),
         IrItem(IrLiteral("x")),
-        IrNot(IrLiteral("a")),
         IrRule("r", IrAlternation()),
         IrAst(),
     ):
@@ -459,7 +458,6 @@ def test_bound_inherited_explicit_is_not_reclobbered_via_mro():
 
 def test_bound_derived_from_own_typevar_bound():
     """A class with its OWN bounded TypeVar derives ``_bound`` from that bound."""
-    assert IrNot.bound_type() is IrAtom  # IrNot[Ir_co: IrAtom] -> IrAtom
 
     class _Probe[T: IrLiteral](IrNode):  # own bounded TypeVar -> derived
         pass

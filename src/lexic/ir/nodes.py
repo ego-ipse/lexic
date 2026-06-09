@@ -44,7 +44,6 @@ __all__ = [
     "IrAlternation",
     "IrQuantifier",
     "IrItem",
-    "IrNot",
     "IrRule",
     "IrAst",
 ]
@@ -140,24 +139,6 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier]):
 
     atom: IrAtom
     quantifier: IrQuantifier = IrQuantifier()
-
-
-class IrNot[Ir_co: IrAtom = IrAtom](IrNamedTuple[Ir_co], IrAtom):
-    """Negation — an ``IrAtom`` that inverts a character class or atom.
-
-    Corresponds to ``[^…]`` (negated character class) in GBNF.  The ``body``
-    field is typically an ``IrCharClass`` but accepts any ``IrAtom`` subtype
-    via the ``Ir_co`` parameter.
-
-    Because ``IrNot`` IS-AN ``IrAtom``, it can be wrapped by ``IrItem``
-    like any other atom.
-
-    Children: the single ``body`` atom.
-
-    :param Ir_co: Concrete atom type of the wrapped body (defaults to ``IrAtom``).
-    """
-
-    body: Ir_co
 
 
 class IrRule(IrNamedTuple[IrStr, IrAlternation]):

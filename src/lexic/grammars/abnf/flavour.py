@@ -39,12 +39,12 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 
 META_GRAMMAR = r"""
 start: rule+
@@ -142,7 +142,7 @@ def _abnf_charclass(_d, n, _nc) -> IrStr:
 def _abnf_not(_d, n, _nc) -> IrStr:
     """ABNF has no native negation."""
     raise UnsupportedConstructError(
-        f"ABNF does not support IrNot (got {type(n.body).__name__})"
+        f"ABNF does not support IrNot (got {type(n[0]).__name__})"
     )
 
 

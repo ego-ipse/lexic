@@ -34,12 +34,12 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 
 META_GRAMMAR = r"""
 start: rule+
@@ -100,7 +100,7 @@ def _gbnf_charclass(_d, n, _nc) -> IrStr:
 
 def _gbnf_not(_d, n, _nc) -> IrStr:
     """Render ``IrNot(IrCharClass(...))`` as ``[^value]``."""
-    inner = n.body
+    inner = n[0]
     if isinstance(inner, IrCharClass):
         return IrStr(f"[^{inner}]")
     raise UnsupportedConstructError(

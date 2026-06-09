@@ -2,7 +2,6 @@
 
 from lexic.ir.action import (
     IrAction,
-    IrAnd,
     IrCallable,
     IrChild,
     IrChildren,
@@ -42,13 +41,12 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.operators import IrOp, IrOpNode
+from lexic.ir.operators import IrAnd, IrNot, IrOp, IrOpNode
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
 from lexic.ir.walk import IrTransformer, IrVisitor

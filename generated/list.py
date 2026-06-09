@@ -11,10 +11,10 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRuleRef,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 
 Pattern = Annotated[

@@ -13,7 +13,7 @@ to a slot that has no relevant value.
 
 **Node shapes:** the record-style actions (``IrField``, ``IrCompare``,
 ``IrChild``, ``IrChildren``, ``IrConcat``, ``IrJoin``, ``IrCond``, ``IrRaise``,
-``IrAction``) are :class:`IrNamedTuple` records; ``IrAnd`` is an :class:`IrSeq`;
+``IrAction``) are :class:`IrNamedTuple` records;
 ``IrCallable`` is an :class:`IrNode` leaf wrapping a handler; ``IrReturn`` is an
 :class:`IrNode` leaf that also IS-A ``BaseException`` (object-based bases, unlike
 a tuple, coexist with its layout). No action node is an :class:`IrNamedTuple`.
@@ -34,7 +34,6 @@ from lexic.ir.base import (
     IrNone,
     IrScalar,
     IrSelf,
-    IrSeq,
     IrStr,
     IrTuple,
 )
@@ -124,32 +123,6 @@ class IrCompare(IrNamedTuple[IrSelf, IrOp, IrSelf]):
         """
         operands = (self.left.eval(d, n, nc), self.right.eval(d, n, nc))
         return self.op.eval(d, n, operands)
-
-
-# ── Conjunction ───────────────────────────────────────────────────────
-
-
-class IrAnd(IrSeq[IrSelf]):
-    """Short-circuit conjunction — a homogeneous :class:`~lexic.ir.base.IrSeq`.
-
-    The node IS its operand tuple. ``eval`` ANDs the truthiness of each
-    evaluated operand, short-circuiting on the first falsy one, and yields
-    ``IrInt(1)`` (all truthy / empty / vacuously true) or ``IrInt(0)``.
-    Construct variadically: ``IrAnd(pred1, pred2, …)``.
-    """
-
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
-        """AND the truthiness of each evaluated operand, short-circuiting.
-
-        :param d: Dispatcher forwarded to each operand's ``eval``.
-        :param n: Current node forwarded to each operand's ``eval``.
-        :param nc: Pre-walked children forwarded to each operand's ``eval``.
-        :returns: ``IrInt(0)`` on the first falsy operand, else ``IrInt(1)``.
-        """
-        for part in self:
-            if not part.eval(d, n, nc):
-                return IrInt(0)
-        return IrInt(1)
 
 
 # ── Procedural escape hatch ───────────────────────────────────────────

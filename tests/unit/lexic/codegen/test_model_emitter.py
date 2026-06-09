@@ -10,11 +10,11 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from tests.unit.lexic.codegen.conftest import load_emitted, make_charclass_literal_group
 from tests.unit.lexic.conftest import make_spec as _spec
 

@@ -14,12 +14,12 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.parsing.meta_parser import MetaGrammarParser
 
 
@@ -107,7 +107,7 @@ def test_parses_negated_charclass():
     rule = _ast_first_rule(r'r = [^"\\]' + "\n")
     item = rule.body[0][0]
     assert isinstance(item.atom, IrNot)
-    assert isinstance(item.atom.body, IrCharClass)
+    assert isinstance(item.atom[0], IrCharClass)
 
 
 def test_parses_ruleref():

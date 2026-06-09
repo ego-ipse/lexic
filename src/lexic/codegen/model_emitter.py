@@ -28,10 +28,10 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRuleRef,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 
 CANONICAL_IMPORTS = """\
@@ -47,12 +47,12 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrRule,
     IrRuleRef,
     IrSequence,
     IrQuantifier,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 """
 
@@ -115,8 +115,8 @@ _ATOM_FIELD_TYPE: dict[type, Callable] = {
     IrLiteral: lambda a, q, s, al: "str",
     IrCharClass: lambda a, q, s, al: _pattern_type(regex_for_charclass(a, q), al),
     IrNot: lambda a, q, s, al: (
-        _pattern_type(regex_for_charclass(a.body, q, negated=True), al)
-        if isinstance(a.body, IrCharClass)
+        _pattern_type(regex_for_charclass(a[0], q, negated=True), al)
+        if isinstance(a[0], IrCharClass)
         else "str"
     ),
     IrRuleRef: lambda a, q, s, al: _ruleref_type(a, q, s),

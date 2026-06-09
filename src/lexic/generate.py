@@ -10,11 +10,11 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 
 _ASCII_PRINTABLE = [chr(c) for c in range(32, 127)]
@@ -76,8 +76,10 @@ def _gen_atom(
     atom, q = item.atom, item.quantifier
     if isinstance(atom, IrLiteral):
         return atom * _pick_count(q, rng) if q != IrQuantifier(1, 1) else atom
-    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return _gen_charclass(atom.body, q, rng, negated=True)
+    if isinstance(atom, IrNot):
+        inner = atom[0]
+        if isinstance(inner, IrCharClass):
+            return _gen_charclass(inner, q, rng, negated=True)
     if isinstance(atom, IrCharClass):
         return _gen_charclass(atom, q, rng)
     if isinstance(atom, IrRuleRef):
