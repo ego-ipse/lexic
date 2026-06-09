@@ -12,7 +12,6 @@ from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -103,15 +102,15 @@ def test_normalize_literal_can_be_overridden_to_return_group():
             return text, False
 
         @classmethod
-        def normalize_literal(cls, decoded: str) -> IrGroup:
+        def normalize_literal(cls, decoded: str) -> IrAlternation:
             seq = IrSequence(
                 *(IrItem(IrCharClass(f"{c.lower()}{c.upper()}")) for c in decoded)
             )
-            return IrGroup(IrAlternation(seq))
+            return IrAlternation(seq)
 
     out = _F.normalize_literal("ab")
-    assert isinstance(out, IrGroup)
-    arm = out.body[0]
+    assert isinstance(out, IrAlternation)
+    arm = out[0]
     assert arm[0].atom == IrCharClass("aA")
     assert arm[1].atom == IrCharClass("bB")
 

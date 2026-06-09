@@ -12,15 +12,14 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.parsing.meta_parser import MetaGrammarParser
 
 
@@ -108,7 +107,7 @@ def test_parses_negated_charclass():
     rule = _ast_first_rule(r'r = [^"\\]' + "\n")
     item = rule.body[0][0]
     assert isinstance(item.atom, IrNot)
-    assert isinstance(item.atom.body, IrCharClass)
+    assert isinstance(item.atom[0], IrCharClass)
 
 
 def test_parses_ruleref():
@@ -139,8 +138,8 @@ def test_parses_group():
     """Parse a group"""
     rule = _ast_first_rule("expr = (a | b)\n")
     item = rule.body[0][0]
-    assert isinstance(item.atom, IrGroup)
-    assert len(item.atom.body) == 2
+    assert isinstance(item.atom, IrAlternation)
+    assert len(item.atom) == 2
 
 
 def test_decodes_literal_escapes_via_flavour_codec():
@@ -171,7 +170,7 @@ class _CaseInsensitiveStub(_StubFlavour):
         seq = IrSequence(
             *(IrItem(IrCharClass(f"{c.lower()}{c.upper()}")) for c in decoded)
         )
-        return IrGroup(IrAlternation(seq))
+        return IrAlternation(seq)
 
 
 def test_normalize_literal_override_expands_to_group():
@@ -179,7 +178,7 @@ def test_normalize_literal_override_expands_to_group():
 
     ast = MetaGrammarParser(_CaseInsensitiveStub()).parse('r = "ab"\n')
     item = ast.rules[0].body[0][0]
-    assert isinstance(item.atom, IrGroup)
-    inner_items = item.atom.body[0]
+    assert isinstance(item.atom, IrAlternation)
+    inner_items = item.atom[0]
     assert inner_items[0].atom == IrCharClass("aA")
     assert inner_items[1].atom == IrCharClass("bB")

@@ -5,8 +5,8 @@ from __future__ import annotations
 import importlib
 
 from lexic import ir
-from lexic.ir.nodes import IrNone as _IrNone
-from lexic.ir.nodes import IrNoneType as _IrNoneType
+from lexic.ir.base import IrNone as _IrNone
+from lexic.ir.base import IrNoneType as _IrNoneType
 
 
 def test_module_has_all() -> None:
@@ -55,7 +55,6 @@ def test_core_node_types_exported() -> None:
         "IrLiteral",
         "IrCharClass",
         "IrRuleRef",
-        "IrGroup",
         "IrNot",
         "IrItem",
         "IrSequence",
@@ -67,7 +66,6 @@ def test_core_node_types_exported() -> None:
         "IrNode",
         "IrLeaf",
         "IrAtom",
-        "IrComposite",
     ):
         assert hasattr(ir, name), f"Core node type {name!r} missing from lexic.ir"
         assert name in ir.__all__, f"Core node type {name!r} missing from __all__"
@@ -144,3 +142,10 @@ def test_package_reimport_is_idempotent() -> None:
     """Re-importing lexic.ir returns the same module object."""
     mod = importlib.import_module("lexic.ir")
     assert mod is ir
+
+
+def test_new_algebra_ops_are_public() -> None:
+    """Phase-0a algebra ops are re-exported (IrOp replaces the abandoned Cmp)."""
+    for name in ("IrScalar", "IrInt", "IrOp", "IrCompare", "IrAnd"):
+        assert hasattr(ir, name), name
+        assert name in ir.__all__, name

@@ -5,31 +5,32 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 from functools import cache
 from typing import Callable, Literal, TypeAlias, TypeVar
 
 from lexic.ir.action import IrAction, IrCallable, IrReturn
+from lexic.ir.base import (
+    Field,
+    IrAtom,
+    IrNode,
+    IrNone,
+    IrNoneType,
+    IrSelf,
+    IrSeq,
+)
 from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrAtom,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
-    IrNode,
-    IrNone,
-    IrNoneType,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
-    IrSelf,
     IrSequence,
-    IrTuple,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
 from lexic.ir.walk import IrDispatch, IrTransformer, IrVisitor
@@ -122,7 +123,7 @@ def _reserve_helper_name(parent_name: str, taken: set[str]) -> str:
 
 
 def _extract_group(
-    _d: object, group: IrGroup, _nc: object
+    _d: object, group: IrAlternation, _nc: object
 ) -> IrAlternation | IrNoneType:
     """Return the group body if it contains a ruleref, else ``None``.
 
@@ -131,7 +132,7 @@ def _extract_group(
     :param _nc: Pre-dispatched children (unused).
     :returns: ``group.body`` when hoistable, else ``None``.
     """
-    return group.body if has_ruleref(group.body) else IrNone
+    return group if has_ruleref(group) else IrNone
 
 
 def _extract_none(_d: object, _n: object, _nc: object) -> IrNoneType:
@@ -146,7 +147,7 @@ def _extract_none(_d: object, _n: object, _nc: object) -> IrNoneType:
 
 
 _EXTRACT_BODY: IrDispatch = IrDispatch(
-    actions=(IrAction(IrGroup, IrCallable(_extract_group)),),
+    actions=(IrAction(IrAlternation, IrCallable(_extract_group)),),
     default=IrCallable(_extract_none),
 )
 
@@ -186,7 +187,6 @@ def _hoist_item(d: IrNode, item: IrItem, _nc: object) -> IrItem:
     return IrItem(atom=IrRuleRef(name), quantifier=item.quantifier)
 
 
-@dataclass(frozen=True, slots=True, repr=False)
 class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     """Hoist quantified groups-with-rulerefs into synthetic helper rules.
 
@@ -199,9 +199,9 @@ class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     :ivar helpers: Mutable list of emitted helper rules — per-rule fresh.
     """
 
-    parent_name: str = field(default="", hash=False, compare=False)
-    name_set: set[str] = field(default_factory=set, hash=False, compare=False)
-    helpers: list[IrRule] = field(default_factory=list, hash=False, compare=False)
+    parent_name: str = ""
+    name_set: set[str] = Field(default_factory=set)
+    helpers: list[IrRule] = Field(default_factory=list)
     actions: tuple[IrAction, ...] = (IrAction(IrItem, IrCallable(_hoist_item)),)
 
 
@@ -222,7 +222,7 @@ def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
         new_body = t.apply(rule.body)
         all_helpers.extend(t.helpers)
         new_rules.append(IrRule(rule.name, new_body))
-    return IrAst(rules=IrTuple(*new_rules), start=ast.start), all_helpers
+    return IrAst(rules=IrSeq(*new_rules), start=ast.start), all_helpers
 
 
 # ── field naming ──────────────────────────────────────────────────────
@@ -233,8 +233,8 @@ _FieldHint: TypeAlias = Callable[[_A], str]
 
 def _bracketed(atom: IrAtom) -> str:
     """Return the bracket-form of a charclass or negated-charclass atom."""
-    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return f"[^{atom.body}]"
+    if isinstance(atom, IrNot) and isinstance(atom[0], IrCharClass):
+        return f"[^{atom[0]}]"
     if isinstance(atom, IrCharClass):
         return f"[{atom}]"
     return ""
@@ -271,20 +271,20 @@ _ATOM_HINT: dict[type, _FieldHint] = {
     ),
     IrRuleRef: lambda a: a.replace("-", "_"),
     # ruleref group → "kind" (structural slot); literal-only group → name from content
-    IrGroup: lambda a: "kind" if has_ruleref(a) else _group_hint(a),
+    IrAlternation: lambda a: "kind" if has_ruleref(a) else _group_hint(a),
 }
 
 
-def _group_hint(group: IrGroup) -> str:
+def _group_hint(group: IrAlternation) -> str:
     """Name a literal-only group from the first atom of its first arm."""
-    if not (group.body and group.body[0]):
+    if not (group and group[0]):
         return "inline"
-    first = group.body[0][0].atom
+    first = group[0][0].atom
     hint = _ATOM_HINT.get(type(first))
     return hint(first) if hint else "inline"
 
 
-def _group_field_base(a: IrGroup) -> str | None:
+def _group_field_base(a: IrAlternation) -> str | None:
     """Tier-2 name for a group atom, or None → Tier-3 positional fallback."""
     if has_ruleref(a):
         return "kind"
@@ -301,7 +301,7 @@ _FIELD_BASE: FieldBase = {
     IrRuleRef: lambda a: a.replace("-", "_"),
     IrCharClass: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
     IrNot: lambda a: CHARCLASS_NAMES.get(_bracketed(a)),
-    IrGroup: _group_field_base,
+    IrAlternation: _group_field_base,
 }
 
 

@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from typing import ClassVar
 
 from lexic.ir.escapes import EscapeCodec
-from lexic.ir.nodes import IrGroup, IrLiteral, IrQuantifier
+from lexic.ir.nodes import IrAlternation, IrLiteral, IrQuantifier
 from lexic.ir.walk import IrEmitter
 
 
@@ -53,7 +53,7 @@ class IrFlavour(IrEmitter, ABC):
         """
 
     @classmethod
-    def normalize_literal(cls, decoded: str) -> IrLiteral | IrGroup:
+    def normalize_literal(cls, decoded: str) -> IrLiteral | IrAlternation:
         """Optional sugar-expansion hook. Default: identity (return IrLiteral).
 
         :param decoded: Decoded literal string.

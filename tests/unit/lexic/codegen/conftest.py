@@ -11,7 +11,6 @@ import types
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -41,13 +40,11 @@ def load_emitted(src: str) -> types.ModuleType:
         os.unlink(path)
 
 
-def make_charclass_literal_group() -> IrGroup:
-    """Return the IrGroup for ([a-h] 'x') used in alias and emitter tests."""
-    return IrGroup(
-        IrAlternation(
-            IrSequence(
-                IrItem(IrCharClass("a-h"), IrQuantifier(1, 1)),
-                IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
-            )
+def make_charclass_literal_group() -> IrAlternation:
+    """Return the IrAlternation for ([a-h] 'x') used in alias and emitter tests."""
+    return IrAlternation(
+        IrSequence(
+            IrItem(IrCharClass("a-h"), IrQuantifier(1, 1)),
+            IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
         )
     )

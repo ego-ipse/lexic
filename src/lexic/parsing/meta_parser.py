@@ -41,20 +41,18 @@ from lark import (
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrFlavour
+from lexic.ir.base import IrAtom, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrAtom,
     IrCharClass,
-    IrGroup,
     IrItem,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
-    IrTuple,
 )
+from lexic.ir.operators import IrNot
 
 # ── builder functions ─────────────────────────────────────────────────
 
@@ -74,14 +72,14 @@ def _build_charclass(flavour: IrFlavour, children: list) -> IrAtom:
 
 
 _IR_BUILDERS: dict[str, _IrBuilder] = {
-    "start": lambda _f, c: IrAst(rules=IrTuple(*c), start=c[0].name if c else ""),
+    "start": lambda _f, c: IrAst(rules=IrSeq(*c), start=c[0].name if c else ""),
     "ir_rule": lambda _f, c: IrRule(name=str(c[0]), body=c[1]),
     "ir_alternation": lambda _f, c: IrAlternation(*c),
     "ir_sequence": lambda _f, c: IrSequence(*c),
     "ir_literal": lambda f, c: f.normalize_literal(f.escapes.decode(str(c[0])[1:-1])),
     "ir_charclass": _build_charclass,
     "ir_ruleref": lambda _f, c: IrRuleRef(str(c[0])),
-    "ir_group": lambda _f, c: IrGroup(body=c[0]),
+    "ir_group": lambda _f, c: c[0],
 }
 
 # ── transformer ───────────────────────────────────────────────────────

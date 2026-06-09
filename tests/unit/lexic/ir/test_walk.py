@@ -1,6 +1,6 @@
 """Tests for ``ir/walk.py`` — action-driven dispatcher on the IrSelf substrate.
 
-The dispatcher is an :class:`~lexic.ir.nodes.IrComposite` whose ``actions``
+The dispatcher is an :class:`~lexic.ir.base.IrCachingTuple` whose ``actions``
 tuple is the action table. ``apply(root)`` is the entry verb — chosen over
 ``__call__`` because ``__call__`` is reserved for IrSelf-identity (returns
 ``Self``). Overriding it on the dispatcher would violate LSP.
@@ -41,26 +41,19 @@ Presets
                     ``default=IrRaise()`` to refuse unmatched types.
 """
 
-from dataclasses import FrozenInstanceError
-
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction, IrCallable, IrEmit, IrRaise, IrRebuild, IrReturn
+from lexic.ir.base import IrCachingTuple, IrLeaf, IrNode, IrNone, IrSelf, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrComposite,
     IrItem,
-    IrLeaf,
     IrLiteral,
-    IrNode,
-    IrNone,
     IrRule,
     IrRuleRef,
-    IrSelf,
     IrSequence,
-    IrTuple,
 )
 from lexic.ir.walk import IrDispatch, IrEmitter, IrTransformer, IrVisitor
 
@@ -76,15 +69,15 @@ def _tiny_ast() -> IrAst:
         "r",
         IrAlternation(IrSequence(IrItem(atom=IrRuleRef("r")))),
     )
-    return IrAst(rules=IrTuple(rule), start="r")
+    return IrAst(rules=IrSeq(rule), start="r")
 
 
 # ── IrDispatch fundamentals ──────────────────────────────────────────
-def test_irdispatch_is_composite():
-    """IrDispatch IS-AN IrComposite."""
+def test_irdispatch_is_caching_tuple():
+    """IrDispatch IS-AN IrCachingTuple."""
     a = IrAction(IrLiteral, IrLiteral("x"))
     d = IrVisitor(actions=(a,))
-    assert isinstance(d, IrComposite)
+    assert isinstance(d, IrCachingTuple)
     assert d.actions == (a,)
     assert not d.children()
 
@@ -92,13 +85,12 @@ def test_irdispatch_is_composite():
 def test_dispatch_resolves_action():
     """IrDispatch resolves the registered action and applies it."""
     d = IrDispatch(actions=(IrAction(IrLiteral, IrEmit()),))
-    assert isinstance(d, IrComposite)
+    assert isinstance(d, IrCachingTuple)
     assert d.apply(IrLiteral("x")) == "x"
 
 
-def test_resolve_cache_excluded_from_equality():
-    """_resolve_cache is excluded from __eq__ — two dispatchers with equal
-    actions compare equal regardless of cache state."""
+def test_dispatchers_with_equal_actions_compare_equal():
+    """A dispatcher is an immutable value: equal action tables compare equal."""
     a = IrDispatch(actions=())
     b = IrDispatch(actions=())
     assert a == b
@@ -162,7 +154,7 @@ def test_action_body_receives_pre_dispatched_children_when_caller_supplies_them(
 
     d = IrVisitor(actions=(IrAction(IrItem, IrCallable(_on)),))
     item = IrItem(atom=IrLiteral("x"))
-    pre = IrTuple(IrLiteral("PRE"), IrLiteral("Q"))
+    pre = IrSeq(IrLiteral("PRE"), IrLiteral("Q"))
     d.eval(d, item, pre)
     assert captured == [(IrLiteral("PRE"), IrLiteral("Q"))]
 
@@ -186,7 +178,7 @@ def test_irreturn_short_circuits_subtree_walk():
         return IrNone
 
     ast = IrAst(
-        rules=IrTuple(
+        rules=IrSeq(
             IrRule(
                 "r",
                 IrAlternation(
@@ -236,10 +228,9 @@ def test_repeated_dispatch_does_not_rebuild_action_table():
 
 
 def test_dispatcher_is_frozen_actions_immutable():
-    """Frozen dataclass: actions field cannot be rebound after construction."""
+    """Immutable tuple record: the actions accessor is read-only (no setter)."""
     d = IrVisitor()
-    with pytest.raises(FrozenInstanceError):
-        # Frozen-dataclass __setattr__ raises; setattr() goes through it.
+    with pytest.raises(AttributeError):
         setattr(d, "actions", ())
 
 
@@ -262,7 +253,7 @@ def test_irvisitor_default_walks_into_children():
 
     d = IrVisitor(actions=(IrAction(IrLiteral, IrCallable[IrSelf](_record)),))
     ast = IrAst(
-        rules=IrTuple(
+        rules=IrSeq(
             IrRule(
                 "r",
                 IrAlternation(

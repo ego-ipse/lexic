@@ -26,13 +26,12 @@ from lexic.ir.derive import has_ruleref
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRuleRef,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 
 CANONICAL_IMPORTS = """\
@@ -46,15 +45,14 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
-    IrNot,
     IrRule,
     IrRuleRef,
     IrSequence,
     IrQuantifier,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 """
 
@@ -84,10 +82,10 @@ def _ruleref_type(name: str, q: IrQuantifier, specs: dict[str, RuleSpec]) -> str
     return f"List[{cls}]"
 
 
-def _group_type(atom: IrGroup, specs: dict[str, RuleSpec]) -> str:
+def _group_type(atom: IrAlternation, specs: dict[str, RuleSpec]) -> str:
     arm_refs = [
         arm[0].atom
-        for arm in atom.body
+        for arm in atom
         if len(arm) == 1 and isinstance(arm[0].atom, IrRuleRef)
     ]
     if arm_refs:
@@ -117,12 +115,12 @@ _ATOM_FIELD_TYPE: dict[type, Callable] = {
     IrLiteral: lambda a, q, s, al: "str",
     IrCharClass: lambda a, q, s, al: _pattern_type(regex_for_charclass(a, q), al),
     IrNot: lambda a, q, s, al: (
-        _pattern_type(regex_for_charclass(a.body, q, negated=True), al)
-        if isinstance(a.body, IrCharClass)
+        _pattern_type(regex_for_charclass(a[0], q, negated=True), al)
+        if isinstance(a[0], IrCharClass)
         else "str"
     ),
     IrRuleRef: lambda a, q, s, al: _ruleref_type(a, q, s),
-    IrGroup: lambda a, q, s, al: (
+    IrAlternation: lambda a, q, s, al: (
         _pattern_type(regex_for_group(a, q), al)
         if not has_ruleref(a)
         else _group_type(a, s)

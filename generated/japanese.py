@@ -62,8 +62,8 @@ Root.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(atom=IrRuleRef("jp-char"), quantifier=IrQuantifier(min=1, max=None)),
-        IrItem(atom=IrRuleRef("root-item"), quantifier=IrQuantifier(min=0, max=None)),
+        IrItem(IrRuleRef("jp-char"), IrQuantifier(1, None)),
+        IrItem(IrRuleRef("root-item"), IrQuantifier(0, None)),
     ],
     field_map={"jp_char": 0, "root_item": 1},
     non_semantic_fields=frozenset([]),
@@ -76,10 +76,10 @@ JpChar.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="alternation",
     items=[
-        IrItem(atom=IrRuleRef("hiragana"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrRuleRef("katakana"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrRuleRef("punctuation"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrRuleRef("cjk"), quantifier=IrQuantifier(min=1, max=1)),
+        IrItem(IrRuleRef("hiragana"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("katakana"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("punctuation"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("cjk"), IrQuantifier(1, 1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -91,7 +91,7 @@ Hiragana.__grammar__ = RuleSpec(
     class_name="Hiragana",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(atom=IrCharClass("ぁ-ゟ"), quantifier=IrQuantifier(min=1, max=1))],
+    items=[IrItem(IrCharClass("ぁ-ゟ"), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -102,7 +102,7 @@ Katakana.__grammar__ = RuleSpec(
     class_name="Katakana",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(atom=IrCharClass("ァ-ヿ"), quantifier=IrQuantifier(min=1, max=1))],
+    items=[IrItem(IrCharClass("ァ-ヿ"), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -113,7 +113,7 @@ Punctuation.__grammar__ = RuleSpec(
     class_name="Punctuation",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(atom=IrCharClass("、-〾"), quantifier=IrQuantifier(min=1, max=1))],
+    items=[IrItem(IrCharClass("、-〾"), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -124,7 +124,7 @@ Cjk.__grammar__ = RuleSpec(
     class_name="Cjk",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(atom=IrCharClass("一-鿿"), quantifier=IrQuantifier(min=1, max=1))],
+    items=[IrItem(IrCharClass("一-鿿"), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -136,8 +136,8 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(atom=IrCharClass(" \\t\\n"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrRuleRef("jp-char"), quantifier=IrQuantifier(min=1, max=None)),
+        IrItem(IrCharClass(" \\t\\n"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("jp-char"), IrQuantifier(1, None)),
     ],
     field_map={"head": 0, "jp_char": 1},
     non_semantic_fields=frozenset([]),

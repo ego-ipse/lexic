@@ -1,39 +1,44 @@
 """Action-algebra IrNodes — primitive-node model.
 
-Every class here is a plain :class:`IrNode` (via :class:`IrLeaf` /
-:class:`IrComposite`) that overrides ``eval`` to do work other than
-identity. The action algebra adds operations the grammar AST nodes don't
-cover: attribute reads, sibling lookup, joining, branching, short-circuit,
-and a procedural escape hatch.
+Every class here is a plain :class:`IrNode` (via :class:`IrNamedTuple`,
+:class:`IrSeq`, or an :class:`IrLeaf`/:class:`IrNode` leaf) that overrides
+``eval`` to do work other than identity. The action algebra adds operations the
+grammar AST nodes don't cover: attribute reads, sibling lookup, joining,
+branching, short-circuit, and a procedural escape hatch.
 
 All nodes inherit ``__call__ -> Self`` from :class:`IrSelf` (identity).
 The value-producing protocol is ``eval(d, n, nc) -> Ir_co`` — every class
 here overrides ``eval`` to produce its typed result. Pass :data:`IrNone`
 to a slot that has no relevant value.
 
-**Node-shape note (G3):** record-leaf actions (``IrField``, ``IrCallable``,
-``IrChild``, ``IrChildren``) and the string/branch operators (``IrConcat``,
-``IrJoin``, ``IrCond``) are :class:`IrComposite` dataclasses — the sole
-dataclass base in the primitive model. The default bodies (``IrPass``,
-``IrWalk``, ``IrEmit``, ``IrRebuild``) are plain ``__slots__``.
+**Node shapes:** the record-style actions (``IrField``, ``IrCompare``,
+``IrChild``, ``IrChildren``, ``IrConcat``, ``IrJoin``, ``IrCond``, ``IrRaise``,
+``IrAction``) are :class:`IrNamedTuple` records;
+``IrCallable`` is an :class:`IrNode` leaf wrapping a handler; ``IrReturn`` is an
+:class:`IrNode` leaf that also IS-A ``BaseException`` (object-based bases, unlike
+a tuple, coexist with its layout). No action node is an :class:`IrNamedTuple`.
+The default bodies (``IrPass``, ``IrWalk``, ``IrEmit``, ``IrRebuild``) are plain
+``__slots__`` leaves.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable, ClassVar, Sequence
+from typing import Callable, ClassVar, Self, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.nodes import (
-    IrComposite,
+from lexic.ir.base import (
+    IrInt,
     IrLeaf,
-    IrLiteral,
+    IrNamedTuple,
     IrNode,
     IrNone,
+    IrScalar,
     IrSelf,
     IrStr,
     IrTuple,
 )
+from lexic.ir.nodes import IrLiteral
+from lexic.ir.operators import IrOp
 
 # ── Control-flow exception ────────────────────────────────────────────
 
@@ -58,58 +63,110 @@ class _Return(BaseException):
 # ── Attribute reader ──────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrField[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
-    """Read a typed attribute from the dispatched node ``n``.
+class IrField(IrNamedTuple[str, type[IrScalar]]):
+    """Read a typed attribute from the dispatched node ``n`` and wrap it.
 
-    Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
-    :class:`IrStr` itself). Output is wrapped via ``self.bound(value)``
-    so it carries both ``str`` shape AND the IrSelf protocol.
+    The read value is wrapped via the **runtime** constructor ``out`` — a
+    value-leaf type such as :class:`~lexic.ir.nodes.IrStr` / :class:`IrInt`
+    (default ``IrStr``). Read an int with ``IrField("min", IrInt)``; the default
+    ``out=IrStr`` keeps every existing ``IrField("name")`` caller unchanged.
 
-    Use ``IrField`` only where a node has a *named* field to read (e.g.
-    ``IrField("name")`` on an :class:`~lexic.ir.nodes.IrRule`). A
-    str-leaf that IS its own value should be emitted directly via
-    :class:`IrEmit` instead.
+    Cast-free and open: ``out`` is any ``type[IrScalar]`` — callable with the
+    payload thanks to :meth:`IrScalar.__new__`, so ``self.out(value)``
+    type-checks without a cast and a new ``IrScalar`` subtype needs no change
+    here (no enumerated leaf-type union).
 
-    A record-leaf: an :class:`IrComposite` with ``_child_attrs = ()`` (the
-    inherited default), so it carries no IR-node children.
-
-    :param Ir_co: the str-typed result type (defaults to :class:`IrStr`).
+    A record-leaf: ``name`` and the class-valued ``out`` are scalar payload
+    (``_child_attrs = ()``); the class-aware repr renders ``out`` as a bare name.
     """
 
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
     name: str
+    out: type[IrScalar] = IrStr
 
-    def eval(self, _d: Iri, n: Iri, _nc: Sequence[Iri], /) -> Ir_co:
-        """Read ``getattr(n, self.name)`` and wrap via ``self.bound(value)``.
-
-        For ``Ir_co=IrStr`` the wrap is ``IrStr(value)`` — a no-op on
-        string-derived attributes, a stringification on non-string ones.
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrScalar:
+        """Read ``getattr(n, self.name)`` and wrap via ``self.out(value)``.
 
         :param _d: Dispatcher (unused — no recursion).
         :param n: Node whose attribute to read.
         :param _nc: Pre-walked children (unused).
-        :returns: The attribute value wrapped in ``self.bound``.
+        :returns: The attribute value wrapped in ``self.out`` (an ``IrScalar``).
         """
-        return self.bound(getattr(n, self.name))
+        return self.out(getattr(n, self.name))
+
+
+# ── Comparison ────────────────────────────────────────────────────────
+
+
+class IrCompare(IrNamedTuple[IrSelf, IrOp, IrSelf]):
+    """Compare two operand nodes; eval to ``IrInt(1)`` (true) or ``IrInt(0)``.
+
+    Evaluates ``left`` and ``right`` and hands the results to ``op`` (an
+    :class:`IrOp`), which applies the comparison. A truth value is an ``IrInt``
+    in ``{0, 1}`` — there is no ``IrBool``. Operands are typed ``IrSelf`` (not
+    ``IrNode``): ``IrNode``'s ``Ir_co`` is invariant, so a value operand like
+    ``IrField`` would not be assignable to a bare ``IrNode`` slot.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("left", "right")
+    left: IrSelf
+    op: IrOp
+    right: IrSelf
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
+        """Evaluate both operands and apply ``self.op``.
+
+        :param d: Dispatcher forwarded to each operand's ``eval``.
+        :param n: Current node forwarded to each operand's ``eval``.
+        :param nc: Pre-walked children forwarded to each operand's ``eval``.
+        :returns: ``IrInt(1)`` if the comparison holds, else ``IrInt(0)``.
+        """
+        operands = (self.left.eval(d, n, nc), self.right.eval(d, n, nc))
+        return self.op.eval(d, n, operands)
 
 
 # ── Procedural escape hatch ───────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, eq=False, repr=False)
-class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrComposite[Iri, Ir_co]):
-    """Procedural body. ``handler(d, n, nc) -> Ir_co``.
+class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
+    """Procedural body — a leaf that wraps one handler callable.
 
-    The escape hatch for logic the algebra can't express. Generic in
-    ``Ir_co``; callers narrow at construction: ``IrCallable[IrStr](handler)``.
+    The escape hatch for logic the algebra can't express. Generic in ``Iri``
+    (the handler's input type — a handler may type its parameters as narrowly
+    as it likes, e.g. ``group: IrAlternation``) and ``Ir_co`` (the result type);
+    callers narrow at construction: ``IrCallable[IrSelf, IrStr](handler)``.
 
-    ``eq=False`` because callables are not value-comparable. A record-leaf:
-    an :class:`IrComposite` with no IR-node children.
+    Built on :class:`IrNode` (not :class:`IrTuple`/:class:`IrScalar`), so ``eval``
+    keeps the ``Iri`` input type — no casts needed — and equality/hash are by
+    identity (callables are not value-comparable). The handler may also be an
+    :class:`IrSelf` node, which is ``eval``\\ ed instead of called.
 
+    :param Iri: the handler's input (dispatcher) type.
     :param Ir_co: the result type the handler produces.
     """
 
-    handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co]
+    __slots__ = ("handler",)
+    handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co]
+
+    def __new__(
+        cls,
+        handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co],
+    ) -> Self:
+        """Wrap ``handler`` as an immutable leaf.
+
+        :param handler: A procedure ``(d, n, nc) -> Ir_co`` or an IR node whose
+            ``eval`` produces the result.
+        :returns: The new ``IrCallable`` leaf.
+        """
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "handler", handler)
+        return obj
+
+    def __call__(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+        """Run the wrapped handler: a node is evaluated, a callable is called."""
+        if isinstance(self.handler, IrSelf):
+            return self.handler.eval(d, n, nc)
+        return self.handler(d, n, nc)
 
     def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
         """Forward to the wrapped handler.
@@ -119,29 +176,38 @@ class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrComposite[Iri, 
         :param nc: Pre-walked children forwarded to the handler.
         :returns: Whatever the handler returns.
         """
-        return self.handler(d, n, nc)
+        return self(d, n, nc)
+
+    def __repr__(self) -> str:
+        """Repr holding the handler's name (not round-trip codegen).
+
+        :returns: ``IrCallable(<handler name>)``.
+        """
+        return f"IrCallable({getattr(self.handler, '__name__', self.handler)})"
 
 
 # ── Sibling lookup ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrChild[Iri: IrSelf, Ir_co: IrSelf](IrComposite[Iri, Ir_co]):
+class IrChild[Ir_co: IrSelf](IrNamedTuple[str]):
     """Single dispatched child by name from ``n``'s ``_child_attrs``.
 
     ``Ir_co`` is the dispatcher's per-child result type — ``IrStr`` under
-    an emitter, ``IrNode`` under a transformer.
+    an emitter, ``IrNode`` under a transformer. ``_bound`` is derived from
+    ``Ir_co`` (see :meth:`IrSelf.__init_subclass__`), so :meth:`IrSelf.bind`
+    type-checks the resolved child.
 
-    A record-leaf: an :class:`IrComposite` with no IR-node children of its
-    own (it resolves a child of the *dispatched* node ``n``, not its own).
+    A record-leaf: ``name`` is scalar payload (``_child_attrs = ()``); it
+    resolves a child of the *dispatched* node ``n``, not its own.
 
     :param Ir_co: the dispatcher's per-child result type.
     :raises ValueError: if ``self.name`` is not in ``type(n)._child_attrs``.
     """
 
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
     name: str
 
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Resolve the named child.
 
         Hybrid: eager when ``nc`` is populated (caller pre-walked) — index
@@ -162,25 +228,23 @@ class IrChild[Iri: IrSelf, Ir_co: IrSelf](IrComposite[Iri, Ir_co]):
                 f"(known: {attrs})"
             ) from exc
         if nc:
-            return self.bind(nc[idx])
-        return self.bind(d.eval(d, n.children()[idx], IrTuple()))
+            return cast(Ir_co, self.bind(nc[idx]))
+        return cast(Ir_co, self.bind(d.eval(d, n.children()[idx], IrTuple())))
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrComposite[Iri, Ir_co]):
+class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNamedTuple):
     """Full tuple of dispatched children of ``n`` (reads ``n.children()``).
 
     ``Ir_co`` is the dispatcher's per-child result type. The result is the
     whole children sequence — distinct from :class:`IrChild` at the type
-    level.
+    level. ``_bound`` is derived from ``Ir_co`` so :meth:`IrSelf.bind` works.
 
-    A record-leaf: an :class:`IrComposite` with no IR-node children of its
-    own.
+    A fieldless record-leaf: it has no fields of its own.
 
     :param Ir_co: the dispatcher's per-child result type.
     """
 
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Resolve the children collection.
 
         Hybrid: eager when ``nc`` is populated (caller pre-walked) — return
@@ -192,28 +256,24 @@ class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrComposite[Iri, Ir_co]):
         :returns: The children sequence, type-checked against ``self.bound``.
         """
         if nc:
-            return self.bind(nc)
-        return self.bind(IrTuple(*(d.eval(d, c, IrTuple()) for c in n.children())))
+            return cast(Ir_co, self.bind(nc))
+        return cast(
+            Ir_co, self.bind(IrTuple(*(d.eval(d, c, IrTuple()) for c in n.children())))
+        )
 
 
 # ── String concatenation ──────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrConcat[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
+class IrConcat[Ir_co: IrStr = IrStr](IrNamedTuple[IrTuple]):
     """Evaluate ``parts`` in order; return ``bound().join(...)`` of results.
 
     Generic in ``Ir_co`` (bounded by :class:`IrStr`, defaulting to
-    :class:`IrStr`). The bound's neutral element (``IrStr()`` → ``""``)
-    serves as the join base, and the bound's own ``.join`` is the
-    type-native join — no casts needed.
-
-    **Shape note (Task 6):** ``IrConcat`` is an :class:`IrComposite` holding
-    ``parts: IrTuple``, NOT an :class:`IrTuple` subclass. The
-    generic-``+``-``IrTuple`` form breaks ``bound`` under pyright (the dual
-    generic lineage ``Ir_co: IrStr`` vs inherited ``IrTuple[IrSelf]`` makes
-    ``self.bound().join(...)`` error). The composite form matches
-    :class:`IrJoin` and is pyright-clean.
+    :class:`IrStr`). ``_bound`` is derived from ``Ir_co``, so at runtime the
+    bound's neutral element (``IrStr()`` → ``""``) is the join base. As an
+    :class:`IrNamedTuple` the ``bound`` property statically reports the base's
+    ``IrSelf`` (no ``.join``), so ``eval`` casts ``self.bound`` to
+    ``type[Ir_co]`` — the runtime value already satisfies it.
 
     :param Ir_co: the str-typed result type (defaults to :class:`IrStr`).
     """
@@ -221,7 +281,7 @@ class IrConcat[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
     _child_attrs: ClassVar[tuple[str, ...]] = ("parts",)
     parts: IrTuple = IrTuple()
 
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Concatenate evaluated parts via the bound's neutral element.
 
         :param d: Dispatcher forwarded to each part's ``eval``.
@@ -229,14 +289,14 @@ class IrConcat[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
         :param nc: Pre-walked children forwarded to each part's ``eval``.
         :returns: The concatenation of all parts wrapped in ``self.bound``.
         """
-        return self.bound(self.bound().join(p.eval(d, n, nc) for p in self.parts))
+        bound = cast(type[Ir_co], self.bound)
+        return bound(bound().join(p.eval(d, n, nc) for p in self.parts))
 
 
 # ── Variable-arity join with separator ────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrJoin[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
+class IrJoin[Ir_co: IrStr = IrStr](IrNamedTuple[IrSelf, IrSelf, IrSelf]):
     r"""Evaluate ``parts``; join results with ``separator``, fall back to
     ``empty`` when ``parts`` evaluates empty.
 
@@ -253,7 +313,7 @@ class IrJoin[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
     separator: IrSelf = IrLiteral("")
     empty: IrSelf = IrLiteral("")
 
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Evaluate ``parts``; join or return the empty fallback.
 
         :param d: Dispatcher forwarded to each child's ``eval``.
@@ -263,36 +323,41 @@ class IrJoin[Iri: IrSelf, Ir_co: IrStr = IrStr](IrComposite[Iri, Ir_co]):
         """
         rendered = self.parts.eval(d, n, nc)
         if not rendered:
-            return self.empty.eval(d, n, nc)
+            return cast("Ir_co", self.empty.eval(d, n, nc))
         sep = self.separator.eval(d, n, nc)
-        return self.bound(self.bound(sep).join(rendered))
+        bound = cast("type[Ir_co]", self.bound)
+        return bound(bound(sep).join(rendered))
 
 
-# ── Truthy-field branch ───────────────────────────────────────────────
+# ── Conditional branch ────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrCond[Iri: IrSelf, Ir_co: IrSelf](IrComposite[Iri, Ir_co]):
-    """If ``bool(getattr(n, field))`` is true, evaluate ``then_op``;
-    else ``else_op``. Both branches must share ``Ir_co``.
+class IrCond[Ir_co: IrSelf](IrNamedTuple[IrSelf, IrSelf, IrSelf]):
+    """If ``test`` evaluates truthy, evaluate ``then_op``; else ``else_op``.
+
+    ``test`` is any node whose ``eval`` yields a truthy/falsy value (e.g.
+    :class:`IrCompare`, :class:`IrAnd`). Typed ``IrSelf`` (not ``IrNode``) for
+    the same reason as :class:`IrCompare`'s operands — ``IrNode``'s ``Ir_co`` is
+    invariant, which rejects value operands like ``IrField``. Both branches
+    share ``Ir_co``.
 
     :param Ir_co: the shared result type of both branches.
     """
 
-    _child_attrs: ClassVar[tuple[str, ...]] = ("then_op", "else_op")
-    field: str
+    _child_attrs: ClassVar[tuple[str, ...]] = ("test", "then_op", "else_op")
+    test: IrSelf
     then_op: IrSelf
     else_op: IrSelf
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Branch on the truthiness of ``getattr(n, self.field)``.
+        """Branch on the truthiness of ``self.test.eval(d, n, nc)``.
 
-        :param d: Dispatcher forwarded to the chosen branch's ``eval``.
-        :param n: Node whose ``field`` attribute selects the branch.
-        :param nc: Pre-walked children forwarded to the chosen branch.
+        :param d: Dispatcher forwarded to the test and the chosen branch.
+        :param n: Current node forwarded to the test and the chosen branch.
+        :param nc: Pre-walked children forwarded onward.
         :returns: The chosen branch's result.
         """
-        branch = self.then_op if getattr(n, self.field) else self.else_op
+        branch = self.then_op if self.test.eval(d, n, nc) else self.else_op
         return branch.eval(d, n, nc)
 
 
@@ -306,8 +371,6 @@ class IrThis(IrLeaf[IrSelf, IrSelf]):
     is satisfied by the dispatched node itself. Equivalent to Python's
     ``lambda d, n, nc: n``.
     """
-
-    __slots__ = ()
 
     def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
         """Return the dispatched node ``n``.
@@ -329,8 +392,6 @@ class IrPass(IrLeaf[IrSelf, IrSelf]):
     :class:`IrWalk`.
     """
 
-    __slots__ = ()
-
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
         """Return :data:`IrNone`.
 
@@ -350,8 +411,6 @@ class IrWalk(IrLeaf[IrSelf, IrSelf]):
     for their effects and discarded. Honours ``nc``: if the caller has
     already dispatched children, no re-walk happens.
     """
-
-    __slots__ = ()
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Walk children unless they were pre-dispatched; return :data:`IrNone`.
@@ -382,7 +441,6 @@ class IrEmit[Iri: IrSelf, Ir_co: IrLiteral](IrLeaf[Iri, Ir_co]):
     :param Ir_co: the :class:`IrLiteral`-typed result type.
     """
 
-    __slots__ = ()
     _bound: ClassVar[type] = IrLiteral
 
     def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
@@ -410,8 +468,6 @@ class IrRebuild(IrLeaf[IrSelf, IrNode]):
     :raises UnsupportedConstructError: if ``n`` is not an :class:`IrNode`.
     """
 
-    __slots__ = ()
-
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNode:
         """Walk ``n.children()`` via ``d`` (or accept ``nc``), then rebuild.
 
@@ -432,8 +488,7 @@ class IrRebuild(IrLeaf[IrSelf, IrNode]):
 # ── Strict default ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class IrRaise[Ir_co: IrSelf](IrComposite[Ir_co]):
+class IrRaise[Ir_co: IrSelf](IrNamedTuple[type[BaseException], str]):
     """Body that raises a configured exception on dispatch.
 
     Strict-default body for :class:`~lexic.ir.walk.IrDispatch`. When
@@ -473,30 +528,31 @@ class IrRaise[Ir_co: IrSelf](IrComposite[Ir_co]):
 # ── Short-circuit return ──────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, eq=False, repr=False)
-class IrReturn[Ir_co: IrSelf](IrComposite[Ir_co], _Return):
+class IrReturn[Ir_co: IrSelf](IrNode[IrSelf, Ir_co], _Return):
     """Short-circuit IR node that IS-A control-flow exception.
 
-    ``IrReturn`` mixes :class:`IrComposite` (structural IR contract) with
-    :class:`_Return` (BaseException machinery). ``eval`` raises ``self``;
-    the surrounding dispatcher catches the IrReturn instance and may
-    surface ``self.value`` or the instance itself, depending on its
-    return-shape contract.
-
-    ``eq=False`` because ``BaseException`` identity semantics take
-    precedence over dataclass value equality.
+    ``IrReturn`` mixes :class:`IrNode` (structural IR contract) with
+    :class:`_Return` (BaseException machinery). Both are object-based — unlike a
+    tuple, they coexist with ``BaseException``'s instance layout — so it is a
+    plain :class:`IrNode` leaf, not an :class:`IrNamedTuple`. ``eval`` raises
+    ``self``; the dispatcher catches the instance and surfaces ``self.value`` or
+    the instance itself. Equality is by identity (``BaseException`` semantics).
 
     :param Ir_co: the type of the carried value.
     """
 
-    value: object = (
-        IrThis()
-    )  # default to the dispatched node itself when no value is given
-    lazy_eval: bool = True
+    lazy_eval: bool
 
-    def __post_init__(self) -> None:
-        """Initialise the BaseException machinery (``self.args``)."""
-        BaseException.__init__(self)
+    def __init__(self, value: object = IrThis(), lazy_eval: bool = True) -> None:
+        """Carry ``value`` and initialise the ``BaseException`` machinery.
+
+        :param value: Value to surface — defaults to the dispatched node (via
+            :class:`IrThis`) when none is given.
+        :param lazy_eval: When ``True``, an ``IrSelf`` value is ``eval``\\ ed
+            before the exception unwinds.
+        """
+        _Return.__init__(self, value)
+        self.lazy_eval = lazy_eval
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Raise ``self`` — unwinds to the dispatcher's catch.
@@ -516,16 +572,13 @@ class IrReturn[Ir_co: IrSelf](IrComposite[Ir_co], _Return):
 # ── Action binding ────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, eq=False, repr=False)
-class IrAction[Ir_co: IrSelf](IrComposite[Ir_co]):
+class IrAction[Ir_co: IrSelf](IrNamedTuple[type[IrSelf], IrSelf]):
     """Bind a target IR node type to a callable IrNode body.
 
-    ``target_type`` is metadata (a concrete IR-node type, excluded from
-    ``children()`` via ``_child_attrs``). ``body`` is the single IrNode
-    child invoked under dispatch.
-
-    ``eq=False`` because ``target_type`` is a class object and ``body`` may
-    be a non-comparable :class:`IrCallable`.
+    ``target_type`` is metadata (a concrete IR-node type, scalar payload
+    excluded from ``children()`` via ``_child_attrs``); the class-aware repr
+    renders it as a bare name. ``body`` is the single IrNode child invoked
+    under dispatch.
 
     :param Ir_co: the result type the body produces.
     """

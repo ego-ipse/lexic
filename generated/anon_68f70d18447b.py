@@ -39,9 +39,9 @@ Root.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(atom=IrRuleRef("ws"), quantifier=IrQuantifier(min=0, max=1)),
-        IrItem(atom=IrRuleRef("value"), quantifier=IrQuantifier(min=1, max=1)),
-        IrItem(atom=IrRuleRef("ws"), quantifier=IrQuantifier(min=0, max=1)),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
+        IrItem(IrRuleRef("value"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
     ],
     field_map={"ws": 0, "value": 1, "ws2": 2},
     non_semantic_fields=frozenset(["ws", "ws2"]),
@@ -53,7 +53,7 @@ Value.__grammar__ = RuleSpec(
     class_name="Value",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(atom=IrLiteral("x"), quantifier=IrQuantifier(min=1, max=1))],
+    items=[IrItem(IrLiteral("x"), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -64,7 +64,7 @@ Ws.__grammar__ = RuleSpec(
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(atom=IrCharClass(" \\t"), quantifier=IrQuantifier(min=0, max=None))],
+    items=[IrItem(IrCharClass(" \\t"), IrQuantifier(0, None))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

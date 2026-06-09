@@ -17,7 +17,6 @@ completely auto-generated.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import ClassVar
 
 from lexic.exceptions import UnsupportedConstructError
@@ -32,22 +31,20 @@ from lexic.ir.action import (
     IrField,
     IrJoin,
 )
+from lexic.ir.base import IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
-    IrStr,
-    IrTuple,
 )
+from lexic.ir.operators import IrNot
 
 META_GRAMMAR = r"""
 start: rule+
@@ -145,7 +142,7 @@ def _abnf_charclass(_d, n, _nc) -> IrStr:
 def _abnf_not(_d, n, _nc) -> IrStr:
     """ABNF has no native negation."""
     raise UnsupportedConstructError(
-        f"ABNF does not support IrNot (got {type(n.body).__name__})"
+        f"ABNF does not support IrNot (got {type(n[0]).__name__})"
     )
 
 
@@ -160,18 +157,22 @@ def _abnf_ast(d, n, _nc) -> IrStr:
     return IrStr("\n".join(parts) + "\n")
 
 
+def _abnf_item(d, n, _nc) -> IrStr:
+    """Render ABNF prefix ``quantifier`` then ``atom``; parenthesise an alternation atom."""
+    atom = str(d.eval(d, n.atom, ()))
+    if isinstance(n.atom, IrAlternation):
+        atom = f"({atom})"
+    return IrStr(str(d.eval(d, n.quantifier, ())) + atom)
+
+
 ABNF_ACTIONS = (
     IrAction(IrLiteral, IrCallable(_abnf_encode_literal)),
     IrAction(IrCharClass, IrCallable(_abnf_charclass)),
     IrAction(IrNot, IrCallable(_abnf_not)),
     IrAction(IrRuleRef, IrEmit()),
-    IrAction(
-        IrGroup,
-        IrConcat(parts=IrTuple(IrLiteral("("), IrChild("body"), IrLiteral(")"))),
-    ),
     IrAction(IrQuantifier, IrCallable(_abnf_quantifier)),
     # Prefix quantifier ordering: quantifier before atom.
-    IrAction(IrItem, IrConcat(parts=IrTuple(IrChild("quantifier"), IrChild("atom")))),
+    IrAction(IrItem, IrCallable(_abnf_item)),
     IrAction(
         IrSequence,
         IrJoin(
@@ -196,7 +197,6 @@ ABNF_ACTIONS = (
 )
 
 
-@dataclass(frozen=True, slots=True, repr=False)
 class _AbnfFlavour(IrFlavour):
     """ABNF flavour singleton class."""
 
@@ -233,7 +233,7 @@ class _AbnfFlavour(IrFlavour):
         return chr(int(body, 16)), False
 
     @classmethod
-    def normalize_literal(cls, decoded: str) -> IrLiteral | IrGroup:
+    def normalize_literal(cls, decoded: str) -> IrLiteral | IrAlternation:
         """Case-insensitive expansion: ``abc`` → ``([aA][bB][cC])``; leave non-alpha as-is."""
         if not any(c.isalpha() for c in decoded):
             return IrLiteral(decoded)
@@ -243,7 +243,7 @@ class _AbnfFlavour(IrFlavour):
                 items.append(IrItem(atom=IrCharClass(f"{c.lower()}{c.upper()}")))
             else:
                 items.append(IrItem(atom=IrLiteral(c)))
-        return IrGroup(body=IrAlternation(IrSequence(*items)))
+        return IrAlternation(IrSequence(*items))
 
 
 ABNF_FLAVOUR = _AbnfFlavour()

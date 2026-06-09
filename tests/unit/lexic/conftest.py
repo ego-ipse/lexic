@@ -6,15 +6,14 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 
 # Canonical set of all grammar-AST IR types that every flavour must cover.
@@ -24,7 +23,6 @@ GRAMMAR_AST_TYPES: frozenset[type] = frozenset(
         IrCharClass,
         IrNot,
         IrRuleRef,
-        IrGroup,
         IrQuantifier,
         IrItem,
         IrSequence,

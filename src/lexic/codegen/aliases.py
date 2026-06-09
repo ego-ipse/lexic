@@ -1,7 +1,7 @@
 """Pattern-alias collection: walk specs once, emit unique pattern regexes.
 
 A "pattern" is either an IrCharClass with a quantifier or a pure-pattern
-IrGroup (no IrRuleRef descendants). Each unique regex produces one PatternAlias
+IrAlternation. Each unique regex produces one PatternAlias
 that the emitter renders as a module-level type alias.
 
 Naming cascade:
@@ -17,25 +17,23 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction, IrCallable
+from lexic.ir.base import Field, IrNone, IrSelf
 from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
-    IrGroup,
     IrItem,
     IrLiteral,
-    IrNone,
-    IrNot,
     IrQuantifier,
     IrRuleRef,
-    IrSelf,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 from lexic.ir.walk import IrVisitor
 from lexic.utils.quantifiers import bounds_to_quantifier
@@ -87,12 +85,14 @@ def _atom_regex_fragment(item: IrItem) -> str:
     q = _suffix(item.quantifier)
     if isinstance(atom, IrLiteral):
         return re.escape(atom) + q
-    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        return _bracket(atom.body, True) + q
+    if isinstance(atom, IrNot):
+        inner = atom[0]
+        if isinstance(inner, IrCharClass):
+            return _bracket(inner, True) + q
     if isinstance(atom, IrCharClass):
         return _bracket(atom, False) + q
-    if isinstance(atom, IrGroup):
-        return f"({_alt_regex_fragment(atom.body)}){q}"
+    if isinstance(atom, IrAlternation):
+        return f"({_alt_regex_fragment(atom)}){q}"
     raise UnsupportedConstructError(
         f"Pattern fragment cannot include {type(atom).__name__}"
     )
@@ -108,9 +108,9 @@ def _alt_regex_fragment(alt: IrAlternation) -> str:
     return "|".join(_seq_regex_fragment(s) for s in alt)
 
 
-def regex_for_group(grp: IrGroup, q: IrQuantifier) -> str:
+def regex_for_group(grp: IrAlternation, q: IrQuantifier) -> str:
     """Build the anchored regex for a pure-pattern IrGroup at the given IrQuantifier."""
-    return f"^({_alt_regex_fragment(grp.body)}){_suffix(q)}$"
+    return f"^({_alt_regex_fragment(grp)}){_suffix(q)}$"
 
 
 def _name_for_charclass(cc: IrCharClass, *, negated: bool = False) -> str:
@@ -161,7 +161,7 @@ def _visit_item(d: _PatternAliasVisitor, n: IrSelf, _nc: Sequence[IrSelf]) -> Ir
             f"_visit_item: expected IrItem, got {type(n).__name__}"
         )
     atom, q = n.atom, n.quantifier
-    if isinstance(atom, IrGroup):
+    if isinstance(atom, IrAlternation):
         d.ruleref_frames.append(False)
         d.eval(d, atom, ())
         group_had_ruleref = d.ruleref_frames.pop()
@@ -170,11 +170,13 @@ def _visit_item(d: _PatternAliasVisitor, n: IrSelf, _nc: Sequence[IrSelf]) -> Ir
         else:
             d.record(regex_for_group(atom, q), "Pattern")
         return IrNone
-    if isinstance(atom, IrNot) and isinstance(atom.body, IrCharClass):
-        d.record(
-            regex_for_charclass(atom.body, q, negated=True),
-            _name_for_charclass(atom.body, negated=True) or "Pattern",
-        )
+    if isinstance(atom, IrNot):
+        inner = atom[0]
+        if isinstance(inner, IrCharClass):
+            d.record(
+                regex_for_charclass(inner, q, negated=True),
+                _name_for_charclass(inner, negated=True) or "Pattern",
+            )
     elif isinstance(atom, IrCharClass):
         d.record(
             regex_for_charclass(atom, q),
@@ -187,7 +189,6 @@ def _visit_item(d: _PatternAliasVisitor, n: IrSelf, _nc: Sequence[IrSelf]) -> Ir
 # ── Stateful visitor ──────────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True, repr=False)
 class _PatternAliasVisitor(IrVisitor):
     """Single-pass collector that emits a PatternAlias per pure-pattern subtree.
 
@@ -202,15 +203,9 @@ class _PatternAliasVisitor(IrVisitor):
     ``[0-9]+`` collide on ``Digit``) get a numeric suffix on later occurrences.
     """
 
-    aliases: dict[str, PatternAlias] = field(
-        default_factory=dict, hash=False, compare=False
-    )
-    _name_counts: Counter[str] = field(
-        default_factory=Counter, hash=False, compare=False
-    )
-    ruleref_frames: list[bool] = field(
-        default_factory=lambda: [False], hash=False, compare=False
-    )
+    aliases: dict[str, PatternAlias] = Field(default_factory=dict)
+    _name_counts: Counter[str] = Field(default_factory=Counter)
+    ruleref_frames: list[bool] = Field(default=[False])
     actions: tuple[IrAction, ...] = (
         IrAction(IrRuleRef, IrCallable(_mark_ruleref)),
         IrAction(IrItem, IrCallable(_visit_item)),

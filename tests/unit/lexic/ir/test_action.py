@@ -13,12 +13,14 @@ from lexic.ir.action import (
     IrCallable,
     IrChild,
     IrChildren,
+    IrCompare,
     IrConcat,
     IrCond,
     IrEmit,
     IrField,
     IrJoin,
     IrLeaf,
+    IrOp,
     IrPass,
     IrRaise,
     IrRebuild,
@@ -27,19 +29,23 @@ from lexic.ir.action import (
     IrWalk,
     _Return,
 )
+from lexic.ir.base import (
+    IrInt,
+    IrNamedTuple,
+    IrNode,
+    IrNone,
+    IrSelf,
+    IrStr,
+    IrTuple,
+)
 from lexic.ir.nodes import (
     IrAlternation,
-    IrComposite,
     IrItem,
     IrLiteral,
-    IrNone,
     IrQuantifier,
     IrRule,
     IrRuleRef,
-    IrSelf,
     IrSequence,
-    IrStr,
-    IrTuple,
 )
 
 # ── _Return ──────────────────────────────────────────────────────────
@@ -99,8 +105,8 @@ def test_irfield_reads_scalar_and_wraps_to_irstr():
 
 
 def test_irfield_is_composite_no_children():
-    """IrField is an IrComposite record-leaf with no IR-node children."""
-    assert isinstance(IrField("x"), IrComposite)
+    """IrField is an IrNamedTuple record-leaf with no IR-node children."""
+    assert isinstance(IrField("x"), IrNamedTuple)
     assert not IrField("x").children()
 
 
@@ -109,6 +115,71 @@ def test_irfield_reads_charclass_pattern():
     rule = IrRule("r", IrAlternation())
     # Confirm the read attribute is a plain str that wraps to IrStr
     assert IrField("name").eval(IrNone, rule, ()) == "r"
+
+
+def test_irfield_repr_is_valid_codegen():
+    """IrField repr renders the class-valued `out` as a bare name (eval round-trips)."""
+    assert repr(IrField("min", IrInt)) == "IrField('min', IrInt)"
+    assert repr(IrField("name")) == "IrField('name', IrStr)"
+
+
+def test_irfield_out_irint_reads_int_without_stringifying():
+    """IrField('min', IrInt) reads an int attribute and wraps it as IrInt."""
+    q = IrQuantifier(min=3, max=5)
+    result = IrField("min", IrInt).eval(IrNone, q, ())
+    assert result == 3
+    assert isinstance(result, IrInt)
+
+
+# ── IrOp / IrCompare ──────────────────────────────────────────────────
+
+
+def test_irop_is_a_str_leaf():
+    """IrOp is its operator string — a plain IrStr leaf, no enum."""
+    assert IrOp(">") == ">"
+    assert isinstance(IrOp(">"), IrStr)
+
+
+def test_irop_eval_applies_operator_to_nc_operands():
+    """IrOp.eval applies the mapped builtin to the operands handed in as nc."""
+    assert IrOp(">").eval(IrNone, IrNone, (IrInt(2), IrInt(1))) == 1
+    assert IrOp("<").eval(IrNone, IrNone, (IrInt(2), IrInt(1))) == 0
+    result = IrOp("==").eval(IrNone, IrNone, (IrInt(1), IrInt(1)))
+    assert result == 1
+    assert isinstance(result, IrInt)
+
+
+def test_irop_unknown_operator_raises_unsupported():
+    """An operator string not in _OPS raises UnsupportedConstructError, not KeyError."""
+    with pytest.raises(UnsupportedConstructError):
+        IrOp("!=").eval(IrNone, IrNone, (IrInt(1), IrInt(1)))
+
+
+def test_ircompare_eq_true_returns_irint_one():
+    """A satisfied comparison evaluates to IrInt(1)."""
+    result = IrCompare(IrInt(1), IrOp("=="), IrInt(1)).eval(IrNone, IrNone, ())
+    assert result == 1
+    assert isinstance(result, IrInt)
+
+
+def test_ircompare_eq_false_returns_irint_zero():
+    """An unsatisfied comparison evaluates to IrInt(0)."""
+    assert IrCompare(IrInt(1), IrOp("=="), IrInt(0)).eval(IrNone, IrNone, ()) == 0
+
+
+def test_ircompare_lt_and_gt():
+    """< and > compare operands and yield IrInt(1)/IrInt(0)."""
+    assert IrCompare(IrInt(1), IrOp("<"), IrInt(2)).eval(IrNone, IrNone, ()) == 1
+    assert IrCompare(IrInt(2), IrOp(">"), IrInt(1)).eval(IrNone, IrNone, ()) == 1
+    assert IrCompare(IrInt(2), IrOp("<"), IrInt(1)).eval(IrNone, IrNone, ()) == 0
+    assert IrCompare(IrInt(1), IrOp(">"), IrInt(2)).eval(IrNone, IrNone, ()) == 0
+
+
+def test_ircompare_reads_field_operand():
+    """An IrField operand is evaluated against the dispatched node before compare."""
+    q = IrQuantifier(min=0, max=1)
+    cmp = IrCompare(IrField("min", IrInt), IrOp("=="), IrInt(0))
+    assert cmp.eval(IrNone, q, ()) == 1
 
 
 # ── IrCallable ───────────────────────────────────────────────────────
@@ -136,7 +207,7 @@ def test_ircallable_invokes_handler_with_all_args():
 def test_ircallable_repr_contains_handler_name():
     """``repr(IrCallable)`` contains the handler's ``__name__`` for debug output.
 
-    In the primitive-node model, ``IrCallable`` uses ``IrComposite.__repr__``
+    In the primitive-node model, ``IrCallable`` uses ``IrNode.__repr__``
     (``repr=False`` dataclass, field rendered as ``handler=<...>``).
     The old ``CALLABLE(<name>)`` str was specific to the original action.py's
     custom ``__str__``; action.py uses the generic composite repr instead.
@@ -161,7 +232,7 @@ def test_irchild_reads_dispatched_child_by_name():
     (_child_attrs=("atom","quantifier"))."""
     item = IrItem(atom=IrLiteral("x"))
     new_children = (IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild[IrSelf, IrStr]("atom").eval(IrNone, item, new_children)
+    result = IrChild[IrStr]("atom").eval(IrNone, item, new_children)
     assert result == "dispatched_atom"
 
 
@@ -169,7 +240,7 @@ def test_irchild_reads_second_child():
     """IrChild("quantifier") returns new_children[1] for an IrItem."""
     item = IrItem(atom=IrLiteral("x"))
     new_children = IrTuple(IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild[IrSelf, IrStr]("quantifier").eval(IrNone, item, new_children)
+    result = IrChild[IrStr]("quantifier").eval(IrNone, item, new_children)
     assert result == "dispatched_quantifier"
 
 
@@ -177,7 +248,7 @@ def test_irchild_raises_on_unknown_name():
     """IrChild raises ValueError when the name is not in _child_attrs."""
     item = IrItem(atom=IrLiteral("x"))
     with pytest.raises(ValueError, match="no such child"):
-        IrChild[IrSelf, IrStr]("nonexistent").eval(
+        IrChild[IrStr]("nonexistent").eval(
             IrNone, item, IrTuple(IrStr("a"), IrStr("b"))
         )
 
@@ -211,9 +282,9 @@ def test_irconcat_empty_parts_returns_empty_string():
 
 
 def test_concat_joins_parts():
-    """IrConcat is an IrComposite; evaluates parts and concatenates."""
+    """IrConcat is an IrNamedTuple; evaluates parts and concatenates."""
     c = IrConcat(parts=IrTuple(IrLiteral("a"), IrLiteral("b")))
-    assert isinstance(c, IrComposite)
+    assert isinstance(c, IrNamedTuple)
     out = c.eval(IrNone, IrNone, ())
     assert out == "ab" and isinstance(out, IrStr)
 
@@ -244,20 +315,20 @@ def test_irjoin_returns_empty_value_when_no_items():
 # ── IrCond ───────────────────────────────────────────────────────────
 
 
-def test_ircond_evaluates_then_when_truthy():
-    """IrCond picks then_op when getattr(n, field) is truthy."""
+def test_ircond_evaluates_then_when_test_truthy():
+    """IrCond picks then_op when the test node evals truthy."""
     node = IrQuantifier(min=1, max=1)
-    op = IrCond[IrSelf, IrStr](
-        field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no")
+    op = IrCond[IrStr](
+        test=IrField("min", IrInt), then_op=IrLiteral("yes"), else_op=IrLiteral("no")
     )
     assert op.eval(IrNone, node, ()) == "yes"
 
 
-def test_ircond_evaluates_else_when_falsy():
-    """IrCond picks else_op when getattr(n, field) is falsy."""
+def test_ircond_evaluates_else_when_test_falsy():
+    """IrCond picks else_op when the test node evals falsy."""
     node = IrQuantifier(min=0, max=1)
-    op = IrCond[IrSelf, IrStr](
-        field="min", then_op=IrLiteral("yes"), else_op=IrLiteral("no")
+    op = IrCond[IrStr](
+        test=IrField("min", IrInt), then_op=IrLiteral("yes"), else_op=IrLiteral("no")
     )
     assert op.eval(IrNone, node, ()) == "no"
 
@@ -329,10 +400,10 @@ def test_iremit_wraps_str_of_node_as_irliteral():
     assert isinstance(out, IrLiteral)
 
 
-def test_irreturn_raises_self_and_is_composite():
-    """IrReturn is an IrComposite and a BaseException; eval raises self."""
+def test_irreturn_raises_self_and_is_node_and_exception():
+    """IrReturn is an IrNode leaf and a BaseException; eval raises self."""
     r = IrReturn(IrLiteral("v"))
-    assert isinstance(r, IrComposite) and isinstance(r, BaseException)
+    assert isinstance(r, IrNode) and isinstance(r, BaseException)
     with pytest.raises(IrReturn):
         r.eval(IrNone, IrNone, ())
 
