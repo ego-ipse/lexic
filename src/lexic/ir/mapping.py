@@ -26,6 +26,7 @@ from typing import (
     Any,
     ClassVar,
     Hashable,
+    Mapping,
     NoReturn,
     Self,
     Sequence,
@@ -38,7 +39,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrSelf, IrSeq, IrTuple
 
 
-class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]]):
+class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
     """Dyad tuple whose entries are attributes of its synthesized class.
 
     ``_bound`` is re-declared ``tuple`` so the own ``V`` parameter does not
