@@ -21,8 +21,9 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction, IrCallable
-from lexic.ir.base import Field, IrNone, IrSelf
+from lexic.ir.action import IrAction
+from lexic.ir.base import Field, IrCallable, IrNone, IrSelf
+from lexic.ir.mapping import IrTypeMap
 from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -206,7 +207,7 @@ class _PatternAliasVisitor(IrVisitor):
     aliases: dict[str, PatternAlias] = Field(default_factory=dict)
     _name_counts: Counter[str] = Field(default_factory=Counter)
     ruleref_frames: list[bool] = Field(default=[False])
-    actions: tuple[IrAction, ...] = (
+    actions: IrTypeMap = IrTypeMap(
         IrAction(IrRuleRef, IrCallable(_mark_ruleref)),
         IrAction(IrItem, IrCallable(_visit_item)),
     )

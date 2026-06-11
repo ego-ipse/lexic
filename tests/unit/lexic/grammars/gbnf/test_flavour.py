@@ -131,6 +131,6 @@ def test_gbnf_emitter_iremit_default_unreachable():
     IrEmit default body and silently emit ``str(n)`` instead of raising.
     This test locks that the default is structurally unreachable for GBNF.
     """
-    registered = {action.target_type for action in GBNF_FLAVOUR.actions}
+    registered = set(GBNF_FLAVOUR.actions.keys())
     missing = GRAMMAR_AST_TYPES - registered
     assert not missing, f"GBNF_FLAVOUR missing explicit actions for: {missing}"

@@ -15,6 +15,7 @@ from lexic.ir.base import (
     Field,
     IrAtom,
     IrCachingTuple,
+    IrCallable,
     IrInt,
     IrLeaf,
     IrNamedTuple,
@@ -358,3 +359,45 @@ def test_ircachingtuple_merges_all_bases_under_multiple_inheritance():
     d = _Diamond()
     assert (d.a, d.b, d.c) == (1, 2, 3)
     assert tuple(d) == (2, 1, 3)
+
+
+# ── IrCallable ───────────────────────────────────────────────────────
+
+
+def test_ircallable_invokes_handler_with_all_args():
+    """IrCallable forwards (d, n, nc) to the handler."""
+    received: list[tuple] = []
+
+    def handler(d, n, nc):
+        received.append((d, n, nc))
+        return IrStr("ok")
+
+    result = IrCallable[IrSelf, IrStr](handler).eval(
+        IrNone,
+        IrNone,
+        IrTuple(
+            IrStr("c"),
+        ),
+    )
+    assert result == "ok"
+    assert received == [(IrNone, IrNone, ("c",))]
+
+
+def test_ircallable_repr_contains_handler_name():
+    """``repr(IrCallable)`` contains the handler's ``__name__`` for debug output.
+
+    In the primitive-node model, ``IrCallable`` uses ``IrNode.__repr__``
+    (``repr=False`` dataclass, field rendered as ``handler=<...>``).
+    The old ``CALLABLE(<name>)`` str was specific to the original action.py's
+    custom ``__str__``; action.py uses the generic composite repr instead.
+    """
+
+    def my_handler(_d, _n, _nc):
+        return IrStr()
+
+    assert "my_handler" in repr(IrCallable[IrSelf, IrStr](my_handler))
+
+
+def test_ircallable_repr_fallback_for_lambda():
+    """Lambdas appear in ``repr(IrCallable)``; rendering never crashes."""
+    assert "lambda" in repr(IrCallable[IrSelf, IrStr](lambda _d, _n, _nc: IrStr()))

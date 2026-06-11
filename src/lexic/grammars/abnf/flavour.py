@@ -23,7 +23,6 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrFlavour
 from lexic.ir.action import (
     IrAction,
-    IrCallable,
     IrChild,
     IrChildren,
     IrConcat,
@@ -31,8 +30,9 @@ from lexic.ir.action import (
     IrField,
     IrJoin,
 )
-from lexic.ir.base import IrStr, IrTuple
+from lexic.ir.base import IrCallable, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
+from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -165,7 +165,7 @@ def _abnf_item(d, n, _nc) -> IrStr:
     return IrStr(str(d.eval(d, n.quantifier, ())) + atom)
 
 
-ABNF_ACTIONS = (
+ABNF_ACTIONS = IrTypeMap(
     IrAction(IrLiteral, IrCallable(_abnf_encode_literal)),
     IrAction(IrCharClass, IrCallable(_abnf_charclass)),
     IrAction(IrNot, IrCallable(_abnf_not)),
@@ -200,7 +200,7 @@ ABNF_ACTIONS = (
 class _AbnfFlavour(IrFlavour):
     """ABNF flavour singleton class."""
 
-    actions: tuple[IrAction, ...] = ABNF_ACTIONS
+    actions: IrTypeMap = ABNF_ACTIONS
 
     name: ClassVar[str] = "abnf"
     extensions: ClassVar[tuple[str, ...]] = (".abnf",)

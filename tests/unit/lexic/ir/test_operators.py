@@ -12,8 +12,8 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrCallable, IrCompare
-from lexic.ir.base import IrAtom, IrInt, IrNone, IrSelf, IrStr, IrTuple
+from lexic.ir.action import IrCompare
+from lexic.ir.base import IrAtom, IrCallable, IrInt, IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.operators import (
     DyadicOp,
     IrAnd,

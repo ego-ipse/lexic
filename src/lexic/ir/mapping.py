@@ -166,19 +166,31 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
             return super().__getitem__(key)
         return self._find(key)[1]
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
-        """Resolve ``n`` to its dyad; evaluate the value against ``(d, n, nc)``.
+    def resolve(self, n: IrSelf) -> V:
+        """The value bound to ``n``'s first matching candidate key, unevaluated.
+
+        The resolution seam for consumers that separate lookup from evaluation
+        (e.g. :class:`~lexic.ir.walk.IrDispatch` falling back to a default on
+        a miss without muting errors raised by the resolved body).
 
         :raises IrKeyError: On a miss.
         """
-        return self._find(*self._keys(n))[1].eval(d, n, nc)
+        return self._find(*self._keys(n))[1]
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Resolve ``n`` to its value; evaluate it against ``(d, n, nc)``.
+
+        :raises IrKeyError: On a miss.
+        """
+        return self.resolve(n).eval(d, n, nc)
 
 
-class IrTypeMap(IrMap):
+class IrTypeMap(IrMap[type, IrSelf]):
     """Type-keyed :class:`IrMap` — resolves ``n`` via ``type(n).__mro__``,
     concrete first: one ``getattr`` per MRO entry, bounded by class depth, not
     table size. The dispatch-table shape: an ``IrAction(target_type, body)``
-    is exactly a ``(type, body)`` dyad."""
+    is exactly a ``(type, body)`` dyad. The parameterised base pins
+    ``keys() -> KeysView[type]`` and ``resolve() -> IrSelf`` statically."""
 
     def _keys(self, n: IrSelf) -> tuple[Hashable, ...]:
         """``type(n).__mro__`` — concrete-first resolution order."""

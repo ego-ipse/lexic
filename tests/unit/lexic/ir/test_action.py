@@ -10,7 +10,6 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import (
     IrAction,
-    IrCallable,
     IrChild,
     IrChildren,
     IrCompare,
@@ -30,6 +29,7 @@ from lexic.ir.action import (
     _Return,
 )
 from lexic.ir.base import (
+    IrCallable,
     IrInt,
     IrNamedTuple,
     IrNode,
@@ -150,7 +150,8 @@ def test_irop_eval_applies_operator_to_nc_operands():
 
 
 def test_irop_unknown_operator_raises_unsupported():
-    """An operator string not in _OPS raises UnsupportedConstructError, not KeyError."""
+    """An operator string not in ``_OPS`` misses the map — :exc:`IrKeyError`,
+    which IS-A ``UnsupportedConstructError``."""
     with pytest.raises(UnsupportedConstructError):
         IrOp("!=").eval(IrNone, IrNone, (IrInt(1), IrInt(1)))
 
@@ -180,48 +181,6 @@ def test_ircompare_reads_field_operand():
     q = IrQuantifier(min=0, max=1)
     cmp = IrCompare(IrField("min", IrInt), IrOp("=="), IrInt(0))
     assert cmp.eval(IrNone, q, ()) == 1
-
-
-# ── IrCallable ───────────────────────────────────────────────────────
-
-
-def test_ircallable_invokes_handler_with_all_args():
-    """IrCallable forwards (d, n, nc) to the handler."""
-    received: list[tuple] = []
-
-    def handler(d, n, nc):
-        received.append((d, n, nc))
-        return IrStr("ok")
-
-    result = IrCallable[IrSelf, IrStr](handler).eval(
-        IrNone,
-        IrNone,
-        IrTuple(
-            IrStr("c"),
-        ),
-    )
-    assert result == "ok"
-    assert received == [(IrNone, IrNone, ("c",))]
-
-
-def test_ircallable_repr_contains_handler_name():
-    """``repr(IrCallable)`` contains the handler's ``__name__`` for debug output.
-
-    In the primitive-node model, ``IrCallable`` uses ``IrNode.__repr__``
-    (``repr=False`` dataclass, field rendered as ``handler=<...>``).
-    The old ``CALLABLE(<name>)`` str was specific to the original action.py's
-    custom ``__str__``; action.py uses the generic composite repr instead.
-    """
-
-    def my_handler(_d, _n, _nc):
-        return IrStr()
-
-    assert "my_handler" in repr(IrCallable[IrSelf, IrStr](my_handler))
-
-
-def test_ircallable_repr_fallback_for_lambda():
-    """Lambdas appear in ``repr(IrCallable)``; rendering never crashes."""
-    assert "lambda" in repr(IrCallable[IrSelf, IrStr](lambda _d, _n, _nc: IrStr()))
 
 
 # ── IrChild ──────────────────────────────────────────────────────────

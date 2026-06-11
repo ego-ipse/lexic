@@ -2,7 +2,6 @@
 
 from lexic.ir.action import (
     IrAction,
-    IrCallable,
     IrChild,
     IrChildren,
     IrCompare,
@@ -14,6 +13,7 @@ from lexic.ir.action import (
 )
 from lexic.ir.base import (
     IrAtom,
+    IrCallable,
     IrInt,
     IrLeaf,
     IrNamedTuple,
@@ -35,6 +35,7 @@ from lexic.ir.derive import (
 from lexic.ir.directives import Directives, parse_directives
 from lexic.ir.emit import render_specs
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
+from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -74,6 +75,7 @@ __all__ = [
     "IrJoin",
     "IrLeaf",
     "IrLiteral",
+    "IrMap",
     "IrNamedTuple",
     "IrNode",
     "IrNone",
@@ -89,6 +91,7 @@ __all__ = [
     "IrSeq",
     "IrSequence",
     "IrTransformer",
+    "IrTypeMap",
     "IrVisitor",
     "IrQuantifier",
     "RuleSpec",

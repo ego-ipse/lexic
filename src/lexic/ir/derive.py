@@ -8,16 +8,18 @@ from collections.abc import Sequence
 from functools import cache
 from typing import Callable, Literal, TypeAlias, TypeVar
 
-from lexic.ir.action import IrAction, IrCallable, IrReturn
+from lexic.ir.action import IrAction, IrReturn
 from lexic.ir.base import (
     Field,
     IrAtom,
+    IrCallable,
     IrNode,
     IrNone,
     IrNoneType,
     IrSelf,
     IrSeq,
 )
+from lexic.ir.mapping import IrTypeMap
 from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -39,7 +41,7 @@ from lexic.utils.names import to_pascal
 # ── classification ────────────────────────────────────────────────────
 
 _HAS_RULEREF: IrVisitor = IrVisitor(
-    actions=(IrAction(IrRuleRef, IrReturn()),),
+    actions=IrTypeMap(IrAction(IrRuleRef, IrReturn())),
 )
 
 
@@ -147,7 +149,7 @@ def _extract_none(_d: object, _n: object, _nc: object) -> IrNoneType:
 
 
 _EXTRACT_BODY: IrDispatch = IrDispatch(
-    actions=(IrAction(IrAlternation, IrCallable(_extract_group)),),
+    actions=IrTypeMap(IrAction(IrAlternation, IrCallable(_extract_group))),
     default=IrCallable(_extract_none),
 )
 
@@ -202,7 +204,7 @@ class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     parent_name: str = ""
     name_set: set[str] = Field(default_factory=set)
     helpers: list[IrRule] = Field(default_factory=list)
-    actions: tuple[IrAction, ...] = (IrAction(IrItem, IrCallable(_hoist_item)),)
+    actions: IrTypeMap = IrTypeMap(IrAction(IrItem, IrCallable(_hoist_item)))
 
 
 def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:

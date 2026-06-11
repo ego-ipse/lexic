@@ -18,7 +18,6 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrFlavour
 from lexic.ir.action import (
     IrAction,
-    IrCallable,
     IrChild,
     IrChildren,
     IrConcat,
@@ -26,8 +25,9 @@ from lexic.ir.action import (
     IrField,
     IrJoin,
 )
-from lexic.ir.base import IrStr, IrTuple
+from lexic.ir.base import IrCallable, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
+from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -133,7 +133,7 @@ def _gbnf_item(d, n, _nc) -> IrStr:
     return IrStr(atom + str(d.eval(d, n.quantifier, ())))
 
 
-GBNF_ACTIONS = (
+GBNF_ACTIONS = IrTypeMap(
     IrAction(IrLiteral, IrCallable(_gbnf_encode_literal)),
     IrAction(IrCharClass, IrCallable(_gbnf_charclass)),
     IrAction(IrNot, IrCallable(_gbnf_not)),
@@ -167,7 +167,7 @@ GBNF_ACTIONS = (
 class _GbnfFlavour(IrFlavour):
     """GBNF flavour singleton class."""
 
-    actions: tuple[IrAction, ...] = GBNF_ACTIONS
+    actions: IrTypeMap = GBNF_ACTIONS
 
     name: ClassVar[str] = "gbnf"
     extensions: ClassVar[tuple[str, ...]] = (".gbnf",)

@@ -13,9 +13,11 @@ Entry forms
   IR node to dispatch; ``nc`` is the pre-dispatched children.
 - ``dispatcher.apply(root)`` — façade that seeds ``d = self`` and ``nc = ()``.
 
-Resolution is a pure function of ``(actions, type(n), default)``, so
-:meth:`IrDispatch._resolve` is memoised on those keys instead of a per-instance
-cache — the dispatcher stays an immutable value.
+``actions`` IS the table — an :class:`~lexic.ir.mapping.IrTypeMap` whose dyads
+are :class:`~lexic.ir.action.IrAction` records (``(target_type, body)``).
+Resolution is the map's own concrete-first MRO lookup: one ``getattr`` per
+``type(n).__mro__`` entry, no memo, no per-instance cache — the dispatcher
+stays an immutable value. Only a resolution miss falls back to ``default``.
 
 Short-circuit
 -------------
@@ -26,52 +28,38 @@ the ``Ir_co`` bound. A bare :class:`~lexic.ir.action._Return` propagates past.
 
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import ClassVar, Sequence, cast
 
-from lexic.ir.action import IrAction, IrEmit, IrRaise, IrRebuild, IrReturn, IrWalk
+from lexic.exceptions import IrKeyError
+from lexic.ir.action import IrEmit, IrRaise, IrRebuild, IrReturn, IrWalk
 from lexic.ir.base import IrCachingTuple, IrNode, IrSelf, IrTuple
+from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import IrLiteral
 
 
-class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](
-    IrCachingTuple[tuple[IrAction[Ir_co], ...], IrSelf]
-):
+class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](IrCachingTuple[IrTypeMap, IrSelf]):
     """Action-driven IR dispatcher — a record of ``(actions, default)``.
 
-    ``eval``/``apply`` resolve the matching :class:`~lexic.ir.action.IrAction`
-    for ``type(n)`` and invoke its body. ``_child_attrs`` is ``()`` so the
-    dispatcher is never walked as a grammar node.
+    ``eval``/``apply`` resolve the matching action body for ``type(n)`` and
+    invoke it. ``_child_attrs`` is ``()`` so the dispatcher is never walked as
+    a grammar node.
 
-    :param actions: Action table; concrete ``target_type`` keys win over abstract
-        ones via MRO order.
+    :param actions: Action table — an :class:`~lexic.ir.mapping.IrTypeMap` of
+        :class:`~lexic.ir.action.IrAction` dyads; concrete ``target_type`` keys
+        win over abstract ones via MRO order.
     :param default: Body invoked when no action matches (presets override).
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
-    actions: tuple[IrAction[Ir_co], ...] = ()
+    actions: IrTypeMap = IrTypeMap()
     default: IrSelf = IrRaise()
 
-    @staticmethod
-    @lru_cache(maxsize=None)
-    def _resolve(
-        actions: tuple[IrAction, ...], node_type: type, default: IrSelf
-    ) -> IrAction:
-        """The action matching ``node_type`` via concrete-first MRO walk; memoised.
-
-        :param actions: The dispatcher's action table.
-        :param node_type: Runtime type of the dispatched node.
-        :param default: Body used when no action matches ``node_type.__mro__``.
-        :returns: The matching action, or a synthetic ``default``-wrapping action.
-        """
-        for cls in node_type.__mro__:
-            for action in actions:
-                if action.target_type is cls:
-                    return action
-        return IrAction(node_type, default)
-
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Resolve an action for ``type(n)`` and invoke its body.
+        """Resolve an action body for ``type(n)`` and invoke it.
+
+        Resolution and evaluation are deliberately separated: only a
+        resolution *miss* falls back to ``default`` — an
+        :exc:`~lexic.exceptions.IrKeyError` raised inside a body propagates.
 
         :param d: The dispatcher driving the walk (used for recursive sub-dispatch).
         :param n: The IR node to dispatch.
@@ -79,7 +67,11 @@ class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](
         :returns: The action body's ``Ir_co`` result.
         :raises UnsupportedConstructError: If the resolved default refuses ``n``.
         """
-        return self._resolve(self.actions, type(n), self.default).body.eval(d, n, nc)
+        try:
+            body: IrSelf = self.actions.resolve(n)
+        except IrKeyError:
+            body = self.default
+        return body.eval(d, n, nc)
 
     def apply(self, root: IrNode) -> Ir_co:
         """Friendly entry — equivalent to ``self.eval(self, root, ())``.

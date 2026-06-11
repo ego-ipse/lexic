@@ -224,6 +224,6 @@ def test_abnf_emitter_iremit_default_unreachable():
     IrEmit default body and silently emit ``str(n)`` instead of raising.
     This test locks that the default is structurally unreachable for ABNF.
     """
-    registered = {action.target_type for action in ABNF_FLAVOUR.actions}
+    registered = set(ABNF_FLAVOUR.actions.keys())
     missing = GRAMMAR_AST_TYPES - registered
     assert not missing, f"ABNF_FLAVOUR missing explicit actions for: {missing}"

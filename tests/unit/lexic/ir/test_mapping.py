@@ -16,8 +16,8 @@ import weakref
 import pytest
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
-from lexic.ir.action import IrCallable, IrThis
-from lexic.ir.base import IrInt, IrSelf, IrStr, IrTuple
+from lexic.ir.action import IrThis
+from lexic.ir.base import IrCallable, IrInt, IrSelf, IrStr, IrTuple
 from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import IrLiteral, IrRuleRef
 

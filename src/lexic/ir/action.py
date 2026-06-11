@@ -13,17 +13,18 @@ to a slot that has no relevant value.
 
 **Node shapes:** the record-style actions (``IrField``, ``IrCompare``,
 ``IrChild``, ``IrChildren``, ``IrConcat``, ``IrJoin``, ``IrCond``, ``IrRaise``,
-``IrAction``) are :class:`IrNamedTuple` records;
-``IrCallable`` is an :class:`IrNode` leaf wrapping a handler; ``IrReturn`` is an
+``IrAction``) are :class:`IrNamedTuple` records; ``IrReturn`` is an
 :class:`IrNode` leaf that also IS-A ``BaseException`` (object-based bases, unlike
-a tuple, coexist with its layout). No action node is an :class:`IrNamedTuple`.
+a tuple, coexist with its layout).
 The default bodies (``IrPass``, ``IrWalk``, ``IrEmit``, ``IrRebuild``) are plain
-``__slots__`` leaves.
+``__slots__`` leaves. The procedural escape hatch
+:class:`~lexic.ir.base.IrCallable` lives in the spine so lower layers
+(e.g. :mod:`lexic.ir.operators`) can use it too.
 """
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Self, Sequence, cast
+from typing import ClassVar, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import (
@@ -123,67 +124,6 @@ class IrCompare(IrNamedTuple[IrSelf, IrOp, IrSelf]):
         """
         operands = (self.left.eval(d, n, nc), self.right.eval(d, n, nc))
         return self.op.eval(d, n, operands)
-
-
-# ── Procedural escape hatch ───────────────────────────────────────────
-
-
-class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
-    """Procedural body — a leaf that wraps one handler callable.
-
-    The escape hatch for logic the algebra can't express. Generic in ``Iri``
-    (the handler's input type — a handler may type its parameters as narrowly
-    as it likes, e.g. ``group: IrAlternation``) and ``Ir_co`` (the result type);
-    callers narrow at construction: ``IrCallable[IrSelf, IrStr](handler)``.
-
-    Built on :class:`IrNode` (not :class:`IrTuple`/:class:`IrScalar`), so ``eval``
-    keeps the ``Iri`` input type — no casts needed — and equality/hash are by
-    identity (callables are not value-comparable). The handler may also be an
-    :class:`IrSelf` node, which is ``eval``\\ ed instead of called.
-
-    :param Iri: the handler's input (dispatcher) type.
-    :param Ir_co: the result type the handler produces.
-    """
-
-    __slots__ = ("handler",)
-    handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co]
-
-    def __new__(
-        cls,
-        handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co],
-    ) -> Self:
-        """Wrap ``handler`` as an immutable leaf.
-
-        :param handler: A procedure ``(d, n, nc) -> Ir_co`` or an IR node whose
-            ``eval`` produces the result.
-        :returns: The new ``IrCallable`` leaf.
-        """
-        obj = object.__new__(cls)
-        object.__setattr__(obj, "handler", handler)
-        return obj
-
-    def __call__(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
-        """Run the wrapped handler: a node is evaluated, a callable is called."""
-        if isinstance(self.handler, IrSelf):
-            return self.handler.eval(d, n, nc)
-        return self.handler(d, n, nc)
-
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
-        """Forward to the wrapped handler.
-
-        :param d: Dispatcher forwarded to the handler.
-        :param n: Current node forwarded to the handler.
-        :param nc: Pre-walked children forwarded to the handler.
-        :returns: Whatever the handler returns.
-        """
-        return self(d, n, nc)
-
-    def __repr__(self) -> str:
-        """Repr holding the handler's name (not round-trip codegen).
-
-        :returns: ``IrCallable(<handler name>)``.
-        """
-        return f"IrCallable({getattr(self.handler, '__name__', self.handler)})"
 
 
 # ── Sibling lookup ────────────────────────────────────────────────────
