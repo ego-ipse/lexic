@@ -3,8 +3,9 @@
 The dyads ARE the tuple elements (payload, equality, hash, children, codegen
 repr — all canonically sorted by key repr, so construction order never
 matters). The index lives in the **class namespace**: ``IrMap(*dyads)``
-synthesizes a one-off subclass and ``__init_subclass__`` mirrors each dyad as
-a class attribute named ``str(hash(key))``. Instance attribute lookup falls
+resolves a memoised subclass — equal dyad tables share one class, weakly held —
+and ``__init_subclass__`` mirrors each dyad as a class attribute named
+``str(hash(key))``. Instance attribute lookup falls
 back to the class natively, so key lookup is a single ``getattr`` — Python's
 own O(1) machinery — with the dyad's key verified on read (a lookup may
 collide with a stored hash; stored keys never collide, attribution rejects
@@ -12,30 +13,45 @@ that). No instance ``__dict__``, no ``__slots__`` exception: instances stay
 pure tuples; the synthesized class keeps the constructor's name, so codegen
 repr round-trips.
 
-``m[key]``: integer/slice subscripts keep native tuple indexing (the overloads
-say so); any other key resolves via the index. A miss is a **hard error** —
-:exc:`~lexic.exceptions.UnsupportedConstructError` — everywhere: ``m[key]``,
-``eval``, ``_find``. ``eval(d, n, nc)`` resolves ``n`` and evaluates the bound
-value against ``(d, n, nc)``: scalars self-evaluate (a data map), bodies run
-(an action table).
+``m[key]``: ``IrSelf`` keys resolve via the index (``IrInt`` included —
+node-ness wins over int-ness); plain integer/slice subscripts keep native
+tuple indexing; any other key resolves via the index. A miss is a **hard
+error** — :exc:`~lexic.exceptions.IrKeyError`, an ``UnsupportedConstructError``
+that IS-A ``KeyError`` — everywhere: ``m[key]``, ``eval``, ``_find``.
+``eval(d, n, nc)`` resolves ``n`` and evaluates the bound value against
+``(d, n, nc)``: scalars self-evaluate (a data map), bodies run (an action
+table).
+
+``Mapping`` conformance: ``keys``/``values``/``items`` are real dict views
+over a plain-dict snapshot — the map is immutable, so a snapshot view is
+indistinguishable from a live one — and ``__contains__`` is key-based
+(``get`` is the inherited mixin — it works because a miss IS-A ``KeyError``).
+The one deliberate deviation is ``__iter__``, which yields **dyads** — the
+node IS its children tuple, and walk/rebuild/structural equality depend on
+that — so ``iter(m)`` ≠ ``iter(m.keys())``.
 """
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import (
     Any,
     ClassVar,
     Hashable,
+    ItemsView,
+    KeysView,
     Mapping,
     NoReturn,
     Self,
     Sequence,
     SupportsIndex,
+    ValuesView,
     cast,
     overload,
 )
+from weakref import WeakValueDictionary
 
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir.base import IrSelf, IrSeq, IrTuple
 
 
@@ -47,6 +63,9 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
     """
 
     _bound: ClassVar[type[tuple]] = tuple
+    _classes: ClassVar[WeakValueDictionary[tuple[type, tuple], type]] = (
+        WeakValueDictionary()
+    )
 
     def __init_subclass__(cls, dyads: tuple[IrTuple, ...] = (), **kwargs: Any) -> None:
         """Attribute each dyad into the new class's namespace, by key hash.
@@ -66,12 +85,18 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
             setattr(cls, name, dyad)
 
     def __new__(cls, *dyads: IrTuple[K, V]) -> Self:
-        """Sort canonically, synthesize the indexed subclass, build the tuple.
+        """Sort canonically, resolve the memoised indexed subclass, build the tuple.
 
-        The subclass keeps ``cls.__name__``, so ``repr`` stays valid codegen.
+        Equal dyad tables share one synthesized class — keyed by ``(cls, dyads)``,
+        weakly held — so type-keyed caches (e.g. dispatch memoisation) grow with
+        distinct map values, not instances. The subclass keeps ``cls.__name__``,
+        so ``repr`` stays valid codegen.
         """
         order = tuple(sorted(dyads, key=lambda d: repr(d[0])))
-        sub = type(cls)(cls.__name__, (cls,), {}, dyads=order)
+        sub = cls._classes.get((cls, order))
+        if sub is None:
+            sub = type(cls)(cls.__name__, (cls,), {}, dyads=order)
+            cls._classes[cls, order] = sub
         return super().__new__(cast(type[Self], sub), *order)
 
     def _frozen(self, *_: object) -> NoReturn:
@@ -87,13 +112,41 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
     def _find(self, *keys: object) -> IrTuple[K, V]:
         """First dyad among candidate ``keys`` — one ``getattr`` each, key-verified.
 
-        :raises UnsupportedConstructError: When no candidate resolves.
+        :raises IrKeyError: When no candidate resolves.
         """
         for key in keys:
             dyad = getattr(self, str(hash(key)), None)
             if isinstance(dyad, IrTuple) and dyad[0] == key:
                 return dyad
-        raise UnsupportedConstructError(f"{type(self).__name__}: no entry for {keys!r}")
+        raise IrKeyError(f"{type(self).__name__}: no entry for {keys!r}")
+
+    @lru_cache
+    def _as_dict(self) -> dict[K, V]:
+        """Plain-dict snapshot of the dyads, in canonical order.
+
+        Safe to snapshot: the map is immutable, so the copy never drifts.
+        """
+        return {dyad[0]: dyad[1] for dyad in self}
+
+    def keys(self) -> KeysView[K]:
+        """Key view, canonical order."""
+        return self._as_dict().keys()
+
+    def values(self) -> ValuesView[V]:
+        """Value view, canonical order."""
+        return self._as_dict().values()
+
+    def items(self) -> ItemsView[K, V]:
+        """``(key, value)`` pair view, canonical order."""
+        return self._as_dict().items()
+
+    def __contains__(self, key: object) -> bool:
+        """Key containment (``Mapping`` semantics), not dyad containment."""
+        try:
+            self._find(key)
+        except IrKeyError:
+            return False
+        return True
 
     @overload
     def __getitem__(self, key: SupportsIndex, /) -> Any: ...
@@ -102,20 +155,21 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
     @overload
     def __getitem__(self, key: IrSelf | type, /) -> IrSelf: ...
     def __getitem__(self, key: object, /) -> object:
-        """Positional for index/slice (tuple semantics); key lookup otherwise.
+        """Key lookup for IR nodes; positional for plain index/slice.
 
-        Note: ``IrInt`` keys are ints and therefore index positionally.
+        ``IrSelf`` wins over ``int``, so ``IrInt`` keys resolve via the index;
+        only plain integers/slices keep tuple semantics.
 
-        :raises UnsupportedConstructError: On a key miss.
+        :raises IrKeyError: On a key miss.
         """
-        if isinstance(key, (int, slice)):
+        if not isinstance(key, IrSelf) and isinstance(key, (int, slice)):
             return super().__getitem__(key)
         return self._find(key)[1]
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Resolve ``n`` to its dyad; evaluate the value against ``(d, n, nc)``.
 
-        :raises UnsupportedConstructError: On a miss.
+        :raises IrKeyError: On a miss.
         """
         return self._find(*self._keys(n))[1].eval(d, n, nc)
 
@@ -129,40 +183,3 @@ class IrTypeMap(IrMap):
     def _keys(self, n: IrSelf) -> tuple[Hashable, ...]:
         """``type(n).__mro__`` — concrete-first resolution order."""
         return type(n).__mro__
-
-
-# ── Examples ──────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    from lexic.ir.action import IrCallable, IrThis
-    from lexic.ir.base import IrInt, IrStr
-    from lexic.ir.nodes import IrLiteral, IrRuleRef
-
-    # 1. Data map — direct instantiation; m[key] via getattr; positional
-    #    indexing intact (IrScalar.eval is identity, values come back as-is).
-    names = IrMap(
-        IrTuple(IrStr("[0-9]"), IrStr("digit")),
-        IrTuple(IrStr("[a-z]"), IrStr("lower")),
-    )
-    print("mapx [key]    :", names[IrStr("[0-9]")])  # IrStr('digit'), no eval
-    print("mapx [0]      :", names[0])  # first dyad — tuple semantics intact
-    print("mapx eval hit :", names.eval(names, IrStr("[a-z]"), ()))
-
-    # 2. Dispatch table — MRO resolution, bodies run against the node.
-    disp = IrTypeMap(
-        IrTuple(IrLiteral, IrCallable(lambda d, n, nc: IrStr(f"lit:{n}"))),
-        IrTuple(IrSelf, IrThis()),
-    )
-    print("mapx dispatch :", disp.eval(disp, IrLiteral("x"), ()))  # IrStr('lit:x')
-    print("mapx mro fall :", disp.eval(disp, IrRuleRef("r"), ()))  # IrRuleRef('r')
-
-    # 3. Pure value: construction order never matters (canonical sort);
-    #    codegen repr round-trips; a miss is a hard error.
-    a = IrMap(IrTuple(IrStr("a"), IrInt(1)), IrTuple(IrStr("b"), IrInt(2)))
-    b = IrMap(IrTuple(IrStr("b"), IrInt(2)), IrTuple(IrStr("a"), IrInt(1)))
-    print("mapx ord-indep:", a == b, hash(a) == hash(b), len({a, b}) == 1)
-    print("mapx repr     :", repr(a))
-    try:
-        a[IrStr("?")]
-    except UnsupportedConstructError as exc:
-        print("mapx hard miss:", exc)
