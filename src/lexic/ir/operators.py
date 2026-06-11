@@ -9,7 +9,9 @@ Two layers:
 
 - :class:`IrOp` — the operator leaf (the node IS the operator string). Arity is
   the operator's own property: comparisons are binary, ``!`` unary, ``&``/``|``
-  variadic folds.
+  variadic folds. Its table bodies are fold-mode
+  :class:`~lexic.ir.base.IrCallable` leaves — bare operand folds
+  (``operator.eq``) lifted into the eval protocol by ``out=IrInt``.
 - :class:`IrOpNode` and its three arity bases :class:`MonadicOp`,
   :class:`DyadicOp`, :class:`VariadicOp`. **An operator node IS its operand
   tuple** — operands are the tuple elements, constructed flat
@@ -24,21 +26,12 @@ Two layers:
 from __future__ import annotations
 
 import operator
-from typing import Callable, ClassVar, Sequence
+from typing import ClassVar, Sequence
 
 from lexic.ir.base import IrAtom, IrCallable, IrInt, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.ir.mapping import IrMap
 
 # ── Operator leaf ─────────────────────────────────────────────────────
-
-
-def _op(fn: Callable[..., object]) -> IrCallable[IrSelf, IrInt]:
-    """Lift a bare operand fold into an eval body applying ``fn`` to ``nc``.
-
-    :param fn: Operand fold returning a truth value.
-    :returns: An :class:`~lexic.ir.base.IrCallable` evaluating to ``IrInt(0/1)``.
-    """
-    return IrCallable[IrSelf, IrInt](lambda _d, _n, nc: IrInt(fn(*nc)))
 
 
 class IrOp(IrStr):
@@ -59,14 +52,14 @@ class IrOp(IrStr):
     """
 
     _OPS: ClassVar[IrMap[str, IrCallable[IrSelf, IrInt]]] = IrMap(
-        IrTuple("==", _op(operator.eq)),
-        IrTuple("<", _op(operator.lt)),
-        IrTuple(">", _op(operator.gt)),
-        IrTuple("<=", _op(operator.le)),
-        IrTuple(">=", _op(operator.ge)),
-        IrTuple("!", _op(operator.not_)),
-        IrTuple("&", _op(lambda *xs: all(xs))),
-        IrTuple("|", _op(lambda *xs: any(xs))),
+        IrTuple("==", IrCallable(operator.eq, IrInt)),
+        IrTuple("<", IrCallable(operator.lt, IrInt)),
+        IrTuple(">", IrCallable(operator.gt, IrInt)),
+        IrTuple("<=", IrCallable(operator.le, IrInt)),
+        IrTuple(">=", IrCallable(operator.ge, IrInt)),
+        IrTuple("!", IrCallable(operator.not_, IrInt)),
+        IrTuple("&", IrCallable(lambda *xs: all(xs), IrInt)),
+        IrTuple("|", IrCallable(lambda *xs: any(xs), IrInt)),
     )
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:

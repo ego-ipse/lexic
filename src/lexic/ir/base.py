@@ -327,6 +327,15 @@ class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co
     identity (callables are not value-comparable). The handler may also be an
     :class:`IrSelf` node, which is ``eval``\\ ed instead of called.
 
+    Two handler conventions, selected explicitly by ``out`` (never by signature
+    sniffing):
+
+    - **protocol** (default): ``handler(d, n, nc) -> Ir_co``.
+    - **fold** (``out`` given): ``handler`` is a bare fold over the operands —
+      ``out(handler(*nc))`` lifts it into the protocol, ``out`` being the
+      runtime result type exactly like :attr:`~lexic.ir.action.IrField.out`
+      (e.g. ``IrCallable(operator.eq, IrInt)``).
+
     Lives in the spine (not :mod:`lexic.ir.action`) so layers below the action
     algebra — e.g. :class:`~lexic.ir.operators.IrOp`'s ``_OPS`` table — can
     wrap handlers without an import cycle.
@@ -335,25 +344,47 @@ class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co
     :param Ir_co: the result type the handler produces.
     """
 
-    __slots__ = ("handler",)
+    __slots__ = ("handler", "out")
     handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co]
+    out: type[IrScalar] | None
 
+    @overload
+    def __new__(
+        cls, handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co]
+    ) -> Self: ...
+    @overload
+    def __new__(cls, handler: Callable[..., object], out: type[Ir_co]) -> Self: ...
     def __new__(
         cls,
-        handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co],
+        handler: Callable[..., object] | IrSelf[Iri, Ir_co],
+        out: type[Ir_co] | None = None,
     ) -> Self:
         """Wrap ``handler`` as an immutable leaf.
 
-        :param handler: A procedure ``(d, n, nc) -> Ir_co`` or an IR node whose
-            ``eval`` produces the result.
+        :param handler: A procedure ``(d, n, nc) -> Ir_co``, an IR node whose
+            ``eval`` produces the result, or — with ``out`` — a bare operand
+            fold ``fn(*operands)``.
+        :param out: Result type a fold's raw return is wrapped in (an
+            :class:`IrScalar` subtype — payload-constructible); ``None``
+            selects the protocol convention.
         :returns: The new ``IrCallable`` leaf.
         """
         obj = object.__new__(cls)
         object.__setattr__(obj, "handler", handler)
+        object.__setattr__(obj, "out", out)
         return obj
 
     def __call__(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
-        """Run the wrapped handler: a node is evaluated, a callable is called."""
+        """Run the wrapped handler: a node is evaluated, a callable is called,
+        a fold (``out`` set) is applied to the operands and its result wrapped.
+
+        The fold branch casts the handler past the protocol annotation — the
+        ``out`` overload deliberately admits any bare callable — and ``bind``
+        types the wrapped result back to ``Ir_co``.
+        """
+        if self.out is not None:
+            fold = cast(Callable[..., object], self.handler)
+            return self.bind(self.out(fold(*nc)))
         if isinstance(self.handler, IrSelf):
             return self.handler.eval(d, n, nc)
         return self.handler(d, n, nc)
@@ -371,9 +402,12 @@ class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co
     def __repr__(self) -> str:
         """Repr holding the handler's name (not round-trip codegen).
 
-        :returns: ``IrCallable(<handler name>)``.
+        :returns: ``ClassName(<handler name>)``, plus ``out`` when set.
         """
-        return f"IrCallable({getattr(self.handler, '__name__', self.handler)})"
+        name = getattr(self.handler, "__name__", self.handler)
+        if self.out is not None:
+            return f"{type(self).__name__}({name}, {self.out.__name__})"
+        return f"{type(self).__name__}({name})"
 
 
 class IrAtom(IrNode):

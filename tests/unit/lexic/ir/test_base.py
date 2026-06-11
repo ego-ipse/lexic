@@ -9,6 +9,8 @@ it is defined locally.
 
 from __future__ import annotations
 
+import operator
+
 import pytest
 
 from lexic.ir.base import (
@@ -401,3 +403,62 @@ def test_ircallable_repr_contains_handler_name():
 def test_ircallable_repr_fallback_for_lambda():
     """Lambdas appear in ``repr(IrCallable)``; rendering never crashes."""
     assert "lambda" in repr(IrCallable[IrSelf, IrStr](lambda _d, _n, _nc: IrStr()))
+
+
+# ── IrCallable fold convention ────────────────────────────────────────
+
+
+def test_ircallable_fold_equal_operands_returns_irint_one():
+    """Fold mode: ``operator.eq`` with equal IrInt operands returns ``IrInt(1)``."""
+    cb = IrCallable(operator.eq, IrInt)
+    result = cb.eval(IrNone, IrNone, (IrInt(2), IrInt(2)))
+    assert result == IrInt(1)
+
+
+def test_ircallable_fold_unequal_operands_returns_irint_zero():
+    """Fold mode: ``operator.eq`` with unequal IrInt operands returns ``IrInt(0)``."""
+    cb = IrCallable(operator.eq, IrInt)
+    result = cb.eval(IrNone, IrNone, (IrInt(2), IrInt(3)))
+    assert result == IrInt(0)
+
+
+def test_ircallable_fold_result_is_irint_type():
+    """Fold mode wraps via ``out``; the returned value is ``IrInt``, not bare bool/int."""
+    cb = IrCallable(operator.eq, IrInt)
+    result = cb.eval(IrNone, IrNone, (IrInt(7), IrInt(7)))
+    assert isinstance(result, IrInt)
+
+
+def test_ircallable_fold_variadic_all_truthy_returns_irint_one():
+    """Variadic fold: ``all(xs)`` over three truthy operands returns ``IrInt(1)``."""
+    cb = IrCallable(lambda *xs: all(xs), IrInt)
+    result = cb.eval(IrNone, IrNone, (IrInt(1), IrInt(1), IrInt(1)))
+    assert result == IrInt(1)
+    assert isinstance(result, IrInt)
+
+
+def test_ircallable_fold_variadic_empty_nc_returns_identity():
+    """Variadic fold: ``all(())`` over empty ``nc`` returns ``IrInt(1)`` (fold identity)."""
+    cb = IrCallable(lambda *xs: all(xs), IrInt)
+    result = cb.eval(IrNone, IrNone, ())
+    assert result == IrInt(1)
+    assert isinstance(result, IrInt)
+
+
+def test_ircallable_fold_repr_contains_handler_name_and_out():
+    """Fold-mode repr includes both the handler name and the out type name."""
+    cb = IrCallable(operator.eq, IrInt)
+    r = repr(cb)
+    assert "eq" in r
+    assert "IrInt" in r
+
+
+def test_ircallable_protocol_repr_has_no_out_suffix():
+    """Protocol-mode repr (no ``out``) does NOT contain a comma-out suffix."""
+
+    def my_handler(_d, _n, _nc):
+        return IrStr()
+
+    r = repr(IrCallable[IrSelf, IrStr](my_handler))
+    assert "," not in r
+    assert "my_handler" in r
