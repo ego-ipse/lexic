@@ -456,8 +456,13 @@ class IrScalar(IrLeaf):
         """
         return super().__new__(cls, *args)
 
-    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Self:
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
         """Return ``self`` — the node IS the value.
+
+        Annotated ``IrSelf`` (not ``Self``) so action-leaves built on the
+        scalar tier (``IrOp``, ``IrChild``, ``IrIndex``) can override with
+        their own result types — they ARE their payload but do not
+        self-evaluate.
 
         :returns: ``self``.
         """

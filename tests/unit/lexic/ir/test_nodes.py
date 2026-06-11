@@ -324,8 +324,9 @@ def test_irliteral_eval_returns_literal_value():
     ``eval`` is the value-producing protocol.
     """
     lit = IrLiteral("hello")
-    result: str = lit.eval(IrNone, IrNone, ())
+    result = lit.eval(IrNone, IrNone, ())
     assert result == "hello"
+    assert isinstance(result, str)
 
 
 def test_ircharclass_call_inherits_identity_default():

@@ -15,19 +15,22 @@ from __future__ import annotations
 from typing import ClassVar
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.flavour import IrFlavour
+from lexic.grammars.flavour import IrEscape, IrFlavour
 from lexic.ir.action import (
     IrAction,
     IrChild,
     IrChildren,
     IrConcat,
+    IrCond,
     IrEmit,
     IrField,
+    IrIsA,
     IrJoin,
+    IrThis,
 )
 from lexic.ir.base import IrCallable, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
-from lexic.ir.mapping import IrTypeMap
+from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -80,26 +83,26 @@ GBNF_ESCAPES = _GbnfEscapes()
 """Singleton escape codec for GBNF."""
 
 
-GBNF_QUANT_SYMBOLS: dict[tuple[int, int | None], str] = {
-    (1, 1): "",
-    (0, 1): "?",
-    (0, None): "*",
-    (1, None): "+",
-}
+GBNF_QUANTIFIERS: IrMap[IrQuantifier, IrLiteral] = IrMap(
+    IrTuple(IrQuantifier(1, 1), IrLiteral("")),
+    IrTuple(IrQuantifier(0, 1), IrLiteral("?")),
+    IrTuple(IrQuantifier(0, None), IrLiteral("*")),
+    IrTuple(IrQuantifier(1, None), IrLiteral("+")),
+)
+"""Quantifier bounds ⇄ GBNF postfix symbol — the data map IS the action body.
 
-
-def _gbnf_encode_literal(_d, n, _nc) -> IrStr:
-    """Escape the literal value per GBNF rules and wrap in quotes."""
-    return IrStr(f'"{GBNF_ESCAPES.encode(n)}"')
-
-
-def _gbnf_charclass(_d, n, _nc) -> IrStr:
-    """Render a char class as ``[value]``."""
-    return IrStr(f"[{n}]")
+Under dispatch the quantifier node itself is the key; a miss (e.g. ``{2,5}``)
+raises :exc:`~lexic.exceptions.IrKeyError`, an ``UnsupportedConstructError``.
+``parse_quantifier`` inverts the same dyads, so the table exists once.
+"""
 
 
 def _gbnf_not(_d, n, _nc) -> IrStr:
-    """Render ``IrNot(IrCharClass(...))`` as ``[^value]``."""
+    """Render ``IrNot(IrCharClass(...))`` as ``[^value]``.
+
+    Residual procedural body: ``IrNot`` is tuple-shaped (no named field), so
+    neither ``IrIsA`` nor ``IrChild`` can address its raw operand yet.
+    """
     inner = n[0]
     if isinstance(inner, IrCharClass):
         return IrStr(f"[^{inner}]")
@@ -108,38 +111,33 @@ def _gbnf_not(_d, n, _nc) -> IrStr:
     )
 
 
-def _gbnf_quantifier(_d, n, _nc) -> IrStr:
-    """Look up the GBNF quantifier symbol for the ``(min, max)`` pair."""
-    key = (n.min, n.max)
-    try:
-        return IrStr(GBNF_QUANT_SYMBOLS[key])
-    except KeyError as exc:
-        raise UnsupportedConstructError(
-            f"GBNF does not support quantifier {key}"
-        ) from exc
-
-
-def _gbnf_ast(d, n, _nc) -> IrStr:
-    """Render an IrAst as newline-joined rules with a trailing newline."""
-    parts = [str(d.eval(d, rule, ())) for rule in n.rules]
-    return IrStr("\n".join(parts) + "\n")
-
-
-def _gbnf_item(d, n, _nc) -> IrStr:
-    """Render ``atom`` then ``quantifier``; parenthesise an alternation atom."""
-    atom = str(d.eval(d, n.atom, ()))
-    if isinstance(n.atom, IrAlternation):
-        atom = f"({atom})"
-    return IrStr(atom + str(d.eval(d, n.quantifier, ())))
-
-
 GBNF_ACTIONS = IrTypeMap(
-    IrAction(IrLiteral, IrCallable(_gbnf_encode_literal)),
-    IrAction(IrCharClass, IrCallable(_gbnf_charclass)),
+    IrAction(
+        IrLiteral,
+        IrConcat(parts=IrTuple(IrLiteral('"'), IrEscape(), IrLiteral('"'))),
+    ),
+    IrAction(
+        IrCharClass,
+        IrConcat(parts=IrTuple(IrLiteral("["), IrThis(), IrLiteral("]"))),
+    ),
     IrAction(IrNot, IrCallable(_gbnf_not)),
     IrAction(IrRuleRef, IrEmit()),
-    IrAction(IrQuantifier, IrCallable(_gbnf_quantifier)),
-    IrAction(IrItem, IrCallable(_gbnf_item)),
+    IrAction(IrQuantifier, GBNF_QUANTIFIERS),
+    IrAction(
+        IrItem,
+        IrConcat(
+            parts=IrTuple(
+                IrCond(
+                    test=IrIsA("atom", IrAlternation),
+                    then_op=IrConcat(
+                        parts=IrTuple(IrLiteral("("), IrChild("atom"), IrLiteral(")"))
+                    ),
+                    else_op=IrChild("atom"),
+                ),
+                IrChild("quantifier"),
+            )
+        ),
+    ),
     IrAction(
         IrSequence,
         IrJoin(
@@ -160,7 +158,20 @@ GBNF_ACTIONS = IrTypeMap(
         IrRule,
         IrConcat(parts=IrTuple(IrField("name"), IrLiteral(" ::= "), IrChild("body"))),
     ),
-    IrAction(IrAst, IrCallable(_gbnf_ast)),
+    IrAction(
+        IrAst,
+        IrConcat(parts=IrTuple(IrChild("rules"), IrLiteral("\n"))),
+    ),
+    # The rules collection is the only bare tuple ever dispatched; concrete
+    # subclasses (IrSequence, IrAlternation, records) win by MRO.
+    IrAction(
+        IrTuple,
+        IrJoin(
+            parts=IrChildren(),
+            separator=IrLiteral("\n"),
+            empty=IrLiteral(""),
+        ),
+    ),
 )
 
 
@@ -181,10 +192,10 @@ class _GbnfFlavour(IrFlavour):
 
         Forms: ``""``, ``?``, ``*``, ``+``, ``{N}``, ``{N,}``, ``{N,M}``.
         """
-        symbol_to_bounds = {sym: bounds for bounds, sym in GBNF_QUANT_SYMBOLS.items()}
-        bounds = symbol_to_bounds.get(text or "")
-        if bounds is not None:
-            return IrQuantifier(*bounds)
+        symbol_to_bounds = {str(sym): q for q, sym in GBNF_QUANTIFIERS.items()}
+        quantifier = symbol_to_bounds.get(text or "")
+        if quantifier is not None:
+            return quantifier
         inner = text[1:-1]
         if "," in inner:
             lo_str, hi_str = inner.split(",", 1)

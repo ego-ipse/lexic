@@ -100,6 +100,7 @@ def test_action_algebra_exported() -> None:
         "IrConcat",
         "IrCond",
         "IrField",
+        "IrIndex",
         "IrJoin",
         "IrReturn",
     ):

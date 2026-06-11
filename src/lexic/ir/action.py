@@ -126,28 +126,51 @@ class IrCompare(IrNamedTuple[IrSelf, IrOp, IrSelf]):
         return self.op.eval(d, n, operands)
 
 
-# ── Sibling lookup ────────────────────────────────────────────────────
+# ── Attribute type test ───────────────────────────────────────────────
 
 
-class IrChild[Ir_co: IrSelf](IrNamedTuple[str]):
-    """Single dispatched child by name from ``n``'s ``_child_attrs``.
+class IrIsA(IrNamedTuple[str, type[IrSelf]]):
+    """Test the type of a **raw** named attribute of the dispatched node ``n``.
 
-    ``Ir_co`` is the dispatcher's per-child result type — ``IrStr`` under
-    an emitter, ``IrNode`` under a transformer. ``_bound`` is derived from
-    ``Ir_co`` (see :meth:`IrSelf.__init_subclass__`), so :meth:`IrSelf.bind`
-    type-checks the resolved child.
+    Reads ``getattr(n, self.name)`` undispatched — unlike :class:`IrChild`,
+    which resolves the *rendered* child — so the test sees the IR node itself
+    (e.g. ``IrIsA("atom", IrAlternation)`` asks whether an item's atom needs
+    parenthesising). Evals to a truth value (``IrInt`` in ``{0, 1}``), the
+    natural ``test`` operand of :class:`IrCond`.
 
-    A record-leaf: ``name`` is scalar payload (``_child_attrs = ()``); it
-    resolves a child of the *dispatched* node ``n``, not its own.
-
-    :param Ir_co: the dispatcher's per-child result type.
-    :raises ValueError: if ``self.name`` is not in ``type(n)._child_attrs``.
+    A record-leaf: ``name`` and the class-valued ``target`` are scalar payload
+    (``_child_attrs = ()``); the class-aware repr renders ``target`` bare.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     name: str
+    target: type[IrSelf]
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrInt:
+        """Read the raw attribute and apply :func:`isinstance`.
+
+        :param _d: Dispatcher (unused — no recursion).
+        :param n: Node whose attribute to test.
+        :param _nc: Pre-walked children (unused).
+        :returns: ``IrInt(1)`` if the attribute IS-A ``target``, else ``IrInt(0)``.
+        :raises AttributeError: If ``n`` has no attribute ``self.name``.
+        """
+        return IrInt(isinstance(getattr(n, self.name), self.target))
+
+
+# ── Sibling lookup ────────────────────────────────────────────────────
+
+
+class IrChild(IrStr):
+    """Single dispatched child by name — the node IS the child's field name.
+
+    Resolves the name through ``type(n)._child_attrs`` (record nodes) and
+    yields the *dispatched* child. For tuple-shaped nodes whose children
+    carry no names, :class:`IrIndex` is the positional primitive this
+    resolves to.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Resolve the named child.
 
         Hybrid: eager when ``nc`` is populated (caller pre-walked) — index
@@ -156,20 +179,45 @@ class IrChild[Ir_co: IrSelf](IrNamedTuple[str]):
         :param d: Dispatcher used for lazy sub-dispatch.
         :param n: Node whose child to resolve.
         :param nc: Pre-walked children, if any.
-        :returns: The resolved child, type-checked against ``self.bound``.
-        :raises ValueError: if ``self.name`` is not in ``type(n)._child_attrs``.
+        :returns: The resolved child.
+        :raises ValueError: if the name is not in ``type(n)._child_attrs``.
         """
         attrs = getattr(type(n), "_child_attrs", ())
         try:
-            idx = attrs.index(self.name)
+            idx = attrs.index(self)
         except ValueError as exc:
             raise ValueError(
-                f"IrChild({self.name!r}): {type(n).__name__} has no such child "
-                f"(known: {attrs})"
+                f"{self!r}: {type(n).__name__} has no such child (known: {attrs})"
             ) from exc
         if nc:
-            return cast(Ir_co, self.bind(nc[idx]))
-        return cast(Ir_co, self.bind(d.eval(d, n.children()[idx], IrTuple())))
+            return nc[idx]
+        return d.eval(d, n.children()[idx], IrTuple())
+
+
+class IrIndex(IrInt):
+    """Single dispatched child by position — the node IS the index.
+
+    The positional primitive: tuple-shaped nodes (operator monads,
+    collections) have unnamed children, and ``IrIndex(0)`` addresses the
+    first directly — the 0th key of a monad like ``IrNot``. Negative
+    positions index from the end, as native tuples do.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Resolve the child at this position.
+
+        Hybrid: eager when ``nc`` is populated (caller pre-walked) — index
+        into it; lazy otherwise — dispatch the looked-up child via ``d``.
+
+        :param d: Dispatcher used for lazy sub-dispatch.
+        :param n: Node whose child to resolve.
+        :param nc: Pre-walked children, if any.
+        :returns: The resolved child.
+        :raises IndexError: if the position is out of range.
+        """
+        if nc:
+            return nc[self]
+        return d.eval(d, n.children()[self], IrTuple())
 
 
 class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNamedTuple):

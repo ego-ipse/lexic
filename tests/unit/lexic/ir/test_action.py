@@ -17,6 +17,8 @@ from lexic.ir.action import (
     IrCond,
     IrEmit,
     IrField,
+    IrIndex,
+    IrIsA,
     IrJoin,
     IrLeaf,
     IrOp,
@@ -47,6 +49,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.walk import IrEmitter
 
 # ── _Return ──────────────────────────────────────────────────────────
 
@@ -191,7 +194,7 @@ def test_irchild_reads_dispatched_child_by_name():
     (_child_attrs=("atom","quantifier"))."""
     item = IrItem(atom=IrLiteral("x"))
     new_children = (IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild[IrStr]("atom").eval(IrNone, item, new_children)
+    result = IrChild("atom").eval(IrNone, item, new_children)
     assert result == "dispatched_atom"
 
 
@@ -199,7 +202,7 @@ def test_irchild_reads_second_child():
     """IrChild("quantifier") returns new_children[1] for an IrItem."""
     item = IrItem(atom=IrLiteral("x"))
     new_children = IrTuple(IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild[IrStr]("quantifier").eval(IrNone, item, new_children)
+    result = IrChild("quantifier").eval(IrNone, item, new_children)
     assert result == "dispatched_quantifier"
 
 
@@ -207,9 +210,67 @@ def test_irchild_raises_on_unknown_name():
     """IrChild raises ValueError when the name is not in _child_attrs."""
     item = IrItem(atom=IrLiteral("x"))
     with pytest.raises(ValueError, match="no such child"):
-        IrChild[IrStr]("nonexistent").eval(
-            IrNone, item, IrTuple(IrStr("a"), IrStr("b"))
-        )
+        IrChild("nonexistent").eval(IrNone, item, IrTuple(IrStr("a"), IrStr("b")))
+
+
+def test_irchild_is_its_payload_string():
+    """IrChild is a value-leaf: the node itself IS the field name string."""
+    assert IrChild("atom") == "atom"
+    assert isinstance(IrChild("atom"), str)
+
+
+def test_irchild_repr_is_codegen():
+    """IrChild repr renders as codegen-style constructor call."""
+    assert repr(IrChild("atom")) == "IrChild('atom')"
+
+
+# ── IrIndex ───────────────────────────────────────────────────────────
+
+
+def test_irindex_eager_returns_nc_at_position():
+    """IrIndex(0) with populated nc returns nc[0]; IrIndex(1) returns nc[1]."""
+    item = IrItem(atom=IrLiteral("x"))
+    new_children = (IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
+    assert IrIndex(0).eval(IrNone, item, new_children) == "dispatched_atom"
+    assert IrIndex(1).eval(IrNone, item, new_children) == "dispatched_quantifier"
+
+
+def test_irindex_negative_returns_last_child():
+    """IrIndex(-1) with populated nc returns the last element."""
+    item = IrItem(atom=IrLiteral("x"))
+    new_children = (IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
+    assert IrIndex(-1).eval(IrNone, item, new_children) == "dispatched_quantifier"
+
+
+def test_irindex_is_its_payload_int():
+    """IrIndex is a value-leaf: the node itself IS its integer position."""
+    assert IrIndex(0) == 0
+    assert isinstance(IrIndex(0), int)
+
+
+def test_irindex_repr_is_codegen():
+    """IrIndex repr renders as codegen-style constructor call."""
+    assert repr(IrIndex(0)) == "IrIndex(0)"
+
+
+def test_irindex_out_of_range_raises_index_error():
+    """IrIndex with an out-of-range position raises IndexError."""
+    item = IrItem(atom=IrLiteral("x"))
+    new_children = (IrStr("a"), IrStr("b"))
+    with pytest.raises(IndexError):
+        IrIndex(5).eval(IrNone, item, new_children)
+
+
+def test_irindex_lazy_dispatches_child_via_d():
+    """IrIndex(0) with empty nc dispatches the child through d (lazy path).
+
+    IrEmitter default (IrEmit) converts IrLiteral('x') to IrLiteral('x').
+    """
+    item = IrItem(atom=IrLiteral("x"))
+    emitter = IrEmitter()
+    result = IrIndex(0).eval(emitter, item, IrTuple())
+    assert result == IrLiteral("x")
+    assert isinstance(result, IrLiteral)
 
 
 # ── IrChildren ───────────────────────────────────────────────────────
@@ -480,3 +541,44 @@ def test_irraise_raises_unsupported_construct_error_by_default():
     """IrRaise.eval raises UnsupportedConstructError by default."""
     with pytest.raises(UnsupportedConstructError):
         IrRaise().eval(IrNone, IrLiteral("x"), ())
+
+
+# ── IrIsA ─────────────────────────────────────────────────────────────
+
+
+def test_irisa_atom_is_alternation_evals_to_irint_one():
+    """IrIsA evals to IrInt(1) when the named attribute IS-A the target type."""
+    alt = IrAlternation(IrSequence(IrItem(atom=IrLiteral("x"))))
+    item = IrItem(atom=alt)
+    result = IrIsA("atom", IrAlternation).eval(IrNone, item, ())
+    assert result == 1
+    assert repr(result) == "IrInt(1)"
+
+
+def test_irisa_atom_not_alternation_evals_to_irint_zero():
+    """IrIsA evals to IrInt(0) when the named attribute is NOT the target type."""
+    item = IrItem(atom=IrLiteral("y"))
+    result = IrIsA("atom", IrAlternation).eval(IrNone, item, ())
+    assert result == 0
+    assert repr(result) == "IrInt(0)"
+
+
+def test_irisa_result_is_truthy_when_one():
+    """IrInt(1) result is truthy; IrInt(0) is falsy."""
+    alt = IrAlternation(IrSequence(IrItem(atom=IrLiteral("x"))))
+    item_alt = IrItem(atom=alt)
+    item_lit = IrItem(atom=IrLiteral("z"))
+    assert bool(IrIsA("atom", IrAlternation).eval(IrNone, item_alt, ()))
+    assert not bool(IrIsA("atom", IrAlternation).eval(IrNone, item_lit, ()))
+
+
+def test_irisa_repr_renders_class_bare():
+    """IrIsA repr is codegen: 'IrIsA('atom', IrAlternation)'."""
+    assert repr(IrIsA("atom", IrAlternation)) == "IrIsA('atom', IrAlternation)"
+
+
+def test_irisa_missing_attribute_raises_attribute_error():
+    """IrIsA raises AttributeError when the attribute does not exist on the node."""
+    item = IrItem(atom=IrLiteral("x"))
+    with pytest.raises(AttributeError):
+        IrIsA("nonexistent", IrAlternation).eval(IrNone, item, ())

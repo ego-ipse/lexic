@@ -8,6 +8,8 @@ from lexic.ir.action import (
     IrConcat,
     IrCond,
     IrField,
+    IrIndex,
+    IrIsA,
     IrJoin,
     IrReturn,
 )
@@ -70,7 +72,9 @@ __all__ = [
     "IrConcat",
     "IrCond",
     "IrField",
+    "IrIndex",
     "IrInt",
+    "IrIsA",
     "IrItem",
     "IrJoin",
     "IrLeaf",

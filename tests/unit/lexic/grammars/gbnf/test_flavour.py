@@ -2,10 +2,23 @@
 
 from __future__ import annotations
 
+import pytest
+
+from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrFlavour
-from lexic.grammars.gbnf.flavour import GBNF_ESCAPES, GBNF_FLAVOUR, META_GRAMMAR
+from lexic.grammars.gbnf.flavour import (
+    GBNF_ESCAPES,
+    GBNF_FLAVOUR,
+    GBNF_QUANTIFIERS,
+    META_GRAMMAR,
+)
 from lexic.ir.nodes import (
+    IrAlternation,
+    IrItem,
+    IrLiteral,
     IrQuantifier,
+    IrRuleRef,
+    IrSequence,
 )
 from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
 
@@ -134,3 +147,49 @@ def test_gbnf_emitter_iremit_default_unreachable():
     registered = set(GBNF_FLAVOUR.actions.keys())
     missing = GRAMMAR_AST_TYPES - registered
     assert not missing, f"GBNF_FLAVOUR missing explicit actions for: {missing}"
+
+
+# ── GBNF_QUANTIFIERS ──────────────────────────────────────────────────
+
+
+def test_gbnf_quantifiers_maps_four_bounds_to_symbols():
+    """GBNF_QUANTIFIERS maps the four canonical quantifier bounds to their symbols."""
+    assert GBNF_QUANTIFIERS[IrQuantifier(1, 1)] == ""
+    assert GBNF_QUANTIFIERS[IrQuantifier(0, 1)] == "?"
+    assert GBNF_QUANTIFIERS[IrQuantifier(0, None)] == "*"
+    assert GBNF_QUANTIFIERS[IrQuantifier(1, None)] == "+"
+
+
+def test_gbnf_quantifiers_miss_raises_unsupported():
+    """GBNF_FLAVOUR.apply on an out-of-table quantifier raises UnsupportedConstructError."""
+    with pytest.raises(UnsupportedConstructError):
+        GBNF_FLAVOUR.apply(IrQuantifier(2, 5))
+
+
+def test_gbnf_quantifier_hit_question_mark():
+    """GBNF_FLAVOUR.apply(IrQuantifier(0, 1)) emits '?'."""
+    assert GBNF_FLAVOUR.apply(IrQuantifier(0, 1)) == "?"
+
+
+# ── Declarative literal emission ──────────────────────────────────────
+
+
+def test_gbnf_literal_emission_escapes_and_quotes():
+    """GBNF_FLAVOUR.apply on a literal escapes special chars and wraps in quotes."""
+    result = GBNF_FLAVOUR.apply(IrLiteral('a"b'))
+    assert result == '"a\\"b"'
+
+
+# ── Item parenthesisation ─────────────────────────────────────────────
+
+
+def test_gbnf_item_alternation_atom_is_parenthesised():
+    """An IrItem whose atom is an IrAlternation renders wrapped in parens."""
+    item = IrItem(atom=IrAlternation(IrSequence(IrItem(atom=IrLiteral("x")))))
+    assert GBNF_FLAVOUR.apply(item) == '("x")'
+
+
+def test_gbnf_item_ruleref_atom_is_not_parenthesised():
+    """An IrItem whose atom is an IrRuleRef renders without wrapping parens."""
+    item = IrItem(atom=IrRuleRef("foo"))
+    assert GBNF_FLAVOUR.apply(item) == "foo"

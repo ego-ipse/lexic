@@ -7,7 +7,10 @@ from abc import ABC
 
 import pytest
 
-from lexic.grammars.flavour import IrFlavour
+from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars.flavour import IrEscape, IrFlavour
+from lexic.grammars.gbnf.flavour import GBNF_ESCAPES, GBNF_FLAVOUR
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -146,3 +149,37 @@ def test_irflavour_requires_parse_quantifier_and_parse_charclass():
     abstract = IrFlavour.__abstractmethods__
     assert "parse_quantifier" in abstract
     assert "parse_charclass" in abstract
+
+
+# ── IrEscape ──────────────────────────────────────────────────────────
+
+
+def test_irescape_encodes_via_gbnf_flavour_codec():
+    """IrEscape.eval under GBNF_FLAVOUR encodes a str-leaf via GBNF_ESCAPES."""
+    node = IrLiteral('a"b\n')
+    result = IrEscape().eval(GBNF_FLAVOUR, node, ())
+    assert result == GBNF_ESCAPES.encode('a"b\n')
+    assert isinstance(result, IrStr)
+
+
+def test_irescape_result_is_irstr():
+    """IrEscape.eval returns an IrStr (not just str)."""
+    result = IrEscape().eval(GBNF_FLAVOUR, IrLiteral("abc"), ())
+    assert isinstance(result, IrStr)
+
+
+def test_irescape_dispatcher_without_escapes_raises():
+    """IrEscape.eval raises UnsupportedConstructError when the dispatcher has no escapes."""
+    with pytest.raises(UnsupportedConstructError):
+        IrEscape().eval(IrNone, IrLiteral("a"), ())
+
+
+def test_irescape_non_string_node_raises():
+    """IrEscape.eval raises UnsupportedConstructError for a non-str-leaf node."""
+    with pytest.raises(UnsupportedConstructError):
+        IrEscape().eval(GBNF_FLAVOUR, IrQuantifier(1, 1), ())
+
+
+def test_irescape_repr_is_codegen():
+    """IrEscape repr is 'IrEscape()' — fieldless leaf."""
+    assert repr(IrEscape()) == "IrEscape()"
