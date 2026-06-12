@@ -12,6 +12,7 @@ from lexic.grammars.gbnf.flavour import (
     GBNF_QUANTIFIERS,
     META_GRAMMAR,
 )
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrItem,
@@ -46,8 +47,8 @@ def test_parse_quantifier_parity():
     expected = [
         IrQuantifier(1, 1),
         IrQuantifier(0, 1),
-        IrQuantifier(1, None),
-        IrQuantifier(0, None),
+        IrQuantifier(1, IrNone),
+        IrQuantifier(0, IrNone),
         IrQuantifier(2, 5),
         IrQuantifier(0, 15),
         IrQuantifier(3, 3),
@@ -156,8 +157,8 @@ def test_gbnf_quantifiers_maps_four_bounds_to_symbols():
     """GBNF_QUANTIFIERS maps the four canonical quantifier bounds to their symbols."""
     assert GBNF_QUANTIFIERS[IrQuantifier(1, 1)] == ""
     assert GBNF_QUANTIFIERS[IrQuantifier(0, 1)] == "?"
-    assert GBNF_QUANTIFIERS[IrQuantifier(0, None)] == "*"
-    assert GBNF_QUANTIFIERS[IrQuantifier(1, None)] == "+"
+    assert GBNF_QUANTIFIERS[IrQuantifier(0, IrNone)] == "*"
+    assert GBNF_QUANTIFIERS[IrQuantifier(1, IrNone)] == "+"
 
 
 def test_gbnf_quantifiers_miss_raises_unsupported():

@@ -6,6 +6,7 @@ import inspect
 from pathlib import Path
 
 from lexic.codegen import codegen
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import IrCharClass, IrItem, IrLiteral, IrQuantifier, IrRuleRef
 from tests._ir_fixtures import spec as _build_spec
 
@@ -30,7 +31,7 @@ def test_codegen_handles_rule_refs(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     Path("generated").mkdir()
     inner = _spec(
-        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, None))]
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone))]
     )
     outer = _spec(
         "root", "sequence", [IrItem(IrRuleRef("expr"))], field_map={"expr": 0}

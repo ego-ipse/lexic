@@ -30,7 +30,7 @@ from lexic.ir.action import (
     IrField,
     IrJoin,
 )
-from lexic.ir.base import IrCallable, IrStr, IrTuple
+from lexic.ir.base import IrCallable, IrNone, IrNoneType, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
@@ -90,13 +90,13 @@ ABNF_ESCAPES = _AbnfEscapes()
 """Singleton escape codec for ABNF."""
 
 
-def _abnf_format_quantifier(lo: int, hi: int | None) -> str:
+def _abnf_format_quantifier(lo: int, hi: int | IrNoneType) -> str:
     """Return the ABNF *prefix* quantifier string. Empty when ``(1, 1)``."""
     if lo == 1 and hi == 1:
         return ""
     if lo == hi:
         return f"{lo}"
-    if hi is None:
+    if isinstance(hi, IrNoneType):
         return f"{lo}*" if lo != 0 else "*"
     return f"{lo}*{hi}" if lo != 0 else f"*{hi}"
 
@@ -147,8 +147,8 @@ def _abnf_not(_d, n, _nc) -> IrStr:
 
 
 def _abnf_quantifier(_d, n, _nc) -> IrStr:
-    """Compute the ABNF prefix-quantifier symbol from ``(min, max)``."""
-    return IrStr(_abnf_format_quantifier(n.min, n.max))
+    """Compute the ABNF prefix-quantifier symbol from ``(lo, hi)``."""
+    return IrStr(_abnf_format_quantifier(n.lo, n.hi))
 
 
 def _abnf_ast(d, n, _nc) -> IrStr:
@@ -212,13 +212,13 @@ class _AbnfFlavour(IrFlavour):
     def parse_quantifier(text: str) -> IrQuantifier:
         """ABNF quantifier parser. Forms: ``*``, ``*N``, ``N*``, ``N*M``, ``N``."""
         if text == "*":
-            return IrQuantifier(0, None)
+            return IrQuantifier(0, IrNone)
         if text.startswith("*"):
             return IrQuantifier(0, int(text[1:]))
         if "*" in text:
             lo_str, hi_str = text.split("*", 1)
             lo = int(lo_str)
-            hi = int(hi_str) if hi_str else None
+            hi = int(hi_str) if hi_str else IrNone
             return IrQuantifier(lo, hi)
         n = int(text)
         return IrQuantifier(n, n)

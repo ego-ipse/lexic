@@ -7,6 +7,7 @@ from typing import Annotated
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
@@ -95,7 +96,7 @@ Num.__grammar__ = RuleSpec(
     class_name="Num",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass("0-9"), IrQuantifier(1, None))],
+    items=[IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

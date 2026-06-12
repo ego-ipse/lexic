@@ -7,6 +7,7 @@ from typing import Annotated, List, Optional
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -268,7 +269,7 @@ String.__grammar__ = RuleSpec(
                     ),
                 ),
             ),
-            IrQuantifier(0, None),
+            IrQuantifier(0, IrNone),
         ),
         IrItem(IrLiteral('"'), IrQuantifier(1, 1)),
         IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
@@ -306,7 +307,7 @@ Number.__grammar__ = RuleSpec(
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("."), IrQuantifier(1, 1)),
-                    IrItem(IrCharClass("0-9"), IrQuantifier(1, None)),
+                    IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone)),
                 )
             ),
             IrQuantifier(0, 1),
@@ -371,7 +372,7 @@ ArrItem2.__grammar__ = RuleSpec(
     kind="sequence",
     items=[
         IrItem(IrRuleRef("value"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("arr-item"), IrQuantifier(0, None)),
+        IrItem(IrRuleRef("arr-item"), IrQuantifier(0, IrNone)),
     ],
     field_map={"value": 0, "arr_item": 1},
     non_semantic_fields=frozenset([]),
@@ -406,7 +407,7 @@ ObjectItem2.__grammar__ = RuleSpec(
         IrItem(IrLiteral(":"), IrQuantifier(1, 1)),
         IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
         IrItem(IrRuleRef("value"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("object-item"), IrQuantifier(0, None)),
+        IrItem(IrRuleRef("object-item"), IrQuantifier(0, IrNone)),
     ],
     field_map={"string": 0, "ws": 2, "value": 3, "object_item": 4},
     non_semantic_fields=frozenset(["ws"]),
@@ -435,7 +436,7 @@ ArrayItem2.__grammar__ = RuleSpec(
     kind="sequence",
     items=[
         IrItem(IrRuleRef("value"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("array-item"), IrQuantifier(0, None)),
+        IrItem(IrRuleRef("array-item"), IrQuantifier(0, IrNone)),
     ],
     field_map={"value": 0, "array_item": 1},
     non_semantic_fields=frozenset([]),

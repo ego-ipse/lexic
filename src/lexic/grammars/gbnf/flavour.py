@@ -28,7 +28,7 @@ from lexic.ir.action import (
     IrJoin,
     IrThis,
 )
-from lexic.ir.base import IrCallable, IrStr, IrTuple
+from lexic.ir.base import IrCallable, IrNone, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import (
@@ -86,8 +86,8 @@ GBNF_ESCAPES = _GbnfEscapes()
 GBNF_QUANTIFIERS: IrMap[IrQuantifier, IrLiteral] = IrMap(
     IrTuple(IrQuantifier(1, 1), IrLiteral("")),
     IrTuple(IrQuantifier(0, 1), IrLiteral("?")),
-    IrTuple(IrQuantifier(0, None), IrLiteral("*")),
-    IrTuple(IrQuantifier(1, None), IrLiteral("+")),
+    IrTuple(IrQuantifier(0, IrNone), IrLiteral("*")),
+    IrTuple(IrQuantifier(1, IrNone), IrLiteral("+")),
 )
 """Quantifier bounds ⇄ GBNF postfix symbol — the data map IS the action body.
 
@@ -199,7 +199,7 @@ class _GbnfFlavour(IrFlavour):
         inner = text[1:-1]
         if "," in inner:
             lo_str, hi_str = inner.split(",", 1)
-            return IrQuantifier(int(lo_str), int(hi_str) if hi_str else None)
+            return IrQuantifier(int(lo_str), int(hi_str) if hi_str else IrNone)
         n = int(inner)
         return IrQuantifier(n, n)
 

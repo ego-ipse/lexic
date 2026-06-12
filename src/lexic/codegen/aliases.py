@@ -59,7 +59,7 @@ def _bracket(pattern: str, negated: bool) -> str:
 
 def _suffix(q: IrQuantifier) -> str:
     """Render a IrQuantifier as its regex suffix."""
-    return bounds_to_quantifier(q.min, q.max)
+    return bounds_to_quantifier(q.lo, q.hi)
 
 
 def _camel(s: str) -> str:

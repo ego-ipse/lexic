@@ -7,6 +7,7 @@ from typing import Annotated, List, Optional, Union
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -80,7 +81,7 @@ Root.__grammar__ = RuleSpec(
         IrItem(IrLiteral(" "), IrQuantifier(1, 1)),
         IrItem(IrRuleRef("move"), IrQuantifier(1, 1)),
         IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("root-item"), IrQuantifier(1, None)),
+        IrItem(IrRuleRef("root-item"), IrQuantifier(1, IrNone)),
     ],
     field_map={"move": 1, "move2": 3, "root_item": 5},
     non_semantic_fields=frozenset([]),

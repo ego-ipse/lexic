@@ -31,6 +31,7 @@ from lexic.ir.base import (
     IrAtom,
     IrLeaf,
     IrNamedTuple,
+    IrNoneType,
     IrSeq,
     IrStr,
 )
@@ -42,6 +43,7 @@ __all__ = [
     "IrRuleRef",
     "IrSequence",
     "IrAlternation",
+    "IrRange",
     "IrQuantifier",
     "IrItem",
     "IrRule",
@@ -106,24 +108,42 @@ class IrAlternation(IrSeq[IrSequence], IrAtom):
 # ── Concrete composite records ────────────────────────────────────────
 
 
-class IrQuantifier(IrLeaf, IrNamedTuple[int, int | None]):
-    """Repetition bounds for an ``IrItem``.
+class IrRange[T: (str, int)](IrLeaf, IrNamedTuple[T, T | IrNoneType]):
+    """Inclusive ``lo``-``hi`` range — the shared shape of quantifier bounds
+    and char ranges.
 
-    ``min`` and ``max`` mirror POSIX/PCRE repetition bounds:
+    Quantifier bounds are int ranges (:class:`IrQuantifier`); char ranges are
+    single-char str ranges (a char range IS an int range via ord/chr).  The
+    open upper bound is :data:`~lexic.ir.base.IrNone` — int ranges only; char
+    ranges are always closed.
 
-    - ``IrQuantifier(1, 1)`` — exactly once (the default; no postfix operator).
-    - ``IrQuantifier(0, 1)`` — optional (``?``).
-    - ``IrQuantifier(0, None)`` — zero-or-more (``*``).
-    - ``IrQuantifier(1, None)`` — one-or-more (``+``).
-    - ``IrQuantifier(m, n)`` — between ``m`` and ``n`` times (``{m,n}``).
-
-    ``max=None`` means unbounded (no upper limit).  ``min``/``max`` are scalar
-    payload, not IR-node children, so ``_child_attrs`` is empty.
+    ``lo``/``hi`` are scalar payload, not IR-node children, so
+    ``_child_attrs`` is empty; actions read them via
+    :class:`~lexic.ir.action.IrField`.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
-    min: int = 1
-    max: int | None = 1
+    lo: int | str
+    hi: int | str | IrNoneType
+
+
+class IrQuantifier(IrRange):
+    """Repetition bounds for an ``IrItem`` — the int-flavoured :class:`IrRange`.
+
+    ``lo`` and ``hi`` mirror POSIX/PCRE repetition bounds:
+
+    - ``IrQuantifier(1, 1)`` — exactly once (the default; no postfix operator).
+    - ``IrQuantifier(0, 1)`` — optional (``?``).
+    - ``IrQuantifier(0, IrNone)`` — zero-or-more (``*``).
+    - ``IrQuantifier(1, IrNone)`` — one-or-more (``+``).
+    - ``IrQuantifier(m, n)`` — between ``m`` and ``n`` times (``{m,n}``).
+
+    ``hi=IrNone`` means unbounded (no upper limit).
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    lo: int = 1
+    hi: int | IrNoneType = 1
 
 
 class IrItem(IrNamedTuple[IrAtom, IrQuantifier]):

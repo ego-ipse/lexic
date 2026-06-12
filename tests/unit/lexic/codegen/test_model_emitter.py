@@ -5,6 +5,7 @@ from __future__ import annotations
 from ast import AnnAssign, ClassDef, Name, parse
 
 from lexic.codegen.model_emitter import emit_module_source
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -22,7 +23,7 @@ from tests.unit.lexic.conftest import make_spec as _spec
 def test_emit_value_str_class_body():
     """Value-str with a charclass item emits a constrained value field."""
     spec = _spec(
-        "digit", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))]
+        "digit", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))]
     )
     src = emit_module_source([spec], stem="m")
     assert "class Digit(GrammarModel):" in src
@@ -32,7 +33,7 @@ def test_emit_value_str_class_body():
 def test_emit_sequence_class_with_ruleref_field():
     """Sequence classes with rulerefs emit fields of the referred type."""
     inner = _spec(
-        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, None))]
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone))]
     )
     outer = _spec(
         "root", "sequence", [IrItem(IrRuleRef("expr"))], field_map={"expr": 0}
@@ -45,7 +46,7 @@ def test_emit_sequence_class_with_ruleref_field():
 def test_emit_optional_field_for_quantifier_0_1():
     """IrQuantifier {0,1} emits Optional[...] field."""
     inner = _spec(
-        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, None))]
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone))]
     )
     outer = _spec(
         "r",
@@ -60,12 +61,12 @@ def test_emit_optional_field_for_quantifier_0_1():
 def test_emit_list_field_for_quantifier_unbounded():
     """IrQuantifier {1,+inf} emits List[...] field."""
     inner = _spec(
-        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, None))]
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone))]
     )
     outer = _spec(
         "r",
         "sequence",
-        [IrItem(IrRuleRef("expr"), IrQuantifier(1, None))],
+        [IrItem(IrRuleRef("expr"), IrQuantifier(1, IrNone))],
         field_map={"expr": 0},
     )
     src = emit_module_source([outer, inner], stem="m")
@@ -75,12 +76,12 @@ def test_emit_list_field_for_quantifier_unbounded():
 def test_emit_list_field_for_quantifier_zero_or_more():
     """IrQuantifier {0,+inf} also emits List[...] field."""
     inner = _spec(
-        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, None))]
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone))]
     )
     outer = _spec(
         "r",
         "sequence",
-        [IrItem(IrRuleRef("expr"), IrQuantifier(0, None))],
+        [IrItem(IrRuleRef("expr"), IrQuantifier(0, IrNone))],
         field_map={"expr": 0},
     )
     src = emit_module_source([outer, inner], stem="m")
@@ -142,7 +143,9 @@ def test_no_fixme_in_emitted_source():
 
 def test_charclass_field_emits_annotated_string_constraints():
     """IrCharClass sequence field emits Annotated[str, StringConstraints(...)]."""
-    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))])
+    spec = _spec(
+        "d", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))]
+    )
     src = emit_module_source([spec], stem="m")
     assert 'Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]' in src
 
@@ -159,7 +162,7 @@ def test_charclass_field_in_sequence_emits_alias():
     spec = _spec(
         "row",
         "sequence",
-        [IrItem(IrCharClass("a-z"), IrQuantifier(1, None))],
+        [IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone))],
         field_map={"lower": 0},
     )
     src = emit_module_source([spec], stem="m")
@@ -217,7 +220,9 @@ def test_quantified_literal_arm_does_not_emit_literal():
 
 def test_module_emits_pattern_aliases_at_top():
     """Patterns get module-level aliases; field types reference the alias."""
-    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))])
+    spec = _spec(
+        "d", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))]
+    )
     src = emit_module_source([spec], stem="m")
     # Tier 2 hit: [0-9]+ → 'digit' → CamelCase 'Digit'
     assert 'Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]' in src
@@ -230,8 +235,8 @@ def test_module_emits_pattern_aliases_at_top():
 
 def test_repeated_pattern_shares_one_alias():
     """Two rules with [0-9]+ produce one alias."""
-    s1 = _spec("a", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))])
-    s2 = _spec("b", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))])
+    s1 = _spec("a", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))])
+    s2 = _spec("b", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))])
     src = emit_module_source([s1, s2], stem="m")
     # One alias declaration
     assert src.count("Digit = Annotated[") == 1
@@ -241,7 +246,9 @@ def test_repeated_pattern_shares_one_alias():
 
 def test_class_body_has_no_grammar_assignment():
     """Class body contains only field declarations (and pass for empty)."""
-    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))])
+    spec = _spec(
+        "d", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))]
+    )
     src = emit_module_source([spec], stem="m")
     tree = parse(src)
     classes = [n for n in tree.body if isinstance(n, ClassDef)]
@@ -254,7 +261,9 @@ def test_class_body_has_no_grammar_assignment():
 
 def test_module_footer_registers_grammar():
     """Footer block sets cls.__grammar__ for each class."""
-    spec = _spec("d", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))])
+    spec = _spec(
+        "d", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))]
+    )
     src = emit_module_source([spec], stem="m")
     assert "D.__grammar__ = RuleSpec(" in src
 
@@ -273,11 +282,11 @@ def test_grammar_round_trip_through_load():
     grp_spec = _spec(
         "r",
         "sequence",
-        [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))],
+        [IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))],
         field_map={"digit": 0},
     )
     src = emit_module_source([grp_spec], stem="m")
     mod = load_emitted(src)
     item0 = mod.R.__grammar__.items[0]
     assert item0.atom == IrCharClass("0-9")
-    assert item0.quantifier == IrQuantifier(1, None)
+    assert item0.quantifier == IrQuantifier(1, IrNone)

@@ -46,7 +46,7 @@ def test_classify_value_str_for_charclass_only():
     """`digit ::= [0-9]+` — no rulerefs → value_str."""
     rule = IrRule(
         "digit",
-        IrAlternation(IrSequence(IrItem(IrCharClass("0-9"), IrQuantifier(1, None)))),
+        IrAlternation(IrSequence(IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone)))),
     )
     assert classify_kind(rule) == "value_str"
 
@@ -123,7 +123,7 @@ def test_classify_sequence_with_inline_group_containing_rulerefs():
                     IrAlternation(
                         IrSequence(IrItem(IrRuleRef("op")), IrItem(IrRuleRef("term")))
                     ),
-                    IrQuantifier(0, None),
+                    IrQuantifier(0, IrNone),
                 ),
             ),
         ),
@@ -138,12 +138,12 @@ def test_classify_value_str_for_complex_literal_group():
         IrAlternation(
             IrSequence(
                 IrItem(IrLiteral("-"), IrQuantifier(0, 1)),
-                IrItem(IrCharClass("0-9"), IrQuantifier(1, None)),
+                IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone)),
                 IrItem(
                     IrAlternation(
                         IrSequence(
                             IrItem(IrLiteral(".")),
-                            IrItem(IrCharClass("0-9"), IrQuantifier(1, None)),
+                            IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone)),
                         )
                     ),
                     IrQuantifier(0, 1),
@@ -167,11 +167,11 @@ def test_compute_parents_alternation_arms_get_parent():
     )
     num = IrRule(
         "num",
-        IrAlternation(IrSequence(IrItem(IrCharClass("0-9"), IrQuantifier(1, None)))),
+        IrAlternation(IrSequence(IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone)))),
     )
     ident = IrRule(
         "ident",
-        IrAlternation(IrSequence(IrItem(IrCharClass("a-z"), IrQuantifier(1, None)))),
+        IrAlternation(IrSequence(IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone)))),
     )
     parents = compute_parents([term, num, ident])
     assert parents == {"num": "Term", "ident": "Term"}
@@ -201,7 +201,7 @@ def test_compute_parents_quantified_ruleref_arm_does_not_create_parent():
     rule = IrRule(
         "alt",
         IrAlternation(
-            IrSequence(IrItem(IrRuleRef("a"), IrQuantifier(1, None))),
+            IrSequence(IrItem(IrRuleRef("a"), IrQuantifier(1, IrNone))),
             IrSequence(IrItem(IrRuleRef("b"))),
         ),
     )
@@ -290,7 +290,7 @@ def test_hoist_literal_only_quantified_group_stays_inline():
                         IrSequence(IrItem(IrLiteral("foo"))),
                         IrSequence(IrItem(IrLiteral("bar"))),
                     ),
-                    IrQuantifier(1, None),
+                    IrQuantifier(1, IrNone),
                 )
             )
         ),
@@ -317,7 +317,7 @@ def test_hoist_quantified_multi_arm_group_with_rulerefs():
                         IrSequence(IrItem(IrRuleRef("a"))),
                         IrSequence(IrItem(IrRuleRef("b"))),
                     ),
-                    IrQuantifier(1, None),
+                    IrQuantifier(1, IrNone),
                 )
             )
         ),
@@ -337,7 +337,7 @@ def test_hoist_quantified_multi_arm_group_with_rulerefs():
     )
     new_item = out_ast.rules[0].body[0][0]
     assert new_item.atom == IrRuleRef("r-item")
-    assert new_item.quantifier == IrQuantifier(1, None)
+    assert new_item.quantifier == IrQuantifier(1, IrNone)
 
 
 def test_hoist_quantified_single_arm_group_with_rulerefs():
@@ -351,7 +351,7 @@ def test_hoist_quantified_single_arm_group_with_rulerefs():
                     IrAlternation(
                         IrSequence(IrItem(IrRuleRef("op")), IrItem(IrRuleRef("term")))
                     ),
-                    IrQuantifier(0, None),
+                    IrQuantifier(0, IrNone),
                 ),
             )
         ),
@@ -371,7 +371,7 @@ def test_hoist_quantified_single_arm_group_with_rulerefs():
     items = out_ast.rules[0].body[0]
     assert items[0].atom == IrRuleRef("term")
     assert items[1].atom == IrRuleRef("expr-item")
-    assert items[1].quantifier == IrQuantifier(0, None)
+    assert items[1].quantifier == IrQuantifier(0, IrNone)
 
 
 def test_hoist_assigns_unique_names_when_multiple_helpers():
@@ -382,11 +382,11 @@ def test_hoist_assigns_unique_names_when_multiple_helpers():
             IrSequence(
                 IrItem(
                     IrAlternation(IrSequence(IrItem(IrRuleRef("a")))),
-                    IrQuantifier(1, None),
+                    IrQuantifier(1, IrNone),
                 ),
                 IrItem(
                     IrAlternation(IrSequence(IrItem(IrRuleRef("b")))),
-                    IrQuantifier(1, None),
+                    IrQuantifier(1, IrNone),
                 ),
             )
         ),
@@ -422,7 +422,7 @@ def test_derive_value_str_single_arm():
     """`digit ::= [0-9]+` → one value_str spec, items hold the charclass."""
     rule = IrRule(
         "digit",
-        IrAlternation(IrSequence(IrItem(IrCharClass("0-9"), IrQuantifier(1, None)))),
+        IrAlternation(IrSequence(IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone)))),
     )
     ast = IrAst(
         rules=IrSeq(
@@ -509,11 +509,11 @@ def test_derive_alternation_produces_abstract_plus_no_arm_specs_for_single_refs(
     )
     num = IrRule(
         "num",
-        IrAlternation(IrSequence(IrItem(IrCharClass("0-9"), IrQuantifier(1, None)))),
+        IrAlternation(IrSequence(IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone)))),
     )
     ident = IrRule(
         "ident",
-        IrAlternation(IrSequence(IrItem(IrCharClass("a-z"), IrQuantifier(1, None)))),
+        IrAlternation(IrSequence(IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone)))),
     )
     ast = IrAst(rules=IrSeq(term, num, ident), start="term")
     specs = derive_specs(ast)
@@ -543,7 +543,7 @@ def test_derive_alternation_with_multi_item_arm_synthesises_arm_spec():
     )
     num = IrRule(
         "num",
-        IrAlternation(IrSequence(IrItem(IrCharClass("0-9"), IrQuantifier(1, None)))),
+        IrAlternation(IrSequence(IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone)))),
     )
     expr = IrRule("expr", IrAlternation(IrSequence(IrItem(IrRuleRef("num")))))
     ast = IrAst(rules=IrSeq(value, num, expr), start="value")
@@ -577,7 +577,7 @@ def test_derive_helper_rules_appear_in_output():
                     IrAlternation(
                         IrSequence(IrItem(IrRuleRef("op")), IrItem(IrRuleRef("term")))
                     ),
-                    IrQuantifier(0, None),
+                    IrQuantifier(0, IrNone),
                 ),
             )
         ),
@@ -593,7 +593,7 @@ def test_derive_helper_rules_appear_in_output():
 
 
 def test_derive_marks_non_semantic_field_min_zero():
-    """`expr ::= term ws op` with non_semantic_rules={"ws"} forces ws field min=0."""
+    """`expr ::= term ws op` with non_semantic_rules={"ws"} forces ws field lo=0."""
     expr = IrRule(
         "expr",
         IrAlternation(
@@ -607,7 +607,7 @@ def test_derive_marks_non_semantic_field_min_zero():
     term = IrRule("term", IrAlternation(IrSequence(IrItem(IrCharClass("a-z")))))
     ws = IrRule(
         "ws",
-        IrAlternation(IrSequence(IrItem(IrCharClass(" \\t"), IrQuantifier(0, None)))),
+        IrAlternation(IrSequence(IrItem(IrCharClass(" \\t"), IrQuantifier(0, IrNone)))),
     )
     op = IrRule("op", IrAlternation(IrSequence(IrItem(IrLiteral("+")))))
     ast = IrAst(rules=IrSeq(expr, term, ws, op), start="expr")
@@ -620,7 +620,7 @@ def test_derive_marks_non_semantic_field_min_zero():
         if isinstance(i, IrItem) and isinstance(i.atom, IrRuleRef) and i.atom == "ws"
     )
     assert isinstance(ws_item, IrItem)
-    assert ws_item.quantifier.min == 0
+    assert ws_item.quantifier.lo == 0
     assert "ws" in expr_spec.non_semantic_fields
 
 
@@ -633,7 +633,7 @@ def test_derive_no_non_semantic_when_rule_not_in_set():
     term = IrRule("term", IrAlternation(IrSequence(IrItem(IrCharClass("a-z")))))
     ws = IrRule(
         "ws",
-        IrAlternation(IrSequence(IrItem(IrCharClass(" \\t"), IrQuantifier(0, None)))),
+        IrAlternation(IrSequence(IrItem(IrCharClass(" \\t"), IrQuantifier(0, IrNone)))),
     )
     ast = IrAst(rules=IrSeq(expr, term, ws), start="expr")
     specs = derive_specs(ast)  # no non_semantic_rules
@@ -644,7 +644,7 @@ def test_derive_no_non_semantic_when_rule_not_in_set():
         if isinstance(i, IrItem) and isinstance(i.atom, IrRuleRef) and i.atom == "ws"
     )
     assert isinstance(ws_item, IrItem)
-    assert ws_item.quantifier.min == 1
+    assert ws_item.quantifier.lo == 1
     assert expr_spec.non_semantic_fields == frozenset()
 
 
@@ -659,7 +659,7 @@ def test_helpers_always_get_grammar_model_parent():
                     IrAlternation(
                         IrSequence(IrItem(IrRuleRef("op")), IrItem(IrRuleRef("term")))
                     ),
-                    IrQuantifier(0, None),
+                    IrQuantifier(0, IrNone),
                 ),
             )
         ),
@@ -691,7 +691,7 @@ def test_field_map_tier3_pattern_positional_part_n():
 
 def test_field_map_tier2_match_takes_precedence_over_tier3():
     """An IrCharClass matching the Tier 2 library uses the library name."""
-    items = [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))]
+    items = [IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))]
     fm = _field_map(items)
     assert list(fm.keys()) == ["digit"]
 
@@ -699,7 +699,7 @@ def test_field_map_tier2_match_takes_precedence_over_tier3():
 def test_field_map_mixed_tier2_and_tier3():
     """A Tier-2 hit + Tier-3 fallback in the same rule."""
     items = [
-        IrItem(IrCharClass("0-9"), IrQuantifier(1, None)),  # → 'digit'
+        IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone)),  # → 'digit'
         IrItem(
             IrCharClass("xyz_unmatched"), IrQuantifier(1, 1)
         ),  # → 'head' (first Tier-3 pattern)

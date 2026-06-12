@@ -7,6 +7,7 @@ from lark import Lark
 
 from lexic.grammars.abnf.flavour import ABNF_ESCAPES, ABNF_FLAVOUR, META_GRAMMAR
 from lexic.grammars.flavour import IrFlavour
+from lexic.ir.base import IrNone
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
@@ -34,14 +35,14 @@ def test_abnf_flavour_metadata():
 
 
 def test_parse_quantifier_star_means_zero_or_more():
-    """`"*"` -> `IrQuantifier(0, None)`"""
-    assert ABNF_FLAVOUR.parse_quantifier("*") == IrQuantifier(0, None)
+    """`"*"` -> `IrQuantifier(0, IrNone)`"""
+    assert ABNF_FLAVOUR.parse_quantifier("*") == IrQuantifier(0, IrNone)
 
 
 def test_parse_quantifier_n_star_means_n_or_more():
-    """`"1*"` -> `IrQuantifier(1, None)`"""
-    assert ABNF_FLAVOUR.parse_quantifier("1*") == IrQuantifier(1, None)
-    assert ABNF_FLAVOUR.parse_quantifier("3*") == IrQuantifier(3, None)
+    """`"1*"` -> `IrQuantifier(1, IrNone)`"""
+    assert ABNF_FLAVOUR.parse_quantifier("1*") == IrQuantifier(1, IrNone)
+    assert ABNF_FLAVOUR.parse_quantifier("3*") == IrQuantifier(3, IrNone)
 
 
 def test_parse_quantifier_star_n_means_zero_to_n():

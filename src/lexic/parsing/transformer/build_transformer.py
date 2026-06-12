@@ -7,6 +7,7 @@ from typing import Callable
 from lark import Token, Transformer
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.base import IrNoneType
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -41,7 +42,7 @@ def _consume_terminal(item: IrItem, ch: list, pos: int) -> tuple[str, int]:
 
 def _consume_rule_ref(item: IrItem, ch: list, pos: int) -> tuple[object, int]:
     q = item.quantifier
-    if q.max is None or q.max > 1:
+    if isinstance(q.hi, IrNoneType) or q.hi > 1:
         end = pos
         while end < len(ch) and not isinstance(ch[end], Token):
             end += 1
@@ -66,7 +67,7 @@ def _consume_group(item: IrItem, ch: list, pos: int) -> tuple[object, int]:
     q = item.quantifier
     if _group_has_ruleref(item.atom):  # type: ignore[arg-type]
         # Tree-producing group (rule-ref alternation like pawn|nonpawn|castle).
-        if q.max is None or q.max > 1:
+        if isinstance(q.hi, IrNoneType) or q.hi > 1:
             end = pos
             while end < len(ch) and not isinstance(ch[end], Token):
                 end += 1
@@ -80,7 +81,7 @@ def _consume_group(item: IrItem, ch: list, pos: int) -> tuple[object, int]:
         while end < len(ch) and isinstance(ch[end], Token):
             end += 1
         return "".join(str(c) for c in ch[pos:end]), end
-    return None if q.min == 0 else "", pos
+    return None if q.lo == 0 else "", pos
 
 
 _CONSUME: dict[type, _Consumer] = {

@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from typing import ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrSelf, IrStr
+from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrStr
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import IrAlternation, IrLiteral, IrQuantifier
 from lexic.ir.walk import IrEmitter
@@ -40,7 +40,7 @@ class IrEscape(IrLeaf[IrSelf, IrStr]):
         :raises UnsupportedConstructError: If ``d`` carries no escape codec or
             ``n`` is not a str-leaf.
         """
-        codec = getattr(d, "escapes", None)
+        codec = getattr(d, "escapes", IrNone)
         if not isinstance(codec, EscapeCodec):
             raise UnsupportedConstructError(
                 f"IrEscape: dispatcher {type(d).__name__} carries no escape codec"
@@ -74,7 +74,7 @@ class IrFlavour(IrEmitter, ABC):
         """Parse a quantifier symbol into an IrQuantifier.
 
         :param text: Flavour-specific quantifier token.
-        :returns: Canonical ``IrQuantifier(min, max)``.
+        :returns: Canonical ``IrQuantifier(lo, hi)``.
         """
 
     @staticmethod

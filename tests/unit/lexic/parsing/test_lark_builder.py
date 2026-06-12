@@ -6,6 +6,7 @@ from pathlib import Path
 
 import lark
 
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
@@ -29,7 +30,9 @@ def test_build_grammar_simple_literal():
 
 def test_build_grammar_charclass_quantified():
     """build_grammar(specs) returns a Lark grammar string."""
-    s = make_spec("d", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, None))])
+    s = make_spec(
+        "d", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))]
+    )
     grammar, start = LarkBuilder([s]).build_grammar()
     parser = lark.Lark(grammar, parser="earley", start=start)
     assert parser.parse("123") is not None
@@ -38,7 +41,7 @@ def test_build_grammar_charclass_quantified():
 def test_build_grammar_ruleref():
     """build_grammar(specs) returns a Lark grammar string."""
     inner = make_spec(
-        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, None))]
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone))]
     )
     outer = make_spec(
         "root", "sequence", [IrItem(IrRuleRef("expr"))], field_map={"expr": 0}
@@ -76,7 +79,7 @@ def test_no_ws_string_check_in_source():
 def test_build_lark_returns_parser_and_transformer_factory():
     """build_lark(specs, classes, start) returns (grammar_str, parser, transformer)."""
     inner = make_spec(
-        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, None))]
+        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone))]
     )
     outer = make_spec(
         "root", "sequence", [IrItem(IrRuleRef("expr"))], field_map={"expr": 0}

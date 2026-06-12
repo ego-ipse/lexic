@@ -21,7 +21,7 @@ def _roundtrip(grammar: str, specs: dict, seed: int) -> None:
     rng = random.Random(seed)
     text = generate("root", specs, rng=rng, max_depth=4)
     if not text:
-        # Generator returns "" when root is optional (min=0) — always the case
+        # Generator returns "" when root is optional (lo=0) — always the case
         # for grammars like c where root ::= (declaration)*. Skip rather than
         # parsing an empty string.
         return

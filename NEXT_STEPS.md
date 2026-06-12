@@ -56,6 +56,14 @@ Negation detection becomes grammar structure (`"[" "^"? interior "]"`) feeding
 flavour is meta-grammar text + action table + escape/symbol data, no methods
 (the "completely auto-generated" promise in the flavour docstrings).
 
+
+# Note from human: I think one good way to solve multiple issues at once is to
+abstract both quantifiers and char ranges into a single `IrRange`, that is,
+a range from `lo` to `hi` (inclusive). If this is an int, like in a quantifier,
+then it's a range from `lo` to `lo`. If it's a char class, then it's a range
+from the first char to the last char- or a sequence thereof... which 0-9 is the
+range from `0` to `9` as strings.
+
 ## 4. ABNF port
 
 After 1–3 land: `_abnf_encode_literal` → same `IrEscape` body as GBNF;

@@ -41,6 +41,7 @@ from typing import Annotated, ClassVar, List, Literal, Optional, Union
 from pydantic import Field, StringConstraints
 
 from lexic.base import GrammarModel
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -58,11 +59,11 @@ from lexic.ir.spec import RuleSpec
 
 
 def _is_required(q: IrQuantifier) -> bool:
-    return q.min == 1 and q.max == 1
+    return q.lo == 1 and q.hi == 1
 
 
 def _is_optional(q: IrQuantifier) -> bool:
-    return q.min == 0 and q.max == 1
+    return q.lo == 0 and q.hi == 1
 
 
 # ── Field type emission ───────────────────────────────────────────────────────

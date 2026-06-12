@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random as _random
 
+from lexic.ir.base import IrNoneType
 from lexic.ir.charclass import parse_charclass_chars
 from lexic.ir.nodes import (
     IrAlternation,
@@ -22,14 +23,14 @@ _ASCII_PRINTABLE = [chr(c) for c in range(32, 127)]
 
 def _pick_count(q: IrQuantifier, rng: _random.Random) -> int:
     """Pick a repetition count."""
-    if q.min == 0:
+    if q.lo == 0:
         return 0
-    if q.max == q.min:
-        return q.min
-    hi = min(q.max, q.min + 2) if q.max is not None else q.min + 2
+    if q.hi == q.lo:
+        return q.lo
+    hi = q.lo + 2 if isinstance(q.hi, IrNoneType) else min(q.hi, q.lo + 2)
     if rng.random() < 0.7:
-        return q.min
-    return rng.randint(q.min + 1, hi)
+        return q.lo
+    return rng.randint(q.lo + 1, hi)
 
 
 def _gen_charclass(

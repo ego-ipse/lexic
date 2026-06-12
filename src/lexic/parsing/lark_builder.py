@@ -11,6 +11,7 @@ from __future__ import annotations
 import lark
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.base import IrNoneType
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
@@ -52,18 +53,18 @@ def _regex_terminal(pattern: str, q: IrQuantifier) -> str:
     For Q(0,n) with n>1, /pattern{0,n}/ would be zero-width (forbidden by
     dynamic Earley), so we use /pattern{1,n}/? instead — same semantics.
     """
-    q_str = bounds_to_quantifier(q.min, q.max)
+    q_str = bounds_to_quantifier(q.lo, q.hi)
     if q_str in _LARK_TERMINAL_QUANTS:
         return f"/{pattern}/{q_str}"
-    if q.min == 0 and q.max is not None:
-        return f"/{pattern}{bounds_to_quantifier(1, q.max)}/?"
+    if q.lo == 0 and not isinstance(q.hi, IrNoneType):
+        return f"/{pattern}{bounds_to_quantifier(1, q.hi)}/?"
     return f"/{pattern}{q_str}/"
 
 
 def _atom_to_lark(item: IrItem) -> str:
     """Convert an IR item to a Lark atom string."""
     atom = item.atom
-    q_str = bounds_to_quantifier(item.quantifier.min, item.quantifier.max)
+    q_str = bounds_to_quantifier(item.quantifier.lo, item.quantifier.hi)
     if isinstance(atom, IrLiteral):
         return f'"{_LARK_ESCAPES.encode(atom)}"{q_str}'
     if isinstance(atom, IrNot):
@@ -102,7 +103,7 @@ def _atom_to_lark_regex(item: IrItem) -> str:
     making it impossible to tell if optional literals matched. Regex form keeps all tokens.
     """
     atom = item.atom
-    q_str = bounds_to_quantifier(item.quantifier.min, item.quantifier.max)
+    q_str = bounds_to_quantifier(item.quantifier.lo, item.quantifier.hi)
     if isinstance(atom, IrLiteral):
         return _regex_terminal(literal_to_regex_pattern(atom), item.quantifier)
     if isinstance(atom, IrNot):

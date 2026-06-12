@@ -52,7 +52,7 @@ from typing import (
 from weakref import WeakValueDictionary
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
-from lexic.ir.base import IrSelf, IrSeq, IrTuple
+from lexic.ir.base import IrNone, IrSelf, IrSeq, IrTuple
 
 
 class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
@@ -115,7 +115,7 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
         :raises IrKeyError: When no candidate resolves.
         """
         for key in keys:
-            dyad = getattr(self, str(hash(key)), None)
+            dyad = getattr(self, str(hash(key)), IrNone)
             if isinstance(dyad, IrTuple) and dyad[0] == key:
                 return dyad
         raise IrKeyError(f"{type(self).__name__}: no entry for {keys!r}")

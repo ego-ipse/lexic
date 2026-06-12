@@ -254,6 +254,13 @@ class IrNoneType(IrSelf):
             cls._instance = super().__new__(cls)
         return cls._instance
 
+    def __repr__(self) -> str:
+        """Codegen repr — the singleton's public name.
+
+        :returns: ``"IrNone"``, a valid expression naming the singleton.
+        """
+        return "IrNone"
+
 
 # Public singleton VALUE — callers pass bare `IrNone`
 IrNone = IrNoneType()
@@ -623,7 +630,7 @@ class IrTuple[*Ts](tuple[*Ts], IrNode[IrSelf, IrSelf]):
         """Codegen repr: ``ClassName(elem0, elem1, …)``.
 
         A class-valued element renders as its bare ``__name__`` (e.g.
-        ``IrField('min', IrInt)``) so the result stays valid codegen; homogeneous
+        ``IrField('lo', IrInt)``) so the result stays valid codegen; homogeneous
         collections never hold classes, so this is a no-op for them.
 
         :returns: Constructor call reproducing this node.

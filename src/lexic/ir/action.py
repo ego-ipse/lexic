@@ -69,7 +69,7 @@ class IrField(IrNamedTuple[str, type[IrScalar]]):
 
     The read value is wrapped via the **runtime** constructor ``out`` — a
     value-leaf type such as :class:`~lexic.ir.nodes.IrStr` / :class:`IrInt`
-    (default ``IrStr``). Read an int with ``IrField("min", IrInt)``; the default
+    (default ``IrStr``). Read an int with ``IrField("lo", IrInt)``; the default
     ``out=IrStr`` keeps every existing ``IrField("name")`` caller unchanged.
 
     Cast-free and open: ``out`` is any ``type[IrScalar]`` — callable with the

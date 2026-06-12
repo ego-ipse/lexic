@@ -409,13 +409,13 @@ def _is_non_sem_ref(item: IrItem, rules: frozenset[str]) -> bool:
 def _relax_item(
     item: IrItem | IrAlternation, rules: frozenset[str]
 ) -> IrItem | IrAlternation:
-    """Set min=0 if `item` references a non-semantic rule with min > 0."""
+    """Set lo=0 if `item` references a non-semantic rule with lo > 0."""
     if (
         isinstance(item, IrItem)
         and _is_non_sem_ref(item, rules)
-        and item.quantifier.min > 0
+        and item.quantifier.lo > 0
     ):
-        return IrItem(item.atom, IrQuantifier(0, item.quantifier.max))
+        return IrItem(item.atom, IrQuantifier(0, item.quantifier.hi))
     return item
 
 

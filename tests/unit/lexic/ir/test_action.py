@@ -122,14 +122,14 @@ def test_irfield_reads_charclass_pattern():
 
 def test_irfield_repr_is_valid_codegen():
     """IrField repr renders the class-valued `out` as a bare name (eval round-trips)."""
-    assert repr(IrField("min", IrInt)) == "IrField('min', IrInt)"
+    assert repr(IrField("lo", IrInt)) == "IrField('lo', IrInt)"
     assert repr(IrField("name")) == "IrField('name', IrStr)"
 
 
 def test_irfield_out_irint_reads_int_without_stringifying():
-    """IrField('min', IrInt) reads an int attribute and wraps it as IrInt."""
-    q = IrQuantifier(min=3, max=5)
-    result = IrField("min", IrInt).eval(IrNone, q, ())
+    """IrField('lo', IrInt) reads an int attribute and wraps it as IrInt."""
+    q = IrQuantifier(lo=3, hi=5)
+    result = IrField("lo", IrInt).eval(IrNone, q, ())
     assert result == 3
     assert isinstance(result, IrInt)
 
@@ -181,8 +181,8 @@ def test_ircompare_lt_and_gt():
 
 def test_ircompare_reads_field_operand():
     """An IrField operand is evaluated against the dispatched node before compare."""
-    q = IrQuantifier(min=0, max=1)
-    cmp = IrCompare(IrField("min", IrInt), IrOp("=="), IrInt(0))
+    q = IrQuantifier(lo=0, hi=1)
+    cmp = IrCompare(IrField("lo", IrInt), IrOp("=="), IrInt(0))
     assert cmp.eval(IrNone, q, ()) == 1
 
 
@@ -337,18 +337,18 @@ def test_irjoin_returns_empty_value_when_no_items():
 
 def test_ircond_evaluates_then_when_test_truthy():
     """IrCond picks then_op when the test node evals truthy."""
-    node = IrQuantifier(min=1, max=1)
+    node = IrQuantifier(lo=1, hi=1)
     op = IrCond[IrStr](
-        test=IrField("min", IrInt), then_op=IrLiteral("yes"), else_op=IrLiteral("no")
+        test=IrField("lo", IrInt), then_op=IrLiteral("yes"), else_op=IrLiteral("no")
     )
     assert op.eval(IrNone, node, ()) == "yes"
 
 
 def test_ircond_evaluates_else_when_test_falsy():
     """IrCond picks else_op when the test node evals falsy."""
-    node = IrQuantifier(min=0, max=1)
+    node = IrQuantifier(lo=0, hi=1)
     op = IrCond[IrStr](
-        test=IrField("min", IrInt), then_op=IrLiteral("yes"), else_op=IrLiteral("no")
+        test=IrField("lo", IrInt), then_op=IrLiteral("yes"), else_op=IrLiteral("no")
     )
     assert op.eval(IrNone, node, ()) == "no"
 

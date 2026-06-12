@@ -9,6 +9,7 @@ import pytest
 from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import IrCharClass, IrItem, IrLiteral, IrQuantifier, IrRuleRef
 from lexic.ir.spec import RuleSpec
 from tests.paths import GROUND_TRUTH
@@ -24,7 +25,7 @@ def test_to_text_value_str():
         "Ws",
         "GrammarModel",
         "value_str",
-        items=[IrItem(IrCharClass(" \\t\\n"), IrQuantifier(0, None))],
+        items=[IrItem(IrCharClass(" \\t\\n"), IrQuantifier(0, IrNone))],
         field_map={},
     )
 
@@ -123,7 +124,7 @@ def test_to_text_list_of_grammar_model():
         "Root",
         "GrammarModel",
         "sequence",
-        items=[IrItem(IrRuleRef("it"), IrQuantifier(1, None))],
+        items=[IrItem(IrRuleRef("it"), IrQuantifier(1, IrNone))],
         field_map={"it": 0},
     )
 

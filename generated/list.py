@@ -7,6 +7,7 @@ from typing import Annotated, List
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
@@ -35,7 +36,7 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(IrRuleRef("item"), IrQuantifier(1, None))],
+    items=[IrItem(IrRuleRef("item"), IrQuantifier(1, IrNone))],
     field_map={"item": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -50,7 +51,7 @@ Item.__grammar__ = RuleSpec(
         IrItem(IrLiteral("- "), IrQuantifier(1, 1)),
         IrItem(
             IrNot(IrCharClass("\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029")),
-            IrQuantifier(1, None),
+            IrQuantifier(1, IrNone),
         ),
         IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
     ],

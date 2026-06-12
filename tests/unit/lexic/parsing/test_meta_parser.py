@@ -7,6 +7,7 @@ Tested with a tiny stub flavour that exists only in this test file.
 from __future__ import annotations
 
 from lexic.grammars.flavour import IrFlavour
+from lexic.ir.base import IrNone
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
@@ -63,9 +64,9 @@ QUANTIFIER: /[?*+]/
         if text == "?":
             return IrQuantifier(0, 1)
         if text == "*":
-            return IrQuantifier(0, None)
+            return IrQuantifier(0, IrNone)
         if text == "+":
-            return IrQuantifier(1, None)
+            return IrQuantifier(1, IrNone)
         return IrQuantifier(1, 1)
 
     @staticmethod
@@ -130,8 +131,8 @@ def test_parses_quantifiers():
     rule = _ast_first_rule("expr = a? b* c+\n")
     items = rule.body[0]
     assert items[0].quantifier == IrQuantifier(0, 1)
-    assert items[1].quantifier == IrQuantifier(0, None)
-    assert items[2].quantifier == IrQuantifier(1, None)
+    assert items[1].quantifier == IrQuantifier(0, IrNone)
+    assert items[2].quantifier == IrQuantifier(1, IrNone)
 
 
 def test_parses_group():
