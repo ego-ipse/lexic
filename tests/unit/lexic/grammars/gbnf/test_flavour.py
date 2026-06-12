@@ -15,12 +15,14 @@ from lexic.grammars.gbnf.flavour import (
 from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
+    IrCharClass,
     IrItem,
     IrLiteral,
     IrQuantifier,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
 
 
@@ -194,3 +196,25 @@ def test_gbnf_item_ruleref_atom_is_not_parenthesised():
     """An IrItem whose atom is an IrRuleRef renders without wrapping parens."""
     item = IrItem(atom=IrRuleRef("foo"))
     assert GBNF_FLAVOUR.apply(item) == "foo"
+
+
+# ── IrNot / negated charclass emission ───────────────────────────────
+
+
+def test_gbnf_not_charclass_renders_negated_bracket():
+    """GBNF_FLAVOUR.apply(IrNot(IrCharClass("a-z"))) renders "[^a-z]"."""
+    assert GBNF_FLAVOUR.apply(IrNot(IrCharClass("a-z"))) == "[^a-z]"
+
+
+def test_gbnf_charclass_renders_without_negation_mark():
+    """Plain IrCharClass renders without a caret — no mark leakage from IrNot."""
+    assert GBNF_FLAVOUR.apply(IrCharClass("a-z")) == "[a-z]"
+
+
+def test_gbnf_not_non_charclass_raises_unsupported():
+    """IrNot wrapping a non-IrCharClass node raises UnsupportedConstructError.
+
+    The error message names the dispatcher and the rejected node type.
+    """
+    with pytest.raises(UnsupportedConstructError, match="cannot negate 'IrRuleRef'"):
+        GBNF_FLAVOUR.apply(IrNot(IrRuleRef("ws")))

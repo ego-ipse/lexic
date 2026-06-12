@@ -10,6 +10,9 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import (
     IrAction,
+    IrApply,
+    IrArgs,
+    IrAt,
     IrChild,
     IrChildren,
     IrCompare,
@@ -40,8 +43,10 @@ from lexic.ir.base import (
     IrStr,
     IrTuple,
 )
+from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
+    IrCharClass,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -49,7 +54,8 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.walk import IrEmitter
+from lexic.ir.operators import IrNot
+from lexic.ir.walk import IrDispatch, IrEmitter
 
 # ── _Return ──────────────────────────────────────────────────────────
 
@@ -190,20 +196,36 @@ def test_ircompare_reads_field_operand():
 
 
 def test_irchild_reads_dispatched_child_by_name():
-    """IrChild("atom") returns new_children[0] for an IrItem
-    (_child_attrs=("atom","quantifier"))."""
+    """IrChild dispatches the real child from ``n`` via ``d`` — ``nc`` is ignored.
+
+    ``IrChild("atom")`` looks up "atom" in ``type(n)._child_attrs``, takes
+    ``n.children()[0]``, and dispatches it.  A populated ``nc`` must not
+    change the result.
+    """
     item = IrItem(atom=IrLiteral("x"))
-    new_children = (IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild("atom").eval(IrNone, item, new_children)
-    assert result == "dispatched_atom"
+    emitter = IrEmitter()
+    result_no_nc = IrChild("atom").eval(emitter, item, IrTuple())
+    # Passing a non-empty nc must produce the same value — nc is not read.
+    result_with_nc = IrChild("atom").eval(
+        emitter, item, (IrStr("ignored_1"), IrStr("ignored_2"))
+    )
+    assert result_no_nc == "x"
+    assert result_no_nc == result_with_nc
 
 
 def test_irchild_reads_second_child():
-    """IrChild("quantifier") returns new_children[1] for an IrItem."""
+    """IrChild("quantifier") dispatches n's second child; nc is ignored.
+
+    For an :class:`IrItem` with default quantifier ``(1, 1)``, the second child
+    is the quantifier node, not any ``nc`` content.
+    """
     item = IrItem(atom=IrLiteral("x"))
-    new_children = IrTuple(IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    result = IrChild("quantifier").eval(IrNone, item, new_children)
-    assert result == "dispatched_quantifier"
+    emitter = IrEmitter()
+    result = IrChild("quantifier").eval(
+        emitter, item, IrTuple(IrStr("ignored_1"), IrStr("ignored_2"))
+    )
+    # IrEmitter default (IrEmit) converts IrQuantifier(1,1) to IrLiteral("…")
+    assert isinstance(result, IrLiteral)
 
 
 def test_irchild_raises_on_unknown_name():
@@ -227,19 +249,35 @@ def test_irchild_repr_is_codegen():
 # ── IrIndex ───────────────────────────────────────────────────────────
 
 
-def test_irindex_eager_returns_nc_at_position():
-    """IrIndex(0) with populated nc returns nc[0]; IrIndex(1) returns nc[1]."""
+def test_irindex_ignores_nc_dispatches_real_child():
+    """IrIndex always reads ``n``'s real children — a populated ``nc`` is ignored.
+
+    The eager-``nc`` branch is gone.  Both ``IrIndex(0)`` and ``IrIndex(1)``
+    must produce the same result whether or not a non-empty ``nc`` is supplied.
+    """
     item = IrItem(atom=IrLiteral("x"))
-    new_children = (IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    assert IrIndex(0).eval(IrNone, item, new_children) == "dispatched_atom"
-    assert IrIndex(1).eval(IrNone, item, new_children) == "dispatched_quantifier"
+    emitter = IrEmitter()
+    nc_irrelevant = (IrStr("should_be_ignored_0"), IrStr("should_be_ignored_1"))
+    result_0_nc = IrIndex(0).eval(emitter, item, nc_irrelevant)
+    result_0_no_nc = IrIndex(0).eval(emitter, item, IrTuple())
+    assert result_0_nc == result_0_no_nc
+    assert result_0_nc == "x"
 
 
-def test_irindex_negative_returns_last_child():
-    """IrIndex(-1) with populated nc returns the last element."""
+def test_irindex_negative_resolves_last_real_child():
+    """IrIndex(-1) dispatches the last real child of ``n``; ``nc`` is not consulted.
+
+    For an :class:`IrItem`, child index -1 is the quantifier, regardless of any
+    ``nc`` content passed by the caller.
+    """
     item = IrItem(atom=IrLiteral("x"))
-    new_children = (IrStr("dispatched_atom"), IrStr("dispatched_quantifier"))
-    assert IrIndex(-1).eval(IrNone, item, new_children) == "dispatched_quantifier"
+    emitter = IrEmitter()
+    nc_irrelevant = (IrStr("ignored_0"), IrStr("ignored_1"))
+    result_with_nc = IrIndex(-1).eval(emitter, item, nc_irrelevant)
+    result_no_nc = IrIndex(-1).eval(emitter, item, IrTuple())
+    # Both must give the quantifier child, not the nc content
+    assert result_with_nc == result_no_nc
+    assert isinstance(result_with_nc, IrLiteral)  # quantifier rendered by IrEmitter
 
 
 def test_irindex_is_its_payload_int():
@@ -276,15 +314,145 @@ def test_irindex_lazy_dispatches_child_via_d():
 # ── IrChildren ───────────────────────────────────────────────────────
 
 
-def test_irchildren_returns_full_new_children_tuple():
-    """IrChildren() returns new_children for a node with children.
+def test_irchildren_dispatches_real_children_ignores_nc():
+    """IrChildren dispatches ``n``'s real children via ``d`` — a populated ``nc``
+    is never consulted.
 
-    IrChildren carries no name argument in the new model (R2).
+    The result must be the same whether ``nc`` is empty or non-empty.
     """
     seq = IrSequence(IrItem(IrLiteral("a")))
-    new_children = IrTuple(IrStr("result_a"))
-    result = IrChildren[IrSelf, IrStr]().eval(IrNone, seq, new_children)
-    assert result == ("result_a",)
+    emitter = IrEmitter()
+    result_empty_nc = IrChildren[IrSelf, IrTuple]().eval(emitter, seq, IrTuple())
+    result_populated_nc = IrChildren[IrSelf, IrTuple]().eval(
+        emitter, seq, IrTuple(IrStr("ignored"))
+    )
+    assert result_empty_nc == result_populated_nc
+    # Children come from seq itself: one IrItem child
+    assert len(result_empty_nc) == 1
+
+
+# ── IrAt ─────────────────────────────────────────────────────────────
+
+
+def test_irat_rebinds_focus_to_raw_child():
+    """IrAt(0, body) hands the body the raw child at position 0, undispatched.
+
+    Over ``IrNot(IrCharClass('a-z'))``, ``IrAt(0, IrThis())`` must surface the
+    raw ``IrCharClass`` — not a dispatched/rendered string.
+    """
+    nod = IrNot(IrCharClass("a-z"))
+    emitter = IrEmitter()
+    result = IrAt(0, IrThis()).eval(emitter, nod, IrTuple())
+    assert result is nod.children()[0]
+    assert isinstance(result, IrCharClass)
+    assert result == "a-z"
+
+
+def test_irat_negative_selector_indexes_from_end():
+    """IrAt(-1, IrThis()) selects the last raw child."""
+    nod = IrNot(IrCharClass("0-9"))
+    emitter = IrEmitter()
+    result = IrAt(-1, IrThis()).eval(emitter, nod, IrTuple())
+    # IrNot has a single child; -1 addresses the same slot as 0
+    assert isinstance(result, IrCharClass)
+
+
+def test_irat_out_of_range_raises_index_error():
+    """IrAt raises IndexError when the selector is out of range."""
+    nod = IrNot(IrCharClass("a-z"))
+    emitter = IrEmitter()
+    with pytest.raises(IndexError):
+        IrAt(5, IrThis()).eval(emitter, nod, IrTuple())
+
+
+def test_irat_body_receives_fresh_empty_nc():
+    """IrAt starts the body with a fresh empty nc even when the caller passed args.
+
+    :class:`IrArgs` in the body must return an empty tuple because the context
+    shift resets the argument channel.
+    """
+    nod = IrNot(IrCharClass("a-z"))
+    emitter = IrEmitter()
+    # IrAt(0, IrArgs()) — body reads nc, which must be empty after the rebind
+    result = IrAt(0, IrArgs()).eval(emitter, nod, IrTuple(IrLiteral("^")))
+    assert result == IrTuple()
+
+
+def test_irat_repr_is_codegen():
+    """IrAt repr renders as a valid constructor expression."""
+    assert repr(IrAt(0, IrThis())) == "IrAt(0, IrThis())"
+
+
+# ── IrArgs ───────────────────────────────────────────────────────────
+
+
+def test_irargs_returns_nc_as_irtuple():
+    """IrArgs evaluates to the argument channel wrapped in IrTuple."""
+    args_node = IrArgs()
+    result = args_node.eval(IrNone, IrNone, (IrLiteral("a"), IrLiteral("b")))
+    assert result == IrTuple(IrLiteral("a"), IrLiteral("b"))
+
+
+def test_irargs_empty_nc_returns_empty_irtuple():
+    """IrArgs with no arguments evaluates to an empty IrTuple."""
+    result = IrArgs().eval(IrNone, IrNone, ())
+    assert result == IrTuple()
+    assert len(result) == 0
+
+
+def test_irargs_composes_with_irjoin():
+    """IrJoin(parts=IrArgs()) renders joined arguments; empty nc uses the fallback.
+
+    This is the pattern used by :data:`~lexic.grammars.gbnf.flavour.GBNF_ACTIONS`
+    inside the ``IrCharClass`` action.
+    """
+    join = IrJoin(parts=IrArgs(), separator=IrLiteral(","), empty=IrLiteral("(empty)"))
+    result_with_args = join.eval(IrNone, IrNone, (IrLiteral("x"), IrLiteral("y")))
+    assert result_with_args == "x,y"
+    result_no_args = join.eval(IrNone, IrNone, ())
+    assert result_no_args == "(empty)"
+
+
+def test_irargs_repr_is_codegen():
+    """IrArgs repr renders as a valid constructor expression."""
+    assert repr(IrArgs()) == "IrArgs()"
+
+
+# ── IrApply ───────────────────────────────────────────────────────────
+
+
+def test_irapply_re_dispatches_n_with_evaluated_args():
+    """IrApply evaluates its args then re-dispatches ``n`` via ``d`` with them.
+
+    Build a small ``IrTypeMap`` / ``IrDispatch`` whose action for ``IrCharClass``
+    reads the handed-over arguments via :class:`IrArgs`.  :class:`IrApply` must
+    pass those arguments as the new ``nc`` for the re-dispatch.
+    """
+    # Action for IrCharClass: just return IrArgs() as the result so we can inspect it
+    charclass_action = IrAction(
+        IrCharClass,
+        IrArgs(),  # body returns IrTuple(*nc) — shows what args arrived
+    )
+    dispatch = IrDispatch(actions=IrTypeMap(charclass_action))
+    n = IrCharClass("a-z")
+    args_tuple = IrTuple(IrLiteral("^"))
+    result = IrApply(args_tuple).eval(dispatch, n, IrTuple())
+    # The re-dispatch ran IrCharClass's action (IrArgs) with nc=(IrLiteral("^"),)
+    assert result == IrTuple(IrLiteral("^"))
+
+
+def test_irapply_default_args_dispatches_with_empty_channel():
+    """IrApply() with default empty args dispatches n with an empty nc."""
+    charclass_action = IrAction(IrCharClass, IrArgs())
+    dispatch = IrDispatch(actions=IrTypeMap(charclass_action))
+    n = IrCharClass("0-9")
+    result = IrApply().eval(dispatch, n, IrTuple())
+    assert result == IrTuple()
+
+
+def test_irapply_repr_is_codegen():
+    """IrApply repr renders as a valid constructor expression."""
+    assert repr(IrApply(IrTuple(IrLiteral("^")))) == "IrApply(IrTuple(IrLiteral('^')))"
 
 
 # ── IrConcat ─────────────────────────────────────────────────────────

@@ -14,10 +14,12 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrEscape, IrFlavour
 from lexic.ir.action import (
     IrAction,
+    IrApply,
+    IrArgs,
+    IrAt,
     IrChild,
     IrChildren,
     IrConcat,
@@ -26,9 +28,10 @@ from lexic.ir.action import (
     IrField,
     IrIsA,
     IrJoin,
+    IrRaise,
     IrThis,
 )
-from lexic.ir.base import IrCallable, IrNone, IrStr, IrTuple
+from lexic.ir.base import IrNone, IrSelf, IrTuple
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import (
@@ -97,30 +100,39 @@ raises :exc:`~lexic.exceptions.IrKeyError`, an ``UnsupportedConstructError``.
 """
 
 
-def _gbnf_not(_d, n, _nc) -> IrStr:
-    """Render ``IrNot(IrCharClass(...))`` as ``[^value]``.
-
-    Residual procedural body: ``IrNot`` is tuple-shaped (no named field), so
-    neither ``IrIsA`` nor ``IrChild`` can address its raw operand yet.
-    """
-    inner = n[0]
-    if isinstance(inner, IrCharClass):
-        return IrStr(f"[^{inner}]")
-    raise UnsupportedConstructError(
-        f"GBNF IrNot only supports IrCharClass body, got {type(inner).__name__}"
-    )
-
-
 GBNF_ACTIONS = IrTypeMap(
     IrAction(
         IrLiteral,
         IrConcat(parts=IrTuple(IrLiteral('"'), IrEscape(), IrLiteral('"'))),
     ),
+    # Brackets are strictly this action's; the mark-slot (IrArgs) right after
+    # the opening bracket is where GBNF's surface syntax puts received marks.
     IrAction(
         IrCharClass,
-        IrConcat(parts=IrTuple(IrLiteral("["), IrThis(), IrLiteral("]"))),
+        IrConcat(
+            parts=IrTuple(
+                IrLiteral("["),
+                IrJoin(parts=IrArgs()),
+                IrThis(),
+                IrLiteral("]"),
+            )
+        ),
     ),
-    IrAction(IrNot, IrCallable(_gbnf_not)),
+    # IrNot contributes its mark and delegates: the operand's own action
+    # places it. The IrTypeMap is the guard — IrSelf is the MRO catch-all.
+    IrAction(
+        IrNot,
+        IrAt(
+            0,
+            IrTypeMap(
+                IrAction(IrCharClass, IrApply(IrTuple(IrLiteral("^")))),
+                IrAction(
+                    IrSelf,
+                    IrRaise(message="{dispatcher}: cannot negate {node_type!r}"),
+                ),
+            ),
+        ),
+    ),
     IrAction(IrRuleRef, IrEmit()),
     IrAction(IrQuantifier, GBNF_QUANTIFIERS),
     IrAction(

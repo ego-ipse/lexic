@@ -51,12 +51,26 @@ New / revised:
   marker types, and the boolean `_OPS` folds (`&`/`|`/`!`) are literally
   correct for membership. Complement needs a universe only at enumeration
   time (`generate`), never in the IR.
-- **`IrAt` over `IrSlice` / residual `IrCallable`.** "Interior of a class" is
-  a *structural* notion (the join of its ranges), not a textual one (slicing
-  brackets off a rendered child). `IrAt` is the binder primitive that lets an
-  action body evaluate against a raw operand — the gap V1 already recorded
-  ("`IrNot` is tuple-shaped; neither `IrIsA` nor `IrChild` can address its
-  raw operand").
+- **Rendering ownership + the argument channel.** An action renders ONLY its
+  own node's surface tokens — `IrNot` knows its mark (`^`), never brackets;
+  brackets are strictly the `IrCharClass` action's. Cross-node marks travel
+  as **arguments**: `nc` is formally the argument channel (precedent: `IrOp`
+  operands, fold-mode `IrCallable`), and the *receiving* action places
+  received marks wherever its syntax dictates — the IR is semantic, surface
+  position is flavour data (a flavour could render negation postfix:
+  `[foo]!`). Consequence: the hybrid eager-`nc` branches of
+  `IrChildren`/`IrChild`/`IrIndex` are removed (children-readers read
+  children; `IrArgs` reads arguments) — one channel cannot mean both once a
+  node has real children.
+- **Guards are type-maps, not cond-chains.** Operand validation is an
+  `IrTypeMap` evaluated at the operand (`IrAt(0, IrTypeMap(...))`) with
+  `IrSelf → IrRaise` as the MRO-terminal catch-all — O(1) namespace hits,
+  no `IrIsSelf` node needed.
+- **`IrAt` over `IrSlice` / residual `IrCallable`.** "At the operand" is a
+  *structural* notion, not a textual one (no slicing brackets off rendered
+  strings). `IrAt` rebinds the dispatch focus to a raw child — the gap V1
+  already recorded ("`IrNot` is tuple-shaped; neither `IrIsA` nor `IrChild`
+  can address its raw operand").
 
 ## Target tree shapes
 
@@ -84,27 +98,37 @@ New / revised:
   keeps the quantifier and char-range domains disjoint — but it must be a
   *recorded* fact, not a surprise.
 
-## 2. IrAt primitive (standalone, before the charclass restructure)
+## 2. Argument channel + delegation primitives (before the charclass restructure)
 
-`IrAt(selector, body)` in `action.py`: resolve the **raw** (undispatched)
-child `n.children()[selector]`, then evaluate `body` with `n` rebound to it
-and a fresh empty `nc`:
+Three small nodes in `action.py`, plus the channel formalization. Wire the
+GBNF `IrNot`/`IrCharClass` actions immediately as the live consumer (kills
+`_gbnf_not` ⇒ zero `IrCallable`s in the GBNF table, one step early):
+
+- **`IrAt(selector, body)`** — the binder: evaluate `body` with `n` rebound
+  to the **raw** child `n.children()[selector]` and fresh empty `nc`.
+  Selector is index-only int payload (negatives allowed, mirroring
+  `IrIndex`). The algebra's first focus-shift — document prominently.
+- **`IrArgs()`** — fieldless args-reader: evaluates to the `nc` tuple. The
+  argument analogue of `IrChildren`; a flavour places
+  `IrJoin(parts=IrArgs())` wherever received marks belong in its syntax.
+- **`IrApply(args)`** — delegation: evaluate `args` against the current
+  context, then re-dispatch the current focus `n` through `d` with the
+  results as `nc`. No selector — compose with `IrAt` to aim it.
+- **De-hybridize the child readers**: `IrChildren`/`IrChild`/`IrIndex` lose
+  their eager-`nc` branches (dead code — the dispatcher never pre-walks).
+  `IrConcat`/`IrJoin` keep forwarding `nc` to parts — that is how `IrArgs`
+  receives arguments deep inside a body.
+
+GBNF wiring (works against today's str-leaf `IrCharClass`; carries over
+unchanged to step 3's structured one):
 
 ```python
-def eval(self, d, n, nc, /):
-    return self.body.eval(d, n.children()[self.selector], ())
+IrCharClass → IrConcat("[", IrJoin(parts=IrArgs()), IrThis(), "]")
+IrNot       → IrAt(0, IrTypeMap(
+                  IrAction(IrCharClass, IrApply(IrTuple(IrLiteral("^")))),
+                  IrAction(IrSelf,      IrRaise(...)),   # MRO catch-all guard
+              ))
 ```
-
-Design items to settle while writing it:
-
-- Selector is index-only int payload (matches `IrIndex`; negatives allowed).
-  Named/chained selectors only when a consumer demands them.
-- It is the algebra's **first binder** — every other node evaluates against
-  the `n` it was dispatched with. Document the focus-shift prominently.
-- Guard story: `IrNot`'s GBNF action must raise on non-class operands, which
-  needs a type test of the *rebound* node itself. Either extend `IrIsA` with
-  a self form or add a small `IrIsSelf(target)` leaf — decide here, with
-  tests.
 
 ## 3. IrCharClass restructure
 
@@ -116,13 +140,15 @@ Design items to settle while writing it:
   `_read_char` walk from `charclass.py`. Build `IrCharClass(*elements)`,
   wrap in `IrNot` when negated. `parse_charclass` survives this step; it
   dies in step 4.
-- GBNF actions — end state zero `IrCallable`s:
+- GBNF actions — end state zero `IrCallable`s (the `IrNot`/mark machinery is
+  already in place from step 2; only the interior reader changes):
   ```python
-  INTERIOR = IrJoin(parts=IrChildren())
+  INTERIOR = IrJoin(parts=IrChildren())       # children-only reader
+  MARKS    = IrJoin(parts=IrArgs())           # argument-channel reader
   IrRange     → IrConcat(<lo>, "-", <hi>)     # no degenerate cond; [a-a] round-trips
   IrStr run   → escape-aware emit             # singles inside the class
-  IrCharClass → IrConcat("[",  INTERIOR, "]")
-  IrNot       → IrConcat("[^", IrAt(0, INTERIOR), "]")   # + guard; kills _gbnf_not
+  IrCharClass → IrConcat("[", MARKS, INTERIOR, "]")
+  IrNot       → unchanged from step 2 (IrAt + IrTypeMap guard + IrApply("^"))
   ```
   NOTE: class-interior escaping (`]`, `\`, `^`, `-`) is not literal escaping —
   the range/run actions need an escape seam beside `IrEscape()`.

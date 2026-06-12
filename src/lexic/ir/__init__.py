@@ -2,6 +2,9 @@
 
 from lexic.ir.action import (
     IrAction,
+    IrApply,
+    IrArgs,
+    IrAt,
     IrChild,
     IrChildren,
     IrCompare,
@@ -63,7 +66,10 @@ __all__ = [
     "IrAction",
     "IrAlternation",
     "IrAnd",
+    "IrApply",
+    "IrArgs",
     "IrAst",
+    "IrAt",
     "IrAtom",
     "IrCallable",
     "IrCharClass",
