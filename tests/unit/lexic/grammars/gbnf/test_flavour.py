@@ -12,7 +12,7 @@ from lexic.grammars.gbnf.flavour import (
     GBNF_QUANTIFIERS,
     META_GRAMMAR,
 )
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -219,3 +219,23 @@ def test_gbnf_not_non_charclass_raises_unsupported():
     """
     with pytest.raises(UnsupportedConstructError, match="cannot negate 'IrRuleRef'"):
         GBNF_FLAVOUR.apply(IrNot(IrRuleRef("ws")))
+
+
+# ── Structured IrCharClass emission ──────────────────────────────────
+
+
+def test_gbnf_charclass_range_emits_bracket_with_dash():
+    """A range-only class emits ``[lo-hi]``."""
+    assert GBNF_FLAVOUR.apply(IrCharClass(IrRange("0", "9"))) == "[0-9]"
+
+
+def test_gbnf_charclass_run_emits_bracket_with_chars():
+    """A run-only class emits ``[chars]``."""
+    assert GBNF_FLAVOUR.apply(IrCharClass(IrStr("abc"))) == "[abc]"
+
+
+def test_gbnf_charclass_mixed_emits_run_then_range():
+    """A mixed run + range class emits ``[runchars lo-hi]``."""
+    assert (
+        GBNF_FLAVOUR.apply(IrCharClass(IrStr("abc"), IrRange("0", "9"))) == "[abc0-9]"
+    )

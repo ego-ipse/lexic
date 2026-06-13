@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import lark
+import pytest
 
 from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
@@ -15,7 +16,7 @@ from lexic.ir.nodes import (
     IrRange,
     IrRuleRef,
 )
-from lexic.parsing.lark_builder import LarkBuilder, build_lark
+from lexic.parsing.lark_builder import LarkBuilder, build_lark, literal_to_regex_pattern
 from tests._ir_fixtures import item, spec
 from tests.unit.lexic.conftest import make_inner_outer_specs
 from tests.unit.lexic.parsing.conftest import make_spec
@@ -104,3 +105,38 @@ def test_charclass_with_slash_escapes_in_regex() -> None:
     grammar, start = LarkBuilder([s]).build_grammar()
     assert "/[-+*\\/]/" in grammar
     lark.Lark(grammar, parser="earley", start=start)  # must not raise
+
+
+# ── literal_to_regex_pattern ──────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("abc", "abc"),
+        ("a.b", r"a\.b"),
+        ("a*b", r"a\*b"),
+        ("a+b", r"a\+b"),
+        ("a?b", r"a\?b"),
+        ("a^b", r"a\^b"),
+        ("a$b", r"a\$b"),
+        ("[x]", r"\[x\]"),
+        ("(x)", r"\(x\)"),
+        ("{1}", r"\{1\}"),
+        ("a|b", r"a\|b"),
+        ("a/b", r"a\/b"),
+        ("a\\b", r"a\\b"),
+        ("a\nb", r"a\nb"),
+        ("a\rb", r"a\rb"),
+        ("a\tb", r"a\tb"),
+        ("", ""),
+    ],
+)
+def test_literal_to_regex_pattern_escaping(value: str, expected: str) -> None:
+    """literal_to_regex_pattern escapes metacharacters correctly."""
+    assert literal_to_regex_pattern(value) == expected
+
+
+def test_literal_to_regex_pattern_plain_chars_unchanged() -> None:
+    """Plain alphanumeric characters are returned unchanged."""
+    assert literal_to_regex_pattern("hello123") == "hello123"

@@ -22,7 +22,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing.meta_parser import MetaGrammarParser
+from lexic.parsing.meta_parser import MetaGrammarParser, _build_charclass
 
 
 class _StubEscapes(EscapeCodec):
@@ -183,3 +183,84 @@ def test_normalize_literal_override_expands_to_group():
     inner_items = item.atom[0]
     assert inner_items[0].atom == IrCharClass(IrStr("aA"))
     assert inner_items[1].atom == IrCharClass(IrStr("bB"))
+
+
+# ── _build_charclass interior-splitter ───────────────────────────────
+
+
+def test_build_charclass_single_range():
+    """A ``x-y`` interior is split into a single IrRange element.
+
+    :returns: ``IrCharClass(IrRange("a", "z"))``
+    """
+    result = _build_charclass(_StubFlavour(), ["[a-z]"])
+    assert result == IrCharClass(IrRange("a", "z"))
+
+
+def test_build_charclass_run_of_singles():
+    """Consecutive single chars accumulate into one bare IrStr run.
+
+    :returns: ``IrCharClass(IrStr("abc"))``
+    """
+    result = _build_charclass(_StubFlavour(), ["[abc]"])
+    assert result == IrCharClass(IrStr("abc"))
+
+
+def test_build_charclass_mixed_run_then_range():
+    """A leading run followed by a range produces two elements.
+
+    :returns: ``IrCharClass(IrStr("abc"), IrRange("0", "9"))``
+    """
+    result = _build_charclass(_StubFlavour(), ["[abc0-9]"])
+    assert result == IrCharClass(IrStr("abc"), IrRange("0", "9"))
+
+
+def test_build_charclass_encoded_hex_unit_range():
+    """Hex escape units are kept verbatim as range endpoints.
+
+    The splitter does not decode — ``\\\\x00`` and ``\\\\x1F`` are each a
+    single unit (four source chars), so the result holds the encoded strings.
+
+    :returns: ``IrCharClass(IrRange("\\\\x00", "\\\\x1F"))``
+    """
+    result = _build_charclass(_StubFlavour(), [r"[\x00-\x1F]"])
+    assert result == IrCharClass(IrRange("\\x00", "\\x1F"))
+
+
+def test_build_charclass_negation_produces_irnot():
+    """A leading ``^`` causes the result to be wrapped in ``IrNot``.
+
+    The negation is not stored inside the ``IrCharClass`` — the class itself
+    is exactly ``IrCharClass(IrRange("a", "z"))`` and the ``IrNot`` is the
+    outer wrapper.
+
+    :returns: ``IrNot(IrCharClass(IrRange("a", "z")))``
+    """
+    result = _build_charclass(_StubFlavour(), ["[^a-z]"])
+    assert isinstance(result, IrNot)
+    assert result[0] == IrCharClass(IrRange("a", "z"))
+
+
+def test_build_charclass_trailing_dash_is_literal():
+    """A trailing ``-`` (no following char) is treated as a literal run char.
+
+    The splitter peeks ahead: ``pattern[i] == "-"`` AND ``i + 1 < len``.
+    A trailing dash fails the second condition, so it falls through to the
+    run accumulator.
+
+    :returns: ``IrCharClass(IrStr("a-"))``
+    """
+    result = _build_charclass(_StubFlavour(), ["[a-]"])
+    assert result == IrCharClass(IrStr("a-"))
+
+
+def test_build_charclass_leading_dash_is_literal():
+    """A leading ``-`` (no preceding char consumed yet) is a literal run char.
+
+    When ``-`` is at position 0 there is no range to complete, so it lands in
+    the run accumulator alongside the next char.
+
+    :returns: ``IrCharClass(IrStr("-+"))``
+    """
+    result = _build_charclass(_StubFlavour(), ["[-+]"])
+    assert result == IrCharClass(IrStr("-+"))

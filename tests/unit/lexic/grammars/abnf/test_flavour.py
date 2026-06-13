@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import pytest
 from lark import Lark
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf.flavour import ABNF_ESCAPES, ABNF_FLAVOUR, META_GRAMMAR
 from lexic.grammars.flavour import IrFlavour
 from lexic.ir.base import IrNone, IrStr
@@ -14,7 +16,9 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrLiteral,
     IrQuantifier,
+    IrRange,
 )
+from lexic.ir.operators import IrNot
 from lexic.parsing.meta_parser import MetaGrammarParser
 from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
 
@@ -228,3 +232,36 @@ def test_abnf_emitter_iremit_default_unreachable():
     registered = set(ABNF_FLAVOUR.actions.keys())
     missing = GRAMMAR_AST_TYPES - registered
     assert not missing, f"ABNF_FLAVOUR missing explicit actions for: {missing}"
+
+
+# ── Structured IrCharClass emission ──────────────────────────────────
+
+
+def test_abnf_charclass_range_emits_hex_range():
+    """A range IrCharClass emits ``%xNN-MM``."""
+    cls = IrCharClass(IrRange("A", "Z"))
+    assert ABNF_FLAVOUR.apply(cls) == "%x41-5A"
+
+
+def test_abnf_charclass_run_single_char_emits_single_hex():
+    """A single-char run emits one ``%xNN`` atom (no parens)."""
+    cls = IrCharClass(IrStr("A"))
+    assert ABNF_FLAVOUR.apply(cls) == "%x41"
+
+
+def test_abnf_charclass_run_multiple_chars_emits_parenthesised_alternation():
+    """A multi-char run emits ``(%xNN / %xMM / …)``."""
+    cls = IrCharClass(IrStr("abc"))
+    assert ABNF_FLAVOUR.apply(cls) == "(%x61 / %x62 / %x63)"
+
+
+def test_abnf_charclass_mixed_run_and_range():
+    """A run followed by a range emits all atoms parenthesised."""
+    cls = IrCharClass(IrStr("abc"), IrRange("A", "Z"))
+    assert ABNF_FLAVOUR.apply(cls) == "(%x61 / %x62 / %x63 / %x41-5A)"
+
+
+def test_abnf_irnot_raises_unsupported():
+    """ABNF has no native negation — IrNot raises UnsupportedConstructError."""
+    with pytest.raises(UnsupportedConstructError):
+        ABNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange("a", "z"))))
