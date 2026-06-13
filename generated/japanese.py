@@ -7,11 +7,12 @@ from typing import Annotated, List
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrQuantifier,
+    IrRange,
     IrRuleRef,
 )
 from lexic.ir.spec import RuleSpec
@@ -92,7 +93,7 @@ Hiragana.__grammar__ = RuleSpec(
     class_name="Hiragana",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass("ぁ-ゟ"), IrQuantifier(1, 1))],
+    items=[IrItem(IrCharClass(IrRange("ぁ", "ゟ")), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -103,7 +104,7 @@ Katakana.__grammar__ = RuleSpec(
     class_name="Katakana",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass("ァ-ヿ"), IrQuantifier(1, 1))],
+    items=[IrItem(IrCharClass(IrRange("ァ", "ヿ")), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -114,7 +115,7 @@ Punctuation.__grammar__ = RuleSpec(
     class_name="Punctuation",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass("、-〾"), IrQuantifier(1, 1))],
+    items=[IrItem(IrCharClass(IrRange("、", "〾")), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -125,7 +126,7 @@ Cjk.__grammar__ = RuleSpec(
     class_name="Cjk",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass("一-鿿"), IrQuantifier(1, 1))],
+    items=[IrItem(IrCharClass(IrRange("一", "鿿")), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -137,7 +138,7 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(" \\t\\n"), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrStr(" \\t\\n")), IrQuantifier(1, 1)),
         IrItem(IrRuleRef("jp-char"), IrQuantifier(1, IrNone)),
     ],
     field_map={"head": 0, "jp_char": 1},

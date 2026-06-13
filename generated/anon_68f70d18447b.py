@@ -7,7 +7,7 @@ from typing import Annotated, Optional
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
@@ -65,7 +65,7 @@ Ws.__grammar__ = RuleSpec(
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(" \\t"), IrQuantifier(0, IrNone))],
+    items=[IrItem(IrCharClass(IrStr(" \\t")), IrQuantifier(0, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

@@ -6,16 +6,18 @@ from pathlib import Path
 
 import lark
 
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRuleRef,
 )
 from lexic.parsing.lark_builder import LarkBuilder, build_lark
 from tests._ir_fixtures import item, spec
+from tests.unit.lexic.conftest import make_inner_outer_specs
 from tests.unit.lexic.parsing.conftest import make_spec
 
 
@@ -31,7 +33,9 @@ def test_build_grammar_simple_literal():
 def test_build_grammar_charclass_quantified():
     """build_grammar(specs) returns a Lark grammar string."""
     s = make_spec(
-        "d", "value_str", [IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))]
+        "d",
+        "value_str",
+        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
     )
     grammar, start = LarkBuilder([s]).build_grammar()
     parser = lark.Lark(grammar, parser="earley", start=start)
@@ -40,12 +44,7 @@ def test_build_grammar_charclass_quantified():
 
 def test_build_grammar_ruleref():
     """build_grammar(specs) returns a Lark grammar string."""
-    inner = make_spec(
-        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone))]
-    )
-    outer = make_spec(
-        "root", "sequence", [IrItem(IrRuleRef("expr"))], field_map={"expr": 0}
-    )
+    inner, outer = make_inner_outer_specs()
     grammar, start = LarkBuilder([outer, inner]).build_grammar()
     parser = lark.Lark(grammar, parser="earley", start=start)
     assert parser.parse("abc") is not None
@@ -78,12 +77,7 @@ def test_no_ws_string_check_in_source():
 
 def test_build_lark_returns_parser_and_transformer_factory():
     """build_lark(specs, classes, start) returns (grammar_str, parser, transformer)."""
-    inner = make_spec(
-        "expr", "value_str", [IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone))]
-    )
-    outer = make_spec(
-        "root", "sequence", [IrItem(IrRuleRef("expr"))], field_map={"expr": 0}
-    )
+    inner, outer = make_inner_outer_specs()
     classes = {}  # transformer construction uses these — supplied by codegen
     grammar_str, parser, transformer = build_lark([outer, inner], classes, "root")
     assert isinstance(grammar_str, str)
@@ -101,7 +95,12 @@ def test_literal_with_newline_escapes_to_n() -> None:
 
 def test_charclass_with_slash_escapes_in_regex() -> None:
     """`/` inside a char class must be backslash-escaped in the Lark regex."""
-    s = spec("op", "sequence", items=[item(IrCharClass("-+*/"))], field_map={"head": 0})
+    s = spec(
+        "op",
+        "sequence",
+        items=[item(IrCharClass(IrStr("-+*/")))],
+        field_map={"head": 0},
+    )
     grammar, start = LarkBuilder([s]).build_grammar()
     assert "/[-+*\\/]/" in grammar
     lark.Lark(grammar, parser="earley", start=start)  # must not raise

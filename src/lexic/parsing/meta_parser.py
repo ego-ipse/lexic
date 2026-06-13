@@ -41,13 +41,15 @@ from lark import (
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrFlavour
-from lexic.ir.base import IrAtom, IrSeq
+from lexic.ir.base import IrAtom, IrSeq, IrStr
+from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
     IrItem,
     IrQuantifier,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -59,15 +61,49 @@ from lexic.ir.operators import IrNot
 _IrBuilder: TypeAlias = Callable[[IrFlavour, list], object]
 
 
+def _read_unit(s: str, i: int) -> tuple[str, int]:
+    """Read one encoded escape unit at ``s[i]`` — text kept verbatim.
+
+    The codec supplies only the unit *boundary* (``\\x1F`` is one unit of
+    four source chars); nothing is decoded.
+    """
+    if s[i] == "\\" and i + 1 < len(s):
+        _, j = CANONICAL_ESCAPES.read_escape(s, i)
+        return s[i:j], j
+    return s[i], i + 1
+
+
 def _build_charclass(flavour: IrFlavour, children: list) -> IrAtom:
-    """Build an IrCharClass, wrapping in IrNot when the pattern is negated.
+    """Build a structured IrCharClass; wrap in IrNot when negated.
+
+    The interior split lives here deliberately: it is Lark-era scaffolding
+    that dies with this file when the IR-native parser replaces the
+    metagrammars. ``x-y`` segments become :class:`IrRange` (endpoints kept
+    as encoded units, so emission stays byte-exact); other units accumulate
+    into maximal :class:`IrStr` runs; a ``-`` with nothing following stays
+    a literal run char.
 
     :param flavour: The flavour providing ``parse_charclass``.
     :param children: Lark tree children; ``children[0]`` is the bracket token.
-    :returns: ``IrCharClass(pattern)`` or ``IrNot(IrCharClass(pattern))``.
+    :returns: ``IrCharClass(*elements)`` or ``IrNot(IrCharClass(*elements))``.
     """
     pattern, negated = flavour.parse_charclass(str(children[0]))
-    atom: IrAtom = IrCharClass(pattern)
+    elements: list[IrRange | IrStr] = []
+    run: list[str] = []
+    i = 0
+    while i < len(pattern):
+        unit, i = _read_unit(pattern, i)
+        if i < len(pattern) and pattern[i] == "-" and i + 1 < len(pattern):
+            hi_unit, i = _read_unit(pattern, i + 1)
+            if run:
+                elements.append(IrStr("".join(run)))
+                run = []
+            elements.append(IrRange(unit, hi_unit))
+        else:
+            run.append(unit)
+    if run:
+        elements.append(IrStr("".join(run)))
+    atom: IrAtom = IrCharClass(*elements)
     return IrNot(atom) if negated else atom
 
 

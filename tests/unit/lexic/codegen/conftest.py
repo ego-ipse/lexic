@@ -8,14 +8,25 @@ import os
 import tempfile
 import types
 
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrSequence,
 )
+from lexic.ir.spec import RuleSpec
+from tests.unit.lexic.conftest import make_inner_outer_specs, make_spec
+
+__all__ = [
+    "load_emitted",
+    "make_charclass_literal_group",
+    "make_inner_outer_specs",
+    "make_two_digit_specs",
+]
 
 
 def load_emitted(src: str) -> types.ModuleType:
@@ -40,11 +51,32 @@ def load_emitted(src: str) -> types.ModuleType:
         os.unlink(path)
 
 
+def make_two_digit_specs() -> tuple[RuleSpec, RuleSpec]:
+    """Return two specs matching ``[0-9]+``, named ``a`` and ``b``.
+
+    Used in tests that verify alias deduplication: two rules with identical
+    charclass patterns must share a single module-level alias.
+
+    :returns: ``(s1, s2)`` tuple of :class:`~lexic.ir.spec.RuleSpec`.
+    """
+    s1 = make_spec(
+        "a",
+        "value_str",
+        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+    )
+    s2 = make_spec(
+        "b",
+        "value_str",
+        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+    )
+    return s1, s2
+
+
 def make_charclass_literal_group() -> IrAlternation:
     """Return the IrAlternation for ([a-h] 'x') used in alias and emitter tests."""
     return IrAlternation(
         IrSequence(
-            IrItem(IrCharClass("a-h"), IrQuantifier(1, 1)),
+            IrItem(IrCharClass(IrRange("a", "h")), IrQuantifier(1, 1)),
             IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
         )
     )

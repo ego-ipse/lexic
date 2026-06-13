@@ -7,13 +7,14 @@ from typing import Annotated, List, Optional
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRuleRef,
     IrSequence,
 )
@@ -343,8 +344,16 @@ Identifier.__grammar__ = RuleSpec(
     parent_class_name="Factor",
     kind="value_str",
     items=[
-        IrItem(IrCharClass("a-zA-Z_"), IrQuantifier(1, 1)),
-        IrItem(IrCharClass("a-zA-Z_0-9"), IrQuantifier(0, IrNone)),
+        IrItem(
+            IrCharClass(IrRange("a", "z"), IrRange("A", "Z"), IrStr("_")),
+            IrQuantifier(1, 1),
+        ),
+        IrItem(
+            IrCharClass(
+                IrRange("a", "z"), IrRange("A", "Z"), IrStr("_"), IrRange("0", "9")
+            ),
+            IrQuantifier(0, IrNone),
+        ),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -804,7 +813,7 @@ Number.__grammar__ = RuleSpec(
     class_name="Number",
     parent_class_name="Factor",
     kind="value_str",
-    items=[IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))],
+    items=[IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -817,7 +826,7 @@ SingleLineComment.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrItem(IrLiteral("//"), IrQuantifier(1, 1)),
-        IrItem(IrNot(IrCharClass("\\n")), IrQuantifier(0, IrNone)),
+        IrItem(IrNot(IrCharClass(IrStr("\\n"))), IrQuantifier(0, IrNone)),
         IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
     ],
     field_map={},
@@ -834,13 +843,15 @@ MultiLineComment.__grammar__ = RuleSpec(
         IrItem(IrLiteral("/*"), IrQuantifier(1, 1)),
         IrItem(
             IrAlternation(
-                IrSequence(IrItem(IrNot(IrCharClass("*")), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrNot(IrCharClass(IrStr("*"))), IrQuantifier(1, 1))),
                 IrSequence(
                     IrItem(
                         IrAlternation(
                             IrSequence(
                                 IrItem(IrLiteral("*"), IrQuantifier(1, 1)),
-                                IrItem(IrNot(IrCharClass("/")), IrQuantifier(1, 1)),
+                                IrItem(
+                                    IrNot(IrCharClass(IrStr("/"))), IrQuantifier(1, 1)
+                                ),
                             )
                         ),
                         IrQuantifier(1, 1),
@@ -864,7 +875,9 @@ Ws.__grammar__ = RuleSpec(
     items=[
         IrItem(
             IrAlternation(
-                IrSequence(IrItem(IrCharClass(" \\t\\n"), IrQuantifier(1, IrNone)))
+                IrSequence(
+                    IrItem(IrCharClass(IrStr(" \\t\\n")), IrQuantifier(1, IrNone))
+                )
             ),
             IrQuantifier(1, 1),
         )

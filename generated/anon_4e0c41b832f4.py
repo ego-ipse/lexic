@@ -14,6 +14,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRuleRef,
     IrSequence,
 )
@@ -74,7 +75,7 @@ Num.__grammar__ = RuleSpec(
     class_name="Num",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone))],
+    items=[IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

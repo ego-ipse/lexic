@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrFlavour
 from lexic.ir.action import (
     IrAction,
@@ -29,6 +28,7 @@ from lexic.ir.action import (
     IrEmit,
     IrField,
     IrJoin,
+    IrRaise,
 )
 from lexic.ir.base import IrCallable, IrNone, IrNoneType, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
@@ -40,6 +40,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -101,49 +102,27 @@ def _abnf_format_quantifier(lo: int, hi: int | IrNoneType) -> str:
     return f"{lo}*{hi}" if lo != 0 else f"*{hi}"
 
 
-def _hex_range_segment(seg: str) -> str:
-    """Convert one POSIX range segment (``a-z`` or single char) to ABNF hex."""
-    if len(seg) == 3 and seg[1] == "-":
-        lo, hi = seg[0], seg[2]
-        return f"%x{ord(lo):02X}-{ord(hi):02X}"
-    if len(seg) == 1:
-        return f"%x{ord(seg):02X}"
-    return " / ".join(f"%x{ord(c):02X}" for c in seg)
-
-
-def _split_charclass_segments(pattern: str) -> list[str]:
-    """Split a POSIX bracket interior into 3-char ranges and 1-char literals."""
-    segments: list[str] = []
-    i = 0
-    while i < len(pattern):
-        if i + 2 < len(pattern) and pattern[i + 1] == "-":
-            segments.append(pattern[i : i + 3])
-            i += 3
-        else:
-            segments.append(pattern[i])
-            i += 1
-    return segments
-
-
 def _abnf_encode_literal(_d, n, _nc) -> IrStr:
     """Wrap the literal value in double quotes."""
     return IrStr(f'"{ABNF_ESCAPES.encode(n)}"')
 
 
 def _abnf_charclass(_d, n, _nc) -> IrStr:
-    """Render a char class as ABNF hex range(s)."""
-    segments = _split_charclass_segments(n)
-    rendered = [_hex_range_segment(s) for s in segments]
+    """Render a structured char class as ABNF hex atom(s)/range(s).
+
+    One ``%xNN-MM`` per :class:`IrRange` element; one ``%xNN`` per char of
+    an :class:`~lexic.ir.base.IrStr` run; parenthesised alternation when
+    more than one atom results.
+    """
+    rendered: list[str] = []
+    for element in n:
+        if isinstance(element, IrRange):
+            rendered.append(f"%x{ord(str(element.lo)):02X}-{ord(str(element.hi)):02X}")
+        else:
+            rendered.extend(f"%x{ord(c):02X}" for c in str(element))
     if len(rendered) == 1:
         return IrStr(rendered[0])
     return IrStr("(" + " / ".join(rendered) + ")")
-
-
-def _abnf_not(_d, n, _nc) -> IrStr:
-    """ABNF has no native negation."""
-    raise UnsupportedConstructError(
-        f"ABNF does not support IrNot (got {type(n[0]).__name__})"
-    )
 
 
 def _abnf_quantifier(_d, n, _nc) -> IrStr:
@@ -168,7 +147,11 @@ def _abnf_item(d, n, _nc) -> IrStr:
 ABNF_ACTIONS = IrTypeMap(
     IrAction(IrLiteral, IrCallable(_abnf_encode_literal)),
     IrAction(IrCharClass, IrCallable(_abnf_charclass)),
-    IrAction(IrNot, IrCallable(_abnf_not)),
+    # ABNF has no native negation — strict declarative refusal.
+    IrAction(
+        IrNot,
+        IrRaise(message="{dispatcher}: ABNF does not support {node_type!r}"),
+    ),
     IrAction(IrRuleRef, IrEmit()),
     IrAction(IrQuantifier, IrCallable(_abnf_quantifier)),
     # Prefix quantifier ordering: quantifier before atom.
@@ -240,7 +223,7 @@ class _AbnfFlavour(IrFlavour):
         items: list[IrItem] = []
         for c in decoded:
             if c.isalpha():
-                items.append(IrItem(atom=IrCharClass(f"{c.lower()}{c.upper()}")))
+                items.append(IrItem(atom=IrCharClass(IrStr(f"{c.lower()}{c.upper()}"))))
             else:
                 items.append(IrItem(atom=IrLiteral(c)))
         return IrAlternation(IrSequence(*items))

@@ -12,6 +12,7 @@ from lexic.ir.base import (
     IrNone,
     IrNoneType,
     IrSeq,
+    IrStr,
 )
 from lexic.ir.nodes import (
     IrAlternation,
@@ -26,6 +27,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
+from lexic.utils.charclass import charclass_pattern
 
 # ── IrQuantifier ───────────────────────────────────────────────────────
 
@@ -75,17 +77,19 @@ def test_ir_literal_is_frozen_and_hashable():
 
 
 def test_ir_charclass_holds_pattern():
-    """Test that the IR character class holds the pattern."""
-    cc = IrCharClass("a-z")
-    assert cc == "a-z"
+    """Test that the IR character class holds the pattern via charclass_pattern."""
+    cc = IrCharClass(IrRange("a", "z"))
+    assert charclass_pattern(cc) == "a-z"
 
 
 def test_ir_not_wraps_charclass():
     """Test that IrNot wraps a charclass atom."""
-    cc = IrCharClass("\\n")
+    cc = IrCharClass(IrStr("\\n"))
     node = IrNot(cc)
     assert node[0] is cc
-    assert node[0] == "\\n"
+    inner = node[0]
+    assert isinstance(inner, IrCharClass)
+    assert charclass_pattern(inner) == "\\n"
 
 
 def test_ir_ruleref_holds_name():
@@ -105,7 +109,7 @@ def test_ir_item_default_quantifier():
 
 def test_ir_item_with_explicit_quantifier():
     """Test that the IR item can have an explicit quantifier."""
-    it = IrItem(atom=IrCharClass("a-z"), quantifier=IrQuantifier(0, IrNone))
+    it = IrItem(atom=IrCharClass(IrRange("a", "z")), quantifier=IrQuantifier(0, IrNone))
     assert it.quantifier.lo == 0
     assert it.quantifier.hi is IrNone
 
@@ -203,11 +207,15 @@ def test_irnode_is_abc_base_class():
 
 
 def test_irnode_default_children_is_empty_tuple():
-    """Leaves inherit empty-tuple default."""
+    """Str-leaves and quantifier inherit empty-tuple default.
+
+    IrCharClass has elements as children.
+    """
     assert not IrLiteral("x").children()
-    assert not IrCharClass("a-z").children()
     assert not IrRuleRef("foo").children()
     assert not IrQuantifier().children()
+    # IrCharClass is a variadic IrSeq — its elements are its children
+    assert IrCharClass(IrRange("a", "z")).children() == (IrRange("a", "z"),)
 
 
 def test_irnode_default_rebuild_is_identity():
@@ -333,7 +341,7 @@ def test_irliteral_eval_returns_literal_value():
 
 def test_ircharclass_call_inherits_identity_default():
     """IrCharClass(IrStr) inherits the default __call__ — returns self."""
-    cc = IrCharClass("a-z")
+    cc = IrCharClass(IrRange("a", "z"))
     result = cc(IrNone, IrNone, ())
     assert result is cc
 
@@ -372,9 +380,12 @@ def test_str_leaf_new_returns_own_subtype():
 
 
 def test_str_leaf_repr_is_codegen():
-    """repr() on str-leaves reproduces the constructor call."""
+    """repr() on str-leaves reproduces the constructor call.
+
+    IrCharClass is now a variadic IrSeq; its repr uses the structured elements.
+    """
     assert repr(IrLiteral("x")) == "IrLiteral('x')"
-    assert repr(IrCharClass("0-9")) == "IrCharClass('0-9')"
+    assert repr(IrCharClass(IrRange("0", "9"))) == "IrCharClass(IrRange('0', '9'))"
 
 
 def test_tuple_node_is_variadic_and_native_eq():
@@ -452,11 +463,12 @@ def test_bound_inherited_explicit_is_not_reclobbered_via_mro():
     This guards the precise attempt-0 root cause: an MRO walk would re-derive
     ``IrSequence._bound`` as ``IrSelf`` (from ``IrTuple``'s ``T: IrSelf`` param).
     The own-``__type_params__``-only rule must leave it as the inherited ``tuple``.
+    ``IrCharClass`` is now a variadic ``IrSeq``, so its bound is ``tuple``.
     """
     assert IrSequence.bound_type() is tuple
     assert IrAlternation.bound_type() is tuple
     assert IrLiteral.bound_type() is str
-    assert IrCharClass.bound_type() is str
+    assert IrCharClass.bound_type() is tuple
     assert IrRuleRef.bound_type() is str
 
 

@@ -41,13 +41,14 @@ from typing import Annotated, ClassVar, List, Literal, Optional, Union
 from pydantic import Field, StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
     IrItem,
     IrLiteral,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,

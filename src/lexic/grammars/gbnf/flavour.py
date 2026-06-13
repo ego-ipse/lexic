@@ -29,9 +29,8 @@ from lexic.ir.action import (
     IrIsA,
     IrJoin,
     IrRaise,
-    IrThis,
 )
-from lexic.ir.base import IrNone, IrSelf, IrTuple
+from lexic.ir.base import IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import (
@@ -41,6 +40,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -106,18 +106,29 @@ GBNF_ACTIONS = IrTypeMap(
         IrConcat(parts=IrTuple(IrLiteral('"'), IrEscape(), IrLiteral('"'))),
     ),
     # Brackets are strictly this action's; the mark-slot (IrArgs) right after
-    # the opening bracket is where GBNF's surface syntax puts received marks.
+    # the opening bracket is where GBNF's surface syntax puts received marks;
+    # the interior is the dispatched join of the class's own elements.
     IrAction(
         IrCharClass,
         IrConcat(
             parts=IrTuple(
                 IrLiteral("["),
                 IrJoin(parts=IrArgs()),
-                IrThis(),
+                IrJoin(parts=IrChildren()),
                 IrLiteral("]"),
             )
         ),
     ),
+    IrAction(
+        IrRange,
+        IrJoin(
+            parts=IrTuple(IrField("lo"), IrField("hi")),
+            separator=IrLiteral("-"),
+        ),
+    ),
+    # Bare IrStr: the run leaf inside a class — encoded units emit verbatim.
+    # Concrete str-leaves (IrLiteral/IrRuleRef) win by MRO.
+    IrAction(IrStr, IrEmit()),
     # IrNot contributes its mark and delegates: the operand's own action
     # places it. The IrTypeMap is the guard — IrSelf is the MRO catch-all.
     IrAction(

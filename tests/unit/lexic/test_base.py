@@ -9,8 +9,15 @@ import pytest
 from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone
-from lexic.ir.nodes import IrCharClass, IrItem, IrLiteral, IrQuantifier, IrRuleRef
+from lexic.ir.base import IrNone, IrStr
+from lexic.ir.nodes import (
+    IrCharClass,
+    IrItem,
+    IrLiteral,
+    IrQuantifier,
+    IrRange,
+    IrRuleRef,
+)
 from lexic.ir.spec import RuleSpec
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.conftest import make_ident_spec
@@ -25,7 +32,7 @@ def test_to_text_value_str():
         "Ws",
         "GrammarModel",
         "value_str",
-        items=[IrItem(IrCharClass(" \\t\\n"), IrQuantifier(0, IrNone))],
+        items=[IrItem(IrCharClass(IrStr(" \\t\\n")), IrQuantifier(0, IrNone))],
         field_map={},
     )
 
@@ -51,9 +58,9 @@ def test_to_text_sequence_emits_literal():
         "GrammarModel",
         "sequence",
         items=[
-            IrItem(IrCharClass("a-z")),
+            IrItem(IrCharClass(IrRange("a", "z"))),
             IrItem(IrLiteral("=")),
-            IrItem(IrCharClass("0-9")),
+            IrItem(IrCharClass(IrRange("0", "9"))),
         ],
         field_map={"first": 0, "second": 2},
     )
@@ -87,7 +94,7 @@ def test_to_text_nested_grammar_model():
         "GrammarModel",
         "sequence",
         items=[
-            IrItem(IrCharClass("a-z")),
+            IrItem(IrCharClass(IrRange("a", "z"))),
             IrItem(IrRuleRef("ws")),
         ],
         field_map={"first": 0, "ws": 1},
@@ -156,7 +163,10 @@ def test_to_text_optional_absent():
         "R",
         "GrammarModel",
         "sequence",
-        items=[IrItem(IrCharClass("a-z")), IrItem(IrRuleRef("ws"), IrQuantifier(0, 1))],
+        items=[
+            IrItem(IrCharClass(IrRange("a", "z"))),
+            IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
+        ],
         field_map={"first": 0, "ws": 1},
     )
 

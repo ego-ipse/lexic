@@ -7,7 +7,7 @@ Tested with a tiny stub flavour that exists only in this test file.
 from __future__ import annotations
 
 from lexic.grammars.flavour import IrFlavour
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
@@ -16,6 +16,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -100,7 +101,7 @@ def test_parses_charclass():
     """Parse a charclass"""
     rule = _ast_first_rule("digit = [0-9]\n")
     item = rule.body[0][0]
-    assert item.atom == IrCharClass("0-9")
+    assert item.atom == IrCharClass(IrRange("0", "9"))
 
 
 def test_parses_negated_charclass():
@@ -169,17 +170,16 @@ class _CaseInsensitiveStub(_StubFlavour):
     def normalize_literal(cls, decoded: str):
         """`a` becomes `[aA]`."""
         seq = IrSequence(
-            *(IrItem(IrCharClass(f"{c.lower()}{c.upper()}")) for c in decoded)
+            *(IrItem(IrCharClass(IrStr(f"{c.lower()}{c.upper()}"))) for c in decoded)
         )
         return IrAlternation(seq)
 
 
 def test_normalize_literal_override_expands_to_group():
     """A flavour can override normalize_literal to expand sugar to canonical IR."""
-
     ast = MetaGrammarParser(_CaseInsensitiveStub()).parse('r = "ab"\n')
     item = ast.rules[0].body[0][0]
     assert isinstance(item.atom, IrAlternation)
     inner_items = item.atom[0]
-    assert inner_items[0].atom == IrCharClass("aA")
-    assert inner_items[1].atom == IrCharClass("bB")
+    assert inner_items[0].atom == IrCharClass(IrStr("aA"))
+    assert inner_items[1].atom == IrCharClass(IrStr("bB"))

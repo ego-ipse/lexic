@@ -36,6 +36,7 @@ from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
 from lexic.ir.walk import IrDispatch, IrTransformer, IrVisitor
+from lexic.utils.charclass import charclass_pattern
 from lexic.utils.names import to_pascal
 
 # ── classification ────────────────────────────────────────────────────
@@ -235,10 +236,12 @@ _FieldHint: TypeAlias = Callable[[_A], str]
 
 def _bracketed(atom: IrAtom) -> str:
     """Return the bracket-form of a charclass or negated-charclass atom."""
-    if isinstance(atom, IrNot) and isinstance(atom[0], IrCharClass):
-        return f"[^{atom[0]}]"
+    if isinstance(atom, IrNot):
+        inner = atom[0]
+        if isinstance(inner, IrCharClass):
+            return f"[^{charclass_pattern(inner)}]"
     if isinstance(atom, IrCharClass):
-        return f"[{atom}]"
+        return f"[{charclass_pattern(atom)}]"
     return ""
 
 

@@ -50,12 +50,14 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
 from lexic.ir.operators import IrNot
 from lexic.ir.walk import IrDispatch, IrEmitter
+from lexic.utils.charclass import charclass_pattern
 
 # ── _Return ──────────────────────────────────────────────────────────
 
@@ -337,20 +339,20 @@ def test_irchildren_dispatches_real_children_ignores_nc():
 def test_irat_rebinds_focus_to_raw_child():
     """IrAt(0, body) hands the body the raw child at position 0, undispatched.
 
-    Over ``IrNot(IrCharClass('a-z'))``, ``IrAt(0, IrThis())`` must surface the
-    raw ``IrCharClass`` — not a dispatched/rendered string.
+    Over ``IrNot(IrCharClass(IrRange('a','z')))``, ``IrAt(0, IrThis())`` must
+    surface the raw ``IrCharClass`` — not a dispatched/rendered string.
     """
-    nod = IrNot(IrCharClass("a-z"))
+    nod = IrNot(IrCharClass(IrRange("a", "z")))
     emitter = IrEmitter()
     result = IrAt(0, IrThis()).eval(emitter, nod, IrTuple())
     assert result is nod.children()[0]
     assert isinstance(result, IrCharClass)
-    assert result == "a-z"
+    assert charclass_pattern(result) == "a-z"
 
 
 def test_irat_negative_selector_indexes_from_end():
     """IrAt(-1, IrThis()) selects the last raw child."""
-    nod = IrNot(IrCharClass("0-9"))
+    nod = IrNot(IrCharClass(IrRange("0", "9")))
     emitter = IrEmitter()
     result = IrAt(-1, IrThis()).eval(emitter, nod, IrTuple())
     # IrNot has a single child; -1 addresses the same slot as 0
@@ -359,7 +361,7 @@ def test_irat_negative_selector_indexes_from_end():
 
 def test_irat_out_of_range_raises_index_error():
     """IrAt raises IndexError when the selector is out of range."""
-    nod = IrNot(IrCharClass("a-z"))
+    nod = IrNot(IrCharClass(IrRange("a", "z")))
     emitter = IrEmitter()
     with pytest.raises(IndexError):
         IrAt(5, IrThis()).eval(emitter, nod, IrTuple())
@@ -371,7 +373,7 @@ def test_irat_body_receives_fresh_empty_nc():
     :class:`IrArgs` in the body must return an empty tuple because the context
     shift resets the argument channel.
     """
-    nod = IrNot(IrCharClass("a-z"))
+    nod = IrNot(IrCharClass(IrRange("a", "z")))
     emitter = IrEmitter()
     # IrAt(0, IrArgs()) — body reads nc, which must be empty after the rebind
     result = IrAt(0, IrArgs()).eval(emitter, nod, IrTuple(IrLiteral("^")))
@@ -434,7 +436,7 @@ def test_irapply_re_dispatches_n_with_evaluated_args():
         IrArgs(),  # body returns IrTuple(*nc) — shows what args arrived
     )
     dispatch = IrDispatch(actions=IrTypeMap(charclass_action))
-    n = IrCharClass("a-z")
+    n = IrCharClass(IrRange("a", "z"))
     args_tuple = IrTuple(IrLiteral("^"))
     result = IrApply(args_tuple).eval(dispatch, n, IrTuple())
     # The re-dispatch ran IrCharClass's action (IrArgs) with nc=(IrLiteral("^"),)
@@ -445,7 +447,7 @@ def test_irapply_default_args_dispatches_with_empty_channel():
     """IrApply() with default empty args dispatches n with an empty nc."""
     charclass_action = IrAction(IrCharClass, IrArgs())
     dispatch = IrDispatch(actions=IrTypeMap(charclass_action))
-    n = IrCharClass("0-9")
+    n = IrCharClass(IrRange("0", "9"))
     result = IrApply().eval(dispatch, n, IrTuple())
     assert result == IrTuple()
 

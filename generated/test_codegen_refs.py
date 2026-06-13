@@ -12,6 +12,7 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrQuantifier,
+    IrRange,
     IrRuleRef,
 )
 from lexic.ir.spec import RuleSpec
@@ -43,7 +44,7 @@ Expr.__grammar__ = RuleSpec(
     class_name="Expr",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass("a-z"), IrQuantifier(1, IrNone))],
+    items=[IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

@@ -68,14 +68,6 @@ class IrLiteral(IrStr, IrAtom):
     """
 
 
-class IrCharClass(IrStr, IrAtom):
-    """Character class. The string is the canonical POSIX-style interior pattern.
-
-    Examples: ``'a-z'``, ``'0-9'``, ``'a-zA-Z_'``.  The surrounding ``[``/``]``
-    brackets are NOT stored — they are emitted by the flavour renderer.
-    """
-
-
 class IrRuleRef(IrStr, IrAtom):
     """Reference to another rule. The string is the rule name.
 
@@ -125,6 +117,25 @@ class IrRange[T: (str, int)](IrLeaf, IrNamedTuple[T, T | IrNoneType]):
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     lo: int | str
     hi: int | str | IrNoneType
+
+
+class IrCharClass(IrSeq[IrRange | IrStr], IrAtom):
+    """Character class — the variadic union of its interior elements.
+
+    The node IS its element tuple: :class:`IrRange` entries for explicit
+    ``x-y`` ranges, bare :class:`~lexic.ir.base.IrStr` runs for maximal
+    stretches of single chars — ``[abc0-9]`` →
+    ``IrCharClass(IrStr("abc"), IrRange("0", "9"))``.
+
+    Brackets are NOT stored — the flavour renderer emits them.  Negation is
+    NOT stored — ``[^...]`` parses to ``IrNot(IrCharClass(...))``; the
+    negation hands its mark to the class action via the argument channel.
+
+    Element payloads are flavour-encoded escape units (a range endpoint may
+    be ``"\\x1F"`` — four source chars, one unit), so emission reproduces
+    the source byte-exactly; decode-canonicalization arrives with the
+    IR-native parser that obsoletes the Lark metagrammars.
+    """
 
 
 class IrQuantifier(IrRange):

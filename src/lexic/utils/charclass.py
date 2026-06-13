@@ -1,14 +1,27 @@
-"""Bracket-expression enumeration over canonical POSIX patterns.
+"""Charclass flat views — Lark-era shims, deliberately OUTSIDE ir/.
 
-`parse_charclass_chars` is the generic algorithm used by `runtime.generate`
-and any future flavour that needs to enumerate the chars of a CharClassAtom
-pattern.  Escape-reading is delegated to an `EscapeCodec`; default codec is
-`CANONICAL_ESCAPES` since `CharClassAtom.value` is canonical POSIX.
+Relocated from ``ir/charclass.py``: the IR carries pure structure;
+flattening a structured :class:`~lexic.ir.nodes.IrCharClass` back to text
+(or enumerating its chars) is strictly a convenience for the condemned
+Lark-side consumers (``derive`` naming keys, ``lark_builder`` regexes,
+``codegen.aliases``, ``generate``). Dies with the Lark pipeline.
 """
 
 from __future__ import annotations
 
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
+from lexic.ir.nodes import IrCharClass, IrRange
+
+
+def charclass_pattern(cls: IrCharClass) -> str:
+    """Flatten a structured class to its interior pattern (encoded units).
+
+    :param cls: The structured character class.
+    :returns: The flat interior pattern, escapes still encoded.
+    """
+    return "".join(
+        f"{el.lo}-{el.hi}" if isinstance(el, IrRange) else str(el) for el in cls
+    )
 
 
 def parse_charclass_chars(

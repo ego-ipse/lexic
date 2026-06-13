@@ -7,7 +7,7 @@ from lark import Lark
 
 from lexic.grammars.abnf.flavour import ABNF_ESCAPES, ABNF_FLAVOUR, META_GRAMMAR
 from lexic.grammars.flavour import IrFlavour
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
@@ -85,9 +85,9 @@ def test_normalize_literal_alpha_expands_to_charclass_group():
     out = ABNF_FLAVOUR.normalize_literal("abc")
     assert isinstance(out, IrAlternation)
     arm = out[0]
-    assert arm[0].atom == IrCharClass("aA")
-    assert arm[1].atom == IrCharClass("bB")
-    assert arm[2].atom == IrCharClass("cC")
+    assert arm[0].atom == IrCharClass(IrStr("aA"))
+    assert arm[1].atom == IrCharClass(IrStr("bB"))
+    assert arm[2].atom == IrCharClass(IrStr("cC"))
 
 
 def test_normalize_literal_all_caps_still_expands():
@@ -95,8 +95,8 @@ def test_normalize_literal_all_caps_still_expands():
     out = ABNF_FLAVOUR.normalize_literal("XY")
     assert isinstance(out, IrAlternation)
     arm = out[0]
-    assert arm[0].atom == IrCharClass("xX")
-    assert arm[1].atom == IrCharClass("yY")
+    assert arm[0].atom == IrCharClass(IrStr("xX"))
+    assert arm[1].atom == IrCharClass(IrStr("yY"))
 
 
 def test_normalize_literal_non_alpha_stays_literal():
@@ -110,7 +110,7 @@ def test_normalize_literal_mixed_alphanumeric():
     out = ABNF_FLAVOUR.normalize_literal("a1")
     assert isinstance(out, IrAlternation)
     arm = out[0]
-    assert arm[0].atom == IrCharClass("aA")
+    assert arm[0].atom == IrCharClass(IrStr("aA"))
     assert arm[1].atom == IrLiteral("1")
 
 

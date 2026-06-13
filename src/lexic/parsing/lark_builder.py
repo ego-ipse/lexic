@@ -23,9 +23,9 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.ir.regex_portable import literal_to_regex_pattern
 from lexic.ir.spec import RuleSpec
 from lexic.parsing.transformer.build_transformer import build_transformer
+from lexic.utils.charclass import charclass_pattern
 from lexic.utils.names import to_lark_name
 from lexic.utils.quantifiers import bounds_to_quantifier
 
@@ -38,6 +38,40 @@ _LARK_ESCAPES = _LarkLiteralEscapes()
 
 
 _LARK_TERMINAL_QUANTS = frozenset({"", "?", "*", "+"})
+
+_LITERAL_REGEX_ESCAPES: dict[str, str] = {
+    # Control characters → regex escape sequences
+    "\n": r"\n",
+    "\r": r"\r",
+    "\t": r"\t",
+    # Backslash must come first so we don't double-escape other entries
+    "\\": r"\\",
+    # Lark regex delimiter
+    "/": r"\/",
+    # Regex metacharacters
+    ".": r"\.",
+    "^": r"\^",
+    "$": r"\$",
+    "*": r"\*",
+    "+": r"\+",
+    "?": r"\?",
+    "{": r"\{",
+    "}": r"\}",
+    "[": r"\[",
+    "]": r"\]",
+    "(": r"\(",
+    ")": r"\)",
+    "|": r"\|",
+}
+
+
+def literal_to_regex_pattern(value: str) -> str:
+    """Escape a literal string so it matches exactly when used inside a regex pattern.
+
+    Handles control characters (\\n, \\r, \\t), the backslash, regex
+    metacharacters, and the Lark regex delimiter (/).
+    """
+    return "".join(_LITERAL_REGEX_ESCAPES.get(c, c) for c in value)
 
 
 def _bracket(pattern: str, negated: bool) -> str:
@@ -71,11 +105,13 @@ def _atom_to_lark(item: IrItem) -> str:
         inner = atom[0]
         if isinstance(inner, IrCharClass):
             return _regex_terminal(
-                _bracket(inner.replace("/", "\\/"), True), item.quantifier
+                _bracket(charclass_pattern(inner).replace("/", "\\/"), True),
+                item.quantifier,
             )
     if isinstance(atom, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.replace("/", "\\/"), False), item.quantifier
+            _bracket(charclass_pattern(atom).replace("/", "\\/"), False),
+            item.quantifier,
         )
     if isinstance(atom, IrRuleRef):
         return f"{to_lark_name(atom)}{q_str}"
@@ -110,11 +146,13 @@ def _atom_to_lark_regex(item: IrItem) -> str:
         inner = atom[0]
         if isinstance(inner, IrCharClass):
             return _regex_terminal(
-                _bracket(inner.replace("/", "\\/"), True), item.quantifier
+                _bracket(charclass_pattern(inner).replace("/", "\\/"), True),
+                item.quantifier,
             )
     if isinstance(atom, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.replace("/", "\\/"), False), item.quantifier
+            _bracket(charclass_pattern(atom).replace("/", "\\/"), False),
+            item.quantifier,
         )
     if isinstance(atom, IrRuleRef):
         return f"{to_lark_name(atom)}{q_str}"

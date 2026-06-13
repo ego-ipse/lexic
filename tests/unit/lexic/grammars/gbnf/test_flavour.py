@@ -19,6 +19,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRuleRef,
     IrSequence,
 )
@@ -202,13 +203,13 @@ def test_gbnf_item_ruleref_atom_is_not_parenthesised():
 
 
 def test_gbnf_not_charclass_renders_negated_bracket():
-    """GBNF_FLAVOUR.apply(IrNot(IrCharClass("a-z"))) renders "[^a-z]"."""
-    assert GBNF_FLAVOUR.apply(IrNot(IrCharClass("a-z"))) == "[^a-z]"
+    """GBNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange("a", "z")))) renders "[^a-z]"."""
+    assert GBNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange("a", "z")))) == "[^a-z]"
 
 
 def test_gbnf_charclass_renders_without_negation_mark():
     """Plain IrCharClass renders without a caret — no mark leakage from IrNot."""
-    assert GBNF_FLAVOUR.apply(IrCharClass("a-z")) == "[a-z]"
+    assert GBNF_FLAVOUR.apply(IrCharClass(IrRange("a", "z"))) == "[a-z]"
 
 
 def test_gbnf_not_non_charclass_raises_unsupported():

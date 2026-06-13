@@ -7,7 +7,7 @@ from typing import Annotated, List
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
@@ -50,7 +50,7 @@ Item.__grammar__ = RuleSpec(
     items=[
         IrItem(IrLiteral("- "), IrQuantifier(1, 1)),
         IrItem(
-            IrNot(IrCharClass("\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029")),
+            IrNot(IrCharClass(IrStr("\\r\\n\\x0b\\x0c\\x85\\u2028\\u2029"))),
             IrQuantifier(1, IrNone),
         ),
         IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),

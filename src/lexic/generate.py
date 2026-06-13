@@ -5,7 +5,6 @@ from __future__ import annotations
 import random as _random
 
 from lexic.ir.base import IrNoneType
-from lexic.ir.charclass import parse_charclass_chars
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -17,6 +16,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
+from lexic.utils.charclass import charclass_pattern, parse_charclass_chars
 
 _ASCII_PRINTABLE = [chr(c) for c in range(32, 127)]
 
@@ -40,7 +40,7 @@ def _gen_charclass(
     count = _pick_count(q, rng)
     if count == 0:
         return ""
-    chars = parse_charclass_chars(atom)
+    chars = parse_charclass_chars(charclass_pattern(atom))
     if negated:
         excluded = set(chars)
         chars = [c for c in _ASCII_PRINTABLE if c not in excluded]

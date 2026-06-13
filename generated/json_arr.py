@@ -7,13 +7,14 @@ from typing import Annotated, List, Optional
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRuleRef,
     IrSequence,
 )
@@ -250,7 +251,10 @@ String.__grammar__ = RuleSpec(
             IrAlternation(
                 IrSequence(
                     IrItem(
-                        IrNot(IrCharClass('"\\\\\\x7F\\x00-\\x1F')), IrQuantifier(1, 1)
+                        IrNot(
+                            IrCharClass(IrStr('"\\\\\\x7F'), IrRange("\\x00", "\\x1F"))
+                        ),
+                        IrQuantifier(1, 1),
                     )
                 ),
                 IrSequence(
@@ -258,11 +262,20 @@ String.__grammar__ = RuleSpec(
                     IrItem(
                         IrAlternation(
                             IrSequence(
-                                IrItem(IrCharClass('"\\\\bfnrt'), IrQuantifier(1, 1))
+                                IrItem(
+                                    IrCharClass(IrStr('"\\\\bfnrt')), IrQuantifier(1, 1)
+                                )
                             ),
                             IrSequence(
                                 IrItem(IrLiteral("u"), IrQuantifier(1, 1)),
-                                IrItem(IrCharClass("0-9a-fA-F"), IrQuantifier(4, 4)),
+                                IrItem(
+                                    IrCharClass(
+                                        IrRange("0", "9"),
+                                        IrRange("a", "f"),
+                                        IrRange("A", "F"),
+                                    ),
+                                    IrQuantifier(4, 4),
+                                ),
                             ),
                         ),
                         IrQuantifier(1, 1),
@@ -291,10 +304,18 @@ Number.__grammar__ = RuleSpec(
                     IrItem(IrLiteral("-"), IrQuantifier(0, 1)),
                     IrItem(
                         IrAlternation(
-                            IrSequence(IrItem(IrCharClass("0-9"), IrQuantifier(1, 1))),
                             IrSequence(
-                                IrItem(IrCharClass("1-9"), IrQuantifier(1, 1)),
-                                IrItem(IrCharClass("0-9"), IrQuantifier(0, 15)),
+                                IrItem(
+                                    IrCharClass(IrRange("0", "9")), IrQuantifier(1, 1)
+                                )
+                            ),
+                            IrSequence(
+                                IrItem(
+                                    IrCharClass(IrRange("1", "9")), IrQuantifier(1, 1)
+                                ),
+                                IrItem(
+                                    IrCharClass(IrRange("0", "9")), IrQuantifier(0, 15)
+                                ),
                             ),
                         ),
                         IrQuantifier(1, 1),
@@ -307,7 +328,7 @@ Number.__grammar__ = RuleSpec(
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("."), IrQuantifier(1, 1)),
-                    IrItem(IrCharClass("0-9"), IrQuantifier(1, IrNone)),
+                    IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)),
                 )
             ),
             IrQuantifier(0, 1),
@@ -315,10 +336,10 @@ Number.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrCharClass("eE"), IrQuantifier(1, 1)),
-                    IrItem(IrCharClass("-+"), IrQuantifier(0, 1)),
-                    IrItem(IrCharClass("1-9"), IrQuantifier(1, 1)),
-                    IrItem(IrCharClass("0-9"), IrQuantifier(0, 15)),
+                    IrItem(IrCharClass(IrStr("eE")), IrQuantifier(1, 1)),
+                    IrItem(IrCharClass(IrStr("-+")), IrQuantifier(0, 1)),
+                    IrItem(IrCharClass(IrRange("1", "9")), IrQuantifier(1, 1)),
+                    IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(0, 15)),
                 )
             ),
             IrQuantifier(0, 1),
@@ -341,7 +362,7 @@ Ws.__grammar__ = RuleSpec(
             IrSequence(IrItem(IrLiteral(" "), IrQuantifier(1, 1))),
             IrSequence(
                 IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
-                IrItem(IrCharClass(" \\t"), IrQuantifier(0, 20)),
+                IrItem(IrCharClass(IrStr(" \\t")), IrQuantifier(0, 20)),
             ),
         )
     ],

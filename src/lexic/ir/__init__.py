@@ -29,7 +29,6 @@ from lexic.ir.base import (
     IrSelf,
     IrSeq,
 )
-from lexic.ir.charclass import parse_charclass_chars
 from lexic.ir.derive import (
     classify_kind,
     compute_parents,
@@ -112,7 +111,6 @@ __all__ = [
     "derive_specs",
     "has_ruleref",
     "hoist_helpers",
-    "parse_charclass_chars",
     "parse_directives",
     "topo_sort",
 ]
