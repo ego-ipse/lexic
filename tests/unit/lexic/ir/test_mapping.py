@@ -17,8 +17,8 @@ import pytest
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir.action import IrThis
-from lexic.ir.base import IrCallable, IrInt, IrSelf, IrStr, IrTuple
-from lexic.ir.mapping import IrMap, IrTypeMap
+from lexic.ir.base import IrCallable, IrInt, IrNone, IrSelf, IrStr, IrTuple
+from lexic.ir.mapping import IR_MAP_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import IrLiteral, IrRuleRef
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -303,3 +303,162 @@ def test_duplicate_keys_at_construction_raise_unsupported_construct_error():
             IrTuple(IrStr("dup"), IrInt(1)),
             IrTuple(IrStr("dup"), IrInt(2)),
         )
+
+
+# ── IR_MAP_DEFAULT sentinel ───────────────────────────────────────────
+
+
+def test_ir_map_default_is_a_singleton():
+    """``_IrMapDefault()`` always returns the same object as :data:`IR_MAP_DEFAULT`.
+
+    :data:`IR_MAP_DEFAULT` is a ``@final`` sentinel whose ``__new__`` returns
+    the one pre-allocated instance on every subsequent construction.
+    """
+    reconstructed = type(IR_MAP_DEFAULT)()
+    assert reconstructed is IR_MAP_DEFAULT
+
+
+def test_ir_map_default_repr():
+    """``repr(IR_MAP_DEFAULT) == "IR_MAP_DEFAULT"``."""
+    assert repr(IR_MAP_DEFAULT) == "IR_MAP_DEFAULT"
+
+
+def test_ir_map_default_distinct_from_ir_none():
+    """The sentinel is distinct from :data:`IrNone` (identity inequality)."""
+    assert IR_MAP_DEFAULT is not IrNone
+    assert IR_MAP_DEFAULT != IrNone
+
+
+def test_ir_map_default_distinct_from_real_key():
+    """The sentinel does not compare equal to a real IR key."""
+    assert IR_MAP_DEFAULT != IrStr("x")
+
+
+# ── Fallback resolution via IR_MAP_DEFAULT ────────────────────────────
+
+
+def _default_map() -> IrMap:
+    """A map with one exact key and a catch-all :data:`IR_MAP_DEFAULT` entry.
+
+    :returns: IrMap with ``IrStr("a") → IrStr("hitA")`` and default ``IrStr("DEFAULT")``.
+    """
+    return IrMap(
+        IrTuple(IrStr("a"), IrStr("hitA")),
+        IrTuple(IR_MAP_DEFAULT, IrStr("DEFAULT")),
+    )
+
+
+def test_resolve_exact_key_wins_over_default():
+    """An exact-key hit takes priority over :data:`IR_MAP_DEFAULT`.
+
+    ``resolve(IrStr("a"))`` must return ``IrStr("hitA")``, not the default.
+    """
+    m = _default_map()
+    assert m.resolve(IrStr("a")) == IrStr("hitA")
+
+
+def test_resolve_miss_falls_through_to_default():
+    """A miss resolves to the :data:`IR_MAP_DEFAULT` value instead of raising.
+
+    ``resolve(IrStr("zzz"))`` must return ``IrStr("DEFAULT")``.
+    """
+    m = _default_map()
+    assert m.resolve(IrStr("zzz")) == IrStr("DEFAULT")
+
+
+def test_eval_miss_runs_default_value():
+    """``eval(d, n, nc)`` on a missed key evaluates the default's value against ``(d, n, nc)``.
+
+    For a self-evaluating scalar default (``IrStr("DEFAULT")``), eval returns it directly.
+    """
+    m = _default_map()
+    result = m.eval(m, IrStr("zzz"), ())
+    assert result == IrStr("DEFAULT")
+
+
+def test_contains_on_default_key_is_true():
+    """``IR_MAP_DEFAULT in m`` is ``True`` — it is a registered key."""
+    m = _default_map()
+    assert IR_MAP_DEFAULT in m
+
+
+def test_contains_on_miss_is_false_even_with_default():
+    """``IrStr("zzz") in m`` is ``False``; ``__contains__`` bypasses the fallback."""
+    m = _default_map()
+    assert IrStr("zzz") not in m
+
+
+def test_getitem_on_miss_raises_even_with_default():
+    """``m[IrStr("zzz")]`` raises :exc:`IrKeyError`; subscript bypasses the fallback."""
+    m = _default_map()
+    with pytest.raises(IrKeyError):
+        _ = m[IrStr("zzz")]
+
+
+def test_getitem_exact_key_with_default_registered():
+    """``m[IrStr("a")]`` returns ``IrStr("hitA")`` even when a default is present."""
+    m = _default_map()
+    assert m[IrStr("a")] == IrStr("hitA")
+
+
+# ── No default ⇒ miss still raises ───────────────────────────────────
+
+
+def test_resolve_miss_without_default_raises_ir_key_error():
+    """A miss raises :exc:`IrKeyError` when no :data:`IR_MAP_DEFAULT` is registered."""
+    m2 = IrMap(IrTuple(IrStr("a"), IrStr("hitA")))
+    with pytest.raises(IrKeyError):
+        m2.resolve(IrStr("zzz"))
+
+
+# ── IrTypeMap also honours IR_MAP_DEFAULT fallback ────────────────────
+
+
+def test_irtype_map_with_ir_map_default_fallback():
+    """A type miss resolves to :data:`IR_MAP_DEFAULT` when no MRO entry matches.
+
+    The table registers only ``IrLiteral`` and :data:`IR_MAP_DEFAULT`; passing
+    an ``IrRuleRef`` misses all MRO entries and falls back to the default.
+    """
+    disp = IrTypeMap(
+        IrTuple(IrLiteral, IrStr("lit")),
+        IrTuple(IR_MAP_DEFAULT, IrStr("fallback")),
+    )
+    result = disp.resolve(IrRuleRef("r"))
+    assert result == IrStr("fallback")
+
+
+def test_irtype_map_exact_type_still_wins_over_ir_map_default():
+    """An exact type hit wins over :data:`IR_MAP_DEFAULT`, even in ``IrTypeMap``."""
+    disp = IrTypeMap(
+        IrTuple(IrLiteral, IrStr("lit")),
+        IrTuple(IR_MAP_DEFAULT, IrStr("fallback")),
+    )
+    result = disp.resolve(IrLiteral("x"))
+    assert result == IrStr("lit")
+
+
+# ── Homogeneous map construction regression ───────────────────────────
+
+
+def test_homogeneous_map_construction_and_resolve_unaffected():
+    """The :data:`IR_MAP_DEFAULT` overload must not break plain homogeneous maps.
+
+    Constructing and resolving a map with no default entry must still work.
+    """
+    m = IrMap(
+        IrTuple(IrStr("a"), IrStr("x")),
+        IrTuple(IrStr("b"), IrStr("y")),
+    )
+    assert m.resolve(IrStr("a")) == IrStr("x")
+    assert m.resolve(IrStr("b")) == IrStr("y")
+
+
+def test_heterogeneous_map_with_default_constructs_without_error():
+    """A heterogeneous map mixing real dyads with a default dyad constructs cleanly."""
+    m = IrMap(
+        IrTuple(IrStr("key1"), IrStr("val1")),
+        IrTuple(IR_MAP_DEFAULT, IrStr("default_val")),
+    )
+    assert m.resolve(IrStr("key1")) == IrStr("val1")
+    assert m.resolve(IrStr("other")) == IrStr("default_val")

@@ -7,16 +7,23 @@ import pytest
 from lark import Lark
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.abnf.flavour import ABNF_ESCAPES, ABNF_FLAVOUR, META_GRAMMAR
+from lexic.grammars.abnf.flavour import (
+    ABNF_ESCAPES,
+    ABNF_FLAVOUR,
+    ABNF_PREFIX_QUANTIFIER,
+    META_GRAMMAR,
+)
 from lexic.grammars.flavour import IrFlavour
 from lexic.ir.base import IrNone, IrStr
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrItem,
     IrLiteral,
     IrQuantifier,
     IrRange,
+    IrRuleRef,
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing.meta_parser import MetaGrammarParser
@@ -265,3 +272,87 @@ def test_abnf_irnot_raises_unsupported():
     """ABNF has no native negation — IrNot raises UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError):
         ABNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange("a", "z"))))
+
+
+# ── ABNF quantifier emission matrix ──────────────────────────────────
+
+
+def _emit_q(q: IrQuantifier) -> str:
+    """Evaluate ``ABNF_PREFIX_QUANTIFIER`` for ``q`` and return the string result.
+
+    :param q: The quantifier to evaluate.
+    :returns: The emitted ABNF quantifier string.
+    """
+    return str(ABNF_PREFIX_QUANTIFIER.eval(ABNF_FLAVOUR, q, ()))
+
+
+@pytest.mark.parametrize(
+    "quantifier, expected",
+    [
+        (IrQuantifier(1, 1), ""),
+        (IrQuantifier(0, IrNone), "*"),
+        # Regression: N* forms with N != 0 were silently mishandled.
+        (IrQuantifier(1, IrNone), "1*"),
+        (IrQuantifier(2, IrNone), "2*"),  # the fixed regression — MUST stay pinned
+        (IrQuantifier(7, IrNone), "7*"),
+        (IrQuantifier(3, 3), "3"),
+        (IrQuantifier(0, 5), "*5"),
+        (IrQuantifier(2, 5), "2*5"),
+        (IrQuantifier(0, 1), "*1"),
+        (IrQuantifier(1, 3), "1*3"),
+    ],
+    ids=[
+        "exactly-once",
+        "zero-or-more",
+        "one-or-more",
+        "two-or-more-regression",
+        "seven-or-more",
+        "exactly-three",
+        "zero-to-five",
+        "two-to-five",
+        "zero-to-one",
+        "one-to-three",
+    ],
+)
+def test_abnf_quantifier_emission_matrix(quantifier: IrQuantifier, expected: str):
+    """``ABNF_PREFIX_QUANTIFIER.eval`` emits the authoritative ABNF prefix string.
+
+    Each row pins one case; the ``2*`` row guards the regression that was fixed.
+    """
+    assert _emit_q(quantifier) == expected
+
+
+# ── Round-trip: parse_quantifier → emit ──────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["*", "*5", "2*", "2*5", "3"],
+    ids=["star", "star-N", "N-star", "N-star-M", "exactly-N"],
+)
+def test_abnf_quantifier_round_trip(text: str):
+    """``_emit_q(parse_quantifier(s)) == s`` for canonical ABNF quantifier strings."""
+    assert _emit_q(ABNF_FLAVOUR.parse_quantifier(text)) == text
+
+
+def test_abnf_quantifier_default_emits_empty():
+    """``IrQuantifier()`` (the ``(1, 1)`` default) emits the empty string.
+
+    ``parse_quantifier`` does not handle the empty token — the meta-parser
+    synthesises ``IrQuantifier()`` directly, so this case is tested by
+    constructing the default quantifier directly.
+    """
+    assert _emit_q(IrQuantifier()) == ""
+
+
+# ── End-to-end: IrItem with 2* prefix through ABNF_FLAVOUR.apply ─────
+
+
+def test_abnf_item_with_n_star_quantifier_emits_prefix_form():
+    """A full ``IrItem`` with ``2*`` quantifier emits ``"2*<atom>"`` via ``ABNF_FLAVOUR.apply``.
+
+    Covers the ``2*``-style prefix path end-to-end through the action table,
+    not just the quantifier map in isolation.
+    """
+    item = IrItem(atom=IrRuleRef("foo"), quantifier=IrQuantifier(2, IrNone))
+    assert str(ABNF_FLAVOUR.apply(item)) == "2*foo"

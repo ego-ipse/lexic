@@ -47,12 +47,41 @@ from typing import (
     SupportsIndex,
     ValuesView,
     cast,
+    final,
     overload,
 )
 from weakref import WeakValueDictionary
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir.base import IrNone, IrSelf, IrSeq, IrTuple
+
+
+@final
+class _IrMapDefault(IrSelf):
+    """Type of the :class:`IrMap`/:class:`IrTypeMap` catch-all sentinel key.
+
+    A singleton key, distinct from every real key (identity eq/hash, like
+    :class:`~lexic.ir.base.IrNoneType`). Register its value once — ``IrTuple(
+    IR_MAP_DEFAULT, body)`` — and a key miss in :meth:`IrMap.resolve` resolves
+    to it instead of raising :exc:`~lexic.exceptions.IrKeyError`. Omit it and a
+    miss still errors. Opt-in fallback, no subclass needed.
+    """
+
+    _instance: ClassVar[Self | None] = None
+
+    def __new__(cls) -> Self:
+        """Return the singleton, allocating on first call."""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        """Codegen repr — the singleton's public name."""
+        return "IR_MAP_DEFAULT"
+
+
+IR_MAP_DEFAULT = _IrMapDefault()
+"""Catch-all sentinel key for :class:`IrMap`/:class:`IrTypeMap` miss-fallback."""
 
 
 class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
@@ -84,13 +113,26 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
                 )
             setattr(cls, name, dyad)
 
-    def __new__(cls, *dyads: IrTuple[K, V]) -> Self:
+    @overload
+    def __new__(cls, *dyads: IrTuple[K, V]) -> Self: ...
+    @overload
+    def __new__(
+        cls, *dyads: IrTuple[K, V] | IrTuple[_IrMapDefault, IrSelf]
+    ) -> Self: ...
+    def __new__(cls, *dyads: IrTuple) -> Self:
         """Sort canonically, resolve the memoised indexed subclass, build the tuple.
 
         Equal dyad tables share one synthesized class — keyed by ``(cls, dyads)``,
         weakly held — so type-keyed caches (e.g. dispatch memoisation) grow with
         distinct map values, not instances. The subclass keeps ``cls.__name__``,
         so ``repr`` stays valid codegen.
+
+        Two overloads: the homogeneous ``IrTuple[K, V]`` form infers ``K``/``V``
+        for ordinary tables; the bare ``IrTuple`` fallback admits a heterogeneous
+        :data:`IR_MAP_DEFAULT` dyad (its ``_IrMapDefault`` key and distinct value
+        would otherwise clash with the invariant ``Ts`` solved from the first
+        dyad). When the fallback applies, ``K``/``V`` come from the binding
+        annotation.
         """
         order = tuple(sorted(dyads, key=lambda d: repr(d[0])))
         sub = cls._classes.get((cls, order))
@@ -172,10 +214,14 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
         The resolution seam for consumers that separate lookup from evaluation
         (e.g. :class:`~lexic.ir.walk.IrDispatch` falling back to a default on
         a miss without muting errors raised by the resolved body).
+        :data:`IR_MAP_DEFAULT` is the last candidate tried, so a table that
+        registers it resolves any miss to its value; one that does not still
+        raises. ``__getitem__``/``__contains__`` bypass this — membership and
+        subscript stay explicit-key only.
 
-        :raises IrKeyError: On a miss.
+        :raises IrKeyError: On a miss with no :data:`IR_MAP_DEFAULT` entry.
         """
-        return self._find(*self._keys(n))[1]
+        return self._find(*self._keys(n), IR_MAP_DEFAULT)[1]
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Resolve ``n`` to its value; evaluate it against ``(d, n, nc)``.

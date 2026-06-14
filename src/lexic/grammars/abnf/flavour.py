@@ -19,20 +19,23 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from lexic.grammars.flavour import IrFlavour
+from lexic.grammars.flavour import IrEscape, IrFlavour
 from lexic.ir.action import (
     IrAction,
     IrChild,
     IrChildren,
+    IrCompare,
     IrConcat,
+    IrCond,
     IrEmit,
     IrField,
+    IrIsA,
     IrJoin,
     IrRaise,
 )
-from lexic.ir.base import IrCallable, IrNone, IrNoneType, IrStr, IrTuple
+from lexic.ir.base import IrCallable, IrInt, IrNone, IrNoneType, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
-from lexic.ir.mapping import IrTypeMap
+from lexic.ir.mapping import IR_MAP_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -45,7 +48,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
+from lexic.ir.operators import IrNot, IrOp
 
 META_GRAMMAR = r"""
 start: rule+
@@ -91,20 +94,45 @@ ABNF_ESCAPES = _AbnfEscapes()
 """Singleton escape codec for ABNF."""
 
 
-def _abnf_format_quantifier(lo: int, hi: int | IrNoneType) -> str:
-    """Return the ABNF *prefix* quantifier string. Empty when ``(1, 1)``."""
-    if lo == 1 and hi == 1:
-        return ""
-    if lo == hi:
-        return f"{lo}"
-    if isinstance(hi, IrNoneType):
-        return f"{lo}*" if lo != 0 else "*"
-    return f"{lo}*{hi}" if lo != 0 else f"*{hi}"
-
-
-def _abnf_encode_literal(_d, n, _nc) -> IrStr:
-    """Wrap the literal value in double quotes."""
-    return IrStr(f'"{ABNF_ESCAPES.encode(n)}"')
+ABNF_PREFIX_QUANTIFIER: IrMap = IrMap(
+    # The two canonicalization specials are exact-value keys — and exactly the
+    # closed forms GBNF_QUANTIFIERS also pins. Open/parameterized forms miss the
+    # map and fall to the IrNone default: branch + integer interpolation (bounds
+    # read via IrField, int payload stringified by wrapping in IrStr).
+    IrTuple(IrQuantifier(1, 1), IrLiteral("")),
+    IrTuple(IrQuantifier(0, IrNone), IrLiteral("*")),
+    IrTuple(
+        IR_MAP_DEFAULT,
+        IrCond(
+            # open upper bound, lo != 0 ((0, ∞) is an exact key) → "{lo}*"
+            test=IrIsA("hi", IrNoneType),
+            then_op=IrConcat(IrTuple(IrField("lo", IrStr), IrLiteral("*"))),
+            else_op=IrCond(
+                # closed lo == hi (lo != 1 here — (1, 1) is an exact key) → "{lo}"
+                test=IrCompare(IrField("lo", IrInt), IrOp("=="), IrField("hi", IrInt)),
+                then_op=IrField("lo", IrStr),
+                else_op=IrCond(
+                    # "{lo}*{hi}", or "*{hi}" when lo == 0
+                    test=IrCompare(IrField("lo", IrInt), IrOp("=="), IrInt(0)),
+                    then_op=IrConcat(IrTuple(IrLiteral("*"), IrField("hi", IrStr))),
+                    else_op=IrConcat(
+                        IrTuple(
+                            IrField("lo", IrStr), IrLiteral("*"), IrField("hi", IrStr)
+                        )
+                    ),
+                ),
+            ),
+        ),
+    ),
+)
+"""Quantifier bounds → ABNF prefix string: an :class:`IrMap
+ABNF quantifiers are an open set (``N``, ``N*M``, ``*N``, ``N*``), so — unlike
+GBNF's wholly-finite ``IrMap`` — only the two canonicalization specials
+(``(1,1) → ""``, ``(0,∞) → "*"``, shared with ``GBNF_QUANTIFIERS``) are
+exact-value keys. Every open/parameterized form misses and resolves to the
+:data:`IrNone` default, a nested :class:`IrCond` over the remaining ``lo``/``hi``
+predicates; pulling the two specials out collapses its inner branches.
+"""
 
 
 def _abnf_charclass(_d, n, _nc) -> IrStr:
@@ -125,27 +153,11 @@ def _abnf_charclass(_d, n, _nc) -> IrStr:
     return IrStr("(" + " / ".join(rendered) + ")")
 
 
-def _abnf_quantifier(_d, n, _nc) -> IrStr:
-    """Compute the ABNF prefix-quantifier symbol from ``(lo, hi)``."""
-    return IrStr(_abnf_format_quantifier(n.lo, n.hi))
-
-
-def _abnf_ast(d, n, _nc) -> IrStr:
-    """Render an IrAst as newline-joined rules with a trailing newline."""
-    parts = [str(d.eval(d, rule, ())) for rule in n.rules]
-    return IrStr("\n".join(parts) + "\n")
-
-
-def _abnf_item(d, n, _nc) -> IrStr:
-    """Render ABNF prefix ``quantifier`` then ``atom``; parenthesise an alternation atom."""
-    atom = str(d.eval(d, n.atom, ()))
-    if isinstance(n.atom, IrAlternation):
-        atom = f"({atom})"
-    return IrStr(str(d.eval(d, n.quantifier, ())) + atom)
-
-
 ABNF_ACTIONS = IrTypeMap(
-    IrAction(IrLiteral, IrCallable(_abnf_encode_literal)),
+    IrAction(
+        IrLiteral,
+        IrConcat(parts=IrTuple(IrLiteral('"'), IrEscape(), IrLiteral('"'))),
+    ),
     IrAction(IrCharClass, IrCallable(_abnf_charclass)),
     # ABNF has no native negation — strict declarative refusal.
     IrAction(
@@ -153,9 +165,23 @@ ABNF_ACTIONS = IrTypeMap(
         IrRaise(message="{dispatcher}: ABNF does not support {node_type!r}"),
     ),
     IrAction(IrRuleRef, IrEmit()),
-    IrAction(IrQuantifier, IrCallable(_abnf_quantifier)),
+    IrAction(IrQuantifier, ABNF_PREFIX_QUANTIFIER),
     # Prefix quantifier ordering: quantifier before atom.
-    IrAction(IrItem, IrCallable(_abnf_item)),
+    IrAction(
+        IrItem,
+        IrConcat(
+            parts=IrTuple(
+                IrChild("quantifier"),
+                IrCond(
+                    test=IrIsA("atom", IrAlternation),
+                    then_op=IrConcat(
+                        parts=IrTuple(IrLiteral("("), IrChild("atom"), IrLiteral(")"))
+                    ),
+                    else_op=IrChild("atom"),
+                ),
+            )
+        ),
+    ),
     IrAction(
         IrSequence,
         IrJoin(
@@ -176,7 +202,20 @@ ABNF_ACTIONS = IrTypeMap(
         IrRule,
         IrConcat(parts=IrTuple(IrField("name"), IrLiteral(" = "), IrChild("body"))),
     ),
-    IrAction(IrAst, IrCallable(_abnf_ast)),
+    IrAction(
+        IrAst,
+        IrConcat(parts=IrTuple(IrChild("rules"), IrLiteral("\n"))),
+    ),
+    # The rules collection is the only bare tuple ever dispatched; concrete
+    # subclasses (IrSequence, IrAlternation, records) win by MRO.
+    IrAction(
+        IrTuple,
+        IrJoin(
+            parts=IrChildren(),
+            separator=IrLiteral("\n"),
+            empty=IrLiteral(""),
+        ),
+    ),
 )
 
 
