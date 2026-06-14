@@ -5,10 +5,17 @@ from __future__ import annotations
 import gc
 import threading
 import weakref
+from abc import ABC, ABCMeta, abstractmethod
 
 import pytest
 
-from lexic.ir.meta import Borg, Singleton
+from lexic.ir.base import IrSelf
+from lexic.ir.meta import Borg, IrMeta, IrSingleton, Singleton
+
+# Module-level alias; avoids pylint losing track of Singleton as a value after
+# nested function-local class definitions (``class X(metaclass=Singleton)``)
+# confuse pylint's scope analysis in the reentrant test.
+_Singleton = Singleton
 
 # ── Borg: identity and shared state ────────────────────────────────────
 
@@ -332,3 +339,160 @@ def test_singleton_reentrant_construction_does_not_deadlock():
     thread.join(timeout=5)
     assert not thread.is_alive(), "reentrant Singleton construction deadlocked"
     assert done == [1]
+
+
+# ── IrMeta ─────────────────────────────────────────────────────────────
+
+
+def test_irmeta_is_abcmeta_subclass():
+    """Test that IrMeta derives from ABCMeta (composes with ABC bases)."""
+    assert issubclass(IrMeta, ABCMeta)
+
+
+def test_irmeta_injects_empty_slots_when_none_declared():
+    """Test that a class with no __slots__ declaration gets __slots__ == ()."""
+
+    class C(metaclass=IrMeta):  # pylint: disable=too-few-public-methods
+        """IrMeta fixture: empty-slots injection when none declared."""
+
+    assert getattr(C, "__slots__") == ()
+
+
+def test_irmeta_no_dict_on_plain_class():
+    """Test that an IrMeta class with no __slots__ has no __dict__ on instances."""
+
+    class C(metaclass=IrMeta):  # pylint: disable=too-few-public-methods
+        """IrMeta fixture: no-__dict__ verification."""
+
+    c = C()
+    with pytest.raises(AttributeError):
+        setattr(c, "x", "nope")
+
+
+def test_irmeta_preserves_declared_slots():
+    """Test that setdefault does not clobber an explicit __slots__ declaration."""
+
+    class C(metaclass=IrMeta):  # pylint: disable=too-few-public-methods
+        """IrMeta fixture: explicit __slots__ preserved."""
+
+        __slots__ = ("x",)
+
+        def __init__(self) -> None:
+            """Initialise ``x`` via the declared slot."""
+            self.x = 42
+
+    c = C()
+    assert c.x == 42
+
+
+def test_irmeta_non_slot_attribute_raises_on_slotted_class():
+    """Test that setting a non-slot attribute on a slotted IrMeta class raises."""
+
+    class C(metaclass=IrMeta):  # pylint: disable=too-few-public-methods
+        """IrMeta fixture: non-slot attribute rejected."""
+
+        __slots__ = ("x",)
+
+    c = C()
+    with pytest.raises(AttributeError):
+        setattr(c, "y", "nope")
+
+
+def test_irmeta_composes_with_abc_abstractmethod():
+    """Test that IrMeta composes with ABC: abstract class cannot be instantiated."""
+
+    class Base(ABC, metaclass=IrMeta):  # pylint: disable=too-few-public-methods
+        """Abstract IrMeta fixture: must not be directly instantiated."""
+
+        @abstractmethod
+        def run(self) -> int:
+            """Return an integer result."""
+
+    class Concrete(Base):  # pylint: disable=too-few-public-methods
+        """Concrete subclass implementing the abstract method."""
+
+        def run(self) -> int:
+            return 1
+
+    with pytest.raises(TypeError):
+        Base()  # type: ignore[abstract]
+
+    assert Concrete().run() == 1
+
+
+# ── IrSingleton ────────────────────────────────────────────────────────
+
+
+def test_irsingleton_is_irmeta_subclass():
+    """Test that IrSingleton inherits from IrMeta."""
+    assert issubclass(IrSingleton, IrMeta)
+
+
+def test_irsingleton_is_singleton_subclass():
+    """Test that IrSingleton inherits from Singleton."""
+    assert issubclass(IrSingleton, _Singleton)
+
+
+def test_irsingleton_returns_same_instance():
+    """Test that an IrSingleton class returns one cached instance for every call."""
+
+    class C(metaclass=IrSingleton):  # pylint: disable=too-few-public-methods
+        """IrSingleton fixture: one-instance-per-class verification."""
+
+    assert C() is C()
+
+
+def test_irsingleton_later_calls_ignore_args():
+    """Test that later IrSingleton calls reuse the first instance, ignoring new args."""
+
+    class S(metaclass=IrSingleton):  # pylint: disable=too-few-public-methods
+        """IrSingleton fixture: later constructor arguments are discarded."""
+
+    first = S()
+    assert S() is first
+
+
+def test_irsingleton_instances_are_isolated_per_class():
+    """Test that two distinct IrSingleton classes cache independent instances."""
+
+    class A(metaclass=IrSingleton):  # pylint: disable=too-few-public-methods
+        """First IrSingleton fixture for class-isolation test."""
+
+    class B(metaclass=IrSingleton):  # pylint: disable=too-few-public-methods
+        """Second IrSingleton fixture for class-isolation test."""
+
+    assert A() is not B()
+
+
+def test_irsingleton_injects_empty_slots():
+    """Test that IrMeta's slots injection applies to IrSingleton classes too."""
+
+    class C(metaclass=IrSingleton):  # pylint: disable=too-few-public-methods
+        """IrSingleton fixture: empty-slots injection verification."""
+
+    assert getattr(C, "__slots__") == ()
+    c = C()
+    with pytest.raises(AttributeError):
+        setattr(c, "x", "nope")
+
+
+def test_irsingleton_composes_on_irself_subclass():
+    """Test that IrSingleton can be the metaclass of an IrSelf subclass without conflict."""
+
+    class S(IrSelf, metaclass=IrSingleton):  # pylint: disable=too-few-public-methods
+        """IrSelf subclass using IrSingleton — the actual production use-case."""
+
+        def __repr__(self) -> str:
+            return "S()"
+
+    assert S() is S()
+
+
+def test_bare_singleton_conflicts_on_irself_subclass():
+    """Test that a bare Singleton metaclass raises TypeError on an IrSelf subclass.
+
+    ``IrSelf`` already has ``IrMeta`` as its metaclass; ``Singleton`` does not
+    subclass ``IrMeta``, so Python's metaclass-conflict rule fires.
+    """
+    with pytest.raises(TypeError):
+        _Singleton("Bad", (IrSelf,), {})

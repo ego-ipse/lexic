@@ -54,26 +54,20 @@ from weakref import WeakValueDictionary
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir.base import IrNone, IrSelf, IrSeq, IrTuple
+from lexic.ir.meta import IrSingleton
 
 
 @final
-class _IrMapDefault(IrSelf):
+class _IrMapDefault(IrSelf, metaclass=IrSingleton):
     """Type of the :class:`IrMap`/:class:`IrTypeMap` catch-all sentinel key.
 
     A singleton key, distinct from every real key (identity eq/hash, like
     :class:`~lexic.ir.base.IrNoneType`). Register its value once — ``IrTuple(
     IR_MAP_DEFAULT, body)`` — and a key miss in :meth:`IrMap.resolve` resolves
     to it instead of raising :exc:`~lexic.exceptions.IrKeyError`. Omit it and a
-    miss still errors. Opt-in fallback, no subclass needed.
+    miss still errors. Opt-in fallback, no subclass needed. One instance per
+    class via the :class:`~lexic.ir.meta.IrSingleton` metaclass.
     """
-
-    _instance: ClassVar[Self | None] = None
-
-    def __new__(cls) -> Self:
-        """Return the singleton, allocating on first call."""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     def __repr__(self) -> str:
         """Codegen repr — the singleton's public name."""

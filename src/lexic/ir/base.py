@@ -27,7 +27,7 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 from __future__ import annotations
 
 import copy
-from abc import ABC, ABCMeta
+from abc import ABC
 from typing import (
     Any,
     Callable,
@@ -42,35 +42,9 @@ from typing import (
     overload,
 )
 
+from lexic.ir.meta import IrMeta, IrSingleton
+
 # ── Spine ─────────────────────────────────────────────────────────────
-
-
-class IrMeta(ABCMeta):
-    """Metaclass that gives every IR class an empty ``__slots__`` by default.
-
-    IR nodes keep their payload in the primitive they subclass (``str``/``int``/
-    ``tuple``) or in their tuple elements — never in a per-instance ``__dict__``,
-    and a ``tuple``/``str`` subclass *must* have empty ``__slots__`` to stay
-    dict-free. ``__slots__`` has to be in the class namespace before the class
-    object is built, which only a metaclass can guarantee (``__init_subclass__``
-    runs too late). Derives from :class:`abc.ABCMeta` so it composes with
-    ``IrNode``'s ``ABC`` base. A class that needs its own slots (e.g.
-    :class:`Field`) just declares ``__slots__`` — ``setdefault`` leaves it alone.
-    """
-
-    def __new__(
-        mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], /, **kw: Any
-    ) -> type:
-        """Inject ``__slots__ = ()`` unless the class declared its own.
-
-        :param name: New class name.
-        :param bases: Base classes.
-        :param namespace: Class body namespace (mutated in place).
-        :param kw: Remaining class keyword arguments.
-        :returns: The constructed class.
-        """
-        namespace.setdefault("__slots__", ())
-        return super().__new__(mcs, name, bases, namespace, **kw)
 
 
 class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri](metaclass=IrMeta):
@@ -224,7 +198,7 @@ class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri](metaclass=IrMeta):
 
 
 @final
-class IrNoneType(IrSelf):
+class IrNoneType(IrSelf, metaclass=IrSingleton):
     """Type of the absence sentinel, mirroring ``NoneType``/``None``.
 
     ``IrNoneType`` is marked ``@final`` — subclassing is a **static** error
@@ -239,20 +213,9 @@ class IrNoneType(IrSelf):
     annotate parameters as ``IrSelf | IrNoneType``; the *value* to pass is
     always the singleton :data:`IrNone`.
 
-    Implementation: singleton via ``__new__`` with a ``_instance`` ClassVar.
-    The first call allocates; subsequent calls return the cached instance.
+    Implementation: one instance per class via the
+    :class:`~lexic.ir.meta.IrSingleton` metaclass.
     """
-
-    _instance: ClassVar[Self | None] = None
-
-    def __new__(cls) -> Self:
-        """Return the singleton instance, allocating it on the first call.
-
-        :returns: The single ``IrNoneType`` instance.
-        """
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     def __repr__(self) -> str:
         """Codegen repr — the singleton's public name.
