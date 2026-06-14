@@ -1,114 +1,96 @@
-# Handover — branch `more_nodes`, 2026-06-12
+# Handover — 2026-06-14
 
-Session ended mid-step-3 (test porting pending). Read `NEXT_STEPS_V2.md` for
-the plan, but see **§Direction change** below — it invalidates parts of it.
+Working tree is **clean** (HEAD `85e0687 moree`). Everything below about the
+codepoint work was prototyped and **git-restored** by the user — none of it is
+on disk. Read it as a design record, not as code to find.
 
-## Git state
+## Committed this session (in `b7483d6` / `85e0687`)
 
-- Committed: steps 1–2 (`ff5c27f more`, `7a2e933 wip` on top of `54cb164`).
-- **Uncommitted working tree: all of step 3 src** (list under §Step 3).
-- `generated/` churn is expected and deliberate.
+1. **ABNF emission declarativized.** `_abnf_encode_literal`, `_abnf_item`,
+   `_abnf_ast` → declarative action bodies matching GBNF. The prefix quantifier
+   is now `ABNF_PREFIX_QUANTIFIER`, an **`IrMap` with an `IR_MAP_DEFAULT`
+   fallback** (two exact specials `(1,1)→""`, `(0,∞)→"*"` shared with
+   `GBNF_QUANTIFIERS`; everything else falls through to a nested `IrCond`).
+   Only remaining ABNF `IrCallable` is `_abnf_charclass` (hex).
+2. **`IR_MAP_DEFAULT`** (`ir/mapping.py`): a catch-all sentinel **key** for
+   `IrMap`/`IrTypeMap`. Registered ⇒ `resolve` falls back on a miss; absent ⇒
+   still raises. `__getitem__`/`__contains__` stay explicit-key. `IrMap.__new__`
+   got an overload pair so a heterogeneous sentinel dyad type-checks without
+   `IrMap[IrSelf, IrSelf]` (which the user forbade).
+3. **Metaclass consolidation** (`ir/meta.py`): `IrMeta` moved there from
+   `base.py`; new `IrSingleton(Singleton, IrMeta)`. `IrNoneType` and
+   `_IrMapDefault` now use `metaclass=IrSingleton` — hand-rolled singleton
+   `__new__` gone. Full coverage in `tests/unit/lexic/ir/test_meta.py`.
 
-## Where things stand
+All committed work was green: pytest, pyright, pylint, ruff.
 
-- **Integration + property: 69/69 green.** All seven ground truths compile,
-  parse, and round-trip byte-exact through the new structured pipeline
-  (`[^\n]`, `[\x00-\x1F]`-style classes included).
-- src is ruff + pyright clean.
-- **Unit: 634 pass / 39 fail + 1 collection error — ALL test-porting debt,
-  no src bugs known.** The failures construct the old str-leaf
-  `IrCharClass("a-z")` or import the deleted `lexic.ir.charclass`.
+## The live design thread: codepoint char-ranges (NOT implemented)
 
-## Completed this session
+Goal: make `_abnf_charclass` declarative and unify char-ranges with quantifier
+bounds. The agreed model (verified, sound):
 
-**Step 1 — IrRange + IrQuantifier retier** (committed): `IrRange[T: (str,int)]`
-record (`lo`/`hi` scalar payload, `_child_attrs = ()`); `IrQuantifier(IrRange)`;
-`min/max` → `lo/hi` everywhere; open bound is `IrNone` (the `int | None` union
-is gone); `IrNoneType.__repr__` → `"IrNone"`; generated-module template imports it.
+- **A char-range endpoint is a codepoint.** Store `IrRange(IrInt, IrInt)` — the
+  decoded codepoint, not the source spelling. `a`, `\x61`, `%x61` all → `97`.
+- **Parse decodes** (escape handling is a parsing concern); **flavour encodes**
+  on emit. ABNF range → `%x` + base-16 of the codepoint (no `ord`, "just a base
+  change"). GBNF range → `chr`/escape of the codepoint.
+- **`IrRange` is FIXED ARITY** — an `IrNamedTuple[IrInt, IrInt | IrNoneType]`,
+  NOT a variadic `IrSeq`/vector. (User rejected the vector hard.) `lo`/`hi`
+  become dispatchable children (drop the `IrLeaf` mixin and `_child_attrs = ()`).
+  Coercing `__new__`: single-char `str` → `ord`, plain `int` → as-is.
+- **`IrQuantifier(IrRange)`** stays int bounds (counts, not codepoints), no-arg
+  default `(1,1)`. After the flip `IrQuantifier(1,1) != IrRange(1,1)` (IrInt vs
+  IrStr historically) — that disjointness is *wanted*.
 
-**Step 2 — argument channel + delegation** (committed): `nc` formalized as THE
-argument channel; `IrChild`/`IrIndex`/`IrChildren` de-hybridized (children come
-from `n`, never `nc`); new nodes `IrAt(selector, body)` (binder, raw-child
-focus shift), `IrArgs()` (args reader), `IrApply(args)` (re-dispatch focus with
-args). GBNF `IrNot` action = `IrAt(0, IrTypeMap(IrCharClass → IrApply("^"),
-IrSelf → IrRaise))` — zero `IrCallable`s in the GBNF table; `_gbnf_not` gone.
+### Verified facts that unblock it
+- **No test asserts grammar-source byte-exact round-trip.** The North Star /
+  property round-trip is **instance-level** (`parse(text,g).to_text()==text`),
+  which is codepoint-level and indifferent to charclass spelling. So storing
+  codepoints (canonical-form re-emit) is allowed; my earlier "byte-exact blocks
+  it" objection was about an untested non-requirement.
+- Today's storage (baseline): GBNF keeps the **verbatim source unit** as a str
+  (`IrRange('\\x00','\\x1F')`, 4-char strings); ABNF keeps a **decoded char**
+  (`%x61`→`'a'`). Inconsistent across flavours — symptom of escape handling
+  leaking into the IR.
+- `str(IrInt(4))` returns `"IrInt(4)"`, NOT `"4"` (int has no `__str__`, so
+  `str` falls through to the codegen `__repr__`). The codepoint flip needs
+  `IrInt.__str__` returning `int.__repr__(self)`. This is a real latent bug.
+- `charclass_pattern` (`utils/charclass.py`) is the single flat-view chokepoint
+  feeding `lark_builder`, `generate`, `derive`. If it re-encodes codepoints to
+  the same canonical text, those consumers don't change.
 
-**Step 3 — structured IrCharClass** (UNCOMMITTED):
+### The blocker that ended the session: the encoder placement
+ABNF hex is a base change, but you still need a **codepoint → surface** encoder
+for GBNF (`chr`/escape) and the flat view. Hard constraints the user enforced:
 
-- `ir/nodes.py`: `IrCharClass(IrSeq[IrRange | IrStr], IrAtom)` — pure
-  structure, NO methods. Runs of singles are one bare `IrStr` leaf; explicit
-  `x-y` are `IrRange`. Negation stays outside (`IrNot(IrCharClass(...))`).
-  Element payloads are **encoded escape units** (`"\x1F"` = one 4-char unit)
-  so emission is byte-exact; decoding happens only at enumeration.
-- `parsing/meta_parser.py`: the interior splitter lives in
-  `_build_charclass` + `_read_unit` — deliberately, as Lark-era scaffolding
-  that dies with this file. `parse_charclass` flavour methods survive
-  until the metagrammars die.
-- `ir/charclass.py` **deleted** → `utils/charclass.py` (`charclass_pattern`
-  flat view + relocated `parse_charclass_chars`). Shims live OUTSIDE ir/.
-- `grammars/gbnf/flavour.py`: class action = `"[" + IrJoin(IrArgs()) +
-  IrJoin(IrChildren()) + "]"`; `IrRange → IrJoin(parts=(IrField lo, hi),
-  sep="-")`; `IrStr → IrEmit` (run leaf; wide-MRO key accepted by user).
-- `grammars/abnf/flavour.py`: `_abnf_charclass` renders elements
-  (`%xNN-MM` per range, `%xNN` per run char, parens when >1 atom);
-  `_split_charclass_segments`/`_hex_range_segment`/`_abnf_not` deleted;
-  `IrNot → IrRaise`; `normalize_literal` wraps runs in `IrStr`.
-- Consumers (`ir/derive.py` `_bracketed`, `codegen/aliases.py` ×4,
-  `parsing/lark_builder.py` ×4, `generate.py`) read via `charclass_pattern`.
-- `codegen/model_emitter.py` `CANONICAL_IMPORTS`: + `IrRange`, `IrStr`.
+- **NO cross-module utility imports** (a flavour importing `utils.charclass` =
+  "ugly ass imports", instant restore). Encoding must live on something the
+  flavour already holds. See memory `feedback_no_cross_module_util_imports`.
+- **The old `EscapeCodec` is rejected** as the home — user: "the old escape
+  codec is shit. We need a new `IrEscape`." Do NOT extend `EscapeCodec`.
+- The user wants a **new `IrEscape`** (the action leaf) that owns escaping —
+  almost certainly carrying its escape mapping as *payload* (an `IrMap`?) rather
+  than pulling `d.escapes`, operating on a codepoint `IrInt` and returning
+  `IrStr`. **The exact skeleton was never specified** — that is the open
+  question. Get it from the user before writing anything.
 
-## Next task: port the 39 failing unit tests (Sonnet job, per workflow)
+## Rejected approaches (do not retry)
+- `IrVector[T](IrSeq[...])` variadic base for ranges — ranges are fixed arity.
+- `IrScalar.__str__` override — recursion (`__format__("")` re-enters `__str__`).
+  Fix is `IrInt.__str__` only.
+- `IrDefaultMap` subclass — user wanted `IR_MAP_DEFAULT` sentinel on plain
+  `IrMap`/`IrTypeMap` instead (this one shipped).
+- A flavour importing an `encode_codepoint` helper from `utils`.
 
-Files: `test_nodes.py` (4), `test_derive.py` (13), `test_model_emitter.py`
-(14), `test_aliases.py` (5), `test_action.py` (1),
-`test_init_new_codegen.py` (1), `test_meta_parser.py` (1), plus
-`tests/unit/lexic/ir/test_charclass.py` (imports deleted module).
+## Other open items (pre-existing, from prior handover)
+- `_abnf_charclass` hex callable (the whole point of the codepoint thread).
+- Parse-side flavour methods (`parse_quantifier`/`parse_charclass`/
+  `normalize_literal`) — die with the IR-native parser (blocked step 4, needs a
+  design session). `parse_quantifier` cannot be removed yet (load-bearing).
+- CLAUDE.md / `.wiki/` stale.
 
-- Constructions: `IrCharClass("a-z")` → `IrCharClass(IrRange("a","z"))`;
-  `IrCharClass("abc")` → `IrCharClass(IrStr("abc"))`; mixed
-  `IrCharClass("a-z0-9_")` → `IrCharClass(IrRange("a","z"),
-  IrRange("0","9"), IrStr("_"))`.
-- `test_charclass.py` moves to `tests/unit/lexic/utils/test_charclass.py`
-  (mirror rule), imports from `lexic.utils.charclass`; add
-  `charclass_pattern` coverage.
-- Flavour `parse_charclass` tests: unchanged API (method survives).
-- New coverage to add: `_build_charclass` shapes (ranges, runs, hex units
-  `\x00-\x1F`, negation wrap, `[-+]`-style literal dashes), GBNF emission of
-  structured classes, ABNF range/run rendering, ABNF `IrNot` raise.
-- Port, never delete; user commits, agent doesn't.
-
-## Direction change — READ BEFORE PLANNING FURTHER WORK
-
-User decisions (enforced via three rejected implementations, see memory
-`project_ir_purity_lark_temporary.md`):
-
-1. **`ir/` stays pure.** No shims, scanners, helpers, or convenience methods
-   in `src/lexic/ir/` — not as functions, not as codec methods, not as node
-   methods. Temp shims go in `parsing/`/`utils/`/`codegen/` only.
-2. **No new Lark infrastructure, ever.** A mini Lark meta-grammar for
-   charclass interiors was rejected. **The metagrammars themselves are
-   slated for removal**; parsing will be rebuilt strictly within the IR.
-3. Consequence: **NEXT_STEPS_V2.md steps 4–5 are stale** — step 4 (quantifier
-   /charclass meta-grammar productions) is MORE Lark and contradicts (2).
-   The real step 4 is the IR-native parser design. Do not start it without
-   the user; revise the doc with them first.
-
-Other settled-this-session decisions: rendering ownership (an action renders
-only its own node's tokens; cross-node marks travel as `nc` arguments; the
-receiving action places them — surface position is flavour data, e.g. a
-flavour could render negation `[foo]!`); guards are `IrTypeMap`s with
-`IrSelf → IrRaise` catch-all, not cond-chains; `lo`/`hi` stay scalar payload
-read via `IrField` ("keep as is for now" — the flip to value-leaf children
-that would enable `IrJoin(IrChildren(), "-")` was discussed and deferred).
-
-## Loose ends
-
-- User hand-moved `literal_to_regex_pattern` into `parsing/lark_builder.py`
-  (out of `ir/regex_portable.py`) — part of the same ir/-purge; check what
-  remains of `regex_portable.py`.
-- `src/lexic/ir/meta.py` appeared during the session (user WIP, not touched
-  or read by the assistant).
-- CLAUDE.md and `.wiki/` are badly stale (predate `base.py` spine,
-  `operators.py`, `mapping.py`, IrRange, argument channel, structured
-  charclass). V2 doc's Housekeeping section lists the refresh items.
-- `escapes.py` docstring updated to point at `utils/charclass.py`.
+## Workflow notes for the next agent
+The user iterates on **mechanism** fast and restores aggressively when the
+structure is wrong or ugly. **Do not implement large multi-file changes on a
+guess** — pin the exact node/class shape with them first, then build. Tests go
+to Sonnet subagents (ask first). Never commit autonomously.
