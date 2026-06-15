@@ -122,5 +122,5 @@ class IrSingleton(Singleton, IrMeta):
     metaclass. ``IrSingleton`` IS-A ``IrMeta``, so it composes, while
     ``Singleton.__call__`` supplies the one-instance-per-class caching. This
     replaces the hand-rolled ``__new__`` on the IR sentinels
-    (:data:`~lexic.ir.base.IrNone`, :data:`~lexic.ir.mapping.IR_MAP_DEFAULT`).
+    (:data:`~lexic.ir.base.IrNone`, :data:`~lexic.ir.mapping.IR_DEFAULT`).
     """

@@ -63,7 +63,7 @@ class _IrMapDefault(IrSelf, metaclass=IrSingleton):
 
     A singleton key, distinct from every real key (identity eq/hash, like
     :class:`~lexic.ir.base.IrNoneType`). Register its value once — ``IrTuple(
-    IR_MAP_DEFAULT, body)`` — and a key miss in :meth:`IrMap.resolve` resolves
+    IR_DEFAULT, body)`` — and a key miss in :meth:`IrMap.resolve` resolves
     to it instead of raising :exc:`~lexic.exceptions.IrKeyError`. Omit it and a
     miss still errors. Opt-in fallback, no subclass needed. One instance per
     class via the :class:`~lexic.ir.meta.IrSingleton` metaclass.
@@ -71,10 +71,10 @@ class _IrMapDefault(IrSelf, metaclass=IrSingleton):
 
     def __repr__(self) -> str:
         """Codegen repr — the singleton's public name."""
-        return "IR_MAP_DEFAULT"
+        return "IR_DEFAULT"
 
 
-IR_MAP_DEFAULT = _IrMapDefault()
+IR_DEFAULT = _IrMapDefault()
 """Catch-all sentinel key for :class:`IrMap`/:class:`IrTypeMap` miss-fallback."""
 
 
@@ -123,7 +123,7 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
 
         Two overloads: the homogeneous ``IrTuple[K, V]`` form infers ``K``/``V``
         for ordinary tables; the bare ``IrTuple`` fallback admits a heterogeneous
-        :data:`IR_MAP_DEFAULT` dyad (its ``_IrMapDefault`` key and distinct value
+        :data:`IR_DEFAULT` dyad (its ``_IrMapDefault`` key and distinct value
         would otherwise clash with the invariant ``Ts`` solved from the first
         dyad). When the fallback applies, ``K``/``V`` come from the binding
         annotation.
@@ -208,14 +208,14 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
         The resolution seam for consumers that separate lookup from evaluation
         (e.g. :class:`~lexic.ir.walk.IrDispatch` falling back to a default on
         a miss without muting errors raised by the resolved body).
-        :data:`IR_MAP_DEFAULT` is the last candidate tried, so a table that
+        :data:`IR_DEFAULT` is the last candidate tried, so a table that
         registers it resolves any miss to its value; one that does not still
         raises. ``__getitem__``/``__contains__`` bypass this — membership and
         subscript stay explicit-key only.
 
-        :raises IrKeyError: On a miss with no :data:`IR_MAP_DEFAULT` entry.
+        :raises IrKeyError: On a miss with no :data:`IR_DEFAULT` entry.
         """
-        return self._find(*self._keys(n), IR_MAP_DEFAULT)[1]
+        return self._find(*self._keys(n), IR_DEFAULT)[1]
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Resolve ``n`` to its value; evaluate it against ``(d, n, nc)``.

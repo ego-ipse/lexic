@@ -18,7 +18,7 @@ import pytest
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir.action import IrThis
 from lexic.ir.base import IrCallable, IrInt, IrNone, IrSelf, IrStr, IrTuple
-from lexic.ir.mapping import IR_MAP_DEFAULT, IrMap, IrTypeMap
+from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import IrLiteral, IrRuleRef
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -305,51 +305,51 @@ def test_duplicate_keys_at_construction_raise_unsupported_construct_error():
         )
 
 
-# ── IR_MAP_DEFAULT sentinel ───────────────────────────────────────────
+# ── IR_DEFAULT sentinel ───────────────────────────────────────────
 
 
 def test_ir_map_default_is_a_singleton():
-    """``_IrMapDefault()`` always returns the same object as :data:`IR_MAP_DEFAULT`.
+    """``_IrMapDefault()`` always returns the same object as :data:`IR_DEFAULT`.
 
-    :data:`IR_MAP_DEFAULT` is a ``@final`` sentinel whose ``__new__`` returns
+    :data:`IR_DEFAULT` is a ``@final`` sentinel whose ``__new__`` returns
     the one pre-allocated instance on every subsequent construction.
     """
-    reconstructed = type(IR_MAP_DEFAULT)()
-    assert reconstructed is IR_MAP_DEFAULT
+    reconstructed = type(IR_DEFAULT)()
+    assert reconstructed is IR_DEFAULT
 
 
 def test_ir_map_default_repr():
-    """``repr(IR_MAP_DEFAULT) == "IR_MAP_DEFAULT"``."""
-    assert repr(IR_MAP_DEFAULT) == "IR_MAP_DEFAULT"
+    """``repr(IR_DEFAULT) == "IR_DEFAULT"``."""
+    assert repr(IR_DEFAULT) == "IR_DEFAULT"
 
 
 def test_ir_map_default_distinct_from_ir_none():
     """The sentinel is distinct from :data:`IrNone` (identity inequality)."""
-    assert IR_MAP_DEFAULT is not IrNone
-    assert IR_MAP_DEFAULT != IrNone
+    assert IR_DEFAULT is not IrNone
+    assert IR_DEFAULT != IrNone
 
 
 def test_ir_map_default_distinct_from_real_key():
     """The sentinel does not compare equal to a real IR key."""
-    assert IR_MAP_DEFAULT != IrStr("x")
+    assert IR_DEFAULT != IrStr("x")
 
 
-# ── Fallback resolution via IR_MAP_DEFAULT ────────────────────────────
+# ── Fallback resolution via IR_DEFAULT ────────────────────────────
 
 
 def _default_map() -> IrMap:
-    """A map with one exact key and a catch-all :data:`IR_MAP_DEFAULT` entry.
+    """A map with one exact key and a catch-all :data:`IR_DEFAULT` entry.
 
     :returns: IrMap with ``IrStr("a") → IrStr("hitA")`` and default ``IrStr("DEFAULT")``.
     """
     return IrMap(
         IrTuple(IrStr("a"), IrStr("hitA")),
-        IrTuple(IR_MAP_DEFAULT, IrStr("DEFAULT")),
+        IrTuple(IR_DEFAULT, IrStr("DEFAULT")),
     )
 
 
 def test_resolve_exact_key_wins_over_default():
-    """An exact-key hit takes priority over :data:`IR_MAP_DEFAULT`.
+    """An exact-key hit takes priority over :data:`IR_DEFAULT`.
 
     ``resolve(IrStr("a"))`` must return ``IrStr("hitA")``, not the default.
     """
@@ -358,7 +358,7 @@ def test_resolve_exact_key_wins_over_default():
 
 
 def test_resolve_miss_falls_through_to_default():
-    """A miss resolves to the :data:`IR_MAP_DEFAULT` value instead of raising.
+    """A miss resolves to the :data:`IR_DEFAULT` value instead of raising.
 
     ``resolve(IrStr("zzz"))`` must return ``IrStr("DEFAULT")``.
     """
@@ -377,9 +377,9 @@ def test_eval_miss_runs_default_value():
 
 
 def test_contains_on_default_key_is_true():
-    """``IR_MAP_DEFAULT in m`` is ``True`` — it is a registered key."""
+    """``IR_DEFAULT in m`` is ``True`` — it is a registered key."""
     m = _default_map()
-    assert IR_MAP_DEFAULT in m
+    assert IR_DEFAULT in m
 
 
 def test_contains_on_miss_is_false_even_with_default():
@@ -405,34 +405,34 @@ def test_getitem_exact_key_with_default_registered():
 
 
 def test_resolve_miss_without_default_raises_ir_key_error():
-    """A miss raises :exc:`IrKeyError` when no :data:`IR_MAP_DEFAULT` is registered."""
+    """A miss raises :exc:`IrKeyError` when no :data:`IR_DEFAULT` is registered."""
     m2 = IrMap(IrTuple(IrStr("a"), IrStr("hitA")))
     with pytest.raises(IrKeyError):
         m2.resolve(IrStr("zzz"))
 
 
-# ── IrTypeMap also honours IR_MAP_DEFAULT fallback ────────────────────
+# ── IrTypeMap also honours IR_DEFAULT fallback ────────────────────
 
 
 def test_irtype_map_with_ir_map_default_fallback():
-    """A type miss resolves to :data:`IR_MAP_DEFAULT` when no MRO entry matches.
+    """A type miss resolves to :data:`IR_DEFAULT` when no MRO entry matches.
 
-    The table registers only ``IrLiteral`` and :data:`IR_MAP_DEFAULT`; passing
+    The table registers only ``IrLiteral`` and :data:`IR_DEFAULT`; passing
     an ``IrRuleRef`` misses all MRO entries and falls back to the default.
     """
     disp = IrTypeMap(
         IrTuple(IrLiteral, IrStr("lit")),
-        IrTuple(IR_MAP_DEFAULT, IrStr("fallback")),
+        IrTuple(IR_DEFAULT, IrStr("fallback")),
     )
     result = disp.resolve(IrRuleRef("r"))
     assert result == IrStr("fallback")
 
 
 def test_irtype_map_exact_type_still_wins_over_ir_map_default():
-    """An exact type hit wins over :data:`IR_MAP_DEFAULT`, even in ``IrTypeMap``."""
+    """An exact type hit wins over :data:`IR_DEFAULT`, even in ``IrTypeMap``."""
     disp = IrTypeMap(
         IrTuple(IrLiteral, IrStr("lit")),
-        IrTuple(IR_MAP_DEFAULT, IrStr("fallback")),
+        IrTuple(IR_DEFAULT, IrStr("fallback")),
     )
     result = disp.resolve(IrLiteral("x"))
     assert result == IrStr("lit")
@@ -442,7 +442,7 @@ def test_irtype_map_exact_type_still_wins_over_ir_map_default():
 
 
 def test_homogeneous_map_construction_and_resolve_unaffected():
-    """The :data:`IR_MAP_DEFAULT` overload must not break plain homogeneous maps.
+    """The :data:`IR_DEFAULT` overload must not break plain homogeneous maps.
 
     Constructing and resolving a map with no default entry must still work.
     """
@@ -458,7 +458,7 @@ def test_heterogeneous_map_with_default_constructs_without_error():
     """A heterogeneous map mixing real dyads with a default dyad constructs cleanly."""
     m = IrMap(
         IrTuple(IrStr("key1"), IrStr("val1")),
-        IrTuple(IR_MAP_DEFAULT, IrStr("default_val")),
+        IrTuple(IR_DEFAULT, IrStr("default_val")),
     )
     assert m.resolve(IrStr("key1")) == IrStr("val1")
     assert m.resolve(IrStr("other")) == IrStr("default_val")

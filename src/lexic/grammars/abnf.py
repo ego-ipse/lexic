@@ -35,7 +35,7 @@ from lexic.ir.action import (
 )
 from lexic.ir.base import IrCallable, IrInt, IrNone, IrNoneType, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
-from lexic.ir.mapping import IR_MAP_DEFAULT, IrMap, IrTypeMap
+from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -102,7 +102,7 @@ ABNF_PREFIX_QUANTIFIER: IrMap = IrMap(
     IrTuple(IrQuantifier(1, 1), IrLiteral("")),
     IrTuple(IrQuantifier(0, IrNone), IrLiteral("*")),
     IrTuple(
-        IR_MAP_DEFAULT,
+        IR_DEFAULT,
         IrCond(
             # open upper bound, lo != 0 ((0, ∞) is an exact key) → "{lo}*"
             test=IrIsA("hi", IrNoneType),

@@ -39,7 +39,7 @@ from lexic.ir.derive import (
 from lexic.ir.directives import Directives, parse_directives
 from lexic.ir.emit import render_specs
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
-from lexic.ir.mapping import IR_MAP_DEFAULT, IrMap, IrTypeMap
+from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -59,7 +59,7 @@ from lexic.ir.walk import IrTransformer, IrVisitor
 
 __all__ = [
     "CANONICAL_ESCAPES",
-    "IR_MAP_DEFAULT",
+    "IR_DEFAULT",
     "Directives",
     "EscapeCodec",
     "render_specs",
