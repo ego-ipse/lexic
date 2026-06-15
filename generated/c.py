@@ -1,7 +1,6 @@
 """Generated module: c. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
-
 from typing import Annotated, List, Optional
 
 from pydantic import StringConstraints
@@ -13,10 +12,10 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrQuantifier,
     IrRange,
     IrRuleRef,
     IrSequence,
+    IrQuantifier,
 )
 from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
