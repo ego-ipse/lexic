@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from lexic.compile import compile_grammar
-from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
+from lexic.grammars.gbnf import GBNF_FLAVOUR
 from tests.paths import GROUND_TRUTH
 
 ALL_GRAMMARS = ["arithmetic", "c", "chess", "japanese", "json_arr", "json_ws", "list"]

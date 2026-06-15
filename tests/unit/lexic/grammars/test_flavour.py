@@ -9,7 +9,7 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrEscape, IrFlavour
-from lexic.grammars.gbnf.flavour import GBNF_ESCAPES, GBNF_FLAVOUR
+from lexic.grammars.gbnf import GBNF_ESCAPES, GBNF_FLAVOUR
 from lexic.ir.base import IrNone, IrStr
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.nodes import (

@@ -6,7 +6,7 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.flavour import IrFlavour
-from lexic.grammars.gbnf.flavour import (
+from lexic.grammars.gbnf import (
     GBNF_ESCAPES,
     GBNF_FLAVOUR,
     GBNF_QUANTIFIERS,

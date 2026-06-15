@@ -7,7 +7,7 @@ import pytest
 from lark import Lark
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.abnf.flavour import (
+from lexic.grammars.abnf import (
     ABNF_ESCAPES,
     ABNF_FLAVOUR,
     ABNF_PREFIX_QUANTIFIER,

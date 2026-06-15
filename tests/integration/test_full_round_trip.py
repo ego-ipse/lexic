@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_from_path, compile_grammar
-from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
+from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.parsing.meta_parser import MetaGrammarParser
 from tests.paths import GROUND_TRUTH
 

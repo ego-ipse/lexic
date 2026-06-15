@@ -10,7 +10,7 @@ from lexic.compile import (
     compile_text,
     reset_cache_for_tests,
 )
-from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
+from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrItem, IrRuleRef
 from tests.paths import GROUND_TRUTH
 

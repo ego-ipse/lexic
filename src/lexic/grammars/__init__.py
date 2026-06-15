@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.abnf.flavour import ABNF_FLAVOUR
+from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.flavour import IrFlavour
-from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
+from lexic.grammars.gbnf import GBNF_FLAVOUR
 
 _FLAVOURS: dict[str, IrFlavour] = {}
 
