@@ -28,6 +28,7 @@ and re-raised as UnsupportedConstructError with rule-first messages.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, TypeAlias
 
 from lark import (
@@ -48,6 +49,7 @@ from lexic.ir.nodes import (
     IrAst,
     IrCharClass,
     IrItem,
+    IrLiteral,
     IrQuantifier,
     IrRange,
     IrRule,
@@ -107,13 +109,95 @@ def _build_charclass(flavour: IrFlavour, children: list) -> IrAtom:
     return IrNot(atom) if negated else atom
 
 
+@dataclass(slots=True)
+class _IncrementalRule:
+    """Marker for an ABNF ``name =/ body`` arm, merged by :func:`_build_start`.
+
+    Not an IR node — a throwaway Lark-era carrier so ``start`` can fold the
+    incremental alternation into the base rule defined earlier.
+    """
+
+    name: str
+    body: IrAlternation
+
+
+def _build_start(_flavour: IrFlavour, children: list) -> IrAst:
+    """Assemble the rule list, folding ABNF ``=/`` incremental alternatives.
+
+    A plain rule is appended; an :class:`_IncrementalRule` extends the arms of
+    the same-named base rule defined earlier (RFC 5234 §3.3).
+
+    :raises UnsupportedConstructError: an ``=/`` arm names an undefined rule.
+    """
+    rules: list[IrRule] = []
+    position: dict[str, int] = {}
+    for child in children:
+        if isinstance(child, _IncrementalRule):
+            if child.name not in position:
+                raise UnsupportedConstructError(
+                    f"ABNF '=/' for undefined rule {child.name!r}"
+                )
+            base = rules[position[child.name]]
+            rules[position[child.name]] = IrRule(
+                name=base.name, body=IrAlternation(*base.body, *child.body)
+            )
+        else:
+            position[child.name] = len(rules)
+            rules.append(child)
+    return IrAst(rules=IrSeq(*rules), start=rules[0].name if rules else "")
+
+
+def _build_numseq(_flavour: IrFlavour, children: list) -> IrLiteral:
+    """Build a case-sensitive :class:`IrLiteral` from an ABNF value-sequence.
+
+    ``%x66.61.6c`` (and ``%d``/``%b`` radixes) are dot-concatenated code
+    points — exact, case-sensitive bytes, unlike a quoted ``"abc"`` literal
+    (case-insensitive). They lower to a raw ``IrLiteral`` — the canonical form
+    shared with a GBNF string literal of the same text.
+    """
+    token = str(children[0])
+    radix = {"b": 2, "d": 10, "x": 16}[token[1].lower()]
+    return IrLiteral("".join(chr(int(part, radix)) for part in token[2:].split(".")))
+
+
+def _build_option(_flavour: IrFlavour, children: list) -> IrItem:
+    """Build an optional ``[ ... ]`` element — an item bound to ``(0, 1)``."""
+    return IrItem(atom=children[0], quantifier=IrQuantifier(0, 1))
+
+
+def _build_literal_cs(flavour: IrFlavour, children: list) -> IrLiteral:
+    """``%s"..."`` — case-sensitive string → raw ``IrLiteral`` (RFC 7405)."""
+    return IrLiteral(flavour.escapes.decode(str(children[0])[3:-1]))
+
+
+def _build_literal_ci(flavour: IrFlavour, children: list) -> object:
+    """``%i"..."`` — explicit case-insensitive string (RFC 7405)."""
+    return flavour.normalize_literal(flavour.escapes.decode(str(children[0])[3:-1]))
+
+
+def _build_prose(_flavour: IrFlavour, children: list) -> object:
+    """prose-val ``<...>`` — recognised, but has no machine-readable meaning.
+
+    :raises UnsupportedConstructError: always; prose-val cannot be compiled.
+    """
+    raise UnsupportedConstructError(
+        f"ABNF prose-val has no formal semantics: {str(children[0])!r}"
+    )
+
+
 _IR_BUILDERS: dict[str, _IrBuilder] = {
-    "start": lambda _f, c: IrAst(rules=IrSeq(*c), start=c[0].name if c else ""),
+    "start": _build_start,
     "ir_rule": lambda _f, c: IrRule(name=str(c[0]), body=c[1]),
+    "ir_rule_inc": lambda _f, c: _IncrementalRule(str(c[0]), c[-1]),
     "ir_alternation": lambda _f, c: IrAlternation(*c),
     "ir_sequence": lambda _f, c: IrSequence(*c),
     "ir_literal": lambda f, c: f.normalize_literal(f.escapes.decode(str(c[0])[1:-1])),
+    "ir_literal_cs": _build_literal_cs,
+    "ir_literal_ci": _build_literal_ci,
     "ir_charclass": _build_charclass,
+    "ir_numseq": _build_numseq,
+    "ir_option": _build_option,
+    "ir_prose": _build_prose,
     "ir_ruleref": lambda _f, c: IrRuleRef(str(c[0])),
     "ir_group": lambda _f, c: c[0],
 }

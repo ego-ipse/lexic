@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from lark import Lark
 
@@ -356,3 +358,74 @@ def test_abnf_item_with_n_star_quantifier_emits_prefix_form():
     """
     item = IrItem(atom=IrRuleRef("foo"), quantifier=IrQuantifier(2, IrNone))
     assert str(ABNF_FLAVOUR.apply(item)) == "2*foo"
+
+
+# ── New constructs ────────────────────────────────────────────────────
+
+
+def test_parse_charclass_decimal():
+    """`%d65` → ``('A', False)`` (radix 10)."""
+    pattern, negated = ABNF_FLAVOUR.parse_charclass("%d65")
+    assert pattern == "A"
+    assert negated is False
+
+
+def test_parse_charclass_binary():
+    """`%b1000001` → ``('A', False)`` (radix 2)."""
+    pattern, negated = ABNF_FLAVOUR.parse_charclass("%b1000001")
+    assert pattern == "A"
+    assert negated is False
+
+
+def test_numseq_value_sequence_becomes_ir_literal():
+    """``%x66.61.6c.73.65`` → :class:`IrLiteral` ``\"false\"`` (case-sensitive)."""
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse("false = %x66.61.6c.73.65\n")
+    item = ast.rules[0].body[0][0]
+    assert isinstance(item.atom, IrLiteral)
+    assert item.atom == IrLiteral("false")
+
+
+def test_cs_string_becomes_raw_ir_literal():
+    """``%s"true"`` → :class:`IrLiteral` ``\"true\"`` with no case expansion."""
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse('foo = %s"true"\n')
+    item = ast.rules[0].body[0][0]
+    assert isinstance(item.atom, IrLiteral)
+    assert item.atom == IrLiteral("true")
+
+
+def test_ci_string_becomes_case_insensitive_alternation():
+    """``%i"abc"`` → case-insensitive expansion (an :class:`IrAlternation`)."""
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse('foo = %i"abc"\n')
+    item = ast.rules[0].body[0][0]
+    assert isinstance(item.atom, IrAlternation)
+
+
+def test_optional_bracket_produces_quantifier_0_1():
+    """``[ "x" ]`` → an :class:`IrItem` with :class:`IrQuantifier` ``(0, 1)``."""
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse('foo = [ "x" ]\n')
+    item = ast.rules[0].body[0][0]
+    assert isinstance(item, IrItem)
+    assert item.quantifier == IrQuantifier(0, 1)
+
+
+def test_incremental_alternatives_merge_into_one_rule():
+    """``=/`` arms are merged into the earlier same-named rule's alternation."""
+    text = 'foo = "a"\nfoo =/ "b"\nfoo =/ "c"\n'
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse(text)
+    assert len(ast.rules) == 1
+    rule = ast.rules[0]
+    assert rule.name == "foo"
+    assert len(rule.body) == 3
+
+
+def test_prose_val_raises_unsupported_construct_error():
+    """``<...>`` prose-val raises :class:`UnsupportedConstructError`."""
+    with pytest.raises(UnsupportedConstructError):
+        MetaGrammarParser(ABNF_FLAVOUR).parse("foo = <any prose text>\n")
+
+
+def test_json_abnf_ground_truth_parses_32_rules():
+    """Parsing ``resources/ground_truth/json.abnf`` yields 32 rules."""
+    path = Path(__file__).parents[4] / "resources" / "ground_truth" / "json.abnf"
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse(path.read_text(encoding="utf-8"))
+    assert len(ast.rules) == 32

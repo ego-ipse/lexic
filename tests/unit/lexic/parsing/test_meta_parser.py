@@ -6,6 +6,10 @@ Tested with a tiny stub flavour that exists only in this test file.
 
 from __future__ import annotations
 
+import pytest
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.flavour import IrFlavour
 from lexic.ir.base import IrNone, IrStr
 from lexic.ir.escapes import EscapeCodec
@@ -264,3 +268,57 @@ def test_build_charclass_leading_dash_is_literal():
     """
     result = _build_charclass(_StubFlavour(), ["[-+]"])
     assert result == IrCharClass(IrStr("-+"))
+
+
+# ── New builders (ABNF constructs) ───────────────────────────────────
+
+
+def test_ir_rule_inc_via_abnf_flavour():
+    """``ir_rule_inc`` (``=/``) merges arms through ABNF_FLAVOUR.
+
+    :class:`_IncrementalRule` is an internal marker; test through the public
+    ``MetaGrammarParser`` / ``ABNF_FLAVOUR`` API rather than instantiating it
+    directly.
+    """
+    text = 'digits = "0"\ndigits =/ "1"\n'
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse(text)
+    assert len(ast.rules) == 1
+    assert ast.rules[0].name == "digits"
+    assert len(ast.rules[0].body) == 2
+
+
+def test_ir_numseq_via_abnf_flavour():
+    """``ir_numseq`` (``%xNN.NN``) produces a case-sensitive :class:`IrLiteral`."""
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse("null = %x6e.75.6c.6c\n")
+    item = ast.rules[0].body[0][0]
+    assert item.atom == IrLiteral("null")
+
+
+def test_ir_option_via_abnf_flavour():
+    """``ir_option`` (``[ ... ]``) wraps the inner alternation with ``(0, 1)``."""
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse('foo = bar [ "x" ]\nbar = "b"\n')
+    seq = ast.rules[0].body[0]
+    # second item in the sequence is the optional bracket
+    opt_item = seq[1]
+    assert isinstance(opt_item, IrItem)
+    assert opt_item.quantifier == IrQuantifier(0, 1)
+
+
+def test_ir_literal_cs_via_abnf_flavour():
+    """``ir_literal_cs`` (``%s"..."`` case-sensitive string) → raw :class:`IrLiteral`."""
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse('foo = %s"Hello"\n')
+    item = ast.rules[0].body[0][0]
+    assert item.atom == IrLiteral("Hello")
+
+
+def test_ir_literal_ci_via_abnf_flavour():
+    """``ir_literal_ci`` (``%i"..."`` explicit case-insensitive) → expanded alternation."""
+    ast = MetaGrammarParser(ABNF_FLAVOUR).parse('foo = %i"AB"\n')
+    item = ast.rules[0].body[0][0]
+    assert isinstance(item.atom, IrAlternation)
+
+
+def test_ir_prose_via_abnf_flavour_raises():
+    """``ir_prose`` (``<...>``) always raises :class:`UnsupportedConstructError`."""
+    with pytest.raises(UnsupportedConstructError):
+        MetaGrammarParser(ABNF_FLAVOUR).parse("foo = <some prose>\n")

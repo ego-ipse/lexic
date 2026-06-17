@@ -22,6 +22,7 @@ from lexic.ir.action import (
     IrAt,
     IrChild,
     IrChildren,
+    IrCompare,
     IrConcat,
     IrCond,
     IrEmit,
@@ -30,9 +31,9 @@ from lexic.ir.action import (
     IrJoin,
     IrRaise,
 )
-from lexic.ir.base import IrNone, IrSelf, IrStr, IrTuple
+from lexic.ir.base import IrInt, IrNone, IrNoneType, IrSelf, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
-from lexic.ir.mapping import IrMap, IrTypeMap
+from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -45,7 +46,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
+from lexic.ir.operators import IrNot, IrOp
 
 META_GRAMMAR = r"""
 start: rule+
@@ -91,12 +92,42 @@ GBNF_QUANTIFIERS: IrMap[IrQuantifier, IrLiteral] = IrMap(
     IrTuple(IrQuantifier(0, 1), IrLiteral("?")),
     IrTuple(IrQuantifier(0, IrNone), IrLiteral("*")),
     IrTuple(IrQuantifier(1, IrNone), IrLiteral("+")),
+    # Counted forms — GBNF spells repetition natively as {n} / {n,} / {n,m}.
+    IrTuple(
+        IR_DEFAULT,
+        IrCond(
+            # open upper bound (n > 1, ∞) → "{n,}"
+            test=IrIsA("hi", IrNoneType),
+            then_op=IrConcat(
+                parts=IrTuple(IrLiteral("{"), IrField("lo", IrStr), IrLiteral(",}"))
+            ),
+            else_op=IrCond(
+                # closed exact (n, n) → "{n}"
+                test=IrCompare(IrField("lo", IrInt), IrOp("=="), IrField("hi", IrInt)),
+                then_op=IrConcat(
+                    parts=IrTuple(IrLiteral("{"), IrField("lo", IrStr), IrLiteral("}"))
+                ),
+                # bounded (m, n) → "{m,n}" (covers (0, n) too)
+                else_op=IrConcat(
+                    parts=IrTuple(
+                        IrLiteral("{"),
+                        IrField("lo", IrStr),
+                        IrLiteral(","),
+                        IrField("hi", IrStr),
+                        IrLiteral("}"),
+                    )
+                ),
+            ),
+        ),
+    ),
 )
 """Quantifier bounds ⇄ GBNF postfix symbol — the data map IS the action body.
 
-Under dispatch the quantifier node itself is the key; a miss (e.g. ``{2,5}``)
-raises :exc:`~lexic.exceptions.IrKeyError`, an ``UnsupportedConstructError``.
-``parse_quantifier`` inverts the same dyads, so the table exists once.
+The four closed forms are exact-value keys; every counted form (``{n}``,
+``{n,}``, ``{m,n}``) resolves to the :data:`IR_DEFAULT` branch, a nested
+:class:`IrCond` over the ``lo``/``hi`` bounds. ``parse_quantifier`` inverts the
+exact-key dyads (and parses the counted forms by regex), so the table exists
+once.
 """
 
 
@@ -215,7 +246,11 @@ class _GbnfFlavour(IrFlavour):
 
         Forms: ``""``, ``?``, ``*``, ``+``, ``{N}``, ``{N,}``, ``{N,M}``.
         """
-        symbol_to_bounds = {str(sym): q for q, sym in GBNF_QUANTIFIERS.items()}
+        symbol_to_bounds = {
+            str(sym): q
+            for q, sym in GBNF_QUANTIFIERS.items()
+            if isinstance(sym, IrLiteral)
+        }
         quantifier = symbol_to_bounds.get(text or "")
         if quantifier is not None:
             return quantifier

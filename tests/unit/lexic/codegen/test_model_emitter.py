@@ -27,7 +27,11 @@ from tests.unit.lexic.conftest import make_spec as _spec
 
 
 def test_emit_value_str_class_body():
-    """Value-str with a charclass item emits a constrained value field."""
+    """Value-str with a charclass item emits a constrained value field.
+
+    When the alias name would collide with the class name, the alias is
+    suppressed and the field type is emitted inline.
+    """
     spec = _spec(
         "digit",
         "value_str",
@@ -35,7 +39,7 @@ def test_emit_value_str_class_body():
     )
     src = emit_module_source([spec], stem="m")
     assert "class Digit(GrammarModel):" in src
-    assert "value: Digit" in src
+    assert 'value: Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]' in src
 
 
 def test_emit_sequence_class_with_ruleref_field():

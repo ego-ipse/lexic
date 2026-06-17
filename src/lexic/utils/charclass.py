@@ -12,16 +12,59 @@ from __future__ import annotations
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
 from lexic.ir.nodes import IrCharClass, IrRange
 
+_CLASS_METACHARS = frozenset("[]^")
+
 
 def charclass_pattern(cls: IrCharClass) -> str:
-    """Flatten a structured class to its interior pattern (encoded units).
+    """Flatten a structured class to a regex/source-safe interior pattern.
 
     :param cls: The structured character class.
-    :returns: The flat interior pattern, escapes still encoded.
+    :returns: The flat interior pattern, members escaped for a regex class.
     """
-    return "".join(
+    raw = "".join(
         f"{el.lo}-{el.hi}" if isinstance(el, IrRange) else str(el) for el in cls
     )
+    return _escape_class_text(raw)
+
+
+def _escape_class_text(text: str) -> str:
+    """Make a flat char-class interior valid inside a regex ``[...]``.
+
+    Three jobs: pre-escaped units (GBNF stores ``\\x1F`` / ``\\]`` as text) pass
+    through; raw metacharacter members (ABNF decodes ``%x5C`` to a bare ``\\``,
+    ``%x5D`` to ``]``) get escaped; non-printable points become
+    ``\\xNN`` / ``\\uNNNN`` / ``\\UNNNNNNNN``.
+
+    The backslash rule is a heuristic: ``\\`` followed by a char is taken as an
+    existing escape and passed through, a lone ``\\`` is escaped. Enough for the
+    current grammars; the clean fix is the neutral-codepoint reshape that
+    retires this Lark-era module (members become code points, escaped once at
+    emit, and this guessing disappears).
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\":
+            if i + 1 < n:
+                out.append(text[i : i + 2])
+                i += 2
+            else:
+                out.append("\\\\")
+                i += 1
+            continue
+        if ch in _CLASS_METACHARS:
+            out.append(f"\\{ch}")
+        elif ch.isprintable():
+            out.append(ch)
+        elif (point := ord(ch)) <= 0xFF:
+            out.append(f"\\x{point:02x}")
+        elif point <= 0xFFFF:
+            out.append(f"\\u{point:04x}")
+        else:
+            out.append(f"\\U{point:08x}")
+        i += 1
+    return "".join(out)
 
 
 def parse_charclass_chars(

@@ -83,3 +83,47 @@ def test_charclass_pattern_encoded_hex_units():
     """Encoded hex escape units are kept verbatim in the interior pattern."""
     cls = IrCharClass(IrRange("\\x00", "\\x1F"))
     assert charclass_pattern(cls) == "\\x00-\\x1F"
+
+
+# ── _escape_class_text — new escaping rules ───────────────────────────
+
+
+def test_control_char_escapes_to_hex():
+    """Non-printable code points (≤ 0xFF) are rendered as ``\\xNN``."""
+    cls = IrCharClass(IrStr("\x01"))
+    assert charclass_pattern(cls) == "\\x01"
+
+
+def test_non_printable_tab_escapes_to_hex():
+    """Tab (``\\t``, U+0009) is non-printable → ``\\x09``."""
+    cls = IrCharClass(IrStr("\t"))
+    assert charclass_pattern(cls) == "\\x09"
+
+
+def test_raw_close_bracket_is_escaped():
+    """A raw ``]`` in a char-class run is escaped to ``\\]``."""
+    cls = IrCharClass(IrStr("]"))
+    assert charclass_pattern(cls) == "\\]"
+
+
+def test_raw_caret_is_escaped():
+    """A raw ``^`` in a char-class run is escaped to ``\\^``."""
+    cls = IrCharClass(IrStr("^"))
+    assert charclass_pattern(cls) == "\\^"
+
+
+def test_preescaped_unit_passes_through():
+    """A pre-escaped GBNF unit (``\\x00``) passes through unchanged.
+
+    The ``\\`` is followed by another character, so it is treated as an
+    existing escape unit and emitted verbatim — not double-escaped.
+    """
+    cls = IrCharClass(IrRange("\\x00", "\\x1F"))
+    result = charclass_pattern(cls)
+    assert result == "\\x00-\\x1F"
+
+
+def test_lone_backslash_is_escaped():
+    """A lone ``\\`` (single backslash character) is escaped to ``\\\\``."""
+    cls = IrCharClass(IrStr("\\"))
+    assert charclass_pattern(cls) == "\\\\"

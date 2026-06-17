@@ -184,7 +184,10 @@ class ModuleEmitter:
     def __init__(self, specs: list[RuleSpec]) -> None:
         self._specs = specs
         self._by_rule: dict[str, RuleSpec] = {s.rule_name: s for s in specs}
-        alias_list: list[PatternAlias] = collect_aliases(specs)
+        class_names: frozenset[str] = frozenset(s.class_name for s in specs)
+        alias_list: list[PatternAlias] = [
+            a for a in collect_aliases(specs) if a.name not in class_names
+        ]
         self._alias_decls = alias_list
         self._aliases: dict[str, str] = {a.regex: a.name for a in alias_list}
 

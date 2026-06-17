@@ -95,6 +95,27 @@ def _regex_terminal(pattern: str, q: IrQuantifier) -> str:
     return f"/{pattern}{q_str}/"
 
 
+def _lark_rule_quant(q: IrQuantifier) -> str:
+    """Quantifier suffix for a Lark *rule* reference or group.
+
+    Postfix ``?``/``*``/``+`` are valid on rules as-is; counted forms (``{n}`` /
+    ``{n,m}``) must use Lark's ``~`` repetition — ``{}`` is regex-only syntax.
+
+    :raises UnsupportedConstructError: open-ended counted repetition (``{n,}``),
+        which Lark's ``~`` form cannot express on a rule.
+    """
+    q_str = bounds_to_quantifier(q.lo, q.hi)
+    if q_str in ("", "?", "*", "+"):
+        return q_str
+    inner = q_str[1:-1]
+    if inner.endswith(","):
+        raise UnsupportedConstructError(
+            f"Lark cannot repeat a rule with an open upper bound: {q_str!r}"
+        )
+    lo, _, hi = inner.partition(",")
+    return f" ~ {lo}..{hi}" if hi else f" ~ {lo}"
+
+
 def _atom_to_lark(item: IrItem) -> str:
     """Convert an IR item to a Lark atom string."""
     atom = item.atom
@@ -114,7 +135,7 @@ def _atom_to_lark(item: IrItem) -> str:
             item.quantifier,
         )
     if isinstance(atom, IrRuleRef):
-        return f"{to_lark_name(atom)}{q_str}"
+        return f"{to_lark_name(atom)}{_lark_rule_quant(item.quantifier)}"
     if isinstance(atom, IrAlternation):
         # Literal-only group arms are dropped by Lark (anonymous string terminals).
         # Use regex form so the matched token is preserved in children.
@@ -126,7 +147,7 @@ def _atom_to_lark(item: IrItem) -> str:
         )
         seq_fn = _seq_to_lark_regex if literal_only else _seq_to_lark
         body = " | ".join(seq_fn(s) for s in atom)
-        return f"({body}){q_str}"
+        return f"({body}){_lark_rule_quant(item.quantifier)}"
     raise UnsupportedConstructError(
         f"_atom_to_lark: no handler for atom type {type(atom).__name__!r}"
     )
@@ -139,7 +160,6 @@ def _atom_to_lark_regex(item: IrItem) -> str:
     making it impossible to tell if optional literals matched. Regex form keeps all tokens.
     """
     atom = item.atom
-    q_str = bounds_to_quantifier(item.quantifier.lo, item.quantifier.hi)
     if isinstance(atom, IrLiteral):
         return _regex_terminal(literal_to_regex_pattern(atom), item.quantifier)
     if isinstance(atom, IrNot):
@@ -155,10 +175,10 @@ def _atom_to_lark_regex(item: IrItem) -> str:
             item.quantifier,
         )
     if isinstance(atom, IrRuleRef):
-        return f"{to_lark_name(atom)}{q_str}"
+        return f"{to_lark_name(atom)}{_lark_rule_quant(item.quantifier)}"
     if isinstance(atom, IrAlternation):
         body = " | ".join(_seq_to_lark_regex(s) for s in atom)
-        return f"({body}){q_str}"
+        return f"({body}){_lark_rule_quant(item.quantifier)}"
     raise UnsupportedConstructError(
         f"_atom_to_lark_regex: no handler for atom type {type(atom).__name__!r}"
     )

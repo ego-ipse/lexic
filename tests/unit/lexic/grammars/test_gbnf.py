@@ -164,10 +164,12 @@ def test_gbnf_quantifiers_maps_four_bounds_to_symbols():
     assert GBNF_QUANTIFIERS[IrQuantifier(1, IrNone)] == "+"
 
 
-def test_gbnf_quantifiers_miss_raises_unsupported():
-    """GBNF_FLAVOUR.apply on an out-of-table quantifier raises UnsupportedConstructError."""
-    with pytest.raises(UnsupportedConstructError):
-        GBNF_FLAVOUR.apply(IrQuantifier(2, 5))
+def test_gbnf_quantifiers_counted_forms_render():
+    """GBNF spells counted repetition natively: {n} / {n,} / {m,n}."""
+    assert GBNF_FLAVOUR.apply(IrQuantifier(4, 4)) == "{4}"
+    assert GBNF_FLAVOUR.apply(IrQuantifier(2, 5)) == "{2,5}"
+    assert GBNF_FLAVOUR.apply(IrQuantifier(0, 15)) == "{0,15}"
+    assert GBNF_FLAVOUR.apply(IrQuantifier(3, IrNone)) == "{3,}"
 
 
 def test_gbnf_quantifier_hit_question_mark():

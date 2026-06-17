@@ -16,7 +16,11 @@ from lexic.ir.nodes import (
     IrRange,
     IrRuleRef,
 )
-from lexic.parsing.lark_builder import LarkBuilder, build_lark, literal_to_regex_pattern
+from lexic.parsing.lark_builder import (
+    LarkBuilder,
+    build_lark,
+    literal_to_regex_pattern,
+)
 from tests._ir_fixtures import item, spec
 from tests.unit.lexic.conftest import make_inner_outer_specs
 from tests.unit.lexic.parsing.conftest import make_spec

@@ -53,33 +53,75 @@ from lexic.ir.operators import IrNot, IrOp
 META_GRAMMAR = r"""
 start: rule+
 
-rule: NAME "=" alternation        -> ir_rule
+rule: NAME "=" alternation             -> ir_rule
+    | NAME INCREMENTAL alternation     -> ir_rule_inc
+
 alternation: sequence ("/" sequence)*  -> ir_alternation
-sequence: item*                   -> ir_sequence
-item: QUANTIFIER? atom            -> ir_item
+sequence: item*                        -> ir_sequence
 
-atom: LITERAL                     -> ir_literal
-    | HEXCC                       -> ir_charclass
-    | NAME                        -> ir_ruleref
-    | "(" alternation ")"         -> ir_group
+item: QUANTIFIER? element              -> ir_item
+    | "[" alternation "]"              -> ir_option
 
+element: LITERAL                       -> ir_literal
+    | CS_STRING                        -> ir_literal_cs
+    | CI_STRING                        -> ir_literal_ci
+    | NUMSEQ                           -> ir_numseq
+    | NUMVAL                           -> ir_charclass
+    | PROSE                            -> ir_prose
+    | NAME                             -> ir_ruleref
+    | "(" alternation ")"              -> ir_group
+
+INCREMENTAL.2: /=\//
 NAME: /[A-Za-z][A-Za-z0-9_-]*/
 LITERAL: /"[^"\r\n]*"/
-HEXCC: /%x[0-9A-Fa-f]+(?:-[0-9A-Fa-f]+)?/
-QUANTIFIER: /[0-9]+\*[0-9]*|\*[0-9]+|\*|[0-9]+/
+CS_STRING: /%[sS]"[^"\r\n]*"/
+CI_STRING: /%[iI]"[^"\r\n]*"/
+NUMSEQ.2: /%[bdxBDX][0-9A-Fa-f]+(?:\.[0-9A-Fa-f]+)+/
+NUMVAL: /%[bdxBDX][0-9A-Fa-f]+(?:-[0-9A-Fa-f]+)?/
+PROSE: /<[^>\r\n]*>/
+QUANTIFIER: /[0-9]*\*[0-9]*|[0-9]+/
 
 %ignore /[ \t\r\n]+/
 %ignore /;[^\n]*/
 """
-"""ABNF (subset) meta-grammar with canonical IR-AST tags.
+"""Full ABNF (RFC 5234 + RFC 7405) meta-grammar with canonical IR-AST tags.
 
-Subset:
-  - `name = body` (single =, not ::=)
-  - alternation by `/`
-  - prefix quantifiers `*N`, `n*`, `n*m`, `n`
-  - charclasses via `%xNN` or `%xNN-MM`
-  - case-insensitive `"abc"` literals (expansion via normalize_literal)
-  - groups `(...)`, comments starting with `;`
+Covers:
+  - `name = body` rules and `name =/ body` incremental alternatives (merged)
+  - alternation `/`, concatenation by juxtaposition
+  - prefix repetition `*`, `*m`, `n*`, `n*m`, `n`; optional `[...]` → (0, 1)
+  - num-val `%x`/`%d`/`%b`: single value and range (`-`) → IrCharClass;
+    value-sequence (`.`) → case-sensitive IrLiteral
+  - char-val: case-insensitive `"abc"` / `%i"abc"` (expanded via
+    normalize_literal); case-sensitive `%s"abc"` → raw IrLiteral
+  - groups `(...)`, prose-val `<...>` (recognised, rejected as non-formal),
+    comments starting with `;`
+"""
+
+CORE_RULES = r"""
+ALPHA  = %x41-5A / %x61-7A
+BIT    = "0" / "1"
+CHAR   = %x01-7F
+CR     = %x0D
+CRLF   = CR LF
+CTL    = %x00-1F / %x7F
+DIGIT  = %x30-39
+DQUOTE = %x22
+HEXDIG = DIGIT / "A" / "B" / "C" / "D" / "E" / "F"
+HTAB   = %x09
+LF     = %x0A
+LWSP   = *(WSP / CRLF WSP)
+OCTET  = %x00-FF
+SP     = %x20
+VCHAR  = %x21-7E
+WSP    = SP / HTAB
+"""
+"""RFC 5234 Appendix B.1 core rules, in ABNF itself.
+
+Part of the ABNF definition: a grammar may reference these without defining
+them. The meta-parser injects only those a grammar transitively references
+(a user definition of the same name wins). Lark-era source — it disappears
+with the metagrammars when the IR-native parser lands.
 """
 
 
@@ -247,12 +289,18 @@ class _AbnfFlavour(IrFlavour):
 
     @staticmethod
     def parse_charclass(text: str) -> tuple[str, bool]:
-        """ABNF charclass parser. ``text`` is ``%xNN`` or ``%xNN-MM``."""
+        """Parse an ABNF num-val single value or range.
+
+        ``text`` is ``%x41`` / ``%d65`` / ``%b1000001`` (single) or its ``-``
+        range form. The radix marker (``x``/``d``/``b``, any case) selects base
+        16/10/2. ABNF has no negation, so the flag is always ``False``.
+        """
+        radix = {"b": 2, "d": 10, "x": 16}[text[1].lower()]
         body = text[2:]
         if "-" in body:
-            lo_hex, hi_hex = body.split("-", 1)
-            return f"{chr(int(lo_hex, 16))}-{chr(int(hi_hex, 16))}", False
-        return chr(int(body, 16)), False
+            lo_s, hi_s = body.split("-", 1)
+            return f"{chr(int(lo_s, radix))}-{chr(int(hi_s, radix))}", False
+        return chr(int(body, radix)), False
 
     @classmethod
     def normalize_literal(cls, decoded: str) -> IrLiteral | IrAlternation:
