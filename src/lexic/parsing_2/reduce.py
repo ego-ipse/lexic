@@ -22,6 +22,7 @@ from lexic.ir.base import IrSelf, IrTuple
 from lexic.ir.mapping import IrMap
 from lexic.ir.walk import IrDispatch
 from lexic.parsing_2.forest import ParseTree
+from lexic.parsing_2.normalize import is_synthetic_name
 
 
 class Reducer(IrDispatch):
@@ -33,6 +34,11 @@ class Reducer(IrDispatch):
     :class:`~lexic.ir.action.IrArgs` and rule-level payload with
     :class:`~lexic.ir.action.IrField`. ``self`` is the dispatcher, so a body that
     sub-dispatches (e.g. :class:`~lexic.ir.action.IrChild`) recurses through here.
+
+    Synthetic rules minted by normalisation (quantifier/group desugaring, see
+    :func:`~lexic.parsing_2.normalize.is_synthetic_name`) carry no reduction:
+    their reduced children are spliced into the parent in place, so the table
+    only needs entries for the conceptual (pre-desugar) grammar.
 
     :ivar reductions: Rule ref → reduction body. A miss raises via the table.
     """
@@ -46,11 +52,26 @@ class Reducer(IrDispatch):
         :returns: The IR node the matched rule reduces to.
         :raises IrKeyError: If no reduction is registered for ``tree.symbol``.
         """
-        reduced = IrTuple(
-            *(
-                self.reduce(child) if isinstance(child, ParseTree) else child
-                for child in tree.kids
-            )
-        )
+        reduced = IrTuple(*self._reduced_children(tree))
         body = self.reductions[tree.symbol]
         return body.eval(self, tree, reduced)
+
+    def _reduced_children(self, tree: ParseTree) -> list[IrSelf]:
+        """The reduced children of ``tree``, with synthetic nodes spliced away.
+
+        A child that is a synthetic-rule sub-tree contributes its own reduced
+        children (recursively), so a desugared repetition/group is flattened back
+        to the conceptual child sequence the reduction table expects.
+
+        :param tree: The node whose children to reduce.
+        :returns: The reduced children in source order.
+        """
+        out: list[IrSelf] = []
+        for child in tree.kids:
+            if not isinstance(child, ParseTree):
+                out.append(child)
+            elif is_synthetic_name(str(child.symbol)):
+                out.extend(self._reduced_children(child))
+            else:
+                out.append(self.reduce(child))
+        return out

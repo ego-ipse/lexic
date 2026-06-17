@@ -24,11 +24,11 @@ from __future__ import annotations
 from typing import ClassVar, Sequence, cast
 
 from lexic.ir.action import IrAction
-from lexic.ir.base import IrLeaf, IrNamedTuple, IrNone, IrNoneType, IrSelf
+from lexic.ir.base import IrLeaf, IrNamedTuple, IrNone, IrNoneType, IrSelf, IrSeq
 from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import IrAlternation, IrCharClass, IrLiteral, IrRange, IrRuleRef
 from lexic.parsing_2.chart import Chart
-from lexic.parsing_2.forest import build_tree
+from lexic.parsing_2.forest import ParseTree, build_tree
 from lexic.parsing_2.item import EarleyItem
 
 
@@ -44,6 +44,8 @@ class ParseCtx(IrNamedTuple):
     :ivar text: The full input string.
     :ivar col: The current column index.
     :ivar item: The item currently being processed.
+    :ivar nullable: Names of rules that can derive the empty string — the
+        predictor advances over these immediately (Aycock-Horspool).
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
@@ -52,6 +54,7 @@ class ParseCtx(IrNamedTuple):
     text: str
     col: int
     item: EarleyItem
+    nullable: frozenset[str]
 
 
 def _ctx(nc: Sequence[IrSelf]) -> ParseCtx:
@@ -61,6 +64,28 @@ def _ctx(nc: Sequence[IrSelf]) -> ParseCtx:
     :returns: The context.
     """
     return cast(ParseCtx, nc[0])
+
+
+def _advance_over_empty(ctx: ParseCtx, ref: IrRuleRef) -> None:
+    """Advance the predicting item past a nullable ``ref`` (Aycock-Horspool).
+
+    A nullable non-terminal may match the empty string, so the item that
+    predicted it can move its dot at once, recording an empty derivation as the
+    consumed child. This covers the items predicted *after* the empty completion
+    already fired in the column — the classic nullable-rule gap. The advanced
+    item is identical to (and dedup-merged with) the one the empty completion
+    produces, so the empty-span link is set exactly once.
+
+    :param ctx: The current dispatch context.
+    :param ref: The nullable non-terminal after the dot.
+    """
+    advanced = ctx.item.advance()
+    if ctx.chart[ctx.col].add(advanced):
+        ctx.chart.links[(advanced, ctx.col)] = (
+            ctx.item,
+            ctx.col,
+            ParseTree(ref, IrSeq()),
+        )
 
 
 class Predict(IrLeaf[IrSelf, IrSelf]):
@@ -82,6 +107,8 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
         ref = cast(IrRuleRef, n)
         for arm in ctx.rules.resolve(ref):
             ctx.chart[ctx.col].add(EarleyItem(ref, arm, 0, ctx.col))
+        if str(ref) in ctx.nullable:
+            _advance_over_empty(ctx, ref)
         return IrNone
 
 
@@ -121,9 +148,10 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         predecessor consumed, so :func:`~lexic.parsing_2.forest.build_tree` can
         later walk the provenance links.
 
-        Shape caveat: nullable rules (``origin == col``) need the held-completion
-        handling of Aycock-Horspool to avoid missing predictions made in the same
-        column; that refinement is deferred.
+        Nullable rules (``origin == col``) also advance their predecessors here,
+        but predecessors *predicted after* this completion are caught by the
+        predictor's Aycock-Horspool shortcut (:func:`_advance_over_empty`); the
+        two paths produce the same advanced item and merge.
 
         :param _d: Dispatcher (unused).
         :param _n: :data:`IrNone` (unused — the item carries everything).

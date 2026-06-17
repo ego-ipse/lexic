@@ -3,7 +3,7 @@ parse — the text→IR half of an ABNF flavour, with no Lark.
 
 Two artifacts, mirroring how a flavour pairs structure with per-node rules:
 
-- :data:`ABNF_GRAMMAR` — a subset of the ABNF grammar of ABNF (RFC 5234 §4)
+- :data:`ABNF_GRAMMAR` — the ABNF grammar of ABNF (RFC 5234 §4 + Appendix B.1),
   authored directly as :class:`~lexic.ir.nodes.IrAst`, exactly as ``json.py``
   authors JSON (fully explicit, no construction helpers). Driven by
   :mod:`lexic.parsing_2` it parses ABNF source into a derivation; the
@@ -16,6 +16,29 @@ Two artifacts, mirroring how a flavour pairs structure with per-node rules:
   (``IrTypeMap[type, body]``, IR→text), pointed the other way
   (``IrMap[IrRuleRef, body]``, tree→IR).
 
+**Authored to round-trip through the lexic ABNF flavour, not byte-for-byte RFC.**
+The grammar is faithful to RFC 5234 in structure, with three deliberate
+adaptations so it survives ``emit → parse → reduce`` against ``ABNF_FLAVOUR``:
+
+- *char classes are alternations of single ranges.* ``ABNF_FLAVOUR`` renders a
+  multi-element :class:`~lexic.ir.nodes.IrCharClass` as a parenthesised group
+  (``(%x41-5A / %x61-7A)``) but a single-element one as a bare ``%x``. So the RFC
+  core rules that are alternations (``ALPHA``, ``HEXDIG``) are authored as
+  alternations, and the structural class ``vchar-nq`` likewise — each arm a
+  one-range class that emits bare and parses back identically.
+- *control/quote core rules are num-vals.* ``HTAB``/``DQUOTE``/``CR``/``LF`` are
+  ``%x09``/``%x22``/``%x0D``/``%x0A`` (not char-vals), because ``char-val``
+  excludes those code points — a literal ``"\\t"`` could not be re-parsed.
+- *line ending is ``[CR] LF``.* RFC's ``c-nl = comment / CRLF``; this subset omits
+  comments and accepts a bare LF (the ``ABNF_FLAVOUR`` emitter joins rules with
+  ``"\\n"``), with the optional CR keeping CRLF input parseable too.
+
+It is a subset: ``bin-val``/``dec-val``, ``prose-val``, ``option`` (``[...]``),
+incremental ``=/``, comments, and ``c-wsp`` line-continuation are omitted — none
+appear in the flavour's own emitted output, so none is needed for the fixpoint.
+Rule names are hyphenated per RFC (``char-val``, not ``char_val``); ``rulename``
+admits ``ALPHA / DIGIT / "-"`` only.
+
 **Why some reductions stay procedural.** The action algebra is an *emission* DSL:
 its nodes produce strings (:class:`~lexic.ir.base.IrStr`). So every rule that
 yields text — the character/terminal rules — reduces with one shared
@@ -25,16 +48,7 @@ typed structural nodes (:class:`~lexic.ir.nodes.IrItem` / ``IrSequence`` /
 ``IrAlternation`` / ``IrRule`` / ``IrAst``) or *filter* children by type have no
 algebra node to call — construction/filtering is consumer policy the emission
 algebra never needed — so those use :class:`~lexic.ir.base.IrCallable`, its
-documented purpose. (Making them declarative would mean adding construction-
-algebra nodes — an ``IrFilter`` / ``IrCollect`` / ``IrMake`` family.)
-
-**Shape status.** ``ABNF_GRAMMAR`` is data, verified by construction (it emits as
-well-formed ABNF through ``ABNF_FLAVOUR``). The leaf reductions are exercised on
-synthetic trees. Running the full fixpoint additionally needs the
-:mod:`lexic.parsing_2.normalize` increments (quantifier/group desugaring) and the
-nullable completer; desugaring wraps repetitions in synthetic rules, so the
-structural reductions here describe the *conceptual* tree and would gain a
-synthetic-node flattening step.
+documented purpose.
 """
 
 from __future__ import annotations
@@ -58,7 +72,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 
-# ── The ABNF grammar of ABNF (RFC 5234 §4 subset), as IR ──────────────────
+# ── The ABNF grammar of ABNF (RFC 5234 §4 + B.1 subset), as IR ────────────
 
 ABNF_GRAMMAR = IrAst(
     rules=IrSeq(
@@ -72,13 +86,13 @@ ABNF_GRAMMAR = IrAst(
             "rule",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
                     IrItem(IrRuleRef("rulename")),
                     IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
                     IrItem(IrLiteral("=")),
                     IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
                     IrItem(IrRuleRef("alternation")),
                     IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-nl")),
                 )
             ),
         ),
@@ -149,16 +163,20 @@ ABNF_GRAMMAR = IrAst(
         IrRule(
             "repeat",
             IrAlternation(
-                IrSequence(IrItem(IrLiteral("*"))),
-                IrSequence(IrItem(IrRuleRef("DIGIT"))),
+                IrSequence(IrItem(IrRuleRef("DIGIT"), IrQuantifier(1, IrNone))),
+                IrSequence(
+                    IrItem(IrRuleRef("DIGIT"), IrQuantifier(0, IrNone)),
+                    IrItem(IrLiteral("*")),
+                    IrItem(IrRuleRef("DIGIT"), IrQuantifier(0, IrNone)),
+                ),
             ),
         ),
         IrRule(
             "element",
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("rulename"))),
-                IrSequence(IrItem(IrRuleRef("char_val"))),
-                IrSequence(IrItem(IrRuleRef("num_val"))),
+                IrSequence(IrItem(IrRuleRef("char-val"))),
+                IrSequence(IrItem(IrRuleRef("num-val"))),
                 IrSequence(IrItem(IrRuleRef("group"))),
             ),
         ),
@@ -175,30 +193,24 @@ ABNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "char_val",
+            "char-val",
             IrAlternation(
                 IrSequence(
                     IrItem(IrRuleRef("DQUOTE")),
-                    IrItem(IrRuleRef("vchar_nq"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("vchar-nq"), IrQuantifier(0, IrNone)),
                     IrItem(IrRuleRef("DQUOTE")),
                 )
             ),
         ),
         IrRule(
-            "vchar_nq",
+            "vchar-nq",
             IrAlternation(
-                IrSequence(
-                    IrItem(
-                        IrCharClass(
-                            IrRange(chr(0x20), chr(0x21)),
-                            IrRange(chr(0x23), chr(0x7E)),
-                        )
-                    )
-                )
+                IrSequence(IrItem(IrCharClass(IrRange(chr(0x20), chr(0x21))))),
+                IrSequence(IrItem(IrCharClass(IrRange(chr(0x23), chr(0x7E))))),
             ),
         ),
         IrRule(
-            "num_val",
+            "num-val",
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("%")),
@@ -218,6 +230,15 @@ ABNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
+            "c-nl",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("CR"), IrQuantifier(0, 1)),
+                    IrItem(IrRuleRef("LF")),
+                )
+            ),
+        ),
+        IrRule(
             "wsp",
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("SP"))),
@@ -227,7 +248,8 @@ ABNF_GRAMMAR = IrAst(
         IrRule(
             "ALPHA",
             IrAlternation(
-                IrSequence(IrItem(IrCharClass(IrRange("A", "Z"), IrRange("a", "z"))))
+                IrSequence(IrItem(IrCharClass(IrRange("A", "Z")))),
+                IrSequence(IrItem(IrCharClass(IrRange("a", "z")))),
             ),
         ),
         IrRule(
@@ -237,22 +259,24 @@ ABNF_GRAMMAR = IrAst(
         IrRule(
             "HEXDIG",
             IrAlternation(
-                IrSequence(
-                    IrItem(
-                        IrCharClass(
-                            IrRange("0", "9"), IrRange("A", "F"), IrRange("a", "f")
-                        )
-                    )
-                )
+                IrSequence(IrItem(IrRuleRef("DIGIT"))),
+                IrSequence(IrItem(IrLiteral("A"))),
+                IrSequence(IrItem(IrLiteral("B"))),
+                IrSequence(IrItem(IrLiteral("C"))),
+                IrSequence(IrItem(IrLiteral("D"))),
+                IrSequence(IrItem(IrLiteral("E"))),
+                IrSequence(IrItem(IrLiteral("F"))),
             ),
         ),
-        IrRule("SP", IrAlternation(IrSequence(IrItem(IrLiteral(" "))))),
-        IrRule("HTAB", IrAlternation(IrSequence(IrItem(IrLiteral("\t"))))),
-        IrRule("DQUOTE", IrAlternation(IrSequence(IrItem(IrLiteral('"'))))),
+        IrRule("CR", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr("\r")))))),
+        IrRule("LF", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr("\n")))))),
+        IrRule("SP", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr(" ")))))),
+        IrRule("HTAB", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr("\t")))))),
+        IrRule("DQUOTE", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr('"')))))),
     ),
     start="rulelist",
 )
-"""The ABNF grammar of ABNF (RFC 5234 §4 subset) as a canonical :class:`IrAst`."""
+"""The ABNF grammar of ABNF (RFC 5234 §4 + B.1 subset) as a canonical :class:`IrAst`."""
 
 
 # ── String-yield reductions: one shared declarative node, no IrCallable ────
@@ -260,9 +284,8 @@ ABNF_GRAMMAR = IrAst(
 _YIELD = IrJoin(parts=IrArgs(), separator=IrLiteral(""), empty=IrLiteral(""))
 """Yield a rule's matched text: join the reduced children, no separator.
 
-Bound to every character/terminal rule (``ALPHA``, ``DIGIT``, ``HEXDIG``, ``SP``,
-``HTAB``, ``DQUOTE``, ``wsp``, ``namechar``, ``vchar_nq``, ``rangerest``). Pure
-algebra — :class:`~lexic.ir.action.IrArgs` is the reduced-children channel,
+Bound to every character/terminal rule. Pure algebra —
+:class:`~lexic.ir.action.IrArgs` is the reduced-children channel,
 :class:`~lexic.ir.action.IrJoin` concatenates them to an :class:`IrStr`.
 """
 
@@ -281,7 +304,7 @@ def _rulename(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrRuleRef:
 
 
 def _char_val(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrLiteral:
-    """``DQUOTE *vchar_nq DQUOTE`` → the quoted text (quotes dropped)."""
+    """``DQUOTE *vchar-nq DQUOTE`` → the quoted text (quotes dropped)."""
     return IrLiteral("".join(str(c) for c in nc[1:-1]))
 
 
@@ -299,7 +322,7 @@ def _num_val(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrCharClass:
 
 
 def _repeat(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrQuantifier:
-    """``*`` / ``DIGIT`` → an :class:`IrQuantifier`, via the flavour's parser."""
+    """``1*DIGIT / (*DIGIT "*" *DIGIT)`` → an :class:`IrQuantifier`."""
     return ABNF_FLAVOUR.parse_quantifier(_text(nc))
 
 
@@ -341,7 +364,7 @@ def _group(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrAlternation:
 
 
 def _rule_reduce(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrRule:
-    """``rulename "=" alternation`` → an :class:`IrRule` (name + body)."""
+    """``rulename "=" alternation c-nl`` → an :class:`IrRule` (name + body)."""
     name = next(c for c in nc if isinstance(c, IrRuleRef))
     body = next(c for c in nc if isinstance(c, IrAlternation))
     return IrRule(str(name), body)
@@ -366,15 +389,18 @@ ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("repeat"), IrCallable(_repeat)),
     IrTuple(IrRuleRef("element"), IrCallable(_element)),
     IrTuple(IrRuleRef("group"), IrCallable(_group)),
-    IrTuple(IrRuleRef("char_val"), IrCallable(_char_val)),
-    IrTuple(IrRuleRef("num_val"), IrCallable(_num_val)),
+    IrTuple(IrRuleRef("char-val"), IrCallable(_char_val)),
+    IrTuple(IrRuleRef("num-val"), IrCallable(_num_val)),
     # Pure string yields — one shared declarative node, no IrCallable.
     IrTuple(IrRuleRef("namechar"), _YIELD),
-    IrTuple(IrRuleRef("vchar_nq"), _YIELD),
+    IrTuple(IrRuleRef("vchar-nq"), _YIELD),
     IrTuple(IrRuleRef("rangerest"), _YIELD),
+    IrTuple(IrRuleRef("c-nl"), _YIELD),
     IrTuple(IrRuleRef("ALPHA"), _YIELD),
     IrTuple(IrRuleRef("DIGIT"), _YIELD),
     IrTuple(IrRuleRef("HEXDIG"), _YIELD),
+    IrTuple(IrRuleRef("CR"), _YIELD),
+    IrTuple(IrRuleRef("LF"), _YIELD),
     IrTuple(IrRuleRef("SP"), _YIELD),
     IrTuple(IrRuleRef("HTAB"), _YIELD),
     IrTuple(IrRuleRef("DQUOTE"), _YIELD),

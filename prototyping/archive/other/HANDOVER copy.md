@@ -181,7 +181,7 @@ after porting).
 - Full suite is **765 tests** at baseline.
 - ABNF tests asserting hex want **uppercase, 2-digit** (`%x41-5A`, `%x09`).
 - Ground-truth char-classes exercising escapes: `[\x00-\x1F]`, `\x7F`, `\x0b`,
-  `\x0c`, `\x85`, ` `, ` `, `["\\bfnrt]`, direct Unicode ranges
+  `\x0c`, `\x85`, ``, ``, `["\\bfnrt]`, direct Unicode ranges
   (`ぁ-ゟ`, `一-鿿`, `ァ-ヿ`, `、-〾`).
 
 ---

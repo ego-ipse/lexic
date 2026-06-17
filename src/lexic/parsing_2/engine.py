@@ -16,22 +16,43 @@ the chart's provenance links, ready for :class:`~lexic.parsing_2.reduce.Reducer`
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrAtom, IrTuple
+from lexic.ir.base import IrAtom, IrNamedTuple, IrTuple
 from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrItem,
     IrLiteral,
     IrRange,
     IrRuleRef,
+    IrSequence,
 )
 from lexic.ir.walk import IrDispatch
 from lexic.parsing_2.chart import Chart
 from lexic.parsing_2.forest import ParseTree, build_tree
 from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.ops import EARLEY_OPS, ParseCtx
+
+
+class _ParseInputs(IrNamedTuple):
+    """Parse-invariant trio bundled for the column-close loop.
+
+    Scalar payload only (``_child_attrs = ()``): this is engine state,
+    not a grammar node to walk.
+
+    :ivar rules: Rule index — :class:`~lexic.ir.nodes.IrRuleRef` → its body.
+    :ivar text: The full input string.
+    :ivar nullable: Names of rules that can derive the empty string.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    rules: IrMap[IrRuleRef, IrAlternation]
+    text: str
+    nullable: frozenset[str]
 
 
 def _index(grammar: IrAst) -> IrMap[IrRuleRef, IrAlternation]:
@@ -44,6 +65,44 @@ def _index(grammar: IrAst) -> IrMap[IrRuleRef, IrAlternation]:
     :returns: An :class:`~lexic.ir.mapping.IrMap` from rule ref to body.
     """
     return IrMap(*(IrTuple(IrRuleRef(rule.name), rule.body) for rule in grammar.rules))
+
+
+def _nullable_rules(grammar: IrAst) -> frozenset[str]:
+    """Names of rules that can derive the empty string, by least-fixpoint.
+
+    A rule is nullable if any arm is nullable; an arm is nullable if every item
+    is — an empty arm vacuously, a ruleref item iff its target is nullable.
+    Assumes the grammar is Earley-normalised (all quantifiers ``(1, 1)``), so
+    nullability flows purely through empty arms and nullable rulerefs.
+
+    :param grammar: The grammar to analyse.
+    :returns: The set of nullable rule names.
+    """
+    nullable: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for rule in grammar.rules:
+            if rule.name not in nullable and _alt_nullable(rule.body, nullable):
+                nullable.add(rule.name)
+                changed = True
+    return frozenset(nullable)
+
+
+def _alt_nullable(alt: IrAlternation, nullable: set[str]) -> bool:
+    """Whether any arm of ``alt`` is nullable under the current ``nullable`` set."""
+    return any(_seq_nullable(arm, nullable) for arm in alt)
+
+
+def _seq_nullable(seq: IrSequence, nullable: set[str]) -> bool:
+    """Whether every item of ``seq`` is nullable (vacuously true if empty)."""
+    return all(_item_nullable(item, nullable) for item in seq)
+
+
+def _item_nullable(item: IrItem, nullable: set[str]) -> bool:
+    """Whether ``item`` is a ruleref to a currently-nullable rule."""
+    atom = item.atom
+    return isinstance(atom, IrRuleRef) and str(atom) in nullable
 
 
 def _matches(atom: IrAtom, char: str) -> bool:
@@ -115,29 +174,32 @@ class EarleyParser(IrDispatch):
         :param text: The input string.
         :returns: The chart, with provenance links populated.
         """
-        rules = _index(grammar)
+        inputs = _ParseInputs(
+            rules=_index(grammar),
+            text=text,
+            nullable=_nullable_rules(grammar),
+        )
         chart = Chart()
         chart.ensure(0)
         start = IrRuleRef(grammar.start)
-        for arm in rules.resolve(start):
+        for arm in inputs.rules.resolve(start):
             chart[0].add(EarleyItem(start, arm, 0, 0))
 
         for i in range(len(text) + 1):
             chart.ensure(i)
-            self._close_column(chart, rules, text, i)
+            self._close_column(chart, inputs, i)
             self._scan(chart, text, i)
 
         return chart
 
-    def _close_column(self, chart: Chart, rules: IrMap, text: str, i: int) -> None:
+    def _close_column(self, chart: Chart, inputs: _ParseInputs, i: int) -> None:
         """Run predict/complete to a fixpoint over column ``i``.
 
         A cursor walks the column; predict/complete append in place, so newly
         added items are visited without a separate worklist.
 
         :param chart: The chart being grown.
-        :param rules: The rule index.
-        :param text: The full input.
+        :param inputs: The parse-invariant trio (rules, text, nullable).
         :param i: The column to close.
         """
         column = chart[i]
@@ -145,7 +207,7 @@ class EarleyParser(IrDispatch):
         while cursor < len(column):
             item = column[cursor]
             cursor += 1
-            ctx = ParseCtx(chart, rules, text, i, item)
+            ctx = ParseCtx(chart, inputs.rules, inputs.text, i, item, inputs.nullable)
             self.eval(self, item.next_symbol(), IrTuple(ctx))
 
     def _scan(self, chart: Chart, text: str, i: int) -> None:
