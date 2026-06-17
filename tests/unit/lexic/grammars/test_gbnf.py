@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.flavour import IrFlavour
 from lexic.grammars.gbnf import (
     GBNF_ESCAPES,
     GBNF_FLAVOUR,
@@ -13,6 +12,7 @@ from lexic.grammars.gbnf import (
     META_GRAMMAR,
 )
 from lexic.ir.base import IrNone, IrStr
+from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,

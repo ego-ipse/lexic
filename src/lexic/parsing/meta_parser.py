@@ -41,9 +41,9 @@ from lark import (
 )
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.flavour import IrFlavour
 from lexic.ir.base import IrAtom, IrSeq, IrStr
 from lexic.ir.escapes import CANONICAL_ESCAPES
+from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,

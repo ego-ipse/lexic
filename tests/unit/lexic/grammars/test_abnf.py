@@ -15,9 +15,9 @@ from lexic.grammars.abnf import (
     ABNF_PREFIX_QUANTIFIER,
     META_GRAMMAR,
 )
-from lexic.grammars.flavour import IrFlavour
 from lexic.ir.base import IrNone, IrStr
 from lexic.ir.escapes import EscapeCodec
+from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,

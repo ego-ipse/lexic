@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from lexic.grammars.flavour import IrEscape, IrFlavour
 from lexic.ir.action import (
     IrAction,
     IrApply,
@@ -33,6 +32,7 @@ from lexic.ir.action import (
 )
 from lexic.ir.base import IrInt, IrNone, IrNoneType, IrSelf, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
+from lexic.ir.flavour import IrEscape, IrFlavour
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,

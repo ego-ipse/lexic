@@ -8,10 +8,10 @@ from abc import ABC
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.flavour import IrEscape, IrFlavour
 from lexic.grammars.gbnf import GBNF_ESCAPES, GBNF_FLAVOUR
 from lexic.ir.base import IrNone, IrStr
 from lexic.ir.escapes import CANONICAL_ESCAPES
+from lexic.ir.flavour import IrEscape, IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,

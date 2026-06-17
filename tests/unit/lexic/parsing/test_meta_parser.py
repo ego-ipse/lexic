@@ -10,9 +10,9 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_FLAVOUR
-from lexic.grammars.flavour import IrFlavour
 from lexic.ir.base import IrNone, IrStr
 from lexic.ir.escapes import EscapeCodec
+from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
