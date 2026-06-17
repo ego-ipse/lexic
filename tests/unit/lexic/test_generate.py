@@ -6,7 +6,7 @@ import random
 
 from lexic.compile import compile_grammar
 from lexic.generate import generate
-from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
+from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.parse import parse
 from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 

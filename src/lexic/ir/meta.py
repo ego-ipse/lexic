@@ -1,8 +1,39 @@
-"""Borg and Singleton metaclasses for IR classes."""
+"""Metaclasses for IR classes — the slots-injecting spine metaclass
+(:class:`IrMeta`) plus shared-state (:class:`Borg`) and single-instance
+(:class:`Singleton` / :class:`IrSingleton`) variants."""
 
+from abc import ABCMeta
 from threading import RLock
 from typing import Any, ClassVar
 from weakref import WeakKeyDictionary
+
+
+class IrMeta(ABCMeta):
+    """Metaclass that gives every IR class an empty ``__slots__`` by default.
+
+    IR nodes keep their payload in the primitive they subclass (``str``/``int``/
+    ``tuple``) or in their tuple elements — never in a per-instance ``__dict__``,
+    and a ``tuple``/``str`` subclass *must* have empty ``__slots__`` to stay
+    dict-free. ``__slots__`` has to be in the class namespace before the class
+    object is built, which only a metaclass can guarantee (``__init_subclass__``
+    runs too late). Derives from :class:`abc.ABCMeta` so it composes with
+    ``IrNode``'s ``ABC`` base. A class that needs its own slots (e.g.
+    :class:`Field`) just declares ``__slots__`` — ``setdefault`` leaves it alone.
+    """
+
+    def __new__(
+        mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], /, **kw: Any
+    ) -> type:
+        """Inject ``__slots__ = ()`` unless the class declared its own.
+
+        :param name: New class name.
+        :param bases: Base classes.
+        :param namespace: Class body namespace (mutated in place).
+        :param kw: Remaining class keyword arguments.
+        :returns: The constructed class.
+        """
+        namespace.setdefault("__slots__", ())
+        return super().__new__(mcs, name, bases, namespace, **kw)
 
 
 class Borg[**P, T](type):
@@ -79,3 +110,17 @@ class Singleton[**P, T](type):
                 if cls not in cls._instances:
                     cls._instances[cls] = super().__call__(*args, **kwargs)
         return cls._instances[cls]
+
+
+class IrSingleton(Singleton, IrMeta):
+    """Singleton metaclass for IR classes — :class:`Singleton` caching composed
+    with :class:`IrMeta`'s ``__slots__`` injection and ``ABCMeta`` base.
+
+    A bare :class:`Singleton` cannot be the metaclass of an
+    :class:`~lexic.ir.base.IrSelf` subclass: ``IrSelf``'s metaclass is
+    :class:`IrMeta`, and a class's metaclass must subclass every base's
+    metaclass. ``IrSingleton`` IS-A ``IrMeta``, so it composes, while
+    ``Singleton.__call__`` supplies the one-instance-per-class caching. This
+    replaces the hand-rolled ``__new__`` on the IR sentinels
+    (:data:`~lexic.ir.base.IrNone`, :data:`~lexic.ir.mapping.IR_DEFAULT`).
+    """

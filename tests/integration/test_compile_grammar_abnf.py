@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from lexic.compile import compile_grammar
-from lexic.grammars.abnf.flavour import ABNF_FLAVOUR
+from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.ir.nodes import IrAlternation, IrItem
 from tests.paths import GROUND_TRUTH
 

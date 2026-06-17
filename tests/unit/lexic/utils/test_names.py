@@ -37,6 +37,29 @@ def test_to_pascal(inp, expected):
 @pytest.mark.parametrize(
     "inp, expected",
     [
+        # Python keyword → suffixed with _ to stay a valid class name.
+        ("false", "False_"),
+        ("true", "True_"),
+        # "null" → "Null" is not a keyword; no suffix.
+        ("null", "Null"),
+        # Ordinary names must not be affected.
+        ("normal", "Normal"),
+        ("json-text", "JsonText"),
+    ],
+    ids=["false-keyword", "true-keyword", "null-not-keyword", "ordinary", "hyphen"],
+)
+def test_to_pascal_keyword_suffix(inp: str, expected: str):
+    """to_pascal appends ``_`` when the result is a Python keyword.
+
+    :param inp: Input name.
+    :param expected: Expected PascalCase result.
+    """
+    assert to_pascal(inp) == expected
+
+
+@pytest.mark.parametrize(
+    "inp, expected",
+    [
         ("JsonWs", "json_ws"),
         ("JPChar", "jp_char"),
         ("Root", "root"),

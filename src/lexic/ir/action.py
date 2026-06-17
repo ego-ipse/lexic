@@ -11,19 +11,28 @@ The value-producing protocol is ``eval(d, n, nc) -> Ir_co`` — every class
 here overrides ``eval`` to produce its typed result. Pass :data:`IrNone`
 to a slot that has no relevant value.
 
+**``nc`` is the argument channel.** Operands for :class:`~lexic.ir.operators.IrOp`,
+fold inputs for :class:`~lexic.ir.base.IrCallable`, render-marks for emitter
+actions (handed over by :class:`IrApply`, read by :class:`IrArgs`). It is NOT
+a children channel: the child readers (:class:`IrChild`, :class:`IrIndex`,
+:class:`IrChildren`) always resolve children from ``n`` itself and ignore
+``nc``. ``IrConcat``/``IrJoin`` forward ``nc`` to their parts, which is how
+``IrArgs`` receives arguments deep inside an action body.
+
 **Node shapes:** the record-style actions (``IrField``, ``IrCompare``,
-``IrChild``, ``IrChildren``, ``IrConcat``, ``IrJoin``, ``IrCond``, ``IrRaise``,
-``IrAction``) are :class:`IrNamedTuple` records;
-``IrCallable`` is an :class:`IrNode` leaf wrapping a handler; ``IrReturn`` is an
+``IrAt``, ``IrArgs``, ``IrApply``, ``IrChildren``, ``IrConcat``, ``IrJoin``,
+``IrCond``, ``IrRaise``, ``IrAction``) are :class:`IrNamedTuple` records; ``IrReturn`` is an
 :class:`IrNode` leaf that also IS-A ``BaseException`` (object-based bases, unlike
-a tuple, coexist with its layout). No action node is an :class:`IrNamedTuple`.
+a tuple, coexist with its layout).
 The default bodies (``IrPass``, ``IrWalk``, ``IrEmit``, ``IrRebuild``) are plain
-``__slots__`` leaves.
+``__slots__`` leaves. The procedural escape hatch
+:class:`~lexic.ir.base.IrCallable` lives in the spine so lower layers
+(e.g. :mod:`lexic.ir.operators`) can use it too.
 """
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Self, Sequence, cast
+from typing import ClassVar, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import (
@@ -68,7 +77,7 @@ class IrField(IrNamedTuple[str, type[IrScalar]]):
 
     The read value is wrapped via the **runtime** constructor ``out`` — a
     value-leaf type such as :class:`~lexic.ir.nodes.IrStr` / :class:`IrInt`
-    (default ``IrStr``). Read an int with ``IrField("min", IrInt)``; the default
+    (default ``IrStr``). Read an int with ``IrField("lo", IrInt)``; the default
     ``out=IrStr`` keeps every existing ``IrField("name")`` caller unchanged.
 
     Cast-free and open: ``out`` is any ``type[IrScalar]`` — callable with the
@@ -125,111 +134,121 @@ class IrCompare(IrNamedTuple[IrSelf, IrOp, IrSelf]):
         return self.op.eval(d, n, operands)
 
 
-# ── Procedural escape hatch ───────────────────────────────────────────
+# ── Attribute type test ───────────────────────────────────────────────
 
 
-class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
-    """Procedural body — a leaf that wraps one handler callable.
+class IrIsA(IrNamedTuple[str, type[IrSelf]]):
+    """Test the type of a **raw** named attribute of the dispatched node ``n``.
 
-    The escape hatch for logic the algebra can't express. Generic in ``Iri``
-    (the handler's input type — a handler may type its parameters as narrowly
-    as it likes, e.g. ``group: IrAlternation``) and ``Ir_co`` (the result type);
-    callers narrow at construction: ``IrCallable[IrSelf, IrStr](handler)``.
+    Reads ``getattr(n, self.name)`` undispatched — unlike :class:`IrChild`,
+    which resolves the *rendered* child — so the test sees the IR node itself
+    (e.g. ``IrIsA("atom", IrAlternation)`` asks whether an item's atom needs
+    parenthesising). Evals to a truth value (``IrInt`` in ``{0, 1}``), the
+    natural ``test`` operand of :class:`IrCond`.
 
-    Built on :class:`IrNode` (not :class:`IrTuple`/:class:`IrScalar`), so ``eval``
-    keeps the ``Iri`` input type — no casts needed — and equality/hash are by
-    identity (callables are not value-comparable). The handler may also be an
-    :class:`IrSelf` node, which is ``eval``\\ ed instead of called.
-
-    :param Iri: the handler's input (dispatcher) type.
-    :param Ir_co: the result type the handler produces.
+    A record-leaf: ``name`` and the class-valued ``target`` are scalar payload
+    (``_child_attrs = ()``); the class-aware repr renders ``target`` bare.
     """
 
-    __slots__ = ("handler",)
-    handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co]
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    name: str
+    target: type[IrSelf]
 
-    def __new__(
-        cls,
-        handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co],
-    ) -> Self:
-        """Wrap ``handler`` as an immutable leaf.
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrInt:
+        """Read the raw attribute and apply :func:`isinstance`.
 
-        :param handler: A procedure ``(d, n, nc) -> Ir_co`` or an IR node whose
-            ``eval`` produces the result.
-        :returns: The new ``IrCallable`` leaf.
+        :param _d: Dispatcher (unused — no recursion).
+        :param n: Node whose attribute to test.
+        :param _nc: Pre-walked children (unused).
+        :returns: ``IrInt(1)`` if the attribute IS-A ``target``, else ``IrInt(0)``.
+        :raises AttributeError: If ``n`` has no attribute ``self.name``.
         """
-        obj = object.__new__(cls)
-        object.__setattr__(obj, "handler", handler)
-        return obj
-
-    def __call__(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
-        """Run the wrapped handler: a node is evaluated, a callable is called."""
-        if isinstance(self.handler, IrSelf):
-            return self.handler.eval(d, n, nc)
-        return self.handler(d, n, nc)
-
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
-        """Forward to the wrapped handler.
-
-        :param d: Dispatcher forwarded to the handler.
-        :param n: Current node forwarded to the handler.
-        :param nc: Pre-walked children forwarded to the handler.
-        :returns: Whatever the handler returns.
-        """
-        return self(d, n, nc)
-
-    def __repr__(self) -> str:
-        """Repr holding the handler's name (not round-trip codegen).
-
-        :returns: ``IrCallable(<handler name>)``.
-        """
-        return f"IrCallable({getattr(self.handler, '__name__', self.handler)})"
+        return IrInt(isinstance(getattr(n, self.name), self.target))
 
 
 # ── Sibling lookup ────────────────────────────────────────────────────
 
 
-class IrChild[Ir_co: IrSelf](IrNamedTuple[str]):
-    """Single dispatched child by name from ``n``'s ``_child_attrs``.
+class IrChild(IrStr):
+    """Single dispatched child by name — the node IS the child's field name.
 
-    ``Ir_co`` is the dispatcher's per-child result type — ``IrStr`` under
-    an emitter, ``IrNode`` under a transformer. ``_bound`` is derived from
-    ``Ir_co`` (see :meth:`IrSelf.__init_subclass__`), so :meth:`IrSelf.bind`
-    type-checks the resolved child.
-
-    A record-leaf: ``name`` is scalar payload (``_child_attrs = ()``); it
-    resolves a child of the *dispatched* node ``n``, not its own.
-
-    :param Ir_co: the dispatcher's per-child result type.
-    :raises ValueError: if ``self.name`` is not in ``type(n)._child_attrs``.
+    Resolves the name through ``type(n)._child_attrs`` (record nodes) and
+    yields the *dispatched* child. For tuple-shaped nodes whose children
+    carry no names, :class:`IrIndex` is the positional primitive this
+    resolves to.
     """
 
-    _child_attrs: ClassVar[tuple[str, ...]] = ()
-    name: str
+    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
+        """Resolve the named child and dispatch it via ``d``.
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Resolve the named child.
-
-        Hybrid: eager when ``nc`` is populated (caller pre-walked) — index
-        into it; lazy otherwise — dispatch the looked-up child via ``d``.
-
-        :param d: Dispatcher used for lazy sub-dispatch.
+        :param d: Dispatcher for the sub-dispatch.
         :param n: Node whose child to resolve.
-        :param nc: Pre-walked children, if any.
-        :returns: The resolved child, type-checked against ``self.bound``.
-        :raises ValueError: if ``self.name`` is not in ``type(n)._child_attrs``.
+        :param _nc: Arguments (unused — children come from ``n``, never ``nc``).
+        :returns: The dispatched child.
+        :raises ValueError: if the name is not in ``type(n)._child_attrs``.
         """
         attrs = getattr(type(n), "_child_attrs", ())
         try:
-            idx = attrs.index(self.name)
+            idx = attrs.index(self)
         except ValueError as exc:
             raise ValueError(
-                f"IrChild({self.name!r}): {type(n).__name__} has no such child "
-                f"(known: {attrs})"
+                f"{self!r}: {type(n).__name__} has no such child (known: {attrs})"
             ) from exc
-        if nc:
-            return cast(Ir_co, self.bind(nc[idx]))
-        return cast(Ir_co, self.bind(d.eval(d, n.children()[idx], IrTuple())))
+        return d.eval(d, n.children()[idx], IrTuple())
+
+
+class IrIndex(IrInt):
+    """Single dispatched child by position — the node IS the index.
+
+    The positional primitive: tuple-shaped nodes (operator monads,
+    collections) have unnamed children, and ``IrIndex(0)`` addresses the
+    first directly — the 0th key of a monad like ``IrNot``. Negative
+    positions index from the end, as native tuples do.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
+        """Resolve the child at this position and dispatch it via ``d``.
+
+        :param d: Dispatcher for the sub-dispatch.
+        :param n: Node whose child to resolve.
+        :param _nc: Arguments (unused — children come from ``n``, never ``nc``).
+        :returns: The dispatched child.
+        :raises IndexError: if the position is out of range.
+        """
+        return d.eval(d, n.children()[self], IrTuple())
+
+
+class IrAt[Ir_co: IrSelf](IrNamedTuple[int, IrSelf]):
+    """Binder — rebind the dispatch focus to a raw child, then evaluate ``body``.
+
+    The algebra's first context-shifting node: every other node evaluates
+    against the ``n`` it was dispatched with, but inside an ``IrAt`` body
+    ``n`` IS the selected child — ``n.children()[selector]``, raw and
+    undispatched, with a fresh empty argument channel. Where :class:`IrIndex`
+    yields the *dispatched* child, ``IrAt`` exposes the *raw* child to its
+    body — e.g. ``IrAt(0, IrTypeMap(...))`` resolves a guard table against
+    an operand's own type.
+
+    ``selector`` is positional scalar payload (negatives index from the end,
+    as native tuples do).
+
+    :param Ir_co: the body's result type.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
+    selector: int
+    body: IrSelf
+
+    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
+        """Evaluate ``body`` with ``n`` rebound to the selected raw child.
+
+        :param d: Dispatcher, forwarded unchanged for sub-dispatch.
+        :param n: Node whose raw child becomes the body's focus.
+        :param _nc: Arguments (not forwarded — a focus shift starts clean).
+        :returns: The body's result against the rebound focus.
+        :raises IndexError: If ``selector`` is out of range for ``n.children()``.
+        """
+        return self.body.eval(d, n.children()[self.selector], IrTuple())
 
 
 class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNamedTuple):
@@ -244,22 +263,72 @@ class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNamedTuple):
     :param Ir_co: the dispatcher's per-child result type.
     """
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
-        """Resolve the children collection.
+    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> Ir_co:
+        """Resolve the children collection — dispatch each child via ``d``.
 
-        Hybrid: eager when ``nc`` is populated (caller pre-walked) — return
-        it as-is; lazy otherwise — dispatch each child via ``d``.
-
-        :param d: Dispatcher used for lazy per-child sub-dispatch.
+        :param d: Dispatcher for the per-child sub-dispatch.
         :param n: Node whose children to resolve.
-        :param nc: Pre-walked children, if any.
+        :param _nc: Arguments (unused — children come from ``n``, never ``nc``;
+            the argument analogue is :class:`IrArgs`).
         :returns: The children sequence, type-checked against ``self.bound``.
         """
-        if nc:
-            return cast(Ir_co, self.bind(nc))
         return cast(
             Ir_co, self.bind(IrTuple(*(d.eval(d, c, IrTuple()) for c in n.children())))
         )
+
+
+# ── Argument channel ──────────────────────────────────────────────────
+
+
+class IrArgs(IrNamedTuple):
+    """The argument channel, read whole — evaluates to the ``nc`` tuple.
+
+    The argument analogue of :class:`IrChildren`: children come from the
+    node, arguments from the caller. A renderer places
+    ``IrJoin(parts=IrArgs())`` wherever received marks belong in its surface
+    syntax; with no arguments passed it evaluates empty and the join's
+    ``empty`` fallback applies.
+
+    A fieldless record-leaf.
+    """
+
+    def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrTuple:
+        """Return the arguments as a tuple node.
+
+        :param _d: Dispatcher (unused).
+        :param _n: Node (unused).
+        :param nc: The argument channel.
+        :returns: ``nc`` as an :class:`IrTuple`.
+        """
+        return IrTuple(*nc)
+
+
+class IrApply[Ir_co: IrSelf](IrNamedTuple[IrTuple]):
+    """Delegation — re-dispatch the current focus ``n`` with arguments.
+
+    Evaluates each element of ``args`` against the current context, then
+    dispatches ``n`` itself through ``d`` with the results as the argument
+    channel. The node's own action runs and decides what the received
+    arguments mean — e.g. a negation mark spliced into a class's brackets
+    via :class:`IrArgs`. Carries no selector: compose with :class:`IrAt`
+    to aim the delegation at an operand.
+
+    :param Ir_co: the dispatched action's result type.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("args",)
+    args: IrTuple = IrTuple()
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+        """Dispatch ``n`` via ``d`` with the evaluated ``args`` as the channel.
+
+        :param d: Dispatcher resolving ``n``'s own action.
+        :param n: The focus to re-dispatch.
+        :param nc: Current arguments, forwarded while evaluating ``args``.
+        :returns: The dispatched action's result.
+        """
+        evaluated = IrTuple(*(a.eval(d, n, nc) for a in self.args))
+        return d.eval(d, n, evaluated)
 
 
 # ── String concatenation ──────────────────────────────────────────────

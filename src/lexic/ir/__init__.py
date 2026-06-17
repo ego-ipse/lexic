@@ -2,18 +2,23 @@
 
 from lexic.ir.action import (
     IrAction,
-    IrCallable,
+    IrApply,
+    IrArgs,
+    IrAt,
     IrChild,
     IrChildren,
     IrCompare,
     IrConcat,
     IrCond,
     IrField,
+    IrIndex,
+    IrIsA,
     IrJoin,
     IrReturn,
 )
 from lexic.ir.base import (
     IrAtom,
+    IrCallable,
     IrInt,
     IrLeaf,
     IrNamedTuple,
@@ -24,7 +29,6 @@ from lexic.ir.base import (
     IrSelf,
     IrSeq,
 )
-from lexic.ir.charclass import parse_charclass_chars
 from lexic.ir.derive import (
     classify_kind,
     compute_parents,
@@ -35,6 +39,7 @@ from lexic.ir.derive import (
 from lexic.ir.directives import Directives, parse_directives
 from lexic.ir.emit import render_specs
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
+from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -42,6 +47,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -53,13 +59,17 @@ from lexic.ir.walk import IrTransformer, IrVisitor
 
 __all__ = [
     "CANONICAL_ESCAPES",
+    "IR_DEFAULT",
     "Directives",
     "EscapeCodec",
     "render_specs",
     "IrAction",
     "IrAlternation",
     "IrAnd",
+    "IrApply",
+    "IrArgs",
     "IrAst",
+    "IrAt",
     "IrAtom",
     "IrCallable",
     "IrCharClass",
@@ -69,11 +79,14 @@ __all__ = [
     "IrConcat",
     "IrCond",
     "IrField",
+    "IrIndex",
     "IrInt",
+    "IrIsA",
     "IrItem",
     "IrJoin",
     "IrLeaf",
     "IrLiteral",
+    "IrMap",
     "IrNamedTuple",
     "IrNode",
     "IrNone",
@@ -89,15 +102,16 @@ __all__ = [
     "IrSeq",
     "IrSequence",
     "IrTransformer",
+    "IrTypeMap",
     "IrVisitor",
     "IrQuantifier",
+    "IrRange",
     "RuleSpec",
     "classify_kind",
     "compute_parents",
     "derive_specs",
     "has_ruleref",
     "hoist_helpers",
-    "parse_charclass_chars",
     "parse_directives",
     "topo_sort",
 ]

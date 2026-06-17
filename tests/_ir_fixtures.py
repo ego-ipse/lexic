@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Iterable, Literal
 
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import IrItem, IrQuantifier
 from lexic.ir.spec import RuleSpec
 
 REQ = IrQuantifier(1, 1)
 OPT = IrQuantifier(0, 1)
-PLUS = IrQuantifier(1, None)
+PLUS = IrQuantifier(1, IrNone)
 
 Kind = Literal["sequence", "alternation", "value_str"]
 

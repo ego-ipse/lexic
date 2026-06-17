@@ -10,7 +10,7 @@ from lexic.compile import (
     compile_text,
     reset_cache_for_tests,
 )
-from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
+from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrItem, IrRuleRef
 from tests.paths import GROUND_TRUTH
 
@@ -54,7 +54,7 @@ def test_non_semantic_ws_transparent_to_round_trip():
         for i in root.items
         if isinstance(i, IrItem) and isinstance(i.atom, IrRuleRef) and i.atom == "ws"
     )
-    assert ws_item.quantifier.min == 0
+    assert ws_item.quantifier.lo == 0
     assert "ws" in root.non_semantic_fields
 
     cg = compile_text(text, flavour="gbnf")
@@ -74,7 +74,7 @@ def test_explicit_non_semantic_overrides_directive():
         for i in root.items
         if isinstance(i, IrItem) and isinstance(i.atom, IrRuleRef) and i.atom == "ws"
     )
-    assert ws_item.quantifier.min == 1
+    assert ws_item.quantifier.lo == 1
     assert root.non_semantic_fields == frozenset()
 
 

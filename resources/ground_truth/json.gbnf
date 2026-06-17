@@ -1,0 +1,45 @@
+# @non-semantic ws
+
+# Rule-for-rule mirror of resources/ground_truth/json.abnf (RFC 8259) in GBNF
+# notation. Authored as the cross-flavour pathfinder: both files must lower to
+# the same neutral IR.
+
+JSON-text ::= ws value ws
+
+begin-array     ::= ws "[" ws
+begin-object    ::= ws "{" ws
+end-array       ::= ws "]" ws
+end-object      ::= ws "}" ws
+name-separator  ::= ws ":" ws
+value-separator ::= ws "," ws
+
+ws ::= ( " " | "\t" | "\n" | "\r" )*
+
+value ::= false | null | true | object | array | number | string
+false ::= "false"
+null  ::= "null"
+true  ::= "true"
+
+object ::= begin-object ( member ( value-separator member )* )? end-object
+member ::= string name-separator value
+array  ::= begin-array ( value ( value-separator value )* )? end-array
+
+number        ::= minus? int frac? exp?
+decimal-point ::= "."
+digit1-9      ::= [1-9]
+e             ::= "e" | "E"
+exp           ::= e ( minus | plus )? digit+
+frac          ::= decimal-point digit+
+int           ::= zero | ( digit1-9 digit* )
+minus         ::= "-"
+plus          ::= "+"
+zero          ::= "0"
+digit         ::= [0-9]
+
+string         ::= quotation-mark char* quotation-mark
+char           ::= unescaped
+                 | escape ( "\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t" | "u" hexdig{4} )
+escape         ::= "\\"
+quotation-mark ::= "\""
+unescaped      ::= [^"\\\x00-\x1F]
+hexdig         ::= [0-9A-Fa-f]

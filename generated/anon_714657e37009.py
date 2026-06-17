@@ -7,10 +7,12 @@ from typing import Annotated
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrCharClass,
     IrItem,
     IrQuantifier,
+    IrRange,
     IrRuleRef,
 )
 from lexic.ir.spec import RuleSpec
@@ -84,7 +86,7 @@ Op.__grammar__ = RuleSpec(
     class_name="Op",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass("-+*/"), IrQuantifier(1, 1))],
+    items=[IrItem(IrCharClass(IrStr("-+*/")), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -95,7 +97,7 @@ Num.__grammar__ = RuleSpec(
     class_name="Num",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass("0-9"), IrQuantifier(1, None))],
+    items=[IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

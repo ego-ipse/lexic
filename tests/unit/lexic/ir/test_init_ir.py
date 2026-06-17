@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 
 from lexic import ir
-from lexic.ir.base import IrNone as _IrNone
+from lexic.ir.base import IrNone
 from lexic.ir.base import IrNoneType as _IrNoneType
 
 
@@ -23,7 +23,7 @@ def test_all_names_importable() -> None:
 def test_all_names_present_in_namespace() -> None:
     """Every name in __all__ resolves to a non-None object."""
     for name in ir.__all__:
-        obj = getattr(ir, name, None)
+        obj = getattr(ir, name, IrNone)
         assert obj is not None or name == "IrNone", (
             f"lexic.ir.{name} resolved to None (should only happen for IrNone itself)"
         )
@@ -35,7 +35,7 @@ def test_all_names_present_in_namespace() -> None:
 def test_ir_none_exported() -> None:
     """IrNone sentinel is re-exported from lexic.ir."""
     assert hasattr(ir, "IrNone")
-    assert ir.IrNone is _IrNone
+    assert ir.IrNone is IrNone
 
 
 def test_ir_none_type_exported() -> None:
@@ -100,6 +100,7 @@ def test_action_algebra_exported() -> None:
         "IrConcat",
         "IrCond",
         "IrField",
+        "IrIndex",
         "IrJoin",
         "IrReturn",
     ):

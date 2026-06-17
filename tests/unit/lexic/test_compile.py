@@ -13,7 +13,7 @@ from lexic.compile import (
     reset_cache_for_tests,
 )
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.gbnf.flavour import GBNF_FLAVOUR
+from lexic.grammars.gbnf import GBNF_FLAVOUR
 from tests.paths import GROUND_TRUTH
 
 

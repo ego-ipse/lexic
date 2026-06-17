@@ -41,12 +41,14 @@ from typing import Annotated, ClassVar, List, Literal, Optional, Union
 from pydantic import Field, StringConstraints
 
 from lexic.base import GrammarModel
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
     IrItem,
     IrLiteral,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -58,11 +60,11 @@ from lexic.ir.spec import RuleSpec
 
 
 def _is_required(q: IrQuantifier) -> bool:
-    return q.min == 1 and q.max == 1
+    return q.lo == 1 and q.hi == 1
 
 
 def _is_optional(q: IrQuantifier) -> bool:
-    return q.min == 0 and q.max == 1
+    return q.lo == 0 and q.hi == 1
 
 
 # ── Field type emission ───────────────────────────────────────────────────────
@@ -182,7 +184,10 @@ class ModuleEmitter:
     def __init__(self, specs: list[RuleSpec]) -> None:
         self._specs = specs
         self._by_rule: dict[str, RuleSpec] = {s.rule_name: s for s in specs}
-        alias_list: list[PatternAlias] = collect_aliases(specs)
+        class_names: frozenset[str] = frozenset(s.class_name for s in specs)
+        alias_list: list[PatternAlias] = [
+            a for a in collect_aliases(specs) if a.name not in class_names
+        ]
         self._alias_decls = alias_list
         self._aliases: dict[str, str] = {a.regex: a.name for a in alias_list}
 

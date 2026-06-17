@@ -1,5 +1,6 @@
 """Unit tests for src/lexic/utils/quantifiers.py"""
 
+from lexic.ir.base import IrNone
 from lexic.utils.quantifiers import bounds_to_quantifier
 
 
@@ -15,12 +16,12 @@ def test_optional():
 
 def test_zero_or_more():
     """(0,None) maps to '*'."""
-    assert bounds_to_quantifier(0, None) == "*"
+    assert bounds_to_quantifier(0, IrNone) == "*"
 
 
 def test_one_or_more():
     """(1,None) maps to '+'."""
-    assert bounds_to_quantifier(1, None) == "+"
+    assert bounds_to_quantifier(1, IrNone) == "+"
 
 
 def test_exact():
@@ -35,4 +36,4 @@ def test_range():
 
 def test_min_with_no_max():
     """(min,None) maps to '{min,}'."""
-    assert bounds_to_quantifier(2, None) == "{2,}"
+    assert bounds_to_quantifier(2, IrNone) == "{2,}"

@@ -28,6 +28,7 @@ and re-raised as UnsupportedConstructError with rule-first messages.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, TypeAlias
 
 from lark import (
@@ -40,14 +41,17 @@ from lark import (
 )
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.flavour import IrFlavour
-from lexic.ir.base import IrAtom, IrSeq
+from lexic.ir.base import IrAtom, IrSeq, IrStr
+from lexic.ir.escapes import CANONICAL_ESCAPES
+from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
     IrItem,
+    IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -59,25 +63,141 @@ from lexic.ir.operators import IrNot
 _IrBuilder: TypeAlias = Callable[[IrFlavour, list], object]
 
 
+def _read_unit(s: str, i: int) -> tuple[str, int]:
+    """Read one encoded escape unit at ``s[i]`` — text kept verbatim.
+
+    The codec supplies only the unit *boundary* (``\\x1F`` is one unit of
+    four source chars); nothing is decoded.
+    """
+    if s[i] == "\\" and i + 1 < len(s):
+        _, j = CANONICAL_ESCAPES.read_escape(s, i)
+        return s[i:j], j
+    return s[i], i + 1
+
+
 def _build_charclass(flavour: IrFlavour, children: list) -> IrAtom:
-    """Build an IrCharClass, wrapping in IrNot when the pattern is negated.
+    """Build a structured IrCharClass; wrap in IrNot when negated.
+
+    The interior split lives here deliberately: it is Lark-era scaffolding
+    that dies with this file when the IR-native parser replaces the
+    metagrammars. ``x-y`` segments become :class:`IrRange` (endpoints kept
+    as encoded units, so emission stays byte-exact); other units accumulate
+    into maximal :class:`IrStr` runs; a ``-`` with nothing following stays
+    a literal run char.
 
     :param flavour: The flavour providing ``parse_charclass``.
     :param children: Lark tree children; ``children[0]`` is the bracket token.
-    :returns: ``IrCharClass(pattern)`` or ``IrNot(IrCharClass(pattern))``.
+    :returns: ``IrCharClass(*elements)`` or ``IrNot(IrCharClass(*elements))``.
     """
     pattern, negated = flavour.parse_charclass(str(children[0]))
-    atom: IrAtom = IrCharClass(pattern)
+    elements: list[IrRange | IrStr] = []
+    run: list[str] = []
+    i = 0
+    while i < len(pattern):
+        unit, i = _read_unit(pattern, i)
+        if i < len(pattern) and pattern[i] == "-" and i + 1 < len(pattern):
+            hi_unit, i = _read_unit(pattern, i + 1)
+            if run:
+                elements.append(IrStr("".join(run)))
+                run = []
+            elements.append(IrRange(unit, hi_unit))
+        else:
+            run.append(unit)
+    if run:
+        elements.append(IrStr("".join(run)))
+    atom: IrAtom = IrCharClass(*elements)
     return IrNot(atom) if negated else atom
 
 
+@dataclass(slots=True)
+class _IncrementalRule:
+    """Marker for an ABNF ``name =/ body`` arm, merged by :func:`_build_start`.
+
+    Not an IR node — a throwaway Lark-era carrier so ``start`` can fold the
+    incremental alternation into the base rule defined earlier.
+    """
+
+    name: str
+    body: IrAlternation
+
+
+def _build_start(_flavour: IrFlavour, children: list) -> IrAst:
+    """Assemble the rule list, folding ABNF ``=/`` incremental alternatives.
+
+    A plain rule is appended; an :class:`_IncrementalRule` extends the arms of
+    the same-named base rule defined earlier (RFC 5234 §3.3).
+
+    :raises UnsupportedConstructError: an ``=/`` arm names an undefined rule.
+    """
+    rules: list[IrRule] = []
+    position: dict[str, int] = {}
+    for child in children:
+        if isinstance(child, _IncrementalRule):
+            if child.name not in position:
+                raise UnsupportedConstructError(
+                    f"ABNF '=/' for undefined rule {child.name!r}"
+                )
+            base = rules[position[child.name]]
+            rules[position[child.name]] = IrRule(
+                name=base.name, body=IrAlternation(*base.body, *child.body)
+            )
+        else:
+            position[child.name] = len(rules)
+            rules.append(child)
+    return IrAst(rules=IrSeq(*rules), start=rules[0].name if rules else "")
+
+
+def _build_numseq(_flavour: IrFlavour, children: list) -> IrLiteral:
+    """Build a case-sensitive :class:`IrLiteral` from an ABNF value-sequence.
+
+    ``%x66.61.6c`` (and ``%d``/``%b`` radixes) are dot-concatenated code
+    points — exact, case-sensitive bytes, unlike a quoted ``"abc"`` literal
+    (case-insensitive). They lower to a raw ``IrLiteral`` — the canonical form
+    shared with a GBNF string literal of the same text.
+    """
+    token = str(children[0])
+    radix = {"b": 2, "d": 10, "x": 16}[token[1].lower()]
+    return IrLiteral("".join(chr(int(part, radix)) for part in token[2:].split(".")))
+
+
+def _build_option(_flavour: IrFlavour, children: list) -> IrItem:
+    """Build an optional ``[ ... ]`` element — an item bound to ``(0, 1)``."""
+    return IrItem(atom=children[0], quantifier=IrQuantifier(0, 1))
+
+
+def _build_literal_cs(flavour: IrFlavour, children: list) -> IrLiteral:
+    """``%s"..."`` — case-sensitive string → raw ``IrLiteral`` (RFC 7405)."""
+    return IrLiteral(flavour.escapes.decode(str(children[0])[3:-1]))
+
+
+def _build_literal_ci(flavour: IrFlavour, children: list) -> object:
+    """``%i"..."`` — explicit case-insensitive string (RFC 7405)."""
+    return flavour.normalize_literal(flavour.escapes.decode(str(children[0])[3:-1]))
+
+
+def _build_prose(_flavour: IrFlavour, children: list) -> object:
+    """prose-val ``<...>`` — recognised, but has no machine-readable meaning.
+
+    :raises UnsupportedConstructError: always; prose-val cannot be compiled.
+    """
+    raise UnsupportedConstructError(
+        f"ABNF prose-val has no formal semantics: {str(children[0])!r}"
+    )
+
+
 _IR_BUILDERS: dict[str, _IrBuilder] = {
-    "start": lambda _f, c: IrAst(rules=IrSeq(*c), start=c[0].name if c else ""),
+    "start": _build_start,
     "ir_rule": lambda _f, c: IrRule(name=str(c[0]), body=c[1]),
+    "ir_rule_inc": lambda _f, c: _IncrementalRule(str(c[0]), c[-1]),
     "ir_alternation": lambda _f, c: IrAlternation(*c),
     "ir_sequence": lambda _f, c: IrSequence(*c),
     "ir_literal": lambda f, c: f.normalize_literal(f.escapes.decode(str(c[0])[1:-1])),
+    "ir_literal_cs": _build_literal_cs,
+    "ir_literal_ci": _build_literal_ci,
     "ir_charclass": _build_charclass,
+    "ir_numseq": _build_numseq,
+    "ir_option": _build_option,
+    "ir_prose": _build_prose,
     "ir_ruleref": lambda _f, c: IrRuleRef(str(c[0])),
     "ir_group": lambda _f, c: c[0],
 }

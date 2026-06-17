@@ -27,7 +27,7 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 from __future__ import annotations
 
 import copy
-from abc import ABC, ABCMeta
+from abc import ABC
 from typing import (
     Any,
     Callable,
@@ -42,35 +42,9 @@ from typing import (
     overload,
 )
 
+from lexic.ir.meta import IrMeta, IrSingleton
+
 # ── Spine ─────────────────────────────────────────────────────────────
-
-
-class IrMeta(ABCMeta):
-    """Metaclass that gives every IR class an empty ``__slots__`` by default.
-
-    IR nodes keep their payload in the primitive they subclass (``str``/``int``/
-    ``tuple``) or in their tuple elements — never in a per-instance ``__dict__``,
-    and a ``tuple``/``str`` subclass *must* have empty ``__slots__`` to stay
-    dict-free. ``__slots__`` has to be in the class namespace before the class
-    object is built, which only a metaclass can guarantee (``__init_subclass__``
-    runs too late). Derives from :class:`abc.ABCMeta` so it composes with
-    ``IrNode``'s ``ABC`` base. A class that needs its own slots (e.g.
-    :class:`Field`) just declares ``__slots__`` — ``setdefault`` leaves it alone.
-    """
-
-    def __new__(
-        mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], /, **kw: Any
-    ) -> type:
-        """Inject ``__slots__ = ()`` unless the class declared its own.
-
-        :param name: New class name.
-        :param bases: Base classes.
-        :param namespace: Class body namespace (mutated in place).
-        :param kw: Remaining class keyword arguments.
-        :returns: The constructed class.
-        """
-        namespace.setdefault("__slots__", ())
-        return super().__new__(mcs, name, bases, namespace, **kw)
 
 
 class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri](metaclass=IrMeta):
@@ -224,7 +198,7 @@ class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri](metaclass=IrMeta):
 
 
 @final
-class IrNoneType(IrSelf):
+class IrNoneType(IrSelf, metaclass=IrSingleton):
     """Type of the absence sentinel, mirroring ``NoneType``/``None``.
 
     ``IrNoneType`` is marked ``@final`` — subclassing is a **static** error
@@ -239,20 +213,16 @@ class IrNoneType(IrSelf):
     annotate parameters as ``IrSelf | IrNoneType``; the *value* to pass is
     always the singleton :data:`IrNone`.
 
-    Implementation: singleton via ``__new__`` with a ``_instance`` ClassVar.
-    The first call allocates; subsequent calls return the cached instance.
+    Implementation: one instance per class via the
+    :class:`~lexic.ir.meta.IrSingleton` metaclass.
     """
 
-    _instance: ClassVar[Self | None] = None
+    def __repr__(self) -> str:
+        """Codegen repr — the singleton's public name.
 
-    def __new__(cls) -> Self:
-        """Return the singleton instance, allocating it on the first call.
-
-        :returns: The single ``IrNoneType`` instance.
+        :returns: ``"IrNone"``, a valid expression naming the singleton.
         """
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+        return "IrNone"
 
 
 # Public singleton VALUE — callers pass bare `IrNone`
@@ -314,6 +284,102 @@ class IrLeaf[Iri: IrSelf, Ir_co: IrSelf](IrNode[Iri, Ir_co]):
         return ()
 
 
+class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
+    """Procedural body — a leaf that wraps one handler callable.
+
+    The escape hatch for logic the algebra can't express. Generic in ``Iri``
+    (the handler's input type — a handler may type its parameters as narrowly
+    as it likes, e.g. ``group: IrAlternation``) and ``Ir_co`` (the result type);
+    callers narrow at construction: ``IrCallable[IrSelf, IrStr](handler)``.
+
+    Built on :class:`IrNode` (not :class:`IrTuple`/:class:`IrScalar`), so ``eval``
+    keeps the ``Iri`` input type — no casts needed — and equality/hash are by
+    identity (callables are not value-comparable). The handler may also be an
+    :class:`IrSelf` node, which is ``eval``\\ ed instead of called.
+
+    Two handler conventions, selected explicitly by ``out`` (never by signature
+    sniffing):
+
+    - **protocol** (default): ``handler(d, n, nc) -> Ir_co``.
+    - **fold** (``out`` given): ``handler`` is a bare fold over the operands —
+      ``out(handler(*nc))`` lifts it into the protocol, ``out`` being the
+      runtime result type exactly like :attr:`~lexic.ir.action.IrField.out`
+      (e.g. ``IrCallable(operator.eq, IrInt)``).
+
+    Lives in the spine (not :mod:`lexic.ir.action`) so layers below the action
+    algebra — e.g. :class:`~lexic.ir.operators.IrOp`'s ``_OPS`` table — can
+    wrap handlers without an import cycle.
+
+    :param Iri: the handler's input (dispatcher) type.
+    :param Ir_co: the result type the handler produces.
+    """
+
+    __slots__ = ("handler", "out")
+    handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co]
+    out: type[IrScalar] | None
+
+    @overload
+    def __new__(
+        cls, handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co]
+    ) -> Self: ...
+    @overload
+    def __new__(cls, handler: Callable[..., object], out: type[Ir_co]) -> Self: ...
+    def __new__(
+        cls,
+        handler: Callable[..., object] | IrSelf[Iri, Ir_co],
+        out: type[Ir_co] | None = None,
+    ) -> Self:
+        """Wrap ``handler`` as an immutable leaf.
+
+        :param handler: A procedure ``(d, n, nc) -> Ir_co``, an IR node whose
+            ``eval`` produces the result, or — with ``out`` — a bare operand
+            fold ``fn(*operands)``.
+        :param out: Result type a fold's raw return is wrapped in (an
+            :class:`IrScalar` subtype — payload-constructible); ``None``
+            selects the protocol convention.
+        :returns: The new ``IrCallable`` leaf.
+        """
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "handler", handler)
+        object.__setattr__(obj, "out", out)
+        return obj
+
+    def __call__(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+        """Run the wrapped handler: a node is evaluated, a callable is called,
+        a fold (``out`` set) is applied to the operands and its result wrapped.
+
+        The fold branch casts the handler past the protocol annotation — the
+        ``out`` overload deliberately admits any bare callable — and ``bind``
+        types the wrapped result back to ``Ir_co``.
+        """
+        if self.out is not None:
+            fold = cast(Callable[..., object], self.handler)
+            return self.bind(self.out(fold(*nc)))
+        if isinstance(self.handler, IrSelf):
+            return self.handler.eval(d, n, nc)
+        return self.handler(d, n, nc)
+
+    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
+        """Forward to the wrapped handler.
+
+        :param d: Dispatcher forwarded to the handler.
+        :param n: Current node forwarded to the handler.
+        :param nc: Pre-walked children forwarded to the handler.
+        :returns: Whatever the handler returns.
+        """
+        return self(d, n, nc)
+
+    def __repr__(self) -> str:
+        """Repr holding the handler's name (not round-trip codegen).
+
+        :returns: ``ClassName(<handler name>)``, plus ``out`` when set.
+        """
+        name = getattr(self.handler, "__name__", self.handler)
+        if self.out is not None:
+            return f"{type(self).__name__}({name}, {self.out.__name__})"
+        return f"{type(self).__name__}({name})"
+
+
 class IrAtom(IrNode):
     """NON-generic role marker — mixed into atoms by plain inheritance.
 
@@ -360,8 +426,13 @@ class IrScalar(IrLeaf):
         """
         return super().__new__(cls, *args)
 
-    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> Self:
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
         """Return ``self`` — the node IS the value.
+
+        Annotated ``IrSelf`` (not ``Self``) so action-leaves built on the
+        scalar tier (``IrOp``, ``IrChild``, ``IrIndex``) can override with
+        their own result types — they ARE their payload but do not
+        self-evaluate.
 
         :returns: ``self``.
         """
@@ -522,7 +593,7 @@ class IrTuple[*Ts](tuple[*Ts], IrNode[IrSelf, IrSelf]):
         """Codegen repr: ``ClassName(elem0, elem1, …)``.
 
         A class-valued element renders as its bare ``__name__`` (e.g.
-        ``IrField('min', IrInt)``) so the result stays valid codegen; homogeneous
+        ``IrField('lo', IrInt)``) so the result stays valid codegen; homogeneous
         collections never hold classes, so this is a no-op for them.
 
         :returns: Constructor call reproducing this node.

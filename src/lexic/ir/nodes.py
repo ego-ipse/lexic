@@ -31,6 +31,7 @@ from lexic.ir.base import (
     IrAtom,
     IrLeaf,
     IrNamedTuple,
+    IrNoneType,
     IrSeq,
     IrStr,
 )
@@ -42,6 +43,7 @@ __all__ = [
     "IrRuleRef",
     "IrSequence",
     "IrAlternation",
+    "IrRange",
     "IrQuantifier",
     "IrItem",
     "IrRule",
@@ -63,14 +65,6 @@ class IrLiteral(IrStr, IrAtom):
     The two roles are distinguished at eval time by the ``nc`` parameter — see
     the IR-shapes wiki entry.  Both roles produce the same ``str`` value, so
     the same node class serves both.
-    """
-
-
-class IrCharClass(IrStr, IrAtom):
-    """Character class. The string is the canonical POSIX-style interior pattern.
-
-    Examples: ``'a-z'``, ``'0-9'``, ``'a-zA-Z_'``.  The surrounding ``[``/``]``
-    brackets are NOT stored — they are emitted by the flavour renderer.
     """
 
 
@@ -106,24 +100,61 @@ class IrAlternation(IrSeq[IrSequence], IrAtom):
 # ── Concrete composite records ────────────────────────────────────────
 
 
-class IrQuantifier(IrLeaf, IrNamedTuple[int, int | None]):
-    """Repetition bounds for an ``IrItem``.
+class IrRange[T: (str, int)](IrLeaf, IrNamedTuple[T, T | IrNoneType]):
+    """Inclusive ``lo``-``hi`` range — the shared shape of quantifier bounds
+    and char ranges.
 
-    ``min`` and ``max`` mirror POSIX/PCRE repetition bounds:
+    Quantifier bounds are int ranges (:class:`IrQuantifier`); char ranges are
+    single-char str ranges (a char range IS an int range via ord/chr).  The
+    open upper bound is :data:`~lexic.ir.base.IrNone` — int ranges only; char
+    ranges are always closed.
 
-    - ``IrQuantifier(1, 1)`` — exactly once (the default; no postfix operator).
-    - ``IrQuantifier(0, 1)`` — optional (``?``).
-    - ``IrQuantifier(0, None)`` — zero-or-more (``*``).
-    - ``IrQuantifier(1, None)`` — one-or-more (``+``).
-    - ``IrQuantifier(m, n)`` — between ``m`` and ``n`` times (``{m,n}``).
-
-    ``max=None`` means unbounded (no upper limit).  ``min``/``max`` are scalar
-    payload, not IR-node children, so ``_child_attrs`` is empty.
+    ``lo``/``hi`` are scalar payload, not IR-node children, so
+    ``_child_attrs`` is empty; actions read them via
+    :class:`~lexic.ir.action.IrField`.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
-    min: int = 1
-    max: int | None = 1
+    lo: int | str
+    hi: int | str | IrNoneType
+
+
+class IrCharClass(IrSeq[IrRange | IrStr], IrAtom):
+    """Character class — the variadic union of its interior elements.
+
+    The node IS its element tuple: :class:`IrRange` entries for explicit
+    ``x-y`` ranges, bare :class:`~lexic.ir.base.IrStr` runs for maximal
+    stretches of single chars — ``[abc0-9]`` →
+    ``IrCharClass(IrStr("abc"), IrRange("0", "9"))``.
+
+    Brackets are NOT stored — the flavour renderer emits them.  Negation is
+    NOT stored — ``[^...]`` parses to ``IrNot(IrCharClass(...))``; the
+    negation hands its mark to the class action via the argument channel.
+
+    Element payloads are flavour-encoded escape units (a range endpoint may
+    be ``"\\x1F"`` — four source chars, one unit), so emission reproduces
+    the source byte-exactly; decode-canonicalization arrives with the
+    IR-native parser that obsoletes the Lark metagrammars.
+    """
+
+
+class IrQuantifier(IrRange):
+    """Repetition bounds for an ``IrItem`` — the int-flavoured :class:`IrRange`.
+
+    ``lo`` and ``hi`` mirror POSIX/PCRE repetition bounds:
+
+    - ``IrQuantifier(1, 1)`` — exactly once (the default; no postfix operator).
+    - ``IrQuantifier(0, 1)`` — optional (``?``).
+    - ``IrQuantifier(0, IrNone)`` — zero-or-more (``*``).
+    - ``IrQuantifier(1, IrNone)`` — one-or-more (``+``).
+    - ``IrQuantifier(m, n)`` — between ``m`` and ``n`` times (``{m,n}``).
+
+    ``hi=IrNone`` means unbounded (no upper limit).
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    lo: int = 1
+    hi: int | IrNoneType = 1
 
 
 class IrItem(IrNamedTuple[IrAtom, IrQuantifier]):

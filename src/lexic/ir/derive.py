@@ -8,16 +8,18 @@ from collections.abc import Sequence
 from functools import cache
 from typing import Callable, Literal, TypeAlias, TypeVar
 
-from lexic.ir.action import IrAction, IrCallable, IrReturn
+from lexic.ir.action import IrAction, IrReturn
 from lexic.ir.base import (
     Field,
     IrAtom,
+    IrCallable,
     IrNode,
     IrNone,
     IrNoneType,
     IrSelf,
     IrSeq,
 )
+from lexic.ir.mapping import IrTypeMap
 from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -34,12 +36,13 @@ from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
 from lexic.ir.walk import IrDispatch, IrTransformer, IrVisitor
+from lexic.utils.charclass import charclass_pattern
 from lexic.utils.names import to_pascal
 
 # ── classification ────────────────────────────────────────────────────
 
 _HAS_RULEREF: IrVisitor = IrVisitor(
-    actions=(IrAction(IrRuleRef, IrReturn()),),
+    actions=IrTypeMap(IrAction(IrRuleRef, IrReturn())),
 )
 
 
@@ -147,7 +150,7 @@ def _extract_none(_d: object, _n: object, _nc: object) -> IrNoneType:
 
 
 _EXTRACT_BODY: IrDispatch = IrDispatch(
-    actions=(IrAction(IrAlternation, IrCallable(_extract_group)),),
+    actions=IrTypeMap(IrAction(IrAlternation, IrCallable(_extract_group))),
     default=IrCallable(_extract_none),
 )
 
@@ -202,7 +205,7 @@ class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     parent_name: str = ""
     name_set: set[str] = Field(default_factory=set)
     helpers: list[IrRule] = Field(default_factory=list)
-    actions: tuple[IrAction, ...] = (IrAction(IrItem, IrCallable(_hoist_item)),)
+    actions: IrTypeMap = IrTypeMap(IrAction(IrItem, IrCallable(_hoist_item)))
 
 
 def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
@@ -233,10 +236,12 @@ _FieldHint: TypeAlias = Callable[[_A], str]
 
 def _bracketed(atom: IrAtom) -> str:
     """Return the bracket-form of a charclass or negated-charclass atom."""
-    if isinstance(atom, IrNot) and isinstance(atom[0], IrCharClass):
-        return f"[^{atom[0]}]"
+    if isinstance(atom, IrNot):
+        inner = atom[0]
+        if isinstance(inner, IrCharClass):
+            return f"[^{charclass_pattern(inner)}]"
     if isinstance(atom, IrCharClass):
-        return f"[{atom}]"
+        return f"[{charclass_pattern(atom)}]"
     return ""
 
 
@@ -407,13 +412,13 @@ def _is_non_sem_ref(item: IrItem, rules: frozenset[str]) -> bool:
 def _relax_item(
     item: IrItem | IrAlternation, rules: frozenset[str]
 ) -> IrItem | IrAlternation:
-    """Set min=0 if `item` references a non-semantic rule with min > 0."""
+    """Set lo=0 if `item` references a non-semantic rule with lo > 0."""
     if (
         isinstance(item, IrItem)
         and _is_non_sem_ref(item, rules)
-        and item.quantifier.min > 0
+        and item.quantifier.lo > 0
     ):
-        return IrItem(item.atom, IrQuantifier(0, item.quantifier.max))
+        return IrItem(item.atom, IrQuantifier(0, item.quantifier.hi))
     return item
 
 

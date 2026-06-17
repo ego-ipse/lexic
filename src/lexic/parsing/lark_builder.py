@@ -11,6 +11,7 @@ from __future__ import annotations
 import lark
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.base import IrNoneType
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import (
     IrAlternation,
@@ -22,9 +23,9 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.ir.regex_portable import literal_to_regex_pattern
 from lexic.ir.spec import RuleSpec
 from lexic.parsing.transformer.build_transformer import build_transformer
+from lexic.utils.charclass import charclass_pattern
 from lexic.utils.names import to_lark_name
 from lexic.utils.quantifiers import bounds_to_quantifier
 
@@ -37,6 +38,40 @@ _LARK_ESCAPES = _LarkLiteralEscapes()
 
 
 _LARK_TERMINAL_QUANTS = frozenset({"", "?", "*", "+"})
+
+_LITERAL_REGEX_ESCAPES: dict[str, str] = {
+    # Control characters → regex escape sequences
+    "\n": r"\n",
+    "\r": r"\r",
+    "\t": r"\t",
+    # Backslash must come first so we don't double-escape other entries
+    "\\": r"\\",
+    # Lark regex delimiter
+    "/": r"\/",
+    # Regex metacharacters
+    ".": r"\.",
+    "^": r"\^",
+    "$": r"\$",
+    "*": r"\*",
+    "+": r"\+",
+    "?": r"\?",
+    "{": r"\{",
+    "}": r"\}",
+    "[": r"\[",
+    "]": r"\]",
+    "(": r"\(",
+    ")": r"\)",
+    "|": r"\|",
+}
+
+
+def literal_to_regex_pattern(value: str) -> str:
+    """Escape a literal string so it matches exactly when used inside a regex pattern.
+
+    Handles control characters (\\n, \\r, \\t), the backslash, regex
+    metacharacters, and the Lark regex delimiter (/).
+    """
+    return "".join(_LITERAL_REGEX_ESCAPES.get(c, c) for c in value)
 
 
 def _bracket(pattern: str, negated: bool) -> str:
@@ -52,32 +87,55 @@ def _regex_terminal(pattern: str, q: IrQuantifier) -> str:
     For Q(0,n) with n>1, /pattern{0,n}/ would be zero-width (forbidden by
     dynamic Earley), so we use /pattern{1,n}/? instead — same semantics.
     """
-    q_str = bounds_to_quantifier(q.min, q.max)
+    q_str = bounds_to_quantifier(q.lo, q.hi)
     if q_str in _LARK_TERMINAL_QUANTS:
         return f"/{pattern}/{q_str}"
-    if q.min == 0 and q.max is not None:
-        return f"/{pattern}{bounds_to_quantifier(1, q.max)}/?"
+    if q.lo == 0 and not isinstance(q.hi, IrNoneType):
+        return f"/{pattern}{bounds_to_quantifier(1, q.hi)}/?"
     return f"/{pattern}{q_str}/"
+
+
+def _lark_rule_quant(q: IrQuantifier) -> str:
+    """Quantifier suffix for a Lark *rule* reference or group.
+
+    Postfix ``?``/``*``/``+`` are valid on rules as-is; counted forms (``{n}`` /
+    ``{n,m}``) must use Lark's ``~`` repetition — ``{}`` is regex-only syntax.
+
+    :raises UnsupportedConstructError: open-ended counted repetition (``{n,}``),
+        which Lark's ``~`` form cannot express on a rule.
+    """
+    q_str = bounds_to_quantifier(q.lo, q.hi)
+    if q_str in ("", "?", "*", "+"):
+        return q_str
+    inner = q_str[1:-1]
+    if inner.endswith(","):
+        raise UnsupportedConstructError(
+            f"Lark cannot repeat a rule with an open upper bound: {q_str!r}"
+        )
+    lo, _, hi = inner.partition(",")
+    return f" ~ {lo}..{hi}" if hi else f" ~ {lo}"
 
 
 def _atom_to_lark(item: IrItem) -> str:
     """Convert an IR item to a Lark atom string."""
     atom = item.atom
-    q_str = bounds_to_quantifier(item.quantifier.min, item.quantifier.max)
+    q_str = bounds_to_quantifier(item.quantifier.lo, item.quantifier.hi)
     if isinstance(atom, IrLiteral):
         return f'"{_LARK_ESCAPES.encode(atom)}"{q_str}'
     if isinstance(atom, IrNot):
         inner = atom[0]
         if isinstance(inner, IrCharClass):
             return _regex_terminal(
-                _bracket(inner.replace("/", "\\/"), True), item.quantifier
+                _bracket(charclass_pattern(inner).replace("/", "\\/"), True),
+                item.quantifier,
             )
     if isinstance(atom, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.replace("/", "\\/"), False), item.quantifier
+            _bracket(charclass_pattern(atom).replace("/", "\\/"), False),
+            item.quantifier,
         )
     if isinstance(atom, IrRuleRef):
-        return f"{to_lark_name(atom)}{q_str}"
+        return f"{to_lark_name(atom)}{_lark_rule_quant(item.quantifier)}"
     if isinstance(atom, IrAlternation):
         # Literal-only group arms are dropped by Lark (anonymous string terminals).
         # Use regex form so the matched token is preserved in children.
@@ -89,7 +147,7 @@ def _atom_to_lark(item: IrItem) -> str:
         )
         seq_fn = _seq_to_lark_regex if literal_only else _seq_to_lark
         body = " | ".join(seq_fn(s) for s in atom)
-        return f"({body}){q_str}"
+        return f"({body}){_lark_rule_quant(item.quantifier)}"
     raise UnsupportedConstructError(
         f"_atom_to_lark: no handler for atom type {type(atom).__name__!r}"
     )
@@ -102,24 +160,25 @@ def _atom_to_lark_regex(item: IrItem) -> str:
     making it impossible to tell if optional literals matched. Regex form keeps all tokens.
     """
     atom = item.atom
-    q_str = bounds_to_quantifier(item.quantifier.min, item.quantifier.max)
     if isinstance(atom, IrLiteral):
         return _regex_terminal(literal_to_regex_pattern(atom), item.quantifier)
     if isinstance(atom, IrNot):
         inner = atom[0]
         if isinstance(inner, IrCharClass):
             return _regex_terminal(
-                _bracket(inner.replace("/", "\\/"), True), item.quantifier
+                _bracket(charclass_pattern(inner).replace("/", "\\/"), True),
+                item.quantifier,
             )
     if isinstance(atom, IrCharClass):
         return _regex_terminal(
-            _bracket(atom.replace("/", "\\/"), False), item.quantifier
+            _bracket(charclass_pattern(atom).replace("/", "\\/"), False),
+            item.quantifier,
         )
     if isinstance(atom, IrRuleRef):
-        return f"{to_lark_name(atom)}{q_str}"
+        return f"{to_lark_name(atom)}{_lark_rule_quant(item.quantifier)}"
     if isinstance(atom, IrAlternation):
         body = " | ".join(_seq_to_lark_regex(s) for s in atom)
-        return f"({body}){q_str}"
+        return f"({body}){_lark_rule_quant(item.quantifier)}"
     raise UnsupportedConstructError(
         f"_atom_to_lark_regex: no handler for atom type {type(atom).__name__!r}"
     )

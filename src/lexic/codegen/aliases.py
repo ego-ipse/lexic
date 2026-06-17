@@ -21,8 +21,9 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction, IrCallable
-from lexic.ir.base import Field, IrNone, IrSelf
+from lexic.ir.action import IrAction
+from lexic.ir.base import Field, IrCallable, IrNone, IrSelf
+from lexic.ir.mapping import IrTypeMap
 from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
@@ -36,6 +37,7 @@ from lexic.ir.nodes import (
 from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 from lexic.ir.walk import IrVisitor
+from lexic.utils.charclass import charclass_pattern
 from lexic.utils.quantifiers import bounds_to_quantifier
 
 
@@ -58,7 +60,7 @@ def _bracket(pattern: str, negated: bool) -> str:
 
 def _suffix(q: IrQuantifier) -> str:
     """Render a IrQuantifier as its regex suffix."""
-    return bounds_to_quantifier(q.min, q.max)
+    return bounds_to_quantifier(q.lo, q.hi)
 
 
 def _camel(s: str) -> str:
@@ -76,7 +78,7 @@ def regex_for_charclass(
     :param negated: Whether to emit ``[^...]`` instead of ``[...]``.
     :returns: Anchored regex string.
     """
-    return f"^{_bracket(cc, negated)}{_suffix(q)}$"
+    return f"^{_bracket(charclass_pattern(cc), negated)}{_suffix(q)}$"
 
 
 def _atom_regex_fragment(item: IrItem) -> str:
@@ -88,9 +90,9 @@ def _atom_regex_fragment(item: IrItem) -> str:
     if isinstance(atom, IrNot):
         inner = atom[0]
         if isinstance(inner, IrCharClass):
-            return _bracket(inner, True) + q
+            return _bracket(charclass_pattern(inner), True) + q
     if isinstance(atom, IrCharClass):
-        return _bracket(atom, False) + q
+        return _bracket(charclass_pattern(atom), False) + q
     if isinstance(atom, IrAlternation):
         return f"({_alt_regex_fragment(atom)}){q}"
     raise UnsupportedConstructError(
@@ -123,7 +125,7 @@ def _name_for_charclass(cc: IrCharClass, *, negated: bool = False) -> str:
     :param negated: Whether this charclass is negated (wrapped in IrNot).
     :returns: CamelCase tier-2 name, or empty string if no Tier-2 match.
     """
-    tier2 = CHARCLASS_NAMES.get(_bracket(cc, negated))
+    tier2 = CHARCLASS_NAMES.get(_bracket(charclass_pattern(cc), negated))
     return _camel(tier2) if tier2 else ""
 
 
@@ -206,7 +208,7 @@ class _PatternAliasVisitor(IrVisitor):
     aliases: dict[str, PatternAlias] = Field(default_factory=dict)
     _name_counts: Counter[str] = Field(default_factory=Counter)
     ruleref_frames: list[bool] = Field(default=[False])
-    actions: tuple[IrAction, ...] = (
+    actions: IrTypeMap = IrTypeMap(
         IrAction(IrRuleRef, IrCallable(_mark_ruleref)),
         IrAction(IrItem, IrCallable(_visit_item)),
     )
