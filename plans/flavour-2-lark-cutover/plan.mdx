@@ -1,0 +1,307 @@
+<RichText id="overview">
+
+# Drop Lark: a pure-`IrSelf` `flavour_2` and the Earley cutover
+
+**Outcome.** Remove Lark from Lexic entirely. Both places `compile.py` reaches for Lark today get replaced by the IR-native Earley pipeline that already lives in `src/lexic/parsing_2/`, driven by a new **`flavour_2`** that is *pure IR data* — only `IrSelf` instances, no Python methods and no callbacks. When this lands, a flavour is **concrete syntax + surface rendering + escape data**, all expressed as IR; the fold from text back to IR is generic and shared.
+
+**Why now.** The Earley engine (recognizer, parser, reducer, ABNF self-hosting fixpoint) is built, committed, and green at 977 tests. It is still standalone — nothing in the runtime path uses it. This plan is the wiring: turn a finished engine into the only parser, and delete Lark.
+
+**Status.** Design settled (already hardened by one adversarial review pass). Implementation not started. This is multi-phase, multi-file, and contains genuinely hard-to-reverse structural decisions (the flavour table shape, the canonical-tag mechanism) that are called out explicitly below and must be decided before the grammars are authored.
+
+</RichText>
+
+<RichText id="where-we-are-heading">
+
+## Where we are: two Lark seams
+
+`compile.py` calls Lark in exactly two places. Everything else in the pipeline is already IR-native.
+
+</RichText>
+
+<Diagram
+  id="diagram-seams"
+  data={{
+    html: '<div class="diagram-panel" data-rough><div class="diagram-card"><div class="diagram-pill">compile.py — runtime seam</div><div class="diagram-node">Seam 1 · meta-grammar<br/><span class="diagram-muted">MetaGrammarParser.for_flavour(f).parse(text) → IrAst</span><br/>unambiguous notation grammar</div><div class="diagram-node">Seam 2 · runtime input<br/><span class="diagram-muted">build_lark(...) + build_transformer → GrammarModel</span><br/>user grammar — MAY be ambiguous</div></div><div class="diagram-card"><div class="diagram-pill">parsing_2 — done, standalone</div><div class="diagram-node">engine · normalize · ops · chart · forest · reduce</div><div class="diagram-node">abnf_2.ABNF_GRAMMAR + ABNF_REDUCTIONS<br/><span class="diagram-muted">self-hosting fixpoint closes</span></div></div></div>',
+    css: '.diagram-panel{display:flex;gap:16px;flex-wrap:wrap}.diagram-card{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--wf-border);border-radius:8px;flex:1;min-width:260px}.diagram-node{padding:8px 10px;border:1px solid var(--wf-border);border-radius:6px}',
+    caption: 'Seam 1 and Seam 2 are the only Lark dependencies. parsing_2 already implements the replacement engine but is wired to nothing.',
+  }}
+/>
+
+<RichText id="settled-shape">
+
+## The settled bet: a flavour is pure IR
+
+A `flavour_2` carries no behaviour. `parse_quantifier`, `parse_charclass`, `normalize_literal`, and the `EscapeCodec` class are **deleted**; the capabilities they encoded move into shared IR algebra (Phase 1) and shared reductions (Phase 3). End to end:
+
+</RichText>
+
+<Code
+  id="code-flavour-shape"
+  language="python"
+  caption="flavour_2 — nothing but IrSelf. The parser, SPPF forest, reducer, and shared reductions live in parsing_2, not on the flavour."
+  code={"class Flavour2:        # ABC — all fields are IrSelf data\n    grammar:     IrAst              # concrete syntax; rules canonical-tagged\n                                    #   with the IR node they produce\n    nodes:       IrDispatch         # per-node {emit, build} bodies — all IrSelf\n    escapes:     IrMap              # was EscapeCodec  (IrMap already exists)\n    name:        IrStr\n    extensions:  IrTuple            # IrTuple[IrStr]\n    line_comment: IrStr"}
+/>
+
+<Callout id="callout-reuse" tone="info">
+
+**Lead with reuse.** Several pieces already exist and are *reused*, not invented: `IrEscape` (`src/lexic/ir/flavour.py:23`) does the escaping; `IrMap` (`src/lexic/ir/mapping.py:81`) replaces `EscapeCodec`; `IrRange` (`src/lexic/ir/nodes.py:103`) is one of the `IrMake` targets. The genuinely new algebra in Phase 1 is the numeric/construction family (`IrRadix`, `IrChr`, the rest of `IrMake`) and the **selection/filter** family (`IrSelect`/`IrFilter`/`IrCollect`).
+
+</Callout>
+
+<RichText id="hard-to-reverse">
+
+## The decisions that are expensive to undo
+
+These are the bets that data and callers will depend on. The SPPF/ambiguity contract stays a hard engine prerequisite; the table shape and the canonical-tag mechanism are now decided (below) and both land on what `abnf_2` already ships.
+
+</RichText>
+
+<Callout id="callout-decision-ambiguity" tone="decision">
+
+**Ambiguous grammars are supported (wire-level engine contract).** The engine must produce a **shared packed parse forest (SPPF)**. Today `chart.py`'s `Link` is single-valued — a placeholder that silently keeps the first completion. SPPF is a hard prerequisite for Seam 2 (user grammars may be ambiguous); it is *not* needed for Seam 1 or the grammars-of-grammars, which are unambiguous. This is why Phase 4 gates Phase 6.
+
+</Callout>
+
+<Callout id="callout-decision-table" tone="success">
+
+**Decided — two tables.** Emit `actions` are keyed by IR node **type**; reductions are keyed by **rule name**. This is already the shape `abnf_2` ships: `ABNF_ACTIONS` is type-keyed and `ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf]` is rule-name-keyed (26 reductions for ~11 types). A single bidirectional table would need a rule-name ↔ IR-type bijection that does not exist — many rule names reduce to one type, and emit needs only one body per type — so one table forces an artificial reconciliation and buys nothing. Revisit only if a future flavour shows a concrete need.
+
+</Callout>
+
+<Callout id="callout-decision-tag" tone="success">
+
+**Resolved — the canonical tag *is* the rule name, keyed by `IrRuleRef`.** No new slot on `IrRule`, no separate side table. `abnf_2` already keys reductions on rule name through `IrRuleRef`: `ABNF_REDUCTIONS` maps `IrRuleRef("rule") → body`, `IrRuleRef("alternation") → body`, and so on. The grammar-of-grammar is authored so each rule name corresponds to one reduction body; that name is the tag. The only residual Phase-3 check is whether GBNF can be authored the same one-rule→one-reduction way — it can, by giving arms that produce different IR types their own named rules. (The handover flagged this as an open design point; in practice `abnf_2` has already closed it.)
+
+</Callout>
+
+<RichText id="phase-order">
+
+## Phase order
+
+Ordering principle: **build the algebra → fix the flavour container → author the grammars → SPPF → wire Seam 1 → wire Seam 2 → cut over.** The container precedes the grammars because GBNF forces representation decisions (escapes, `[...]`+`^` negation, postfix/`{n,m}` quantifiers) that ABNF's `%x`-only notation dodged. SPPF moves *after* the unambiguous-grammar work and *before* Seam 2, the only consumer that needs it.
+
+</RichText>
+
+<Diagram
+  id="diagram-phases"
+  data={{
+    html: '<div class="diagram-panel" data-rough><div class="diagram-step"><span class="diagram-pill">P1</span> IR algebra<br/><span class="diagram-muted">numeric/construct + select/filter</span></div><div class="diagram-arrow">→</div><div class="diagram-step"><span class="diagram-pill">P2</span> flavour_2 container<br/><span class="diagram-muted">table shape · escapes · charclass · quant · case-insensitive</span></div><div class="diagram-arrow">→</div><div class="diagram-step"><span class="diagram-pill">P3</span> tagged grammars<br/><span class="diagram-muted">abnf_2 + gbnf_2, shared reductions</span></div><div class="diagram-arrow">→</div><div class="diagram-step"><span class="diagram-pill">P5</span> Seam 1<br/><span class="diagram-muted">meta-grammar parse</span></div><div class="diagram-arrow">→</div><div class="diagram-step"><span class="diagram-pill">P7</span> cutover<br/><span class="diagram-muted">delete Lark · rename</span></div></div><div class="diagram-panel" data-rough><div class="diagram-step diagram-aside"><span class="diagram-pill">P4</span> SPPF / ambiguity<br/><span class="diagram-muted">multi-valued links · packed nodes</span></div><div class="diagram-arrow">⟶ gates ⟶</div><div class="diagram-step diagram-aside"><span class="diagram-pill">P6</span> Seam 2<br/><span class="diagram-muted">runtime input → GrammarModel</span></div></div>',
+    css: '.diagram-panel{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.diagram-step{padding:10px 12px;border:1px solid var(--wf-border);border-radius:8px;min-width:130px}.diagram-aside{border-style:dashed}.diagram-arrow{color:var(--wf-muted-foreground);font-weight:600}',
+    caption: 'P1→P2→P3→P5→P7 is the unambiguous spine. P4 (SPPF) and P6 (Seam 2) form the ambiguity-dependent branch: P4 gates P6, and P6 is the largest, least-specified piece.',
+  }}
+/>
+
+<Table
+  id="table-phases"
+  columns={["Phase", "Goal", "Key deliverable", "Hardest part"]}
+  rows={[
+    ["P1 — IR algebra", "Enabling layer in ir/", "Numeric/construction + selection/filter nodes; unit-tested eval", "Keep filter nodes open/dispatch-driven, not a new closed ladder"],
+    ["P2 — flavour_2 container", "Pure-IrSelf ABC + representations", "Table shape decided; escapes→IrMap; charclass+IrNot; quantifiers; case-insensitive", "Both directions for charclass-with-escapes and IrNot"],
+    ["P3 — tagged grammars", "abnf_2 + gbnf_2 on shared reductions", "Canonical-tag mechanism; atomic drop of all IrCallable + parse_* calls", "GBNF escape/negation/quantifier machinery; re-close both fixpoints"],
+    ["P4 — SPPF / ambiguity", "Packed parse forest", "Multi-valued chart links; packed nodes; disambiguation policy", "Reducer must handle packed nodes (ripples into reduce.py)"],
+    ["P5 — Seam 1", "Replace meta-grammar parse", "reduce(parse(normalize(grammar), text), reductions)", "Byte-identical IrAst for every ground-truth grammar"],
+    ["P6 — Seam 2", "Replace runtime input path", "build_transformer re-expressed as IrSelf reductions", "Adjacent optional-ruleref disambiguation; round-trip invariant; error DX"],
+    ["P7 — cutover", "Delete Lark, rename", "Remove lark_builder/meta_parser/transformer; redesign CompiledGrammar; rename *_2", "CompiledGrammar shape change, not just lost imports"],
+  ]}
+/>
+
+<RichText id="phase-1">
+
+## Phase 1 — IR algebra (`ir/`)
+
+The enabling layer. Two families, both generic and unit-tested at the `eval` contract before anything downstream consumes them. **Do not touch `ABNF_REDUCTIONS` here** — the `parse_*` deletion is one atomic edit and belongs in Phase 3.
+
+- **Numeric / construction:** `IrRadix` (digit-run → `IrInt`, base read structurally), `IrChr` (codepoint-carrying char leaf, emit-time spelling), and an `IrMake`-family constructing typed IR (`IrQuantifier`, `IrRange`, `IrCharClass`, `IrItem`, `IrSequence`, `IrAlternation`, `IrRule`, `IrAst`) from reduced children.
+- **Selection / filter:** `IrSelect` / `IrFilter` / `IrCollect` (working names). The reductions don't only construct — they *filter children by type* and *positionally select* (`next(c for c in nc if isinstance(c, X))`, `nc[1:-1]`). Without these the `IrCallable`s cannot be removed. **This is the half an earlier draft omitted.**
+
+</RichText>
+
+<Callout id="callout-layering" tone="warning">
+
+**Layering watch.** Type-filtering is *consumer policy*. Landing it in `ir/` risks cementing exactly the closed-set `isinstance` ladder the open-classes direction wants to dissolve (the open-set-consumer rework). Keep these nodes open and dispatch-driven, not a new hardcoded ladder. This is the single biggest design hazard in the whole effort.
+
+</Callout>
+
+<RichText id="phase-2">
+
+## Phase 2 — `flavour_2` container + representations
+
+Define the ABC with the pure-`IrSelf` shape, then resolve the representation questions ABNF never exercised because GBNF will.
+
+- **Table shape** — two tables (decided): emit keyed by IR type, reduce keyed by rule name. Matches what `abnf_2` already ships.
+- **Escapes** — `EscapeCodec` → `IrMap`/`IrSelf` data; escaping via the existing `IrEscape` node. Needed before any escaped-literal grammar (GBNF).
+- **Char-class-with-escapes and `IrNot`, in *both* directions.** ABNF `%x`-only never exercised `[...]` escapes or negation; GBNF does (`[^"\\\x00-\x1F]`). There is **no `IrNot` reduction anywhere yet.**
+- **Quantifier construction** for prefix (ABNF `*`, `1*`) *and* postfix + counted (GBNF `*`/`+`/`?`/`{n,m}`).
+- **Case-insensitive literals** — handled by **algebraic per-char case-class expansion** (decided): each cased letter expands to a two-element char class at construction via the Phase-1 algebra — no dedicated node, no generic post-pass. `ABNF_GRAMMAR` was authored to dodge this; real ABNF input triggers it.
+
+</RichText>
+
+<RichText id="phase-3">
+
+## Phase 3 — canonical-tagged grammars + shared reductions
+
+- The canonical tag is the rule name (resolved above), so the keying mechanism already exists — **migrate `ABNF_REDUCTIONS` onto the shared table as-is** (it is already an `IrMap[IrRuleRef, IrSelf]`), dropping every `IrCallable` (currently 18) and every `parse_*` call **atomically**, in one edit. Re-close the ABNF fixpoint. Delete the emit-side `_abnf_charclass` `IrCallable` including its parenthesize-iff-multiple branch.
+- Author the **GBNF grammar-of-grammar** (`gbnf_2.py`) on the same tags + shared reductions; it now has the escape/negation/quantifier machinery from Phase 2. Close its self-hosting fixpoint. Reproduce **`CORE_RULES` injection** (undefined `ALPHA`/`DIGIT`/`CRLF`…) here or in Phase 5.
+
+</RichText>
+
+<RichText id="phase-4">
+
+## Phase 4 — SPPF / ambiguity (gates Seam 2)
+
+- Make `chart.py` `links` multi-valued; `build_tree`/`forest.py` produce **packed nodes**; `ParseTree.kids` admits them.
+- `Reducer._reduced_children` must handle packed nodes plus a disambiguation policy — this *does* ripple into `reduce.py`. Add an ambiguity-detection path (today the chart silently keeps the first completion).
+- Disambiguation policy lives at **grammar-author level** (decided): the author resolves ambiguity, so the engine and flavour stay policy-free. (Sequencing note: this needs an author-facing surface for expressing the policy — decide that shape during Phase 4, since no such surface exists today.)
+- Tests with a deliberately ambiguous grammar.
+
+</RichText>
+
+<RichText id="phase-5">
+
+## Phase 5 — Seam 1 (meta-grammar parsing)
+
+Add a single `normalize()` entry composing flatten→desugar→split, and **enforce** the synthetic-prefix precondition (today callers chain the three by hand). Then replace the seam:
+
+</RichText>
+
+<Diff
+  id="diff-seam1"
+  filename="src/lexic/compile.py"
+  language="python"
+  mode="split"
+  before={"ast = MetaGrammarParser.for_flavour(flavour).parse(text)\n"}
+  after={"ast = reduce(\n    parse(normalize(flavour.grammar), text),\n    flavour.reductions,\n)\n"}
+  annotations={[{"side": "after", "lines": "1-4", "label": "IR-native Seam 1", "note": "Same IrAst out; now produced by parsing_2 instead of Lark."}]}
+/>
+
+<RichText id="phase-5-preserve">
+
+Preserve the pipeline behaviour that lives *outside* the parser: `parse_directives` / `@start` / `@non-semantic` precedence and `non_semantic_rules` plumbing (`compile.py:173-184`), ABNF `=/` incremental rules, and `prose-val` rejection diagnostics.
+
+**Acceptance gate:** the new Seam 1 must emit a **byte-identical `IrAst`** to the old one for every ground-truth grammar — otherwise `derive_specs` / `codegen` / `generated/` regress undetected.
+
+</RichText>
+
+<RichText id="phase-6">
+
+## Phase 6 — Seam 2 (runtime input → `GrammarModel`)
+
+The single largest, least-specified piece. It is **not** "reuse the Reducer with a different target" — it is re-deriving `build_transformer` as reduction bodies. Re-express, as `IrSelf` reductions driven by `RuleSpec`: `field_map`/`kind`-driven field assignment, unquantified-literal skipping, unbounded→list, per-atom consumers, and the adjacent optional-ruleref type disambiguation. That last one is the subtle bit — here is the exact logic the reductions must reproduce:
+
+</RichText>
+
+<AnnotatedCode
+  id="annotated-seam2"
+  filename="src/lexic/parsing/transformer/build_transformer.py"
+  language="python"
+  code={"if isinstance(item.atom, IrLiteral) and item.quantifier == IrQuantifier(1, 1):\n    continue\nval: object\nif isinstance(item.atom, IrRuleRef) and item.quantifier == IrQuantifier(0, 1):\n    # Adjacent optional rule-refs are ambiguous by position alone: ws can\n    # match empty, producing a child even when \"absent\". Check type to\n    # disambiguate.\n    expected = by_rule.get(item.atom)\n    if pos < len(children) and not isinstance(children[pos], Token):\n        if expected is None or isinstance(children[pos], expected):\n            val, pos = children[pos], pos + 1\n        else:\n            val = None\n    else:\n        val = None\nelse:\n    consume = _CONSUME.get(type(item.atom))"}
+  annotations={[
+    {"lines": "1-2", "label": "Skip unquantified literals", "note": "Unquantified IrLiteral produces no field — must survive the rewrite."},
+    {"lines": "4-15", "label": "The tricky case", "note": "Optional rule-refs (ws) can match empty and still yield a child. Type-check the child to decide present vs absent. This must be re-derived as IrSelf reductions."},
+  ]}
+/>
+
+<RichText id="phase-6-gates">
+
+Preserve the **round-trip invariant** — `parse(text, grammar).to_text() == text` — as a test gate across all ground-truth grammars (`base.py` `to_text` is the contract). This phase **requires Phase 4** (SPPF), because user grammars may be ambiguous. And replace the single flat positionless `UnsupportedConstructError` (`engine.py:165`) with **position + expected-set context**; today's message is a hard DX regression versus Lark.
+
+</RichText>
+
+<RichText id="phase-7">
+
+## Phase 7 — cutover / cleanup
+
+- Delete `parsing/lark_builder.py`, `parsing/meta_parser.py`, `parsing/transformer/`, the `META_GRAMMAR` strings, `EscapeCodec`, and the Lark dependency.
+- **Redesign `CompiledGrammar`** — it currently holds `lark.Lark` / `lark.Transformer` typed fields (`compile.py:55-61`); the shape must change, not just lose imports.
+- Rename `parsing_2 → parsing`, `flavour_2 → flavour`, `abnf_2 → abnf`, etc., and mirror the test tree (test files move exactly as their source files do).
+- Finish the deferred `utils/quantifiers.py` cleanup (still consumed by `lark_builder` and `codegen/aliases.py`).
+- Update `CLAUDE.md`, `.wiki/`, the layering rules, and `prototyping/next/3_ROADMAP.md`.
+
+</RichText>
+
+<RichText id="files-touched">
+
+## Files touched
+
+</RichText>
+
+<FileTree
+  id="filetree"
+  title="Code surface"
+  entries={[
+    {"path": "src/lexic/ir/nodes.py", "change": "modified", "note": "P1: IrRadix, IrChr, IrMake family. (No tag slot on IrRule — reductions key by rule name via IrRuleRef.)"},
+    {"path": "src/lexic/ir/select.py", "change": "added", "note": "P1: IrSelect/IrFilter/IrCollect — keep open/dispatch-driven"},
+    {"path": "src/lexic/ir/flavour_2.py", "change": "added", "note": "P2: pure-IrSelf ABC; reuses IrEscape/IrMap"},
+    {"path": "src/lexic/grammars/abnf_2.py", "change": "modified", "note": "P3: canonical tags; drop 18 IrCallable + parse_* atomically; re-close fixpoint"},
+    {"path": "src/lexic/grammars/gbnf_2.py", "change": "added", "note": "P3: GBNF grammar-of-grammar on shared reductions; close fixpoint"},
+    {"path": "src/lexic/parsing_2/chart.py", "change": "modified", "note": "P4: multi-valued links"},
+    {"path": "src/lexic/parsing_2/forest.py", "change": "modified", "note": "P4: packed nodes; ParseTree.kids admits them"},
+    {"path": "src/lexic/parsing_2/reduce.py", "change": "modified", "note": "P4: handle packed nodes + disambiguation; P6: Seam-2 reduction bodies"},
+    {"path": "src/lexic/parsing_2/normalize.py", "change": "modified", "note": "P5: add normalize() composer; enforce synthetic-prefix precondition"},
+    {"path": "src/lexic/parsing_2/engine.py", "change": "modified", "note": "P6: position + expected-set error context"},
+    {"path": "src/lexic/compile.py", "change": "modified", "note": "P5+P6: replace both seams; P7: redesign CompiledGrammar"},
+    {"path": "src/lexic/parsing/lark_builder.py", "change": "removed", "note": "P7"},
+    {"path": "src/lexic/parsing/meta_parser.py", "change": "removed", "note": "P7"},
+    {"path": "src/lexic/parsing/transformer/", "change": "removed", "note": "P7: re-derived as reductions in P6"},
+  ]}
+/>
+
+<RichText id="parity">
+
+## Feature-parity checklist
+
+Each of these is easy to lose silently in the cutover. None is optional.
+
+</RichText>
+
+<Checklist
+  id="parity-checklist"
+  items={[
+    {"id": "abnf-incremental", "label": "ABNF `=/` incremental alternatives (RFC 5234 §3.3; meta_parser.py:112-147)"},
+    {"id": "prose-val", "label": "`prose-val` `<...>` rejection diagnostic"},
+    {"id": "core-rules", "label": "CORE_RULES injection for referenced-but-undefined core rules (abnf.py:101)"},
+    {"id": "directives", "label": "`@start` / `@non-semantic` directives and non_semantic_rules plumbing"},
+    {"id": "error-pos", "label": "Parse-error diagnostics with position + expected set"},
+    {"id": "byte-identical", "label": "Byte-identical IrAst from Seam 1 for every ground-truth grammar"},
+    {"id": "round-trip", "label": "parse(text).to_text() == text round-trip from Seam 2 for every ground-truth grammar"},
+    {"id": "perf", "label": "Performance: add a benchmark before trusting large inputs (c.gbnf, json_arr.gbnf) — Earley is O(n³) and build_tree runs eagerly inside Complete"},
+  ]}
+/>
+
+<RichText id="decisions-heading">
+
+## Decisions recorded
+
+</RichText>
+
+<Table
+  id="table-decisions"
+  columns={["Question", "Decision", "Rationale"]}
+  rows={[
+    ["flavour_2 `nodes` table shape", "Two tables — emit by IR type, reduce by rule name", "No rule-name ↔ IR-type bijection exists; one table forces artificial reconciliation. Already what abnf_2 ships."],
+    ["Canonical-tag mechanism", "The rule name is the tag, keyed by IrRuleRef", "abnf_2 already keys ABNF_REDUCTIONS as IrMap[IrRuleRef, IrSelf]. No IrRule slot or side table needed."],
+    ["Case-insensitive literals", "Algebraic per-char case-class expansion", "Expand each cased letter to a two-element char class at construction; no dedicated node, no post-pass."],
+    ["SPPF disambiguation policy", "Grammar-author level", "Engine and flavour stay policy-free; needs an author-facing surface designed in Phase 4."],
+  ]}
+/>
+
+<RichText id="open-questions-heading">
+
+### Open Questions
+
+The four structural questions are decided (above). One slot remains.
+
+</RichText>
+
+<QuestionForm
+  id="open-questions"
+  questions={[
+    {
+      "id": "anything-else",
+      "title": "Anything to add, reorder, or cut before implementation starts?",
+      "mode": "freeform",
+      "placeholder": "Scope, sequencing, or risk notes..."
+    }
+  ]}
+  submitLabel="Send answers"
+/>
