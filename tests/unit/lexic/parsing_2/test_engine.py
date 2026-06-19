@@ -1,11 +1,27 @@
-"""Tests for lexic.parsing_2.engine — EarleyParser, recognize, parse."""
+"""Tests for lexic.parsing_2.engine — EarleyParser, recognize, parse.
+
+API changes:
+
+- ``EarleyParser().parse(g, t)`` / ``EarleyParser().recognize(g, t)`` removed
+  (methods on the instance are ``eval`` and dunders only).  All calls updated to
+  the module-level entry points ``parse(g, t)`` / ``recognize(g, t)``.
+
+- Tests ``test_module_recognize_agrees_with_instance_method`` and
+  ``test_module_parse_agrees_with_instance_method`` are removed: the instance
+  methods no longer exist (they were exactly the old entry points that are now
+  the module-level functions).  The behavioral coverage (recognize/parse
+  correctness) is fully preserved by the other tests in this file.
+
+New symbols tested: ``RuleIndex``, ``NullableRules``, ``Matches``,
+``AcceptingItem``, ``BuildChart`` (and their singletons).
+"""
 
 from __future__ import annotations
 
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrNoneType, IrSeq
+from lexic.ir.base import IrInt, IrNone, IrNoneType, IrSeq, IrStr, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -19,6 +35,18 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.parsing_2 import EarleyParser, ParseTree, parse, recognize
+from lexic.parsing_2.engine import (
+    ACCEPT,
+    BUILD_CHART,
+    MATCHES,
+    NULLABLE,
+    RULE_INDEX,
+    AcceptingItem,
+    BuildChart,
+    Matches,
+    NullableRules,
+    RuleIndex,
+)
 from lexic.parsing_2.normalize import (
     desugar_quantifiers,
     flatten_groups,
@@ -272,17 +300,67 @@ def test_parse_single_char_tree_leaf_is_literal():
     assert tree.kids[0] == IrLiteral("9")
 
 
-# ── Module-level recognize / parse agree with EarleyParser methods ────
+# ── New engine nodes ──────────────────────────────────────────────────
 
 
-def test_module_recognize_agrees_with_instance_method():
-    """Module-level recognize() wraps EarleyParser().recognize()."""
-    g = _digit_grammar()
-    assert recognize(g, "4") == EarleyParser().recognize(g, "4")
-    assert recognize(g, "x") == EarleyParser().recognize(g, "x")
+def test_rule_index_singleton_is_rule_index_instance():
+    """RULE_INDEX is a RuleIndex instance."""
+    assert isinstance(RULE_INDEX, RuleIndex)
 
 
-def test_module_parse_agrees_with_instance_method():
-    """Module-level parse() wraps EarleyParser().parse()."""
-    g = _digit_grammar()
-    assert parse(g, "6") == EarleyParser().parse(g, "6")
+def test_nullable_singleton_is_nullable_rules_instance():
+    """NULLABLE is a NullableRules instance."""
+    assert isinstance(NULLABLE, NullableRules)
+
+
+def test_matches_singleton_is_matches_instance():
+    """MATCHES is a Matches instance."""
+    assert isinstance(MATCHES, Matches)
+
+
+def test_accept_singleton_is_accepting_item_instance():
+    """ACCEPT is an AcceptingItem instance."""
+    assert isinstance(ACCEPT, AcceptingItem)
+
+
+def test_build_chart_singleton_is_build_chart_instance():
+    """BUILD_CHART is a BuildChart instance."""
+    assert isinstance(BUILD_CHART, BuildChart)
+
+
+def test_matches_literal_matches_same_char():
+    """Matches.eval returns IrInt(1) when the literal matches the char."""
+    parser = EarleyParser()
+    result = MATCHES.eval(parser, IrLiteral("x"), IrTuple(IrStr("x")))
+    assert result == IrInt(1)
+
+
+def test_matches_literal_rejects_different_char():
+    """Matches.eval returns IrInt(0) when the literal does not match."""
+    parser = EarleyParser()
+    result = MATCHES.eval(parser, IrLiteral("x"), IrTuple(IrStr("y")))
+    assert result == IrInt(0)
+
+
+def test_matches_charclass_range_matches():
+    """Matches.eval returns IrInt(1) for a char inside a range."""
+    parser = EarleyParser()
+    atom = IrCharClass(IrRange("a", "z"))
+    result = MATCHES.eval(parser, atom, IrTuple(IrStr("m")))
+    assert result == IrInt(1)
+
+
+def test_matches_charclass_range_rejects():
+    """Matches.eval returns IrInt(0) for a char outside a range."""
+    parser = EarleyParser()
+    atom = IrCharClass(IrRange("a", "z"))
+    result = MATCHES.eval(parser, atom, IrTuple(IrStr("0")))
+    assert result == IrInt(0)
+
+
+def test_nullable_rules_returns_irseq():
+    """NullableRules.eval returns an IrSeq of nullable rule names."""
+    parser = EarleyParser()
+    g = _normalize(_quant_grammar(0, IrNone))
+    result = NULLABLE.eval(parser, g, ())
+    assert isinstance(result, IrSeq)

@@ -1,4 +1,16 @@
-"""Tests for lexic.parsing_2.normalize — desugar, flatten, split, invariants."""
+"""Tests for lexic.parsing_2.normalize — desugar, flatten, split, invariants.
+
+API changes:
+
+- ``is_synthetic_name(name)`` removed.  All uses replaced with
+  ``name.startswith(SYNTHETIC_PREFIX)``.
+
+- ``normalize()`` composer function added; a few tests exercise it directly.
+
+- New node classes (``Minter``, ``SplitSeq``, ``HoistItem``, ``DesugarItem``,
+  ``CollectRules``, ``Expand``, ``OptChain``, ``SplitLiterals``,
+  ``FlattenGroups``, ``DesugarQuantifiers``) are importable.
+"""
 
 from __future__ import annotations
 
@@ -23,9 +35,19 @@ from lexic.ir.nodes import (
 from lexic.parsing_2.engine import recognize
 from lexic.parsing_2.normalize import (
     SYNTHETIC_PREFIX,
+    CollectRules,
+    DesugarItem,
+    DesugarQuantifiers,
+    Expand,
+    FlattenGroups,
+    HoistItem,
+    Minter,
+    OptChain,
+    SplitLiterals,
+    SplitSeq,
     desugar_quantifiers,
     flatten_groups,
-    is_synthetic_name,
+    normalize,
     split_literals,
 )
 
@@ -55,24 +77,23 @@ def _ruleref_rule(target: str, quant: IrQuantifier = _ONE) -> IrAst:
     return IrAst(rules=IrSeq(s, t), start="s")
 
 
-# ── is_synthetic_name / SYNTHETIC_PREFIX ─────────────────────────────
-
-
-def test_is_synthetic_name_true_for_prefix():
-    """Names starting with SYNTHETIC_PREFIX are synthetic."""
-    assert is_synthetic_name(f"{SYNTHETIC_PREFIX}rep_1") is True
-
-
-def test_is_synthetic_name_false_for_source_names():
-    """Ordinary source rule names are not synthetic."""
-    assert is_synthetic_name("rulelist") is False
-    assert is_synthetic_name("s") is False
-    assert is_synthetic_name("catrest") is False
+# ── SYNTHETIC_PREFIX ──────────────────────────────────────────────────
 
 
 def test_synthetic_prefix_is_double_underscore():
     """SYNTHETIC_PREFIX is '__' — well-known, not a source name prefix."""
     assert SYNTHETIC_PREFIX == "__"
+
+
+def test_synthetic_name_detected_via_startswith():
+    """Names starting with SYNTHETIC_PREFIX are synthetic (use startswith)."""
+    assert f"{SYNTHETIC_PREFIX}rep_1".startswith(SYNTHETIC_PREFIX)
+
+
+def test_source_names_do_not_start_with_prefix():
+    """Ordinary source rule names do not start with SYNTHETIC_PREFIX."""
+    for name in ("rulelist", "s", "catrest"):
+        assert not name.startswith(SYNTHETIC_PREFIX)
 
 
 # ── split_literals ────────────────────────────────────────────────────
@@ -173,7 +194,7 @@ def test_flatten_groups_hoists_group_to_synthetic_rule():
     assert len(rules) == 2
     # The second rule is the synthetic one
     syn_rule = rules[1]
-    assert is_synthetic_name(syn_rule.name)
+    assert syn_rule.name.startswith(SYNTHETIC_PREFIX)
 
 
 def test_flatten_groups_replaces_atom_with_ruleref():
@@ -217,7 +238,9 @@ def test_flatten_groups_synthetic_names_carry_prefix():
     result = flatten_groups(g)
     for r in result.rules:
         if r.name != "s":
-            assert is_synthetic_name(r.name), f"Expected synthetic name, got {r.name!r}"
+            assert r.name.startswith(SYNTHETIC_PREFIX), (
+                f"Expected synthetic name, got {r.name!r}"
+            )
 
 
 # ── desugar_quantifiers ───────────────────────────────────────────────
@@ -229,7 +252,7 @@ def _desugar(quant: IrQuantifier) -> IrAst:
 
 
 def _synthetic_rules(g: IrAst) -> list[IrRule]:
-    return [r for r in g.rules if is_synthetic_name(r.name)]
+    return [r for r in g.rules if r.name.startswith(SYNTHETIC_PREFIX)]
 
 
 def test_desugar_one_one_unchanged():
@@ -377,7 +400,43 @@ def test_desugar_s_now_references_synthetic_rule():
     arm = list(s_rule.body)[0]
     item = list(arm)[0]
     assert isinstance(item.atom, IrRuleRef)
-    assert is_synthetic_name(str(item.atom))
+    assert str(item.atom).startswith(SYNTHETIC_PREFIX)
+
+
+# ── normalize() composer ──────────────────────────────────────────────
+
+
+def test_normalize_composer_equals_manual_pipeline():
+    """normalize() returns the same result as the manual three-step pipeline."""
+    g = _literal_rule("ab", IrQuantifier(0, IrNone))
+    assert normalize(g) == _normalize(g)
+
+
+def test_normalize_composer_returns_ir_ast():
+    """normalize() returns an IrAst."""
+    g = _literal_rule("x")
+    result = normalize(g)
+    assert isinstance(result, IrAst)
+
+
+# ── Node class exports ────────────────────────────────────────────────
+
+
+def test_normalize_node_classes_are_importable():
+    """The IrSelf node classes are importable from normalize."""
+    for cls in (
+        Minter,
+        SplitSeq,
+        HoistItem,
+        DesugarItem,
+        CollectRules,
+        Expand,
+        OptChain,
+        SplitLiterals,
+        FlattenGroups,
+        DesugarQuantifiers,
+    ):
+        assert callable(cls)
 
 
 # ── Full normalize invariants ─────────────────────────────────────────

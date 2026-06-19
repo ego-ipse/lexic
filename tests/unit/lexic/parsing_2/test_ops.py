@@ -1,8 +1,14 @@
-"""Tests for lexic.parsing_2.ops — Predict/Scan/Complete and EARLEY_OPS."""
+"""Tests for lexic.parsing_2.ops — Predict/Scan/Complete and EARLEY_OPS.
+
+API changes:
+
+- ``ParseCtx.nullable`` is now an ``IrSeq`` (was ``frozenset``).  The test that
+  constructed ``ParseCtx`` with a ``frozenset`` is updated to pass ``IrSeq()``.
+"""
 
 from __future__ import annotations
 
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import IrCharClass, IrLiteral, IrRange, IrRuleRef, IrSequence
 from lexic.parsing_2.chart import Chart
@@ -52,13 +58,16 @@ def test_parse_ctx_has_nullable_field():
 
 
 def test_parse_ctx_child_attrs_is_empty():
-    """ParseCtx walks no children — context is engine state, not grammar."""
+    """ParseCtx walks no children — context is engine state, not grammar.
+
+    ``nullable`` is now an ``IrSeq`` (was ``frozenset``).
+    """
     ctx = ParseCtx(
         Chart(),
         IrMap(),
         "",
         0,
         EarleyItem(IrRuleRef("r"), IrSequence(), 0, 0),
-        frozenset(),
+        IrSeq(),
     )
     assert not ctx.children()

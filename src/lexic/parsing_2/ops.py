@@ -1,7 +1,7 @@
 """Earley operations as IR action bodies, dispatched on the symbol after the dot.
 
 The three classical Earley operations are the three IR bodies here, and the
-choice between them IS the dispatch on ``item.next_symbol()``:
+choice between them IS the dispatch on the symbol after the dot:
 
 ==================================  ============================  ===========
 symbol after the dot                meaning                       body
@@ -17,6 +17,11 @@ the exact dispatch substrate the emit flavours use, pointed the other way. Each
 body is side-effecting (it mutates the chart and returns :data:`IrNone`, the
 visitor convention); the per-item context arrives through ``nc`` as a single
 :class:`ParseCtx`, the documented "argument channel" use of ``nc``.
+
+:class:`Scan` is the deferral half — a terminal needs no action while a column is
+closing; the actual character match runs between columns in the driver, which
+re-derives the scannable items by filtering the closed column. So :class:`Scan`
+is a no-op that exists only to give terminals a (do-nothing) dispatch target.
 """
 
 from __future__ import annotations
@@ -24,11 +29,20 @@ from __future__ import annotations
 from typing import ClassVar, Sequence, cast
 
 from lexic.ir.action import IrAction
-from lexic.ir.base import IrLeaf, IrNamedTuple, IrNone, IrNoneType, IrSelf, IrSeq
+from lexic.ir.base import (
+    IrInt,
+    IrLeaf,
+    IrNamedTuple,
+    IrNone,
+    IrNoneType,
+    IrSelf,
+    IrSeq,
+    IrTuple,
+)
 from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import IrAlternation, IrCharClass, IrLiteral, IrRange, IrRuleRef
-from lexic.parsing_2.chart import Chart
-from lexic.parsing_2.forest import ParseTree, build_tree
+from lexic.parsing_2.chart import Chart, Link
+from lexic.parsing_2.forest import BUILD_TREE, ParseTree
 from lexic.parsing_2.item import EarleyItem
 
 
@@ -44,8 +58,9 @@ class ParseCtx(IrNamedTuple):
     :ivar text: The full input string.
     :ivar col: The current column index.
     :ivar item: The item currently being processed.
-    :ivar nullable: Names of rules that can derive the empty string — the
-        predictor advances over these immediately (Aycock-Horspool).
+    :ivar nullable: Names of rules that can derive the empty string (an
+        :class:`~lexic.ir.base.IrSeq` of name leaves) — the predictor advances
+        over these immediately (Aycock-Horspool).
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
@@ -54,81 +69,57 @@ class ParseCtx(IrNamedTuple):
     text: str
     col: int
     item: EarleyItem
-    nullable: frozenset[str]
-
-
-def _ctx(nc: Sequence[IrSelf]) -> ParseCtx:
-    """Pull the :class:`ParseCtx` out of the argument channel.
-
-    :param nc: The argument channel — ``(ParseCtx,)``.
-    :returns: The context.
-    """
-    return cast(ParseCtx, nc[0])
-
-
-def _advance_over_empty(ctx: ParseCtx, ref: IrRuleRef) -> None:
-    """Advance the predicting item past a nullable ``ref`` (Aycock-Horspool).
-
-    A nullable non-terminal may match the empty string, so the item that
-    predicted it can move its dot at once, recording an empty derivation as the
-    consumed child. This covers the items predicted *after* the empty completion
-    already fired in the column — the classic nullable-rule gap. The advanced
-    item is identical to (and dedup-merged with) the one the empty completion
-    produces, so the empty-span link is set exactly once.
-
-    :param ctx: The current dispatch context.
-    :param ref: The nullable non-terminal after the dot.
-    """
-    advanced = ctx.item.advance()
-    if ctx.chart[ctx.col].add(advanced):
-        ctx.chart.links[(advanced, ctx.col)] = (
-            ctx.item,
-            ctx.col,
-            ParseTree(ref, IrSeq()),
-        )
+    nullable: IrSeq
 
 
 class Predict(IrLeaf[IrSelf, IrSelf]):
     """Earley predictor: the dot faces non-terminal ``n``; seed its arms.
 
     For every arm of ``rules[n]`` add a fresh dot-0 item originating at the
-    current column. Newly added items extend the column the driver is iterating.
+    current column. A nullable target also advances the predicting item at once
+    (Aycock-Horspool), recording an empty derivation as the consumed child — the
+    advanced item is dedup-merged with the one the empty completion produces, so
+    the empty-span link is set exactly once. Newly added items extend the column
+    the driver is iterating.
     """
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
-        """Add a dot-0 item per arm of the predicted rule.
+        """Add a dot-0 item per arm; advance over a nullable target.
 
         :param _d: Dispatcher (unused — prediction reads the chart, not children).
         :param n: The :class:`~lexic.ir.nodes.IrRuleRef` after the dot.
         :param nc: ``(ParseCtx,)``.
         :returns: :data:`IrNone`.
         """
-        ctx = _ctx(nc)
+        ctx = cast(ParseCtx, nc[0])
         ref = cast(IrRuleRef, n)
+        col = ctx.chart[ctx.col]
         for arm in ctx.rules.resolve(ref):
-            ctx.chart[ctx.col].add(EarleyItem(ref, arm, 0, ctx.col))
+            col += EarleyItem(ref, arm, 0, ctx.col)
         if str(ref) in ctx.nullable:
-            _advance_over_empty(ctx, ref)
+            it = ctx.item
+            advanced = EarleyItem(it.rule_name, it.arm, it.dot + 1, it.origin)
+            if advanced not in col:
+                col += advanced
+                ctx.chart.links[(advanced, ctx.col)] = Link(
+                    it, ctx.col, ParseTree(ref, IrSeq())
+                )
         return IrNone
 
 
 class Scan(IrLeaf[IrSelf, IrSelf]):
-    """Earley scanner (deferral half): the dot faces a terminal; queue the item.
+    """Earley scanner (deferral half): a terminal needs no close-time action.
 
-    The actual character match happens in :meth:`EarleyParser._scan` between
-    columns — here we only buffer the item, mirroring Lark's ``to_scan`` set.
+    The character match happens between columns in the driver, which re-derives
+    the scannable items by filtering the closed column — so this body is a no-op,
+    present only so a terminal symbol has a dispatch target.
     """
 
-    def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
-        """Buffer the current item for the scanner step.
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrNoneType:
+        """No-op: terminals are scanned by the driver, not here.
 
-        :param _d: Dispatcher (unused).
-        :param _n: The terminal atom after the dot (unused — read from the item).
-        :param nc: ``(ParseCtx,)``.
         :returns: :data:`IrNone`.
         """
-        ctx = _ctx(nc)
-        ctx.chart[ctx.col].to_scan.append(ctx.item)
         return IrNone
 
 
@@ -137,37 +128,37 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
 
     The completed item recognised ``rule_name`` spanning ``origin .. col``. Every
     item in column ``origin`` whose dot faces that same rule advances into the
-    current column.
+    current column. The completed item's sub-derivation is built once (eagerly —
+    all its children are already linked) and recorded as the child each advanced
+    predecessor consumed, so :class:`~lexic.parsing_2.forest.BuildTree` can later
+    walk the provenance links.
     """
 
     def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
         """Advance predecessors that were waiting on the completed rule.
-
-        The completed item's sub-derivation is built once (eagerly — all its
-        children are already linked) and recorded as the child each advanced
-        predecessor consumed, so :func:`~lexic.parsing_2.forest.build_tree` can
-        later walk the provenance links.
-
-        Nullable rules (``origin == col``) also advance their predecessors here,
-        but predecessors *predicted after* this completion are caught by the
-        predictor's Aycock-Horspool shortcut (:func:`_advance_over_empty`); the
-        two paths produce the same advanced item and merge.
 
         :param _d: Dispatcher (unused).
         :param _n: :data:`IrNone` (unused — the item carries everything).
         :param nc: ``(ParseCtx,)``.
         :returns: :data:`IrNone`.
         """
-        ctx = _ctx(nc)
+        ctx = cast(ParseCtx, nc[0])
         done = ctx.item
         chart = ctx.chart
-        subtree = build_tree(chart, done, ctx.col)
+        subtree = BUILD_TREE.eval(_d, done, IrTuple(chart, IrInt(ctx.col)))
         current = chart[ctx.col]
         for waiting in chart[done.origin]:
-            if waiting.next_symbol() == done.rule_name:  # both IrRuleRef ⇒ eq holds
-                advanced = waiting.advance()
-                if current.add(advanced):
-                    chart.links[(advanced, ctx.col)] = (waiting, done.origin, subtree)
+            if waiting.dot < len(waiting.arm) and (
+                waiting.arm[waiting.dot].atom == done.rule_name
+            ):
+                advanced = EarleyItem(
+                    waiting.rule_name, waiting.arm, waiting.dot + 1, waiting.origin
+                )
+                if advanced not in current:
+                    current += advanced
+                    chart.links[(advanced, ctx.col)] = Link(
+                        waiting, done.origin, subtree
+                    )
         return IrNone
 
 

@@ -7,14 +7,20 @@ the arm was predicted. It IS-AN :class:`~lexic.ir.base.IrNamedTuple`, so identit
 (equality / hashing for Earley-set dedup) is native tuple identity over the four
 fields — and the SPPF/derivation node is deliberately NOT a field, exactly as in
 Lark's ``Item`` (its ``node`` is a mutable side attribute, excluded from ``==``).
+
+The item is **pure data**: it carries no methods of its own. The few derived
+values it once exposed (the symbol after the dot, the advanced item) are computed
+inline in the operation ``eval`` bodies that need them (see
+:mod:`lexic.parsing_2.ops` and :mod:`lexic.parsing_2.engine`), keeping the record
+to ``eval`` + dunders only.
 """
 
 from __future__ import annotations
 
 from typing import ClassVar
 
-from lexic.ir.base import IrAtom, IrNamedTuple, IrNone, IrNoneType
-from lexic.ir.nodes import IrItem, IrRuleRef, IrSequence
+from lexic.ir.base import IrNamedTuple
+from lexic.ir.nodes import IrRuleRef, IrSequence
 
 
 class EarleyItem(IrNamedTuple[IrRuleRef, IrSequence, int, int]):
@@ -29,6 +35,11 @@ class EarleyItem(IrNamedTuple[IrRuleRef, IrSequence, int, int]):
     The four fields are scalar payload, not dispatched children
     (``_child_attrs = ()``) — an item is engine state, never walked as grammar.
 
+    The symbol after the dot is ``arm[dot].atom`` when ``dot < len(arm)`` else
+    :data:`~lexic.ir.base.IrNone`; the advanced item is
+    ``EarleyItem(rule_name, arm, dot + 1, origin)``. Both are spelled inline at
+    the (few) call sites rather than as methods here.
+
     :ivar rule_name: The non-terminal this arm defines.
     :ivar arm: The single alternation arm (sequence of :class:`IrItem`).
     :ivar dot: Index into ``arm`` of the next symbol to match.
@@ -40,37 +51,3 @@ class EarleyItem(IrNamedTuple[IrRuleRef, IrSequence, int, int]):
     arm: IrSequence
     dot: int
     origin: int
-
-    @property
-    def is_complete(self) -> bool:
-        """True when the dot is past the last symbol — the arm fully matched.
-
-        :returns: Whether ``dot`` has reached the end of ``arm``.
-        """
-        return self.dot >= len(self.arm)
-
-    def next_item(self) -> IrItem | IrNoneType:
-        """The :class:`IrItem` at the dot, or :data:`IrNone` if complete.
-
-        :returns: The item to match next, or the absence sentinel.
-        """
-        return IrNone if self.is_complete else self.arm[self.dot]
-
-    def next_symbol(self) -> IrAtom | IrNoneType:
-        """The atom the dispatch table keys on: the dotted item's atom, or
-        :data:`IrNone` when complete (which routes to :class:`~lexic.parsing_2.ops.Complete`).
-
-        Assumes the arm is Earley-normalised to ``(1, 1)`` quantifiers (see
-        :mod:`lexic.parsing_2.normalize`); the quantifier is ignored here.
-
-        :returns: The next atom, or :data:`IrNone`.
-        """
-        nxt = self.next_item()
-        return IrNone if isinstance(nxt, IrNoneType) else nxt.atom
-
-    def advance(self) -> EarleyItem:
-        """A new item with the dot moved one symbol right (same identity otherwise).
-
-        :returns: The advanced :class:`EarleyItem`.
-        """
-        return EarleyItem(self.rule_name, self.arm, self.dot + 1, self.origin)

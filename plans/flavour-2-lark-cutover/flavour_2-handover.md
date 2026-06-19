@@ -1,5 +1,7 @@
 # Handover — `flavour_2` and the Lark cutover
 
+npx @agent-native/core@latest plan local serve --dir plans/flavour-2-lark-cutover --kind plan --open
+
 **Date:** 2026-06-18
 **Status:** design settled; implementation not started. Builds on the completed
 `parsing_2` engine (see `prototyping/next/draft/parsing_2-handover.md`).

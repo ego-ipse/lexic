@@ -31,25 +31,28 @@ quantifier/group desugaring in :mod:`.normalize` is partial.
 
 from __future__ import annotations
 
-from lexic.parsing_2.chart import Chart, Column
+from lexic.parsing_2.chart import Chart, Column, Link, Links
 from lexic.parsing_2.engine import EarleyParser, parse, recognize
-from lexic.parsing_2.forest import ParseTree, build_tree
+from lexic.parsing_2.forest import BUILD_TREE, BuildTree, ParseTree
 from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.ops import EARLEY_OPS, Complete, Predict, Scan
 from lexic.parsing_2.reduce import Reducer
 
 __all__ = [
+    "BUILD_TREE",
+    "BuildTree",
     "Chart",
     "Column",
     "Complete",
     "EARLEY_OPS",
     "EarleyParser",
     "EarleyItem",
+    "Link",
+    "Links",
     "ParseTree",
     "Predict",
     "Reducer",
     "Scan",
-    "build_tree",
     "parse",
     "recognize",
 ]
