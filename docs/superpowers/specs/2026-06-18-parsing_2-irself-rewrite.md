@@ -171,8 +171,9 @@ Removed / renamed (old → new):
 - `normalize.is_synthetic_name(name)` → removed (use `name.startswith(SYNTHETIC_PREFIX)`).
 
 New symbols: `chart.{Link,Links}`, `forest.{BuildTree,BUILD_TREE}`,
-`engine.{RuleIndex,NullableRules,Matches,AcceptingItem,BuildChart}` (+ singletons
-`RULE_INDEX`/`NULLABLE`/`MATCHES`/`ACCEPT`/`BUILD_CHART`),
+`engine.{RuleIndex,NullableRules,Matches,AcceptingItem,CloseColumn,ScanColumn,BuildChart}`
+(+ singletons `RULE_INDEX`/`NULLABLE`/`MATCHES`/`ACCEPT`/`CLOSE_COLUMN`/`SCAN_COLUMN`/`BUILD_CHART`;
+the driver loop is split across `CloseColumn`/`ScanColumn`, orchestrated by `BuildChart`),
 `reduce.{ResolveChildren,RESOLVE_CHILDREN}`,
 `normalize.{Minter,SplitSeq,HoistItem,DesugarItem,CollectRules,Expand,OptChain,SplitLiterals,FlattenGroups,DesugarQuantifiers,normalize}`
 (transforms are `IrTransformer` subclasses; `Expand`/`OptChain` have singletons
