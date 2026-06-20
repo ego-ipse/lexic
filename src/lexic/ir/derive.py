@@ -12,7 +12,7 @@ from lexic.ir.action import IrAction, IrReturn
 from lexic.ir.base import (
     Field,
     IrAtom,
-    IrCallable,
+    IrLambda,
     IrNode,
     IrNone,
     IrNoneType,
@@ -139,7 +139,7 @@ def _extract_group(
 
 
 _EXTRACT_BODY: IrDispatch = IrDispatch(
-    actions=IrTypeMap(IrAction(IrAlternation, IrCallable(_extract_group))),
+    actions=IrTypeMap(IrAction(IrAlternation, IrLambda(_extract_group))),
     # Non-IrAlternation atoms never hoist: IrNone is self-evaluating, so it
     # serves as the "extract nothing" body directly — no procedural wrapper.
     default=IrNone,
@@ -196,7 +196,7 @@ class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     parent_name: str = ""
     name_set: set[str] = Field(default_factory=set)
     helpers: list[IrRule] = Field(default_factory=list)
-    actions: IrTypeMap = IrTypeMap(IrAction(IrItem, IrCallable(_hoist_item)))
+    actions: IrTypeMap = IrTypeMap(IrAction(IrItem, IrLambda(_hoist_item)))
 
 
 def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:

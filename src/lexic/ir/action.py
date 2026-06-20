@@ -12,7 +12,7 @@ here overrides ``eval`` to produce its typed result. Pass :data:`IrNone`
 to a slot that has no relevant value.
 
 **``nc`` is the argument channel.** Operands for :class:`~lexic.ir.operators.IrOp`,
-fold inputs for :class:`~lexic.ir.base.IrCallable`, render-marks for emitter
+operand-fold inputs for procedural bodies, render-marks for emitter
 actions (handed over by :class:`IrApply`, read by :class:`IrArgs`). It is NOT
 a children channel: the child readers (:class:`IrChild`, :class:`IrIndex`,
 :class:`IrChildren`) always resolve children from ``n`` itself and ignore
@@ -26,7 +26,7 @@ a children channel: the child readers (:class:`IrChild`, :class:`IrIndex`,
 a tuple, coexist with its layout).
 The default bodies (``IrPass``, ``IrWalk``, ``IrEmit``, ``IrRebuild``) are plain
 ``__slots__`` leaves. The procedural escape hatch
-:class:`~lexic.ir.base.IrCallable` lives in the spine so lower layers
+:class:`~lexic.ir.base.IrLambda` lives in the spine so lower layers
 (e.g. :mod:`lexic.ir.operators`) can use it too.
 """
 
@@ -56,7 +56,7 @@ class _Return(BaseException):
     """Control-flow exception raised by :class:`IrReturn`.
 
     Inherits :class:`BaseException` (not :class:`Exception`) so
-    :class:`IrCallable` bodies that wrap their work in
+    procedural bodies that wrap their work in
     ``except Exception:`` cannot swallow it.
     """
 

@@ -21,7 +21,6 @@ from lexic.ir.action import (
 )
 from lexic.ir.base import (
     IrAtom,
-    IrCallable,
     IrInt,
     IrLeaf,
     IrNamedTuple,
@@ -76,7 +75,6 @@ __all__ = [
     "IrAt",
     "IrAtom",
     "IrBuild",
-    "IrCallable",
     "IrCharClass",
     "IrChild",
     "IrChildren",

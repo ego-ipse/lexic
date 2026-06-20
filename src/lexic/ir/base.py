@@ -289,122 +289,32 @@ class IrLeaf[Iri: IrSelf, Ir_co: IrSelf](IrNode[Iri, Ir_co]):
         return ()
 
 
-class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
-    """Procedural body — a leaf that wraps one handler callable.
-
-    The escape hatch for logic the algebra can't express. Generic in ``Iri``
-    (the handler's input type — a handler may type its parameters as narrowly
-    as it likes, e.g. ``group: IrAlternation``) and ``Ir_co`` (the result type);
-    callers narrow at construction: ``IrCallable[IrSelf, IrStr](handler)``.
-
-    Built on :class:`IrNode` (not :class:`IrTuple`/:class:`IrScalar`), so ``eval``
-    keeps the ``Iri`` input type — no casts needed — and equality/hash are by
-    identity (callables are not value-comparable). The handler may also be an
-    :class:`IrSelf` node, which is ``eval``\\ ed instead of called.
-
-    Two handler conventions, selected explicitly by ``out`` (never by signature
-    sniffing):
-
-    - **protocol** (default): ``handler(d, n, nc) -> Ir_co``.
-    - **fold** (``out`` given): ``handler`` is a bare fold over the operands —
-      ``out(handler(*nc))`` lifts it into the protocol, ``out`` being the
-      runtime result type exactly like :attr:`~lexic.ir.action.IrField.out`
-      (e.g. ``IrCallable(operator.eq, IrInt)``).
-
-    Lives in the spine (not :mod:`lexic.ir.action`) so layers below the action
-    algebra — e.g. :class:`~lexic.ir.operators.IrOp`'s ``_OPS`` table — can
-    wrap handlers without an import cycle.
-
-    :param Iri: the handler's input (dispatcher) type.
-    :param Ir_co: the result type the handler produces.
-    """
-
-    __slots__ = ("handler", "out")
-    handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co]
-    out: type[IrScalar] | None
-
-    @overload
-    def __new__(
-        cls, handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co]
-    ) -> Self: ...
-    @overload
-    def __new__(cls, handler: Callable[..., object], out: type[Ir_co]) -> Self: ...
-    def __new__(
-        cls,
-        handler: Callable[..., object] | IrSelf[Iri, Ir_co],
-        out: type[Ir_co] | None = None,
-    ) -> Self:
-        """Wrap ``handler`` as an immutable leaf.
-
-        :param handler: A procedure ``(d, n, nc) -> Ir_co``, an IR node whose
-            ``eval`` produces the result, or — with ``out`` — a bare operand
-            fold ``fn(*operands)``.
-        :param out: Result type a fold's raw return is wrapped in (an
-            :class:`IrScalar` subtype — payload-constructible); ``None``
-            selects the protocol convention.
-        :returns: The new ``IrCallable`` leaf.
-        """
-        obj = object.__new__(cls)
-        object.__setattr__(obj, "handler", handler)
-        object.__setattr__(obj, "out", out)
-        return obj
-
-    def __call__(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
-        """Run the wrapped handler: a node is evaluated, a callable is called,
-        a fold (``out`` set) is applied to the operands and its result wrapped.
-
-        The fold branch casts the handler past the protocol annotation — the
-        ``out`` overload deliberately admits any bare callable — and ``bind``
-        types the wrapped result back to ``Ir_co``.
-        """
-        if self.out is not None:
-            fold = cast(Callable[..., object], self.handler)
-            return self.bind(self.out(fold(*nc)))
-        if isinstance(self.handler, IrSelf):
-            return self.handler.eval(d, n, nc)
-        return self.handler(d, n, nc)
-
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
-        """Forward to the wrapped handler.
-
-        :param d: Dispatcher forwarded to the handler.
-        :param n: Current node forwarded to the handler.
-        :param nc: Pre-walked children forwarded to the handler.
-        :returns: Whatever the handler returns.
-        """
-        return self(d, n, nc)
-
-    def __repr__(self) -> str:
-        """Repr holding the handler's name (not round-trip codegen).
-
-        :returns: ``ClassName(<handler name>)``, plus ``out`` when set.
-        """
-        name = getattr(self.handler, "__name__", self.handler)
-        if self.out is not None:
-            return f"{type(self).__name__}({name}, {self.out.__name__})"
-        return f"{type(self).__name__}({name})"
-
-
 class IrLambda(IrNode[IrSelf, IrSelf]):
-    """Minimal procedural escape hatch — the stored closure IS the eval.
+    """Minimal procedural escape hatch — the stored callable IS the eval.
 
-    A protocol closure ``(d, n, nc) -> IrSelf`` is attached as ``_eval`` and
-    :meth:`eval` delegates straight to it — no fold convention, no
-    node-handler branch (the two accreted modes of :class:`IrCallable`). Equality
+    Variadic: the wrapped callable is attached as the ``eval`` slot and invoked
+    with whatever arguments the caller supplies — a dispatch body is called as
+    ``(d, n, nc) -> IrSelf``, while an operator body is called variadically over
+    the operands (``IrLambda(operator.eq).eval(*nc)``). No fold convention, no
+    node-handler branch (the two modes the old IrCallable had). Equality
     is by identity and ``repr`` is name-based: a closure is not round-trippable
-    codegen, the one invariant this node may break (as :class:`IrCallable` does).
+    codegen, the one invariant this node may break.
 
-    :param fn: The protocol closure invoked on dispatch.
+    :param fn: The callable invoked on dispatch.
     """
 
     __slots__ = ("eval",)
+    # The wrapped callable IS eval. Its return is heterogeneous — IrSelf for a
+    # dispatch body, a raw operand-fold result the caller wraps — so Any is the
+    # honest escape-hatch type. Dispatch consumers are unaffected: they hold
+    # bodies as IrSelf and call IrSelf.eval, never IrLambda.eval directly.
+    eval: Callable[..., Any]
 
-    def __new__(
-        cls, fn: Callable[[IrSelf, IrSelf, Sequence[IrSelf]], IrSelf], /
-    ) -> Self:
+    def __new__(cls, fn: Callable[..., Any], /) -> Self:
         """Wrap ``fn`` as an immutable leaf.
 
-        :param fn: The protocol closure ``(d, n, nc) -> IrSelf``.
+        :param fn: The callable serving as ``eval`` — a ``(d, n, nc) -> IrSelf``
+            dispatch body or a bare operand fold applied variadically.
         :returns: The new ``IrLambda`` leaf.
         """
         obj = object.__new__(cls)

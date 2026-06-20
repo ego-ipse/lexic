@@ -17,7 +17,7 @@ import pytest
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir.action import IrThis
-from lexic.ir.base import IrCallable, IrInt, IrNone, IrSelf, IrStr, IrTuple
+from lexic.ir.base import IrInt, IrLambda, IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import IrLiteral, IrRuleRef
 
@@ -107,7 +107,7 @@ def test_plain_int_zero_is_positional_not_a_key_lookup():
 def test_irtype_map_exact_type_hit():
     """An ``IrLiteral``-keyed action runs its body when the node is an IrLiteral."""
     disp = IrTypeMap(
-        IrTuple(IrLiteral, IrCallable(lambda _d, n, _nc: IrStr(f"lit:{n}"))),
+        IrTuple(IrLiteral, IrLambda(lambda _d, n, _nc: IrStr(f"lit:{n}"))),
         IrTuple(IrSelf, IrThis()),
     )
     result = disp.eval(disp, IrLiteral("x"), ())
@@ -122,7 +122,7 @@ def test_irtype_map_mro_fallback():
     and returns the node unchanged.
     """
     disp = IrTypeMap(
-        IrTuple(IrLiteral, IrCallable(lambda _d, n, _nc: IrStr(f"lit:{n}"))),
+        IrTuple(IrLiteral, IrLambda(lambda _d, n, _nc: IrStr(f"lit:{n}"))),
         IrTuple(IrSelf, IrThis()),
     )
     ref = IrRuleRef("r")

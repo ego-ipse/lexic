@@ -94,7 +94,6 @@ def test_action_algebra_exported() -> None:
     """Action-algebra nodes are re-exported."""
     for name in (
         "IrAction",
-        "IrCallable",
         "IrChild",
         "IrChildren",
         "IrConcat",

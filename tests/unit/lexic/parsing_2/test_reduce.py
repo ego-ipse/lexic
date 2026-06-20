@@ -17,7 +17,7 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrArgs, IrJoin
-from lexic.ir.base import IrCallable, IrNone, IrSelf, IrSeq, IrTuple
+from lexic.ir.base import IrLambda, IrNone, IrSelf, IrSeq, IrTuple
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -99,7 +99,7 @@ def test_reducer_recurses_into_children():
 
 
 def test_reducer_callable_body_receives_reduced_children():
-    """An IrCallable body receives already-reduced children in nc."""
+    """An IrLambda body receives already-reduced children in nc."""
     collected: list[IrSelf] = []
 
     def capture(_d: IrSelf, _n: IrSelf, nc, /) -> IrLiteral:
@@ -107,7 +107,7 @@ def test_reducer_callable_body_receives_reduced_children():
         return IrLiteral("".join(str(c) for c in nc))
 
     tree = _leaf_tree("s", "a", "b")
-    reducer = _reducer(("s", IrCallable(capture)))
+    reducer = _reducer(("s", IrLambda(capture)))
     result = reducer.apply(tree)
     assert len(collected) == 2
     assert str(result) == "ab"
@@ -181,7 +181,7 @@ def test_reducer_literal_leaves_passed_through_without_reduction():
         return nc[0]
 
     tree = _leaf_tree("s", "q")
-    reducer = _reducer(("s", IrCallable(capture)))
+    reducer = _reducer(("s", IrLambda(capture)))
     result = reducer.apply(tree)
     assert result == IrLiteral("q")
 
@@ -229,8 +229,9 @@ def test_keep_raw_returns_irtuple_with_node_unchanged():
     n = IrLiteral("x")
     result = KEEP_RAW.eval(IrNone, n, ())
     assert isinstance(result, IrTuple)
-    assert len(result) == 1
-    assert result[0] is n
+    elements = list(result)
+    assert len(elements) == 1
+    assert elements[0] is n
 
 
 def test_keep_reduced_dispatches_node_via_d():
@@ -247,8 +248,9 @@ def test_keep_reduced_dispatches_node_via_d():
 
     result = KEEP_REDUCED.eval(_Identity(), n, ())
     assert isinstance(result, IrTuple)
-    assert len(result) == 1
-    assert result[0] is n
+    elements = list(result)
+    assert len(elements) == 1
+    assert elements[0] is n
 
 
 def test_keep_raw_preserves_non_dispatch_semantics():
@@ -325,8 +327,8 @@ def test_reducer_noise_drops_marked_children():
     letter_tree = _leaf_tree("letter", "a")
     parent = ParseTree(IrRuleRef("word"), IrSeq(letter_tree, ws_tree, letter_tree))
 
-    reductions = IrMap(
-        IrTuple(IrRuleRef("word"), IrCallable(capture)),
+    reductions: IrMap[IrRuleRef, IrSelf] = IrMap(
+        IrTuple(IrRuleRef("word"), IrLambda(capture)),
         IrTuple(IrRuleRef("letter"), _YIELD),
     )
     reducer = Reducer(reductions=reductions, noise=noise)
@@ -358,8 +360,8 @@ def test_reducer_literal_drop_excludes_inline_terminals():
     noise = IrMap(
         IrTuple(IrRuleRef("name"), KEEP_REDUCED),
     )
-    reductions = IrMap(
-        IrTuple(IrRuleRef("stmt"), IrCallable(capture)),
+    reductions: IrMap[IrRuleRef, IrSelf] = IrMap(
+        IrTuple(IrRuleRef("stmt"), IrLambda(capture)),
         IrTuple(IrRuleRef("name"), YIELD),
     )
     reducer = Reducer(reductions=reductions, noise=noise, literal=DROP)

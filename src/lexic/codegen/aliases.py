@@ -22,7 +22,7 @@ from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction
-from lexic.ir.base import Field, IrCallable, IrNone, IrSelf
+from lexic.ir.base import Field, IrLambda, IrNone, IrSelf
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
@@ -209,8 +209,8 @@ class _PatternAliasVisitor(IrVisitor):
     _name_counts: Counter[str] = Field(default_factory=Counter)
     ruleref_frames: list[bool] = Field(default=[False])
     actions: IrTypeMap = IrTypeMap(
-        IrAction(IrRuleRef, IrCallable(_mark_ruleref)),
-        IrAction(IrItem, IrCallable(_visit_item)),
+        IrAction(IrRuleRef, IrLambda(_mark_ruleref)),
+        IrAction(IrItem, IrLambda(_visit_item)),
     )
 
     def record(self, regex: str, base: str) -> None:

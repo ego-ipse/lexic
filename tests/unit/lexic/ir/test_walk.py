@@ -48,7 +48,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction, IrEmit, IrRaise, IrRebuild, IrReturn
 from lexic.ir.base import (
     IrCachingTuple,
-    IrCallable,
+    IrLambda,
     IrLeaf,
     IrNode,
     IrNone,
@@ -124,10 +124,10 @@ def test_irdispatch_concrete_action_wins_over_abstract():
     """A concrete-type action wins over an IrLeaf/IrNode-keyed catch-all."""
     seen: list[str] = []
     leaf_action = IrAction(
-        IrLeaf, IrCallable(lambda _d, _n, _nc: seen.append("leaf") or IrNone)
+        IrLeaf, IrLambda(lambda _d, _n, _nc: seen.append("leaf") or IrNone)
     )
     lit_action = IrAction(
-        IrLiteral, IrCallable(lambda _d, _n, _nc: seen.append("lit") or IrNone)
+        IrLiteral, IrLambda(lambda _d, _n, _nc: seen.append("lit") or IrNone)
     )
     IrVisitor(actions=IrTypeMap(leaf_action, lit_action)).apply(IrLiteral("x"))
     assert seen == ["lit"]
@@ -137,7 +137,7 @@ def test_irdispatch_falls_through_to_abstract_action_when_no_concrete_match():
     """An IrLeaf-keyed action catches IrRuleRef (which IS-A IrLeaf)."""
     seen: list[str] = []
     leaf_action = IrAction(
-        IrLeaf, IrCallable(lambda _d, _n, _nc: seen.append("leaf") or IrNone)
+        IrLeaf, IrLambda(lambda _d, _n, _nc: seen.append("leaf") or IrNone)
     )
     IrVisitor(
         actions=IrTypeMap(
@@ -160,7 +160,7 @@ def test_action_body_can_recurse_explicitly_via_dispatcher():
 
     d = IrVisitor(
         actions=IrTypeMap(
-            IrAction(IrNode, IrCallable(_on)),
+            IrAction(IrNode, IrLambda(_on)),
         )
     )
     d.apply(_tiny_ast())
@@ -180,7 +180,7 @@ def test_action_body_receives_pre_dispatched_children_when_caller_supplies_them(
 
     d = IrVisitor(
         actions=IrTypeMap(
-            IrAction(IrItem, IrCallable(_on)),
+            IrAction(IrItem, IrLambda(_on)),
         )
     )
     item = IrItem(atom=IrLiteral("x"))
@@ -223,8 +223,8 @@ def test_irreturn_short_circuits_subtree_walk():
     )
     d = IrVisitor(
         actions=IrTypeMap(
-            IrAction(IrRuleRef, IrCallable[IrNode](_on_ref)),
-            IrAction(IrNode, IrCallable[IrSelf](_walk)),
+            IrAction(IrRuleRef, IrLambda(_on_ref)),
+            IrAction(IrNode, IrLambda(_walk)),
         )
     )
     assert d.apply(ast) is IrNone
@@ -256,7 +256,7 @@ def test_repeated_dispatch_does_not_rebuild_action_table():
 
     d = IrVisitor(
         actions=IrTypeMap(
-            IrAction(IrLiteral, IrCallable[IrSelf](_on)),
+            IrAction(IrLiteral, IrLambda(_on)),
         )
     )
     d.apply(IrLiteral("a"))
@@ -291,7 +291,7 @@ def test_irvisitor_default_walks_into_children():
 
     d = IrVisitor(
         actions=IrTypeMap(
-            IrAction(IrLiteral, IrCallable[IrSelf](_record)),
+            IrAction(IrLiteral, IrLambda(_record)),
         )
     )
     ast = IrAst(
@@ -331,7 +331,7 @@ def test_irtransformer_rebuilds_with_replaced_child():
 
     t = IrTransformer(
         actions=IrTypeMap(
-            IrAction(IrLiteral, IrCallable[IrNode](_swap)),
+            IrAction(IrLiteral, IrLambda(_swap)),
             IrAction(IrNode, IrRebuild()),
         )
     )
@@ -359,7 +359,7 @@ def test_iremitter_irreturn_with_non_irliteral_value_reraises_past_apply():
 
     e = IrEmitter(
         actions=IrTypeMap(
-            IrAction(IrLiteral, IrCallable[IrNode](_raise)),
+            IrAction(IrLiteral, IrLambda(_raise)),
         )
     )
     with pytest.raises(IrReturn):
@@ -403,7 +403,7 @@ def test_action_body_receives_dispatcher_as_first_arg():
 
     d = IrVisitor(
         actions=IrTypeMap(
-            IrAction(IrLiteral, IrCallable[IrSelf](_on)),
+            IrAction(IrLiteral, IrLambda(_on)),
         )
     )
     d.apply(IrLiteral("a"))

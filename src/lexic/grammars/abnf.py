@@ -32,7 +32,7 @@ from lexic.ir.action import (
     IrJoin,
     IrRaise,
 )
-from lexic.ir.base import IrCallable, IrInt, IrNone, IrNoneType, IrStr, IrTuple
+from lexic.ir.base import IrInt, IrLambda, IrNone, IrNoneType, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrEscape, IrFlavour
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
@@ -200,7 +200,7 @@ ABNF_ACTIONS = IrTypeMap(
         IrLiteral,
         IrConcat(parts=IrTuple(IrLiteral('"'), IrEscape(), IrLiteral('"'))),
     ),
-    IrAction(IrCharClass, IrCallable(_abnf_charclass)),
+    IrAction(IrCharClass, IrLambda(_abnf_charclass)),
     # ABNF has no native negation — strict declarative refusal.
     IrAction(
         IrNot,

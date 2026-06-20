@@ -37,8 +37,8 @@ from lexic.ir.action import (
     _Return,
 )
 from lexic.ir.base import (
-    IrCallable,
     IrInt,
+    IrLambda,
     IrNamedTuple,
     IrNode,
     IrNone,
@@ -90,7 +90,7 @@ def test_return_not_swallowed_by_except_exception():
         except Exception:  # pylint: disable=broad-exception-caught
             return IrStr("swallowed")
 
-    op = IrCallable[IrSelf, IrStr](body_that_catches_exception)
+    op = IrLambda(body_that_catches_exception)
     with pytest.raises(_Return) as exc_info:
         op.eval(IrNone, IrNone, ())
     assert exc_info.value.value == 99
@@ -790,8 +790,6 @@ def test_irarg_out_of_range_raises_index_error():
 def test_irarg_is_irint_leaf():
     """IrArg IS-A IrInt — the node itself is its index."""
     assert IrArg(0) == 0
-    from lexic.ir.base import IrInt
-
     assert isinstance(IrArg(0), IrInt)
 
 
@@ -806,9 +804,11 @@ def test_irarg_repr_is_codegen():
 
 def test_irbuild_default_splats_nc_into_target():
     """IrBuild(target) with default args=IrNone calls target(*nc)."""
-    nc = (IrLiteral("a"), IrLiteral("b"))
+    item_a = IrItem(IrLiteral("a"))
+    item_b = IrItem(IrLiteral("b"))
+    nc = (item_a, item_b)
     result = IrBuild(IrSequence).eval(IrNone, IrNone, nc)
-    assert result == IrSequence(IrLiteral("a"), IrLiteral("b"))
+    assert result == IrSequence(item_a, item_b)
     assert isinstance(result, IrSequence)
 
 

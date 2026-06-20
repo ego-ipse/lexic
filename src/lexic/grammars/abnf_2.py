@@ -43,12 +43,12 @@ admits ``ALPHA / DIGIT / "-"`` only.
 its nodes produce strings (:class:`~lexic.ir.base.IrStr`). So every rule that
 yields text — the character/terminal rules — reduces with one shared
 :data:`_YIELD` (:class:`~lexic.ir.action.IrJoin` over :class:`~lexic.ir.action.IrArgs`),
-no :class:`~lexic.ir.base.IrCallable` at all. But reductions that *construct*
+no procedural bodies at all. But reductions that *construct*
 typed structural nodes (:class:`~lexic.ir.nodes.IrItem` / ``IrSequence`` /
 ``IrAlternation`` / ``IrRule`` / ``IrAst``) or *filter* children by type have no
 algebra node to call — construction/filtering is consumer policy the emission
-algebra never needed — so those use :class:`~lexic.ir.base.IrCallable`, its
-documented purpose.
+algebra never needed — so those use :class:`~lexic.ir.base.IrLambda`, the
+procedural escape hatch.
 """
 
 from __future__ import annotations

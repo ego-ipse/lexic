@@ -13,7 +13,7 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrCompare
-from lexic.ir.base import IrAtom, IrCallable, IrInt, IrNone, IrSelf, IrStr, IrTuple
+from lexic.ir.base import IrAtom, IrInt, IrLambda, IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.operators import (
     DyadicOp,
     IrAnd,
@@ -231,7 +231,7 @@ def test_irand_evaluates_every_operand_eagerly():
 
     a = IrAnd(
         IrCompare(IrInt(1), IrOp("=="), IrInt(0)),
-        IrCallable[IrSelf, IrInt](_record),
+        IrLambda(_record),
     )
     assert a.eval(IrNone, IrNone, ()) == IrInt(0)
     assert calls == [1]

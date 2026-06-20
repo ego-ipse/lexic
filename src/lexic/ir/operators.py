@@ -9,9 +9,9 @@ Two layers:
 
 - :class:`IrOp` — the operator leaf (the node IS the operator string). Arity is
   the operator's own property: comparisons are binary, ``!`` unary, ``&``/``|``
-  variadic folds. Its table bodies are fold-mode
-  :class:`~lexic.ir.base.IrCallable` leaves — bare operand folds
-  (``operator.eq``) lifted into the eval protocol by ``out=IrInt``.
+  variadic folds. Its table bodies are :class:`~lexic.ir.base.IrLambda` leaves —
+  the irreducible procedural floor: an ``operator`` builtin applied to the
+  operands in ``nc`` and wrapped as ``IrInt``.
 - :class:`IrOpNode` and its three arity bases :class:`MonadicOp`,
   :class:`DyadicOp`, :class:`VariadicOp`. **An operator node IS its operand
   tuple** — operands are the tuple elements, constructed flat
@@ -28,7 +28,7 @@ from __future__ import annotations
 import operator
 from typing import ClassVar, Sequence
 
-from lexic.ir.base import IrAtom, IrCallable, IrInt, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir.base import IrAtom, IrInt, IrLambda, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.ir.mapping import IrMap
 
 # ── Operator leaf ─────────────────────────────────────────────────────
@@ -51,27 +51,27 @@ class IrOp(IrStr):
     node's shape (see :class:`IrOpNode`), so ``eval`` never validates it.
     """
 
-    _OPS: ClassVar[IrMap[str, IrCallable[IrSelf, IrInt]]] = IrMap(
-        IrTuple("==", IrCallable(operator.eq, IrInt)),
-        IrTuple("<", IrCallable(operator.lt, IrInt)),
-        IrTuple(">", IrCallable(operator.gt, IrInt)),
-        IrTuple("<=", IrCallable(operator.le, IrInt)),
-        IrTuple(">=", IrCallable(operator.ge, IrInt)),
-        IrTuple("!", IrCallable(operator.not_, IrInt)),
-        IrTuple("&", IrCallable(lambda *xs: all(xs), IrInt)),
-        IrTuple("|", IrCallable(lambda *xs: any(xs), IrInt)),
+    _OPS: ClassVar[IrMap[str, IrLambda]] = IrMap(
+        IrTuple("==", IrLambda(operator.eq)),
+        IrTuple("<", IrLambda(operator.lt)),
+        IrTuple(">", IrLambda(operator.gt)),
+        IrTuple("<=", IrLambda(operator.le)),
+        IrTuple(">=", IrLambda(operator.ge)),
+        IrTuple("!", IrLambda(operator.not_)),
+        IrTuple("&", IrLambda(lambda *xs: all(xs))),
+        IrTuple("|", IrLambda(lambda *xs: any(xs))),
     )
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
+    def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """Apply this operator to the operands in ``nc``.
 
-        :param d: Dispatcher forwarded to the resolved body.
-        :param n: Current node forwarded to the resolved body.
+        :param _d: Dispatcher (unused — the resolved body folds the operands).
+        :param _n: Current node (unused).
         :param nc: The pre-evaluated operands; count matches the operator's arity.
         :returns: ``IrInt(1)`` if the operation holds, else ``IrInt(0)``.
         :raises IrKeyError: if the operator string is not in ``_OPS``.
         """
-        return self._OPS.resolve(self).eval(d, n, nc)
+        return IrInt(self._OPS.resolve(self).eval(*nc))
 
 
 # ── Operator node — the node IS its operand tuple, op is type-level ───
