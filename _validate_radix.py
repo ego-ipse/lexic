@@ -17,7 +17,17 @@ from lexic.ir.action import (
     IrJoin,
     IrPipe,
 )
-from lexic.ir.base import IrInt, IrNamedTuple, IrNone, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir.base import (
+    IrAtom,
+    IrInt,
+    IrLambda,
+    IrNamedTuple,
+    IrNone,
+    IrSelf,
+    IrSeq,
+    IrStr,
+    IrTuple,
+)
 from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -57,6 +67,8 @@ class IrUnradix(IrNamedTuple[int, type]):
 
     def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /):
         s = str(n)
+        if not s:
+            raise ValueError("IrUnradix: empty digit string")
         acc = 0
         for c in s:
             v = ord(c) - 0x30 if "0" <= c <= "9" else ord(c.upper()) - 0x41 + 10
@@ -218,6 +230,78 @@ NUMVAL_NOISE = IrMap(IrTuple(IR_DEFAULT, KEEP_REDUCED))
 NUMVAL_REDUCER = Reducer(reductions=NUMVAL_REDUCTIONS, noise=NUMVAL_NOISE, literal=DROP)
 
 
+# ── embedded context: repetition = repeat? element (element = num-val) ──
+# Proves the restructure composes when num-val/repeat sit inside the real
+# repetition combiner, not just as standalone start rules.
+
+
+def _repetition(_d, _n, nc):
+    """The existing combiner: pick atom + quantifier by type from clean nc."""
+    atom = next(c for c in nc if isinstance(c, IrAtom))
+    quant = next((c for c in nc if isinstance(c, IrQuantifier)), IrQuantifier())
+    return IrItem(atom, quant)
+
+
+EMBED_GRAMMAR = IrAst(
+    rules=IrSeq(
+        IrRule("start", IrAlternation(IrSequence(IrItem(IrRuleRef("repetition"))))),
+        IrRule(
+            "repetition",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("repeat-opt")), IrItem(IrRuleRef("element"))
+                )
+            ),
+        ),
+        IrRule(
+            "repeat-opt",
+            IrAlternation(IrSequence(IrItem(IrRuleRef("repeat"), IrQuantifier(0, 1)))),
+        ),
+        IrRule("element", IrAlternation(IrSequence(IrItem(IrRuleRef("num-val"))))),
+        # repeat sub-tree (from REPEAT_GRAMMAR)
+        *REPEAT_GRAMMAR.rules[1:],  # drop its own 'start'
+        # num-val sub-tree (from NUMVAL_GRAMMAR), minus dup 'start' and 'DIGIT/HEXDIG'
+        *[r for r in NUMVAL_GRAMMAR.rules if r.name not in ("start", "DIGIT")],
+    ),
+    start="start",
+)
+
+EMBED_REDUCTIONS = IrMap(
+    IrTuple(IrRuleRef("start"), IrArg(0)),
+    IrTuple(IrRuleRef("repetition"), IrLambda(_repetition)),
+    IrTuple(
+        IrRuleRef("repeat-opt"),
+        IrCond(test=IrArgs(), then_op=IrArg(0), else_op=IrNone),
+    ),
+    IrTuple(IrRuleRef("element"), IrArg(0)),
+    # repeat rules (NOTE: the alternation passthrough `repeat → IrArg(0)` is
+    # load-bearing — without it `repeat` falls through IR_DEFAULT→YIELD to text)
+    IrTuple(IrRuleRef("repeat"), IrArg(0)),
+    IrTuple(
+        IrRuleRef("repeat-exact"), IrBuild(IrQuantifier, IrTuple(_dec_arg0, _dec_arg0))
+    ),
+    IrTuple(
+        IrRuleRef("repeat-range"), IrBuild(IrQuantifier, IrTuple(IrArg(0), IrArg(1)))
+    ),
+    IrTuple(
+        IrRuleRef("lo-bound"), IrCond(test=IrArgs(), then_op=_dec, else_op=IrInt(0))
+    ),
+    IrTuple(IrRuleRef("hi-bound"), IrCond(test=IrArgs(), then_op=_dec, else_op=IrNone)),
+    IrTuple(IrRuleRef("decits"), IrJoin(IrArgs())),
+    # num-val rules
+    IrTuple(IrRuleRef("num-val"), IrArg(0)),
+    IrTuple(IrRuleRef("num-single"), IrBuild(IrCharClass, IrTuple(_cp(0)))),
+    IrTuple(
+        IrRuleRef("num-range"),
+        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_cp(0), _cp(1))))),
+    ),
+    IrTuple(IrRuleRef("hexits"), IrJoin(IrArgs())),
+    IrTuple(IR_DEFAULT, YIELD),
+)
+EMBED_NOISE = IrMap(IrTuple(IR_DEFAULT, KEEP_REDUCED))
+EMBED_REDUCER = Reducer(reductions=EMBED_REDUCTIONS, noise=EMBED_NOISE, literal=DROP)
+
+
 # ── Run ───────────────────────────────────────────────────────────────
 
 
@@ -249,18 +333,30 @@ def main() -> None:
     print("== num-val ==")
     for text, want in numval_cases.items():
         got = red(NUMVAL_REDUCER, NUMVAL_GRAMMAR, text)
-        # compare by repr + glyph since IrChr is a prototype
-        ok = repr(got) == repr(want)
+        ok = got == want  # real structural equality (prototype IrChr ⊂ real IrInt)
         print(f"  {text!r:10} -> {got!r:40} {'OK' if ok else 'FAIL'}")
         assert ok, (text, got, want)
-        # show the code points landed correctly
-        for el in got:
-            if isinstance(el, IrRange):
-                print(
-                    f"             range {int(el.lo)}..{int(el.hi)}  glyph {str(el.lo)!r}-{str(el.hi)!r}"
-                )
-            else:
-                print(f"             single {int(el)} glyph {str(el)!r}")
+
+    embed_cases = {
+        "%x41": IrItem(IrCharClass(IrChr(0x41)), IrQuantifier(1, 1)),
+        "3%x41": IrItem(IrCharClass(IrChr(0x41)), IrQuantifier(3, 3)),
+        "1*2%x41-5A": IrItem(
+            IrCharClass(IrRange(IrChr(0x41), IrChr(0x5A))), IrQuantifier(1, 2)
+        ),
+    }
+    print("== embedded: repetition = repeat? element ==")
+    for text, want in embed_cases.items():
+        got = red(EMBED_REDUCER, EMBED_GRAMMAR, text)
+        ok = got == want
+        print(f"  {text!r:12} -> {got!r:52} {'OK' if ok else 'FAIL'}")
+        assert ok, (text, got, want)
+
+    print("== IrUnradix empty-string guard ==")
+    try:
+        IrUnradix(10, IrInt).eval(None, IrStr(""), ())
+        raise AssertionError("expected empty-string guard to raise")
+    except ValueError as exc:
+        print(f"  raises -> {exc}")
 
     print("\nALL PASS")
 
