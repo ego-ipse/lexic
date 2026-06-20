@@ -251,6 +251,24 @@ class IrAt[Ir_co: IrSelf](IrNamedTuple[int, IrSelf]):
         return self.body.eval(d, n.children()[self.selector], IrTuple())
 
 
+class IrPipe(IrNamedTuple[IrSelf, IrSelf]):
+    """Rebind the focus to a computed value, then evaluate ``body``.
+
+    Evaluates ``source``, then evaluates ``body`` with that result as ``n`` (the
+    argument channel carries through). The focus-shift onto a *computed* node —
+    where :class:`IrAt` shifts onto a raw child by index. ``IrPipe(IrArg(0),
+    IrField("name"))`` reads ``name`` off the first argument.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("source", "body")
+    source: IrSelf
+    body: IrSelf
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Evaluate ``body`` with ``n`` rebound to ``source``'s result."""
+        return self.body.eval(d, self.source.eval(d, n, nc), nc)
+
+
 class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNamedTuple):
     """Full tuple of dispatched children of ``n`` (reads ``n.children()``).
 
@@ -303,6 +321,28 @@ class IrArgs(IrNamedTuple):
         return IrTuple(*nc)
 
 
+class IrArg(IrInt):
+    """Single argument by position — the node IS the index into ``nc``.
+
+    The argument-channel analogue of :class:`IrIndex` (which indexes ``n``'s
+    children): ``IrArg(0)`` returns the first element of the channel **as-is**,
+    undispatched — the arguments are already resolved values (a reducer hands a
+    body its reduced children on ``nc``). Negative positions index from the end,
+    as native tuples do.
+    """
+
+    def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Return the argument at this position, undispatched.
+
+        :param _d: Dispatcher (unused — arguments are already resolved).
+        :param _n: Node (unused — the value comes from ``nc``, never ``n``).
+        :param nc: The argument channel.
+        :returns: ``nc[self]``.
+        :raises IndexError: If the position is out of range.
+        """
+        return nc[self]
+
+
 class IrApply[Ir_co: IrSelf](IrNamedTuple[IrTuple]):
     """Delegation — re-dispatch the current focus ``n`` with arguments.
 
@@ -329,6 +369,25 @@ class IrApply[Ir_co: IrSelf](IrNamedTuple[IrTuple]):
         """
         evaluated = IrTuple(*(a.eval(d, n, nc) for a in self.args))
         return d.eval(d, n, evaluated)
+
+
+# ── Construction ──────────────────────────────────────────────────────
+
+
+class IrBuild(IrNamedTuple[type[IrSelf], IrSelf]):
+    """Construct ``target`` from the argument channel.
+
+    ``args=IrNone`` (default) splats the raw channel — ``target(*nc)``; an
+    ``args`` body reshapes it first — ``target(*args.eval(...))``.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("args",)
+    target: type[IrSelf]
+    args: IrSelf = IrNone
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Construct ``target`` from raw ``nc`` or the evaluated ``args``."""
+        return self.target(*(nc if self.args is IrNone else self.args.eval(d, n, nc)))
 
 
 # ── String concatenation ──────────────────────────────────────────────

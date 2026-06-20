@@ -26,11 +26,15 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 
 from __future__ import annotations
 
+import ast
 import copy
 from abc import ABC
+from collections.abc import Callable
+from inspect import getsourcefile
+from pathlib import Path
+from types import FunctionType
 from typing import (
     Any,
-    Callable,
     ClassVar,
     Self,
     Sequence,
@@ -42,6 +46,7 @@ from typing import (
     overload,
 )
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.meta import IrMeta, IrSingleton
 
 # ── Spine ─────────────────────────────────────────────────────────────
@@ -378,6 +383,70 @@ class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co
         if self.out is not None:
             return f"{type(self).__name__}({name}, {self.out.__name__})"
         return f"{type(self).__name__}({name})"
+
+
+class IrLambda(IrNode[IrSelf, IrSelf]):
+    """Minimal procedural escape hatch — the stored closure IS the eval.
+
+    A protocol closure ``(d, n, nc) -> IrSelf`` is attached as ``_eval`` and
+    :meth:`eval` delegates straight to it — no fold convention, no
+    node-handler branch (the two accreted modes of :class:`IrCallable`). Equality
+    is by identity and ``repr`` is name-based: a closure is not round-trippable
+    codegen, the one invariant this node may break (as :class:`IrCallable` does).
+
+    :param fn: The protocol closure invoked on dispatch.
+    """
+
+    __slots__ = ("eval",)
+
+    def __new__(
+        cls, fn: Callable[[IrSelf, IrSelf, Sequence[IrSelf]], IrSelf], /
+    ) -> Self:
+        """Wrap ``fn`` as an immutable leaf.
+
+        :param fn: The protocol closure ``(d, n, nc) -> IrSelf``.
+        :returns: The new ``IrLambda`` leaf.
+        """
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "eval", fn)
+        return obj
+
+    def __repr__(self) -> str:
+        """Codegen repr: the closure's name, or a lambda's exact source.
+
+        A named closure renders by name (a module global, in scope at
+        ``eval(repr(...))`` time); a lambda renders by the source segment of
+        its own AST node — located in the defining file by first line and
+        positional arg count, so the surrounding statement is never captured
+        (``getsource`` would return the whole physical line).
+
+        :returns: ``IrLambda(<name-or-lambda-source>)``.
+        :raises UnsupportedConstructError: If a lambda has no source file or
+            cannot be uniquely located (two same-arity lambdas share its line) —
+            failing loudly keeps the repr honest codegen, never a wrong segment.
+        """
+        fn = cast(FunctionType, self.eval)
+        if fn.__name__ != "<lambda>":
+            return f"{type(self).__name__}({fn.__name__})"
+        path = getsourcefile(fn)
+        if path is None:
+            raise UnsupportedConstructError("IrLambda repr: closure has no source")
+        source = Path(path).read_text(encoding="utf-8")
+        line, nargs = fn.__code__.co_firstlineno, fn.__code__.co_argcount
+        hits = [
+            node
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Lambda)
+            and node.lineno == line
+            and len(node.args.args) == nargs
+        ]
+        segment = ast.get_source_segment(source, hits[0]) if len(hits) == 1 else None
+        if segment is None:
+            raise UnsupportedConstructError(
+                f"IrLambda repr: cannot isolate lambda at {path}:{line} "
+                f"({len(hits)} candidate(s))"
+            )
+        return f"{type(self).__name__}({segment})"
 
 
 class IrAtom(IrNode):

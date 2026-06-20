@@ -56,9 +56,9 @@ from __future__ import annotations
 from typing import Sequence
 
 from lexic.grammars.abnf import ABNF_FLAVOUR
-from lexic.ir.action import IrArgs, IrJoin
-from lexic.ir.base import IrAtom, IrCallable, IrNone, IrSelf, IrSeq, IrStr, IrTuple
-from lexic.ir.mapping import IrMap
+from lexic.ir.action import IrArg, IrBuild, IrField, IrPipe
+from lexic.ir.base import IrAtom, IrLambda, IrNone, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -71,6 +71,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.parsing_2.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
 # ── The ABNF grammar of ABNF (RFC 5234 §4 + B.1 subset), as IR ────────────
 
@@ -279,131 +280,79 @@ ABNF_GRAMMAR = IrAst(
 """The ABNF grammar of ABNF (RFC 5234 §4 + B.1 subset) as a canonical :class:`IrAst`."""
 
 
-# ── String-yield reductions: one shared declarative node, no IrCallable ────
+# ── Cleaning policy: which child rules are noise ──────────────────────────
 
-_YIELD = IrJoin(parts=IrArgs(), separator=IrLiteral(""), empty=IrLiteral(""))
-"""Yield a rule's matched text: join the reduced children, no separator.
+_NON_SEMANTIC = ("wsp", "SP", "HTAB", "c-nl", "CR", "LF", "DQUOTE")
+"""Whitespace, line endings, and the char-val quote delimiter. Dropped from a
+structural rule's children and skipped by :data:`~lexic.parsing_2.reduce.YIELD`."""
 
-Bound to every character/terminal rule. Pure algebra —
-:class:`~lexic.ir.action.IrArgs` is the reduced-children channel,
-:class:`~lexic.ir.action.IrJoin` concatenates them to an :class:`IrStr`.
-"""
-
-
-# ── Structural reductions: construct typed IR (the algebra cannot) ─────────
-
-
-def _text(nc: Sequence[IrSelf]) -> str:
-    """Concatenate the string forms of already-reduced children."""
-    return "".join(str(c) for c in nc)
+ABNF_NOISE: IrMap = IrMap(
+    *(IrTuple(IrRuleRef(name), DROP) for name in _NON_SEMANTIC),
+    IrTuple(IR_DEFAULT, KEEP_REDUCED),
+)
+"""Child-contribution policy: non-semantic rules drop, every other rule is
+reduced and kept. The reduce-side mirror of the emit ``IrMap`` tables."""
 
 
-def _rulename(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrRuleRef:
-    """``ALPHA *namechar`` → the rule name as an :class:`IrRuleRef`."""
-    return IrRuleRef(_text(nc))
+# ── Procedural reductions: numeric tokens + the optional/reordered item ────
 
 
-def _char_val(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrLiteral:
-    """``DQUOTE *vchar-nq DQUOTE`` → the quoted text (quotes dropped)."""
-    return IrLiteral("".join(str(c) for c in nc[1:-1]))
+def _num_val(d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrCharClass:
+    """``%x``-token → :class:`IrCharClass`, parsing the subtree's raw text.
 
-
-def _num_val(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrCharClass:
-    """``%x``-value → an :class:`IrCharClass`, reusing the flavour's parser.
-
-    Rejoins the reduced children into the source token (e.g. ``%x41-5A``) and
-    defers radix/range parsing to :meth:`ABNF_FLAVOUR.parse_charclass`.
+    Radix/range parsing is deferred to :meth:`ABNF_FLAVOUR.parse_charclass`
+    (Issue 2 — the pure radix algebra is a separate effort).
     """
-    pattern, _negated = ABNF_FLAVOUR.parse_charclass(_text(nc))
+    pattern, _negated = ABNF_FLAVOUR.parse_charclass(str(YIELD.eval(d, n, ())))
     if "-" in pattern:
         lo, hi = pattern.split("-", 1)
         return IrCharClass(IrRange(lo, hi))
     return IrCharClass(IrStr(pattern))
 
 
-def _repeat(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrQuantifier:
-    """``1*DIGIT / (*DIGIT "*" *DIGIT)`` → an :class:`IrQuantifier`."""
-    return ABNF_FLAVOUR.parse_quantifier(_text(nc))
+def _repeat(d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrQuantifier:
+    """``1*5`` etc. → :class:`IrQuantifier`, parsing the subtree's raw text."""
+    return ABNF_FLAVOUR.parse_quantifier(str(YIELD.eval(d, n, ())))
 
 
-def _repetition(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrItem:
-    """``[repeat] element`` → an :class:`IrItem` pairing atom and quantifier."""
-    quant = next((c for c in nc if isinstance(c, IrQuantifier)), IrQuantifier())
+def _repetition(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf]) -> IrItem:
+    """``repeat? element`` → :class:`IrItem`. The optional quantifier prefixes
+    the atom, so both are picked by type from the clean ``nc`` (an absent
+    quantifier defaults)."""
     atom = next(c for c in nc if isinstance(c, IrAtom))
+    quant = next((c for c in nc if isinstance(c, IrQuantifier)), IrQuantifier())
     return IrItem(atom, quant)
 
 
-def _element(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrAtom:
-    """``rulename / char-val / num-val / group`` → the single carried atom."""
-    return next(c for c in nc if isinstance(c, IrAtom))
+# ── Reductions: structural rules build from clean nc, text rules yield ─────
 
-
-def _catrest(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrItem:
-    """``1*wsp repetition`` → the carried :class:`IrItem`."""
-    return next(c for c in nc if isinstance(c, IrItem))
-
-
-def _concatenation(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrSequence:
-    """``repetition *catrest`` → an :class:`IrSequence` of items (ws dropped)."""
-    return IrSequence(*(c for c in nc if isinstance(c, IrItem)))
-
-
-def _altrest(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrSequence:
-    """``*wsp "/" *wsp concatenation`` → the carried :class:`IrSequence` arm."""
-    return next(c for c in nc if isinstance(c, IrSequence))
-
-
-def _alternation(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrAlternation:
-    """``concatenation *altrest`` → an :class:`IrAlternation` of arms."""
-    return IrAlternation(*(c for c in nc if isinstance(c, IrSequence)))
-
-
-def _group(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrAlternation:
-    """``"(" *wsp alternation *wsp ")"`` → the inner :class:`IrAlternation` atom."""
-    return next(c for c in nc if isinstance(c, IrAlternation))
-
-
-def _rule_reduce(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrRule:
-    """``rulename "=" alternation c-nl`` → an :class:`IrRule` (name + body)."""
-    name = next(c for c in nc if isinstance(c, IrRuleRef))
-    body = next(c for c in nc if isinstance(c, IrAlternation))
-    return IrRule(str(name), body)
-
-
-def _rulelist(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrAst:
-    """``1*rule`` → the whole :class:`IrAst`, start = first rule's name."""
-    rules = tuple(c for c in nc if isinstance(c, IrRule))
-    start = str(rules[0].name) if rules else ""
-    return IrAst(rules=IrSeq(*rules), start=start)
-
-
+# Dyads in an annotated tuple so each value widens to ``IrSelf`` (the invariant
+# ``IrTuple`` would otherwise reject the heterogeneous bodies under ``IrMap``).
 ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
-    IrTuple(IrRuleRef("rulelist"), IrCallable(_rulelist)),
-    IrTuple(IrRuleRef("rule"), IrCallable(_rule_reduce)),
-    IrTuple(IrRuleRef("rulename"), IrCallable(_rulename)),
-    IrTuple(IrRuleRef("alternation"), IrCallable(_alternation)),
-    IrTuple(IrRuleRef("altrest"), IrCallable(_altrest)),
-    IrTuple(IrRuleRef("concatenation"), IrCallable(_concatenation)),
-    IrTuple(IrRuleRef("catrest"), IrCallable(_catrest)),
-    IrTuple(IrRuleRef("repetition"), IrCallable(_repetition)),
-    IrTuple(IrRuleRef("repeat"), IrCallable(_repeat)),
-    IrTuple(IrRuleRef("element"), IrCallable(_element)),
-    IrTuple(IrRuleRef("group"), IrCallable(_group)),
-    IrTuple(IrRuleRef("char-val"), IrCallable(_char_val)),
-    IrTuple(IrRuleRef("num-val"), IrCallable(_num_val)),
-    # Pure string yields — one shared declarative node, no IrCallable.
-    IrTuple(IrRuleRef("namechar"), _YIELD),
-    IrTuple(IrRuleRef("vchar-nq"), _YIELD),
-    IrTuple(IrRuleRef("rangerest"), _YIELD),
-    IrTuple(IrRuleRef("c-nl"), _YIELD),
-    IrTuple(IrRuleRef("ALPHA"), _YIELD),
-    IrTuple(IrRuleRef("DIGIT"), _YIELD),
-    IrTuple(IrRuleRef("HEXDIG"), _YIELD),
-    IrTuple(IrRuleRef("CR"), _YIELD),
-    IrTuple(IrRuleRef("LF"), _YIELD),
-    IrTuple(IrRuleRef("SP"), _YIELD),
-    IrTuple(IrRuleRef("HTAB"), _YIELD),
-    IrTuple(IrRuleRef("DQUOTE"), _YIELD),
-    IrTuple(IrRuleRef("wsp"), _YIELD),
+    IrTuple(
+        IrRuleRef("rulelist"),
+        IrBuild(IrAst, IrTuple(IrBuild(IrSeq), IrPipe(IrArg(0), IrField("name")))),
+    ),
+    IrTuple(IrRuleRef("rule"), IrBuild(IrRule)),
+    IrTuple(IrRuleRef("alternation"), IrBuild(IrAlternation)),
+    IrTuple(IrRuleRef("altrest"), IrArg(0)),
+    IrTuple(IrRuleRef("concatenation"), IrBuild(IrSequence)),
+    IrTuple(IrRuleRef("catrest"), IrArg(0)),
+    IrTuple(IrRuleRef("repetition"), IrLambda(_repetition)),
+    IrTuple(IrRuleRef("element"), IrArg(0)),
+    IrTuple(IrRuleRef("group"), IrArg(0)),
+    # Text rules — wrap the subtree text as the leaf type (quotes skipped).
+    IrTuple(IrRuleRef("rulename"), IrBuild(IrRuleRef, IrTuple(YIELD))),
+    IrTuple(IrRuleRef("char-val"), IrBuild(IrLiteral, IrTuple(YIELD))),
+    # Numeric tokens — parse the raw text (radix algebra deferred, Issue 2).
+    IrTuple(IrRuleRef("num-val"), IrLambda(_num_val)),
+    IrTuple(IrRuleRef("repeat"), IrLambda(_repeat)),
+    IrTuple(IR_DEFAULT, YIELD),
 )
-"""Per-rule reductions: parse tree → IR. The text→IR mirror of ``ABNF_ACTIONS``."""
+"""Per-rule reductions: parse tree → IR. Structural rules build from clean
+``nc``; every char/terminal rule falls through ``IR_DEFAULT`` to :data:`YIELD`,
+which yields its subtree source. Paired with :data:`ABNF_NOISE`."""
+
+
+ABNF_REDUCER = Reducer(reductions=ABNF_REDUCTIONS, noise=ABNF_NOISE, literal=DROP)
+"""The configured ABNF reducer: ``ABNF_REDUCTIONS`` plus the cleaning policy."""

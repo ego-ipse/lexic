@@ -18,6 +18,47 @@ only the reduce side.
 
 ---
 
+## Parked issues — DO NOT FORGET
+
+Two items deliberately set aside; the design below proceeds without resolving them.
+
+### Issue 1 — `IrAst.start` derivation (decision pending)
+
+`_rulelist` should set `start` to the first rule's name. The blocker: `IrField`
+reads `getattr(n, name)` off the *current focus* `n`, but the first reduced rule
+lives on `nc[0]`, not on `n`. Two ways forward:
+
+- **Derive it purely** — add a focus-shift-to-computed-value node `IrPipe(source,
+  body)` (eval `source`, rebind its result as the focus, eval `body`). Then
+  `start = IrPipe(IrArg(0), IrField("name"))`. `rulelist = 1*rule` ⇒ `nc` never
+  empty ⇒ no empty-guard. Costs a **3rd new node** beyond `IrArg`/`IrBuild`.
+  `IrPipe` is the general "focus onto something you computed" primitive (`IrAt`
+  only does raw-child indices).
+- **Drop it from the reduction** — build `IrAst(IrSeq(*nc))` with `start=""` and
+  let `compile_grammar`'s existing start-resolution (`@start` directive →
+  positional first-rule fallback in `directives.py`) fill it. `start` is already
+  a grammar-level concern with a home.
+
+### Issue 2 — `_repeat` → `IrQuantifier` and `_num_val` → `IrCharClass` (parked, "hold that thought")
+
+These map *string → structured value* over an **open** numeric set (any digit
+run, any hex range). A finite `IrMap` cannot enumerate it, so the `IR_DEFAULT`
+branch would need radix / multiply-accumulate arithmetic expressed in pure
+algebra — a separate, bigger design than the structural builders. **Keep their
+`IrCallable`s for this pass; design the numeric algebra separately.** This is the
+"wiring / drop `parse_quantifier`,`parse_charclass`" back-half the handover
+already marks speculative.
+
+### Approved this turn (design to implement)
+
+- **`IrArg(IrInt)`** — positional argument reader, the `nc`-analogue of `IrIndex`.
+- **`IrBuild(target, args=IrNone)`** — target constructor. Default `args=IrNone`
+  splats the channel (`target(*nc)`); an arg-spec body reshapes it
+  (`target(*args.eval(...))`). Absorbs the join→leaf wrap and the `IrAst`
+  collection. (See body sketch in the design notes.)
+
+---
+
 ## Decisions still standing (from the earlier, now-deleted spec)
 
 These were confirmed in conversation and are *not* the part that went wrong:

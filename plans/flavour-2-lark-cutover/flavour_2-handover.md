@@ -2,9 +2,10 @@
 
 npx @agent-native/core@latest plan local serve --dir plans/flavour-2-lark-cutover --kind plan --open
 
-**Date:** 2026-06-18
-**Status:** design settled; implementation not started. Builds on the completed
-`parsing_2` engine (see `prototyping/next/draft/parsing_2-handover.md`).
+**Date:** 2026-06-18 — **status updated 2026-06-19 (see §0).**
+**Status:** Lark-cutover implementation not started. This session hardened **all of
+`parsing_2` to pure `IrSelf`** (§0) — a prerequisite for Decision #2. Builds on the
+completed `parsing_2` engine (see `prototyping/next/draft/parsing_2-handover.md`).
 **Revised** after an adversarial review of the first draft — phase order corrected
 (container before grammars), Phase 1 expanded (selection algebra), Seam 2 promoted to
 its own phase, and a feature-parity checklist added.
@@ -15,7 +16,59 @@ data* (only `IrSelf` instances — no Python methods).
 
 ---
 
+## 0. Status update — 2026-06-19 (`parsing_2` is now pure `IrSelf`)
+
+A hardening pass made **every file in `src/lexic/parsing_2/` pure `IrSelf`**: all
+classes descend from `IrSelf`; the only methods are `eval` + dunders; the only
+module-level `def`s are entry points. This strengthens Decision #2 — the engine and
+reducer *themselves* now carry no Python-method logic, so a pure-data `flavour_2` will
+run on a pure-data substrate. **Green: 1011 tests, ruff/pyright clean, pylint 10.00.**
+Full old→new API map: `docs/superpowers/specs/2026-06-18-parsing_2-irself-rewrite.md`.
+
+What changed (supersedes the `parsing_2` specifics in §1 below):
+
+- `normalize.py` — the three transforms are `IrTransformer` subclasses (auto-walk via
+  `IrRebuild`, no hand-rolled loops); minting state is a mutable `Minter` `IrSelf` leaf;
+  **`normalize()` composer now EXISTS** (Phase 5 step 18 partly done). `_Rewriter` and
+  `is_synthetic_name` are gone (use `name.startswith(SYNTHETIC_PREFIX)`).
+- `engine.py` — `_index`/`_nullable_rules`/`_matches`/`_accepting_item` → `IrSelf` nodes
+  (`RuleIndex`/`NullableRules`/`Matches`/`AcceptingItem`); the driver loop is the
+  `BuildChart` + `CloseColumn` + `ScanColumn` nodes; `_ParseInputs` folded away;
+  `parse`/`recognize` are the only module entry points.
+- `ops.py` — `Predict`/`Scan`/`Complete` keep only `eval`; `_ctx`/`_advance_over_empty`
+  inlined; `ParseCtx.nullable` is an `IrSeq`.
+- `chart.py` — `Chart`/`Column`/`Links`/`Link` are `IrSelf` leaves with dunder-only
+  mutation (`in`, `+=`, `links[k]=…`); `to_scan` dropped (the driver re-derives scannable
+  items); `ensure` folded into an auto-growing `__getitem__`.
+- `forest.py` — `build_tree` → `BuildTree` node (`BUILD_TREE`).
+- `reduce.py` — `Reducer` overrides `eval`; **entry is now `.apply(tree)`** (not
+  `.reduce`); child resolution / synthetic-splice is the `ResolveChildren` node.
+
+Exceptions granted this session: one mutable chart leaf (E3); plain `int`/`str` as scalar
+payload (E2); the entry-point module functions (E1); transient locals inside an `eval`.
+
+Effect on the steps below: **step 18** (`normalize()`) is done; **steps 14-15** (Phase 4
+SPPF) now target `BuildTree` / `ResolveChildren`, not `build_tree` / `_reduced_children`;
+`compile.py`/`engine.py` line numbers cited below have shifted. `ABNF_REDUCTIONS` still
+holds the **18 `IrCallable`s** — making *those bodies* pure `IrSelf` (the reduce-side
+handover) is unchanged and still pending.
+
+### Immediate next steps
+
+1. **`flavour_2` container + reduce-side `IrCallable` removal** — the not-yet-done half of
+   the original two-part ask, plus `docs/superpowers/specs/2026-06-18-flavour-2-reduce-handover.md`.
+   Build the pure-data `flavour_2` files (§2 shape) and retire the 18 `IrCallable`s in
+   `ABNF_REDUCTIONS` + the emit-side `_abnf_charclass`. This is Phase 1 (algebra) →
+   Phase 2 (container) → Phase 3 (tagged grammars), now on a pure-`IrSelf` substrate.
+2. Then Phases 4-7 (SPPF → Seam 1 → Seam 2 → cutover) as written.
+
+---
+
 ## 1. Where we are (done, committed)
+
+> **Superseded for `parsing_2` by §0 (2026-06-19).** The bullets below describe the
+> pre-hardening shape; §0 has the current API. The Lark-seam facts (Seam 1 / Seam 2)
+> still hold.
 
 The IR-native Earley pipeline in `src/lexic/parsing_2/` is complete and tested:
 
