@@ -9,7 +9,7 @@ API changes:
 from __future__ import annotations
 
 from lexic.grammars.abnf import ABNF_FLAVOUR
-from lexic.grammars.abnf_2 import ABNF_GRAMMAR, ABNF_REDUCTIONS
+from lexic.grammars.abnf_2 import ABNF_GRAMMAR, ABNF_REDUCER, ABNF_REDUCTIONS
 from lexic.ir.base import IrSeq, IrStr
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
@@ -28,7 +28,7 @@ from lexic.parsing_2.normalize import (
     flatten_groups,
     split_literals,
 )
-from lexic.parsing_2.reduce import Reducer
+from lexic.parsing_2.reduce import YIELD, Reducer
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -120,10 +120,10 @@ def test_abnf_reductions_covers_all_structural_rules():
 
 
 def test_abnf_reductions_covers_terminal_rules():
-    """ABNF_REDUCTIONS has entries for all terminal/character rules."""
+    """Terminal rules resolve through IR_DEFAULT → YIELD (no explicit entry)."""
     for rule_name in ("ALPHA", "DIGIT", "HEXDIG", "CR", "LF", "SP", "HTAB", "DQUOTE"):
-        assert ABNF_REDUCTIONS[IrRuleRef(rule_name)] is not None, (
-            f"Missing reduction for {rule_name!r}"
+        assert ABNF_REDUCTIONS.resolve(IrRuleRef(rule_name)) is YIELD, (
+            f"Expected YIELD for {rule_name!r}"
         )
 
 
@@ -140,13 +140,13 @@ def test_rulename_reduction_yields_irruleref():
 
 
 def test_char_val_reduction_yields_irliteral_without_quotes():
-    """char-val reduction: strips surrounding DQUOTE chars, returns IrLiteral."""
-    reducer = Reducer(reductions=ABNF_REDUCTIONS)
+    """char-val reduction: DQUOTE sub-trees are noise-dropped; returns IrLiteral("ab")."""
+    dquote_tree = ParseTree(IrRuleRef("DQUOTE"), IrSeq(IrLiteral('"')))
     tree = ParseTree(
         IrRuleRef("char-val"),
-        IrSeq(IrLiteral('"'), IrLiteral("a"), IrLiteral("b"), IrLiteral('"')),
+        IrSeq(dquote_tree, IrLiteral("a"), IrLiteral("b"), dquote_tree),
     )
-    result = reducer.apply(tree)
+    result = ABNF_REDUCER.apply(tree)
     assert isinstance(result, IrLiteral)
     assert result == IrLiteral("ab")
 
@@ -190,7 +190,7 @@ def test_parse_reduce_single_literal_rule():
     """'s = \"ab\"' parses and reduces to IrAst with IrLiteral('ab') item."""
     g = _normalize(ABNF_GRAMMAR)
     tree = parse(g, 's = "ab"\n')
-    result = Reducer(reductions=ABNF_REDUCTIONS).apply(tree)
+    result = ABNF_REDUCER.apply(tree)
     assert isinstance(result, IrAst)
     assert result.start == "s"
     rules = list(result.rules)
@@ -206,7 +206,7 @@ def test_parse_reduce_alternation_rule():
     g = _normalize(ABNF_GRAMMAR)
     text = 's = foo / bar\nfoo = "x"\nbar = "y"\n'
     tree = parse(g, text)
-    result = Reducer(reductions=ABNF_REDUCTIONS).apply(tree)
+    result = ABNF_REDUCER.apply(tree)
     assert isinstance(result, IrAst)
     s_rule = list(result.rules)[0]
     assert s_rule.name == "s"
@@ -221,7 +221,7 @@ def test_parse_reduce_charclass_rule():
     g = _normalize(ABNF_GRAMMAR)
     text = "x = %x41-5A\n"
     tree = parse(g, text)
-    result = Reducer(reductions=ABNF_REDUCTIONS).apply(tree)
+    result = ABNF_REDUCER.apply(tree)
     assert isinstance(result, IrAst)
     rules = list(result.rules)
     item = list(rules[0].body)[0][0]
@@ -241,11 +241,11 @@ def test_self_hosting_recognize():
 
 def test_self_hosting_fixpoint():
     """The headline test: parse(normalize(ABNF_GRAMMAR), emitted_text) reduced
-    through ABNF_REDUCTIONS equals ABNF_GRAMMAR."""
+    through ABNF_REDUCER equals ABNF_GRAMMAR."""
     g = _normalize(ABNF_GRAMMAR)
     text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
     tree = parse(g, text)
-    result = Reducer(reductions=ABNF_REDUCTIONS).apply(tree)
+    result = ABNF_REDUCER.apply(tree)
     assert result == ABNF_GRAMMAR
 
 
@@ -253,17 +253,16 @@ def test_self_hosting_fixpoint_idempotent():
     """Reduce → re-emit → re-parse → re-reduce: result is the same IrAst."""
     g = _normalize(ABNF_GRAMMAR)
     text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
-    reducer = Reducer(reductions=ABNF_REDUCTIONS)
 
     # First round
     tree1 = parse(g, text)
-    result1 = reducer.apply(tree1)
+    result1 = ABNF_REDUCER.apply(tree1)
     assert isinstance(result1, IrAst)
 
     # Re-emit and re-parse
     text2 = str(ABNF_FLAVOUR.apply(result1))
     tree2 = parse(g, text2)
-    result2 = reducer.apply(tree2)
+    result2 = ABNF_REDUCER.apply(tree2)
 
     assert result2 == result1
     assert result2 == ABNF_GRAMMAR
@@ -283,5 +282,5 @@ def test_self_hosting_crlf_reduces_to_abnf_grammar():
     text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
     text_crlf = text.replace("\n", "\r\n")
     tree = parse(g, text_crlf)
-    result = Reducer(reductions=ABNF_REDUCTIONS).apply(tree)
+    result = ABNF_REDUCER.apply(tree)
     assert result == ABNF_GRAMMAR

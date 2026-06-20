@@ -18,7 +18,110 @@ only the reduce side.
 
 ---
 
+## STATUS — 2026-06-20 (authoritative; everything below is the original pre-implementation plan)
+
+**The reduce cutover is wired and green.** Self-hosting fixpoint + CRLF + idempotent
+all hold; pyright clean; ruff clean; **1004/1012 tests pass** — the 8 failures are all
+in `test_abnf_2.py`, pending the mechanical port in *What's left → A*.
+
+### Implemented
+
+**New IR nodes**
+- `IrArg(IrInt)` (`ir/action.py`) — positional `nc` reader (`nc[self]`, undispatched);
+  the argument-channel analogue of `IrIndex`.
+- `IrBuild(IrNamedTuple[type[IrSelf], IrSelf])` (`ir/action.py`) —
+  `target(*(nc if args is IrNone else args.eval(...)))`. Default `args=IrNone` splats
+  the channel; an `args` body reshapes it (wrap-as-leaf, collect-into-`IrSeq`).
+- `IrPipe(IrNamedTuple[IrSelf, IrSelf])` (`ir/action.py`) — focus-shift onto a *computed*
+  value: `body.eval(d, source.eval(d, n, nc), nc)`. (Resolves Issue 1.)
+- `IrLambda(IrNode)` (`ir/base.py`) — minimal procedural escape hatch; the closure IS
+  the `eval` slot (≈6.7× faster than `IrCallable`; `repr` is codegen via AST source
+  extraction). All four exported in `ir/__init__.py`; all pyright/ruff clean.
+
+**Reducer cleaning machinery** (`parsing_2/reduce.py`) — the clean-`nc` "option B":
+- Contribution bodies `DROP` / `KEEP_RAW` / `KEEP_REDUCED` (each returns an `IrTuple`:
+  0 / 1 / 1 elements — the flat-map model; splice = many).
+- `ResolveChildren` is **policy-driven**: synthetic → splice; leaf → `Reducer.literal`;
+  rule → `Reducer.noise.resolve(symbol)`. Defaults (`literal=KEEP_RAW`,
+  `noise → KEEP_REDUCED`) reproduce a plain reduce, so the generic `test_reduce.py`
+  "leaves pass through" contract is untouched; a flavour *opts into* cleaning.
+- `Yield` / `YIELD` — subtree source text, skipping non-semantic sub-rule spans
+  (`noise.resolve(symbol) is DROP`). The text-rule mirror of building from `nc`;
+  subsumes the old `_YIELD`, char-val quote-stripping, and the numeric tokens.
+- `Reducer` gains `noise: IrMap` + `literal: IrSelf`; `eval` uses
+  `reductions.resolve(symbol)` (honours `IR_DEFAULT`).
+
+**ABNF reduce flavour** (`grammars/abnf_2.py`)
+- `ABNF_NOISE` — `IrMap` marking `{wsp, SP, HTAB, c-nl, CR, LF, DQUOTE} → DROP`,
+  `IR_DEFAULT → KEEP_REDUCED`.
+- `ABNF_REDUCTIONS` — structural rules pure (`IrBuild(IrRule/IrSequence/IrAlternation)`,
+  `IrArg(0)` for the four forwards, `IrBuild(IrAst, IrTuple(IrBuild(IrSeq),
+  IrPipe(IrArg(0), IrField("name"))))` for `rulelist`); text rules
+  `IrBuild(IrRuleRef/IrLiteral, IrTuple(YIELD))`; **`IR_DEFAULT → YIELD`** covers every
+  char/terminal rule with no explicit entry.
+- `ABNF_REDUCER = Reducer(reductions=ABNF_REDUCTIONS, noise=ABNF_NOISE, literal=DROP)`.
+- `repetition` stays `IrLambda(_repetition)`: its `repeat? element` is optional +
+  reordered, so it type-selects atom/quant from clean `nc` — doesn't fit `IrBuild`'s
+  positional splat.
+
+**Resolved this session**
+- **Issue 1** (`IrAst.start`) — `IrPipe(IrArg(0), IrField("name"))`.
+- **char-val / DQUOTE delimiter** — `DQUOTE` is non-semantic, so `YIELD` skips the quotes.
+
+**Known wart:** `_REDUCTIONS` (the annotated intermediate tuple in `abnf_2.py`) exists
+only because `IrTuple`/`IrMap` are invariant in their value type and the dyad values are
+heterogeneous; the tuple annotation widens each to `IrSelf`. Removable only via per-dyad
+`IrTuple[IrRuleRef, IrSelf](...)` subscripts (more verbose). `ABNF_NOISE` uses bare
+`IrMap` (its values are homogeneous).
+
+### What's left
+
+**A. flavour2 / ABNF2 — finish this cutover (small, mechanical).** Port the 8
+`test_abnf_2.py` failures: (1) swap `Reducer(reductions=ABNF_REDUCTIONS)` → `ABNF_REDUCER`
+(6 sites); (2) `test_char_val_reduction` — rebuild the quotes as `DQUOTE` sub-trees
+(`ParseTree(IrRuleRef("DQUOTE"), IrSeq(IrLiteral('"')))`), keep `== IrLiteral("ab")`;
+(3) `test_abnf_reductions_covers_terminal_rules` — terminals now resolve via
+`IR_DEFAULT → YIELD`, so assert `.resolve(IrRuleRef("ALPHA")) is YIELD`, not the explicit
+`[...]` entry. (Tests → Sonnet subagent per standing workflow.)
+
+**B. "Point 2" — the numeric reductions (Issue 2, partially done).** `num-val`/`repeat`
+are no longer `IrCallable` over dirty `nc`; they're `IrLambda` over `YIELD`'s raw subtree
+text. **But they still call `ABNF_FLAVOUR.parse_charclass` / `parse_quantifier`** — the
+procedural radix/range parse. The deferred work is the **pure radix / multiply-accumulate
+algebra** replacing those calls (and retiring the reduce-side `EscapeCodec` use). The
+numeric set is open, so a finite `IrMap` can't enumerate it — it needs an `IR_DEFAULT`
+arithmetic body. This is the original "drop `parse_quantifier`/`parse_charclass`" back-half.
+
+**C. Auto-layout + non-semantic marking on the grammar (#4 — experiment-proven, NOT
+committed).** Experiment confirmed: stripping the decorative between-items `wsp` from
+`rule`/`group` round-trips (`reduce(parse(layout-grammar, emit(clean))) == clean`). To
+commit: an `insert_layout` normalizer pass (insert optional `wsp` between items of the
+syntactic rules), clean `rule`/`group` in `ABNF_GRAMMAR`, and run `insert_layout` before
+`normalize` in the parse pipeline (the grammar expands layout before parsing itself).
+*Limits:* `altrest`/`catrest` keep explicit `wsp` — the separator sits inside a repeated
+unit (boundary-sensitive: between-items layout can't supply the space *before* each `/`)
+and `catrest`'s is a **required** separator (`foo bar` vs `foobar`), load-bearing.
+*Tie-in:* the non-semantic marking should live on the grammar (a directive / flag on the
+`IrRule`s) and feed **both** `ABNF_NOISE` *and* the layout insertion — one source of truth
+instead of the hand-maintained `ABNF_NOISE`/`_NON_SEMANTIC` list. That is the real #4.
+
+**D. emit-side `_abnf_charclass` `IrCallable`** (`grammars/abnf.py`) — still an
+`IrCallable`; this session was reduce-only. Named in the original goal for removal; a
+separate emit-side task.
+
+**E. The larger Lark cutover** (`plans/flavour-2-lark-cutover/flavour_2-handover.md`,
+seven phases). The reduce side is one slice; the reduce machinery runs on the already-
+hardened `parsing_2` Earley engine (the cutover's target substrate). Still outstanding:
+the pure-data `flavour_2` container; tagged grammars; SPPF generalisation (ambiguous
+forests); Seam 1 / Seam 2 (the Lark → IR-native parser seams); the **GBNF** flavour ported
+to this same reduce shape; and finally **removing the Lark metagrammars** entirely.
+
+---
+
 ## Parked issues — DO NOT FORGET
+
+> **Issue 1 is RESOLVED and Issue 2 is partially done — see STATUS above.** Kept here for
+> the original framing.
 
 Two items deliberately set aside; the design below proceeds without resolving them.
 

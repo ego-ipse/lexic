@@ -138,20 +138,11 @@ def _extract_group(
     return group if has_ruleref(group) else IrNone
 
 
-def _extract_none(_d: object, _n: object, _nc: object) -> IrNoneType:
-    """Default override for non-IrGroup atoms — never hoist.
-
-    :param _d: Dispatcher (unused).
-    :param _n: Node (unused).
-    :param _nc: Pre-dispatched children (unused).
-    :returns: ``None``.
-    """
-    return IrNone
-
-
 _EXTRACT_BODY: IrDispatch = IrDispatch(
     actions=IrTypeMap(IrAction(IrAlternation, IrCallable(_extract_group))),
-    default=IrCallable(_extract_none),
+    # Non-IrAlternation atoms never hoist: IrNone is self-evaluating, so it
+    # serves as the "extract nothing" body directly — no procedural wrapper.
+    default=IrNone,
 )
 
 

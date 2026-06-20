@@ -37,7 +37,16 @@ from lexic.parsing_2.normalize import (
     flatten_groups,
     split_literals,
 )
-from lexic.parsing_2.reduce import RESOLVE_CHILDREN, Reducer, ResolveChildren
+from lexic.parsing_2.reduce import (
+    DROP,
+    KEEP_RAW,
+    KEEP_REDUCED,
+    RESOLVE_CHILDREN,
+    YIELD,
+    Reducer,
+    ResolveChildren,
+    Yield,
+)
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -202,3 +211,160 @@ def test_reducer_with_normalized_quantified_grammar():
     reducer = _reducer(("s", _YIELD))
     result = reducer.apply(tree)
     assert str(result) == "aa"
+
+
+# ── DROP / KEEP_RAW / KEEP_REDUCED contribution bodies ───────────────
+
+
+def test_drop_returns_empty_irtuple():
+    """DROP contributes nothing — returns an empty IrTuple (flat-map: splice 0)."""
+    n = IrLiteral("x")
+    result = DROP.eval(IrNone, n, ())
+    assert isinstance(result, IrTuple)
+    assert len(result) == 0
+
+
+def test_keep_raw_returns_irtuple_with_node_unchanged():
+    """KEEP_RAW contributes the raw node — IrTuple(n), no dispatch."""
+    n = IrLiteral("x")
+    result = KEEP_RAW.eval(IrNone, n, ())
+    assert isinstance(result, IrTuple)
+    assert len(result) == 1
+    assert result[0] is n
+
+
+def test_keep_reduced_dispatches_node_via_d():
+    """KEEP_REDUCED contributes the reduced node — IrTuple(d.eval(d, n, ()))."""
+    n = IrLiteral("x")
+
+    class _Identity(IrSelf):
+        """Minimal dispatcher: eval returns the node unchanged."""
+
+        __slots__ = ()
+
+        def eval(self, _d, m, _nc, /):
+            return m
+
+    result = KEEP_REDUCED.eval(_Identity(), n, ())
+    assert isinstance(result, IrTuple)
+    assert len(result) == 1
+    assert result[0] is n
+
+
+def test_keep_raw_preserves_non_dispatch_semantics():
+    """KEEP_RAW never calls d.eval — the node in the tuple is the same object."""
+    n = IrLiteral("z")
+    calls: list[object] = []
+
+    class _Counting(IrSelf):
+        """Records each eval call."""
+
+        __slots__ = ()
+
+        def eval(self, _d, m, _nc, /):
+            calls.append(m)
+            return m
+
+    KEEP_RAW.eval(_Counting(), n, ())
+    assert not calls  # KEEP_RAW must not invoke d.eval
+
+
+# ── YIELD / Yield ─────────────────────────────────────────────────────
+
+
+def test_yield_is_yield_instance():
+    """YIELD is a Yield instance — the shared stateless subtree-text node."""
+    assert isinstance(YIELD, Yield)
+
+
+def test_yield_leaf_returns_str_of_leaf():
+    """YIELD on a terminal leaf returns IrStr(str(n))."""
+    n = IrLiteral("abc")
+    reducer = Reducer(reductions=IrMap())
+    result = YIELD.eval(reducer, n, ())
+    assert str(result) == "abc"
+
+
+def test_yield_tree_concatenates_kept_leaves():
+    """YIELD concatenates all leaf characters in a tree with no dropped rules."""
+    tree = _leaf_tree("word", "h", "e", "l", "l", "o")
+    reducer = Reducer(reductions=IrMap())
+    result = YIELD.eval(reducer, tree, ())
+    assert str(result) == "hello"
+
+
+def test_yield_skips_noise_sub_trees():
+    """YIELD skips sub-trees whose rule the noise policy marks DROP."""
+    noise = IrMap(IrTuple(IrRuleRef("ws"), DROP))
+    ws_tree = ParseTree(IrRuleRef("ws"), IrSeq(IrLiteral(" ")))
+    parent = ParseTree(
+        IrRuleRef("word"), IrSeq(IrLiteral("a"), ws_tree, IrLiteral("b"))
+    )
+    reducer = Reducer(reductions=IrMap(), noise=noise)
+    result = YIELD.eval(reducer, parent, ())
+    assert str(result) == "ab"
+
+
+# ── Reducer noise / literal params ────────────────────────────────────
+
+
+def test_reducer_noise_drops_marked_children():
+    """A Reducer with noise=IrMap(ws → DROP) excludes ws children from nc."""
+    noise = IrMap(
+        IrTuple(IrRuleRef("ws"), DROP),
+        IrTuple(IrRuleRef("letter"), KEEP_REDUCED),
+    )
+
+    collected: list[IrSelf] = []
+
+    def capture(_d, _n, nc, /):
+        collected.extend(nc)
+        return IrLiteral("".join(str(c) for c in nc))
+
+    ws_tree = _leaf_tree("ws", " ")
+    letter_tree = _leaf_tree("letter", "a")
+    parent = ParseTree(IrRuleRef("word"), IrSeq(letter_tree, ws_tree, letter_tree))
+
+    reductions = IrMap(
+        IrTuple(IrRuleRef("word"), IrCallable(capture)),
+        IrTuple(IrRuleRef("letter"), _YIELD),
+    )
+    reducer = Reducer(reductions=reductions, noise=noise)
+    result = reducer.apply(parent)
+    # ws is dropped — nc should contain only the two letter reductions
+    assert len(collected) == 2
+    assert str(result) == "aa"
+
+
+def test_reducer_literal_drop_excludes_inline_terminals():
+    """A Reducer with literal=DROP excludes inline terminal leaves from nc.
+
+    The parent ``stmt`` has a semantic ``name`` sub-tree and an inline
+    ``IrLiteral("=")`` terminal leaf.  With ``literal=DROP`` the terminal
+    leaf must not appear in ``nc`` when the ``stmt`` body runs.
+    """
+    nc_received: list[IrSelf] = []
+
+    def capture(_d, _n, nc, /):
+        nc_received.extend(nc)
+        return IrLiteral("ok")
+
+    # Use YIELD (the real subtree-text node) so the name body reads raw text,
+    # not nc (which would be empty when literal=DROP drops its leaf children).
+    eq_leaf = IrLiteral("=")
+    name_tree = _leaf_tree("name", "s")
+    parent = ParseTree(IrRuleRef("stmt"), IrSeq(name_tree, eq_leaf))
+
+    noise = IrMap(
+        IrTuple(IrRuleRef("name"), KEEP_REDUCED),
+    )
+    reductions = IrMap(
+        IrTuple(IrRuleRef("stmt"), IrCallable(capture)),
+        IrTuple(IrRuleRef("name"), YIELD),
+    )
+    reducer = Reducer(reductions=reductions, noise=noise, literal=DROP)
+    reducer.apply(parent)
+    # The inline "=" literal is dropped by literal=DROP — only the reduced
+    # name subtree arrives in nc.
+    assert len(nc_received) == 1
+    assert str(nc_received[0]) == "s"

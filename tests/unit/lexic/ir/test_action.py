@@ -11,8 +11,10 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import (
     IrAction,
     IrApply,
+    IrArg,
     IrArgs,
     IrAt,
+    IrBuild,
     IrChild,
     IrChildren,
     IrCompare,
@@ -26,6 +28,7 @@ from lexic.ir.action import (
     IrLeaf,
     IrOp,
     IrPass,
+    IrPipe,
     IrRaise,
     IrRebuild,
     IrReturn,
@@ -752,3 +755,129 @@ def test_irisa_missing_attribute_raises_attribute_error():
     item = IrItem(atom=IrLiteral("x"))
     with pytest.raises(AttributeError):
         IrIsA("nonexistent", IrAlternation).eval(IrNone, item, ())
+
+
+# ── IrArg ─────────────────────────────────────────────────────────────
+
+
+def test_irarg_reads_positional_nc_element():
+    """IrArg(i) returns nc[i] undispatched — arguments are already resolved."""
+    nc = (IrLiteral("a"), IrLiteral("b"), IrLiteral("c"))
+    assert IrArg(0).eval(IrNone, IrNone, nc) is nc[0]
+    assert IrArg(1).eval(IrNone, IrNone, nc) is nc[1]
+    assert IrArg(2).eval(IrNone, IrNone, nc) is nc[2]
+
+
+def test_irarg_negative_indexes_from_end():
+    """IrArg(-1) returns the last element of nc."""
+    nc = (IrLiteral("x"), IrLiteral("y"))
+    assert IrArg(-1).eval(IrNone, IrNone, nc) is nc[-1]
+
+
+def test_irarg_ignores_d_and_n():
+    """IrArg ignores the dispatcher and the dispatched node — only nc matters."""
+    nc = (IrStr("val"),)
+    result = IrArg(0).eval(IrNone, IrLiteral("ignored"), nc)
+    assert result is nc[0]
+
+
+def test_irarg_out_of_range_raises_index_error():
+    """IrArg raises IndexError for a position beyond nc's length."""
+    with pytest.raises(IndexError):
+        IrArg(5).eval(IrNone, IrNone, (IrLiteral("a"),))
+
+
+def test_irarg_is_irint_leaf():
+    """IrArg IS-A IrInt — the node itself is its index."""
+    assert IrArg(0) == 0
+    from lexic.ir.base import IrInt
+
+    assert isinstance(IrArg(0), IrInt)
+
+
+def test_irarg_repr_is_codegen():
+    """IrArg repr renders as a valid constructor expression."""
+    assert repr(IrArg(0)) == "IrArg(0)"
+    assert repr(IrArg(1)) == "IrArg(1)"
+
+
+# ── IrBuild ───────────────────────────────────────────────────────────
+
+
+def test_irbuild_default_splats_nc_into_target():
+    """IrBuild(target) with default args=IrNone calls target(*nc)."""
+    nc = (IrLiteral("a"), IrLiteral("b"))
+    result = IrBuild(IrSequence).eval(IrNone, IrNone, nc)
+    assert result == IrSequence(IrLiteral("a"), IrLiteral("b"))
+    assert isinstance(result, IrSequence)
+
+
+def test_irbuild_with_args_reshapes_channel():
+    """IrBuild(target, args) calls target(*args.eval(...))."""
+    # args body picks only the first element of nc
+    result = IrBuild(IrRuleRef, IrTuple(IrArg(0))).eval(
+        IrNone, IrNone, (IrLiteral("myrule"), IrLiteral("ignored"))
+    )
+    assert result == IrRuleRef("myrule")
+    assert isinstance(result, IrRuleRef)
+
+
+def test_irbuild_empty_nc_calls_target_with_no_args():
+    """IrBuild(IrAlternation) with empty nc calls IrAlternation()."""
+    result = IrBuild(IrAlternation).eval(IrNone, IrNone, ())
+    assert result == IrAlternation()
+    assert isinstance(result, IrAlternation)
+
+
+def test_irbuild_args_is_child_attribute():
+    """IrBuild.args is the single dispatched child; target is scalar payload."""
+    build = IrBuild(IrSequence)
+    # args=IrNone is a scalar: no dispatched children
+    assert build.args is IrNone
+    build_with_args = IrBuild(IrRuleRef, IrTuple(IrArg(0)))
+    assert build_with_args.args == IrTuple(IrArg(0))
+
+
+def test_irbuild_repr_is_codegen():
+    """IrBuild repr renders as a valid constructor expression."""
+    assert repr(IrBuild(IrSequence)) == "IrBuild(IrSequence, IrNone)"
+    assert (
+        repr(IrBuild(IrRuleRef, IrTuple(IrArg(0))))
+        == "IrBuild(IrRuleRef, IrTuple(IrArg(0)))"
+    )
+
+
+# ── IrPipe ────────────────────────────────────────────────────────────
+
+
+def test_irpipe_shifts_focus_to_computed_value():
+    """IrPipe(source, body) evaluates body with n rebound to source.eval(...)."""
+    # source: IrArg(0) reads nc[0]; body: IrField("name") reads .name off that
+    rule = IrRule("myrule", IrAlternation())
+    nc = (rule,)
+    result = IrPipe(IrArg(0), IrField("name")).eval(IrNone, IrNone, nc)
+    assert result == IrStr("myrule")
+
+
+def test_irpipe_carries_nc_through_to_body():
+    """IrPipe forwards nc to the body after rebinding the focus."""
+    # body = IrArg(0) reads nc[0] using the shifted context
+    nc = (IrLiteral("pass-through"),)
+    result = IrPipe(IrThis(), IrArg(0)).eval(IrNone, IrNone, nc)
+    assert result is nc[0]
+
+
+def test_irpipe_source_and_body_are_children():
+    """IrPipe._child_attrs contains both source and body."""
+    pipe = IrPipe(IrArg(0), IrField("name"))
+    children = pipe.children()
+    assert IrArg(0) in children
+    assert IrField("name") in children
+
+
+def test_irpipe_repr_is_codegen():
+    """IrPipe repr renders as a valid constructor expression."""
+    assert (
+        repr(IrPipe(IrArg(0), IrField("name")))
+        == "IrPipe(IrArg(0), IrField('name', IrStr))"
+    )

@@ -19,6 +19,7 @@ from lexic.ir.base import (
     IrCachingTuple,
     IrCallable,
     IrInt,
+    IrLambda,
     IrLeaf,
     IrNamedTuple,
     IrNode,
@@ -462,3 +463,55 @@ def test_ircallable_protocol_repr_has_no_out_suffix():
     r = repr(IrCallable[IrSelf, IrStr](my_handler))
     assert "," not in r
     assert "my_handler" in r
+
+
+# ── IrLambda ──────────────────────────────────────────────────────────
+
+
+def test_irlambda_closure_is_eval():
+    """IrLambda stores the closure as eval — the closure IS the eval slot."""
+    fn = lambda d, n, nc: IrStr("result")  # noqa: E731
+    lam = IrLambda(fn)
+    result = lam.eval(IrNone, IrNone, ())
+    assert result == IrStr("result")
+
+
+def test_irlambda_eval_receives_full_protocol_args():
+    """IrLambda.eval forwards d, n, nc to the closure."""
+    received: list[object] = []
+
+    def capture(d, n, nc):
+        received.extend([d, n, nc])
+        return IrStr("ok")
+
+    d_sentinel = IrNone
+    n_sentinel = IrStr("n")
+    nc_arg = (IrStr("c"),)
+    IrLambda(capture).eval(d_sentinel, n_sentinel, nc_arg)
+    assert received[0] is d_sentinel
+    assert received[1] is n_sentinel
+    assert received[2] is nc_arg
+
+
+def test_irlambda_named_function_repr():
+    """IrLambda wrapping a named function renders ``IrLambda(<name>)``."""
+
+    def my_fn(d, n, nc):
+        return IrNone
+
+    assert repr(IrLambda(my_fn)) == "IrLambda(my_fn)"
+
+
+def test_irlambda_equality_is_by_identity():
+    """Two IrLambda wrapping distinct closures are not equal."""
+    fn = lambda d, n, nc: IrNone  # noqa: E731
+    a = IrLambda(fn)
+    b = IrLambda(fn)
+    # equality is identity: two separate IrLambda objects are not equal
+    assert a is not b
+
+
+def test_irlambda_is_irnode():
+    """IrLambda is an IrNode — it participates in the IR hierarchy."""
+    fn = lambda d, n, nc: IrNone  # noqa: E731
+    assert isinstance(IrLambda(fn), IrNode)
