@@ -10,6 +10,7 @@ from lexic.base import GrammarModel
 from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrCharClass,
+    IrChr,
     IrItem,
     IrQuantifier,
     IrRange,
@@ -93,7 +94,9 @@ Hiragana.__grammar__ = RuleSpec(
     class_name="Hiragana",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("ぁ", "ゟ")), IrQuantifier(1, 1))],
+    items=[
+        IrItem(IrCharClass(IrRange(IrChr(12353), IrChr(12447))), IrQuantifier(1, 1))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -104,7 +107,9 @@ Katakana.__grammar__ = RuleSpec(
     class_name="Katakana",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("ァ", "ヿ")), IrQuantifier(1, 1))],
+    items=[
+        IrItem(IrCharClass(IrRange(IrChr(12449), IrChr(12543))), IrQuantifier(1, 1))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -115,7 +120,9 @@ Punctuation.__grammar__ = RuleSpec(
     class_name="Punctuation",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("、", "〾")), IrQuantifier(1, 1))],
+    items=[
+        IrItem(IrCharClass(IrRange(IrChr(12289), IrChr(12350))), IrQuantifier(1, 1))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -126,7 +133,9 @@ Cjk.__grammar__ = RuleSpec(
     class_name="Cjk",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("一", "鿿")), IrQuantifier(1, 1))],
+    items=[
+        IrItem(IrCharClass(IrRange(IrChr(19968), IrChr(40959))), IrQuantifier(1, 1))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

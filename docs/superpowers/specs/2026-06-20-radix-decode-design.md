@@ -1,6 +1,7 @@
 # Design — radix decode in the ABNF reduce (task B), code-point model
 
-**Date:** 2026-06-20 (revised 2026-06-22 to the code-point-everywhere model)
+**Date:** 2026-06-20 (revised 2026-06-22: code-point-everywhere model; sibling
+`IrBounds` base replacing the earlier `IrRange(IrQuantifier)` hierarchy flip)
 **Scope:** the reduce direction — replace the two procedural calls
 `ABNF_FLAVOUR.parse_charclass` / `parse_quantifier` (in `grammars/abnf_2.py`'s
 `_num_val` / `_repeat`) with pure `IrSelf` algebra, removing the last `IrLambda`s
@@ -9,10 +10,15 @@ points. This is item **B** of the
 `2026-06-18-flavour-2-reduce-handover.md`, now folded together with the
 (previously deferred) code-point storage reshape — "plan A, one plan."
 
-**Status:** the class shapes and reduce algebra are validated end-to-end against a
-real parse + real reduce (`_validate_radix.py`: all cases pass; pyright 0 errors;
-pylint 10/10). Implementing. The doc supersedes the earlier *char-preserving /
-`IrGlyph`* design — see §Superseded.
+**Status:** the class shapes and the reduce algebra are validated on *shadow
+classes* against a real `normalize → parse → reduce` (`_validate_radix.py`: all
+cases pass; pyright 0 errors; pylint 10/10). That validates the **IR shapes and
+the reduce table only** — *not* the full migration: the real `nodes.py` reshape,
+the consumer ladders (`derive` / `codegen` / `generate` / `base`),
+`model_emitter` emission, the self-hosting fixpoint, and the GBNF char-class move
+are **not yet exercised** (see §Open risks). The doc supersedes the earlier
+*char-preserving / `IrGlyph`* design **and** the *`IrRange(IrQuantifier)` flip* —
+see §Superseded.
 
 ---
 
@@ -25,11 +31,19 @@ pylint 10/10). Implementing. The doc supersedes the earlier *char-preserving /
   `IrQuantifier` holds plain `int` counts. `IrLiteral` stays `IrStr` (string
   literals are not char classes). Spelling (code point → glyph / `%x` / escape)
   happens **only at emit time, per flavour**.
+- **`IrQuantifier` and `IrRange` are siblings** under a new abstract `IrBounds`
+  base (the shared `(lo, hi)` shape) — neither is-a the other. `IrBounds` hosts
+  type-aware `__eq__` / `__ne__` / `__hash__` (a count range and a code-point
+  range with the same numbers never compare equal) and `__contains__`
+  (`lo <= value <= hi`, `hi=IrNone` ⇒ unbounded above). `IrQuantifier` carries
+  int defaults `(1,1)`; `IrRange` carries **required** `IrChr` endpoints — no
+  placeholder default. See §The bounds hierarchy.
 - **`IrChr`** is a value-carrying `IrInt` subtype: the node IS the code point.
   It is constructible from a 1-char glyph *or* an int (`IrChr("A") == IrChr(0x41)`),
   storing the ordinal; `__str__` → `chr(self)` (the glyph), `eval` →
   `IrStr(chr(self))`. The glyph→code-point conversion lives **in `IrChr`** —
-  nowhere else. Lives in `ir/base.py`.
+  nowhere else. A multi-char glyph raises `UnsupportedConstructError` (never a
+  bare `ord()` `TypeError`). Lives in `ir/base.py`.
 - The decided **emit** primitive `IrRadix(base, width)` does the inverse
   (code point → digit string) with hand ord-arithmetic — no `int(s,base)`,
   `format`, table, or `match`.
@@ -38,41 +52,77 @@ pylint 10/10). Implementing. The doc supersedes the earlier *char-preserving /
 
 ---
 
-## The hierarchy: `IrRange` IS-A `IrQuantifier` (Liskov)
+## The bounds hierarchy: `IrQuantifier` and `IrRange` are siblings
 
-`IrRange` and `IrQuantifier` share the `(lo, hi)` range shape. The correct
-inheritance direction — the one that does not break Liskov — is:
+`IrQuantifier` and `IrRange` share the `(lo, hi)` shape but **neither is
+substitutable for the other** — a char range is not a repetition count, and a
+count is not a char span. Shared shape is a reason for a common *base*, not for
+one to inherit the other. So:
 
 ```
-IrQuantifier   # base: plain int counts; lo/hi: int, hi may be IrNone (open). defaults (1,1).
-  └─ IrRange   # subclass: a char range; narrows lo/hi to IrChr (code points), always closed.
+IrBounds          # abstract: the (lo, hi) shape; hosts __eq__/__ne__/__hash__, __contains__
+  ├─ IrQuantifier # int counts; lo/hi: int, hi may be IrNone (open); defaults (1,1)
+  └─ IrRange      # char span; lo/hi: IrChr code points, always closed; required (no defaults)
 ```
 
-**Why this direction, and not the reverse.** Two distinct Liskov axes both pick it:
+**Why a sibling base, not either inheritance direction.**
 
-1. **Behavioural.** Any per-node *behaviour* (e.g. "endpoints are code points")
-   must be *added* by the subclass, never *removed*. If the base coerced
-   endpoints to code points and a subclass opted out, that subclass would no
-   longer honour the base's guarantee — an LSP break. So the char-range coercion
-   concern belongs to the *subclass* (`IrRange`), with the plain `IrQuantifier`
-   as the base that promises nothing about characters.
-2. **Variance.** `lo`/`hi` are read-only (frozen `IrNamedTuple`) fields. A
-   subclass may **narrow** a read-only field (covariant) but never **widen** it.
-   `IrChr <: IrInt <: int`, so `IrRange` narrowing the base's `int` endpoints to
-   `IrChr` is the safe direction. (This mirrors the move the current code already
-   makes — `IrRange(int|str)` → `IrQuantifier(int)` — just inverted to match the
-   code-point model.)
+- **`IrRange(IrQuantifier)` (the rejected flip)** would make a char range an
+  `IrQuantifier`, so it could flow into any `IrQuantifier` slot (e.g.
+  `IrItem.quantifier`). Field-variance is locally sound but answers the wrong
+  question: substitutability is exactly what must *not* hold here. It also forced
+  a placeholder `IrChr()` (NUL) default on `IrRange` to satisfy the dataclass
+  override rule — a silent-wrong footgun.
+- **`IrQuantifier(IrRange)` (today's shape)** is worse: it makes `IrRange` the
+  base and reintroduces the context-dependent `str`-or-`int` endpoint payload the
+  code-point model exists to remove.
+- **Siblings under `IrBounds`** make `isinstance(x, IrQuantifier)` and
+  `isinstance(x, IrRange)` **disjoint** — the mis-dispatch risk disappears at the
+  root rather than relying on every consumer migrating in lockstep — and let
+  `IrRange` declare **required** `IrChr` endpoints, so no NUL placeholder can
+  ever be constructed.
+
+**`IrBounds` carries the dunders** the shared shape needs:
+
+```python
+class IrBounds(IrLeaf, IrNamedTuple[int, "int | IrNoneType"]):
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    lo: int
+    hi: int | IrNoneType
+
+    def __eq__(self, other: object) -> bool:        # type-aware: distinct kinds never equal
+        if type(self) is not type(other):
+            return False
+        return super().__eq__(other)
+
+    def __ne__(self, other: object) -> bool:        # tuple supplies its own __ne__ — must override
+        return not self == other
+
+    def __hash__(self) -> int:                       # __eq__ nulls __hash__ — restore tuple's
+        return super().__hash__()
+
+    def __contains__(self, value: object) -> bool:   # lo <= value <= hi; IrNone hi = unbounded
+        if not isinstance(value, int):
+            return False
+        hi = self.hi
+        if isinstance(hi, IrNoneType):
+            return self.lo <= value
+        return self.lo <= value <= hi
+```
+
+`IrBounds` overrides `tuple`'s native `__eq__`/`__ne__`/`__hash__` because the
+plain tuple versions compare endpoints element-wise and **ignore the leaf-kind
+guard** — without this, `IrQuantifier(65, 90) == IrRange(IrChr(65), IrChr(90))`
+would be true (a count silently equal to a code-point span). `__ne__` and
+`__hash__` are load-bearing, not redundant: `tuple.__ne__ is not object.__ne__`
+(so the "default `__ne__` delegates to `__eq__`" rule does not apply), and
+defining `__eq__` sets `__hash__ = None`. This mirrors `IrScalar`'s own
+`__eq__`/`__ne__`/`__hash__` for `str`/`int`.
 
 **No coercion node, no `_coerce` flag, no `__new__` override on `IrRange`.**
 Endpoints are `IrChr` by construction. The reduce produces `IrChr` directly (via
 `IrUnradix(16, IrChr)`); hand-authored ranges write `IrRange(IrChr("A"),
 IrChr("Z"))`. Both are `IrChr`, so they compare equal with no normalization pass.
-
-> **Real-code consequence.** Today `class IrQuantifier(IrRange)`. This design
-> **flips** it to `class IrRange(IrQuantifier)`. `IrRange`'s `lo`/`hi` get
-> placeholder defaults (`IrChr()` = code point 0) purely to satisfy the dataclass
-> override rule (the base bounds default to `1`); char ranges always receive
-> explicit endpoints, so the placeholder is never used.
 
 ---
 
@@ -85,7 +135,12 @@ class IrChr(IrInt):
     """A code point. Build from a 1-char glyph or an int; stores the ordinal."""
 
     def __new__(cls, value: int | str = 0) -> Self:
-        return super().__new__(cls, ord(value) if isinstance(value, str) else value)
+        if isinstance(value, str):
+            if len(value) != 1:                       # explicit guard, not a bare ord() TypeError
+                msg = f"IrChr expects one glyph, got {value!r}"
+                raise UnsupportedConstructError(msg)
+            value = ord(value)
+        return super().__new__(cls, value)
 
     def __str__(self) -> str:
         return chr(int(self))
@@ -229,6 +284,13 @@ the `IrInt(0)` / `IrNone` defaults. `_repetition` is pure: `repeat-opt` always
 lands a quantifier (decoded or the `(1,1)` default), so `repetition` is a plain
 positional `IrBuild(IrItem, (atom, quant))`.
 
+**Decoded endpoints are `IrInt` leaves.** `IrUnradix(10, IrInt)` yields `IrInt`,
+so a decoded `IrQuantifier` actually reads `IrQuantifier(IrInt(5), IrInt(5))`,
+while a default `(1,1)` (built from `IrTuple()`) reads `IrQuantifier(1, 1)` (plain
+int). The two forms compare equal via the leaf-kind-aware `IrScalar.__eq__`
+(`IrInt(5) == 5`), so round-trip equality holds. The validation tables below use
+the plain-int shorthand `IrQuantifier(5, 5)` for readability.
+
 ---
 
 ## Mechanism: how empty bounds work (verified)
@@ -245,10 +307,12 @@ yields the default. The named wrapper is what guarantees the slot.
 
 ## Empirical validation (`_validate_radix.py`)
 
-Real `normalize` → `parse` → `Reducer.apply`. The prototype `IrChr`/`IrUnradix`/
-`IrQuantifier2`/`IrRange2`/`IrCharClass2`/`IrItem2` subclass the **real** bases, so
-equality is production-accurate. **All cases pass with structural `==`; pyright 0
-errors; pylint 10/10.**
+Real `normalize` → `parse` → `Reducer.apply`. `IrChr`/`IrUnradix` build on the
+**real** bases (`IrInt`/`IrNamedTuple`); `IrBounds` is prototyped inline (it is
+new — no real counterpart yet), and `IrQuantifier2`/`IrRange2` are its two shadow
+subclasses (`*2` only ever shadows an existing real class — `IrBounds` keeps its
+plain name). `IrCharClass2`/`IrItem2` shadow the real collection/record. **All
+cases pass with structural `==`; pyright 0 errors; pylint 10/10.**
 
 | input | reduced | input | reduced |
 |---|---|---|---|
@@ -268,24 +332,38 @@ real combiner shape):
 | `3%x41` | `IrItem(IrCharClass(IrChr(65)), IrQuantifier(3,3))` |
 | `1*2%x41-5A` | `IrItem(IrCharClass(IrRange(IrChr(65),IrChr(90))), IrQuantifier(1,2))` |
 
-**Equality/representation probes:**
-`IrCharClass(IrRange(IrChr("A"),IrChr("Z"))) == IrCharClass(IrRange(IrChr(0x41),
-IrChr(0x5A)))` (glyph and ordinal construct the same code point); `IrChr(0x41) ==
-0x41`; `IrChr(0x41) != IrInt(0x41)` (distinct leaf kinds); a reduced quantifier
-endpoint stays `IrInt`, never `IrChr` (the base int range never coerces);
-`IrUnradix` empty-string guard raises. `_validate_radix.py` is kept as a
-regression artifact.
+**Equality / sibling / membership / guard probes:**
+
+- `IrCharClass(IrRange(IrChr("A"),IrChr("Z"))) == IrCharClass(IrRange(IrChr(0x41),
+  IrChr(0x5A)))` (glyph and ordinal construct the same code point); `IrChr(0x41)
+  == 0x41`; `IrChr(0x41) != IrInt(0x41)` (distinct leaf kinds).
+- **Sibling disjointness:** `not isinstance(IrRange(...), IrQuantifier)` and
+  `not isinstance(IrQuantifier(...), IrRange)`.
+- **Type-aware bounds equality:** `IrQuantifier(65, 90) != IrRange(IrChr(65),
+  IrChr(90))` (a count and a same-numbered code-point span never compare equal —
+  the gap the plain tuple `__eq__` would leave open).
+- **Membership:** `5 in IrQuantifier(1, 10)`, `100 in IrQuantifier(1, IrNone)`
+  (open upper bound), `IrChr(0x42) in IrRange(IrChr(0x41), IrChr(0x5A))`.
+- **No NUL placeholder:** `IrRange()` raises (`missing required field 'lo'`).
+- **Guards:** `IrChr("AB")` and `IrUnradix` on an empty digit string both raise
+  `UnsupportedConstructError`.
+
+`_validate_radix.py` is kept as a regression artifact.
 
 ---
 
 ## What's new / changes, in total
 
-1. `IrChr` — `ir/base.py` (value-carrying code point; glyph↔ordinal in `__new__`/
-   `__str__`; `eval` → glyph `IrStr`).
+1. `IrChr` — `ir/base.py` (value-carrying code point; glyph↔ordinal in `__new__`
+   with a multi-char guard raising `UnsupportedConstructError`; `__str__` /
+   `eval` → glyph `IrStr`).
 2. `IrUnradix(base, out)` — `ir/action.py` (radix-decode transform).
-3. **Hierarchy flip:** `class IrRange(IrQuantifier)` (was `IrQuantifier(IrRange)`).
-   `IrQuantifier` becomes the int-count base; `IrRange` narrows endpoints to
-   `IrChr`. Placeholder `IrChr()` defaults on `IrRange.lo/hi`.
+3. **Sibling bounds base:** new abstract `IrBounds` (the shared `(lo, hi)` shape)
+   in `ir/nodes.py`; `IrQuantifier` and `IrRange` both inherit it, neither the
+   other (replaces today's `class IrQuantifier(IrRange)`). `IrBounds` hosts
+   type-aware `__eq__` / `__ne__` / `__hash__` and `__contains__`. `IrQuantifier`
+   keeps int defaults `(1,1)`; `IrRange` declares **required** `IrChr` endpoints
+   (no placeholder default). `isinstance` on the two becomes disjoint.
 4. `IrCharClass` element type → `IrRange | IrChr` (was `IrRange | IrStr`).
 5. Grammar: `ABNF_GRAMMAR` numeric rules restructured; hand-authored char ranges
    re-spelled to code points; re-close the self-hosting fixpoint.
@@ -320,6 +398,28 @@ puts glyph spelling at emit time. Cost paid up front (vs deferred): the fixpoint
 re-close, `model_emitter` import, GBNF char-class migration, and hand-authored
 grammar re-spelling.
 
+### Superseded (the `IrRange(IrQuantifier)` hierarchy flip)
+
+The 2026-06-22 first revision chose to **flip** the inheritance to
+`class IrRange(IrQuantifier)`, defended as the "Liskov-correct" direction via
+covariant narrowing of read-only endpoints. Adversarial review replaced it with
+the sibling `IrBounds` base because:
+
+- **The substitutability the flip grants is exactly what must not hold.** An
+  `IrRange` becomes an `IrQuantifier`, so a char range can flow into any
+  quantifier slot (`IrItem.quantifier`). Field variance is sound but answers the
+  wrong question — a char range is semantically not a repetition count.
+- **It left equality dishonest.** `IrRange`/`IrQuantifier` are tuple subclasses;
+  native `tuple.__eq__` compares endpoints element-wise and ignores leaf kind, so
+  `IrQuantifier(65, 90) == IrRange(IrChr(65), IrChr(90))` was true. The sibling
+  base's type-aware `__eq__`/`__ne__`/`__hash__` close this.
+- **It needed a NUL placeholder default** (`IrChr()`) on `IrRange.lo/hi` to
+  satisfy the dataclass override rule — a silent-wrong value. Siblings let
+  `IrRange` declare required endpoints, removing the footgun.
+- **It left mis-dispatch to implementation vigilance.** Siblings make
+  `isinstance(x, IrQuantifier)` and `isinstance(x, IrRange)` disjoint, fixing it
+  at the root.
+
 ---
 
 ## Open risks / to verify during implementation
@@ -333,7 +433,19 @@ grammar re-spelling.
   GBNF migration is in-scope for "one plan."
 - **`acc > 0x10FFFF`** only fails at emit-time `chr()`. Left unguarded: ABNF `%x`
   values are code points by definition; a decode-time cap would be arbitrary policy.
-- **`IrRange` placeholder default.** `IrChr()` (NUL) exists only to satisfy the
-  dataclass override rule; confirm no path constructs a default-bounded char range.
+- **Consumer ladders (the largest unvalidated surface).** The shadow-class
+  prototype exercises no real consumer. After the `nodes.py` reshape, audit every
+  `isinstance(_, IrRange)` / `isinstance(_, IrQuantifier)` and
+  `== IrQuantifier(1, 1)` site in `derive` / `codegen` / `generate` / `base` /
+  `parsing_2` / `grammars`. The sibling base makes the two `isinstance` sets
+  disjoint (so `abnf_2.py`'s `isinstance(c, IrQuantifier)` quantifier-pick is
+  correct *by construction*), but the equality sites must still hold under the
+  new type-aware bounds `__eq__`. Known scan from review: `parsing_2/engine.py`
+  and `utils/charclass.py` scan `IrCharClass` members (stay correct);
+  `abnf_2.py:323` is removed by item 6.
+- **`IrChr` glyph payload at emit.** `IrCharClass` element payloads shift from raw
+  `IrStr` escape-units to `IrChr` glyphs; confirm `_escape_class_text` / the
+  flavour char-class renderers re-escape from glyphs correctly (a behaviour shift
+  the prototype does not cover).
 - **Test ports.** `test_abnf_2.py` num-val/repeat assertions change (rule set +
   bodies change); char-class tests change `IrStr` endpoints → `IrChr`.

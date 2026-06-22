@@ -63,6 +63,7 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -206,8 +207,12 @@ ABNF_GRAMMAR = IrAst(
         IrRule(
             "vchar-nq",
             IrAlternation(
-                IrSequence(IrItem(IrCharClass(IrRange(chr(0x20), chr(0x21))))),
-                IrSequence(IrItem(IrCharClass(IrRange(chr(0x23), chr(0x7E))))),
+                IrSequence(
+                    IrItem(IrCharClass(IrRange(IrChr(chr(0x20)), IrChr(chr(0x21)))))
+                ),
+                IrSequence(
+                    IrItem(IrCharClass(IrRange(IrChr(chr(0x23)), IrChr(chr(0x7E)))))
+                ),
             ),
         ),
         IrRule(
@@ -249,13 +254,15 @@ ABNF_GRAMMAR = IrAst(
         IrRule(
             "ALPHA",
             IrAlternation(
-                IrSequence(IrItem(IrCharClass(IrRange("A", "Z")))),
-                IrSequence(IrItem(IrCharClass(IrRange("a", "z")))),
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr("A"), IrChr("Z"))))),
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z"))))),
             ),
         ),
         IrRule(
             "DIGIT",
-            IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("0", "9"))))),
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
+            ),
         ),
         IrRule(
             "HEXDIG",
@@ -306,7 +313,7 @@ def _num_val(d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrCharClass:
     pattern, _negated = ABNF_FLAVOUR.parse_charclass(str(YIELD.eval(d, n, ())))
     if "-" in pattern:
         lo, hi = pattern.split("-", 1)
-        return IrCharClass(IrRange(lo, hi))
+        return IrCharClass(IrRange(IrChr(lo), IrChr(hi)))
     return IrCharClass(IrStr(pattern))
 
 

@@ -59,7 +59,12 @@ class IrChr(IrInt):
     """A code point. Build from a 1-char glyph or an int; stores the ordinal."""
 
     def __new__(cls, value: int | str = 0) -> Self:
-        return super().__new__(cls, ord(value) if isinstance(value, str) else value)
+        if isinstance(value, str):
+            if len(value) != 1:
+                msg = f"IrChr expects one glyph, got {value!r}"
+                raise UnsupportedConstructError(msg)
+            value = ord(value)
+        return super().__new__(cls, value)
 
     def __str__(self) -> str:
         return chr(int(self))
@@ -88,28 +93,51 @@ class IrUnradix(IrNamedTuple[int, type[IrScalar]]):
         return self.out(acc)
 
 
-class IrQuantifier2(IrLeaf, IrNamedTuple[int, "int | IrNoneType"]):
-    """General int range / repetition bounds — the base, int counts only."""
+class IrBounds(IrLeaf, IrNamedTuple[int, "int | IrNoneType"]):
+    """Shared (lo, hi) bounds shape — type-aware eq plus in-bounds membership."""
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    lo: int
+    hi: int | IrNoneType
+
+    def __eq__(self, other: object) -> bool:
+        """Equal only to the same bounds subtype with equal endpoints."""
+        if type(self) is not type(other):
+            return False
+        return super().__eq__(other)
+
+    def __ne__(self, other: object) -> bool:
+        """Negation of __eq__, kept consistent with the type-aware check."""
+        return not self == other
+
+    def __hash__(self) -> int:
+        """Hash by endpoint tuple; cross-kind collisions are acceptable."""
+        return super().__hash__()
+
+    def __contains__(self, value: object) -> bool:
+        """True when value lies within [lo, hi]; hi=IrNone ⇒ unbounded above."""
+        if not isinstance(value, int):
+            return False
+        hi = self.hi
+        if isinstance(hi, IrNoneType):
+            return self.lo <= value
+        return self.lo <= value <= hi
+
+
+class IrQuantifier2(IrBounds):
+    """Repetition bounds — int counts; hi may be IrNone (open)."""
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     lo: int = 1
     hi: int | IrNoneType = 1
 
 
-class IrRange2(IrQuantifier2):
-    """Char range — IS-A int range whose endpoints are code points (IrChr).
-
-    Inherits from IrQuantifier2 (not the reverse) and *narrows* the int endpoints
-    to IrChr (IrChr is an int, so this is the safe covariant override). No
-    coercion: endpoints are IrChr by construction; glyph→code-point conversion
-    lives in IrChr, never here.
-    """
+class IrRange2(IrBounds):
+    """Char range — IrChr code-point endpoints, always closed; no defaults."""
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
-    # defaults only satisfy the dataclass override rule (the base bounds default
-    # to 1); char ranges always receive explicit endpoints, so they go unused.
-    lo: IrChr = IrChr()
-    hi: IrChr = IrChr()
+    lo: IrChr
+    hi: IrChr
 
 
 class IrCharClass2(IrSeq["IrRange2 | IrChr"], IrAtom):
@@ -379,6 +407,35 @@ if __name__ == "__main__":
     assert IrChr(0x41) != IrInt(0x41)  # distinct leaf kinds never compare equal
     assert IrChr(0x41) == 0x41  # but a leaf still matches its plain int
     print("  IrCharClass2(IrRange2(IrChr('A'), IrChr('Z'))) holds")
+
+    print("== sibling bounds: disjoint kinds, type-aware eq, membership ==")
+    assert not isinstance(IrRange2(IrChr(65), IrChr(90)), IrQuantifier2)
+    assert not isinstance(IrQuantifier2(65, 90), IrRange2)
+    # counts and code-point ranges with the same numbers never compare equal:
+    assert IrQuantifier2(65, 90) != IrRange2(IrChr(65), IrChr(90))
+    assert IrQuantifier2(5, 5) == IrQuantifier2(5, 5)
+    assert IrRange2(IrChr("A"), IrChr("Z")) == IrRange2(IrChr(0x41), IrChr(0x5A))
+    # in-bounds membership (the requested __contains__):
+    assert 5 in IrQuantifier2(1, 10) and 11 not in IrQuantifier2(1, 10)
+    assert 100 in IrQuantifier2(1, IrNone)  # open upper bound
+    assert IrChr(0x42) in IrRange2(IrChr(0x41), IrChr(0x5A))
+    assert IrChr(0x60) not in IrRange2(IrChr(0x41), IrChr(0x5A))
+    print("  isinstance disjoint; eq type-aware; membership respects bounds")
+
+    print("== IrRange2 requires endpoints (no NUL placeholder) ==")
+    no_args: list[IrChr] = []
+    try:
+        IrRange2(*no_args)
+        raise AssertionError("expected required-field error")
+    except TypeError as exc:
+        print(f"  raises -> {exc}")
+
+    print("== IrChr rejects multi-char glyphs ==")
+    try:
+        IrChr("AB")
+        raise AssertionError("expected glyph-length guard to raise")
+    except UnsupportedConstructError as exc:
+        print(f"  raises -> {exc}")
 
     print("== IrUnradix empty-string guard ==")
     try:

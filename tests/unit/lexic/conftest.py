@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrChr, IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -59,7 +59,7 @@ def make_inner_outer_specs() -> tuple[RuleSpec, RuleSpec]:
     inner = make_spec(
         "expr",
         "value_str",
-        [IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z"))), IrQuantifier(1, IrNone))],
     )
     outer = make_spec(
         "root", "sequence", [IrItem(IrRuleRef("expr"))], field_map={"expr": 0}
@@ -74,7 +74,10 @@ def make_ident_spec(**kwargs):
         "Ident",
         "GrammarModel",
         "sequence",
-        items=[IrItem(IrCharClass(IrRange("a", "z"))), IrItem(IrRuleRef("ws"))],
+        items=[
+            IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))),
+            IrItem(IrRuleRef("ws")),
+        ],
         field_map={"first": 0, "ws": 1},
         **kwargs,
     )

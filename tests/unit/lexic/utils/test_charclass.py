@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from lexic.ir.base import IrStr
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
-from lexic.ir.nodes import IrCharClass, IrRange
+from lexic.ir.nodes import IrCharClass, IrChr, IrRange
 from lexic.utils.charclass import charclass_pattern, parse_charclass_chars
 
 # ── parse_charclass_chars ─────────────────────────────────────────────
@@ -63,7 +63,7 @@ def test_codec_is_parametric():
 
 def test_charclass_pattern_single_range():
     """A single IrRange flattens to ``lo-hi``."""
-    cls = IrCharClass(IrRange("a", "z"))
+    cls = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
     assert charclass_pattern(cls) == "a-z"
 
 
@@ -75,14 +75,14 @@ def test_charclass_pattern_run_only():
 
 def test_charclass_pattern_mixed_run_then_range():
     """A run followed by a range concatenates correctly."""
-    cls = IrCharClass(IrStr("abc"), IrRange("0", "9"))
+    cls = IrCharClass(IrStr("abc"), IrRange(IrChr("0"), IrChr("9")))
     assert charclass_pattern(cls) == "abc0-9"
 
 
 def test_charclass_pattern_encoded_hex_units():
-    """Encoded hex escape units are kept verbatim in the interior pattern."""
-    cls = IrCharClass(IrRange("\\x00", "\\x1F"))
-    assert charclass_pattern(cls) == "\\x00-\\x1F"
+    """Non-printable code-point endpoints are escaped in the interior pattern."""
+    cls = IrCharClass(IrRange(IrChr(0), IrChr(0x1F)))
+    assert charclass_pattern(cls) == "\\x00-\\x1f"
 
 
 # ── _escape_class_text — new escaping rules ───────────────────────────
@@ -113,14 +113,14 @@ def test_raw_caret_is_escaped():
 
 
 def test_preescaped_unit_passes_through():
-    """A pre-escaped GBNF unit (``\\x00``) passes through unchanged.
+    """Non-printable code-point endpoints render as hex escape sequences.
 
-    The ``\\`` is followed by another character, so it is treated as an
-    existing escape unit and emitted verbatim — not double-escaped.
+    IrChr stores ordinals; charclass_pattern escapes non-printable points to
+    ``\\xNN`` — so the round-trip through IrChr and charclass_pattern is stable.
     """
-    cls = IrCharClass(IrRange("\\x00", "\\x1F"))
+    cls = IrCharClass(IrRange(IrChr(0), IrChr(0x1F)))
     result = charclass_pattern(cls)
-    assert result == "\\x00-\\x1F"
+    assert result == "\\x00-\\x1f"
 
 
 def test_lone_backslash_is_escaped():

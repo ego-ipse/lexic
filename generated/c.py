@@ -11,6 +11,7 @@ from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -345,12 +346,19 @@ Identifier.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrItem(
-            IrCharClass(IrRange("a", "z"), IrRange("A", "Z"), IrStr("_")),
+            IrCharClass(
+                IrRange(IrChr(97), IrChr(122)),
+                IrRange(IrChr(65), IrChr(90)),
+                IrStr("_"),
+            ),
             IrQuantifier(1, 1),
         ),
         IrItem(
             IrCharClass(
-                IrRange("a", "z"), IrRange("A", "Z"), IrStr("_"), IrRange("0", "9")
+                IrRange(IrChr(97), IrChr(122)),
+                IrRange(IrChr(65), IrChr(90)),
+                IrStr("_"),
+                IrRange(IrChr(48), IrChr(57)),
             ),
             IrQuantifier(0, IrNone),
         ),
@@ -813,7 +821,7 @@ Number.__grammar__ = RuleSpec(
     class_name="Number",
     parent_class_name="Factor",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

@@ -10,6 +10,7 @@ import pytest
 from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -40,7 +41,7 @@ def test_build_grammar_charclass_quantified():
     s = make_spec(
         "d",
         "value_str",
-        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone))],
     )
     grammar, start = LarkBuilder([s]).build_grammar()
     parser = lark.Lark(grammar, parser="earley", start=start)

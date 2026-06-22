@@ -17,6 +17,7 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -105,7 +106,7 @@ def test_parses_charclass():
     """Parse a charclass"""
     rule = _ast_first_rule("digit = [0-9]\n")
     item = rule.body[0][0]
-    assert item.atom == IrCharClass(IrRange("0", "9"))
+    assert item.atom == IrCharClass(IrRange(IrChr("0"), IrChr("9")))
 
 
 def test_parses_negated_charclass():
@@ -195,10 +196,10 @@ def test_normalize_literal_override_expands_to_group():
 def test_build_charclass_single_range():
     """A ``x-y`` interior is split into a single IrRange element.
 
-    :returns: ``IrCharClass(IrRange("a", "z"))``
+    :returns: ``IrCharClass(IrRange(IrChr("a"), IrChr("z")))``
     """
     result = _build_charclass(_StubFlavour(), ["[a-z]"])
-    assert result == IrCharClass(IrRange("a", "z"))
+    assert result == IrCharClass(IrRange(IrChr("a"), IrChr("z")))
 
 
 def test_build_charclass_run_of_singles():
@@ -213,36 +214,36 @@ def test_build_charclass_run_of_singles():
 def test_build_charclass_mixed_run_then_range():
     """A leading run followed by a range produces two elements.
 
-    :returns: ``IrCharClass(IrStr("abc"), IrRange("0", "9"))``
+    :returns: ``IrCharClass(IrStr("abc"), IrRange(IrChr("0"), IrChr("9")))``
     """
     result = _build_charclass(_StubFlavour(), ["[abc0-9]"])
-    assert result == IrCharClass(IrStr("abc"), IrRange("0", "9"))
+    assert result == IrCharClass(IrStr("abc"), IrRange(IrChr("0"), IrChr("9")))
 
 
 def test_build_charclass_encoded_hex_unit_range():
-    """Hex escape units are kept verbatim as range endpoints.
+    """Hex escape units are decoded to code-point endpoints.
 
-    The splitter does not decode — ``\\\\x00`` and ``\\\\x1F`` are each a
-    single unit (four source chars), so the result holds the encoded strings.
+    ``\\x00`` decodes to codepoint 0 and ``\\x1F`` to codepoint 31, so the
+    result holds integer-ordinal :class:`IrChr` endpoints, not verbatim strings.
 
-    :returns: ``IrCharClass(IrRange("\\\\x00", "\\\\x1F"))``
+    :returns: ``IrCharClass(IrRange(IrChr(0), IrChr(31)))``
     """
     result = _build_charclass(_StubFlavour(), [r"[\x00-\x1F]"])
-    assert result == IrCharClass(IrRange("\\x00", "\\x1F"))
+    assert result == IrCharClass(IrRange(IrChr(0), IrChr(0x1F)))
 
 
 def test_build_charclass_negation_produces_irnot():
     """A leading ``^`` causes the result to be wrapped in ``IrNot``.
 
     The negation is not stored inside the ``IrCharClass`` — the class itself
-    is exactly ``IrCharClass(IrRange("a", "z"))`` and the ``IrNot`` is the
+    is exactly ``IrCharClass(IrRange(IrChr("a"), IrChr("z")))`` and the ``IrNot`` is the
     outer wrapper.
 
-    :returns: ``IrNot(IrCharClass(IrRange("a", "z")))``
+    :returns: ``IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z"))))``
     """
     result = _build_charclass(_StubFlavour(), ["[^a-z]"])
     assert isinstance(result, IrNot)
-    assert result[0] == IrCharClass(IrRange("a", "z"))
+    assert result[0] == IrCharClass(IrRange(IrChr("a"), IrChr("z")))
 
 
 def test_build_charclass_trailing_dash_is_literal():

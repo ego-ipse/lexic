@@ -16,6 +16,7 @@ from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -205,13 +206,16 @@ def test_gbnf_item_ruleref_atom_is_not_parenthesised():
 
 
 def test_gbnf_not_charclass_renders_negated_bracket():
-    """GBNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange("a", "z")))) renders "[^a-z]"."""
-    assert GBNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange("a", "z")))) == "[^a-z]"
+    """GBNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z"))))) renders "[^a-z]"."""
+    assert (
+        GBNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))
+        == "[^a-z]"
+    )
 
 
 def test_gbnf_charclass_renders_without_negation_mark():
     """Plain IrCharClass renders without a caret — no mark leakage from IrNot."""
-    assert GBNF_FLAVOUR.apply(IrCharClass(IrRange("a", "z"))) == "[a-z]"
+    assert GBNF_FLAVOUR.apply(IrCharClass(IrRange(IrChr("a"), IrChr("z")))) == "[a-z]"
 
 
 def test_gbnf_not_non_charclass_raises_unsupported():
@@ -228,7 +232,7 @@ def test_gbnf_not_non_charclass_raises_unsupported():
 
 def test_gbnf_charclass_range_emits_bracket_with_dash():
     """A range-only class emits ``[lo-hi]``."""
-    assert GBNF_FLAVOUR.apply(IrCharClass(IrRange("0", "9"))) == "[0-9]"
+    assert GBNF_FLAVOUR.apply(IrCharClass(IrRange(IrChr("0"), IrChr("9")))) == "[0-9]"
 
 
 def test_gbnf_charclass_run_emits_bracket_with_chars():
@@ -239,5 +243,6 @@ def test_gbnf_charclass_run_emits_bracket_with_chars():
 def test_gbnf_charclass_mixed_emits_run_then_range():
     """A mixed run + range class emits ``[runchars lo-hi]``."""
     assert (
-        GBNF_FLAVOUR.apply(IrCharClass(IrStr("abc"), IrRange("0", "9"))) == "[abc0-9]"
+        GBNF_FLAVOUR.apply(IrCharClass(IrStr("abc"), IrRange(IrChr("0"), IrChr("9"))))
+        == "[abc0-9]"
     )

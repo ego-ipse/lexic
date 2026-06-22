@@ -24,6 +24,7 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -143,7 +144,7 @@ def test_split_literals_ruleref_atom_untouched():
 
 def test_split_literals_charclass_atom_untouched():
     """IrCharClass atoms are not split."""
-    g = _single_rule(IrCharClass(IrRange("0", "9")))
+    g = _single_rule(IrCharClass(IrRange(IrChr("0"), IrChr("9"))))
     result = split_literals(g)
     arm = list(list(result.rules)[0].body)[0]
     assert isinstance(arm[0].atom, IrCharClass)

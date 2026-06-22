@@ -21,6 +21,7 @@ from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -248,7 +249,7 @@ def test_abnf_emitter_iremit_default_unreachable():
 
 def test_abnf_charclass_range_emits_hex_range():
     """A range IrCharClass emits ``%xNN-MM``."""
-    cls = IrCharClass(IrRange("A", "Z"))
+    cls = IrCharClass(IrRange(IrChr("A"), IrChr("Z")))
     assert ABNF_FLAVOUR.apply(cls) == "%x41-5A"
 
 
@@ -266,14 +267,14 @@ def test_abnf_charclass_run_multiple_chars_emits_parenthesised_alternation():
 
 def test_abnf_charclass_mixed_run_and_range():
     """A run followed by a range emits all atoms parenthesised."""
-    cls = IrCharClass(IrStr("abc"), IrRange("A", "Z"))
+    cls = IrCharClass(IrStr("abc"), IrRange(IrChr("A"), IrChr("Z")))
     assert ABNF_FLAVOUR.apply(cls) == "(%x61 / %x62 / %x63 / %x41-5A)"
 
 
 def test_abnf_irnot_raises_unsupported():
     """ABNF has no native negation — IrNot raises UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError):
-        ABNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange("a", "z"))))
+        ABNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))
 
 
 # ── ABNF quantifier emission matrix ──────────────────────────────────

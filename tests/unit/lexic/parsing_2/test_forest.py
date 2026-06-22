@@ -18,6 +18,7 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrRange,
@@ -86,7 +87,7 @@ def _make_digit_grammar() -> IrAst:
     """digit = [0-9] ; single-char char-class rule."""
     digit_rule = IrRule(
         "digit",
-        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("0", "9"))))),
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))),
     )
     return IrAst(rules=IrSeq(digit_rule), start="digit")
 
@@ -110,7 +111,7 @@ def test_build_tree_kids_in_source_order():
     # Grammar: word = letter letter
     letter = IrRule(
         "letter",
-        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("a", "z"))))),
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
     )
     word = IrRule(
         "word",

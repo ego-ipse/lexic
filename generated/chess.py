@@ -11,6 +11,7 @@ from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -117,11 +118,11 @@ Nonpawn.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrItem(IrCharClass(IrStr("NBKQR")), IrQuantifier(1, 1)),
-        IrItem(IrCharClass(IrRange("a", "h")), IrQuantifier(0, 1)),
-        IrItem(IrCharClass(IrRange("1", "8")), IrQuantifier(0, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(104))), IrQuantifier(0, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(49), IrChr(56))), IrQuantifier(0, 1)),
         IrItem(IrLiteral("x"), IrQuantifier(0, 1)),
-        IrItem(IrCharClass(IrRange("a", "h")), IrQuantifier(1, 1)),
-        IrItem(IrCharClass(IrRange("1", "8")), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(104))), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(49), IrChr(56))), IrQuantifier(1, 1)),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -137,14 +138,16 @@ Pawn.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrCharClass(IrRange("a", "h")), IrQuantifier(1, 1)),
+                    IrItem(
+                        IrCharClass(IrRange(IrChr(97), IrChr(104))), IrQuantifier(1, 1)
+                    ),
                     IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
                 )
             ),
             IrQuantifier(0, 1),
         ),
-        IrItem(IrCharClass(IrRange("a", "h")), IrQuantifier(1, 1)),
-        IrItem(IrCharClass(IrRange("1", "8")), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(104))), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(49), IrChr(56))), IrQuantifier(1, 1)),
         IrItem(
             IrAlternation(
                 IrSequence(
@@ -180,8 +183,8 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrRange("1", "9")), IrQuantifier(1, 1)),
-        IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(0, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(49), IrChr(57))), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(0, 1)),
         IrItem(IrLiteral(". "), IrQuantifier(1, 1)),
         IrItem(IrRuleRef("move"), IrQuantifier(1, 1)),
         IrItem(IrLiteral(" "), IrQuantifier(1, 1)),

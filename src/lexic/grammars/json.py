@@ -23,6 +23,7 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -203,7 +204,9 @@ JSON_GRAMMAR = IrAst(
         IrRule("decimal-point", IrAlternation(IrSequence(IrItem(IrLiteral("."))))),
         IrRule(
             "digit1-9",
-            IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("1", "9"))))),
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr("1"), IrChr("9")))))
+            ),
         ),
         IrRule("e", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr("eE")))))),
         IrRule(
@@ -246,7 +249,9 @@ JSON_GRAMMAR = IrAst(
         IrRule("zero", IrAlternation(IrSequence(IrItem(IrLiteral("0"))))),
         IrRule(
             "digit",
-            IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("0", "9"))))),
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
+            ),
         ),
         IrRule(
             "string",
@@ -284,9 +289,9 @@ JSON_GRAMMAR = IrAst(
                 IrSequence(
                     IrItem(
                         IrCharClass(
-                            IrRange(chr(0x20), chr(0x21)),
-                            IrRange(chr(0x23), chr(0x5B)),
-                            IrRange(chr(0x5D), chr(0x10FFFF)),
+                            IrRange(IrChr(chr(0x20)), IrChr(chr(0x21))),
+                            IrRange(IrChr(chr(0x23)), IrChr(chr(0x5B))),
+                            IrRange(IrChr(chr(0x5D)), IrChr(chr(0x10FFFF))),
                         )
                     )
                 )
@@ -298,7 +303,9 @@ JSON_GRAMMAR = IrAst(
                 IrSequence(
                     IrItem(
                         IrCharClass(
-                            IrRange("0", "9"), IrRange("A", "F"), IrRange("a", "f")
+                            IrRange(IrChr("0"), IrChr("9")),
+                            IrRange(IrChr("A"), IrChr("F")),
+                            IrRange(IrChr("a"), IrChr("f")),
                         )
                     )
                 )

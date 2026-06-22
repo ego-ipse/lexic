@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.mapping import IrMap, IrTypeMap
-from lexic.ir.nodes import IrCharClass, IrLiteral, IrRange, IrRuleRef, IrSequence
+from lexic.ir.nodes import IrCharClass, IrChr, IrLiteral, IrRange, IrRuleRef, IrSequence
 from lexic.parsing_2.chart import Chart
 from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.ops import EARLEY_OPS, Complete, ParseCtx, Predict, Scan
@@ -35,12 +35,14 @@ def test_earley_ops_irliteral_resolves_to_scan():
 
 def test_earley_ops_ircharclass_resolves_to_scan():
     """IrCharClass symbol → Scan."""
-    assert isinstance(EARLEY_OPS.resolve(IrCharClass(IrRange("a", "z"))), Scan)
+    assert isinstance(
+        EARLEY_OPS.resolve(IrCharClass(IrRange(IrChr("a"), IrChr("z")))), Scan
+    )
 
 
 def test_earley_ops_irrange_resolves_to_scan():
     """IrRange symbol → Scan."""
-    assert isinstance(EARLEY_OPS.resolve(IrRange("a", "z")), Scan)
+    assert isinstance(EARLEY_OPS.resolve(IrRange(IrChr("a"), IrChr("z"))), Scan)
 
 
 def test_earley_ops_irnone_resolves_to_complete():

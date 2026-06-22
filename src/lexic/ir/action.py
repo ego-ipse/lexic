@@ -104,6 +104,37 @@ class IrField(IrNamedTuple[str, type[IrScalar]]):
         return self.out(getattr(n, self.name))
 
 
+# ── Radix decoder ─────────────────────────────────────────────────────
+
+
+class IrUnradix(IrNamedTuple[int, type[IrScalar]]):
+    """Decode the focus digit string to ``out(value)`` via ord-arithmetic.
+
+    The inverse of the emit-side radix spelling: reads its focus ``n`` as a
+    digit string and returns ``out`` (an ``IrScalar`` subtype) of the value.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    base: int
+    out: type[IrScalar] = IrInt
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrScalar:
+        """Decode ``str(n)`` in ``self.base`` and wrap it in ``self.out``.
+
+        :raises UnsupportedConstructError: On an empty string or a bad digit.
+        """
+        s = str(n)
+        if not s:
+            raise UnsupportedConstructError("IrUnradix: empty digit string")
+        acc = 0
+        for c in s:
+            v = ord(c) - 0x30 if "0" <= c <= "9" else ord(c.upper()) - 0x41 + 10
+            if not 0 <= v < self.base:
+                raise UnsupportedConstructError(f"bad digit {c!r} for base {self.base}")
+            acc = acc * self.base + v
+        return self.out(acc)
+
+
 # ── Comparison ────────────────────────────────────────────────────────
 
 

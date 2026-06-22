@@ -48,6 +48,7 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -75,6 +76,20 @@ def _read_unit(s: str, i: int) -> tuple[str, int]:
     return s[i], i + 1
 
 
+def _unit_to_chr(unit: str) -> str:
+    """Decode a verbatim escape unit to its single decoded glyph.
+
+    A bare single-char unit is returned as-is; a backslash-prefixed escape
+    unit (e.g. ``"\\x00"``) is decoded via :data:`CANONICAL_ESCAPES`.
+
+    :param unit: A verbatim unit as returned by :func:`_read_unit`.
+    :returns: The decoded single character.
+    """
+    if unit.startswith("\\") and len(unit) > 1:
+        return CANONICAL_ESCAPES.read_escape(unit, 0)[0]
+    return unit
+
+
 def _build_charclass(flavour: IrFlavour, children: list) -> IrAtom:
     """Build a structured IrCharClass; wrap in IrNot when negated.
 
@@ -100,7 +115,9 @@ def _build_charclass(flavour: IrFlavour, children: list) -> IrAtom:
             if run:
                 elements.append(IrStr("".join(run)))
                 run = []
-            elements.append(IrRange(unit, hi_unit))
+            elements.append(
+                IrRange(IrChr(_unit_to_chr(unit)), IrChr(_unit_to_chr(hi_unit)))
+            )
         else:
             run.append(unit)
     if run:

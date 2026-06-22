@@ -485,6 +485,30 @@ class IrInt(IrScalar, int):
     _bound: ClassVar[type[int]] = int
 
 
+class IrChr(IrInt):
+    """A code point — build from a 1-char glyph or an int; stores the ordinal."""
+
+    def __new__(cls, value: int | str = 0) -> Self:
+        """Build from a 1-char glyph or an int.
+
+        :raises UnsupportedConstructError: If a string of length != 1 is given.
+        """
+        if isinstance(value, str):
+            if len(value) != 1:
+                msg = f"IrChr expects one glyph, got {value!r}"
+                raise UnsupportedConstructError(msg)
+            value = ord(value)
+        return super().__new__(cls, value)
+
+    def __str__(self) -> str:
+        """The glyph for this code point."""
+        return chr(int(self))
+
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrStr:
+        """Evaluate to the glyph as an ``IrStr`` (emit-side use)."""
+        return IrStr(chr(int(self)))
+
+
 # ── Primitive tuple tier ──────────────────────────────────────────────
 
 

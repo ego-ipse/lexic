@@ -26,6 +26,7 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -66,7 +67,9 @@ def _digit_grammar() -> IrAst:
         rules=IrSeq(
             IrRule(
                 "digit",
-                IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("0", "9"))))),
+                IrAlternation(
+                    IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
+                ),
             )
         ),
         start="digit",
@@ -345,7 +348,7 @@ def test_matches_literal_rejects_different_char():
 def test_matches_charclass_range_matches():
     """Matches.eval returns IrInt(1) for a char inside a range."""
     parser = EarleyParser()
-    atom = IrCharClass(IrRange("a", "z"))
+    atom = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
     result = MATCHES.eval(parser, atom, IrTuple(IrStr("m")))
     assert result == IrInt(1)
 
@@ -353,7 +356,7 @@ def test_matches_charclass_range_matches():
 def test_matches_charclass_range_rejects():
     """Matches.eval returns IrInt(0) for a char outside a range."""
     parser = EarleyParser()
-    atom = IrCharClass(IrRange("a", "z"))
+    atom = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
     result = MATCHES.eval(parser, atom, IrTuple(IrStr("0")))
     assert result == IrInt(0)
 

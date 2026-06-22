@@ -9,6 +9,7 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrRange,
@@ -23,7 +24,7 @@ def expr_grammar() -> IrAst:
     """Recursive: expr = '(' expr ')' / digit ; digit = [0-9]."""
     digit = IrRule(
         "digit",
-        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("0", "9"))))),
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))),
     )
     expr = IrRule(
         "expr",

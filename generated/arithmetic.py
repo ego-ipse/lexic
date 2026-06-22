@@ -10,6 +10,7 @@ from lexic.base import GrammarModel
 from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -137,9 +138,13 @@ Ident.__grammar__ = RuleSpec(
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(122))), IrQuantifier(1, 1)),
         IrItem(
-            IrCharClass(IrRange("a", "z"), IrRange("0", "9"), IrStr("_")),
+            IrCharClass(
+                IrRange(IrChr(97), IrChr(122)),
+                IrRange(IrChr(48), IrChr(57)),
+                IrStr("_"),
+            ),
             IrQuantifier(0, IrNone),
         ),
         IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
@@ -155,7 +160,7 @@ Num.__grammar__ = RuleSpec(
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)),
+        IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, IrNone)),
         IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
     ],
     field_map={"digit": 0, "ws": 1},

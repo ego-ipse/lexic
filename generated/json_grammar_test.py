@@ -11,6 +11,7 @@ from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -462,7 +463,7 @@ Digit19.__grammar__ = RuleSpec(
     class_name="Digit19",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("1", "9")), IrQuantifier(1, 1))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(49), IrChr(57))), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -588,7 +589,7 @@ Digit.__grammar__ = RuleSpec(
     class_name="Digit",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, 1))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, 1))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -676,7 +677,9 @@ Unescaped.__grammar__ = RuleSpec(
     items=[
         IrItem(
             IrCharClass(
-                IrRange(" ", "!"), IrRange("#", "["), IrRange("]", "\U0010ffff")
+                IrRange(IrChr(32), IrChr(33)),
+                IrRange(IrChr(35), IrChr(91)),
+                IrRange(IrChr(93), IrChr(1114111)),
             ),
             IrQuantifier(1, 1),
         )
@@ -693,7 +696,11 @@ Hexdig.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrItem(
-            IrCharClass(IrRange("0", "9"), IrRange("A", "F"), IrRange("a", "f")),
+            IrCharClass(
+                IrRange(IrChr(48), IrChr(57)),
+                IrRange(IrChr(65), IrChr(70)),
+                IrRange(IrChr(97), IrChr(102)),
+            ),
             IrQuantifier(1, 1),
         )
     ],

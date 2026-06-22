@@ -15,6 +15,7 @@ from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAst,
     IrCharClass,
+    IrChr,
     IrLiteral,
     IrQuantifier,
     IrRange,
@@ -168,7 +169,7 @@ def test_num_val_hex_range_yields_ircharclass_range():
     )
     result = reducer.apply(tree)
     assert isinstance(result, IrCharClass)
-    assert result == IrCharClass(IrRange("A", "Z"))
+    assert result == IrCharClass(IrRange(IrChr("A"), IrChr("Z")))
 
 
 def test_num_val_single_hex_yields_ircharclass_str():
@@ -226,7 +227,7 @@ def test_parse_reduce_charclass_rule():
     rules = list(result.rules)
     item = list(rules[0].body)[0][0]
     assert isinstance(item.atom, IrCharClass)
-    assert item.atom == IrCharClass(IrRange("A", "Z"))
+    assert item.atom == IrCharClass(IrRange(IrChr("A"), IrChr("Z")))
 
 
 # ── THE SELF-HOSTING FIXPOINT ─────────────────────────────────────────

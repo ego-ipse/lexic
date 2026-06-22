@@ -11,6 +11,7 @@ from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -23,7 +24,7 @@ from lexic.ir.spec import RuleSpec
 
 Pattern = Annotated[str, StringConstraints(pattern=r"^(true|false|null)$")]
 
-Pattern2 = Annotated[str, StringConstraints(pattern=r'^[^"\\\x7F\x00-\x1F]$')]
+Pattern2 = Annotated[str, StringConstraints(pattern=r'^[^"\\\x7F\x00-\x1f]$')]
 
 Pattern3 = Annotated[str, StringConstraints(pattern=r'^["\\bfnrt]$')]
 
@@ -34,7 +35,7 @@ Pattern4 = Annotated[str, StringConstraints(pattern=r'^(["\\bfnrt]|u[0-9a-fA-F]{
 Pattern5 = Annotated[
     str,
     StringConstraints(
-        pattern=r'^([^"\\\x7F\x00-\x1F]|\\(["\\bfnrt]|u[0-9a-fA-F]{4}))*$'
+        pattern=r'^([^"\\\x7F\x00-\x1f]|\\(["\\bfnrt]|u[0-9a-fA-F]{4}))*$'
     ),
 ]
 
@@ -223,7 +224,9 @@ String.__grammar__ = RuleSpec(
                 IrSequence(
                     IrItem(
                         IrNot(
-                            IrCharClass(IrStr('"\\\\\\x7F'), IrRange("\\x00", "\\x1F"))
+                            IrCharClass(
+                                IrStr('"\\\\\\x7F'), IrRange(IrChr(0), IrChr(31))
+                            )
                         ),
                         IrQuantifier(1, 1),
                     )
@@ -241,9 +244,9 @@ String.__grammar__ = RuleSpec(
                                 IrItem(IrLiteral("u"), IrQuantifier(1, 1)),
                                 IrItem(
                                     IrCharClass(
-                                        IrRange("0", "9"),
-                                        IrRange("a", "f"),
-                                        IrRange("A", "F"),
+                                        IrRange(IrChr(48), IrChr(57)),
+                                        IrRange(IrChr(97), IrChr(102)),
+                                        IrRange(IrChr(65), IrChr(70)),
                                     ),
                                     IrQuantifier(4, 4),
                                 ),
@@ -277,15 +280,18 @@ Number.__grammar__ = RuleSpec(
                         IrAlternation(
                             IrSequence(
                                 IrItem(
-                                    IrCharClass(IrRange("0", "9")), IrQuantifier(1, 1)
+                                    IrCharClass(IrRange(IrChr(48), IrChr(57))),
+                                    IrQuantifier(1, 1),
                                 )
                             ),
                             IrSequence(
                                 IrItem(
-                                    IrCharClass(IrRange("1", "9")), IrQuantifier(1, 1)
+                                    IrCharClass(IrRange(IrChr(49), IrChr(57))),
+                                    IrQuantifier(1, 1),
                                 ),
                                 IrItem(
-                                    IrCharClass(IrRange("0", "9")), IrQuantifier(0, 15)
+                                    IrCharClass(IrRange(IrChr(48), IrChr(57))),
+                                    IrQuantifier(0, 15),
                                 ),
                             ),
                         ),
@@ -299,7 +305,10 @@ Number.__grammar__ = RuleSpec(
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("."), IrQuantifier(1, 1)),
-                    IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)),
+                    IrItem(
+                        IrCharClass(IrRange(IrChr(48), IrChr(57))),
+                        IrQuantifier(1, IrNone),
+                    ),
                 )
             ),
             IrQuantifier(0, 1),
@@ -309,8 +318,12 @@ Number.__grammar__ = RuleSpec(
                 IrSequence(
                     IrItem(IrCharClass(IrStr("eE")), IrQuantifier(1, 1)),
                     IrItem(IrCharClass(IrStr("-+")), IrQuantifier(0, 1)),
-                    IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, 1)),
-                    IrItem(IrCharClass(IrRange("1", "9")), IrQuantifier(0, 15)),
+                    IrItem(
+                        IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, 1)
+                    ),
+                    IrItem(
+                        IrCharClass(IrRange(IrChr(49), IrChr(57))), IrQuantifier(0, 15)
+                    ),
                 )
             ),
             IrQuantifier(0, 1),

@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import (
     Field,
     IrAtom,
     IrCachingTuple,
+    IrChr,
     IrInt,
     IrLambda,
     IrLeaf,
@@ -420,3 +422,34 @@ def test_irlambda_is_irnode():
         return IrNone
 
     assert isinstance(IrLambda(noop), IrNode)
+
+
+# ── IrChr ─────────────────────────────────────────────────────────────
+
+
+def test_irchr_from_glyph_and_int_are_equal():
+    """IrChr("A") == IrChr(0x41)"""
+    assert IrChr("A") == IrChr(0x41)
+
+
+def test_irchr_str_is_glyph_and_repr_is_codegen():
+    """IrChr.str() is the glyph, repr() is the constructor call."""
+    assert str(IrChr(0x41)) == "A"
+    assert repr(IrChr(0x41)) == "IrChr(65)"
+
+
+def test_irchr_is_leaf_kind_distinct_from_irint():
+    """IrChr is a leaf kind distinct from IrInt."""
+    assert IrChr(0x41) != IrInt(0x41)  # distinct leaf kinds never compare equal
+    assert IrChr(0x41) == 0x41  # but a leaf still matches its plain int
+
+
+def test_irchr_eval_returns_glyph_irstr():
+    """IrChr.eval returns an IrStr with the glyph."""
+    assert IrChr(0x41).eval(IrNone, IrNone, ()) == IrStr("A")
+
+
+def test_irchr_multichar_glyph_raises():
+    """IrChr raises on multi-char glyphs"""
+    with pytest.raises(UnsupportedConstructError):
+        IrChr("AB")

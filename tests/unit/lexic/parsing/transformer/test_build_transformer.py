@@ -8,6 +8,7 @@ from lexic.base import GrammarModel
 from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -46,7 +47,7 @@ def test_transformer_round_trip_sequence():
     inner_spec = make_spec(
         "expr",
         "value_str",
-        [IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z"))), IrQuantifier(1, IrNone))],
     )
     outer_spec = make_spec(
         "root", "sequence", [IrItem(IrRuleRef("expr"))], field_map={"expr": 0}

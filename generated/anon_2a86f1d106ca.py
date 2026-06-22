@@ -11,6 +11,7 @@ from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -76,7 +77,8 @@ Name.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrItem(
-            IrCharClass(IrRange("A", "Z"), IrRange("a", "z")), IrQuantifier(1, IrNone)
+            IrCharClass(IrRange(IrChr(65), IrChr(90)), IrRange(IrChr(97), IrChr(122))),
+            IrQuantifier(1, IrNone),
         )
     ],
     field_map={},

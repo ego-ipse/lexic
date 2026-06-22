@@ -9,6 +9,7 @@ from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -35,7 +36,7 @@ def test_emit_value_str_class_body():
     spec = _spec(
         "digit",
         "value_str",
-        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone))],
     )
     src = emit_module_source([spec], stem="m")
     assert "class Digit(GrammarModel):" in src
@@ -55,7 +56,7 @@ def test_emit_optional_field_for_quantifier_0_1():
     inner = _spec(
         "expr",
         "value_str",
-        [IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z"))), IrQuantifier(1, IrNone))],
     )
     outer = _spec(
         "r",
@@ -72,7 +73,7 @@ def test_emit_list_field_for_quantifier_unbounded():
     inner = _spec(
         "expr",
         "value_str",
-        [IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z"))), IrQuantifier(1, IrNone))],
     )
     outer = _spec(
         "r",
@@ -89,7 +90,7 @@ def test_emit_list_field_for_quantifier_zero_or_more():
     inner = _spec(
         "expr",
         "value_str",
-        [IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z"))), IrQuantifier(1, IrNone))],
     )
     outer = _spec(
         "r",
@@ -159,7 +160,7 @@ def test_charclass_field_emits_annotated_string_constraints():
     spec = _spec(
         "d",
         "value_str",
-        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone))],
     )
     src = emit_module_source([spec], stem="m")
     assert 'Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]' in src
@@ -177,7 +178,7 @@ def test_charclass_field_in_sequence_emits_alias():
     spec = _spec(
         "row",
         "sequence",
-        [IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z"))), IrQuantifier(1, IrNone))],
         field_map={"lower": 0},
     )
     src = emit_module_source([spec], stem="m")
@@ -238,7 +239,7 @@ def test_module_emits_pattern_aliases_at_top():
     spec = _spec(
         "d",
         "value_str",
-        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone))],
     )
     src = emit_module_source([spec], stem="m")
     # Tier 2 hit: [0-9]+ → 'digit' → CamelCase 'Digit'
@@ -265,7 +266,7 @@ def test_class_body_has_no_grammar_assignment():
     spec = _spec(
         "d",
         "value_str",
-        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone))],
     )
     src = emit_module_source([spec], stem="m")
     tree = parse(src)
@@ -282,7 +283,7 @@ def test_module_footer_registers_grammar():
     spec = _spec(
         "d",
         "value_str",
-        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone))],
     )
     src = emit_module_source([spec], stem="m")
     assert "D.__grammar__ = RuleSpec(" in src
@@ -302,11 +303,11 @@ def test_grammar_round_trip_through_load():
     grp_spec = _spec(
         "r",
         "sequence",
-        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone))],
         field_map={"digit": 0},
     )
     src = emit_module_source([grp_spec], stem="m")
     mod = load_emitted(src)
     item0 = mod.R.__grammar__.items[0]
-    assert item0.atom == IrCharClass(IrRange("0", "9"))
+    assert item0.atom == IrCharClass(IrRange(IrChr("0"), IrChr("9")))
     assert item0.quantifier == IrQuantifier(1, IrNone)

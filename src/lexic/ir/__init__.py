@@ -18,9 +18,11 @@ from lexic.ir.action import (
     IrJoin,
     IrPipe,
     IrReturn,
+    IrUnradix,
 )
 from lexic.ir.base import (
     IrAtom,
+    IrChr,
     IrInt,
     IrLeaf,
     IrNamedTuple,
@@ -45,6 +47,7 @@ from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
+    IrBounds,
     IrCharClass,
     IrItem,
     IrLiteral,
@@ -74,6 +77,8 @@ __all__ = [
     "IrAst",
     "IrAt",
     "IrAtom",
+    "IrChr",
+    "IrBounds",
     "IrBuild",
     "IrCharClass",
     "IrChild",
@@ -107,6 +112,7 @@ __all__ = [
     "IrSequence",
     "IrTransformer",
     "IrTypeMap",
+    "IrUnradix",
     "IrVisitor",
     "IrQuantifier",
     "IrRange",

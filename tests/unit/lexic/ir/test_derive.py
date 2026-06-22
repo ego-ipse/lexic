@@ -18,6 +18,7 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -48,7 +49,12 @@ def test_classify_value_str_for_charclass_only():
     rule = IrRule(
         "digit",
         IrAlternation(
-            IrSequence(IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)))
+            IrSequence(
+                IrItem(
+                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
+                    IrQuantifier(1, IrNone),
+                )
+            )
         ),
     )
     assert classify_kind(rule) == "value_str"
@@ -141,13 +147,17 @@ def test_classify_value_str_for_complex_literal_group():
         IrAlternation(
             IrSequence(
                 IrItem(IrLiteral("-"), IrQuantifier(0, 1)),
-                IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)),
+                IrItem(
+                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
+                    IrQuantifier(1, IrNone),
+                ),
                 IrItem(
                     IrAlternation(
                         IrSequence(
                             IrItem(IrLiteral(".")),
                             IrItem(
-                                IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)
+                                IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
+                                IrQuantifier(1, IrNone),
                             ),
                         )
                     ),
@@ -173,13 +183,23 @@ def test_compute_parents_alternation_arms_get_parent():
     num = IrRule(
         "num",
         IrAlternation(
-            IrSequence(IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)))
+            IrSequence(
+                IrItem(
+                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
+                    IrQuantifier(1, IrNone),
+                )
+            )
         ),
     )
     ident = IrRule(
         "ident",
         IrAlternation(
-            IrSequence(IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, IrNone)))
+            IrSequence(
+                IrItem(
+                    IrCharClass(IrRange(IrChr("a"), IrChr("z"))),
+                    IrQuantifier(1, IrNone),
+                )
+            )
         ),
     )
     parents = compute_parents([term, num, ident])
@@ -200,7 +220,8 @@ def test_compute_parents_only_single_ruleref_arms_create_parent():
         ),
     )
     inner = IrRule(
-        "num", IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("0", "9")))))
+        "num",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))),
     )
     expr = IrRule("expr", IrAlternation(IrSequence(IrItem(IrRuleRef("num")))))
     parents = compute_parents([rule, inner, expr])
@@ -242,10 +263,12 @@ def test_compute_parents_uses_pascal_case_class_names():
         ),
     )
     num = IrRule(
-        "num", IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("0", "9")))))
+        "num",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))),
     )
     ident = IrRule(
-        "ident", IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("a", "z")))))
+        "ident",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
     )
     parents = compute_parents([rule, num, ident])
     assert parents == {"num": "JsonValue", "ident": "JsonValue"}
@@ -438,7 +461,12 @@ def test_derive_value_str_single_arm():
     rule = IrRule(
         "digit",
         IrAlternation(
-            IrSequence(IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)))
+            IrSequence(
+                IrItem(
+                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
+                    IrQuantifier(1, IrNone),
+                )
+            )
         ),
     )
     ast = IrAst(
@@ -456,7 +484,7 @@ def test_derive_value_str_single_arm():
     assert spec.field_map == {}
     assert len(spec.items) == 1
     assert isinstance(spec.items[0], IrItem)
-    assert spec.items[0].atom == IrCharClass(IrRange("0", "9"))
+    assert spec.items[0].atom == IrCharClass(IrRange(IrChr("0"), IrChr("9")))
 
 
 def test_derive_value_str_multi_arm_uses_iralternation_directly():
@@ -497,7 +525,8 @@ def test_derive_sequence_basic():
         ),
     )
     other = IrRule(
-        "term", IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("a", "z")))))
+        "term",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
     )
     op = IrRule("op", IrAlternation(IrSequence(IrItem(IrLiteral("+")))))
     ast = IrAst(rules=IrSeq(rule, other, op), start="expr")
@@ -529,13 +558,23 @@ def test_derive_alternation_produces_abstract_plus_no_arm_specs_for_single_refs(
     num = IrRule(
         "num",
         IrAlternation(
-            IrSequence(IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)))
+            IrSequence(
+                IrItem(
+                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
+                    IrQuantifier(1, IrNone),
+                )
+            )
         ),
     )
     ident = IrRule(
         "ident",
         IrAlternation(
-            IrSequence(IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, IrNone)))
+            IrSequence(
+                IrItem(
+                    IrCharClass(IrRange(IrChr("a"), IrChr("z"))),
+                    IrQuantifier(1, IrNone),
+                )
+            )
         ),
     )
     ast = IrAst(rules=IrSeq(term, num, ident), start="term")
@@ -567,7 +606,12 @@ def test_derive_alternation_with_multi_item_arm_synthesises_arm_spec():
     num = IrRule(
         "num",
         IrAlternation(
-            IrSequence(IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)))
+            IrSequence(
+                IrItem(
+                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
+                    IrQuantifier(1, IrNone),
+                )
+            )
         ),
     )
     expr = IrRule("expr", IrAlternation(IrSequence(IrItem(IrRuleRef("num")))))
@@ -609,7 +653,8 @@ def test_derive_helper_rules_appear_in_output():
     )
     op = IrRule("op", IrAlternation(IrSequence(IrItem(IrLiteral("+")))))
     term = IrRule(
-        "term", IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("a", "z")))))
+        "term",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
     )
     ast = IrAst(rules=IrSeq(rule, op, term), start="expr")
     specs = derive_specs(ast)
@@ -632,7 +677,8 @@ def test_derive_marks_non_semantic_field_min_zero():
         ),
     )
     term = IrRule(
-        "term", IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("a", "z")))))
+        "term",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
     )
     ws = IrRule(
         "ws",
@@ -662,7 +708,8 @@ def test_derive_no_non_semantic_when_rule_not_in_set():
         IrAlternation(IrSequence(IrItem(IrRuleRef("term")), IrItem(IrRuleRef("ws")))),
     )
     term = IrRule(
-        "term", IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("a", "z")))))
+        "term",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
     )
     ws = IrRule(
         "ws",
@@ -701,7 +748,8 @@ def test_helpers_always_get_grammar_model_parent():
     )
     op = IrRule("op", IrAlternation(IrSequence(IrItem(IrLiteral("+")))))
     term = IrRule(
-        "term", IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("a", "z")))))
+        "term",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
     )
     ast = IrAst(IrSeq(rule, op, term), "expr")
     specs = derive_specs(ast)
@@ -728,7 +776,9 @@ def test_field_map_tier3_pattern_positional_part_n():
 
 def test_field_map_tier2_match_takes_precedence_over_tier3():
     """An IrCharClass matching the Tier 2 library uses the library name."""
-    items = [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))]
+    items = [
+        IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone))
+    ]
     fm = _field_map(items)
     assert list(fm.keys()) == ["digit"]
 
@@ -736,7 +786,9 @@ def test_field_map_tier2_match_takes_precedence_over_tier3():
 def test_field_map_mixed_tier2_and_tier3():
     """A Tier-2 hit + Tier-3 fallback in the same rule."""
     items = [
-        IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)),  # → 'digit'
+        IrItem(
+            IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone)
+        ),  # → 'digit'
         IrItem(
             IrCharClass(IrStr("xyz_unmatched")), IrQuantifier(1, 1)
         ),  # → 'head' (first Tier-3 pattern)
