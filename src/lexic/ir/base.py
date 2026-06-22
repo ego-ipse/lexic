@@ -484,6 +484,17 @@ class IrInt(IrScalar, int):
 
     _bound: ClassVar[type[int]] = int
 
+    def __str__(self) -> str:
+        """The decimal digits of this value.
+
+        ``int`` renders through ``__repr__``, which :class:`IrScalar` repurposes
+        for codegen, so without this an ``IrInt`` would stringify to its
+        constructor form. Mirrors :meth:`IrChr.__str__`.
+
+        :returns: ``str(int(self))``.
+        """
+        return str(int(self))
+
 
 class IrChr(IrInt):
     """A code point — build from a 1-char glyph or an int; stores the ordinal."""

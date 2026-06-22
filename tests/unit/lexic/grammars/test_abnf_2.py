@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.abnf_2 import ABNF_GRAMMAR, ABNF_REDUCER, ABNF_REDUCTIONS
-from lexic.ir.base import IrSeq
+from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAst,
@@ -152,36 +152,34 @@ def test_char_val_reduction_yields_irliteral_without_quotes():
     assert result == IrLiteral("ab")
 
 
-def test_num_val_hex_range_yields_ircharclass_range():
-    """num-val reduction on '%x41-5A' yields IrCharClass(IrRange('A','Z'))."""
-    reducer = Reducer(reductions=ABNF_REDUCTIONS)
-    tree = ParseTree(
-        IrRuleRef("num-val"),
-        IrSeq(
-            IrLiteral("%"),
-            IrLiteral("x"),
-            IrLiteral("4"),
-            IrLiteral("1"),
-            IrLiteral("-"),
-            IrLiteral("5"),
-            IrLiteral("A"),
-        ),
-    )
-    result = reducer.apply(tree)
-    assert isinstance(result, IrCharClass)
-    assert result == IrCharClass(IrRange(IrChr("A"), IrChr("Z")))
+def _hexdig(ch: str) -> ParseTree:
+    """Wrap a single hex character in a HEXDIG ParseTree (as the real parser produces)."""
+    return ParseTree(IrRuleRef("HEXDIG"), IrSeq(IrLiteral(ch)))
 
 
-def test_num_val_single_hex_yields_ircharclass_str():
-    """num-val reduction on '%x41' yields IrCharClass(IrChr('A'))."""
-    reducer = Reducer(reductions=ABNF_REDUCTIONS)
+def test_num_single_yields_ircharclass_chr():
+    """num-single over a hexits subtree yields IrCharClass(IrChr('A'))."""
+    hexits = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("4"), _hexdig("1")))
     tree = ParseTree(
-        IrRuleRef("num-val"),
-        IrSeq(IrLiteral("%"), IrLiteral("x"), IrLiteral("4"), IrLiteral("1")),
+        IrRuleRef("num-single"),
+        IrSeq(IrLiteral("%"), IrLiteral("x"), hexits),
     )
-    result = reducer.apply(tree)
+    result = ABNF_REDUCER.apply(tree)
     assert isinstance(result, IrCharClass)
     assert result == IrCharClass(IrChr("A"))
+
+
+def test_num_range_yields_ircharclass_range():
+    """num-range over two hexits subtrees yields IrCharClass(IrRange('A','Z'))."""
+    lo = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("4"), _hexdig("1")))
+    hi = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("5"), _hexdig("A")))
+    tree = ParseTree(
+        IrRuleRef("num-range"),
+        IrSeq(IrLiteral("%"), IrLiteral("x"), lo, IrLiteral("-"), hi),
+    )
+    result = ABNF_REDUCER.apply(tree)
+    assert isinstance(result, IrCharClass)
+    assert result == IrCharClass(IrRange(IrChr("A"), IrChr("Z")))
 
 
 # ── In-subset single-rule parse+reduce ───────────────────────────────
@@ -228,6 +226,53 @@ def test_parse_reduce_charclass_rule():
     item = list(rules[0].body)[0][0]
     assert isinstance(item.atom, IrCharClass)
     assert item.atom == IrCharClass(IrRange(IrChr("A"), IrChr("Z")))
+
+
+def _quant_of(text: str) -> IrQuantifier:
+    """Parse a one-rule ABNF snippet and return its single item's quantifier."""
+    g = _normalize(ABNF_GRAMMAR)
+    result = ABNF_REDUCER.apply(parse(g, text))
+    assert isinstance(result, IrAst)
+    return list(list(result.rules)[0].body)[0][0].quantifier
+
+
+def test_repeat_exact_quantifier():
+    """'5"a"' → IrQuantifier(5, 5)."""
+    assert _quant_of('x = 5"a"\n') == IrQuantifier(5, 5)
+
+
+def test_repeat_range_quantifier():
+    """'1*5"a"' → IrQuantifier(1, 5)."""
+    assert _quant_of('x = 1*5"a"\n') == IrQuantifier(1, 5)
+
+
+def test_repeat_open_upper_quantifier():
+    """'5*"a"' → IrQuantifier(5, IrNone) — empty hi-bound is unbounded."""
+    assert _quant_of('x = 5*"a"\n') == IrQuantifier(5, IrNone)
+
+
+def test_repeat_open_lower_quantifier():
+    """'*5"a"' → IrQuantifier(0, 5) — empty lo-bound is zero."""
+    assert _quant_of('x = *5"a"\n') == IrQuantifier(0, 5)
+
+
+def test_repeat_star_quantifier():
+    """'*"a"' → IrQuantifier(0, IrNone) — both bounds empty."""
+    assert _quant_of('x = *"a"\n') == IrQuantifier(0, IrNone)
+
+
+def test_repeat_absent_defaults_to_one_one():
+    """No repeat prefix → repeat-opt defaults to IrQuantifier(1, 1)."""
+    assert _quant_of('x = "a"\n') == IrQuantifier(1, 1)
+
+
+def test_num_single_parse_reduce():
+    """'x = %x41' reduces to IrCharClass(IrChr('A'))."""
+    g = _normalize(ABNF_GRAMMAR)
+    result = ABNF_REDUCER.apply(parse(g, "x = %x41\n"))
+    assert isinstance(result, IrAst)
+    item = list(list(result.rules)[0].body)[0][0]
+    assert item.atom == IrCharClass(IrChr("A"))
 
 
 # ── THE SELF-HOSTING FIXPOINT ─────────────────────────────────────────

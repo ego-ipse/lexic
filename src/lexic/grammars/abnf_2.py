@@ -39,25 +39,27 @@ appear in the flavour's own emitted output, so none is needed for the fixpoint.
 Rule names are hyphenated per RFC (``char-val``, not ``char_val``); ``rulename``
 admits ``ALPHA / DIGIT / "-"`` only.
 
-**Why some reductions stay procedural.** The action algebra is an *emission* DSL:
-its nodes produce strings (:class:`~lexic.ir.base.IrStr`). So every rule that
-yields text — the character/terminal rules — reduces with one shared
-:data:`_YIELD` (:class:`~lexic.ir.action.IrJoin` over :class:`~lexic.ir.action.IrArgs`),
-no procedural bodies at all. But reductions that *construct*
-typed structural nodes (:class:`~lexic.ir.nodes.IrItem` / ``IrSequence`` /
-``IrAlternation`` / ``IrRule`` / ``IrAst``) or *filter* children by type have no
-algebra node to call — construction/filtering is consumer policy the emission
-algebra never needed — so those use :class:`~lexic.ir.base.IrLambda`, the
-procedural escape hatch.
+**Every reduction is pure ``IrSelf``.** Text rules (the character/terminal rules)
+reduce with the shared :data:`YIELD`. Structural rules build typed nodes from
+clean ``nc`` with :class:`~lexic.ir.action.IrBuild`. The numeric rules decode
+their digit runs with :class:`~lexic.ir.action.IrUnradix` (the inverse of the
+emit-side radix spelling) and build over code points — no ``parse_charclass`` /
+``parse_quantifier`` call remains on the reduce side.
 """
 
 from __future__ import annotations
 
-from typing import Sequence
-
-from lexic.grammars.abnf import ABNF_FLAVOUR
-from lexic.ir.action import IrArg, IrBuild, IrField, IrPipe
-from lexic.ir.base import IrAtom, IrLambda, IrNone, IrSelf, IrSeq, IrTuple
+from lexic.ir.action import (
+    IrArg,
+    IrArgs,
+    IrBuild,
+    IrCond,
+    IrField,
+    IrJoin,
+    IrPipe,
+    IrUnradix,
+)
+from lexic.ir.base import IrInt, IrNone, IrSelf, IrSeq, IrTuple
 from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -157,20 +159,48 @@ ABNF_GRAMMAR = IrAst(
             "repetition",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("repeat"), IrQuantifier(0, 1)),
+                    IrItem(IrRuleRef("repeat-opt")),
                     IrItem(IrRuleRef("element")),
                 )
             ),
         ),
         IrRule(
+            "repeat-opt",
+            IrAlternation(IrSequence(IrItem(IrRuleRef("repeat"), IrQuantifier(0, 1)))),
+        ),
+        IrRule(
             "repeat",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("DIGIT"), IrQuantifier(1, IrNone))),
+                IrSequence(IrItem(IrRuleRef("repeat-exact"))),
+                IrSequence(IrItem(IrRuleRef("repeat-range"))),
+            ),
+        ),
+        IrRule(
+            "repeat-exact",
+            IrAlternation(IrSequence(IrItem(IrRuleRef("decits")))),
+        ),
+        IrRule(
+            "repeat-range",
+            IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("DIGIT"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("lo-bound")),
                     IrItem(IrLiteral("*")),
-                    IrItem(IrRuleRef("DIGIT"), IrQuantifier(0, IrNone)),
-                ),
+                    IrItem(IrRuleRef("hi-bound")),
+                )
+            ),
+        ),
+        IrRule(
+            "lo-bound",
+            IrAlternation(IrSequence(IrItem(IrRuleRef("decits"), IrQuantifier(0, 1)))),
+        ),
+        IrRule(
+            "hi-bound",
+            IrAlternation(IrSequence(IrItem(IrRuleRef("decits"), IrQuantifier(0, 1)))),
+        ),
+        IrRule(
+            "decits",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("DIGIT"), IrQuantifier(1, IrNone)))
             ),
         ),
         IrRule(
@@ -218,21 +248,36 @@ ABNF_GRAMMAR = IrAst(
         IrRule(
             "num-val",
             IrAlternation(
+                IrSequence(IrItem(IrRuleRef("num-single"))),
+                IrSequence(IrItem(IrRuleRef("num-range"))),
+            ),
+        ),
+        IrRule(
+            "num-single",
+            IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("%")),
                     IrItem(IrLiteral("x")),
-                    IrItem(IrRuleRef("HEXDIG"), IrQuantifier(1, IrNone)),
-                    IrItem(IrRuleRef("rangerest"), IrQuantifier(0, 1)),
+                    IrItem(IrRuleRef("hexits")),
                 )
             ),
         ),
         IrRule(
-            "rangerest",
+            "num-range",
             IrAlternation(
                 IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrLiteral("x")),
+                    IrItem(IrRuleRef("hexits")),
                     IrItem(IrLiteral("-")),
-                    IrItem(IrRuleRef("HEXDIG"), IrQuantifier(1, IrNone)),
+                    IrItem(IrRuleRef("hexits")),
                 )
+            ),
+        ),
+        IrRule(
+            "hexits",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("HEXDIG"), IrQuantifier(1, IrNone)))
             ),
         ),
         IrRule(
@@ -301,37 +346,15 @@ ABNF_NOISE: IrMap = IrMap(
 reduced and kept. The reduce-side mirror of the emit ``IrMap`` tables."""
 
 
-# ── Procedural reductions: numeric tokens + the optional/reordered item ────
+# ── Decode helpers: hex code points off args; joined decimal count ────────
 
+_cp0 = IrPipe(IrArg(0), IrUnradix(16, IrChr))
+"""First hex digit-run arg → an ``IrChr`` code point."""
+_cp1 = IrPipe(IrArg(1), IrUnradix(16, IrChr))
+"""Second hex digit-run arg → an ``IrChr`` code point."""
+_dec = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
+"""Joined decimal digit-run args → an ``IrInt`` count."""
 
-def _num_val(d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrCharClass:
-    """``%x``-token → :class:`IrCharClass`, parsing the subtree's raw text.
-
-    Radix/range parsing is deferred to :meth:`ABNF_FLAVOUR.parse_charclass`
-    (Issue 2 — the pure radix algebra is a separate effort).
-    """
-    pattern, _negated = ABNF_FLAVOUR.parse_charclass(str(YIELD.eval(d, n, ())))
-    if "-" in pattern:
-        lo, hi = pattern.split("-", 1)
-        return IrCharClass(IrRange(IrChr(lo), IrChr(hi)))
-    return IrCharClass(IrChr(pattern))
-
-
-def _repeat(d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrQuantifier:
-    """``1*5`` etc. → :class:`IrQuantifier`, parsing the subtree's raw text."""
-    return ABNF_FLAVOUR.parse_quantifier(str(YIELD.eval(d, n, ())))
-
-
-def _repetition(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf]) -> IrItem:
-    """``repeat? element`` → :class:`IrItem`. The optional quantifier prefixes
-    the atom, so both are picked by type from the clean ``nc`` (an absent
-    quantifier defaults)."""
-    atom = next(c for c in nc if isinstance(c, IrAtom))
-    quant = next((c for c in nc if isinstance(c, IrQuantifier)), IrQuantifier())
-    return IrItem(atom, quant)
-
-
-# ── Reductions: structural rules build from clean nc, text rules yield ─────
 
 # Dyads in an annotated tuple so each value widens to ``IrSelf`` (the invariant
 # ``IrTuple`` would otherwise reject the heterogeneous bodies under ``IrMap``).
@@ -345,20 +368,62 @@ ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("altrest"), IrArg(0)),
     IrTuple(IrRuleRef("concatenation"), IrBuild(IrSequence)),
     IrTuple(IrRuleRef("catrest"), IrArg(0)),
-    IrTuple(IrRuleRef("repetition"), IrLambda(_repetition)),
+    # repetition: repeat-opt is child 0, element is child 1 → IrItem(atom, quant).
+    IrTuple(IrRuleRef("repetition"), IrBuild(IrItem, IrTuple(IrArg(1), IrArg(0)))),
+    # repeat-opt: present → forward the quantifier; empty → a built default (1,1).
+    IrTuple(
+        IrRuleRef("repeat-opt"),
+        IrCond(
+            test=IrArgs(),
+            then_op=IrArg(0),
+            else_op=IrBuild(IrQuantifier, IrTuple()),
+        ),
+    ),
+    IrTuple(IrRuleRef("repeat"), IrArg(0)),
+    IrTuple(
+        IrRuleRef("repeat-exact"),
+        IrBuild(
+            IrQuantifier,
+            IrTuple(
+                IrPipe(IrArg(0), IrUnradix(10, IrInt)),
+                IrPipe(IrArg(0), IrUnradix(10, IrInt)),
+            ),
+        ),
+    ),
+    IrTuple(
+        IrRuleRef("repeat-range"),
+        IrBuild(IrQuantifier, IrTuple(IrArg(0), IrArg(1))),
+    ),
+    # bounds own their own emptiness: IrArgs() is falsy when the rule matched empty.
+    IrTuple(
+        IrRuleRef("lo-bound"),
+        IrCond(test=IrArgs(), then_op=_dec, else_op=IrInt(0)),
+    ),
+    IrTuple(
+        IrRuleRef("hi-bound"),
+        IrCond(test=IrArgs(), then_op=_dec, else_op=IrNone),
+    ),
+    # digit-run rules: join the scattered single-char args into one string.
+    IrTuple(IrRuleRef("decits"), IrJoin(IrArgs())),
+    IrTuple(IrRuleRef("hexits"), IrJoin(IrArgs())),
     IrTuple(IrRuleRef("element"), IrArg(0)),
     IrTuple(IrRuleRef("group"), IrArg(0)),
     # Text rules — wrap the subtree text as the leaf type (quotes skipped).
     IrTuple(IrRuleRef("rulename"), IrBuild(IrRuleRef, IrTuple(YIELD))),
     IrTuple(IrRuleRef("char-val"), IrBuild(IrLiteral, IrTuple(YIELD))),
-    # Numeric tokens — parse the raw text (radix algebra deferred, Issue 2).
-    IrTuple(IrRuleRef("num-val"), IrLambda(_num_val)),
-    IrTuple(IrRuleRef("repeat"), IrLambda(_repeat)),
+    # num-val → IrCharClass over code points (IrChr endpoints).
+    IrTuple(IrRuleRef("num-val"), IrArg(0)),
+    IrTuple(IrRuleRef("num-single"), IrBuild(IrCharClass, IrTuple(_cp0))),
+    IrTuple(
+        IrRuleRef("num-range"),
+        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_cp0, _cp1)))),
+    ),
     IrTuple(IR_DEFAULT, YIELD),
 )
-"""Per-rule reductions: parse tree → IR. Structural rules build from clean
-``nc``; every char/terminal rule falls through ``IR_DEFAULT`` to :data:`YIELD`,
-which yields its subtree source. Paired with :data:`ABNF_NOISE`."""
+"""Per-rule reductions: parse tree → IR. Numeric rules decode their clean digit
+runs with :class:`~lexic.ir.action.IrUnradix`; structural rules build from clean
+``nc``; every char/terminal rule falls through ``IR_DEFAULT`` to :data:`YIELD`.
+Paired with :data:`ABNF_NOISE`."""
 
 
 ABNF_REDUCER = Reducer(reductions=ABNF_REDUCTIONS, noise=ABNF_NOISE, literal=DROP)
