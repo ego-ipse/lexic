@@ -1,55 +1,113 @@
-# Design — radix decode in the ABNF reduce (task B)
+# Design — radix decode in the ABNF reduce (task B), code-point model
 
-**Date:** 2026-06-20
-**Scope:** the reduce direction only — replace the two procedural calls
+**Date:** 2026-06-20 (revised 2026-06-22 to the code-point-everywhere model)
+**Scope:** the reduce direction — replace the two procedural calls
 `ABNF_FLAVOUR.parse_charclass` / `parse_quantifier` (in `grammars/abnf_2.py`'s
 `_num_val` / `_repeat`) with pure `IrSelf` algebra, removing the last `IrLambda`s
-from the numeric reductions. This is item **B** of the
-`2026-06-18-flavour-2-reduce-handover.md`.
+from the numeric reductions, **and** move char-class/range storage to code
+points. This is item **B** of the
+`2026-06-18-flavour-2-reduce-handover.md`, now folded together with the
+(previously deferred) code-point storage reshape — "plan A, one plan."
 
-**Status:** design validated end-to-end against a real parse + real reduce
-(`_validate_radix.py`, all cases pass) and adversarially reviewed. **Decided:**
-char-preserving endpoint storage (`IrChr` + `IrGlyph` collapse) and a **pure**
-`_repetition` (no `IrLambda`). Implementing.
+**Status:** the class shapes and reduce algebra are validated end-to-end against a
+real parse + real reduce (`_validate_radix.py`: all cases pass; pyright 0 errors;
+pylint 10/10). Implementing. The doc supersedes the earlier *char-preserving /
+`IrGlyph`* design — see §Superseded.
 
 ---
 
 ## Decided constraints (not re-opened)
 
-- **No `IrCallable`, no `IrLambda`** in the final numeric reductions.
-- **`IrChr`** is a value-carrying `IrInt` subtype: the node IS the code point;
-  `__str__` → `chr(self)` (the glyph), `eval` → `IrStr(chr(self))`. Lives in
-  `ir/base.py`. (Locked in the codepoint thread; reaffirmed in the
-  `decided_means_decided` memory.)
+- **No `IrCallable`, no `IrLambda`** in the final numeric reductions — including
+  `_repetition`, which is now pure (see §Reduce table).
+- **A character is a code point everywhere it appears in a char class or range.**
+  `IrRange` holds `IrChr` endpoints; `IrCharClass` holds `IrRange | IrChr`;
+  `IrQuantifier` holds plain `int` counts. `IrLiteral` stays `IrStr` (string
+  literals are not char classes). Spelling (code point → glyph / `%x` / escape)
+  happens **only at emit time, per flavour**.
+- **`IrChr`** is a value-carrying `IrInt` subtype: the node IS the code point.
+  It is constructible from a 1-char glyph *or* an int (`IrChr("A") == IrChr(0x41)`),
+  storing the ordinal; `__str__` → `chr(self)` (the glyph), `eval` →
+  `IrStr(chr(self))`. The glyph→code-point conversion lives **in `IrChr`** —
+  nowhere else. Lives in `ir/base.py`.
 - The decided **emit** primitive `IrRadix(base, width)` does the inverse
   (code point → digit string) with hand ord-arithmetic — no `int(s,base)`,
   `format`, table, or `match`.
 - **THE ONE PRINCIPLE:** radix (code point ⇄ digit spelling) and escaping
   (special char ⇄ safe form) are orthogonal, composed at the site, never fused.
-  This design touches radix only; ABNF has no escaping.
 
 ---
 
-## The core idea
+## The hierarchy: `IrRange` IS-A `IrQuantifier` (Liskov)
 
-`IrQuantifier(lo, hi)` and `IrRange(lo, hi)` **already are the structure.** The
-only thing un-decoded is the *number sitting in a slot*. So the reduce builds the
-final IR types directly and the only new pieces are:
+`IrRange` and `IrQuantifier` share the `(lo, hi)` range shape. The correct
+inheritance direction — the one that does not break Liskov — is:
 
-1. **`IrChr`** (`ir/base.py`) — the value-carrying code point (above).
-2. **`IrUnradix`** (`ir/action.py`) — the radix-decode body (digits → code point).
-3. **`IrGlyph`** (`ir/action.py`) — collapse a code-point focus to its 1-char
-   `IrStr` glyph. The char-preserving bridge (see Axis 2): the decode yields a
-   code point, `IrGlyph` lands it as the char today's `IrRange`/`IrCharClass`
-   already store. Throwaway — removed when the code-point storage reshape lands.
+```
+IrQuantifier   # base: plain int counts; lo/hi: int, hi may be IrNone (open). defaults (1,1).
+  └─ IrRange   # subclass: a char range; narrows lo/hi to IrChr (code points), always closed.
+```
 
-No intermediate node types (an earlier `IrNumVal`/`IrRepeatExact`/`IrRepeatRange`
-sketch was scrapped — those merely re-encoded `IrCharClass`/`IrQuantifier`). No
-extra normalize pass.
+**Why this direction, and not the reverse.** Two distinct Liskov axes both pick it:
 
-### `IrUnradix` — the one new action node
+1. **Behavioural.** Any per-node *behaviour* (e.g. "endpoints are code points")
+   must be *added* by the subclass, never *removed*. If the base coerced
+   endpoints to code points and a subclass opted out, that subclass would no
+   longer honour the base's guarantee — an LSP break. So the char-range coercion
+   concern belongs to the *subclass* (`IrRange`), with the plain `IrQuantifier`
+   as the base that promises nothing about characters.
+2. **Variance.** `lo`/`hi` are read-only (frozen `IrNamedTuple`) fields. A
+   subclass may **narrow** a read-only field (covariant) but never **widen** it.
+   `IrChr <: IrInt <: int`, so `IrRange` narrowing the base's `int` endpoints to
+   `IrChr` is the safe direction. (This mirrors the move the current code already
+   makes — `IrRange(int|str)` → `IrQuantifier(int)` — just inverted to match the
+   code-point model.)
 
-A record-leaf, the inverse of emit `IrRadix`:
+**No coercion node, no `_coerce` flag, no `__new__` override on `IrRange`.**
+Endpoints are `IrChr` by construction. The reduce produces `IrChr` directly (via
+`IrUnradix(16, IrChr)`); hand-authored ranges write `IrRange(IrChr("A"),
+IrChr("Z"))`. Both are `IrChr`, so they compare equal with no normalization pass.
+
+> **Real-code consequence.** Today `class IrQuantifier(IrRange)`. This design
+> **flips** it to `class IrRange(IrQuantifier)`. `IrRange`'s `lo`/`hi` get
+> placeholder defaults (`IrChr()` = code point 0) purely to satisfy the dataclass
+> override rule (the base bounds default to `1`); char ranges always receive
+> explicit endpoints, so the placeholder is never used.
+
+---
+
+## The two new action/value nodes
+
+### `IrChr` (`ir/base.py`)
+
+```python
+class IrChr(IrInt):
+    """A code point. Build from a 1-char glyph or an int; stores the ordinal."""
+
+    def __new__(cls, value: int | str = 0) -> Self:
+        return super().__new__(cls, ord(value) if isinstance(value, str) else value)
+
+    def __str__(self) -> str:
+        return chr(int(self))
+
+    def eval(self, _d, _n, _nc, /) -> IrStr:
+        return IrStr(chr(int(self)))
+```
+
+`__repr__` is inherited from `IrScalar` (codegen): `repr(IrChr(65)) == "IrChr(65)"`
+while `str(IrChr(65)) == "A"`. That split is intended — repr is codegen, str is the
+glyph. Because `IrChr` is now **stored** in `IrRange`/`IrCharClass`, it reaches
+`RuleSpec` reprs, so **`codegen/model_emitter.py`'s import block must add
+`IrChr`.** (This reverses the earlier draft's "never stored, no import change.")
+
+Equality (inherited from `IrScalar`, type-aware on *exact* type): `IrChr(65) ==
+IrChr(65)`, `IrChr(65) == 0x41` (matches plain int), but `IrChr(65) != IrInt(65)`
+(distinct leaf kinds never compare equal). This is what makes the storage model
+honest: a code-point endpoint never silently equals a plain count.
+
+### `IrUnradix(base, out)` (`ir/action.py`)
+
+A record-leaf transform, the inverse of emit `IrRadix`:
 
 ```python
 class IrUnradix(IrNamedTuple[int, type[IrScalar]]):
@@ -58,35 +116,28 @@ class IrUnradix(IrNamedTuple[int, type[IrScalar]]):
     base: int                    # 2 / 10 / 16, scalar payload (per flavour token)
     out: type[IrScalar] = IrInt  # IrChr for code points, IrInt for counts
 
-    def eval(self, _d, n, _nc, /):
-        s = str(n)               # focus is a digit IrStr, fed via IrPipe(<digits>, IrUnradix(...))
+    def eval(self, _d, n, _nc, /) -> IrScalar:
+        s = str(n)
         if not s:                # explicit guard (CLAUDE.md: no silent dispatch path)
             raise UnsupportedConstructError("IrUnradix: empty digit string")
         acc = 0
         for c in s:
             v = ord(c) - 0x30 if "0" <= c <= "9" else ord(c.upper()) - 0x41 + 10
-            if not (0 <= v < self.base):
-                raise UnsupportedConstructError(...)
+            if not 0 <= v < self.base:
+                raise UnsupportedConstructError(f"bad digit {c!r} for base {self.base}")
             acc = acc * self.base + v
         return self.out(acc)
 ```
 
-`__repr__` is **not** overridden: it inherits `IrScalar`'s codegen repr, so
-`repr(IrChr(65)) == "IrChr(65)"` (reconstructs from the code point) while
-`str(IrChr(65)) == "A"` (the glyph). That split is intended — repr is codegen,
-str is the surface. `codegen/model_emitter.py`'s import block must add `IrChr`.
-
 - `out` is open, same pattern as `IrField.out` — a new scalar type needs no
-  change here.
-- It **reads its focus** `n` (a transform body, like `IrField`/`IrJoin`), so it
-  composes as `IrPipe(<digit source>, IrUnradix(base, out))`. This is distinct
-  from the value-carrying `IrChr`/emit-`IrRadix` — `IrUnradix` is the decode
-  transform, not a value carrier.
-- `base` is static payload (ABNF is hex/decimal). A future `%d`/`%b`/`bin-val`
-  set could read `base` off the node; out of scope here.
-- Naming alternative considered: make `IrRadix` bidirectional (eval dispatches
-  encode vs decode on focus type). Rejected — keeps each eval single-branch,
-  matching the decided "no mode flag, no match" style.
+  change here. It **reads its focus** `n`, so it composes as
+  `IrPipe(<digit source>, IrUnradix(base, out))`.
+- `base` is static payload (ABNF is hex/decimal). A future `%d`/`%b` set could
+  read `base` off the node; out of scope here.
+
+**No `IrGlyph`.** The earlier design needed it to collapse a decoded code point
+back to a stored glyph (char-preserving). With code-point storage, the decode's
+`IrChr` *is* the stored value — `IrGlyph` is deleted from the plan entirely.
 
 ---
 
@@ -111,7 +162,7 @@ hi-bound     = [decits]          ; empty ⇒ ∞ (IrNone)
 
 ; pure _repetition: the optional repeat becomes a named rule too
 repetition   = repeat-opt element
-repeat-opt   = [repeat]          ; empty ⇒ IrQuantifier() default (1,1)
+repeat-opt   = [repeat]          ; empty ⇒ a built IrQuantifier() default (1,1)
 ```
 
 Splitting `num-val` and `repeat` into named arms kills the `5` vs `5*` vs `*5`
@@ -119,22 +170,24 @@ ambiguity — the discriminator is the **rule name** the reducer dispatches on, 
 the dropped `*`. Wrapping each optional bound in a named rule guarantees the
 slot materialises in the parent even when the bound matched empty (see Mechanism).
 
-This is parse-side only; emit is unaffected (it renders the final
-`IrCharClass`/`IrQuantifier`, never these rules). The ABNF self-hosting fixpoint
-must be re-closed after the change (these rules describe ABNF's own syntax).
+This is parse-side only; emit is unaffected. The ABNF self-hosting fixpoint must
+be re-closed after the change (these rules describe ABNF's own syntax), and any
+**hand-authored** char ranges in `ABNF_GRAMMAR` move from glyph strings
+(`IrRange("A","Z")`) to code points (`IrRange(IrChr("A"), IrChr("Z"))`). The
+*parser's* output is already code points; only hand-authored IR is re-spelled.
 
 ---
 
 ## Reduce table
 
 Every body builds a final type. `IrUnradix` decodes one clean digit string per
-slot. (`IrJoin(IrArgs())` is the established "join the children" body — already
-used as `_YIELD` in `test_reduce.py`.)
+slot. (`IrJoin(IrArgs())` is the established "join the children" body.)
 
 ```python
-# char-preserving: decode digits → code point (IrChr) → glyph IrStr (IrGlyph)
-_cp  = lambda i: IrPipe(IrArg(i), IrPipe(IrUnradix(16, IrChr), IrGlyph()))
-_dec = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))     # joined digits → count
+# hex code points off args 0 and 1; joined decimal count.
+_cp0 = IrPipe(IrArg(0), IrUnradix(16, IrChr))
+_cp1 = IrPipe(IrArg(1), IrUnradix(16, IrChr))
+_dec = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
 
 # digit-run rules: join scattered single-char args into one string
 IrTuple(IrRuleRef("hexits"), IrJoin(IrArgs())),          # ("4","1") → "41"
@@ -142,16 +195,15 @@ IrTuple(IrRuleRef("decits"), IrJoin(IrArgs())),          # ("5",)    → "5"
 
 # alternation passthroughs — LOAD-BEARING. Without these, `repeat`/`num-val`
 # fall through IR_DEFAULT→YIELD and reduce to TEXT, not the built node.
-# (The embedded-context test caught this omission.)
 IrTuple(IrRuleRef("repeat"), IrArg(0)),
 IrTuple(IrRuleRef("num-val"), IrArg(0)),
 
-# num-val → IrCharClass directly (IrStr glyph endpoints, today's shape)
-IrTuple(IrRuleRef("num-single"), IrBuild(IrCharClass, IrTuple(_cp(0)))),
+# num-val → IrCharClass over code points (IrChr endpoints)
+IrTuple(IrRuleRef("num-single"), IrBuild(IrCharClass, IrTuple(_cp0))),
 IrTuple(IrRuleRef("num-range"),
-    IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_cp(0), _cp(1)))))),
+    IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_cp0, _cp1))))),
 
-# repeat → IrQuantifier directly
+# repeat → IrQuantifier (int counts)
 IrTuple(IrRuleRef("repeat-exact"),
     IrBuild(IrQuantifier, IrTuple(IrPipe(IrArg(0), IrUnradix(10, IrInt)),
                                   IrPipe(IrArg(0), IrUnradix(10, IrInt))))),
@@ -165,18 +217,17 @@ IrTuple(IrRuleRef("hi-bound"),
     IrCond(test=IrArgs(), then_op=_dec, else_op=IrNone)),   # ∞
 
 # pure _repetition (no IrLambda): repeat-opt defaults to a BUILT IrQuantifier()
-# (not IrNone — IrNone is truthy; and a branch value must be constructed in-branch,
-# never a pre-built composite, since IrCond evals the chosen branch).
+# (constructed in-branch — never a pre-built composite; IrCond evals the chosen branch)
 IrTuple(IrRuleRef("repeat-opt"),
     IrCond(test=IrArgs(), then_op=IrArg(0), else_op=IrBuild(IrQuantifier, IrTuple()))),
 IrTuple(IrRuleRef("repetition"),
-    IrBuild(IrItem, IrTuple(IrArg(1), IrArg(0)))),   # (atom, quant)
+    IrBuild(IrItem, IrTuple(IrArg(1), IrArg(0)))),   # (atom, quant); repeat-opt is child 0
 ```
 
-`IrQuantifier(lo, hi)` is built once, by `repeat-range`; the lo/hi bound rules
-supply the `IrInt(0)` / `IrNone` defaults. No parallel "repeat" type. `_repetition`
-is now pure: `repeat-opt` always lands a quantifier (decoded or the `(1,1)`
-default), so `repetition` is a plain positional `IrBuild(IrItem, (atom, quant))`.
+`IrQuantifier(lo, hi)` is built by `repeat-range`; the lo/hi bound rules supply
+the `IrInt(0)` / `IrNone` defaults. `_repetition` is pure: `repeat-opt` always
+lands a quantifier (decoded or the `(1,1)` default), so `repetition` is a plain
+positional `IrBuild(IrItem, (atom, quant))`.
 
 ---
 
@@ -186,29 +237,30 @@ default), so `repetition` is a plain positional `IrBuild(IrItem, (atom, quant))`
 the optional matches empty, `__opt` (a synthetic `__`-prefixed rule) takes the
 empty arm. `RESOLVE_CHILDREN` splices synthetic children, so an empty `__opt`
 contributes nothing — `lo-bound`'s `nc` is empty. But `lo-bound` itself is a
-**real** (non-synthetic) rule, so it always appears as a child of `repeat-range`
-and always reduces. Its body `IrCond(test=IrArgs(), ...)` reads the empty `nc`
-as falsy and yields the default. The named wrapper is what guarantees the slot.
+**real** rule, so it always appears as a child of `repeat-range` and always
+reduces. Its body `IrCond(test=IrArgs(), ...)` reads the empty `nc` as falsy and
+yields the default. The named wrapper is what guarantees the slot.
 
 ---
 
 ## Empirical validation (`_validate_radix.py`)
 
-Real `normalize` → `parse` → `Reducer.apply`, `IrChr`/`IrUnradix` prototyped
-inline (the prototype `IrChr` subclasses the **real** `IrInt`, so its equality is
-production-accurate). **All cases pass with structural `==`:**
+Real `normalize` → `parse` → `Reducer.apply`. The prototype `IrChr`/`IrUnradix`/
+`IrQuantifier2`/`IrRange2`/`IrCharClass2`/`IrItem2` subclass the **real** bases, so
+equality is production-accurate. **All cases pass with structural `==`; pyright 0
+errors; pylint 10/10.**
 
 | input | reduced | input | reduced |
 |---|---|---|---|
-| `5` | `IrQuantifier(5,5)` | `%x41` | `IrCharClass(IrChr(65))` → glyph `A` |
-| `1*5` | `IrQuantifier(1,5)` | `%x41-5A` | `IrCharClass(IrRange(IrChr(65),IrChr(90)))` → `A`-`Z` |
-| `*5` | `IrQuantifier(0,5)` | `%x30-39` | `IrCharClass(IrRange(IrChr(48),IrChr(57)))` → `0`-`9` |
+| `5` | `IrQuantifier(5,5)` | `%x41` | `IrCharClass(IrChr(65))` |
+| `1*5` | `IrQuantifier(1,5)` | `%x41-5A` | `IrCharClass(IrRange(IrChr(65),IrChr(90)))` |
+| `*5` | `IrQuantifier(0,5)` | `%x30-39` | `IrCharClass(IrRange(IrChr(48),IrChr(57)))` |
 | `5*` | `IrQuantifier(5,∞)` | | |
 | `*` | `IrQuantifier(0,∞)` | | |
 | `12*34` | `IrQuantifier(12,34)` | | |
 
-**Embedded context** (`repetition = repeat? element`, `element = num-val` — the
-real combiner shape, not isolated start rules):
+**Embedded context** (`repetition = repeat-opt element`, `element = num-val` — the
+real combiner shape):
 
 | input | reduced |
 |---|---|
@@ -216,114 +268,72 @@ real combiner shape, not isolated start rules):
 | `3%x41` | `IrItem(IrCharClass(IrChr(65)), IrQuantifier(3,3))` |
 | `1*2%x41-5A` | `IrItem(IrCharClass(IrRange(IrChr(65),IrChr(90))), IrQuantifier(1,2))` |
 
-Covered: leading-empty optional (`*5`, `*`); multi-digit runs (`12*34`); code
-points; the embedded combiner; `IrUnradix` empty-string guard raises.
-
-**Equality semantics** (probed against the real `IrInt`): `IrChr(65)==IrChr(65)`
-is `True`, `IrChr(65)!=IrChr(90)`, `IrChr(65)!=IrStr("A")` (distinct leaf kinds —
-this is why the old `IrStr`-shaped tests must port), `hash` stable,
-`IrCharClass(IrRange(IrChr,IrChr))` compares structurally. The earlier draft
-compared num-val by `repr`; now it uses real `==`.
-
-`_validate_radix.py` is kept as a regression artifact.
+**Equality/representation probes:**
+`IrCharClass(IrRange(IrChr("A"),IrChr("Z"))) == IrCharClass(IrRange(IrChr(0x41),
+IrChr(0x5A)))` (glyph and ordinal construct the same code point); `IrChr(0x41) ==
+0x41`; `IrChr(0x41) != IrInt(0x41)` (distinct leaf kinds); a reduced quantifier
+endpoint stays `IrInt`, never `IrChr` (the base int range never coerces);
+`IrUnradix` empty-string guard raises. `_validate_radix.py` is kept as a
+regression artifact.
 
 ---
 
-## Axis 2 — endpoint storage: DECIDED = char-preserving
+## What's new / changes, in total
 
-Reduce produces **today's shape** — `IrStr` glyph endpoints (`IrRange("A","Z")`,
-`IrCharClass(IrStr("A"))`) — via the `IrChr` → `IrGlyph` collapse. Chosen because
-the self-hosting fixpoint compares reduced output **structurally** to the
-char-authored `ABNF_GRAMMAR`:
-
-- `IrRange(IrStr("A"),IrStr("Z")) == IrRange("A","Z")` → **True** (probed); single
-  `IrCharClass(IrStr(chr(13))) == IrCharClass(IrStr("\r"))` → **True**.
-- Code-point endpoints **without** `IrRange` coercion: `IrRange(IrChr(65),IrChr(90))
-  != IrRange("A","Z")` → fixpoint **breaks** (probed).
-
-So char-preserving is the only path that keeps B truly surgical: **fixpoint holds
-unchanged, no `IrRange`/`IrCharClass` reshape, no grammar re-authoring, no
-char-class test ports.** `IrChr` appears only transiently inside the reduce
-algebra (never stored), so it never reaches a `RuleSpec` repr — **no
-`codegen/model_emitter.py` import change needed.**
-
-**Deferred (separate thread):** the locked code-point storage reshape — `IrRange`
-coercing `__new__` (endpoints → `IrChr`), `IrQuantifier` opting out, the emit-side
-spelling algebra, GBNF, and `EscapeCodec` removal. When it lands, `IrGlyph` and the
-char storage are removed and endpoints become `IrChr`.
-
----
-
-## What's new, in total
-
-1. `IrChr` — `ir/base.py` (value-carrying code point; `__str__`/`eval` → glyph).
+1. `IrChr` — `ir/base.py` (value-carrying code point; glyph↔ordinal in `__new__`/
+   `__str__`; `eval` → glyph `IrStr`).
 2. `IrUnradix(base, out)` — `ir/action.py` (radix-decode transform).
-3. `IrGlyph` — `ir/action.py` (code-point focus → 1-char `IrStr` glyph; the
-   char-preserving collapse, throwaway against the reshape).
-4. Grammar: `ABNF_GRAMMAR` numeric rules restructured (wrap digit runs, split
-   arms, named optional bounds, `repeat-opt`); re-close the self-hosting fixpoint.
-5. `ABNF_REDUCTIONS`: replace the `_num_val`/`_repeat`/`_repetition` `IrLambda`s
-   with the pure bodies above (plus the `repeat`/`num-val` passthroughs); delete
-   all three `IrLambda` functions; `parse_charclass`/`parse_quantifier` lose their
-   reduce-side caller.
+3. **Hierarchy flip:** `class IrRange(IrQuantifier)` (was `IrQuantifier(IrRange)`).
+   `IrQuantifier` becomes the int-count base; `IrRange` narrows endpoints to
+   `IrChr`. Placeholder `IrChr()` defaults on `IrRange.lo/hi`.
+4. `IrCharClass` element type → `IrRange | IrChr` (was `IrRange | IrStr`).
+5. Grammar: `ABNF_GRAMMAR` numeric rules restructured; hand-authored char ranges
+   re-spelled to code points; re-close the self-hosting fixpoint.
+6. `ABNF_REDUCTIONS`: replace `_num_val`/`_repeat`/`_repetition` `IrLambda`s with
+   the pure bodies above (plus the `repeat`/`num-val` passthroughs); delete all
+   three functions; `parse_charclass`/`parse_quantifier` lose their reduce-side
+   caller.
+7. `codegen/model_emitter.py` import block += `IrChr` (now stored, reaches reprs).
+8. Emit side (follow-on, same plan): `IrRadix` spells code points back to
+   digits/glyphs/escapes per flavour; **GBNF** char-class parsing must also
+   produce code points, else `IrCharClass` is origin-polymorphic across flavours.
 
 Everything else is existing algebra (`IrBuild`, `IrPipe`, `IrJoin`, `IrArgs`,
 `IrArg`, `IrCond`).
 
-**Scope of the "no `IrLambda`" claim — now complete.** The restructure removes the
-reason `_repetition` was parked: with `repeat-opt` a named rule, `repetition`'s
-`nc` is fixed `(quant, atom)` and `repeat` reliably yields an `IrQuantifier`, so
-`_repetition` becomes a plain `IrBuild`. All three numeric-area `IrLambda`s
-(`_num_val`, `_repeat`, `_repetition`) are removed.
+---
+
+## Superseded (the earlier char-preserving design)
+
+The 2026-06-20 draft chose **char-preserving** storage (`IrStr` glyph endpoints)
+via an `IrChr → IrGlyph` collapse, to keep the fixpoint holding without touching
+storage. That is replaced because:
+
+- It left `IrRange` payload context-dependent (`str` for chars, `int` for
+  counts) — not consistent.
+- It required a throwaway `IrGlyph` node built only to be deleted later.
+- It was only cross-flavour-consistent by accident (both flavours emit glyphs);
+  any partial migration broke that.
+
+The code-point model removes `IrGlyph`, makes `IrRange` uniformly int-rooted, and
+puts glyph spelling at emit time. Cost paid up front (vs deferred): the fixpoint
+re-close, `model_emitter` import, GBNF char-class migration, and hand-authored
+grammar re-spelling.
 
 ---
 
-## Adversarial review — fixed vs. not
+## Open risks / to verify during implementation
 
-**Fixed in this design + demonstrator:**
-- *Missing alternation passthroughs* (`repeat`/`num-val` → `IrArg(0)`). Caught by
-  the embedded test; without them the node reduced to text. Added to the table.
-- *`IrUnradix` empty-string* now raises (explicit dispatch path) rather than
-  returning `IrInt(0)`/`IrChr(0)`.
-- *Validation rigor*: num-val now compared with real `==`; embedded-context cases
-  added; equality semantics probed against the real `IrInt`.
-- *Scope overclaim*: the "no `IrLambda`" statement is now scoped to the two
-  numeric token reductions; `_repetition` is documented as staying.
-
-**Not fixed — and why:**
-- *`IrUnradix` stores `int`/`type` in tuple slots that lack `.eval`.* Identical
-  shape to the shipped `IrField` (`str` + `type[IrScalar]`); nothing dispatches an
-  action body as a data node, so the "AttributeError if walked as data" path is
-  unreachable. No change — it would diverge from existing precedent.
-- *`IrChr.__repr__` shows `IrChr(65)`, not the glyph.* Intended: repr is codegen
-  (must reconstruct from the code point); `str` is the glyph. Documented, not
-  changed.
-- *`acc > 0x10FFFF` only fails at emit-time `chr()`.* Left as-is: ABNF `%x` values
-  are code points by definition; a decode-time cap would be an arbitrary policy
-  not required by the grammar. Flagged, not guarded.
-- *`test_abnf_2.py` num-val/repeat assertions* — char-preserving keeps the old
-  `IrCharClass(IrStr(...))` / `IrRange(...)` shape, so the charclass assertions do
-  **not** need porting. The two numeric reductions' tests change because the rule
-  set and bodies change (`_num_val`/`_repeat` gone; new `num-single`/`num-range`/
-  `repeat-exact`/`repeat-range`/bound rules). Test work waits for the parallel A
-  agent to finish `test_abnf_2.py`, then is handed to a Sonnet subagent.
-
-## Implementation gotchas (validated, fold into the code)
-
-- **`IrNone` is truthy.** A default-via-`IrCond(test=IrArg(0))` mis-branches when
-  the arg is `IrNone`. So `repeat-opt` defaults to a *built* `IrQuantifier()`, not
-  `IrNone`, and `repetition` reads it positionally with no conditional.
-- **Never hand a pre-built composite as an `IrCond` branch value.** `IrCond` calls
-  `.eval()` on the chosen branch; `IrQuantifier().eval()` recurses into its int
-  children and raises `AttributeError`. Construct it in-branch:
-  `IrBuild(IrQuantifier, IrTuple())`. (Scalar literals like `IrInt(0)` are fine —
-  they self-evaluate.)
-
-## The remaining gate
-
-**Self-hosting fixpoint.** Validated: the numeric rules in isolation, the embedded
-`repetition` combiner, and that char-preserving output equals the authored
-shapes. Not yet run (needs the real wiring): the full emit→parse→reduce fixpoint
-over the whole restructured `ABNF_GRAMMAR` (`test_self_hosting_fixpoint` +
-`_idempotent`). Run these first after wiring `abnf_2.py`; a red is a structural
-diff that localizes the offending rule.
+- **Self-hosting fixpoint.** Not yet run against the *real* wiring: the full
+  emit→parse→reduce fixpoint over the whole restructured `ABNF_GRAMMAR`
+  (`test_self_hosting_fixpoint` + `_idempotent`). Run first after wiring; a red
+  localizes the offending rule.
+- **Cross-flavour consistency.** ABNF and GBNF char classes must *both* reduce to
+  code points, or `IrCharClass` holds `IrChr` from one and `IrStr` from the other.
+  GBNF migration is in-scope for "one plan."
+- **`acc > 0x10FFFF`** only fails at emit-time `chr()`. Left unguarded: ABNF `%x`
+  values are code points by definition; a decode-time cap would be arbitrary policy.
+- **`IrRange` placeholder default.** `IrChr()` (NUL) exists only to satisfy the
+  dataclass override rule; confirm no path constructs a default-bounded char range.
+- **Test ports.** `test_abnf_2.py` num-val/repeat assertions change (rule set +
+  bodies change); char-class tests change `IrStr` endpoints → `IrChr`.

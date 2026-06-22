@@ -1,14 +1,19 @@
-"""Throwaway validation for the Option-4-restart radix reduce design.
+"""Prototype for the code-point-everywhere radix reduce (plan A).
 
-Builds the restructured grammar fragments as real IrAst, parses real input via
-parsing_2.engine.parse, reduces with the proposed reduction table, and asserts
-the final IrQuantifier / IrCharClass. IrChr + IrUnradix are prototyped inline.
+Builds restructured grammar fragments, parses real input via
+``parsing_2.engine.parse``, reduces with the proposed table, and asserts
+code-point IR. The prototype classes (``IrChr``, ``IrUnradix``, ``IrQuantifier2``,
+``IrRange2``, ``IrCharClass2``, ``IrItem2``) live inline: grammar fragments keep
+the real ``IrCharClass``/``IrRange`` the engine scans, while the reduce *output*
+uses the ``*2`` code-point classes. Docstrings are deliberately terse — this is a
+throwaway demonstrator pending plan sign-off.
 """
 
 from __future__ import annotations
 
-from typing import ClassVar, Sequence
+from typing import ClassVar, Self, Sequence
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import (
     IrArg,
     IrArgs,
@@ -20,9 +25,11 @@ from lexic.ir.action import (
 from lexic.ir.base import (
     IrAtom,
     IrInt,
-    IrLambda,
+    IrLeaf,
     IrNamedTuple,
     IrNone,
+    IrNoneType,
+    IrScalar,
     IrSelf,
     IrSeq,
     IrStr,
@@ -49,56 +56,74 @@ from lexic.parsing_2.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
 
 class IrChr(IrInt):
-    """Value-carrying code point; glyph is its str form."""
+    """A code point. Build from a 1-char glyph or an int; stores the ordinal."""
+
+    def __new__(cls, value: int | str = 0) -> Self:
+        return super().__new__(cls, ord(value) if isinstance(value, str) else value)
 
     def __str__(self) -> str:
         return chr(int(self))
 
-    def eval(self, _d, _n, _nc, /):
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrStr:
         return IrStr(chr(int(self)))
 
 
-class IrUnradix(IrNamedTuple[int, type]):
-    """Decode a digit string (the focus n) to out(value) via ord-arithmetic."""
+class IrUnradix(IrNamedTuple[int, type[IrScalar]]):
+    """Decode a digit string (the focus ``n``) to ``out(value)`` via ord-arithmetic."""
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     base: int
-    out: type = IrInt
+    out: type[IrScalar] = IrInt
 
-    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /):
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrScalar:
         s = str(n)
         if not s:
-            raise ValueError("IrUnradix: empty digit string")
+            raise UnsupportedConstructError("IrUnradix: empty digit string")
         acc = 0
         for c in s:
             v = ord(c) - 0x30 if "0" <= c <= "9" else ord(c.upper()) - 0x41 + 10
-            if not (0 <= v < self.base):
-                raise ValueError(f"bad digit {c!r} for base {self.base}")
+            if not 0 <= v < self.base:
+                raise UnsupportedConstructError(f"bad digit {c!r} for base {self.base}")
             acc = acc * self.base + v
         return self.out(acc)
 
 
-# ── Shared rule fragments ─────────────────────────────────────────────
+class IrQuantifier2(IrLeaf, IrNamedTuple[int, "int | IrNoneType"]):
+    """General int range / repetition bounds — the base, int counts only."""
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    lo: int = 1
+    hi: int | IrNoneType = 1
 
 
-def _digit_rule() -> IrRule:
-    return IrRule(
-        "DIGIT", IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("0", "9")))))
-    )
+class IrRange2(IrQuantifier2):
+    """Char range — IS-A int range whose endpoints are code points (IrChr).
+
+    Inherits from IrQuantifier2 (not the reverse) and *narrows* the int endpoints
+    to IrChr (IrChr is an int, so this is the safe covariant override). No
+    coercion: endpoints are IrChr by construction; glyph→code-point conversion
+    lives in IrChr, never here.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    # defaults only satisfy the dataclass override rule (the base bounds default
+    # to 1); char ranges always receive explicit endpoints, so they go unused.
+    lo: IrChr = IrChr()
+    hi: IrChr = IrChr()
 
 
-def _hexdig_rule() -> IrRule:
-    # subset: 0-9 plus A-F (single ranges so the engine scans them)
-    return IrRule(
-        "HEXDIG",
-        IrAlternation(
-            IrSequence(IrItem(IrCharClass(IrRange("0", "9")))),
-            IrSequence(IrItem(IrCharClass(IrRange("A", "F")))),
-        ),
-    )
+class IrCharClass2(IrSeq["IrRange2 | IrChr"], IrAtom):
+    """Char class over code points: IrRange2 spans and single IrChr code points."""
 
 
-# ── repeat grammar ────────────────────────────────────────────────────
+class IrItem2(IrNamedTuple[IrAtom, IrQuantifier2]):
+    """Atom + quantifier (mirror of IrItem for the prototype)."""
+
+    atom: IrAtom
+    quantifier: IrQuantifier2
+
+
+# ── repeat grammar (real IrCharClass/IrRange — the engine scans them) ──
 
 REPEAT_GRAMMAR = IrAst(
     rules=IrSeq(
@@ -135,22 +160,28 @@ REPEAT_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("DIGIT"), IrQuantifier(1, IrNone)))
             ),
         ),
-        _digit_rule(),
+        IrRule(
+            "DIGIT", IrAlternation(IrSequence(IrItem(IrCharClass(IrRange("0", "9")))))
+        ),
     ),
     start="start",
 )
 
+# Decode bodies (module-level data, not helpers): a joined digit run, or arg 0.
 _dec = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
 _dec_arg0 = IrPipe(IrArg(0), IrUnradix(10, IrInt))
+# Hex code points off args 0 and 1.
+_cp0 = IrPipe(IrArg(0), IrUnradix(16, IrChr))
+_cp1 = IrPipe(IrArg(1), IrUnradix(16, IrChr))
 
-REPEAT_REDUCTIONS = IrMap(
+REPEAT_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("start"), IrArg(0)),
     IrTuple(IrRuleRef("repeat"), IrArg(0)),
     IrTuple(
-        IrRuleRef("repeat-exact"), IrBuild(IrQuantifier, IrTuple(_dec_arg0, _dec_arg0))
+        IrRuleRef("repeat-exact"), IrBuild(IrQuantifier2, IrTuple(_dec_arg0, _dec_arg0))
     ),
     IrTuple(
-        IrRuleRef("repeat-range"), IrBuild(IrQuantifier, IrTuple(IrArg(0), IrArg(1)))
+        IrRuleRef("repeat-range"), IrBuild(IrQuantifier2, IrTuple(IrArg(0), IrArg(1)))
     ),
     IrTuple(
         IrRuleRef("lo-bound"), IrCond(test=IrArgs(), then_op=_dec, else_op=IrInt(0))
@@ -160,7 +191,7 @@ REPEAT_REDUCTIONS = IrMap(
     IrTuple(IR_DEFAULT, YIELD),
 )
 
-REPEAT_NOISE = IrMap(IrTuple(IR_DEFAULT, KEEP_REDUCED))
+REPEAT_NOISE: IrMap = IrMap(IrTuple(IR_DEFAULT, KEEP_REDUCED))
 REPEAT_REDUCER = Reducer(reductions=REPEAT_REDUCTIONS, noise=REPEAT_NOISE, literal=DROP)
 
 
@@ -204,43 +235,36 @@ NUMVAL_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("HEXDIG"), IrQuantifier(1, IrNone)))
             ),
         ),
-        _hexdig_rule(),
+        IrRule(
+            "HEXDIG",
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange("0", "9")))),
+                IrSequence(IrItem(IrCharClass(IrRange("A", "F")))),
+            ),
+        ),
     ),
     start="start",
 )
 
-
-def _cp(i: int) -> IrPipe:
-    """Return a pipe that unradixes its argument"""
-    return IrPipe(IrArg(i), IrUnradix(16, IrChr))
-
-
-NUMVAL_REDUCTIONS = IrMap(
+NUMVAL_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("start"), IrArg(0)),
     IrTuple(IrRuleRef("num-val"), IrArg(0)),
-    IrTuple(IrRuleRef("num-single"), IrBuild(IrCharClass, IrTuple(_cp(0)))),
+    IrTuple(IrRuleRef("num-single"), IrBuild(IrCharClass2, IrTuple(_cp0))),
     IrTuple(
         IrRuleRef("num-range"),
-        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_cp(0), _cp(1))))),
+        IrBuild(IrCharClass2, IrTuple(IrBuild(IrRange2, IrTuple(_cp0, _cp1)))),
     ),
     IrTuple(IrRuleRef("hexits"), IrJoin(IrArgs())),
     IrTuple(IR_DEFAULT, YIELD),
 )
-NUMVAL_NOISE = IrMap(IrTuple(IR_DEFAULT, KEEP_REDUCED))
+NUMVAL_NOISE: IrMap = IrMap(IrTuple(IR_DEFAULT, KEEP_REDUCED))
 NUMVAL_REDUCER = Reducer(reductions=NUMVAL_REDUCTIONS, noise=NUMVAL_NOISE, literal=DROP)
 
 
-# ── embedded context: repetition = repeat? element (element = num-val) ──
-# Proves the restructure composes when num-val/repeat sit inside the real
-# repetition combiner, not just as standalone start rules.
-
-
-def _repetition(_d, _n, nc):
-    """The existing combiner: pick atom + quantifier by type from clean nc."""
-    atom = next(c for c in nc if isinstance(c, IrAtom))
-    quant = next((c for c in nc if isinstance(c, IrQuantifier)), IrQuantifier())
-    return IrItem(atom, quant)
-
+# ── embedded context: repetition = repeat-opt element (element = num-val) ──
+# Pure (no IrLambda): repeat-opt always lands a quantifier, so repetition is a
+# positional IrBuild(IrItem2, (atom, quant)). Proves the restructure composes
+# inside the real repetition combiner, not just as standalone start rules.
 
 EMBED_GRAMMAR = IrAst(
     rules=IrSeq(
@@ -258,30 +282,34 @@ EMBED_GRAMMAR = IrAst(
             IrAlternation(IrSequence(IrItem(IrRuleRef("repeat"), IrQuantifier(0, 1)))),
         ),
         IrRule("element", IrAlternation(IrSequence(IrItem(IrRuleRef("num-val"))))),
-        # repeat sub-tree (from REPEAT_GRAMMAR)
-        *REPEAT_GRAMMAR.rules[1:],  # drop its own 'start'
-        # num-val sub-tree (from NUMVAL_GRAMMAR), minus dup 'start' and 'DIGIT/HEXDIG'
+        # repeat sub-tree (from REPEAT_GRAMMAR), minus its own 'start'
+        *REPEAT_GRAMMAR.rules[1:],
+        # num-val sub-tree (from NUMVAL_GRAMMAR), minus dup 'start' and 'DIGIT'
         *[r for r in NUMVAL_GRAMMAR.rules if r.name not in ("start", "DIGIT")],
     ),
     start="start",
 )
 
-EMBED_REDUCTIONS = IrMap(
+EMBED_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("start"), IrArg(0)),
-    IrTuple(IrRuleRef("repetition"), IrLambda(_repetition)),
+    IrTuple(IrRuleRef("repetition"), IrBuild(IrItem2, IrTuple(IrArg(1), IrArg(0)))),
     IrTuple(
         IrRuleRef("repeat-opt"),
-        IrCond(test=IrArgs(), then_op=IrArg(0), else_op=IrNone),
+        IrCond(
+            test=IrArgs(),
+            then_op=IrArg(0),
+            else_op=IrBuild(IrQuantifier2, IrTuple()),
+        ),
     ),
     IrTuple(IrRuleRef("element"), IrArg(0)),
-    # repeat rules (NOTE: the alternation passthrough `repeat → IrArg(0)` is
+    # repeat rules (the alternation passthrough `repeat → IrArg(0)` is
     # load-bearing — without it `repeat` falls through IR_DEFAULT→YIELD to text)
     IrTuple(IrRuleRef("repeat"), IrArg(0)),
     IrTuple(
-        IrRuleRef("repeat-exact"), IrBuild(IrQuantifier, IrTuple(_dec_arg0, _dec_arg0))
+        IrRuleRef("repeat-exact"), IrBuild(IrQuantifier2, IrTuple(_dec_arg0, _dec_arg0))
     ),
     IrTuple(
-        IrRuleRef("repeat-range"), IrBuild(IrQuantifier, IrTuple(IrArg(0), IrArg(1)))
+        IrRuleRef("repeat-range"), IrBuild(IrQuantifier2, IrTuple(IrArg(0), IrArg(1)))
     ),
     IrTuple(
         IrRuleRef("lo-bound"), IrCond(test=IrArgs(), then_op=_dec, else_op=IrInt(0))
@@ -290,76 +318,73 @@ EMBED_REDUCTIONS = IrMap(
     IrTuple(IrRuleRef("decits"), IrJoin(IrArgs())),
     # num-val rules
     IrTuple(IrRuleRef("num-val"), IrArg(0)),
-    IrTuple(IrRuleRef("num-single"), IrBuild(IrCharClass, IrTuple(_cp(0)))),
+    IrTuple(IrRuleRef("num-single"), IrBuild(IrCharClass2, IrTuple(_cp0))),
     IrTuple(
         IrRuleRef("num-range"),
-        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_cp(0), _cp(1))))),
+        IrBuild(IrCharClass2, IrTuple(IrBuild(IrRange2, IrTuple(_cp0, _cp1)))),
     ),
     IrTuple(IrRuleRef("hexits"), IrJoin(IrArgs())),
     IrTuple(IR_DEFAULT, YIELD),
 )
-EMBED_NOISE = IrMap(IrTuple(IR_DEFAULT, KEEP_REDUCED))
+EMBED_NOISE: IrMap = IrMap(IrTuple(IR_DEFAULT, KEEP_REDUCED))
 EMBED_REDUCER = Reducer(reductions=EMBED_REDUCTIONS, noise=EMBED_NOISE, literal=DROP)
 
 
 # ── Run ───────────────────────────────────────────────────────────────
 
-
-def red(reducer, grammar, text):
-    return reducer.apply(parse(normalize(grammar), text))
-
-
-def main() -> None:
-    repeat_cases = {
-        "5": IrQuantifier(5, 5),
-        "1*5": IrQuantifier(1, 5),
-        "*5": IrQuantifier(0, 5),
-        "5*": IrQuantifier(5, IrNone),
-        "*": IrQuantifier(0, IrNone),
-        "12*34": IrQuantifier(12, 34),
-    }
+if __name__ == "__main__":
     print("== repeat ==")
-    for text, want in repeat_cases.items():
-        got = red(REPEAT_REDUCER, REPEAT_GRAMMAR, text)
-        ok = got == want
-        print(f"  {text!r:8} -> {got!r:32} want {want!r:32} {'OK' if ok else 'FAIL'}")
-        assert ok, (text, got, want)
+    for text, want in {
+        "5": IrQuantifier2(5, 5),
+        "1*5": IrQuantifier2(1, 5),
+        "*5": IrQuantifier2(0, 5),
+        "5*": IrQuantifier2(5, IrNone),
+        "*": IrQuantifier2(0, IrNone),
+        "12*34": IrQuantifier2(12, 34),
+    }.items():
+        got = REPEAT_REDUCER.apply(parse(normalize(REPEAT_GRAMMAR), text))
+        assert got == want, (text, got, want)
+        # the base int range never coerces: a count endpoint stays int, never IrChr.
+        assert isinstance(got, IrQuantifier2) and not isinstance(got[0], IrChr)
+        print(f"  {text!r:8} -> {got!r}")
 
-    numval_cases = {
-        "%x41": IrCharClass(IrChr(0x41)),
-        "%x41-5A": IrCharClass(IrRange(IrChr(0x41), IrChr(0x5A))),
-        "%x30-39": IrCharClass(IrRange(IrChr(0x30), IrChr(0x39))),
-    }
     print("== num-val ==")
-    for text, want in numval_cases.items():
-        got = red(NUMVAL_REDUCER, NUMVAL_GRAMMAR, text)
-        ok = got == want  # real structural equality (prototype IrChr ⊂ real IrInt)
-        print(f"  {text!r:10} -> {got!r:40} {'OK' if ok else 'FAIL'}")
-        assert ok, (text, got, want)
+    for text, want in {
+        "%x41": IrCharClass2(IrChr(0x41)),
+        "%x41-5A": IrCharClass2(IrRange2(IrChr(0x41), IrChr(0x5A))),
+        "%x30-39": IrCharClass2(IrRange2(IrChr(0x30), IrChr(0x39))),
+    }.items():
+        got = NUMVAL_REDUCER.apply(parse(normalize(NUMVAL_GRAMMAR), text))
+        assert got == want, (text, got, want)
+        print(f"  {text!r:10} -> {got!r}")
 
-    embed_cases = {
-        "%x41": IrItem(IrCharClass(IrChr(0x41)), IrQuantifier(1, 1)),
-        "3%x41": IrItem(IrCharClass(IrChr(0x41)), IrQuantifier(3, 3)),
-        "1*2%x41-5A": IrItem(
-            IrCharClass(IrRange(IrChr(0x41), IrChr(0x5A))), IrQuantifier(1, 2)
+    print("== embedded: repetition = repeat-opt element ==")
+    for text, want in {
+        "%x41": IrItem2(IrCharClass2(IrChr(0x41)), IrQuantifier2(1, 1)),
+        "3%x41": IrItem2(IrCharClass2(IrChr(0x41)), IrQuantifier2(3, 3)),
+        "1*2%x41-5A": IrItem2(
+            IrCharClass2(IrRange2(IrChr(0x41), IrChr(0x5A))), IrQuantifier2(1, 2)
         ),
-    }
-    print("== embedded: repetition = repeat? element ==")
-    for text, want in embed_cases.items():
-        got = red(EMBED_REDUCER, EMBED_GRAMMAR, text)
-        ok = got == want
-        print(f"  {text!r:12} -> {got!r:52} {'OK' if ok else 'FAIL'}")
-        assert ok, (text, got, want)
+    }.items():
+        got = EMBED_REDUCER.apply(parse(normalize(EMBED_GRAMMAR), text))
+        assert got == want, (text, got, want)
+        print(f"  {text!r:12} -> {got!r}")
+
+    print("== IrChr glyph/int equivalence + leaf-kind distinctness ==")
+    # The right way to represent IrCharClass(IrRange("A","Z")):
+    assert IrCharClass2(IrRange2(IrChr("A"), IrChr("Z"))) == IrCharClass2(
+        IrRange2(IrChr(0x41), IrChr(0x5A))
+    )
+    assert IrChr("A") == IrChr(0x41)  # glyph and ordinal are the same code point
+    assert IrChr(0x41) != IrInt(0x41)  # distinct leaf kinds never compare equal
+    assert IrChr(0x41) == 0x41  # but a leaf still matches its plain int
+    print("  IrCharClass2(IrRange2(IrChr('A'), IrChr('Z'))) holds")
 
     print("== IrUnradix empty-string guard ==")
     try:
-        IrUnradix(10, IrInt).eval(None, IrStr(""), ())
+        IrUnradix(10, IrInt).eval(IrNone, IrStr(""), ())
         raise AssertionError("expected empty-string guard to raise")
-    except ValueError as exc:
+    except UnsupportedConstructError as exc:
         print(f"  raises -> {exc}")
 
     print("\nALL PASS")
-
-
-if __name__ == "__main__":
-    main()
