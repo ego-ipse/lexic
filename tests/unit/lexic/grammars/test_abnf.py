@@ -15,7 +15,7 @@ from lexic.grammars.abnf import (
     ABNF_PREFIX_QUANTIFIER,
     META_GRAMMAR,
 )
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
@@ -99,9 +99,9 @@ def test_normalize_literal_alpha_expands_to_charclass_group():
     out = ABNF_FLAVOUR.normalize_literal("abc")
     assert isinstance(out, IrAlternation)
     arm = out[0]
-    assert arm[0].atom == IrCharClass(IrStr("aA"))
-    assert arm[1].atom == IrCharClass(IrStr("bB"))
-    assert arm[2].atom == IrCharClass(IrStr("cC"))
+    assert arm[0].atom == IrCharClass(IrChr("a"), IrChr("A"))
+    assert arm[1].atom == IrCharClass(IrChr("b"), IrChr("B"))
+    assert arm[2].atom == IrCharClass(IrChr("c"), IrChr("C"))
 
 
 def test_normalize_literal_all_caps_still_expands():
@@ -109,8 +109,8 @@ def test_normalize_literal_all_caps_still_expands():
     out = ABNF_FLAVOUR.normalize_literal("XY")
     assert isinstance(out, IrAlternation)
     arm = out[0]
-    assert arm[0].atom == IrCharClass(IrStr("xX"))
-    assert arm[1].atom == IrCharClass(IrStr("yY"))
+    assert arm[0].atom == IrCharClass(IrChr("x"), IrChr("X"))
+    assert arm[1].atom == IrCharClass(IrChr("y"), IrChr("Y"))
 
 
 def test_normalize_literal_non_alpha_stays_literal():
@@ -124,7 +124,7 @@ def test_normalize_literal_mixed_alphanumeric():
     out = ABNF_FLAVOUR.normalize_literal("a1")
     assert isinstance(out, IrAlternation)
     arm = out[0]
-    assert arm[0].atom == IrCharClass(IrStr("aA"))
+    assert arm[0].atom == IrCharClass(IrChr("a"), IrChr("A"))
     assert arm[1].atom == IrLiteral("1")
 
 
@@ -254,20 +254,22 @@ def test_abnf_charclass_range_emits_hex_range():
 
 
 def test_abnf_charclass_run_single_char_emits_single_hex():
-    """A single-char run emits one ``%xNN`` atom (no parens)."""
-    cls = IrCharClass(IrStr("A"))
+    """A single code point emits one ``%xNN`` atom (no parens)."""
+    cls = IrCharClass(IrChr("A"))
     assert ABNF_FLAVOUR.apply(cls) == "%x41"
 
 
 def test_abnf_charclass_run_multiple_chars_emits_parenthesised_alternation():
-    """A multi-char run emits ``(%xNN / %xMM / …)``."""
-    cls = IrCharClass(IrStr("abc"))
+    """Multiple code points emit ``(%xNN / %xMM / …)``."""
+    cls = IrCharClass(IrChr("a"), IrChr("b"), IrChr("c"))
     assert ABNF_FLAVOUR.apply(cls) == "(%x61 / %x62 / %x63)"
 
 
 def test_abnf_charclass_mixed_run_and_range():
-    """A run followed by a range emits all atoms parenthesised."""
-    cls = IrCharClass(IrStr("abc"), IrRange(IrChr("A"), IrChr("Z")))
+    """Code points followed by a range emit all atoms parenthesised."""
+    cls = IrCharClass(
+        IrChr("a"), IrChr("b"), IrChr("c"), IrRange(IrChr("A"), IrChr("Z"))
+    )
     assert ABNF_FLAVOUR.apply(cls) == "(%x61 / %x62 / %x63 / %x41-5A)"
 
 

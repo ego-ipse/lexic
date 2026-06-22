@@ -15,6 +15,7 @@ from lexic.ir.flavour import IrEscape, IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -108,7 +109,7 @@ def test_normalize_literal_can_be_overridden_to_return_group():
         def normalize_literal(cls, decoded: str) -> IrAlternation:
             seq = IrSequence(
                 *(
-                    IrItem(IrCharClass(IrStr(f"{c.lower()}{c.upper()}")))
+                    IrItem(IrCharClass(IrChr(c.lower()), IrChr(c.upper())))
                     for c in decoded
                 )
             )
@@ -117,8 +118,8 @@ def test_normalize_literal_can_be_overridden_to_return_group():
     out = _F.normalize_literal("ab")
     assert isinstance(out, IrAlternation)
     arm = out[0]
-    assert arm[0].atom == IrCharClass(IrStr("aA"))
-    assert arm[1].atom == IrCharClass(IrStr("bB"))
+    assert arm[0].atom == IrCharClass(IrChr("a"), IrChr("A"))
+    assert arm[1].atom == IrCharClass(IrChr("b"), IrChr("B"))
 
 
 def test_default_line_comment_is_empty_string():

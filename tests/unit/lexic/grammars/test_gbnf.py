@@ -11,7 +11,7 @@ from lexic.grammars.gbnf import (
     GBNF_QUANTIFIERS,
     META_GRAMMAR,
 )
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
     IrAlternation,
@@ -236,13 +236,19 @@ def test_gbnf_charclass_range_emits_bracket_with_dash():
 
 
 def test_gbnf_charclass_run_emits_bracket_with_chars():
-    """A run-only class emits ``[chars]``."""
-    assert GBNF_FLAVOUR.apply(IrCharClass(IrStr("abc"))) == "[abc]"
+    """A run of code points emits ``[chars]``."""
+    assert (
+        GBNF_FLAVOUR.apply(IrCharClass(IrChr("a"), IrChr("b"), IrChr("c"))) == "[abc]"
+    )
 
 
 def test_gbnf_charclass_mixed_emits_run_then_range():
     """A mixed run + range class emits ``[runchars lo-hi]``."""
     assert (
-        GBNF_FLAVOUR.apply(IrCharClass(IrStr("abc"), IrRange(IrChr("0"), IrChr("9"))))
+        GBNF_FLAVOUR.apply(
+            IrCharClass(
+                IrChr("a"), IrChr("b"), IrChr("c"), IrRange(IrChr("0"), IrChr("9"))
+            )
+        )
         == "[abc0-9]"
     )

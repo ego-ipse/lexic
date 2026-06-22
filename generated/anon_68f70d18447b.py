@@ -7,9 +7,10 @@ from typing import Annotated, Optional
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -17,7 +18,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.spec import RuleSpec
 
-Pattern = Annotated[str, StringConstraints(pattern=r"^[ \t]*$")]
+Pattern = Annotated[str, StringConstraints(pattern=r"^[ \x09]*$")]
 
 
 class Root(GrammarModel):
@@ -65,7 +66,7 @@ Ws.__grammar__ = RuleSpec(
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrStr(" \\t")), IrQuantifier(0, IrNone))],
+    items=[IrItem(IrCharClass(IrChr(32), IrChr(9)), IrQuantifier(0, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

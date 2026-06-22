@@ -167,22 +167,17 @@ class IrRange(IrBounds):
     hi: IrChr
 
 
-class IrCharClass(IrSeq[IrRange | IrStr], IrAtom):
-    """Character class — the variadic union of its interior elements.
+class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
+    """Character class over code points — ``IrRange`` spans and single ``IrChr``.
 
     The node IS its element tuple: :class:`IrRange` entries for explicit
-    ``x-y`` ranges, bare :class:`~lexic.ir.base.IrStr` runs for maximal
-    stretches of single chars — ``[abc0-9]`` →
-    ``IrCharClass(IrStr("abc"), IrRange(IrChr("0"), IrChr("9")))``.
+    ``x-y`` ranges, single :class:`~lexic.ir.base.IrChr` code points otherwise —
+    ``[a0-9]`` → ``IrCharClass(IrChr("a"), IrRange(IrChr("0"), IrChr("9")))``.
 
-    Brackets are NOT stored — the flavour renderer emits them.  Negation is
-    NOT stored — ``[^...]`` parses to ``IrNot(IrCharClass(...))``; the
-    negation hands its mark to the class action via the argument channel.
-
-    Element payloads are flavour-encoded escape units (a range endpoint may
-    be ``"\\x1F"`` — four source chars, one unit), so emission reproduces
-    the source byte-exactly; decode-canonicalization arrives with the
-    IR-native parser that obsoletes the Lark metagrammars.
+    Brackets are NOT stored — the flavour renderer emits them. Negation is NOT
+    stored — ``[^...]`` parses to ``IrNot(IrCharClass(...))``; the negation hands
+    its mark to the class action via the argument channel. Glyph/escape spelling
+    happens only at emit time, per flavour.
     """
 
 

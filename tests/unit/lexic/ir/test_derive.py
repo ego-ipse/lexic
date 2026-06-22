@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from lexic.ir.base import IrNone, IrSeq, IrStr
+from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.derive import (
     _EXTRACT_BODY,
     _field_map,
@@ -683,7 +683,9 @@ def test_derive_marks_non_semantic_field_min_zero():
     ws = IrRule(
         "ws",
         IrAlternation(
-            IrSequence(IrItem(IrCharClass(IrStr(" \\t")), IrQuantifier(0, IrNone)))
+            IrSequence(
+                IrItem(IrCharClass(IrChr(" "), IrChr("\t")), IrQuantifier(0, IrNone))
+            )
         ),
     )
     op = IrRule("op", IrAlternation(IrSequence(IrItem(IrLiteral("+")))))
@@ -714,7 +716,9 @@ def test_derive_no_non_semantic_when_rule_not_in_set():
     ws = IrRule(
         "ws",
         IrAlternation(
-            IrSequence(IrItem(IrCharClass(IrStr(" \\t")), IrQuantifier(0, IrNone)))
+            IrSequence(
+                IrItem(IrCharClass(IrChr(" "), IrChr("\t")), IrQuantifier(0, IrNone))
+            )
         ),
     )
     ast = IrAst(rules=IrSeq(expr, term, ws), start="expr")
@@ -759,7 +763,9 @@ def test_helpers_always_get_grammar_model_parent():
 
 def test_field_map_tier3_pattern_positional_head():
     """First IrCharClass without Tier 2 match → 'head'."""
-    items = [IrItem(IrCharClass(IrStr("xyz_unmatched")), IrQuantifier(1, 1))]
+    items = [
+        IrItem(IrCharClass(*(IrChr(c) for c in "xyz_unmatched")), IrQuantifier(1, 1))
+    ]
     fm = _field_map(items)
     assert list(fm.keys()) == ["head"]
 
@@ -767,8 +773,8 @@ def test_field_map_tier3_pattern_positional_head():
 def test_field_map_tier3_pattern_positional_part_n():
     """Second IrCharClass without Tier 2 match → 'part_2'."""
     items = [
-        IrItem(IrCharClass(IrStr("xyz_unmatched")), IrQuantifier(1, 1)),
-        IrItem(IrCharClass(IrStr("abc_unmatched")), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(*(IrChr(c) for c in "xyz_unmatched")), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(*(IrChr(c) for c in "abc_unmatched")), IrQuantifier(1, 1)),
     ]
     fm = _field_map(items)
     assert list(fm.keys()) == ["head", "part_2"]
@@ -790,7 +796,7 @@ def test_field_map_mixed_tier2_and_tier3():
             IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone)
         ),  # → 'digit'
         IrItem(
-            IrCharClass(IrStr("xyz_unmatched")), IrQuantifier(1, 1)
+            IrCharClass(*(IrChr(c) for c in "xyz_unmatched")), IrQuantifier(1, 1)
         ),  # → 'head' (first Tier-3 pattern)
     ]
     fm = _field_map(items)
@@ -822,7 +828,7 @@ def test_field_map_ruleref_unchanged_uses_rule_name():
 
 def test_pattern_field_falls_back_to_positional_not_sanitized():
     """A non-Tier-2 pattern produces a positional Tier-3 name, not _sanitize_pattern output."""
-    items = [IrItem(IrCharClass(IrStr("NBKQR")), IrQuantifier(1, 1))]
+    items = [IrItem(IrCharClass(*(IrChr(c) for c in "NBKQR")), IrQuantifier(1, 1))]
     fm = _field_map(items)
     # Tier 3: first pattern field → 'head' (not 'nbkqr')
     assert list(fm.keys()) == ["head"]

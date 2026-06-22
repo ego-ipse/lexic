@@ -7,7 +7,7 @@ from typing import Annotated, List, Optional
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -24,7 +24,7 @@ from lexic.ir.spec import RuleSpec
 
 Pattern = Annotated[str, StringConstraints(pattern=r"^(true|false|null)$")]
 
-Pattern2 = Annotated[str, StringConstraints(pattern=r'^[^"\\\x7F\x00-\x1f]$')]
+Pattern2 = Annotated[str, StringConstraints(pattern=r'^[^"\\\x7f\x00-\x1f]$')]
 
 Pattern3 = Annotated[str, StringConstraints(pattern=r'^["\\bfnrt]$')]
 
@@ -35,7 +35,7 @@ Pattern4 = Annotated[str, StringConstraints(pattern=r'^(["\\bfnrt]|u[0-9a-fA-F]{
 Pattern5 = Annotated[
     str,
     StringConstraints(
-        pattern=r'^([^"\\\x7F\x00-\x1f]|\\(["\\bfnrt]|u[0-9a-fA-F]{4}))*$'
+        pattern=r'^([^"\\\x7f\x00-\x1f]|\\(["\\bfnrt]|u[0-9a-fA-F]{4}))*$'
     ),
 ]
 
@@ -61,7 +61,7 @@ Pattern12 = Annotated[str, StringConstraints(pattern=r"^[1-9]{0,15}$")]
 
 Pattern13 = Annotated[str, StringConstraints(pattern=r"^([eE][-+]?[0-9][1-9]{0,15})?$")]
 
-Pattern14 = Annotated[str, StringConstraints(pattern=r"^[ \t]{0,20}$")]
+Pattern14 = Annotated[str, StringConstraints(pattern=r"^[ \x09]{0,20}$")]
 
 
 class Root(GrammarModel):
@@ -225,7 +225,10 @@ String.__grammar__ = RuleSpec(
                     IrItem(
                         IrNot(
                             IrCharClass(
-                                IrStr('"\\\\\\x7F'), IrRange(IrChr(0), IrChr(31))
+                                IrChr(34),
+                                IrChr(92),
+                                IrChr(127),
+                                IrRange(IrChr(0), IrChr(31)),
                             )
                         ),
                         IrQuantifier(1, 1),
@@ -237,7 +240,16 @@ String.__grammar__ = RuleSpec(
                         IrAlternation(
                             IrSequence(
                                 IrItem(
-                                    IrCharClass(IrStr('"\\\\bfnrt')), IrQuantifier(1, 1)
+                                    IrCharClass(
+                                        IrChr(34),
+                                        IrChr(92),
+                                        IrChr(98),
+                                        IrChr(102),
+                                        IrChr(110),
+                                        IrChr(114),
+                                        IrChr(116),
+                                    ),
+                                    IrQuantifier(1, 1),
                                 )
                             ),
                             IrSequence(
@@ -316,8 +328,8 @@ Number.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrCharClass(IrStr("eE")), IrQuantifier(1, 1)),
-                    IrItem(IrCharClass(IrStr("-+")), IrQuantifier(0, 1)),
+                    IrItem(IrCharClass(IrChr(101), IrChr(69)), IrQuantifier(1, 1)),
+                    IrItem(IrCharClass(IrChr(45), IrChr(43)), IrQuantifier(0, 1)),
                     IrItem(
                         IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, 1)
                     ),
@@ -346,7 +358,7 @@ Ws.__grammar__ = RuleSpec(
             IrSequence(IrItem(IrLiteral(" "), IrQuantifier(1, 1))),
             IrSequence(
                 IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
-                IrItem(IrCharClass(IrStr(" \\t")), IrQuantifier(0, 20)),
+                IrItem(IrCharClass(IrChr(32), IrChr(9)), IrQuantifier(0, 20)),
             ),
         )
     ],

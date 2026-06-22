@@ -18,53 +18,41 @@ _CLASS_METACHARS = frozenset("[]^")
 def charclass_pattern(cls: IrCharClass) -> str:
     """Flatten a structured class to a regex/source-safe interior pattern.
 
+    Each member is a code point (or a code-point range); every code point is
+    escaped on its own value — regex metacharacters get a backslash, a bare
+    backslash doubles, non-printable points become ``\\xNN`` / ``\\uNNNN`` /
+    ``\\UNNNNNNNN``. No char run is interpreted as a pre-existing escape.
+
     :param cls: The structured character class.
     :returns: The flat interior pattern, members escaped for a regex class.
     """
-    raw = "".join(
-        f"{el.lo}-{el.hi}" if isinstance(el, IrRange) else str(el) for el in cls
-    )
-    return _escape_class_text(raw)
-
-
-def _escape_class_text(text: str) -> str:
-    """Make a flat char-class interior valid inside a regex ``[...]``.
-
-    Three jobs: pre-escaped units (GBNF stores ``\\x1F`` / ``\\]`` as text) pass
-    through; raw metacharacter members (ABNF decodes ``%x5C`` to a bare ``\\``,
-    ``%x5D`` to ``]``) get escaped; non-printable points become
-    ``\\xNN`` / ``\\uNNNN`` / ``\\UNNNNNNNN``.
-
-    The backslash rule is a heuristic: ``\\`` followed by a char is taken as an
-    existing escape and passed through, a lone ``\\`` is escaped. Enough for the
-    current grammars; the clean fix is the neutral-codepoint reshape that
-    retires this Lark-era module (members become code points, escaped once at
-    emit, and this guessing disappears).
-    """
-    out: list[str] = []
-    i, n = 0, len(text)
-    while i < n:
-        ch = text[i]
-        if ch == "\\":
-            if i + 1 < n:
-                out.append(text[i : i + 2])
-                i += 2
-            else:
-                out.append("\\\\")
-                i += 1
-            continue
-        if ch in _CLASS_METACHARS:
-            out.append(f"\\{ch}")
-        elif ch.isprintable():
-            out.append(ch)
-        elif (point := ord(ch)) <= 0xFF:
-            out.append(f"\\x{point:02x}")
-        elif point <= 0xFFFF:
-            out.append(f"\\u{point:04x}")
+    parts: list[str] = []
+    for el in cls:
+        if isinstance(el, IrRange):
+            parts.append(f"{_escape_point(int(el.lo))}-{_escape_point(int(el.hi))}")
         else:
-            out.append(f"\\U{point:08x}")
-        i += 1
-    return "".join(out)
+            parts.append("".join(_escape_point(ord(c)) for c in str(el)))
+    return "".join(parts)
+
+
+def _escape_point(point: int) -> str:
+    """Escape a single code point for safe use inside a regex ``[...]``.
+
+    :param point: The code point to escape.
+    :returns: The escaped single-member text.
+    """
+    ch = chr(point)
+    if ch == "\\":
+        return "\\\\"
+    if ch in _CLASS_METACHARS:
+        return f"\\{ch}"
+    if ch.isprintable():
+        return ch
+    if point <= 0xFF:
+        return f"\\x{point:02x}"
+    if point <= 0xFFFF:
+        return f"\\u{point:04x}"
+    return f"\\U{point:08x}"
 
 
 def parse_charclass_chars(

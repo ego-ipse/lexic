@@ -57,7 +57,7 @@ from typing import Sequence
 
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.ir.action import IrArg, IrBuild, IrField, IrPipe
-from lexic.ir.base import IrAtom, IrLambda, IrNone, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir.base import IrAtom, IrLambda, IrNone, IrSelf, IrSeq, IrTuple
 from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -276,11 +276,11 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrLiteral("F"))),
             ),
         ),
-        IrRule("CR", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr("\r")))))),
-        IrRule("LF", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr("\n")))))),
-        IrRule("SP", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr(" ")))))),
-        IrRule("HTAB", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr("\t")))))),
-        IrRule("DQUOTE", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr('"')))))),
+        IrRule("CR", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("\r")))))),
+        IrRule("LF", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("\n")))))),
+        IrRule("SP", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr(" ")))))),
+        IrRule("HTAB", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("\t")))))),
+        IrRule("DQUOTE", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr('"')))))),
     ),
     start="rulelist",
 )
@@ -314,7 +314,7 @@ def _num_val(d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrCharClass:
     if "-" in pattern:
         lo, hi = pattern.split("-", 1)
         return IrCharClass(IrRange(IrChr(lo), IrChr(hi)))
-    return IrCharClass(IrStr(pattern))
+    return IrCharClass(IrChr(pattern))
 
 
 def _repeat(d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrQuantifier:

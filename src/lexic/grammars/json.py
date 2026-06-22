@@ -18,7 +18,7 @@ Canonical-form choices (the cross-flavour canonicalizations):
 
 from __future__ import annotations
 
-from lexic.ir.base import IrNone, IrSeq, IrStr
+from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -109,7 +109,10 @@ JSON_GRAMMAR = IrAst(
             "ws",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrCharClass(IrStr(" \t\n\r")), IrQuantifier(0, IrNone))
+                    IrItem(
+                        IrCharClass(IrChr(" "), IrChr("\t"), IrChr("\n"), IrChr("\r")),
+                        IrQuantifier(0, IrNone),
+                    )
                 )
             ),
         ),
@@ -208,7 +211,10 @@ JSON_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrCharClass(IrRange(IrChr("1"), IrChr("9")))))
             ),
         ),
-        IrRule("e", IrAlternation(IrSequence(IrItem(IrCharClass(IrStr("eE")))))),
+        IrRule(
+            "e",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("e"), IrChr("E"))))),
+        ),
         IrRule(
             "exp",
             IrAlternation(
@@ -271,7 +277,20 @@ JSON_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("escape")),
                     IrItem(
                         IrAlternation(
-                            IrSequence(IrItem(IrCharClass(IrStr('"\\/bfnrt')))),
+                            IrSequence(
+                                IrItem(
+                                    IrCharClass(
+                                        IrChr('"'),
+                                        IrChr("\\"),
+                                        IrChr("/"),
+                                        IrChr("b"),
+                                        IrChr("f"),
+                                        IrChr("n"),
+                                        IrChr("r"),
+                                        IrChr("t"),
+                                    )
+                                )
+                            ),
                             IrSequence(
                                 IrItem(IrLiteral("u")),
                                 IrItem(IrRuleRef("hexdig"), IrQuantifier(4, 4)),

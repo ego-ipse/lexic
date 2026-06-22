@@ -7,7 +7,7 @@ from pathlib import Path
 import lark
 import pytest
 
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
     IrChr,
@@ -104,7 +104,7 @@ def test_charclass_with_slash_escapes_in_regex() -> None:
     s = spec(
         "op",
         "sequence",
-        items=[item(IrCharClass(IrStr("-+*/")))],
+        items=[item(IrCharClass(IrChr("-"), IrChr("+"), IrChr("*"), IrChr("/")))],
         field_map={"head": 0},
     )
     grammar, start = LarkBuilder([s]).build_grammar()

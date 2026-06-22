@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.abnf_2 import ABNF_GRAMMAR, ABNF_REDUCER, ABNF_REDUCTIONS
-from lexic.ir.base import IrSeq, IrStr
+from lexic.ir.base import IrSeq
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAst,
@@ -173,7 +173,7 @@ def test_num_val_hex_range_yields_ircharclass_range():
 
 
 def test_num_val_single_hex_yields_ircharclass_str():
-    """num-val reduction on '%x41' yields IrCharClass(IrStr('A'))."""
+    """num-val reduction on '%x41' yields IrCharClass(IrChr('A'))."""
     reducer = Reducer(reductions=ABNF_REDUCTIONS)
     tree = ParseTree(
         IrRuleRef("num-val"),
@@ -181,7 +181,7 @@ def test_num_val_single_hex_yields_ircharclass_str():
     )
     result = reducer.apply(tree)
     assert isinstance(result, IrCharClass)
-    assert result == IrCharClass(IrStr("A"))
+    assert result == IrCharClass(IrChr("A"))
 
 
 # ── In-subset single-rule parse+reduce ───────────────────────────────

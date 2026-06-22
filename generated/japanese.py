@@ -7,7 +7,7 @@ from typing import Annotated, List
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
     IrChr,
@@ -26,7 +26,7 @@ Pattern3 = Annotated[str, StringConstraints(pattern=r"^[、-〾]$")]
 
 Pattern4 = Annotated[str, StringConstraints(pattern=r"^[一-鿿]$")]
 
-Pattern5 = Annotated[str, StringConstraints(pattern=r"^[ \t\n]$")]
+Pattern5 = Annotated[str, StringConstraints(pattern=r"^[ \x09\x0a]$")]
 
 
 class Root(GrammarModel):
@@ -147,7 +147,7 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrStr(" \\t\\n")), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrChr(32), IrChr(9), IrChr(10)), IrQuantifier(1, 1)),
         IrItem(IrRuleRef("jp-char"), IrQuantifier(1, IrNone)),
     ],
     field_map={"head": 0, "jp_char": 1},

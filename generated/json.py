@@ -1,13 +1,13 @@
-"""Generated module: json_grammar_test. Do not edit; regenerated from grammar."""
+"""Generated module: json. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Literal, Optional
 
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrStr
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -19,19 +19,23 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 
-Pattern = Annotated[str, StringConstraints(pattern=r"^[ \x09\x0a\x0d]*$")]
+Pattern = Annotated[
+    str,
+    StringConstraints(
+        pattern=r"^(\ |\	|\
+|\
+)*$"
+    ),
+]
 
 Pattern2 = Annotated[str, StringConstraints(pattern=r"^[1-9]$")]
 
-Pattern3 = Annotated[str, StringConstraints(pattern=r"^[eE]$")]
+Pattern3 = Annotated[str, StringConstraints(pattern=r'^[^"\\\x00-\x1f]$')]
 
-Pattern4 = Annotated[str, StringConstraints(pattern=r'^["\\/bfnrt]$')]
-
-Pattern5 = Annotated[str, StringConstraints(pattern=r"^[ -!#-\[\]-\U0010ffff]$")]
-
-Pattern6 = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]$")]
+Pattern4 = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]$")]
 
 
 class JSONText(GrammarModel):
@@ -124,7 +128,7 @@ class Digit19(GrammarModel):
 
 
 class E(GrammarModel):
-    value: Pattern3
+    value: Literal["e", "E"]
 
 
 class Exp(GrammarModel):
@@ -143,8 +147,7 @@ class Int(GrammarModel):
 
 
 class IntArm2(Int):
-    digit1_9: Digit19
-    digit: List[Digit]
+    kind: str
 
 
 class ExpItem(GrammarModel):
@@ -191,11 +194,11 @@ class QuotationMark(GrammarModel):
 
 
 class Unescaped(Char):
-    value: Pattern5
+    value: Pattern3
 
 
 class Hexdig(GrammarModel):
-    value: Pattern6
+    value: Pattern4
 
 
 class ObjectItem(GrammarModel):
@@ -330,7 +333,12 @@ Ws.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrItem(
-            IrCharClass(IrChr(32), IrChr(9), IrChr(10), IrChr(13)),
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral(" "), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrLiteral("\t"), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrLiteral("\n"), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrLiteral("\r"), IrQuantifier(1, 1))),
+            ),
             IrQuantifier(0, IrNone),
         )
     ],
@@ -479,7 +487,12 @@ E.__grammar__ = RuleSpec(
     class_name="E",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrChr(101), IrChr(69)), IrQuantifier(1, 1))],
+    items=[
+        IrAlternation(
+            IrSequence(IrItem(IrLiteral("e"), IrQuantifier(1, 1))),
+            IrSequence(IrItem(IrLiteral("E"), IrQuantifier(1, 1))),
+        )
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -534,10 +547,17 @@ IntArm2.__grammar__ = RuleSpec(
     parent_class_name="Int",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("digit1-9"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("digit"), IrQuantifier(0, IrNone)),
+        IrItem(
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("digit1-9"), IrQuantifier(1, 1)),
+                    IrItem(IrRuleRef("digit"), IrQuantifier(0, IrNone)),
+                )
+            ),
+            IrQuantifier(1, 1),
+        )
     ],
-    field_map={"digit1_9": 0, "digit": 1},
+    field_map={"kind": 0},
     non_semantic_fields=frozenset([]),
 )
 
@@ -638,21 +658,14 @@ CharArm2.__grammar__ = RuleSpec(
         IrItem(IrRuleRef("escape"), IrQuantifier(1, 1)),
         IrItem(
             IrAlternation(
-                IrSequence(
-                    IrItem(
-                        IrCharClass(
-                            IrChr(34),
-                            IrChr(92),
-                            IrChr(47),
-                            IrChr(98),
-                            IrChr(102),
-                            IrChr(110),
-                            IrChr(114),
-                            IrChr(116),
-                        ),
-                        IrQuantifier(1, 1),
-                    )
-                ),
+                IrSequence(IrItem(IrLiteral('"'), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrLiteral("\\"), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrLiteral("/"), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrLiteral("b"), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrLiteral("f"), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrLiteral("n"), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrLiteral("r"), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrLiteral("t"), IrQuantifier(1, 1))),
                 IrSequence(
                     IrItem(IrLiteral("u"), IrQuantifier(1, 1)),
                     IrItem(IrRuleRef("hexdig"), IrQuantifier(4, 4)),
@@ -695,11 +708,7 @@ Unescaped.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrItem(
-            IrCharClass(
-                IrRange(IrChr(32), IrChr(33)),
-                IrRange(IrChr(35), IrChr(91)),
-                IrRange(IrChr(93), IrChr(1114111)),
-            ),
+            IrNot(IrCharClass(IrStr('"\\\\'), IrRange(IrChr(0), IrChr(31)))),
             IrQuantifier(1, 1),
         )
     ],

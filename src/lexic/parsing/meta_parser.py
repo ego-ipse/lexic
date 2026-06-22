@@ -41,7 +41,7 @@ from lark import (
 )
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrAtom, IrSeq, IrStr
+from lexic.ir.base import IrAtom, IrSeq
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
@@ -95,33 +95,27 @@ def _build_charclass(flavour: IrFlavour, children: list) -> IrAtom:
 
     The interior split lives here deliberately: it is Lark-era scaffolding
     that dies with this file when the IR-native parser replaces the
-    metagrammars. ``x-y`` segments become :class:`IrRange` (endpoints kept
-    as encoded units, so emission stays byte-exact); other units accumulate
-    into maximal :class:`IrStr` runs; a ``-`` with nothing following stays
-    a literal run char.
+    metagrammars. ``x-y`` segments become :class:`IrRange` of decoded
+    :class:`IrChr` code-point endpoints; every other unit becomes a single
+    :class:`IrChr` code point; a ``-`` with nothing following stays a literal
+    code point.
 
     :param flavour: The flavour providing ``parse_charclass``.
     :param children: Lark tree children; ``children[0]`` is the bracket token.
     :returns: ``IrCharClass(*elements)`` or ``IrNot(IrCharClass(*elements))``.
     """
     pattern, negated = flavour.parse_charclass(str(children[0]))
-    elements: list[IrRange | IrStr] = []
-    run: list[str] = []
+    elements: list[IrRange | IrChr] = []
     i = 0
     while i < len(pattern):
         unit, i = _read_unit(pattern, i)
         if i < len(pattern) and pattern[i] == "-" and i + 1 < len(pattern):
             hi_unit, i = _read_unit(pattern, i + 1)
-            if run:
-                elements.append(IrStr("".join(run)))
-                run = []
             elements.append(
                 IrRange(IrChr(_unit_to_chr(unit)), IrChr(_unit_to_chr(hi_unit)))
             )
         else:
-            run.append(unit)
-    if run:
-        elements.append(IrStr("".join(run)))
+            elements.append(IrChr(_unit_to_chr(unit)))
     atom: IrAtom = IrCharClass(*elements)
     return IrNot(atom) if negated else atom
 

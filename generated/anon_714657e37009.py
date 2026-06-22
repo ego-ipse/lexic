@@ -7,7 +7,7 @@ from typing import Annotated
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
     IrChr,
@@ -87,7 +87,11 @@ Op.__grammar__ = RuleSpec(
     class_name="Op",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrStr("-+*/")), IrQuantifier(1, 1))],
+    items=[
+        IrItem(
+            IrCharClass(IrChr(45), IrChr(43), IrChr(42), IrChr(47)), IrQuantifier(1, 1)
+        )
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

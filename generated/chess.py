@@ -7,7 +7,7 @@ from typing import Annotated, List, Optional, Union
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -104,7 +104,7 @@ Move.__grammar__ = RuleSpec(
             ),
             IrQuantifier(1, 1),
         ),
-        IrItem(IrCharClass(IrStr("+#")), IrQuantifier(0, 1)),
+        IrItem(IrCharClass(IrChr(43), IrChr(35)), IrQuantifier(0, 1)),
     ],
     field_map={"kind": 0, "head": 1},
     non_semantic_fields=frozenset([]),
@@ -117,7 +117,10 @@ Nonpawn.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(IrCharClass(IrStr("NBKQR")), IrQuantifier(1, 1)),
+        IrItem(
+            IrCharClass(IrChr(78), IrChr(66), IrChr(75), IrChr(81), IrChr(82)),
+            IrQuantifier(1, 1),
+        ),
         IrItem(IrCharClass(IrRange(IrChr(97), IrChr(104))), IrQuantifier(0, 1)),
         IrItem(IrCharClass(IrRange(IrChr(49), IrChr(56))), IrQuantifier(0, 1)),
         IrItem(IrLiteral("x"), IrQuantifier(0, 1)),
@@ -152,7 +155,12 @@ Pawn.__grammar__ = RuleSpec(
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("="), IrQuantifier(1, 1)),
-                    IrItem(IrCharClass(IrStr("NBKQR")), IrQuantifier(1, 1)),
+                    IrItem(
+                        IrCharClass(
+                            IrChr(78), IrChr(66), IrChr(75), IrChr(81), IrChr(82)
+                        ),
+                        IrQuantifier(1, 1),
+                    ),
                 )
             ),
             IrQuantifier(0, 1),

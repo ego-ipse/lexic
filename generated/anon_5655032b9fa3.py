@@ -7,7 +7,7 @@ from typing import Annotated, List, Optional
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
     IrChr,
@@ -25,7 +25,7 @@ Pattern = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]*$")]
 
 Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]
 
-Pattern2 = Annotated[str, StringConstraints(pattern=r"^[ \t\n]*$")]
+Pattern2 = Annotated[str, StringConstraints(pattern=r"^[ \x09\x0a]*$")]
 
 Pattern3 = Annotated[str, StringConstraints(pattern=r"^[-+*/]$")]
 
@@ -141,9 +141,7 @@ Ident.__grammar__ = RuleSpec(
         IrItem(IrCharClass(IrRange(IrChr(97), IrChr(122))), IrQuantifier(1, 1)),
         IrItem(
             IrCharClass(
-                IrRange(IrChr(97), IrChr(122)),
-                IrRange(IrChr(48), IrChr(57)),
-                IrStr("_"),
+                IrRange(IrChr(97), IrChr(122)), IrRange(IrChr(48), IrChr(57)), IrChr(95)
             ),
             IrQuantifier(0, IrNone),
         ),
@@ -173,7 +171,9 @@ Ws.__grammar__ = RuleSpec(
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrStr(" \\t\\n")), IrQuantifier(0, IrNone))],
+    items=[
+        IrItem(IrCharClass(IrChr(32), IrChr(9), IrChr(10)), IrQuantifier(0, IrNone))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -202,7 +202,9 @@ ExprItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrStr("-+*/")), IrQuantifier(1, 1)),
+        IrItem(
+            IrCharClass(IrChr(45), IrChr(43), IrChr(42), IrChr(47)), IrQuantifier(1, 1)
+        ),
         IrItem(IrRuleRef("term"), IrQuantifier(1, 1)),
     ],
     field_map={"head": 0, "term": 1},

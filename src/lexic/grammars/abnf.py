@@ -32,7 +32,7 @@ from lexic.ir.action import (
     IrJoin,
     IrRaise,
 )
-from lexic.ir.base import IrInt, IrLambda, IrNone, IrNoneType, IrStr, IrTuple
+from lexic.ir.base import IrChr, IrInt, IrLambda, IrNone, IrNoneType, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrEscape, IrFlavour
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
@@ -180,16 +180,16 @@ predicates; pulling the two specials out collapses its inner branches.
 def _abnf_charclass(_d, n, _nc) -> IrStr:
     """Render a structured char class as ABNF hex atom(s)/range(s).
 
-    One ``%xNN-MM`` per :class:`IrRange` element; one ``%xNN`` per char of
-    an :class:`~lexic.ir.base.IrStr` run; parenthesised alternation when
+    One ``%xNN-MM`` per :class:`IrRange` element; one ``%xNN`` per single
+    :class:`~lexic.ir.base.IrChr` code point; parenthesised alternation when
     more than one atom results.
     """
     rendered: list[str] = []
     for element in n:
         if isinstance(element, IrRange):
-            rendered.append(f"%x{ord(str(element.lo)):02X}-{ord(str(element.hi)):02X}")
+            rendered.append(f"%x{int(element.lo):02X}-{int(element.hi):02X}")
         else:
-            rendered.extend(f"%x{ord(c):02X}" for c in str(element))
+            rendered.append(f"%x{int(element):02X}")
     if len(rendered) == 1:
         return IrStr(rendered[0])
     return IrStr("(" + " / ".join(rendered) + ")")
@@ -310,7 +310,9 @@ class _AbnfFlavour(IrFlavour):
         items: list[IrItem] = []
         for c in decoded:
             if c.isalpha():
-                items.append(IrItem(atom=IrCharClass(IrStr(f"{c.lower()}{c.upper()}"))))
+                items.append(
+                    IrItem(atom=IrCharClass(IrChr(c.lower()), IrChr(c.upper())))
+                )
             else:
                 items.append(IrItem(atom=IrLiteral(c)))
         return IrAlternation(IrSequence(*items))

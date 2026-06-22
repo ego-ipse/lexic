@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from lexic.ir.base import IrStr
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
 from lexic.ir.nodes import IrCharClass, IrChr, IrRange
 from lexic.utils.charclass import charclass_pattern, parse_charclass_chars
@@ -68,14 +67,16 @@ def test_charclass_pattern_single_range():
 
 
 def test_charclass_pattern_run_only():
-    """A bare IrStr run emits its characters verbatim."""
-    cls = IrCharClass(IrStr("abc"))
+    """A run of code points emits its characters verbatim."""
+    cls = IrCharClass(IrChr("a"), IrChr("b"), IrChr("c"))
     assert charclass_pattern(cls) == "abc"
 
 
 def test_charclass_pattern_mixed_run_then_range():
-    """A run followed by a range concatenates correctly."""
-    cls = IrCharClass(IrStr("abc"), IrRange(IrChr("0"), IrChr("9")))
+    """A run of code points followed by a range concatenates correctly."""
+    cls = IrCharClass(
+        IrChr("a"), IrChr("b"), IrChr("c"), IrRange(IrChr("0"), IrChr("9"))
+    )
     assert charclass_pattern(cls) == "abc0-9"
 
 
@@ -85,30 +86,30 @@ def test_charclass_pattern_encoded_hex_units():
     assert charclass_pattern(cls) == "\\x00-\\x1f"
 
 
-# ── _escape_class_text — new escaping rules ───────────────────────────
+# ── charclass_pattern — per-code-point escaping rules ─────────────────
 
 
 def test_control_char_escapes_to_hex():
     """Non-printable code points (≤ 0xFF) are rendered as ``\\xNN``."""
-    cls = IrCharClass(IrStr("\x01"))
+    cls = IrCharClass(IrChr("\x01"))
     assert charclass_pattern(cls) == "\\x01"
 
 
 def test_non_printable_tab_escapes_to_hex():
     """Tab (``\\t``, U+0009) is non-printable → ``\\x09``."""
-    cls = IrCharClass(IrStr("\t"))
+    cls = IrCharClass(IrChr("\t"))
     assert charclass_pattern(cls) == "\\x09"
 
 
 def test_raw_close_bracket_is_escaped():
     """A raw ``]`` in a char-class run is escaped to ``\\]``."""
-    cls = IrCharClass(IrStr("]"))
+    cls = IrCharClass(IrChr("]"))
     assert charclass_pattern(cls) == "\\]"
 
 
 def test_raw_caret_is_escaped():
     """A raw ``^`` in a char-class run is escaped to ``\\^``."""
-    cls = IrCharClass(IrStr("^"))
+    cls = IrCharClass(IrChr("^"))
     assert charclass_pattern(cls) == "\\^"
 
 
@@ -125,5 +126,5 @@ def test_preescaped_unit_passes_through():
 
 def test_lone_backslash_is_escaped():
     """A lone ``\\`` (single backslash character) is escaped to ``\\\\``."""
-    cls = IrCharClass(IrStr("\\"))
+    cls = IrCharClass(IrChr("\\"))
     assert charclass_pattern(cls) == "\\\\"

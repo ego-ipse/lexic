@@ -10,7 +10,7 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_FLAVOUR
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
@@ -175,7 +175,7 @@ class _CaseInsensitiveStub(_StubFlavour):
     def normalize_literal(cls, decoded: str):
         """`a` becomes `[aA]`."""
         seq = IrSequence(
-            *(IrItem(IrCharClass(IrStr(f"{c.lower()}{c.upper()}"))) for c in decoded)
+            *(IrItem(IrCharClass(IrChr(c.lower()), IrChr(c.upper()))) for c in decoded)
         )
         return IrAlternation(seq)
 
@@ -186,8 +186,8 @@ def test_normalize_literal_override_expands_to_group():
     item = ast.rules[0].body[0][0]
     assert isinstance(item.atom, IrAlternation)
     inner_items = item.atom[0]
-    assert inner_items[0].atom == IrCharClass(IrStr("aA"))
-    assert inner_items[1].atom == IrCharClass(IrStr("bB"))
+    assert inner_items[0].atom == IrCharClass(IrChr("a"), IrChr("A"))
+    assert inner_items[1].atom == IrCharClass(IrChr("b"), IrChr("B"))
 
 
 # ── _build_charclass interior-splitter ───────────────────────────────
@@ -203,21 +203,24 @@ def test_build_charclass_single_range():
 
 
 def test_build_charclass_run_of_singles():
-    """Consecutive single chars accumulate into one bare IrStr run.
+    """Consecutive single chars become one IrChr code point each.
 
-    :returns: ``IrCharClass(IrStr("abc"))``
+    :returns: ``IrCharClass(IrChr("a"), IrChr("b"), IrChr("c"))``
     """
     result = _build_charclass(_StubFlavour(), ["[abc]"])
-    assert result == IrCharClass(IrStr("abc"))
+    assert result == IrCharClass(IrChr("a"), IrChr("b"), IrChr("c"))
 
 
 def test_build_charclass_mixed_run_then_range():
-    """A leading run followed by a range produces two elements.
+    """A leading run of code points followed by a range produces four elements.
 
-    :returns: ``IrCharClass(IrStr("abc"), IrRange(IrChr("0"), IrChr("9")))``
+    :returns: ``IrCharClass(IrChr("a"), IrChr("b"), IrChr("c"),
+        IrRange(IrChr("0"), IrChr("9")))``
     """
     result = _build_charclass(_StubFlavour(), ["[abc0-9]"])
-    assert result == IrCharClass(IrStr("abc"), IrRange(IrChr("0"), IrChr("9")))
+    assert result == IrCharClass(
+        IrChr("a"), IrChr("b"), IrChr("c"), IrRange(IrChr("0"), IrChr("9"))
+    )
 
 
 def test_build_charclass_encoded_hex_unit_range():
@@ -253,10 +256,10 @@ def test_build_charclass_trailing_dash_is_literal():
     A trailing dash fails the second condition, so it falls through to the
     run accumulator.
 
-    :returns: ``IrCharClass(IrStr("a-"))``
+    :returns: ``IrCharClass(IrChr("a"), IrChr("-"))``
     """
     result = _build_charclass(_StubFlavour(), ["[a-]"])
-    assert result == IrCharClass(IrStr("a-"))
+    assert result == IrCharClass(IrChr("a"), IrChr("-"))
 
 
 def test_build_charclass_leading_dash_is_literal():
@@ -265,10 +268,10 @@ def test_build_charclass_leading_dash_is_literal():
     When ``-`` is at position 0 there is no range to complete, so it lands in
     the run accumulator alongside the next char.
 
-    :returns: ``IrCharClass(IrStr("-+"))``
+    :returns: ``IrCharClass(IrChr("-"), IrChr("+"))``
     """
     result = _build_charclass(_StubFlavour(), ["[-+]"])
-    assert result == IrCharClass(IrStr("-+"))
+    assert result == IrCharClass(IrChr("-"), IrChr("+"))
 
 
 # ── New builders (ABNF constructs) ───────────────────────────────────

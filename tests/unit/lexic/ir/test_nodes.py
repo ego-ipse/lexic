@@ -13,7 +13,6 @@ from lexic.ir.base import (
     IrNone,
     IrNoneType,
     IrSeq,
-    IrStr,
 )
 from lexic.ir.nodes import (
     IrAlternation,
@@ -86,12 +85,12 @@ def test_ir_charclass_holds_pattern():
 
 def test_ir_not_wraps_charclass():
     """Test that IrNot wraps a charclass atom."""
-    cc = IrCharClass(IrStr("\\n"))
+    cc = IrCharClass(IrChr("\n"))
     node = IrNot(cc)
     assert node[0] is cc
     inner = node[0]
     assert isinstance(inner, IrCharClass)
-    assert charclass_pattern(inner) == "\\n"
+    assert charclass_pattern(inner) == "\\x0a"
 
 
 def test_ir_ruleref_holds_name():
@@ -591,3 +590,10 @@ def test_range_requires_endpoints():
 def test_irnone_is_irnonetype_instance():
     """IrNone is an instance of IrNoneType."""
     assert isinstance(IrNone, IrNoneType)
+
+
+def test_charclass_holds_codepoints_and_ranges():
+    """IrCharClass is the variadic union of IrChr code points and IrRange spans."""
+    cc = IrCharClass(IrChr(0x41), IrRange(IrChr(0x30), IrChr(0x39)))
+    assert cc[0] == IrChr(0x41)
+    assert cc[1] == IrRange(IrChr(0x30), IrChr(0x39))

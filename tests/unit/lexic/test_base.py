@@ -9,7 +9,7 @@ import pytest
 from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
     IrChr,
@@ -33,7 +33,12 @@ def test_to_text_value_str():
         "Ws",
         "GrammarModel",
         "value_str",
-        items=[IrItem(IrCharClass(IrStr(" \\t\\n")), IrQuantifier(0, IrNone))],
+        items=[
+            IrItem(
+                IrCharClass(IrChr(" "), IrChr("\t"), IrChr("\n")),
+                IrQuantifier(0, IrNone),
+            )
+        ],
         field_map={},
     )
 

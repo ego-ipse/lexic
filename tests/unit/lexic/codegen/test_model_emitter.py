@@ -5,7 +5,7 @@ from __future__ import annotations
 from ast import AnnAssign, ClassDef, Name, parse
 
 from lexic.codegen.model_emitter import emit_module_source
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -168,7 +168,7 @@ def test_charclass_field_emits_annotated_string_constraints():
 
 def test_negated_charclass_field_inverts_pattern():
     """IrNot(IrCharClass) emits [^...] in the regex."""
-    spec = _spec("nq", "value_str", [IrItem(IrNot(IrCharClass(IrStr('"'))))])
+    spec = _spec("nq", "value_str", [IrItem(IrNot(IrCharClass(IrChr('"'))))])
     src = emit_module_source([spec], stem="m")
     assert "Annotated[str, StringConstraints(pattern=r'^[^\"]$')]" in src
 

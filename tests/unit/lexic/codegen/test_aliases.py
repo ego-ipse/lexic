@@ -8,7 +8,7 @@ from lexic.codegen.aliases import (
     regex_for_charclass,
     regex_for_group,
 )
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -35,7 +35,7 @@ def test_regex_for_charclass_simple():
 
 def test_regex_for_charclass_negated():
     """[^"] → ^[^"]$."""
-    cc = IrCharClass(IrStr('"'))
+    cc = IrCharClass(IrChr('"'))
     assert regex_for_charclass(cc, IrQuantifier(1, 1), negated=True) == r'^[^"]$'
 
 
