@@ -9,8 +9,8 @@ API changes:
 
 from __future__ import annotations
 
-from lexic.ir.base import IrNone, IrSeq
-from lexic.ir.mapping import IrMap, IrTypeMap
+from lexic.ir.base import IrNone
+from lexic.ir.mapping import IrMap, IrMultiMap, IrTypeMap
 from lexic.ir.nodes import IrCharClass, IrChr, IrLiteral, IrRange, IrRuleRef
 from lexic.parsing_2.chart import Chart
 from lexic.parsing_2.ops import EARLEY_OPS, Complete, ParseCtx, Predict, Scan
@@ -61,5 +61,5 @@ def test_parse_ctx_has_nullable_field():
 
 def test_parse_ctx_child_attrs_is_empty():
     """ParseCtx walks no children — context is engine state, not grammar."""
-    ctx = ParseCtx(Chart(), IrMap(), IrSeq())
+    ctx = ParseCtx(Chart(), IrMap(), IrMultiMap())
     assert not ctx.children()
