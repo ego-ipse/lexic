@@ -26,13 +26,12 @@ is a no-op that exists only to give terminals a (do-nothing) dispatch target.
 
 from __future__ import annotations
 
-from typing import ClassVar, Sequence, cast
+from typing import Sequence, cast
 
 from lexic.ir.action import IrAction
 from lexic.ir.base import (
     IrInt,
     IrLeaf,
-    IrNamedTuple,
     IrNone,
     IrNoneType,
     IrSelf,
@@ -46,30 +45,52 @@ from lexic.parsing_2.forest import BUILD_TREE, ParseTree
 from lexic.parsing_2.item import EarleyItem
 
 
-class ParseCtx(IrNamedTuple):
-    """Per-dispatch context handed to an operation body through ``nc``.
+class ParseCtx(IrLeaf[IrSelf, IrSelf]):
+    """Per-parse engine cursor handed to an operation body through ``nc``.
 
-    Scalar payload only (``_child_attrs = ()``): the context is engine state,
-    not a grammar node to walk.
+    A **mutable** leaf (the mutable-chart exception, like
+    :class:`~lexic.parsing_2.chart.Chart`): the parse-invariant fields
+    (``chart``, ``rules``, ``nullable``) are set once, while ``col`` and ``item``
+    are advanced in place by the driver as it walks each column. Exactly one
+    ``ParseCtx`` exists per parse, so the per-item ``ParseCtx`` + ``IrTuple``
+    allocation the dispatch protocol once paid (~67 K/parse) is gone — the driver
+    reuses a single ``IrTuple(ctx)`` across every dispatch. It is engine state,
+    never walked (``children()`` is empty), emitted, or reduced.
 
     :ivar chart: The chart being grown.
     :ivar rules: Rule index — :class:`~lexic.ir.nodes.IrRuleRef` → its
         :class:`~lexic.ir.nodes.IrAlternation` body.
-    :ivar text: The full input string.
-    :ivar col: The current column index.
-    :ivar item: The item currently being processed.
     :ivar nullable: Names of rules that can derive the empty string (an
         :class:`~lexic.ir.base.IrSeq` of name leaves) — the predictor advances
         over these immediately (Aycock-Horspool).
+    :ivar col: The column currently being closed.
+    :ivar item: The item currently being dispatched.
     """
 
-    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    __slots__ = ("chart", "rules", "nullable", "col", "item")
+
     chart: Chart
     rules: IrMap[IrRuleRef, IrAlternation]
-    text: str
+    nullable: IrSeq
     col: int
     item: EarleyItem
-    nullable: IrSeq
+
+    def __init__(
+        self, chart: Chart, rules: IrMap[IrRuleRef, IrAlternation], nullable: IrSeq
+    ) -> None:
+        """Seed the parse-invariant fields; the driver advances ``col``/``item``.
+
+        :param chart: The chart to grow.
+        :param rules: The rule-ref → body index.
+        :param nullable: Names of nullable rules.
+        """
+        self.chart = chart
+        self.rules = rules
+        self.nullable = nullable
+        self.col = 0
+        # ``item`` is set by the driver before each dispatch; IrNone is the
+        # absence sentinel until then (it fits every slot, signatures union-free).
+        self.item = cast(EarleyItem, IrNone)
 
 
 class Predict(IrLeaf[IrSelf, IrSelf]):
@@ -145,9 +166,12 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         ctx = cast(ParseCtx, nc[0])
         done = ctx.item
         chart = ctx.chart
+        waiters = chart[done.origin].waiting[done.rule_name]
+        if not waiters:  # nothing to advance — skip the subtree build entirely
+            return IrNone
         subtree = BUILD_TREE.eval(_d, done, IrTuple(chart, IrInt(ctx.col)))
         current = chart[ctx.col]
-        for waiting in chart[done.origin].waiting[done.rule_name]:
+        for waiting in waiters:
             advanced = EarleyItem(
                 waiting.rule_name, waiting.arm, waiting.dot + 1, waiting.origin
             )

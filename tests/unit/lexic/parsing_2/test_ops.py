@@ -2,17 +2,17 @@
 
 API changes:
 
-- ``ParseCtx.nullable`` is now an ``IrSeq`` (was ``frozenset``).  The test that
-  constructed ``ParseCtx`` with a ``frozenset`` is updated to pass ``IrSeq()``.
+- ``ParseCtx`` is now a mutable per-parse cursor (an ``IrLeaf``), constructed
+  ``ParseCtx(chart, rules, nullable)`` with ``col``/``item`` advanced in place by
+  the driver — no longer a frozen 6-field tuple.
 """
 
 from __future__ import annotations
 
 from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.mapping import IrMap, IrTypeMap
-from lexic.ir.nodes import IrCharClass, IrChr, IrLiteral, IrRange, IrRuleRef, IrSequence
+from lexic.ir.nodes import IrCharClass, IrChr, IrLiteral, IrRange, IrRuleRef
 from lexic.parsing_2.chart import Chart
-from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.ops import EARLEY_OPS, Complete, ParseCtx, Predict, Scan
 
 # ── EARLEY_OPS dispatch table ─────────────────────────────────────────
@@ -60,16 +60,6 @@ def test_parse_ctx_has_nullable_field():
 
 
 def test_parse_ctx_child_attrs_is_empty():
-    """ParseCtx walks no children — context is engine state, not grammar.
-
-    ``nullable`` is now an ``IrSeq`` (was ``frozenset``).
-    """
-    ctx = ParseCtx(
-        Chart(),
-        IrMap(),
-        "",
-        0,
-        EarleyItem(IrRuleRef("r"), IrSequence(), 0, 0),
-        IrSeq(),
-    )
+    """ParseCtx walks no children — context is engine state, not grammar."""
+    ctx = ParseCtx(Chart(), IrMap(), IrSeq())
     assert not ctx.children()
