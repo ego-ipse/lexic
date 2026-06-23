@@ -35,6 +35,20 @@ class IrMeta(ABCMeta):
         namespace.setdefault("__slots__", ())
         return super().__new__(mcs, name, bases, namespace, **kw)
 
+    def __instancecheck__(cls, instance: Any) -> bool:
+        """Fast ``isinstance`` — the C-level type check, skipping ABC dispatch.
+
+        IR classes never use ``register()`` or ``__subclasshook__``, so
+        ``ABCMeta``'s virtual-subclass machinery (the slow ``_abc_instancecheck``)
+        buys nothing while costing every ``isinstance`` in the hot parse loop.
+        Delegating to :meth:`type.__instancecheck__` keeps exact builtin
+        semantics (checks both ``type(instance)`` and ``instance.__class__``).
+
+        :param instance: The object to test.
+        :returns: Whether ``instance`` is an instance of ``cls``.
+        """
+        return type.__instancecheck__(cls, instance)
+
 
 class Borg[**P, T](type):
     """Distinct instances sharing one live, lock-guarded state per class; newest construction wins.

@@ -31,6 +31,7 @@ import copy
 from abc import ABC
 from collections.abc import Callable
 from inspect import getsourcefile
+from operator import itemgetter
 from pathlib import Path
 from types import FunctionType
 from typing import (
@@ -428,7 +429,9 @@ class IrScalar(IrLeaf):
         :param other: The value to compare against.
         :returns: ``True`` when equal under the rules above.
         """
-        if isinstance(other, IrScalar) and type(self) is not type(other):
+        if type(self) is type(other):  # hot path: same leaf kind, skip isinstance
+            return super().__eq__(other)
+        if isinstance(other, IrScalar):  # distinct leaf kinds never compare equal
             return False
         return super().__eq__(other)
 
@@ -703,7 +706,7 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
     def _install_accessors(cls) -> None:
         """Install a positional read accessor (``self[i]``) for each field."""
         for index, name in enumerate(cls._fields):
-            setattr(cls, name, property(lambda self, i=index: self[i]))
+            setattr(cls, name, property(itemgetter(index)))
 
     def __new__[**P](cls, *args: P.args, **kwargs: P.kwargs) -> Self:
         """Build the tuple from positional args, keywords, and field defaults.
@@ -713,6 +716,8 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
         :returns: A new instance with the fields stored as tuple elements.
         :raises TypeError: On a missing field or an unexpected keyword.
         """
+        if not kwargs and len(args) == len(cls._fields):  # all-positional fast path
+            return super().__new__(cls, *cast(tuple[*Ts], args))
         values = list(args)
         for name in cls._fields[len(args) :]:
             if name in kwargs:
