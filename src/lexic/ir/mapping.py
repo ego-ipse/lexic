@@ -235,3 +235,65 @@ class IrTypeMap(IrMap[type, IrSelf]):
     def _keys(self, n: IrSelf) -> tuple[Hashable, ...]:
         """``type(n).__mro__`` — concrete-first resolution order."""
         return type(n).__mro__
+
+
+class IrMultiMap[K, V: IrSelf](IrMap[K, V]):
+    """Mutable, multi-valued :class:`IrMap` — a key to its insertion-ordered bucket.
+
+    The mutable counterpart of :class:`IrMap`. A tuple subtype cannot carry an
+    extra instance slot, so the backing ``dict`` rides as the map's sole tuple
+    element (read past the key-override via ``tuple.__getitem__``): the tuple
+    reference stays constant while its dict mutates in place. ``mm += (key,
+    value)`` files a value in O(1) and ``mm[key]`` reads the bucket as an
+    :class:`~lexic.ir.base.IrSeq` snapshot (empty on a miss) — an ``IrSeq`` so
+    the read stays assignable to :class:`IrMap`'s value-returning ``__getitem__``.
+    ``key in mm`` tests for a filed bucket. It is its own value (identity
+    equality): a mutable map never structurally equals another.
+
+    Engine-internal — the Earley driver's per-column "waiting on" index, the
+    mapping form of the package's mutable-chart exception. It is never walked,
+    emitted, or reduced as a tree, so the frozen :class:`IrMap` surface
+    (``resolve`` / ``eval`` / dyad iteration) is left behind; only the read and
+    write dunders below are live.
+    """
+
+    __slots__ = ()
+
+    def __new__(cls, *_dyads: IrTuple) -> Self:
+        """Build an empty map whose sole tuple element is its backing dict."""
+        return tuple.__new__(cls, ({},))
+
+    @property
+    def _table(self) -> dict[K, list[V]]:
+        """The backing dict — the sole tuple element, read past the override."""
+        return tuple.__getitem__(self, 0)
+
+    def __iadd__(self, entry: tuple[K, V]) -> Self:
+        """File ``value`` under ``key``, preserving insertion order.
+
+        :param entry: The ``(key, value)`` pair to file.
+        :returns: ``self`` (the in-place-mutated map).
+        """
+        key, value = entry
+        self._table.setdefault(key, []).append(value)
+        return self
+
+    def __getitem__(self, key: object, /) -> IrSeq[V]:
+        """The bucket filed under ``key`` as an :class:`IrSeq` (empty on a miss)."""
+        return IrSeq(*self._table.get(cast(K, key), ()))
+
+    def __contains__(self, key: object) -> bool:
+        """Whether ``key`` has a filed bucket."""
+        return key in self._table
+
+    def __eq__(self, other: object) -> bool:
+        """Identity equality — a mutable map is its own value."""
+        return self is other
+
+    def __ne__(self, other: object) -> bool:
+        """Negation of :meth:`__eq__`."""
+        return self is not other
+
+    def __hash__(self) -> int:
+        """Identity hash, consistent with identity equality."""
+        return id(self)

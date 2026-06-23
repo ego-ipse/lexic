@@ -147,18 +147,13 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         chart = ctx.chart
         subtree = BUILD_TREE.eval(_d, done, IrTuple(chart, IrInt(ctx.col)))
         current = chart[ctx.col]
-        for waiting in chart[done.origin]:
-            if waiting.dot < len(waiting.arm) and (
-                waiting.arm[waiting.dot].atom == done.rule_name
-            ):
-                advanced = EarleyItem(
-                    waiting.rule_name, waiting.arm, waiting.dot + 1, waiting.origin
-                )
-                if advanced not in current:
-                    current += advanced
-                    chart.links[(advanced, ctx.col)] = Link(
-                        waiting, done.origin, subtree
-                    )
+        for waiting in chart[done.origin].waiting[done.rule_name]:
+            advanced = EarleyItem(
+                waiting.rule_name, waiting.arm, waiting.dot + 1, waiting.origin
+            )
+            if advanced not in current:
+                current += advanced
+                chart.links[(advanced, ctx.col)] = Link(waiting, done.origin, subtree)
         return IrNone
 
 

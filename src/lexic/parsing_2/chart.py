@@ -28,6 +28,8 @@ from __future__ import annotations
 from typing import ClassVar, Iterator
 
 from lexic.ir.base import IrLeaf, IrNamedTuple, IrSelf
+from lexic.ir.mapping import IrMultiMap
+from lexic.ir.nodes import IrRuleRef
 from lexic.parsing_2.item import EarleyItem
 
 
@@ -88,14 +90,23 @@ class Column(IrLeaf[IrSelf, IrSelf]):
     duplicate is dropped), and ``column[i]`` / ``len(column)`` / iteration give
     the cursor view the driver walks.
 
+    Insert also files an item under the :class:`~lexic.ir.nodes.IrRuleRef` its
+    dot faces, in the :attr:`waiting` index — so the completer reads only the
+    predecessors awaiting a finished rule (``column.waiting[rule_name]``) instead
+    of rescanning the whole column. The index is maintained incrementally because
+    the completer runs *while* the column is still being closed (items added
+    mid-iteration are filed at once).
+
     :ivar index: This column's input position.
+    :ivar waiting: ``IrRuleRef`` after the dot → the items awaiting it.
     """
 
-    __slots__ = ("index", "_items", "_seen")
+    __slots__ = ("index", "_items", "_seen", "waiting")
 
     index: int
     _items: list[EarleyItem]
     _seen: set[EarleyItem]
+    waiting: IrMultiMap[IrRuleRef, EarleyItem]
 
     def __init__(self, index: int) -> None:
         """Seed an empty column at ``index``.
@@ -105,12 +116,15 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         self.index = index
         self._items = []
         self._seen = set()
+        self.waiting = IrMultiMap()
 
     def __iadd__(self, item: EarleyItem) -> Column:
         """Insert ``item`` if absent (idempotent); return the column.
 
         Pair with ``item in column`` to act once on first insertion (e.g. to
-        record a provenance link exactly once).
+        record a provenance link exactly once). An item whose dot faces a
+        non-terminal is also filed under that :class:`~lexic.ir.nodes.IrRuleRef`
+        in :attr:`waiting`.
 
         :param item: The item to insert.
         :returns: ``self`` (the in-place-mutated column).
@@ -118,6 +132,10 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         if item not in self._seen:
             self._seen.add(item)
             self._items.append(item)
+            if item.dot < len(item.arm):
+                symbol = item.arm[item.dot].atom
+                if isinstance(symbol, IrRuleRef):
+                    self.waiting += (symbol, item)
         return self
 
     def __contains__(self, item: EarleyItem) -> bool:
