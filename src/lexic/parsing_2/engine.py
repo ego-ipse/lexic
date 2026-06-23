@@ -30,11 +30,10 @@ from lexic.ir.base import (
     IrNone,
     IrNoneType,
     IrSelf,
-    IrSeq,
     IrStr,
     IrTuple,
 )
-from lexic.ir.mapping import IrMap, IrTypeMap
+from lexic.ir.mapping import IrMap, IrMultiMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAst,
     IrCharClass,
@@ -52,8 +51,9 @@ from lexic.parsing_2.ops import EARLEY_OPS, ParseCtx
 class RuleIndex(IrLeaf[IrSelf, IrSelf]):
     """Build the rule index: :class:`IrRuleRef` → its alternation body.
 
-    Keys are ``IrRuleRef`` (not the rule's bare ``name`` string) so lookups by a
-    dotted item's ``IrRuleRef`` resolve under type-aware equality.
+    A dict-backed :class:`~lexic.ir.mapping.IrMap` keyed by ``IrRuleRef`` — so
+    the predictor's ``rules.resolve(ref)`` is an O(1) lookup returning the stored
+    alternation with no per-read allocation, under type-aware key equality.
     """
 
     def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrMap:
@@ -71,10 +71,14 @@ class NullableRules(IrLeaf[IrSelf, IrSelf]):
     is a ruleref to a currently-nullable rule (an empty arm vacuously). Assumes
     the grammar is Earley-normalised (all quantifiers ``(1, 1)``), so nullability
     flows purely through empty arms and nullable rulerefs.
+
+    Returned as an :class:`~lexic.ir.mapping.IrMultiMap` used as a set: the
+    predictor tests ``ref in nullable`` once per prediction, so membership must be
+    O(1) — ``IrMultiMap.__contains__`` is an exception-free ``key in dict``.
     """
 
-    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSeq:
-        """:param n: the grammar; :returns: :class:`IrSeq` of nullable names."""
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrMultiMap:
+        """:param n: the grammar; :returns: nullable rule refs as an IrMultiMap set."""
         grammar = cast(IrAst, n)
         nullable: set[str] = set()
         changed = True
@@ -92,7 +96,17 @@ class NullableRules(IrLeaf[IrSelf, IrSelf]):
                 ):
                     nullable.add(rule.name)
                     changed = True
-        return IrSeq(*(IrStr(name) for name in nullable))
+        index: IrMultiMap[IrRuleRef, IrRuleRef] = IrMultiMap()
+        for name in nullable:
+            ref = IrRuleRef(name)
+            index += (ref, ref)
+        return index
+
+
+_MATCH = IrInt(1)
+_NO_MATCH = IrInt(0)
+"""Shared truth-value leaves — :class:`Matches` returns one per scanned item, so
+caching the two immutable results avoids an ``IrInt`` allocation each time."""
 
 
 class Matches(IrLeaf[IrSelf, IrSelf]):
@@ -109,15 +123,15 @@ class Matches(IrLeaf[IrSelf, IrSelf]):
         atom = n
         char = str(nc[0])
         if isinstance(atom, IrLiteral):
-            return IrInt(1 if char == atom else 0)  # IrLiteral IS-A str
+            return _MATCH if char == atom else _NO_MATCH  # IrLiteral IS-A str
         if isinstance(atom, IrCharClass):
             for element in atom:
                 if isinstance(element, IrRange):
                     if str(element.lo) <= char <= str(element.hi):
-                        return IrInt(1)
+                        return _MATCH
                 elif char in str(element):
-                    return IrInt(1)
-        return IrInt(0)
+                    return _MATCH
+        return _NO_MATCH
 
 
 class AcceptingItem(IrLeaf[IrSelf, IrSelf]):
@@ -213,7 +227,7 @@ class BuildChart(IrLeaf[IrSelf, IrSelf]):
         grammar = cast(IrAst, n)
         text = str(nc[0])
         rules = cast(IrMap, RULE_INDEX.eval(d, grammar, ()))
-        nullable = cast(IrSeq, NULLABLE.eval(d, grammar, ()))
+        nullable = cast(IrMultiMap, NULLABLE.eval(d, grammar, ()))
         ctx = ParseCtx(Chart(), rules, nullable)
         ctx_nc = IrTuple(ctx)
         text_node = IrStr(text)

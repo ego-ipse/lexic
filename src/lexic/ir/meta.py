@@ -35,19 +35,18 @@ class IrMeta(ABCMeta):
         namespace.setdefault("__slots__", ())
         return super().__new__(mcs, name, bases, namespace, **kw)
 
-    def __instancecheck__(cls, instance: Any) -> bool:
-        """Fast ``isinstance`` — the C-level type check, skipping ABC dispatch.
-
-        IR classes never use ``register()`` or ``__subclasshook__``, so
-        ``ABCMeta``'s virtual-subclass machinery (the slow ``_abc_instancecheck``)
-        buys nothing while costing every ``isinstance`` in the hot parse loop.
-        Delegating to :meth:`type.__instancecheck__` keeps exact builtin
-        semantics (checks both ``type(instance)`` and ``instance.__class__``).
-
-        :param instance: The object to test.
-        :returns: Whether ``instance`` is an instance of ``cls``.
-        """
-        return type.__instancecheck__(cls, instance)
+    # Fast isinstance/issubclass — the bare C slots, not a Python ``def``.
+    #
+    # IR classes never use ``register()`` or ``__subclasshook__``, so ABCMeta's
+    # virtual-subclass machinery (the slow ``_abc_instancecheck``) buys nothing.
+    # Assigning the C-level ``type.__instancecheck__`` slot *directly* (rather
+    # than a ``def`` that forwards to it) means a non-exact ``isinstance`` pays
+    # no Python frame at all — roughly halving its cost on the negative path that
+    # dominates the parse hot loop. Same semantics: exact-type + MRO subclass
+    # check. ABCMeta stays the base (``IrMap`` inherits ``Mapping``, an ABC), so
+    # these overrides shadow ABCMeta's on the metaclass.
+    __instancecheck__ = type.__instancecheck__
+    __subclasscheck__ = type.__subclasscheck__
 
 
 class Borg[**P, T](type):

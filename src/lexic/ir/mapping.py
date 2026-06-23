@@ -1,17 +1,15 @@
-"""Immutable hash map as a tuple subclass — attribute access IS the index.
+"""Immutable hash map as a tuple subclass — a class-side dict IS the index.
 
 The dyads ARE the tuple elements (payload, equality, hash, children, codegen
 repr — all canonically sorted by key repr, so construction order never
 matters). The index lives in the **class namespace**: ``IrMap(*dyads)``
 resolves a memoised subclass — equal dyad tables share one class, weakly held —
-and ``__init_subclass__`` mirrors each dyad as a class attribute named
-``str(hash(key))``. Instance attribute lookup falls
-back to the class natively, so key lookup is a single ``getattr`` — Python's
-own O(1) machinery — with the dyad's key verified on read (a lookup may
-collide with a stored hash; stored keys never collide, attribution rejects
-that). No instance ``__dict__``, no ``__slots__`` exception: instances stay
-pure tuples; the synthesized class keeps the constructor's name, so codegen
-repr round-trips.
+and ``__init_subclass__`` builds a single ``key -> dyad`` ``dict`` as the class
+attribute ``_index``. Lookup is one native ``dict.get`` (the dict does the
+hash + key-equality match), built once and only ever read. Class attributes
+carry no tuple-subtype slot restriction, so the instances stay pure dyad tuples
+with no ``__dict__``; the synthesized class keeps the constructor's name, so
+codegen repr round-trips.
 
 ``m[key]``: ``IrSelf`` keys resolve via the index (``IrInt`` included —
 node-ness wins over int-ness); plain integer/slice subscripts keep native
@@ -53,7 +51,7 @@ from typing import (
 from weakref import WeakValueDictionary
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
-from lexic.ir.base import IrNone, IrSelf, IrSeq, IrTuple
+from lexic.ir.base import IrSelf, IrSeq, IrTuple
 from lexic.ir.meta import IrSingleton
 
 
@@ -89,23 +87,28 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
     _classes: ClassVar[WeakValueDictionary[tuple[type, tuple], type]] = (
         WeakValueDictionary()
     )
+    _index: ClassVar[dict[Hashable, IrTuple]] = {}
 
     def __init_subclass__(cls, dyads: tuple[IrTuple, ...] = (), **kwargs: Any) -> None:
-        """Attribute each dyad into the new class's namespace, by key hash.
+        """Index each dyad by its key in a single per-class lookup ``dict``.
 
-        Statically declared subclasses (:class:`IrTypeMap`) pass no ``dyads``
-        and are left untouched; :meth:`__new__` passes the instance's table.
+        The dict rides on the synthesized class (class attributes carry no
+        tuple-subtype slot restriction), so lookup is a native O(1) ``dict.get``
+        — no ``getattr(str(hash(key)))`` round-trip — while instances stay pure
+        dyad tuples. Statically declared subclasses (:class:`IrTypeMap`) pass no
+        ``dyads`` and get an empty index; :meth:`__new__` passes the table.
 
-        :raises UnsupportedConstructError: On duplicate or hash-colliding keys.
+        :raises UnsupportedConstructError: On a duplicate key.
         """
         super().__init_subclass__(**kwargs)
+        index: dict[Hashable, IrTuple] = {}
         for dyad in dyads:
-            name = str(hash(dyad[0]))
-            if name in vars(cls):
+            if dyad[0] in index:
                 raise UnsupportedConstructError(
-                    f"{cls.__name__}: duplicate or hash-colliding key {dyad[0]!r}"
+                    f"{cls.__name__}: duplicate key {dyad[0]!r}"
                 )
-            setattr(cls, name, dyad)
+            index[dyad[0]] = dyad
+        cls._index = index
 
     @overload
     def __new__(cls, *dyads: IrTuple[K, V]) -> Self: ...
@@ -146,13 +149,18 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
         return (n,)
 
     def _find(self, *keys: object) -> IrTuple[K, V]:
-        """First dyad among candidate ``keys`` — one ``getattr`` each, key-verified.
+        """First dyad among candidate ``keys`` — one ``dict.get`` each.
+
+        ``dict.get`` does the hash + key-equality match natively, so no manual
+        verification is needed (type-aware key equality still applies, as the
+        dict probes with the key's own ``__eq__``).
 
         :raises IrKeyError: When no candidate resolves.
         """
+        index = self._index
         for key in keys:
-            dyad = getattr(self, str(hash(key)), IrNone)
-            if isinstance(dyad, IrTuple) and dyad[0] == key:
+            dyad = index.get(key)
+            if dyad is not None:
                 return dyad
         raise IrKeyError(f"{type(self).__name__}: no entry for {keys!r}")
 
@@ -215,6 +223,9 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
 
         :raises IrKeyError: On a miss with no :data:`IR_DEFAULT` entry.
         """
+        dyad = self._index.get(n)  # fast path: ``n`` itself is the (only) candidate
+        if dyad is not None:
+            return dyad[1]
         return self._find(*self._keys(n), IR_DEFAULT)[1]
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
@@ -227,7 +238,7 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
 
 class IrTypeMap(IrMap[type, IrSelf]):
     """Type-keyed :class:`IrMap` — resolves ``n`` via ``type(n).__mro__``,
-    concrete first: one ``getattr`` per MRO entry, bounded by class depth, not
+    concrete first: one ``dict.get`` per MRO entry, bounded by class depth, not
     table size. The dispatch-table shape: an ``IrAction(target_type, body)``
     is exactly a ``(type, body)`` dyad. The parameterised base pins
     ``keys() -> KeysView[type]`` and ``resolve() -> IrSelf`` statically."""
@@ -235,6 +246,29 @@ class IrTypeMap(IrMap[type, IrSelf]):
     def _keys(self, n: IrSelf) -> tuple[Hashable, ...]:
         """``type(n).__mro__`` — concrete-first resolution order."""
         return type(n).__mro__
+
+    def resolve(self, n: IrSelf) -> IrSelf:
+        """Resolve via ``type(n)``, fast-pathing the exact-type hit.
+
+        A dispatched node's concrete type is almost always a registered key, so
+        a single ``dict.get(type(n))`` settles it without materialising the MRO
+        tuple. Only an unregistered concrete type falls back to the
+        ``__mro__`` walk (then :data:`IR_DEFAULT`).
+
+        :raises IrKeyError: On a miss with no :data:`IR_DEFAULT` entry.
+        """
+        index = self._index
+        dyad = index.get(type(n))
+        if dyad is not None:
+            return dyad[1]
+        for base in type(n).__mro__:
+            dyad = index.get(base)
+            if dyad is not None:
+                return dyad[1]
+        dyad = index.get(IR_DEFAULT)
+        if dyad is not None:
+            return dyad[1]
+        raise IrKeyError(f"{type(self).__name__}: no entry for {type(n).__name__}")
 
 
 class IrMultiMap[K, V: IrSelf](IrMap[K, V]):
@@ -244,11 +278,13 @@ class IrMultiMap[K, V: IrSelf](IrMap[K, V]):
     extra instance slot, so the backing ``dict`` rides as the map's sole tuple
     element (read past the key-override via ``tuple.__getitem__``): the tuple
     reference stays constant while its dict mutates in place. ``mm += (key,
-    value)`` files a value in O(1) and ``mm[key]`` reads the bucket as an
-    :class:`~lexic.ir.base.IrSeq` snapshot (empty on a miss) — an ``IrSeq`` so
-    the read stays assignable to :class:`IrMap`'s value-returning ``__getitem__``.
-    ``key in mm`` tests for a filed bucket. It is its own value (identity
-    equality): a mutable map never structurally equals another.
+    value)`` files a value in O(1) and ``mm[key]`` reads the bucket as a fresh
+    :class:`~lexic.ir.base.IrSeq` snapshot (empty on a miss) — a tuple subtype,
+    so it stays a type-compatible override of :class:`IrMap`'s value-returning
+    ``__getitem__``, and a snapshot, so iterating it is safe while the live
+    bucket grows. ``key in mm`` tests for a filed bucket (O(1), exception-free) —
+    its hot use is the predictor's nullable-set membership. It is its own value
+    (identity equality): a mutable map never structurally equals another.
 
     Engine-internal — the Earley driver's per-column "waiting on" index, the
     mapping form of the package's mutable-chart exception. It is never walked,
@@ -279,7 +315,13 @@ class IrMultiMap[K, V: IrSelf](IrMap[K, V]):
         return self
 
     def __getitem__(self, key: object, /) -> IrSeq[V]:
-        """The bucket filed under ``key`` as an :class:`IrSeq` (empty on a miss)."""
+        """The bucket filed under ``key`` as a fresh :class:`IrSeq` (empty on miss).
+
+        An :class:`IrSeq` (a ``tuple`` subtype, so this is a type-compatible
+        override of :class:`IrMap`'s value-returning ``__getitem__``) and a
+        snapshot, so a reader may iterate it safely even while the live bucket is
+        still being filled (the Earley completer, when ``origin == col``).
+        """
         return IrSeq(*self._table.get(cast(K, key), ()))
 
     def __contains__(self, key: object) -> bool:

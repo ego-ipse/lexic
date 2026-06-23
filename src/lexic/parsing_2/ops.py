@@ -38,7 +38,7 @@ from lexic.ir.base import (
     IrSeq,
     IrTuple,
 )
-from lexic.ir.mapping import IrMap, IrTypeMap
+from lexic.ir.mapping import IrMap, IrMultiMap, IrTypeMap
 from lexic.ir.nodes import IrAlternation, IrCharClass, IrLiteral, IrRange, IrRuleRef
 from lexic.parsing_2.chart import Chart, Link
 from lexic.parsing_2.forest import BUILD_TREE, ParseTree
@@ -57,12 +57,16 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
     reuses a single ``IrTuple(ctx)`` across every dispatch. It is engine state,
     never walked (``children()`` is empty), emitted, or reduced.
 
+    ``rules`` is a dict-backed :class:`~lexic.ir.mapping.IrMap` (rule ref → its
+    alternation body), so ``resolve`` is an O(1) lookup returning the stored
+    alternation with no per-read allocation; ``nullable`` is an
+    :class:`~lexic.ir.mapping.IrMultiMap` used as a set, so ``ref in nullable``
+    is O(1).
+
     :ivar chart: The chart being grown.
-    :ivar rules: Rule index — :class:`~lexic.ir.nodes.IrRuleRef` → its
-        :class:`~lexic.ir.nodes.IrAlternation` body.
-    :ivar nullable: Names of rules that can derive the empty string (an
-        :class:`~lexic.ir.base.IrSeq` of name leaves) — the predictor advances
-        over these immediately (Aycock-Horspool).
+    :ivar rules: Rule ref → its alternation body.
+    :ivar nullable: Rule refs that can derive the empty string — the predictor
+        advances over these immediately (Aycock-Horspool).
     :ivar col: The column currently being closed.
     :ivar item: The item currently being dispatched.
     """
@@ -71,18 +75,21 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
 
     chart: Chart
     rules: IrMap[IrRuleRef, IrAlternation]
-    nullable: IrSeq
+    nullable: IrMultiMap[IrRuleRef, IrRuleRef]
     col: int
     item: EarleyItem
 
     def __init__(
-        self, chart: Chart, rules: IrMap[IrRuleRef, IrAlternation], nullable: IrSeq
+        self,
+        chart: Chart,
+        rules: IrMap[IrRuleRef, IrAlternation],
+        nullable: IrMultiMap[IrRuleRef, IrRuleRef],
     ) -> None:
         """Seed the parse-invariant fields; the driver advances ``col``/``item``.
 
         :param chart: The chart to grow.
-        :param rules: The rule-ref → body index.
-        :param nullable: Names of nullable rules.
+        :param rules: The rule-ref → alternation-body index.
+        :param nullable: Rule refs that are nullable (membership set).
         """
         self.chart = chart
         self.rules = rules
@@ -117,7 +124,7 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
         col = ctx.chart[ctx.col]
         for arm in ctx.rules.resolve(ref):
             col += EarleyItem(ref, arm, 0, ctx.col)
-        if str(ref) in ctx.nullable:
+        if ref in ctx.nullable:
             it = ctx.item
             advanced = EarleyItem(it.rule_name, it.arm, it.dot + 1, it.origin)
             if advanced not in col:
@@ -171,6 +178,8 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
             return IrNone
         subtree = BUILD_TREE.eval(_d, done, IrTuple(chart, IrInt(ctx.col)))
         current = chart[ctx.col]
+        # waiters is a fresh IrSeq snapshot, safe to iterate while the live
+        # bucket grows (advancing may append to it when origin == col)
         for waiting in waiters:
             advanced = EarleyItem(
                 waiting.rule_name, waiting.arm, waiting.dot + 1, waiting.origin

@@ -454,6 +454,23 @@ class IrScalar(IrLeaf):
         """
         return super().__hash__()
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Install the bound primitive's C-level ``__hash__`` slot on the subclass.
+
+        A leaf is keyed in dicts/sets constantly; the inherited Python
+        :meth:`__hash__` wrapper costs a frame per probe. Binding the bare
+        ``str``/``int`` hash slot here (rather than in the class body) gives the
+        zero-frame C hash without the bare-slot assignment tripping the override
+        type-checker — mirroring how :class:`IrNamedTuple` installs accessors in
+        ``__init_subclass__``. Consistent with :meth:`__eq__`: equal leaves share
+        the payload hash; distinct leaf kinds may collide (harmless).
+
+        :param kwargs: Forwarded to ``super().__init_subclass__``.
+        """
+        super().__init_subclass__(**kwargs)
+        if cls._bound in (str, int):
+            setattr(cls, "__hash__", cls._bound.__hash__)
+
     def __repr__(self) -> str:
         """Codegen repr: ``ClassName(payload)`` via the primitive's ``repr``.
 
