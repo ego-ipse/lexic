@@ -25,7 +25,7 @@ construction; the backing ``list``/``set``/``dict`` then mutate in place.
 
 from __future__ import annotations
 
-from typing import ClassVar, Iterator
+from typing import ClassVar, Iterator, Self
 
 from lexic.ir.base import IrLeaf, IrNamedTuple, IrSelf
 from lexic.ir.mapping import IrMultiMap
@@ -50,6 +50,22 @@ class Link(IrNamedTuple[EarleyItem, int, IrSelf]):
     predecessor: EarleyItem
     predecessor_end: int
     child: IrSelf
+
+    def __new__(
+        cls, predecessor: EarleyItem, predecessor_end: int, child: IrSelf
+    ) -> Self:
+        """Fast positional constructor — skips the generic IrNamedTuple path.
+
+        A link's three fields are always supplied positionally, so building the
+        tuple directly saves two Python-level ``__new__`` frames per link (one
+        link is recorded per advanced item).
+
+        :param predecessor: The item one dot to the left.
+        :param predecessor_end: The column ``predecessor`` ends at.
+        :param child: The node consumed to advance the dot.
+        :returns: A new :class:`Link`.
+        """
+        return tuple.__new__(cls, (predecessor, predecessor_end, child))
 
 
 class Links(IrLeaf[IrSelf, IrSelf]):

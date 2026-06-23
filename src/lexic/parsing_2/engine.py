@@ -21,7 +21,7 @@ points: thin orchestration over the nodes above, wiring an
 
 from __future__ import annotations
 
-from typing import Sequence, cast
+from typing import NamedTuple, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import (
@@ -35,12 +35,19 @@ from lexic.ir.base import (
     IrTuple,
 )
 from lexic.ir.mapping import IrMap, IrTypeMap
-from lexic.ir.nodes import IrAst, IrCharClass, IrLiteral, IrRange, IrRuleRef
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrCharClass,
+    IrLiteral,
+    IrRange,
+    IrRuleRef,
+)
 from lexic.ir.walk import IrDispatch
-from lexic.parsing_2.chart import Chart, Link
-from lexic.parsing_2.forest import BUILD_TREE, ParseTree
+from lexic.parsing_2.chart import Chart, Column, Link
+from lexic.parsing_2.forest import BUILD_TREE, ParseTree, walk_links
 from lexic.parsing_2.item import EarleyItem
-from lexic.parsing_2.ops import EARLEY_OPS, ParseCtx
+from lexic.parsing_2.ops import EARLEY_OPS
 
 
 class RuleIndex(IrLeaf[IrSelf, IrSelf]):
@@ -89,6 +96,30 @@ class NullableRules(IrLeaf[IrSelf, IrSelf]):
         return IrSeq(*(IrStr(name) for name in nullable))
 
 
+def _matches_char(atom: IrSelf, char: str) -> bool:
+    """Whether terminal ``atom`` accepts the single character ``char``.
+
+    The terminal-match predicate shared by :class:`Matches` (the IR-protocol
+    form) and the engine's inlined :func:`_scan_column`. Assumes literals were
+    split to one char each (see :mod:`lexic.parsing_2.normalize`); a non-terminal
+    atom never matches.
+
+    :param atom: The terminal atom after a dot.
+    :param char: A single input character.
+    :returns: ``True`` if ``atom`` accepts ``char``.
+    """
+    if isinstance(atom, IrLiteral):
+        return char == atom  # IrLiteral IS-A str
+    if isinstance(atom, IrCharClass):
+        for element in atom:
+            if isinstance(element, IrRange):
+                if str(element.lo) <= char <= str(element.hi):
+                    return True
+            elif char in str(element):
+                return True
+    return False
+
+
 class Matches(IrLeaf[IrSelf, IrSelf]):
     """Whether a terminal atom accepts a single character.
 
@@ -100,18 +131,7 @@ class Matches(IrLeaf[IrSelf, IrSelf]):
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """:param n: terminal atom; :param nc: ``(IrStr(char),)``; :returns: 0/1."""
-        atom = n
-        char = str(nc[0])
-        if isinstance(atom, IrLiteral):
-            return IrInt(1 if char == str(atom) else 0)
-        if isinstance(atom, IrCharClass):
-            for element in atom:
-                if isinstance(element, IrRange):
-                    if str(element.lo) <= char <= str(element.hi):
-                        return IrInt(1)
-                elif char in str(element):
-                    return IrInt(1)
-        return IrInt(0)
+        return IrInt(1 if _matches_char(n, str(nc[0])) else 0)
 
 
 class AcceptingItem(IrLeaf[IrSelf, IrSelf]):
@@ -135,6 +155,121 @@ class AcceptingItem(IrLeaf[IrSelf, IrSelf]):
         return IrNone
 
 
+class _ParseState(NamedTuple):
+    """Parse-invariant engine state, built **once per parse** (not per item).
+
+    Bundles the three things every inlined operation needs, keeping their
+    signatures small. Unlike the old per-dispatch ``ParseCtx`` (one per item,
+    ~67 K/parse), exactly one of these exists for a whole parse.
+
+    :ivar chart: The chart being grown.
+    :ivar rules: Rule name → its :class:`~lexic.ir.nodes.IrAlternation` body, a
+        plain ``dict`` for O(1) predict lookup.
+    :ivar nullable: Names of rules that derive the empty string.
+    """
+
+    chart: Chart
+    rules: dict[str, IrAlternation]
+    nullable: set[str]
+
+
+def _predict(
+    state: _ParseState, symbol: IrRuleRef, item: EarleyItem, column: Column
+) -> None:
+    """Seed ``symbol``'s arms in ``column``; advance over a nullable target.
+
+    Aycock-Horspool: a nullable target also advances the predicting item at
+    once, recording an empty derivation as the consumed child (dedup-merged with
+    the empty completion, so the link is set once).
+
+    :param state: The parse-invariant engine state.
+    :param symbol: The :class:`~lexic.ir.nodes.IrRuleRef` after the dot.
+    :param item: The predicting item.
+    :param column: The column being closed (its ``index`` is the current column).
+    """
+    col = column.index
+    for arm in state.rules[symbol]:
+        column += EarleyItem(symbol, arm, 0, col)
+    if symbol in state.nullable:
+        advanced = EarleyItem(item.rule_name, item.arm, item.dot + 1, item.origin)
+        if advanced not in column:
+            column += advanced
+            empty = ParseTree(symbol, IrSeq())
+            state.chart.links[(advanced, col)] = Link(item, col, empty)
+
+
+def _complete(state: _ParseState, done: EarleyItem, column: Column) -> None:
+    """Advance predecessors awaiting the just-completed rule ``done``.
+
+    ``done`` recognised ``done.rule_name`` spanning ``done.origin .. col``; every
+    item in the origin column awaiting that rule advances into ``column``. The
+    sub-derivation is built once and recorded as each advanced item's consumed
+    child.
+
+    :param state: The parse-invariant engine state.
+    :param done: The completed item (dot at arm end).
+    :param column: The column being closed (its ``index`` is the current column).
+    """
+    col = column.index
+    chart = state.chart
+    subtree = walk_links(done, chart.links, col)
+    for waiting in chart[done.origin].waiting[done.rule_name]:
+        advanced = EarleyItem(
+            waiting.rule_name, waiting.arm, waiting.dot + 1, waiting.origin
+        )
+        if advanced not in column:
+            column += advanced
+            chart.links[(advanced, col)] = Link(waiting, done.origin, subtree)
+
+
+def _close_column(state: _ParseState, col: int) -> None:
+    """Close Earley column ``col`` to a fixpoint — the inlined hot path.
+
+    A cursor walks the column; predict/complete append in place, so newly added
+    items are visited without a worklist. The operation is chosen by
+    ``isinstance`` on the symbol after the dot (ruleref → predict, end → complete,
+    terminal → scanned between columns). This avoids the per-item ``ParseCtx`` +
+    ``IrTuple`` allocation the dispatch protocol would build (~100 K
+    objects/parse). All chart access is through the public Column/Links surface.
+
+    :param state: The parse-invariant engine state.
+    :param col: The column index to close.
+    """
+    column = state.chart[col]
+    cursor = 0
+    while cursor < len(column):
+        item = column[cursor]
+        cursor += 1
+        if item.dot >= len(item.arm):
+            _complete(state, item, column)
+            continue
+        symbol = item.arm[item.dot].atom
+        if isinstance(symbol, IrRuleRef):
+            _predict(state, symbol, item, column)
+
+
+def _scan_column(chart: Chart, text: str, i: int) -> None:
+    """Scan ``text[i]``, advancing matching terminal items into column ``i+1``.
+
+    The inlined scanner — avoids the ``IrStr``/``IrInt`` boxing and ``IrTuple``
+    wrapper the protocol form builds per scannable item. The consumed character
+    is built once as an :class:`~lexic.ir.nodes.IrLiteral` shared by all links.
+
+    :param chart: The parse chart, mutated in place.
+    :param text: The full input string.
+    :param i: The column index to scan from.
+    """
+    char = text[i]
+    char_leaf = IrLiteral(char)
+    nxt = chart[i + 1]
+    for item in chart[i]:
+        if item.dot < len(item.arm) and _matches_char(item.arm[item.dot].atom, char):
+            advanced = EarleyItem(item.rule_name, item.arm, item.dot + 1, item.origin)
+            if advanced not in nxt:
+                nxt += advanced
+                chart.links[(advanced, i + 1)] = Link(item, i, char_leaf)
+
+
 class CloseColumn(IrLeaf[IrSelf, IrSelf]):
     """Close column ``i`` to a fixpoint by dispatching each item's next symbol.
 
@@ -144,20 +279,15 @@ class CloseColumn(IrLeaf[IrSelf, IrSelf]):
     separate worklist.
     """
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
+    def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
         """:param n: chart; :param nc: ``(rules, IrStr(text), nullable, IrInt(i))``."""
         chart = cast(Chart, n)
-        rules = cast(IrMap, nc[0])
-        text = str(nc[1])
+        rules = cast("IrMap[IrRuleRef, IrAlternation]", nc[0])
         nullable = cast(IrSeq, nc[2])
         i = int(cast(int, nc[3]))
-        column = chart[i]
-        cursor = 0
-        while cursor < len(column):
-            item = column[cursor]
-            cursor += 1
-            symbol = item.arm[item.dot].atom if item.dot < len(item.arm) else IrNone
-            d.eval(d, symbol, IrTuple(ParseCtx(chart, rules, text, i, item, nullable)))
+        rules_dict = {str(dyad[0]): dyad[1] for dyad in rules}
+        nullable_set = {str(name) for name in nullable}
+        _close_column(_ParseState(chart, rules_dict, nullable_set), i)
         return IrNone
 
 
@@ -169,23 +299,12 @@ class ScanColumn(IrLeaf[IrSelf, IrSelf]):
     advances into column ``i+1``, recording the consumed character as provenance.
     """
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
+    def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
         """:param n: chart; :param nc: ``(IrStr(text), IrInt(i))``."""
         chart = cast(Chart, n)
         text = str(nc[0])
         i = int(cast(int, nc[1]))
-        char = IrStr(text[i])
-        nxt = chart[i + 1]
-        for item in chart[i]:
-            if item.dot < len(item.arm) and MATCHES.eval(
-                d, item.arm[item.dot].atom, IrTuple(char)
-            ):
-                advanced = EarleyItem(
-                    item.rule_name, item.arm, item.dot + 1, item.origin
-                )
-                if advanced not in nxt:
-                    nxt += advanced
-                    chart.links[(advanced, i + 1)] = Link(item, i, IrLiteral(char))
+        _scan_column(chart, text, i)
         return IrNone
 
 
@@ -202,20 +321,23 @@ class BuildChart(IrLeaf[IrSelf, IrSelf]):
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: the chart."""
         grammar = cast(IrAst, n)
         text = str(nc[0])
-        text_node = IrStr(text)
-        rules = cast(IrMap, RULE_INDEX.eval(d, grammar, ()))
-        nullable = cast(IrSeq, NULLABLE.eval(d, grammar, ()))
+        nullable_seq = cast(IrSeq, NULLABLE.eval(d, grammar, ()))
+        rules: dict[str, IrAlternation] = {
+            str(rule.name): rule.body for rule in grammar.rules
+        }
+        nullable: set[str] = {str(name) for name in nullable_seq}
+        state = _ParseState(Chart(), rules, nullable)
+        chart = state.chart
 
-        chart = Chart()
         start = IrRuleRef(grammar.start)
         column0 = chart[0]
-        for arm in rules.resolve(start):
+        for arm in rules[grammar.start]:
             column0 += EarleyItem(start, arm, 0, 0)
 
         for i in range(len(text) + 1):
-            CLOSE_COLUMN.eval(d, chart, (rules, text_node, nullable, IrInt(i)))
+            _close_column(state, i)
             if i < len(text):
-                SCAN_COLUMN.eval(d, chart, (text_node, IrInt(i)))
+                _scan_column(chart, text, i)
         return chart
 
 

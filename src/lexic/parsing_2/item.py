@@ -17,7 +17,7 @@ to ``eval`` + dunders only.
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, Self
 
 from lexic.ir.base import IrNamedTuple
 from lexic.ir.nodes import IrRuleRef, IrSequence
@@ -51,3 +51,21 @@ class EarleyItem(IrNamedTuple[IrRuleRef, IrSequence, int, int]):
     arm: IrSequence
     dot: int
     origin: int
+
+    def __new__(
+        cls, rule_name: IrRuleRef, arm: IrSequence, dot: int, origin: int
+    ) -> Self:
+        """Fast positional constructor — the engine's hottest allocation.
+
+        All four fields are always supplied positionally, so the generic
+        :class:`IrNamedTuple` path (kwarg merge, defaults, cast) is never needed.
+        Building the tuple directly skips two Python-level ``__new__`` frames per
+        item — the dominant per-item construction cost.
+
+        :param rule_name: The non-terminal this arm defines.
+        :param arm: The single alternation arm.
+        :param dot: Index into ``arm`` of the next symbol to match.
+        :param origin: Input column where this arm was predicted.
+        :returns: A new :class:`EarleyItem`.
+        """
+        return tuple.__new__(cls, (rule_name, arm, dot, origin))

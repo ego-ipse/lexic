@@ -22,11 +22,11 @@ binarisation and disambiguation are the generalisation, not shown here.
 
 from __future__ import annotations
 
-from typing import ClassVar, Sequence, cast
+from typing import ClassVar, Self, Sequence, cast
 
 from lexic.ir.base import IrLeaf, IrNamedTuple, IrSelf, IrSeq
 from lexic.ir.nodes import IrRuleRef
-from lexic.parsing_2.chart import Chart
+from lexic.parsing_2.chart import Chart, Links
 from lexic.parsing_2.item import EarleyItem
 
 
@@ -46,6 +46,43 @@ class ParseTree(IrNamedTuple[IrRuleRef, IrSeq]):
     _child_attrs: ClassVar[tuple[str, ...]] = ("kids",)
     symbol: IrRuleRef
     kids: IrSeq
+
+    def __new__(cls, symbol: IrRuleRef, kids: IrSeq) -> Self:
+        """Fast positional constructor — skips the generic IrNamedTuple path.
+
+        A derivation node's two fields are always supplied positionally, so
+        building the tuple directly saves two Python-level ``__new__`` frames per
+        node (one per completed rule).
+
+        :param symbol: The rule this node derives.
+        :param kids: The matched sub-derivations / terminals, in source order.
+        :returns: A new :class:`ParseTree`.
+        """
+        return tuple.__new__(cls, (symbol, kids))
+
+
+def walk_links(item: EarleyItem, links: Links, end: int) -> ParseTree:
+    """Reconstruct ``item``'s derivation by walking provenance links to dot 0.
+
+    The single tree-builder, shared by :meth:`BuildTree.eval` (the IR-protocol
+    entry) and the engine's inlined completer. Walks from the dot back to dot 0
+    collecting the child consumed at each step, then assembles them in source
+    order. One pass suffices because sub-trees are linked before their parent is
+    completed.
+
+    :param item: The :class:`EarleyItem` to reconstruct.
+    :param links: The chart's provenance table.
+    :param end: The column ``item`` ends at (the link-table key alongside it).
+    :returns: The :class:`ParseTree` for ``item``.
+    """
+    kids: list[IrSelf] = []
+    cur, cur_end = item, end
+    while cur.dot > 0:
+        link = links[(cur, cur_end)]
+        kids.append(link.child)
+        cur, cur_end = link.predecessor, link.predecessor_end
+    kids.reverse()
+    return ParseTree(item.rule_name, IrSeq(*kids))
 
 
 class BuildTree(IrLeaf[IrSelf, IrSelf]):
@@ -68,14 +105,7 @@ class BuildTree(IrLeaf[IrSelf, IrSelf]):
         item = cast(EarleyItem, n)
         chart = cast(Chart, nc[0])
         end = int(cast(int, nc[1]))
-        kids: list[IrSelf] = []
-        cur, cur_end = item, end
-        while cur.dot > 0:
-            link = chart.links[(cur, cur_end)]
-            kids.append(link.child)
-            cur, cur_end = link.predecessor, link.predecessor_end
-        kids.reverse()
-        return ParseTree(item.rule_name, IrSeq(*kids))
+        return walk_links(item, chart.links, end)
 
 
 BUILD_TREE = BuildTree()
