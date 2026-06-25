@@ -35,7 +35,15 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2 import EarleyParser, ParseTree, parse, recognize
+from lexic.parsing_2 import (
+    EarleyParser,
+    ParseTree,
+    derivations,
+    is_ambiguous,
+    parse,
+    parse_forest,
+    recognize,
+)
 from lexic.parsing_2.engine import (
     ACCEPT,
     BUILD_CHART,
@@ -88,22 +96,22 @@ def _quant_grammar(lo: int, hi: int | IrNoneType) -> IrAst:
 
 def test_recognize_accepts_single_char():
     """digit grammar accepts a single digit character."""
-    assert recognize(_digit_grammar(), "5") is True
+    assert recognize(_digit_grammar(), "5")
 
 
 def test_recognize_rejects_wrong_char():
     """digit grammar rejects a non-digit character."""
-    assert recognize(_digit_grammar(), "z") is False
+    assert not recognize(_digit_grammar(), "z")
 
 
 def test_recognize_rejects_empty_for_non_nullable():
     """digit grammar rejects the empty string."""
-    assert recognize(_digit_grammar(), "") is False
+    assert not recognize(_digit_grammar(), "")
 
 
 def test_recognize_rejects_multi_char_for_single_rule():
     """digit grammar rejects more than one character."""
-    assert recognize(_digit_grammar(), "12") is False
+    assert not recognize(_digit_grammar(), "12")
 
 
 # ── Recognizer — recursive grammar ───────────────────────────────────
@@ -111,32 +119,32 @@ def test_recognize_rejects_multi_char_for_single_rule():
 
 def test_recognize_accepts_bare_digit_in_expr(expr_grammar: IrAst):
     """expr grammar accepts a bare digit."""
-    assert recognize(expr_grammar, "5") is True
+    assert recognize(expr_grammar, "5")
 
 
 def test_recognize_accepts_single_parens(expr_grammar: IrAst):
     """expr grammar accepts '(7)'."""
-    assert recognize(expr_grammar, "(7)") is True
+    assert recognize(expr_grammar, "(7)")
 
 
 def test_recognize_accepts_double_parens(expr_grammar: IrAst):
     """expr grammar accepts '((3))'."""
-    assert recognize(expr_grammar, "((3))") is True
+    assert recognize(expr_grammar, "((3))")
 
 
 def test_recognize_rejects_unclosed_paren(expr_grammar: IrAst):
     """expr grammar rejects '(8' — missing closing paren."""
-    assert recognize(expr_grammar, "(8") is False
+    assert not recognize(expr_grammar, "(8")
 
 
 def test_recognize_rejects_empty_string(expr_grammar: IrAst):
     """expr grammar rejects the empty string."""
-    assert recognize(expr_grammar, "") is False
+    assert not recognize(expr_grammar, "")
 
 
 def test_recognize_rejects_empty_parens(expr_grammar: IrAst):
     """expr grammar rejects '(())' — no digit inside."""
-    assert recognize(expr_grammar, "(())") is False
+    assert not recognize(expr_grammar, "(())")
 
 
 # ── Nullable completer — quantifier desugaring + recognize ────────────
@@ -145,97 +153,97 @@ def test_recognize_rejects_empty_parens(expr_grammar: IrAst):
 def test_nullable_star_accepts_empty():
     """* (0,IrNone) normalized: accepts empty string."""
     g = _normalize(_quant_grammar(0, IrNone))
-    assert recognize(g, "") is True
+    assert recognize(g, "")
 
 
 def test_nullable_star_accepts_one():
     """* (0,IrNone) normalized: accepts 'a'."""
     g = _normalize(_quant_grammar(0, IrNone))
-    assert recognize(g, "a") is True
+    assert recognize(g, "a")
 
 
 def test_nullable_star_accepts_many():
     """* (0,IrNone) normalized: accepts 'aaa'."""
     g = _normalize(_quant_grammar(0, IrNone))
-    assert recognize(g, "aaa") is True
+    assert recognize(g, "aaa")
 
 
 def test_plus_rejects_empty():
     """+ (1,IrNone) normalized: rejects empty string."""
     g = _normalize(_quant_grammar(1, IrNone))
-    assert recognize(g, "") is False
+    assert not recognize(g, "")
 
 
 def test_plus_accepts_one():
     """+ (1,IrNone) normalized: accepts 'a'."""
     g = _normalize(_quant_grammar(1, IrNone))
-    assert recognize(g, "a") is True
+    assert recognize(g, "a")
 
 
 def test_plus_accepts_many():
     """+ (1,IrNone) normalized: accepts 'aaa'."""
     g = _normalize(_quant_grammar(1, IrNone))
-    assert recognize(g, "aaa") is True
+    assert recognize(g, "aaa")
 
 
 def test_optional_accepts_empty():
     """? (0,1) normalized: accepts empty string."""
     g = _normalize(_quant_grammar(0, 1))
-    assert recognize(g, "") is True
+    assert recognize(g, "")
 
 
 def test_optional_accepts_one():
     """? (0,1) normalized: accepts 'a'."""
     g = _normalize(_quant_grammar(0, 1))
-    assert recognize(g, "a") is True
+    assert recognize(g, "a")
 
 
 def test_optional_rejects_two():
     """? (0,1) normalized: rejects 'aa'."""
     g = _normalize(_quant_grammar(0, 1))
-    assert recognize(g, "aa") is False
+    assert not recognize(g, "aa")
 
 
 def test_exact_two_rejects_one():
     """{2,2} normalized: rejects 'a' (too short)."""
     g = _normalize(_quant_grammar(2, 2))
-    assert recognize(g, "a") is False
+    assert not recognize(g, "a")
 
 
 def test_exact_two_accepts_two():
     """{2,2} normalized: accepts 'aa'."""
     g = _normalize(_quant_grammar(2, 2))
-    assert recognize(g, "aa") is True
+    assert recognize(g, "aa")
 
 
 def test_exact_two_rejects_three():
     """{2,2} normalized: rejects 'aaa' (too long)."""
     g = _normalize(_quant_grammar(2, 2))
-    assert recognize(g, "aaa") is False
+    assert not recognize(g, "aaa")
 
 
 def test_bounded_two_to_four_rejects_one():
     """{2,4} normalized: rejects 'a'."""
     g = _normalize(_quant_grammar(2, 4))
-    assert recognize(g, "a") is False
+    assert not recognize(g, "a")
 
 
 def test_bounded_two_to_four_accepts_two():
     """{2,4} normalized: accepts 'aa'."""
     g = _normalize(_quant_grammar(2, 4))
-    assert recognize(g, "aa") is True
+    assert recognize(g, "aa")
 
 
 def test_bounded_two_to_four_accepts_four():
     """{2,4} normalized: accepts 'aaaa'."""
     g = _normalize(_quant_grammar(2, 4))
-    assert recognize(g, "aaaa") is True
+    assert recognize(g, "aaaa")
 
 
 def test_bounded_two_to_four_rejects_five():
     """{2,4} normalized: rejects 'aaaaa'."""
     g = _normalize(_quant_grammar(2, 4))
-    assert recognize(g, "aaaaa") is False
+    assert not recognize(g, "aaaaa")
 
 
 # ── split_literals integration ────────────────────────────────────────
@@ -245,14 +253,14 @@ def test_split_literals_true_keyword_recognized():
     """split_literals turns 'true' into 4 single-char items; recognizes 'true'."""
     rule = IrRule("s", IrAlternation(IrSequence(IrItem(IrLiteral("true")))))
     g = split_literals(IrAst(rules=IrSeq(rule), start="s"))
-    assert recognize(g, "true") is True
+    assert recognize(g, "true")
 
 
 def test_split_literals_true_keyword_rejects_partial():
     """After split_literals, 'tru' (missing last char) is rejected."""
     rule = IrRule("s", IrAlternation(IrSequence(IrItem(IrLiteral("true")))))
     g = split_literals(IrAst(rules=IrSeq(rule), start="s"))
-    assert recognize(g, "tru") is False
+    assert not recognize(g, "tru")
 
 
 # ── parse — derivation tree ───────────────────────────────────────────
@@ -367,3 +375,200 @@ def test_nullable_rules_returns_irseq():
     g = _normalize(_quant_grammar(0, IrNone))
     result = NULLABLE.eval(parser, g, ())
     assert isinstance(result, IrSeq)
+
+
+# ── Ambiguous grammar helpers ─────────────────────────────────────────
+
+
+def _sss_grammar() -> IrAst:
+    """Genuinely ambiguous: s = s s / 'a'.
+
+    Over 'aaa' this has exactly 2 derivations (Catalan C_2).
+    """
+    s_rule = IrRule(
+        "s",
+        IrAlternation(
+            IrSequence(IrItem(IrRuleRef("s")), IrItem(IrRuleRef("s"))),
+            IrSequence(IrItem(IrLiteral("a"))),
+        ),
+    )
+    return IrAst(rules=IrSeq(s_rule), start="s")
+
+
+def _expr_plus_grammar() -> IrAst:
+    """Ambiguous arithmetic: e = e '+' e / 'a'.
+
+    Over 'a+a+a' this has exactly 2 derivations (left- vs right-assoc).
+    """
+    e_rule = IrRule(
+        "e",
+        IrAlternation(
+            IrSequence(
+                IrItem(IrRuleRef("e")),
+                IrItem(IrLiteral("+")),
+                IrItem(IrRuleRef("e")),
+            ),
+            IrSequence(IrItem(IrLiteral("a"))),
+        ),
+    )
+    return IrAst(rules=IrSeq(e_rule), start="e")
+
+
+# ── parse_forest ──────────────────────────────────────────────────────
+
+
+def test_parse_forest_returns_sppf_node_on_valid_input():
+    """parse_forest() returns an SppfNode for parseable input."""
+    from lexic.parsing_2.forest import SppfNode
+
+    g = _digit_grammar()
+    result = parse_forest(g, "5")
+    assert isinstance(result, SppfNode)
+
+
+def test_parse_forest_returns_ir_none_on_no_parse():
+    """parse_forest() returns IrNone when the input does not parse."""
+    g = _digit_grammar()
+    result = parse_forest(g, "z")
+    assert isinstance(result, IrNoneType)
+
+
+# ── derivations ───────────────────────────────────────────────────────
+
+
+def test_derivations_empty_on_no_parse():
+    """derivations() returns an empty IrSeq when the input does not parse."""
+    g = _digit_grammar()
+    result = derivations(g, "z")
+    assert isinstance(result, IrSeq)
+    assert len(result) == 0
+
+
+def test_derivations_singleton_for_unambiguous():
+    """derivations() returns a length-1 IrSeq for unambiguous input."""
+    g = _digit_grammar()
+    result = derivations(g, "7")
+    assert isinstance(result, IrSeq)
+    assert len(result) == 1
+    assert isinstance(result[0], ParseTree)
+
+
+def test_derivations_singleton_equals_parse_result():
+    """The lone derivation equals parse()'s result for unambiguous input."""
+    g = _digit_grammar()
+    result = derivations(g, "7")
+    expected = parse(g, "7")
+    assert result[0] == expected
+
+
+def test_derivations_two_trees_for_sss_aaa():
+    """derivations() returns 2 distinct ParseTrees for 's=ss/a' over 'aaa'."""
+    g = _sss_grammar()
+    result = derivations(g, "aaa")
+    assert len(result) == 2
+    assert result[0] != result[1]
+
+
+def test_derivations_two_trees_for_expr_plus_a_plus_a():
+    """derivations() returns 2 distinct ParseTrees for 'e=e+e/a' over 'a+a+a'."""
+    g = _expr_plus_grammar()
+    result = derivations(g, "a+a+a")
+    assert len(result) == 2
+    assert result[0] != result[1]
+
+
+# ── is_ambiguous ──────────────────────────────────────────────────────
+
+
+def test_is_ambiguous_false_for_unambiguous_input():
+    """is_ambiguous() returns False for unambiguous input."""
+    g = _digit_grammar()
+    assert not is_ambiguous(g, "3")
+
+
+def test_is_ambiguous_false_for_no_parse():
+    """is_ambiguous() returns False when the input does not parse."""
+    g = _digit_grammar()
+    assert not is_ambiguous(g, "z")
+
+
+def test_is_ambiguous_true_for_sss_aaa():
+    """is_ambiguous() returns True for 's=ss/a' over 'aaa' (2 derivations)."""
+    g = _sss_grammar()
+    assert is_ambiguous(g, "aaa")
+
+
+def test_is_ambiguous_true_for_expr_plus():
+    """is_ambiguous() returns True for 'e=e+e/a' over 'a+a+a'."""
+    g = _expr_plus_grammar()
+    assert is_ambiguous(g, "a+a+a")
+
+
+# ── parse strict raises on ambiguous ─────────────────────────────────
+
+
+def test_parse_raises_on_ambiguous_sss():
+    """parse() raises UnsupportedConstructError on ambiguous 's=ss/a' over 'aaa'."""
+    g = _sss_grammar()
+    with pytest.raises(UnsupportedConstructError):
+        parse(g, "aaa")
+
+
+def test_parse_raises_on_ambiguous_expr_plus():
+    """parse() raises UnsupportedConstructError on ambiguous 'e=e+e/a' over 'a+a+a'."""
+    g = _expr_plus_grammar()
+    with pytest.raises(UnsupportedConstructError):
+        parse(g, "a+a+a")
+
+
+# ── Nullable regression — star/nullable must not be ambiguous ─────────
+
+
+def test_nullable_star_derivations_single_for_empty():
+    """'a'* over '' is unambiguous — exactly one derivation, is_ambiguous False."""
+    g = _normalize(_quant_grammar(0, IrNone))
+    result = derivations(g, "")
+    assert len(result) == 1
+    assert not is_ambiguous(g, "")
+
+
+def test_nullable_star_derivations_single_for_one():
+    """'a'* over 'a' is unambiguous — exactly one derivation, is_ambiguous False."""
+    g = _normalize(_quant_grammar(0, IrNone))
+    result = derivations(g, "a")
+    assert len(result) == 1
+    assert not is_ambiguous(g, "a")
+
+
+def test_nullable_star_derivations_single_for_three():
+    """'a'* over 'aaa' is unambiguous — exactly one derivation, is_ambiguous False.
+
+    This is the nullable-fix regression guard: a naive SPPF that doesn't
+    properly dedup nullable families accumulates spurious ambiguity on right-
+    recursive 'a'* expansions.  If is_ambiguous returns True here, the
+    nullable dedup invariant is broken.
+    """
+    g = _normalize(_quant_grammar(0, IrNone))
+    result = derivations(g, "aaa")
+    assert len(result) == 1
+    assert not is_ambiguous(g, "aaa")
+
+
+def test_transitively_nullable_unambiguous():
+    """X = Y ; Y = '' / 'a' parses 'a' with exactly one derivation.
+
+    Tests that a transitively-nullable rule (X derives empty through Y)
+    does not accumulate spurious ambiguity.
+    """
+    y_rule = IrRule(
+        "y",
+        IrAlternation(IrSequence(), IrSequence(IrItem(IrLiteral("a")))),
+    )
+    x_rule = IrRule(
+        "x",
+        IrAlternation(IrSequence(IrItem(IrRuleRef("y")))),
+    )
+    g = IrAst(rules=IrSeq(x_rule, y_rule), start="x")
+    result = derivations(g, "a")
+    assert len(result) == 1
+    assert not is_ambiguous(g, "a")

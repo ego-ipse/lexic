@@ -21,8 +21,7 @@ from lexic.ir.nodes import (
     IrRange,
     IrRuleRef,
 )
-from lexic.parsing_2 import recognize
-from lexic.parsing_2.engine import parse
+from lexic.parsing_2 import parse, recognize
 from lexic.parsing_2.forest import ParseTree
 from lexic.parsing_2.normalize import (
     desugar_quantifiers,

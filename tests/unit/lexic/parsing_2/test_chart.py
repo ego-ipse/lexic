@@ -18,7 +18,7 @@ API changes from the IrSelf rewrite:
   to construct and inspect ``Link`` instances.
 
 New symbols tested: ``Link`` (fields: predecessor, predecessor_end, child),
-``Links`` (``__contains__``, ``__getitem__``, ``__setitem__``).
+``Links`` (``__contains__``, ``__getitem__``, ``__iadd__``).
 """
 
 from __future__ import annotations
@@ -198,25 +198,25 @@ def test_links_starts_empty():
 
 
 def test_links_setitem_and_getitem():
-    """Setting and retrieving a key returns the same Link."""
+    """Recording a link via += and retrieving it via [] returns the same Link."""
     links = Links()
     arm = _arm("x")
     item = _ei("s", arm, dot=1)
     pred = _ei("s", arm, dot=0)
     child = IrLiteral("x")
     link = Link(pred, 0, child)
-    links[(item, 1)] = link
-    assert links[(item, 1)] is link
+    links += ((item, 1), link)
+    assert links[(item, 1)][0] is link
 
 
 def test_links_contains_after_setitem():
-    """Key is found in links after assignment."""
+    """Key is found in links after recording a family via +=."""
     links = Links()
     arm = _arm("y")
     item = _ei("r", arm, dot=1)
     link = Link(item, 0, IrLiteral("y"))
     key = (item, 1)
-    links[key] = link
+    links += (key, link)
     assert key in links
 
 
@@ -232,7 +232,7 @@ def test_chart_links_starts_empty():
 
 
 def test_chart_links_can_be_written_and_read_as_link_record():
-    """chart.links accepts (item, end) → Link entries; returns Link record."""
+    """chart.links records a Link via += and returns it via [] as the first family."""
     chart = Chart()
     _ = chart[1]
     arm = _arm("x")
@@ -240,8 +240,70 @@ def test_chart_links_can_be_written_and_read_as_link_record():
     pred = _ei("s", arm, dot=0)
     child = IrLiteral("x")
     link = Link(pred, 0, child)
-    chart.links[(item, 1)] = link
-    retrieved = chart.links[(item, 1)]
+    chart.links += ((item, 1), link)
+    families = chart.links[(item, 1)]
+    retrieved = families[0]
     assert retrieved.predecessor is pred
     assert retrieved.predecessor_end == 0
     assert retrieved.child is child
+
+
+# ── Links multi-family (SPPF packed families) ─────────────────────────
+
+
+def test_links_multi_family_two_distinct_links():
+    """Two distinct links for the same key → len 2 family bucket."""
+    links = Links()
+    arm = _arm("x")
+    item = _ei("s", arm, dot=1)
+    pred_a = _ei("s", arm, dot=0)
+    pred_b = _ei("r", arm, dot=0)
+    child = IrLiteral("x")
+    link_a = Link(pred_a, 0, child)
+    link_b = Link(pred_b, 0, child)
+    key = (item, 1)
+    links += (key, link_a)
+    links += (key, link_b)
+    assert len(links[key]) == 2
+
+
+def test_links_multi_family_dedup_identical():
+    """Recording the same family twice keeps only one entry (dedup)."""
+    links = Links()
+    arm = _arm("x")
+    item = _ei("s", arm, dot=1)
+    pred = _ei("s", arm, dot=0)
+    child = IrLiteral("x")
+    link = Link(pred, 0, child)
+    key = (item, 1)
+    links += (key, link)
+    links += (key, link)
+    assert len(links[key]) == 1
+
+
+def test_links_getitem_snapshot_is_safe_while_bucket_grows():
+    """IrSeq returned by links[key] is a snapshot — adding to the bucket does not
+    affect the already-retrieved sequence."""
+    links = Links()
+    arm = _arm("x")
+    item = _ei("s", arm, dot=1)
+    pred_a = _ei("s", arm, dot=0)
+    pred_b = _ei("r", arm, dot=0)
+    child = IrLiteral("x")
+    link_a = Link(pred_a, 0, child)
+    link_b = Link(pred_b, 0, child)
+    key = (item, 1)
+    links += (key, link_a)
+    snapshot = links[key]  # take snapshot while bucket has 1 entry
+    links += (key, link_b)  # grow the live bucket
+    assert len(snapshot) == 1  # snapshot is unaffected
+    assert len(links[key]) == 2  # live read reflects the addition
+
+
+def test_links_getitem_empty_on_miss():
+    """links[missing_key] returns an empty IrSeq (not an error)."""
+    links = Links()
+    arm = _arm("z")
+    key = (_ei("s", arm, dot=1), 99)
+    families = links[key]
+    assert len(families) == 0

@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing_2.forest — ParseTree and BuildTree.
+"""Tests for lexic.parsing_2.forest — ParseTree, SppfNode, DERIVATIONS, BuildTree, CHILD_TREES.
 
 API changes:
 
@@ -13,7 +13,12 @@ API changes:
 
 from __future__ import annotations
 
-from lexic.ir.base import IrSeq
+from typing import cast
+
+import pytest
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.base import IrInt, IrNoneType, IrSeq, IrStr, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -26,8 +31,33 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2.engine import parse
-from lexic.parsing_2.forest import BUILD_TREE, BuildTree, ParseTree
+from lexic.parsing_2 import parse, parse_forest
+from lexic.parsing_2.chart import Chart
+from lexic.parsing_2.engine import ACCEPTING, EarleyParser
+from lexic.parsing_2.forest import (
+    BUILD_TREE,
+    CHILD_TREES,
+    DERIVATIONS,
+    BuildTree,
+    Derivations,
+    ParseTree,
+    SppfNode,
+    Whole,
+)
+from lexic.parsing_2.item import EarleyItem
+
+
+def _accept(grammar: IrAst, text: str) -> tuple[EarleyParser, Chart, EarleyItem, int]:
+    """Drive the public :data:`ACCEPTING` node and unpack for the forest tests.
+
+    A test-local helper (not a src symbol): builds the chart once and returns the
+    accepting item so the low-level forest nodes can be exercised directly. Assumes
+    ``text`` parses, so the item is a real :class:`EarleyItem`.
+    """
+    parser = EarleyParser()
+    chart, item = ACCEPTING.eval(parser, grammar, IrTuple(IrStr(text)))
+    return parser, cast(Chart, chart), cast(EarleyItem, item), len(text)
+
 
 # ── ParseTree fields ──────────────────────────────────────────────────
 
@@ -152,3 +182,188 @@ def test_build_tree_recursive_grammar_nests_correctly(expr_grammar: IrAst):
     assert isinstance(tree.kids[1], ParseTree)
     assert tree.kids[1].symbol == IrRuleRef("expr")
     assert tree.kids[2] == IrLiteral(")")
+
+
+# ── SppfNode construction / identity ─────────────────────────────────
+
+
+def _digit_grammar() -> IrAst:
+    """digit = [0-9] ; minimal single-rule grammar."""
+    return IrAst(
+        rules=IrSeq(
+            IrRule(
+                "digit",
+                IrAlternation(
+                    IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
+                ),
+            )
+        ),
+        start="digit",
+    )
+
+
+def _ambiguous_sss_grammar() -> IrAst:
+    """Genuinely ambiguous: s = s s / 'a'.
+
+    Over input 'aaa', this grammar has exactly 2 derivations (Catalan C_2):
+    (s(s(a) s(a)) s(a)) and (s(a) s(s(a) s(a))).
+    """
+    # s = s s | "a"
+    s_rule = IrRule(
+        "s",
+        IrAlternation(
+            IrSequence(IrItem(IrRuleRef("s")), IrItem(IrRuleRef("s"))),
+            IrSequence(IrItem(IrLiteral("a"))),
+        ),
+    )
+    return IrAst(rules=IrSeq(s_rule), start="s")
+
+
+def test_sppf_node_construction():
+    """SppfNode(item, end) stores item and end correctly."""
+    grammar = _digit_grammar()
+    parser, chart, item, end = _accept(grammar, "5")
+    assert not isinstance(item, IrNoneType)
+    node = SppfNode(item, end)
+    assert node.item is item
+    assert node.end == end
+
+
+def test_sppf_node_equality_same_item_and_end():
+    """Two SppfNode instances with equal item/end are equal (tuple identity)."""
+    grammar = _digit_grammar()
+    parser, chart, item, end = _accept(grammar, "5")
+    node_a = SppfNode(item, end)
+    node_b = SppfNode(item, end)
+    assert node_a == node_b
+
+
+def test_sppf_node_inequality_different_end():
+    """SppfNode instances with different end columns are not equal."""
+    grammar = _digit_grammar()
+    _, _, item, end = _accept(grammar, "5")
+    assert SppfNode(item, end) != SppfNode(item, end + 1)
+
+
+# ── DERIVATIONS — all ParseTrees ──────────────────────────────────────
+
+
+def test_derivations_unambiguous_yields_one_tree():
+    """DERIVATIONS returns exactly one ParseTree for an unambiguous parse."""
+    grammar = _digit_grammar()
+    parser, chart, item, end = _accept(grammar, "7")
+    assert not isinstance(item, IrNoneType)
+    node = SppfNode(item, end)
+    trees = DERIVATIONS.eval(parser, node, IrTuple(chart))
+    assert isinstance(trees, IrSeq)
+    assert len(trees) == 1
+    assert isinstance(trees[0], ParseTree)
+
+
+def test_derivations_singleton_matches_parse():
+    """The single derivation from DERIVATIONS equals parse()'s result."""
+    grammar = _digit_grammar()
+    parser, chart, item, end = _accept(grammar, "9")
+    node = SppfNode(item, end)
+    trees = DERIVATIONS.eval(parser, node, IrTuple(chart))
+    expected = parse(grammar, "9")
+    assert trees[0] == expected
+
+
+def test_derivations_ambiguous_yields_two_trees():
+    """DERIVATIONS returns 2 distinct ParseTrees for 's = s s / \"a\"' over 'aaa'."""
+    grammar = _ambiguous_sss_grammar()
+    parser, chart, item, end = _accept(grammar, "aaa")
+    assert not isinstance(item, IrNoneType)
+    node = SppfNode(item, end)
+    trees = DERIVATIONS.eval(parser, node, IrTuple(chart))
+    assert len(trees) == 2
+    # The two derivations must be distinct
+    assert trees[0] != trees[1]
+
+
+def test_derivations_singleton_is_derivations_instance():
+    """DERIVATIONS is a Derivations instance."""
+    assert isinstance(DERIVATIONS, Derivations)
+
+
+# ── BUILD_TREE strict façade ──────────────────────────────────────────
+
+
+def test_build_tree_strict_returns_single_tree_for_unambiguous():
+    """BUILD_TREE.eval succeeds and returns a ParseTree for unambiguous input."""
+    grammar = _digit_grammar()
+    parser, chart, item, end = _accept(grammar, "4")
+    tree = BUILD_TREE.eval(parser, item, IrTuple(chart, IrInt(end)))
+    assert isinstance(tree, ParseTree)
+
+
+def test_build_tree_strict_raises_for_ambiguous():
+    """BUILD_TREE.eval raises UnsupportedConstructError for ambiguous input."""
+    grammar = _ambiguous_sss_grammar()
+    parser, chart, item, end = _accept(grammar, "aaa")
+    assert not isinstance(item, IrNoneType)
+    with pytest.raises(UnsupportedConstructError):
+        BUILD_TREE.eval(parser, item, IrTuple(chart, IrInt(end)))
+
+
+def test_parse_raises_for_ambiguous_input():
+    """parse() raises UnsupportedConstructError when input is ambiguous."""
+    grammar = _ambiguous_sss_grammar()
+    with pytest.raises(UnsupportedConstructError):
+        parse(grammar, "aaa")
+
+
+# ── CHILD_TREES dispatch ──────────────────────────────────────────────
+
+
+def test_child_trees_literal_dispatches_to_whole():
+    """CHILD_TREES dispatches IrLiteral → Whole (the sole derivation is the literal itself)."""
+    parser = EarleyParser()
+    literal = IrLiteral("x")
+    result = CHILD_TREES.eval(parser, literal, IrTuple())
+    assert isinstance(result, IrSeq)
+    assert len(result) == 1
+    assert result[0] is literal
+
+
+def test_child_trees_whole_singleton():
+    """Whole is the terminal-leaf arm of CHILD_TREES — contributes the node as-is."""
+    whole = Whole()
+    parser = EarleyParser()
+    literal = IrLiteral("z")
+    result = whole.eval(parser, literal, ())
+    assert isinstance(result, IrSeq)
+    assert len(result) == 1
+    assert result[0] is literal
+
+
+def test_child_trees_sppf_node_dispatches_to_child_trees():
+    """CHILD_TREES dispatches SppfNode → ChildTrees (enumerates sub-tree derivations)."""
+    grammar = _digit_grammar()
+    parser, chart, item, end = _accept(grammar, "3")
+    assert not isinstance(item, IrNoneType)
+    node = SppfNode(item, end)
+    result = CHILD_TREES.eval(parser, node, IrTuple(chart))
+    assert isinstance(result, IrSeq)
+    assert len(result) == 1
+    assert isinstance(result[0], ParseTree)
+
+
+# ── parse_forest entry ────────────────────────────────────────────────
+
+
+def test_parse_forest_returns_sppf_node_on_valid_input():
+    """parse_forest() returns an SppfNode for parseable input."""
+    grammar = _digit_grammar()
+    result = parse_forest(grammar, "6")
+    assert isinstance(result, SppfNode)
+
+
+def test_parse_forest_returns_ir_none_on_no_parse():
+    """parse_forest() returns IrNone when the input does not parse."""
+    from lexic.ir.base import IrNoneType
+
+    grammar = _digit_grammar()
+    result = parse_forest(grammar, "z")
+    assert isinstance(result, IrNoneType)

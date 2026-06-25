@@ -48,7 +48,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2.engine import parse
+from lexic.parsing_2 import parse
 from lexic.parsing_2.normalize import normalize
 from lexic.parsing_2.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 

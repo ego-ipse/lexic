@@ -33,7 +33,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2.engine import recognize
+from lexic.parsing_2 import recognize
 from lexic.parsing_2.normalize import (
     SYNTHETIC_PREFIX,
     CollectRules,
@@ -170,14 +170,14 @@ def test_split_literals_recognizes_split_word():
     """After split_literals, the recognizer accepts the word."""
     g = _literal_rule("true")
     result = split_literals(g)
-    assert recognize(result, "true") is True
+    assert recognize(result, "true")
 
 
 def test_split_literals_rejects_partial_match_after_split():
     """After split_literals, the recognizer rejects a partial word."""
     g = _literal_rule("true")
     result = split_literals(g)
-    assert recognize(result, "tru") is False
+    assert not recognize(result, "tru")
 
 
 # ── flatten_groups ────────────────────────────────────────────────────

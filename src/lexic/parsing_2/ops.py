@@ -30,18 +30,22 @@ from typing import Sequence, cast
 
 from lexic.ir.action import IrAction
 from lexic.ir.base import (
-    IrInt,
     IrLeaf,
     IrNone,
     IrNoneType,
     IrSelf,
-    IrSeq,
-    IrTuple,
 )
 from lexic.ir.mapping import IrMap, IrMultiMap, IrTypeMap
-from lexic.ir.nodes import IrAlternation, IrCharClass, IrLiteral, IrRange, IrRuleRef
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrCharClass,
+    IrItem,
+    IrLiteral,
+    IrRange,
+    IrRuleRef,
+)
 from lexic.parsing_2.chart import Chart, Link
-from lexic.parsing_2.forest import BUILD_TREE, ParseTree
+from lexic.parsing_2.forest import SppfNode
 from lexic.parsing_2.item import EarleyItem
 
 
@@ -105,14 +109,31 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
 
     For every arm of ``rules[n]`` add a fresh dot-0 item originating at the
     current column. A nullable target also advances the predicting item at once
-    (Aycock-Horspool), recording an empty derivation as the consumed child — the
-    advanced item is dedup-merged with the one the empty completion produces, so
-    the empty-span link is set exactly once. Newly added items extend the column
-    the driver is iterating.
+    (Aycock-Horspool) — needed for correctness, since a nullable ``ref`` predicted
+    *after* its own empty completion already fired in this column would otherwise
+    never advance its waiter.
+
+    The advance's consumed child is the **same** shared
+    :class:`~lexic.parsing_2.forest.SppfNode` the completer would record for
+    ``ref``'s empty completion: ``SppfNode(EarleyItem(ref, arm, len(arm), col),
+    col)`` for each arm of ``ref`` that derives the empty string (Scott 2008). An
+    arm derives empty when every item is a nullable ruleref (the empty arm
+    vacuously) — the same condition :class:`~lexic.parsing_2.engine.NullableRules`
+    uses. Recording the identical node identity (rather than a hand-built
+    ``ParseTree``) lets :class:`~lexic.parsing_2.chart.Links` dedup collapse the AH
+    advance and the matching empty completion into ONE family, so an unambiguous
+    nullable derivation is recorded once — while a rule with two distinct
+    empty-deriving arms still records both families (genuine ambiguity preserved).
+    Newly added items extend the column the driver is iterating.
     """
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
-        """Add a dot-0 item per arm; advance over a nullable target.
+        """Add a dot-0 item per arm; advance over a nullable target (Aycock-Horspool).
+
+        For a nullable ``ref``, advances the predicting item and records one packed
+        family per empty-deriving arm of ``ref``, each using the canonical
+        :class:`~lexic.parsing_2.forest.SppfNode` the completer records for that
+        arm's empty completion — so the two provenances dedup to one family.
 
         :param _d: Dispatcher (unused — prediction reads the chart, not children).
         :param n: The :class:`~lexic.ir.nodes.IrRuleRef` after the dot.
@@ -127,11 +148,16 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
         if ref in ctx.nullable:
             it = ctx.item
             advanced = EarleyItem(it.rule_name, it.arm, it.dot + 1, it.origin)
-            if advanced not in col:
-                col += advanced
-                ctx.chart.links[(advanced, ctx.col)] = Link(
-                    it, ctx.col, ParseTree(ref, IrSeq())
-                )
+            col += advanced
+            for arm in ctx.rules.resolve(ref):
+                if all(
+                    isinstance(cast(IrItem, item).atom, IrRuleRef)
+                    and cast(IrItem, item).atom in ctx.nullable
+                    for item in cast(Sequence[IrSelf], arm)
+                ):
+                    done = EarleyItem(ref, arm, len(arm), ctx.col)
+                    child = SppfNode(done, ctx.col)
+                    ctx.chart.links += ((advanced, ctx.col), Link(it, ctx.col, child))
         return IrNone
 
 
@@ -156,10 +182,14 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
 
     The completed item recognised ``rule_name`` spanning ``origin .. col``. Every
     item in column ``origin`` whose dot faces that same rule advances into the
-    current column. The completed item's sub-derivation is built once (eagerly —
-    all its children are already linked) and recorded as the child each advanced
-    predecessor consumed, so :class:`~lexic.parsing_2.forest.BuildTree` can later
-    walk the provenance links.
+    current column. The completed item is referenced by a shared
+    :class:`~lexic.parsing_2.forest.SppfNode` ``(done, col)`` — NOT flattened to one
+    tree — so the sub-derivation (and any ambiguity it packs) is recovered lazily by
+    the forest. Each advanced predecessor records that node as the child it
+    consumed; the family is always recorded (deduped by
+    :class:`~lexic.parsing_2.chart.Links`) even when the advanced item already
+    exists, so a second distinct derivation of the same item is an ADDITIONAL
+    family, not a dropped one (Scott 2008).
     """
 
     def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
@@ -174,9 +204,9 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         done = ctx.item
         chart = ctx.chart
         waiters = chart[done.origin].waiting[done.rule_name]
-        if not waiters:  # nothing to advance — skip the subtree build entirely
+        if not waiters:  # nothing waiting — no advance, no family to record
             return IrNone
-        subtree = BUILD_TREE.eval(_d, done, IrTuple(chart, IrInt(ctx.col)))
+        subnode = SppfNode(done, ctx.col)
         current = chart[ctx.col]
         # waiters is a fresh IrSeq snapshot, safe to iterate while the live
         # bucket grows (advancing may append to it when origin == col)
@@ -184,9 +214,8 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
             advanced = EarleyItem(
                 waiting.rule_name, waiting.arm, waiting.dot + 1, waiting.origin
             )
-            if advanced not in current:
-                current += advanced
-                chart.links[(advanced, ctx.col)] = Link(waiting, done.origin, subtree)
+            current += advanced
+            chart.links += ((advanced, ctx.col), Link(waiting, done.origin, subnode))
         return IrNone
 
 

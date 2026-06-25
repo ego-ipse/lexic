@@ -13,10 +13,10 @@ The grammar-derived inputs are themselves ``eval`` nodes: :class:`RuleIndex`
 :class:`Matches` (terminal-accepts-char predicate). :class:`AcceptingItem` finds
 the completed start item spanning the whole input.
 
-The module-level :func:`recognize` and :func:`parse` are the package's two entry
-points: thin orchestration over the nodes above, wiring an
-:class:`~lexic.parsing_2.forest.ParseTree` out for the
-:class:`~lexic.parsing_2.reduce.Reducer`.
+The package's callable API (``recognize``, ``parse``, ``parse_forest``,
+``derivations``, ``is_ambiguous``) lives in :mod:`lexic.parsing_2.__init__` as
+thin wrappers that drive the on-node orchestration here. This module contains
+only the :class:`~lexic.ir.base.IrSelf` engine nodes and their shared singletons.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from lexic.ir.base import (
     IrNone,
     IrNoneType,
     IrSelf,
+    IrSeq,
     IrStr,
     IrTuple,
 )
@@ -43,7 +44,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.walk import IrDispatch
 from lexic.parsing_2.chart import Chart, Link
-from lexic.parsing_2.forest import BUILD_TREE, ParseTree
+from lexic.parsing_2.forest import BUILD_TREE, DERIVATIONS, ParseTree, SppfNode
 from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.ops import EARLEY_OPS, ParseCtx
 
@@ -155,6 +156,28 @@ class AcceptingItem(IrLeaf[IrSelf, IrSelf]):
         return IrNone
 
 
+class Accepting(IrLeaf[IrSelf, IrSelf]):
+    """Build the chart once and locate the accepting start item.
+
+    The shared front half of every entry point: it runs the Earley loop
+    (:class:`BuildChart`) then finds the completed start item spanning the whole
+    input (:class:`AcceptingItem`). Returned together as an :class:`IrSeq` so each
+    public reader (recognise / parse / forest / enumerate) builds the chart once
+    then reads it its own way — the orchestration is on a node, not a free function.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSeq:
+        """:param d: the parser; :param n: the grammar; :param nc: ``(IrStr(text),)``.
+
+        :returns: ``IrSeq(chart, item)`` — ``item`` is :data:`IrNone` on no parse.
+        """
+        grammar = cast(IrAst, n)
+        text = str(nc[0])
+        chart = BUILD_CHART.eval(d, grammar, nc)
+        item = ACCEPT.eval(d, chart, IrTuple(IrStr(grammar.start), IrInt(len(text))))
+        return IrSeq(chart, item)
+
+
 class CloseColumn(IrLeaf[IrSelf, IrSelf]):
     """Close the cursor's column to a fixpoint by dispatching each item's symbol.
 
@@ -207,9 +230,8 @@ class ScanColumn(IrLeaf[IrSelf, IrSelf]):
                 advanced = EarleyItem(
                     item.rule_name, item.arm, item.dot + 1, item.origin
                 )
-                if advanced not in nxt:
-                    nxt += advanced
-                    chart.links[(advanced, i + 1)] = Link(item, i, char_leaf)
+                nxt += advanced
+                chart.links += ((advanced, i + 1), Link(item, i, char_leaf))
         return IrNone
 
 
@@ -245,6 +267,84 @@ class BuildChart(IrLeaf[IrSelf, IrSelf]):
         return ctx.chart
 
 
+class Recognize(IrLeaf[IrSelf, IrSelf]):
+    """Whether ``text`` derives from the grammar's start rule — a truth value.
+
+    ``d`` is the parser; ``n`` is the grammar; ``nc`` is ``(IrStr(text),)``. Reads
+    only whether :class:`Accepting` found a completed start item.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
+        """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: ``IrInt`` 0/1."""
+        _, item = ACCEPTING.eval(d, n, nc)
+        return IrInt(0) if isinstance(item, IrNoneType) else IrInt(1)
+
+
+class Parse(IrLeaf[IrSelf, IrSelf]):
+    """The strict single derivation of ``text`` as a :class:`~lexic.parsing_2.forest.ParseTree`.
+
+    ``d`` is the parser; ``n`` is the grammar; ``nc`` is ``(IrStr(text),)``.
+    Delegates the build to :data:`~lexic.parsing_2.forest.BUILD_TREE`, which raises
+    on ambiguous input; a non-parse raises here.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> ParseTree:
+        """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: the derivation.
+
+        :raises UnsupportedConstructError: If ``text`` does not parse, or parses
+            ambiguously.
+        """
+        chart, item = ACCEPTING.eval(d, n, nc)
+        if isinstance(item, IrNoneType):
+            raise UnsupportedConstructError(
+                f"parsing_2: input does not derive from {cast(IrAst, n).start!r}"
+            )
+        tree = BUILD_TREE.eval(d, item, IrTuple(chart, IrInt(len(str(nc[0])))))
+        return cast(ParseTree, tree)
+
+
+class ParseForest(IrLeaf[IrSelf, IrSelf]):
+    """The shared packed parse forest root — an :class:`~lexic.parsing_2.forest.SppfNode`.
+
+    ``d`` is the parser; ``n`` is the grammar; ``nc`` is ``(IrStr(text),)``.
+    Returns :data:`~lexic.ir.base.IrNone` when ``text`` does not parse.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: the SPPF root."""
+        _, item = ACCEPTING.eval(d, n, nc)
+        if isinstance(item, IrNoneType):
+            return IrNone
+        return SppfNode(cast(EarleyItem, item), len(str(nc[0])))
+
+
+class Enumerate(IrLeaf[IrSelf, IrSelf]):
+    """ALL derivation trees of ``text`` as an :class:`~lexic.ir.base.IrSeq` (empty on no parse).
+
+    ``d`` is the parser; ``n`` is the grammar; ``nc`` is ``(IrStr(text),)``. Builds
+    the SPPF root then enumerates it via :data:`~lexic.parsing_2.forest.DERIVATIONS`.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSeq:
+        """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: every derivation."""
+        chart, item = ACCEPTING.eval(d, n, nc)
+        if isinstance(item, IrNoneType):
+            return IrSeq()
+        node = SppfNode(cast(EarleyItem, item), len(str(nc[0])))
+        return cast(IrSeq, DERIVATIONS.eval(d, node, IrTuple(chart)))
+
+
+class IsAmbiguous(IrLeaf[IrSelf, IrSelf]):
+    """Whether ``text`` has more than one derivation — a truth value.
+
+    ``d`` is the parser; ``n`` is the grammar; ``nc`` is ``(IrStr(text),)``.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
+        """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: ``IrInt`` 0/1."""
+        return IrInt(1) if len(ENUMERATE.eval(d, n, nc)) > 1 else IrInt(0)
+
+
 class EarleyParser(IrDispatch):
     """Recognises and parses text against an IR grammar by the Earley algorithm.
 
@@ -261,46 +361,13 @@ RULE_INDEX = RuleIndex()
 NULLABLE = NullableRules()
 MATCHES = Matches()
 ACCEPT = AcceptingItem()
+ACCEPTING = Accepting()
 CLOSE_COLUMN = CloseColumn()
 SCAN_COLUMN = ScanColumn()
 BUILD_CHART = BuildChart()
+RECOGNIZE = Recognize()
+PARSE = Parse()
+PARSE_FOREST = ParseForest()
+ENUMERATE = Enumerate()
+IS_AMBIGUOUS = IsAmbiguous()
 """Shared engine nodes — all stateless, so one instance each."""
-
-
-def recognize(grammar: IrAst, text: str) -> bool:
-    """Whether ``text`` derives from ``grammar``'s start rule.
-
-    :param grammar: The grammar, Earley-normalised (see
-        :mod:`lexic.parsing_2.normalize`).
-    :param text: The input string.
-    :returns: ``True`` if the start rule spans the whole input.
-    """
-    parser = EarleyParser()
-    chart = BUILD_CHART.eval(parser, grammar, IrTuple(IrStr(text)))
-    item = ACCEPT.eval(parser, chart, IrTuple(IrStr(grammar.start), IrInt(len(text))))
-    return not isinstance(item, IrNoneType)
-
-
-def parse(grammar: IrAst, text: str) -> ParseTree:
-    """Parse ``text`` into its derivation tree.
-
-    The returned :class:`~lexic.parsing_2.forest.ParseTree` is reduced to an
-    :class:`IrAst` (or a value) by a flavour's
-    :class:`~lexic.parsing_2.reduce.Reducer`.
-
-    :param grammar: The grammar, Earley-normalised.
-    :param text: The input string.
-    :returns: The derivation of ``text`` under the start rule.
-    :raises UnsupportedConstructError: If ``text`` does not parse.
-    """
-    parser = EarleyParser()
-    chart = BUILD_CHART.eval(parser, grammar, IrTuple(IrStr(text)))
-    item = ACCEPT.eval(parser, chart, IrTuple(IrStr(grammar.start), IrInt(len(text))))
-    if isinstance(item, IrNoneType):
-        raise UnsupportedConstructError(
-            f"parsing_2: input does not derive from {grammar.start!r}"
-        )
-    return cast(
-        ParseTree,
-        BUILD_TREE.eval(parser, item, IrTuple(chart, IrInt(len(text)))),
-    )
