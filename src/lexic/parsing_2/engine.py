@@ -44,7 +44,13 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.walk import IrDispatch
 from lexic.parsing_2.chart import Chart, Link
-from lexic.parsing_2.forest import BUILD_TREE, DERIVATIONS, ParseTree, SppfNode
+from lexic.parsing_2.forest import (
+    BUILD_TREE,
+    DERIVATION_STREAM,
+    DERIVATIONS,
+    ParseTree,
+    SppfNode,
+)
 from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.ops import EARLEY_OPS, ParseCtx
 
@@ -341,8 +347,22 @@ class IsAmbiguous(IrLeaf[IrSelf, IrSelf]):
     """
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
-        """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: ``IrInt`` 0/1."""
-        return IrInt(1) if len(ENUMERATE.eval(d, n, nc)) > 1 else IrInt(0)
+        """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: ``IrInt`` 0/1.
+
+        Short-circuits: takes only the first two derivations from the lazy
+        :data:`~lexic.parsing_2.forest.DERIVATION_STREAM`, never the full
+        (potentially exponential) enumeration.
+        """
+        chart, item = ACCEPTING.eval(d, n, nc)
+        if isinstance(item, IrNoneType):
+            return _NO_MATCH
+        node = SppfNode(cast(EarleyItem, item), len(str(nc[0])))
+        seen = 0
+        for _tree in DERIVATION_STREAM.eval(d, node, IrTuple(chart)):
+            seen += 1
+            if seen > 1:  # a second derivation ⇒ ambiguous; stop driving
+                return _MATCH
+        return _NO_MATCH
 
 
 class EarleyParser(IrDispatch):

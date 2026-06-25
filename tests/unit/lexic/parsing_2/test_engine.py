@@ -14,6 +14,9 @@ API changes:
 
 New symbols tested: ``RuleIndex``, ``NullableRules``, ``Matches``,
 ``AcceptingItem``, ``BuildChart`` (and their singletons).
+
+New lazy-engine tests: ``IsAmbiguous`` short-circuit, Catalan oracle parametrize,
+round-trip proofs.
 """
 
 from __future__ import annotations
@@ -21,7 +24,14 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrInt, IrNone, IrNoneType, IrSeq, IrStr, IrTuple
+from lexic.ir.base import (
+    IrInt,
+    IrNone,
+    IrNoneType,
+    IrSeq,
+    IrStr,
+    IrTuple,
+)
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,

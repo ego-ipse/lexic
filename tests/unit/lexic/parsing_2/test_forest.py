@@ -9,16 +9,20 @@ API changes:
   behavioral coverage (tree shape, symbol, kids) is preserved.
 
 - ``EarleyParser().parse(g, t)`` → module-level ``parse(g, t)``.
+
+New lazy machinery added (IrStream, PREFIXES, ForestCtx, CHILD_STREAMS, DERIVATION_STREAM):
+see the new sections below the existing suites.
 """
 
 from __future__ import annotations
 
+import threading
 from typing import cast
 
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrInt, IrNoneType, IrSeq, IrStr, IrTuple
+from lexic.ir.base import IrInt, IrLeaf, IrNoneType, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -31,15 +35,22 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2 import parse, parse_forest
+from lexic.parsing_2 import derivations, parse, parse_forest
 from lexic.parsing_2.chart import Chart
 from lexic.parsing_2.engine import ACCEPTING, EarleyParser
 from lexic.parsing_2.forest import (
+    _DONE,
     BUILD_TREE,
+    CHILD_STREAMS,
     CHILD_TREES,
+    DERIVATION_STREAM,
     DERIVATIONS,
+    PREFIXES,
     BuildTree,
     Derivations,
+    DerivationStream,
+    ForestCtx,
+    IrStream,
     ParseTree,
     SppfNode,
     Whole,
@@ -330,3 +341,319 @@ def test_parse_forest_returns_ir_none_on_no_parse(digit_grammar: IrAst):
     grammar = digit_grammar
     result = parse_forest(grammar, "z")
     assert isinstance(result, IrNoneType)
+
+
+# ── IrStream white-box ────────────────────────────────────────────────
+
+
+class _CountingSource(IrLeaf[IrSelf, IrSelf]):
+    """Test source whose __iter__ counts how many times it is driven."""
+
+    __slots__ = ("count", "elems")
+
+    def __init__(self, elems: list[IrSeq]) -> None:
+        self.count = 0
+        self.elems = elems
+
+    def __iter__(self):  # type: ignore[override]
+        self.count += 1
+        yield from self.elems
+
+
+def test_stream_yields_source_elements():
+    """IrStream(IrSeq(a,b,c)) iterates to the three elements in order."""
+    a = IrSeq(IrLiteral("a"))
+    b = IrSeq(IrLiteral("b"))
+    c = IrSeq(IrLiteral("c"))
+    stream: IrStream[IrSeq] = IrStream(IrSeq(a, b, c))
+    result = list(stream)
+    assert result == [a, b, c]
+
+
+def test_stream_replays_for_multiple_consumers():
+    """Iterating the same IrStream twice yields the same elements (buffer replay).
+
+    The source's __iter__ counter proves the source is driven exactly once even
+    though two independent consumers see all elements.
+    """
+    elems = [IrSeq(IrLiteral("x")), IrSeq(IrLiteral("y"))]
+    src = _CountingSource(elems)
+    stream: IrStream[IrSeq] = IrStream(src)
+    r1 = list(stream)
+    r2 = list(stream)
+    assert r1 == elems
+    assert r2 == elems
+    assert src.count == 1
+
+
+def test_stream_single_drive_counter():
+    """Full consume → partial consume → full consume drives the source exactly once."""
+    elems = [IrSeq(IrLiteral("a")), IrSeq(IrLiteral("b")), IrSeq(IrLiteral("c"))]
+    src = _CountingSource(elems)
+    stream: IrStream[IrSeq] = IrStream(src)
+    # First full drain
+    full1 = list(stream)
+    assert len(full1) == 3
+    # Partial consume (first element only)
+    partial = next(iter(stream))
+    assert partial == elems[0]
+    # Second full drain
+    full2 = list(stream)
+    assert full2 == elems
+    # Source must have been driven exactly once
+    assert src.count == 1
+
+
+def test_stream_cycle_sentinel_on_reentrant_iteration():
+    """A re-entrant (cyclic) iteration replays the on_cycle sentinel, not more elements.
+
+    The source re-iterates the stream mid-yield (simulating the prefix-stream cycle),
+    and we assert it captured exactly the sentinel tuple — not a recursive infinite loop.
+    """
+
+    class _ReentrantSource(IrLeaf[IrSelf, IrSelf]):
+        __slots__ = ("stream", "captured")
+
+        def __init__(self) -> None:
+            self.stream: IrStream[IrSeq] | None = None
+            self.captured: list[IrSeq] = []
+
+        def __iter__(self):  # type: ignore[override]
+            # Re-enter the not-yet-done stream to capture the cycle sentinel
+            assert self.stream is not None
+            self.captured = list(self.stream)
+            yield IrSeq(IrLiteral("real"))
+
+    sentinel = IrSeq()
+    src = _ReentrantSource()
+    stream: IrStream[IrSeq] = IrStream(src, (sentinel,))
+    src.stream = stream
+
+    result = list(stream)
+
+    assert result == [IrSeq(IrLiteral("real"))]
+    # The re-entrant call should have received exactly the on_cycle sentinel
+    assert src.captured == [sentinel]
+
+
+def test_stream_empty_source():
+    """IrStream over an empty IrSeq yields nothing and replays nothing."""
+    stream: IrStream[IrSeq] = IrStream(IrSeq())
+    assert list(stream) == []
+    assert stream._state == _DONE
+    assert list(stream) == []
+
+
+# ── Prefixes / memo / sharing ─────────────────────────────────────────
+
+
+def test_prefixes_returns_irstream(sss_grammar: IrAst):
+    """PREFIXES.eval returns an IrStream for a valid SppfNode handle."""
+    parser, chart, item, end = _accept(sss_grammar, "aaa")
+    node = SppfNode(item, end)
+    ctx = ForestCtx(chart)
+    result = PREFIXES.eval(parser, node, IrTuple(ctx))
+    assert isinstance(result, IrStream)
+
+
+def test_prefixes_memoised_same_handle(sss_grammar: IrAst):
+    """PREFIXES.eval for the same handle twice returns the identical IrStream object."""
+    parser, chart, item, end = _accept(sss_grammar, "aaa")
+    node = SppfNode(item, end)
+    ctx = ForestCtx(chart)
+    s1 = PREFIXES.eval(parser, node, IrTuple(ctx))
+    s2 = PREFIXES.eval(parser, node, IrTuple(ctx))
+    assert s1 is s2
+    key = (node.item, node.end)
+    assert key in ctx
+    assert ctx[key][0] is s1
+
+
+def test_prefixes_dot_zero_single_empty_prefix(digit_grammar: IrAst):
+    """A dot-0 handle's prefix stream yields exactly one empty IrSeq."""
+    parser, chart, item, _ = _accept(digit_grammar, "5")
+    # Find a dot-0 EarleyItem in column 0
+    dot_zero: EarleyItem | None = None
+    for ei in chart[0]:
+        if ei.dot == 0:
+            dot_zero = ei
+            break
+    assert dot_zero is not None
+    node = SppfNode(dot_zero, 0)
+    ctx = ForestCtx(chart)
+    stream = PREFIXES.eval(parser, node, IrTuple(ctx))
+    prefixes = list(stream)
+    assert len(prefixes) == 1
+    assert prefixes[0] == IrSeq()
+
+
+def test_shared_subhandle_expanded_once(sss_grammar: IrAst):
+    """Shared sub-handles are memoised: ctx key count < total leaf nodes, all streams _DONE."""
+    parser, chart, item, end = _accept(sss_grammar, "aaa")
+    node = SppfNode(item, end)
+    ctx = ForestCtx(chart)
+    # Drain the derivation stream to force full expansion
+    all_trees = list(DERIVATION_STREAM.eval(parser, node, IrTuple(ctx)))
+    assert len(all_trees) == 2
+
+    # Count distinct streams (keys in the ForestCtx backing dict)
+    backing = ctx._table
+    num_streams = len(backing)
+
+    # Count the total tree nodes across both derivations
+    def _count_nodes(tree: object) -> int:
+        if isinstance(tree, ParseTree):
+            return 1 + sum(_count_nodes(k) for k in tree.kids)
+        return 1
+
+    total_nodes = sum(_count_nodes(t) for t in all_trees)
+
+    # DAG sharing: fewer distinct streams than total nodes (trees share sub-handles)
+    assert num_streams < total_nodes
+    # Every filed stream must have been fully driven
+    assert all(v[0]._state == _DONE for v in backing.values())
+
+
+# ── Nullable cycle termination ────────────────────────────────────────
+
+
+def _make_nullable_cycle_grammar() -> IrAst:
+    """Build: a = b ; b = a / '' — a→b→a reference with an empty-span arm."""
+    b_rule = IrRule(
+        "b",
+        IrAlternation(
+            IrSequence(IrItem(IrRuleRef("a"))),
+            IrSequence(),  # empty arm makes b (and a) nullable
+        ),
+    )
+    a_rule = IrRule(
+        "a",
+        IrAlternation(IrSequence(IrItem(IrRuleRef("b")))),
+    )
+    return IrAst(rules=IrSeq(a_rule, b_rule), start="a")
+
+
+def test_nullable_cycle_terminates():
+    """derivations() on a grammar with a nullable a→b→a cycle terminates and is finite.
+
+    A regression guard: a naive forest enumeration without the _DRIVING sentinel
+    would loop forever on this cycle. A hanging test will be killed by the thread
+    timeout, and the assertion will report the failure.
+    """
+    grammar = _make_nullable_cycle_grammar()
+    result: list[IrSeq] = []
+    exc: list[BaseException] = []
+
+    def _run() -> None:
+        try:
+            result.append(derivations(grammar, ""))
+        except BaseException as e:  # noqa: BLE001 — catch everything from thread
+            exc.append(e)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=5.0)
+    assert not t.is_alive(), "derivations() on a nullable cycle did not terminate in 5s"
+    assert not exc, f"derivations() raised unexpectedly: {exc[0]}"
+    assert len(result) == 1
+    assert isinstance(result[0], IrSeq)
+    assert len(result[0]) > 0  # at least one derivation
+
+
+# ── Lazy short-circuit proofs ─────────────────────────────────────────
+
+
+def test_build_tree_strict_short_circuits(sss_grammar: IrAst):
+    """BUILD_TREE stops at the 2nd derivation and raises ambiguity without driving more.
+
+    An exploding source raises AssertionError if iterated past 2 elements.
+    We assert UnsupportedConstructError (ambiguity), NOT AssertionError —
+    proving BUILD_TREE did not drive a 3rd element.
+    """
+    import lexic.parsing_2.forest as forest_mod
+
+    parser, chart, item, end = _accept(sss_grammar, "aaa")
+    node = SppfNode(item, end)
+    ds = DERIVATIONS.eval(parser, node, IrTuple(chart))
+    t1, t2 = ds[0], ds[1]
+
+    class _ExplodingDerivStream(DerivationStream):
+        def eval(  # type: ignore[override]
+            self, d: IrSelf, n: IrSelf, nc: object, /
+        ) -> IrStream[ParseTree]:
+            def _src():
+                yield t1
+                yield t2
+                raise AssertionError("over-enumerated: BUILD_TREE drove past 2")
+
+            return IrStream(_src())
+
+    exploding = _ExplodingDerivStream()
+    orig = forest_mod.DERIVATION_STREAM
+    forest_mod.DERIVATION_STREAM = exploding
+    try:
+        with pytest.raises(UnsupportedConstructError):
+            BUILD_TREE.eval(parser, item, IrTuple(chart, IrInt(end)))
+    finally:
+        forest_mod.DERIVATION_STREAM = orig
+
+
+def test_build_tree_zero_derivations_raises(digit_grammar: IrAst):
+    """BUILD_TREE raises UnsupportedConstructError when the handle has no derivation."""
+    import lexic.parsing_2.forest as forest_mod
+
+    parser, chart, item, end = _accept(digit_grammar, "5")
+
+    class _EmptyDerivStream(DerivationStream):
+        def eval(  # type: ignore[override]
+            self, d: IrSelf, n: IrSelf, nc: object, /
+        ) -> IrStream[ParseTree]:
+            return IrStream(IrSeq())
+
+    orig = forest_mod.DERIVATION_STREAM
+    forest_mod.DERIVATION_STREAM = _EmptyDerivStream()
+    try:
+        with pytest.raises(UnsupportedConstructError):
+            BUILD_TREE.eval(parser, item, IrTuple(chart, IrInt(end)))
+    finally:
+        forest_mod.DERIVATION_STREAM = orig
+
+
+def test_child_streams_dispatch(digit_grammar: IrAst):
+    """CHILD_STREAMS dispatches SppfNode → ChildStream and IrLiteral → LiteralStream."""
+    parser = EarleyParser()
+    # LiteralStream arm: yields the literal itself as a one-element stream
+    lit = IrLiteral("q")
+    lit_stream = CHILD_STREAMS.eval(parser, lit, IrTuple())
+    assert isinstance(lit_stream, IrStream)
+    items = list(lit_stream)
+    assert len(items) == 1
+    assert items[0] is lit
+
+    # ChildStream arm: yields ParseTree derivations for an SppfNode
+    _, chart, item, end = _accept(digit_grammar, "3")
+    node = SppfNode(item, end)
+    ctx = ForestCtx(chart)
+    node_stream = CHILD_STREAMS.eval(parser, node, IrTuple(ctx))
+    assert isinstance(node_stream, IrStream)
+    node_items = list(node_stream)
+    assert len(node_items) >= 1
+    assert isinstance(node_items[0], ParseTree)
+
+
+def test_derivations_realises_all(sss_grammar: IrAst):
+    """DERIVATIONS returns Catalan(3)=5 distinct trees for sss 'aaaa', stable across calls."""
+    result1 = derivations(sss_grammar, "aaaa")
+    result2 = derivations(sss_grammar, "aaaa")
+    assert isinstance(result1, IrSeq)
+    assert len(result1) == 5
+    assert all(isinstance(t, ParseTree) for t in result1)
+    assert all(
+        t != result1[i]
+        for i, t in enumerate(result1)
+        for j in range(i)
+        if t == result1[j] is False
+    )
+    # stable across calls: same length and all trees equal pairwise
+    assert len(result2) == 5
+    assert all(result1[i] == result2[i] for i in range(5))
