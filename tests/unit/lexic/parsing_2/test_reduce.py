@@ -29,7 +29,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2 import parse
+from lexic.parsing_2 import derivations, parse
 from lexic.parsing_2.forest import ParseTree
 from lexic.parsing_2.normalize import (
     SYNTHETIC_PREFIX,
@@ -378,8 +378,6 @@ def test_reducer_literal_drop_excludes_inline_terminals():
 def test_reducer_over_derivations_matches_single_reduce():
     """For unambiguous input, reducing each derivation gives the same result as
     the single-derivation reduce — Reducer is idempotent over derivations()."""
-    from lexic.parsing_2 import derivations
-
     # Grammar: s = 'a'* (unambiguous)
     rule = IrRule(
         "s", IrAlternation(IrSequence(IrItem(IrLiteral("a"), IrQuantifier(0, IrNone))))

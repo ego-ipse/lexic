@@ -236,16 +236,36 @@ class IrMap[K, V: IrSelf](IrSeq[IrTuple[K, V]], Mapping):
         return self.resolve(n).eval(d, n, nc)
 
 
-class IrTypeMap(IrMap[type, IrSelf]):
+class IrTypeMap[Ir_co: IrSelf = IrSelf](IrMap[type, IrSelf]):
     """Type-keyed :class:`IrMap` — resolves ``n`` via ``type(n).__mro__``,
     concrete first: one ``dict.get`` per MRO entry, bounded by class depth, not
     table size. The dispatch-table shape: an ``IrAction(target_type, body)``
     is exactly a ``(type, body)`` dyad. The parameterised base pins
-    ``keys() -> KeysView[type]`` and ``resolve() -> IrSelf`` statically."""
+    ``keys() -> KeysView[type]`` and ``resolve() -> IrSelf`` statically.
+
+    The ``Ir_co`` parameter is the return type of a *direct* ``map.eval(n, …)``
+    — the type every registered body yields. It mirrors
+    :class:`~lexic.ir.walk.IrDispatch`'s own ``Ir_co`` so a table used straight
+    as a dispatcher (e.g. ``CHILD_TREES: IrTypeMap[IrSeq]``) keeps its concrete
+    result type instead of erasing to :class:`IrSelf`. It defaults to
+    :class:`IrSelf` so a bare ``IrTypeMap`` (the common ``IrDispatch.actions``
+    case, consumed via :meth:`resolve`) is unchanged."""
 
     def _keys(self, n: IrSelf) -> tuple[Hashable, ...]:
         """``type(n).__mro__`` — concrete-first resolution order."""
         return type(n).__mro__
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
+        """Resolve ``n`` to its body and evaluate it, typed as ``Ir_co``.
+
+        Narrows :meth:`IrMap.eval`'s :class:`IrSelf` return to the table's
+        declared ``Ir_co`` — every body registered in an ``IrTypeMap[R]`` yields
+        ``R``, so a direct dispatch is statically ``R`` (the same contract
+        :class:`~lexic.ir.walk.IrDispatch.eval` relies on).
+
+        :raises IrKeyError: On a miss with no :data:`IR_DEFAULT` entry.
+        """
+        return self.resolve(n).eval(d, n, nc)
 
     def resolve(self, n: IrSelf) -> IrSelf:
         """Resolve via ``type(n)``, fast-pathing the exact-type hit.

@@ -75,3 +75,19 @@ def expr_plus_grammar() -> IrAst:
         ),
     )
     return IrAst(rules=IrSeq(e_rule), start="e")
+
+
+@pytest.fixture
+def digit_grammar() -> IrAst:
+    """digit = [0-9] ; minimal single-rule grammar."""
+    return IrAst(
+        rules=IrSeq(
+            IrRule(
+                "digit",
+                IrAlternation(
+                    IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
+                ),
+            )
+        ),
+        start="digit",
+    )

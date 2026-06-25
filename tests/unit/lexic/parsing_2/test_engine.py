@@ -56,6 +56,7 @@ from lexic.parsing_2.engine import (
     NullableRules,
     RuleIndex,
 )
+from lexic.parsing_2.forest import SppfNode
 from lexic.parsing_2.normalize import (
     desugar_quantifiers,
     flatten_groups,
@@ -69,21 +70,6 @@ def _normalize(g: IrAst) -> IrAst:
     return split_literals(desugar_quantifiers(flatten_groups(g)))
 
 
-def _digit_grammar() -> IrAst:
-    """digit = [0-9] ; minimal single-rule grammar."""
-    return IrAst(
-        rules=IrSeq(
-            IrRule(
-                "digit",
-                IrAlternation(
-                    IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
-                ),
-            )
-        ),
-        start="digit",
-    )
-
-
 def _quant_grammar(lo: int, hi: int | IrNoneType) -> IrAst:
     """s = 'a'<lo,hi> — one rule with one quantified literal."""
     q = IrQuantifier(lo, hi)
@@ -94,24 +80,24 @@ def _quant_grammar(lo: int, hi: int | IrNoneType) -> IrAst:
 # ── Recognizer — basic ────────────────────────────────────────────────
 
 
-def test_recognize_accepts_single_char():
+def test_recognize_accepts_single_char(digit_grammar: IrAst):
     """digit grammar accepts a single digit character."""
-    assert recognize(_digit_grammar(), "5")
+    assert recognize(digit_grammar, "5")
 
 
-def test_recognize_rejects_wrong_char():
+def test_recognize_rejects_wrong_char(digit_grammar: IrAst):
     """digit grammar rejects a non-digit character."""
-    assert not recognize(_digit_grammar(), "z")
+    assert not recognize(digit_grammar, "z")
 
 
-def test_recognize_rejects_empty_for_non_nullable():
+def test_recognize_rejects_empty_for_non_nullable(digit_grammar: IrAst):
     """digit grammar rejects the empty string."""
-    assert not recognize(_digit_grammar(), "")
+    assert not recognize(digit_grammar, "")
 
 
-def test_recognize_rejects_multi_char_for_single_rule():
+def test_recognize_rejects_multi_char_for_single_rule(digit_grammar: IrAst):
     """digit grammar rejects more than one character."""
-    assert not recognize(_digit_grammar(), "12")
+    assert not recognize(digit_grammar, "12")
 
 
 # ── Recognizer — recursive grammar ───────────────────────────────────
@@ -266,28 +252,28 @@ def test_split_literals_true_keyword_rejects_partial():
 # ── parse — derivation tree ───────────────────────────────────────────
 
 
-def test_parse_returns_parse_tree():
+def test_parse_returns_parse_tree(digit_grammar: IrAst):
     """parse() returns a ParseTree for a valid input."""
-    tree = parse(_digit_grammar(), "7")
+    tree = parse(digit_grammar, "7")
     assert isinstance(tree, ParseTree)
 
 
-def test_parse_tree_symbol_is_start_rule():
+def test_parse_tree_symbol_is_start_rule(digit_grammar: IrAst):
     """Root ParseTree symbol is the start rule's IrRuleRef."""
-    tree = parse(_digit_grammar(), "3")
+    tree = parse(digit_grammar, "3")
     assert tree.symbol == IrRuleRef("digit")
 
 
-def test_parse_raises_on_invalid_input():
+def test_parse_raises_on_invalid_input(digit_grammar: IrAst):
     """parse() raises UnsupportedConstructError on input that does not derive."""
     with pytest.raises(UnsupportedConstructError):
-        parse(_digit_grammar(), "z")
+        parse(digit_grammar, "z")
 
 
-def test_parse_raises_on_empty_for_non_nullable():
+def test_parse_raises_on_empty_for_non_nullable(digit_grammar: IrAst):
     """parse() raises UnsupportedConstructError on empty input for a non-nullable rule."""
     with pytest.raises(UnsupportedConstructError):
-        parse(_digit_grammar(), "")
+        parse(digit_grammar, "")
 
 
 def test_parse_builds_nested_tree_for_recursive_input(expr_grammar: IrAst):
@@ -305,9 +291,9 @@ def test_parse_builds_nested_tree_for_recursive_input(expr_grammar: IrAst):
     assert innermost.symbol == IrRuleRef("expr")
 
 
-def test_parse_single_char_tree_leaf_is_literal():
+def test_parse_single_char_tree_leaf_is_literal(digit_grammar: IrAst):
     """parse() on a single digit produces a tree whose leaf is IrLiteral."""
-    tree = parse(_digit_grammar(), "9")
+    tree = parse(digit_grammar, "9")
     assert tree.kids[0] == IrLiteral("9")
 
 
@@ -380,18 +366,16 @@ def test_nullable_rules_returns_irseq():
 # ── parse_forest ──────────────────────────────────────────────────────
 
 
-def test_parse_forest_returns_sppf_node_on_valid_input():
+def test_parse_forest_returns_sppf_node_on_valid_input(digit_grammar: IrAst):
     """parse_forest() returns an SppfNode for parseable input."""
-    from lexic.parsing_2.forest import SppfNode
-
-    g = _digit_grammar()
+    g = digit_grammar
     result = parse_forest(g, "5")
     assert isinstance(result, SppfNode)
 
 
-def test_parse_forest_returns_ir_none_on_no_parse():
+def test_parse_forest_returns_ir_none_on_no_parse(digit_grammar: IrAst):
     """parse_forest() returns IrNone when the input does not parse."""
-    g = _digit_grammar()
+    g = digit_grammar
     result = parse_forest(g, "z")
     assert isinstance(result, IrNoneType)
 
@@ -399,26 +383,26 @@ def test_parse_forest_returns_ir_none_on_no_parse():
 # ── derivations ───────────────────────────────────────────────────────
 
 
-def test_derivations_empty_on_no_parse():
+def test_derivations_empty_on_no_parse(digit_grammar: IrAst):
     """derivations() returns an empty IrSeq when the input does not parse."""
-    g = _digit_grammar()
+    g = digit_grammar
     result = derivations(g, "z")
     assert isinstance(result, IrSeq)
     assert len(result) == 0
 
 
-def test_derivations_singleton_for_unambiguous():
+def test_derivations_singleton_for_unambiguous(digit_grammar: IrAst):
     """derivations() returns a length-1 IrSeq for unambiguous input."""
-    g = _digit_grammar()
+    g = digit_grammar
     result = derivations(g, "7")
     assert isinstance(result, IrSeq)
     assert len(result) == 1
     assert isinstance(result[0], ParseTree)
 
 
-def test_derivations_singleton_equals_parse_result():
+def test_derivations_singleton_equals_parse_result(digit_grammar: IrAst):
     """The lone derivation equals parse()'s result for unambiguous input."""
-    g = _digit_grammar()
+    g = digit_grammar
     result = derivations(g, "7")
     expected = parse(g, "7")
     assert result[0] == expected
@@ -441,15 +425,15 @@ def test_derivations_two_trees_for_expr_plus_a_plus_a(expr_plus_grammar: IrAst):
 # ── is_ambiguous ──────────────────────────────────────────────────────
 
 
-def test_is_ambiguous_false_for_unambiguous_input():
+def test_is_ambiguous_false_for_unambiguous_input(digit_grammar: IrAst):
     """is_ambiguous() returns False for unambiguous input."""
-    g = _digit_grammar()
+    g = digit_grammar
     assert not is_ambiguous(g, "3")
 
 
-def test_is_ambiguous_false_for_no_parse():
+def test_is_ambiguous_false_for_no_parse(digit_grammar: IrAst):
     """is_ambiguous() returns False when the input does not parse."""
-    g = _digit_grammar()
+    g = digit_grammar
     assert not is_ambiguous(g, "z")
 
 

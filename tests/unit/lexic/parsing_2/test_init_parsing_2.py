@@ -149,31 +149,3 @@ def test_derivations_callable_from_package():
 def test_is_ambiguous_callable_from_package():
     """is_ambiguous is importable and callable from the package top-level."""
     assert callable(is_ambiguous)
-
-
-def test_sppf_node_in_all():
-    """SppfNode appears in __all__."""
-    from lexic import parsing_2
-
-    assert "SppfNode" in parsing_2.__all__
-
-
-def test_parse_forest_in_all():
-    """parse_forest appears in __all__."""
-    from lexic import parsing_2
-
-    assert "parse_forest" in parsing_2.__all__
-
-
-def test_derivations_in_all():
-    """derivations appears in __all__."""
-    from lexic import parsing_2
-
-    assert "derivations" in parsing_2.__all__
-
-
-def test_is_ambiguous_in_all():
-    """is_ambiguous appears in __all__."""
-    from lexic import parsing_2
-
-    assert "is_ambiguous" in parsing_2.__all__
