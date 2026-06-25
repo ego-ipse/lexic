@@ -1,9 +1,44 @@
 # Handover — `parsing_2` performance optimizations
 
+> ## Update (2026-06-25) — SPPF has landed; this is now the next piece
+>
+> The prerequisite is satisfied: the SPPF ambiguity work in `HANDOVER_SPPF.md` is
+> **complete and green** (`bash tools/run_checks.sh` + `uv run pytest tests/ -q`,
+> including the ABNF self-host fixpoint). Deltas relevant to the findings below:
+>
+> - **Finding #3 (defer eager subtree build in `Complete`) — confirmed landed.**
+>   `Complete.eval` now records a shared `SppfNode(done, col)`, not an eager
+>   `ParseTree`/`BUILD_TREE`. **Re-measure** to confirm the ~36%-on-recognize win
+>   materialised and didn't just move downstream into forest enumeration.
+> - **Finding #4 `IrMultiMap.__getitem__` snapshot — surface widened.** `Links` is
+>   now an `IrMultiMap` subclass (chart.py), so `chart.links[key]` *and* the
+>   `waiting` index both snapshot a fresh `IrSeq` per read. The optimisation
+>   (iterate the live bucket in place when `origin == col`) now potentially applies
+>   to links too — but, as noted, this mostly **evaporates once F1 cuts completion
+>   count ~80×**, so leave it until after F1 and re-profile.
+> - **Numbers below predate the SPPF rewrite — re-baseline before starting.** The
+>   *shape* is unchanged (`normalize.py` is still right-recursive ⇒ O(n²)), but the
+>   absolute µs/char and the cProfile breakdown should be re-measured on the current
+>   engine. The harness still works; `bench_parsing.py` imports were repointed to
+>   `from lexic.parsing_2 import parse, recognize` (the public API now lives in
+>   `__init__.py`).
+> - **Engine shape moved (no perf impact, but the entry points changed).** The
+>   public API (`parse`/`recognize`/`parse_forest`/`derivations`/`is_ambiguous`) is
+>   now thin wrappers in `parsing_2/__init__.py` over on-node orchestration in
+>   `engine.py` (`Accepting`/`Parse`/…). `BuildChart`/`CloseColumn`/`ScanColumn` —
+>   the hot loops F1 and the micro-wins touch — are unchanged.
+> - **One deferred SPPF item touches a *different* path:** lazy forest enumeration +
+>   strict-`parse` short-circuit (SPPF handover "Remaining work"). That's the forest
+>   *read* path; F1 and the micro-wins here are the chart *build* path. Independent —
+>   either order is fine.
+> - **F1's required follow-up is unchanged:** the reducer child-order reversal for
+>   left-recursive rep-rules (below) still applies; `reduce.py` was left untouched by
+>   the SPPF work, so the splice logic is exactly as the review found it.
+
 **Status:** reviewed, not yet implemented. Three parallel review reports exist at
-repo root; this doc is the synthesis, ranking, and sequencing. **Do this work
-*after* the SPPF ambiguity work lands** (see `HANDOVER_SPPF.md`) — several findings
-overlap the forest path the SPPF rewrite touches, and one is already partly done by it.
+repo root; this doc is the synthesis, ranking, and sequencing. The SPPF precondition
+(below this update) is now **satisfied** — several findings overlapped the forest
+path the SPPF rewrite touched, and finding #3 was absorbed by it.
 
 **Source reports (read for full evidence/measurements):**
 - `opt_review_algo.md` — algorithmic & data-structure (the big one).

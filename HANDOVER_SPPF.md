@@ -1,168 +1,185 @@
 # Handover — SPPF ambiguity support for `parsing_2`
 
-**Status:** in-progress, (memory-unsafe — do not run against
-the ABNF self-host until the blowup below is fixed). Recogniser + forest + public
-entry points are written; reduce-enumeration, tests, wiki, and the memory fix remain.
+**Status:** feature complete and green. The recogniser, forest, public API,
+reduce path, tests, and the memory fix are all done; `bash tools/run_checks.sh`
+(ruff + pyright + pylint) and `uv run pytest tests/ -q` are fully green, including
+the ABNF self-host fixpoint (`test_abnf_2.py`) — the correctness canary. The
+machine is **no longer at risk**: the OOM was a specific bug (below), now fixed,
+and unambiguous input is bounded.
 
+What remains is **non-gating deferred robustness** (lazy enumeration + strict
+short-circuit) — see "Remaining work". The separate performance effort lives in
+`HANDOVER_OPTIMIZATIONS.md`.
 
 ---
 
 ## Goal
 
 Replace Lark (`parsing/`) with `parsing_2`'s native Earley engine **without losing
-power** — specifically, **support ambiguous grammars**. Today's engine modelled
-only the single-derivation (unambiguous) case. This work makes the chart's
-provenance links a **Shared Packed Parse Forest** (Scott 2008, *SPPF-Style Parsing
-From Earley Recognisers*) so all derivations are representable.
+power** — specifically, **support ambiguous grammars**. The chart's provenance
+links are a **Shared Packed Parse Forest** (Scott 2008, *SPPF-Style Parsing From
+Earley Recognisers*) so all derivations are representable.
 
-## Approved API contract (settled with the user — implement exactly this)
+## Approved API contract (settled with the user — implemented exactly)
 
 - `parse(grammar, text) -> ParseTree` keeps its signature but is **strict**: on
   ambiguous input (root handle packs > 1 derivation) it **raises**
-  `UnsupportedConstructError` ("use the forest/enumerator"). Unambiguous input must
-  return the **identical** result as before and must **not** raise. Rationale: a
-  single `ParseTree` cannot honestly represent a forest, so never silently pick one.
+  `UnsupportedConstructError`. Unambiguous input returns the **identical** result
+  as before and does **not** raise.
 - Separate, honestly-named entries (no mode flag that mutates the return type):
   - `parse_forest(grammar, text) -> SppfNode | IrNone` — the SPPF root handle.
-  - `derivations(grammar, text) -> IrSeq[ParseTree]` — ALL derivations (empty on no
-    parse). The explicit "give me everything" path; nothing silently discarded.
-  - `is_ambiguous(grammar, text) -> bool`.
+  - `derivations(grammar, text) -> IrSeq[ParseTree]` — ALL derivations (empty on
+    no parse).
+  - `is_ambiguous(grammar, text) -> IrInt` — truth value (`IrInt ∈ {0,1}`, the IR's
+    no-`IrBool` rule).
 - The forest **always** records every family (cheap, makes ambiguity detectable);
   "first"/"all" are reached only via the explicit entries.
 
-These are all **implemented** in the stashed `engine.py`.
+**Where the API lives:** the five entries are thin wrappers in
+`parsing_2/__init__.py`, each a one-line `NODE.eval(EarleyParser(), grammar,
+IrTuple(IrStr(text)))` delegation. All orchestration is on `IrSelf` nodes in
+`engine.py` (`Recognize`, `Parse`, `ParseForest`, `Enumerate`, `IsAmbiguous`,
+fronted by `Accepting` which builds the chart once). `engine.py` has **no** free
+functions.
 
 ---
 
 ## Design as implemented (file by file)
 
-### `chart.py` — `Links` is now a packed-family table
-- `Links._table: dict[(item, end), list[Link]]` (was a single `Link`).
-- Surface (dunders only): `key in links`; `links[key]` returns a fresh `IrSeq`
-  snapshot of families (empty on miss, safe to iterate while the live list grows);
-  `links += (key, link)` appends a family **deduped** by `link not in bucket`.
-- `Link.child` is now an `SppfNode` reference (shared, never flattened) or a
-  terminal `IrLiteral`.
+### `chart.py` — `Links` is a packed-family table
+- `Links` now **subclasses `IrMultiMap[(item, end), Link]`** — it inherits the
+  backing-dict singleton tuple, `key in links`, snapshot `links[key]` (a fresh
+  `IrSeq`, safe to iterate while the live bucket grows), and identity eq/hash;
+  the **only** override is `__iadd__`, which adds the SPPF **dedup** (`if link not
+  in bucket`). A key with > 1 distinct family is an ambiguity point.
+- `Link.child` is an `SppfNode` reference (shared, never flattened) or a terminal
+  `IrLiteral`.
 
-### `ops.py` — record families unconditionally
-- `Complete.eval`: builds a shared `SppfNode(done, col)` (NOT an eager
-  `BUILD_TREE`) and records a family **even when the advanced item already exists**
-  (dropped the `if advanced not in current` guard) — a second derivation of the same
-  item is an ADDITIONAL family. **Note:** this already lands the perf review's
-  "defer eager subtree build in Complete" win — see the optimizations handover.
-- `Predict.eval`: nullable Aycock-Horspool advance likewise records its
-  empty-derivation `ParseTree` family unconditionally.
+### `ops.py` — record families unconditionally; nullable identity
+- `Complete.eval`: builds a shared `SppfNode(done, col)` (not an eager
+  `BUILD_TREE`) and records a family **even when the advanced item already
+  exists** — a second derivation is an ADDITIONAL family.
+- `Predict.eval`: the nullable Aycock-Horspool advance records the **same**
+  `SppfNode(EarleyItem(ref, arm, len(arm), col), col)` child the completer records,
+  **per empty-deriving arm** (an arm derives empty when every item is a nullable
+  ruleref — generalises to transitively-nullable rules). This is the OOM fix (see
+  below). The logic is inline in `eval` (no helper methods — IrSelf protocol is
+  `eval` + dunders only).
 
-### `engine.py` — one chart, many readers
-- `_accepting(grammar, text) -> (parser, chart, item, end)`: shared front half;
-  builds the chart once and finds the accepting start item.
+### `engine.py` — one chart, many readers, all on nodes
+- `Accepting.eval(d, grammar, (IrStr(text),)) -> IrSeq(chart, item)` — shared
+  front half; builds the chart once and finds the accepting start item.
+- `Recognize` / `Parse` (strict) / `ParseForest` / `Enumerate` / `IsAmbiguous` —
+  one `IrSelf` node each, driving `Accepting` then their own read. The public
+  wrappers in `__init__.py` delegate to these.
 
-  ⚠️ **IrSelf-purity deviation to review:** `_accepting` is a **module-level free
-  function**, and `parse_forest`/`derivations`/`is_ambiguous` are free functions
-  too (matching the pre-existing `recognize`/`parse`). The rule is "no free
-  functions; prefer eval/dunders." The pre-existing entry points were already free
-  functions, so this is consistent with what was there — but it was **not**
-  explicitly justified/approved. Flag for the user: either accept (entry-point
-  orchestration mirrors the old shape) or re-home onto an `IrSelf` dispatch node.
-- `recognize`, `parse` (strict), `parse_forest`, `derivations`, `is_ambiguous` —
-  all wired over `_accepting`.
-
-### `forest.py` — the SPPF node shapes + readers (all `IrSelf`, behaviour on `eval`)
-- `ParseTree` — one derivation (unchanged).
-- `SppfNode(item, end)` — pure-data handle; families come from `chart.links`. Claims
-  to be intrinsically binary (one predecessor + one child per family) so "binarised
-  by construction." **This claim is the crux of the bug below — verify it.**
+### `forest.py` — SPPF node shapes + readers (all `IrSelf`, behaviour on `eval`)
+- `ParseTree` — one derivation. `SppfNode(item, end)` — pure-data handle; families
+  come from `chart.links`.
 - `ForestCtx(chart)` — mutable read cursor with a `memo: (item,end) -> IrSeq` of
-  expanded prefixes (sharing + cycle termination). Rides `nc` like `ParseCtx`.
-- `Prefixes.eval` — expands a handle to its kid-sequence prefixes: dot 0 → single
-  empty prefix; else the **`itertools.product`** over each family's predecessor
-  prefixes × consumed-child derivations. Memoised per `(item, end)`; seeds the memo
-  with `IrSeq(IrSeq())` before recursing to terminate cycles.
+  expanded prefixes (sharing + cycle termination), rides `nc` like `ParseCtx`.
+- `Prefixes.eval` — expands a handle to its kid-sequence prefixes via the
+  `itertools.product` over each family's predecessor prefixes × consumed-child
+  derivations. Memoised; seeds `IrSeq(IrSeq())` before recursing to terminate
+  cycles. **Eager today** (see Remaining work).
 - `Derivations.eval` — wraps a completed handle's prefixes into `ParseTree`s (all).
-- `CHILD_TREES` (`IrTypeMap`): `SppfNode`→`ChildTrees` (recurse via `DERIVATIONS`),
-  `IrLiteral`/`ParseTree`→`Whole` (own sole derivation).
+- `CHILD_TREES: IrTypeMap[IrSeq]` — `SppfNode`→`ChildTrees` (recurse via
+  `DERIVATIONS`), `IrLiteral`→`Whole`. Typed `IrTypeMap[IrSeq]` so a direct
+  `.eval` keeps its concrete return type (see the toolkit note).
 - `BuildTree.eval` — strict single façade: enumerates via `DERIVATIONS`, raises if
-  `len(trees) > 1`, else returns `trees[0]`.
+  `len(trees) > 1`, else returns `trees[0]`. **Enumerates fully today** (see
+  Remaining work).
+
+### Toolkit change in `ir/mapping.py` (root-cause typing fix, not a cast)
+`IrTypeMap` is now generic over its return type — `IrTypeMap[Ir_co: IrSelf =
+IrSelf]` with an `eval -> Ir_co` override (mirroring `IrDispatch[Iri, Ir_co]`). A
+table used **directly** as a dispatcher (e.g. `CHILD_TREES: IrTypeMap[IrSeq]`)
+keeps its concrete result type instead of erasing to `IrSelf`, so consumers
+iterate the result without a narrowing cast. The `= IrSelf` default leaves every
+bare `IrTypeMap` (the common `IrDispatch.actions` case, consumed via `resolve`)
+unchanged. This replaced the earlier `cast(...)` band-aid in `Prefixes.eval`.
 
 ---
 
-## 🔴 CRITICAL: the memory blowup (why it OOMs the machine)
+## Root cause of the OOM (fixed — recorded for posterity)
 
-Running `parse(ABNF_GRAMMAR, abnf_source)` (the self-host fixpoint) exhausts memory
-and crashes the PC. **Do not run it.** Two compounding causes:
-
-1. **Spurious ambiguity from naive Earley→SPPF.** Removing the first-insertion guard
-   and recording a family on every re-derivation is only correct with Scott's
-   specific intermediate/packed-node identity. `SppfNode`'s "binary by construction"
-   claim is the load-bearing assumption — if a family's identity does not collapse
-   *equivalent* derivations reached through different item orderings, the **even
-   unambiguous ABNF grammar accumulates many families per node**, i.e. spurious
-   ambiguity. The right-recursive `__rep` rules (from `normalize.py`) are exactly
-   where O(n) complete items per column pile up.
-
-2. **Eager full enumeration.** `Prefixes.eval` materialises the **entire**
-   `itertools.product` of all families at **every** node into `IrSeq(*prefixes)` —
-   no laziness. Combined with (1), the product explodes combinatorially and is
-   realised into memory. Worse: **`parse()` (strict-single) still enumerates
-   *everything* via `DERIVATIONS` before checking `len(trees) > 1`** — so it pays the
-   full explosion just to discover "ambiguous," instead of short-circuiting at the
-   second derivation.
-
-### Fix direction (for whoever resumes)
-- **Verify/repair family identity first.** Before any enumeration, confirm the
-  unambiguous ABNF grammar yields **exactly one family per `(item, end)`**. Instrument
-  `Links` bucket sizes on a *tiny* input. If buckets exceed 1 on unambiguous input,
-  the SPPF construction has spurious ambiguity — this is the real bug, and likely
-  needs Scott's intermediate-node binarisation scheme (don't rely on `SppfNode`'s
-  implicit-binary claim without proof).
-- **Make `parse()` short-circuit.** It must detect ">1 derivation" *without* fully
-  enumerating — e.g. ask the root handle for ambiguity by walking families lazily and
-  stopping at the second, or build the single derivation greedily and only raise when
-  a second family is encountered. Never materialise the full product to return one tree.
-- **Make enumeration lazy** (generators, not eager `IrSeq(*...)`), so `derivations()`
-  streams and a caller can stop early.
+`parse(ABNF_GRAMMAR, abnf_source)` exhausted memory because of **nullable
+double-recording**, not generic spurious ambiguity. For a nullable rule the
+advanced item `(item, end)` got **two** `Link` families that were the *same*
+derivation in *different object shapes* — `ParseTree(ref, IrSeq())` from the AH
+advance vs `SppfNode(empty_completion, col)` from the completer. `Link` equality is
+tuple equality, and `ParseTree(...) != SppfNode(...)`, so dedup failed → every
+nullable node had bucket size 2 → ~2^k spurious derivations along the
+right-recursive `__rep` chains → OOM. ABNF is nullable-saturated (`*`/`?` desugar
+to nullable synthetic rules). Fix: make both provenances reference the **same**
+`SppfNode`, so they dedup to one family. Verified: buckets = 1 on unambiguous
+input, exactly one derivation; genuine ambiguity (`S = S S / "a"`) still yields
+every family.
 
 ---
 
-## Remaining work
+## Remaining work — deferred robustness (non-gating)
 
-1. **Fix the memory blowup** (above) — gating; nothing else is safe until this is done.
-2. **`reduce.py` enumeration.** Likely small: `derivations()` already returns
-   `IrSeq[ParseTree]`, so "reduce all" = map the existing single-tree `Reducer` over
-   each tree. The `Reducer` itself should need no change (keep the single-derivation
-   path identical → fixpoint stays green). Add a thin "reduce every derivation" entry
-   only if the user wants reduce-side enumeration; confirm with them.
-3. **`__init__.py`** — export `parse_forest`, `derivations`, `is_ambiguous`, `SppfNode`.
-4. **Tests** (`tests/unit/lexic/parsing_2/`):
-   - New ambiguous-grammar tests on a **tiny** input (e.g. `S = S S / "a"` over
-     `"aaa"`, or `E = E "+" E / "a"`): recogniser accepts; `is_ambiguous` true;
-     `derivations` yields the expected distinct trees; strict `parse` raises.
-   - **Port** existing `test_chart.py` / `test_forest.py` / `test_init_parsing_2.py` /
-     `test_reduce.py` to the new APIs (`links += (key, link)`, families list, new
-     forest nodes). Fix construction/calls, keep assertions; delete a test only if its
-     exact target symbol was removed.
-5. **Wiki + log** — drop the "unambiguous-only / SPPF not shown" caveats in
-   `forest.py` and `chart.py` module docstrings are already updated; mirror that in
-   `.wiki/` and add a `log.md` entry. Document the new public API.
-6. **Cleanup** — delete throwaway `_t1.py` at repo root (confirm it's scratch first).
+With the nullable fix, **unambiguous** input yields exactly one family per node and
+is memory-safe under the current eager enumeration, so these two refinements were
+deferred. They matter only for **ambiguous** input, where the derivation count can
+be exponential (e.g. Catalan growth for `S = S S / "a"`).
+
+### 1. Lazy prefix enumeration (`forest.py` `Prefixes.eval`)
+Today `Prefixes.eval` materialises the entire `itertools.product` of all families
+at every node into an eager `IrSeq(*prefixes)`. For an ambiguous parse this
+realises the whole forest into memory. Make it **stream** (generators) so
+`derivations()` yields lazily and a caller can stop early.
+- **Constraint:** keep the unambiguous single-derivation path byte-identical (the
+  ABNF fixpoint canary must stay green).
+- **Constraint:** preserve sharing + cycle termination. `ForestCtx.memo` currently
+  caches a realised `IrSeq` per `(item, end)` and seeds `IrSeq(IrSeq())` before
+  recursing to break cycles; a lazy rework must keep both (a shared sub-handle
+  expanded once; cyclic recursion terminating) without re-expanding shared
+  sub-handles or caching a half-consumed generator.
+
+### 2. Strict `parse()` / `is_ambiguous()` short-circuit
+`BuildTree.eval` (the strict façade, behind the `Parse` node) enumerates
+**everything** via `DERIVATIONS` and only then checks `len(trees) > 1` — so it pays
+the full (potentially exponential) enumeration just to discover "ambiguous".
+`IsAmbiguous` has the same flaw (`len(derivations(...)) > 1`). Make both detect
+">1 derivation" **without** full enumeration: walk families lazily and stop at the
+second derivation (or build the single derivation greedily and raise the moment a
+second family appears). Never materialise the full product to return one tree or to
+decide ambiguity.
+
+These compose: once `Prefixes` is lazy, both short-circuits are "take the first two
+lazily". Suggested order: lazy `Prefixes` first, then `parse` / `is_ambiguous` on
+top.
+
+**Independent of `HANDOVER_OPTIMIZATIONS.md`:** F1 (left-recursion / the O(n²)
+chart-construction scaling) is about *building* the chart; this is about *reading*
+the forest. They don't conflict.
+
+### Housekeeping
+- Wiki + `log.md` not yet updated for the new public API / dropping the
+  "unambiguous-only" caveats (CLAUDE.md asks for this).
+- Repo-root scratch files `_t1.py`, `bench_parsing.py`, `_validate_radix.py` are
+  still present — confirm before deleting.
+
+---
 
 ## Hard constraints (the user's explicit rules)
-- Keep IrSelf-derived objects; engine stays an IR construct (eval/dispatch + logic on
-  classes; per-parse mutable state in a cursor like `ParseCtx`/`ForestCtx`, not free
-  functions/NamedTuples). **The free-function entry points above need an explicit
-  decision** (accept or re-home).
-- No free functions/methods beyond that; prefer `eval`/dunders; prefer `IrSelf`.
-  Any bent rule needs a written justification.
-- No `# type: ignore` / `# noqa` / `# pylint: disable`; no `exec`/`eval` builtins; no
-  `from src.lexic...`. Error vocabulary (`UnsupportedConstructError`), no silent
+- Keep IrSelf-derived objects; engine stays an IR construct (eval/dispatch + logic
+  on classes; per-parse mutable state in a cursor like `ParseCtx`/`ForestCtx`).
+  **No methods on nodes beyond `eval` + dunders.** Public free functions are the
+  thin API wrappers in `__init__.py` only; any other deviation needs a written
+  justification.
+- Fix typing at the root (e.g. the `IrTypeMap[Ir_co]` generic), not with
+  call-site casts where a real type fix is available.
+- No `# type: ignore` / `# noqa` / `# pylint: disable`; no `exec`/`eval` builtins;
+  no `from src.lexic...`. Error vocabulary (`UnsupportedConstructError`), no silent
   dispatch defaults. Sphinx docstrings, concise.
 
-## Testing protocol (learned the hard way)
-- **NEVER** run the SPPF code against the full ABNF self-host until family identity is
-  proven bounded. Use 3–5 character inputs.
-- Add a hard guard when experimenting: run under a subprocess with a wall-clock
-  timeout and an RLIMIT_AS memory cap so a blowup fails fast instead of taking the
-  machine down.
-- The ABNF fixpoint (`test_abnf_2.py::test_self_hosting_fixpoint`) is the canary for
-  *correctness* once memory is safe — but it is the **worst** thing to run while the
-  blowup exists.
+## Testing protocol
+- The full suite is safe to run now (verified): `bash tools/run_checks.sh` and
+  `uv run pytest tests/ -q`. The ABNF fixpoint is the correctness canary.
+- When working on the lazy rework, still guard ambiguous-grammar experiments with a
+  subprocess wall-clock `timeout` + `RLIMIT_AS` cap until laziness is proven — an
+  ambiguous grammar over a long input is exponential by nature, and an eager bug
+  there would reintroduce a blowup.
