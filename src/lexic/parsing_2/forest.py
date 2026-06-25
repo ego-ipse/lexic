@@ -214,7 +214,8 @@ class Derivations(IrLeaf[IrSelf, IrSelf]):
         :returns: An :class:`IrSeq` of :class:`ParseTree` derivations.
         """
         symbol = cast(SppfNode, n).item.rule_name
-        return IrSeq(*(ParseTree(symbol, kids) for kids in PREFIXES.eval(d, n, nc)))
+        prefixes = PREFIXES.eval(d, n, nc)
+        return IrSeq(*(ParseTree(symbol, cast(IrSeq, kids)) for kids in prefixes))
 
 
 class ChildTrees(IrLeaf[IrSelf, IrSelf]):

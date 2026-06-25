@@ -202,23 +202,6 @@ def _digit_grammar() -> IrAst:
     )
 
 
-def _ambiguous_sss_grammar() -> IrAst:
-    """Genuinely ambiguous: s = s s / 'a'.
-
-    Over input 'aaa', this grammar has exactly 2 derivations (Catalan C_2):
-    (s(s(a) s(a)) s(a)) and (s(a) s(s(a) s(a))).
-    """
-    # s = s s | "a"
-    s_rule = IrRule(
-        "s",
-        IrAlternation(
-            IrSequence(IrItem(IrRuleRef("s")), IrItem(IrRuleRef("s"))),
-            IrSequence(IrItem(IrLiteral("a"))),
-        ),
-    )
-    return IrAst(rules=IrSeq(s_rule), start="s")
-
-
 def test_sppf_node_construction():
     """SppfNode(item, end) stores item and end correctly."""
     grammar = _digit_grammar()
@@ -270,10 +253,9 @@ def test_derivations_singleton_matches_parse():
     assert trees[0] == expected
 
 
-def test_derivations_ambiguous_yields_two_trees():
+def test_derivations_ambiguous_yields_two_trees(sss_grammar: IrAst):
     """DERIVATIONS returns 2 distinct ParseTrees for 's = s s / \"a\"' over 'aaa'."""
-    grammar = _ambiguous_sss_grammar()
-    parser, chart, item, end = _accept(grammar, "aaa")
+    parser, chart, item, end = _accept(sss_grammar, "aaa")
     assert not isinstance(item, IrNoneType)
     node = SppfNode(item, end)
     trees = DERIVATIONS.eval(parser, node, IrTuple(chart))
@@ -298,20 +280,18 @@ def test_build_tree_strict_returns_single_tree_for_unambiguous():
     assert isinstance(tree, ParseTree)
 
 
-def test_build_tree_strict_raises_for_ambiguous():
+def test_build_tree_strict_raises_for_ambiguous(sss_grammar: IrAst):
     """BUILD_TREE.eval raises UnsupportedConstructError for ambiguous input."""
-    grammar = _ambiguous_sss_grammar()
-    parser, chart, item, end = _accept(grammar, "aaa")
+    parser, chart, item, end = _accept(sss_grammar, "aaa")
     assert not isinstance(item, IrNoneType)
     with pytest.raises(UnsupportedConstructError):
         BUILD_TREE.eval(parser, item, IrTuple(chart, IrInt(end)))
 
 
-def test_parse_raises_for_ambiguous_input():
+def test_parse_raises_for_ambiguous_input(sss_grammar: IrAst):
     """parse() raises UnsupportedConstructError when input is ambiguous."""
-    grammar = _ambiguous_sss_grammar()
     with pytest.raises(UnsupportedConstructError):
-        parse(grammar, "aaa")
+        parse(sss_grammar, "aaa")
 
 
 # ── CHILD_TREES dispatch ──────────────────────────────────────────────

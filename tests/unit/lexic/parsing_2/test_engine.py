@@ -377,43 +377,6 @@ def test_nullable_rules_returns_irseq():
     assert isinstance(result, IrSeq)
 
 
-# ── Ambiguous grammar helpers ─────────────────────────────────────────
-
-
-def _sss_grammar() -> IrAst:
-    """Genuinely ambiguous: s = s s / 'a'.
-
-    Over 'aaa' this has exactly 2 derivations (Catalan C_2).
-    """
-    s_rule = IrRule(
-        "s",
-        IrAlternation(
-            IrSequence(IrItem(IrRuleRef("s")), IrItem(IrRuleRef("s"))),
-            IrSequence(IrItem(IrLiteral("a"))),
-        ),
-    )
-    return IrAst(rules=IrSeq(s_rule), start="s")
-
-
-def _expr_plus_grammar() -> IrAst:
-    """Ambiguous arithmetic: e = e '+' e / 'a'.
-
-    Over 'a+a+a' this has exactly 2 derivations (left- vs right-assoc).
-    """
-    e_rule = IrRule(
-        "e",
-        IrAlternation(
-            IrSequence(
-                IrItem(IrRuleRef("e")),
-                IrItem(IrLiteral("+")),
-                IrItem(IrRuleRef("e")),
-            ),
-            IrSequence(IrItem(IrLiteral("a"))),
-        ),
-    )
-    return IrAst(rules=IrSeq(e_rule), start="e")
-
-
 # ── parse_forest ──────────────────────────────────────────────────────
 
 
@@ -461,18 +424,16 @@ def test_derivations_singleton_equals_parse_result():
     assert result[0] == expected
 
 
-def test_derivations_two_trees_for_sss_aaa():
+def test_derivations_two_trees_for_sss_aaa(sss_grammar: IrAst):
     """derivations() returns 2 distinct ParseTrees for 's=ss/a' over 'aaa'."""
-    g = _sss_grammar()
-    result = derivations(g, "aaa")
+    result = derivations(sss_grammar, "aaa")
     assert len(result) == 2
     assert result[0] != result[1]
 
 
-def test_derivations_two_trees_for_expr_plus_a_plus_a():
+def test_derivations_two_trees_for_expr_plus_a_plus_a(expr_plus_grammar: IrAst):
     """derivations() returns 2 distinct ParseTrees for 'e=e+e/a' over 'a+a+a'."""
-    g = _expr_plus_grammar()
-    result = derivations(g, "a+a+a")
+    result = derivations(expr_plus_grammar, "a+a+a")
     assert len(result) == 2
     assert result[0] != result[1]
 
@@ -492,33 +453,29 @@ def test_is_ambiguous_false_for_no_parse():
     assert not is_ambiguous(g, "z")
 
 
-def test_is_ambiguous_true_for_sss_aaa():
+def test_is_ambiguous_true_for_sss_aaa(sss_grammar: IrAst):
     """is_ambiguous() returns True for 's=ss/a' over 'aaa' (2 derivations)."""
-    g = _sss_grammar()
-    assert is_ambiguous(g, "aaa")
+    assert is_ambiguous(sss_grammar, "aaa")
 
 
-def test_is_ambiguous_true_for_expr_plus():
+def test_is_ambiguous_true_for_expr_plus(expr_plus_grammar: IrAst):
     """is_ambiguous() returns True for 'e=e+e/a' over 'a+a+a'."""
-    g = _expr_plus_grammar()
-    assert is_ambiguous(g, "a+a+a")
+    assert is_ambiguous(expr_plus_grammar, "a+a+a")
 
 
 # ── parse strict raises on ambiguous ─────────────────────────────────
 
 
-def test_parse_raises_on_ambiguous_sss():
+def test_parse_raises_on_ambiguous_sss(sss_grammar: IrAst):
     """parse() raises UnsupportedConstructError on ambiguous 's=ss/a' over 'aaa'."""
-    g = _sss_grammar()
     with pytest.raises(UnsupportedConstructError):
-        parse(g, "aaa")
+        parse(sss_grammar, "aaa")
 
 
-def test_parse_raises_on_ambiguous_expr_plus():
+def test_parse_raises_on_ambiguous_expr_plus(expr_plus_grammar: IrAst):
     """parse() raises UnsupportedConstructError on ambiguous 'e=e+e/a' over 'a+a+a'."""
-    g = _expr_plus_grammar()
     with pytest.raises(UnsupportedConstructError):
-        parse(g, "a+a+a")
+        parse(expr_plus_grammar, "a+a+a")
 
 
 # ── Nullable regression — star/nullable must not be ambiguous ─────────

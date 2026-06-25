@@ -38,3 +38,40 @@ def expr_grammar() -> IrAst:
         ),
     )
     return IrAst(rules=IrSeq(expr, digit), start="expr")
+
+
+@pytest.fixture
+def sss_grammar() -> IrAst:
+    """Genuinely ambiguous: s = s s / 'a'.
+
+    Over 'aaa' this has exactly 2 derivations (Catalan C_2):
+    ``(s(s(a) s(a)) s(a))`` and ``(s(a) s(s(a) s(a)))``.
+    """
+    s_rule = IrRule(
+        "s",
+        IrAlternation(
+            IrSequence(IrItem(IrRuleRef("s")), IrItem(IrRuleRef("s"))),
+            IrSequence(IrItem(IrLiteral("a"))),
+        ),
+    )
+    return IrAst(rules=IrSeq(s_rule), start="s")
+
+
+@pytest.fixture
+def expr_plus_grammar() -> IrAst:
+    """Ambiguous arithmetic: e = e '+' e / 'a'.
+
+    Over 'a+a+a' this has exactly 2 derivations (left- vs right-associative).
+    """
+    e_rule = IrRule(
+        "e",
+        IrAlternation(
+            IrSequence(
+                IrItem(IrRuleRef("e")),
+                IrItem(IrLiteral("+")),
+                IrItem(IrRuleRef("e")),
+            ),
+            IrSequence(IrItem(IrLiteral("a"))),
+        ),
+    )
+    return IrAst(rules=IrSeq(e_rule), start="e")

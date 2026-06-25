@@ -281,7 +281,7 @@ def test_self_hosting_recognize():
     """normalize(ABNF_GRAMMAR) recognizes its own emitted text."""
     g = _normalize(ABNF_GRAMMAR)
     text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
-    assert recognize(g, text) is True
+    assert recognize(g, text)
 
 
 def test_self_hosting_fixpoint():
@@ -318,7 +318,7 @@ def test_self_hosting_crlf_recognized():
     g = _normalize(ABNF_GRAMMAR)
     text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
     text_crlf = text.replace("\n", "\r\n")
-    assert recognize(g, text_crlf) is True
+    assert recognize(g, text_crlf)
 
 
 def test_self_hosting_crlf_reduces_to_abnf_grammar():
