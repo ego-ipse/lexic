@@ -1,14 +1,14 @@
 # Handover — SPPF ambiguity support for `parsing_2`
 
-**Status:** feature complete and green. The recogniser, forest, public API,
-reduce path, tests, and the memory fix are all done; `bash tools/run_checks.sh`
-(ruff + pyright + pylint) and `uv run pytest tests/ -q` are fully green, including
-the ABNF self-host fixpoint (`test_abnf_2.py`) — the correctness canary. The
-machine is **no longer at risk**: the OOM was a specific bug (below), now fixed,
-and unambiguous input is bounded.
-
-What remains is **non-gating deferred robustness** (lazy enumeration + strict
-short-circuit) — see "Remaining work". The separate performance effort lives in
+**Status: CLOSED (2026-06-26).** Feature complete; the two deferred robustness
+refinements — **lazy enumeration** and the **strict short-circuit** — are now
+implemented (see "Remaining work", both ✅). The recogniser, forest, public API,
+reduce path, tests, and the memory fix were already done. `ruff` + `pyright` are
+clean and `uv run pytest tests/ -q` is green (**1126 passed**), including the ABNF
+self-host fixpoint (`test_abnf_2.py`) — the correctness canary. (Pylint sits at
+9.99/10 from a `duplicate-code` between two test-only grammar builders; non-gating,
+explicitly deferred.) Only **docs/wiki** and a scratch-file cleanup confirmation
+remain — both non-code; see Housekeeping. The separate performance effort lives in
 `HANDOVER_OPTIMIZATIONS.md`.
 
 ---
@@ -118,49 +118,55 @@ every family.
 
 ---
 
-## Remaining work — deferred robustness (non-gating)
+## Remaining work — ✅ COMPLETE (2026-06-26)
 
-With the nullable fix, **unambiguous** input yields exactly one family per node and
-is memory-safe under the current eager enumeration, so these two refinements were
-deferred. They matter only for **ambiguous** input, where the derivation count can
-be exponential (e.g. Catalan growth for `S = S S / "a"`).
+Both deferred refinements landed. They mattered only for **ambiguous** input, where
+the derivation count can be exponential (Catalan growth for `S = S S / "a"`).
 
-### 1. Lazy prefix enumeration (`forest.py` `Prefixes.eval`)
-Today `Prefixes.eval` materialises the entire `itertools.product` of all families
-at every node into an eager `IrSeq(*prefixes)`. For an ambiguous parse this
-realises the whole forest into memory. Make it **stream** (generators) so
-`derivations()` yields lazily and a caller can stop early.
-- **Constraint:** keep the unambiguous single-derivation path byte-identical (the
-  ABNF fixpoint canary must stay green).
-- **Constraint:** preserve sharing + cycle termination. `ForestCtx.memo` currently
-  caches a realised `IrSeq` per `(item, end)` and seeds `IrSeq(IrSeq())` before
-  recursing to break cycles; a lazy rework must keep both (a shared sub-handle
-  expanded once; cyclic recursion terminating) without re-expanding shared
-  sub-handles or caching a half-consumed generator.
+### 1. Lazy prefix enumeration (`forest.py`) — ✅ DONE
+`Prefixes.eval` now returns a **memoised `IrStream` per handle** instead of an eager
+`IrSeq(*prefixes)`; the `FamilyPrefixes` source node drives the family product
+lazily via `__iter__` (no closures — behaviour on node dunders). Key shape changes:
+- **`ForestCtx` IS-A `IrMultiMap`** `[(item,end) → IrStream]` (chart on tuple slot 1),
+  replacing the prior `dict` memo — per the directive "prefer the class itself be an
+  IrMultiMap over a dict attr". Each handle's stream is filed once.
+- **Cycle termination** moved onto `IrStream`'s `DRIVING` state: a re-entrant
+  iteration replays the `_on_cycle` empty-prefix sentinel `(IrSeq(),)`, reproducing
+  the old `IrSeq(IrSeq())` seed. Span-disjointness ⇒ a handle is only re-entered
+  during its own expansion on a genuine empty-span (nullable) cycle.
+- `IrStream[T]` is generic (root-cause typing fix, no casts); the lazy child seam is
+  `CHILD_STREAMS` (`ChildStream` for sub-nodes → `DERIVATION_STREAM`, `LiteralStream`
+  for terminals). Eager `CHILD_TREES`/`Derivations` kept for the ALL-derivations
+  contract. Unambiguous path stays byte-identical (ABNF fixpoint green).
+- **Partial-consumption invariant** (documented on `IrStream`): a driving consumer
+  must exhaust or abandon the *whole* read; a half-consumed stream must not be
+  re-iterated by an independent consumer (its suspended `DRIVING` would be misread
+  as a cycle). All current callers honour this.
 
-### 2. Strict `parse()` / `is_ambiguous()` short-circuit
-`BuildTree.eval` (the strict façade, behind the `Parse` node) enumerates
-**everything** via `DERIVATIONS` and only then checks `len(trees) > 1` — so it pays
-the full (potentially exponential) enumeration just to discover "ambiguous".
-`IsAmbiguous` has the same flaw (`len(derivations(...)) > 1`). Make both detect
-">1 derivation" **without** full enumeration: walk families lazily and stop at the
-second derivation (or build the single derivation greedily and raise the moment a
-second family appears). Never materialise the full product to return one tree or to
-decide ambiguity.
+### 2. Strict `parse()` / `is_ambiguous()` short-circuit — ✅ DONE
+`BuildTree.eval` and `IsAmbiguous.eval` now take only the **first two** derivations
+from the lazy `DERIVATION_STREAM` via early-return loops — `parse()` returns the sole
+tree or raises on the 2nd; `is_ambiguous()` returns `1` the instant a 2nd appears.
+No full enumeration. `Derivations`/`Enumerate` (`derivations()`) still realise fully
+(their contract).
 
-These compose: once `Prefixes` is lazy, both short-circuits are "take the first two
-lazily". Suggested order: lazy `Prefixes` first, then `parse` / `is_ambiguous` on
-top.
+**Evidence (guarded subprocess, `RLIMIT_AS` + wall-clock):** `parse(s=ss/a, 'a'*40)`
+raises in ~18 ms, `is_ambiguous` → 1 in ~17 ms; eager `derivations('a'*30)` OOMs at
+1 GiB — laziness is load-bearing. See `tests/performance/` (marker `performance`).
 
-**Independent of `HANDOVER_OPTIMIZATIONS.md`:** F1 (left-recursion / the O(n²)
-chart-construction scaling) is about *building* the chart; this is about *reading*
-the forest. They don't conflict.
+**Independent of `HANDOVER_OPTIMIZATIONS.md`:** F1 (left-recursion / O(n²)
+chart-construction) is about *building* the chart; this was about *reading* the
+forest. They don't conflict.
 
-### Housekeeping
-- Wiki + `log.md` not yet updated for the new public API / dropping the
-  "unambiguous-only" caveats (CLAUDE.md asks for this).
-- Repo-root scratch files `_t1.py`, `bench_parsing.py`, `_validate_radix.py` are
-  still present — confirm before deleting.
+### Housekeeping — remaining (non-code)
+- **Wiki + `log.md`** not yet updated for the new lazy-forest API (`IrStream`,
+  `ForestCtx`-as-`IrMultiMap`, short-circuit semantics) — deferred docs.
+- **Scratch files** `_t1.py`, `_validate_radix.py` at repo root — confirm before
+  deleting. **Keep `bench_parsing.py`** — it is the optimization benchmark harness
+  (`HANDOVER_OPTIMIZATIONS.md`).
+- **Working-tree note (2026-06-26):** the lazy src (`forest.py`, `engine.py`) plus
+  partial tests were captured in commit `799590f` ("wip"); the `tests/performance/`
+  suite, the `performance` pytest marker, and remaining test edits are **unstaged**.
 
 ---
 

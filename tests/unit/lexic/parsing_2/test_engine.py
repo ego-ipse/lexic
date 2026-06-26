@@ -21,13 +21,18 @@ round-trip proofs.
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
+import lexic.parsing_2.engine as engine_mod
+import lexic.parsing_2.forest as forest_mod
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import (
     IrInt,
     IrNone,
     IrNoneType,
+    IrSelf,
     IrSeq,
     IrStr,
     IrTuple,
@@ -56,7 +61,11 @@ from lexic.parsing_2 import (
 )
 from lexic.parsing_2.engine import (
     ACCEPT,
+)
+from lexic.parsing_2.engine import ACCEPTING as _ACCEPTING
+from lexic.parsing_2.engine import (
     BUILD_CHART,
+    IS_AMBIGUOUS,
     MATCHES,
     NULLABLE,
     RULE_INDEX,
@@ -66,7 +75,13 @@ from lexic.parsing_2.engine import (
     NullableRules,
     RuleIndex,
 )
-from lexic.parsing_2.forest import SppfNode
+from lexic.parsing_2.forest import (
+    DERIVATIONS,
+    DerivationStream,
+    IrStream,
+    SppfNode,
+)
+from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.normalize import (
     desugar_quantifiers,
     flatten_groups,
@@ -523,3 +538,103 @@ def test_transitively_nullable_unambiguous():
     result = derivations(g, "a")
     assert len(result) == 1
     assert not is_ambiguous(g, "a")
+
+
+# ── IsAmbiguous short-circuit ─────────────────────────────────────────
+
+
+def _make_exploding_deriv_stream(t1: ParseTree, t2: ParseTree) -> DerivationStream:
+    """Build a DerivationStream that raises AssertionError if driven past 2 elements."""
+
+    class _ExplodingDerivStream(DerivationStream):
+        def eval(self, d: IrSelf, n: IrSelf, nc: object, /) -> IrStream[ParseTree]:
+            def _src():
+                yield t1
+                yield t2
+                raise AssertionError("over-enumerated: drove past 2 derivations")
+
+            return IrStream(_src())
+
+    return _ExplodingDerivStream()
+
+
+def test_is_ambiguous_short_circuits(sss_grammar: IrAst) -> None:
+    """is_ambiguous stops after the 2nd derivation and does not drive a 3rd element.
+
+    An exploding source raises AssertionError if iterated past 2 elements.
+    We assert IrInt(1) is returned, NOT AssertionError — proving early exit.
+    """
+    parser = EarleyParser()
+    chart, item = _ACCEPTING.eval(parser, sss_grammar, IrTuple(IrStr("aaa")))
+    ds = DERIVATIONS.eval(parser, SppfNode(cast(EarleyItem, item), 3), IrTuple(chart))
+    exploding = _make_exploding_deriv_stream(ds[0], ds[1])
+    orig_forest = forest_mod.DERIVATION_STREAM
+    orig_engine = engine_mod.DERIVATION_STREAM
+    forest_mod.DERIVATION_STREAM = exploding
+    engine_mod.DERIVATION_STREAM = exploding
+    try:
+        result = IS_AMBIGUOUS.eval(parser, sss_grammar, IrTuple(IrStr("aaa")))
+        assert result == IrInt(1)
+    finally:
+        forest_mod.DERIVATION_STREAM = orig_forest
+        engine_mod.DERIVATION_STREAM = orig_engine
+
+
+def test_is_ambiguous_counts(
+    digit_grammar: IrAst,
+    expr_grammar: IrAst,
+    sss_grammar: IrAst,
+    expr_plus_grammar: IrAst,
+) -> None:
+    """is_ambiguous truthiness matches reality across several grammars and inputs."""
+    assert not is_ambiguous(digit_grammar, "5")
+    assert not is_ambiguous(expr_grammar, "(5)")
+    assert not is_ambiguous(digit_grammar, "z")
+    assert is_ambiguous(sss_grammar, "aaa")
+    assert is_ambiguous(expr_plus_grammar, "a+a+a")
+
+
+# ── Catalan oracle — parametrized derivation count ────────────────────
+
+_CATALAN = [1, 1, 2, 5, 14, 42, 132]
+"""Catalan(n-1) for n in 1..7: exact derivation count for sss 'a'*n."""
+
+
+@pytest.mark.parametrize("n,expected", list(enumerate(_CATALAN, start=1)))
+def test_derivations_matches_catalan(sss_grammar: IrAst, n: int, expected: int) -> None:
+    """len(derivations(sss, 'a'*n)) == Catalan(n-1) for n in 1..7."""
+    result = derivations(sss_grammar, "a" * n)
+    assert len(result) == expected
+
+
+# ── Round-trip: flattened tree text equals original input ─────────────
+
+
+def _tree_to_text(node: object) -> str:
+    """Recursively flatten a ParseTree to its original text."""
+    if isinstance(node, ParseTree):
+        return "".join(_tree_to_text(k) for k in node.kids)
+    if isinstance(node, IrLiteral):
+        return str(node)
+    return ""
+
+
+@pytest.mark.parametrize(
+    "grammar_name,text",
+    [
+        ("digit", "7"),
+        ("expr", "(3)"),
+        ("expr", "((5))"),
+        ("expr", "9"),
+    ],
+)
+def test_parse_single_derivation_unambiguous_roundtrip(
+    grammar_name: str,
+    text: str,
+    digit_grammar: IrAst,
+    expr_grammar: IrAst,
+) -> None:
+    """parse(g,t) produces a tree whose flattened text equals the original input."""
+    grammar = digit_grammar if grammar_name == "digit" else expr_grammar
+    tree = parse(grammar, text)
+    assert _tree_to_text(tree) == text

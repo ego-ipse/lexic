@@ -17,6 +17,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from tests._ir_fixtures import sss_grammar as _sss_grammar
 
 
 @pytest.fixture
@@ -47,14 +48,7 @@ def sss_grammar() -> IrAst:
     Over 'aaa' this has exactly 2 derivations (Catalan C_2):
     ``(s(s(a) s(a)) s(a))`` and ``(s(a) s(s(a) s(a)))``.
     """
-    s_rule = IrRule(
-        "s",
-        IrAlternation(
-            IrSequence(IrItem(IrRuleRef("s")), IrItem(IrRuleRef("s"))),
-            IrSequence(IrItem(IrLiteral("a"))),
-        ),
-    )
-    return IrAst(rules=IrSeq(s_rule), start="s")
+    return _sss_grammar()
 
 
 @pytest.fixture

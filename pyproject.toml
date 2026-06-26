@@ -38,6 +38,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 pythonpath = ["src"]
+markers = ["performance: timing/scaling benchmarks for parsing_2"]
 
 [tool.pyright]
 pythonVersion = "3.14"

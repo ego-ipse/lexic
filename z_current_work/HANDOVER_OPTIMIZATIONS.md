@@ -1,5 +1,34 @@
 # Handover — `parsing_2` performance optimizations
 
+> ## Update (2026-06-26) — SPPF fully CLOSED; F1 is unblocked and is the next piece
+>
+> `HANDOVER_SPPF.md` is **CLOSED**. Beyond the recogniser/forest/API work, the two
+> deferred robustness items also landed: the forest *read* path is now **lazy**
+> (`IrStream`, `ForestCtx`-as-`IrMultiMap`, `FamilyPrefixes`/`DerivationTrees`
+> source nodes) and `parse()`/`is_ambiguous()` **short-circuit** at the 2nd
+> derivation. Suite green (**1126 passed**, ABNF fixpoint canary included; pyright
+> clean; pylint 9.99 from a test-only `duplicate-code`, non-gating).
+>
+> **This does NOT touch F1's path.** Laziness is the forest *read*; F1 is the chart
+> *build* (`normalize.py` right-recursion → O(n²)). They are orthogonal — F1's plan
+> and the reducer child-order follow-up below are unchanged.
+>
+> **Benchmark baselines captured for F1 comparison** (new suite `tests/performance/`,
+> marker `performance`; run `uv run python bench_parsing.py` *and*
+> `uv run pytest tests/performance -m performance -s -v`):
+> - **`rep_grammar` (right-recursive `list = elem list / elem`, the O(n²) baseline F1
+>   targets), parse time:** n=50 → 0.0054 s, 100 → 0.0261 s, 200 → 0.0653 s,
+>   400 → 0.2322 s. Super-linear today; F1 should flatten this toward linear.
+>   *(Hand-built IrAst, not the `normalize.py` pipeline — representative shape.)*
+> - **Lazy short-circuit (proves the read path is no longer the bottleneck):**
+>   `parse(s=ss/a, 'a'*40)` raises ambiguous in ~18 ms; `is_ambiguous` → 1 in ~17 ms;
+>   eager `derivations('a'*30)` OOMs at 1 GiB (guarded). Short-circuit scaling on
+>   sss: n=10 → 1.1 ms, 20 → 3.1 ms, 40 → 17 ms, 80 → 145 ms.
+> - Re-baseline `bench_parsing.py` (Lark vs `parsing_2`) before starting F1 — numbers
+>   in the report below predate the SPPF rewrite.
+>
+> ---
+
 > ## Update (2026-06-25) — SPPF has landed; this is now the next piece
 >
 > The prerequisite is satisfied: the SPPF ambiguity work in `HANDOVER_SPPF.md` is

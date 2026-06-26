@@ -4,8 +4,17 @@ from __future__ import annotations
 
 from typing import Iterable, Literal
 
-from lexic.ir.base import IrNone
-from lexic.ir.nodes import IrItem, IrQuantifier
+from lexic.ir.base import IrNone, IrSeq
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrItem,
+    IrLiteral,
+    IrQuantifier,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+)
 from lexic.ir.spec import RuleSpec
 
 REQ = IrQuantifier(1, 1)
@@ -18,6 +27,21 @@ Kind = Literal["sequence", "alternation", "value_str"]
 def item(atom, q: IrQuantifier = REQ) -> IrItem:
     """Create an IrItem with the given atom and quantifier."""
     return IrItem(atom=atom, quantifier=q)
+
+
+def sss_grammar() -> IrAst:
+    """Genuinely ambiguous: s = s s / 'a'.
+
+    Over 'aaa' this has exactly 2 derivations (Catalan C_2).
+    """
+    s_rule = IrRule(
+        "s",
+        IrAlternation(
+            IrSequence(IrItem(IrRuleRef("s")), IrItem(IrRuleRef("s"))),
+            IrSequence(IrItem(IrLiteral("a"))),
+        ),
+    )
+    return IrAst(rules=IrSeq(s_rule), start="s")
 
 
 def spec(
