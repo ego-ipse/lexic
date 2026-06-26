@@ -1,3 +1,68 @@
+# ⛔ ROUND-3 CORRECTION — F1 is net-SLOWER on the suite; root cause found (2026-06-26)
+
+**F1 (left-recursive `*`/`+`) was implemented and is measurably slower across the
+full suite (3/3 runs).** The round-2 SHIP recommendation below is WRONG for the
+real workload. Root cause is established with deterministic counts + one-process
+noise-free timing:
+
+**Why.** Left desugaring makes the synthetic repetition rule **nullable AND
+self-predicting**:
+
+```
+right:  R = "" / unit R      left (F1):  R = "" / R unit
+```
+
+Entering a left-recursive repetition pays a fixed tax every time: `R` is nullable,
+so predicting it fires the expensive **Aycock-Horspool branch** in `Predict.eval`
+(`ops.py:148-160`), and the recursive arm `·R unit` **re-predicts `R` itself** —
+a second nullable-predict. Right's arm `·unit R` faces a terminal first, so it
+neither self-predicts nor doubles the nullable-predict. This tax is per
+repetition-*occurrence*, i.e. **linear in input**, and the O(n²)→O(n) completer
+win only repays it once a repetition matches **≥2 elements**.
+
+**Data (one process, deterministic counts + median timing):**
+
+| N matched | right items/compl/nullpred/links | left items/compl/nullpred/links | time left/right |
+|---|---|---|---|
+| 0 | 4 / 2 / 1 / 1 | 5 / 2 / 2 / 2 | **1.32× slower** |
+| 1 | 9 / 5 / 2 / 4 | 8 / 4 / 2 / 5 | 1.03× slower |
+| 2 | 15 / 9 / 3 / 8 | 11 / 6 / 2 / 8 | 0.86× (crossover) |
+| 4 | 30 / 20 / 5 / 19 | 17 / 10 / 2 / 14 | 0.67× |
+
+Real ABNF self-parse: F1 = **+23% nullable-facing predicts** (3652→4479 at x1),
+the single most expensive op (inside the #1 hotspot `Predict.eval`). Reduce tree
+is byte-identical (so reduce is unaffected; the round-2 "reduce regressed" came
+from a broken `min(parse+reduce)−min(parse)` metric).
+
+```
+cost_right ≈ a·L + b·L²     cost_left ≈ a'·L   (a' > a)
+```
+
+F1 deletes `b·L²` but **raises the linear coefficient**. The suite is dominated by
+repetitions matching 0–2 items (`*WSP`, `1*DIGIT`, short lists), so it pays the
+higher base far more often than it collects the quadratic dividend → net slower.
+
+Measurement harnesses (main checkout, untracked): `z_current_work/crossover.py`
+(one-process crossover N=0..8), `z_current_work/count_abnf.py` (deterministic
+op/nullpred counts), `z_current_work/reduce_isolated.py` (isolated phase timing,
+median+stdev). **Do not trust `bench_parsing.py`'s `reduce=` column** (diff of
+minimums). ABNF fixpoint (`run_earley` prints `Earley fixpoint == ABNF_GRAMMAR`)
+is the correctness canary.
+
+**Round-3 program (two parallel worktree spikes, in progress):**
+1. **Lower the base cost** so left-recursion never loses: cheaper AH branch
+   (helps both shapes), non-nullable left-rec desugaring for `*`, memoize
+   `Expand.eval`, and/or conditional F1. Goal: ≥ right on the suite, keep the
+   asymptotic win.
+2. **Character-indexed scanning**: memoize char → accepting-terminal subset so
+   `ScanColumn` only advances items whose terminal can match the current char,
+   instead of calling `Matches` on every item.
+
+The round-2 body below is retained for context but is **superseded** wherever it
+recommends F1 as a ship.
+
+---
+
 # Handover — `parsing_2` performance, exploratory round 2 (2026-06-26)
 
 **Status:** four parallel exploratory agents ran (each in an isolated worktree),
