@@ -49,14 +49,97 @@ median+stdev). **Do not trust `bench_parsing.py`'s `reduce=` column** (diff of
 minimums). ABNF fixpoint (`run_earley` prints `Earley fixpoint == ABNF_GRAMMAR`)
 is the correctness canary.
 
-**Round-3 program (two parallel worktree spikes, in progress):**
-1. **Lower the base cost** so left-recursion never loses: cheaper AH branch
-   (helps both shapes), non-nullable left-rec desugaring for `*`, memoize
-   `Expand.eval`, and/or conditional F1. Goal: ≥ right on the suite, keep the
-   asymptotic win.
-2. **Character-indexed scanning**: memoize char → accepting-terminal subset so
-   `ScanColumn` only advances items whose terminal can match the current char,
-   instead of calling `Matches` on every item.
+## Round-3 program — TWO SUBAGENT SPIKES (next up)
+
+### Baseline & environment
+- Branch `parse_proto_proto`, baseline **1126 passed, fully green**:
+  `uv run pytest tests/ -q -p no:randomly`. Run it FIRST to confirm green before
+  editing; any new failure is the change's own fault. No pre-existing failures.
+- `generated/*.py` shows as modified in `git status` — git-ignored build
+  artifacts the suite regenerates. EXPECTED NOISE, never hand-edit, ignore.
+- Always prefix `uv run`. Never `git commit`. The ABNF self-host fixpoint is the
+  correctness canary: `ABNF_REDUCER.apply(parse(NORM, text)) == ABNF_GRAMMAR`.
+
+### Shared constraints (review-blocking without written justification)
+IrSelf purity (behaviour on classes via `eval`/dunders; per-parse mutable state
+in a cursor like `ParseCtx`; prefer a class being an `IrMultiMap` over a `dict`
+attr). No `# type: ignore`/`# noqa`/`# pylint: disable`; no `exec`/`eval`. No
+grammar-specific hardcoding in generic code. Suite must end at 1126 passed.
+
+### Measurement methodology (the round-2 agent FAILED on bad benchmarking)
+Median+stdev over many trials, or deterministic counts. **NEVER** a difference of
+two independent minimums (that produced round-2's bogus "reduce regressed").
+**Do not trust `bench_parsing.py`'s `reduce=` column.** Three harnesses to build:
+
+**(A) One-process crossover** (no cross-run noise) — time
+`RECOGNIZE.eval(EarleyParser(), grammar, IrTuple(IrStr("a"*n)))` gc-disabled,
+median of many iters, at N=0,1,2,3,4,8:
+```python
+from lexic.ir.base import IrSeq, IrStr, IrTuple
+from lexic.ir.nodes import IrAlternation, IrAst, IrItem, IrLiteral, IrRule, IrRuleRef, IrSequence
+from lexic.parsing_2.engine import RECOGNIZE, EarleyParser
+A=IrItem(IrLiteral("a")); R=IrItem(IrRuleRef("R"))
+def g(left):
+    rec=IrSequence(R,A) if left else IrSequence(A,R)
+    return IrAst(rules=IrSeq(IrRule("S",IrAlternation(IrSequence(R))),
+                IrRule("R",IrAlternation(IrSequence(),rec))), start="S")
+```
+**(B) Deterministic op counts** — `from lexic.parsing_2.engine import BUILD_CHART, NULLABLE`;
+`ch=BUILD_CHART.eval(P,grammar,IrTuple(IrStr(text)))`; iterate `ch[i]` items
+counting total, completed (`it.dot>=len(it.arm)`), ruleref-facing, nullable-facing
+(`it.arm[it.dot].atom in NULLABLE.eval(P,grammar,())`);
+`links=sum(len(ch.links[k]) for k in ch.links._table)`.
+**(C) Real ABNF self-host, phases ISOLATED** —
+`from lexic.grammars.abnf_2 import ABNF_GRAMMAR, ABNF_REDUCER`;
+`from lexic.grammars.abnf import ABNF_FLAVOUR`; `text=str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))`;
+`from lexic.parsing_2.normalize import flatten_groups, desugar_quantifiers, split_literals`;
+`NORM=split_literals(desugar_quantifiers(flatten_groups(ABNF_GRAMMAR)))`;
+`from lexic.parsing_2 import parse, recognize`. Parse the tree ONCE then fold it
+repeatedly to time reduce in isolation. x1/x2/x4 = `text*mult`. Fixpoint canary
+must stay True. Full suite ×3 (first run is a cold outlier; compare warm).
+
+### Spike 1 — lower F1's base cost (`f1-base-cost`)
+Goal: get the O(n²)→O(n) repetition win WITHOUT the linear base regression —
+≥ right-recursion on the suite, faster on long reps. Files: `normalize.py`
+(`Expand.eval`), `ops.py` (`Predict.eval`), `engine.py` (`NullableRules`).
+Strategies, measure each, keep winners:
+1. **Cheaper Aycock-Horspool branch** (`ops.py` Predict.eval nullable branch
+   ~148-160) — the #1 hotspot, helps BOTH recursion shapes. (a) Drop the runtime
+   `cast(Sequence[IrSelf], arm)` (`Sequence[IrSelf]` is re-evaluated through
+   typing's generic-alias cache every call; `arm` is already iterable). (b)
+   Precompute per-rule the empty-deriving arms ONCE at `NullableRules` time, store
+   as an `IrMultiMap` ref→empty-arms threaded via `ParseCtx`, replacing the
+   per-call `all(...)` generator over every arm.
+2. **Non-nullable left-recursive `*` desugaring** — nullability is what triggers
+   AH. Desugar `*X` so the recursive rule is NOT nullable: left-recursive `+`
+   (`Rplus = unit / Rplus unit`) plus optionality lifted to the use site. Verify
+   reduce splice + ParseTree round-trip + ABNF fixpoint.
+3. **Memoize `Expand.eval`** to O(1): share one synthetic rule across identical
+   `(atom, lo, hi)` quantified items.
+4. **Conditional F1**: left-recurse only where it strictly wins (per crossover,
+   `+`/`*` over a single TERMINAL/charclass unit wins even at N=0-1; nullable-unit
+   / general cases lose at small N). Clean general heuristic only. Document it.
+
+Honest outcome may be "keep right-recursion + cheaper AH branch" if F1 can't be
+made to pay off. Deliverable: `zz_current_work/SPIKE_f1_base_cost.md`.
+
+### Spike 2 — character-indexed scanning (`char-indexed-scan`)
+`ScanColumn.eval` (`engine.py` ~214-241) calls `MATCHES.eval` on EVERY column
+item; ~67% face rulerefs (always a no-op) and many terminals reject the char.
+Each terminal atom (`IrLiteral` 1 char; `IrCharClass` of `IrRange`/`IrChr`)
+accepts a fixed char set. Strategies:
+1. **Char→accepting-terminal index, memoized**: first time char `c` is scanned,
+   compute which terminal atoms accept it and cache; thereafter O(1). `ScanColumn`
+   advances only items whose dot-atom is in that set.
+2. **Per-column scannable index**: `Column.__iadd__` already files ruleref-facing
+   items into `waiting`; ALSO file terminal-facing items by next-atom so the
+   scanner reads only terminal items (the "scan-guard" generalized; cheap, shape-
+   independent).
+3. Combine. The index MUST be an IrSelf construct (`IrLeaf`/`IrMultiMap`, per-parse
+   state in a cursor), not a free function/dict attr. Prove the win by counting
+   `MATCHES.eval` calls before/after (monkeypatch a counter in the harness) plus
+   recognize timing on ABNF + a charclass-heavy grammar. Deliverable:
+   `zz_current_work/SPIKE_char_indexed_scan.md`.
 
 The round-2 body below is retained for context but is **superseded** wherever it
 recommends F1 as a ship.

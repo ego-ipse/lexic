@@ -11,7 +11,6 @@ input element so the extra linear term is visible, not the asymptotics.
 
 from __future__ import annotations
 
-
 from lexic.ir.base import IrSeq, IrStr, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
