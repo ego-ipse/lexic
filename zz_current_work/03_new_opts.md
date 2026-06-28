@@ -456,13 +456,13 @@ def opt_complete_clean(self, _d, _n, nc, /):
 ### Measured delta (combined)
 
 | input | baseline recognize | optimized recognize | speedup |
-|-------|-------------------|--------------------|---------| 
+|-------|-------------------|--------------------|---------|
 | x1 | 93.3 ms | 83.2 ms | **1.12x** |
 | x2 | 191.1 ms | 168.9 ms | **1.13x** |
 | x4 | 452.0 ms | 358.0 ms | **1.11x** |
 
 | input | baseline parse+red | optimized parse+red | speedup |
-|-------|-------------------|--------------------|---------| 
+|-------|-------------------|--------------------|---------|
 | x4 | 631.0 ms | 530.7 ms | **1.07x** |
 
 Correctness verified: ABNF fixpoint `earley_ir == ABNF_GRAMMAR` holds after patching.

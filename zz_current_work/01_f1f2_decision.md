@@ -1,8 +1,8 @@
 # F1 / F2 / F1+F2 / F3 Decision — `parsing_2` Algorithmic Direction
 
-**Date:** 2026-06-26  
-**Branch:** parse_proto_proto (post-SPPF; 1126 tests passing)  
-**Methodology:** All contenders actually prototyped and measured. Source: `z_current_work/f1f2_bench.py` + `z_current_work/leo_waiter_analysis.py`.  
+**Date:** 2026-06-26
+**Branch:** parse_proto_proto (post-SPPF; 1126 tests passing)
+**Methodology:** All contenders actually prototyped and measured. Source: `z_current_work/f1f2_bench.py` + `z_current_work/leo_waiter_analysis.py`.
 **Verdict:** **Ship F1 (left-recursive desugaring) alone.** F2 (Leo) is theoretically sound but requires substantially more implementation to close the item-count gap; it does not reduce item counts without the full transitive-chain mechanism, and even then it only helps hand-authored right-recursive grammars. F3 (predict-dedup) is a minor complementary win.
 
 ---
