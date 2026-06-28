@@ -1,23 +1,24 @@
-"""Fast map family — a common ``IrMapping`` ancestor owning the lookup protocol.
+"""Fast map family — a common ``IrMapping`` ancestor owning all shared logic.
 
 Drop-in replacement for :mod:`~lexic.ir.mapping` (does **not** import from it —
 :data:`IR_DEFAULT` is duplicated so this module stands alone and can supersede
-the original by a file rename). One ancestor owns everything shared; both
-concrete maps read at the backing-dict floor.
+the original by a file rename). The ancestor owns the whole read/eval surface
+over a single ``_table`` slot; the concrete maps add only construction and the
+one read that genuinely differs (bucket vs value).
 
-- :class:`IrMapping` — common ancestor on :class:`~lexic.ir.base.IrLeaf`. Owns the
-  backing ``dict`` (``_table`` slot), the frozen attribute surface, and the whole
-  lookup protocol: ``__contains__``, ``get``, ``__len__``, ``resolve``
-  (with :data:`IR_DEFAULT` fallback) and ``eval``. It defines **no**
-  ``__getitem__`` — that is the one read shape the siblings differ on.
-- :class:`IrMap` — immutable key→value map. ``m[key]`` is a single ``_table.get``;
-  dyads ride in ``_items`` for iteration/repr/views; structural equality.
+- :class:`IrMapping` — common ancestor on :class:`~lexic.ir.base.IrLeaf`, generic
+  over ``[K, V, R]`` (key, eval-value, read-return). Owns ``_table``, empty
+  construction, the frozen surface, ``__getitem__`` (value, raise on miss — the
+  mapping default), ``__contains__`` / ``get`` / ``__len__`` / ``keys`` /
+  ``values`` / ``items`` / ``__iter__`` / ``__repr__``, the eval protocol
+  (``resolve`` + ``eval``), and structural ``__eq__`` / ``__ne__`` / ``__hash__``.
+- :class:`IrMap` — immutable key→value map (``R = V``); adds only the dyad-indexing
+  ``__new__``.
 - :class:`IrTypeMap` — type-keyed dispatch; overrides ``resolve`` for the
   ``type(n).__mro__`` walk (exact-type ``_table.get`` fast path first).
-- :class:`IrMultiMap` — mutable multi-valued map. ``mm[key]`` returns the **live**
-  bucket (no snapshot copy); ``mm += (k, v)`` files in O(1) into the same
-  ``_table`` slot (so ``Links``/``Column.waiting`` subclasses are unchanged);
-  identity equality.
+- :class:`IrMultiMap` — mutable multi-valued map (``R = Sequence[V]``); ``mm[key]``
+  overrides to return the **live** bucket (``()`` on a miss, no raise, no copy),
+  ``mm += (k, v)`` files in O(1). Identity equality.
 """
 
 from __future__ import annotations
@@ -54,18 +55,25 @@ IR_DEFAULT = _IrMapDefault()
 :meth:`IrMapping.resolve` resolves to it instead of raising."""
 
 
-class IrMapping[K, V: IrSelf](IrLeaf[IrSelf, IrSelf]):
-    """Common ancestor of the map family — owns the lookup protocol over ``_table``.
+class IrMapping[K, V: IrSelf, R](IrLeaf[IrSelf, IrSelf]):
+    """Common ancestor of the map family — owns the whole surface over ``_table``.
 
-    Holds the backing ``dict`` in the ``_table`` slot and provides everything both
-    concrete maps share: a frozen attribute surface, key-based ``__contains__`` /
-    ``get`` / ``__len__``, and the eval protocol ``resolve`` (with
-    :data:`IR_DEFAULT` fallback) + ``eval``. It defines no ``__getitem__`` —
-    :class:`IrMap` returns a value, :class:`IrMultiMap` a live bucket.
+    Generic over the key ``K``, the eval-value ``V`` (an :class:`IrSelf`, what
+    :meth:`resolve` yields and :meth:`eval` runs) and the **read return** ``R``
+    (what ``__getitem__`` / ``values`` / ``get`` yield — a value for
+    :class:`IrMap`, a bucket for :class:`IrMultiMap`). The default
+    ``__getitem__`` is the value read (raise on miss); :class:`IrMultiMap`
+    overrides it for live buckets. Subclasses otherwise add only construction.
     """
 
     __slots__ = ("_table",)
     _table: dict[Any, Any]
+
+    def __new__(cls, *_dyads: IrTuple) -> Self:
+        """Seed an empty map. :class:`IrMap` overrides to index its dyads."""
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "_table", {})
+        return obj
 
     def __setattr__(self, name: str, value: object) -> NoReturn:
         """Frozen. :raises TypeError: Always."""
@@ -75,6 +83,17 @@ class IrMapping[K, V: IrSelf](IrLeaf[IrSelf, IrSelf]):
         """Frozen. :raises TypeError: Always."""
         raise TypeError(f"{type(self).__name__} is immutable")
 
+    def __getitem__(self, key: object) -> R:
+        """Value bound to ``key`` (the mapping default — raise on miss).
+
+        :class:`IrMultiMap` overrides this to return a live bucket.
+        :raises IrKeyError: On a miss.
+        """
+        value = self._table.get(key)
+        if value is not None:
+            return value
+        raise IrKeyError(f"{type(self).__name__}: no entry for {key!r}")
+
     def __contains__(self, key: object) -> bool:
         """Whether ``key`` has an entry (key-based, not dyad membership)."""
         return key in self._table
@@ -83,12 +102,28 @@ class IrMapping[K, V: IrSelf](IrLeaf[IrSelf, IrSelf]):
         """Number of entries."""
         return len(self._table)
 
-    def get(self, key: object, default: V | None = None) -> V | None:
-        """Value bound to ``key``, or ``default`` on a miss (never raises)."""
+    def get(self, key: object, default: R | None = None) -> R | None:
+        """Read under ``key``, or ``default`` on a miss (never raises)."""
         return self._table.get(key, default)
 
+    def keys(self) -> KeysView[K]:
+        """Key view over ``_table`` (canonical order for :class:`IrMap`)."""
+        return self._table.keys()
+
+    def values(self) -> ValuesView[R]:
+        """Value view over ``_table``."""
+        return self._table.values()
+
+    def items(self) -> ItemsView[K, R]:
+        """``(key, value)`` view over ``_table``."""
+        return self._table.items()
+
+    def __iter__(self) -> Iterator[IrSelf]:
+        """Iterate dyads reconstructed from ``_table`` (the walk contract)."""
+        return (IrTuple(key, value) for key, value in self._table.items())
+
     def resolve(self, n: IrSelf) -> V:
-        """Value bound to ``n``, with :data:`IR_DEFAULT` fallback.
+        """Eval-value bound to ``n``, with :data:`IR_DEFAULT` fallback.
 
         :raises IrKeyError: On a miss with no :data:`IR_DEFAULT` entry.
         """
@@ -108,70 +143,12 @@ class IrMapping[K, V: IrSelf](IrLeaf[IrSelf, IrSelf]):
         """
         return self.resolve(n).eval(d, n, nc)
 
-
-class IrMap[K, V: IrSelf](IrMapping[K, V]):
-    """Immutable key→value map. ``m[key]`` is a single ``_table.get``.
-
-    ``_items`` (the dyads, canonically sorted by key repr so construction order is
-    irrelevant) drives iteration, repr, and the dict views. ``__iter__`` yields
-    **dyads** — the node IS its children — so ``iter(m)`` is not ``iter(m.keys())``.
-    """
-
-    __slots__ = ("_items",)
-    _items: tuple[IrTuple, ...]
-
-    def __new__(cls, *dyads: IrTuple) -> Self:
-        """Index each dyad by its key; store the canonically sorted dyad tuple.
-
-        :param dyads: ``(key, value)`` records supporting ``d[0]``/``d[1]`` (an
-            :class:`~lexic.ir.base.IrTuple` or an :class:`~lexic.ir.action.IrAction`).
-        :raises UnsupportedConstructError: On a duplicate key.
-        """
-        obj = object.__new__(cls)
-        table: dict[Any, Any] = {}
-        for dyad in dyads:
-            key = dyad[0]
-            if key in table:
-                raise UnsupportedConstructError(
-                    f"{cls.__name__}: duplicate key {key!r}"
-                )
-            table[key] = dyad[1]
-        object.__setattr__(obj, "_table", table)
-        object.__setattr__(
-            obj, "_items", tuple(sorted(dyads, key=lambda d: repr(d[0])))
-        )
-        return obj
-
-    def __getitem__(self, key: object) -> V:
-        """Value bound to ``key``. :raises IrKeyError: On a miss."""
-        value = self._table.get(key)
-        if value is not None:
-            return value
-        raise IrKeyError(f"{type(self).__name__}: no entry for {key!r}")
-
-    def __iter__(self) -> Iterator[IrSelf]:
-        """Iterate dyads (the walk/equality contract — not the key view)."""
-        return iter(self._items)
-
-    def _as_dict(self) -> dict[K, V]:
-        """Plain-dict snapshot of the dyads, in canonical order."""
-        return {d[0]: d[1] for d in self._items}
-
-    def keys(self) -> KeysView[K]:
-        """Key view, canonical order."""
-        return self._as_dict().keys()
-
-    def values(self) -> ValuesView[V]:
-        """Value view, canonical order."""
-        return self._as_dict().values()
-
-    def items(self) -> ItemsView[K, V]:
-        """``(key, value)`` view, canonical order."""
-        return self._as_dict().items()
-
     def __eq__(self, other: object) -> bool:
-        """Structural equality — same concrete type and same table."""
-        if not isinstance(other, IrMap) or type(self) is not type(other):
+        """Structural equality — same concrete type and same table.
+
+        The default for immutable maps; :class:`IrMultiMap` overrides to identity.
+        """
+        if not isinstance(other, IrMapping) or type(self) is not type(other):
             return NotImplemented
         return self._table == other._table
 
@@ -187,8 +164,42 @@ class IrMap[K, V: IrSelf](IrMapping[K, V]):
         return hash(frozenset(self._table.items()))
 
     def __repr__(self) -> str:
-        """Codegen repr — the constructor call over the canonical dyads."""
-        return f"{type(self).__name__}({', '.join(repr(d) for d in self._items)})"
+        """Codegen repr — the entries rendered as ``IrTuple`` dyads.
+
+        ``eval(repr(m))`` reconstructs a structurally equal map (equality is over
+        ``_table``, so the dyad node type is immaterial).
+        """
+        dyads = ", ".join(repr(IrTuple(k, v)) for k, v in self._table.items())
+        return f"{type(self).__name__}({dyads})"
+
+
+class IrMap[K, V: IrSelf](IrMapping[K, V, V]):
+    """Immutable key→value map (``R = V``). Adds only the dyad-indexing
+    constructor; the whole read/eval/equality surface is inherited from
+    :class:`IrMapping`. ``_table`` is built in canonical (key-repr-sorted) order,
+    so the inherited views and repr are order-stable.
+    """
+
+    __slots__ = ()
+
+    def __new__(cls, *dyads: IrTuple) -> Self:
+        """Index each dyad by its key, in canonical order.
+
+        :param dyads: ``(key, value)`` records supporting ``d[0]``/``d[1]`` (an
+            :class:`~lexic.ir.base.IrTuple` or an :class:`~lexic.ir.action.IrAction`).
+        :raises UnsupportedConstructError: On a duplicate key.
+        """
+        obj = object.__new__(cls)
+        table: dict[Any, Any] = {}
+        for dyad in sorted(dyads, key=lambda d: repr(d[0])):
+            key = dyad[0]
+            if key in table:
+                raise UnsupportedConstructError(
+                    f"{cls.__name__}: duplicate key {key!r}"
+                )
+            table[key] = dyad[1]
+        object.__setattr__(obj, "_table", table)
+        return obj
 
 
 class IrTypeMap[Ir_co: IrSelf = IrSelf](IrMap[type, IrSelf]):
@@ -228,25 +239,20 @@ class IrTypeMap[Ir_co: IrSelf = IrSelf](IrMap[type, IrSelf]):
         return self.resolve(n).eval(d, n, nc)
 
 
-class IrMultiMap[K, V: IrSelf](IrMapping[K, V]):
-    """Mutable multi-valued map — a key to its insertion-ordered bucket.
+class IrMultiMap[K, V: IrSelf](IrMapping[K, V, Sequence[V]]):
+    """Mutable multi-valued map (``R = Sequence[V]``) — a key to its bucket.
 
     Engine-internal (the package's mutable-chart exception): the Earley driver's
-    per-column "waiting" index. ``mm += (key, value)`` files in O(1); ``mm[key]``
-    returns the **live** bucket (the backing ``list`` itself, ``()`` on a miss) —
-    no snapshot copy, so the read is at the dict floor. A caller appending while it
-    iterates must index-iterate (a plain ``for`` over a list does, picking up
-    same-pass appends). Identity equality/hash — a mutable map is its own value;
-    never walked, emitted, or reduced as a tree.
+    per-column "waiting" index. Inherits empty construction and the read surface
+    from :class:`IrMapping`; ``mm += (key, value)`` files in O(1) and ``mm[key]``
+    overrides to return the **live** bucket (the backing ``list``, ``()`` on a
+    miss) — no raise, no snapshot copy, so the read is at the dict floor. A caller
+    appending while it iterates must index-iterate (a plain ``for`` over a list
+    does, picking up same-pass appends). Overrides equality to **identity** — a
+    mutable map is its own value; never walked, emitted, or reduced as a tree.
     """
 
     __slots__ = ()
-
-    def __new__(cls, *_dyads: IrTuple) -> Self:
-        """Build an empty mutable map (any positional dyads are ignored)."""
-        obj = object.__new__(cls)
-        object.__setattr__(obj, "_table", {})
-        return obj
 
     def __iadd__(self, entry: tuple[K, V]) -> Self:
         """File ``value`` under ``key`` in O(1), preserving insertion order.
@@ -274,10 +280,6 @@ class IrMultiMap[K, V: IrSelf](IrMapping[K, V]):
     def __eq__(self, other: object) -> bool:
         """Identity equality — a mutable map is its own value."""
         return self is other
-
-    def __ne__(self, other: object) -> bool:
-        """Negation of :meth:`__eq__`."""
-        return self is not other
 
     def __hash__(self) -> int:
         """Identity hash, consistent with identity equality."""
