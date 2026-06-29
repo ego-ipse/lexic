@@ -24,7 +24,7 @@ New symbols tested: ``Link`` (fields: predecessor, predecessor_end, child),
 from __future__ import annotations
 
 from lexic.ir.nodes import IrItem, IrLiteral, IrRuleRef, IrSequence
-from lexic.parsing_2.chart import Chart, Column, Link, Links
+from lexic.parsing_2.chart import Chart, Column, Links
 from lexic.parsing_2.item import EarleyItem
 
 
@@ -160,30 +160,30 @@ def test_chart_columns_are_indexed_by_position():
 
 
 def test_link_has_predecessor_field():
-    """Link.predecessor holds the predecessor EarleyItem."""
+    """Link[0] holds the predecessor EarleyItem."""
     arm = _arm("x")
     pred = _ei("s", arm, dot=0)
     child = IrLiteral("x")
-    link = Link(pred, 0, child)
-    assert link.predecessor is pred
+    link = (pred, 0, child)
+    assert link[0] is pred
 
 
 def test_link_has_predecessor_end_field():
-    """Link.predecessor_end holds the column the predecessor ends at."""
+    """Link[1] holds the column the predecessor ends at."""
     arm = _arm("x")
     pred = _ei("s", arm, dot=0)
     child = IrLiteral("x")
-    link = Link(pred, 5, child)
-    assert link.predecessor_end == 5
+    link = (pred, 5, child)
+    assert link[1] == 5
 
 
 def test_link_has_child_field():
-    """Link.child holds the node consumed to advance the dot."""
+    """Link[2] holds the node consumed to advance the dot."""
     arm = _arm("x")
     pred = _ei("s", arm, dot=0)
     child = IrLiteral("x")
-    link = Link(pred, 0, child)
-    assert link.child is child
+    link = (pred, 0, child)
+    assert link[2] is child
 
 
 # ── Links table ───────────────────────────────────────────────────────
@@ -204,7 +204,7 @@ def test_links_setitem_and_getitem():
     item = _ei("s", arm, dot=1)
     pred = _ei("s", arm, dot=0)
     child = IrLiteral("x")
-    link = Link(pred, 0, child)
+    link = (pred, 0, child)
     links += ((item, 1), link)
     assert links[(item, 1)][0] is link
 
@@ -214,7 +214,7 @@ def test_links_contains_after_setitem():
     links = Links()
     arm = _arm("y")
     item = _ei("r", arm, dot=1)
-    link = Link(item, 0, IrLiteral("y"))
+    link = (item, 0, IrLiteral("y"))
     key = (item, 1)
     links += (key, link)
     assert key in links
@@ -239,13 +239,13 @@ def test_chart_links_can_be_written_and_read_as_link_record():
     item = _ei("s", arm, dot=1)
     pred = _ei("s", arm, dot=0)
     child = IrLiteral("x")
-    link = Link(pred, 0, child)
+    link = (pred, 0, child)
     chart.links += ((item, 1), link)
     families = chart.links[(item, 1)]
     retrieved = families[0]
-    assert retrieved.predecessor is pred
-    assert retrieved.predecessor_end == 0
-    assert retrieved.child is child
+    assert retrieved[0] is pred
+    assert retrieved[1] == 0
+    assert retrieved[2] is child
 
 
 # ── Links multi-family (SPPF packed families) ─────────────────────────
@@ -259,8 +259,8 @@ def test_links_multi_family_two_distinct_links():
     pred_a = _ei("s", arm, dot=0)
     pred_b = _ei("r", arm, dot=0)
     child = IrLiteral("x")
-    link_a = Link(pred_a, 0, child)
-    link_b = Link(pred_b, 0, child)
+    link_a = (pred_a, 0, child)
+    link_b = (pred_b, 0, child)
     key = (item, 1)
     links += (key, link_a)
     links += (key, link_b)
@@ -274,7 +274,7 @@ def test_links_multi_family_dedup_identical():
     item = _ei("s", arm, dot=1)
     pred = _ei("s", arm, dot=0)
     child = IrLiteral("x")
-    link = Link(pred, 0, child)
+    link = (pred, 0, child)
     key = (item, 1)
     links += (key, link)
     links += (key, link)
@@ -290,8 +290,8 @@ def test_links_getitem_returns_live_bucket():
     pred_a = _ei("s", arm, dot=0)
     pred_b = _ei("r", arm, dot=0)
     child = IrLiteral("x")
-    link_a = Link(pred_a, 0, child)
-    link_b = Link(pred_b, 0, child)
+    link_a = (pred_a, 0, child)
+    link_b = (pred_b, 0, child)
     key = (item, 1)
     links += (key, link_a)
     live = links[key]  # live bucket reference — 1 entry so far

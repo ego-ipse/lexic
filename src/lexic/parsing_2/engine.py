@@ -44,7 +44,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.walk import IrDispatch
-from lexic.parsing_2.chart import Chart, Link
+from lexic.parsing_2.chart import Chart
 from lexic.parsing_2.forest import (
     BUILD_TREE,
     DERIVATION_STREAM,
@@ -303,7 +303,7 @@ class ScanColumn(IrLeaf[IrSelf, IrSelf]):
                 advanced = (item[0], item[1], item[2] + 1, item[3])
                 nxt += advanced
                 if record_links:
-                    chart.links += ((advanced, i + 1), Link(item, i, char_leaf))
+                    chart.links += ((advanced, i + 1), (item, i, char_leaf))
         return IrNone
 
 

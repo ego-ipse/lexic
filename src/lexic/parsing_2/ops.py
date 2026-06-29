@@ -45,7 +45,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2.chart import Chart, Column, Link
+from lexic.parsing_2.chart import Chart, Column
 from lexic.parsing_2.forest import SppfNode
 from lexic.parsing_2.item import EarleyItem
 
@@ -182,7 +182,7 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
                 for arm in ctx.nullable[ref]:  # precomputed empty-deriving arms
                     done = (ref, arm, len(arm), origin)
                     child = SppfNode(done, origin)
-                    ctx.chart.links += ((advanced, origin), Link(it, origin, child))
+                    ctx.chart.links += ((advanced, origin), (it, origin, child))
         return IrNone
 
 
@@ -242,7 +242,7 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
             advanced = (waiting[0], waiting[1], waiting[2] + 1, waiting[3])
             current += advanced
             if record_links:
-                chart.links += ((advanced, col), Link(waiting, done_origin, subnode))
+                chart.links += ((advanced, col), (waiting, done_origin, subnode))
         return IrNone
 
 

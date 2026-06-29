@@ -291,10 +291,10 @@ class FamilyPrefixes(IrLeaf[IrSelf, IrSelf]):
         for link in self._ctx.chart.links[key]:
             predecessor = PREFIXES.eval(
                 self._parser,
-                SppfNode(link.predecessor, link.predecessor_end),
+                SppfNode(link[0], link[1]),  # link: predecessor, predecessor_end
                 ctx_nc,
             )
-            children = CHILD_STREAMS.eval(self._parser, link.child, ctx_nc)
+            children = CHILD_STREAMS.eval(self._parser, link[2], ctx_nc)  # link child
             for prefix in predecessor:
                 for child in children:
                     yield IrSeq(*prefix, child)

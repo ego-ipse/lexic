@@ -30,49 +30,22 @@ only ``__iadd__`` to add SPPF-dedup on top of the inherited append.
 
 from __future__ import annotations
 
-from typing import ClassVar, Iterator, Self
+from typing import Iterator
 
-from lexic.ir.base import IrLeaf, IrNamedTuple, IrSelf
+from lexic.ir.base import IrLeaf, IrSelf
 from lexic.ir.mapping import IrMultiMap
 from lexic.ir.nodes import IrRuleRef
 from lexic.parsing_2.item import EarleyItem
 
-
-class Link(IrNamedTuple[EarleyItem, int, IrSelf]):
-    """Provenance of one advanced item: how its dot reached its current position.
-
-    Scalar payload only (``_child_attrs = ()``): a link is engine state, not a
-    grammar node to walk.
-
-    :ivar predecessor: The item one dot to the left.
-    :ivar predecessor_end: The column ``predecessor`` ends at.
-    :ivar child: The node consumed to advance the dot — an
-        :class:`~lexic.ir.nodes.IrLiteral` terminal leaf, or a
-        :class:`~lexic.parsing_2.forest.SppfNode` referencing a completed
-        sub-derivation ``(item, end)`` (shared, never flattened, so the forest
-        stays polynomial under ambiguity).
-    """
-
-    _child_attrs: ClassVar[tuple[str, ...]] = ()
-    predecessor: EarleyItem
-    predecessor_end: int
-    child: IrSelf
-
-    def __new__(
-        cls, predecessor: EarleyItem, predecessor_end: int, child: IrSelf
-    ) -> Self:
-        """Fast positional constructor — skips the generic IrNamedTuple path.
-
-        A link's three fields are always supplied positionally, so building the
-        tuple directly saves two Python-level ``__new__`` frames per link (one
-        link is recorded per advanced item).
-
-        :param predecessor: The item one dot to the left.
-        :param predecessor_end: The column ``predecessor`` ends at.
-        :param child: The node consumed to advance the dot.
-        :returns: A new :class:`Link`.
-        """
-        return tuple.__new__(cls, (predecessor, predecessor_end, child))
+Link = tuple[EarleyItem, int, IrSelf]
+"""Provenance of one advanced item — a plain ``tuple`` ``(predecessor,
+predecessor_end, child)``: ``[0]`` the item one dot to the left, ``[1]`` the
+column it ends at, ``[2]`` the node consumed to advance the dot (an
+:class:`~lexic.ir.nodes.IrLiteral` terminal leaf, or a
+:class:`~lexic.parsing_2.forest.SppfNode` referencing a completed sub-derivation
+``(item, end)`` — shared, never flattened, so the forest stays polynomial under
+ambiguity). Engine state, never walked, so construction is a single allocation
+and the SPPF dedup in :class:`Links` uses native tuple equality."""
 
 
 class Links(IrMultiMap[tuple[EarleyItem, int], Link]):
