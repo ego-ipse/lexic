@@ -52,7 +52,6 @@ from lexic.parsing_2.forest import (
     ParseTree,
     SppfNode,
 )
-from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.ops import EARLEY_OPS, ParseCtx
 
 
@@ -198,23 +197,25 @@ class CharAccepts(IrLeaf[IrSelf, IrSelf]):
 
 
 class AcceptingItem(IrLeaf[IrSelf, IrSelf]):
-    """The start-rule item that completed spanning the whole input, if any."""
+    """The start-rule item that completed spanning the whole input, if any.
+
+    Returns it wrapped in its :class:`~lexic.parsing_2.forest.SppfNode` — the
+    forest root every reader needs — so the accepting item (a plain-tuple
+    :class:`EarleyItem`, not an :class:`IrSelf`) travels as an ``IrSelf`` and is
+    built once here rather than re-wrapped by each entry point.
+    """
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """:param n: the chart; :param nc: ``(IrStr(start), IrInt(end))``.
 
-        :returns: the accepting :class:`EarleyItem`, or :data:`IrNone`.
+        :returns: a :class:`SppfNode` over the accepting item, or :data:`IrNone`.
         """
         chart = cast(Chart, n)
         start = str(nc[0])
         end = int(cast(int, nc[1]))
         for item in chart[end]:
-            if (
-                item.dot >= len(item.arm)
-                and str(item.rule_name) == start
-                and item.origin == 0
-            ):
-                return item
+            if item[2] >= len(item[1]) and str(item[0]) == start and item[3] == 0:
+                return SppfNode(item, end)  # dot >= len(arm); rule_name; origin 0
         return IrNone
 
 
@@ -223,21 +224,23 @@ class Accepting(IrLeaf[IrSelf, IrSelf]):
 
     The shared front half of every entry point: it runs the Earley loop
     (:class:`BuildChart`) then finds the completed start item spanning the whole
-    input (:class:`AcceptingItem`). Returned together as an :class:`IrSeq` so each
-    public reader (recognise / parse / forest / enumerate) builds the chart once
-    then reads it its own way — the orchestration is on a node, not a free function.
+    input (:class:`AcceptingItem`), wrapped in its :class:`SppfNode`. Returned
+    together as an :class:`IrSeq` so each public reader (recognise / parse / forest
+    / enumerate) builds the chart once then reads it its own way — the
+    orchestration is on a node, not a free function.
     """
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSeq:
         """:param d: the parser; :param n: the grammar; :param nc: ``(IrStr(text),)``.
 
-        :returns: ``IrSeq(chart, item)`` — ``item`` is :data:`IrNone` on no parse.
+        :returns: ``IrSeq(chart, node)`` — ``node`` is the accepting
+            :class:`SppfNode`, or :data:`IrNone` on no parse.
         """
         grammar = cast(IrAst, n)
         text = str(nc[0])
         chart = BUILD_CHART.eval(d, grammar, nc)
-        item = ACCEPT.eval(d, chart, IrTuple(IrStr(grammar.start), IrInt(len(text))))
-        return IrSeq(chart, item)
+        node = ACCEPT.eval(d, chart, IrTuple(IrStr(grammar.start), IrInt(len(text))))
+        return IrSeq(chart, node)
 
 
 class CloseColumn(IrLeaf[IrSelf, IrSelf]):
@@ -297,9 +300,7 @@ class ScanColumn(IrLeaf[IrSelf, IrSelf]):
         for atom in char_accepts[char]:
             for item in scannable[atom]:
                 # advance the dot: (rule_name, arm, dot + 1, origin)
-                advanced = tuple.__new__(
-                    EarleyItem, (item[0], item[1], item[2] + 1, item[3])
-                )
+                advanced = (item[0], item[1], item[2] + 1, item[3])
                 nxt += advanced
                 if record_links:
                     chart.links += ((advanced, i + 1), Link(item, i, char_leaf))
@@ -336,7 +337,7 @@ class BuildChart(IrLeaf[IrSelf, IrSelf]):
         start = IrRuleRef(grammar.start)
         column0 = ctx.chart[0]
         for arm in rules.resolve(start):
-            column0 += tuple.__new__(EarleyItem, (start, arm, 0, 0))
+            column0 += (start, arm, 0, 0)
 
         for i in range(len(text) + 1):
             ctx.column = ctx.chart[
@@ -358,8 +359,8 @@ class Recognize(IrLeaf[IrSelf, IrSelf]):
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: ``IrInt`` 0/1."""
         # Recognition never reads the forest — skip SPPF link recording entirely.
-        _, item = ACCEPTING.eval(d, n, (nc[0], _SKIP_LINKS))
-        return IrInt(0) if isinstance(item, IrNoneType) else IrInt(1)
+        _, node = ACCEPTING.eval(d, n, (nc[0], _SKIP_LINKS))
+        return IrInt(0) if isinstance(node, IrNoneType) else IrInt(1)
 
 
 class Parse(IrLeaf[IrSelf, IrSelf]):
@@ -376,12 +377,12 @@ class Parse(IrLeaf[IrSelf, IrSelf]):
         :raises UnsupportedConstructError: If ``text`` does not parse, or parses
             ambiguously.
         """
-        chart, item = ACCEPTING.eval(d, n, nc)
-        if isinstance(item, IrNoneType):
+        chart, node = ACCEPTING.eval(d, n, nc)
+        if isinstance(node, IrNoneType):
             raise UnsupportedConstructError(
                 f"parsing_2: input does not derive from {cast(IrAst, n).start!r}"
             )
-        tree = BUILD_TREE.eval(d, item, IrTuple(chart, IrInt(len(str(nc[0])))))
+        tree = BUILD_TREE.eval(d, node, IrTuple(chart))
         return cast(ParseTree, tree)
 
 
@@ -394,10 +395,8 @@ class ParseForest(IrLeaf[IrSelf, IrSelf]):
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: the SPPF root."""
-        _, item = ACCEPTING.eval(d, n, nc)
-        if isinstance(item, IrNoneType):
-            return IrNone
-        return SppfNode(cast(EarleyItem, item), len(str(nc[0])))
+        _, node = ACCEPTING.eval(d, n, nc)
+        return node  # already a SppfNode, or IrNone on no parse
 
 
 class Enumerate(IrLeaf[IrSelf, IrSelf]):
@@ -409,10 +408,9 @@ class Enumerate(IrLeaf[IrSelf, IrSelf]):
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSeq:
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: every derivation."""
-        chart, item = ACCEPTING.eval(d, n, nc)
-        if isinstance(item, IrNoneType):
+        chart, node = ACCEPTING.eval(d, n, nc)
+        if isinstance(node, IrNoneType):
             return IrSeq()
-        node = SppfNode(cast(EarleyItem, item), len(str(nc[0])))
         return cast(IrSeq, DERIVATIONS.eval(d, node, IrTuple(chart)))
 
 
@@ -429,10 +427,9 @@ class IsAmbiguous(IrLeaf[IrSelf, IrSelf]):
         :data:`~lexic.parsing_2.forest.DERIVATION_STREAM`, never the full
         (potentially exponential) enumeration.
         """
-        chart, item = ACCEPTING.eval(d, n, nc)
-        if isinstance(item, IrNoneType):
+        chart, node = ACCEPTING.eval(d, n, nc)
+        if isinstance(node, IrNoneType):
             return _NO_MATCH
-        node = SppfNode(cast(EarleyItem, item), len(str(nc[0])))
         seen = 0
         for _tree in DERIVATION_STREAM.eval(d, node, IrTuple(chart)):
             seen += 1

@@ -34,7 +34,7 @@ def _arm(*chars: str) -> IrSequence:
 
 
 def _ei(rule: str, arm: IrSequence, dot: int = 0, origin: int = 0) -> EarleyItem:
-    return EarleyItem(IrRuleRef(rule), arm, dot, origin)
+    return (IrRuleRef(rule), arm, dot, origin)
 
 
 # ── Column insert / dedup (was Column.add) ───────────────────────────

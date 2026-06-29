@@ -21,8 +21,6 @@ round-trip proofs.
 
 from __future__ import annotations
 
-from typing import cast
-
 import pytest
 
 import lexic.parsing_2.engine as engine_mod
@@ -82,7 +80,6 @@ from lexic.parsing_2.forest import (
     IrStream,
     SppfNode,
 )
-from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.normalize import (
     desugar_quantifiers,
     flatten_groups,
@@ -567,7 +564,7 @@ def test_is_ambiguous_short_circuits(sss_grammar: IrAst) -> None:
     """
     parser = EarleyParser()
     chart, item = _ACCEPTING.eval(parser, sss_grammar, IrTuple(IrStr("aaa")))
-    ds = DERIVATIONS.eval(parser, SppfNode(cast(EarleyItem, item), 3), IrTuple(chart))
+    ds = DERIVATIONS.eval(parser, item, IrTuple(chart))
     exploding = _make_exploding_deriv_stream(ds[0], ds[1])
     orig_forest = forest_mod.DERIVATION_STREAM
     orig_engine = engine_mod.DERIVATION_STREAM

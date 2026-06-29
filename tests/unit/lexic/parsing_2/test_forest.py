@@ -23,7 +23,7 @@ import pytest
 
 import lexic.parsing_2.forest as forest_mod
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrInt, IrLeaf, IrNoneType, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir.base import IrLeaf, IrNoneType, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -58,16 +58,16 @@ from lexic.parsing_2.forest import (
 from lexic.parsing_2.item import EarleyItem
 
 
-def _accept(grammar: IrAst, text: str) -> tuple[EarleyParser, Chart, EarleyItem, int]:
+def _accept(grammar: IrAst, text: str) -> tuple[EarleyParser, Chart, SppfNode, int]:
     """Drive the public :data:`ACCEPTING` node and unpack for the forest tests.
 
     A test-local helper (not a src symbol): builds the chart once and returns the
-    accepting item so the low-level forest nodes can be exercised directly. Assumes
-    ``text`` parses, so the item is a real :class:`EarleyItem`.
+    accepting :class:`SppfNode` so the low-level forest nodes can be exercised
+    directly. Assumes ``text`` parses, so the node is a real :class:`SppfNode`.
     """
     parser = EarleyParser()
-    chart, item = ACCEPTING.eval(parser, grammar, IrTuple(IrStr(text)))
-    return parser, cast(Chart, chart), cast(EarleyItem, item), len(text)
+    chart, node = ACCEPTING.eval(parser, grammar, IrTuple(IrStr(text)))
+    return parser, cast(Chart, chart), cast(SppfNode, node), len(text)
 
 
 # ── ParseTree fields ──────────────────────────────────────────────────
@@ -199,29 +199,29 @@ def test_build_tree_recursive_grammar_nests_correctly(expr_grammar: IrAst):
 
 
 def test_sppf_node_construction(digit_grammar: IrAst):
-    """SppfNode(item, end) stores item and end correctly."""
+    """SppfNode returned by ACCEPTING stores item and end correctly."""
     grammar = digit_grammar
     _, __, item, end = _accept(grammar, "5")
     assert not isinstance(item, IrNoneType)
-    node = SppfNode(item, end)
-    assert node.item is item
-    assert node.end == end
+    assert isinstance(item, SppfNode)
+    assert isinstance(item.item, tuple)  # raw EarleyItem is a plain tuple
+    assert item.end == end
 
 
 def test_sppf_node_equality_same_item_and_end(digit_grammar: IrAst):
     """Two SppfNode instances with equal item/end are equal (tuple identity)."""
     grammar = digit_grammar
     _, __, item, end = _accept(grammar, "5")
-    node_a = SppfNode(item, end)
-    node_b = SppfNode(item, end)
-    assert node_a == node_b
+    # item is the SppfNode; build a second one from the same raw fields
+    node_b = SppfNode(item.item, item.end)
+    assert item == node_b
 
 
 def test_sppf_node_inequality_different_end(digit_grammar: IrAst):
     """SppfNode instances with different end columns are not equal."""
     grammar = digit_grammar
     _, _, item, end = _accept(grammar, "5")
-    assert SppfNode(item, end) != SppfNode(item, end + 1)
+    assert item != SppfNode(item.item, end + 1)
 
 
 # ── DERIVATIONS — all ParseTrees ──────────────────────────────────────
@@ -232,8 +232,7 @@ def test_derivations_unambiguous_yields_one_tree(digit_grammar: IrAst):
     grammar = digit_grammar
     parser, chart, item, end = _accept(grammar, "7")
     assert not isinstance(item, IrNoneType)
-    node = SppfNode(item, end)
-    trees = DERIVATIONS.eval(parser, node, IrTuple(chart))
+    trees = DERIVATIONS.eval(parser, item, IrTuple(chart))
     assert isinstance(trees, IrSeq)
     assert len(trees) == 1
     assert isinstance(trees[0], ParseTree)
@@ -243,8 +242,7 @@ def test_derivations_singleton_matches_parse(digit_grammar: IrAst):
     """The single derivation from DERIVATIONS equals parse()'s result."""
     grammar = digit_grammar
     parser, chart, item, end = _accept(grammar, "9")
-    node = SppfNode(item, end)
-    trees = DERIVATIONS.eval(parser, node, IrTuple(chart))
+    trees = DERIVATIONS.eval(parser, item, IrTuple(chart))
     expected = parse(grammar, "9")
     assert trees[0] == expected
 
@@ -253,8 +251,7 @@ def test_derivations_ambiguous_yields_two_trees(sss_grammar: IrAst):
     """DERIVATIONS returns 2 distinct ParseTrees for 's = s s / \"a\"' over 'aaa'."""
     parser, chart, item, end = _accept(sss_grammar, "aaa")
     assert not isinstance(item, IrNoneType)
-    node = SppfNode(item, end)
-    trees = DERIVATIONS.eval(parser, node, IrTuple(chart))
+    trees = DERIVATIONS.eval(parser, item, IrTuple(chart))
     assert len(trees) == 2
     # The two derivations must be distinct
     assert trees[0] != trees[1]
@@ -272,7 +269,7 @@ def test_build_tree_strict_returns_single_tree_for_unambiguous(digit_grammar: Ir
     """BUILD_TREE.eval succeeds and returns a ParseTree for unambiguous input."""
     grammar = digit_grammar
     parser, chart, item, end = _accept(grammar, "4")
-    tree = BUILD_TREE.eval(parser, item, IrTuple(chart, IrInt(end)))
+    tree = BUILD_TREE.eval(parser, item, IrTuple(chart))
     assert isinstance(tree, ParseTree)
 
 
@@ -281,7 +278,7 @@ def test_build_tree_strict_raises_for_ambiguous(sss_grammar: IrAst):
     parser, chart, item, end = _accept(sss_grammar, "aaa")
     assert not isinstance(item, IrNoneType)
     with pytest.raises(UnsupportedConstructError):
-        BUILD_TREE.eval(parser, item, IrTuple(chart, IrInt(end)))
+        BUILD_TREE.eval(parser, item, IrTuple(chart))
 
 
 def test_parse_raises_for_ambiguous_input(sss_grammar: IrAst):
@@ -319,8 +316,7 @@ def test_child_trees_sppf_node_dispatches_to_child_trees(digit_grammar: IrAst):
     grammar = digit_grammar
     parser, chart, item, end = _accept(grammar, "3")
     assert not isinstance(item, IrNoneType)
-    node = SppfNode(item, end)
-    result = CHILD_TREES.eval(parser, node, IrTuple(chart))
+    result = CHILD_TREES.eval(parser, item, IrTuple(chart))
     assert isinstance(result, IrSeq)
     assert len(result) == 1
     assert isinstance(result[0], ParseTree)
@@ -453,21 +449,19 @@ def test_stream_empty_source():
 def test_prefixes_returns_irstream(sss_grammar: IrAst):
     """PREFIXES.eval returns an IrStream for a valid SppfNode handle."""
     parser, chart, item, end = _accept(sss_grammar, "aaa")
-    node = SppfNode(item, end)
     ctx = ForestCtx(chart)
-    result = PREFIXES.eval(parser, node, IrTuple(ctx))
+    result = PREFIXES.eval(parser, item, IrTuple(ctx))
     assert isinstance(result, IrStream)
 
 
 def test_prefixes_memoised_same_handle(sss_grammar: IrAst):
     """PREFIXES.eval for the same handle twice returns the identical IrStream object."""
     parser, chart, item, end = _accept(sss_grammar, "aaa")
-    node = SppfNode(item, end)
     ctx = ForestCtx(chart)
-    s1 = PREFIXES.eval(parser, node, IrTuple(ctx))
-    s2 = PREFIXES.eval(parser, node, IrTuple(ctx))
+    s1 = PREFIXES.eval(parser, item, IrTuple(ctx))
+    s2 = PREFIXES.eval(parser, item, IrTuple(ctx))
     assert s1 is s2
-    key = (node.item, node.end)
+    key = (item.item, item.end)
     assert key in ctx
     assert ctx[key][0] is s1
 
@@ -478,7 +472,7 @@ def test_prefixes_dot_zero_single_empty_prefix(digit_grammar: IrAst):
     # Find a dot-0 EarleyItem in column 0
     dot_zero: EarleyItem | None = None
     for ei in chart[0]:
-        if ei.dot == 0:
+        if ei[2] == 0:  # ei[2] is dot
             dot_zero = ei
             break
     assert dot_zero is not None
@@ -500,10 +494,9 @@ def test_shared_subhandle_expanded_once(sss_grammar: IrAst):
     than the total number of tree-node slots across both derivations.
     """
     parser, chart, item, end = _accept(sss_grammar, "aaa")
-    node = SppfNode(item, end)
     ctx = ForestCtx(chart)
     # Drain the derivation stream to force full expansion
-    all_trees = list(DERIVATION_STREAM.eval(parser, node, IrTuple(ctx)))
+    all_trees = list(DERIVATION_STREAM.eval(parser, item, IrTuple(ctx)))
     assert len(all_trees) == 2
 
     # Count total tree nodes (ParseTree + IrLiteral leaves) across both derivations
@@ -518,9 +511,9 @@ def test_shared_subhandle_expanded_once(sss_grammar: IrAst):
     # how many keys are accessible: call PREFIXES.eval on each tree's SppfNode and
     # count unique keys known to the ctx.  We do this by asking PREFIXES again for
     # the root — it must return the same stream (identity, already filed).
-    root_key = (node.item, node.end)
+    root_key = (item.item, item.end)
     assert root_key in ctx
-    root_stream = PREFIXES.eval(parser, node, IrTuple(ctx))
+    root_stream = PREFIXES.eval(parser, item, IrTuple(ctx))
     # The root stream was filed before driving, so a second call returns the same object
     assert root_stream is ctx[root_key][0]
 
@@ -581,8 +574,7 @@ def test_build_tree_strict_short_circuits(sss_grammar: IrAst):
     UnsupportedConstructError is raised AND that the counter never exceeds 2.
     """
     parser, chart, item, end = _accept(sss_grammar, "aaa")
-    node = SppfNode(item, end)
-    real_ds = DERIVATIONS.eval(parser, node, IrTuple(chart))
+    real_ds = DERIVATIONS.eval(parser, item, IrTuple(chart))
     t1, t2 = real_ds[0], real_ds[1]
 
     consumed: list[int] = [0]
@@ -602,7 +594,7 @@ def test_build_tree_strict_short_circuits(sss_grammar: IrAst):
     forest_mod.DERIVATION_STREAM = _CountingDerivStream()
     try:
         with pytest.raises(UnsupportedConstructError):
-            BUILD_TREE.eval(parser, item, IrTuple(chart, IrInt(end)))
+            BUILD_TREE.eval(parser, item, IrTuple(chart))
     finally:
         forest_mod.DERIVATION_STREAM = orig
     assert consumed[0] == 2, f"expected 2 elements consumed, got {consumed[0]}"
@@ -620,7 +612,7 @@ def test_build_tree_zero_derivations_raises(digit_grammar: IrAst):
     forest_mod.DERIVATION_STREAM = _EmptyDerivStream()
     try:
         with pytest.raises(UnsupportedConstructError):
-            BUILD_TREE.eval(parser, item, IrTuple(chart, IrInt(end)))
+            BUILD_TREE.eval(parser, item, IrTuple(chart))
     finally:
         forest_mod.DERIVATION_STREAM = orig
 
@@ -638,9 +630,8 @@ def test_child_streams_dispatch(digit_grammar: IrAst):
 
     # ChildStream arm: yields ParseTree derivations for an SppfNode
     _, chart, item, end = _accept(digit_grammar, "3")
-    node = SppfNode(item, end)
     ctx = ForestCtx(chart)
-    node_stream = CHILD_STREAMS.eval(parser, node, IrTuple(ctx))
+    node_stream = CHILD_STREAMS.eval(parser, item, IrTuple(ctx))
     assert isinstance(node_stream, IrStream)
     node_items = list(node_stream)
     assert len(node_items) >= 1

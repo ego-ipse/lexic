@@ -374,7 +374,7 @@ class Prefixes(IrLeaf[IrSelf, IrSelf]):
         if key in ctx:
             return cast("IrStream[IrSeq]", ctx[key][0])
         source: Iterable[IrSeq] = (
-            IrSeq(IrSeq()) if node.item.dot == 0 else FamilyPrefixes(node, ctx, d)
+            IrSeq(IrSeq()) if node.item[2] == 0 else FamilyPrefixes(node, ctx, d)
         )
         # on_cycle reproduces the eager IrSeq(IrSeq()) seed: a re-entrant prefix
         # stream replays one empty prefix, terminating the cycle.
@@ -406,7 +406,7 @@ class DerivationStream(IrLeaf[IrSelf, IrSelf]):
         """
         head = nc[0]
         ctx = head if isinstance(head, ForestCtx) else ForestCtx(cast(Chart, head))
-        symbol = cast(SppfNode, n).item.rule_name
+        symbol = cast(SppfNode, n).item[0]
         return IrStream(DerivationTrees(cast(SppfNode, n), ctx, d, symbol))
 
 
@@ -545,13 +545,13 @@ class BuildTree(IrLeaf[IrSelf, IrSelf]):
         """Return the sole :class:`ParseTree` the root ``(item, end)`` packs.
 
         :param d: Dispatcher, forwarded to the lazy stream.
-        :param n: The :class:`EarleyItem` to reconstruct.
-        :param nc: ``(chart, IrInt(end))``.
+        :param n: The accepting :class:`SppfNode` to reconstruct.
+        :param nc: ``(chart,)``.
         :returns: The single :class:`ParseTree` derivation for the item.
         :raises UnsupportedConstructError: If the handle packs no derivation, or
             more than one (ambiguous input).
         """
-        node = SppfNode(cast(EarleyItem, n), int(cast(int, nc[1])))
+        node = cast(SppfNode, n)
         stream = DERIVATION_STREAM.eval(d, node, IrTuple(nc[0]))
         first = IrNone
         for index, tree in enumerate(stream):
@@ -560,12 +560,12 @@ class BuildTree(IrLeaf[IrSelf, IrSelf]):
                 continue
             raise UnsupportedConstructError(  # a second derivation ⇒ ambiguous
                 f"parsing_2: ambiguous input — more than one derivation of "
-                f"{node.item.rule_name!r}; use the forest enumeration entry "
+                f"{node.item[0]!r}; use the forest enumeration entry "
                 "(parse_forest / derivations) instead"
             )
         if isinstance(first, IrNoneType):
             raise UnsupportedConstructError(
-                f"parsing_2: no derivation of {node.item.rule_name!r}"
+                f"parsing_2: no derivation of {node.item[0]!r}"
             )
         return first
 

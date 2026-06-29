@@ -55,15 +55,18 @@ IR_DEFAULT = _IrMapDefault()
 :meth:`IrMapping.resolve` resolves to it instead of raising."""
 
 
-class IrMapping[K, V: IrSelf, R](IrLeaf[IrSelf, IrSelf]):
-    """Common ancestor of the map family — owns the whole surface over ``_table``.
+class IrMapping[K, V, R](IrLeaf[IrSelf, IrSelf]):
+    """Common ancestor of the map family — the **container** surface over ``_table``.
 
-    Generic over the key ``K``, the eval-value ``V`` (an :class:`IrSelf`, what
-    :meth:`resolve` yields and :meth:`eval` runs) and the **read return** ``R``
+    Generic over the key ``K``, the stored value ``V`` and the **read return** ``R``
     (what ``__getitem__`` / ``values`` / ``get`` yield — a value for
-    :class:`IrMap`, a bucket for :class:`IrMultiMap`). The default
-    ``__getitem__`` is the value read (raise on miss); :class:`IrMultiMap`
-    overrides it for live buckets. Subclasses otherwise add only construction.
+    :class:`IrMap`, a bucket for :class:`IrMultiMap`). The default ``__getitem__``
+    is the value read (raise on miss); :class:`IrMultiMap` overrides it for live
+    buckets. ``V`` is **unbounded** — this base is a pure container, so a value
+    need not be an :class:`IrSelf` (the Earley engine files plain-tuple items in an
+    :class:`IrMultiMap`). The **dispatch** surface (:meth:`~IrMap.resolve` /
+    :meth:`~IrMap.eval`, which *run* a value) lives on :class:`IrMap`, whose ``V``
+    is bounded :class:`IrSelf`. Subclasses otherwise add only construction.
     """
 
     __slots__ = ("_table",)
@@ -122,27 +125,6 @@ class IrMapping[K, V: IrSelf, R](IrLeaf[IrSelf, IrSelf]):
         """Iterate dyads reconstructed from ``_table`` (the walk contract)."""
         return (IrTuple(key, value) for key, value in self._table.items())
 
-    def resolve(self, n: IrSelf) -> V:
-        """Eval-value bound to ``n``, with :data:`IR_DEFAULT` fallback.
-
-        :raises IrKeyError: On a miss with no :data:`IR_DEFAULT` entry.
-        """
-        table = self._table
-        try:
-            return table[n]
-        except KeyError:
-            value = table.get(IR_DEFAULT)
-            if value is not None:
-                return value
-            raise IrKeyError(f"{type(self).__name__}: no entry for {n!r}") from None
-
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
-        """Resolve ``n`` to its value and evaluate it against ``(d, n, nc)``.
-
-        :raises IrKeyError: On a miss.
-        """
-        return self.resolve(n).eval(d, n, nc)
-
     def __eq__(self, other: object) -> bool:
         """Structural equality — same concrete type and same table.
 
@@ -174,10 +156,11 @@ class IrMapping[K, V: IrSelf, R](IrLeaf[IrSelf, IrSelf]):
 
 
 class IrMap[K, V: IrSelf](IrMapping[K, V, V]):
-    """Immutable key→value map (``R = V``). Adds only the dyad-indexing
-    constructor; the whole read/eval/equality surface is inherited from
-    :class:`IrMapping`. ``_table`` is built in canonical (key-repr-sorted) order,
-    so the inherited views and repr are order-stable.
+    """Immutable key→value map (``R = V``) and the **dispatch** base: ``V`` is an
+    :class:`IrSelf`, so :meth:`resolve` yields a runnable value and :meth:`eval`
+    runs it. Adds the dyad-indexing constructor; the container read/equality
+    surface is inherited from :class:`IrMapping`. ``_table`` is built in canonical
+    (key-repr-sorted) order, so the inherited views and repr are order-stable.
     """
 
     __slots__ = ()
@@ -200,6 +183,27 @@ class IrMap[K, V: IrSelf](IrMapping[K, V, V]):
             table[key] = dyad[1]
         object.__setattr__(obj, "_table", table)
         return obj
+
+    def resolve(self, n: IrSelf) -> V:
+        """Eval-value bound to ``n``, with :data:`IR_DEFAULT` fallback.
+
+        :raises IrKeyError: On a miss with no :data:`IR_DEFAULT` entry.
+        """
+        table = self._table
+        try:
+            return table[n]
+        except KeyError:
+            value = table.get(IR_DEFAULT)
+            if value is not None:
+                return value
+            raise IrKeyError(f"{type(self).__name__}: no entry for {n!r}") from None
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Resolve ``n`` to its value and evaluate it against ``(d, n, nc)``.
+
+        :raises IrKeyError: On a miss.
+        """
+        return self.resolve(n).eval(d, n, nc)
 
 
 class IrTypeMap[Ir_co: IrSelf = IrSelf](IrMap[type, IrSelf]):
@@ -241,12 +245,15 @@ class IrTypeMap[Ir_co: IrSelf = IrSelf](IrMap[type, IrSelf]):
         return self.resolve(n).eval(d, n, nc)
 
 
-class IrMultiMap[K, V: IrSelf](IrMapping[K, V, Sequence[V]]):
+class IrMultiMap[K, V](IrMapping[K, V, Sequence[V]]):
     """Mutable multi-valued map (``R = Sequence[V]``) — a key to its bucket.
 
     Engine-internal (the package's mutable-chart exception): the Earley driver's
-    per-column "waiting" index. Inherits empty construction and the read surface
-    from :class:`IrMapping`; ``mm += (key, value)`` files in O(1) and ``mm[key]``
+    per-column "waiting" index. A pure **container** — never ``eval``'d (the
+    dispatch surface lives on :class:`IrMap`), so ``V`` is unbounded and a bucket
+    may hold non-:class:`IrSelf` values (e.g. plain-tuple Earley items). Inherits
+    empty construction and the read surface from :class:`IrMapping`; ``mm += (key,
+    value)`` files in O(1) and ``mm[key]``
     overrides to return the **live** bucket (the backing ``list``, ``()`` on a
     miss) — no raise, no snapshot copy, so the read is at the dict floor. A caller
     appending while it iterates must index-iterate (a plain ``for`` over a list

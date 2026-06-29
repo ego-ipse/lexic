@@ -173,14 +173,14 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
         if ref not in column.predicted:  # seed each rule's arms once per column
             column.predicted.add(ref)
             for arm in ctx.rules.resolve(ref):
-                column += tuple.__new__(EarleyItem, (ref, arm, 0, origin))
+                column += (ref, arm, 0, origin)
         if ref in ctx.nullable:
             it = ctx.item  # advance the dot: (rule, arm, dot + 1, origin)
-            advanced = tuple.__new__(EarleyItem, (it[0], it[1], it[2] + 1, it[3]))
+            advanced = (it[0], it[1], it[2] + 1, it[3])
             column += advanced
             if ctx.record_links:  # SPPF provenance — skipped for pure recognition
                 for arm in ctx.nullable[ref]:  # precomputed empty-deriving arms
-                    done = tuple.__new__(EarleyItem, (ref, arm, len(arm), origin))
+                    done = (ref, arm, len(arm), origin)
                     child = SppfNode(done, origin)
                     ctx.chart.links += ((advanced, origin), Link(it, origin, child))
         return IrNone
@@ -239,9 +239,7 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         # waiters is the live bucket; a plain ``for`` over the list picks up any
         # same-pass appends (advancing files a new waiter when origin == col)
         for waiting in waiters:  # advance the dot: (rule, arm, dot + 1, origin)
-            advanced = tuple.__new__(
-                EarleyItem, (waiting[0], waiting[1], waiting[2] + 1, waiting[3])
-            )
+            advanced = (waiting[0], waiting[1], waiting[2] + 1, waiting[3])
             current += advanced
             if record_links:
                 chart.links += ((advanced, col), Link(waiting, done_origin, subnode))
