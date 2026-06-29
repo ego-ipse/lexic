@@ -252,10 +252,11 @@ class CloseColumn(IrLeaf[IrSelf, IrSelf]):
     def eval(self, d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
         """:param nc: ``(ParseCtx,)`` with ``col`` set to the column to close."""
         ctx = cast(ParseCtx, nc[0])
+        ctx.column = ctx.chart[ctx.col]  # stash once; predict/complete reuse it
         # ``for`` over the column yields a live list iterator that picks up the
         # items predict/complete append mid-pass (the Earley fixpoint) — no
         # per-item __len__/__getitem__ method call, unlike a manual cursor
-        for item in ctx.chart[ctx.col]:
+        for item in ctx.column:
             _, arm, dot, _ = item  # tuple unpack: skips per-field descriptor reads
             symbol = arm[dot].atom if dot < len(arm) else IrNone
             ctx.item = item
@@ -284,7 +285,7 @@ class ScanColumn(IrLeaf[IrSelf, IrSelf]):
         char = text[i]
         char_leaf = IrLiteral(char)
         nxt = chart[i + 1]
-        scannable = chart[i].scannable_by_atom
+        scannable = ctx.column.scannable_by_atom  # column i, stashed by CloseColumn
         char_accepts = ctx.char_accepts
         if char not in char_accepts:  # resolve accepting atoms once per char
             for atom in char_accepts[_CHAR_ACCEPTS_ALL_KEY]:

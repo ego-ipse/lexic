@@ -45,7 +45,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2.chart import Chart, Link
+from lexic.parsing_2.chart import Chart, Column, Link
 from lexic.parsing_2.forest import SppfNode
 from lexic.parsing_2.item import EarleyItem
 
@@ -79,16 +79,19 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
         advances over these immediately (Aycock-Horspool).
     :ivar char_accepts: Char → the terminal atoms that accept it (lazily filled).
     :ivar col: The column currently being closed.
+    :ivar column: The column object at ``col`` — stashed by the driver so the
+        predictor/completer skip re-indexing the chart on the hot path.
     :ivar item: The item currently being dispatched.
     """
 
-    __slots__ = ("chart", "rules", "nullable", "char_accepts", "col", "item")
+    __slots__ = ("chart", "rules", "nullable", "char_accepts", "col", "column", "item")
 
     chart: Chart
     rules: IrMap[IrRuleRef, IrAlternation]
     nullable: IrMultiMap[IrRuleRef, IrSequence]
     char_accepts: IrMultiMap[str, IrSelf]
     col: int
+    column: Column
     item: EarleyItem
 
     def __init__(
@@ -110,8 +113,9 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
         self.nullable = nullable
         self.char_accepts = char_accepts
         self.col = 0
-        # ``item`` is set by the driver before each dispatch; IrNone is the
-        # absence sentinel until then (it fits every slot, signatures union-free).
+        # ``column``/``item`` are set by the driver before each dispatch; IrNone is
+        # the absence sentinel until then (it fits every slot, signatures union-free).
+        self.column = cast(Column, IrNone)
         self.item = cast(EarleyItem, IrNone)
 
 
@@ -154,7 +158,7 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
         ctx = cast(ParseCtx, nc[0])
         ref = cast(IrRuleRef, n)
         origin = ctx.col
-        column = ctx.chart[origin]
+        column = ctx.column  # the current column the driver is closing (== col)
         arms = ctx.rules.resolve(ref)  # one resolve, reused by the nullable branch
         for arm in arms:
             column += EarleyItem(ref, arm, 0, origin)
@@ -217,7 +221,7 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
             return IrNone
         col = ctx.col
         subnode = SppfNode(done, col)
-        current = chart[col]
+        current = ctx.column  # the current column the driver is closing (== col)
         # waiters is the live bucket; a plain ``for`` over the list picks up any
         # same-pass appends (advancing files a new waiter when origin == col)
         for waiting in waiters:  # advance the dot: (rule, arm, dot + 1, origin)

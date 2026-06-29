@@ -10,13 +10,24 @@
 | **P2** scannable | 64.3 | 140.5 | 291.4 | −8% to −7% |
 | **S3** char→atom index | 62.2 | 134.8 | 281.8 | −10% / −8% / −10% cumulative; MATCHES 0 calls |
 | **S3a** Expand memoize | ~61 | ~132 | ~280 | marginal (~1–2.5% by min, noise on median); rules 53→46 |
+| **P1B** col reuse | 60.0 | 128.4 | 273.0 | −3% across sizes (ctx.column stashed; no re-index) |
 
 All green: 1121 tests, pylint 10.00, pyright 0, ruff clean, ABNF fixpoint True, amb 0.
 S3a also reworked `Expand` to carry bounds as an `IrQuantifier` node (no boxing).
+P1B stashes the current column on `ParseCtx.column`; predict/complete/scan reuse it.
 
-**Left to do:** S3a uncommitted (decide keep/revert). Tests pending: `CharAccepts`
-node, `ParseCtx.char_accepts`, `scannable_by_atom`, S3a memo rule-sharing (Sonnet pass).
-Remaining avenues unchanged below: P1 micro-win B (tiny), then **Leo** (the big lever).
+**Broader micro (point 4) — not done, by design:** IR-tuple hash caching is infeasible
+(tuple subclasses can't carry `__slots__` for a memoized `_hash`); `_table` dispatch
+coupling is a purity break for +1.4% — skipped.
+
+**Superlinearity:** native Earley measures ~O(n^1.09) here (2.13× per input-doubling)
+vs Lark ~O(n^1.0) — so the earley/lark gap widens ~n^0.09. Root cause: right-recursive
+synthetic rules (`*`/`+` desugaring) make the completer walk a per-completion chain that
+grows with input. **Fix = Leo (avenue 3)** — O(n) via transitive items. Needs a dedicated
+spike + a right-recursion-heavy benchmark (ABNF self-host only shows the mild version).
+
+**Left to do:** P1B uncommitted. Tests pending (Sonnet): `CharAccepts`,
+`ParseCtx.char_accepts`/`column`, `scannable_by_atom`, S3a memo sharing. Then **Leo**.
 
 ---
 
