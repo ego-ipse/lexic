@@ -19,10 +19,13 @@ API changes from the IrSelf rewrite:
 
 New symbols tested: ``Link`` (fields: predecessor, predecessor_end, child),
 ``Links`` (``__contains__``, ``__getitem__``, ``__iadd__``).
+
+Leo slot tested: ``Column.leo`` (``IrMultiMap``, empty at construction).
 """
 
 from __future__ import annotations
 
+from lexic.ir.mapping import IrMultiMap
 from lexic.ir.nodes import IrItem, IrLiteral, IrRuleRef, IrSequence
 from lexic.parsing_2.chart import Chart, Column, Links
 from lexic.parsing_2.item import EarleyItem
@@ -307,3 +310,44 @@ def test_links_getitem_empty_on_miss():
     key = (_ei("s", arm, dot=1), 99)
     families = links[key]
     assert len(families) == 0
+
+
+# ── Column.leo slot (Leo optimization memo) ───────────────────────────
+
+
+def test_column_leo_is_ir_multi_map():
+    """Column.leo is an IrMultiMap at construction."""
+    col = Column(0)
+    assert isinstance(col.leo, IrMultiMap)
+
+
+def test_column_leo_is_empty_on_fresh_column():
+    """A fresh Column(0) has an empty leo memo (no keys filed)."""
+    col = Column(0)
+    ref = IrRuleRef("s")
+    # IrMultiMap returns empty sequence on miss — length 0 means no entry yet
+    assert len(col.leo[ref]) == 0
+
+
+def test_column_leo_independent_of_waiting():
+    """leo and waiting are distinct IrMultiMap instances."""
+    col = Column(0)
+    assert col.leo is not col.waiting
+
+
+def test_column_leo_independent_across_columns():
+    """Two different Column instances have distinct leo IrMultiMaps."""
+    col_a = Column(0)
+    col_b = Column(1)
+    assert col_a.leo is not col_b.leo
+
+
+def test_column_leo_accepts_iadd():
+    """leo accepts += (key, value) and makes the value retrievable."""
+    from lexic.ir.base import IrNone
+
+    col = Column(0)
+    ref = IrRuleRef("s")
+    col.leo += (ref, IrNone)
+    assert len(col.leo[ref]) == 1
+    assert col.leo[ref][0] is IrNone

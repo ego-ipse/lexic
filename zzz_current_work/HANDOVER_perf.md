@@ -50,17 +50,47 @@ the opposite: make the item a *bare* tuple and fix the container typing, not cac
 **Next plain-tuple candidates:** none obvious left — `SppfNode`/`ParseTree` are walked (must stay
 `IrSelf`); `ForestCtx` is a cursor. The two hot pure-engine records are done.
 
-**Superlinearity:** native Earley ~O(n^1.09) (2.13× per input-doubling) vs Lark ~O(n^1.0).
-Root cause: right-recursive synthetic rules (`*`/`+`) make the completer walk a per-completion
-chain growing with input. **Fix = Leo (avenue 3)** — O(n) via transitive items; needs a
-dedicated spike + right-recursion-heavy benchmark.
+## Session 6 — committed: Leo's optimization (recognition is now O(n))
+
+Right-recursive `*`/`+` synthetic rules made the completer re-walk the reduction chain per
+column — confirmed **O(n²)** (`S = "a"*`: ms/N² flat ~0.37; N=1600 = **955 ms**). **Leo (1991)**
+jumps a deterministic right-recursive reduction straight to its transitive (topmost) item:
+
+| `S = "a"*` recognize | N=400 | N=1600 | N=6400 | scaling |
+|---|---|---|---|---|
+| before (O(n²)) | 58 ms | 955 ms | (~3.8 s) | ms/N² flat |
+| **Leo (O(n))** | 3.4 ms | **~14 ms** | 59 ms | **µs/N flat ~8.5** |
+
+**46× at N=1600.** No regression on ABNF (recognize 38.6/80.6/164.7 ≈ HEAD) — a cheap inline
+gate (`len(waiters)==1 and last-symbol`, `waiters` already in hand) keeps Leo off normal
+completions. **Recognition only** (`record_links` False); the `parse` path keeps the correct
+SPPF completer untouched.
+
+**IR-pure (the point that got it reverted once):** `LeoItem(IrLeaf)` node — the recursion is its
+`resolve(chart, col, ref, cur)` **method** (plain args, no per-call boxing), `eval` the protocol
+wrapper; per-column memo is `Column.leo`, an **`IrMultiMap`** (closed columns memoised, current
+recomputed → no staleness). Not a free function, not a dict.
+
+**Correctness:** the `_LEO_ENABLED` flag gates Leo so a **differential test** (Leo on vs off,
+identical recognize) is possible — it caught two bugs (wrong determinism condition that skipped
+non-last waiters → broke ABNF; the boxing regression). Battery: 5 small grammars + ABNF + 7
+mutations, all identical. Flag **kept** as a kill-switch for a high-risk optimization. New bench
+mode `--rightrec` is the asymptotic canary.
+
+**STILL SUPER-LINEAR — the `parse` path.** Leo is recognition-only, so parsing right-recursion
+still builds the O(n²) SPPF *and* its derivation walk recurses O(depth) — measured super-linear
+(`S="a"*` parse µs/N 44→70→120) and it **stack-overflows at N≈400** (recursive `forest.__iter__`).
+Two separable next steps:
+1. **Leo + SPPF** (Scott 2008): record provenance for transitive items so derivations recover —
+   makes `parse` O(n) too. The hard one (highest risk).
+2. **Iterative forest walk**: convert `forest.py`'s recursive `__iter__`/`eval` to an explicit
+   stack so deep `parse` stops crashing (independent of (1); fixes the overflow even before Leo+SPPF).
 
 **Left to do:**
-1. **Tests pending** (Sonnet): `CharAccepts`, `ParseCtx.char_accepts`/`column`/`record_links`,
-   `Column.scannable_by_atom`/`predicted`, S3a memo sharing, recognize-skips-SPPF. (The
-   EarleyItem/Link plain-tuple test port is **done**.)
-2. **Leo** — the remaining algorithmic lever for the super-linear `parse` path (micro-well is dry:
-   recognize is at the C floor for this grammar).
+1. **Leo unit tests** — in progress (Sonnet): `LeoItem`/`resolve`/`_sole_candidate`, `Column.leo`,
+   and the Leo-on-vs-off differential. Plus the still-pending session-3/4 coverage (`CharAccepts`,
+   `ParseCtx.char_accepts`/`column`/`record_links`, `scannable_by_atom`/`predicted`, recognize-skips-SPPF).
+2. **`parse`-path super-linearity** — Leo+SPPF and/or the iterative forest walk (above).
 
 ---
 

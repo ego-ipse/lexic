@@ -17,6 +17,7 @@ Improvements over the old ``z_current_work/bench_parsing.py``:
 Usage:
   uv run python zzz_current_work/bench_parsing.py [label]
   uv run python zzz_current_work/bench_parsing.py --profile
+  uv run python zzz_current_work/bench_parsing.py --rightrec   # asymptotic canary
 """
 
 from __future__ import annotations
@@ -31,6 +32,16 @@ from typing import Callable
 
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.abnf_2 import ABNF_GRAMMAR, ABNF_REDUCER
+from lexic.ir.base import IrNone, IrSeq
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrItem,
+    IrLiteral,
+    IrQuantifier,
+    IrRule,
+    IrSequence,
+)
 from lexic.parsing.meta_parser import MetaGrammarParser
 from lexic.parsing_2 import parse as earley_parse
 from lexic.parsing_2 import recognize as earley_recognize
@@ -128,6 +139,52 @@ def main(label: str) -> None:
         print()
 
 
+def rightrec() -> None:
+    """Scaling sweep on a deep right-recursive grammar (``S = "a"*``).
+
+    The asymptotic canary the ABNF self-host (short reps) cannot surface:
+    ``recognize`` is **O(n)** with Leo's optimization (flat µs/N); ``parse`` keeps
+    the SPPF completer (Leo is recognition-only) so it stays **super-linear**, and
+    its derivation walk recurses O(depth) — so it is swept only at small N.
+    """
+    grammar = normalize(
+        IrAst(
+            rules=IrSeq(
+                IrRule(
+                    "S",
+                    IrAlternation(
+                        IrSequence(IrItem(IrLiteral("a"), IrQuantifier(0, IrNone)))
+                    ),
+                )
+            ),
+            start="S",
+        )
+    )
+
+    def best(fn: Callable[[object, str], object], n: int, reps: int = 5) -> float:
+        text = "a" * n
+        gc.disable()
+        ts = []
+        for _ in range(reps):
+            t0 = time.perf_counter()
+            fn(grammar, text)
+            ts.append(time.perf_counter() - t0)
+        gc.enable()
+        return min(ts)
+
+    print('== right-recursive scaling: S = "a"* ==')
+    print("recognize (Leo ⇒ flat µs/N = O(n)):")
+    print(f"  {'N':>6} {'min ms':>10} {'µs/N':>9}")
+    for n in (200, 400, 800, 1600, 3200, 6400):
+        t = best(earley_recognize, n)
+        print(f"  {n:>6} {t * 1e3:>10.2f} {t / n * 1e6:>9.2f}")
+    print("parse (no Leo on the SPPF ⇒ super-linear; recurses O(depth), small N):")
+    print(f"  {'N':>6} {'min ms':>10} {'µs/N':>9} {'µs/N²':>9}")
+    for n in (50, 100, 200):
+        t = best(earley_parse, n)
+        print(f"  {n:>6} {t * 1e3:>10.2f} {t / n * 1e6:>9.2f} {t / n / n * 1e6:>9.3f}")
+
+
 def profile() -> None:
     """cProfile parsing_2 parse+reduce on the x4 input."""
     text = make_input(4)
@@ -144,5 +201,7 @@ def profile() -> None:
 if __name__ == "__main__":
     if "--profile" in sys.argv:
         profile()
+    elif "--rightrec" in sys.argv:
+        rightrec()
     else:
         main(sys.argv[1] if len(sys.argv) > 1 else "run")
