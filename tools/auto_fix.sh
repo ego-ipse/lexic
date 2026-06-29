@@ -4,7 +4,7 @@ set -e
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "Running lint checks..." >&2
-uv run ruff format src tests generated getting_started || exit_code="$?"
+uv run ruff format || exit_code="$?"
 
 echo "Running import sorting checks..." >&2
 uv run isort . || exit_code="$?"
