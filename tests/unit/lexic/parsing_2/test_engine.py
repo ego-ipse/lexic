@@ -37,6 +37,7 @@ from lexic.ir.base import (
     IrStr,
     IrTuple,
 )
+from lexic.ir.mapping import IrMultiMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -380,12 +381,12 @@ def test_matches_charclass_range_rejects():
     assert result == IrInt(0)
 
 
-def test_nullable_rules_returns_irseq():
-    """NullableRules.eval returns an IrSeq of nullable rule names."""
+def test_nullable_rules_returns_irmultimap():
+    """NullableRules.eval returns an IrMultiMap (used as a set) of nullable rule names."""
     parser = EarleyParser()
     g = _normalize(_quant_grammar(0, IrNone))
     result = NULLABLE.eval(parser, g, ())
-    assert isinstance(result, IrSeq)
+    assert isinstance(result, IrMultiMap)
 
 
 # ── parse_forest ──────────────────────────────────────────────────────

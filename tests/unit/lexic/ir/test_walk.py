@@ -84,7 +84,7 @@ def _tiny_ast() -> IrAst:
 
 # ── IrDispatch fundamentals ──────────────────────────────────────────
 def test_irdispatch_is_caching_tuple():
-    """IrDispatch IS-AN IrCachingTuple."""
+    """IrDispatch IS-AN IrCachingTuple; ``actions`` is an ``IrTypeMap``."""
     a = IrAction(IrLiteral, IrLiteral("x"))
     d = IrVisitor(
         actions=IrTypeMap(
@@ -92,7 +92,7 @@ def test_irdispatch_is_caching_tuple():
         )
     )
     assert isinstance(d, IrCachingTuple)
-    assert d.actions == (a,)
+    assert d.actions == IrTypeMap(a)
     assert not d.children()
 
 

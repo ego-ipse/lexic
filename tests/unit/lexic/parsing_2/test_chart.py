@@ -281,9 +281,9 @@ def test_links_multi_family_dedup_identical():
     assert len(links[key]) == 1
 
 
-def test_links_getitem_snapshot_is_safe_while_bucket_grows():
-    """IrSeq returned by links[key] is a snapshot — adding to the bucket does not
-    affect the already-retrieved sequence."""
+def test_links_getitem_returns_live_bucket():
+    """Sequence returned by links[key] is the live backing bucket — subsequent
+    appends to the same key are reflected in a reference held before the append."""
     links = Links()
     arm = _arm("x")
     item = _ei("s", arm, dot=1)
@@ -294,10 +294,10 @@ def test_links_getitem_snapshot_is_safe_while_bucket_grows():
     link_b = Link(pred_b, 0, child)
     key = (item, 1)
     links += (key, link_a)
-    snapshot = links[key]  # take snapshot while bucket has 1 entry
-    links += (key, link_b)  # grow the live bucket
-    assert len(snapshot) == 1  # snapshot is unaffected
-    assert len(links[key]) == 2  # live read reflects the addition
+    live = links[key]  # live bucket reference — 1 entry so far
+    links += (key, link_b)  # grow the same bucket
+    assert len(live) == 2  # live reference reflects the addition
+    assert len(links[key]) == 2  # fresh read agrees
 
 
 def test_links_getitem_empty_on_miss():

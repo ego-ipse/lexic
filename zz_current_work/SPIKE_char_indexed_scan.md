@@ -1,7 +1,7 @@
 # Spike: Char-indexed Scan for Earley `ScanColumn`
 
-**Branch:** `parse_proto_proto` (worktree `agent-a084e690a0ecd5435`)  
-**Date:** 2026-06-27  
+**Branch:** `parse_proto_proto` (worktree `agent-a084e690a0ecd5435`)
+**Date:** 2026-06-27
 **Status:** Throwaway prototype. Code left in place; do not merge as-is.
 
 ---

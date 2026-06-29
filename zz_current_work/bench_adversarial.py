@@ -23,7 +23,7 @@ import time
 
 from lexic.ir.action import IrThis
 from lexic.ir.base import IrSelf, IrStr, IrTuple
-from lexic.ir.mapping8 import IrMap, IrMultiMap, IrTypeMap
+from lexic.ir.mapping import IrMap, IrMultiMap, IrTypeMap
 from lexic.ir.nodes import IrLiteral, IrRuleRef
 
 TRIALS = 51
