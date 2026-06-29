@@ -67,11 +67,28 @@ class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](IrCachingTuple[IrTypeMap, IrSelf]):
         :returns: The action body's ``Ir_co`` result.
         :raises UnsupportedConstructError: If the resolved default refuses ``n``.
         """
+        actions = self.actions
         try:
-            body: IrSelf = self.actions.resolve(n)
-        except IrKeyError:
-            body = self.default
+            body: IrSelf = actions[type(n)]
+        except KeyError:
+            body = self._resolve_miss(actions, n)
         return body.eval(d, n, nc)
+
+    def _resolve_miss(self, actions: IrTypeMap, n: IrSelf) -> IrSelf:
+        """Slow-path resolution: MRO walk + ``IR_DEFAULT``, else ``default``.
+
+        Reached only when ``type(n)`` is not an exact key — rare in practice
+        (dispatched node types are registered concretely). Kept off the hot
+        ``eval`` path so the common exact-type hit pays no extra frame.
+
+        :param actions: The dispatcher's action table.
+        :param n: The node whose exact type missed.
+        :returns: The resolved body, or ``self.default`` on a full miss.
+        """
+        try:
+            return actions.resolve(n)
+        except IrKeyError:
+            return self.default
 
     def apply(self, root: IrNode) -> Ir_co:
         """Friendly entry — equivalent to ``self.eval(self, root, ())``.

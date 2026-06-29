@@ -128,13 +128,13 @@ class IrMapping[K, V: IrSelf, R](IrLeaf[IrSelf, IrSelf]):
         :raises IrKeyError: On a miss with no :data:`IR_DEFAULT` entry.
         """
         table = self._table
-        value = table.get(n)
-        if value is not None:
-            return value
-        value = table.get(IR_DEFAULT)
-        if value is not None:
-            return value
-        raise IrKeyError(f"{type(self).__name__}: no entry for {n!r}")
+        try:
+            return table[n]
+        except KeyError:
+            value = table.get(IR_DEFAULT)
+            if value is not None:
+                return value
+            raise IrKeyError(f"{type(self).__name__}: no entry for {n!r}") from None
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Resolve ``n`` to its value and evaluate it against ``(d, n, nc)``.

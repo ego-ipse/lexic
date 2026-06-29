@@ -154,23 +154,22 @@ class ForestCtx(IrMultiMap[tuple[EarleyItem, int], "IrStream[IrSeq]"]):
     a ``ctx.memo`` dict. The single-valued filing keeps the sharing invariant: a
     handle's bucket holds exactly one stream, read as ``ctx[key][0]``.
 
-    :ivar chart: The chart holding the family table (tuple slot 1).
+    :ivar chart: The chart holding the family table.
     """
 
-    __slots__ = ()
+    __slots__ = ("chart",)
+
+    chart: Chart
 
     def __new__(cls, chart: Chart) -> Self:
-        """Build the cursor: backing dict at slot 0, ``chart`` at slot 1.
+        """Build the cursor over ``chart`` with an empty backing table.
 
         :param chart: The chart holding the family table.
         :returns: A fresh, empty forest cursor over ``chart``.
         """
-        return tuple.__new__(cls, ({}, chart))
-
-    @property
-    def chart(self) -> Chart:
-        """The chart this read walks — tuple slot 1, past the backing dict."""
-        return cast(Chart, tuple.__getitem__(self, 1))
+        obj = super().__new__(cls)
+        object.__setattr__(obj, "chart", chart)
+        return obj
 
 
 class IrStream[T: IrSelf](IrLeaf[IrSelf, IrSelf]):
