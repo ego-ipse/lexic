@@ -238,9 +238,12 @@ class ScanColumn(IrLeaf[IrSelf, IrSelf]):
         char_nc = IrTuple(IrStr(text[i]))
         char_leaf = IrLiteral(text[i])
         nxt = chart[i + 1]
-        for item in chart[i]:
+        # ``scannable`` already holds only the terminal-facing items, filed at
+        # insert time — so the dot is in range and the atom is a terminal; no
+        # ``dot < len(arm)`` guard and no ruleref items to reject.
+        for item in chart[i].scannable:
             arm, dot = item[1], item[2]  # index past the field descriptors
-            if dot < len(arm) and MATCHES.eval(d, arm[dot].atom, char_nc):
+            if MATCHES.eval(d, arm[dot].atom, char_nc):
                 # advance the dot: (rule_name, arm, dot + 1, origin)
                 advanced = EarleyItem(item[0], arm, dot + 1, item[3])
                 nxt += advanced

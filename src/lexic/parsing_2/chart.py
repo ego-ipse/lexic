@@ -128,8 +128,15 @@ class Column(IrLeaf[IrSelf, IrSelf]):
     the completer runs *while* the column is still being closed (items added
     mid-iteration are filed at once).
 
+    Symmetrically, an item whose dot faces a *terminal* atom is filed into the
+    :attr:`scannable` list — so the scanner reads only the terminal-facing items
+    (``column.scannable``) instead of rescanning the whole column and rejecting
+    the two-thirds that face a ruleref. Same incremental-maintenance reason as
+    :attr:`waiting`.
+
     :ivar index: This column's input position.
     :ivar waiting: ``IrRuleRef`` after the dot → the items awaiting it.
+    :ivar scannable: The items whose dot faces a terminal atom, in insert order.
 
     .. note::
         ``_items`` and ``_seen`` are a plain ``list`` + ``set``, not an
@@ -141,12 +148,13 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         :class:`IrMultiMap` use here.
     """
 
-    __slots__ = ("index", "_items", "_seen", "waiting")
+    __slots__ = ("index", "_items", "_seen", "waiting", "scannable")
 
     index: int
     _items: list[EarleyItem]
     _seen: set[EarleyItem]
     waiting: IrMultiMap[IrRuleRef, EarleyItem]
+    scannable: list[EarleyItem]
 
     def __init__(self, index: int) -> None:
         """Seed an empty column at ``index``.
@@ -157,6 +165,7 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         self._items = []
         self._seen = set()
         self.waiting = IrMultiMap()
+        self.scannable = []
 
     def __iadd__(self, item: EarleyItem) -> Column:
         """Insert ``item`` if absent (idempotent); return the column.
@@ -177,6 +186,8 @@ class Column(IrLeaf[IrSelf, IrSelf]):
                 symbol = arm[dot].atom
                 if isinstance(symbol, IrRuleRef):
                     self.waiting += (symbol, item)
+                else:
+                    self.scannable.append(item)
         return self
 
     def __contains__(self, item: EarleyItem) -> bool:
