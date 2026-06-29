@@ -125,29 +125,72 @@ _NO_MATCH = IrInt(0)
 caching the two immutable results avoids an ``IrInt`` allocation each time."""
 
 
-class Matches(IrLeaf[IrSelf, IrSelf]):
-    """Whether a terminal atom accepts a single character.
+def _atom_accepts(atom: IrSelf, char: str) -> bool:
+    """Whether a terminal atom accepts ``char`` — the matching kernel.
 
     Assumes literals were split to one char each (see
-    :mod:`lexic.parsing_2.normalize`). A non-terminal atom (a ruleref) never
-    matches, so the scanner can call this for every dotted item and skip on a
-    zero result.
+    :mod:`lexic.parsing_2.normalize`). Shared by :class:`Matches` (the predicate
+    node) and :class:`CharAccepts` (the grammar-level char-acceptance index), so
+    char acceptance is decided in one place.
+
+    :param atom: A terminal atom (``IrLiteral`` or ``IrCharClass``).
+    :param char: A single character.
+    :returns: ``True`` when ``atom`` matches ``char``.
+    """
+    if isinstance(atom, IrLiteral):
+        return char == atom  # IrLiteral IS-A str
+    if isinstance(atom, IrCharClass):
+        for element in atom:
+            if isinstance(element, IrRange):
+                if str(element.lo) <= char <= str(element.hi):
+                    return True
+            elif char in str(element):
+                return True
+    return False
+
+
+class Matches(IrLeaf[IrSelf, IrSelf]):
+    """Whether a terminal atom accepts a single character — a truth value.
+
+    A non-terminal atom (a ruleref) never matches. The driver no longer calls
+    this per item (the char-indexed scanner resolves acceptance once via
+    :class:`CharAccepts`); it remains the named predicate over :func:`_atom_accepts`.
     """
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """:param n: terminal atom; :param nc: ``(IrStr(char),)``; :returns: 0/1."""
-        atom = n
-        char = str(nc[0])
-        if isinstance(atom, IrLiteral):
-            return _MATCH if char == atom else _NO_MATCH  # IrLiteral IS-A str
-        if isinstance(atom, IrCharClass):
-            for element in atom:
-                if isinstance(element, IrRange):
-                    if str(element.lo) <= char <= str(element.hi):
-                        return _MATCH
-                elif char in str(element):
-                    return _MATCH
-        return _NO_MATCH
+        return _MATCH if _atom_accepts(n, str(nc[0])) else _NO_MATCH
+
+
+_CHAR_ACCEPTS_ALL_KEY = IrStr("\x00all")
+"""Sentinel key holding every terminal atom in :attr:`ParseCtx.char_accepts`.
+A two-char string, so it never collides with a single scanned character."""
+
+
+class CharAccepts(IrLeaf[IrSelf, IrSelf]):
+    """Collect the grammar's unique terminal atoms under the sentinel key.
+
+    Walks every arm of every rule and files each non-:class:`IrRuleRef` atom (a
+    terminal) under :data:`_CHAR_ACCEPTS_ALL_KEY` in a fresh
+    :class:`~lexic.ir.mapping.IrMultiMap`, deduped by atom equality. Evaluated
+    once per parse by :class:`BuildChart` to seed :attr:`ParseCtx.char_accepts`;
+    the per-char ``char → accepting atoms`` buckets are filled lazily by
+    :class:`ScanColumn` by filtering this set with :func:`_atom_accepts`.
+    """
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrMultiMap:
+        """:param n: the grammar; :returns: ``IrMultiMap`` of all terminal atoms."""
+        grammar = cast(IrAst, n)
+        char_accepts: IrMultiMap = IrMultiMap()
+        seen: set[IrSelf] = set()
+        for rule in grammar.rules:
+            for arm in rule.body:
+                for item in arm:
+                    atom = item.atom
+                    if not isinstance(atom, IrRuleRef) and atom not in seen:
+                        seen.add(atom)
+                        char_accepts += (_CHAR_ACCEPTS_ALL_KEY, atom)
+        return char_accepts
 
 
 class AcceptingItem(IrLeaf[IrSelf, IrSelf]):
@@ -221,31 +264,36 @@ class CloseColumn(IrLeaf[IrSelf, IrSelf]):
 
 
 class ScanColumn(IrLeaf[IrSelf, IrSelf]):
-    """Scan one character of input, advancing matching terminal items.
+    """Scan one character of input, advancing items facing an accepting atom.
 
-    ``n`` is the chart, ``nc`` is ``(IrStr(text), IrInt(i))``. Each item in column
-    ``i`` whose dot faces a terminal that accepts ``text[i]`` advances into column
-    ``i+1``, recording the consumed character as provenance. The match is the
-    :class:`Matches` op (dispatched once per dotted item); the boxed character and
-    its consumed-leaf are built once per column and shared across links.
+    ``n`` is the chart, ``nc`` is ``(IrStr(text), IrInt(i), ParseCtx)``. Uses two
+    indices so :class:`Matches` is never called per item: ``ctx.char_accepts``
+    (char → the terminal atoms that accept it, filled lazily here on the char's
+    first encounter by filtering the grammar's atom set) and each column's
+    ``scannable_by_atom`` (terminal atom → the items facing it, filed at insert).
+    Each item facing an accepting atom advances into column ``i+1``, recording the
+    consumed character as provenance.
     """
 
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
-        """:param n: chart; :param nc: ``(IrStr(text), IrInt(i))``."""
+    def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
+        """:param n: chart; :param nc: ``(IrStr(text), IrInt(i), ParseCtx)``."""
         chart = cast(Chart, n)
         text = str(nc[0])
         i = int(cast(int, nc[1]))
-        char_nc = IrTuple(IrStr(text[i]))
-        char_leaf = IrLiteral(text[i])
+        ctx = cast(ParseCtx, nc[2])
+        char = text[i]
+        char_leaf = IrLiteral(char)
         nxt = chart[i + 1]
-        # ``scannable`` already holds only the terminal-facing items, filed at
-        # insert time — so the dot is in range and the atom is a terminal; no
-        # ``dot < len(arm)`` guard and no ruleref items to reject.
-        for item in chart[i].scannable:
-            arm, dot = item[1], item[2]  # index past the field descriptors
-            if MATCHES.eval(d, arm[dot].atom, char_nc):
+        scannable = chart[i].scannable_by_atom
+        char_accepts = ctx.char_accepts
+        if char not in char_accepts:  # resolve accepting atoms once per char
+            for atom in char_accepts[_CHAR_ACCEPTS_ALL_KEY]:
+                if _atom_accepts(atom, char):
+                    char_accepts += (char, atom)
+        for atom in char_accepts[char]:
+            for item in scannable[atom]:
                 # advance the dot: (rule_name, arm, dot + 1, origin)
-                advanced = EarleyItem(item[0], arm, dot + 1, item[3])
+                advanced = EarleyItem(item[0], item[1], item[2] + 1, item[3])
                 nxt += advanced
                 chart.links += ((advanced, i + 1), Link(item, i, char_leaf))
         return IrNone
@@ -266,7 +314,12 @@ class BuildChart(IrLeaf[IrSelf, IrSelf]):
         text = str(nc[0])
         rules = cast(IrMap, RULE_INDEX.eval(d, grammar, ()))
         nullable = cast(IrMultiMap, NULLABLE.eval(d, grammar, ()))
-        ctx = ParseCtx(Chart(), rules, nullable)
+        ctx = ParseCtx(
+            Chart(),
+            rules,
+            nullable,
+            cast(IrMultiMap, CHAR_ACCEPTS.eval(d, grammar, ())),
+        )
         ctx_nc = IrTuple(ctx)
         text_node = IrStr(text)
 
@@ -279,7 +332,7 @@ class BuildChart(IrLeaf[IrSelf, IrSelf]):
             ctx.col = i
             CLOSE_COLUMN.eval(d, ctx.chart, ctx_nc)
             if i < len(text):
-                SCAN_COLUMN.eval(d, ctx.chart, (text_node, IrInt(i)))
+                SCAN_COLUMN.eval(d, ctx.chart, (text_node, IrInt(i), ctx))
         return ctx.chart
 
 
@@ -390,6 +443,7 @@ class EarleyParser(IrDispatch):
 RULE_INDEX = RuleIndex()
 NULLABLE = NullableRules()
 MATCHES = Matches()
+CHAR_ACCEPTS = CharAccepts()
 ACCEPT = AcceptingItem()
 ACCEPTING = Accepting()
 CLOSE_COLUMN = CloseColumn()

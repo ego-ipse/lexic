@@ -128,15 +128,16 @@ class Column(IrLeaf[IrSelf, IrSelf]):
     the completer runs *while* the column is still being closed (items added
     mid-iteration are filed at once).
 
-    Symmetrically, an item whose dot faces a *terminal* atom is filed into the
-    :attr:`scannable` list — so the scanner reads only the terminal-facing items
-    (``column.scannable``) instead of rescanning the whole column and rejecting
-    the two-thirds that face a ruleref. Same incremental-maintenance reason as
-    :attr:`waiting`.
+    Symmetrically, an item whose dot faces a *terminal* atom is filed under that
+    atom in the :attr:`scannable_by_atom` index — so the char-indexed scanner
+    advances only the items facing an atom that accepts the current character
+    (``column.scannable_by_atom[atom]``), never touching the two-thirds that face
+    a ruleref nor the terminals that reject the char. Same incremental-maintenance
+    reason as :attr:`waiting`.
 
     :ivar index: This column's input position.
     :ivar waiting: ``IrRuleRef`` after the dot → the items awaiting it.
-    :ivar scannable: The items whose dot faces a terminal atom, in insert order.
+    :ivar scannable_by_atom: Terminal atom after the dot → the items facing it.
 
     .. note::
         ``_items`` and ``_seen`` are a plain ``list`` + ``set``, not an
@@ -148,13 +149,13 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         :class:`IrMultiMap` use here.
     """
 
-    __slots__ = ("index", "_items", "_seen", "waiting", "scannable")
+    __slots__ = ("index", "_items", "_seen", "waiting", "scannable_by_atom")
 
     index: int
     _items: list[EarleyItem]
     _seen: set[EarleyItem]
     waiting: IrMultiMap[IrRuleRef, EarleyItem]
-    scannable: list[EarleyItem]
+    scannable_by_atom: IrMultiMap[IrSelf, EarleyItem]
 
     def __init__(self, index: int) -> None:
         """Seed an empty column at ``index``.
@@ -165,7 +166,7 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         self._items = []
         self._seen = set()
         self.waiting = IrMultiMap()
-        self.scannable = []
+        self.scannable_by_atom = IrMultiMap()
 
     def __iadd__(self, item: EarleyItem) -> Column:
         """Insert ``item`` if absent (idempotent); return the column.
@@ -173,7 +174,8 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         Pair with ``item in column`` to act once on first insertion (e.g. to
         record a provenance link exactly once). An item whose dot faces a
         non-terminal is also filed under that :class:`~lexic.ir.nodes.IrRuleRef`
-        in :attr:`waiting`.
+        in :attr:`waiting`; one facing a terminal is filed under that atom in
+        :attr:`scannable_by_atom`.
 
         :param item: The item to insert.
         :returns: ``self`` (the in-place-mutated column).
@@ -187,7 +189,7 @@ class Column(IrLeaf[IrSelf, IrSelf]):
                 if isinstance(symbol, IrRuleRef):
                     self.waiting += (symbol, item)
                 else:
-                    self.scannable.append(item)
+                    self.scannable_by_atom += (symbol, item)
         return self
 
     def __contains__(self, item: EarleyItem) -> bool:

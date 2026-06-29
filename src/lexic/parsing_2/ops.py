@@ -20,8 +20,9 @@ visitor convention); the per-item context arrives through ``nc`` as a single
 
 :class:`Scan` is the deferral half — a terminal needs no action while a column is
 closing; the actual character match runs between columns in the driver, which
-re-derives the scannable items by filtering the closed column. So :class:`Scan`
-is a no-op that exists only to give terminals a (do-nothing) dispatch target.
+reads each column's ``scannable_by_atom`` index (items already filed by the atom
+their dot faces). So :class:`Scan` is a no-op that exists only to give terminals
+a (do-nothing) dispatch target.
 """
 
 from __future__ import annotations
@@ -67,19 +68,26 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
     :class:`~lexic.ir.mapping.IrMultiMap` keyed by nullable ref, so ``ref in
     nullable`` is O(1) and ``nullable[ref]`` is the rule's empty-deriving arms.
 
+    ``char_accepts`` is the grammar-level char → accepting terminal atoms index,
+    seeded with every terminal atom under a sentinel key and filled lazily (per
+    char, on first scan) by the driver — so the scanner resolves which atoms a
+    character matches once, then reads each column's ``scannable_by_atom`` bucket.
+
     :ivar chart: The chart being grown.
     :ivar rules: Rule ref → its alternation body.
     :ivar nullable: Nullable ref → its empty-deriving arms — the predictor
         advances over these immediately (Aycock-Horspool).
+    :ivar char_accepts: Char → the terminal atoms that accept it (lazily filled).
     :ivar col: The column currently being closed.
     :ivar item: The item currently being dispatched.
     """
 
-    __slots__ = ("chart", "rules", "nullable", "col", "item")
+    __slots__ = ("chart", "rules", "nullable", "char_accepts", "col", "item")
 
     chart: Chart
     rules: IrMap[IrRuleRef, IrAlternation]
     nullable: IrMultiMap[IrRuleRef, IrSequence]
+    char_accepts: IrMultiMap[str, IrSelf]
     col: int
     item: EarleyItem
 
@@ -88,16 +96,19 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
         chart: Chart,
         rules: IrMap[IrRuleRef, IrAlternation],
         nullable: IrMultiMap[IrRuleRef, IrSequence],
+        char_accepts: IrMultiMap[str, IrSelf],
     ) -> None:
         """Seed the parse-invariant fields; the driver advances ``col``/``item``.
 
         :param chart: The chart to grow.
         :param rules: The rule-ref → alternation-body index.
         :param nullable: Nullable ref → its empty-deriving arms.
+        :param char_accepts: Char → accepting terminal atoms (lazily filled).
         """
         self.chart = chart
         self.rules = rules
         self.nullable = nullable
+        self.char_accepts = char_accepts
         self.col = 0
         # ``item`` is set by the driver before each dispatch; IrNone is the
         # absence sentinel until then (it fits every slot, signatures union-free).
@@ -161,9 +172,9 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
 class Scan(IrLeaf[IrSelf, IrSelf]):
     """Earley scanner (deferral half): a terminal needs no close-time action.
 
-    The character match happens between columns in the driver, which re-derives
-    the scannable items by filtering the closed column — so this body is a no-op,
-    present only so a terminal symbol has a dispatch target.
+    The character match happens between columns in the driver, which reads each
+    column's ``scannable_by_atom`` index — so this body is a no-op, present only
+    so a terminal symbol has a dispatch target.
     """
 
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrNoneType:

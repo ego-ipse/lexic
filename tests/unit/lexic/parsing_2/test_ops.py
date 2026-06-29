@@ -61,5 +61,5 @@ def test_parse_ctx_has_nullable_field():
 
 def test_parse_ctx_child_attrs_is_empty():
     """ParseCtx walks no children — context is engine state, not grammar."""
-    ctx = ParseCtx(Chart(), IrMap(), IrMultiMap())
+    ctx = ParseCtx(Chart(), IrMap(), IrMultiMap(), IrMultiMap())
     assert not ctx.children()
