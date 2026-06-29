@@ -39,10 +39,10 @@ from lexic.ir.mapping import IrMap, IrMultiMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
-    IrItem,
     IrLiteral,
     IrRange,
     IrRuleRef,
+    IrSequence,
 )
 from lexic.parsing_2.chart import Chart, Link
 from lexic.parsing_2.forest import SppfNode
@@ -64,12 +64,12 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
     ``rules`` is a dict-backed :class:`~lexic.ir.mapping.IrMap` (rule ref → its
     alternation body), so ``resolve`` is an O(1) lookup returning the stored
     alternation with no per-read allocation; ``nullable`` is an
-    :class:`~lexic.ir.mapping.IrMultiMap` used as a set, so ``ref in nullable``
-    is O(1).
+    :class:`~lexic.ir.mapping.IrMultiMap` keyed by nullable ref, so ``ref in
+    nullable`` is O(1) and ``nullable[ref]`` is the rule's empty-deriving arms.
 
     :ivar chart: The chart being grown.
     :ivar rules: Rule ref → its alternation body.
-    :ivar nullable: Rule refs that can derive the empty string — the predictor
+    :ivar nullable: Nullable ref → its empty-deriving arms — the predictor
         advances over these immediately (Aycock-Horspool).
     :ivar col: The column currently being closed.
     :ivar item: The item currently being dispatched.
@@ -79,7 +79,7 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
 
     chart: Chart
     rules: IrMap[IrRuleRef, IrAlternation]
-    nullable: IrMultiMap[IrRuleRef, IrRuleRef]
+    nullable: IrMultiMap[IrRuleRef, IrSequence]
     col: int
     item: EarleyItem
 
@@ -87,13 +87,13 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
         self,
         chart: Chart,
         rules: IrMap[IrRuleRef, IrAlternation],
-        nullable: IrMultiMap[IrRuleRef, IrRuleRef],
+        nullable: IrMultiMap[IrRuleRef, IrSequence],
     ) -> None:
         """Seed the parse-invariant fields; the driver advances ``col``/``item``.
 
         :param chart: The chart to grow.
         :param rules: The rule-ref → alternation-body index.
-        :param nullable: Rule refs that are nullable (membership set).
+        :param nullable: Nullable ref → its empty-deriving arms.
         """
         self.chart = chart
         self.rules = rules
@@ -151,15 +151,10 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
             it = ctx.item  # advance the dot: (rule, arm, dot + 1, origin)
             advanced = EarleyItem(it[0], it[1], it[2] + 1, it[3])
             column += advanced
-            for arm in arms:
-                if all(
-                    isinstance(cast(IrItem, item).atom, IrRuleRef)
-                    and cast(IrItem, item).atom in ctx.nullable
-                    for item in cast(Sequence[IrSelf], arm)
-                ):
-                    done = EarleyItem(ref, arm, len(arm), origin)
-                    child = SppfNode(done, origin)
-                    ctx.chart.links += ((advanced, origin), Link(it, origin, child))
+            for arm in ctx.nullable[ref]:  # precomputed empty-deriving arms
+                done = EarleyItem(ref, arm, len(arm), origin)
+                child = SppfNode(done, origin)
+                ctx.chart.links += ((advanced, origin), Link(it, origin, child))
         return IrNone
 
 

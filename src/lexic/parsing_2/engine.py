@@ -41,6 +41,7 @@ from lexic.ir.nodes import (
     IrLiteral,
     IrRange,
     IrRuleRef,
+    IrSequence,
 )
 from lexic.ir.walk import IrDispatch
 from lexic.parsing_2.chart import Chart, Link
@@ -79,13 +80,15 @@ class NullableRules(IrLeaf[IrSelf, IrSelf]):
     the grammar is Earley-normalised (all quantifiers ``(1, 1)``), so nullability
     flows purely through empty arms and nullable rulerefs.
 
-    Returned as an :class:`~lexic.ir.mapping.IrMultiMap` used as a set: the
-    predictor tests ``ref in nullable`` once per prediction, so membership must be
-    O(1) — ``IrMultiMap.__contains__`` is an exception-free ``key in dict``.
+    Returned as an :class:`~lexic.ir.mapping.IrMultiMap` keyed by nullable
+    ``IrRuleRef``: ``ref in nullable`` is the O(1) membership the predictor tests
+    each prediction (``IrMultiMap.__contains__`` is an exception-free ``key in
+    dict``), and ``nullable[ref]`` is the rule's **empty-deriving arms** — the set
+    the Aycock-Horspool advance needs, computed once here instead of per predict.
     """
 
     def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrMultiMap:
-        """:param n: the grammar; :returns: nullable rule refs as an IrMultiMap set."""
+        """:param n: the grammar; :returns: nullable ref → its empty-deriving arms."""
         grammar = cast(IrAst, n)
         nullable: set[str] = set()
         changed = True
@@ -94,20 +97,26 @@ class NullableRules(IrLeaf[IrSelf, IrSelf]):
             for rule in grammar.rules:
                 if rule.name in nullable:
                     continue
-                if any(
-                    all(
-                        isinstance(it.atom, IrRuleRef) and str(it.atom) in nullable
-                        for it in arm
-                    )
-                    for arm in rule.body
-                ):
+                if any(self._arm_is_nullable(arm, nullable) for arm in rule.body):
                     nullable.add(rule.name)
                     changed = True
-        index: IrMultiMap[IrRuleRef, IrRuleRef] = IrMultiMap()
-        for name in nullable:
-            ref = IrRuleRef(name)
-            index += (ref, ref)
+        index: IrMultiMap[IrRuleRef, IrSequence] = IrMultiMap()
+        for rule in grammar.rules:
+            if rule.name not in nullable:
+                continue
+            ref = IrRuleRef(rule.name)
+            for arm in rule.body:
+                if self._arm_is_nullable(arm, nullable):
+                    index += (ref, arm)
         return index
+
+    @staticmethod
+    def _arm_is_nullable(arm: IrSequence, nullable: set[str]) -> bool:
+        """Whether ``arm`` derives the empty string — every item is a nullable
+        ruleref (an empty arm vacuously). ``nullable`` is the name set so far."""
+        return all(
+            isinstance(it.atom, IrRuleRef) and str(it.atom) in nullable for it in arm
+        )
 
 
 _MATCH = IrInt(1)

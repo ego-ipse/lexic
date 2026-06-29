@@ -40,3 +40,35 @@ slot-backed design.
 ## Net recommendation
 Keep slot-based mapping8 + Opt1. Decide the dispatch `_table` fork separately
 (+1.4–1.9% for a soft encapsulation break within ir/).
+
+---
+
+## Non-mapping engine round (after cutover landed)
+
+Profiling the landed cutover showed cost was in the engine loops, not the maps.
+Baseline (cutover landed): recognize 85.1ms, parse 110.6ms.
+
+### Wins (all in parsing_2/, gates green: pylint 10.00, pyright 0, ruff clean, 1121 pass)
+1. **EarleyItem field access → tuple unpack/index** (Predict/Complete/Scan/
+   Column.__iadd__/CloseColumn). `property(itemgetter(i))` measured 2.5× slower
+   than raw tuple access (141µs vs 56µs/1000). Names-on-the-left stay readable.
+2. **CloseColumn driver loop → `for item in column`** — Column.__iter__ yields a
+   live list iterator that picks up mid-pass appends (the fixpoint); drops a
+   __len__/__getitem__ method call per item. Cleaner than the manual cursor.
+3. **Predict**: hoisted `origin`, cached `rules.resolve(ref)` (was called twice on
+   the 24%-frequent nullable path).
+4. **Nullable-precompute**: `NullableRules` now maps each nullable ref → its
+   **empty-deriving arms** (the `all(...)` check computed once), instead of
+   `Predict` recomputing it on every nullable prediction (24% of predicts).
+   Predict.eval tottime 0.454 → 0.347s (−24%).
+
+### Rejected (measured, reverted)
+- **Column.__iadd__ add-first (len-delta) trick**: −1.5% SLOWER. EarleyItem hash is
+  cheap (cached str hashes), so saving one hash doesn't pay for two `len()` calls.
+  (Same shape as the adversarial review's Finding C.)
+
+### Result
+recognize 85.1 → ~69.5ms, parse 110.6 → ~95ms.
+**Vs original mapping.py baseline (94.3 / 121.0): recognize −26%, parse −21.5%.**
+Profile is now flat — no dominant hotspot. Remaining levers (cache IR tuple hashes
+in ir/base; the `_table` dispatch coupling) are broader/riskier for smaller gains.
