@@ -124,6 +124,10 @@ _NO_MATCH = IrInt(0)
 """Shared truth-value leaves — :class:`Matches` returns one per scanned item, so
 caching the two immutable results avoids an ``IrInt`` allocation each time."""
 
+_SKIP_LINKS = IrInt(0)
+"""``nc`` flag passed by :class:`Recognize` so :class:`BuildChart` skips SPPF link
+recording — recognition never reads the forest."""
+
 
 def _atom_accepts(atom: IrSelf, char: str) -> bool:
     """Whether a terminal atom accepts ``char`` — the matching kernel.
@@ -252,7 +256,6 @@ class CloseColumn(IrLeaf[IrSelf, IrSelf]):
     def eval(self, d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
         """:param nc: ``(ParseCtx,)`` with ``col`` set to the column to close."""
         ctx = cast(ParseCtx, nc[0])
-        ctx.column = ctx.chart[ctx.col]  # stash once; predict/complete reuse it
         # ``for`` over the column yields a live list iterator that picks up the
         # items predict/complete append mid-pass (the Earley fixpoint) — no
         # per-item __len__/__getitem__ method call, unlike a manual cursor
@@ -279,14 +282,14 @@ class ScanColumn(IrLeaf[IrSelf, IrSelf]):
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
         """:param n: chart; :param nc: ``(IrStr(text), IrInt(i), ParseCtx)``."""
         chart = cast(Chart, n)
-        text = str(nc[0])
         i = int(cast(int, nc[1]))
         ctx = cast(ParseCtx, nc[2])
-        char = text[i]
+        char = str(nc[0])[i]
         char_leaf = IrLiteral(char)
         nxt = chart[i + 1]
         scannable = ctx.column.scannable_by_atom  # column i, stashed by CloseColumn
         char_accepts = ctx.char_accepts
+        record_links = ctx.record_links  # SPPF off for pure recognition
         if char not in char_accepts:  # resolve accepting atoms once per char
             for atom in char_accepts[_CHAR_ACCEPTS_ALL_KEY]:
                 if _atom_accepts(atom, char):
@@ -294,9 +297,12 @@ class ScanColumn(IrLeaf[IrSelf, IrSelf]):
         for atom in char_accepts[char]:
             for item in scannable[atom]:
                 # advance the dot: (rule_name, arm, dot + 1, origin)
-                advanced = EarleyItem(item[0], item[1], item[2] + 1, item[3])
+                advanced = tuple.__new__(
+                    EarleyItem, (item[0], item[1], item[2] + 1, item[3])
+                )
                 nxt += advanced
-                chart.links += ((advanced, i + 1), Link(item, i, char_leaf))
+                if record_links:
+                    chart.links += ((advanced, i + 1), Link(item, i, char_leaf))
         return IrNone
 
 
@@ -321,16 +327,21 @@ class BuildChart(IrLeaf[IrSelf, IrSelf]):
             nullable,
             cast(IrMultiMap, CHAR_ACCEPTS.eval(d, grammar, ())),
         )
+        # ``nc[1]`` (when present and zero) is Recognize's skip-SPPF flag.
+        if len(nc) > 1 and not int(cast(int, nc[1])):
+            ctx.record_links = False
         ctx_nc = IrTuple(ctx)
         text_node = IrStr(text)
 
         start = IrRuleRef(grammar.start)
         column0 = ctx.chart[0]
         for arm in rules.resolve(start):
-            column0 += EarleyItem(start, arm, 0, 0)
+            column0 += tuple.__new__(EarleyItem, (start, arm, 0, 0))
 
         for i in range(len(text) + 1):
-            ctx.col = i
+            ctx.column = ctx.chart[
+                i
+            ]  # stash once; close/predict/complete/scan reuse it
             CLOSE_COLUMN.eval(d, ctx.chart, ctx_nc)
             if i < len(text):
                 SCAN_COLUMN.eval(d, ctx.chart, (text_node, IrInt(i), ctx))
@@ -346,7 +357,8 @@ class Recognize(IrLeaf[IrSelf, IrSelf]):
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: ``IrInt`` 0/1."""
-        _, item = ACCEPTING.eval(d, n, nc)
+        # Recognition never reads the forest — skip SPPF link recording entirely.
+        _, item = ACCEPTING.eval(d, n, (nc[0], _SKIP_LINKS))
         return IrInt(0) if isinstance(item, IrNoneType) else IrInt(1)
 
 

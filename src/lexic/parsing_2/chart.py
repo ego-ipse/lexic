@@ -149,13 +149,21 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         :class:`IrMultiMap` use here.
     """
 
-    __slots__ = ("index", "_items", "_seen", "waiting", "scannable_by_atom")
+    __slots__ = (
+        "index",
+        "_items",
+        "_seen",
+        "waiting",
+        "scannable_by_atom",
+        "predicted",
+    )
 
     index: int
     _items: list[EarleyItem]
     _seen: set[EarleyItem]
     waiting: IrMultiMap[IrRuleRef, EarleyItem]
     scannable_by_atom: IrMultiMap[IrSelf, EarleyItem]
+    predicted: set[IrRuleRef]
 
     def __init__(self, index: int) -> None:
         """Seed an empty column at ``index``.
@@ -167,6 +175,7 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         self._seen = set()
         self.waiting = IrMultiMap()
         self.scannable_by_atom = IrMultiMap()
+        self.predicted = set()
 
     def __iadd__(self, item: EarleyItem) -> Column:
         """Insert ``item`` if absent (idempotent); return the column.

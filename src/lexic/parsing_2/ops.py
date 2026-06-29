@@ -78,19 +78,30 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
     :ivar nullable: Nullable ref → its empty-deriving arms — the predictor
         advances over these immediately (Aycock-Horspool).
     :ivar char_accepts: Char → the terminal atoms that accept it (lazily filled).
-    :ivar col: The column currently being closed.
-    :ivar column: The column object at ``col`` — stashed by the driver so the
-        predictor/completer skip re-indexing the chart on the hot path.
+    :ivar record_links: Whether to record SPPF provenance links — ``True`` for
+        parse/forest/ambiguity, ``False`` for pure recognition (which never reads
+        the forest, so building it is wasted work).
+    :ivar column: The column currently being closed — stashed by the driver so the
+        predictor/completer skip re-indexing the chart on the hot path; its
+        ``index`` is the current input position (the origin of new predictions).
     :ivar item: The item currently being dispatched.
     """
 
-    __slots__ = ("chart", "rules", "nullable", "char_accepts", "col", "column", "item")
+    __slots__ = (
+        "chart",
+        "rules",
+        "nullable",
+        "char_accepts",
+        "record_links",
+        "column",
+        "item",
+    )
 
     chart: Chart
     rules: IrMap[IrRuleRef, IrAlternation]
     nullable: IrMultiMap[IrRuleRef, IrSequence]
     char_accepts: IrMultiMap[str, IrSelf]
-    col: int
+    record_links: bool
     column: Column
     item: EarleyItem
 
@@ -112,7 +123,7 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
         self.rules = rules
         self.nullable = nullable
         self.char_accepts = char_accepts
-        self.col = 0
+        self.record_links = True  # the driver flips this off for pure recognition
         # ``column``/``item`` are set by the driver before each dispatch; IrNone is
         # the absence sentinel until then (it fits every slot, signatures union-free).
         self.column = cast(Column, IrNone)
@@ -157,19 +168,21 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
         """
         ctx = cast(ParseCtx, nc[0])
         ref = cast(IrRuleRef, n)
-        origin = ctx.col
-        column = ctx.column  # the current column the driver is closing (== col)
-        arms = ctx.rules.resolve(ref)  # one resolve, reused by the nullable branch
-        for arm in arms:
-            column += EarleyItem(ref, arm, 0, origin)
+        column = ctx.column  # the current column the driver is closing
+        origin = column.index
+        if ref not in column.predicted:  # seed each rule's arms once per column
+            column.predicted.add(ref)
+            for arm in ctx.rules.resolve(ref):
+                column += tuple.__new__(EarleyItem, (ref, arm, 0, origin))
         if ref in ctx.nullable:
             it = ctx.item  # advance the dot: (rule, arm, dot + 1, origin)
-            advanced = EarleyItem(it[0], it[1], it[2] + 1, it[3])
+            advanced = tuple.__new__(EarleyItem, (it[0], it[1], it[2] + 1, it[3]))
             column += advanced
-            for arm in ctx.nullable[ref]:  # precomputed empty-deriving arms
-                done = EarleyItem(ref, arm, len(arm), origin)
-                child = SppfNode(done, origin)
-                ctx.chart.links += ((advanced, origin), Link(it, origin, child))
+            if ctx.record_links:  # SPPF provenance — skipped for pure recognition
+                for arm in ctx.nullable[ref]:  # precomputed empty-deriving arms
+                    done = tuple.__new__(EarleyItem, (ref, arm, len(arm), origin))
+                    child = SppfNode(done, origin)
+                    ctx.chart.links += ((advanced, origin), Link(it, origin, child))
         return IrNone
 
 
@@ -219,15 +232,19 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         waiters = chart[done_origin].waiting[done[0]]  # done[0] is rule_name
         if not waiters:  # nothing waiting — no advance, no family to record
             return IrNone
-        col = ctx.col
-        subnode = SppfNode(done, col)
-        current = ctx.column  # the current column the driver is closing (== col)
+        current = ctx.column  # the current column the driver is closing
+        col = current.index
+        record_links = ctx.record_links  # SPPF off for pure recognition
+        subnode = SppfNode(done, col) if record_links else IrNone
         # waiters is the live bucket; a plain ``for`` over the list picks up any
         # same-pass appends (advancing files a new waiter when origin == col)
         for waiting in waiters:  # advance the dot: (rule, arm, dot + 1, origin)
-            advanced = EarleyItem(waiting[0], waiting[1], waiting[2] + 1, waiting[3])
+            advanced = tuple.__new__(
+                EarleyItem, (waiting[0], waiting[1], waiting[2] + 1, waiting[3])
+            )
             current += advanced
-            chart.links += ((advanced, col), Link(waiting, done_origin, subnode))
+            if record_links:
+                chart.links += ((advanced, col), Link(waiting, done_origin, subnode))
         return IrNone
 
 
