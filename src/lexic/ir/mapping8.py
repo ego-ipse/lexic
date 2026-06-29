@@ -89,10 +89,10 @@ class IrMapping[K, V: IrSelf, R](IrLeaf[IrSelf, IrSelf]):
         :class:`IrMultiMap` overrides this to return a live bucket.
         :raises IrKeyError: On a miss.
         """
-        value = self._table.get(key)
-        if value is not None:
-            return value
-        raise IrKeyError(f"{type(self).__name__}: no entry for {key!r}")
+        try:
+            return self._table[key]
+        except KeyError:
+            raise IrKeyError(f"{type(self).__name__}: no entry for {key!r}") from None
 
     def __contains__(self, key: object) -> bool:
         """Whether ``key`` has an entry (key-based, not dyad membership)."""
@@ -219,17 +219,19 @@ class IrTypeMap[Ir_co: IrSelf = IrSelf](IrMap[type, IrSelf]):
         :raises IrKeyError: On a miss with no :data:`IR_DEFAULT` entry.
         """
         table = self._table
-        body = table.get(type(n))
-        if body is not None:
-            return body
-        for base in type(n).__mro__:
+        t = type(n)
+        try:
+            return table[t]
+        except KeyError:
+            pass
+        for base in t.__mro__:
             body = table.get(base)
             if body is not None:
                 return body
         body = table.get(IR_DEFAULT)
         if body is not None:
             return body
-        raise IrKeyError(f"{type(self).__name__}: no entry for {type(n).__name__}")
+        raise IrKeyError(f"{type(self).__name__}: no entry for {t.__name__}")
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
         """Resolve ``n`` to its body and evaluate it, typed as ``Ir_co``.
