@@ -202,6 +202,97 @@ class Scan(IrLeaf[IrSelf, IrSelf]):
         return IrNone
 
 
+_LEO_ENABLED = True
+"""Gate for Leo's right-recursion optimization (recognition only). Off makes
+:class:`Complete` always walk the completion chain — the differential oracle."""
+
+
+class LeoItem(IrLeaf[IrSelf, IrSelf]):
+    """Leo's transitive (topmost) item for a deterministic right-recursive reduction.
+
+    Leo (1991): a *deterministic* right-recursive reduction may jump straight to
+    the chain's topmost item instead of the completer re-walking the chain at each
+    column (the O(n²)→O(n) win). The recursion up the chain is this node's
+    :meth:`resolve`; the per-column memo is the column's ``leo``
+    :class:`IrMultiMap` — so the logic stays on a node and the state on a cursor,
+    never a free function. :meth:`resolve` takes plain indices (no per-call
+    boxing — the completer hits it once per right-recursive reduction);
+    :meth:`eval` is the :class:`IrSelf`-protocol wrapper over it.
+
+    A Leo candidate is the **unique** waiter ``[B → α • ref]`` in the column with
+    ``ref`` the *last* symbol (read from the small ``waiting[ref]`` bucket). The
+    transitive item is the parent's own Leo item, else the parent's completion
+    ``[B → α ref •, k]``. :data:`IrNone` means not deterministic (the normal
+    completer must run). Closed columns are memoised; the current column is
+    recomputed (its waiters may still grow), so the memo never goes stale.
+    """
+
+    def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Protocol wrapper over :meth:`resolve`.
+
+        :param n: the chart; :param nc: ``(IrInt(col), ref, IrInt(cur))``.
+        :returns: the topmost :class:`EarleyItem` to add, or :data:`IrNone`.
+        """
+        return self.resolve(
+            cast(Chart, n),
+            int(cast(int, nc[0])),
+            cast(IrRuleRef, nc[1]),
+            int(cast(int, nc[2])),
+        )
+
+    def resolve(self, chart: Chart, col: int, ref: IrRuleRef, cur: int) -> IrSelf:
+        """The Leo transitive item for completing ``ref`` ending at column ``col``.
+
+        :param col: The column to resolve in (the completion's origin).
+        :param ref: The completing non-terminal.
+        :param cur: The column currently being closed (its memo is unstable).
+        :returns: the topmost :class:`EarleyItem`, or :data:`IrNone`.
+        """
+        column = chart[col]
+        if col != cur:  # a closed column — its memo is stable
+            memo = column.leo[ref]
+            if memo:
+                return memo[0]
+        found = self._sole_candidate(column, ref)
+        if found is IrNone:
+            result: IrSelf = IrNone
+        else:
+            item = cast(EarleyItem, found)
+            parent = self.resolve(chart, item[3], item[0], cur)
+            # parent's Leo item, else the parent's own completion [B → α ref •, k]
+            result = (
+                parent
+                if parent is not IrNone
+                else cast(IrSelf, (item[0], item[1], item[2] + 1, item[3]))
+            )
+        if col != cur:
+            column.leo += (ref, result)
+        return result
+
+    @staticmethod
+    def _sole_candidate(column: Column, ref: IrRuleRef) -> IrSelf:
+        """The deterministic right-recursion waiter for ``ref``, else :data:`IrNone`.
+
+        Leo applies only when ``ref`` completing is a *purely* deterministic
+        reduction: ``ref`` has exactly **one** waiter ``[B → α • ref]`` in the
+        column AND it is last-symbol (so completing ``ref`` does nothing but
+        complete ``B`` — the chain link Leo replaces). Any second waiter — even
+        one where ``ref`` is *not* last (``[B → α • ref β]``, which must advance
+        normally) — makes it non-deterministic, so the normal completer runs.
+        """
+        waiters = column.waiting[ref]
+        if len(waiters) != 1:
+            return IrNone  # zero or multiple waiters ⇒ not a deterministic chain
+        sole = waiters[0]
+        if sole[2] + 1 == len(sole[1]):  # ref is the last symbol of its arm
+            return cast(IrSelf, sole)
+        return IrNone
+
+
+LEO_ITEM = LeoItem()
+"""Shared Leo-resolver node — stateless (its state is the columns' memos)."""
+
+
 class Complete(IrLeaf[IrSelf, IrSelf]):
     """Earley completer: the item is complete; advance its waiting predecessors.
 
@@ -233,6 +324,16 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         if not waiters:  # nothing waiting — no advance, no family to record
             return IrNone
         current = ctx.column  # the current column the driver is closing
+        # Leo fast path (recognition only): a *lone* last-symbol waiter is a
+        # deterministic right-recursion chain link — jump to the transitive top
+        # instead of advancing it (which would re-walk the chain). The cheap gate
+        # here (``waiters`` already in hand) keeps the node call off normal grammars.
+        if _LEO_ENABLED and not ctx.record_links and len(waiters) == 1:
+            sole = waiters[0]
+            if sole[2] + 1 == len(sole[1]):  # dot before ref, ref the last symbol
+                top = LEO_ITEM.resolve(chart, done_origin, done[0], current.index)
+                current += cast(EarleyItem, top)
+                return IrNone
         col = current.index
         record_links = ctx.record_links  # SPPF off for pure recognition
         subnode = SppfNode(done, col) if record_links else IrNone

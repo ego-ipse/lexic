@@ -129,6 +129,7 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         "waiting",
         "scannable_by_atom",
         "predicted",
+        "leo",
     )
 
     index: int
@@ -137,6 +138,7 @@ class Column(IrLeaf[IrSelf, IrSelf]):
     waiting: IrMultiMap[IrRuleRef, EarleyItem]
     scannable_by_atom: IrMultiMap[IrSelf, EarleyItem]
     predicted: set[IrRuleRef]
+    leo: IrMultiMap[IrRuleRef, IrSelf]
 
     def __init__(self, index: int) -> None:
         """Seed an empty column at ``index``.
@@ -149,6 +151,11 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         self.waiting = IrMultiMap()
         self.scannable_by_atom = IrMultiMap()
         self.predicted = set()
+        # Leo transitive-item memo (recognition only): completing ``ref`` → the
+        # topmost item to jump to (or :data:`IrNone` when not Leo-eligible),
+        # filed single-valued once this column is closed. See
+        # :class:`~lexic.parsing_2.ops.LeoItem`.
+        self.leo = IrMultiMap()
 
     def __iadd__(self, item: EarleyItem) -> Column:
         """Insert ``item`` if absent (idempotent); return the column.
