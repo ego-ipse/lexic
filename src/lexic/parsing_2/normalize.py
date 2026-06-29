@@ -49,8 +49,9 @@ from lexic.ir.base import (
     IrSelf,
     IrSeq,
     IrStr,
+    IrTuple,
 )
-from lexic.ir.mapping import IrTypeMap
+from lexic.ir.mapping import IrMultiMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -152,41 +153,59 @@ class HoistItem(IrLeaf[IrSelf, IrSelf]):
 
 
 class Expand(IrLeaf[IrSelf, IrSelf]):
-    """Mint the right-recursive rule for ``lo``..``hi`` copies of a unit item.
+    """Mint the right-recursive rule for an :class:`IrQuantifier`'s repeat bounds.
 
     ``n`` is the unit :class:`IrItem` (quantifier ``(1, 1)``); ``nc`` is
-    ``(IrInt(lo), hi)`` with ``hi`` an :class:`IrInt` or :data:`IrNone`
-    (unbounded). Recurses through itself / :data:`OPT_CHAIN` for the multi-copy
-    cases, appending each rule to the minter. Returns a ruleref to the new rule.
+    ``(IrQuantifier(lo, hi),)`` — the bounds carried as their own node (``hi`` an
+    ``int`` or :data:`IrNone` for unbounded) rather than a raw ``(lo, hi)`` pair.
+    Recurses through itself / :data:`OPT_CHAIN` for the multi-copy cases,
+    appending each rule to the minter. Returns a ruleref to the new rule.
+
+    Identical ``(unit, quant)`` expansions are interned in the run's ``memo``, so
+    a repeated quantifier (e.g. two ``[a-z]*`` occurrences) reuses one synthetic
+    rule instead of minting a fresh copy — fewer rules, fewer Earley items.
     """
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrRuleRef:
-        """:param n: unit item; :param nc: ``(IrInt(lo), hi)``; :returns: the new ref."""
+        """:param n: unit item; :param nc: ``(IrQuantifier,)``; :returns: the new ref."""
         unit = cast(IrItem, n)
-        lo = int(cast(int, nc[0]))
-        hi = nc[1]
+        quant = cast(IrQuantifier, nc[0])
+        memo = cast(_Minting, d).memo
+        key = IrTuple(IrStr("rep"), unit, quant)
+        interned = memo[key]
+        if interned:
+            return cast(IrRuleRef, interned[0])
         minter = cast(_Minting, d).minter
         name = str(minter.eval(d, IrStr("rep"), ()))
-        ref = IrItem(IrRuleRef(name))
+        minter += IrRule(name, self._body(d, unit, quant, IrItem(IrRuleRef(name))))
+        ref = IrRuleRef(name)
+        memo += (key, ref)
+        return ref
+
+    def _body(
+        self, d: IrSelf, unit: IrItem, quant: IrQuantifier, self_ref: IrItem
+    ) -> IrAlternation:
+        """Right-recursive body for ``quant``'s copies of ``unit``.
+
+        :param self_ref: An item referencing the rule being built (the recursion
+            tail of the unbounded cases).
+        """
+        lo, hi = quant.lo, quant.hi
         if isinstance(hi, IrNoneType):
             if lo == 0:  # *  →  X = "" / unit X
-                body = IrAlternation(IrSequence(), IrSequence(unit, ref))
-            elif lo == 1:  # +  →  X = unit / unit X
-                body = IrAlternation(IrSequence(unit), IrSequence(unit, ref))
-            else:  # m* (m > 1): one mandatory copy, then (m-1)* via a sub-rule
-                tail = IrItem(self.eval(d, unit, (IrInt(lo - 1), IrNone)))
-                body = IrAlternation(IrSequence(unit, tail))
-        else:
-            hi_i = int(cast(int, hi))
-            if lo == 0 and hi_i == 1:  # ?  →  X = "" / unit
-                body = IrAlternation(IrSequence(), IrSequence(unit))
-            elif lo == hi_i:  # exactly lo copies
-                body = IrAlternation(IrSequence(*((unit,) * lo)))
-            else:  # lo mandatory, then up to (hi - lo) optional via an opt-chain
-                tail = IrItem(OPT_CHAIN.eval(d, unit, (IrInt(hi_i - lo),)))
-                body = IrAlternation(IrSequence(*((unit,) * lo), tail))
-        minter += IrRule(name, body)
-        return IrRuleRef(name)
+                return IrAlternation(IrSequence(), IrSequence(unit, self_ref))
+            if lo == 1:  # +  →  X = unit / unit X
+                return IrAlternation(IrSequence(unit), IrSequence(unit, self_ref))
+            # m* (m > 1): one mandatory copy, then (m-1)* via a sub-rule
+            tail = IrItem(self.eval(d, unit, (IrQuantifier(lo - 1, IrNone),)))
+            return IrAlternation(IrSequence(unit, tail))
+        if lo == 0 and hi == 1:  # ?  →  X = "" / unit
+            return IrAlternation(IrSequence(), IrSequence(unit))
+        if lo == hi:  # exactly lo copies
+            return IrAlternation(IrSequence(*((unit,) * lo)))
+        # lo mandatory, then up to (hi - lo) optional via an opt-chain
+        tail = IrItem(OPT_CHAIN.eval(d, unit, (IrInt(hi - lo),)))
+        return IrAlternation(IrSequence(*((unit,) * lo), tail))
 
 
 class OptChain(IrLeaf[IrSelf, IrSelf]):
@@ -194,14 +213,21 @@ class OptChain(IrLeaf[IrSelf, IrSelf]):
 
     ``n`` is the unit :class:`IrItem`; ``nc`` is ``(IrInt(k),)`` with ``k >= 1``.
     Recurses for ``k > 1``, appending each rule to the minter. Returns a ruleref to
-    the head of the optional chain.
+    the head of the optional chain. Identical ``(unit, k)`` chains are interned in
+    the run's ``memo`` so repeated bounded quantifiers share one chain.
     """
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrRuleRef:
         """:param n: unit item; :param nc: ``(IrInt(k),)``; :returns: chain-head ref."""
         unit = cast(IrItem, n)
         k = int(cast(int, nc[0]))
-        minter = cast(_Minting, d).minter
+        ctx = cast(_Minting, d)
+        memo = ctx.memo
+        key = IrTuple(IrStr("opt"), unit, IrInt(k))
+        interned = memo[key]
+        if interned:
+            return cast(IrRuleRef, interned[0])
+        minter = ctx.minter
         name = str(minter.eval(d, IrStr("opt"), ()))
         if k == 1:
             body = IrAlternation(IrSequence(), IrSequence(unit))
@@ -209,7 +235,9 @@ class OptChain(IrLeaf[IrSelf, IrSelf]):
             inner = IrItem(self.eval(d, unit, (IrInt(k - 1),)))
             body = IrAlternation(IrSequence(), IrSequence(unit, inner))
         minter += IrRule(name, body)
-        return IrRuleRef(name)
+        result = IrRuleRef(name)
+        memo += (key, result)
+        return result
 
 
 class DesugarItem(IrLeaf[IrSelf, IrSelf]):
@@ -234,8 +262,7 @@ class DesugarItem(IrLeaf[IrSelf, IrSelf]):
             raise UnsupportedConstructError(
                 f"parsing_2: invalid quantifier bounds {(quant.lo, quant.hi)!r}"
             )
-        hi_node = hi if isinstance(hi, IrNoneType) else IrInt(hi)
-        ref = EXPAND.eval(d, IrItem(item.atom), (IrInt(quant.lo), hi_node))
+        ref = EXPAND.eval(d, IrItem(item.atom), (quant,))
         return IrItem(cast(IrRuleRef, ref))
 
 
@@ -261,15 +288,19 @@ OPT_CHAIN = OptChain()
 
 
 class _Minting(IrTransformer):
-    """An :class:`IrTransformer` carrying a per-run :class:`Minter`.
+    """An :class:`IrTransformer` carrying a per-run :class:`Minter` and memo.
 
     The minter is reached by the action bodies through the dispatcher ``d``; a
-    fresh one is supplied per call by the entry-point wrappers.
+    fresh one is supplied per call by the entry-point wrappers. The ``memo``
+    interns already-minted synthetic rules by expansion signature so identical
+    quantifier expansions share one rule (see :class:`Expand` / :class:`OptChain`).
 
     :ivar minter: The run's minting state (names + collected synthetic rules).
+    :ivar memo: Expansion signature → the ruleref already minted for it.
     """
 
     minter: Minter = Field(default_factory=Minter)
+    memo: IrMultiMap = Field(default_factory=IrMultiMap)
 
 
 class FlattenGroups(_Minting):

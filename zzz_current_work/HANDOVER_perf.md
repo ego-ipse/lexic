@@ -1,5 +1,25 @@
 # Handover — parsing_2 performance (2026-06-29)
 
+## Status (session 3, 2026-06-29)
+
+**Done & committed** (recognize median, ABNF self-host, vs pre-P2 baseline):
+
+| step | x1 | x2 | x4 | note |
+|---|---|---|---|---|
+| baseline | 69.6ms | 146.8ms | 314.0ms | — |
+| **P2** scannable | 64.3 | 140.5 | 291.4 | −8% to −7% |
+| **S3** char→atom index | 62.2 | 134.8 | 281.8 | −10% / −8% / −10% cumulative; MATCHES 0 calls |
+| **S3a** Expand memoize | ~61 | ~132 | ~280 | marginal (~1–2.5% by min, noise on median); rules 53→46 |
+
+All green: 1121 tests, pylint 10.00, pyright 0, ruff clean, ABNF fixpoint True, amb 0.
+S3a also reworked `Expand` to carry bounds as an `IrQuantifier` node (no boxing).
+
+**Left to do:** S3a uncommitted (decide keep/revert). Tests pending: `CharAccepts`
+node, `ParseCtx.char_accepts`, `scannable_by_atom`, S3a memo rule-sharing (Sonnet pass).
+Remaining avenues unchanged below: P1 micro-win B (tiny), then **Leo** (the big lever).
+
+---
+
 Continuation of the mapping cutover + engine round. This documents what landed,
 what the mapping cutover **unlocks** from `zz_current_work/HANDOVER_round4.md`, and
 the next avenues (Leo + Spike-2 S3 chief among them).
