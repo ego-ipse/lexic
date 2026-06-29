@@ -200,12 +200,12 @@ class CloseColumn(IrLeaf[IrSelf, IrSelf]):
     def eval(self, d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
         """:param nc: ``(ParseCtx,)`` with ``col`` set to the column to close."""
         ctx = cast(ParseCtx, nc[0])
-        column = ctx.chart[ctx.col]
-        cursor = 0
-        while cursor < len(column):
-            item = column[cursor]
-            cursor += 1
-            symbol = item.arm[item.dot].atom if item.dot < len(item.arm) else IrNone
+        # ``for`` over the column yields a live list iterator that picks up the
+        # items predict/complete append mid-pass (the Earley fixpoint) — no
+        # per-item __len__/__getitem__ method call, unlike a manual cursor
+        for item in ctx.chart[ctx.col]:
+            _, arm, dot, _ = item  # tuple unpack: skips per-field descriptor reads
+            symbol = arm[dot].atom if dot < len(arm) else IrNone
             ctx.item = item
             d.eval(d, symbol, nc)
         return IrNone
@@ -230,12 +230,10 @@ class ScanColumn(IrLeaf[IrSelf, IrSelf]):
         char_leaf = IrLiteral(text[i])
         nxt = chart[i + 1]
         for item in chart[i]:
-            if item.dot < len(item.arm) and MATCHES.eval(
-                d, item.arm[item.dot].atom, char_nc
-            ):
-                advanced = EarleyItem(
-                    item.rule_name, item.arm, item.dot + 1, item.origin
-                )
+            arm, dot = item[1], item[2]  # index past the field descriptors
+            if dot < len(arm) and MATCHES.eval(d, arm[dot].atom, char_nc):
+                # advance the dot: (rule_name, arm, dot + 1, origin)
+                advanced = EarleyItem(item[0], arm, dot + 1, item[3])
                 nxt += advanced
                 chart.links += ((advanced, i + 1), Link(item, i, char_leaf))
         return IrNone

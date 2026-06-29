@@ -142,22 +142,24 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
         """
         ctx = cast(ParseCtx, nc[0])
         ref = cast(IrRuleRef, n)
-        col = ctx.chart[ctx.col]
-        for arm in ctx.rules.resolve(ref):
-            col += EarleyItem(ref, arm, 0, ctx.col)
+        origin = ctx.col
+        column = ctx.chart[origin]
+        arms = ctx.rules.resolve(ref)  # one resolve, reused by the nullable branch
+        for arm in arms:
+            column += EarleyItem(ref, arm, 0, origin)
         if ref in ctx.nullable:
-            it = ctx.item
-            advanced = EarleyItem(it.rule_name, it.arm, it.dot + 1, it.origin)
-            col += advanced
-            for arm in ctx.rules.resolve(ref):
+            it = ctx.item  # advance the dot: (rule, arm, dot + 1, origin)
+            advanced = EarleyItem(it[0], it[1], it[2] + 1, it[3])
+            column += advanced
+            for arm in arms:
                 if all(
                     isinstance(cast(IrItem, item).atom, IrRuleRef)
                     and cast(IrItem, item).atom in ctx.nullable
                     for item in cast(Sequence[IrSelf], arm)
                 ):
-                    done = EarleyItem(ref, arm, len(arm), ctx.col)
-                    child = SppfNode(done, ctx.col)
-                    ctx.chart.links += ((advanced, ctx.col), Link(it, ctx.col, child))
+                    done = EarleyItem(ref, arm, len(arm), origin)
+                    child = SppfNode(done, origin)
+                    ctx.chart.links += ((advanced, origin), Link(it, origin, child))
         return IrNone
 
 
@@ -203,19 +205,19 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         ctx = cast(ParseCtx, nc[0])
         done = ctx.item
         chart = ctx.chart
-        waiters = chart[done.origin].waiting[done.rule_name]
+        done_origin = done[3]  # index past the field descriptor (origin)
+        waiters = chart[done_origin].waiting[done[0]]  # done[0] is rule_name
         if not waiters:  # nothing waiting — no advance, no family to record
             return IrNone
-        subnode = SppfNode(done, ctx.col)
-        current = chart[ctx.col]
-        # waiters is a fresh IrSeq snapshot, safe to iterate while the live
-        # bucket grows (advancing may append to it when origin == col)
-        for waiting in waiters:
-            advanced = EarleyItem(
-                waiting.rule_name, waiting.arm, waiting.dot + 1, waiting.origin
-            )
+        col = ctx.col
+        subnode = SppfNode(done, col)
+        current = chart[col]
+        # waiters is the live bucket; a plain ``for`` over the list picks up any
+        # same-pass appends (advancing files a new waiter when origin == col)
+        for waiting in waiters:  # advance the dot: (rule, arm, dot + 1, origin)
+            advanced = EarleyItem(waiting[0], waiting[1], waiting[2] + 1, waiting[3])
             current += advanced
-            chart.links += ((advanced, ctx.col), Link(waiting, done.origin, subnode))
+            chart.links += ((advanced, col), Link(waiting, done_origin, subnode))
         return IrNone
 
 

@@ -172,8 +172,9 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         if item not in self._seen:
             self._seen.add(item)
             self._items.append(item)
-            if item.dot < len(item.arm):
-                symbol = item.arm[item.dot].atom
+            _, arm, dot, _ = item  # tuple unpack: skips per-field descriptor reads
+            if dot < len(arm):
+                symbol = arm[dot].atom
                 if isinstance(symbol, IrRuleRef):
                     self.waiting += (symbol, item)
         return self
