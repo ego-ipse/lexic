@@ -12,26 +12,43 @@
 | **S3a** Expand memoize | ~61 | ~132 | ~280 | marginal; rules 53→46; `Expand` carries `IrQuantifier` |
 | **P1B** col reuse | 60.0 | 128.4 | 273.0 | −3%; ctx.column stashed, no re-index |
 
-**Session 4 — UNCOMMITTED, all green** (recognize median, vs P1B committed HEAD):
+**Session 4 — committed** (recognize median, vs P1B committed HEAD):
 
 | step | x1 | x2 | x4 | note |
 |---|---|---|---|---|
 | P1B HEAD | 61.5 | 128.9 | 276.5 | (re-measured baseline) |
-| + **EarleyItem `tuple.__new__` bypass** | 58.3 | ~129 | 267 | skip Python `__new__` frame; 6 hot sites (ugly) |
+| + EarleyItem `tuple.__new__` bypass | 58.3 | ~129 | 267 | skip Python `__new__` frame (later superseded by session 5) |
 | + **prediction memoization** | 56.3 | 118.9 | 254.7 | `Column.predicted` set; skip re-seeding a predicted ref (dups 16%→9%) |
 | + **skip-SPPF for recognize** | **43.7** | **94.2** | **190.2** | `ParseCtx.record_links`; recognition never reads the forest |
 
-Net session 4: **recognize −29%/−27%/−31%** vs P1B HEAD; earley/lark ratio 2.1–2.5× → **1.6–1.7×**.
-`parse` unchanged (~78/170/341ms — still records the SPPF, correctly). Bonus cleanup:
-dropped `ParseCtx.col` (the stashed `column.index` subsumes it). All gates green, 1121 tests,
-fixpoint True, amb 0.
+Net session 4: **recognize −29%/−27%/−31%** vs P1B HEAD; earley/lark 2.1–2.5× → 1.6–1.7×.
+`parse` unchanged then (~78/170/341ms). Bonus: dropped `ParseCtx.col` (`column.index` subsumes it).
 
-**Dead ends this session (don't re-try):** IR-tuple hash caching — a tuple subtype cannot
-gain a slot (own nonempty `__slots__` rejected; slot-via-mixin = "multiple bases layout
-conflict"; only `__dict__` works, which is off the table). Identity-hashing `EarleyItem`
-(`id(arm)`) regressed **+30%** — Python `__hash__`/`__eq__` lose to native C tuple ops.
-**Lesson: cProfile over-attributes to Python `__new__` frames; measure wall-clock.**
-(`_table` dispatch coupling still skipped — purity break for +1.4%.)
+**Session 5 — committed: pure-engine records are now plain tuples** (vs session-4 HEAD 43.7/94.2/190.2):
+
+| step | recognize x1/x2/x4 | parse x1/x2/x4 | note |
+|---|---|---|---|
+| **EarleyItem → plain `tuple`** (D+E) | **36.8 / 78.5 / 164.2** | 68 / 145 / 316 | single-alloc, native C eq/hash |
+| + **Link → plain `tuple`** | ~37 / 78 / 167 | **64 / 140 / 300** | parse-path only (recognize skips links) |
+
+Net session 5: **recognize −14…−17%, parse −15…−21%** vs session-4 HEAD; earley/lark recognize **1.34–1.43×**.
+The win is *construction* (a tuple subclass is 2-alloc + subclass overhead; a bare tuple is 1-alloc,
+2.7× faster on construct+set-ops microbench). Three pieces, **no casts**:
+- **(D)** map family layered honestly: `IrMapping`/`IrMultiMap` are unbounded **containers**;
+  `resolve`/`eval` (dispatch) moved onto `IrMap`/`IrTypeMap`. Lets containers hold plain tuples.
+- **(E)** `AcceptingItem` returns the `SppfNode` (built once) — carries the item across the
+  `eval` boundary as an honest `IrSelf`; de-dups re-wrapping in 4 consumers.
+- `EarleyItem`/`Link` are plain-tuple aliases (positional fields, documented in `item.py`/`chart.py`).
+  `SppfNode`/`ParseTree` **stay `IrSelf`** — they are walked.
+
+**Dead ends (don't re-try):** slotted `IrSelf` item = **3.5× slower** (Python `__init__`/eq/hash
+lose to native C tuple). Identity-hashing `EarleyItem` (`id(arm)`) = **+30%**. IR-tuple hash
+caching infeasible (tuple subtype can't gain a slot; `__dict__` off the table). **The answer was
+the opposite: make the item a *bare* tuple and fix the container typing, not cache on it.**
+**Lesson: cProfile over-attributes to Python frames; measure wall-clock.**
+
+**Next plain-tuple candidates:** none obvious left — `SppfNode`/`ParseTree` are walked (must stay
+`IrSelf`); `ForestCtx` is a cursor. The two hot pure-engine records are done.
 
 **Superlinearity:** native Earley ~O(n^1.09) (2.13× per input-doubling) vs Lark ~O(n^1.0).
 Root cause: right-recursive synthetic rules (`*`/`+`) make the completer walk a per-completion
@@ -39,14 +56,11 @@ chain growing with input. **Fix = Leo (avenue 3)** — O(n) via transitive items
 dedicated spike + right-recursion-heavy benchmark.
 
 **Left to do:**
-1. **Commit session-4 work** (4 changes above, uncommitted).
-2. **Decide the `tuple.__new__` bypass**: keep the ugly-but-docstring-safe form, or take
-   `EarleyItem` to a clean plain-`tuple` alias (faster — single alloc — and clean call sites,
-   but removes the class + its docstrings).
-3. **Tests pending** (Sonnet): `CharAccepts`, `ParseCtx.char_accepts`/`column`/`record_links`,
-   `Column.scannable_by_atom`/`predicted`, S3a memo sharing, recognize-skips-SPPF.
-4. **Leo** — the remaining algorithmic lever for the super-linear `parse` path (recognize is
-   now ~at the C floor for this grammar).
+1. **Tests pending** (Sonnet): `CharAccepts`, `ParseCtx.char_accepts`/`column`/`record_links`,
+   `Column.scannable_by_atom`/`predicted`, S3a memo sharing, recognize-skips-SPPF. (The
+   EarleyItem/Link plain-tuple test port is **done**.)
+2. **Leo** — the remaining algorithmic lever for the super-linear `parse` path (micro-well is dry:
+   recognize is at the C floor for this grammar).
 
 ---
 
