@@ -137,7 +137,7 @@ class Column(IrLeaf[IrSelf, IrSelf]):
     _seen: set[EarleyItem]
     waiting: IrMultiMap[IrRuleRef, EarleyItem]
     scannable_by_atom: IrMultiMap[IrSelf, EarleyItem]
-    predicted: set[IrRuleRef]
+    predicted: set[str]
     leo: IrMultiMap[IrRuleRef, IrSelf]
 
     def __init__(self, index: int) -> None:

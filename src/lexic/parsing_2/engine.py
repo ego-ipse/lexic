@@ -348,7 +348,8 @@ class BuildChart(IrLeaf[IrSelf, IrSelf]):
 
         start = IrRuleRef(grammar.start)
         column0 = ctx.chart[0]
-        for arm in rules.resolve(start):
+        # str-keyed seed lookup — avoids IrScalar.__eq__ (see ParseCtx.rules_table)
+        for arm in ctx.rules_table.get(str(start)) or ():
             column0 += (start, arm, 0, 0)
 
         for i in range(len(text) + 1):

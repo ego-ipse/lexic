@@ -54,19 +54,20 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
     """Per-parse engine cursor handed to an operation body through ``nc``.
 
     A **mutable** leaf (the mutable-chart exception, like
-    :class:`~lexic.parsing_2.chart.Chart`): the parse-invariant fields
-    (``chart``, ``rules``, ``nullable``) are set once, while ``col`` and ``item``
+    :class:`~lexic.parsing_2.chart.Chart`): the parse-invariant fields (the chart
+    and the str-keyed rule/nullable tables) are set once, while ``col`` and ``item``
     are advanced in place by the driver as it walks each column. Exactly one
     ``ParseCtx`` exists per parse, so the per-item ``ParseCtx`` + ``IrTuple``
     allocation the dispatch protocol once paid (~67 K/parse) is gone — the driver
     reuses a single ``IrTuple(ctx)`` across every dispatch. It is engine state,
     never walked (``children()`` is empty), emitted, or reduced.
 
-    ``rules`` is a dict-backed :class:`~lexic.ir.mapping.IrMap` (rule ref → its
-    alternation body), so ``resolve`` is an O(1) lookup returning the stored
-    alternation with no per-read allocation; ``nullable`` is an
-    :class:`~lexic.ir.mapping.IrMultiMap` keyed by nullable ref, so ``ref in
-    nullable`` is O(1) and ``nullable[ref]`` is the rule's empty-deriving arms.
+    ``rules_table`` / ``nullable_table`` are plain ``str``-keyed dicts (rule name →
+    its alternation body / its empty-deriving arms), built once from the
+    :class:`~lexic.ir.mapping.IrMap` / :class:`~lexic.ir.mapping.IrMultiMap` grammar
+    indices. Keying by ``str`` avoids :meth:`IrScalar.__eq__` on every predictor
+    lookup — the table key and the grammar-atom ref are distinct ``IrRuleRef``
+    objects with equal hash but different identity, forcing ``__eq__`` per probe.
 
     ``char_accepts`` is the grammar-level char → accepting terminal atoms index,
     seeded with every terminal atom under a sentinel key and filled lazily (per
@@ -74,9 +75,9 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
     character matches once, then reads each column's ``scannable_by_atom`` bucket.
 
     :ivar chart: The chart being grown.
-    :ivar rules: Rule ref → its alternation body.
-    :ivar nullable: Nullable ref → its empty-deriving arms — the predictor
-        advances over these immediately (Aycock-Horspool).
+    :ivar rules_table: Rule name → its alternation body (str-keyed).
+    :ivar nullable_table: Nullable rule name → its empty-deriving arms (str-keyed)
+        — the predictor advances over these immediately (Aycock-Horspool).
     :ivar char_accepts: Char → the terminal atoms that accept it (lazily filled).
     :ivar record_links: Whether to record SPPF provenance links — ``True`` for
         parse/forest/ambiguity, ``False`` for pure recognition (which never reads
@@ -89,8 +90,8 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
 
     __slots__ = (
         "chart",
-        "rules",
-        "nullable",
+        "rules_table",
+        "nullable_table",
         "char_accepts",
         "record_links",
         "column",
@@ -98,8 +99,8 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
     )
 
     chart: Chart
-    rules: IrMap[IrRuleRef, IrAlternation]
-    nullable: IrMultiMap[IrRuleRef, IrSequence]
+    rules_table: dict[str, IrAlternation]
+    nullable_table: dict[str, Sequence[IrSequence]]
     char_accepts: IrMultiMap[str, IrSelf]
     record_links: bool
     column: Column
@@ -120,8 +121,11 @@ class ParseCtx(IrLeaf[IrSelf, IrSelf]):
         :param char_accepts: Char → accepting terminal atoms (lazily filled).
         """
         self.chart = chart
-        self.rules = rules
-        self.nullable = nullable
+        # Plain str-keyed mirrors for O(1) lookup without IrScalar.__eq__: the table
+        # keys (IrRuleRef) and the grammar-atom IrRuleRef refs are different objects
+        # with the same str value — equal hash but distinct identity forces __eq__.
+        self.rules_table = {str(k): v for k, v in rules.items()}
+        self.nullable_table = {str(k): v for k, v in nullable.items()}
         self.char_accepts = char_accepts
         self.record_links = True  # the driver flips this off for pure recognition
         # ``column``/``item`` are set by the driver before each dispatch; IrNone is
@@ -170,16 +174,22 @@ class Predict(IrLeaf[IrSelf, IrSelf]):
         ref = cast(IrRuleRef, n)
         column = ctx.column  # the current column the driver is closing
         origin = column.index
-        if ref not in column.predicted:  # seed each rule's arms once per column
-            column.predicted.add(ref)
-            for arm in ctx.rules.resolve(ref):
-                column += (ref, arm, 0, origin)
-        if ref in ctx.nullable:
+        # str keys for column.predicted (set[str]) and the rules/nullable tables
+        # (str-keyed dicts) — avoids IrScalar.__eq__ on every set/dict lookup.
+        ref_str = str(ref)
+        if ref_str not in column.predicted:  # seed each rule's arms once per column
+            column.predicted.add(ref_str)
+            arms = ctx.rules_table.get(ref_str)
+            if arms is not None:
+                for arm in arms:
+                    column += (ref, arm, 0, origin)
+        nullable_bucket = ctx.nullable_table.get(ref_str)
+        if nullable_bucket is not None:
             it = ctx.item  # advance the dot: (rule, arm, dot + 1, origin)
             advanced = (it[0], it[1], it[2] + 1, it[3])
             column += advanced
             if ctx.record_links:  # SPPF provenance — skipped for pure recognition
-                for arm in ctx.nullable[ref]:  # precomputed empty-deriving arms
+                for arm in nullable_bucket:  # precomputed empty-deriving arms
                     done = (ref, arm, len(arm), origin)
                     child = SppfNode(done, origin)
                     ctx.chart.links += ((advanced, origin), (it, origin, child))

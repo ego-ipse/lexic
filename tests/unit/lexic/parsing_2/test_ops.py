@@ -68,10 +68,10 @@ def test_earley_ops_irnone_resolves_to_complete():
 # ── ParseCtx fields ───────────────────────────────────────────────────
 
 
-def test_parse_ctx_has_nullable_field():
-    """ParseCtx declares a 'nullable' field for Aycock-Horspool."""
+def test_parse_ctx_has_nullable_table_field():
+    """ParseCtx declares a 'nullable_table' field for Aycock-Horspool."""
     annotations = getattr(ParseCtx, "__annotations__", {})
-    assert "nullable" in annotations
+    assert "nullable_table" in annotations
 
 
 def test_parse_ctx_child_attrs_is_empty():

@@ -21,11 +21,12 @@ Product = `parse+reduce` x4 vs `lark:full`. Baseline before landing: **3.33×**.
 | Refactor leoparse to pass the hook (typing + complexity, neutral) | `3512e8f` | 3.34× | ✅ landed |
 | OPT1 — inline `CloseColumn` dispatch | `fda5a21` | 3.22× | ✅ landed |
 | OPT2 — inline `Column.__iadd__` (chart.py only; ops.py `_table` reads dropped — W0212 for marginal gain) | `42b505d` | 3.22× (neutral) | ✅ landed |
-| OPT3/4 — fast iterative tree builder (as a `_FastTree` cursor, not free fns; public IrMultiMap API, not `_table`) | `pending` | **2.59×** | ✅ landed |
-| OPT5 — str-keyed lookup tables | — | — | ⏳ next |
+| OPT3/4 — fast iterative tree builder (as a `_FastTree` cursor, not free fns; public IrMultiMap API, not `_table`) | `f2f5713` | **2.59×** | ✅ landed |
+| OPT5 — str-keyed rules/nullable tables + `predicted: set[str]` (dropped now-dead `ctx.rules`/`ctx.nullable`) | `pending` | **2.42×** | ✅ landed |
 
-Deep right-recursion after OPT3/4: parse→tree µs/N ~13.5 (was ~20), **0.5× Lark**
-(was 0.8×), no stack overflow at N=1600 (explicit-stack cursor).
+**Landing complete: product x4 3.33× → 2.42× Lark** (parse-only 1.90×); 1151 pass,
+10/10 lint, hook-green, fixpoint True / amb False throughout. Deep right-recursion
+parse→tree **0.5× Lark** (beats Lark), no stack overflow at N=1600.
 
 ---
 
