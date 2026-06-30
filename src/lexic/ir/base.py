@@ -69,6 +69,7 @@ class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri](metaclass=IrMeta):
     ``__repr__`` is codegen on every subclass — each node reproduces its own
     constructor call so that ``eval(repr(node))`` is a valid Python expression.
 
+    :param Iri: the concrete type of ``self``
     :param Ir_co: the return type of ``eval``.
     """
 
