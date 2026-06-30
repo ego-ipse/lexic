@@ -1,0 +1,26 @@
+== parsing benchmark: OPT5-str-dict ==
+ABNF self-host, 920 chars/copy.  earley IrAst == lark IrAst (fixpoint): True
+each row pairs the same work — earley vs lark; ratio>1 ⇒ we are slower.
+
+input x1  (920 chars · 40 rounds):
+  stage               lark med±sd      earley med±sd  earley/lark   Δ base
+  recognize         18.3±0.6 ms      29.4±0.7 ms       1.61x        —
+  parse             26.0±0.3 ms      45.9±0.6 ms       1.77x        —
+  parse+reduce      26.9±0.3 ms      59.0±1.1 ms       2.20x        —  ← product
+
+input x2  (1840 chars · 20 rounds):
+  stage               lark med±sd      earley med±sd  earley/lark   Δ base
+  recognize         36.5±0.7 ms      59.3±1.5 ms       1.63x        —
+  parse             52.1±1.1 ms      94.0±4.2 ms       1.81x        —
+  parse+reduce      53.8±1.2 ms     121.0±4.0 ms       2.25x        —  ← product
+
+input x4  (3680 chars · 10 rounds):
+  stage               lark med±sd      earley med±sd  earley/lark   Δ base
+  recognize         74.3±0.7 ms     126.8±2.7 ms       1.71x        —
+  parse            104.2±1.3 ms     202.6±3.2 ms       1.94x        —
+  parse+reduce     108.4±1.1 ms     263.1±6.4 ms       2.43x        —  ← product
+
+== VERDICT (x4, 3680 chars) — product text→IrAst ==
+  lark 108ms wins 2.43x over earley 263ms — cut 59% of earley time to match it
+  throughput: earley 71.5 µs/char  vs lark 29.4 µs/char
+

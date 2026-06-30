@@ -1,0 +1,26 @@
+== parsing benchmark: OPT3-fast-tree ==
+ABNF self-host, 920 chars/copy.  earley IrAst == lark IrAst (fixpoint): True
+each row pairs the same work — earley vs lark; ratio>1 ⇒ we are slower.
+
+input x1  (920 chars · 40 rounds):
+  stage               lark med±sd      earley med±sd  earley/lark   Δ base
+  recognize         18.7±0.5 ms      33.9±0.9 ms       1.81x        —
+  parse             26.5±0.4 ms      56.4±2.8 ms       2.13x        —
+  parse+reduce      27.2±0.5 ms      69.5±2.1 ms       2.56x        —  ← product
+
+input x2  (1840 chars · 20 rounds):
+  stage               lark med±sd      earley med±sd  earley/lark   Δ base
+  recognize         37.5±0.6 ms      68.8±1.6 ms       1.83x        —
+  parse             53.0±0.6 ms     115.4±4.3 ms       2.18x        —
+  parse+reduce      53.7±0.9 ms     142.9±3.8 ms       2.66x        —  ← product
+
+input x4  (3680 chars · 10 rounds):
+  stage               lark med±sd      earley med±sd  earley/lark   Δ base
+  recognize         77.2±1.2 ms     143.3±2.5 ms       1.86x        —
+  parse            106.2±1.4 ms     240.4±5.1 ms       2.26x        —
+  parse+reduce     108.2±1.1 ms     303.8±6.9 ms       2.81x        —  ← product
+
+== VERDICT (x4, 3680 chars) — product text→IrAst ==
+  lark 108ms wins 2.81x over earley 304ms — cut 64% of earley time to match it
+  throughput: earley 82.6 µs/char  vs lark 29.4 µs/char
+

@@ -24,6 +24,9 @@ After all agents have finished, review the results and create a new HANDOVER doc
 
 Commited the postmortem. Send now three sonnet agents. Special exemption to use git worktrees.
 
+Before sending out the agents, run the benchmarks before and after the commit.
+Return to the present commit before creating the agents and worktrees.
+
 1- The first should drop the leoparse commit and re-measure a better implementation.
 2- The second should seek to improve the current implementation.
 3- The third should go more radical.

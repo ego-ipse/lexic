@@ -1,0 +1,35 @@
+
+=== cProfile parsing_2 (parse+reduce), x4, sorted by tottime ===
+         15129856 function calls (14980091 primitive calls) in 4.715 seconds
+
+   Ordered by: internal time
+   List reduced from 99 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+   657635    0.537    0.000    0.814    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/chart.py:160(__iadd__)
+   292725    0.472    0.000    1.388    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/ops.py:168(eval)
+   146120    0.336    0.000    0.947    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/ops.py:351(eval)
+    18405    0.288    0.000    2.712    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/engine.py:264(eval)
+        5    0.217    0.043    0.531    0.106 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/forest.py:481(_build_tree_fast)
+  1761990    0.217    0.000    0.228    0.000 {method 'get' of 'dict' objects}
+       10    0.198    0.020    1.132    0.113 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/trampoline.py:63(__iter__)
+  2225720    0.167    0.000    0.167    0.000 {built-in method builtins.len}
+   367605    0.153    0.000    0.316    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/reduce.py:143(__iter__)
+  1427840    0.145    0.000    0.145    0.000 {built-in method builtins.isinstance}
+101800/24460    0.136    0.000    0.248    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/reduce.py:66(eval)
+  1340580    0.135    0.000    0.135    0.000 {method 'append' of 'list' objects}
+   237105    0.119    0.000    0.181    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/chart.py:71(__iadd__)
+   506980    0.115    0.000    0.869    0.000 {method 'send' of 'generator' objects}
+   709955    0.110    0.000    0.110    0.000 {built-in method __new__ of type object at 0x1546d40}
+   851335    0.098    0.000    0.098    0.000 {method 'add' of 'set' objects}
+   223855    0.093    0.000    0.124    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/ir/base.py:581(__new__)
+   337785    0.082    0.000    0.162    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/chart.py:249(__getitem__)
+  1313385    0.082    0.000    0.082    0.000 /home/mika/.local/share/uv/python/cpython-3.14.3-linux-x86_64-gnu/lib/python3.14/typing.py:2300(cast)
+   139375    0.078    0.000    0.438    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/reduce.py:196(__iter__)
+        5    0.068    0.014    3.577    0.715 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/__init__.py:76(parse)
+   109765    0.065    0.000    0.097    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/ops.py:311(sole_candidate)
+   221680    0.065    0.000    0.106    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/forest.py:116(__new__)
+   142675    0.065    0.000    0.084    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/ir/base.py:397(__new__)
+69375/32295    0.062    0.000    0.149    0.000 /home/mika/projects/lexic/.claude/worktrees/agent-ae6e090226fffc47d/src/lexic/parsing_2/ops.py:256(resolve)
+
+
