@@ -166,6 +166,10 @@ class Column(IrLeaf[IrSelf, IrSelf]):
         in :attr:`waiting`; one facing a terminal is filed under that atom in
         :attr:`scannable_by_atom`.
 
+        The :class:`~lexic.ir.mapping.IrMultiMap` ``__iadd__`` calls are inlined
+        here — direct ``_table`` access avoids the method-call + tuple-unpack
+        overhead on the per-item hot path.
+
         :param item: The item to insert.
         :returns: ``self`` (the in-place-mutated column).
         """
@@ -176,9 +180,19 @@ class Column(IrLeaf[IrSelf, IrSelf]):
             if dot < len(arm):
                 symbol = arm[dot].atom
                 if isinstance(symbol, IrRuleRef):
-                    self.waiting += (symbol, item)
+                    t = self.waiting._table
+                    bucket = t.get(symbol)
+                    if bucket is None:
+                        t[symbol] = [item]
+                    else:
+                        bucket.append(item)
                 else:
-                    self.scannable_by_atom += (symbol, item)
+                    t = self.scannable_by_atom._table
+                    bucket = t.get(symbol)
+                    if bucket is None:
+                        t[symbol] = [item]
+                    else:
+                        bucket.append(item)
         return self
 
     def __contains__(self, item: EarleyItem) -> bool:

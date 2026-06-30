@@ -19,9 +19,9 @@ Product = `parse+reduce` x4 vs `lark:full`. Baseline before landing: **3.33×**.
 |---|---|---|---|
 | Accept Expl-1 (port `test_ops.py`, 1151 pass) | swept into `88893a6` | 3.33× | ✅ landed |
 | Refactor leoparse to pass the hook (typing + complexity, neutral) | `3512e8f` | 3.34× | ✅ landed |
-| OPT1 — inline `CloseColumn` dispatch | `pending` | 3.22× | ✅ landed |
-| OPT2 — inline `Column.__iadd__` | — | — | ⏳ next |
-| OPT3/4 — fast iterative tree builder | — | — | ⏳ |
+| OPT1 — inline `CloseColumn` dispatch | `fda5a21` | 3.22× | ✅ landed |
+| OPT2 — inline `Column.__iadd__` (chart.py only; ops.py `_table` reads dropped — W0212 for marginal gain) | `pending` | 3.22× (neutral) | ✅ landed |
+| OPT3/4 — fast iterative tree builder | — | — | ⏳ next |
 | OPT5 — str-keyed lookup tables | — | — | ⏳ |
 
 ---
