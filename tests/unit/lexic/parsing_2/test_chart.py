@@ -25,6 +25,7 @@ Leo slot tested: ``Column.leo`` (``IrMultiMap``, empty at construction).
 
 from __future__ import annotations
 
+from lexic.ir.base import IrNone
 from lexic.ir.mapping import IrMultiMap
 from lexic.ir.nodes import IrItem, IrLiteral, IrRuleRef, IrSequence
 from lexic.parsing_2.chart import Chart, Column, Links
@@ -344,8 +345,6 @@ def test_column_leo_independent_across_columns():
 
 def test_column_leo_accepts_iadd():
     """leo accepts += (key, value) and makes the value retrievable."""
-    from lexic.ir.base import IrNone
-
     col = Column(0)
     ref = IrRuleRef("s")
     col.leo += (ref, IrNone)

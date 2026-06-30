@@ -6,7 +6,7 @@ API changes:
   ``ParseCtx(chart, rules, nullable)`` with ``col``/``item`` advanced in place by
   the driver — no longer a frozen 6-field tuple.
 
-New symbols tested: ``LeoItem``, ``LEO_ITEM``, ``_LEO_ENABLED``.
+New symbols tested: ``LeoItem``, ``LEO_ITEM``, ``LEO_ENABLED``.
 """
 
 from __future__ import annotations
@@ -31,8 +31,8 @@ from lexic.parsing_2 import recognize
 from lexic.parsing_2.chart import Chart
 from lexic.parsing_2.normalize import normalize
 from lexic.parsing_2.ops import (
-    _LEO_ENABLED,
     EARLEY_OPS,
+    LEO_ENABLED,
     LEO_ITEM,
     Complete,
     LeoItem,
@@ -91,7 +91,7 @@ def test_parse_ctx_child_attrs_is_empty():
     assert not ctx.children()
 
 
-# ── LeoItem / LEO_ITEM / _LEO_ENABLED ────────────────────────────────
+# ── LeoItem / LEO_ITEM / LEO_ENABLED ────────────────────────────────
 
 
 def test_leo_item_singleton_is_leo_item_instance():
@@ -100,8 +100,8 @@ def test_leo_item_singleton_is_leo_item_instance():
 
 
 def test_leo_enabled_is_true_by_default():
-    """_LEO_ENABLED is True at module import time."""
-    assert _LEO_ENABLED is True
+    """LEO_ENABLED is True at module import time."""
+    assert LEO_ENABLED is True
 
 
 # ── Grammar helpers for behavioral/differential tests ────────────────
@@ -223,13 +223,13 @@ def test_leo_indirect_ruleref_star():
 
 
 def _recognize_with_leo(enabled: bool, grammar: IrAst, text: str) -> int:
-    """Run recognize with _LEO_ENABLED forced to ``enabled``; always restores."""
-    original = ops_mod._LEO_ENABLED
+    """Run recognize with LEO_ENABLED forced to ``enabled``; always restores."""
+    original = ops_mod.LEO_ENABLED
     try:
-        ops_mod._LEO_ENABLED = enabled
+        ops_mod.LEO_ENABLED = enabled
         return int(recognize(grammar, text))
     finally:
-        ops_mod._LEO_ENABLED = original
+        ops_mod.LEO_ENABLED = original
 
 
 def _check_differential(grammar: IrAst, inputs: list[str]) -> None:
@@ -287,7 +287,7 @@ def test_differential_indirect_ruleref_star():
 
 
 def test_leo_enabled_restored_after_differential():
-    """_LEO_ENABLED is restored to True after the differential helper runs."""
+    """LEO_ENABLED is restored to True after the differential helper runs."""
     g = _star("a")
     _check_differential(g, ["a"])
-    assert ops_mod._LEO_ENABLED is True
+    assert ops_mod.LEO_ENABLED is True

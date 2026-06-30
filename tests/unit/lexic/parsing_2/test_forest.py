@@ -1,17 +1,21 @@
-"""Tests for lexic.parsing_2.forest — ParseTree, SppfNode, DERIVATIONS, BuildTree, CHILD_TREES.
+"""Tests for lexic.parsing_2.forest — ParseTree, SppfNode, DERIVATIONS, BuildTree.
 
-API changes:
+API changes (old → new):
 
-- ``build_tree(chart, item, end)`` free function removed.  The new entry is
-  ``BUILD_TREE.eval(d, item, IrTuple(chart, IrInt(end)))``.  Tests that called
-  the free function via ``EarleyParser().parse()`` (the old instance method) are
-  updated to use the module-level ``parse()`` entry point instead — the
-  behavioral coverage (tree shape, symbol, kids) is preserved.
+- ``PREFIXES`` / ``Prefixes``  →  ``PrefixSource(node, ctx)`` cogen, driven via
+  ``list(Trampoline(PrefixSource(node, ctx)))``.
+- ``CHILD_TREES`` / ``ChildTrees`` / ``Whole``  →  ``ChildDerivs(child, ctx)`` cogen.
+- ``CHILD_STREAMS`` / ``ChildStream`` / ``LiteralStream``  →  ``ChildDerivs`` cogen;
+  a literal child yields exactly itself, an SppfNode child yields ParseTree derivations.
+- ``FamilyPrefixes``  →  folded into ``PrefixSource``; covered by PrefixSource tests.
+- ``ForestCtx`` no longer has a map interface (``key in ctx`` / ``ctx[key]`` / ``+=``
+  are gone); it now exposes only ``chart`` and ``open``.  Sharing / memo tests are
+  rewritten as behavioral correctness tests.
 
-- ``EarleyParser().parse(g, t)`` → module-level ``parse(g, t)``.
-
-New lazy machinery added (IrStream, PREFIXES, ForestCtx, CHILD_STREAMS, DERIVATION_STREAM):
-see the new sections below the existing suites.
+Preserved unchanged (kept, only construction syntax fixed if needed): ``ParseTree``,
+``SppfNode``, ``IrStream`` (all ``test_stream_*`` white-box tests), ``Derivations`` /
+``DERIVATIONS``, ``DerivationStream`` / ``DERIVATION_STREAM``, ``BuildTree`` /
+``BUILD_TREE``.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ import pytest
 
 import lexic.parsing_2.forest as forest_mod
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrNoneType, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir.base import IrLeaf, IrNone, IrNoneType, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -31,6 +35,7 @@ from lexic.ir.nodes import (
     IrChr,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
@@ -41,21 +46,22 @@ from lexic.parsing_2.chart import Chart
 from lexic.parsing_2.engine import ACCEPTING, EarleyParser
 from lexic.parsing_2.forest import (
     BUILD_TREE,
-    CHILD_STREAMS,
-    CHILD_TREES,
     DERIVATION_STREAM,
     DERIVATIONS,
-    PREFIXES,
     BuildTree,
+    ChildDerivs,
     Derivations,
     DerivationStream,
     ForestCtx,
     IrStream,
+    NodeDerivs,
     ParseTree,
+    PrefixSource,
     SppfNode,
-    Whole,
 )
 from lexic.parsing_2.item import EarleyItem
+from lexic.parsing_2.normalize import normalize
+from lexic.parsing_2.trampoline import Trampoline
 
 
 def _accept(grammar: IrAst, text: str) -> tuple[EarleyParser, Chart, SppfNode, int]:
@@ -63,7 +69,11 @@ def _accept(grammar: IrAst, text: str) -> tuple[EarleyParser, Chart, SppfNode, i
 
     A test-local helper (not a src symbol): builds the chart once and returns the
     accepting :class:`SppfNode` so the low-level forest nodes can be exercised
-    directly. Assumes ``text`` parses, so the node is a real :class:`SppfNode`.
+    directly.  Assumes ``text`` parses, so the node is a real :class:`SppfNode`.
+
+    :param grammar: The grammar to parse with.
+    :param text: The input string that must parse successfully.
+    :returns: ``(parser, chart, accepting_node, len(text))``.
     """
     parser = EarleyParser()
     chart, node = ACCEPTING.eval(parser, grammar, IrTuple(IrStr(text)))
@@ -211,7 +221,7 @@ def test_sppf_node_construction(digit_grammar: IrAst):
 def test_sppf_node_equality_same_item_and_end(digit_grammar: IrAst):
     """Two SppfNode instances with equal item/end are equal (tuple identity)."""
     grammar = digit_grammar
-    _, __, item, end = _accept(grammar, "5")
+    _, __, item, ___ = _accept(grammar, "5")
     # item is the SppfNode; build a second one from the same raw fields
     node_b = SppfNode(item.item, item.end)
     assert item == node_b
@@ -230,7 +240,7 @@ def test_sppf_node_inequality_different_end(digit_grammar: IrAst):
 def test_derivations_unambiguous_yields_one_tree(digit_grammar: IrAst):
     """DERIVATIONS returns exactly one ParseTree for an unambiguous parse."""
     grammar = digit_grammar
-    parser, chart, item, end = _accept(grammar, "7")
+    parser, chart, item, _ = _accept(grammar, "7")
     assert not isinstance(item, IrNoneType)
     trees = DERIVATIONS.eval(parser, item, IrTuple(chart))
     assert isinstance(trees, IrSeq)
@@ -241,7 +251,7 @@ def test_derivations_unambiguous_yields_one_tree(digit_grammar: IrAst):
 def test_derivations_singleton_matches_parse(digit_grammar: IrAst):
     """The single derivation from DERIVATIONS equals parse()'s result."""
     grammar = digit_grammar
-    parser, chart, item, end = _accept(grammar, "9")
+    parser, chart, item, _ = _accept(grammar, "9")
     trees = DERIVATIONS.eval(parser, item, IrTuple(chart))
     expected = parse(grammar, "9")
     assert trees[0] == expected
@@ -249,7 +259,7 @@ def test_derivations_singleton_matches_parse(digit_grammar: IrAst):
 
 def test_derivations_ambiguous_yields_two_trees(sss_grammar: IrAst):
     """DERIVATIONS returns 2 distinct ParseTrees for 's = s s / \"a\"' over 'aaa'."""
-    parser, chart, item, end = _accept(sss_grammar, "aaa")
+    parser, chart, item, _ = _accept(sss_grammar, "aaa")
     assert not isinstance(item, IrNoneType)
     trees = DERIVATIONS.eval(parser, item, IrTuple(chart))
     assert len(trees) == 2
@@ -268,14 +278,14 @@ def test_derivations_singleton_is_derivations_instance():
 def test_build_tree_strict_returns_single_tree_for_unambiguous(digit_grammar: IrAst):
     """BUILD_TREE.eval succeeds and returns a ParseTree for unambiguous input."""
     grammar = digit_grammar
-    parser, chart, item, end = _accept(grammar, "4")
+    parser, chart, item, _ = _accept(grammar, "4")
     tree = BUILD_TREE.eval(parser, item, IrTuple(chart))
     assert isinstance(tree, ParseTree)
 
 
 def test_build_tree_strict_raises_for_ambiguous(sss_grammar: IrAst):
     """BUILD_TREE.eval raises UnsupportedConstructError for ambiguous input."""
-    parser, chart, item, end = _accept(sss_grammar, "aaa")
+    parser, chart, item, _ = _accept(sss_grammar, "aaa")
     assert not isinstance(item, IrNoneType)
     with pytest.raises(UnsupportedConstructError):
         BUILD_TREE.eval(parser, item, IrTuple(chart))
@@ -287,39 +297,166 @@ def test_parse_raises_for_ambiguous_input(sss_grammar: IrAst):
         parse(sss_grammar, "aaa")
 
 
-# ── CHILD_TREES dispatch ──────────────────────────────────────────────
+# ── ChildDerivs cogen (adapted from CHILD_TREES / Whole / CHILD_STREAMS) ──
+#
+# Old: CHILD_TREES dispatched IrLiteral → Whole (single-element seq of itself)
+#       and SppfNode → ChildTrees (all ParseTree derivations).
+# New: ChildDerivs(child, ctx) cogen driven via Trampoline:
+#       - terminal IrLiteral child → [that literal] (its sole derivation)
+#       - SppfNode child → its ParseTree derivations
 
 
-def test_child_trees_literal_dispatches_to_whole():
-    """CHILD_TREES dispatches IrLiteral → Whole (the sole derivation is the literal itself)."""
-    parser = EarleyParser()
-    literal = IrLiteral("x")
-    result = CHILD_TREES.eval(parser, literal, IrTuple())
-    assert isinstance(result, IrSeq)
+def test_child_derivs_literal_yields_the_literal_itself(digit_grammar: IrAst):
+    """ChildDerivs on an IrLiteral terminal yields the literal as its sole derivation.
+
+    Adapted from ``test_child_trees_literal_dispatches_to_whole`` and
+    ``test_child_trees_whole_singleton``.
+    """
+    _, chart, _, __ = _accept(digit_grammar, "5")
+    ctx = ForestCtx(chart)
+    lit = IrLiteral("x")
+    result = list(Trampoline(ChildDerivs(lit, ctx)))
     assert len(result) == 1
-    assert result[0] is literal
+    assert result[0] is lit
 
 
-def test_child_trees_whole_singleton():
-    """Whole is the terminal-leaf arm of CHILD_TREES — contributes the node as-is."""
-    whole = Whole()
-    parser = EarleyParser()
-    literal = IrLiteral("z")
-    result = whole.eval(parser, literal, ())
-    assert isinstance(result, IrSeq)
-    assert len(result) == 1
-    assert result[0] is literal
+def test_child_derivs_sppf_node_yields_parse_tree_derivations(digit_grammar: IrAst):
+    """ChildDerivs on an SppfNode yields its ParseTree derivations.
 
-
-def test_child_trees_sppf_node_dispatches_to_child_trees(digit_grammar: IrAst):
-    """CHILD_TREES dispatches SppfNode → ChildTrees (enumerates sub-tree derivations)."""
+    Adapted from ``test_child_trees_sppf_node_dispatches_to_child_trees``.
+    """
     grammar = digit_grammar
-    parser, chart, item, end = _accept(grammar, "3")
+    _, chart, item, _ = _accept(grammar, "3")
     assert not isinstance(item, IrNoneType)
-    result = CHILD_TREES.eval(parser, item, IrTuple(chart))
-    assert isinstance(result, IrSeq)
+    ctx = ForestCtx(chart)
+    result = list(Trampoline(ChildDerivs(item, ctx)))
     assert len(result) == 1
     assert isinstance(result[0], ParseTree)
+
+
+def test_child_derivs_literal_vs_sppf_dispatch(digit_grammar: IrAst):
+    """ChildDerivs dispatches differently for IrLiteral and SppfNode children.
+
+    Adapted from ``test_child_streams_dispatch``: a literal child returns
+    exactly itself (one element); an SppfNode child returns ParseTree
+    derivations.
+    """
+    grammar = digit_grammar
+    _, chart, item, _ = _accept(grammar, "3")
+    ctx = ForestCtx(chart)
+
+    # Literal arm
+    lit = IrLiteral("q")
+    lit_result = list(Trampoline(ChildDerivs(lit, ctx)))
+    assert len(lit_result) == 1
+    assert lit_result[0] is lit
+
+    # SppfNode arm
+    node_result = list(Trampoline(ChildDerivs(item, ctx)))
+    assert len(node_result) >= 1
+    assert isinstance(node_result[0], ParseTree)
+
+
+# ── PrefixSource cogen (adapted from PREFIXES / Prefixes / FamilyPrefixes) ──
+#
+# Old: PREFIXES.eval(d, node, IrTuple(ctx)) → IrStream of IrSeq prefixes.
+# New: PrefixSource(node, ctx) cogen driven via Trampoline.
+
+
+def test_prefix_source_dot_zero_single_empty_prefix(digit_grammar: IrAst):
+    """A dot-0 handle's PrefixSource yields exactly one empty IrSeq.
+
+    Adapted from ``test_prefixes_dot_zero_single_empty_prefix``.
+    """
+    _, chart, _, __ = _accept(digit_grammar, "5")
+    # Find a dot-0 EarleyItem in column 0
+    dot_zero: EarleyItem | None = None
+    for ei in chart[0]:
+        if ei[2] == 0:  # ei[2] is dot
+            dot_zero = ei
+            break
+    assert dot_zero is not None
+    node = SppfNode(dot_zero, 0)
+    ctx = ForestCtx(chart)
+    prefixes = list(Trampoline(PrefixSource(node, ctx)))
+    assert len(prefixes) == 1
+    assert prefixes[0] == IrSeq()
+
+
+def test_prefix_source_yields_irseq_prefixes(sss_grammar: IrAst):
+    """PrefixSource yields IrSeq kid-sequences (prefixes) for a completed handle.
+
+    Adapted from ``test_prefixes_returns_irstream``: the new API is a cogen
+    whose emits are IrSeq values (not wrapped in an IrStream).
+    """
+    _, chart, item, _ = _accept(sss_grammar, "aaa")
+    ctx = ForestCtx(chart)
+    result = list(Trampoline(PrefixSource(item, ctx)))
+    assert len(result) > 0
+    for prefix in result:
+        assert isinstance(prefix, IrSeq)
+
+
+def test_derivation_stream_returns_irstream(sss_grammar: IrAst):
+    """DERIVATION_STREAM.eval returns an IrStream for a valid SppfNode handle.
+
+    Adapted from ``test_prefixes_returns_irstream``: the top-level lazy stream
+    is now accessed via ``DERIVATION_STREAM.eval(d, node, IrTuple(ctx))``.
+    """
+    parser, chart, item, _ = _accept(sss_grammar, "aaa")
+    ctx = ForestCtx(chart)
+    result = DERIVATION_STREAM.eval(parser, item, IrTuple(ctx))
+    assert isinstance(result, IrStream)
+
+
+# ── ForestCtx sharing / correctness (adapted from memo tests) ─────────
+#
+# Old tests asserted ForestCtx had a map interface (``key in ctx`` / ``ctx[key]``).
+# The new ForestCtx exposes only ``.chart`` and ``.open`` (a set of mid-production
+# handles).  Instead we test the behavioral guarantees:
+#   (a) Ambiguous derivations are complete and correct.
+#   (b) After a full drain, ctx.open is empty (the add/discard cycle is balanced).
+
+
+def test_ambiguous_grammar_yields_correct_derivation_count(sss_grammar: IrAst):
+    """Enumerating 'aaa' yields exactly 2 derivations; 'aaaa' yields exactly 5.
+
+    Adapted from ``test_prefixes_memoised_same_handle`` and
+    ``test_shared_subhandle_expanded_once``: the correctness guarantee survives
+    even without the old map-interface sharing proof.  A wrong count would
+    signal over- or under-expansion of shared sub-handles.
+    """
+    count_aaa = len(derivations(sss_grammar, "aaa"))
+    assert count_aaa == 2, f"expected 2 derivations for 'aaa', got {count_aaa}"
+
+    count_aaaa = len(derivations(sss_grammar, "aaaa"))
+    assert count_aaaa == 5, f"expected 5 derivations for 'aaaa', got {count_aaaa}"
+
+
+def test_forest_ctx_open_empty_after_full_drain(sss_grammar: IrAst):
+    """After a full derivation drain, ForestCtx.open is empty.
+
+    Adapted from ``test_shared_subhandle_expanded_once``: the cycle-guard's
+    add/discard cycle must be balanced so an exhausted handle is not permanently
+    locked out.
+    """
+    _, chart, item, _ = _accept(sss_grammar, "aaa")
+    ctx = ForestCtx(chart)
+    trees = list(Trampoline(NodeDerivs(item, ctx)))
+    assert len(trees) == 2
+    assert ctx.open == set(), (
+        f"ForestCtx.open should be empty after drain, got {ctx.open}"
+    )
+
+
+def test_forest_ctx_has_chart_and_open_attributes(digit_grammar: IrAst):
+    """ForestCtx exposes .chart (Chart) and .open (set) only — no map interface."""
+    _, chart, _, __ = _accept(digit_grammar, "5")
+    ctx = ForestCtx(chart)
+    assert ctx.chart is chart
+    assert isinstance(ctx.open, set)
+    assert not hasattr(ctx, "__getitem__"), "ForestCtx must not have a map interface"
+    assert not hasattr(ctx, "__contains__"), "ForestCtx must not have a map interface"
 
 
 # ── parse_forest entry ────────────────────────────────────────────────
@@ -443,85 +580,6 @@ def test_stream_empty_source():
     assert src.count == 1
 
 
-# ── Prefixes / memo / sharing ─────────────────────────────────────────
-
-
-def test_prefixes_returns_irstream(sss_grammar: IrAst):
-    """PREFIXES.eval returns an IrStream for a valid SppfNode handle."""
-    parser, chart, item, end = _accept(sss_grammar, "aaa")
-    ctx = ForestCtx(chart)
-    result = PREFIXES.eval(parser, item, IrTuple(ctx))
-    assert isinstance(result, IrStream)
-
-
-def test_prefixes_memoised_same_handle(sss_grammar: IrAst):
-    """PREFIXES.eval for the same handle twice returns the identical IrStream object."""
-    parser, chart, item, end = _accept(sss_grammar, "aaa")
-    ctx = ForestCtx(chart)
-    s1 = PREFIXES.eval(parser, item, IrTuple(ctx))
-    s2 = PREFIXES.eval(parser, item, IrTuple(ctx))
-    assert s1 is s2
-    key = (item.item, item.end)
-    assert key in ctx
-    assert ctx[key][0] is s1
-
-
-def test_prefixes_dot_zero_single_empty_prefix(digit_grammar: IrAst):
-    """A dot-0 handle's prefix stream yields exactly one empty IrSeq."""
-    parser, chart, _, __ = _accept(digit_grammar, "5")
-    # Find a dot-0 EarleyItem in column 0
-    dot_zero: EarleyItem | None = None
-    for ei in chart[0]:
-        if ei[2] == 0:  # ei[2] is dot
-            dot_zero = ei
-            break
-    assert dot_zero is not None
-    node = SppfNode(dot_zero, 0)
-    ctx = ForestCtx(chart)
-    stream = PREFIXES.eval(parser, node, IrTuple(ctx))
-    prefixes = list(stream)
-    assert len(prefixes) == 1
-    assert prefixes[0] == IrSeq()
-
-
-def test_shared_subhandle_expanded_once(sss_grammar: IrAst):
-    """Shared sub-handles are memoised: a second derivation call re-uses filed streams.
-
-    Two derivations of sss 'aaa' each contain the same 'a' sub-node — that
-    sub-node must be filed in the ForestCtx and recovered (not re-derived).
-    We verify this by counting how many times PREFIXES.eval is asked to FILE
-    a new stream (i.e. the key was not yet in the ctx): it must be strictly less
-    than the total number of tree-node slots across both derivations.
-    """
-    parser, chart, item, end = _accept(sss_grammar, "aaa")
-    ctx = ForestCtx(chart)
-    # Drain the derivation stream to force full expansion
-    all_trees = list(DERIVATION_STREAM.eval(parser, item, IrTuple(ctx)))
-    assert len(all_trees) == 2
-
-    # Count total tree nodes (ParseTree + IrLiteral leaves) across both derivations
-    def _count_nodes(tree: object) -> int:
-        if isinstance(tree, ParseTree):
-            return 1 + sum(_count_nodes(k) for k in tree.kids)
-        return 1
-
-    total_nodes = sum(_count_nodes(t) for t in all_trees)
-
-    # Count how many distinct (item, end) handles were filed in the ctx by checking
-    # how many keys are accessible: call PREFIXES.eval on each tree's SppfNode and
-    # count unique keys known to the ctx.  We do this by asking PREFIXES again for
-    # the root — it must return the same stream (identity, already filed).
-    root_key = (item.item, item.end)
-    assert root_key in ctx
-    root_stream = PREFIXES.eval(parser, item, IrTuple(ctx))
-    # The root stream was filed before driving, so a second call returns the same object
-    assert root_stream is ctx[root_key][0]
-
-    # The root node is ONE handle; the two derivations share sub-handles.
-    # total_nodes is strictly greater than 1, confirming at least one shared sub-tree.
-    assert total_nodes > 1
-
-
 # ── Nullable cycle termination ────────────────────────────────────────
 
 
@@ -545,7 +603,7 @@ def test_nullable_cycle_terminates():
     """derivations() on a grammar with a nullable a→b→a cycle terminates and is finite.
 
     A regression guard: a naive forest enumeration without the _DRIVING sentinel
-    would loop forever on this cycle. A hanging test will be killed by the thread
+    would loop forever on this cycle.  A hanging test will be killed by the thread
     timeout, and the assertion will report the failure.
     """
     grammar = _make_nullable_cycle_grammar()
@@ -570,17 +628,17 @@ def test_nullable_cycle_terminates():
 def test_build_tree_strict_short_circuits(sss_grammar: IrAst):
     """BUILD_TREE stops at the 2nd derivation and raises ambiguity without driving more.
 
-    A counter-based stream records how many elements were consumed. We assert
+    A counter-based stream records how many elements were consumed.  We assert
     UnsupportedConstructError is raised AND that the counter never exceeds 2.
     """
-    parser, chart, item, end = _accept(sss_grammar, "aaa")
+    parser, chart, item, _ = _accept(sss_grammar, "aaa")
     real_ds = DERIVATIONS.eval(parser, item, IrTuple(chart))
     t1, t2 = real_ds[0], real_ds[1]
 
     consumed: list[int] = [0]
 
     class _CountingDerivStream(DerivationStream):
-        def eval(self, d: IrSelf, n: IrSelf, nc: object, /) -> IrStream[ParseTree]:
+        def eval(self, _d: IrSelf, n: IrSelf, nc: object, /) -> IrStream[ParseTree]:
             def _src():
                 consumed[0] += 1
                 yield t1
@@ -602,10 +660,10 @@ def test_build_tree_strict_short_circuits(sss_grammar: IrAst):
 
 def test_build_tree_zero_derivations_raises(digit_grammar: IrAst):
     """BUILD_TREE raises UnsupportedConstructError when the handle has no derivation."""
-    parser, chart, item, end = _accept(digit_grammar, "5")
+    parser, chart, item, _ = _accept(digit_grammar, "5")
 
     class _EmptyDerivStream(DerivationStream):
-        def eval(self, d: IrSelf, n: IrSelf, nc: object, /) -> IrStream[ParseTree]:
+        def eval(self, _d: IrSelf, n: IrSelf, nc: object, /) -> IrStream[ParseTree]:
             return IrStream(IrSeq())
 
     orig = forest_mod.DERIVATION_STREAM
@@ -615,27 +673,6 @@ def test_build_tree_zero_derivations_raises(digit_grammar: IrAst):
             BUILD_TREE.eval(parser, item, IrTuple(chart))
     finally:
         forest_mod.DERIVATION_STREAM = orig
-
-
-def test_child_streams_dispatch(digit_grammar: IrAst):
-    """CHILD_STREAMS dispatches SppfNode → ChildStream and IrLiteral → LiteralStream."""
-    parser = EarleyParser()
-    # LiteralStream arm: yields the literal itself as a one-element stream
-    lit = IrLiteral("q")
-    lit_stream = CHILD_STREAMS.eval(parser, lit, IrTuple())
-    assert isinstance(lit_stream, IrStream)
-    items = list(lit_stream)
-    assert len(items) == 1
-    assert items[0] is lit
-
-    # ChildStream arm: yields ParseTree derivations for an SppfNode
-    _, chart, item, end = _accept(digit_grammar, "3")
-    ctx = ForestCtx(chart)
-    node_stream = CHILD_STREAMS.eval(parser, item, IrTuple(ctx))
-    assert isinstance(node_stream, IrStream)
-    node_items = list(node_stream)
-    assert len(node_items) >= 1
-    assert isinstance(node_items[0], ParseTree)
 
 
 def test_derivations_realises_all(sss_grammar: IrAst):
@@ -653,3 +690,36 @@ def test_derivations_realises_all(sss_grammar: IrAst):
     # Stable across calls: same length and equal element-wise
     assert len(result2) == 5
     assert all(result1[i] == result2[i] for i in range(5))
+
+
+# ── Depth-safety regression test ──────────────────────────────────────
+
+
+def _make_right_recursive_grammar() -> IrAst:
+    """Build: S = 'a'* — a right-recursive nullable grammar.
+
+    Normalised via :func:`~lexic.parsing_2.normalize.normalize`, the
+    quantifier desugars to right-recursive rules that produce an arbitrarily
+    deep parse spine for long input.
+
+    :returns: The normalised :class:`IrAst` ready to pass to ``parse``.
+    """
+    rule = IrRule(
+        "S",
+        IrAlternation(IrSequence(IrItem(IrLiteral("a"), IrQuantifier(0, IrNone)))),
+    )
+    return normalize(IrAst(rules=IrSeq(rule), start="S"))
+
+
+def test_deep_right_recursion_does_not_crash():
+    """parse() on a 1500-character right-recursive input does not raise RecursionError.
+
+    N=1500 is far past the ~300-level crash threshold of the old nested-generator
+    walk and is safe on memory (the Earley chart is O(n²) — 1500² ≈ 2.25M cells).
+    This test runs on the main thread at the DEFAULT recursion limit; no
+    ``sys.setrecursionlimit`` call.
+    """
+    grammar = _make_right_recursive_grammar()
+    n = 1500
+    tree = parse(grammar, "a" * n)
+    assert isinstance(tree, ParseTree)

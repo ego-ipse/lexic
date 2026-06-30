@@ -202,7 +202,7 @@ class Scan(IrLeaf[IrSelf, IrSelf]):
         return IrNone
 
 
-_LEO_ENABLED = True
+LEO_ENABLED = True
 """Gate for Leo's right-recursion optimization (recognition only). Off makes
 :class:`Complete` always walk the completion chain — the differential oracle."""
 
@@ -328,7 +328,7 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         # deterministic right-recursion chain link — jump to the transitive top
         # instead of advancing it (which would re-walk the chain). The cheap gate
         # here (``waiters`` already in hand) keeps the node call off normal grammars.
-        if _LEO_ENABLED and not ctx.record_links and len(waiters) == 1:
+        if LEO_ENABLED and not ctx.record_links and len(waiters) == 1:
             sole = waiters[0]
             if sole[2] + 1 == len(sole[1]):  # dot before ref, ref the last symbol
                 top = LEO_ITEM.resolve(chart, done_origin, done[0], current.index)

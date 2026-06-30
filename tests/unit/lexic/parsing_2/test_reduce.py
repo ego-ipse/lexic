@@ -1,6 +1,6 @@
 """Tests for lexic.parsing_2.reduce — Reducer bottom-up fold.
 
-API changes:
+API changes (old → new):
 
 - ``Reducer(...).reduce(tree)`` → ``Reducer(...).apply(tree)``.
   Every call site updated.
@@ -8,7 +8,15 @@ API changes:
 - ``normalize.is_synthetic_name(name)`` removed.
   Re-expressed as ``name.startswith(SYNTHETIC_PREFIX)``.
 
-New symbols tested: ``ResolveChildren``, ``RESOLVE_CHILDREN``.
+- ``ResolveChildren`` / ``RESOLVE_CHILDREN`` (child resolution node)  →
+  ``ResolveSource(node, ctx, reducer)`` trampoline cogen.
+  ``test_resolve_children_singleton_is_resolve_children_instance`` is adapted
+  into a behavioral test: ``list(Trampoline(ResolveSource(tree, ctx, reducer)))``
+  yields the expected resolved child contributions.
+
+New symbols: ``ReduceCtx``, ``ResolveSource``, ``ReduceSource`` (trampolined cogens).
+``KEEP_REDUCED`` now threads ``nc`` — ``IrTuple(d.eval(d, n, nc))`` — so the
+existing direct test using ``_Identity`` (which ignores nc) still passes.
 """
 
 from __future__ import annotations
@@ -18,7 +26,7 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrArgs, IrJoin
 from lexic.ir.base import IrLambda, IrNone, IrSelf, IrSeq, IrTuple
-from lexic.ir.mapping import IrMap
+from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -35,18 +43,20 @@ from lexic.parsing_2.normalize import (
     SYNTHETIC_PREFIX,
     desugar_quantifiers,
     flatten_groups,
+    normalize,
     split_literals,
 )
 from lexic.parsing_2.reduce import (
     DROP,
     KEEP_RAW,
     KEEP_REDUCED,
-    RESOLVE_CHILDREN,
     YIELD,
+    ReduceCtx,
     Reducer,
-    ResolveChildren,
+    ResolveSource,
     Yield,
 )
+from lexic.parsing_2.trampoline import Trampoline
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -55,12 +65,21 @@ _YIELD = IrJoin(parts=IrArgs(), separator=IrLiteral(""), empty=IrLiteral(""))
 
 
 def _leaf_tree(symbol: str, *chars: str) -> ParseTree:
-    """A ParseTree whose kids are IrLiteral leaves."""
+    """A ParseTree whose kids are IrLiteral leaves.
+
+    :param symbol: The rule name for the tree's symbol.
+    :param chars: The literal characters to use as leaf kids.
+    :returns: A :class:`ParseTree` with :class:`IrLiteral` kids.
+    """
     return ParseTree(IrRuleRef(symbol), IrSeq(*(IrLiteral(c) for c in chars)))
 
 
 def _reducer(*rows: tuple[str, IrSelf]) -> Reducer:
-    """Build a Reducer from (rule_name, body) pairs."""
+    """Build a Reducer from (rule_name, body) pairs.
+
+    :param rows: Pairs of ``(rule_name, body)`` to populate the reduction table.
+    :returns: A :class:`Reducer` with those reductions.
+    """
     dyads: tuple[IrTuple[IrRuleRef, IrSelf], ...] = tuple(
         IrTuple(IrRuleRef(name), body) for name, body in rows
     )
@@ -186,12 +205,58 @@ def test_reducer_literal_leaves_passed_through_without_reduction():
     assert result == IrLiteral("q")
 
 
-# ── ResolveChildren node ──────────────────────────────────────────────
+# ── ResolveSource cogen (adapted from ResolveChildren / RESOLVE_CHILDREN) ──
+#
+# Old: RESOLVE_CHILDREN was a ``ResolveChildren`` instance whose ``eval``
+#      returned the resolved child contributions.
+# New: ``ResolveSource(node, ctx, reducer)`` is a trampolined cogen; drive it
+#      via ``list(Trampoline(ResolveSource(tree, ctx, reducer)))`` to get the
+#      resolved child contribution elements.
 
 
-def test_resolve_children_singleton_is_resolve_children_instance():
-    """RESOLVE_CHILDREN is a ResolveChildren instance."""
-    assert isinstance(RESOLVE_CHILDREN, ResolveChildren)
+def test_resolve_source_yields_literal_leaf_contributions():
+    """ResolveSource yields each IrLiteral leaf as a raw contribution.
+
+    Adapted from ``test_resolve_children_singleton_is_resolve_children_instance``:
+    rather than checking a singleton type, we check the behavioral guarantee —
+    a tree with two literal kids yields two raw contributions via Trampoline.
+    """
+    tree = _leaf_tree("s", "a", "b")
+    reducer = _reducer(("s", _YIELD))
+    ctx = ReduceCtx()
+    contributions = list(Trampoline(ResolveSource(tree, ctx, reducer)))
+    # Two IrLiteral leaves → two KEEP_RAW contributions (the leaves themselves)
+    assert len(contributions) == 2
+    assert contributions[0] == IrLiteral("a")
+    assert contributions[1] == IrLiteral("b")
+
+
+def test_resolve_source_drops_noise_children():
+    """ResolveSource respects the noise policy: a DROP child contributes nothing.
+
+    ``ws`` is mapped to ``DROP`` in the noise policy; ``letter`` uses the
+    default ``KEEP_REDUCED`` (from ``IR_DEFAULT``), so the Reducer's default
+    noise entry must be present.  After resolving, only the letter contribution
+    arrives (ws is silently dropped).
+    """
+    # noise: ws → DROP, default → KEEP_REDUCED (mirrors the Reducer class default)
+    noise = IrMap(
+        IrTuple(IrRuleRef("ws"), DROP),
+        IrTuple(IR_DEFAULT, KEEP_REDUCED),
+    )
+    reducer = Reducer(
+        reductions=IrMap(IrTuple(IrRuleRef("letter"), _YIELD)),
+        noise=noise,
+    )
+    ctx = ReduceCtx()
+
+    ws_tree = _leaf_tree("ws", " ")
+    letter_tree = _leaf_tree("letter", "x")
+    parent = ParseTree(IrRuleRef("word"), IrSeq(letter_tree, ws_tree))
+
+    contributions = list(Trampoline(ResolveSource(parent, ctx, reducer)))
+    # ws is dropped; letter contributes one reduced element
+    assert len(contributions) == 1
 
 
 # ── Integration with normalize ────────────────────────────────────────
@@ -235,7 +300,7 @@ def test_keep_raw_returns_irtuple_with_node_unchanged():
 
 
 def test_keep_reduced_dispatches_node_via_d():
-    """KEEP_REDUCED contributes the reduced node — IrTuple(d.eval(d, n, ()))."""
+    """KEEP_REDUCED contributes the reduced node — IrTuple(d.eval(d, n, nc))."""
     n = IrLiteral("x")
 
     class _Identity(IrSelf):
@@ -391,3 +456,27 @@ def test_reducer_over_derivations_matches_single_reduce():
     all_derivations = derivations(g, "aa")
     assert len(all_derivations) == 1  # unambiguous
     assert reducer.apply(all_derivations[0]) == single
+
+
+# ── Depth-safety regression test ──────────────────────────────────────
+
+
+def test_deep_reduce_does_not_crash():
+    """parse+reduce on a 1500-char right-recursive input does not raise RecursionError.
+
+    The S='a'* grammar desugars to right-recursive rules whose parse tree is
+    ~1500 nodes deep.  The old recursive reducer crashed at ~1000 levels.
+    This test runs on the main thread at the DEFAULT recursion limit; no
+    ``sys.setrecursionlimit`` call.
+    """
+    rule = IrRule(
+        "S",
+        IrAlternation(IrSequence(IrItem(IrLiteral("a"), IrQuantifier(0, IrNone)))),
+    )
+    g_raw = IrAst(rules=IrSeq(rule), start="S")
+    g = normalize(g_raw)
+    n = 1500
+    tree = parse(g, "a" * n)
+    reducer = _reducer(("S", _YIELD))
+    result = reducer.apply(tree)
+    assert str(result) == "a" * n

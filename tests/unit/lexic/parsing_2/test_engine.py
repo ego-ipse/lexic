@@ -545,7 +545,7 @@ def _make_exploding_deriv_stream(t1: ParseTree, t2: ParseTree) -> DerivationStre
     """Build a DerivationStream that raises AssertionError if driven past 2 elements."""
 
     class _ExplodingDerivStream(DerivationStream):
-        def eval(self, d: IrSelf, n: IrSelf, nc: object, /) -> IrStream[ParseTree]:
+        def eval(self, _d: IrSelf, n: IrSelf, nc: object, /) -> IrStream[ParseTree]:
             def _src():
                 yield t1
                 yield t2

@@ -7,25 +7,33 @@ table — an :class:`~lexic.ir.mapping.IrMap` from a rule's
 children into an IR node — paired with a **cleaning policy**: which children are
 noise (whitespace, delimiters) and so dropped before a body sees them.
 
-:class:`Reducer` overrides ``eval``: the entry is the inherited
-:meth:`~lexic.ir.walk.IrDispatch.apply`, recursion flows back through ``eval``.
-Child resolution lives in :data:`RESOLVE_CHILDREN`, a flat-map where each child
-contributes :data:`DROP` (nothing), :data:`KEEP_RAW`/:data:`KEEP_REDUCED` (one),
-or a spliced synthetic sub-tree (many). The ``noise`` / ``literal`` policy picks
-the contribution per child; its defaults reproduce a plain reduce, so a flavour
-opts into cleaning by overriding them. :data:`YIELD` recovers a subtree's source
-text (skipping non-semantic spans) for rules that yield text rather than build.
+:class:`Reducer` folds a :class:`~lexic.parsing_2.forest.ParseTree` bottom-up.
+The fold is **depth-safe**: a right-recursive derivation is arbitrarily deep, so
+the walk does not recurse through the Python call stack — it is driven by the
+shared :class:`~lexic.parsing_2.trampoline.Trampoline`. The per-node generators
+:class:`ReduceSource` (a node → its reduced IR) and :class:`ResolveSource` (a
+node → its resolved children) yield trampoline commands instead of recursing; a
+:class:`ReduceCtx` cursor memoises each node's reduction so the ``noise`` policy's
+:data:`KEEP_REDUCED` reads an already-reduced child rather than re-entering.
+
+Child resolution: each child contributes :data:`DROP` (nothing),
+:data:`KEEP_RAW`/:data:`KEEP_REDUCED` (one), or a spliced synthetic sub-tree
+(many). The ``noise`` / ``literal`` policy picks the contribution per child; its
+defaults reproduce a plain reduce, so a flavour opts into cleaning by overriding
+them. :data:`YIELD` recovers a subtree's source text (skipping non-semantic
+spans) for rules that yield text rather than build.
 """
 
 from __future__ import annotations
 
-from typing import Sequence, cast
+from typing import Iterator, Sequence, cast
 
 from lexic.ir.base import IrLambda, IrLeaf, IrSelf, IrStr, IrTuple
 from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.walk import IrDispatch
 from lexic.parsing_2.forest import ParseTree
 from lexic.parsing_2.normalize import SYNTHETIC_PREFIX
+from lexic.parsing_2.trampoline import ADVANCE, EMIT, EXHAUSTED, Trampoline
 
 # ── Child contributions ───────────────────────────────────────────────
 # Each body returns its contribution to the parent's argument channel as an
@@ -37,8 +45,9 @@ DROP = IrLambda(lambda d, n, nc: IrTuple())
 KEEP_RAW = IrLambda(lambda d, n, nc: IrTuple(n))
 """Contribute the node unchanged — a terminal leaf passed straight through."""
 
-KEEP_REDUCED = IrLambda(lambda d, n, nc: IrTuple(d.eval(d, n, ())))
-"""Contribute the reduced node — a semantic sub-rule folded to its IR."""
+KEEP_REDUCED = IrLambda(lambda d, n, nc: IrTuple(d.eval(d, n, nc)))
+"""Contribute the reduced node — a semantic sub-rule folded to its IR. ``nc``
+threads the :class:`ReduceCtx` so the re-entrant ``d.eval`` reads the memo."""
 
 
 # ── Subtree text ──────────────────────────────────────────────────────
@@ -78,59 +87,147 @@ YIELD = Yield()
 """Shared subtree-text node — stateless, so one instance."""
 
 
-# ── Child resolution ──────────────────────────────────────────────────
+# ── Reduction cursor + trampolined fold ───────────────────────────────
 
 
-class ResolveChildren(IrLeaf[IrSelf, IrSelf]):
-    """A parse node's children resolved onto the parent's argument channel.
+class ReduceCtx(IrLeaf[IrSelf, IrSelf]):
+    """Per-reduction cursor — memoises each node's reduced IR by identity.
 
-    Flat-maps each child to its contribution: a synthetic sub-tree splices its
-    own resolved children in place; a terminal leaf is handled by the reducer's
-    ``literal`` policy; any other sub-tree by the ``noise`` policy keyed on its
-    rule. The defaults (``literal=KEEP_RAW``, ``noise`` → ``KEEP_REDUCED``)
-    reproduce a plain reduce — a flavour overrides them to drop whitespace and
-    delimiters.
+    The mutable per-fold state (the cursor precedent, like
+    :class:`~lexic.parsing_2.forest.ForestCtx`): :attr:`red` maps ``id(tree)`` to
+    the node's reduced IR, filled by :class:`ReduceSource` before it emits. The
+    cursor rides the argument channel ``nc`` so the ``noise`` policy's
+    :data:`KEEP_REDUCED` re-entry (``d.eval(d, child, (ctx,))``) resolves to the
+    already-computed reduction rather than recursing.
+
+    :ivar red: ``id(ParseTree)`` → its reduced IR node.
     """
 
-    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
-        """Resolve ``n``'s children in source order.
+    __slots__ = ("red",)
 
-        :param d: The driving :class:`Reducer` (supplies the cleaning policy).
-        :param n: The parse node whose children to resolve.
-        :returns: The resolved children as an :class:`IrTuple`.
+    red: dict[int, IrSelf]
+
+    def __init__(self) -> None:
+        """Seed an empty reduction memo."""
+        self.red = {}
+
+
+class ResolveSource(IrLeaf[IrSelf, IrSelf]):
+    """Trampoline generator: a node's children resolved onto the argument channel.
+
+    Flat-maps each child to its contribution, in source order: a synthetic
+    sub-tree splices its own resolved children in place; a terminal leaf goes
+    through the reducer's ``literal`` policy; any other sub-tree through the
+    ``noise`` policy keyed on its rule (``DROP`` contributes nothing and is never
+    reduced; otherwise the child is reduced — depth-safe via a nested
+    :class:`ReduceSource` — and the policy body applied).
+
+    :ivar _node: The :class:`~lexic.parsing_2.forest.ParseTree` whose children to
+        resolve.
+    :ivar _ctx: The reduction cursor.
+    :ivar _reducer: The driving :class:`Reducer` (the cleaning policy).
+    """
+
+    __slots__ = ("_node", "_ctx", "_reducer")
+
+    _node: ParseTree
+    _ctx: ReduceCtx
+    _reducer: "Reducer"
+
+    def __init__(self, node: ParseTree, ctx: ReduceCtx, reducer: "Reducer") -> None:
+        """:param node: the tree; :param ctx: the cursor; :param reducer: the policy."""
+        self._node = node
+        self._ctx = ctx
+        self._reducer = reducer
+
+    def __iter__(self) -> Iterator[tuple[object, object]]:
+        """Yield ``(EMIT, contribution)`` per resolved child element.
+
+        :returns: A command iterator the :class:`Trampoline` drives.
         """
-        out: list[IrSelf] = []
-        policy = cast("Reducer", d)
-        for k in cast(ParseTree, n).kids:
+        reducer = self._reducer
+        ctx_nc = IrTuple(self._ctx)
+        for k in self._node.kids:
             if isinstance(k, ParseTree) and str(k.symbol).startswith(SYNTHETIC_PREFIX):
-                out.extend(cast(Sequence[IrSelf], self.eval(d, k, ())))
-                continue
-            body = (
-                policy.literal
-                if not isinstance(k, ParseTree)
-                else policy.noise.resolve(k.symbol)
-            )
-            out.extend(cast(Sequence[IrSelf], body.eval(d, k, ())))
-        return IrTuple(*out)
+                spliced = iter(ResolveSource(k, self._ctx, reducer))
+                element = yield (ADVANCE, spliced)
+                while element is not EXHAUSTED:
+                    yield (EMIT, element)
+                    element = yield (ADVANCE, spliced)
+            elif not isinstance(k, ParseTree):
+                for element in reducer.literal.eval(reducer, k, ()):
+                    yield (EMIT, element)
+            else:
+                body = reducer.noise.resolve(k.symbol)
+                if body is DROP:  # contributes nothing; never reduced
+                    continue
+                reduced = iter(ReduceSource(k, self._ctx, reducer))
+                value = yield (ADVANCE, reduced)
+                while value is not EXHAUSTED:  # drain the single reduction emit
+                    value = yield (ADVANCE, reduced)
+                for element in body.eval(reducer, k, ctx_nc):
+                    yield (EMIT, element)
 
 
-RESOLVE_CHILDREN = ResolveChildren()
-"""Shared child-resolution node — stateless, so one instance."""
+class ReduceSource(IrLeaf[IrSelf, IrSelf]):
+    """Trampoline generator: a node folded to its single reduced IR value.
 
+    Resolves the node's children (via :class:`ResolveSource`), evaluates the body
+    bound to the node's ``symbol`` with those resolved children on the argument
+    channel, memoises the result on the cursor, then emits it (exactly once).
 
-# ── Reducer ───────────────────────────────────────────────────────────
+    :ivar _node: The :class:`~lexic.parsing_2.forest.ParseTree` to reduce.
+    :ivar _ctx: The reduction cursor.
+    :ivar _reducer: The driving :class:`Reducer`.
+    """
+
+    __slots__ = ("_node", "_ctx", "_reducer")
+
+    _node: ParseTree
+    _ctx: ReduceCtx
+    _reducer: "Reducer"
+
+    def __init__(self, node: ParseTree, ctx: ReduceCtx, reducer: "Reducer") -> None:
+        """:param node: the tree; :param ctx: the cursor; :param reducer: the policy."""
+        self._node = node
+        self._ctx = ctx
+        self._reducer = reducer
+
+    def __iter__(self) -> Iterator[tuple[object, object]]:
+        """Resolve children, fold, memoise, then ``(EMIT, reduced)`` once.
+
+        :returns: A command iterator the :class:`Trampoline` drives.
+        :raises IrKeyError: If no reduction matches the node's symbol and no
+            ``IR_DEFAULT`` is set.
+        """
+        node = self._node
+        children = iter(ResolveSource(node, self._ctx, self._reducer))
+        parts: list[IrSelf] = []
+        element = yield (ADVANCE, children)
+        while element is not EXHAUSTED:
+            parts.append(element)
+            element = yield (ADVANCE, children)
+        body = self._reducer.reductions.resolve(node.symbol)
+        reduced = body.eval(self._reducer, node, IrTuple(*parts))
+        self._ctx.red[id(node)] = reduced
+        yield (EMIT, reduced)
 
 
 class Reducer(IrDispatch):
-    """Bottom-up fold of a :class:`ParseTree` into IR, driven by ``reductions``.
+    """Bottom-up fold of a :class:`~lexic.parsing_2.forest.ParseTree` into IR.
 
-    Each node's children are resolved first (see :data:`RESOLVE_CHILDREN`,
-    governed by ``noise`` / ``literal``), then the body bound to the node's
-    ``symbol`` is evaluated with those resolved children on the argument channel
-    (``nc``) and the tree as ``n``. Dispatch is on ``tree.symbol`` (a *value*,
-    :class:`~lexic.ir.nodes.IrRuleRef`) via the ``reductions`` :class:`IrMap` —
-    correct because every node is a ``ParseTree``, which is why this overrides
-    ``eval`` rather than reusing the type-keyed table.
+    Each node's children are resolved first (governed by ``noise`` / ``literal``),
+    then the body bound to the node's ``symbol`` is evaluated with those resolved
+    children on the argument channel (``nc``) and the tree as ``n``. Dispatch is
+    on ``tree.symbol`` (a *value*, :class:`~lexic.ir.nodes.IrRuleRef`) via the
+    ``reductions`` :class:`IrMap` — correct because every node is a ``ParseTree``,
+    which is why this overrides ``eval`` rather than reusing the type-keyed table.
+
+    The fold is driven by the depth-safe
+    :class:`~lexic.parsing_2.trampoline.Trampoline` (so deep right-recursive trees
+    do not overflow); ``eval`` on the entry establishes a :class:`ReduceCtx`, and
+    a re-entrant ``eval`` carrying that cursor (the ``noise`` policy's
+    :data:`KEEP_REDUCED`) returns the memoised reduction.
 
     :ivar reductions: Rule ref → reduction body, resolved with ``IR_DEFAULT``
         fallback (a flavour points it at ``YIELD`` for its text rules); a miss
@@ -146,15 +243,18 @@ class Reducer(IrDispatch):
     literal: IrSelf = KEEP_RAW
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
-        """Reduce ``n`` (a :class:`ParseTree`) to its IR node.
+        """Reduce ``n`` (a :class:`~lexic.parsing_2.forest.ParseTree`) to its IR.
 
         :param d: The dispatcher (this reducer).
-        :param n: The derivation to fold.
-        :param nc: Unused at entry — children are resolved here.
+        :param n: The derivation to fold, or a child re-entered via the memo.
+        :param nc: Empty at entry; ``(ReduceCtx,)`` on a ``KEEP_REDUCED`` re-entry.
         :returns: The IR node the matched rule reduces to.
         :raises IrKeyError: If no reduction matches and no ``IR_DEFAULT`` is set.
         """
-        tree = cast(ParseTree, n)
-        reduced = cast(Sequence[IrSelf], RESOLVE_CHILDREN.eval(self, tree, ()))
-        body = self.reductions.resolve(tree.symbol)
-        return body.eval(self, tree, reduced)
+        if nc and isinstance(nc[0], ReduceCtx):  # memo hit — child already reduced
+            return cast(ReduceCtx, nc[0]).red[id(n)]
+        ctx = ReduceCtx()
+        root = cast(ParseTree, n)
+        for _ in Trampoline(ReduceSource(root, ctx, self)):
+            pass  # drive the single root reduction; result lands in the memo
+        return ctx.red[id(root)]
