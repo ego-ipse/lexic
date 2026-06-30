@@ -205,18 +205,32 @@ class Chart(IrLeaf[IrSelf, IrSelf]):
     explicit ``ensure`` folds into indexed access). ``chart.links`` is the
     :class:`Links` table — the packed parse forest in link form.
 
+    ``chart.leo_links`` is the **deferred** half of that forest. A Leo completion
+    jumps straight to a right-recursion chain's topmost item, skipping the
+    intermediate completions that would otherwise record O(chain) links *per
+    column* (Θ(n²) total). It files under ``(top_item, end)`` the single bottom
+    triple ``(bottom_waiter, bottom_end, bottom_child)`` that lets the forest
+    reader rebuild the skipped chain into :attr:`links` on demand — so only the
+    chains a derivation actually walks are materialised (Θ(n) for one parse), not
+    one per column. Shape matches :data:`Link`: same ``(item, end, child)`` triple,
+    here naming the chain's bottom instead of one dot's predecessor.
+
     :ivar links: Provenance — ``(advanced_item, end_column)`` → its packed families.
+    :ivar leo_links: Deferred Leo provenance — ``(top_item, end)`` → the bottom
+        triple needed to rebuild its skipped right-recursion chain.
     """
 
-    __slots__ = ("_columns", "links")
+    __slots__ = ("_columns", "links", "leo_links")
 
     _columns: list[Column]
     links: Links
+    leo_links: IrMultiMap[tuple[EarleyItem, int], Link]
 
     def __init__(self) -> None:
-        """Seed an empty chart (no columns, no links yet)."""
+        """Seed an empty chart (no columns, no links, no deferred Leo chains yet)."""
         self._columns = []
         self.links = Links()
+        self.leo_links = IrMultiMap()
 
     def __getitem__(self, i: int) -> Column:
         """Column ``i``, growing the chart so it exists.

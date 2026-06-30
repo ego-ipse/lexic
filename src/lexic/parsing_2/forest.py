@@ -294,8 +294,13 @@ class PrefixSource(IrLeaf[IrSelf, IrSelf]):
         if key in ctx.open:  # re-entrant open handle ⇒ empty-span cycle
             yield (EMIT, IrSeq())
             return
+        chart = ctx.chart
+        # A deferred Leo top carries no ordinary families yet — rebuild its skipped
+        # right-recursion chain into ``links`` the first time it is walked.
+        if key in chart.leo_links and key not in chart.links:
+            LEO_EXPAND.expand(chart, node)
         ctx.open.add(key)
-        for link in ctx.chart.links[key]:
+        for link in chart.links[key]:
             predecessor = iter(PrefixSource(SppfNode(link[0], link[1]), ctx))
             prefix = yield (ADVANCE, predecessor)
             while prefix is not EXHAUSTED:
@@ -344,6 +349,47 @@ class ChildDerivs(IrLeaf[IrSelf, IrSelf]):
         while tree is not EXHAUSTED:
             yield (EMIT, tree)
             tree = yield (ADVANCE, derivs)
+
+
+class LeoExpand(IrLeaf[IrSelf, IrSelf]):
+    """Materialise a Leo completion's skipped right-recursion chain into the links.
+
+    A Leo jump records only the chain's bottom in ``chart.leo_links[(top, end)]``
+    and adds ``top`` to its column, eliding every intermediate completion. The
+    forest walker needs those completions as ordinary
+    :data:`~lexic.parsing_2.chart.Link` families to recover the derivation, so the
+    first prefix request that reaches a deferred ``top`` rebuilds the chain
+    bottom-up: each level advances its waiter, files the link, and climbs to the
+    sole waiter awaiting the just-completed rule (the chain is deterministic by
+    construction — that is *why* Leo fired — so ``waiting[ref]`` holds exactly it)
+    until it reaches ``top``. O(chain), once; only chains a derivation actually
+    walks are ever built, so the forest stays Θ(n) for a single right-recursive
+    parse instead of the Θ(n²) the eager completer would record.
+    """
+
+    def expand(self, chart: Chart, top_node: SppfNode) -> None:
+        """Write the deferred chain ending at ``top_node`` into ``chart.links``.
+
+        :param chart: The chart whose ``leo_links`` is read and ``links`` grown.
+        :param top_node: The deferred Leo top handle ``SppfNode(top, end)``.
+        """
+        top = top_node.item
+        end = top_node.end
+        waiter, waiter_end, child = chart.leo_links[(top, end)][0]
+        while True:
+            advanced = (waiter[0], waiter[1], waiter[2] + 1, waiter[3])
+            chart.links += ((advanced, end), (waiter, waiter_end, child))
+            if advanced == top:
+                return
+            # ``advanced`` completes rule ``waiter[0]`` over ``waiter[3]..end``; the
+            # lone item awaiting it in column ``waiter[3]`` is the next chain link.
+            child = SppfNode(advanced, end)
+            waiter_end = waiter[3]
+            waiter = cast(EarleyItem, chart[waiter[3]].waiting[waiter[0]][0])
+
+
+LEO_EXPAND = LeoExpand()
+"""Shared Leo-chain expander — stateless (it writes into the chart it is given)."""
 
 
 def _forest_ctx(head: IrSelf) -> ForestCtx:

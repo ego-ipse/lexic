@@ -202,11 +202,6 @@ class Scan(IrLeaf[IrSelf, IrSelf]):
         return IrNone
 
 
-LEO_ENABLED = True
-"""Gate for Leo's right-recursion optimization (recognition only). Off makes
-:class:`Complete` always walk the completion chain — the differential oracle."""
-
-
 class LeoItem(IrLeaf[IrSelf, IrSelf]):
     """Leo's transitive (topmost) item for a deterministic right-recursive reduction.
 
@@ -240,12 +235,32 @@ class LeoItem(IrLeaf[IrSelf, IrSelf]):
             int(cast(int, nc[2])),
         )
 
-    def resolve(self, chart: Chart, col: int, ref: IrRuleRef, cur: int) -> IrSelf:
+    def resolve(
+        self,
+        chart: Chart,
+        col: int,
+        ref: IrRuleRef,
+        cur: int,
+        seen: set[tuple[int, IrRuleRef]] | None = None,
+    ) -> IrSelf:
         """The Leo transitive item for completing ``ref`` ending at column ``col``.
+
+        A nullable cycle (e.g. ``a = b`` / ``b = a / ''``) makes the chain re-enter
+        the same ``(col, ref)`` over empty spans — no topmost item exists. Such a
+        cycle can only close across **same-column** steps: a step that consumes
+        input lowers ``col``, and ``col`` is non-increasing up the climb, so once it
+        drops it can never return. The cycle guard is therefore needed only on a
+        same-column (empty-span) step; ``seen`` is allocated lazily there and stays
+        ``None`` for the common cross-column right-recursion, which never cycles.
+        Revisiting a recorded ``(col, ref)`` yields :data:`IrNone`, and the normal
+        completer runs instead (it terminates the cycle via the forest's empty-span
+        guard).
 
         :param col: The column to resolve in (the completion's origin).
         :param ref: The completing non-terminal.
         :param cur: The column currently being closed (its memo is unstable).
+        :param seen: The same-column ``(col, ref)`` pairs on this climb, or ``None``
+            until the first empty-span step needs the guard (cycle guard).
         :returns: the topmost :class:`EarleyItem`, or :data:`IrNone`.
         """
         column = chart[col]
@@ -253,12 +268,18 @@ class LeoItem(IrLeaf[IrSelf, IrSelf]):
             memo = column.leo[ref]
             if memo:
                 return memo[0]
-        found = self._sole_candidate(column, ref)
+        if seen is not None and (col, ref) in seen:  # re-entered ⇒ nullable cycle
+            return IrNone
+        found = self.sole_candidate(column, ref)
         if found is IrNone:
             result: IrSelf = IrNone
         else:
             item = cast(EarleyItem, found)
-            parent = self.resolve(chart, item[3], item[0], cur)
+            if item[3] == col:  # empty-span step — the only way to close a cycle
+                if seen is None:
+                    seen = set()
+                seen.add((col, ref))
+            parent = self.resolve(chart, item[3], item[0], cur, seen)
             # parent's Leo item, else the parent's own completion [B → α ref •, k]
             result = (
                 parent
@@ -270,7 +291,7 @@ class LeoItem(IrLeaf[IrSelf, IrSelf]):
         return result
 
     @staticmethod
-    def _sole_candidate(column: Column, ref: IrRuleRef) -> IrSelf:
+    def sole_candidate(column: Column, ref: IrRuleRef) -> IrSelf:
         """The deterministic right-recursion waiter for ``ref``, else :data:`IrNone`.
 
         Leo applies only when ``ref`` completing is a *purely* deterministic
@@ -324,16 +345,37 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         if not waiters:  # nothing waiting — no advance, no family to record
             return IrNone
         current = ctx.column  # the current column the driver is closing
-        # Leo fast path (recognition only): a *lone* last-symbol waiter is a
-        # deterministic right-recursion chain link — jump to the transitive top
-        # instead of advancing it (which would re-walk the chain). The cheap gate
-        # here (``waiters`` already in hand) keeps the node call off normal grammars.
-        if LEO_ENABLED and not ctx.record_links and len(waiters) == 1:
+        # Leo fast path: a *lone* last-symbol waiter is a deterministic
+        # right-recursion chain link — jump to the transitive top instead of
+        # advancing it (advancing re-walks the whole chain at every column,
+        # Θ(n²)). The cheap gate here (``waiters`` already in hand) keeps the node
+        # call off normal grammars.
+        if len(waiters) == 1:
             sole = waiters[0]
-            if sole[2] + 1 == len(sole[1]):  # dot before ref, ref the last symbol
-                top = LEO_ITEM.resolve(chart, done_origin, done[0], current.index)
-                current += cast(EarleyItem, top)
-                return IrNone
+            # Leo only pays when the lone waiter's *own* rule also reduces
+            # deterministically one level up — i.e. the chain is length ≥ 2. A
+            # length-1 completion (or a nullable cycle, caught as IrNone by resolve)
+            # is an ordinary single completion: deferring it and re-expanding the
+            # forest later costs more than recording the direct link, so it falls
+            # through to the normal completer below. This one-level pre-check keeps
+            # grammars of many *shallow* right-recursions at the normal cost and
+            # reserves Leo's deferral for genuinely deep chains.
+            if sole[2] + 1 == len(sole[1]) and (  # dot before ref, ref last symbol
+                LEO_ITEM.sole_candidate(chart[sole[3]], sole[0]) is not IrNone
+            ):
+                cur = current.index
+                top = LEO_ITEM.resolve(chart, done_origin, done[0], cur)
+                if not isinstance(top, IrNoneType):  # IrNone ⇒ nullable cycle, run normal
+                    current += cast(EarleyItem, top)
+                    # File the chain's bottom under the top so the forest can rebuild
+                    # the skipped completions on demand (Θ(chain) once, lazily, only
+                    # if walked). Pure recognition never reads the forest, so skip it.
+                    if ctx.record_links and (top, cur) not in chart.leo_links:
+                        chart.leo_links += (
+                            (top, cur),
+                            (sole, done_origin, SppfNode(done, cur)),
+                        )
+                    return IrNone
         col = current.index
         record_links = ctx.record_links  # SPPF off for pure recognition
         subnode = SppfNode(done, col) if record_links else IrNone

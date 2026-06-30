@@ -1,7 +1,6 @@
 """Generated module: japanese. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
-
 from typing import Annotated, List
 
 from pydantic import StringConstraints
@@ -12,9 +11,9 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrChr,
     IrItem,
-    IrQuantifier,
     IrRange,
     IrRuleRef,
+    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 
