@@ -1,0 +1,7 @@
+  parse            103.7±1.6 ms     220.7±9.1 ms       2.13x        —
+  parse+reduce     108.3±1.3 ms     280.2±5.9 ms       2.59x        —  ← product
+
+== VERDICT (x4, 3680 chars) — product text→IrAst ==
+  lark 108ms wins 2.59x over earley 280ms — cut 61% of earley time to match it
+  throughput: earley 76.1 µs/char  vs lark 29.4 µs/char
+

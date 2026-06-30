@@ -20,9 +20,12 @@ Product = `parse+reduce` x4 vs `lark:full`. Baseline before landing: **3.33×**.
 | Accept Expl-1 (port `test_ops.py`, 1151 pass) | swept into `88893a6` | 3.33× | ✅ landed |
 | Refactor leoparse to pass the hook (typing + complexity, neutral) | `3512e8f` | 3.34× | ✅ landed |
 | OPT1 — inline `CloseColumn` dispatch | `fda5a21` | 3.22× | ✅ landed |
-| OPT2 — inline `Column.__iadd__` (chart.py only; ops.py `_table` reads dropped — W0212 for marginal gain) | `pending` | 3.22× (neutral) | ✅ landed |
-| OPT3/4 — fast iterative tree builder | — | — | ⏳ next |
-| OPT5 — str-keyed lookup tables | — | — | ⏳ |
+| OPT2 — inline `Column.__iadd__` (chart.py only; ops.py `_table` reads dropped — W0212 for marginal gain) | `42b505d` | 3.22× (neutral) | ✅ landed |
+| OPT3/4 — fast iterative tree builder (as a `_FastTree` cursor, not free fns; public IrMultiMap API, not `_table`) | `pending` | **2.59×** | ✅ landed |
+| OPT5 — str-keyed lookup tables | — | — | ⏳ next |
+
+Deep right-recursion after OPT3/4: parse→tree µs/N ~13.5 (was ~20), **0.5× Lark**
+(was 0.8×), no stack overflow at N=1600 (explicit-stack cursor).
 
 ---
 

@@ -659,20 +659,15 @@ def test_build_tree_strict_short_circuits(sss_grammar: IrAst):
 
 
 def test_build_tree_zero_derivations_raises(digit_grammar: IrAst):
-    """BUILD_TREE raises UnsupportedConstructError when the handle has no derivation."""
-    parser, chart, item, _ = _accept(digit_grammar, "5")
+    """BUILD_TREE raises UnsupportedConstructError when the handle has no families.
 
-    class _EmptyDerivStream(DerivationStream):
-        def eval(self, _d: IrSelf, n: IrSelf, nc: object, /) -> IrStream[ParseTree]:
-            return IrStream(IrSeq())
-
-    orig = forest_mod.DERIVATION_STREAM
-    forest_mod.DERIVATION_STREAM = _EmptyDerivStream()
-    try:
-        with pytest.raises(UnsupportedConstructError):
-            BUILD_TREE.eval(parser, item, IrTuple(chart))
-    finally:
-        forest_mod.DERIVATION_STREAM = orig
+    A broken chart with an accepting item but no links: the fast path cannot find
+    children (returns IrNone) and the fallback trampoline path then raises.
+    """
+    parser, _chart, item, _ = _accept(digit_grammar, "5")
+    empty_chart = _chart.__class__()
+    with pytest.raises(UnsupportedConstructError):
+        BUILD_TREE.eval(parser, item, IrTuple(empty_chart))
 
 
 def test_derivations_realises_all(sss_grammar: IrAst):
