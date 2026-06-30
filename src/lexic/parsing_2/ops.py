@@ -403,12 +403,16 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         return True
 
 
+_PREDICT = Predict()
+_COMPLETE = Complete()
+_SCAN = Scan()
+
 EARLEY_OPS: IrTypeMap = IrTypeMap(
-    IrAction(IrRuleRef, Predict()),
-    IrAction(IrLiteral, Scan()),
-    IrAction(IrCharClass, Scan()),
-    IrAction(IrRange, Scan()),
-    IrAction(IrNoneType, Complete()),
+    IrAction(IrRuleRef, _PREDICT),
+    IrAction(IrLiteral, _SCAN),
+    IrAction(IrCharClass, _SCAN),
+    IrAction(IrRange, _SCAN),
+    IrAction(IrNoneType, _COMPLETE),
 )
 """The Earley engine, as a dispatch table keyed on the symbol after the dot.
 

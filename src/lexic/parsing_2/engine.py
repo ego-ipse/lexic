@@ -52,7 +52,7 @@ from lexic.parsing_2.forest import (
     ParseTree,
     SppfNode,
 )
-from lexic.parsing_2.ops import EARLEY_OPS, ParseCtx
+from lexic.parsing_2.ops import _COMPLETE, _PREDICT, EARLEY_OPS, ParseCtx
 
 
 class RuleIndex(IrLeaf[IrSelf, IrSelf]):
@@ -254,6 +254,11 @@ class CloseColumn(IrLeaf[IrSelf, IrSelf]):
     separate worklist. The same ``nc`` (wrapping the reused ``ParseCtx``) is
     handed to every dispatch — only ``ctx.item`` advances — so no per-item
     context is allocated.
+
+    The three Earley operations are dispatched without the generic
+    :class:`~lexic.ir.walk.IrDispatch` overhead: terminals are a no-op (Scan
+    defers to the driver), so only two cases run — the ``isinstance`` guard is
+    cheaper than a dict lookup + method call per item on the hot path.
     """
 
     def eval(self, d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrNoneType:
@@ -261,12 +266,19 @@ class CloseColumn(IrLeaf[IrSelf, IrSelf]):
         ctx = cast(ParseCtx, nc[0])
         # ``for`` over the column yields a live list iterator that picks up the
         # items predict/complete append mid-pass (the Earley fixpoint) — no
-        # per-item __len__/__getitem__ method call, unlike a manual cursor
+        # per-item __len__/__getitem__ method call, unlike a manual cursor.
+        # Dispatch is inlined: terminals are a no-op (scan defers to the
+        # driver), so only the two active operations need to run.
         for item in ctx.column:
             _, arm, dot, _ = item  # tuple unpack: skips per-field descriptor reads
-            symbol = arm[dot].atom if dot < len(arm) else IrNone
             ctx.item = item
-            d.eval(d, symbol, nc)
+            if dot < len(arm):
+                symbol = arm[dot].atom
+                if isinstance(symbol, IrRuleRef):
+                    _PREDICT.eval(d, symbol, nc)
+                # else: terminal — Scan is a no-op; the driver handles it
+            else:
+                _COMPLETE.eval(d, IrNone, nc)
         return IrNone
 
 

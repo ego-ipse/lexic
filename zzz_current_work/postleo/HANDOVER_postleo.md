@@ -10,6 +10,22 @@ folder. Baseline reference: `BASELINE.md`.
 
 ---
 
+## Landing progress (live)
+
+Landing on branch `parse_proto_proto`; atomic commits, hook-green, each benchmarked.
+Product = `parse+reduce` x4 vs `lark:full`. Baseline before landing: **3.33×**.
+
+| step | commit | product x4 | status |
+|---|---|---|---|
+| Accept Expl-1 (port `test_ops.py`, 1151 pass) | swept into `88893a6` | 3.33× | ✅ landed |
+| Refactor leoparse to pass the hook (typing + complexity, neutral) | `3512e8f` | 3.34× | ✅ landed |
+| OPT1 — inline `CloseColumn` dispatch | `pending` | 3.22× | ✅ landed |
+| OPT2 — inline `Column.__iadd__` | — | — | ⏳ next |
+| OPT3/4 — fast iterative tree builder | — | — | ⏳ |
+| OPT5 — str-keyed lookup tables | — | — | ⏳ |
+
+---
+
 ## TL;DR
 
 1. **Parsing is NOT super-linear.** All three explorations confirm independently: the
