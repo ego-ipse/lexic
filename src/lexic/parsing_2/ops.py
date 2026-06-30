@@ -365,7 +365,9 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
             ):
                 cur = current.index
                 top = LEO_ITEM.resolve(chart, done_origin, done[0], cur)
-                if not isinstance(top, IrNoneType):  # IrNone ⇒ nullable cycle, run normal
+                if not isinstance(
+                    top, IrNoneType
+                ):  # IrNone ⇒ nullable cycle, run normal
                     current += cast(EarleyItem, top)
                     # File the chain's bottom under the top so the forest can rebuild
                     # the skipped completions on demand (Θ(chain) once, lazily, only

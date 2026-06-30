@@ -162,7 +162,9 @@ def main(label: str, save: bool) -> None:
     chars = len(make_input(SIZES[-1]))
     print(f"== VERDICT ({big}, {chars} chars) — product text→IrAst ==")
     if ratio <= 1:
-        print(f"  earley {ey_m:.0f}ms BEATS lark {lk_m:.0f}ms by {(1 - ratio) * 100:.0f}%")
+        print(
+            f"  earley {ey_m:.0f}ms BEATS lark {lk_m:.0f}ms by {(1 - ratio) * 100:.0f}%"
+        )
     else:
         print(
             f"  lark {lk_m:.0f}ms wins {ratio:.2f}x over earley {ey_m:.0f}ms — "

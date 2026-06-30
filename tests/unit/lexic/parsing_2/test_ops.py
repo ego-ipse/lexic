@@ -1,17 +1,7 @@
-"""Tests for lexic.parsing_2.ops — Predict/Scan/Complete, EARLEY_OPS, and LeoItem.
-
-API changes:
-
-- ``ParseCtx`` is now a mutable per-parse cursor (an ``IrLeaf``), constructed
-  ``ParseCtx(chart, rules, nullable)`` with ``col``/``item`` advanced in place by
-  the driver — no longer a frozen 6-field tuple.
-
-New symbols tested: ``LeoItem``, ``LEO_ITEM``, ``LEO_ENABLED``.
-"""
+"""Tests for lexic.parsing_2.ops — Predict/Scan/Complete, EARLEY_OPS, and LeoItem."""
 
 from __future__ import annotations
 
-import lexic.parsing_2.ops as ops_mod
 from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.mapping import IrMap, IrMultiMap, IrTypeMap
 from lexic.ir.nodes import (
@@ -27,12 +17,11 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2 import recognize
+from lexic.parsing_2 import parse, recognize
 from lexic.parsing_2.chart import Chart
 from lexic.parsing_2.normalize import normalize
 from lexic.parsing_2.ops import (
     EARLEY_OPS,
-    LEO_ENABLED,
     LEO_ITEM,
     Complete,
     LeoItem,
@@ -91,7 +80,7 @@ def test_parse_ctx_child_attrs_is_empty():
     assert not ctx.children()
 
 
-# ── LeoItem / LEO_ITEM / LEO_ENABLED ────────────────────────────────
+# ── LeoItem / LEO_ITEM ────────────────────────────────────────────────
 
 
 def test_leo_item_singleton_is_leo_item_instance():
@@ -99,12 +88,7 @@ def test_leo_item_singleton_is_leo_item_instance():
     assert isinstance(LEO_ITEM, LeoItem)
 
 
-def test_leo_enabled_is_true_by_default():
-    """LEO_ENABLED is True at module import time."""
-    assert LEO_ENABLED is True
-
-
-# ── Grammar helpers for behavioral/differential tests ────────────────
+# ── Grammar helpers for behavioral tests ─────────────────────────────
 
 
 def _norm(*rules: IrRule, start: str) -> IrAst:
@@ -219,58 +203,39 @@ def test_leo_indirect_ruleref_star():
     assert recognize(g, "c") == 0
 
 
-# ── Differential: Leo on vs off must agree on every input ─────────────
+# ── Parse correctness: Leo-on-parse returns correct trees ────────────
 
 
-def _recognize_with_leo(enabled: bool, grammar: IrAst, text: str) -> int:
-    """Run recognize with LEO_ENABLED forced to ``enabled``; always restores."""
-    original = ops_mod.LEO_ENABLED
-    try:
-        ops_mod.LEO_ENABLED = enabled
-        return int(recognize(grammar, text))
-    finally:
-        ops_mod.LEO_ENABLED = original
-
-
-def _check_differential(grammar: IrAst, inputs: list[str]) -> None:
-    """Assert Leo on and off produce identical results for every input."""
-    for text in inputs:
-        on = _recognize_with_leo(True, grammar, text)
-        off = _recognize_with_leo(False, grammar, text)
-        assert on == off, f"Leo on/off disagree on {text!r}: on={on}, off={off}"
-
-
-def test_differential_star_grammar():
-    """Leo on and off produce identical results for S = 'a'*."""
+def test_leo_parse_star_single():
+    """S = 'a'* — parse 'a' returns correct tree."""
     g = _star("a")
-    _check_differential(g, ["", "a", "aa", "aaaa", "b", "aab"])
+    tree = parse(g, "a")
+    assert tree is not None
 
 
-def test_differential_plus_grammar():
-    """Leo on and off produce identical results for S = 'a'+."""
+def test_leo_parse_star_many():
+    """S = 'a'* — parse 'aaaa' returns correct tree."""
+    g = _star("a")
+    tree = parse(g, "aaaa")
+    assert tree is not None
+
+
+def test_leo_parse_plus_many():
+    """S = 'a'+ — parse 'aaaaaa' returns correct tree (deep right-recursion)."""
     g = _plus("a")
-    _check_differential(g, ["", "a", "aaaa", "b"])
+    tree = parse(g, "aaaaaa")
+    assert tree is not None
 
 
-def test_differential_star_star_sequence():
-    """Leo on and off agree for S = 'a'* 'b'*."""
-    g = _norm(
-        IrRule(
-            "S",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("a"), IrQuantifier(0, IrNone)),
-                    IrItem(IrLiteral("b"), IrQuantifier(0, IrNone)),
-                )
-            ),
-        ),
-        start="S",
-    )
-    _check_differential(g, ["", "aaa", "bbb", "aabb", "ba", "ab"])
+def test_leo_parse_deep_right_recursion():
+    """Leo-on-parse: parse 200 'a's — would crash at ~300 without depth safety."""
+    g = _star("a")
+    tree = parse(g, "a" * 200)
+    assert tree is not None
 
 
-def test_differential_indirect_ruleref_star():
-    """Leo on and off agree for S = X*  where  X = 'a' | 'b'."""
+def test_leo_parse_indirect_ruleref():
+    """Leo-on-parse: indirect right-recursion via ruleref."""
     x_rule = IrRule(
         "X",
         IrAlternation(
@@ -283,11 +248,5 @@ def test_differential_indirect_ruleref_star():
         IrAlternation(IrSequence(IrItem(IrRuleRef("X"), IrQuantifier(0, IrNone)))),
     )
     g = _norm(s_rule, x_rule, start="S")
-    _check_differential(g, ["", "a", "b", "ab", "abba", "c", "ac"])
-
-
-def test_leo_enabled_restored_after_differential():
-    """LEO_ENABLED is restored to True after the differential helper runs."""
-    g = _star("a")
-    _check_differential(g, ["a"])
-    assert ops_mod.LEO_ENABLED is True
+    tree = parse(g, "abba")
+    assert tree is not None

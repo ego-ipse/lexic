@@ -1,7 +1,7 @@
 # Exploration 1 — Drop and Reimplement
 
-**Date:** 2026-06-30  
-**Base commit:** `1df8365 wip` (pre-leoparse)  
+**Date:** 2026-06-30
+**Base commit:** `1df8365 wip` (pre-leoparse)
 **Worktree:** `/home/mika/projects/lexic/.claude/worktrees/agent-ab059933e58dd9159`
 
 ---
@@ -145,8 +145,8 @@ Raw output: `EXPLORE_1_rightrec.txt`.
 | 800 | 530.5 | 0.663 | 19.8x | 19.7 | 0.025 | **0.8x** |
 | 1600 | 1089.6 | 0.681 | 42.2x | 19.9 | 0.012 | **0.8x** |
 
-**PRE-LEO: O(n^2)** — µs/N grows from 71 to 1090; µs/N^2 flat at ~0.65.  
-**AFTER: O(n)** — µs/N flat at ~20; µs/N^2 halves every doubling.  
+**PRE-LEO: O(n^2)** — µs/N grows from 71 to 1090; µs/N^2 flat at ~0.65.
+**AFTER: O(n)** — µs/N flat at ~20; µs/N^2 halves every doubling.
 **Beats Lark at 0.8x on deep right-recursion.** Matches the leoparse commit exactly.
 
 Recognition was already O(n) at ~9 µs/N (~0.9x Lark) in both states.
