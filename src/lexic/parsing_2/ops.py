@@ -210,9 +210,9 @@ class LeoItem(IrLeaf[IrSelf, IrSelf]):
     column (the O(n²)→O(n) win). The recursion up the chain is this node's
     :meth:`resolve`; the per-column memo is the column's ``leo``
     :class:`IrMultiMap` — so the logic stays on a node and the state on a cursor,
-    never a free function. :meth:`resolve` takes plain indices (no per-call
-    boxing — the completer hits it once per right-recursive reduction);
-    :meth:`eval` is the :class:`IrSelf`-protocol wrapper over it.
+    never a free function. :meth:`resolve` threads a small ``(chart, cur)`` scope
+    built once per right-recursive reduction (the completer hits it once per such
+    reduction); :meth:`eval` is the :class:`IrSelf`-protocol wrapper over it.
 
     A Leo candidate is the **unique** waiter ``[B → α • ref]`` in the column with
     ``ref`` the *last* symbol (read from the small ``waiting[ref]`` bucket). The
@@ -229,18 +229,16 @@ class LeoItem(IrLeaf[IrSelf, IrSelf]):
         :returns: the topmost :class:`EarleyItem` to add, or :data:`IrNone`.
         """
         return self.resolve(
-            cast(Chart, n),
+            (cast(Chart, n), int(cast(int, nc[2]))),
             int(cast(int, nc[0])),
             cast(IrRuleRef, nc[1]),
-            int(cast(int, nc[2])),
         )
 
     def resolve(
         self,
-        chart: Chart,
+        scope: tuple[Chart, int],
         col: int,
         ref: IrRuleRef,
-        cur: int,
         seen: set[tuple[int, IrRuleRef]] | None = None,
     ) -> IrSelf:
         """The Leo transitive item for completing ``ref`` ending at column ``col``.
@@ -256,13 +254,15 @@ class LeoItem(IrLeaf[IrSelf, IrSelf]):
         completer runs instead (it terminates the cycle via the forest's empty-span
         guard).
 
+        :param scope: ``(chart, cur)`` — the chart and the index of the column
+            currently being closed (its memo is unstable); invariant up the climb.
         :param col: The column to resolve in (the completion's origin).
         :param ref: The completing non-terminal.
-        :param cur: The column currently being closed (its memo is unstable).
         :param seen: The same-column ``(col, ref)`` pairs on this climb, or ``None``
             until the first empty-span step needs the guard (cycle guard).
         :returns: the topmost :class:`EarleyItem`, or :data:`IrNone`.
         """
+        chart, cur = scope
         column = chart[col]
         if col != cur:  # a closed column — its memo is stable
             memo = column.leo[ref]
@@ -279,7 +279,7 @@ class LeoItem(IrLeaf[IrSelf, IrSelf]):
                 if seen is None:
                     seen = set()
                 seen.add((col, ref))
-            parent = self.resolve(chart, item[3], item[0], cur, seen)
+            parent = self.resolve(scope, item[3], item[0], seen)
             # parent's Leo item, else the parent's own completion [B → α ref •, k]
             result = (
                 parent
@@ -344,40 +344,9 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
         waiters = chart[done_origin].waiting[done[0]]  # done[0] is rule_name
         if not waiters:  # nothing waiting — no advance, no family to record
             return IrNone
+        if self._try_leo(ctx, waiters):  # deterministic right-recursion → Leo jump
+            return IrNone
         current = ctx.column  # the current column the driver is closing
-        # Leo fast path: a *lone* last-symbol waiter is a deterministic
-        # right-recursion chain link — jump to the transitive top instead of
-        # advancing it (advancing re-walks the whole chain at every column,
-        # Θ(n²)). The cheap gate here (``waiters`` already in hand) keeps the node
-        # call off normal grammars.
-        if len(waiters) == 1:
-            sole = waiters[0]
-            # Leo only pays when the lone waiter's *own* rule also reduces
-            # deterministically one level up — i.e. the chain is length ≥ 2. A
-            # length-1 completion (or a nullable cycle, caught as IrNone by resolve)
-            # is an ordinary single completion: deferring it and re-expanding the
-            # forest later costs more than recording the direct link, so it falls
-            # through to the normal completer below. This one-level pre-check keeps
-            # grammars of many *shallow* right-recursions at the normal cost and
-            # reserves Leo's deferral for genuinely deep chains.
-            if sole[2] + 1 == len(sole[1]) and (  # dot before ref, ref last symbol
-                LEO_ITEM.sole_candidate(chart[sole[3]], sole[0]) is not IrNone
-            ):
-                cur = current.index
-                top = LEO_ITEM.resolve(chart, done_origin, done[0], cur)
-                if not isinstance(
-                    top, IrNoneType
-                ):  # IrNone ⇒ nullable cycle, run normal
-                    current += cast(EarleyItem, top)
-                    # File the chain's bottom under the top so the forest can rebuild
-                    # the skipped completions on demand (Θ(chain) once, lazily, only
-                    # if walked). Pure recognition never reads the forest, so skip it.
-                    if ctx.record_links and (top, cur) not in chart.leo_links:
-                        chart.leo_links += (
-                            (top, cur),
-                            (sole, done_origin, SppfNode(done, cur)),
-                        )
-                    return IrNone
         col = current.index
         record_links = ctx.record_links  # SPPF off for pure recognition
         subnode = SppfNode(done, col) if record_links else IrNone
@@ -389,6 +358,49 @@ class Complete(IrLeaf[IrSelf, IrSelf]):
             if record_links:
                 chart.links += ((advanced, col), (waiting, done_origin, subnode))
         return IrNone
+
+    def _try_leo(self, ctx: ParseCtx, waiters: Sequence[EarleyItem]) -> bool:
+        """Leo fast path: jump a deterministic right-recursion chain to its top.
+
+        A *lone* last-symbol waiter is a chain link; advancing it re-walks the whole
+        chain at every column (Θ(n²)), so jump straight to the transitive top
+        instead. Only engages for chains of length ≥ 2 — the one-level
+        :meth:`~LeoItem.sole_candidate` pre-check keeps grammars of many *shallow*
+        right-recursions (and length-1 completions, and nullable cycles) on the
+        normal completer.
+
+        :param ctx: The parse cursor (carries the completed item, column, chart).
+        :param waiters: The live ``waiting[rule]`` bucket for the completed rule.
+        :returns: ``True`` when Leo handled the completion (stop); ``False`` to fall
+            through to ordinary completion.
+        """
+        if len(waiters) != 1:
+            return False
+        sole = waiters[0]
+        chart = ctx.chart
+        # dot before ref AND ref last symbol AND the lone waiter's own rule reduces
+        # deterministically one level up (chain length ≥ 2)
+        if sole[2] + 1 != len(sole[1]) or (
+            LEO_ITEM.sole_candidate(chart[sole[3]], sole[0]) is IrNone
+        ):
+            return False
+        done = ctx.item
+        current = ctx.column
+        cur = current.index
+        top = LEO_ITEM.resolve((chart, cur), done[3], done[0])
+        if isinstance(top, IrNoneType):  # nullable cycle — run the normal completer
+            return False
+        top_item = cast(EarleyItem, top)
+        current += top_item
+        # File the chain's bottom under the top so the forest can rebuild the
+        # skipped completions on demand (Θ(chain) once, lazily, only if walked);
+        # pure recognition never reads the forest, so skip it.
+        if ctx.record_links and (top_item, cur) not in chart.leo_links:
+            chart.leo_links += (
+                (top_item, cur),
+                (sole, done[3], SppfNode(done, cur)),
+            )
+        return True
 
 
 EARLEY_OPS: IrTypeMap = IrTypeMap(
