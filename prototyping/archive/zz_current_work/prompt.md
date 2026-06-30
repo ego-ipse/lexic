@@ -21,3 +21,21 @@ All agents MUST produce an md file with the results. Results should be backed by
 Results should be placed in zz_current_work/ (new folder)
 
 After all agents have finished, review the results and create a new HANDOVER document in the same folder.
+
+Commited the postmortem. Send now three sonnet agents. Special exemption to use git worktrees.
+
+1- The first should drop the leoparse commit and re-measure a better implementation.
+2- The second should seek to improve the current implementation.
+3- The third should go more radical.
+
+One transversal question: Why is parsing super-linear?
+One transversal goal: Make our implementation faster than Lark.
+
+All of them should produce an md file with the results. Results should be backed by data.
+Results should be placed in zzz_current_work/postleo/ (new folder)
+The agents should not bother writing docstrings on code that will not be merged.
+
+The regular agent rules are thoroughly waved for the exploratory work but should be kept in mind:
+"Agents should aim to keep the IrSelf derived objects. No free methods. Use eval and dunders preferably. Prefer IrSelf objects. Prefer making the class itself an IrMultiMap if mutability improves performance instead of making a dict attr.If any of these rules is broken, it should be clearly justified."
+
+After all agents have finished, review the results and create a new HANDOVER document in the same folder.

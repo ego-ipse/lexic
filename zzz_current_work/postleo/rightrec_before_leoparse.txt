@@ -1,0 +1,17 @@
+== deep right-recursion: S = "a"* ==
+
+parse → tree  (earley O(n²) vs lark O(n)):
+       N     earley     µs/N   µs/N²       lark     µs/N  earley/lark
+     100     7.04ms    70.41   0.704     2.54ms    25.39         2.8x
+     200    24.72ms   123.59   0.618     5.10ms    25.48         4.8x
+     400    98.88ms   247.20   0.618     9.81ms    24.54        10.1x
+     800   413.26ms   516.58   0.646    19.92ms    24.90        20.7x
+    1600  1724.52ms  1077.82   0.674    39.62ms    24.76        43.5x
+
+recognize  (earley → bool vs lark → forest; both O(n)):
+       N     earley     µs/N       lark     µs/N  earley/lark
+     200     1.59ms     7.96     1.97ms     9.86         0.8x
+     800     6.65ms     8.31     8.00ms    10.00         0.8x
+    1600    13.18ms     8.24    15.57ms     9.73         0.8x
+    3200    25.87ms     8.08    31.16ms     9.74         0.8x
+    6400    52.19ms     8.15    67.92ms    10.61         0.8x

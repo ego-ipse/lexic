@@ -1,0 +1,26 @@
+== parsing benchmark: AFTER-leoparse-da0ee2d ==
+ABNF self-host, 920 chars/copy.  earley IrAst == lark IrAst (fixpoint): True
+each row pairs the same work — earley vs lark; ratio>1 ⇒ we are slower.
+
+input x1  (920 chars · 40 rounds):
+  stage               lark med±sd      earley med±sd  earley/lark   Δ base
+  recognize         18.0±0.2 ms      37.4±0.5 ms       2.08x        —
+  parse             25.7±1.1 ms      69.2±1.9 ms       2.69x        —
+  parse+reduce      26.7±0.4 ms      81.7±1.1 ms       3.06x        —  ← product
+
+input x2  (1840 chars · 20 rounds):
+  stage               lark med±sd      earley med±sd  earley/lark   Δ base
+  recognize         36.2±0.4 ms      74.8±1.6 ms       2.07x        —
+  parse             51.8±0.4 ms     140.0±3.4 ms       2.70x        —
+  parse+reduce      53.4±0.6 ms     165.8±3.7 ms       3.10x        —  ← product
+
+input x4  (3680 chars · 10 rounds):
+  stage               lark med±sd      earley med±sd  earley/lark   Δ base
+  recognize         72.8±1.1 ms     153.1±1.7 ms       2.10x        —
+  parse            102.9±1.3 ms     298.7±10.0ms       2.90x        —
+  parse+reduce     106.8±0.9 ms     354.9±9.0 ms       3.32x        —  ← product
+
+== VERDICT (x4, 3680 chars) — product text→IrAst ==
+  lark 107ms wins 3.32x over earley 355ms — cut 70% of earley time to match it
+  throughput: earley 96.4 µs/char  vs lark 29.0 µs/char
+
