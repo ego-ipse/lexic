@@ -28,6 +28,49 @@ Product = `parse+reduce` x4 vs `lark:full`. Baseline before landing: **3.33×**.
 10/10 lint, hook-green, fixpoint True / amb False throughout. Deep right-recursion
 parse→tree **0.5× Lark** (beats Lark), no stack overflow at N=1600.
 
+## Post-landing exploration — NEGATIVE result (do not re-try as-is)
+
+Profiled the post-OPT5 build (`bench_parsing.py --profile`). Top costs (parse+reduce,
+x4): **`Column.__iadd__` 0.54s** (#1, item dedup), `Predict.eval` 0.47s,
+`Complete.eval` 0.23s, reduce/trampoline generators ~0.7s, SppfNode/ParseTree
+`__new__` ~0.17s. Pervasive: `dict.get` 1.78M, `len` 2.2M, `isinstance` 1.4M,
+`typing.cast` 1.3M.
+
+**Attempted (and reverted): value-id arm intern for item dedup.** Idea: the `_seen`
+key re-hashes the item's `IrSequence` arm on every membership test; replace it with
+`(rule, arm_value_id, dot, origin)` where a per-parse `id(arm)→value-id` map
+(`Chart.arm_value_ids`, built from `rules.values()`) gives a cheap int key.
+**Correctness-safe** (value-ids preserve value-dedup; the `id(arm)` shortcut is
+*unsafe* for value-equal-but-distinct arms, e.g. `R = "a" | "a"` — must use
+value-ids) and rule-compliant (no `_table`, no free fns, no `ir/` change). 1151 pass
+incl. property+ambiguity; canaries green.
+
+**Result: REGRESSED 2.42× → 2.60–2.74×** (parse 1.90× → 2.17×). Adding `id(arm)` +
+one `dict.get` to *every* insert costs more than the arm-hash it saves — the
+duplicate-insert path dominates and the original `item not in _seen` short-circuits
+after one hash. **Same lesson that reverted OPT6.** Fully reverted; baseline restored.
+
+**Takeaway / ceiling.** The arm hash is *not* the bottleneck; the floor is per-item
+**Python frame overhead** (calls, dict/set ops, `isinstance`, `cast`) across
+`__iadd__`/`Predict`/`Complete`. Exploration 3 only beat Lark on *recognition*
+(0.91×) by going fully flat — stripping IrSelf/IrDispatch, all-primitive item tuples,
+inlined filing — which the "Earley stays an IR construct" rule rules out for the
+production engine. **Conclusion: beating Lark on the product metric in pure Python
+within the IrSelf architecture is not reachable by micro-opts.** 2.42× is the
+IrSelf-pure floor.
+
+### Options to actually beat Lark (architectural, not incremental)
+1. **Accept ~2.42× as the IrSelf-pure floor** — banked, validated, hook-green. (Default.)
+2. **PyPy** — Exploration 2's report cites 5–10× on the chart hot loops, zero code
+   change; highest leverage, respects every rule.
+3. **Relax IrSelf-purity for the engine hot loop only** (primitive item tuples +
+   inlined ops, à la Exploration 3) — beats Lark on recognition; a deliberate
+   decision against "Earley stays an IR construct", not a sneak.
+4. **C/Cython extension for `Column`/`Chart`** — the `__iadd__` hotspot in native code.
+
+Recommended: stop the micro-opt hunt; treat "beat Lark on the product" as a choice
+among 2–4. Next session should NOT re-attempt per-insert dedup-key changes.
+
 ---
 
 ## TL;DR
