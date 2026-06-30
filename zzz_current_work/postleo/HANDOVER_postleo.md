@@ -22,7 +22,7 @@ Product = `parse+reduce` x4 vs `lark:full`. Baseline before landing: **3.33×**.
 | OPT1 — inline `CloseColumn` dispatch | `fda5a21` | 3.22× | ✅ landed |
 | OPT2 — inline `Column.__iadd__` (chart.py only; ops.py `_table` reads dropped — W0212 for marginal gain) | `42b505d` | 3.22× (neutral) | ✅ landed |
 | OPT3/4 — fast iterative tree builder (as a `_FastTree` cursor, not free fns; public IrMultiMap API, not `_table`) | `f2f5713` | **2.59×** | ✅ landed |
-| OPT5 — str-keyed rules/nullable tables + `predicted: set[str]` (dropped now-dead `ctx.rules`/`ctx.nullable`) | `pending` | **2.42×** | ✅ landed |
+| OPT5 — str-keyed rules/nullable tables + `predicted: set[str]` (dropped now-dead `ctx.rules`/`ctx.nullable`) | `cab029c` | **2.42×** | ✅ landed |
 
 **Landing complete: product x4 3.33× → 2.42× Lark** (parse-only 1.90×); 1151 pass,
 10/10 lint, hook-green, fixpoint True / amb False throughout. Deep right-recursion
