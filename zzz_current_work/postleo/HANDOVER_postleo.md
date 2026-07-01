@@ -23,10 +23,16 @@ Product = `parse+reduce` x4 vs `lark:full`. Baseline before landing: **3.33×**.
 | OPT2 — inline `Column.__iadd__` (chart.py only; ops.py `_table` reads dropped — W0212 for marginal gain) | `42b505d` | 3.22× (neutral) | ✅ landed |
 | OPT3/4 — fast iterative tree builder (as a `_FastTree` cursor, not free fns; public IrMultiMap API, not `_table`) | `f2f5713` | **2.59×** | ✅ landed |
 | OPT5 — str-keyed rules/nullable tables + `predicted: set[str]` (dropped now-dead `ctx.rules`/`ctx.nullable`) | `cab029c` | **2.42×** | ✅ landed |
+| OPT-REDUCE — `_FastReduce` iterative fold, replaces the reduce step's `Trampoline`/`ReduceSource`/`ResolveSource` generator walk | uncommitted (staged in `reduce.py`) | **2.22×** | ✅ ready to land |
 
-**Landing complete: product x4 3.33× → 2.42× Lark** (parse-only 1.90×); 1151 pass,
+**Landing complete (through OPT5): product x4 3.33× → 2.42× Lark** (parse-only 1.90×); 1151 pass,
 10/10 lint, hook-green, fixpoint True / amb False throughout. Deep right-recursion
 parse→tree **0.5× Lark** (beats Lark), no stack overflow at N=1600.
+
+**OPT-REDUCE (2026-07-01) takes it further: 2.42× → 2.22×** — see §Session 2 below.
+(Note: this is a distinct optimization from Exploration 2's own internal "OPT6" —
+the reverted str-keyed `waiting` attempt referenced below — kept as "OPT-REDUCE" to
+avoid a naming collision with that.)
 
 ## Post-landing exploration — NEGATIVE result (do not re-try as-is)
 
@@ -70,6 +76,120 @@ IrSelf-pure floor.
 
 Recommended: stop the micro-opt hunt; treat "beat Lark on the product" as a choice
 among 2–4. Next session should NOT re-attempt per-insert dedup-key changes.
+
+---
+
+## Session 2 (2026-07-01) — options 1–4 tried, then OPT-REDUCE found
+
+User rejected "accept 2.42× as the floor" and asked to actually try options 2–4 first,
+then (after those came back weak) to dig for structural wins the profile hadn't named
+yet: ditchable classes, data that should be mutable instead of re-instantiated,
+memoization gaps, and any purity relaxation actually worth its cost.
+
+### Options 2–4, tried for real (not re-derived from old numbers)
+
+2. **PyPy — dead on arrival, not just slow.** `pyproject.toml` requires
+   `>=3.14`, and `ir/nodes.py`/`ir/base.py` use PEP 695 generic syntax
+   (`class IrSelf[Iri, Ir_co]`). `uv python install pypy-3.11.13` (the latest available)
+   confirmed: it only implements the Python 3.11 grammar — `class Foo[T]: pass` is a
+   `SyntaxError` before a single line of the codebase runs. Off the table entirely;
+   would need a full PEP-695-to-`TypeVar` rewrite across `ir/` just to attempt it.
+3. **Relax purity in the engine hot loop — re-measured against the OPT5 baseline
+   (not the stale pre-landing one).** Ported Exploration 3's `fast_engine.py`
+   unchanged (its dependencies — `normalize.py`, `ir/nodes.py` — hadn't moved since
+   its base commit `6f61fed`) into a throwaway probe and re-ran `bench_fast.py`
+   against *today's* dispatch-based engine. `fast3` (integer-interned arms,
+   primitive item tuples) still beats: recognize **0.92–0.94×** Lark vs the current
+   engine's 1.19–1.26×; parse **1.31–1.43×** vs 1.83–1.91×. Real ~25–30% headroom
+   still sitting there — but `fast_engine.py` has no reduce/transform step, so there
+   is still no true product-metric number for this path; naive extrapolation puts it
+   at "still >1× Lark" even with this relaxation. Probe deleted after measuring
+   (throwaway, per its own docstring).
+4. **Cython — real but tiny in isolation.** `uv pip install cython` (venv-local, no
+   `pyproject.toml`/`uv.lock` change) + a minimal `.pyx` reimplementing
+   `Column.__iadd__`'s exact insert logic, replayed against the real captured
+   131,527-insert sequence from an x4 parse: **1.84× speedup on that one function**.
+   But `__iadd__` alone is only a fraction of total time — compiling just it projects
+   to ~5% off the product metric. A real win needs the *entire* hot path
+   (`Predict`/`Complete`/`Scan`/`Column`) in Cython — a native-build-step commitment,
+   not attempted.
+
+None of 2–4 closes the gap cheaply, confirming the original read. Per user
+direction, moved to structural investigation instead of banking the floor.
+
+### The structural find: the reduce step still trampolines every node
+
+OPT3/4 replaced the *tree-build* trampoline with the iterative `_FastTree` cursor,
+but never touched the **reduce** step — `ReduceSource`/`ResolveSource` (in
+`reduce.py`) still create two generator objects and drive them via `Trampoline.send()`
+for every single `ParseTree` node, on every parse. Two things tried:
+
+- **Str-keyed `Reducer.reductions`/`.noise` (OPT5's pattern, applied to a build-once
+  table instead of a per-parse one — no insert-cost downside at all, unlike the
+  reverted per-item `waiting` attempt).** Implemented via a `ReduceCtx`-hosted str
+  mirror; measured via cProfile with a narrow `'__eq__|IrScalar'` filter: only 37,230
+  `__eq__` calls total (5 reps) ≈ 4.8ms/rep out of ~257ms — **under 2%, not the
+  bottleneck here.** Reverted cleanly (tests green before and after).
+- **The trampoline/generator machinery itself.** Quantified the ceiling with a
+  throwaway plain-recursive reducer (no trampoline, no generators at all): **1.56×
+  faster on the reduce step alone** (55ms → 35ms on x4), output verified
+  byte-identical to the trampolined version. As expected it stack-overflows at
+  N=1600 on deep right-recursion (confirmed) — proving the win is real but a
+  production version needs the same "explicit stack, not the C stack" treatment as
+  `_FastTree`, not naive recursion.
+
+### OPT-REDUCE — `_FastReduce`, landed
+
+Built `_FastReduce` in `reduce.py`: an iterative, explicit-stack fold mirroring
+`_FastTree`'s design, wired into `Reducer.eval` in place of
+`Trampoline(ReduceSource(...))`. Simpler than `_FastTree`: a `ParseTree` here is
+already disambiguated (single-derivation by construction), so **no ambiguity
+fallback is needed at all** — it always completes. Frames are
+`[node, kids, idx, parts, purpose, noise_body]`; `purpose` distinguishes a **REDUCE**
+frame (folds `parts` through the node's reduction body, memoises by `id()`) from a
+**SPLICE** frame (a synthetic quantifier-group node — flattens straight into its
+caller's parts, never itself reduced/memoised, matching the original's behaviour).
+
+Verified:
+- 1151/1151 tests pass (incl. the 24 ambiguity tests — `Reducer` never sees an
+  ambiguous tree, so this doesn't interact with ambiguity handling at all),
+  `ruff check` clean, `pylint` 10.00/10.
+- ABNF self-host fixpoint still `True`.
+- Deep right-recursion depth-safety **explicitly re-verified past where the naive
+  prototype broke**: a structural (non-`YIELD`) reduction over `S = "a"*` reduces
+  correctly at **N=60,000** with no `RecursionError`.
+- **Product x4: 2.42× → 2.22× Lark** (parse-only unchanged at ~1.90×, since this is
+  purely a reduce-step change).
+
+Result: uncommitted, staged in `reduce.py` only (116 insertions / 8 deletions) — user
+lands it.
+
+### Side finding — pre-existing bug, NOT fixed, NOT a regression
+
+While stress-testing `_FastReduce`'s depth-safety, found that `Yield.eval` (the
+`YIELD` reduction body, used for ABNF's text-yielding rules like `rulename`/
+`char-val`) recurses through the **plain Python call stack**
+(`self.eval(d, k, ())`), not through any trampoline. It `RecursionError`s around
+N=1600 on deep right-recursion. **Confirmed pre-existing** by stashing this
+session's changes and re-running the same repro against original `HEAD` — identical
+failure at the same N. The ABNF grammar never hits this in practice (`YIELD` only
+fires on shallow leaf-ish rules), so it's never been noticed. Not fixed this
+session — flagging for whoever next touches `reduce.py`'s `Yield` class; the fix
+would be the same "explicit stack instead of Python recursion" treatment applied
+here to `_FastReduce`.
+
+### Updated options list (2026-07-01)
+
+1. ~~Accept 2.42× as the floor~~ — superseded; OPT-REDUCE lands at 2.22×.
+2. PyPy — **ruled out**, not merely deprioritized (language-version incompatible).
+3. Relax engine-loop purity — **~25–30% headroom confirmed, unclaimed.** Would need
+   the reduce step folded into the same relaxed representation (fast_engine.py has
+   no reduce path) to get an honest product-metric number; not attempted.
+4. Cython — **~5% alone (`Column.__iadd__` only); a whole-hot-path port needed for
+   real payoff.** Not attempted beyond the POC.
+5. **New:** fuse tree-build (`_FastTree`) and reduce (`_FastReduce`) into one pass,
+   skipping `ParseTree`/`IrSeq` materialization entirely for the common case —
+   flagged in the original TL;DR as a stretch idea, still unscoped.
 
 ---
 

@@ -33,7 +33,7 @@ from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.walk import IrDispatch
 from lexic.parsing_2.forest import ParseTree
 from lexic.parsing_2.normalize import SYNTHETIC_PREFIX
-from lexic.parsing_2.trampoline import ADVANCE, EMIT, EXHAUSTED, Trampoline
+from lexic.parsing_2.trampoline import ADVANCE, EMIT, EXHAUSTED
 
 # ── Child contributions ───────────────────────────────────────────────
 # Each body returns its contribution to the parent's argument channel as an
@@ -213,6 +213,116 @@ class ReduceSource(IrLeaf[IrSelf, IrSelf]):
         yield (EMIT, reduced)
 
 
+_REDUCE, _SPLICE = 0, 1
+"""Frame purposes for :class:`_FastReduce` — fold to a reduction, or flatten a
+synthetic node's children into its caller's parts (never itself reduced)."""
+
+
+class _FastReduce(IrLeaf[IrSelf, IrSelf]):
+    """Iterative fold of a :class:`~lexic.parsing_2.forest.ParseTree` into IR.
+
+    The non-generator replacement for the :class:`Trampoline`-driven
+    :class:`ReduceSource` / :class:`ResolveSource` pair — same depth-safety
+    (an explicit stack, not the C call stack), no coroutine machinery. Unlike
+    :class:`~lexic.parsing_2.forest._FastTree`, a :class:`ParseTree` is already
+    disambiguated (single-derivation by construction), so there is no
+    ambiguity fallback: this always completes.
+
+    A stack frame ``[node, kids, idx, parts, purpose, noise_body]`` resolves
+    ``node``'s children left to right: a **REDUCE** frame folds the finished
+    ``parts`` through ``node``'s reduction body and memoises the result; a
+    **SPLICE** frame (a synthetic quantifier-group node) instead hands its
+    flattened ``parts`` straight to its caller, never reduced. ``noise_body``
+    is the caller's precomputed contribution body for a semantic child pushed
+    as a REDUCE frame — read back when that frame completes, so the caller
+    need not re-resolve the ``noise`` policy on resume.
+
+    :ivar reducer: The driving :class:`Reducer` (policy tables).
+    :ivar ctx: The reduction cursor — its ``red`` is this walk's memo.
+    :ivar stack: The explicit work stack of frames still to resolve.
+    """
+
+    __slots__ = ("reducer", "ctx", "_ctx_nc", "stack")
+
+    reducer: "Reducer"
+    ctx: "ReduceCtx"
+    stack: list[list]
+
+    def __init__(self, reducer: "Reducer", ctx: "ReduceCtx") -> None:
+        """:param reducer: the policy; :param ctx: the reduction cursor."""
+        self.reducer = reducer
+        self.ctx = ctx
+        self._ctx_nc = IrTuple(ctx)
+        self.stack = []
+
+    def build(self, root: ParseTree) -> IrSelf:
+        """The single reduced IR value ``root`` folds to.
+
+        :param root: The derivation to fold.
+        :returns: The reduced IR node, also left in ``ctx.red[id(root)]``.
+        """
+        self.stack = [[root, root.kids, 0, [], _REDUCE, None]]
+        while self.stack:
+            self._step()
+        return self.ctx.red[id(root)]
+
+    def _step(self) -> None:
+        """Advance the top frame by one kid, or close it out at the end."""
+        frame = self.stack[-1]
+        node, kids, idx, parts, purpose, noise_body = frame
+        if idx == len(kids):
+            self._close(node, parts, purpose, noise_body)
+            return
+        k = kids[idx]
+        reducer = self.reducer
+        if isinstance(k, ParseTree) and str(k.symbol).startswith(SYNTHETIC_PREFIX):
+            self.stack.append([k, k.kids, 0, [], _SPLICE, None])
+            return
+        if not isinstance(k, ParseTree):  # terminal leaf — no recursion
+            parts.extend(reducer.literal.eval(reducer, k, ()))
+            frame[2] = idx + 1
+            return
+        body = reducer.noise.resolve(k.symbol)
+        if body is DROP:  # contributes nothing; never reduced
+            frame[2] = idx + 1
+            return
+        if id(k) in self.ctx.red:  # already reduced (a shared sub-derivation)
+            parts.extend(body.eval(reducer, k, self._ctx_nc))
+            frame[2] = idx + 1
+            return
+        # idx stays put — resume at the same kid once its REDUCE frame closes
+        self.stack.append([k, k.kids, 0, [], _REDUCE, body])
+
+    def _close(
+        self, node: ParseTree, parts: list, purpose: int, noise_body: IrSelf | None
+    ) -> None:
+        """Finish a fully-resolved frame and feed its result to its caller.
+
+        :param node: The frame's node (its frame is still on top of ``stack``).
+        :param parts: The frame's fully-resolved parts.
+        :param purpose: :data:`_REDUCE` or :data:`_SPLICE`.
+        :param noise_body: The caller's contribution body, when ``node`` was
+            pushed to reduce a semantic child (``None`` for the root or a
+            spliced synthetic node).
+        """
+        reducer = self.reducer
+        if purpose == _REDUCE:
+            body = reducer.reductions.resolve(node.symbol)
+            reduced = body.eval(reducer, node, IrTuple(*parts))
+            self.ctx.red[id(node)] = reduced
+        self.stack.pop()
+        if not self.stack:
+            return
+        parent = self.stack[-1]
+        if purpose == _REDUCE:
+            if noise_body is not None:  # None only for the root — no caller to feed
+                parent[3].extend(noise_body.eval(reducer, node, self._ctx_nc))
+                parent[2] += 1
+        else:  # _SPLICE — flatten straight into the caller's parts
+            parent[3].extend(parts)
+            parent[2] += 1
+
+
 class Reducer(IrDispatch):
     """Bottom-up fold of a :class:`~lexic.parsing_2.forest.ParseTree` into IR.
 
@@ -223,10 +333,10 @@ class Reducer(IrDispatch):
     ``reductions`` :class:`IrMap` — correct because every node is a ``ParseTree``,
     which is why this overrides ``eval`` rather than reusing the type-keyed table.
 
-    The fold is driven by the depth-safe
-    :class:`~lexic.parsing_2.trampoline.Trampoline` (so deep right-recursive trees
-    do not overflow); ``eval`` on the entry establishes a :class:`ReduceCtx`, and
-    a re-entrant ``eval`` carrying that cursor (the ``noise`` policy's
+    The fold is driven by the depth-safe iterative :class:`_FastReduce` (an
+    explicit stack, not the C call stack, so deep right-recursive trees do not
+    overflow); ``eval`` on the entry establishes a :class:`ReduceCtx`, and a
+    re-entrant ``eval`` carrying that cursor (the ``noise`` policy's
     :data:`KEEP_REDUCED`) returns the memoised reduction.
 
     :ivar reductions: Rule ref → reduction body, resolved with ``IR_DEFAULT``
@@ -255,6 +365,4 @@ class Reducer(IrDispatch):
             return cast(ReduceCtx, nc[0]).red[id(n)]
         ctx = ReduceCtx()
         root = cast(ParseTree, n)
-        for _ in Trampoline(ReduceSource(root, ctx, self)):
-            pass  # drive the single root reduction; result lands in the memo
-        return ctx.red[id(root)]
+        return _FastReduce(self, ctx).build(root)
