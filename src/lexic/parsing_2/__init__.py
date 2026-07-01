@@ -28,8 +28,11 @@ Module map:
 The forest is a full SPPF (Scott 2008): nullable-rule completion (Aycock-Horspool)
 and ambiguity are handled — ``parse`` returns the single derivation and raises on
 ambiguous input, while ``parse_forest`` / ``derivations`` / ``is_ambiguous`` expose
-every reading. Quantifier/group desugaring in :mod:`.normalize` is right-recursive
-(O(n²) on long input — a separate optimisation effort).
+every reading. Quantifier/group desugaring in :mod:`.normalize` is right-recursive;
+the Leo optimisation (:class:`~lexic.parsing_2.ops.LeoItem`) parses that recursion
+in linear time, so ``*``/``+`` over long repeated input is O(n). Large *bounded*
+counts (``{lo, hi}``) still unroll to ``hi`` nested rules and recurse ``hi``-deep at
+desugar time — the one remaining rough edge.
 
 Public API — each is a thin wrapper that boxes the text and drives one
 :class:`~lexic.ir.base.IrSelf` orchestration node in :mod:`.engine`; the node owns
