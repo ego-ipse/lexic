@@ -1,34 +1,28 @@
-"""Tests for lexic.parsing_2.chart — Column, Chart, Link, Links.
+"""Tests for lexic.parsing_2.chart — Chart, Link, Links.
 
-API changes from the IrSelf rewrite:
+API changes from the int-kernel rework:
 
-- ``Column.add(item) -> bool`` removed.
-  Use ``item in column`` for membership, ``column += item`` to insert.
-  Tests that tested the bool return value are re-expressed with the new dunder
-  idiom; the behavioral intent (dedup) is preserved.
+- ``Column`` is COMPLETELY GONE. The per-column Earley sets now live in the
+  compiled kernel (:mod:`lexic.parsing_2.kernel`), packed as ints. All
+  ``Column``-specific tests (insert/dedup/iteration/getitem/index, Chart
+  auto-grow via ``chart[i]``, ``Column.leo``) are DROPPED — that behavior
+  now lives on ``Kernel``/``KernelState`` and is tested in ``test_kernel.py``,
+  not here.
+- ``Chart()`` no longer takes an index and there is no ``chart[i]`` access.
+  ``Chart`` is now only ``links`` (a :class:`Links`) + ``leo_links`` (an
+  :class:`~lexic.ir.mapping.IrMultiMap`) — a pure decoded-forest carrier
+  populated by :meth:`~lexic.parsing_2.kernel.Kernel.to_chart`.
 
-- ``Column.to_scan`` removed (driver re-derives scannable items by filtering the
-  closed column). Tests whose *sole* purpose was ``to_scan`` are removed.
-
-- ``Chart.ensure(i)`` removed. Accessing ``chart[i]`` auto-grows. Tests
-  re-expressed via indexed access.
-
-- ``chart.links`` is now a ``Links`` object (not a bare ``{}``) keyed on
-  ``(EarleyItem, int)`` → ``Link`` record (not a bare 3-tuple). Tests updated
-  to construct and inspect ``Link`` instances.
-
-New symbols tested: ``Link`` (fields: predecessor, predecessor_end, child),
-``Links`` (``__contains__``, ``__getitem__``, ``__iadd__``).
-
-Leo slot tested: ``Column.leo`` (``IrMultiMap``, empty at construction).
+The ``Link`` / ``Links`` tests (constructing tuples, ``Links()`` ``+=``/``in``/
+``[]``, multi-family dedup, live-bucket semantics) and ``Chart`` construction
+are STILL VALID against current ``chart.py`` and are kept below.
 """
 
 from __future__ import annotations
 
-from lexic.ir.base import IrNone
 from lexic.ir.mapping import IrMultiMap
 from lexic.ir.nodes import IrItem, IrLiteral, IrRuleRef, IrSequence
-from lexic.parsing_2.chart import Chart, Column, Links
+from lexic.parsing_2.chart import Chart, Links
 from lexic.parsing_2.item import EarleyItem
 
 
@@ -41,123 +35,32 @@ def _ei(rule: str, arm: IrSequence, dot: int = 0, origin: int = 0) -> EarleyItem
     return (IrRuleRef(rule), arm, dot, origin)
 
 
-# ── Column insert / dedup (was Column.add) ───────────────────────────
+# ── Chart construction ─────────────────────────────────────────────────
 
 
-def test_column_insert_new_item_accepted():
-    """Inserting a new item (not yet present) succeeds: item in col is False before, True after."""
-    col = Column(0)
-    item = _ei("s", _arm("x"))
-    assert item not in col
-    col += item
-    assert item in col
-
-
-def test_column_insert_duplicate_idempotent():
-    """Inserting the same item twice does not grow the column."""
-    col = Column(0)
-    item = _ei("s", _arm("x"))
-    col += item
-    col += item
-    assert len(col) == 1
-
-
-def test_column_insert_different_items_both_accepted():
-    """Two distinct items are both inserted; col grows to length 2."""
-    col = Column(0)
-    arm = _arm("x", "y")
-    item1 = _ei("a", arm, dot=0)
-    item2 = _ei("b", arm, dot=0)
-    col += item1
-    col += item2
-    assert len(col) == 2
-
-
-def test_column_insert_uses_equality_not_identity():
-    """Two equal (but distinct object) items — the second is a duplicate."""
-    col = Column(0)
-    arm = _arm("z")
-    i1 = _ei("s", arm, 0, 0)
-    i2 = _ei("s", arm, 0, 0)
-    assert i1 is not i2
-    col += i1
-    assert i2 in col  # equal, so treated as duplicate
-    col += i2
-    assert len(col) == 1
-
-
-def test_column_contains_false_before_insert():
-    """item not in col before insertion."""
-    col = Column(0)
-    item = _ei("s", _arm("a"))
-    assert item not in col
-
-
-def test_column_contains_true_after_insert():
-    """item in col after insertion."""
-    col = Column(0)
-    item = _ei("s", _arm("a"))
-    col += item
-    assert item in col
-
-
-# ── Column iteration order ────────────────────────────────────────────
-
-
-def test_column_iteration_preserves_insertion_order():
-    """Iterating a column yields items in insertion order."""
-    col = Column(0)
-    arm = _arm("a", "b", "c")
-    items = [_ei("s", arm, d) for d in range(3)]
-    for item in items:
-        col += item
-    assert list(col) == items
-
-
-def test_column_getitem_by_index():
-    """column[i] returns the item at position i."""
-    col = Column(0)
-    arm = _arm("x")
-    item = _ei("s", arm)
-    col += item
-    assert col[0] is item
-
-
-# ── Column.index ─────────────────────────────────────────────────────
-
-
-def test_column_carries_its_index():
-    """Column.index matches the value passed at construction."""
-    assert Column(0).index == 0
-    assert Column(5).index == 5
-
-
-# ── Chart auto-grow (was Chart.ensure) ───────────────────────────────
-
-
-def test_chart_indexing_creates_missing_columns():
-    """chart[i] auto-grows the chart so column i exists."""
+def test_chart_construction_has_empty_links():
+    """A freshly constructed Chart has an empty Links table."""
     chart = Chart()
-    _ = chart[0]
-    assert len(chart) == 1
-    _ = chart[3]
-    assert len(chart) == 4
+    assert len(chart.links) == 0
 
 
-def test_chart_indexing_is_idempotent():
-    """chart[i] when column i already exists does not add duplicates."""
+def test_chart_links_is_links_instance():
+    """chart.links is a Links instance."""
     chart = Chart()
-    _ = chart[2]
-    _ = chart[2]
-    assert len(chart) == 3
+    assert isinstance(chart.links, Links)
 
 
-def test_chart_columns_are_indexed_by_position():
-    """chart[i].index == i after accessing chart[3]."""
+def test_chart_leo_links_is_ir_multi_map():
+    """chart.leo_links is an IrMultiMap instance."""
     chart = Chart()
-    _ = chart[3]
-    for i in range(4):
-        assert chart[i].index == i
+    assert isinstance(chart.leo_links, IrMultiMap)
+
+
+def test_chart_leo_links_starts_empty():
+    """chart.leo_links has no entries at construction."""
+    chart = Chart()
+    ref = IrRuleRef("s")
+    assert len(chart.leo_links[ref]) == 0
 
 
 # ── Link record ───────────────────────────────────────────────────────
@@ -238,7 +141,6 @@ def test_chart_links_starts_empty():
 def test_chart_links_can_be_written_and_read_as_link_record():
     """chart.links records a Link via += and returns it via [] as the first family."""
     chart = Chart()
-    _ = chart[1]
     arm = _arm("x")
     item = _ei("s", arm, dot=1)
     pred = _ei("s", arm, dot=0)
@@ -305,48 +207,9 @@ def test_links_getitem_returns_live_bucket():
 
 
 def test_links_getitem_empty_on_miss():
-    """links[missing_key] returns an empty IrSeq (not an error)."""
+    """links[missing_key] returns an empty sequence (not an error)."""
     links = Links()
     arm = _arm("z")
     key = (_ei("s", arm, dot=1), 99)
     families = links[key]
     assert len(families) == 0
-
-
-# ── Column.leo slot (Leo optimization memo) ───────────────────────────
-
-
-def test_column_leo_is_ir_multi_map():
-    """Column.leo is an IrMultiMap at construction."""
-    col = Column(0)
-    assert isinstance(col.leo, IrMultiMap)
-
-
-def test_column_leo_is_empty_on_fresh_column():
-    """A fresh Column(0) has an empty leo memo (no keys filed)."""
-    col = Column(0)
-    ref = IrRuleRef("s")
-    # IrMultiMap returns empty sequence on miss — length 0 means no entry yet
-    assert len(col.leo[ref]) == 0
-
-
-def test_column_leo_independent_of_waiting():
-    """leo and waiting are distinct IrMultiMap instances."""
-    col = Column(0)
-    assert col.leo is not col.waiting
-
-
-def test_column_leo_independent_across_columns():
-    """Two different Column instances have distinct leo IrMultiMaps."""
-    col_a = Column(0)
-    col_b = Column(1)
-    assert col_a.leo is not col_b.leo
-
-
-def test_column_leo_accepts_iadd():
-    """leo accepts += (key, value) and makes the value retrievable."""
-    col = Column(0)
-    ref = IrRuleRef("s")
-    col.leo += (ref, IrNone)
-    assert len(col.leo[ref]) == 1
-    assert col.leo[ref][0] is IrNone

@@ -42,3 +42,23 @@ The regular agent rules are thoroughly waved for the exploratory work but should
 "Agents should aim to keep the IrSelf derived objects. No free methods. Use eval and dunders preferably. Prefer IrSelf objects. Prefer making the class itself an IrMultiMap if mutability improves performance instead of making a dict attr.If any of these rules is broken, it should be clearly justified."
 
 After all agents have finished, review the results and create a new HANDOVER document in the same folder.
+
+# MISSION: Deep Rework of `parsing_2` to Obliterate Lark's Performance
+
+## CONTEXT
+You are a compiler engineer.
+We are working on the `lexic`, specifically the `parsing_2` module.
+This module currently implements a custom Earley parser with SPPF (Shared Packed Parse Forest), Leo's optimization, coroutine trampolines, and explicit stack management to avoid C-stack overflows.
+
+Goal: **crush the performance of Lark**
+Lark relies heavily on C-extensions for its lexer and highly tuned CYK/Earley/LALR(1) implementations.
+To beat it, we cannot just tweak the existing code; we need a fundamental, deep rework of the architecture, algorithmic approach, and memory management.
+
+## INPUT FILES FOR ANALYSIS
+Before proposing changes, you must deeply analyze the current state, the benchmarks, and recent architectural decisions. Please read and internalize the following files:
+
+1. **The Benchmark File**: zzz_current_work/bench_parsing.py
+2. **Latest Handover / Architecture Notes**: zzz_current_work/postleo/HANDOVER_postleo.md
+3. **Additional Context / Profiling Data**: src/lexic/parsing_2/README.md and the ir/ module
+
+Take a deep breath, review the provided files thoroughly, and let's write the fastest parser in Python.

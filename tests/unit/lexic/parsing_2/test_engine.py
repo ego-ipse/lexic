@@ -1,22 +1,24 @@
-"""Tests for lexic.parsing_2.engine — EarleyParser, recognize, parse.
+"""Tests for lexic.parsing_2.engine — EarleyParser, recognize, parse, and the
+lazy readers (parse_forest, derivations, is_ambiguous).
 
-API changes:
+API changes from the int-kernel rework:
 
-- ``EarleyParser().parse(g, t)`` / ``EarleyParser().recognize(g, t)`` removed
-  (methods on the instance are ``eval`` and dunders only).  All calls updated to
-  the module-level entry points ``parse(g, t)`` / ``recognize(g, t)``.
-
-- Tests ``test_module_recognize_agrees_with_instance_method`` and
-  ``test_module_parse_agrees_with_instance_method`` are removed: the instance
-  methods no longer exist (they were exactly the old entry points that are now
-  the module-level functions).  The behavioral coverage (recognize/parse
-  correctness) is fully preserved by the other tests in this file.
-
-New symbols tested: ``RuleIndex``, ``NullableRules``, ``Matches``,
-``AcceptingItem``, ``BuildChart`` (and their singletons).
-
-New lazy-engine tests: ``IsAmbiguous`` short-circuit, Catalan oracle parametrize,
-round-trip proofs.
+- ``RuleIndex``/``NullableRules``/``Matches``/``AcceptingItem``/``BuildChart``
+  (and singletons ``RULE_INDEX``/``NULLABLE``/``MATCHES``/``ACCEPT``/
+  ``BUILD_CHART``), plus ``ACCEPTING``, are ALL GONE — that per-item IR
+  dispatch is compiled away into :mod:`lexic.parsing_2.tables` and
+  :mod:`lexic.parsing_2.kernel`'s int tables. Their identity/dispatch tests
+  are dropped; there is no new home for testing "is this singleton an
+  instance of its class" once the class no longer exists.
+- Everything else in this file — the overwhelming majority — is pure
+  behavioral testing through the 5 public functions
+  (``recognize``/``parse``/``parse_forest``/``derivations``/``is_ambiguous``)
+  plus ``EarleyParser``, and is preserved unchanged.
+- ``test_is_ambiguous_short_circuits`` still monkeypatches
+  ``engine_mod.DERIVATION_STREAM`` — current ``engine.py`` still imports
+  ``DERIVATION_STREAM`` directly from ``forest`` at module level (verified by
+  grep), so ``IsAmbiguous.eval`` resolves the name through ``engine_mod``'s
+  own binding and patching it there is both necessary and sufficient.
 """
 
 from __future__ import annotations
@@ -24,27 +26,14 @@ from __future__ import annotations
 import pytest
 
 import lexic.parsing_2.engine as engine_mod
-import lexic.parsing_2.forest as forest_mod
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import (
-    IrInt,
-    IrNone,
-    IrNoneType,
-    IrSelf,
-    IrSeq,
-    IrStr,
-    IrTuple,
-)
-from lexic.ir.mapping import IrMultiMap
+from lexic.ir.base import IrNone, IrNoneType, IrSelf, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrCharClass,
-    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
-    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -58,24 +47,7 @@ from lexic.parsing_2 import (
     parse_forest,
     recognize,
 )
-from lexic.parsing_2.engine import (
-    ACCEPT,
-)
-from lexic.parsing_2.engine import ACCEPTING as _ACCEPTING
-from lexic.parsing_2.engine import (
-    BUILD_CHART,
-    IS_AMBIGUOUS,
-    MATCHES,
-    NULLABLE,
-    RULE_INDEX,
-    AcceptingItem,
-    BuildChart,
-    Matches,
-    NullableRules,
-    RuleIndex,
-)
 from lexic.parsing_2.forest import (
-    DERIVATIONS,
     DerivationStream,
     IrStream,
     SppfNode,
@@ -93,7 +65,7 @@ def _normalize(g: IrAst) -> IrAst:
     return split_literals(desugar_quantifiers(flatten_groups(g)))
 
 
-def _quant_grammar(lo: int, hi: int | IrNoneType) -> IrAst:
+def _quant_grammar(lo: int, hi: int | object) -> IrAst:
     """s = 'a'<lo,hi> — one rule with one quantified literal."""
     q = IrQuantifier(lo, hi)
     rule = IrRule("s", IrAlternation(IrSequence(IrItem(IrLiteral("a"), q))))
@@ -320,70 +292,13 @@ def test_parse_single_char_tree_leaf_is_literal(digit_grammar: IrAst):
     assert tree.kids[0] == IrLiteral("9")
 
 
-# ── New engine nodes ──────────────────────────────────────────────────
+# ── EarleyParser façade ────────────────────────────────────────────────
 
 
-def test_rule_index_singleton_is_rule_index_instance():
-    """RULE_INDEX is a RuleIndex instance."""
-    assert isinstance(RULE_INDEX, RuleIndex)
-
-
-def test_nullable_singleton_is_nullable_rules_instance():
-    """NULLABLE is a NullableRules instance."""
-    assert isinstance(NULLABLE, NullableRules)
-
-
-def test_matches_singleton_is_matches_instance():
-    """MATCHES is a Matches instance."""
-    assert isinstance(MATCHES, Matches)
-
-
-def test_accept_singleton_is_accepting_item_instance():
-    """ACCEPT is an AcceptingItem instance."""
-    assert isinstance(ACCEPT, AcceptingItem)
-
-
-def test_build_chart_singleton_is_build_chart_instance():
-    """BUILD_CHART is a BuildChart instance."""
-    assert isinstance(BUILD_CHART, BuildChart)
-
-
-def test_matches_literal_matches_same_char():
-    """Matches.eval returns IrInt(1) when the literal matches the char."""
+def test_earley_parser_is_constructible():
+    """EarleyParser() constructs without arguments."""
     parser = EarleyParser()
-    result = MATCHES.eval(parser, IrLiteral("x"), IrTuple(IrStr("x")))
-    assert result == IrInt(1)
-
-
-def test_matches_literal_rejects_different_char():
-    """Matches.eval returns IrInt(0) when the literal does not match."""
-    parser = EarleyParser()
-    result = MATCHES.eval(parser, IrLiteral("x"), IrTuple(IrStr("y")))
-    assert result == IrInt(0)
-
-
-def test_matches_charclass_range_matches():
-    """Matches.eval returns IrInt(1) for a char inside a range."""
-    parser = EarleyParser()
-    atom = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
-    result = MATCHES.eval(parser, atom, IrTuple(IrStr("m")))
-    assert result == IrInt(1)
-
-
-def test_matches_charclass_range_rejects():
-    """Matches.eval returns IrInt(0) for a char outside a range."""
-    parser = EarleyParser()
-    atom = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
-    result = MATCHES.eval(parser, atom, IrTuple(IrStr("0")))
-    assert result == IrInt(0)
-
-
-def test_nullable_rules_returns_irmultimap():
-    """NullableRules.eval returns an IrMultiMap (used as a set) of nullable rule names."""
-    parser = EarleyParser()
-    g = _normalize(_quant_grammar(0, IrNone))
-    result = NULLABLE.eval(parser, g, ())
-    assert isinstance(result, IrMultiMap)
+    assert isinstance(parser, EarleyParser)
 
 
 # ── parse_forest ──────────────────────────────────────────────────────
@@ -561,21 +476,26 @@ def test_is_ambiguous_short_circuits(sss_grammar: IrAst) -> None:
 
     An exploding source raises AssertionError if iterated past 2 elements.
     We assert IrInt(1) is returned, NOT AssertionError — proving early exit.
+
+    ``engine.IsAmbiguous.eval`` calls ``DERIVATION_STREAM.eval(...)`` through
+    its own module-level import binding (``engine.py`` does
+    ``from lexic.parsing_2.forest import (..., DERIVATION_STREAM, ...)``), so
+    the patch target is ``engine_mod.DERIVATION_STREAM`` — patching only
+    ``forest_mod.DERIVATION_STREAM`` would not affect the already-bound name
+    ``IsAmbiguous.eval`` actually calls.
     """
-    parser = EarleyParser()
-    chart, item = _ACCEPTING.eval(parser, sss_grammar, IrTuple(IrStr("aaa")))
-    ds = DERIVATIONS.eval(parser, item, IrTuple(chart))
-    exploding = _make_exploding_deriv_stream(ds[0], ds[1])
-    orig_forest = forest_mod.DERIVATION_STREAM
-    orig_engine = engine_mod.DERIVATION_STREAM
-    forest_mod.DERIVATION_STREAM = exploding
+    from lexic.ir.base import IrInt
+
+    real_derivations = derivations(sss_grammar, "aaa")
+    assert len(real_derivations) == 2
+    exploding = _make_exploding_deriv_stream(real_derivations[0], real_derivations[1])
+    orig = engine_mod.DERIVATION_STREAM
     engine_mod.DERIVATION_STREAM = exploding
     try:
-        result = IS_AMBIGUOUS.eval(parser, sss_grammar, IrTuple(IrStr("aaa")))
+        result = is_ambiguous(sss_grammar, "aaa")
         assert result == IrInt(1)
     finally:
-        forest_mod.DERIVATION_STREAM = orig_forest
-        engine_mod.DERIVATION_STREAM = orig_engine
+        engine_mod.DERIVATION_STREAM = orig
 
 
 def test_is_ambiguous_counts(

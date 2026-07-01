@@ -52,6 +52,7 @@ from lexic.ir.nodes import (
 )
 from lexic.parsing.meta_parser import MetaGrammarParser
 from lexic.parsing_2 import parse as earley_parse
+from lexic.parsing_2 import parse_reduced as earley_parse_reduced
 from lexic.parsing_2 import recognize as earley_recognize
 from lexic.parsing_2.normalize import normalize
 
@@ -76,7 +77,7 @@ STAGES: list[tuple[str, Callable[[str], object], Callable[[str], object]]] = [
     (
         "parse+reduce",
         _META.parse,
-        lambda t: ABNF_REDUCER.apply(earley_parse(NORM_GRAMMAR, t)),
+        lambda t: earley_parse_reduced(NORM_GRAMMAR, t, ABNF_REDUCER),
     ),
 ]
 PRODUCT = "parse+reduce"  # the headline row (text → IrAst)

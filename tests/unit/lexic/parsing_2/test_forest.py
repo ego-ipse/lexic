@@ -11,6 +11,17 @@ API changes (old → new):
 - ``ForestCtx`` no longer has a map interface (``key in ctx`` / ``ctx[key]`` / ``+=``
   are gone); it now exposes only ``chart`` and ``open``.  Sharing / memo tests are
   rewritten as behavioral correctness tests.
+- ``ACCEPTING`` (engine.py) is GONE — the accepting SPPF node and decoded chart are
+  now obtained by running :class:`~lexic.parsing_2.kernel.Kernel` directly and
+  calling :meth:`~lexic.parsing_2.kernel.Kernel.accept_node` /
+  :meth:`~lexic.parsing_2.kernel.Kernel.to_chart`.  The local ``_accept`` helper is
+  rewritten on top of ``Kernel`` + ``compile_tables``; its signature and callers are
+  unchanged.
+- The old ``chart[0]`` per-column iteration (used to hunt a dot-0 EarleyItem) has no
+  equivalent — ``Chart`` no longer indexes by column. The one test that did this
+  (``test_prefix_source_dot_zero_single_empty_prefix``) is rewritten to build a dot-0
+  ``SppfNode`` directly from ``kernel.decode_item(dot0_item)`` instead of scanning a
+  column.
 
 Preserved unchanged (kept, only construction syntax fixed if needed): ``ParseTree``,
 ``SppfNode``, ``IrStream`` (all ``test_stream_*`` white-box tests), ``Derivations`` /
@@ -27,7 +38,7 @@ import pytest
 
 import lexic.parsing_2.forest as forest_mod
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrNone, IrNoneType, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir.base import IrLeaf, IrNone, IrNoneType, IrSelf, IrSeq, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -43,7 +54,7 @@ from lexic.ir.nodes import (
 )
 from lexic.parsing_2 import derivations, parse, parse_forest
 from lexic.parsing_2.chart import Chart
-from lexic.parsing_2.engine import ACCEPTING, EarleyParser
+from lexic.parsing_2.engine import EarleyParser
 from lexic.parsing_2.forest import (
     BUILD_TREE,
     DERIVATION_STREAM,
@@ -59,25 +70,29 @@ from lexic.parsing_2.forest import (
     PrefixSource,
     SppfNode,
 )
-from lexic.parsing_2.item import EarleyItem
+from lexic.parsing_2.kernel import Kernel
 from lexic.parsing_2.normalize import normalize
+from lexic.parsing_2.tables import ORIGIN_BITS, compile_tables
 from lexic.parsing_2.trampoline import Trampoline
 
 
 def _accept(grammar: IrAst, text: str) -> tuple[EarleyParser, Chart, SppfNode, int]:
-    """Drive the public :data:`ACCEPTING` node and unpack for the forest tests.
+    """Run a :class:`Kernel` over ``grammar``/``text`` and unpack for forest tests.
 
-    A test-local helper (not a src symbol): builds the chart once and returns the
-    accepting :class:`SppfNode` so the low-level forest nodes can be exercised
-    directly.  Assumes ``text`` parses, so the node is a real :class:`SppfNode`.
+    A test-local helper (not a src symbol): compiles and runs the kernel, then
+    decodes its accepting node and full chart so the low-level forest nodes can
+    be exercised directly. Assumes ``text`` parses, so the node is a real
+    :class:`SppfNode`.
 
     :param grammar: The grammar to parse with.
     :param text: The input string that must parse successfully.
     :returns: ``(parser, chart, accepting_node, len(text))``.
     """
-    parser = EarleyParser()
-    chart, node = ACCEPTING.eval(parser, grammar, IrTuple(IrStr(text)))
-    return parser, cast(Chart, chart), cast(SppfNode, node), len(text)
+    kernel = Kernel(compile_tables(grammar), text, record_links=True).run()
+    assert kernel.accept >= 0
+    chart = kernel.to_chart()
+    node = kernel.accept_node()
+    return EarleyParser(), chart, cast(SppfNode, node), len(text)
 
 
 # ── ParseTree fields ──────────────────────────────────────────────────
@@ -366,17 +381,19 @@ def test_child_derivs_literal_vs_sppf_dispatch(digit_grammar: IrAst):
 def test_prefix_source_dot_zero_single_empty_prefix(digit_grammar: IrAst):
     """A dot-0 handle's PrefixSource yields exactly one empty IrSeq.
 
-    Adapted from ``test_prefixes_dot_zero_single_empty_prefix``.
+    Adapted from ``test_prefixes_dot_zero_single_empty_prefix``: the old
+    lookup scanned ``chart[0]`` (a per-column Earley set) for a dot-0 item;
+    ``Chart`` no longer indexes by column, so the dot-0 item is decoded
+    directly from the kernel's dot-0 code for the start rule instead.
     """
-    _, chart, _, __ = _accept(digit_grammar, "5")
-    # Find a dot-0 EarleyItem in column 0
-    dot_zero: EarleyItem | None = None
-    for ei in chart[0]:
-        if ei[2] == 0:  # ei[2] is dot
-            dot_zero = ei
-            break
-    assert dot_zero is not None
+    tables = compile_tables(digit_grammar)
+    kernel = Kernel(tables, "5", record_links=True).run()
+    (dot0_code,) = tables.codes.rule_dot0[tables.start_id]
+    dot0_item = dot0_code << ORIGIN_BITS  # origin 0
+    dot_zero = kernel.decode_item(dot0_item)
+    assert dot_zero[2] == 0  # dot position
     node = SppfNode(dot_zero, 0)
+    chart = kernel.to_chart()
     ctx = ForestCtx(chart)
     prefixes = list(Trampoline(PrefixSource(node, ctx)))
     assert len(prefixes) == 1

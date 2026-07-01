@@ -15,12 +15,15 @@ the same dispatch substrate the emit flavours use, run the other direction.
 
 Module map:
 
-- :mod:`.item`      — :class:`EarleyItem`, the dotted-arm state record.
-- :mod:`.chart`     — :class:`Column` / :class:`Chart`, the Earley sets.
-- :mod:`.ops`       — :class:`Predict` / :class:`Scan` / :class:`Complete` bodies
-                      and the :data:`EARLEY_OPS` dispatch table.
-- :mod:`.engine`    — :class:`EarleyParser`, the driver (Scott/Earley loop), and
-                      the per-operation orchestration nodes the API drives.
+- :mod:`.tables`    — :class:`ParserTables`, the int-coded compiled grammar,
+                      and :func:`compile_tables` (memoised, once per grammar).
+- :mod:`.kernel`    — :class:`Kernel`, the flat Earley loop over the compiled
+                      tables (predict/scan/complete, Leo, packed SPPF), and
+                      :class:`FastTree`, the unambiguous tree builder.
+- :mod:`.item`      — :class:`EarleyItem`, the decoded dotted-arm record.
+- :mod:`.chart`     — :class:`Chart` / :class:`Links`, the decoded SPPF the
+                      IR-native forest readers walk.
+- :mod:`.engine`    — the per-capability orchestration nodes the API drives.
 - :mod:`.forest`    — :class:`ParseTree`, the reducible derivation.
 - :mod:`.reduce`    — :class:`Reducer`, forest → ``IrAst`` (the meta-notation seam).
 - :mod:`.normalize` — desugar IR into classical Earley-shaped rules.
@@ -29,7 +32,7 @@ The forest is a full SPPF (Scott 2008): nullable-rule completion (Aycock-Horspoo
 and ambiguity are handled — ``parse`` returns the single derivation and raises on
 ambiguous input, while ``parse_forest`` / ``derivations`` / ``is_ambiguous`` expose
 every reading. Quantifier/group desugaring in :mod:`.normalize` is right-recursive;
-the Leo optimisation (:class:`~lexic.parsing_2.ops.LeoItem`) parses that recursion
+the Leo optimisation (in :class:`~lexic.parsing_2.kernel.Kernel`) parses that recursion
 in linear time, so ``*``/``+`` over long repeated input is O(n). Large *bounded*
 counts (``{lo, hi}``) still unroll to ``hi`` nested rules and recurse ``hi``-deep at
 desugar time — the one remaining rough edge.
@@ -51,19 +54,21 @@ from __future__ import annotations
 
 from lexic.ir.base import IrInt, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.ir.nodes import IrAst
-from lexic.parsing_2.chart import Chart, Column, Link, Links
+from lexic.parsing_2.chart import Chart, Link, Links
 from lexic.parsing_2.engine import (
     ENUMERATE,
     IS_AMBIGUOUS,
     PARSE,
     PARSE_FOREST,
+    PARSE_REDUCED,
     RECOGNIZE,
     EarleyParser,
 )
 from lexic.parsing_2.forest import BUILD_TREE, BuildTree, ParseTree, SppfNode
 from lexic.parsing_2.item import EarleyItem
-from lexic.parsing_2.ops import EARLEY_OPS, Complete, Predict, Scan
+from lexic.parsing_2.kernel import FastTree, Kernel
 from lexic.parsing_2.reduce import Reducer
+from lexic.parsing_2.tables import ParserTables, compile_tables
 
 
 def recognize(grammar: IrAst, text: str) -> IrInt:
@@ -90,6 +95,23 @@ def parse(grammar: IrAst, text: str) -> ParseTree:
         ambiguously.
     """
     return PARSE.eval(EarleyParser(), grammar, IrTuple(IrStr(text)))
+
+
+def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
+    """Parse ``text`` and fold it straight to IR — the one-pass product path.
+
+    Equivalent to ``reducer.apply(parse(grammar, text))`` but fused: the
+    packed forest reduces directly, with no intermediate
+    :class:`~lexic.parsing_2.forest.ParseTree` in the common unambiguous case.
+
+    :param grammar: The grammar, Earley-normalised.
+    :param text: The input string.
+    :param reducer: The flavour's reduction policy.
+    :returns: The reduced IR of the single derivation.
+    :raises UnsupportedConstructError: If ``text`` does not parse, or parses
+        ambiguously.
+    """
+    return PARSE_REDUCED.eval(EarleyParser(), grammar, IrTuple(IrStr(text), reducer))
 
 
 def parse_forest(grammar: IrAst, text: str) -> IrSelf:
@@ -128,21 +150,21 @@ __all__ = [
     "BUILD_TREE",
     "BuildTree",
     "Chart",
-    "Column",
-    "Complete",
-    "EARLEY_OPS",
     "EarleyParser",
     "EarleyItem",
+    "FastTree",
+    "Kernel",
     "Link",
     "Links",
     "ParseTree",
-    "Predict",
+    "ParserTables",
     "Reducer",
-    "Scan",
     "SppfNode",
+    "compile_tables",
     "derivations",
     "is_ambiguous",
     "parse",
     "parse_forest",
+    "parse_reduced",
     "recognize",
 ]

@@ -60,7 +60,7 @@ from lexic.ir.base import (
     IrTuple,
 )
 from lexic.ir.nodes import IrLiteral, IrRuleRef
-from lexic.parsing_2.chart import Chart, Links
+from lexic.parsing_2.chart import Chart
 from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.trampoline import ADVANCE, EMIT, EXHAUSTED, Trampoline
 
@@ -127,7 +127,7 @@ class ForestCtx(IrLeaf[IrSelf, IrSelf]):
     """Per-read forest cursor — the chart plus the open-handle cycle guard.
 
     The **mutable** forest-read cursor (the mutable-chart exception, like
-    :class:`~lexic.parsing_2.ops.ParseCtx`): :attr:`open` holds the
+    :class:`~lexic.parsing_2.kernel.KernelState`): :attr:`open` holds the
     ``(item, end)`` handles whose prefixes are currently being produced. A
     re-entrant :class:`PrefixSource` on an open handle is a genuine empty-span
     (nullable) cycle and emits the single empty prefix to terminate it. A handle
@@ -295,10 +295,6 @@ class PrefixSource(IrLeaf[IrSelf, IrSelf]):
             yield (EMIT, IrSeq())
             return
         chart = ctx.chart
-        # A deferred Leo top carries no ordinary families yet — rebuild its skipped
-        # right-recursion chain into ``links`` the first time it is walked.
-        if key in chart.leo_links and key not in chart.links:
-            LEO_EXPAND.expand(chart, node)
         ctx.open.add(key)
         for link in chart.links[key]:
             predecessor = iter(PrefixSource(SppfNode(link[0], link[1]), ctx))
@@ -349,47 +345,6 @@ class ChildDerivs(IrLeaf[IrSelf, IrSelf]):
         while tree is not EXHAUSTED:
             yield (EMIT, tree)
             tree = yield (ADVANCE, derivs)
-
-
-class LeoExpand(IrLeaf[IrSelf, IrSelf]):
-    """Materialise a Leo completion's skipped right-recursion chain into the links.
-
-    A Leo jump records only the chain's bottom in ``chart.leo_links[(top, end)]``
-    and adds ``top`` to its column, eliding every intermediate completion. The
-    forest walker needs those completions as ordinary
-    :data:`~lexic.parsing_2.chart.Link` families to recover the derivation, so the
-    first prefix request that reaches a deferred ``top`` rebuilds the chain
-    bottom-up: each level advances its waiter, files the link, and climbs to the
-    sole waiter awaiting the just-completed rule (the chain is deterministic by
-    construction — that is *why* Leo fired — so ``waiting[ref]`` holds exactly it)
-    until it reaches ``top``. O(chain), once; only chains a derivation actually
-    walks are ever built, so the forest stays Θ(n) for a single right-recursive
-    parse instead of the Θ(n²) the eager completer would record.
-    """
-
-    def expand(self, chart: Chart, top_node: SppfNode) -> None:
-        """Write the deferred chain ending at ``top_node`` into ``chart.links``.
-
-        :param chart: The chart whose ``leo_links`` is read and ``links`` grown.
-        :param top_node: The deferred Leo top handle ``SppfNode(top, end)``.
-        """
-        top = top_node.item
-        end = top_node.end
-        waiter, waiter_end, child = chart.leo_links[(top, end)][0]
-        while True:
-            advanced = (waiter[0], waiter[1], waiter[2] + 1, waiter[3])
-            chart.links += ((advanced, end), (waiter, waiter_end, child))
-            if advanced == top:
-                return
-            # ``advanced`` completes rule ``waiter[0]`` over ``waiter[3]..end``; the
-            # lone item awaiting it in column ``waiter[3]`` is the next chain link.
-            child = SppfNode(advanced, end)
-            waiter_end = waiter[3]
-            waiter = cast(EarleyItem, chart[waiter[3]].waiting[waiter[0]][0])
-
-
-LEO_EXPAND = LeoExpand()
-"""Shared Leo-chain expander — stateless (it writes into the chart it is given)."""
 
 
 def _forest_ctx(head: IrSelf) -> ForestCtx:
@@ -447,113 +402,6 @@ class Derivations(IrLeaf[IrSelf, IrSelf]):
         return IrSeq(*DERIVATION_STREAM.eval(d, n, nc))
 
 
-class _FastTree(IrLeaf[IrSelf, IrSelf]):
-    """Per-build cursor for the iterative single-derivation tree walk.
-
-    Mutable build state (the forest-read exception, like :class:`ForestCtx`): the
-    chart's :class:`~lexic.parsing_2.chart.Links` table, a ``memo`` of built
-    subtrees, and an explicit work ``stack`` that keeps deep right-recursive
-    derivations off the C stack. :meth:`build` returns :data:`IrNone` on ambiguity
-    or a missing link so :class:`BuildTree` falls back to the trampoline.
-
-    Stack frames are ``(node, dest, slot, resolved | None)``: ``resolved`` is
-    ``None`` on first visit and the children list on revisit, so each node's kids
-    are collected once. Behaviour stays on this node; the slots only hold state.
-
-    :ivar chart: The chart holding the family/Leo tables.
-    :ivar links: ``chart.links`` (cached — the per-node lookup hot path).
-    :ivar memo: ``(item, end)`` → its built :class:`ParseTree`.
-    :ivar stack: The explicit work stack of frames still to resolve.
-    """
-
-    __slots__ = ("chart", "links", "memo", "stack")
-
-    chart: Chart
-    links: Links
-    memo: dict[tuple, IrSelf]
-    stack: list[tuple[SppfNode, list, int, list | None]]
-
-    def __init__(self, chart: Chart) -> None:
-        self.chart = chart
-        self.links = chart.links
-        self.memo = {}
-        self.stack = []
-
-    def build(self, root: SppfNode) -> IrSelf:
-        """The single :class:`ParseTree` rooted at ``root``, or :data:`IrNone` on a
-        fast-path miss (ambiguity or a missing link).
-        """
-        holder: list[IrSelf] = [IrNone]
-        self.stack = [(root, holder, 0, None)]
-        while self.stack:
-            if not self._step():
-                return IrNone
-        return holder[0]
-
-    def _step(self) -> bool:
-        """Process the top work frame; ``False`` aborts the build (fast-path miss)."""
-        stack = self.stack
-        memo = self.memo
-        node, dest, slot, resolved = stack[-1]
-        item, end = node
-        key = (item, end)
-        cached = memo.get(key)
-        if cached is not None:
-            dest[slot] = cached
-            stack.pop()
-            return True
-        if resolved is None:  # first visit — expand Leo chain, collect kids
-            if key in self.chart.leo_links and key not in self.links:
-                LEO_EXPAND.expand(self.chart, node)
-            kids = self._collect_kids(item, end)
-            if kids is None:
-                return False  # ambiguous or missing — fall back
-            resolved = kids
-            stack[-1] = (node, dest, slot, resolved)
-        pending = self._pending(resolved, memo)
-        if pending:
-            stack.extend(pending)
-            return True
-        tree = ParseTree(item[0], IrSeq(*resolved))
-        memo[key] = tree
-        dest[slot] = tree
-        stack.pop()
-        return True
-
-    def _collect_kids(self, item: EarleyItem, end: int) -> list[IrSelf] | None:
-        """Children of ``(item, end)`` in source order, walking the binarized
-        predecessor chain. ``None`` when a key is missing or has more than one link
-        — the caller falls back to the trampoline.
-        """
-        links = self.links
-        kids_rev: list[IrSelf] = []
-        while item[2] > 0:  # dot > 0: more children to collect
-            bucket = links.get((item, end))
-            if not bucket:
-                return None  # missing link — cannot build
-            if len(bucket) > 1:
-                return None  # ambiguous — fall back to trampoline
-            item, end, child = bucket[0]  # predecessor item/end + consumed child
-            kids_rev.append(child)
-        kids_rev.reverse()
-        return kids_rev
-
-    @staticmethod
-    def _pending(resolved: list, memo: dict) -> list:
-        """Resolve already-built children from ``memo`` in place; return the children
-        still needing a build, as new ``(node, dest, slot, None)`` work frames.
-        """
-        out: list[tuple[SppfNode, list, int, None]] = []
-        for i, child in enumerate(resolved):
-            if isinstance(child, SppfNode):
-                cached = memo.get((child.item, child.end))
-                if cached is not None:
-                    resolved[i] = cached
-                else:
-                    out.append((child, resolved, i, None))
-        return out
-
-
 class BuildTree(IrLeaf[IrSelf, IrSelf]):
     """Single-derivation façade — the ONE derivation the root handle packs (strict).
 
@@ -562,16 +410,16 @@ class BuildTree(IrLeaf[IrSelf, IrSelf]):
     honestly represent ambiguity, so a handle packing more than one derivation
     **raises** rather than silently picking one.
 
-    Fast path: a :class:`_FastTree` cursor walks the binarized SPPF iteratively for
-    the common unambiguous case, bypassing the coroutine trampoline. Slow path
-    (ambiguous input or a fast-path miss): the trampolined :data:`DERIVATION_STREAM`,
-    which raises on the second derivation.
+    This is the trampolined strict reader over a decoded chart. The common
+    unambiguous case never reaches it — :class:`~lexic.parsing_2.kernel.FastTree`
+    builds the tree from the packed links first, and only a fast-path miss
+    (ambiguity) decodes the chart and falls back here.
     """
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Return the sole :class:`ParseTree` the root ``n`` packs.
 
-        :param d: Dispatcher, forwarded to the lazy stream on ambiguous input.
+        :param d: Dispatcher, forwarded to the lazy stream.
         :param n: The accepting :class:`SppfNode` to reconstruct.
         :param nc: ``(chart,)``.
         :returns: The single :class:`ParseTree` derivation for the handle.
@@ -579,10 +427,6 @@ class BuildTree(IrLeaf[IrSelf, IrSelf]):
             more than one (ambiguous input).
         """
         node = cast(SppfNode, n)
-        fast = _FastTree(cast(Chart, nc[0])).build(node)
-        if fast is not IrNone:
-            return fast
-        # Fall back to the trampoline (ambiguous input or a fast-path miss).
         stream = DERIVATION_STREAM.eval(d, node, IrTuple(nc[0]))
         first: IrSelf = IrNone
         for index, tree in enumerate(stream):

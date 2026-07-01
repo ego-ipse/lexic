@@ -28,11 +28,13 @@ from __future__ import annotations
 
 from typing import Iterator, Sequence, cast
 
-from lexic.ir.base import IrLambda, IrLeaf, IrSelf, IrStr, IrTuple
+from lexic.ir.base import IrLambda, IrLeaf, IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.walk import IrDispatch
 from lexic.parsing_2.forest import ParseTree
+from lexic.parsing_2.kernel import Kernel
 from lexic.parsing_2.normalize import SYNTHETIC_PREFIX
+from lexic.parsing_2.tables import ORIGIN_BITS, ORIGIN_MASK, ParserTables
 from lexic.parsing_2.trampoline import ADVANCE, EMIT, EXHAUSTED
 
 # ── Child contributions ───────────────────────────────────────────────
@@ -321,6 +323,357 @@ class _FastReduce(IrLeaf[IrSelf, IrSelf]):
         else:  # _SPLICE — flatten straight into the caller's parts
             parent[3].extend(parts)
             parent[2] += 1
+
+
+# ── Fused kernel reduction (the product path) ─────────────────────────
+
+_DROP_KIND, _KEEP_KIND, _OTHER_KIND = 0, 1, 2
+"""Compiled noise/literal policy kinds — DROP, KEEP_REDUCED (KEEP_RAW for the
+literal policy), and anything else (an :data:`_OTHER_KIND` noise policy makes
+the fused fold miss so the legacy tree path handles it)."""
+
+
+class _FusedMiss(Exception):
+    """Internal abort: the packed SPPF is ambiguous under this handle — the
+    fused fold cannot proceed and the caller falls back to the tree path."""
+
+
+def _mentions_yield(body: IrSelf) -> bool:
+    """Whether ``body``'s node tree contains the :data:`YIELD` singleton.
+
+    Bodies are tuple-backed IR records, so the scan walks tuple elements; an
+    opaque callable (:class:`~lexic.ir.base.IrLambda`) cannot be inspected and
+    counts as not mentioning it.
+    """
+    stack: list[IrSelf] = [body]
+    while stack:
+        node = stack.pop()
+        if node is YIELD:
+            return True
+        if isinstance(node, tuple):
+            stack.extend(x for x in node if isinstance(x, IrSelf))
+    return False
+
+
+class ReducePlan(IrLeaf[IrSelf, IrSelf]):
+    """A reducer's policy tables compiled against one grammar's rule ids.
+
+    Built once per ``(reducer, tables)`` pair and cached: the noise policy and
+    synthetic flags resolve eagerly per rule_id; reduction bodies (and their
+    YIELD-mention flags) fill lazily on first encounter. ``can_drop`` is the
+    reachability closure of DROP-noise rules — a rule whose subtree can never
+    contain a dropped span yields its source text as a single O(1) slice.
+
+    :ivar refs: rule_id → the rule's :class:`~lexic.ir.nodes.IrRuleRef`.
+    :ivar synthetic: rule_id → minted by normalisation (spliced, never reduced).
+    :ivar noise_kind: rule_id → compiled noise policy kind.
+    :ivar can_drop: rule_id → whether a DROP-noise rule is reachable beneath it.
+    :ivar literal_kind: the compiled terminal-leaf policy kind.
+    :ivar bodies: rule_id → its reduction body (lazily resolved).
+    :ivar mentions: rule_id → whether the body mentions :data:`YIELD` (lazy).
+    """
+
+    __slots__ = (
+        "refs",
+        "synthetic",
+        "noise_kind",
+        "can_drop",
+        "literal_kind",
+        "bodies",
+        "mentions",
+    )
+
+    def __init__(self, reducer: "Reducer", tables: ParserTables) -> None:
+        """Compile ``reducer``'s policies against ``tables``' rule numbering.
+
+        :param reducer: The reducer whose tables to compile.
+        :param tables: The compiled grammar.
+        """
+        decode = tables.decode
+        self.refs = decode.rule_refs
+        self.synthetic = tuple(
+            name.startswith(SYNTHETIC_PREFIX) for name in decode.rule_names
+        )
+        kinds = []
+        for ref in decode.rule_refs:
+            body = reducer.noise.resolve(ref)
+            if body is DROP:
+                kinds.append(_DROP_KIND)
+            elif body is KEEP_REDUCED:
+                kinds.append(_KEEP_KIND)
+            else:
+                kinds.append(_OTHER_KIND)
+        self.noise_kind = tuple(kinds)
+        self.can_drop = self._reach_drop(tables, kinds)
+        literal = reducer.literal
+        if literal is DROP:
+            self.literal_kind = _DROP_KIND
+        elif literal is KEEP_RAW:
+            self.literal_kind = _KEEP_KIND
+        else:
+            self.literal_kind = _OTHER_KIND
+        self.bodies: list[IrSelf | None] = [None] * len(kinds)
+        self.mentions: list[bool] = [False] * len(kinds)
+
+    @staticmethod
+    def _reach_drop(tables: ParserTables, kinds: list[int]) -> tuple[bool, ...]:
+        """Per rule, whether a DROP-noise rule is reachable beneath it."""
+        codes = tables.codes
+        refs_of: list[set[int]] = [set() for _ in kinds]
+        for arm_id, rid in enumerate(codes.arm_rule):
+            code = codes.arm_base[arm_id]
+            sym = codes.next_sym[code]
+            while sym != 0:
+                if sym > 0:
+                    refs_of[rid].add(sym - 1)
+                code += 1
+                sym = codes.next_sym[code]
+        can = [False] * len(kinds)
+        changed = True
+        while changed:
+            changed = False
+            for rid, targets in enumerate(refs_of):
+                if can[rid]:
+                    continue
+                if any(kinds[t] == _DROP_KIND or can[t] for t in targets):
+                    can[rid] = True
+                    changed = True
+        return tuple(can)
+
+
+_PLANS: dict[tuple[int, int], tuple[object, object, ReducePlan]] = {}
+"""Plan memo — (id(reducer), id(tables)) → (reducer, tables, plan). The strong
+references pin both ids, so recycled ids can never alias live entries."""
+
+
+def _plan_for(reducer: "Reducer", tables: ParserTables) -> ReducePlan:
+    """The cached :class:`ReducePlan` for a ``(reducer, tables)`` pair."""
+    key = (id(reducer), id(tables))
+    entry = _PLANS.get(key)
+    if entry is None:
+        entry = (reducer, tables, ReducePlan(reducer, tables))
+        _PLANS[key] = entry
+    return entry[2]
+
+
+class FusedReduce(IrLeaf[IrSelf, IrSelf]):
+    """Fold the kernel's packed SPPF straight to IR — no intermediate tree.
+
+    The product path: instead of materialising a
+    :class:`~lexic.parsing_2.forest.ParseTree` and folding it again, one
+    explicit-stack pass walks the packed links, resolves each node's cleaned
+    children, and evaluates the reduction bodies in place. Rules whose body IS
+    :data:`YIELD` reduce to their **source span** directly — an O(1)
+    ``text[origin:end]`` slice when no DROP-noise rule is reachable beneath
+    them (``plan.can_drop``), skipping their subtrees entirely. Reduction
+    bodies receive the matched span text as ``n`` (only computed when the
+    body mentions :data:`YIELD`) and the cleaned children on ``nc``.
+
+    A fast-path miss — an ambiguous key, a KEEP_RAW/custom noise policy —
+    returns ``None`` from :meth:`build`, and the caller falls back to the
+    legacy tree-then-:class:`Reducer` path. Depth lives in the explicit
+    stack, never the C stack.
+
+    :ivar kernel: The finished kernel whose links to fold.
+    :ivar reducer: The policy tables.
+    :ivar plan: The compiled :class:`ReducePlan`.
+    :ivar memo: handle → its reduced IR (the KEEP_REDUCED read).
+    :ivar stack: Work frames ``[handle, kids, idx, parts, is_splice]``.
+    """
+
+    __slots__ = ("kernel", "reducer", "plan", "memo", "stack")
+
+    kernel: Kernel
+    reducer: "Reducer"
+    plan: ReducePlan
+    memo: dict[int, IrSelf]
+    stack: list[list]
+
+    def __init__(self, kernel: Kernel, reducer: "Reducer") -> None:
+        """:param kernel: the finished kernel; :param reducer: the policies."""
+        self.kernel = kernel
+        self.reducer = reducer
+        self.plan = _plan_for(reducer, kernel.tables)
+        self.memo = {}
+        self.stack = []
+
+    def build(self, handle: int) -> IrSelf | None:
+        """The reduced IR under ``handle``, or ``None`` on a fast-path miss.
+
+        :param handle: The packed accepting handle ``(item << B) | end``.
+        :returns: The reduced IR node, or ``None`` (caller falls back).
+        """
+        kids = self._collect(handle)
+        if kids is None:
+            return None
+        self.stack = [[handle, kids, 0, [], False]]
+        try:
+            while self.stack:
+                if not self._step():
+                    return None
+        except _FusedMiss:
+            return None
+        return self.memo[handle]
+
+    def _step(self) -> bool:
+        """Advance the top frame by one kid, or close it out at the end."""
+        frame = self.stack[-1]
+        kids, idx = frame[1], frame[2]
+        if idx == len(kids):
+            self._close(frame)
+            return True
+        k = kids[idx]
+        if isinstance(k, str):  # a scanned char — the literal policy
+            self._literal(frame, k)
+            return True
+        return self._rule_child(frame, k)
+
+    def _rule_child(self, frame: list, k: int) -> bool:
+        """Contribute one rule-child kid per its splice / noise policy."""
+        rid = self._rule_of(k)
+        plan = self.plan
+        if plan.synthetic[rid]:  # splice — flattened, never reduced
+            sub = self._collect(k)
+            if sub is None:
+                return False
+            self.stack.append([k, sub, 0, [], True])
+            return True
+        kind = plan.noise_kind[rid]
+        if kind == _DROP_KIND:  # contributes nothing; never reduced
+            frame[2] += 1
+            return True
+        if kind != _KEEP_KIND:  # KEEP_RAW / custom noise — legacy path
+            return False
+        return self._keep_reduced(frame, k, rid)
+
+    def _keep_reduced(self, frame: list, k: int, rid: int) -> bool:
+        """Contribute child ``k``'s reduction (memo, span fast path, or frame)."""
+        cached = self.memo.get(k)
+        if cached is not None:
+            frame[3].append(cached)
+            frame[2] += 1
+            return True
+        if self._body(rid) is YIELD:  # span fast path — skip the subtree
+            value = IrStr(self._yield_text(k))
+            self.memo[k] = value
+            frame[3].append(value)
+            frame[2] += 1
+            return True
+        sub = self._collect(k)
+        if sub is None:
+            return False
+        self.stack.append([k, sub, 0, [], False])  # idx stays; resume on close
+        return True
+
+    def _literal(self, frame: list, char: str) -> None:
+        """Apply the literal policy to a scanned char kid."""
+        kind = self.plan.literal_kind
+        if kind == _KEEP_KIND:
+            frame[3].append(self.kernel.tables.char_leaf(char))
+        elif kind == _OTHER_KIND:
+            reducer = self.reducer
+            leaf = self.kernel.tables.char_leaf(char)
+            frame[3].extend(reducer.literal.eval(reducer, leaf, ()))
+        frame[2] += 1
+
+    def _close(self, frame: list) -> None:
+        """Finish a fully-resolved frame and feed its result to its caller."""
+        handle, _, _, parts, is_splice = frame
+        self.stack.pop()
+        if not is_splice:
+            rid = self._rule_of(handle)
+            body = self._body(rid)
+            if body is YIELD:
+                value: IrSelf = IrStr(self._yield_text(handle))
+            else:
+                span = (
+                    IrStr(self._yield_text(handle))
+                    if self.plan.mentions[rid]
+                    else IrNone
+                )
+                value = body.eval(self.reducer, span, IrTuple(*parts))
+            self.memo[handle] = value
+        if not self.stack:
+            return
+        parent = self.stack[-1]
+        if is_splice:
+            parent[3].extend(parts)
+        else:
+            parent[3].append(value)
+        parent[2] += 1
+
+    def _body(self, rid: int) -> IrSelf:
+        """Rule ``rid``'s reduction body, resolved lazily and cached."""
+        plan = self.plan
+        body = plan.bodies[rid]
+        if body is None:
+            body = self.reducer.reductions.resolve(plan.refs[rid])
+            plan.bodies[rid] = body
+            plan.mentions[rid] = _mentions_yield(body)
+        return body
+
+    def _yield_text(self, handle: int) -> str:
+        """The source text under ``handle``, skipping DROP-noise sub-spans.
+
+        A subtree with no reachable DROP rule contributes one O(1) slice;
+        otherwise its kids are walked (depth on the explicit list).
+
+        :raises _FusedMiss: If an ambiguous key is hit mid-walk.
+        """
+        plan = self.plan
+        text = self.kernel.text
+        out: list[str] = []
+        kids = self._collect(handle)
+        if kids is None:
+            raise _FusedMiss
+        work = list(reversed(kids))
+        while work:
+            k = work.pop()
+            if isinstance(k, str):
+                out.append(k)
+                continue
+            rid = self._rule_of(k)
+            if plan.noise_kind[rid] == _DROP_KIND:
+                continue
+            if not plan.can_drop[rid]:  # pure span — no droppable descendant
+                item = k >> ORIGIN_BITS
+                out.append(text[item & ORIGIN_MASK : k & ORIGIN_MASK])
+                continue
+            sub = self._collect(k)
+            if sub is None:
+                raise _FusedMiss
+            work.extend(reversed(sub))
+        return "".join(out)
+
+    def _rule_of(self, handle: int) -> int:
+        """The rule_id owning ``handle``'s item."""
+        codes = self.kernel.tables.codes
+        return codes.arm_rule[codes.code_arm[handle >> (2 * ORIGIN_BITS)]]
+
+    def _collect(self, handle: int) -> list | None:
+        """Raw kids of ``handle`` in source order (chars and packed handles).
+
+        Expands a deferred Leo top on first touch. ``None`` when a key is
+        missing or packs more than one family (ambiguity — fall back).
+        """
+        kernel = self.kernel
+        st = kernel.st
+        links = st.links
+        if handle in st.leo_links and handle not in links:
+            kernel.expand_leo(handle)
+        codes = kernel.tables.codes
+        item = handle >> ORIGIN_BITS
+        end = handle & ORIGIN_MASK
+        base = codes.arm_base[codes.code_arm[item >> ORIGIN_BITS]]
+        kids: list = []
+        while (item >> ORIGIN_BITS) != base:  # dot > 0: more kids to collect
+            bucket = links.get((item << ORIGIN_BITS) | end)
+            if bucket is None or len(bucket) > 1:
+                return None
+            item, end, child = bucket[0]
+            kids.append(child)
+        kids.reverse()
+        return kids
 
 
 class Reducer(IrDispatch):
