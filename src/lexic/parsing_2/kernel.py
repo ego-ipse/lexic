@@ -39,6 +39,7 @@ from lexic.parsing_2.tables import (
     ORIGIN_BITS,
     ORIGIN_MASK,
     ParserTables,
+    RunTerm,
 )
 
 KLink = tuple[int, int, "int | str"]
@@ -59,8 +60,9 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
     :ivar predicted: Per column, the ``rule_id``\\ s already predicted.
     :ivar leo: Per column, ``rule_id`` → memoised Leo top (``-1`` = none).
     :ivar links: handle → its packed SPPF families.
-    :ivar leo_links: deferred Leo provenance — top handle → the chain's
-        bottom family, rebuilt into :attr:`links` on demand.
+    :ivar leo_links: deferred Leo provenance — top handle → the bottom
+        family of every chain that jumped to it (converging ambiguous
+        chains each file theirs), rebuilt into :attr:`links` on demand.
     """
 
     __slots__ = (
@@ -79,7 +81,7 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
     predicted: list[set[int]]
     leo: list[dict[int, int]]
     links: dict[int, list[KLink]]
-    leo_links: dict[int, KLink]
+    leo_links: dict[int, list[KLink]]
 
     def __init__(self, columns: int) -> None:
         """Seed empty per-parse state for ``columns`` columns."""
@@ -315,27 +317,60 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 bucket.append(entry)
 
     def _scan(self, i: int) -> None:
-        """Scan ``text[i]``: advance items facing an accepting terminal."""
-        terms = self.tables.terms_for(self.text[i])
+        """Scan at ``text[i]``: advance items facing a matching terminal.
+
+        A char-class match lands one column ahead; a k-char literal match
+        (``startswith``, C-level) lands k ahead; a :class:`~lexic.parsing_2
+        .tables.RunTerm` consumes its maximal run in one step and lands at
+        the run's end.
+        """
+        text = self.text
+        terms = self.tables.terms_for(text[i])
         if not terms:
             return
         scannable_i = self.st.scannable[i]
-        record = self.record_links
+        atoms = self.tables.term_atoms
+        lens = self.tables.term_lens
         for tid in terms:
             bucket = scannable_i.get(tid)
-            if bucket:
-                self._advance_all(i + 1, bucket)
-                if record:
-                    self._record_scans(i, bucket)
+            if not bucket:
+                continue
+            k = lens[tid]
+            if k == 1:
+                j = i + 1
+            elif k > 1:  # multi-char literal — one C-level comparison
+                if not text.startswith(atoms[tid], i):
+                    continue
+                j = i + k
+            else:  # k == 0 — a maximal-munch run terminal
+                j = self._run_end(i, atoms[tid])
+                if j < 0:
+                    continue
+            self._advance_all(j, bucket)
+            if self.record_links:
+                self._record_scans(i, j, bucket)
 
-    def _record_scans(self, i: int, bucket: list[int]) -> None:
-        """Record the consumed-char family for each scanned advance."""
-        char = self.text[i]
+    def _run_end(self, i: int, term: RunTerm) -> int:
+        """The end of the maximal run of ``term`` starting at ``i``, or ``-1``.
+
+        ``text[i]`` is already known to match (the scanner filtered by first
+        char), so the walk starts at ``i + 1``.
+        """
+        text = self.text
+        charset = term.charset
+        n = len(text)
         j = i + 1
+        while j < n and text[j] in charset:
+            j += 1
+        return j if j - i >= term.lo else -1
+
+    def _record_scans(self, i: int, j: int, bucket: list[int]) -> None:
+        """Record the consumed-text family for each scanned advance."""
+        child = self.text[i:j]
         links = self.st.links
         for it in bucket:
             key = ((it + ADVANCE) << ORIGIN_BITS) | j
-            entry: KLink = (it, i, char)
+            entry: KLink = (it, i, child)
             fam = links.get(key)
             if fam is None:
                 links[key] = [entry]
@@ -381,12 +416,12 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 self._file(i, top, s)
         if self.record_links:
             key = (top << ORIGIN_BITS) | i
-            if key not in self.st.leo_links:
-                self.st.leo_links[key] = (
-                    sole,
-                    done & ORIGIN_MASK,
-                    (done << ORIGIN_BITS) | i,
-                )
+            entry: KLink = (sole, done & ORIGIN_MASK, (done << ORIGIN_BITS) | i)
+            bucket = self.st.leo_links.get(key)
+            if bucket is None:
+                self.st.leo_links[key] = [entry]
+            elif entry not in bucket:  # a second chain to the same top
+                bucket.append(entry)
         return True
 
     def _leo_sole(self, col: int, rid: int) -> int:
@@ -399,15 +434,16 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             return sole
         return -1
 
-    def _leo_resolve(
-        self, cur: int, col: int, rid: int, seen: set[int] | None = None
-    ) -> int:
+    def _leo_resolve(self, cur: int, col: int, rid: int) -> int:
         """Leo's transitive (topmost) item for completing ``rid`` at ``col``.
 
         Climbs the deterministic chain, memoising per closed column (the
         current column ``cur`` is recomputed — its waiters may still grow).
-        ``seen`` guards same-column (empty-span) steps against nullable
-        cycles, allocated lazily; a revisit returns ``-1`` (no topmost item).
+        A **same-column** (empty-span) step stops the climb: those steps are
+        cycle- and ambiguity-prone and carry no asymptotic benefit (Leo's
+        payoff is cross-column right recursion), so the normal completer —
+        which records every family — handles them. Columns then strictly
+        decrease up the climb, so termination needs no cycle guard.
 
         :returns: The packed topmost item, or ``-1``.
         """
@@ -416,23 +452,15 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             memo = leo_col.get(rid)
             if memo is not None:
                 return memo
-        pk = (col << ORIGIN_BITS) | rid
-        if seen is not None and pk in seen:
-            return -1
         found = self._leo_sole(col, rid)
-        if found < 0:
-            result = -1
+        if found < 0 or (found & ORIGIN_MASK) == col:
+            result = -1  # no sole waiter, or an empty-span step — no jump
         else:
-            if (found & ORIGIN_MASK) == col:  # empty-span step — cycle-prone
-                if seen is None:
-                    seen = set()
-                seen.add(pk)
             c = self.tables.codes
             parent = self._leo_resolve(
                 cur,
                 found & ORIGIN_MASK,
                 c.arm_rule[c.code_arm[found >> ORIGIN_BITS]],
-                seen,
             )
             result = parent if parent >= 0 else found + ADVANCE
         if col != cur:
@@ -445,11 +473,16 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         Files each skipped completion's family into :attr:`KernelState.links`
         bottom-up, O(chain), idempotent (families dedup).
         """
-        waiter, waiter_end, child = self.st.leo_links[key]
         top = key >> ORIGIN_BITS
         end = key & ORIGIN_MASK
+        for bottom in self.st.leo_links[key]:
+            self._expand_chain(top, end, bottom)
+
+    def _expand_chain(self, top: int, end: int, bottom: KLink) -> None:
+        """Rebuild one deferred chain from its bottom family up to ``top``."""
         links = self.st.links
         c = self.tables.codes
+        waiter, waiter_end, child = bottom
         while True:
             adv = waiter + ADVANCE
             k = (adv << ORIGIN_BITS) | end

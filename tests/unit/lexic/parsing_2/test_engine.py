@@ -27,7 +27,9 @@ import pytest
 
 import lexic.parsing_2.engine as engine_mod
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrNoneType, IrSelf, IrSeq
+from lexic.ir.action import IrArgs, IrJoin
+from lexic.ir.base import IrNone, IrNoneType, IrSelf, IrSeq, IrTuple
+from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -45,24 +47,23 @@ from lexic.parsing_2 import (
     is_ambiguous,
     parse,
     parse_forest,
+    parse_reduced,
     recognize,
 )
+from lexic.parsing_2.engine import PARSE_REDUCED, ParseReduced
 from lexic.parsing_2.forest import (
     DerivationStream,
     IrStream,
     SppfNode,
 )
-from lexic.parsing_2.normalize import (
-    desugar_quantifiers,
-    flatten_groups,
-    split_literals,
-)
+from lexic.parsing_2.normalize import normalize
+from lexic.parsing_2.reduce import Reducer
 
 # ── Grammar builders ──────────────────────────────────────────────────
 
 
 def _normalize(g: IrAst) -> IrAst:
-    return split_literals(desugar_quantifiers(flatten_groups(g)))
+    return normalize(g)
 
 
 def _quant_grammar(lo: int, hi: int | object) -> IrAst:
@@ -227,20 +228,20 @@ def test_bounded_two_to_four_rejects_five():
     assert not recognize(g, "aaaaa")
 
 
-# ── split_literals integration ────────────────────────────────────────
+# ── multi-char literal integration (atomic scan, no split_literals) ───
 
 
-def test_split_literals_true_keyword_recognized():
-    """split_literals turns 'true' into 4 single-char items; recognizes 'true'."""
+def test_multichar_literal_true_keyword_recognized():
+    """A multi-char literal atom ('true') is scanned atomically; recognizes 'true'."""
     rule = IrRule("s", IrAlternation(IrSequence(IrItem(IrLiteral("true")))))
-    g = split_literals(IrAst(rules=IrSeq(rule), start="s"))
+    g = normalize(IrAst(rules=IrSeq(rule), start="s"))
     assert recognize(g, "true")
 
 
-def test_split_literals_true_keyword_rejects_partial():
-    """After split_literals, 'tru' (missing last char) is rejected."""
+def test_multichar_literal_true_keyword_rejects_partial():
+    """A multi-char literal atom rejects 'tru' (missing last char) — no partial match."""
     rule = IrRule("s", IrAlternation(IrSequence(IrItem(IrLiteral("true")))))
-    g = split_literals(IrAst(rules=IrSeq(rule), start="s"))
+    g = normalize(IrAst(rules=IrSeq(rule), start="s"))
     assert not recognize(g, "tru")
 
 
@@ -556,3 +557,52 @@ def test_parse_single_derivation_unambiguous_roundtrip(
     grammar = digit_grammar if grammar_name == "digit" else expr_grammar
     tree = parse(grammar, text)
     assert _tree_to_text(tree) == text
+
+
+# ── ParseReduced / PARSE_REDUCED / parse_reduced ──────────────────────
+
+_YIELD = IrJoin(parts=IrArgs(), separator=IrLiteral(""), empty=IrLiteral(""))
+"""Concatenate reduced children — the string-yield body (mirrors test_reduce.py)."""
+
+
+def _digit_reducer() -> Reducer:
+    """A Reducer whose reduction table covers the digit_grammar's 'digit' rule."""
+    return Reducer(reductions=IrMap(IrTuple(IrRuleRef("digit"), _YIELD)))
+
+
+def _s_reducer() -> Reducer:
+    """A Reducer whose reduction table covers the sss_grammar's 's' rule."""
+    return Reducer(reductions=IrMap(IrTuple(IrRuleRef("s"), _YIELD)))
+
+
+def test_parse_reduced_singleton_is_parse_reduced_instance():
+    """PARSE_REDUCED is a ParseReduced instance — the shared singleton."""
+    assert isinstance(PARSE_REDUCED, ParseReduced)
+
+
+def test_parse_reduced_matches_reducer_apply_parse(digit_grammar: IrAst):
+    """parse_reduced(g, t, reducer) equals reducer.apply(parse(g, t)) — unambiguous."""
+    reducer = _digit_reducer()
+    result = parse_reduced(digit_grammar, "7", reducer)
+    expected = reducer.apply(parse(digit_grammar, "7"))
+    assert str(result) == str(expected)
+
+
+def test_parse_reduced_raises_on_invalid_input(digit_grammar: IrAst):
+    """parse_reduced() raises UnsupportedConstructError when the input does not parse."""
+    reducer = _digit_reducer()
+    with pytest.raises(UnsupportedConstructError):
+        parse_reduced(digit_grammar, "z", reducer)
+
+
+def test_parse_reduced_raises_on_ambiguous_input(sss_grammar: IrAst):
+    """parse_reduced() raises UnsupportedConstructError on ambiguous input."""
+    reducer = _s_reducer()
+    with pytest.raises(UnsupportedConstructError):
+        parse_reduced(sss_grammar, "aaa", reducer)
+
+
+def test_parse_reduced_raises_on_non_reducer_argument(digit_grammar: IrAst):
+    """parse_reduced() raises UnsupportedConstructError when reducer isn't a Reducer."""
+    with pytest.raises(UnsupportedConstructError, match="Reducer"):
+        parse_reduced(digit_grammar, "5", "not a reducer")

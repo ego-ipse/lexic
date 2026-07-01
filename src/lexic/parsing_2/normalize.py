@@ -1,7 +1,7 @@
 """Desugar an IR grammar into classical Earley shape.
 
-The IR is richer than textbook BNF, so a few canonicalisations precede Earley.
-Run them in this order — each assumes its predecessors:
+The IR is richer than textbook BNF, so two canonicalisations precede Earley.
+Run them in this order — the second assumes the first:
 
 1. **Flatten inline groups** (:class:`FlattenGroups`). An
    :class:`~lexic.ir.nodes.IrAlternation` used as an atom (a parenthesised group)
@@ -14,15 +14,14 @@ Run them in this order — each assumes its predecessors:
    ``X = "" / elem X``; ``+`` → ``X = elem / elem X``; ``?`` → ``X = "" / elem``;
    bounded counts unrolled). ``*`` and ``?`` introduce *nullable* rules.
 
-3. **Split multi-char literals** (:class:`SplitLiterals`). Scannerless Earley
-   scans one character per column, so ``IrLiteral("false")`` becomes five
-   single-char items. Run last, after a quantified literal has been moved into a
-   synthetic rule with a ``(1, 1)`` quantifier.
+Multi-char literals are NOT split: a k-char literal is one scan atom — the
+kernel matches it with ``text.startswith`` and lands the advance k columns
+ahead, so one leaf covers the whole literal.
 
 Each transform is an :class:`~lexic.ir.walk.IrTransformer`: the generic
 :class:`~lexic.ir.action.IrRebuild` default walks and rebuilds the tree, so a
 transform only declares the node types where it *deviates* — no hand-rolled
-``rules → arms → items`` recursion. Steps (1) and (2) mint fresh rule names and
+``rules → arms → items`` recursion. Both steps mint fresh rule names and
 collect new rules in a mutable :class:`Minter` leaf carried on the transformer
 (reached through the dispatcher ``d``); numeric recursion params (repeat bounds)
 ride the argument channel as :class:`~lexic.ir.base.IrInt`, so ``nc`` stays
@@ -30,8 +29,8 @@ ride the argument channel as :class:`~lexic.ir.base.IrInt`, so ``nc`` stays
 
 Synthetic rules carry the :data:`SYNTHETIC_PREFIX` so a later reduction step can
 recognise and collapse them. The module-level :func:`flatten_groups` /
-:func:`desugar_quantifiers` / :func:`split_literals` / :func:`normalize` are the
-normalisation entry points — each builds a fresh transformer and applies it.
+:func:`desugar_quantifiers` / :func:`normalize` are the normalisation entry
+points — each builds a fresh transformer and applies it.
 """
 
 from __future__ import annotations
@@ -56,7 +55,6 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
     IrItem,
-    IrLiteral,
     IrQuantifier,
     IrRule,
     IrRuleRef,
@@ -110,25 +108,6 @@ class Minter(IrLeaf[IrSelf, IrSelf]):
     def __iter__(self) -> Iterator[IrRule]:
         """Iterate the collected synthetic rules, in mint order."""
         return iter(self._new)
-
-
-class SplitSeq(IrLeaf[IrSelf, IrSelf]):
-    """``IrSequence`` action: flat-expand multi-char literal items to one char each."""
-
-    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSequence:
-        """:param n: the sequence; :returns: the sequence with literals split."""
-        seq = cast(IrSequence, n)
-        items: list[IrItem] = []
-        for item in seq:
-            if (
-                isinstance(item.atom, IrLiteral)
-                and item.quantifier == _ONE
-                and len(str(item.atom)) > 1
-            ):
-                items.extend(IrItem(IrLiteral(ch)) for ch in str(item.atom))
-            else:
-                items.append(item)
-        return IrSequence(*items)
 
 
 class HoistItem(IrLeaf[IrSelf, IrSelf]):
@@ -321,12 +300,6 @@ class DesugarQuantifiers(_Minting):
     )
 
 
-class SplitLiterals(IrTransformer):
-    """Rewrite every multi-char literal atom into single-char items (no minting)."""
-
-    actions: IrTypeMap = IrTypeMap(IrAction(IrSequence, SplitSeq()))
-
-
 def flatten_groups(grammar: IrAst) -> IrAst:
     """Hoist inline group atoms into fresh synthetic rules (entry point).
 
@@ -348,19 +321,14 @@ def desugar_quantifiers(grammar: IrAst) -> IrAst:
     return cast(IrAst, DesugarQuantifiers(minter=minter).apply(grammar))
 
 
-def split_literals(grammar: IrAst) -> IrAst:
-    """Rewrite every multi-char literal atom into single-char items (entry point).
-
-    :param grammar: The grammar to rewrite.
-    :returns: An equivalent grammar with one character per literal item.
-    """
-    return cast(IrAst, SplitLiterals().apply(grammar))
-
-
 def normalize(grammar: IrAst) -> IrAst:
-    """Full normalisation: flatten groups, desugar quantifiers, split literals.
+    """Full normalisation: flatten groups, desugar quantifiers.
+
+    Multi-char literals stay atomic — the kernel scans a k-char literal in
+    one step (``text.startswith``) and lands the advance k columns ahead, so
+    splitting them would only multiply the column work.
 
     :param grammar: The grammar to normalise.
     :returns: The Earley-shaped grammar.
     """
-    return split_literals(desugar_quantifiers(flatten_groups(grammar)))
+    return desugar_quantifiers(flatten_groups(grammar))

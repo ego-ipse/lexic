@@ -23,19 +23,18 @@ from lexic.ir.nodes import (
 )
 from lexic.parsing_2 import parse, recognize
 from lexic.parsing_2.forest import ParseTree
-from lexic.parsing_2.normalize import (
-    desugar_quantifiers,
-    flatten_groups,
-    split_literals,
-)
+from lexic.parsing_2.normalize import normalize
 from lexic.parsing_2.reduce import YIELD, Reducer
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
 def _normalize(g: IrAst) -> IrAst:
-    """Full normalization pipeline."""
-    return split_literals(desugar_quantifiers(flatten_groups(g)))
+    """Full normalization pipeline: flatten_groups -> desugar_quantifiers.
+
+    Multi-char literals stay atomic (no split_literals step).
+    """
+    return normalize(g)
 
 
 # ── ABNF_GRAMMAR structure ────────────────────────────────────────────

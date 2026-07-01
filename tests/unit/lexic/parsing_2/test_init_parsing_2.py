@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from lexic.parsing_2 import (
     BUILD_TREE,
+    PARSE_REDUCED,
     Chart,
     EarleyItem,
     EarleyParser,
@@ -32,11 +33,13 @@ from lexic.parsing_2 import (
     is_ambiguous,
     parse,
     parse_forest,
+    parse_reduced,
     recognize,
 )
 from lexic.parsing_2.chart import Chart as ChartDirect
 from lexic.parsing_2.chart import Link as LinkDirect
 from lexic.parsing_2.chart import Links as LinksDirect
+from lexic.parsing_2.engine import PARSE_REDUCED as PARSE_REDUCED_DIRECT
 from lexic.parsing_2.engine import EarleyParser as EarleyParserDirect
 from lexic.parsing_2.forest import BUILD_TREE as BUILD_TREE_DIRECT
 from lexic.parsing_2.forest import ParseTree as ParseTreeDirect
@@ -143,3 +146,17 @@ def test_parser_tables_re_exported_from_package():
 def test_compile_tables_re_exported_from_package():
     """compile_tables is re-exported from the package top-level."""
     assert compile_tables is compile_tables_direct
+
+
+# ── Phase B: parse_reduced / PARSE_REDUCED ─────────────────────────────
+
+
+def test_parse_reduced_callable_from_package():
+    """parse_reduced is importable and callable from the package top-level."""
+    assert callable(parse_reduced)
+
+
+def test_parse_reduced_singleton_re_exported_from_package():
+    """PARSE_REDUCED is importable from the package top-level (not in __all__,
+    but still reachable — __all__ only governs `from module import *`)."""
+    assert PARSE_REDUCED is PARSE_REDUCED_DIRECT

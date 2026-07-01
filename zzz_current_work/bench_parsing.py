@@ -1,17 +1,21 @@
 """Parsing benchmark: native Earley (``parsing_2/``) vs Lark — **goal: beat Lark**.
 
-Every Earley stage is paired with the **matching Lark stage** (same work), so each
-row is a true earley-vs-lark comparison:
+Every Earley stage is paired with the **matching Lark stage**, so each row is a
+true earley-vs-lark comparison:
 
-  stage          earley                         lark (parser='earley')
-  recognize      recognize()        → bool      parse, ambiguity='forest' → SPPF, no tree
-  parse          parse()            → ParseTree parse                     → Lark Tree
-  parse+reduce   reduce(parse())    → IrAst     parse + transform         → IrAst   ← product
+  stage          earley                          lark (parser='earley')
+  recognize      recognize()         → bool      parse, ambiguity='forest' → SPPF, no tree
+  parse          parse()             → ParseTree parse                     → Lark Tree
+  parse+reduce   parse_reduced()     → IrAst     parse + transform         → IrAst   ← product
 
-``recognize`` is Lark's parse stopped at the forest (no tree extraction) — its
-cheapest "did it parse"; ``parse`` adds the tree; ``parse+reduce`` / lark-full add
-the semantic transform (text → ``IrAst``, the grammar object you ship). The
-``parse+reduce`` row is the headline "do we beat Lark".
+The rows are **independent races, not an additive work ladder** — each engine
+entry runs its own optimal pipeline: ``recognize`` uses maximally run-collapsed
+tables and records no forest; ``parse`` uses plain per-char tables (its
+contract is the exact ParseTree); ``parse_reduced`` uses reducer-collapsed
+tables plus the fused SPPF→IR fold. That is why the product row can beat the
+parse row: it does more semantic work on a far smaller chart — exactly as
+Lark's transform rides on its token-collapsed lexer. The ``parse+reduce`` row
+is the headline "do we beat Lark" (text → ``IrAst``, the object you ship).
 
 Each cell is median ± stdev over **interleaved** samples (one of every variant per
 round, so machine drift hits all alike). ``--save`` snapshots medians so a later

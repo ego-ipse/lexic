@@ -4,6 +4,15 @@ Date: 2026-07-01. Baseline this machine, post-OPT-REDUCE (`7c98085`):
 **product x4 = 2.22×** Lark (237.6ms vs 107.0ms), parse 1.88×, recognize 1.65×.
 Fixpoint True, 1151 tests green.
 
+> **OUTCOME (same day).** Executed in full. Measured phase landings (x4
+> product vs Lark): Phase A (int kernel) 2.22× → 1.45×; Phase B (fused
+> reduce) → 1.07×; Phase C (derived runs) → **0.52× — Lark beaten by ~2×**,
+> stable across x1/x2/x4. Recognize 0.40× (collapsed) / 1.00× (plain-tables
+> parity); deep right-recursion 0.3×, linear, depth-safe at N=60,000; ABNF
+> fixpoint holds on every path. Bonus: two pre-existing correctness bugs
+> retired (the `Yield` RecursionError, and Leo dropping SPPF families on
+> converging/same-column chains). Section 3's budget proved conservative.
+
 ---
 
 ## 1. The two decisive facts (new analysis, both verified today)

@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing_2.normalize — desugar, flatten, split, invariants.
+"""Tests for lexic.parsing_2.normalize — desugar, flatten, invariants.
 
 API changes:
 
@@ -7,9 +7,17 @@ API changes:
 
 - ``normalize()`` composer function added; a few tests exercise it directly.
 
-- New node classes (``Minter``, ``SplitSeq``, ``HoistItem``, ``DesugarItem``,
-  ``CollectRules``, ``Expand``, ``OptChain``, ``SplitLiterals``,
-  ``FlattenGroups``, ``DesugarQuantifiers``) are importable.
+- ``split_literals``/``SplitLiterals``/``SplitSeq`` are DELETED — multi-char
+  literals no longer split into single-char items.  The kernel scans a k-char
+  literal with ``text.startswith`` and lands the advance k columns ahead, so
+  one leaf now covers the whole literal.  ``normalize()`` is just
+  ``flatten_groups`` → ``desugar_quantifiers``.  The removed tests
+  (``test_split_literals_*``) targeted a deleted concept with no new home —
+  they are dropped rather than ported.
+
+- New node classes (``Minter``, ``HoistItem``, ``DesugarItem``,
+  ``CollectRules``, ``Expand``, ``OptChain``, ``FlattenGroups``,
+  ``DesugarQuantifiers``) are importable.
 """
 
 from __future__ import annotations
@@ -33,7 +41,6 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2 import recognize
 from lexic.parsing_2.normalize import (
     SYNTHETIC_PREFIX,
     CollectRules,
@@ -44,20 +51,17 @@ from lexic.parsing_2.normalize import (
     HoistItem,
     Minter,
     OptChain,
-    SplitLiterals,
-    SplitSeq,
     desugar_quantifiers,
     flatten_groups,
     normalize,
-    split_literals,
 )
 
 _ONE = IrQuantifier(1, 1)
 
 
 def _normalize(g: IrAst) -> IrAst:
-    """Full normalization pipeline: flatten_groups → desugar_quantifiers → split_literals."""
-    return split_literals(desugar_quantifiers(flatten_groups(g)))
+    """Full normalization pipeline: flatten_groups → desugar_quantifiers."""
+    return desugar_quantifiers(flatten_groups(g))
 
 
 def _single_rule(atom, quant: IrQuantifier = _ONE) -> IrAst:
@@ -97,87 +101,40 @@ def test_source_names_do_not_start_with_prefix():
         assert not name.startswith(SYNTHETIC_PREFIX)
 
 
-# ── split_literals ────────────────────────────────────────────────────
+# ── multi-char literals stay atomic (no split_literals) ───────────────
 
 
-def test_split_literals_multichar_literal_becomes_individual_items():
-    """'true' (4 chars) becomes 4 single-char IrItem nodes."""
-    g = _literal_rule("true")
-    result = split_literals(g)
-    arm = list(list(result.rules)[0].body)[0]
-    assert len(arm) == 4
-    chars = [str(item.atom) for item in arm]
-    assert chars == ["t", "r", "u", "e"]
-
-
-def test_split_literals_single_char_literal_unchanged():
-    """A single-char literal is not split."""
-    g = _literal_rule("x")
-    result = split_literals(g)
-    arm = list(list(result.rules)[0].body)[0]
-    assert len(arm) == 1
-    assert arm[0].atom == IrLiteral("x")
-
-
-def test_split_literals_quantified_multichar_literal_not_split():
-    """A quantified multi-char literal (non-(1,1)) is left as-is by split_literals.
-
-    Quantified literals must be desugared first by desugar_quantifiers.
-    split_literals only splits unquantified (1,1) multi-char literals.
-    """
-    g = _literal_rule("ab", IrQuantifier(0, IrNone))
-    result = split_literals(g)
-    arm = list(list(result.rules)[0].body)[0]
-    # The item is NOT split because its quantifier is not (1,1)
-    assert len(arm) == 1
-    assert arm[0].atom == IrLiteral("ab")
-
-
-def test_split_literals_ruleref_atom_untouched():
-    """IrRuleRef atoms are not affected by split_literals."""
+def test_ruleref_atom_unaffected_by_normalize():
+    """IrRuleRef atoms pass through normalize() unchanged."""
     g = _ruleref_rule("expr")
-    result = split_literals(g)
+    result = _normalize(g)
     rules = list(result.rules)
     arm = list(rules[0].body)[0]
     assert arm[0].atom == IrRuleRef("expr")
 
 
-def test_split_literals_charclass_atom_untouched():
-    """IrCharClass atoms are not split."""
+def test_charclass_atom_unaffected_by_normalize():
+    """IrCharClass atoms are untouched by normalize()."""
     g = _single_rule(IrCharClass(IrRange(IrChr("0"), IrChr("9"))))
-    result = split_literals(g)
+    result = _normalize(g)
     arm = list(list(result.rules)[0].body)[0]
     assert isinstance(arm[0].atom, IrCharClass)
 
 
-def test_split_literals_all_items_in_split_have_one_one_quantifier():
-    """All items after splitting a multi-char literal have (1,1) quantifier."""
-    g = _literal_rule("abc")
-    result = split_literals(g)
+def test_multichar_literal_stays_one_item():
+    """A multi-char literal ('true') remains a single IrItem — not split."""
+    g = _literal_rule("true")
+    result = _normalize(g)
     arm = list(list(result.rules)[0].body)[0]
-    for item in arm:
-        assert item.quantifier == _ONE
+    assert len(arm) == 1
+    assert arm[0].atom == IrLiteral("true")
 
 
-def test_split_literals_preserves_start_rule():
-    """split_literals keeps the grammar's start rule name unchanged."""
+def test_multichar_literal_preserves_start_rule():
+    """normalize() keeps the grammar's start rule name unchanged."""
     g = _literal_rule("hello")
-    result = split_literals(g)
+    result = _normalize(g)
     assert result.start == g.start
-
-
-def test_split_literals_recognizes_split_word():
-    """After split_literals, the recognizer accepts the word."""
-    g = _literal_rule("true")
-    result = split_literals(g)
-    assert recognize(result, "true")
-
-
-def test_split_literals_rejects_partial_match_after_split():
-    """After split_literals, the recognizer rejects a partial word."""
-    g = _literal_rule("true")
-    result = split_literals(g)
-    assert not recognize(result, "tru")
 
 
 # ── flatten_groups ────────────────────────────────────────────────────
@@ -408,7 +365,7 @@ def test_desugar_s_now_references_synthetic_rule():
 
 
 def test_normalize_composer_equals_manual_pipeline():
-    """normalize() returns the same result as the manual three-step pipeline."""
+    """normalize() returns the same result as the manual two-step pipeline."""
     g = _literal_rule("ab", IrQuantifier(0, IrNone))
     assert normalize(g) == _normalize(g)
 
@@ -427,13 +384,11 @@ def test_normalize_node_classes_are_importable():
     """The IrSelf node classes are importable from normalize."""
     for cls in (
         Minter,
-        SplitSeq,
         HoistItem,
         DesugarItem,
         CollectRules,
         Expand,
         OptChain,
-        SplitLiterals,
         FlattenGroups,
         DesugarQuantifiers,
     ):
@@ -444,7 +399,13 @@ def test_normalize_node_classes_are_importable():
 
 
 def _check_normalized(g: IrAst) -> list[str]:
-    """Return descriptions of any normalization violations."""
+    """Return descriptions of any normalization violations.
+
+    Post-normalize, every item has a (1,1) quantifier and no atom is an
+    IrAlternation (an un-hoisted group) — multi-char IrLiteral atoms are
+    now EXPECTED (they stay atomic; the kernel scans them via
+    ``text.startswith``), so a multi-char literal is not a violation.
+    """
     issues: list[str] = []
     for rule in g.rules:
         for arm in rule.body:
@@ -455,20 +416,35 @@ def _check_normalized(g: IrAst) -> list[str]:
                     )
                 if isinstance(item.atom, IrAlternation):
                     issues.append(f"{rule.name}: IrAlternation atom (unhoist group)")
-                if isinstance(item.atom, IrLiteral) and len(str(item.atom)) > 1:
-                    issues.append(f"{rule.name}: multi-char literal {item.atom!r}")
     return issues
 
 
 def test_normalize_abnf_grammar_no_violations():
-    """After full normalization, ABNF_GRAMMAR has no non-(1,1) quantifiers,
-    no IrAlternation atoms, and no multi-char IrLiteral atoms."""
+    """After full normalization, ABNF_GRAMMAR has no non-(1,1) quantifiers
+    and no IrAlternation atoms."""
     issues = _check_normalized(_normalize(ABNF_GRAMMAR))
     assert not issues, f"Normalization violations: {issues}"
 
 
 def test_normalize_json_grammar_no_violations():
-    """After full normalization, JSON_GRAMMAR has no non-(1,1) quantifiers,
-    no IrAlternation atoms, and no multi-char IrLiteral atoms."""
+    """After full normalization, JSON_GRAMMAR has no non-(1,1) quantifiers
+    and no IrAlternation atoms."""
     issues = _check_normalized(_normalize(JSON_GRAMMAR))
     assert not issues, f"Normalization violations: {issues}"
+
+
+def test_normalize_json_grammar_multichar_literals_stay_atomic():
+    """JSON_GRAMMAR's normalized form keeps at least one multi-char literal
+    intact (e.g. "true"/"false"/"null"), proving normalize() no longer splits
+    them. ABNF_GRAMMAR has no multi-char literal atoms of its own (its literals
+    are all single ABNF core-rule characters), so JSON_GRAMMAR is the fixture
+    that actually exercises this invariant."""
+    result = _normalize(JSON_GRAMMAR)
+    multichar = [
+        item.atom
+        for rule in result.rules
+        for arm in rule.body
+        for item in arm
+        if isinstance(item.atom, IrLiteral) and len(str(item.atom)) > 1
+    ]
+    assert multichar, "expected at least one multi-char literal to survive normalize()"

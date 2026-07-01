@@ -64,17 +64,17 @@ _ONE = IrQuantifier(1, 1)
 
 
 def atom_accepts(atom: IrSelf, char: str) -> bool:
-    """Whether a terminal atom accepts ``char`` — the matching kernel.
+    """Whether a terminal atom can **begin** with ``char`` — the scan filter.
 
-    Assumes literals were split to one char each (see
-    :mod:`lexic.parsing_2.normalize`).
+    A multi-char literal is begun by its first character (the full match is
+    the scanner's ``startswith``); a :class:`RunTerm` by any char of its set.
 
-    :param atom: A terminal atom (``IrLiteral`` or ``IrCharClass``).
+    :param atom: A terminal atom (``IrLiteral``, ``IrCharClass``, ``RunTerm``).
     :param char: A single character.
-    :returns: ``True`` when ``atom`` matches ``char``.
+    :returns: ``True`` when a match at ``char`` is possible.
     """
     if isinstance(atom, IrLiteral):
-        return char == atom  # IrLiteral IS-A str
+        return atom.startswith(char)  # IrLiteral IS-A str
     if isinstance(atom, IrCharClass):
         for element in atom:
             if isinstance(element, IrRange):
@@ -82,7 +82,44 @@ def atom_accepts(atom: IrSelf, char: str) -> bool:
                     return True
             elif char in str(element):
                 return True
+    if isinstance(atom, RunTerm):
+        return char in atom.charset
     return False
+
+
+RUN_DROP, RUN_STR, RUN_LEAF = 0, 1, 2
+"""A :class:`RunTerm`'s per-char reduction contribution: nothing (the unit is
+DROP noise), one ``IrStr`` per char (the unit rule YIELDs its text), or one
+interned ``IrLiteral`` leaf per char (a bare terminal unit under KEEP_RAW)."""
+
+
+class RunTerm(IrLeaf[IrSelf, IrSelf]):
+    """A compiled maximal-munch run terminal — one scan step per whole run.
+
+    Replaces the body of a *synthetic* star/plus rule whose unit resolves to
+    a fixed charset, whose iteration is derivation-unique, and whose FOLLOW
+    set is disjoint from the charset (so maximal munch is complete, not a
+    heuristic — see :mod:`lexic.parsing_2.lexruns`). The scanner consumes the
+    maximal run in one loop and lands the advance at its end.
+
+    :ivar charset: The characters the run ranges over.
+    :ivar lo: The minimum run length (≥ 1 — an empty star match stays on the
+        synthetic rule's empty arm).
+    :ivar mode: The per-char reduction contribution (:data:`RUN_DROP` /
+        :data:`RUN_STR` / :data:`RUN_LEAF`).
+    """
+
+    __slots__ = ("charset", "lo", "mode")
+
+    charset: frozenset[str]
+    lo: int
+    mode: int
+
+    def __init__(self, charset: frozenset[str], lo: int, mode: int) -> None:
+        """Freeze one run terminal's matching and reduction metadata."""
+        self.charset = charset
+        self.lo = lo
+        self.mode = mode
 
 
 class CodeTables(IrLeaf[IrSelf, IrSelf]):
@@ -170,6 +207,8 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
     :ivar codes: The :class:`CodeTables` the kernel loop indexes.
     :ivar decode: The :class:`DecodeTables` for IR decoding.
     :ivar term_atoms: term_id → the terminal atom node.
+    :ivar term_lens: term_id → scan kind: the literal's length, ``1`` for a
+        char class, ``0`` for a :class:`RunTerm` (variable-length run).
     :ivar start_id: the start rule's rule_id (``-1`` when never defined).
     """
 
@@ -177,6 +216,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         "codes",
         "decode",
         "term_atoms",
+        "term_lens",
         "start_id",
         "_char_terms",
         "_char_leaves",
@@ -185,6 +225,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
     codes: CodeTables
     decode: DecodeTables
     term_atoms: tuple[IrSelf, ...]
+    term_lens: tuple[int, ...]
     start_id: int
     _char_terms: dict[str, tuple[int, ...]]
     _char_leaves: dict[str, IrLiteral]
@@ -197,6 +238,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         self.codes = CodeTables(builder)
         self.decode = DecodeTables(builder)
         self.term_atoms = builder.term_atoms()
+        self.term_lens = builder.term_lens()
         self.start_id = builder.start_id()
         self._char_terms = {}
         self._char_leaves = {}
@@ -239,9 +281,17 @@ class _TableBuilder:
     laid out exactly once.
     """
 
-    def __init__(self, grammar: IrAst) -> None:
-        """:param grammar: The Earley-normalised grammar to compile."""
+    def __init__(
+        self, grammar: IrAst, runs: dict[str, tuple[RunTerm, bool]] | None = None
+    ) -> None:
+        """Prepare a build of ``grammar``, optionally collapsing run rules.
+
+        :param grammar: The Earley-normalised grammar to compile.
+        :param runs: rule name → ``(run_term, has_empty_arm)`` — synthetic
+            rules whose body compiles to a maximal-munch run terminal.
+        """
         self.grammar = grammar
+        self.runs = runs or {}
         self.rule_ids: dict[str, int] = {}
         self.terms: dict[IrSelf, int] = {}
         self.arms: list[tuple[IrSequence, int, int]] = []
@@ -258,7 +308,12 @@ class _TableBuilder:
         for rule in self.grammar.rules:
             self._rule_id(str(rule.name))
         for rule in self.grammar.rules:
-            self._compile_rule(self.rule_ids[str(rule.name)], rule.body)
+            name = str(rule.name)
+            spec = self.runs.get(name)
+            if spec is None:
+                self._compile_rule(self.rule_ids[name], rule.body)
+            else:
+                self._compile_run_rule(self.rule_ids[name], spec)
         return ParserTables(self)
 
     def start_id(self) -> int:
@@ -268,6 +323,18 @@ class _TableBuilder:
     def term_atoms(self) -> tuple[IrSelf, ...]:
         """The terminal atoms in term_id order."""
         return tuple(self.terms)
+
+    def term_lens(self) -> tuple[int, ...]:
+        """Per term, the scan kind: literal length / 1 (char class) / 0 (run)."""
+        out = []
+        for atom in self.terms:
+            if isinstance(atom, RunTerm):
+                out.append(0)
+            elif isinstance(atom, IrLiteral):
+                out.append(len(atom))
+            else:
+                out.append(1)
+        return tuple(out)
 
     def accept_codes(self) -> frozenset[int]:
         """Completed codes of the start rule's arms (the accepting items)."""
@@ -285,9 +352,42 @@ class _TableBuilder:
             self.rule_dot0.append([])
         return rid
 
+    def _compile_run_rule(self, rid: int, spec: tuple[RunTerm, bool]) -> None:
+        """Lay out a collapsed run rule: an optional empty arm + one run item."""
+        term, has_empty = spec
+        if has_empty:
+            arm_id = len(self.arms)
+            base = len(self.codes)
+            self.arms.append((IrSequence(), rid, base))
+            self.rule_dot0[rid].append(base)
+            self.codes.append((arm_id, 0))
+        arm_id = len(self.arms)
+        base = len(self.codes)
+        self.arms.append((IrSequence(IrItem(term)), rid, base))
+        self.rule_dot0[rid].append(base)
+        self.codes.append((arm_id, -(self._term_id(term) + 1)))
+        self.codes.append((arm_id, 0))
+
+    def _term_id(self, atom: IrSelf) -> int:
+        """The term_id for ``atom``, minting one on first sight."""
+        tid = self.terms.get(atom)
+        if tid is None:
+            tid = len(self.terms)
+            self.terms[atom] = tid
+        return tid
+
     def _compile_rule(self, rid: int, body: IrAlternation) -> None:
-        """Lay out one rule's arms as dot-dense code runs."""
+        """Lay out one rule's arms as dot-dense code runs.
+
+        Value-equal arms of one rule intern to a single arm — the IR node IS
+        its value, so two equal arms are the same arm (matching the legacy
+        item tuples, whose arm field deduped by value).
+        """
+        seen_arms: set[IrSequence] = set()
         for arm in body:
+            if arm in seen_arms:
+                continue
+            seen_arms.add(arm)
             arm_id = len(self.arms)
             base = len(self.codes)
             self.arms.append((arm, rid, base))
@@ -310,11 +410,7 @@ class _TableBuilder:
         if isinstance(atom, IrRuleRef):
             return self._rule_id(str(atom)) + 1
         if isinstance(atom, (IrLiteral, IrCharClass)):
-            tid = self.terms.get(atom)
-            if tid is None:
-                tid = len(self.terms)
-                self.terms[atom] = tid
-            return -(tid + 1)
+            return -(self._term_id(atom) + 1)
         raise UnsupportedConstructError(
             f"parsing_2: unnormalised atom {type(atom).__name__} — "
             "run normalize() before compiling"
@@ -348,6 +444,19 @@ class _TableBuilder:
             if sym <= 0 or (sym - 1) not in nullable:
                 return False
         return True
+
+
+def build_tables(
+    grammar: IrAst, runs: dict[str, tuple[RunTerm, bool]] | None = None
+) -> ParserTables:
+    """Build tables for ``grammar``, optionally collapsing run rules (uncached).
+
+    :param grammar: An Earley-normalised grammar.
+    :param runs: rule name → ``(run_term, has_empty_arm)`` collapse spec.
+    :returns: Fresh tables (callers memoise their own variants).
+    :raises UnsupportedConstructError: On a non-normalised construct.
+    """
+    return _TableBuilder(grammar, runs).build()
 
 
 _CACHE: dict[int, tuple[IrAst, ParserTables]] = {}

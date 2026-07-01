@@ -30,11 +30,23 @@ from typing import Iterator, Sequence, cast
 
 from lexic.ir.base import IrLambda, IrLeaf, IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.mapping import IR_DEFAULT, IrMap
+from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
 from lexic.parsing_2.forest import ParseTree
 from lexic.parsing_2.kernel import Kernel
+from lexic.parsing_2.lexruns import run_candidates, unit_leaves
 from lexic.parsing_2.normalize import SYNTHETIC_PREFIX
-from lexic.parsing_2.tables import ORIGIN_BITS, ORIGIN_MASK, ParserTables
+from lexic.parsing_2.tables import (
+    ORIGIN_BITS,
+    ORIGIN_MASK,
+    RUN_DROP,
+    RUN_LEAF,
+    RUN_STR,
+    ParserTables,
+    RunTerm,
+    build_tables,
+    compile_tables,
+)
 from lexic.parsing_2.trampoline import ADVANCE, EMIT, EXHAUSTED
 
 # ── Child contributions ───────────────────────────────────────────────
@@ -523,10 +535,23 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
             self._close(frame)
             return True
         k = kids[idx]
-        if isinstance(k, str):  # a scanned char — the literal policy
+        if isinstance(k, str):  # scanned text — the literal policy
             self._literal(frame, k)
             return True
+        if isinstance(k, tuple):  # a collapsed run — reconstruct per char
+            self._run_child(frame, k[0], k[1])
+            return True
         return self._rule_child(frame, k)
+
+    def _run_child(self, frame: list, term: RunTerm, s: str) -> None:
+        """Contribute a collapsed run's per-char reconstruction."""
+        mode = term.mode
+        if mode == RUN_STR:  # the unit rule YIELDs its char
+            frame[3].extend(IrStr(c) for c in s)
+        elif mode == RUN_LEAF:  # bare terminal unit under KEEP_RAW
+            leaf = self.kernel.tables.char_leaf
+            frame[3].extend(leaf(c) for c in s)
+        frame[2] += 1
 
     def _rule_child(self, frame: list, k: int) -> bool:
         """Contribute one rule-child kid per its splice / noise policy."""
@@ -632,6 +657,10 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
             if isinstance(k, str):
                 out.append(k)
                 continue
+            if isinstance(k, tuple):  # a collapsed run — its text, unless noise
+                if k[0].mode != RUN_DROP:
+                    out.append(k[1])
+                continue
             rid = self._rule_of(k)
             if plan.noise_kind[rid] == _DROP_KIND:
                 continue
@@ -657,23 +686,98 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         missing or packs more than one family (ambiguity — fall back).
         """
         kernel = self.kernel
-        st = kernel.st
-        links = st.links
-        if handle in st.leo_links and handle not in links:
+        links = kernel.st.links
+        if handle in kernel.st.leo_links and handle not in links:
             kernel.expand_leo(handle)
-        codes = kernel.tables.codes
+        tables = kernel.tables
+        nxt = tables.codes.next_sym
+        lens = tables.term_lens
+        atoms = tables.term_atoms
         item = handle >> ORIGIN_BITS
         end = handle & ORIGIN_MASK
-        base = codes.arm_base[codes.code_arm[item >> ORIGIN_BITS]]
+        base = tables.codes.arm_base[tables.codes.code_arm[item >> ORIGIN_BITS]]
         kids: list = []
         while (item >> ORIGIN_BITS) != base:  # dot > 0: more kids to collect
             bucket = links.get((item << ORIGIN_BITS) | end)
             if bucket is None or len(bucket) > 1:
                 return None
             item, end, child = bucket[0]
+            if isinstance(child, str):
+                # the consumed terminal is what the predecessor's dot faces
+                tid = -nxt[item >> ORIGIN_BITS] - 1
+                if lens[tid] == 0:  # a collapsed run — carry its RunTerm
+                    child = (atoms[tid], child)
             kids.append(child)
         kids.reverse()
         return kids
+
+
+_COLLAPSED: dict[tuple[int, int], tuple[object, object, ParserTables]] = {}
+"""Collapsed-tables memo — (id(reducer), id(grammar)) → (reducer, grammar,
+tables). Strong references pin both ids against reuse."""
+
+
+def _run_mode(reducer: "Reducer", tables: ParserTables, unit_rid: int) -> int | None:
+    """The per-char contribution mode a collapsed run must reconstruct.
+
+    ``None`` means the unit's contributions cannot be reconstructed from the
+    run text under this reducer — the rule must stay per-char.
+    """
+    modes: set[int] = set()
+    if unit_rid < 0:
+        leaf_rids: set[int] = set()
+        has_bare = True
+    else:
+        resolved = unit_leaves(tables, unit_rid)
+        if resolved is None:
+            return None
+        leaf_rids, has_bare = resolved
+    if has_bare:
+        literal = reducer.literal
+        if literal is DROP:
+            modes.add(RUN_DROP)
+        elif literal is KEEP_RAW:
+            modes.add(RUN_LEAF)
+        else:
+            return None
+    for rid in leaf_rids:
+        ref = tables.decode.rule_refs[rid]
+        noise = reducer.noise.resolve(ref)
+        if noise is DROP:
+            modes.add(RUN_DROP)
+        elif noise is KEEP_REDUCED and reducer.reductions.resolve(ref) is YIELD:
+            modes.add(RUN_STR)
+        else:
+            return None
+    return modes.pop() if len(modes) == 1 else None
+
+
+def collapsed_tables(reducer: "Reducer", grammar: IrAst) -> ParserTables:
+    """Tables for ``grammar`` with every run provable safe *for this reducer*
+    collapsed to a :class:`~lexic.parsing_2.tables.RunTerm`.
+
+    The grammar-side proof (charset, uniqueness, follow disjointness) comes
+    from :func:`~lexic.parsing_2.lexruns.run_candidates`; the reducer-side
+    check (:func:`_run_mode`) keeps only runs whose per-char contributions
+    the fused fold can reconstruct. Memoised per ``(reducer, grammar)``.
+
+    :param reducer: The reduction policy the collapse must respect.
+    :param grammar: An Earley-normalised grammar.
+    :returns: The collapsed tables (the plain tables when nothing collapses).
+    """
+    key = (id(reducer), id(grammar))
+    entry = _COLLAPSED.get(key)
+    if entry is not None:
+        return entry[2]
+    plain = compile_tables(grammar)
+    runs: dict[str, tuple[RunTerm, bool]] = {}
+    for name, (charset, has_empty, unit_rid) in run_candidates(plain).items():
+        mode = _run_mode(reducer, plain, unit_rid)
+        if mode is not None:
+            runs[name] = (RunTerm(charset, 1, mode), has_empty)
+    tables = build_tables(grammar, runs) if runs else plain
+    _COLLAPSED[key] = (reducer, grammar, tables)
+    return tables
 
 
 class Reducer(IrDispatch):

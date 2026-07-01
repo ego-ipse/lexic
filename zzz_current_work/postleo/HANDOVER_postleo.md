@@ -1,5 +1,15 @@
 # HANDOVER — post-leo parallel exploration (2026-06-30)
 
+> **CORRECTION + OUTCOME (2026-07-01).** This document's recurring premise that
+> Lark has a "C Earley core" / "builds its forest in C" / "C-backed transformer"
+> is **false** — lark 1.3.1 ships zero compiled extensions; its real edge was
+> the *dynamic lexer* (C `re` matching of declared tokens ⇒ ~5× fewer Earley
+> steps: 182 tokens vs 920 chars on the self-host text). Every "Python-vs-C
+> ceiling" argument below is therefore void. The compile/kernel/derived-runs
+> rework (`PLAN_obliterate_lark.md`) subsequently took the product metric from
+> the 2.22× recorded here to **0.52× — beating Lark ~2×** — in pure Python.
+> This file remains as the historical record of the per-item-IrSelf engine.
+
 Synthesis of three parallel Sonnet explorations launched after the `leoparse` commit
 (`5af435d`) was dropped and its postmortem written. Goal: **beat Lark on the product
 metric** (text → `IrAst`, `e:parse+reduce` vs `lark:full`) and answer the transversal

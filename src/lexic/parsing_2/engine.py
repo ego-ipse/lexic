@@ -40,7 +40,8 @@ from lexic.parsing_2.forest import (
     ParseTree,
 )
 from lexic.parsing_2.kernel import FastTree, Kernel
-from lexic.parsing_2.reduce import FusedReduce, Reducer
+from lexic.parsing_2.lexruns import recognition_tables
+from lexic.parsing_2.reduce import FusedReduce, Reducer, collapsed_tables
 from lexic.parsing_2.tables import ORIGIN_BITS, compile_tables
 
 _MATCH = IrInt(1)
@@ -98,12 +99,20 @@ def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
 class Recognize(IrLeaf[IrSelf, IrSelf]):
     """Whether ``text`` derives from the grammar's start rule — a truth value.
 
-    Recognition never reads the forest, so SPPF recording is skipped entirely.
+    Recognition never reads the forest, so SPPF recording is skipped entirely
+    — and the kernel runs over maximally run-collapsed tables
+    (:func:`~lexic.parsing_2.lexruns.recognition_tables`): with no tree or
+    forest to shape, every grammar-proved lexical run steps in one scan.
     """
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: ``IrInt`` 0/1."""
-        return _MATCH if _run_kernel(n, nc, False).accept >= 0 else _NO_MATCH
+        if not isinstance(n, IrAst):
+            raise UnsupportedConstructError(
+                f"parsing_2: expected an IrAst grammar, got {type(n).__name__}"
+            )
+        kernel = Kernel(recognition_tables(n), str(nc[0]), False).run()
+        return _MATCH if kernel.accept >= 0 else _NO_MATCH
 
 
 class Parse(IrLeaf[IrSelf, IrSelf]):
@@ -128,11 +137,14 @@ class Parse(IrLeaf[IrSelf, IrSelf]):
 class ParseReduced(IrLeaf[IrSelf, IrSelf]):
     """Text → reduced IR in one pass — the product path.
 
-    Runs the kernel, then folds the packed SPPF straight to IR via
-    :class:`~lexic.parsing_2.reduce.FusedReduce`, skipping the intermediate
-    :class:`ParseTree` entirely. A fused fast-path miss (ambiguity, or a
-    noise policy the fold does not compile) falls back to the legacy
-    tree-then-reduce path — behaviour-identical, just slower.
+    Runs the kernel over **reducer-collapsed tables** (safe lexical runs
+    compiled to maximal-munch terminals — see
+    :func:`~lexic.parsing_2.reduce.collapsed_tables`), then folds the packed
+    SPPF straight to IR via :class:`~lexic.parsing_2.reduce.FusedReduce`,
+    skipping the intermediate :class:`ParseTree` entirely. A fused fast-path
+    miss (ambiguity, or a noise policy the fold does not compile) falls back
+    to a fresh plain-tables parse and the legacy tree-then-reduce path —
+    behaviour-identical, just slower.
     """
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
@@ -142,18 +154,26 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
         :raises UnsupportedConstructError: If the input does not parse, or
             parses ambiguously.
         """
-        kernel = _run_kernel(n, nc, True)
-        _require_accept(kernel, n)
+        if not isinstance(n, IrAst):
+            raise UnsupportedConstructError(
+                f"parsing_2: expected an IrAst grammar, got {type(n).__name__}"
+            )
         reducer = nc[1]
         if not isinstance(reducer, Reducer):
             raise UnsupportedConstructError(
                 f"parsing_2: expected a Reducer, got {type(reducer).__name__}"
             )
+        kernel = Kernel(collapsed_tables(reducer, n), str(nc[0]), True).run()
+        _require_accept(kernel, n)
         handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
         fused = FusedReduce(kernel, reducer).build(handle)
         if fused is not None:
             return fused
-        return reducer.apply(_single_tree(d, kernel))
+        # The collapsed chart's shapes are reducer-specific — the legacy
+        # tree path needs a plain parse.
+        plain = _run_kernel(n, nc, True)
+        _require_accept(plain, n)
+        return reducer.apply(_single_tree(d, plain))
 
 
 class ParseForest(IrLeaf[IrSelf, IrSelf]):

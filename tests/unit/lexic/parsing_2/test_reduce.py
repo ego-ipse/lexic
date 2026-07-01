@@ -24,7 +24,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrArgs, IrJoin
+from lexic.ir.action import IrArgs, IrConcat, IrJoin
 from lexic.ir.base import IrLambda, IrNone, IrSelf, IrSeq, IrTuple
 from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.nodes import (
@@ -39,23 +39,22 @@ from lexic.ir.nodes import (
 )
 from lexic.parsing_2 import derivations, parse
 from lexic.parsing_2.forest import ParseTree
-from lexic.parsing_2.normalize import (
-    SYNTHETIC_PREFIX,
-    desugar_quantifiers,
-    flatten_groups,
-    normalize,
-    split_literals,
-)
+from lexic.parsing_2.kernel import Kernel
+from lexic.parsing_2.normalize import SYNTHETIC_PREFIX, normalize
 from lexic.parsing_2.reduce import (
     DROP,
     KEEP_RAW,
     KEEP_REDUCED,
     YIELD,
+    FusedReduce,
     ReduceCtx,
+    ReducePlan,
     Reducer,
     ResolveSource,
     Yield,
+    _plan_for,
 )
+from lexic.parsing_2.tables import ORIGIN_BITS, compile_tables
 from lexic.parsing_2.trampoline import Trampoline
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -269,7 +268,7 @@ def test_reducer_with_normalized_quantified_grammar():
         "s", IrAlternation(IrSequence(IrItem(IrLiteral("a"), IrQuantifier(0, IrNone))))
     )
     g_raw = IrAst(rules=IrSeq(rule), start="s")
-    g = split_literals(desugar_quantifiers(flatten_groups(g_raw)))
+    g = normalize(g_raw)
 
     tree = parse(g, "aa")
     # Only 's' in the reduction table — synthetic rule spliced by the Reducer
@@ -448,7 +447,7 @@ def test_reducer_over_derivations_matches_single_reduce():
         "s", IrAlternation(IrSequence(IrItem(IrLiteral("a"), IrQuantifier(0, IrNone))))
     )
     g_raw = IrAst(rules=IrSeq(rule), start="s")
-    g = split_literals(desugar_quantifiers(flatten_groups(g_raw)))
+    g = normalize(g_raw)
 
     reducer = _reducer(("s", _YIELD))
     single = reducer.apply(parse(g, "aa"))
@@ -480,3 +479,231 @@ def test_deep_reduce_does_not_crash():
     reducer = _reducer(("S", _YIELD))
     result = reducer.apply(tree)
     assert str(result) == "a" * n
+
+
+# ── Fused kernel reduction (FusedReduce / ReducePlan) ──────────────────
+#
+# Grammar shared by this section: word = letter letter ; letter = [a-z] ;
+# phrase = word ws word ; ws = ' '. Plain IrItem()s default their quantifier
+# to (1, 1), so this hand-built grammar is already normalized-shaped — no
+# normalize() call is needed before compile_tables().
+
+
+def _word_phrase_grammar() -> IrAst:
+    """word = letter letter ; letter = [a-z] ; phrase = word ws word ; ws = ' '."""
+    from lexic.ir.nodes import IrCharClass, IrChr, IrRange
+
+    letter = IrRule(
+        "letter",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
+    )
+    word = IrRule(
+        "word",
+        IrAlternation(
+            IrSequence(IrItem(IrRuleRef("letter")), IrItem(IrRuleRef("letter")))
+        ),
+    )
+    ws = IrRule("ws", IrAlternation(IrSequence(IrItem(IrLiteral(" ")))))
+    phrase = IrRule(
+        "phrase",
+        IrAlternation(
+            IrSequence(
+                IrItem(IrRuleRef("word")),
+                IrItem(IrRuleRef("ws")),
+                IrItem(IrRuleRef("word")),
+            )
+        ),
+    )
+    return IrAst(rules=IrSeq(letter, word, ws, phrase), start="phrase")
+
+
+def _run_kernel(tables, text: str) -> Kernel:
+    """Run a Kernel to completion with link recording on."""
+    return Kernel(tables, text, record_links=True).run()
+
+
+def _accept_handle(kernel: Kernel) -> int:
+    """The packed accept handle for a finished, accepting kernel."""
+    return (kernel.accept << ORIGIN_BITS) | len(kernel.text)
+
+
+def test_fused_reduce_matches_reducer_apply_on_parse_tree():
+    """FusedReduce.build(handle) equals reducer.apply(parse(...)) on a real grammar."""
+    g = _word_phrase_grammar()
+    text = "ab cd"
+    reducer = _reducer(
+        ("letter", _YIELD),
+        ("word", _YIELD),
+        ("phrase", _YIELD),
+    )
+    reducer = Reducer(
+        reductions=reducer.reductions,
+        noise=IrMap(
+            IrTuple(IrRuleRef("ws"), DROP),
+            IrTuple(IR_DEFAULT, KEEP_REDUCED),
+        ),
+    )
+
+    tables = compile_tables(g)
+    kernel = _run_kernel(tables, text)
+    handle = _accept_handle(kernel)
+    fused = FusedReduce(kernel, reducer).build(handle)
+
+    expected = reducer.apply(parse(g, text))
+    assert fused is not None
+    assert str(fused) == str(expected)
+
+
+def test_fused_reduce_yield_span_is_exact_substring():
+    """A YIELD-bodied rule with no droppable descendant reduces to the exact substring."""
+    g = _word_phrase_grammar()
+    reducer = _reducer(("word", YIELD), ("letter", YIELD))
+
+    # 'word' isn't the start rule in the shared grammar; drive a sub-parse
+    # via its own start so the accept handle sits directly on 'word'.
+    word_g = IrAst(rules=g.rules, start="word")
+    word_tables = compile_tables(word_g)
+    word_kernel = _run_kernel(word_tables, "he")
+    handle = _accept_handle(word_kernel)
+    fused = FusedReduce(word_kernel, reducer).build(handle)
+
+    assert fused is not None
+    assert str(fused) == "he"
+
+
+def test_reduce_plan_memoises_same_reducer_tables_pair():
+    """_plan_for(reducer, tables) called twice on the same pair returns the same object."""
+    g = _word_phrase_grammar()
+    tables = compile_tables(g)
+    reducer = _reducer(("phrase", _YIELD))
+
+    plan1 = _plan_for(reducer, tables)
+    plan2 = _plan_for(reducer, tables)
+    assert plan1 is plan2
+
+
+def test_fused_reduce_returns_none_on_custom_noise_policy():
+    """A non-DROP/KEEP_REDUCED noise body forces a fast-path miss (returns None)."""
+    g = _word_phrase_grammar()
+    text = "ab cd"
+    custom_noise = IrLambda(lambda d, n, nc: IrTuple(n))
+    reducer = Reducer(
+        reductions=IrMap(
+            IrTuple(IrRuleRef("letter"), _YIELD),
+            IrTuple(IrRuleRef("word"), _YIELD),
+            IrTuple(IrRuleRef("phrase"), _YIELD),
+        ),
+        noise=IrMap(
+            IrTuple(IrRuleRef("ws"), custom_noise),
+            IrTuple(IR_DEFAULT, KEEP_REDUCED),
+        ),
+    )
+
+    tables = compile_tables(g)
+    kernel = _run_kernel(tables, text)
+    handle = _accept_handle(kernel)
+    fused = FusedReduce(kernel, reducer).build(handle)
+    assert fused is None
+
+
+def test_fused_reduce_returns_none_on_ambiguous_key(sss_grammar: IrAst):
+    """An ambiguous packed key forces a fast-path miss (returns None)."""
+    reducer = _reducer(("s", _YIELD))
+    tables = compile_tables(sss_grammar)
+    kernel = _run_kernel(tables, "aaa")
+    handle = _accept_handle(kernel)
+    fused = FusedReduce(kernel, reducer).build(handle)
+    assert fused is None
+
+
+def test_reduce_plan_can_drop_true_when_rule_references_drop_noise_rule():
+    """A rule referencing a DROP-noise rule has can_drop True (direct reachability)."""
+    g = _word_phrase_grammar()
+    reducer = Reducer(
+        reductions=IrMap(IrTuple(IrRuleRef("phrase"), _YIELD)),
+        noise=IrMap(
+            IrTuple(IrRuleRef("ws"), DROP),
+            IrTuple(IR_DEFAULT, KEEP_REDUCED),
+        ),
+    )
+    tables = compile_tables(g)
+    plan = ReducePlan(reducer, tables)
+    phrase_rid = tables.decode.rule_ids["phrase"]
+    assert plan.can_drop[phrase_rid] is True
+
+
+def test_reduce_plan_can_drop_false_when_no_drop_reachable():
+    """A rule with no path to a DROP-noise rule has can_drop False."""
+    g = _word_phrase_grammar()
+    reducer = Reducer(
+        reductions=IrMap(IrTuple(IrRuleRef("word"), _YIELD)),
+        noise=IrMap(
+            IrTuple(IrRuleRef("ws"), DROP),
+            IrTuple(IR_DEFAULT, KEEP_REDUCED),
+        ),
+    )
+    tables = compile_tables(g)
+    plan = ReducePlan(reducer, tables)
+    word_rid = tables.decode.rule_ids["word"]
+    letter_rid = tables.decode.rule_ids["letter"]
+    assert plan.can_drop[word_rid] is False
+    assert plan.can_drop[letter_rid] is False
+
+
+def test_reduce_plan_noise_and_literal_kind_and_synthetic_tables():
+    """ReducePlan compiles noise_kind/literal_kind/synthetic against rule ids."""
+    g = _word_phrase_grammar()
+    reducer = Reducer(
+        reductions=IrMap(IrTuple(IrRuleRef("phrase"), _YIELD)),
+        noise=IrMap(
+            IrTuple(IrRuleRef("ws"), DROP),
+            IrTuple(IR_DEFAULT, KEEP_REDUCED),
+        ),
+    )
+    tables = compile_tables(g)
+    plan = ReducePlan(reducer, tables)
+
+    ws_rid = tables.decode.rule_ids["ws"]
+    word_rid = tables.decode.rule_ids["word"]
+    assert plan.noise_kind[ws_rid] == 0  # _DROP_KIND
+    assert plan.noise_kind[word_rid] == 1  # _KEEP_KIND
+    assert plan.literal_kind == 1  # _KEEP_KIND (default KEEP_RAW)
+    assert plan.synthetic == (False,) * len(plan.synthetic)
+
+
+def test_fused_reduce_body_mentions_yield_receives_span_as_n():
+    """A body that CONTAINS YIELD (not IS YIELD) gets the span text as its `n` arg.
+
+    ``word``'s reduction body is ``IrConcat(parts=IrTuple(YIELD))`` — it
+    structurally mentions YIELD (so ``plan.mentions`` flags it) but is not
+    the YIELD singleton itself, so the O(1) span fast path does not trigger;
+    instead FusedReduce computes the span text and hands it to the body as
+    ``n``. A capturing IrLambda nested one level down (via IrCond-free direct
+    dispatch is not available here, so we instead assert on the reduced
+    result's contents) confirms the span text made it through: IrConcat joins
+    its ``parts`` — here just ``(YIELD,)`` — so the reduced value's text
+    equals the span, proving ``n`` (the span) flowed into YIELD's own eval.
+    """
+    mentions_body = IrConcat(parts=IrTuple(YIELD))
+    # Confirm this body structurally contains YIELD but is not YIELD itself.
+    assert mentions_body is not YIELD
+
+    g = _word_phrase_grammar()
+    reducer = Reducer(
+        reductions=IrMap(
+            IrTuple(IrRuleRef("word"), mentions_body),
+            IrTuple(IrRuleRef("letter"), YIELD),
+        ),
+    )
+    word_g = IrAst(rules=g.rules, start="word")
+    tables = compile_tables(word_g)
+    word_rid = tables.decode.rule_ids["word"]
+
+    kernel = _run_kernel(tables, "he")
+    handle = _accept_handle(kernel)
+    fused = FusedReduce(kernel, reducer)
+    result = fused.build(handle)
+
+    assert result is not None
+    assert fused.plan.mentions[word_rid] is True
+    assert str(result) == "he"
