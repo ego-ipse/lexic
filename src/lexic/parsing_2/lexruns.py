@@ -112,7 +112,7 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
 
     def _term_first(self, sym: int) -> Charset:
         """Begin-chars of terminal symbol ``sym`` (< 0), or poisoned."""
-        atom = self.tables.term_atoms[-sym - 1]
+        atom = self.tables.terms.atoms[-sym - 1]
         if isinstance(atom, IrLiteral):
             return frozenset(atom[0]) if atom else frozenset()
         return _expand_atom(atom)
@@ -170,15 +170,17 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
         while changed:
             changed = False
             for owner, target in edges:
-                if follow[target] is None:
+                target_set = follow[target]
+                if target_set is None:
                     continue
-                if follow[owner] is None:
+                owner_set = follow[owner]
+                if owner_set is None:
                     follow[target] = None
                     changed = True
                     continue
-                before = len(follow[target])
-                follow[target] |= follow[owner]
-                if len(follow[target]) != before:
+                before = len(target_set)
+                target_set |= owner_set
+                if len(target_set) != before:
                     changed = True
         return follow
 
@@ -198,8 +200,9 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
             if add is None:
                 follow[target] = None
                 return
-            if follow[target] is not None:
-                follow[target] |= add
+            target_set = follow[target]
+            if target_set is not None:
+                target_set |= add
             if sym < 0 or not self.nullable[sym - 1]:
                 return
         edges.add((owner, target))
@@ -222,7 +225,7 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
                 return None
             sym = syms[0]
             if sym < 0:
-                charset = _expand_atom(self.tables.term_atoms[-sym - 1])
+                charset = _expand_atom(self.tables.terms.atoms[-sym - 1])
             else:
                 charset = self._rule_charset(sym - 1, visiting | {rid})
             if charset is None or union & charset:
@@ -243,7 +246,7 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
         else:
             return None
         if unit < 0:
-            atom = self.tables.term_atoms[-unit - 1]
+            atom = self.tables.terms.atoms[-unit - 1]
             charset = _expand_atom(atom)
             unit_rid = -1
         else:

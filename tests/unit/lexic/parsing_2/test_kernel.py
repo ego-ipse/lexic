@@ -34,7 +34,7 @@ from lexic.parsing_2.forest import ParseTree, SppfNode
 from lexic.parsing_2.kernel import FastTree, Kernel
 from lexic.parsing_2.normalize import normalize
 from lexic.parsing_2.tables import ADVANCE, ORIGIN_BITS, compile_tables
-
+from lexic.parsing_2 import derivations
 # ── Grammar helpers ───────────────────────────────────────────────────
 
 
@@ -77,13 +77,13 @@ def _word_grammar() -> IrAst:
             IrSequence(IrItem(IrRuleRef("letter")), IrItem(IrRuleRef("letter")))
         ),
     )
-    return IrAst(rules=(word, letter), start="word")
+    return IrAst(rules=IrSeq(word, letter), start="word")
 
 
 def _digit_grammar() -> IrAst:
     """digit = [0-9]."""
     return IrAst(
-        rules=(
+        rules=IrSeq(
             IrRule(
                 "digit",
                 IrAlternation(
@@ -98,7 +98,9 @@ def _digit_grammar() -> IrAst:
 def _undefined_ref_grammar() -> IrAst:
     """top = missing ; 'missing' is referenced but never defined."""
     return IrAst(
-        rules=(IrRule("top", IrAlternation(IrSequence(IrItem(IrRuleRef("missing"))))),),
+        rules=IrSeq(
+            IrRule("top", IrAlternation(IrSequence(IrItem(IrRuleRef("missing")))))
+        ),
         start="top",
     )
 
@@ -428,8 +430,6 @@ def test_to_chart_returns_chart_with_links():
 def test_expand_leo_via_to_chart_reconstructs_unambiguous_derivation():
     """to_chart() (which expands all leo_links) lets derivations() reconstruct
     the single unambiguous derivation for a long right-recursive input."""
-    from lexic.parsing_2 import derivations
-
     g = _star("a")
     text = "a" * 60
     trees = derivations(g, text)

@@ -46,6 +46,7 @@ from lexic.parsing_2.tables import (
     RunTerm,
     build_tables,
     compile_tables,
+    predecessor_chain,
 )
 from lexic.parsing_2.trampoline import ADVANCE, EMIT, EXHAUSTED
 
@@ -605,26 +606,35 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         """Finish a fully-resolved frame and feed its result to its caller."""
         handle, _, _, parts, is_splice = frame
         self.stack.pop()
-        if not is_splice:
-            rid = self._rule_of(handle)
-            body = self._body(rid)
-            if body is YIELD:
-                value: IrSelf = IrStr(self._yield_text(handle))
-            else:
-                span = (
-                    IrStr(self._yield_text(handle))
-                    if self.plan.mentions[rid]
-                    else IrNone
-                )
-                value = body.eval(self.reducer, span, IrTuple(*parts))
-            self.memo[handle] = value
+        if is_splice:
+            self._close_splice(parts)
+        else:
+            self._close_reduce(handle, parts)
+
+    def _close_splice(self, parts: list) -> None:
+        """Flatten a spliced synthetic node's parts straight into its caller."""
         if not self.stack:
             return
         parent = self.stack[-1]
-        if is_splice:
-            parent[3].extend(parts)
+        parent[3].extend(parts)
+        parent[2] += 1
+
+    def _close_reduce(self, handle: int, parts: list) -> None:
+        """Fold a reduced node's parts through its body and feed the caller."""
+        rid = self._rule_of(handle)
+        body = self._body(rid)
+        if body is YIELD:
+            value: IrSelf = IrStr(self._yield_text(handle))
         else:
-            parent[3].append(value)
+            span = (
+                IrStr(self._yield_text(handle)) if self.plan.mentions[rid] else IrNone
+            )
+            value = body.eval(self.reducer, span, IrTuple(*parts))
+        self.memo[handle] = value
+        if not self.stack:
+            return
+        parent = self.stack[-1]
+        parent[3].append(value)
         parent[2] += 1
 
     def _body(self, rid: int) -> IrSelf:
@@ -690,25 +700,28 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         if handle in kernel.st.leo_links and handle not in links:
             kernel.expand_leo(handle)
         tables = kernel.tables
-        nxt = tables.codes.next_sym
-        lens = tables.term_lens
-        atoms = tables.term_atoms
         item = handle >> ORIGIN_BITS
         end = handle & ORIGIN_MASK
         base = tables.codes.arm_base[tables.codes.code_arm[item >> ORIGIN_BITS]]
+        chain = predecessor_chain(links, item, end, base)
+        if chain is None:
+            return None
+        return self._chain_kids(chain)
+
+    def _chain_kids(self, chain: list) -> list:
+        """Reconstruct one kid per predecessor link, tagging collapsed runs."""
+        tables = self.kernel.tables
+        nxt = tables.codes.next_sym
+        lens = tables.terms.lens
+        atoms = tables.terms.atoms
         kids: list = []
-        while (item >> ORIGIN_BITS) != base:  # dot > 0: more kids to collect
-            bucket = links.get((item << ORIGIN_BITS) | end)
-            if bucket is None or len(bucket) > 1:
-                return None
-            item, end, child = bucket[0]
+        for pred_item, _, child in chain:
             if isinstance(child, str):
                 # the consumed terminal is what the predecessor's dot faces
-                tid = -nxt[item >> ORIGIN_BITS] - 1
+                tid = -nxt[pred_item >> ORIGIN_BITS] - 1
                 if lens[tid] == 0:  # a collapsed run — carry its RunTerm
                     child = (atoms[tid], child)
             kids.append(child)
-        kids.reverse()
         return kids
 
 

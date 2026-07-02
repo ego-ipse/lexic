@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -27,6 +27,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.parsing_2 import recognize
 from lexic.parsing_2.tables import (
     ADVANCE,
     ORIGIN_BITS,
@@ -80,7 +81,7 @@ def test_atom_accepts_charclass_single_chr_rejects_other():
 def _digit_grammar() -> IrAst:
     """digit = [0-9] ; single-rule, single-arm, single-item grammar."""
     return IrAst(
-        rules=(
+        rules=IrSeq(
             IrRule(
                 "digit",
                 IrAlternation(
@@ -104,13 +105,13 @@ def _word_grammar() -> IrAst:
             IrSequence(IrItem(IrRuleRef("letter")), IrItem(IrRuleRef("letter")))
         ),
     )
-    return IrAst(rules=(word, letter), start="word")
+    return IrAst(rules=IrSeq(word, letter), start="word")
 
 
 def _nullable_grammar() -> IrAst:
     """nullish = '' ; a single rule whose only arm is empty (nullable)."""
     return IrAst(
-        rules=(IrRule("nullish", IrAlternation(IrSequence())),),
+        rules=IrSeq(IrRule("nullish", IrAlternation(IrSequence()))),
         start="nullish",
     )
 
@@ -119,13 +120,13 @@ def _chained_nullable_grammar() -> IrAst:
     """outer = inner ; inner = '' — nullable transitively via a ruleref."""
     inner = IrRule("inner", IrAlternation(IrSequence()))
     outer = IrRule("outer", IrAlternation(IrSequence(IrItem(IrRuleRef("inner")))))
-    return IrAst(rules=(outer, inner), start="outer")
+    return IrAst(rules=IrSeq(outer, inner), start="outer")
 
 
 def _non_nullable_grammar() -> IrAst:
     """solid = 'a' ; a rule with only a non-empty terminal arm."""
     return IrAst(
-        rules=(IrRule("solid", IrAlternation(IrSequence(IrItem(IrLiteral("a"))))),),
+        rules=IrSeq(IrRule("solid", IrAlternation(IrSequence(IrItem(IrLiteral("a")))))),
         start="solid",
     )
 
@@ -133,7 +134,9 @@ def _non_nullable_grammar() -> IrAst:
 def _undefined_ref_grammar() -> IrAst:
     """top = missing ; 'missing' is referenced but never given an IrRule."""
     return IrAst(
-        rules=(IrRule("top", IrAlternation(IrSequence(IrItem(IrRuleRef("missing"))))),),
+        rules=IrSeq(
+            IrRule("top", IrAlternation(IrSequence(IrItem(IrRuleRef("missing")))))
+        ),
         start="top",
     )
 
@@ -255,8 +258,6 @@ def test_undefined_ruleref_gets_empty_rule_dot0():
 
 def test_undefined_ruleref_recognizes_nothing():
     """Prediction seeds nothing for an undefined rule — parsing derives no branch."""
-    from lexic.parsing_2 import recognize
-
     g = _undefined_ref_grammar()
     assert recognize(g, "anything") == 0
 
@@ -290,7 +291,7 @@ def test_compile_tables_rejects_unnormalised_quantifier():
         "s",
         IrAlternation(IrSequence(IrItem(IrLiteral("a"), IrQuantifier(0, IrNone)))),
     )
-    g = IrAst(rules=(rule,), start="s")
+    g = IrAst(rules=IrSeq(rule), start="s")
     with pytest.raises(UnsupportedConstructError):
         compile_tables(g)
 
@@ -301,7 +302,7 @@ def test_compile_tables_rejects_alternation_atom():
     IrCharClass are valid normalised atoms."""
     inner = IrAlternation(IrSequence(IrItem(IrLiteral("a"))))
     rule = IrRule("s", IrAlternation(IrSequence(IrItem(inner))))
-    g = IrAst(rules=(rule,), start="s")
+    g = IrAst(rules=IrSeq(rule), start="s")
     with pytest.raises(UnsupportedConstructError):
         compile_tables(g)
 

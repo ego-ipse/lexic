@@ -28,7 +28,7 @@ import pytest
 import lexic.parsing_2.engine as engine_mod
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrArgs, IrJoin
-from lexic.ir.base import IrNone, IrNoneType, IrSelf, IrSeq, IrTuple
+from lexic.ir.base import IrInt, IrNone, IrNoneType, IrSelf, IrSeq, IrTuple
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -66,7 +66,7 @@ def _normalize(g: IrAst) -> IrAst:
     return normalize(g)
 
 
-def _quant_grammar(lo: int, hi: int | object) -> IrAst:
+def _quant_grammar(lo: int, hi: int | IrNoneType) -> IrAst:
     """s = 'a'<lo,hi> — one rule with one quantified literal."""
     q = IrQuantifier(lo, hi)
     rule = IrRule("s", IrAlternation(IrSequence(IrItem(IrLiteral("a"), q))))
@@ -485,8 +485,6 @@ def test_is_ambiguous_short_circuits(sss_grammar: IrAst) -> None:
     ``forest_mod.DERIVATION_STREAM`` would not affect the already-bound name
     ``IsAmbiguous.eval`` actually calls.
     """
-    from lexic.ir.base import IrInt
-
     real_derivations = derivations(sss_grammar, "aaa")
     assert len(real_derivations) == 2
     exploding = _make_exploding_deriv_stream(real_derivations[0], real_derivations[1])
@@ -605,4 +603,5 @@ def test_parse_reduced_raises_on_ambiguous_input(sss_grammar: IrAst):
 def test_parse_reduced_raises_on_non_reducer_argument(digit_grammar: IrAst):
     """parse_reduced() raises UnsupportedConstructError when reducer isn't a Reducer."""
     with pytest.raises(UnsupportedConstructError, match="Reducer"):
-        parse_reduced(digit_grammar, "5", "not a reducer")
+        # Testing a wrong type.
+        parse_reduced(digit_grammar, "5", "not a reducer")  # type: ignore

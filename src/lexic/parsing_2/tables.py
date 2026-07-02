@@ -38,7 +38,7 @@ once per grammar, like building a ``lark.Lark`` instance.
 from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrSelf
+from lexic.ir.base import IrAtom, IrLeaf, IrSelf
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -60,10 +60,44 @@ ORIGIN_MASK = (1 << ORIGIN_BITS) - 1
 ADVANCE = 1 << ORIGIN_BITS
 """Adding this to a packed item advances its dot by one (codes are dot-dense)."""
 
+KLink = tuple[int, int, "int | str"]
+"""One packed SPPF family: ``(predecessor_item, predecessor_end, child)`` —
+``child`` is a packed handle (completed sub-derivation) or the scanned char."""
+
+
+def predecessor_chain(
+    links: dict[int, list[KLink]], item: int, end: int, base: int
+) -> list[KLink] | None:
+    """Walk a packed handle's single-link predecessor chain down to ``base``.
+
+    Shared by :class:`~lexic.parsing_2.kernel.FastTree` and
+    :class:`~lexic.parsing_2.reduce.FusedReduce`, whose kid-collection walks
+    are otherwise identical.
+
+    :param links: The parse's SPPF family table.
+    :param item: The handle's packed item (dot strictly past ``base``).
+    :param end: The handle's column.
+    :param base: The arm's dot-0 code — the chain stops here.
+    :returns: The chain's ``(predecessor_item, predecessor_end, child)``
+        triples in source order, or ``None`` when a key is missing or packs
+        more than one family — the caller's cue to bail (no build, or fall
+        back to the ambiguity-aware path).
+    """
+    chain: list[KLink] = []
+    while (item >> ORIGIN_BITS) != base:
+        bucket = links.get((item << ORIGIN_BITS) | end)
+        if bucket is None or len(bucket) > 1:
+            return None
+        item, end, child = bucket[0]
+        chain.append((item, end, child))
+    chain.reverse()
+    return chain
+
+
 _ONE = IrQuantifier(1, 1)
 
 
-def atom_accepts(atom: IrSelf, char: str) -> bool:
+def atom_accepts(atom: "IrLiteral | IrCharClass | RunTerm", char: str) -> bool:
     """Whether a terminal atom can **begin** with ``char`` — the scan filter.
 
     A multi-char literal is begun by its first character (the full match is
@@ -93,7 +127,7 @@ DROP noise), one ``IrStr`` per char (the unit rule YIELDs its text), or one
 interned ``IrLiteral`` leaf per char (a bare terminal unit under KEEP_RAW)."""
 
 
-class RunTerm(IrLeaf[IrSelf, IrSelf]):
+class RunTerm(IrLeaf[IrSelf, IrSelf], IrAtom):
     """A compiled maximal-munch run terminal — one scan step per whole run.
 
     Replaces the body of a *synthetic* star/plus rule whose unit resolves to
@@ -101,6 +135,11 @@ class RunTerm(IrLeaf[IrSelf, IrSelf]):
     set is disjoint from the charset (so maximal munch is complete, not a
     heuristic — see :mod:`lexic.parsing_2.lexruns`). The scanner consumes the
     maximal run in one loop and lands the advance at its end.
+
+    IS-A :class:`~lexic.ir.base.IrAtom`: in the compiled-tables world a run
+    terminal fills exactly the atom slot a literal or char class would in an
+    uncollapsed grammar (:meth:`_TableBuilder._compile_run_rule` wraps one in
+    an ``IrItem`` alongside them).
 
     :ivar charset: The characters the run ranges over.
     :ivar lo: The minimum run length (≥ 1 — an empty star match stays on the
@@ -120,6 +159,11 @@ class RunTerm(IrLeaf[IrSelf, IrSelf]):
         self.charset = charset
         self.lo = lo
         self.mode = mode
+
+
+_EMPTY_RUN = RunTerm(frozenset(), 1, RUN_DROP)
+"""Placeholder for :attr:`ParserTables.term_runs`' non-run slots — never
+matches, never read (the kernel only indexes it where ``term_lens`` is 0)."""
 
 
 class CodeTables(IrLeaf[IrSelf, IrSelf]):
@@ -195,10 +239,51 @@ class DecodeTables(IrLeaf[IrSelf, IrSelf]):
         self.arm_seqs = tuple(seq for seq, _, _ in builder.arms)
 
 
+class TermTables(IrLeaf[IrSelf, IrSelf]):
+    """The terminal-atom tables — one row per distinct terminal.
+
+    Split out of :class:`ParserTables` for the same reason :class:`CodeTables`
+    and :class:`DecodeTables` are: each consumer indexes only the columns it
+    needs. The scan loop (:mod:`~lexic.parsing_2.kernel`) reads ``lens`` to
+    discriminate the scan kind, then ``literals`` or ``runs`` for the matching
+    branch — never ``atoms``, which exists for the IR-space consumers
+    (:mod:`~lexic.parsing_2.lexruns`'s FIRST/FOLLOW analysis) that need the
+    atom node itself.
+
+    :ivar atoms: term_id → the terminal atom node.
+    :ivar lens: term_id → scan kind: the literal's length, ``1`` for a char
+        class, ``0`` for a :class:`RunTerm` (variable-length run).
+    :ivar literals: term_id → the literal text when ``lens`` is > 1, else
+        ``""``. A compile-time-precise parallel to ``atoms`` so the scan
+        loop's multi-char-literal branch indexes a plain ``str`` with no
+        per-step narrowing.
+    :ivar runs: term_id → the :class:`RunTerm` when ``lens`` is ``0``, else
+        :data:`_EMPTY_RUN`. Same rationale as ``literals``, for the
+        run-terminal branch.
+    """
+
+    __slots__ = ("atoms", "lens", "literals", "runs")
+
+    atoms: tuple["IrLiteral | IrCharClass | RunTerm", ...]
+    lens: tuple[int, ...]
+    literals: tuple[str, ...]
+    runs: tuple[RunTerm, ...]
+
+    def __init__(self, builder: _TableBuilder) -> None:
+        """Freeze the terminal-atom tables of a finished builder.
+
+        :param builder: The builder whose numbering to adopt.
+        """
+        self.atoms = builder.term_atoms()
+        self.lens = builder.term_lens()
+        self.literals = builder.term_literals()
+        self.runs = builder.term_runs()
+
+
 class ParserTables(IrLeaf[IrSelf, IrSelf]):
     """The compiled, immutable form of one normalised grammar.
 
-    Composes the code-space and IR-space halves with the terminal atoms and
+    Composes the code-space and IR-space halves with the terminal tables and
     the two lazily-filled scanning caches (``char → accepting term ids``,
     ``char → interned IrLiteral leaf``). The caches are per-grammar and
     monotone, so sharing one ``ParserTables`` across parses is safe and
@@ -206,17 +291,14 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
 
     :ivar codes: The :class:`CodeTables` the kernel loop indexes.
     :ivar decode: The :class:`DecodeTables` for IR decoding.
-    :ivar term_atoms: term_id → the terminal atom node.
-    :ivar term_lens: term_id → scan kind: the literal's length, ``1`` for a
-        char class, ``0`` for a :class:`RunTerm` (variable-length run).
+    :ivar terms: The :class:`TermTables` for terminal atoms and scan kinds.
     :ivar start_id: the start rule's rule_id (``-1`` when never defined).
     """
 
     __slots__ = (
         "codes",
         "decode",
-        "term_atoms",
-        "term_lens",
+        "terms",
         "start_id",
         "_char_terms",
         "_char_leaves",
@@ -224,8 +306,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
 
     codes: CodeTables
     decode: DecodeTables
-    term_atoms: tuple[IrSelf, ...]
-    term_lens: tuple[int, ...]
+    terms: TermTables
     start_id: int
     _char_terms: dict[str, tuple[int, ...]]
     _char_leaves: dict[str, IrLiteral]
@@ -237,8 +318,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         """
         self.codes = CodeTables(builder)
         self.decode = DecodeTables(builder)
-        self.term_atoms = builder.term_atoms()
-        self.term_lens = builder.term_lens()
+        self.terms = TermTables(builder)
         self.start_id = builder.start_id()
         self._char_terms = {}
         self._char_leaves = {}
@@ -253,7 +333,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         if cached is None:
             cached = tuple(
                 tid
-                for tid, atom in enumerate(self.term_atoms)
+                for tid, atom in enumerate(self.terms.atoms)
                 if atom_accepts(atom, char)
             )
             self._char_terms[char] = cached
@@ -293,7 +373,7 @@ class _TableBuilder:
         self.grammar = grammar
         self.runs = runs or {}
         self.rule_ids: dict[str, int] = {}
-        self.terms: dict[IrSelf, int] = {}
+        self.terms: dict["IrLiteral | IrCharClass | RunTerm", int] = {}
         self.arms: list[tuple[IrSequence, int, int]] = []
         self.codes: list[tuple[int, int]] = []
         self.rule_dot0: list[list[int]] = []
@@ -320,7 +400,7 @@ class _TableBuilder:
         """The start rule's id, or ``-1`` when the grammar never defines it."""
         return self.rule_ids.get(str(self.grammar.start), -1)
 
-    def term_atoms(self) -> tuple[IrSelf, ...]:
+    def term_atoms(self) -> tuple["IrLiteral | IrCharClass | RunTerm", ...]:
         """The terminal atoms in term_id order."""
         return tuple(self.terms)
 
@@ -335,6 +415,20 @@ class _TableBuilder:
             else:
                 out.append(1)
         return tuple(out)
+
+    def term_literals(self) -> tuple[str, ...]:
+        """Per term, the literal text when ``term_lens`` is > 1, else ``""``."""
+        return tuple(
+            str(atom) if isinstance(atom, IrLiteral) and len(atom) > 1 else ""
+            for atom in self.terms
+        )
+
+    def term_runs(self) -> tuple[RunTerm, ...]:
+        """Per term, the :class:`RunTerm` when ``term_lens`` is 0, else the
+        shared :data:`_EMPTY_RUN` placeholder."""
+        return tuple(
+            atom if isinstance(atom, RunTerm) else _EMPTY_RUN for atom in self.terms
+        )
 
     def accept_codes(self) -> frozenset[int]:
         """Completed codes of the start rule's arms (the accepting items)."""
@@ -368,7 +462,7 @@ class _TableBuilder:
         self.codes.append((arm_id, -(self._term_id(term) + 1)))
         self.codes.append((arm_id, 0))
 
-    def _term_id(self, atom: IrSelf) -> int:
+    def _term_id(self, atom: "IrLiteral | IrCharClass | RunTerm") -> int:
         """The term_id for ``atom``, minting one on first sight."""
         tid = self.terms.get(atom)
         if tid is None:

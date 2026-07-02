@@ -40,6 +40,7 @@ from lexic.parsing_2.tables import (
     ORIGIN_MASK,
     ParserTables,
     RunTerm,
+    predecessor_chain,
 )
 
 KLink = tuple[int, int, "int | str"]
@@ -329,8 +330,9 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         if not terms:
             return
         scannable_i = self.st.scannable[i]
-        atoms = self.tables.term_atoms
-        lens = self.tables.term_lens
+        literals = self.tables.terms.literals
+        runs = self.tables.terms.runs
+        lens = self.tables.terms.lens
         for tid in terms:
             bucket = scannable_i.get(tid)
             if not bucket:
@@ -339,11 +341,11 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             if k == 1:
                 j = i + 1
             elif k > 1:  # multi-char literal — one C-level comparison
-                if not text.startswith(atoms[tid], i):
+                if not text.startswith(literals[tid], i):
                     continue
                 j = i + k
             else:  # k == 0 — a maximal-munch run terminal
-                j = self._run_end(i, atoms[tid])
+                j = self._run_end(i, runs[tid])
                 if j < 0:
                     continue
             self._advance_all(j, bucket)
@@ -624,19 +626,13 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         caller falls back to the trampolined enumeration.
         """
         t = self.kernel.tables
-        links = self.kernel.st.links
         item = handle >> ORIGIN_BITS
         end = handle & ORIGIN_MASK
         base = t.codes.arm_base[t.codes.code_arm[item >> ORIGIN_BITS]]
-        kids_rev: list = []
-        while (item >> ORIGIN_BITS) != base:  # dot > 0: more kids to collect
-            bucket = links.get((item << ORIGIN_BITS) | end)
-            if bucket is None or len(bucket) > 1:
-                return None  # missing (no build) or ambiguous (fall back)
-            item, end, child = bucket[0]
-            kids_rev.append(child if isinstance(child, int) else t.char_leaf(child))
-        kids_rev.reverse()
-        return kids_rev
+        chain = predecessor_chain(self.kernel.st.links, item, end, base)
+        if chain is None:
+            return None  # missing (no build) or ambiguous (fall back)
+        return [c if isinstance(c, int) else t.char_leaf(c) for _, _, c in chain]
 
     def _pending(self, resolved: list) -> list:
         """Swap memoised kids in place; return frames for those still unbuilt."""
