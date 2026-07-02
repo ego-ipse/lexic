@@ -991,7 +991,7 @@ _HEX_CHR = IrPipe(IrJoin(IrArgs()), IrUnradix(16, IrChr))
 
 _HEX_GLYPH = IrPipe(IrPipe(IrJoin(IrArgs()), IrUnradix(16, IrInt)), IrGlyph())
 """Joined hex digit-run args -> the decoded character (literal text)."""
-"""Joined hex digit-run args -> an ``IrChr`` code point."""
+
 _DEC_INT = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
 """Joined decimal digit-run args -> an ``IrInt`` bound."""
 

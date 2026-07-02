@@ -61,6 +61,7 @@ completely auto-generated.
 
 from __future__ import annotations
 
+import string
 from typing import ClassVar
 
 from lexic.ir.action import (
@@ -389,12 +390,54 @@ ABNF_FLAVOUR = _AbnfFlavour()
 # the round-trip adaptations); ABNF_REDUCTIONS is the reduce-side mirror of
 # ABNF_ACTIONS above, folding a parse tree back into IR.
 
+_CV_NA_BODY = IrAlternation(
+    IrSequence(IrItem(IrCharClass(IrRange(IrChr(0x20), IrChr(0x21))))),
+    IrSequence(IrItem(IrCharClass(IrRange(IrChr(0x23), IrChr(0x40))))),
+    IrSequence(IrItem(IrCharClass(IrRange(IrChr(0x5B), IrChr(0x60))))),
+    IrSequence(IrItem(IrCharClass(IrRange(IrChr(0x7B), IrChr(0x7E))))),
+)
+"""Printable char-val characters excluding ``"`` (0x22) and the letters
+(0x41-5A, 0x61-7A) — the non-alpha units of a case-insensitive literal body.
+Authored as an alternation of single-range classes (each emits a bare ``%x``
+and round-trips) rather than one multi-range class (which ABNF renders as a
+parenthesised group)."""
+
 ABNF_GRAMMAR = IrAst(
     rules=IrSeq(
         IrRule(
             "rulelist",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("rule"), IrQuantifier(1, IrNone)))
+                IrSequence(IrItem(IrRuleRef("rl-item"), IrQuantifier(1, IrNone)))
+            ),
+        ),
+        # rl-item owns any comment/blank lines preceding a rule (RFC 5234's
+        # `*c-wsp c-nl` filler); the comment lines drop, leaving the rule. A
+        # comment line starts with ";" and a rule with a letter, so the two
+        # never collide.
+        IrRule(
+            "rl-item",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("comment-line"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("rule")),
+                )
+            ),
+        ),
+        IrRule(
+            "comment-line",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral(";")),
+                    IrItem(IrRuleRef("cchar"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-nl")),
+                )
+            ),
+        ),
+        IrRule(
+            "cchar",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("HTAB"))),
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(0x20), IrChr(0x7E))))),
             ),
         ),
         IrRule(
@@ -540,22 +583,51 @@ ABNF_GRAMMAR = IrAst(
             IrAlternation(
                 IrSequence(
                     IrItem(IrRuleRef("DQUOTE")),
-                    IrItem(IrRuleRef("vchar-nq"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("cvbody")),
                     IrItem(IrRuleRef("DQUOTE")),
                 )
             ),
         ),
+        # A char-val is case-insensitive (RFC 7405): a body with any letter
+        # expands to an alternation of per-char classes; an all-non-alpha body
+        # stays one literal. The two arms partition by content (≥1 alpha vs
+        # none), pivoting on the FIRST alpha, so the parse is unambiguous.
         IrRule(
-            "vchar-nq",
+            "cvbody",
             IrAlternation(
-                IrSequence(
-                    IrItem(IrCharClass(IrRange(IrChr(chr(0x20)), IrChr(chr(0x21)))))
-                ),
-                IrSequence(
-                    IrItem(IrCharClass(IrRange(IrChr(chr(0x23)), IrChr(chr(0x7E)))))
-                ),
+                IrSequence(IrItem(IrRuleRef("cvexp"))),
+                IrSequence(IrItem(IrRuleRef("cvlit"))),
             ),
         ),
+        IrRule(
+            "cvexp",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("cvnai"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("cvalpha")),
+                    IrItem(IrRuleRef("cvany"), IrQuantifier(0, IrNone)),
+                )
+            ),
+        ),
+        IrRule(
+            "cvlit",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cvnac"), IrQuantifier(0, IrNone)))
+            ),
+        ),
+        IrRule(
+            "cvany",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cvalpha"))),
+                IrSequence(IrItem(IrRuleRef("cvnai"))),
+            ),
+        ),
+        IrRule(
+            "cvalpha",
+            IrAlternation(IrSequence(IrItem(IrRuleRef("ALPHA")))),
+        ),
+        IrRule("cvnai", _CV_NA_BODY),
+        IrRule("cvnac", _CV_NA_BODY),
         IrRule(
             "num-val",
             IrAlternation(
@@ -568,7 +640,7 @@ ABNF_GRAMMAR = IrAst(
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("%")),
-                    IrItem(IrLiteral("x")),
+                    IrItem(IrRuleRef("xmark")),
                     IrItem(IrRuleRef("hexits")),
                 )
             ),
@@ -578,12 +650,16 @@ ABNF_GRAMMAR = IrAst(
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("%")),
-                    IrItem(IrLiteral("x")),
+                    IrItem(IrRuleRef("xmark")),
                     IrItem(IrRuleRef("hexits")),
                     IrItem(IrLiteral("-")),
                     IrItem(IrRuleRef("hexits")),
                 )
             ),
+        ),
+        IrRule(
+            "xmark",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("x"))))),
         ),
         IrRule(
             "hexits",
@@ -624,12 +700,7 @@ ABNF_GRAMMAR = IrAst(
             "HEXDIG",
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("DIGIT"))),
-                IrSequence(IrItem(IrLiteral("A"))),
-                IrSequence(IrItem(IrLiteral("B"))),
-                IrSequence(IrItem(IrLiteral("C"))),
-                IrSequence(IrItem(IrLiteral("D"))),
-                IrSequence(IrItem(IrLiteral("E"))),
-                IrSequence(IrItem(IrLiteral("F"))),
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr("A"), IrChr("F"))))),
             ),
         ),
         IrRule("CR", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("\r")))))),
@@ -645,9 +716,20 @@ ABNF_GRAMMAR = IrAst(
 
 # ── Cleaning policy: which child rules are noise ──────────────────────────
 
-_NON_SEMANTIC = ("wsp", "SP", "HTAB", "c-nl", "CR", "LF", "DQUOTE")
-"""Whitespace, line endings, and the char-val quote delimiter. Dropped from a
-structural rule's children and skipped by :data:`~lexic.parsing_2.reduce.YIELD`."""
+_NON_SEMANTIC = (
+    "wsp",
+    "SP",
+    "HTAB",
+    "c-nl",
+    "CR",
+    "LF",
+    "DQUOTE",
+    "xmark",
+    "comment-line",
+)
+"""Whitespace, line endings, the char-val quote delimiter, the ``%x`` radix
+marker, and comment lines. Dropped from a structural rule's children and
+skipped by :data:`~lexic.parsing_2.reduce.YIELD`."""
 
 ABNF_NOISE: IrMap = IrMap(
     *(IrTuple(IrRuleRef(name), DROP) for name in _NON_SEMANTIC),
@@ -666,6 +748,37 @@ _cp1 = IrPipe(IrArg(1), IrUnradix(16, IrChr))
 _dec = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
 """Joined decimal digit-run args → an ``IrInt`` count."""
 
+# Case-insensitive char-val: each letter maps to a build-expression that
+# constructs ``IrItem(IrCharClass(IrChr(lower), IrChr(upper)))`` — the RFC 7405
+# expansion, exactly as the Lark path's ``normalize_literal`` produces. The
+# value is an ``IrBuild`` expression, not a pre-built node, so ``eval``
+# constructs it fresh (embedding a built node would re-eval and mangle IrChr).
+_CV_CASE: IrMap[IrStr, IrSelf] = IrMap(
+    *(
+        IrTuple(
+            IrStr(c),
+            IrBuild(
+                IrItem,
+                IrTuple(
+                    IrBuild(
+                        IrCharClass,
+                        IrTuple(
+                            IrBuild(IrChr, IrTuple(IrStr(c.lower()))),
+                            IrBuild(IrChr, IrTuple(IrStr(c.upper()))),
+                        ),
+                    )
+                ),
+            ),
+        )
+        for c in string.ascii_letters
+    ),
+    IrTuple(
+        IR_DEFAULT,
+        IrRaise(message="{dispatcher}: char-val case expansion of a non-letter"),
+    ),
+)
+"""Letter → the per-char case-class item build-expression (RFC 7405)."""
+
 
 # Dyads in an annotated tuple so each value widens to ``IrSelf`` (the invariant
 # ``IrTuple`` would otherwise reject the heterogeneous bodies under ``IrMap``).
@@ -674,6 +787,7 @@ ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
         IrRuleRef("rulelist"),
         IrBuild(IrAst, IrTuple(IrBuild(IrSeq), IrPipe(IrArg(0), IrField("name")))),
     ),
+    IrTuple(IrRuleRef("rl-item"), IrArg(0)),
     IrTuple(IrRuleRef("rule"), IrBuild(IrRule)),
     IrTuple(IrRuleRef("alternation"), IrBuild(IrAlternation)),
     IrTuple(IrRuleRef("altrest"), IrArg(0)),
@@ -721,7 +835,24 @@ ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("group"), IrArg(0)),
     # Text rules — wrap the subtree text as the leaf type (quotes skipped).
     IrTuple(IrRuleRef("rulename"), IrBuild(IrRuleRef, IrTuple(YIELD))),
-    IrTuple(IrRuleRef("char-val"), IrBuild(IrLiteral, IrTuple(YIELD))),
+    # char-val (RFC 7405 case-insensitive): forward the body's reduction.
+    IrTuple(IrRuleRef("char-val"), IrArg(0)),
+    IrTuple(IrRuleRef("cvbody"), IrArg(0)),
+    # ≥1 letter → IrAlternation(IrSequence(per-char items)).
+    IrTuple(
+        IrRuleRef("cvexp"),
+        IrBuild(IrAlternation, IrTuple(IrBuild(IrSequence))),
+    ),
+    # all non-alpha → one IrLiteral of the joined characters.
+    IrTuple(IrRuleRef("cvlit"), IrBuild(IrLiteral, IrTuple(IrJoin(IrArgs())))),
+    IrTuple(IrRuleRef("cvany"), IrArg(0)),
+    # a letter → its case-class item; a non-letter → an IrLiteral item.
+    IrTuple(IrRuleRef("cvalpha"), IrPipe(YIELD, _CV_CASE)),
+    IrTuple(
+        IrRuleRef("cvnai"),
+        IrBuild(IrItem, IrTuple(IrBuild(IrLiteral, IrTuple(YIELD)))),
+    ),
+    IrTuple(IrRuleRef("cvnac"), YIELD),
     # num-val → IrCharClass over code points (IrChr endpoints).
     IrTuple(IrRuleRef("num-val"), IrArg(0)),
     IrTuple(IrRuleRef("num-single"), IrBuild(IrCharClass, IrTuple(_cp0))),

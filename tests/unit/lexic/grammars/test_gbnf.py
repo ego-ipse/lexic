@@ -475,6 +475,22 @@ def test_literal_hex_escape_decodes_to_character():
     assert _first_item(result).atom == IrLiteral("A")
 
 
+def test_literal_hex4_escape_decodes_to_character():
+    """'\\u0042' (the 4-hex-digit form) inside a literal decodes to 'B'."""
+    g = _normalize_grammar(GBNF_GRAMMAR)
+    result = parse_reduced(g, 'a ::= "\\u0042"\n', GBNF_REDUCER)
+    assert isinstance(result, IrAst)
+    assert _first_item(result).atom == IrLiteral("B")
+
+
+def test_literal_hex8_escape_decodes_to_character():
+    """'\\U00000042' (the 8-hex-digit form) inside a literal decodes to 'B'."""
+    g = _normalize_grammar(GBNF_GRAMMAR)
+    result = parse_reduced(g, 'a ::= "\\U00000042"\n', GBNF_REDUCER)
+    assert isinstance(result, IrAst)
+    assert _first_item(result).atom == IrLiteral("B")
+
+
 def test_charclass_range_reduces():
     """'[a-z]' reduces to a single-range IrCharClass."""
     g = _normalize_grammar(GBNF_GRAMMAR)

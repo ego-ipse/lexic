@@ -561,16 +561,20 @@ def test_rulename_reduction_yields_irruleref():
     assert str(result) == "ab"
 
 
-def test_char_val_reduction_yields_irliteral_without_quotes():
-    """char-val reduction: DQUOTE sub-trees are noise-dropped; returns IrLiteral("ab")."""
-    dquote_tree = ParseTree(IrRuleRef("DQUOTE"), IrSeq(IrLiteral('"')))
-    tree = ParseTree(
-        IrRuleRef("char-val"),
-        IrSeq(dquote_tree, IrLiteral("a"), IrLiteral("b"), dquote_tree),
-    )
-    result = ABNF_REDUCER.apply(tree)
-    assert isinstance(result, IrLiteral)
-    assert result == IrLiteral("ab")
+def test_char_val_alpha_reduces_to_case_insensitive_alternation():
+    """char-val with letters reduces to a case-insensitive IrAlternation (RFC 7405).
+
+    Ported from the old case-sensitive-literal assertion after the Phase 3
+    re-author made char-val case-insensitive, matching ``normalize_literal``.
+    """
+    g = _normalize_grammar(ABNF_GRAMMAR)
+    result = ABNF_REDUCER.apply(parse(g, 'x = "ab"\n'))
+    assert isinstance(result, IrAst)
+    atom = list(list(result.rules)[0].body)[0][0].atom
+    assert isinstance(atom, IrAlternation)
+    seq = atom[0]
+    assert seq[0].atom == IrCharClass(IrChr("a"), IrChr("A"))
+    assert seq[1].atom == IrCharClass(IrChr("b"), IrChr("B"))
 
 
 def _hexdig(ch: str) -> ParseTree:
@@ -607,9 +611,13 @@ def test_num_range_yields_ircharclass_range():
 
 
 def test_parse_reduce_single_literal_rule():
-    """'s = \"ab\"' parses and reduces to IrAst with IrLiteral('ab') item."""
+    """'s = \"+-\"' parses and reduces to IrAst with IrLiteral('+-') item.
+
+    Uses a non-alpha literal: an alpha literal case-expands (RFC 7405), so a
+    bare-``IrLiteral`` assertion needs a body with no letters.
+    """
     g = _normalize_grammar(ABNF_GRAMMAR)
-    tree = parse(g, 's = "ab"\n')
+    tree = parse(g, 's = "+-"\n')
     result = ABNF_REDUCER.apply(tree)
     assert isinstance(result, IrAst)
     assert result.start == "s"
@@ -617,7 +625,7 @@ def test_parse_reduce_single_literal_rule():
     assert rules[0].name == "s"
     arm = list(rules[0].body)[0]
     item = arm[0]
-    assert item.atom == IrLiteral("ab")
+    assert item.atom == IrLiteral("+-")
     assert item.quantifier == IrQuantifier(1, 1)
 
 

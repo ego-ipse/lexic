@@ -1,12 +1,35 @@
 # PLAN — Cutover v2: `parsing_2` REPLACES `parsing`, no legacy package
 
+## NEXT SESSION — start here (written 2026-07-02 at token exhaustion)
+
+Session 1 stopped at END OF PHASE 4 (user call). State: instance parsing runs
+on the Earley engine (compile.py is lark-free except `MetaGrammarParser` for
+grammar text); GBNF self-grammar proven + tested; Phase 3 (ABNF full surface,
+opus) and Phase 4 tests (sonnet) were finishing under a "suite green only,
+skip lint polish" waiver — **first task next session: run
+`tools/auto_fix.sh`, full pylint/pyright over everything touched, fix what
+the waiver skipped** (also gbnf.py C0302 stays accepted until Phase 6).
+Then execute Phase 5 (flavour grammar/reducer ClassVars + compile seam swap —
+small, spec in §Phase 5), then Phases 6-8 (delete parsing/, rename, docs).
+Read the Progress ledger below + phase execution-log blocks for everything
+decided; open user-facing items: DP-4 veto window (CompiledGrammar shape),
+resolve-first ambiguity policy sign-off, the abnf self-grammar re-author
+veto, test_tables.py W0212 pair, and the to_ir_rule alternation-kind latent
+bug (flagged, unfixed). Scratches `zzz_current_work/scratch_gbnf_ir.py` and
+`scratch_models.py` are superseded by landed src — delete when convenient.
+Nothing is committed; the whole cutover sits in the working tree.
+
 ## Progress (one line per step, newest at bottom — session-crash ledger)
 
 - [x] Phase 0 DONE (opus): engine IrNot support; 1223 green; W0212 finding open.
 - [x] Phase 1 DONE (sonnet): abnf_2 folded into abnf.py, tests ported; 1223 green.
 - [x] Phase 2 src DONE (fable): GBNF_GRAMMAR/GBNF_REDUCER in gbnf.py + equivalence gate test; 1239 green; C0302 on gbnf.py user-accepted until Phase 6 (META_GRAMMAR dies); pyproject.toml is harness — NEVER touch.
-- [ ] Phase 2 tests (sonnet): unit tests in test_gbnf.py — dispatched.
-- [ ] Phase 3 (opus): ABNF full surface — dispatched.
+- [x] Phase 2 tests LANDED (sonnet): 41 tests in test_gbnf.py; found real bug (literal hex escapes → IrChr TypeError); suite 1281.
+- [x] Hex bug FIXED (fable): new `IrGlyph` action leaf in ir/action.py (codepoint→char, the IrUnradix inverse's glyph step); gbnf.py literal hex rules → `_HEX_GLYPH`; xfail de-marked; 1281 green. Sonnet follow-up: IrGlyph tests in test_action.py.
+- [ ] Phase 3 (opus): ABNF full surface — GREEN-LIT with the xmark+HEXDIG self-grammar re-author (proven trilemma: {fixpoint, case-insensitive char-val, emit-unchanged} — pick 2; emit-unchanged was plan prose, dropped; user may veto). In progress.
+- [x] IrGlyph tests LANDED (sonnet): 8 tests (test_action.py + hex4/hex8 literal cases); 1289 green.
+- [x] Phase 4 src LANDED (fable): parsing_2/models.py (ModelFold.for_specs + build_instance_parser), engine.py ParseFirst/PARSE_FIRST, parse_first in package API, compile.py rewired (CompiledGrammar = classes/specs/grammar/fold, lark-free). 1289 green ×2, models.py 10/10, pyright clean. Instance parsing IS the engine now.
+- [x] Phase 4 tests LANDED (sonnet): 43 tests (test_models.py 32, ParseFirst 8, compile shape 3; fixtures in conftest.py); fully gated incl. lint; suite 1332. Phase 4 COMPLETE.
 - [x] Phase 4 design PROVEN in scratch (`zzz_current_work/scratch_models.py`): wrapper-rule-per-field instance grammar + ModelFold; 21/21 real-corpus round-trips (json/c invented samples fail on Lark too — pre-existing). Landing blocked until agents' gates finish. Findings: (a) `to_ir_rule` folds alternation-kind arms into ONE sequence — wrong shape, bridge builds its own; `base.py to_grammar` may share this latent bug — FLAG; (b) DP-2 RESOLVED-AS: deterministic first-derivation on ambiguous instance input (Lark `ambiguity="resolve"` parity; json_ws `int` is genuinely ambiguous) — revertible if user objects; (c) optional-nullable refs lifted `R?→R` (empty-span ambiguity, language-preserving).
 
 > **For agentic workers:** execute task-by-task with the checkboxes; every phase

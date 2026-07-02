@@ -59,6 +59,7 @@ from lexic.parsing_2.engine import (
     ENUMERATE,
     IS_AMBIGUOUS,
     PARSE,
+    PARSE_FIRST,
     PARSE_FOREST,
     PARSE_REDUCED,
     RECOGNIZE,
@@ -94,6 +95,21 @@ def parse(grammar: IrAst, text: str) -> ParseTree:
         ambiguously.
     """
     return PARSE.eval(EarleyParser(), grammar, IrTuple(IrStr(text)))
+
+
+def parse_first(grammar: IrAst, text: str) -> ParseTree:
+    """Parse ``text`` into its FIRST derivation — deterministic under ambiguity.
+
+    The instance-parsing entry (:mod:`.models`): parity with the retired Lark
+    path's ``ambiguity="resolve"``. Prefer :func:`parse` (strict) wherever a
+    single honest derivation is required.
+
+    :param grammar: The grammar, Earley-normalised.
+    :param text: The input string.
+    :returns: One derivation of ``text`` under the start rule.
+    :raises UnsupportedConstructError: If ``text`` does not parse.
+    """
+    return PARSE_FIRST.eval(EarleyParser(), grammar, IrTuple(IrStr(text)))
 
 
 def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
@@ -163,6 +179,7 @@ __all__ = [
     "derivations",
     "is_ambiguous",
     "parse",
+    "parse_first",
     "parse_forest",
     "parse_reduced",
     "recognize",

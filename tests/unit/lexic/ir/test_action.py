@@ -22,6 +22,7 @@ from lexic.ir.action import (
     IrCond,
     IrEmit,
     IrField,
+    IrGlyph,
     IrIndex,
     IrIsA,
     IrJoin,
@@ -908,3 +909,45 @@ def test_irunradix_bad_digit_for_base_raises():
     """IrUnradix(base, out) raises on bad digit for base"""
     with pytest.raises(UnsupportedConstructError):
         IrUnradix(2, IrInt).eval(IrNone, IrStr("2"), ())  # '2' is out of base 2
+
+
+# ── IrGlyph ───────────────────────────────────────────────────────────
+
+
+def test_irglyph_is_a_plain_leaf():
+    """IrGlyph is a plain IrLeaf body carrying no IR-node children."""
+    assert isinstance(IrGlyph(), IrLeaf)
+    assert not IrGlyph().children()
+
+
+def test_irglyph_renders_ascii_codepoint():
+    """IrGlyph.eval on the focus IrInt(65) yields the character 'A'."""
+    assert IrGlyph().eval(IrNone, IrInt(65), ()) == IrStr("A")
+
+
+def test_irglyph_renders_control_codepoints():
+    """IrGlyph.eval renders tab (9) and newline (10) as their control chars."""
+    assert IrGlyph().eval(IrNone, IrInt(9), ()) == IrStr("\t")
+    assert IrGlyph().eval(IrNone, IrInt(10), ()) == IrStr("\n")
+
+
+def test_irglyph_renders_non_ascii_codepoint():
+    """IrGlyph.eval renders a non-ASCII code point (U+3042, hiragana 'あ')."""
+    assert IrGlyph().eval(IrNone, IrInt(0x3042), ()) == IrStr("あ")
+
+
+def test_irglyph_non_int_focus_raises():
+    """IrGlyph.eval raises UnsupportedConstructError when the focus isn't an int."""
+    with pytest.raises(UnsupportedConstructError, match="focus must be an integer"):
+        IrGlyph().eval(IrNone, IrStr("A"), ())
+
+
+def test_irglyph_composes_with_irunradix_via_irpipe():
+    """IrPipe(IrUnradix(16, IrInt), IrGlyph()) reads a hex digit-run as one char.
+
+    The glyph step after IrUnradix: digits decode to a neutral code point,
+    IrGlyph spells it as text — the pattern gbnf.py's literal-context hex
+    escapes use (``_HEX_GLYPH``).
+    """
+    result = IrPipe(IrUnradix(16, IrInt), IrGlyph()).eval(IrNone, IrStr("41"), ())
+    assert result == IrStr("A")

@@ -134,6 +134,36 @@ class Parse(IrLeaf[IrSelf, IrSelf]):
         return _single_tree(d, kernel)
 
 
+class ParseFirst(IrLeaf[IrSelf, IrSelf]):
+    """The FIRST derivation of ``text`` — deterministic under ambiguity.
+
+    The instance-parsing seam (:mod:`lexic.parsing_2.models`): where
+    :class:`Parse` raises on a second derivation, this takes the
+    enumeration's first — parity with the retired Lark path's
+    ``ambiguity="resolve"``. Fast path identical to :class:`Parse`; the
+    lazy stream is only driven one item on the slow path.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> ParseTree:
+        """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: a derivation.
+
+        :raises UnsupportedConstructError: If ``text`` does not parse.
+        """
+        kernel = _run_kernel(n, nc, True)
+        _require_accept(kernel, n)
+        handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
+        tree = FastTree(kernel).build(handle)
+        if isinstance(tree, ParseTree):
+            return tree
+        stream = DERIVATION_STREAM.eval(
+            d, kernel.accept_node(), IrTuple(kernel.to_chart())
+        )
+        first = next(iter(stream), None)
+        if not isinstance(first, ParseTree):
+            raise UnsupportedConstructError("parsing_2: no derivation")
+        return first
+
+
 class ParseReduced(IrLeaf[IrSelf, IrSelf]):
     """Text → reduced IR in one pass — the product path.
 
@@ -235,6 +265,7 @@ class EarleyParser(IrDispatch):
 
 RECOGNIZE = Recognize()
 PARSE = Parse()
+PARSE_FIRST = ParseFirst()
 PARSE_REDUCED = ParseReduced()
 PARSE_FOREST = ParseForest()
 ENUMERATE = Enumerate()

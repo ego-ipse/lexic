@@ -1,6 +1,6 @@
 """compile_grammar / compile_text — grammar compilation entry points.
 
-Pipeline (compile_grammar — new IR-AST path):
+Pipeline (compile_grammar — grammar text → specs):
 
   text  ──┬──►  parse_directives  ──►  Directives(non_semantic, start)
           │                                          │
@@ -15,16 +15,14 @@ Pipeline (compile_grammar — new IR-AST path):
                                                           ▼
                                           (start_name, list[RuleSpec])
 
-compile_text(text, *, cache_key) is the old-pipeline primary entry; returns
-a CompiledGrammar (Lark parser + transformer + classes). Retired in Task 25a.
-compile_from_path(path) is a thin wrapper that stats the file, builds a
-(path, mtime, size, flavour) key, checks the cache to skip the file read on
-hit, and delegates to compile_text(). One cache covers both old-pipeline
-entry points.
+compile_text(text, *, cache_key) / compile_from_path(path) then run codegen
+and build the engine-backed instance parser: the specs reconstitute as an
+instance grammar (``lexic.parsing_2.models.build_instance_parser``) and
+``CompiledGrammar.parse`` drives the Earley engine + ``ModelFold`` — no Lark.
 
-Runtime→codegen seam: build_classes_and_specs from lexic.codegen (the
-package) and LarkBuilder from lexic.codegen.lark_builder (the sub-module).
-No private-symbol imports cross the seam.
+Runtime seams: codegen from lexic.codegen (the package); the engine entries
+from lexic.parsing_2 / lexic.parsing_2.models. No private-symbol imports
+cross either seam.
 """
 
 from __future__ import annotations
@@ -33,37 +31,50 @@ import hashlib
 from collections.abc import Hashable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-import lark
-
+from lexic.base import GrammarModel
 from lexic.codegen import codegen
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir.derive import derive_specs
 from lexic.ir.directives import parse_directives
 from lexic.ir.flavour import IrFlavour
+from lexic.ir.nodes import IrAst
 from lexic.ir.spec import RuleSpec
-from lexic.parsing.lark_builder import build_lark
 from lexic.parsing.meta_parser import MetaGrammarParser
-
-if TYPE_CHECKING:
-    from lexic.base import GrammarModel
+from lexic.parsing_2 import parse_first
+from lexic.parsing_2.models import ModelFold, build_instance_parser
 
 
 @dataclass(frozen=True)
 class CompiledGrammar:
-    """Parse-ready artefacts produced by compile()."""
+    """Parse-ready artefacts produced by compile().
+
+    :ivar classes: Generated model classes by class name.
+    :ivar specs: RuleSpecs by rule name.
+    :ivar grammar: The Earley-normalised instance grammar (held so the
+        engine's identity-memoised table compilation stays hot across calls).
+    :ivar fold: The ParseTree → model-instance fold.
+    """
 
     classes: dict[str, type]
     specs: dict[str, RuleSpec]
-    parser: "lark.Lark"
-    transformer: "lark.Transformer"
+    grammar: IrAst
+    fold: ModelFold
 
-    def parse(self, text: str) -> "GrammarModel":
-        """Parse text against the compiled grammar and return a model instance."""
-        tree = self.parser.parse(text)
-        return self.transformer.transform(tree)
+    def parse(self, text: str) -> GrammarModel:
+        """Parse text against the compiled grammar and return a model instance.
+
+        :raises UnsupportedConstructError: If ``text`` does not parse, or the
+            fold produced no model for the start rule.
+        """
+        model = self.fold.apply(parse_first(self.grammar, text))
+        if not isinstance(model, GrammarModel):
+            raise UnsupportedConstructError(
+                f"compile: start rule folded to {type(model).__name__!r}, "
+                "not a GrammarModel"
+            )
+        return model
 
 
 _CACHE: dict[Hashable, CompiledGrammar] = {}
@@ -83,12 +94,12 @@ def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGra
     flavour_cls = get_flavour(flavour)
     start_rule, specs_list = compile_grammar(text, flavour_cls)
     classes = codegen(specs_list, stem)
-    _, parser, transformer = build_lark(specs_list, classes, start_rule)
+    grammar, fold = build_instance_parser(specs_list, classes, start_rule)
     return CompiledGrammar(
         classes=classes,
         specs={s.rule_name: s for s in specs_list},
-        parser=parser,
-        transformer=transformer,
+        grammar=grammar,
+        fold=fold,
     )
 
 
@@ -118,18 +129,8 @@ def compile_from_path(
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    stem = path.stem
     text = path.read_text(encoding="utf-8")
-    flavour_cls = get_flavour(flavour)
-    start_rule, specs_list = compile_grammar(text, flavour_cls)
-    classes = codegen(specs_list, stem)
-    _, parser, transformer = build_lark(specs_list, classes, start_rule)
-    cg = CompiledGrammar(
-        classes=classes,
-        specs={s.rule_name: s for s in specs_list},
-        parser=parser,
-        transformer=transformer,
-    )
+    cg = _compile_core(text, stem=path.stem, flavour=flavour)
     _CACHE[key] = cg
     return cg
 
@@ -141,22 +142,7 @@ def compile_grammar(
     non_semantic_rules: frozenset[str] | None = None,
     start: str | None = None,
 ) -> tuple[str, list[RuleSpec]]:
-    """Parse + derive NewRuleSpecs via the new IR-AST pipeline.
-
-    Pipeline:
-
-      text  ──┬──►  parse_directives  ──►  Directives(non_semantic, start)
-              │                                          │
-              │                                          ▼
-              │                       (resolve `start` arg precedence)
-              │
-              └──►  MetaGrammarParser.for_flavour(flavour)  ──►  IrAst
-                                                              │
-                                                              ▼
-                          derive_specs(ast, non_semantic_rules=...)
-                                                              │
-                                                              ▼
-                                              (start_name, list[RuleSpec])
+    """Parse + derive RuleSpecs via the IR-AST pipeline.
 
     `start` resolution precedence:
       1. explicit `start` argument

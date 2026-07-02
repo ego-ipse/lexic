@@ -5,6 +5,7 @@ import time
 
 import pytest
 
+from lexic.base import GrammarModel
 from lexic.compile import (
     CompiledGrammar,
     compile_from_path,
@@ -14,6 +15,8 @@ from lexic.compile import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
+from lexic.ir.nodes import IrAst
+from lexic.parsing_2.models import ModelFold
 from tests.paths import GROUND_TRUTH
 
 
@@ -97,6 +100,26 @@ def test_compiled_grammar_parse_roundtrips():
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     inst = cg.parse("x=1\n")
     assert inst.to_text() == "x=1\n"
+
+
+def test_compiled_grammar_grammar_field_is_ir_ast():
+    """CompiledGrammar.grammar is the normalized instance IrAst (engine-backed,
+    Lark-free shape — no .parser/.transformer fields)."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert isinstance(cg.grammar, IrAst)
+
+
+def test_compiled_grammar_fold_field_is_model_fold():
+    """CompiledGrammar.fold is the ParseTree -> model-instance ModelFold."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert isinstance(cg.fold, ModelFold)
+
+
+def test_compiled_grammar_parse_returns_a_grammar_model():
+    """CompiledGrammar.parse() returns a GrammarModel instance."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    inst = cg.parse("x=1\n")
+    assert isinstance(inst, GrammarModel)
 
 
 def test_repeated_parse_is_fast():

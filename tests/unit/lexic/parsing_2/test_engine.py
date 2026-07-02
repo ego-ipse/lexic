@@ -49,11 +49,12 @@ from lexic.parsing_2 import (
     derivations,
     is_ambiguous,
     parse,
+    parse_first,
     parse_forest,
     parse_reduced,
     recognize,
 )
-from lexic.parsing_2.engine import PARSE_REDUCED, ParseReduced
+from lexic.parsing_2.engine import PARSE_FIRST, PARSE_REDUCED, ParseFirst, ParseReduced
 from lexic.parsing_2.forest import (
     DerivationStream,
     IrStream,
@@ -656,3 +657,61 @@ def test_parse_reduced_raises_on_non_reducer_argument(digit_grammar: IrAst):
     with pytest.raises(UnsupportedConstructError, match="Reducer"):
         # Testing a wrong type.
         parse_reduced(digit_grammar, "5", "not a reducer")  # type: ignore
+
+
+# ── ParseFirst / PARSE_FIRST / parse_first ─────────────────────────────
+
+
+def test_parse_first_singleton_is_parse_first_instance():
+    """PARSE_FIRST is a ParseFirst instance — the shared singleton."""
+    assert isinstance(PARSE_FIRST, ParseFirst)
+
+
+def test_parse_first_matches_parse_for_unambiguous_input(digit_grammar: IrAst):
+    """parse_first() equals parse() when the input has a single derivation."""
+    assert parse_first(digit_grammar, "7") == parse(digit_grammar, "7")
+
+
+def test_parse_first_matches_parse_for_recursive_unambiguous_input(
+    expr_grammar: IrAst,
+):
+    """parse_first() equals parse() over a recursive, still-unambiguous grammar."""
+    assert parse_first(expr_grammar, "((7))") == parse(expr_grammar, "((7))")
+
+
+def test_parse_first_returns_one_tree_where_parse_raises_sss(sss_grammar: IrAst):
+    """parse_first() returns a single ParseTree for ambiguous input; parse() raises."""
+    with pytest.raises(UnsupportedConstructError):
+        parse(sss_grammar, "aaa")
+    tree = parse_first(sss_grammar, "aaa")
+    assert isinstance(tree, ParseTree)
+
+
+def test_parse_first_returns_one_tree_where_parse_raises_expr_plus(
+    expr_plus_grammar: IrAst,
+):
+    """parse_first() returns a single ParseTree for ambiguous input; parse() raises."""
+    with pytest.raises(UnsupportedConstructError):
+        parse(expr_plus_grammar, "a+a+a")
+    tree = parse_first(expr_plus_grammar, "a+a+a")
+    assert isinstance(tree, ParseTree)
+
+
+def test_parse_first_is_deterministic_across_calls(sss_grammar: IrAst):
+    """parse_first() picks the same derivation every time for the same input."""
+    first = parse_first(sss_grammar, "aaa")
+    second = parse_first(sss_grammar, "aaa")
+    assert first == second
+
+
+def test_parse_first_raises_on_no_parse(digit_grammar: IrAst):
+    """parse_first() raises UnsupportedConstructError when the input does not derive."""
+    with pytest.raises(UnsupportedConstructError):
+        parse_first(digit_grammar, "z")
+
+
+def test_parse_first_raises_on_empty_for_non_nullable(digit_grammar: IrAst):
+    """parse_first() raises UnsupportedConstructError on empty input for a
+    non-nullable rule."""
+    with pytest.raises(UnsupportedConstructError):
+        parse_first(digit_grammar, "")
