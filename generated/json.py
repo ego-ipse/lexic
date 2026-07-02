@@ -7,7 +7,7 @@ from typing import Annotated, List, Literal, Optional
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -708,7 +708,7 @@ Unescaped.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrItem(
-            IrNot(IrCharClass(IrStr('"\\\\'), IrRange(IrChr(0), IrChr(31)))),
+            IrNot(IrCharClass(IrChr(34), IrChr(92), IrRange(IrChr(0), IrChr(31)))),
             IrQuantifier(1, 1),
         )
     ],

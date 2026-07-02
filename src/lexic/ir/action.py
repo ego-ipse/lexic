@@ -135,6 +135,29 @@ class IrUnradix(IrNamedTuple[int, type[IrScalar]]):
         return self.out(acc)
 
 
+class IrGlyph(IrLeaf[IrSelf, IrStr]):
+    """Render the focus code point as its character — ``IrStr(chr(int(n)))``.
+
+    The glyph step after :class:`IrUnradix`: digits decode to a neutral code
+    point, this leaf spells it as text where text is being built (reduce-side
+    literal assembly). ``IrPipe(IrUnradix(16, IrInt), IrGlyph())`` reads a hex
+    run as one character.
+    """
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrStr:
+        """Spell the focus code point.
+
+        :raises UnsupportedConstructError: If the focus is not an integer
+            code point.
+        """
+        if not isinstance(n, int):
+            raise UnsupportedConstructError(
+                f"IrGlyph: focus must be an integer code point, got "
+                f"{type(n).__name__!r}"
+            )
+        return IrStr(chr(n))
+
+
 # ── Comparison ────────────────────────────────────────────────────────
 
 

@@ -25,7 +25,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.abnf_2 import ABNF_GRAMMAR
+from lexic.grammars.abnf import ABNF_GRAMMAR
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.nodes import (
@@ -41,6 +41,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.parsing_2.normalize import (
     SYNTHETIC_PREFIX,
     CollectRules,
@@ -119,6 +120,28 @@ def test_charclass_atom_unaffected_by_normalize():
     result = _normalize(g)
     arm = list(list(result.rules)[0].body)[0]
     assert isinstance(arm[0].atom, IrCharClass)
+
+
+def test_negated_charclass_atom_unaffected_by_normalize():
+    """An unquantified IrNot(IrCharClass) atom passes through normalize()."""
+    atom = IrNot(IrCharClass(IrChr('"')))
+    result = _normalize(_single_rule(atom))
+    arm = list(list(result.rules)[0].body)[0]
+    assert arm[0].atom == atom
+
+
+def test_quantified_negated_charclass_preserved_in_synthetic_unit():
+    """A ``[^"]*`` item desugars to a synthetic rule whose unit is the IrNot atom."""
+    atom = IrNot(IrCharClass(IrChr('"')))
+    result = _normalize(_single_rule(atom, IrQuantifier(0, IrNone)))
+    units = [
+        item.atom
+        for rule in result.rules
+        for arm in rule.body
+        for item in arm
+        if isinstance(item.atom, IrNot)
+    ]
+    assert units == [atom]
 
 
 def test_multichar_literal_stays_one_item():

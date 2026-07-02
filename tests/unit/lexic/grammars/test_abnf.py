@@ -12,14 +12,19 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import (
     ABNF_ESCAPES,
     ABNF_FLAVOUR,
+    ABNF_GRAMMAR,
     ABNF_PREFIX_QUANTIFIER,
+    ABNF_REDUCER,
+    ABNF_REDUCTIONS,
     META_GRAMMAR,
 )
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrFlavour
+from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAlternation,
+    IrAst,
     IrCharClass,
     IrChr,
     IrItem,
@@ -30,6 +35,10 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing.meta_parser import MetaGrammarParser
+from lexic.parsing_2 import parse, recognize
+from lexic.parsing_2.forest import ParseTree
+from lexic.parsing_2.normalize import normalize
+from lexic.parsing_2.reduce import YIELD, Reducer
 from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
 
 
@@ -432,3 +441,313 @@ def test_json_abnf_ground_truth_parses_32_rules():
     path = Path(__file__).parents[4] / "resources" / "ground_truth" / "json.abnf"
     ast = MetaGrammarParser(ABNF_FLAVOUR).parse(path.read_text(encoding="utf-8"))
     assert len(ast.rules) == 32
+
+
+# ── ABNF_GRAMMAR / ABNF_REDUCTIONS — native IR grammar + reducer ──────────
+#
+# Formerly tests/unit/lexic/grammars/test_abnf_2.py. API changes carried over
+# from that file's own header:
+#
+# - ``EarleyParser().parse(g, t)`` → module-level ``parse(g, t)``.
+# - ``Reducer(...).reduce(tree)`` → ``Reducer(...).apply(tree)``.
+
+
+def _normalize_grammar(g: IrAst) -> IrAst:
+    """Full normalization pipeline: flatten_groups -> desugar_quantifiers.
+
+    Multi-char literals stay atomic (no split_literals step).
+    """
+    return normalize(g)
+
+
+# ── ABNF_GRAMMAR structure ────────────────────────────────────────────
+
+
+def test_abnf_grammar_is_ir_ast():
+    """ABNF_GRAMMAR is an IrAst."""
+    assert isinstance(ABNF_GRAMMAR, IrAst)
+
+
+def test_abnf_grammar_start_rule_is_rulelist():
+    """ABNF_GRAMMAR start rule is 'rulelist'."""
+    assert ABNF_GRAMMAR.start == "rulelist"
+
+
+def test_abnf_grammar_has_expected_rule_count():
+    """ABNF_GRAMMAR has at least 20 rules (RFC 5234 §4 subset)."""
+    assert len(list(ABNF_GRAMMAR.rules)) >= 20
+
+
+def test_abnf_grammar_rule_names_include_core():
+    """ABNF_GRAMMAR contains expected core rule names."""
+    names = {r.name for r in ABNF_GRAMMAR.rules}
+    for expected in (
+        "rulelist",
+        "rule",
+        "rulename",
+        "alternation",
+        "concatenation",
+        "repetition",
+    ):
+        assert expected in names, f"Missing rule: {expected}"
+
+
+# ── ABNF_GRAMMAR emits as well-formed ABNF ───────────────────────────
+
+
+def test_abnf_grammar_emits_non_empty_string():
+    """ABNF_FLAVOUR.apply(ABNF_GRAMMAR) returns a non-empty string."""
+    result = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
+    assert isinstance(result, str)
+    assert len(result.strip()) > 0
+
+
+def test_abnf_grammar_emitted_text_contains_rulelist():
+    """The emitted ABNF text contains the 'rulelist' rule definition."""
+    text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
+    assert "rulelist" in text
+
+
+def test_abnf_grammar_emitted_text_contains_equals():
+    """The emitted ABNF text contains '=' rule assignments."""
+    text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
+    assert " = " in text
+
+
+# ── ABNF_REDUCTIONS structure ─────────────────────────────────────────
+
+
+def test_abnf_reductions_is_ir_map():
+    """ABNF_REDUCTIONS is an IrMap."""
+    assert isinstance(ABNF_REDUCTIONS, IrMap)
+
+
+def test_abnf_reductions_covers_all_structural_rules():
+    """ABNF_REDUCTIONS has entries for all structural rules."""
+    for rule_name in (
+        "rulelist",
+        "rule",
+        "rulename",
+        "alternation",
+        "concatenation",
+        "repetition",
+        "element",
+        "group",
+        "char-val",
+        "num-val",
+    ):
+        assert ABNF_REDUCTIONS[IrRuleRef(rule_name)] is not None, (
+            f"Missing reduction for {rule_name!r}"
+        )
+
+
+def test_abnf_reductions_covers_terminal_rules():
+    """Terminal rules resolve through IR_DEFAULT → YIELD (no explicit entry)."""
+    for rule_name in ("ALPHA", "DIGIT", "HEXDIG", "CR", "LF", "SP", "HTAB", "DQUOTE"):
+        assert ABNF_REDUCTIONS.resolve(IrRuleRef(rule_name)) is YIELD, (
+            f"Expected YIELD for {rule_name!r}"
+        )
+
+
+# ── ABNF_REDUCTIONS leaf reductions on simple trees ───────────────────
+
+
+def test_rulename_reduction_yields_irruleref():
+    """rulename reduction: children joined -> IrRuleRef."""
+    reducer = Reducer(reductions=ABNF_REDUCTIONS)
+    tree = ParseTree(IrRuleRef("rulename"), IrSeq(IrLiteral("a"), IrLiteral("b")))
+    result = reducer.apply(tree)
+    assert isinstance(result, IrRuleRef)
+    assert str(result) == "ab"
+
+
+def test_char_val_reduction_yields_irliteral_without_quotes():
+    """char-val reduction: DQUOTE sub-trees are noise-dropped; returns IrLiteral("ab")."""
+    dquote_tree = ParseTree(IrRuleRef("DQUOTE"), IrSeq(IrLiteral('"')))
+    tree = ParseTree(
+        IrRuleRef("char-val"),
+        IrSeq(dquote_tree, IrLiteral("a"), IrLiteral("b"), dquote_tree),
+    )
+    result = ABNF_REDUCER.apply(tree)
+    assert isinstance(result, IrLiteral)
+    assert result == IrLiteral("ab")
+
+
+def _hexdig(ch: str) -> ParseTree:
+    """Wrap a single hex character in a HEXDIG ParseTree (as the real parser produces)."""
+    return ParseTree(IrRuleRef("HEXDIG"), IrSeq(IrLiteral(ch)))
+
+
+def test_num_single_yields_ircharclass_chr():
+    """num-single over a hexits subtree yields IrCharClass(IrChr('A'))."""
+    hexits = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("4"), _hexdig("1")))
+    tree = ParseTree(
+        IrRuleRef("num-single"),
+        IrSeq(IrLiteral("%"), IrLiteral("x"), hexits),
+    )
+    result = ABNF_REDUCER.apply(tree)
+    assert isinstance(result, IrCharClass)
+    assert result == IrCharClass(IrChr("A"))
+
+
+def test_num_range_yields_ircharclass_range():
+    """num-range over two hexits subtrees yields IrCharClass(IrRange('A','Z'))."""
+    lo = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("4"), _hexdig("1")))
+    hi = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("5"), _hexdig("A")))
+    tree = ParseTree(
+        IrRuleRef("num-range"),
+        IrSeq(IrLiteral("%"), IrLiteral("x"), lo, IrLiteral("-"), hi),
+    )
+    result = ABNF_REDUCER.apply(tree)
+    assert isinstance(result, IrCharClass)
+    assert result == IrCharClass(IrRange(IrChr("A"), IrChr("Z")))
+
+
+# ── In-subset single-rule parse+reduce ───────────────────────────────
+
+
+def test_parse_reduce_single_literal_rule():
+    """'s = \"ab\"' parses and reduces to IrAst with IrLiteral('ab') item."""
+    g = _normalize_grammar(ABNF_GRAMMAR)
+    tree = parse(g, 's = "ab"\n')
+    result = ABNF_REDUCER.apply(tree)
+    assert isinstance(result, IrAst)
+    assert result.start == "s"
+    rules = list(result.rules)
+    assert rules[0].name == "s"
+    arm = list(rules[0].body)[0]
+    item = arm[0]
+    assert item.atom == IrLiteral("ab")
+    assert item.quantifier == IrQuantifier(1, 1)
+
+
+def test_parse_reduce_alternation_rule():
+    """'s = foo / bar' reduces to two-arm IrAlternation of IrRuleRef atoms."""
+    g = _normalize_grammar(ABNF_GRAMMAR)
+    text = 's = foo / bar\nfoo = "x"\nbar = "y"\n'
+    tree = parse(g, text)
+    result = ABNF_REDUCER.apply(tree)
+    assert isinstance(result, IrAst)
+    s_rule = list(result.rules)[0]
+    assert s_rule.name == "s"
+    arms = list(s_rule.body)
+    assert len(arms) == 2
+    assert arms[0][0].atom == IrRuleRef("foo")
+    assert arms[1][0].atom == IrRuleRef("bar")
+
+
+def test_parse_reduce_charclass_rule():
+    """'x = %x41-5A' reduces to IrCharClass(IrRange('A','Z'))."""
+    g = _normalize_grammar(ABNF_GRAMMAR)
+    text = "x = %x41-5A\n"
+    tree = parse(g, text)
+    result = ABNF_REDUCER.apply(tree)
+    assert isinstance(result, IrAst)
+    rules = list(result.rules)
+    item = list(rules[0].body)[0][0]
+    assert isinstance(item.atom, IrCharClass)
+    assert item.atom == IrCharClass(IrRange(IrChr("A"), IrChr("Z")))
+
+
+def _quant_of(text: str) -> IrQuantifier:
+    """Parse a one-rule ABNF snippet and return its single item's quantifier."""
+    g = _normalize_grammar(ABNF_GRAMMAR)
+    result = ABNF_REDUCER.apply(parse(g, text))
+    assert isinstance(result, IrAst)
+    return list(list(result.rules)[0].body)[0][0].quantifier
+
+
+def test_repeat_exact_quantifier():
+    """'5"a"' → IrQuantifier(5, 5)."""
+    assert _quant_of('x = 5"a"\n') == IrQuantifier(5, 5)
+
+
+def test_repeat_range_quantifier():
+    """'1*5"a"' → IrQuantifier(1, 5)."""
+    assert _quant_of('x = 1*5"a"\n') == IrQuantifier(1, 5)
+
+
+def test_repeat_open_upper_quantifier():
+    """'5*"a"' → IrQuantifier(5, IrNone) — empty hi-bound is unbounded."""
+    assert _quant_of('x = 5*"a"\n') == IrQuantifier(5, IrNone)
+
+
+def test_repeat_open_lower_quantifier():
+    """'*5"a"' → IrQuantifier(0, 5) — empty lo-bound is zero."""
+    assert _quant_of('x = *5"a"\n') == IrQuantifier(0, 5)
+
+
+def test_repeat_star_quantifier():
+    """'*"a"' → IrQuantifier(0, IrNone) — both bounds empty."""
+    assert _quant_of('x = *"a"\n') == IrQuantifier(0, IrNone)
+
+
+def test_repeat_absent_defaults_to_one_one():
+    """No repeat prefix → repeat-opt defaults to IrQuantifier(1, 1)."""
+    assert _quant_of('x = "a"\n') == IrQuantifier(1, 1)
+
+
+def test_num_single_parse_reduce():
+    """'x = %x41' reduces to IrCharClass(IrChr('A'))."""
+    g = _normalize_grammar(ABNF_GRAMMAR)
+    result = ABNF_REDUCER.apply(parse(g, "x = %x41\n"))
+    assert isinstance(result, IrAst)
+    item = list(list(result.rules)[0].body)[0][0]
+    assert item.atom == IrCharClass(IrChr("A"))
+
+
+# ── THE SELF-HOSTING FIXPOINT ─────────────────────────────────────────
+
+
+def test_self_hosting_recognize():
+    """normalize(ABNF_GRAMMAR) recognizes its own emitted text."""
+    g = _normalize_grammar(ABNF_GRAMMAR)
+    text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
+    assert recognize(g, text)
+
+
+def test_self_hosting_fixpoint():
+    """The headline test: parse(normalize(ABNF_GRAMMAR), emitted_text) reduced
+    through ABNF_REDUCER equals ABNF_GRAMMAR."""
+    g = _normalize_grammar(ABNF_GRAMMAR)
+    text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
+    tree = parse(g, text)
+    result = ABNF_REDUCER.apply(tree)
+    assert result == ABNF_GRAMMAR
+
+
+def test_self_hosting_fixpoint_idempotent():
+    """Reduce → re-emit → re-parse → re-reduce: result is the same IrAst."""
+    g = _normalize_grammar(ABNF_GRAMMAR)
+    text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
+
+    # First round
+    tree1 = parse(g, text)
+    result1 = ABNF_REDUCER.apply(tree1)
+    assert isinstance(result1, IrAst)
+
+    # Re-emit and re-parse
+    text2 = str(ABNF_FLAVOUR.apply(result1))
+    tree2 = parse(g, text2)
+    result2 = ABNF_REDUCER.apply(tree2)
+
+    assert result2 == result1
+    assert result2 == ABNF_GRAMMAR
+
+
+def test_self_hosting_crlf_recognized():
+    """CRLF line endings in the emitted text are recognized and parse correctly."""
+    g = _normalize_grammar(ABNF_GRAMMAR)
+    text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
+    text_crlf = text.replace("\n", "\r\n")
+    assert recognize(g, text_crlf)
+
+
+def test_self_hosting_crlf_reduces_to_abnf_grammar():
+    """CRLF-terminated emitted text reduces back to ABNF_GRAMMAR."""
+    g = _normalize_grammar(ABNF_GRAMMAR)
+    text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
+    text_crlf = text.replace("\n", "\r\n")
+    tree = parse(g, text_crlf)
+    result = ABNF_REDUCER.apply(tree)
+    assert result == ABNF_GRAMMAR

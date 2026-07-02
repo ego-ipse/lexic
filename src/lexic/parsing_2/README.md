@@ -7,7 +7,7 @@ grammar generation, no external parser. The premise is that **an `IrAst` already
 atoms — so it can drive a parser as-is.
 
 The self-hosting fixpoint is the proof: take the ABNF-of-ABNF grammar expressed
-as IR (`grammars/abnf_2.py`'s `ABNF_GRAMMAR`), emit its own source text, parse
+as IR (`grammars/abnf.py`'s `ABNF_GRAMMAR`), emit its own source text, parse
 that text back with itself, reduce, and recover the identical `IrAst`.
 
 **On the product metric (text → `IrAst`) this engine beats Lark ~2×** — see §12.

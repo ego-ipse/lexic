@@ -33,6 +33,8 @@ from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
+    IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -40,6 +42,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.parsing_2 import (
     EarleyParser,
     ParseTree,
@@ -127,6 +130,54 @@ def test_recognize_rejects_empty_string(expr_grammar: IrAst):
 def test_recognize_rejects_empty_parens(expr_grammar: IrAst):
     """expr grammar rejects '(())' — no digit inside."""
     assert not recognize(expr_grammar, "(())")
+
+
+# ── Negated char-class — the JSON-string shape ────────────────────────
+
+
+def _json_string_grammar() -> IrAst:
+    """s = '"' [^"]* '"' — a quoted run of any non-quote chars."""
+    quote = IrItem(IrLiteral('"'))
+    body_chars = IrItem(IrNot(IrCharClass(IrChr('"'))), IrQuantifier(0, IrNone))
+    rule = IrRule("s", IrAlternation(IrSequence(quote, body_chars, quote)))
+    return IrAst(rules=IrSeq(rule), start="s")
+
+
+def test_negated_class_recognizes_empty_body():
+    """The JSON-string grammar accepts '""'."""
+    g = _normalize(_json_string_grammar())
+    assert recognize(g, '""')
+
+
+def test_negated_class_recognizes_multi_char_body():
+    """The JSON-string grammar accepts '"abc"'."""
+    g = _normalize(_json_string_grammar())
+    assert recognize(g, '"abc"')
+
+
+def test_negated_class_recognizes_non_alnum_body():
+    """The JSON-string grammar accepts a body of spaces and symbols."""
+    g = _normalize(_json_string_grammar())
+    assert recognize(g, '"a b!"')
+
+
+def test_negated_class_rejects_quote_in_body():
+    """A quote inside the negated set is not matched — '"a"b"' fails."""
+    g = _normalize(_json_string_grammar())
+    assert not recognize(g, '"a"b"')
+
+
+def test_negated_class_rejects_unterminated():
+    """The JSON-string grammar rejects an unterminated body."""
+    g = _normalize(_json_string_grammar())
+    assert not recognize(g, '"abc')
+
+
+def test_negated_class_parses_single_derivation():
+    """parse over a negated-class grammar yields one derivation tree."""
+    g = _normalize(_json_string_grammar())
+    tree = parse(g, '"abc"')
+    assert isinstance(tree, ParseTree)
 
 
 # ── Nullable completer — quantifier desugaring + recognize ────────────

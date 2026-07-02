@@ -1,48 +1,40 @@
-"""GBNF flavour for Lexic.
+"""SCRATCH — GBNF grammar as native IR + reduction table (Phase 2 draft).
 
-Bundles the escape codec, action tuple, parse helpers, and the IR-native
-self-grammar + reducer in one module. :data:`GBNF_FLAVOUR` is the singleton
-:class:`IrFlavour`/:class:`IrEmitter` consumed by
-:func:`lexic.grammars.get_flavour`; :data:`GBNF_GRAMMAR`/:data:`GBNF_REDUCER`
-are the text→IR half driven by :mod:`lexic.parsing_2`. Temporarily over the
-pylint module-line cap (user-accepted): the Lark-era META_GRAMMAR and parse
-helpers die at cutover Phase 6 and bring the size back down.
+Drafted while Phases 0/1 land; destined for src/lexic/grammars/gbnf.py.
+Run directly for a smoke equivalence check against MetaGrammarParser:
 
-Explicit disable of duplicate-code. The end-goal is to have this file be
-completely auto-generated.
+    uv run python zzz_current_work/scratch_gbnf_ir.py
+
+Behavior contract being reproduced (verified 2026-07-02):
+- meta_parser.py: groups reduce to bare IrAlternation; missing quantifier →
+  IrQuantifier(); IrAst(rules=IrSeq(*rules), start=first).
+- gbnf.py parse_quantifier: "" ? * + {n} {n,} {n,m}.
+- gbnf.py parse_charclass + meta_parser._build_charclass: leading ^ → IrNot;
+  interior units via CANONICAL_ESCAPES (shorts n t r \\ ] - ^; hex x2 u4 U8;
+  unknown escape → bare char); linear range scan (unit '-' unit).
+- GBNF_ESCAPES.decode for literals: shorts n t r " \\; hex x2 u4 U8; unknown
+  escape stays VERBATIM (backslash kept).
+Known deliberate divergences (documented for the equivalence test):
+- malformed hex escapes (e.g. "\\x4" with one digit) fail to parse instead of
+  passing through verbatim;
+- pathological charclass dashes ('^' or bare '-' as a range lo) parse
+  grammar-defined rather than scan-defined; absent from every corpus file.
 """
-
-# pylint: disable=duplicate-code
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 from lexic.ir.action import (
-    IrAction,
-    IrApply,
     IrArg,
     IrArgs,
-    IrAt,
     IrBuild,
-    IrChild,
-    IrChildren,
-    IrCompare,
-    IrConcat,
     IrCond,
-    IrEmit,
     IrField,
-    IrGlyph,
-    IrIsA,
     IrJoin,
     IrPipe,
-    IrRaise,
     IrUnradix,
 )
-from lexic.ir.base import IrInt, IrNone, IrNoneType, IrSelf, IrSeq, IrStr, IrTuple
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrEscape, IrFlavour
-from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
+from lexic.ir.base import IrInt, IrNone, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -56,252 +48,8 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.operators import IrNot, IrOp
+from lexic.ir.operators import IrNot
 from lexic.parsing_2.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
-
-META_GRAMMAR = r"""
-start: rule+
-
-rule: NAME "::=" alternation     -> ir_rule
-alternation: sequence ("|" sequence)*  -> ir_alternation
-sequence: item*                  -> ir_sequence
-item: atom QUANTIFIER?           -> ir_item
-
-atom: LITERAL                    -> ir_literal
-    | CHARCLASS                  -> ir_charclass
-    | NAME                       -> ir_ruleref
-    | "(" alternation ")"        -> ir_group
-
-NAME: /[a-zA-Z_][a-zA-Z0-9_-]*/
-LITERAL: /"([^"\\]|\\.)*"/
-CHARCLASS: /\[(?:\^)?(?:[^\]\\]|\\.)*\]/
-QUANTIFIER: /[?*+]|\{[0-9]+(?:,[0-9]*)?\}/
-
-%ignore /[ \t\n\r]+/
-%ignore /#[^\n]*/
-"""
-"""GBNF meta-grammar — Lark grammar string with canonical IR-AST tags.
-
-The MetaGrammarParser dispatches productions tagged `ir_rule`, `ir_literal`,
-etc. to its generic IR-AST constructor. This file is data; no logic.
-"""
-
-
-class _GbnfEscapes(EscapeCodec):
-    """GBNF escape tables for quoted string literals."""
-
-    SHORT_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
-    HEX_ESCAPES = (("x", 2), ("u", 4), ("U", 8))
-
-
-GBNF_ESCAPES = _GbnfEscapes()
-"""Singleton escape codec for GBNF."""
-
-
-GBNF_QUANTIFIERS: IrMap[IrQuantifier, IrLiteral] = IrMap(
-    IrTuple(IrQuantifier(1, 1), IrLiteral("")),
-    IrTuple(IrQuantifier(0, 1), IrLiteral("?")),
-    IrTuple(IrQuantifier(0, IrNone), IrLiteral("*")),
-    IrTuple(IrQuantifier(1, IrNone), IrLiteral("+")),
-    # Counted forms — GBNF spells repetition natively as {n} / {n,} / {n,m}.
-    IrTuple(
-        IR_DEFAULT,
-        IrCond(
-            # open upper bound (n > 1, ∞) → "{n,}"
-            test=IrIsA("hi", IrNoneType),
-            then_op=IrConcat(
-                parts=IrTuple(IrLiteral("{"), IrField("lo", IrStr), IrLiteral(",}"))
-            ),
-            else_op=IrCond(
-                # closed exact (n, n) → "{n}"
-                test=IrCompare(IrField("lo", IrInt), IrOp("=="), IrField("hi", IrInt)),
-                then_op=IrConcat(
-                    parts=IrTuple(IrLiteral("{"), IrField("lo", IrStr), IrLiteral("}"))
-                ),
-                # bounded (m, n) → "{m,n}" (covers (0, n) too)
-                else_op=IrConcat(
-                    parts=IrTuple(
-                        IrLiteral("{"),
-                        IrField("lo", IrStr),
-                        IrLiteral(","),
-                        IrField("hi", IrStr),
-                        IrLiteral("}"),
-                    )
-                ),
-            ),
-        ),
-    ),
-)
-"""Quantifier bounds ⇄ GBNF postfix symbol — the data map IS the action body.
-
-The four closed forms are exact-value keys; every counted form (``{n}``,
-``{n,}``, ``{m,n}``) resolves to the :data:`IR_DEFAULT` branch, a nested
-:class:`IrCond` over the ``lo``/``hi`` bounds. ``parse_quantifier`` inverts the
-exact-key dyads (and parses the counted forms by regex), so the table exists
-once.
-"""
-
-
-GBNF_ACTIONS = IrTypeMap(
-    IrAction(
-        IrLiteral,
-        IrConcat(parts=IrTuple(IrLiteral('"'), IrEscape(), IrLiteral('"'))),
-    ),
-    # Brackets are strictly this action's; the mark-slot (IrArgs) right after
-    # the opening bracket is where GBNF's surface syntax puts received marks;
-    # the interior is the dispatched join of the class's own elements.
-    IrAction(
-        IrCharClass,
-        IrConcat(
-            parts=IrTuple(
-                IrLiteral("["),
-                IrJoin(parts=IrArgs()),
-                IrJoin(parts=IrChildren()),
-                IrLiteral("]"),
-            )
-        ),
-    ),
-    IrAction(
-        IrRange,
-        IrJoin(
-            parts=IrTuple(IrField("lo"), IrField("hi")),
-            separator=IrLiteral("-"),
-        ),
-    ),
-    # Bare IrStr: the run leaf inside a class — encoded units emit verbatim.
-    # Concrete str-leaves (IrLiteral/IrRuleRef) win by MRO.
-    IrAction(IrStr, IrEmit()),
-    # IrNot contributes its mark and delegates: the operand's own action
-    # places it. The IrTypeMap is the guard — IrSelf is the MRO catch-all.
-    IrAction(
-        IrNot,
-        IrAt(
-            0,
-            IrTypeMap(
-                IrAction(IrCharClass, IrApply(IrTuple(IrLiteral("^")))),
-                IrAction(
-                    IrSelf,
-                    IrRaise(message="{dispatcher}: cannot negate {node_type!r}"),
-                ),
-            ),
-        ),
-    ),
-    IrAction(IrRuleRef, IrEmit()),
-    IrAction(IrQuantifier, GBNF_QUANTIFIERS),
-    IrAction(
-        IrItem,
-        IrConcat(
-            parts=IrTuple(
-                IrCond(
-                    test=IrIsA("atom", IrAlternation),
-                    then_op=IrConcat(
-                        parts=IrTuple(IrLiteral("("), IrChild("atom"), IrLiteral(")"))
-                    ),
-                    else_op=IrChild("atom"),
-                ),
-                IrChild("quantifier"),
-            )
-        ),
-    ),
-    IrAction(
-        IrSequence,
-        IrJoin(
-            parts=IrChildren(),
-            separator=IrLiteral(" "),
-            empty=IrLiteral('""'),
-        ),
-    ),
-    IrAction(
-        IrAlternation,
-        IrJoin(
-            parts=IrChildren(),
-            separator=IrLiteral(" | "),
-            empty=IrLiteral(""),
-        ),
-    ),
-    IrAction(
-        IrRule,
-        IrConcat(parts=IrTuple(IrField("name"), IrLiteral(" ::= "), IrChild("body"))),
-    ),
-    IrAction(
-        IrAst,
-        IrConcat(parts=IrTuple(IrChild("rules"), IrLiteral("\n"))),
-    ),
-    # The rules collection is the only bare tuple ever dispatched; concrete
-    # subclasses (IrSequence, IrAlternation, records) win by MRO.
-    IrAction(
-        IrTuple,
-        IrJoin(
-            parts=IrChildren(),
-            separator=IrLiteral("\n"),
-            empty=IrLiteral(""),
-        ),
-    ),
-)
-
-
-class _GbnfFlavour(IrFlavour):
-    """GBNF flavour singleton class."""
-
-    actions: IrTypeMap = GBNF_ACTIONS
-
-    name: ClassVar[str] = "gbnf"
-    extensions: ClassVar[tuple[str, ...]] = (".gbnf",)
-    meta_grammar: ClassVar[str] = META_GRAMMAR
-    escapes: ClassVar[EscapeCodec] = GBNF_ESCAPES
-    line_comment: ClassVar[str] = "#"
-
-    @staticmethod
-    def parse_quantifier(text: str) -> IrQuantifier:
-        """GBNF quantifier parser.
-
-        Forms: ``""``, ``?``, ``*``, ``+``, ``{N}``, ``{N,}``, ``{N,M}``.
-        """
-        symbol_to_bounds = {
-            str(sym): q
-            for q, sym in GBNF_QUANTIFIERS.items()
-            if isinstance(sym, IrLiteral)
-        }
-        quantifier = symbol_to_bounds.get(text or "")
-        if quantifier is not None:
-            return quantifier
-        inner = text[1:-1]
-        if "," in inner:
-            lo_str, hi_str = inner.split(",", 1)
-            return IrQuantifier(int(lo_str), int(hi_str) if hi_str else IrNone)
-        n = int(inner)
-        return IrQuantifier(n, n)
-
-    @staticmethod
-    def parse_charclass(text: str) -> tuple[str, bool]:
-        """GBNF charclass parser. ``text`` includes the brackets."""
-        inner = text[1:-1]
-        if inner.startswith("^"):
-            return inner[1:], True
-        return inner, False
-
-
-GBNF_FLAVOUR = _GbnfFlavour()
-"""Singleton GBNF flavour."""
-
-
-# ── GBNF grammar as native IR + reducer ────────────────────────────────────
-#
-# Authored like the ABNF block in abnf.py: fully explicit IrAst, no
-# construction helpers. Reproduces MetaGrammarParser semantics exactly
-# (pinned by tests/integration/test_gbnf_ir_equivalence.py over the seven
-# resources/ground_truth grammars). Design notes:
-# - Lark's lexer gave maximal munch for free; here it is engineered
-#   structurally: adjacent items need real noise unless the next atom is
-#   non-name (seq-rest), inter-rule noise is REQUIRED (rules-rest), and a
-#   bare '-' in a class is positional (leading / trailing / range-hi only).
-# - Leading-noise discipline: "::=" and "|" own only their own leading
-#   noise; first-item owns each arm's; empty arms (empty-seq, an epsilon
-#   rule) own none — that is what keeps nullable arms unambiguous.
-# - Escapes decode structurally per R2: one grammar rule per escape kind,
-#   reduced by constants or IrUnradix — no codec call on the reduce side.
-# - A bare IrChr constant self-renders on eval (emit-time spelling), so
-#   constant units are wrapped IrBuild(IrChr, IrTuple(IrStr(...))).
 
 GBNF_GRAMMAR = IrAst(
     rules=IrSeq(
@@ -974,26 +722,16 @@ GBNF_GRAMMAR = IrAst(
     ),
     start="grammar",
 )
-"""The GBNF grammar of GBNF as a canonical :class:`IrAst`."""
 
 _NON_SEMANTIC = ("n", "tail-comment")
-"""Noise rules: dropped from structural children and skipped by :data:`YIELD`."""
 
 GBNF_NOISE: IrMap = IrMap(
     *(IrTuple(IrRuleRef(name), DROP) for name in _NON_SEMANTIC),
     IrTuple(IR_DEFAULT, KEEP_REDUCED),
 )
 
-"""Child-contribution policy: noise drops, every other rule is kept reduced."""
-
 _HEX_CHR = IrPipe(IrJoin(IrArgs()), IrUnradix(16, IrChr))
-"""Joined hex digit-run args -> an ``IrChr`` code point (charclass units)."""
-
-_HEX_GLYPH = IrPipe(IrPipe(IrJoin(IrArgs()), IrUnradix(16, IrInt)), IrGlyph())
-"""Joined hex digit-run args -> the decoded character (literal text)."""
-"""Joined hex digit-run args -> an ``IrChr`` code point."""
 _DEC_INT = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
-"""Joined decimal digit-run args -> an ``IrInt`` bound."""
 
 GBNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(
@@ -1057,9 +795,9 @@ GBNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("lesc-dq"), IrLiteral('"')),
     IrTuple(IrRuleRef("lesc-bs"), IrLiteral("\\")),
     IrTuple(IrRuleRef("lesc-hex"), IrArg(0)),
-    IrTuple(IrRuleRef("hex2"), _HEX_GLYPH),
-    IrTuple(IrRuleRef("hex4"), _HEX_GLYPH),
-    IrTuple(IrRuleRef("hex8"), _HEX_GLYPH),
+    IrTuple(IrRuleRef("hex2"), _HEX_CHR),
+    IrTuple(IrRuleRef("hex4"), _HEX_CHR),
+    IrTuple(IrRuleRef("hex8"), _HEX_CHR),
     # verbatim unknown escape: decode() leaves backslash + char in place.
     IrTuple(
         IrRuleRef("lesc-other"),
@@ -1102,9 +840,31 @@ GBNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("cc-esc-other"), IrBuild(IrChr, IrTuple(IrArg(0)))),
     IrTuple(IR_DEFAULT, YIELD),
 )
-"""Per-rule reductions: parse tree -> IR. Escapes decode structurally (one
-rule per escape kind); numeric runs decode via :class:`IrUnradix`. Paired
-with :data:`GBNF_NOISE`."""
 
 GBNF_REDUCER = Reducer(reductions=GBNF_REDUCTIONS, noise=GBNF_NOISE, literal=DROP)
-"""The configured GBNF reducer: reductions plus the cleaning policy."""
+
+
+if __name__ == "__main__":
+    from pathlib import Path
+
+    from lexic.grammars import GBNF_FLAVOUR
+    from lexic.parsing.meta_parser import MetaGrammarParser
+    from lexic.parsing_2 import is_ambiguous, parse_reduced
+    from lexic.parsing_2.normalize import normalize
+
+    norm = normalize(GBNF_GRAMMAR)
+    meta = MetaGrammarParser.for_flavour(GBNF_FLAVOUR)
+    for path in sorted(Path("resources/ground_truth").glob("*.gbnf")):
+        text = path.read_text(encoding="utf-8")
+        expected = meta.parse(text)
+        got = parse_reduced(norm, text, GBNF_REDUCER)
+        amb = is_ambiguous(norm, text)
+        status = "OK " if got == expected else "DIFF"
+        print(f"{status} amb={int(amb)} {path.name}")
+        if got != expected:
+            for e_rule, g_rule in zip(expected.rules, got.rules, strict=False):
+                if e_rule != g_rule:
+                    print(f"  first diff rule: {e_rule.name}")
+                    print(f"    expected: {e_rule!r}")
+                    print(f"    got:      {g_rule!r}")
+                    break

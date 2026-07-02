@@ -50,6 +50,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 
 ORIGIN_BITS = 20
 """Bits reserved for an origin / end column in a packed item or handle."""
@@ -97,25 +98,50 @@ def predecessor_chain(
 _ONE = IrQuantifier(1, 1)
 
 
-def atom_accepts(atom: "IrLiteral | IrCharClass | RunTerm", char: str) -> bool:
+def _charclass_contains(charclass: IrCharClass, char: str) -> bool:
+    """Whether ``char`` is a member of ``charclass``.
+
+    :param charclass: A character class of :class:`IrRange` spans and single
+        :class:`~lexic.ir.base.IrChr` code points.
+    :param char: A single character.
+    :returns: ``True`` when ``char`` falls in a range or equals a listed char.
+    """
+    for element in charclass:
+        if isinstance(element, IrRange):
+            if str(element.lo) <= char <= str(element.hi):
+                return True
+        elif char in str(element):
+            return True
+    return False
+
+
+def atom_accepts(atom: "IrLiteral | IrCharClass | IrNot | RunTerm", char: str) -> bool:
     """Whether a terminal atom can **begin** with ``char`` — the scan filter.
 
     A multi-char literal is begun by its first character (the full match is
-    the scanner's ``startswith``); a :class:`RunTerm` by any char of its set.
+    the scanner's ``startswith``); a negated char class (``IrNot`` over an
+    ``IrCharClass``) by any char outside its set; a :class:`RunTerm` by any
+    char of its set.
 
-    :param atom: A terminal atom (``IrLiteral``, ``IrCharClass``, ``RunTerm``).
+    :param atom: A terminal atom (``IrLiteral``, ``IrCharClass``,
+        ``IrNot(IrCharClass)``, ``RunTerm``).
     :param char: A single character.
     :returns: ``True`` when a match at ``char`` is possible.
+    :raises UnsupportedConstructError: When ``atom`` is an ``IrNot`` over
+        anything other than an ``IrCharClass``.
     """
     if isinstance(atom, IrLiteral):
         return atom.startswith(char)  # IrLiteral IS-A str
     if isinstance(atom, IrCharClass):
-        for element in atom:
-            if isinstance(element, IrRange):
-                if str(element.lo) <= char <= str(element.hi):
-                    return True
-            elif char in str(element):
-                return True
+        return _charclass_contains(atom, char)
+    if isinstance(atom, IrNot):
+        inner = atom[0]
+        if isinstance(inner, IrCharClass):
+            return not _charclass_contains(inner, char)
+        raise UnsupportedConstructError(
+            f"parsing_2: IrNot over {type(inner).__name__} — "
+            "only IrNot(IrCharClass) is a terminal atom"
+        )
     if isinstance(atom, RunTerm):
         return char in atom.charset
     return False
@@ -264,7 +290,7 @@ class TermTables(IrLeaf[IrSelf, IrSelf]):
 
     __slots__ = ("atoms", "lens", "literals", "runs")
 
-    atoms: tuple["IrLiteral | IrCharClass | RunTerm", ...]
+    atoms: tuple["IrLiteral | IrCharClass | IrNot | RunTerm", ...]
     lens: tuple[int, ...]
     literals: tuple[str, ...]
     runs: tuple[RunTerm, ...]
@@ -373,7 +399,7 @@ class _TableBuilder:
         self.grammar = grammar
         self.runs = runs or {}
         self.rule_ids: dict[str, int] = {}
-        self.terms: dict["IrLiteral | IrCharClass | RunTerm", int] = {}
+        self.terms: dict["IrLiteral | IrCharClass | IrNot | RunTerm", int] = {}
         self.arms: list[tuple[IrSequence, int, int]] = []
         self.codes: list[tuple[int, int]] = []
         self.rule_dot0: list[list[int]] = []
@@ -400,7 +426,7 @@ class _TableBuilder:
         """The start rule's id, or ``-1`` when the grammar never defines it."""
         return self.rule_ids.get(str(self.grammar.start), -1)
 
-    def term_atoms(self) -> tuple["IrLiteral | IrCharClass | RunTerm", ...]:
+    def term_atoms(self) -> tuple["IrLiteral | IrCharClass | IrNot | RunTerm", ...]:
         """The terminal atoms in term_id order."""
         return tuple(self.terms)
 
@@ -462,7 +488,7 @@ class _TableBuilder:
         self.codes.append((arm_id, -(self._term_id(term) + 1)))
         self.codes.append((arm_id, 0))
 
-    def _term_id(self, atom: "IrLiteral | IrCharClass | RunTerm") -> int:
+    def _term_id(self, atom: "IrLiteral | IrCharClass | IrNot | RunTerm") -> int:
         """The term_id for ``atom``, minting one on first sight."""
         tid = self.terms.get(atom)
         if tid is None:
@@ -503,7 +529,7 @@ class _TableBuilder:
         atom = item.atom
         if isinstance(atom, IrRuleRef):
             return self._rule_id(str(atom)) + 1
-        if isinstance(atom, (IrLiteral, IrCharClass)):
+        if isinstance(atom, (IrLiteral, IrCharClass, IrNot)):
             return -(self._term_id(atom) + 1)
         raise UnsupportedConstructError(
             f"parsing_2: unnormalised atom {type(atom).__name__} — "

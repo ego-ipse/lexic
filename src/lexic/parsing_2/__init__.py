@@ -2,7 +2,7 @@
 
 This package is the shape of the Lark replacement. The premise: an ``IrAst``
 *is already a grammar*, so it can drive a parser directly. Given a grammar as IR
-(e.g. ``json.py``'s ``JSON_GRAMMAR``, or the forthcoming ``abnf_2.py`` ABNF-of-
+(e.g. ``json.py``'s ``JSON_GRAMMAR``, or ``grammars/abnf.py``'s ABNF-of-
 ABNF) plus input text, the engine produces a parse forest; a reduction table
 folds that forest back into an ``IrAst``. The fixpoint — parse the ABNF source of
 ABNF with the ABNF grammar and recover the ABNF grammar — is the self-hosting

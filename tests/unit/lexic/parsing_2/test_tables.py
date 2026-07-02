@@ -27,6 +27,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.parsing_2 import recognize
 from lexic.parsing_2.tables import (
     ADVANCE,
@@ -73,6 +74,36 @@ def test_atom_accepts_charclass_single_chr_rejects_other():
     """A char-class with a bare IrChr element rejects any other char."""
     atom = IrCharClass(IrChr("q"))
     assert not atom_accepts(atom, "r")
+
+
+def test_atom_accepts_negated_charclass_matches_char_outside_set():
+    """A negated char-class accepts a char that is not in the inner set."""
+    atom = IrNot(IrCharClass(IrChr('"')))
+    assert atom_accepts(atom, "a")
+
+
+def test_atom_accepts_negated_charclass_rejects_char_in_set():
+    """A negated char-class rejects a char that is in the inner set."""
+    atom = IrNot(IrCharClass(IrChr('"')))
+    assert not atom_accepts(atom, '"')
+
+
+def test_atom_accepts_negated_range_matches_char_outside_range():
+    """A negated range accepts a char outside the inner range."""
+    atom = IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z"))))
+    assert atom_accepts(atom, "0")
+
+
+def test_atom_accepts_negated_range_rejects_char_in_range():
+    """A negated range rejects a char inside the inner range."""
+    atom = IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z"))))
+    assert not atom_accepts(atom, "m")
+
+
+def test_atom_accepts_negated_non_charclass_raises():
+    """An IrNot over anything but an IrCharClass raises."""
+    with pytest.raises(UnsupportedConstructError):
+        atom_accepts(IrNot(IrRuleRef("x")), "a")
 
 
 # ── Grammar builders ─────────────────────────────────────────────────────
@@ -349,6 +380,35 @@ def test_char_leaf_caches_per_distinct_char():
     tables.char_leaf("3")
     tables.char_leaf("3")
     assert len(tables._char_leaves) == 1
+
+
+# ── Negated char-class terminals ─────────────────────────────────────────
+
+
+def _negated_grammar() -> IrAst:
+    """s = [^"] — one rule with a single negated-char-class terminal."""
+    atom = IrNot(IrCharClass(IrChr('"')))
+    rule = IrRule("s", IrAlternation(IrSequence(IrItem(atom))))
+    return IrAst(rules=IrSeq(rule), start="s")
+
+
+def test_compile_tables_accepts_negated_charclass_terminal():
+    """A normalised IrNot(IrCharClass) compiles without raising."""
+    tables = compile_tables(_negated_grammar())
+    assert isinstance(tables, ParserTables)
+
+
+def test_negated_charclass_compiles_as_length_one_terminal():
+    """A negated char-class scans one column, like a plain char-class."""
+    tables = compile_tables(_negated_grammar())
+    assert tables.terms.lens == (1,)
+
+
+def test_terms_for_finds_negated_terminal_outside_set():
+    """terms_for finds the negated terminal for a char outside its set."""
+    tables = compile_tables(_negated_grammar())
+    assert len(tables.terms_for("a")) == 1
+    assert len(tables.terms_for('"')) == 0
 
 
 # ── Table types ────────────────────────────────────────────────────────

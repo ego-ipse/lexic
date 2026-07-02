@@ -42,8 +42,7 @@ from typing import Callable
 
 import lark
 
-from lexic.grammars.abnf import ABNF_FLAVOUR
-from lexic.grammars.abnf_2 import ABNF_GRAMMAR, ABNF_REDUCER
+from lexic.grammars.abnf import ABNF_FLAVOUR, ABNF_GRAMMAR, ABNF_REDUCER
 from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,

@@ -11,8 +11,8 @@ transitive charset-rule walk.
 
 from __future__ import annotations
 
-from lexic.grammars.abnf_2 import ABNF_GRAMMAR
-from lexic.ir.base import IrSeq
+from lexic.grammars.abnf import ABNF_GRAMMAR
+from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -20,11 +20,13 @@ from lexic.ir.nodes import (
     IrChr,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from lexic.parsing_2.kernel import Kernel
 from lexic.parsing_2.lexruns import (
     _expand_atom,
@@ -71,6 +73,11 @@ def test_expand_atom_ruleref_is_not_a_terminal_atom():
     assert _expand_atom(IrRuleRef("digit")) is None
 
 
+def test_expand_atom_negated_charclass_poisons():
+    """A negated char-class is not a positive char-unit — poisoned to None."""
+    assert _expand_atom(IrNot(IrCharClass(IrChr('"')))) is None
+
+
 # ── run_candidates ────────────────────────────────────────────────────
 
 
@@ -108,6 +115,18 @@ def test_run_candidates_empty_for_grammar_with_no_synthetic_rules():
     )
     tables = compile_tables(g)
     assert run_candidates(tables) == {}
+
+
+def test_run_candidates_excludes_negated_class_star():
+    """A ``[^"]*`` run is not collapsible — its unit poisons, so it stays per-char."""
+    quote = IrItem(IrLiteral('"'))
+    body = IrItem(
+        IrNot(IrCharClass(IrChr('"'))),
+        IrQuantifier(0, IrNone),
+    )
+    rule = IrRule("s", IrAlternation(IrSequence(quote, body, quote)))
+    g = normalize(IrAst(rules=IrSeq(rule), start="s"))
+    assert run_candidates(compile_tables(g)) == {}
 
 
 # ── recognition_tables ────────────────────────────────────────────────
