@@ -37,6 +37,7 @@ from lexic.parsing_2 import (
     recognize,
 )
 from lexic.parsing_2.chart import Chart as ChartDirect
+from lexic.parsing_2.chart import EarleyItem as EarleyItemDirect
 from lexic.parsing_2.chart import Link as LinkDirect
 from lexic.parsing_2.chart import Links as LinksDirect
 from lexic.parsing_2.engine import PARSE_REDUCED as PARSE_REDUCED_DIRECT
@@ -44,7 +45,6 @@ from lexic.parsing_2.engine import EarleyParser as EarleyParserDirect
 from lexic.parsing_2.forest import BUILD_TREE as BUILD_TREE_DIRECT
 from lexic.parsing_2.forest import ParseTree as ParseTreeDirect
 from lexic.parsing_2.forest import SppfNode as SppfNodeDirect
-from lexic.parsing_2.item import EarleyItem as EarleyItemDirect
 from lexic.parsing_2.kernel import FastTree as FastTreeDirect
 from lexic.parsing_2.kernel import Kernel as KernelDirect
 from lexic.parsing_2.reduce import Reducer as ReducerDirect

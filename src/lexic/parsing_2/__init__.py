@@ -54,7 +54,7 @@ from __future__ import annotations
 
 from lexic.ir.base import IrInt, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.ir.nodes import IrAst
-from lexic.parsing_2.chart import Chart, Link, Links
+from lexic.parsing_2.chart import Chart, EarleyItem, Link, Links
 from lexic.parsing_2.engine import (
     ENUMERATE,
     IS_AMBIGUOUS,
@@ -65,7 +65,6 @@ from lexic.parsing_2.engine import (
     EarleyParser,
 )
 from lexic.parsing_2.forest import BUILD_TREE, BuildTree, ParseTree, SppfNode
-from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.kernel import FastTree, Kernel
 from lexic.parsing_2.reduce import Reducer
 from lexic.parsing_2.tables import ParserTables, compile_tables

@@ -31,9 +31,8 @@ from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrSeq
-from lexic.parsing_2.chart import Chart
+from lexic.parsing_2.chart import Chart, EarleyItem
 from lexic.parsing_2.forest import ParseTree, SppfNode
-from lexic.parsing_2.item import EarleyItem
 from lexic.parsing_2.tables import (
     ADVANCE,
     ORIGIN_BITS,

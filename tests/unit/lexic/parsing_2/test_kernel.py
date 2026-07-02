@@ -28,13 +28,13 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2 import parse, recognize
+from lexic.parsing_2 import derivations, parse, recognize
 from lexic.parsing_2.chart import Chart
 from lexic.parsing_2.forest import ParseTree, SppfNode
 from lexic.parsing_2.kernel import FastTree, Kernel
 from lexic.parsing_2.normalize import normalize
 from lexic.parsing_2.tables import ADVANCE, ORIGIN_BITS, compile_tables
-from lexic.parsing_2 import derivations
+
 # ── Grammar helpers ───────────────────────────────────────────────────
 
 

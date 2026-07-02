@@ -60,8 +60,7 @@ from lexic.ir.base import (
     IrTuple,
 )
 from lexic.ir.nodes import IrLiteral, IrRuleRef
-from lexic.parsing_2.chart import Chart
-from lexic.parsing_2.item import EarleyItem
+from lexic.parsing_2.chart import Chart, EarleyItem
 from lexic.parsing_2.trampoline import ADVANCE, EMIT, EXHAUSTED, Trampoline
 
 _FRESH, _DRIVING, _DONE = 0, 1, 2

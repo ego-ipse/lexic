@@ -27,7 +27,10 @@ from __future__ import annotations
 
 from lexic.ir.base import IrLeaf, IrSelf
 from lexic.ir.mapping import IrMultiMap
-from lexic.parsing_2.item import EarleyItem
+from lexic.ir.nodes import IrRuleRef, IrSequence
+
+EarleyItem = tuple[IrRuleRef, IrSequence, int, int]
+"""Earley items — a dotted arm ``(rule_name, arm, dot, origin)`` as a plain tuple."""
 
 Link = tuple[EarleyItem, int, IrSelf]
 """Provenance of one advanced item — a plain ``tuple`` ``(predecessor,
