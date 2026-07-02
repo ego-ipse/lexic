@@ -1,5 +1,7 @@
 # Plan — `parsing` rename + flavour rework
 
+> **SUPERSEDED (2026-07-02, user ruling).** No `parsing_legacy` — legacy Lark path is DELETED outright; the public API is re-driven by the Earley engine (requires GBNF IR self-grammar + reducer and an instance-parsing bridge); integration tests stay green; `IrFlavour` STAYS in `ir/` (D1 overridden). The Phase-1 mechanical rename checklist and file inventories below remain accurate reference material.
+
 Date: 2026-07-02. Produced by plan-cutover agent; unreviewed by user.
 
 Baseline before starting: `uv run pytest tests/ -q` (1188 green), `uv run ruff check src/ tests/`. **Coordination note:** the agent fixing type/lint issues inside `parsing_2/` must land first (or rebase onto Phase 1), since Phase 1 `git mv`s that whole directory. This plan depends only on module structure, not line numbers.
