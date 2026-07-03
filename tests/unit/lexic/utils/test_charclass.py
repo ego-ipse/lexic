@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from lexic.ir.base import IrStr
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
-from lexic.ir.nodes import IrCharClass, IrRange
+from lexic.ir.nodes import IrCharClass, IrChr, IrRange
 from lexic.utils.charclass import charclass_pattern, parse_charclass_chars
 
 # ── parse_charclass_chars ─────────────────────────────────────────────
@@ -63,67 +62,69 @@ def test_codec_is_parametric():
 
 def test_charclass_pattern_single_range():
     """A single IrRange flattens to ``lo-hi``."""
-    cls = IrCharClass(IrRange("a", "z"))
+    cls = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
     assert charclass_pattern(cls) == "a-z"
 
 
 def test_charclass_pattern_run_only():
-    """A bare IrStr run emits its characters verbatim."""
-    cls = IrCharClass(IrStr("abc"))
+    """A run of code points emits its characters verbatim."""
+    cls = IrCharClass(IrChr("a"), IrChr("b"), IrChr("c"))
     assert charclass_pattern(cls) == "abc"
 
 
 def test_charclass_pattern_mixed_run_then_range():
-    """A run followed by a range concatenates correctly."""
-    cls = IrCharClass(IrStr("abc"), IrRange("0", "9"))
+    """A run of code points followed by a range concatenates correctly."""
+    cls = IrCharClass(
+        IrChr("a"), IrChr("b"), IrChr("c"), IrRange(IrChr("0"), IrChr("9"))
+    )
     assert charclass_pattern(cls) == "abc0-9"
 
 
 def test_charclass_pattern_encoded_hex_units():
-    """Encoded hex escape units are kept verbatim in the interior pattern."""
-    cls = IrCharClass(IrRange("\\x00", "\\x1F"))
-    assert charclass_pattern(cls) == "\\x00-\\x1F"
+    """Non-printable code-point endpoints are escaped in the interior pattern."""
+    cls = IrCharClass(IrRange(IrChr(0), IrChr(0x1F)))
+    assert charclass_pattern(cls) == "\\x00-\\x1f"
 
 
-# ── _escape_class_text — new escaping rules ───────────────────────────
+# ── charclass_pattern — per-code-point escaping rules ─────────────────
 
 
 def test_control_char_escapes_to_hex():
     """Non-printable code points (≤ 0xFF) are rendered as ``\\xNN``."""
-    cls = IrCharClass(IrStr("\x01"))
+    cls = IrCharClass(IrChr("\x01"))
     assert charclass_pattern(cls) == "\\x01"
 
 
 def test_non_printable_tab_escapes_to_hex():
     """Tab (``\\t``, U+0009) is non-printable → ``\\x09``."""
-    cls = IrCharClass(IrStr("\t"))
+    cls = IrCharClass(IrChr("\t"))
     assert charclass_pattern(cls) == "\\x09"
 
 
 def test_raw_close_bracket_is_escaped():
     """A raw ``]`` in a char-class run is escaped to ``\\]``."""
-    cls = IrCharClass(IrStr("]"))
+    cls = IrCharClass(IrChr("]"))
     assert charclass_pattern(cls) == "\\]"
 
 
 def test_raw_caret_is_escaped():
     """A raw ``^`` in a char-class run is escaped to ``\\^``."""
-    cls = IrCharClass(IrStr("^"))
+    cls = IrCharClass(IrChr("^"))
     assert charclass_pattern(cls) == "\\^"
 
 
 def test_preescaped_unit_passes_through():
-    """A pre-escaped GBNF unit (``\\x00``) passes through unchanged.
+    """Non-printable code-point endpoints render as hex escape sequences.
 
-    The ``\\`` is followed by another character, so it is treated as an
-    existing escape unit and emitted verbatim — not double-escaped.
+    IrChr stores ordinals; charclass_pattern escapes non-printable points to
+    ``\\xNN`` — so the round-trip through IrChr and charclass_pattern is stable.
     """
-    cls = IrCharClass(IrRange("\\x00", "\\x1F"))
+    cls = IrCharClass(IrRange(IrChr(0), IrChr(0x1F)))
     result = charclass_pattern(cls)
-    assert result == "\\x00-\\x1F"
+    assert result == "\\x00-\\x1f"
 
 
 def test_lone_backslash_is_escaped():
     """A lone ``\\`` (single backslash character) is escaped to ``\\\\``."""
-    cls = IrCharClass(IrStr("\\"))
+    cls = IrCharClass(IrChr("\\"))
     assert charclass_pattern(cls) == "\\\\"

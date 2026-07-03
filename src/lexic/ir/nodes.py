@@ -25,10 +25,11 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, Self
 
 from lexic.ir.base import (
     IrAtom,
+    IrChr,
     IrLeaf,
     IrNamedTuple,
     IrNoneType,
@@ -40,9 +41,11 @@ __all__ = [
     # Concrete grammar-AST nodes (defined here)
     "IrLiteral",
     "IrCharClass",
+    "IrChr",
     "IrRuleRef",
     "IrSequence",
     "IrAlternation",
+    "IrBounds",
     "IrRange",
     "IrQuantifier",
     "IrItem",
@@ -100,61 +103,97 @@ class IrAlternation(IrSeq[IrSequence], IrAtom):
 # ── Concrete composite records ────────────────────────────────────────
 
 
-class IrRange[T: (str, int)](IrLeaf, IrNamedTuple[T, T | IrNoneType]):
-    """Inclusive ``lo``-``hi`` range — the shared shape of quantifier bounds
-    and char ranges.
+class IrBounds(IrLeaf, IrNamedTuple[int, "int | IrNoneType"]):
+    """Shared ``(lo, hi)`` bounds — type-aware equality plus in-bounds membership.
 
-    Quantifier bounds are int ranges (:class:`IrQuantifier`); char ranges are
-    single-char str ranges (a char range IS an int range via ord/chr).  The
-    open upper bound is :data:`~lexic.ir.base.IrNone` — int ranges only; char
-    ranges are always closed.
-
-    ``lo``/``hi`` are scalar payload, not IR-node children, so
-    ``_child_attrs`` is empty; actions read them via
-    :class:`~lexic.ir.action.IrField`.
+    Abstract base for :class:`IrQuantifier` (int counts) and :class:`IrRange`
+    (code-point spans). The two are siblings, not a chain — neither is
+    substitutable for the other. ``lo``/``hi`` are scalar payload, not IR-node
+    children, so ``_child_attrs`` is empty.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
-    lo: int | str
-    hi: int | str | IrNoneType
+    lo: int
+    hi: int | IrNoneType
+
+    def __eq__(self, other: object) -> bool:
+        """Equal only to the same bounds subtype with equal endpoints."""
+        if type(self) is not type(other):
+            return False
+        return super().__eq__(other)
+
+    def __ne__(self, other: object) -> bool:
+        """Negation of :meth:`__eq__` (``tuple`` supplies its own ``__ne__``)."""
+        return not self == other
+
+    def __hash__(self) -> int:
+        """Hash by endpoint tuple (defining ``__eq__`` nulls the inherited hash)."""
+        return super().__hash__()
+
+    def __contains__(self, value: object) -> bool:
+        """``lo <= value <= hi``; ``hi=IrNone`` means unbounded above."""
+        if not isinstance(value, int):
+            return False
+        hi = self.hi
+        if isinstance(hi, IrNoneType):
+            return self.lo <= value
+        return self.lo <= value <= hi
 
 
-class IrCharClass(IrSeq[IrRange | IrStr], IrAtom):
-    """Character class — the variadic union of its interior elements.
-
-    The node IS its element tuple: :class:`IrRange` entries for explicit
-    ``x-y`` ranges, bare :class:`~lexic.ir.base.IrStr` runs for maximal
-    stretches of single chars — ``[abc0-9]`` →
-    ``IrCharClass(IrStr("abc"), IrRange("0", "9"))``.
-
-    Brackets are NOT stored — the flavour renderer emits them.  Negation is
-    NOT stored — ``[^...]`` parses to ``IrNot(IrCharClass(...))``; the
-    negation hands its mark to the class action via the argument channel.
-
-    Element payloads are flavour-encoded escape units (a range endpoint may
-    be ``"\\x1F"`` — four source chars, one unit), so emission reproduces
-    the source byte-exactly; decode-canonicalization arrives with the
-    IR-native parser that obsoletes the Lark metagrammars.
-    """
-
-
-class IrQuantifier(IrRange):
-    """Repetition bounds for an ``IrItem`` — the int-flavoured :class:`IrRange`.
-
-    ``lo`` and ``hi`` mirror POSIX/PCRE repetition bounds:
+class IrQuantifier(IrBounds):
+    """Repetition bounds for an ``IrItem`` — int counts; ``hi`` may be ``IrNone``.
 
     - ``IrQuantifier(1, 1)`` — exactly once (the default; no postfix operator).
     - ``IrQuantifier(0, 1)`` — optional (``?``).
     - ``IrQuantifier(0, IrNone)`` — zero-or-more (``*``).
     - ``IrQuantifier(1, IrNone)`` — one-or-more (``+``).
-    - ``IrQuantifier(m, n)`` — between ``m`` and ``n`` times (``{m,n}``).
-
-    ``hi=IrNone`` means unbounded (no upper limit).
+    - ``IrQuantifier(m, n)`` — between ``m`` and ``n`` times.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     lo: int = 1
     hi: int | IrNoneType = 1
+
+    def __new__(cls, lo: int = 1, hi: int | IrNoneType = 1) -> Self:
+        """Store endpoints as plain ``int`` — ``hi`` alone may stay ``IrNone``.
+
+        Reductions build bounds from :class:`~lexic.ir.action.IrUnradix`, which
+        yields :class:`~lexic.ir.base.IrInt`. The canonical quantifier shape is
+        plain ``int`` counts (repr-is-codegen emits the endpoints verbatim), so
+        an int-like endpoint is narrowed to ``int`` here at construction.
+
+        :param lo: Lower bound (any int-like value).
+        :param hi: Upper bound (any int-like value) or :data:`IrNone`.
+        :returns: The quantifier with plain-int endpoints.
+        """
+        hi_val = hi if isinstance(hi, IrNoneType) else int(hi)
+        return super().__new__(cls, int(lo), hi_val)
+
+
+class IrRange(IrBounds):
+    """Inclusive char range — ``IrChr`` code-point endpoints, always closed.
+
+    Endpoints are required (no defaults): a range is always built from explicit
+    code points, so there is no placeholder bound.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    lo: IrChr
+    hi: IrChr
+
+
+class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
+    """Character class over code points — ``IrRange`` spans and single ``IrChr``.
+
+    The node IS its element tuple: :class:`IrRange` entries for explicit
+    ``x-y`` ranges, single :class:`~lexic.ir.base.IrChr` code points otherwise —
+    ``[a0-9]`` → ``IrCharClass(IrChr("a"), IrRange(IrChr("0"), IrChr("9")))``.
+
+    Brackets are NOT stored — the flavour renderer emits them. Negation is NOT
+    stored — ``[^...]`` parses to ``IrNot(IrCharClass(...))``; the negation hands
+    its mark to the class action via the argument channel. Glyph/escape spelling
+    happens only at emit time, per flavour.
+    """
 
 
 class IrItem(IrNamedTuple[IrAtom, IrQuantifier]):
@@ -172,19 +211,52 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier]):
     quantifier: IrQuantifier = IrQuantifier()
 
 
-class IrRule(IrNamedTuple[IrStr, IrAlternation]):
-    """A named grammar rule.
+class IrRule(IrNamedTuple[IrStr, IrAlternation, bool]):
+    """A named grammar rule, with a ``semantic`` flag.
 
     The ``body`` is always an ``IrAlternation``, even for single-arm rules
     (a single arm is an ``IrAlternation`` containing one ``IrSequence``).
 
+    ``semantic`` is ``True`` for an ordinary rule and ``False`` for a
+    structural-noise rule (whitespace, delimiters, comments) — the ``@non-
+    semantic`` directive and each flavour's noise declarations flag rules by
+    setting it. It is **compile-channel metadata**, not grammar structure —
+    like a source location — so it is excluded from ``__eq__``/``__hash__``.
+    Two rules with the same name and body but different ``semantic`` flags are
+    equal: the self-hosting fixpoint
+    ``parse_grammar(flavour.apply(GRAMMAR), flavour) == GRAMMAR`` requires it,
+    because a freshly parsed rule is ``semantic=True`` while the authored
+    self-grammar flags its noise rules ``semantic=False``.
+
     Children: the single ``body`` ``IrAlternation``.
-    Non-child payload: ``name`` (the rule identifier string).
+    Non-child payload: ``name`` (rule identifier), ``semantic`` (the flag).
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
     name: str
     body: IrAlternation
+    semantic: bool = True
+
+    def __eq__(self, other: object) -> bool:
+        """Structural equality over ``name`` and ``body`` only.
+
+        ``semantic`` is compile-channel metadata, excluded so the self-hosting
+        fixpoint holds (see the class docstring).
+
+        :param other: The value to compare against.
+        :returns: ``True`` when ``other`` is an ``IrRule`` with equal name and body.
+        """
+        if not isinstance(other, IrRule):
+            return False
+        return self.name == other.name and self.body == other.body
+
+    def __ne__(self, other: object) -> bool:
+        """Negation of :meth:`__eq__` (``tuple`` supplies its own ``__ne__``)."""
+        return not self == other
+
+    def __hash__(self) -> int:
+        """Hash by ``(name, body)`` — consistent with :meth:`__eq__`."""
+        return hash((self.name, self.body))
 
 
 class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr]):
@@ -195,6 +267,13 @@ class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr]):
     by tree transformations).  ``start`` is the plain string name of the
     start rule.
 
+    The set of structural-noise rules is **not** a field: it is derived from
+    the rules' own ``semantic`` flags via the :attr:`non_semantic` property.
+    Because the flag lives on :class:`IrRule` (and is excluded from its
+    equality), ``IrAst`` needs no equality override — plain tuple equality over
+    ``(rules, start)`` composes ``IrRule.__eq__`` element-wise, and the
+    self-hosting fixpoint holds for free.
+
     Children: the single ``rules`` ``IrTuple``.
     Non-child payload: ``start`` (start-rule name).
     """
@@ -203,3 +282,17 @@ class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr]):
 
     rules: IrSeq = IrSeq()
     start: str = ""
+
+    @property
+    def non_semantic(self) -> frozenset[str]:
+        """Names of the structural-noise rules (those with ``semantic=False``).
+
+        Derived from the rules' own flags — the single source feeding
+        ``derive_specs`` (quantifier relaxation + ``semantic_dump`` filter) and,
+        for a flavour's self-grammar, its ``Reducer`` noise map. Keeps the
+        ``@non-semantic`` directive vocabulary even though the flag's polarity
+        is positive (``semantic``) on the rule.
+
+        :returns: The frozenset of non-semantic rule names.
+        """
+        return frozenset(r.name for r in self.rules if not r.semantic)

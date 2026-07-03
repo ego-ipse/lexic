@@ -7,9 +7,10 @@ from typing import Annotated, List
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
+    IrChr,
     IrItem,
     IrQuantifier,
     IrRange,
@@ -25,7 +26,7 @@ Pattern3 = Annotated[str, StringConstraints(pattern=r"^[、-〾]$")]
 
 Pattern4 = Annotated[str, StringConstraints(pattern=r"^[一-鿿]$")]
 
-Pattern5 = Annotated[str, StringConstraints(pattern=r"^[ \t\n]$")]
+Pattern5 = Annotated[str, StringConstraints(pattern=r"^[ \x09\x0a]$")]
 
 
 class Root(GrammarModel):
@@ -59,7 +60,7 @@ class RootItem(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -73,15 +74,15 @@ Root.__grammar__ = RuleSpec(
 
 
 JpChar.__grammar__ = RuleSpec(
-    rule_name="jp-char",
+    rule_name=IrRuleRef("jp-char"),
     class_name="JpChar",
     parent_class_name="GrammarModel",
     kind="alternation",
     items=[
-        IrItem(IrRuleRef("hiragana"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("katakana"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("punctuation"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("cjk"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("hiragana")),
+        IrItem(IrRuleRef("katakana")),
+        IrItem(IrRuleRef("punctuation")),
+        IrItem(IrRuleRef("cjk")),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -89,44 +90,44 @@ JpChar.__grammar__ = RuleSpec(
 
 
 Hiragana.__grammar__ = RuleSpec(
-    rule_name="hiragana",
+    rule_name=IrRuleRef("hiragana"),
     class_name="Hiragana",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("ぁ", "ゟ")), IrQuantifier(1, 1))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(12353), IrChr(12447))))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
 
 
 Katakana.__grammar__ = RuleSpec(
-    rule_name="katakana",
+    rule_name=IrRuleRef("katakana"),
     class_name="Katakana",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("ァ", "ヿ")), IrQuantifier(1, 1))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(12449), IrChr(12543))))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
 
 
 Punctuation.__grammar__ = RuleSpec(
-    rule_name="punctuation",
+    rule_name=IrRuleRef("punctuation"),
     class_name="Punctuation",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("、", "〾")), IrQuantifier(1, 1))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(12289), IrChr(12350))))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
 
 
 Cjk.__grammar__ = RuleSpec(
-    rule_name="cjk",
+    rule_name=IrRuleRef("cjk"),
     class_name="Cjk",
     parent_class_name="JpChar",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("一", "鿿")), IrQuantifier(1, 1))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(19968), IrChr(40959))))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -138,7 +139,7 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrStr(" \\t\\n")), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrChr(32), IrChr(9), IrChr(10))),
         IrItem(IrRuleRef("jp-char"), IrQuantifier(1, IrNone)),
     ],
     field_map={"head": 0, "jp_char": 1},

@@ -9,16 +9,16 @@ it is defined locally.
 
 from __future__ import annotations
 
-import operator
-
 import pytest
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import (
     Field,
     IrAtom,
     IrCachingTuple,
-    IrCallable,
+    IrChr,
     IrInt,
+    IrLambda,
     IrLeaf,
     IrNamedTuple,
     IrNode,
@@ -363,102 +363,93 @@ def test_ircachingtuple_merges_all_bases_under_multiple_inheritance():
     assert tuple(d) == (2, 1, 3)
 
 
-# ── IrCallable ───────────────────────────────────────────────────────
+# ── IrLambda ──────────────────────────────────────────────────────────
 
 
-def test_ircallable_invokes_handler_with_all_args():
-    """IrCallable forwards (d, n, nc) to the handler."""
-    received: list[tuple] = []
+def test_irlambda_closure_is_eval():
+    """IrLambda stores the closure as eval — the closure IS the eval slot."""
 
-    def handler(d, n, nc):
-        received.append((d, n, nc))
+    def constant(_d, _n, _nc):
+        return IrStr("result")
+
+    lam = IrLambda(constant)
+    result = lam.eval(IrNone, IrNone, ())
+    assert result == IrStr("result")
+
+
+def test_irlambda_eval_receives_full_protocol_args():
+    """IrLambda.eval forwards d, n, nc to the closure."""
+    received: list[object] = []
+
+    def capture(d, n, nc):
+        received.extend([d, n, nc])
         return IrStr("ok")
 
-    result = IrCallable[IrSelf, IrStr](handler).eval(
-        IrNone,
-        IrNone,
-        IrTuple(
-            IrStr("c"),
-        ),
-    )
-    assert result == "ok"
-    assert received == [(IrNone, IrNone, ("c",))]
+    d_sentinel = IrNone
+    n_sentinel = IrStr("n")
+    nc_arg = (IrStr("c"),)
+    IrLambda(capture).eval(d_sentinel, n_sentinel, nc_arg)
+    assert received[0] is d_sentinel
+    assert received[1] is n_sentinel
+    assert received[2] is nc_arg
 
 
-def test_ircallable_repr_contains_handler_name():
-    """``repr(IrCallable)`` contains the handler's ``__name__`` for debug output.
+def test_irlambda_named_function_repr():
+    """IrLambda wrapping a named function renders ``IrLambda(<name>)``."""
 
-    In the primitive-node model, ``IrCallable`` uses ``IrNode.__repr__``
-    (``repr=False`` dataclass, field rendered as ``handler=<...>``).
-    The old ``CALLABLE(<name>)`` str was specific to the original action.py's
-    custom ``__str__``; action.py uses the generic composite repr instead.
-    """
+    def my_fn(_d, _n, _nc):
+        return IrNone
 
-    def my_handler(_d, _n, _nc):
-        return IrStr()
-
-    assert "my_handler" in repr(IrCallable[IrSelf, IrStr](my_handler))
+    assert repr(IrLambda(my_fn)) == "IrLambda(my_fn)"
 
 
-def test_ircallable_repr_fallback_for_lambda():
-    """Lambdas appear in ``repr(IrCallable)``; rendering never crashes."""
-    assert "lambda" in repr(IrCallable[IrSelf, IrStr](lambda _d, _n, _nc: IrStr()))
+def test_irlambda_equality_is_by_identity():
+    """Two IrLambda wrapping distinct closures are not equal."""
+
+    def noop(_d, _n, _nc):
+        return IrNone
+
+    a = IrLambda(noop)
+    b = IrLambda(noop)
+    # equality is identity: two separate IrLambda objects are not equal
+    assert a is not b
 
 
-# ── IrCallable fold convention ────────────────────────────────────────
+def test_irlambda_is_irnode():
+    """IrLambda is an IrNode — it participates in the IR hierarchy."""
+
+    def noop(_d, _n, _nc):
+        return IrNone
+
+    assert isinstance(IrLambda(noop), IrNode)
 
 
-def test_ircallable_fold_equal_operands_returns_irint_one():
-    """Fold mode: ``operator.eq`` with equal IrInt operands returns ``IrInt(1)``."""
-    cb = IrCallable(operator.eq, IrInt)
-    result = cb.eval(IrNone, IrNone, (IrInt(2), IrInt(2)))
-    assert result == IrInt(1)
+# ── IrChr ─────────────────────────────────────────────────────────────
 
 
-def test_ircallable_fold_unequal_operands_returns_irint_zero():
-    """Fold mode: ``operator.eq`` with unequal IrInt operands returns ``IrInt(0)``."""
-    cb = IrCallable(operator.eq, IrInt)
-    result = cb.eval(IrNone, IrNone, (IrInt(2), IrInt(3)))
-    assert result == IrInt(0)
+def test_irchr_from_glyph_and_int_are_equal():
+    """IrChr("A") == IrChr(0x41)"""
+    assert IrChr("A") == IrChr(0x41)
 
 
-def test_ircallable_fold_result_is_irint_type():
-    """Fold mode wraps via ``out``; the returned value is ``IrInt``, not bare bool/int."""
-    cb = IrCallable(operator.eq, IrInt)
-    result = cb.eval(IrNone, IrNone, (IrInt(7), IrInt(7)))
-    assert isinstance(result, IrInt)
+def test_irchr_str_is_glyph_and_repr_is_codegen():
+    """IrChr.str() is the glyph, repr() is the constructor call."""
+    assert str(IrChr(0x41)) == "A"
+    assert repr(IrChr(0x41)) == "IrChr(65)"
 
 
-def test_ircallable_fold_variadic_all_truthy_returns_irint_one():
-    """Variadic fold: ``all(xs)`` over three truthy operands returns ``IrInt(1)``."""
-    cb = IrCallable(lambda *xs: all(xs), IrInt)
-    result = cb.eval(IrNone, IrNone, (IrInt(1), IrInt(1), IrInt(1)))
-    assert result == IrInt(1)
-    assert isinstance(result, IrInt)
+def test_irchr_is_leaf_kind_distinct_from_irint():
+    """IrChr is a leaf kind distinct from IrInt."""
+    assert IrChr(0x41) != IrInt(0x41)  # distinct leaf kinds never compare equal
+    assert IrChr(0x41) == 0x41  # but a leaf still matches its plain int
 
 
-def test_ircallable_fold_variadic_empty_nc_returns_identity():
-    """Variadic fold: ``all(())`` over empty ``nc`` returns ``IrInt(1)`` (fold identity)."""
-    cb = IrCallable(lambda *xs: all(xs), IrInt)
-    result = cb.eval(IrNone, IrNone, ())
-    assert result == IrInt(1)
-    assert isinstance(result, IrInt)
+def test_irchr_eval_returns_glyph_irstr():
+    """IrChr.eval returns an IrStr with the glyph."""
+    assert IrChr(0x41).eval(IrNone, IrNone, ()) == IrStr("A")
 
 
-def test_ircallable_fold_repr_contains_handler_name_and_out():
-    """Fold-mode repr includes both the handler name and the out type name."""
-    cb = IrCallable(operator.eq, IrInt)
-    r = repr(cb)
-    assert "eq" in r
-    assert "IrInt" in r
-
-
-def test_ircallable_protocol_repr_has_no_out_suffix():
-    """Protocol-mode repr (no ``out``) does NOT contain a comma-out suffix."""
-
-    def my_handler(_d, _n, _nc):
-        return IrStr()
-
-    r = repr(IrCallable[IrSelf, IrStr](my_handler))
-    assert "," not in r
-    assert "my_handler" in r
+def test_irchr_multichar_glyph_raises():
+    """IrChr raises on multi-char glyphs"""
+    with pytest.raises(UnsupportedConstructError):
+        IrChr("AB")

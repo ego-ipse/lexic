@@ -3,21 +3,24 @@
 An IrFlavour:
 - Carries per-flavour metadata as ClassVars (name, extensions, etc.).
 - Inherits IrEmitter — its ``actions`` tuple holds the per-IR-type
-  rendering rules.
-- Declares ``parse_quantifier`` / ``parse_charclass`` as abstract
-  staticmethods consumed by the meta-parser.
+  rendering rules (the IR→text half).
+- Carries its self-grammar (``grammar``) and parse reducer (``reducer``) —
+  the text→IR half driven by :mod:`lexic.parsing`.
+
+Zero methods beyond the inherited emitter protocol: everything a flavour
+needs is metadata, emit ``actions``, ``grammar``, and ``reducer``.
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrStr
 from lexic.ir.escapes import EscapeCodec
-from lexic.ir.nodes import IrAlternation, IrLiteral, IrQuantifier
-from lexic.ir.walk import IrEmitter
+from lexic.ir.nodes import IrAst
+from lexic.ir.walk import IrDispatch, IrEmitter
 
 
 class IrEscape(IrLeaf[IrSelf, IrStr]):
@@ -57,40 +60,15 @@ class IrFlavour(IrEmitter, ABC):
 
     :cvar name: Short flavour identifier (e.g. ``"gbnf"``).
     :cvar extensions: Tuple of file extensions handled.
-    :cvar meta_grammar: Lark meta-grammar string for parsing source.
     :cvar escapes: EscapeCodec subclass for literal escape handling.
     :cvar line_comment: Line-comment prefix; empty disables @directive parsing.
+    :cvar grammar: The flavour's self-grammar (raw, un-normalised) — ground truth.
+    :cvar reducer: Parse-tree → IrAst policy (a parsing Reducer at runtime).
     """
 
     name: ClassVar[str]
     extensions: ClassVar[tuple[str, ...]]
-    meta_grammar: ClassVar[str]
     escapes: ClassVar[EscapeCodec]
     line_comment: ClassVar[str] = ""
-
-    @staticmethod
-    @abstractmethod
-    def parse_quantifier(text: str) -> IrQuantifier:
-        """Parse a quantifier symbol into an IrQuantifier.
-
-        :param text: Flavour-specific quantifier token.
-        :returns: Canonical ``IrQuantifier(lo, hi)``.
-        """
-
-    @staticmethod
-    @abstractmethod
-    def parse_charclass(text: str) -> tuple[str, bool]:
-        """Parse a char class into ``(pattern, negated)``.
-
-        :param text: Bracket-expression token text.
-        :returns: Tuple of canonical pattern and negation flag.
-        """
-
-    @classmethod
-    def normalize_literal(cls, decoded: str) -> IrLiteral | IrAlternation:
-        """Optional sugar-expansion hook. Default: identity (return IrLiteral).
-
-        :param decoded: Decoded literal string.
-        :returns: ``IrLiteral`` wrapping the decoded string.
-        """
-        return IrLiteral(decoded)
+    grammar: ClassVar[IrAst]
+    reducer: ClassVar[IrDispatch]

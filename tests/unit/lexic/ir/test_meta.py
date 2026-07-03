@@ -6,6 +6,8 @@ import gc
 import threading
 import weakref
 from abc import ABC, ABCMeta, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 import pytest
 
@@ -16,6 +18,41 @@ from lexic.ir.meta import Borg, IrMeta, IrSingleton, Singleton
 # nested function-local class definitions (``class X(metaclass=Singleton)``)
 # confuse pylint's scope analysis in the reentrant test.
 _Singleton = Singleton
+
+
+def _class_state(cls: type) -> dict[str, Any]:
+    """Return the shared state dict Borg keeps for ``cls`` (tests inspect internals)."""
+    return Borg._states[cls][0]  # pylint: disable=protected-access
+
+
+def _class_lock(cls: type) -> threading.RLock:
+    """Return the per-class lock Borg stored alongside ``cls``'s shared state."""
+    return Borg._states[cls][1]  # pylint: disable=protected-access
+
+
+def _blocks_while_locked(lock: threading.RLock, action) -> bool:
+    """Run ``action`` in a worker and report whether ``lock`` actually gates it.
+
+    The main thread holds ``lock``, starts the worker, and checks that the
+    worker — which has provably started — cannot finish while the lock is held,
+    then *does* finish once it is released. A True result is positive proof that
+    the action acquires this lock.
+    """
+    started, completed = threading.Event(), threading.Event()
+
+    def run() -> None:
+        started.set()
+        action()
+        completed.set()
+
+    worker = threading.Thread(target=run, daemon=True)
+    with lock:
+        worker.start()
+        assert started.wait(2), "worker never started"
+        blocked = not completed.wait(0.2)
+    worker.join(timeout=2)
+    return blocked and completed.is_set()
+
 
 # ── Borg: identity and shared state ────────────────────────────────────
 
@@ -110,11 +147,11 @@ def test_borg_slots_newest_construction_overwrites_state():
 # ── Borg: slot mechanics ───────────────────────────────────────────────
 
 
-def test_borg_slots_are_rewritten_into_properties():
-    """Test that first construction converts every slot into a shared-state property."""
+def test_borg_slots_are_routed_to_shared_state():
+    """Test that first construction installs locked routing on a slotted class."""
 
     class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
-        """Slotted Borg fixture: slot-to-property rewrite verification."""
+        """Slotted Borg fixture: slot-to-routing verification."""
 
         __slots__ = ("value",)
 
@@ -122,14 +159,15 @@ def test_borg_slots_are_rewritten_into_properties():
             self.value = value
 
     C("x")
-    assert isinstance(C.__dict__["value"], property)
+    assert "__setattr__" in C.__dict__  # routing installed, not a per-slot property
+    assert not isinstance(C.__dict__.get("value"), property)
 
 
-def test_borg_slots_proxies_unset_slots():
-    """Test that slots unset on first construction are still proxied and shareable."""
+def test_borg_slots_unset_slot_is_routed_and_shareable():
+    """Test that a slot left unset on first construction is still routed and shareable."""
 
     class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
-        """Slotted Borg fixture: unset-slot proxy verification."""
+        """Slotted Borg fixture: unset-slot routing verification."""
 
         __slots__ = ("a", "b")
 
@@ -137,7 +175,6 @@ def test_borg_slots_proxies_unset_slots():
             self.a = a
 
     x = C()
-    assert isinstance(C.__dict__["b"], property)
     with pytest.raises(AttributeError):
         _ = x.b
     y = C()
@@ -159,6 +196,24 @@ def test_borg_slots_reject_unknown_attribute():
     x = C("x")
     with pytest.raises(AttributeError):
         x.other = "nope"  # type: ignore  Forcing error for test.
+
+
+def test_borg_bare_string_slots_are_honoured():
+    """Test that a bare-string ``__slots__`` is treated as one name, not per-character."""
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: ``__slots__`` declared as a bare string."""
+
+        # pylint: disable=single-string-used-for-slots  # bare string IS the test subject
+        __slots__ = "value"  # a single slot name, not the chars v,a,l,u,e
+
+        def __init__(self, value=None):
+            self.value = value
+
+    x = C("a")
+    assert x.value == "a"  # constructable: "value" is in the allowed set
+    with pytest.raises(AttributeError):
+        x.other = "nope"  # type: ignore  still a closed set
 
 
 def test_borg_dict_shares_dynamically_added_attribute():
@@ -228,6 +283,52 @@ def test_borg_reentrant_construction_does_not_deadlock():
     assert done == [1]
 
 
+def test_borg_reentrant_same_class_construction_preserves_state():
+    """Test that constructing the same class inside its own __init__ keeps every write.
+
+    Publishing the state before the first construction means the inner call takes
+    the overwrite path against the *same* shared state; without that, the outer
+    registration would re-publish a stale state and drop writes made after the
+    re-entrant call (here, ``b``).
+    """
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: re-entrant same-class construction."""
+
+        __slots__ = ("a", "b")
+
+        def __init__(self, reenter=False):
+            self.a = "a"
+            if reenter:
+                C(reenter=False)  # second construction of the same class
+            self.b = "b"
+
+    x = C(reenter=True)
+    assert x.a == "a"
+    assert x.b == "b"  # the post-reentry write is not lost
+
+
+def test_borg_first_construction_failure_does_not_wedge_class():
+    """Test that a raising first __init__ leaves the class usable, not half-registered."""
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: first construction raises."""
+
+        __slots__ = ("value",)
+
+        def __init__(self, value=None, boom=False):
+            if boom:
+                raise RuntimeError("boom")
+            self.value = value
+
+    with pytest.raises(RuntimeError):
+        C(boom=True)
+
+    a, b = C("ok"), C("ok")  # class recovers; state is shared and live
+    b.value = "shared"
+    assert a.value == "shared"
+
+
 def test_borg_class_is_collectable_when_unreferenced():
     """Test that the weak registry lets a dropped Borg class be garbage-collected."""
 
@@ -246,6 +347,207 @@ def test_borg_class_is_collectable_when_unreferenced():
     ref = make()
     gc.collect()
     assert ref() is None
+
+
+# ── Borg: per-class lock and routed dict mutation ──────────────────────
+
+
+def test_borg_classes_have_independent_locks():
+    """Test that each Borg class gets its own lock, not a shared global one."""
+
+    class A(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """First slotted Borg fixture for per-class-lock isolation."""
+
+        __slots__ = ("v",)
+
+        def __init__(self, v=0):
+            self.v = v
+
+    class B(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Second slotted Borg fixture for per-class-lock isolation."""
+
+        __slots__ = ("v",)
+
+        def __init__(self, v=0):
+            self.v = v
+
+    A()
+    B()
+    assert _class_lock(A) is not _class_lock(B)
+
+
+def test_borg_dict_routing_empties_instance_dict():
+    """Test that a dict-backed instance holds no own state — it lives in the locked store."""
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Dict-backed Borg fixture: state routed out of the instance __dict__."""
+
+        def __init__(self, value=None):
+            self.value = value
+
+    x = C("a")
+    assert x.__dict__ == {}
+    assert x.value == "a"  # still readable, via the routed __getattr__
+
+
+def test_borg_dict_delattr_is_shared():
+    """Test that deleting a routed attribute removes it from the shared state for all instances."""
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Dict-backed Borg fixture: shared __delattr__ routing."""
+
+        def __init__(self, value=None):
+            self.value = value
+
+    a, b = C("a"), C("a")
+    del a.value
+    with pytest.raises(AttributeError):
+        _ = b.value
+
+
+# ── Borg: lock genuinely gates every access ────────────────────────────
+
+
+def test_borg_slots_setattr_serialises_on_lock():
+    """Test that a slotted proxy setter blocks while the per-class lock is held."""
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: setter-serialisation proof."""
+
+        __slots__ = ("value",)
+
+        def __init__(self, value=None):
+            self.value = value
+
+    x = C("a")
+
+    def mutate() -> None:
+        x.value = "threaded"
+
+    assert _blocks_while_locked(_class_lock(C), mutate)
+    assert x.value == "threaded"
+
+
+def test_borg_slots_getattr_serialises_on_lock():
+    """Test that a slotted proxy getter blocks while the per-class lock is held."""
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: getter-serialisation proof."""
+
+        __slots__ = ("value",)
+
+        def __init__(self, value=None):
+            self.value = value
+
+    x = C("a")
+    seen: list[object] = []
+    assert _blocks_while_locked(_class_lock(C), lambda: seen.append(x.value))
+    assert seen == ["a"]
+
+
+def test_borg_dict_setattr_serialises_on_lock():
+    """Test that a dict-backed routed setter blocks while the per-class lock is held."""
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Dict-backed Borg fixture: routed-setter serialisation proof."""
+
+        def __init__(self, value=None):
+            self.value = value
+
+    x = C("a")
+
+    def mutate() -> None:
+        x.value = "threaded"
+
+    assert _blocks_while_locked(_class_lock(C), mutate)
+    assert x.value == "threaded"
+
+
+def test_borg_dict_getattr_serialises_on_lock():
+    """Test that a dict-backed routed getter blocks while the per-class lock is held."""
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Dict-backed Borg fixture: routed-getter serialisation proof."""
+
+        def __init__(self, value=None):
+            self.value = value
+
+    x = C("a")
+    seen: list[object] = []
+    assert _blocks_while_locked(_class_lock(C), lambda: seen.append(x.value))
+    assert seen == ["a"]
+
+
+def test_borg_overwrite_serialises_on_lock():
+    """Test that a second construction (the overwrite path) blocks on the per-class lock."""
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Dict-backed Borg fixture: overwrite-serialisation proof."""
+
+        def __init__(self, value=None):
+            self.value = value
+
+    C("a")  # first construction registers the class and its lock
+    built: list[object] = []
+    assert _blocks_while_locked(_class_lock(C), lambda: built.append(C("b").value))
+    assert built == ["b"]
+
+
+def test_borg_slots_overwrite_reenters_lock_without_deadlock():
+    """Test that overwrite holding the lock while __init__'s setter reacquires it does not deadlock.
+
+    ``_overwrite`` holds the per-class lock across construction, and the slot
+    proxy setter invoked from ``__init__`` reacquires the same lock. A plain
+    (non-reentrant) ``Lock`` would deadlock here; the ``RLock`` must not.
+    """
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: reentrant-overwrite proof."""
+
+        __slots__ = ("value",)
+
+        def __init__(self, value=None):
+            self.value = value
+
+    C("a")  # register
+    done: list[object] = []
+
+    def build() -> None:
+        done.append(C("b").value)  # exercises the overwrite path
+
+    thread = threading.Thread(target=build, daemon=True)
+    thread.start()
+    thread.join(timeout=2)
+    assert not thread.is_alive(), "reentrant overwrite deadlocked on the per-class lock"
+    assert done == ["b"]
+
+
+def test_borg_concurrent_construction_and_mutation_is_consistent():
+    """Test that many threads constructing and mutating one Borg class never corrupt its state."""
+
+    class C(metaclass=Borg):  # pylint: disable=too-few-public-methods
+        """Slotted Borg fixture: concurrency stress."""
+
+        __slots__ = ("value",)
+
+        def __init__(self, value=0):
+            self.value = value
+
+    C(0)  # register before the threads race
+
+    def worker(tag: int) -> None:
+        for _ in range(500):
+            inst = C(tag)
+            inst.value = tag
+            _ = inst.value
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(worker, n) for n in range(8)]
+    for future in futures:
+        future.result()  # re-raises any exception raised in a worker
+
+    final_value = _class_state(C)["value"]
+    assert final_value in range(8)  # whichever writer last won — never torn
 
 
 # ── Singleton ──────────────────────────────────────────────────────────

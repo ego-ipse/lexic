@@ -10,6 +10,7 @@ from lexic.base import GrammarModel
 from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
+    IrChr,
     IrItem,
     IrQuantifier,
     IrRange,
@@ -39,47 +40,46 @@ class Ident(Term):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(IrRuleRef("term"), IrQuantifier(1, 1))],
+    items=[IrItem(IrRuleRef("term"))],
     field_map={"term": 0},
     non_semantic_fields=frozenset([]),
 )
 
 
 Term.__grammar__ = RuleSpec(
-    rule_name="term",
+    rule_name=IrRuleRef("term"),
     class_name="Term",
     parent_class_name="GrammarModel",
     kind="alternation",
-    items=[
-        IrItem(IrRuleRef("num"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ident"), IrQuantifier(1, 1)),
-    ],
+    items=[IrItem(IrRuleRef("num")), IrItem(IrRuleRef("ident"))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
 
 
 Num.__grammar__ = RuleSpec(
-    rule_name="num",
+    rule_name=IrRuleRef("num"),
     class_name="Num",
     parent_class_name="Term",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
 
 
 Ident.__grammar__ = RuleSpec(
-    rule_name="ident",
+    rule_name=IrRuleRef("ident"),
     class_name="Ident",
     parent_class_name="Term",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, IrNone))],
+    items=[
+        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(122))), IrQuantifier(1, IrNone))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

@@ -8,10 +8,11 @@ from lexic.codegen.aliases import (
     regex_for_charclass,
     regex_for_group,
 )
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -28,25 +29,25 @@ from tests.unit.lexic.conftest import make_spec as _spec
 
 def test_regex_for_charclass_simple():
     """[0-9]+ → ^[0-9]+$."""
-    cc = IrCharClass(IrRange("0", "9"))
+    cc = IrCharClass(IrRange(IrChr("0"), IrChr("9")))
     assert regex_for_charclass(cc, IrQuantifier(1, IrNone)) == r"^[0-9]+$"
 
 
 def test_regex_for_charclass_negated():
     """[^"] → ^[^"]$."""
-    cc = IrCharClass(IrStr('"'))
+    cc = IrCharClass(IrChr('"'))
     assert regex_for_charclass(cc, IrQuantifier(1, 1), negated=True) == r'^[^"]$'
 
 
 def test_regex_for_charclass_bounded_quantifier():
     """[0-9]{0,15} → ^[0-9]{0,15}$."""
-    cc = IrCharClass(IrRange("0", "9"))
+    cc = IrCharClass(IrRange(IrChr("0"), IrChr("9")))
     assert regex_for_charclass(cc, IrQuantifier(0, 15)) == r"^[0-9]{0,15}$"
 
 
 def test_regex_for_charclass_optional():
     """[a-z]? → ^[a-z]?$."""
-    cc = IrCharClass(IrRange("a", "z"))
+    cc = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
     assert regex_for_charclass(cc, IrQuantifier(0, 1)) == r"^[a-z]?$"
 
 
@@ -83,8 +84,10 @@ def test_collect_aliases_distinguishes_different_quantifiers():
         "r",
         "sequence",
         [
-            IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, 1)),
-            IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)),
+            IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, 1)),
+            IrItem(
+                IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone)
+            ),
         ],
     )
     aliases = collect_aliases([s])
@@ -99,10 +102,10 @@ def test_collect_aliases_naming_via_tier_pipeline():
         "sequence",
         [
             IrItem(
-                IrCharClass(IrRange("a", "z")), IrQuantifier(1, IrNone)
+                IrCharClass(IrRange(IrChr("a"), IrChr("z"))), IrQuantifier(1, IrNone)
             ),  # Tier 2: lower → Lower
             IrItem(
-                IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)
+                IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone)
             ),  # Tier 2: digit → Digit
         ],
     )
@@ -117,8 +120,10 @@ def test_collect_aliases_disambiguates_same_base_name():
         "r",
         "sequence",
         [
-            IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, 1)),
-            IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)),
+            IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, 1)),
+            IrItem(
+                IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone)
+            ),
         ],
     )
     names = [a.name for a in collect_aliases([s])]
@@ -148,7 +153,9 @@ def test_collect_aliases_pure_group_with_inner_charclass_emits_both():
     """Pure-pattern outer group + inner [0-9] both produce aliases."""
     grp = IrAlternation(
         IrSequence(
-            IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)),
+            IrItem(
+                IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone)
+            ),
             IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
         )
     )

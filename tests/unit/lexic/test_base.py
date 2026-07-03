@@ -9,9 +9,10 @@ import pytest
 from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -32,7 +33,12 @@ def test_to_text_value_str():
         "Ws",
         "GrammarModel",
         "value_str",
-        items=[IrItem(IrCharClass(IrStr(" \\t\\n")), IrQuantifier(0, IrNone))],
+        items=[
+            IrItem(
+                IrCharClass(IrChr(" "), IrChr("\t"), IrChr("\n")),
+                IrQuantifier(0, IrNone),
+            )
+        ],
         field_map={},
     )
 
@@ -58,9 +64,9 @@ def test_to_text_sequence_emits_literal():
         "GrammarModel",
         "sequence",
         items=[
-            IrItem(IrCharClass(IrRange("a", "z"))),
+            IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))),
             IrItem(IrLiteral("=")),
-            IrItem(IrCharClass(IrRange("0", "9"))),
+            IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))),
         ],
         field_map={"first": 0, "second": 2},
     )
@@ -88,17 +94,7 @@ def test_to_text_nested_grammar_model():
         __grammar__: ClassVar[RuleSpec] = ws_spec
         value: str
 
-    ident_spec = RuleSpec(
-        "ident",
-        "Ident",
-        "GrammarModel",
-        "sequence",
-        items=[
-            IrItem(IrCharClass(IrRange("a", "z"))),
-            IrItem(IrRuleRef("ws")),
-        ],
-        field_map={"first": 0, "ws": 1},
-    )
+    ident_spec = make_ident_spec()
 
     class Ident(GrammarModel):
         """Identifier model."""
@@ -164,7 +160,7 @@ def test_to_text_optional_absent():
         "GrammarModel",
         "sequence",
         items=[
-            IrItem(IrCharClass(IrRange("a", "z"))),
+            IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))),
             IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
         ],
         field_map={"first": 0, "ws": 1},

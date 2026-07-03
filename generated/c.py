@@ -7,10 +7,11 @@ from typing import Annotated, List, Optional
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -29,7 +30,7 @@ Pattern2 = Annotated[str, StringConstraints(pattern=r"^(<=|<|==|!=|>=|>)$")]
 
 Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]
 
-Pattern3 = Annotated[str, StringConstraints(pattern=r"^[^\n]*$")]
+Pattern3 = Annotated[str, StringConstraints(pattern=r"^[^\x0a]*$")]
 
 Pattern4 = Annotated[str, StringConstraints(pattern=r"^[^*]$")]
 
@@ -39,9 +40,9 @@ Pattern6 = Annotated[str, StringConstraints(pattern=r"^(\*[^/])$")]
 
 Pattern7 = Annotated[str, StringConstraints(pattern=r"^([^*]|(\*[^/]))*$")]
 
-Pattern8 = Annotated[str, StringConstraints(pattern=r"^[ \t\n]+$")]
+Pattern8 = Annotated[str, StringConstraints(pattern=r"^[ \x09\x0a]+$")]
 
-Pattern9 = Annotated[str, StringConstraints(pattern=r"^([ \t\n]+)$")]
+Pattern9 = Annotated[str, StringConstraints(pattern=r"^([ \x09\x0a]+)$")]
 
 Pattern10 = Annotated[str, StringConstraints(pattern=r"^(\+|\-)$")]
 
@@ -234,7 +235,7 @@ class ArgListItem(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -245,19 +246,19 @@ Root.__grammar__ = RuleSpec(
 
 
 Declaration.__grammar__ = RuleSpec(
-    rule_name="declaration",
+    rule_name=IrRuleRef("declaration"),
     class_name="Declaration",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("dataType"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("identifier"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("("), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("parameter"), IrQuantifier(0, 1)),
-        IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("{"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("dataType")),
+        IrItem(IrRuleRef("identifier")),
+        IrItem(IrLiteral("(")),
+        IrItem(IrRuleRef("parameter"), IrQuantifier(0)),
+        IrItem(IrLiteral(")")),
+        IrItem(IrLiteral("{")),
         IrItem(IrRuleRef("statement"), IrQuantifier(0, IrNone)),
-        IrItem(IrLiteral("}"), IrQuantifier(1, 1)),
+        IrItem(IrLiteral("}")),
     ],
     field_map={"dataType": 0, "identifier": 1, "parameter": 3, "statement": 6},
     non_semantic_fields=frozenset([]),
@@ -265,14 +266,14 @@ Declaration.__grammar__ = RuleSpec(
 
 
 DataType.__grammar__ = RuleSpec(
-    rule_name="dataType",
+    rule_name=IrRuleRef("dataType"),
     class_name="DataType",
     parent_class_name="GrammarModel",
     kind="alternation",
     items=[
-        IrItem(IrRuleRef("dataType-arm1"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("dataType-arm2"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("dataType-arm3"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("dataType-arm1")),
+        IrItem(IrRuleRef("dataType-arm2")),
+        IrItem(IrRuleRef("dataType-arm3")),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -284,10 +285,7 @@ DataTypeArm1.__grammar__ = RuleSpec(
     class_name="DataTypeArm1",
     parent_class_name="DataType",
     kind="sequence",
-    items=[
-        IrItem(IrLiteral("int"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-    ],
+    items=[IrItem(IrLiteral("int")), IrItem(IrRuleRef("ws"), IrQuantifier(0))],
     field_map={"ws": 1},
     non_semantic_fields=frozenset(["ws"]),
 )
@@ -298,10 +296,7 @@ DataTypeArm2.__grammar__ = RuleSpec(
     class_name="DataTypeArm2",
     parent_class_name="DataType",
     kind="sequence",
-    items=[
-        IrItem(IrLiteral("float"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-    ],
+    items=[IrItem(IrLiteral("float")), IrItem(IrRuleRef("ws"), IrQuantifier(0))],
     field_map={"ws": 1},
     non_semantic_fields=frozenset(["ws"]),
 )
@@ -312,26 +307,23 @@ DataTypeArm3.__grammar__ = RuleSpec(
     class_name="DataTypeArm3",
     parent_class_name="DataType",
     kind="sequence",
-    items=[
-        IrItem(IrLiteral("char"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-    ],
+    items=[IrItem(IrLiteral("char")), IrItem(IrRuleRef("ws"), IrQuantifier(0))],
     field_map={"ws": 1},
     non_semantic_fields=frozenset(["ws"]),
 )
 
 
 Factor.__grammar__ = RuleSpec(
-    rule_name="factor",
+    rule_name=IrRuleRef("factor"),
     class_name="Factor",
     parent_class_name="GrammarModel",
     kind="alternation",
     items=[
-        IrItem(IrRuleRef("identifier"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("number"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("unaryTerm"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("funcCall"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("parenExpression"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("identifier")),
+        IrItem(IrRuleRef("number")),
+        IrItem(IrRuleRef("unaryTerm")),
+        IrItem(IrRuleRef("funcCall")),
+        IrItem(IrRuleRef("parenExpression")),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -339,18 +331,22 @@ Factor.__grammar__ = RuleSpec(
 
 
 Identifier.__grammar__ = RuleSpec(
-    rule_name="identifier",
+    rule_name=IrRuleRef("identifier"),
     class_name="Identifier",
     parent_class_name="Factor",
     kind="value_str",
     items=[
         IrItem(
-            IrCharClass(IrRange("a", "z"), IrRange("A", "Z"), IrStr("_")),
-            IrQuantifier(1, 1),
+            IrCharClass(
+                IrRange(IrChr(97), IrChr(122)), IrRange(IrChr(65), IrChr(90)), IrChr(95)
+            )
         ),
         IrItem(
             IrCharClass(
-                IrRange("a", "z"), IrRange("A", "Z"), IrStr("_"), IrRange("0", "9")
+                IrRange(IrChr(97), IrChr(122)),
+                IrRange(IrChr(65), IrChr(90)),
+                IrChr(95),
+                IrRange(IrChr(48), IrChr(57)),
             ),
             IrQuantifier(0, IrNone),
         ),
@@ -361,34 +357,31 @@ Identifier.__grammar__ = RuleSpec(
 
 
 Parameter.__grammar__ = RuleSpec(
-    rule_name="parameter",
+    rule_name=IrRuleRef("parameter"),
     class_name="Parameter",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[
-        IrItem(IrRuleRef("dataType"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("identifier"), IrQuantifier(1, 1)),
-    ],
+    items=[IrItem(IrRuleRef("dataType")), IrItem(IrRuleRef("identifier"))],
     field_map={"dataType": 0, "identifier": 1},
     non_semantic_fields=frozenset([]),
 )
 
 
 Statement.__grammar__ = RuleSpec(
-    rule_name="statement",
+    rule_name=IrRuleRef("statement"),
     class_name="Statement",
     parent_class_name="GrammarModel",
     kind="alternation",
     items=[
-        IrItem(IrRuleRef("statement-arm1"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("statement-arm2"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("statement-arm3"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("statement-arm4"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("statement-arm5"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("statement-arm6"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("statement-arm7"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("statement-arm8"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("statement-arm9"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("statement-arm1")),
+        IrItem(IrRuleRef("statement-arm2")),
+        IrItem(IrRuleRef("statement-arm3")),
+        IrItem(IrRuleRef("statement-arm4")),
+        IrItem(IrRuleRef("statement-arm5")),
+        IrItem(IrRuleRef("statement-arm6")),
+        IrItem(IrRuleRef("statement-arm7")),
+        IrItem(IrRuleRef("statement-arm8")),
+        IrItem(IrRuleRef("statement-arm9")),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -404,16 +397,15 @@ StatementArm1.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("dataType"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("identifier"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("ws"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral("="), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("ws"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("expression"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral(";"), IrQuantifier(1, 1)),
+                    IrItem(IrRuleRef("dataType")),
+                    IrItem(IrRuleRef("identifier")),
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrLiteral("=")),
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrRuleRef("expression")),
+                    IrItem(IrLiteral(";")),
                 )
-            ),
-            IrQuantifier(1, 1),
+            )
         )
     ],
     field_map={"kind": 0},
@@ -430,15 +422,14 @@ StatementArm2.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("identifier"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("ws"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral("="), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("ws"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("expression"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral(";"), IrQuantifier(1, 1)),
+                    IrItem(IrRuleRef("identifier")),
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrLiteral("=")),
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrRuleRef("expression")),
+                    IrItem(IrLiteral(";")),
                 )
-            ),
-            IrQuantifier(1, 1),
+            )
         )
     ],
     field_map={"kind": 0},
@@ -455,15 +446,14 @@ StatementArm3.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("identifier"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("ws"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral("("), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("argList"), IrQuantifier(0, 1)),
-                    IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral(";"), IrQuantifier(1, 1)),
+                    IrItem(IrRuleRef("identifier")),
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrLiteral("(")),
+                    IrItem(IrRuleRef("argList"), IrQuantifier(0)),
+                    IrItem(IrLiteral(")")),
+                    IrItem(IrLiteral(";")),
                 )
-            ),
-            IrQuantifier(1, 1),
+            )
         )
     ],
     field_map={"kind": 0},
@@ -480,13 +470,12 @@ StatementArm4.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrLiteral("return"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("ws"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("expression"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral(";"), IrQuantifier(1, 1)),
+                    IrItem(IrLiteral("return")),
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrRuleRef("expression")),
+                    IrItem(IrLiteral(";")),
                 )
-            ),
-            IrQuantifier(1, 1),
+            )
         )
     ],
     field_map={"kind": 0},
@@ -503,16 +492,15 @@ StatementArm5.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrLiteral("while"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral("("), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("condition"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral("{"), IrQuantifier(1, 1)),
+                    IrItem(IrLiteral("while")),
+                    IrItem(IrLiteral("(")),
+                    IrItem(IrRuleRef("condition")),
+                    IrItem(IrLiteral(")")),
+                    IrItem(IrLiteral("{")),
                     IrItem(IrRuleRef("statement"), IrQuantifier(0, IrNone)),
-                    IrItem(IrLiteral("}"), IrQuantifier(1, 1)),
+                    IrItem(IrLiteral("}")),
                 )
-            ),
-            IrQuantifier(1, 1),
+            )
         )
     ],
     field_map={"kind": 0},
@@ -529,22 +517,21 @@ StatementArm6.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrLiteral("for"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral("("), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("forInit"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral(";"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("ws"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("condition"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral(";"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("ws"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("forUpdate"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral("{"), IrQuantifier(1, 1)),
+                    IrItem(IrLiteral("for")),
+                    IrItem(IrLiteral("(")),
+                    IrItem(IrRuleRef("forInit")),
+                    IrItem(IrLiteral(";")),
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrRuleRef("condition")),
+                    IrItem(IrLiteral(";")),
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrRuleRef("forUpdate")),
+                    IrItem(IrLiteral(")")),
+                    IrItem(IrLiteral("{")),
                     IrItem(IrRuleRef("statement"), IrQuantifier(0, IrNone)),
-                    IrItem(IrLiteral("}"), IrQuantifier(1, 1)),
+                    IrItem(IrLiteral("}")),
                 )
-            ),
-            IrQuantifier(1, 1),
+            )
         )
     ],
     field_map={"kind": 0},
@@ -561,17 +548,16 @@ StatementArm7.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrLiteral("if"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral("("), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("condition"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral("{"), IrQuantifier(1, 1)),
+                    IrItem(IrLiteral("if")),
+                    IrItem(IrLiteral("(")),
+                    IrItem(IrRuleRef("condition")),
+                    IrItem(IrLiteral(")")),
+                    IrItem(IrLiteral("{")),
                     IrItem(IrRuleRef("statement"), IrQuantifier(0, IrNone)),
-                    IrItem(IrLiteral("}"), IrQuantifier(1, 1)),
-                    IrItem(IrRuleRef("statement-item"), IrQuantifier(0, 1)),
+                    IrItem(IrLiteral("}")),
+                    IrItem(IrRuleRef("statement-item"), IrQuantifier(0)),
                 )
-            ),
-            IrQuantifier(1, 1),
+            )
         )
     ],
     field_map={"kind": 0},
@@ -584,14 +570,7 @@ StatementArm8.__grammar__ = RuleSpec(
     class_name="StatementArm8",
     parent_class_name="Statement",
     kind="sequence",
-    items=[
-        IrItem(
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("singleLineComment"), IrQuantifier(1, 1)))
-            ),
-            IrQuantifier(1, 1),
-        )
-    ],
+    items=[IrItem(IrAlternation(IrSequence(IrItem(IrRuleRef("singleLineComment")))))],
     field_map={"kind": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -602,28 +581,18 @@ StatementArm9.__grammar__ = RuleSpec(
     class_name="StatementArm9",
     parent_class_name="Statement",
     kind="sequence",
-    items=[
-        IrItem(
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("multiLineComment"), IrQuantifier(1, 1)))
-            ),
-            IrQuantifier(1, 1),
-        )
-    ],
+    items=[IrItem(IrAlternation(IrSequence(IrItem(IrRuleRef("multiLineComment")))))],
     field_map={"kind": 0},
     non_semantic_fields=frozenset([]),
 )
 
 
 ForInit.__grammar__ = RuleSpec(
-    rule_name="forInit",
+    rule_name=IrRuleRef("forInit"),
     class_name="ForInit",
     parent_class_name="GrammarModel",
     kind="alternation",
-    items=[
-        IrItem(IrRuleRef("forInit-arm1"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("forInit-arm2"), IrQuantifier(1, 1)),
-    ],
+    items=[IrItem(IrRuleRef("forInit-arm1")), IrItem(IrRuleRef("forInit-arm2"))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -635,12 +604,12 @@ ForInitArm1.__grammar__ = RuleSpec(
     parent_class_name="ForInit",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("dataType"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("identifier"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrLiteral("="), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrRuleRef("expression"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("dataType")),
+        IrItem(IrRuleRef("identifier")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrLiteral("=")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrRuleRef("expression")),
     ],
     field_map={"dataType": 0, "identifier": 1, "ws": 2, "ws2": 4, "expression": 5},
     non_semantic_fields=frozenset(["ws", "ws2"]),
@@ -653,11 +622,11 @@ ForInitArm2.__grammar__ = RuleSpec(
     parent_class_name="ForInit",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("identifier"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrLiteral("="), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrRuleRef("expression"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("identifier")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrLiteral("=")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrRuleRef("expression")),
     ],
     field_map={"identifier": 0, "ws": 1, "ws2": 3, "expression": 4},
     non_semantic_fields=frozenset(["ws", "ws2"]),
@@ -665,16 +634,16 @@ ForInitArm2.__grammar__ = RuleSpec(
 
 
 ForUpdate.__grammar__ = RuleSpec(
-    rule_name="forUpdate",
+    rule_name=IrRuleRef("forUpdate"),
     class_name="ForUpdate",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("identifier"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrLiteral("="), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrRuleRef("expression"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("identifier")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrLiteral("=")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrRuleRef("expression")),
     ],
     field_map={"identifier": 0, "ws": 1, "ws2": 3, "expression": 4},
     non_semantic_fields=frozenset(["ws", "ws2"]),
@@ -682,14 +651,14 @@ ForUpdate.__grammar__ = RuleSpec(
 
 
 Condition.__grammar__ = RuleSpec(
-    rule_name="condition",
+    rule_name=IrRuleRef("condition"),
     class_name="Condition",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("expression"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("relationOperator"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("expression"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("expression")),
+        IrItem(IrRuleRef("relationOperator")),
+        IrItem(IrRuleRef("expression")),
     ],
     field_map={"expression": 0, "relationOperator": 1, "expression2": 2},
     non_semantic_fields=frozenset([]),
@@ -697,21 +666,20 @@ Condition.__grammar__ = RuleSpec(
 
 
 RelationOperator.__grammar__ = RuleSpec(
-    rule_name="relationOperator",
+    rule_name=IrRuleRef("relationOperator"),
     class_name="RelationOperator",
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
         IrItem(
             IrAlternation(
-                IrSequence(IrItem(IrLiteral("<="), IrQuantifier(1, 1))),
-                IrSequence(IrItem(IrLiteral("<"), IrQuantifier(1, 1))),
-                IrSequence(IrItem(IrLiteral("=="), IrQuantifier(1, 1))),
-                IrSequence(IrItem(IrLiteral("!="), IrQuantifier(1, 1))),
-                IrSequence(IrItem(IrLiteral(">="), IrQuantifier(1, 1))),
-                IrSequence(IrItem(IrLiteral(">"), IrQuantifier(1, 1))),
-            ),
-            IrQuantifier(1, 1),
+                IrSequence(IrItem(IrLiteral("<="))),
+                IrSequence(IrItem(IrLiteral("<"))),
+                IrSequence(IrItem(IrLiteral("=="))),
+                IrSequence(IrItem(IrLiteral("!="))),
+                IrSequence(IrItem(IrLiteral(">="))),
+                IrSequence(IrItem(IrLiteral(">"))),
+            )
         )
     ],
     field_map={},
@@ -720,12 +688,12 @@ RelationOperator.__grammar__ = RuleSpec(
 
 
 Expression.__grammar__ = RuleSpec(
-    rule_name="expression",
+    rule_name=IrRuleRef("expression"),
     class_name="Expression",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("term"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("term")),
         IrItem(IrRuleRef("expression-item"), IrQuantifier(0, IrNone)),
     ],
     field_map={"term": 0, "expression_item": 1},
@@ -734,12 +702,12 @@ Expression.__grammar__ = RuleSpec(
 
 
 Term.__grammar__ = RuleSpec(
-    rule_name="term",
+    rule_name=IrRuleRef("term"),
     class_name="Term",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("factor"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("factor")),
         IrItem(IrRuleRef("term-item"), IrQuantifier(0, IrNone)),
     ],
     field_map={"factor": 0, "term_item": 1},
@@ -748,29 +716,26 @@ Term.__grammar__ = RuleSpec(
 
 
 UnaryTerm.__grammar__ = RuleSpec(
-    rule_name="unaryTerm",
+    rule_name=IrRuleRef("unaryTerm"),
     class_name="UnaryTerm",
     parent_class_name="Factor",
     kind="sequence",
-    items=[
-        IrItem(IrLiteral("-"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("factor"), IrQuantifier(1, 1)),
-    ],
+    items=[IrItem(IrLiteral("-")), IrItem(IrRuleRef("factor"))],
     field_map={"factor": 1},
     non_semantic_fields=frozenset([]),
 )
 
 
 FuncCall.__grammar__ = RuleSpec(
-    rule_name="funcCall",
+    rule_name=IrRuleRef("funcCall"),
     class_name="FuncCall",
     parent_class_name="Factor",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("identifier"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("("), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("argList"), IrQuantifier(0, 1)),
-        IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("identifier")),
+        IrItem(IrLiteral("(")),
+        IrItem(IrRuleRef("argList"), IrQuantifier(0)),
+        IrItem(IrLiteral(")")),
     ],
     field_map={"identifier": 0, "argList": 2},
     non_semantic_fields=frozenset([]),
@@ -778,16 +743,16 @@ FuncCall.__grammar__ = RuleSpec(
 
 
 ParenExpression.__grammar__ = RuleSpec(
-    rule_name="parenExpression",
+    rule_name=IrRuleRef("parenExpression"),
     class_name="ParenExpression",
     parent_class_name="Factor",
     kind="sequence",
     items=[
-        IrItem(IrLiteral("("), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrRuleRef("expression"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
+        IrItem(IrLiteral("(")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrRuleRef("expression")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrLiteral(")")),
     ],
     field_map={"ws": 1, "expression": 2, "ws2": 3},
     non_semantic_fields=frozenset(["ws", "ws2"]),
@@ -795,12 +760,12 @@ ParenExpression.__grammar__ = RuleSpec(
 
 
 ArgList.__grammar__ = RuleSpec(
-    rule_name="argList",
+    rule_name=IrRuleRef("argList"),
     class_name="ArgList",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("expression"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("expression")),
         IrItem(IrRuleRef("argList-item"), IrQuantifier(0, IrNone)),
     ],
     field_map={"expression": 0, "argList_item": 1},
@@ -809,25 +774,25 @@ ArgList.__grammar__ = RuleSpec(
 
 
 Number.__grammar__ = RuleSpec(
-    rule_name="number",
+    rule_name=IrRuleRef("number"),
     class_name="Number",
     parent_class_name="Factor",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
 
 
 SingleLineComment.__grammar__ = RuleSpec(
-    rule_name="singleLineComment",
+    rule_name=IrRuleRef("singleLineComment"),
     class_name="SingleLineComment",
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(IrLiteral("//"), IrQuantifier(1, 1)),
-        IrItem(IrNot(IrCharClass(IrStr("\\n"))), IrQuantifier(0, IrNone)),
-        IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
+        IrItem(IrLiteral("//")),
+        IrItem(IrNot(IrCharClass(IrChr(10))), IrQuantifier(0, IrNone)),
+        IrItem(IrLiteral("\n")),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -835,32 +800,29 @@ SingleLineComment.__grammar__ = RuleSpec(
 
 
 MultiLineComment.__grammar__ = RuleSpec(
-    rule_name="multiLineComment",
+    rule_name=IrRuleRef("multiLineComment"),
     class_name="MultiLineComment",
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(IrLiteral("/*"), IrQuantifier(1, 1)),
+        IrItem(IrLiteral("/*")),
         IrItem(
             IrAlternation(
-                IrSequence(IrItem(IrNot(IrCharClass(IrStr("*"))), IrQuantifier(1, 1))),
+                IrSequence(IrItem(IrNot(IrCharClass(IrChr(42))))),
                 IrSequence(
                     IrItem(
                         IrAlternation(
                             IrSequence(
-                                IrItem(IrLiteral("*"), IrQuantifier(1, 1)),
-                                IrItem(
-                                    IrNot(IrCharClass(IrStr("/"))), IrQuantifier(1, 1)
-                                ),
+                                IrItem(IrLiteral("*")),
+                                IrItem(IrNot(IrCharClass(IrChr(47)))),
                             )
-                        ),
-                        IrQuantifier(1, 1),
+                        )
                     )
                 ),
             ),
             IrQuantifier(0, IrNone),
         ),
-        IrItem(IrLiteral("*/"), IrQuantifier(1, 1)),
+        IrItem(IrLiteral("*/")),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -868,7 +830,7 @@ MultiLineComment.__grammar__ = RuleSpec(
 
 
 Ws.__grammar__ = RuleSpec(
-    rule_name="ws",
+    rule_name=IrRuleRef("ws"),
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",
@@ -876,10 +838,12 @@ Ws.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrCharClass(IrStr(" \\t\\n")), IrQuantifier(1, IrNone))
+                    IrItem(
+                        IrCharClass(IrChr(32), IrChr(9), IrChr(10)),
+                        IrQuantifier(1, IrNone),
+                    )
                 )
-            ),
-            IrQuantifier(1, 1),
+            )
         )
     ],
     field_map={},
@@ -892,7 +856,7 @@ RootItem.__grammar__ = RuleSpec(
     class_name="RootItem",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(IrRuleRef("declaration"), IrQuantifier(1, 1))],
+    items=[IrItem(IrRuleRef("declaration"))],
     field_map={"declaration": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -904,10 +868,10 @@ StatementItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrLiteral("else"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("{"), IrQuantifier(1, 1)),
+        IrItem(IrLiteral("else")),
+        IrItem(IrLiteral("{")),
         IrItem(IrRuleRef("statement"), IrQuantifier(0, IrNone)),
-        IrItem(IrLiteral("}"), IrQuantifier(1, 1)),
+        IrItem(IrLiteral("}")),
     ],
     field_map={"statement": 2},
     non_semantic_fields=frozenset([]),
@@ -922,12 +886,10 @@ ExpressionItem.__grammar__ = RuleSpec(
     items=[
         IrItem(
             IrAlternation(
-                IrSequence(IrItem(IrLiteral("+"), IrQuantifier(1, 1))),
-                IrSequence(IrItem(IrLiteral("-"), IrQuantifier(1, 1))),
-            ),
-            IrQuantifier(1, 1),
+                IrSequence(IrItem(IrLiteral("+"))), IrSequence(IrItem(IrLiteral("-")))
+            )
         ),
-        IrItem(IrRuleRef("term"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("term")),
     ],
     field_map={"sign": 0, "term": 1},
     non_semantic_fields=frozenset([]),
@@ -942,12 +904,10 @@ TermItem.__grammar__ = RuleSpec(
     items=[
         IrItem(
             IrAlternation(
-                IrSequence(IrItem(IrLiteral("*"), IrQuantifier(1, 1))),
-                IrSequence(IrItem(IrLiteral("/"), IrQuantifier(1, 1))),
-            ),
-            IrQuantifier(1, 1),
+                IrSequence(IrItem(IrLiteral("*"))), IrSequence(IrItem(IrLiteral("/")))
+            )
         ),
-        IrItem(IrRuleRef("factor"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("factor")),
     ],
     field_map={"head": 0, "factor": 1},
     non_semantic_fields=frozenset([]),
@@ -960,9 +920,9 @@ ArgListItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrLiteral(","), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrRuleRef("expression"), IrQuantifier(1, 1)),
+        IrItem(IrLiteral(",")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrRuleRef("expression")),
     ],
     field_map={"ws": 1, "expression": 2},
     non_semantic_fields=frozenset(["ws"]),

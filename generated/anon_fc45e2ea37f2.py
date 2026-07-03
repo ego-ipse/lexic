@@ -6,7 +6,7 @@ from lexic.base import GrammarModel
 from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
-    IrQuantifier,
+    IrRuleRef,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -16,11 +16,11 @@ class Root(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrLiteral("x"), IrQuantifier(1, 1))],
+    items=[IrItem(IrLiteral("x"))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

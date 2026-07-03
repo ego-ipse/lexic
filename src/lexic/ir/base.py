@@ -26,11 +26,16 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 
 from __future__ import annotations
 
+import ast
 import copy
 from abc import ABC
+from collections.abc import Callable
+from inspect import getsourcefile
+from operator import itemgetter
+from pathlib import Path
+from types import FunctionType
 from typing import (
     Any,
-    Callable,
     ClassVar,
     Self,
     Sequence,
@@ -42,6 +47,7 @@ from typing import (
     overload,
 )
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.meta import IrMeta, IrSingleton
 
 # ── Spine ─────────────────────────────────────────────────────────────
@@ -63,6 +69,7 @@ class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri](metaclass=IrMeta):
     ``__repr__`` is codegen on every subclass — each node reproduces its own
     constructor call so that ``eval(repr(node))`` is a valid Python expression.
 
+    :param Iri: the concrete type of ``self``
     :param Ir_co: the return type of ``eval``.
     """
 
@@ -284,100 +291,74 @@ class IrLeaf[Iri: IrSelf, Ir_co: IrSelf](IrNode[Iri, Ir_co]):
         return ()
 
 
-class IrCallable[Iri: IrSelf = IrSelf, Ir_co: IrSelf = IrSelf](IrNode[Iri, Ir_co]):
-    """Procedural body — a leaf that wraps one handler callable.
+class IrLambda(IrNode[IrSelf, IrSelf]):
+    """Minimal procedural escape hatch — the stored callable IS the eval.
 
-    The escape hatch for logic the algebra can't express. Generic in ``Iri``
-    (the handler's input type — a handler may type its parameters as narrowly
-    as it likes, e.g. ``group: IrAlternation``) and ``Ir_co`` (the result type);
-    callers narrow at construction: ``IrCallable[IrSelf, IrStr](handler)``.
+    Variadic: the wrapped callable is attached as the ``eval`` slot and invoked
+    with whatever arguments the caller supplies — a dispatch body is called as
+    ``(d, n, nc) -> IrSelf``, while an operator body is called variadically over
+    the operands (``IrLambda(operator.eq).eval(*nc)``). No fold convention, no
+    node-handler branch (the two modes the old IrCallable had). Equality
+    is by identity and ``repr`` is name-based: a closure is not round-trippable
+    codegen, the one invariant this node may break.
 
-    Built on :class:`IrNode` (not :class:`IrTuple`/:class:`IrScalar`), so ``eval``
-    keeps the ``Iri`` input type — no casts needed — and equality/hash are by
-    identity (callables are not value-comparable). The handler may also be an
-    :class:`IrSelf` node, which is ``eval``\\ ed instead of called.
-
-    Two handler conventions, selected explicitly by ``out`` (never by signature
-    sniffing):
-
-    - **protocol** (default): ``handler(d, n, nc) -> Ir_co``.
-    - **fold** (``out`` given): ``handler`` is a bare fold over the operands —
-      ``out(handler(*nc))`` lifts it into the protocol, ``out`` being the
-      runtime result type exactly like :attr:`~lexic.ir.action.IrField.out`
-      (e.g. ``IrCallable(operator.eq, IrInt)``).
-
-    Lives in the spine (not :mod:`lexic.ir.action`) so layers below the action
-    algebra — e.g. :class:`~lexic.ir.operators.IrOp`'s ``_OPS`` table — can
-    wrap handlers without an import cycle.
-
-    :param Iri: the handler's input (dispatcher) type.
-    :param Ir_co: the result type the handler produces.
+    :param fn: The callable invoked on dispatch.
     """
 
-    __slots__ = ("handler", "out")
-    handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co]
-    out: type[IrScalar] | None
+    __slots__ = ("eval",)
+    # The wrapped callable IS eval. Its return is heterogeneous — IrSelf for a
+    # dispatch body, a raw operand-fold result the caller wraps — so Any is the
+    # honest escape-hatch type. Dispatch consumers are unaffected: they hold
+    # bodies as IrSelf and call IrSelf.eval, never IrLambda.eval directly.
+    eval: Callable[..., Any]
 
-    @overload
-    def __new__(
-        cls, handler: Callable[[Iri, Iri, Sequence[Iri]], Ir_co] | IrSelf[Iri, Ir_co]
-    ) -> Self: ...
-    @overload
-    def __new__(cls, handler: Callable[..., object], out: type[Ir_co]) -> Self: ...
-    def __new__(
-        cls,
-        handler: Callable[..., object] | IrSelf[Iri, Ir_co],
-        out: type[Ir_co] | None = None,
-    ) -> Self:
-        """Wrap ``handler`` as an immutable leaf.
+    def __new__(cls, fn: Callable[..., Any], /) -> Self:
+        """Wrap ``fn`` as an immutable leaf.
 
-        :param handler: A procedure ``(d, n, nc) -> Ir_co``, an IR node whose
-            ``eval`` produces the result, or — with ``out`` — a bare operand
-            fold ``fn(*operands)``.
-        :param out: Result type a fold's raw return is wrapped in (an
-            :class:`IrScalar` subtype — payload-constructible); ``None``
-            selects the protocol convention.
-        :returns: The new ``IrCallable`` leaf.
+        :param fn: The callable serving as ``eval`` — a ``(d, n, nc) -> IrSelf``
+            dispatch body or a bare operand fold applied variadically.
+        :returns: The new ``IrLambda`` leaf.
         """
         obj = object.__new__(cls)
-        object.__setattr__(obj, "handler", handler)
-        object.__setattr__(obj, "out", out)
+        object.__setattr__(obj, "eval", fn)
         return obj
 
-    def __call__(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
-        """Run the wrapped handler: a node is evaluated, a callable is called,
-        a fold (``out`` set) is applied to the operands and its result wrapped.
-
-        The fold branch casts the handler past the protocol annotation — the
-        ``out`` overload deliberately admits any bare callable — and ``bind``
-        types the wrapped result back to ``Ir_co``.
-        """
-        if self.out is not None:
-            fold = cast(Callable[..., object], self.handler)
-            return self.bind(self.out(fold(*nc)))
-        if isinstance(self.handler, IrSelf):
-            return self.handler.eval(d, n, nc)
-        return self.handler(d, n, nc)
-
-    def eval(self, d: Iri, n: Iri, nc: Sequence[Iri], /) -> Ir_co:
-        """Forward to the wrapped handler.
-
-        :param d: Dispatcher forwarded to the handler.
-        :param n: Current node forwarded to the handler.
-        :param nc: Pre-walked children forwarded to the handler.
-        :returns: Whatever the handler returns.
-        """
-        return self(d, n, nc)
-
     def __repr__(self) -> str:
-        """Repr holding the handler's name (not round-trip codegen).
+        """Codegen repr: the closure's name, or a lambda's exact source.
 
-        :returns: ``ClassName(<handler name>)``, plus ``out`` when set.
+        A named closure renders by name (a module global, in scope at
+        ``eval(repr(...))`` time); a lambda renders by the source segment of
+        its own AST node — located in the defining file by first line and
+        positional arg count, so the surrounding statement is never captured
+        (``getsource`` would return the whole physical line).
+
+        :returns: ``IrLambda(<name-or-lambda-source>)``.
+        :raises UnsupportedConstructError: If a lambda has no source file or
+            cannot be uniquely located (two same-arity lambdas share its line) —
+            failing loudly keeps the repr honest codegen, never a wrong segment.
         """
-        name = getattr(self.handler, "__name__", self.handler)
-        if self.out is not None:
-            return f"{type(self).__name__}({name}, {self.out.__name__})"
-        return f"{type(self).__name__}({name})"
+        fn = cast(FunctionType, self.eval)
+        if fn.__name__ != "<lambda>":
+            return f"{type(self).__name__}({fn.__name__})"
+        path = getsourcefile(fn)
+        if path is None:
+            raise UnsupportedConstructError("IrLambda repr: closure has no source")
+        source = Path(path).read_text(encoding="utf-8")
+        line, nargs = fn.__code__.co_firstlineno, fn.__code__.co_argcount
+        hits = [
+            node
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Lambda)
+            and node.lineno == line
+            and len(node.args.args) == nargs
+        ]
+        segment = ast.get_source_segment(source, hits[0]) if len(hits) == 1 else None
+        if segment is None:
+            raise UnsupportedConstructError(
+                f"IrLambda repr: cannot isolate lambda at {path}:{line} "
+                f"({len(hits)} candidate(s))"
+            )
+        return f"{type(self).__name__}({segment})"
 
 
 class IrAtom(IrNode):
@@ -449,7 +430,9 @@ class IrScalar(IrLeaf):
         :param other: The value to compare against.
         :returns: ``True`` when equal under the rules above.
         """
-        if isinstance(other, IrScalar) and type(self) is not type(other):
+        if type(self) is type(other):  # hot path: same leaf kind, skip isinstance
+            return super().__eq__(other)
+        if isinstance(other, IrScalar):  # distinct leaf kinds never compare equal
             return False
         return super().__eq__(other)
 
@@ -471,6 +454,23 @@ class IrScalar(IrLeaf):
         :returns: The native ``str``/``int`` hash of the payload.
         """
         return super().__hash__()
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Install the bound primitive's C-level ``__hash__`` slot on the subclass.
+
+        A leaf is keyed in dicts/sets constantly; the inherited Python
+        :meth:`__hash__` wrapper costs a frame per probe. Binding the bare
+        ``str``/``int`` hash slot here (rather than in the class body) gives the
+        zero-frame C hash without the bare-slot assignment tripping the override
+        type-checker — mirroring how :class:`IrNamedTuple` installs accessors in
+        ``__init_subclass__``. Consistent with :meth:`__eq__`: equal leaves share
+        the payload hash; distinct leaf kinds may collide (harmless).
+
+        :param kwargs: Forwarded to ``super().__init_subclass__``.
+        """
+        super().__init_subclass__(**kwargs)
+        if cls._bound in (str, int):
+            setattr(cls, "__hash__", cls._bound.__hash__)
 
     def __repr__(self) -> str:
         """Codegen repr: ``ClassName(payload)`` via the primitive's ``repr``.
@@ -504,6 +504,41 @@ class IrInt(IrScalar, int):
     """
 
     _bound: ClassVar[type[int]] = int
+
+    def __str__(self) -> str:
+        """The decimal digits of this value.
+
+        ``int`` renders through ``__repr__``, which :class:`IrScalar` repurposes
+        for codegen, so without this an ``IrInt`` would stringify to its
+        constructor form. Mirrors :meth:`IrChr.__str__`.
+
+        :returns: ``str(int(self))``.
+        """
+        return str(int(self))
+
+
+class IrChr(IrInt):
+    """A code point — build from a 1-char glyph or an int; stores the ordinal."""
+
+    def __new__(cls, value: int | str = 0) -> Self:
+        """Build from a 1-char glyph or an int.
+
+        :raises UnsupportedConstructError: If a string of length != 1 is given.
+        """
+        if isinstance(value, str):
+            if len(value) != 1:
+                msg = f"IrChr expects one glyph, got {value!r}"
+                raise UnsupportedConstructError(msg)
+            value = ord(value)
+        return super().__new__(cls, value)
+
+    def __str__(self) -> str:
+        """The glyph for this code point."""
+        return chr(int(self))
+
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrStr:
+        """Evaluate to the glyph as an ``IrStr`` (emit-side use)."""
+        return IrStr(chr(int(self)))
 
 
 # ── Primitive tuple tier ──────────────────────────────────────────────
@@ -689,7 +724,7 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
     def _install_accessors(cls) -> None:
         """Install a positional read accessor (``self[i]``) for each field."""
         for index, name in enumerate(cls._fields):
-            setattr(cls, name, property(lambda self, i=index: self[i]))
+            setattr(cls, name, property(itemgetter(index)))
 
     def __new__[**P](cls, *args: P.args, **kwargs: P.kwargs) -> Self:
         """Build the tuple from positional args, keywords, and field defaults.
@@ -699,6 +734,8 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
         :returns: A new instance with the fields stored as tuple elements.
         :raises TypeError: On a missing field or an unexpected keyword.
         """
+        if not kwargs and len(args) == len(cls._fields):  # all-positional fast path
+            return super().__new__(cls, *cast(tuple[*Ts], args))
         values = list(args)
         for name in cls._fields[len(args) :]:
             if name in kwargs:
@@ -756,6 +793,34 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
             else:
                 values.append(self[i])
         return cast(Callable[..., Self], type(self))(*values)
+
+    def __repr__(self) -> str:
+        """Codegen repr with the trailing run of default-valued fields omitted.
+
+        Walks the fields from the end and drops each whose value equals its
+        declared default (``==``, so :class:`IrScalar`'s type-aware equality
+        applies), stopping at the first field that differs or carries no default
+        (never omittable). The positional prefix that remains is still a valid
+        constructor call — the omitted fields reconstruct to the same defaults:
+        ``IrItem(IrLiteral('a'), IrQuantifier(1, 1))`` renders ``IrItem(IrLiteral('a'))``.
+        A class-valued field renders as its bare ``__name__`` (as in
+        :meth:`IrTuple.__repr__`) so the result stays valid codegen.
+
+        :returns: Constructor call reproducing this node (defaults elided).
+        """
+        fields, defaults = self._fields, self._field_defaults
+        n = len(fields)
+        while (
+            n > 0
+            and fields[n - 1] in defaults
+            and self[n - 1] == defaults[fields[n - 1]]
+        ):
+            n -= 1
+        inner = ", ".join(
+            element.__name__ if isinstance(element, type) else repr(element)
+            for element in self[:n]
+        )
+        return f"{type(self).__name__}({inner})"
 
 
 _MISSING: Any = object()

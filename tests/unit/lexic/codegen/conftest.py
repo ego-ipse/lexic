@@ -8,7 +8,7 @@ import os
 import tempfile
 import types
 
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrChr, IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -62,12 +62,12 @@ def make_two_digit_specs() -> tuple[RuleSpec, RuleSpec]:
     s1 = make_spec(
         "a",
         "value_str",
-        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone))],
     )
     s2 = make_spec(
         "b",
         "value_str",
-        [IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+        [IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), IrQuantifier(1, IrNone))],
     )
     return s1, s2
 
@@ -76,7 +76,7 @@ def make_charclass_literal_group() -> IrAlternation:
     """Return the IrAlternation for ([a-h] 'x') used in alias and emitter tests."""
     return IrAlternation(
         IrSequence(
-            IrItem(IrCharClass(IrRange("a", "h")), IrQuantifier(1, 1)),
+            IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("h"))), IrQuantifier(1, 1)),
             IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
         )
     )

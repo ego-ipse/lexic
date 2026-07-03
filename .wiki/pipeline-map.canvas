@@ -1,0 +1,28 @@
+{
+	"nodes":[
+		{"id":"label_new","type":"text","text":"**NEW PIPELINE**","x":650,"y":-80,"width":300,"height":50},
+		{"id":"old1","type":"text","text":"GBNF text","x":0,"y":0,"width":200,"height":60},
+		{"id":"old2","type":"text","text":"gbnf/parser.py → list[Rule]","x":0,"y":100,"width":200,"height":60},
+		{"id":"old3","type":"file","file":".wiki/lexic/architecture.md","x":0,"y":200,"width":300,"height":60},
+		{"id":"old4","type":"file","file":".wiki/lexic/new-codegen.md","x":0,"y":300,"width":300,"height":60},
+		{"id":"old6","type":"text","text":"LarkBuilder → Lark grammar","x":0,"y":500,"width":200,"height":60},
+		{"id":"new1","type":"text","text":"grammar text","x":700,"y":0,"width":200,"height":60},
+		{"id":"new2","type":"text","text":"parse_directives() → Directives","x":700,"y":100,"width":250,"height":60},
+		{"id":"new4","type":"file","file":".wiki/lexic/ir-shapes.md","x":700,"y":300,"width":300,"height":60},
+		{"id":"new5","type":"file","file":".wiki/lexic/new-codegen.md","x":700,"y":400,"width":300,"height":60},
+		{"id":"new3","type":"file","file":".wiki/lexic/ir-shapes.md","x":675,"y":200,"width":300,"height":60},
+		{"id":"label_old","type":"text","text":"**OLD PIPELINE**","x":0,"y":-105,"width":300,"height":50},
+		{"id":"old5","type":"text","text":"GbnfEmitter → GBNF text","x":50,"y":400,"width":200,"height":60}
+	],
+	"edges":[
+		{"id":"e_old1_2","fromNode":"old1","fromSide":"bottom","toNode":"old2","toSide":"top","label":"parse"},
+		{"id":"e_old2_3","fromNode":"old2","fromSide":"bottom","toNode":"old3","toSide":"top","label":"IRBuilder → list[RuleSpec]"},
+		{"id":"e_old3_4","fromNode":"old3","fromSide":"bottom","toNode":"old4","toSide":"top","label":"ModelEmitter → generated/*.py"},
+		{"id":"e_old3_5","fromNode":"old3","fromSide":"bottom","toNode":"old5","toSide":"top","label":"emit"},
+		{"id":"e_old3_6","fromNode":"old3","fromSide":"bottom","toNode":"old6","toSide":"top","label":"build"},
+		{"id":"e_new1_2","fromNode":"new1","fromSide":"bottom","toNode":"new2","toSide":"top","label":"directives scan"},
+		{"id":"e_new2_3","fromNode":"new2","fromSide":"bottom","toNode":"new3","toSide":"top","label":"MetaGrammarParser → IrAst"},
+		{"id":"e_new3_4","fromNode":"new3","fromSide":"bottom","toNode":"new4","toSide":"top","label":"derive_specs() → list[NewRuleSpec]"},
+		{"id":"e_new4_5","fromNode":"new4","fromSide":"bottom","toNode":"new5","toSide":"top","label":"new_codegen/ → Python source"}
+	]
+}

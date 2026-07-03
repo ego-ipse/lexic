@@ -12,7 +12,7 @@ from lexic.ir.action import IrAction, IrReturn
 from lexic.ir.base import (
     Field,
     IrAtom,
-    IrCallable,
+    IrLambda,
     IrNode,
     IrNone,
     IrNoneType,
@@ -138,20 +138,11 @@ def _extract_group(
     return group if has_ruleref(group) else IrNone
 
 
-def _extract_none(_d: object, _n: object, _nc: object) -> IrNoneType:
-    """Default override for non-IrGroup atoms — never hoist.
-
-    :param _d: Dispatcher (unused).
-    :param _n: Node (unused).
-    :param _nc: Pre-dispatched children (unused).
-    :returns: ``None``.
-    """
-    return IrNone
-
-
 _EXTRACT_BODY: IrDispatch = IrDispatch(
-    actions=IrTypeMap(IrAction(IrAlternation, IrCallable(_extract_group))),
-    default=IrCallable(_extract_none),
+    actions=IrTypeMap(IrAction(IrAlternation, IrLambda(_extract_group))),
+    # Non-IrAlternation atoms never hoist: IrNone is self-evaluating, so it
+    # serves as the "extract nothing" body directly — no procedural wrapper.
+    default=IrNone,
 )
 
 
@@ -205,7 +196,7 @@ class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     parent_name: str = ""
     name_set: set[str] = Field(default_factory=set)
     helpers: list[IrRule] = Field(default_factory=list)
-    actions: IrTypeMap = IrTypeMap(IrAction(IrItem, IrCallable(_hoist_item)))
+    actions: IrTypeMap = IrTypeMap(IrAction(IrItem, IrLambda(_hoist_item)))
 
 
 def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
@@ -224,8 +215,9 @@ def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
         t = _HoistTransformer(parent_name=rule.name, name_set=name_set)
         new_body = t.apply(rule.body)
         all_helpers.extend(t.helpers)
-        new_rules.append(IrRule(rule.name, new_body))
-    return IrAst(rules=IrSeq(*new_rules), start=ast.start), all_helpers
+        new_rules.append(IrRule(rule.name, new_body, rule.semantic))
+    new_ast = IrAst(rules=IrSeq(*new_rules), start=ast.start)
+    return new_ast, all_helpers
 
 
 # ── field naming ──────────────────────────────────────────────────────
@@ -448,18 +440,19 @@ def _apply_non_semantic(spec: RuleSpec, rules: frozenset[str]) -> RuleSpec:
 # ── orchestration ─────────────────────────────────────────────────────
 
 
-def derive_specs(
-    ast: IrAst,
-    *,
-    non_semantic_rules: frozenset[str] = frozenset(),
-) -> list[RuleSpec]:
+def derive_specs(ast: IrAst) -> list[RuleSpec]:
     """Walk the IR AST; produce the codegen RuleSpec view.
 
-    Pure function. No flavour reference.
+    Pure function. No flavour reference. The non-semantic rule set is read from
+    ``ast.non_semantic`` (bound by ``compile_grammar``); their refs get
+    ``min=0`` and their field names are recorded on each spec.
 
     Helper rules synthesised by hoist_helpers always receive
     parent_class_name='GrammarModel'; they never participate in
     alternation-arm-driven inheritance (Decision OV #11).
+
+    :param ast: The grammar AST, carrying its start rule and non-semantic set.
+    :returns: The topologically ordered RuleSpec list.
     """
     hoisted, helpers = hoist_helpers(ast)
     rules = list(hoisted.rules) + helpers
@@ -472,5 +465,5 @@ def derive_specs(
         parent = parents.get(rule.name, "GrammarModel")
         specs.extend(_BUILDERS[classify_kind(rule)](rule, cls_name, parent))
 
-    specs = [_apply_non_semantic(s, non_semantic_rules) for s in specs]
+    specs = [_apply_non_semantic(s, ast.non_semantic) for s in specs]
     return topo_sort(specs, is_start_rule=lambda s: s.rule_name == ast.start)

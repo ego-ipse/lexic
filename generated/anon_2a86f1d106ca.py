@@ -11,6 +11,7 @@ from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -37,15 +38,15 @@ class Name(GrammarModel):
 
 
 Greeting.__grammar__ = RuleSpec(
-    rule_name="greeting",
+    rule_name=IrRuleRef("greeting"),
     class_name="Greeting",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("salutation"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral(" "), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("name"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("!"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("salutation")),
+        IrItem(IrLiteral(" ")),
+        IrItem(IrRuleRef("name")),
+        IrItem(IrLiteral("!")),
     ],
     field_map={"salutation": 0, "name": 2},
     non_semantic_fields=frozenset([]),
@@ -53,15 +54,15 @@ Greeting.__grammar__ = RuleSpec(
 
 
 Salutation.__grammar__ = RuleSpec(
-    rule_name="salutation",
+    rule_name=IrRuleRef("salutation"),
     class_name="Salutation",
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
         IrAlternation(
-            IrSequence(IrItem(IrLiteral("Hello"), IrQuantifier(1, 1))),
-            IrSequence(IrItem(IrLiteral("Hi"), IrQuantifier(1, 1))),
-            IrSequence(IrItem(IrLiteral("Hey"), IrQuantifier(1, 1))),
+            IrSequence(IrItem(IrLiteral("Hello"))),
+            IrSequence(IrItem(IrLiteral("Hi"))),
+            IrSequence(IrItem(IrLiteral("Hey"))),
         )
     ],
     field_map={},
@@ -70,13 +71,14 @@ Salutation.__grammar__ = RuleSpec(
 
 
 Name.__grammar__ = RuleSpec(
-    rule_name="name",
+    rule_name=IrRuleRef("name"),
     class_name="Name",
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
         IrItem(
-            IrCharClass(IrRange("A", "Z"), IrRange("a", "z")), IrQuantifier(1, IrNone)
+            IrCharClass(IrRange(IrChr(65), IrChr(90)), IrRange(IrChr(97), IrChr(122))),
+            IrQuantifier(1, IrNone),
         )
     ],
     field_map={},

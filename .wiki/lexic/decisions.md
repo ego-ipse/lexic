@@ -1,0 +1,222 @@
+# Design Decisions
+
+**When to load:** understanding why something is designed a specific way; before reversing or changing a design choice; after landing a non-obvious decision (add an entry).
+
+Significant choices with reasoning. Add an entry whenever a non-obvious decision is made or reversed.
+
+---
+
+## 2026-06-05 — Phase-0a algebra: `IrScalar`/`IrInt`, `IrOp` (no `Cmp` enum), `IrTuple.eval -> IrSelf`
+
+**Decision:** Added the value-aware action algebra, deviating from the plan's prescribed shapes on four points:
+
+1. **`IrScalar(IrLeaf)`** is the value-leaf base; it hosts `eval` *and* the type-aware `__eq__`/`__ne__`/`__hash__`/`__repr__` (consolidated up from `IrStr`). `IrStr(IrScalar, str)` and `IrInt(IrScalar, int)` carry only `_bound`. `IrStr.__new__`/`eval` removed. Added `__ne__` to fix a latent inconsistency (`str`/`int` supply their own `__ne__`, which ignored the leaf-kind check, so `a != b` disagreed with `not (a == b)`).
+2. **`IrField.out: type[IrScalar]`** (default `IrStr`), made constructor-callable by a forwarding **`IrScalar.__new__(*args)`** — NOT the plan's `type[IrStr] | type[IrInt]` union (closed-set, forbidden) and NOT generic (a concrete default on a generic `out` is unsound for pyright).
+3. **`IrOp(IrStr)`** operator leaf instead of the plan's **`Cmp` enum** (user directive: no Enum). The operator IS its string (`IrOp(">")`); `_OPS` maps it to an `operator` builtin; `eval` applies it to the operands in `nc`. `IrCompare(left, op: IrOp, right)` supplies both operands; `IrAnd` is short-circuit conjunction. A truth value is `IrInt ∈ {0,1}` — no `IrBool`. (User directive: comparison ops are a string-leaf node, never a Python `Enum`.)
+4. **`IrTuple.eval` relaxed `-> Self` → `-> IrSelf`** so reducer subclasses (`IrAnd(IrTuple[IrSelf])`) can override `eval` to return `IrInt` — NOT the plan's `IrTuple[T, R]` two-param generic + `cast`. `IrSequence`/`IrAlternation` are untouched.
+
+**Why:** Open classes over closed-set dispatch (no enum, no enumerated leaf union); avoid the plan's heavier generics where a one-line return-type relaxation suffices. All verified empirically (apply→pyright→suite).
+
+**Impact:** `IrCond` now takes `test: IrSelf` (was `field: str`). New public exports: `IrScalar`, `IrInt`, `IrOp`, `IrCompare`, `IrAnd`. Full suite green (593), `pyright src/ tests/` = 0. See [[ir-shapes]].
+
+---
+
+## 2026-06-04 — Primitive-node model (V2): a node IS its payload
+
+**Decision:** Replace the coercion-based node model with one where nodes *are* their payload. Three tiers: str-leaves (`IrLiteral`/`IrCharClass`/`IrRuleRef`) subclass `str` via `IrStr`; variadic collections (`IrSequence`/`IrAlternation`) subclass `tuple` via `IrTuple`; fixed-arity records (`IrItem`/`IrQuantifier`/`IrGroup`/`IrNot`/`IrRule`/`IrAst`) are frozen `IrComposite` dataclasses. Removed: `IrType`, `coerce`, the load-bearing `*args/**kwargs` `IrNode.__init__`, `_ir_field_types`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`_inner_str`/`__str__` cascade (replaced by `__repr__`-is-codegen). There are **no** `.value`/`.items`/`.arms` accessors — use the node directly.
+
+**Why:** The old `__init__(*args, **kwargs)` masked ~174 pyright errors (standard-mode 0 was a lie). Making nodes their payload eliminates coercion, the load-bearing init, and the variance that produced those errors. Construction is now honest per-field dataclass `__init__`/`__new__`; whole-tree pyright is genuinely 0.
+
+**Impact:** Every consumer reads leaves as `str` and collections as `tuple`; construction is variadic (`IrSequence(*items)`, `IrAlternation(*arms)`, `IrAst(IrTuple(*rules), start)`). Full suite green (572 tests), `pyright src/ tests/` = 0. See [[ir-shapes]].
+
+---
+
+## 2026-06-04 — Type-aware `IrStr.__eq__`
+
+**Decision:** `IrStr.__eq__` is type-aware against other `IrStr` (distinct leaf kinds never compare equal — `IrLiteral("x") != IrRuleRef("x")`) but falls back to native `str` equality against a plain `str` (`IrLiteral("x") == "x"`). `__hash__` stays native `str.__hash__`.
+
+**Why:** With leaves subclassing `str`, `IrLiteral("x") == IrRuleRef("x")` was `True`, poisoning structural tree equality and hashing (a `@cache` on `has_ruleref` returned stale results because structurally-distinct trees compared equal). The transitivity tension — `leaf == "x"` for both kinds *forces* `IrLiteral("x") == IrRuleRef("x")` — is resolved by making equality type-aware only among `IrStr` while preserving plain-`str` compatibility. Native hash means same-text different-kind leaves collide but compare unequal (eq is the tiebreaker), and leaves still match plain-`str` dict keys.
+
+---
+
+## 2026-06-04 — `IrThis` + lazy `IrReturn` for find-first (no callable)
+
+**Decision:** Added `IrThis` — an identity body whose `eval` returns the dispatched node `n`. `IrReturn` lazy-evaluates its body against `(d, n, nc)` and re-raises the result, defaulting `value=IrThis()` so `IrReturn()` surfaces the matched node. `has_ruleref`'s visitor is pure algebra: `IrAction(IrRuleRef, IrReturn())`.
+
+**Why:** Returning the *found* node from a predicate visitor needs access to `n` at eval time, which a constant `IrReturn(x)` cannot capture. An `IrCallable` raising `IrReturn(n)` was rejected — keep the action table declarative, no procedural escape hatch where algebra suffices. `IrThis` is the declarative "current node" primitive; `IrReturn` evaluating its body composes it cleanly and stays backward-compatible (`IrReturn(IrLiteral("v"))` still returns the literal).
+
+---
+
+## 2026-06-04 — Two type parameters `[Iri, Ir_co]`; `_bound` from the last
+
+**Decision:** Generic nodes/actions carry two PEP 695 parameters `[Iri: IrSelf, Ir_co: …]` — `Iri` the input node type, `Ir_co` the covariant return type. `IrSelf.__init_subclass__` derives `_bound` from the class's **last** own type parameter (i.e. `Ir_co`), not the first.
+
+**Why:** Adding `Iri` first shifted `Ir_co` to second position; the old `params[0]` derivation then resolved `_bound` to `IrSelf` (Iri's bound), breaking `IrField`/`IrConcat`/`IrJoin`/`IrEmitter` (`IrSelf() takes no arguments`, `'IrSelf' has no attribute 'join'`). `Ir_co` is conventionally last (sole param on single-parameter nodes, second in the pair), so taking the last is correct and keeps the existing `_Probe[T: …]` contract test passing.
+
+---
+
+## 2026-06-04 — No `cast`, no suppressions (reaffirmed)
+
+**Decision:** During the V2 port, type errors are fixed at the root — correct annotations, `isinstance` guards that `raise` on the unexpected branch, or constructing the real node. No `cast`, no `# type: ignore`/`# noqa`/`# pylint: disable`. Owner instruction: "absolutely no cast."
+
+**Why:** A `cast` re-hides exactly the variance the V2 model exists to expose. An `isinstance`-guard-then-`raise` documents the invariant and fails loudly if violated; a cast asserts it silently.
+
+---
+
+## 2026-06-04 — Open-set consumer rework deferred
+
+**Decision:** The V2 migration is a mechanical port; IR consumers (`derive`, `codegen`, `parsing`, `generate`) keep their closed-set `isinstance` ladders and `dict[type, …]` tables for now. A **separate** spec/plan will re-home node-intrinsic logic onto the nodes and consumer policy onto open `IrDispatch` tables.
+
+**Why:** Finish the migration green first (the safety net), then refactor — two independently-verifiable passes rather than one giant change. These ladders are legacy, not the target.
+
+---
+
+## 2026-05-28 — P12: IR passes are action tables, not closed subclasses
+
+**Decision:** Every IR pass — transformer, emitter, visitor — is a `tuple[IrAction, ...]` plugged into a single concrete `IrDispatch[Ir_co]` (via `IrVisitor` / `IrTransformer` / `IrEmitter` presets). Passes are **constructed**, not subclassed. New IR types are added by extending the action tuple; no dispatcher subclassing required.
+
+**Why:** Strengthens the original "open classes" rule. A closed pass-subclass forces every consumer to know every node type at subclass-definition time; an action table lets the table grow per-flavour or per-pass without touching the dispatcher. New AST node types ripple through table-builders, not through case statements.
+
+**Impact:** `IrFlavour` IS-AN `IrEmitter`, configured by `actions = <FLAVOUR>_ACTIONS`. Adding a flavour means writing a new action tuple, not a new dispatcher class.
+
+---
+
+## 2026-05-28 — P13: Action bodies AND dispatcher are IR nodes
+
+**Decision:** Both the per-target action body and the dispatcher itself live on the `IrNode` substrate. `IrDispatch[Ir_co]` IS-AN `IrCollection[Ir_co]` whose `_items_attr = "actions"`. Action bodies (`IrField`, `IrCallable`, `IrConcat`, `IrJoin`, etc.) are `IrNode`s with overridden `eval`.
+
+> **Superseded (2026-06-04, V2):** `IrCollection`/`_items_attr` are gone. `IrDispatch[Iri, Ir_co]` is now an `IrComposite` whose `actions` is a plain tuple field (NOT a dispatched child). The "dispatcher and bodies are IR nodes" principle stands; only the base tier changed.
+
+**Why:** Self-describing system. Dispatchers can be walked, rebuilt, printed via the same machinery as any IR tree. No special-case "outside the IR" objects.
+
+**Impact:** The action-algebra modules (`ir/action.py`) and the dispatcher module (`ir/walk.py`) compose freely. `IrTransformer` can rewrite a flavour's action table just like any other IR tree.
+
+---
+
+## 2026-05-28 — P14: Dispatcher is generic in result type with LSP-compatible signature
+
+**Decision:** `IrDispatch[Ir_co: IrSelf]` is generic in the produced type. Every dispatcher method follows the protocol shape `eval(d, n, nc) -> Ir_co` — identical for the dispatcher itself and every action body.
+
+**Why:** A single `(d, n, nc) -> Ir_co` signature lets action bodies invoke `d.eval(d, child, ())` without any cast or shape conversion. Substitutability across the algebra is automatic.
+
+**Impact:** Presets bind `Ir_co`: `IrVisitor` inherits `IrSelf`, `IrTransformer` binds `IrNode`, `IrEmitter` binds `IrLiteral`. `apply(root)` is the friendly entry that seeds `d = self`.
+
+---
+
+## 2026-05-28 — P15: Concrete-first MRO resolution; `IrAction` is a default-override unit
+
+**Decision:** `IrDispatch._resolve(type(n))` walks `type(n).__mro__` left-to-right (concrete-first) and returns the first matching `IrAction`. Memoised per dispatcher instance. Misses fall through to `self.default` wrapped in a synthetic `IrAction`.
+
+**Why:** A more specific `target_type` beats an ancestor without table reordering. Default-override is a single field swap on the preset; no special "default branch" mechanism is needed.
+
+**Impact:** Adding a specialised action for `IrCharClass` doesn't break the generic `IrLeaf` action it inherits from. `default=IrRaise()` (strict) and `default=IrEmit()` (lenient) are interchangeable in one line.
+
+---
+
+## 2026-05-28 — P16: Short-circuit is intrinsic to `IrReturn` via `_Return`
+
+**Decision:** `IrReturn` mixes `IrLeaf` and a private `_Return(BaseException)`. `eval` raises `self`; the surrounding `IrDispatch.apply` catches it and surfaces `.value` (or the instance, depending on the bound).
+
+**Why:** Short-circuit needs no protocol participation from every other node. Any nested action can raise `IrReturn` and unwind to the dispatcher. `_Return` is a `BaseException` subclass so `IrCallable` handlers' `except Exception:` clauses cannot swallow it.
+
+**Impact:** Conditional emission becomes trivial: `IrCond(field, IrReturn(IrStr("")), normal_op)` short-circuits cleanly. The `IrReturn` instance IS-AN `IrNode`, fitting the dispatcher's bound when surfaced.
+
+---
+
+## 2026-05-28 — P17: `IrLiteral` carries dual role (grammar literal + action constant)
+
+**Decision:** `IrLiteral` is used both as a grammar AST leaf (the literal string in a rule body) and as an action-language constant (e.g. `IrConcat(parts=(IrLiteral("("), ...))`). The two are distinguished at eval time by `nc`-marker semantics: lazy `IrChild` puts a dispatched literal through `d.eval` (action body fires); direct calls inside action algebra short-circuit to `self.value`.
+
+**Why:** Refusing to introduce a separate `IrText` constant node keeps the algebra small and uniform. Reusing `IrLiteral` means any constant string in an action body could be the target of an `IrTransformer` rewrite (e.g. "change all parenthesisation").
+
+**Impact:** No `IrText` exists. Constants are just `IrLiteral(value)`. The role disambiguation is implicit in the calling convention, not in the type.
+
+---
+
+## 2026-05-28 — P18: Every IR node is callable
+
+**Decision:** Every node implements `__call__(d, n, nc) -> Ir_co`. The default — inherited from `IrSelf` — is identity (`return self`). Value-producing nodes override. `Ir_co` defaults to `IrSelf`.
+
+**Why:** A unified call shape lets *anything* in the IR be the body of an `IrAction`. The substrate has one protocol; specialisation is opt-in.
+
+**Impact:** `IrAction(target, IrLiteral("x"))` is a valid action body — the dispatcher invokes `IrLiteral("x")(d, n, nc)` and gets `IrLiteral("x")` back. Pure-data nodes need no boilerplate to participate in dispatch.
+
+---
+
+## 2026-05-08 — Grammar is the ground truth, not the class
+
+**Decision:** Grammar files are canonical. Pydantic classes are Python representations of a grammar, not sources of truth.
+
+**Why:** The alternative ("class is canonical") biases every design toward "make the class more expressive" and demotes non-GBNF users (the llama.cpp population who come with existing `.gbnf` files). It also breaks cleanly once ABNF or other flavours land — "the class implies a flavour" only works if there's one notation.
+
+**Impact:** `to_grammar(flavour)` is a first-class method on every generated class. `@grammar_rule` decorator (Slice D) produces the same `RuleSpec` shape as codegen-from-file — two authoring paths, one IR.
+
+---
+
+## 2026-05-08 — Parallel-track IR cutover (not in-place migration)
+
+**Decision:** New IrItem-based pipeline built in `new_gbnf/` and future `new_codegen/` alongside the old pipeline. Single cutover commit (Task 18) replaces everything atomically.
+
+**Why:** In-place migration would require every intermediate commit to satisfy both old and new tests simultaneously, creating complex invariant juggling. The parallel track lets each component be built and tested independently; the cutover is a rename + delete.
+
+**Tradeoff:** Temporary code duplication (`new_gbnf/` mirrors parts of `gbnf/`). Acceptable given the cutover is planned and bounded.
+
+---
+
+## 2026-05-08 — Tasks 3 and 5 deleted (no parser wrapper, no adapter for new pipeline)
+
+**Decision:** Deleted `new_gbnf/parser.py` (wrapper around `MetaGrammarParser`) and `new_gbnf/adapter.py` (adapter bridging old registry) from the plan.
+
+**Why:** The new pipeline calls `MetaGrammarParser.for_flavour(GbnfFlavour)` directly. A wrapper would be a thin passthrough with no behaviour of its own. The adapter was needed only because the old `flavours.py` registry exists — once `flavours.py` is deleted at cutover, the adapter concept disappears too.
+
+---
+
+## 2026-05-08 — `_FIELD_BASE` lookup table replacing if/elif chain in `_field_map`
+
+**Decision:** Replaced a 13-branch `if isinstance(atom, X)` chain with a `_FIELD_BASE: dict[type, Callable]` dispatch table.
+
+**Why:** pylint flagged the chain as too many branches. The table is also consistent with `_ATOM_HINT` (already a table) and with the architecture's prescribed dispatch pattern (`BUILDER_BY_ATOM`).
+
+**Contract distinction:** `_ATOM_HINT` always returns `str` (used for naming only); `_FIELD_BASE` returns `str | None` where `None` signals "fall through to Tier-3 positional". This difference is documented in comments and in [[field-naming]].
+
+---
+
+## 2026-05-08 — `CHARCLASS_NAMES` ground truth: 9 entries, `letter` not `alpha`
+
+**Decision:** `[a-zA-Z]` → `"letter"` (not `"alpha"`). 9 entries total; `[a-zA-Z0-9_]` → `"alnum"` (only `_0-9` ordering, not `0-9_`).
+
+**Why:** `letter` is more natural English than `alpha` (which implies "alphabetic" in a more technical sense). `alnum` captures the common identifier char class. The table is intentionally small — any unknown pattern falls back to `_sanitize_pattern`.
+
+**Note:** Both orderings of hex digits (`[0-9a-fA-F]` and `[a-fA-F0-9]`) map to `"hex"` — intentional normalisation.
+
+---
+
+## 2026-04-29 — IrItem shape: quantifier on wrapper, not on leaves
+
+**Decision:** `IrItem(atom, quantifier)` wraps every atom; leaves (`IrLiteral`, `IrCharClass`, `IrRuleRef`) carry no quantifier.
+
+**Why:** In the old shape, quantifiers were fields on `CharClassAtom`, `QuantifiedLiteralAtom`, `RuleRefAtom`. This meant `LiteralAtom` had no quantifier (special case), and adding quantifiers to a new atom type required touching the dataclass. The new shape separates concerns: leaves are pure values, `IrItem` owns repetition.
+
+**Impact:** An unquantified `IrLiteral` is `IrItem(IrLiteral("x"), Quantifier(1,1))`. A quantified literal is `IrItem(IrLiteral("-"), Quantifier(0,1))`. `_field_map` skips only `IrLiteral` with exactly `(1,1)`.
+
+---
+
+## 2026-05-08 — Cutover commitments (CQ #1, #2, #4)
+
+**Decision:** Three named commitments enforced by Tasks 9–17 of the cutover plan.
+
+- **CQ #1 — No `# FIXME` placeholders in emitted Python source.** `_repr_iritem` (in `new_codegen/model_emitter.py`) produces real Python for every IR shape; emitted modules never carry placeholder comments.
+- **CQ #2 — No name-string hardcoding in `parsing/lark_builder.py`.** Non-semantic optionality flows from `RuleSpec.non_semantic_fields` + `IrItem.quantifier`. No `atom.name == "ws"` checks. Enforced by `test_no_ws_string_check_in_source`.
+- **CQ #4 — Fixed canonical import block in every generated module.** `model_emitter.CANONICAL_IMPORTS` is a constant emitted unconditionally; no per-module import inference. Includes `Annotated`, `StringConstraints`, `Literal`, `ClassVar`, the full IR-AST surface (`IrAlternation, IrAst, IrCharClass, IrGroup, IrItem, IrLiteral, IrRule, IrRuleRef, IrSequence, Quantifier`), `RuleSpec`, and `GrammarModel`.
+
+**Why:** All three are anti-temptation rules. Without CQ #1 emitters reach for placeholder text in unfamiliar shapes; without CQ #2 the lark builder accumulates one-off rule-name special cases; without CQ #4 import lists drift between generated modules.
+
+---
+
+## 2026-04-29 — `Flavour` ABC with class attributes only
+
+**Decision:** Each flavour is a class with class attributes (`meta_grammar`, `escapes`, `emitter`, …) and two static methods (`parse_quantifier`, `parse_charclass`). No `__init__`, no instances as configuration.
+
+**Why:** Flavours have no mutable state — they are configuration bundles. Class attributes are readable, introspectable, and don't require instantiation. `MetaGrammarParser.for_flavour(Cls)` takes the class, not an instance.
+
+**Tradeoff:** The `emitter` class attribute uses `ClassVar[Any]` (typed loosely) to avoid an import cycle. Acceptable — the type is checked at test time.

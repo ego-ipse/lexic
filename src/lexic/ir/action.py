@@ -12,7 +12,7 @@ here overrides ``eval`` to produce its typed result. Pass :data:`IrNone`
 to a slot that has no relevant value.
 
 **``nc`` is the argument channel.** Operands for :class:`~lexic.ir.operators.IrOp`,
-fold inputs for :class:`~lexic.ir.base.IrCallable`, render-marks for emitter
+operand-fold inputs for procedural bodies, render-marks for emitter
 actions (handed over by :class:`IrApply`, read by :class:`IrArgs`). It is NOT
 a children channel: the child readers (:class:`IrChild`, :class:`IrIndex`,
 :class:`IrChildren`) always resolve children from ``n`` itself and ignore
@@ -26,7 +26,7 @@ a children channel: the child readers (:class:`IrChild`, :class:`IrIndex`,
 a tuple, coexist with its layout).
 The default bodies (``IrPass``, ``IrWalk``, ``IrEmit``, ``IrRebuild``) are plain
 ``__slots__`` leaves. The procedural escape hatch
-:class:`~lexic.ir.base.IrCallable` lives in the spine so lower layers
+:class:`~lexic.ir.base.IrLambda` lives in the spine so lower layers
 (e.g. :mod:`lexic.ir.operators`) can use it too.
 """
 
@@ -56,7 +56,7 @@ class _Return(BaseException):
     """Control-flow exception raised by :class:`IrReturn`.
 
     Inherits :class:`BaseException` (not :class:`Exception`) so
-    :class:`IrCallable` bodies that wrap their work in
+    procedural bodies that wrap their work in
     ``except Exception:`` cannot swallow it.
     """
 
@@ -102,6 +102,60 @@ class IrField(IrNamedTuple[str, type[IrScalar]]):
         :returns: The attribute value wrapped in ``self.out`` (an ``IrScalar``).
         """
         return self.out(getattr(n, self.name))
+
+
+# ── Radix decoder ─────────────────────────────────────────────────────
+
+
+class IrUnradix(IrNamedTuple[int, type[IrScalar]]):
+    """Decode the focus digit string to ``out(value)`` via ord-arithmetic.
+
+    The inverse of the emit-side radix spelling: reads its focus ``n`` as a
+    digit string and returns ``out`` (an ``IrScalar`` subtype) of the value.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    base: int
+    out: type[IrScalar] = IrInt
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrScalar:
+        """Decode ``str(n)`` in ``self.base`` and wrap it in ``self.out``.
+
+        :raises UnsupportedConstructError: On an empty string or a bad digit.
+        """
+        s = str(n)
+        if not s:
+            raise UnsupportedConstructError("IrUnradix: empty digit string")
+        acc = 0
+        for c in s:
+            v = ord(c) - 0x30 if "0" <= c <= "9" else ord(c.upper()) - 0x41 + 10
+            if not 0 <= v < self.base:
+                raise UnsupportedConstructError(f"bad digit {c!r} for base {self.base}")
+            acc = acc * self.base + v
+        return self.out(acc)
+
+
+class IrGlyph(IrLeaf[IrSelf, IrStr]):
+    """Render the focus code point as its character — ``IrStr(chr(int(n)))``.
+
+    The glyph step after :class:`IrUnradix`: digits decode to a neutral code
+    point, this leaf spells it as text where text is being built (reduce-side
+    literal assembly). ``IrPipe(IrUnradix(16, IrInt), IrGlyph())`` reads a hex
+    run as one character.
+    """
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrStr:
+        """Spell the focus code point.
+
+        :raises UnsupportedConstructError: If the focus is not an integer
+            code point.
+        """
+        if not isinstance(n, int):
+            raise UnsupportedConstructError(
+                f"IrGlyph: focus must be an integer code point, got "
+                f"{type(n).__name__!r}"
+            )
+        return IrStr(chr(n))
 
 
 # ── Comparison ────────────────────────────────────────────────────────
@@ -251,6 +305,24 @@ class IrAt[Ir_co: IrSelf](IrNamedTuple[int, IrSelf]):
         return self.body.eval(d, n.children()[self.selector], IrTuple())
 
 
+class IrPipe(IrNamedTuple[IrSelf, IrSelf]):
+    """Rebind the focus to a computed value, then evaluate ``body``.
+
+    Evaluates ``source``, then evaluates ``body`` with that result as ``n`` (the
+    argument channel carries through). The focus-shift onto a *computed* node —
+    where :class:`IrAt` shifts onto a raw child by index. ``IrPipe(IrArg(0),
+    IrField("name"))`` reads ``name`` off the first argument.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("source", "body")
+    source: IrSelf
+    body: IrSelf
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Evaluate ``body`` with ``n`` rebound to ``source``'s result."""
+        return self.body.eval(d, self.source.eval(d, n, nc), nc)
+
+
 class IrChildren[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrNamedTuple):
     """Full tuple of dispatched children of ``n`` (reads ``n.children()``).
 
@@ -303,6 +375,28 @@ class IrArgs(IrNamedTuple):
         return IrTuple(*nc)
 
 
+class IrArg(IrInt):
+    """Single argument by position — the node IS the index into ``nc``.
+
+    The argument-channel analogue of :class:`IrIndex` (which indexes ``n``'s
+    children): ``IrArg(0)`` returns the first element of the channel **as-is**,
+    undispatched — the arguments are already resolved values (a reducer hands a
+    body its reduced children on ``nc``). Negative positions index from the end,
+    as native tuples do.
+    """
+
+    def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Return the argument at this position, undispatched.
+
+        :param _d: Dispatcher (unused — arguments are already resolved).
+        :param _n: Node (unused — the value comes from ``nc``, never ``n``).
+        :param nc: The argument channel.
+        :returns: ``nc[self]``.
+        :raises IndexError: If the position is out of range.
+        """
+        return nc[self]
+
+
 class IrApply[Ir_co: IrSelf](IrNamedTuple[IrTuple]):
     """Delegation — re-dispatch the current focus ``n`` with arguments.
 
@@ -329,6 +423,25 @@ class IrApply[Ir_co: IrSelf](IrNamedTuple[IrTuple]):
         """
         evaluated = IrTuple(*(a.eval(d, n, nc) for a in self.args))
         return d.eval(d, n, evaluated)
+
+
+# ── Construction ──────────────────────────────────────────────────────
+
+
+class IrBuild(IrNamedTuple[type[IrSelf], IrSelf]):
+    """Construct ``target`` from the argument channel.
+
+    ``args=IrNone`` (default) splats the raw channel — ``target(*nc)``; an
+    ``args`` body reshapes it first — ``target(*args.eval(...))``.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("args",)
+    target: type[IrSelf]
+    args: IrSelf = IrNone
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Construct ``target`` from raw ``nc`` or the evaluated ``args``."""
+        return self.target(*(nc if self.args is IrNone else self.args.eval(d, n, nc)))
 
 
 # ── String concatenation ──────────────────────────────────────────────

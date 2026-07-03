@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from lexic.codegen import codegen
 from lexic.grammars.json import JSON_GRAMMAR
+from lexic.ir.base import IrSeq
 from lexic.ir.derive import derive_specs
 from lexic.ir.nodes import (
     IrAst,
@@ -12,6 +13,7 @@ from lexic.ir.nodes import (
     IrRange,
     IrRule,
 )
+from tests._ir_fixtures import JSON_RULE_NAMES
 
 # ── Basic structure ───────────────────────────────────────────────────
 
@@ -33,42 +35,8 @@ def test_json_grammar_rule_count():
 
 def test_json_grammar_expected_rule_names():
     """`JSON_GRAMMAR` contains every RFC 8259 rule name."""
-    expected = {
-        "JSON-text",
-        "begin-array",
-        "begin-object",
-        "end-array",
-        "end-object",
-        "name-separator",
-        "value-separator",
-        "ws",
-        "value",
-        "false",
-        "null",
-        "true",
-        "object",
-        "member",
-        "array",
-        "number",
-        "decimal-point",
-        "digit1-9",
-        "e",
-        "exp",
-        "frac",
-        "int",
-        "minus",
-        "plus",
-        "zero",
-        "digit",
-        "string",
-        "char",
-        "escape",
-        "quotation-mark",
-        "unescaped",
-        "hexdig",
-    }
     actual = {r.name for r in JSON_GRAMMAR.rules}
-    assert actual == expected
+    assert actual == set(JSON_RULE_NAMES)
 
 
 # ── Canonical-form choices ────────────────────────────────────────────
@@ -143,23 +111,32 @@ def test_ws_uses_charclass():
 # ── Pipeline smoke tests ──────────────────────────────────────────────
 
 
+def _json_ast_with_non_semantic() -> IrAst:
+    """``JSON_GRAMMAR`` rebound with the ``ws`` rule flagged ``semantic=False``."""
+    rules = (
+        IrRule(r.name, r.body, semantic=False) if r.name == "ws" else r
+        for r in JSON_GRAMMAR.rules
+    )
+    return IrAst(rules=IrSeq(*rules), start=JSON_GRAMMAR.start)
+
+
 def test_derive_specs_succeeds():
-    """``derive_specs(JSON_GRAMMAR, ...)`` runs without error and returns a list."""
-    specs = derive_specs(JSON_GRAMMAR, non_semantic_rules=frozenset({"ws"}))
+    """``derive_specs(ast)`` runs without error and returns a list."""
+    specs = derive_specs(_json_ast_with_non_semantic())
     assert isinstance(specs, list)
     assert len(specs) > 0
 
 
 def test_derive_specs_includes_start_rule():
     """The derived spec list includes a spec for the start rule."""
-    specs = derive_specs(JSON_GRAMMAR, non_semantic_rules=frozenset({"ws"}))
+    specs = derive_specs(_json_ast_with_non_semantic())
     names = {s.rule_name for s in specs}
     assert "JSON-text" in names
 
 
 def test_codegen_produces_classes():
     """``codegen(specs, ...)`` generates Pydantic classes without error."""
-    specs = derive_specs(JSON_GRAMMAR, non_semantic_rules=frozenset({"ws"}))
+    specs = derive_specs(_json_ast_with_non_semantic())
     classes = codegen(specs, "json_grammar_test")
     assert isinstance(classes, dict)
     assert len(classes) > 0

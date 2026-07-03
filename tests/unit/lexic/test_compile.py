@@ -1,20 +1,43 @@
-"""Unit tests for lexic.compile (compile_text, compile_from_path, compile_grammar)."""
+"""Unit tests for lexic.compile (compile_text/_from_path, compile_grammar, parse_grammar)."""
 
 import os
 import time
+from typing import cast
 
 import pytest
 
+import lexic
+import lexic.compile as compile_module
+from lexic.base import GrammarModel
 from lexic.compile import (
     CompiledGrammar,
+    _scan_directives,
     compile_from_path,
     compile_grammar,
     compile_text,
+    parse_grammar,
     reset_cache_for_tests,
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
+from lexic.ir.escapes import CANONICAL_ESCAPES
+from lexic.ir.flavour import IrFlavour
+from lexic.ir.nodes import IrAst
+from lexic.ir.walk import IrDispatch
+from lexic.parsing import ParserTables, parse_first
+from lexic.parsing.models import ModelFold
 from tests.paths import GROUND_TRUTH
+
+
+class _FlavourWithBadReducer(IrFlavour):
+    """A concrete IrFlavour whose reducer is not a parsing Reducer instance."""
+
+    name = "badreducer"
+    extensions = (".bad",)
+    escapes = CANONICAL_ESCAPES
+    # Intentionally not a Reducer — this fixture exercises compile_grammar's
+    # error path when a flavour carries a malformed reducer.
+    reducer = cast(IrDispatch, "not-a-reducer")
 
 
 @pytest.fixture(autouse=True)
@@ -99,6 +122,56 @@ def test_compiled_grammar_parse_roundtrips():
     assert inst.to_text() == "x=1\n"
 
 
+def test_compiled_grammar_grammar_field_is_ir_ast():
+    """CompiledGrammar.grammar is the normalized instance IrAst (engine-backed,
+    Lark-free shape — no .parser/.transformer fields)."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert isinstance(cg.grammar, IrAst)
+
+
+def test_compiled_grammar_fold_field_is_model_fold():
+    """CompiledGrammar.fold is the ParseTree -> model-instance ModelFold."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert isinstance(cg.fold, ModelFold)
+
+
+def test_compiled_grammar_tables_field_is_parser_tables():
+    """CompiledGrammar.tables is a ParserTables, compiled once at build time
+    (see collapsed_instance_tables)."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert isinstance(cg.tables, ParserTables)
+
+
+@pytest.mark.parametrize(
+    ("grammar_file", "text"),
+    [
+        ("arithmetic.gbnf", "x=1\n"),
+        ("json_ws.gbnf", '{"n":1}'),  # "1" is genuinely ambiguous (number's grammar)
+    ],
+)
+def test_collapsed_and_plain_tables_parse_to_the_same_model(grammar_file, text):
+    """CompiledGrammar's built-in collapsed-tables parse (cg.parse) matches a
+    plain-tables parse (parse_first with no tables=) on model_dump()/to_text().
+
+    Task 4's ModelFold run-collapse licence changes the packed chart shape
+    (fewer, longer terminal leaves) but must never change observable output —
+    this is the in-suite spot-check of the author's full equality harness.
+    """
+    cg = compile_from_path(GROUND_TRUTH / grammar_file)
+    collapsed_model = cg.parse(text)
+    plain_model = cg.fold.apply(parse_first(cg.grammar, text))
+    assert isinstance(plain_model, GrammarModel)
+    assert collapsed_model.model_dump() == plain_model.model_dump()
+    assert collapsed_model.to_text() == plain_model.to_text() == text
+
+
+def test_compiled_grammar_parse_returns_a_grammar_model():
+    """CompiledGrammar.parse() returns a GrammarModel instance."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    inst = cg.parse("x=1\n")
+    assert isinstance(inst, GrammarModel)
+
+
 def test_repeated_parse_is_fast():
     """Repeated parse() should be fast."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
@@ -175,3 +248,144 @@ def test_compile_grammar_invalid_start_raises():
     """Unresolvable start rule raises UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError, match="start"):
         compile_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR, start="nonexistent")
+
+
+def test_compile_grammar_flavour_with_non_reducer_raises():
+    """compile_grammar raises UnsupportedConstructError when flavour.reducer
+    is not a parsing Reducer instance."""
+    with pytest.raises(UnsupportedConstructError, match="no parse Reducer"):
+        compile_grammar('root ::= "x"\n', _FlavourWithBadReducer())
+
+
+def test_parse_grammar_returns_ir_ast():
+    """parse_grammar is the public grammar-text → IrAst seam."""
+    ast = parse_grammar('root ::= digit "+" digit\ndigit ::= [0-9]\n', GBNF_FLAVOUR)
+    assert isinstance(ast, IrAst)
+    assert [r.name for r in ast.rules] == ["root", "digit"]
+
+
+def test_parse_grammar_is_importable_from_the_package_root():
+    """The lexic package re-exports parse_grammar as primary API."""
+    assert lexic.parse_grammar is parse_grammar
+
+
+def test_parse_grammar_flavour_with_non_reducer_raises():
+    """parse_grammar raises UnsupportedConstructError on a malformed reducer."""
+    with pytest.raises(UnsupportedConstructError, match="no parse Reducer"):
+        parse_grammar('root ::= "x"\n', _FlavourWithBadReducer())
+
+
+def test_parse_grammar_malformed_source_raises():
+    """Unparseable grammar text surfaces as UnsupportedConstructError."""
+    with pytest.raises(UnsupportedConstructError):
+        parse_grammar("root ::=\n::= broken", GBNF_FLAVOUR)
+
+
+# ── _scan_directives unit tests ──
+#
+# compile_grammar's start-directive precedence (directive vs explicit arg vs
+# positional fallback) is already covered above by
+# test_compile_grammar_start_directive_wins_over_first_rule and
+# test_compile_grammar_explicit_start_wins_over_directive. These tests target
+# the private _scan_directives helper directly: its defaults, @non-semantic
+# parsing, comment-marker sensitivity, and directive-syntax edge cases.
+
+
+def test_scan_directives_empty_text_defaults_to_none_and_empty_frozenset():
+    """No directives at all: the helper defaults to (None, frozenset())."""
+    assert _scan_directives("", line_comment="#") == (None, frozenset())
+
+
+def test_scan_directives_no_directives_in_grammar_returns_empty():
+    """A grammar with no comments at all has no directives."""
+    text = "root ::= expr\nexpr ::= [0-9]+"
+    start, non_semantic = _scan_directives(text, line_comment="#")
+    assert start is None
+    assert non_semantic == frozenset()
+
+
+def test_scan_directives_non_semantic_single_arg():
+    """A single @non-semantic directive extracts one rule name."""
+    text = "# @non-semantic ws\nroot ::= ws value"
+    _start, non_semantic = _scan_directives(text, line_comment="#")
+    assert non_semantic == frozenset({"ws"})
+
+
+def test_scan_directives_non_semantic_multiple_args():
+    """Multiple @non-semantic arguments are all collected."""
+    text = "# @non-semantic ws comment_block\nroot ::= ws value"
+    _start, non_semantic = _scan_directives(text, line_comment="#")
+    assert non_semantic == frozenset({"ws", "comment_block"})
+
+
+def test_scan_directives_requires_at_marker():
+    """Comments without @<name> are not directives."""
+    text = "# this is just a comment\nroot ::= x"
+    start, non_semantic = _scan_directives(text, line_comment="#")
+    assert start is None
+    assert non_semantic == frozenset()
+
+
+def test_scan_directives_respects_line_comment_marker():
+    """ABNF uses ';' — '#' is just data inside an ABNF source."""
+    text = "; @non-semantic WSP\nroot = WSP value"
+    _start, non_semantic = _scan_directives(text, line_comment=";")
+    assert non_semantic == frozenset({"WSP"})
+
+
+def test_scan_directives_unknown_directive_is_ignored():
+    """Unknown directive names are silently ignored."""
+    text = "# @future-thing foo\n# @non-semantic ws"
+    _start, non_semantic = _scan_directives(text, line_comment="#")
+    assert non_semantic == frozenset({"ws"})
+
+
+def test_scan_directives_allows_leading_whitespace_before_marker():
+    """`  # @non-semantic ws` is the same as `# @non-semantic ws`."""
+    text = "  # @non-semantic ws\nroot ::= ws value"
+    _start, non_semantic = _scan_directives(text, line_comment="#")
+    assert non_semantic == frozenset({"ws"})
+
+
+def test_scan_directives_empty_line_comment_disables_directive_parsing():
+    """A flavour with no comment marker (line_comment='') has no directive channel."""
+    text = "# @non-semantic ws\nroot ::= ws value"
+    start, non_semantic = _scan_directives(text, line_comment="")
+    assert start is None
+    assert non_semantic == frozenset()
+
+
+def test_scan_directives_start_last_wins():
+    """Multiple @start directives: the last value wins."""
+    text = "# @start a\n# @start b\n"
+    start, _non_semantic = _scan_directives(text, line_comment="#")
+    assert start == "b"
+
+
+def test_scan_directives_start_and_non_semantic_coexist():
+    """@start and @non-semantic directives in the same source both apply."""
+    text = "# @start root\n# @non-semantic ws\nroot ::= ws value\n"
+    start, non_semantic = _scan_directives(text, line_comment="#")
+    assert start == "root"
+    assert non_semantic == frozenset({"ws"})
+
+
+def test_normalized_grammar_memo_is_reused_across_compile_grammar_calls(monkeypatch):
+    """The per-flavour self-grammar normalization memo means a second
+    compile_grammar call for the same flavour never re-normalizes the
+    self-grammar (identity is preserved across calls, keeping the engine's
+    identity-memoised table compilation hot)."""
+    calls: list[object] = []
+    original_normalize = compile_module.normalize
+
+    def spy(grammar):
+        calls.append(grammar)
+        return original_normalize(grammar)
+
+    monkeypatch.setattr(compile_module, "normalize", spy)
+
+    compile_grammar('root ::= "x"\n', GBNF_FLAVOUR)
+    count_after_first = len(calls)
+    compile_grammar('root ::= "y"\n', GBNF_FLAVOUR)
+
+    assert len(calls) == count_after_first

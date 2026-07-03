@@ -11,8 +11,10 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import (
     IrAction,
     IrApply,
+    IrArg,
     IrArgs,
     IrAt,
+    IrBuild,
     IrChild,
     IrChildren,
     IrCompare,
@@ -20,22 +22,26 @@ from lexic.ir.action import (
     IrCond,
     IrEmit,
     IrField,
+    IrGlyph,
     IrIndex,
     IrIsA,
     IrJoin,
     IrLeaf,
     IrOp,
     IrPass,
+    IrPipe,
     IrRaise,
     IrRebuild,
     IrReturn,
     IrThis,
+    IrUnradix,
     IrWalk,
     _Return,
 )
 from lexic.ir.base import (
-    IrCallable,
+    IrChr,
     IrInt,
+    IrLambda,
     IrNamedTuple,
     IrNode,
     IrNone,
@@ -87,7 +93,7 @@ def test_return_not_swallowed_by_except_exception():
         except Exception:  # pylint: disable=broad-exception-caught
             return IrStr("swallowed")
 
-    op = IrCallable[IrSelf, IrStr](body_that_catches_exception)
+    op = IrLambda(body_that_catches_exception)
     with pytest.raises(_Return) as exc_info:
         op.eval(IrNone, IrNone, ())
     assert exc_info.value.value == 99
@@ -129,9 +135,12 @@ def test_irfield_reads_charclass_pattern():
 
 
 def test_irfield_repr_is_valid_codegen():
-    """IrField repr renders the class-valued `out` as a bare name (eval round-trips)."""
+    """IrField repr renders the class-valued `out` as a bare name (eval round-trips).
+
+    The default-valued `out=IrStr` is omitted from the trailing run.
+    """
     assert repr(IrField("lo", IrInt)) == "IrField('lo', IrInt)"
-    assert repr(IrField("name")) == "IrField('name', IrStr)"
+    assert repr(IrField("name")) == "IrField('name')"
 
 
 def test_irfield_out_irint_reads_int_without_stringifying():
@@ -342,7 +351,7 @@ def test_irat_rebinds_focus_to_raw_child():
     Over ``IrNot(IrCharClass(IrRange('a','z')))``, ``IrAt(0, IrThis())`` must
     surface the raw ``IrCharClass`` — not a dispatched/rendered string.
     """
-    nod = IrNot(IrCharClass(IrRange("a", "z")))
+    nod = IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z"))))
     emitter = IrEmitter()
     result = IrAt(0, IrThis()).eval(emitter, nod, IrTuple())
     assert result is nod.children()[0]
@@ -352,7 +361,7 @@ def test_irat_rebinds_focus_to_raw_child():
 
 def test_irat_negative_selector_indexes_from_end():
     """IrAt(-1, IrThis()) selects the last raw child."""
-    nod = IrNot(IrCharClass(IrRange("0", "9")))
+    nod = IrNot(IrCharClass(IrRange(IrChr("0"), IrChr("9"))))
     emitter = IrEmitter()
     result = IrAt(-1, IrThis()).eval(emitter, nod, IrTuple())
     # IrNot has a single child; -1 addresses the same slot as 0
@@ -361,7 +370,7 @@ def test_irat_negative_selector_indexes_from_end():
 
 def test_irat_out_of_range_raises_index_error():
     """IrAt raises IndexError when the selector is out of range."""
-    nod = IrNot(IrCharClass(IrRange("a", "z")))
+    nod = IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z"))))
     emitter = IrEmitter()
     with pytest.raises(IndexError):
         IrAt(5, IrThis()).eval(emitter, nod, IrTuple())
@@ -373,7 +382,7 @@ def test_irat_body_receives_fresh_empty_nc():
     :class:`IrArgs` in the body must return an empty tuple because the context
     shift resets the argument channel.
     """
-    nod = IrNot(IrCharClass(IrRange("a", "z")))
+    nod = IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z"))))
     emitter = IrEmitter()
     # IrAt(0, IrArgs()) — body reads nc, which must be empty after the rebind
     result = IrAt(0, IrArgs()).eval(emitter, nod, IrTuple(IrLiteral("^")))
@@ -436,7 +445,7 @@ def test_irapply_re_dispatches_n_with_evaluated_args():
         IrArgs(),  # body returns IrTuple(*nc) — shows what args arrived
     )
     dispatch = IrDispatch(actions=IrTypeMap(charclass_action))
-    n = IrCharClass(IrRange("a", "z"))
+    n = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
     args_tuple = IrTuple(IrLiteral("^"))
     result = IrApply(args_tuple).eval(dispatch, n, IrTuple())
     # The re-dispatch ran IrCharClass's action (IrArgs) with nc=(IrLiteral("^"),)
@@ -447,7 +456,7 @@ def test_irapply_default_args_dispatches_with_empty_channel():
     """IrApply() with default empty args dispatches n with an empty nc."""
     charclass_action = IrAction(IrCharClass, IrArgs())
     dispatch = IrDispatch(actions=IrTypeMap(charclass_action))
-    n = IrCharClass(IrRange("0", "9"))
+    n = IrCharClass(IrRange(IrChr("0"), IrChr("9")))
     result = IrApply().eval(dispatch, n, IrTuple())
     assert result == IrTuple()
 
@@ -752,3 +761,201 @@ def test_irisa_missing_attribute_raises_attribute_error():
     item = IrItem(atom=IrLiteral("x"))
     with pytest.raises(AttributeError):
         IrIsA("nonexistent", IrAlternation).eval(IrNone, item, ())
+
+
+# ── IrArg ─────────────────────────────────────────────────────────────
+
+
+def test_irarg_reads_positional_nc_element():
+    """IrArg(i) returns nc[i] undispatched — arguments are already resolved."""
+    nc = (IrLiteral("a"), IrLiteral("b"), IrLiteral("c"))
+    assert IrArg(0).eval(IrNone, IrNone, nc) is nc[0]
+    assert IrArg(1).eval(IrNone, IrNone, nc) is nc[1]
+    assert IrArg(2).eval(IrNone, IrNone, nc) is nc[2]
+
+
+def test_irarg_negative_indexes_from_end():
+    """IrArg(-1) returns the last element of nc."""
+    nc = (IrLiteral("x"), IrLiteral("y"))
+    assert IrArg(-1).eval(IrNone, IrNone, nc) is nc[-1]
+
+
+def test_irarg_ignores_d_and_n():
+    """IrArg ignores the dispatcher and the dispatched node — only nc matters."""
+    nc = (IrStr("val"),)
+    result = IrArg(0).eval(IrNone, IrLiteral("ignored"), nc)
+    assert result is nc[0]
+
+
+def test_irarg_out_of_range_raises_index_error():
+    """IrArg raises IndexError for a position beyond nc's length."""
+    with pytest.raises(IndexError):
+        IrArg(5).eval(IrNone, IrNone, (IrLiteral("a"),))
+
+
+def test_irarg_is_irint_leaf():
+    """IrArg IS-A IrInt — the node itself is its index."""
+    assert IrArg(0) == 0
+    assert isinstance(IrArg(0), IrInt)
+
+
+def test_irarg_repr_is_codegen():
+    """IrArg repr renders as a valid constructor expression."""
+    assert repr(IrArg(0)) == "IrArg(0)"
+    assert repr(IrArg(1)) == "IrArg(1)"
+
+
+# ── IrBuild ───────────────────────────────────────────────────────────
+
+
+def test_irbuild_default_splats_nc_into_target():
+    """IrBuild(target) with default args=IrNone calls target(*nc)."""
+    item_a = IrItem(IrLiteral("a"))
+    item_b = IrItem(IrLiteral("b"))
+    nc = (item_a, item_b)
+    result = IrBuild(IrSequence).eval(IrNone, IrNone, nc)
+    assert result == IrSequence(item_a, item_b)
+    assert isinstance(result, IrSequence)
+
+
+def test_irbuild_with_args_reshapes_channel():
+    """IrBuild(target, args) calls target(*args.eval(...))."""
+    # args body picks only the first element of nc
+    result = IrBuild(IrRuleRef, IrTuple(IrArg(0))).eval(
+        IrNone, IrNone, (IrLiteral("myrule"), IrLiteral("ignored"))
+    )
+    assert result == IrRuleRef("myrule")
+    assert isinstance(result, IrRuleRef)
+
+
+def test_irbuild_empty_nc_calls_target_with_no_args():
+    """IrBuild(IrAlternation) with empty nc calls IrAlternation()."""
+    result = IrBuild(IrAlternation).eval(IrNone, IrNone, ())
+    assert result == IrAlternation()
+    assert isinstance(result, IrAlternation)
+
+
+def test_irbuild_args_is_child_attribute():
+    """IrBuild.args is the single dispatched child; target is scalar payload."""
+    build = IrBuild(IrSequence)
+    # args=IrNone is a scalar: no dispatched children
+    assert build.args is IrNone
+    build_with_args = IrBuild(IrRuleRef, IrTuple(IrArg(0)))
+    assert build_with_args.args == IrTuple(IrArg(0))
+
+
+def test_irbuild_repr_is_codegen():
+    """IrBuild repr renders as a valid constructor expression.
+
+    The default-valued `args=IrNone` is omitted from the trailing run.
+    """
+    assert repr(IrBuild(IrSequence)) == "IrBuild(IrSequence)"
+    assert (
+        repr(IrBuild(IrRuleRef, IrTuple(IrArg(0))))
+        == "IrBuild(IrRuleRef, IrTuple(IrArg(0)))"
+    )
+
+
+# ── IrPipe ────────────────────────────────────────────────────────────
+
+
+def test_irpipe_shifts_focus_to_computed_value():
+    """IrPipe(source, body) evaluates body with n rebound to source.eval(...)."""
+    # source: IrArg(0) reads nc[0]; body: IrField("name") reads .name off that
+    rule = IrRule("myrule", IrAlternation())
+    nc = (rule,)
+    result = IrPipe(IrArg(0), IrField("name")).eval(IrNone, IrNone, nc)
+    assert result == IrStr("myrule")
+
+
+def test_irpipe_carries_nc_through_to_body():
+    """IrPipe forwards nc to the body after rebinding the focus."""
+    # body = IrArg(0) reads nc[0] using the shifted context
+    nc = (IrLiteral("pass-through"),)
+    result = IrPipe(IrThis(), IrArg(0)).eval(IrNone, IrNone, nc)
+    assert result is nc[0]
+
+
+def test_irpipe_source_and_body_are_children():
+    """IrPipe._child_attrs contains both source and body."""
+    pipe = IrPipe(IrArg(0), IrField("name"))
+    children = pipe.children()
+    assert IrArg(0) in children
+    assert IrField("name") in children
+
+
+def test_irpipe_repr_is_codegen():
+    """IrPipe repr renders as a valid constructor expression.
+
+    The nested IrField's default-valued `out=IrStr` is omitted.
+    """
+    assert (
+        repr(IrPipe(IrArg(0), IrField("name"))) == "IrPipe(IrArg(0), IrField('name'))"
+    )
+
+
+# ── IrUnradix ─────────────────────────────────────────────────────────
+
+
+def test_irunradix_decodes_decimal():
+    """IrUnradix(base, out) decodes a digit string (the focus ``n``) to out(value)"""
+    assert IrUnradix(10, IrInt).eval(IrNone, IrStr("12"), ()) == IrInt(12)
+
+
+def test_irunradix_decodes_hex_to_irchr():
+    """IrUnradix(16, IrChr) decodes a hex digit string to IrChr."""
+    assert IrUnradix(16, IrChr).eval(IrNone, IrStr("41"), ()) == IrChr(0x41)
+
+
+def test_irunradix_empty_string_raises():
+    """IrUnradix(base, out) raises on empty string"""
+    with pytest.raises(UnsupportedConstructError):
+        IrUnradix(10, IrInt).eval(IrNone, IrStr(""), ())
+
+
+def test_irunradix_bad_digit_for_base_raises():
+    """IrUnradix(base, out) raises on bad digit for base"""
+    with pytest.raises(UnsupportedConstructError):
+        IrUnradix(2, IrInt).eval(IrNone, IrStr("2"), ())  # '2' is out of base 2
+
+
+# ── IrGlyph ───────────────────────────────────────────────────────────
+
+
+def test_irglyph_is_a_plain_leaf():
+    """IrGlyph is a plain IrLeaf body carrying no IR-node children."""
+    assert isinstance(IrGlyph(), IrLeaf)
+    assert not IrGlyph().children()
+
+
+def test_irglyph_renders_ascii_codepoint():
+    """IrGlyph.eval on the focus IrInt(65) yields the character 'A'."""
+    assert IrGlyph().eval(IrNone, IrInt(65), ()) == IrStr("A")
+
+
+def test_irglyph_renders_control_codepoints():
+    """IrGlyph.eval renders tab (9) and newline (10) as their control chars."""
+    assert IrGlyph().eval(IrNone, IrInt(9), ()) == IrStr("\t")
+    assert IrGlyph().eval(IrNone, IrInt(10), ()) == IrStr("\n")
+
+
+def test_irglyph_renders_non_ascii_codepoint():
+    """IrGlyph.eval renders a non-ASCII code point (U+3042, hiragana 'あ')."""
+    assert IrGlyph().eval(IrNone, IrInt(0x3042), ()) == IrStr("あ")
+
+
+def test_irglyph_non_int_focus_raises():
+    """IrGlyph.eval raises UnsupportedConstructError when the focus isn't an int."""
+    with pytest.raises(UnsupportedConstructError, match="focus must be an integer"):
+        IrGlyph().eval(IrNone, IrStr("A"), ())
+
+
+def test_irglyph_composes_with_irunradix_via_irpipe():
+    """IrPipe(IrUnradix(16, IrInt), IrGlyph()) reads a hex digit-run as one char.
+
+    The glyph step after IrUnradix: digits decode to a neutral code point,
+    IrGlyph spells it as text — the pattern gbnf.py's literal-context hex
+    escapes use (``_HEX_GLYPH``).
+    """
+    result = IrPipe(IrUnradix(16, IrInt), IrGlyph()).eval(IrNone, IrStr("41"), ())
+    assert result == IrStr("A")

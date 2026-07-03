@@ -11,6 +11,7 @@ from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -38,31 +39,27 @@ class Num(GrammarModel):
 
 
 Expr.__grammar__ = RuleSpec(
-    rule_name="expr",
+    rule_name=IrRuleRef("expr"),
     class_name="Expr",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[
-        IrItem(IrRuleRef("num"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("op"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("num"), IrQuantifier(1, 1)),
-    ],
+    items=[IrItem(IrRuleRef("num")), IrItem(IrRuleRef("op")), IrItem(IrRuleRef("num"))],
     field_map={"num": 0, "op": 1, "num2": 2},
     non_semantic_fields=frozenset([]),
 )
 
 
 Op.__grammar__ = RuleSpec(
-    rule_name="op",
+    rule_name=IrRuleRef("op"),
     class_name="Op",
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
         IrAlternation(
-            IrSequence(IrItem(IrLiteral("+"), IrQuantifier(1, 1))),
-            IrSequence(IrItem(IrLiteral("-"), IrQuantifier(1, 1))),
-            IrSequence(IrItem(IrLiteral("*"), IrQuantifier(1, 1))),
-            IrSequence(IrItem(IrLiteral("/"), IrQuantifier(1, 1))),
+            IrSequence(IrItem(IrLiteral("+"))),
+            IrSequence(IrItem(IrLiteral("-"))),
+            IrSequence(IrItem(IrLiteral("*"))),
+            IrSequence(IrItem(IrLiteral("/"))),
         )
     ],
     field_map={},
@@ -71,11 +68,11 @@ Op.__grammar__ = RuleSpec(
 
 
 Num.__grammar__ = RuleSpec(
-    rule_name="num",
+    rule_name=IrRuleRef("num"),
     class_name="Num",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

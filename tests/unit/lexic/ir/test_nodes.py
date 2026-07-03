@@ -6,17 +6,18 @@ import pytest
 
 from lexic.ir.base import (
     IrAtom,
+    IrChr,
     IrInt,
     IrNamedTuple,
     IrNode,
     IrNone,
     IrNoneType,
     IrSeq,
-    IrStr,
 )
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
+    IrBounds,
     IrCharClass,
     IrItem,
     IrLiteral,
@@ -78,18 +79,18 @@ def test_ir_literal_is_frozen_and_hashable():
 
 def test_ir_charclass_holds_pattern():
     """Test that the IR character class holds the pattern via charclass_pattern."""
-    cc = IrCharClass(IrRange("a", "z"))
+    cc = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
     assert charclass_pattern(cc) == "a-z"
 
 
 def test_ir_not_wraps_charclass():
     """Test that IrNot wraps a charclass atom."""
-    cc = IrCharClass(IrStr("\\n"))
+    cc = IrCharClass(IrChr("\n"))
     node = IrNot(cc)
     assert node[0] is cc
     inner = node[0]
     assert isinstance(inner, IrCharClass)
-    assert charclass_pattern(inner) == "\\n"
+    assert charclass_pattern(inner) == "\\x0a"
 
 
 def test_ir_ruleref_holds_name():
@@ -109,7 +110,10 @@ def test_ir_item_default_quantifier():
 
 def test_ir_item_with_explicit_quantifier():
     """Test that the IR item can have an explicit quantifier."""
-    it = IrItem(atom=IrCharClass(IrRange("a", "z")), quantifier=IrQuantifier(0, IrNone))
+    it = IrItem(
+        atom=IrCharClass(IrRange(IrChr("a"), IrChr("z"))),
+        quantifier=IrQuantifier(0, IrNone),
+    )
     assert it.quantifier.lo == 0
     assert it.quantifier.hi is IrNone
 
@@ -215,7 +219,9 @@ def test_irnode_default_children_is_empty_tuple():
     assert not IrRuleRef("foo").children()
     assert not IrQuantifier().children()
     # IrCharClass is a variadic IrSeq — its elements are its children
-    assert IrCharClass(IrRange("a", "z")).children() == (IrRange("a", "z"),)
+    assert IrCharClass(IrRange(IrChr("a"), IrChr("z"))).children() == (
+        IrRange(IrChr("a"), IrChr("z")),
+    )
 
 
 def test_irnode_default_rebuild_is_identity():
@@ -304,9 +310,13 @@ def test_repr_irliteral_is_codegen():
 
 
 def test_repr_irsequence_is_codegen():
-    """An IrSequence's repr reproduces its constructor call."""
+    """An IrSequence's repr reproduces its constructor call.
+
+    The default-valued quantifier ``IrQuantifier(1, 1)`` is a trailing default
+    and is omitted from the nested ``IrItem``'s repr.
+    """
     seq = IrSequence(IrItem(IrLiteral("a")))
-    assert repr(seq) == ("IrSequence(IrItem(IrLiteral('a'), IrQuantifier(1, 1)))")
+    assert repr(seq) == "IrSequence(IrItem(IrLiteral('a')))"
 
 
 def test_repr_irrule_shows_non_child_fields_too():
@@ -322,9 +332,13 @@ def test_repr_empty_structural_node_is_codegen():
 
 
 def test_repr_irast_is_codegen():
-    """IrAst reproduces its constructor call."""
+    """IrAst reproduces its constructor call.
+
+    ``IrAst`` has two fields (``rules``, ``start``) — ``non_semantic`` is a
+    derived read-only property, not a field, so it never appears in the repr.
+    """
     ast = IrAst(IrSeq(IrRule("r", IrAlternation())), "r")
-    assert repr(ast) == ("IrAst(IrSeq(IrRule('r', IrAlternation())), 'r')")
+    assert repr(ast) == "IrAst(IrSeq(IrRule('r', IrAlternation())), 'r')"
 
 
 def test_irliteral_eval_returns_literal_value():
@@ -341,7 +355,7 @@ def test_irliteral_eval_returns_literal_value():
 
 def test_ircharclass_call_inherits_identity_default():
     """IrCharClass(IrStr) inherits the default __call__ — returns self."""
-    cc = IrCharClass(IrRange("a", "z"))
+    cc = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
     result = cc(IrNone, IrNone, ())
     assert result is cc
 
@@ -383,9 +397,13 @@ def test_str_leaf_repr_is_codegen():
     """repr() on str-leaves reproduces the constructor call.
 
     IrCharClass is now a variadic IrSeq; its repr uses the structured elements.
+    IrChr endpoints are stored as integer ordinals, so their repr is IrChr(n).
     """
     assert repr(IrLiteral("x")) == "IrLiteral('x')"
-    assert repr(IrCharClass(IrRange("0", "9"))) == "IrCharClass(IrRange('0', '9'))"
+    assert (
+        repr(IrCharClass(IrRange(IrChr("0"), IrChr("9"))))
+        == "IrCharClass(IrRange(IrChr(48), IrChr(57)))"
+    )
 
 
 def test_tuple_node_is_variadic_and_native_eq():
@@ -410,9 +428,13 @@ def test_tuple_children_and_rebuild_roundtrip():
 
 
 def test_tuple_repr_is_codegen():
-    """repr() on an IrSequence reproduces the constructor call."""
-    assert repr(IrSequence(IrItem(IrLiteral("a")))) == (
-        "IrSequence(IrItem(IrLiteral('a'), IrQuantifier(1, 1)))"
+    """repr() on an IrSequence reproduces the constructor call.
+
+    The nested ``IrItem``'s default quantifier is a trailing default and is
+    omitted.
+    """
+    assert (
+        repr(IrSequence(IrItem(IrLiteral("a")))) == "IrSequence(IrItem(IrLiteral('a')))"
     )
 
 
@@ -422,6 +444,24 @@ def test_quantifier_plain_int_fields():
     assert (q.lo, q.hi) == (0, IrNone)
     assert q.hi is IrNone
     assert IrQuantifier(1, 1) == IrQuantifier(1, 1)  # frozen record eq
+
+
+def test_quantifier_coerces_irint_endpoints_to_plain_int():
+    """IrQuantifier narrows IrInt-typed endpoints to plain int at construction
+    (repr-is-codegen must never emit 'IrInt(...)' into generated modules)."""
+    q = IrQuantifier(IrInt(2), IrInt(5))
+    assert isinstance(q.lo, int) and not isinstance(q.lo, IrInt)
+    assert isinstance(q.hi, int) and not isinstance(q.hi, IrInt)
+    assert q == IrQuantifier(2, 5)
+    assert "IrInt" not in repr(q)
+
+
+def test_quantifier_coerces_irint_lo_keeps_irnone_hi():
+    """An IrInt lower bound narrows to int while an unbounded IrNone upper
+    bound is left untouched."""
+    q = IrQuantifier(IrInt(0), IrNone)
+    assert isinstance(q.lo, int) and not isinstance(q.lo, IrInt)
+    assert q.hi is IrNone
 
 
 def test_item_accepts_atom_subclasses():
@@ -496,28 +536,27 @@ def test_irscalar_eq_is_type_aware_across_kinds():
 
 
 def test_irrange_construction_and_fields():
-    """IrRange('a', 'z') stores lo/hi as accessible fields."""
-    r = IrRange("a", "z")
-    assert r.lo == "a"
-    assert r.hi == "z"
+    """IrRange stores IrChr lo/hi as accessible fields."""
+    r = IrRange(IrChr("a"), IrChr("z"))
+    assert r.lo == IrChr("a")
+    assert r.hi == IrChr("z")
 
 
 def test_irrange_children_is_empty():
     """IrRange has _child_attrs=() — walkers never descend into bounds."""
-    r = IrRange("a", "z")
-    assert not r.children()
+    assert not IrRange(IrChr("a"), IrChr("z")).children()
 
 
 def test_irrange_positional_access():
     """IrRange is a named tuple — positional indexing works."""
-    r = IrRange("a", "z")
-    assert r[0] == "a"
-    assert r[1] == "z"
+    r = IrRange(IrChr("a"), IrChr("z"))
+    assert r[0] == IrChr("a")
+    assert r[1] == IrChr("z")
 
 
 def test_irrange_repr_is_codegen():
-    """repr(IrRange(...)) reproduces the constructor call."""
-    assert repr(IrRange("a", "z")) == "IrRange('a', 'z')"
+    """repr(IrRange(...)) reproduces the constructor call over code points."""
+    assert repr(IrRange(IrChr("a"), IrChr("z"))) == "IrRange(IrChr(97), IrChr(122))"
 
 
 def test_irquantifier_repr_with_irnone():
@@ -530,22 +569,61 @@ def test_irnone_repr():
     assert repr(IrNone) == "IrNone"
 
 
-def test_irquantifier_is_a_irrange():
-    """IrQuantifier IS-A IrRange — subclass relationship."""
-    assert isinstance(IrQuantifier(), IrRange)
-    assert issubclass(IrQuantifier, IrRange)
+def test_irquantifier_and_irrange_are_disjoint_siblings():
+    """IrQuantifier and IrRange are siblings under IrBounds — neither IS-A the other."""
+    assert not isinstance(IrQuantifier(), IrRange)
+    assert not isinstance(IrRange(IrChr("a"), IrChr("z")), IrQuantifier)
+    assert not issubclass(IrQuantifier, IrRange)
+    assert issubclass(IrQuantifier, IrBounds)
+    assert issubclass(IrRange, IrBounds)
 
 
-def test_irquantifier_equals_irrange_same_payload():
-    """IrQuantifier(1, 1) == IrRange(1, 1) — tuple equality is type-blind for records.
+def test_bounds_equality_is_type_aware():
+    """A count range and a same-numbered code-point range never compare equal."""
+    assert IrQuantifier(65, 90) != IrRange(IrChr(65), IrChr(90))
+    assert IrQuantifier(1, 1) == IrQuantifier(1, 1)
+    assert IrRange(IrChr("A"), IrChr("Z")) == IrRange(IrChr(0x41), IrChr(0x5A))
 
-    This is a recorded, accepted fact per NEXT_STEPS_V2.md step 1.
-    The int vs str payload convention keeps quantifier and char-range domains
-    disjoint in practice, so the cross-type equality never arises accidentally.
-    """
-    assert IrQuantifier(1, 1) == IrRange(1, 1)
+
+def test_bounds_are_hashable():
+    """Defining __eq__ does not break hashability — bounds work as set/dict keys."""
+    r = IrRange(IrChr(65), IrChr(90))
+    assert r in {r}
+    assert hash(IrQuantifier(1, 1)) == hash(IrQuantifier(1, 1))
+
+
+def test_quantifier_membership():
+    """`value in quantifier` tests the count range; IrNone hi is unbounded above."""
+    assert 5 in IrQuantifier(1, 10)
+    assert 11 not in IrQuantifier(1, 10)
+    assert 100 in IrQuantifier(1, IrNone)  # open upper bound is unbounded
+
+
+def test_range_membership():
+    """`codepoint in range` tests the inclusive code-point span."""
+    assert IrChr(0x42) in IrRange(IrChr(0x41), IrChr(0x5A))
+    assert IrChr(0x60) not in IrRange(IrChr(0x41), IrChr(0x5A))
+
+
+def test_quantifier_defaults_to_one_one():
+    """IrQuantifier() defaults to the exactly-once (1, 1) bound."""
+    assert IrQuantifier() == IrQuantifier(1, 1)
+
+
+def test_range_requires_endpoints():
+    """IrRange endpoints are required — no NUL placeholder default."""
+    no_args: list[IrChr] = []
+    with pytest.raises(TypeError):
+        IrRange(*no_args)
 
 
 def test_irnone_is_irnonetype_instance():
     """IrNone is an instance of IrNoneType."""
     assert isinstance(IrNone, IrNoneType)
+
+
+def test_charclass_holds_codepoints_and_ranges():
+    """IrCharClass is the variadic union of IrChr code points and IrRange spans."""
+    cc = IrCharClass(IrChr(0x41), IrRange(IrChr(0x30), IrChr(0x39)))
+    assert cc[0] == IrChr(0x41)
+    assert cc[1] == IrRange(IrChr(0x30), IrChr(0x39))

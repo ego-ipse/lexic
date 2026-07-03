@@ -7,10 +7,11 @@ from typing import Annotated, List, Optional, Union
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -72,16 +73,16 @@ class RootItem(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrLiteral("1. "), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("move"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral(" "), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("move"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
+        IrItem(IrLiteral("1. ")),
+        IrItem(IrRuleRef("move")),
+        IrItem(IrLiteral(" ")),
+        IrItem(IrRuleRef("move")),
+        IrItem(IrLiteral("\n")),
         IrItem(IrRuleRef("root-item"), IrQuantifier(1, IrNone)),
     ],
     field_map={"move": 1, "move2": 3, "root_item": 5},
@@ -90,20 +91,19 @@ Root.__grammar__ = RuleSpec(
 
 
 Move.__grammar__ = RuleSpec(
-    rule_name="move",
+    rule_name=IrRuleRef("move"),
     class_name="Move",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
         IrItem(
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("pawn"), IrQuantifier(1, 1))),
-                IrSequence(IrItem(IrRuleRef("nonpawn"), IrQuantifier(1, 1))),
-                IrSequence(IrItem(IrRuleRef("castle"), IrQuantifier(1, 1))),
-            ),
-            IrQuantifier(1, 1),
+                IrSequence(IrItem(IrRuleRef("pawn"))),
+                IrSequence(IrItem(IrRuleRef("nonpawn"))),
+                IrSequence(IrItem(IrRuleRef("castle"))),
+            )
         ),
-        IrItem(IrCharClass(IrStr("+#")), IrQuantifier(0, 1)),
+        IrItem(IrCharClass(IrChr(43), IrChr(35)), IrQuantifier(0)),
     ],
     field_map={"kind": 0, "head": 1},
     non_semantic_fields=frozenset([]),
@@ -111,17 +111,17 @@ Move.__grammar__ = RuleSpec(
 
 
 Nonpawn.__grammar__ = RuleSpec(
-    rule_name="nonpawn",
+    rule_name=IrRuleRef("nonpawn"),
     class_name="Nonpawn",
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(IrCharClass(IrStr("NBKQR")), IrQuantifier(1, 1)),
-        IrItem(IrCharClass(IrRange("a", "h")), IrQuantifier(0, 1)),
-        IrItem(IrCharClass(IrRange("1", "8")), IrQuantifier(0, 1)),
-        IrItem(IrLiteral("x"), IrQuantifier(0, 1)),
-        IrItem(IrCharClass(IrRange("a", "h")), IrQuantifier(1, 1)),
-        IrItem(IrCharClass(IrRange("1", "8")), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrChr(78), IrChr(66), IrChr(75), IrChr(81), IrChr(82))),
+        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(104))), IrQuantifier(0)),
+        IrItem(IrCharClass(IrRange(IrChr(49), IrChr(56))), IrQuantifier(0)),
+        IrItem(IrLiteral("x"), IrQuantifier(0)),
+        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(104)))),
+        IrItem(IrCharClass(IrRange(IrChr(49), IrChr(56)))),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -129,7 +129,7 @@ Nonpawn.__grammar__ = RuleSpec(
 
 
 Pawn.__grammar__ = RuleSpec(
-    rule_name="pawn",
+    rule_name=IrRuleRef("pawn"),
     class_name="Pawn",
     parent_class_name="GrammarModel",
     kind="value_str",
@@ -137,22 +137,26 @@ Pawn.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrCharClass(IrRange("a", "h")), IrQuantifier(1, 1)),
-                    IrItem(IrLiteral("x"), IrQuantifier(1, 1)),
+                    IrItem(IrCharClass(IrRange(IrChr(97), IrChr(104)))),
+                    IrItem(IrLiteral("x")),
                 )
             ),
-            IrQuantifier(0, 1),
+            IrQuantifier(0),
         ),
-        IrItem(IrCharClass(IrRange("a", "h")), IrQuantifier(1, 1)),
-        IrItem(IrCharClass(IrRange("1", "8")), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(104)))),
+        IrItem(IrCharClass(IrRange(IrChr(49), IrChr(56)))),
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrLiteral("="), IrQuantifier(1, 1)),
-                    IrItem(IrCharClass(IrStr("NBKQR")), IrQuantifier(1, 1)),
+                    IrItem(IrLiteral("=")),
+                    IrItem(
+                        IrCharClass(
+                            IrChr(78), IrChr(66), IrChr(75), IrChr(81), IrChr(82)
+                        )
+                    ),
                 )
             ),
-            IrQuantifier(0, 1),
+            IrQuantifier(0),
         ),
     ],
     field_map={},
@@ -161,14 +165,11 @@ Pawn.__grammar__ = RuleSpec(
 
 
 Castle.__grammar__ = RuleSpec(
-    rule_name="castle",
+    rule_name=IrRuleRef("castle"),
     class_name="Castle",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[
-        IrItem(IrLiteral("O-O"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("-O"), IrQuantifier(0, 1)),
-    ],
+    items=[IrItem(IrLiteral("O-O")), IrItem(IrLiteral("-O"), IrQuantifier(0))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -180,13 +181,13 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrRange("1", "9")), IrQuantifier(1, 1)),
-        IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(0, 1)),
-        IrItem(IrLiteral(". "), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("move"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral(" "), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("move"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(49), IrChr(57)))),
+        IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(0)),
+        IrItem(IrLiteral(". ")),
+        IrItem(IrRuleRef("move")),
+        IrItem(IrLiteral(" ")),
+        IrItem(IrRuleRef("move")),
+        IrItem(IrLiteral("\n")),
     ],
     field_map={"head": 0, "digit": 1, "move": 3, "move2": 5},
     non_semantic_fields=frozenset([]),

@@ -7,9 +7,10 @@ from typing import Annotated, List, Optional
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -24,7 +25,7 @@ Pattern = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]*$")]
 
 Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]
 
-Pattern2 = Annotated[str, StringConstraints(pattern=r"^[ \t\n]*$")]
+Pattern2 = Annotated[str, StringConstraints(pattern=r"^[ \x09\x0a]*$")]
 
 Pattern3 = Annotated[str, StringConstraints(pattern=r"^[-+*/]$")]
 
@@ -75,7 +76,7 @@ class ExprItem(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -86,12 +87,12 @@ Root.__grammar__ = RuleSpec(
 
 
 Expr.__grammar__ = RuleSpec(
-    rule_name="expr",
+    rule_name=IrRuleRef("expr"),
     class_name="Expr",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("term"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("term")),
         IrItem(IrRuleRef("expr-item"), IrQuantifier(0, IrNone)),
     ],
     field_map={"term": 0, "expr_item": 1},
@@ -100,14 +101,14 @@ Expr.__grammar__ = RuleSpec(
 
 
 Term.__grammar__ = RuleSpec(
-    rule_name="term",
+    rule_name=IrRuleRef("term"),
     class_name="Term",
     parent_class_name="GrammarModel",
     kind="alternation",
     items=[
-        IrItem(IrRuleRef("ident"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("num"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("term-arm3"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("ident")),
+        IrItem(IrRuleRef("num")),
+        IrItem(IrRuleRef("term-arm3")),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -120,11 +121,11 @@ TermArm3.__grammar__ = RuleSpec(
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(IrLiteral("("), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrRuleRef("expr"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
+        IrItem(IrLiteral("(")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrRuleRef("expr")),
+        IrItem(IrLiteral(")")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
     ],
     field_map={"ws": 1, "expr": 2, "ws2": 4},
     non_semantic_fields=frozenset(["ws", "ws2"]),
@@ -132,17 +133,19 @@ TermArm3.__grammar__ = RuleSpec(
 
 
 Ident.__grammar__ = RuleSpec(
-    rule_name="ident",
+    rule_name=IrRuleRef("ident"),
     class_name="Ident",
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrRange("a", "z")), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(122)))),
         IrItem(
-            IrCharClass(IrRange("a", "z"), IrRange("0", "9"), IrStr("_")),
+            IrCharClass(
+                IrRange(IrChr(97), IrChr(122)), IrRange(IrChr(48), IrChr(57)), IrChr(95)
+            ),
             IrQuantifier(0, IrNone),
         ),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
     ],
     field_map={"lower": 0, "head": 1, "ws": 2},
     non_semantic_fields=frozenset(["ws"]),
@@ -150,13 +153,13 @@ Ident.__grammar__ = RuleSpec(
 
 
 Num.__grammar__ = RuleSpec(
-    rule_name="num",
+    rule_name=IrRuleRef("num"),
     class_name="Num",
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrRange("0", "9")), IrQuantifier(1, IrNone)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, IrNone)),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
     ],
     field_map={"digit": 0, "ws": 1},
     non_semantic_fields=frozenset(["ws"]),
@@ -164,11 +167,13 @@ Num.__grammar__ = RuleSpec(
 
 
 Ws.__grammar__ = RuleSpec(
-    rule_name="ws",
+    rule_name=IrRuleRef("ws"),
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrStr(" \\t\\n")), IrQuantifier(0, IrNone))],
+    items=[
+        IrItem(IrCharClass(IrChr(32), IrChr(9), IrChr(10)), IrQuantifier(0, IrNone))
+    ],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -180,11 +185,11 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("expr"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("="), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrRuleRef("term"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("expr")),
+        IrItem(IrLiteral("=")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrRuleRef("term")),
+        IrItem(IrLiteral("\n")),
     ],
     field_map={"expr": 0, "ws": 2, "term": 3},
     non_semantic_fields=frozenset(["ws"]),
@@ -197,8 +202,8 @@ ExprItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrStr("-+*/")), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("term"), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrChr(45), IrChr(43), IrChr(42), IrChr(47))),
+        IrItem(IrRuleRef("term")),
     ],
     field_map={"head": 0, "term": 1},
     non_semantic_fields=frozenset([]),
