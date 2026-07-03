@@ -117,9 +117,7 @@ src/lexic/
                                 items: list[IrItem | IrAlternation], field_map,
                                 non_semantic_fields); to_ir_rule()
     charclass.py        parse_charclass_chars()
-    derive.py           derive_specs(IrAst, non_semantic_rules) → list[RuleSpec]
-    directives.py       parse_directives() — extracts @start / @non-semantic
-                        from grammar source comments before the grammar is parsed
+    derive.py           derive_specs(IrAst) → list[RuleSpec] (reads ast.non_semantic)
     naming.py           CHARCLASS_NAMES, _LITERAL_NAMES, _field_map()
     regex_portable.py   literal_to_regex_pattern(); PORTABLE_FEATURES, validate_portable
     topo.py             topo_sort(specs, is_start_rule) — dependency ordering
@@ -162,8 +160,13 @@ src/lexic/
     forest.py           ParseTree, SppfNode
     reduce.py           Reducer — forest → IrAst (the meta-notation seam)
     normalize.py        Desugar IR into classical Earley-shaped rules
-    models.py           specs_to_grammar() / ModelFold / build_instance_parser() —
-                        RuleSpec list → instance grammar + fold
+    models.py           specs_to_grammar() / ModelFold / build_instance_parser() /
+                        collapsed_instance_tables() — RuleSpec list → instance
+                        grammar + fold (+ run-collapsed tables for parse_first)
+    directives.py       parse_directives() → (start, non_semantic) — pre-lexical
+                        comment-channel scan (@start / @non-semantic); the text
+                        sibling of parse_grammar's Earley half. Bound onto IrAst
+                        by compile_grammar
     lexruns.py, trampoline.py
 
   utils/
@@ -190,7 +193,7 @@ generated/              auto-generated Pydantic modules — git-ignored; never e
 ### Pipeline flow
 
 ```
-grammar text ──► parse_directives(text, flavour.line_comment) ──► Directives
+grammar text ──► parse_directives(text, flavour.line_comment) ──► (start, non_semantic)
              └──► parse_grammar(text, flavour)  [public seam, compile.py]
                   = parse_reduced(normalize(flavour.grammar), text, flavour.reducer)
                                                                    │  (lexic.parsing — the
@@ -198,9 +201,11 @@ grammar text ──► parse_directives(text, flavour.line_comment) ──► Di
                                                                    │   is IrAst, flavour.reducer a Reducer)
                                                                    ▼
                                                                  IrAst
-                                                                   │
+                                                                   │  (compile_grammar rebinds
+                                                                   │   resolved start + non_semantic
+                                                                   │   onto ast.start / ast.non_semantic)
                                                                    ▼
-                               derive_specs(ast, non_semantic_rules=…)
+                                        derive_specs(ast)  [reads ast.non_semantic]
                                                                    │
                                                                    ▼
                                               (start_name, list[RuleSpec])
@@ -282,7 +287,7 @@ records      IrComposite (frozen dataclass)  IrItem, IrQuantifier, IrGroup, IrNo
 
 - **str-leaves** subclass `str` — use the leaf directly as a `str` (`leaf == "x"`, `LITERAL_NAMES.get(leaf)`). The type-aware `__eq__`/`__ne__`/`__hash__` live on `IrScalar` (shared by `IrStr` and `IrInt`): `IrLiteral("x") != IrRuleRef("x")` (distinct leaf kinds never compare equal) yet `IrLiteral("x") == "x"` (plain-primitive compatibility preserved). This keeps structural tree equality/hashing honest (so `@cache`, dict/set keys, and `tree == tree` work) while leaves still match plain-`str`/`int` dict keys.
 - **variadic collections** subclass `tuple` — iterate/index the node directly (`seq[0]`, `for arm in alt`). Construct variadically: `IrSequence(*items)`, `IrAlternation(seq1, seq2)`, `IrAst(IrTuple(*rules), start)`.
-- **records** are frozen `@dataclass(slots=True, repr=False)` `IrComposite` subclasses. The ClassVar `_child_attrs` names the dataclass fields that are dispatched children (no `_items_attr` — `IrCollection` is gone). `IrItem(atom, quantifier)`, `IrQuantifier(min, max | None)` (plain ints), `IrRule(name: str, body: IrAlternation)`, `IrAst(rules: IrTuple, start: str)` — note `IrAst.children()` returns `(rules_tuple,)`, so code wanting the rules iterates `ast.rules`.
+- **records** are frozen `@dataclass(slots=True, repr=False)` `IrComposite` subclasses. The ClassVar `_child_attrs` names the dataclass fields that are dispatched children (no `_items_attr` — `IrCollection` is gone). `IrItem(atom, quantifier)`, `IrQuantifier(min, max | None)` (plain ints), `IrRule(name: str, body: IrAlternation)`, `IrAst(rules: IrTuple, start: str, non_semantic: frozenset[str])` — note `IrAst.children()` returns `(rules_tuple,)`, so code wanting the rules iterates `ast.rules`. `IrAst.__eq__`/`__hash__` are overridden to exclude `non_semantic` (compile-channel metadata, like a source location) so the self-hosting fixpoint holds — a freshly parsed AST carries `non_semantic=frozenset()` while the authored self-grammar declares a non-empty set.
 
 `IrLiteral` keeps a **dual role**: a grammar-AST leaf and an action-language constant — distinguished at eval time by the `nc` parameter; see [[ir-shapes]].
 
@@ -369,7 +374,7 @@ Every generated class carries `__grammar__: ClassVar[RuleSpec]`.
 - `to_grammar(flavour="gbnf")` — looks up the flavour singleton and calls `flavour.apply(self.__grammar__.to_ir_rule())`.
 - `semantic_dump()` — `model_dump()` minus `non_semantic_fields` (e.g. whitespace refs).
 
-## Directives (`ir/directives.py`)
+## Directives (`parsing/directives.py`)
 
 Scanned from source comments *before* the grammar is parsed (the self-grammars route comments to noise):
 
@@ -378,7 +383,7 @@ Scanned from source comments *before* the grammar is parsed (the self-grammars r
 # @non-semantic ws sp     — mark rules as structural; their refs get min=0
 ```
 
-`parse_directives(text, flavour.line_comment)` returns a `Directives` frozen dataclass. `compile_grammar()` applies it; priority is explicit arg > directive > positional fallback.
+`parse_directives(text, flavour.line_comment)` returns a plain `(start, non_semantic)` tuple (`start: str | None`, `non_semantic: frozenset[str]`) — the pre-lexical scan stays out of the parser so comments never become load-bearing. `compile_grammar()` resolves precedence (explicit arg > directive > positional fallback) and **binds** the resolved `start` / `non_semantic` onto the parsed `IrAst`'s payload (rebuilding the frozen record); `derive_specs(ast)` then reads `ast.non_semantic`. A flavour's own self-grammar carries its structural rules the same way — `GBNF_GRAMMAR`/`ABNF_GRAMMAR` declare `non_semantic=frozenset({...})`, and `GBNF_NOISE`/`ABNF_NOISE` are built *from that declaration* (single source of truth feeding reducer, derive, and semantic_dump). There is no `Directives` dataclass.
 
 ## Error vocabulary (`exceptions.py`)
 

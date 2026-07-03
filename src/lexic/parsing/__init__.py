@@ -97,7 +97,9 @@ def parse(grammar: IrAst, text: str) -> ParseTree:
     return PARSE.eval(EarleyParser(), grammar, IrTuple(IrStr(text)))
 
 
-def parse_first(grammar: IrAst, text: str) -> ParseTree:
+def parse_first(
+    grammar: IrAst, text: str, tables: ParserTables | None = None
+) -> ParseTree:
     """Parse ``text`` into its FIRST derivation — deterministic under ambiguity.
 
     The instance-parsing entry (:mod:`.models`): parity with the retired Lark
@@ -106,10 +108,15 @@ def parse_first(grammar: IrAst, text: str) -> ParseTree:
 
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
+    :param tables: Optional pre-built (run-collapsed) tables for ``grammar`` —
+        the instance path passes ModelFold-licenced collapsed tables (see
+        :func:`lexic.parsing.models.collapsed_instance_tables`) for a faster
+        lexical layer; ``None`` compiles the plain tables.
     :returns: One derivation of ``text`` under the start rule.
     :raises UnsupportedConstructError: If ``text`` does not parse.
     """
-    return PARSE_FIRST.eval(EarleyParser(), grammar, IrTuple(IrStr(text)))
+    args = (IrStr(text),) if tables is None else (IrStr(text), tables)
+    return PARSE_FIRST.eval(EarleyParser(), grammar, IrTuple(*args))
 
 
 def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:

@@ -226,19 +226,54 @@ class IrRule(IrNamedTuple[IrStr, IrAlternation]):
     body: IrAlternation
 
 
-class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr]):
-    """Full grammar AST: a collection of rules plus the start-rule name.
+class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr, frozenset[str]]):
+    """Full grammar AST: rules, the start-rule name, and the non-semantic set.
 
     ``rules`` is an ``IrTuple`` of ``IrRule`` nodes (wrapped so a single
     child attribute can hold the whole collection and be replaced atomically
     by tree transformations).  ``start`` is the plain string name of the
-    start rule.
+    start rule.  ``non_semantic`` names the rules whose refs are structural
+    noise (whitespace, delimiters, comments) — the one declaration feeding
+    ``derive_specs`` (quantifier relaxation + ``semantic_dump`` filter) and,
+    for a flavour's self-grammar, its ``Reducer`` noise map.
+
+    ``non_semantic`` is **compile-channel metadata**, not grammar structure —
+    like a source location — and is excluded from ``__eq__``/``__hash__``. Two
+    ASTs with the same rules and start but different ``non_semantic`` sets are
+    equal: the self-hosting fixpoint
+    ``parse_grammar(flavour.apply(GRAMMAR), flavour) == GRAMMAR`` requires it,
+    because a freshly parsed AST carries ``non_semantic=frozenset()`` while the
+    authored self-grammar declares a non-empty set. ``start`` stays structural
+    (a different entry point is a different grammar).
 
     Children: the single ``rules`` ``IrTuple``.
-    Non-child payload: ``start`` (start-rule name).
+    Non-child payload: ``start`` (start-rule name), ``non_semantic``.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("rules",)
 
     rules: IrSeq = IrSeq()
     start: str = ""
+    non_semantic: frozenset[str] = frozenset()
+
+    def __eq__(self, other: object) -> bool:
+        """Structural equality over ``rules`` and ``start`` only.
+
+        ``non_semantic`` is compile-channel metadata, excluded so the
+        self-hosting fixpoint holds (see the class docstring).
+
+        :param other: The value to compare against.
+        :returns: ``True`` when ``other`` is an ``IrAst`` with equal rules and
+            start.
+        """
+        if not isinstance(other, IrAst):
+            return False
+        return self.rules == other.rules and self.start == other.start
+
+    def __ne__(self, other: object) -> bool:
+        """Negation of :meth:`__eq__` (``tuple`` supplies its own ``__ne__``)."""
+        return not self == other
+
+    def __hash__(self) -> int:
+        """Hash by ``(rules, start)`` — consistent with :meth:`__eq__`."""
+        return hash((self.rules, self.start))

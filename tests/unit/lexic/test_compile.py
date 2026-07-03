@@ -23,6 +23,7 @@ from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
+from lexic.parsing import ParserTables, parse_first
 from lexic.parsing.models import ModelFold
 from tests.paths import GROUND_TRUTH
 
@@ -131,6 +132,36 @@ def test_compiled_grammar_fold_field_is_model_fold():
     """CompiledGrammar.fold is the ParseTree -> model-instance ModelFold."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     assert isinstance(cg.fold, ModelFold)
+
+
+def test_compiled_grammar_tables_field_is_parser_tables():
+    """CompiledGrammar.tables is a ParserTables, compiled once at build time
+    (see collapsed_instance_tables)."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert isinstance(cg.tables, ParserTables)
+
+
+@pytest.mark.parametrize(
+    ("grammar_file", "text"),
+    [
+        ("arithmetic.gbnf", "x=1\n"),
+        ("json_ws.gbnf", '{"n":1}'),  # "1" is genuinely ambiguous (number's grammar)
+    ],
+)
+def test_collapsed_and_plain_tables_parse_to_the_same_model(grammar_file, text):
+    """CompiledGrammar's built-in collapsed-tables parse (cg.parse) matches a
+    plain-tables parse (parse_first with no tables=) on model_dump()/to_text().
+
+    Task 4's ModelFold run-collapse licence changes the packed chart shape
+    (fewer, longer terminal leaves) but must never change observable output —
+    this is the in-suite spot-check of the author's full equality harness.
+    """
+    cg = compile_from_path(GROUND_TRUTH / grammar_file)
+    collapsed_model = cg.parse(text)
+    plain_model = cg.fold.apply(parse_first(cg.grammar, text))
+    assert isinstance(plain_model, GrammarModel)
+    assert collapsed_model.model_dump() == plain_model.model_dump()
+    assert collapsed_model.to_text() == plain_model.to_text() == text
 
 
 def test_compiled_grammar_parse_returns_a_grammar_model():

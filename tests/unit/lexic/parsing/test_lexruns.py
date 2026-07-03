@@ -3,10 +3,13 @@
 New module: proves a synthetic star/plus rule's collapse to a single
 maximal-munch :class:`~lexic.parsing.tables.RunTerm` (fixed charset,
 derivation-uniqueness, follow-disjointness) and reconstructs it as compiled
-tables. This file covers ``_expand_atom``'s charset extraction and poisoning,
-``run_candidates``'s detection and memoisation, ``recognition_tables``'s
-collapse and result parity with plain tables, and ``unit_leaves``'s
-transitive charset-rule walk.
+tables. This file covers ``run_candidates``'s detection and memoisation,
+``recognition_tables``'s collapse and result parity with plain tables, and
+``unit_leaves``'s transitive charset-rule walk. ``_expand_atom``'s own charset
+extraction/poisoning behavior moved home to ``tables.py`` (Task 2, alongside
+``_MAX_CHARSET``/``Charset``) — see ``test_tables.py``; this module still
+imports it for internal use, so a single smoke test below pins that the
+back-compat import path keeps working.
 """
 
 from __future__ import annotations
@@ -28,55 +31,25 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing.kernel import Kernel
+from lexic.parsing.lexruns import _expand_atom as _expand_atom_via_lexruns
 from lexic.parsing.lexruns import (
-    _expand_atom,
     recognition_tables,
     run_candidates,
     unit_leaves,
 )
 from lexic.parsing.normalize import SYNTHETIC_PREFIX, normalize
 from lexic.parsing.tables import RunTerm, compile_tables
+from lexic.parsing.tables import _expand_atom as _expand_atom_canonical
 from tests._ir_fixtures import digit_grammar as _digit_grammar
 
-# ── _expand_atom ──────────────────────────────────────────────────────
+# ── _expand_atom re-export smoke test (moved home to tables.py) ──────────
 
 
-def test_expand_atom_single_char_literal_returns_its_char():
-    """A single-char IrLiteral expands to a one-char frozenset."""
-    assert _expand_atom(IrLiteral("a")) == frozenset("a")
-
-
-def test_expand_atom_multichar_literal_returns_none():
-    """A literal longer than one char is not a char-unit — poisoned."""
-    assert _expand_atom(IrLiteral("ab")) is None
-
-
-def test_expand_atom_charclass_with_ranges_returns_charset():
-    """A range char-class expands to every char in the range."""
-    atom = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
-    assert _expand_atom(atom) == frozenset("abc")
-
-
-def test_expand_atom_charclass_with_bare_chr_returns_charset():
-    """A char-class with a bare IrChr element expands to that one char."""
-    atom = IrCharClass(IrChr("q"))
-    assert _expand_atom(atom) == frozenset("q")
-
-
-def test_expand_atom_over_cap_range_poisons():
-    """A range wider than the expansion cap poisons to None."""
-    atom = IrCharClass(IrRange(IrChr(chr(0)), IrChr(chr(0x2000))))
-    assert _expand_atom(atom) is None
-
-
-def test_expand_atom_ruleref_is_not_a_terminal_atom():
-    """An IrRuleRef is never a char-unit — poisoned regardless of shape."""
-    assert _expand_atom(IrRuleRef("digit")) is None
-
-
-def test_expand_atom_negated_charclass_poisons():
-    """A negated char-class is not a positive char-unit — poisoned to None."""
-    assert _expand_atom(IrNot(IrCharClass(IrChr('"')))) is None
+def test_expand_atom_still_importable_from_lexruns():
+    """``_expand_atom`` now lives in ``tables.py``; ``lexruns`` re-imports it
+    for its own internal use, so this import path keeps working for anyone
+    still written against it — same function object, not a copy."""
+    assert _expand_atom_via_lexruns is _expand_atom_canonical
 
 
 # ── run_candidates ────────────────────────────────────────────────────

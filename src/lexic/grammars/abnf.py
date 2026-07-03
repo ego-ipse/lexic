@@ -854,39 +854,41 @@ ABNF_GRAMMAR = IrAst(
         IrRule("DQUOTE", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr('"')))))),
     ),
     start="rulelist",
+    # Non-semantic rules: whitespace and folding, line endings, comments/blank
+    # filler, the char-val quote delimiter, and the radix/case markers
+    # (%x/%d/%b/%s/%i). This single declaration is the source of truth — it
+    # drives ABNF_NOISE (below), and the same fact reaches derive_specs and
+    # semantic_dump for user grammars via the @non-semantic directive.
+    non_semantic=frozenset(
+        {
+            "wsp",
+            "c-wsp",
+            "SP",
+            "HTAB",
+            "c-nl",
+            "crlf",
+            "CR",
+            "LF",
+            "DQUOTE",
+            "comment",
+            "filler",
+            "blank",
+            "defined",
+            "xmark",
+            "dmark",
+            "bmark",
+            "smark",
+            "imark",
+        }
+    ),
 )
 """The ABNF grammar of ABNF (RFC 5234 §4 + B.1 subset) as a canonical :class:`IrAst`."""
 
 
 # ── Cleaning policy: which child rules are noise ──────────────────────────
 
-_NON_SEMANTIC = (
-    "wsp",
-    "c-wsp",
-    "SP",
-    "HTAB",
-    "c-nl",
-    "crlf",
-    "CR",
-    "LF",
-    "DQUOTE",
-    "comment",
-    "filler",
-    "blank",
-    "defined",
-    "xmark",
-    "dmark",
-    "bmark",
-    "smark",
-    "imark",
-)
-"""Whitespace and folding, line endings, comments/blank filler, the char-val
-quote delimiter, and the radix/case markers (``%x``/``%d``/``%b``/``%s``/``%i``).
-Dropped from a structural rule's children and skipped by
-:data:`~lexic.parsing.reduce.YIELD`."""
-
 ABNF_NOISE: IrMap = IrMap(
-    *(IrTuple(IrRuleRef(name), DROP) for name in _NON_SEMANTIC),
+    *(IrTuple(IrRuleRef(name), DROP) for name in ABNF_GRAMMAR.non_semantic),
     IrTuple(IR_DEFAULT, KEEP_REDUCED),
 )
 """Child-contribution policy: non-semantic rules drop, every other rule is

@@ -6,18 +6,21 @@ parses the source and the flavour's ``Reducer`` folds the derivation to IR.
 
 Pipeline (compile_grammar — grammar text → specs):
 
-  text  ──┬──►  parse_directives  ──►  Directives(non_semantic, start)
+  text  ──┬──►  parse_directives  ──►  (start, non_semantic)
           │                                          │
           │                                          ▼
-          │                       (resolve `start` arg precedence)
-          │
-          └──►  parse_grammar(text, flavour)  ──►  IrAst
-                                                          │
-                                                          ▼
-                      derive_specs(ast, non_semantic_rules=...)
-                                                          │
-                                                          ▼
-                                          (start_name, list[RuleSpec])
+          │                       (resolve arg > directive > fallback)
+          │                                          │
+          └──►  parse_grammar(text, flavour) ─► IrAst │
+                                                  │    │
+                                                  ▼    ▼
+                            IrAst(rules, start, non_semantic)  ← rebound payload
+                                                  │
+                                                  ▼
+                                          derive_specs(ast)
+                                                  │
+                                                  ▼
+                                  (start_name, list[RuleSpec])
 
 compile_text(text, *, cache_key) / compile_from_path(path) then run codegen
 and build the engine-backed instance parser: the specs reconstitute as an
@@ -41,12 +44,16 @@ from lexic.codegen import codegen
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir.derive import derive_specs
-from lexic.ir.directives import parse_directives
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
 from lexic.ir.spec import RuleSpec
-from lexic.parsing import parse_first, parse_reduced
-from lexic.parsing.models import ModelFold, build_instance_parser
+from lexic.parsing import ParserTables, parse_first, parse_reduced
+from lexic.parsing.directives import parse_directives
+from lexic.parsing.models import (
+    ModelFold,
+    build_instance_parser,
+    collapsed_instance_tables,
+)
 from lexic.parsing.normalize import normalize
 from lexic.parsing.reduce import Reducer
 
@@ -60,12 +67,16 @@ class CompiledGrammar:
     :ivar grammar: The Earley-normalised instance grammar (held so the
         engine's identity-memoised table compilation stays hot across calls).
     :ivar fold: The ParseTree → model-instance fold.
+    :ivar tables: The instance grammar's run-collapsed tables — every lexical
+        run the ModelFold licence proves safe steps in one scan (compiled once
+        at build time; see :func:`~lexic.parsing.models.collapsed_instance_tables`).
     """
 
     classes: dict[str, type]
     specs: dict[str, RuleSpec]
     grammar: IrAst
     fold: ModelFold
+    tables: ParserTables
 
     def parse(self, text: str) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
@@ -73,7 +84,7 @@ class CompiledGrammar:
         :raises UnsupportedConstructError: If ``text`` does not parse, or the
             fold produced no model for the start rule.
         """
-        model = self.fold.apply(parse_first(self.grammar, text))
+        model = self.fold.apply(parse_first(self.grammar, text, self.tables))
         if not isinstance(model, GrammarModel):
             raise UnsupportedConstructError(
                 f"compile: start rule folded to {type(model).__name__!r}, "
@@ -146,6 +157,7 @@ def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGra
         specs={s.rule_name: s for s in specs_list},
         grammar=grammar,
         fold=fold,
+        tables=collapsed_instance_tables(grammar, fold),
     )
 
 
@@ -199,20 +211,25 @@ def compile_grammar(
       1. explicit `non_semantic_rules` argument
       2. `@non-semantic <rule> ...` directives in source comments
 
+    The resolved `start` and `non_semantic` set are bound onto the parsed
+    IrAst's payload (the AST is rebuilt — it is frozen); `derive_specs` reads
+    them from there.
+
     Errors: malformed grammar source bubbles up as UnsupportedConstructError
     (raised by the engine / reducer, or here if the flavour carries no Reducer
     or its reduction does not yield an IrAst).
     """
-    directives = parse_directives(text, flavour.line_comment)
+    dir_start, dir_non_semantic = parse_directives(text, flavour.line_comment)
     if non_semantic_rules is None:
-        non_semantic_rules = directives.non_semantic
+        non_semantic_rules = dir_non_semantic
     ast = parse_grammar(text, flavour)
     if start is None:
-        start = directives.start or (ast.rules[0].name if ast.rules else "")
+        start = dir_start or (ast.rules[0].name if ast.rules else "")
     if start and not any(r.name == start for r in ast.rules):
         raise UnsupportedConstructError(
             f"start rule {start!r} not defined in grammar; "
             f"available rules: {[r.name for r in ast.rules]}"
         )
-    specs = derive_specs(ast, non_semantic_rules=non_semantic_rules)
+    ast = IrAst(rules=ast.rules, start=start, non_semantic=non_semantic_rules)
+    specs = derive_specs(ast)
     return start, specs

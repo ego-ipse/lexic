@@ -113,12 +113,10 @@ def test_topo_sort_exported() -> None:
     assert "topo_sort" in ir.__all__
 
 
-def test_directives_exported() -> None:
-    """Directives and parse_directives are re-exported."""
-    assert hasattr(ir, "Directives")
-    assert hasattr(ir, "parse_directives")
-    assert "Directives" in ir.__all__
-    assert "parse_directives" in ir.__all__
+def test_directives_not_exported() -> None:
+    """parse_directives moved to lexic.parsing.directives — no longer an ir export."""
+    assert not hasattr(ir, "parse_directives")
+    assert "parse_directives" not in ir.__all__
 
 
 def test_walk_exports_present() -> None:

@@ -899,14 +899,16 @@ GBNF_GRAMMAR = IrAst(
         ),
     ),
     start="grammar",
+    # Non-semantic rules: dropped from structural children and skipped by
+    # YIELD. This single declaration is the source of truth — it drives
+    # GBNF_NOISE (below); the same fact reaches derive_specs and semantic_dump
+    # for user grammars via the @non-semantic directive.
+    non_semantic=frozenset({"n", "tail-comment"}),
 )
 """The GBNF grammar of GBNF as a canonical :class:`IrAst`."""
 
-_NON_SEMANTIC = ("n", "tail-comment")
-"""Noise rules: dropped from structural children and skipped by :data:`YIELD`."""
-
 GBNF_NOISE: IrMap = IrMap(
-    *(IrTuple(IrRuleRef(name), DROP) for name in _NON_SEMANTIC),
+    *(IrTuple(IrRuleRef(name), DROP) for name in GBNF_GRAMMAR.non_semantic),
     IrTuple(IR_DEFAULT, KEEP_REDUCED),
 )
 

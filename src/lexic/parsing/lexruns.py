@@ -27,47 +27,21 @@ can be reconstructed — lives in :mod:`~lexic.parsing.reduce`, fed by
 from __future__ import annotations
 
 from lexic.ir.base import IrLeaf, IrSelf
-from lexic.ir.nodes import IrAst, IrCharClass, IrLiteral, IrRange
+from lexic.ir.nodes import IrAst, IrLiteral
 from lexic.parsing.normalize import SYNTHETIC_PREFIX
 from lexic.parsing.tables import (
     RUN_DROP,
+    Charset,
     ParserTables,
     RunTerm,
+    _expand_atom,
     build_tables,
     compile_tables,
 )
 
-_MAX_CHARSET = 4096
-"""Expansion cap for a char-class range — beyond it the set poisons."""
-
-Charset = frozenset[str] | None
-"""An exact character set, or ``None`` — poisoned (unknown / too large)."""
-
 RunShape = tuple[frozenset[str], bool, int]
 """One detected run rule: ``(charset, has_empty_arm, unit_rid)`` —
 ``unit_rid`` is ``-1`` when the unit is a bare terminal atom."""
-
-
-def _expand_atom(atom: IrSelf) -> Charset:
-    """The exact single-char set a terminal atom matches, or poisoned.
-
-    A literal qualifies only at length 1 (a longer literal is not a
-    char-unit); a range wider than :data:`_MAX_CHARSET` poisons.
-    """
-    if isinstance(atom, IrLiteral):
-        return frozenset(atom) if len(atom) == 1 else None
-    if not isinstance(atom, IrCharClass):
-        return None
-    chars: set[str] = set()
-    for element in atom:
-        if isinstance(element, IrRange):
-            lo, hi = ord(str(element.lo)), ord(str(element.hi))
-            if hi - lo > _MAX_CHARSET:
-                return None
-            chars.update(chr(c) for c in range(lo, hi + 1))
-        else:
-            chars.update(str(element))
-    return frozenset(chars)
 
 
 class _Analysis(IrLeaf[IrSelf, IrSelf]):
@@ -92,10 +66,8 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
         """Run the full analysis over ``tables``."""
         self.tables = tables
         codes = tables.codes
-        self.arm_syms = [
-            [self._syms_from(base) for base in codes.rule_dot0[rid]]
-            for rid in range(len(codes.rule_dot0))
-        ]
+        dot0 = codes.rule_dot0  # derived property — bind the rebuild once
+        self.arm_syms = [[self._syms_from(base) for base in bases] for bases in dot0]
         self.nullable = [bool(n) for n in codes.nullable_completes]
         self.first = self._first_sets()
         self.follow = self._follow_sets()
@@ -344,9 +316,10 @@ def unit_leaves(tables: ParserTables, rid: int) -> tuple[set[int], bool] | None:
     seen = {rid}
     codes = tables.codes
     nxt = codes.next_sym
+    dot0 = codes.rule_dot0  # derived property — bind the rebuild once
     while stack:
         current = stack.pop()
-        for base in codes.rule_dot0[current]:
+        for base in dot0[current]:
             sym = nxt[base]
             if sym == 0 or nxt[base + 1] != 0:
                 return None  # not a single-item arm — unexpected shape

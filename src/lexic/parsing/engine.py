@@ -42,7 +42,7 @@ from lexic.parsing.forest import (
 from lexic.parsing.kernel import FastTree, Kernel
 from lexic.parsing.lexruns import recognition_tables
 from lexic.parsing.reduce import FusedReduce, Reducer, collapsed_tables
-from lexic.parsing.tables import ORIGIN_BITS, compile_tables
+from lexic.parsing.tables import ORIGIN_BITS, ParserTables, compile_tables
 
 _MATCH = IrInt(1)
 _NO_MATCH = IrInt(0)
@@ -142,19 +142,39 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
     enumeration's first — parity with the retired Lark path's
     ``ambiguity="resolve"``. Fast path identical to :class:`Parse`; the
     lazy stream is only driven one item on the slow path.
+
+    ``nc`` may carry pre-built :class:`~lexic.parsing.tables.ParserTables` as a
+    second element — the instance path passes run-collapsed tables (built with
+    the ModelFold licence in :mod:`lexic.parsing.models`) so lexical runs step
+    in one scan and land as a single multi-char leaf. A collapsed run is
+    text-preserving, so :class:`~lexic.parsing.models.ModelFold` reads it
+    identically to the per-char expansion. On a fast-path miss (ambiguity), the
+    collapsed run terminals cannot shape the enumeration the same way, so the
+    fold-back mirrors :class:`ParseReduced`: re-parse over plain tables and take
+    the stream's first — behaviour-identical to the uncollapsed path.
     """
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> ParseTree:
-        """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: a derivation.
+        """:param n: grammar; :param nc: ``(IrStr(text)[, ParserTables])``.
 
+        :returns: a derivation.
         :raises UnsupportedConstructError: If ``text`` does not parse.
         """
-        kernel = _run_kernel(n, nc, True)
+        if not isinstance(n, IrAst):
+            raise UnsupportedConstructError(
+                f"parsing: expected an IrAst grammar, got {type(n).__name__}"
+            )
+        collapsed = nc[1] if len(nc) > 1 and isinstance(nc[1], ParserTables) else None
+        tables = collapsed if collapsed is not None else compile_tables(n)
+        kernel = Kernel(tables, str(nc[0]), True).run()
         _require_accept(kernel, n)
         handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
         tree = FastTree(kernel).build(handle)
         if isinstance(tree, ParseTree):
             return tree
+        if collapsed is not None:  # run terminals shape the chart — re-parse plain
+            kernel = _run_kernel(n, nc, True)
+            _require_accept(kernel, n)
         stream = DERIVATION_STREAM.eval(
             d, kernel.accept_node(), IrTuple(kernel.to_chart())
         )

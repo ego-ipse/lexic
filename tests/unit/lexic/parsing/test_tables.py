@@ -5,7 +5,11 @@ New module (the compiled "codegen moment" for parsing): every dotted
 position of every arm gets one int ``code``, laid out dot-dense so advancing
 a dot is ``+ 1``. This file covers the coding scheme, the ``next_sym``
 discriminator, nullable/accept-code fixpoints, memoisation, per-char scan
-caching, and the ``UnsupportedConstructError`` guards on unnormalised input.
+caching, the ``UnsupportedConstructError`` guards on unnormalised input, and
+(Task 2) the per-arm FIRST seed-gate semantics in ``rule_seed_gates`` /
+``_FirstGates``. ``_expand_atom``'s charset extraction (moved home from
+``lexruns.py``) also lives here now — see that module's test file for a
+back-compat re-export smoke test.
 """
 
 from __future__ import annotations
@@ -32,13 +36,18 @@ from lexic.parsing import recognize
 from lexic.parsing.tables import (
     ADVANCE,
     ORIGIN_BITS,
+    RUN_STR,
     CodeTables,
     DecodeTables,
     ParserTables,
+    RunTerm,
+    _expand_atom,
     atom_accepts,
+    build_tables,
     compile_tables,
 )
 from tests._ir_fixtures import digit_grammar as _digit_grammar
+from tests._ir_fixtures import sss_grammar as _sss_grammar
 from tests._ir_fixtures import word_grammar as _word_grammar
 
 # ── atom_accepts ────────────────────────────────────────────────────────
@@ -106,6 +115,47 @@ def test_atom_accepts_negated_non_charclass_raises():
     """An IrNot over anything but an IrCharClass raises."""
     with pytest.raises(UnsupportedConstructError):
         atom_accepts(IrNot(IrRuleRef("x")), "a")
+
+
+# ── _expand_atom (moved home from lexruns.py — mirror-rule relocation) ──
+
+
+def test_expand_atom_single_char_literal_returns_its_char():
+    """A single-char IrLiteral expands to a one-char frozenset."""
+    assert _expand_atom(IrLiteral("a")) == frozenset("a")
+
+
+def test_expand_atom_multichar_literal_returns_none():
+    """A literal longer than one char is not a char-unit — poisoned."""
+    assert _expand_atom(IrLiteral("ab")) is None
+
+
+def test_expand_atom_charclass_with_ranges_returns_charset():
+    """A range char-class expands to every char in the range."""
+    atom = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
+    assert _expand_atom(atom) == frozenset("abc")
+
+
+def test_expand_atom_charclass_with_bare_chr_returns_charset():
+    """A char-class with a bare IrChr element expands to that one char."""
+    atom = IrCharClass(IrChr("q"))
+    assert _expand_atom(atom) == frozenset("q")
+
+
+def test_expand_atom_over_cap_range_poisons():
+    """A range wider than the expansion cap poisons to None."""
+    atom = IrCharClass(IrRange(IrChr(chr(0)), IrChr(chr(0x2000))))
+    assert _expand_atom(atom) is None
+
+
+def test_expand_atom_ruleref_is_not_a_terminal_atom():
+    """An IrRuleRef is never a char-unit — poisoned regardless of shape."""
+    assert _expand_atom(IrRuleRef("digit")) is None
+
+
+def test_expand_atom_negated_charclass_poisons():
+    """A negated char-class is not a positive char-unit — poisoned to None."""
+    assert _expand_atom(IrNot(IrCharClass(IrChr('"')))) is None
 
 
 # ── Grammar builders ─────────────────────────────────────────────────────
@@ -406,6 +456,170 @@ def test_decode_tables_rule_refs_match_rule_names():
     tables = compile_tables(_word_grammar())
     for rid, name in enumerate(tables.decode.rule_names):
         assert str(tables.decode.rule_refs[rid]) == name
+
+
+# ── rule_seeds / rule_dot0 (Task 1: per-arm seed-pair column) ────────────
+
+
+def test_rule_seeds_has_one_pair_per_arm():
+    """s = s s / 'a' has 2 arms — rule_seeds[s] carries exactly 2 pairs."""
+    tables = compile_tables(_sss_grammar())
+    s_rid = tables.decode.rule_ids["s"]
+    assert len(tables.codes.rule_seeds[s_rid]) == 2
+
+
+def test_rule_seeds_pair_shifted_code_matches_dot0():
+    """Each pair's first element is the arm's dot-0 code, pre-shifted."""
+    tables = compile_tables(_sss_grammar())
+    s_rid = tables.decode.rule_ids["s"]
+    for shifted, _sym in tables.codes.rule_seeds[s_rid]:
+        dot0_code = shifted >> ORIGIN_BITS
+        assert shifted == dot0_code << ORIGIN_BITS
+
+
+def test_rule_seeds_pair_second_element_matches_next_sym():
+    """Each pair's second element is next_sym at that arm's dot-0 code."""
+    tables = compile_tables(_sss_grammar())
+    s_rid = tables.decode.rule_ids["s"]
+    for shifted, sym in tables.codes.rule_seeds[s_rid]:
+        dot0_code = shifted >> ORIGIN_BITS
+        assert sym == tables.codes.next_sym[dot0_code]
+
+
+def test_rule_dot0_round_trips_rule_seeds():
+    """rule_dot0[rid] recovers exactly the dot-0 codes packed into rule_seeds."""
+    tables = compile_tables(_sss_grammar())
+    s_rid = tables.decode.rule_ids["s"]
+    expected = tuple(
+        shifted >> ORIGIN_BITS for shifted, _ in tables.codes.rule_seeds[s_rid]
+    )
+    assert tables.codes.rule_dot0[s_rid] == expected
+
+
+def test_rule_seeds_empty_for_undefined_rule():
+    """A rule referenced but never defined seeds no pairs — prediction seeds nothing."""
+    tables = compile_tables(_undefined_ref_grammar())
+    missing_rid = tables.decode.rule_ids["missing"]
+    assert tables.codes.rule_seeds[missing_rid] == ()
+
+
+def test_rule_dot0_empty_for_undefined_rule():
+    """The derived rule_dot0 view agrees: () for a referenced-but-undefined rule."""
+    tables = compile_tables(_undefined_ref_grammar())
+    missing_rid = tables.decode.rule_ids["missing"]
+    assert tables.codes.rule_dot0[missing_rid] == ()
+
+
+def test_rule_seed_gates_pair_prefix_matches_rule_seeds():
+    """Each triple's first two elements are exactly the `rule_seeds` pair view."""
+    tables = compile_tables(_sss_grammar())
+    s_rid = tables.decode.rule_ids["s"]
+    triples = tables.codes.rule_seed_gates[s_rid]
+    pairs = tables.codes.rule_seeds[s_rid]
+    assert tuple(triple[:2] for triple in triples) == pairs
+
+
+# ── rule_seed_gates: FIRST gate semantics (Task 2) ───────────────────────
+
+
+def test_empty_deriving_arm_gate_is_none():
+    """nullish = '' — the empty arm's gate is None (always seed)."""
+    tables = compile_tables(_nullable_grammar())
+    rid = tables.decode.rule_ids["nullish"]
+    ((_shifted, _sym, gate),) = tables.codes.rule_seed_gates[rid]
+    assert gate is None
+
+
+def test_negated_charclass_arm_gate_is_none():
+    """s = [^"] — an IrNot atom poisons the arm's FIRST gate to None."""
+    tables = compile_tables(_negated_grammar())
+    s_rid = tables.decode.rule_ids["s"]
+    ((_shifted, _sym, gate),) = tables.codes.rule_seed_gates[s_rid]
+    assert gate is None
+
+
+def test_over_cap_charclass_arm_gate_is_none():
+    """A charclass wider than the expansion cap poisons its own arm's gate."""
+    wide = IrRule(
+        "wide",
+        IrAlternation(
+            IrSequence(IrItem(IrCharClass(IrRange(IrChr(chr(0)), IrChr(chr(0x2000))))))
+        ),
+    )
+    g = IrAst(rules=IrSeq(wide), start="wide")
+    tables = compile_tables(g)
+    wide_rid = tables.decode.rule_ids["wide"]
+    ((_shifted, _sym, gate),) = tables.codes.rule_seed_gates[wide_rid]
+    assert gate is None
+
+
+def test_over_cap_poison_propagates_transitively_through_ruleref():
+    """A rule referencing a poisoned rule is itself poisoned (gate None)."""
+    wide = IrRule(
+        "wide",
+        IrAlternation(
+            IrSequence(IrItem(IrCharClass(IrRange(IrChr(chr(0)), IrChr(chr(0x2000))))))
+        ),
+    )
+    outer = IrRule("outer", IrAlternation(IrSequence(IrItem(IrRuleRef("wide")))))
+    g = IrAst(rules=IrSeq(outer, wide), start="outer")
+    tables = compile_tables(g)
+    outer_rid = tables.decode.rule_ids["outer"]
+    ((_shifted, _sym, gate),) = tables.codes.rule_seed_gates[outer_rid]
+    assert gate is None
+
+
+def test_plain_charclass_arm_gate_is_its_charset():
+    """digit = [0-9] — the arm's gate is exactly the charclass' char set."""
+    tables = compile_tables(_digit_grammar())
+    rid = tables.decode.rule_ids["digit"]
+    ((_shifted, _sym, gate),) = tables.codes.rule_seed_gates[rid]
+    assert gate == frozenset("0123456789")
+
+
+def test_nullable_prefix_continuation_unions_first_of_next_symbol():
+    """arm = [a, b] with `a` nullable: gate is FIRST(a) ∪ FIRST(b)."""
+    a_rule = IrRule(
+        "a",
+        IrAlternation(
+            IrSequence(IrItem(IrLiteral("x"))),
+            IrSequence(),  # empty arm — makes `a` nullable
+        ),
+    )
+    b_rule = IrRule(
+        "b",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))),
+    )
+    outer = IrRule(
+        "outer",
+        IrAlternation(IrSequence(IrItem(IrRuleRef("a")), IrItem(IrRuleRef("b")))),
+    )
+    g = IrAst(rules=IrSeq(outer, a_rule, b_rule), start="outer")
+    tables = compile_tables(g)
+    outer_rid = tables.decode.rule_ids["outer"]
+    ((_shifted, _sym, gate),) = tables.codes.rule_seed_gates[outer_rid]
+    assert gate == frozenset("x0123456789")
+
+
+def test_multichar_literal_arm_gate_is_first_char_only():
+    """s = 'abc' — the arm's gate is just its first char, not the whole literal."""
+    rule = IrRule("s", IrAlternation(IrSequence(IrItem(IrLiteral("abc")))))
+    g = IrAst(rules=IrSeq(rule), start="s")
+    tables = compile_tables(g)
+    s_rid = tables.decode.rule_ids["s"]
+    ((_shifted, _sym, gate),) = tables.codes.rule_seed_gates[s_rid]
+    assert gate == frozenset("a")
+
+
+def test_run_term_arm_gate_is_the_run_charset():
+    """A collapsed run-terminal arm's gate is the run's own charset."""
+    run = RunTerm(frozenset("ab"), 1, RUN_STR)
+    placeholder = IrRule("s", IrAlternation(IrSequence()))
+    g = IrAst(rules=IrSeq(placeholder), start="s")
+    tables = build_tables(g, runs={"s": (run, False)})
+    s_rid = tables.decode.rule_ids["s"]
+    ((_shifted, _sym, gate),) = tables.codes.rule_seed_gates[s_rid]
+    assert gate == frozenset("ab")
 
 
 # ── Sanity on the module constants ────────────────────────────────────────

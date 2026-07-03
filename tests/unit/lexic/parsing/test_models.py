@@ -16,7 +16,7 @@ from lexic.codegen import codegen
 from lexic.compile import compile_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -34,11 +34,14 @@ from lexic.ir.operators import IrNot
 from lexic.parsing import parse_first
 from lexic.parsing.models import (
     ModelFold,
+    _instance_run_ok,
     _lift_optional_nullables,
     _nullable_names,
     _specs_to_rules,
     _wrapper_mode,
+    collapsed_instance_tables,
 )
+from lexic.parsing.tables import compile_tables
 from tests._ir_fixtures import spec as _spec
 
 GBNF_FLAVOUR = get_flavour("gbnf")
@@ -325,3 +328,75 @@ def test_lift_leaves_optional_ref_to_non_nullable_untouched():
     host_lifted = next(r for r in lifted if str(r.name) == "host")
     item = host_lifted.body[0][0]
     assert item.quantifier == IrQuantifier(0, 1)
+
+
+# ── collapsed_instance_tables (Task 4) ───────────────────────────────────
+
+
+def test_collapsed_instance_tables_collapses_a_run_on_arithmetic(arithmetic):
+    """arithmetic.gbnf's num/ident charclass runs collapse to RunTerm leaves.
+
+    A collapsed run shows up as a ``lens == 0`` terminal — see
+    :class:`~lexic.parsing.tables.TermTables`.
+    """
+    _, _, _, grammar, fold = arithmetic
+    plain = compile_tables(grammar)
+    collapsed = collapsed_instance_tables(grammar, fold)
+    assert collapsed is not plain
+    assert any(length == 0 for length in collapsed.terms.lens)
+
+
+def test_collapsed_instance_tables_memoises_per_fold_and_grammar(arithmetic):
+    """The same (fold, grammar) pair returns the identical tables object."""
+    _, _, _, grammar, fold = arithmetic
+    first = collapsed_instance_tables(grammar, fold)
+    second = collapsed_instance_tables(grammar, fold)
+    assert first is second
+
+
+def test_collapsed_instance_tables_returns_plain_when_no_candidates(optional_shapes):
+    """A grammar with no star/plus run candidates gets back the plain tables."""
+    _, _, _, grammar, fold = optional_shapes
+    plain = compile_tables(grammar)
+    collapsed = collapsed_instance_tables(grammar, fold)
+    assert collapsed is plain
+
+
+# ── _instance_run_ok (Task 4) ─────────────────────────────────────────────
+
+
+def test_instance_run_ok_true_for_bare_terminal_unit(digit_grammar):
+    """A bare-terminal run unit (unit_rid == -1) is always instance-safe."""
+    fold = ModelFold([], {})
+    tables = compile_tables(digit_grammar)
+    assert _instance_run_ok(fold, tables, -1) is True
+
+
+def test_instance_run_ok_false_when_unit_is_a_specd_rule(digit_grammar):
+    """A run whose unit resolves to a user rule (a RuleSpec) is not instance-safe."""
+    digit_spec = _spec(
+        "digit", "value_str", [IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))))]
+    )
+    fold = ModelFold([digit_spec], {})
+    tables = compile_tables(digit_grammar)
+    digit_rid = tables.decode.rule_ids["digit"]
+    assert _instance_run_ok(fold, tables, digit_rid) is False
+
+
+def test_instance_run_ok_false_when_unit_is_a_wrapper_rule():
+    """A run whose unit resolves to a field-wrapper rule is not instance-safe either."""
+    fold = ModelFold([], {})
+    fold.wrappers["host--f0"] = ("text", 1)
+    wrapper_rule = IrRule("host--f0", IrAlternation(IrSequence(IrItem(IrLiteral("x")))))
+    g = IrAst(rules=IrSeq(wrapper_rule), start="host--f0")
+    tables = compile_tables(g)
+    wrapper_rid = tables.decode.rule_ids["host--f0"]
+    assert _instance_run_ok(fold, tables, wrapper_rid) is False
+
+
+def test_instance_run_ok_true_when_leaf_rule_untracked_by_fold(digit_grammar):
+    """A leaf rule the fold doesn't know about (no spec, no wrapper) is safe."""
+    fold = ModelFold([], {})
+    tables = compile_tables(digit_grammar)
+    digit_rid = tables.decode.rule_ids["digit"]
+    assert _instance_run_ok(fold, tables, digit_rid) is True

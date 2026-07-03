@@ -40,7 +40,6 @@ from lexic.ir.derive import (
     has_ruleref,
     hoist_helpers,
 )
-from lexic.ir.directives import Directives, parse_directives
 from lexic.ir.emit import render_specs
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
@@ -65,7 +64,6 @@ from lexic.ir.walk import IrTransformer, IrVisitor
 __all__ = [
     "CANONICAL_ESCAPES",
     "IR_DEFAULT",
-    "Directives",
     "EscapeCodec",
     "render_specs",
     "IrAction",
@@ -122,6 +120,5 @@ __all__ = [
     "derive_specs",
     "has_ruleref",
     "hoist_helpers",
-    "parse_directives",
     "topo_sort",
 ]

@@ -185,31 +185,59 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             # else: terminal — scanned between columns via the scannable index
 
     def _seed(self, i: int, rid: int) -> None:
-        """Predictor seeding: add rule ``rid``'s dot-0 items to column ``i``."""
-        seen_i = self.st.seen[i]
+        """Predictor seeding: add rule ``rid``'s FIRST-viable dot-0 items to ``i``.
+
+        Invariant — **no dedup needed here.** Dot-0 items are minted only by
+        this method, and both its call sites are ``predicted``-guarded
+        (:meth:`run` for the start rule, :meth:`_close` for predictions), so a
+        given ``(column, rule)`` seeds at most once. Every dotted position has
+        a globally unique code and every *advanced* item (completer, scanner,
+        nullable-advance, Leo top) carries dot ≥ 1, so a fresh seed can never
+        collide with anything already in ``seen`` — the membership test and the
+        ``seen.add`` are pure waste and omitted here (the seeds are simply not
+        filed into ``seen``, which no lookup ever consults for a dot-0 code).
+        This holds *only* while both call sites stay ``predicted``-guarded and
+        no other code mints dot-0 items; either change reintroduces the
+        collision and must restore the dedup. FIRST gating (below) only
+        *removes* seeds, never re-adds one, so it leaves this proof intact.
+
+        Invariant — **FIRST gating is sound.** An arm whose gate is a charset
+        that misses ``text[i]`` can contribute to no derivation at ``i``: a
+        non-empty derivation's first consumed char is in the arm's
+        nullable-prefix-closed FIRST, and an empty derivation implies the arm
+        is empty-deriving — whose gate is ``None`` (always seed). A poisoned
+        FIRST is also ``None`` and never gates. Empty-deriving arms must
+        ALWAYS seed: :meth:`_nullable_advance` records their done-codes as
+        SPPF children, and a nested-nullable arm's empty completion needs its
+        own advance links in the chart for :class:`FastTree` /
+        :class:`~lexic.parsing.reduce.FusedReduce` to walk. The ``predicted``
+        guard stays valid (the char is fixed per column). Leo: fewer waiters
+        can only shrink buckets — Leo may *engage more often*; the chart's
+        shape changes, the language and derivation sets do not. At column
+        ``n == len(text)`` the char slice is ``""``, which no charset
+        contains — only always-seed arms file, exactly the EOF rule.
+        """
         items_i = self.cols[i]
-        codes = self.tables.codes
-        nxt = codes.next_sym
         waiting_i = self.st.waiting[i]
         scannable_i = self.st.scannable[i]
-        for code in codes.rule_dot0[rid]:
-            new = (code << ORIGIN_BITS) | i
-            if new not in seen_i:
-                seen_i.add(new)
-                items_i.append(new)
-                s = nxt[code]
-                if s > 0:
-                    bucket = waiting_i.get(s - 1)
-                    if bucket is None:
-                        waiting_i[s - 1] = [new]
-                    else:
-                        bucket.append(new)
-                elif s < 0:
-                    bucket = scannable_i.get(-s - 1)
-                    if bucket is None:
-                        scannable_i[-s - 1] = [new]
-                    else:
-                        bucket.append(new)
+        char = self.text[i : i + 1]
+        for shifted, s, gate in self.tables.codes.rule_seed_gates[rid]:
+            if gate is not None and char not in gate:
+                continue
+            new = shifted | i
+            items_i.append(new)
+            if s > 0:
+                bucket = waiting_i.get(s - 1)
+                if bucket is None:
+                    waiting_i[s - 1] = [new]
+                else:
+                    bucket.append(new)
+            elif s < 0:
+                bucket = scannable_i.get(-s - 1)
+                if bucket is None:
+                    scannable_i[-s - 1] = [new]
+                else:
+                    bucket.append(new)
 
     def _advance_all(self, j: int, source: list[int]) -> None:
         """Advance every item in ``source`` by one dot into column ``j``.

@@ -18,9 +18,12 @@ from lexic.ir.base import IrNone, IrNoneType, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
+    IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -89,6 +92,94 @@ def test_undefined_ref_kernel_accept_is_negative():
     tables = compile_tables(_undefined_ref_grammar())
     kernel = Kernel(tables, "x").run()
     assert kernel.accept == -1
+
+
+# ── FIRST-gated prediction: kernel seeding behavior (Task 2) ──────────
+
+
+def test_arm_gated_out_by_first_charset_is_not_seeded_at_column():
+    """s = digit / letter — a digit char seeds only the digit arm at column 0.
+
+    Partitions ``s``'s own dot-0 seeds by whether their gate contains the
+    scanned char (``gate is None`` also counts as seeding, per the
+    always-seed rule), then checks the packed dot-0 item's presence in
+    ``cols[0]`` directly — no reliance on ``waiting``/``scannable`` internals.
+    """
+    digit = IrRule(
+        "digit",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))),
+    )
+    letter = IrRule(
+        "letter",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
+    )
+    s = IrRule(
+        "s",
+        IrAlternation(
+            IrSequence(IrItem(IrRuleRef("digit"))),
+            IrSequence(IrItem(IrRuleRef("letter"))),
+        ),
+    )
+    g = IrAst(rules=IrSeq(s, digit, letter), start="s")
+    tables = compile_tables(g)
+    s_rid = tables.decode.rule_ids["s"]
+    seeds = tables.codes.rule_seed_gates[s_rid]
+    char = "5"
+    should_seed = [
+        shifted for shifted, _sym, gate in seeds if gate is None or char in gate
+    ]
+    should_not_seed = [
+        shifted
+        for shifted, _sym, gate in seeds
+        if gate is not None and char not in gate
+    ]
+    assert should_seed and should_not_seed  # both partitions are non-empty
+
+    kernel = Kernel(tables, char).run()
+    for shifted in should_seed:
+        assert shifted in kernel.cols[0]
+    for shifted in should_not_seed:
+        assert shifted not in kernel.cols[0]
+
+
+def test_eof_column_only_gate_none_arms_seed():
+    """s = digit / '' over empty input: at the EOF column, only the empty
+    (always-seed) arm seeds — the digit arm's gate matches no char, and the
+    EOF column's char slice is the empty string, which is in no charset."""
+    digit = IrRule(
+        "digit",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))),
+    )
+    s = IrRule(
+        "s",
+        IrAlternation(IrSequence(IrItem(IrRuleRef("digit"))), IrSequence()),
+    )
+    g = IrAst(rules=IrSeq(s, digit), start="s")
+    tables = compile_tables(g)
+    s_rid = tables.decode.rule_ids["s"]
+    seeds = tables.codes.rule_seed_gates[s_rid]
+    (always_shifted,) = [shifted for shifted, _sym, gate in seeds if gate is None]
+    (gated_shifted,) = [shifted for shifted, _sym, gate in seeds if gate is not None]
+
+    kernel = Kernel(tables, "").run()
+    assert always_shifted in kernel.cols[0]
+    assert gated_shifted not in kernel.cols[0]
+
+
+def test_empty_literal_terminal_arm_never_seeds_at_any_column():
+    """An IrLiteral('') unit's FIRST gate is frozenset() — a real (unpoisoned)
+    but empty charset, distinct from the `None` always-seed sentinel — so the
+    arm seeds at no column, for any input."""
+    rule = IrRule("s", IrAlternation(IrSequence(IrItem(IrLiteral("")))))
+    g = IrAst(rules=IrSeq(rule), start="s")
+    tables = compile_tables(g)
+    s_rid = tables.decode.rule_ids["s"]
+    ((shifted, _sym, gate),) = tables.codes.rule_seed_gates[s_rid]
+    assert gate == frozenset()
+
+    for text in ("", "a", "ab"):
+        kernel = Kernel(tables, text).run()
+        assert all(shifted not in col for col in kernel.cols)
 
 
 # ── Completion advancement: two-rule grammar ──────────────────────────

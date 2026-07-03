@@ -1,7 +1,6 @@
 """Generated module: test_models_optional. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
-
 from typing import Annotated, Optional
 
 from pydantic import StringConstraints
@@ -11,9 +10,9 @@ from lexic.ir.nodes import (
     IrAlternation,
     IrItem,
     IrLiteral,
-    IrQuantifier,
     IrRuleRef,
     IrSequence,
+    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 

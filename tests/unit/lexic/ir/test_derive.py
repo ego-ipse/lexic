@@ -665,7 +665,7 @@ def test_derive_helper_rules_appear_in_output():
 
 
 def test_derive_marks_non_semantic_field_min_zero():
-    """`expr ::= term ws op` with non_semantic_rules={"ws"} forces ws field lo=0."""
+    """`expr ::= term ws op` with `ast.non_semantic={"ws"}` forces ws field lo=0."""
     expr = IrRule(
         "expr",
         IrAlternation(
@@ -689,8 +689,10 @@ def test_derive_marks_non_semantic_field_min_zero():
         ),
     )
     op = IrRule("op", IrAlternation(IrSequence(IrItem(IrLiteral("+")))))
-    ast = IrAst(rules=IrSeq(expr, term, ws, op), start="expr")
-    specs = derive_specs(ast, non_semantic_rules=frozenset({"ws"}))
+    ast = IrAst(
+        rules=IrSeq(expr, term, ws, op), start="expr", non_semantic=frozenset({"ws"})
+    )
+    specs = derive_specs(ast)
     expr_spec = next(s for s in specs if s.rule_name == "expr")
     # Find the ws item
     ws_item = next(

@@ -115,6 +115,35 @@ def _charclass_contains(charclass: IrCharClass, char: str) -> bool:
     return False
 
 
+_MAX_CHARSET = 4096
+"""Expansion cap for a char-class range — beyond it the set poisons."""
+
+Charset = frozenset[str] | None
+"""An exact character set, or ``None`` — poisoned (unknown / too large)."""
+
+
+def _expand_atom(atom: IrSelf) -> Charset:
+    """The exact single-char set a terminal atom matches, or poisoned.
+
+    A literal qualifies only at length 1 (a longer literal is not a
+    char-unit); a range wider than :data:`_MAX_CHARSET` poisons.
+    """
+    if isinstance(atom, IrLiteral):
+        return frozenset(atom) if len(atom) == 1 else None
+    if not isinstance(atom, IrCharClass):
+        return None
+    chars: set[str] = set()
+    for element in atom:
+        if isinstance(element, IrRange):
+            lo, hi = ord(str(element.lo)), ord(str(element.hi))
+            if hi - lo > _MAX_CHARSET:
+                return None
+            chars.update(chr(c) for c in range(lo, hi + 1))
+        else:
+            chars.update(str(element))
+    return frozenset(chars)
+
+
 def atom_accepts(atom: "IrLiteral | IrCharClass | IrNot | RunTerm", char: str) -> bool:
     """Whether a terminal atom can **begin** with ``char`` — the scan filter.
 
@@ -199,8 +228,18 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
     :ivar code_arm: code → its arm_id.
     :ivar arm_rule: arm_id → owning rule_id.
     :ivar arm_base: arm_id → the arm's dot-0 code.
-    :ivar rule_dot0: rule_id → the dot-0 codes of its arms (empty when the
+    :ivar rule_seed_gates: rule_id → the ``(dot-0 code << ORIGIN_BITS,
+        next_sym, gate)`` triples the predictor files per arm (empty when the
         rule is referenced but never defined — prediction seeds nothing).
+        This is the stored primitive: the dot-0 codes pre-shifted, pre-paired
+        with their symbol, and pre-joined with the arm's FIRST gate, so
+        :meth:`~lexic.parsing.kernel.Kernel._seed` neither re-shifts,
+        re-indexes ``next_sym``, nor looks up a parallel column per seed.
+        ``gate`` is ``None`` — *always seed* (the arm is empty-deriving or
+        its FIRST is poisoned) — or the arm's nullable-prefix-closed FIRST
+        char set (see :class:`_FirstGates`): the arm seeds only when the
+        column's char is in it. The plain ``rule_seeds`` pair view and the
+        ``rule_dot0`` code view are derived from it.
     :ivar nullable_completes: rule_id → completed codes of its empty-deriving
         arms (empty tuple ⇔ not nullable) — the Aycock-Horspool advance set.
     :ivar accept_codes: completed codes of the start rule's arms.
@@ -211,7 +250,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
         "code_arm",
         "arm_rule",
         "arm_base",
-        "rule_dot0",
+        "rule_seed_gates",
         "nullable_completes",
         "accept_codes",
     )
@@ -220,7 +259,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
     code_arm: tuple[int, ...]
     arm_rule: tuple[int, ...]
     arm_base: tuple[int, ...]
-    rule_dot0: tuple[tuple[int, ...], ...]
+    rule_seed_gates: tuple[tuple[tuple[int, int, Charset], ...], ...]
     nullable_completes: tuple[tuple[int, ...], ...]
     accept_codes: frozenset[int]
 
@@ -233,9 +272,40 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
         self.code_arm = tuple(aid for aid, _ in builder.codes)
         self.arm_rule = tuple(rid for _, rid, _ in builder.arms)
         self.arm_base = tuple(base for _, _, base in builder.arms)
-        self.rule_dot0 = tuple(tuple(d) for d in builder.rule_dot0)
+        self.rule_seed_gates = tuple(
+            tuple(
+                (code << ORIGIN_BITS, self.next_sym[code], gate)
+                for code, gate in zip(dot0, gates)
+            )
+            for dot0, gates in zip(builder.rule_dot0, builder.seed_gates())
+        )
         self.nullable_completes = tuple(builder.nullable())
         self.accept_codes = builder.accept_codes()
+
+    @property
+    def rule_seeds(self) -> tuple[tuple[tuple[int, int], ...], ...]:
+        """rule_id → the ``(dot-0 code << ORIGIN_BITS, next_sym)`` seed pairs.
+
+        The gate-free pair view of ``rule_seed_gates``, rebuilt per access —
+        compile-time / test surface only; the hot per-parse path reads
+        ``rule_seed_gates`` directly.
+        """
+        return tuple(
+            tuple((shifted, sym) for shifted, sym, _ in seeds)
+            for seeds in self.rule_seed_gates
+        )
+
+    @property
+    def rule_dot0(self) -> tuple[tuple[int, ...], ...]:
+        """rule_id → the dot-0 codes of its arms, recovered from the seeds.
+
+        The compile-time (FIRST/FOLLOW analysis) view of the seed column,
+        rebuilt per access — never on a hot or per-rule-loop path.
+        """
+        return tuple(
+            tuple(shifted >> ORIGIN_BITS for shifted, _, _ in seeds)
+            for seeds in self.rule_seed_gates
+        )
 
 
 class DecodeTables(IrLeaf[IrSelf, IrSelf]):
@@ -544,8 +614,8 @@ class _TableBuilder:
             "run normalize() before compiling"
         )
 
-    def nullable(self) -> list[tuple[int, ...]]:
-        """Per-rule completed codes of empty-deriving arms, by least fixpoint.
+    def nullable_rules(self) -> set[int]:
+        """Rule ids deriving the empty string, by least fixpoint.
 
         A rule is nullable if any arm is nullable; an arm is nullable if every
         position predicts a nullable rule (an empty arm vacuously).
@@ -555,16 +625,21 @@ class _TableBuilder:
         while changed:
             changed = False
             for arm_id, (_, rid, _) in enumerate(self.arms):
-                if rid not in nullable and self._arm_nullable(arm_id, nullable):
+                if rid not in nullable and self.arm_nullable(arm_id, nullable):
                     nullable.add(rid)
                     changed = True
+        return nullable
+
+    def nullable(self) -> list[tuple[int, ...]]:
+        """Per-rule completed codes of empty-deriving arms."""
+        nullable = self.nullable_rules()
         out: list[tuple[int, ...]] = [() for _ in self.rule_ids]
         for arm_id, (seq, rid, base) in enumerate(self.arms):
-            if rid in nullable and self._arm_nullable(arm_id, nullable):
+            if rid in nullable and self.arm_nullable(arm_id, nullable):
                 out[rid] = out[rid] + (base + len(seq),)
         return out
 
-    def _arm_nullable(self, arm_id: int, nullable: set[int]) -> bool:
+    def arm_nullable(self, arm_id: int, nullable: set[int]) -> bool:
         """Whether every position of ``arm_id`` predicts a nullable rule."""
         seq, _, base = self.arms[arm_id]
         for code in range(base, base + len(seq)):
@@ -572,6 +647,119 @@ class _TableBuilder:
             if sym <= 0 or (sym - 1) not in nullable:
                 return False
         return True
+
+    def seed_gates(self) -> list[tuple[Charset, ...]]:
+        """Per rule, per dot-0 arm, the FIRST seed gate (``None`` = always)."""
+        return _FirstGates(self).gates()
+
+
+class _FirstGates(IrLeaf[IrSelf, IrSelf]):
+    """Per-arm FIRST seed gates — the compile-time half of gated prediction.
+
+    Runs over a finished builder's layout (so it covers every table variant,
+    run-collapsed or not). A gate is ``None`` — *always seed* — for an
+    empty-deriving arm (its empty completion's advance links must exist in
+    the chart) or a poisoned FIRST (an ``IrNot`` atom, a char class wider
+    than :data:`_MAX_CHARSET`, or anything transitively reaching one);
+    otherwise it is the arm's FIRST char set with nullable-prefix
+    continuation, and the predictor seeds the arm only when the column's
+    char is in it.
+
+    :ivar builder: The builder whose layout to analyse.
+    :ivar atoms: term_id → the terminal atom (for terminal FIRST chars).
+    :ivar nullable_rules: Rule ids deriving the empty string.
+    :ivar first: rule_id → FIRST char set (``None`` = poisoned).
+    """
+
+    __slots__ = ("builder", "atoms", "nullable_rules", "first")
+
+    builder: _TableBuilder
+    atoms: tuple["IrLiteral | IrCharClass | IrNot | RunTerm", ...]
+    nullable_rules: set[int]
+    first: list[set[str] | None]
+
+    def __init__(self, builder: _TableBuilder) -> None:
+        """Run the FIRST analysis over ``builder``'s finished layout."""
+        self.builder = builder
+        self.atoms = builder.term_atoms()
+        self.nullable_rules = builder.nullable_rules()
+        self.first = self._first_sets()
+
+    def gates(self) -> list[tuple[Charset, ...]]:
+        """Per rule, per dot-0 arm, the seed gate (``None`` = always seed)."""
+        return [
+            tuple(self._gate_of(base) for base in dot0)
+            for dot0 in self.builder.rule_dot0
+        ]
+
+    def _gate_of(self, base: int) -> Charset:
+        """The gate of the arm whose dot-0 code is ``base``."""
+        arm_id = self.builder.codes[base][0]
+        if self.builder.arm_nullable(arm_id, self.nullable_rules):
+            return None  # empty-deriving — must always seed
+        return self._arm_first(base, self.first)
+
+    def _term_first(self, sym: int) -> Charset:
+        """Begin-chars of terminal symbol ``sym`` (< 0), or poisoned.
+
+        A multi-char literal is begun by its first char; a :class:`RunTerm`
+        by any char of its set; the rest is :func:`_expand_atom`.
+        """
+        atom = self.atoms[-sym - 1]
+        if isinstance(atom, IrLiteral):
+            return frozenset(atom[0]) if atom else frozenset()
+        if isinstance(atom, RunTerm):
+            return atom.charset
+        return _expand_atom(atom)
+
+    def _arm_first(self, base: int, first: list[set[str] | None]) -> Charset:
+        """The FIRST of the arm at ``base``, with nullable-prefix continuation.
+
+        Walks the arm's symbols left to right, unioning each symbol's
+        first-chars, stopping at the first non-nullable symbol; poison
+        anywhere on the walked prefix poisons the arm.
+        """
+        codes = self.builder.codes
+        out: set[str] = set()
+        code = base
+        while (sym := codes[code][1]) != 0:
+            if sym < 0:
+                add = self._term_first(sym)
+                if add is None:
+                    return None
+                return frozenset(out | add)
+            target = first[sym - 1]
+            if target is None:
+                return None
+            out |= target
+            if sym - 1 not in self.nullable_rules:
+                return frozenset(out)
+            code += 1
+        return frozenset(out)
+
+    def _first_sets(self) -> list[set[str] | None]:
+        """Per-rule FIRST char sets by least fixpoint (poison propagates)."""
+        first: list[set[str] | None] = [set() for _ in self.builder.rule_dot0]
+        changed = True
+        while changed:
+            changed = False
+            for rid, mine in enumerate(first):
+                if mine is not None and self._grow_first(rid, mine, first):
+                    changed = True
+        return first
+
+    def _grow_first(
+        self, rid: int, mine: set[str], first: list[set[str] | None]
+    ) -> bool:
+        """Grow ``first[rid]`` from its arms; ``True`` when it changed."""
+        before = len(mine)
+        for base in self.builder.rule_dot0[rid]:
+            arm = self._arm_first(base, first)
+            if arm is None:
+                first[rid] = None
+                return True
+            mine |= arm
+        return len(mine) != before
 
 
 def build_tables(

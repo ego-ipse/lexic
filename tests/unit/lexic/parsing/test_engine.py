@@ -38,6 +38,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -60,8 +61,10 @@ from lexic.parsing.forest import (
     IrStream,
     SppfNode,
 )
+from lexic.parsing.lexruns import run_candidates
 from lexic.parsing.normalize import normalize
 from lexic.parsing.reduce import Reducer
+from lexic.parsing.tables import RUN_STR, RunTerm, build_tables, compile_tables
 
 # ── Grammar builders ──────────────────────────────────────────────────
 
@@ -715,3 +718,73 @@ def test_parse_first_raises_on_empty_for_non_nullable(digit_grammar: IrAst):
     non-nullable rule."""
     with pytest.raises(UnsupportedConstructError):
         parse_first(digit_grammar, "")
+
+
+# ── ParseFirst: optional pre-built tables parameter (Task 4) ────────────
+
+
+def _digits_plus_grammar() -> IrAst:
+    """s = [0-9]+ (normalized) — one rule with a collapsible charclass run."""
+    rule = IrRule(
+        "s",
+        IrAlternation(
+            IrSequence(
+                IrItem(
+                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
+                    IrQuantifier(1, IrNone),
+                )
+            )
+        ),
+    )
+    return normalize(IrAst(rules=IrSeq(rule), start="s"))
+
+
+def _collapsed_digits_plus_tables(g: IrAst):
+    """The grammar-proved run collapse of ``g``, built via RunTerm/build_tables."""
+    plain = compile_tables(g)
+    candidates = run_candidates(plain)
+    runs = {
+        name: (RunTerm(charset, 1, RUN_STR), has_empty)
+        for name, (charset, has_empty, _unit_rid) in candidates.items()
+    }
+    return build_tables(g, runs)
+
+
+def test_parse_first_tables_none_matches_omitted_argument():
+    """Passing tables=None explicitly behaves exactly like omitting it."""
+    g = _digits_plus_grammar()
+    assert parse_first(g, "123", tables=None) == parse_first(g, "123")
+
+
+def test_parse_first_with_explicit_plain_tables_matches_default():
+    """Passing the exact plain compile_tables() object changes nothing."""
+    g = _digits_plus_grammar()
+    plain = compile_tables(g)
+    assert parse_first(g, "123", tables=plain) == parse_first(g, "123")
+
+
+def test_parse_first_with_collapsed_tables_still_parses():
+    """A run-collapsed tables object still yields a valid derivation for
+    unambiguous input, even though the packed chart shape differs from the
+    plain per-char tables."""
+    g = _digits_plus_grammar()
+    collapsed = _collapsed_digits_plus_tables(g)
+    assert any(length == 0 for length in collapsed.terms.lens)  # a run really collapsed
+    tree = parse_first(g, "123", tables=collapsed)
+    assert isinstance(tree, ParseTree)
+    assert tree.symbol == IrRuleRef("s")
+
+
+def test_parse_first_with_collapsed_tables_falls_back_on_ambiguity(
+    sss_grammar: IrAst,
+):
+    """A fast-path miss (ambiguity) with collapsed tables passed re-parses over
+    plain tables and still returns a first derivation — the fold-back mirrors
+    ParseReduced's, not a crash."""
+    plain = compile_tables(sss_grammar)
+    collapsed = build_tables(sss_grammar, runs={})  # a distinct object, no runs
+    assert collapsed is not plain
+    with pytest.raises(UnsupportedConstructError):
+        parse(sss_grammar, "aaa")
+    tree = parse_first(sss_grammar, "aaa", tables=collapsed)
+    assert isinstance(tree, ParseTree)

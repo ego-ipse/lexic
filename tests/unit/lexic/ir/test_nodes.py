@@ -328,9 +328,14 @@ def test_repr_empty_structural_node_is_codegen():
 
 
 def test_repr_irast_is_codegen():
-    """IrAst reproduces its constructor call."""
+    """IrAst reproduces its constructor call, including the default `non_semantic`.
+
+    Every :class:`~lexic.ir.base.IrNamedTuple` field renders unconditionally
+    (see ``IrItem``'s repr including its default ``IrQuantifier(1, 1)``) — the
+    third field is not special-cased away just because it carries a default.
+    """
     ast = IrAst(IrSeq(IrRule("r", IrAlternation())), "r")
-    assert repr(ast) == ("IrAst(IrSeq(IrRule('r', IrAlternation())), 'r')")
+    assert repr(ast) == ("IrAst(IrSeq(IrRule('r', IrAlternation())), 'r', frozenset())")
 
 
 def test_irliteral_eval_returns_literal_value():

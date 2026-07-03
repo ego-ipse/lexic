@@ -110,23 +110,32 @@ def test_ws_uses_charclass():
 # ── Pipeline smoke tests ──────────────────────────────────────────────
 
 
+def _json_ast_with_non_semantic() -> IrAst:
+    """``JSON_GRAMMAR`` rebound with ``ws`` marked non-semantic."""
+    return IrAst(
+        rules=JSON_GRAMMAR.rules,
+        start=JSON_GRAMMAR.start,
+        non_semantic=frozenset({"ws"}),
+    )
+
+
 def test_derive_specs_succeeds():
-    """``derive_specs(JSON_GRAMMAR, ...)`` runs without error and returns a list."""
-    specs = derive_specs(JSON_GRAMMAR, non_semantic_rules=frozenset({"ws"}))
+    """``derive_specs(ast)`` runs without error and returns a list."""
+    specs = derive_specs(_json_ast_with_non_semantic())
     assert isinstance(specs, list)
     assert len(specs) > 0
 
 
 def test_derive_specs_includes_start_rule():
     """The derived spec list includes a spec for the start rule."""
-    specs = derive_specs(JSON_GRAMMAR, non_semantic_rules=frozenset({"ws"}))
+    specs = derive_specs(_json_ast_with_non_semantic())
     names = {s.rule_name for s in specs}
     assert "JSON-text" in names
 
 
 def test_codegen_produces_classes():
     """``codegen(specs, ...)`` generates Pydantic classes without error."""
-    specs = derive_specs(JSON_GRAMMAR, non_semantic_rules=frozenset({"ws"}))
+    specs = derive_specs(_json_ast_with_non_semantic())
     classes = codegen(specs, "json_grammar_test")
     assert isinstance(classes, dict)
     assert len(classes) > 0

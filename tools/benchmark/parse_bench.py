@@ -7,10 +7,16 @@ bench keeps the same corpus and timing discipline but pits the engine against
 verbatim from git history and embedded here, so the Lark side is fully
 self-contained and carries no current-lexic parser/reducer/flavour machinery.
 
-Corpus (unchanged): the ABNF-of-ABNF source (``ABNF_FLAVOUR.apply(grammar)``,
-~2 KB) concatenated x1/x2/x4. A concatenation of valid rulelists is itself a
-valid rulelist, so parse cost is what scales; duplicate rule names are
-immaterial to the parser.
+Corpora (two workloads, each concatenated x1/x2/x4 per :data:`SIZES`): a
+concatenation of valid rulelists is itself a valid rulelist, so parse cost is
+what scales; duplicate rule names are immaterial to the parser.
+
+  self-emit    the ABNF-of-ABNF source (``ABNF_FLAVOUR.apply(grammar)``, ~2 KB)
+  subset-920   the fixed old-subset-grammar self-emit pinned in
+               ``corpus_subset_920.abnf`` (920 chars) — the corpus
+               ``zzz_current_work/Disputed.md`` measured its regression
+               claims against; kept byte-exact so this harness reproduces
+               those numbers against whatever grammar is at HEAD.
 
 Timing (unchanged): interleaved samples (one of every variant per round, so
 machine drift hits all alike), median ± stdev in ms, gc disabled around each
@@ -47,6 +53,7 @@ same node types. No current parser/reducer/flavour machinery is touched.
 Usage:
   uv run python tools/benchmark/parse_bench.py            # both sides if lark present
   uv run --with lark python tools/benchmark/parse_bench.py  # force lark available
+  uv run python tools/benchmark/parse_bench.py --save      # also write bench_baseline.json
 """
 
 from __future__ import annotations
@@ -55,10 +62,13 @@ import cProfile
 import gc
 import importlib
 import importlib.util
+import json
 import pstats
 import statistics
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable
 
@@ -127,6 +137,22 @@ NORM_GRAMMAR = normalize(ABNF_FLAVOUR.grammar)
 REDUCER = ABNF_FLAVOUR.reducer
 SIZES = (1, 2, 4)
 LARK_HINT = "run: uv run --with lark python tools/benchmark/parse_bench.py"
+BASELINE_PATH = Path(__file__).parent / "bench_baseline.json"
+
+
+@dataclass(frozen=True, slots=True)
+class Workload:
+    """One timed corpus: a name and the base text repeated per :data:`SIZES`."""
+
+    name: str
+    base_text: str
+
+
+SUBSET_TEXT = (Path(__file__).parent / "corpus_subset_920.abnf").read_text()
+WORKLOADS: tuple[Workload, ...] = (
+    Workload("self-emit", BASE_TEXT),
+    Workload("subset-920", SUBSET_TEXT),
+)
 
 Variant = Callable[[str], object]
 
@@ -402,13 +428,14 @@ def load_lark() -> ModuleType | None:
     return importlib.import_module("lark")
 
 
-def make_input(repeat: int) -> str:
-    """Return ``repeat`` concatenated copies of the ABNF-of-ABNF source.
+def make_input(base_text: str, repeat: int) -> str:
+    """Return ``repeat`` concatenated copies of ``base_text``.
 
+    :param base_text: A workload's base corpus (a valid rulelist).
     :param repeat: How many copies to concatenate.
     :returns: The concatenated (still valid) ABNF rulelist text.
     """
-    return BASE_TEXT * repeat
+    return base_text * repeat
 
 
 def build_variants(lark_mod: ModuleType | None) -> dict[str, Variant]:
@@ -442,7 +469,7 @@ def sanity_check(lark_mod: ModuleType) -> bool:
     """
     parser = lark_mod.Lark(META_GRAMMAR, parser="earley", ambiguity="resolve")
     reducer = _make_lark_reducer(lark_mod)
-    text = make_input(1)
+    text = make_input(BASE_TEXT, 1)
     lark_ir = reducer.transform(parser.parse(text))
     engine_ir = engine_parse_reduced(NORM_GRAMMAR, text, REDUCER)
     return lark_ir == engine_ir
@@ -490,16 +517,18 @@ def _cell(samples: list[float]) -> str:
     return f"{statistics.median(samples):>7.1f}±{statistics.stdev(samples):<4.1f}ms"
 
 
-def _report_scale(samples: dict[str, list[float]], text: str, rounds: int) -> None:
+def _report_scale(
+    samples: dict[str, list[float]], text: str, rounds: int, base_len: int
+) -> None:
     """Print the per-stage table for one input scale.
 
     :param samples: Name → per-sample durations for this scale.
     :param text: The scale's input (for the char count).
     :param rounds: Rounds used (for the header).
+    :param base_len: Length of the workload's unrepeated base text (for the
+        ``x{n}`` label).
     """
-    print(
-        f"input x{len(text) // len(BASE_TEXT)}  ({len(text)} chars · {rounds} rounds):"
-    )
+    print(f"input x{len(text) // base_len}  ({len(text)} chars · {rounds} rounds):")
     print(
         f"  {'stage':<14} {'lark med±sd':>16} {'engine med±sd':>18} {'engine/lark':>12}"
     )
@@ -606,29 +635,39 @@ def _interpret_profile(top_rows: list[tuple[str, float, float]]) -> None:
 def _diagnose(medians: dict[str, float], have_lark: bool) -> None:
     """Print the full WHY section: stage deltas, profile, and closing verdict.
 
-    :param medians: ``"x{n}/{stage}:{engine}"`` → median ms.
+    Scoped to the self-emit workload — it is the deep dive into engine
+    internals (cProfile), not a per-workload comparison.
+
+    :param medians: The self-emit workload's ``"x{n}/{stage}:{engine}"`` →
+        median ms.
     :param have_lark: Whether Lark numbers are available.
     """
-    chars = len(make_input(SIZES[-1]))
+    chars = len(make_input(BASE_TEXT, SIZES[-1]))
     print(
         f"== DIAGNOSIS — why engine text→tree is ~2× lark (x{SIZES[-1]}, {chars} chars) =="
     )
     _stage_deltas(medians, chars, have_lark)
-    top_rows = _profile_parse(make_input(1))
+    top_rows = _profile_parse(make_input(BASE_TEXT, 1))
     _interpret_profile(top_rows)
 
 
 # ── Verdict ────────────────────────────────────────────────────────────
-def _verdict(medians: dict[str, float], have_lark: bool) -> None:
+def _verdict(
+    workload_name: str, medians: dict[str, float], have_lark: bool, chars: int
+) -> None:
     """Print the headline verdict on the largest scale's ``parse`` stage.
 
-    :param medians: ``"x{n}/{stage}:{engine}"`` → median ms.
+    :param workload_name: The workload this verdict covers (for the banner).
+    :param medians: The workload's ``"x{n}/{stage}:{engine}"`` → median ms.
     :param have_lark: Whether the Lark side ran.
+    :param chars: Char count of the largest scale (``x{SIZES[-1]}``).
     """
-    big, chars = SIZES[-1], len(make_input(SIZES[-1]))
+    big = SIZES[-1]
     engine_ms = medians[f"x{big}/parse:engine"]
     product_ms = medians[f"x{big}/parse+reduce:engine"]
-    print(f"== VERDICT (x{big}, {chars} chars) — parse stage, text→tree ==")
+    print(
+        f"== VERDICT [{workload_name}] (x{big}, {chars} chars) — parse stage, text→tree =="
+    )
     if not have_lark:
         print(
             f"  engine parse {engine_ms:.0f}ms · {engine_ms / chars * 1e3:.1f} µs/char"
@@ -680,10 +719,36 @@ def _print_header(have_lark: bool) -> None:
     print()
 
 
+def _save_baseline(all_medians: dict[str, dict[str, float]]) -> None:
+    """Write per workload × size × stage × engine median ms and µs/char.
+
+    :param all_medians: Workload name → ``"x{n}/{stage}:{engine}"`` → median ms.
+    """
+    baseline: dict[str, dict[str, dict[str, dict[str, float]]]] = {}
+    for workload in WORKLOADS:
+        medians = all_medians[workload.name]
+        by_size: dict[str, dict[str, dict[str, float]]] = {}
+        for repeat in SIZES:
+            chars = len(workload.base_text) * repeat
+            prefix = f"x{repeat}/"
+            by_size[f"x{repeat}"] = {
+                key[len(prefix) :]: {
+                    "median_ms": median_ms,
+                    "us_per_char": median_ms / chars * 1e3,
+                }
+                for key, median_ms in medians.items()
+                if key.startswith(prefix)
+            }
+        baseline[workload.name] = by_size
+    BASELINE_PATH.write_text(json.dumps(baseline, indent=2, sort_keys=True))
+    print(f"baseline saved → {BASELINE_PATH.name}")
+
+
 def main() -> None:
-    """Run the benchmark across all scales, then the verdict and diagnosis."""
+    """Run the benchmark across all workloads and scales, then diagnose."""
     lark_mod = load_lark()
     have_lark = lark_mod is not None
+    save = "--save" in sys.argv[1:]
     _print_header(have_lark)
     if lark_mod is not None:
         ok = sanity_check(lark_mod)
@@ -693,17 +758,24 @@ def main() -> None:
         )
 
     variants = build_variants(lark_mod)
-    medians: dict[str, float] = {}
-    for repeat in SIZES:
-        text = make_input(repeat)
-        rounds = max(7, 40 // repeat)
-        samples = interleaved(variants, text, rounds)
-        for name, series in samples.items():
-            medians[f"x{repeat}/{name}"] = statistics.median(series)
-        _report_scale(samples, text, rounds)
+    all_medians: dict[str, dict[str, float]] = {}
+    for workload in WORKLOADS:
+        print(f"--- workload: {workload.name} ---\n")
+        medians: dict[str, float] = {}
+        for repeat in SIZES:
+            text = make_input(workload.base_text, repeat)
+            rounds = max(7, 40 // repeat)
+            samples = interleaved(variants, text, rounds)
+            for name, series in samples.items():
+                medians[f"x{repeat}/{name}"] = statistics.median(series)
+            _report_scale(samples, text, rounds, len(workload.base_text))
+        all_medians[workload.name] = medians
+        _verdict(workload.name, medians, have_lark, len(workload.base_text) * SIZES[-1])
 
-    _verdict(medians, have_lark)
-    _diagnose(medians, have_lark)
+    _diagnose(all_medians["self-emit"], have_lark)
+
+    if save:
+        _save_baseline(all_medians)
 
 
 if __name__ == "__main__":

@@ -216,7 +216,10 @@ def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
         new_body = t.apply(rule.body)
         all_helpers.extend(t.helpers)
         new_rules.append(IrRule(rule.name, new_body))
-    return IrAst(rules=IrSeq(*new_rules), start=ast.start), all_helpers
+    new_ast = IrAst(
+        rules=IrSeq(*new_rules), start=ast.start, non_semantic=ast.non_semantic
+    )
+    return new_ast, all_helpers
 
 
 # ── field naming ──────────────────────────────────────────────────────
@@ -439,18 +442,19 @@ def _apply_non_semantic(spec: RuleSpec, rules: frozenset[str]) -> RuleSpec:
 # ── orchestration ─────────────────────────────────────────────────────
 
 
-def derive_specs(
-    ast: IrAst,
-    *,
-    non_semantic_rules: frozenset[str] = frozenset(),
-) -> list[RuleSpec]:
+def derive_specs(ast: IrAst) -> list[RuleSpec]:
     """Walk the IR AST; produce the codegen RuleSpec view.
 
-    Pure function. No flavour reference.
+    Pure function. No flavour reference. The non-semantic rule set is read from
+    ``ast.non_semantic`` (bound by ``compile_grammar``); their refs get
+    ``min=0`` and their field names are recorded on each spec.
 
     Helper rules synthesised by hoist_helpers always receive
     parent_class_name='GrammarModel'; they never participate in
     alternation-arm-driven inheritance (Decision OV #11).
+
+    :param ast: The grammar AST, carrying its start rule and non-semantic set.
+    :returns: The topologically ordered RuleSpec list.
     """
     hoisted, helpers = hoist_helpers(ast)
     rules = list(hoisted.rules) + helpers
@@ -463,5 +467,5 @@ def derive_specs(
         parent = parents.get(rule.name, "GrammarModel")
         specs.extend(_BUILDERS[classify_kind(rule)](rule, cls_name, parent))
 
-    specs = [_apply_non_semantic(s, non_semantic_rules) for s in specs]
+    specs = [_apply_non_semantic(s, ast.non_semantic) for s in specs]
     return topo_sort(specs, is_start_rule=lambda s: s.rule_name == ast.start)

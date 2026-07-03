@@ -46,7 +46,15 @@ from lexic.ir.nodes import (
 from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 from lexic.parsing.forest import ParseTree
+from lexic.parsing.lexruns import run_candidates, unit_leaves
 from lexic.parsing.normalize import normalize
+from lexic.parsing.tables import (
+    RUN_STR,
+    ParserTables,
+    RunTerm,
+    build_tables,
+    compile_tables,
+)
 
 _WRAP_SEP = "--f"
 """Wrapper-rule name infix: ``<rule>--f<item-index>``."""
@@ -347,3 +355,67 @@ def build_instance_parser(
 ) -> tuple[IrAst, ModelFold]:
     """One-call helper for compile.py: specs → (normalized grammar, fold)."""
     return ModelFold.for_specs(specs, classes, start)
+
+
+# ── Instance-path run collapse (the ModelFold licence) ────────────────
+
+
+_COLLAPSED_INSTANCE: dict[tuple[int, int], tuple[object, object, ParserTables]] = {}
+"""Collapsed instance-tables memo — (id(fold), id(grammar)) → (fold, grammar,
+tables). Strong references pin both ids against reuse."""
+
+
+def _instance_run_ok(fold: ModelFold, tables: ParserTables, unit_rid: int) -> bool:
+    """Whether a proved run's unit leaves hide only ModelFold-transparent structure.
+
+    The runtime mirror of :func:`~lexic.parsing.reduce._run_mode`: a run may
+    collapse iff none of its unit leaves is a user rule (a ``RuleSpec``) or a
+    field wrapper (``<rule>--f<idx>``). Those subtrees carry model structure the
+    fold reads (a sub-model, or a field's extent); a single run leaf would erase
+    them. A bare terminal (``unit_rid < 0``) and any looked-through synthetic
+    layer are safe — the fold reconstructs their text from the run's leaf.
+
+    :param fold: The configured :class:`ModelFold` (its ``specs`` / ``wrappers``).
+    :param tables: The plain (uncollapsed) tables under analysis.
+    :param unit_rid: The run's repetition-unit rule id (``-1`` = bare terminal).
+    :returns: ``True`` when collapsing the run preserves the fold's output.
+    """
+    if unit_rid < 0:  # bare terminal unit — anonymous, no model structure
+        return True
+    resolved = unit_leaves(tables, unit_rid)
+    if resolved is None:
+        return False
+    leaf_rids, _has_bare = resolved
+    names = tables.decode.rule_names
+    return not any(
+        names[rid] in fold.specs or names[rid] in fold.wrappers for rid in leaf_rids
+    )
+
+
+def collapsed_instance_tables(grammar: IrAst, fold: ModelFold) -> ParserTables:
+    """Instance tables with every ModelFold-safe lexical run collapsed.
+
+    The grammar-side proof (charset, uniqueness, follow disjointness) comes from
+    :func:`~lexic.parsing.lexruns.run_candidates`; the fold-side licence
+    (:func:`_instance_run_ok`) keeps only runs whose collapsed multi-char leaf
+    hides structure the fold looks through anyway. Every kept run is
+    :data:`~lexic.parsing.tables.RUN_STR` (text-preserving): the run text stays a
+    leaf in the tree so ``to_text()`` round-trips exactly — never ``RUN_DROP``.
+    Memoised per ``(fold, grammar)``.
+
+    :param grammar: The Earley-normalised instance grammar.
+    :param fold: The configured :class:`ModelFold` for that grammar.
+    :returns: The collapsed tables (the plain tables when nothing collapses).
+    """
+    key = (id(fold), id(grammar))
+    entry = _COLLAPSED_INSTANCE.get(key)
+    if entry is not None:
+        return entry[2]
+    plain = compile_tables(grammar)
+    runs: dict[str, tuple[RunTerm, bool]] = {}
+    for name, (charset, has_empty, unit_rid) in run_candidates(plain).items():
+        if _instance_run_ok(fold, plain, unit_rid):
+            runs[name] = (RunTerm(charset, 1, RUN_STR), has_empty)
+    tables = build_tables(grammar, runs) if runs else plain
+    _COLLAPSED_INSTANCE[key] = (fold, grammar, tables)
+    return tables
