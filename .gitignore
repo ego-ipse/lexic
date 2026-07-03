@@ -42,6 +42,7 @@ tmp/
 
 # ── Local documentation ──
 archive/
+zzz_current_work/
 
 # ── Obsidian internals ──
 .wiki/.obsidian/
