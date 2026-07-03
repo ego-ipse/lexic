@@ -349,6 +349,14 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         self._char_terms = {}
         self._char_leaves = {}
 
+    @property
+    def cache_sizes(self) -> tuple[int, int]:
+        """Entry counts of the two scanning caches (terms, leaves).
+
+        :returns: ``(distinct chars with resolved term ids, interned leaves)``.
+        """
+        return (len(self._char_terms), len(self._char_leaves))
+
     def terms_for(self, char: str) -> tuple[int, ...]:
         """The term_ids whose atom accepts ``char`` (cached per distinct char).
 

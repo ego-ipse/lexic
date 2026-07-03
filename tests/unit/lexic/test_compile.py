@@ -1,4 +1,4 @@
-"""Unit tests for lexic.compile (compile_text, compile_from_path, compile_grammar)."""
+"""Unit tests for lexic.compile (compile_text/_from_path, compile_grammar, parse_grammar)."""
 
 import os
 import time
@@ -6,6 +6,7 @@ from typing import cast
 
 import pytest
 
+import lexic
 import lexic.compile as compile_module
 from lexic.base import GrammarModel
 from lexic.compile import (
@@ -13,6 +14,7 @@ from lexic.compile import (
     compile_from_path,
     compile_grammar,
     compile_text,
+    parse_grammar,
     reset_cache_for_tests,
 )
 from lexic.exceptions import UnsupportedConstructError
@@ -221,6 +223,30 @@ def test_compile_grammar_flavour_with_non_reducer_raises():
     is not a parsing Reducer instance."""
     with pytest.raises(UnsupportedConstructError, match="no parse Reducer"):
         compile_grammar('root ::= "x"\n', _FlavourWithBadReducer())
+
+
+def test_parse_grammar_returns_ir_ast():
+    """parse_grammar is the public grammar-text → IrAst seam."""
+    ast = parse_grammar('root ::= digit "+" digit\ndigit ::= [0-9]\n', GBNF_FLAVOUR)
+    assert isinstance(ast, IrAst)
+    assert [r.name for r in ast.rules] == ["root", "digit"]
+
+
+def test_parse_grammar_is_importable_from_the_package_root():
+    """The lexic package re-exports parse_grammar as primary API."""
+    assert lexic.parse_grammar is parse_grammar
+
+
+def test_parse_grammar_flavour_with_non_reducer_raises():
+    """parse_grammar raises UnsupportedConstructError on a malformed reducer."""
+    with pytest.raises(UnsupportedConstructError, match="no parse Reducer"):
+        parse_grammar('root ::= "x"\n', _FlavourWithBadReducer())
+
+
+def test_parse_grammar_malformed_source_raises():
+    """Unparseable grammar text surfaces as UnsupportedConstructError."""
+    with pytest.raises(UnsupportedConstructError):
+        parse_grammar("root ::=\n::= broken", GBNF_FLAVOUR)
 
 
 def test_normalized_grammar_memo_is_reused_across_compile_grammar_calls(monkeypatch):

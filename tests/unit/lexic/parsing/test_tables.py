@@ -322,12 +322,12 @@ def test_terms_for_consistent_across_repeat_calls():
 
 
 def test_terms_for_caches_per_distinct_char():
-    """Repeated calls with the same char do not grow the private cache dict."""
+    """Repeated calls with the same char do not grow the term cache."""
     tables = compile_tables(_digit_grammar())
     tables.terms_for("5")
     tables.terms_for("5")
     tables.terms_for("5")
-    assert len(tables._char_terms) == 1
+    assert tables.cache_sizes[0] == 1
 
 
 def test_terms_for_correctness_digit_matches_and_rejects():
@@ -347,11 +347,11 @@ def test_char_leaf_returns_interned_literal():
 
 
 def test_char_leaf_caches_per_distinct_char():
-    """Repeated calls with the same char do not grow the private leaf cache."""
+    """Repeated calls with the same char do not grow the leaf cache."""
     tables = compile_tables(_digit_grammar())
     tables.char_leaf("3")
     tables.char_leaf("3")
-    assert len(tables._char_leaves) == 1
+    assert tables.cache_sizes[1] == 1
 
 
 # ── Negated char-class terminals ─────────────────────────────────────────

@@ -1,4 +1,8 @@
-"""compile_grammar / compile_text — grammar compilation entry points.
+"""parse_grammar / compile_grammar / compile_text — grammar entry points.
+
+``parse_grammar(text, flavour)`` is the public grammar-text → ``IrAst`` seam:
+the flavour's own self-grammar (Earley-normalised, memoised per flavour)
+parses the source and the flavour's ``Reducer`` folds the derivation to IR.
 
 Pipeline (compile_grammar — grammar text → specs):
 
@@ -7,8 +11,8 @@ Pipeline (compile_grammar — grammar text → specs):
           │                                          ▼
           │                       (resolve `start` arg precedence)
           │
-          └──►  parse_reduced(normalize(flavour.grammar), text, flavour.reducer)
-                                                          │  ──►  IrAst
+          └──►  parse_grammar(text, flavour)  ──►  IrAst
+                                                          │
                                                           ▼
                       derive_specs(ast, non_semantic_rules=...)
                                                           │
@@ -104,6 +108,29 @@ def _normalized_grammar(flavour: IrFlavour) -> IrAst:
     return cached
 
 
+def parse_grammar(text: str, flavour: IrFlavour) -> IrAst:
+    """Parse grammar source into its IR AST via the flavour's engine path.
+
+    :param text: Grammar source in ``flavour``'s syntax.
+    :param flavour: The grammar flavour (e.g. ``GBNF_FLAVOUR``).
+    :returns: The reduced grammar AST.
+    :raises UnsupportedConstructError: If the flavour carries no ``Reducer``,
+        ``text`` does not parse, or the reduction is not an ``IrAst``.
+    """
+    reducer = flavour.reducer
+    if not isinstance(reducer, Reducer):
+        raise UnsupportedConstructError(
+            f"compile: flavour {flavour.name!r} carries no parse Reducer"
+        )
+    ast = parse_reduced(_normalized_grammar(flavour), text, reducer)
+    if not isinstance(ast, IrAst):
+        raise UnsupportedConstructError(
+            f"compile: flavour {flavour.name!r} reduction produced "
+            f"{type(ast).__name__!r}, not an IrAst"
+        )
+    return ast
+
+
 def _stem_for_text(text: str) -> str:
     """Stable filename for a grammar string with no path."""
     return "anon_" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
@@ -179,17 +206,7 @@ def compile_grammar(
     directives = parse_directives(text, flavour.line_comment)
     if non_semantic_rules is None:
         non_semantic_rules = directives.non_semantic
-    reducer = flavour.reducer
-    if not isinstance(reducer, Reducer):
-        raise UnsupportedConstructError(
-            f"compile: flavour {flavour.name!r} carries no parse Reducer"
-        )
-    ast = parse_reduced(_normalized_grammar(flavour), text, reducer)
-    if not isinstance(ast, IrAst):
-        raise UnsupportedConstructError(
-            f"compile: flavour {flavour.name!r} reduction produced "
-            f"{type(ast).__name__!r}, not an IrAst"
-        )
+    ast = parse_grammar(text, flavour)
     if start is None:
         start = directives.start or (ast.rules[0].name if ast.rules else "")
     if start and not any(r.name == start for r in ast.rules):

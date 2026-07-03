@@ -7,30 +7,11 @@ grammars they describe are equivalent for the unambiguous (non-alpha) parts.
 
 from __future__ import annotations
 
-from lexic.compile import compile_grammar
+from lexic.compile import compile_grammar, parse_grammar
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import IrAst, IrLiteral
-from lexic.parsing import parse_reduced
-from lexic.parsing.normalize import normalize
-from lexic.parsing.reduce import Reducer
+from lexic.ir.nodes import IrLiteral
 from tests.paths import GROUND_TRUTH
-
-_NORM: dict[str, IrAst] = {}
-
-
-def _parse(flavour: IrFlavour, text: str) -> IrAst:
-    """Parse grammar ``text`` to an IrAst via the flavour's engine self-grammar."""
-    norm = _NORM.get(flavour.name)
-    if norm is None:
-        norm = normalize(flavour.grammar)
-        _NORM[flavour.name] = norm
-    reducer = flavour.reducer
-    assert isinstance(reducer, Reducer)
-    ast = parse_reduced(norm, text, reducer)
-    assert isinstance(ast, IrAst)
-    return ast
 
 
 def test_arithmetic_grammars_have_same_rule_names():
@@ -43,8 +24,8 @@ def test_arithmetic_grammars_have_same_rule_names():
     """
     gbnf_text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
     abnf_text = (GROUND_TRUTH / "arithmetic.abnf").read_text(encoding="utf-8")
-    gbnf_ast = _parse(GBNF_FLAVOUR, gbnf_text)
-    abnf_ast = _parse(ABNF_FLAVOUR, abnf_text)
+    gbnf_ast = parse_grammar(gbnf_text, GBNF_FLAVOUR)
+    abnf_ast = parse_grammar(abnf_text, ABNF_FLAVOUR)
 
     gbnf_rules = {r.name.lower() for r in gbnf_ast.rules}
     abnf_rules = {r.name.lower() for r in abnf_ast.rules}
@@ -58,7 +39,7 @@ def test_abnf_op_rule_expands_literals_into_groups():
     """The ABNF "+", "-", "*", "/" each become IrGroup (case-insens-expanded)
     or IrLiteral (no alpha chars). Verify shape."""
     abnf_text = (GROUND_TRUTH / "arithmetic.abnf").read_text(encoding="utf-8")
-    ast = _parse(ABNF_FLAVOUR, abnf_text)
+    ast = parse_grammar(abnf_text, ABNF_FLAVOUR)
     op = next(r for r in ast.rules if r.name == "op")
     # All four arms are non-alpha literals, so they stay IrLiteral.
 
@@ -94,12 +75,12 @@ def test_gbnf_to_abnf_to_gbnf_round_trip_via_iast():
     # Hand-craft a small GBNF grammar with no alpha literals (avoids ABNF case
     # expansion noise). Uses charclass + non-alpha literals only.
     gbnf_text = 'root  ::= digit ("+" digit)*\ndigit ::= [0-9]\n'
-    ast_g = _parse(GBNF_FLAVOUR, gbnf_text)
+    ast_g = parse_grammar(gbnf_text, GBNF_FLAVOUR)
 
     # Emit as ABNF via the ABNF singleton flavour (consumes IrAst directly).
     abnf_text = str(ABNF_FLAVOUR.apply(ast_g))
     # Parse the emitted ABNF back to IrAst.
-    ast_a = _parse(ABNF_FLAVOUR, abnf_text)
+    ast_a = parse_grammar(abnf_text, ABNF_FLAVOUR)
 
     # Structural equivalence: same rule names, same body shapes (no IrLiteral
     # case-expansion since we used only digits and "+"; ABNF's normalize_literal
