@@ -29,6 +29,13 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.walk import IrTransformer
 
+
+def _charclass_plus_rule(name: str, lo: str, hi: str) -> IrRule:
+    """``name ::= [lo-hi]+`` — a quantified charclass-only rule."""
+    item = IrItem(IrCharClass(IrRange(IrChr(lo), IrChr(hi))), IrQuantifier(1, IrNone))
+    return IrRule(name, IrAlternation(IrSequence(item)))
+
+
 # ── classify_kind ─────────────────────────────────────────────────────
 
 
@@ -46,17 +53,7 @@ def test_classify_value_str_for_pure_literal_alternation():
 
 def test_classify_value_str_for_charclass_only():
     """`digit ::= [0-9]+` — no rulerefs → value_str."""
-    rule = IrRule(
-        "digit",
-        IrAlternation(
-            IrSequence(
-                IrItem(
-                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
-                    IrQuantifier(1, IrNone),
-                )
-            )
-        ),
-    )
+    rule = _charclass_plus_rule("digit", "0", "9")
     assert classify_kind(rule) == "value_str"
 
 
@@ -180,28 +177,8 @@ def test_compute_parents_alternation_arms_get_parent():
             IrSequence(IrItem(IrRuleRef("num"))), IrSequence(IrItem(IrRuleRef("ident")))
         ),
     )
-    num = IrRule(
-        "num",
-        IrAlternation(
-            IrSequence(
-                IrItem(
-                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
-                    IrQuantifier(1, IrNone),
-                )
-            )
-        ),
-    )
-    ident = IrRule(
-        "ident",
-        IrAlternation(
-            IrSequence(
-                IrItem(
-                    IrCharClass(IrRange(IrChr("a"), IrChr("z"))),
-                    IrQuantifier(1, IrNone),
-                )
-            )
-        ),
-    )
+    num = _charclass_plus_rule("num", "0", "9")
+    ident = _charclass_plus_rule("ident", "a", "z")
     parents = compute_parents([term, num, ident])
     assert parents == {"num": "Term", "ident": "Term"}
 
@@ -458,17 +435,7 @@ def test_hoist_uses_irtransformer():
 
 def test_derive_value_str_single_arm():
     """`digit ::= [0-9]+` → one value_str spec, items hold the charclass."""
-    rule = IrRule(
-        "digit",
-        IrAlternation(
-            IrSequence(
-                IrItem(
-                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
-                    IrQuantifier(1, IrNone),
-                )
-            )
-        ),
-    )
+    rule = _charclass_plus_rule("digit", "0", "9")
     ast = IrAst(
         rules=IrSeq(
             rule,
@@ -555,28 +522,8 @@ def test_derive_alternation_produces_abstract_plus_no_arm_specs_for_single_refs(
             IrSequence(IrItem(IrRuleRef("num"))), IrSequence(IrItem(IrRuleRef("ident")))
         ),
     )
-    num = IrRule(
-        "num",
-        IrAlternation(
-            IrSequence(
-                IrItem(
-                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
-                    IrQuantifier(1, IrNone),
-                )
-            )
-        ),
-    )
-    ident = IrRule(
-        "ident",
-        IrAlternation(
-            IrSequence(
-                IrItem(
-                    IrCharClass(IrRange(IrChr("a"), IrChr("z"))),
-                    IrQuantifier(1, IrNone),
-                )
-            )
-        ),
-    )
+    num = _charclass_plus_rule("num", "0", "9")
+    ident = _charclass_plus_rule("ident", "a", "z")
     ast = IrAst(rules=IrSeq(term, num, ident), start="term")
     specs = derive_specs(ast)
     by = {s.rule_name: s for s in specs}
@@ -603,17 +550,7 @@ def test_derive_alternation_with_multi_item_arm_synthesises_arm_spec():
             ),
         ),
     )
-    num = IrRule(
-        "num",
-        IrAlternation(
-            IrSequence(
-                IrItem(
-                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
-                    IrQuantifier(1, IrNone),
-                )
-            )
-        ),
-    )
+    num = _charclass_plus_rule("num", "0", "9")
     expr = IrRule("expr", IrAlternation(IrSequence(IrItem(IrRuleRef("num")))))
     ast = IrAst(rules=IrSeq(value, num, expr), start="value")
     specs = derive_specs(ast)
@@ -665,7 +602,7 @@ def test_derive_helper_rules_appear_in_output():
 
 
 def test_derive_marks_non_semantic_field_min_zero():
-    """`expr ::= term ws op` with `ast.non_semantic={"ws"}` forces ws field lo=0."""
+    """`expr ::= term ws op` with `ws` flagged `semantic=False` forces ws field lo=0."""
     expr = IrRule(
         "expr",
         IrAlternation(
@@ -687,11 +624,10 @@ def test_derive_marks_non_semantic_field_min_zero():
                 IrItem(IrCharClass(IrChr(" "), IrChr("\t")), IrQuantifier(0, IrNone))
             )
         ),
+        semantic=False,
     )
     op = IrRule("op", IrAlternation(IrSequence(IrItem(IrLiteral("+")))))
-    ast = IrAst(
-        rules=IrSeq(expr, term, ws, op), start="expr", non_semantic=frozenset({"ws"})
-    )
+    ast = IrAst(rules=IrSeq(expr, term, ws, op), start="expr")
     specs = derive_specs(ast)
     expr_spec = next(s for s in specs if s.rule_name == "expr")
     # Find the ws item

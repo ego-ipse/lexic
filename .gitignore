@@ -40,6 +40,8 @@ tmp/
 .gsd-id
 .bg-shell/
 
-# ── Obsidian wiki symlink ──
-.wiki
+# ── Local documentation ──
+archive/
 
+# ── Obsidian internals ──
+.wiki/.obsidian/

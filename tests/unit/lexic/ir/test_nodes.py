@@ -310,9 +310,13 @@ def test_repr_irliteral_is_codegen():
 
 
 def test_repr_irsequence_is_codegen():
-    """An IrSequence's repr reproduces its constructor call."""
+    """An IrSequence's repr reproduces its constructor call.
+
+    The default-valued quantifier ``IrQuantifier(1, 1)`` is a trailing default
+    and is omitted from the nested ``IrItem``'s repr.
+    """
     seq = IrSequence(IrItem(IrLiteral("a")))
-    assert repr(seq) == ("IrSequence(IrItem(IrLiteral('a'), IrQuantifier(1, 1)))")
+    assert repr(seq) == "IrSequence(IrItem(IrLiteral('a')))"
 
 
 def test_repr_irrule_shows_non_child_fields_too():
@@ -328,14 +332,13 @@ def test_repr_empty_structural_node_is_codegen():
 
 
 def test_repr_irast_is_codegen():
-    """IrAst reproduces its constructor call, including the default `non_semantic`.
+    """IrAst reproduces its constructor call.
 
-    Every :class:`~lexic.ir.base.IrNamedTuple` field renders unconditionally
-    (see ``IrItem``'s repr including its default ``IrQuantifier(1, 1)``) — the
-    third field is not special-cased away just because it carries a default.
+    ``IrAst`` has two fields (``rules``, ``start``) — ``non_semantic`` is a
+    derived read-only property, not a field, so it never appears in the repr.
     """
     ast = IrAst(IrSeq(IrRule("r", IrAlternation())), "r")
-    assert repr(ast) == ("IrAst(IrSeq(IrRule('r', IrAlternation())), 'r', frozenset())")
+    assert repr(ast) == "IrAst(IrSeq(IrRule('r', IrAlternation())), 'r')"
 
 
 def test_irliteral_eval_returns_literal_value():
@@ -425,9 +428,13 @@ def test_tuple_children_and_rebuild_roundtrip():
 
 
 def test_tuple_repr_is_codegen():
-    """repr() on an IrSequence reproduces the constructor call."""
-    assert repr(IrSequence(IrItem(IrLiteral("a")))) == (
-        "IrSequence(IrItem(IrLiteral('a'), IrQuantifier(1, 1)))"
+    """repr() on an IrSequence reproduces the constructor call.
+
+    The nested ``IrItem``'s default quantifier is a trailing default and is
+    omitted.
+    """
+    assert (
+        repr(IrSequence(IrItem(IrLiteral("a")))) == "IrSequence(IrItem(IrLiteral('a')))"
     )
 
 

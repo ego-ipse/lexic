@@ -43,11 +43,7 @@ Expr.__grammar__ = RuleSpec(
     class_name="Expr",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[
-        IrItem(IrRuleRef("num"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("op"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("num"), IrQuantifier(1, 1)),
-    ],
+    items=[IrItem(IrRuleRef("num")), IrItem(IrRuleRef("op")), IrItem(IrRuleRef("num"))],
     field_map={"num": 0, "op": 1, "num2": 2},
     non_semantic_fields=frozenset([]),
 )
@@ -60,10 +56,10 @@ Op.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrAlternation(
-            IrSequence(IrItem(IrLiteral("+"), IrQuantifier(1, 1))),
-            IrSequence(IrItem(IrLiteral("-"), IrQuantifier(1, 1))),
-            IrSequence(IrItem(IrLiteral("*"), IrQuantifier(1, 1))),
-            IrSequence(IrItem(IrLiteral("/"), IrQuantifier(1, 1))),
+            IrSequence(IrItem(IrLiteral("+"))),
+            IrSequence(IrItem(IrLiteral("-"))),
+            IrSequence(IrItem(IrLiteral("*"))),
+            IrSequence(IrItem(IrLiteral("/"))),
         )
     ],
     field_map={},

@@ -135,9 +135,12 @@ def test_irfield_reads_charclass_pattern():
 
 
 def test_irfield_repr_is_valid_codegen():
-    """IrField repr renders the class-valued `out` as a bare name (eval round-trips)."""
+    """IrField repr renders the class-valued `out` as a bare name (eval round-trips).
+
+    The default-valued `out=IrStr` is omitted from the trailing run.
+    """
     assert repr(IrField("lo", IrInt)) == "IrField('lo', IrInt)"
-    assert repr(IrField("name")) == "IrField('name', IrStr)"
+    assert repr(IrField("name")) == "IrField('name')"
 
 
 def test_irfield_out_irint_reads_int_without_stringifying():
@@ -842,8 +845,11 @@ def test_irbuild_args_is_child_attribute():
 
 
 def test_irbuild_repr_is_codegen():
-    """IrBuild repr renders as a valid constructor expression."""
-    assert repr(IrBuild(IrSequence)) == "IrBuild(IrSequence, IrNone)"
+    """IrBuild repr renders as a valid constructor expression.
+
+    The default-valued `args=IrNone` is omitted from the trailing run.
+    """
+    assert repr(IrBuild(IrSequence)) == "IrBuild(IrSequence)"
     assert (
         repr(IrBuild(IrRuleRef, IrTuple(IrArg(0))))
         == "IrBuild(IrRuleRef, IrTuple(IrArg(0)))"
@@ -879,10 +885,12 @@ def test_irpipe_source_and_body_are_children():
 
 
 def test_irpipe_repr_is_codegen():
-    """IrPipe repr renders as a valid constructor expression."""
+    """IrPipe repr renders as a valid constructor expression.
+
+    The nested IrField's default-valued `out=IrStr` is omitted.
+    """
     assert (
-        repr(IrPipe(IrArg(0), IrField("name")))
-        == "IrPipe(IrArg(0), IrField('name', IrStr))"
+        repr(IrPipe(IrArg(0), IrField("name"))) == "IrPipe(IrArg(0), IrField('name'))"
     )
 
 

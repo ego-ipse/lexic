@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from lexic.codegen import codegen
 from lexic.grammars.json import JSON_GRAMMAR
+from lexic.ir.base import IrSeq
 from lexic.ir.derive import derive_specs
 from lexic.ir.nodes import (
     IrAst,
@@ -111,12 +112,12 @@ def test_ws_uses_charclass():
 
 
 def _json_ast_with_non_semantic() -> IrAst:
-    """``JSON_GRAMMAR`` rebound with ``ws`` marked non-semantic."""
-    return IrAst(
-        rules=JSON_GRAMMAR.rules,
-        start=JSON_GRAMMAR.start,
-        non_semantic=frozenset({"ws"}),
+    """``JSON_GRAMMAR`` rebound with the ``ws`` rule flagged ``semantic=False``."""
+    rules = (
+        IrRule(r.name, r.body, semantic=False) if r.name == "ws" else r
+        for r in JSON_GRAMMAR.rules
     )
+    return IrAst(rules=IrSeq(*rules), start=JSON_GRAMMAR.start)
 
 
 def test_derive_specs_succeeds():

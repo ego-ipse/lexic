@@ -26,6 +26,8 @@ can be reconstructed — lives in :mod:`~lexic.parsing.reduce`, fed by
 
 from __future__ import annotations
 
+from typing import Callable
+
 from lexic.ir.base import IrLeaf, IrSelf
 from lexic.ir.nodes import IrAst, IrLiteral
 from lexic.parsing.normalize import SYNTHETIC_PREFIX
@@ -265,6 +267,29 @@ def run_candidates(tables: ParserTables) -> dict[str, RunShape]:
     return entry[1]
 
 
+def collapse_runs(
+    grammar: IrAst, run_mode: Callable[[ParserTables, int], int | None]
+) -> ParserTables:
+    """Tables for ``grammar`` with every licensed candidate run collapsed.
+
+    The grammar-side proof (charset, uniqueness, follow disjointness) comes
+    from :func:`run_candidates`; ``run_mode`` is the caller's policy half —
+    it maps a candidate's ``(plain_tables, unit_rid)`` to the run's per-char
+    contribution mode, or ``None`` to keep the run per-char.
+
+    :param grammar: An Earley-normalised grammar.
+    :param run_mode: The collapse licence, ``(tables, unit_rid) → mode | None``.
+    :returns: The collapsed tables (the plain tables when nothing collapses).
+    """
+    plain = compile_tables(grammar)
+    runs: dict[str, tuple[RunTerm, bool]] = {}
+    for name, (charset, has_empty, unit_rid) in run_candidates(plain).items():
+        mode = run_mode(plain, unit_rid)
+        if mode is not None:
+            runs[name] = (RunTerm(charset, 1, mode), has_empty)
+    return build_tables(grammar, runs) if runs else plain
+
+
 _RECOGNITION: dict[int, tuple[IrAst, ParserTables]] = {}
 """Recognition-tables memo — id(grammar) → (grammar, tables). The strong
 grammar reference pins the id against reuse."""
@@ -284,15 +309,7 @@ def recognition_tables(grammar: IrAst) -> ParserTables:
     entry = _RECOGNITION.get(id(grammar))
     if entry is not None:
         return entry[1]
-    plain = compile_tables(grammar)
-    candidates = run_candidates(plain)
-    tables = plain
-    if candidates:
-        runs = {
-            name: (RunTerm(charset, 1, RUN_DROP), has_empty)
-            for name, (charset, has_empty, _) in candidates.items()
-        }
-        tables = build_tables(grammar, runs)
+    tables = collapse_runs(grammar, lambda _tables, _rid: RUN_DROP)
     _RECOGNITION[id(grammar)] = (grammar, tables)
     return tables
 

@@ -27,7 +27,7 @@ Never add `Co-Authored-By` lines. Commits belong entirely to the user.
 Always prefix with `uv run`. Never run `pytest` or `ruff` bare.
 
 ```bash
-uv run pytest tests/ -q                  # full suite (~1330 tests)
+uv run pytest tests/ -q                  # full suite (~1360 tests)
 uv run pytest tests/unit/lexic/ -q       # unit only
 uv run pytest tests/integration/ -q      # integration only
 uv run ruff check src/ tests/            # lint

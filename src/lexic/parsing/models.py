@@ -46,15 +46,9 @@ from lexic.ir.nodes import (
 from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 from lexic.parsing.forest import ParseTree
-from lexic.parsing.lexruns import run_candidates, unit_leaves
+from lexic.parsing.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.normalize import normalize
-from lexic.parsing.tables import (
-    RUN_STR,
-    ParserTables,
-    RunTerm,
-    build_tables,
-    compile_tables,
-)
+from lexic.parsing.tables import RUN_STR, ParserTables
 
 _WRAP_SEP = "--f"
 """Wrapper-rule name infix: ``<rule>--f<item-index>``."""
@@ -411,11 +405,11 @@ def collapsed_instance_tables(grammar: IrAst, fold: ModelFold) -> ParserTables:
     entry = _COLLAPSED_INSTANCE.get(key)
     if entry is not None:
         return entry[2]
-    plain = compile_tables(grammar)
-    runs: dict[str, tuple[RunTerm, bool]] = {}
-    for name, (charset, has_empty, unit_rid) in run_candidates(plain).items():
-        if _instance_run_ok(fold, plain, unit_rid):
-            runs[name] = (RunTerm(charset, 1, RUN_STR), has_empty)
-    tables = build_tables(grammar, runs) if runs else plain
+    tables = collapse_runs(
+        grammar,
+        lambda plain, unit_rid: (
+            RUN_STR if _instance_run_ok(fold, plain, unit_rid) else None
+        ),
+    )
     _COLLAPSED_INSTANCE[key] = (fold, grammar, tables)
     return tables

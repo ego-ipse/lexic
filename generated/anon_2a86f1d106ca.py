@@ -43,10 +43,10 @@ Greeting.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("salutation"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral(" "), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("name"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("!"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("salutation")),
+        IrItem(IrLiteral(" ")),
+        IrItem(IrRuleRef("name")),
+        IrItem(IrLiteral("!")),
     ],
     field_map={"salutation": 0, "name": 2},
     non_semantic_fields=frozenset([]),
@@ -60,9 +60,9 @@ Salutation.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrAlternation(
-            IrSequence(IrItem(IrLiteral("Hello"), IrQuantifier(1, 1))),
-            IrSequence(IrItem(IrLiteral("Hi"), IrQuantifier(1, 1))),
-            IrSequence(IrItem(IrLiteral("Hey"), IrQuantifier(1, 1))),
+            IrSequence(IrItem(IrLiteral("Hello"))),
+            IrSequence(IrItem(IrLiteral("Hi"))),
+            IrSequence(IrItem(IrLiteral("Hey"))),
         )
     ],
     field_map={},

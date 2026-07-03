@@ -11,6 +11,7 @@ import lexic.compile as compile_module
 from lexic.base import GrammarModel
 from lexic.compile import (
     CompiledGrammar,
+    _scan_directives,
     compile_from_path,
     compile_grammar,
     compile_text,
@@ -278,6 +279,95 @@ def test_parse_grammar_malformed_source_raises():
     """Unparseable grammar text surfaces as UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError):
         parse_grammar("root ::=\n::= broken", GBNF_FLAVOUR)
+
+
+# ── _scan_directives unit tests ──
+#
+# compile_grammar's start-directive precedence (directive vs explicit arg vs
+# positional fallback) is already covered above by
+# test_compile_grammar_start_directive_wins_over_first_rule and
+# test_compile_grammar_explicit_start_wins_over_directive. These tests target
+# the private _scan_directives helper directly: its defaults, @non-semantic
+# parsing, comment-marker sensitivity, and directive-syntax edge cases.
+
+
+def test_scan_directives_empty_text_defaults_to_none_and_empty_frozenset():
+    """No directives at all: the helper defaults to (None, frozenset())."""
+    assert _scan_directives("", line_comment="#") == (None, frozenset())
+
+
+def test_scan_directives_no_directives_in_grammar_returns_empty():
+    """A grammar with no comments at all has no directives."""
+    text = "root ::= expr\nexpr ::= [0-9]+"
+    start, non_semantic = _scan_directives(text, line_comment="#")
+    assert start is None
+    assert non_semantic == frozenset()
+
+
+def test_scan_directives_non_semantic_single_arg():
+    """A single @non-semantic directive extracts one rule name."""
+    text = "# @non-semantic ws\nroot ::= ws value"
+    _start, non_semantic = _scan_directives(text, line_comment="#")
+    assert non_semantic == frozenset({"ws"})
+
+
+def test_scan_directives_non_semantic_multiple_args():
+    """Multiple @non-semantic arguments are all collected."""
+    text = "# @non-semantic ws comment_block\nroot ::= ws value"
+    _start, non_semantic = _scan_directives(text, line_comment="#")
+    assert non_semantic == frozenset({"ws", "comment_block"})
+
+
+def test_scan_directives_requires_at_marker():
+    """Comments without @<name> are not directives."""
+    text = "# this is just a comment\nroot ::= x"
+    start, non_semantic = _scan_directives(text, line_comment="#")
+    assert start is None
+    assert non_semantic == frozenset()
+
+
+def test_scan_directives_respects_line_comment_marker():
+    """ABNF uses ';' — '#' is just data inside an ABNF source."""
+    text = "; @non-semantic WSP\nroot = WSP value"
+    _start, non_semantic = _scan_directives(text, line_comment=";")
+    assert non_semantic == frozenset({"WSP"})
+
+
+def test_scan_directives_unknown_directive_is_ignored():
+    """Unknown directive names are silently ignored."""
+    text = "# @future-thing foo\n# @non-semantic ws"
+    _start, non_semantic = _scan_directives(text, line_comment="#")
+    assert non_semantic == frozenset({"ws"})
+
+
+def test_scan_directives_allows_leading_whitespace_before_marker():
+    """`  # @non-semantic ws` is the same as `# @non-semantic ws`."""
+    text = "  # @non-semantic ws\nroot ::= ws value"
+    _start, non_semantic = _scan_directives(text, line_comment="#")
+    assert non_semantic == frozenset({"ws"})
+
+
+def test_scan_directives_empty_line_comment_disables_directive_parsing():
+    """A flavour with no comment marker (line_comment='') has no directive channel."""
+    text = "# @non-semantic ws\nroot ::= ws value"
+    start, non_semantic = _scan_directives(text, line_comment="")
+    assert start is None
+    assert non_semantic == frozenset()
+
+
+def test_scan_directives_start_last_wins():
+    """Multiple @start directives: the last value wins."""
+    text = "# @start a\n# @start b\n"
+    start, _non_semantic = _scan_directives(text, line_comment="#")
+    assert start == "b"
+
+
+def test_scan_directives_start_and_non_semantic_coexist():
+    """@start and @non-semantic directives in the same source both apply."""
+    text = "# @start root\n# @non-semantic ws\nroot ::= ws value\n"
+    start, non_semantic = _scan_directives(text, line_comment="#")
+    assert start == "root"
+    assert non_semantic == frozenset({"ws"})
 
 
 def test_normalized_grammar_memo_is_reused_across_compile_grammar_calls(monkeypatch):

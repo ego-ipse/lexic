@@ -8,7 +8,7 @@ Lexic is the grammar engine layer of [Vyx](https://github.com/) — an agent-to-
 
 ## What it does
 
-- **Compile** a grammar file (`.gbnf` / `.abnf`) into a `CompiledGrammar` bundle (Pydantic classes + a Lark parser + transformer).
+- **Compile** a grammar file (`.gbnf` / `.abnf`) into a `CompiledGrammar` bundle (Pydantic classes + a compiled instance grammar + model fold).
 - **Parse** text against the compiled grammar into a typed model instance.
 - **Round-trip** an instance back to its original text via `to_text()` — exact, whitespace-preserving.
 - **Re-emit** the grammar from the model via `to_grammar(flavour)` — works across flavours (e.g. compile a GBNF grammar, emit it as ABNF).
@@ -50,12 +50,13 @@ grammar = compile_text(open("g.gbnf").read(), flavour="gbnf")
 | GBNF | `.gbnf` | Production |
 | ABNF (subset) | `.abnf` | Production |
 
-A *flavour* is the grammar notation. Adding a new one means writing a single `grammars/<name>/flavour.py` module containing:
+A *flavour* is the grammar notation. Adding a new one means writing a single flat `grammars/<name>.py` module containing:
 
-- a Lark meta-grammar string using canonical `ir_*` tag names,
+- the flavour's own self-grammar, authored directly as an `IrAst` (no meta-grammar string),
+- a `Reducer` (reductions + noise map) folding parse forests back into IR,
 - an `EscapeCodec` instance,
-- a tuple of `IrAction`s mapping each IR-AST node type to a rendering body (pure algebra: `IrConcat`, `IrJoin`, `IrField`, `IrChild`, `IrChildren`; procedural escape hatch: `IrCallable`),
-- an `IrFlavour` subclass with `parse_quantifier` / `parse_charclass` static methods.
+- emit actions mapping each IR-AST node type to a rendering body (pure algebra: `IrConcat`, `IrJoin`, `IrField`, `IrChild`, `IrChildren`; procedural escape hatch: `IrLambda`),
+- an `IrFlavour` subclass carrying all of the above as data — zero parsing methods.
 
 See [`.wiki/lexic/flavour-system.md`](.wiki/lexic/flavour-system.md) for the step-by-step walkthrough.
 
@@ -64,18 +65,20 @@ See [`.wiki/lexic/flavour-system.md`](.wiki/lexic/flavour-system.md) for the ste
 ```
 grammar text
    │
-   ├─► parse_directives                Directives(start, non_semantic)
-   └─► MetaGrammarParser.for_flavour   IrAst
+   ├─► _scan_directives                (start, non_semantic)
+   └─► parse_grammar                   IrAst      [native Earley engine]
             │
             ▼
         derive_specs                   list[RuleSpec]
             │
    ┌────────┼────────────────────┬──────────────────────┐
    ▼        ▼                    ▼                      ▼
- codegen  flavour.apply       build_lark            (further passes…)
- (Pydantic) (grammar text)    (Lark parser
-                              + transformer)
+ codegen  flavour.apply       build_instance_parser (further passes…)
+ (Pydantic) (grammar text)    (instance grammar
+                              + ModelFold)
 ```
+
+Parsing is a **native Earley engine** (`lexic.parsing` — SPPF, Scott 2008, pure Python, zero parser dependencies). The same engine drives grammar-text parsing (each flavour carries its own self-grammar as IR) and generated-instance parsing.
 
 The IR substrate is **action-driven**: every transformation (derive, codegen, flavour emission) is expressed as a tuple of `IrAction(target_type, body)` plugged into a single dispatcher (`IrDispatch` / `IrVisitor` / `IrTransformer` / `IrEmitter`). New IR node types extend the table; the dispatcher needs no subclassing.
 
@@ -91,13 +94,17 @@ Seven ground-truth grammars live in `resources/ground_truth/`. Property tests ro
 
 `arithmetic` · `c` · `chess` · `japanese` · `json_arr` · `json_ws` · `list`
 
+## Performance
+
+The engine is pure Python with full SPPF semantics, benchmarked against Lark's Earley mode on grammar-text parsing (`tools/benchmark/parse_bench.py`, baseline JSON alongside). As of July 2026 the text→IR product runs at ~17 µs/char vs Lark's ~30 — about 1.75× faster full-vs-full — via exact (proved, never approximated) lexical-run collapse, seed-pair prediction tables, and FIRST-gated prediction.
+
 ## Development
 
 Lexic uses [uv](https://docs.astral.sh/uv/) for dependency management. Always prefix commands with `uv run` — never run `pytest` or `ruff` bare.
 
 ```bash
 uv sync                                  # install deps
-uv run pytest tests/ -q                  # full suite (474 tests)
+uv run pytest tests/ -q                  # full suite (~1360 tests)
 uv run pytest tests/unit/lexic/ -q       # unit only
 uv run pytest tests/integration/ -q      # integration only
 uv run ruff check src/ tests/            # lint
@@ -112,7 +119,7 @@ tools/auto_fix.sh   # ruff format → isort → ruff check --fix
 
 ## Project status
 
-Lexic is pre-1.0 and actively churning. The IrItem-based pipeline cutover landed in May 2026; the action-driven substrate landed in late May 2026 ([[decisions]] P12–P18). Public invariants and roadmap live in `prototyping/next/`:
+Lexic is pre-1.0 and actively churning. The IrItem-based pipeline cutover landed in May 2026; the action-driven substrate landed in late May 2026 ([[decisions]] P12–P18); the Lark→Earley cutover (native engine, Lark removed as a dependency) landed in early July 2026. Public invariants and roadmap live in `prototyping/next/`:
 
 - [`prototyping/next/1_NORTH_STAR.md`](prototyping/next/1_NORTH_STAR.md) — invariants every change must preserve.
 - [`prototyping/next/2_ARCHITECTURE.md`](prototyping/next/2_ARCHITECTURE.md) — target module layout.

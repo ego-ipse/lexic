@@ -26,6 +26,7 @@ spans) for rules that yield text rather than build.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Iterator, Sequence, cast
 
 from lexic.ir.base import IrLambda, IrLeaf, IrNone, IrSelf, IrStr, IrTuple
@@ -34,7 +35,7 @@ from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
 from lexic.parsing.forest import ParseTree
 from lexic.parsing.kernel import Kernel
-from lexic.parsing.lexruns import run_candidates, unit_leaves
+from lexic.parsing.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.normalize import SYNTHETIC_PREFIX
 from lexic.parsing.tables import (
     ORIGIN_BITS,
@@ -44,8 +45,6 @@ from lexic.parsing.tables import (
     RUN_STR,
     ParserTables,
     RunTerm,
-    build_tables,
-    compile_tables,
     predecessor_chain,
 )
 from lexic.parsing.trampoline import ADVANCE, EMIT, EXHAUSTED
@@ -782,13 +781,7 @@ def collapsed_tables(reducer: "Reducer", grammar: IrAst) -> ParserTables:
     entry = _COLLAPSED.get(key)
     if entry is not None:
         return entry[2]
-    plain = compile_tables(grammar)
-    runs: dict[str, tuple[RunTerm, bool]] = {}
-    for name, (charset, has_empty, unit_rid) in run_candidates(plain).items():
-        mode = _run_mode(reducer, plain, unit_rid)
-        if mode is not None:
-            runs[name] = (RunTerm(charset, 1, mode), has_empty)
-    tables = build_tables(grammar, runs) if runs else plain
+    tables = collapse_runs(grammar, partial(_run_mode, reducer))
     _COLLAPSED[key] = (reducer, grammar, tables)
     return tables
 
