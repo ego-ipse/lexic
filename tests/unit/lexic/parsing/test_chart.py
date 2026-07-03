@@ -1,9 +1,9 @@
-"""Tests for lexic.parsing_2.chart — Chart, Link, Links.
+"""Tests for lexic.parsing.chart — Chart, Link, Links.
 
 API changes from the int-kernel rework:
 
 - ``Column`` is COMPLETELY GONE. The per-column Earley sets now live in the
-  compiled kernel (:mod:`lexic.parsing_2.kernel`), packed as ints. All
+  compiled kernel (:mod:`lexic.parsing.kernel`), packed as ints. All
   ``Column``-specific tests (insert/dedup/iteration/getitem/index, Chart
   auto-grow via ``chart[i]``, ``Column.leo``) are DROPPED — that behavior
   now lives on ``Kernel``/``KernelState`` and is tested in ``test_kernel.py``,
@@ -11,7 +11,7 @@ API changes from the int-kernel rework:
 - ``Chart()`` no longer takes an index and there is no ``chart[i]`` access.
   ``Chart`` is now only ``links`` (a :class:`Links`) + ``leo_links`` (an
   :class:`~lexic.ir.mapping.IrMultiMap`) — a pure decoded-forest carrier
-  populated by :meth:`~lexic.parsing_2.kernel.Kernel.to_chart`.
+  populated by :meth:`~lexic.parsing.kernel.Kernel.to_chart`.
 
 The ``Link`` / ``Links`` tests (constructing tuples, ``Links()`` ``+=``/``in``/
 ``[]``, multi-family dedup, live-bucket semantics) and ``Chart`` construction
@@ -23,7 +23,7 @@ from __future__ import annotations
 from lexic.ir.base import IrNone, IrNoneType
 from lexic.ir.mapping import IrMultiMap
 from lexic.ir.nodes import IrItem, IrLiteral, IrQuantifier, IrRuleRef, IrSequence
-from lexic.parsing_2.chart import Chart, EarleyItem, Links
+from lexic.parsing.chart import Chart, EarleyItem, Links
 
 # ── Helpers ─────────────────────────────────────────────────
 

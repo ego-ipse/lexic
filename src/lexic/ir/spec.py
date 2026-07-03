@@ -12,8 +12,9 @@ from lexic.ir.nodes import IrAlternation, IrItem, IrRule, IrSequence
 class RuleSpec:
     """Complete specification of one grammar rule.
 
-    All downstream emitters (ModelEmitter, GBNFEmitter, LarkBuilder) consume
-    this instead of the raw GBNF AST.
+    All downstream consumers (the model emitter, the instance-grammar
+    builder, flavour emitters via ``to_ir_rule``) consume this instead of
+    the raw grammar AST.
 
     field_map: maps Pydantic field name → index in items list.
       - Structural IrLiteral items (quantifier (1,1)) are NEVER in field_map.

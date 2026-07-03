@@ -51,8 +51,8 @@ def make_inner_outer_specs() -> tuple[RuleSpec, RuleSpec]:
     """Return (inner, outer) specs for an expr/root rule-ref pair.
 
     ``inner`` is a value_str rule matching ``[a-z]+``; ``outer`` is a
-    sequence rule referencing ``expr``.  Shared across codegen, model-emitter,
-    and lark_builder tests that verify rule-ref handling.
+    sequence rule referencing ``expr``.  Shared across codegen and
+    model-emitter tests that verify rule-ref handling.
 
     :returns: ``(inner, outer)`` tuple of :class:`~lexic.ir.spec.RuleSpec`.
     """

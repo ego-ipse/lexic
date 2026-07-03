@@ -1,11 +1,11 @@
-"""Tests for lexic.parsing_2.kernel — KernelState, Kernel, FastTree.
+"""Tests for lexic.parsing.kernel — KernelState, Kernel, FastTree.
 
 New module: the flat int-coded Earley loop over compiled ParserTables. This
 file covers the behavioral facts callable through the public surface
 (``Kernel.run()`` + reading ``.cols``/``.st``/``.accept``, or the top-level
 ``recognize()``/``parse()`` functions), plus the Leo right-recursion
 correctness tests ported from the deleted ``test_ops.py`` (see that file's
-git history — its target module ``lexic.parsing_2.ops`` no longer exists;
+git history — its target module ``lexic.parsing.ops`` no longer exists;
 its behavioral coverage lives here now, re-expressed over ``Kernel``).
 """
 
@@ -18,22 +18,21 @@ from lexic.ir.base import IrNone, IrNoneType, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrCharClass,
-    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
-    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2 import derivations, parse, recognize
-from lexic.parsing_2.chart import Chart
-from lexic.parsing_2.forest import ParseTree, SppfNode
-from lexic.parsing_2.kernel import FastTree, Kernel
-from lexic.parsing_2.normalize import normalize
-from lexic.parsing_2.tables import ADVANCE, ORIGIN_BITS, compile_tables
+from lexic.parsing import derivations, parse, recognize
+from lexic.parsing.chart import Chart
+from lexic.parsing.forest import ParseTree, SppfNode
+from lexic.parsing.kernel import FastTree, Kernel
+from lexic.parsing.normalize import normalize
+from lexic.parsing.tables import ADVANCE, ORIGIN_BITS, compile_tables
+from tests._ir_fixtures import digit_grammar as _digit_grammar
+from tests._ir_fixtures import word_grammar as _word_grammar
 
 # ── Grammar helpers ───────────────────────────────────────────────────
 
@@ -62,36 +61,6 @@ def _plus(char: str, rule_name: str = "S") -> IrAst:
             IrAlternation(IrSequence(IrItem(IrLiteral(char), IrQuantifier(1, IrNone)))),
         ),
         start=rule_name,
-    )
-
-
-def _word_grammar() -> IrAst:
-    """word = letter letter ; letter = [a-z]."""
-    letter = IrRule(
-        "letter",
-        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
-    )
-    word = IrRule(
-        "word",
-        IrAlternation(
-            IrSequence(IrItem(IrRuleRef("letter")), IrItem(IrRuleRef("letter")))
-        ),
-    )
-    return IrAst(rules=IrSeq(word, letter), start="word")
-
-
-def _digit_grammar() -> IrAst:
-    """digit = [0-9]."""
-    return IrAst(
-        rules=IrSeq(
-            IrRule(
-                "digit",
-                IrAlternation(
-                    IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
-                ),
-            ),
-        ),
-        start="digit",
     )
 
 

@@ -11,7 +11,9 @@ import pytest
 
 from lexic.compile import compile_from_path, compile_grammar
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.parsing.meta_parser import MetaGrammarParser
+from lexic.ir.nodes import IrAst
+from lexic.parsing import parse_reduced
+from lexic.parsing.normalize import normalize
 from tests.paths import GROUND_TRUTH
 
 # All 7 ground-truth fixtures produce "root" as the start rule.
@@ -101,12 +103,13 @@ def test_compile_grammar_succeeds_on_ground_truth(fixture: str) -> None:
         "list.gbnf",
     ],
 )
-def test_meta_grammar_parser_round_trip_idempotent(fixture: str) -> None:
+def test_grammar_parse_round_trip_idempotent(fixture: str) -> None:
     """Parse → IrAst → parse again of the *original text* yields equal IrAst objects."""
     text = (GROUND_TRUTH / fixture).read_text(encoding="utf-8")
-    parser = MetaGrammarParser.for_flavour(GBNF_FLAVOUR)
-    ast1 = parser.parse(text)
-    ast2 = parser.parse(text)
+    norm = normalize(GBNF_FLAVOUR.grammar)
+    ast1 = parse_reduced(norm, text, GBNF_FLAVOUR.reducer)
+    ast2 = parse_reduced(norm, text, GBNF_FLAVOUR.reducer)
+    assert isinstance(ast1, IrAst)
     assert ast1 == ast2, (
         f"{fixture}: two parses of the same text produced different IrAst objects"
     )

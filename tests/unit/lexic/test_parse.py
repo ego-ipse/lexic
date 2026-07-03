@@ -15,10 +15,10 @@ Grammar input notes:
 
 from __future__ import annotations
 
-import lark.exceptions
 import pytest
 
 from lexic.base import GrammarModel
+from lexic.exceptions import UnsupportedConstructError
 from lexic.parse import parse
 from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
@@ -152,5 +152,5 @@ def test_roundtrip_parametrized(grammar: str, text: str):
 
 def test_parse_invalid_raises():
     """Completely invalid input for arithmetic must raise a parse error."""
-    with pytest.raises((lark.exceptions.UnexpectedInput, Exception)):
+    with pytest.raises(UnsupportedConstructError):
         parse("THIS IS NOT VALID ARITHMETIC !!!\n", GRAMMAR_DIR / "arithmetic.gbnf")

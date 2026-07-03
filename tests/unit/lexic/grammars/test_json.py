@@ -12,6 +12,7 @@ from lexic.ir.nodes import (
     IrRange,
     IrRule,
 )
+from tests._ir_fixtures import JSON_RULE_NAMES
 
 # ── Basic structure ───────────────────────────────────────────────────
 
@@ -33,42 +34,8 @@ def test_json_grammar_rule_count():
 
 def test_json_grammar_expected_rule_names():
     """`JSON_GRAMMAR` contains every RFC 8259 rule name."""
-    expected = {
-        "JSON-text",
-        "begin-array",
-        "begin-object",
-        "end-array",
-        "end-object",
-        "name-separator",
-        "value-separator",
-        "ws",
-        "value",
-        "false",
-        "null",
-        "true",
-        "object",
-        "member",
-        "array",
-        "number",
-        "decimal-point",
-        "digit1-9",
-        "e",
-        "exp",
-        "frac",
-        "int",
-        "minus",
-        "plus",
-        "zero",
-        "digit",
-        "string",
-        "char",
-        "escape",
-        "quotation-mark",
-        "unescaped",
-        "hexdig",
-    }
     actual = {r.name for r in JSON_GRAMMAR.rules}
-    assert actual == expected
+    assert actual == set(JSON_RULE_NAMES)
 
 
 # ── Canonical-form choices ────────────────────────────────────────────

@@ -1,9 +1,9 @@
 """ABNF flavour for Lexic.
 
-Bundles the escape codec, emit action tuple, and parse machinery (the Lark
-meta-grammar, plus the native-IR self-grammar + reducer) in one module.
-:data:`ABNF_FLAVOUR` is the singleton :class:`IrFlavour`/:class:`IrEmitter`
-consumed by :func:`lexic.grammars.get_flavour`.
+Bundles the escape codec, emit action tuple, and the native-IR self-grammar +
+reducer in one module. :data:`ABNF_FLAVOUR` is the singleton
+:class:`IrFlavour`/:class:`IrEmitter` consumed by
+:func:`lexic.grammars.get_flavour`.
 
 ABNF differs from GBNF in two key ways: prefix quantifier ordering on
 :class:`IrItem` (the quantifier emits before the atom) and ``%xNN``-style
@@ -12,7 +12,7 @@ raises.
 
 :data:`ABNF_GRAMMAR` is the ABNF grammar of ABNF (RFC 5234 §4 + Appendix
 B.1), authored directly as :class:`~lexic.ir.nodes.IrAst` — no construction
-helpers, no Lark. Driven by :mod:`lexic.parsing_2` it parses ABNF source into
+helpers, no Lark. Driven by :mod:`lexic.parsing` it parses ABNF source into
 a derivation; the self-hosting fixpoint is
 ``parse(ABNF_GRAMMAR, abnf_source)`` reducing back to ``ABNF_GRAMMAR``.
 :data:`ABNF_REDUCTIONS` is the "meta notation": an
@@ -40,29 +40,40 @@ byte-for-byte RFC.** Three deliberate adaptations so it survives
   rules with ``"\\n"``), with the optional CR keeping CRLF input parseable
   too.
 
-It is a subset: ``bin-val``/``dec-val``, ``prose-val``, ``option`` (``[...]``),
-incremental ``=/``, comments, and ``c-wsp`` line-continuation are omitted —
-none appear in the flavour's own emitted output, so none is needed for the
-fixpoint. Rule names are hyphenated per RFC (``char-val``, not ``char_val``);
-``rulename`` admits ``ALPHA / DIGIT / "-"`` only.
+The grammar covers the full RFC 5234 + 7405 surface: ``bin-val``/``dec-val``
+alongside ``hex-val`` (single/range), value ``num-seq`` (``%x0D.0A``),
+``option`` (``[...]``), incremental ``=/`` (arms merged into the earlier
+same-named rule), ``%s``/``%i`` strings, ``prose-val`` (recognised then
+refused), comments (leading, trailing, inline), and ``c-wsp`` line folding.
+The constructs beyond the flavour's own emitted output leave the self-hosting
+fixpoint unaffected — the grammar only *accepts* more. Radix and case markers
+are lowercase only (``%x``/``%d``/``%b``/``%s``/``%i``; the emitter never
+produces the uppercase forms). Rule names are hyphenated per RFC
+(``char-val``, not ``char_val``); ``rulename`` admits ``ALPHA / DIGIT / "-"``.
 
 **Every reduction is pure ``IrSelf``.** Text rules (the character/terminal
 rules) reduce with the shared :data:`YIELD`. Structural rules build typed
 nodes from clean ``nc`` with :class:`~lexic.ir.action.IrBuild`. The numeric
 rules decode their digit runs with :class:`~lexic.ir.action.IrUnradix` (the
-inverse of the emit-side radix spelling) and build over code points — no
-``parse_charclass`` / ``parse_quantifier`` call remains on the reduce side.
+inverse of the emit-side radix spelling) and build over code points — the
+whole reduce side is IR action algebra, no procedural parse helpers.
 
-Explicit disable of duplicate-code. The end-goal is to have this file be
-completely auto-generated.
+Explicit disable of duplicate-code and too-many-lines. The end-goal is to have
+this file be completely auto-generated.
+
+Over the pylint module-line cap, exempted (user ruling 2026-07-03, as with
+:mod:`gbnf`): the full RFC 5234 + 7405 self-grammar authored here (folding,
+options, num-sequence/``%d``/``%b``, ``%s``/``%i`` strings, incremental ``=/``)
+keeps the module large.
 """
 
 # pylint: disable=duplicate-code
+# pylint: disable=too-many-lines
 
 from __future__ import annotations
 
 import string
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from lexic.ir.action import (
     IrAction,
@@ -76,6 +87,7 @@ from lexic.ir.action import (
     IrCond,
     IrEmit,
     IrField,
+    IrGlyph,
     IrIsA,
     IrJoin,
     IrPipe,
@@ -109,81 +121,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot, IrOp
-from lexic.parsing_2.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
-
-META_GRAMMAR = r"""
-start: rule+
-
-rule: NAME "=" alternation             -> ir_rule
-    | NAME INCREMENTAL alternation     -> ir_rule_inc
-
-alternation: sequence ("/" sequence)*  -> ir_alternation
-sequence: item*                        -> ir_sequence
-
-item: QUANTIFIER? element              -> ir_item
-    | "[" alternation "]"              -> ir_option
-
-element: LITERAL                       -> ir_literal
-    | CS_STRING                        -> ir_literal_cs
-    | CI_STRING                        -> ir_literal_ci
-    | NUMSEQ                           -> ir_numseq
-    | NUMVAL                           -> ir_charclass
-    | PROSE                            -> ir_prose
-    | NAME                             -> ir_ruleref
-    | "(" alternation ")"              -> ir_group
-
-INCREMENTAL.2: /=\//
-NAME: /[A-Za-z][A-Za-z0-9_-]*/
-LITERAL: /"[^"\r\n]*"/
-CS_STRING: /%[sS]"[^"\r\n]*"/
-CI_STRING: /%[iI]"[^"\r\n]*"/
-NUMSEQ.2: /%[bdxBDX][0-9A-Fa-f]+(?:\.[0-9A-Fa-f]+)+/
-NUMVAL: /%[bdxBDX][0-9A-Fa-f]+(?:-[0-9A-Fa-f]+)?/
-PROSE: /<[^>\r\n]*>/
-QUANTIFIER: /[0-9]*\*[0-9]*|[0-9]+/
-
-%ignore /[ \t\r\n]+/
-%ignore /;[^\n]*/
-"""
-"""Full ABNF (RFC 5234 + RFC 7405) meta-grammar with canonical IR-AST tags.
-
-Covers:
-  - `name = body` rules and `name =/ body` incremental alternatives (merged)
-  - alternation `/`, concatenation by juxtaposition
-  - prefix repetition `*`, `*m`, `n*`, `n*m`, `n`; optional `[...]` → (0, 1)
-  - num-val `%x`/`%d`/`%b`: single value and range (`-`) → IrCharClass;
-    value-sequence (`.`) → case-sensitive IrLiteral
-  - char-val: case-insensitive `"abc"` / `%i"abc"` (expanded via
-    normalize_literal); case-sensitive `%s"abc"` → raw IrLiteral
-  - groups `(...)`, prose-val `<...>` (recognised, rejected as non-formal),
-    comments starting with `;`
-"""
-
-CORE_RULES = r"""
-ALPHA  = %x41-5A / %x61-7A
-BIT    = "0" / "1"
-CHAR   = %x01-7F
-CR     = %x0D
-CRLF   = CR LF
-CTL    = %x00-1F / %x7F
-DIGIT  = %x30-39
-DQUOTE = %x22
-HEXDIG = DIGIT / "A" / "B" / "C" / "D" / "E" / "F"
-HTAB   = %x09
-LF     = %x0A
-LWSP   = *(WSP / CRLF WSP)
-OCTET  = %x00-FF
-SP     = %x20
-VCHAR  = %x21-7E
-WSP    = SP / HTAB
-"""
-"""RFC 5234 Appendix B.1 core rules, in ABNF itself.
-
-Part of the ABNF definition: a grammar may reference these without defining
-them. The meta-parser injects only those a grammar transitively references
-(a user definition of the same name wins). Lark-era source — it disappears
-with the metagrammars when the IR-native parser lands.
-"""
+from lexic.parsing.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
 
 class _AbnfEscapes(EscapeCodec):
@@ -322,67 +260,6 @@ ABNF_ACTIONS = IrTypeMap(
 )
 
 
-class _AbnfFlavour(IrFlavour):
-    """ABNF flavour singleton class."""
-
-    actions: IrTypeMap = ABNF_ACTIONS
-
-    name: ClassVar[str] = "abnf"
-    extensions: ClassVar[tuple[str, ...]] = (".abnf",)
-    meta_grammar: ClassVar[str] = META_GRAMMAR
-    escapes: ClassVar[EscapeCodec] = ABNF_ESCAPES
-    line_comment: ClassVar[str] = ";"
-
-    @staticmethod
-    def parse_quantifier(text: str) -> IrQuantifier:
-        """ABNF quantifier parser. Forms: ``*``, ``*N``, ``N*``, ``N*M``, ``N``."""
-        if text == "*":
-            return IrQuantifier(0, IrNone)
-        if text.startswith("*"):
-            return IrQuantifier(0, int(text[1:]))
-        if "*" in text:
-            lo_str, hi_str = text.split("*", 1)
-            lo = int(lo_str)
-            hi = int(hi_str) if hi_str else IrNone
-            return IrQuantifier(lo, hi)
-        n = int(text)
-        return IrQuantifier(n, n)
-
-    @staticmethod
-    def parse_charclass(text: str) -> tuple[str, bool]:
-        """Parse an ABNF num-val single value or range.
-
-        ``text`` is ``%x41`` / ``%d65`` / ``%b1000001`` (single) or its ``-``
-        range form. The radix marker (``x``/``d``/``b``, any case) selects base
-        16/10/2. ABNF has no negation, so the flag is always ``False``.
-        """
-        radix = {"b": 2, "d": 10, "x": 16}[text[1].lower()]
-        body = text[2:]
-        if "-" in body:
-            lo_s, hi_s = body.split("-", 1)
-            return f"{chr(int(lo_s, radix))}-{chr(int(hi_s, radix))}", False
-        return chr(int(body, radix)), False
-
-    @classmethod
-    def normalize_literal(cls, decoded: str) -> IrLiteral | IrAlternation:
-        """Case-insensitive expansion: ``abc`` → ``([aA][bB][cC])``; leave non-alpha as-is."""
-        if not any(c.isalpha() for c in decoded):
-            return IrLiteral(decoded)
-        items: list[IrItem] = []
-        for c in decoded:
-            if c.isalpha():
-                items.append(
-                    IrItem(atom=IrCharClass(IrChr(c.lower()), IrChr(c.upper())))
-                )
-            else:
-                items.append(IrItem(atom=IrLiteral(c)))
-        return IrAlternation(IrSequence(*items))
-
-
-ABNF_FLAVOUR = _AbnfFlavour()
-"""Singleton ABNF flavour."""
-
-
 # ── ABNF grammar as native IR + reducer ────────────────────────────────────
 #
 # The text→IR half of the flavour, with no Lark: ABNF_GRAMMAR is the ABNF
@@ -404,32 +281,82 @@ parenthesised group)."""
 
 ABNF_GRAMMAR = IrAst(
     rules=IrSeq(
+        # rulelist is any number of terminated rl-items followed by a final
+        # rl-item whose rule may omit its line ending (a file need not end in a
+        # newline — json.abnf does not). Only the last rule's terminator is
+        # optional, so no internal rule/blank-line ambiguity arises.
         IrRule(
             "rulelist",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("rl-item"), IrQuantifier(1, IrNone)))
+                IrSequence(
+                    IrItem(IrRuleRef("rl-item"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("rl-final")),
+                )
             ),
         ),
-        # rl-item owns any comment/blank lines preceding a rule (RFC 5234's
-        # `*c-wsp c-nl` filler); the comment lines drop, leaving the rule. A
-        # comment line starts with ";" and a rule with a letter, so the two
-        # never collide.
+        # rl-item owns any comment/blank filler lines preceding a rule (RFC
+        # 5234's `*c-wsp c-nl` filler); the filler drops, leaving the rule. A
+        # filler line is a comment (starts ";") or blank (whitespace only); a
+        # rule starts with a letter, so filler and rule never collide.
         IrRule(
             "rl-item",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("comment-line"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("filler"), IrQuantifier(0, IrNone)),
                     IrItem(IrRuleRef("rule")),
                 )
             ),
         ),
         IrRule(
-            "comment-line",
+            "rl-final",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("filler"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("endrule")),
+                )
+            ),
+        ),
+        # endrule is `rule` with an optional terminator — the final rule of a
+        # file may end at EOF instead of a line ending.
+        IrRule(
+            "endrule",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("rulename")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("defined")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("alternation")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-nl"), IrQuantifier(0, 1)),
+                )
+            ),
+        ),
+        IrRule(
+            "filler",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("comment"))),
+                IrSequence(IrItem(IrRuleRef("blank"))),
+            ),
+        ),
+        # A blank line: optional horizontal whitespace then a line ending.
+        IrRule(
+            "blank",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("crlf")),
+                )
+            ),
+        ),
+        # A comment runs from ";" to (and including) its line ending.
+        IrRule(
+            "comment",
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral(";")),
                     IrItem(IrRuleRef("cchar"), IrQuantifier(0, IrNone)),
-                    IrItem(IrRuleRef("c-nl")),
+                    IrItem(IrRuleRef("crlf")),
                 )
             ),
         ),
@@ -440,16 +367,28 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrCharClass(IrRange(IrChr(0x20), IrChr(0x7E))))),
             ),
         ),
+        # `defined` is `=` or the incremental `=/` (RFC 5234 §3.3). Both drop;
+        # incremental arms are merged into the earlier same-named rule by the
+        # rulelist reduction (same-name rules coalesce). The `=/` arm only
+        # completes on `=/` (a bare `=` leaves a stray `/` no alternation can
+        # start), so the two never ambiguate.
+        IrRule(
+            "defined",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("="))),
+                IrSequence(IrItem(IrLiteral("=/"))),
+            ),
+        ),
         IrRule(
             "rule",
             IrAlternation(
                 IrSequence(
                     IrItem(IrRuleRef("rulename")),
-                    IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
-                    IrItem(IrLiteral("=")),
-                    IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("defined")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
                     IrItem(IrRuleRef("alternation")),
-                    IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
                     IrItem(IrRuleRef("c-nl")),
                 )
             ),
@@ -484,9 +423,9 @@ ABNF_GRAMMAR = IrAst(
             "altrest",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
                     IrItem(IrLiteral("/")),
-                    IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
                     IrItem(IrRuleRef("concatenation")),
                 )
             ),
@@ -504,17 +443,38 @@ ABNF_GRAMMAR = IrAst(
             "catrest",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("wsp"), IrQuantifier(1, IrNone)),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(1, IrNone)),
                     IrItem(IrRuleRef("repetition")),
                 )
             ),
         ),
+        # repetition is either a (possibly repeated) element or an option
+        # `[...]` (RFC 5234's optional-sequence — an item bound to (0, 1)).
         IrRule(
             "repetition",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("rep-core"))),
+                IrSequence(IrItem(IrRuleRef("option"))),
+            ),
+        ),
+        IrRule(
+            "rep-core",
             IrAlternation(
                 IrSequence(
                     IrItem(IrRuleRef("repeat-opt")),
                     IrItem(IrRuleRef("element")),
+                )
+            ),
+        ),
+        IrRule(
+            "option",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("[")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("alternation")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrLiteral("]")),
                 )
             ),
         ),
@@ -562,8 +522,11 @@ ABNF_GRAMMAR = IrAst(
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("rulename"))),
                 IrSequence(IrItem(IrRuleRef("char-val"))),
+                IrSequence(IrItem(IrRuleRef("cs-string"))),
+                IrSequence(IrItem(IrRuleRef("ci-string"))),
                 IrSequence(IrItem(IrRuleRef("num-val"))),
                 IrSequence(IrItem(IrRuleRef("group"))),
+                IrSequence(IrItem(IrRuleRef("prose"))),
             ),
         ),
         IrRule(
@@ -571,9 +534,9 @@ ABNF_GRAMMAR = IrAst(
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("(")),
-                    IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
                     IrItem(IrRuleRef("alternation")),
-                    IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
                     IrItem(IrLiteral(")")),
                 )
             ),
@@ -628,11 +591,80 @@ ABNF_GRAMMAR = IrAst(
         ),
         IrRule("cvnai", _CV_NA_BODY),
         IrRule("cvnac", _CV_NA_BODY),
+        # RFC 7405 case-sensitive string `%s"..."`: a raw IrLiteral, no
+        # case expansion. `smark` (the "s") drops; the quoted body's chars
+        # join verbatim.
+        IrRule(
+            "cs-string",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("smark")),
+                    IrItem(IrRuleRef("DQUOTE")),
+                    IrItem(IrRuleRef("csbody")),
+                    IrItem(IrRuleRef("DQUOTE")),
+                )
+            ),
+        ),
+        # RFC 7405 case-insensitive string `%i"..."`: identical to a bare
+        # char-val — `imark` (the "i") drops and the char-val body expands.
+        IrRule(
+            "ci-string",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("imark")),
+                    IrItem(IrRuleRef("char-val")),
+                )
+            ),
+        ),
+        IrRule(
+            "csbody",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("qchar"), IrQuantifier(0, IrNone)))
+            ),
+        ),
+        # A quoted-string char (RFC 7405): any printable except `"` (0x22).
+        # Authored as single-range arms so each emits a bare `%x` and
+        # round-trips (see the module docstring's char-class adaptation).
+        IrRule(
+            "qchar",
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(0x20), IrChr(0x21))))),
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(0x23), IrChr(0x7E))))),
+            ),
+        ),
+        IrRule("smark", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("s")))))),
+        IrRule("imark", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("i")))))),
+        # prose-val `<...>` is recognised then rejected at reduce time: it has
+        # no machine-readable meaning (RFC 5234 §4).
+        IrRule(
+            "prose",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("<")),
+                    IrItem(IrRuleRef("prose-char"), IrQuantifier(0, IrNone)),
+                    IrItem(IrLiteral(">")),
+                )
+            ),
+        ),
+        IrRule(
+            "prose-char",
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(0x20), IrChr(0x3D))))),
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(0x3F), IrChr(0x7E))))),
+            ),
+        ),
         IrRule(
             "num-val",
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("num-single"))),
                 IrSequence(IrItem(IrRuleRef("num-range"))),
+                IrSequence(IrItem(IrRuleRef("num-seq"))),
+                IrSequence(IrItem(IrRuleRef("dec-single"))),
+                IrSequence(IrItem(IrRuleRef("dec-range"))),
+                IrSequence(IrItem(IrRuleRef("bin-single"))),
+                IrSequence(IrItem(IrRuleRef("bin-range"))),
             ),
         ),
         IrRule(
@@ -657,9 +689,91 @@ ABNF_GRAMMAR = IrAst(
                 )
             ),
         ),
+        # num-seq `%x0D.0A`: a dot-joined value sequence → a case-sensitive
+        # IrLiteral of the decoded code points. Each dot-part decodes to one
+        # glyph (`hexglyph`) and the parts join. The `.` requires ≥2 parts, so
+        # it never collides with num-single/num-range.
+        IrRule(
+            "num-seq",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("xmark")),
+                    IrItem(IrRuleRef("hexglyph")),
+                    IrItem(IrRuleRef("hexdot"), IrQuantifier(1, IrNone)),
+                )
+            ),
+        ),
+        IrRule(
+            "hexdot",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral(".")), IrItem(IrRuleRef("hexglyph")))
+            ),
+        ),
+        IrRule(
+            "hexglyph",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("HEXDIG"), IrQuantifier(1, IrNone)))
+            ),
+        ),
+        # dec-val / bin-val (RFC 5234): the digit run is `hexits` reused (Lark's
+        # regex likewise admits any hex digit after the marker), and the base
+        # 10 / 2 is applied in the reduction.
+        IrRule(
+            "dec-single",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("dmark")),
+                    IrItem(IrRuleRef("hexits")),
+                )
+            ),
+        ),
+        IrRule(
+            "dec-range",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("dmark")),
+                    IrItem(IrRuleRef("hexits")),
+                    IrItem(IrLiteral("-")),
+                    IrItem(IrRuleRef("hexits")),
+                )
+            ),
+        ),
+        IrRule(
+            "bin-single",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("bmark")),
+                    IrItem(IrRuleRef("hexits")),
+                )
+            ),
+        ),
+        IrRule(
+            "bin-range",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("bmark")),
+                    IrItem(IrRuleRef("hexits")),
+                    IrItem(IrLiteral("-")),
+                    IrItem(IrRuleRef("hexits")),
+                )
+            ),
+        ),
         IrRule(
             "xmark",
             IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("x"))))),
+        ),
+        IrRule(
+            "dmark",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("d"))))),
+        ),
+        IrRule(
+            "bmark",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("b"))))),
         ),
         IrRule(
             "hexits",
@@ -667,13 +781,39 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("HEXDIG"), IrQuantifier(1, IrNone)))
             ),
         ),
+        # Line ending and folding (RFC 5234 §4). c-nl is a comment or a bare
+        # line ending; c-wsp is folding whitespace — plain horizontal space,
+        # or a line ending followed by continuation indentation (which lets a
+        # rule body span lines and carry trailing/inline comments).
         IrRule(
             "c-nl",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("comment"))),
+                IrSequence(IrItem(IrRuleRef("crlf"))),
+            ),
+        ),
+        IrRule(
+            "crlf",
             IrAlternation(
                 IrSequence(
                     IrItem(IrRuleRef("CR"), IrQuantifier(0, 1)),
                     IrItem(IrRuleRef("LF")),
                 )
+            ),
+        ),
+        IrRule(
+            "c-wsp",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("wsp"))),
+                IrSequence(
+                    IrItem(
+                        IrAlternation(
+                            IrSequence(
+                                IrItem(IrRuleRef("c-nl")), IrItem(IrRuleRef("wsp"))
+                            )
+                        )
+                    )
+                ),
             ),
         ),
         IrRule(
@@ -696,11 +836,15 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
             ),
         ),
+        # HEXDIG admits lowercase a-f too (RFC 5234 is uppercase-only, but the
+        # Lark path's regex — and real grammars, e.g. json.abnf's `%x66.61.6c`
+        # — use either case; IrUnradix decodes both).
         IrRule(
             "HEXDIG",
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("DIGIT"))),
                 IrSequence(IrItem(IrCharClass(IrRange(IrChr("A"), IrChr("F"))))),
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("f"))))),
             ),
         ),
         IrRule("CR", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("\r")))))),
@@ -718,18 +862,28 @@ ABNF_GRAMMAR = IrAst(
 
 _NON_SEMANTIC = (
     "wsp",
+    "c-wsp",
     "SP",
     "HTAB",
     "c-nl",
+    "crlf",
     "CR",
     "LF",
     "DQUOTE",
+    "comment",
+    "filler",
+    "blank",
+    "defined",
     "xmark",
-    "comment-line",
+    "dmark",
+    "bmark",
+    "smark",
+    "imark",
 )
-"""Whitespace, line endings, the char-val quote delimiter, the ``%x`` radix
-marker, and comment lines. Dropped from a structural rule's children and
-skipped by :data:`~lexic.parsing_2.reduce.YIELD`."""
+"""Whitespace and folding, line endings, comments/blank filler, the char-val
+quote delimiter, and the radix/case markers (``%x``/``%d``/``%b``/``%s``/``%i``).
+Dropped from a structural rule's children and skipped by
+:data:`~lexic.parsing.reduce.YIELD`."""
 
 ABNF_NOISE: IrMap = IrMap(
     *(IrTuple(IrRuleRef(name), DROP) for name in _NON_SEMANTIC),
@@ -745,14 +899,22 @@ _cp0 = IrPipe(IrArg(0), IrUnradix(16, IrChr))
 """First hex digit-run arg → an ``IrChr`` code point."""
 _cp1 = IrPipe(IrArg(1), IrUnradix(16, IrChr))
 """Second hex digit-run arg → an ``IrChr`` code point."""
+_dp0 = IrPipe(IrArg(0), IrUnradix(10, IrChr))
+_dp1 = IrPipe(IrArg(1), IrUnradix(10, IrChr))
+_bp0 = IrPipe(IrArg(0), IrUnradix(2, IrChr))
+_bp1 = IrPipe(IrArg(1), IrUnradix(2, IrChr))
+"""``%d``/``%b`` code-point endpoints — the same first/second digit-run args
+decoded in base 10 / base 2."""
+_hex_glyph = IrPipe(IrJoin(IrArgs()), IrPipe(IrUnradix(16, IrInt), IrGlyph()))
+"""Joined hex digit-run args → the decoded character (num-seq glyph)."""
 _dec = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
 """Joined decimal digit-run args → an ``IrInt`` count."""
 
 # Case-insensitive char-val: each letter maps to a build-expression that
 # constructs ``IrItem(IrCharClass(IrChr(lower), IrChr(upper)))`` — the RFC 7405
-# expansion, exactly as the Lark path's ``normalize_literal`` produces. The
-# value is an ``IrBuild`` expression, not a pre-built node, so ``eval``
-# constructs it fresh (embedding a built node would re-eval and mangle IrChr).
+# expansion. The value is an ``IrBuild`` expression, not a pre-built node, so
+# ``eval`` constructs it fresh (embedding a built node would re-eval and
+# mangle IrChr).
 _CV_CASE: IrMap[IrStr, IrSelf] = IrMap(
     *(
         IrTuple(
@@ -780,21 +942,56 @@ _CV_CASE: IrMap[IrStr, IrSelf] = IrMap(
 """Letter → the per-char case-class item build-expression (RFC 7405)."""
 
 
+def _merge_rules(_d: IrSelf, _n: IrSelf, nc: IrTuple) -> IrAst:
+    """Fold the parsed rules into an :class:`IrAst`, merging same-named ones.
+
+    RFC 5234 §3.3 incremental (``=/``) arms extend an existing rule; both ``=``
+    and ``=/`` reduce to a plain :class:`IrRule`, so a rule whose name was
+    already seen has its alternation arms appended to that earlier rule (the
+    Lark path's ``_build_start`` merge, pointed the other way). The start rule
+    is the first name defined.
+
+    :param nc: the reduced rules, in source order.
+    :returns: the assembled ``IrAst``.
+    """
+    merged: list[IrRule] = []
+    position: dict[str, int] = {}
+    for ruleobj in nc:
+        rule = cast(IrRule, ruleobj)
+        if rule.name in position:
+            base = merged[position[rule.name]]
+            merged[position[rule.name]] = IrRule(
+                base.name, IrAlternation(*base.body, *rule.body)
+            )
+        else:
+            position[rule.name] = len(merged)
+            merged.append(rule)
+    return IrAst(IrSeq(*merged), merged[0].name if merged else IrStr(""))
+
+
 # Dyads in an annotated tuple so each value widens to ``IrSelf`` (the invariant
 # ``IrTuple`` would otherwise reject the heterogeneous bodies under ``IrMap``).
 ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
-    IrTuple(
-        IrRuleRef("rulelist"),
-        IrBuild(IrAst, IrTuple(IrBuild(IrSeq), IrPipe(IrArg(0), IrField("name")))),
-    ),
+    IrTuple(IrRuleRef("rulelist"), IrLambda(_merge_rules)),
     IrTuple(IrRuleRef("rl-item"), IrArg(0)),
+    IrTuple(IrRuleRef("rl-final"), IrArg(0)),
     IrTuple(IrRuleRef("rule"), IrBuild(IrRule)),
+    IrTuple(IrRuleRef("endrule"), IrBuild(IrRule)),
     IrTuple(IrRuleRef("alternation"), IrBuild(IrAlternation)),
     IrTuple(IrRuleRef("altrest"), IrArg(0)),
     IrTuple(IrRuleRef("concatenation"), IrBuild(IrSequence)),
     IrTuple(IrRuleRef("catrest"), IrArg(0)),
-    # repetition: repeat-opt is child 0, element is child 1 → IrItem(atom, quant).
-    IrTuple(IrRuleRef("repetition"), IrBuild(IrItem, IrTuple(IrArg(1), IrArg(0)))),
+    IrTuple(IrRuleRef("repetition"), IrArg(0)),
+    # rep-core: repeat-opt is child 0, element is child 1 → IrItem(atom, quant).
+    IrTuple(IrRuleRef("rep-core"), IrBuild(IrItem, IrTuple(IrArg(1), IrArg(0)))),
+    # option `[...]`: the inner alternation as an atom, bound to (0, 1).
+    IrTuple(
+        IrRuleRef("option"),
+        IrBuild(
+            IrItem,
+            IrTuple(IrArg(0), IrBuild(IrQuantifier, IrTuple(IrInt(0), IrInt(1)))),
+        ),
+    ),
     # repeat-opt: present → forward the quantifier; empty → a built default (1,1).
     IrTuple(
         IrRuleRef("repeat-opt"),
@@ -833,6 +1030,16 @@ ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("hexits"), IrJoin(IrArgs())),
     IrTuple(IrRuleRef("element"), IrArg(0)),
     IrTuple(IrRuleRef("group"), IrArg(0)),
+    # RFC 7405 strings: `%s"..."` → a raw case-sensitive IrLiteral;
+    # `%i"..."` → the char-val case-insensitive expansion, reused verbatim.
+    IrTuple(IrRuleRef("cs-string"), IrArg(0)),
+    IrTuple(IrRuleRef("ci-string"), IrArg(0)),
+    IrTuple(IrRuleRef("csbody"), IrBuild(IrLiteral, IrTuple(IrJoin(IrArgs())))),
+    # prose-val is recognised then refused — it has no formal semantics.
+    IrTuple(
+        IrRuleRef("prose"),
+        IrRaise(message="{dispatcher}: ABNF prose-val has no formal semantics"),
+    ),
     # Text rules — wrap the subtree text as the leaf type (quotes skipped).
     IrTuple(IrRuleRef("rulename"), IrBuild(IrRuleRef, IrTuple(YIELD))),
     # char-val (RFC 7405 case-insensitive): forward the body's reduction.
@@ -853,13 +1060,27 @@ ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
         IrBuild(IrItem, IrTuple(IrBuild(IrLiteral, IrTuple(YIELD)))),
     ),
     IrTuple(IrRuleRef("cvnac"), YIELD),
-    # num-val → IrCharClass over code points (IrChr endpoints).
+    # num-val → IrCharClass over code points (IrChr endpoints), one branch
+    # per radix (base 16 / 10 / 2); num-seq → a case-sensitive IrLiteral.
     IrTuple(IrRuleRef("num-val"), IrArg(0)),
     IrTuple(IrRuleRef("num-single"), IrBuild(IrCharClass, IrTuple(_cp0))),
     IrTuple(
         IrRuleRef("num-range"),
         IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_cp0, _cp1)))),
     ),
+    IrTuple(IrRuleRef("dec-single"), IrBuild(IrCharClass, IrTuple(_dp0))),
+    IrTuple(
+        IrRuleRef("dec-range"),
+        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_dp0, _dp1)))),
+    ),
+    IrTuple(IrRuleRef("bin-single"), IrBuild(IrCharClass, IrTuple(_bp0))),
+    IrTuple(
+        IrRuleRef("bin-range"),
+        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_bp0, _bp1)))),
+    ),
+    IrTuple(IrRuleRef("num-seq"), IrBuild(IrLiteral, IrTuple(IrJoin(IrArgs())))),
+    IrTuple(IrRuleRef("hexdot"), IrArg(0)),
+    IrTuple(IrRuleRef("hexglyph"), _hex_glyph),
     IrTuple(IR_DEFAULT, YIELD),
 )
 """Per-rule reductions: parse tree → IR. Numeric rules decode their clean digit
@@ -870,3 +1091,20 @@ Paired with :data:`ABNF_NOISE`."""
 
 ABNF_REDUCER = Reducer(reductions=ABNF_REDUCTIONS, noise=ABNF_NOISE, literal=DROP)
 """The configured ABNF reducer: ``ABNF_REDUCTIONS`` plus the cleaning policy."""
+
+
+class _AbnfFlavour(IrFlavour):
+    """ABNF flavour singleton class."""
+
+    actions: IrTypeMap = ABNF_ACTIONS
+
+    name: ClassVar[str] = "abnf"
+    extensions: ClassVar[tuple[str, ...]] = (".abnf",)
+    escapes: ClassVar[EscapeCodec] = ABNF_ESCAPES
+    line_comment: ClassVar[str] = ";"
+    grammar: ClassVar[IrAst] = ABNF_GRAMMAR
+    reducer: ClassVar[Reducer] = ABNF_REDUCER
+
+
+ABNF_FLAVOUR = _AbnfFlavour()
+"""Singleton ABNF flavour."""

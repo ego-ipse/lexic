@@ -434,6 +434,24 @@ def test_quantifier_plain_int_fields():
     assert IrQuantifier(1, 1) == IrQuantifier(1, 1)  # frozen record eq
 
 
+def test_quantifier_coerces_irint_endpoints_to_plain_int():
+    """IrQuantifier narrows IrInt-typed endpoints to plain int at construction
+    (repr-is-codegen must never emit 'IrInt(...)' into generated modules)."""
+    q = IrQuantifier(IrInt(2), IrInt(5))
+    assert isinstance(q.lo, int) and not isinstance(q.lo, IrInt)
+    assert isinstance(q.hi, int) and not isinstance(q.hi, IrInt)
+    assert q == IrQuantifier(2, 5)
+    assert "IrInt" not in repr(q)
+
+
+def test_quantifier_coerces_irint_lo_keeps_irnone_hi():
+    """An IrInt lower bound narrows to int while an unbounded IrNone upper
+    bound is left untouched."""
+    q = IrQuantifier(IrInt(0), IrNone)
+    assert isinstance(q.lo, int) and not isinstance(q.lo, IrInt)
+    assert q.hi is IrNone
+
+
 def test_item_accepts_atom_subclasses():
     """IrItem wraps any IrAtom subclass; children() yields (atom, quantifier)."""
     it = IrItem(IrLiteral("x"))  # IrLiteral IS-A IrAtom

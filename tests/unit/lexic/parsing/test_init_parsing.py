@@ -1,9 +1,9 @@
-"""Tests for lexic.parsing_2.__init__ — the package's public API surface.
+"""Tests for lexic.parsing.__init__ — the package's public API surface.
 
 API changes from the int-kernel rework:
 
 - ``EARLEY_OPS``, ``Column``, ``Complete``, ``Predict``, ``Scan`` are GONE
-  (``lexic.parsing_2.ops`` no longer exists — the per-item type dispatch it
+  (``lexic.parsing.ops`` no longer exists — the per-item type dispatch it
   held is compiled away into ``tables.py``'s int-coded ``next_sym``
   discriminator and ``kernel.py``'s flat loop). Their re-export tests are
   dropped.
@@ -14,7 +14,7 @@ API changes from the int-kernel rework:
 
 from __future__ import annotations
 
-from lexic.parsing_2 import (
+from lexic.parsing import (
     BUILD_TREE,
     PARSE_REDUCED,
     Chart,
@@ -36,20 +36,20 @@ from lexic.parsing_2 import (
     parse_reduced,
     recognize,
 )
-from lexic.parsing_2.chart import Chart as ChartDirect
-from lexic.parsing_2.chart import EarleyItem as EarleyItemDirect
-from lexic.parsing_2.chart import Link as LinkDirect
-from lexic.parsing_2.chart import Links as LinksDirect
-from lexic.parsing_2.engine import PARSE_REDUCED as PARSE_REDUCED_DIRECT
-from lexic.parsing_2.engine import EarleyParser as EarleyParserDirect
-from lexic.parsing_2.forest import BUILD_TREE as BUILD_TREE_DIRECT
-from lexic.parsing_2.forest import ParseTree as ParseTreeDirect
-from lexic.parsing_2.forest import SppfNode as SppfNodeDirect
-from lexic.parsing_2.kernel import FastTree as FastTreeDirect
-from lexic.parsing_2.kernel import Kernel as KernelDirect
-from lexic.parsing_2.reduce import Reducer as ReducerDirect
-from lexic.parsing_2.tables import ParserTables as ParserTablesDirect
-from lexic.parsing_2.tables import compile_tables as compile_tables_direct
+from lexic.parsing.chart import Chart as ChartDirect
+from lexic.parsing.chart import EarleyItem as EarleyItemDirect
+from lexic.parsing.chart import Link as LinkDirect
+from lexic.parsing.chart import Links as LinksDirect
+from lexic.parsing.engine import PARSE_REDUCED as PARSE_REDUCED_DIRECT
+from lexic.parsing.engine import EarleyParser as EarleyParserDirect
+from lexic.parsing.forest import BUILD_TREE as BUILD_TREE_DIRECT
+from lexic.parsing.forest import ParseTree as ParseTreeDirect
+from lexic.parsing.forest import SppfNode as SppfNodeDirect
+from lexic.parsing.kernel import FastTree as FastTreeDirect
+from lexic.parsing.kernel import Kernel as KernelDirect
+from lexic.parsing.reduce import Reducer as ReducerDirect
+from lexic.parsing.tables import ParserTables as ParserTablesDirect
+from lexic.parsing.tables import compile_tables as compile_tables_direct
 
 
 def test_chart_re_exported_from_package():

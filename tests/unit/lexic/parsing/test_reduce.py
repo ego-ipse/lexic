@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing_2.reduce — Reducer bottom-up fold.
+"""Tests for lexic.parsing.reduce — Reducer bottom-up fold.
 
 API changes (old → new):
 
@@ -37,11 +37,11 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2 import derivations, parse
-from lexic.parsing_2.forest import ParseTree
-from lexic.parsing_2.kernel import Kernel
-from lexic.parsing_2.normalize import SYNTHETIC_PREFIX, normalize
-from lexic.parsing_2.reduce import (
+from lexic.parsing import derivations, parse
+from lexic.parsing.forest import ParseTree
+from lexic.parsing.kernel import Kernel
+from lexic.parsing.normalize import SYNTHETIC_PREFIX, normalize
+from lexic.parsing.reduce import (
     DROP,
     KEEP_RAW,
     KEEP_REDUCED,
@@ -54,8 +54,9 @@ from lexic.parsing_2.reduce import (
     Yield,
     _plan_for,
 )
-from lexic.parsing_2.tables import ORIGIN_BITS, compile_tables
-from lexic.parsing_2.trampoline import Trampoline
+from lexic.parsing.tables import ORIGIN_BITS, compile_tables
+from lexic.parsing.trampoline import Trampoline
+from tests._ir_fixtures import letter_word_rules
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -491,18 +492,7 @@ def test_deep_reduce_does_not_crash():
 
 def _word_phrase_grammar() -> IrAst:
     """word = letter letter ; letter = [a-z] ; phrase = word ws word ; ws = ' '."""
-    from lexic.ir.nodes import IrCharClass, IrChr, IrRange
-
-    letter = IrRule(
-        "letter",
-        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
-    )
-    word = IrRule(
-        "word",
-        IrAlternation(
-            IrSequence(IrItem(IrRuleRef("letter")), IrItem(IrRuleRef("letter")))
-        ),
-    )
+    word, letter = letter_word_rules()
     ws = IrRule("ws", IrAlternation(IrSequence(IrItem(IrLiteral(" ")))))
     phrase = IrRule(
         "phrase",

@@ -60,7 +60,7 @@ class RootItem(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -74,7 +74,7 @@ Root.__grammar__ = RuleSpec(
 
 
 JpChar.__grammar__ = RuleSpec(
-    rule_name="jp-char",
+    rule_name=IrRuleRef("jp-char"),
     class_name="JpChar",
     parent_class_name="GrammarModel",
     kind="alternation",
@@ -90,7 +90,7 @@ JpChar.__grammar__ = RuleSpec(
 
 
 Hiragana.__grammar__ = RuleSpec(
-    rule_name="hiragana",
+    rule_name=IrRuleRef("hiragana"),
     class_name="Hiragana",
     parent_class_name="JpChar",
     kind="value_str",
@@ -103,7 +103,7 @@ Hiragana.__grammar__ = RuleSpec(
 
 
 Katakana.__grammar__ = RuleSpec(
-    rule_name="katakana",
+    rule_name=IrRuleRef("katakana"),
     class_name="Katakana",
     parent_class_name="JpChar",
     kind="value_str",
@@ -116,7 +116,7 @@ Katakana.__grammar__ = RuleSpec(
 
 
 Punctuation.__grammar__ = RuleSpec(
-    rule_name="punctuation",
+    rule_name=IrRuleRef("punctuation"),
     class_name="Punctuation",
     parent_class_name="JpChar",
     kind="value_str",
@@ -129,7 +129,7 @@ Punctuation.__grammar__ = RuleSpec(
 
 
 Cjk.__grammar__ = RuleSpec(
-    rule_name="cjk",
+    rule_name=IrRuleRef("cjk"),
     class_name="Cjk",
     parent_class_name="JpChar",
     kind="value_str",

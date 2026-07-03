@@ -1,6 +1,6 @@
-# `lexic.parsing_2` — IR-native Earley parsing
+# `lexic.parsing` — IR-native Earley parsing
 
-`parsing_2` is the Lark replacement: a scannerless [Earley](https://en.wikipedia.org/wiki/Earley_parser)
+`parsing` is the Lark replacement: a scannerless [Earley](https://en.wikipedia.org/wiki/Earley_parser)
 parser that runs **directly over an `IrAst`**. No meta-grammar string, no Lark
 grammar generation, no external parser. The premise is that **an `IrAst` already
 *is* a grammar** — a set of named rules, each an alternation of sequences of
@@ -43,8 +43,8 @@ no-`IrBool` rule, a truth value is an `IrInt ∈ {0, 1}`.
 | `is_ambiguous(grammar, text)` | `IrInt` 0/1 | Does the input have more than one derivation? (Short-circuits at 2.) |
 
 ```python
-from lexic.parsing_2 import parse, parse_reduced, recognize
-from lexic.parsing_2.normalize import normalize
+from lexic.parsing import parse, parse_reduced, recognize
+from lexic.parsing.normalize import normalize
 
 g = normalize(MY_GRAMMAR)            # desugar to classical Earley shape first
 assert recognize(g, "input text")    # IrInt(1)
@@ -275,7 +275,7 @@ Fixpoint holds on every path.
 
 ### ABNF self-host (920 chars/copy)
 
-| input | stage | Lark | `parsing_2` | ratio |
+| input | stage | Lark | `parsing` | ratio |
 |---|---|---|---|---|
 | x1 (920 ch) | recognize | 18.7 ms | **8.0 ms** | **0.42×** |
 | | parse | 26.6 ms | 34.1 ms | 1.28× |

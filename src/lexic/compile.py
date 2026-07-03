@@ -7,8 +7,8 @@ Pipeline (compile_grammar — grammar text → specs):
           │                                          ▼
           │                       (resolve `start` arg precedence)
           │
-          └──►  MetaGrammarParser.for_flavour(flavour)  ──►  IrAst
-                                                          │
+          └──►  parse_reduced(normalize(flavour.grammar), text, flavour.reducer)
+                                                          │  ──►  IrAst
                                                           ▼
                       derive_specs(ast, non_semantic_rules=...)
                                                           │
@@ -17,12 +17,12 @@ Pipeline (compile_grammar — grammar text → specs):
 
 compile_text(text, *, cache_key) / compile_from_path(path) then run codegen
 and build the engine-backed instance parser: the specs reconstitute as an
-instance grammar (``lexic.parsing_2.models.build_instance_parser``) and
+instance grammar (``lexic.parsing.models.build_instance_parser``) and
 ``CompiledGrammar.parse`` drives the Earley engine + ``ModelFold`` — no Lark.
 
 Runtime seams: codegen from lexic.codegen (the package); the engine entries
-from lexic.parsing_2 / lexic.parsing_2.models. No private-symbol imports
-cross either seam.
+from lexic.parsing / lexic.parsing.models / lexic.parsing.normalize /
+lexic.parsing.reduce. No private-symbol imports cross either seam.
 """
 
 from __future__ import annotations
@@ -41,9 +41,10 @@ from lexic.ir.directives import parse_directives
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
 from lexic.ir.spec import RuleSpec
-from lexic.parsing.meta_parser import MetaGrammarParser
-from lexic.parsing_2 import parse_first
-from lexic.parsing_2.models import ModelFold, build_instance_parser
+from lexic.parsing import parse_first, parse_reduced
+from lexic.parsing.models import ModelFold, build_instance_parser
+from lexic.parsing.normalize import normalize
+from lexic.parsing.reduce import Reducer
 
 
 @dataclass(frozen=True)
@@ -79,10 +80,28 @@ class CompiledGrammar:
 
 _CACHE: dict[Hashable, CompiledGrammar] = {}
 
+_NORM_GRAMMAR_CACHE: dict[str, IrAst] = {}
+
 
 def reset_cache_for_tests() -> None:
     """Public test seam: clear the compile cache."""
     _CACHE.clear()
+
+
+def _normalized_grammar(flavour: IrFlavour) -> IrAst:
+    """Return the flavour's Earley-normalised self-grammar, memoised by name.
+
+    The identity of the returned :class:`IrAst` is stable across calls, so the
+    engine's object-identity table memoisation (``compile_tables``) stays hot.
+
+    :param flavour: The grammar flavour whose ``grammar`` ClassVar to normalise.
+    :returns: The normalised self-grammar.
+    """
+    cached = _NORM_GRAMMAR_CACHE.get(flavour.name)
+    if cached is None:
+        cached = normalize(flavour.grammar)
+        _NORM_GRAMMAR_CACHE[flavour.name] = cached
+    return cached
 
 
 def _stem_for_text(text: str) -> str:
@@ -154,12 +173,23 @@ def compile_grammar(
       2. `@non-semantic <rule> ...` directives in source comments
 
     Errors: malformed grammar source bubbles up as UnsupportedConstructError
-    (wrapped at MetaGrammarParser boundary).
+    (raised by the engine / reducer, or here if the flavour carries no Reducer
+    or its reduction does not yield an IrAst).
     """
     directives = parse_directives(text, flavour.line_comment)
     if non_semantic_rules is None:
         non_semantic_rules = directives.non_semantic
-    ast = MetaGrammarParser.for_flavour(flavour).parse(text)
+    reducer = flavour.reducer
+    if not isinstance(reducer, Reducer):
+        raise UnsupportedConstructError(
+            f"compile: flavour {flavour.name!r} carries no parse Reducer"
+        )
+    ast = parse_reduced(_normalized_grammar(flavour), text, reducer)
+    if not isinstance(ast, IrAst):
+        raise UnsupportedConstructError(
+            f"compile: flavour {flavour.name!r} reduction produced "
+            f"{type(ast).__name__!r}, not an IrAst"
+        )
     if start is None:
         start = directives.start or (ast.rules[0].name if ast.rules else "")
     if start and not any(r.name == start for r in ast.rules):

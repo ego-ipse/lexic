@@ -23,10 +23,10 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2 import derivations
-from lexic.parsing_2.engine import ACCEPTING, EarleyParser
-from lexic.parsing_2.forest import ParseTree, SppfNode
-from lexic.parsing_2.normalize import normalize
+from lexic.parsing import derivations
+from lexic.parsing.engine import ACCEPTING, EarleyParser
+from lexic.parsing.forest import ParseTree, SppfNode
+from lexic.parsing.normalize import normalize
 
 _DONE = object()
 """Sentinel sent into a parent cogen when an advanced child is exhausted."""

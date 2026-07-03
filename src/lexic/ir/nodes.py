@@ -25,7 +25,7 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, Self
 
 from lexic.ir.base import (
     IrAtom,
@@ -153,6 +153,21 @@ class IrQuantifier(IrBounds):
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     lo: int = 1
     hi: int | IrNoneType = 1
+
+    def __new__(cls, lo: int = 1, hi: int | IrNoneType = 1) -> Self:
+        """Store endpoints as plain ``int`` — ``hi`` alone may stay ``IrNone``.
+
+        Reductions build bounds from :class:`~lexic.ir.action.IrUnradix`, which
+        yields :class:`~lexic.ir.base.IrInt`. The canonical quantifier shape is
+        plain ``int`` counts (repr-is-codegen emits the endpoints verbatim), so
+        an int-like endpoint is narrowed to ``int`` here at construction.
+
+        :param lo: Lower bound (any int-like value).
+        :param hi: Upper bound (any int-like value) or :data:`IrNone`.
+        :returns: The quantifier with plain-int endpoints.
+        """
+        hi_val = hi if isinstance(hi, IrNoneType) else int(hi)
+        return super().__new__(cls, int(lo), hi_val)
 
 
 class IrRange(IrBounds):

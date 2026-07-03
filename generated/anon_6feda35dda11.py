@@ -40,7 +40,7 @@ class Ident(Term):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -51,7 +51,7 @@ Root.__grammar__ = RuleSpec(
 
 
 Term.__grammar__ = RuleSpec(
-    rule_name="term",
+    rule_name=IrRuleRef("term"),
     class_name="Term",
     parent_class_name="GrammarModel",
     kind="alternation",
@@ -65,7 +65,7 @@ Term.__grammar__ = RuleSpec(
 
 
 Num.__grammar__ = RuleSpec(
-    rule_name="num",
+    rule_name=IrRuleRef("num"),
     class_name="Num",
     parent_class_name="Term",
     kind="value_str",
@@ -76,7 +76,7 @@ Num.__grammar__ = RuleSpec(
 
 
 Ident.__grammar__ = RuleSpec(
-    rule_name="ident",
+    rule_name=IrRuleRef("ident"),
     class_name="Ident",
     parent_class_name="Term",
     kind="value_str",

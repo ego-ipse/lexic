@@ -1,18 +1,9 @@
-"""Name conversion utilities: snake_case, PascalCase, Lark identifiers."""
+"""Name conversion utilities: snake_case and PascalCase."""
 
 from __future__ import annotations
 
 import keyword
 import re
-
-
-def to_lark_name(rule_name: str) -> str:
-    """Convert a GBNF rule name to a valid Lark rule identifier.
-
-    Lark rules must be all-lowercase; terminals start with uppercase.
-    Hyphens are not valid in identifiers, so we replace them with underscores.
-    """
-    return rule_name.replace("-", "_").lower()
 
 
 def to_pascal(name: str) -> str:

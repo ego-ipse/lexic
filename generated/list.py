@@ -33,7 +33,7 @@ class Item(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -44,7 +44,7 @@ Root.__grammar__ = RuleSpec(
 
 
 Item.__grammar__ = RuleSpec(
-    rule_name="item",
+    rule_name=IrRuleRef("item"),
     class_name="Item",
     parent_class_name="GrammarModel",
     kind="value_str",

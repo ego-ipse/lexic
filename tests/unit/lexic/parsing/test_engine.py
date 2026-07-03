@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing_2.engine — EarleyParser, recognize, parse, and the
+"""Tests for lexic.parsing.engine — EarleyParser, recognize, parse, and the
 lazy readers (parse_forest, derivations, is_ambiguous).
 
 API changes from the int-kernel rework:
@@ -6,8 +6,8 @@ API changes from the int-kernel rework:
 - ``RuleIndex``/``NullableRules``/``Matches``/``AcceptingItem``/``BuildChart``
   (and singletons ``RULE_INDEX``/``NULLABLE``/``MATCHES``/``ACCEPT``/
   ``BUILD_CHART``), plus ``ACCEPTING``, are ALL GONE — that per-item IR
-  dispatch is compiled away into :mod:`lexic.parsing_2.tables` and
-  :mod:`lexic.parsing_2.kernel`'s int tables. Their identity/dispatch tests
+  dispatch is compiled away into :mod:`lexic.parsing.tables` and
+  :mod:`lexic.parsing.kernel`'s int tables. Their identity/dispatch tests
   are dropped; there is no new home for testing "is this singleton an
   instance of its class" once the class no longer exists.
 - Everything else in this file — the overwhelming majority — is pure
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pytest
 
-import lexic.parsing_2.engine as engine_mod
+import lexic.parsing.engine as engine_mod
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrArgs, IrJoin
 from lexic.ir.base import IrInt, IrNone, IrNoneType, IrSelf, IrSeq, IrTuple
@@ -43,7 +43,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing_2 import (
+from lexic.parsing import (
     EarleyParser,
     ParseTree,
     derivations,
@@ -54,14 +54,14 @@ from lexic.parsing_2 import (
     parse_reduced,
     recognize,
 )
-from lexic.parsing_2.engine import PARSE_FIRST, PARSE_REDUCED, ParseFirst, ParseReduced
-from lexic.parsing_2.forest import (
+from lexic.parsing.engine import PARSE_FIRST, PARSE_REDUCED, ParseFirst, ParseReduced
+from lexic.parsing.forest import (
     DerivationStream,
     IrStream,
     SppfNode,
 )
-from lexic.parsing_2.normalize import normalize
-from lexic.parsing_2.reduce import Reducer
+from lexic.parsing.normalize import normalize
+from lexic.parsing.reduce import Reducer
 
 # ── Grammar builders ──────────────────────────────────────────────────
 
@@ -532,7 +532,7 @@ def test_is_ambiguous_short_circuits(sss_grammar: IrAst) -> None:
 
     ``engine.IsAmbiguous.eval`` calls ``DERIVATION_STREAM.eval(...)`` through
     its own module-level import binding (``engine.py`` does
-    ``from lexic.parsing_2.forest import (..., DERIVATION_STREAM, ...)``), so
+    ``from lexic.parsing.forest import (..., DERIVATION_STREAM, ...)``), so
     the patch target is ``engine_mod.DERIVATION_STREAM`` — patching only
     ``forest_mod.DERIVATION_STREAM`` would not affect the already-bound name
     ``IsAmbiguous.eval`` actually calls.

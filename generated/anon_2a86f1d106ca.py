@@ -38,7 +38,7 @@ class Name(GrammarModel):
 
 
 Greeting.__grammar__ = RuleSpec(
-    rule_name="greeting",
+    rule_name=IrRuleRef("greeting"),
     class_name="Greeting",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -54,7 +54,7 @@ Greeting.__grammar__ = RuleSpec(
 
 
 Salutation.__grammar__ = RuleSpec(
-    rule_name="salutation",
+    rule_name=IrRuleRef("salutation"),
     class_name="Salutation",
     parent_class_name="GrammarModel",
     kind="value_str",
@@ -71,7 +71,7 @@ Salutation.__grammar__ = RuleSpec(
 
 
 Name.__grammar__ = RuleSpec(
-    rule_name="name",
+    rule_name=IrRuleRef("name"),
     class_name="Name",
     parent_class_name="GrammarModel",
     kind="value_str",

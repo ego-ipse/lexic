@@ -36,7 +36,7 @@ class Ws(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -51,7 +51,7 @@ Root.__grammar__ = RuleSpec(
 
 
 Value.__grammar__ = RuleSpec(
-    rule_name="value",
+    rule_name=IrRuleRef("value"),
     class_name="Value",
     parent_class_name="GrammarModel",
     kind="value_str",
@@ -62,7 +62,7 @@ Value.__grammar__ = RuleSpec(
 
 
 Ws.__grammar__ = RuleSpec(
-    rule_name="ws",
+    rule_name=IrRuleRef("ws"),
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",

@@ -1,7 +1,7 @@
-"""Tests for lexic.parsing_2.tables — CodeTables, DecodeTables, ParserTables,
+"""Tests for lexic.parsing.tables — CodeTables, DecodeTables, ParserTables,
 compile_tables, atom_accepts.
 
-New module (the compiled "codegen moment" for parsing_2): every dotted
+New module (the compiled "codegen moment" for parsing): every dotted
 position of every arm gets one int ``code``, laid out dot-dense so advancing
 a dot is ``+ 1``. This file covers the coding scheme, the ``next_sym``
 discriminator, nullable/accept-code fixpoints, memoisation, per-char scan
@@ -28,8 +28,8 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing_2 import recognize
-from lexic.parsing_2.tables import (
+from lexic.parsing import recognize
+from lexic.parsing.tables import (
     ADVANCE,
     ORIGIN_BITS,
     CodeTables,
@@ -38,6 +38,8 @@ from lexic.parsing_2.tables import (
     atom_accepts,
     compile_tables,
 )
+from tests._ir_fixtures import digit_grammar as _digit_grammar
+from tests._ir_fixtures import word_grammar as _word_grammar
 
 # ── atom_accepts ────────────────────────────────────────────────────────
 
@@ -107,36 +109,6 @@ def test_atom_accepts_negated_non_charclass_raises():
 
 
 # ── Grammar builders ─────────────────────────────────────────────────────
-
-
-def _digit_grammar() -> IrAst:
-    """digit = [0-9] ; single-rule, single-arm, single-item grammar."""
-    return IrAst(
-        rules=IrSeq(
-            IrRule(
-                "digit",
-                IrAlternation(
-                    IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
-                ),
-            ),
-        ),
-        start="digit",
-    )
-
-
-def _word_grammar() -> IrAst:
-    """word = letter letter ; letter = [a-z] — two positions in one arm."""
-    letter = IrRule(
-        "letter",
-        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
-    )
-    word = IrRule(
-        "word",
-        IrAlternation(
-            IrSequence(IrItem(IrRuleRef("letter")), IrItem(IrRuleRef("letter")))
-        ),
-    )
-    return IrAst(rules=IrSeq(word, letter), start="word")
 
 
 def _nullable_grammar() -> IrAst:

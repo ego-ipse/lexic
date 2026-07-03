@@ -76,7 +76,7 @@ class ExprItem(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -87,7 +87,7 @@ Root.__grammar__ = RuleSpec(
 
 
 Expr.__grammar__ = RuleSpec(
-    rule_name="expr",
+    rule_name=IrRuleRef("expr"),
     class_name="Expr",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -101,7 +101,7 @@ Expr.__grammar__ = RuleSpec(
 
 
 Term.__grammar__ = RuleSpec(
-    rule_name="term",
+    rule_name=IrRuleRef("term"),
     class_name="Term",
     parent_class_name="GrammarModel",
     kind="alternation",
@@ -133,7 +133,7 @@ TermArm3.__grammar__ = RuleSpec(
 
 
 Ident.__grammar__ = RuleSpec(
-    rule_name="ident",
+    rule_name=IrRuleRef("ident"),
     class_name="Ident",
     parent_class_name="Term",
     kind="sequence",
@@ -153,7 +153,7 @@ Ident.__grammar__ = RuleSpec(
 
 
 Num.__grammar__ = RuleSpec(
-    rule_name="num",
+    rule_name=IrRuleRef("num"),
     class_name="Num",
     parent_class_name="Term",
     kind="sequence",
@@ -167,7 +167,7 @@ Num.__grammar__ = RuleSpec(
 
 
 Ws.__grammar__ = RuleSpec(
-    rule_name="ws",
+    rule_name=IrRuleRef("ws"),
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",

@@ -235,7 +235,7 @@ class ArgListItem(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -246,7 +246,7 @@ Root.__grammar__ = RuleSpec(
 
 
 Declaration.__grammar__ = RuleSpec(
-    rule_name="declaration",
+    rule_name=IrRuleRef("declaration"),
     class_name="Declaration",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -266,7 +266,7 @@ Declaration.__grammar__ = RuleSpec(
 
 
 DataType.__grammar__ = RuleSpec(
-    rule_name="dataType",
+    rule_name=IrRuleRef("dataType"),
     class_name="DataType",
     parent_class_name="GrammarModel",
     kind="alternation",
@@ -323,7 +323,7 @@ DataTypeArm3.__grammar__ = RuleSpec(
 
 
 Factor.__grammar__ = RuleSpec(
-    rule_name="factor",
+    rule_name=IrRuleRef("factor"),
     class_name="Factor",
     parent_class_name="GrammarModel",
     kind="alternation",
@@ -340,7 +340,7 @@ Factor.__grammar__ = RuleSpec(
 
 
 Identifier.__grammar__ = RuleSpec(
-    rule_name="identifier",
+    rule_name=IrRuleRef("identifier"),
     class_name="Identifier",
     parent_class_name="Factor",
     kind="value_str",
@@ -367,7 +367,7 @@ Identifier.__grammar__ = RuleSpec(
 
 
 Parameter.__grammar__ = RuleSpec(
-    rule_name="parameter",
+    rule_name=IrRuleRef("parameter"),
     class_name="Parameter",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -381,7 +381,7 @@ Parameter.__grammar__ = RuleSpec(
 
 
 Statement.__grammar__ = RuleSpec(
-    rule_name="statement",
+    rule_name=IrRuleRef("statement"),
     class_name="Statement",
     parent_class_name="GrammarModel",
     kind="alternation",
@@ -622,7 +622,7 @@ StatementArm9.__grammar__ = RuleSpec(
 
 
 ForInit.__grammar__ = RuleSpec(
-    rule_name="forInit",
+    rule_name=IrRuleRef("forInit"),
     class_name="ForInit",
     parent_class_name="GrammarModel",
     kind="alternation",
@@ -671,7 +671,7 @@ ForInitArm2.__grammar__ = RuleSpec(
 
 
 ForUpdate.__grammar__ = RuleSpec(
-    rule_name="forUpdate",
+    rule_name=IrRuleRef("forUpdate"),
     class_name="ForUpdate",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -688,7 +688,7 @@ ForUpdate.__grammar__ = RuleSpec(
 
 
 Condition.__grammar__ = RuleSpec(
-    rule_name="condition",
+    rule_name=IrRuleRef("condition"),
     class_name="Condition",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -703,7 +703,7 @@ Condition.__grammar__ = RuleSpec(
 
 
 RelationOperator.__grammar__ = RuleSpec(
-    rule_name="relationOperator",
+    rule_name=IrRuleRef("relationOperator"),
     class_name="RelationOperator",
     parent_class_name="GrammarModel",
     kind="value_str",
@@ -726,7 +726,7 @@ RelationOperator.__grammar__ = RuleSpec(
 
 
 Expression.__grammar__ = RuleSpec(
-    rule_name="expression",
+    rule_name=IrRuleRef("expression"),
     class_name="Expression",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -740,7 +740,7 @@ Expression.__grammar__ = RuleSpec(
 
 
 Term.__grammar__ = RuleSpec(
-    rule_name="term",
+    rule_name=IrRuleRef("term"),
     class_name="Term",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -754,7 +754,7 @@ Term.__grammar__ = RuleSpec(
 
 
 UnaryTerm.__grammar__ = RuleSpec(
-    rule_name="unaryTerm",
+    rule_name=IrRuleRef("unaryTerm"),
     class_name="UnaryTerm",
     parent_class_name="Factor",
     kind="sequence",
@@ -768,7 +768,7 @@ UnaryTerm.__grammar__ = RuleSpec(
 
 
 FuncCall.__grammar__ = RuleSpec(
-    rule_name="funcCall",
+    rule_name=IrRuleRef("funcCall"),
     class_name="FuncCall",
     parent_class_name="Factor",
     kind="sequence",
@@ -784,7 +784,7 @@ FuncCall.__grammar__ = RuleSpec(
 
 
 ParenExpression.__grammar__ = RuleSpec(
-    rule_name="parenExpression",
+    rule_name=IrRuleRef("parenExpression"),
     class_name="ParenExpression",
     parent_class_name="Factor",
     kind="sequence",
@@ -801,7 +801,7 @@ ParenExpression.__grammar__ = RuleSpec(
 
 
 ArgList.__grammar__ = RuleSpec(
-    rule_name="argList",
+    rule_name=IrRuleRef("argList"),
     class_name="ArgList",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -815,7 +815,7 @@ ArgList.__grammar__ = RuleSpec(
 
 
 Number.__grammar__ = RuleSpec(
-    rule_name="number",
+    rule_name=IrRuleRef("number"),
     class_name="Number",
     parent_class_name="Factor",
     kind="value_str",
@@ -826,7 +826,7 @@ Number.__grammar__ = RuleSpec(
 
 
 SingleLineComment.__grammar__ = RuleSpec(
-    rule_name="singleLineComment",
+    rule_name=IrRuleRef("singleLineComment"),
     class_name="SingleLineComment",
     parent_class_name="GrammarModel",
     kind="value_str",
@@ -841,7 +841,7 @@ SingleLineComment.__grammar__ = RuleSpec(
 
 
 MultiLineComment.__grammar__ = RuleSpec(
-    rule_name="multiLineComment",
+    rule_name=IrRuleRef("multiLineComment"),
     class_name="MultiLineComment",
     parent_class_name="GrammarModel",
     kind="value_str",
@@ -874,7 +874,7 @@ MultiLineComment.__grammar__ = RuleSpec(
 
 
 Ws.__grammar__ = RuleSpec(
-    rule_name="ws",
+    rule_name=IrRuleRef("ws"),
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",

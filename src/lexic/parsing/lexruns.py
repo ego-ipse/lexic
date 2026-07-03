@@ -2,8 +2,8 @@
 
 Lark closes its step-count gap with a hand-declared token layer matched by C
 regexes. This module derives the same layer from the IR instead: a synthetic
-star/plus rule (minted by :mod:`~lexic.parsing_2.normalize`) collapses into a
-single maximal-munch :class:`~lexic.parsing_2.tables.RunTerm` when three
+star/plus rule (minted by :mod:`~lexic.parsing.normalize`) collapses into a
+single maximal-munch :class:`~lexic.parsing.tables.RunTerm` when three
 facts are **proved** about it, so the collapse is exact — never Lark's
 silent maximal-munch approximation:
 
@@ -20,7 +20,7 @@ silent maximal-munch approximation:
 A char class too large to expand poisons every set it touches
 (conservative: the affected rules simply stay per-char). The reducer-side
 half of the decision — whether the collapsed run's per-char contributions
-can be reconstructed — lives in :mod:`~lexic.parsing_2.reduce`, fed by
+can be reconstructed — lives in :mod:`~lexic.parsing.reduce`, fed by
 :func:`unit_leaves`.
 """
 
@@ -28,8 +28,8 @@ from __future__ import annotations
 
 from lexic.ir.base import IrLeaf, IrSelf
 from lexic.ir.nodes import IrAst, IrCharClass, IrLiteral, IrRange
-from lexic.parsing_2.normalize import SYNTHETIC_PREFIX
-from lexic.parsing_2.tables import (
+from lexic.parsing.normalize import SYNTHETIC_PREFIX
+from lexic.parsing.tables import (
     RUN_DROP,
     ParserTables,
     RunTerm,

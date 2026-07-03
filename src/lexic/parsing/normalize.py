@@ -239,7 +239,7 @@ class DesugarItem(IrLeaf[IrSelf, IrSelf]):
         hi = quant.hi
         if quant.lo < 0 or (not isinstance(hi, IrNoneType) and hi < quant.lo):
             raise UnsupportedConstructError(
-                f"parsing_2: invalid quantifier bounds {(quant.lo, quant.hi)!r}"
+                f"parsing: invalid quantifier bounds {(quant.lo, quant.hi)!r}"
             )
         ref = EXPAND.eval(d, IrItem(item.atom), (quant,))
         return IrItem(cast(IrRuleRef, ref))

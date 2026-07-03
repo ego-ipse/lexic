@@ -2,21 +2,7 @@
 
 import pytest
 
-from lexic.utils.names import to_lark_name, to_pascal, to_snake
-
-
-@pytest.mark.parametrize(
-    "inp, expected",
-    [
-        ("root", "root"),
-        ("json-ws", "json_ws"),
-        ("JP-char", "jp_char"),
-        ("arm1", "arm1"),
-    ],
-)
-def test_to_lark_name(inp, expected):
-    """to_lark_name converts hyphens and case correctly."""
-    assert to_lark_name(inp) == expected
+from lexic.utils.names import to_pascal, to_snake
 
 
 @pytest.mark.parametrize(

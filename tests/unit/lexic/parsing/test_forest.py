@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing_2.forest — ParseTree, SppfNode, DERIVATIONS, BuildTree.
+"""Tests for lexic.parsing.forest — ParseTree, SppfNode, DERIVATIONS, BuildTree.
 
 API changes (old → new):
 
@@ -12,9 +12,9 @@ API changes (old → new):
   are gone); it now exposes only ``chart`` and ``open``.  Sharing / memo tests are
   rewritten as behavioral correctness tests.
 - ``ACCEPTING`` (engine.py) is GONE — the accepting SPPF node and decoded chart are
-  now obtained by running :class:`~lexic.parsing_2.kernel.Kernel` directly and
-  calling :meth:`~lexic.parsing_2.kernel.Kernel.accept_node` /
-  :meth:`~lexic.parsing_2.kernel.Kernel.to_chart`.  The local ``_accept`` helper is
+  now obtained by running :class:`~lexic.parsing.kernel.Kernel` directly and
+  calling :meth:`~lexic.parsing.kernel.Kernel.accept_node` /
+  :meth:`~lexic.parsing.kernel.Kernel.to_chart`.  The local ``_accept`` helper is
   rewritten on top of ``Kernel`` + ``compile_tables``; its signature and callers are
   unchanged.
 - The old ``chart[0]`` per-column iteration (used to hunt a dot-0 EarleyItem) has no
@@ -36,26 +36,23 @@ from typing import Iterator, cast
 
 import pytest
 
-import lexic.parsing_2.forest as forest_mod
+import lexic.parsing.forest as forest_mod
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrNone, IrNoneType, IrSelf, IrSeq, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
-    IrCharClass,
-    IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
-    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing_2 import derivations, parse, parse_forest
-from lexic.parsing_2.chart import Chart
-from lexic.parsing_2.engine import EarleyParser
-from lexic.parsing_2.forest import (
+from lexic.parsing import derivations, parse, parse_forest
+from lexic.parsing.chart import Chart
+from lexic.parsing.engine import EarleyParser
+from lexic.parsing.forest import (
     BUILD_TREE,
     DERIVATION_STREAM,
     DERIVATIONS,
@@ -70,10 +67,12 @@ from lexic.parsing_2.forest import (
     PrefixSource,
     SppfNode,
 )
-from lexic.parsing_2.kernel import Kernel
-from lexic.parsing_2.normalize import normalize
-from lexic.parsing_2.tables import ORIGIN_BITS, compile_tables
-from lexic.parsing_2.trampoline import Trampoline
+from lexic.parsing.kernel import Kernel
+from lexic.parsing.normalize import normalize
+from lexic.parsing.tables import ORIGIN_BITS, compile_tables
+from lexic.parsing.trampoline import Trampoline
+from tests._ir_fixtures import digit_grammar as _digit_grammar
+from tests._ir_fixtures import word_grammar as _word_grammar
 
 
 def _accept(grammar: IrAst, text: str) -> tuple[EarleyParser, Chart, SppfNode, int]:
@@ -149,25 +148,16 @@ def test_build_tree_singleton_is_build_tree_instance():
 # (which is an internal implementation detail).
 
 
-def _make_digit_grammar() -> IrAst:
-    """digit = [0-9] ; single-char char-class rule."""
-    digit_rule = IrRule(
-        "digit",
-        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))),
-    )
-    return IrAst(rules=IrSeq(digit_rule), start="digit")
-
-
 def test_build_tree_returns_parse_tree():
     """parse() returns a ParseTree for a simple single-char input."""
-    grammar = _make_digit_grammar()
+    grammar = _digit_grammar()
     tree = parse(grammar, "5")
     assert isinstance(tree, ParseTree)
 
 
 def test_build_tree_symbol_is_start_rule():
     """The root ParseTree's symbol is the start rule's IrRuleRef."""
-    grammar = _make_digit_grammar()
+    grammar = _digit_grammar()
     tree = parse(grammar, "7")
     assert tree.symbol == IrRuleRef("digit")
 
@@ -175,17 +165,7 @@ def test_build_tree_symbol_is_start_rule():
 def test_build_tree_kids_in_source_order():
     """build_tree returns kids in source order (left-to-right input order)."""
     # Grammar: word = letter letter
-    letter = IrRule(
-        "letter",
-        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))),
-    )
-    word = IrRule(
-        "word",
-        IrAlternation(
-            IrSequence(IrItem(IrRuleRef("letter")), IrItem(IrRuleRef("letter")))
-        ),
-    )
-    grammar = IrAst(rules=IrSeq(word, letter), start="word")
+    grammar = _word_grammar()
     tree = parse(grammar, "hi")
     assert isinstance(tree, ParseTree)
     # Two sub-trees for the two letter matches
@@ -201,7 +181,7 @@ def test_build_tree_kids_in_source_order():
 
 def test_build_tree_leaf_kids_are_ir_literals():
     """Terminal (scanned) children in the tree are IrLiteral values."""
-    grammar = _make_digit_grammar()
+    grammar = _digit_grammar()
     tree = parse(grammar, "3")
     assert len(tree.kids) == 1
     assert isinstance(tree.kids[0], IrLiteral)
@@ -710,7 +690,7 @@ def test_derivations_realises_all(sss_grammar: IrAst):
 def _make_right_recursive_grammar() -> IrAst:
     """Build: S = 'a'* — a right-recursive nullable grammar.
 
-    Normalised via :func:`~lexic.parsing_2.normalize.normalize`, the
+    Normalised via :func:`~lexic.parsing.normalize.normalize`, the
     quantifier desugars to right-recursive rules that produce an arbitrarily
     deep parse spine for long input.
 

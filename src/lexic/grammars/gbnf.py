@@ -1,18 +1,17 @@
 """GBNF flavour for Lexic.
 
-Bundles the escape codec, action tuple, parse helpers, and the IR-native
-self-grammar + reducer in one module. :data:`GBNF_FLAVOUR` is the singleton
+Bundles the escape codec, emit action tuple, and the IR-native self-grammar +
+reducer in one module. :data:`GBNF_FLAVOUR` is the singleton
 :class:`IrFlavour`/:class:`IrEmitter` consumed by
 :func:`lexic.grammars.get_flavour`; :data:`GBNF_GRAMMAR`/:data:`GBNF_REDUCER`
-are the text→IR half driven by :mod:`lexic.parsing_2`. Temporarily over the
-pylint module-line cap (user-accepted): the Lark-era META_GRAMMAR and parse
-helpers die at cutover Phase 6 and bring the size back down.
+are the text→IR half driven by :mod:`lexic.parsing`.
 
-Explicit disable of duplicate-code. The end-goal is to have this file be
-completely auto-generated.
+Explicit disable of duplicate-code and too-many-lines. The end-goal is to have
+this file be completely auto-generated.
 """
 
 # pylint: disable=duplicate-code
+# pylint: disable=too-many-lines
 
 from __future__ import annotations
 
@@ -57,34 +56,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot, IrOp
-from lexic.parsing_2.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
-
-META_GRAMMAR = r"""
-start: rule+
-
-rule: NAME "::=" alternation     -> ir_rule
-alternation: sequence ("|" sequence)*  -> ir_alternation
-sequence: item*                  -> ir_sequence
-item: atom QUANTIFIER?           -> ir_item
-
-atom: LITERAL                    -> ir_literal
-    | CHARCLASS                  -> ir_charclass
-    | NAME                       -> ir_ruleref
-    | "(" alternation ")"        -> ir_group
-
-NAME: /[a-zA-Z_][a-zA-Z0-9_-]*/
-LITERAL: /"([^"\\]|\\.)*"/
-CHARCLASS: /\[(?:\^)?(?:[^\]\\]|\\.)*\]/
-QUANTIFIER: /[?*+]|\{[0-9]+(?:,[0-9]*)?\}/
-
-%ignore /[ \t\n\r]+/
-%ignore /#[^\n]*/
-"""
-"""GBNF meta-grammar — Lark grammar string with canonical IR-AST tags.
-
-The MetaGrammarParser dispatches productions tagged `ir_rule`, `ir_literal`,
-etc. to its generic IR-AST constructor. This file is data; no logic.
-"""
+from lexic.parsing.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
 
 class _GbnfEscapes(EscapeCodec):
@@ -136,9 +108,8 @@ GBNF_QUANTIFIERS: IrMap[IrQuantifier, IrLiteral] = IrMap(
 
 The four closed forms are exact-value keys; every counted form (``{n}``,
 ``{n,}``, ``{m,n}``) resolves to the :data:`IR_DEFAULT` branch, a nested
-:class:`IrCond` over the ``lo``/``hi`` bounds. ``parse_quantifier`` inverts the
-exact-key dyads (and parses the counted forms by regex), so the table exists
-once.
+:class:`IrCond` over the ``lo``/``hi`` bounds. The GBNF reducer decodes the
+same forms the other way (digit runs via :class:`IrUnradix`).
 """
 
 
@@ -240,61 +211,16 @@ GBNF_ACTIONS = IrTypeMap(
 )
 
 
-class _GbnfFlavour(IrFlavour):
-    """GBNF flavour singleton class."""
-
-    actions: IrTypeMap = GBNF_ACTIONS
-
-    name: ClassVar[str] = "gbnf"
-    extensions: ClassVar[tuple[str, ...]] = (".gbnf",)
-    meta_grammar: ClassVar[str] = META_GRAMMAR
-    escapes: ClassVar[EscapeCodec] = GBNF_ESCAPES
-    line_comment: ClassVar[str] = "#"
-
-    @staticmethod
-    def parse_quantifier(text: str) -> IrQuantifier:
-        """GBNF quantifier parser.
-
-        Forms: ``""``, ``?``, ``*``, ``+``, ``{N}``, ``{N,}``, ``{N,M}``.
-        """
-        symbol_to_bounds = {
-            str(sym): q
-            for q, sym in GBNF_QUANTIFIERS.items()
-            if isinstance(sym, IrLiteral)
-        }
-        quantifier = symbol_to_bounds.get(text or "")
-        if quantifier is not None:
-            return quantifier
-        inner = text[1:-1]
-        if "," in inner:
-            lo_str, hi_str = inner.split(",", 1)
-            return IrQuantifier(int(lo_str), int(hi_str) if hi_str else IrNone)
-        n = int(inner)
-        return IrQuantifier(n, n)
-
-    @staticmethod
-    def parse_charclass(text: str) -> tuple[str, bool]:
-        """GBNF charclass parser. ``text`` includes the brackets."""
-        inner = text[1:-1]
-        if inner.startswith("^"):
-            return inner[1:], True
-        return inner, False
-
-
-GBNF_FLAVOUR = _GbnfFlavour()
-"""Singleton GBNF flavour."""
-
-
 # ── GBNF grammar as native IR + reducer ────────────────────────────────────
 #
 # Authored like the ABNF block in abnf.py: fully explicit IrAst, no
-# construction helpers. Reproduces MetaGrammarParser semantics exactly
-# (pinned by tests/integration/test_gbnf_ir_equivalence.py over the seven
-# resources/ground_truth grammars). Design notes:
-# - Lark's lexer gave maximal munch for free; here it is engineered
-#   structurally: adjacent items need real noise unless the next atom is
-#   non-name (seq-rest), inter-rule noise is REQUIRED (rules-rest), and a
-#   bare '-' in a class is positional (leading / trailing / range-hi only).
+# construction helpers. Pinned by tests/integration/test_gbnf_ir_equivalence.py
+# (golden shapes + invariants over the seven resources/ground_truth grammars).
+# Design notes:
+# - Maximal munch is engineered structurally (no lexer to grant it for free):
+#   adjacent items need real noise unless the next atom is non-name
+#   (seq-rest), inter-rule noise is REQUIRED (rules-rest), and a bare '-' in a
+#   class is positional (leading / trailing / range-hi only).
 # - Leading-noise discipline: "::=" and "|" own only their own leading
 #   noise; first-item owns each arm's; empty arms (empty-seq, an epsilon
 #   rule) own none — that is what keeps nullable arms unambiguous.
@@ -1108,3 +1034,20 @@ with :data:`GBNF_NOISE`."""
 
 GBNF_REDUCER = Reducer(reductions=GBNF_REDUCTIONS, noise=GBNF_NOISE, literal=DROP)
 """The configured GBNF reducer: reductions plus the cleaning policy."""
+
+
+class _GbnfFlavour(IrFlavour):
+    """GBNF flavour singleton class."""
+
+    actions: IrTypeMap = GBNF_ACTIONS
+
+    name: ClassVar[str] = "gbnf"
+    extensions: ClassVar[tuple[str, ...]] = (".gbnf",)
+    escapes: ClassVar[EscapeCodec] = GBNF_ESCAPES
+    line_comment: ClassVar[str] = "#"
+    grammar: ClassVar[IrAst] = GBNF_GRAMMAR
+    reducer: ClassVar[Reducer] = GBNF_REDUCER
+
+
+GBNF_FLAVOUR = _GbnfFlavour()
+"""Singleton GBNF flavour."""

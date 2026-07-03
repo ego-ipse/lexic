@@ -71,8 +71,8 @@ def predecessor_chain(
 ) -> list[KLink] | None:
     """Walk a packed handle's single-link predecessor chain down to ``base``.
 
-    Shared by :class:`~lexic.parsing_2.kernel.FastTree` and
-    :class:`~lexic.parsing_2.reduce.FusedReduce`, whose kid-collection walks
+    Shared by :class:`~lexic.parsing.kernel.FastTree` and
+    :class:`~lexic.parsing.reduce.FusedReduce`, whose kid-collection walks
     are otherwise identical.
 
     :param links: The parse's SPPF family table.
@@ -139,7 +139,7 @@ def atom_accepts(atom: "IrLiteral | IrCharClass | IrNot | RunTerm", char: str) -
         if isinstance(inner, IrCharClass):
             return not _charclass_contains(inner, char)
         raise UnsupportedConstructError(
-            f"parsing_2: IrNot over {type(inner).__name__} — "
+            f"parsing: IrNot over {type(inner).__name__} — "
             "only IrNot(IrCharClass) is a terminal atom"
         )
     if isinstance(atom, RunTerm):
@@ -159,7 +159,7 @@ class RunTerm(IrLeaf[IrSelf, IrSelf], IrAtom):
     Replaces the body of a *synthetic* star/plus rule whose unit resolves to
     a fixed charset, whose iteration is derivation-unique, and whose FOLLOW
     set is disjoint from the charset (so maximal munch is complete, not a
-    heuristic — see :mod:`lexic.parsing_2.lexruns`). The scanner consumes the
+    heuristic — see :mod:`lexic.parsing.lexruns`). The scanner consumes the
     maximal run in one loop and lands the advance at its end.
 
     IS-A :class:`~lexic.ir.base.IrAtom`: in the compiled-tables world a run
@@ -270,10 +270,10 @@ class TermTables(IrLeaf[IrSelf, IrSelf]):
 
     Split out of :class:`ParserTables` for the same reason :class:`CodeTables`
     and :class:`DecodeTables` are: each consumer indexes only the columns it
-    needs. The scan loop (:mod:`~lexic.parsing_2.kernel`) reads ``lens`` to
+    needs. The scan loop (:mod:`~lexic.parsing.kernel`) reads ``lens`` to
     discriminate the scan kind, then ``literals`` or ``runs`` for the matching
     branch — never ``atoms``, which exists for the IR-space consumers
-    (:mod:`~lexic.parsing_2.lexruns`'s FIRST/FOLLOW analysis) that need the
+    (:mod:`~lexic.parsing.lexruns`'s FIRST/FOLLOW analysis) that need the
     atom node itself.
 
     :ivar atoms: term_id → the terminal atom node.
@@ -523,7 +523,7 @@ class _TableBuilder:
         """
         if item.quantifier != _ONE:
             raise UnsupportedConstructError(
-                f"parsing_2: unnormalised quantifier {item.quantifier!r} — "
+                f"parsing: unnormalised quantifier {item.quantifier!r} — "
                 "run normalize() before compiling"
             )
         atom = item.atom
@@ -532,7 +532,7 @@ class _TableBuilder:
         if isinstance(atom, (IrLiteral, IrCharClass, IrNot)):
             return -(self._term_id(atom) + 1)
         raise UnsupportedConstructError(
-            f"parsing_2: unnormalised atom {type(atom).__name__} — "
+            f"parsing: unnormalised atom {type(atom).__name__} — "
             "run normalize() before compiling"
         )
 
@@ -588,7 +588,7 @@ def compile_tables(grammar: IrAst) -> ParserTables:
     """The :class:`ParserTables` for ``grammar``, compiled once and memoised.
 
     :param grammar: An Earley-normalised grammar (see
-        :func:`lexic.parsing_2.normalize.normalize`).
+        :func:`lexic.parsing.normalize.normalize`).
     :returns: The compiled tables (shared across parses of the same grammar).
     :raises UnsupportedConstructError: On a non-normalised construct.
     """

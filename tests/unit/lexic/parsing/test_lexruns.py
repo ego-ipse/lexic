@@ -1,7 +1,7 @@
-"""Tests for lexic.parsing_2.lexruns — run-terminal detection and collapse.
+"""Tests for lexic.parsing.lexruns — run-terminal detection and collapse.
 
 New module: proves a synthetic star/plus rule's collapse to a single
-maximal-munch :class:`~lexic.parsing_2.tables.RunTerm` (fixed charset,
+maximal-munch :class:`~lexic.parsing.tables.RunTerm` (fixed charset,
 derivation-uniqueness, follow-disjointness) and reconstructs it as compiled
 tables. This file covers ``_expand_atom``'s charset extraction and poisoning,
 ``run_candidates``'s detection and memoisation, ``recognition_tables``'s
@@ -27,15 +27,16 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing_2.kernel import Kernel
-from lexic.parsing_2.lexruns import (
+from lexic.parsing.kernel import Kernel
+from lexic.parsing.lexruns import (
     _expand_atom,
     recognition_tables,
     run_candidates,
     unit_leaves,
 )
-from lexic.parsing_2.normalize import SYNTHETIC_PREFIX, normalize
-from lexic.parsing_2.tables import RunTerm, compile_tables
+from lexic.parsing.normalize import SYNTHETIC_PREFIX, normalize
+from lexic.parsing.tables import RunTerm, compile_tables
+from tests._ir_fixtures import digit_grammar as _digit_grammar
 
 # ── _expand_atom ──────────────────────────────────────────────────────
 
@@ -102,18 +103,7 @@ def test_run_candidates_memoised_per_tables_object():
 
 def test_run_candidates_empty_for_grammar_with_no_synthetic_rules():
     """A plain (non-quantified) grammar has no run candidates."""
-    g = IrAst(
-        rules=IrSeq(
-            IrRule(
-                "digit",
-                IrAlternation(
-                    IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
-                ),
-            ),
-        ),
-        start="digit",
-    )
-    tables = compile_tables(g)
+    tables = compile_tables(_digit_grammar())
     assert run_candidates(tables) == {}
 
 
@@ -141,17 +131,7 @@ def test_recognition_tables_collapses_when_candidates_exist():
 
 def test_recognition_tables_returns_plain_when_no_candidates():
     """A grammar with nothing to collapse gets back the plain compiled tables."""
-    g = IrAst(
-        rules=IrSeq(
-            IrRule(
-                "digit",
-                IrAlternation(
-                    IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
-                ),
-            ),
-        ),
-        start="digit",
-    )
+    g = _digit_grammar()
     assert recognition_tables(g) is compile_tables(g)
 
 
@@ -195,18 +175,7 @@ def test_recognition_tables_matches_plain_recognition_on_samples():
 
 def test_unit_leaves_non_synthetic_rule_is_itself():
     """A non-synthetic rule id resolves to itself, with no bare terminal."""
-    g = IrAst(
-        rules=IrSeq(
-            IrRule(
-                "digit",
-                IrAlternation(
-                    IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
-                ),
-            ),
-        ),
-        start="digit",
-    )
-    tables = compile_tables(g)
+    tables = compile_tables(_digit_grammar())
     rid = tables.decode.rule_ids["digit"]
     assert unit_leaves(tables, rid) == ({rid}, False)
 

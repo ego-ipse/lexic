@@ -1,4 +1,4 @@
-"""Parsing benchmark: native Earley (``parsing_2/``) vs Lark — **goal: beat Lark**.
+"""Parsing benchmark: native Earley (``parsing/``) vs Lark — **goal: beat Lark**.
 
 Every Earley stage is paired with the **matching Lark stage**, so each row is a
 true earley-vs-lark comparison:
@@ -53,11 +53,11 @@ from lexic.ir.nodes import (
     IrRule,
     IrSequence,
 )
+from lexic.parsing import parse as earley_parse
+from lexic.parsing import parse_reduced as earley_parse_reduced
+from lexic.parsing import recognize as earley_recognize
 from lexic.parsing.meta_parser import MetaGrammarParser
-from lexic.parsing_2 import parse as earley_parse
-from lexic.parsing_2 import parse_reduced as earley_parse_reduced
-from lexic.parsing_2 import recognize as earley_recognize
-from lexic.parsing_2.normalize import normalize
+from lexic.parsing.normalize import normalize
 
 # ── Setup (excluded from timing) ──────────────────────────────────────
 BASE_TEXT = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
@@ -250,7 +250,7 @@ def rightrec() -> None:
 
 
 def profile() -> None:
-    """cProfile parsing_2 parse+reduce on the x4 input (treat as a hint)."""
+    """cProfile parsing parse+reduce on the x4 input (treat as a hint)."""
     text = make_input(4)
     STAGES[2][2](text)
     pr = cProfile.Profile()
@@ -258,7 +258,7 @@ def profile() -> None:
     for _ in range(5):
         STAGES[2][2](text)
     pr.disable()
-    print("\n=== cProfile parsing_2 (parse+reduce), x4, sorted by tottime ===")
+    print("\n=== cProfile parsing (parse+reduce), x4, sorted by tottime ===")
     pstats.Stats(pr).sort_stats("tottime").print_stats(25)
 
 

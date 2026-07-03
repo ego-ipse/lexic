@@ -1,11 +1,11 @@
 """The flat Earley kernel — the compiled grammar's paid loop.
 
-This module is the **compiled-form zone** of ``parsing_2`` (see
-:mod:`lexic.parsing_2.tables`): the per-item loop runs over int-coded tables
+This module is the **compiled-form zone** of ``parsing`` (see
+:mod:`lexic.parsing.tables`): the per-item loop runs over int-coded tables
 and packed-int items instead of dispatching IR nodes. Logic stays on classes
 and per-parse state on the :class:`Kernel` cursor — but no ``eval`` runs per
 item, no IR object is ever a hot-path key, and no tuple is allocated per
-advance. The IR seams sit at the edges: :func:`~lexic.parsing_2.tables
+advance. The IR seams sit at the edges: :func:`~lexic.parsing.tables
 .compile_tables` walks the grammar in, and :meth:`Kernel.to_chart` decodes the
 finished SPPF out for the IR-native forest readers.
 
@@ -31,9 +31,9 @@ from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrSeq
-from lexic.parsing_2.chart import Chart, EarleyItem
-from lexic.parsing_2.forest import ParseTree, SppfNode
-from lexic.parsing_2.tables import (
+from lexic.parsing.chart import Chart, EarleyItem
+from lexic.parsing.forest import ParseTree, SppfNode
+from lexic.parsing.tables import (
     ADVANCE,
     ORIGIN_BITS,
     ORIGIN_MASK,
@@ -133,7 +133,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         """
         if len(text) >= ADVANCE:
             raise UnsupportedConstructError(
-                f"parsing_2: input of {len(text)} chars exceeds the packed "
+                f"parsing: input of {len(text)} chars exceeds the packed "
                 f"column capacity ({ADVANCE - 1})"
             )
         self.tables = tables
@@ -320,7 +320,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         """Scan at ``text[i]``: advance items facing a matching terminal.
 
         A char-class match lands one column ahead; a k-char literal match
-        (``startswith``, C-level) lands k ahead; a :class:`~lexic.parsing_2
+        (``startswith``, C-level) lands k ahead; a :class:`~lexic.parsing
         .tables.RunTerm` consumes its maximal run in one step and lands at
         the run's end.
         """
@@ -587,7 +587,7 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         while self.stack:
             if not self._step():
                 return IrNone
-        return holder[0]
+        return self.memo.get(handle, IrNone)
 
     def _step(self) -> bool:
         """Process the top frame; ``False`` aborts the build (fast-path miss)."""

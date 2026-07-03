@@ -1,18 +1,18 @@
 """Earley orchestration — the IR-native façade over the compiled kernel.
 
-The paid loop lives in :mod:`lexic.parsing_2.kernel`, running over the
-compiled :mod:`~lexic.parsing_2.tables`. This module keeps the IR seam: one
+The paid loop lives in :mod:`lexic.parsing.kernel`, running over the
+compiled :mod:`~lexic.parsing.tables`. This module keeps the IR seam: one
 :class:`~lexic.ir.base.IrSelf` orchestration node per public capability, each
-compiling the grammar (memoised), running one :class:`~lexic.parsing_2.kernel
+compiling the grammar (memoised), running one :class:`~lexic.parsing.kernel
 .Kernel`, and reading the result its own way:
 
 - :class:`Recognize` — accept or not; SPPF recording stays off.
 - :class:`Parse` — the strict single derivation via the packed-links
-  :class:`~lexic.parsing_2.kernel.FastTree`, falling back to the trampolined
+  :class:`~lexic.parsing.kernel.FastTree`, falling back to the trampolined
   enumeration over the decoded chart on ambiguity.
 - :class:`ParseForest` / :class:`Enumerate` / :class:`IsAmbiguous` — decode
-  the packed SPPF to the IR-native :class:`~lexic.parsing_2.chart.Chart` and
-  drive the :mod:`~lexic.parsing_2.forest` readers.
+  the packed SPPF to the IR-native :class:`~lexic.parsing.chart.Chart` and
+  drive the :mod:`~lexic.parsing.forest` readers.
 
 :class:`EarleyParser` remains the façade dispatcher handed to the readers'
 ``eval`` seams; the per-item type dispatch it once performed is compiled away
@@ -33,16 +33,16 @@ from lexic.ir.base import (
 )
 from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
-from lexic.parsing_2.forest import (
+from lexic.parsing.forest import (
     BUILD_TREE,
     DERIVATION_STREAM,
     DERIVATIONS,
     ParseTree,
 )
-from lexic.parsing_2.kernel import FastTree, Kernel
-from lexic.parsing_2.lexruns import recognition_tables
-from lexic.parsing_2.reduce import FusedReduce, Reducer, collapsed_tables
-from lexic.parsing_2.tables import ORIGIN_BITS, compile_tables
+from lexic.parsing.kernel import FastTree, Kernel
+from lexic.parsing.lexruns import recognition_tables
+from lexic.parsing.reduce import FusedReduce, Reducer, collapsed_tables
+from lexic.parsing.tables import ORIGIN_BITS, compile_tables
 
 _MATCH = IrInt(1)
 _NO_MATCH = IrInt(0)
@@ -59,7 +59,7 @@ def _run_kernel(n: IrSelf, nc: Sequence[IrSelf], record_links: bool) -> Kernel:
     """
     if not isinstance(n, IrAst):
         raise UnsupportedConstructError(
-            f"parsing_2: expected an IrAst grammar, got {type(n).__name__}"
+            f"parsing: expected an IrAst grammar, got {type(n).__name__}"
         )
     return Kernel(compile_tables(n), str(nc[0]), record_links).run()
 
@@ -72,16 +72,16 @@ def _require_accept(kernel: Kernel, n: IrSelf) -> None:
     if kernel.accept < 0:
         start = n.start if isinstance(n, IrAst) else "<grammar>"
         raise UnsupportedConstructError(
-            f"parsing_2: input does not derive from {str(start)!r}"
+            f"parsing: input does not derive from {str(start)!r}"
         )
 
 
 def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
     """The strict single derivation of an accepted kernel parse.
 
-    Fast path: :class:`~lexic.parsing_2.kernel.FastTree` over the packed
+    Fast path: :class:`~lexic.parsing.kernel.FastTree` over the packed
     links. Slow path (a key packing more than one family): the trampolined
-    :data:`~lexic.parsing_2.forest.BUILD_TREE` over the decoded chart, which
+    :data:`~lexic.parsing.forest.BUILD_TREE` over the decoded chart, which
     raises on a second derivation.
 
     :raises UnsupportedConstructError: On ambiguous input or no derivation.
@@ -92,7 +92,7 @@ def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
         return tree
     built = BUILD_TREE.eval(d, kernel.accept_node(), IrTuple(kernel.to_chart()))
     if not isinstance(built, ParseTree):
-        raise UnsupportedConstructError("parsing_2: no derivation")
+        raise UnsupportedConstructError("parsing: no derivation")
     return built
 
 
@@ -101,7 +101,7 @@ class Recognize(IrLeaf[IrSelf, IrSelf]):
 
     Recognition never reads the forest, so SPPF recording is skipped entirely
     — and the kernel runs over maximally run-collapsed tables
-    (:func:`~lexic.parsing_2.lexruns.recognition_tables`): with no tree or
+    (:func:`~lexic.parsing.lexruns.recognition_tables`): with no tree or
     forest to shape, every grammar-proved lexical run steps in one scan.
     """
 
@@ -109,7 +109,7 @@ class Recognize(IrLeaf[IrSelf, IrSelf]):
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: ``IrInt`` 0/1."""
         if not isinstance(n, IrAst):
             raise UnsupportedConstructError(
-                f"parsing_2: expected an IrAst grammar, got {type(n).__name__}"
+                f"parsing: expected an IrAst grammar, got {type(n).__name__}"
             )
         kernel = Kernel(recognition_tables(n), str(nc[0]), False).run()
         return _MATCH if kernel.accept >= 0 else _NO_MATCH
@@ -118,7 +118,7 @@ class Recognize(IrLeaf[IrSelf, IrSelf]):
 class Parse(IrLeaf[IrSelf, IrSelf]):
     """The strict single derivation of ``text`` as a :class:`ParseTree`.
 
-    Fast path: :class:`~lexic.parsing_2.kernel.FastTree` over the packed
+    Fast path: :class:`~lexic.parsing.kernel.FastTree` over the packed
     links. Slow path (a key packing more than one family): the trampolined
     stream over the decoded chart, which raises on a second derivation.
     """
@@ -137,7 +137,7 @@ class Parse(IrLeaf[IrSelf, IrSelf]):
 class ParseFirst(IrLeaf[IrSelf, IrSelf]):
     """The FIRST derivation of ``text`` — deterministic under ambiguity.
 
-    The instance-parsing seam (:mod:`lexic.parsing_2.models`): where
+    The instance-parsing seam (:mod:`lexic.parsing.models`): where
     :class:`Parse` raises on a second derivation, this takes the
     enumeration's first — parity with the retired Lark path's
     ``ambiguity="resolve"``. Fast path identical to :class:`Parse`; the
@@ -160,7 +160,7 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
         )
         first = next(iter(stream), None)
         if not isinstance(first, ParseTree):
-            raise UnsupportedConstructError("parsing_2: no derivation")
+            raise UnsupportedConstructError("parsing: no derivation")
         return first
 
 
@@ -169,8 +169,8 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
 
     Runs the kernel over **reducer-collapsed tables** (safe lexical runs
     compiled to maximal-munch terminals — see
-    :func:`~lexic.parsing_2.reduce.collapsed_tables`), then folds the packed
-    SPPF straight to IR via :class:`~lexic.parsing_2.reduce.FusedReduce`,
+    :func:`~lexic.parsing.reduce.collapsed_tables`), then folds the packed
+    SPPF straight to IR via :class:`~lexic.parsing.reduce.FusedReduce`,
     skipping the intermediate :class:`ParseTree` entirely. A fused fast-path
     miss (ambiguity, or a noise policy the fold does not compile) falls back
     to a fresh plain-tables parse and the legacy tree-then-reduce path —
@@ -186,12 +186,12 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
         """
         if not isinstance(n, IrAst):
             raise UnsupportedConstructError(
-                f"parsing_2: expected an IrAst grammar, got {type(n).__name__}"
+                f"parsing: expected an IrAst grammar, got {type(n).__name__}"
             )
         reducer = nc[1]
         if not isinstance(reducer, Reducer):
             raise UnsupportedConstructError(
-                f"parsing_2: expected a Reducer, got {type(reducer).__name__}"
+                f"parsing: expected a Reducer, got {type(reducer).__name__}"
             )
         kernel = Kernel(collapsed_tables(reducer, n), str(nc[0]), True).run()
         _require_accept(kernel, n)
@@ -211,7 +211,7 @@ class ParseForest(IrLeaf[IrSelf, IrSelf]):
 
     Returns :data:`~lexic.ir.base.IrNone` when ``text`` does not parse. The
     packed SPPF is decoded so the returned handle's families are readable by
-    the :mod:`~lexic.parsing_2.forest` machinery.
+    the :mod:`~lexic.parsing.forest` machinery.
     """
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:

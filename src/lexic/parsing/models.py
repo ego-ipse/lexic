@@ -2,8 +2,8 @@
 
 Replaces the Lark ``build_lark``/``build_transformer`` pair: an instance
 grammar is reconstituted from the derived :class:`~lexic.ir.spec.RuleSpec`
-list and parsed by :mod:`lexic.parsing_2`; :class:`ModelFold` folds the
-resulting :class:`~lexic.parsing_2.forest.ParseTree` into generated model
+list and parsed by :mod:`lexic.parsing`; :class:`ModelFold` folds the
+resulting :class:`~lexic.parsing.forest.ParseTree` into generated model
 instances.
 
 Design:
@@ -19,9 +19,9 @@ Design:
   yield joined text (terminal fields, ``""`` when empty), optional-group
   text (``None`` when absent), or collected sub-models; synthetic
   (normalize) layers are transparent. The runtime mirror of
-  :class:`~lexic.parsing_2.reduce.Reducer` — its outputs are model
+  :class:`~lexic.parsing.reduce.Reducer` — its outputs are model
   instances, so it lives outside the IrSelf dispatch algebra.
-- Instance parsing runs :func:`~lexic.parsing_2.parse_first` (deterministic
+- Instance parsing runs :func:`~lexic.parsing.parse_first` (deterministic
   first derivation — Lark ``ambiguity="resolve"`` parity; e.g. json_ws's
   ``int`` is genuinely ambiguous).
 """
@@ -45,8 +45,8 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
-from lexic.parsing_2.forest import ParseTree
-from lexic.parsing_2.normalize import normalize
+from lexic.parsing.forest import ParseTree
+from lexic.parsing.normalize import normalize
 
 _WRAP_SEP = "--f"
 """Wrapper-rule name infix: ``<rule>--f<item-index>``."""
@@ -232,7 +232,7 @@ def _direct_models(node: ParseTree, results: dict[int, object]) -> Iterator[obje
 class ModelFold:
     """Bottom-up ParseTree → model-instance fold over per-grammar tables.
 
-    The runtime mirror of :class:`~lexic.parsing_2.reduce.Reducer`: same
+    The runtime mirror of :class:`~lexic.parsing.reduce.Reducer`: same
     explicit-stack discipline, but the outputs are generated model instances
     rather than IR nodes, so it lives outside the IrSelf dispatch algebra.
 

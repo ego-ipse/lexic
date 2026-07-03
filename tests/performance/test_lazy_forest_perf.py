@@ -1,4 +1,4 @@
-"""Performance / laziness benchmarks for the parsing_2 lazy SPPF forest.
+"""Performance / laziness benchmarks for the parsing lazy SPPF forest.
 
 Every test is marked ``performance`` and prints a timing table when run with
 ``-s``. Tests MUST pass in the default ``pytest tests/ -q`` run (generous
@@ -18,8 +18,8 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.nodes import IrLiteral
-from lexic.parsing_2 import derivations, is_ambiguous, parse
-from lexic.parsing_2.forest import ParseTree
+from lexic.parsing import derivations, is_ambiguous, parse
+from lexic.parsing.forest import ParseTree
 from tests._ir_fixtures import sss_grammar
 
 from .conftest import MEMORY_EXCEEDED, TIMED_OUT, guarded, rep_grammar, timed

@@ -130,7 +130,7 @@ class ArrayItem2(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -141,7 +141,7 @@ Root.__grammar__ = RuleSpec(
 
 
 Value.__grammar__ = RuleSpec(
-    rule_name="value",
+    rule_name=IrRuleRef("value"),
     class_name="Value",
     parent_class_name="GrammarModel",
     kind="alternation",
@@ -179,7 +179,7 @@ ValueArm5.__grammar__ = RuleSpec(
 
 
 Object.__grammar__ = RuleSpec(
-    rule_name="object",
+    rule_name=IrRuleRef("object"),
     class_name="Object",
     parent_class_name="Value",
     kind="sequence",
@@ -196,7 +196,7 @@ Object.__grammar__ = RuleSpec(
 
 
 Array.__grammar__ = RuleSpec(
-    rule_name="array",
+    rule_name=IrRuleRef("array"),
     class_name="Array",
     parent_class_name="Value",
     kind="sequence",
@@ -213,7 +213,7 @@ Array.__grammar__ = RuleSpec(
 
 
 String.__grammar__ = RuleSpec(
-    rule_name="string",
+    rule_name=IrRuleRef("string"),
     class_name="String",
     parent_class_name="Value",
     kind="sequence",
@@ -279,7 +279,7 @@ String.__grammar__ = RuleSpec(
 
 
 Number.__grammar__ = RuleSpec(
-    rule_name="number",
+    rule_name=IrRuleRef("number"),
     class_name="Number",
     parent_class_name="Value",
     kind="sequence",
@@ -348,7 +348,7 @@ Number.__grammar__ = RuleSpec(
 
 
 Ws.__grammar__ = RuleSpec(
-    rule_name="ws",
+    rule_name=IrRuleRef("ws"),
     class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",

@@ -73,7 +73,7 @@ class RootItem(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -91,7 +91,7 @@ Root.__grammar__ = RuleSpec(
 
 
 Move.__grammar__ = RuleSpec(
-    rule_name="move",
+    rule_name=IrRuleRef("move"),
     class_name="Move",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -112,7 +112,7 @@ Move.__grammar__ = RuleSpec(
 
 
 Nonpawn.__grammar__ = RuleSpec(
-    rule_name="nonpawn",
+    rule_name=IrRuleRef("nonpawn"),
     class_name="Nonpawn",
     parent_class_name="GrammarModel",
     kind="value_str",
@@ -133,7 +133,7 @@ Nonpawn.__grammar__ = RuleSpec(
 
 
 Pawn.__grammar__ = RuleSpec(
-    rule_name="pawn",
+    rule_name=IrRuleRef("pawn"),
     class_name="Pawn",
     parent_class_name="GrammarModel",
     kind="value_str",
@@ -172,7 +172,7 @@ Pawn.__grammar__ = RuleSpec(
 
 
 Castle.__grammar__ = RuleSpec(
-    rule_name="castle",
+    rule_name=IrRuleRef("castle"),
     class_name="Castle",
     parent_class_name="GrammarModel",
     kind="value_str",

@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing_2.models — the instance-parsing bridge.
+"""Tests for lexic.parsing.models — the instance-parsing bridge.
 
 RuleSpecs + generated classes → an engine-ready normalized IrAst plus a
 ModelFold; ModelFold folds a ParseTree (from parse_first) into model
@@ -31,8 +31,8 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing_2 import parse_first
-from lexic.parsing_2.models import (
+from lexic.parsing import parse_first
+from lexic.parsing.models import (
     ModelFold,
     _lift_optional_nullables,
     _nullable_names,

@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing_2.normalize — desugar, flatten, invariants.
+"""Tests for lexic.parsing.normalize — desugar, flatten, invariants.
 
 API changes:
 
@@ -42,7 +42,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing_2.normalize import (
+from lexic.parsing.normalize import (
     SYNTHETIC_PREFIX,
     CollectRules,
     DesugarItem,

@@ -1,10 +1,10 @@
-"""Charclass flat views — Lark-era shims, deliberately OUTSIDE ir/.
+"""Charclass flat views — text-shaped convenience, deliberately OUTSIDE ir/.
 
 Relocated from ``ir/charclass.py``: the IR carries pure structure;
 flattening a structured :class:`~lexic.ir.nodes.IrCharClass` back to text
-(or enumerating its chars) is strictly a convenience for the condemned
-Lark-side consumers (``derive`` naming keys, ``lark_builder`` regexes,
-``codegen.aliases``, ``generate``). Dies with the Lark pipeline.
+(or enumerating its chars) is strictly a convenience for the text-shaped
+consumers (``derive`` naming keys, ``codegen.aliases``, ``generate``) that
+still key on flattened patterns.
 """
 
 from __future__ import annotations

@@ -1,125 +1,38 @@
-# tests/unit/lexic/grammars/test_flavour.py
-"""IrFlavour ABC contract tests — using a minimal fake flavour."""
+# tests/unit/lexic/ir/test_flavour.py
+"""IrFlavour ABC contract tests — the R1 surface (metadata + grammar/reducer).
+
+After the Lark cutover the flavour carries **zero methods** beyond the
+inherited emitter protocol: only the R1 ClassVars (``name``, ``extensions``,
+``line_comment``, ``escapes``, ``grammar``, ``reducer``) and the emitter
+``actions``.
+"""
 
 from __future__ import annotations
-
-from abc import ABC
 
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_ESCAPES, GBNF_FLAVOUR
 from lexic.ir.base import IrNone, IrStr
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.flavour import IrEscape, IrFlavour
-from lexic.ir.nodes import (
-    IrAlternation,
-    IrCharClass,
-    IrChr,
-    IrItem,
-    IrLiteral,
-    IrQuantifier,
-    IrSequence,
-)
+from lexic.ir.nodes import IrLiteral, IrQuantifier
 from lexic.ir.walk import IrEmitter
 
 
-def test_flavour_is_abstract_cannot_instantiate_directly():
-    """Direct instantiation of the ABC raises TypeError."""
-    cls: type = IrFlavour
-    with pytest.raises(TypeError):
-        cls()  # pylint: disable=abstract-class-instantiated
-
-
 def test_concrete_flavour_with_required_attrs_works():
-    """A fully-specified concrete subclass can be defined and used."""
+    """A concrete subclass supplying the R1 metadata carries it on the class."""
 
     class _Fake(IrFlavour):
         name = "fake"
         extensions = (".fake",)
-        meta_grammar = "start: NAME\nNAME: /[a-z]+/\n"
         escapes = CANONICAL_ESCAPES
         line_comment = "#"
 
-        @staticmethod
-        def parse_quantifier(text: str) -> IrQuantifier:
-            return IrQuantifier(1, 1)
-
-        @staticmethod
-        def parse_charclass(text: str) -> tuple[str, bool]:
-            return text, False
-
     assert _Fake.name == "fake"
-    assert _Fake.parse_quantifier("?") == IrQuantifier(1, 1)
-
-
-def test_concrete_flavour_missing_abstract_methods_fails():
-    """A subclass that omits the abstract methods cannot be instantiated."""
-
-    class _Bad(IrFlavour):
-        name = "bad"
-        extensions = (".bad",)
-        meta_grammar = ""
-        escapes = CANONICAL_ESCAPES
-        # Missing parse_quantifier and parse_charclass
-
-    cls: type = _Bad
-    with pytest.raises(TypeError):
-        cls()  # pylint: disable=abstract-class-instantiated
-
-
-def test_normalize_literal_default_is_identity():
-    """Default normalize_literal returns IrLiteral wrapping the decoded string."""
-
-    class _F(IrFlavour):
-        name = "f"
-        extensions = ()
-        meta_grammar = ""
-        escapes = CANONICAL_ESCAPES
-
-        @staticmethod
-        def parse_quantifier(text: str) -> IrQuantifier:
-            return IrQuantifier()
-
-        @staticmethod
-        def parse_charclass(text: str) -> tuple[str, bool]:
-            return text, False
-
-    assert _F.normalize_literal("hello") == IrLiteral("hello")
-
-
-def test_normalize_literal_can_be_overridden_to_return_group():
-    """ABNF-style: case-insensitive 'abc' expands to a char-class group."""
-
-    class _F(IrFlavour):
-        name = "f"
-        extensions = ()
-        meta_grammar = ""
-        escapes = CANONICAL_ESCAPES
-
-        @staticmethod
-        def parse_quantifier(text: str) -> IrQuantifier:
-            return IrQuantifier()
-
-        @staticmethod
-        def parse_charclass(text: str) -> tuple[str, bool]:
-            return text, False
-
-        @classmethod
-        def normalize_literal(cls, decoded: str) -> IrAlternation:
-            seq = IrSequence(
-                *(
-                    IrItem(IrCharClass(IrChr(c.lower()), IrChr(c.upper())))
-                    for c in decoded
-                )
-            )
-            return IrAlternation(seq)
-
-    out = _F.normalize_literal("ab")
-    assert isinstance(out, IrAlternation)
-    arm = out[0]
-    assert arm[0].atom == IrCharClass(IrChr("a"), IrChr("A"))
-    assert arm[1].atom == IrCharClass(IrChr("b"), IrChr("B"))
+    assert _Fake.extensions == (".fake",)
+    assert _Fake.line_comment == "#"
 
 
 def test_default_line_comment_is_empty_string():
@@ -128,16 +41,7 @@ def test_default_line_comment_is_empty_string():
     class _F(IrFlavour):
         name = "f"
         extensions = ()
-        meta_grammar = ""
         escapes = CANONICAL_ESCAPES
-
-        @staticmethod
-        def parse_quantifier(text: str) -> IrQuantifier:
-            return IrQuantifier()
-
-        @staticmethod
-        def parse_charclass(text: str) -> tuple[str, bool]:
-            return text, False
 
     assert _F.line_comment == ""
 
@@ -147,12 +51,75 @@ def test_irflavour_is_subclass_of_iremitter():
     assert issubclass(IrFlavour, IrEmitter)
 
 
-def test_irflavour_requires_parse_quantifier_and_parse_charclass():
-    """IrFlavour declares both parse_quantifier and parse_charclass as abstract."""
-    assert issubclass(IrFlavour, ABC)
-    abstract = IrFlavour.__abstractmethods__
-    assert "parse_quantifier" in abstract
-    assert "parse_charclass" in abstract
+def test_irflavour_declares_grammar_and_reducer_class_var_annotations():
+    """IrFlavour annotates grammar/reducer as ClassVars (self-grammar + parse Reducer)."""
+    annotations = IrFlavour.__annotations__
+    assert "grammar" in annotations
+    assert "reducer" in annotations
+
+
+def test_irflavour_grammar_and_reducer_carry_no_default_on_the_abc():
+    """grammar/reducer are annotation-only on the ABC — unlike line_comment
+    (which defaults to ''), no concrete value lives on IrFlavour itself; each
+    concrete flavour singleton must supply its own."""
+    assert "grammar" not in IrFlavour.__dict__
+    assert "reducer" not in IrFlavour.__dict__
+
+
+# ── R1 gate: zero methods beyond the inherited emitter protocol ───────
+
+# The only public names a flavour class may define beyond what IrEmitter
+# provides: the R1 metadata ClassVars, grammar/reducer, and the emitter
+# actions. (Underscore-prefixed names are dataclass/ABC machinery — the
+# inherited emitter protocol — not flavour-authored surface.)
+_R1_ALLOWED = frozenset(
+    {"name", "extensions", "line_comment", "escapes", "grammar", "reducer", "actions"}
+)
+
+# Public names the inherited emitter protocol already provides (e.g. the
+# dispatch ``default``) — allowed by R1's "beyond IrEmitter inheritance".
+_INHERITED = frozenset(n for n in dir(IrEmitter) if not n.startswith("_"))
+
+# The Lark-era flavour methods that R1 deletes and nothing replaces.
+_DELETED_MEMBERS = (
+    "parse_quantifier",
+    "parse_charclass",
+    "normalize_literal",
+    "meta_grammar",
+)
+
+
+def _own_public_names(cls: type) -> set[str]:
+    """Public names defined directly on ``cls`` — excludes dunders and the
+    underscore-prefixed dataclass/ABC internals that the emitter base adds."""
+    return {name for name in vars(cls) if not name.startswith("_")}
+
+
+@pytest.mark.parametrize(
+    "flavour_cls",
+    [IrFlavour, type(GBNF_FLAVOUR), type(ABNF_FLAVOUR)],
+    ids=["IrFlavour", "GbnfFlavour", "AbnfFlavour"],
+)
+def test_flavour_defines_no_members_beyond_r1_surface(flavour_cls: type):
+    """The ABC and both concrete flavours define only the R1 ClassVars + actions.
+
+    Any stray callable (a ``parse_quantifier``/``parse_charclass``-style
+    method) or extra attribute beyond what IrEmitter provides would show up
+    here — R1 mandates none.
+    """
+    stray = _own_public_names(flavour_cls) - _R1_ALLOWED - _INHERITED
+    assert not stray, f"{flavour_cls.__name__} defines beyond R1 surface: {stray}"
+
+
+@pytest.mark.parametrize(
+    "flavour_cls",
+    [IrFlavour, type(GBNF_FLAVOUR), type(ABNF_FLAVOUR)],
+    ids=["IrFlavour", "GbnfFlavour", "AbnfFlavour"],
+)
+def test_flavour_has_no_deleted_lark_members(flavour_cls: type):
+    """The Lark-era methods are gone (not even inherited) — R1 replaces none."""
+    present = [m for m in _DELETED_MEMBERS if hasattr(flavour_cls, m)]
+    assert not present, f"{flavour_cls.__name__} still exposes: {present}"
 
 
 # ── IrEscape ──────────────────────────────────────────────────────────

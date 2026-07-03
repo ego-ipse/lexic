@@ -5,6 +5,7 @@ from __future__ import annotations
 from lexic.compile import compile_grammar
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.ir.nodes import IrAlternation, IrItem
+from tests.integration._abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
 from tests.paths import GROUND_TRUTH
 
 
@@ -21,14 +22,7 @@ def test_compile_arithmetic_abnf_succeeds():
 
 def test_compile_abnf_non_semantic_directive_propagates_to_referencing_rule():
     """@non-semantic WSP propagates into non_semantic_fields on any rule that references it."""
-    text = (
-        "; @non-semantic WSP\n"
-        "root = num WSP\n"
-        "num  = 1*DIGIT\n"
-        "DIGIT = %x30-39\n"
-        "WSP  = %x20 / %x09\n"
-    )
-    _, specs = compile_grammar(text, ABNF_FLAVOUR)
+    _, specs = compile_grammar(NON_SEMANTIC_DIRECTIVE_ABNF, ABNF_FLAVOUR)
     by = {s.rule_name: s for s in specs}
     assert "WSP" in by["root"].non_semantic_fields
 

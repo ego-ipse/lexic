@@ -46,7 +46,7 @@ class Num(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name="root",
+    rule_name=IrRuleRef("root"),
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -57,7 +57,7 @@ Root.__grammar__ = RuleSpec(
 
 
 Expr.__grammar__ = RuleSpec(
-    rule_name="expr",
+    rule_name=IrRuleRef("expr"),
     class_name="Expr",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -72,7 +72,7 @@ Expr.__grammar__ = RuleSpec(
 
 
 Term.__grammar__ = RuleSpec(
-    rule_name="term",
+    rule_name=IrRuleRef("term"),
     class_name="Term",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -83,7 +83,7 @@ Term.__grammar__ = RuleSpec(
 
 
 Op.__grammar__ = RuleSpec(
-    rule_name="op",
+    rule_name=IrRuleRef("op"),
     class_name="Op",
     parent_class_name="GrammarModel",
     kind="value_str",
@@ -98,7 +98,7 @@ Op.__grammar__ = RuleSpec(
 
 
 Num.__grammar__ = RuleSpec(
-    rule_name="num",
+    rule_name=IrRuleRef("num"),
     class_name="Num",
     parent_class_name="GrammarModel",
     kind="value_str",

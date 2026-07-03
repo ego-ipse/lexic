@@ -13,7 +13,6 @@ from lexic.grammars.gbnf import (
     GBNF_QUANTIFIERS,
     GBNF_REDUCER,
     GBNF_REDUCTIONS,
-    META_GRAMMAR,
 )
 from lexic.ir.base import IrNone
 from lexic.ir.flavour import IrFlavour
@@ -31,9 +30,9 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing_2 import derivations, parse_reduced
-from lexic.parsing_2.normalize import normalize
-from lexic.parsing_2.reduce import DROP, KEEP_REDUCED, Reducer
+from lexic.parsing import derivations, parse_reduced
+from lexic.parsing.normalize import normalize
+from lexic.parsing.reduce import DROP, KEEP_REDUCED, Reducer
 from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
 
 
@@ -46,36 +45,6 @@ def test_metadata():
     """GBNF_FLAVOUR metadata is stable."""
     assert GBNF_FLAVOUR.name == "gbnf"
     assert GBNF_FLAVOUR.extensions == (".gbnf",)
-
-
-def test_meta_grammar_identity():
-    """GBNF_FLAVOUR.meta_grammar is a non-empty string."""
-    assert isinstance(GBNF_FLAVOUR.meta_grammar, str)
-    assert len(GBNF_FLAVOUR.meta_grammar) > 0
-
-
-def test_parse_quantifier_parity():
-    """parse_quantifier produces expected IrQuantifier values."""
-    cases = ["", "?", "+", "*", "{2,5}", "{0,15}", "{3}"]
-    expected = [
-        IrQuantifier(1, 1),
-        IrQuantifier(0, 1),
-        IrQuantifier(1, IrNone),
-        IrQuantifier(0, IrNone),
-        IrQuantifier(2, 5),
-        IrQuantifier(0, 15),
-        IrQuantifier(3, 3),
-    ]
-    for s, exp in zip(cases, expected):
-        assert GBNF_FLAVOUR.parse_quantifier(s) == exp
-
-
-def test_parse_charclass_parity():
-    """parse_charclass handles negation and escapes."""
-    cases = ["[a-z]", "[0-9]", "[^abc]", r'[\\"]']
-    expected = [("a-z", False), ("0-9", False), ("abc", True), (r'\\"', False)]
-    for s, exp in zip(cases, expected):
-        assert GBNF_FLAVOUR.parse_charclass(s) == exp
 
 
 def test_line_comment_token():
@@ -143,12 +112,6 @@ def test_round_trip():
     escapes = GBNF_ESCAPES
     for raw in ["\n", "\t", "\\", '"', "hello", "\x00"]:
         assert escapes.decode(escapes.encode(raw)) == raw
-
-
-def test_meta_grammar_is_non_empty_string():
-    """META_GRAMMAR is a non-empty string."""
-    assert isinstance(META_GRAMMAR, str)
-    assert len(META_GRAMMAR) > 0
 
 
 def test_gbnf_emitter_iremit_default_unreachable():
@@ -267,11 +230,11 @@ def test_gbnf_charclass_mixed_emits_run_then_range():
 #
 # Unit mirror for the GBNF self-grammar authored directly in gbnf.py (the
 # text→IR half, mirroring the ABNF block folded into abnf.py). The
-# integration equivalence gate (tests/integration/test_gbnf_ir_equivalence.py)
-# already pins parse_reduced(...) against MetaGrammarParser over the seven
-# ground-truth grammars — these tests target behaviors that gate doesn't
-# reach: individual escape/quantifier/charclass forms, noise handling, and
-# ambiguity guards on minimal snippets.
+# integration golden gate (tests/integration/test_gbnf_ir_equivalence.py)
+# pins the reduced rule fingerprint over the ground-truth grammars — these
+# tests target behaviors that gate doesn't reach: individual
+# escape/quantifier/charclass forms, noise handling, and ambiguity guards on
+# minimal snippets.
 
 
 def _normalize_grammar(g: IrAst) -> IrAst:
@@ -365,6 +328,26 @@ def test_gbnf_reducer_tables_are_gbnf_reductions_and_noise():
     """GBNF_REDUCER's tables are GBNF_REDUCTIONS and GBNF_NOISE."""
     assert GBNF_REDUCER.reductions is GBNF_REDUCTIONS
     assert GBNF_REDUCER.noise is GBNF_NOISE
+
+
+def test_gbnf_flavour_grammar_is_gbnf_grammar():
+    """GBNF_FLAVOUR.grammar is the GBNF_GRAMMAR singleton."""
+    assert GBNF_FLAVOUR.grammar is GBNF_GRAMMAR
+
+
+def test_gbnf_flavour_reducer_is_gbnf_reducer():
+    """GBNF_FLAVOUR.reducer is the GBNF_REDUCER singleton."""
+    assert GBNF_FLAVOUR.reducer is GBNF_REDUCER
+
+
+def test_gbnf_flavour_reducer_is_a_reducer_instance():
+    """GBNF_FLAVOUR.reducer satisfies isinstance(..., Reducer)."""
+    assert isinstance(GBNF_FLAVOUR.reducer, Reducer)
+
+
+def test_gbnf_flavour_grammar_is_an_ir_ast_instance():
+    """GBNF_FLAVOUR.grammar satisfies isinstance(..., IrAst)."""
+    assert isinstance(GBNF_FLAVOUR.grammar, IrAst)
 
 
 def test_gbnf_reductions_and_noise_are_ir_maps():
@@ -498,6 +481,26 @@ def test_charclass_range_reduces():
     assert isinstance(result, IrAst)
     atom = _first_item(result).atom
     assert atom == IrCharClass(IrRange(IrChr("a"), IrChr("z")))
+
+
+def test_charclass_run_of_singles_reduces():
+    """'[abc]' — a run of single chars reduces to one IrChr code point each."""
+    g = _normalize_grammar(GBNF_GRAMMAR)
+    result = parse_reduced(g, "a ::= [abc]\n", GBNF_REDUCER)
+    assert isinstance(result, IrAst)
+    atom = _first_item(result).atom
+    assert atom == IrCharClass(IrChr("a"), IrChr("b"), IrChr("c"))
+
+
+def test_charclass_mixed_run_then_range_reduces():
+    """'[abc0-9]' — a leading run of code points followed by a range."""
+    g = _normalize_grammar(GBNF_GRAMMAR)
+    result = parse_reduced(g, "a ::= [abc0-9]\n", GBNF_REDUCER)
+    assert isinstance(result, IrAst)
+    atom = _first_item(result).atom
+    assert atom == IrCharClass(
+        IrChr("a"), IrChr("b"), IrChr("c"), IrRange(IrChr("0"), IrChr("9"))
+    )
 
 
 def test_charclass_leading_dash_reduces():

@@ -2,9 +2,11 @@
 
 import os
 import time
+from typing import cast
 
 import pytest
 
+import lexic.compile as compile_module
 from lexic.base import GrammarModel
 from lexic.compile import (
     CompiledGrammar,
@@ -15,9 +17,23 @@ from lexic.compile import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
+from lexic.ir.escapes import CANONICAL_ESCAPES
+from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
-from lexic.parsing_2.models import ModelFold
+from lexic.ir.walk import IrDispatch
+from lexic.parsing.models import ModelFold
 from tests.paths import GROUND_TRUTH
+
+
+class _FlavourWithBadReducer(IrFlavour):
+    """A concrete IrFlavour whose reducer is not a parsing Reducer instance."""
+
+    name = "badreducer"
+    extensions = (".bad",)
+    escapes = CANONICAL_ESCAPES
+    # Intentionally not a Reducer — this fixture exercises compile_grammar's
+    # error path when a flavour carries a malformed reducer.
+    reducer = cast(IrDispatch, "not-a-reducer")
 
 
 @pytest.fixture(autouse=True)
@@ -198,3 +214,31 @@ def test_compile_grammar_invalid_start_raises():
     """Unresolvable start rule raises UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError, match="start"):
         compile_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR, start="nonexistent")
+
+
+def test_compile_grammar_flavour_with_non_reducer_raises():
+    """compile_grammar raises UnsupportedConstructError when flavour.reducer
+    is not a parsing Reducer instance."""
+    with pytest.raises(UnsupportedConstructError, match="no parse Reducer"):
+        compile_grammar('root ::= "x"\n', _FlavourWithBadReducer())
+
+
+def test_normalized_grammar_memo_is_reused_across_compile_grammar_calls(monkeypatch):
+    """The per-flavour self-grammar normalization memo means a second
+    compile_grammar call for the same flavour never re-normalizes the
+    self-grammar (identity is preserved across calls, keeping the engine's
+    identity-memoised table compilation hot)."""
+    calls: list[object] = []
+    original_normalize = compile_module.normalize
+
+    def spy(grammar):
+        calls.append(grammar)
+        return original_normalize(grammar)
+
+    monkeypatch.setattr(compile_module, "normalize", spy)
+
+    compile_grammar('root ::= "x"\n', GBNF_FLAVOUR)
+    count_after_first = len(calls)
+    compile_grammar('root ::= "y"\n', GBNF_FLAVOUR)
+
+    assert len(calls) == count_after_first
