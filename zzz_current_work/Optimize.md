@@ -27,6 +27,40 @@ commit — landings stay staged; the user commits. Concurrent agents get
 disjoint file sets (one shared tree, no worktrees) and format only their own
 files.
 
+## NEXT SESSION — start here (written 2026-07-03 at token exhaustion)
+
+Session 1 ended mid-Task-6R. State: Tasks 0-4 + all their test passes DONE,
+staged, coordinator-verified (suite was 1368/0 before 6R began breaking
+goldens by design). Task 5 KILLED (user ruling). Task 6 (move) landed,
+subsumed by 6R. Task 6R («task3-irast», Opus) was executing at break:
+Step 1 (repr omits trailing default-valued fields, on IrNamedTuple) DONE
+and verified; Steps 2-3 (IrRule.semantic: bool = True — user polarity
+ruling, Option B, NOT non_semantic; IrAst back to 2 fields, Task-3 eq
+override removed, non_semantic stays as derived property name; scanner
+dissolved into private compile.py helper, parsing/directives.py +
+tests/unit/lexic/parsing/test_directives.py deleted) were released to
+proceed — check its final report/ledger line + `git status` for how far it
+got; it was told to skip the wiki and stop gate-clean. NOTHING is
+committed; the whole effort sits staged in the working tree; user commits.
+
+First tasks next session:
+1. Read 6R's report/ledger line; if Steps 2-3 incomplete, re-dispatch the
+   remainder (Opus) with the Option-B spec from the 6R ledger line.
+2. Sonnet port wave: repr goldens (test_nodes/test_action/test_spec/…, per
+   6R's enumerated list), re-home directives behavioral assertions as
+   compile-level tests (originals recoverable from HEAD's committed
+   tests/unit/lexic/ir/test_directives.py), port any IrAst-3-field /
+   non_semantic-kwarg constructions (test_derive, test_json).
+3. Full suite green → quiet-tree `uv run python tools/benchmark/parse_bench.py --save`
+   (official post-effort baseline; headline: subset-920 product 17.0-17.5
+   µs/char, 0.62× lark full-vs-full).
+4. Consolidation: README bench refresh, OUTCOME note, wiki catch-up (6R's
+   skipped update + Task 4/6 entries; wiki is LOCAL-ONLY, gitignored,
+   intentional), Disputed.md status line.
+Open items: GBNF emit-self-reparse fixpoint gap (pre-existing, unasserted);
+models.py wrapper diet + utils/quantifiers.py → codegen refactor; open-set
+derive rework is the next major effort after this lands.
+
 ## Progress (one line per step, newest at bottom — session-crash ledger)
 
 If the session breaks (lost connection / token exhaustion): this ledger + the

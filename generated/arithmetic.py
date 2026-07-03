@@ -1,6 +1,7 @@
 """Generated module: arithmetic. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
+
 from typing import Annotated, List, Optional
 
 from pydantic import StringConstraints
@@ -12,9 +13,9 @@ from lexic.ir.nodes import (
     IrChr,
     IrItem,
     IrLiteral,
+    IrQuantifier,
     IrRange,
     IrRuleRef,
-    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -91,7 +92,7 @@ Expr.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("term"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("term")),
         IrItem(IrRuleRef("expr-item"), IrQuantifier(0, IrNone)),
     ],
     field_map={"term": 0, "expr_item": 1},
@@ -105,9 +106,9 @@ Term.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="alternation",
     items=[
-        IrItem(IrRuleRef("ident"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("num"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("term-arm3"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("ident")),
+        IrItem(IrRuleRef("num")),
+        IrItem(IrRuleRef("term-arm3")),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),
@@ -120,11 +121,11 @@ TermArm3.__grammar__ = RuleSpec(
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(IrLiteral("("), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrRuleRef("expr"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral(")"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
+        IrItem(IrLiteral("(")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrRuleRef("expr")),
+        IrItem(IrLiteral(")")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
     ],
     field_map={"ws": 1, "expr": 2, "ws2": 4},
     non_semantic_fields=frozenset(["ws", "ws2"]),
@@ -137,14 +138,14 @@ Ident.__grammar__ = RuleSpec(
     parent_class_name="Term",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(122))), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(122)))),
         IrItem(
             IrCharClass(
                 IrRange(IrChr(97), IrChr(122)), IrRange(IrChr(48), IrChr(57)), IrChr(95)
             ),
             IrQuantifier(0, IrNone),
         ),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
     ],
     field_map={"lower": 0, "head": 1, "ws": 2},
     non_semantic_fields=frozenset(["ws"]),
@@ -158,7 +159,7 @@ Num.__grammar__ = RuleSpec(
     kind="sequence",
     items=[
         IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, IrNone)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
     ],
     field_map={"digit": 0, "ws": 1},
     non_semantic_fields=frozenset(["ws"]),
@@ -184,11 +185,11 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("expr"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("="), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
-        IrItem(IrRuleRef("term"), IrQuantifier(1, 1)),
-        IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
+        IrItem(IrRuleRef("expr")),
+        IrItem(IrLiteral("=")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrRuleRef("term")),
+        IrItem(IrLiteral("\n")),
     ],
     field_map={"expr": 0, "ws": 2, "term": 3},
     non_semantic_fields=frozenset(["ws"]),
@@ -201,10 +202,8 @@ ExprItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(
-            IrCharClass(IrChr(45), IrChr(43), IrChr(42), IrChr(47)), IrQuantifier(1, 1)
-        ),
-        IrItem(IrRuleRef("term"), IrQuantifier(1, 1)),
+        IrItem(IrCharClass(IrChr(45), IrChr(43), IrChr(42), IrChr(47))),
+        IrItem(IrRuleRef("term")),
     ],
     field_map={"head": 0, "term": 1},
     non_semantic_fields=frozenset([]),

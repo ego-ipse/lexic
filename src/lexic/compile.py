@@ -6,7 +6,7 @@ parses the source and the flavour's ``Reducer`` folds the derivation to IR.
 
 Pipeline (compile_grammar — grammar text → specs):
 
-  text  ──┬──►  parse_directives  ──►  (start, non_semantic)
+  text  ──┬──►  _scan_directives  ──►  (start, non_semantic)
           │                                          │
           │                                          ▼
           │                       (resolve arg > directive > fallback)
@@ -14,10 +14,10 @@ Pipeline (compile_grammar — grammar text → specs):
           └──►  parse_grammar(text, flavour) ─► IrAst │
                                                   │    │
                                                   ▼    ▼
-                            IrAst(rules, start, non_semantic)  ← rebound payload
+                     IrAst(rules with semantic=False flags, start)  ← rebuilt
                                                   │
                                                   ▼
-                                          derive_specs(ast)
+                              derive_specs(ast)  [reads ast.non_semantic]
                                                   │
                                                   ▼
                                   (start_name, list[RuleSpec])
@@ -43,12 +43,12 @@ from lexic.base import GrammarModel
 from lexic.codegen import codegen
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
+from lexic.ir.base import IrSeq
 from lexic.ir.derive import derive_specs
 from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import IrAst
+from lexic.ir.nodes import IrAst, IrRule
 from lexic.ir.spec import RuleSpec
 from lexic.parsing import ParserTables, parse_first, parse_reduced
-from lexic.parsing.directives import parse_directives
 from lexic.parsing.models import (
     ModelFold,
     build_instance_parser,
@@ -193,6 +193,43 @@ def compile_from_path(
     return cg
 
 
+def _scan_directives(text: str, line_comment: str) -> tuple[str | None, frozenset[str]]:
+    """Extract ``(start, non_semantic)`` from source comments — a pre-lexical scan.
+
+    A line ``<line_comment> @<name> <args...>`` declares a directive: ``@start
+    <rule>`` overrides the start rule, ``@non-semantic <rule> ...`` names
+    structural-noise rules. The scan reads the raw source before the parser so
+    comments never become load-bearing grammar tokens; ``compile_grammar``
+    resolves precedence and applies the result to the AST.
+
+    :param text: Grammar source text.
+    :param line_comment: The flavour's line-comment marker (``#``/``;``); empty
+        disables directive parsing.
+    :returns: ``(start, non_semantic)`` — ``start`` is the ``@start`` rule name
+        or ``None``; ``non_semantic`` is the set of ``@non-semantic`` names.
+    """
+    if not line_comment:
+        return None, frozenset()
+    non_semantic: set[str] = set()
+    start_rule: str | None = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line.startswith(line_comment):
+            continue
+        rest = line[len(line_comment) :].lstrip()
+        if not rest.startswith("@"):
+            continue
+        parts = rest[1:].split()
+        if not parts:
+            continue
+        name, *args = parts
+        if name == "non-semantic":
+            non_semantic.update(args)
+        elif name == "start" and args:
+            start_rule = args[0]  # last @start wins on duplicates
+    return start_rule, frozenset(non_semantic)
+
+
 def compile_grammar(
     text: str,
     flavour: IrFlavour,
@@ -211,15 +248,18 @@ def compile_grammar(
       1. explicit `non_semantic_rules` argument
       2. `@non-semantic <rule> ...` directives in source comments
 
-    The resolved `start` and `non_semantic` set are bound onto the parsed
-    IrAst's payload (the AST is rebuilt — it is frozen); `derive_specs` reads
-    them from there.
+    The resolved `start` is bound onto the parsed IrAst (the AST is rebuilt —
+    it is frozen), and each rule the resolved non-semantic set names is
+    reconstructed with `semantic=False`; `derive_specs` reads both from the AST
+    (`ast.start`, `ast.non_semantic` — the latter derived from the flags). A
+    directive naming a rule the grammar never defines is silently ignored: no
+    rule is flagged for it, so it never appears in `ast.non_semantic`.
 
     Errors: malformed grammar source bubbles up as UnsupportedConstructError
     (raised by the engine / reducer, or here if the flavour carries no Reducer
     or its reduction does not yield an IrAst).
     """
-    dir_start, dir_non_semantic = parse_directives(text, flavour.line_comment)
+    dir_start, dir_non_semantic = _scan_directives(text, flavour.line_comment)
     if non_semantic_rules is None:
         non_semantic_rules = dir_non_semantic
     ast = parse_grammar(text, flavour)
@@ -230,6 +270,11 @@ def compile_grammar(
             f"start rule {start!r} not defined in grammar; "
             f"available rules: {[r.name for r in ast.rules]}"
         )
-    ast = IrAst(rules=ast.rules, start=start, non_semantic=non_semantic_rules)
-    specs = derive_specs(ast)
+    rules = IrSeq(
+        *(
+            IrRule(r.name, r.body, False) if r.name in non_semantic_rules else r
+            for r in ast.rules
+        )
+    )
+    specs = derive_specs(IrAst(rules=rules, start=start))
     return start, specs

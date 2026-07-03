@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-
 from lexic.base import GrammarModel
 from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrRuleRef,
-    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -22,7 +20,7 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrLiteral("x"), IrQuantifier(1, 1))],
+    items=[IrItem(IrLiteral("x"))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

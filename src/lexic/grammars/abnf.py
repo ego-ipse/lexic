@@ -338,6 +338,7 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("comment"))),
                 IrSequence(IrItem(IrRuleRef("blank"))),
             ),
+            semantic=False,
         ),
         # A blank line: optional horizontal whitespace then a line ending.
         IrRule(
@@ -348,6 +349,7 @@ ABNF_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("crlf")),
                 )
             ),
+            semantic=False,
         ),
         # A comment runs from ";" to (and including) its line ending.
         IrRule(
@@ -359,6 +361,7 @@ ABNF_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("crlf")),
                 )
             ),
+            semantic=False,
         ),
         IrRule(
             "cchar",
@@ -378,6 +381,7 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrLiteral("="))),
                 IrSequence(IrItem(IrLiteral("=/"))),
             ),
+            semantic=False,
         ),
         IrRule(
             "rule",
@@ -634,8 +638,16 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrCharClass(IrRange(IrChr(0x23), IrChr(0x7E))))),
             ),
         ),
-        IrRule("smark", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("s")))))),
-        IrRule("imark", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("i")))))),
+        IrRule(
+            "smark",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("s"))))),
+            semantic=False,
+        ),
+        IrRule(
+            "imark",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("i"))))),
+            semantic=False,
+        ),
         # prose-val `<...>` is recognised then rejected at reduce time: it has
         # no machine-readable meaning (RFC 5234 §4).
         IrRule(
@@ -766,14 +778,17 @@ ABNF_GRAMMAR = IrAst(
         IrRule(
             "xmark",
             IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("x"))))),
+            semantic=False,
         ),
         IrRule(
             "dmark",
             IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("d"))))),
+            semantic=False,
         ),
         IrRule(
             "bmark",
             IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("b"))))),
+            semantic=False,
         ),
         IrRule(
             "hexits",
@@ -791,6 +806,7 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("comment"))),
                 IrSequence(IrItem(IrRuleRef("crlf"))),
             ),
+            semantic=False,
         ),
         IrRule(
             "crlf",
@@ -800,6 +816,7 @@ ABNF_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("LF")),
                 )
             ),
+            semantic=False,
         ),
         IrRule(
             "c-wsp",
@@ -815,6 +832,7 @@ ABNF_GRAMMAR = IrAst(
                     )
                 ),
             ),
+            semantic=False,
         ),
         IrRule(
             "wsp",
@@ -822,6 +840,7 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("SP"))),
                 IrSequence(IrItem(IrRuleRef("HTAB"))),
             ),
+            semantic=False,
         ),
         IrRule(
             "ALPHA",
@@ -847,40 +866,39 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("f"))))),
             ),
         ),
-        IrRule("CR", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("\r")))))),
-        IrRule("LF", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("\n")))))),
-        IrRule("SP", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr(" ")))))),
-        IrRule("HTAB", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("\t")))))),
-        IrRule("DQUOTE", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr('"')))))),
+        IrRule(
+            "CR",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("\r"))))),
+            semantic=False,
+        ),
+        IrRule(
+            "LF",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("\n"))))),
+            semantic=False,
+        ),
+        IrRule(
+            "SP",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr(" "))))),
+            semantic=False,
+        ),
+        IrRule(
+            "HTAB",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("\t"))))),
+            semantic=False,
+        ),
+        IrRule(
+            "DQUOTE",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr('"'))))),
+            semantic=False,
+        ),
     ),
     start="rulelist",
-    # Non-semantic rules: whitespace and folding, line endings, comments/blank
-    # filler, the char-val quote delimiter, and the radix/case markers
-    # (%x/%d/%b/%s/%i). This single declaration is the source of truth — it
-    # drives ABNF_NOISE (below), and the same fact reaches derive_specs and
-    # semantic_dump for user grammars via the @non-semantic directive.
-    non_semantic=frozenset(
-        {
-            "wsp",
-            "c-wsp",
-            "SP",
-            "HTAB",
-            "c-nl",
-            "crlf",
-            "CR",
-            "LF",
-            "DQUOTE",
-            "comment",
-            "filler",
-            "blank",
-            "defined",
-            "xmark",
-            "dmark",
-            "bmark",
-            "smark",
-            "imark",
-        }
-    ),
+    # Noise rules carry semantic=False on their own IrRule (see below):
+    # whitespace and folding, line endings, comments/blank filler, the char-val
+    # quote delimiter, and the radix/case markers (%x/%d/%b/%s/%i). That per-rule
+    # flag is the single source of truth — ABNF_GRAMMAR.non_semantic (a derived
+    # property) collects the names, drives ABNF_NOISE (below), and reaches
+    # derive_specs and semantic_dump for user grammars via @non-semantic.
 )
 """The ABNF grammar of ABNF (RFC 5234 §4 + B.1 subset) as a canonical :class:`IrAst`."""
 

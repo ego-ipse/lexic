@@ -38,8 +38,9 @@ from lexic.parsing.lexruns import (
     unit_leaves,
 )
 from lexic.parsing.normalize import SYNTHETIC_PREFIX, normalize
-from lexic.parsing.tables import RunTerm, compile_tables
+from lexic.parsing.tables import RunTerm
 from lexic.parsing.tables import _expand_atom as _expand_atom_canonical
+from lexic.parsing.tables import compile_tables
 from tests._ir_fixtures import digit_grammar as _digit_grammar
 
 # ── _expand_atom re-export smoke test (moved home to tables.py) ──────────

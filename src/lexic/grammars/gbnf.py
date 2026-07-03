@@ -854,6 +854,7 @@ GBNF_GRAMMAR = IrAst(
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("nunit"), IrQuantifier(1, IrNone)))
             ),
+            semantic=False,
         ),
         IrRule(
             "nunit",
@@ -893,17 +894,18 @@ GBNF_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("cmchar"), IrQuantifier(0, IrNone)),
                 )
             ),
+            semantic=False,
         ),
         IrRule(
             "cmchar", IrAlternation(IrSequence(IrItem(IrNot(IrCharClass(IrChr("\n"))))))
         ),
     ),
     start="grammar",
-    # Non-semantic rules: dropped from structural children and skipped by
-    # YIELD. This single declaration is the source of truth — it drives
-    # GBNF_NOISE (below); the same fact reaches derive_specs and semantic_dump
-    # for user grammars via the @non-semantic directive.
-    non_semantic=frozenset({"n", "tail-comment"}),
+    # Noise rules carry semantic=False (see "n" and "tail-comment" above) — the
+    # single source of truth. GBNF_GRAMMAR.non_semantic (a derived property)
+    # collects their names; it drives GBNF_NOISE (below), and the same fact
+    # reaches derive_specs and semantic_dump for user grammars via the
+    # @non-semantic directive.
 )
 """The GBNF grammar of GBNF as a canonical :class:`IrAst`."""
 

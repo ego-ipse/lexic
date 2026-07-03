@@ -1,6 +1,7 @@
 """Generated module: list. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
+
 from typing import Annotated, List
 
 from pydantic import StringConstraints
@@ -12,8 +13,8 @@ from lexic.ir.nodes import (
     IrChr,
     IrItem,
     IrLiteral,
-    IrRuleRef,
     IrQuantifier,
+    IrRuleRef,
 )
 from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
@@ -48,7 +49,7 @@ Item.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="value_str",
     items=[
-        IrItem(IrLiteral("- "), IrQuantifier(1, 1)),
+        IrItem(IrLiteral("- ")),
         IrItem(
             IrNot(
                 IrCharClass(
@@ -63,7 +64,7 @@ Item.__grammar__ = RuleSpec(
             ),
             IrQuantifier(1, IrNone),
         ),
-        IrItem(IrLiteral("\n"), IrQuantifier(1, 1)),
+        IrItem(IrLiteral("\n")),
     ],
     field_map={},
     non_semantic_fields=frozenset([]),

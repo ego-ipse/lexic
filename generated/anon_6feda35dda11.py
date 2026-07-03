@@ -1,6 +1,7 @@
 """Generated module: anon_6feda35dda11. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
+
 from typing import Annotated
 
 from pydantic import StringConstraints
@@ -11,9 +12,9 @@ from lexic.ir.nodes import (
     IrCharClass,
     IrChr,
     IrItem,
+    IrQuantifier,
     IrRange,
     IrRuleRef,
-    IrQuantifier,
 )
 from lexic.ir.spec import RuleSpec
 
@@ -43,7 +44,7 @@ Root.__grammar__ = RuleSpec(
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
-    items=[IrItem(IrRuleRef("term"), IrQuantifier(1, 1))],
+    items=[IrItem(IrRuleRef("term"))],
     field_map={"term": 0},
     non_semantic_fields=frozenset([]),
 )
@@ -54,10 +55,7 @@ Term.__grammar__ = RuleSpec(
     class_name="Term",
     parent_class_name="GrammarModel",
     kind="alternation",
-    items=[
-        IrItem(IrRuleRef("num"), IrQuantifier(1, 1)),
-        IrItem(IrRuleRef("ident"), IrQuantifier(1, 1)),
-    ],
+    items=[IrItem(IrRuleRef("num")), IrItem(IrRuleRef("ident"))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

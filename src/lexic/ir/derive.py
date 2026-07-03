@@ -215,10 +215,8 @@ def hoist_helpers(ast: IrAst) -> tuple[IrAst, list[IrRule]]:
         t = _HoistTransformer(parent_name=rule.name, name_set=name_set)
         new_body = t.apply(rule.body)
         all_helpers.extend(t.helpers)
-        new_rules.append(IrRule(rule.name, new_body))
-    new_ast = IrAst(
-        rules=IrSeq(*new_rules), start=ast.start, non_semantic=ast.non_semantic
-    )
+        new_rules.append(IrRule(rule.name, new_body, rule.semantic))
+    new_ast = IrAst(rules=IrSeq(*new_rules), start=ast.start)
     return new_ast, all_helpers
 
 

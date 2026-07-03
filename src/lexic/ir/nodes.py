@@ -211,69 +211,88 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier]):
     quantifier: IrQuantifier = IrQuantifier()
 
 
-class IrRule(IrNamedTuple[IrStr, IrAlternation]):
-    """A named grammar rule.
+class IrRule(IrNamedTuple[IrStr, IrAlternation, bool]):
+    """A named grammar rule, with a ``semantic`` flag.
 
     The ``body`` is always an ``IrAlternation``, even for single-arm rules
     (a single arm is an ``IrAlternation`` containing one ``IrSequence``).
 
+    ``semantic`` is ``True`` for an ordinary rule and ``False`` for a
+    structural-noise rule (whitespace, delimiters, comments) — the ``@non-
+    semantic`` directive and each flavour's noise declarations flag rules by
+    setting it. It is **compile-channel metadata**, not grammar structure —
+    like a source location — so it is excluded from ``__eq__``/``__hash__``.
+    Two rules with the same name and body but different ``semantic`` flags are
+    equal: the self-hosting fixpoint
+    ``parse_grammar(flavour.apply(GRAMMAR), flavour) == GRAMMAR`` requires it,
+    because a freshly parsed rule is ``semantic=True`` while the authored
+    self-grammar flags its noise rules ``semantic=False``.
+
     Children: the single ``body`` ``IrAlternation``.
-    Non-child payload: ``name`` (the rule identifier string).
+    Non-child payload: ``name`` (rule identifier), ``semantic`` (the flag).
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
     name: str
     body: IrAlternation
-
-
-class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr, frozenset[str]]):
-    """Full grammar AST: rules, the start-rule name, and the non-semantic set.
-
-    ``rules`` is an ``IrTuple`` of ``IrRule`` nodes (wrapped so a single
-    child attribute can hold the whole collection and be replaced atomically
-    by tree transformations).  ``start`` is the plain string name of the
-    start rule.  ``non_semantic`` names the rules whose refs are structural
-    noise (whitespace, delimiters, comments) — the one declaration feeding
-    ``derive_specs`` (quantifier relaxation + ``semantic_dump`` filter) and,
-    for a flavour's self-grammar, its ``Reducer`` noise map.
-
-    ``non_semantic`` is **compile-channel metadata**, not grammar structure —
-    like a source location — and is excluded from ``__eq__``/``__hash__``. Two
-    ASTs with the same rules and start but different ``non_semantic`` sets are
-    equal: the self-hosting fixpoint
-    ``parse_grammar(flavour.apply(GRAMMAR), flavour) == GRAMMAR`` requires it,
-    because a freshly parsed AST carries ``non_semantic=frozenset()`` while the
-    authored self-grammar declares a non-empty set. ``start`` stays structural
-    (a different entry point is a different grammar).
-
-    Children: the single ``rules`` ``IrTuple``.
-    Non-child payload: ``start`` (start-rule name), ``non_semantic``.
-    """
-
-    _child_attrs: ClassVar[tuple[str, ...]] = ("rules",)
-
-    rules: IrSeq = IrSeq()
-    start: str = ""
-    non_semantic: frozenset[str] = frozenset()
+    semantic: bool = True
 
     def __eq__(self, other: object) -> bool:
-        """Structural equality over ``rules`` and ``start`` only.
+        """Structural equality over ``name`` and ``body`` only.
 
-        ``non_semantic`` is compile-channel metadata, excluded so the
-        self-hosting fixpoint holds (see the class docstring).
+        ``semantic`` is compile-channel metadata, excluded so the self-hosting
+        fixpoint holds (see the class docstring).
 
         :param other: The value to compare against.
-        :returns: ``True`` when ``other`` is an ``IrAst`` with equal rules and
-            start.
+        :returns: ``True`` when ``other`` is an ``IrRule`` with equal name and body.
         """
-        if not isinstance(other, IrAst):
+        if not isinstance(other, IrRule):
             return False
-        return self.rules == other.rules and self.start == other.start
+        return self.name == other.name and self.body == other.body
 
     def __ne__(self, other: object) -> bool:
         """Negation of :meth:`__eq__` (``tuple`` supplies its own ``__ne__``)."""
         return not self == other
 
     def __hash__(self) -> int:
-        """Hash by ``(rules, start)`` — consistent with :meth:`__eq__`."""
-        return hash((self.rules, self.start))
+        """Hash by ``(name, body)`` — consistent with :meth:`__eq__`."""
+        return hash((self.name, self.body))
+
+
+class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr]):
+    """Full grammar AST: a collection of rules plus the start-rule name.
+
+    ``rules`` is an ``IrTuple`` of ``IrRule`` nodes (wrapped so a single
+    child attribute can hold the whole collection and be replaced atomically
+    by tree transformations).  ``start`` is the plain string name of the
+    start rule.
+
+    The set of structural-noise rules is **not** a field: it is derived from
+    the rules' own ``semantic`` flags via the :attr:`non_semantic` property.
+    Because the flag lives on :class:`IrRule` (and is excluded from its
+    equality), ``IrAst`` needs no equality override — plain tuple equality over
+    ``(rules, start)`` composes ``IrRule.__eq__`` element-wise, and the
+    self-hosting fixpoint holds for free.
+
+    Children: the single ``rules`` ``IrTuple``.
+    Non-child payload: ``start`` (start-rule name).
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("rules",)
+
+    rules: IrSeq = IrSeq()
+    start: str = ""
+
+    @property
+    def non_semantic(self) -> frozenset[str]:
+        """Names of the structural-noise rules (those with ``semantic=False``).
+
+        Derived from the rules' own flags — the single source feeding
+        ``derive_specs`` (quantifier relaxation + ``semantic_dump`` filter) and,
+        for a flavour's self-grammar, its ``Reducer`` noise map. Keeps the
+        ``@non-semantic`` directive vocabulary even though the flag's polarity
+        is positive (``semantic``) on the rule.
+
+        :returns: The frozenset of non-semantic rule names.
+        """
+        return frozenset(r.name for r in self.rules if not r.semantic)
