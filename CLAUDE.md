@@ -11,9 +11,11 @@ Lexic is the grammar engine layer of Vyx (an agent-to-agent protocol). It compil
 Read these documents before editing code:
 
 - **[docs/STYLE.md](docs/STYLE.md)** — coding standards (smaller methods, SOLID, avoid deep indentation, fix root causes, no muting errors). Apply to every change.
-- **[prototyping/next/1_NORTH_STAR.md](prototyping/next/1_NORTH_STAR.md)** — invariants every slice must preserve.
-- **[prototyping/next/2_ARCHITECTURE.md](prototyping/next/2_ARCHITECTURE.md)** — target module layout and layering rules. Consult before adding modules or splitting files.
-- **[prototyping/next/3_ROADMAP.md](prototyping/next/3_ROADMAP.md)** — five slices A–E. Place all work in the right slice.
+- **§Key invariants** (below) — every change must preserve them.
+- **Active work plans** live at `zzz_current_work/<yymmdd>-<name>/PLAN.md` —
+  one directory per effort (start date + unique name); the plan carries its
+  own progress ledger and, on completion, an OUTCOME note. Check the newest
+  one when orienting. Current: `zzz_current_work/260703-ir-codegen/PLAN.md`.
 - **Cutover complete (2026-05-13).** The IrItem-based pipeline is the only pipeline. Old Atom shape, `atoms.py`, `new_gbnf/`, `flavours.py` are all gone. See `.wiki/lexic/cutover-plan.md` and `.wiki/lexic/slice-b-status.md` for what remains.
 
 Specific instructions in this file override `docs/STYLE.md` for their domain.
@@ -21,6 +23,18 @@ Specific instructions in this file override `docs/STYLE.md` for their domain.
 ## Commits
 
 Never add `Co-Authored-By` lines. Commits belong entirely to the user.
+
+## Session-usage watch (required in agent-heavy sessions)
+
+When coordinating subagents, run `tools/usage_watch.sh <threshold> <poll-s>
+<duration-s>` as a background task (e.g. `90 60 540`) and relaunch it on every
+wake. It polls the user's five-hour session utilization (OAuth usage endpoint,
+via the CLI's stored credentials — never print the token) and exits with
+`ALERT <pct>` at the threshold or `OK <pct>` at the end of the window. At
+**90%**: tell every in-flight agent to stop and report; write partial state
+and a ledger line to the active plan dir. At **95%**: force it — stop
+messages regardless of task state, plus a "NEXT SESSION — start here" block
+above the plan's ledger.
 
 ## Commands
 
@@ -395,8 +409,6 @@ No bare `raise ValueError` or `raise Exception` for library-level failures.
 All dispatch tables must have an explicit `raise UnsupportedConstructError(...)` default — never a silent `pass` or bare `None` return.
 
 ## Key invariants
-
-From `prototyping/next/1_NORTH_STAR.md`:
 
 - **Grammar is canonical.** Every class has a lossless `to_grammar(flavour)` path.
 - **Round-trip fidelity.** `parse(text, grammar).to_text() == text` on every valid input.

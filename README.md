@@ -119,11 +119,7 @@ tools/auto_fix.sh   # ruff format → isort → ruff check --fix
 
 ## Project status
 
-Lexic is pre-1.0 and actively churning. The IrItem-based pipeline cutover landed in May 2026; the action-driven substrate landed in late May 2026 ([[decisions]] P12–P18); the Lark→Earley cutover (native engine, Lark removed as a dependency) landed in early July 2026. Public invariants and roadmap live in `prototyping/next/`:
-
-- [`prototyping/next/1_NORTH_STAR.md`](prototyping/next/1_NORTH_STAR.md) — invariants every change must preserve.
-- [`prototyping/next/2_ARCHITECTURE.md`](prototyping/next/2_ARCHITECTURE.md) — target module layout.
-- [`prototyping/next/3_ROADMAP.md`](prototyping/next/3_ROADMAP.md) — five slices A–E.
+Lexic is pre-1.0 and actively churning. The IrItem-based pipeline cutover landed in May 2026; the action-driven substrate landed in late May 2026 ([[decisions]] P12–P18); the Lark→Earley cutover (native engine, Lark removed as a dependency) landed in early July 2026. Public invariants live in CLAUDE.md §Key invariants; architecture and decisions live in the wiki.
 
 ## License
 
