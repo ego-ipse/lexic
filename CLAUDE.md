@@ -27,7 +27,7 @@ Never add `Co-Authored-By` lines. Commits belong entirely to the user.
 Always prefix with `uv run`. Never run `pytest` or `ruff` bare.
 
 ```bash
-uv run pytest tests/ -q                  # full suite (474 tests)
+uv run pytest tests/ -q                  # full suite (~1330 tests)
 uv run pytest tests/unit/lexic/ -q       # unit only
 uv run pytest tests/integration/ -q      # integration only
 uv run ruff check src/ tests/            # lint
@@ -38,14 +38,36 @@ uv run pylint src/lexic/path/to/file.py  # per-file quality gate
 
 If `ruff` flags files in `generated/`, fix the template in `src/lexic/codegen/model_emitter.py`, not the generated file.
 
-## Current state — single IrItem pipeline
+## Current state — single pipeline, no Lark
 
-The IrItem-based cutover is complete, and the **primitive-node model (V2)** migration is done: nodes now *are* their payload (str-leaves subclass `str`, variadic collections subclass `tuple`, fixed-arity records are `IrComposite` dataclasses) — `IrType`/`coerce`/`IrStrLeaf`/`IrCollection`/`_items_attr` are gone. See §IR types. There is one pipeline:
+The IrItem-based cutover (2026-05-13) is complete, and the **primitive-node
+model (V2)** migration is done: nodes now *are* their payload (str-leaves
+subclass `str`, variadic collections subclass `tuple`, fixed-arity records
+are `IrComposite` dataclasses) — `IrType`/`coerce`/`IrStrLeaf`/`IrCollection`/
+`_items_attr` are gone. See §IR types.
 
-- IR shape: `IrItem`-based nodes (`ir/nodes.py`) — `IrLiteral`, `IrCharClass`, `IrRuleRef`, `IrGroup`, `IrItem(atom, quantifier)`.
+A second cutover (Lark→Earley, 2026-07-02/03) is also complete:
+**`src/lexic/parsing/` is a native Earley engine, not a Lark wrapper** — Lark
+is gone from source entirely (it survives only as
+`tools/benchmark/parse_bench.py`'s external reference baseline). This one
+engine drives *both* grammar-text parsing (`parse_grammar` → `parse_reduced`
+against each flavour's own self-grammar) and generated-instance parsing
+(`CompiledGrammar.parse` → `parse_first` + `ModelFold`) — there is no separate
+meta-grammar-parser layer anymore. `IrFlavour` (`ir/flavour.py`) carries its
+self-grammar and parse policy as data (`grammar: ClassVar[IrAst]`,
+`reducer: ClassVar[IrDispatch]`), not as parser methods — see §Flavour system.
+
+- IR shape: `IrItem`-based nodes (`ir/nodes.py`) — `IrLiteral`, `IrCharClass`,
+  `IrRuleRef`, `IrItem(atom, quantifier)`.
 - Spec type: `RuleSpec` (in `ir/spec.py`).
-- Entry: `compile_text` / `compile_from_path` in `compile.py` → `compile_grammar` → `codegen` → `build_lark`.
-- Old `atoms.py`, `new_gbnf/`, `flavours.py`, `codegen/ir_builder.py`, `codegen/lark_builder.py`, `codegen/transformer/` are all gone.
+- Entry: `compile_text` / `compile_from_path` in `compile.py` → `compile_grammar`
+  → `codegen` → `build_instance_parser` (`lexic.parsing.models`);
+  `parse_grammar(text, flavour)` is the public grammar-text → `IrAst` seam.
+- Old `atoms.py`, `new_gbnf/`, `flavours.py`, `codegen/ir_builder.py`,
+  `codegen/lark_builder.py`, `codegen/transformer/` are all gone (2026-05-13
+  cutover). `parsing/meta_parser.py`, `parsing/lark_builder.py`,
+  `parsing/transformer/` are also gone (2026-07 cutover) — no
+  `parsing_legacy`/`parsing_old` shim of any kind.
 
 ## Project layout
 
@@ -72,12 +94,21 @@ src/lexic/
                         IrStr/IrInt carry only _bound
     action.py           Action-algebra nodes: IrField (out: type[IrScalar], reads
                         typed attrs), IrOp(IrStr) operator leaf + IrCompare/IrAnd
-                        (-> IrInt), IrCallable, IrChild, IrChildren, IrConcat, IrJoin,
+                        (-> IrInt), IrChild, IrChildren, IrConcat, IrJoin,
                         IrCond (test: IrSelf), IrThis, IrReturn, IrAction; default
                         bodies IrPass, IrWalk, IrRaise, IrEmit, IrRebuild
-    walk.py             IrDispatch[Iri,Ir_co] — IrComposite; actions tuple is the
-                        table; presets IrVisitor, IrTransformer, IrEmitter. Does NOT
-                        walk children automatically — action bodies own recursion
+    walk.py             IrDispatch[Iri,Ir_co] — IrComposite; actions is an
+                        IrTypeMap (concrete-first MRO type→IrAction table, not a
+                        tuple); presets IrVisitor, IrTransformer, IrEmitter. Does
+                        NOT walk children automatically — action bodies own recursion
+    flavour.py          IrFlavour ABC — IrEmitter subclass + ClassVars (name,
+                        extensions, line_comment, escapes: EscapeCodec instance,
+                        grammar: IrAst — the flavour's self-grammar, reducer:
+                        IrDispatch — a parsing.reduce.Reducer at runtime) + actions.
+                        Zero methods beyond the inherited emitter protocol —
+                        parse_quantifier/parse_charclass/normalize_literal/
+                        meta_grammar are gone with the Lark path, nothing replaces
+                        them as methods
     emit.py             render_specs() helper — list[RuleSpec] → text via a flavour
                         singleton. Currently only consumed by its own test; may be
                         wired into the broader pipeline later
@@ -88,7 +119,7 @@ src/lexic/
     charclass.py        parse_charclass_chars()
     derive.py           derive_specs(IrAst, non_semantic_rules) → list[RuleSpec]
     directives.py       parse_directives() — extracts @start / @non-semantic
-                        from grammar source comments before the meta-grammar parser runs
+                        from grammar source comments before the grammar is parsed
     naming.py           CHARCLASS_NAMES, _LITERAL_NAMES, _field_map()
     regex_portable.py   literal_to_regex_pattern(); PORTABLE_FEATURES, validate_portable
     topo.py             topo_sort(specs, is_start_rule) — dependency ordering
@@ -97,16 +128,18 @@ src/lexic/
     __init__.py         get_flavour(), flavour_for_extension(), register_flavour()
                         eagerly registers GBNF_FLAVOUR and ABNF_FLAVOUR singletons
                         on import
-    flavour.py          IrFlavour ABC — IrEmitter subclass + ClassVars (name,
-                        extensions, meta_grammar, escapes: EscapeCodec instance,
-                        line_comment) + abstract parse_quantifier / parse_charclass
-    gbnf/               GBNF flavour
-      flavour.py        META_GRAMMAR string; _GbnfEscapes (private) + GBNF_ESCAPES
-                        singleton; GBNF_ACTIONS tuple of IrActions; _GbnfFlavour
-                        (private) + GBNF_FLAVOUR singleton
-    abnf/               ABNF flavour
-      flavour.py        META_GRAMMAR string; _AbnfEscapes + ABNF_ESCAPES singleton;
-                        ABNF_ACTIONS tuple; _AbnfFlavour + ABNF_FLAVOUR singleton
+    gbnf.py             GBNF flavour — one flat module (no subpackage):
+                        GBNF_ACTIONS (emit half), GBNF_GRAMMAR + GBNF_REDUCTIONS +
+                        GBNF_NOISE + GBNF_REDUCER (parse half — the full GBNF
+                        surface, natively, no Lark meta-grammar), private
+                        _GbnfEscapes + public GBNF_ESCAPES singleton, private
+                        _GbnfFlavour + public GBNF_FLAVOUR singleton
+    abnf.py             ABNF flavour — same shape as gbnf.py. Full RFC 5234+7405
+                        surface (num-seq, [...] option, comments/folding, %s/%i,
+                        %d/%b, prose-refusal, incremental =/)
+    json.py             JSON_GRAMMAR — the JSON grammar (RFC 8259) authored
+                        directly as IrAst, not derived from either flavour; the
+                        flavour-neutral canonical target both front-ends reduce to
 
   codegen/
     __init__.py         codegen(specs, stem) → dict[str, type]
@@ -116,20 +149,27 @@ src/lexic/
                         IrItem-shape RuleSpec list → Python source string
 
   parsing/
-    meta_parser.py      MetaGrammarParser — Lark-driven IrAst builder, flavour-agnostic.
-                        Knows canonical tag names (ir_rule, ir_item, ir_literal, …);
-                        dispatches token values to Flavour.parse_quantifier /
-                        parse_charclass. Wraps Lark errors as UnsupportedConstructError.
-    lark_builder.py     LarkBuilder: list[RuleSpec] → Lark grammar string;
-                        build_lark(specs, classes, start_rule) → (grammar_str, parser, transformer)
-    transformer/
-      build_transformer.py   build_transformer(specs, classes) → lark.Transformer
+    __init__.py         Public API: recognize, parse, parse_first, parse_reduced,
+                        parse_forest, derivations, is_ambiguous — a native Earley
+                        engine (SPPF, Scott 2008) over IrAst-shaped grammars, not
+                        a Lark wrapper. Drives BOTH grammar-text parsing
+                        (flavour.grammar + flavour.reducer) and instance parsing
+                        (specs_to_grammar + ModelFold)
+    tables.py           ParserTables, compile_tables() (memoised by IrAst identity)
+    kernel.py           Kernel (predict/scan/complete, Leo optimisation), FastTree
+    chart.py            Chart / Links — the decoded SPPF
+    engine.py           Per-capability orchestration nodes behind the public API
+    forest.py           ParseTree, SppfNode
+    reduce.py           Reducer — forest → IrAst (the meta-notation seam)
+    normalize.py        Desugar IR into classical Earley-shaped rules
+    models.py           specs_to_grammar() / ModelFold / build_instance_parser() —
+                        RuleSpec list → instance grammar + fold
+    lexruns.py, trampoline.py
 
   utils/
-    names.py            to_pascal(), to_snake(), to_lark_name()
-    quantifiers.py      bounds_to_quantifier() — consumed by parsing/lark_builder.py
-                        and codegen/aliases.py; flavours no longer use it.
-                        Scheduled for later cleanup.
+    names.py            to_pascal(), to_snake()
+    quantifiers.py      bounds_to_quantifier() — consumed only by
+                        codegen/aliases.py. Scheduled for later cleanup.
 
 tests/
   unit/lexic/           structural mirror of src/lexic/
@@ -151,7 +191,13 @@ generated/              auto-generated Pydantic modules — git-ignored; never e
 
 ```
 grammar text ──► parse_directives(text, flavour.line_comment) ──► Directives
-             └──► MetaGrammarParser.for_flavour(IrFlavour) ──► IrAst
+             └──► parse_grammar(text, flavour)  [public seam, compile.py]
+                  = parse_reduced(normalize(flavour.grammar), text, flavour.reducer)
+                                                                   │  (lexic.parsing — the
+                                                                   │   Earley engine; flavour.grammar
+                                                                   │   is IrAst, flavour.reducer a Reducer)
+                                                                   ▼
+                                                                 IrAst
                                                                    │
                                                                    ▼
                                derive_specs(ast, non_semantic_rules=…)
@@ -166,11 +212,24 @@ grammar text ──► parse_directives(text, flavour.line_comment) ──► Di
               returns dict[str, type]                  (IrEmitter on IR-AST tree)
                          │
                          ▼
-                   build_lark(specs, classes, start_rule)
-                   → (grammar_str, lark.Lark, lark.Transformer)
+          build_instance_parser(specs, classes, start_rule)
+          (lexic.parsing.models) → (IrAst instance grammar, ModelFold)
+                         │
+                         ▼
+          CompiledGrammar(classes, specs, grammar, fold)
+          .parse(text) = fold.apply(parse_first(grammar, text))
 ```
 
-Entry points: `compile_text(text, flavour)` and `compile_from_path(path)` in `compile.py`. Both call `compile_grammar` then `codegen` then `build_lark` and return a `CompiledGrammar`.
+Entry points: `compile_text(text, flavour)` and `compile_from_path(path)` in
+`compile.py`. Both call `compile_grammar` then `codegen` then
+`build_instance_parser` and return a `CompiledGrammar`.
+`parse_grammar(text, flavour)` (re-exported from `lexic`) is the public
+grammar-text → `IrAst` seam — `compile_grammar` calls it; so do transpilers
+(`getting_started/ex04`).
+
+`parse_grammar` normalizes and memoises each flavour's `grammar` ClassVar
+once per flavour name (`compile.py`'s `_NORM_GRAMMAR_CACHE`) so the engine's
+identity-keyed `compile_tables` stays hot across calls.
 
 ### Layering rules
 
@@ -178,17 +237,30 @@ Arrows go one way. **Violating any of these is a review-blocking offence.**
 
 ```
 lexic.ir        ← lexic.grammars       grammars read and write IR
+lexic.ir        ← lexic.parsing        the engine reads and writes IR only
 lexic.ir        ← lexic.codegen        codegen reads and writes IR
 lexic.ir        ← lexic  (runtime)     runtime reads IR
 lexic.grammars  ← lexic.codegen        codegen gets adapters from grammars
-lexic (runtime) ↗ lexic.codegen        runtime NEVER imports codegen — two exceptions below
+lexic.parsing   ✗ lexic.grammars, lexic.codegen   (the engine is a leaf w.r.t. both)
+lexic (runtime) ↗ lexic.codegen, lexic.parsing    runtime NEVER imports either directly — two exceptions below
 ```
 
 **The two deliberate exceptions:**
-1. `base.py` imports `get_flavour` from `lexic.grammars` to drive `to_grammar()` (which calls `flavour_singleton.apply(self.__grammar__.to_ir_rule())`). The GBNF singleton is `lexic.grammars.gbnf.flavour.GBNF_FLAVOUR`. Explicit, eager.
-2. `compile.py` imports `codegen` from `lexic.codegen` and `build_lark` from `lexic.parsing.lark_builder`. Both explicit and public. This is the single runtime seam for compilation.
+1. `base.py` imports `get_flavour` from `lexic.grammars` to drive `to_grammar()`
+   (which calls `flavour_singleton.apply(self.__grammar__.to_ir_rule())`). The
+   GBNF singleton is `lexic.grammars.gbnf.GBNF_FLAVOUR`. Explicit, eager.
+2. `compile.py` is the single runtime seam onto both `lexic.codegen`
+   (`codegen`) and the Earley engine (`lexic.parsing` — `parse_first`,
+   `parse_reduced`; `lexic.parsing.models` — `ModelFold`,
+   `build_instance_parser`; `lexic.parsing.normalize.normalize`;
+   `lexic.parsing.reduce.Reducer`). All explicit, all public.
 
-No `TYPE_CHECKING` dodges. No lazy intra-function imports of `lexic.codegen` from runtime modules. If a runtime module needs something that lives in codegen, move the thing.
+No `TYPE_CHECKING` dodges. No lazy intra-function imports of `lexic.codegen`
+or `lexic.parsing` from runtime modules. If a runtime module needs something
+that lives in codegen or the engine, move the thing.
+`tests/integration/test_layering_invariants.py` enforces all of this by
+static grep, including that only `compile.py` may import `lexic.parsing`
+among top-level runtime modules.
 
 ## IR types (`ir/nodes.py` + `ir/action.py` + `ir/spec.py`)
 
@@ -214,7 +286,7 @@ records      IrComposite (frozen dataclass)  IrItem, IrQuantifier, IrGroup, IrNo
 
 `IrLiteral` keeps a **dual role**: a grammar-AST leaf and an action-language constant — distinguished at eval time by the `nc` parameter; see [[ir-shapes]].
 
-**Action-algebra nodes** (`ir/action.py`): `IrField` reads a named attribute and wraps it via a runtime `out: type[IrScalar]` (default `IrStr`; `IrField("min", IrInt)` reads an int) — cast-free, open (any `IrScalar` subtype), no enumerated union; `IrOp(IrStr)` is an infix-operator leaf (the node IS its operator string, e.g. `IrOp(">")`; **no `Cmp` enum**) whose `eval` applies the mapped `operator` builtin to the operands in `nc`; `IrCompare(left, op: IrOp, right)` evals both operands and hands them to `op` → `IrInt(0/1)`; `IrAnd(IrTuple[IrSelf])` is a short-circuit conjunction → `IrInt`; `IrCallable` is the procedural escape hatch; `IrChild`/`IrChildren` resolve children; `IrConcat`/`IrJoin` build strings (`parts: IrTuple`); `IrCond(test: IrSelf, then_op, else_op)` branches on `test.eval(...)` (truthy ⇒ `then_op`); `IrThis` is the identity body returning the dispatched node `n`; `IrReturn` short-circuits — it lazy-evaluates its body against `(d, n, nc)` and re-raises the result via the `_Return` BaseException, defaulting to `IrThis()` so `IrReturn()` surfaces the matched node (the find-first pattern); `IrAction(target_type, body)` binds a node type to a body. Default bodies: `IrPass`, `IrWalk`, `IrRaise`, `IrEmit`, `IrRebuild`. Comparison/branch operands are typed `IrSelf` (not `IrNode`) because `IrNode`'s `Ir_co` is invariant — a value operand like `IrField` wouldn't be assignable to a bare `IrNode` slot.
+**Action-algebra nodes** (`ir/action.py`): `IrField` reads a named attribute and wraps it via a runtime `out: type[IrScalar]` (default `IrStr`; `IrField("min", IrInt)` reads an int) — cast-free, open (any `IrScalar` subtype), no enumerated union; `IrOp(IrStr)` is an infix-operator leaf (the node IS its operator string, e.g. `IrOp(">")`; **no `Cmp` enum**) whose `eval` applies the mapped `operator` builtin to the operands in `nc`; `IrCompare(left, op: IrOp, right)` evals both operands and hands them to `op` → `IrInt(0/1)`; `IrAnd(IrTuple[IrSelf])` is a short-circuit conjunction → `IrInt`; `IrLambda` (`ir/base.py`) is the procedural escape hatch; `IrChild`/`IrChildren` resolve children; `IrConcat`/`IrJoin` build strings (`parts: IrTuple`); `IrCond(test: IrSelf, then_op, else_op)` branches on `test.eval(...)` (truthy ⇒ `then_op`); `IrThis` is the identity body returning the dispatched node `n`; `IrReturn` short-circuits — it lazy-evaluates its body against `(d, n, nc)` and re-raises the result via the `_Return` BaseException, defaulting to `IrThis()` so `IrReturn()` surfaces the matched node (the find-first pattern); `IrAction(target_type, body)` binds a node type to a body. Default bodies: `IrPass`, `IrWalk`, `IrRaise`, `IrEmit`, `IrRebuild`. Comparison/branch operands are typed `IrSelf` (not `IrNode`) because `IrNode`'s `Ir_co` is invariant — a value operand like `IrField` wouldn't be assignable to a bare `IrNode` slot.
 
 **Dispatch** (`ir/walk.py`): `IrDispatch[Iri, Ir_co]` is an `IrComposite` whose `actions` tuple is the table (a plain field, **not** a dispatched child). It does **not** walk children automatically — action bodies own recursion. Resolution is concrete-first MRO walk, memoised. Entry seams: `eval(d, n, nc)` (protocol) and `apply(root)` (façade). Presets: `IrVisitor` (default `IrWalk`), `IrTransformer` (default `IrRebuild`), `IrEmitter` (default `IrEmit`).
 
@@ -230,36 +302,51 @@ records      IrComposite (frozen dataclass)  IrItem, IrQuantifier, IrGroup, IrNo
 
 Multi-arm `value_str`: `items = [IrAlternation(...)]`; emitters dispatch on `isinstance`.
 
-## Flavour system (`grammars/flavour.py`)
+## Flavour system (`ir/flavour.py`)
 
-An `IrFlavour` IS-AN `IrEmitter` — its `actions` tuple holds the per-IR-type rendering rules, and `apply(root)` walks an IR tree to a string. Each flavour module exposes the class as **private** (`_GbnfFlavour`) and the constructed singleton as **public** (`GBNF_FLAVOUR`).
+An `IrFlavour` IS-AN `IrEmitter` — its `actions` table (an `IrTypeMap`, not a
+tuple) holds the per-IR-type rendering rules, and `apply(root)` walks an IR
+tree to a string. It also carries its own self-grammar and parse policy as
+data — `grammar: ClassVar[IrAst]` and `reducer: ClassVar[IrDispatch]` (a
+`lexic.parsing.reduce.Reducer` at runtime) — driven by the Earley engine
+(`lexic.parsing`) from the outside; **the flavour itself defines zero parsing
+methods**. Each flavour module exposes the class as **private**
+(`_GbnfFlavour`) and the constructed singleton as **public** (`GBNF_FLAVOUR`),
+in one flat module (`grammars/gbnf.py` — no subpackage).
 
 ```python
 @dataclass(frozen=True, slots=True, repr=False)
 class _MyFlavour(IrFlavour):
-    actions: tuple[IrAction, ...] = MY_ACTIONS   # class-level default
+    actions: IrTypeMap = MY_ACTIONS   # class-level default — the emit half
     # NOTE: do NOT use init=False — it suppresses the generated __init__ so
     # `actions` silently resolves to the empty IrDispatch default at runtime.
 
     name: ClassVar[str] = "myflavour"
     extensions: ClassVar[tuple[str, ...]] = (".mf",)
-    meta_grammar: ClassVar[str] = META_GRAMMAR
-    escapes: ClassVar[EscapeCodec] = MY_ESCAPES   # instance, not class
-    line_comment: ClassVar[str] = "#"             # empty disables @directive parsing
-
-    @staticmethod
-    def parse_quantifier(text: str) -> IrQuantifier: ...
-    @staticmethod
-    def parse_charclass(text: str) -> tuple[str, bool]: ...   # (pattern, negated)
-    @classmethod
-    def normalize_literal(cls, decoded: str) -> IrLiteral | IrGroup: ...  # optional
+    escapes: ClassVar[EscapeCodec] = MY_ESCAPES     # instance, not class
+    line_comment: ClassVar[str] = "#"               # empty disables @directive parsing
+    grammar: ClassVar[IrAst] = MY_GRAMMAR           # the flavour's own self-grammar
+    reducer: ClassVar[Reducer] = MY_REDUCER         # the parse half
 
 MY_FLAVOUR = _MyFlavour()
 ```
 
-`MY_ACTIONS` is a `tuple[IrAction, ...]` mapping each IR-AST node type (`IrLiteral`, `IrCharClass`, `IrNot`, `IrRuleRef`, `IrGroup`, `IrQuantifier`, `IrItem`, `IrSequence`, `IrAlternation`, `IrRule`, `IrAst`) to a callable IR body — pure algebra (`IrConcat`, `IrJoin`, `IrField`, `IrChild`, `IrChildren`) wherever possible, with `IrCallable(handler)` as the procedural escape hatch when needed.
+`MY_ACTIONS` is an `IrTypeMap` mapping each IR-AST node type (`IrLiteral`,
+`IrCharClass`, `IrNot`, `IrRuleRef`, `IrGroup`, `IrQuantifier`, `IrItem`,
+`IrSequence`, `IrAlternation`, `IrRule`, `IrAst`) to a callable IR body — pure
+algebra (`IrConcat`, `IrJoin`, `IrField`, `IrChild`, `IrChildren`) wherever
+possible, with `IrLambda(handler)` (`ir/base.py`) as the procedural escape hatch when
+needed. This is the emit half (IR → text).
 
-`MetaGrammarParser.for_flavour(flavour)` builds the Lark parser and transformer from the meta-grammar; `parse(text)` returns `IrAst`. The flavour only controls token values; tree-walking is generic.
+`MY_GRAMMAR` (an `IrAst`, authored directly — no meta-grammar string) and
+`MY_REDUCER` (a `Reducer = Reducer(reductions=MY_REDUCTIONS, noise=MY_NOISE,
+literal=DROP)`) are the parse half (text → IR): `parse_grammar` drives
+`parse_reduced(normalize(flavour.grammar), text, flavour.reducer)` through the
+same Earley engine that later parses generated instances. `MY_REDUCTIONS` is
+an `IrMap[IrRuleRef, IrSelf]` from a rule's ref to a body folding its matched
+children into IR; `MY_NOISE` marks which children are structural
+(whitespace/delimiters/comments) and dropped before a reduction body sees
+them.
 
 ## Field naming (`ir/naming.py`)
 
@@ -284,7 +371,7 @@ Every generated class carries `__grammar__: ClassVar[RuleSpec]`.
 
 ## Directives (`ir/directives.py`)
 
-Scanned from source comments *before* the meta-grammar parser runs (Lark strips comments):
+Scanned from source comments *before* the grammar is parsed (the self-grammars route comments to noise):
 
 ```
 # @start my_rule          — override the start rule (default: first defined rule)
@@ -299,7 +386,7 @@ No bare `raise ValueError` or `raise Exception` for library-level failures.
 
 | Exception | Raised by |
 |---|---|
-| `UnsupportedConstructError` | Parsers (unknown syntax), atom dispatch tables (unknown type), MetaGrammarParser boundary |
+| `UnsupportedConstructError` | Parsers (unknown syntax), atom dispatch tables (unknown type), the engine (no parse / ambiguous parse), `parse_grammar`/`compile_grammar` boundary checks (missing/wrong-shaped `Reducer`, non-`IrAst` reduction, unknown start rule) |
 | `GrammarAuthoringError` | `@grammar_rule` decorator, ModelEmitter discriminator analysis |
 | `FieldValidationError` | Pydantic constraint failures (Slice C) |
 
@@ -320,22 +407,23 @@ From `prototyping/next/1_NORTH_STAR.md`:
 - No `# type: ignore`, `# noqa`, or `# pylint: disable` without explicit permission. Fix the root cause.
 - No `exec` or `eval` anywhere.
 - No grammar-specific hardcoding in generic code.
-- `grammars/gbnf/ast.py` and `grammars/gbnf/parser.py` are stable; do not modify them.
 - Generated files in `generated/` are write-once — fix template issues in `model_emitter.py`.
-- The two deliberate runtime→codegen import edges (`base.py` → `lexic.grammars` for the flavour singleton; `compile.py` → `lexic.codegen` and `lexic.parsing.lark_builder`) are the only ones permitted.
+- The two deliberate runtime import edges (`base.py` → `lexic.grammars` for the flavour singleton; `compile.py` → `lexic.codegen` and the `lexic.parsing` engine seam) are the only ones permitted.
 
 ## Import paths
 
 ```python
-from lexic.ir.nodes import IrItem, IrAst, IrQuantifier, IrLiteral, IrCharClass, IrRuleRef, IrGroup
-from lexic.ir.action import IrAction, IrCallable, IrChild, IrChildren, IrConcat, IrJoin, IrField
+from lexic.ir.nodes import IrItem, IrAst, IrQuantifier, IrLiteral, IrCharClass, IrRuleRef
+from lexic.ir.operators import IrNot, IrOp
+from lexic.ir.action import IrAction, IrChild, IrChildren, IrConcat, IrJoin, IrField
 from lexic.ir.walk import IrDispatch, IrVisitor, IrTransformer, IrEmitter
 from lexic.ir.spec import RuleSpec
 from lexic.ir.derive import derive_specs
+from lexic.ir.flavour import IrFlavour
 from lexic.base import GrammarModel
-from lexic.compile import compile_grammar, compile_text, compile_from_path
-from lexic.grammars.flavour import IrFlavour
+from lexic.compile import compile_grammar, compile_text, compile_from_path, parse_grammar
 from lexic.grammars import get_flavour, flavour_for_extension, GBNF_FLAVOUR, ABNF_FLAVOUR
+from lexic.parsing import recognize, parse, parse_first, parse_reduced, parse_forest, derivations, is_ambiguous
 ```
 
 Never `from src.lexic...`. `pyproject.toml` sets `pythonpath = ["src"]`.
