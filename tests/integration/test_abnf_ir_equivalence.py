@@ -9,7 +9,7 @@ re-parsing preserves that rule fingerprint.
 
 Corpus (unchanged from the Lark-era gate): the inline fixtures that
 ``test_compile_grammar_abnf`` / ``test_cross_flavour`` feed to
-``compile_grammar``, one fixture per Phase 3 remainder construct
+``canonical_grammar``, one fixture per Phase 3 remainder construct
 (num-sequence, ``[...]`` option, trailing/inline comments, line folding, RFC
 7405 ``%s``/``%i`` strings, ``%d``/``%b`` values, incremental ``=/``), plus the
 ``arithmetic.abnf`` and ``json.abnf`` ground-truth files.

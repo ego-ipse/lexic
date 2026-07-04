@@ -1,19 +1,16 @@
 """JSON grammar as native IR — the canonical, flavour-neutral representation.
 
-This is the JSON grammar (RFC 8259) authored directly as :class:`IrAst`, not
-parsed from GBNF/ABNF source. It is the ground-truth target the GBNF and ABNF
-front-ends should both reduce to, and it stands on its own once the Lark
-metagrammars are retired.
+This is the JSON grammar (RFC 8259) authored directly as :class:`IrAst`, the
+ground-truth target the GBNF and ABNF front-ends both reduce to. It is stored in
+**canonical form** — the exact shape :func:`~lexic.ir.canonical.canonicalize`
+produces — so ``canonicalize(JSON_GRAMMAR) == JSON_GRAMMAR`` and
+``canonicalize(parse(json.gbnf)) == canonicalize(parse(json.abnf)) == JSON_GRAMMAR``.
 
-Canonical-form choices (the cross-flavour canonicalizations):
-
-- single code points (``{``, ``}``, ``:``, the ``\\`` escape, …) are
-  :class:`IrLiteral`, not one-member char classes;
-- multi-char keywords (``false``/``null``/``true``) are :class:`IrLiteral`;
-- the ``unescaped`` set is **positive** ``IrRange`` spans (the complement of
-  ``"``/``\\``/controls), since ABNF cannot express negation;
-- sets of single chars (whitespace, ``eE``, hex digits) are one
-  :class:`IrCharClass`.
+Canonical-form choices: names are lowercase/hyphenated; single code points are
+:class:`IrLiteral`; multi-char keywords are :class:`IrLiteral`; char-point sets
+are one normalised :class:`IrCharClass` (sorted, ranges coalesced); negation is
+expressed as positive :class:`IrRange` spans; rules are in canonical order
+(start first, first-reference order).
 """
 
 from __future__ import annotations
@@ -34,9 +31,9 @@ from lexic.ir.nodes import (
 )
 
 JSON_GRAMMAR = IrAst(
-    rules=IrSeq(
+    IrSeq(
         IrRule(
-            "JSON-text",
+            "json-text",
             IrAlternation(
                 IrSequence(
                     IrItem(IrRuleRef("ws")),
@@ -46,71 +43,11 @@ JSON_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "begin-array",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("ws")),
-                    IrItem(IrLiteral("[")),
-                    IrItem(IrRuleRef("ws")),
-                )
-            ),
-        ),
-        IrRule(
-            "begin-object",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("ws")),
-                    IrItem(IrLiteral("{")),
-                    IrItem(IrRuleRef("ws")),
-                )
-            ),
-        ),
-        IrRule(
-            "end-array",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("ws")),
-                    IrItem(IrLiteral("]")),
-                    IrItem(IrRuleRef("ws")),
-                )
-            ),
-        ),
-        IrRule(
-            "end-object",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("ws")),
-                    IrItem(IrLiteral("}")),
-                    IrItem(IrRuleRef("ws")),
-                )
-            ),
-        ),
-        IrRule(
-            "name-separator",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("ws")),
-                    IrItem(IrLiteral(":")),
-                    IrItem(IrRuleRef("ws")),
-                )
-            ),
-        ),
-        IrRule(
-            "value-separator",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("ws")),
-                    IrItem(IrLiteral(",")),
-                    IrItem(IrRuleRef("ws")),
-                )
-            ),
-        ),
-        IrRule(
             "ws",
             IrAlternation(
                 IrSequence(
                     IrItem(
-                        IrCharClass(IrChr(" "), IrChr("\t"), IrChr("\n"), IrChr("\r")),
+                        IrCharClass(IrRange(IrChr(9), IrChr(10)), IrChr(13), IrChr(32)),
                         IrQuantifier(0, IrNone),
                     )
                 )
@@ -151,19 +88,9 @@ JSON_GRAMMAR = IrAst(
                                 ),
                             )
                         ),
-                        IrQuantifier(0, 1),
+                        IrQuantifier(0),
                     ),
                     IrItem(IrRuleRef("end-object")),
-                )
-            ),
-        ),
-        IrRule(
-            "member",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("string")),
-                    IrItem(IrRuleRef("name-separator")),
-                    IrItem(IrRuleRef("value")),
                 )
             ),
         ),
@@ -187,7 +114,7 @@ JSON_GRAMMAR = IrAst(
                                 ),
                             )
                         ),
-                        IrQuantifier(0, 1),
+                        IrQuantifier(0),
                     ),
                     IrItem(IrRuleRef("end-array")),
                 )
@@ -197,66 +124,11 @@ JSON_GRAMMAR = IrAst(
             "number",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("minus"), IrQuantifier(0, 1)),
+                    IrItem(IrRuleRef("minus"), IrQuantifier(0)),
                     IrItem(IrRuleRef("int")),
-                    IrItem(IrRuleRef("frac"), IrQuantifier(0, 1)),
-                    IrItem(IrRuleRef("exp"), IrQuantifier(0, 1)),
+                    IrItem(IrRuleRef("frac"), IrQuantifier(0)),
+                    IrItem(IrRuleRef("exp"), IrQuantifier(0)),
                 )
-            ),
-        ),
-        IrRule("decimal-point", IrAlternation(IrSequence(IrItem(IrLiteral("."))))),
-        IrRule(
-            "digit1-9",
-            IrAlternation(
-                IrSequence(IrItem(IrCharClass(IrRange(IrChr("1"), IrChr("9")))))
-            ),
-        ),
-        IrRule(
-            "e",
-            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr("e"), IrChr("E"))))),
-        ),
-        IrRule(
-            "exp",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("e")),
-                    IrItem(
-                        IrAlternation(
-                            IrSequence(IrItem(IrRuleRef("minus"))),
-                            IrSequence(IrItem(IrRuleRef("plus"))),
-                        ),
-                        IrQuantifier(0, 1),
-                    ),
-                    IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)),
-                )
-            ),
-        ),
-        IrRule(
-            "frac",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("decimal-point")),
-                    IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)),
-                )
-            ),
-        ),
-        IrRule(
-            "int",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("zero"))),
-                IrSequence(
-                    IrItem(IrRuleRef("digit1-9")),
-                    IrItem(IrRuleRef("digit"), IrQuantifier(0, IrNone)),
-                ),
-            ),
-        ),
-        IrRule("minus", IrAlternation(IrSequence(IrItem(IrLiteral("-"))))),
-        IrRule("plus", IrAlternation(IrSequence(IrItem(IrLiteral("+"))))),
-        IrRule("zero", IrAlternation(IrSequence(IrItem(IrLiteral("0"))))),
-        IrRule(
-            "digit",
-            IrAlternation(
-                IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
             ),
         ),
         IrRule(
@@ -270,6 +142,103 @@ JSON_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
+            "begin-object",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrLiteral("{")),
+                    IrItem(IrRuleRef("ws")),
+                )
+            ),
+        ),
+        IrRule(
+            "member",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("string")),
+                    IrItem(IrRuleRef("name-separator")),
+                    IrItem(IrRuleRef("value")),
+                )
+            ),
+        ),
+        IrRule(
+            "value-separator",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrLiteral(",")),
+                    IrItem(IrRuleRef("ws")),
+                )
+            ),
+        ),
+        IrRule(
+            "end-object",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrLiteral("}")),
+                    IrItem(IrRuleRef("ws")),
+                )
+            ),
+        ),
+        IrRule(
+            "begin-array",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrLiteral("[")),
+                    IrItem(IrRuleRef("ws")),
+                )
+            ),
+        ),
+        IrRule(
+            "end-array",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrLiteral("]")),
+                    IrItem(IrRuleRef("ws")),
+                )
+            ),
+        ),
+        IrRule("minus", IrAlternation(IrSequence(IrItem(IrLiteral("-"))))),
+        IrRule(
+            "int",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("zero"))),
+                IrSequence(
+                    IrItem(IrRuleRef("digit1-9")),
+                    IrItem(IrRuleRef("digit"), IrQuantifier(0, IrNone)),
+                ),
+            ),
+        ),
+        IrRule(
+            "frac",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("decimal-point")),
+                    IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)),
+                )
+            ),
+        ),
+        IrRule(
+            "exp",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("e")),
+                    IrItem(
+                        IrAlternation(
+                            IrSequence(IrItem(IrRuleRef("minus"))),
+                            IrSequence(IrItem(IrRuleRef("plus"))),
+                        ),
+                        IrQuantifier(0),
+                    ),
+                    IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)),
+                )
+            ),
+        ),
+        IrRule("quotation-mark", IrAlternation(IrSequence(IrItem(IrLiteral('"'))))),
+        IrRule(
             "char",
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("unescaped"))),
@@ -280,14 +249,14 @@ JSON_GRAMMAR = IrAst(
                             IrSequence(
                                 IrItem(
                                     IrCharClass(
-                                        IrChr('"'),
-                                        IrChr("\\"),
-                                        IrChr("/"),
-                                        IrChr("b"),
-                                        IrChr("f"),
-                                        IrChr("n"),
-                                        IrChr("r"),
-                                        IrChr("t"),
+                                        IrChr(34),
+                                        IrChr(47),
+                                        IrChr(92),
+                                        IrChr(98),
+                                        IrChr(102),
+                                        IrChr(110),
+                                        IrChr(114),
+                                        IrChr(116),
                                     )
                                 )
                             ),
@@ -300,37 +269,64 @@ JSON_GRAMMAR = IrAst(
                 ),
             ),
         ),
-        IrRule("escape", IrAlternation(IrSequence(IrItem(IrLiteral("\\"))))),
-        IrRule("quotation-mark", IrAlternation(IrSequence(IrItem(IrLiteral('"'))))),
+        IrRule(
+            "name-separator",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrLiteral(":")),
+                    IrItem(IrRuleRef("ws")),
+                )
+            ),
+        ),
+        IrRule("zero", IrAlternation(IrSequence(IrItem(IrLiteral("0"))))),
+        IrRule(
+            "digit1-9",
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(49), IrChr(57)))))
+            ),
+        ),
+        IrRule(
+            "digit",
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))))
+            ),
+        ),
+        IrRule("decimal-point", IrAlternation(IrSequence(IrItem(IrLiteral("."))))),
+        IrRule(
+            "e", IrAlternation(IrSequence(IrItem(IrCharClass(IrChr(69), IrChr(101)))))
+        ),
+        IrRule("plus", IrAlternation(IrSequence(IrItem(IrLiteral("+"))))),
         IrRule(
             "unescaped",
             IrAlternation(
                 IrSequence(
                     IrItem(
                         IrCharClass(
-                            IrRange(IrChr(chr(0x20)), IrChr(chr(0x21))),
-                            IrRange(IrChr(chr(0x23)), IrChr(chr(0x5B))),
-                            IrRange(IrChr(chr(0x5D)), IrChr(chr(0x10FFFF))),
+                            IrRange(IrChr(32), IrChr(33)),
+                            IrRange(IrChr(35), IrChr(91)),
+                            IrRange(IrChr(93), IrChr(1114111)),
                         )
                     )
                 )
             ),
         ),
+        IrRule("escape", IrAlternation(IrSequence(IrItem(IrLiteral("\\"))))),
         IrRule(
             "hexdig",
             IrAlternation(
                 IrSequence(
                     IrItem(
                         IrCharClass(
-                            IrRange(IrChr("0"), IrChr("9")),
-                            IrRange(IrChr("A"), IrChr("F")),
-                            IrRange(IrChr("a"), IrChr("f")),
+                            IrRange(IrChr(48), IrChr(57)),
+                            IrRange(IrChr(65), IrChr(70)),
+                            IrRange(IrChr(97), IrChr(102)),
                         )
                     )
                 )
             ),
         ),
     ),
-    start="JSON-text",
+    "json-text",
 )
 """The JSON grammar (RFC 8259) as a canonical :class:`IrAst`."""

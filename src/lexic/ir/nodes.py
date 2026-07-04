@@ -25,7 +25,9 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 
 from __future__ import annotations
 
-from typing import ClassVar, Self
+import random
+from collections.abc import Callable, Iterable
+from typing import ClassVar, Self, cast
 
 from lexic.ir.base import (
     IrAtom,
@@ -51,7 +53,34 @@ __all__ = [
     "IrItem",
     "IrRule",
     "IrAst",
+    "MAX_CODEPOINT",
 ]
+
+MAX_CODEPOINT = 0x10FFFF
+"""Highest Unicode code point — the upper bound of a char-class complement."""
+
+_CLASS_METACHARS = frozenset("[]^")
+"""Regex-class metacharacters that need a backslash inside ``[...]``."""
+
+
+def _escape_regex_point(point: int) -> str:
+    """Escape a single code point for safe use inside a regex ``[...]``.
+
+    :param point: The code point to escape.
+    :returns: The escaped single-member text (``\\\\``/``\\xNN``/glyph).
+    """
+    ch = chr(point)
+    if ch == "\\":
+        return "\\\\"
+    if ch in _CLASS_METACHARS:
+        return f"\\{ch}"
+    if ch.isprintable():
+        return ch
+    if point <= 0xFF:
+        return f"\\x{point:02x}"
+    if point <= 0xFFFF:
+        return f"\\u{point:04x}"
+    return f"\\U{point:08x}"
 
 
 # ── Concrete str-leaf atoms ───────────────────────────────────────────
@@ -88,7 +117,30 @@ class IrSequence(IrSeq["IrItem"]):
     Represents an ordered sequence of grammar items that must all match in
     order.  Corresponds to the ``items`` tuple in a single alternation arm.
     A homogeneous :class:`IrSeq` of ``IrItem``.
+
+    Authoring coercion: accepts ``IrItem | IrAtom`` per element — a bare
+    :class:`IrAtom` (``IrLiteral``, ``IrRuleRef``, an inline ``IrAlternation``
+    group…) wraps to ``IrItem(atom)`` with the unit quantifier. Unknown types
+    pass through unchanged, so transformer rebuilds (elements mapped to
+    ``IrStr`` mid-emit) are undisturbed. Idempotent on canonical input.
     """
+
+    def __new__(cls, *items: "IrItem | IrAtom") -> Self:
+        """Construct a sequence, wrapping bare atoms to unit ``IrItem`` nodes.
+
+        :param items: Elements — each an ``IrItem`` (kept), an ``IrAtom``
+            (wrapped to ``IrItem(atom)``), or an unknown value (passed through).
+        :returns: The sequence with atoms lifted to items.
+        """
+        coerced = tuple(
+            item
+            if isinstance(item, IrItem)
+            else IrItem(item)
+            if isinstance(item, IrAtom)
+            else item
+            for item in items
+        )
+        return super().__new__(cls, *cast("tuple[IrItem, ...]", coerced))
 
 
 class IrAlternation(IrSeq[IrSequence], IrAtom):
@@ -97,7 +149,31 @@ class IrAlternation(IrSeq[IrSequence], IrAtom):
     Represents the ``|``-separated alternatives in a grammar rule body.
     Each arm is an ``IrSequence``; the first matching arm wins.
     A homogeneous :class:`IrSeq` of ``IrSequence``.
+
+    Authoring coercion: accepts ``IrSequence | IrItem | IrAtom`` per arm — a
+    non-sequence known type wraps via ``IrSequence(arm)`` (whose own coercion
+    lifts an atom to an item), so a single-atom or single-item arm need not be
+    spelled ``IrSequence(IrItem(...))``. Unknown types pass through unchanged.
+    Idempotent on canonical input.
     """
+
+    def __new__(cls, *arms: "IrSequence | IrItem | IrAtom") -> Self:
+        """Construct an alternation, wrapping bare arms to single-item sequences.
+
+        :param arms: Arms — each an ``IrSequence`` (kept), an ``IrItem`` or
+            ``IrAtom`` (wrapped via ``IrSequence``), or an unknown value
+            (passed through).
+        :returns: The alternation with arms lifted to sequences.
+        """
+        coerced = tuple(
+            arm
+            if isinstance(arm, IrSequence)
+            else IrSequence(arm)
+            if isinstance(arm, (IrItem, IrAtom))
+            else arm
+            for arm in arms
+        )
+        return super().__new__(cls, *cast("tuple[IrSequence, ...]", coerced))
 
 
 # ── Concrete composite records ────────────────────────────────────────
@@ -193,10 +269,159 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
     stored — ``[^...]`` parses to ``IrNot(IrCharClass(...))``; the negation hands
     its mark to the class action via the argument channel. Glyph/escape spelling
     happens only at emit time, per flavour.
+
+    Member/complement math is intrinsic: :meth:`pattern` renders the flat
+    regex interior, :meth:`members` enumerates covered code points, and
+    :meth:`normalized`/:meth:`complement` produce the canonical set-form and
+    Unicode complement the canonicaliser relies on.
     """
 
+    def pattern(self) -> str:
+        """Flatten to a regex/source-safe interior pattern (per-member escaped).
 
-class IrItem(IrNamedTuple[IrAtom, IrQuantifier]):
+        Each member is a code point (or a code-point range); every point is
+        escaped on its own value — regex metacharacters get a backslash, a bare
+        backslash doubles, non-printable points become ``\\xNN`` / ``\\uNNNN`` /
+        ``\\UNNNNNNNN``.
+
+        :returns: The flat interior pattern, members escaped for a regex class.
+        """
+        parts: list[str] = []
+        for el in self:
+            if isinstance(el, IrRange):
+                parts.append(
+                    f"{_escape_regex_point(int(el.lo))}-{_escape_regex_point(int(el.hi))}"
+                )
+            else:
+                parts.append(_escape_regex_point(int(el)))
+        return "".join(parts)
+
+    def sample(self, rng: "random.Random") -> int:
+        """Pick one covered code point uniformly, without materialising members.
+
+        A complement class can span the whole Unicode range; enumerating its
+        members would be prohibitive, so this samples by interval instead.
+
+        :param rng: The random source.
+        :returns: A covered code point.
+        """
+        intervals = self.intervals()
+        sizes = [hi - lo + 1 for lo, hi in intervals]
+        lo, hi = rng.choices(intervals, weights=sizes)[0]
+        return rng.randint(lo, hi)
+
+    def members(self) -> list[int]:
+        """Enumerate every code point the class covers, in element order.
+
+        Ranges expand to all endpoints inclusive; single ``IrChr`` members
+        contribute one point each.
+
+        .. warning::
+           Do **not** call on a Unicode-scale class (e.g. a ``[^...]``
+           complement, which can span ~1.1M points): the returned list holds
+           one entry per covered point. Set/merge math should go through
+           :meth:`intervals` / :meth:`from_intervals`, which stay in the
+           interval domain.
+
+        :returns: The covered code points, ranges expanded.
+        """
+        points: list[int] = []
+        for el in self:
+            if isinstance(el, IrRange):
+                points.extend(range(int(el.lo), int(el.hi) + 1))
+            else:
+                points.append(int(el))
+        return points
+
+    @staticmethod
+    def _coalesce(raw: "list[tuple[int, int]]") -> "list[tuple[int, int]]":
+        """Sort ``raw`` spans and merge overlapping/adjacent ones into a cover.
+
+        The single home for the interval merge algorithm — :meth:`intervals`
+        and :meth:`from_intervals` both call it, and so does the canonicaliser
+        (via those). Shared so the sort+merge lives in exactly one place.
+
+        :param raw: Unordered ``(lo, hi)`` inclusive spans (may overlap).
+        :returns: The minimal sorted disjoint cover.
+        """
+        merged: list[tuple[int, int]] = []
+        for lo, hi in sorted(raw):
+            if merged and lo <= merged[-1][1] + 1:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
+            else:
+                merged.append((lo, hi))
+        return merged
+
+    def intervals(self) -> list[tuple[int, int]]:
+        """Return the sorted, coalesced ``(lo, hi)`` inclusive interval cover.
+
+        Overlapping or adjacent spans merge, so the result is a minimal
+        disjoint cover of the class in ascending code-point order. This is the
+        Unicode-safe view of the class's membership — it never materialises
+        individual points, so it is the right basis for set/merge math.
+
+        :returns: The minimal sorted interval cover.
+        """
+        raw: list[tuple[int, int]] = []
+        for el in self:
+            if isinstance(el, IrRange):
+                raw.append((int(el.lo), int(el.hi)))
+            else:
+                raw.append((int(el), int(el)))
+        return self._coalesce(raw)
+
+    @classmethod
+    def from_intervals(cls, spans: "Iterable[tuple[int, int]]") -> "IrCharClass":
+        """Build a normalised class from ``(lo, hi)`` intervals, coalescing first.
+
+        Members are constructed directly (``IrChr`` for a single point, an
+        ``IrRange`` for a wider span) from the coalesced cover — no per-point
+        materialisation. The result is already in :meth:`normalized` form.
+
+        :param spans: ``(lo, hi)`` inclusive intervals (may overlap/repeat).
+        :returns: The canonical-form class over the union of ``spans``.
+        """
+        return cls(*(cls._span(lo, hi) for lo, hi in cls._coalesce(list(spans))))
+
+    @staticmethod
+    def _span(lo: int, hi: int) -> "IrRange | IrChr":
+        """A single code point renders as ``IrChr``; a wider span as ``IrRange``."""
+        return IrChr(lo) if lo == hi else IrRange(IrChr(lo), IrChr(hi))
+
+    def normalized(self) -> "IrCharClass":
+        """Return the canonical set-form — deduped, sorted, ranges coalesced.
+
+        Members are collapsed to their minimal disjoint interval cover; each
+        run of one code point becomes an ``IrChr``, each wider run an
+        ``IrRange``. Two classes describing the same set compare equal after
+        this.
+
+        :returns: The canonical-form character class.
+        """
+        return IrCharClass(*(self._span(lo, hi) for lo, hi in self.intervals()))
+
+    def complement(self) -> "IrCharClass":
+        """Return the positive canonical-form class over the Unicode complement.
+
+        The complement is taken against ``[0, MAX_CODEPOINT]`` — every code
+        point NOT in this class, as coalesced ``IrRange``/``IrChr`` spans. Used
+        by the canonicaliser to rewrite ``IrNot(charclass)`` to positive spans
+        (ABNF cannot express negation).
+
+        :returns: The complement class in canonical form.
+        """
+        spans: list[IrRange | IrChr] = []
+        cursor = 0
+        for lo, hi in self.intervals():
+            if lo > cursor:
+                spans.append(self._span(cursor, lo - 1))
+            cursor = max(cursor, hi + 1)
+        if cursor <= MAX_CODEPOINT:
+            spans.append(self._span(cursor, MAX_CODEPOINT))
+        return IrCharClass(*spans)
+
+
+class IrItem(IrNamedTuple[IrAtom, IrQuantifier], init=False):
     """An atom paired with a quantifier — the universal wrapper node.
 
     ``IrItem`` is the fundamental unit of a grammar sequence.  Every element
@@ -204,18 +429,43 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier]):
     ``IrAtom`` subclass (``IrLiteral``, ``IrCharClass``, ``IrRuleRef``,
     ``IrNot``).
 
+    Authoring coercion: ``atom`` also accepts a bare :class:`IrSequence` inline
+    group, wrapped to ``IrAlternation(seq)`` — so a quantified group need not be
+    spelled ``IrItem(IrAlternation(IrSequence(...)), q)``. Any other value
+    (a real ``IrAtom``, or an unknown mid-transform value) passes through.
+
     Children: ``atom``, ``quantifier`` (both IR nodes — the whole tuple).
     """
 
     atom: IrAtom
     quantifier: IrQuantifier = IrQuantifier()
 
+    def __new__(
+        cls, atom: "IrAtom | IrSequence", quantifier: IrQuantifier = IrQuantifier()
+    ) -> Self:
+        """Construct an item, wrapping a bare sequence group to an alternation.
 
-class IrRule(IrNamedTuple[IrStr, IrAlternation, bool]):
+        :param atom: The atom, an ``IrSequence`` inline group (wrapped to
+            ``IrAlternation``), or an unknown value (passed through).
+        :param quantifier: Repetition bounds (defaults to the unit quantifier).
+        :returns: The item with any inline-group sequence lifted to an atom.
+        """
+        wrapped = IrAlternation(atom) if isinstance(atom, IrSequence) else atom
+        return cast(Callable[..., Self], super().__new__)(cls, wrapped, quantifier)
+
+
+class IrRule(IrNamedTuple[IrStr, IrAlternation, bool], init=False):
     """A named grammar rule, with a ``semantic`` flag.
 
     The ``body`` is always an ``IrAlternation``, even for single-arm rules
     (a single arm is an ``IrAlternation`` containing one ``IrSequence``).
+
+    Authoring coercion: ``body`` accepts ``IrAlternation | IrSequence | IrItem
+    | IrAtom`` — a non-alternation known type wraps up to a single-arm
+    ``IrAlternation`` (the cascade lifting atom→item→sequence→alternation), so
+    ``IrRule("cr", IrCharClass(IrChr("\\r")))`` constructs exactly the canonical
+    single-arm rule. The ``IrAlternation`` check runs first (it IS-A ``IrAtom``).
+    Unknown types pass through unchanged.
 
     ``semantic`` is ``True`` for an ordinary rule and ``False`` for a
     structural-noise rule (whitespace, delimiters, comments) — the ``@non-
@@ -236,6 +486,29 @@ class IrRule(IrNamedTuple[IrStr, IrAlternation, bool]):
     name: str
     body: IrAlternation
     semantic: bool = True
+
+    def __new__(
+        cls,
+        name: str,
+        body: "IrAlternation | IrSequence | IrItem | IrAtom",
+        semantic: bool = True,
+    ) -> Self:
+        """Construct a rule, lifting a non-alternation body to a single-arm one.
+
+        :param name: The rule identifier.
+        :param body: The rule body — an ``IrAlternation`` (kept), or an
+            ``IrSequence``/``IrItem``/``IrAtom`` (wrapped up to a single-arm
+            ``IrAlternation``), or an unknown value (passed through).
+        :param semantic: ``False`` for a structural-noise rule; ``True`` otherwise.
+        :returns: The rule with its body normalised to an ``IrAlternation``.
+        """
+        if isinstance(body, IrAlternation):
+            alt = body
+        elif isinstance(body, (IrSequence, IrItem, IrAtom)):
+            alt = IrAlternation(body)
+        else:
+            alt = body
+        return cast(Callable[..., Self], super().__new__)(cls, name, alt, semantic)
 
     def __eq__(self, other: object) -> bool:
         """Structural equality over ``name`` and ``body`` only.
@@ -287,9 +560,10 @@ class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr]):
     def non_semantic(self) -> frozenset[str]:
         """Names of the structural-noise rules (those with ``semantic=False``).
 
-        Derived from the rules' own flags — the single source feeding
-        ``derive_specs`` (quantifier relaxation + ``semantic_dump`` filter) and,
-        for a flavour's self-grammar, its ``Reducer`` noise map. Keeps the
+        Derived from the rules' own flags — the single source feeding the
+        codegen passes (quantifier relaxation), the binding view's
+        ``semantic_dump`` filter and, for a flavour's self-grammar, its
+        ``Reducer`` noise map. Keeps the
         ``@non-semantic`` directive vocabulary even though the flag's polarity
         is positive (``semantic``) on the rule.
 

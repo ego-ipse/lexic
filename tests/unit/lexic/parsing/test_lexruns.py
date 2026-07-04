@@ -24,9 +24,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
-    IrRange,
     IrRule,
-    IrRuleRef,
     IrSequence,
 )
 from lexic.ir.operators import IrNot
@@ -42,6 +40,7 @@ from lexic.parsing.tables import RunTerm
 from lexic.parsing.tables import _expand_atom as _expand_atom_canonical
 from lexic.parsing.tables import compile_tables
 from tests._ir_fixtures import digit_grammar as _digit_grammar
+from tests._ir_fixtures import malformed_synthetic_rule, nested_synthetic_grammar
 
 # ── _expand_atom re-export smoke test (moved home to tables.py) ──────────
 
@@ -157,22 +156,7 @@ def test_unit_leaves_non_synthetic_rule_is_itself():
 def test_unit_leaves_synthetic_charset_rule_transitive_leaves_and_bare_flag():
     """A synthetic rule hopping through another synthetic rule collects the
     transitive non-synthetic leaf and sets has_bare from the bare-terminal arm."""
-    digit = IrRule(
-        "digit",
-        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))),
-    )
-    inner = IrRule(
-        f"{SYNTHETIC_PREFIX}inner",
-        IrAlternation(
-            IrSequence(IrItem(IrLiteral("x"))),
-            IrSequence(IrItem(IrRuleRef("digit"))),
-        ),
-    )
-    outer = IrRule(
-        f"{SYNTHETIC_PREFIX}outer",
-        IrAlternation(IrSequence(IrItem(IrRuleRef(f"{SYNTHETIC_PREFIX}inner")))),
-    )
-    g = IrAst(rules=IrSeq(outer, inner, digit), start=f"{SYNTHETIC_PREFIX}outer")
+    g = nested_synthetic_grammar()
     tables = compile_tables(g)
     outer_rid = tables.decode.rule_ids[f"{SYNTHETIC_PREFIX}outer"]
     digit_rid = tables.decode.rule_ids["digit"]
@@ -181,10 +165,7 @@ def test_unit_leaves_synthetic_charset_rule_transitive_leaves_and_bare_flag():
 
 def test_unit_leaves_malformed_shape_returns_none():
     """A synthetic rule whose arm is not a single item is not a charset shape."""
-    bad = IrRule(
-        f"{SYNTHETIC_PREFIX}bad",
-        IrAlternation(IrSequence(IrItem(IrLiteral("a")), IrItem(IrLiteral("b")))),
-    )
+    bad = malformed_synthetic_rule()
     g = IrAst(rules=IrSeq(bad), start=f"{SYNTHETIC_PREFIX}bad")
     tables = compile_tables(g)
     rid = tables.decode.rule_ids[f"{SYNTHETIC_PREFIX}bad"]

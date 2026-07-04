@@ -1,35 +1,37 @@
-"""parse_grammar / compile_grammar / compile_text — grammar entry points.
+"""parse_grammar / canonical_grammar / compile_text — grammar entry points.
 
 ``parse_grammar(text, flavour)`` is the public grammar-text → ``IrAst`` seam:
 the flavour's own self-grammar (Earley-normalised, memoised per flavour)
 parses the source and the flavour's ``Reducer`` folds the derivation to IR.
 
-Pipeline (compile_grammar — grammar text → specs):
+Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)::
 
-  text  ──┬──►  _scan_directives  ──►  (start, non_semantic)
-          │                                          │
-          │                                          ▼
-          │                       (resolve arg > directive > fallback)
-          │                                          │
-          └──►  parse_grammar(text, flavour) ─► IrAst │
-                                                  │    │
-                                                  ▼    ▼
-                     IrAst(rules with semantic=False flags, start)  ← rebuilt
-                                                  │
-                                                  ▼
-                              derive_specs(ast)  [reads ast.non_semantic]
-                                                  │
-                                                  ▼
-                                  (start_name, list[RuleSpec])
+  text ─► canonical_grammar = parse_grammar + canonicalize + directive flags
+                     │            (the canonical AST — start bound,
+                     │             noise rules flagged semantic=False)
+                     ▼
+          build_codegen_grammar   (groups hoisted, arms hoisted, noise
+                     │             refs relaxed — lexic.codegen.passes)
+                     ▼
+             compute_binding ──► codegen  (classes w/ Annotated IrBind
+                     │                     fields, __grammar__ footers)
+                     ▼
+          fold config (plain data) ──► PositionalFold (lexic.parsing.fold)
+                     │
+                     ▼
+   instance grammar = normalize(lift_optional_nullables(codegen_grammar))
+   — the SAME normalize as the grammar-text path, so the engine's
+   identity-memoised tables are shared shapes; tables are run-collapsed
+   under the fold-config licence at build time.
 
-compile_text(text, *, cache_key) / compile_from_path(path) then run codegen
-and build the engine-backed instance parser: the specs reconstitute as an
-instance grammar (``lexic.parsing.models.build_instance_parser``) and
-``CompiledGrammar.parse`` drives the Earley engine + ``ModelFold`` — no Lark.
+``canonical_grammar(text, flavour)`` is the public front half (parse +
+canonicalize + directive flags → flagged ``IrAst``); ``generate.py`` and
+transpilers build on it.
 
-Runtime seams: codegen from lexic.codegen (the package); the engine entries
-from lexic.parsing / lexic.parsing.models / lexic.parsing.normalize /
-lexic.parsing.reduce. No private-symbol imports cross either seam.
+Runtime seams: lexic.codegen (codegen, build_codegen_grammar,
+compute_binding) and the engine (lexic.parsing / .fold / .normalize /
+.reduce). compile.py is the single runtime module importing either; no
+private-symbol imports cross the seams.
 """
 
 from __future__ import annotations
@@ -40,19 +42,26 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lexic.base import GrammarModel
-from lexic.codegen import codegen
+from lexic.codegen import (
+    RuleBinding,
+    build_codegen_grammar,
+    codegen,
+    compute_binding,
+    resolve_out_dir,
+)
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir.base import IrSeq
-from lexic.ir.derive import derive_specs
+from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst, IrRule
-from lexic.ir.spec import RuleSpec
 from lexic.parsing import ParserTables, parse_first, parse_reduced
-from lexic.parsing.models import (
-    ModelFold,
-    build_instance_parser,
-    collapsed_instance_tables,
+from lexic.parsing.fold import (
+    FieldFold,
+    PositionalFold,
+    RuleFold,
+    collapsed_fold_tables,
+    lift_optional_nullables,
 )
 from lexic.parsing.normalize import normalize
 from lexic.parsing.reduce import Reducer
@@ -63,19 +72,21 @@ class CompiledGrammar:
     """Parse-ready artefacts produced by compile().
 
     :ivar classes: Generated model classes by class name.
-    :ivar specs: RuleSpecs by rule name.
-    :ivar grammar: The Earley-normalised instance grammar (held so the
-        engine's identity-memoised table compilation stays hot across calls).
-    :ivar fold: The ParseTree → model-instance fold.
+    :ivar grammar: The canonical grammar AST (what the user's grammar IS —
+        the transpile/re-emit source; also the generated module's GRAMMAR).
+    :ivar instance_grammar: The Earley-normalised instance grammar (held so
+        the engine's identity-memoised table compilation stays hot).
+    :ivar fold: The positional ParseTree → model-instance fold.
     :ivar tables: The instance grammar's run-collapsed tables — every lexical
-        run the ModelFold licence proves safe steps in one scan (compiled once
-        at build time; see :func:`~lexic.parsing.models.collapsed_instance_tables`).
+        run the fold-config licence proves safe steps in one scan (compiled
+        once at build time; see
+        :func:`~lexic.parsing.fold.collapsed_fold_tables`).
     """
 
     classes: dict[str, type]
-    specs: dict[str, RuleSpec]
     grammar: IrAst
-    fold: ModelFold
+    instance_grammar: IrAst
+    fold: PositionalFold
     tables: ParserTables
 
     def parse(self, text: str) -> GrammarModel:
@@ -84,7 +95,7 @@ class CompiledGrammar:
         :raises UnsupportedConstructError: If ``text`` does not parse, or the
             fold produced no model for the start rule.
         """
-        model = self.fold.apply(parse_first(self.grammar, text, self.tables))
+        model = self.fold.apply(parse_first(self.instance_grammar, text, self.tables))
         if not isinstance(model, GrammarModel):
             raise UnsupportedConstructError(
                 f"compile: start rule folded to {type(model).__name__!r}, "
@@ -147,59 +158,13 @@ def _stem_for_text(text: str) -> str:
     return "anon_" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
 
-def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGrammar:
-    flavour_cls = get_flavour(flavour)
-    start_rule, specs_list = compile_grammar(text, flavour_cls)
-    classes = codegen(specs_list, stem)
-    grammar, fold = build_instance_parser(specs_list, classes, start_rule)
-    return CompiledGrammar(
-        classes=classes,
-        specs={s.rule_name: s for s in specs_list},
-        grammar=grammar,
-        fold=fold,
-        tables=collapsed_instance_tables(grammar, fold),
-    )
-
-
-def compile_text(
-    text: str, *, cache_key: Hashable | None = None, flavour: str = "gbnf"
-) -> CompiledGrammar:
-    """Compile from a grammar string. cache_key=None means 'do not memoize'."""
-    if cache_key is not None:
-        cached = _CACHE.get(cache_key)
-        if cached is not None:
-            return cached
-    cg = _compile_core(text, stem=_stem_for_text(text), flavour=flavour)
-    if cache_key is not None:
-        _CACHE[cache_key] = cg
-    return cg
-
-
-def compile_from_path(
-    grammar_path: str | Path, *, flavour: str | None = None
-) -> CompiledGrammar:
-    """Compile from a file path; memoised by (path, mtime, size, flavour)."""
-    path = Path(grammar_path).resolve()
-    stat = path.stat()
-    if flavour is None:
-        flavour = flavour_for_extension(path).name
-    key = (str(path), stat.st_mtime, stat.st_size, flavour)
-    cached = _CACHE.get(key)
-    if cached is not None:
-        return cached
-    text = path.read_text(encoding="utf-8")
-    cg = _compile_core(text, stem=path.stem, flavour=flavour)
-    _CACHE[key] = cg
-    return cg
-
-
 def _scan_directives(text: str, line_comment: str) -> tuple[str | None, frozenset[str]]:
     """Extract ``(start, non_semantic)`` from source comments — a pre-lexical scan.
 
     A line ``<line_comment> @<name> <args...>`` declares a directive: ``@start
     <rule>`` overrides the start rule, ``@non-semantic <rule> ...`` names
     structural-noise rules. The scan reads the raw source before the parser so
-    comments never become load-bearing grammar tokens; ``compile_grammar``
+    comments never become load-bearing grammar tokens; ``canonical_grammar``
     resolves precedence and applies the result to the AST.
 
     :param text: Grammar source text.
@@ -230,14 +195,14 @@ def _scan_directives(text: str, line_comment: str) -> tuple[str | None, frozense
     return start_rule, frozenset(non_semantic)
 
 
-def compile_grammar(
+def canonical_grammar(
     text: str,
     flavour: IrFlavour,
     *,
     non_semantic_rules: frozenset[str] | None = None,
     start: str | None = None,
-) -> tuple[str, list[RuleSpec]]:
-    """Parse + derive RuleSpecs via the IR-AST pipeline.
+) -> IrAst:
+    """Parse + canonicalize + bind directive flags — the compile front half.
 
     `start` resolution precedence:
       1. explicit `start` argument
@@ -248,33 +213,147 @@ def compile_grammar(
       1. explicit `non_semantic_rules` argument
       2. `@non-semantic <rule> ...` directives in source comments
 
-    The resolved `start` is bound onto the parsed IrAst (the AST is rebuilt —
-    it is frozen), and each rule the resolved non-semantic set names is
-    reconstructed with `semantic=False`; `derive_specs` reads both from the AST
-    (`ast.start`, `ast.non_semantic` — the latter derived from the flags). A
-    directive naming a rule the grammar never defines is silently ignored: no
-    rule is flagged for it, so it never appears in `ast.non_semantic`.
+    The resolved `start` is bound onto the canonical IrAst (the AST is rebuilt
+    — it is frozen), and each rule the resolved non-semantic set names is
+    reconstructed with `semantic=False` (`ast.non_semantic` derives from the
+    flags). A directive naming a rule the grammar never defines is silently
+    ignored: no rule is flagged for it.
 
     Errors: malformed grammar source bubbles up as UnsupportedConstructError
-    (raised by the engine / reducer, or here if the flavour carries no Reducer
-    or its reduction does not yield an IrAst).
+    (raised by the engine / reducer, or here if the flavour carries no Reducer,
+    its reduction does not yield an IrAst, or the start rule is undefined).
     """
     dir_start, dir_non_semantic = _scan_directives(text, flavour.line_comment)
     if non_semantic_rules is None:
         non_semantic_rules = dir_non_semantic
-    ast = parse_grammar(text, flavour)
-    if start is None:
-        start = dir_start or (ast.rules[0].name if ast.rules else "")
+    parsed = parse_grammar(text, flavour)
+    raw_start = start or dir_start or (parsed.rules[0].name if parsed.rules else "")
+    ast = canonicalize(IrAst(rules=parsed.rules, start=raw_start))
+    start = ast.start  # canonicalize folds names; directive/arg names fold too
     if start and not any(r.name == start for r in ast.rules):
         raise UnsupportedConstructError(
             f"start rule {start!r} not defined in grammar; "
             f"available rules: {[r.name for r in ast.rules]}"
         )
+    folded_non_semantic = frozenset(fold_name(n) for n in non_semantic_rules)
     rules = IrSeq(
         *(
-            IrRule(r.name, r.body, False) if r.name in non_semantic_rules else r
+            IrRule(r.name, r.body, False) if r.name in folded_non_semantic else r
             for r in ast.rules
         )
     )
-    specs = derive_specs(IrAst(rules=rules, start=start))
-    return start, specs
+    return IrAst(rules=rules, start=start)
+
+
+def _fold_config(
+    codegen_grammar: IrAst, binding: list[RuleBinding], classes: dict[str, type]
+) -> dict[str, RuleFold]:
+    """Build the fold's plain-data config from the binding view + classes.
+
+    Per rule: kind and constructor from the binding, ``n_items`` from the
+    codegen grammar's single non-empty sequence arm, and one
+    :class:`~lexic.parsing.fold.FieldFold` per bound field (`lo` read from the
+    bound item's quantifier — consumed by the ``gtext`` absence rule).
+
+    :param codegen_grammar: The post-pass grammar the binding was computed on.
+    :param binding: The binding view, in emission order.
+    :param classes: Generated classes by class name.
+    :returns: Rule name → :class:`~lexic.parsing.fold.RuleFold`.
+    """
+    rules = {str(rule.name): rule for rule in codegen_grammar.rules}
+    config: dict[str, RuleFold] = {}
+    for bound in binding:
+        arms = [arm for arm in rules[bound.rule_name].body if arm]
+        items = arms[0] if bound.kind == "sequence" and arms else ()
+        fields = tuple(
+            FieldFold(bind.item, bind.mode, name, int(items[bind.item].quantifier.lo))
+            for name, bind in bound.fields.items()
+        )
+        config[bound.rule_name] = RuleFold(
+            bound.kind, classes[bound.class_name], len(items), fields
+        )
+    return config
+
+
+def _compile_core(
+    text: str, *, stem: str, flavour: str = "gbnf", out_dir: str | Path | None = None
+) -> CompiledGrammar:
+    flavour_cls = get_flavour(flavour)
+    ast = canonical_grammar(text, flavour_cls)
+    codegen_grammar = build_codegen_grammar(ast)
+    binding = compute_binding(codegen_grammar)
+    classes = codegen(ast, codegen_grammar, binding, stem, out_dir)
+    fold = PositionalFold(_fold_config(codegen_grammar, binding, classes))
+    instance_grammar = normalize(lift_optional_nullables(codegen_grammar))
+    return CompiledGrammar(
+        classes=classes,
+        grammar=ast,
+        instance_grammar=instance_grammar,
+        fold=fold,
+        tables=collapsed_fold_tables(instance_grammar, fold),
+    )
+
+
+def compile_text(
+    text: str,
+    *,
+    cache_key: Hashable | None = None,
+    flavour: str = "gbnf",
+    out_dir: str | Path | None = None,
+) -> CompiledGrammar:
+    """Compile from a grammar string, memoised by content by default.
+
+    The default cache key is ``(content sha stem, flavour, resolved out_dir)``
+    — compiling the same source in the same flavour to the same output
+    directory returns the cached :class:`CompiledGrammar` (and its class
+    objects). Pass ``cache_key`` to override the key (an explicit key is used
+    as-is, not augmented with ``out_dir``); the test seam
+    :func:`reset_cache_for_tests` clears the cache when a caller needs fresh
+    class objects.
+
+    :param text: Grammar source in ``flavour``'s syntax.
+    :param cache_key: Explicit memo key; ``None`` uses the content default.
+    :param flavour: The grammar flavour name.
+    :param out_dir: Directory the generated module is written to; ``None``
+        resolves to the project's ``generated/`` directory.
+    :returns: The compiled grammar (cached across calls with the same key).
+    """
+    stem = _stem_for_text(text)
+    resolved_out_dir = str(resolve_out_dir(out_dir).resolve())
+    key = cache_key if cache_key is not None else (stem, flavour, resolved_out_dir)
+    cached = _CACHE.get(key)
+    if cached is not None:
+        return cached
+    cg = _compile_core(text, stem=stem, flavour=flavour, out_dir=out_dir)
+    _CACHE[key] = cg
+    return cg
+
+
+def compile_from_path(
+    grammar_path: str | Path,
+    *,
+    flavour: str | None = None,
+    out_dir: str | Path | None = None,
+) -> CompiledGrammar:
+    """Compile from a file path; memoised by (path, mtime, size, flavour, out_dir).
+
+    :param grammar_path: Path to the grammar source file.
+    :param flavour: The grammar flavour name; inferred from the file
+        extension if omitted.
+    :param out_dir: Directory the generated module is written to; ``None``
+        resolves to the project's ``generated/`` directory.
+    :returns: The compiled grammar (cached across calls with the same key).
+    """
+    path = Path(grammar_path).resolve()
+    stat = path.stat()
+    if flavour is None:
+        flavour = flavour_for_extension(path).name
+    resolved_out_dir = str(resolve_out_dir(out_dir).resolve())
+    key = (str(path), stat.st_mtime, stat.st_size, flavour, resolved_out_dir)
+    cached = _CACHE.get(key)
+    if cached is not None:
+        return cached
+    text = path.read_text(encoding="utf-8")
+    cg = _compile_core(text, stem=path.stem, flavour=flavour, out_dir=out_dir)
+    _CACHE[key] = cg
+    return cg

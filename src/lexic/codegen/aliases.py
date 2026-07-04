@@ -20,13 +20,14 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Sequence
 
+from lexic.codegen.binding import CHARCLASS_NAMES
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction
-from lexic.ir.base import Field, IrLambda, IrNone, IrSelf
+from lexic.ir.action import IrAction, IrRaise
+from lexic.ir.base import Field, IrLambda, IrNone, IrNoneType, IrSelf
 from lexic.ir.mapping import IrTypeMap
-from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
+    IrAst,
     IrCharClass,
     IrItem,
     IrLiteral,
@@ -34,11 +35,32 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
-from lexic.ir.spec import RuleSpec
-from lexic.ir.walk import IrVisitor
-from lexic.utils.charclass import charclass_pattern
-from lexic.utils.quantifiers import bounds_to_quantifier
+from lexic.ir.walk import IrDispatch, IrVisitor
+
+_QUANTIFIER_SUFFIXES: dict[tuple[int, int | None], str] = {
+    (1, 1): "",
+    (0, 1): "?",
+    (0, None): "*",
+    (1, None): "+",
+}
+
+
+def _bounds_to_suffix(lo: int, hi: int | IrNoneType) -> str:
+    """Render inclusive ``(lo, hi)`` bounds as a regex quantifier suffix.
+
+    :param lo: Lower bound.
+    :param hi: Upper bound; :data:`~lexic.ir.base.IrNone` means unbounded.
+    :returns: ``""``/``?``/``*``/``+`` or a ``{m,n}``-style suffix.
+    """
+    hi_int: int | None = None if isinstance(hi, IrNoneType) else hi
+    suffix = _QUANTIFIER_SUFFIXES.get((lo, hi_int))
+    if suffix is not None:
+        return suffix
+    if hi_int is None:
+        return f"{{{lo},}}"
+    if lo == hi_int:
+        return f"{{{lo}}}"
+    return f"{{{lo},{hi_int}}}"
 
 
 @dataclass(frozen=True)
@@ -60,7 +82,7 @@ def _bracket(pattern: str, negated: bool) -> str:
 
 def _suffix(q: IrQuantifier) -> str:
     """Render a IrQuantifier as its regex suffix."""
-    return bounds_to_quantifier(q.lo, q.hi)
+    return _bounds_to_suffix(q.lo, q.hi)
 
 
 def _camel(s: str) -> str:
@@ -78,26 +100,50 @@ def regex_for_charclass(
     :param negated: Whether to emit ``[^...]`` instead of ``[...]``.
     :returns: Anchored regex string.
     """
-    return f"^{_bracket(charclass_pattern(cc), negated)}{_suffix(q)}$"
+    return f"^{_bracket(cc.pattern(), negated)}{_suffix(q)}$"
+
+
+def _frag_literal(_d: IrSelf, n: IrLiteral, nc: Sequence[IrSelf]) -> str:
+    """Fragment body: an escaped literal plus its quantifier suffix."""
+    return re.escape(n) + _suffix(_item(nc).quantifier)
+
+
+def _frag_charclass(_d: IrSelf, n: IrCharClass, nc: Sequence[IrSelf]) -> str:
+    """Fragment body: a bracketed char class plus its quantifier suffix."""
+    return _bracket(n.pattern(), False) + _suffix(_item(nc).quantifier)
+
+
+def _frag_group(_d: IrSelf, n: IrAlternation, nc: Sequence[IrSelf]) -> str:
+    """Fragment body: a parenthesised group alternation plus its suffix."""
+    return f"({_alt_regex_fragment(n)}){_suffix(_item(nc).quantifier)}"
+
+
+# Dispatched on the atom; the owning IrItem rides the argument channel so each
+# body can read the quantifier. The raising default refuses any atom type with
+# no pattern rendering (e.g. an IrRuleRef, or a stray post-canon IrNot).
+_FRAGMENT: IrDispatch = IrDispatch(
+    actions=IrTypeMap(
+        IrAction(IrLiteral, IrLambda(_frag_literal)),
+        IrAction(IrCharClass, IrLambda(_frag_charclass)),
+        IrAction(IrAlternation, IrLambda(_frag_group)),
+    ),
+    default=IrRaise(message="Pattern fragment cannot include {node_type}"),
+)
+
+
+def _item(nc: Sequence[IrSelf]) -> IrItem:
+    """The owning item riding the argument channel."""
+    item = nc[0]
+    assert isinstance(item, IrItem)
+    return item
 
 
 def _atom_regex_fragment(item: IrItem) -> str:
-    """Build the inner (unanchored) regex fragment for any pattern atom."""
-    atom = item.atom
-    q = _suffix(item.quantifier)
-    if isinstance(atom, IrLiteral):
-        return re.escape(atom) + q
-    if isinstance(atom, IrNot):
-        inner = atom[0]
-        if isinstance(inner, IrCharClass):
-            return _bracket(charclass_pattern(inner), True) + q
-    if isinstance(atom, IrCharClass):
-        return _bracket(charclass_pattern(atom), False) + q
-    if isinstance(atom, IrAlternation):
-        return f"({_alt_regex_fragment(atom)}){q}"
-    raise UnsupportedConstructError(
-        f"Pattern fragment cannot include {type(atom).__name__}"
-    )
+    """Build the inner (unanchored) regex fragment for any pattern atom.
+
+    :raises UnsupportedConstructError: If the atom has no pattern rendering.
+    """
+    return str(_FRAGMENT.eval(_FRAGMENT, item.atom, (item,)))
 
 
 def _seq_regex_fragment(seq: IrSequence) -> str:
@@ -125,7 +171,7 @@ def _name_for_charclass(cc: IrCharClass, *, negated: bool = False) -> str:
     :param negated: Whether this charclass is negated (wrapped in IrNot).
     :returns: CamelCase tier-2 name, or empty string if no Tier-2 match.
     """
-    tier2 = CHARCLASS_NAMES.get(_bracket(charclass_pattern(cc), negated))
+    tier2 = CHARCLASS_NAMES.get(_bracket(cc.pattern(), negated))
     return _camel(tier2) if tier2 else ""
 
 
@@ -149,8 +195,9 @@ def _visit_item(d: _PatternAliasVisitor, n: IrSelf, _nc: Sequence[IrSelf]) -> Ir
 
     For IrGroup atoms: push a ruleref frame, recurse, then either propagate
     the dirty flag up or record the group as a pure-pattern alias.
-    For IrCharClass and negated IrCharClass atoms: record the alias, then
-    recurse into the atom's children.
+    For IrCharClass atoms: record the alias, then recurse into the atom's
+    children. Any other atom (literal, ruleref) just recurses — the recurse is
+    the visitor's default, so no atom type is refused here.
 
     :param d: The visitor driving the walk.
     :param n: The dispatched node (dispatch guarantees IrItem).
@@ -172,14 +219,7 @@ def _visit_item(d: _PatternAliasVisitor, n: IrSelf, _nc: Sequence[IrSelf]) -> Ir
         else:
             d.record(regex_for_group(atom, q), "Pattern")
         return IrNone
-    if isinstance(atom, IrNot):
-        inner = atom[0]
-        if isinstance(inner, IrCharClass):
-            d.record(
-                regex_for_charclass(inner, q, negated=True),
-                _name_for_charclass(inner, negated=True) or "Pattern",
-            )
-    elif isinstance(atom, IrCharClass):
+    if isinstance(atom, IrCharClass):
         d.record(
             regex_for_charclass(atom, q),
             _name_for_charclass(atom) or "Pattern",
@@ -227,18 +267,21 @@ class _PatternAliasVisitor(IrVisitor):
         self.aliases[regex] = PatternAlias(name=name, regex=regex)
 
 
-def collect_aliases(specs: list[RuleSpec]) -> list[PatternAlias]:
-    """Return one PatternAlias per unique pattern regex across all specs.
+def collect_aliases(grammar: IrAst) -> list[PatternAlias]:
+    """Return one PatternAlias per unique pattern regex across a codegen grammar.
 
-    Order is insertion order — first appearance wins for naming. Different
-    regexes that resolve to the same Tier-2 base name get a numeric suffix on
-    later occurrences (``Digit``, ``Digit2``).
+    Walks every item of every rule arm; the :class:`_PatternAliasVisitor`
+    records each pure-pattern subtree. First appearance wins for naming;
+    different regexes resolving to the same Tier-2 base name get a numeric
+    suffix on later occurrences (``Digit``, ``Digit2``). Order is rule order,
+    then arm order, then item order.
 
-    :param specs: All rule specs to scan.
+    :param grammar: The (post-pass) codegen grammar to scan.
     :returns: Deduplicated list of pattern aliases in first-appearance order.
     """
     visitor = _PatternAliasVisitor()
-    for spec in specs:
-        for item in spec.items:
-            visitor.apply(item)
+    for rule in grammar.rules:
+        for arm in rule.body:
+            for item in arm:
+                visitor.apply(item)
     return list(visitor.aliases.values())

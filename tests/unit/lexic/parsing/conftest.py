@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.codegen import codegen
-from lexic.compile import compile_grammar
-from lexic.grammars import get_flavour
+from lexic.compile import compile_text
 from lexic.ir.base import IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
@@ -20,12 +18,9 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing.models import build_instance_parser
 from tests._ir_fixtures import digit_grammar as _digit_grammar
 from tests._ir_fixtures import sss_grammar as _sss_grammar
 from tests.paths import GROUND_TRUTH
-
-_GBNF_FLAVOUR = get_flavour("gbnf")
 
 
 @pytest.fixture
@@ -85,33 +80,21 @@ def digit_grammar() -> IrAst:
     return _digit_grammar()
 
 
-def _compiled(text: str, stem: str):
-    """compile_grammar + codegen + build_instance_parser, in one call.
-
-    Shared by test_models.py's instance-parsing-bridge fixtures.
-
-    :returns: ``(start, specs, classes, grammar, fold)``.
-    """
-    start, specs = compile_grammar(text, _GBNF_FLAVOUR)
-    classes = codegen(specs, stem)
-    grammar, fold = build_instance_parser(specs, classes, start)
-    return start, specs, classes, grammar, fold
-
-
 @pytest.fixture(scope="module")
 def arithmetic():
-    """The real arithmetic.gbnf ground-truth grammar, compiled once."""
+    """The real arithmetic.gbnf ground truth, compiled through the full pipeline."""
     text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
-    return _compiled(text, "test_models_arith")
+    return compile_text(text)
 
 
 @pytest.fixture(scope="module")
 def optional_shapes():
-    """A minimal grammar isolating optional-ref / optional-literal-group folding.
+    """A minimal grammar isolating optional-ref / optional-literal folding.
 
     ``thing`` is non-nullable (its body can't match empty), so ``thing?`` can
     be genuinely absent — unlike a ref to a nullable rule (e.g. arithmetic's
-    ``ws``), which ``_lift_optional_nullables`` rewrites to mandatory.
+    ``ws``), which :func:`~lexic.parsing.fold.lift_optional_nullables`
+    rewrites to mandatory.
     """
     text = 'root ::= "a" thing? ("!")? "b"\nthing ::= "T"\n'
-    return _compiled(text, "test_models_optional")
+    return compile_text(text)

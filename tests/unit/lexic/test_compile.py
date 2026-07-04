@@ -1,7 +1,9 @@
-"""Unit tests for lexic.compile (compile_text/_from_path, compile_grammar, parse_grammar)."""
+"""Unit tests for lexic.compile (compile_text/_from_path, canonical_grammar, parse_grammar)."""
 
 import os
+import tempfile
 import time
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -12,12 +14,13 @@ from lexic.base import GrammarModel
 from lexic.compile import (
     CompiledGrammar,
     _scan_directives,
+    canonical_grammar,
     compile_from_path,
-    compile_grammar,
     compile_text,
     parse_grammar,
     reset_cache_for_tests,
 )
+from lexic.codegen import resolve_out_dir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.escapes import CANONICAL_ESCAPES
@@ -25,8 +28,8 @@ from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
 from lexic.parsing import ParserTables, parse_first
-from lexic.parsing.models import ModelFold
-from tests.paths import GROUND_TRUTH
+from lexic.parsing.fold import PositionalFold
+from tests.paths import GENERATED, GROUND_TRUTH
 
 
 class _FlavourWithBadReducer(IrFlavour):
@@ -53,8 +56,6 @@ def test_compile_from_path_returns_compiled_grammar():
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     assert isinstance(cg, CompiledGrammar)
     assert cg.classes
-    assert isinstance(cg.specs, dict)
-    assert cg.specs
 
 
 def test_compile_from_path_memoises_by_path_mtime_size():
@@ -88,12 +89,21 @@ def test_compile_from_path_invalidates_on_size_change_same_mtime(tmp_path):
     assert cg1 is not cg2
 
 
-def test_compile_no_cache_by_default():
-    """compile_text(text) should not cache."""
+def test_compile_memoizes_by_content_by_default():
+    """compile_text(text) memoizes by (content, flavour) with no explicit key."""
     text = (GROUND_TRUTH / "arithmetic.gbnf").read_text()
     cg1 = compile_text(text)
     cg2 = compile_text(text)
-    assert cg1 is not cg2  # no cache_key → no memoization
+    assert cg1 is cg2  # content-keyed default memoization
+
+
+def test_reset_cache_for_tests_clears_default_memo():
+    """reset_cache_for_tests() drops the content-keyed entry — fresh objects after."""
+    text = (GROUND_TRUTH / "arithmetic.gbnf").read_text()
+    cg1 = compile_text(text)
+    reset_cache_for_tests()
+    cg2 = compile_text(text)
+    assert cg1 is not cg2
 
 
 def test_compile_with_cache_key():
@@ -109,7 +119,8 @@ def test_compile_and_compile_from_path_share_cache():
     path = GROUND_TRUTH / "arithmetic.gbnf"
     resolved = str(path.resolve())
     stat = path.stat()
-    key = (resolved, stat.st_mtime, stat.st_size, "gbnf")
+    out_dir = str(resolve_out_dir(None).resolve())
+    key = (resolved, stat.st_mtime, stat.st_size, "gbnf", out_dir)
     cg1 = compile_text(path.read_text(), cache_key=key)
     cg2 = compile_from_path(path)
     assert cg1 is cg2
@@ -122,17 +133,20 @@ def test_compiled_grammar_parse_roundtrips():
     assert inst.to_text() == "x=1\n"
 
 
-def test_compiled_grammar_grammar_field_is_ir_ast():
-    """CompiledGrammar.grammar is the normalized instance IrAst (engine-backed,
-    Lark-free shape — no .parser/.transformer fields)."""
+def test_compiled_grammar_grammar_field_is_the_canonical_ast():
+    """CompiledGrammar.grammar is the canonical grammar AST (the re-emit
+    source), and instance_grammar the Earley-normalised instance grammar."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     assert isinstance(cg.grammar, IrAst)
+    assert isinstance(cg.instance_grammar, IrAst)
+    text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
+    assert cg.grammar == canonical_grammar(text, GBNF_FLAVOUR)
 
 
-def test_compiled_grammar_fold_field_is_model_fold():
-    """CompiledGrammar.fold is the ParseTree -> model-instance ModelFold."""
+def test_compiled_grammar_fold_field_is_positional_fold():
+    """CompiledGrammar.fold is the ParseTree -> model-instance PositionalFold."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    assert isinstance(cg.fold, ModelFold)
+    assert isinstance(cg.fold, PositionalFold)
 
 
 def test_compiled_grammar_tables_field_is_parser_tables():
@@ -153,13 +167,13 @@ def test_collapsed_and_plain_tables_parse_to_the_same_model(grammar_file, text):
     """CompiledGrammar's built-in collapsed-tables parse (cg.parse) matches a
     plain-tables parse (parse_first with no tables=) on model_dump()/to_text().
 
-    Task 4's ModelFold run-collapse licence changes the packed chart shape
+    The fold-config run-collapse licence changes the packed chart shape
     (fewer, longer terminal leaves) but must never change observable output —
     this is the in-suite spot-check of the author's full equality harness.
     """
     cg = compile_from_path(GROUND_TRUTH / grammar_file)
     collapsed_model = cg.parse(text)
-    plain_model = cg.fold.apply(parse_first(cg.grammar, text))
+    plain_model = cg.fold.apply(parse_first(cg.instance_grammar, text))
     assert isinstance(plain_model, GrammarModel)
     assert collapsed_model.model_dump() == plain_model.model_dump()
     assert collapsed_model.to_text() == plain_model.to_text() == text
@@ -189,7 +203,6 @@ def test_compile_explicit_gbnf_flavour():
     cg = compile_text(text, flavour="gbnf")
     assert isinstance(cg, CompiledGrammar)
     assert cg.classes
-    assert cg.specs
 
 
 def test_compile_from_path_explicit_gbnf_flavour():
@@ -197,7 +210,6 @@ def test_compile_from_path_explicit_gbnf_flavour():
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf", flavour="gbnf")
     assert isinstance(cg, CompiledGrammar)
     assert cg.classes
-    assert cg.specs
 
 
 def test_compile_unknown_flavour_raises():
@@ -213,48 +225,163 @@ def test_compile_from_path_unknown_flavour_raises():
         compile_from_path(GROUND_TRUTH / "arithmetic.gbnf", flavour="abnf")
 
 
-# ── compile_grammar unit tests ──
+# ── out_dir unit tests ──
 
 
-def test_compile_grammar_returns_start_and_specs():
-    """compile_grammar returns (start_name, specs) tuple."""
-    start, specs = compile_grammar('root ::= "x"\n', GBNF_FLAVOUR)
-    assert start == "root"
-    assert len(specs) == 1
-    assert specs[0].rule_name == "root"
+def _module_stem(cg) -> str:
+    """The generated-module stem, read off a compiled class's public __module__."""
+    cls = next(iter(cg.classes.values()))
+    return cls.__module__.rsplit(".", 1)[-1]
 
 
-def test_compile_grammar_falls_back_to_first_rule():
+def test_compile_text_out_dir_writes_module_there(tmp_path):
+    """An explicit out_dir gets the generated module; default output is untouched."""
+    text = 'root ::= "unique-out-dir-probe-value"\n'
+    cg = compile_text(text, out_dir=tmp_path)
+    stem = _module_stem(cg)
+    assert (tmp_path / f"{stem}.py").exists()
+    assert not (GENERATED / f"{stem}.py").exists()
+
+
+def test_compile_text_out_dir_classes_round_trip(tmp_path):
+    """A model compiled to a custom out_dir parses and round-trips normally."""
+    text = 'root ::= "x"\n'
+    cg = compile_text(text, out_dir=tmp_path)
+    inst = cg.parse("x")
+    assert inst.to_text() == "x"
+
+
+def test_compile_text_default_out_dir_unchanged():
+    """Omitting out_dir keeps writing to the project's generated/ directory."""
+    text = 'root ::= "y"\n'
+    cg = compile_text(text)
+    stem = _module_stem(cg)
+    assert (GENERATED / f"{stem}.py").exists()
+    assert cg.classes
+
+
+def test_compile_text_distinct_out_dirs_do_not_share_the_memo(tmp_path):
+    """Same content, two different out_dirs: distinct cache entries."""
+    text = 'root ::= "z"\n'
+    dir_a = tmp_path / "a"
+    dir_b = tmp_path / "b"
+    cg1 = compile_text(text, out_dir=dir_a)
+    cg2 = compile_text(text, out_dir=dir_b)
+    assert cg1 is not cg2
+    stem = _module_stem(cg1)
+    assert (dir_a / f"{stem}.py").exists()
+    assert (dir_b / f"{stem}.py").exists()
+
+
+def test_compile_text_same_out_dir_hits_the_memo(tmp_path):
+    """Same content, same out_dir: cache-hit, no double compile."""
+    text = 'root ::= "w"\n'
+    cg1 = compile_text(text, out_dir=tmp_path)
+    cg2 = compile_text(text, out_dir=tmp_path)
+    assert cg1 is cg2
+
+
+def test_compile_from_path_out_dir_writes_module_there(tmp_path):
+    """compile_from_path threads out_dir through to codegen the same way."""
+    src = tmp_path / "src" / "root_out_dir.gbnf"
+    src.parent.mkdir()
+    src.write_text('root ::= "a"\n')
+    out_dir = tmp_path / "out"
+    cg = compile_from_path(src, out_dir=out_dir)
+    assert (out_dir / "root_out_dir.py").exists()
+    assert cg.parse("a").to_text() == "a"
+
+
+def test_compile_from_path_distinct_out_dirs_do_not_share_the_memo(tmp_path):
+    """Same path, two different out_dirs: distinct cache entries (memo includes out_dir)."""
+    src = tmp_path / "root_path_out_dir.gbnf"
+    src.write_text('root ::= "q"\n')
+    dir_a = tmp_path / "path_a"
+    dir_b = tmp_path / "path_b"
+    cg1 = compile_from_path(src, out_dir=dir_a)
+    cg2 = compile_from_path(src, out_dir=dir_b)
+    assert cg1 is not cg2
+    assert (dir_a / "root_path_out_dir.py").exists()
+    assert (dir_b / "root_path_out_dir.py").exists()
+
+
+def test_compile_text_out_dir_accepts_a_plain_string():
+    """out_dir works as a plain str, not just a Path."""
+    with tempfile.TemporaryDirectory() as tmp:
+        text = 'root ::= "str-out-dir-probe"\n'
+        cg = compile_text(text, out_dir=tmp)
+        stem = _module_stem(cg)
+        assert (Path(tmp) / f"{stem}.py").exists()
+        assert cg.parse("str-out-dir-probe").to_text() == "str-out-dir-probe"
+
+
+def test_compile_text_out_dir_creates_nested_nonexistent_directory(tmp_path):
+    """A multi-level nonexistent out_dir is created on demand."""
+    nested = tmp_path / "a" / "b" / "c"
+    assert not nested.exists()
+    text = 'root ::= "nested-out-dir-probe"\n'
+    cg = compile_text(text, out_dir=nested)
+    stem = _module_stem(cg)
+    assert (nested / f"{stem}.py").exists()
+
+
+def test_reset_cache_for_tests_regenerates_identical_source(tmp_path):
+    """A fresh compile after reset_cache_for_tests writes byte-identical source
+    to a distinct output directory — fresh objects, same generated text."""
+    text = 'root ::= "reset-cache-probe"\n'
+    dir_a = tmp_path / "first"
+    dir_b = tmp_path / "second"
+    cg1 = compile_text(text, out_dir=dir_a)
+    stem = _module_stem(cg1)
+    source_a = (dir_a / f"{stem}.py").read_text()
+    reset_cache_for_tests()
+    cg2 = compile_text(text, out_dir=dir_b)
+    assert cg1 is not cg2
+    source_b = (dir_b / f"{stem}.py").read_text()
+    assert source_a == source_b
+
+
+# ── canonical_grammar start-resolution unit tests ──
+
+
+def test_canonical_grammar_returns_start_first_rule():
+    """canonical_grammar binds the sole rule as start."""
+    ast = canonical_grammar('root ::= "x"\n', GBNF_FLAVOUR)
+    assert ast.start == "root"
+    assert [str(r.name) for r in ast.rules] == ["root"]
+
+
+def test_canonical_grammar_falls_back_to_first_rule():
     """start defaults to the first rule when no directive."""
-    start, _ = compile_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR)
-    assert start == "root"
+    ast = canonical_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR)
+    assert ast.start == "root"
 
 
-def test_compile_grammar_start_directive_wins_over_first_rule():
+def test_canonical_grammar_start_directive_wins_over_first_rule():
     """@start directive overrides positional first-rule fallback."""
     text = "# @start expr\nroot ::= expr\nexpr ::= [0-9]+\n"
-    start, _ = compile_grammar(text, GBNF_FLAVOUR)
-    assert start == "expr"
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    assert ast.start == "expr"
 
 
-def test_compile_grammar_explicit_start_wins_over_directive():
+def test_canonical_grammar_explicit_start_wins_over_directive():
     """Explicit start= argument wins over @start directive."""
     text = "# @start expr\nroot ::= expr\nexpr ::= [0-9]+\n"
-    start, _ = compile_grammar(text, GBNF_FLAVOUR, start="root")
-    assert start == "root"
+    ast = canonical_grammar(text, GBNF_FLAVOUR, start="root")
+    assert ast.start == "root"
 
 
-def test_compile_grammar_invalid_start_raises():
+def test_canonical_grammar_invalid_start_raises():
     """Unresolvable start rule raises UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError, match="start"):
-        compile_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR, start="nonexistent")
+        canonical_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR, start="nonexistent")
 
 
-def test_compile_grammar_flavour_with_non_reducer_raises():
-    """compile_grammar raises UnsupportedConstructError when flavour.reducer
+def test_canonical_grammar_flavour_with_non_reducer_raises():
+    """canonical_grammar raises UnsupportedConstructError when flavour.reducer
     is not a parsing Reducer instance."""
     with pytest.raises(UnsupportedConstructError, match="no parse Reducer"):
-        compile_grammar('root ::= "x"\n', _FlavourWithBadReducer())
+        canonical_grammar('root ::= "x"\n', _FlavourWithBadReducer())
 
 
 def test_parse_grammar_returns_ir_ast():
@@ -279,6 +406,32 @@ def test_parse_grammar_malformed_source_raises():
     """Unparseable grammar text surfaces as UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError):
         parse_grammar("root ::=\n::= broken", GBNF_FLAVOUR)
+
+
+# ── canonical_grammar unit tests ──
+
+
+def test_canonical_grammar_returns_flagged_canonical_ast():
+    """canonical_grammar binds start and semantic=False flags onto the AST."""
+    text = "# @non-semantic ws\nroot ::= ws\nws ::= [ ]*\n"
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    assert isinstance(ast, IrAst)
+    assert ast.start == "root"
+    assert ast.non_semantic == frozenset({"ws"})
+
+
+def test_canonical_grammar_folds_directive_names_like_rule_names():
+    """A directive naming ws_x matches the canonically folded rule ws-x."""
+    text = "# @non-semantic ws_x\nroot ::= ws_x\nws_x ::= [ ]*\n"
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    assert ast.non_semantic == frozenset({"ws-x"})
+
+
+def test_canonical_grammar_unknown_directive_rule_is_ignored():
+    """A directive naming an undefined rule flags nothing."""
+    text = "# @non-semantic ghost\nroot ::= [0-9]+\n"
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    assert ast.non_semantic == frozenset()
 
 
 # ── _scan_directives unit tests ──
@@ -370,9 +523,9 @@ def test_scan_directives_start_and_non_semantic_coexist():
     assert non_semantic == frozenset({"ws"})
 
 
-def test_normalized_grammar_memo_is_reused_across_compile_grammar_calls(monkeypatch):
+def test_normalized_grammar_memo_is_reused_across_parse_calls(monkeypatch):
     """The per-flavour self-grammar normalization memo means a second
-    compile_grammar call for the same flavour never re-normalizes the
+    canonical_grammar call for the same flavour never re-normalizes the
     self-grammar (identity is preserved across calls, keeping the engine's
     identity-memoised table compilation hot)."""
     calls: list[object] = []
@@ -384,8 +537,8 @@ def test_normalized_grammar_memo_is_reused_across_compile_grammar_calls(monkeypa
 
     monkeypatch.setattr(compile_module, "normalize", spy)
 
-    compile_grammar('root ::= "x"\n', GBNF_FLAVOUR)
+    canonical_grammar('root ::= "x"\n', GBNF_FLAVOUR)
     count_after_first = len(calls)
-    compile_grammar('root ::= "y"\n', GBNF_FLAVOUR)
+    canonical_grammar('root ::= "y"\n', GBNF_FLAVOUR)
 
     assert len(calls) == count_after_first

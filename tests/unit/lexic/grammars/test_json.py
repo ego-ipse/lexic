@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from lexic.codegen import codegen
+from lexic.codegen.binding import compute_binding
+from lexic.codegen.passes import build_codegen_grammar
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.ir.base import IrSeq
-from lexic.ir.derive import derive_specs
+from lexic.ir.canonical import fold_name
 from lexic.ir.nodes import (
     IrAst,
     IrCharClass,
@@ -24,8 +26,10 @@ def test_json_grammar_is_ir_ast():
 
 
 def test_json_grammar_start_rule():
-    """`JSON_GRAMMAR.start` is ``\"JSON-text\"``."""
-    assert JSON_GRAMMAR.start == "JSON-text"
+    """`JSON_GRAMMAR.start` is ``\"json-text\"`` — canonicalize's rewrite 7
+    folds the RFC 8259 ``JSON-text`` spelling to lowercase (JSON_GRAMMAR is
+    itself in canonical form, per the ``canonicalize(G) == G`` fixpoint)."""
+    assert JSON_GRAMMAR.start == "json-text"
 
 
 def test_json_grammar_rule_count():
@@ -34,9 +38,14 @@ def test_json_grammar_rule_count():
 
 
 def test_json_grammar_expected_rule_names():
-    """`JSON_GRAMMAR` contains every RFC 8259 rule name."""
+    """`JSON_GRAMMAR` contains every RFC 8259 rule name, canonically folded.
+
+    ``JSON_RULE_NAMES`` (shared with the raw-parse equivalence fixture, which
+    intentionally sees the un-folded source spelling) stays mixed-case;
+    ``JSON_GRAMMAR`` itself is canonical, so the expected set is folded here.
+    """
     actual = {r.name for r in JSON_GRAMMAR.rules}
-    assert actual == set(JSON_RULE_NAMES)
+    assert actual == {fold_name(name) for name in JSON_RULE_NAMES}
 
 
 # ── Canonical-form choices ────────────────────────────────────────────
@@ -120,24 +129,30 @@ def _json_ast_with_non_semantic() -> IrAst:
     return IrAst(rules=IrSeq(*rules), start=JSON_GRAMMAR.start)
 
 
-def test_derive_specs_succeeds():
-    """``derive_specs(ast)`` runs without error and returns a list."""
-    specs = derive_specs(_json_ast_with_non_semantic())
-    assert isinstance(specs, list)
-    assert len(specs) > 0
+def test_binding_view_succeeds():
+    """``compute_binding`` runs without error and returns a non-empty list."""
+    binding = compute_binding(build_codegen_grammar(_json_ast_with_non_semantic()))
+    assert isinstance(binding, list)
+    assert len(binding) > 0
 
 
-def test_derive_specs_includes_start_rule():
-    """The derived spec list includes a spec for the start rule."""
-    specs = derive_specs(_json_ast_with_non_semantic())
-    names = {s.rule_name for s in specs}
-    assert "JSON-text" in names
+def test_binding_view_includes_start_rule():
+    """The binding view includes the start rule (folded name)."""
+    binding = compute_binding(build_codegen_grammar(_json_ast_with_non_semantic()))
+    names = {b.rule_name for b in binding}
+    assert "json-text" in names
 
 
 def test_codegen_produces_classes():
-    """``codegen(specs, ...)`` generates Pydantic classes without error."""
-    specs = derive_specs(_json_ast_with_non_semantic())
-    classes = codegen(specs, "json_grammar_test")
+    """``codegen(...)`` generates Pydantic classes without error.
+
+    The class name folds from the canonical (lowercase) rule name, so
+    ``json-text`` -> ``JsonText``, not the old acronym-cased ``JSONText``.
+    """
+    canonical = _json_ast_with_non_semantic()
+    codegen_grammar = build_codegen_grammar(canonical)
+    binding = compute_binding(codegen_grammar)
+    classes = codegen(canonical, codegen_grammar, binding, "json_grammar_test")
     assert isinstance(classes, dict)
     assert len(classes) > 0
-    assert "JSONText" in classes
+    assert "JsonText" in classes

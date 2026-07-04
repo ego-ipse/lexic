@@ -8,8 +8,8 @@ self-contained — `uv run python getting_started/<file>.py`.
 | [`ex01_hello_grammar.py`](ex01_hello_grammar.py) | Inline GBNF → `compile_text` → parse → round-trip. The core invariant. |
 | [`ex02_compile_from_file.py`](ex02_compile_from_file.py) | `compile_from_path` on a bundled ground-truth `.gbnf` (`list.gbnf`). |
 | [`ex03_parse_json.py`](ex03_parse_json.py) | Parsing nested JSON via `json_ws.gbnf`; `to_text()` and `semantic_dump()`. |
-| [`ex04_transpile_flavours.py`](ex04_transpile_flavours.py) | GBNF → IR AST → ABNF via `MetaGrammarParser` + flavour singleton. |
-| [`ex05_inspect_ir.py`](ex05_inspect_ir.py) | Walking `model.__grammar__` (`RuleSpec`) + emitting via either flavour. |
+| [`ex04_transpile_flavours.py`](ex04_transpile_flavours.py) | GBNF → IR AST → ABNF via `parse_grammar` + flavour singleton. |
+| [`ex05_inspect_ir.py`](ex05_inspect_ir.py) | Walking `compiled.grammar` / `model.__grammar__` (`IrRule`) + emitting via either flavour. |
 
 ## What you'll learn
 
@@ -22,9 +22,10 @@ self-contained — `uv run python getting_started/<file>.py`.
 - **Flavours**: `GBNF_FLAVOUR` and `ABNF_FLAVOUR` are singleton instances
   (`from lexic.grammars import ...`). They're `IrEmitter`s — call
   `flavour.apply(ir_node)` to render any IR node as flavour text.
-- **IR**: `compiled.specs[rule_name]` exposes the canonical `RuleSpec` for
-  each generated class; `model.__grammar__` is the same spec from the model
-  side. See [.wiki/lexic/ir-shapes.md](../.wiki/lexic/ir-shapes.md).
+- **IR**: `compiled.grammar` is the canonical `IrAst` for the whole grammar;
+  `model.__grammar__` is the generated class's own `IrRule` (from the codegen
+  grammar) — the shape `to_text()`/`to_grammar()` walk. See
+  [.wiki/lexic/ir-shapes.md](../.wiki/lexic/ir-shapes.md).
 
 ## Further reading
 

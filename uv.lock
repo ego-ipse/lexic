@@ -127,7 +127,6 @@ name = "lexic"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "lark" },
     { name = "pydantic" },
     { name = "ruff" },
 ]
@@ -136,6 +135,7 @@ dependencies = [
 dev = [
     { name = "hypothesis" },
     { name = "isort" },
+    { name = "lark" },
     { name = "pre-commit" },
     { name = "pydeps" },
     { name = "pylint" },
@@ -146,7 +146,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "lark", specifier = ">=1.3.1" },
     { name = "pydantic", specifier = ">=2.13.2" },
     { name = "ruff", specifier = ">=0.15.12" },
 ]
@@ -155,6 +154,7 @@ requires-dist = [
 dev = [
     { name = "hypothesis", specifier = ">=6.152.1" },
     { name = "isort", specifier = ">=8.0.1" },
+    { name = "lark", specifier = ">=1.3.1" },
     { name = "pre-commit", specifier = ">=4.5.1" },
     { name = "pydeps", specifier = ">=3.0.6" },
     { name = "pylint", specifier = ">=4.0.5" },

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import hypothesis.strategies as st
 import pytest
+from hypothesis import given, settings
 
+from lexic.compile import parse_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import (
     ABNF_ESCAPES,
@@ -16,6 +19,7 @@ from lexic.grammars.abnf import (
     ABNF_REDUCTIONS,
 )
 from lexic.ir.base import IrNone, IrSeq
+from lexic.ir.canonical import canonicalize
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
@@ -28,6 +32,7 @@ from lexic.ir.nodes import (
     IrLiteral,
     IrQuantifier,
     IrRange,
+    IrRule,
     IrRuleRef,
 )
 from lexic.ir.operators import IrNot
@@ -215,6 +220,92 @@ def test_abnf_item_with_n_star_quantifier_emits_prefix_form():
     """
     item = IrItem(atom=IrRuleRef("foo"), quantifier=IrQuantifier(2, IrNone))
     assert str(ABNF_FLAVOUR.apply(item)) == "2*foo"
+
+
+# ── ABNF literal spellability boundaries (%s char-val vs %x num-val) ──
+#
+# RFC 7405's char-val body admits printable ASCII except the double quote:
+# 0x20-0x21 / 0x23-0x7E. Each row below pins one boundary; the round-trip
+# variant proves the emitted form survives emit -> parse_grammar ->
+# canonicalize back to the identical IrLiteral, not just that the string
+# looks plausible.
+
+
+def _round_trip_literal(text: str) -> IrAst:
+    """Wrap ``text`` in a one-rule canonical grammar, emit through ABNF,
+    reparse and canonicalize; return the round-tripped ``IrAst``.
+
+    :param text: The literal body to carry through the round-trip.
+    :returns: ``canonicalize(parse_grammar(emit(ast), ABNF_FLAVOUR))``.
+    """
+    ast = canonicalize(IrAst(IrSeq(IrRule("s", IrLiteral(text))), "s"))
+    emitted = str(ABNF_FLAVOUR.apply(ast))
+    return canonicalize(parse_grammar(emitted, ABNF_FLAVOUR))
+
+
+_SPELLABILITY_BOUNDARY_CASES = [
+    ("\x1f", "%x1F"),  # 0x1F control, just below the char-val floor
+    (" ", '%s" "'),  # 0x20 — the floor
+    ("!", '%s"!"'),  # 0x21 — top of the first spellable run
+    ('"', "%x22"),  # 0x22 — the double quote, never spellable
+    ("#", '%s"#"'),  # 0x23 — bottom of the second spellable run
+    ("~", '%s"~"'),  # 0x7E — the ceiling
+    ("\x7f", "%x7F"),  # 0x7F DEL, just past the ceiling
+    ("é", "%xE9"),  # non-ASCII, single code point
+    ("😀", "%x1F600"),  # non-ASCII, astral code point
+    ('a"b', "%x61.22.62"),  # mixed spellable/unspellable -> num-seq
+    ("\x1f\x7f", "%x1F.7F"),  # two unspellable code points -> num-seq
+    ("hello world", '%s"hello world"'),  # ordinary multi-char literal
+    ("", '%s""'),  # empty body is (vacuously) all-spellable
+]
+_SPELLABILITY_IDS = [
+    "0x1f-control-below-floor",
+    "0x20-floor-space",
+    "0x21-top-of-first-run",
+    "0x22-double-quote",
+    "0x23-bottom-of-second-run",
+    "0x7e-ceiling",
+    "0x7f-del-above-ceiling",
+    "non-ascii-single",
+    "non-ascii-astral",
+    "mixed-spellable-and-not",
+    "two-unspellable-numseq",
+    "ordinary-multichar",
+    "empty-literal",
+]
+
+
+@pytest.mark.parametrize(
+    "text, expected", _SPELLABILITY_BOUNDARY_CASES, ids=_SPELLABILITY_IDS
+)
+def test_abnf_literal_emission_at_spellability_boundaries(text: str, expected: str):
+    """Each boundary emits the exact expected ``%s``/``%x`` spelling."""
+    assert str(ABNF_FLAVOUR.apply(IrLiteral(text))) == expected
+
+
+@pytest.mark.parametrize(
+    "text, _expected", _SPELLABILITY_BOUNDARY_CASES, ids=_SPELLABILITY_IDS
+)
+def test_abnf_literal_boundary_round_trips(text: str, _expected: str):
+    """Every boundary case survives emit -> parse_grammar -> canonicalize."""
+    original = canonicalize(IrAst(IrSeq(IrRule("s", IrLiteral(text))), "s"))
+    assert _round_trip_literal(text) == original
+
+
+@given(
+    text=st.text(
+        alphabet=st.characters(
+            min_codepoint=0, max_codepoint=0x10FFFF, exclude_categories=("Cs",)
+        ),
+        min_size=1,
+        max_size=6,
+    )
+)
+@settings(max_examples=75)
+def test_abnf_literal_round_trip_property(text: str):
+    """Any Unicode literal (control, quote, non-ASCII, astral) round-trips."""
+    original = canonicalize(IrAst(IrSeq(IrRule("s", IrLiteral(text))), "s"))
+    assert _round_trip_literal(text) == original
 
 
 # ── ABNF_GRAMMAR / ABNF_REDUCTIONS — native IR grammar + reducer ──────────
@@ -498,13 +589,15 @@ def test_self_hosting_recognize():
 
 
 def test_self_hosting_fixpoint():
-    """The headline test: parse(normalize(ABNF_GRAMMAR), emitted_text) reduced
-    through ABNF_REDUCER equals ABNF_GRAMMAR."""
+    """The headline test: emitting ABNF_GRAMMAR, re-parsing and reducing, then
+    canonicalising, returns ABNF_GRAMMAR (stored in canonical form). The
+    canonical pass is what closes the loop — a merged char class re-emits as a
+    parenthesised num-val alternation that reparses un-merged."""
     g = _normalize_grammar(ABNF_GRAMMAR)
     text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
     tree = parse(g, text)
     result = ABNF_REDUCER.apply(tree)
-    assert result == ABNF_GRAMMAR
+    assert canonicalize(result) == ABNF_GRAMMAR
 
 
 def test_self_hosting_fixpoint_idempotent():
@@ -523,7 +616,7 @@ def test_self_hosting_fixpoint_idempotent():
     result2 = ABNF_REDUCER.apply(tree2)
 
     assert result2 == result1
-    assert result2 == ABNF_GRAMMAR
+    assert canonicalize(result2) == ABNF_GRAMMAR
 
 
 def test_self_hosting_crlf_recognized():
@@ -541,7 +634,7 @@ def test_self_hosting_crlf_reduces_to_abnf_grammar():
     text_crlf = text.replace("\n", "\r\n")
     tree = parse(g, text_crlf)
     result = ABNF_REDUCER.apply(tree)
-    assert result == ABNF_GRAMMAR
+    assert canonicalize(result) == ABNF_GRAMMAR
 
 
 # ── Phase 3 remainder: per-construct native-grammar unit tests ────────

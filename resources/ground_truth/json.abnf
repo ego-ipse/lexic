@@ -1,3 +1,5 @@
+; @non-semantic ws
+
 ; Shamelessly Copy pasted from
 ; from https://datatracker.ietf.org/doc/html/rfc8259
 
@@ -58,4 +60,4 @@ quotation-mark = %x22      ; "
 unescaped = %x20-21 / %x23-5B / %x5D-10FFFF
 
 DIGIT  = %x30-39
-HEXDIG = DIGIT / "A" / "B" / "C" / "D" / "E" / "F"
+HEXDIG = %x30-39 / %x41-46 / %x61-66

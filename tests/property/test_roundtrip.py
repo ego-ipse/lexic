@@ -21,9 +21,10 @@ def _roundtrip(grammar: str, specs: dict, seed: int) -> None:
     rng = random.Random(seed)
     text = generate("root", specs, rng=rng, max_depth=4)
     if not text:
-        # Generator returns "" when root is optional (lo=0) — always the case
-        # for grammars like c where root ::= (declaration)*. Skip rather than
-        # parsing an empty string.
+        # A star/optional-rooted rule (e.g. c's root ::= (declaration)*) can
+        # roll an empty expansion; skip the trivial empty round-trip rather
+        # than parsing "". (The grammars routed through here never do, but the
+        # guard keeps the helper honest for any that could.)
         return
     gpath = _GRAMMAR_DIR / f"{grammar}.gbnf"
     inst = parse(text, gpath)
@@ -81,3 +82,27 @@ def test_json_ws_roundtrip(seed: int, all_grammar_specs: dict) -> None:
 def test_json_arr_roundtrip(seed: int, all_grammar_specs: dict) -> None:
     """JSON-array grammar round-trips for random seeds."""
     _roundtrip("json_arr", all_grammar_specs["json_arr"], seed)
+
+
+@given(seed=st.integers(min_value=0, max_value=2**32 - 1))
+@settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow])
+def test_c_statement_roundtrip(seed: int, c_statement_grammar: tuple) -> None:
+    """C statement surface round-trips for random seeds.
+
+    Generation is driven from "statement", not "root" — see the
+    ``c_statement_grammar`` fixture docstring for why "root" gives only thin,
+    mostly-empty coverage for this grammar.
+    """
+    cg, specs = c_statement_grammar
+    rng = random.Random(seed)
+    text = generate("statement", specs, rng=rng, max_depth=4)
+    if not text:
+        return
+    inst = cg.parse(text)
+    assert inst.to_text() == text, (
+        f"Round-trip failed [c statement] seed={seed}:\n"
+        f"  generated: {text!r}\n"
+        f"  to_text:   {inst.to_text()!r}"
+    )
+    inst2 = cg.parse(inst.to_text())
+    assert inst.model_dump() == inst2.model_dump()

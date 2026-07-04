@@ -31,6 +31,16 @@ All 18 tasks are done. The IrItem-based pipeline is the only pipeline. The old A
 > parsing). See [[architecture]] and the 2026-07-02/03 [[log]] entry for the
 > current shape; this page's table is a record of the 2026-05-13 cutover only.
 
+> **Superseded a third time (2026-07-03/04):** the `RuleSpec`-based pipeline
+> this page describes (`ir/derive.py` → `list[RuleSpec]` → `codegen(specs,
+> stem)` → `parsing/models.py`'s wrapper-rule bridge) is itself gone. A third
+> cutover (RuleSpec → IR-native codegen) replaced it: one canonical `IrAst`
+> (parsed, then `canonicalize`d to a language-preserving normal form) drives
+> codegen, instance parsing, emission, generation, and round-trip directly —
+> no `RuleSpec` middle layer, no `--f<idx>` wrapper grammar. See
+> [[architecture]], [[ir-shapes]], and the 2026-07-04 [[log]] entries for the
+> current shape.
+
 ### Still pending (Slice B)
 
 See [[slice-b-status]] for the full breakdown. The one remaining concrete deliverable from Slice B is token reservation (Phase 3, Tasks 33–34): pre-tokenisation scan in the GBNF parser for `<name>`, `<[N]>`, `!<name>` syntax.

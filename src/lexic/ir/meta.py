@@ -26,12 +26,21 @@ class IrMeta(ABCMeta):
     ) -> type:
         """Inject ``__slots__ = ()`` unless the class declared its own.
 
+        The ``init`` class keyword is a static-only ``dataclass_transform``
+        parameter (``init=False`` tells the type checker not to synthesise a
+        constructor, so it validates against the declared ``__new__`` instead —
+        the constructor-coercion mechanism on :class:`~lexic.ir.nodes.IrRule`).
+        It carries no runtime meaning, so it is popped here before forwarding
+        rather than leaking to ``__init_subclass__``, which rejects it. This
+        mirrors the ``@final`` static-only precedent on ``IrNoneType``.
+
         :param name: New class name.
         :param bases: Base classes.
         :param namespace: Class body namespace (mutated in place).
         :param kw: Remaining class keyword arguments.
         :returns: The constructed class.
         """
+        kw.pop("init", None)
         namespace.setdefault("__slots__", ())
         return super().__new__(mcs, name, bases, namespace, **kw)
 

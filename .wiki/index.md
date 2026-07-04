@@ -40,15 +40,15 @@
 
 | Page | Contains |
 |---|---|
-| [[lexic/public-api]] | `parse`, `compile_text`, `compile_from_path`, `compile_grammar` signatures; `CompiledGrammar` fields; `GrammarModel` methods; which entry point to use; directive precedence |
+| [[lexic/public-api]] | `parse`, `compile_text`, `compile_from_path`, `canonical_grammar`, `parse_grammar` signatures; `CompiledGrammar` fields (no `RuleSpec`); `GrammarModel` methods; which entry point to use; directive precedence |
 | [[lexic/architecture]] | Four-layer diagram; the two deliberate runtime→codegen import exceptions (`base.py`, `compile.py`); module ownership table; both pipeline flows |
-| [[lexic/ir-shapes]] | All `IrItem`/`IrLeaf`/`IrAtom` type aliases; `Quantifier` fields; `NewRuleSpec` vs `RuleSpec` field comparison; `kind` semantics table; hoisting (`hoist_helpers`); non-semantic relaxation |
+| [[lexic/ir-shapes]] | The primitive-node model (`IrScalar`/`IrTuple`/`IrNamedTuple` tiers, no `RuleSpec`); `IrBind`/`BIND_MODES`; `kind` semantics (now on `RuleBinding`); canonicalization; hoisting/non-semantic relaxation (`codegen/passes.py`) |
 | [[lexic/flavour-system]] | `Flavour` ABC full attribute list; canonical `ir_*` tag names for meta-grammars; `FlavourEmitter` syntax constants; old vs new flavour wiring comparison; step-by-step: adding a new flavour |
-| [[lexic/field-naming]] | `CHARCLASS_NAMES` (9 entries, ground truth); `_LITERAL_NAMES` table; skip conditions (unquantified `IrLiteral`, `AlternationAtom`); `_ATOM_HINT` vs `_FIELD_BASE` contract distinction; collision counter mechanics |
-| [[lexic/error-vocabulary]] | Exception class → raised-by mapping; dispatch table code pattern with `raise UnsupportedConstructError`; the engine/reducer/`compile_grammar` error boundary; which stubs are wired in which slice |
-| [[lexic/invariants]] | Round-trip fidelity invariant; closed atom union rule; seven ground-truth grammars; what each invariant means for dispatch tables, `to_text()`, and import edges |
+| [[lexic/field-naming]] | `CHARCLASS_NAMES` (8 entries, ground truth, now in `codegen/binding.py`); `LITERAL_NAMES` table; skip conditions (unquantified `IrLiteral`); `_HINT` vs `_TIER2` contract distinction; collision counter mechanics |
+| [[lexic/error-vocabulary]] | Exception class → raised-by mapping; dispatch table code pattern with `raise UnsupportedConstructError`; the engine/reducer/`canonical_grammar` error boundary; which stubs are wired in which slice |
+| [[lexic/invariants]] | Round-trip fidelity invariant; closed atom union rule; the ground-truth grammars; what each invariant means for dispatch tables, `to_text()`, and import edges |
 | [[lexic/testing]] | Test file mirror rule (`src/lexic/foo/bar.py` → `tests/unit/lexic/foo/test_bar.py`); `test_init_<pkg>.py` naming for `__init__.py` modules; test commands |
-| [[lexic/new-codegen]] | What `new_codegen/` builds (Tasks 8–14); `PatternAlias` dataclass; `collect_aliases` contract; what Tasks 9–14 will add |
+| [[lexic/codegen]] | What `lexic.codegen` builds now (IR-native — no `RuleSpec`): grammar→grammar passes (`passes.py`), the binding view (`binding.py`), the emitter (`model_emitter.py`), `PatternAlias`/`collect_aliases` |
 | [[theory/grammar-formats]] | GBNF, ABNF, EBNF syntax reference; operator precedence tables; escape notations; Lexic coverage gaps per format; GBNF vs ABNF vs EBNF comparison table |
 | [[theory/parsing-theory]] | CFGs, PEGs, LL/LR/Earley algorithms; AST vs CST; Visitor vs Transformer patterns; grammar toolchains (Lexic's own native Earley engine, plus Lark/ANTLR4/tree-sitter as external reference points); IR design rationale |
 

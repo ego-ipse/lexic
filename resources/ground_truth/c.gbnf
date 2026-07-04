@@ -1,12 +1,13 @@
 # @non-semantic ws
 root ::= (declaration)*
 
-declaration ::= dataType identifier "(" parameter? ")" "{" statement* "}"
+declaration ::= dataType identifier "(" paramList? ")" "{" statement* "}"
 
 dataType  ::= "int" ws | "float" ws | "char" ws
 identifier ::= [a-zA-Z_] [a-zA-Z_0-9]*
 
 parameter ::= dataType identifier
+paramList ::= parameter ("," ws parameter)*
 
 statement ::=
     ( dataType identifier ws "=" ws expression ";" ) |

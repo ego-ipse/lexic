@@ -6,6 +6,236 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-04 — Task 5 (cleanup/optimize): consolidation
+
+**Official post-effort baselines saved:** `tools/benchmark/pipeline_bench.py --save` and `tools/benchmark/parse_bench.py --save` re-run on the quiet tree (Tasks 0–4 + depth wave all landed; suite 1568/0, `run_checks.sh` exit 0). `pipeline_baseline.json`: instance parse+fold essentially unmoved from Task 0's pre-fix numbers (arithmetic 88.96/91.07 ms best/median @4800 chars, c 26.70/27.08 ms @3289 chars — Task 1/2 never touched the engine, ±5% gate honoured); compile-time now reflects Task 1's interval-native canonicalize fix — `canonical_grammar` json 28.54/28.72 ms, c 32.36/33.54 ms (both now `parse_grammar`-dominated — canonicalize itself is down to single-digit ms), arithmetic 5.96/6.04 ms; `compile_text` cold json 65.93/67.75 ms, c 80.28/82.65 ms, arithmetic 23.43/23.72 ms (from ~940/946/24 ms pre-fix — the headline win, ~13–14× on json/c). `bench_baseline.json` (`parse_bench.py`, engine vs pure-Lark reference) re-saved unmoved in kind — this round did no engine work (kill-list honoured throughout); its self-emit x4 verdict is engine 303 ms vs lark 235 ms (0.59× on the fused parse+reduce product), consistent with prior rounds. Observed but out of scope: the harness's own diagnostic header line ("ABNF self-host … engine parse+reduce fixpoint: False") compares the *raw* (pre-canonicalize) reduced `IrAst` against the already-canonical `ABNF_FLAVOUR.grammar` constant — a stricter check than the suite's actual golden fixpoint tests (which canonicalize both sides and are green); not a regression from this round's changes, engine/grammar-loading untouched throughout, flagged for whoever next touches that script.
+
+**Wiki consistency pass:** the open-set consumer rework (Task 2) landed generate.py/model_emitter.py/aliases.py's open-table conversion but only logged it — the descriptive wiki pages still said "deferred"/"still carry closed-set ladders". Fixed to reflect completion: [[ir-shapes]]'s "Open-set note" (renamed "rework complete, 2026-07-04"), [[architecture]]'s IR-passed-by-action-table section, [[field-naming]]'s closing "Future" note. `CLAUDE.md`'s matching IR-types blockquote updated the same way (same stale claim, same fix). [[codegen]] and [[public-api]] were already accurate on this front (public-api's `out_dir`/memoisation sections were rewritten in Task 3) — no change needed there. `decisions.md`'s and this log's own historical entries (V2 migration era, "closed-set ladders kept for now") are audit-log entries describing what was true *then* — left untouched, not contradicted by anything since they're dated.
+
+**CLAUDE.md touch-ups:** §Commands suite-count comment `~1360` → `~1568` (current). §Current state's compile/out_dir/memoisation prose and `generated/` git-ignored claim were already accurate (Task 3 landed them correctly) — verified against `compile.py`/`codegen/__init__.py`'s actual signatures, no drift found beyond the open-set note above.
+
+**Examples gate:** getting_started ex01–ex05 all ran clean (exit 0, output inspected). Ran the loop manually rather than `tools/run_examples.sh` directly — that script unconditionally shells out to `tools/auto_fix.sh` (tree-wide) as its last line, which this round's standing constraint forbids running gratuitously; same coverage, one fewer tree-wide side effect. None of the five examples call `generate()`, so Task 2's `_pick_count` lo==0 distribution fix has no pinned-output surface to touch here.
+
+Gates: full suite 1568 green, `run_checks.sh` exit 0.
+
+---
+
+## 2026-07-04 — Task 2 (cleanup/optimize): open-set consumer rework + generate fixes
+
+**Open dispatch tables (Phase 1, byte-identical):** the three remaining closed-set atom-type `isinstance` ladders moved onto open `IrDispatch`/`IrTypeMap` tables with raising defaults, matching `binding.py`'s `_MODE` idiom (dispatch on the atom, the owning `IrItem` riding the argument channel; per-call state — `rng`/`rules`, `class_by_rule`/`aliases` — carried on a plain-`IrNamedTuple` state record passed as the dispatcher `d`, the `_PatternAliasVisitor` precedent). `generate.py`'s `_gen_atom` → `_GEN_ATOM` + `_Generator`; `codegen/model_emitter.py`'s `_base_field_type` → three per-mode tables (`_MODEL_TYPE`/`_GTEXT_TYPE`/`_TEXT_TYPE`) selected by the closed `BIND_MODES` string, `_value_str_type` → `_VALUE_TYPE`; `codegen/aliases.py`'s `_atom_regex_fragment` → `_FRAGMENT`. Each silent fallback (`generate`'s `return ""`) became an explicit `UnsupportedConstructError`. The post-canon-dead `IrNot` branches (in `_gen_atom`, `_atom_regex_fragment`, `_visit_item`) were deleted — the raising default now covers a stray `IrNot` honestly. Emit output for all 10 ground-truth pipelines and seeded `generate` output are byte-identical across Phase 1. No node-intrinsic logic needed moving: the genuinely intrinsic bits (`IrCharClass.pattern()`/`sample()`) already live on the node; everything tabled is consumer policy. `_group_union_type` (a ref-arm *filter*, not a classification ladder) and `_visit_item`'s remaining `isinstance` (essential group-frame control-flow with a *recursing* default) were deliberately left as-is.
+
+**`_pick_count` lo==0 roll (Phase 2, sanctioned behaviour change):** `generate._pick_count` returned 0 unconditionally when `q.lo == 0`, so any `*`/`?`-rooted rule (e.g. c's `root ::= (declaration)*`) always generated `""`. Removing the early return lets `lo == 0` share the existing 0.7/expand roll — c.gbnf root now yields text for ~35% of seeds (was 0%). Stale "root always yields ''" comments in `tests/property/test_roundtrip.py` + `conftest.py` corrected.
+
+**Empty-string round-trip fix (root cause exposed by Phase 2):** the Phase 2 change surfaced a pre-existing round-trip-invariant violation — an empty JSON string `""` is *recognised* but its `String` model failed to construct: `model_emitter._is_optional` only treated `(0,1)` as optional, so a `(0,None)` star pattern field (which matches empty) was required, and the fold emitted no value for an empty run. Fixed to `q.lo == 0` (any absent-able quantifier). Three fields across arithmetic/json_ws/json_arr correctly became `Optional[...] = None` — the only emit-golden divergence in this landing, a deliberate bug fix, not the refactor.
+
+Gates: full suite 1542 green; the three source + three test files ruff/pylint 10.00/typecheck clean. (`run_checks.sh` whole-tree pylint currently trips on `tests/unit/lexic/test_compile.py` — another lane's in-flight Task-3 `_stem_for_text` work, not this lane.)
+
+---
+
+## 2026-07-04 — Task 3 (cleanup/optimize): out_dir API + hygiene sweep
+
+**`out_dir` parameter (USER DECISION 1):** `compile_text`/`compile_from_path`/`codegen` all gained a keyword-only `out_dir: str | Path | None = None` — `None` resolves to today's `_resolve_generated_dir()` default (unchanged), an explicit value redirects the generated module there. `codegen/__init__.py` gained a public `resolve_out_dir(out_dir)` seam (used by both `_write_and_load` and `compile.py`'s memo-key construction, so the two always agree on where a given `out_dir` lands) — no env var, no global config, this is the one way. `compile_text`'s default content key extended to `(sha stem, flavour, resolved out_dir)`, `compile_from_path`'s stat key likewise to `(path, mtime, size, flavour, resolved out_dir)`; an explicit `cache_key=` override is used as-is, not augmented. Module import already worked by absolute file path (`spec_from_file_location`), so threading `out_dir` through was mechanical — no import-machinery changes needed. Six new unit tests in `tests/unit/lexic/test_compile.py` (tmp_path out_dir lands the module + round-trips, default path unaffected, distinct out_dirs don't cross-hit the memo, same out_dir does); `test_compile_and_compile_from_path_share_cache` ported to the 5-tuple key shape.
+
+**`generated/` untracking (USER DECISION 1):** `generated/` added to `.gitignore`; all 33 previously-tracked files `git rm --cached` (staged deletion, files stay on disk — reproducible build products, matches CLAUDE.md's existing "git-ignored" claim which had drifted out of sync with git's actual tracking state).
+
+**`iremit_*` → `emit_<stem>_<flavour>` rename (USER DECISION 3):** `tests/integration/test_codegen_ir.py`'s stem line now derives an explicit `gbnf`/`abnf` flavour segment (`emit_json_gbnf`, `emit_json_abnf`, …) instead of a suffix-or-nothing scheme. Old `generated/iremit_*.py` files deleted from disk; the suite regenerates the new `emit_*` stems on the next run (verified).
+
+**Mechanical residue:** `codegen/__init__.py`'s `except OSError, subprocess.TimeoutExpired:` (a Python-2-shaped bare-tuple-without-parens that happened to still parse) → `except (OSError, subprocess.TimeoutExpired):`; `compile.py`'s pipeline docstring's last `codegen_ir` mention → `codegen`.
+
+**Wiki:** `.wiki/lexic/slice-b-status.md` gained a dated historical-audit-log header note (it still describes the pre-cutover `Flavour` ABC / `MetaGrammarParser`); `.wiki/lexic/public-api.md`'s `compile_text`/`compile_from_path`/`codegen` sections rewritten for `out_dir` and the content-keyed default memoisation (Task 1's rider, previously undocumented).
+
+Gates: full suite green, `run_checks.sh` exit 0, `git status --short` shows exactly the intended tracking changes for this lane.
+
+---
+
+## 2026-07-04 — Task 1 (cleanup/optimize): interval-native canonicalize charclass merge
+
+`canonicalize(parse(json.gbnf))` cost ~930 ms (c.gbnf ~875 ms) because `ir/canonical.py`'s `_merge_arms` fused char-ish alternation arms through `IrCharClass.members()` — a per-point list. A `[^…]` complement (rewrite 4's output) is ~1.1M points, so `flush()` built `IrCharClass(*(IrChr(p) for p in pending))` from ~1.1M constructions and then re-sorted them. All merge math moved to the interval domain:
+
+- `ir/nodes.py`: `IrCharClass` gained a public `intervals()` (the promoted `_intervals` — sorted disjoint `(lo,hi)` cover), a `from_intervals(spans)` classmethod (coalesce + build `IrChr`/`IrRange` directly, result already `normalized()`-form), and a shared static `_coalesce(raw)` — the single home for the sort+merge algorithm, called by `intervals`/`from_intervals` and (transitively) the canonicaliser, so no R0801 duplication. `members()` kept its contract but its docstring now warns against Unicode-scale use.
+- `ir/canonical.py`: `_arm_points` → `_arm_intervals` (charclass arm → `atom.intervals()`; single-char literal → `[(c,c)]`); `_merge_arms.flush()` coalesces pending intervals via `IrCharClass.from_intervals` then applies rewrite 1 through the existing `_canon_cc` — byte-identical output because `_canon_cc` depends only on the covered point *set*.
+
+Result: `canonicalize(parse(json.gbnf))` ~3.8 ms (245×), `compile_text` json/c cold ~68/82 ms (from ~945 ms). Canonical output + emitted module source byte-identical across all 10 ground-truth grammars ×flavours; full suite green (1525 passed) and wall-clock ~107 s → ~19 s (the canonicalize fix dominates; the memoisation rider below adds the rest).
+
+**Rider (USER DECISION 2):** `compile_text` now memoises by `(content sha stem, flavour)` by default (was: `cache_key=None` never cached). `cache_key=` stays as explicit override; `reset_cache_for_tests()` is the fresh-objects seam. Two suite tests that asserted the old no-cache default were ported to the new contract (`test_compile.py`, `parsing/test_fold.py`'s identity-memo test now resets between the two compiles).
+
+## 2026-07-04 — Task 7: consolidation — docs/wiki catch up to the IR-native pipeline (IR-native codegen effort)
+
+Task 7 closes the IR-native codegen effort: the code has been IR-native since Task 6; this task brings the user-visible fixpoint test, the examples, and every doc/wiki page describing the old `RuleSpec` shape up to date with disk truth.
+
+- **Fixture fix + headline parity test.** `resources/ground_truth/json.abnf` was missing the `; @non-semantic ws` directive its `json.gbnf` sibling carried (the GBNF file even says in its header comment "both files must lower to the same neutral IR") — added. `tests/integration/test_cross_flavour.py` gained `test_json_gbnf_and_abnf_compile_to_identical_generated_source`: compiles both fixtures through the public `compile_text` entry point and asserts the generated module **source** is byte-identical modulo the one docstring line naming the (content-hashed, therefore necessarily distinct) stem. This is the user-visible form of `canonicalize(parse(json.gbnf)) == canonicalize(parse(json.abnf)) == JSON_GRAMMAR`.
+- **`getting_started/`:** all five examples (`ex01`–`ex05`) already ran clean end-to-end against the current API (ported in earlier tasks) — no source changes needed. `getting_started/README.md` still described `MetaGrammarParser`, `model.__grammar__` as a `RuleSpec`, and a `compiled.specs` field that no longer exists — updated to `parse_grammar`/`compiled.grammar`/`__grammar__` as an `IrRule`.
+- **CLAUDE.md rewrite** (surgical, structure/voice kept): §Before-you-touch-anything gained a "RuleSpec cutover complete" bullet; §Current-state rewritten (three cutovers now: primitive-node V2, Lark→Earley, RuleSpec→IR-native); §Project-layout rewritten module-by-module against actual disk contents (`ir/bind.py`, `ir/canonical.py`, `ir/order.py`, `ir/meta.py`, `ir/mapping.py`, `codegen/binding.py`, `codegen/passes.py`, `parsing/fold.py` added; `derive.py`/`spec.py`/`emit.py`/`naming.py`/`topo.py`/`utils/`/`ir/regex_portable.py` — the last pre-dating this effort entirely — removed); pipeline diagram redrawn to the Target-pipeline shape verified against `compile.py`; §Layering-rules updated (`lexic.codegen` no longer imports `lexic.grammars` — codegen is IR-native, needs no flavour adapters); §IR-types fixed the known drift (records are `IrNamedTuple`, not `IrComposite` frozen dataclasses — verified against `ir/nodes.py`/`ir/base.py`/`ir/meta.py`) and gained an `IrCachingTuple` mention; new §`kind`-semantics subsection (now `RuleBinding.kind` via `classify_rule`, not `RuleSpec.kind`); §Field-naming re-pointed to `codegen/binding.py`'s `_HINT`/`_TIER2` tables; §GrammarModel rewritten against the actual `base.py` (`__grammar__: IrRule` + per-field `IrBind` metadata, no `to_ir_rule()`); §Directives fixed (`canonical_grammar`, not `compile_grammar`/`derive_specs`); §Import-paths — every listed import verified by actually importing it.
+- **README.md:** pipeline diagram redrawn (canonicalize → codegen-grammar passes → binding/codegen/fold, replacing the `derive_specs`/`ModelFold` shape); "action-driven" paragraph's example list (`derive` → `canonicalization`); test-grammar count (seven → eight `.gbnf` + two `.abnf` siblings); Project-status closing line gained the RuleSpec→IR-native cutover mention.
+- **Wiki:**
+  - `.wiki/lexic/ir-shapes.md` — full rewrite: `IrComposite` → `IrNamedTuple`/`IrCachingTuple` throughout; `IrGroup` removed (never existed post-cutover — an inline group is an `IrAlternation` used as an atom); `IrNot` re-homed to `ir/operators.py`, correctly shown as a variadic-tuple wrapper not a record; new sections for `IrBind`/`BIND_MODES`, `kind` semantics (now on `RuleBinding`), canonicalization (`ir/canonical.py`'s rewrite list + the headline fixpoint), and `codegen/passes.py`'s hoist/relax passes (successors of the retired `ir/derive.py` jobs); dispatch section corrected (`IrDispatch` is an `IrCachingTuple`, no `_resolve_cache` memo — `ir/mapping.py`'s `IrTypeMap.resolve` is a live MRO walk every time); dead `RuleSpec` section removed.
+  - `.wiki/lexic/architecture.md` — full rewrite: pipeline diagram redrawn to match `compile.py` exactly; new "positional fold replaces the wrapper-rule bridge" section explaining `kids[i] ↔ items[i]`; layering table/exceptions updated (`lexic.codegen ✗ lexic.grammars`); module ownership + file tree updated to current disk contents; explicit note that `ir/derive.py`/`spec.py`/`emit.py`/`naming.py`/`topo.py`/`parsing/models.py`/`utils/` are gone outright.
+  - `.wiki/lexic/new-codegen.md` **renamed to `.wiki/lexic/codegen.md`** and fully rewritten: it described the Tasks-8–14 `new_codegen/` scaffold built against `NewRuleSpec` during the May cutover; the page now documents the current IR-native `lexic.codegen` (`passes.py`'s three grammar→grammar rewrites, `binding.py`'s open-table binding view, `model_emitter.py`'s `Annotated`/`IrBind` field emission, `aliases.py` unchanged in spirit). `.wiki/index.md` re-pointed.
+  - `.wiki/lexic/field-naming.md` — full rewrite: source moved from `ir/naming.py`+`ir/derive.py` to `codegen/binding.py`; `_ATOM_HINT`/`_FIELD_BASE` closed dicts → `_HINT`/`_TIER2` open `IrDispatch` tables; `CHARCLASS_NAMES` corrected to 8 entries keyed by canonical (post-`canonicalize`) pattern forms, not the pre-canonical mixed-case spellings; added the fold-mode (`mode_for`/`BIND_MODES`) sibling-table note.
+  - `.wiki/lexic/public-api.md` — full rewrite: `compile_grammar`/`RuleSpec`/`build_instance_parser`/`ModelFold` replaced with `canonical_grammar`/`IrBind`/`PositionalFold`; `CompiledGrammar` field table corrected (`grammar` = canonical ast, new `instance_grammar`/`tables` fields, `fold: PositionalFold`); added the `compile_from_path` same-stem-across-flavours caution (`json.gbnf`/`json.abnf` both stem to `json` — use `compile_text` for cross-flavour compilation in one process); golden-gates section extended with the new cross-flavour source-parity test.
+  - `.wiki/lexic/invariants.md`, `.wiki/lexic/error-vocabulary.md`, `.wiki/lexic/slice-b-status.md`, `.wiki/lexic/flavour-system.md` — targeted fixes (not full rewrites): dead `compile_grammar`/`IrCallable`/`ir/derive.py` references corrected in place; ground-truth grammar list and stale test count updated.
+  - `.wiki/lexic/cutover-plan.md` — a third "Superseded further" note appended (matching the existing convention for the Lark→Earley note) pointing at this cutover, table left as the historical 2026-05-13 record.
+  - `.wiki/lexic/decisions.md` left untouched — dated historical decisions, not a living-state page; nothing in it was factually wrong, only superseded (which is expected of a decision log).
+- Gates: full suite 1502/0 (was 1501; +1 for the new parity test), `tools/run_checks.sh` exit 0.
+
+---
+
+## 2026-07-04 — Task 6: runtime port + RuleSpec-pipeline deletion (IR-native codegen effort)
+
+The old `RuleSpec`/derive pipeline is gone; the IR-native path is the only one.
+
+- `src/lexic/generate.py` PORTED off `RuleSpec` — `generate(rule_name, rules,
+  ...)` now takes a rule-name → `IrRule` mapping (the canonical grammar's
+  rules) and walks `rule.body` (alternation of arms) directly. Callers build
+  the mapping from `canonical_grammar(text, flavour).rules`.
+- `compile.py`: transitional `compile_grammar` and `CompiledGrammar.specs`
+  DELETED (the sole `RuleSpec` consumers). `canonical_grammar(text, flavour)`
+  is the public front-half seam. `codegen_ir` → `codegen` (the plain name).
+- Implementations MOVED HOME (interim Task-3/4 seams closed):
+  - `hoist_helpers`'s `_HoistTransformer` machinery moved into
+    `codegen/passes.py` (`hoist_groups` no longer wraps derive).
+  - the `CHARCLASS_NAMES` / `LITERAL_NAMES` naming tables + `has_ruleref`
+    moved into `codegen/binding.py`. **Re-key decision:** the tables are now
+    keyed by canonical (post-canonicalize) char-class forms — hex is one
+    `[0-9A-Fa-f]` key (the pre-canonical `[0-9a-fA-F]`/`[a-fA-F0-9]` spellings
+    are dead), `letter` is `[A-Za-z]`, `alnum` is `[0-9A-Z_a-z]`. The binding
+    view reads the post-canon codegen grammar, so only normal-form keys can hit.
+  - `bounds_to_quantifier` (regex suffix) moved into `codegen/aliases.py` as
+    `_bounds_to_suffix`; the spec-based `collect_aliases(specs)` died and
+    `collect_aliases_grammar` took the plain name `collect_aliases`.
+  - `codegen/model_emitter.py`: old spec-based emit path DELETED;
+    `emit_module_source_ir`/`IrModuleEmitter`/`CANONICAL_IMPORTS_IR` took the
+    plain names.
+- DELETED: `ir/derive.py`, `ir/spec.py` (`RuleSpec`), `ir/emit.py`
+  (`render_specs`), `ir/naming.py`, `ir/topo.py` (`topo_sort` → `ir/order.py`'s
+  `RuleOrder`), the whole `utils/` package (`names.py` `to_pascal` absorbed
+  into `binding.class_name_for`; `to_snake` had no consumer; `quantifiers.py`),
+  and `tests/integration/test_binding_scaffold.py` (its parity job done).
+- `ir/__init__.py` export surface trimmed (RuleSpec/derive/emit/naming/topo
+  gone). `getting_started/ex05` re-pointed onto `compiled.grammar` +
+  `__grammar__`.
+- Tests: dead-symbol test files deleted (test_derive/spec/emit/naming/topo,
+  utils tests) with assertions re-homed to their successors (binding view,
+  `test_order`, `test_aliases`); spec-shaped integration assertions
+  (`test_compile_grammar_*`, `test_cross_flavour`, `test_full_round_trip`,
+  `test_json`, `test_generate`, property conftest, `test_compile`) re-pointed
+  onto the binding view / `canonical_grammar`; `test_model_emitter` and
+  `test_aliases` rewritten against the binding-driven emitter + grammar input.
+- `tests/integration/test_layering_invariants.py` extended: `lexic.utils`
+  package gone and unreferenced; the retired `ir.derive/spec/emit/naming/topo`
+  modules gone and unreferenced; one codegen entry / one emit path.
+- Gates: suite 1501 green, `run_checks.sh` exit 0 (pylint 10.00/10, no R0801).
+
+---
+
+## 2026-07-04 — Task 5: positional fold + compile.py flip; parsing/models.py deleted (IR-native codegen effort)
+
+The pipeline now runs IR-native end to end; the wrapper-rule instance bridge is gone.
+
+- `src/lexic/parsing/fold.py` (new) — `PositionalFold`: generic positional
+  `ParseTree → object` fold over the *real* codegen grammar
+  (`kids[i] ↔ items[i]`; no `--f<idx>` wrapper rules). Config is plain data:
+  `RuleFold(kind, ctor, n_items, fields)` / `FieldFold(item, mode, name, lo)`;
+  modes validated against `lexic.ir.bind.BIND_MODES` (parsing → ir edge only —
+  no codegen, no pydantic, no RuleSpec). Also hosts `lift_optional_nullables`
+  (now `IrAst → IrAst`), `PositionalFold.run_ok` (run-collapse licence:
+  collapse iff no config key among the unit leaves) and
+  `collapsed_fold_tables` (memoised per (fold, grammar)).
+- `src/lexic/compile.py` FLIPPED: `_compile_core` = `canonical_grammar` (new
+  public front half: parse + canonicalize + directive flags → flagged IrAst)
+  → `build_codegen_grammar` → `compute_binding` → `codegen_ir` → fold config
+  → `instance_grammar = normalize(lift_optional_nullables(codegen_grammar))`.
+  `CompiledGrammar` fields now `(classes, specs*, grammar=canonical ast,
+  instance_grammar, fold, tables)`; `.parse()` surface unchanged.
+  *`compile_grammar` and `CompiledGrammar.specs` are transitional
+  (canonical_grammar + derive_specs) feeding `generate.py`/ex05 — die with
+  derive in Task 6.
+- `src/lexic/base.py` ported (coordinator-sanctioned pull-forward):
+  `to_text()` walks the `IrRule` `__grammar__` arm + `IrBind` read from
+  `model_fields` metadata (value_str = untagged `value` field; alternation =
+  no binds → NotImplementedError; empty-arm rule with all fields None emits
+  `""`); `semantic_dump()` excludes `semantic=False` binds; `to_grammar` =
+  `flavour.apply(self.__grammar__)`.
+- DELETED: `src/lexic/parsing/models.py` + `tests/unit/lexic/parsing/test_models.py`
+  (assertions re-homed to `test_fold.py` / `test_compile.py` / `test_binding.py`;
+  wrapper-name machinery died with no successor).
+- Gates: old-vs-new parity 196/196 outputs identical (fixtures + 40 generate
+  seeds × 7 grammars; type/model_dump/to_text/semantic_dump — HEAD oracle);
+  the c-statement defect was already fixed by Task 2's canonicalize on the old
+  path, so parity covers c statements too. Bench (instance parse+fold, best):
+  arithmetic 118.4→72.4 ms (−39%), c 38.2→31.8 ms (−17%). Suite 1631 green,
+  run_checks exit 0.
+- Layering: new invariants — engine never imports pydantic or `lexic.ir.spec`;
+  `parsing/models.py` gone and unreferenced.
+
+---
+
+## 2026-07-04 — Task 3: binding view + IrBind + codegen passes (IR-native codegen effort)
+
+New surfaces, all parallel to the live derive/RuleSpec pipeline (nothing rewired;
+Tasks 4/5 consume them, Task 6 deletes derive):
+
+- `src/lexic/ir/bind.py` — `IrBind(item, mode, semantic=True)`, an `IrNamedTuple`
+  record generated model fields will carry as `Annotated` metadata; `BIND_MODES =
+  (text, gtext, model, models)` with construction-time validation. Exported from
+  `lexic.ir`.
+- `src/lexic/codegen/passes.py` — grammar→grammar codegen passes:
+  `hoist_groups` (wraps `derive.hoist_helpers` until Task 6 moves the
+  implementation in), `hoist_arms` (every non-unit-ref alternation arm →
+  `<rule>-arm<N>` rule, inserted right after its alternation; empty arms kept;
+  name collision raises), `relax_non_semantic` (arm-level refs to
+  `semantic=False` rules get `min=0`; group interiors untouched), and the
+  composition `build_codegen_grammar = relax(arm_hoist(hoist(ast)))`.
+- `src/lexic/codegen/binding.py` — the open-table successor of derive's
+  classify/parents/naming: `compute_binding(codegen_grammar) ->
+  list[RuleBinding(rule_name, class_name, parent_class_name, kind, fields)]`
+  with `fields: dict[str, IrBind]`. Naming cascade and fold-mode derivation are
+  `IrDispatch`/`IrTypeMap` tables (raising defaults — `IrNot` deliberately
+  unregistered, canonicalize rewrite 4 removes it); `class_name_for` absorbs
+  `to_pascal`; the `ir/naming.py` tables are imported until Task 6 moves them.
+- `ir/order.py::RuleOrder.ordered_parents_first()` — the parent-edge policy
+  replacing `topo_sort` for emission order (start's ancestor chain first, then
+  input order, every rule after its inheritance parent).
+
+Parity gate `tests/integration/test_binding_scaffold.py` (TEMPORARY, dies with
+derive in Task 6): binding == derive on order/classes/parents/kinds/field
+maps/noise sets across all 10 ground truths, plus mode == `models._wrapper_mode`
+per bound field. Suite 1549 green, `run_checks.sh` exit 0.
+
+---
+
+## 2026-07-03 — Task 2: canonicalize pass (IR-native codegen effort)
+
+`src/lexic/ir/canonical.py` (`canonicalize`, `fold_name`) — a language-preserving
+normal form for a grammar `IrAst`, run as the mandatory second stage of
+`compile_grammar` (`parse → canonicalize → semantic flags`). Rewrites: 1 one-member
+charclass → literal; 2 single-char/charclass/range alternation arms merge to one
+class; 3 adjacent literal items merge; 4 `IrNot(charclass)` → positive Unicode
+complement spans; 5 single-arm unquantified group splices into its parent sequence;
+6 quantified single-arm single-item group pushes its quantifier onto the inner atom;
+7 rule names + refs fold lowercase/`_`→`-` (distinct-rule collision raises
+`UnsupportedConstructError`); 8 charclass normal form; 8b empty-literal items drop
+(engine precondition); 9 canonical rule order.
+
+Charclass member/complement math is now **intrinsic `IrCharClass` behavior**
+(`pattern`/`members`/`sample`/`normalized`/`complement` on `ir/nodes.py`);
+`utils/charclass.py` deleted, importers (`derive`, `generate`, `codegen/aliases`)
+re-pointed. Rule ordering is `ir/order.py::RuleOrder` (start-first BFS over an edge
+relation; `RuleOrder.by_refs`/`order_by_refs` = ref-edge policy) — reborn from
+`topo.py` (which still serves derive until Task 6).
+
+Headline fixpoint holds: `canonicalize(parse(json.gbnf)) ==
+canonicalize(parse(json.abnf)) == JSON_GRAMMAR`, with `JSON_GRAMMAR` re-authored to
+canonical form and `json.abnf`'s `HEXDIG` de-RFC'd to ranges. GBNF emit fixpoint
+`canonicalize(parse(emit(canon))) == canon` holds for all ground truths;
+`GBNF_GRAMMAR` re-authored to canonical form (all `canonicalize(G)==G`). Proof in
+`tests/integration/test_canonical_fixpoint.py`. **Open:** ABNF emit fixpoint and
+`canonicalize(ABNF_GRAMMAR)==ABNF_GRAMMAR` need an ABNF `IrLiteral`→num-val emit
+change (char-val cannot spell `"`/controls and is case-insensitive) — not attempted
+under Task 2.
+
+---
+
 ## 2026-07-03 — engine perf round 3 landed (Optimize.md, complete)
 
 Full-grammar product on the disputed corpus (subset-920 self-emit): **25.6 → 17.25 µs/char** (−33%; **0.57× Lark** full-vs-full, was parity). Recognize ~8.0 µs/char. The two engine levers: **seed-layout** (Task 1 — `CodeTables.rule_seeds` stored as primitive seed-pairs, `_seed` dedup-free; kernel −15%, charts byte-identical) and **FIRST-gated prediction** (Task 2 — per-dot-0-arm `(dot0, next_sym, gate)` triples where `gate` is `None`=always-seed or a frozenset FIRST charset with nullable-prefix continuation; `_seed` gates on `text[i:i+1]`; charts deliberately NOT byte-identical, product IR equality + ambiguity counts verified across all suite grammars). Instance path got run collapse (Task 4, separate entry). Task 5 (comment skip-machine) killed — FIRST gating leaves comment noise at 4.8% of items (was 27%).

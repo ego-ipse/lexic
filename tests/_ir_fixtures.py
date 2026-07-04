@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Iterable, Literal
-
 from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
@@ -18,7 +16,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.spec import RuleSpec
+from lexic.parsing.normalize import SYNTHETIC_PREFIX
 
 REQ = IrQuantifier(1, 1)
 OPT = IrQuantifier(0, 1)
@@ -59,8 +57,6 @@ JSON_RULE_NAMES: tuple[str, ...] = (
     "unescaped",
     "hexdig",
 )
-
-Kind = Literal["sequence", "alternation", "value_str"]
 
 
 def item(atom, q: IrQuantifier = REQ) -> IrItem:
@@ -122,21 +118,37 @@ def sss_grammar() -> IrAst:
     return IrAst(rules=IrSeq(s_rule), start="s")
 
 
-def spec(
-    rule_name: str,
-    kind: Kind,
-    items: Iterable,
-    *,
-    field_map: dict[str, int] | None = None,
-    non_semantic_fields: frozenset[str] = frozenset(),
-) -> RuleSpec:
-    """Create a RuleSpec with the given items."""
-    return RuleSpec(
-        rule_name=rule_name,
-        class_name=rule_name.title().replace("-", ""),
-        parent_class_name="GrammarModel",
-        kind=kind,
-        items=list(items),
-        field_map=field_map or {},
-        non_semantic_fields=non_semantic_fields,
+def malformed_synthetic_rule(name: str = f"{SYNTHETIC_PREFIX}bad") -> IrRule:
+    """A synthetic-named rule whose arm is not a single item — not a valid
+    charset-collapse shape. Probes the ``unit_leaves``/``PositionalFold.run_ok``
+    "not this shape at all" path.
+    """
+    return IrRule(
+        name, IrAlternation(IrSequence(IrItem(IrLiteral("a")), IrItem(IrLiteral("b"))))
     )
+
+
+def nested_synthetic_grammar() -> IrAst:
+    """``__outer`` -> ``__inner`` -> ``digit`` / bare ``'x'``.
+
+    A synthetic charset rule hopping through another synthetic rule, so the
+    transitive leaf-collection walk (``unit_leaves`` / ``PositionalFold.run_ok``)
+    has more than one hop to resolve, and a bare-terminal arm sits alongside
+    the ruleref arm.
+    """
+    digit = IrRule(
+        "digit",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))),
+    )
+    inner = IrRule(
+        f"{SYNTHETIC_PREFIX}inner",
+        IrAlternation(
+            IrSequence(IrItem(IrLiteral("x"))),
+            IrSequence(IrItem(IrRuleRef("digit"))),
+        ),
+    )
+    outer = IrRule(
+        f"{SYNTHETIC_PREFIX}outer",
+        IrAlternation(IrSequence(IrItem(IrRuleRef(f"{SYNTHETIC_PREFIX}inner")))),
+    )
+    return IrAst(rules=IrSeq(outer, inner, digit), start=f"{SYNTHETIC_PREFIX}outer")

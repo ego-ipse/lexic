@@ -42,6 +42,10 @@ tmp/
 
 # ── Local documentation ──
 archive/
+zzz_current_work/
+
+# ── Generated grammar modules (reproducible build products) ──
+generated/
 
 # ── Obsidian internals ──
 .wiki/.obsidian/

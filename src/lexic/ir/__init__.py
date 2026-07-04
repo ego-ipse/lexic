@@ -33,14 +33,8 @@ from lexic.ir.base import (
     IrSelf,
     IrSeq,
 )
-from lexic.ir.derive import (
-    classify_kind,
-    compute_parents,
-    derive_specs,
-    has_ruleref,
-    hoist_helpers,
-)
-from lexic.ir.emit import render_specs
+from lexic.ir.bind import BIND_MODES, IrBind
+from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
@@ -57,15 +51,14 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrAnd, IrNot, IrOp, IrOpNode
-from lexic.ir.spec import RuleSpec
-from lexic.ir.topo import topo_sort
+from lexic.ir.order import RuleOrder, order_by_refs
 from lexic.ir.walk import IrTransformer, IrVisitor
 
 __all__ = [
+    "BIND_MODES",
     "CANONICAL_ESCAPES",
     "IR_DEFAULT",
     "EscapeCodec",
-    "render_specs",
     "IrAction",
     "IrAlternation",
     "IrAnd",
@@ -75,6 +68,7 @@ __all__ = [
     "IrAst",
     "IrAt",
     "IrAtom",
+    "IrBind",
     "IrChr",
     "IrBounds",
     "IrBuild",
@@ -114,11 +108,8 @@ __all__ = [
     "IrVisitor",
     "IrQuantifier",
     "IrRange",
-    "RuleSpec",
-    "classify_kind",
-    "compute_parents",
-    "derive_specs",
-    "has_ruleref",
-    "hoist_helpers",
-    "topo_sort",
+    "RuleOrder",
+    "canonicalize",
+    "fold_name",
+    "order_by_refs",
 ]

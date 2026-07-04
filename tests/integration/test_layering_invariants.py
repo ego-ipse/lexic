@@ -48,6 +48,29 @@ def test_engine_package_does_not_import_grammars_or_codegen():
     assert not bad, f"lexic.parsing leaks: {bad}"
 
 
+def test_engine_fold_seam_is_plain_data():
+    """The instance fold receives plain data: the engine (lexic.parsing,
+    fold.py included) never imports pydantic, and never sees the RuleSpec
+    shape — constructors arrive as opaque callables, modes as the
+    lexic.ir.bind vocabulary (parsing → ir is a legal edge)."""
+    engine = SRC / "parsing"
+    bad = (
+        _grep(engine, "from pydantic")
+        + _grep(engine, "import pydantic")
+        + _grep(engine, "from lexic.ir.spec")
+        + _grep(engine, "import lexic.ir.spec")
+    )
+    assert not bad, f"the fold seam leaks beyond plain data: {bad}"
+
+
+def test_wrapper_models_module_is_gone():
+    """Sanity: parsing/models.py (the --f<idx> wrapper bridge) is deleted and
+    unreferenced — parsing/fold.py is its positional successor."""
+    assert not (SRC / "parsing" / "models.py").exists()
+    for p in SRC.rglob("*.py"):
+        assert "lexic.parsing.models" not in p.read_text(), f"{p}"
+
+
 def test_engine_imported_by_runtime_only_via_compile_seam():
     """Top-level runtime modules import the engine only through compile.py.
 
@@ -92,9 +115,42 @@ def test_no_new_gbnf_or_new_codegen_residual():
         assert "lexic.new_codegen" not in content, f"{p}: residual new_codegen"
 
 
-def test_rulespec_items_typed_for_iritem():
-    """RuleSpec.items is typed for IrItem, not the old union of IrItem and IrAlternation."""
-    content = (SRC / "ir" / "spec.py").read_text()
-    assert "list[IrItem | IrAlternation]" in content
-    assert "from lexic.ir.atoms" not in content
-    assert "NewRuleSpec" not in content
+def test_utils_package_is_gone():
+    """The whole lexic.utils package died in Task 6, unreferenced anywhere."""
+    assert not (SRC / "utils").exists()
+    this_file = Path(__file__).resolve()
+    for p in list(SRC.rglob("*.py")) + list((ROOT / "tests").rglob("*.py")):
+        if p == this_file:
+            continue
+        content = p.read_text()
+        assert "from lexic.utils" not in content, f"{p}: residual lexic.utils import"
+        assert "import lexic.utils" not in content, f"{p}: residual lexic.utils import"
+
+
+def test_retired_ir_modules_are_gone():
+    """The RuleSpec/derive/emit/naming/topo modules died in Task 6.
+
+    Their successors: the binding view + passes (``lexic.codegen``), flavour
+    ``apply`` (emission), and ``lexic.ir.order`` (rule ordering).
+    """
+    for name in ("derive.py", "spec.py", "emit.py", "naming.py", "topo.py"):
+        assert not (SRC / "ir" / name).exists(), f"ir/{name} still present"
+    for p in SRC.rglob("*.py"):
+        content = p.read_text()
+        for module in (
+            "lexic.ir.derive",
+            "lexic.ir.spec",
+            "lexic.ir.emit",
+            "lexic.ir.naming",
+            "lexic.ir.topo",
+        ):
+            assert module not in content, f"{p}: residual {module} reference"
+
+
+def test_single_codegen_entry_and_emit_path():
+    """One way per task: exactly one codegen entry and one emit-source function."""
+    codegen_init = (SRC / "codegen" / "__init__.py").read_text()
+    assert "def codegen_ir(" not in codegen_init
+    emitter = (SRC / "codegen" / "model_emitter.py").read_text()
+    assert "emit_module_source_ir" not in emitter
+    assert emitter.count("def emit_module_source(") == 1

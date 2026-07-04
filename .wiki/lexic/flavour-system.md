@@ -1,6 +1,6 @@
 # Flavour System
 
-**When to load:** adding a new grammar flavour; writing or extending a flavour's emit `actions` or self-grammar/reducer; deciding when to use a procedural `IrCallable` vs pure action algebra.
+**When to load:** adding a new grammar flavour; writing or extending a flavour's emit `actions` or self-grammar/reducer; deciding when to use a procedural `IrLambda` vs pure action algebra.
 
 See also: [[architecture]], [[ir-shapes]]
 
@@ -41,16 +41,16 @@ A flavour's `actions: IrTypeMap` maps each IR-AST node type to a callable IR bod
 
 ```python
 GBNF_ACTIONS = IrTypeMap(
-    IrAction(IrLiteral,     IrCallable(_gbnf_encode_literal)),
-    IrAction(IrCharClass,   IrCallable(_gbnf_charclass)),
-    IrAction(IrNot,         IrCallable(_gbnf_not)),
+    IrAction(IrLiteral,     IrLambda(_gbnf_encode_literal)),
+    IrAction(IrCharClass,   IrLambda(_gbnf_charclass)),
+    IrAction(IrNot,         IrLambda(_gbnf_not)),
     IrAction(IrRuleRef,     IrField("value")),
-    IrAction(IrQuantifier,  IrCallable(_gbnf_quantifier)),
+    IrAction(IrQuantifier,  IrLambda(_gbnf_quantifier)),
     IrAction(IrItem,        IrConcat(parts=(IrChild("atom"), IrChild("quantifier")))),
     IrAction(IrSequence,    IrJoin(parts=IrChildren("items"), separator=IrLiteral(" "), empty=IrLiteral('""'))),
     IrAction(IrAlternation, IrJoin(parts=IrChildren("arms"),  separator=IrLiteral(" | "), empty=IrLiteral(""))),
     IrAction(IrRule,        IrConcat(parts=(IrField("name"), IrLiteral(" ::= "), IrChild("body")))),
-    IrAction(IrAst,         IrCallable(_gbnf_ast)),
+    IrAction(IrAst,         IrLambda(_gbnf_ast)),
 )
 ```
 
@@ -67,17 +67,17 @@ The other half of a flavour — text → `IrAst` — is not a method at all. It 
 
 R2 (escaping is a rendering feature, not an AST property) still holds: reduction actions decode escapes as render-side data (an `IrMap`/`IrUnradix`-style table), never on the AST node itself; the AST holds neutral, decoded payloads.
 
-## When to use `IrCallable` vs pure algebra
+## When to use `IrLambda` vs pure algebra
 
 Prefer pure algebra (`IrField`, `IrChild`, `IrChildren`, `IrConcat`, `IrJoin`, `IrCond`) whenever the body is a fixed assembly of attribute reads and string composition. The result is declarative, introspectable, and walks correctly under `IrTransformer`.
 
-Reach for `IrCallable(handler)` when:
+Reach for `IrLambda(handler)` when:
 
 - the result requires a Python-level computation no algebra node expresses (e.g. GBNF `_gbnf_quantifier` maps `(min, max)` pairs through a lookup table);
 - escape-encoding the literal value needs the flavour's `EscapeCodec` (`_gbnf_encode_literal` calls `GBNF_ESCAPES.encode`);
 - a non-trivial control flow is needed (e.g. ABNF's `IrNot` body raises `UnsupportedConstructError` — ABNF has no negation).
 
-`IrCallable` bodies receive `(d, n, nc)` and return `Ir_co`. They should remain small and side-effect-free; if you need recursion into siblings, call `d.eval(d, c, ())` rather than recursing manually.
+`IrLambda` bodies receive `(d, n, nc)` and return `Ir_co`. They should remain small and side-effect-free; if you need recursion into siblings, call `d.eval(d, c, ())` rather than recursing manually.
 
 ## Current flavour implementations
 
@@ -100,4 +100,4 @@ Both flavours are single flat modules — no `emitter.py`, `escapes.py`, or `met
 8. Register in `grammars/__init__.py`: import + `register_flavour(<NAME>_FLAVOUR)`.
 9. Mirror tests under `tests/unit/lexic/grammars/test_<name>.py`, plus a golden fingerprint integration test (`tests/integration/test_<name>_ir_equivalence.py` — see [[public-api]]). See [[testing]].
 
-No changes to `compile.py`, `ir/derive.py`, or `lexic.parsing` — the engine, `compile_grammar`, and `derive_specs` are all flavour-agnostic.
+No changes to `compile.py`, `lexic.codegen`, or `lexic.parsing` — the engine and the whole IR-native codegen pipeline (`canonical_grammar` → `build_codegen_grammar` → `compute_binding` → `codegen`) are flavour-agnostic.

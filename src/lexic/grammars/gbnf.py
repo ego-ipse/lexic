@@ -15,7 +15,7 @@ this file be completely auto-generated.
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from lexic.ir.action import (
     IrAction,
@@ -38,7 +38,16 @@ from lexic.ir.action import (
     IrRaise,
     IrUnradix,
 )
-from lexic.ir.base import IrInt, IrNone, IrNoneType, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir.base import (
+    IrInt,
+    IrLambda,
+    IrNone,
+    IrNoneType,
+    IrSelf,
+    IrSeq,
+    IrStr,
+    IrTuple,
+)
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrEscape, IrFlavour
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
@@ -113,6 +122,49 @@ same forms the other way (digit runs via :class:`IrUnradix`).
 """
 
 
+_CC_SHORT: dict[int, str] = {ord("\n"): "\\n", ord("\t"): "\\t", ord("\r"): "\\r"}
+"""Code points GBNF spells with a short escape inside a class."""
+
+_CC_META = frozenset("\\]-^")
+"""Class metacharacters that must be backslash-escaped inside ``[...]``."""
+
+
+def _escape_cc_point(cp: int) -> str:
+    """Spell one code point for safe use inside a GBNF ``[...]`` class.
+
+    The emit-side inverse of the ``ccesc-*``/``cchex*`` reduce rules: short
+    escapes for ``\\n``/``\\t``/``\\r``, a backslash before a class metacharacter
+    (``\\``/``]``/``-``/``^``), a ``\\xNN``/``\\uNNNN``/``\\UNNNNNNNN`` hex form for
+    a non-printable point, and the bare glyph otherwise.
+
+    :param cp: The code point to spell.
+    :returns: The class-safe member text.
+    """
+    if cp in _CC_SHORT:
+        return _CC_SHORT[cp]
+    ch = chr(cp)
+    if ch in _CC_META:
+        return "\\" + ch
+    if ch.isprintable():
+        return ch
+    if cp <= 0xFF:
+        return f"\\x{cp:02x}"
+    if cp <= 0xFFFF:
+        return f"\\u{cp:04x}"
+    return f"\\U{cp:08x}"
+
+
+def _emit_cc_chr(_d: IrSelf, n: IrSelf, _nc: object) -> IrLiteral:
+    """Render a single ``IrChr`` class member with class-context escaping."""
+    return IrLiteral(_escape_cc_point(int(cast(int, n))))
+
+
+def _emit_cc_range(_d: IrSelf, n: IrSelf, _nc: object) -> IrLiteral:
+    """Render an ``IrRange`` as ``lo-hi``, each endpoint class-escaped."""
+    rng = cast(IrRange, n)
+    return IrLiteral(f"{_escape_cc_point(int(rng.lo))}-{_escape_cc_point(int(rng.hi))}")
+
+
 GBNF_ACTIONS = IrTypeMap(
     IrAction(
         IrLiteral,
@@ -132,13 +184,11 @@ GBNF_ACTIONS = IrTypeMap(
             )
         ),
     ),
-    IrAction(
-        IrRange,
-        IrJoin(
-            parts=IrTuple(IrField("lo"), IrField("hi")),
-            separator=IrLiteral("-"),
-        ),
-    ),
+    # Class members escape per GBNF class-context rules (mirrors ccesc-*/cchex*
+    # on the reduce side): a raw glyph would let '\', ']', '-' corrupt the class
+    # on reparse. IrChr wins over the bare-IrStr run leaf by MRO.
+    IrAction(IrRange, IrLambda(_emit_cc_range)),
+    IrAction(IrChr, IrLambda(_emit_cc_chr)),
     # Bare IrStr: the run leaf inside a class — encoded units emit verbatim.
     # Concrete str-leaves (IrLiteral/IrRuleRef) win by MRO.
     IrAction(IrStr, IrEmit()),
@@ -230,21 +280,34 @@ GBNF_ACTIONS = IrTypeMap(
 #   constant units are wrapped IrBuild(IrChr, IrTuple(IrStr(...))).
 
 GBNF_GRAMMAR = IrAst(
-    rules=IrSeq(
-        # grammar: leading noise, rules separated by REQUIRED noise (a rule
-        # ending in a name abutting the next rule's name would otherwise
-        # re-segment the boundary — Lark's lexer made names maximal-munch),
-        # optional trailing noise, optional unterminated EOF comment
-        # (comment-line requires "\n"; tail-comment covers EOF).
+    IrSeq(
         IrRule(
             "grammar",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("n"), IrQuantifier(0, 1)),
+                    IrItem(IrRuleRef("n"), IrQuantifier(0)),
                     IrItem(IrRuleRef("rule")),
                     IrItem(IrRuleRef("rules-rest"), IrQuantifier(0, IrNone)),
-                    IrItem(IrRuleRef("n"), IrQuantifier(0, 1)),
-                    IrItem(IrRuleRef("tail-comment"), IrQuantifier(0, 1)),
+                    IrItem(IrRuleRef("n"), IrQuantifier(0)),
+                    IrItem(IrRuleRef("tail-comment"), IrQuantifier(0)),
+                )
+            ),
+        ),
+        IrRule(
+            "n",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("nunit"), IrQuantifier(1, IrNone)))
+            ),
+            False,
+        ),
+        IrRule(
+            "rule",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("rulename")),
+                    IrItem(IrRuleRef("n"), IrQuantifier(0)),
+                    IrItem(IrLiteral("::=")),
+                    IrItem(IrRuleRef("alternation")),
                 )
             ),
         ),
@@ -254,18 +317,21 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("n")), IrItem(IrRuleRef("rule")))
             ),
         ),
-        # rule: name ::= alternation; no noise slot after "::=" (the first
-        # arm's first-item owns it) and none trailing (the grammar level owns
-        # separation).
         IrRule(
-            "rule",
+            "tail-comment",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("rulename")),
-                    IrItem(IrRuleRef("n"), IrQuantifier(0, 1)),
-                    IrItem(IrLiteral("::=")),
-                    IrItem(IrRuleRef("alternation")),
+                    IrItem(IrLiteral("#")),
+                    IrItem(IrRuleRef("cmchar"), IrQuantifier(0, IrNone)),
                 )
+            ),
+            False,
+        ),
+        IrRule(
+            "nunit",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("wschar"))),
+                IrSequence(IrItem(IrRuleRef("comment-line"))),
             ),
         ),
         IrRule(
@@ -278,14 +344,56 @@ GBNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
+            "alternation",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("arm")),
+                    IrItem(IrRuleRef("bar-arm"), IrQuantifier(0, IrNone)),
+                )
+            ),
+        ),
+        IrRule(
+            "cmchar",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(0), IrChr(9)),
+                            IrRange(IrChr(11), IrChr(1114111)),
+                        )
+                    )
+                )
+            ),
+        ),
+        IrRule(
+            "wschar",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(IrRange(IrChr(9), IrChr(10)), IrChr(13), IrChr(32))
+                    )
+                )
+            ),
+        ),
+        IrRule(
+            "comment-line",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("#")),
+                    IrItem(IrRuleRef("cmchar"), IrQuantifier(0, IrNone)),
+                    IrItem(IrLiteral("\n")),
+                )
+            ),
+        ),
+        IrRule(
             "namehead",
             IrAlternation(
                 IrSequence(
                     IrItem(
                         IrCharClass(
-                            IrRange(IrChr("a"), IrChr("z")),
-                            IrRange(IrChr("A"), IrChr("Z")),
-                            IrChr("_"),
+                            IrRange(IrChr(65), IrChr(90)),
+                            IrChr(95),
+                            IrRange(IrChr(97), IrChr(122)),
                         )
                     )
                 )
@@ -297,28 +405,16 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(
                     IrItem(
                         IrCharClass(
-                            IrRange(IrChr("a"), IrChr("z")),
-                            IrRange(IrChr("A"), IrChr("Z")),
-                            IrRange(IrChr("0"), IrChr("9")),
-                            IrChr("_"),
-                            IrChr("-"),
+                            IrChr(45),
+                            IrRange(IrChr(48), IrChr(57)),
+                            IrRange(IrChr(65), IrChr(90)),
+                            IrChr(95),
+                            IrRange(IrChr(97), IrChr(122)),
                         )
                     )
                 )
             ),
         ),
-        IrRule(
-            "alternation",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("arm")),
-                    IrItem(IrRuleRef("bar-arm"), IrQuantifier(0, IrNone)),
-                )
-            ),
-        ),
-        # An arm is a sequence or empty (GBNF allows `ws ::= | " " | ...`).
-        # empty-seq owns no characters and no noise slots, which keeps
-        # nullable arms from creating adjacent optional-noise ambiguity.
         IrRule(
             "arm",
             IrAlternation(
@@ -326,19 +422,16 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("empty-seq"))),
             ),
         ),
-        IrRule("empty-seq", IrAlternation(IrSequence())),
         IrRule(
             "bar-arm",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("n"), IrQuantifier(0, 1)),
+                    IrItem(IrRuleRef("n"), IrQuantifier(0)),
                     IrItem(IrLiteral("|")),
                     IrItem(IrRuleRef("arm")),
                 )
             ),
         ),
-        # first-item owns the arm's leading noise (leading-noise discipline:
-        # the "::=" / "|" tokens own only their own leading noise).
         IrRule(
             "sequence",
             IrAlternation(
@@ -348,18 +441,15 @@ GBNF_GRAMMAR = IrAst(
                 )
             ),
         ),
+        IrRule("empty-seq", IrAlternation(IrSequence())),
         IrRule(
             "first-item",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("n"), IrQuantifier(0, 1)),
-                    IrItem(IrRuleRef("item")),
+                    IrItem(IrRuleRef("n"), IrQuantifier(0)), IrItem(IrRuleRef("item"))
                 )
             ),
         ),
-        # A following item either comes after real noise, or starts with a
-        # non-name atom — bare name-after-name without separation would
-        # re-segment what Lark's lexer read as ONE maximal-munch NAME.
         IrRule(
             "seq-rest",
             IrAlternation(
@@ -382,31 +472,6 @@ GBNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "atom-nonname",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("literal"))),
-                IrSequence(IrItem(IrRuleRef("charclass"))),
-                IrSequence(IrItem(IrRuleRef("group"))),
-            ),
-        ),
-        # quant-opt/ws-quant: optional quantifier, possibly noise-separated
-        # from its atom (Lark %ignore allowed `atom ?`).
-        IrRule(
-            "quant-opt",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("ws-quant"), IrQuantifier(0, 1)))
-            ),
-        ),
-        IrRule(
-            "ws-quant",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("n"), IrQuantifier(0, 1)),
-                    IrItem(IrRuleRef("quantifier")),
-                )
-            ),
-        ),
-        IrRule(
             "atom",
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("literal"))),
@@ -416,17 +481,89 @@ GBNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
+            "quant-opt",
+            IrAlternation(IrSequence(IrItem(IrRuleRef("ws-quant"), IrQuantifier(0)))),
+        ),
+        IrRule(
+            "atom-nonname",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("literal"))),
+                IrSequence(IrItem(IrRuleRef("charclass"))),
+                IrSequence(IrItem(IrRuleRef("group"))),
+            ),
+        ),
+        IrRule(
+            "literal",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral('"')),
+                    IrItem(IrRuleRef("lunit"), IrQuantifier(0, IrNone)),
+                    IrItem(IrLiteral('"')),
+                )
+            ),
+        ),
+        IrRule(
+            "charclass",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cc-pos"))),
+                IrSequence(IrItem(IrRuleRef("cc-neg"))),
+            ),
+        ),
+        IrRule(
             "group",
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("(")),
                     IrItem(IrRuleRef("alternation")),
-                    IrItem(IrRuleRef("n"), IrQuantifier(0, 1)),
+                    IrItem(IrRuleRef("n"), IrQuantifier(0)),
                     IrItem(IrLiteral(")")),
                 )
             ),
         ),
-        # ── quantifiers ────────────────────────────────────────────────
+        IrRule(
+            "ws-quant",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("n"), IrQuantifier(0)),
+                    IrItem(IrRuleRef("quantifier")),
+                )
+            ),
+        ),
+        IrRule(
+            "lunit",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("lplain"))),
+                IrSequence(IrItem(IrRuleRef("lesc-short"))),
+                IrSequence(IrItem(IrRuleRef("lesc-hex"))),
+                IrSequence(IrItem(IrRuleRef("lesc-other"))),
+            ),
+        ),
+        IrRule(
+            "cc-pos",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("[")),
+                    IrItem(IrRuleRef("cc-first")),
+                    IrItem(IrRuleRef("cc-item"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("cc-dash"), IrQuantifier(0)),
+                    IrItem(IrLiteral("]")),
+                ),
+                IrSequence(IrItem(IrLiteral("[]"))),
+            ),
+        ),
+        IrRule(
+            "cc-neg",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("[^")),
+                    IrItem(IrRuleRef("cc-nfirst")),
+                    IrItem(IrRuleRef("cc-item"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("cc-dash"), IrQuantifier(0)),
+                    IrItem(IrLiteral("]")),
+                ),
+                IrSequence(IrItem(IrLiteral("[^]"))),
+            ),
+        ),
         IrRule(
             "quantifier",
             IrAlternation(
@@ -436,6 +573,68 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("q-exact"))),
                 IrSequence(IrItem(IrRuleRef("q-atleast"))),
                 IrSequence(IrItem(IrRuleRef("q-between"))),
+            ),
+        ),
+        IrRule(
+            "lplain",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(0), IrChr(33)),
+                            IrRange(IrChr(35), IrChr(91)),
+                            IrRange(IrChr(93), IrChr(1114111)),
+                        )
+                    )
+                )
+            ),
+        ),
+        IrRule(
+            "lesc-short",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("lesc-n"))),
+                IrSequence(IrItem(IrRuleRef("lesc-t"))),
+                IrSequence(IrItem(IrRuleRef("lesc-r"))),
+                IrSequence(IrItem(IrRuleRef("lesc-dq"))),
+                IrSequence(IrItem(IrRuleRef("lesc-bs"))),
+            ),
+        ),
+        IrRule(
+            "lesc-hex",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("hex2"))),
+                IrSequence(IrItem(IrRuleRef("hex4"))),
+                IrSequence(IrItem(IrRuleRef("hex8"))),
+            ),
+        ),
+        IrRule(
+            "lesc-other",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("\\")), IrItem(IrRuleRef("lother")))
+            ),
+        ),
+        IrRule(
+            "cc-first",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cc-range-nc"))),
+                IrSequence(IrItem(IrRuleRef("cc-unit-nc"))),
+                IrSequence(IrItem(IrRuleRef("cc-dash"))),
+            ),
+        ),
+        IrRule(
+            "cc-item",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cc-range"))),
+                IrSequence(IrItem(IrRuleRef("cc-unit"))),
+            ),
+        ),
+        IrRule("cc-dash", IrAlternation(IrSequence(IrItem(IrLiteral("-"))))),
+        IrRule(
+            "cc-nfirst",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cc-range"))),
+                IrSequence(IrItem(IrRuleRef("cc-unit"))),
+                IrSequence(IrItem(IrRuleRef("cc-dash"))),
             ),
         ),
         IrRule("q-opt", IrAlternation(IrSequence(IrItem(IrLiteral("?"))))),
@@ -457,8 +656,7 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(
                     IrItem(IrLiteral("{")),
                     IrItem(IrRuleRef("decits")),
-                    IrItem(IrLiteral(",")),
-                    IrItem(IrLiteral("}")),
+                    IrItem(IrLiteral(",}")),
                 )
             ),
         ),
@@ -474,67 +672,11 @@ GBNF_GRAMMAR = IrAst(
                 )
             ),
         ),
-        IrRule(
-            "decits",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)))
-            ),
-        ),
-        IrRule(
-            "digit",
-            IrAlternation(
-                IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
-            ),
-        ),
-        # ── literals: '"' lunit* '"', escapes distinguished structurally ──
-        IrRule(
-            "literal",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral('"')),
-                    IrItem(IrRuleRef("lunit"), IrQuantifier(0, IrNone)),
-                    IrItem(IrLiteral('"')),
-                )
-            ),
-        ),
-        IrRule(
-            "lunit",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("lplain"))),
-                IrSequence(IrItem(IrRuleRef("lesc-short"))),
-                IrSequence(IrItem(IrRuleRef("lesc-hex"))),
-                IrSequence(IrItem(IrRuleRef("lesc-other"))),
-            ),
-        ),
-        IrRule(
-            "lplain",
-            IrAlternation(
-                IrSequence(IrItem(IrNot(IrCharClass(IrChr('"'), IrChr("\\")))))
-            ),
-        ),
-        IrRule(
-            "lesc-short",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("lesc-n"))),
-                IrSequence(IrItem(IrRuleRef("lesc-t"))),
-                IrSequence(IrItem(IrRuleRef("lesc-r"))),
-                IrSequence(IrItem(IrRuleRef("lesc-dq"))),
-                IrSequence(IrItem(IrRuleRef("lesc-bs"))),
-            ),
-        ),
         IrRule("lesc-n", IrAlternation(IrSequence(IrItem(IrLiteral("\\n"))))),
         IrRule("lesc-t", IrAlternation(IrSequence(IrItem(IrLiteral("\\t"))))),
         IrRule("lesc-r", IrAlternation(IrSequence(IrItem(IrLiteral("\\r"))))),
         IrRule("lesc-dq", IrAlternation(IrSequence(IrItem(IrLiteral('\\"'))))),
         IrRule("lesc-bs", IrAlternation(IrSequence(IrItem(IrLiteral("\\\\"))))),
-        IrRule(
-            "lesc-hex",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("hex2"))),
-                IrSequence(IrItem(IrRuleRef("hex4"))),
-                IrSequence(IrItem(IrRuleRef("hex8"))),
-            ),
-        ),
         IrRule(
             "hex2",
             IrAlternation(
@@ -574,121 +716,22 @@ GBNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "hexch",
-            IrAlternation(
-                IrSequence(
-                    IrItem(
-                        IrCharClass(
-                            IrRange(IrChr("0"), IrChr("9")),
-                            IrRange(IrChr("a"), IrChr("f")),
-                            IrRange(IrChr("A"), IrChr("F")),
-                        )
-                    )
-                )
-            ),
-        ),
-        # unknown escape in a literal: GBNF_ESCAPES.decode keeps it verbatim
-        # (backslash retained). Excludes short chars, hex tags, and newline.
-        IrRule(
-            "lesc-other",
-            IrAlternation(
-                IrSequence(IrItem(IrLiteral("\\")), IrItem(IrRuleRef("lother")))
-            ),
-        ),
-        IrRule(
             "lother",
             IrAlternation(
                 IrSequence(
                     IrItem(
-                        IrNot(
-                            IrCharClass(
-                                IrChr("n"),
-                                IrChr("t"),
-                                IrChr("r"),
-                                IrChr('"'),
-                                IrChr("\\"),
-                                IrChr("x"),
-                                IrChr("u"),
-                                IrChr("U"),
-                                IrChr("\n"),
-                            )
+                        IrCharClass(
+                            IrRange(IrChr(0), IrChr(9)),
+                            IrRange(IrChr(11), IrChr(33)),
+                            IrRange(IrChr(35), IrChr(84)),
+                            IrRange(IrChr(86), IrChr(91)),
+                            IrRange(IrChr(93), IrChr(109)),
+                            IrRange(IrChr(111), IrChr(113)),
+                            IrChr(115),
+                            IrRange(IrChr(118), IrChr(119)),
+                            IrRange(IrChr(121), IrChr(1114111)),
                         )
                     )
-                )
-            ),
-        ),
-        # ── charclasses: [...] / [^...]; units via CANONICAL escapes ─────
-        # Bare '-' is positional (the linear scan's semantics): legal leading
-        # (cc-first/cc-nfirst), trailing (the optional cc-dash before "]"),
-        # or as a range's hi — never as a free interior item, which would
-        # make every range ambiguous against unit-dash-unit.
-        IrRule(
-            "charclass",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-pos"))),
-                IrSequence(IrItem(IrRuleRef("cc-neg"))),
-            ),
-        ),
-        IrRule(
-            "cc-pos",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("[")),
-                    IrItem(IrRuleRef("cc-first")),
-                    IrItem(IrRuleRef("cc-item"), IrQuantifier(0, IrNone)),
-                    IrItem(IrRuleRef("cc-dash"), IrQuantifier(0, 1)),
-                    IrItem(IrLiteral("]")),
-                ),
-                IrSequence(IrItem(IrLiteral("[")), IrItem(IrLiteral("]"))),
-            ),
-        ),
-        IrRule(
-            "cc-neg",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("[^")),
-                    IrItem(IrRuleRef("cc-nfirst")),
-                    IrItem(IrRuleRef("cc-item"), IrQuantifier(0, IrNone)),
-                    IrItem(IrRuleRef("cc-dash"), IrQuantifier(0, 1)),
-                    IrItem(IrLiteral("]")),
-                ),
-                IrSequence(IrItem(IrLiteral("[^")), IrItem(IrLiteral("]"))),
-            ),
-        ),
-        # first item of a positive class must not be a bare '^' (that spelling
-        # is the negation marker); escaped or later '^' is an ordinary unit.
-        IrRule(
-            "cc-first",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-range-nc"))),
-                IrSequence(IrItem(IrRuleRef("cc-unit-nc"))),
-                IrSequence(IrItem(IrRuleRef("cc-dash"))),
-            ),
-        ),
-        IrRule(
-            "cc-nfirst",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-range"))),
-                IrSequence(IrItem(IrRuleRef("cc-unit"))),
-                IrSequence(IrItem(IrRuleRef("cc-dash"))),
-            ),
-        ),
-        IrRule(
-            "cc-item",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-range"))),
-                IrSequence(IrItem(IrRuleRef("cc-unit"))),
-            ),
-        ),
-        # ranges: lo may not be a bare dash (corpus never leads a range with
-        # '-' or '^'); hi may be.
-        IrRule(
-            "cc-range",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("cc-unit")),
-                    IrItem(IrLiteral("-")),
-                    IrItem(IrRuleRef("cc-hi")),
                 )
             ),
         ),
@@ -703,13 +746,22 @@ GBNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "cc-hi",
+            "cc-unit-nc",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-unit"))),
-                IrSequence(IrItem(IrRuleRef("cc-dash"))),
+                IrSequence(IrItem(IrRuleRef("cc-plain-nc"))),
+                IrSequence(IrItem(IrRuleRef("cc-esc"))),
             ),
         ),
-        IrRule("cc-dash", IrAlternation(IrSequence(IrItem(IrLiteral("-"))))),
+        IrRule(
+            "cc-range",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("cc-unit")),
+                    IrItem(IrLiteral("-")),
+                    IrItem(IrRuleRef("cc-hi")),
+                )
+            ),
+        ),
         IrRule(
             "cc-unit",
             IrAlternation(
@@ -718,18 +770,30 @@ GBNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "cc-unit-nc",
+            "decits",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-plain-nc"))),
-                IrSequence(IrItem(IrRuleRef("cc-esc"))),
+                IrSequence(IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)))
             ),
         ),
         IrRule(
-            "cc-plain",
+            "hexch",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrNot(IrCharClass(IrChr("]"), IrChr("\\"), IrChr("-"))))
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(48), IrChr(57)),
+                            IrRange(IrChr(65), IrChr(70)),
+                            IrRange(IrChr(97), IrChr(102)),
+                        )
+                    )
                 )
+            ),
+        ),
+        IrRule(
+            "cc-hi",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cc-unit"))),
+                IrSequence(IrItem(IrRuleRef("cc-dash"))),
             ),
         ),
         IrRule(
@@ -737,8 +801,10 @@ GBNF_GRAMMAR = IrAst(
             IrAlternation(
                 IrSequence(
                     IrItem(
-                        IrNot(
-                            IrCharClass(IrChr("]"), IrChr("\\"), IrChr("-"), IrChr("^"))
+                        IrCharClass(
+                            IrRange(IrChr(0), IrChr(44)),
+                            IrRange(IrChr(46), IrChr(91)),
+                            IrRange(IrChr(95), IrChr(1114111)),
                         )
                     )
                 )
@@ -753,6 +819,26 @@ GBNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
+            "cc-plain",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(0), IrChr(44)),
+                            IrRange(IrChr(46), IrChr(91)),
+                            IrRange(IrChr(94), IrChr(1114111)),
+                        )
+                    )
+                )
+            ),
+        ),
+        IrRule(
+            "digit",
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))))
+            ),
+        ),
+        IrRule(
             "cc-esc-short",
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("ccesc-n"))),
@@ -764,13 +850,6 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("ccesc-caret"))),
             ),
         ),
-        IrRule("ccesc-n", IrAlternation(IrSequence(IrItem(IrLiteral("\\n"))))),
-        IrRule("ccesc-t", IrAlternation(IrSequence(IrItem(IrLiteral("\\t"))))),
-        IrRule("ccesc-r", IrAlternation(IrSequence(IrItem(IrLiteral("\\r"))))),
-        IrRule("ccesc-bs", IrAlternation(IrSequence(IrItem(IrLiteral("\\\\"))))),
-        IrRule("ccesc-rb", IrAlternation(IrSequence(IrItem(IrLiteral("\\]"))))),
-        IrRule("ccesc-dash", IrAlternation(IrSequence(IrItem(IrLiteral("\\-"))))),
-        IrRule("ccesc-caret", IrAlternation(IrSequence(IrItem(IrLiteral("\\^"))))),
         IrRule(
             "cc-esc-hex",
             IrAlternation(
@@ -779,6 +858,19 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("cchex8"))),
             ),
         ),
+        IrRule(
+            "cc-esc-other",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("\\")), IrItem(IrRuleRef("cc-other")))
+            ),
+        ),
+        IrRule("ccesc-n", IrAlternation(IrSequence(IrItem(IrLiteral("\\n"))))),
+        IrRule("ccesc-t", IrAlternation(IrSequence(IrItem(IrLiteral("\\t"))))),
+        IrRule("ccesc-r", IrAlternation(IrSequence(IrItem(IrLiteral("\\r"))))),
+        IrRule("ccesc-bs", IrAlternation(IrSequence(IrItem(IrLiteral("\\\\"))))),
+        IrRule("ccesc-rb", IrAlternation(IrSequence(IrItem(IrLiteral("\\]"))))),
+        IrRule("ccesc-dash", IrAlternation(IrSequence(IrItem(IrLiteral("\\-"))))),
+        IrRule("ccesc-caret", IrAlternation(IrSequence(IrItem(IrLiteral("\\^"))))),
         IrRule(
             "cchex2",
             IrAlternation(
@@ -817,95 +909,28 @@ GBNF_GRAMMAR = IrAst(
                 )
             ),
         ),
-        # unknown escape in a class: CANONICAL read_escape yields the bare char.
-        IrRule(
-            "cc-esc-other",
-            IrAlternation(
-                IrSequence(IrItem(IrLiteral("\\")), IrItem(IrRuleRef("cc-other")))
-            ),
-        ),
         IrRule(
             "cc-other",
             IrAlternation(
                 IrSequence(
                     IrItem(
-                        IrNot(
-                            IrCharClass(
-                                IrChr("n"),
-                                IrChr("t"),
-                                IrChr("r"),
-                                IrChr("\\"),
-                                IrChr("]"),
-                                IrChr("-"),
-                                IrChr("^"),
-                                IrChr("x"),
-                                IrChr("u"),
-                                IrChr("U"),
-                                IrChr("\n"),
-                            )
+                        IrCharClass(
+                            IrRange(IrChr(0), IrChr(9)),
+                            IrRange(IrChr(11), IrChr(44)),
+                            IrRange(IrChr(46), IrChr(84)),
+                            IrRange(IrChr(86), IrChr(91)),
+                            IrRange(IrChr(95), IrChr(109)),
+                            IrRange(IrChr(111), IrChr(113)),
+                            IrChr(115),
+                            IrRange(IrChr(118), IrChr(119)),
+                            IrRange(IrChr(121), IrChr(1114111)),
                         )
                     )
                 )
             ),
         ),
-        # ── noise: whitespace and comments ────────────────────────────────
-        IrRule(
-            "n",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("nunit"), IrQuantifier(1, IrNone)))
-            ),
-            semantic=False,
-        ),
-        IrRule(
-            "nunit",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("wschar"))),
-                IrSequence(IrItem(IrRuleRef("comment-line"))),
-            ),
-        ),
-        IrRule(
-            "wschar",
-            IrAlternation(
-                IrSequence(
-                    IrItem(
-                        IrCharClass(IrChr(" "), IrChr("\t"), IrChr("\n"), IrChr("\r"))
-                    )
-                )
-            ),
-        ),
-        # comment-line owns its terminating newline so consecutive comments
-        # cannot re-segment (ambiguity guard); tail-comment covers a final
-        # unterminated comment at EOF.
-        IrRule(
-            "comment-line",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("#")),
-                    IrItem(IrRuleRef("cmchar"), IrQuantifier(0, IrNone)),
-                    IrItem(IrLiteral("\n")),
-                )
-            ),
-        ),
-        IrRule(
-            "tail-comment",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("#")),
-                    IrItem(IrRuleRef("cmchar"), IrQuantifier(0, IrNone)),
-                )
-            ),
-            semantic=False,
-        ),
-        IrRule(
-            "cmchar", IrAlternation(IrSequence(IrItem(IrNot(IrCharClass(IrChr("\n"))))))
-        ),
     ),
-    start="grammar",
-    # Noise rules carry semantic=False (see "n" and "tail-comment" above) — the
-    # single source of truth. GBNF_GRAMMAR.non_semantic (a derived property)
-    # collects their names; it drives GBNF_NOISE (below), and the same fact
-    # reaches derive_specs and semantic_dump for user grammars via the
-    # @non-semantic directive.
+    "grammar",
 )
 """The GBNF grammar of GBNF as a canonical :class:`IrAst`."""
 

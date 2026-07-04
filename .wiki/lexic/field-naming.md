@@ -1,10 +1,10 @@
 # Field Naming Policy
 
-**When to load:** implementing or debugging `_field_map`; adding a new atom type that needs a field name; investigating a field name collision; understanding `_ATOM_HINT` vs `_FIELD_BASE` difference.
+**When to load:** implementing or debugging `bind_fields`; adding a new atom type that needs a field name; investigating a field name collision; understanding `_HINT` vs `_TIER2` difference.
 
-See also: [[ir-shapes]]
+See also: [[ir-shapes]], [[codegen]]
 
-Source: `ir/naming.py` (`assign_field_names`, `CHARCLASS_NAMES`, `_LITERAL_NAMES`) and `ir/derive.py` (`_field_map`, `_FIELD_BASE`, `_ATOM_HINT`).
+Source: `codegen/binding.py` (`bind_fields`, `CHARCLASS_NAMES`, `LITERAL_NAMES`, `_HINT`, `_TIER2`, `mode_for`). The retired `ir/naming.py` (`assign_field_names`) and `ir/derive.py` (`_field_map`, `_FIELD_BASE`, `_ATOM_HINT`) are gone (2026-07-04 RuleSpec→IR-native codegen cutover) — this is the same three-tier cascade, moved wholesale into the binding view and rebuilt as open `IrDispatch`/`IrTypeMap` tables instead of closed `dict[type, …]` lookups.
 
 ## Three-tier cascade
 
@@ -15,23 +15,22 @@ Collisions disambiguated by suffix: `ws`, `ws2`, `ws3`, …
 
 ### Tier 2 — Pattern library
 
-**`CHARCLASS_NAMES`** (9 entries — ground truth, do not add without discussion):
+**`CHARCLASS_NAMES`** (8 entries — ground truth, do not add without discussion). Keys are **canonical** char-class patterns: the binding view reads the post-`canonicalize` codegen grammar, so members are already deduped, ranges coalesced, and sorted by codepoint — a pre-canonical spelling (e.g. `[a-fA-F0-9]` for hex) never appears as a key because it can never appear as input:
 
 | Pattern | Name |
 |---|---|
 | `[0-9]` | `digit` |
-| `[0-9a-fA-F]` | `hex` |
-| `[a-fA-F0-9]` | `hex` (both orderings normalise to `hex`) |
+| `[0-9A-Fa-f]` | `hex` |
 | `[a-f]` | `hex_lower` |
 | `[A-F]` | `hex_upper` |
 | `[a-z]` | `lower` |
 | `[A-Z]` | `upper` |
-| `[a-zA-Z]` | `letter` |
-| `[a-zA-Z_0-9]` | `alnum` |
+| `[A-Za-z]` | `letter` |
+| `[0-9A-Z_a-z]` | `alnum` |
 
-Falls back to `_sanitize_pattern` (strip brackets, lowercase, replace non-alnum with `_`, strip leading digits with `cc_` prefix, truncate to 12 chars). Returns `""` on failure → falls to Tier 3.
+Falls back to `_pattern_slug` (strip brackets, lowercase, replace non-alnum with `_`, collapse underscore runs, strip leading digits with a `cc_` prefix, truncate to 12 chars) — empty string on total failure, then `"cc"`.
 
-**`_LITERAL_NAMES`** (for quantified literals):
+**`LITERAL_NAMES`** (for quantified literals):
 
 | Value | Name |
 |---|---|
@@ -43,7 +42,7 @@ Falls back to `_sanitize_pattern` (strip brackets, lowercase, replace non-alnum 
 | `=` | `eq` |
 | `x`, `e`, `E` | `x`, `e`, `E` |
 
-Falls back to `_ascii_token` (replace non-alnum with `_`, lowercase, truncate to 12) then `"lit"`.
+Falls back to `_literal_token` (replace non-alnum with `_`, strip, lowercase, truncate to 12) then `"lit"`.
 
 ### Tier 3 — Positional fallback
 
@@ -51,24 +50,28 @@ First unmatched pattern atom → `head`. Subsequent → `part_2`, `part_3`, …
 
 ## Skip conditions
 
-- **Unquantified `IrLiteral`** (`quantifier=(1,1)`) → no field, never reaches Tier 3.
-- **`AlternationAtom`** → no field.
-- Quantified `IrLiteral` (`?`, `+`, `*`, `{m,n}`) → goes through Tier 2 via `_LITERAL_NAMES`.
+- **Unquantified `IrLiteral`** (`quantifier == IrQuantifier(1, 1)`, `_is_structural_literal`) → no field, never reaches Tier 3.
+- **`IrAlternation` as a field-less pass-through** (an `"alternation"`-kind rule after `hoist_arms`) → no field — but an inline group *as an item's atom* (a ref-bearing or literal-only group inside a `"sequence"`-kind rule) IS bound, via Tier 2's `_group_field`/`_group_hint` bodies (`"kind"` for ref-bearing, its first atom's hint for literal-only, `None`/`"inline"` fallback → Tier 3).
+- Quantified `IrLiteral` (`?`, `+`, `*`, `{m,n}`) → always names via Tier 2 (`_literal_token`), never Tier 3.
 
-## Internal tables
+## Internal tables — open `IrDispatch` tables, not closed dicts
 
-> **V2 note (2026-06-04):** these tables key on the str-leaf directly — the leaf IS-A `str`, so `LITERAL_NAMES.get(leaf)` / `CHARCLASS_NAMES.get(_bracketed(leaf))` work without a `.value`. `_ATOM_HINT`/`_FIELD_BASE` are `dict[type, …]` closed-set tables; they are prime targets of the deferred open-set consumer rework (see [[decisions]]) — treat them as legacy, not the target shape.
+> **2026-07-04 note:** naming is now built as open `IrDispatch`/`IrTypeMap` tables (`_HINT`, `_TIER2` in `codegen/binding.py`) with a raising default, rather than the retired `_ATOM_HINT`/`_FIELD_BASE` closed `dict[type, …]` lookups — this is where the deferred open-set consumer rework (see [[decisions]]) actually landed for field naming. The tables still key on the str-leaf directly (the leaf IS-A `str`, so `LITERAL_NAMES.get(leaf)` / `CHARCLASS_NAMES.get(f"[{cc.pattern()}]")` work without a `.value`).
 
-**`_ATOM_HINT`** (`derive.py`) — used by `_group_hint` to name the first child of a literal-only group. Always returns `str` (sanitize/fallback ensures no `None`). `IrGroup` with rulerefs → `"kind"`; literal-only group → delegates to content.
+**`_HINT`** — used by `_group_hint` to name the first child of a literal-only group. Always yields a name (`_literal_field`/`_ref_field`/`_charclass_hint`/`_group_hint` bodies cover every atom type; an unregistered type raises via `IrDispatch`'s default, rather than silently returning `None`). A ref-bearing group → `"kind"`; a literal-only group → delegates to its first atom's hint.
 
-**`_FIELD_BASE`** (`derive.py`) — used by `_field_map` for top-level field naming. Returns `str | None`. `None` means no Tier-2 match; `_field_map` falls through to Tier-3 positional naming. This is the key contract difference from `_ATOM_HINT`.
+**`_TIER2`** — used by `bind_fields` for top-level field naming. May yield `IrNone`. `IrNone` means no Tier-2 match; `bind_fields` falls through to Tier-3 positional naming (`head`, `part_N`). This is the key contract difference from `_HINT`.
 
-`IrGroup` in `_FIELD_BASE` → `_group_field_base`: ruleref group → `"kind"`, good literal hint → the hint, bad hint (`"inline"`, `"lit"`, `"cc"`) → `None` (Tier-3 fallback).
+`IrAlternation` in `_TIER2` → `_group_field`: ruleref group → `"kind"`, a good literal hint → that hint, a bad hint (`"inline"`, `"lit"`, `"cc"`) → `IrNone` (Tier-3 fallback).
+
+## Fold mode — a sibling table, not part of naming
+
+`mode_for(item)` (also `codegen/binding.py`) derives the field's fold mode (one of `BIND_MODES` — `text`/`gtext`/`model`/`models`, see [[ir-shapes]]'s `IrBind` section) from the same item, via its own `_MODE` `IrDispatch` table dispatched on the atom with the owning `IrItem` riding the argument channel (so the ref/group bodies can read the quantifier to decide `model` vs `models`). Naming and mode are computed independently — a field's name never encodes its mode.
 
 ## Collision handling
 
-`counts[base]` increments on each use. First occurrence → `base`; subsequent → `base2`, `base3`, … Counters reset per rule (per `_field_map` call).
+`counts[name]` increments on each use. First occurrence → `name`; subsequent → `name2`, `name3`, … Counters reset per rule (per `bind_fields` call).
 
 ## Future
 
-Slice C replaces this policy with a four-tier cascade: type alias → pattern library → structural positional → sidecar YAML. `ir/naming.py` is intentionally isolated so it can be swapped with minimal blast radius.
+The open-set consumer rework (see [[decisions]], [[ir-shapes]]'s open-set note) is complete everywhere as of 2026-07-04 — `generate.py`, `codegen/model_emitter.py`, and `codegen/aliases.py` all landed the same open-table treatment field naming already had.

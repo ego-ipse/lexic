@@ -69,18 +69,25 @@ grammar text
    └─► parse_grammar                   IrAst      [native Earley engine]
             │
             ▼
-        derive_specs                   list[RuleSpec]
-            │
-   ┌────────┼────────────────────┬──────────────────────┐
-   ▼        ▼                    ▼                      ▼
- codegen  flavour.apply       build_instance_parser (further passes…)
- (Pydantic) (grammar text)    (instance grammar
-                              + ModelFold)
+      canonicalize                     canonical IrAst   [language-preserving
+            │                           normal form — two flavours of the same
+            │                           language converge on the same tree]
+            ▼
+   build_codegen_grammar               THE codegen grammar
+   (hoist groups, hoist arms,               │
+    relax non-semantic refs)                │
+            │                               │
+   ┌────────┼───────────────┬───────────────┼──────────────────────┐
+   ▼        ▼                ▼                                      ▼
+compute_binding  codegen (Annotated/IrBind    PositionalFold      flavour.apply
+(class/kind/     fields, __grammar__          (instance parsing    (grammar text,
+ parent/field    footers → Pydantic)          over the codegen     either flavour)
+ names)                                        grammar directly)
 ```
 
-Parsing is a **native Earley engine** (`lexic.parsing` — SPPF, Scott 2008, pure Python, zero parser dependencies). The same engine drives grammar-text parsing (each flavour carries its own self-grammar as IR) and generated-instance parsing.
+Parsing is a **native Earley engine** (`lexic.parsing` — SPPF, Scott 2008, pure Python, zero parser dependencies). The same engine drives grammar-text parsing (each flavour carries its own self-grammar as IR) and generated-instance parsing — the latter via a positional fold over the real codegen grammar, no intermediate wrapper grammar.
 
-The IR substrate is **action-driven**: every transformation (derive, codegen, flavour emission) is expressed as a tuple of `IrAction(target_type, body)` plugged into a single dispatcher (`IrDispatch` / `IrVisitor` / `IrTransformer` / `IrEmitter`). New IR node types extend the table; the dispatcher needs no subclassing.
+The IR substrate is **action-driven**: every transformation (canonicalization, codegen, flavour emission) is expressed as a tuple of `IrAction(target_type, body)` plugged into a single dispatcher (`IrDispatch` / `IrVisitor` / `IrTransformer` / `IrEmitter`). New IR node types extend the table; the dispatcher needs no subclassing.
 
 For the full architecture, layering rules, and IR substrate documentation, see:
 
@@ -90,9 +97,9 @@ For the full architecture, layering rules, and IR substrate documentation, see:
 
 ## Test grammars
 
-Seven ground-truth grammars live in `resources/ground_truth/`. Property tests round-trip every valid input through them:
+Eight ground-truth `.gbnf` grammars live in `resources/ground_truth/`, plus two `.abnf` siblings (`arithmetic`, `json`) used to check cross-flavour compile parity. Property tests round-trip every valid input through them:
 
-`arithmetic` · `c` · `chess` · `japanese` · `json_arr` · `json_ws` · `list`
+`arithmetic` · `c` · `chess` · `japanese` · `json` · `json_arr` · `json_ws` · `list`
 
 ## Performance
 
@@ -119,11 +126,7 @@ tools/auto_fix.sh   # ruff format → isort → ruff check --fix
 
 ## Project status
 
-Lexic is pre-1.0 and actively churning. The IrItem-based pipeline cutover landed in May 2026; the action-driven substrate landed in late May 2026 ([[decisions]] P12–P18); the Lark→Earley cutover (native engine, Lark removed as a dependency) landed in early July 2026. Public invariants and roadmap live in `prototyping/next/`:
-
-- [`prototyping/next/1_NORTH_STAR.md`](prototyping/next/1_NORTH_STAR.md) — invariants every change must preserve.
-- [`prototyping/next/2_ARCHITECTURE.md`](prototyping/next/2_ARCHITECTURE.md) — target module layout.
-- [`prototyping/next/3_ROADMAP.md`](prototyping/next/3_ROADMAP.md) — five slices A–E.
+Lexic is pre-1.0 and actively churning. The IrItem-based pipeline cutover landed in May 2026; the action-driven substrate landed in late May 2026 ([[decisions]] P12–P18); the Lark→Earley cutover (native engine, Lark removed as a dependency) landed in early July 2026; the RuleSpec→IR-native codegen cutover (one canonical grammar drives codegen, instance parsing, emission, generation and round-trip — no intermediate spec layer) landed in early July 2026. Public invariants live in CLAUDE.md §Key invariants; architecture and decisions live in the wiki.
 
 ## License
 
