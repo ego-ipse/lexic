@@ -6,6 +6,11 @@ type: project
 
 **When to load:** before resuming any Slice B work; when deciding what to do next after the IrItem cutover.
 
+> **Historical (2026-07-04).** This page describes the pre-cutover
+> architecture — `Flavour` ABC, `MetaGrammarParser`, `GbnfFlavour(Flavour)` —
+> none of which exist anymore (see [[cutover-plan]]). Retained as an audit
+> log of the Slice B triage, not as current design reference.
+
 Source plan: `docs/superpowers/plans/2026-04-23-slice-b-pattern-atom-tier-2-5-tokens.md`
 
 ---

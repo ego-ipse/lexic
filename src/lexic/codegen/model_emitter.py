@@ -11,6 +11,7 @@ canonical import block is always emitted.
 from __future__ import annotations
 
 from io import StringIO
+from typing import ClassVar, Sequence
 
 from lexic.codegen.aliases import (
     PatternAlias,
@@ -24,7 +25,10 @@ from lexic.codegen.binding import (
     non_empty_arms,
 )
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.action import IrAction, IrRaise
+from lexic.ir.base import IrLambda, IrNamedTuple, IrSelf
 from lexic.ir.bind import BIND_MODES, IrBind
+from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -35,6 +39,7 @@ from lexic.ir.nodes import (
     IrRule,
     IrRuleRef,
 )
+from lexic.ir.walk import IrDispatch
 
 CANONICAL_IMPORTS = """\
 from __future__ import annotations
@@ -64,7 +69,7 @@ from lexic.ir import (
 
 
 def _is_optional(q: IrQuantifier) -> bool:
-    return q.lo == 0 and q.hi == 1
+    return q.lo == 0
 
 
 def _r_string(pattern: str) -> str:
@@ -116,32 +121,98 @@ def _group_union_type(alt: IrAlternation, class_by_rule: dict[str, str]) -> str:
     return names[0] if len(names) == 1 else f"Union[{', '.join(names)}]"
 
 
+class _FieldTyper(IrNamedTuple[dict, dict]):
+    """State carrier for the field-type dispatch — the class-name and alias maps.
+
+    Passed as the dispatcher ``d`` to the atom tables below so each open body
+    can read ``class_by_rule`` / ``aliases`` without a closure. ``_child_attrs``
+    is empty: neither map is an IR-node child.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    class_by_rule: dict[str, str]
+    aliases: dict[str, str]
+
+
+def _typer_item(nc: Sequence[IrSelf]) -> IrItem:
+    """The owning item riding the argument channel."""
+    item = nc[0]
+    assert isinstance(item, IrItem)
+    return item
+
+
+def _ty_ref(d: _FieldTyper, n: IrRuleRef, _nc: Sequence[IrSelf]) -> str:
+    """Model-mode body: a rule ref types as its referred class."""
+    return _ref_class(str(n), d.class_by_rule)
+
+
+def _ty_group_model(d: _FieldTyper, n: IrAlternation, _nc: Sequence[IrSelf]) -> str:
+    """Model-mode body: a ref-bearing group types as its sub-model union."""
+    return _group_union_type(n, d.class_by_rule)
+
+
+def _ty_literal(_d: _FieldTyper, _n: IrLiteral, _nc: Sequence[IrSelf]) -> str:
+    """Text-mode body: a literal field is a flat ``str``."""
+    return "str"
+
+
+def _ty_charclass(d: _FieldTyper, n: IrCharClass, nc: Sequence[IrSelf]) -> str:
+    """Text-mode body: a char class types as its anchored pattern alias."""
+    return _pattern_type(regex_for_charclass(n, _typer_item(nc).quantifier), d.aliases)
+
+
+def _ty_group_gtext(d: _FieldTyper, n: IrAlternation, nc: Sequence[IrSelf]) -> str:
+    """Gtext-mode body: a literal-only group types as its pattern alias."""
+    return _pattern_type(regex_for_group(n, _typer_item(nc).quantifier), d.aliases)
+
+
+# Per-mode atom tables (dispatch on the atom, item riding the channel). Each
+# raising default preserves the "no rule for this atom under this mode" message
+# quality — an atom type outside the mode's table fails loudly.
+_MODEL_TYPE: IrDispatch = IrDispatch(
+    actions=IrTypeMap(
+        IrAction(IrRuleRef, IrLambda(_ty_ref)),
+        IrAction(IrAlternation, IrLambda(_ty_group_model)),
+    ),
+    default=IrRaise(message="_base_field_type: no model-mode rule for {node_type!r}"),
+)
+_GTEXT_TYPE: IrDispatch = IrDispatch(
+    actions=IrTypeMap(IrAction(IrAlternation, IrLambda(_ty_group_gtext))),
+    default=IrRaise(message="_base_field_type: no gtext-mode rule for {node_type!r}"),
+)
+_TEXT_TYPE: IrDispatch = IrDispatch(
+    actions=IrTypeMap(
+        IrAction(IrLiteral, IrLambda(_ty_literal)),
+        IrAction(IrCharClass, IrLambda(_ty_charclass)),
+    ),
+    default=IrRaise(message="_base_field_type: no text-mode rule for {node_type!r}"),
+)
+_TYPE_BY_MODE: dict[str, IrDispatch] = {
+    "model": _MODEL_TYPE,
+    "models": _MODEL_TYPE,
+    "gtext": _GTEXT_TYPE,
+    "text": _TEXT_TYPE,
+}
+
+
 def _base_field_type(
     item: IrItem, mode: str, class_by_rule: dict[str, str], aliases: dict[str, str]
 ) -> str:
     """Base Python type for a bound item, before Optional/List wrapping.
 
-    Dispatch is on the fold ``mode`` (one of :data:`BIND_MODES`) crossed with the
-    atom kind, matching the binding view's mode derivation.
+    Dispatch is on the fold ``mode`` (one of :data:`BIND_MODES`) selecting an
+    open per-atom-type table, matching the binding view's mode derivation.
+
+    :raises UnsupportedConstructError: On an unknown mode, or an atom type with
+        no rule under the resolved mode.
     """
-    atom, q = item.atom, item.quantifier
-    if mode in ("model", "models"):
-        if isinstance(atom, IrRuleRef):
-            return _ref_class(str(atom), class_by_rule)
-        if isinstance(atom, IrAlternation):
-            return _group_union_type(atom, class_by_rule)
-    elif mode == "gtext":
-        if isinstance(atom, IrAlternation):
-            return _pattern_type(regex_for_group(atom, q), aliases)
-    elif mode == "text":
-        if isinstance(atom, IrLiteral):
-            return "str"
-        if isinstance(atom, IrCharClass):
-            return _pattern_type(regex_for_charclass(atom, q), aliases)
-    raise UnsupportedConstructError(
-        f"_base_field_type: no rule for mode {mode!r} / atom "
-        f"{type(atom).__name__!r} (modes: {BIND_MODES})"
-    )
+    table = _TYPE_BY_MODE.get(mode)
+    if table is None:
+        raise UnsupportedConstructError(
+            f"_base_field_type: unknown mode {mode!r} (modes: {BIND_MODES})"
+        )
+    typer = _FieldTyper(class_by_rule=class_by_rule, aliases=aliases)
+    return str(table.eval(typer, item.atom, (item,)))
 
 
 def _wrap_field_type(base: str, bind: IrBind, item: IrItem, empty_arm: bool) -> str:
@@ -158,25 +229,32 @@ def _wrap_field_type(base: str, bind: IrBind, item: IrItem, empty_arm: bool) -> 
     return inner if inner.startswith("Optional[") else f"Optional[{inner}]"
 
 
+# A value_str single-item arm reuses the text/gtext atom bodies (literal → str,
+# char class → charclass pattern, group → group pattern), one open table.
+_VALUE_TYPE: IrDispatch = IrDispatch(
+    actions=IrTypeMap(
+        IrAction(IrLiteral, IrLambda(_ty_literal)),
+        IrAction(IrCharClass, IrLambda(_ty_charclass)),
+        IrAction(IrAlternation, IrLambda(_ty_group_gtext)),
+    ),
+    default=IrRaise(message="_value_str_type: unexpected atom {node_type!r}"),
+)
+
+
 def _value_str_type(rule: IrRule, aliases: dict[str, str]) -> str:
     """Type for a value_str rule's implicit ``value`` field.
 
     A lone single-item arm takes that atom's pattern; a pure-literal alternation
     becomes a ``Literal[...]``; anything else folds to flat ``str``.
+
+    :raises UnsupportedConstructError: On a single-item arm whose atom has no
+        pattern rendering.
     """
     arms = non_empty_arms(rule.body)
     if len(arms) == 1 and len(arms[0]) == 1:
         item = arms[0][0]
-        atom, q = item.atom, item.quantifier
-        if isinstance(atom, IrLiteral):
-            return "str"
-        if isinstance(atom, IrCharClass):
-            return _pattern_type(regex_for_charclass(atom, q), aliases)
-        if isinstance(atom, IrAlternation):
-            return _pattern_type(regex_for_group(atom, q), aliases)
-        raise UnsupportedConstructError(
-            f"_value_str_type: unexpected atom {type(atom).__name__!r}"
-        )
+        typer = _FieldTyper(class_by_rule={}, aliases=aliases)
+        return str(_VALUE_TYPE.eval(typer, item.atom, (item,)))
     if _is_pure_literal_alt(rule.body):
         literals = ", ".join(f'"{arm[0].atom}"' for arm in non_empty_arms(rule.body))
         return f"Literal[{literals}]"

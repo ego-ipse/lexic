@@ -103,7 +103,7 @@ See `src/lexic/parsing/__init__.py`'s module docstring for the full engine modul
 
 ## IR is passed by action table, not closed subclass
 
-A pass is an `IrTypeMap` of `IrAction`s — not a closed subclass of `IrDispatch`. Flavours, transformers and emitters all extend the system by **constructing an instance** with a different `actions` table. New IR types don't require touching the dispatcher: just add an entry to the table. `codegen/binding.py` and `codegen/passes.py` follow the same discipline for codegen's classify/naming/mode logic (open `IrDispatch`/`IrTypeMap` tables with raising defaults) — the target shape a separate, deferred effort still needs to extend to the remaining closed-set consumers (`generate.py`, parts of `codegen/model_emitter.py`). See [[ir-shapes]]'s open-set note.
+A pass is an `IrTypeMap` of `IrAction`s — not a closed subclass of `IrDispatch`. Flavours, transformers and emitters all extend the system by **constructing an instance** with a different `actions` table. New IR types don't require touching the dispatcher: just add an entry to the table. `codegen/binding.py` and `codegen/passes.py` pioneered this discipline for codegen's classify/naming/mode logic; `generate.py`, `codegen/model_emitter.py`, and `codegen/aliases.py` have since landed the same open `IrDispatch`/`IrTypeMap` treatment (2026-07-04) — every atom-type consumer in the tree is now an open table with a raising default. See [[ir-shapes]]'s open-set note.
 
 ## `IrLiteral` dual role
 

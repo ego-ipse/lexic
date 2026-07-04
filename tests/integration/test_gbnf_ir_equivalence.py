@@ -37,6 +37,7 @@ _GOLDEN: dict[str, tuple[str, tuple[str, ...]]] = {
             "dataType",
             "identifier",
             "parameter",
+            "paramList",
             "statement",
             "forInit",
             "forUpdate",

@@ -74,6 +74,7 @@ from typing import Any, Callable
 
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.ir.base import IrAtom, IrNone, IrSeq
+from lexic.ir.canonical import canonicalize
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -708,9 +709,9 @@ def _print_header(have_lark: bool) -> None:
     """
     side = "engine + pure lark" if have_lark else "engine only (lark not installed)"
     print(f"== pure-lark parse benchmark: {side} ==")
-    fixpoint = (
-        engine_parse_reduced(NORM_GRAMMAR, BASE_TEXT, REDUCER) == ABNF_FLAVOUR.grammar
-    )
+    fixpoint = canonicalize(
+        engine_parse_reduced(NORM_GRAMMAR, BASE_TEXT, REDUCER)
+    ) == canonicalize(ABNF_FLAVOUR.grammar)
     print(
         f"ABNF self-host, {len(BASE_TEXT)} chars/copy.  engine parse+reduce fixpoint: {fixpoint}"
     )

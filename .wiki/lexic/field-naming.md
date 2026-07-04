@@ -74,4 +74,4 @@ First unmatched pattern atom → `head`. Subsequent → `part_2`, `part_3`, …
 
 ## Future
 
-The queued open-set consumer rework (see [[decisions]], [[ir-shapes]]'s open-set note) still has closed-set holdouts elsewhere (`generate.py`, parts of `codegen/model_emitter.py`) — field naming itself is already open-table.
+The open-set consumer rework (see [[decisions]], [[ir-shapes]]'s open-set note) is complete everywhere as of 2026-07-04 — `generate.py`, `codegen/model_emitter.py`, and `codegen/aliases.py` all landed the same open-table treatment field naming already had.

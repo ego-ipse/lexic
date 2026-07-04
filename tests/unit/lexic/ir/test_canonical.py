@@ -8,6 +8,8 @@ lives in tests/integration/test_canonical_fixpoint.py).
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
@@ -21,6 +23,7 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -79,6 +82,113 @@ def test_rewrite2_does_not_merge_a_multi_char_arm():
     )
     result = _canon_body(body, extra=(IrRule("thing", IrLiteral("T")),))
     assert len(result) == 2
+
+
+def test_rewrite2_merges_charclass_arms_via_intervals():
+    """Two char-class arms fuse by interval math into one coalesced class."""
+    body = IrAlternation(
+        IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("4"))))),
+        IrSequence(IrItem(IrCharClass(IrRange(IrChr("5"), IrChr("9"))))),
+    )
+    result = _canon_body(body)
+    assert result == IrAlternation(
+        IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
+    )
+
+
+def test_rewrite2_does_not_merge_a_multi_char_literal_arm():
+    """A multi-char literal arm is not char-class material — a mergeable run
+    on either side of it stays separate (two flushes, not one)."""
+    body = IrAlternation(
+        IrSequence(IrItem(IrLiteral("a"))),
+        IrSequence(IrItem(IrLiteral("b"))),
+        IrSequence(IrItem(IrLiteral("cd"))),
+        IrSequence(IrItem(IrLiteral("e"))),
+        IrSequence(IrItem(IrLiteral("f"))),
+    )
+    result = _canon_body(body)
+    assert len(result) == 3
+    assert isinstance(result[0][0].atom, IrCharClass)
+    assert result[0][0].atom.members() == [ord("a"), ord("b")]
+    assert result[1] == IrSequence(IrItem(IrLiteral("cd")))
+    assert isinstance(result[2][0].atom, IrCharClass)
+    assert result[2][0].atom.members() == [ord("e"), ord("f")]
+
+
+def test_rewrite2_unmergeable_middle_arm_splits_into_two_flushes():
+    """Two mergeable runs separated by an unmergeable arm merge independently."""
+    body = IrAlternation(
+        IrSequence(IrItem(IrLiteral("a"))),
+        IrSequence(IrItem(IrLiteral("b"))),
+        IrSequence(IrItem(IrRuleRef("thing"))),
+        IrSequence(IrItem(IrLiteral("c"))),
+        IrSequence(IrItem(IrLiteral("d"))),
+    )
+    result = _canon_body(body, extra=(IrRule("thing", IrLiteral("T")),))
+    assert len(result) == 3
+    first, ref_arm, last = result
+    assert isinstance(first[0].atom, IrCharClass)
+    assert first[0].atom.members() == [ord("a"), ord("b")]
+    assert ref_arm == IrSequence(IrItem(IrRuleRef("thing")))
+    assert isinstance(last[0].atom, IrCharClass)
+    assert last[0].atom.members() == [ord("c"), ord("d")]
+
+
+def test_rewrite2_does_not_merge_a_quantified_charclass_arm():
+    """A quantified char-class arm is excluded from the interval-merge run."""
+    body = IrAlternation(
+        IrSequence(IrItem(IrLiteral("a"))),
+        IrSequence(IrItem(IrCharClass(IrChr("b")), IrQuantifier(0, 1))),
+    )
+    result = _canon_body(body)
+    assert len(result) == 2
+    assert str(result[0][0].atom) == "a"
+    assert result[1][0].quantifier == IrQuantifier(0, 1)
+
+
+def test_rewrite2_merge_collapsing_to_a_single_point_becomes_a_literal():
+    """Two arms of the identical single char merge to a one-member class,
+    which then collapses to an IrLiteral via the same flush path (rewrite 1)."""
+    body = IrAlternation(
+        IrSequence(IrItem(IrLiteral("a"))), IrSequence(IrItem(IrLiteral("a")))
+    )
+    result = _canon_body(body)
+    assert result == IrAlternation(IrSequence(IrItem(IrLiteral("a"))))
+
+
+def test_rewrite2_merges_a_unicode_complement_arm_without_materialising():
+    """A ``[^a]`` complement arm (rewrite 4 → ~1.1M-point cover) merges by interval.
+
+    The merge path must stay in the interval domain — enumerating the
+    complement's members would build a million-entry list. The result is the
+    complement class itself (the single-char literal arm falls inside it).
+    """
+    body = IrAlternation(
+        IrSequence(IrItem(IrNot(IrCharClass(IrChr("a"))))),
+        IrSequence(IrItem(IrLiteral("a"))),
+    )
+    result = _canon_body(body)
+    assert len(result) == 1
+    atom = result[0][0].atom
+    assert isinstance(atom, IrCharClass)
+    assert atom == IrCharClass(IrRange(IrChr(0), IrChr(MAX_CODEPOINT)))
+
+
+def test_rewrite2_unicode_complement_merge_stays_interval_native():
+    """The whole canonicalize pass over a ``[^a]`` alternation arm is fast.
+
+    A time bound (not a structural one) here guards the full pipeline —
+    canonicalize() dispatching down through _merge_arms/flush — against a
+    regression that reintroduces per-point materialisation (the Task 1 defect
+    was ~1.1M IrChr constructions for exactly this shape).
+    """
+    body = IrAlternation(IrSequence(IrItem(IrNot(IrCharClass(IrChr("a"))))))
+    start = time.perf_counter()
+    _canon_body(body)
+    elapsed = time.perf_counter() - start
+    assert elapsed < 0.5, (
+        f"canonicalize of a Unicode-complement arm took {elapsed:.3f}s"
+    )
 
 
 # ── rewrite 3: adjacent literal run merge ───────────────────────────────

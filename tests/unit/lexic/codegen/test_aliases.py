@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.codegen.aliases import (
     PatternAlias,
+    _atom_regex_fragment,
+    _name_for_charclass,
     collect_aliases,
     regex_for_charclass,
     regex_for_group,
 )
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrNone, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
@@ -22,6 +27,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.operators import IrNot
 from tests.unit.lexic.codegen.conftest import make_charclass_literal_group
 
 _DIGIT = IrCharClass(IrRange(IrChr("0"), IrChr("9")))
@@ -82,6 +88,18 @@ def test_suffix_bounded_range_is_braced_pair():
     assert regex_for_charclass(_DIGIT, IrQuantifier(2, 5)) == r"^[0-9]{2,5}$"
 
 
+def test_name_for_charclass_tier2_hit_on_positive_form():
+    """Tier-2 lookup matches the plain (non-negated) bracket form."""
+    assert _name_for_charclass(_DIGIT) == "Digit"
+
+
+def test_name_for_charclass_negated_never_matches_tier2():
+    """CHARCLASS_NAMES has no negated (``[^...]``) entries — negated=True
+    always falls through to the empty-string (Tier-3 fallback) result, even
+    for a class whose positive form IS a Tier-2 hit."""
+    assert _name_for_charclass(_DIGIT, negated=True) == ""
+
+
 def test_regex_for_group_pure_pattern():
     """([a-h] 'x')? → ^([a-h]x)?$."""
     grp = make_charclass_literal_group()
@@ -95,6 +113,18 @@ def test_regex_for_group_alternation():
         IrSequence(IrItem(IrLiteral("bar"), IrQuantifier(1, 1))),
     )
     assert regex_for_group(grp, IrQuantifier(1, IrNone)) == r"^(foo|bar)+$"
+
+
+def test_atom_regex_fragment_ruleref_raises():
+    """A rule ref has no pattern rendering — the open fragment table refuses it."""
+    with pytest.raises(UnsupportedConstructError):
+        _atom_regex_fragment(IrItem(IrRuleRef("expr")))
+
+
+def test_atom_regex_fragment_stray_not_raises():
+    """A stray IrNot (dead on canonical input) hits the raising default."""
+    with pytest.raises(UnsupportedConstructError):
+        _atom_regex_fragment(IrItem(IrNot(IrCharClass(IrChr('"')))))
 
 
 # ── collect_aliases over a codegen grammar ────────────────────────────

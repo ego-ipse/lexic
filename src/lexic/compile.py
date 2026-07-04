@@ -13,8 +13,8 @@ Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)
           build_codegen_grammar   (groups hoisted, arms hoisted, noise
                      │             refs relaxed — lexic.codegen.passes)
                      ▼
-             compute_binding ──► codegen_ir  (classes w/ Annotated IrBind
-                     │                        fields, __grammar__ footers)
+             compute_binding ──► codegen  (classes w/ Annotated IrBind
+                     │                     fields, __grammar__ footers)
                      ▼
           fold config (plain data) ──► PositionalFold (lexic.parsing.fold)
                      │
@@ -47,6 +47,7 @@ from lexic.codegen import (
     build_codegen_grammar,
     codegen,
     compute_binding,
+    resolve_out_dir,
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
@@ -274,12 +275,14 @@ def _fold_config(
     return config
 
 
-def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGrammar:
+def _compile_core(
+    text: str, *, stem: str, flavour: str = "gbnf", out_dir: str | Path | None = None
+) -> CompiledGrammar:
     flavour_cls = get_flavour(flavour)
     ast = canonical_grammar(text, flavour_cls)
     codegen_grammar = build_codegen_grammar(ast)
     binding = compute_binding(codegen_grammar)
-    classes = codegen(ast, codegen_grammar, binding, stem)
+    classes = codegen(ast, codegen_grammar, binding, stem, out_dir)
     fold = PositionalFold(_fold_config(codegen_grammar, binding, classes))
     instance_grammar = normalize(lift_optional_nullables(codegen_grammar))
     return CompiledGrammar(
@@ -292,32 +295,65 @@ def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGra
 
 
 def compile_text(
-    text: str, *, cache_key: Hashable | None = None, flavour: str = "gbnf"
+    text: str,
+    *,
+    cache_key: Hashable | None = None,
+    flavour: str = "gbnf",
+    out_dir: str | Path | None = None,
 ) -> CompiledGrammar:
-    """Compile from a grammar string. cache_key=None means 'do not memoize'."""
-    if cache_key is not None:
-        cached = _CACHE.get(cache_key)
-        if cached is not None:
-            return cached
-    cg = _compile_core(text, stem=_stem_for_text(text), flavour=flavour)
-    if cache_key is not None:
-        _CACHE[cache_key] = cg
+    """Compile from a grammar string, memoised by content by default.
+
+    The default cache key is ``(content sha stem, flavour, resolved out_dir)``
+    — compiling the same source in the same flavour to the same output
+    directory returns the cached :class:`CompiledGrammar` (and its class
+    objects). Pass ``cache_key`` to override the key (an explicit key is used
+    as-is, not augmented with ``out_dir``); the test seam
+    :func:`reset_cache_for_tests` clears the cache when a caller needs fresh
+    class objects.
+
+    :param text: Grammar source in ``flavour``'s syntax.
+    :param cache_key: Explicit memo key; ``None`` uses the content default.
+    :param flavour: The grammar flavour name.
+    :param out_dir: Directory the generated module is written to; ``None``
+        resolves to the project's ``generated/`` directory.
+    :returns: The compiled grammar (cached across calls with the same key).
+    """
+    stem = _stem_for_text(text)
+    resolved_out_dir = str(resolve_out_dir(out_dir).resolve())
+    key = cache_key if cache_key is not None else (stem, flavour, resolved_out_dir)
+    cached = _CACHE.get(key)
+    if cached is not None:
+        return cached
+    cg = _compile_core(text, stem=stem, flavour=flavour, out_dir=out_dir)
+    _CACHE[key] = cg
     return cg
 
 
 def compile_from_path(
-    grammar_path: str | Path, *, flavour: str | None = None
+    grammar_path: str | Path,
+    *,
+    flavour: str | None = None,
+    out_dir: str | Path | None = None,
 ) -> CompiledGrammar:
-    """Compile from a file path; memoised by (path, mtime, size, flavour)."""
+    """Compile from a file path; memoised by (path, mtime, size, flavour, out_dir).
+
+    :param grammar_path: Path to the grammar source file.
+    :param flavour: The grammar flavour name; inferred from the file
+        extension if omitted.
+    :param out_dir: Directory the generated module is written to; ``None``
+        resolves to the project's ``generated/`` directory.
+    :returns: The compiled grammar (cached across calls with the same key).
+    """
     path = Path(grammar_path).resolve()
     stat = path.stat()
     if flavour is None:
         flavour = flavour_for_extension(path).name
-    key = (str(path), stat.st_mtime, stat.st_size, flavour)
+    resolved_out_dir = str(resolve_out_dir(out_dir).resolve())
+    key = (str(path), stat.st_mtime, stat.st_size, flavour, resolved_out_dir)
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     text = path.read_text(encoding="utf-8")
-    cg = _compile_core(text, stem=path.stem, flavour=flavour)
+    cg = _compile_core(text, stem=path.stem, flavour=flavour, out_dir=out_dir)
     _CACHE[key] = cg
     return cg

@@ -1,3 +1,5 @@
+# pylint: disable=too-many-lines
+# Test files may exceed max-module-lines (user ruling, 2026-07-04).
 """IR AST node dataclasses — frozen, hashable, immutable tuples."""
 
 from __future__ import annotations
@@ -957,3 +959,67 @@ def test_charclass_full_range_class_edges():
     full = IrCharClass(IrRange(IrChr(0), IrChr(MAX_CODEPOINT)))
     assert full.complement() == IrCharClass()
     assert full.normalized() == full
+
+
+# ── IrCharClass interval intrinsics (Task 1): intervals / from_intervals ──
+
+
+def test_charclass_intervals_coalesces_disjoint_cover():
+    """intervals() returns the minimal sorted disjoint (lo, hi) cover."""
+    cls = IrCharClass(IrChr("\t"), IrChr("\n"), IrChr("\r"), IrChr(" "))
+    assert cls.intervals() == [(9, 10), (13, 13), (32, 32)]
+
+
+def test_charclass_from_intervals_builds_normalized_class():
+    """from_intervals() builds IrChr/IrRange members directly, already normalised."""
+    cc = IrCharClass.from_intervals([(65, 65), (48, 57)])
+    assert cc == IrCharClass(IrRange(IrChr(48), IrChr(57)), IrChr(65))
+    assert cc == cc.normalized()
+
+
+def test_charclass_from_intervals_coalesces_overlapping_and_adjacent():
+    """from_intervals() merges overlapping and adjacent spans (no per-point work)."""
+    cc = IrCharClass.from_intervals([(1, 3), (4, 6), (2, 2)])
+    assert cc == IrCharClass(IrRange(IrChr(1), IrChr(6)))
+
+
+def test_charclass_from_intervals_does_not_materialise_a_unicode_complement():
+    """A ~1.1M-point complement cover builds via intervals without enumerating points.
+
+    Guards the canonicaliser's merge path (round-trip included): the complement
+    of a single point is two huge spans; from_intervals must construct a
+    two-member class, never a million-entry member list. A tight time bound
+    would flake, so the guard is structural — a handful of members, and
+    intervals() ∘ from_intervals() reproduces the complement exactly.
+    """
+    complement = IrCharClass(IrChr("a")).complement()
+    rebuilt = IrCharClass.from_intervals(complement.intervals())
+    assert rebuilt == complement
+    assert len(rebuilt) < 8  # spans, not ~1.1M points
+
+
+def test_charclass_intervals_of_empty_class_is_empty_list():
+    """intervals() on an empty IrCharClass returns []."""
+    assert not IrCharClass().intervals()
+
+
+def test_charclass_from_intervals_coalesces_duplicate_and_reversed_spans():
+    """from_intervals() sorts and merges spans regardless of input order,
+    including exact duplicates, into the minimal canonical cover."""
+    cc = IrCharClass.from_intervals([(5, 9), (0, 3), (5, 9), (2, 6)])
+    assert cc == IrCharClass(IrRange(IrChr(0), IrChr(9)))
+    assert cc.intervals() == [(0, 9)]
+
+
+def test_charclass_from_intervals_intervals_round_trip_on_normal_form():
+    """from_intervals(intervals(x)) == x when x is already in normal form."""
+    cls = IrCharClass(IrRange(IrChr(9), IrChr(10)), IrChr(13), IrChr(32))
+    assert cls == cls.normalized()
+    assert IrCharClass.from_intervals(cls.intervals()) == cls
+
+
+def test_charclass_members_and_intervals_agree_on_width():
+    """The total width of intervals() equals the member count from members()."""
+    cls = IrCharClass.from_intervals([(0, 2), (5, 5)])
+    width = sum(hi - lo + 1 for lo, hi in cls.intervals())
+    assert width == len(cls.members())

@@ -22,7 +22,7 @@ from typing import Sequence
 
 from lexic.codegen.binding import CHARCLASS_NAMES
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction
+from lexic.ir.action import IrAction, IrRaise
 from lexic.ir.base import Field, IrLambda, IrNone, IrNoneType, IrSelf
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
@@ -35,8 +35,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
-from lexic.ir.walk import IrVisitor
+from lexic.ir.walk import IrDispatch, IrVisitor
 
 _QUANTIFIER_SUFFIXES: dict[tuple[int, int | None], str] = {
     (1, 1): "",
@@ -104,23 +103,47 @@ def regex_for_charclass(
     return f"^{_bracket(cc.pattern(), negated)}{_suffix(q)}$"
 
 
+def _frag_literal(_d: IrSelf, n: IrLiteral, nc: Sequence[IrSelf]) -> str:
+    """Fragment body: an escaped literal plus its quantifier suffix."""
+    return re.escape(n) + _suffix(_item(nc).quantifier)
+
+
+def _frag_charclass(_d: IrSelf, n: IrCharClass, nc: Sequence[IrSelf]) -> str:
+    """Fragment body: a bracketed char class plus its quantifier suffix."""
+    return _bracket(n.pattern(), False) + _suffix(_item(nc).quantifier)
+
+
+def _frag_group(_d: IrSelf, n: IrAlternation, nc: Sequence[IrSelf]) -> str:
+    """Fragment body: a parenthesised group alternation plus its suffix."""
+    return f"({_alt_regex_fragment(n)}){_suffix(_item(nc).quantifier)}"
+
+
+# Dispatched on the atom; the owning IrItem rides the argument channel so each
+# body can read the quantifier. The raising default refuses any atom type with
+# no pattern rendering (e.g. an IrRuleRef, or a stray post-canon IrNot).
+_FRAGMENT: IrDispatch = IrDispatch(
+    actions=IrTypeMap(
+        IrAction(IrLiteral, IrLambda(_frag_literal)),
+        IrAction(IrCharClass, IrLambda(_frag_charclass)),
+        IrAction(IrAlternation, IrLambda(_frag_group)),
+    ),
+    default=IrRaise(message="Pattern fragment cannot include {node_type}"),
+)
+
+
+def _item(nc: Sequence[IrSelf]) -> IrItem:
+    """The owning item riding the argument channel."""
+    item = nc[0]
+    assert isinstance(item, IrItem)
+    return item
+
+
 def _atom_regex_fragment(item: IrItem) -> str:
-    """Build the inner (unanchored) regex fragment for any pattern atom."""
-    atom = item.atom
-    q = _suffix(item.quantifier)
-    if isinstance(atom, IrLiteral):
-        return re.escape(atom) + q
-    if isinstance(atom, IrNot):
-        inner = atom[0]
-        if isinstance(inner, IrCharClass):
-            return _bracket(inner.pattern(), True) + q
-    if isinstance(atom, IrCharClass):
-        return _bracket(atom.pattern(), False) + q
-    if isinstance(atom, IrAlternation):
-        return f"({_alt_regex_fragment(atom)}){q}"
-    raise UnsupportedConstructError(
-        f"Pattern fragment cannot include {type(atom).__name__}"
-    )
+    """Build the inner (unanchored) regex fragment for any pattern atom.
+
+    :raises UnsupportedConstructError: If the atom has no pattern rendering.
+    """
+    return str(_FRAGMENT.eval(_FRAGMENT, item.atom, (item,)))
 
 
 def _seq_regex_fragment(seq: IrSequence) -> str:
@@ -172,8 +195,9 @@ def _visit_item(d: _PatternAliasVisitor, n: IrSelf, _nc: Sequence[IrSelf]) -> Ir
 
     For IrGroup atoms: push a ruleref frame, recurse, then either propagate
     the dirty flag up or record the group as a pure-pattern alias.
-    For IrCharClass and negated IrCharClass atoms: record the alias, then
-    recurse into the atom's children.
+    For IrCharClass atoms: record the alias, then recurse into the atom's
+    children. Any other atom (literal, ruleref) just recurses — the recurse is
+    the visitor's default, so no atom type is refused here.
 
     :param d: The visitor driving the walk.
     :param n: The dispatched node (dispatch guarantees IrItem).
@@ -195,14 +219,7 @@ def _visit_item(d: _PatternAliasVisitor, n: IrSelf, _nc: Sequence[IrSelf]) -> Ir
         else:
             d.record(regex_for_group(atom, q), "Pattern")
         return IrNone
-    if isinstance(atom, IrNot):
-        inner = atom[0]
-        if isinstance(inner, IrCharClass):
-            d.record(
-                regex_for_charclass(inner, q, negated=True),
-                _name_for_charclass(inner, negated=True) or "Pattern",
-            )
-    elif isinstance(atom, IrCharClass):
+    if isinstance(atom, IrCharClass):
         d.record(
             regex_for_charclass(atom, q),
             _name_for_charclass(atom) or "Pattern",

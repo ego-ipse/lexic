@@ -23,7 +23,7 @@ Returns a `GrammarModel` instance whose concrete type is the start-rule class.
 
 ---
 
-### `compile_text(text, *, flavour)` — `compile.py`
+### `compile_text(text, *, cache_key, flavour, out_dir)` — `compile.py`
 
 Compiles a grammar string into a `CompiledGrammar`. Use when you have the grammar in memory.
 
@@ -34,13 +34,15 @@ cg = compile_text(grammar_text, flavour="gbnf")
 model = cg.parse("x=1\n")
 ```
 
-`flavour` defaults to `"gbnf"`. Memoised by the caller-supplied `cache_key` argument (`cache_key=None`, the default, means "do not memoize"); the generated module filename is independently `generated/anon_<sha1-of-text>.py`.
+`flavour` defaults to `"gbnf"`. **Memoised by content by default** (2026-07-04): the default cache key is `(content sha stem, flavour, resolved out_dir)` — compiling the same source in the same flavour to the same output directory returns the cached `CompiledGrammar` and its class objects, no cold recompile. Pass `cache_key=` to override the key outright (an explicit key is used as-is, not augmented with `out_dir`); `reset_cache_for_tests()` clears the cache when a caller needs fresh class objects. The generated module filename is independently `<out_dir>/anon_<sha1-of-text>.py`.
+
+`out_dir` (`str | Path | None = None`) sets where the generated module is written; `None` resolves to the project's `generated/` directory (today's default, unchanged). This is the *only* way to redirect codegen output — no env var, no global config — and it threads through `compile_from_path` and `codegen()` the same way.
 
 ---
 
-### `compile_from_path(path, *, flavour)` — `compile.py`
+### `compile_from_path(path, *, flavour, out_dir)` — `compile.py`
 
-Like `compile_text` but reads the file and memoises by `(path, mtime, size, flavour)`. Flavour is inferred from the file extension if omitted. Writes `generated/<stem>.py` where `stem` is the filename without extension (e.g. `arithmetic.gbnf` → `generated/arithmetic.py`). **Caution:** two ground-truth grammars that share a stem across flavours (e.g. `json.gbnf` and `json.abnf` both stem to `json`) will overwrite each other's generated module if both are compiled via `compile_from_path` — use `compile_text` (content-hashed stems) when compiling more than one flavour of the "same" grammar in one process, as `tests/integration/test_cross_flavour.py`'s cross-flavour parity test does.
+Like `compile_text` but reads the file and memoises by `(path, mtime, size, flavour, resolved out_dir)`. Flavour is inferred from the file extension if omitted. Writes `<out_dir>/<stem>.py` where `stem` is the filename without extension (e.g. `arithmetic.gbnf` → `generated/arithmetic.py` by default). **Caution:** two ground-truth grammars that share a stem across flavours (e.g. `json.gbnf` and `json.abnf` both stem to `json`) will overwrite each other's generated module if both are compiled via `compile_from_path` — use `compile_text` (content-hashed stems) when compiling more than one flavour of the "same" grammar in one process, as `tests/integration/test_cross_flavour.py`'s cross-flavour parity test does.
 
 ---
 
@@ -84,13 +86,13 @@ The open-table successor of the retired `derive_specs`'s classify/parents/naming
 
 ---
 
-### `codegen(canonical, codegen_grammar, binding, stem)` — `codegen/__init__.py`
+### `codegen(canonical, codegen_grammar, binding, stem, out_dir=None)` — `codegen/__init__.py`
 
 ```python
-codegen(canonical: IrAst, codegen_grammar: IrAst, binding: list[RuleBinding], stem: str) -> dict[str, type]
+codegen(canonical: IrAst, codegen_grammar: IrAst, binding: list[RuleBinding], stem: str, out_dir: str | Path | None = None) -> dict[str, type]
 ```
 
-Writes `generated/<stem>.py` (ruff-formatted) and returns `{class_name: cls}`. **No `flavour` parameter** — codegen is flavour-agnostic (it doesn't even import `lexic.grammars`).
+Writes `<out_dir>/<stem>.py` (ruff-formatted) and returns `{class_name: cls}`. **No `flavour` parameter** — codegen is flavour-agnostic (it doesn't even import `lexic.grammars`). `out_dir=None` resolves via `resolve_out_dir()` to the project's `generated/` directory (`_resolve_generated_dir()`'s repo-root search, falling back to a cwd-relative `generated/`); `compile.py` calls `resolve_out_dir()` too, so its memo-key resolution and codegen's write path always agree on where a given `out_dir=None`/explicit value lands.
 
 ---
 

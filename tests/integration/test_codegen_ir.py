@@ -42,8 +42,8 @@ def _emit(path: Path) -> tuple[IrAst, list[RuleBinding], str, dict[str, type]]:
     canonical = canonical_ast(path)
     codegen_grammar = build_codegen_grammar(canonical)
     binding = compute_binding(codegen_grammar)
-    suffix = "_abnf" if path.suffix == ".abnf" else ""
-    stem = f"iremit_{path.stem}{suffix}"
+    flavour = "abnf" if path.suffix == ".abnf" else "gbnf"
+    stem = f"emit_{path.stem}_{flavour}"
     classes = codegen(canonical, codegen_grammar, binding, stem)
     return canonical, binding, stem, classes
 

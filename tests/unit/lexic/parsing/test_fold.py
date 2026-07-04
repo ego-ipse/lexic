@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.compile import compile_text
+from lexic.compile import compile_text, reset_cache_for_tests
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrSeq
 from lexic.ir.nodes import (
@@ -396,6 +396,7 @@ def test_collapsed_fold_tables_memo_keys_on_identity_not_equality():
     its own docstring) must not alias across them."""
     text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
     cg1 = compile_text(text)
+    reset_cache_for_tests()  # force a genuinely fresh second compile
     cg2 = compile_text(text)
     assert cg1.instance_grammar == cg2.instance_grammar
     assert cg1.instance_grammar is not cg2.instance_grammar

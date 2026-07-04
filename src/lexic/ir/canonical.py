@@ -87,12 +87,15 @@ def _canon_not(_d: IrSelf, n: IrSelf, _nc: object) -> IrSelf:
 # ── alternation arm merge (rewrite 2) ─────────────────────────────────
 
 
-def _arm_points(arm: IrSequence) -> list[int] | None:
-    """Code points if ``arm`` is a single unquantified char/charclass item.
+def _arm_intervals(arm: IrSequence) -> list[tuple[int, int]] | None:
+    """Interval cover if ``arm`` is a single unquantified char/charclass item.
+
+    Stays in the interval domain — a Unicode-complement char class (rewrite 4's
+    output) contributes a handful of spans, never ~1.1M enumerated points.
 
     :param arm: The alternation arm (an ``IrSequence``).
-    :returns: The covered code points, or ``None`` when the arm is not a lone
-        single-char/charclass item.
+    :returns: The covered ``(lo, hi)`` intervals, or ``None`` when the arm is
+        not a lone single-char/charclass item.
     """
     if len(arm) != 1:
         return None
@@ -101,32 +104,36 @@ def _arm_points(arm: IrSequence) -> list[int] | None:
         return None
     atom = item.atom
     if isinstance(atom, IrCharClass):
-        return atom.members()
+        return atom.intervals()
     if isinstance(atom, IrLiteral) and len(atom) == 1:
-        return [ord(atom)]
+        point = ord(atom)
+        return [(point, point)]
     return None
 
 
 def _merge_arms(alt: IrAlternation) -> IrAlternation:
     """Fuse contiguous single-char/charclass arms into one char-class arm.
 
+    All member math is in the interval domain — pending spans coalesce via
+    :meth:`IrCharClass.from_intervals`, never through per-point enumeration.
+
     :param alt: The alternation whose arms were already canonicalised.
     :returns: The alternation with mergeable runs collapsed.
     """
     new_arms: list[IrSequence] = []
-    pending: list[int] = []
+    pending: list[tuple[int, int]] = []
 
     def flush() -> None:
         if not pending:
             return
-        atom = _canon_cc(IrCharClass(*(IrChr(p) for p in pending)))
+        atom = _canon_cc(IrCharClass.from_intervals(pending))
         new_arms.append(IrSequence(IrItem(atom)))
         pending.clear()
 
     for arm in alt:
-        points = _arm_points(arm)
-        if points is not None:
-            pending.extend(points)
+        spans = _arm_intervals(arm)
+        if spans is not None:
+            pending.extend(spans)
         else:
             flush()
             new_arms.append(arm)

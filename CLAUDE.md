@@ -15,7 +15,7 @@ Read these documents before editing code:
 - **Active work plans** live at `zzz_current_work/<yymmdd>-<name>/PLAN.md` —
   one directory per effort (start date + unique name); the plan carries its
   own progress ledger and, on completion, an OUTCOME note. Check the newest
-  one when orienting. Current: `zzz_current_work/260703-ir-codegen/PLAN.md`.
+  one when orienting. Current: `zzz_current_work/260704-cleanup-optimize/PLAN.md`.
 - **Cutover complete (2026-05-13).** The IrItem-based pipeline is the only pipeline. Old Atom shape, `atoms.py`, `new_gbnf/`, `flavours.py` are all gone. See `.wiki/lexic/cutover-plan.md` and `.wiki/lexic/slice-b-status.md` for what remains.
 - **RuleSpec cutover complete (2026-07-04).** The `RuleSpec` middle layer, `ir/derive.py`, `ir/spec.py`, `ir/emit.py`, `ir/naming.py`, `ir/topo.py`, `parsing/models.py`, and the whole `utils/` package are gone. One canonical `IrAst` drives codegen, instance parsing, emission, generation, and round-trip. See `zzz_current_work/260703-ir-codegen/PLAN.md` for the effort that landed it.
 
@@ -51,7 +51,7 @@ window.
 Always prefix with `uv run`. Never run `pytest` or `ruff` bare.
 
 ```bash
-uv run pytest tests/ -q                  # full suite (~1360 tests)
+uv run pytest tests/ -q                  # full suite (~1568 tests)
 uv run pytest tests/unit/lexic/ -q       # unit only
 uv run pytest tests/integration/ -q      # integration only
 uv run ruff check src/ tests/            # lint
@@ -403,7 +403,7 @@ records      IrNamedTuple[*Ts](tuple)      IrItem, IrQuantifier, IrRule, IrAst �
 
 **Dispatch** (`ir/walk.py`): `IrDispatch[Iri, Ir_co]` is an `IrCachingTuple` of `(actions, default)` — `actions` an `IrTypeMap` (concrete-first MRO type→`IrAction` table, not a plain tuple), `_child_attrs = ()` so the dispatcher is never itself walked as a grammar node. It does **not** walk children automatically — action bodies own recursion. Resolution is the map's own concrete-first MRO lookup (one `getattr` per `type(n).__mro__` entry); falls back to `default` only on a full miss. Entry seams: `eval(d, n, nc)` (protocol) and `apply(root)` (façade, catches `IrReturn`). Presets: `IrVisitor` (default `IrWalk`), `IrTransformer` (default `IrRebuild`), `IrEmitter` (default `IrEmit`).
 
-> **Open-set note (deferred rework).** Some consumers still carry closed-set `isinstance` ladders and `dict[type, …]` tables (`generate.py`, parts of `codegen/model_emitter.py`). `codegen/binding.py` and `codegen/passes.py` (Task 3 of the 2026-07 IR-native codegen effort) already moved their classification/naming/mode logic onto open `IrDispatch`/`IrTypeMap` tables with raising defaults — the target shape. A separate, deferred effort finishes re-homing the remaining node-intrinsic logic onto the nodes and consumer policy onto open tables everywhere (see the open-classes principle).
+> **Open-set consumer rework complete (2026-07-04).** `generate.py` (`_GEN_ATOM` + `_Generator`), `codegen/model_emitter.py` (`_MODEL_TYPE`/`_GTEXT_TYPE`/`_TEXT_TYPE` per fold-mode, `_VALUE_TYPE`), and `codegen/aliases.py` (`_FRAGMENT`) all moved their atom-type dispatch onto open `IrDispatch`/`IrTypeMap` tables with raising defaults, matching `codegen/binding.py`/`codegen/passes.py`'s idiom; every silent fallback (`generate`'s old `return ""`) is now an explicit `UnsupportedConstructError`, and the post-canon-dead `IrNot` branches are deleted. `_group_union_type` (a ref-arm filter, not a classification ladder) and `_visit_item`'s recursing group-frame `isinstance` were deliberately left as-is — they aren't atom-type dispatch. See the open-classes principle and [[decisions]].
 
 ### `kind` semantics (`codegen/binding.py`)
 

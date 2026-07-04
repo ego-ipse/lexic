@@ -23,7 +23,16 @@ __all__ = [
     "codegen",
     "compute_binding",
     "emit_module_source",
+    "resolve_out_dir",
 ]
+
+
+# Named (not inline) so the multi-exception clause below doesn't read as
+# Python 2's `except A, e:` name-binding form — under this project's
+# requires-python (>=3.14) a bare comma list IS a tuple (PEP 758), but
+# `ruff format` treats that spelling as canonical and unwraps any
+# parenthesised tuple written in its place.
+_RUFF_SUBPROCESS_ERRORS = (OSError, subprocess.TimeoutExpired)
 
 
 def _ruff_format(source: str) -> str:
@@ -49,7 +58,7 @@ def _ruff_format(source: str) -> str:
         )
         if result.returncode == 0:
             return result.stdout
-    except OSError, subprocess.TimeoutExpired:
+    except _RUFF_SUBPROCESS_ERRORS:
         pass
     return source
 
@@ -72,17 +81,37 @@ def _resolve_generated_dir() -> Path:
     return cwd_candidate
 
 
-def _write_and_load(source: str, stem: str, class_names: list[str]) -> dict[str, type]:
-    """Write ``generated/<stem>.py``, import it, return its named classes.
+def resolve_out_dir(out_dir: str | Path | None) -> Path:
+    """Resolve the generated-module output directory.
+
+    ``None`` resolves to :func:`_resolve_generated_dir`'s project-default
+    ``generated/`` directory; an explicit ``out_dir`` is used as given. This
+    is the sole seam callers (including ``compile.py``'s memo-key
+    construction) use to agree on "where does this stem land".
+
+    :param out_dir: Caller-supplied output directory, or ``None`` for the default.
+    :returns: The resolved directory (not guaranteed to exist yet).
+    """
+    if out_dir is not None:
+        return Path(out_dir)
+    return _resolve_generated_dir()
+
+
+def _write_and_load(
+    source: str, stem: str, class_names: list[str], out_dir: str | Path | None = None
+) -> dict[str, type]:
+    """Write ``<out_dir>/<stem>.py``, import it, return its named classes.
 
     :param source: The module source (formatted here before writing).
     :param stem: Generated-module stem.
     :param class_names: Class names to pull out of the loaded module.
+    :param out_dir: Output directory; ``None`` resolves to the project's
+        ``generated/`` directory (:func:`resolve_out_dir`).
     :returns: ``{class_name: class}`` for every name the module defines.
     """
-    out_dir = _resolve_generated_dir()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{stem}.py"
+    resolved_dir = resolve_out_dir(out_dir)
+    resolved_dir.mkdir(parents=True, exist_ok=True)
+    out_path = resolved_dir / f"{stem}.py"
     out_path.write_text(_ruff_format(source))
 
     module_name = f"generated.{stem}"
@@ -99,20 +128,26 @@ def _write_and_load(source: str, stem: str, class_names: list[str]) -> dict[str,
 
 
 def codegen(
-    canonical: IrAst, codegen_grammar: IrAst, binding: list[RuleBinding], stem: str
+    canonical: IrAst,
+    codegen_grammar: IrAst,
+    binding: list[RuleBinding],
+    stem: str,
+    out_dir: str | Path | None = None,
 ) -> dict[str, type]:
     """Emit a Pydantic module from the codegen grammar + binding view.
 
-    Side effect: writes ``generated/<stem>.py``.
+    Side effect: writes ``<out_dir>/<stem>.py``.
 
     :param canonical: The canonical (pre-pass) grammar — the module ``GRAMMAR``.
     :param codegen_grammar: The post-pass grammar — each class's ``__grammar__``.
     :param binding: The binding view (:func:`~lexic.codegen.binding.compute_binding`).
     :param stem: Generated-module stem.
+    :param out_dir: Output directory; ``None`` resolves to the project's
+        ``generated/`` directory (:func:`resolve_out_dir`).
     :returns: ``{class_name: class}`` for every generated class.
     """
     source = emit_module_source(canonical, codegen_grammar, binding, stem=stem)
-    classes = _write_and_load(source, stem, [b.class_name for b in binding])
+    classes = _write_and_load(source, stem, [b.class_name for b in binding], out_dir)
     # Resolve deferred annotations (``from __future__ import annotations`` plus
     # forward-referenced sibling classes) so each field's ``IrBind`` metadata is
     # readable — base.py drives ``to_text``/``semantic_dump`` off it.

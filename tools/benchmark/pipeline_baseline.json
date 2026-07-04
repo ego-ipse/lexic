@@ -1,0 +1,46 @@
+{
+  "compile_time": {
+    "arithmetic.gbnf": {
+      "canonical_grammar": {
+        "best_ms": 5.961050002952106,
+        "median_ms": 6.043305998900905
+      },
+      "compile_text": {
+        "best_ms": 23.431362002156675,
+        "median_ms": 23.716379997495096
+      }
+    },
+    "c.gbnf": {
+      "canonical_grammar": {
+        "best_ms": 32.356016999983694,
+        "median_ms": 33.53872900333954
+      },
+      "compile_text": {
+        "best_ms": 80.27653799945256,
+        "median_ms": 82.65460600523511
+      }
+    },
+    "json.gbnf": {
+      "canonical_grammar": {
+        "best_ms": 28.540175000671297,
+        "median_ms": 28.717788998619653
+      },
+      "compile_text": {
+        "best_ms": 65.92642400210025,
+        "median_ms": 67.75365299836267
+      }
+    }
+  },
+  "instance_parse": {
+    "arithmetic.gbnf": {
+      "best_ms": 88.96455499780132,
+      "chars": 4800,
+      "median_ms": 91.07219299767166
+    },
+    "c.gbnf": {
+      "best_ms": 26.70139499969082,
+      "chars": 3289,
+      "median_ms": 27.07798500341596
+    }
+  }
+}

@@ -26,7 +26,7 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 from __future__ import annotations
 
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import ClassVar, Self, cast
 
 from lexic.ir.base import (
@@ -305,7 +305,7 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
         :param rng: The random source.
         :returns: A covered code point.
         """
-        intervals = self._intervals()
+        intervals = self.intervals()
         sizes = [hi - lo + 1 for lo, hi in intervals]
         lo, hi = rng.choices(intervals, weights=sizes)[0]
         return rng.randint(lo, hi)
@@ -315,6 +315,13 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
 
         Ranges expand to all endpoints inclusive; single ``IrChr`` members
         contribute one point each.
+
+        .. warning::
+           Do **not** call on a Unicode-scale class (e.g. a ``[^...]``
+           complement, which can span ~1.1M points): the returned list holds
+           one entry per covered point. Set/merge math should go through
+           :meth:`intervals` / :meth:`from_intervals`, which stay in the
+           interval domain.
 
         :returns: The covered code points, ranges expanded.
         """
@@ -326,11 +333,32 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
                 points.append(int(el))
         return points
 
-    def _intervals(self) -> list[tuple[int, int]]:
-        """Return sorted, coalesced ``(lo, hi)`` inclusive intervals.
+    @staticmethod
+    def _coalesce(raw: "list[tuple[int, int]]") -> "list[tuple[int, int]]":
+        """Sort ``raw`` spans and merge overlapping/adjacent ones into a cover.
+
+        The single home for the interval merge algorithm — :meth:`intervals`
+        and :meth:`from_intervals` both call it, and so does the canonicaliser
+        (via those). Shared so the sort+merge lives in exactly one place.
+
+        :param raw: Unordered ``(lo, hi)`` inclusive spans (may overlap).
+        :returns: The minimal sorted disjoint cover.
+        """
+        merged: list[tuple[int, int]] = []
+        for lo, hi in sorted(raw):
+            if merged and lo <= merged[-1][1] + 1:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
+            else:
+                merged.append((lo, hi))
+        return merged
+
+    def intervals(self) -> list[tuple[int, int]]:
+        """Return the sorted, coalesced ``(lo, hi)`` inclusive interval cover.
 
         Overlapping or adjacent spans merge, so the result is a minimal
-        disjoint cover of the class in ascending code-point order.
+        disjoint cover of the class in ascending code-point order. This is the
+        Unicode-safe view of the class's membership — it never materialises
+        individual points, so it is the right basis for set/merge math.
 
         :returns: The minimal sorted interval cover.
         """
@@ -340,14 +368,20 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
                 raw.append((int(el.lo), int(el.hi)))
             else:
                 raw.append((int(el), int(el)))
-        raw.sort()
-        merged: list[tuple[int, int]] = []
-        for lo, hi in raw:
-            if merged and lo <= merged[-1][1] + 1:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
-            else:
-                merged.append((lo, hi))
-        return merged
+        return self._coalesce(raw)
+
+    @classmethod
+    def from_intervals(cls, spans: "Iterable[tuple[int, int]]") -> "IrCharClass":
+        """Build a normalised class from ``(lo, hi)`` intervals, coalescing first.
+
+        Members are constructed directly (``IrChr`` for a single point, an
+        ``IrRange`` for a wider span) from the coalesced cover — no per-point
+        materialisation. The result is already in :meth:`normalized` form.
+
+        :param spans: ``(lo, hi)`` inclusive intervals (may overlap/repeat).
+        :returns: The canonical-form class over the union of ``spans``.
+        """
+        return cls(*(cls._span(lo, hi) for lo, hi in cls._coalesce(list(spans))))
 
     @staticmethod
     def _span(lo: int, hi: int) -> "IrRange | IrChr":
@@ -364,7 +398,7 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
 
         :returns: The canonical-form character class.
         """
-        return IrCharClass(*(self._span(lo, hi) for lo, hi in self._intervals()))
+        return IrCharClass(*(self._span(lo, hi) for lo, hi in self.intervals()))
 
     def complement(self) -> "IrCharClass":
         """Return the positive canonical-form class over the Unicode complement.
@@ -378,7 +412,7 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
         """
         spans: list[IrRange | IrChr] = []
         cursor = 0
-        for lo, hi in self._intervals():
+        for lo, hi in self.intervals():
             if lo > cursor:
                 spans.append(self._span(cursor, lo - 1))
             cursor = max(cursor, hi + 1)

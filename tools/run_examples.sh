@@ -28,6 +28,4 @@ for example in getting_started/ex*.py; do
     run_example "${example}" || failed="$?"
 done
 
-tools/auto_fix.sh >/dev/null 2>&1
-
 exit "${failed}"
