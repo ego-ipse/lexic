@@ -1,4 +1,4 @@
-"""Generated module: chess. Do not edit; regenerated from grammar."""
+"""Generated module: iremit_chess. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 

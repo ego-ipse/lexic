@@ -1,4 +1,4 @@
-"""Generated module: json_ws. Do not edit; regenerated from grammar."""
+"""Generated module: iremit_json_arr. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 
@@ -26,22 +26,22 @@ from lexic.ir import (
 
 Pattern = Annotated[str, StringConstraints(pattern=r"^[\x09 ]{0,20}$")]
 
-Pattern2 = Annotated[str, StringConstraints(pattern=r"^[ -!#-\[\]-~\x80-\U0010ffff]$")]
+Pattern2 = Annotated[str, StringConstraints(pattern=r"^(true|false|null)$")]
 
-Pattern3 = Annotated[str, StringConstraints(pattern=r'^["\\bfnrt]$')]
+Pattern3 = Annotated[str, StringConstraints(pattern=r"^[ -!#-\[\]-~\x80-\U0010ffff]$")]
 
-Pattern4 = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]{4}$")]
+Pattern4 = Annotated[str, StringConstraints(pattern=r'^["\\bfnrt]$')]
 
-Pattern5 = Annotated[str, StringConstraints(pattern=r'^(["\\bfnrt]|u[0-9A-Fa-f]{4})$')]
+Pattern5 = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]{4}$")]
 
-Pattern6 = Annotated[
+Pattern6 = Annotated[str, StringConstraints(pattern=r'^(["\\bfnrt]|u[0-9A-Fa-f]{4})$')]
+
+Pattern7 = Annotated[
     str,
     StringConstraints(
         pattern=r'^([ -!#-\[\]-~\x80-\U0010ffff]|\\(["\\bfnrt]|u[0-9A-Fa-f]{4}))*$'
     ),
 ]
-
-Pattern7 = Annotated[str, StringConstraints(pattern=r"^(true|false|null)$")]
 
 Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]$")]
 
@@ -59,15 +59,45 @@ Pattern11 = Annotated[str, StringConstraints(pattern=r"^[Ee]$")]
 
 Pattern12 = Annotated[str, StringConstraints(pattern=r"^[+-]?$")]
 
-Pattern13 = Annotated[str, StringConstraints(pattern=r"^[1-9]{0,15}$")]
-
-Pattern14 = Annotated[str, StringConstraints(pattern=r"^([Ee][+-]?[0-9][1-9]{0,15})?$")]
+Pattern13 = Annotated[str, StringConstraints(pattern=r"^([Ee][+-]?[1-9][0-9]{0,15})?$")]
 
 
 class Root(GrammarModel):
-    object: Annotated[Object, IrBind(0, "model")]
+    arr: Annotated[Arr, IrBind(0, "model")]
     __grammar__: ClassVar[IrRule] = IrRule(
-        "root", IrAlternation(IrSequence(IrItem(IrRuleRef("object"))))
+        "root", IrAlternation(IrSequence(IrItem(IrRuleRef("arr"))))
+    )
+
+
+class Arr(GrammarModel):
+    ws: Annotated[Optional[Ws], IrBind(1, "model", False)] = None
+    arr_item2: Annotated[Optional[ArrItem2], IrBind(2, "model")] = None
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "arr",
+        IrAlternation(
+            IrSequence(
+                IrItem(IrLiteral("[\n")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+                IrItem(IrRuleRef("arr-item2"), IrQuantifier(0)),
+                IrItem(IrLiteral("]")),
+            )
+        ),
+    )
+
+
+class Ws(GrammarModel):
+    value: str
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "ws",
+        IrAlternation(
+            IrSequence(),
+            IrSequence(IrItem(IrLiteral(" "))),
+            IrSequence(
+                IrItem(IrLiteral("\n")),
+                IrItem(IrCharClass(IrChr(9), IrChr(32)), IrQuantifier(0, 20)),
+            ),
+        ),
+        False,
     )
 
 
@@ -80,6 +110,26 @@ class Value(GrammarModel):
             IrSequence(IrItem(IrRuleRef("string"))),
             IrSequence(IrItem(IrRuleRef("number"))),
             IrSequence(IrItem(IrRuleRef("value-arm5"))),
+        ),
+    )
+
+
+class ValueArm5(Value):
+    true: Annotated[Pattern2, IrBind(0, "gtext")]
+    ws: Annotated[Optional[Ws], IrBind(1, "model", False)] = None
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "value-arm5",
+        IrAlternation(
+            IrSequence(
+                IrItem(
+                    IrAlternation(
+                        IrSequence(IrItem(IrLiteral("true"))),
+                        IrSequence(IrItem(IrLiteral("false"))),
+                        IrSequence(IrItem(IrLiteral("null"))),
+                    )
+                ),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+            )
         ),
     )
 
@@ -102,24 +152,26 @@ class Object(Value):
     )
 
 
-class Ws(GrammarModel):
-    value: str
+class Array(Value):
+    ws: Annotated[Optional[Ws], IrBind(1, "model", False)] = None
+    array_item2: Annotated[Optional[ArrayItem2], IrBind(2, "model")] = None
+    ws2: Annotated[Optional[Ws], IrBind(4, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
-        "ws",
+        "array",
         IrAlternation(
-            IrSequence(),
-            IrSequence(IrItem(IrLiteral(" "))),
             IrSequence(
-                IrItem(IrLiteral("\n")),
-                IrItem(IrCharClass(IrChr(9), IrChr(32)), IrQuantifier(0, 20)),
-            ),
+                IrItem(IrLiteral("[")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+                IrItem(IrRuleRef("array-item2"), IrQuantifier(0)),
+                IrItem(IrLiteral("]")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+            )
         ),
-        False,
     )
 
 
 class String(Value):
-    x80_u0010fff: Annotated[Pattern6, IrBind(1, "gtext")]
+    x80_u0010fff: Annotated[Pattern7, IrBind(1, "gtext")]
     ws: Annotated[Optional[Ws], IrBind(3, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "string",
@@ -179,49 +231,11 @@ class String(Value):
     )
 
 
-class ValueArm5(Value):
-    true: Annotated[Pattern7, IrBind(0, "gtext")]
-    ws: Annotated[Optional[Ws], IrBind(1, "model", False)] = None
-    __grammar__: ClassVar[IrRule] = IrRule(
-        "value-arm5",
-        IrAlternation(
-            IrSequence(
-                IrItem(
-                    IrAlternation(
-                        IrSequence(IrItem(IrLiteral("true"))),
-                        IrSequence(IrItem(IrLiteral("false"))),
-                        IrSequence(IrItem(IrLiteral("null"))),
-                    )
-                ),
-                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-            )
-        ),
-    )
-
-
-class Array(Value):
-    ws: Annotated[Optional[Ws], IrBind(1, "model", False)] = None
-    array_item2: Annotated[Optional[ArrayItem2], IrBind(2, "model")] = None
-    ws2: Annotated[Optional[Ws], IrBind(4, "model", False)] = None
-    __grammar__: ClassVar[IrRule] = IrRule(
-        "array",
-        IrAlternation(
-            IrSequence(
-                IrItem(IrLiteral("[")),
-                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-                IrItem(IrRuleRef("array-item2"), IrQuantifier(0)),
-                IrItem(IrLiteral("]")),
-                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-            )
-        ),
-    )
-
-
 class Number(Value):
     sign: Annotated[Optional[str], IrBind(0, "text")] = None
     digit: Annotated[Pattern9, IrBind(1, "gtext")]
     dot: Annotated[Optional[Pattern10], IrBind(2, "gtext")] = None
-    ee: Annotated[Optional[Pattern14], IrBind(3, "gtext")] = None
+    ee: Annotated[Optional[Pattern13], IrBind(3, "gtext")] = None
     ws: Annotated[Optional[Ws], IrBind(4, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "number",
@@ -257,9 +271,9 @@ class Number(Value):
                         IrSequence(
                             IrItem(IrCharClass(IrChr(69), IrChr(101))),
                             IrItem(IrCharClass(IrChr(43), IrChr(45)), IrQuantifier(0)),
-                            IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))),
+                            IrItem(IrCharClass(IrRange(IrChr(49), IrChr(57)))),
                             IrItem(
-                                IrCharClass(IrRange(IrChr(49), IrChr(57))),
+                                IrCharClass(IrRange(IrChr(48), IrChr(57))),
                                 IrQuantifier(0, 15),
                             ),
                         )
@@ -267,6 +281,35 @@ class Number(Value):
                     IrQuantifier(0),
                 ),
                 IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+            )
+        ),
+    )
+
+
+class ArrItem(GrammarModel):
+    ws: Annotated[Optional[Ws], IrBind(1, "model", False)] = None
+    value: Annotated[Value, IrBind(2, "model")]
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "arr-item",
+        IrAlternation(
+            IrSequence(
+                IrItem(IrLiteral(",\n")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+                IrItem(IrRuleRef("value")),
+            )
+        ),
+    )
+
+
+class ArrItem2(GrammarModel):
+    value: Annotated[Value, IrBind(0, "model")]
+    arr_item: Annotated[List[ArrItem], IrBind(1, "models")]
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "arr-item2",
+        IrAlternation(
+            IrSequence(
+                IrItem(IrRuleRef("value")),
+                IrItem(IrRuleRef("arr-item"), IrQuantifier(0, IrNone)),
             )
         ),
     )
@@ -342,7 +385,66 @@ class ArrayItem2(GrammarModel):
 
 GRAMMAR: IrAst = IrAst(
     IrSeq(
-        IrRule("root", IrAlternation(IrSequence(IrItem(IrRuleRef("object"))))),
+        IrRule("root", IrAlternation(IrSequence(IrItem(IrRuleRef("arr"))))),
+        IrRule(
+            "arr",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("[\n")),
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(
+                        IrAlternation(
+                            IrSequence(
+                                IrItem(IrRuleRef("value")),
+                                IrItem(
+                                    IrAlternation(
+                                        IrSequence(
+                                            IrItem(IrLiteral(",\n")),
+                                            IrItem(IrRuleRef("ws")),
+                                            IrItem(IrRuleRef("value")),
+                                        )
+                                    ),
+                                    IrQuantifier(0, IrNone),
+                                ),
+                            )
+                        ),
+                        IrQuantifier(0),
+                    ),
+                    IrItem(IrLiteral("]")),
+                )
+            ),
+        ),
+        IrRule(
+            "ws",
+            IrAlternation(
+                IrSequence(),
+                IrSequence(IrItem(IrLiteral(" "))),
+                IrSequence(
+                    IrItem(IrLiteral("\n")),
+                    IrItem(IrCharClass(IrChr(9), IrChr(32)), IrQuantifier(0, 20)),
+                ),
+            ),
+            False,
+        ),
+        IrRule(
+            "value",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("object"))),
+                IrSequence(IrItem(IrRuleRef("array"))),
+                IrSequence(IrItem(IrRuleRef("string"))),
+                IrSequence(IrItem(IrRuleRef("number"))),
+                IrSequence(
+                    IrItem(
+                        IrAlternation(
+                            IrSequence(IrItem(IrLiteral("true"))),
+                            IrSequence(IrItem(IrLiteral("false"))),
+                            IrSequence(IrItem(IrLiteral("null"))),
+                        )
+                    ),
+                    IrItem(IrRuleRef("ws")),
+                ),
+            ),
+        ),
         IrRule(
             "object",
             IrAlternation(
@@ -379,16 +481,33 @@ GRAMMAR: IrAst = IrAst(
             ),
         ),
         IrRule(
-            "ws",
+            "array",
             IrAlternation(
-                IrSequence(),
-                IrSequence(IrItem(IrLiteral(" "))),
                 IrSequence(
-                    IrItem(IrLiteral("\n")),
-                    IrItem(IrCharClass(IrChr(9), IrChr(32)), IrQuantifier(0, 20)),
-                ),
+                    IrItem(IrLiteral("[")),
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(
+                        IrAlternation(
+                            IrSequence(
+                                IrItem(IrRuleRef("value")),
+                                IrItem(
+                                    IrAlternation(
+                                        IrSequence(
+                                            IrItem(IrLiteral(",")),
+                                            IrItem(IrRuleRef("ws")),
+                                            IrItem(IrRuleRef("value")),
+                                        )
+                                    ),
+                                    IrQuantifier(0, IrNone),
+                                ),
+                            )
+                        ),
+                        IrQuantifier(0),
+                    ),
+                    IrItem(IrLiteral("]")),
+                    IrItem(IrRuleRef("ws")),
+                )
             ),
-            False,
         ),
         IrRule(
             "string",
@@ -447,54 +566,6 @@ GRAMMAR: IrAst = IrAst(
             ),
         ),
         IrRule(
-            "value",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("object"))),
-                IrSequence(IrItem(IrRuleRef("array"))),
-                IrSequence(IrItem(IrRuleRef("string"))),
-                IrSequence(IrItem(IrRuleRef("number"))),
-                IrSequence(
-                    IrItem(
-                        IrAlternation(
-                            IrSequence(IrItem(IrLiteral("true"))),
-                            IrSequence(IrItem(IrLiteral("false"))),
-                            IrSequence(IrItem(IrLiteral("null"))),
-                        )
-                    ),
-                    IrItem(IrRuleRef("ws")),
-                ),
-            ),
-        ),
-        IrRule(
-            "array",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("[")),
-                    IrItem(IrRuleRef("ws")),
-                    IrItem(
-                        IrAlternation(
-                            IrSequence(
-                                IrItem(IrRuleRef("value")),
-                                IrItem(
-                                    IrAlternation(
-                                        IrSequence(
-                                            IrItem(IrLiteral(",")),
-                                            IrItem(IrRuleRef("ws")),
-                                            IrItem(IrRuleRef("value")),
-                                        )
-                                    ),
-                                    IrQuantifier(0, IrNone),
-                                ),
-                            )
-                        ),
-                        IrQuantifier(0),
-                    ),
-                    IrItem(IrLiteral("]")),
-                    IrItem(IrRuleRef("ws")),
-                )
-            ),
-        ),
-        IrRule(
             "number",
             IrAlternation(
                 IrSequence(
@@ -532,9 +603,9 @@ GRAMMAR: IrAst = IrAst(
                                 IrItem(
                                     IrCharClass(IrChr(43), IrChr(45)), IrQuantifier(0)
                                 ),
-                                IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))),
+                                IrItem(IrCharClass(IrRange(IrChr(49), IrChr(57)))),
                                 IrItem(
-                                    IrCharClass(IrRange(IrChr(49), IrChr(57))),
+                                    IrCharClass(IrRange(IrChr(48), IrChr(57))),
                                     IrQuantifier(0, 15),
                                 ),
                             )

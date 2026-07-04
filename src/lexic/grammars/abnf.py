@@ -5,40 +5,36 @@ reducer in one module. :data:`ABNF_FLAVOUR` is the singleton
 :class:`IrFlavour`/:class:`IrEmitter` consumed by
 :func:`lexic.grammars.get_flavour`.
 
-ABNF differs from GBNF in two key ways: prefix quantifier ordering on
-:class:`IrItem` (the quantifier emits before the atom) and ``%xNN``-style
-hex char-class rendering. ABNF has no native negated char classes — IrNot
-raises.
+ABNF differs from GBNF in three key ways: prefix quantifier ordering on
+:class:`IrItem` (the quantifier emits before the atom), ``%xNN``-style hex
+char-class rendering, and literal spelling — a case-sensitive
+:class:`~lexic.ir.nodes.IrLiteral` renders as an RFC 7405 ``%s"..."`` char-val
+when every character is char-val-spellable (printable ASCII bar the double
+quote), and falls back to ``%x`` num-val (``%xNN`` / dot-joined ``%xNN.NN``)
+for quotes, control points, or non-ASCII. Vanilla case-insensitive char-val is
+never *emitted* (it would lose the canonical literal's case), only *accepted*.
+ABNF has no native negated char classes, but canonicalisation rewrites every
+``IrNot`` to a positive span before emission, so the raising ``IrNot`` action
+is unreachable on canonical input.
 
 :data:`ABNF_GRAMMAR` is the ABNF grammar of ABNF (RFC 5234 §4 + Appendix
 B.1), authored directly as :class:`~lexic.ir.nodes.IrAst` — no construction
-helpers, no Lark. Driven by :mod:`lexic.parsing` it parses ABNF source into
-a derivation; the self-hosting fixpoint is
-``parse(ABNF_GRAMMAR, abnf_source)`` reducing back to ``ABNF_GRAMMAR``.
+helpers, no Lark — and **stored in canonical form**
+(``canonicalize(ABNF_GRAMMAR) == ABNF_GRAMMAR``). Driven by
+:mod:`lexic.parsing` it parses ABNF source into a derivation; the self-hosting
+fixpoint is ``canonicalize(reduce(parse(ABNF_GRAMMAR, emitted)))`` returning
+``ABNF_GRAMMAR`` — the canonical pass closes the loop, since a merged char
+class re-emits as a parenthesised num-val alternation that reparses un-merged.
 :data:`ABNF_REDUCTIONS` is the "meta notation": an
 :class:`~lexic.ir.mapping.IrMap` from each rule's
 :class:`~lexic.ir.nodes.IrRuleRef` to a body that folds that rule's
 parse-tree children into an IR node — the mirror of the emit table
 ``ABNF_ACTIONS`` (IR→text), pointed the other way (tree→IR).
 
-**``ABNF_GRAMMAR`` is authored to round-trip through this flavour, not
-byte-for-byte RFC.** Three deliberate adaptations so it survives
-``emit → parse → reduce`` against ``ABNF_FLAVOUR``:
-
-- *char classes are alternations of single ranges.* ``ABNF_FLAVOUR`` renders
-  a multi-element :class:`~lexic.ir.nodes.IrCharClass` as a parenthesised
-  group (``(%x41-5A / %x61-7A)``) but a single-element one as a bare ``%x``.
-  So the RFC core rules that are alternations (``ALPHA``, ``HEXDIG``) are
-  authored as alternations, and the structural class ``vchar-nq`` likewise —
-  each arm a one-range class that emits bare and parses back identically.
-- *control/quote core rules are num-vals.* ``HTAB``/``DQUOTE``/``CR``/``LF``
-  are ``%x09``/``%x22``/``%x0D``/``%x0A`` (not char-vals), because
-  ``char-val`` excludes those code points — a literal ``"\\t"`` could not be
-  re-parsed.
-- *line ending is ``[CR] LF``.* RFC's ``c-nl = comment / CRLF``; this subset
-  omits comments and accepts a bare LF (the ``ABNF_FLAVOUR`` emitter joins
-  rules with ``"\\n"``), with the optional CR keeping CRLF input parseable
-  too.
+**One adaptation survives canonicalisation:** *line ending is ``[CR] LF``.*
+RFC's ``c-nl = comment / CRLF``; this subset omits comments and accepts a bare
+LF (the ``ABNF_FLAVOUR`` emitter joins rules with ``"\\n"``), with the optional
+CR keeping CRLF input parseable too.
 
 The grammar covers the full RFC 5234 + 7405 surface: ``bin-val``/``dec-val``
 alongside ``hex-val`` (single/range), value ``num-seq`` (``%x0D.0A``),
@@ -48,8 +44,8 @@ refused), comments (leading, trailing, inline), and ``c-wsp`` line folding.
 The constructs beyond the flavour's own emitted output leave the self-hosting
 fixpoint unaffected — the grammar only *accepts* more. Radix and case markers
 are lowercase only (``%x``/``%d``/``%b``/``%s``/``%i``; the emitter never
-produces the uppercase forms). Rule names are hyphenated per RFC
-(``char-val``, not ``char_val``); ``rulename`` admits ``ALPHA / DIGIT / "-"``.
+produces the uppercase forms). Rule names are hyphenated and folded lowercase
+(``char-val``, ``dquote``); ``rulename`` admits ``alpha / digit / "-"``.
 
 **Every reduction is pure ``IrSelf``.** Text rules (the character/terminal
 rules) reduce with the shared :data:`YIELD`. Structural rules build typed
@@ -106,7 +102,7 @@ from lexic.ir.base import (
     IrTuple,
 )
 from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrEscape, IrFlavour
+from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -194,11 +190,41 @@ def _abnf_charclass(_d, n, _nc) -> IrStr:
     return IrStr("(" + " / ".join(rendered) + ")")
 
 
+def _cv_spellable(char: str) -> bool:
+    """True when ``char`` fits an ABNF ``char-val`` body (RFC 7405).
+
+    A ``char-val`` body admits printable ASCII except the double quote
+    (``%x20-21`` / ``%x23-7E``); anything else — the quote, control code
+    points, or non-ASCII — cannot be spelled between the quotes.
+
+    :param char: A single character.
+    :returns: Whether it is char-val-spellable.
+    """
+    return 0x20 <= ord(char) <= 0x7E and char != '"'
+
+
+def _abnf_literal(_d, n, _nc) -> IrStr:
+    """Render a canonical (case-sensitive) :class:`IrLiteral` as ABNF.
+
+    A literal whose characters are all char-val-spellable emits as an RFC 7405
+    case-sensitive char-val (``%s"..."``) so it round-trips without the vanilla
+    char-val case folding. Any literal holding a quote, a control point, or a
+    non-ASCII character falls back to ``%x`` num-val — ``%xNN`` for one code
+    point, dot-joined ``%xNN.NN`` (num-seq) for several — which the reducer
+    decodes back to the identical case-sensitive literal.
+
+    :param n: The :class:`IrLiteral` being emitted.
+    :returns: The ABNF spelling.
+    """
+    text = str(n)
+    if all(_cv_spellable(char) for char in text):
+        return IrStr(f'%s"{text}"')
+    body = ".".join(f"{ord(char):02X}" for char in text)
+    return IrStr(f"%x{body}")
+
+
 ABNF_ACTIONS = IrTypeMap(
-    IrAction(
-        IrLiteral,
-        IrConcat(parts=IrTuple(IrLiteral('"'), IrEscape(), IrLiteral('"'))),
-    ),
+    IrAction(IrLiteral, IrLambda(_abnf_literal)),
     IrAction(IrCharClass, IrLambda(_abnf_charclass)),
     # ABNF has no native negation — strict declarative refusal.
     IrAction(
@@ -267,480 +293,576 @@ ABNF_ACTIONS = IrTypeMap(
 # the round-trip adaptations); ABNF_REDUCTIONS is the reduce-side mirror of
 # ABNF_ACTIONS above, folding a parse tree back into IR.
 
-_CV_NA_BODY = IrAlternation(
-    IrCharClass(IrRange(IrChr(0x20), IrChr(0x21))),
-    IrCharClass(IrRange(IrChr(0x23), IrChr(0x40))),
-    IrCharClass(IrRange(IrChr(0x5B), IrChr(0x60))),
-    IrCharClass(IrRange(IrChr(0x7B), IrChr(0x7E))),
-)
-"""Printable char-val characters excluding ``"`` (0x22) and the letters
-(0x41-5A, 0x61-7A) — the non-alpha units of a case-insensitive literal body.
-Authored as an alternation of single-range classes (each emits a bare ``%x``
-and round-trips) rather than one multi-range class (which ABNF renders as a
-parenthesised group)."""
-
 ABNF_GRAMMAR = IrAst(
-    rules=IrSeq(
-        # rulelist is any number of terminated rl-items followed by a final
-        # rl-item whose rule may omit its line ending (a file need not end in a
-        # newline — json.abnf does not). Only the last rule's terminator is
-        # optional, so no internal rule/blank-line ambiguity arises.
+    IrSeq(
         IrRule(
             "rulelist",
-            IrSequence(
-                IrItem(IrRuleRef("rl-item"), IrQuantifier(0, IrNone)),
-                IrRuleRef("rl-final"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("rl-item"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("rl-final")),
+                )
             ),
         ),
-        # rl-item owns any comment/blank filler lines preceding a rule (RFC
-        # 5234's `*c-wsp c-nl` filler); the filler drops, leaving the rule. A
-        # filler line is a comment (starts ";") or blank (whitespace only); a
-        # rule starts with a letter, so filler and rule never collide.
         IrRule(
             "rl-item",
-            IrSequence(
-                IrItem(IrRuleRef("filler"), IrQuantifier(0, IrNone)),
-                IrRuleRef("rule"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("filler"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("rule")),
+                )
             ),
         ),
         IrRule(
             "rl-final",
-            IrSequence(
-                IrItem(IrRuleRef("filler"), IrQuantifier(0, IrNone)),
-                IrRuleRef("endrule"),
-            ),
-        ),
-        # endrule is `rule` with an optional terminator — the final rule of a
-        # file may end at EOF instead of a line ending.
-        IrRule(
-            "endrule",
-            IrSequence(
-                IrRuleRef("rulename"),
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrRuleRef("defined"),
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrRuleRef("alternation"),
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrItem(IrRuleRef("c-nl"), IrQuantifier(0, 1)),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("filler"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("endrule")),
+                )
             ),
         ),
         IrRule(
             "filler",
-            IrAlternation(IrRuleRef("comment"), IrRuleRef("blank")),
-            semantic=False,
-        ),
-        # A blank line: optional horizontal whitespace then a line ending.
-        IrRule(
-            "blank",
-            IrSequence(
-                IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
-                IrRuleRef("crlf"),
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("comment"))),
+                IrSequence(IrItem(IrRuleRef("blank"))),
             ),
-            semantic=False,
+            False,
         ),
-        # A comment runs from ";" to (and including) its line ending.
+        IrRule(
+            "rule",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("rulename")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("defined")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("alternation")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-nl")),
+                )
+            ),
+        ),
+        IrRule(
+            "endrule",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("rulename")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("defined")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("alternation")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-nl"), IrQuantifier(0)),
+                )
+            ),
+        ),
         IrRule(
             "comment",
-            IrSequence(
-                IrLiteral(";"),
-                IrItem(IrRuleRef("cchar"), IrQuantifier(0, IrNone)),
-                IrRuleRef("crlf"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral(";")),
+                    IrItem(IrRuleRef("cchar"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("crlf")),
+                )
             ),
-            semantic=False,
+            False,
+        ),
+        IrRule(
+            "blank",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("crlf")),
+                )
+            ),
+            False,
+        ),
+        IrRule(
+            "rulename",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("alpha")),
+                    IrItem(IrRuleRef("namechar"), IrQuantifier(0, IrNone)),
+                )
+            ),
+        ),
+        IrRule(
+            "c-wsp",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("wsp"))),
+                IrSequence(IrItem(IrRuleRef("c-nl")), IrItem(IrRuleRef("wsp"))),
+            ),
+            False,
+        ),
+        IrRule(
+            "defined",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("="))), IrSequence(IrItem(IrLiteral("=/")))
+            ),
+            False,
+        ),
+        IrRule(
+            "alternation",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("concatenation")),
+                    IrItem(IrRuleRef("altrest"), IrQuantifier(0, IrNone)),
+                )
+            ),
+        ),
+        IrRule(
+            "c-nl",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("comment"))),
+                IrSequence(IrItem(IrRuleRef("crlf"))),
+            ),
+            False,
         ),
         IrRule(
             "cchar",
             IrAlternation(
-                IrRuleRef("HTAB"),
-                IrCharClass(IrRange(IrChr(0x20), IrChr(0x7E))),
-            ),
-        ),
-        # `defined` is `=` or the incremental `=/` (RFC 5234 §3.3). Both drop;
-        # incremental arms are merged into the earlier same-named rule by the
-        # rulelist reduction (same-name rules coalesce). The `=/` arm only
-        # completes on `=/` (a bare `=` leaves a stray `/` no alternation can
-        # start), so the two never ambiguate.
-        IrRule(
-            "defined",
-            IrAlternation(IrLiteral("="), IrLiteral("=/")),
-            semantic=False,
-        ),
-        IrRule(
-            "rule",
-            IrSequence(
-                IrRuleRef("rulename"),
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrRuleRef("defined"),
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrRuleRef("alternation"),
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrRuleRef("c-nl"),
+                IrSequence(IrItem(IrRuleRef("htab"))),
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(32), IrChr(126))))),
             ),
         ),
         IrRule(
-            "rulename",
-            IrSequence(
-                IrRuleRef("ALPHA"),
-                IrItem(IrRuleRef("namechar"), IrQuantifier(0, IrNone)),
+            "crlf",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("cr"), IrQuantifier(0)), IrItem(IrRuleRef("lf"))
+                )
+            ),
+            False,
+        ),
+        IrRule(
+            "wsp",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("sp"))),
+                IrSequence(IrItem(IrRuleRef("htab"))),
+            ),
+            False,
+        ),
+        IrRule(
+            "alpha",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(65), IrChr(90)),
+                            IrRange(IrChr(97), IrChr(122)),
+                        )
+                    )
+                )
             ),
         ),
         IrRule(
             "namechar",
-            IrAlternation(IrRuleRef("ALPHA"), IrRuleRef("DIGIT"), IrLiteral("-")),
-        ),
-        IrRule(
-            "alternation",
-            IrSequence(
-                IrRuleRef("concatenation"),
-                IrItem(IrRuleRef("altrest"), IrQuantifier(0, IrNone)),
-            ),
-        ),
-        IrRule(
-            "altrest",
-            IrSequence(
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrLiteral("/"),
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrRuleRef("concatenation"),
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("alpha"))),
+                IrSequence(IrItem(IrRuleRef("digit"))),
+                IrSequence(IrItem(IrLiteral("-"))),
             ),
         ),
         IrRule(
             "concatenation",
-            IrSequence(
-                IrRuleRef("repetition"),
-                IrItem(IrRuleRef("catrest"), IrQuantifier(0, IrNone)),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("repetition")),
+                    IrItem(IrRuleRef("catrest"), IrQuantifier(0, IrNone)),
+                )
+            ),
+        ),
+        IrRule(
+            "altrest",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrLiteral("/")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("concatenation")),
+                )
+            ),
+        ),
+        IrRule("htab", IrAlternation(IrSequence(IrItem(IrLiteral("\t")))), False),
+        IrRule("cr", IrAlternation(IrSequence(IrItem(IrLiteral("\r")))), False),
+        IrRule("lf", IrAlternation(IrSequence(IrItem(IrLiteral("\n")))), False),
+        IrRule("sp", IrAlternation(IrSequence(IrItem(IrLiteral(" ")))), False),
+        IrRule(
+            "digit",
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))))
+            ),
+        ),
+        IrRule(
+            "repetition",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("rep-core"))),
+                IrSequence(IrItem(IrRuleRef("option"))),
             ),
         ),
         IrRule(
             "catrest",
-            IrSequence(
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(1, IrNone)),
-                IrRuleRef("repetition"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(1, IrNone)),
+                    IrItem(IrRuleRef("repetition")),
+                )
             ),
-        ),
-        # repetition is either a (possibly repeated) element or an option
-        # `[...]` (RFC 5234's optional-sequence — an item bound to (0, 1)).
-        IrRule(
-            "repetition",
-            IrAlternation(IrRuleRef("rep-core"), IrRuleRef("option")),
         ),
         IrRule(
             "rep-core",
-            IrSequence(IrRuleRef("repeat-opt"), IrRuleRef("element")),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("repeat-opt")), IrItem(IrRuleRef("element"))
+                )
+            ),
         ),
         IrRule(
             "option",
-            IrSequence(
-                IrLiteral("["),
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrRuleRef("alternation"),
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrLiteral("]"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("[")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("alternation")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrLiteral("]")),
+                )
             ),
         ),
         IrRule(
             "repeat-opt",
-            IrItem(IrRuleRef("repeat"), IrQuantifier(0, 1)),
-        ),
-        IrRule(
-            "repeat",
-            IrAlternation(IrRuleRef("repeat-exact"), IrRuleRef("repeat-range")),
-        ),
-        IrRule("repeat-exact", IrRuleRef("decits")),
-        IrRule(
-            "repeat-range",
-            IrSequence(
-                IrRuleRef("lo-bound"),
-                IrLiteral("*"),
-                IrRuleRef("hi-bound"),
-            ),
-        ),
-        IrRule(
-            "lo-bound",
-            IrItem(IrRuleRef("decits"), IrQuantifier(0, 1)),
-        ),
-        IrRule(
-            "hi-bound",
-            IrItem(IrRuleRef("decits"), IrQuantifier(0, 1)),
-        ),
-        IrRule(
-            "decits",
-            IrItem(IrRuleRef("DIGIT"), IrQuantifier(1, IrNone)),
+            IrAlternation(IrSequence(IrItem(IrRuleRef("repeat"), IrQuantifier(0)))),
         ),
         IrRule(
             "element",
             IrAlternation(
-                IrRuleRef("rulename"),
-                IrRuleRef("char-val"),
-                IrRuleRef("cs-string"),
-                IrRuleRef("ci-string"),
-                IrRuleRef("num-val"),
-                IrRuleRef("group"),
-                IrRuleRef("prose"),
+                IrSequence(IrItem(IrRuleRef("rulename"))),
+                IrSequence(IrItem(IrRuleRef("char-val"))),
+                IrSequence(IrItem(IrRuleRef("cs-string"))),
+                IrSequence(IrItem(IrRuleRef("ci-string"))),
+                IrSequence(IrItem(IrRuleRef("num-val"))),
+                IrSequence(IrItem(IrRuleRef("group"))),
+                IrSequence(IrItem(IrRuleRef("prose"))),
             ),
         ),
         IrRule(
-            "group",
-            IrSequence(
-                IrLiteral("("),
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrRuleRef("alternation"),
-                IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                IrLiteral(")"),
+            "repeat",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("repeat-exact"))),
+                IrSequence(IrItem(IrRuleRef("repeat-range"))),
             ),
         ),
         IrRule(
             "char-val",
-            IrSequence(
-                IrRuleRef("DQUOTE"),
-                IrRuleRef("cvbody"),
-                IrRuleRef("DQUOTE"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("dquote")),
+                    IrItem(IrRuleRef("cvbody")),
+                    IrItem(IrRuleRef("dquote")),
+                )
             ),
         ),
-        # A char-val is case-insensitive (RFC 7405): a body with any letter
-        # expands to an alternation of per-char classes; an all-non-alpha body
-        # stays one literal. The two arms partition by content (≥1 alpha vs
-        # none), pivoting on the FIRST alpha, so the parse is unambiguous.
-        IrRule(
-            "cvbody",
-            IrAlternation(IrRuleRef("cvexp"), IrRuleRef("cvlit")),
-        ),
-        IrRule(
-            "cvexp",
-            IrSequence(
-                IrItem(IrRuleRef("cvnai"), IrQuantifier(0, IrNone)),
-                IrRuleRef("cvalpha"),
-                IrItem(IrRuleRef("cvany"), IrQuantifier(0, IrNone)),
-            ),
-        ),
-        IrRule(
-            "cvlit",
-            IrItem(IrRuleRef("cvnac"), IrQuantifier(0, IrNone)),
-        ),
-        IrRule(
-            "cvany",
-            IrAlternation(IrRuleRef("cvalpha"), IrRuleRef("cvnai")),
-        ),
-        IrRule("cvalpha", IrRuleRef("ALPHA")),
-        IrRule("cvnai", _CV_NA_BODY),
-        IrRule("cvnac", _CV_NA_BODY),
-        # RFC 7405 case-sensitive string `%s"..."`: a raw IrLiteral, no
-        # case expansion. `smark` (the "s") drops; the quoted body's chars
-        # join verbatim.
         IrRule(
             "cs-string",
-            IrSequence(
-                IrLiteral("%"),
-                IrRuleRef("smark"),
-                IrRuleRef("DQUOTE"),
-                IrRuleRef("csbody"),
-                IrRuleRef("DQUOTE"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("smark")),
+                    IrItem(IrRuleRef("dquote")),
+                    IrItem(IrRuleRef("csbody")),
+                    IrItem(IrRuleRef("dquote")),
+                )
             ),
         ),
-        # RFC 7405 case-insensitive string `%i"..."`: identical to a bare
-        # char-val — `imark` (the "i") drops and the char-val body expands.
         IrRule(
             "ci-string",
-            IrSequence(
-                IrLiteral("%"),
-                IrRuleRef("imark"),
-                IrRuleRef("char-val"),
-            ),
-        ),
-        IrRule(
-            "csbody",
-            IrItem(IrRuleRef("qchar"), IrQuantifier(0, IrNone)),
-        ),
-        # A quoted-string char (RFC 7405): any printable except `"` (0x22).
-        # Authored as single-range arms so each emits a bare `%x` and
-        # round-trips (see the module docstring's char-class adaptation).
-        IrRule(
-            "qchar",
             IrAlternation(
-                IrCharClass(IrRange(IrChr(0x20), IrChr(0x21))),
-                IrCharClass(IrRange(IrChr(0x23), IrChr(0x7E))),
-            ),
-        ),
-        IrRule("smark", IrCharClass(IrChr("s")), semantic=False),
-        IrRule("imark", IrCharClass(IrChr("i")), semantic=False),
-        # prose-val `<...>` is recognised then rejected at reduce time: it has
-        # no machine-readable meaning (RFC 5234 §4).
-        IrRule(
-            "prose",
-            IrSequence(
-                IrLiteral("<"),
-                IrItem(IrRuleRef("prose-char"), IrQuantifier(0, IrNone)),
-                IrLiteral(">"),
-            ),
-        ),
-        IrRule(
-            "prose-char",
-            IrAlternation(
-                IrCharClass(IrRange(IrChr(0x20), IrChr(0x3D))),
-                IrCharClass(IrRange(IrChr(0x3F), IrChr(0x7E))),
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("imark")),
+                    IrItem(IrRuleRef("char-val")),
+                )
             ),
         ),
         IrRule(
             "num-val",
             IrAlternation(
-                IrRuleRef("num-single"),
-                IrRuleRef("num-range"),
-                IrRuleRef("num-seq"),
-                IrRuleRef("dec-single"),
-                IrRuleRef("dec-range"),
-                IrRuleRef("bin-single"),
-                IrRuleRef("bin-range"),
+                IrSequence(IrItem(IrRuleRef("num-single"))),
+                IrSequence(IrItem(IrRuleRef("num-range"))),
+                IrSequence(IrItem(IrRuleRef("num-seq"))),
+                IrSequence(IrItem(IrRuleRef("dec-single"))),
+                IrSequence(IrItem(IrRuleRef("dec-range"))),
+                IrSequence(IrItem(IrRuleRef("bin-single"))),
+                IrSequence(IrItem(IrRuleRef("bin-range"))),
             ),
         ),
         IrRule(
+            "group",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("(")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("alternation")),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrLiteral(")")),
+                )
+            ),
+        ),
+        IrRule(
+            "prose",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("<")),
+                    IrItem(IrRuleRef("prose-char"), IrQuantifier(0, IrNone)),
+                    IrItem(IrLiteral(">")),
+                )
+            ),
+        ),
+        IrRule("repeat-exact", IrAlternation(IrSequence(IrItem(IrRuleRef("decits"))))),
+        IrRule(
+            "repeat-range",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("lo-bound")),
+                    IrItem(IrLiteral("*")),
+                    IrItem(IrRuleRef("hi-bound")),
+                )
+            ),
+        ),
+        IrRule("dquote", IrAlternation(IrSequence(IrItem(IrLiteral('"')))), False),
+        IrRule(
+            "cvbody",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cvexp"))),
+                IrSequence(IrItem(IrRuleRef("cvlit"))),
+            ),
+        ),
+        IrRule("smark", IrAlternation(IrSequence(IrItem(IrLiteral("s")))), False),
+        IrRule(
+            "csbody",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("qchar"), IrQuantifier(0, IrNone)))
+            ),
+        ),
+        IrRule("imark", IrAlternation(IrSequence(IrItem(IrLiteral("i")))), False),
+        IrRule(
             "num-single",
-            IrSequence(
-                IrLiteral("%"),
-                IrRuleRef("xmark"),
-                IrRuleRef("hexits"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("xmark")),
+                    IrItem(IrRuleRef("hexits")),
+                )
             ),
         ),
         IrRule(
             "num-range",
-            IrSequence(
-                IrLiteral("%"),
-                IrRuleRef("xmark"),
-                IrRuleRef("hexits"),
-                IrLiteral("-"),
-                IrRuleRef("hexits"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("xmark")),
+                    IrItem(IrRuleRef("hexits")),
+                    IrItem(IrLiteral("-")),
+                    IrItem(IrRuleRef("hexits")),
+                )
             ),
         ),
-        # num-seq `%x0D.0A`: a dot-joined value sequence → a case-sensitive
-        # IrLiteral of the decoded code points. Each dot-part decodes to one
-        # glyph (`hexglyph`) and the parts join. The `.` requires ≥2 parts, so
-        # it never collides with num-single/num-range.
         IrRule(
             "num-seq",
-            IrSequence(
-                IrLiteral("%"),
-                IrRuleRef("xmark"),
-                IrRuleRef("hexglyph"),
-                IrItem(IrRuleRef("hexdot"), IrQuantifier(1, IrNone)),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("xmark")),
+                    IrItem(IrRuleRef("hexglyph")),
+                    IrItem(IrRuleRef("hexdot"), IrQuantifier(1, IrNone)),
+                )
             ),
         ),
         IrRule(
-            "hexdot",
-            IrSequence(IrLiteral("."), IrRuleRef("hexglyph")),
-        ),
-        IrRule(
-            "hexglyph",
-            IrItem(IrRuleRef("HEXDIG"), IrQuantifier(1, IrNone)),
-        ),
-        # dec-val / bin-val (RFC 5234): the digit run is `hexits` reused (Lark's
-        # regex likewise admits any hex digit after the marker), and the base
-        # 10 / 2 is applied in the reduction.
-        IrRule(
             "dec-single",
-            IrSequence(
-                IrLiteral("%"),
-                IrRuleRef("dmark"),
-                IrRuleRef("hexits"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("dmark")),
+                    IrItem(IrRuleRef("hexits")),
+                )
             ),
         ),
         IrRule(
             "dec-range",
-            IrSequence(
-                IrLiteral("%"),
-                IrRuleRef("dmark"),
-                IrRuleRef("hexits"),
-                IrLiteral("-"),
-                IrRuleRef("hexits"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("dmark")),
+                    IrItem(IrRuleRef("hexits")),
+                    IrItem(IrLiteral("-")),
+                    IrItem(IrRuleRef("hexits")),
+                )
             ),
         ),
         IrRule(
             "bin-single",
-            IrSequence(
-                IrLiteral("%"),
-                IrRuleRef("bmark"),
-                IrRuleRef("hexits"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("bmark")),
+                    IrItem(IrRuleRef("hexits")),
+                )
             ),
         ),
         IrRule(
             "bin-range",
-            IrSequence(
-                IrLiteral("%"),
-                IrRuleRef("bmark"),
-                IrRuleRef("hexits"),
-                IrLiteral("-"),
-                IrRuleRef("hexits"),
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("%")),
+                    IrItem(IrRuleRef("bmark")),
+                    IrItem(IrRuleRef("hexits")),
+                    IrItem(IrLiteral("-")),
+                    IrItem(IrRuleRef("hexits")),
+                )
             ),
         ),
-        IrRule("xmark", IrCharClass(IrChr("x")), semantic=False),
-        IrRule("dmark", IrCharClass(IrChr("d")), semantic=False),
-        IrRule("bmark", IrCharClass(IrChr("b")), semantic=False),
+        IrRule(
+            "prose-char",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(32), IrChr(61)),
+                            IrRange(IrChr(63), IrChr(126)),
+                        )
+                    )
+                )
+            ),
+        ),
+        IrRule(
+            "decits",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)))
+            ),
+        ),
+        IrRule(
+            "lo-bound",
+            IrAlternation(IrSequence(IrItem(IrRuleRef("decits"), IrQuantifier(0)))),
+        ),
+        IrRule(
+            "hi-bound",
+            IrAlternation(IrSequence(IrItem(IrRuleRef("decits"), IrQuantifier(0)))),
+        ),
+        IrRule(
+            "cvexp",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("cvnai"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("cvalpha")),
+                    IrItem(IrRuleRef("cvany"), IrQuantifier(0, IrNone)),
+                )
+            ),
+        ),
+        IrRule(
+            "cvlit",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cvnac"), IrQuantifier(0, IrNone)))
+            ),
+        ),
+        IrRule(
+            "qchar",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(32), IrChr(33)),
+                            IrRange(IrChr(35), IrChr(126)),
+                        )
+                    )
+                )
+            ),
+        ),
+        IrRule("xmark", IrAlternation(IrSequence(IrItem(IrLiteral("x")))), False),
         IrRule(
             "hexits",
-            IrItem(IrRuleRef("HEXDIG"), IrQuantifier(1, IrNone)),
-        ),
-        # Line ending and folding (RFC 5234 §4). c-nl is a comment or a bare
-        # line ending; c-wsp is folding whitespace — plain horizontal space,
-        # or a line ending followed by continuation indentation (which lets a
-        # rule body span lines and carry trailing/inline comments).
-        IrRule(
-            "c-nl",
-            IrAlternation(IrRuleRef("comment"), IrRuleRef("crlf")),
-            semantic=False,
-        ),
-        IrRule(
-            "crlf",
-            IrSequence(
-                IrItem(IrRuleRef("CR"), IrQuantifier(0, 1)),
-                IrRuleRef("LF"),
-            ),
-            semantic=False,
-        ),
-        IrRule(
-            "c-wsp",
             IrAlternation(
-                IrRuleRef("wsp"),
-                IrAlternation(IrSequence(IrRuleRef("c-nl"), IrRuleRef("wsp"))),
+                IrSequence(IrItem(IrRuleRef("hexdig"), IrQuantifier(1, IrNone)))
             ),
-            semantic=False,
         ),
         IrRule(
-            "wsp",
-            IrAlternation(IrRuleRef("SP"), IrRuleRef("HTAB")),
-            semantic=False,
-        ),
-        IrRule(
-            "ALPHA",
+            "hexglyph",
             IrAlternation(
-                IrCharClass(IrRange(IrChr("A"), IrChr("Z"))),
-                IrCharClass(IrRange(IrChr("a"), IrChr("z"))),
+                IrSequence(IrItem(IrRuleRef("hexdig"), IrQuantifier(1, IrNone)))
             ),
         ),
-        IrRule("DIGIT", IrCharClass(IrRange(IrChr("0"), IrChr("9")))),
-        # HEXDIG admits lowercase a-f too (RFC 5234 is uppercase-only, but the
-        # Lark path's regex — and real grammars, e.g. json.abnf's `%x66.61.6c`
-        # — use either case; IrUnradix decodes both).
         IrRule(
-            "HEXDIG",
+            "hexdot",
             IrAlternation(
-                IrRuleRef("DIGIT"),
-                IrCharClass(IrRange(IrChr("A"), IrChr("F"))),
-                IrCharClass(IrRange(IrChr("a"), IrChr("f"))),
+                IrSequence(IrItem(IrLiteral(".")), IrItem(IrRuleRef("hexglyph")))
             ),
         ),
-        IrRule("CR", IrCharClass(IrChr("\r")), semantic=False),
-        IrRule("LF", IrCharClass(IrChr("\n")), semantic=False),
-        IrRule("SP", IrCharClass(IrChr(" ")), semantic=False),
-        IrRule("HTAB", IrCharClass(IrChr("\t")), semantic=False),
-        IrRule("DQUOTE", IrCharClass(IrChr('"')), semantic=False),
+        IrRule("dmark", IrAlternation(IrSequence(IrItem(IrLiteral("d")))), False),
+        IrRule("bmark", IrAlternation(IrSequence(IrItem(IrLiteral("b")))), False),
+        IrRule(
+            "cvnai",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(32), IrChr(33)),
+                            IrRange(IrChr(35), IrChr(64)),
+                            IrRange(IrChr(91), IrChr(96)),
+                            IrRange(IrChr(123), IrChr(126)),
+                        )
+                    )
+                )
+            ),
+        ),
+        IrRule("cvalpha", IrAlternation(IrSequence(IrItem(IrRuleRef("alpha"))))),
+        IrRule(
+            "cvany",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cvalpha"))),
+                IrSequence(IrItem(IrRuleRef("cvnai"))),
+            ),
+        ),
+        IrRule(
+            "cvnac",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(32), IrChr(33)),
+                            IrRange(IrChr(35), IrChr(64)),
+                            IrRange(IrChr(91), IrChr(96)),
+                            IrRange(IrChr(123), IrChr(126)),
+                        )
+                    )
+                )
+            ),
+        ),
+        IrRule(
+            "hexdig",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("digit"))),
+                IrSequence(
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(65), IrChr(70)),
+                            IrRange(IrChr(97), IrChr(102)),
+                        )
+                    )
+                ),
+            ),
+        ),
     ),
-    start="rulelist",
-    # Noise rules carry semantic=False on their own IrRule (see below):
-    # whitespace and folding, line endings, comments/blank filler, the char-val
-    # quote delimiter, and the radix/case markers (%x/%d/%b/%s/%i). That per-rule
-    # flag is the single source of truth — ABNF_GRAMMAR.non_semantic (a derived
-    # property) collects the names, drives ABNF_NOISE (below), and reaches
-    # derive_specs and semantic_dump for user grammars via @non-semantic.
+    "rulelist",
 )
-"""The ABNF grammar of ABNF (RFC 5234 §4 + B.1 subset) as a canonical :class:`IrAst`."""
+"""The ABNF grammar of ABNF (RFC 5234 §4 + B.1 subset) as a canonical
+:class:`IrAst`.
+
+Stored in canonical form (``canonicalize(ABNF_GRAMMAR) == ABNF_GRAMMAR``):
+rule names fold lowercase, char classes are in normal form, and rules sit in
+first-reference order from the start rule. See the module docstring for the
+round-trip adaptations the RFC surface required."""
 
 
 # ── Cleaning policy: which child rules are noise ──────────────────────────

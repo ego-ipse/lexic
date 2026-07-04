@@ -33,6 +33,7 @@ from lexic.ir.base import (
     IrSelf,
     IrSeq,
 )
+from lexic.ir.bind import BIND_MODES, IrBind
 from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.derive import (
     classify_kind,
@@ -64,6 +65,7 @@ from lexic.ir.topo import topo_sort
 from lexic.ir.walk import IrTransformer, IrVisitor
 
 __all__ = [
+    "BIND_MODES",
     "CANONICAL_ESCAPES",
     "IR_DEFAULT",
     "EscapeCodec",
@@ -77,6 +79,7 @@ __all__ = [
     "IrAst",
     "IrAt",
     "IrAtom",
+    "IrBind",
     "IrChr",
     "IrBounds",
     "IrBuild",

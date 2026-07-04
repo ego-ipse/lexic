@@ -6,6 +6,82 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-04 — Task 5: positional fold + compile.py flip; parsing/models.py deleted (IR-native codegen effort)
+
+The pipeline now runs IR-native end to end; the wrapper-rule instance bridge is gone.
+
+- `src/lexic/parsing/fold.py` (new) — `PositionalFold`: generic positional
+  `ParseTree → object` fold over the *real* codegen grammar
+  (`kids[i] ↔ items[i]`; no `--f<idx>` wrapper rules). Config is plain data:
+  `RuleFold(kind, ctor, n_items, fields)` / `FieldFold(item, mode, name, lo)`;
+  modes validated against `lexic.ir.bind.BIND_MODES` (parsing → ir edge only —
+  no codegen, no pydantic, no RuleSpec). Also hosts `lift_optional_nullables`
+  (now `IrAst → IrAst`), `PositionalFold.run_ok` (run-collapse licence:
+  collapse iff no config key among the unit leaves) and
+  `collapsed_fold_tables` (memoised per (fold, grammar)).
+- `src/lexic/compile.py` FLIPPED: `_compile_core` = `canonical_grammar` (new
+  public front half: parse + canonicalize + directive flags → flagged IrAst)
+  → `build_codegen_grammar` → `compute_binding` → `codegen_ir` → fold config
+  → `instance_grammar = normalize(lift_optional_nullables(codegen_grammar))`.
+  `CompiledGrammar` fields now `(classes, specs*, grammar=canonical ast,
+  instance_grammar, fold, tables)`; `.parse()` surface unchanged.
+  *`compile_grammar` and `CompiledGrammar.specs` are transitional
+  (canonical_grammar + derive_specs) feeding `generate.py`/ex05 — die with
+  derive in Task 6.
+- `src/lexic/base.py` ported (coordinator-sanctioned pull-forward):
+  `to_text()` walks the `IrRule` `__grammar__` arm + `IrBind` read from
+  `model_fields` metadata (value_str = untagged `value` field; alternation =
+  no binds → NotImplementedError; empty-arm rule with all fields None emits
+  `""`); `semantic_dump()` excludes `semantic=False` binds; `to_grammar` =
+  `flavour.apply(self.__grammar__)`.
+- DELETED: `src/lexic/parsing/models.py` + `tests/unit/lexic/parsing/test_models.py`
+  (assertions re-homed to `test_fold.py` / `test_compile.py` / `test_binding.py`;
+  wrapper-name machinery died with no successor).
+- Gates: old-vs-new parity 196/196 outputs identical (fixtures + 40 generate
+  seeds × 7 grammars; type/model_dump/to_text/semantic_dump — HEAD oracle);
+  the c-statement defect was already fixed by Task 2's canonicalize on the old
+  path, so parity covers c statements too. Bench (instance parse+fold, best):
+  arithmetic 118.4→72.4 ms (−39%), c 38.2→31.8 ms (−17%). Suite 1631 green,
+  run_checks exit 0.
+- Layering: new invariants — engine never imports pydantic or `lexic.ir.spec`;
+  `parsing/models.py` gone and unreferenced.
+
+---
+
+## 2026-07-04 — Task 3: binding view + IrBind + codegen passes (IR-native codegen effort)
+
+New surfaces, all parallel to the live derive/RuleSpec pipeline (nothing rewired;
+Tasks 4/5 consume them, Task 6 deletes derive):
+
+- `src/lexic/ir/bind.py` — `IrBind(item, mode, semantic=True)`, an `IrNamedTuple`
+  record generated model fields will carry as `Annotated` metadata; `BIND_MODES =
+  (text, gtext, model, models)` with construction-time validation. Exported from
+  `lexic.ir`.
+- `src/lexic/codegen/passes.py` — grammar→grammar codegen passes:
+  `hoist_groups` (wraps `derive.hoist_helpers` until Task 6 moves the
+  implementation in), `hoist_arms` (every non-unit-ref alternation arm →
+  `<rule>-arm<N>` rule, inserted right after its alternation; empty arms kept;
+  name collision raises), `relax_non_semantic` (arm-level refs to
+  `semantic=False` rules get `min=0`; group interiors untouched), and the
+  composition `build_codegen_grammar = relax(arm_hoist(hoist(ast)))`.
+- `src/lexic/codegen/binding.py` — the open-table successor of derive's
+  classify/parents/naming: `compute_binding(codegen_grammar) ->
+  list[RuleBinding(rule_name, class_name, parent_class_name, kind, fields)]`
+  with `fields: dict[str, IrBind]`. Naming cascade and fold-mode derivation are
+  `IrDispatch`/`IrTypeMap` tables (raising defaults — `IrNot` deliberately
+  unregistered, canonicalize rewrite 4 removes it); `class_name_for` absorbs
+  `to_pascal`; the `ir/naming.py` tables are imported until Task 6 moves them.
+- `ir/order.py::RuleOrder.ordered_parents_first()` — the parent-edge policy
+  replacing `topo_sort` for emission order (start's ancestor chain first, then
+  input order, every rule after its inheritance parent).
+
+Parity gate `tests/integration/test_binding_scaffold.py` (TEMPORARY, dies with
+derive in Task 6): binding == derive on order/classes/parents/kinds/field
+maps/noise sets across all 10 ground truths, plus mode == `models._wrapper_mode`
+per bound field. Suite 1549 green, `run_checks.sh` exit 0.
+
+---
+
 ## 2026-07-03 — Task 2: canonicalize pass (IR-native codegen effort)
 
 `src/lexic/ir/canonical.py` (`canonicalize`, `fold_name`) — a language-preserving

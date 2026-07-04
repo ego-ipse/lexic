@@ -12,6 +12,7 @@ from lexic.base import GrammarModel
 from lexic.compile import (
     CompiledGrammar,
     _scan_directives,
+    canonical_grammar,
     compile_from_path,
     compile_grammar,
     compile_text,
@@ -25,7 +26,7 @@ from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
 from lexic.parsing import ParserTables, parse_first
-from lexic.parsing.models import ModelFold
+from lexic.parsing.fold import PositionalFold
 from tests.paths import GROUND_TRUTH
 
 
@@ -122,17 +123,20 @@ def test_compiled_grammar_parse_roundtrips():
     assert inst.to_text() == "x=1\n"
 
 
-def test_compiled_grammar_grammar_field_is_ir_ast():
-    """CompiledGrammar.grammar is the normalized instance IrAst (engine-backed,
-    Lark-free shape — no .parser/.transformer fields)."""
+def test_compiled_grammar_grammar_field_is_the_canonical_ast():
+    """CompiledGrammar.grammar is the canonical grammar AST (the re-emit
+    source), and instance_grammar the Earley-normalised instance grammar."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     assert isinstance(cg.grammar, IrAst)
+    assert isinstance(cg.instance_grammar, IrAst)
+    text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
+    assert cg.grammar == canonical_grammar(text, GBNF_FLAVOUR)
 
 
-def test_compiled_grammar_fold_field_is_model_fold():
-    """CompiledGrammar.fold is the ParseTree -> model-instance ModelFold."""
+def test_compiled_grammar_fold_field_is_positional_fold():
+    """CompiledGrammar.fold is the ParseTree -> model-instance PositionalFold."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    assert isinstance(cg.fold, ModelFold)
+    assert isinstance(cg.fold, PositionalFold)
 
 
 def test_compiled_grammar_tables_field_is_parser_tables():
@@ -153,13 +157,13 @@ def test_collapsed_and_plain_tables_parse_to_the_same_model(grammar_file, text):
     """CompiledGrammar's built-in collapsed-tables parse (cg.parse) matches a
     plain-tables parse (parse_first with no tables=) on model_dump()/to_text().
 
-    Task 4's ModelFold run-collapse licence changes the packed chart shape
+    The fold-config run-collapse licence changes the packed chart shape
     (fewer, longer terminal leaves) but must never change observable output —
     this is the in-suite spot-check of the author's full equality harness.
     """
     cg = compile_from_path(GROUND_TRUTH / grammar_file)
     collapsed_model = cg.parse(text)
-    plain_model = cg.fold.apply(parse_first(cg.grammar, text))
+    plain_model = cg.fold.apply(parse_first(cg.instance_grammar, text))
     assert isinstance(plain_model, GrammarModel)
     assert collapsed_model.model_dump() == plain_model.model_dump()
     assert collapsed_model.to_text() == plain_model.to_text() == text
@@ -279,6 +283,41 @@ def test_parse_grammar_malformed_source_raises():
     """Unparseable grammar text surfaces as UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError):
         parse_grammar("root ::=\n::= broken", GBNF_FLAVOUR)
+
+
+# ── canonical_grammar unit tests ──
+
+
+def test_canonical_grammar_returns_flagged_canonical_ast():
+    """canonical_grammar binds start and semantic=False flags onto the AST."""
+    text = "# @non-semantic ws\nroot ::= ws\nws ::= [ ]*\n"
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    assert isinstance(ast, IrAst)
+    assert ast.start == "root"
+    assert ast.non_semantic == frozenset({"ws"})
+
+
+def test_canonical_grammar_folds_directive_names_like_rule_names():
+    """A directive naming ws_x matches the canonically folded rule ws-x."""
+    text = "# @non-semantic ws_x\nroot ::= ws_x\nws_x ::= [ ]*\n"
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    assert ast.non_semantic == frozenset({"ws-x"})
+
+
+def test_canonical_grammar_unknown_directive_rule_is_ignored():
+    """A directive naming an undefined rule flags nothing."""
+    text = "# @non-semantic ghost\nroot ::= [0-9]+\n"
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    assert ast.non_semantic == frozenset()
+
+
+def test_compile_grammar_is_the_spec_view_of_canonical_grammar():
+    """compile_grammar (transitional) starts from canonical_grammar's AST."""
+    text = "# @start expr\nroot ::= expr\nexpr ::= [0-9]+\n"
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    start, specs = compile_grammar(text, GBNF_FLAVOUR)
+    assert start == ast.start == "expr"
+    assert {s.rule_name for s in specs} == {str(r.name) for r in ast.rules}
 
 
 # ── _scan_directives unit tests ──

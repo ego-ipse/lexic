@@ -48,6 +48,29 @@ def test_engine_package_does_not_import_grammars_or_codegen():
     assert not bad, f"lexic.parsing leaks: {bad}"
 
 
+def test_engine_fold_seam_is_plain_data():
+    """The instance fold receives plain data: the engine (lexic.parsing,
+    fold.py included) never imports pydantic, and never sees the RuleSpec
+    shape — constructors arrive as opaque callables, modes as the
+    lexic.ir.bind vocabulary (parsing → ir is a legal edge)."""
+    engine = SRC / "parsing"
+    bad = (
+        _grep(engine, "from pydantic")
+        + _grep(engine, "import pydantic")
+        + _grep(engine, "from lexic.ir.spec")
+        + _grep(engine, "import lexic.ir.spec")
+    )
+    assert not bad, f"the fold seam leaks beyond plain data: {bad}"
+
+
+def test_wrapper_models_module_is_gone():
+    """Sanity: parsing/models.py (the --f<idx> wrapper bridge) is deleted and
+    unreferenced — parsing/fold.py is its positional successor."""
+    assert not (SRC / "parsing" / "models.py").exists()
+    for p in SRC.rglob("*.py"):
+        assert "lexic.parsing.models" not in p.read_text(), f"{p}"
+
+
 def test_engine_imported_by_runtime_only_via_compile_seam():
     """Top-level runtime modules import the engine only through compile.py.
 

@@ -1,4 +1,4 @@
-"""Generated module: anon_5655032b9fa3. Do not edit; regenerated from grammar."""
+"""Generated module: iremit_arithmetic. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 

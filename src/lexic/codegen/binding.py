@@ -1,0 +1,386 @@
+"""Binding view — the codegen grammar's per-rule class/kind/parent/field map.
+
+``compute_binding(ast)`` reads the codegen grammar (canonical AST after the
+:mod:`lexic.codegen.passes` rewrites) and produces one :class:`RuleBinding`
+per rule, in emission order (parents before subclasses via
+:class:`~lexic.ir.order.RuleOrder`'s parent-edge policy). This is the
+open-table successor of ``derive_specs``'s classify/parents/naming jobs:
+consumer policy lives in :class:`~lexic.ir.walk.IrDispatch` tables whose
+defaults refuse unknown atom types — no closed ``isinstance`` ladders, no
+``dict[type, ...]`` keying.
+
+Field naming keeps derive's three-tier cascade:
+
+1. rule ref → the rule name (hyphens to underscores);
+2. pattern library — :data:`~lexic.ir.naming.CHARCLASS_NAMES` /
+   :data:`~lexic.ir.naming.LITERAL_NAMES` lookups (the tables' physical move
+   into this module completes when ``ir/derive.py`` dies in Task 6);
+3. positional — first unmatched pattern field ``head``, then ``part_N``.
+"""
+
+from __future__ import annotations
+
+import keyword
+import re
+from collections import defaultdict
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Literal
+
+from lexic.ir.action import IrAction
+from lexic.ir.base import IrLambda, IrNone, IrNoneType, IrSelf, IrStr
+from lexic.ir.bind import IrBind
+from lexic.ir.derive import has_ruleref
+from lexic.ir.mapping import IrTypeMap
+from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrCharClass,
+    IrItem,
+    IrLiteral,
+    IrQuantifier,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+)
+from lexic.ir.order import RuleOrder
+from lexic.ir.walk import IrDispatch
+
+RuleKind = Literal["sequence", "alternation", "value_str"]
+
+_UNIT = IrQuantifier(1, 1)
+
+
+@dataclass(frozen=True)
+class RuleBinding:
+    """One rule's codegen identity: class, kind, parent, bound fields.
+
+    ``fields`` maps each generated field name to its :class:`IrBind`, in item
+    order; only ``sequence``-kind rules carry fields (``value_str`` emits the
+    implicit ``value`` field, ``alternation`` is a field-less pass-through).
+    """
+
+    rule_name: str
+    class_name: str
+    parent_class_name: str
+    kind: RuleKind
+    fields: dict[str, IrBind]
+
+
+# ── class naming (absorbed to_pascal) ─────────────────────────────────
+
+_NAME_SPLIT = re.compile(r"[-_]")
+
+
+def class_name_for(rule_name: str) -> str:
+    """PascalCase class name for a rule; keywords get a ``_`` suffix.
+
+    :param rule_name: The (canonical) rule name.
+    :returns: A valid Python class name (``jp-char`` → ``JpChar``,
+        ``true`` → ``True_``).
+    """
+    pascal = "".join(
+        part[:1].upper() + part[1:] for part in _NAME_SPLIT.split(rule_name)
+    )
+    return pascal + "_" if keyword.iskeyword(pascal) else pascal
+
+
+# ── kind classification ───────────────────────────────────────────────
+
+
+def non_empty_arms(body: IrAlternation) -> list[IrSequence]:
+    """The arms of ``body`` that carry at least one item.
+
+    :param body: A rule body.
+    :returns: The non-empty arms, in body order.
+    """
+    return [arm for arm in body if arm]
+
+
+def classify_rule(rule: IrRule) -> RuleKind:
+    """Classify a rule into its codegen kind.
+
+    ``value_str`` when no ``IrRuleRef`` occurs anywhere in the body;
+    ``alternation`` when more than one non-empty arm remains; ``sequence``
+    otherwise.
+
+    :param rule: The rule to classify.
+    :returns: The rule's kind.
+    """
+    if not has_ruleref(rule.body):
+        return "value_str"
+    if len(non_empty_arms(rule.body)) > 1:
+        return "alternation"
+    return "sequence"
+
+
+# ── parent inference ──────────────────────────────────────────────────
+
+
+def unit_ref_arm(arm: IrSequence) -> IrRuleRef | IrNoneType:
+    """The ref of a single-item, unit-quantified ruleref arm, else ``IrNone``.
+
+    :param arm: An alternation arm.
+    :returns: The arm's lone ``IrRuleRef``, or :data:`IrNone`.
+    """
+    if len(arm) != 1 or arm[0].quantifier != _UNIT:
+        return IrNone
+    atom = arm[0].atom
+    return atom if isinstance(atom, IrRuleRef) else IrNone
+
+
+def _parent_rules(rules: Sequence[IrRule]) -> dict[str, str]:
+    """Map each rule named as a unit-ref alternation arm to its alternation.
+
+    Post arm-hoisting every non-empty arm of an ``alternation``-kind rule is a
+    unit ref, so this covers original single-ref arms and synthesized
+    ``-arm<N>`` rules alike. Helper rules never appear as arms and stay
+    parentless (``GrammarModel``).
+
+    :param rules: The codegen grammar's rules.
+    :returns: Child rule name → parent rule name.
+    """
+    parent_of: dict[str, str] = {}
+    for rule in rules:
+        if classify_rule(rule) != "alternation":
+            continue
+        for arm in non_empty_arms(rule.body):
+            ref = unit_ref_arm(arm)
+            if not isinstance(ref, IrNoneType):
+                parent_of[str(ref)] = str(rule.name)
+    return parent_of
+
+
+# ── field naming: tier-2 lookup bodies ────────────────────────────────
+
+_TOKEN_RE = re.compile(r"[^0-9A-Za-z]")
+_BRACKET_RE = re.compile(r"[][^]")
+_NON_SLUG_RE = re.compile(r"[^a-z0-9_]")
+_UNDERSCORE_RUN_RE = re.compile(r"_+")
+
+
+def _literal_token(text: str) -> str:
+    """Name a literal: library hit, ASCII token of its value, or ``lit``."""
+    named = LITERAL_NAMES.get(text)
+    if named:
+        return named
+    token = _TOKEN_RE.sub("_", text).strip("_").lower()[:12]
+    return token or "lit"
+
+
+def _charclass_key(cc: IrCharClass) -> str:
+    """The bracketed lookup key for a char class (``[0-9]``)."""
+    return f"[{cc.pattern()}]"
+
+
+def _pattern_slug(key: str) -> str:
+    """Identifier-safe slug of a bracketed pattern; empty when nothing survives."""
+    slug = _BRACKET_RE.sub("", key).replace("-", "_").lower()
+    slug = _UNDERSCORE_RUN_RE.sub("_", _NON_SLUG_RE.sub("", slug).strip("_"))
+    if not slug:
+        return ""
+    if slug[0].isdigit():
+        slug = "cc_" + slug
+    return slug[:12].strip("_")
+
+
+def _ref_field(_d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
+    """Tier-1 body: a rule ref names its field after the rule."""
+    return IrStr(str(n).replace("-", "_"))
+
+
+def _literal_field(_d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
+    """Tier-2 body: a (quantified) literal always names itself — never tier-3."""
+    return IrStr(_literal_token(str(n)))
+
+
+def _charclass_hint(_d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
+    """Hint body: char class names from the library, its slug, or ``cc``."""
+    assert isinstance(n, IrCharClass)
+    key = _charclass_key(n)
+    return IrStr(CHARCLASS_NAMES.get(key) or _pattern_slug(key) or "cc")
+
+
+def _charclass_field(_d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrSelf:
+    """Tier-2 body: char class names only on a library hit, else tier-3."""
+    assert isinstance(n, IrCharClass)
+    named = CHARCLASS_NAMES.get(_charclass_key(n))
+    return IrStr(named) if named else IrNone
+
+
+def _group_hint(d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
+    """Hint body: ref-bearing group → ``kind``; else named from its first atom."""
+    assert isinstance(n, IrAlternation)
+    if has_ruleref(n):
+        return IrStr("kind")
+    if not (len(n) and len(n[0])):
+        return IrStr("inline")
+    return IrStr(str(_HINT.eval(d, n[0][0].atom, ())))
+
+
+def _group_field(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> IrSelf:
+    """Tier-2 body: group named by its hint unless the hint is a bare fallback."""
+    hint = str(_group_hint(d, n, nc))
+    return IrNone if hint in {"inline", "lit", "cc"} else IrStr(hint)
+
+
+# _HINT always yields a name (used to label literal-only group content);
+# _TIER2 may yield IrNone, routing the field to the tier-3 positional names.
+# Both inherit IrDispatch's raising default: an unregistered atom type fails
+# loudly instead of silently dropping a field.
+_HINT: IrDispatch = IrDispatch(
+    actions=IrTypeMap(
+        IrAction(IrLiteral, IrLambda(_literal_field)),
+        IrAction(IrRuleRef, IrLambda(_ref_field)),
+        IrAction(IrCharClass, IrLambda(_charclass_hint)),
+        IrAction(IrAlternation, IrLambda(_group_hint)),
+    ),
+)
+
+_TIER2: IrDispatch = IrDispatch(
+    actions=IrTypeMap(
+        IrAction(IrLiteral, IrLambda(_literal_field)),
+        IrAction(IrRuleRef, IrLambda(_ref_field)),
+        IrAction(IrCharClass, IrLambda(_charclass_field)),
+        IrAction(IrAlternation, IrLambda(_group_field)),
+    ),
+)
+
+
+# ── fold-mode derivation ──────────────────────────────────────────────
+
+
+def _many(item: IrItem) -> bool:
+    """Whether the item repeats (``hi`` unbounded or above one)."""
+    hi = item.quantifier.hi
+    return isinstance(hi, IrNoneType) or int(hi) > 1
+
+
+def _ref_mode(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf]) -> IrStr:
+    """Mode body: a rule ref folds to its sub-model(s)."""
+    item = nc[0]
+    assert isinstance(item, IrItem)
+    return IrStr("models" if _many(item) else "model")
+
+
+def _group_mode(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> IrStr:
+    """Mode body: ref-bearing group folds like a ref, literal-only as gtext."""
+    assert isinstance(n, IrAlternation)
+    if has_ruleref(n):
+        return _ref_mode(d, n, nc)
+    return IrStr("gtext")
+
+
+# Dispatched on the atom; the owning IrItem rides the argument channel so the
+# ref/group bodies can read the quantifier.
+_MODE: IrDispatch = IrDispatch(
+    actions=IrTypeMap(
+        IrAction(IrLiteral, IrLiteral("text")),
+        IrAction(IrCharClass, IrLiteral("text")),
+        IrAction(IrRuleRef, IrLambda(_ref_mode)),
+        IrAction(IrAlternation, IrLambda(_group_mode)),
+    ),
+)
+
+
+def mode_for(item: IrItem) -> str:
+    """The fold mode of a field-bearing item, from its atom and quantifier.
+
+    :param item: The bound item.
+    :returns: One of :data:`~lexic.ir.bind.BIND_MODES`.
+    :raises UnsupportedConstructError: On an atom type outside the mode table.
+    """
+    return str(_MODE.eval(_MODE, item.atom, (item,)))
+
+
+# ── field binding ─────────────────────────────────────────────────────
+
+
+def _is_structural_literal(item: IrItem) -> bool:
+    """Unit-quantified literal — matched text with no field of its own."""
+    return isinstance(item.atom, IrLiteral) and item.quantifier == _UNIT
+
+
+def _is_semantic_field(item: IrItem, non_semantic: frozenset[str]) -> bool:
+    """False when the item refs a structural-noise rule."""
+    return not (isinstance(item.atom, IrRuleRef) and item.atom in non_semantic)
+
+
+def bind_fields(
+    items: Sequence[IrItem], non_semantic: frozenset[str]
+) -> dict[str, IrBind]:
+    """Bind a sequence arm's items to named fields via the three-tier cascade.
+
+    Structural literals produce no field. Name collisions get a numeric
+    suffix in occurrence order (``ws``, ``ws2``, …).
+
+    :param items: The rule's single sequence arm.
+    :param non_semantic: Names of the grammar's structural-noise rules.
+    :returns: Field name → :class:`IrBind`, in item order.
+    """
+    fields: dict[str, IrBind] = {}
+    counts: defaultdict[str, int] = defaultdict(int)
+    pattern_pos = 0
+    for index, item in enumerate(items):
+        if _is_structural_literal(item):
+            continue
+        base = _TIER2.apply(item.atom)
+        if isinstance(base, IrNoneType):
+            pattern_pos += 1
+            name = "head" if pattern_pos == 1 else f"part_{pattern_pos}"
+        else:
+            name = str(base)
+        counts[name] += 1
+        if counts[name] > 1:
+            name = f"{name}{counts[name]}"
+        fields[name] = IrBind(
+            index, mode_for(item), _is_semantic_field(item, non_semantic)
+        )
+    return fields
+
+
+# ── the binding view ──────────────────────────────────────────────────
+
+
+def _bind_rule(
+    rule: IrRule, parent_rules: dict[str, str], non_semantic: frozenset[str]
+) -> RuleBinding:
+    """Build one rule's binding."""
+    kind = classify_rule(rule)
+    arms = non_empty_arms(rule.body)
+    fields = bind_fields(arms[0], non_semantic) if kind == "sequence" else {}
+    parent = parent_rules.get(str(rule.name))
+    return RuleBinding(
+        rule_name=str(rule.name),
+        class_name=class_name_for(str(rule.name)),
+        parent_class_name=class_name_for(parent) if parent else "GrammarModel",
+        kind=kind,
+        fields=fields,
+    )
+
+
+def compute_binding(ast: IrAst) -> list[RuleBinding]:
+    """Compute the binding view of a codegen grammar.
+
+    Expects the post-pass grammar (groups hoisted, arms hoisted, non-semantic
+    refs relaxed — see :mod:`lexic.codegen.passes`). Rules come back in
+    emission order: start rule's ancestry first, then grammar order, each rule
+    after its inheritance parent.
+
+    :param ast: The codegen grammar.
+    :returns: One :class:`RuleBinding` per rule, parents before subclasses.
+    """
+    rules = list(ast.rules)
+    parent_rules = _parent_rules(rules)
+    non_semantic = ast.non_semantic
+    by_name = {
+        str(rule.name): _bind_rule(rule, parent_rules, non_semantic) for rule in rules
+    }
+
+    def parent_edge(name: str) -> list[str]:
+        parent = parent_rules.get(name)
+        return [parent] if parent is not None else []
+
+    order = RuleOrder(by_name, ast.start, parent_edge).ordered_parents_first()
+    return [by_name[name] for name in order]

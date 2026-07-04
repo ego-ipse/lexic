@@ -1,4 +1,4 @@
-"""Generated module: c. Do not edit; regenerated from grammar."""
+"""Generated module: iremit_c. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 

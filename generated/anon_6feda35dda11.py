@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IrAlternation,
+    IrAst,
+    IrBind,
     IrCharClass,
     IrChr,
     IrItem,
+    IrNone,
     IrQuantifier,
     IrRange,
+    IrRule,
     IrRuleRef,
+    IrSeq,
+    IrSequence,
 )
-from lexic.ir.spec import RuleSpec
 
 Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]
 
@@ -24,62 +29,83 @@ Lower = Annotated[str, StringConstraints(pattern=r"^[a-z]+$")]
 
 
 class Root(GrammarModel):
-    term: Term
+    term: Annotated[Term, IrBind(0, "model")]
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "root", IrAlternation(IrSequence(IrItem(IrRuleRef("term"))))
+    )
 
 
 class Term(GrammarModel):
-    pass
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "term",
+        IrAlternation(
+            IrSequence(IrItem(IrRuleRef("num"))), IrSequence(IrItem(IrRuleRef("ident")))
+        ),
+    )
 
 
 class Num(Term):
     value: Digit
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "num",
+        IrAlternation(
+            IrSequence(
+                IrItem(
+                    IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, IrNone)
+                )
+            )
+        ),
+    )
 
 
 class Ident(Term):
     value: Lower
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "ident",
+        IrAlternation(
+            IrSequence(
+                IrItem(
+                    IrCharClass(IrRange(IrChr(97), IrChr(122))), IrQuantifier(1, IrNone)
+                )
+            )
+        ),
+    )
 
 
-Root.__grammar__ = RuleSpec(
-    rule_name="root",
-    class_name="Root",
-    parent_class_name="GrammarModel",
-    kind="sequence",
-    items=[IrItem(IrRuleRef("term"))],
-    field_map={"term": 0},
-    non_semantic_fields=frozenset([]),
+GRAMMAR: IrAst = IrAst(
+    IrSeq(
+        IrRule("root", IrAlternation(IrSequence(IrItem(IrRuleRef("term"))))),
+        IrRule(
+            "term",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("num"))),
+                IrSequence(IrItem(IrRuleRef("ident"))),
+            ),
+        ),
+        IrRule(
+            "num",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(IrRange(IrChr(48), IrChr(57))),
+                        IrQuantifier(1, IrNone),
+                    )
+                )
+            ),
+        ),
+        IrRule(
+            "ident",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(IrRange(IrChr(97), IrChr(122))),
+                        IrQuantifier(1, IrNone),
+                    )
+                )
+            ),
+        ),
+    ),
+    "root",
 )
 
-
-Term.__grammar__ = RuleSpec(
-    rule_name="term",
-    class_name="Term",
-    parent_class_name="GrammarModel",
-    kind="alternation",
-    items=[IrItem(IrRuleRef("num")), IrItem(IrRuleRef("ident"))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
-
-
-Num.__grammar__ = RuleSpec(
-    rule_name="num",
-    class_name="Num",
-    parent_class_name="Term",
-    kind="value_str",
-    items=[IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, IrNone))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
-
-
-Ident.__grammar__ = RuleSpec(
-    rule_name="ident",
-    class_name="Ident",
-    parent_class_name="Term",
-    kind="value_str",
-    items=[
-        IrItem(IrCharClass(IrRange(IrChr(97), IrChr(122))), IrQuantifier(1, IrNone))
-    ],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
+START: str = "root"

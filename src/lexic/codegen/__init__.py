@@ -12,10 +12,21 @@ from pathlib import Path
 
 from ruff import find_ruff_bin
 
-from lexic.codegen.model_emitter import emit_module_source
+from lexic.codegen.binding import RuleBinding, compute_binding
+from lexic.codegen.model_emitter import emit_module_source, emit_module_source_ir
+from lexic.codegen.passes import build_codegen_grammar
+from lexic.ir.nodes import IrAst
 from lexic.ir.spec import RuleSpec
 
-__all__ = ["codegen", "emit_module_source"]
+__all__ = [
+    "RuleBinding",
+    "build_codegen_grammar",
+    "codegen",
+    "codegen_ir",
+    "compute_binding",
+    "emit_module_source",
+    "emit_module_source_ir",
+]
 
 
 def _ruff_format(source: str) -> str:
@@ -64,16 +75,18 @@ def _resolve_generated_dir() -> Path:
     return cwd_candidate
 
 
-def codegen(specs: list[RuleSpec], stem: str) -> dict[str, type]:
-    """Emit a Pydantic module from specs; return the dict of generated classes.
+def _write_and_load(source: str, stem: str, class_names: list[str]) -> dict[str, type]:
+    """Write ``generated/<stem>.py``, import it, return its named classes.
 
-    Side effect: writes `generated/<stem>.py`. The file is regenerated on
-    every call.
+    :param source: The module source (formatted here before writing).
+    :param stem: Generated-module stem.
+    :param class_names: Class names to pull out of the loaded module.
+    :returns: ``{class_name: class}`` for every name the module defines.
     """
     out_dir = _resolve_generated_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{stem}.py"
-    out_path.write_text(_ruff_format(emit_module_source(specs, stem=stem)))
+    out_path.write_text(_ruff_format(source))
 
     module_name = f"generated.{stem}"
     if module_name in sys.modules:
@@ -85,8 +98,39 @@ def codegen(specs: list[RuleSpec], stem: str) -> dict[str, type]:
     sys.modules[module_name] = mod
     spec.loader.exec_module(mod)
 
-    return {
-        s.class_name: getattr(mod, s.class_name)
-        for s in specs
-        if hasattr(mod, s.class_name)
-    }
+    return {name: getattr(mod, name) for name in class_names if hasattr(mod, name)}
+
+
+def codegen(specs: list[RuleSpec], stem: str) -> dict[str, type]:
+    """Emit a Pydantic module from specs; return the dict of generated classes.
+
+    Side effect: writes `generated/<stem>.py`. The file is regenerated on
+    every call.
+    """
+    return _write_and_load(
+        emit_module_source(specs, stem=stem), stem, [s.class_name for s in specs]
+    )
+
+
+def codegen_ir(
+    canonical: IrAst, codegen_grammar: IrAst, binding: list[RuleBinding], stem: str
+) -> dict[str, type]:
+    """Emit a Pydantic module from the codegen grammar + binding view.
+
+    The IR-native successor of :func:`codegen` (Task 4 parallel build; becomes
+    ``codegen`` at the Task 5 flip). Side effect: writes ``generated/<stem>.py``.
+
+    :param canonical: The canonical (pre-pass) grammar — the module ``GRAMMAR``.
+    :param codegen_grammar: The post-pass grammar — each class's ``__grammar__``.
+    :param binding: The binding view (:func:`~lexic.codegen.binding.compute_binding`).
+    :param stem: Generated-module stem.
+    :returns: ``{class_name: class}`` for every generated class.
+    """
+    source = emit_module_source_ir(canonical, codegen_grammar, binding, stem=stem)
+    classes = _write_and_load(source, stem, [b.class_name for b in binding])
+    # Resolve deferred annotations (``from __future__ import annotations`` plus
+    # forward-referenced sibling classes) so each field's ``IrBind`` metadata is
+    # readable — base.py drives ``to_text``/``semantic_dump`` off it.
+    for cls in classes.values():
+        cls.model_rebuild()
+    return classes

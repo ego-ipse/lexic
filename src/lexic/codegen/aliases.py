@@ -27,6 +27,7 @@ from lexic.ir.mapping import IrTypeMap
 from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
+    IrAst,
     IrCharClass,
     IrItem,
     IrLiteral,
@@ -240,4 +241,23 @@ def collect_aliases(specs: list[RuleSpec]) -> list[PatternAlias]:
     for spec in specs:
         for item in spec.items:
             visitor.apply(item)
+    return list(visitor.aliases.values())
+
+
+def collect_aliases_grammar(grammar: IrAst) -> list[PatternAlias]:
+    """Return one PatternAlias per unique pattern regex across a codegen grammar.
+
+    The IR-native counterpart of :func:`collect_aliases`: it walks every item of
+    every rule arm directly, so the same :class:`_PatternAliasVisitor` records
+    each pure-pattern subtree. Naming and dedup rules are identical; order is
+    rule order, then arm order, then item order.
+
+    :param grammar: The (post-pass) codegen grammar to scan.
+    :returns: Deduplicated list of pattern aliases in first-appearance order.
+    """
+    visitor = _PatternAliasVisitor()
+    for rule in grammar.rules:
+        for arm in rule.body:
+            for item in arm:
+                visitor.apply(item)
     return list(visitor.aliases.values())

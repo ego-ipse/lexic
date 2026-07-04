@@ -2,24 +2,29 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from lexic.base import GrammarModel
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IrAlternation,
+    IrAst,
     IrItem,
     IrLiteral,
+    IrRule,
+    IrSeq,
+    IrSequence,
 )
-from lexic.ir.spec import RuleSpec
 
 
 class Root(GrammarModel):
     value: str
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "root", IrAlternation(IrSequence(IrItem(IrLiteral("b"))))
+    )
 
 
-Root.__grammar__ = RuleSpec(
-    rule_name="root",
-    class_name="Root",
-    parent_class_name="GrammarModel",
-    kind="value_str",
-    items=[IrItem(IrLiteral("b"))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
+GRAMMAR: IrAst = IrAst(
+    IrSeq(IrRule("root", IrAlternation(IrSequence(IrItem(IrLiteral("b")))))), "root"
 )
+
+START: str = "root"

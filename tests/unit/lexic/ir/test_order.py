@@ -66,6 +66,89 @@ def test_ordered_start_not_in_names_still_orders_the_rest():
     assert order == ["a", "b"]
 
 
+# ── RuleOrder.ordered_parents_first() — the parent-edge policy ────────────
+
+
+def test_parents_first_emits_a_parent_before_its_subclass():
+    """A rule pointing at its parent lands after the parent, wherever it starts."""
+    edges = {"child": ["parent"]}
+    order = RuleOrder(
+        ["child", "parent"], "child", lambda n: edges.get(n, [])
+    ).ordered_parents_first()
+    assert order == ["parent", "child"]
+
+
+def test_parents_first_seeds_start_chain_then_input_order():
+    """Start's ancestry leads; everything else keeps input order."""
+    edges = {"start": ["base"], "arm": ["alt"]}
+    order = RuleOrder(
+        ["zeta", "start", "arm", "alt", "base"], "start", lambda n: edges.get(n, [])
+    ).ordered_parents_first()
+    assert order == ["base", "start", "zeta", "alt", "arm"]
+
+
+def test_parents_first_keeps_input_order_without_edges():
+    """With no edges the input order survives untouched (start hoisted)."""
+    order = RuleOrder(
+        ["b", "a", "start"], "start", lambda _n: []
+    ).ordered_parents_first()
+    assert order == ["start", "b", "a"]
+
+
+def test_parents_first_ignores_an_edge_to_an_unknown_name():
+    """An ancestor outside the name set (e.g. GrammarModel) is not emitted."""
+    edges = {"a": ["ghost"]}
+    order = RuleOrder(["a"], "a", lambda n: edges.get(n, [])).ordered_parents_first()
+    assert order == ["a"]
+
+
+def test_parents_first_terminates_on_an_edge_cycle():
+    """A parent cycle emits each participant exactly once."""
+    edges = {"a": ["b"], "b": ["a"]}
+    order = RuleOrder(
+        ["a", "b"], "a", lambda n: edges.get(n, [])
+    ).ordered_parents_first()
+    assert sorted(order) == ["a", "b"]
+
+
+def test_parents_first_terminates_on_a_three_node_cycle():
+    """A longer cycle (a -> b -> c -> a) still emits each name exactly once."""
+    edges = {"a": ["b"], "b": ["c"], "c": ["a"]}
+    order = RuleOrder(
+        ["a", "b", "c"], "a", lambda n: edges.get(n, [])
+    ).ordered_parents_first()
+    assert sorted(order) == ["a", "b", "c"]
+    assert len(order) == 3
+
+
+def test_parents_first_visits_every_listed_ancestor_before_the_child():
+    """A node with more than one declared ancestor waits on all of them."""
+    edges = {"c": ["a", "b"]}
+    order = RuleOrder(
+        ["c", "a", "b"], "c", lambda n: edges.get(n, [])
+    ).ordered_parents_first()
+    assert order.index("a") < order.index("c")
+    assert order.index("b") < order.index("c")
+
+
+def test_parents_first_is_deterministic_across_repeated_calls():
+    """Calling ordered_parents_first() twice on the same instance agrees."""
+    edges = {"start": ["base"], "arm": ["alt"]}
+    order = RuleOrder(
+        ["zeta", "start", "arm", "alt", "base"], "start", lambda n: edges.get(n, [])
+    )
+    assert order.ordered_parents_first() == order.ordered_parents_first()
+
+
+def test_parents_first_shared_parent_emits_once_before_both_children():
+    """Two subclasses of one parent both land after it; the parent appears once."""
+    edges = {"x": ["base"], "y": ["base"]}
+    order = RuleOrder(
+        ["x", "y", "base"], "x", lambda n: edges.get(n, [])
+    ).ordered_parents_first()
+    assert order == ["base", "x", "y"]
+
+
 # ── order_by_refs / RuleOrder.by_refs — the ref-edge policy ───────────────
 
 

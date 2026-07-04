@@ -7,61 +7,78 @@ from typing import Any, ClassVar
 from pydantic import BaseModel
 
 from lexic.grammars import get_flavour
-from lexic.ir.nodes import IrItem, IrLiteral
-from lexic.ir.spec import RuleSpec
+from lexic.ir.bind import IrBind
+from lexic.ir.nodes import IrLiteral, IrRule, IrSequence
 
 
 class GrammarModel(BaseModel):
     """Abstract base for all generated grammar model classes.
 
-    Each subclass defines ``__grammar__: ClassVar[RuleSpec]``.
+    Each subclass carries ``__grammar__: ClassVar[IrRule]`` — its rule from
+    the codegen grammar — and every bound field an :class:`IrBind` in its
+    ``Annotated`` metadata tying it to an item slot of that rule's sequence
+    arm.
 
-    ``to_text()`` walks ``__grammar__.items`` in order:
-      - item index in field_map → emit getattr(self, field_name)
-      - else IrItem with IrLiteral atom → emit the literal value
-      - else → skip (structural / non-emitting)
+    ``to_text()`` walks the arm's items in order: a bound slot emits its
+    field's value, an unbound ``IrLiteral`` emits itself, anything else is
+    structural and silent. A ``value_str`` class (the implicit ``value``
+    field, no binds) emits its value; an abstract alternation class (no
+    fields at all) has no ``to_text`` of its own.
     """
 
-    __grammar__: ClassVar[RuleSpec]
+    __grammar__: ClassVar[IrRule]
+
+    @classmethod
+    def _bound_fields(cls) -> dict[int, tuple[str, IrBind]]:
+        """Item slot → ``(field name, bind)`` from the fields' metadata."""
+        bound: dict[int, tuple[str, IrBind]] = {}
+        for name, info in cls.model_fields.items():
+            for meta in info.metadata:
+                if isinstance(meta, IrBind):
+                    bound[meta.item] = (name, meta)
+        return bound
 
     def to_text(self) -> str:
-        """Emit grammar text for this model instance."""
-        spec = self.__grammar__
-        if spec.kind == "alternation":
+        """Emit source text for this model instance."""
+        binds = self._bound_fields()
+        if not binds:
+            if any(name == "value" for name in type(self).model_fields.keys()):
+                return str(getattr(self, "value", ""))
             raise NotImplementedError(
                 f"to_text() is undefined on abstract alternation class "
                 f"{type(self).__name__}; call it on a concrete arm instance."
             )
-        if spec.kind == "value_str":
-            return str(getattr(self, "value", ""))
-        inv: dict[int, str] = {idx: name for name, idx in spec.field_map.items()}
+        body = self.__grammar__.body
+        values = {slot: getattr(self, name, None) for slot, (name, _b) in binds.items()}
+        if any(not arm for arm in body) and all(v is None for v in values.values()):
+            return ""  # the rule's empty alternate arm matched — no field set
+        arm = next((a for a in body if a), IrSequence())
         parts: list[str] = []
-        for i, item in enumerate(spec.items):
-            if not isinstance(item, IrItem):
-                continue
-            if i in inv:
-                val = getattr(self, inv[i], None)
-                if val is None:
-                    continue
-                if isinstance(val, list):
-                    parts.append(
-                        "".join(
-                            v.to_text() if isinstance(v, GrammarModel) else str(v)
-                            for v in val
-                        )
-                    )
-                elif isinstance(val, GrammarModel):
-                    parts.append(val.to_text())
-                else:
-                    parts.append(str(val))
+        for slot, item in enumerate(arm):
+            if slot in binds:
+                value = values[slot]
+                if value is not None:
+                    parts.append(_field_text(value))
             elif isinstance(item.atom, IrLiteral):
-                parts.append(item.atom)
+                parts.append(str(item.atom))
         return "".join(parts)
 
     def to_grammar(self, flavour: str = "gbnf") -> str:
-        """Emit grammar text for this model instance."""
-        return str(get_flavour(flavour).apply(self.__grammar__.to_ir_rule()))
+        """Emit this model's rule as grammar text in the given flavour."""
+        return str(get_flavour(flavour).apply(self.__grammar__))
 
     def semantic_dump(self) -> dict[str, Any]:
-        """Dump only semantic fields."""
-        return self.model_dump(exclude=set(self.__grammar__.non_semantic_fields))
+        """Dump only semantic fields (binds with ``semantic=False`` excluded)."""
+        exclude = {
+            name for name, bind in self._bound_fields().values() if not bind.semantic
+        }
+        return self.model_dump(exclude=exclude)
+
+
+def _field_text(value: object) -> str:
+    """One field value's text: recurse into models, join lists, else str."""
+    if isinstance(value, list):
+        return "".join(_field_text(v) for v in value)
+    if isinstance(value, GrammarModel):
+        return value.to_text()
+    return str(value)

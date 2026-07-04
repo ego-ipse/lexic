@@ -1,8 +1,8 @@
-"""Generated module: anon_714657e37009. Do not edit; regenerated from grammar."""
+"""Generated module: iremit_arithmetic_abnf. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 
-from typing import Annotated, ClassVar
+from typing import Annotated, ClassVar, List
 
 from pydantic import StringConstraints
 
@@ -25,7 +25,7 @@ from lexic.ir import (
 
 Pattern = Annotated[str, StringConstraints(pattern=r"^[*-+-/]$")]
 
-Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]
+Pattern2 = Annotated[str, StringConstraints(pattern=r"^[\x09 ]$")]
 
 
 class Root(GrammarModel):
@@ -37,15 +37,13 @@ class Root(GrammarModel):
 
 class Expr(GrammarModel):
     term: Annotated[Term, IrBind(0, "model")]
-    op: Annotated[Op, IrBind(1, "model")]
-    term2: Annotated[Term, IrBind(2, "model")]
+    expr_item: Annotated[List[ExprItem], IrBind(1, "models")]
     __grammar__: ClassVar[IrRule] = IrRule(
         "expr",
         IrAlternation(
             IrSequence(
                 IrItem(IrRuleRef("term")),
-                IrItem(IrRuleRef("op")),
-                IrItem(IrRuleRef("term")),
+                IrItem(IrRuleRef("expr-item"), IrQuantifier(0, IrNone)),
             )
         ),
     )
@@ -71,16 +69,36 @@ class Op(GrammarModel):
 
 
 class Num(GrammarModel):
-    value: Digit
+    digit: Annotated[List[Digit], IrBind(0, "models")]
     __grammar__: ClassVar[IrRule] = IrRule(
         "num",
-        IrAlternation(
-            IrSequence(
-                IrItem(
-                    IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, IrNone)
-                )
-            )
-        ),
+        IrAlternation(IrSequence(IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)))),
+    )
+
+
+class Digit(GrammarModel):
+    value: Annotated[str, StringConstraints(pattern=r"^[0-9]$")]
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "digit",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))))),
+    )
+
+
+class Wsp(GrammarModel):
+    value: Pattern2
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "wsp",
+        IrAlternation(IrSequence(IrItem(IrCharClass(IrChr(9), IrChr(32))))),
+        False,
+    )
+
+
+class ExprItem(GrammarModel):
+    op: Annotated[Op, IrBind(0, "model")]
+    term: Annotated[Term, IrBind(1, "model")]
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "expr-item",
+        IrAlternation(IrSequence(IrItem(IrRuleRef("op")), IrItem(IrRuleRef("term")))),
     )
 
 
@@ -92,8 +110,14 @@ GRAMMAR: IrAst = IrAst(
             IrAlternation(
                 IrSequence(
                     IrItem(IrRuleRef("term")),
-                    IrItem(IrRuleRef("op")),
-                    IrItem(IrRuleRef("term")),
+                    IrItem(
+                        IrAlternation(
+                            IrSequence(
+                                IrItem(IrRuleRef("op")), IrItem(IrRuleRef("term"))
+                            )
+                        ),
+                        IrQuantifier(0, IrNone),
+                    ),
                 )
             ),
         ),
@@ -111,13 +135,19 @@ GRAMMAR: IrAst = IrAst(
         IrRule(
             "num",
             IrAlternation(
-                IrSequence(
-                    IrItem(
-                        IrCharClass(IrRange(IrChr(48), IrChr(57))),
-                        IrQuantifier(1, IrNone),
-                    )
-                )
+                IrSequence(IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)))
             ),
+        ),
+        IrRule(
+            "digit",
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))))
+            ),
+        ),
+        IrRule(
+            "wsp",
+            IrAlternation(IrSequence(IrItem(IrCharClass(IrChr(9), IrChr(32))))),
+            False,
         ),
     ),
     "root",

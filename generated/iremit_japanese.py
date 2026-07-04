@@ -1,4 +1,4 @@
-"""Generated module: japanese. Do not edit; regenerated from grammar."""
+"""Generated module: iremit_japanese. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 

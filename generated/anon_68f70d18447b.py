@@ -2,71 +2,90 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated, ClassVar, Optional
 
 from pydantic import StringConstraints
 
 from lexic.base import GrammarModel
-from lexic.ir.base import IrNone
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IrAlternation,
+    IrAst,
+    IrBind,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
     IrQuantifier,
+    IrRule,
     IrRuleRef,
+    IrSeq,
+    IrSequence,
 )
-from lexic.ir.spec import RuleSpec
 
 Pattern = Annotated[str, StringConstraints(pattern=r"^[\x09 ]*$")]
 
 
 class Root(GrammarModel):
-    ws: Optional[Ws] = None
-    value: Value
-    ws2: Optional[Ws] = None
+    ws: Annotated[Optional[Ws], IrBind(0, "model", False)] = None
+    value: Annotated[Value, IrBind(1, "model")]
+    ws2: Annotated[Optional[Ws], IrBind(2, "model", False)] = None
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "root",
+        IrAlternation(
+            IrSequence(
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+                IrItem(IrRuleRef("value")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+            )
+        ),
+    )
 
 
 class Ws(GrammarModel):
     value: Pattern
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "ws",
+        IrAlternation(
+            IrSequence(
+                IrItem(IrCharClass(IrChr(9), IrChr(32)), IrQuantifier(0, IrNone))
+            )
+        ),
+        False,
+    )
 
 
 class Value(GrammarModel):
     value: str
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "value", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))
+    )
 
 
-Root.__grammar__ = RuleSpec(
-    rule_name="root",
-    class_name="Root",
-    parent_class_name="GrammarModel",
-    kind="sequence",
-    items=[
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-        IrItem(IrRuleRef("value")),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-    ],
-    field_map={"ws": 0, "value": 1, "ws2": 2},
-    non_semantic_fields=frozenset(["ws", "ws2"]),
+GRAMMAR: IrAst = IrAst(
+    IrSeq(
+        IrRule(
+            "root",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("ws")),
+                    IrItem(IrRuleRef("value")),
+                    IrItem(IrRuleRef("ws")),
+                )
+            ),
+        ),
+        IrRule(
+            "ws",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrCharClass(IrChr(9), IrChr(32)), IrQuantifier(0, IrNone))
+                )
+            ),
+            False,
+        ),
+        IrRule("value", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))),
+    ),
+    "root",
 )
 
-
-Ws.__grammar__ = RuleSpec(
-    rule_name="ws",
-    class_name="Ws",
-    parent_class_name="GrammarModel",
-    kind="value_str",
-    items=[IrItem(IrCharClass(IrChr(9), IrChr(32)), IrQuantifier(0, IrNone))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
-
-
-Value.__grammar__ = RuleSpec(
-    rule_name="value",
-    class_name="Value",
-    parent_class_name="GrammarModel",
-    kind="value_str",
-    items=[IrItem(IrLiteral("x"))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
+START: str = "root"

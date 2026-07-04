@@ -8,8 +8,10 @@ rule the walk never reaches, alphabetically.
 
 The edge relation is a policy: :func:`order_by_refs` supplies **ref-edges**
 (the ``IrRuleRef`` occurrences in each rule body, in body order), the ordering
-the canonicaliser's rule-order rewrite uses. A parent-edge policy (for codegen
-class emission) is a separate, later variant over the same base.
+the canonicaliser's rule-order rewrite uses. The codegen binding view supplies
+**parent-edges** (each rule pointing at its inheritance parent) and walks them
+via :meth:`RuleOrder.ordered_parents_first`, so parent classes are emitted
+before their subclasses — the successor of the old ``topo_sort``.
 """
 
 from __future__ import annotations
@@ -57,6 +59,34 @@ class RuleOrder:
                 if ref in self._known and ref not in seen:
                     queue.append(ref)
         order.extend(sorted(n for n in self._names if n not in seen))
+        return order
+
+    def ordered_parents_first(self) -> list[str]:
+        """Return the rule names with every name after its edge targets.
+
+        The parent-edge policy: ``edges`` points each name at the name(s) that
+        must precede it (its inheritance parents). Seeds are the start rule,
+        then the names in input order; each seed emits its ancestor chain
+        first, so a parent always lands before its subclasses while the rest
+        keeps input order.
+
+        :returns: The names, ancestors-first, start's chain leading.
+        """
+        order: list[str] = []
+        seen: set[str] = set()
+
+        def visit(name: str) -> None:
+            if name in seen or name not in self._known:
+                return
+            seen.add(name)  # before the ancestor walk — terminates on a cycle
+            for ancestor in self._edges(name):
+                visit(ancestor)
+            order.append(name)
+
+        if self._start in self._known:
+            visit(self._start)
+        for name in self._names:
+            visit(name)
         return order
 
     @classmethod

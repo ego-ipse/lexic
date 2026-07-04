@@ -1,4 +1,4 @@
-"""Generated module: json_ws. Do not edit; regenerated from grammar."""
+"""Generated module: iremit_json_ws. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 

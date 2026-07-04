@@ -102,15 +102,15 @@ def parse_first(
 ) -> ParseTree:
     """Parse ``text`` into its FIRST derivation — deterministic under ambiguity.
 
-    The instance-parsing entry (:mod:`.models`): parity with the retired Lark
+    The instance-parsing entry (:mod:`.fold`): parity with the retired Lark
     path's ``ambiguity="resolve"``. Prefer :func:`parse` (strict) wherever a
     single honest derivation is required.
 
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
     :param tables: Optional pre-built (run-collapsed) tables for ``grammar`` —
-        the instance path passes ModelFold-licenced collapsed tables (see
-        :func:`lexic.parsing.models.collapsed_instance_tables`) for a faster
+        the instance path passes fold-licenced collapsed tables (see
+        :func:`lexic.parsing.fold.collapsed_fold_tables`) for a faster
         lexical layer; ``None`` compiles the plain tables.
     :returns: One derivation of ``text`` under the start rule.
     :raises UnsupportedConstructError: If ``text`` does not parse.
