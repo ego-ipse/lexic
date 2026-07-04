@@ -227,6 +227,9 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
 
     :ivar next_sym: code → the symbol discriminator (see the module scheme).
     :ivar code_arm: code → its arm_id.
+    :ivar ref_last: code → whether its dot faces a rule ref that is the arm's
+        LAST symbol — the Leo precondition, precomputed so the completer
+        gates :meth:`~lexic.parsing.kernel.Kernel._try_leo` with one index.
     :ivar arm_rule: arm_id → owning rule_id.
     :ivar arm_base: arm_id → the arm's dot-0 code.
     :ivar rule_seed_gates: rule_id → the ``(dot-0 code << ORIGIN_BITS,
@@ -249,6 +252,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
     __slots__ = (
         "next_sym",
         "code_arm",
+        "ref_last",
         "arm_rule",
         "arm_base",
         "rule_seed_gates",
@@ -258,6 +262,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
 
     next_sym: tuple[int, ...]
     code_arm: tuple[int, ...]
+    ref_last: tuple[bool, ...]
     arm_rule: tuple[int, ...]
     arm_base: tuple[int, ...]
     rule_seed_gates: tuple[tuple[tuple[int, int, Charset], ...], ...]
@@ -271,6 +276,10 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
         """
         self.next_sym = tuple(sym for _, sym in builder.codes)
         self.code_arm = tuple(aid for aid, _ in builder.codes)
+        self.ref_last = tuple(
+            sym > 0 and self.next_sym[code + 1] == 0
+            for code, sym in enumerate(self.next_sym)
+        )
         self.arm_rule = tuple(rid for _, rid, _ in builder.arms)
         self.arm_base = tuple(base for _, _, base in builder.arms)
         self.rule_seed_gates = tuple(

@@ -43,9 +43,11 @@ from lexic.compile import (
     canonical_grammar,
     compile_from_path,
     compile_text,
-    reset_cache_for_tests,
 )
 from lexic.compile import parse_grammar as _warm_parse_grammar
+from lexic.compile import (
+    reset_cache_for_tests,
+)
 from lexic.grammars import flavour_for_extension
 from lexic.ir.flavour import IrFlavour
 

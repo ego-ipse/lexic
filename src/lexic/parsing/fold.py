@@ -31,7 +31,7 @@ derivation; e.g. json_ws's ``int`` is genuinely ambiguous).
 
 from __future__ import annotations
 
-from typing import Callable, Iterator, Mapping, NamedTuple
+from typing import Callable, Mapping, NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrNoneType, IrSeq
@@ -161,15 +161,14 @@ class PositionalFold:
         """Fold the parse tree of a start-rule match into its model."""
         results: dict[int, object] = {}
         stack: list[tuple[ParseTree, bool]] = [(root, False)]
+        push = stack.append
         while stack:
             node, expanded = stack.pop()
             if not expanded:
-                stack.append((node, True))
-                stack.extend(
-                    (k, False)
-                    for k in node.kids
-                    if isinstance(k, ParseTree) and id(k) not in results
-                )
+                push((node, True))
+                for k in node.kids:
+                    if k.__class__ is ParseTree and id(k) not in results:
+                        push((k, False))
                 continue
             self._fold_node(node, results)
         return results[id(root)]
@@ -183,8 +182,7 @@ class PositionalFold:
         if rule_fold.kind == "value_str":
             results[id(node)] = rule_fold.ctor(value=_subtree_text(node))
         elif rule_fold.kind == "alternation":
-            models = list(self._models_under_kids(node, results))
-            results[id(node)] = models[0] if models else None
+            results[id(node)] = self._first_model_under(node, results)
         else:
             results[id(node)] = self._fold_sequence(node, rule_fold, results)
 
@@ -218,15 +216,20 @@ class PositionalFold:
         if mode == "gtext":
             text = _subtree_text(kid)
             return None if (not text and lo == 0) else text
-        models = list(self._models_at(kid, results))
+        models = self._models_at(kid, results)
         if mode == "models":
             return models
         return models[0] if models else None
 
     def _models_at(
         self, kid: ParseTree | IrLiteral, results: dict[int, object]
-    ) -> Iterator[object]:
+    ) -> list[object]:
         """Folded models at/under a kid slot, looking through synthetic layers."""
+        kid_id = id(kid)
+        if kid_id in results:  # directly folded — the common case, no walk
+            model = results[kid_id]
+            return [] if model is None else [model]
+        out: list[object] = []
         stack: list[ParseTree | IrLiteral] = [kid]
         while stack:
             k = stack.pop()
@@ -235,15 +238,18 @@ class PositionalFold:
             if id(k) in results:
                 model = results[id(k)]
                 if model is not None:
-                    yield model
+                    out.append(model)
             else:  # synthetic / non-model layer — descend
                 stack.extend(reversed(k.kids))
+        return out
 
-    def _models_under_kids(
-        self, node: ParseTree, results: dict[int, object]
-    ) -> Iterator[object]:
+    def _first_model_under(self, node: ParseTree, results: dict[int, object]) -> object:
+        """The first folded model under ``node``'s kids, or ``None``."""
         for kid in node.kids:
-            yield from self._models_at(kid, results)
+            models = self._models_at(kid, results)
+            if models:
+                return models[0]
+        return None
 
 
 # ── optional-nullable lift (engine-ambiguity policy) ──────────────────

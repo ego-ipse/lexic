@@ -11,6 +11,7 @@ import pytest
 import lexic
 import lexic.compile as compile_module
 from lexic.base import GrammarModel
+from lexic.codegen import resolve_out_dir
 from lexic.compile import (
     CompiledGrammar,
     _scan_directives,
@@ -20,7 +21,6 @@ from lexic.compile import (
     parse_grammar,
     reset_cache_for_tests,
 )
-from lexic.codegen import resolve_out_dir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.escapes import CANONICAL_ESCAPES

@@ -39,7 +39,6 @@ from lexic.parsing.tables import (
     ORIGIN_MASK,
     ParserTables,
     RunTerm,
-    predecessor_chain,
 )
 
 KLink = tuple[int, int, "int | str"]
@@ -295,13 +294,16 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         if self.record_links:
             links = self.st.links
             key = (adv << ORIGIN_BITS) | i
+            bucket = links.get(key)
+            if bucket is None:  # completes is never empty — no empty bucket
+                bucket = links[key] = []
             for done_code in completes:
-                child = (((done_code << ORIGIN_BITS) | i) << ORIGIN_BITS) | i
-                entry: KLink = (it, i, child)
-                bucket = links.get(key)
-                if bucket is None:
-                    links[key] = [entry]
-                elif entry not in bucket:
+                entry: KLink = (
+                    it,
+                    i,
+                    (((done_code << ORIGIN_BITS) | i) << ORIGIN_BITS) | i,
+                )
+                if entry not in bucket:
                     bucket.append(entry)
 
     def _file(self, i: int, item: int, s: int) -> None:
@@ -331,7 +333,11 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         wl = self.st.waiting[origin].get(c.arm_rule[c.code_arm[it >> ORIGIN_BITS]])
         if not wl:
             return
-        if len(wl) == 1 and self._try_leo(i, it, wl[0]):
+        if (
+            len(wl) == 1
+            and c.ref_last[wl[0] >> ORIGIN_BITS]
+            and self._try_leo(i, it, wl[0])
+        ):
             return
         # wl is the live bucket: a plain ``for`` over the list picks up
         # same-pass appends (advancing files a new waiter when origin == i).
@@ -434,8 +440,6 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         """
         c = self.tables.codes
         scode = sole >> ORIGIN_BITS
-        if c.next_sym[scode + 1] != 0:  # the awaited ref is not last — no chain
-            return False
         if self._leo_sole(sole & ORIGIN_MASK, c.arm_rule[c.code_arm[scode]]) < 0:
             return False  # chain length 1 — normal completion is cheaper
         top = self._leo_resolve(
@@ -466,9 +470,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         if wl is None or len(wl) != 1:
             return -1
         sole = wl[0]
-        if self.tables.codes.next_sym[(sole >> ORIGIN_BITS) + 1] == 0:
-            return sole
-        return -1
+        return sole if self.tables.codes.ref_last[sole >> ORIGIN_BITS] else -1
 
     def _leo_resolve(self, cur: int, col: int, rid: int) -> int:
         """Leo's transitive (topmost) item for completing ``rid`` at ``col``.
@@ -627,66 +629,88 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
     def _step(self) -> bool:
         """Process the top frame; ``False`` aborts the build (fast-path miss)."""
         handle, dest, slot, resolved = self.stack[-1]
+        kernel = self.kernel
+        if resolved is not None:  # revisit — every pending kid built in place
+            self._build(handle, dest, slot, resolved)
+            return True
         cached = self.memo.get(handle)
         if cached is not None:
             dest[slot] = cached
             self.stack.pop()
             return True
-        kernel = self.kernel
-        if resolved is None:  # first visit — empty fast path, expand Leo, collect
-            item = handle >> ORIGIN_BITS
-            if item & ORIGIN_MASK == handle & ORIGIN_MASK:  # zero-width
-                t = kernel.tables
-                tree = t.empty_tree(
-                    t.codes.arm_rule[t.codes.code_arm[item >> ORIGIN_BITS]]
-                )
-                if tree is not None:  # the shared input-independent derivation
-                    dest[slot] = tree
-                    self.stack.pop()
-                    return True
-            st = kernel.st
-            if handle in st.leo_links and handle not in st.links:
-                kernel.expand_leo(handle)
-            resolved = self._collect(handle)
-            if resolved is None:
-                return False
-            self.stack[-1] = (handle, dest, slot, resolved)
+        item = handle >> ORIGIN_BITS
+        if item & ORIGIN_MASK == handle & ORIGIN_MASK:  # zero-width
+            t = kernel.tables
+            tree = t.empty_tree(t.codes.arm_rule[t.codes.code_arm[item >> ORIGIN_BITS]])
+            if tree is not None:  # the shared input-independent derivation
+                dest[slot] = tree
+                self.stack.pop()
+                return True
+        st = kernel.st
+        if handle in st.leo_links and handle not in st.links:
+            kernel.expand_leo(handle)
+        resolved = self._collect(handle)
+        if resolved is None:
+            return False
         pending = self._pending(resolved)
         if pending:
+            self.stack[-1] = (handle, dest, slot, resolved)
             self.stack.extend(pending)
             return True
-        t = kernel.tables
+        self._build(handle, dest, slot, resolved)
+        return True
+
+    def _build(self, handle: int, dest: list, slot: int, resolved: list) -> None:
+        """Assemble and memoise the node's tree; pop its frame."""
+        t = self.kernel.tables
         rid = t.codes.arm_rule[t.codes.code_arm[handle >> (2 * ORIGIN_BITS)]]
         tree = ParseTree(t.decode.rule_refs[rid], IrSeq(*resolved))
         self.memo[handle] = tree
         dest[slot] = tree
         self.stack.pop()
-        return True
 
     def _collect(self, handle: int) -> list | None:
         """Kids of ``handle`` in source order, walking the predecessor chain.
 
+        The fused equivalent of :func:`~lexic.parsing.tables
+        .predecessor_chain` + leaf conversion: packed-handle kids stay ints
+        (resolved by :meth:`_pending`), scanned text becomes interned leaves.
         ``None`` when a key is missing or packs more than one family — the
         caller falls back to the trampolined enumeration.
         """
         t = self.kernel.tables
+        links = self.kernel.st.links
         item = handle >> ORIGIN_BITS
         end = handle & ORIGIN_MASK
         base = t.codes.arm_base[t.codes.code_arm[item >> ORIGIN_BITS]]
-        chain = predecessor_chain(self.kernel.st.links, item, end, base)
-        if chain is None:
-            return None  # missing (no build) or ambiguous (fall back)
-        return [c if isinstance(c, int) else t.char_leaf(c) for _, _, c in chain]
+        out: list = []
+        while (item >> ORIGIN_BITS) != base:
+            bucket = links.get((item << ORIGIN_BITS) | end)
+            if bucket is None or len(bucket) > 1:
+                return None  # missing (no build) or ambiguous (fall back)
+            item, end, child = bucket[0]
+            out.append(child if isinstance(child, int) else t.char_leaf(child))
+        out.reverse()
+        return out
 
     def _pending(self, resolved: list) -> list:
         """Swap memoised kids in place; return frames for those still unbuilt."""
         memo = self.memo
+        tables = self.kernel.tables
+        codes = tables.codes
         out: list[tuple[int, list, int, None]] = []
         for idx, child in enumerate(resolved):
             if isinstance(child, int):  # a packed handle, not yet built
                 cached = memo.get(child)
                 if cached is not None:
                     resolved[idx] = cached
-                else:
-                    out.append((child, resolved, idx, None))
+                    continue
+                if (child >> ORIGIN_BITS) & ORIGIN_MASK == child & ORIGIN_MASK:
+                    tree = tables.empty_tree(
+                        codes.arm_rule[codes.code_arm[child >> (2 * ORIGIN_BITS)]]
+                    )
+                    if tree is not None:  # zero-width — the shared derivation
+                        resolved[idx] = tree
+                        continue
+                out.append((child, resolved, idx, None))
         return out
