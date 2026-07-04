@@ -39,6 +39,7 @@ from lexic.parsing.tables import (
     ORIGIN_MASK,
     ParserTables,
     RunTerm,
+    predecessor_chain,
 )
 
 KLink = tuple[int, int, "int | str"]
@@ -335,7 +336,9 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             return
         if (
             len(wl) == 1
-            and c.ref_last[wl[0] >> ORIGIN_BITS]
+            # the awaited ref is the sole waiter's last symbol — the Leo
+            # precondition, probed here so the miss costs no call
+            and c.next_sym[(wl[0] >> ORIGIN_BITS) + 1] == 0
             and self._try_leo(i, it, wl[0])
         ):
             return
@@ -470,7 +473,9 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         if wl is None or len(wl) != 1:
             return -1
         sole = wl[0]
-        return sole if self.tables.codes.ref_last[sole >> ORIGIN_BITS] else -1
+        if self.tables.codes.next_sym[(sole >> ORIGIN_BITS) + 1] == 0:
+            return sole
+        return -1
 
     def _leo_resolve(self, cur: int, col: int, rid: int) -> int:
         """Leo's transitive (topmost) item for completing ``rid`` at ``col``.
@@ -672,26 +677,17 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
     def _collect(self, handle: int) -> list | None:
         """Kids of ``handle`` in source order, walking the predecessor chain.
 
-        The fused equivalent of :func:`~lexic.parsing.tables
-        .predecessor_chain` + leaf conversion: packed-handle kids stay ints
-        (resolved by :meth:`_pending`), scanned text becomes interned leaves.
         ``None`` when a key is missing or packs more than one family — the
         caller falls back to the trampolined enumeration.
         """
         t = self.kernel.tables
-        links = self.kernel.st.links
         item = handle >> ORIGIN_BITS
         end = handle & ORIGIN_MASK
         base = t.codes.arm_base[t.codes.code_arm[item >> ORIGIN_BITS]]
-        out: list = []
-        while (item >> ORIGIN_BITS) != base:
-            bucket = links.get((item << ORIGIN_BITS) | end)
-            if bucket is None or len(bucket) > 1:
-                return None  # missing (no build) or ambiguous (fall back)
-            item, end, child = bucket[0]
-            out.append(child if isinstance(child, int) else t.char_leaf(child))
-        out.reverse()
-        return out
+        chain = predecessor_chain(self.kernel.st.links, item, end, base)
+        if chain is None:
+            return None  # missing (no build) or ambiguous (fall back)
+        return [c if isinstance(c, int) else t.char_leaf(c) for _, _, c in chain]
 
     def _pending(self, resolved: list) -> list:
         """Swap memoised kids in place; return frames for those still unbuilt."""
