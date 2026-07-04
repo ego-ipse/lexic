@@ -38,7 +38,7 @@ once per grammar, like building a ``lark.Lark`` instance.
 from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrAtom, IrLeaf, IrSelf
+from lexic.ir.base import IrAtom, IrLeaf, IrSelf, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -51,6 +51,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
+from lexic.parsing.forest import ParseTree
 
 ORIGIN_BITS = 20
 """Bits reserved for an origin / end column in a packed item or handle."""
@@ -398,6 +399,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         "start_id",
         "_char_terms",
         "_char_leaves",
+        "_empty_trees",
     )
 
     codes: CodeTables
@@ -406,6 +408,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
     start_id: int
     _char_terms: dict[str, tuple[int, ...]]
     _char_leaves: dict[str, IrLiteral]
+    _empty_trees: dict[int, ParseTree | None]
 
     def __init__(self, builder: _TableBuilder) -> None:
         """Freeze a finished builder's accumulated state.
@@ -418,6 +421,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         self.start_id = builder.start_id()
         self._char_terms = {}
         self._char_leaves = {}
+        self._empty_trees = {}
 
     @property
     def cache_sizes(self) -> tuple[int, int]:
@@ -442,6 +446,38 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
             )
             self._char_terms[char] = cached
         return cached
+
+    def empty_tree(self, rid: int) -> ParseTree | None:
+        """Rule ``rid``'s unique empty-match :class:`ParseTree`, or ``None``.
+
+        A zero-width completion consumes no text, so its derivation is fixed
+        by the grammar alone — one shared tree serves every column of every
+        parse over these tables. ``None`` means no such unique tree exists:
+        the rule is not nullable, its empty derivation is ambiguous (more
+        than one empty-deriving arm anywhere below), or a nullable cycle is
+        involved — the decoder then falls back to the per-column links walk.
+
+        :param rid: The rule id.
+        :returns: The shared empty derivation, or ``None``.
+        """
+        if rid in self._empty_trees:
+            return self._empty_trees[rid]
+        self._empty_trees[rid] = None  # cycle guard — re-entry reads None
+        completes = self.codes.nullable_completes[rid]
+        if len(completes) != 1:
+            return None
+        done = completes[0]
+        base = self.codes.arm_base[self.codes.code_arm[done]]
+        kids: list[ParseTree] = []
+        for code in range(base, done):
+            sym = self.codes.next_sym[code]
+            kid = self.empty_tree(sym - 1) if sym > 0 else None
+            if kid is None:
+                return None
+            kids.append(kid)
+        tree = ParseTree(self.decode.rule_refs[rid], IrSeq(*kids))
+        self._empty_trees[rid] = tree
+        return tree
 
     def char_leaf(self, char: str) -> IrLiteral:
         """The interned :class:`IrLiteral` leaf for a scanned ``char``.

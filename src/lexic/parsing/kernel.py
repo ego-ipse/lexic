@@ -180,8 +180,15 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                     self._seed(i, rid)
                 if nullables[rid]:
                     self._nullable_advance(i, it, nullables[rid])
-            elif sym == 0:  # complete
-                self._complete(i, it)
+            elif sym == 0:  # complete — zero-width completions are redundant:
+                # every waiter facing a nullable rule is advanced (and its
+                # family recorded) by _nullable_advance at its own visit in
+                # this same fixpoint pass, and Leo never engages on an empty
+                # span (_leo_resolve stops on same-column steps), so the
+                # completer would only re-derive deduped items and identical
+                # families.
+                if it & ORIGIN_MASK != i:
+                    self._complete(i, it)
             # else: terminal — scanned between columns via the scannable index
 
     def _seed(self, i: int, rid: int) -> None:
@@ -626,7 +633,17 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
             self.stack.pop()
             return True
         kernel = self.kernel
-        if resolved is None:  # first visit — expand Leo, collect kids
+        if resolved is None:  # first visit — empty fast path, expand Leo, collect
+            item = handle >> ORIGIN_BITS
+            if item & ORIGIN_MASK == handle & ORIGIN_MASK:  # zero-width
+                t = kernel.tables
+                tree = t.empty_tree(
+                    t.codes.arm_rule[t.codes.code_arm[item >> ORIGIN_BITS]]
+                )
+                if tree is not None:  # the shared input-independent derivation
+                    dest[slot] = tree
+                    self.stack.pop()
+                    return True
             st = kernel.st
             if handle in st.leo_links and handle not in st.links:
                 kernel.expand_leo(handle)
