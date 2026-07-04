@@ -34,7 +34,7 @@ Pattern4 = Annotated[str, StringConstraints(pattern=r"^[Ee]$")]
 
 Pattern5 = Annotated[str, StringConstraints(pattern=r"^[ -!#-\[\]-\U0010ffff]$")]
 
-Pattern6 = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]$")]
+Hex = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]$")]
 
 
 class JsonText(GrammarModel):
@@ -470,7 +470,7 @@ class Escape(GrammarModel):
 
 
 class Hexdig(GrammarModel):
-    value: Pattern6
+    value: Hex
     __grammar__: ClassVar[IrRule] = IrRule(
         "hexdig",
         IrAlternation(

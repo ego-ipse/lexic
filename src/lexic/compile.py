@@ -24,11 +24,11 @@ Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)
    identity-memoised tables are shared shapes; tables are run-collapsed
    under the fold-config licence at build time.
 
-``compile_grammar`` is the transitional RuleSpec view (``canonical_grammar``
-+ ``derive_specs``); it and ``CompiledGrammar.specs`` feed ``generate.py``
-and die with ``ir/derive.py`` in Task 6.
+``canonical_grammar(text, flavour)`` is the public front half (parse +
+canonicalize + directive flags → flagged ``IrAst``); ``generate.py`` and
+transpilers build on it.
 
-Runtime seams: lexic.codegen (codegen_ir, build_codegen_grammar,
+Runtime seams: lexic.codegen (codegen, build_codegen_grammar,
 compute_binding) and the engine (lexic.parsing / .fold / .normalize /
 .reduce). compile.py is the single runtime module importing either; no
 private-symbol imports cross the seams.
@@ -45,17 +45,15 @@ from lexic.base import GrammarModel
 from lexic.codegen import (
     RuleBinding,
     build_codegen_grammar,
-    codegen_ir,
+    codegen,
     compute_binding,
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir.base import IrSeq
 from lexic.ir.canonical import canonicalize, fold_name
-from lexic.ir.derive import derive_specs
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst, IrRule
-from lexic.ir.spec import RuleSpec
 from lexic.parsing import ParserTables, parse_first, parse_reduced
 from lexic.parsing.fold import (
     FieldFold,
@@ -73,8 +71,6 @@ class CompiledGrammar:
     """Parse-ready artefacts produced by compile().
 
     :ivar classes: Generated model classes by class name.
-    :ivar specs: RuleSpecs by rule name — transitional view feeding
-        ``generate.py``; dies with ``ir/derive.py`` in Task 6.
     :ivar grammar: The canonical grammar AST (what the user's grammar IS —
         the transpile/re-emit source; also the generated module's GRAMMAR).
     :ivar instance_grammar: The Earley-normalised instance grammar (held so
@@ -87,7 +83,6 @@ class CompiledGrammar:
     """
 
     classes: dict[str, type]
-    specs: dict[str, RuleSpec]
     grammar: IrAst
     instance_grammar: IrAst
     fold: PositionalFold
@@ -249,25 +244,6 @@ def canonical_grammar(
     return IrAst(rules=rules, start=start)
 
 
-def compile_grammar(
-    text: str,
-    flavour: IrFlavour,
-    *,
-    non_semantic_rules: frozenset[str] | None = None,
-    start: str | None = None,
-) -> tuple[str, list[RuleSpec]]:
-    """Transitional RuleSpec view: :func:`canonical_grammar` + ``derive_specs``.
-
-    Feeds ``generate.py`` (the sole RuleSpec consumer left); dies with
-    ``ir/derive.py`` in Task 6. The compiled-parsing pipeline itself runs on
-    the canonical AST, not on these specs.
-    """
-    ast = canonical_grammar(
-        text, flavour, non_semantic_rules=non_semantic_rules, start=start
-    )
-    return ast.start, derive_specs(ast)
-
-
 def _fold_config(
     codegen_grammar: IrAst, binding: list[RuleBinding], classes: dict[str, type]
 ) -> dict[str, RuleFold]:
@@ -303,13 +279,11 @@ def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGra
     ast = canonical_grammar(text, flavour_cls)
     codegen_grammar = build_codegen_grammar(ast)
     binding = compute_binding(codegen_grammar)
-    classes = codegen_ir(ast, codegen_grammar, binding, stem)
+    classes = codegen(ast, codegen_grammar, binding, stem)
     fold = PositionalFold(_fold_config(codegen_grammar, binding, classes))
     instance_grammar = normalize(lift_optional_nullables(codegen_grammar))
-    specs = derive_specs(ast)  # transitional: feeds generate.py (dies Task 6)
     return CompiledGrammar(
         classes=classes,
-        specs={s.rule_name: s for s in specs},
         grammar=ast,
         instance_grammar=instance_grammar,
         fold=fold,

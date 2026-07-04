@@ -13,16 +13,17 @@ language-preserving-for-instances rewrites::
   place (zero-kid matches discriminate themselves).
 - :func:`relax_non_semantic` — refs to ``semantic=False`` rules get ``min=0``.
 
-``compile.py`` orchestrates these (Task 5); until then the passes are consumed
-by the binding view's tests and the derive-parity scaffold.
+``compile.py`` builds the codegen grammar via :func:`build_codegen_grammar`
+and hands it to both the emitter and the instance fold.
 """
 
 from __future__ import annotations
 
-from lexic.codegen.binding import classify_rule, unit_ref_arm
+from lexic.codegen.binding import classify_rule, has_ruleref, unit_ref_arm
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNoneType, IrSeq
-from lexic.ir.derive import hoist_helpers
+from lexic.ir.action import IrAction
+from lexic.ir.base import Field, IrLambda, IrNode, IrNone, IrNoneType, IrSelf, IrSeq
+from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -32,22 +33,104 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.walk import IrDispatch, IrTransformer
+
+
+def _reserve_helper_name(parent_name: str, taken: set[str]) -> str:
+    """Return ``<parent_name>-item[N]``, the lowest ``N`` not already taken."""
+    base = f"{parent_name}-item"
+    if base not in taken:
+        return base
+    n = 2
+    while f"{base}{n}" in taken:
+        n += 1
+    return f"{base}{n}"
+
+
+def _extract_group(
+    _d: object, group: IrAlternation, _nc: object
+) -> IrAlternation | IrNoneType:
+    """Return the group body if it contains a ruleref, else :data:`IrNone`."""
+    return group if has_ruleref(group) else IrNone
+
+
+_EXTRACT_BODY: IrDispatch = IrDispatch(
+    actions=IrTypeMap(IrAction(IrAlternation, IrLambda(_extract_group))),
+    # Non-IrAlternation atoms never hoist: IrNone is self-evaluating, so it
+    # serves as the "extract nothing" body directly — no procedural wrapper.
+    default=IrNone,
+)
+
+
+def _hoist_item(d: IrNode, item: IrItem, _nc: object) -> IrItem:
+    """Recurse into the atom; hoist a quantified ref-bearing group to a rule.
+
+    :param d: The :class:`_HoistTransformer` driving the walk.
+    :param item: The :class:`IrItem` being rewritten.
+    :param _nc: Pre-dispatched children (unused — recursion is controlled here).
+    :returns: The rewritten :class:`IrItem`.
+    """
+    if not isinstance(d, _HoistTransformer):
+        raise TypeError(f"Expected _HoistTransformer, got {type(d).__name__}")
+    new_atom = d.eval(d, item.atom, ())
+    is_quantified = item.quantifier != IrQuantifier(1, 1)
+    if not is_quantified:
+        return (
+            item
+            if new_atom is item.atom
+            else IrItem(atom=new_atom, quantifier=item.quantifier)
+        )
+    extracted = _EXTRACT_BODY.apply(new_atom)
+    if extracted is IrNone:
+        return (
+            item
+            if new_atom is item.atom
+            else IrItem(atom=new_atom, quantifier=item.quantifier)
+        )
+    name = _reserve_helper_name(d.parent_name, d.name_set)
+    d.name_set.add(name)
+    d.helpers.append(IrRule(name=name, body=extracted))
+    return IrItem(atom=IrRuleRef(name), quantifier=item.quantifier)
+
+
+class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
+    """Hoist quantified groups-with-rulerefs into synthetic helper rules.
+
+    Pure-literal groups (no :class:`IrRuleRef` anywhere) are left intact
+    regardless of their quantifier so codegen can treat them as regex patterns.
+
+    :ivar parent_name: Enclosing rule name; used to derive helper names.
+    :ivar name_set: Mutable set of taken rule names, shared across per-rule
+        dispatchers so allocation stays globally unique.
+    :ivar helpers: Mutable list of emitted helper rules — per-rule fresh.
+    """
+
+    parent_name: str = ""
+    name_set: set[str] = Field(default_factory=set)
+    helpers: list[IrRule] = Field(default_factory=list)
+    actions: IrTypeMap = IrTypeMap(IrAction(IrItem, IrLambda(_hoist_item)))
 
 
 def hoist_groups(ast: IrAst) -> IrAst:
     """Hoist quantified ref-bearing groups into named helper rules.
 
     Pure-literal groups keep their quantifier inline (they stay regex
-    patterns); helper rules land after the original rules.
-
-    The rewrite itself is :func:`~lexic.ir.derive.hoist_helpers` — its
-    implementation moves here when ``ir/derive.py`` dies in Task 6.
+    patterns); helper rules land after the original rules. ``name_set`` is
+    shared across the per-rule dispatchers so helper names stay globally
+    unique; each rule's ``helpers`` list is fresh.
 
     :param ast: The canonical grammar.
     :returns: The grammar with helper rules appended.
     """
-    hoisted, helpers = hoist_helpers(ast)
-    return IrAst(IrSeq(*hoisted.rules, *helpers), hoisted.start)
+    name_set: set[str] = {str(r.name) for r in ast.rules}
+    helpers: list[IrRule] = []
+    rules: list[IrRule] = []
+    for rule in ast.rules:
+        transformer = _HoistTransformer(parent_name=rule.name, name_set=name_set)
+        new_body = transformer.apply(rule.body)
+        helpers.extend(transformer.helpers)
+        rules.append(IrRule(rule.name, new_body, rule.semantic))
+    return IrAst(IrSeq(*rules, *helpers), ast.start)
 
 
 def _hoist_rule_arms(rule: IrRule, taken: set[str]) -> list[IrRule]:

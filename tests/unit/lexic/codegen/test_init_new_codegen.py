@@ -1,4 +1,4 @@
-"""Sanity: codegen package importable."""
+"""Sanity: codegen package importable and the binding-driven entry works."""
 
 from __future__ import annotations
 
@@ -6,32 +6,34 @@ import inspect
 from pathlib import Path
 
 from lexic.codegen import codegen
-from lexic.ir.nodes import IrItem, IrLiteral
-from tests._ir_fixtures import spec as _build_spec
-from tests.unit.lexic.codegen.conftest import make_inner_outer_specs
+from lexic.codegen.binding import compute_binding
+from lexic.codegen.passes import build_codegen_grammar
+from lexic.compile import canonical_grammar
+from lexic.grammars.gbnf import GBNF_FLAVOUR
 
 
-def _spec(name, kind, items, field_map=None):
-    return _build_spec(name, kind, items, field_map=field_map)
+def _codegen(text: str, stem: str) -> dict[str, type]:
+    """Run the front half then emit: canonical → codegen grammar → binding → classes."""
+    canonical = canonical_grammar(text, GBNF_FLAVOUR)
+    codegen_grammar = build_codegen_grammar(canonical)
+    binding = compute_binding(codegen_grammar)
+    return codegen(canonical, codegen_grammar, binding, stem)
 
 
 def test_codegen_returns_dict_of_classes(tmp_path, monkeypatch):
-    """codegen(specs, stem) writes generated/<stem>.py and returns the loaded class dict."""
-    # Run with a sandbox `generated/` directory so we don't pollute the repo
+    """codegen(...) writes generated/<stem>.py and returns the loaded class dict."""
     monkeypatch.chdir(tmp_path)
     Path("generated").mkdir()
-    spec = _spec("greet", "value_str", [IrItem(IrLiteral("hi"))])
-    classes = codegen([spec], stem="test_codegen_simple")
+    classes = _codegen('greet ::= "hi"\n', "test_codegen_simple")
     assert "Greet" in classes
-    assert classes["Greet"].__grammar__.rule_name == "greet"
+    assert classes["Greet"].__grammar__.name == "greet"
 
 
 def test_codegen_handles_rule_refs(tmp_path, monkeypatch):
-    """codegen(specs, stem) writes generated/<stem>.py and returns the loaded class dict."""
+    """codegen(...) resolves rule refs into distinct model classes."""
     monkeypatch.chdir(tmp_path)
     Path("generated").mkdir()
-    inner, outer = make_inner_outer_specs()
-    classes = codegen([outer, inner], stem="test_codegen_refs")
+    classes = _codegen("root ::= expr\nexpr ::= [a-z]+\n", "test_codegen_refs")
     assert "Root" in classes
     assert "Expr" in classes
 

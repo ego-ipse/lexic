@@ -115,9 +115,42 @@ def test_no_new_gbnf_or_new_codegen_residual():
         assert "lexic.new_codegen" not in content, f"{p}: residual new_codegen"
 
 
-def test_rulespec_items_typed_for_iritem():
-    """RuleSpec.items is typed for IrItem, not the old union of IrItem and IrAlternation."""
-    content = (SRC / "ir" / "spec.py").read_text()
-    assert "list[IrItem | IrAlternation]" in content
-    assert "from lexic.ir.atoms" not in content
-    assert "NewRuleSpec" not in content
+def test_utils_package_is_gone():
+    """The whole lexic.utils package died in Task 6, unreferenced anywhere."""
+    assert not (SRC / "utils").exists()
+    this_file = Path(__file__).resolve()
+    for p in list(SRC.rglob("*.py")) + list((ROOT / "tests").rglob("*.py")):
+        if p == this_file:
+            continue
+        content = p.read_text()
+        assert "from lexic.utils" not in content, f"{p}: residual lexic.utils import"
+        assert "import lexic.utils" not in content, f"{p}: residual lexic.utils import"
+
+
+def test_retired_ir_modules_are_gone():
+    """The RuleSpec/derive/emit/naming/topo modules died in Task 6.
+
+    Their successors: the binding view + passes (``lexic.codegen``), flavour
+    ``apply`` (emission), and ``lexic.ir.order`` (rule ordering).
+    """
+    for name in ("derive.py", "spec.py", "emit.py", "naming.py", "topo.py"):
+        assert not (SRC / "ir" / name).exists(), f"ir/{name} still present"
+    for p in SRC.rglob("*.py"):
+        content = p.read_text()
+        for module in (
+            "lexic.ir.derive",
+            "lexic.ir.spec",
+            "lexic.ir.emit",
+            "lexic.ir.naming",
+            "lexic.ir.topo",
+        ):
+            assert module not in content, f"{p}: residual {module} reference"
+
+
+def test_single_codegen_entry_and_emit_path():
+    """One way per task: exactly one codegen entry and one emit-source function."""
+    codegen_init = (SRC / "codegen" / "__init__.py").read_text()
+    assert "def codegen_ir(" not in codegen_init
+    emitter = (SRC / "codegen" / "model_emitter.py").read_text()
+    assert "emit_module_source_ir" not in emitter
+    assert emitter.count("def emit_module_source(") == 1

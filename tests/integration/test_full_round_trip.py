@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.compile import compile_from_path, compile_grammar
+from lexic.codegen.binding import compute_binding
+from lexic.codegen.passes import build_codegen_grammar
+from lexic.compile import canonical_grammar, compile_from_path
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrAst
 from lexic.parsing import parse_reduced
@@ -47,7 +49,7 @@ _EXPECTED_RULE_NAMES: dict[str, frozenset[str]] = {
 }
 
 # Fixtures with @non-semantic ws directives in their source files.
-# compile_grammar reads directives automatically — listed here only for assertion.
+# canonical_grammar reads directives automatically — listed here only for assertion.
 _HAS_NON_SEMANTIC_WS = frozenset(
     {"arithmetic.gbnf", "c.gbnf", "json_arr.gbnf", "json_ws.gbnf"}
 )
@@ -55,17 +57,25 @@ _HAS_NON_SEMANTIC_WS = frozenset(
 _VALID_KINDS = frozenset({"sequence", "alternation", "value_str"})
 
 
+def _noise_fields(binding) -> list[str]:
+    """Field names flagged ``semantic=False`` across the binding view."""
+    return [
+        name for b in binding for name, ibind in b.fields.items() if not ibind.semantic
+    ]
+
+
 @pytest.mark.parametrize("fixture", _ALL_FIXTURES)
-def test_compile_grammar_succeeds_on_ground_truth(fixture: str) -> None:
-    """compile_grammar returns sane specs for every ground-truth fixture."""
+def test_binding_view_succeeds_on_ground_truth(fixture: str) -> None:
+    """The binding view is sane for every ground-truth fixture."""
     text = (GROUND_TRUTH / fixture).read_text(encoding="utf-8")
     # Directives (@non-semantic ws) are read from the file automatically.
-    start, specs = compile_grammar(text, GBNF_FLAVOUR)
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    binding = compute_binding(build_codegen_grammar(ast))
 
-    assert start == "root", f"{fixture}: expected start='root', got {start!r}"
-    assert len(specs) > 0, f"{fixture}: compile_grammar returned no specs"
+    assert ast.start == "root", f"{fixture}: expected start='root', got {ast.start!r}"
+    assert binding, f"{fixture}: binding view is empty"
 
-    rule_names = {s.rule_name for s in specs}
+    rule_names = {b.rule_name for b in binding}
 
     # Every explicitly declared rule from the source file must appear.
     expected = _EXPECTED_RULE_NAMES[fixture]
@@ -73,22 +83,20 @@ def test_compile_grammar_succeeds_on_ground_truth(fixture: str) -> None:
     assert not missing, f"{fixture}: missing expected rules: {missing}"
 
     # All kind values must be one of the three legal kinds.
-    bad_kinds = {s.kind for s in specs} - _VALID_KINDS
-    assert not bad_kinds, f"{fixture}: specs contain illegal kind values: {bad_kinds}"
+    bad_kinds = {b.kind for b in binding} - _VALID_KINDS
+    assert not bad_kinds, f"{fixture}: binding has illegal kind values: {bad_kinds}"
 
-    # Fixtures with @non-semantic ws: at least one spec must record ws in non_semantic_fields.
+    # Fixtures with @non-semantic ws: at least one bound field is non-semantic.
     if fixture in _HAS_NON_SEMANTIC_WS:
-        ws_exposed = [s for s in specs if "ws" in s.non_semantic_fields]
-        assert ws_exposed, (
-            f"{fixture}: @non-semantic ws declared but no spec has 'ws' in non_semantic_fields"
+        assert "ws" in _noise_fields(binding), (
+            f"{fixture}: @non-semantic ws declared but no field is flagged non-semantic"
         )
 
-    # Fixtures without ws should not have any non_semantic_fields entries.
+    # Fixtures without ws should not flag any field non-semantic.
     if fixture not in _HAS_NON_SEMANTIC_WS:
-        unexpected_nsf = [s for s in specs if s.non_semantic_fields]
-        assert not unexpected_nsf, (
-            f"{fixture}: no non-semantic directive but got non_semantic_fields: "
-            f"{[(s.rule_name, s.non_semantic_fields) for s in unexpected_nsf]}"
+        assert not _noise_fields(binding), (
+            f"{fixture}: no non-semantic directive but got noise fields: "
+            f"{_noise_fields(binding)}"
         )
 
 

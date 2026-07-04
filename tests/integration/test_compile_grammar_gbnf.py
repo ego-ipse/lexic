@@ -4,15 +4,32 @@ from __future__ import annotations
 
 import importlib
 
+from lexic.codegen.binding import compute_binding
+from lexic.codegen.passes import build_codegen_grammar
 from lexic.compile import (
+    canonical_grammar,
     compile_from_path,
-    compile_grammar,
     compile_text,
     reset_cache_for_tests,
 )
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.nodes import IrItem, IrRuleRef
+from lexic.ir.nodes import IrRuleRef
 from tests.paths import GROUND_TRUTH
+
+
+def _binding(text: str, **kwargs):
+    """(canonical ast, codegen grammar, {rule_name: RuleBinding}) for a GBNF string."""
+    ast = canonical_grammar(text, GBNF_FLAVOUR, **kwargs)
+    codegen_grammar = build_codegen_grammar(ast)
+    binding = compute_binding(codegen_grammar)
+    return ast, codegen_grammar, {b.rule_name: b for b in binding}
+
+
+def _ws_ref_items(codegen_grammar, rule_name: str):
+    """The arm-level ``ws`` ref items of ``rule_name`` in the codegen grammar."""
+    rule = next(r for r in codegen_grammar.rules if r.name == rule_name)
+    arm = next(a for a in rule.body if a)
+    return [it for it in arm if isinstance(it.atom, IrRuleRef) and it.atom == "ws"]
 
 
 def test_simple_value_str_round_trips():
@@ -24,7 +41,7 @@ def test_simple_value_str_round_trips():
 
 
 def test_simple_arithmetic_parses_and_round_trips():
-    """Multi-rule sequence grammar: spec kinds are correct and parsing works."""
+    """Multi-rule sequence grammar: binding kinds are correct and parsing works."""
     text = (
         "root  ::= expr\n"
         "expr  ::= term op term\n"
@@ -32,8 +49,7 @@ def test_simple_arithmetic_parses_and_round_trips():
         "op    ::= [-+*/]\n"
         "num   ::= [0-9]+\n"
     )
-    _, specs = compile_grammar(text, GBNF_FLAVOUR)
-    by = {s.rule_name: s for s in specs}
+    _ast, _cg, by = _binding(text)
     assert by["expr"].kind == "sequence"
     assert by["op"].kind == "value_str"
     assert by["num"].kind == "value_str"
@@ -44,18 +60,13 @@ def test_simple_arithmetic_parses_and_round_trips():
 
 
 def test_non_semantic_ws_transparent_to_round_trip():
-    """@non-semantic ws: ws is in IR but absent from to_text output."""
+    """@non-semantic ws: ws refs relax to min=0 and are absent from to_text output."""
     text = '# @non-semantic ws\nroot ::= ws value ws\nvalue ::= "x"\nws ::= [ \\t]*\n'
-    _, specs = compile_grammar(text, GBNF_FLAVOUR)
-    by = {s.rule_name: s for s in specs}
-    root = by["root"]
-    ws_item = next(
-        i
-        for i in root.items
-        if isinstance(i, IrItem) and isinstance(i.atom, IrRuleRef) and i.atom == "ws"
-    )
-    assert ws_item.quantifier.lo == 0
-    assert "ws" in root.non_semantic_fields
+    _ast, codegen_grammar, by = _binding(text)
+    ws_items = _ws_ref_items(codegen_grammar, "root")
+    assert ws_items and all(it.quantifier.lo == 0 for it in ws_items)
+    assert "ws" in by["root"].fields
+    assert by["root"].fields["ws"].semantic is False
 
     cg = compile_text(text, flavour="gbnf")
     inst = cg.parse("  x  ")
@@ -64,25 +75,18 @@ def test_non_semantic_ws_transparent_to_round_trip():
 
 
 def test_explicit_non_semantic_overrides_directive():
-    """non_semantic_rules=frozenset() overrides @non-semantic directive — ws stays required."""
+    """non_semantic_rules=frozenset() overrides @non-semantic — ws stays required."""
     text = '# @non-semantic ws\nroot ::= ws value\nvalue ::= "x"\nws ::= [ \\t]*\n'
-    _, specs = compile_grammar(text, GBNF_FLAVOUR, non_semantic_rules=frozenset())
-    by = {s.rule_name: s for s in specs}
-    root = by["root"]
-    ws_item = next(
-        i
-        for i in root.items
-        if isinstance(i, IrItem) and isinstance(i.atom, IrRuleRef) and i.atom == "ws"
-    )
-    assert ws_item.quantifier.lo == 1
-    assert root.non_semantic_fields == frozenset()
+    _ast, codegen_grammar, by = _binding(text, non_semantic_rules=frozenset())
+    ws_items = _ws_ref_items(codegen_grammar, "root")
+    assert ws_items and all(it.quantifier.lo == 1 for it in ws_items)
+    assert all(ibind.semantic for ibind in by["root"].fields.values())
 
 
 def test_alternation_produces_correct_subclass():
     """Alternation rule: concrete arm is the right subclass and parses correctly."""
     text = "root ::= term\nterm ::= num | ident\nnum ::= [0-9]+\nident ::= [a-z]+\n"
-    _, specs = compile_grammar(text, GBNF_FLAVOUR)
-    by = {s.rule_name: s for s in specs}
+    _ast, _cg, by = _binding(text)
     assert by["term"].kind == "alternation"
     assert by["num"].parent_class_name == "Term"
     assert by["ident"].parent_class_name == "Term"

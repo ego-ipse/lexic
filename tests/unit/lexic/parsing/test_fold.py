@@ -34,8 +34,10 @@ from lexic.parsing.fold import (
     lift_optional_nullables,
 )
 from lexic.parsing.forest import ParseTree
-from lexic.parsing.normalize import normalize
+from lexic.parsing.normalize import SYNTHETIC_PREFIX, normalize
 from lexic.parsing.tables import compile_tables
+from tests._ir_fixtures import malformed_synthetic_rule, nested_synthetic_grammar
+from tests.paths import GROUND_TRUTH
 
 # ── the compiled config — structure ─────────────────────────────────────
 
@@ -98,6 +100,17 @@ def test_fold_kid_count_mismatch_raises():
     node = ParseTree(IrRuleRef("r"), IrSeq(IrLiteral("a")))
     with pytest.raises(UnsupportedConstructError, match="do not match"):
         fold.apply(node)
+
+
+def test_fold_sequence_zero_item_arm_takes_the_equal_length_path():
+    """A rule whose single (non-alternate) arm is itself empty (n_items=0)
+    folds through the equal-length branch, not the empty-alternate-arm
+    mismatch branch — both end up calling ctor() with no kwargs, but a
+    kid-count mismatch there would incorrectly raise (kids=0, n_items=0 are
+    equal, so ``if len(kids) != rule_fold.n_items`` is False from the start)."""
+    fold = PositionalFold({"r": RuleFold("sequence", dict, 0, ())})
+    node = ParseTree(IrRuleRef("r"), IrSeq())
+    assert fold.apply(node) == {}
 
 
 # ── PositionalFold.apply — fold behaviors end-to-end ────────────────────
@@ -325,6 +338,20 @@ def test_lift_preserves_positions_and_start():
     assert arm[2].atom == IrLiteral("y")
 
 
+def test_lift_is_idempotent():
+    """Lifting an already-lifted grammar changes nothing further: once an
+    item is (1, 1) the rewrite condition (``lo == 0``) no longer holds."""
+    empty = IrRule("empty", IrAlternation(IrSequence(IrItem(IrLiteral("")))))
+    host = IrRule(
+        "host",
+        IrAlternation(IrSequence(IrItem(IrRuleRef("empty"), IrQuantifier(0, 1)))),
+    )
+    ast = IrAst(rules=IrSeq(empty, host), start="host")
+    once = lift_optional_nullables(ast)
+    twice = lift_optional_nullables(once)
+    assert twice == once
+
+
 # ── collapsed_fold_tables ────────────────────────────────────────────────
 
 
@@ -363,6 +390,27 @@ def test_compiled_tables_are_the_collapsed_ones(arithmetic):
     )
 
 
+def test_collapsed_fold_tables_memo_keys_on_identity_not_equality():
+    """Two independent compiles of the same source produce structurally equal
+    but distinct (grammar, fold) objects — the memo (keyed on ``id()``, per
+    its own docstring) must not alias across them."""
+    text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
+    cg1 = compile_text(text)
+    cg2 = compile_text(text)
+    assert cg1.instance_grammar == cg2.instance_grammar
+    assert cg1.instance_grammar is not cg2.instance_grammar
+    assert cg1.tables is not cg2.tables
+
+
+def test_collapsed_fold_tables_distinct_fold_objects_do_not_share_cache(arithmetic):
+    """A fold object with an identical config is still a distinct object —
+    collapsed_fold_tables must recompute, not alias, for it."""
+    duplicate_fold = PositionalFold(dict(arithmetic.fold.config))
+    first = collapsed_fold_tables(arithmetic.instance_grammar, arithmetic.fold)
+    second = collapsed_fold_tables(arithmetic.instance_grammar, duplicate_fold)
+    assert first is not second
+
+
 # ── PositionalFold.run_ok (the run-collapse licence) ─────────────────────
 
 
@@ -387,6 +435,43 @@ def test_run_ok_true_when_leaf_rule_untracked_by_fold(digit_grammar):
     tables = compile_tables(digit_grammar)
     digit_rid = tables.decode.rule_ids["digit"]
     assert fold.run_ok(tables, digit_rid) is True
+
+
+def test_run_ok_false_for_malformed_synthetic_shape():
+    """unit_leaves returning None (not a charset-rule shape) is not fold-safe.
+
+    The existing run_ok tests only exercise a non-synthetic unit_rid, where
+    unit_leaves short-circuits to ``({rid}, False)`` without ever reaching
+    the transitive walk or its failure mode. This drives that branch.
+    """
+    bad = malformed_synthetic_rule()
+    g = IrAst(rules=IrSeq(bad), start=f"{SYNTHETIC_PREFIX}bad")
+    tables = compile_tables(g)
+    rid = tables.decode.rule_ids[f"{SYNTHETIC_PREFIX}bad"]
+    fold = PositionalFold({})
+    assert fold.run_ok(tables, rid) is False
+
+
+def test_run_ok_false_when_transitive_leaf_is_a_config_rule():
+    """The unit_rid passed in names no config rule directly ('__outer' isn't a
+    config key) — only the leaf two hops down ('digit') is. run_ok must still
+    block, proving it consults the full transitive leaf set, not just the
+    rule named by unit_rid itself."""
+    g = nested_synthetic_grammar()
+    tables = compile_tables(g)
+    outer_rid = tables.decode.rule_ids[f"{SYNTHETIC_PREFIX}outer"]
+    fold = PositionalFold({"digit": RuleFold("value_str", dict, 0, ())})
+    assert fold.run_ok(tables, outer_rid) is False
+
+
+def test_run_ok_true_when_transitive_leaf_untracked():
+    """Same nested-synthetic structure, but the leaf carries no config entry —
+    the run is safe to collapse."""
+    g = nested_synthetic_grammar()
+    tables = compile_tables(g)
+    outer_rid = tables.decode.rule_ids[f"{SYNTHETIC_PREFIX}outer"]
+    fold = PositionalFold({})
+    assert fold.run_ok(tables, outer_rid) is True
 
 
 def test_ambiguous_input_folds_deterministically(arithmetic):

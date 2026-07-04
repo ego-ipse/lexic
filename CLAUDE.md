@@ -17,6 +17,7 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. Current: `zzz_current_work/260703-ir-codegen/PLAN.md`.
 - **Cutover complete (2026-05-13).** The IrItem-based pipeline is the only pipeline. Old Atom shape, `atoms.py`, `new_gbnf/`, `flavours.py` are all gone. See `.wiki/lexic/cutover-plan.md` and `.wiki/lexic/slice-b-status.md` for what remains.
+- **RuleSpec cutover complete (2026-07-04).** The `RuleSpec` middle layer, `ir/derive.py`, `ir/spec.py`, `ir/emit.py`, `ir/naming.py`, `ir/topo.py`, `parsing/models.py`, and the whole `utils/` package are gone. One canonical `IrAst` drives codegen, instance parsing, emission, generation, and round-trip. See `zzz_current_work/260703-ir-codegen/PLAN.md` for the effort that landed it.
 
 Specific instructions in this file override `docs/STYLE.md` for their domain.
 
@@ -61,13 +62,14 @@ uv run pylint src/lexic/path/to/file.py  # per-file quality gate
 
 If `ruff` flags files in `generated/`, fix the template in `src/lexic/codegen/model_emitter.py`, not the generated file.
 
-## Current state — single pipeline, no Lark
+## Current state — one IR-native pipeline, no Lark, no RuleSpec
 
 The IrItem-based cutover (2026-05-13) is complete, and the **primitive-node
 model (V2)** migration is done: nodes now *are* their payload (str-leaves
 subclass `str`, variadic collections subclass `tuple`, fixed-arity records
-are `IrComposite` dataclasses) — `IrType`/`coerce`/`IrStrLeaf`/`IrCollection`/
-`_items_attr` are gone. See §IR types.
+are `IrNamedTuple` records — the node IS the tuple, fields read by name or by
+index) — `IrType`/`coerce`/`IrStrLeaf`/`IrCollection`/`_items_attr` are gone.
+See §IR types.
 
 A second cutover (Lark→Earley, 2026-07-02/03) is also complete:
 **`src/lexic/parsing/` is a native Earley engine, not a Lark wrapper** — Lark
@@ -75,22 +77,42 @@ is gone from source entirely (it survives only as
 `tools/benchmark/parse_bench.py`'s external reference baseline). This one
 engine drives *both* grammar-text parsing (`parse_grammar` → `parse_reduced`
 against each flavour's own self-grammar) and generated-instance parsing
-(`CompiledGrammar.parse` → `parse_first` + `ModelFold`) — there is no separate
+(`CompiledGrammar.parse` → `parse_first` + a fold) — there is no separate
 meta-grammar-parser layer anymore. `IrFlavour` (`ir/flavour.py`) carries its
 self-grammar and parse policy as data (`grammar: ClassVar[IrAst]`,
 `reducer: ClassVar[IrDispatch]`), not as parser methods — see §Flavour system.
 
+A third cutover (RuleSpec → IR-native codegen, 2026-07-03/04) is also
+complete: the `RuleSpec` middle layer is gone. One canonical `IrAst` — parsed,
+then **canonicalized** to a language-preserving normal form (`ir/canonical.py`)
+so two flavours describing the same language converge on the same tree —
+drives everything: codegen, instance parsing, emission, generation,
+round-trip. Generated classes carry `__grammar__: ClassVar[IrRule]` directly
+(the class's own rule, from the *codegen* grammar — post group/arm-hoisting)
+and every bound field an `IrBind(item, mode, semantic)` in its `Annotated`
+metadata, tying it to a positional slot in that rule's sequence arm — no
+parallel spec object. Instance parsing is a **positional fold**
+(`parsing/fold.py`'s `PositionalFold`) over the *real* codegen grammar
+(`normalize()` replaces items in place, so `kids[i] ↔ items[i]`) — no
+`--f<idx>` wrapper rules, no name protocol.
+
 - IR shape: `IrItem`-based nodes (`ir/nodes.py`) — `IrLiteral`, `IrCharClass`,
   `IrRuleRef`, `IrItem(atom, quantifier)`.
-- Spec type: `RuleSpec` (in `ir/spec.py`).
-- Entry: `compile_text` / `compile_from_path` in `compile.py` → `compile_grammar`
-  → `codegen` → `build_instance_parser` (`lexic.parsing.models`);
-  `parse_grammar(text, flavour)` is the public grammar-text → `IrAst` seam.
+- Entry: `compile_text` / `compile_from_path` in `compile.py` →
+  `canonical_grammar` (parse + canonicalize + directive flags) →
+  `build_codegen_grammar` (`lexic.codegen.passes` — hoist groups, hoist arms,
+  relax non-semantic refs) → `compute_binding` (`lexic.codegen.binding`) →
+  `codegen` (`lexic.codegen`, emits `Annotated`/`IrBind` fields) → fold config
+  → `PositionalFold` (`lexic.parsing.fold`); `parse_grammar(text, flavour)` is
+  the public grammar-text → `IrAst` seam, unchanged by this cutover.
 - Old `atoms.py`, `new_gbnf/`, `flavours.py`, `codegen/ir_builder.py`,
   `codegen/lark_builder.py`, `codegen/transformer/` are all gone (2026-05-13
   cutover). `parsing/meta_parser.py`, `parsing/lark_builder.py`,
-  `parsing/transformer/` are also gone (2026-07 cutover) — no
-  `parsing_legacy`/`parsing_old` shim of any kind.
+  `parsing/transformer/` are gone (2026-07-02/03 cutover). `ir/derive.py`,
+  `ir/spec.py` (`RuleSpec`), `ir/emit.py`, `ir/naming.py`, `ir/topo.py`,
+  `parsing/models.py`, and the whole `utils/` package are gone (2026-07-04
+  cutover) — no `parsing_legacy`/`parsing_old` shim, no RuleSpec shim, of any
+  kind. `ir/regex_portable.py` (unrelated, pre-dates this effort) is also gone.
 
 ## Project layout
 
@@ -98,32 +120,51 @@ self-grammar and parse policy as data (`grammar: ClassVar[IrAst]`,
 src/lexic/
   __init__.py
   base.py               GrammarModel base — to_text(), to_grammar(), semantic_dump()
-  compile.py            compile_text(), compile_from_path(), compile_grammar()
+                        (walks __grammar__: ClassVar[IrRule] + each field's IrBind)
+  compile.py            compile_text(), compile_from_path(), canonical_grammar(),
+                        parse_grammar() — the sole runtime seam onto codegen + the engine
   exceptions.py         LexicError hierarchy (see §Error vocabulary)
   parse.py              parse(text, grammar_path) → GrammarModel  [thin wrapper over compile]
-  generate.py           random string generator from RuleSpec
+  generate.py           random string generator — walks a rule-name → IrRule mapping
+                        (a canonical grammar's rules) directly, no spec layer
 
   ir/
-    __init__.py         re-exports IrItem nodes, RuleSpec
-    nodes.py            IrSelf[Iri,Ir_co] generic root; IrNode ABC; IrAtom role
+    __init__.py         public IR surface — nodes, action algebra, dispatch,
+                        IrBind, canonicalize, RuleOrder
+    meta.py             IrMeta (ABCMeta) — dataclass-transform + auto-derived
+                        _bound; Singleton/Borg/IrSingleton metaclasses
+    base.py             IrSelf[Iri,Ir_co] generic root; IrNode ABC; IrAtom role
                         marker; three tiers: IrScalar value-leaves (IrStr ⇒
                         IrLiteral/IrCharClass/IrRuleRef; IrInt), IrTuple variadic
-                        (IrSequence, IrAlternation; eval -> IrSelf so reducers may
-                        override), IrComposite frozen-dataclass records (IrItem,
-                        IrQuantifier, IrGroup, IrNot, IrRule, IrAst); IrNoneType/IrNone
-                        sentinel. IrScalar hosts eval/eq/ne/hash/repr (type-aware:
-                        distinct leaf kinds never equal); IrScalar.__new__ forwards the
-                        payload to str/int (so type[IrScalar] is constructor-callable);
-                        IrStr/IrInt carry only _bound
+                        (IrSeq homogeneous — IrSequence, IrAlternation),
+                        IrNamedTuple fixed-arity records (the node IS the tuple;
+                        fields read by name or by index) — IrItem, IrQuantifier,
+                        IrRule, IrAst; IrCachingTuple (IrNamedTuple whose Field()
+                        defaults resolve fresh per instance — dispatcher/transformer
+                        state); IrNoneType/IrNone sentinel. IrScalar hosts
+                        eval/eq/ne/hash/repr (type-aware: distinct leaf kinds never
+                        equal); IrScalar.__new__ forwards the payload to str/int (so
+                        type[IrScalar] is constructor-callable); IrStr/IrInt carry
+                        only _bound
+    nodes.py            Concrete grammar-AST nodes on the base.py spine: IrLiteral,
+                        IrCharClass (intrinsic pattern()/members()/sample()/
+                        normalized()/complement()), IrRuleRef, IrSequence,
+                        IrAlternation, IrBounds/IrQuantifier/IrRange, IrItem,
+                        IrRule(name, body, semantic=True), IrAst(rules, start) —
+                        non_semantic is a derived property, not a field
+    operators.py        IrOp(IrStr) infix-operator leaf (no Cmp enum), IrOpNode +
+                        Monadic/Dyadic/VariadicOp, IrNot, IrEq, IrAnd
     action.py           Action-algebra nodes: IrField (out: type[IrScalar], reads
-                        typed attrs), IrOp(IrStr) operator leaf + IrCompare/IrAnd
-                        (-> IrInt), IrChild, IrChildren, IrConcat, IrJoin,
-                        IrCond (test: IrSelf), IrThis, IrReturn, IrAction; default
-                        bodies IrPass, IrWalk, IrRaise, IrEmit, IrRebuild
-    walk.py             IrDispatch[Iri,Ir_co] — IrComposite; actions is an
-                        IrTypeMap (concrete-first MRO type→IrAction table, not a
-                        tuple); presets IrVisitor, IrTransformer, IrEmitter. Does
-                        NOT walk children automatically — action bodies own recursion
+                        typed attrs), IrCompare/IrAnd (-> IrInt), IrChild, IrChildren,
+                        IrConcat, IrJoin, IrCond (test: IrSelf), IrThis, IrReturn,
+                        IrAction; default bodies IrPass, IrWalk, IrRaise, IrEmit,
+                        IrRebuild
+    mapping.py          IrMapping/IrMap/IrTypeMap (concrete-first MRO type→IrSelf
+                        table) / IrMultiMap — IR-native mapping nodes
+    walk.py             IrDispatch[Iri,Ir_co] — an IrCachingTuple of
+                        (actions, default); actions is an IrTypeMap (not a tuple);
+                        presets IrVisitor, IrTransformer, IrEmitter. Does NOT walk
+                        children automatically — action bodies own recursion
     flavour.py          IrFlavour ABC — IrEmitter subclass + ClassVars (name,
                         extensions, line_comment, escapes: EscapeCodec instance,
                         grammar: IrAst — the flavour's self-grammar, reducer:
@@ -132,18 +173,18 @@ src/lexic/
                         parse_quantifier/parse_charclass/normalize_literal/
                         meta_grammar are gone with the Lark path, nothing replaces
                         them as methods
-    emit.py             render_specs() helper — list[RuleSpec] → text via a flavour
-                        singleton. Currently only consumed by its own test; may be
-                        wired into the broader pipeline later
+    canonical.py        canonicalize(IrAst) → IrAst — language-preserving normal
+                        form (charclass/alternation/literal-run merges, IrNot →
+                        positive spans, name folding, canonical rule order); the
+                        mandatory second stage of compile.py's canonical_grammar
+    bind.py             IrBind(item, mode, semantic=True) — the field-binding
+                        marker generated fields carry as Annotated metadata;
+                        BIND_MODES = (text, gtext, model, models)
+    order.py            RuleOrder — deterministic start-first ordering over a
+                        supplied edge relation; by_refs/order_by_refs (ref-edges,
+                        canonicaliser's rule order) and ordered_parents_first
+                        (parent-edges, codegen emission order)
     escapes.py          EscapeCodec ABC + CANONICAL_ESCAPES
-    spec.py             RuleSpec(rule_name, class_name, parent_class_name, kind,
-                                items: list[IrItem | IrAlternation], field_map,
-                                non_semantic_fields); to_ir_rule()
-    charclass.py        parse_charclass_chars()
-    derive.py           derive_specs(IrAst) → list[RuleSpec] (reads ast.non_semantic)
-    naming.py           CHARCLASS_NAMES, _LITERAL_NAMES, _field_map()
-    regex_portable.py   literal_to_regex_pattern(); PORTABLE_FEATURES, validate_portable
-    topo.py             topo_sort(specs, is_start_rule) — dependency ordering
 
   grammars/
     __init__.py         get_flavour(), flavour_for_extension(), register_flavour()
@@ -163,19 +204,39 @@ src/lexic/
                         flavour-neutral canonical target both front-ends reduce to
 
   codegen/
-    __init__.py         codegen(specs, stem) → dict[str, type]
-                        writes generated/<stem>.py (ruff-formatted), loads and returns classes
-    aliases.py          PatternAlias, collect_aliases() — module-level type alias hoisting
-    model_emitter.py    emit_module_source(specs, stem) → str
-                        IrItem-shape RuleSpec list → Python source string
+    __init__.py         codegen(canonical, codegen_grammar, binding, stem) →
+                        dict[str, type] — writes generated/<stem>.py (ruff-formatted
+                        + model_rebuild()'d so IrBind metadata resolves), loads and
+                        returns classes
+    passes.py           Grammar→grammar codegen passes: hoist_groups (quantified
+                        ref-bearing groups → named helper rules), hoist_arms
+                        (every multi-item/non-ref alternation arm → a named
+                        <rule>-arm<N> rule — restores the single-arm premise the
+                        positional fold rests on), relax_non_semantic (min=0 on
+                        refs to semantic=False rules); build_codegen_grammar()
+                        composes all three
+    binding.py          compute_binding(codegen_grammar) → list[RuleBinding]
+                        (rule_name, class_name, parent_class_name, kind, fields:
+                        dict[str, IrBind]) — the open-table successor of
+                        derive_specs's classify/parents/naming; also hosts
+                        CHARCLASS_NAMES/LITERAL_NAMES, class_name_for (absorbed
+                        to_pascal), has_ruleref
+    model_emitter.py    emit_module_source(canonical, codegen_grammar, binding,
+                        stem) → str — Annotated[<type>, IrBind(...)] fields, a
+                        per-class __grammar__: ClassVar[IrRule] footer (from the
+                        codegen grammar), and module-level GRAMMAR (canonical
+                        IrAst) + START footers
+    aliases.py          PatternAlias, collect_aliases() — module-level type
+                        alias hoisting; also hosts _bounds_to_suffix (regex
+                        quantifier suffix, absorbed from utils/quantifiers.py)
 
   parsing/
     __init__.py         Public API: recognize, parse, parse_first, parse_reduced,
                         parse_forest, derivations, is_ambiguous — a native Earley
                         engine (SPPF, Scott 2008) over IrAst-shaped grammars, not
                         a Lark wrapper. Drives BOTH grammar-text parsing
-                        (flavour.grammar + flavour.reducer) and instance parsing
-                        (specs_to_grammar + ModelFold)
+                        (flavour.grammar + flavour.reducer) and generated-instance
+                        parsing (the codegen grammar + PositionalFold)
     tables.py           ParserTables, compile_tables() (memoised by IrAst identity)
     kernel.py           Kernel (predict/scan/complete, Leo optimisation), FastTree
     chart.py            Chart / Links — the decoded SPPF
@@ -183,25 +244,26 @@ src/lexic/
     forest.py           ParseTree, SppfNode
     reduce.py           Reducer — forest → IrAst (the meta-notation seam)
     normalize.py        Desugar IR into classical Earley-shaped rules
-    models.py           specs_to_grammar() / ModelFold / build_instance_parser() /
-                        collapsed_instance_tables() — RuleSpec list → instance
-                        grammar + fold (+ run-collapsed tables for parse_first)
+    fold.py             PositionalFold — generic positional ParseTree → object
+                        fold over the codegen grammar (kids[i] ↔ items[i], no
+                        RuleSpec/pydantic/codegen imports); RuleFold/FieldFold
+                        plain-data config; lift_optional_nullables (R? → R for
+                        nullable R, engine-ambiguity policy); collapsed_fold_tables
+                        (run-collapse licence: safe iff no constructor-bearing
+                        rule among a run's unit leaves)
     lexruns.py, trampoline.py
-
-  utils/
-    names.py            to_pascal(), to_snake()
-    quantifiers.py      bounds_to_quantifier() — consumed only by
-                        codegen/aliases.py. Scheduled for later cleanup.
 
 tests/
   unit/lexic/           structural mirror of src/lexic/
   integration/          test_compile_grammar_{gbnf,abnf}, test_cross_flavour,
-                        test_full_round_trip, test_layering_invariants, test_parse, …
+                        test_codegen_ir, test_full_round_trip,
+                        test_layering_invariants, test_parse, …
   property/             hypothesis round-trip tests
   paths.py              GROUND_TRUTH, GENERATED path constants
 
-resources/ground_truth/ seven .gbnf test grammars (arithmetic, c, chess, japanese,
-                        json_arr, json_ws, list)
+resources/ground_truth/ eight .gbnf test grammars (arithmetic, c, chess,
+                        japanese, json, json_arr, json_ws, list) plus two .abnf
+                        siblings (arithmetic, json) for cross-flavour parity
 generated/              auto-generated Pydantic modules — git-ignored; never edit directly.
                         compile_from_path writes <grammar-stem>.py (e.g. arithmetic.py);
                         compile_text writes anon_<sha1>.py. Files are ruff-formatted.
@@ -221,36 +283,59 @@ grammar text ──► _scan_directives(text, flavour.line_comment) ──► (s
                                                                    │   is IrAst, flavour.reducer a Reducer)
                                                                    ▼
                                                                  IrAst
-                                                                   │  (compile_grammar rebuilds ast:
-                                                                   │   resolved start, and named rules
-                                                                   │   reconstructed with semantic=False)
+                                                                   │  canonicalize(ast)  [ir/canonical.py —
+                                                                   │  language-preserving normal form; two
+                                                                   │  flavours of the same language converge]
                                                                    ▼
-                                        derive_specs(ast)  [reads ast.non_semantic property]
+                                                          canonical_grammar()  [compile.py's public front half:
+                                                                   │           parse + canonicalize + directive
+                                                                   │           flags → start bound, named rules
+                                                                   │           reconstructed semantic=False]
+                                                                   ▼
+                                                              canonical IrAst
                                                                    │
                                                                    ▼
-                                              (start_name, list[RuleSpec])
+                                        build_codegen_grammar(ast)  [lexic.codegen.passes:
+                                                                      hoist_groups → hoist_arms →
+                                                                      relax_non_semantic]
                                                                    │
-                         ┌─────────────────────────────────────────┤
-                         ▼                                         ▼
-                  codegen(specs, stem)                  GBNF_FLAVOUR / ABNF_FLAVOUR
-              writes generated/<stem>.py              flavour_singleton.apply(node)
-              returns dict[str, type]                  (IrEmitter on IR-AST tree)
-                         │
-                         ▼
-          build_instance_parser(specs, classes, start_rule)
-          (lexic.parsing.models) → (IrAst instance grammar, ModelFold)
-                         │
-                         ▼
-          CompiledGrammar(classes, specs, grammar, fold)
-          .parse(text) = fold.apply(parse_first(grammar, text))
+                                                                   ▼
+                                                          THE codegen grammar (one IrAst)
+                         ┌─────────────────────────────────────────┼──────────────────────────┐
+                         ▼                                         ▼                          ▼
+              compute_binding(codegen_grammar)              codegen(canonical,        GBNF_FLAVOUR / ABNF_FLAVOUR
+              (lexic.codegen.binding — class            codegen_grammar, binding,     flavour_singleton.apply(node)
+              names, kinds, parents, field names,             stem)                    (IrEmitter on IR-AST tree)
+              open IrDispatch tables)                writes generated/<stem>.py
+                         │                            (Annotated/IrBind fields,
+                         │                             __grammar__ footers;
+                         │                             returns dict[str, type])
+                         └─────────────┬───────────────────────────┘
+                                       ▼
+                     fold config (plain data: per-rule ctor + kind +
+                     n_items + [(item idx, mode, field, lo)])
+                                       │
+                                       ▼
+          instance_grammar = normalize(lift_optional_nullables(codegen_grammar))
+          — the SAME normalize as the grammar-text path, so the engine's
+          identity-memoised tables are shared shapes
+                                       │
+                                       ▼
+          CompiledGrammar(classes, grammar=canonical ast, instance_grammar, fold, tables)
+          .parse(text) = fold.apply(parse_first(instance_grammar, text, tables))
 ```
 
 Entry points: `compile_text(text, flavour)` and `compile_from_path(path)` in
-`compile.py`. Both call `compile_grammar` then `codegen` then
-`build_instance_parser` and return a `CompiledGrammar`.
+`compile.py`. Both run `canonical_grammar` → `build_codegen_grammar` →
+`compute_binding` → `codegen` → fold config → `normalize(lift_optional_nullables(...))`
+and return a `CompiledGrammar`. `compile.py` is the sole runtime seam onto
+both `lexic.codegen` and the engine (`lexic.parsing`/`.fold`/`.normalize`/`.reduce`).
+
 `parse_grammar(text, flavour)` (re-exported from `lexic`) is the public
-grammar-text → `IrAst` seam — `compile_grammar` calls it; so do transpilers
-(`getting_started/ex04`).
+grammar-text → `IrAst` seam — `canonical_grammar` calls it; so do transpilers
+(`getting_started/ex04`). `canonical_grammar(text, flavour)` is the public
+front half (parse + canonicalize + directive flags → flagged `IrAst`);
+`generate.py` builds on it directly.
 
 `parse_grammar` normalizes and memoises each flavour's `grammar` ClassVar
 once per flavour name (`compile.py`'s `_NORM_GRAMMAR_CACHE`) so the engine's
@@ -265,20 +350,23 @@ lexic.ir        ← lexic.grammars       grammars read and write IR
 lexic.ir        ← lexic.parsing        the engine reads and writes IR only
 lexic.ir        ← lexic.codegen        codegen reads and writes IR
 lexic.ir        ← lexic  (runtime)     runtime reads IR
-lexic.grammars  ← lexic.codegen        codegen gets adapters from grammars
+lexic.codegen   ✗ lexic.grammars       codegen is IR-native; it needs no flavour adapters
 lexic.parsing   ✗ lexic.grammars, lexic.codegen   (the engine is a leaf w.r.t. both)
 lexic (runtime) ↗ lexic.codegen, lexic.parsing    runtime NEVER imports either directly — two exceptions below
 ```
 
 **The two deliberate exceptions:**
 1. `base.py` imports `get_flavour` from `lexic.grammars` to drive `to_grammar()`
-   (which calls `flavour_singleton.apply(self.__grammar__.to_ir_rule())`). The
-   GBNF singleton is `lexic.grammars.gbnf.GBNF_FLAVOUR`. Explicit, eager.
+   (which calls `get_flavour(flavour).apply(self.__grammar__)` — `__grammar__`
+   is already an `IrRule`, no intermediate conversion). The GBNF singleton is
+   `lexic.grammars.gbnf.GBNF_FLAVOUR`. Explicit, eager.
 2. `compile.py` is the single runtime seam onto both `lexic.codegen`
-   (`codegen`) and the Earley engine (`lexic.parsing` — `parse_first`,
-   `parse_reduced`; `lexic.parsing.models` — `ModelFold`,
-   `build_instance_parser`; `lexic.parsing.normalize.normalize`;
-   `lexic.parsing.reduce.Reducer`). All explicit, all public.
+   (`codegen`, `build_codegen_grammar`, `compute_binding`) and the Earley
+   engine (`lexic.parsing` — `parse_first`, `parse_reduced`;
+   `lexic.parsing.fold` — `PositionalFold`, `RuleFold`, `FieldFold`,
+   `collapsed_fold_tables`, `lift_optional_nullables`;
+   `lexic.parsing.normalize.normalize`; `lexic.parsing.reduce.Reducer`). All
+   explicit, all public.
 
 No `TYPE_CHECKING` dodges. No lazy intra-function imports of `lexic.codegen`
 or `lexic.parsing` from runtime modules. If a runtime module needs something
@@ -287,7 +375,7 @@ that lives in codegen or the engine, move the thing.
 static grep, including that only `compile.py` may import `lexic.parsing`
 among top-level runtime modules.
 
-## IR types (`ir/nodes.py` + `ir/action.py` + `ir/spec.py`)
+## IR types (`ir/base.py` + `ir/nodes.py` + `ir/action.py`)
 
 The **primitive-node model** ("V2"): a node *is* its payload. Every IR node is callable: `node.__call__(d, n, nc) -> Self` (identity) and carries the action protocol `eval(d, n, nc) -> Ir_co`. `IrSelf[Iri, Ir_co]` is the generic root supplying the identity `__call__`, default `eval`, `children`/`rebuild`, and the `bound`/`bind` helpers. `Iri` is the input node type; `Ir_co` the covariant return type. `_bound` is auto-derived from the **last** own type parameter (`Ir_co`) or set explicitly (`IrStr._bound = str`, `IrTuple._bound = tuple`, `IrEmit._bound = IrLiteral`). `IrNode[Iri, Ir_co](IrSelf, ABC)` adds `__repr__`-is-codegen (no `__str__`/`_str_name` cascade).
 
@@ -296,36 +384,36 @@ The **primitive-node model** ("V2"): a node *is* its payload. Every IR node is c
 **Three tiers — the node IS its payload (there are NO `.value` / `.items` / `.arms` accessors):**
 
 ```
-value-leaves IrScalar(IrLeaf)           IrStr ⇒ IrLiteral/IrCharClass/IrRuleRef; IrInt — the node IS the scalar
-variadic     IrTuple[T](IrNode, tuple)  IrSequence, IrAlternation           — the node IS its children tuple
-records      IrComposite (frozen dataclass)  IrItem, IrQuantifier, IrGroup, IrNot, IrRule, IrAst
+value-leaves IrScalar(IrLeaf)              IrStr ⇒ IrLiteral/IrCharClass/IrRuleRef; IrInt — the node IS the scalar
+variadic     IrTuple[*Ts]/IrSeq[T](tuple)  IrSequence, IrAlternation — the node IS its children tuple
+records      IrNamedTuple[*Ts](tuple)      IrItem, IrQuantifier, IrRule, IrAst — the node IS the tuple, by name or index
 ```
 
-`IrScalar(IrLeaf)` is the value-leaf base; it hosts `eval` (self-evaluating), the type-aware `__eq__`/`__ne__`, `__hash__`, and codegen `__repr__` — all delegating to the primitive via `super()` / `self._bound`. `IrScalar.__new__(*args)` forwards the payload to `str`/`int`, which (a) lets `object.__init__` tolerate the construction arg and (b) makes `type[IrScalar]` constructor-callable (used by `IrField.out`). `IrStr(IrScalar, str)` and `IrInt(IrScalar, int)` carry only their explicit `_bound`. A **truth value is `IrInt ∈ {0,1}` — there is no `IrBool`** (`IrCompare`/`IrAnd`/`IrOp` return it).
+`IrScalar(IrLeaf)` is the value-leaf base; it hosts `eval` (self-evaluating), the type-aware `__eq__`/`__ne__`, `__hash__`, and codegen `__repr__` — all delegating to the primitive via `super()` / `self._bound`. `IrScalar.__new__(*args)` forwards the payload to `str`/`int`, which (a) lets `object.__init__` tolerate the construction arg and (b) makes `type[IrScalar]` constructor-callable (used by `IrField.out`). `IrStr(IrScalar, str)` and `IrInt(IrScalar, int)` carry only their explicit `_bound`. A **truth value is `IrInt ∈ {0,1}` — there is no `IrBool`** (`IrCompare`/`IrAnd` return it).
 
-`IrAtom(IrNode)` is a **non-generic role marker** mixed into atoms (`IrLiteral`/`IrCharClass`/`IrRuleRef`/`IrGroup`/`IrNot`); `IrItem.atom: IrAtom` accepts any.
+`IrAtom(IrNode)` is a **non-generic role marker** mixed into atoms (`IrLiteral`/`IrCharClass`/`IrRuleRef`/`IrAlternation` as an inline group/`IrNot`); `IrItem.atom: IrAtom` accepts any. There is no separate `IrGroup` type — an inline `(...)` group is just an `IrAlternation` used as an atom.
 
 - **str-leaves** subclass `str` — use the leaf directly as a `str` (`leaf == "x"`, `LITERAL_NAMES.get(leaf)`). The type-aware `__eq__`/`__ne__`/`__hash__` live on `IrScalar` (shared by `IrStr` and `IrInt`): `IrLiteral("x") != IrRuleRef("x")` (distinct leaf kinds never compare equal) yet `IrLiteral("x") == "x"` (plain-primitive compatibility preserved). This keeps structural tree equality/hashing honest (so `@cache`, dict/set keys, and `tree == tree` work) while leaves still match plain-`str`/`int` dict keys.
-- **variadic collections** subclass `tuple` — iterate/index the node directly (`seq[0]`, `for arm in alt`). Construct variadically: `IrSequence(*items)`, `IrAlternation(seq1, seq2)`, `IrAst(IrTuple(*rules), start)`.
-- **records** are frozen `@dataclass(slots=True, repr=False)` `IrComposite` subclasses. The ClassVar `_child_attrs` names the dataclass fields that are dispatched children (no `_items_attr` — `IrCollection` is gone). `IrItem(atom, quantifier)`, `IrQuantifier(min, max | None)` (plain ints), `IrRule(name: str, body: IrAlternation, semantic: bool = True)`, `IrAst(rules: IrTuple, start: str)` — note `IrAst.children()` returns `(rules_tuple,)`, so code wanting the rules iterates `ast.rules`. A record's repr **omits the trailing run of default-valued fields** (still valid codegen — the omitted fields reconstruct to their defaults): `IrItem(IrLiteral('a'), IrQuantifier(1,1))` reprs as `IrItem(IrLiteral('a'))`. `IrRule.semantic` is `False` for structural-noise rules (whitespace/comments/delimiters) — compile-channel metadata, so `IrRule.__eq__`/`__hash__` exclude it (a freshly parsed rule is `semantic=True` while the authored self-grammar flags its noise rules `semantic=False`; the exclusion is what keeps the self-hosting fixpoint). `IrAst` has **no** non_semantic field and no equality override — plain tuple equality over `(rules, start)` composes `IrRule.__eq__`; `IrAst.non_semantic` is a **derived property** (frozenset of names of rules with `semantic=False`) feeding `derive_specs` and the flavour NOISE maps.
+- **variadic collections** subclass `tuple` — iterate/index the node directly (`seq[0]`, `for arm in alt`). `IrTuple[*Ts]` is the heterogeneous base; `IrSeq[T]` names a homogeneous specialisation (`IrSequence(IrSeq["IrItem"])`, `IrAlternation(IrSeq[IrSequence], IrAtom)`). Construct variadically: `IrSequence(*items)`, `IrAlternation(seq1, seq2)`, `IrAst(IrSeq(*rules), start)`. Authoring coercion widens `__new__` on `IrSequence`/`IrAlternation`/`IrItem`/`IrRule` so a bare atom/item/sequence lifts to the wrapping shape (`IrItem(IrLiteral('a'))`, `IrRule("cr", IrCharClass(...))`) — unknown types pass through unchanged so transformer rebuilds are undisturbed.
+- **records** are `IrNamedTuple[*Ts]` subclasses — `dataclass_transform`-decorated fixed-arity named tuples: storage IS the tuple (no separate per-field slots), each class-body annotation names a field in declaration order, and a `property(itemgetter(i))` descriptor makes `rec.field` and `rec[i]` the same read. The ClassVar `_child_attrs` names which fields are dispatched children (defaults to all fields; a record with scalar-only payload, e.g. `IrBounds`, declares an empty `_child_attrs`) — no `_items_attr`, `IrCollection` is gone. `IrItem(atom, quantifier)`, `IrQuantifier(lo: int, hi: int | IrNone)`, `IrRule(name: str, body: IrAlternation, semantic: bool = True)`, `IrAst(rules: IrSeq[IrRule], start: str)` — note `IrAst.children()` returns `(rules_tuple,)`, so code wanting the rules iterates `ast.rules`. A record's repr **omits the trailing run of default-valued fields** (still valid codegen — the omitted fields reconstruct to their defaults): `IrItem(IrLiteral('a'), IrQuantifier(1,1))` reprs as `IrItem(IrLiteral('a'))`. `IrRule.semantic` is `False` for structural-noise rules (whitespace/comments/delimiters) — compile-channel metadata, so `IrRule.__eq__`/`__hash__` exclude it (a freshly parsed rule is `semantic=True` while the authored self-grammar flags its noise rules `semantic=False`; the exclusion is what keeps the self-hosting fixpoint). `IrAst` has **no** non_semantic field and no equality override — plain tuple equality over `(rules, start)` composes `IrRule.__eq__`; `IrAst.non_semantic` is a **derived property** (frozenset of names of rules with `semantic=False`) feeding the codegen passes (`lexic.codegen.passes.relax_non_semantic`) and the flavour NOISE maps. `IrCachingTuple[*Ts]` is a further `IrNamedTuple` specialisation whose `Field(default=...)`/`Field(default_factory=...)` field values resolve to a fresh per-instance value (deep-copied/factory-called) rather than one object shared across every instance — used for dispatcher/transformer state (`IrDispatch.actions`, `_HoistTransformer.helpers`).
 
 `IrLiteral` keeps a **dual role**: a grammar-AST leaf and an action-language constant — distinguished at eval time by the `nc` parameter; see [[ir-shapes]].
 
-**Action-algebra nodes** (`ir/action.py`): `IrField` reads a named attribute and wraps it via a runtime `out: type[IrScalar]` (default `IrStr`; `IrField("min", IrInt)` reads an int) — cast-free, open (any `IrScalar` subtype), no enumerated union; `IrOp(IrStr)` is an infix-operator leaf (the node IS its operator string, e.g. `IrOp(">")`; **no `Cmp` enum**) whose `eval` applies the mapped `operator` builtin to the operands in `nc`; `IrCompare(left, op: IrOp, right)` evals both operands and hands them to `op` → `IrInt(0/1)`; `IrAnd(IrTuple[IrSelf])` is a short-circuit conjunction → `IrInt`; `IrLambda` (`ir/base.py`) is the procedural escape hatch; `IrChild`/`IrChildren` resolve children; `IrConcat`/`IrJoin` build strings (`parts: IrTuple`); `IrCond(test: IrSelf, then_op, else_op)` branches on `test.eval(...)` (truthy ⇒ `then_op`); `IrThis` is the identity body returning the dispatched node `n`; `IrReturn` short-circuits — it lazy-evaluates its body against `(d, n, nc)` and re-raises the result via the `_Return` BaseException, defaulting to `IrThis()` so `IrReturn()` surfaces the matched node (the find-first pattern); `IrAction(target_type, body)` binds a node type to a body. Default bodies: `IrPass`, `IrWalk`, `IrRaise`, `IrEmit`, `IrRebuild`. Comparison/branch operands are typed `IrSelf` (not `IrNode`) because `IrNode`'s `Ir_co` is invariant — a value operand like `IrField` wouldn't be assignable to a bare `IrNode` slot.
+**Action-algebra nodes** (`ir/action.py`): `IrField` reads a named attribute and wraps it via a runtime `out: type[IrScalar]` (default `IrStr`; `IrField("min", IrInt)` reads an int) — cast-free, open (any `IrScalar` subtype), no enumerated union; `IrOp(IrStr)` (`ir/operators.py`) is an infix-operator leaf (the node IS its operator string, e.g. `IrOp(">")`; **no `Cmp` enum**) whose `eval` applies the mapped `operator` builtin to the operands in `nc`; `IrCompare(left, op: IrOp, right)` evals both operands and hands them to `op` → `IrInt(0/1)`; `IrAnd(IrSeq[IrSelf])` is a short-circuit conjunction → `IrInt`; `IrLambda` (`ir/base.py`) is the procedural escape hatch; `IrChild`/`IrChildren` resolve children; `IrConcat`/`IrJoin` build strings (`parts: IrTuple`); `IrCond(test: IrSelf, then_op, else_op)` branches on `test.eval(...)` (truthy ⇒ `then_op`); `IrThis` is the identity body returning the dispatched node `n`; `IrReturn` short-circuits — it lazy-evaluates its body against `(d, n, nc)` and re-raises the result via the `_Return` BaseException, defaulting to `IrThis()` so `IrReturn()` surfaces the matched node (the find-first pattern); `IrAction(target_type, body)` binds a node type to a body. Default bodies: `IrPass`, `IrWalk`, `IrRaise`, `IrEmit`, `IrRebuild`. Comparison/branch operands are typed `IrSelf` (not `IrNode`) because `IrNode`'s `Ir_co` is invariant — a value operand like `IrField` wouldn't be assignable to a bare `IrNode` slot.
 
-**Dispatch** (`ir/walk.py`): `IrDispatch[Iri, Ir_co]` is an `IrComposite` whose `actions` tuple is the table (a plain field, **not** a dispatched child). It does **not** walk children automatically — action bodies own recursion. Resolution is concrete-first MRO walk, memoised. Entry seams: `eval(d, n, nc)` (protocol) and `apply(root)` (façade). Presets: `IrVisitor` (default `IrWalk`), `IrTransformer` (default `IrRebuild`), `IrEmitter` (default `IrEmit`).
+**Dispatch** (`ir/walk.py`): `IrDispatch[Iri, Ir_co]` is an `IrCachingTuple` of `(actions, default)` — `actions` an `IrTypeMap` (concrete-first MRO type→`IrAction` table, not a plain tuple), `_child_attrs = ()` so the dispatcher is never itself walked as a grammar node. It does **not** walk children automatically — action bodies own recursion. Resolution is the map's own concrete-first MRO lookup (one `getattr` per `type(n).__mro__` entry); falls back to `default` only on a full miss. Entry seams: `eval(d, n, nc)` (protocol) and `apply(root)` (façade, catches `IrReturn`). Presets: `IrVisitor` (default `IrWalk`), `IrTransformer` (default `IrRebuild`), `IrEmitter` (default `IrEmit`).
 
-> **Open-set note (deferred rework).** Consumers (`derive`, `codegen`, `parsing`, `generate`) still carry closed-set `isinstance` ladders and `dict[type, …]` tables. A separate, deferred effort re-homes node-intrinsic logic onto the nodes and consumer policy onto open `IrDispatch` tables (see the open-classes principle). Until then those ladders are legacy, not the target shape.
+> **Open-set note (deferred rework).** Some consumers still carry closed-set `isinstance` ladders and `dict[type, …]` tables (`generate.py`, parts of `codegen/model_emitter.py`). `codegen/binding.py` and `codegen/passes.py` (Task 3 of the 2026-07 IR-native codegen effort) already moved their classification/naming/mode logic onto open `IrDispatch`/`IrTypeMap` tables with raising defaults — the target shape. A separate, deferred effort finishes re-homing the remaining node-intrinsic logic onto the nodes and consumer policy onto open tables everywhere (see the open-classes principle).
 
-`RuleSpec(rule_name, class_name, parent_class_name, kind, items: list[IrItem | IrAlternation], field_map, non_semantic_fields)` — one rule. Carries `to_ir_rule()` for emission via a flavour.
+### `kind` semantics (`codegen/binding.py`)
 
-### `kind` semantics
+There is no `RuleSpec.kind` field anymore — `classify_rule(rule)` (in the binding view) derives a rule's `RuleKind` fresh from the codegen grammar, and `RuleBinding.kind` carries the result:
 
-- `"value_str"` — no `IrRuleRef` anywhere in the body; emits a single `value: str` field.
-- `"alternation"` — abstract class; `items` holds the arm refs; `field_map` is empty.
-- `"sequence"` — concrete class; `items` in grammar order; `field_map` populated.
+- `"value_str"` — no `IrRuleRef` anywhere in the body; the class emits a single implicit `value` field (no `IrBind` — the fold keys off `kind`, not a bind).
+- `"alternation"` — abstract class; after `hoist_arms` every non-empty arm is a single unit ruleref, so the class is a field-less pass-through (the matched arm's sub-model identifies itself).
+- `"sequence"` — concrete class; fields come from `bind_fields` over the rule's single sequence arm, each an `IrBind(item, mode, semantic)` in the field's `Annotated` metadata.
 
-Multi-arm `value_str`: `items = [IrAlternation(...)]`; emitters dispatch on `isinstance`.
+Multi-arm `value_str` (a pure-literal alternation with no rulerefs) becomes a `Literal[...]` field type in the emitter (`_value_str_type`); a rule with an empty alternate arm (`_has_empty_arm`) forces every field of its non-empty arm `Optional`.
 
 ## Flavour system (`ir/flavour.py`)
 
@@ -373,26 +461,25 @@ children into IR; `MY_NOISE` marks which children are structural
 (whitespace/delimiters/comments) and dropped before a reduction body sees
 them.
 
-## Field naming (`ir/naming.py`)
+## Field naming (`codegen/binding.py`)
 
-`assign_field_names(atoms)` and `_field_map(items)` apply a three-tier cascade:
+`bind_fields(items, non_semantic)` applies the same three-tier cascade the old `ir/naming.py` + `ir/derive.py` used, now as open `IrDispatch`/`IrTypeMap` tables (`_HINT`, `_TIER2`) instead of a closed dispatch:
 
 1. **Rule-ref:** field name = rule name (hyphens → underscores). Collisions → `ws`, `ws2`, `ws3` …
-2. **Pattern library (Tier 2):** `CHARCLASS_NAMES` (9 entries; `[0-9]` → `digit`, `[a-z]` → `lower`, `[a-zA-Z]` → `letter`, etc.) and `_LITERAL_NAMES` (`-` → `sign`, `.` → `dot`, …). Falls back to `_sanitize_pattern`.
+2. **Pattern library (Tier 2):** `CHARCLASS_NAMES` (8 entries, keyed by **canonical** char-class pattern post-`ir/canonical.py` — `[0-9]` → `digit`, `[a-z]` → `lower`, `[A-Za-z]` → `letter`, `[0-9A-Fa-f]` → `hex`, etc.) and `LITERAL_NAMES` (`-`/`+` → `sign`, `.` → `dot`, …). Falls back to a sanitised slug of the pattern (`_pattern_slug`), then `"cc"` (char class) / `"lit"` (literal) / `"kind"` (ref-bearing group) / `"inline"` (literal-only group).
 3. **Positional (Tier 3):** first unmatched pattern field → `head`; subsequent → `part_2`, `part_3` …
 
-Unquantified `IrLiteral` (quantifier `(1,1)`) → no field, never reaches Tier 3. Quantified literals do produce a field via Tier 2.
+Unquantified `IrLiteral` (quantifier `(1,1)`, `_is_structural_literal`) → no field, never reaches Tier 3. Quantified literals always name via Tier 2 (`_literal_token`), never Tier 3.
 
-`_ATOM_HINT` (always returns `str`) — used inside `_group_hint` to name literal-only group content.
-`_FIELD_BASE` (returns `str | None`) — used by `_field_map`; `None` means no Tier-2 match, fall through to Tier 3.
+`_HINT` (always yields a name — used inside `_group_hint` to label literal-only group content) vs `_TIER2` (may yield `IrNone`, routing the field to Tier-3 positional names) is the same hint/field-base distinction the old `_ATOM_HINT`/`_FIELD_BASE` pair drew. Fold **mode** derivation (`mode_for`/`_MODE`, one of `BIND_MODES` — `text`/`gtext`/`model`/`models`) is a sibling `IrDispatch` table in the same module, dispatched on the atom with the owning `IrItem` riding the argument channel so ref/group bodies can read the quantifier.
 
 ## GrammarModel (`base.py`)
 
-Every generated class carries `__grammar__: ClassVar[RuleSpec]`.
+Every generated class carries `__grammar__: ClassVar[IrRule]` — its own rule from the codegen grammar (post group/arm-hoisting) — and every bound field an `IrBind(item, mode, semantic)` in its `Annotated` field metadata, read back via `model_fields[name].metadata` (`_bound_fields()` builds the `item slot → (field name, IrBind)` map once per call).
 
-- `to_text()` — emits unquantified `IrLiteral` values directly; looks up other fields via `field_map`; recurses into nested models.
-- `to_grammar(flavour="gbnf")` — looks up the flavour singleton and calls `flavour.apply(self.__grammar__.to_ir_rule())`.
-- `semantic_dump()` — `model_dump()` minus `non_semantic_fields` (e.g. whitespace refs).
+- `to_text()` — walks `__grammar__.body`'s single non-empty arm in item order: a bound slot emits its field's value (recursing into nested `GrammarModel`s, joining lists — `_field_text`); an unbound unquantified `IrLiteral` emits itself; anything else is structural and silent. A `value_str` class (implicit `value` field, no binds) emits `str(self.value)`; a rule whose empty alternate arm matched (all bound values `None`) emits `""`; an abstract alternation class (no fields at all) raises `NotImplementedError` — call `to_text()` on the concrete arm instance instead.
+- `to_grammar(flavour="gbnf")` — `get_flavour(flavour).apply(self.__grammar__)` (no `RuleSpec`/`to_ir_rule()` conversion — `__grammar__` already is the `IrRule` the flavour renders).
+- `semantic_dump()` — `model_dump()` excluding fields whose `IrBind.semantic` is `False` (structural-noise refs, e.g. whitespace).
 
 ## Directives (`compile._scan_directives`)
 
@@ -403,7 +490,7 @@ Scanned from source comments *before* the grammar is parsed (the self-grammars r
 # @non-semantic ws sp     — mark rules as structural; their refs get min=0
 ```
 
-`_scan_directives(text, line_comment)` — a **private helper in `compile.py`** (no standalone module; the leftover scanner dissolved there once the metadata moved onto `IrRule`) — returns a plain `(start, non_semantic)` tuple (`start: str | None`, `non_semantic: frozenset[str]`); the pre-lexical scan stays out of the parser so comments never become load-bearing. `compile_grammar()` resolves precedence (explicit arg > directive > positional fallback), binds the resolved `start` onto the rebuilt `IrAst`, and reconstructs each named rule with `semantic=False`; `derive_specs(ast)` then reads the derived `ast.non_semantic` property. A directive naming a rule the grammar never defines is silently ignored (no rule is flagged for it). A flavour's own self-grammar carries its structural rules the same way — `GBNF_GRAMMAR`/`ABNF_GRAMMAR` flag their noise rules `semantic=False` individually, and `GBNF_NOISE`/`ABNF_NOISE` are built *from `<GRAMMAR>.non_semantic`* (single source of truth feeding reducer, derive, and semantic_dump). There is no `Directives` dataclass and no `parse_directives` symbol.
+`_scan_directives(text, line_comment)` — a **private helper in `compile.py`** (no standalone module; the leftover scanner dissolved there once the metadata moved onto `IrRule`) — returns a plain `(start, non_semantic)` tuple (`start: str | None`, `non_semantic: frozenset[str]`); the pre-lexical scan stays out of the parser so comments never become load-bearing. `canonical_grammar()` resolves precedence (explicit arg > directive > positional fallback), canonicalizes, binds the resolved `start` onto the rebuilt `IrAst`, and reconstructs each named rule with `semantic=False`; the codegen passes (`lexic.codegen.passes.relax_non_semantic`) and `base.py`'s `semantic_dump()` then read the derived `ast.non_semantic` property. A directive naming a rule the grammar never defines is silently ignored (no rule is flagged for it). A flavour's own self-grammar carries its structural rules the same way — `GBNF_GRAMMAR`/`ABNF_GRAMMAR` flag their noise rules `semantic=False` individually, and `GBNF_NOISE`/`ABNF_NOISE` are built *from `<GRAMMAR>.non_semantic`* (single source of truth feeding the reducer and the codegen passes). There is no `Directives` dataclass and no `parse_directives` symbol.
 
 ## Error vocabulary (`exceptions.py`)
 
@@ -411,7 +498,7 @@ No bare `raise ValueError` or `raise Exception` for library-level failures.
 
 | Exception | Raised by |
 |---|---|
-| `UnsupportedConstructError` | Parsers (unknown syntax), atom dispatch tables (unknown type), the engine (no parse / ambiguous parse), `parse_grammar`/`compile_grammar` boundary checks (missing/wrong-shaped `Reducer`, non-`IrAst` reduction, unknown start rule) |
+| `UnsupportedConstructError` | Parsers (unknown syntax), atom dispatch tables (unknown type), the engine (no parse / ambiguous parse), `parse_grammar`/`canonical_grammar` boundary checks (missing/wrong-shaped `Reducer`, non-`IrAst` reduction, unknown start rule), codegen passes (arm-name collision), the fold (unknown kind/mode, kid-count mismatch) |
 | `GrammarAuthoringError` | `@grammar_rule` decorator, ModelEmitter discriminator analysis |
 | `FieldValidationError` | Pydantic constraint failures (Slice C) |
 
@@ -440,13 +527,17 @@ from lexic.ir.nodes import IrItem, IrAst, IrQuantifier, IrLiteral, IrCharClass, 
 from lexic.ir.operators import IrNot, IrOp
 from lexic.ir.action import IrAction, IrChild, IrChildren, IrConcat, IrJoin, IrField
 from lexic.ir.walk import IrDispatch, IrVisitor, IrTransformer, IrEmitter
-from lexic.ir.spec import RuleSpec
-from lexic.ir.derive import derive_specs
+from lexic.ir.bind import IrBind, BIND_MODES
+from lexic.ir.canonical import canonicalize, fold_name
+from lexic.ir.order import RuleOrder, order_by_refs
 from lexic.ir.flavour import IrFlavour
 from lexic.base import GrammarModel
-from lexic.compile import compile_grammar, compile_text, compile_from_path, parse_grammar
+from lexic.compile import canonical_grammar, compile_text, compile_from_path, parse_grammar
 from lexic.grammars import get_flavour, flavour_for_extension, GBNF_FLAVOUR, ABNF_FLAVOUR
 from lexic.parsing import recognize, parse, parse_first, parse_reduced, parse_forest, derivations, is_ambiguous
+from lexic.parsing.fold import PositionalFold, RuleFold, FieldFold, lift_optional_nullables
+from lexic.codegen import codegen, build_codegen_grammar, compute_binding, RuleBinding
+from lexic.codegen.binding import class_name_for, classify_rule
 ```
 
 Never `from src.lexic...`. `pyproject.toml` sets `pythonpath = ["src"]`.

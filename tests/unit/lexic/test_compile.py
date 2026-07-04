@@ -1,4 +1,4 @@
-"""Unit tests for lexic.compile (compile_text/_from_path, compile_grammar, parse_grammar)."""
+"""Unit tests for lexic.compile (compile_text/_from_path, canonical_grammar, parse_grammar)."""
 
 import os
 import time
@@ -14,7 +14,6 @@ from lexic.compile import (
     _scan_directives,
     canonical_grammar,
     compile_from_path,
-    compile_grammar,
     compile_text,
     parse_grammar,
     reset_cache_for_tests,
@@ -54,8 +53,6 @@ def test_compile_from_path_returns_compiled_grammar():
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     assert isinstance(cg, CompiledGrammar)
     assert cg.classes
-    assert isinstance(cg.specs, dict)
-    assert cg.specs
 
 
 def test_compile_from_path_memoises_by_path_mtime_size():
@@ -193,7 +190,6 @@ def test_compile_explicit_gbnf_flavour():
     cg = compile_text(text, flavour="gbnf")
     assert isinstance(cg, CompiledGrammar)
     assert cg.classes
-    assert cg.specs
 
 
 def test_compile_from_path_explicit_gbnf_flavour():
@@ -201,7 +197,6 @@ def test_compile_from_path_explicit_gbnf_flavour():
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf", flavour="gbnf")
     assert isinstance(cg, CompiledGrammar)
     assert cg.classes
-    assert cg.specs
 
 
 def test_compile_unknown_flavour_raises():
@@ -217,48 +212,47 @@ def test_compile_from_path_unknown_flavour_raises():
         compile_from_path(GROUND_TRUTH / "arithmetic.gbnf", flavour="abnf")
 
 
-# ── compile_grammar unit tests ──
+# ── canonical_grammar start-resolution unit tests ──
 
 
-def test_compile_grammar_returns_start_and_specs():
-    """compile_grammar returns (start_name, specs) tuple."""
-    start, specs = compile_grammar('root ::= "x"\n', GBNF_FLAVOUR)
-    assert start == "root"
-    assert len(specs) == 1
-    assert specs[0].rule_name == "root"
+def test_canonical_grammar_returns_start_first_rule():
+    """canonical_grammar binds the sole rule as start."""
+    ast = canonical_grammar('root ::= "x"\n', GBNF_FLAVOUR)
+    assert ast.start == "root"
+    assert [str(r.name) for r in ast.rules] == ["root"]
 
 
-def test_compile_grammar_falls_back_to_first_rule():
+def test_canonical_grammar_falls_back_to_first_rule():
     """start defaults to the first rule when no directive."""
-    start, _ = compile_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR)
-    assert start == "root"
+    ast = canonical_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR)
+    assert ast.start == "root"
 
 
-def test_compile_grammar_start_directive_wins_over_first_rule():
+def test_canonical_grammar_start_directive_wins_over_first_rule():
     """@start directive overrides positional first-rule fallback."""
     text = "# @start expr\nroot ::= expr\nexpr ::= [0-9]+\n"
-    start, _ = compile_grammar(text, GBNF_FLAVOUR)
-    assert start == "expr"
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    assert ast.start == "expr"
 
 
-def test_compile_grammar_explicit_start_wins_over_directive():
+def test_canonical_grammar_explicit_start_wins_over_directive():
     """Explicit start= argument wins over @start directive."""
     text = "# @start expr\nroot ::= expr\nexpr ::= [0-9]+\n"
-    start, _ = compile_grammar(text, GBNF_FLAVOUR, start="root")
-    assert start == "root"
+    ast = canonical_grammar(text, GBNF_FLAVOUR, start="root")
+    assert ast.start == "root"
 
 
-def test_compile_grammar_invalid_start_raises():
+def test_canonical_grammar_invalid_start_raises():
     """Unresolvable start rule raises UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError, match="start"):
-        compile_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR, start="nonexistent")
+        canonical_grammar("root ::= [0-9]+\n", GBNF_FLAVOUR, start="nonexistent")
 
 
-def test_compile_grammar_flavour_with_non_reducer_raises():
-    """compile_grammar raises UnsupportedConstructError when flavour.reducer
+def test_canonical_grammar_flavour_with_non_reducer_raises():
+    """canonical_grammar raises UnsupportedConstructError when flavour.reducer
     is not a parsing Reducer instance."""
     with pytest.raises(UnsupportedConstructError, match="no parse Reducer"):
-        compile_grammar('root ::= "x"\n', _FlavourWithBadReducer())
+        canonical_grammar('root ::= "x"\n', _FlavourWithBadReducer())
 
 
 def test_parse_grammar_returns_ir_ast():
@@ -309,15 +303,6 @@ def test_canonical_grammar_unknown_directive_rule_is_ignored():
     text = "# @non-semantic ghost\nroot ::= [0-9]+\n"
     ast = canonical_grammar(text, GBNF_FLAVOUR)
     assert ast.non_semantic == frozenset()
-
-
-def test_compile_grammar_is_the_spec_view_of_canonical_grammar():
-    """compile_grammar (transitional) starts from canonical_grammar's AST."""
-    text = "# @start expr\nroot ::= expr\nexpr ::= [0-9]+\n"
-    ast = canonical_grammar(text, GBNF_FLAVOUR)
-    start, specs = compile_grammar(text, GBNF_FLAVOUR)
-    assert start == ast.start == "expr"
-    assert {s.rule_name for s in specs} == {str(r.name) for r in ast.rules}
 
 
 # ── _scan_directives unit tests ──
@@ -409,9 +394,9 @@ def test_scan_directives_start_and_non_semantic_coexist():
     assert non_semantic == frozenset({"ws"})
 
 
-def test_normalized_grammar_memo_is_reused_across_compile_grammar_calls(monkeypatch):
+def test_normalized_grammar_memo_is_reused_across_parse_calls(monkeypatch):
     """The per-flavour self-grammar normalization memo means a second
-    compile_grammar call for the same flavour never re-normalizes the
+    canonical_grammar call for the same flavour never re-normalizes the
     self-grammar (identity is preserved across calls, keeping the engine's
     identity-memoised table compilation hot)."""
     calls: list[object] = []
@@ -423,8 +408,8 @@ def test_normalized_grammar_memo_is_reused_across_compile_grammar_calls(monkeypa
 
     monkeypatch.setattr(compile_module, "normalize", spy)
 
-    compile_grammar('root ::= "x"\n', GBNF_FLAVOUR)
+    canonical_grammar('root ::= "x"\n', GBNF_FLAVOUR)
     count_after_first = len(calls)
-    compile_grammar('root ::= "y"\n', GBNF_FLAVOUR)
+    canonical_grammar('root ::= "y"\n', GBNF_FLAVOUR)
 
     assert len(calls) == count_after_first

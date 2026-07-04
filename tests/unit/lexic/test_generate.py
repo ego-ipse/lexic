@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 
-from lexic.compile import compile_grammar
+from lexic.compile import canonical_grammar
 from lexic.generate import generate
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.parse import parse
@@ -13,8 +13,8 @@ from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 def _specs(grammar: str) -> dict:
     text = (GRAMMAR_DIR / f"{grammar}.gbnf").read_text()
-    _, specs_list = compile_grammar(text, GBNF_FLAVOUR)
-    return {s.rule_name: s for s in specs_list}
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    return {r.name: r for r in ast.rules}
 
 
 def test_generate_returns_string():

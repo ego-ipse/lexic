@@ -526,9 +526,10 @@ class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr]):
     def non_semantic(self) -> frozenset[str]:
         """Names of the structural-noise rules (those with ``semantic=False``).
 
-        Derived from the rules' own flags — the single source feeding
-        ``derive_specs`` (quantifier relaxation + ``semantic_dump`` filter) and,
-        for a flavour's self-grammar, its ``Reducer`` noise map. Keeps the
+        Derived from the rules' own flags — the single source feeding the
+        codegen passes (quantifier relaxation), the binding view's
+        ``semantic_dump`` filter and, for a flavour's self-grammar, its
+        ``Reducer`` noise map. Keeps the
         ``@non-semantic`` directive vocabulary even though the flag's polarity
         is positive (``semantic``) on the rule.
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 
 from lexic.codegen.binding import (
+    CHARCLASS_NAMES,
+    LITERAL_NAMES,
     bind_fields,
     class_name_for,
     classify_rule,
@@ -32,6 +34,38 @@ _DIGIT = IrCharClass(IrRange(IrChr("0"), IrChr("9")))
 _RANGE_AC = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
 _OPT = IrQuantifier(0, 1)
 _STAR = IrQuantifier(0, IrNone)
+
+
+# ── naming lookup tables (re-homed from ir/naming.py) ─────────────────
+
+
+def test_charclass_names_keyed_by_canonical_normal_form():
+    """The pattern library is keyed by canonical (post-canonicalize) forms.
+
+    The binding view reads the codegen grammar, which is post-canonicalize —
+    char classes are members-deduped, ranges coalesced and sorted by codepoint.
+    The pre-canonical spellings (``[0-9a-fA-F]``/``[a-fA-F0-9]`` for hex, the
+    mixed-case ``[a-zA-Z]``/``[a-zA-Z_0-9]``) folded to one normal-form key each
+    when derive's non-canonical gate was removed in Task 6.
+    """
+    assert CHARCLASS_NAMES["[0-9]"] == "digit"
+    assert CHARCLASS_NAMES["[a-z]"] == "lower"
+    assert CHARCLASS_NAMES["[A-Z]"] == "upper"
+    assert CHARCLASS_NAMES["[0-9A-Fa-f]"] == "hex"
+    assert CHARCLASS_NAMES["[A-Za-z]"] == "letter"
+    assert CHARCLASS_NAMES["[0-9A-Z_a-z]"] == "alnum"
+    # The pre-canonical spellings are gone — nothing keys off them now.
+    assert "[0-9a-fA-F]" not in CHARCLASS_NAMES
+    assert "[a-zA-Z]" not in CHARCLASS_NAMES
+
+
+def test_literal_names_table_content():
+    """The literal library still maps the punctuation set to stable field names."""
+    assert LITERAL_NAMES["-"] == "sign"
+    assert LITERAL_NAMES["+"] == "sign"
+    assert LITERAL_NAMES["."] == "dot"
+    assert LITERAL_NAMES[","] == "comma"
+    assert LITERAL_NAMES["="] == "eq"
 
 
 # ── class naming ──────────────────────────────────────────────────────

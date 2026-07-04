@@ -1,9 +1,9 @@
-"""IR-native codegen gate (Task 4) — the binding-driven emit path.
+"""Codegen gate — the binding-driven emit path.
 
 For every ground-truth grammar, drives the front half of the codegen pipeline
 (``parse_grammar`` → ``canonicalize`` → semantic flags →
-``build_codegen_grammar`` → ``compute_binding``) and then the new emit entry
-(``codegen_ir``), asserting the emitted module:
+``build_codegen_grammar`` → ``compute_binding``) and then the emit entry
+(``codegen``), asserting the emitted module:
 
 - imports and every generated class is a valid Pydantic model;
 - carries each field's :class:`~lexic.ir.bind.IrBind` in its metadata and a
@@ -12,8 +12,8 @@ For every ground-truth grammar, drives the front half of the codegen pipeline
   to the exact objects; and
 - is ruff-format stable (re-formatting the written source is a no-op).
 
-This exercises the parallel new path by direct invocation — ``compile.py`` is
-flipped onto it in Task 5.
+This is the same emit path ``compile.py`` drives; it is exercised here by
+direct invocation across every flavour/grammar.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ import pytest
 from ruff import find_ruff_bin
 
 from lexic.base import GrammarModel
-from lexic.codegen import codegen_ir
+from lexic.codegen import codegen
 from lexic.codegen.binding import RuleBinding, compute_binding
 from lexic.codegen.passes import build_codegen_grammar
 from lexic.ir.bind import IrBind
@@ -38,13 +38,13 @@ _GRAMMARS = sorted(GROUND_TRUTH.glob("*.gbnf")) + sorted(GROUND_TRUTH.glob("*.ab
 
 
 def _emit(path: Path) -> tuple[IrAst, list[RuleBinding], str, dict[str, type]]:
-    """Run the new emit path; return (canonical, binding, stem, classes)."""
+    """Run the emit path; return (canonical, binding, stem, classes)."""
     canonical = canonical_ast(path)
     codegen_grammar = build_codegen_grammar(canonical)
     binding = compute_binding(codegen_grammar)
     suffix = "_abnf" if path.suffix == ".abnf" else ""
     stem = f"iremit_{path.stem}{suffix}"
-    classes = codegen_ir(canonical, codegen_grammar, binding, stem)
+    classes = codegen(canonical, codegen_grammar, binding, stem)
     return canonical, binding, stem, classes
 
 

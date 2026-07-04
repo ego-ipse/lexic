@@ -20,7 +20,7 @@ def canonical_ast(path: Path) -> IrAst:
 
     :param path: A grammar file (flavour inferred from its extension).
     :returns: The canonicalised AST with start and ``semantic=False`` noise
-        flags bound, ready for ``derive_specs`` or ``build_codegen_grammar``.
+        flags bound, ready for ``build_codegen_grammar``.
     """
     text = path.read_text(encoding="utf-8")
     return canonical_grammar(text, flavour_for_extension(path))

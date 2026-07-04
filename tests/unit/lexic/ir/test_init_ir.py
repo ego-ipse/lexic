@@ -71,23 +71,26 @@ def test_core_node_types_exported() -> None:
         assert name in ir.__all__, f"Core node type {name!r} missing from __all__"
 
 
-def test_rule_spec_exported() -> None:
-    """RuleSpec is re-exported from lexic.ir."""
-    assert hasattr(ir, "RuleSpec")
-    assert "RuleSpec" in ir.__all__
+def test_retired_spec_and_derive_symbols_not_exported() -> None:
+    """The RuleSpec/derive/topo surface died in Task 6 — none re-exported.
 
-
-def test_derive_helpers_exported() -> None:
-    """derive_specs and helpers are re-exported."""
+    ``RuleSpec`` (``ir/spec.py``), ``derive_specs`` and its helpers
+    (``ir/derive.py``), ``render_specs`` (``ir/emit.py``) and ``topo_sort``
+    (``ir/topo.py``) are gone; their successors live in ``lexic.codegen``
+    (binding view + passes) and ``lexic.ir.order``.
+    """
     for name in (
+        "RuleSpec",
         "derive_specs",
         "classify_kind",
         "compute_parents",
         "has_ruleref",
         "hoist_helpers",
+        "render_specs",
+        "topo_sort",
     ):
-        assert hasattr(ir, name), f"{name!r} missing from lexic.ir"
-        assert name in ir.__all__, f"{name!r} missing from __all__"
+        assert not hasattr(ir, name), f"{name!r} should be gone from lexic.ir"
+        assert name not in ir.__all__, f"{name!r} should be gone from __all__"
 
 
 def test_action_algebra_exported() -> None:
@@ -107,10 +110,10 @@ def test_action_algebra_exported() -> None:
         assert name in ir.__all__, f"{name!r} missing from __all__"
 
 
-def test_topo_sort_exported() -> None:
-    """topo_sort is re-exported from lexic.ir."""
-    assert hasattr(ir, "topo_sort")
-    assert "topo_sort" in ir.__all__
+def test_rule_order_exported() -> None:
+    """RuleOrder (topo_sort's successor) is re-exported from lexic.ir."""
+    assert hasattr(ir, "RuleOrder")
+    assert "RuleOrder" in ir.__all__
 
 
 def test_directives_not_exported() -> None:

@@ -9,12 +9,11 @@ consumer policy lives in :class:`~lexic.ir.walk.IrDispatch` tables whose
 defaults refuse unknown atom types — no closed ``isinstance`` ladders, no
 ``dict[type, ...]`` keying.
 
-Field naming keeps derive's three-tier cascade:
+Field naming keeps the three-tier cascade:
 
 1. rule ref → the rule name (hyphens to underscores);
-2. pattern library — :data:`~lexic.ir.naming.CHARCLASS_NAMES` /
-   :data:`~lexic.ir.naming.LITERAL_NAMES` lookups (the tables' physical move
-   into this module completes when ``ir/derive.py`` dies in Task 6);
+2. pattern library — the :data:`CHARCLASS_NAMES` / :data:`LITERAL_NAMES`
+   lookup tables (hosted in this module; keyed by canonical char-class form);
 3. positional — first unmatched pattern field ``head``, then ``part_N``.
 """
 
@@ -25,14 +24,13 @@ import re
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import cache
 from typing import Literal
 
-from lexic.ir.action import IrAction
-from lexic.ir.base import IrLambda, IrNone, IrNoneType, IrSelf, IrStr
+from lexic.ir.action import IrAction, IrReturn
+from lexic.ir.base import IrLambda, IrNode, IrNone, IrNoneType, IrSelf, IrStr
 from lexic.ir.bind import IrBind
-from lexic.ir.derive import has_ruleref
 from lexic.ir.mapping import IrTypeMap
-from lexic.ir.naming import CHARCLASS_NAMES, LITERAL_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -45,11 +43,65 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.order import RuleOrder
-from lexic.ir.walk import IrDispatch
+from lexic.ir.walk import IrDispatch, IrVisitor
 
 RuleKind = Literal["sequence", "alternation", "value_str"]
 
 _UNIT = IrQuantifier(1, 1)
+
+
+# ── field-naming lookup tables ────────────────────────────────────────
+#
+# Keys are canonical char-class patterns — the codegen grammar the binding
+# view reads is post-canonicalize, so members are deduped, ranges coalesced
+# and sorted by codepoint. The pre-canonical hex spellings (``[0-9a-fA-F]`` /
+# ``[a-fA-F0-9]``) and the mixed-case ``letter``/``alnum`` forms folded to one
+# normal-form key each when derive's non-canonical gate was removed (Task 6).
+
+CHARCLASS_NAMES: dict[str, str] = {
+    "[0-9]": "digit",
+    "[0-9A-Fa-f]": "hex",
+    "[a-f]": "hex_lower",
+    "[A-F]": "hex_upper",
+    "[a-z]": "lower",
+    "[A-Z]": "upper",
+    "[A-Za-z]": "letter",
+    "[0-9A-Z_a-z]": "alnum",
+}
+
+LITERAL_NAMES: dict[str, str] = {
+    "-": "sign",
+    "+": "sign",
+    ".": "dot",
+    ",": "comma",
+    ":": "colon",
+    ";": "semicolon",
+    "=": "eq",
+    "x": "x",
+    "e": "e",
+    "E": "E",
+}
+
+
+# ── ruleref detection ─────────────────────────────────────────────────
+
+_HAS_RULEREF: IrVisitor = IrVisitor(
+    actions=IrTypeMap(IrAction(IrRuleRef, IrReturn())),
+)
+
+
+@cache
+def has_ruleref(node: IrNode) -> bool:
+    """True if any :class:`IrRuleRef` exists in the node subtree.
+
+    Short-circuits on first hit: the singleton :class:`IrVisitor` carries an
+    :class:`IrReturn` body for :class:`IrRuleRef`, which raises a control-flow
+    exception caught by :meth:`IrDispatch.apply`. Cached on node identity.
+
+    :param node: Root of the subtree to scan.
+    :returns: ``True`` if an :class:`IrRuleRef` was found, else ``False``.
+    """
+    return _HAS_RULEREF.apply(node) is not IrNone
 
 
 @dataclass(frozen=True)

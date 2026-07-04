@@ -34,20 +34,20 @@ Pattern4 = Annotated[str, StringConstraints(pattern=r"^[Ee]$")]
 
 Pattern5 = Annotated[str, StringConstraints(pattern=r"^[ -!#-\[\]-\U0010ffff]$")]
 
-Pattern6 = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]$")]
+Hex = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]$")]
 
 
 class JsonText(GrammarModel):
-    ws: Annotated[Ws, IrBind(0, "model")]
+    ws: Annotated[Optional[Ws], IrBind(0, "model", False)] = None
     value: Annotated[Value, IrBind(1, "model")]
-    ws2: Annotated[Ws, IrBind(2, "model")]
+    ws2: Annotated[Optional[Ws], IrBind(2, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "json-text",
         IrAlternation(
             IrSequence(
-                IrItem(IrRuleRef("ws")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
                 IrItem(IrRuleRef("value")),
-                IrItem(IrRuleRef("ws")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
             )
         ),
     )
@@ -65,6 +65,7 @@ class Ws(GrammarModel):
                 )
             )
         ),
+        False,
     )
 
 
@@ -171,13 +172,15 @@ class String(Value):
 
 
 class BeginObject(GrammarModel):
-    ws: Annotated[Ws, IrBind(0, "model")]
-    ws2: Annotated[Ws, IrBind(2, "model")]
+    ws: Annotated[Optional[Ws], IrBind(0, "model", False)] = None
+    ws2: Annotated[Optional[Ws], IrBind(2, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "begin-object",
         IrAlternation(
             IrSequence(
-                IrItem(IrRuleRef("ws")), IrItem(IrLiteral("{")), IrItem(IrRuleRef("ws"))
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+                IrItem(IrLiteral("{")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
             )
         ),
     )
@@ -200,52 +203,60 @@ class Member(GrammarModel):
 
 
 class ValueSeparator(GrammarModel):
-    ws: Annotated[Ws, IrBind(0, "model")]
-    ws2: Annotated[Ws, IrBind(2, "model")]
+    ws: Annotated[Optional[Ws], IrBind(0, "model", False)] = None
+    ws2: Annotated[Optional[Ws], IrBind(2, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "value-separator",
         IrAlternation(
             IrSequence(
-                IrItem(IrRuleRef("ws")), IrItem(IrLiteral(",")), IrItem(IrRuleRef("ws"))
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+                IrItem(IrLiteral(",")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
             )
         ),
     )
 
 
 class EndObject(GrammarModel):
-    ws: Annotated[Ws, IrBind(0, "model")]
-    ws2: Annotated[Ws, IrBind(2, "model")]
+    ws: Annotated[Optional[Ws], IrBind(0, "model", False)] = None
+    ws2: Annotated[Optional[Ws], IrBind(2, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "end-object",
         IrAlternation(
             IrSequence(
-                IrItem(IrRuleRef("ws")), IrItem(IrLiteral("}")), IrItem(IrRuleRef("ws"))
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+                IrItem(IrLiteral("}")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
             )
         ),
     )
 
 
 class BeginArray(GrammarModel):
-    ws: Annotated[Ws, IrBind(0, "model")]
-    ws2: Annotated[Ws, IrBind(2, "model")]
+    ws: Annotated[Optional[Ws], IrBind(0, "model", False)] = None
+    ws2: Annotated[Optional[Ws], IrBind(2, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "begin-array",
         IrAlternation(
             IrSequence(
-                IrItem(IrRuleRef("ws")), IrItem(IrLiteral("[")), IrItem(IrRuleRef("ws"))
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+                IrItem(IrLiteral("[")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
             )
         ),
     )
 
 
 class EndArray(GrammarModel):
-    ws: Annotated[Ws, IrBind(0, "model")]
-    ws2: Annotated[Ws, IrBind(2, "model")]
+    ws: Annotated[Optional[Ws], IrBind(0, "model", False)] = None
+    ws2: Annotated[Optional[Ws], IrBind(2, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "end-array",
         IrAlternation(
             IrSequence(
-                IrItem(IrRuleRef("ws")), IrItem(IrLiteral("]")), IrItem(IrRuleRef("ws"))
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+                IrItem(IrLiteral("]")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
             )
         ),
     )
@@ -375,13 +386,15 @@ class CharArm2(Char):
 
 
 class NameSeparator(GrammarModel):
-    ws: Annotated[Ws, IrBind(0, "model")]
-    ws2: Annotated[Ws, IrBind(2, "model")]
+    ws: Annotated[Optional[Ws], IrBind(0, "model", False)] = None
+    ws2: Annotated[Optional[Ws], IrBind(2, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "name-separator",
         IrAlternation(
             IrSequence(
-                IrItem(IrRuleRef("ws")), IrItem(IrLiteral(":")), IrItem(IrRuleRef("ws"))
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+                IrItem(IrLiteral(":")),
+                IrItem(IrRuleRef("ws"), IrQuantifier(0)),
             )
         ),
     )
@@ -457,7 +470,7 @@ class Escape(GrammarModel):
 
 
 class Hexdig(GrammarModel):
-    value: Pattern6
+    value: Hex
     __grammar__: ClassVar[IrRule] = IrRule(
         "hexdig",
         IrAlternation(
@@ -548,6 +561,7 @@ GRAMMAR: IrAst = IrAst(
                     )
                 )
             ),
+            False,
         ),
         IrRule(
             "value",

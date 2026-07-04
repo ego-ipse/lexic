@@ -26,27 +26,27 @@ from lexic.ir import (
 
 Pattern = Annotated[str, StringConstraints(pattern=r"^[A-Z_a-z]$")]
 
-Pattern2 = Annotated[str, StringConstraints(pattern=r"^[0-9A-Z_a-z]*$")]
+Alnum = Annotated[str, StringConstraints(pattern=r"^[0-9A-Z_a-z]*$")]
 
-Pattern3 = Annotated[str, StringConstraints(pattern=r"^[\x09-\x0a ]+$")]
+Pattern2 = Annotated[str, StringConstraints(pattern=r"^[\x09-\x0a ]+$")]
 
-Pattern4 = Annotated[str, StringConstraints(pattern=r"^[\x00-\x09\x0b-\U0010ffff]*$")]
+Pattern3 = Annotated[str, StringConstraints(pattern=r"^[\x00-\x09\x0b-\U0010ffff]*$")]
 
-Pattern5 = Annotated[str, StringConstraints(pattern=r"^[\x00-)+-\U0010ffff]$")]
+Pattern4 = Annotated[str, StringConstraints(pattern=r"^[\x00-)+-\U0010ffff]$")]
 
-Pattern6 = Annotated[str, StringConstraints(pattern=r"^[\x00-.0-\U0010ffff]$")]
+Pattern5 = Annotated[str, StringConstraints(pattern=r"^[\x00-.0-\U0010ffff]$")]
 
-Pattern7 = Annotated[
+Pattern6 = Annotated[
     str, StringConstraints(pattern=r"^([\x00-)+-\U0010ffff]|\*[\x00-.0-\U0010ffff])*$")
 ]
 
-Pattern8 = Annotated[str, StringConstraints(pattern=r"^(<=|<|==|!=|>=|>)$")]
+Pattern7 = Annotated[str, StringConstraints(pattern=r"^(<=|<|==|!=|>=|>)$")]
 
 Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]
 
-Pattern9 = Annotated[str, StringConstraints(pattern=r"^[+-]$")]
+Pattern8 = Annotated[str, StringConstraints(pattern=r"^[+-]$")]
 
-Pattern10 = Annotated[str, StringConstraints(pattern=r"^[*/]$")]
+Pattern9 = Annotated[str, StringConstraints(pattern=r"^[*/]$")]
 
 
 class Root(GrammarModel):
@@ -335,7 +335,7 @@ class StatementArm7(Statement):
 
 
 class Ws(GrammarModel):
-    value: Pattern3
+    value: Pattern2
     __grammar__: ClassVar[IrRule] = IrRule(
         "ws",
         IrAlternation(
@@ -532,7 +532,7 @@ class Term(GrammarModel):
 
 
 class Relationoperator(GrammarModel):
-    value: Pattern8
+    value: Pattern7
     __grammar__: ClassVar[IrRule] = IrRule(
         "relationoperator",
         IrAlternation(
@@ -623,7 +623,7 @@ class StatementItem(GrammarModel):
 
 
 class ExpressionItem(GrammarModel):
-    head: Annotated[Pattern9, IrBind(0, "text")]
+    head: Annotated[Pattern8, IrBind(0, "text")]
     term: Annotated[Term, IrBind(1, "model")]
     __grammar__: ClassVar[IrRule] = IrRule(
         "expression-item",
@@ -651,7 +651,7 @@ class ArglistItem(GrammarModel):
 
 
 class TermItem(GrammarModel):
-    head: Annotated[Pattern10, IrBind(0, "text")]
+    head: Annotated[Pattern9, IrBind(0, "text")]
     factor: Annotated[Factor, IrBind(1, "model")]
     __grammar__: ClassVar[IrRule] = IrRule(
         "term-item",

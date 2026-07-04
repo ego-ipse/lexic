@@ -108,8 +108,8 @@ This is the one piece of Slice B that is both concrete and unimplemented.
 
 **Current state (updated 2026-07-02/03 — Lark→Earley cutover):** `MetaGrammarParser`
 and `grammars/gbnf/meta_grammar.py` no longer exist. GBNF grammar text now
-parses via `compile_grammar` → `parse_reduced(normalize(GBNF_GRAMMAR), text,
-GBNF_REDUCER)` (the native Earley engine, `lexic.parsing` — see
+parses via `canonical_grammar` (which calls `parse_grammar` →
+`parse_reduced(normalize(GBNF_GRAMMAR), text, GBNF_REDUCER)`) (the native Earley engine, `lexic.parsing` — see
 [[architecture]]). A grammar containing `<think>` or `!<output>` will fail
 either at the engine level (`UnsupportedConstructError`, "no parse" — `<`/`>`
 are not accepted anywhere in `GBNF_GRAMMAR`) or, if some other rule happens
@@ -120,7 +120,7 @@ applicable and equally still-needed on the new engine.
 
 **What to implement:**
 
-1. In `compile_grammar` (or a helper called before `parse_reduced`), scan the
+1. In `canonical_grammar` (or a helper called before `parse_grammar`), scan the
    source text for the token-reference patterns:
    - `<identifier>` and `<[integer]>` — positional / indexed token refs
    - `!<identifier>` — negation token ref
@@ -136,9 +136,9 @@ applicable and equally still-needed on the new engine.
 The `TokenAmbiguityError` for `<<name>>` was explicitly dropped (Task 13
 decision). Do not add it.
 
-**Where to add the scan:** The scan belongs in `compile_grammar` (`compile.py`)
-before the `parse_reduced` call, or as a standalone `_check_no_token_syntax(text)`
-helper called from there. The check is flavour-specific to GBNF — `compile_grammar`
+**Where to add the scan:** The scan belongs in `canonical_grammar` (`compile.py`)
+before the `parse_grammar` call, or as a standalone `_check_no_token_syntax(text)`
+helper called from there. The check is flavour-specific to GBNF — `canonical_grammar`
 is flavour-agnostic, so gate the scan on `flavour.name == "gbnf"` (or move it
 into `GBNF_REDUCER`'s reduction bodies) rather than adding it unconditionally.
 

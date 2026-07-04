@@ -20,11 +20,11 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Sequence
 
+from lexic.codegen.binding import CHARCLASS_NAMES
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction
-from lexic.ir.base import Field, IrLambda, IrNone, IrSelf
+from lexic.ir.base import Field, IrLambda, IrNone, IrNoneType, IrSelf
 from lexic.ir.mapping import IrTypeMap
-from lexic.ir.naming import CHARCLASS_NAMES
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -36,9 +36,32 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.ir.spec import RuleSpec
 from lexic.ir.walk import IrVisitor
-from lexic.utils.quantifiers import bounds_to_quantifier
+
+_QUANTIFIER_SUFFIXES: dict[tuple[int, int | None], str] = {
+    (1, 1): "",
+    (0, 1): "?",
+    (0, None): "*",
+    (1, None): "+",
+}
+
+
+def _bounds_to_suffix(lo: int, hi: int | IrNoneType) -> str:
+    """Render inclusive ``(lo, hi)`` bounds as a regex quantifier suffix.
+
+    :param lo: Lower bound.
+    :param hi: Upper bound; :data:`~lexic.ir.base.IrNone` means unbounded.
+    :returns: ``""``/``?``/``*``/``+`` or a ``{m,n}``-style suffix.
+    """
+    hi_int: int | None = None if isinstance(hi, IrNoneType) else hi
+    suffix = _QUANTIFIER_SUFFIXES.get((lo, hi_int))
+    if suffix is not None:
+        return suffix
+    if hi_int is None:
+        return f"{{{lo},}}"
+    if lo == hi_int:
+        return f"{{{lo}}}"
+    return f"{{{lo},{hi_int}}}"
 
 
 @dataclass(frozen=True)
@@ -60,7 +83,7 @@ def _bracket(pattern: str, negated: bool) -> str:
 
 def _suffix(q: IrQuantifier) -> str:
     """Render a IrQuantifier as its regex suffix."""
-    return bounds_to_quantifier(q.lo, q.hi)
+    return _bounds_to_suffix(q.lo, q.hi)
 
 
 def _camel(s: str) -> str:
@@ -227,30 +250,14 @@ class _PatternAliasVisitor(IrVisitor):
         self.aliases[regex] = PatternAlias(name=name, regex=regex)
 
 
-def collect_aliases(specs: list[RuleSpec]) -> list[PatternAlias]:
-    """Return one PatternAlias per unique pattern regex across all specs.
-
-    Order is insertion order — first appearance wins for naming. Different
-    regexes that resolve to the same Tier-2 base name get a numeric suffix on
-    later occurrences (``Digit``, ``Digit2``).
-
-    :param specs: All rule specs to scan.
-    :returns: Deduplicated list of pattern aliases in first-appearance order.
-    """
-    visitor = _PatternAliasVisitor()
-    for spec in specs:
-        for item in spec.items:
-            visitor.apply(item)
-    return list(visitor.aliases.values())
-
-
-def collect_aliases_grammar(grammar: IrAst) -> list[PatternAlias]:
+def collect_aliases(grammar: IrAst) -> list[PatternAlias]:
     """Return one PatternAlias per unique pattern regex across a codegen grammar.
 
-    The IR-native counterpart of :func:`collect_aliases`: it walks every item of
-    every rule arm directly, so the same :class:`_PatternAliasVisitor` records
-    each pure-pattern subtree. Naming and dedup rules are identical; order is
-    rule order, then arm order, then item order.
+    Walks every item of every rule arm; the :class:`_PatternAliasVisitor`
+    records each pure-pattern subtree. First appearance wins for naming;
+    different regexes resolving to the same Tier-2 base name get a numeric
+    suffix on later occurrences (``Digit``, ``Digit2``). Order is rule order,
+    then arm order, then item order.
 
     :param grammar: The (post-pass) codegen grammar to scan.
     :returns: Deduplicated list of pattern aliases in first-appearance order.

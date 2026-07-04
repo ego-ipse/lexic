@@ -30,38 +30,38 @@ Pattern2 = Annotated[str, StringConstraints(pattern=r"^[ -!#-\[\]-~\x80-\U0010ff
 
 Pattern3 = Annotated[str, StringConstraints(pattern=r'^["\\bfnrt]$')]
 
-Pattern4 = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]{4}$")]
+Hex = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]{4}$")]
 
-Pattern5 = Annotated[str, StringConstraints(pattern=r'^(["\\bfnrt]|u[0-9A-Fa-f]{4})$')]
+Pattern4 = Annotated[str, StringConstraints(pattern=r'^(["\\bfnrt]|u[0-9A-Fa-f]{4})$')]
 
-Pattern6 = Annotated[
+Pattern5 = Annotated[
     str,
     StringConstraints(
         pattern=r'^([ -!#-\[\]-~\x80-\U0010ffff]|\\(["\\bfnrt]|u[0-9A-Fa-f]{4}))*$'
     ),
 ]
 
-Pattern7 = Annotated[str, StringConstraints(pattern=r"^(true|false|null)$")]
+Pattern6 = Annotated[str, StringConstraints(pattern=r"^(true|false|null)$")]
 
 Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]$")]
 
-Pattern8 = Annotated[str, StringConstraints(pattern=r"^[1-9]$")]
+Pattern7 = Annotated[str, StringConstraints(pattern=r"^[1-9]$")]
 
 Digit2 = Annotated[str, StringConstraints(pattern=r"^[0-9]{0,15}$")]
 
-Pattern9 = Annotated[str, StringConstraints(pattern=r"^([0-9]|[1-9][0-9]{0,15})$")]
+Pattern8 = Annotated[str, StringConstraints(pattern=r"^([0-9]|[1-9][0-9]{0,15})$")]
 
 Digit3 = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]
 
-Pattern10 = Annotated[str, StringConstraints(pattern=r"^(\.[0-9]+)?$")]
+Pattern9 = Annotated[str, StringConstraints(pattern=r"^(\.[0-9]+)?$")]
 
-Pattern11 = Annotated[str, StringConstraints(pattern=r"^[Ee]$")]
+Pattern10 = Annotated[str, StringConstraints(pattern=r"^[Ee]$")]
 
-Pattern12 = Annotated[str, StringConstraints(pattern=r"^[+-]?$")]
+Pattern11 = Annotated[str, StringConstraints(pattern=r"^[+-]?$")]
 
-Pattern13 = Annotated[str, StringConstraints(pattern=r"^[1-9]{0,15}$")]
+Pattern12 = Annotated[str, StringConstraints(pattern=r"^[1-9]{0,15}$")]
 
-Pattern14 = Annotated[str, StringConstraints(pattern=r"^([Ee][+-]?[0-9][1-9]{0,15})?$")]
+Pattern13 = Annotated[str, StringConstraints(pattern=r"^([Ee][+-]?[0-9][1-9]{0,15})?$")]
 
 
 class Root(GrammarModel):
@@ -119,7 +119,7 @@ class Ws(GrammarModel):
 
 
 class String(Value):
-    x80_u0010fff: Annotated[Pattern6, IrBind(1, "gtext")]
+    x80_u0010fff: Annotated[Pattern5, IrBind(1, "gtext")]
     ws: Annotated[Optional[Ws], IrBind(3, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "string",
@@ -180,7 +180,7 @@ class String(Value):
 
 
 class ValueArm5(Value):
-    true: Annotated[Pattern7, IrBind(0, "gtext")]
+    true: Annotated[Pattern6, IrBind(0, "gtext")]
     ws: Annotated[Optional[Ws], IrBind(1, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "value-arm5",
@@ -219,9 +219,9 @@ class Array(Value):
 
 class Number(Value):
     sign: Annotated[Optional[str], IrBind(0, "text")] = None
-    digit: Annotated[Pattern9, IrBind(1, "gtext")]
-    dot: Annotated[Optional[Pattern10], IrBind(2, "gtext")] = None
-    ee: Annotated[Optional[Pattern14], IrBind(3, "gtext")] = None
+    digit: Annotated[Pattern8, IrBind(1, "gtext")]
+    dot: Annotated[Optional[Pattern9], IrBind(2, "gtext")] = None
+    ee: Annotated[Optional[Pattern13], IrBind(3, "gtext")] = None
     ws: Annotated[Optional[Ws], IrBind(4, "model", False)] = None
     __grammar__: ClassVar[IrRule] = IrRule(
         "number",

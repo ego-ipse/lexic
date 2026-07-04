@@ -8,9 +8,9 @@ Source: `prototyping/next/1_NORTH_STAR.md`. Every change must preserve these.
 
 **Grammar is canonical.** Every class has a lossless `to_grammar(flavour)` path to the grammar text it represents. The class is Python's view of the grammar, not the source of truth.
 
-**Round-trip fidelity.** `parse(text, grammar).to_text() == text` on every grammar-valid input. Property tests on all seven ground-truth grammars stay green.
+**Round-trip fidelity.** `parse(text, grammar).to_text() == text` on every grammar-valid input. Property tests on all ground-truth grammars stay green.
 
-**No regression.** The full test suite (743 tests + 1 xfail) stays green after every change.
+**No regression.** The full test suite (1500+ tests, see CLAUDE.md §Commands for the current count) stays green after every change.
 
 **One way per task.** One parse function, one emit method, one round-trip method. No alternate APIs, no legacy shims, no "simpler subset" wrappers.
 
@@ -20,15 +20,15 @@ Source: `prototyping/next/1_NORTH_STAR.md`. Every change must preserve these.
 
 No code constructs an atom whose type is not in the declared union. Adding a new type (e.g. `TokenAtom`) is a minor version bump and requires updating every dispatch table. Dispatch tables must have explicit `raise UnsupportedConstructError` defaults — a missing type is always caught at dispatch, not silently mishandled.
 
-## Seven ground-truth grammars
+## Ground-truth grammars
 
-These live in `resources/ground_truth/`. All integration and property tests run against all seven. A change that makes any one of them fail is a blocker regardless of unit-test status:
+These live in `resources/ground_truth/`. All integration and property tests run against all of them; a change that makes any one fail is a blocker regardless of unit-test status:
 
-`arithmetic`, `c`, `chess`, `japanese`, `json_arr`, `json_ws`, `list`
+`arithmetic`, `c`, `chess`, `japanese`, `json`, `json_arr`, `json_ws`, `list` (`.gbnf`), plus `arithmetic`/`json` `.abnf` siblings used for cross-flavour compile parity.
 
 ## What these invariants mean in practice
 
-- You cannot add a new atom type without updating every dispatch table in `codegen/`, `grammars/gbnf/emitter.py`, `grammars/new_gbnf/emitter.py`, `codegen/transformer/`.
+- You cannot add a new atom type without updating every open dispatch table it touches (`codegen/binding.py`, `codegen/model_emitter.py`, each flavour's emit `actions`, its `Reducer`).
 - You cannot change `to_text()` without running property tests.
 - You cannot add a new entry point that bypasses `compile.py` without a discussion.
 - You cannot open a new runtime→codegen import edge.

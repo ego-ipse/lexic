@@ -13,19 +13,16 @@ from pathlib import Path
 from ruff import find_ruff_bin
 
 from lexic.codegen.binding import RuleBinding, compute_binding
-from lexic.codegen.model_emitter import emit_module_source, emit_module_source_ir
+from lexic.codegen.model_emitter import emit_module_source
 from lexic.codegen.passes import build_codegen_grammar
 from lexic.ir.nodes import IrAst
-from lexic.ir.spec import RuleSpec
 
 __all__ = [
     "RuleBinding",
     "build_codegen_grammar",
     "codegen",
-    "codegen_ir",
     "compute_binding",
     "emit_module_source",
-    "emit_module_source_ir",
 ]
 
 
@@ -101,24 +98,12 @@ def _write_and_load(source: str, stem: str, class_names: list[str]) -> dict[str,
     return {name: getattr(mod, name) for name in class_names if hasattr(mod, name)}
 
 
-def codegen(specs: list[RuleSpec], stem: str) -> dict[str, type]:
-    """Emit a Pydantic module from specs; return the dict of generated classes.
-
-    Side effect: writes `generated/<stem>.py`. The file is regenerated on
-    every call.
-    """
-    return _write_and_load(
-        emit_module_source(specs, stem=stem), stem, [s.class_name for s in specs]
-    )
-
-
-def codegen_ir(
+def codegen(
     canonical: IrAst, codegen_grammar: IrAst, binding: list[RuleBinding], stem: str
 ) -> dict[str, type]:
     """Emit a Pydantic module from the codegen grammar + binding view.
 
-    The IR-native successor of :func:`codegen` (Task 4 parallel build; becomes
-    ``codegen`` at the Task 5 flip). Side effect: writes ``generated/<stem>.py``.
+    Side effect: writes ``generated/<stem>.py``.
 
     :param canonical: The canonical (pre-pass) grammar — the module ``GRAMMAR``.
     :param codegen_grammar: The post-pass grammar — each class's ``__grammar__``.
@@ -126,7 +111,7 @@ def codegen_ir(
     :param stem: Generated-module stem.
     :returns: ``{class_name: class}`` for every generated class.
     """
-    source = emit_module_source_ir(canonical, codegen_grammar, binding, stem=stem)
+    source = emit_module_source(canonical, codegen_grammar, binding, stem=stem)
     classes = _write_and_load(source, stem, [b.class_name for b in binding])
     # Resolve deferred annotations (``from __future__ import annotations`` plus
     # forward-referenced sibling classes) so each field's ``IrBind`` metadata is

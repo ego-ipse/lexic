@@ -1,4 +1,10 @@
-"""Grammar-agnostic string generator from RuleSpec IR."""
+"""Grammar-agnostic random string generator over a grammar ``IrAst``.
+
+Walks a rules-by-name view of a (canonical) grammar: each rule body is an
+:class:`IrAlternation` of arms, an arm a sequence of items. Generation picks a
+random arm and expands each item by its atom kind and quantifier, recursing on
+:class:`IrRuleRef` occurrences. ``max_depth`` decrements on each ref expansion.
+"""
 
 from __future__ import annotations
 
@@ -11,17 +17,19 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRule,
     IrRuleRef,
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.ir.spec import RuleSpec
 
 _ASCII_PRINTABLE = [chr(c) for c in range(32, 127)]
 
+Rules = dict[str, IrRule]
+
 
 def _pick_count(q: IrQuantifier, rng: _random.Random) -> int:
-    """Pick a repetition count."""
+    """Pick a repetition count within the quantifier's bounds."""
     if q.lo == 0:
         return 0
     if q.hi == q.lo:
@@ -35,7 +43,7 @@ def _pick_count(q: IrQuantifier, rng: _random.Random) -> int:
 def _gen_charclass(
     atom: IrCharClass, q: IrQuantifier, rng: _random.Random, *, negated: bool = False
 ) -> str:
-    """Generate for a charclass by picking random chars from it and applying the quantifier."""
+    """Generate for a charclass by picking chars from it and applying the quantifier."""
     count = _pick_count(q, rng)
     if count == 0:
         return ""
@@ -51,28 +59,24 @@ def _gen_charclass(
 def _gen_group(
     atom: IrAlternation,
     q: IrQuantifier,
-    specs: dict[str, RuleSpec],
+    rules: Rules,
     rng: _random.Random,
     max_depth: int,
 ) -> str:
-    """Generate for a group by generating for its body and applying the quantifier."""
+    """Generate for an inline group by expanding its body and applying the quantifier."""
     count = _pick_count(q, rng)
     if count == 0:
         return ""
-    out: list[str] = []
-    for _ in range(count):
-        arm = rng.choice(atom)
-        out.append(_gen_sequence(arm, specs, rng, max_depth))
-    return "".join(out)
+    return "".join(_gen_alternation(atom, rules, rng, max_depth) for _ in range(count))
 
 
 def _gen_atom(
     item: IrItem,
-    specs: dict[str, RuleSpec],
+    rules: Rules,
     rng: _random.Random,
     max_depth: int,
 ) -> str:
-    """Generate for an atom rule by its kind."""
+    """Generate the text for one item by its atom kind and quantifier."""
     atom, q = item.atom, item.quantifier
     if isinstance(atom, IrLiteral):
         return atom * _pick_count(q, rng) if q != IrQuantifier(1, 1) else atom
@@ -85,80 +89,55 @@ def _gen_atom(
     if isinstance(atom, IrRuleRef):
         count = _pick_count(q, rng)
         return "".join(
-            generate(atom, specs, rng=rng, max_depth=max_depth - 1)
+            generate(str(atom), rules, rng=rng, max_depth=max_depth - 1)
             for _ in range(count)
         )
     if isinstance(atom, IrAlternation):
-        return _gen_group(atom, q, specs, rng, max_depth)
+        return _gen_group(atom, q, rules, rng, max_depth)
     return ""
 
 
 def _gen_sequence(
     seq: IrSequence,
-    specs: dict[str, RuleSpec],
+    rules: Rules,
     rng: _random.Random,
     max_depth: int,
 ) -> str:
-    """Generate for a sequence rule by concatenating its items."""
-    return "".join(_gen_atom(it, specs, rng, max_depth) for it in seq)
+    """Generate for a sequence arm by concatenating its items."""
+    return "".join(_gen_atom(it, rules, rng, max_depth) for it in seq)
 
 
 def _gen_alternation(
-    alt: IrAlternation,
-    specs: dict[str, RuleSpec],
+    body: IrAlternation,
+    rules: Rules,
     rng: _random.Random,
     max_depth: int,
 ) -> str:
-    """Generate for an alternation rule by picking a random arm."""
-    if not alt:
+    """Generate for a rule body by picking a random arm and expanding it."""
+    if not body:
         return ""
-    arm = rng.choice(alt)
-    return _gen_sequence(arm, specs, rng, max_depth)
-
-
-def _gen_alternation_kind(
-    spec: RuleSpec,
-    specs: dict[str, RuleSpec],
-    rng: _random.Random,
-    max_depth: int,
-) -> str:
-    """Generate for an alternation rule by picking a random arm."""
-    arm_names = [
-        it.atom
-        for it in spec.items
-        if isinstance(it, IrItem) and isinstance(it.atom, IrRuleRef)
-    ]
-    if not arm_names:
-        return ""
-    arm = rng.choice(arm_names)
-    return generate(arm, specs, rng=rng, max_depth=max_depth - 1)
+    arm = rng.choice(body)
+    return _gen_sequence(arm, rules, rng, max_depth)
 
 
 def generate(
     rule_name: str,
-    specs: dict[str, RuleSpec],
+    rules: Rules,
     *,
     rng: _random.Random | None = None,
     max_depth: int = 5,
 ) -> str:
-    """Generate a random string matching the given rule."""
+    """Generate a random string matching the named rule.
+
+    :param rule_name: The rule to expand.
+    :param rules: The grammar as a rule-name → :class:`IrRule` mapping.
+    :param rng: Random source; a fresh one is created when omitted.
+    :param max_depth: Ref-expansion budget, decremented on each recursion.
+    :returns: A random string in the rule's language (``""`` for an unknown rule).
+    """
     if rng is None:
         rng = _random.Random()
-    spec = specs.get(rule_name)
-    if spec is None:
+    rule = rules.get(rule_name)
+    if rule is None:
         return ""
-    if spec.kind == "alternation":
-        return _gen_alternation_kind(spec, specs, rng, max_depth)
-    if spec.kind == "value_str":
-        if spec.items and isinstance(spec.items[0], IrAlternation):
-            return _gen_alternation(spec.items[0], specs, rng, max_depth)
-        return "".join(
-            _gen_atom(it, specs, rng, max_depth)
-            for it in spec.items
-            if isinstance(it, IrItem)
-        )
-    return "".join(
-        _gen_atom(it, specs, rng, max_depth)
-        for it in spec.items
-        if isinstance(it, IrItem)
-    )
+    return _gen_alternation(rule.body, rules, rng, max_depth)
