@@ -186,17 +186,26 @@ def test_optional_ref_present_is_the_submodel(optional_shapes):
 
 
 def test_optional_literal_group_absent_is_none(optional_shapes):
-    """An optional literal-only group ('gtext' mode) is None when absent."""
+    """``("!")?`` is empty text ('text' mode) when absent.
+
+    canonicalize's rewrite 6 (quantifier push-onto-inner-atom) collapses the
+    single-arm single-item group ``("!")?`` to the plain quantified literal
+    ``"!"?`` before codegen ever sees it — so this is no longer a nullable
+    'gtext'-mode group field (``None`` when absent); it is an ordinary
+    'text'-mode quantified-literal field (``''`` when absent), field name
+    ``lit`` (Tier-2 literal naming has no entry for ``!``, so it falls back
+    to the sanitized-pattern name).
+    """
     _, _, _, grammar, fold = optional_shapes
     model = fold.apply(parse_first(grammar, "ab"))
-    assert model.head is None
+    assert model.lit == ""
 
 
 def test_optional_literal_group_present_is_text(optional_shapes):
-    """An optional literal-only group is the matched text when present."""
+    """``("!")?`` is the matched text when present — same collapse as above."""
     _, _, _, grammar, fold = optional_shapes
     model = fold.apply(parse_first(grammar, "a!b"))
-    assert model.head == "!"
+    assert model.lit == "!"
 
 
 # ── _wrapper_mode ────────────────────────────────────────────────────────

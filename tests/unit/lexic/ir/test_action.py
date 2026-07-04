@@ -63,7 +63,6 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.ir.walk import IrDispatch, IrEmitter
-from lexic.utils.charclass import charclass_pattern
 
 # ── _Return ──────────────────────────────────────────────────────────
 
@@ -356,7 +355,7 @@ def test_irat_rebinds_focus_to_raw_child():
     result = IrAt(0, IrThis()).eval(emitter, nod, IrTuple())
     assert result is nod.children()[0]
     assert isinstance(result, IrCharClass)
-    assert charclass_pattern(result) == "a-z"
+    assert result == IrCharClass(IrRange(IrChr("a"), IrChr("z")))
 
 
 def test_irat_negative_selector_indexes_from_end():

@@ -16,7 +16,6 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
-from lexic.utils.charclass import charclass_pattern, parse_charclass_chars
 
 _ASCII_PRINTABLE = [chr(c) for c in range(32, 127)]
 
@@ -40,13 +39,13 @@ def _gen_charclass(
     count = _pick_count(q, rng)
     if count == 0:
         return ""
-    chars = parse_charclass_chars(charclass_pattern(atom))
     if negated:
-        excluded = set(chars)
+        excluded = {chr(c) for c in atom.members()}
         chars = [c for c in _ASCII_PRINTABLE if c not in excluded]
-    if not chars:
-        return ""
-    return "".join(rng.choice(chars) for _ in range(count))
+        if not chars:
+            return ""
+        return "".join(rng.choice(chars) for _ in range(count))
+    return "".join(chr(atom.sample(rng)) for _ in range(count))
 
 
 def _gen_group(

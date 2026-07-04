@@ -31,7 +31,8 @@ _ALL_FIXTURES = [
 # These are the explicitly declared top-level rules from each .gbnf file.
 _EXPECTED_RULE_NAMES: dict[str, frozenset[str]] = {
     "arithmetic.gbnf": frozenset({"root", "expr", "term", "ident", "num", "ws"}),
-    "c.gbnf": frozenset({"root", "declaration", "dataType", "identifier", "ws"}),
+    # canonicalize's rewrite 7 folds rule names to lowercase: dataType->datatype
+    "c.gbnf": frozenset({"root", "declaration", "datatype", "identifier", "ws"}),
     "chess.gbnf": frozenset({"root", "move", "nonpawn", "pawn", "castle"}),
     "japanese.gbnf": frozenset(
         {"root", "jp-char", "hiragana", "katakana", "punctuation", "cjk"}

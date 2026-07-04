@@ -6,6 +6,38 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-03 — Task 2: canonicalize pass (IR-native codegen effort)
+
+`src/lexic/ir/canonical.py` (`canonicalize`, `fold_name`) — a language-preserving
+normal form for a grammar `IrAst`, run as the mandatory second stage of
+`compile_grammar` (`parse → canonicalize → semantic flags`). Rewrites: 1 one-member
+charclass → literal; 2 single-char/charclass/range alternation arms merge to one
+class; 3 adjacent literal items merge; 4 `IrNot(charclass)` → positive Unicode
+complement spans; 5 single-arm unquantified group splices into its parent sequence;
+6 quantified single-arm single-item group pushes its quantifier onto the inner atom;
+7 rule names + refs fold lowercase/`_`→`-` (distinct-rule collision raises
+`UnsupportedConstructError`); 8 charclass normal form; 8b empty-literal items drop
+(engine precondition); 9 canonical rule order.
+
+Charclass member/complement math is now **intrinsic `IrCharClass` behavior**
+(`pattern`/`members`/`sample`/`normalized`/`complement` on `ir/nodes.py`);
+`utils/charclass.py` deleted, importers (`derive`, `generate`, `codegen/aliases`)
+re-pointed. Rule ordering is `ir/order.py::RuleOrder` (start-first BFS over an edge
+relation; `RuleOrder.by_refs`/`order_by_refs` = ref-edge policy) — reborn from
+`topo.py` (which still serves derive until Task 6).
+
+Headline fixpoint holds: `canonicalize(parse(json.gbnf)) ==
+canonicalize(parse(json.abnf)) == JSON_GRAMMAR`, with `JSON_GRAMMAR` re-authored to
+canonical form and `json.abnf`'s `HEXDIG` de-RFC'd to ranges. GBNF emit fixpoint
+`canonicalize(parse(emit(canon))) == canon` holds for all ground truths;
+`GBNF_GRAMMAR` re-authored to canonical form (all `canonicalize(G)==G`). Proof in
+`tests/integration/test_canonical_fixpoint.py`. **Open:** ABNF emit fixpoint and
+`canonicalize(ABNF_GRAMMAR)==ABNF_GRAMMAR` need an ABNF `IrLiteral`→num-val emit
+change (char-val cannot spell `"`/controls and is case-insensitive) — not attempted
+under Task 2.
+
+---
+
 ## 2026-07-03 — engine perf round 3 landed (Optimize.md, complete)
 
 Full-grammar product on the disputed corpus (subset-920 self-emit): **25.6 → 17.25 µs/char** (−33%; **0.57× Lark** full-vs-full, was parity). Recognize ~8.0 µs/char. The two engine levers: **seed-layout** (Task 1 — `CodeTables.rule_seeds` stored as primitive seed-pairs, `_seed` dedup-free; kernel −15%, charts byte-identical) and **FIRST-gated prediction** (Task 2 — per-dot-0-arm `(dot0, next_sym, gate)` triples where `gate` is `None`=always-seed or a frozenset FIRST charset with nullable-prefix continuation; `_seed` gates on `text[i:i+1]`; charts deliberately NOT byte-identical, product IR equality + ambiguity counts verified across all suite grammars). Instance path got run collapse (Task 4, separate entry). Task 5 (comment skip-machine) killed — FIRST gating leaves comment noise at 4.8% of items (was 27%).

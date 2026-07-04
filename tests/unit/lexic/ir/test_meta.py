@@ -790,6 +790,54 @@ def test_irsingleton_composes_on_irself_subclass():
     assert S() is S()
 
 
+# ── IrMeta: the "init" class keyword (static-only dataclass_transform param) ──
+
+
+def test_irmeta_class_creation_with_init_false_succeeds():
+    """Test that declaring `init=False` on an IrMeta class does not raise."""
+
+    class C(metaclass=IrMeta, init=False):  # pylint: disable=too-few-public-methods
+        """IrMeta fixture: init=False class-keyword succeeds."""
+
+    assert getattr(C, "__slots__") == ()
+
+
+def test_irmeta_init_keyword_does_not_leak_to_init_subclass():
+    """Test that `init` is popped in IrMeta.__new__ before __init_subclass__ runs."""
+    seen: dict[str, object] = {}
+
+    class Base(metaclass=IrMeta):  # pylint: disable=too-few-public-methods
+        """IrMeta fixture: records kwargs forwarded to __init_subclass__."""
+
+        def __init_subclass__(cls, **kwargs: object) -> None:
+            seen.update(kwargs)
+            super().__init_subclass__()
+
+    class Sub(Base, init=False):  # pylint: disable=too-few-public-methods
+        """IrMeta fixture: subclass declared with init=False."""
+
+    assert issubclass(Sub, Base)
+    assert "init" not in seen
+
+
+def test_irmeta_normal_class_keyword_still_forwards():
+    """Test that a genuine class keyword (not `init`) still reaches __init_subclass__."""
+    seen: dict[str, object] = {}
+
+    class Base(metaclass=IrMeta):  # pylint: disable=too-few-public-methods
+        """IrMeta fixture: records kwargs forwarded to __init_subclass__."""
+
+        def __init_subclass__(cls, **kwargs: object) -> None:
+            seen.update(kwargs)
+            super().__init_subclass__()
+
+    class Sub(Base, tag="marked"):  # pylint: disable=too-few-public-methods
+        """IrMeta fixture: subclass declared with a normal class keyword."""
+
+    assert issubclass(Sub, Base)
+    assert seen == {"tag": "marked"}
+
+
 def test_bare_singleton_conflicts_on_irself_subclass():
     """Test that a bare Singleton metaclass raises TypeError on an IrSelf subclass.
 

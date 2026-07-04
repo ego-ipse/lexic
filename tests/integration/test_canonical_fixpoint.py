@@ -20,7 +20,6 @@ num-val emit change, tracked as follow-up work.
 
 from __future__ import annotations
 
-
 import pytest
 
 from lexic.compile import parse_grammar

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import random
+
 import pytest
 
 from lexic.ir.base import (
@@ -13,8 +15,10 @@ from lexic.ir.base import (
     IrNone,
     IrNoneType,
     IrSeq,
+    IrStr,
 )
 from lexic.ir.nodes import (
+    MAX_CODEPOINT,
     IrAlternation,
     IrAst,
     IrBounds,
@@ -28,7 +32,6 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.utils.charclass import charclass_pattern
 
 # ── IrQuantifier ───────────────────────────────────────────────────────
 
@@ -80,7 +83,7 @@ def test_ir_literal_is_frozen_and_hashable():
 def test_ir_charclass_holds_pattern():
     """Test that the IR character class holds the pattern via charclass_pattern."""
     cc = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
-    assert charclass_pattern(cc) == "a-z"
+    assert cc.pattern() == "a-z"
 
 
 def test_ir_not_wraps_charclass():
@@ -90,7 +93,7 @@ def test_ir_not_wraps_charclass():
     assert node[0] is cc
     inner = node[0]
     assert isinstance(inner, IrCharClass)
-    assert charclass_pattern(inner) == "\\x0a"
+    assert inner.pattern() == "\\x0a"
 
 
 def test_ir_ruleref_holds_name():
@@ -627,3 +630,330 @@ def test_charclass_holds_codepoints_and_ranges():
     cc = IrCharClass(IrChr(0x41), IrRange(IrChr(0x30), IrChr(0x39)))
     assert cc[0] == IrChr(0x41)
     assert cc[1] == IrRange(IrChr(0x30), IrChr(0x39))
+
+
+# ── Constructor coercion (ast_sugar, Task 0) ────────────────────────────
+#
+# Unknown-type passthrough is exercised via `.rebuild()` rather than direct
+# construction: `rebuild`'s parameter is typed `Sequence[IrSelf]`, so passing
+# an off-menu IrSelf leaf (e.g. a bare IrStr) through it is pyright-clean,
+# whereas the widened `__new__` signatures themselves are typed to the known
+# union and would reject it statically.
+
+
+def _canonical_rule(name: str, atom: IrAtom) -> IrRule:
+    """Hand-built canonical single-arm rule for a given atom."""
+    return IrRule(name, IrAlternation(IrSequence(IrItem(atom))))
+
+
+# -- IrSequence: bare-atom element wrapping --
+
+
+def test_irsequence_coerces_bare_atom_to_unit_item():
+    """A bare IrAtom element wraps to IrItem(atom) with the unit quantifier."""
+    lit = IrLiteral("a")
+    seq = IrSequence(lit)
+    assert seq[0] == IrItem(lit)
+    assert seq[0].quantifier == IrQuantifier()
+
+
+def test_irsequence_keeps_item_element_as_is():
+    """An IrItem element passed to IrSequence is kept, not re-wrapped."""
+    item = IrItem(IrLiteral("a"), IrQuantifier(0, IrNone))
+    seq = IrSequence(item)
+    assert seq[0] is item
+
+
+def test_irsequence_unknown_element_passes_through():
+    """An off-menu element (a bare IrStr, reached via rebuild) is untouched."""
+    seq = IrSequence(IrItem(IrLiteral("a")))
+    raw = IrStr("raw")
+    rebuilt = seq.rebuild((raw,))
+    assert rebuilt[0] is raw
+
+
+# -- IrAlternation: bare-arm sequence wrapping --
+
+
+def test_iralternation_coerces_bare_atom_arm_via_sequence():
+    """A bare IrAtom arm wraps via IrSequence (whose own coercion lifts it)."""
+    lit = IrLiteral("a")
+    alt = IrAlternation(lit)
+    assert alt[0] == IrSequence(IrItem(lit))
+
+
+def test_iralternation_coerces_bare_item_arm_via_sequence():
+    """A bare IrItem arm wraps via IrSequence."""
+    item = IrItem(IrLiteral("a"))
+    alt = IrAlternation(item)
+    assert alt[0] == IrSequence(item)
+
+
+def test_iralternation_keeps_sequence_arm_as_is():
+    """An IrSequence arm passed to IrAlternation is kept, not re-wrapped."""
+    seq = IrSequence(IrItem(IrLiteral("a")))
+    alt = IrAlternation(seq)
+    assert alt[0] is seq
+
+
+def test_iralternation_wraps_nested_alternation_as_single_item_group_arm():
+    """A nested IrAlternation arm (IS-A IrAtom) becomes a single-item group arm."""
+    inner = IrAlternation(IrSequence(IrItem(IrLiteral("a"))))
+    alt = IrAlternation(inner)
+    assert alt[0] == IrSequence(IrItem(inner))
+    assert isinstance(alt[0][0].atom, IrAlternation)
+
+
+def test_iralternation_unknown_arm_passes_through():
+    """An off-menu arm (a bare IrStr, reached via rebuild) is untouched."""
+    alt = IrAlternation(IrSequence())
+    raw = IrStr("raw")
+    rebuilt = alt.rebuild((raw,))
+    assert rebuilt[0] is raw
+
+
+# -- IrItem (D2): bare-sequence atom wrapping --
+
+
+def test_iritem_coerces_bare_sequence_atom_to_alternation():
+    """A bare IrSequence atom wraps to IrAlternation(seq) — the inline-group sugar."""
+    seq = IrSequence(IrItem(IrLiteral("a")))
+    item = IrItem(seq)
+    assert item.atom == IrAlternation(seq)
+    assert isinstance(item.atom, IrAlternation)
+
+
+def test_iritem_keeps_real_atom_as_is():
+    """A real IrAtom passed to IrItem is kept, not re-wrapped."""
+    lit = IrLiteral("a")
+    item = IrItem(lit)
+    assert item.atom is lit
+
+
+def test_iritem_default_quantifier_preserved_when_only_atom_given():
+    """Omitting the quantifier still yields the unit default, atom coercion aside."""
+    item = IrItem(IrLiteral("a"))
+    assert item.quantifier == IrQuantifier()
+
+
+def test_iritem_unknown_atom_passes_through():
+    """An off-menu atom (a bare IrStr, reached via rebuild) is untouched."""
+    item = IrItem(IrLiteral("a"))
+    raw = IrStr("raw")
+    rebuilt = item.rebuild((raw, IrQuantifier()))
+    assert rebuilt.atom is raw
+
+
+# -- IrRule: body coercion up the atom -> item -> sequence -> alternation cascade --
+
+
+def test_irrule_body_coercion_from_alternation():
+    """An IrAlternation body is taken as-is."""
+    body = IrAlternation(IrSequence(IrItem(IrLiteral("a"))))
+    assert IrRule("x", body) == _canonical_rule("x", IrLiteral("a"))
+
+
+def test_irrule_body_coercion_from_sequence():
+    """An IrSequence body wraps up to a single-arm alternation."""
+    body = IrSequence(IrItem(IrLiteral("a")))
+    assert IrRule("x", body) == _canonical_rule("x", IrLiteral("a"))
+
+
+def test_irrule_body_coercion_from_item():
+    """An IrItem body wraps up to a single-arm alternation."""
+    body = IrItem(IrLiteral("a"))
+    assert IrRule("x", body) == _canonical_rule("x", IrLiteral("a"))
+
+
+def test_irrule_body_coercion_from_bare_atom():
+    """A bare IrAtom body wraps all the way up to a single-arm alternation."""
+    assert IrRule("x", IrLiteral("a")) == _canonical_rule("x", IrLiteral("a"))
+
+
+def test_irrule_body_alternation_branch_runs_before_atom_branch():
+    """IrAlternation IS-A IrAtom; the IrAlternation isinstance check must run
+    first so a multi-arm body is not re-wrapped into a single-arm group."""
+    multi = IrAlternation(
+        IrSequence(IrItem(IrLiteral("a"))),
+        IrSequence(IrItem(IrLiteral("b"))),
+    )
+    rule = IrRule("x", multi)
+    assert rule.body is multi
+
+
+def test_irrule_body_unknown_passes_through():
+    """An off-menu body (a bare IrStr, reached via rebuild) is untouched."""
+    rule = IrRule("x", IrAlternation())
+    raw = IrStr("raw")
+    rebuilt = rule.rebuild((raw,))
+    assert rebuilt.body is raw
+
+
+# -- Idempotence: canonical parts round-trip through construction unchanged --
+
+
+def test_coercion_is_idempotent_across_tiers():
+    """Feeding already-canonical shapes back through their own constructor
+    at every tier (item/sequence/alternation/rule) yields an equal object."""
+    lit = IrLiteral("a")
+    item = IrItem(lit)
+    seq = IrSequence(item)
+    alt = IrAlternation(seq)
+    rule = IrRule("r", alt)
+    assert IrItem(lit) == item
+    assert IrSequence(*seq) == seq
+    assert IrAlternation(*alt) == alt
+    assert IrRule("r", alt) == rule
+
+
+# -- Equality + repr: sugared construction equals hand-built canonical --
+
+
+def test_sugared_rule_equals_and_reprs_as_hand_built_canonical():
+    """A sugared single-arm rule equals, and reprs identically to, its
+    hand-built canonical form (repr strings compared — no eval, per policy)."""
+    sugared = IrRule("cr", IrCharClass(IrChr("\r")))
+    canonical = _canonical_rule("cr", IrCharClass(IrChr("\r")))
+    assert sugared == canonical
+    assert repr(sugared) == repr(canonical)
+
+
+# -- Keyword construction --
+
+
+def test_irrule_keyword_construction_coerces_identically():
+    """IrRule(name=..., body=...) coerces the same as positional construction."""
+    positional = IrRule("r", IrLiteral("x"))
+    keyword = IrRule(name="r", body=IrLiteral("x"))
+    assert positional == keyword
+
+
+def test_iritem_keyword_construction_coerces_identically():
+    """IrItem(atom=..., quantifier=...) coerces the same as positional construction."""
+    seq = IrSequence(IrItem(IrLiteral("a")))
+    positional = IrItem(seq, IrQuantifier(0, IrNone))
+    keyword = IrItem(atom=seq, quantifier=IrQuantifier(0, IrNone))
+    assert positional == keyword
+    assert isinstance(keyword.atom, IrAlternation)
+
+
+# ── IrCharClass intrinsic behaviour (relocated from utils/test_charclass) ──
+
+
+def test_charclass_pattern_single_range():
+    """A single IrRange flattens to ``lo-hi``."""
+    assert IrCharClass(IrRange(IrChr("a"), IrChr("z"))).pattern() == "a-z"
+
+
+def test_charclass_pattern_run_only():
+    """A run of code points emits its characters verbatim."""
+    assert IrCharClass(IrChr("a"), IrChr("b"), IrChr("c")).pattern() == "abc"
+
+
+def test_charclass_pattern_mixed_run_then_range():
+    """A run of code points followed by a range concatenates correctly."""
+    cls = IrCharClass(
+        IrChr("a"), IrChr("b"), IrChr("c"), IrRange(IrChr("0"), IrChr("9"))
+    )
+    assert cls.pattern() == "abc0-9"
+
+
+def test_charclass_pattern_encoded_hex_units():
+    """Non-printable code-point endpoints are escaped in the interior pattern."""
+    assert IrCharClass(IrRange(IrChr(0), IrChr(0x1F))).pattern() == "\\x00-\\x1f"
+
+
+def test_charclass_pattern_control_char_escapes_to_hex():
+    """Non-printable code points (≤ 0xFF) are rendered as ``\\xNN``."""
+    assert IrCharClass(IrChr("\x01")).pattern() == "\\x01"
+    assert IrCharClass(IrChr("\t")).pattern() == "\\x09"
+
+
+def test_charclass_pattern_metachars_are_escaped():
+    """Raw ``]``/``^``/``\\`` in a run are backslash-escaped."""
+    assert IrCharClass(IrChr("]")).pattern() == "\\]"
+    assert IrCharClass(IrChr("^")).pattern() == "\\^"
+    assert IrCharClass(IrChr("\\")).pattern() == "\\\\"
+
+
+def test_charclass_members_expands_range():
+    """A range enumerates its endpoints inclusive."""
+    assert IrCharClass(IrRange(IrChr("a"), IrChr("c"))).members() == [97, 98, 99]
+
+
+def test_charclass_members_mixed():
+    """Members preserve element order: run then range."""
+    cls = IrCharClass(IrChr("x"), IrRange(IrChr("0"), IrChr("2")))
+    assert [chr(c) for c in cls.members()] == ["x", "0", "1", "2"]
+
+
+def test_charclass_normalized_sorts_and_coalesces():
+    """Normal form dedupes, sorts, and coalesces adjacent runs into ranges."""
+    cls = IrCharClass(IrChr("\t"), IrChr("\n"), IrChr("\r"), IrChr(" "))
+    assert cls.normalized() == IrCharClass(
+        IrRange(IrChr(9), IrChr(10)), IrChr(13), IrChr(32)
+    )
+
+
+def test_charclass_normalized_single_run_is_range():
+    """A run of two adjacent points coalesces to one IrRange."""
+    assert IrCharClass(IrChr("A"), IrChr("B")).normalized() == IrCharClass(
+        IrRange(IrChr("A"), IrChr("B"))
+    )
+
+
+def test_charclass_complement_of_two_points():
+    """Complement of ``"`` and ``\\`` is the positive span cover to MAX_CODEPOINT."""
+    cls = IrCharClass(IrChr('"'), IrChr("\\"))
+    assert cls.complement() == IrCharClass(
+        IrRange(IrChr(0), IrChr(33)),
+        IrRange(IrChr(35), IrChr(91)),
+        IrRange(IrChr(93), IrChr(0x10FFFF)),
+    )
+
+
+# ── IrCharClass intrinsics (Task 2 extension): sample/normalized/complement ──
+
+
+def test_charclass_sample_always_returns_a_covered_member():
+    """sample() never returns a code point outside the class's own members."""
+    cls = IrCharClass(IrChr("a"), IrRange(IrChr("0"), IrChr("9")))
+    members = set(cls.members())
+    rng = random.Random(1729)
+    assert all(cls.sample(rng) in members for _ in range(200))
+
+
+def test_charclass_sample_covers_a_complement_class_without_materialising_it():
+    """sample() works on a wide complement class (interval-based, not enumerated)."""
+    cls = IrCharClass(IrChr("a")).complement()
+    rng = random.Random(7)
+    samples = [cls.sample(rng) for _ in range(50)]
+    assert all(point != ord("a") for point in samples)
+
+
+def test_charclass_normalized_dedupes_duplicate_members():
+    """Repeated identical members collapse to one in the normal form."""
+    cls = IrCharClass(IrChr("a"), IrChr("a"), IrChr("a"))
+    assert cls.normalized() == IrCharClass(IrChr("a"))
+
+
+def test_charclass_complement_round_trips_through_normalized_original():
+    """complement(complement(x)) == normalized(x) — the double-complement identity."""
+    cls = IrCharClass(IrChr("a"), IrRange(IrChr("0"), IrChr("9")))
+    assert cls.complement().complement() == cls.normalized()
+
+
+def test_charclass_empty_class_edges():
+    """An empty char class has empty pattern/members and complements to full range."""
+    empty = IrCharClass()
+    assert empty.pattern() == ""
+    assert not empty.members()
+    assert empty.normalized() == IrCharClass()
+    assert empty.complement() == IrCharClass(IrRange(IrChr(0), IrChr(MAX_CODEPOINT)))
+
+
+def test_charclass_full_range_class_edges():
+    """A class spanning the whole Unicode range complements to empty and is its own normal form."""
+    full = IrCharClass(IrRange(IrChr(0), IrChr(MAX_CODEPOINT)))
+    assert full.complement() == IrCharClass()
+    assert full.normalized() == full

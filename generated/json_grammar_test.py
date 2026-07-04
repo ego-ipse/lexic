@@ -21,52 +21,22 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.spec import RuleSpec
 
-Pattern = Annotated[str, StringConstraints(pattern=r"^[ \x09\x0a\x0d]*$")]
+Pattern = Annotated[str, StringConstraints(pattern=r"^[\x09-\x0a\x0d ]*$")]
 
-Pattern2 = Annotated[str, StringConstraints(pattern=r"^[1-9]$")]
+Pattern2 = Annotated[str, StringConstraints(pattern=r'^["/\\bfnrt]$')]
 
-Pattern3 = Annotated[str, StringConstraints(pattern=r"^[eE]$")]
+Pattern3 = Annotated[str, StringConstraints(pattern=r"^[1-9]$")]
 
-Pattern4 = Annotated[str, StringConstraints(pattern=r'^["\\/bfnrt]$')]
+Pattern4 = Annotated[str, StringConstraints(pattern=r"^[Ee]$")]
 
 Pattern5 = Annotated[str, StringConstraints(pattern=r"^[ -!#-\[\]-\U0010ffff]$")]
 
 Pattern6 = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]$")]
 
 
-class JSONText(GrammarModel):
+class JsonText(GrammarModel):
     ws: Optional[Ws] = None
     value: Value
-    ws2: Optional[Ws] = None
-
-
-class BeginArray(GrammarModel):
-    ws: Optional[Ws] = None
-    ws2: Optional[Ws] = None
-
-
-class BeginObject(GrammarModel):
-    ws: Optional[Ws] = None
-    ws2: Optional[Ws] = None
-
-
-class EndArray(GrammarModel):
-    ws: Optional[Ws] = None
-    ws2: Optional[Ws] = None
-
-
-class EndObject(GrammarModel):
-    ws: Optional[Ws] = None
-    ws2: Optional[Ws] = None
-
-
-class NameSeparator(GrammarModel):
-    ws: Optional[Ws] = None
-    ws2: Optional[Ws] = None
-
-
-class ValueSeparator(GrammarModel):
-    ws: Optional[Ws] = None
     ws2: Optional[Ws] = None
 
 
@@ -96,12 +66,6 @@ class Object(Value):
     end_object: EndObject
 
 
-class Member(GrammarModel):
-    string: String
-    name_separator: NameSeparator
-    value: Value
-
-
 class Array(Value):
     begin_array: BeginArray
     array_item2: Optional[ArrayItem2] = None
@@ -115,27 +79,49 @@ class Number(Value):
     exp: Optional[Exp] = None
 
 
-class DecimalPoint(GrammarModel):
+class String(Value):
+    quotation_mark: QuotationMark
+    char: List[Char]
+    quotation_mark2: QuotationMark
+
+
+class BeginObject(GrammarModel):
+    ws: Optional[Ws] = None
+    ws2: Optional[Ws] = None
+
+
+class Member(GrammarModel):
+    string: String
+    name_separator: NameSeparator
+    value: Value
+
+
+class ValueSeparator(GrammarModel):
+    ws: Optional[Ws] = None
+    ws2: Optional[Ws] = None
+
+
+class EndObject(GrammarModel):
+    ws: Optional[Ws] = None
+    ws2: Optional[Ws] = None
+
+
+class BeginArray(GrammarModel):
+    ws: Optional[Ws] = None
+    ws2: Optional[Ws] = None
+
+
+class EndArray(GrammarModel):
+    ws: Optional[Ws] = None
+    ws2: Optional[Ws] = None
+
+
+class ExpItem(GrammarModel):
+    pass
+
+
+class Minus(ExpItem):
     value: str
-
-
-class Digit19(GrammarModel):
-    value: Pattern2
-
-
-class E(GrammarModel):
-    value: Pattern3
-
-
-class Exp(GrammarModel):
-    e: E
-    exp_item: Optional[ExpItem] = None
-    digit: List[Digit]
-
-
-class Frac(GrammarModel):
-    decimal_point: DecimalPoint
-    digit: List[Digit]
 
 
 class Int(GrammarModel):
@@ -147,30 +133,19 @@ class IntArm2(Int):
     digit: List[Digit]
 
 
-class ExpItem(GrammarModel):
-    pass
+class Frac(GrammarModel):
+    decimal_point: DecimalPoint
+    digit: List[Digit]
 
 
-class Minus(ExpItem):
+class Exp(GrammarModel):
+    e: E
+    exp_item: Optional[ExpItem] = None
+    digit: List[Digit]
+
+
+class QuotationMark(GrammarModel):
     value: str
-
-
-class Plus(ExpItem):
-    value: str
-
-
-class Zero(Int):
-    value: str
-
-
-class Digit(GrammarModel):
-    value: Annotated[str, StringConstraints(pattern=r"^[0-9]$")]
-
-
-class String(Value):
-    quotation_mark: QuotationMark
-    char: List[Char]
-    quotation_mark2: QuotationMark
 
 
 class Char(GrammarModel):
@@ -182,16 +157,41 @@ class CharArm2(Char):
     kind: str
 
 
-class Escape(GrammarModel):
+class NameSeparator(GrammarModel):
+    ws: Optional[Ws] = None
+    ws2: Optional[Ws] = None
+
+
+class Zero(Int):
     value: str
 
 
-class QuotationMark(GrammarModel):
+class Digit19(GrammarModel):
+    value: Pattern3
+
+
+class Digit(GrammarModel):
+    value: Annotated[str, StringConstraints(pattern=r"^[0-9]$")]
+
+
+class DecimalPoint(GrammarModel):
+    value: str
+
+
+class E(GrammarModel):
+    value: Pattern4
+
+
+class Plus(ExpItem):
     value: str
 
 
 class Unescaped(Char):
     value: Pattern5
+
+
+class Escape(GrammarModel):
+    value: str
 
 
 class Hexdig(GrammarModel):
@@ -218,9 +218,9 @@ class ArrayItem2(GrammarModel):
     array_item: List[ArrayItem]
 
 
-JSONText.__grammar__ = RuleSpec(
-    rule_name="JSON-text",
-    class_name="JSONText",
+JsonText.__grammar__ = RuleSpec(
+    rule_name="json-text",
+    class_name="JsonText",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
@@ -233,96 +233,6 @@ JSONText.__grammar__ = RuleSpec(
 )
 
 
-BeginArray.__grammar__ = RuleSpec(
-    rule_name="begin-array",
-    class_name="BeginArray",
-    parent_class_name="GrammarModel",
-    kind="sequence",
-    items=[
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-        IrItem(IrLiteral("[")),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-    ],
-    field_map={"ws": 0, "ws2": 2},
-    non_semantic_fields=frozenset(["ws", "ws2"]),
-)
-
-
-BeginObject.__grammar__ = RuleSpec(
-    rule_name="begin-object",
-    class_name="BeginObject",
-    parent_class_name="GrammarModel",
-    kind="sequence",
-    items=[
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-        IrItem(IrLiteral("{")),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-    ],
-    field_map={"ws": 0, "ws2": 2},
-    non_semantic_fields=frozenset(["ws", "ws2"]),
-)
-
-
-EndArray.__grammar__ = RuleSpec(
-    rule_name="end-array",
-    class_name="EndArray",
-    parent_class_name="GrammarModel",
-    kind="sequence",
-    items=[
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-        IrItem(IrLiteral("]")),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-    ],
-    field_map={"ws": 0, "ws2": 2},
-    non_semantic_fields=frozenset(["ws", "ws2"]),
-)
-
-
-EndObject.__grammar__ = RuleSpec(
-    rule_name="end-object",
-    class_name="EndObject",
-    parent_class_name="GrammarModel",
-    kind="sequence",
-    items=[
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-        IrItem(IrLiteral("}")),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-    ],
-    field_map={"ws": 0, "ws2": 2},
-    non_semantic_fields=frozenset(["ws", "ws2"]),
-)
-
-
-NameSeparator.__grammar__ = RuleSpec(
-    rule_name="name-separator",
-    class_name="NameSeparator",
-    parent_class_name="GrammarModel",
-    kind="sequence",
-    items=[
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-        IrItem(IrLiteral(":")),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-    ],
-    field_map={"ws": 0, "ws2": 2},
-    non_semantic_fields=frozenset(["ws", "ws2"]),
-)
-
-
-ValueSeparator.__grammar__ = RuleSpec(
-    rule_name="value-separator",
-    class_name="ValueSeparator",
-    parent_class_name="GrammarModel",
-    kind="sequence",
-    items=[
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-        IrItem(IrLiteral(",")),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-    ],
-    field_map={"ws": 0, "ws2": 2},
-    non_semantic_fields=frozenset(["ws", "ws2"]),
-)
-
-
 Ws.__grammar__ = RuleSpec(
     rule_name="ws",
     class_name="Ws",
@@ -330,7 +240,7 @@ Ws.__grammar__ = RuleSpec(
     kind="value_str",
     items=[
         IrItem(
-            IrCharClass(IrChr(32), IrChr(9), IrChr(10), IrChr(13)),
+            IrCharClass(IrRange(IrChr(9), IrChr(10)), IrChr(13), IrChr(32)),
             IrQuantifier(0, IrNone),
         )
     ],
@@ -406,21 +316,6 @@ Object.__grammar__ = RuleSpec(
 )
 
 
-Member.__grammar__ = RuleSpec(
-    rule_name="member",
-    class_name="Member",
-    parent_class_name="GrammarModel",
-    kind="sequence",
-    items=[
-        IrItem(IrRuleRef("string")),
-        IrItem(IrRuleRef("name-separator")),
-        IrItem(IrRuleRef("value")),
-    ],
-    field_map={"string": 0, "name_separator": 1, "value": 2},
-    non_semantic_fields=frozenset([]),
-)
-
-
 Array.__grammar__ = RuleSpec(
     rule_name="array",
     class_name="Array",
@@ -452,64 +347,129 @@ Number.__grammar__ = RuleSpec(
 )
 
 
-DecimalPoint.__grammar__ = RuleSpec(
-    rule_name="decimal-point",
-    class_name="DecimalPoint",
-    parent_class_name="GrammarModel",
-    kind="value_str",
-    items=[IrItem(IrLiteral("."))],
-    field_map={},
+String.__grammar__ = RuleSpec(
+    rule_name="string",
+    class_name="String",
+    parent_class_name="Value",
+    kind="sequence",
+    items=[
+        IrItem(IrRuleRef("quotation-mark")),
+        IrItem(IrRuleRef("char"), IrQuantifier(0, IrNone)),
+        IrItem(IrRuleRef("quotation-mark")),
+    ],
+    field_map={"quotation_mark": 0, "char": 1, "quotation_mark2": 2},
     non_semantic_fields=frozenset([]),
 )
 
 
-Digit19.__grammar__ = RuleSpec(
-    rule_name="digit1-9",
-    class_name="Digit19",
-    parent_class_name="GrammarModel",
-    kind="value_str",
-    items=[IrItem(IrCharClass(IrRange(IrChr(49), IrChr(57))))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
-
-
-E.__grammar__ = RuleSpec(
-    rule_name="e",
-    class_name="E",
-    parent_class_name="GrammarModel",
-    kind="value_str",
-    items=[IrItem(IrCharClass(IrChr(101), IrChr(69)))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
-
-
-Exp.__grammar__ = RuleSpec(
-    rule_name="exp",
-    class_name="Exp",
+BeginObject.__grammar__ = RuleSpec(
+    rule_name="begin-object",
+    class_name="BeginObject",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("e")),
-        IrItem(IrRuleRef("exp-item"), IrQuantifier(0)),
-        IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrLiteral("{")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
     ],
-    field_map={"e": 0, "exp_item": 1, "digit": 2},
+    field_map={"ws": 0, "ws2": 2},
+    non_semantic_fields=frozenset(["ws", "ws2"]),
+)
+
+
+Member.__grammar__ = RuleSpec(
+    rule_name="member",
+    class_name="Member",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrRuleRef("string")),
+        IrItem(IrRuleRef("name-separator")),
+        IrItem(IrRuleRef("value")),
+    ],
+    field_map={"string": 0, "name_separator": 1, "value": 2},
     non_semantic_fields=frozenset([]),
 )
 
 
-Frac.__grammar__ = RuleSpec(
-    rule_name="frac",
-    class_name="Frac",
+ValueSeparator.__grammar__ = RuleSpec(
+    rule_name="value-separator",
+    class_name="ValueSeparator",
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("decimal-point")),
-        IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrLiteral(",")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
     ],
-    field_map={"decimal_point": 0, "digit": 1},
+    field_map={"ws": 0, "ws2": 2},
+    non_semantic_fields=frozenset(["ws", "ws2"]),
+)
+
+
+EndObject.__grammar__ = RuleSpec(
+    rule_name="end-object",
+    class_name="EndObject",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrLiteral("}")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+    ],
+    field_map={"ws": 0, "ws2": 2},
+    non_semantic_fields=frozenset(["ws", "ws2"]),
+)
+
+
+BeginArray.__grammar__ = RuleSpec(
+    rule_name="begin-array",
+    class_name="BeginArray",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrLiteral("[")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+    ],
+    field_map={"ws": 0, "ws2": 2},
+    non_semantic_fields=frozenset(["ws", "ws2"]),
+)
+
+
+EndArray.__grammar__ = RuleSpec(
+    rule_name="end-array",
+    class_name="EndArray",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrLiteral("]")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+    ],
+    field_map={"ws": 0, "ws2": 2},
+    non_semantic_fields=frozenset(["ws", "ws2"]),
+)
+
+
+ExpItem.__grammar__ = RuleSpec(
+    rule_name="exp-item",
+    class_name="ExpItem",
+    parent_class_name="GrammarModel",
+    kind="alternation",
+    items=[IrItem(IrRuleRef("minus")), IrItem(IrRuleRef("plus"))],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
+Minus.__grammar__ = RuleSpec(
+    rule_name="minus",
+    class_name="Minus",
+    parent_class_name="ExpItem",
+    kind="value_str",
+    items=[IrItem(IrLiteral("-"))],
+    field_map={},
     non_semantic_fields=frozenset([]),
 )
 
@@ -539,72 +499,42 @@ IntArm2.__grammar__ = RuleSpec(
 )
 
 
-ExpItem.__grammar__ = RuleSpec(
-    rule_name="exp-item",
-    class_name="ExpItem",
+Frac.__grammar__ = RuleSpec(
+    rule_name="frac",
+    class_name="Frac",
     parent_class_name="GrammarModel",
-    kind="alternation",
-    items=[IrItem(IrRuleRef("minus")), IrItem(IrRuleRef("plus"))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
-
-
-Minus.__grammar__ = RuleSpec(
-    rule_name="minus",
-    class_name="Minus",
-    parent_class_name="ExpItem",
-    kind="value_str",
-    items=[IrItem(IrLiteral("-"))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
-
-
-Plus.__grammar__ = RuleSpec(
-    rule_name="plus",
-    class_name="Plus",
-    parent_class_name="ExpItem",
-    kind="value_str",
-    items=[IrItem(IrLiteral("+"))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
-
-
-Zero.__grammar__ = RuleSpec(
-    rule_name="zero",
-    class_name="Zero",
-    parent_class_name="Int",
-    kind="value_str",
-    items=[IrItem(IrLiteral("0"))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
-
-
-Digit.__grammar__ = RuleSpec(
-    rule_name="digit",
-    class_name="Digit",
-    parent_class_name="GrammarModel",
-    kind="value_str",
-    items=[IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))))],
-    field_map={},
-    non_semantic_fields=frozenset([]),
-)
-
-
-String.__grammar__ = RuleSpec(
-    rule_name="string",
-    class_name="String",
-    parent_class_name="Value",
     kind="sequence",
     items=[
-        IrItem(IrRuleRef("quotation-mark")),
-        IrItem(IrRuleRef("char"), IrQuantifier(0, IrNone)),
-        IrItem(IrRuleRef("quotation-mark")),
+        IrItem(IrRuleRef("decimal-point")),
+        IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)),
     ],
-    field_map={"quotation_mark": 0, "char": 1, "quotation_mark2": 2},
+    field_map={"decimal_point": 0, "digit": 1},
+    non_semantic_fields=frozenset([]),
+)
+
+
+Exp.__grammar__ = RuleSpec(
+    rule_name="exp",
+    class_name="Exp",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrRuleRef("e")),
+        IrItem(IrRuleRef("exp-item"), IrQuantifier(0)),
+        IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)),
+    ],
+    field_map={"e": 0, "exp_item": 1, "digit": 2},
+    non_semantic_fields=frozenset([]),
+)
+
+
+QuotationMark.__grammar__ = RuleSpec(
+    rule_name="quotation-mark",
+    class_name="QuotationMark",
+    parent_class_name="GrammarModel",
+    kind="value_str",
+    items=[IrItem(IrLiteral('"'))],
+    field_map={},
     non_semantic_fields=frozenset([]),
 )
 
@@ -633,8 +563,8 @@ CharArm2.__grammar__ = RuleSpec(
                     IrItem(
                         IrCharClass(
                             IrChr(34),
-                            IrChr(92),
                             IrChr(47),
+                            IrChr(92),
                             IrChr(98),
                             IrChr(102),
                             IrChr(110),
@@ -655,23 +585,82 @@ CharArm2.__grammar__ = RuleSpec(
 )
 
 
-Escape.__grammar__ = RuleSpec(
-    rule_name="escape",
-    class_name="Escape",
+NameSeparator.__grammar__ = RuleSpec(
+    rule_name="name-separator",
+    class_name="NameSeparator",
     parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrLiteral(":")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+    ],
+    field_map={"ws": 0, "ws2": 2},
+    non_semantic_fields=frozenset(["ws", "ws2"]),
+)
+
+
+Zero.__grammar__ = RuleSpec(
+    rule_name="zero",
+    class_name="Zero",
+    parent_class_name="Int",
     kind="value_str",
-    items=[IrItem(IrLiteral("\\"))],
+    items=[IrItem(IrLiteral("0"))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
 
 
-QuotationMark.__grammar__ = RuleSpec(
-    rule_name="quotation-mark",
-    class_name="QuotationMark",
+Digit19.__grammar__ = RuleSpec(
+    rule_name="digit1-9",
+    class_name="Digit19",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrLiteral('"'))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(49), IrChr(57))))],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
+Digit.__grammar__ = RuleSpec(
+    rule_name="digit",
+    class_name="Digit",
+    parent_class_name="GrammarModel",
+    kind="value_str",
+    items=[IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))))],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
+DecimalPoint.__grammar__ = RuleSpec(
+    rule_name="decimal-point",
+    class_name="DecimalPoint",
+    parent_class_name="GrammarModel",
+    kind="value_str",
+    items=[IrItem(IrLiteral("."))],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
+E.__grammar__ = RuleSpec(
+    rule_name="e",
+    class_name="E",
+    parent_class_name="GrammarModel",
+    kind="value_str",
+    items=[IrItem(IrCharClass(IrChr(69), IrChr(101)))],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
+Plus.__grammar__ = RuleSpec(
+    rule_name="plus",
+    class_name="Plus",
+    parent_class_name="ExpItem",
+    kind="value_str",
+    items=[IrItem(IrLiteral("+"))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
@@ -691,6 +680,17 @@ Unescaped.__grammar__ = RuleSpec(
             )
         )
     ],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
+Escape.__grammar__ = RuleSpec(
+    rule_name="escape",
+    class_name="Escape",
+    parent_class_name="GrammarModel",
+    kind="value_str",
+    items=[IrItem(IrLiteral("\\"))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )

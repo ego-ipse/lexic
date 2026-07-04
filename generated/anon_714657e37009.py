@@ -18,7 +18,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.spec import RuleSpec
 
-Pattern = Annotated[str, StringConstraints(pattern=r"^[-+*/]$")]
+Pattern = Annotated[str, StringConstraints(pattern=r"^[*-+-/]$")]
 
 Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]
 
@@ -46,7 +46,7 @@ class Num(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("root"),
+    rule_name="root",
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -57,7 +57,7 @@ Root.__grammar__ = RuleSpec(
 
 
 Expr.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("expr"),
+    rule_name="expr",
     class_name="Expr",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -72,7 +72,7 @@ Expr.__grammar__ = RuleSpec(
 
 
 Term.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("term"),
+    rule_name="term",
     class_name="Term",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -83,18 +83,18 @@ Term.__grammar__ = RuleSpec(
 
 
 Op.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("op"),
+    rule_name="op",
     class_name="Op",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrChr(45), IrChr(43), IrChr(42), IrChr(47)))],
+    items=[IrItem(IrCharClass(IrRange(IrChr(42), IrChr(43)), IrChr(45), IrChr(47)))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
 
 
 Num.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("num"),
+    rule_name="num",
     class_name="Num",
     parent_class_name="GrammarModel",
     kind="value_str",

@@ -36,6 +36,15 @@ and a ledger line to the active plan dir. At **95%**: force it — stop
 messages regardless of task state, plus a "NEXT SESSION — start here" block
 above the plan's ledger.
 
+**Idle-and-resume:** agents are told to hold (idle, state preserved), not
+exit. Then launch `tools/usage_resume.sh` as a background task — it sleeps
+until the five-hour window resets (+10 min grace), confirms utilization
+dropped, and exits `RESUME <pct>`, re-invoking the coordinator — and
+schedule a chained wakeup as fallback. On resume: re-arm the watcher,
+`SendMessage` every held agent to continue. One cold context re-read per
+party at resume is expected (5-min prompt-cache TTL); it bills to the fresh
+window.
+
 ## Commands
 
 Always prefix with `uv run`. Never run `pytest` or `ruff` bare.

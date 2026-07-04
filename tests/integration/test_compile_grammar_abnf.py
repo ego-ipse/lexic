@@ -4,40 +4,51 @@ from __future__ import annotations
 
 from lexic.compile import compile_grammar
 from lexic.grammars.abnf import ABNF_FLAVOUR
-from lexic.ir.nodes import IrAlternation, IrItem
+from lexic.ir.nodes import IrCharClass, IrItem
 from tests.integration._abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
 from tests.paths import GROUND_TRUTH
 
 
 def test_compile_arithmetic_abnf_succeeds():
-    """All expected rule names are present and structural kinds are correct."""
+    """All expected rule names are present and structural kinds are correct.
+
+    Rule names fold to canonical form (lowercase, ``_``→``-``) as of
+    canonicalize's rewrite 7 — ``DIGIT``/``WSP`` become ``digit``/``wsp``.
+    """
     text = (GROUND_TRUTH / "arithmetic.abnf").read_text(encoding="utf-8")
     _start, specs = compile_grammar(text, ABNF_FLAVOUR)
     by = {s.rule_name: s for s in specs}
-    assert {"root", "expr", "term", "op", "num", "DIGIT", "WSP"} <= set(by)
+    assert {"root", "expr", "term", "op", "num", "digit", "wsp"} <= set(by)
     assert by["op"].kind == "value_str"
     assert by["expr"].kind == "sequence"
-    assert by["DIGIT"].kind == "value_str"
+    assert by["digit"].kind == "value_str"
 
 
 def test_compile_abnf_non_semantic_directive_propagates_to_referencing_rule():
-    """@non-semantic WSP propagates into non_semantic_fields on any rule that references it."""
+    """@non-semantic WSP propagates into non_semantic_fields on any rule that
+    references it — the ref folds to canonical ``wsp``, same as the rule name."""
     _, specs = compile_grammar(NON_SEMANTIC_DIRECTIVE_ABNF, ABNF_FLAVOUR)
     by = {s.rule_name: s for s in specs}
-    assert "WSP" in by["root"].non_semantic_fields
+    assert "wsp" in by["root"].non_semantic_fields
 
 
 def test_compile_abnf_case_insensitive_literal_expanded():
-    """`root = "Hi"` in ABNF → IrGroup of char classes, not a single literal."""
+    """`root = "Hi"` in ABNF → two direct char-class items, ``[Hh][Ii]``.
+
+    Canonicalize's rewrite 5 inlines the single-arm group each case-folded
+    letter used to sit in, so the case-insensitive expansion is now two
+    ``IrItem``s carrying an ``IrCharClass`` atom directly — not a group.
+    """
     text = 'root = "Hi"\n'
     _start, specs = compile_grammar(text, ABNF_FLAVOUR)
     spec = specs[0]
-    # The rule classifies as value_str (no rulerefs); the IrItem inside should
-    # carry an IrGroup atom (from normalize_literal expansion).
     assert spec.kind == "value_str"
-    assert any(_has_group_in(item) for item in spec.items if isinstance(item, IrItem))
-
-
-def _has_group_in(item: IrItem) -> bool:
-    """Is the item's atom an IrGroup?"""
-    return isinstance(item.atom, IrAlternation)
+    items = [item for item in spec.items if isinstance(item, IrItem)]
+    assert len(items) == 2
+    atoms = [item.atom for item in items]
+    assert all(isinstance(atom, IrCharClass) for atom in atoms)
+    charclasses = [atom for atom in atoms if isinstance(atom, IrCharClass)]
+    assert [sorted(cc.members()) for cc in charclasses] == [
+        sorted(map(ord, "Hh")),
+        sorted(map(ord, "Ii")),
+    ]

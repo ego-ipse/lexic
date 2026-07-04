@@ -44,6 +44,7 @@ from lexic.codegen import codegen
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir.base import IrSeq
+from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.derive import derive_specs
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst, IrRule
@@ -262,17 +263,19 @@ def compile_grammar(
     dir_start, dir_non_semantic = _scan_directives(text, flavour.line_comment)
     if non_semantic_rules is None:
         non_semantic_rules = dir_non_semantic
-    ast = parse_grammar(text, flavour)
-    if start is None:
-        start = dir_start or (ast.rules[0].name if ast.rules else "")
+    parsed = parse_grammar(text, flavour)
+    raw_start = start or dir_start or (parsed.rules[0].name if parsed.rules else "")
+    ast = canonicalize(IrAst(rules=parsed.rules, start=raw_start))
+    start = ast.start  # canonicalize folds names; directive/arg names fold too
     if start and not any(r.name == start for r in ast.rules):
         raise UnsupportedConstructError(
             f"start rule {start!r} not defined in grammar; "
             f"available rules: {[r.name for r in ast.rules]}"
         )
+    folded_non_semantic = frozenset(fold_name(n) for n in non_semantic_rules)
     rules = IrSeq(
         *(
-            IrRule(r.name, r.body, False) if r.name in non_semantic_rules else r
+            IrRule(r.name, r.body, False) if r.name in folded_non_semantic else r
             for r in ast.rules
         )
     )

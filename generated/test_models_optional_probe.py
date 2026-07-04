@@ -1,4 +1,4 @@
-"""Generated module: test_models_for_specs. Do not edit; regenerated from grammar."""
+"""Generated module: test_models_optional_probe. Do not edit; regenerated from grammar."""
 
 from __future__ import annotations
 

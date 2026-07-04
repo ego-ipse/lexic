@@ -19,51 +19,57 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
 from lexic.ir.spec import RuleSpec
 
-Pattern = Annotated[str, StringConstraints(pattern=r"^(true|false|null)$")]
+Pattern = Annotated[str, StringConstraints(pattern=r"^[\x09 ]{0,20}$")]
 
-Pattern2 = Annotated[str, StringConstraints(pattern=r'^[^"\\\x7f\x00-\x1f]$')]
+Pattern2 = Annotated[str, StringConstraints(pattern=r"^(true|false|null)$")]
 
-Pattern3 = Annotated[str, StringConstraints(pattern=r'^["\\bfnrt]$')]
+Pattern3 = Annotated[str, StringConstraints(pattern=r"^[ -!#-\[\]-~\x80-\U0010ffff]$")]
 
-Hex = Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{4}$")]
+Pattern4 = Annotated[str, StringConstraints(pattern=r'^["\\bfnrt]$')]
 
-Pattern4 = Annotated[str, StringConstraints(pattern=r'^(["\\bfnrt]|u[0-9a-fA-F]{4})$')]
+Pattern5 = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]{4}$")]
 
-Pattern5 = Annotated[
+Pattern6 = Annotated[str, StringConstraints(pattern=r'^(["\\bfnrt]|u[0-9A-Fa-f]{4})$')]
+
+Pattern7 = Annotated[
     str,
     StringConstraints(
-        pattern=r'^([^"\\\x7f\x00-\x1f]|\\(["\\bfnrt]|u[0-9a-fA-F]{4}))*$'
+        pattern=r'^([ -!#-\[\]-~\x80-\U0010ffff]|\\(["\\bfnrt]|u[0-9A-Fa-f]{4}))*$'
     ),
 ]
 
 Digit = Annotated[str, StringConstraints(pattern=r"^[0-9]$")]
 
-Pattern6 = Annotated[str, StringConstraints(pattern=r"^[1-9]$")]
+Pattern8 = Annotated[str, StringConstraints(pattern=r"^[1-9]$")]
 
 Digit2 = Annotated[str, StringConstraints(pattern=r"^[0-9]{0,15}$")]
 
-Pattern7 = Annotated[str, StringConstraints(pattern=r"^([0-9]|[1-9][0-9]{0,15})$")]
-
-Pattern8 = Annotated[str, StringConstraints(pattern=r"^(\-?([0-9]|[1-9][0-9]{0,15}))$")]
+Pattern9 = Annotated[str, StringConstraints(pattern=r"^([0-9]|[1-9][0-9]{0,15})$")]
 
 Digit3 = Annotated[str, StringConstraints(pattern=r"^[0-9]+$")]
 
-Pattern9 = Annotated[str, StringConstraints(pattern=r"^(\.[0-9]+)?$")]
+Pattern10 = Annotated[str, StringConstraints(pattern=r"^(\.[0-9]+)?$")]
 
-Pattern10 = Annotated[str, StringConstraints(pattern=r"^[eE]$")]
+Pattern11 = Annotated[str, StringConstraints(pattern=r"^[Ee]$")]
 
-Pattern11 = Annotated[str, StringConstraints(pattern=r"^[-+]?$")]
+Pattern12 = Annotated[str, StringConstraints(pattern=r"^[+-]?$")]
 
-Pattern12 = Annotated[str, StringConstraints(pattern=r"^([eE][-+]?[1-9][0-9]{0,15})?$")]
-
-Pattern13 = Annotated[str, StringConstraints(pattern=r"^[ \x09]{0,20}$")]
+Pattern13 = Annotated[str, StringConstraints(pattern=r"^([Ee][+-]?[1-9][0-9]{0,15})?$")]
 
 
 class Root(GrammarModel):
     arr: Arr
+
+
+class Arr(GrammarModel):
+    ws: Optional[Ws] = None
+    arr_item2: Optional[ArrItem2] = None
+
+
+class Ws(GrammarModel):
+    value: str
 
 
 class Value(GrammarModel):
@@ -71,13 +77,8 @@ class Value(GrammarModel):
 
 
 class ValueArm5(Value):
-    true: Pattern
+    true: Pattern2
     ws: Optional[Ws] = None
-
-
-class Arr(GrammarModel):
-    ws: Optional[Ws] = None
-    arr_item2: Optional[ArrItem2] = None
 
 
 class Object(Value):
@@ -93,19 +94,16 @@ class Array(Value):
 
 
 class String(Value):
-    x7fx00_x1f: Pattern5
+    x80_u0010fff: Pattern7
     ws: Optional[Ws] = None
 
 
 class Number(Value):
-    sign: Pattern8
-    dot: Optional[Pattern9] = None
-    ee: Optional[Pattern12] = None
+    sign: Optional[str] = None
+    digit: Pattern9
+    dot: Optional[Pattern10] = None
+    ee: Optional[Pattern13] = None
     ws: Optional[Ws] = None
-
-
-class Ws(GrammarModel):
-    value: str
 
 
 class ArrItem(GrammarModel):
@@ -143,7 +141,7 @@ class ArrayItem2(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("root"),
+    rule_name="root",
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -153,8 +151,44 @@ Root.__grammar__ = RuleSpec(
 )
 
 
+Arr.__grammar__ = RuleSpec(
+    rule_name="arr",
+    class_name="Arr",
+    parent_class_name="GrammarModel",
+    kind="sequence",
+    items=[
+        IrItem(IrLiteral("[\n")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
+        IrItem(IrRuleRef("arr-item2"), IrQuantifier(0)),
+        IrItem(IrLiteral("]")),
+    ],
+    field_map={"ws": 1, "arr_item2": 2},
+    non_semantic_fields=frozenset(["ws"]),
+)
+
+
+Ws.__grammar__ = RuleSpec(
+    rule_name="ws",
+    class_name="Ws",
+    parent_class_name="GrammarModel",
+    kind="value_str",
+    items=[
+        IrAlternation(
+            IrSequence(),
+            IrSequence(IrItem(IrLiteral(" "))),
+            IrSequence(
+                IrItem(IrLiteral("\n")),
+                IrItem(IrCharClass(IrChr(9), IrChr(32)), IrQuantifier(0, 20)),
+            ),
+        )
+    ],
+    field_map={},
+    non_semantic_fields=frozenset([]),
+)
+
+
 Value.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("value"),
+    rule_name="value",
     class_name="Value",
     parent_class_name="GrammarModel",
     kind="alternation",
@@ -190,24 +224,8 @@ ValueArm5.__grammar__ = RuleSpec(
 )
 
 
-Arr.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("arr"),
-    class_name="Arr",
-    parent_class_name="GrammarModel",
-    kind="sequence",
-    items=[
-        IrItem(IrLiteral("[\n")),
-        IrItem(IrRuleRef("ws"), IrQuantifier(0)),
-        IrItem(IrRuleRef("arr-item2"), IrQuantifier(0)),
-        IrItem(IrLiteral("]")),
-    ],
-    field_map={"ws": 1, "arr_item2": 2},
-    non_semantic_fields=frozenset(["ws"]),
-)
-
-
 Object.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("object"),
+    rule_name="object",
     class_name="Object",
     parent_class_name="Value",
     kind="sequence",
@@ -224,7 +242,7 @@ Object.__grammar__ = RuleSpec(
 
 
 Array.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("array"),
+    rule_name="array",
     class_name="Array",
     parent_class_name="Value",
     kind="sequence",
@@ -241,7 +259,7 @@ Array.__grammar__ = RuleSpec(
 
 
 String.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("string"),
+    rule_name="string",
     class_name="String",
     parent_class_name="Value",
     kind="sequence",
@@ -251,13 +269,11 @@ String.__grammar__ = RuleSpec(
             IrAlternation(
                 IrSequence(
                     IrItem(
-                        IrNot(
-                            IrCharClass(
-                                IrChr(34),
-                                IrChr(92),
-                                IrChr(127),
-                                IrRange(IrChr(0), IrChr(31)),
-                            )
+                        IrCharClass(
+                            IrRange(IrChr(32), IrChr(33)),
+                            IrRange(IrChr(35), IrChr(91)),
+                            IrRange(IrChr(93), IrChr(126)),
+                            IrRange(IrChr(128), IrChr(1114111)),
                         )
                     )
                 ),
@@ -283,8 +299,8 @@ String.__grammar__ = RuleSpec(
                                 IrItem(
                                     IrCharClass(
                                         IrRange(IrChr(48), IrChr(57)),
-                                        IrRange(IrChr(97), IrChr(102)),
                                         IrRange(IrChr(65), IrChr(70)),
+                                        IrRange(IrChr(97), IrChr(102)),
                                     ),
                                     IrQuantifier(4, 4),
                                 ),
@@ -298,36 +314,27 @@ String.__grammar__ = RuleSpec(
         IrItem(IrLiteral('"')),
         IrItem(IrRuleRef("ws"), IrQuantifier(0)),
     ],
-    field_map={"x7fx00_x1f": 1, "ws": 3},
+    field_map={"x80_u0010fff": 1, "ws": 3},
     non_semantic_fields=frozenset(["ws"]),
 )
 
 
 Number.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("number"),
+    rule_name="number",
     class_name="Number",
     parent_class_name="Value",
     kind="sequence",
     items=[
+        IrItem(IrLiteral("-"), IrQuantifier(0)),
         IrItem(
             IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))))),
                 IrSequence(
-                    IrItem(IrLiteral("-"), IrQuantifier(0)),
+                    IrItem(IrCharClass(IrRange(IrChr(49), IrChr(57)))),
                     IrItem(
-                        IrAlternation(
-                            IrSequence(
-                                IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))))
-                            ),
-                            IrSequence(
-                                IrItem(IrCharClass(IrRange(IrChr(49), IrChr(57)))),
-                                IrItem(
-                                    IrCharClass(IrRange(IrChr(48), IrChr(57))),
-                                    IrQuantifier(0, 15),
-                                ),
-                            ),
-                        )
+                        IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(0, 15)
                     ),
-                )
+                ),
             )
         ),
         IrItem(
@@ -345,8 +352,8 @@ Number.__grammar__ = RuleSpec(
         IrItem(
             IrAlternation(
                 IrSequence(
-                    IrItem(IrCharClass(IrChr(101), IrChr(69))),
-                    IrItem(IrCharClass(IrChr(45), IrChr(43)), IrQuantifier(0)),
+                    IrItem(IrCharClass(IrChr(69), IrChr(101))),
+                    IrItem(IrCharClass(IrChr(43), IrChr(45)), IrQuantifier(0)),
                     IrItem(IrCharClass(IrRange(IrChr(49), IrChr(57)))),
                     IrItem(
                         IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(0, 15)
@@ -357,28 +364,8 @@ Number.__grammar__ = RuleSpec(
         ),
         IrItem(IrRuleRef("ws"), IrQuantifier(0)),
     ],
-    field_map={"sign": 0, "dot": 1, "ee": 2, "ws": 3},
+    field_map={"sign": 0, "digit": 1, "dot": 2, "ee": 3, "ws": 4},
     non_semantic_fields=frozenset(["ws"]),
-)
-
-
-Ws.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("ws"),
-    class_name="Ws",
-    parent_class_name="GrammarModel",
-    kind="value_str",
-    items=[
-        IrAlternation(
-            IrSequence(),
-            IrSequence(IrItem(IrLiteral(" "))),
-            IrSequence(
-                IrItem(IrLiteral("\n")),
-                IrItem(IrCharClass(IrChr(32), IrChr(9)), IrQuantifier(0, 20)),
-            ),
-        )
-    ],
-    field_map={},
-    non_semantic_fields=frozenset([]),
 )
 
 

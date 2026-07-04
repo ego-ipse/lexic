@@ -33,6 +33,7 @@ from lexic.ir.base import (
     IrSelf,
     IrSeq,
 )
+from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.derive import (
     classify_kind,
     compute_parents,
@@ -57,6 +58,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrAnd, IrNot, IrOp, IrOpNode
+from lexic.ir.order import RuleOrder, order_by_refs
 from lexic.ir.spec import RuleSpec
 from lexic.ir.topo import topo_sort
 from lexic.ir.walk import IrTransformer, IrVisitor
@@ -114,11 +116,15 @@ __all__ = [
     "IrVisitor",
     "IrQuantifier",
     "IrRange",
+    "RuleOrder",
     "RuleSpec",
+    "canonicalize",
     "classify_kind",
     "compute_parents",
     "derive_specs",
+    "fold_name",
     "has_ruleref",
     "hoist_helpers",
+    "order_by_refs",
     "topo_sort",
 ]

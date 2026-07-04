@@ -26,7 +26,7 @@ Pattern3 = Annotated[str, StringConstraints(pattern=r"^[、-〾]$")]
 
 Pattern4 = Annotated[str, StringConstraints(pattern=r"^[一-鿿]$")]
 
-Pattern5 = Annotated[str, StringConstraints(pattern=r"^[ \x09\x0a]$")]
+Pattern5 = Annotated[str, StringConstraints(pattern=r"^[\x09-\x0a ]$")]
 
 
 class Root(GrammarModel):
@@ -60,7 +60,7 @@ class RootItem(GrammarModel):
 
 
 Root.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("root"),
+    rule_name="root",
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -74,7 +74,7 @@ Root.__grammar__ = RuleSpec(
 
 
 JpChar.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("jp-char"),
+    rule_name="jp-char",
     class_name="JpChar",
     parent_class_name="GrammarModel",
     kind="alternation",
@@ -90,7 +90,7 @@ JpChar.__grammar__ = RuleSpec(
 
 
 Hiragana.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("hiragana"),
+    rule_name="hiragana",
     class_name="Hiragana",
     parent_class_name="JpChar",
     kind="value_str",
@@ -101,7 +101,7 @@ Hiragana.__grammar__ = RuleSpec(
 
 
 Katakana.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("katakana"),
+    rule_name="katakana",
     class_name="Katakana",
     parent_class_name="JpChar",
     kind="value_str",
@@ -112,7 +112,7 @@ Katakana.__grammar__ = RuleSpec(
 
 
 Punctuation.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("punctuation"),
+    rule_name="punctuation",
     class_name="Punctuation",
     parent_class_name="JpChar",
     kind="value_str",
@@ -123,7 +123,7 @@ Punctuation.__grammar__ = RuleSpec(
 
 
 Cjk.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("cjk"),
+    rule_name="cjk",
     class_name="Cjk",
     parent_class_name="JpChar",
     kind="value_str",
@@ -139,7 +139,7 @@ RootItem.__grammar__ = RuleSpec(
     parent_class_name="GrammarModel",
     kind="sequence",
     items=[
-        IrItem(IrCharClass(IrChr(32), IrChr(9), IrChr(10))),
+        IrItem(IrCharClass(IrRange(IrChr(9), IrChr(10)), IrChr(32))),
         IrItem(IrRuleRef("jp-char"), IrQuantifier(1, IrNone)),
     ],
     field_map={"head": 0, "jp_char": 1},

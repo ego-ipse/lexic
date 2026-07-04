@@ -18,7 +18,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.spec import RuleSpec
 
-Pattern = Annotated[str, StringConstraints(pattern=r"^[ \x09]*$")]
+Pattern = Annotated[str, StringConstraints(pattern=r"^[\x09 ]*$")]
 
 
 class Root(GrammarModel):
@@ -27,16 +27,16 @@ class Root(GrammarModel):
     ws2: Optional[Ws] = None
 
 
-class Value(GrammarModel):
-    value: str
-
-
 class Ws(GrammarModel):
     value: Pattern
 
 
+class Value(GrammarModel):
+    value: str
+
+
 Root.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("root"),
+    rule_name="root",
     class_name="Root",
     parent_class_name="GrammarModel",
     kind="sequence",
@@ -50,23 +50,23 @@ Root.__grammar__ = RuleSpec(
 )
 
 
-Value.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("value"),
-    class_name="Value",
+Ws.__grammar__ = RuleSpec(
+    rule_name="ws",
+    class_name="Ws",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrLiteral("x"))],
+    items=[IrItem(IrCharClass(IrChr(9), IrChr(32)), IrQuantifier(0, IrNone))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
 
 
-Ws.__grammar__ = RuleSpec(
-    rule_name=IrRuleRef("ws"),
-    class_name="Ws",
+Value.__grammar__ = RuleSpec(
+    rule_name="value",
+    class_name="Value",
     parent_class_name="GrammarModel",
     kind="value_str",
-    items=[IrItem(IrCharClass(IrChr(32), IrChr(9)), IrQuantifier(0, IrNone))],
+    items=[IrItem(IrLiteral("x"))],
     field_map={},
     non_semantic_fields=frozenset([]),
 )
