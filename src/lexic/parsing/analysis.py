@@ -1,58 +1,46 @@
 """Grammar analysis + decision taxonomy — the PDA compiler's oracle.
 
-:class:`GrammarAnalysis` computes, over a *lifted codegen grammar* (the same
-shape the hybrid-parsing PoC analysed —
-``lift_optional_nullables(build_codegen_grammar(canonical))``), the classical
+:class:`GrammarAnalysis` computes, over a *lifted codegen grammar*
+(``lift_optional_nullables(build_codegen_grammar(canonical))``), the classical
 predictive-parser fixpoints plus the pivot-6 decision taxonomy:
 
 - **nullability** — which rules derive the empty string (fixpoint);
-- **FIRST** — the leading characters of each rule/atom/sequence over
-  :class:`~lexic.parsing.charsets.CharSet`, so an ``IrNot`` loop's co-finite
-  FIRST stays exact instead of "poisoning" the rule into a fake island
-  (INVESTIGATION.md pivot 1);
-- **hard-FIRST** — FIRST with nullable items skipped: the characters a
-  construct *requires* to progress. Drives loop stop-sets, while full FIRST
-  drives entry gates (pivot 4, ``begin-object ::= ws "{" ws``);
-- **FOLLOW** — the characters that may follow each rule (fixpoint, EOF-seeded
-  at the start rule via the ``""`` sentinel);
+- **FIRST** — leading characters over :class:`~lexic.parsing.charsets.CharSet`,
+  so an ``IrNot`` loop's co-finite FIRST stays exact (pivot 1);
+- **hard-FIRST** — FIRST with nullable items skipped: the chars a construct
+  *requires* to progress. Drives loop stop-sets; full FIRST drives entry gates
+  (pivot 4, ``begin-object ::= ws "{" ws``);
+- **FOLLOW** — the chars that may follow each rule (fixpoint, EOF-seeded at the
+  start rule via the ``""`` sentinel); a **hard FOLLOW** sibling skips nullable
+  followers (the per-clone tail the PDA compiler bakes);
 - **2-char prefix sets** — the LL(2) discriminator for an optional atom whose
   FIRST collides with its continuation (chess ``fxf5`` vs ``f5``, pivot 6);
-- **the taxonomy** — every decision point classified into ``island`` (search
-  needed), ``stopset`` (non-greedy on the overlap) or an ``("pairs", set)``
-  LL(2) gate; per-rule conflict classification yields the *island set*
-  (:attr:`~GrammarAnalysis.conflicts`) and the *demotion notes*
-  (:attr:`~GrammarAnalysis.demoted`).
+- **the taxonomy** — each decision point classified ``island`` / ``stopset`` /
+  ``("pairs", set)``, yielding :attr:`~GrammarAnalysis.conflicts` (the island
+  set), :attr:`~GrammarAnalysis.demoted`, and :attr:`~GrammarAnalysis.fail_islands`
+  (semantic F1 stop-set-escape rules whose references must fail to the engine).
 
 **Open dispatch, no isinstance ladders.** Every per-atom-type decision routes
-through a module-level :class:`~lexic.ir.mapping.IrTypeMap` whose bodies are
-:class:`~lexic.ir.base.IrLambda` leaves — the ``lexic.codegen.binding``
-``mode_for`` idiom: the atom is dispatched, the driving analysis rides the
-dispatcher slot ``d`` (its state and its recursive helpers), and any extra
-scalar context rides the argument channel ``nc`` on a small cursor leaf. An
-unknown atom type misses every table and raises
-:exc:`~lexic.exceptions.UnsupportedConstructError` (via ``IrTypeMap``'s
-:exc:`~lexic.exceptions.IrKeyError`) — never a silent classification.
+through a module-level :class:`~lexic.ir.mapping.IrTypeMap` of
+:class:`~lexic.ir.base.IrLambda` bodies (the ``codegen.binding.mode_for``
+idiom): the atom is dispatched, the analysis rides the dispatcher slot ``d``,
+extra scalar context rides ``nc`` on a cursor leaf. An unknown atom type raises
+:exc:`~lexic.exceptions.UnsupportedConstructError` — never a silent classify.
 
 .. warning::
-   **EOF-drop caveat.** :meth:`CharSet.union <lexic.parsing.charsets.CharSet.union>`
-   cannot represent "co-finite over real characters, *plus* the EOF sentinel"
-   — a negated ``CharSet`` never carries ``""``. The FOLLOW fixpoint unions
-   FOLLOW (EOF-seeded) with FIRSTs that can be negated (``IrNot`` complements),
-   so an EOF membership can silently drop from a FOLLOW set, which could under-
-   detect a conflict whose FIRST ∩ FOLLOW overlap is EOF-only. This matches the
-   PoC's identical ``(chars, negated)`` representation exactly (0 parity
-   mismatches across all 10 ground-truth grammars), and the PDA's runtime
-   safety net (a ``PdaFail`` falls back to the full engine) bounds any
-   under-detection — so the analysis matches the PoC here rather than carrying a
-   side-channel EOF flag. Task 7's differential CI is the watch for it.
+   **EOF-drop caveat.** A negated :class:`CharSet` cannot carry the ``""`` EOF
+   sentinel, so an EOF membership can silently drop when the FOLLOW fixpoint
+   unions with negatable FIRSTs, under-detecting an EOF-only FIRST ∩ FOLLOW
+   overlap (0 parity mismatches over all 10 ground-truth grammars; the PDA's
+   ``PdaFail`` → full-engine fallback bounds it).
 """
 
 from __future__ import annotations
 
 from typing import Mapping, Sequence, cast
 
-from lexic.ir.base import IrAtom, IrLambda, IrLeaf, IrNoneType, IrSelf
 from lexic.ir.action import IrAction
+from lexic.ir.base import IrAtom, IrLambda, IrLeaf, IrNoneType, IrSelf
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -70,29 +58,20 @@ __all__ = ["GrammarAnalysis", "nullable_names"]
 
 _MAX_PAIR_PRODUCT = 4096
 """Cap on the ``|FIRST(a)| * |FIRST(b)|`` product a 2-char prefix set will
-enumerate for two adjacent single-char atoms; a wider product is treated as
-non-derivable (``None``) rather than materialised."""
+enumerate; a wider product is treated as non-derivable (``None``)."""
 
 _EOF: CharSet = CharSet.from_chars("")
 """The FOLLOW-set seed for the start rule: the empty-string end-of-input
-sentinel living in a positive :class:`CharSet` (see the module docstring)."""
+sentinel in a positive :class:`CharSet`."""
 
 
 def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order.
-
-    :param seq: An :class:`~lexic.ir.nodes.IrSequence` (or any node sequence).
-    :returns: Its :class:`IrItem` children — anything else is skipped.
-    """
+    """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
     return [i for i in seq if isinstance(i, IrItem)]
 
 
 def _hi(item: IrItem) -> int | None:
-    """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded).
-
-    :param item: The quantified item.
-    :returns: ``int(hi)``, or ``None`` when ``hi`` is the unbounded sentinel.
-    """
+    """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
     hi = item.quantifier.hi
     return None if isinstance(hi, IrNoneType) else int(hi)
 
@@ -100,84 +79,121 @@ def _hi(item: IrItem) -> int | None:
 # ── context cursors (ride the argument channel) ───────────────────────────
 
 
-class _FeedCtx(IrLeaf[IrSelf, IrSelf]):
-    """FOLLOW-feed context: the effective continuation set and owning rule.
+class _FollowPass(IrLeaf[IrSelf, IrSelf]):
+    """The fixpoint-constant of one FOLLOW pass: target table + hard flag.
 
-    Rides ``nc`` so the :data:`_FOLLOW_FEED` bodies (ref-update, group-recurse)
-    read the per-item ``eff`` and ``rule`` without threading them as extra
-    positional arguments through the typed dispatch protocol.
+    :ivar tgt: The FOLLOW table being grown (soft or hard).
+    :ivar hard: ``True`` for a *hard* FOLLOW pass (nullable followers skipped).
+    """
+
+    __slots__ = ("tgt", "hard")
+
+    tgt: dict[str, CharSet]
+    hard: bool
+
+    def __init__(self, tgt: dict[str, CharSet], hard: bool) -> None:
+        self.tgt = tgt
+        self.hard = hard
+
+
+class _FeedCtx(IrLeaf[IrSelf, IrSelf]):
+    """FOLLOW-feed context riding ``nc`` for the :data:`_FOLLOW_FEED` bodies.
 
     :ivar eff: The continuation char set feeding this atom's FOLLOW.
     :ivar rule: The enclosing rule name (the recursion anchor).
+    :ivar pass_: The FOLLOW pass constant (target table + hard flag).
     """
 
-    __slots__ = ("eff", "rule")
+    __slots__ = ("eff", "rule", "pass_")
 
     eff: CharSet
     rule: str
+    pass_: "_FollowPass"
 
-    def __init__(self, eff: CharSet, rule: str) -> None:
-        """:param eff: the continuation set; :param rule: the enclosing rule."""
+    def __init__(self, eff: CharSet, rule: str, pass_: "_FollowPass") -> None:
         self.eff = eff
         self.rule = rule
+        self.pass_ = pass_
 
 
 class _Notes(IrLeaf[IrSelf, IrSelf]):
-    """The two conflict-note accumulators for one rule, appended in place.
+    """The conflict-note accumulators for one rule, appended in place.
 
     :ivar hard: Island-worthy conflict notes (their presence marks an island).
     :ivar soft: Stop-set / LL(2) demotion notes.
+    :ivar f1: Set when the F1 stop-set-escape branch fired (fail-island seed).
     """
 
-    __slots__ = ("hard", "soft")
+    __slots__ = ("hard", "soft", "f1")
 
     hard: list[str]
     soft: list[str]
+    f1: bool
 
     def __init__(self) -> None:
-        """Seed both note lists empty."""
         self.hard = []
         self.soft = []
+        self.f1 = False
 
 
 class _Scope(IrLeaf[IrSelf, IrSelf]):
     """The enclosing rule and its FOLLOW tail — the conflict-walk context.
 
     :ivar rule: The enclosing rule name (the note-label anchor).
-    :ivar tail: The FOLLOW char set at the arm's end.
+    :ivar tail: The (soft) FOLLOW char set at the arm's end.
+    :ivar hard_tail: The *hard* FOLLOW at the arm's end — the per-clone tail the
+        PDA compiler bakes; a char in ``tail`` but not ``hard_tail`` is a
+        soft-only follower (the F1 escape route).
     """
 
-    __slots__ = ("rule", "tail")
+    __slots__ = ("rule", "tail", "hard_tail")
 
     rule: str
     tail: CharSet
+    hard_tail: CharSet
 
-    def __init__(self, rule: str, tail: CharSet) -> None:
-        """:param rule: the enclosing rule; :param tail: its FOLLOW tail."""
+    def __init__(self, rule: str, tail: CharSet, hard_tail: CharSet) -> None:
         self.rule = rule
         self.tail = tail
+        self.hard_tail = hard_tail
+
+
+class _Cont(IrLeaf[IrSelf, IrSelf]):
+    """A soft/hard continuation pair — the set a decision is cut against.
+
+    :ivar soft: The soft (classical) continuation char set.
+    :ivar hard: The hard continuation — the per-clone tail a nested loop cuts to.
+    """
+
+    __slots__ = ("soft", "hard")
+
+    soft: CharSet
+    hard: CharSet
+
+    def __init__(self, soft: CharSet, hard: CharSet) -> None:
+        self.soft = soft
+        self.hard = hard
 
 
 class _ConflictCtx(IrLeaf[IrSelf, IrSelf]):
     """Per-item conflict-classification context for the :data:`_SEQ_ATOM` bodies.
 
     :ivar notes: The rule's note accumulators.
-    :ivar eff: The group's effective continuation set (for a group recurse).
+    :ivar cont: The group's effective soft/hard continuation (for a group recurse).
     :ivar rule: The enclosing rule name.
     :ivar index: The item's positional index (for note labelling).
     """
 
-    __slots__ = ("notes", "eff", "rule", "index")
+    __slots__ = ("notes", "cont", "rule", "index")
 
     notes: "_Notes"
-    eff: CharSet
+    cont: "_Cont"
     rule: str
     index: int
 
-    def __init__(self, notes: "_Notes", eff: CharSet, rule: str, index: int) -> None:
-        """Bind the accumulators and the labelling context."""
+    def __init__(self, notes: "_Notes", cont: "_Cont", rule: str, index: int) -> None:
         self.notes = notes
-        self.eff = eff
+        self.cont = cont
         self.rule = rule
         self.index = index
 
@@ -185,15 +201,11 @@ class _ConflictCtx(IrLeaf[IrSelf, IrSelf]):
 class _Nullability(IrLeaf[IrSelf, IrSelf]):
     """The nullability fixpoint as a standalone solver.
 
-    Homes the ``R`` derives-empty computation that both
-    :func:`nullable_names` (for :func:`~lexic.parsing.fold.lift_optional_nullables`)
-    and :class:`GrammarAnalysis` need — a single fixpoint, no duplication. It
-    exposes ``rules`` and a growing ``nullable`` set so the shared
-    :data:`_NULLABLE` bodies read the same ``d.nullable`` attribute whether ``d``
-    is this solver (mid-fixpoint) or a finished :class:`GrammarAnalysis`.
-
-    :ivar rules: Rule name → its :class:`IrRule`.
-    :ivar nullable: The nullable-name set, grown to the fixpoint by :meth:`solve`.
+    Homes the derives-empty computation both :func:`nullable_names` (for
+    :func:`~lexic.parsing.fold.lift_optional_nullables`) and
+    :class:`GrammarAnalysis` need — one fixpoint, no duplication. Its growing
+    ``nullable`` set is read by the shared :data:`_NULLABLE` bodies whether
+    ``d`` is this solver (mid-fixpoint) or a finished :class:`GrammarAnalysis`.
     """
 
     __slots__ = ("rules", "nullable")
@@ -202,15 +214,11 @@ class _Nullability(IrLeaf[IrSelf, IrSelf]):
     nullable: set[str]
 
     def __init__(self, rules: Mapping[str, IrRule]) -> None:
-        """:param rules: the rule table to analyse."""
         self.rules = rules
         self.nullable = set()
 
     def solve(self) -> frozenset[str]:
-        """Grow ``nullable`` to the least fixpoint and return it frozen.
-
-        :returns: The names of every rule that derives the empty string.
-        """
+        """Grow ``nullable`` to the least fixpoint and return it frozen."""
         changed = True
         while changed:
             changed = False
@@ -388,9 +396,10 @@ def _feed_ruleref(d: "GrammarAnalysis", n: IrSelf, nc: Sequence[IrSelf]) -> bool
     if name not in d.rules:
         return False
     ctx = cast(_FeedCtx, nc[0])
-    grown = d.follow[name].union(ctx.eff)
-    if grown != d.follow[name]:
-        d.follow[name] = grown
+    tgt = ctx.pass_.tgt
+    grown = tgt[name].union(ctx.eff)
+    if grown != tgt[name]:
+        tgt[name] = grown
         return True
     return False
 
@@ -401,7 +410,7 @@ def _feed_alternation(d: "GrammarAnalysis", n: IrSelf, nc: Sequence[IrSelf]) -> 
     ctx = cast(_FeedCtx, nc[0])
     changed = False
     for arm in n:
-        if d.feed_seq(_items(arm), ctx.eff, ctx.rule):
+        if d.feed_seq(_items(arm), ctx.eff, ctx.rule, ctx.pass_):
             changed = True
     return changed
 
@@ -427,8 +436,8 @@ def _seq_alternation(d: "GrammarAnalysis", n: IrSelf, nc: Sequence[IrSelf]) -> N
     ctx = cast(_ConflictCtx, nc[0])
     sub_arms = [_items(arm) for arm in n]
     label = f"{ctx.rule}[{ctx.index}]grp"
-    scope = _Scope(ctx.rule, ctx.eff)
-    d.arm_conflicts(sub_arms, ctx.eff, label, ctx.notes)
+    scope = _Scope(ctx.rule, ctx.cont.soft, ctx.cont.hard)
+    d.arm_conflicts(sub_arms, ctx.cont.soft, label, ctx.notes)
     for sub in sub_arms:
         d.seq_conflicts(sub, scope, ctx.notes)
 
@@ -539,9 +548,6 @@ def nullable_names(rules: Sequence[IrRule]) -> frozenset[str]:
     The single home of the nullability fixpoint —
     :func:`~lexic.parsing.fold.lift_optional_nullables` consumes it from here
     (an intra-package import) rather than keeping its own copy.
-
-    :param rules: The grammar's rules.
-    :returns: The nullable rule names.
     """
     return _Nullability({str(r.name): r for r in rules}).solve()
 
@@ -554,17 +560,21 @@ class _Taxonomy(IrLeaf[IrSelf, IrSelf]):
 
     :ivar conflicts: Rule name → island-worthy notes (presence marks an island).
     :ivar demoted: Rule name → stop-set / LL(2) demotion notes.
+    :ivar fail: The fail-island rule names — semantic rules that fired the F1
+        stop-set-escape branch (a subset of :attr:`conflicts`' keys).
     """
 
-    __slots__ = ("conflicts", "demoted")
+    __slots__ = ("conflicts", "demoted", "fail")
 
     conflicts: dict[str, list[str]]
     demoted: dict[str, list[str]]
+    fail: set[str]
 
     def __init__(self) -> None:
-        """Seed both note maps empty."""
+        """Seed the note maps and the fail-island set empty."""
         self.conflicts = {}
         self.demoted = {}
+        self.fail = set()
 
 
 class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
@@ -572,41 +582,52 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
     Constructed over a lifted codegen grammar; all fixpoints run in
     ``__init__`` and the results live on the instance. The analysis IS the
-    dispatcher slot ``d`` handed to every atom-type table body — its ``first`` /
-    ``hard`` / ``follow`` / ``nullable`` state and its recursive ``seq_*``
-    helpers are read straight off ``d``.
-
-    :ivar rules: Rule name → its :class:`IrRule`.
-    :ivar start: The start rule name.
-    :ivar nullable: Names of rules deriving empty.
-    :ivar first: Rule name → its FIRST :class:`CharSet`.
-    :ivar hard: Rule name → its hard-FIRST :class:`CharSet`.
-    :ivar follow: Rule name → its FOLLOW :class:`CharSet`.
+    dispatcher slot ``d`` handed to every atom-type table body — its
+    :attr:`first` / :attr:`hard` / :attr:`follow` / :attr:`nullable` state and
+    ``seq_*`` helpers are read straight off ``d``.
     """
 
-    __slots__ = ("rules", "start", "nullable", "first", "hard", "follow", "_tax")
+    __slots__ = (
+        "rules",
+        "start",
+        "nullable",
+        "first",
+        "hard",
+        "_follows",
+        "_tax",
+    )
 
     rules: dict[str, IrRule]
     start: str
     nullable: frozenset[str]
     first: dict[str, CharSet]
     hard: dict[str, CharSet]
-    follow: dict[str, CharSet]
+    _follows: tuple[dict[str, CharSet], dict[str, CharSet]]
     _tax: _Taxonomy
 
     def __init__(self, grammar: IrAst) -> None:
-        """Run every fixpoint and classify every rule.
-
-        :param grammar: The lifted codegen grammar to analyse.
-        """
+        """Run every fixpoint and classify every rule of the lifted grammar."""
         self.rules = {str(r.name): r for r in grammar.rules}
         self.start = str(grammar.start)
         self.nullable = nullable_names(list(grammar.rules))
         self.first = self._first_sets()
         self.hard = self._hard_sets()
-        self.follow = self._follow_sets()
+        self._follows = (
+            self._follow_fixpoint(hard=False),
+            self._follow_fixpoint(hard=True),
+        )
         self._tax = _Taxonomy()
         self._classify()
+
+    @property
+    def follow(self) -> dict[str, CharSet]:
+        """Rule name → its (soft) FOLLOW :class:`CharSet`."""
+        return self._follows[0]
+
+    @property
+    def hard_follow(self) -> dict[str, CharSet]:
+        """Rule name → its hard FOLLOW :class:`CharSet` (nullable followers skipped)."""
+        return self._follows[1]
 
     @property
     def conflicts(self) -> dict[str, list[str]]:
@@ -620,29 +641,27 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
     @property
     def islands(self) -> frozenset[str]:
-        """The island rule set — every rule with an island-worthy conflict.
-
-        :returns: The names keying :attr:`conflicts`.
-        """
+        """The island rule set — the names keying :attr:`conflicts`."""
         return frozenset(self._tax.conflicts)
+
+    @property
+    def fail_islands(self) -> frozenset[str]:
+        """Semantic F1 stop-set-escape rules — a reference must raise ``PdaFail``
+        (engine fallback), not parse via longest-match. A subset of
+        :attr:`islands`."""
+        return frozenset(self._tax.fail)
 
     # ── nullability queries ────────────────────────────────────────────
 
     def atom_nullable(self, atom: IrAtom) -> bool:
         """Whether ``atom`` can consume nothing under the final nullable set.
 
-        :param atom: The atom to test.
-        :returns: ``True`` iff the atom derives empty.
         :raises UnsupportedConstructError: On an unregistered atom type.
         """
         return cast(bool, _NULLABLE.resolve(atom).eval(self, atom, ()))
 
     def item_nullable(self, item: IrItem) -> bool:
-        """Whether ``item`` can consume nothing (``lo == 0`` or nullable atom).
-
-        :param item: The quantified item.
-        :returns: ``True`` iff the item derives empty.
-        """
+        """Whether ``item`` can consume nothing (``lo == 0`` or nullable atom)."""
         return _item_nullable(self, item)
 
     # ── FIRST ──────────────────────────────────────────────────────────
@@ -650,18 +669,12 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     def atom_first(self, atom: IrAtom) -> CharSet:
         """FIRST set of a single atom.
 
-        :param atom: The atom.
-        :returns: Its leading-character set.
         :raises UnsupportedConstructError: On an unregistered atom type.
         """
         return cast(CharSet, _FIRST.resolve(atom).eval(self, atom, ()))
 
     def seq_first(self, items: Sequence[IrItem]) -> CharSet:
-        """FIRST set of an item sequence — union until the first non-nullable.
-
-        :param items: The sequence arm's items.
-        :returns: The sequence's leading-character set.
-        """
+        """FIRST set of an item sequence — union until the first non-nullable."""
         out = CharSet.EMPTY
         for item in items:
             out = out.union(self.atom_first(item.atom))
@@ -689,18 +702,12 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     def atom_hard(self, atom: IrAtom) -> CharSet:
         """hard-FIRST set of a single atom (nullable prefixes contribute nothing).
 
-        :param atom: The atom.
-        :returns: The characters the atom *requires* to progress.
         :raises UnsupportedConstructError: On an unregistered atom type.
         """
         return cast(CharSet, _HARD.resolve(atom).eval(self, atom, ()))
 
     def seq_hard(self, items: Sequence[IrItem]) -> CharSet:
-        """hard-FIRST of a sequence — the first non-nullable item's hard-FIRST.
-
-        :param items: The sequence arm's items.
-        :returns: The required leading chars, or empty if the arm is all-nullable.
-        """
+        """hard-FIRST of a sequence — the first non-nullable item's hard-FIRST."""
         for item in items:
             if self.item_nullable(item):
                 continue
@@ -712,11 +719,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     ) -> CharSet:
         """hard continuation after item ``k``: the next required chars, else tail.
 
-        :param items: The enclosing sequence arm.
-        :param k: The index the loop-gate is being computed for.
-        :param hard_tail: The rule's own hard continuation (used when the arm
-            remainder is all-nullable).
-        :returns: The hard continuation char set.
+        :param hard_tail: The rule's hard continuation (for an all-nullable rest).
         """
         for item in items[k + 1 :]:
             if self.item_nullable(item):
@@ -752,12 +755,8 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     def two_prefix_seq(self, items: Sequence[IrItem]) -> frozenset[str] | None:
         """The 2-char prefix set of a sequence, or ``None`` (not derivable).
 
-        A leading ≥2-char literal supplies the prefix directly; otherwise the
-        first two non-nullable single-char atoms' cross-product does, subject to
-        the :data:`_MAX_PAIR_PRODUCT` cap.
-
-        :param items: The sequence arm's items.
-        :returns: The 2-char prefixes, or ``None``.
+        A leading ≥2-char literal supplies it; else the first two non-nullable
+        single-char atoms' cross-product, subject to :data:`_MAX_PAIR_PRODUCT`.
         """
         if items and not self.item_nullable(items[0]):
             lead = cast(
@@ -780,12 +779,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         return frozenset(a + b for a in first_chars for b in second_chars)
 
     def group_two_prefix(self, group: IrAlternation) -> frozenset[str] | None:
-        """The union of a group's arms' 2-char prefixes, or ``None``.
-
-        :param group: The inline group.
-        :returns: The combined 2-char prefixes, or ``None`` if any arm's is
-            not derivable.
-        """
+        """The union of a group's arms' 2-char prefixes, else ``None``."""
         out: set[str] = set()
         for arm in group:
             sub = self.two_prefix_seq(_items(arm))
@@ -797,9 +791,6 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     def atom_two_prefix(self, atom: IrAtom) -> frozenset[str] | None:
         """The standalone 2-char prefix set of ``atom``, or ``None``.
 
-        :param atom: The atom.
-        :returns: Its 2-char prefixes (group union or ≥2-char literal), else
-            ``None``.
         :raises UnsupportedConstructError: On an unregistered atom type.
         """
         return cast(
@@ -813,8 +804,6 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     ) -> tuple[str, frozenset[str]] | str:
         """Classify a looping item whose FIRST overlaps its hard continuation.
 
-        :param item: The optional/looping item.
-        :param rest: The items following it in the arm.
         :returns: ``("pairs", set)`` for an LL(2) gate, ``"stopset"`` for a
             non-greedy single-char loop, or ``"island"`` otherwise.
         """
@@ -836,31 +825,44 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
     # ── FOLLOW ─────────────────────────────────────────────────────────
 
-    def _follow_sets(self) -> dict[str, CharSet]:
-        """The per-rule FOLLOW fixpoint (EOF-seeded at the start rule)."""
-        self.follow = {name: CharSet.EMPTY for name in self.rules}
-        self.follow[self.start] = _EOF
+    def _follow_fixpoint(self, hard: bool) -> dict[str, CharSet]:
+        """A per-rule FOLLOW fixpoint (EOF-seeded at the start rule).
+
+        :param hard: When ``True``, compute *hard* FOLLOW — nullable followers
+            skipped (the union of the HARD continuations every reference site
+            cuts its PDA clone against); when ``False``, the classical soft FOLLOW.
+        """
+        tgt = {name: CharSet.EMPTY for name in self.rules}
+        tgt[self.start] = _EOF
+        pass_ = _FollowPass(tgt, hard)
         changed = True
         while changed:
             changed = False
             for name, rule in self.rules.items():
                 for arm in rule.body:
-                    if self.feed_seq(_items(arm), self.follow[name], name):
+                    if self.feed_seq(_items(arm), tgt[name], name, pass_):
                         changed = True
-        return self.follow
+        return tgt
 
-    def feed_seq(self, items: Sequence[IrItem], tail: CharSet, rule: str) -> bool:
+    def feed_seq(
+        self,
+        items: Sequence[IrItem],
+        tail: CharSet,
+        rule: str,
+        pass_: "_FollowPass",
+    ) -> bool:
         """Feed FOLLOW contributions of a sequence whose continuation is ``tail``.
 
-        Walks the arm right to left, carrying the running continuation set; a
-        repeating item feeds its own FIRST back into itself. Each atom's
+        Walks the arm right to left carrying the running continuation. Soft mode
+        unions each nullable item's FIRST into it; hard mode uses hard-FIRST and
+        *skips* nullable items (mirroring the PDA clone tails). Each atom's
         sub-rule FOLLOW update is delegated to :data:`_FOLLOW_FEED`.
 
-        :param items: The sequence arm's items.
         :param tail: The continuation at the arm's end (the rule's FOLLOW).
-        :param rule: The enclosing rule name.
+        :param pass_: The FOLLOW pass constant (target table + hard flag).
         :returns: ``True`` iff any FOLLOW set grew.
         """
+        hard = pass_.hard
         changed = False
         cont = tail
         for item in reversed(items):
@@ -868,12 +870,16 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             hi = _hi(item)
             eff = cont
             if hi is None or hi > 1:
-                eff = eff.union(self.atom_first(atom))
-            ctx = _FeedCtx(eff, rule)
+                eff = eff.union(self.atom_hard(atom) if hard else self.atom_first(atom))
+            ctx = _FeedCtx(eff, rule, pass_)
             if cast(bool, _FOLLOW_FEED.resolve(atom).eval(self, atom, (ctx,))):
                 changed = True
-            first = self.atom_first(atom)
-            cont = cont.union(first) if self.item_nullable(item) else first
+            if hard:
+                if not self.item_nullable(item):
+                    cont = self.atom_hard(atom)
+            else:
+                first = self.atom_first(atom)
+                cont = cont.union(first) if self.item_nullable(item) else first
         return changed
 
     # ── conflict classification ────────────────────────────────────────
@@ -882,7 +888,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         """Fill :attr:`conflicts` and :attr:`demoted` from every rule."""
         for name, rule in self.rules.items():
             notes = _Notes()
-            scope = _Scope(name, self.follow[name])
+            scope = _Scope(name, self.follow[name], self.hard_follow[name])
             arms = [_items(arm) for arm in rule.body]
             self.arm_conflicts(arms, self.follow[name], name, notes)
             for arm in arms:
@@ -891,6 +897,8 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 self._tax.conflicts[name] = notes.hard
             if notes.soft:
                 self._tax.demoted[name] = notes.soft
+            if notes.f1 and self.rules[name].semantic:
+                self._tax.fail.add(name)
 
     def arm_conflicts(
         self,
@@ -901,10 +909,8 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     ) -> None:
         """Flag pairwise FIRST overlaps and empty-arm-vs-FOLLOW ambiguities.
 
-        :param arms: The alternation's arms (as item lists).
         :param ext_follow: The FOLLOW set at the alternation's end.
         :param label: The note-label prefix (rule name or group tag).
-        :param notes: The rule's note accumulators.
         """
         infos = [(self.seq_first(arm), _seq_nullable(self, arm)) for arm in arms]
         for i, (first_i, _) in enumerate(infos):
@@ -919,12 +925,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     def seq_conflicts(
         self, items: Sequence[IrItem], scope: "_Scope", notes: "_Notes"
     ) -> None:
-        """Classify every decision point in one sequence arm.
-
-        :param items: The arm's items.
-        :param scope: The enclosing rule and its FOLLOW tail.
-        :param notes: The rule's note accumulators.
-        """
+        """Classify every decision point in one sequence arm."""
         for k in range(len(items)):
             self._loop_conflict(items, k, scope, notes)
             self._sub_conflict(items, k, scope, notes)
@@ -947,9 +948,33 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             if policy == "island":
                 notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
             elif policy == "stopset":
-                notes.soft.append(f"{scope.rule}[{k}]: loop stop-set applied")
+                if self._stopset_escapes_soft_follow(items, k, scope):
+                    notes.hard.append(
+                        f"{scope.rule}[{k}]: loop stop-set escapes soft FOLLOW"
+                    )
+                    notes.f1 = True
+                else:
+                    notes.soft.append(f"{scope.rule}[{k}]: loop stop-set applied")
             else:
                 notes.soft.append(f"{scope.rule}[{k}]: LL(2) pair gate")
+
+    def _stopset_escapes_soft_follow(
+        self, items: Sequence[IrItem], k: int, scope: "_Scope"
+    ) -> bool:
+        """Whether item ``k``'s non-greedy stop-set is *not* call-site invariant.
+
+        A stop-set is sound only when its continuation is invariant across
+        reference sites. An all-nullable rest runs to the rule's FOLLOW; the PDA
+        cuts each clone against its own *hard* tail, so a soft-only follower also
+        in ``FIRST(atom)`` is over-eaten (``x ::= [a-c]*`` / ``root ::= x "ab"?``
+        silent wrong model) — a **semantic** such rule becomes a fail-island.
+
+        :returns: ``True`` iff the stop-set can escape into the soft FOLLOW.
+        """
+        if not all(self.item_nullable(i) for i in items[k + 1 :]):
+            return False
+        gap = self._cont_at(items, k, scope.tail).subtract(scope.hard_tail)
+        return self.atom_first(items[k].atom).overlaps(gap)
 
     def _sub_conflict(
         self, items: Sequence[IrItem], k: int, scope: "_Scope", notes: "_Notes"
@@ -958,11 +983,12 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         item = items[k]
         atom = item.atom
         hi = _hi(item)
-        cont = self._cont_at(items, k, scope.tail)
-        eff = cont
+        eff = self._cont_at(items, k, scope.tail)
+        hard_eff = self.hard_cont_at(items, k, scope.hard_tail)
         if hi is None or hi > 1:
             eff = eff.union(self.atom_first(atom))
-        ctx = _ConflictCtx(notes, eff, scope.rule, k)
+            hard_eff = hard_eff.union(self.atom_hard(atom))
+        ctx = _ConflictCtx(notes, _Cont(eff, hard_eff), scope.rule, k)
         _SEQ_ATOM.resolve(atom).eval(self, atom, (ctx,))
 
     def _cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:

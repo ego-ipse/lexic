@@ -36,7 +36,6 @@ from lexic.parsing.charsets import CharSet
 from lexic.parsing.fold import lift_optional_nullables
 from tests.paths import GROUND_TRUTH
 
-
 # ── helpers ───────────────────────────────────────────────────────────────
 
 
@@ -67,7 +66,15 @@ def _lifted_analysis(stem: str) -> GrammarAnalysis:
 
 
 # ── the island / demotion parity gate (pinned to the PoC's M1 output) ──────
-
+#
+# Deviation from the PoC: json ``ws`` is islanded, not stop-set-demoted. The
+# PoC soft-demoted it, but a top-of-rule ``[ \t\r\n]*`` loop whose soft FOLLOW
+# reaches an *optional* whitespace follower (json's ``value ws`` abutting
+# ``value-separator ::= ws "," ws``) is not call-site invariant — the per-clone
+# hard stop-set greedily over-eats, the same silent-wrong-model latent as the
+# ``root ::= x "ab"?`` / ``x ::= [a-c]*`` regression below. arithmetic ``ws``
+# stays demoted: its only FIRST∩FOLLOW overlap is ``\n``, a *hard* follower
+# (``ws "\n"``), so its stop-set is call-site invariant and sound.
 _PINNED_ISLANDS: dict[str, list[str]] = {
     "arithmetic.gbnf": [],
     "c.gbnf": [
@@ -80,12 +87,12 @@ _PINNED_ISLANDS: dict[str, list[str]] = {
     ],
     "chess.gbnf": ["nonpawn"],
     "japanese.gbnf": [],
-    "json.gbnf": ["array-item2", "char", "object-item2", "string", "value"],
+    "json.gbnf": ["array-item2", "char", "object-item2", "string", "value", "ws"],
     "json_arr.gbnf": ["number", "string"],
     "json_ws.gbnf": ["number", "string"],
     "list.gbnf": [],
     "arithmetic.abnf": [],
-    "json.abnf": ["array-item2", "char", "object-item2", "string", "value"],
+    "json.abnf": ["array-item2", "char", "object-item2", "string", "value", "ws"],
 }
 
 _PINNED_DEMOTED: dict[str, list[str]] = {
@@ -93,12 +100,12 @@ _PINNED_DEMOTED: dict[str, list[str]] = {
     "c.gbnf": ["singlelinecomment"],
     "chess.gbnf": ["pawn"],
     "japanese.gbnf": [],
-    "json.gbnf": ["ws"],
+    "json.gbnf": [],
     "json_arr.gbnf": [],
     "json_ws.gbnf": [],
     "list.gbnf": ["item"],
     "arithmetic.abnf": [],
-    "json.abnf": ["ws"],
+    "json.abnf": [],
 }
 
 
@@ -120,6 +127,92 @@ def test_islands_are_the_conflict_keys():
     """``islands`` is exactly the set of rules carrying an island conflict."""
     analysis = _lifted_analysis("json.gbnf")
     assert analysis.islands == frozenset(analysis.conflicts)
+
+
+def test_loop_over_soft_only_follower_islands():
+    """A trailing loop whose FOLLOW reaches an *optional* overlapping follower
+    islands — the ``x ::= [a-c]*`` / ``root ::= x "ab"?`` F1 shape.
+
+    ``x``'s ``[a-c]*`` loop runs up to ``x``'s FOLLOW; at ``root`` that FOLLOW
+    carries the optional ``"ab"?``'s ``'a'`` — a soft-only follower (in FOLLOW,
+    absent from the ``{""}`` hard FOLLOW). A non-greedy stop-set would greedily
+    eat that ``'a'``, so the stop-set is not call-site invariant and ``x`` must
+    island rather than soft-demote.
+    """
+    x = _rule(
+        "x",
+        IrSequence(_item(IrCharClass(IrRange(IrChr(97), IrChr(99))), lo=0, hi=None)),
+    )
+    root = _rule(
+        "root", IrSequence(_item(IrRuleRef("x")), _item(IrLiteral("ab"), lo=0, hi=1))
+    )
+    analysis = _analysis(root, x, start="root")
+    assert "x" in analysis.islands
+    assert "x" not in analysis.demoted
+    assert analysis.follow["x"].has("a")
+    assert not analysis.hard_follow["x"].has("a")
+
+
+def test_loop_over_hard_follower_stays_demoted():
+    """A trailing loop whose only FOLLOW overlap is a *hard* follower stays a
+    sound stop-set demote — the arithmetic ``ws "\\n"`` shape.
+
+    ``ws``'s FIRST overlaps FOLLOW only on ``'a'``, but ``'a'`` is the mandatory
+    literal after ``ws`` — a hard follower present in the hard FOLLOW, so every
+    clone's stop-set excludes it and the demote is call-site invariant.
+    """
+    ws = _rule(
+        "ws", IrSequence(_item(IrCharClass(IrChr(10), IrChr(97)), lo=0, hi=None))
+    )
+    root = _rule("root", IrSequence(_item(IrRuleRef("ws")), _item(IrLiteral("a"))))
+    analysis = _analysis(root, ws, start="root")
+    assert "ws" not in analysis.islands
+    assert "ws" in analysis.demoted
+    assert analysis.hard_follow["ws"].has("a")
+
+
+# ── fail_islands (Option B — F1 semantic guard) ────────────────────────────
+
+
+def test_fail_islands_pins_the_f1_escape_rule():
+    """The F1 shape's island is also a fail-island when its rule is semantic.
+
+    ``root ::= x "ab"?`` / ``x ::= [a-c]*`` (the same grammar as
+    :func:`test_loop_over_soft_only_follower_islands`): ``x``'s stop-set escapes
+    into the soft-only ``"ab"?`` follower, so a reference to it must raise
+    ``PdaFail`` rather than parse via longest-match — ``x`` is a fail-island.
+    """
+    x = _rule(
+        "x",
+        IrSequence(_item(IrCharClass(IrRange(IrChr(97), IrChr(99))), lo=0, hi=None)),
+    )
+    root = _rule(
+        "root", IrSequence(_item(IrRuleRef("x")), _item(IrLiteral("ab"), lo=0, hi=1))
+    )
+    analysis = _analysis(root, x, start="root")
+    assert analysis.fail_islands == frozenset({"x"})
+    assert analysis.fail_islands <= analysis.islands
+    assert analysis.rules["x"].semantic is True
+
+
+@pytest.mark.parametrize("stem", sorted(_PINNED_ISLANDS))
+def test_fail_islands_subset_of_islands_for_every_ground_truth(stem: str):
+    """``fail_islands`` is a subset of ``islands`` on every ground-truth grammar."""
+    analysis = _lifted_analysis(stem)
+    assert analysis.fail_islands <= analysis.islands
+
+
+@pytest.mark.parametrize("stem", ["json.gbnf", "json.abnf"])
+def test_fail_islands_empty_for_non_semantic_ws_escape(stem: str):
+    """json's ``ws`` fires the F1 stop-set-escape branch but is ``semantic=False``
+    (structural-noise, via ``@non-semantic``) — it stays a normal parse-island,
+    not a fail-island, so ``fail_islands`` is empty (the perf-preserving
+    guarantee of ruling B: a non-semantic F1 escape does not force an engine
+    fallback).
+    """
+    analysis = _lifted_analysis(stem)
+    assert "ws" in analysis.islands
+    assert analysis.fail_islands == frozenset()
 
 
 # ── nullability (ported from test_fold, plus queries) ──────────────────────

@@ -430,6 +430,44 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 return it
         return -1
 
+    # ── windowed prefix completion (islands) ──────────────────────────
+
+    def longest_start_completion(self) -> tuple[int, int] | None:
+        """Longest whole-prefix completion of the start rule (origin 0).
+
+        The islands seam (:mod:`lexic.parsing.pda_kernel`): seed the start
+        rule at column 0, drive the chart column by column over the window,
+        and after closing each reachable column record the widest completed
+        start item spanning ``[0, j]``. A later column overwrites an earlier
+        one, so the result is the *longest* completion; empty columns are
+        skipped rather than terminal, since a multi-char literal scan can land
+        past one. Additive to :meth:`run` — the main-loop fast path is
+        untouched; a fresh kernel calls this *instead of* :meth:`run` (with
+        ``record_links=True`` so :class:`FastTree` can decode the winner).
+
+        :returns: ``(accepting_item, end_column)`` for the longest origin-0
+            completion of the start rule, or ``None`` if it never completes.
+        """
+        tables = self.tables
+        if tables.start_id < 0:
+            return None
+        self.st.predicted[0].add(tables.start_id)
+        self._seed(0, tables.start_id)
+        accepts = tables.codes.accept_codes
+        best: tuple[int, int] | None = None
+        n = len(self.text)
+        for j in range(n + 1):
+            col = self.cols[j]
+            if not col:
+                continue
+            self._close(j)
+            for it in col:
+                if it >> ORIGIN_BITS in accepts and it & ORIGIN_MASK == 0:
+                    best = (it, j)
+            if j < n:
+                self._scan(j)
+        return best
+
     # ── Leo right-recursion ───────────────────────────────────────────
 
     def _try_leo(self, i: int, done: int, sole: int) -> bool:
