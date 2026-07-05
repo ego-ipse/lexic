@@ -2,39 +2,49 @@
 
 The runtime sibling of :class:`~lexic.parsing.kernel.Kernel`: where the Earley
 kernel builds an SPPF a :class:`~lexic.parsing.fold.PositionalFold` later folds,
-:class:`PdaKernel` walks the compiled :class:`~lexic.parsing.pda_tables.PdaTables`
-and builds the model **directly during the walk** — the fold is fused into the
-parse, so no intermediate :class:`~lexic.parsing.forest.ParseTree` is ever
-allocated on the deterministic path.
+:class:`PdaKernel` walks the flat int-coded
+:class:`~lexic.parsing.pda_tables.PdaProgram` and builds the model **directly
+during the walk** — the fold is fused into the parse, so no intermediate
+:class:`~lexic.parsing.forest.ParseTree` is ever allocated on the deterministic
+path.
+
+**Flat program (Task 8).** The runtime walks the int-coded
+:class:`~lexic.parsing.pda_tables.PdaProgram` (``_OP_*`` op-codes, pre-resolved
+``(chars, negated)`` membership sets, direct :class:`_FlatClone` references),
+not the compiler's :class:`~lexic.parsing.pda_tables.CloneSpec` NamedTuples —
+integer dispatch, no attribute descriptors, no per-char method calls on the hot
+loop (the ``tables.py``/``kernel.py`` philosophy).
 
 **Explicit frame stack.** Rule, group and loop descent runs on an explicit
-:attr:`PdaKernel.stack` of :class:`_Frame` work items — never Python recursion
-(the PoC's ``_rule`` → ``_seq`` → ``_item`` → ``_atom`` → ``_rule`` cascade).
+:attr:`PdaKernel.stack` of :class:`_Frame` work items — never Python recursion.
 Per-parse state (the input, the cursor position, the frame stack) lives on the
-kernel; :class:`PdaTables` is shared and immutable. A frame executes one arm's
-item specs in order; a literal / char-class item runs its whole quantifier loop
-inline (no descent), while a rule reference or inline group pushes a sub-frame
-per iteration and resumes when it completes.
+kernel; :class:`~lexic.parsing.pda_tables.PdaProgram` is shared and immutable. A
+frame executes one arm's items in order; a literal / char-class item runs its
+whole quantifier loop inline in :meth:`PdaKernel._match_lit` /
+:meth:`PdaKernel._match_cc` (no descent, no per-char call), while a rule
+reference or inline group pushes a sub-frame per iteration and resumes when it
+completes.
 
-**Fused capture — the mirror of** :meth:`~lexic.parsing.fold.PositionalFold._models_at`.
-A *clone frame* (a rule with a constructor) owns one :class:`_Slot` per item
-(its consumed span and the models produced under it); a *transparent frame* (an
-inline group, or a look-through ``fold=None`` clone) owns no slots and lets
-everything produced inside it bubble straight through to the enclosing slot.
-When a clone completes it builds exactly one model (:meth:`PdaKernel._build`)
-and appends it to its parent's current slot — so a sub-model produced arbitrarily
-deep, through any number of group and loop layers, lands in the nearest enclosing
-*bound* slot, exactly as the fold's look-through ``_models_at`` collects the
-topmost models under a kid. A slot's span slice (``text[start:end]``) reproduces
-``_subtree_text``: the cursor advances monotonically, so a slot's consumed text
-is one contiguous span.
+**Fused capture.** A *clone frame* with a build-mode (``sequence`` /
+``alternation`` / ``value_str``) captures what its fold needs and, on
+completion, builds exactly one model (:meth:`PdaKernel._build`); a *transparent
+frame* (an inline group, or a look-through no-constructor clone) funnels every
+model produced inside it straight to :attr:`_Frame.out`. A ``sequence`` frame
+records each item's end position in :attr:`_Frame.ends` (item spans derive from
+the contiguous, monotonic cursor — item ``i``'s span is ``(ends[i-1], ends[i])``,
+``ends[-1]`` being the frame start) and collects descent sub-models per bound
+item in a lazily-allocated :attr:`_Frame.sinks`; an ``alternation`` frame needs
+only the sinks; a ``value_str`` frame needs only its whole span. So a sub-model
+produced arbitrarily deep, through any number of group and loop layers, lands in
+the nearest enclosing *bound* item's sink, exactly as the fold's look-through
+``_models_at`` collects the topmost models under a kid.
 
-Per fold kind (mirroring :meth:`~lexic.parsing.fold.PositionalFold._fold_node`):
+Per build-mode (mirroring :meth:`~lexic.parsing.fold.PositionalFold._fold_node`):
 
 - ``value_str`` → ``ctor(value=text[a:b])`` over the clone's whole span (its
   interior is pure-terminal — no sub-models are built below it);
 - ``alternation`` → pass-through of the first model under the matched arm;
-- ``sequence`` → per bound field, the slot's ``text`` / ``gtext`` span or its
+- ``sequence`` → per bound field, the item's ``text`` / ``gtext`` span or its
   ``model`` / ``models`` collection; a zero-item arm match → ``ctor()``.
 
 **Islands.** A reference to a conflicted (island) rule cannot be walked
@@ -47,42 +57,49 @@ window and takes the longest completion; the decoded
 :class:`~lexic.parsing.kernel.FastTree`, falling back to the first derivation
 on ambiguity) folds through the supplied :class:`~lexic.parsing.fold
 .PositionalFold` and the resulting sub-model splices into the current capture
-exactly as a clone's model would — through the same nearest-bound-slot
-look-through. The cursor advances past the consumed span. Without a fold
-(:attr:`PdaKernel.fold` is ``None``, the island-free path) an island reference
-raises :class:`PdaFail` so the engine reparses. A **fail-island** reference
-(``IslandRef.fail`` — a semantic F1 stop-set-escape rule whose longest-match
+exactly as a clone's model would. The cursor advances past the consumed span.
+Without a fold (:attr:`PdaKernel.fold` is ``None``, the island-free path) an
+island reference raises :class:`PdaFail` so the engine reparses. A
+**fail-island** reference (a semantic F1 stop-set-escape rule whose longest-match
 split would silently diverge) always raises :class:`PdaFail`, independent of the
 fold, so the compile seam falls back to the sound engine parse.
 
 :class:`PdaFail` is internal to :mod:`lexic.parsing` — a PDA parse failure is
-caught by the compile seam (Task 6) and retried on the full engine, which owns
-the user-facing diagnostics. It never surfaces to the caller.
+caught by the compile seam and retried on the full engine, which owns the
+user-facing diagnostics. It never surfaces to the caller.
 """
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrSelf, IrTuple
-from lexic.parsing.charsets import CharSet
 from lexic.parsing.engine import EarleyParser
 from lexic.parsing.fold import PositionalFold, RuleFold
 from lexic.parsing.forest import DERIVATION_STREAM, ParseTree, SppfNode
 from lexic.parsing.kernel import FastTree, Kernel
 from lexic.parsing.pda_tables import (
-    CC,
-    LIT,
-    REF,
-    ArmSpec,
-    CloneKey,
-    CloneSpec,
-    GroupSpec,
-    IslandRef,
-    ItemSpec,
-    PairGate,
+    _BUILD_DISPATCH,
+    _BUILD_SEQ,
+    _BUILD_TRANSPARENT,
+    _BUILD_VALUE_STR,
+    _DISPATCH_EMPTY,
+    _GATE_PAIR,
+    _M_GTEXT,
+    _M_MODEL,
+    _M_MODELS,
+    _OP_CC,
+    _OP_CC1,
+    _OP_FAIL,
+    _OP_GRP,
+    _OP_LIT,
+    _OP_LIT1,
+    _OP_REF1,
+    _OP_VSTR,
     PdaTables,
+    _FlatArm,
+    _FlatClone,
 )
 from lexic.parsing.tables import ORIGIN_BITS, ParserTables
 
@@ -96,99 +113,69 @@ _DERIV_PARSER = EarleyParser()
 """The shared façade dispatcher the island derivation-stream fallback threads
 through :data:`~lexic.parsing.forest.DERIVATION_STREAM`'s ``eval`` (stateless)."""
 
+_NO_ENDS: list[int] = []
+"""The shared empty ``ends`` for non-``sequence`` frames — never indexed (only
+``sequence`` frames read item spans), so one immutable sentinel keeps
+:attr:`_Frame.ends` non-optional and cast-free."""
+
+_EMPTY_SLOT: Any = None
+"""An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
+each slot later holding a sub-model list) without narrowing their type."""
+
 
 class PdaFail(Exception):
     """A predictive-parse failure — internal to :mod:`lexic.parsing`.
 
     Raised wherever the PDA cannot proceed deterministically (a terminal
-    mismatch, no viable arm, trailing input, or an island reference this task
-    does not yet resolve). Carries the failing position and a short reason for
-    debugging; the compile seam catches it and falls back to the full engine,
-    so it is **never** user-facing.
+    mismatch, no viable arm, trailing input, or a fail/unresolvable island
+    reference). Carries the failing position and a short reason for debugging;
+    the compile seam catches it and falls back to the full engine, so it is
+    **never** user-facing.
     """
 
 
-class _Slot(IrLeaf[IrSelf, IrSelf]):
-    """One item slot of a clone frame — its consumed span and its sub-models.
-
-    A ``sequence`` clone binds fields to slots by item index; ``text``/``gtext``
-    read the span, ``model``/``models`` read the collected sub-models.
-
-    :ivar start: The cursor position where the item began.
-    :ivar end: The cursor position where the item finished.
-    :ivar models: The models produced anywhere under the item, in order.
-    """
-
-    __slots__ = ("start", "end", "models")
-
-    start: int
-    end: int
-    models: list[object]
-
-    def __init__(self) -> None:
-        """Seed an empty, zero-width slot."""
-        self.start = 0
-        self.end = 0
-        self.models = []
-
-
-class _Frame(IrLeaf[IrSelf, IrSelf]):
-    """One in-progress arm execution on the kernel's explicit descent stack.
-
-    A frame executes :attr:`specs` (a rule clone's or inline group's selected
-    arm) item by item. A *clone frame* (``fold`` set) owns one :class:`_Slot`
-    per item and, on completion, builds a single model; a *transparent frame*
-    (``fold is None`` — an inline group or look-through clone) owns no slots and
-    funnels every model produced inside it straight to :attr:`out`.
-
-    :ivar specs: The selected arm's item specs, in order.
-    :ivar i: The current item index.
-    :ivar count: Iterations completed for the current item (resumes a
-        descending loop across sub-frame pushes).
-    :ivar out: The parent slot's model list — where this frame's built model
-        appends (clone frame) or where its children funnel (transparent frame).
-    :ivar fold: The clone's baked fold config (``None`` for transparent frames).
-    :ivar slots: One :class:`_Slot` per item (empty for transparent frames).
-    """
-
-    __slots__ = ("specs", "i", "count", "out", "fold", "slots")
-
-    specs: tuple[ItemSpec, ...]
-    i: int
-    count: int
-    out: list[object]
-    fold: RuleFold | None
-    slots: list[_Slot]
-
-    def __init__(
-        self, specs: tuple[ItemSpec, ...], out: list[object], fold: RuleFold | None
-    ) -> None:
-        """Seed a fresh frame.
-
-        :param specs: The selected arm's item specs.
-        :param out: The parent slot list this frame reports into.
-        :param fold: The clone's fold config, or ``None`` for a transparent
-            frame (which owns no slots).
-        """
-        self.specs = specs
-        self.i = 0
-        self.count = 0
-        self.out = out
-        self.fold = fold
-        self.slots = [] if fold is None else [_Slot() for _ in specs]
+# ── frame layout ───────────────────────────────────────────────────────────
+#
+# A frame is one in-progress arm execution on the kernel's explicit descent
+# stack — a flat list (the ``kernel.py`` int-array explicit-stack precedent; the
+# class *cursor* is :class:`PdaKernel` itself), indexed by the constants below.
+# A *clone frame* (a non-transparent ``_F_MODE``) captures what its fold needs
+# and, on completion, builds a single model; a *transparent frame*
+# (``_BUILD_TRANSPARENT`` — an inline group or look-through clone) owns no
+# capture and funnels every model produced inside it straight to ``_F_OUT``.
+#
+#   _F_ARM   the selected arm's flat item arrays (:class:`_FlatArm`)
+#   _F_I     the current item index
+#   _F_COUNT iterations completed for the current item (resumes a descending
+#            loop across sub-frame pushes)
+#   _F_OUT   the parent sink list — where a clone frame's model appends, or a
+#            transparent frame's children funnel
+#   _F_MODE  the build-mode (one of the ``_BUILD_*`` constants)
+#   _F_CLONE the frame's :class:`_FlatClone` (its fold and baked build plan)
+#   _F_START the cursor position where the frame began (its span start)
+#   _F_ENDS  per-item end positions, preallocated for ``sequence`` frames (item
+#            ``i``'s span is ``(start if i==0 else ends[i-1], ends[i])``); the
+#            shared :data:`_NO_ENDS` sentinel otherwise (never indexed)
+#   _F_SINKS per-item descent sub-model lists, allocated lazily on first descent
+#            (capture frames), else ``None``
+_F_ARM, _F_I, _F_COUNT, _F_OUT, _F_MODE, _F_CLONE, _F_START, _F_ENDS, _F_SINKS = range(
+    9
+)
 
 
 class PdaKernel(IrLeaf[IrSelf, IrSelf]):
-    """One predictive parse of ``text`` over compiled :class:`PdaTables`.
+    """One predictive parse of ``text`` over a compiled :class:`PdaProgram`.
 
     Construct per parse, call :meth:`run` once; it returns the start clone's
     model. Per-parse state (:attr:`pos`, :attr:`stack`) is mutable on the
     kernel; :attr:`tables` is the shared, immutable compiled artifact.
 
-    :ivar tables: The compiled predictive-parser tables.
+    :ivar tables: The compiled predictive-parser tables (its
+        :attr:`~lexic.parsing.pda_tables.PdaTables.program` is walked).
     :ivar text: The input string.
     :ivar pos: The cursor position (advances monotonically — no backtracking).
-    :ivar stack: The explicit descent stack of :class:`_Frame` work items.
+    :ivar stack: The explicit descent stack of flat frame lists (see the frame
+        layout above).
     :ivar fold: The full-grammar fold used to splice island sub-models, or
         ``None`` on the island-free path (an island reference then raises
         :class:`PdaFail`).
@@ -199,7 +186,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
     tables: PdaTables
     text: str
     pos: int
-    stack: list[_Frame]
+    stack: list[list[Any]]
     fold: PositionalFold | None
 
     def __init__(
@@ -230,135 +217,436 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
             input, or a start rule that is itself an island (the whole-grammar
             opt-out the compile seam reads).
         """
-        start = self.tables.start_key
-        if isinstance(start, IslandRef):
+        start = self.tables.program.start
+        if not isinstance(start, _FlatClone):  # IslandRef opt-out
             raise PdaFail(f"start rule {start.name!r} is an island — no PDA")
         holder: list[object] = []
-        self._enter_clone(self.tables.clones[start], holder)
-        stack = self.stack
-        while stack:
-            self._step(stack[-1])
+        self._enter(start, holder)
+        self._drive()
         if self.pos != len(self.text):
             raise PdaFail(f"trailing input at {self.pos}")
         if not holder:
             raise PdaFail("start rule produced no model")
         return holder[0]
 
-    def _step(self, frame: _Frame) -> None:
-        """Advance one frame until it descends (push + return) or completes.
+    def _drive(self) -> None:
+        """Drain the frame stack — the fused hot loop.
 
-        Runs inline through terminal items; on a rule-reference or group item it
-        pushes one sub-frame per iteration and returns so the sub-frame runs
-        next, resuming here (with :attr:`_Frame.count` already incremented) once
-        it completes.
+        The outer loop processes the top frame; the inner loop runs its items
+        in order. A terminal item matches its whole quantifier loop inline (no
+        descent, no per-char call; the exactly-once ``_OP_CC1``/``_OP_LIT1``
+        specialisations skip even the helper call); an ``_OP_VSTR`` item runs
+        its whole terminal-only ``value_str`` loop frame-lessly; an
+        ``_OP_REF1`` item (an exactly-once entry in an ends-free arm) advances
+        past itself before descending, so its resume needs no re-check. Any
+        other quantified atom steps through :meth:`_quant_step` — descend,
+        inline splice, or loop close. A frame whose items run out (the
+        ``while``'s ``else``) completes.
         """
-        specs = frame.specs
-        while frame.i < len(specs):
-            spec = specs[frame.i]
-            if frame.count == 0 and frame.fold is not None:
-                frame.slots[frame.i].start = self.pos
-            if spec.kind in (LIT, CC):
-                self._match_run(spec)
-                self._finish_item(frame)
-                continue
-            if self._need_iteration(spec, frame.count):
-                frame.count += 1
-                sink = frame.out if frame.fold is None else frame.slots[frame.i].models
-                self._descend(spec, sink)
-                return
-            self._finish_item(frame)
-        self._complete(frame)
+        stack = self.stack
+        text = self.text
+        while stack:
+            frame = stack[-1]
+            arm = frame[_F_ARM]
+            kinds = arm.kinds
+            n = arm.n
+            ends = frame[_F_ENDS]
+            i = frame[_F_I]
+            pos = self.pos
+            while i < n:
+                k = kinds[i]
+                if k == _OP_CC1:
+                    payload = arm.payloads[i]
+                    char = text[pos : pos + 1]
+                    if (char == "" or char in payload[0]) if payload[1] else (
+                        char not in payload[0]
+                    ):
+                        raise PdaFail(f"char class miss at {pos}")
+                    pos += 1
+                elif k == _OP_LIT1:
+                    lit = arm.payloads[i]
+                    if not text.startswith(lit, pos):
+                        raise PdaFail(f"expected {lit!r} at {pos}")
+                    pos += len(lit)
+                elif k == _OP_REF1:
+                    frame[_F_I] = i + 1
+                    self.pos = pos
+                    if self._enter(arm.payloads[i], self._sink_for(frame, arm, i)):
+                        break  # pushed — the sub-frame drives next
+                    pos = self.pos  # consumed inline — this item is done
+                    i += 1
+                    continue
+                elif k == _OP_VSTR:
+                    pos = self._match_vstr(self._sink_for(frame, arm, i), arm, i, pos)
+                elif k == _OP_LIT:
+                    pos = self._match_lit(arm, i, pos)
+                elif k == _OP_CC:
+                    pos = self._match_cc(arm, i, pos)
+                else:
+                    i = self._quant_step(frame, arm, i, pos)
+                    if i < 0:
+                        break  # pushed — the sub-frame drives next
+                    pos = self.pos
+                    continue
+                if ends is not _NO_ENDS:
+                    ends[i] = pos
+                i += 1
+            else:  # items exhausted without a descent — the frame completes
+                frame[_F_I] = i
+                self.pos = pos
+                self._complete(frame)
 
-    def _finish_item(self, frame: _Frame) -> None:
-        """Record the current slot's span end and advance to the next item."""
-        if frame.fold is not None:
-            frame.slots[frame.i].end = self.pos
-        frame.i += 1
-        frame.count = 0
+    def _quant_step(self, frame: list[Any], arm: _FlatArm, i: int, pos: int) -> int:
+        """One step of a quantified atom's loop — descend, splice, or close.
 
-    def _need_iteration(self, spec: ItemSpec, count: int) -> bool:
-        """Whether the current item takes another iteration at the cursor.
+        Consults the mandatory count then the loop gate; a due iteration
+        descends (a clone entry pushes a frame; an island splices inline; a
+        fail-island raises), a closed loop records the item's end and moves on.
+        ``self.pos`` is left current in every non-pushing outcome.
 
-        Mandatory while ``count < lo``; past that, gated by the item's loop gate
-        (a :class:`~lexic.parsing.pda_tables.PairGate` LL(2) 2-char slice, or a
-        :class:`~lexic.parsing.pda_tables.StopGate` single-char stop-set),
-        bounded by ``hi``.
+        :returns: ``-1`` when a sub-frame was pushed; otherwise the item index
+            the driver continues at (``i`` mid-loop, ``i + 1`` when closed).
+        :raises PdaFail: On a fail-island reference, an island reference with
+            no fold, or a mandatory iteration with no viable arm.
         """
-        if count < spec.lo:
-            return True
-        if spec.hi is not None and count >= spec.hi:
-            return False
-        gate = spec.gate
-        if isinstance(gate, PairGate):
-            return self.text[self.pos : self.pos + 2] in gate.pairs
-        return gate.charset.has(self.text[self.pos : self.pos + 1])
+        count = frame[_F_COUNT]
+        if count < arm.los[i]:
+            need = True
+        else:
+            hi = arm.his[i]
+            need = (hi < 0 or count < hi) and self._gate_admits(arm, i, pos)
+        if not need:
+            frame[_F_COUNT] = 0
+            frame[_F_I] = i + 1
+            ends = frame[_F_ENDS]
+            if ends is not _NO_ENDS:
+                ends[i] = pos
+            self.pos = pos
+            return i + 1
+        frame[_F_COUNT] = count + 1
+        frame[_F_I] = i
+        self.pos = pos
+        k = arm.kinds[i]
+        sink = self._sink_for(frame, arm, i)
+        if k <= _OP_GRP:  # _OP_REF / _OP_GRP — a clone entry
+            if self._enter(arm.payloads[i], sink):
+                return -1
+            return i  # consumed inline — same item continues
+        if k == _OP_FAIL:
+            raise PdaFail(
+                f"fail-island {arm.payloads[i]!r} at {pos}: "
+                "F1 semantic escape, engine fallback"
+            )
+        self._island(arm.payloads[i], sink)  # _OP_ISLAND — spliced inline
+        return i
 
-    # ── item execution ────────────────────────────────────────────────
+    # ── terminal matching (whole quantifier loop, inline, no per-char call) ─
 
-    def _match_run(self, spec: ItemSpec) -> None:
-        """Match a terminal item's whole quantifier loop inline, advancing pos.
+    def _match_lit(self, arm: _FlatArm, i: int, pos: int) -> int:
+        """Match a literal item's whole quantifier loop, returning the new pos.
 
-        Consumes ``lo`` mandatory matches, then keeps matching while the loop
-        gate passes (up to ``hi``); a mismatch inside the mandatory run — or a
-        gate-admitted partial literal — raises :exc:`PdaFail`.
+        :raises PdaFail: On a mismatch in the mandatory run or a gate-admitted
+            partial literal.
         """
-        lo, hi, gate, text = spec.lo, spec.hi, spec.gate, self.text
+        text = self.text
+        lit = arm.payloads[i]
+        llen = len(lit)
+        lo, hi = arm.los[i], arm.his[i]
         count = 0
         while count < lo:
-            self._match_atom(spec)
+            if not text.startswith(lit, pos):
+                raise PdaFail(f"expected {lit!r} at {pos}")
+            pos += llen
             count += 1
-        if isinstance(gate, PairGate):
-            pairs = gate.pairs
-            while (hi is None or count < hi) and text[self.pos : self.pos + 2] in pairs:
-                self._match_atom(spec)
+        gate = arm.gate_data[i]
+        if arm.gate_kinds[i] == _GATE_PAIR:
+            while (hi < 0 or count < hi) and text[pos : pos + 2] in gate:
+                if not text.startswith(lit, pos):
+                    raise PdaFail(f"expected {lit!r} at {pos}")
+                pos += llen
                 count += 1
-            return
-        charset = gate.charset
-        while (hi is None or count < hi) and charset.has(text[self.pos : self.pos + 1]):
-            self._match_atom(spec)
+            return pos
+        chars, negated = gate
+        while hi < 0 or count < hi:
+            char = text[pos : pos + 1]
+            admit = (char != "" and char not in chars) if negated else char in chars
+            if not admit:
+                break
+            if not text.startswith(lit, pos):
+                raise PdaFail(f"expected {lit!r} at {pos}")
+            pos += llen
             count += 1
+        return pos
 
-    def _match_atom(self, spec: ItemSpec) -> None:
-        """Match one literal or char-class atom, advancing the cursor.
+    def _match_cc(self, arm: _FlatArm, i: int, pos: int) -> int:
+        """Match a char-class item's whole quantifier loop, returning the new pos.
 
-        :raises PdaFail: On a literal that does not match or a char class the
-            next char is not in.
+        The gate loop needs no atom re-check: a stop-set / LL(2) pair is a
+        subset of the atom's own FIRST, so a gate-admitted char always matches.
+
+        :raises PdaFail: On a mismatch in the mandatory run.
         """
-        if spec.kind == LIT:
-            payload = cast(str, spec.payload)
-            if not self.text.startswith(payload, self.pos):
-                raise PdaFail(f"expected {payload!r} at {self.pos}")
-            self.pos += len(payload)
-            return
+        text = self.text
+        chars, negated = arm.payloads[i]
+        lo, hi = arm.los[i], arm.his[i]
+        count = 0
+        while count < lo:
+            char = text[pos : pos + 1]
+            if (char == "" or char in chars) if negated else char not in chars:
+                raise PdaFail(f"char class miss at {pos}")
+            pos += 1
+            count += 1
+        gate = arm.gate_data[i]
+        if arm.gate_kinds[i] == _GATE_PAIR:
+            while (hi < 0 or count < hi) and text[pos : pos + 2] in gate:
+                pos += 1
+                count += 1
+            return pos
+        gchars, gnegated = gate
+        while hi < 0 or count < hi:
+            char = text[pos : pos + 1]
+            admit = (char != "" and char not in gchars) if gnegated else char in gchars
+            if not admit:
+                break
+            pos += 1
+            count += 1
+        return pos
+
+    def _gate_admits(self, arm: _FlatArm, i: int, pos: int) -> bool:
+        """Whether item ``i``'s loop gate admits another iteration at ``pos``."""
+        text = self.text
+        gate = arm.gate_data[i]
+        if arm.gate_kinds[i] == _GATE_PAIR:
+            return text[pos : pos + 2] in gate
+        chars, negated = gate
+        char = text[pos : pos + 1]
+        if negated:
+            return char != "" and char not in chars
+        return char in chars
+
+    # ── descent ────────────────────────────────────────────────────────
+
+    def _sink_for(self, frame: list[Any], arm: _FlatArm, i: int) -> list[Any]:
+        """The sink item ``i``'s sub-models report into (allocated lazily).
+
+        A transparent frame funnels everything to its parent sink; a capture
+        frame collects per item in :attr:`_Frame.sinks`.
+        """
+        if frame[_F_MODE] == _BUILD_TRANSPARENT:
+            return frame[_F_OUT]
+        sinks = frame[_F_SINKS]
+        if sinks is None:
+            frame[_F_SINKS] = sinks = [_EMPTY_SLOT] * arm.n
+        sink = sinks[i]
+        if sink is None:
+            sinks[i] = sink = []
+        return sink
+
+    def _select_arm(self, clone: _FlatClone, char: str, pos: int) -> _FlatArm:
+        """The clone's FIRST-gated arm at lookahead ``char``, or its default.
+
+        :raises PdaFail: When no arm's FIRST matches and there is no default.
+        """
+        for chars, negated, candidate in clone.selectors:
+            if (char != "" and char not in chars) if negated else char in chars:
+                return candidate
+        default = clone.default
+        if default is None:
+            raise PdaFail(f"no arm at {pos}")
+        return default
+
+    def _enter(self, clone: _FlatClone, out: list[object]) -> bool:
+        """Select ``clone``'s arm at the cursor and push its (flat) frame.
+
+        A dispatch clone (a frame-less pass-through alternation) is chased
+        first: its selectors carry target clones, so the walk lands on the
+        concrete clone — reporting into the same ``out`` the alternation would
+        have passed through to — before any frame is pushed. A leaf clone then
+        runs frame-lessly in :meth:`_run_leaf`.
+
+        :param clone: The clone (or inline group) to descend into.
+        :param out: The parent sink list the clone's model reports into.
+        :returns: ``True`` when a frame was pushed; ``False`` when the clone
+            was consumed inline (a leaf run, or a dispatch clone's empty arm).
+        :raises PdaFail: When no arm's FIRST matches and there is no default.
+        """
         char = self.text[self.pos : self.pos + 1]
-        if not cast(CharSet, spec.payload).has(char):
-            raise PdaFail(f"char class miss at {self.pos}")
-        self.pos += 1
+        while clone.mode == _BUILD_DISPATCH:
+            nxt = None
+            for chars, negated, target in clone.selectors:
+                if (char != "" and char not in chars) if negated else char in chars:
+                    nxt = target
+                    break
+            if nxt is None:
+                nxt = clone.default
+                if nxt is None:
+                    raise PdaFail(f"no arm at {self.pos}")
+                if nxt is _DISPATCH_EMPTY:
+                    return False  # the empty (nullable) arm — nothing consumed
+            clone = nxt
+        if clone.leaf:
+            self.pos = self._run_leaf(clone, out, self.pos)
+            return False
+        arm: _FlatArm | None = None
+        for chars, negated, candidate in clone.selectors:
+            if (char != "" and char not in chars) if negated else char in chars:
+                arm = candidate
+                break
+        if arm is None:
+            arm = clone.default
+            if arm is None:
+                raise PdaFail(f"no arm at {self.pos}")
+        mode = clone.mode
+        ends = [0] * arm.n if mode == _BUILD_SEQ and clone.needs_ends else _NO_ENDS
+        # frame layout: arm, i, count, out, mode, clone, start, ends, sinks
+        self.stack.append([arm, 0, 0, out, mode, clone, self.pos, ends, None])
+        return True
 
-    def _descend(self, spec: ItemSpec, sink: list[object]) -> None:
-        """Push a sub-frame for one iteration of a rule-reference or group item.
+    def _run_leaf(self, clone: _FlatClone, out: list[Any], pos: int) -> int:
+        """Run an all-terminal ``sequence`` clone frame-lessly — match and build.
 
-        :param spec: The ``ref`` or ``grp`` item.
-        :param sink: The slot list the sub-frame (or spliced island model)
-            reports into.
-        :raises PdaFail: On a reference to a *fail-island* (``IslandRef.fail`` —
-            a semantic F1 escape, always, regardless of :attr:`fold`), or to any
-            island with no fold to splice with (the island-free path) — the
-            engine then reparses.
+        The leaf licence guarantees no descent: every item is a terminal or an
+        ``_OP_VSTR``, so item spans and sub-models are collected in locals and
+        the model is built on the spot, exactly as the frame walk plus
+        :meth:`_complete` would.
+
+        :param clone: The leaf clone (``leaf`` flag set at flatten time).
+        :param out: The sink the built model appends to.
+        :param pos: The cursor position.
+        :returns: The position after the clone's whole match.
+        :raises PdaFail: On a terminal mismatch, or no viable arm.
+        :raises UnsupportedConstructError: On an item count that matches
+            neither the bound fields nor the empty arm.
         """
-        if spec.kind == REF:
-            target = spec.payload
-            if isinstance(target, IslandRef):
-                if target.fail:
-                    raise PdaFail(
-                        f"fail-island {target.name!r} at {self.pos}: "
-                        "F1 semantic escape, engine fallback"
-                    )
-                self._island(target.name, sink)
-                return
-            self._enter_clone(self.tables.clones[cast(CloneKey, target)], sink)
-            return
-        self._enter_group(cast(GroupSpec, spec.payload), sink)
+        text = self.text
+        arm = self._select_arm(clone, text[pos : pos + 1], pos)
+        n = arm.n
+        if n != clone.fold.n_items:
+            return self._leaf_mismatch(clone, out, n, pos)
+        start = pos
+        ends = [0] * n
+        sinks: list[Any] | None = None
+        for i in range(n):
+            k = arm.kinds[i]
+            if k == _OP_CC1:
+                payload = arm.payloads[i]
+                char = text[pos : pos + 1]
+                if (char == "" or char in payload[0]) if payload[1] else (
+                    char not in payload[0]
+                ):
+                    raise PdaFail(f"char class miss at {pos}")
+                pos += 1
+            elif k == _OP_LIT1:
+                lit = arm.payloads[i]
+                if not text.startswith(lit, pos):
+                    raise PdaFail(f"expected {lit!r} at {pos}")
+                pos += len(lit)
+            elif k == _OP_VSTR:
+                if sinks is None:
+                    sinks = [_EMPTY_SLOT] * n
+                sub: list[Any] = []
+                sinks[i] = sub
+                pos = self._match_vstr(sub, arm, i, pos)
+            elif k == _OP_LIT:
+                pos = self._match_lit(arm, i, pos)
+            else:
+                pos = self._match_cc(arm, i, pos)
+            ends[i] = pos
+        out.append(self._build_fast(clone, start, ends, sinks))
+        return pos
+
+    @staticmethod
+    def _leaf_mismatch(
+        clone: _FlatClone, out: list[Any], n: int, pos: int
+    ) -> int:
+        """A leaf arm whose item count misses the fold — empty arm, or error.
+
+        :returns: ``pos`` unchanged (the empty alternate arm consumed nothing).
+        :raises UnsupportedConstructError: On a non-empty mismatch (a
+            compile/runtime disagreement).
+        """
+        fold = clone.fold
+        if n:
+            raise UnsupportedConstructError(
+                f"pda: {fold.ctor!r}: {n} items match neither "
+                f"{fold.n_items} slots nor the empty arm"
+            )
+        out.append(fold.ctor())  # empty alternate arm matched
+        return pos
+
+    def _match_vstr(self, sink: list[Any], arm: _FlatArm, i: int, pos: int) -> int:
+        """Inline a terminal-only ``value_str`` reference — no frame per iteration.
+
+        Runs item ``i``'s whole quantifier loop: each iteration selects the
+        target clone's arm at the lookahead, matches its (all-terminal) items,
+        slices the consumed span and appends the built model to ``sink`` —
+        exactly the frame push, walk and completion it replaces.
+
+        :param sink: The sink the iteration models append to.
+        :param arm: The current arm.
+        :param i: The ``_OP_VSTR`` item index.
+        :param pos: The cursor position.
+        :returns: The position after the whole quantifier loop.
+        :raises PdaFail: On a terminal mismatch or an unmatched mandatory
+            iteration with no default arm.
+        """
+        clone = arm.payloads[i]
+        lo, hi = arm.los[i], arm.his[i]
+        count = 0
+        while count < lo or (
+            (hi < 0 or count < hi) and self._gate_admits(arm, i, pos)
+        ):
+            pos = self._vstr_once(clone, sink, pos)
+            count += 1
+        return pos
+
+    def _vstr_once(self, clone: _FlatClone, sink: list[Any], pos: int) -> int:
+        """One ``value_str`` iteration — select, match, slice, build, append.
+
+        :param clone: The terminal-only ``value_str`` clone.
+        :param sink: The sink the built model appends to.
+        :param pos: The cursor position.
+        :returns: The position after this iteration's match.
+        :raises PdaFail: On a terminal mismatch or no viable arm.
+        """
+        text = self.text
+        char = text[pos : pos + 1]
+        varm = None
+        for sel in clone.selectors:
+            if (char != "" and char not in sel[0]) if sel[1] else char in sel[0]:
+                varm = sel[2]
+                break
+        if varm is None:
+            varm = clone.default
+            if varm is None:
+                raise PdaFail(f"no arm at {pos}")
+        start = pos
+        for j in range(varm.n):
+            kj = varm.kinds[j]
+            if kj == _OP_CC1:
+                payload = varm.payloads[j]
+                char = text[pos : pos + 1]
+                if (char == "" or char in payload[0]) if payload[1] else (
+                    char not in payload[0]
+                ):
+                    raise PdaFail(f"char class miss at {pos}")
+                pos += 1
+            elif kj == _OP_LIT1:
+                lit = varm.payloads[j]
+                if not text.startswith(lit, pos):
+                    raise PdaFail(f"expected {lit!r} at {pos}")
+                pos += len(lit)
+            elif kj == _OP_LIT:
+                pos = self._match_lit(varm, j, pos)
+            else:
+                pos = self._match_cc(varm, j, pos)
+        span = text[start:pos]
+        fast = clone.fast
+        if fast is not None:
+            sink.append(fast({"value": span}, {"value"}))
+        else:
+            sink.append(clone.fold.ctor(value=span))
+        return pos
 
     # ── island sub-parse + splice ─────────────────────────────────────
 
@@ -367,11 +655,10 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
 
         The island rule parses over a doubling window from the cursor; the
         longest completion folds through :attr:`fold` and its sub-model appends
-        to ``sink`` (the enclosing capture — text/gtext slots ignore it and read
-        the span). The cursor advances past the consumed island span.
+        to ``sink``. The cursor advances past the consumed island span.
 
         :param name: The island rule name.
-        :param sink: The enclosing slot's model list the sub-model splices into.
+        :param sink: The enclosing sink the sub-model splices into.
         :raises PdaFail: With no fold to splice (island-free path), or when the
             island rule completes over no window from the cursor.
         """
@@ -443,125 +730,159 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
             raise PdaFail(f"island {name!r}: no derivation")
         return tree
 
-    def _enter_clone(self, clone: CloneSpec, out: list[object]) -> None:
-        """Select ``clone``'s arm at the cursor and push its frame.
-
-        :param clone: The rule clone to descend into.
-        :param out: The parent slot list the clone's model reports into.
-        """
-        char = self.text[self.pos : self.pos + 1]
-        specs = self._select(clone.arms, clone.default, char, clone.name)
-        self.stack.append(_Frame(specs, out, clone.fold))
-
-    def _enter_group(self, group: GroupSpec, out: list[object]) -> None:
-        """Select ``group``'s arm at the cursor and push a transparent frame.
-
-        :param group: The inline group to descend into.
-        :param out: The enclosing slot list the group's children funnel into.
-        """
-        char = self.text[self.pos : self.pos + 1]
-        specs = self._select(group.arms, group.default, char, "group")
-        self.stack.append(_Frame(specs, out, None))
-
-    def _select(
-        self,
-        arms: tuple[ArmSpec, ...],
-        default: tuple[ItemSpec, ...] | None,
-        char: str,
-        label: str,
-    ) -> tuple[ItemSpec, ...]:
-        """Pick the FIRST-gated arm the lookahead selects, else the default arm.
-
-        :param arms: The FIRST-gated :class:`~lexic.parsing.pda_tables.ArmSpec`\\ s.
-        :param default: The all-nullable default arm's specs, or ``None``.
-        :param char: The lookahead char (``""`` at end of input).
-        :param label: The rule / group name, for the failure message.
-        :returns: The selected arm's item specs.
-        :raises PdaFail: When no arm's FIRST matches and there is no default.
-        """
-        for arm in arms:
-            if arm.first.has(char):
-                return arm.specs
-        if default is not None:
-            return default
-        raise PdaFail(f"{label}: no arm at {self.pos}")
-
     # ── frame completion → fused model build ──────────────────────────
 
-    def _complete(self, frame: _Frame) -> None:
-        """Pop a finished frame; build and report its model (if it has one)."""
-        self.stack.pop()
-        if frame.fold is None:
-            return  # transparent — children already funnelled to frame.out
-        model = self._build(frame)
-        if model is not None:
-            frame.out.append(model)
+    def _complete(self, frame: list[Any]) -> None:
+        """Pop a finished frame; build and report its model — the fused fold.
 
-    def _build(self, frame: _Frame) -> object:
-        """Build a clone frame's model from its captured slots — the fused fold.
-
-        Mirrors :meth:`~lexic.parsing.fold.PositionalFold._fold_node`: a
-        ``value_str`` clone slices its whole span, an ``alternation`` passes the
-        first model under its matched arm through, and a ``sequence`` binds each
-        field to its slot's span or model collection.
-
-        :raises UnsupportedConstructError: On a fold kind outside the vocabulary.
+        A ``value_str`` frame slices its whole span, an ``alternation`` passes
+        the first sub-model through, and a ``sequence`` binds each field to its
+        item span or sub-model collection; a transparent frame builds nothing
+        (its children already funnelled to ``_F_OUT``).
         """
-        fold = cast(RuleFold, frame.fold)
-        kind = fold.kind
-        if kind == "value_str":
-            start = frame.slots[0].start if frame.slots else self.pos
-            return fold.ctor(value=self.text[start : self.pos])
-        if kind == "alternation":
-            for slot in frame.slots:
-                if slot.models:
-                    return slot.models[0]
-            return None
-        if kind == "sequence":
-            return self._build_sequence(frame, fold)
-        raise UnsupportedConstructError(
-            f"pda: {fold.ctor!r}: unknown fold kind {kind!r}"
-        )
+        self.stack.pop()
+        mode = frame[_F_MODE]
+        if mode == _BUILD_TRANSPARENT:
+            return  # children already funnelled to _F_OUT
+        clone = frame[_F_CLONE]
+        if mode == _BUILD_SEQ:
+            if clone.fast is not None and frame[_F_ARM].n == clone.fold.n_items:
+                model = self._build_fast(
+                    clone, frame[_F_START], frame[_F_ENDS], frame[_F_SINKS]
+                )
+            else:
+                model = self._build_sequence(frame, clone)
+        elif mode == _BUILD_VALUE_STR:
+            span = self.text[frame[_F_START] : self.pos]
+            fast = clone.fast
+            if fast is not None:
+                model = fast({"value": span}, {"value"})
+            else:
+                model = clone.fold.ctor(value=span)
+        else:  # _BUILD_ALT
+            model = self._alt_model(frame)
+        if model is not None:
+            frame[_F_OUT].append(model)
 
-    def _build_sequence(self, frame: _Frame, fold: RuleFold) -> object:
+    @staticmethod
+    def _alt_model(frame: list[Any]) -> object:
+        """The first sub-model under an ``alternation`` frame's matched arm."""
+        sinks = frame[_F_SINKS]
+        if sinks:
+            for sub in sinks:
+                if sub:
+                    return sub[0]
+        return None
+
+    def _build_sequence(self, frame: list[Any], clone: _FlatClone) -> object:
         """Build a ``sequence`` clone's model from its bound field slots.
 
-        A zero-item arm match builds ``ctor()`` (the rule's empty alternate arm);
-        any other slot-count mismatch is a compile/runtime disagreement.
+        The per-field fold is inlined (``text`` / ``gtext`` read the item's span
+        off the frame's ``_F_ENDS``, ``model`` / ``models`` its ``_F_SINKS``). A
+        zero-item arm match builds ``ctor()`` (the rule's empty alternate arm);
+        any other item-count mismatch is a compile/runtime disagreement. With a
+        :class:`~lexic.parsing.fold.FastCtor` licence the parts dict is seeded
+        from the clone's baked defaults and handed to the validation-skip
+        constructor; without one, :meth:`_build_validated` runs the rule's
+        validated constructor.
 
-        :raises UnsupportedConstructError: On a slot count that matches neither
-            the bound fields nor the empty arm.
+        :raises UnsupportedConstructError: On an item count that matches neither
+            the bound fields nor the empty arm, or a mode outside
+            :data:`~lexic.ir.bind.BIND_MODES`.
         """
-        if len(frame.specs) != fold.n_items:
-            if frame.specs:
+        fold = clone.fold
+        arm = frame[_F_ARM]
+        if arm.n != fold.n_items:
+            if arm.n:
                 raise UnsupportedConstructError(
-                    f"pda: {fold.ctor!r}: {len(frame.specs)} slots match neither "
-                    f"{fold.n_items} items nor the empty arm"
+                    f"pda: {fold.ctor!r}: {arm.n} items match neither "
+                    f"{fold.n_items} slots nor the empty arm"
                 )
             return fold.ctor()  # empty alternate arm matched
-        kwargs: dict[str, object] = {}
-        for field in fold.fields:
-            value = self._field_value(frame.slots[field.item], field.mode, field.lo)
-            if value is not None:
-                kwargs[field.name] = value
-        return fold.ctor(**kwargs)
+        if clone.fast is None:
+            return self._build_validated(frame, fold)
+        return self._build_fast(clone, frame[_F_START], frame[_F_ENDS], frame[_F_SINKS])
 
-    def _field_value(self, slot: _Slot, mode: str, lo: int) -> object:
-        """One bound field's folded value from ``slot`` under ``mode``.
+    def _build_fast(
+        self,
+        clone: _FlatClone,
+        start: int,
+        ends: list[int],
+        sinks: list[Any] | None,
+    ) -> object:
+        """Build a fast-licenced ``sequence`` model from item spans and sinks.
+
+        Seeds the parts dict from the clone's baked defaults, fills each bound
+        field per its int-coded mode, and hands the parts to the
+        validation-skip constructor — the shared build tail of
+        :meth:`_build_sequence` and :meth:`_run_leaf`.
+
+        :param clone: The clone (fast licence granted).
+        :param start: The match's span start.
+        :param ends: Per-item end positions.
+        :param sinks: Per-item sub-model lists, or ``None``.
+        :returns: The built model.
+        """
+        text = self.text
+        parts = dict(clone.defaults)
+        keys: set[str] = set()
+        for item, mode, name, lo in clone.fields:
+            if mode == _M_MODEL:
+                sub = sinks[item] if sinks else None
+                if sub:
+                    parts[name] = sub[0]
+                    keys.add(name)
+            elif mode == _M_MODELS:
+                sub = sinks[item] if sinks else None
+                parts[name] = sub if sub is not None else []
+                keys.add(name)
+            elif mode == _M_GTEXT:
+                span = text[(start if item == 0 else ends[item - 1]) : ends[item]]
+                if span or lo:
+                    parts[name] = span
+                    keys.add(name)
+            else:  # _M_TEXT
+                parts[name] = text[
+                    (start if item == 0 else ends[item - 1]) : ends[item]
+                ]
+                keys.add(name)
+        return clone.fast(parts, keys)
+
+    def _build_validated(self, frame: list[Any], fold: RuleFold) -> object:
+        """Build a ``sequence`` model through the validated constructor.
+
+        The no-licence fallback of :meth:`_build_sequence` — field extraction
+        is identical, but the values pass through ``fold.ctor`` (pydantic
+        validation included).
 
         :raises UnsupportedConstructError: On a mode outside
             :data:`~lexic.ir.bind.BIND_MODES`.
         """
-        if mode == "text":
-            return self.text[slot.start : slot.end]
-        if mode == "gtext":
-            span = self.text[slot.start : slot.end]
-            return None if (not span and lo == 0) else span
-        if mode == "models":
-            return slot.models
-        if mode == "model":
-            return slot.models[0] if slot.models else None
-        raise UnsupportedConstructError(f"pda: unknown field mode {mode!r}")
+        fold_fields = fold.fields
+        text = self.text
+        ends = frame[_F_ENDS]
+        sinks = frame[_F_SINKS]
+        start = frame[_F_START]
+        kwargs: dict[str, object] = {}
+        for item, mode, name, lo in fold_fields:
+            if mode == "text":
+                kwargs[name] = text[
+                    (start if item == 0 else ends[item - 1]) : ends[item]
+                ]
+            elif mode == "gtext":
+                span = text[(start if item == 0 else ends[item - 1]) : ends[item]]
+                if span or lo != 0:
+                    kwargs[name] = span
+            elif mode == "model":
+                sub = sinks[item] if sinks else None
+                if sub:
+                    kwargs[name] = sub[0]
+            elif mode == "models":
+                sub = sinks[item] if sinks else None
+                kwargs[name] = sub if sub is not None else []
+            else:
+                raise UnsupportedConstructError(f"pda: unknown field mode {mode!r}")
+        return fold.ctor(**kwargs)
 
 
 def parse_pda(

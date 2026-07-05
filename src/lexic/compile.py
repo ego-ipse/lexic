@@ -28,10 +28,16 @@ Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)
 canonicalize + directive flags → flagged ``IrAst``); ``generate.py`` and
 transpilers build on it.
 
+Every compiled grammar also carries a predictive PDA sibling
+(``lexic.parsing.pda_tables.compile_pda`` → ``PdaTables``, ``None`` on a
+whole-grammar opt-out); ``CompiledGrammar.parse`` runs it PDA-first
+(``parse_pda``) and falls back to the full engine on any ``PdaFail``, so one
+public ``parse`` keeps unchanged semantics.
+
 Runtime seams: lexic.codegen (codegen, build_codegen_grammar,
 compute_binding) and the engine (lexic.parsing / .fold / .normalize /
-.reduce). compile.py is the single runtime module importing either; no
-private-symbol imports cross the seams.
+.reduce / .pda_tables / .pda_kernel). compile.py is the single runtime module
+importing either; no private-symbol imports cross the seams.
 """
 
 from __future__ import annotations
@@ -57,6 +63,7 @@ from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst, IrRule
 from lexic.parsing import ParserTables, parse_first, parse_reduced
 from lexic.parsing.fold import (
+    FastCtor,
     FieldFold,
     PositionalFold,
     RuleFold,
@@ -64,6 +71,8 @@ from lexic.parsing.fold import (
     lift_optional_nullables,
 )
 from lexic.parsing.normalize import normalize
+from lexic.parsing.pda_kernel import PdaFail, parse_pda
+from lexic.parsing.pda_tables import IslandRef, PdaTables, compile_pda
 from lexic.parsing.reduce import Reducer
 
 
@@ -81,6 +90,10 @@ class CompiledGrammar:
         run the fold-config licence proves safe steps in one scan (compiled
         once at build time; see
         :func:`~lexic.parsing.fold.collapsed_fold_tables`).
+    :ivar pda: The predictive PDA sibling (:class:`~lexic.parsing.pda_tables.PdaTables`),
+        or ``None`` on a whole-grammar opt-out — an unsupported construct or a
+        start rule that is itself an island. When present, :meth:`parse` runs it
+        first and falls back to the engine on :class:`~lexic.parsing.pda_kernel.PdaFail`.
     """
 
     classes: dict[str, type]
@@ -88,14 +101,36 @@ class CompiledGrammar:
     instance_grammar: IrAst
     fold: PositionalFold
     tables: ParserTables
+    pda: PdaTables | None = None
 
     def parse(self, text: str) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
 
+        Runs the predictive PDA first when one is compiled; a
+        :class:`~lexic.parsing.pda_kernel.PdaFail` (any non-deterministic point
+        or unresolved island) falls back to a whole-input engine reparse, which
+        owns the user-facing diagnostics.
+
         :raises UnsupportedConstructError: If ``text`` does not parse, or the
             fold produced no model for the start rule.
         """
-        model = self.fold.apply(parse_first(self.instance_grammar, text, self.tables))
+        if self.pda is not None:
+            try:
+                return self._ensure_model(parse_pda(self.pda, text, self.fold))
+            except PdaFail:
+                pass  # deterministic parse failed → whole-input engine reparse
+        return self._ensure_model(
+            self.fold.apply(parse_first(self.instance_grammar, text, self.tables))
+        )
+
+    @staticmethod
+    def _ensure_model(model: object) -> GrammarModel:
+        """Assert the start rule folded to a :class:`GrammarModel`.
+
+        :param model: The object the PDA or the fold produced for the start rule.
+        :returns: ``model`` narrowed to :class:`GrammarModel`.
+        :raises UnsupportedConstructError: When ``model`` is not a model instance.
+        """
         if not isinstance(model, GrammarModel):
             raise UnsupportedConstructError(
                 f"compile: start rule folded to {type(model).__name__!r}, "
@@ -245,6 +280,40 @@ def canonical_grammar(
     return IrAst(rules=rules, start=start)
 
 
+def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor | None:
+    """Grant a rule's :class:`~lexic.parsing.fold.FastCtor` licence, or refuse.
+
+    The class-level half comes from :meth:`GrammarModel.fast_construct`
+    (no validators / post-init / config / non-``None`` defaults); the
+    fold-level half checks that every field the fold can leave unset (a
+    ``gtext`` or ``model`` bind whose item can match nothing, ``lo == 0``)
+    has a default to fall back on, and that the fold's field names cover
+    every non-defaulted model field.
+
+    :param cls: The rule's generated model class.
+    :param kind: The rule's fold kind.
+    :param fields: The rule's bound fields.
+    :returns: The licence, or ``None`` (validated construction only).
+    """
+    if kind == "alternation" or not issubclass(cls, GrammarModel):
+        return None
+    parts = cls.fast_construct()
+    if parts is None:
+        return None
+    make, defaults = parts
+    names = {"value"} if kind == "value_str" else {f.name for f in fields}
+    model_names = set(cls.model_fields)
+    if not names <= model_names:
+        return None
+    if any(n not in names and n not in defaults for n in model_names):
+        return None
+    for field in fields:
+        skippable = field.mode in ("gtext", "model") and field.lo == 0
+        if skippable and field.name not in defaults:
+            return None
+    return FastCtor(make, defaults)
+
+
 def _fold_config(
     codegen_grammar: IrAst, binding: list[RuleBinding], classes: dict[str, type]
 ) -> dict[str, RuleFold]:
@@ -269,10 +338,38 @@ def _fold_config(
             FieldFold(bind.item, bind.mode, name, int(items[bind.item].quantifier.lo))
             for name, bind in bound.fields.items()
         )
+        cls = classes[bound.class_name]
         config[bound.rule_name] = RuleFold(
-            bound.kind, classes[bound.class_name], len(items), fields
+            bound.kind, cls, len(items), fields, _fast_ctor(cls, bound.kind, fields)
         )
     return config
+
+
+def _build_pda(
+    lifted: IrAst, instance_grammar: IrAst, fold_config: dict[str, RuleFold]
+) -> PdaTables | None:
+    """Compile the predictive PDA sibling, or opt the whole grammar out.
+
+    Returns ``None`` (engine-only) in the two whole-grammar opt-out cases: the
+    analysis / clone compiler hits a construct it cannot handle
+    (:exc:`UnsupportedConstructError`), or the start rule is itself an island
+    (its ``start_key`` is an :class:`~lexic.parsing.pda_tables.IslandRef`, so
+    :func:`~lexic.parsing.pda_kernel.parse_pda` would ``PdaFail`` on every
+    input). Otherwise the compiled tables drive the PDA-first parse path.
+
+    :param lifted: The lifted-but-unnormalised codegen grammar the analysis and
+        clones are cut against (``lift_optional_nullables(codegen_grammar)``).
+    :param instance_grammar: The Earley-normalised instance grammar the island
+        sub-parses run over (``normalize(lifted)``).
+    :param fold_config: Rule name → its :class:`~lexic.parsing.fold.RuleFold`,
+        baked into each rule clone.
+    :returns: The compiled :class:`PdaTables`, or ``None`` on an opt-out.
+    """
+    try:
+        tables = compile_pda(lifted, instance_grammar, fold_config)
+    except UnsupportedConstructError:
+        return None
+    return None if isinstance(tables.start_key, IslandRef) else tables
 
 
 def _compile_core(
@@ -283,14 +380,18 @@ def _compile_core(
     codegen_grammar = build_codegen_grammar(ast)
     binding = compute_binding(codegen_grammar)
     classes = codegen(ast, codegen_grammar, binding, stem, out_dir)
-    fold = PositionalFold(_fold_config(codegen_grammar, binding, classes))
-    instance_grammar = normalize(lift_optional_nullables(codegen_grammar))
+    fold_config = _fold_config(codegen_grammar, binding, classes)
+    fold = PositionalFold(fold_config)
+    lifted = lift_optional_nullables(codegen_grammar)
+    instance_grammar = normalize(lifted)
+    pda = _build_pda(lifted, instance_grammar, fold_config)
     return CompiledGrammar(
         classes=classes,
         grammar=ast,
         instance_grammar=instance_grammar,
         fold=fold,
         tables=collapsed_fold_tables(instance_grammar, fold),
+        pda=pda,
     )
 
 

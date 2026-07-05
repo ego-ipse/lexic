@@ -274,15 +274,26 @@ src/lexic/
                         per-island ParserTables cache; IslandRef.fail marks a
                         fail-island — a semantic F1 escape whose ref raises
                         PdaFail, never parsed); open IrTypeMap atom
-                        dispatch, raising default (hybrid-PDA; 260705 effort)
+                        dispatch, raising default. The CloneSpec/ItemSpec
+                        NamedTuples are the compiler INTERMEDIATE (what tests
+                        pin); _flatten_program lowers them once per compile into
+                        the int-coded PdaProgram (_FlatClone/_FlatArm, _OP_*
+                        op-codes, pre-resolved (chars,negated) membership sets)
+                        the kernel hot loop walks — both kept on PdaTables
+                        (.clones for islands/introspection, .program for the
+                        loop) (Task 8 flatten; hybrid-PDA; 260705 effort)
     pda_kernel.py       PdaKernel/parse_pda — the fused predictive runtime: an
-                        explicit _Frame descent stack (no Python recursion) over
-                        the PdaTables clones that builds the model directly during
-                        the walk (fold fusion — no ParseTree). Per-parse state on
-                        the cursor, tables shared; clone frames own per-item _Slot
-                        capture (span + sub-models bubbling to the nearest bound
-                        slot, the fused _models_at look-through), transparent
-                        frames (groups / fold=None clones) funnel through; an
+                        explicit descent stack of flat list frames (no Python
+                        recursion; the kernel.py int-array explicit-stack
+                        precedent — PdaKernel is the class cursor) over the flat
+                        PdaProgram, building the model directly during the walk
+                        (fold fusion — no ParseTree). Int-coded op dispatch,
+                        terminal quantifier loops matched inline (no per-char
+                        call). Per-parse state on the cursor, tables shared;
+                        capture frames own per-item span (ends) + sub-model
+                        (sinks) capture bubbling to the nearest bound item,
+                        transparent frames (groups / fold=None clones) funnel
+                        through; an
                         island ref runs a windowed Earley sub-parse over
                         island_tables (longest completion, doubling window, FastTree
                         + first-derivation fallback), folds it through the supplied
@@ -361,8 +372,12 @@ grammar text ──► _scan_directives(text, flavour.line_comment) ──► (s
           identity-memoised tables are shared shapes
                                        │
                                        ▼
-          CompiledGrammar(classes, grammar=canonical ast, instance_grammar, fold, tables)
-          .parse(text) = fold.apply(parse_first(instance_grammar, text, tables))
+          CompiledGrammar(classes, grammar=canonical ast, instance_grammar, fold, tables,
+                          pda=_build_pda(lifted, instance_grammar, fold_config))
+          .parse(text) = PDA-first: parse_pda(pda, text, fold) when pda is not None,
+                         PdaFail → engine fallback fold.apply(parse_first(instance_grammar,
+                         text, tables)). pda is None on whole-grammar opt-out (unsupported
+                         construct, or start rule is itself an island).
 ```
 
 Entry points: `compile_text(text, flavour)` and `compile_from_path(path)` in

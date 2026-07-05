@@ -1,0 +1,61 @@
+"""Integration test: the PDA→engine fallback chain (compile.py's Task 6 wiring).
+
+:meth:`~lexic.compile.CompiledGrammar.parse` runs the predictive PDA first and
+falls back to a whole-input engine reparse on any
+:class:`~lexic.parsing.pda_kernel.PdaFail`. This module pins one input that
+genuinely forces that fallback on a real ground-truth grammar (arithmetic's
+trailing-whitespace stop-set residue, pivot 4) and proves the fallback both
+fires and returns the engine-correct model — ``PdaFail`` never leaks to the
+public ``parse()`` caller.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+
+import pytest
+
+from lexic.compile import compile_from_path
+from lexic.parsing.pda_kernel import PdaFail, parse_pda
+from tests.paths import GROUND_TRUTH
+
+# The pinned fallback input: a valid assignment followed by extra blank lines.
+# arithmetic's ``ident``/``num``/``term`` all end in their own ``ws ::= [ \t\n]*``,
+# whose stop-gate excludes ``\n`` at this call site (it must leave one ``\n`` for
+# the mandatory literal after ``term`` in ``root``'s ``(expr "=" ws term "\n")+``)
+# — so the loop refuses to consume *any* newline. A single trailing ``\n`` is
+# then matched by the mandatory literal, but a second one has no repetition left
+# to consume it (there is no ident/num/"(" to start another iteration), so the
+# PDA reports unconsumed trailing input rather than guess. The engine parses it
+# fine — its ``ws`` isn't cut to one clone's hard tail.
+_FALLBACK_INPUT = "x=1\n\n\n"
+
+
+def test_arithmetic_stop_set_residue_forces_pda_fallback():
+    """The pinned input genuinely PdaFails the direct PDA call.
+
+    Confirms the premise before trusting the fallback assertions below: this
+    input is not merely "some edge case" but one the deterministic PDA cannot
+    resolve at all.
+    """
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert cg.pda is not None  # arithmetic compiles a PDA — no whole-grammar opt-out
+    with pytest.raises(PdaFail):
+        parse_pda(cg.pda, _FALLBACK_INPUT, cg.fold)
+
+
+def test_pda_fallback_returns_engine_correct_model():
+    """``CompiledGrammar.parse`` swallows the ``PdaFail`` and matches the engine.
+
+    Compares against an engine-only copy (``pda=None``, forcing the non-PDA
+    path unconditionally) on ``semantic_dump()`` — ruling 1's parity bar — and
+    asserts the round-trip, proving the fallback is both silent and correct.
+    """
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    engine_only = dataclasses.replace(cg, pda=None)
+
+    model = cg.parse(_FALLBACK_INPUT)
+    engine_model = engine_only.parse(_FALLBACK_INPUT)
+
+    assert model.semantic_dump() == engine_model.semantic_dump()
+    assert model.to_text() == _FALLBACK_INPUT

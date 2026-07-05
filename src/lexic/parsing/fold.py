@@ -71,6 +71,24 @@ class FieldFold(NamedTuple):
     lo: int
 
 
+class FastCtor(NamedTuple):
+    """A validation-skip construction licence — plain data, builder opaque.
+
+    Granted per rule by the compile seam (which owns the pydantic knowledge)
+    when the model class provably needs no per-field validation; the PDA
+    runtime then builds instances through :attr:`make` instead of the
+    validated constructor. The engine-side fold ignores it — the engine path
+    stays the validated reference.
+
+    :ivar make: ``(parts, keys) -> model`` — the class's parts constructor.
+    :ivar defaults: Field name → default for every optional field; the
+        runtime seeds each ``parts`` dict from a copy of it.
+    """
+
+    make: Callable[[dict[str, object], set[str]], object]
+    defaults: Mapping[str, object]
+
+
 class RuleFold(NamedTuple):
     """One rule's fold config — plain data, constructor opaque.
 
@@ -79,12 +97,15 @@ class RuleFold(NamedTuple):
     :ivar n_items: Kid-slot count of the single non-empty sequence arm
         (``0`` for the other kinds; a zero-kid mismatch = empty-arm match).
     :ivar fields: The bound fields, in item order.
+    :ivar fast: The rule's :class:`FastCtor` licence, or ``None`` (the
+        validated constructor is used everywhere).
     """
 
     kind: str
     ctor: Callable[..., object]
     n_items: int
     fields: tuple[FieldFold, ...]
+    fast: FastCtor | None = None
 
 
 def _subtree_text(node: ParseTree | IrLiteral) -> str:

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from dataclasses import fields as dataclass_fields
+from typing import Any, Callable, ClassVar
 
 from pydantic import BaseModel
 
@@ -66,6 +67,61 @@ class GrammarModel(BaseModel):
     def to_grammar(self, flavour: str = "gbnf") -> str:
         """Emit this model's rule as grammar text in the given flavour."""
         return str(get_flavour(flavour).apply(self.__grammar__))
+
+    @classmethod
+    def fast_construct(
+        cls,
+    ) -> (
+        tuple[Callable[[dict[str, Any], set[str]], "GrammarModel"], dict[str, Any]]
+        | None
+    ):
+        """The validation-skip construction licence, or ``None``.
+
+        Granted only when constructing an instance from already-validated
+        parts is provably equivalent to the validated constructor: no
+        ``model_post_init``, no decorators (validators/serializers/computed
+        fields), no ``model_config`` overrides, no private attributes, and
+        every optional field defaulting to a plain ``None`` (no factories, no
+        mutable defaults).
+
+        :returns: ``(parts constructor, per-class defaults)`` when safe,
+            else ``None``.
+        """
+        if cls.__pydantic_post_init__ is not None or cls.model_config:
+            return None
+        decorators = cls.__pydantic_decorators__
+        if any(getattr(decorators, f.name) for f in dataclass_fields(decorators)):
+            return None
+        if cls.__private_attributes__:
+            return None
+        defaults: dict[str, Any] = {}
+        for name, info in cls.model_fields.items():
+            if info.is_required():
+                continue
+            if info.default_factory is not None or info.default is not None:
+                return None
+            defaults[name] = None
+        return cls._from_parts, defaults
+
+    @classmethod
+    def _from_parts(cls, parts: dict[str, Any], keys: set[str]) -> "GrammarModel":
+        """Build an instance directly from validated parts — no field validation.
+
+        The :meth:`fast_construct` licence guarantees equivalence with the
+        validated constructor; ``parts`` becomes the instance ``__dict__`` and
+        ``keys`` its ``__pydantic_fields_set__`` (both owned by the instance —
+        callers must pass fresh objects).
+
+        :param parts: Every field's value, defaults already filled.
+        :param keys: The explicitly-set field names (defaults excluded).
+        :returns: The constructed instance.
+        """
+        model = object.__new__(cls)
+        object.__setattr__(model, "__dict__", parts)
+        object.__setattr__(model, "__pydantic_fields_set__", keys)
+        object.__setattr__(model, "__pydantic_extra__", None)
+        object.__setattr__(model, "__pydantic_private__", None)
+        return model
 
     def semantic_dump(self) -> dict[str, Any]:
         """Dump only semantic fields (binds with ``semantic=False`` excluded)."""

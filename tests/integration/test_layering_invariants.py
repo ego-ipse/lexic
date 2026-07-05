@@ -147,6 +147,47 @@ def test_retired_ir_modules_are_gone():
             assert module not in content, f"{p}: residual {module} reference"
 
 
+def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
+    """charsets/analysis/pda_tables/pda_kernel (2026-07-05 hybrid-PDA effort)
+    exist inside lexic.parsing and carry no grammars/codegen import.
+
+    ``test_engine_package_does_not_import_grammars_or_codegen`` already
+    greps every ``.py`` under ``lexic.parsing`` generically (``rglob``), so
+    these modules are covered by accident of directory placement; this pins
+    that placement (and the absence of the two forbidden imports) explicitly
+    by name, so a future reshuffle can't silently drop them from scope.
+    """
+    engine = SRC / "parsing"
+    for name in ("charsets.py", "analysis.py", "pda_tables.py", "pda_kernel.py"):
+        path = engine / name
+        assert path.exists(), f"{name} missing from lexic.parsing"
+        content = path.read_text()
+        assert "from lexic.grammars" not in content, f"{name} imports lexic.grammars"
+        assert "from lexic.codegen" not in content, f"{name} imports lexic.codegen"
+
+
+def test_pda_entry_points_imported_only_via_compile_seam():
+    """Only compile.py imports the PDA entry points among top-level runtime modules.
+
+    ``pda_tables``/``pda_kernel`` are sub-paths of ``lexic.parsing``, so
+    ``test_engine_imported_by_runtime_only_via_compile_seam``'s ``"from
+    lexic.parsing"`` prefix check already covers them generically; this pins
+    that coverage explicitly for the PDA modules by name (Task 6's
+    ``CompiledGrammar.pda`` + fallback chain is the one sanctioned caller).
+    """
+    offenders = []
+    for p in SRC.glob("*.py"):  # top-level modules only, not subpackages
+        if p.name == "compile.py":
+            continue
+        for line in p.read_text().splitlines():
+            stripped = line.strip()
+            if "pda_tables" not in stripped and "pda_kernel" not in stripped:
+                continue
+            if stripped.startswith(("from lexic.parsing", "import lexic.parsing")):
+                offenders.append(f"{p.name}: {stripped}")
+    assert not offenders, f"PDA entry points bypass the compile.py seam: {offenders}"
+
+
 def test_single_codegen_entry_and_emit_path():
     """One way per task: exactly one codegen entry and one emit-source function."""
     codegen_init = (SRC / "codegen" / "__init__.py").read_text()
