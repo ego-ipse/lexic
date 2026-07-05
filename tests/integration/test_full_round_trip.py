@@ -149,3 +149,22 @@ def test_full_round_trip(fixture: str, sample: str) -> None:
         f"  source:  {sample!r}\n"
         f"  to_text: {model.to_text()!r}"
     )
+
+
+# The char rule's escape group is a mixed literal/ref group (each escape char
+# literal, plus "u" hexdig{4}). Regression guard for the gtext-vs-model defect:
+# every escape input must parse and round-trip on both JSON flavours.
+_ESCAPE_INPUTS = ['"\\""', '"\\\\"', '"\\n"', '"A"', '"\\/"', '"\\u0041"']
+
+
+@pytest.mark.parametrize("fixture", ["json.gbnf", "json.abnf"])
+@pytest.mark.parametrize("sample", _ESCAPE_INPUTS)
+def test_json_escape_round_trip(fixture: str, sample: str) -> None:
+    """String escapes parse + round-trip on both JSON flavours."""
+    cg = compile_from_path(GROUND_TRUTH / fixture)
+    model = cg.parse(sample)
+    assert model.to_text() == sample, (
+        f"{fixture}: escape round-trip mismatch.\n"
+        f"  source:  {sample!r}\n"
+        f"  to_text: {model.to_text()!r}"
+    )

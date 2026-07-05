@@ -2,45 +2,55 @@
   "compile_time": {
     "arithmetic.gbnf": {
       "canonical_grammar": {
-        "best_ms": 5.961050002952106,
-        "median_ms": 6.043305998900905
+        "best_ms": 5.4043460040702485,
+        "median_ms": 5.416649997641798
       },
       "compile_text": {
-        "best_ms": 23.431362002156675,
-        "median_ms": 23.716379997495096
+        "best_ms": 23.48218199767871,
+        "median_ms": 23.97913800086826
       }
     },
     "c.gbnf": {
       "canonical_grammar": {
-        "best_ms": 32.356016999983694,
-        "median_ms": 33.53872900333954
+        "best_ms": 29.73917900089873,
+        "median_ms": 29.768455002340488
       },
       "compile_text": {
-        "best_ms": 80.27653799945256,
-        "median_ms": 82.65460600523511
+        "best_ms": 83.44190599746071,
+        "median_ms": 84.6844570041867
       }
     },
     "json.gbnf": {
       "canonical_grammar": {
-        "best_ms": 28.540175000671297,
-        "median_ms": 28.717788998619653
+        "best_ms": 26.25703100056853,
+        "median_ms": 26.960574999975506
       },
       "compile_text": {
-        "best_ms": 65.92642400210025,
-        "median_ms": 67.75365299836267
+        "best_ms": 64.7977720000199,
+        "median_ms": 68.69401699805167
       }
     }
   },
   "instance_parse": {
     "arithmetic.gbnf": {
-      "best_ms": 88.96455499780132,
+      "best_ms": 60.82244199933484,
       "chars": 4800,
-      "median_ms": 91.07219299767166
+      "median_ms": 61.93820799671812
     },
     "c.gbnf": {
-      "best_ms": 26.70139499969082,
+      "best_ms": 23.998549004318193,
       "chars": 3289,
-      "median_ms": 27.07798500341596
+      "median_ms": 24.414066996541806
+    },
+    "chess.gbnf": {
+      "best_ms": 33.445622997533064,
+      "chars": 4203,
+      "median_ms": 33.685825001157355
+    },
+    "json.gbnf": {
+      "best_ms": 274.41849199385615,
+      "chars": 4233,
+      "median_ms": 283.0931349963066
     }
   }
 }

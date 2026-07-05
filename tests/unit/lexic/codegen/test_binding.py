@@ -240,6 +240,35 @@ def test_mode_ref_bearing_group_follows_quantifier():
     assert mode_for(IrItem(group, _STAR)) == "models"
 
 
+def test_mode_all_unit_ref_group_is_model():
+    """Every arm a single unit ref → model (models when the group repeats)."""
+    group = IrAlternation(IrRuleRef("a"), IrRuleRef("b"))
+    assert mode_for(IrItem(group)) == "model"
+    assert mode_for(IrItem(group, _STAR)) == "models"
+
+
+def test_mode_mixed_literal_ref_group_is_gtext():
+    """A group mixing literal arms with a multi-item ref arm folds as gtext.
+
+    The char-arm2 shape (``"\\"" | ... | "u" hexdig{4}``): a literal arm yields
+    no sub-model and the ``"u" hexdig{4}`` arm is multi-item, so a model union
+    is impossible — the group's matched text folds verbatim instead.
+    """
+    group = IrAlternation(
+        IrSequence(IrItem(IrLiteral("n"))),
+        IrSequence(
+            IrItem(IrLiteral("u")), IrItem(IrRuleRef("hexdig"), IrQuantifier(4, 4))
+        ),
+    )
+    assert mode_for(IrItem(group)) == "gtext"
+
+
+def test_mode_literal_only_group_is_gtext():
+    """A literal-only group folds as gtext (pinned existing behavior)."""
+    group = IrAlternation(IrItem(IrLiteral("+")), IrItem(IrLiteral("-")))
+    assert mode_for(IrItem(group)) == "gtext"
+
+
 # ── compute_binding over a small grammar ──────────────────────────────
 
 

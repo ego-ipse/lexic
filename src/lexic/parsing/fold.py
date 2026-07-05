@@ -46,6 +46,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.parsing.analysis import nullable_names
 from lexic.parsing.forest import ParseTree
 from lexic.parsing.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.tables import RUN_STR, ParserTables
@@ -255,40 +256,6 @@ class PositionalFold:
 # ── optional-nullable lift (engine-ambiguity policy) ──────────────────
 
 
-def _nullable_names(rules: tuple[IrRule, ...]) -> set[str]:
-    """Rule names that can derive the empty string (fixpoint)."""
-
-    def item_nullable(item: IrItem, known: set[str]) -> bool:
-        if int(item.quantifier.lo) == 0:
-            return True
-        atom = item.atom
-        if isinstance(atom, IrRuleRef):
-            return str(atom) in known
-        if isinstance(atom, IrLiteral):
-            return not str(atom)
-        if isinstance(atom, IrAlternation):
-            return any(
-                all(item_nullable(i, known) for i in arm if isinstance(i, IrItem))
-                for arm in atom
-            )
-        return False
-
-    known: set[str] = set()
-    changed = True
-    while changed:
-        changed = False
-        for rule in rules:
-            if str(rule.name) in known:
-                continue
-            if any(
-                all(item_nullable(i, known) for i in arm if isinstance(i, IrItem))
-                for arm in rule.body
-            ):
-                known.add(str(rule.name))
-                changed = True
-    return known
-
-
 def lift_optional_nullables(grammar: IrAst) -> IrAst:
     """Rewrite ``R?`` to ``R`` where ``R`` is nullable.
 
@@ -302,7 +269,7 @@ def lift_optional_nullables(grammar: IrAst) -> IrAst:
     :returns: The lifted grammar (same rule order, same item positions).
     """
     rules = tuple(grammar.rules)
-    nullable = _nullable_names(rules)
+    nullable = nullable_names(rules)
 
     def lift_item(item: IrItem) -> IrItem:
         atom = item.atom

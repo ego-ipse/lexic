@@ -8,7 +8,12 @@ excluded from every timed loop:
                          ``zzz_current_work/260703-ir-codegen/bench_task7.py``'s
                          methodology verbatim — same snippets, same target
                          lengths, same sampling discipline — into a tracked
-                         harness so future deltas are comparable.
+                         harness so future deltas are comparable. Chess and
+                         json corpora (~4200 chars each) joined 2026-07-05 for
+                         the hybrid-PDA effort (island-heavy shapes; see
+                         ``zzz_current_work/260705-hybrid-parse-poc/PLAN.md``);
+                         each is one whole-input parse (a single game / a
+                         single JSON document), pinned here like the others.
 
   compile-time           per ground-truth grammar (json/c/arithmetic .gbnf):
                          ``canonical_grammar(text, flavour)`` alone (touches no
@@ -74,9 +79,92 @@ _C_SNIPPETS = [
     "float baz(){}",
     "int qux(char y){}",
 ]
-_INSTANCE_WORKLOADS = (
-    ("arithmetic.gbnf", _ARITHMETIC_SNIPPETS, 4800),
-    ("c.gbnf", _C_SNIPPETS, 3280),
+# root ::= "1. " move " " move "\n" ([1-9] [0-9]? ". " move " " move "\n")+
+# — one continuous game; line numbers cycle 2..99 ([1-9][0-9]? admits any
+# 1-2 digit number, sequence not required). Pairs exercise every move arm:
+# pawn (incl. capture + promotion), nonpawn (incl. disambiguators — the
+# PoC's one chess island), castle, and [+#] suffixes.
+_CHESS_OPENING = "1. e4 e5\n"
+_CHESS_PAIRS = [
+    "Nf3 Nc6",
+    "Bb5 a6",
+    "Bxc6 dxc6",
+    "O-O f6",
+    "d4 exd4",
+    "Nxd4 c5",
+    "Nb3 Qxd1+",
+    "Rxd1 Bg4",
+    "f3 Be6",
+    "Nc3 Bd6",
+    "Be3 b6",
+    "a4 Kf7",
+    "a5 Ne7",
+    "Rd2 Rd8",
+    "Rad1 Bc8",
+    "h3 h5",
+    "Kf2 Nc6",
+    "Nd5 Bxd5",
+    "exd5 Ne7",
+    "axb6 cxb6",
+    "c4 e8=Q",
+    "O-O-O Kg6",
+    "g4 hxg4",
+    "hxg4 Rh8#",
+]
+# JSON-text ::= ws value ws — one document; the items cycle inside a single
+# top-level array. Escapes (\" \\ \uXXXX \t), frac/exp numbers, and nested
+# containers exercise the PoC's json islands (value/char arm overlaps,
+# string loops) and the ws noise shapes (pivots 4/5). Escapes parse since
+# the 2026-07-05 mixed-group fix (see the 260705 plan ledger).
+_JSON_ITEMS = [
+    '{"name": "alpha", "id": 1, "ok": true}',
+    '{"nested": {"a": [1, 2.5e3, -4], "b": null}}',
+    '"quote \\" backslash \\\\ unicode \\u0041 tab \\t"',
+    "-12.75e-2",
+    '[true, false, null, 0, "s"]',
+    '{"deep": [{"x": [[1], [2.0]]}], "y": false}',
+]
+
+
+def _chess_corpus(target_len: int) -> str:
+    """One continuous chess game of at least ``target_len`` chars.
+
+    :param target_len: Minimum length of the returned corpus.
+    :returns: The game text (opening line + cycled numbered move pairs).
+    """
+    parts = [_CHESS_OPENING]
+    total = len(_CHESS_OPENING)
+    i = 0
+    while total < target_len:
+        piece = f"{2 + i % 98}. {_CHESS_PAIRS[i % len(_CHESS_PAIRS)]}\n"
+        parts.append(piece)
+        total += len(piece)
+        i += 1
+    return "".join(parts)
+
+
+def _json_corpus(target_len: int) -> str:
+    """One JSON document of at least ``target_len`` chars.
+
+    :param target_len: Minimum length of the returned corpus.
+    :returns: A single top-level array cycling the pinned items.
+    """
+    items: list[str] = []
+    total = 0
+    i = 0
+    while total < target_len:
+        piece = _JSON_ITEMS[i % len(_JSON_ITEMS)]
+        items.append(piece)
+        total += len(piece) + 4
+        i += 1
+    return "[\n  " + ",\n  ".join(items) + "\n]\n"
+
+
+_INSTANCE_WORKLOADS: tuple[tuple[str, Callable[[], str]], ...] = (
+    ("arithmetic.gbnf", lambda: _corpus(_ARITHMETIC_SNIPPETS, 4800)),
+    ("c.gbnf", lambda: _corpus(_C_SNIPPETS, 3280)),
+    ("chess.gbnf", lambda: _chess_corpus(4200)),
+    ("json.gbnf", lambda: _json_corpus(4200)),
 )
 
 # ── Workload B: compile-time ─────────────────────────────────────────────
@@ -133,8 +221,8 @@ def _run_instance_workloads() -> dict[str, dict[str, float]]:
     """
     results: dict[str, dict[str, float]] = {}
     print("== workload: instance parse+fold ==")
-    for stem, snippets, target_len in _INSTANCE_WORKLOADS:
-        text = _corpus(snippets, target_len)
+    for stem, make_corpus in _INSTANCE_WORKLOADS:
+        text = make_corpus()
         compiled = compile_from_path(GROUND_TRUTH / stem)
         compiled.parse(text)  # warm-up — not timed
         best, median = _time_calls(

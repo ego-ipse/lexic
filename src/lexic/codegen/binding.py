@@ -316,10 +316,32 @@ def _ref_mode(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf]) -> IrStr:
     return IrStr("models" if _many(item) else "model")
 
 
+def _all_unit_ref_arms(alt: IrAlternation) -> bool:
+    """True when every arm is a single unit-quantified ruleref item.
+
+    The only group shape that folds cleanly to a sub-model (or list of them):
+    each arm yields exactly one child model that identifies itself. An empty
+    arm, a multi-item arm, or any literal arm fails the test (``unit_ref_arm``
+    returns :data:`IrNone` for each), routing the group to ``gtext``.
+
+    :param alt: The inline group alternation.
+    :returns: ``True`` when all arms are unit-ref arms (and there is at least
+        one arm).
+    """
+    return len(alt) > 0 and all(
+        not isinstance(unit_ref_arm(arm), IrNoneType) for arm in alt
+    )
+
+
 def _group_mode(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> IrStr:
-    """Mode body: ref-bearing group folds like a ref, literal-only as gtext."""
+    """Mode body: an all-unit-ref group folds like a ref, anything else gtext.
+
+    A mixed literal/ref group or a multi-item ref arm cannot fold to a model
+    union (a literal arm yields no sub-model, a multi-item arm more than one),
+    so those fold as ``gtext`` — the group's matched text, verbatim.
+    """
     assert isinstance(n, IrAlternation)
-    if has_ruleref(n):
+    if _all_unit_ref_arms(n):
         return _ref_mode(d, n, nc)
     return IrStr("gtext")
 

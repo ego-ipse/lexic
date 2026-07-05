@@ -29,7 +29,6 @@ from lexic.parsing.fold import (
     FieldFold,
     PositionalFold,
     RuleFold,
-    _nullable_names,
     collapsed_fold_tables,
     lift_optional_nullables,
 )
@@ -244,46 +243,6 @@ def test_fold_is_generic_over_opaque_constructors():
     )
     assert fold.apply(parse_first(grammar, "ab")) == {"a": "a", "b": "b"}
     assert fold.apply(parse_first(grammar, "")) == {}
-
-
-# ── _nullable_names ──────────────────────────────────────────────────────
-
-
-def test_nullable_names_empty_literal():
-    """A rule whose body is an empty literal is nullable."""
-    rule = IrRule("empty", IrAlternation(IrSequence(IrItem(IrLiteral("")))))
-    assert "empty" in _nullable_names((rule,))
-
-
-def test_nullable_names_lo_zero_item():
-    """A rule whose sole item has quantifier lo=0 is nullable."""
-    rule = IrRule(
-        "zero_lo", IrAlternation(IrSequence(IrItem(IrLiteral("x"), IrQuantifier(0, 1))))
-    )
-    assert "zero_lo" in _nullable_names((rule,))
-
-
-def test_nullable_names_alternation_arm():
-    """A rule with one empty arm (among others) is nullable."""
-    rule = IrRule(
-        "alt", IrAlternation(IrSequence(), IrSequence(IrItem(IrLiteral("y"))))
-    )
-    assert "alt" in _nullable_names((rule,))
-
-
-def test_nullable_names_transitive_ref():
-    """A rule that refs a nullable rule is transitively nullable (fixpoint)."""
-    empty = IrRule("empty", IrAlternation(IrSequence(IrItem(IrLiteral("")))))
-    transitive = IrRule(
-        "transitive", IrAlternation(IrSequence(IrItem(IrRuleRef("empty"))))
-    )
-    assert "transitive" in _nullable_names((empty, transitive))
-
-
-def test_nullable_names_excludes_non_nullable():
-    """A rule requiring a non-empty literal is not nullable."""
-    rule = IrRule("solid", IrAlternation(IrSequence(IrItem(IrLiteral("z")))))
-    assert "solid" not in _nullable_names((rule,))
 
 
 # ── lift_optional_nullables ──────────────────────────────────────────────
