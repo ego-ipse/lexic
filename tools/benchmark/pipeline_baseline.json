@@ -2,55 +2,55 @@
   "compile_time": {
     "arithmetic.gbnf": {
       "canonical_grammar": {
-        "best_ms": 5.4043460040702485,
-        "median_ms": 5.416649997641798
+        "best_ms": 5.321363998518791,
+        "median_ms": 5.433624999568565
       },
       "compile_text": {
-        "best_ms": 23.48218199767871,
-        "median_ms": 23.97913800086826
+        "best_ms": 24.938247999671148,
+        "median_ms": 25.299644999904558
       }
     },
     "c.gbnf": {
       "canonical_grammar": {
-        "best_ms": 29.73917900089873,
-        "median_ms": 29.768455002340488
+        "best_ms": 29.085193000355503,
+        "median_ms": 29.387159000179963
       },
       "compile_text": {
-        "best_ms": 83.44190599746071,
-        "median_ms": 84.6844570041867
+        "best_ms": 87.2542480010452,
+        "median_ms": 87.82826399874466
       }
     },
     "json.gbnf": {
       "canonical_grammar": {
-        "best_ms": 26.25703100056853,
-        "median_ms": 26.960574999975506
+        "best_ms": 25.32204700037255,
+        "median_ms": 25.637909000579384
       },
       "compile_text": {
-        "best_ms": 64.7977720000199,
-        "median_ms": 68.69401699805167
+        "best_ms": 66.72198100022797,
+        "median_ms": 67.43016700056614
       }
     }
   },
   "instance_parse": {
     "arithmetic.gbnf": {
-      "best_ms": 60.82244199933484,
+      "best_ms": 11.070811000536196,
       "chars": 4800,
-      "median_ms": 61.93820799671812
+      "median_ms": 11.502979999931995
     },
     "c.gbnf": {
-      "best_ms": 23.998549004318193,
+      "best_ms": 3.0333600006997585,
       "chars": 3289,
-      "median_ms": 24.414066996541806
+      "median_ms": 3.363838999575819
     },
     "chess.gbnf": {
-      "best_ms": 33.445622997533064,
+      "best_ms": 39.52141599984316,
       "chars": 4203,
-      "median_ms": 33.685825001157355
+      "median_ms": 40.252315000543604
     },
     "json.gbnf": {
-      "best_ms": 274.41849199385615,
+      "best_ms": 298.5240639991389,
       "chars": 4233,
-      "median_ms": 283.0931349963066
+      "median_ms": 309.0051500003028
     }
   }
 }

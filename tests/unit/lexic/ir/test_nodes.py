@@ -945,6 +945,57 @@ def test_charclass_complement_round_trips_through_normalized_original():
     assert cls.complement().complement() == cls.normalized()
 
 
+# ── IrCharClass.sample() surrogate exclusion (generate.py round-trip fix) ──
+
+
+def test_charclass_sample_never_returns_a_lone_surrogate():
+    """sample() never picks a code point in U+D800-U+DFFF (no valid UTF-8)."""
+    cls = IrCharClass(IrChr("a")).complement()
+    rng = random.Random(2026)
+    for _ in range(20000):
+        point = cls.sample(rng)
+        assert not 0xD800 <= point <= 0xDFFF
+        chr(point).encode("utf-8")  # never raises
+
+
+def test_charclass_sample_complement_still_represents_the_surrogate_block():
+    """The represented set is unchanged — only sampling avoids the block."""
+    cls = IrCharClass(IrChr("a")).complement()
+    intervals = cls.intervals()
+    assert any(lo <= 0xD800 and 0xDFFF <= hi for lo, hi in intervals)
+
+
+def test_charclass_sample_splits_a_straddling_interval_into_flanking_pieces():
+    """A single interval spanning the block only ever samples its two flanks."""
+    cls = IrCharClass(IrRange(IrChr(0xD000), IrChr(0xE000)))
+    rng = random.Random(3)
+    samples = {cls.sample(rng) for _ in range(5000)}
+    assert samples <= (set(range(0xD000, 0xD800)) | {0xE000})
+
+
+def test_charclass_sample_drops_an_interval_wholly_inside_the_block():
+    """A class with one surrogate-only member and one real member always samples real."""
+    cls = IrCharClass(IrChr("a"), IrRange(IrChr(0xD900), IrChr(0xD9FF)))
+    rng = random.Random(4)
+    assert all(cls.sample(rng) == ord("a") for _ in range(200))
+
+
+def test_charclass_sample_falls_back_when_the_whole_class_is_surrogate():
+    """A class wholly inside the block still samples (degenerate fallback), never raises."""
+    cls = IrCharClass(IrRange(IrChr(0xD800), IrChr(0xDFFF)))
+    rng = random.Random(5)
+    point = cls.sample(rng)
+    assert 0xD800 <= point <= 0xDFFF
+
+
+def test_charclass_sample_all_surrogate_class_still_returns_int():
+    """sample() on a degenerate all-surrogate class never raises."""
+    cls = IrCharClass(IrRange(IrChr(0xD800), IrChr(0xDFFF)))
+    rng = random.Random(1)
+    point = cls.sample(rng)
+    assert 0xD800 <= point <= 0xDFFF
+
+
 def test_charclass_empty_class_edges():
     """An empty char class has empty pattern/members and complements to full range."""
     empty = IrCharClass()

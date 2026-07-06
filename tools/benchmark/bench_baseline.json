@@ -2,136 +2,136 @@
   "self-emit": {
     "x1": {
       "parse+reduce:engine": {
-        "median_ms": 35.476271499999996,
-        "us_per_char": 17.105241803278687
+        "median_ms": 31.559357,
+        "us_per_char": 15.21666200578592
       },
       "parse+reduce:lark": {
-        "median_ms": 60.190340500000005,
-        "us_per_char": 29.02137921890068
+        "median_ms": 58.993323000000004,
+        "us_per_char": 28.44422516875603
       },
       "parse:engine": {
-        "median_ms": 65.826233,
-        "us_per_char": 31.738781581485057
+        "median_ms": 54.5999365,
+        "us_per_char": 26.325909594985536
       },
       "parse:lark": {
-        "median_ms": 58.121030000000005,
-        "us_per_char": 28.02364030858245
+        "median_ms": 56.7490155,
+        "us_per_char": 27.36210969141755
       },
       "recognize:engine": {
-        "median_ms": 16.2315595,
-        "us_per_char": 7.826209980713596
+        "median_ms": 14.164638499999999,
+        "us_per_char": 6.82962319189971
       }
     },
     "x2": {
       "parse+reduce:engine": {
-        "median_ms": 70.904157,
-        "us_per_char": 17.093576904532306
+        "median_ms": 63.5011045,
+        "us_per_char": 15.308848722275794
       },
       "parse+reduce:lark": {
-        "median_ms": 120.881768,
-        "us_per_char": 29.142181292189004
+        "median_ms": 118.75201,
+        "us_per_char": 28.62873915139826
       },
       "parse:engine": {
-        "median_ms": 131.54517950000002,
-        "us_per_char": 31.71291694792672
+        "median_ms": 113.6282255,
+        "us_per_char": 27.393496986499517
       },
       "parse:lark": {
-        "median_ms": 116.6702295,
-        "us_per_char": 28.12686342815815
+        "median_ms": 114.07216700000001,
+        "us_per_char": 27.500522420443588
       },
       "recognize:engine": {
-        "median_ms": 31.739719,
-        "us_per_char": 7.651812680810029
+        "median_ms": 27.9622315,
+        "us_per_char": 6.741135848601736
       }
     },
     "x4": {
       "parse+reduce:engine": {
-        "median_ms": 152.65020249999998,
-        "us_per_char": 18.400458353423335
+        "median_ms": 132.5730765,
+        "us_per_char": 15.980361198167794
       },
       "parse+reduce:lark": {
-        "median_ms": 250.1567545,
-        "us_per_char": 30.153900012054002
+        "median_ms": 237.64157849999998,
+        "us_per_char": 28.64532045564127
       },
       "parse:engine": {
-        "median_ms": 303.299054,
-        "us_per_char": 36.55967381870781
+        "median_ms": 250.62183449999998,
+        "us_per_char": 30.20996076422372
       },
       "parse:lark": {
-        "median_ms": 235.01530150000002,
-        "us_per_char": 28.328748975409837
+        "median_ms": 229.2996225,
+        "us_per_char": 27.639780918514948
       },
       "recognize:engine": {
-        "median_ms": 71.0875335,
-        "us_per_char": 8.568892659112826
+        "median_ms": 56.2466905,
+        "us_per_char": 6.779977157666345
       }
     }
   },
   "subset-920": {
     "x1": {
       "parse+reduce:engine": {
-        "median_ms": 16.404075,
-        "us_per_char": 17.830516304347825
+        "median_ms": 14.629389,
+        "us_per_char": 15.901509782608695
       },
       "parse+reduce:lark": {
-        "median_ms": 27.698587500000002,
-        "us_per_char": 30.10716032608696
+        "median_ms": 26.9984815,
+        "us_per_char": 29.34617554347826
       },
       "parse:engine": {
-        "median_ms": 29.512261,
-        "us_per_char": 32.078544565217385
+        "median_ms": 24.4002615,
+        "us_per_char": 26.52202336956522
       },
       "parse:lark": {
-        "median_ms": 26.6358815,
-        "us_per_char": 28.952045108695653
+        "median_ms": 25.903511,
+        "us_per_char": 28.155990217391306
       },
       "recognize:engine": {
-        "median_ms": 7.4424315,
-        "us_per_char": 8.089599456521738
+        "median_ms": 6.5203095,
+        "us_per_char": 7.087292934782608
       }
     },
     "x2": {
       "parse+reduce:engine": {
-        "median_ms": 32.573779,
-        "us_per_char": 17.70314076086957
+        "median_ms": 29.0658275,
+        "us_per_char": 15.796645380434782
       },
       "parse+reduce:lark": {
-        "median_ms": 55.215177,
-        "us_per_char": 30.008248369565216
+        "median_ms": 53.4014225,
+        "us_per_char": 29.022512228260872
       },
       "parse:engine": {
-        "median_ms": 59.473339499999994,
-        "us_per_char": 32.32246711956521
+        "median_ms": 48.904862,
+        "us_per_char": 26.578729347826087
       },
       "parse:lark": {
-        "median_ms": 52.8766785,
-        "us_per_char": 28.737325271739127
+        "median_ms": 51.604547499999995,
+        "us_per_char": 28.045949728260865
       },
       "recognize:engine": {
-        "median_ms": 14.621206,
-        "us_per_char": 7.946307608695653
+        "median_ms": 12.8300705,
+        "us_per_char": 6.972864402173912
       }
     },
     "x4": {
       "parse+reduce:engine": {
-        "median_ms": 65.390222,
-        "us_per_char": 17.76908206521739
+        "median_ms": 57.463043,
+        "us_per_char": 15.614957336956522
       },
       "parse+reduce:lark": {
-        "median_ms": 110.725492,
-        "us_per_char": 30.08844891304348
+        "median_ms": 106.812899,
+        "us_per_char": 29.025244293478263
       },
       "parse:engine": {
-        "median_ms": 123.224898,
-        "us_per_char": 33.48502663043478
+        "median_ms": 100.839197,
+        "us_per_char": 27.40195570652174
       },
       "parse:lark": {
-        "median_ms": 106.6988165,
-        "us_per_char": 28.994243614130436
+        "median_ms": 103.462545,
+        "us_per_char": 28.114822010869567
       },
       "recognize:engine": {
-        "median_ms": 29.1119555,
-        "us_per_char": 7.910857472826088
+        "median_ms": 25.1665755,
+        "us_per_char": 6.838743342391304
       }
     }
   }

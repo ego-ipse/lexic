@@ -59,6 +59,11 @@ __all__ = [
 MAX_CODEPOINT = 0x10FFFF
 """Highest Unicode code point — the upper bound of a char-class complement."""
 
+_SURROGATE_LO = 0xD800
+_SURROGATE_HI = 0xDFFF
+"""The UTF-16 surrogate block — excised from :meth:`IrCharClass.sample`'s
+interval choices (a lone surrogate has no valid UTF-8 encoding)."""
+
 _CLASS_METACHARS = frozenset("[]^")
 """Regex-class metacharacters that need a backslash inside ``[...]``."""
 
@@ -300,15 +305,41 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
         """Pick one covered code point uniformly, without materialising members.
 
         A complement class can span the whole Unicode range; enumerating its
-        members would be prohibitive, so this samples by interval instead.
+        members would be prohibitive, so this samples by interval instead. The
+        UTF-16 surrogate block (U+D800-U+DFFF) is excluded from the intervals
+        sampled from — a lone surrogate has no valid UTF-8 encoding, so
+        ``chr()`` of one would fail a text round-trip.
 
         :param rng: The random source.
         :returns: A covered code point.
         """
-        intervals = self.intervals()
+        intervals = self._desurrogated_intervals()
         sizes = [hi - lo + 1 for lo, hi in intervals]
         lo, hi = rng.choices(intervals, weights=sizes)[0]
         return rng.randint(lo, hi)
+
+    def _desurrogated_intervals(self) -> "list[tuple[int, int]]":
+        """The interval cover with the UTF-16 surrogate block excised.
+
+        An interval straddling the block splits into its two flanking pieces;
+        one wholly inside the block is dropped. Falls back to the raw cover in
+        the degenerate all-surrogate case, so ``sample`` never raises on an
+        empty choice set. The represented set itself (:meth:`intervals`,
+        :meth:`complement`, :meth:`members`, :meth:`normalized`) is unaffected —
+        only sampling avoids the block.
+
+        :returns: The interval cover, surrogate points removed.
+        """
+        cleaned: list[tuple[int, int]] = []
+        for lo, hi in self.intervals():
+            if hi < _SURROGATE_LO or lo > _SURROGATE_HI:
+                cleaned.append((lo, hi))
+                continue
+            if lo < _SURROGATE_LO:
+                cleaned.append((lo, _SURROGATE_LO - 1))
+            if hi > _SURROGATE_HI:
+                cleaned.append((_SURROGATE_HI + 1, hi))
+        return cleaned or self.intervals()
 
     def members(self) -> list[int]:
         """Enumerate every code point the class covers, in element order.
