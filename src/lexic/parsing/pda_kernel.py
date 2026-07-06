@@ -16,28 +16,31 @@ integer dispatch, no attribute descriptors, no per-char method calls on the hot
 loop (the ``tables.py``/``kernel.py`` philosophy).
 
 **Explicit frame stack.** Rule, group and loop descent runs on an explicit
-:attr:`PdaKernel.stack` of :class:`_Frame` work items — never Python recursion.
-Per-parse state (the input, the cursor position, the frame stack) lives on the
-kernel; :class:`~lexic.parsing.pda_tables.PdaProgram` is shared and immutable. A
-frame executes one arm's items in order; a literal / char-class item runs its
-whole quantifier loop inline in :meth:`PdaKernel._match_lit` /
+:attr:`PdaKernel.stack` of flat *list frames* (the ``kernel.py`` int-array
+explicit-stack precedent; the class cursor is :class:`PdaKernel` itself — see the
+frame layout below) — never Python recursion. Per-parse state (the input, the
+cursor position, the frame stack) lives on the kernel;
+:class:`~lexic.parsing.pda_tables.PdaProgram` is shared and immutable. A frame
+executes one arm's items in order; a literal / char-class item runs its whole
+quantifier loop inline in :meth:`PdaKernel._match_lit` /
 :meth:`PdaKernel._match_cc` (no descent, no per-char call), while a rule
 reference or inline group pushes a sub-frame per iteration and resumes when it
 completes.
 
 **Fused capture.** A *clone frame* with a build-mode (``sequence`` /
 ``alternation`` / ``value_str``) captures what its fold needs and, on
-completion, builds exactly one model (:meth:`PdaKernel._build`); a *transparent
-frame* (an inline group, or a look-through no-constructor clone) funnels every
-model produced inside it straight to :attr:`_Frame.out`. A ``sequence`` frame
-records each item's end position in :attr:`_Frame.ends` (item spans derive from
-the contiguous, monotonic cursor — item ``i``'s span is ``(ends[i-1], ends[i])``,
-``ends[-1]`` being the frame start) and collects descent sub-models per bound
-item in a lazily-allocated :attr:`_Frame.sinks`; an ``alternation`` frame needs
-only the sinks; a ``value_str`` frame needs only its whole span. So a sub-model
-produced arbitrarily deep, through any number of group and loop layers, lands in
-the nearest enclosing *bound* item's sink, exactly as the fold's look-through
-``_models_at`` collects the topmost models under a kid.
+completion, builds exactly one model (:meth:`PdaKernel._complete`); a
+*transparent frame* (an inline group, or a look-through no-constructor clone)
+funnels every model produced inside it straight to its ``_F_OUT`` sink. Each
+frame records item end positions in its ``_F_ENDS`` slot (item spans derive from
+the contiguous, monotonic cursor — item ``i``'s span is
+``(start if i==0 else ends[i-1], ends[i])``); only a span-reading ``sequence``
+clone reads them back, but every frame keeps the slot so the driver's per-item
+write stays branch-free. Descent sub-models are collected per bound item in a
+lazily-allocated ``_F_SINKS`` list. So a sub-model produced arbitrarily deep,
+through any number of group and loop layers, lands in the nearest enclosing
+*bound* item's sink, exactly as the fold's look-through ``_models_at`` collects
+the topmost models under a kid.
 
 Per build-mode (mirroring :meth:`~lexic.parsing.fold.PositionalFold._fold_node`):
 
@@ -79,7 +82,7 @@ from lexic.parsing.engine import EarleyParser
 from lexic.parsing.fold import PositionalFold, RuleFold
 from lexic.parsing.forest import DERIVATION_STREAM, ParseTree, SppfNode
 from lexic.parsing.kernel import FastTree, Kernel
-from lexic.parsing.pda_tables import (
+from lexic.parsing.pda_flatten import (
     _BUILD_DISPATCH,
     _BUILD_SEQ,
     _BUILD_TRANSPARENT,
@@ -97,10 +100,10 @@ from lexic.parsing.pda_tables import (
     _OP_LIT1,
     _OP_REF1,
     _OP_VSTR,
-    PdaTables,
     _FlatArm,
     _FlatClone,
 )
+from lexic.parsing.pda_tables import PdaTables
 from lexic.parsing.tables import ORIGIN_BITS, ParserTables
 
 __all__ = ["PdaFail", "PdaKernel", "parse_pda"]
@@ -112,11 +115,6 @@ while the best completion still touches the window edge and input remains."""
 _DERIV_PARSER = EarleyParser()
 """The shared façade dispatcher the island derivation-stream fallback threads
 through :data:`~lexic.parsing.forest.DERIVATION_STREAM`'s ``eval`` (stateless)."""
-
-_NO_ENDS: list[int] = []
-"""The shared empty ``ends`` for non-``sequence`` frames — never indexed (only
-``sequence`` frames read item spans), so one immutable sentinel keeps
-:attr:`_Frame.ends` non-optional and cast-free."""
 
 _EMPTY_SLOT: Any = None
 """An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
@@ -153,9 +151,10 @@ class PdaFail(Exception):
 #   _F_MODE  the build-mode (one of the ``_BUILD_*`` constants)
 #   _F_CLONE the frame's :class:`_FlatClone` (its fold and baked build plan)
 #   _F_START the cursor position where the frame began (its span start)
-#   _F_ENDS  per-item end positions, preallocated for ``sequence`` frames (item
-#            ``i``'s span is ``(start if i==0 else ends[i-1], ends[i])``); the
-#            shared :data:`_NO_ENDS` sentinel otherwise (never indexed)
+#   _F_ENDS  per-item end positions (``ends[i]`` written as each item finishes);
+#            item ``i``'s span is ``(start if i==0 else ends[i-1], ends[i])``.
+#            Allocated for every frame so the driver's write stays branch-free;
+#            only span-reading ``sequence`` clones read it back
 #   _F_SINKS per-item descent sub-model lists, allocated lazily on first descent
 #            (capture frames), else ``None``
 _F_ARM, _F_I, _F_COUNT, _F_OUT, _F_MODE, _F_CLONE, _F_START, _F_ENDS, _F_SINKS = range(
@@ -258,8 +257,10 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
                 if k == _OP_CC1:
                     payload = arm.payloads[i]
                     char = text[pos : pos + 1]
-                    if (char == "" or char in payload[0]) if payload[1] else (
-                        char not in payload[0]
+                    if (
+                        (char == "" or char in payload[0])
+                        if payload[1]
+                        else (char not in payload[0])
                     ):
                         raise PdaFail(f"char class miss at {pos}")
                     pos += 1
@@ -276,20 +277,15 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
                     pos = self.pos  # consumed inline — this item is done
                     i += 1
                     continue
-                elif k == _OP_VSTR:
-                    pos = self._match_vstr(self._sink_for(frame, arm, i), arm, i, pos)
-                elif k == _OP_LIT:
-                    pos = self._match_lit(arm, i, pos)
-                elif k == _OP_CC:
-                    pos = self._match_cc(arm, i, pos)
-                else:
+                elif k == _OP_VSTR or k <= _OP_CC:  # value_str / quantified terminal
+                    pos = self._match_span(frame, arm, i, pos)
+                else:  # _OP_REF / _OP_GRP / _OP_ISLAND / _OP_FAIL
                     i = self._quant_step(frame, arm, i, pos)
                     if i < 0:
                         break  # pushed — the sub-frame drives next
                     pos = self.pos
                     continue
-                if ends is not _NO_ENDS:
-                    ends[i] = pos
+                ends[i] = pos
                 i += 1
             else:  # items exhausted without a descent — the frame completes
                 frame[_F_I] = i
@@ -318,9 +314,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         if not need:
             frame[_F_COUNT] = 0
             frame[_F_I] = i + 1
-            ends = frame[_F_ENDS]
-            if ends is not _NO_ENDS:
-                ends[i] = pos
+            frame[_F_ENDS][i] = pos
             self.pos = pos
             return i + 1
         frame[_F_COUNT] = count + 1
@@ -341,6 +335,17 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         return i
 
     # ── terminal matching (whole quantifier loop, inline, no per-char call) ─
+
+    def _match_span(self, frame: list[Any], arm: _FlatArm, i: int, pos: int) -> int:
+        """Match a span-producing item — a ``value_str`` ref or a quantified
+        literal / char class — routing to its matcher (the cold-ish tail of the
+        driver's op dispatch; the exactly-once terminals stay inline)."""
+        k = arm.kinds[i]
+        if k == _OP_VSTR:
+            return self._match_vstr(self._sink_for(frame, arm, i), arm, i, pos)
+        if k == _OP_LIT:
+            return self._match_lit(arm, i, pos)
+        return self._match_cc(arm, i, pos)
 
     def _match_lit(self, arm: _FlatArm, i: int, pos: int) -> int:
         """Match a literal item's whole quantifier loop, returning the new pos.
@@ -496,10 +501,12 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
             arm = clone.default
             if arm is None:
                 raise PdaFail(f"no arm at {self.pos}")
-        mode = clone.mode
-        ends = [0] * arm.n if mode == _BUILD_SEQ and clone.needs_ends else _NO_ENDS
         # frame layout: arm, i, count, out, mode, clone, start, ends, sinks
-        self.stack.append([arm, 0, 0, out, mode, clone, self.pos, ends, None])
+        # ``ends`` is per-frame so the driver's per-item span write stays
+        # unconditional (only span-reading sequence clones ever read it back).
+        self.stack.append(
+            [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
+        )
         return True
 
     def _run_leaf(self, clone: _FlatClone, out: list[Any], pos: int) -> int:
@@ -520,19 +527,20 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         """
         text = self.text
         arm = self._select_arm(clone, text[pos : pos + 1], pos)
-        n = arm.n
-        if n != clone.fold.n_items:
-            return self._leaf_mismatch(clone, out, n, pos)
+        if arm.n != clone.fold.n_items:
+            return self._leaf_mismatch(clone, out, arm.n, pos)
         start = pos
-        ends = [0] * n
+        ends = [0] * arm.n
         sinks: list[Any] | None = None
-        for i in range(n):
+        for i in range(arm.n):
             k = arm.kinds[i]
             if k == _OP_CC1:
                 payload = arm.payloads[i]
                 char = text[pos : pos + 1]
-                if (char == "" or char in payload[0]) if payload[1] else (
-                    char not in payload[0]
+                if (
+                    (char == "" or char in payload[0])
+                    if payload[1]
+                    else (char not in payload[0])
                 ):
                     raise PdaFail(f"char class miss at {pos}")
                 pos += 1
@@ -543,9 +551,8 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
                 pos += len(lit)
             elif k == _OP_VSTR:
                 if sinks is None:
-                    sinks = [_EMPTY_SLOT] * n
-                sub: list[Any] = []
-                sinks[i] = sub
+                    sinks = [_EMPTY_SLOT] * arm.n
+                sinks[i] = sub = []
                 pos = self._match_vstr(sub, arm, i, pos)
             elif k == _OP_LIT:
                 pos = self._match_lit(arm, i, pos)
@@ -556,9 +563,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         return pos
 
     @staticmethod
-    def _leaf_mismatch(
-        clone: _FlatClone, out: list[Any], n: int, pos: int
-    ) -> int:
+    def _leaf_mismatch(clone: _FlatClone, out: list[Any], n: int, pos: int) -> int:
         """A leaf arm whose item count misses the fold — empty arm, or error.
 
         :returns: ``pos`` unchanged (the empty alternate arm consumed nothing).
@@ -593,9 +598,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         clone = arm.payloads[i]
         lo, hi = arm.los[i], arm.his[i]
         count = 0
-        while count < lo or (
-            (hi < 0 or count < hi) and self._gate_admits(arm, i, pos)
-        ):
+        while count < lo or ((hi < 0 or count < hi) and self._gate_admits(arm, i, pos)):
             pos = self._vstr_once(clone, sink, pos)
             count += 1
         return pos
@@ -626,8 +629,10 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
             if kj == _OP_CC1:
                 payload = varm.payloads[j]
                 char = text[pos : pos + 1]
-                if (char == "" or char in payload[0]) if payload[1] else (
-                    char not in payload[0]
+                if (
+                    (char == "" or char in payload[0])
+                    if payload[1]
+                    else (char not in payload[0])
                 ):
                     raise PdaFail(f"char class miss at {pos}")
                 pos += 1
@@ -642,10 +647,11 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
                 pos = self._match_cc(varm, j, pos)
         span = text[start:pos]
         fast = clone.fast
-        if fast is not None:
-            sink.append(fast({"value": span}, {"value"}))
-        else:
-            sink.append(clone.fold.ctor(value=span))
+        sink.append(
+            fast({"value": span}, {"value"})
+            if fast is not None
+            else clone.fold.ctor(value=span)
+        )
         return pos
 
     # ── island sub-parse + splice ─────────────────────────────────────

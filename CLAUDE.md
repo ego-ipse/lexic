@@ -276,12 +276,21 @@ src/lexic/
                         PdaFail, never parsed); open IrTypeMap atom
                         dispatch, raising default. The CloneSpec/ItemSpec
                         NamedTuples are the compiler INTERMEDIATE (what tests
-                        pin); _flatten_program lowers them once per compile into
-                        the int-coded PdaProgram (_FlatClone/_FlatArm, _OP_*
-                        op-codes, pre-resolved (chars,negated) membership sets)
-                        the kernel hot loop walks — both kept on PdaTables
-                        (.clones for islands/introspection, .program for the
-                        loop) (Task 8 flatten; hybrid-PDA; 260705 effort)
+                        pin); the spec→flat bridge (_flatten_program etc.) lowers
+                        them once per compile into the int-coded PdaProgram, kept
+                        on PdaTables alongside .clones (.clones for islands/
+                        introspection, .program for the loop). compile_pda,
+                        PdaTables, IslandRef, spec NamedTuples import from here
+                        (Task 8 flatten; hybrid-PDA; 260705 effort)
+    pda_flatten.py      The leaf half of the flatten: the int-coded runtime
+                        program (_FlatClone/_FlatArm/PdaProgram, _OP_* op-codes,
+                        pre-resolved (chars,negated) membership sets) + the
+                        post-flatten optimizer passes (_optimize_program:
+                        exactly-once terminal/call specialisation, value_str
+                        inlining, frame-less leaf marking, pass-through dispatch
+                        conversion). Imports nothing from pda_tables (a leaf
+                        w.r.t. the compiler + specs); the kernel walks it (split
+                        out of pda_tables for C0302; hybrid-PDA; 260705 effort)
     pda_kernel.py       PdaKernel/parse_pda — the fused predictive runtime: an
                         explicit descent stack of flat list frames (no Python
                         recursion; the kernel.py int-array explicit-stack
