@@ -8,6 +8,13 @@ folds that forest back into an ``IrAst``. The fixpoint — parse the ABNF source
 ABNF with the ABNF grammar and recover the ABNF grammar — is the self-hosting
 proof that retires the meta-grammars.
 
+One engine drives both halves of the pipeline: **grammar-text → ``IrAst``** (a
+flavour's self-grammar + its ``Reducer``, the fused product path) and **instance
+text → ``GrammarModel``** (the codegen grammar + a positional fold, :mod:`.fold`).
+The instance path runs **PDA-first** — a predictive table-driven runtime
+(:mod:`.pda_kernel`) that builds the model during the walk, falling back to this
+Earley engine on any non-deterministic point. See ``README.md``.
+
 Layering mirrors the rest of ``lexic.ir``: every state object and every engine
 operation IS-AN :class:`~lexic.ir.base.IrSelf`. The Earley operations live in an
 :class:`~lexic.ir.mapping.IrTypeMap` dispatched on the symbol after the dot —
@@ -15,18 +22,28 @@ the same dispatch substrate the emit flavours use, run the other direction.
 
 Module map:
 
-- :mod:`.tables`    — :class:`ParserTables`, the int-coded compiled grammar,
-                      and :func:`compile_tables` (memoised, once per grammar).
-- :mod:`.kernel`    — :class:`Kernel`, the flat Earley loop over the compiled
-                      tables (predict/scan/complete, Leo, packed SPPF), and
-                      :class:`FastTree`, the unambiguous tree builder.
-- :mod:`.item`      — :class:`EarleyItem`, the decoded dotted-arm record.
-- :mod:`.chart`     — :class:`Chart` / :class:`Links`, the decoded SPPF the
-                      IR-native forest readers walk.
-- :mod:`.engine`    — the per-capability orchestration nodes the API drives.
-- :mod:`.forest`    — :class:`ParseTree`, the reducible derivation.
-- :mod:`.reduce`    — :class:`Reducer`, forest → ``IrAst`` (the meta-notation seam).
-- :mod:`.normalize` — desugar IR into classical Earley-shaped rules.
+- :mod:`.tables`      — :class:`ParserTables`, the int-coded compiled grammar,
+                        and :func:`compile_tables` (memoised, once per grammar).
+- :mod:`.kernel`      — :class:`Kernel`, the flat Earley loop over the compiled
+                        tables (predict/scan/complete, Leo, packed SPPF), and
+                        :class:`FastTree`, the unambiguous tree builder.
+- :mod:`.chart`       — :class:`Chart` / :class:`Links`, the decoded SPPF the
+                        IR-native forest readers walk, and the ``EarleyItem`` tuple.
+- :mod:`.engine`      — the per-capability orchestration nodes the API drives.
+- :mod:`.forest`      — :class:`ParseTree`, the reducible derivation.
+- :mod:`.reduce`      — :class:`Reducer`, forest → ``IrAst`` (grammar-text product).
+- :mod:`.fold`        — :class:`~lexic.parsing.fold.PositionalFold`, forest →
+                        ``GrammarModel`` (the instance product).
+- :mod:`.normalize`   — desugar IR into classical Earley-shaped rules.
+- :mod:`.charsets`    — :class:`~lexic.parsing.charsets.CharSet`, the PDA analysis
+                        substrate (polarity-aware co-finite char sets).
+- :mod:`.analysis`    — :class:`~lexic.parsing.analysis.GrammarAnalysis`,
+                        FIRST/FOLLOW/nullability + the island/stopset/LL(2) taxonomy.
+- :mod:`.pda_tables`  — :func:`~lexic.parsing.pda_tables.compile_pda`, the
+                        per-(rule, continuation) clone compiler.
+- :mod:`.pda_flatten` — the int-coded PDA runtime program + optimizer passes.
+- :mod:`.pda_kernel`  — :class:`~lexic.parsing.pda_kernel.PdaKernel`, the fused
+                        predictive runtime (parse + fold, no ``ParseTree``).
 
 The forest is a full SPPF (Scott 2008): nullable-rule completion (Aycock-Horspool)
 and ambiguity are handled — ``parse`` returns the single derivation and raises on
@@ -44,6 +61,10 @@ all the logic and the wrapper returns its result verbatim (a truth value is an
 
 - :func:`recognize` — does ``text`` derive from the start rule.
 - :func:`parse` — the strict single derivation as a :class:`.forest.ParseTree`.
+- :func:`parse_first` — the FIRST derivation, deterministic under ambiguity
+  (the instance-parse entry, see :mod:`.fold`).
+- :func:`parse_reduced` — parse and fold straight to IR in one pass (the
+  grammar-text product path).
 - :func:`parse_forest` — the SPPF root :class:`.forest.SppfNode`, or
   :data:`~lexic.ir.base.IrNone` on no parse.
 - :func:`derivations` — ALL derivations as an :class:`~lexic.ir.base.IrSeq`.
