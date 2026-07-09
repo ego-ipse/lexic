@@ -1,11 +1,11 @@
 """The flat Earley kernel — the compiled grammar's paid loop.
 
 This module is the **compiled-form zone** of ``parsing`` (see
-:mod:`lexic.parsing.tables`): the per-item loop runs over int-coded tables
+:mod:`lexic.parsing.earley.tables`): the per-item loop runs over int-coded tables
 and packed-int items instead of dispatching IR nodes. Logic stays on classes
 and per-parse state on the :class:`Kernel` cursor — but no ``eval`` runs per
 item, no IR object is ever a hot-path key, and no tuple is allocated per
-advance. The IR seams sit at the edges: :func:`~lexic.parsing.tables
+advance. The IR seams sit at the edges: :func:`~lexic.parsing.earley.tables
 .compile_tables` walks the grammar in, and :meth:`Kernel.to_chart` decodes the
 finished SPPF out for the IR-native forest readers.
 
@@ -31,9 +31,9 @@ from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrSeq
-from lexic.parsing.chart import Chart, EarleyItem
-from lexic.parsing.forest import ParseTree, SppfNode
-from lexic.parsing.tables import (
+from lexic.parsing.earley.chart import Chart, EarleyItem
+from lexic.parsing.earley.forest import ParseTree, SppfNode
+from lexic.parsing.earley.tables import (
     ADVANCE,
     ORIGIN_BITS,
     ORIGIN_MASK,
@@ -217,7 +217,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         ALWAYS seed: :meth:`_nullable_advance` records their done-codes as
         SPPF children, and a nested-nullable arm's empty completion needs its
         own advance links in the chart for :class:`FastTree` /
-        :class:`~lexic.parsing.reduce.FusedReduce` to walk. The ``predicted``
+        :class:`~lexic.parsing.earley.reduce.FusedReduce` to walk. The ``predicted``
         guard stays valid (the char is fixed per column). Leo: fewer waiters
         can only shrink buckets — Leo may *engage more often*; the chart's
         shape changes, the language and derivation sets do not. At column
@@ -435,7 +435,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
     def longest_start_completion(self) -> tuple[int, int] | None:
         """Longest whole-prefix completion of the start rule (origin 0).
 
-        The islands seam (:mod:`lexic.parsing.pda_kernel`): seed the start
+        The islands seam (:mod:`lexic.parsing.pda.runtime`): seed the start
         rule at column 0, drive the chart column by column over the window,
         and after closing each reachable column record the widest completed
         start item spanning ``[0, j]``. A later column overwrites an earlier

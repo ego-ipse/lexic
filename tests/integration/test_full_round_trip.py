@@ -15,7 +15,7 @@ from lexic.compile import canonical_grammar, compile_from_path
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrAst
 from lexic.parsing import parse_reduced
-from lexic.parsing.normalize import normalize
+from lexic.parsing.earley.normalize import normalize
 from tests.paths import GROUND_TRUTH
 
 # All 7 ground-truth fixtures produce "root" as the start rule.

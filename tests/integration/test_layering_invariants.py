@@ -148,8 +148,9 @@ def test_retired_ir_modules_are_gone():
 
 
 def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
-    """charsets/analysis/pda_tables/pda_kernel (2026-07-05 hybrid-PDA effort)
-    exist inside lexic.parsing and carry no grammars/codegen import.
+    """charsets/analysis/pda.clones/pda.runtime (2026-07-05 hybrid-PDA effort,
+    relocated into lexic.parsing.pda/ 2026-07-09) exist inside lexic.parsing
+    and carry no grammars/codegen import.
 
     ``test_engine_package_does_not_import_grammars_or_codegen`` already
     greps every ``.py`` under ``lexic.parsing`` generically (``rglob``), so
@@ -157,10 +158,10 @@ def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
     that placement (and the absence of the two forbidden imports) explicitly
     by name, so a future reshuffle can't silently drop them from scope.
     """
-    engine = SRC / "parsing"
-    for name in ("charsets.py", "analysis.py", "pda_tables.py", "pda_kernel.py"):
-        path = engine / name
-        assert path.exists(), f"{name} missing from lexic.parsing"
+    pda = SRC / "parsing" / "pda"
+    for name in ("charsets.py", "analysis.py", "clones.py", "runtime.py"):
+        path = pda / name
+        assert path.exists(), f"{name} missing from lexic.parsing.pda"
         content = path.read_text()
         assert "from lexic.grammars" not in content, f"{name} imports lexic.grammars"
         assert "from lexic.codegen" not in content, f"{name} imports lexic.codegen"
@@ -169,7 +170,7 @@ def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
 def test_pda_entry_points_imported_only_via_compile_seam():
     """Only compile.py imports the PDA entry points among top-level runtime modules.
 
-    ``pda_tables``/``pda_kernel`` are sub-paths of ``lexic.parsing``, so
+    ``pda.clones``/``pda.runtime`` are sub-paths of ``lexic.parsing``, so
     ``test_engine_imported_by_runtime_only_via_compile_seam``'s ``"from
     lexic.parsing"`` prefix check already covers them generically; this pins
     that coverage explicitly for the PDA modules by name (Task 6's
@@ -181,7 +182,7 @@ def test_pda_entry_points_imported_only_via_compile_seam():
             continue
         for line in p.read_text().splitlines():
             stripped = line.strip()
-            if "pda_tables" not in stripped and "pda_kernel" not in stripped:
+            if "pda.clones" not in stripped and "pda.runtime" not in stripped:
                 continue
             if stripped.startswith(("from lexic.parsing", "import lexic.parsing")):
                 offenders.append(f"{p.name}: {stripped}")

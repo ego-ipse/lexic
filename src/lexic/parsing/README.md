@@ -63,7 +63,7 @@ The predictive PDA (§10) is driven through `compile.py`, not `__init__.py`:
 
 ```python
 from lexic.parsing import parse, parse_reduced, parse_first, recognize
-from lexic.parsing.normalize import normalize
+from lexic.parsing.earley.normalize import normalize
 
 g = normalize(MY_GRAMMAR)            # desugar to classical Earley shape first
 assert recognize(g, "input text")    # IrInt(1)

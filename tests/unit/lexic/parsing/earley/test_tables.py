@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.tables — CodeTables, DecodeTables, ParserTables,
+"""Tests for lexic.parsing.earley.tables — CodeTables, DecodeTables, ParserTables,
 compile_tables, atom_accepts.
 
 New module (the compiled "codegen moment" for parsing): every dotted
@@ -33,7 +33,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing import recognize
-from lexic.parsing.tables import (
+from lexic.parsing.earley.tables import (
     ADVANCE,
     ORIGIN_BITS,
     RUN_STR,

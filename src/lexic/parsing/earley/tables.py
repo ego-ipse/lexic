@@ -51,7 +51,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing.forest import ParseTree
+from lexic.parsing.earley.forest import ParseTree
 
 ORIGIN_BITS = 20
 """Bits reserved for an origin / end column in a packed item or handle."""
@@ -72,8 +72,8 @@ def predecessor_chain(
 ) -> list[KLink] | None:
     """Walk a packed handle's single-link predecessor chain down to ``base``.
 
-    Shared by :class:`~lexic.parsing.kernel.FastTree` and
-    :class:`~lexic.parsing.reduce.FusedReduce`, whose kid-collection walks
+    Shared by :class:`~lexic.parsing.earley.kernel.FastTree` and
+    :class:`~lexic.parsing.earley.reduce.FusedReduce`, whose kid-collection walks
     are otherwise identical.
 
     :param links: The parse's SPPF family table.
@@ -189,7 +189,7 @@ class RunTerm(IrLeaf[IrSelf, IrSelf], IrAtom):
     Replaces the body of a *synthetic* star/plus rule whose unit resolves to
     a fixed charset, whose iteration is derivation-unique, and whose FOLLOW
     set is disjoint from the charset (so maximal munch is complete, not a
-    heuristic — see :mod:`lexic.parsing.lexruns`). The scanner consumes the
+    heuristic — see :mod:`lexic.parsing.earley.lexruns`). The scanner consumes the
     maximal run in one loop and lands the advance at its end.
 
     IS-A :class:`~lexic.ir.base.IrAtom`: in the compiled-tables world a run
@@ -234,7 +234,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
         rule is referenced but never defined — prediction seeds nothing).
         This is the stored primitive: the dot-0 codes pre-shifted, pre-paired
         with their symbol, and pre-joined with the arm's FIRST gate, so
-        :meth:`~lexic.parsing.kernel.Kernel._seed` neither re-shifts,
+        :meth:`~lexic.parsing.earley.kernel.Kernel._seed` neither re-shifts,
         re-indexes ``next_sym``, nor looks up a parallel column per seed.
         ``gate`` is ``None`` — *always seed* (the arm is empty-deriving or
         its FIRST is poisoned) — or the arm's nullable-prefix-closed FIRST
@@ -341,10 +341,10 @@ class TermTables(IrLeaf[IrSelf, IrSelf]):
 
     Split out of :class:`ParserTables` for the same reason :class:`CodeTables`
     and :class:`DecodeTables` are: each consumer indexes only the columns it
-    needs. The scan loop (:mod:`~lexic.parsing.kernel`) reads ``lens`` to
+    needs. The scan loop (:mod:`~lexic.parsing.earley.kernel`) reads ``lens`` to
     discriminate the scan kind, then ``literals`` or ``runs`` for the matching
     branch — never ``atoms``, which exists for the IR-space consumers
-    (:mod:`~lexic.parsing.lexruns`'s FIRST/FOLLOW analysis) that need the
+    (:mod:`~lexic.parsing.earley.lexruns`'s FIRST/FOLLOW analysis) that need the
     atom node itself.
 
     :ivar atoms: term_id → the terminal atom node.
@@ -820,7 +820,7 @@ def compile_tables(grammar: IrAst) -> ParserTables:
     """The :class:`ParserTables` for ``grammar``, compiled once and memoised.
 
     :param grammar: An Earley-normalised grammar (see
-        :func:`lexic.parsing.normalize.normalize`).
+        :func:`lexic.parsing.earley.normalize.normalize`).
     :returns: The compiled tables (shared across parses of the same grammar).
     :raises UnsupportedConstructError: On a non-normalised construct.
     """

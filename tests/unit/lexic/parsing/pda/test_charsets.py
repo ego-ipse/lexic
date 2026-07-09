@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.charsets — CharSet, the pivot-1 polarity algebra.
+"""Tests for lexic.parsing.pda.charsets — CharSet, the pivot-1 polarity algebra.
 
 Hand cases cover all four ``(negated, negated)`` combinations for
 ``union``/``subtract``/``overlaps``, the EOF sentinel convention, the
@@ -15,7 +15,7 @@ import hypothesis.strategies as st
 from hypothesis import given, settings
 
 from lexic.ir.nodes import IrCharClass, IrChr, IrRange
-from lexic.parsing.charsets import MAX_RANGE_EXPANSION, CharSet
+from lexic.parsing.pda.charsets import MAX_RANGE_EXPANSION, CharSet
 
 _A = frozenset({"a", "b"})
 _B = frozenset({"b", "c"})
@@ -238,7 +238,7 @@ def test_from_charclass_caps_a_wide_range_to_any():
 
 def test_from_charclass_cap_is_a_strict_greater_than(monkeypatch):
     """The expansion cap check is strict '>': exactly at cap still expands."""
-    monkeypatch.setattr("lexic.parsing.charsets.MAX_RANGE_EXPANSION", 5)
+    monkeypatch.setattr("lexic.parsing.pda.charsets.MAX_RANGE_EXPANSION", 5)
     at_cap = IrCharClass(IrRange(IrChr(0), IrChr(5)))
     assert CharSet.from_charclass(at_cap) == CharSet(
         frozenset(chr(c) for c in range(6)), False

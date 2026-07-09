@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda_tables — the per-(rule, continuation) clone compiler.
+"""Tests for lexic.parsing.pda.clones — the per-(rule, continuation) clone compiler.
 
 The headline gate pins, per ground-truth grammar, the exact clone count and
 island set :func:`compile_pda` must produce (byte-matched against the
@@ -24,9 +24,9 @@ from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
 from lexic.ir.nodes import IrAst
 from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.normalize import normalize
-from lexic.parsing.pda_kernel import PdaFail, parse_pda
-from lexic.parsing.pda_tables import (
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.pda.runtime import PdaFail, parse_pda
+from lexic.parsing.pda.clones import (
     CC,
     GRP,
     LIT,
@@ -41,9 +41,9 @@ from lexic.parsing.pda_tables import (
     StopGate,
     compile_pda,
 )
-from lexic.parsing.tables import ParserTables
+from lexic.parsing.earley.tables import ParserTables
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.test_analysis import _PINNED_ISLANDS
+from tests.unit.lexic.parsing.pda.test_analysis import _PINNED_ISLANDS
 
 # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -287,8 +287,8 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
     is a soft-only follower absent from ``x``'s hard clone tail (``{""}``), so a
     non-greedy stop-set would greedily eat it — ``x`` must island. Islanding
     routes the ref through an :class:`IslandRef`, so the pure-PDA
-    :func:`~lexic.parsing.pda_kernel.parse_pda` refuses ("ab" and "cab") with a
-    :exc:`~lexic.parsing.pda_kernel.PdaFail` (→ engine fallback) rather than
+    :func:`~lexic.parsing.pda.runtime.parse_pda` refuses ("ab" and "cab") with a
+    :exc:`~lexic.parsing.pda.runtime.PdaFail` (→ engine fallback) rather than
     returning the wrong model.
     """
     text = 'root ::= x "ab"?\nx ::= [a-c]*\n'

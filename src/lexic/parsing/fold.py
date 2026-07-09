@@ -46,10 +46,10 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing.analysis import nullable_names
-from lexic.parsing.forest import ParseTree
-from lexic.parsing.lexruns import collapse_runs, unit_leaves
-from lexic.parsing.tables import RUN_STR, ParserTables
+from lexic.parsing.pda.analysis import nullable_names
+from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
+from lexic.parsing.earley.tables import RUN_STR, ParserTables
 
 FOLD_KINDS: tuple[str, ...] = ("value_str", "sequence", "alternation")
 """The rule-kind vocabulary a :class:`RuleFold` may carry."""
@@ -124,7 +124,7 @@ def _subtree_text(node: ParseTree | IrLiteral) -> str:
 class PositionalFold:
     """Bottom-up ParseTree → model-instance fold over per-rule positional config.
 
-    The runtime mirror of :class:`~lexic.parsing.reduce.Reducer`: same
+    The runtime mirror of :class:`~lexic.parsing.earley.reduce.Reducer`: same
     explicit-stack discipline, but the outputs are opaque constructor results
     rather than IR nodes, so it lives outside the IrSelf dispatch algebra.
 
@@ -333,10 +333,10 @@ def collapsed_fold_tables(grammar: IrAst, fold: PositionalFold) -> ParserTables:
     """Instance tables with every fold-safe lexical run collapsed.
 
     The grammar-side proof (charset, uniqueness, follow disjointness) comes
-    from :func:`~lexic.parsing.lexruns.run_candidates`; the fold-side licence
+    from :func:`~lexic.parsing.earley.lexruns.run_candidates`; the fold-side licence
     (:meth:`PositionalFold.run_ok`) keeps only runs whose collapsed multi-char
     leaf hides structure the fold looks through anyway. Every kept run is
-    :data:`~lexic.parsing.tables.RUN_STR` (text-preserving): the run text
+    :data:`~lexic.parsing.earley.tables.RUN_STR` (text-preserving): the run text
     stays a leaf in the tree so ``to_text()`` round-trips exactly — never
     ``RUN_DROP``. Memoised per ``(fold, grammar)``.
 

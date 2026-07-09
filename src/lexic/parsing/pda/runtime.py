@@ -1,17 +1,17 @@
 """Fused predictive runtime — parses text to a model, no ParseTree on the path.
 
-The runtime sibling of :class:`~lexic.parsing.kernel.Kernel`: where the Earley
+The runtime sibling of :class:`~lexic.parsing.earley.kernel.Kernel`: where the Earley
 kernel builds an SPPF a :class:`~lexic.parsing.fold.PositionalFold` later folds,
 :class:`PdaKernel` walks the flat int-coded
-:class:`~lexic.parsing.pda_tables.PdaProgram` and builds the model **directly
+:class:`~lexic.parsing.pda.clones.PdaProgram` and builds the model **directly
 during the walk** — the fold is fused into the parse, so no intermediate
-:class:`~lexic.parsing.forest.ParseTree` is ever allocated on the deterministic
+:class:`~lexic.parsing.earley.forest.ParseTree` is ever allocated on the deterministic
 path.
 
 **Flat program (Task 8).** The runtime walks the int-coded
-:class:`~lexic.parsing.pda_tables.PdaProgram` (``_OP_*`` op-codes, pre-resolved
+:class:`~lexic.parsing.pda.clones.PdaProgram` (``_OP_*`` op-codes, pre-resolved
 ``(chars, negated)`` membership sets, direct :class:`_FlatClone` references),
-not the compiler's :class:`~lexic.parsing.pda_tables.CloneSpec` NamedTuples —
+not the compiler's :class:`~lexic.parsing.pda.clones.CloneSpec` NamedTuples —
 integer dispatch, no attribute descriptors, no per-char method calls on the hot
 loop (the ``tables.py``/``kernel.py`` philosophy).
 
@@ -20,7 +20,7 @@ loop (the ``tables.py``/``kernel.py`` philosophy).
 explicit-stack precedent; the class cursor is :class:`PdaKernel` itself — see the
 frame layout below) — never Python recursion. Per-parse state (the input, the
 cursor position, the frame stack) lives on the kernel;
-:class:`~lexic.parsing.pda_tables.PdaProgram` is shared and immutable. A frame
+:class:`~lexic.parsing.pda.clones.PdaProgram` is shared and immutable. A frame
 executes one arm's items in order; a literal / char-class item runs its whole
 quantifier loop inline in :meth:`PdaKernel._match_lit` /
 :meth:`PdaKernel._match_cc` (no descent, no per-char call), while a rule
@@ -52,12 +52,12 @@ Per build-mode (mirroring :meth:`~lexic.parsing.fold.PositionalFold._fold_node`)
 
 **Islands.** A reference to a conflicted (island) rule cannot be walked
 deterministically, so it delegates to a windowed Earley sub-parse: a fresh
-:class:`~lexic.parsing.kernel.Kernel` over the rule's
-:meth:`~lexic.parsing.pda_tables.PdaTables.island_tables` runs
-:meth:`~lexic.parsing.kernel.Kernel.longest_start_completion` over a doubling
+:class:`~lexic.parsing.earley.kernel.Kernel` over the rule's
+:meth:`~lexic.parsing.pda.clones.PdaTables.island_tables` runs
+:meth:`~lexic.parsing.earley.kernel.Kernel.longest_start_completion` over a doubling
 window and takes the longest completion; the decoded
-:class:`~lexic.parsing.forest.ParseTree` (via
-:class:`~lexic.parsing.kernel.FastTree`, falling back to the first derivation
+:class:`~lexic.parsing.earley.forest.ParseTree` (via
+:class:`~lexic.parsing.earley.kernel.FastTree`, falling back to the first derivation
 on ambiguity) folds through the supplied :class:`~lexic.parsing.fold
 .PositionalFold` and the resulting sub-model splices into the current capture
 exactly as a clone's model would. The cursor advances past the consumed span.
@@ -77,12 +77,9 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrSelf, IrTuple
-from lexic.parsing.engine import EarleyParser
+from lexic.ir.base import IrLeaf, IrSelf
 from lexic.parsing.fold import PositionalFold, RuleFold
-from lexic.parsing.forest import DERIVATION_STREAM, ParseTree, SppfNode
-from lexic.parsing.kernel import FastTree, Kernel
-from lexic.parsing.pda_flatten import (
+from lexic.parsing.pda.flatten import (
     _BUILD_DISPATCH,
     _BUILD_SEQ,
     _BUILD_TRANSPARENT,
@@ -103,33 +100,15 @@ from lexic.parsing.pda_flatten import (
     _FlatArm,
     _FlatClone,
 )
-from lexic.parsing.pda_tables import PdaTables
-from lexic.parsing.tables import ORIGIN_BITS, ParserTables
+from lexic.parsing.pda.clones import PdaTables
+from lexic.parsing.pda.errors import PdaFail
+from lexic.parsing.pda.islands import island_parse
 
 __all__ = ["PdaFail", "PdaKernel", "parse_pda"]
-
-ISLAND_WINDOW = 256
-"""Initial character window for an island Earley sub-parse; doubles on demand
-while the best completion still touches the window edge and input remains."""
-
-_DERIV_PARSER = EarleyParser()
-"""The shared façade dispatcher the island derivation-stream fallback threads
-through :data:`~lexic.parsing.forest.DERIVATION_STREAM`'s ``eval`` (stateless)."""
 
 _EMPTY_SLOT: Any = None
 """An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
 each slot later holding a sub-model list) without narrowing their type."""
-
-
-class PdaFail(Exception):
-    """A predictive-parse failure — internal to :mod:`lexic.parsing`.
-
-    Raised wherever the PDA cannot proceed deterministically (a terminal
-    mismatch, no viable arm, trailing input, or a fail/unresolvable island
-    reference). Carries the failing position and a short reason for debugging;
-    the compile seam catches it and falls back to the full engine, so it is
-    **never** user-facing.
-    """
 
 
 # ── frame layout ───────────────────────────────────────────────────────────
@@ -170,7 +149,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
     kernel; :attr:`tables` is the shared, immutable compiled artifact.
 
     :ivar tables: The compiled predictive-parser tables (its
-        :attr:`~lexic.parsing.pda_tables.PdaTables.program` is walked).
+        :attr:`~lexic.parsing.pda.clones.PdaTables.program` is walked).
     :ivar text: The input string.
     :ivar pos: The cursor position (advances monotonically — no backtracking).
     :ivar stack: The explicit descent stack of flat frame lists (see the frame
@@ -671,70 +650,13 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         fold = self.fold
         if fold is None:
             raise PdaFail(f"island {name!r} at {self.pos}: no fold for splice")
-        tree, end = self._island_parse(self.tables.island_tables(name), name)
+        tree, end = island_parse(
+            self.tables.island_tables(name), self.text, self.pos, name
+        )
         model = fold.apply(tree)
         if model is not None:
             sink.append(model)
         self.pos += end
-
-    def _island_parse(self, tables: ParserTables, name: str) -> tuple[ParseTree, int]:
-        """Longest completion of island ``name`` over a doubling window.
-
-        Grows the window while the best completion still touches its edge and
-        input remains (the ambiguous-longest-match risk), then decodes the
-        winning completion to a :class:`~lexic.parsing.forest.ParseTree`.
-
-        :param tables: The island rule's :class:`~lexic.parsing.tables.ParserTables`.
-        :param name: The island rule name (for the failure message).
-        :returns: ``(tree, end)`` — the derivation and its consumed length.
-        :raises PdaFail: When the island completes over no window.
-        """
-        text, pos = self.text, self.pos
-        remaining = len(text) - pos
-        window = ISLAND_WINDOW
-        best = self._island_run(tables, text[pos : pos + window])
-        while window < remaining and (
-            best is None or best[2] == min(window, remaining)
-        ):
-            window *= 2
-            best = self._island_run(tables, text[pos : pos + window])
-        if best is None:
-            raise PdaFail(f"island {name!r}: no match at {pos}")
-        kern, item, end = best
-        tree = FastTree(kern).build((item << ORIGIN_BITS) | end)
-        if not isinstance(tree, ParseTree):  # ambiguous — take the first derivation
-            tree = self._island_derivation(kern, item, end, name)
-        return tree, end
-
-    @staticmethod
-    def _island_run(
-        tables: ParserTables, window: str
-    ) -> tuple[Kernel, int, int] | None:
-        """Run the island start rule over ``window``, longest origin-0 completion.
-
-        :returns: ``(kernel, accepting_item, end)`` for the longest completion,
-            or ``None`` when the rule never completes in the window.
-        """
-        kern = Kernel(tables, window)
-        result = kern.longest_start_completion()
-        if result is None:
-            return None
-        item, end = result
-        return kern, item, end
-
-    def _island_derivation(
-        self, kern: Kernel, item: int, end: int, name: str
-    ) -> ParseTree:
-        """First derivation of an ambiguous island completion (engine policy).
-
-        :raises PdaFail: When the completion decodes to no derivation.
-        """
-        node = SppfNode(kern.decode_item(item), end)
-        stream = DERIVATION_STREAM.eval(_DERIV_PARSER, node, IrTuple(kern.to_chart()))
-        tree = next(iter(stream), None)
-        if not isinstance(tree, ParseTree):
-            raise PdaFail(f"island {name!r}: no derivation")
-        return tree
 
     # ── frame completion → fused model build ──────────────────────────
 

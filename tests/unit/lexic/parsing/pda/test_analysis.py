@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.analysis — FIRST/hard-FIRST/FOLLOW + taxonomy.
+"""Tests for lexic.parsing.pda.analysis — FIRST/hard-FIRST/FOLLOW + taxonomy.
 
 The headline gate pins, per ground-truth grammar, the exact island rule-name
 set (and demotion set) :class:`GrammarAnalysis` must produce — asserted equal to
@@ -31,8 +31,8 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing.analysis import GrammarAnalysis, nullable_names
-from lexic.parsing.charsets import CharSet
+from lexic.parsing.pda.analysis import GrammarAnalysis, nullable_names
+from lexic.parsing.pda.charsets import CharSet
 from lexic.parsing.fold import lift_optional_nullables
 from tests.paths import GROUND_TRUTH
 

@@ -1,18 +1,18 @@
 """Earley orchestration — the IR-native façade over the compiled kernel.
 
-The paid loop lives in :mod:`lexic.parsing.kernel`, running over the
-compiled :mod:`~lexic.parsing.tables`. This module keeps the IR seam: one
+The paid loop lives in :mod:`lexic.parsing.earley.kernel`, running over the
+compiled :mod:`~lexic.parsing.earley.tables`. This module keeps the IR seam: one
 :class:`~lexic.ir.base.IrSelf` orchestration node per public capability, each
-compiling the grammar (memoised), running one :class:`~lexic.parsing.kernel
+compiling the grammar (memoised), running one :class:`~lexic.parsing.earley.kernel
 .Kernel`, and reading the result its own way:
 
 - :class:`Recognize` — accept or not; SPPF recording stays off.
 - :class:`Parse` — the strict single derivation via the packed-links
-  :class:`~lexic.parsing.kernel.FastTree`, falling back to the trampolined
+  :class:`~lexic.parsing.earley.kernel.FastTree`, falling back to the trampolined
   enumeration over the decoded chart on ambiguity.
 - :class:`ParseForest` / :class:`Enumerate` / :class:`IsAmbiguous` — decode
-  the packed SPPF to the IR-native :class:`~lexic.parsing.chart.Chart` and
-  drive the :mod:`~lexic.parsing.forest` readers.
+  the packed SPPF to the IR-native :class:`~lexic.parsing.earley.chart.Chart` and
+  drive the :mod:`~lexic.parsing.earley.forest` readers.
 
 :class:`EarleyParser` remains the façade dispatcher handed to the readers'
 ``eval`` seams; the per-item type dispatch it once performed is compiled away
@@ -33,16 +33,16 @@ from lexic.ir.base import (
 )
 from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
-from lexic.parsing.forest import (
+from lexic.parsing.earley.forest import (
     BUILD_TREE,
     DERIVATION_STREAM,
     DERIVATIONS,
     ParseTree,
 )
-from lexic.parsing.kernel import FastTree, Kernel
-from lexic.parsing.lexruns import recognition_tables
-from lexic.parsing.reduce import FusedReduce, Reducer, collapsed_tables
-from lexic.parsing.tables import ORIGIN_BITS, ParserTables, compile_tables
+from lexic.parsing.earley.kernel import FastTree, Kernel
+from lexic.parsing.earley.lexruns import recognition_tables
+from lexic.parsing.earley.reduce import FusedReduce, Reducer, collapsed_tables
+from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables, compile_tables
 
 _MATCH = IrInt(1)
 _NO_MATCH = IrInt(0)
@@ -79,9 +79,9 @@ def _require_accept(kernel: Kernel, n: IrSelf) -> None:
 def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
     """The strict single derivation of an accepted kernel parse.
 
-    Fast path: :class:`~lexic.parsing.kernel.FastTree` over the packed
+    Fast path: :class:`~lexic.parsing.earley.kernel.FastTree` over the packed
     links. Slow path (a key packing more than one family): the trampolined
-    :data:`~lexic.parsing.forest.BUILD_TREE` over the decoded chart, which
+    :data:`~lexic.parsing.earley.forest.BUILD_TREE` over the decoded chart, which
     raises on a second derivation.
 
     :raises UnsupportedConstructError: On ambiguous input or no derivation.
@@ -101,7 +101,7 @@ class Recognize(IrLeaf[IrSelf, IrSelf]):
 
     Recognition never reads the forest, so SPPF recording is skipped entirely
     — and the kernel runs over maximally run-collapsed tables
-    (:func:`~lexic.parsing.lexruns.recognition_tables`): with no tree or
+    (:func:`~lexic.parsing.earley.lexruns.recognition_tables`): with no tree or
     forest to shape, every grammar-proved lexical run steps in one scan.
     """
 
@@ -118,7 +118,7 @@ class Recognize(IrLeaf[IrSelf, IrSelf]):
 class Parse(IrLeaf[IrSelf, IrSelf]):
     """The strict single derivation of ``text`` as a :class:`ParseTree`.
 
-    Fast path: :class:`~lexic.parsing.kernel.FastTree` over the packed
+    Fast path: :class:`~lexic.parsing.earley.kernel.FastTree` over the packed
     links. Slow path (a key packing more than one family): the trampolined
     stream over the decoded chart, which raises on a second derivation.
     """
@@ -143,7 +143,7 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
     ``ambiguity="resolve"``. Fast path identical to :class:`Parse`; the
     lazy stream is only driven one item on the slow path.
 
-    ``nc`` may carry pre-built :class:`~lexic.parsing.tables.ParserTables` as a
+    ``nc`` may carry pre-built :class:`~lexic.parsing.earley.tables.ParserTables` as a
     second element — the instance path passes run-collapsed tables (built with
     the fold-config licence in :mod:`lexic.parsing.fold`) so lexical runs step
     in one scan and land as a single multi-char leaf. A collapsed run is
@@ -189,8 +189,8 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
 
     Runs the kernel over **reducer-collapsed tables** (safe lexical runs
     compiled to maximal-munch terminals — see
-    :func:`~lexic.parsing.reduce.collapsed_tables`), then folds the packed
-    SPPF straight to IR via :class:`~lexic.parsing.reduce.FusedReduce`,
+    :func:`~lexic.parsing.earley.reduce.collapsed_tables`), then folds the packed
+    SPPF straight to IR via :class:`~lexic.parsing.earley.reduce.FusedReduce`,
     skipping the intermediate :class:`ParseTree` entirely. A fused fast-path
     miss (ambiguity, or a noise policy the fold does not compile) falls back
     to a fresh plain-tables parse and the legacy tree-then-reduce path —
@@ -231,7 +231,7 @@ class ParseForest(IrLeaf[IrSelf, IrSelf]):
 
     Returns :data:`~lexic.ir.base.IrNone` when ``text`` does not parse. The
     packed SPPF is decoded so the returned handle's families are readable by
-    the :mod:`~lexic.parsing.forest` machinery.
+    the :mod:`~lexic.parsing.earley.forest` machinery.
     """
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:

@@ -1,11 +1,11 @@
 """Differential CI: PDA vs engine, across all 10 ground-truth grammars (Task 7).
 
-Where :mod:`tests.unit.lexic.parsing.test_pda_kernel` scopes its parity gate to
+Where :mod:`tests.unit.lexic.parsing.pda.test_runtime` scopes its parity gate to
 the four **island-free** grammars, this module is the *wide* matrix: all 10
 ground-truth grammars (islands included — c/chess/json/json_arr/json_ws all
 carry at least one), each driven through both internal seams directly:
 
-- **forced-PDA** — :func:`~lexic.parsing.pda_kernel.parse_pda` with the real
+- **forced-PDA** — :func:`~lexic.parsing.pda.runtime.parse_pda` with the real
   fold supplied (so island references splice their Earley sub-parse);
 - **forced-engine** — ``cg.fold.apply(parse_first(cg.instance_grammar, text,
   cg.tables))``, the same call :meth:`~lexic.compile.CompiledGrammar.parse`'s
@@ -41,9 +41,9 @@ from lexic.generate import generate
 from lexic.grammars import flavour_for_extension
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.parsing import parse_first
-from lexic.parsing.pda_kernel import PdaFail, parse_pda
+from lexic.parsing.pda.runtime import PdaFail, parse_pda
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.test_pda_kernel import _arithmetic_bench_corpus
+from tests.unit.lexic.parsing.pda.test_runtime import _arithmetic_bench_corpus
 
 # ── fixtures ────────────────────────────────────────────────────────────
 
@@ -63,13 +63,13 @@ _N_SEEDS = 40
 _MAX_DEPTH = 4
 
 # A couple of representative bench-shaped corpora. Arithmetic's is imported
-# from test_pda_kernel.py (its own bench-corpus test already pins the same
+# from test_runtime.py (its own bench-corpus test already pins the same
 # snippets/target length — reusing it, not re-pinning the literal, sidesteps
 # the whole-tree pylint R0801 duplicate-code gate). json's mirrors
 # tools/benchmark/pipeline_bench.py's ``_JSON_ITEMS``/``_json_corpus`` (same
 # items, same target length) — pinned locally since nothing else in the test
 # tree defines it yet; not imported from the benchmark module itself (the
-# same "not a code donor for tests" precedent test_pda_kernel.py set).
+# same "not a code donor for tests" precedent test_runtime.py set).
 _JSON_BENCH_ITEMS: tuple[str, ...] = (
     '{"name": "alpha", "id": 1, "ok": true}',
     '{"nested": {"a": [1, 2.5e3, -4], "b": null}}',

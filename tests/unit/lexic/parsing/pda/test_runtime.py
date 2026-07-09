@@ -1,7 +1,7 @@
-"""Tests for lexic.parsing.pda_kernel — the fused-runtime parity gate (Task 4).
+"""Tests for lexic.parsing.pda.runtime — the fused-runtime parity gate (Task 4).
 
-:func:`~lexic.parsing.pda_kernel.parse_pda` builds a model directly during the
-walk (fold fusion, no :class:`~lexic.parsing.forest.ParseTree`). The
+:func:`~lexic.parsing.pda.runtime.parse_pda` builds a model directly during the
+walk (fold fusion, no :class:`~lexic.parsing.earley.forest.ParseTree`). The
 correctness bar is **user ruling 1**: ``semantic_dump()`` equality +
 ``to_text()`` round-trip against the engine's own
 ``fold.apply(parse_first(...))`` path — not raw ``model_dump()`` equality,
@@ -10,8 +10,8 @@ splits whitespace-like runs differently from the engine's.
 
 Scoped to the four **island-free** ground-truth grammars (arithmetic.gbnf,
 japanese.gbnf, list.gbnf, arithmetic.abnf — see the pinned island sets in
-``test_analysis.py`` / ``test_pda_tables.py``, all empty for these four): Task
-4 leaves island references raising :exc:`~lexic.parsing.pda_kernel.PdaFail`
+``test_analysis.py`` / ``test_clones.py``, all empty for these four): Task
+4 leaves island references raising :exc:`~lexic.parsing.pda.runtime.PdaFail`
 (Task 5's seam), so json/c/chess (island-bearing) are out of scope here. json
 in particular already islands its ``ws`` rule (F1's soft-follower fix), so it
 would report nothing but PdaFail on the runtime this task lands.
@@ -43,9 +43,9 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
 from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.normalize import normalize
-from lexic.parsing.pda_kernel import PdaFail, parse_pda
-from lexic.parsing.pda_tables import PdaTables, compile_pda
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.pda.runtime import PdaFail, parse_pda
+from lexic.parsing.pda.clones import PdaTables, compile_pda
 from tests.paths import GROUND_TRUTH
 
 # ── fixtures ────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ def _arithmetic_bench_corpus(target_len: int = 4800) -> str:
 def _compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:
     """Compile a ground-truth grammar both ways: the engine artifact + its PdaTables.
 
-    Mirrors ``test_pda_tables.py``'s ``_pda_for`` — the same inputs
+    Mirrors ``test_clones.py``'s ``_pda_for`` — the same inputs
     ``compile.py``'s (not-yet-landed) Task-6 wiring will use, built entirely
     through public seams: ``lifted`` from ``canonical_grammar`` +
     ``build_codegen_grammar`` + ``lift_optional_nullables``,
@@ -194,7 +194,7 @@ def test_fail_island_raises_pdafail_regardless_of_fold():
     """A fail-island reference raises ``PdaFail`` even with a fold supplied.
 
     ``root ::= x "ab"?`` / ``x ::= [a-c]*`` — the same synthetic F1 shape
-    ``test_pda_tables.py`` compiles: ``x``'s stop-set escapes into the
+    ``test_clones.py`` compiles: ``x``'s stop-set escapes into the
     soft-only ``"ab"?`` follower, so ``x`` is flagged a *fail*-island
     (``IslandRef.fail``). Unlike an ordinary island, a fail-island reference
     raises before any sub-parse is attempted — supplying the engine's own

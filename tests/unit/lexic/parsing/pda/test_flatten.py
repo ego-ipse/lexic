@@ -1,26 +1,26 @@
-"""Tests for lexic.parsing.pda_flatten — the flat int-coded runtime program.
+"""Tests for lexic.parsing.pda.flatten — the flat int-coded runtime program.
 
-:mod:`lexic.parsing.pda_flatten` is the leaf half of the PDA compiler: it
-defines the flat runtime shapes (:class:`~lexic.parsing.pda_flatten._FlatArm`,
-:class:`~lexic.parsing.pda_flatten._FlatClone`,
-:class:`~lexic.parsing.pda_flatten.PdaProgram`) and the post-flatten
-optimizer passes (:func:`~lexic.parsing.pda_flatten._optimize_program` and its
-five sub-passes) that :func:`~lexic.parsing.pda_tables._flatten_program`
-drives once per :func:`~lexic.parsing.pda_tables.compile_pda`.
+:mod:`lexic.parsing.pda.flatten` is the leaf half of the PDA compiler: it
+defines the flat runtime shapes (:class:`~lexic.parsing.pda.flatten._FlatArm`,
+:class:`~lexic.parsing.pda.flatten._FlatClone`,
+:class:`~lexic.parsing.pda.flatten.PdaProgram`) and the post-flatten
+optimizer passes (:func:`~lexic.parsing.pda.flatten._optimize_program` and its
+five sub-passes) that :func:`~lexic.parsing.pda.clones._flatten_program`
+drives once per :func:`~lexic.parsing.pda.clones.compile_pda`.
 
 Every case here is built through the public compile path — small
 hand-authored GBNF snippets compiled to a real :class:`PdaTables` and
-inspected via ``.program`` — following ``test_pda_tables.py``'s idiom. Every
+inspected via ``.program`` — following ``test_clones.py``'s idiom. Every
 name below (the module's own internals) is imported directly rather than
 reached through ``module._name`` attribute access, matching
 ``test_lexruns.py``'s precedent; ``_pda_from_text``/``_pda_for`` come from
-``test_pda_tables`` rather than duplicated (pylint R0801).
+``test_clones`` rather than duplicated (pylint R0801).
 """
 
 from __future__ import annotations
 
 from lexic.ir.bind import BIND_MODES
-from lexic.parsing.pda_flatten import (
+from lexic.parsing.pda.flatten import (
     _BUILD_ALT,
     _BUILD_DISPATCH,
     _BUILD_SEQ,
@@ -50,9 +50,9 @@ from lexic.parsing.pda_flatten import (
     _FlatArm,
     _FlatClone,
 )
-from lexic.parsing.pda_tables import IslandRef
+from lexic.parsing.pda.clones import IslandRef
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.test_pda_tables import _pda_for, _pda_from_text
+from tests.unit.lexic.parsing.pda.test_clones import _pda_for, _pda_from_text
 
 # ── helpers ───────────────────────────────────────────────────────────────
 

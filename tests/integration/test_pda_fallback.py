@@ -2,7 +2,7 @@
 
 :meth:`~lexic.compile.CompiledGrammar.parse` runs the predictive PDA first and
 falls back to a whole-input engine reparse on any
-:class:`~lexic.parsing.pda_kernel.PdaFail`. This module pins one input that
+:class:`~lexic.parsing.pda.runtime.PdaFail`. This module pins one input that
 genuinely forces that fallback on a real ground-truth grammar (arithmetic's
 trailing-whitespace stop-set residue, pivot 4) and proves the fallback both
 fires and returns the engine-correct model — ``PdaFail`` never leaks to the
@@ -16,7 +16,7 @@ import dataclasses
 import pytest
 
 from lexic.compile import compile_from_path
-from lexic.parsing.pda_kernel import PdaFail, parse_pda
+from lexic.parsing.pda.runtime import PdaFail, parse_pda
 from tests.paths import GROUND_TRUTH
 
 # The pinned fallback input: a valid assignment followed by extra blank lines.

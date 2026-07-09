@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.reduce — Reducer bottom-up fold.
+"""Tests for lexic.parsing.earley.reduce — Reducer bottom-up fold.
 
 API changes (old → new):
 
@@ -38,10 +38,10 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.parsing import derivations, parse
-from lexic.parsing.forest import ParseTree
-from lexic.parsing.kernel import Kernel
-from lexic.parsing.normalize import SYNTHETIC_PREFIX, normalize
-from lexic.parsing.reduce import (
+from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
+from lexic.parsing.earley.reduce import (
     DROP,
     KEEP_RAW,
     KEEP_REDUCED,
@@ -54,8 +54,8 @@ from lexic.parsing.reduce import (
     Yield,
     _plan_for,
 )
-from lexic.parsing.tables import ORIGIN_BITS, compile_tables
-from lexic.parsing.trampoline import Trampoline
+from lexic.parsing.earley.tables import ORIGIN_BITS, compile_tables
+from lexic.parsing.earley.trampoline import Trampoline
 from tests._ir_fixtures import letter_word_rules
 
 # ── Helpers ───────────────────────────────────────────────────────────

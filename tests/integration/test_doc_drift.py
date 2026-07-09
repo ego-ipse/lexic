@@ -10,10 +10,12 @@ The parser below is intentionally forgiving: it only recognizes a line as a
 file entry when the line's *first* token is a bare ``name.py`` (optionally
 comma-joined with siblings, e.g. ``lexruns.py, trampoline.py``), and a line
 as a directory header only when its first token is a single-segment
-``name/`` at shallow indent. Prose that merely *mentions* a ``.py`` name or a
-``a/b/`` path fragment mid-sentence never matches, since it isn't the line's
-first token. The goal is catching real listing drift, not enforcing layout
-formatting.
+``name/``. Directory headers nest by indentation (a stack keyed on each
+header's own indent), so a subdirectory listed under its parent — e.g.
+``parsing/``'s ``earley/`` and ``pda/`` — resolves to the full nested path.
+Prose that merely *mentions* a ``.py`` name or a ``a/b/`` path fragment
+mid-sentence never matches, since it isn't the line's first token. The goal
+is catching real listing drift, not enforcing layout formatting.
 """
 
 from __future__ import annotations
@@ -63,16 +65,19 @@ def _listed_src_lexic_paths(block_lines: list[str]) -> set[str]:
             break
 
     listed: set[str] = set()
-    current_dir = ""
+    stack: list[tuple[int, str]] = []  # (indent, dir_name), innermost last
     for line in block_lines[1:end]:
         stripped = line.strip()
         if not stripped:
             continue
         leading_ws = len(line) - len(line.lstrip(" "))
         first = stripped.split()[0]
-        if leading_ws <= 2 and _DIR_HEADER_RE.fullmatch(first):
-            current_dir = first
+        while stack and leading_ws <= stack[-1][0]:
+            stack.pop()  # dedent past (or sibling of) an enclosing dir header
+        if _DIR_HEADER_RE.fullmatch(first):
+            stack.append((leading_ws, first))
             continue
+        current_dir = "".join(name for _, name in stack)
         for token in stripped.split():
             token = token.rstrip(",")
             if _FILENAME_RE.fullmatch(token):

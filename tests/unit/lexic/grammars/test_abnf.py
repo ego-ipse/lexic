@@ -37,9 +37,9 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing import parse, recognize
-from lexic.parsing.forest import ParseTree
-from lexic.parsing.normalize import normalize
-from lexic.parsing.reduce import YIELD, Reducer
+from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.reduce import YIELD, Reducer
 from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
 
 

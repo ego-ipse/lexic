@@ -22,7 +22,7 @@ import pytest
 from lexic.grammars.gbnf import GBNF_FLAVOUR, GBNF_GRAMMAR, GBNF_REDUCER
 from lexic.ir.nodes import IrAst
 from lexic.parsing import is_ambiguous, parse_reduced
-from lexic.parsing.normalize import normalize
+from lexic.parsing.earley.normalize import normalize
 from tests._ir_fixtures import JSON_RULE_NAMES
 from tests.paths import GROUND_TRUTH
 

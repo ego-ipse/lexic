@@ -1,7 +1,7 @@
 """The IR-native SPPF link table — the decoded form of a kernel parse.
 
 The per-column Earley sets live in the compiled kernel now
-(:mod:`lexic.parsing.kernel`), packed as ints. What remains here is the
+(:mod:`lexic.parsing.earley.kernel`), packed as ints. What remains here is the
 IR-facing **provenance** shape the forest readers walk:
 ``chart.links[(item, end)]`` records how an advanced item was built — its
 predecessor (one dot to the left) and the child consumed to reach it (a
@@ -11,10 +11,10 @@ Recognisers*), an ``(item, end)`` reached **more than one way** records an
 ADDITIONAL link rather than dropping it — the set of links for a key is its
 set of *packed families*, and a key with two or more families is an
 **ambiguity point**. Identical families dedup. This makes the link table a
-shared, packed parse forest (SPPF): :mod:`~lexic.parsing.forest` walks it
+shared, packed parse forest (SPPF): :mod:`~lexic.parsing.earley.forest` walks it
 as a DAG.
 
-A :class:`Chart` is produced by :meth:`~lexic.parsing.kernel.Kernel
+A :class:`Chart` is produced by :meth:`~lexic.parsing.earley.kernel.Kernel
 .to_chart`, which expands any deferred Leo chains first — so ``leo_links`` is
 empty on a decoded chart and exists for shape compatibility only.
 
@@ -37,7 +37,7 @@ Link = tuple[EarleyItem, int, IrSelf]
 predecessor_end, child)``: ``[0]`` the item one dot to the left, ``[1]`` the
 column it ends at, ``[2]`` the node consumed to advance the dot (an
 :class:`~lexic.ir.nodes.IrLiteral` terminal leaf, or a
-:class:`~lexic.parsing.forest.SppfNode` referencing a completed sub-derivation
+:class:`~lexic.parsing.earley.forest.SppfNode` referencing a completed sub-derivation
 ``(item, end)`` — shared, never flattened, so the forest stays polynomial under
 ambiguity)."""
 

@@ -117,7 +117,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot, IrOp
-from lexic.parsing.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
+from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
 
 class _AbnfEscapes(EscapeCodec):

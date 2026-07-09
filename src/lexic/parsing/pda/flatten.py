@@ -1,12 +1,12 @@
 """Flat int-coded runtime program + post-flatten optimizer passes (Task 8).
 
 The leaf half of the PDA compiler: the spec NamedTuples in
-:mod:`lexic.parsing.pda_tables` are the compiler's *intermediate* (and the shape
-the structural tests pin); :func:`~lexic.parsing.pda_tables._flatten_program`
-lowers them, once per :func:`~lexic.parsing.pda_tables.compile_pda`, into the
+:mod:`lexic.parsing.pda.clones` are the compiler's *intermediate* (and the shape
+the structural tests pin); :func:`~lexic.parsing.pda.clones._flatten_program`
+lowers them, once per :func:`~lexic.parsing.pda.clones.compile_pda`, into the
 flat int-coded artifact this module defines — :class:`_FlatClone` /
 :class:`_FlatArm` carrying ``_OP_*`` op-codes and pre-resolved
-``(chars, negated)`` membership sets, which :class:`~lexic.parsing.pda_kernel.PdaKernel`
+``(chars, negated)`` membership sets, which :class:`~lexic.parsing.pda.runtime.PdaKernel`
 walks with integer dispatch (the ``tables.py``/``kernel.py`` philosophy).
 
 :func:`_optimize_program` then runs the specialisation passes that carve the
@@ -54,7 +54,7 @@ unit ruleref, and the alternation itself is a pass-through (the matched arm's
 sub-model reports straight to the parent sink) — so the post-flatten pass
 rewrites qualifying clones into dispatch tables whose selectors carry the
 target :class:`_FlatClone` directly and the runtime chases them in
-:meth:`~lexic.parsing.pda_kernel.PdaKernel._enter` without a frame."""
+:meth:`~lexic.parsing.pda.runtime.PdaKernel._enter` without a frame."""
 
 _DISPATCH_EMPTY = object()
 """The ``default`` sentinel of a dispatch clone whose alternation carried an
@@ -142,7 +142,7 @@ class _FlatClone(IrLeaf[IrSelf, IrSelf]):
         the fused build seeds each parts dict from, or ``None``.
     :ivar leaf: ``True`` for a fast-licenced ``sequence`` clone whose every arm
         is all-terminal (``_OP_VSTR`` included) — the runtime runs it
-        frame-lessly in :meth:`~lexic.parsing.pda_kernel.PdaKernel._run_leaf`.
+        frame-lessly in :meth:`~lexic.parsing.pda.runtime.PdaKernel._run_leaf`.
     :ivar needs_ends: ``True`` when any bound field reads an item span (a
         ``text``/``gtext`` mode) — only then does a frame allocate and write
         per-item end positions.
@@ -175,7 +175,7 @@ class PdaProgram(IrLeaf[IrSelf, IrSelf]):
     """The flat int-coded runtime program — what :class:`PdaKernel` walks.
 
     :ivar start: The start :class:`_FlatClone`, or an
-        :class:`~lexic.parsing.pda_tables.IslandRef` when the start rule is
+        :class:`~lexic.parsing.pda.clones.IslandRef` when the start rule is
         itself an island (the whole-grammar opt-out).
     """
 

@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.forest — ParseTree, SppfNode, DERIVATIONS, BuildTree.
+"""Tests for lexic.parsing.earley.forest — ParseTree, SppfNode, DERIVATIONS, BuildTree.
 
 API changes (old → new):
 
@@ -12,9 +12,9 @@ API changes (old → new):
   are gone); it now exposes only ``chart`` and ``open``.  Sharing / memo tests are
   rewritten as behavioral correctness tests.
 - ``ACCEPTING`` (engine.py) is GONE — the accepting SPPF node and decoded chart are
-  now obtained by running :class:`~lexic.parsing.kernel.Kernel` directly and
-  calling :meth:`~lexic.parsing.kernel.Kernel.accept_node` /
-  :meth:`~lexic.parsing.kernel.Kernel.to_chart`.  The local ``_accept`` helper is
+  now obtained by running :class:`~lexic.parsing.earley.kernel.Kernel` directly and
+  calling :meth:`~lexic.parsing.earley.kernel.Kernel.accept_node` /
+  :meth:`~lexic.parsing.earley.kernel.Kernel.to_chart`.  The local ``_accept`` helper is
   rewritten on top of ``Kernel`` + ``compile_tables``; its signature and callers are
   unchanged.
 - The old ``chart[0]`` per-column iteration (used to hunt a dot-0 EarleyItem) has no
@@ -36,7 +36,7 @@ from typing import Iterator, cast
 
 import pytest
 
-import lexic.parsing.forest as forest_mod
+import lexic.parsing.earley.forest as forest_mod
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrNone, IrNoneType, IrSelf, IrSeq, IrTuple
 from lexic.ir.nodes import (
@@ -50,9 +50,9 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.parsing import derivations, parse, parse_forest
-from lexic.parsing.chart import Chart
-from lexic.parsing.engine import EarleyParser
-from lexic.parsing.forest import (
+from lexic.parsing.earley.chart import Chart
+from lexic.parsing.earley.engine import EarleyParser
+from lexic.parsing.earley.forest import (
     BUILD_TREE,
     DERIVATION_STREAM,
     DERIVATIONS,
@@ -67,10 +67,10 @@ from lexic.parsing.forest import (
     PrefixSource,
     SppfNode,
 )
-from lexic.parsing.kernel import Kernel
-from lexic.parsing.normalize import normalize
-from lexic.parsing.tables import ORIGIN_BITS, compile_tables
-from lexic.parsing.trampoline import Trampoline
+from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.tables import ORIGIN_BITS, compile_tables
+from lexic.parsing.earley.trampoline import Trampoline
 from tests._ir_fixtures import digit_grammar as _digit_grammar
 from tests._ir_fixtures import word_grammar as _word_grammar
 
@@ -690,7 +690,7 @@ def test_derivations_realises_all(sss_grammar: IrAst):
 def _make_right_recursive_grammar() -> IrAst:
     """Build: S = 'a'* — a right-recursive nullable grammar.
 
-    Normalised via :func:`~lexic.parsing.normalize.normalize`, the
+    Normalised via :func:`~lexic.parsing.earley.normalize.normalize`, the
     quantifier desugars to right-recursive rules that produce an arbitrarily
     deep parse spine for long input.
 

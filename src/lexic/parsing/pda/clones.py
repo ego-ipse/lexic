@@ -1,7 +1,7 @@
 """Clone compiler — the predictive-parser artifact beside :class:`ParserTables`.
 
 :func:`compile_pda` turns a *lifted codegen grammar* (the same shape
-:class:`~lexic.parsing.analysis.GrammarAnalysis` runs on —
+:class:`~lexic.parsing.pda.analysis.GrammarAnalysis` runs on —
 ``lift_optional_nullables(build_codegen_grammar(canonical))``) into
 :class:`PdaTables`: the per-(rule, hard-continuation) **clones** a
 deterministic table-driven parser (Task 4's runtime) walks, plus the island
@@ -17,8 +17,8 @@ the same ``(name, tail)`` reuses the same clone. Island rules are never cloned
 — a reference to one carries an :class:`IslandRef` marker instead of a
 :class:`CloneKey`. A **fail-island** reference (``IslandRef.fail`` — a semantic
 F1 stop-set-escape rule, from
-:attr:`~lexic.parsing.analysis.GrammarAnalysis.fail_islands`) is not even
-parsed: the runtime raises :class:`~lexic.parsing.pda_kernel.PdaFail` so the
+:attr:`~lexic.parsing.pda.analysis.GrammarAnalysis.fail_islands`) is not even
+parsed: the runtime raises :class:`~lexic.parsing.pda.runtime.PdaFail` so the
 compile seam falls back to the full engine rather than risk a silently divergent
 longest-match split.
 
@@ -47,7 +47,7 @@ The spec NamedTuples are the compiler's *intermediate* (and the shape the
 structural tests pin). :func:`_flatten_program` lowers them, once per
 :func:`compile_pda`, into the flat int-coded :class:`PdaProgram`
 (:class:`_FlatClone` / :class:`_FlatArm`, ``_OP_*`` op-codes, pre-resolved
-``(chars, negated)`` membership sets) that :class:`~lexic.parsing.pda_kernel.PdaKernel`
+``(chars, negated)`` membership sets) that :class:`~lexic.parsing.pda.runtime.PdaKernel`
 walks with integer dispatch — the ``tables.py``/``kernel.py`` philosophy. The
 lowering is a build-time cost only; the two representations are kept in lockstep
 on :class:`PdaTables` (``.clones`` for islands/introspection, ``.program`` for
@@ -71,10 +71,10 @@ from lexic.ir.nodes import (
     IrRuleRef,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing.analysis import GrammarAnalysis
-from lexic.parsing.charsets import CharSet
+from lexic.parsing.pda.analysis import GrammarAnalysis
+from lexic.parsing.pda.charsets import CharSet
 from lexic.parsing.fold import RuleFold
-from lexic.parsing.pda_flatten import (
+from lexic.parsing.pda.flatten import (
     _BUILD_ALT,
     _BUILD_SEQ,
     _BUILD_TRANSPARENT,
@@ -94,7 +94,7 @@ from lexic.parsing.pda_flatten import (
     _FlatClone,
     _optimize_program,
 )
-from lexic.parsing.tables import ParserTables, compile_tables
+from lexic.parsing.earley.tables import ParserTables, compile_tables
 
 __all__ = [
     "compile_pda",
@@ -146,10 +146,10 @@ class IslandRef(NamedTuple):
     The ``ref`` :class:`ItemSpec` target for a rule in :attr:`PdaTables.islands`;
     the runtime resolves it via :meth:`PdaTables.island_tables` rather than a
     clone — unless :attr:`fail` is set, when the reference instead raises
-    :class:`~lexic.parsing.pda_kernel.PdaFail` so the compile seam falls back to
+    :class:`~lexic.parsing.pda.runtime.PdaFail` so the compile seam falls back to
     the full engine (a semantic F1 stop-set-escape rule, whose longest-match
     split would silently diverge — see
-    :attr:`~lexic.parsing.analysis.GrammarAnalysis.fail_islands`).
+    :attr:`~lexic.parsing.pda.analysis.GrammarAnalysis.fail_islands`).
 
     :ivar name: The island rule name.
     :ivar fail: When ``True``, a fail-island — the reference raises ``PdaFail``
@@ -266,7 +266,7 @@ is overwritten by the finished :class:`CloneSpec`."""
 
 _EOF: CharSet = CharSet.from_chars("")
 """The start clone's hard continuation — end-of-input only (the ``""``
-sentinel), mirroring the FOLLOW-set seed in :mod:`lexic.parsing.analysis`."""
+sentinel), mirroring the FOLLOW-set seed in :mod:`lexic.parsing.pda.analysis`."""
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -730,11 +730,11 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     :ivar start_key: The start clone's key, or an :class:`IslandRef` when the
         start rule is an island (the whole-grammar opt-out signal for Task 6).
     :ivar islands: The island rule names (from
-        :attr:`~lexic.parsing.analysis.GrammarAnalysis.islands`).
+        :attr:`~lexic.parsing.pda.analysis.GrammarAnalysis.islands`).
     :ivar instance_grammar: The Earley-normalised instance grammar island
         tables are built over.
     :ivar program: The flat int-coded runtime program
-        (:class:`PdaProgram`) :class:`~lexic.parsing.pda_kernel.PdaKernel`
+        (:class:`PdaProgram`) :class:`~lexic.parsing.pda.runtime.PdaKernel`
         walks — the compiled clone table lowered once for the hot loop.
     """
 

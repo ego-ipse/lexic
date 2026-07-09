@@ -1,7 +1,7 @@
-"""Tests for lexic.parsing.lexruns — run-terminal detection and collapse.
+"""Tests for lexic.parsing.earley.lexruns — run-terminal detection and collapse.
 
 New module: proves a synthetic star/plus rule's collapse to a single
-maximal-munch :class:`~lexic.parsing.tables.RunTerm` (fixed charset,
+maximal-munch :class:`~lexic.parsing.earley.tables.RunTerm` (fixed charset,
 derivation-uniqueness, follow-disjointness) and reconstructs it as compiled
 tables. This file covers ``run_candidates``'s detection and memoisation,
 ``recognition_tables``'s collapse and result parity with plain tables, and
@@ -28,17 +28,17 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing.kernel import Kernel
-from lexic.parsing.lexruns import _expand_atom as _expand_atom_via_lexruns
-from lexic.parsing.lexruns import (
+from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.lexruns import _expand_atom as _expand_atom_via_lexruns
+from lexic.parsing.earley.lexruns import (
     recognition_tables,
     run_candidates,
     unit_leaves,
 )
-from lexic.parsing.normalize import SYNTHETIC_PREFIX, normalize
-from lexic.parsing.tables import RunTerm
-from lexic.parsing.tables import _expand_atom as _expand_atom_canonical
-from lexic.parsing.tables import compile_tables
+from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
+from lexic.parsing.earley.tables import RunTerm
+from lexic.parsing.earley.tables import _expand_atom as _expand_atom_canonical
+from lexic.parsing.earley.tables import compile_tables
 from tests._ir_fixtures import digit_grammar as _digit_grammar
 from tests._ir_fixtures import malformed_synthetic_rule, nested_synthetic_grammar
 

@@ -31,8 +31,8 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing import derivations, parse_reduced
-from lexic.parsing.normalize import normalize
-from lexic.parsing.reduce import DROP, KEEP_REDUCED, Reducer
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, Reducer
 from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
 
 

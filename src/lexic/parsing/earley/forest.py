@@ -7,7 +7,7 @@ and enumerates its derivations:
 - :class:`ParseTree` — ONE derivation: a non-terminal symbol over a span, with
   its children (sub-trees, or :class:`~lexic.ir.nodes.IrLiteral` leaves for
   consumed characters). The reducible output a
-  :class:`~lexic.parsing.reduce.Reducer` folds.
+  :class:`~lexic.parsing.earley.reduce.Reducer` folds.
 - :class:`SppfNode` — a shared, packed forest handle for a dotted item over a
   span: the pure-data pair ``(item, end)``. Its packed families are
   ``chart.links[(item, end)]`` (each a predecessor / consumed-child pair), read on
@@ -60,8 +60,8 @@ from lexic.ir.base import (
     IrTuple,
 )
 from lexic.ir.nodes import IrLiteral, IrRuleRef
-from lexic.parsing.chart import Chart, EarleyItem
-from lexic.parsing.trampoline import ADVANCE, EMIT, EXHAUSTED, Trampoline
+from lexic.parsing.earley.chart import Chart, EarleyItem
+from lexic.parsing.earley.trampoline import ADVANCE, EMIT, EXHAUSTED, Trampoline
 
 _FRESH, _DRIVING, _DONE = 0, 1, 2
 """Replay states of an :class:`IrStream` — fresh (never driven), driving
@@ -126,7 +126,7 @@ class ForestCtx(IrLeaf[IrSelf, IrSelf]):
     """Per-read forest cursor — the chart plus the open-handle cycle guard.
 
     The **mutable** forest-read cursor (the mutable-chart exception, like
-    :class:`~lexic.parsing.kernel.KernelState`): :attr:`open` holds the
+    :class:`~lexic.parsing.earley.kernel.KernelState`): :attr:`open` holds the
     ``(item, end)`` handles whose prefixes are currently being produced. A
     re-entrant :class:`PrefixSource` on an open handle is a genuine empty-span
     (nullable) cycle and emits the single empty prefix to terminate it. A handle
@@ -136,7 +136,7 @@ class ForestCtx(IrLeaf[IrSelf, IrSelf]):
 
     :attr:`open` is a set (membership + ``discard``), so it rides a slot rather
     than an :class:`~lexic.ir.mapping.IrMultiMap` — the same set-shaped-state
-    precedent as :attr:`~lexic.parsing.chart.Column.predicted`. Behaviour stays
+    precedent as :attr:`~lexic.parsing.earley.chart.Column.predicted`. Behaviour stays
     on the generator nodes; the cursor only holds state.
 
     :ivar chart: The chart holding the family table.
@@ -349,7 +349,7 @@ class ChildDerivs(IrLeaf[IrSelf, IrSelf]):
 def _forest_ctx(head: IrSelf) -> ForestCtx:
     """Recover the :class:`ForestCtx` from an ``nc`` head (chart or cursor).
 
-    :param head: ``nc[0]`` — a :class:`~lexic.parsing.chart.Chart` (top-level
+    :param head: ``nc[0]`` — a :class:`~lexic.parsing.earley.chart.Chart` (top-level
         call) or an established :class:`ForestCtx`.
     :returns: The forest cursor to enumerate with.
     """
@@ -410,7 +410,7 @@ class BuildTree(IrLeaf[IrSelf, IrSelf]):
     **raises** rather than silently picking one.
 
     This is the trampolined strict reader over a decoded chart. The common
-    unambiguous case never reaches it — :class:`~lexic.parsing.kernel.FastTree`
+    unambiguous case never reaches it — :class:`~lexic.parsing.earley.kernel.FastTree`
     builds the tree from the packed links first, and only a fast-path miss
     (ambiguity) decodes the chart and falls back here.
     """

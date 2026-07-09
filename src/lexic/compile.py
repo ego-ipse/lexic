@@ -29,7 +29,7 @@ canonicalize + directive flags → flagged ``IrAst``); ``generate.py`` and
 transpilers build on it.
 
 Every compiled grammar also carries a predictive PDA sibling
-(``lexic.parsing.pda_tables.compile_pda`` → ``PdaTables``, ``None`` on a
+(``lexic.parsing.pda.clones.compile_pda`` → ``PdaTables``, ``None`` on a
 whole-grammar opt-out); ``CompiledGrammar.parse`` runs it PDA-first
 (``parse_pda``) and falls back to the full engine on any ``PdaFail``, so one
 public ``parse`` keeps unchanged semantics.
@@ -70,10 +70,10 @@ from lexic.parsing.fold import (
     collapsed_fold_tables,
     lift_optional_nullables,
 )
-from lexic.parsing.normalize import normalize
-from lexic.parsing.pda_kernel import PdaFail, parse_pda
-from lexic.parsing.pda_tables import IslandRef, PdaTables, compile_pda
-from lexic.parsing.reduce import Reducer
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.pda.runtime import PdaFail, parse_pda
+from lexic.parsing.pda.clones import IslandRef, PdaTables, compile_pda
+from lexic.parsing.earley.reduce import Reducer
 
 
 @dataclass(frozen=True)
@@ -90,10 +90,10 @@ class CompiledGrammar:
         run the fold-config licence proves safe steps in one scan (compiled
         once at build time; see
         :func:`~lexic.parsing.fold.collapsed_fold_tables`).
-    :ivar pda: The predictive PDA sibling (:class:`~lexic.parsing.pda_tables.PdaTables`),
+    :ivar pda: The predictive PDA sibling (:class:`~lexic.parsing.pda.clones.PdaTables`),
         or ``None`` on a whole-grammar opt-out — an unsupported construct or a
         start rule that is itself an island. When present, :meth:`parse` runs it
-        first and falls back to the engine on :class:`~lexic.parsing.pda_kernel.PdaFail`.
+        first and falls back to the engine on :class:`~lexic.parsing.pda.runtime.PdaFail`.
     """
 
     classes: dict[str, type]
@@ -107,7 +107,7 @@ class CompiledGrammar:
         """Parse text against the compiled grammar and return a model instance.
 
         Runs the predictive PDA first when one is compiled; a
-        :class:`~lexic.parsing.pda_kernel.PdaFail` (any non-deterministic point
+        :class:`~lexic.parsing.pda.runtime.PdaFail` (any non-deterministic point
         or unresolved island) falls back to a whole-input engine reparse, which
         owns the user-facing diagnostics.
 
@@ -353,8 +353,8 @@ def _build_pda(
     Returns ``None`` (engine-only) in the two whole-grammar opt-out cases: the
     analysis / clone compiler hits a construct it cannot handle
     (:exc:`UnsupportedConstructError`), or the start rule is itself an island
-    (its ``start_key`` is an :class:`~lexic.parsing.pda_tables.IslandRef`, so
-    :func:`~lexic.parsing.pda_kernel.parse_pda` would ``PdaFail`` on every
+    (its ``start_key`` is an :class:`~lexic.parsing.pda.clones.IslandRef`, so
+    :func:`~lexic.parsing.pda.runtime.parse_pda` would ``PdaFail`` on every
     input). Otherwise the compiled tables drive the PDA-first parse path.
 
     :param lifted: The lifted-but-unnormalised codegen grammar the analysis and

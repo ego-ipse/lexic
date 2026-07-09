@@ -16,7 +16,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing.normalize import SYNTHETIC_PREFIX
+from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
 
 REQ = IrQuantifier(1, 1)
 OPT = IrQuantifier(0, 1)

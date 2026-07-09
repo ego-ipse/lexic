@@ -32,9 +32,9 @@ from lexic.parsing.fold import (
     collapsed_fold_tables,
     lift_optional_nullables,
 )
-from lexic.parsing.forest import ParseTree
-from lexic.parsing.normalize import SYNTHETIC_PREFIX, normalize
-from lexic.parsing.tables import compile_tables
+from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
+from lexic.parsing.earley.tables import compile_tables
 from tests._ir_fixtures import malformed_synthetic_rule, nested_synthetic_grammar
 from tests.paths import GROUND_TRUTH
 
@@ -318,7 +318,7 @@ def test_collapsed_fold_tables_collapses_a_run_on_arithmetic(arithmetic):
     """arithmetic.gbnf's num/ident charclass runs collapse to RunTerm leaves.
 
     A collapsed run shows up as a ``lens == 0`` terminal — see
-    :class:`~lexic.parsing.tables.TermTables`.
+    :class:`~lexic.parsing.earley.tables.TermTables`.
     """
     plain = compile_tables(arithmetic.instance_grammar)
     collapsed = collapsed_fold_tables(arithmetic.instance_grammar, arithmetic.fold)

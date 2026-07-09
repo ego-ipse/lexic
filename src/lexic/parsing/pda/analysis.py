@@ -5,7 +5,7 @@
 predictive-parser fixpoints plus the pivot-6 decision taxonomy:
 
 - **nullability** — which rules derive the empty string (fixpoint);
-- **FIRST** — leading characters over :class:`~lexic.parsing.charsets.CharSet`,
+- **FIRST** — leading characters over :class:`~lexic.parsing.pda.charsets.CharSet`,
   so an ``IrNot`` loop's co-finite FIRST stays exact (pivot 1);
 - **hard-FIRST** — FIRST with nullable items skipped: the chars a construct
   *requires* to progress. Drives loop stop-sets; full FIRST drives entry gates
@@ -52,7 +52,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing.charsets import CharSet
+from lexic.parsing.pda.charsets import CharSet
 
 __all__ = ["GrammarAnalysis", "nullable_names"]
 

@@ -239,16 +239,6 @@ src/lexic/
                         a Lark wrapper. Drives BOTH grammar-text parsing
                         (flavour.grammar + flavour.reducer) and generated-instance
                         parsing (the codegen grammar + PositionalFold)
-    tables.py           ParserTables, compile_tables() (memoised by IrAst identity)
-    kernel.py           Kernel (predict/scan/complete, Leo optimisation), FastTree;
-                        longest_start_completion — public windowed prefix-completion
-                        seam for the PDA island sub-parse (additive, off the main
-                        run() fast path; hybrid-PDA 260705)
-    chart.py            Chart / Links — the decoded SPPF
-    engine.py           Per-capability orchestration nodes behind the public API
-    forest.py           ParseTree, SppfNode
-    reduce.py           Reducer — forest → IrAst (the meta-notation seam)
-    normalize.py        Desugar IR into classical Earley-shaped rules
     fold.py             PositionalFold — generic positional ParseTree → object
                         fold over the codegen grammar (kids[i] ↔ items[i], no
                         RuleSpec/pydantic/codegen imports); RuleFold/FieldFold
@@ -256,62 +246,86 @@ src/lexic/
                         nullable R, engine-ambiguity policy); collapsed_fold_tables
                         (run-collapse licence: safe iff no constructor-bearing
                         rule among a run's unit leaves)
-    charsets.py         CharSet — polarity-aware co-finite char sets (the
-                        hybrid-PDA analysis substrate; 260705 effort)
-    analysis.py         GrammarAnalysis — FIRST/hard-FIRST/FOLLOW/nullability
-                        fixpoints + pivot-6 decision taxonomy (island/stopset/
-                        LL(2) pairs) over a lifted codegen grammar; islands +
-                        fail_islands (semantic F1 stop-set-escape rules whose refs
-                        must fail to the engine, a subset of islands); open
-                        IrTypeMap atom dispatch, raising default; homes
-                        nullable_names (single source for fold's
-                        lift_optional_nullables) (hybrid-PDA; 260705 effort)
-    pda_tables.py       compile_pda(lifted, instance_grammar, fold_config) →
-                        PdaTables — per-(rule, hard-continuation) clone compiler
-                        (pivot 3); flat tuple-coded ItemSpec (lit/cc/ref/grp) +
-                        StopGate/PairGate loop gates, FIRST-gated ArmSpec + baked
-                        RuleFold; islands not cloned (IslandRef marker + lazy
-                        per-island ParserTables cache; IslandRef.fail marks a
-                        fail-island — a semantic F1 escape whose ref raises
-                        PdaFail, never parsed); open IrTypeMap atom
-                        dispatch, raising default. The CloneSpec/ItemSpec
-                        NamedTuples are the compiler INTERMEDIATE (what tests
-                        pin); the spec→flat bridge (_flatten_program etc.) lowers
-                        them once per compile into the int-coded PdaProgram, kept
-                        on PdaTables alongside .clones (.clones for islands/
-                        introspection, .program for the loop). compile_pda,
-                        PdaTables, IslandRef, spec NamedTuples import from here
-                        (Task 8 flatten; hybrid-PDA; 260705 effort)
-    pda_flatten.py      The leaf half of the flatten: the int-coded runtime
-                        program (_FlatClone/_FlatArm/PdaProgram, _OP_* op-codes,
-                        pre-resolved (chars,negated) membership sets) + the
-                        post-flatten optimizer passes (_optimize_program:
-                        exactly-once terminal/call specialisation, value_str
-                        inlining, frame-less leaf marking, pass-through dispatch
-                        conversion). Imports nothing from pda_tables (a leaf
-                        w.r.t. the compiler + specs); the kernel walks it (split
-                        out of pda_tables for C0302; hybrid-PDA; 260705 effort)
-    pda_kernel.py       PdaKernel/parse_pda — the fused predictive runtime: an
-                        explicit descent stack of flat list frames (no Python
-                        recursion; the kernel.py int-array explicit-stack
-                        precedent — PdaKernel is the class cursor) over the flat
-                        PdaProgram, building the model directly during the walk
-                        (fold fusion — no ParseTree). Int-coded op dispatch,
-                        terminal quantifier loops matched inline (no per-char
-                        call). Per-parse state on the cursor, tables shared;
-                        capture frames own per-item span (ends) + sub-model
-                        (sinks) capture bubbling to the nearest bound item,
-                        transparent frames (groups / fold=None clones) funnel
-                        through; an
-                        island ref runs a windowed Earley sub-parse over
-                        island_tables (longest completion, doubling window, FastTree
-                        + first-derivation fallback), folds it through the supplied
-                        PositionalFold and splices the sub-model into the current
-                        capture (PdaKernel(tables, text, fold); fold=None ⇒ island
-                        raises PdaFail, the island-free path; a fail-island ref
-                        always raises PdaFail, independent of fold). PdaFail is
-                        internal, never user-facing (hybrid-PDA; 260705 effort)
-    lexruns.py, trampoline.py
+    earley/             the Earley engine (self-contained; imports only itself)
+      __init__.py         empty — no re-exports
+      tables.py           ParserTables, compile_tables() (memoised by IrAst identity)
+      kernel.py           Kernel (predict/scan/complete, Leo optimisation), FastTree;
+                          longest_start_completion — public windowed prefix-completion
+                          seam for the PDA island sub-parse (additive, off the main
+                          run() fast path; hybrid-PDA 260705)
+      chart.py            Chart / Links — the decoded SPPF
+      engine.py           Per-capability orchestration nodes behind the public API
+      forest.py           ParseTree, SppfNode
+      reduce.py           Reducer — forest → IrAst (the meta-notation seam)
+      normalize.py        Desugar IR into classical Earley-shaped rules
+      lexruns.py, trampoline.py
+    pda/                the predictive PDA (imports from earley/)
+      __init__.py         empty — no re-exports
+      charsets.py         CharSet — polarity-aware co-finite char sets (the
+                          hybrid-PDA analysis substrate; 260705 effort)
+      analysis.py         GrammarAnalysis — FIRST/hard-FIRST/FOLLOW/nullability
+                          fixpoints + pivot-6 decision taxonomy (island/stopset/
+                          LL(2) pairs) over a lifted codegen grammar; islands +
+                          fail_islands (semantic F1 stop-set-escape rules whose refs
+                          must fail to the engine, a subset of islands); open
+                          IrTypeMap atom dispatch, raising default; homes
+                          nullable_names (single source for fold's
+                          lift_optional_nullables) (hybrid-PDA; 260705 effort)
+      clones.py           (was pda_tables.py) compile_pda(lifted, instance_grammar,
+                          fold_config) → PdaTables — per-(rule, hard-continuation)
+                          clone compiler (pivot 3); flat tuple-coded ItemSpec
+                          (lit/cc/ref/grp) + StopGate/PairGate loop gates,
+                          FIRST-gated ArmSpec + baked RuleFold; islands not cloned
+                          (IslandRef marker + lazy per-island ParserTables cache;
+                          IslandRef.fail marks a fail-island — a semantic F1 escape
+                          whose ref raises PdaFail, never parsed); open IrTypeMap
+                          atom dispatch, raising default. The CloneSpec/ItemSpec
+                          NamedTuples are the compiler INTERMEDIATE (what tests
+                          pin); the spec→flat bridge (_flatten_program etc.) lowers
+                          them once per compile into the int-coded PdaProgram, kept
+                          on PdaTables alongside .clones (.clones for islands/
+                          introspection, .program for the loop). compile_pda,
+                          PdaTables, IslandRef, spec NamedTuples import from here
+                          (Task 8 flatten; hybrid-PDA; 260705 effort)
+      flatten.py          (was pda_flatten.py) The leaf half of the flatten: the
+                          int-coded runtime program (_FlatClone/_FlatArm/PdaProgram,
+                          _OP_* op-codes, pre-resolved (chars,negated) membership
+                          sets) + the post-flatten optimizer passes
+                          (_optimize_program: exactly-once terminal/call
+                          specialisation, value_str inlining, frame-less leaf
+                          marking, pass-through dispatch conversion). Imports
+                          nothing from clones.py (a leaf w.r.t. the compiler +
+                          specs); the kernel walks it (split out of clones.py for
+                          C0302; hybrid-PDA; 260705 effort)
+      runtime.py          (was pda_kernel.py) PdaKernel/parse_pda — the fused
+                          predictive runtime: an explicit descent stack of flat
+                          list frames (no Python recursion; the earley/kernel.py
+                          int-array explicit-stack precedent — PdaKernel is the
+                          class cursor) over the flat PdaProgram, building the
+                          model directly during the walk (fold fusion — no
+                          ParseTree). Int-coded op dispatch, terminal quantifier
+                          loops matched inline (no per-char call). Per-parse state
+                          on the cursor, tables shared; capture frames own per-item
+                          span (ends) + sub-model (sinks) capture bubbling to the
+                          nearest bound item, transparent frames (groups /
+                          fold=None clones) funnel through; the thin _island
+                          dispatcher (owns the cursor state) delegates the
+                          windowed Earley sub-parse to islands.py, folds it
+                          through the supplied PositionalFold and splices the
+                          sub-model into the current capture (PdaKernel(tables,
+                          text, fold); fold=None ⇒ island raises PdaFail, the
+                          island-free path; a fail-island ref always raises
+                          PdaFail, independent of fold). PdaFail is internal,
+                          never user-facing (hybrid-PDA; 260705 effort)
+      islands.py          island sub-parse + splice — island_parse/island_run/
+                          island_derivation, the cold-path Earley escape shed
+                          from PdaKernel as free functions (a leaf: imports
+                          earley/ + errors, never runtime; the +6% mixin penalty
+                          is hot-path only, so the cold island path moves out for
+                          C0302 headroom) (260706 unified-parse-engine, Task 2b)
+      errors.py           PdaFail — the predictive-parse failure signal, homed in
+                          a leaf module so runtime.py and islands.py share it
+                          without a cycle; runtime re-exports it (260706 Task 2b)
 
 tests/
   unit/lexic/           structural mirror of src/lexic/
