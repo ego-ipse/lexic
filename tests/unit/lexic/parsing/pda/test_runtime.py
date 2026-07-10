@@ -42,10 +42,10 @@ from lexic.compile import (
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
-from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.pda.runtime import PdaFail, parse_pda
+from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.clones import PdaTables, compile_pda
+from lexic.parsing.pda.runtime import PdaFail, parse_pda
 from tests.paths import GROUND_TRUTH
 
 # ── fixtures ────────────────────────────────────────────────────────────

@@ -31,9 +31,9 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
+from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.analysis import GrammarAnalysis, nullable_names
 from lexic.parsing.pda.charsets import CharSet
-from lexic.parsing.fold import lift_optional_nullables
 from tests.paths import GROUND_TRUTH
 
 # ── helpers ───────────────────────────────────────────────────────────────

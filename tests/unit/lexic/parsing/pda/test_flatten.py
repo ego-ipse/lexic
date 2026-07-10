@@ -20,6 +20,7 @@ reached through ``module._name`` attribute access, matching
 from __future__ import annotations
 
 from lexic.ir.bind import BIND_MODES
+from lexic.parsing.pda.clones import IslandRef
 from lexic.parsing.pda.flatten import (
     _BUILD_ALT,
     _BUILD_DISPATCH,
@@ -50,7 +51,6 @@ from lexic.parsing.pda.flatten import (
     _FlatArm,
     _FlatClone,
 )
-from lexic.parsing.pda.clones import IslandRef
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.test_clones import _pda_for, _pda_from_text
 

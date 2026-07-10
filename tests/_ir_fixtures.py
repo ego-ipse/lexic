@@ -120,7 +120,7 @@ def sss_grammar() -> IrAst:
 
 def malformed_synthetic_rule(name: str = f"{SYNTHETIC_PREFIX}bad") -> IrRule:
     """A synthetic-named rule whose arm is not a single item — not a valid
-    charset-collapse shape. Probes the ``unit_leaves``/``PositionalFold.run_ok``
+    charset-collapse shape. Probes the ``unit_leaves``/``ModelFold.run_ok``
     "not this shape at all" path.
     """
     return IrRule(
@@ -132,7 +132,7 @@ def nested_synthetic_grammar() -> IrAst:
     """``__outer`` -> ``__inner`` -> ``digit`` / bare ``'x'``.
 
     A synthetic charset rule hopping through another synthetic rule, so the
-    transitive leaf-collection walk (``unit_leaves`` / ``PositionalFold.run_ok``)
+    transitive leaf-collection walk (``unit_leaves`` / ``ModelFold.run_ok``)
     has more than one hop to resolve, and a bare-terminal arm sits alongside
     the ruleref arm.
     """

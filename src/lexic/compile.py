@@ -16,7 +16,7 @@ Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)
              compute_binding ──► codegen  (classes w/ Annotated IrBind
                      │                     fields, __grammar__ footers)
                      ▼
-          fold config (plain data) ──► PositionalFold (lexic.parsing.fold)
+          IR body-table ──► ModelFold (lexic.parsing.fold; bakes to RuleFold)
                      │
                      ▼
    instance grammar = normalize(lift_optional_nullables(codegen_grammar))
@@ -57,23 +57,25 @@ from lexic.codegen import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
-from lexic.ir.base import IrSeq
+from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple
 from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import IrAst, IrRule
+from lexic.ir.mapping import IrMap
+from lexic.ir.nodes import IrAst, IrRule, IrRuleRef
 from lexic.parsing import ParserTables, parse_first, parse_reduced
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.fold import (
     FastCtor,
     FieldFold,
-    PositionalFold,
+    ModelBody,
+    ModelFold,
     RuleFold,
     collapsed_fold_tables,
     lift_optional_nullables,
 )
-from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.pda.runtime import PdaFail, parse_pda
 from lexic.parsing.pda.clones import IslandRef, PdaTables, compile_pda
-from lexic.parsing.earley.reduce import Reducer
+from lexic.parsing.pda.runtime import PdaFail, parse_pda
 
 
 @dataclass(frozen=True)
@@ -99,7 +101,7 @@ class CompiledGrammar:
     classes: dict[str, type]
     grammar: IrAst
     instance_grammar: IrAst
-    fold: PositionalFold
+    fold: ModelFold
     tables: ParserTables
     pda: PdaTables | None = None
 
@@ -316,21 +318,25 @@ def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor 
 
 def _fold_config(
     codegen_grammar: IrAst, binding: list[RuleBinding], classes: dict[str, type]
-) -> dict[str, RuleFold]:
-    """Build the fold's plain-data config from the binding view + classes.
+) -> IrMap:
+    """Build the fold's IR body-table from the binding view + classes.
 
-    Per rule: kind and constructor from the binding, ``n_items`` from the
-    codegen grammar's single non-empty sequence arm, and one
-    :class:`~lexic.parsing.fold.FieldFold` per bound field (`lo` read from the
-    bound item's quantifier — consumed by the ``gtext`` absence rule).
+    Per rule a :class:`~lexic.parsing.fold.ModelBody`: kind from the binding,
+    the model constructor wrapped in :class:`~lexic.ir.base.IrLambda`
+    (:data:`~lexic.ir.base.IrNone` for an ``alternation``, which has none),
+    ``n_items`` from the codegen grammar's single non-empty sequence arm, and
+    one :class:`~lexic.parsing.fold.FieldFold` per bound field (`lo` read from
+    the bound item's quantifier — consumed by the ``gtext`` absence rule).
 
     :param codegen_grammar: The post-pass grammar the binding was computed on.
     :param binding: The binding view, in emission order.
     :param classes: Generated classes by class name.
-    :returns: Rule name → :class:`~lexic.parsing.fold.RuleFold`.
+    :returns: An :class:`~lexic.ir.mapping.IrMap` from each rule's
+        :class:`~lexic.ir.nodes.IrRuleRef` to its
+        :class:`~lexic.parsing.fold.ModelBody`.
     """
     rules = {str(rule.name): rule for rule in codegen_grammar.rules}
-    config: dict[str, RuleFold] = {}
+    dyads: list[IrTuple] = []
     for bound in binding:
         arms = [arm for arm in rules[bound.rule_name].body if arm]
         items = arms[0] if bound.kind == "sequence" and arms else ()
@@ -339,10 +345,12 @@ def _fold_config(
             for name, bind in bound.fields.items()
         )
         cls = classes[bound.class_name]
-        config[bound.rule_name] = RuleFold(
-            bound.kind, cls, len(items), fields, _fast_ctor(cls, bound.kind, fields)
+        ctor = IrNone if bound.kind == "alternation" else IrLambda(cls)
+        body = ModelBody(
+            bound.kind, ctor, len(items), fields, _fast_ctor(cls, bound.kind, fields)
         )
-    return config
+        dyads.append(IrTuple(IrRuleRef(bound.rule_name), body))
+    return IrMap(*dyads)
 
 
 def _build_pda(
@@ -380,11 +388,10 @@ def _compile_core(
     codegen_grammar = build_codegen_grammar(ast)
     binding = compute_binding(codegen_grammar)
     classes = codegen(ast, codegen_grammar, binding, stem, out_dir)
-    fold_config = _fold_config(codegen_grammar, binding, classes)
-    fold = PositionalFold(fold_config)
+    fold = ModelFold(_fold_config(codegen_grammar, binding, classes))
     lifted = lift_optional_nullables(codegen_grammar)
     instance_grammar = normalize(lifted)
-    pda = _build_pda(lifted, instance_grammar, fold_config)
+    pda = _build_pda(lifted, instance_grammar, fold.baked)
     return CompiledGrammar(
         classes=classes,
         grammar=ast,

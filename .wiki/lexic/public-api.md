@@ -98,7 +98,7 @@ Writes `<out_dir>/<stem>.py` (ruff-formatted) and returns `{class_name: cls}`. *
 
 ### The instance fold — `parsing/fold.py`
 
-There is no `build_instance_parser`/`ModelFold` anymore (`parsing/models.py` is deleted outright). `compile.py`'s `_compile_core` builds a plain-data fold config (`dict[str, RuleFold]`, from the binding view + generated classes) and constructs `PositionalFold(config)` directly; the instance grammar is `normalize(lift_optional_nullables(codegen_grammar))` — the *same* codegen grammar `codegen()` emitted classes against, so `kids[i] ↔ items[i]` and field extraction is positional indexing, not a name lookup against a synthetic wrapper grammar. See [[architecture]]'s "positional fold" section.
+There is no `build_instance_parser`/wrapper-rule bridge anymore (`parsing/models.py` is deleted outright). The **one authored instance-fold** is `ModelFold` (2026-07-06; the name is reclaimed — the retired wrapper-rule `ModelFold` in `parsing/models.py` is unrelated): `compile.py`'s `_compile_core` builds a per-rule **IR body-table** (`IrMap[IrRuleRef, ModelBody]`, from the binding view + generated classes — each `ModelBody` carries its model constructor as an `IrLambda` plus structural metadata `kind`/`n_items`/`fields`/`fast`) and constructs `ModelFold(bodies)`. On construction the fold **bakes** every body to the flat-runtime `config: dict[str, RuleFold]` (`.baked`), the record the PDA clone compiler and the engine-fallback `apply` consume unchanged — byte-for-byte identical to the retired plain-data config. The IR body-table is the *same shape* the grammar-text `Reducer` carries its reductions in (a per-rule `IrMap` to `IrSelf` bodies). The instance grammar is `normalize(lift_optional_nullables(codegen_grammar))` — the *same* codegen grammar `codegen()` emitted classes against, so `kids[i] ↔ items[i]` and field extraction is positional indexing, not a name lookup against a synthetic wrapper grammar. See [[architecture]]'s "positional fold" section.
 
 ---
 
@@ -111,7 +111,7 @@ Returned by `compile_text` / `compile_from_path`. Fields:
 | `classes` | `dict[str, type]` | Rule name → generated Pydantic class |
 | `grammar` | `IrAst` | The **canonical** grammar (what the user's grammar IS — also the generated module's `GRAMMAR` footer) |
 | `instance_grammar` | `IrAst` | The Earley-normalised **codegen** grammar (held so the engine's identity-memoised `compile_tables` stays hot across repeated `.parse()` calls) |
-| `fold` | `PositionalFold` | `ParseTree` → model-instance fold, positional over `instance_grammar` (replaces the old `ModelFold`/wrapper-rule bridge) |
+| `fold` | `ModelFold` | The one authored instance-fold: an IR body-table (`bodies: IrMap[IrRuleRef, ModelBody]`) that bakes to `config: dict[str, RuleFold]` and folds a `ParseTree` → model-instance positionally over `instance_grammar` (name reclaimed from the retired wrapper-rule bridge) |
 | `tables` | `ParserTables` | `instance_grammar`'s run-collapsed tables (every lexical run the fold-config licence proves safe, compiled once at build time) |
 
 `.parse(text)` is the only method callers need. It runs `self.fold.apply(parse_first(self.instance_grammar, text, self.tables))` — `parse_first` is the engine's deterministic-first-derivation entry (some ground-truth instance grammars, e.g. `json_ws`'s `int`, are genuinely ambiguous). If the fold doesn't produce a `GrammarModel` for the start rule, `.parse` raises `UnsupportedConstructError`.

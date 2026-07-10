@@ -71,9 +71,10 @@ from lexic.ir.nodes import (
     IrRuleRef,
 )
 from lexic.ir.operators import IrNot
+from lexic.parsing.earley.tables import ParserTables, compile_tables
+from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis import GrammarAnalysis
 from lexic.parsing.pda.charsets import CharSet
-from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.flatten import (
     _BUILD_ALT,
     _BUILD_SEQ,
@@ -94,7 +95,6 @@ from lexic.parsing.pda.flatten import (
     _FlatClone,
     _optimize_program,
 )
-from lexic.parsing.earley.tables import ParserTables, compile_tables
 
 __all__ = [
     "compile_pda",

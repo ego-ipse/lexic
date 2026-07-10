@@ -94,7 +94,7 @@ round-trip. Generated classes carry `__grammar__: ClassVar[IrRule]` directly
 and every bound field an `IrBind(item, mode, semantic)` in its `Annotated`
 metadata, tying it to a positional slot in that rule's sequence arm — no
 parallel spec object. Instance parsing is a **positional fold**
-(`parsing/fold.py`'s `PositionalFold`) over the *real* codegen grammar
+(`parsing/fold.py`'s `ModelFold`) over the *real* codegen grammar
 (`normalize()` replaces items in place, so `kids[i] ↔ items[i]`) — no
 `--f<idx>` wrapper rules, no name protocol.
 
@@ -104,8 +104,8 @@ parallel spec object. Instance parsing is a **positional fold**
   `canonical_grammar` (parse + canonicalize + directive flags) →
   `build_codegen_grammar` (`lexic.codegen.passes` — hoist groups, hoist arms,
   relax non-semantic refs) → `compute_binding` (`lexic.codegen.binding`) →
-  `codegen` (`lexic.codegen`, emits `Annotated`/`IrBind` fields) → fold config
-  → `PositionalFold` (`lexic.parsing.fold`); `parse_grammar(text, flavour)` is
+  `codegen` (`lexic.codegen`, emits `Annotated`/`IrBind` fields) → IR body-table
+  → `ModelFold` (`lexic.parsing.fold`); `parse_grammar(text, flavour)` is
   the public grammar-text → `IrAst` seam, unchanged by this cutover.
 - Old `atoms.py`, `new_gbnf/`, `flavours.py`, `codegen/ir_builder.py`,
   `codegen/lark_builder.py`, `codegen/transformer/` are all gone (2026-05-13
@@ -238,12 +238,22 @@ src/lexic/
                         engine (SPPF, Scott 2008) over IrAst-shaped grammars, not
                         a Lark wrapper. Drives BOTH grammar-text parsing
                         (flavour.grammar + flavour.reducer) and generated-instance
-                        parsing (the codegen grammar + PositionalFold)
-    fold.py             PositionalFold — generic positional ParseTree → object
-                        fold over the codegen grammar (kids[i] ↔ items[i], no
-                        RuleSpec/pydantic/codegen imports); RuleFold/FieldFold
-                        plain-data config; lift_optional_nullables (R? → R for
-                        nullable R, engine-ambiguity policy); collapsed_fold_tables
+                        parsing (the codegen grammar + ModelFold)
+    fold.py             ModelFold — THE one authored instance-fold: a per-rule
+                        IR body-table (`bodies: IrMap[IrRuleRef, ModelBody]` —
+                        the reducer-shaped authored form) that bakes to the
+                        flat-runtime `config: dict[str, RuleFold]` on
+                        construction (`.baked`); the same generic positional
+                        ParseTree → object fold over the codegen grammar
+                        (kids[i] ↔ items[i], no RuleSpec/pydantic/codegen
+                        imports). ModelBody(kind, ctor: IrLambda|IrNone,
+                        n_items, fields, fast) — ctor via IrLambda, rest
+                        structural metadata; `.bake()`→RuleFold and `.of(rf)`
+                        the inverse lift; `ModelFold.from_config(dict)` the
+                        lowered-form seam. RuleFold/FieldFold/FastCtor are the
+                        baked int-mode records the flat clone + engine consume.
+                        Also lift_optional_nullables (R? → R for nullable R,
+                        engine-ambiguity policy); collapsed_fold_tables
                         (run-collapse licence: safe iff no constructor-bearing
                         rule among a run's unit leaves)
     earley/             the Earley engine (self-contained; imports only itself)
@@ -311,7 +321,7 @@ src/lexic/
                           fold=None clones) funnel through; the thin _island
                           dispatcher (owns the cursor state) delegates the
                           windowed Earley sub-parse to islands.py, folds it
-                          through the supplied PositionalFold and splices the
+                          through the supplied ModelFold and splices the
                           sub-model into the current capture (PdaKernel(tables,
                           text, fold); fold=None ⇒ island raises PdaFail, the
                           island-free path; a fail-island ref always raises
@@ -386,8 +396,9 @@ grammar text ──► _scan_directives(text, flavour.line_comment) ──► (s
                          │                             returns dict[str, type])
                          └─────────────┬───────────────────────────┘
                                        ▼
-                     fold config (plain data: per-rule ctor + kind +
-                     n_items + [(item idx, mode, field, lo)])
+                     IR body-table (ModelFold: per-rule IrMap[IrRuleRef,
+                     ModelBody(kind, ctor: IrLambda|IrNone, n_items, fields,
+                     fast)]; bakes to dict[str, RuleFold] via .baked)
                                        │
                                        ▼
           instance_grammar = normalize(lift_optional_nullables(codegen_grammar))
@@ -396,7 +407,7 @@ grammar text ──► _scan_directives(text, flavour.line_comment) ──► (s
                                        │
                                        ▼
           CompiledGrammar(classes, grammar=canonical ast, instance_grammar, fold, tables,
-                          pda=_build_pda(lifted, instance_grammar, fold_config))
+                          pda=_build_pda(lifted, instance_grammar, fold.baked))
           .parse(text) = PDA-first: parse_pda(pda, text, fold) when pda is not None,
                          PdaFail → engine fallback fold.apply(parse_first(instance_grammar,
                          text, tables)). pda is None on whole-grammar opt-out (unsupported
@@ -441,7 +452,7 @@ lexic (runtime) ↗ lexic.codegen, lexic.parsing    runtime NEVER imports either
 2. `compile.py` is the single runtime seam onto both `lexic.codegen`
    (`codegen`, `build_codegen_grammar`, `compute_binding`) and the Earley
    engine (`lexic.parsing` — `parse_first`, `parse_reduced`;
-   `lexic.parsing.fold` — `PositionalFold`, `RuleFold`, `FieldFold`,
+   `lexic.parsing.fold` — `ModelFold`, `ModelBody`, `RuleFold`, `FieldFold`,
    `collapsed_fold_tables`, `lift_optional_nullables`;
    `lexic.parsing.normalize.normalize`; `lexic.parsing.reduce.Reducer`). All
    explicit, all public.
@@ -613,7 +624,7 @@ from lexic.base import GrammarModel
 from lexic.compile import canonical_grammar, compile_text, compile_from_path, parse_grammar
 from lexic.grammars import get_flavour, flavour_for_extension, GBNF_FLAVOUR, ABNF_FLAVOUR
 from lexic.parsing import recognize, parse, parse_first, parse_reduced, parse_forest, derivations, is_ambiguous
-from lexic.parsing.fold import PositionalFold, RuleFold, FieldFold, lift_optional_nullables
+from lexic.parsing.fold import ModelFold, ModelBody, RuleFold, FieldFold, lift_optional_nullables
 from lexic.codegen import codegen, build_codegen_grammar, compute_binding, RuleBinding
 from lexic.codegen.binding import class_name_for, classify_rule
 ```

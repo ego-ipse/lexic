@@ -28,7 +28,7 @@ from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
 from lexic.parsing import ParserTables, parse_first
-from lexic.parsing.fold import PositionalFold
+from lexic.parsing.fold import ModelFold
 from tests.paths import GENERATED, GROUND_TRUTH
 
 
@@ -144,9 +144,9 @@ def test_compiled_grammar_grammar_field_is_the_canonical_ast():
 
 
 def test_compiled_grammar_fold_field_is_positional_fold():
-    """CompiledGrammar.fold is the ParseTree -> model-instance PositionalFold."""
+    """CompiledGrammar.fold is the ParseTree -> model-instance ModelFold."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    assert isinstance(cg.fold, PositionalFold)
+    assert isinstance(cg.fold, ModelFold)
 
 
 def test_compiled_grammar_tables_field_is_parser_tables():

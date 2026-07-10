@@ -1,7 +1,7 @@
 """Fused predictive runtime — parses text to a model, no ParseTree on the path.
 
 The runtime sibling of :class:`~lexic.parsing.earley.kernel.Kernel`: where the Earley
-kernel builds an SPPF a :class:`~lexic.parsing.fold.PositionalFold` later folds,
+kernel builds an SPPF a :class:`~lexic.parsing.fold.ModelFold` later folds,
 :class:`PdaKernel` walks the flat int-coded
 :class:`~lexic.parsing.pda.clones.PdaProgram` and builds the model **directly
 during the walk** — the fold is fused into the parse, so no intermediate
@@ -42,7 +42,7 @@ through any number of group and loop layers, lands in the nearest enclosing
 *bound* item's sink, exactly as the fold's look-through ``_models_at`` collects
 the topmost models under a kid.
 
-Per build-mode (mirroring :meth:`~lexic.parsing.fold.PositionalFold._fold_node`):
+Per build-mode (mirroring :meth:`~lexic.parsing.fold.ModelFold._fold_node`):
 
 - ``value_str`` → ``ctor(value=text[a:b])`` over the clone's whole span (its
   interior is pure-terminal — no sub-models are built below it);
@@ -59,7 +59,7 @@ window and takes the longest completion; the decoded
 :class:`~lexic.parsing.earley.forest.ParseTree` (via
 :class:`~lexic.parsing.earley.kernel.FastTree`, falling back to the first derivation
 on ambiguity) folds through the supplied :class:`~lexic.parsing.fold
-.PositionalFold` and the resulting sub-model splices into the current capture
+.ModelFold` and the resulting sub-model splices into the current capture
 exactly as a clone's model would. The cursor advances past the consumed span.
 Without a fold (:attr:`PdaKernel.fold` is ``None``, the island-free path) an
 island reference raises :class:`PdaFail` so the engine reparses. A
@@ -78,7 +78,9 @@ from typing import Any
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrSelf
-from lexic.parsing.fold import PositionalFold, RuleFold
+from lexic.parsing.fold import ModelFold, RuleFold
+from lexic.parsing.pda.clones import PdaTables
+from lexic.parsing.pda.errors import PdaFail
 from lexic.parsing.pda.flatten import (
     _BUILD_DISPATCH,
     _BUILD_SEQ,
@@ -100,8 +102,6 @@ from lexic.parsing.pda.flatten import (
     _FlatArm,
     _FlatClone,
 )
-from lexic.parsing.pda.clones import PdaTables
-from lexic.parsing.pda.errors import PdaFail
 from lexic.parsing.pda.islands import island_parse
 
 __all__ = ["PdaFail", "PdaKernel", "parse_pda"]
@@ -165,16 +165,16 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
     text: str
     pos: int
     stack: list[list[Any]]
-    fold: PositionalFold | None
+    fold: ModelFold | None
 
     def __init__(
-        self, tables: PdaTables, text: str, fold: PositionalFold | None = None
+        self, tables: PdaTables, text: str, fold: ModelFold | None = None
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
         :param tables: The compiled predictive-parser tables.
         :param text: The input to parse.
-        :param fold: The full-grammar :class:`~lexic.parsing.fold.PositionalFold`
+        :param fold: The full-grammar :class:`~lexic.parsing.fold.ModelFold`
             for splicing island sub-models; ``None`` disables island resolution
             (any island reference raises :class:`PdaFail`).
         """
@@ -813,9 +813,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         return fold.ctor(**kwargs)
 
 
-def parse_pda(
-    tables: PdaTables, text: str, fold: PositionalFold | None = None
-) -> object:
+def parse_pda(tables: PdaTables, text: str, fold: ModelFold | None = None) -> object:
     """Parse ``text`` to a model with the fused predictive runtime.
 
     :param tables: The compiled predictive-parser tables.

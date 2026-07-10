@@ -96,7 +96,7 @@ The IR seams sit at the edges, all IR-native:
   object, like constructing a `lark.Lark`);
 - **out (grammar-text product):** `FusedReduce` folds the packed forest to IR
   against the flavour's `Reducer` policy tables (`IrMap`s of IR bodies);
-- **out (instance product):** `PositionalFold` folds a `ParseTree` to a
+- **out (instance product):** `ModelFold` folds a `ParseTree` to a
   `GrammarModel`, or `PdaKernel` fuses that fold into the parse and skips the
   tree entirely;
 - **out (general):** `Kernel.to_chart()` decodes the packed SPPF into the
@@ -254,9 +254,10 @@ Two folds implement it:
 Instance parsing runs over the **real codegen grammar** (no `--f<idx>` wrapper
 rules, no name protocol): `normalize()` replaces items in place, so an original
 item is always exactly one symbol slot in the normalised arm — for a rule's
-`ParseTree` node, `kids[i] ↔ items[i]`. `PositionalFold` is a generic positional
-tree → object fold, driven by plain-data config the compile seam builds
-(`RuleFold(kind, ctor, n_items, fields)`, each field a
+`ParseTree` node, `kids[i] ↔ items[i]`. `ModelFold` is a generic positional
+tree → object fold whose authored form is a per-rule IR body-table
+(`IrMap[IrRuleRef, ModelBody]`) that bakes to the plain-data config the compile
+seam builds (`RuleFold(kind, ctor, n_items, fields)`, each field a
 `FieldFold(item, mode, name, lo)`). It imports no `RuleSpec`, pydantic, or
 `codegen`.
 
@@ -282,7 +283,7 @@ among a run's unit leaves).
 For the deterministic common case, the instance path does not run Earley at all.
 `CompiledGrammar.parse` runs a **table-driven predictive parser** that builds the
 model *during the walk* (the fold is fused into the parse — no `ParseTree`), and
-falls back to Earley + `PositionalFold` (§9) only where the grammar is genuinely
+falls back to Earley + `ModelFold` (§9) only where the grammar is genuinely
 non-deterministic. The whole PDA is compiled out of the same codegen grammar and
 opts *out* per-grammar (returns no PDA) when it meets a construct it can't handle
 soundly (an unsupported construct, or a start rule that is itself an island).
@@ -344,7 +345,7 @@ inside it to its sink; capture bubbles to the nearest enclosing *bound* item,
 through any number of group/loop layers — exactly as the fold's `_models_at`
 collects. An **island** ref runs a windowed Earley sub-parse over `island_tables`
 (`longest_start_completion`, doubling window, `FastTree` with first-derivation
-fallback), folds it through the supplied `PositionalFold`, and splices the
+fallback), folds it through the supplied `ModelFold`, and splices the
 sub-model into the current capture. With no fold (`fold=None`, the island-free
 path) or a fail-island ref, it raises `PdaFail`. **`PdaFail` is internal** —
 caught by the compile seam and retried on the full engine, which owns the
@@ -371,7 +372,7 @@ tuple `(ref, seq, origin, end)` — lives in `chart.py`.
 | `lexruns.py` | Run-terminal derivation: charset resolution, FIRST/FOLLOW, the three collapse proofs. |
 | `normalize.py` | Desugar IR into classical Earley shape (groups, quantifiers). |
 | `reduce.py` | `Reducer` + policies, `FusedReduce`, `ReducePlan`, `collapsed_tables` — the grammar-text product. |
-| `fold.py` | `PositionalFold` — the instance product (`ParseTree` → model); `RuleFold`/`FieldFold` config, `lift_optional_nullables`, `collapsed_fold_tables`. |
+| `fold.py` | `ModelFold` — the one authored instance-fold (`ParseTree` → model): an IR body-table (`IrMap[IrRuleRef, ModelBody]`) baking to `RuleFold`/`FieldFold` config; `lift_optional_nullables`, `collapsed_fold_tables`. |
 | `charsets.py` | `CharSet` — polarity-aware co-finite char-set algebra (the PDA analysis substrate). |
 | `analysis.py` | `GrammarAnalysis` — FIRST/hard-FIRST/FOLLOW/nullability + the pivot-6 island/stopset/LL(2) taxonomy; `nullable_names`. |
 | `pda_tables.py` | `compile_pda` → `PdaTables` — per-(rule, continuation) clone compiler; `ItemSpec`/`ArmSpec`/`CloneSpec` specs, `IslandRef`, the spec→flat bridge. |

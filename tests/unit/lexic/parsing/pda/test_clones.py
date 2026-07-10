@@ -23,9 +23,9 @@ from lexic.codegen import build_codegen_grammar
 from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
 from lexic.ir.nodes import IrAst
-from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.pda.runtime import PdaFail, parse_pda
+from lexic.parsing.earley.tables import ParserTables
+from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.clones import (
     CC,
     GRP,
@@ -41,7 +41,7 @@ from lexic.parsing.pda.clones import (
     StopGate,
     compile_pda,
 )
-from lexic.parsing.earley.tables import ParserTables
+from lexic.parsing.pda.runtime import PdaFail, parse_pda
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.test_analysis import _PINNED_ISLANDS
 

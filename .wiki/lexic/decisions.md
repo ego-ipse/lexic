@@ -6,6 +6,21 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ---
 
+## 2026-07-06 — One IR fold type: `ModelFold` + `ModelBody` (unified-parse-engine Task 3)
+
+**Decision:** The instance fold's authored form is now **one IR-native type**, `ModelFold` (`parsing/fold.py`), whose `bodies` is a per-rule `IrMap[IrRuleRef, ModelBody]` — the *same shape* the grammar-text `Reducer` carries its `reductions` in (a per-rule `IrMap` to `IrSelf` bodies). A `ModelBody(kind, ctor, n_items, fields, fast)` (an `IrNamedTuple`, `_child_attrs=()`) carries the model constructor as an `IrLambda` (`IrNone` for an `alternation`, which has none) plus structural metadata. On construction `ModelFold` **bakes** every body (`ModelBody.bake()`) to the flat-runtime `config: dict[str, RuleFold]` (`.baked`) — the record the PDA clone compiler and the engine-fallback `apply` consume **byte-for-byte unchanged**. `RuleFold`/`FieldFold`/`FastCtor` survive as that lowered/baked representation; `ModelBody.of(rf)` is the inverse lift and `ModelFold.from_config(dict)` the direct-from-baked (lowered) constructor.
+
+- **Why merge `PositionalFold` into `ModelFold` rather than add a wrapper?** The task called for *one* fold type; the old `PositionalFold` was only the runtime executor over `dict[str, RuleFold]`. Absorbing its `apply`/`run_ok` onto `ModelFold` (which reads the same `self.config`) keeps the runtime logic unchanged while making the authored form the IR body-table. `collapsed_fold_tables(grammar, fold)` re-signs to `ModelFold`; nothing else in the engine changes.
+- **Why `IrLambda(cls)` for the ctor?** It is the sanctioned procedural escape and `IrLambda(cls).eval IS cls` (free unwrap) — so baking recovers the exact constructor with zero indirection. Proven by `spike_bake.py` (176 rules across all 10 ground truths bake runtime-identically; 0 rules need an arbitrary body).
+- **Name reclaimed.** The retired wrapper-rule `ModelFold` (`parsing/models.py`, deleted 2026-07-04) is unrelated; the name is now the one authored instance-fold.
+- **Behavior-frozen.** A differential over 600 generated samples × both parse paths (PDA + engine) is byte-identical before/after; no perf loss (the flat clone is unchanged).
+
+**Why:** unify the *authored* fold to an IR body-table so Task 4 can express the `Reducer` as the same per-rule `IrMap`-to-`IrSelf`-body type. The lowered `RuleFold` int-mode contract with the flat clone is deliberately preserved — the change is at the authoring seam, not the runtime.
+
+**Impact:** New public exports `ModelFold`, `ModelBody` (`parsing/fold.py`); `PositionalFold` removed. `compile._fold_config` now returns the `IrMap` body-table; `_build_pda` takes `fold.baked`. See [[public-api]], [[architecture]].
+
+---
+
 ## 2026-06-05 — Phase-0a algebra: `IrScalar`/`IrInt`, `IrOp` (no `Cmp` enum), `IrTuple.eval -> IrSelf`
 
 **Decision:** Added the value-aware action algebra, deviating from the plan's prescribed shapes on four points:

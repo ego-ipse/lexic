@@ -32,7 +32,7 @@ Module map:
 - :mod:`.earley.engine`   — the per-capability orchestration nodes the API drives.
 - :mod:`.earley.forest`   — :class:`ParseTree`, the reducible derivation.
 - :mod:`.earley.reduce`   — :class:`Reducer`, forest → ``IrAst`` (grammar-text product).
-- :mod:`.fold`        — :class:`~lexic.parsing.fold.PositionalFold`, forest →
+- :mod:`.fold`        — :class:`~lexic.parsing.fold.ModelFold`, forest →
                         ``GrammarModel`` (the instance product).
 - :mod:`.earley.normalize` — desugar IR into classical Earley-shaped rules.
 - :mod:`.pda.charsets`    — :class:`~lexic.parsing.pda.charsets.CharSet`, the PDA analysis
