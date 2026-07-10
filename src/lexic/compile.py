@@ -36,7 +36,7 @@ public ``parse`` keeps unchanged semantics.
 
 Runtime seams: lexic.codegen (codegen, build_codegen_grammar,
 compute_binding) and the engine (lexic.parsing / .fold / .normalize /
-.reduce / .pda_tables / .pda_kernel). compile.py is the single runtime module
+.reduce / .pda.clones / .pda.runtime). compile.py is the single runtime module
 importing either; no private-symbol imports cross the seams.
 """
 
@@ -83,6 +83,100 @@ from lexic.parsing.pda.clones import (
 from lexic.parsing.pda.runtime import PdaFail, parse_pda
 
 
+def _flavour_reducer(flavour: IrFlavour) -> Reducer:
+    """The flavour's :class:`Reducer`, narrowed once — the single home for the check.
+
+    :param flavour: The grammar flavour.
+    :returns: Its ``reducer`` ClassVar, narrowed to :class:`Reducer`.
+    :raises UnsupportedConstructError: When the flavour carries no ``Reducer``.
+    """
+    reducer = flavour.reducer
+    if not isinstance(reducer, Reducer):
+        raise UnsupportedConstructError(
+            f"compile: flavour {flavour.name!r} carries no parse Reducer"
+        )
+    return reducer
+
+
+@dataclass(frozen=True)
+class _ParseRoute:
+    """The one internal parse seam: PDA-first, then a per-path Earley completion.
+
+    ``pda_first`` is the routing **policy datum** (not a code-path fork): the
+    PDA attempt is identical across paths (``parse_pda`` dispatches model vs
+    reduce on ``tables.reduce``); :meth:`earley` — the fallback completion — is
+    the sole per-path difference. Flipping grammar-text to PDA-first is a later
+    gated act: set the reduce route's ``pda_first`` ``True``, no new code path.
+
+    :ivar pda: The predictive PDA, or ``None`` (engine-only).
+    :ivar pda_first: Whether to try the PDA before the Earley completion.
+    """
+
+    pda: PdaTables | None
+    pda_first: bool
+
+    def run(self, text: str) -> object:
+        """Parse ``text``: PDA-first when routed, else the Earley completion."""
+        if self.pda_first and self.pda is not None:
+            try:
+                return parse_pda(self.pda, text, self._pda_fold())
+            except PdaFail:
+                pass  # deterministic parse failed → whole-input engine reparse
+        return self.earley(text)
+
+    def _pda_fold(self) -> ModelFold | None:
+        """The fold ``parse_pda`` splices island sub-models through (``None`` = reduce)."""
+        return None
+
+    def earley(self, text: str) -> object:
+        """The path's whole-input Earley completion (subclass responsibility)."""
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class _ModelRoute(_ParseRoute):
+    """Instance path: PDA-first + Earley (``parse_first`` → positional fold) fallback.
+
+    :ivar grammar: The Earley-normalised instance grammar.
+    :ivar tables: Its run-collapsed tables.
+    :ivar fold: The positional ParseTree → model fold.
+    """
+
+    grammar: IrAst
+    tables: ParserTables
+    fold: ModelFold
+
+    def _pda_fold(self) -> ModelFold | None:
+        return self.fold
+
+    def earley(self, text: str) -> object:
+        return self.fold.apply(parse_first(self.grammar, text, self.tables))
+
+
+@dataclass(frozen=True)
+class _ReduceRoute(_ParseRoute):
+    """Grammar-text path: Earley-only (``parse_reduced``) — ``pda_first`` is ``False``.
+
+    NOTE — Task-7 landmine, do NOT reconcile here: ``grammar`` is
+    ``normalize(flavour.grammar)`` (un-lifted), but ``pda`` (from
+    :func:`self_grammar_pda`) is compiled over
+    ``normalize(lift_optional_nullables(flavour.grammar))`` — two *different*
+    normalised grammars. This is inert while ``pda_first`` is ``False`` (the PDA
+    never runs). The PDA-first flip must first reconcile them (repoint the reduce
+    completion onto the lifted grammar, or drop the lift) — a gated act, ruled
+    for the Task-7 pinch point, not now.
+
+    :ivar grammar: The Earley-normalised (un-lifted) self-grammar.
+    :ivar reducer: The flavour's reduction policy.
+    """
+
+    grammar: IrAst
+    reducer: Reducer
+
+    def earley(self, text: str) -> object:
+        return parse_reduced(self.grammar, text, self.reducer)
+
+
 @dataclass(frozen=True)
 class CompiledGrammar:
     """Parse-ready artefacts produced by compile().
@@ -121,14 +215,10 @@ class CompiledGrammar:
         :raises UnsupportedConstructError: If ``text`` does not parse, or the
             fold produced no model for the start rule.
         """
-        if self.pda is not None:
-            try:
-                return self._ensure_model(parse_pda(self.pda, text, self.fold))
-            except PdaFail:
-                pass  # deterministic parse failed → whole-input engine reparse
-        return self._ensure_model(
-            self.fold.apply(parse_first(self.instance_grammar, text, self.tables))
+        route = _ModelRoute(
+            self.pda, True, self.instance_grammar, self.tables, self.fold
         )
+        return self._ensure_model(route.run(text))
 
     @staticmethod
     def _ensure_model(model: object) -> GrammarModel:
@@ -180,11 +270,7 @@ def self_grammar_pda(flavour: IrFlavour) -> PdaTables | None:
     key = flavour.name
     if key in _SELF_PDA_CACHE:
         return _SELF_PDA_CACHE[key]
-    reducer = flavour.reducer
-    if not isinstance(reducer, Reducer):
-        raise UnsupportedConstructError(
-            f"compile: flavour {flavour.name!r} carries no parse Reducer"
-        )
+    reducer = _flavour_reducer(flavour)
     lifted = lift_optional_nullables(flavour.grammar)
     instance_grammar = normalize(lifted)
     try:
@@ -223,12 +309,11 @@ def parse_grammar(text: str, flavour: IrFlavour) -> IrAst:
     :raises UnsupportedConstructError: If the flavour carries no ``Reducer``,
         ``text`` does not parse, or the reduction is not an ``IrAst``.
     """
-    reducer = flavour.reducer
-    if not isinstance(reducer, Reducer):
-        raise UnsupportedConstructError(
-            f"compile: flavour {flavour.name!r} carries no parse Reducer"
-        )
-    ast = parse_reduced(_normalized_grammar(flavour), text, reducer)
+    reducer = _flavour_reducer(flavour)
+    route = _ReduceRoute(
+        self_grammar_pda(flavour), False, _normalized_grammar(flavour), reducer
+    )
+    ast = route.run(text)
     if not isinstance(ast, IrAst):
         raise UnsupportedConstructError(
             f"compile: flavour {flavour.name!r} reduction produced "

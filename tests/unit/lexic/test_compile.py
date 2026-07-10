@@ -14,6 +14,8 @@ from lexic.base import GrammarModel
 from lexic.codegen import resolve_out_dir
 from lexic.compile import (
     CompiledGrammar,
+    _ModelRoute,
+    _ReduceRoute,
     _scan_directives,
     canonical_grammar,
     compile_from_path,
@@ -29,9 +31,10 @@ from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
-from lexic.parsing import ParserTables, parse_first
+from lexic.parsing import ParserTables, parse_first, parse_reduced
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.clones import PdaTables
+from lexic.parsing.pda.runtime import PdaFail
 from tests.paths import GENERATED, GROUND_TRUTH
 
 
@@ -593,3 +596,197 @@ def test_self_grammar_pda_none_result_is_cached_too(monkeypatch):
 
     assert result is None
     assert len(calls) == count_after_first
+
+
+# ── the one internal parse seam: _ParseRoute / _ModelRoute / _ReduceRoute ──
+#
+# _ModelRoute (CompiledGrammar.parse) and _ReduceRoute (parse_grammar) share
+# _ParseRoute.run's PDA-first-then-Earley-completion policy; pda_first is a
+# routing DATUM, not a code fork. These pin the route classes' own shape
+# (A) plus the routing decision table (run's three branches).
+
+
+def _gbnf_grammar_and_reducer():
+    """(normalised self-grammar, reducer) for GBNF — the shared _ReduceRoute
+    fixture pair. Reached via getattr since both are compile.py-private
+    (memoised) helpers — matches test_runtime.py's
+    getattr(rt, "_ReducePdaKernel") precedent, no protected-access dotted
+    access to a leading-underscore name.
+    """
+    grammar = getattr(compile_module, "_normalized_grammar")(GBNF_FLAVOUR)
+    reducer = getattr(compile_module, "_flavour_reducer")(GBNF_FLAVOUR)
+    return grammar, reducer
+
+
+def _pda_fold(route):
+    """``route._pda_fold()`` via getattr — the same protected-access dodge."""
+    return getattr(route, "_pda_fold")()
+
+
+def test_modelroute_pda_first_is_true():
+    """CompiledGrammar.parse's route is always PDA-first."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    route = _ModelRoute(cg.pda, True, cg.instance_grammar, cg.tables, cg.fold)
+    assert route.pda_first is True
+
+
+def test_modelroute_pda_fold_is_its_own_fold():
+    """_ModelRoute splices island sub-models through its own fold."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    route = _ModelRoute(cg.pda, True, cg.instance_grammar, cg.tables, cg.fold)
+    assert _pda_fold(route) is cg.fold
+
+
+def test_modelroute_earley_matches_fold_apply_parse_first():
+    """_ModelRoute.earley is exactly fold.apply(parse_first(grammar, text, tables))."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    route = _ModelRoute(cg.pda, True, cg.instance_grammar, cg.tables, cg.fold)
+    text = "x=1\n"
+    expected = cg.fold.apply(parse_first(cg.instance_grammar, text, cg.tables))
+    assert route.earley(text) == expected
+
+
+def test_reduceroute_pda_first_is_false():
+    """parse_grammar's route is always Earley-only — the C2 regression guard."""
+    grammar, reducer = _gbnf_grammar_and_reducer()
+    route = _ReduceRoute(None, False, grammar, reducer)
+    assert route.pda_first is False
+
+
+def test_reduceroute_pda_fold_is_none():
+    """_ReduceRoute has no fold to splice islands through — the reducer path."""
+    grammar, reducer = _gbnf_grammar_and_reducer()
+    route = _ReduceRoute(None, False, grammar, reducer)
+    assert _pda_fold(route) is None
+
+
+def test_reduceroute_earley_matches_parse_reduced():
+    """_ReduceRoute.earley is exactly parse_reduced(grammar, text, reducer)."""
+    grammar, reducer = _gbnf_grammar_and_reducer()
+    route = _ReduceRoute(None, False, grammar, reducer)
+    text = 'root ::= "abc"\n'
+    assert route.earley(text) == parse_reduced(grammar, text, reducer)
+
+
+def test_parseroute_run_never_calls_parse_pda_when_pda_first_is_false(monkeypatch):
+    """pda_first=False routes straight to earley — parse_pda is never called,
+    even with a real, non-None PDA in hand."""
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("parse_pda must not be called when pda_first is False")
+
+    monkeypatch.setattr(compile_module, "parse_pda", _boom)
+    pda = self_grammar_pda(GBNF_FLAVOUR)
+    assert pda is not None
+    grammar, reducer = _gbnf_grammar_and_reducer()
+    route = _ReduceRoute(pda, False, grammar, reducer)
+    text = 'root ::= "abc"\n'
+    assert route.run(text) == parse_reduced(grammar, text, reducer)
+
+
+def test_parseroute_run_falls_through_to_earley_on_pdafail(monkeypatch):
+    """pda_first=True with a non-None PDA tries parse_pda first; a PdaFail
+    falls through to the earley completion, not a raised error."""
+
+    def _fail(*_args, **_kwargs):
+        raise PdaFail("forced")
+
+    monkeypatch.setattr(compile_module, "parse_pda", _fail)
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert cg.pda is not None
+    route = _ModelRoute(cg.pda, True, cg.instance_grammar, cg.tables, cg.fold)
+    text = "x=1\n"
+    expected = cg.fold.apply(parse_first(cg.instance_grammar, text, cg.tables))
+    assert route.run(text) == expected
+
+
+def test_parseroute_run_skips_parse_pda_when_pda_is_none(monkeypatch):
+    """pda_first=True with pda=None goes straight to earley — parse_pda is
+    never called (there is nothing to try)."""
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("parse_pda must not be called when pda is None")
+
+    monkeypatch.setattr(compile_module, "parse_pda", _boom)
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    route = _ModelRoute(None, True, cg.instance_grammar, cg.tables, cg.fold)
+    text = "x=1\n"
+    expected = cg.fold.apply(parse_first(cg.instance_grammar, text, cg.tables))
+    assert route.run(text) == expected
+
+
+# ── parse_grammar stays Earley-routed (C2 — load-bearing) ──────────────────
+
+
+def test_parse_grammar_matches_parse_reduced_structurally():
+    """parse_grammar's result equals driving parse_reduced directly over the
+    flavour's own normalised self-grammar and reducer."""
+    text = 'root ::= "abc"\n'
+    grammar, reducer = _gbnf_grammar_and_reducer()
+    assert parse_grammar(text, GBNF_FLAVOUR) == parse_reduced(grammar, text, reducer)
+
+
+def test_parse_grammar_never_consults_the_pda_even_though_one_is_wired(monkeypatch):
+    """STRONG pin: GBNF's self-grammar PDA is wired (self_grammar_pda is not
+    None) but parse_grammar never reaches it — routing stays pda_first=False.
+    Forcing parse_pda to raise must not change parse_grammar's result at all.
+    """
+    text = 'root ::= "abc" | "def"\n'
+    assert self_grammar_pda(GBNF_FLAVOUR) is not None
+    expected = parse_grammar(text, GBNF_FLAVOUR)
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("parse_grammar must stay Earley-routed (C2)")
+
+    monkeypatch.setattr(compile_module, "parse_pda", _boom)
+    assert parse_grammar(text, GBNF_FLAVOUR) == expected
+
+
+# ── CompiledGrammar.parse unchanged ─────────────────────────────────────────
+
+
+def test_compiledgrammar_parse_returns_model_for_pda_backed_grammar():
+    """A grammar with a non-None pda still parses to the expected model —
+    the seam refactor left CompiledGrammar.parse's observable behavior alone."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert cg.pda is not None
+    inst = cg.parse("x=1\n")
+    assert isinstance(inst, GrammarModel)
+    assert inst.to_text() == "x=1\n"
+
+
+def test_compiledgrammar_parse_falls_back_to_engine_on_pdafail(monkeypatch):
+    """A forced PdaFail still yields the correct model via the engine fold —
+    the fallback path, not a raised error reaching the caller."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert cg.pda is not None
+
+    def _fail(*_args, **_kwargs):
+        raise PdaFail("forced")
+
+    monkeypatch.setattr(compile_module, "parse_pda", _fail)
+    text = "x=1\n"
+    model = cg.parse(text)
+    expected = cg.fold.apply(parse_first(cg.instance_grammar, text, cg.tables))
+    assert isinstance(expected, GrammarModel)
+    assert model.model_dump() == expected.model_dump()
+    assert model.to_text() == text
+
+
+def test_compiledgrammar_parse_still_works_when_pda_is_none():
+    """A whole-grammar pda=None opt-out (start rule itself an island) still
+    parses correctly via the engine-only path."""
+    text = 'root ::= "a"? "a"\n'
+    cg = compile_text(text, flavour="gbnf")
+    assert cg.pda is None
+    assert cg.parse("a").to_text() == "a"
+    assert cg.parse("aa").to_text() == "aa"
+
+
+# ── _flavour_reducer: the single home for the Reducer narrowing check ──────
+
+
+def test_flavour_reducer_returns_the_flavours_own_reducer():
+    """_flavour_reducer(flavour) returns exactly the flavour's reducer ClassVar."""
+    _grammar, reducer = _gbnf_grammar_and_reducer()
+    assert reducer is GBNF_FLAVOUR.reducer
