@@ -427,6 +427,26 @@ class ReducePlan(IrLeaf[IrSelf, IrSelf]):
         self.bodies: list[IrSelf | None] = [None] * len(kinds)
         self.mentions: list[bool] = [False] * len(kinds)
 
+    def body(self, reducer: "Reducer", rid: int) -> IrSelf:
+        """Rule ``rid``'s reduction body, resolved lazily and cached.
+
+        The single home for reduction-body resolution + YIELD-mention flagging:
+        :class:`FusedReduce` (the Earley fused path) and the predictive PDA's
+        reduce completion both read the body through here, so the policy is
+        compiled once per ``(reducer, tables)`` and never re-derived (H5).
+
+        :param reducer: The reducer whose reduction table to resolve against.
+        :param rid: The rule id.
+        :returns: The rule's reduction body; :attr:`mentions` ``[rid]`` is set
+            as a side effect.
+        """
+        body = self.bodies[rid]
+        if body is None:
+            body = reducer.reductions.resolve(self.refs[rid])
+            self.bodies[rid] = body
+            self.mentions[rid] = _mentions_yield(body)
+        return body
+
     @staticmethod
     def _reach_drop(tables: ParserTables, kinds: list[int]) -> tuple[bool, ...]:
         """Per rule, whether a DROP-noise rule is reachable beneath it."""
@@ -637,14 +657,12 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         parent[2] += 1
 
     def _body(self, rid: int) -> IrSelf:
-        """Rule ``rid``'s reduction body, resolved lazily and cached."""
-        plan = self.plan
-        body = plan.bodies[rid]
-        if body is None:
-            body = self.reducer.reductions.resolve(plan.refs[rid])
-            plan.bodies[rid] = body
-            plan.mentions[rid] = _mentions_yield(body)
-        return body
+        """Rule ``rid``'s reduction body, resolved lazily and cached.
+
+        Delegates to :meth:`ReducePlan.body` — the single resolution home the
+        predictive PDA's reduce completion shares (H5).
+        """
+        return self.plan.body(self.reducer, rid)
 
     def _yield_text(self, handle: int) -> str:
         """The source text under ``handle``, skipping DROP-noise sub-spans.

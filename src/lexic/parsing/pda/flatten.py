@@ -56,6 +56,22 @@ rewrites qualifying clones into dispatch tables whose selectors carry the
 target :class:`_FlatClone` directly and the runtime chases them in
 :meth:`~lexic.parsing.pda.runtime.PdaKernel._enter` without a frame."""
 
+_BUILD_REDUCE = 5
+"""The grammar-text (reducer) completion mode — the b1 twin of the model build
+modes. A reduce clone captures every child into an ordered ``parts`` list and,
+on completion, feeds the reducer's cleaned children to its reduction
+``body.eval`` (:data:`_R_KEEP`), contributes nothing (:data:`_R_DROP`, a
+DROP-noise rule its subtree is dropped from), or splices its parts straight
+into the caller (:data:`_R_SPLICE`, an inline group). One PDA compilation, one
+frame/island stack — only this completion callback differs from the model
+modes; see :mod:`lexic.parsing.pda.runtime`."""
+
+_R_KEEP, _R_DROP, _R_SPLICE = 0, 1, 2
+"""Reduce completion kinds (:data:`_BUILD_REDUCE` clones): KEEP evaluates the
+rule's reduction body over its cleaned children; DROP (a DROP-noise rule)
+recognises and consumes but yields nothing to its parent; SPLICE (an inline
+group / synthetic clone) flattens its ordered children into the caller."""
+
 _DISPATCH_EMPTY = object()
 """The ``default`` sentinel of a dispatch clone whose alternation carried an
 empty (nullable) arm — on a selector miss the runtime consumes nothing and
@@ -146,6 +162,20 @@ class _FlatClone(IrLeaf[IrSelf, IrSelf]):
     :ivar needs_ends: ``True`` when any bound field reads an item span (a
         ``text``/``gtext`` mode) — only then does a frame allocate and write
         per-item end positions.
+
+    Reduce clones (:data:`_BUILD_REDUCE`, the grammar-text path) additionally
+    carry the completion data below; a model clone never sets or reads them.
+
+    :ivar reduce_kind: One of :data:`_R_KEEP` / :data:`_R_DROP` /
+        :data:`_R_SPLICE`.
+    :ivar reduce_body: The rule's reduction body (an
+        :class:`~lexic.ir.base.IrSelf`), or ``None`` for DROP / SPLICE.
+    :ivar reduce_is_yield: ``True`` when the body IS ``YIELD`` (the clone's
+        whole span is its value).
+    :ivar reduce_span: ``True`` when the body mentions ``YIELD`` (its matched
+        span is passed as ``n``).
+    :ivar reduce_can_drop: ``plan.can_drop`` for the rule — whether a DROP-noise
+        span is reachable beneath it (a span read then cannot be one O(1) slice).
     """
 
     __slots__ = (
@@ -158,6 +188,11 @@ class _FlatClone(IrLeaf[IrSelf, IrSelf]):
         "defaults",
         "leaf",
         "needs_ends",
+        "reduce_kind",
+        "reduce_body",
+        "reduce_is_yield",
+        "reduce_span",
+        "reduce_can_drop",
     )
 
     selectors: tuple[tuple[frozenset[str], bool, Any], ...]
@@ -169,6 +204,11 @@ class _FlatClone(IrLeaf[IrSelf, IrSelf]):
     defaults: Any
     leaf: bool
     needs_ends: bool
+    reduce_kind: int
+    reduce_body: Any  # IrSelf | None
+    reduce_is_yield: bool
+    reduce_span: bool
+    reduce_can_drop: bool
 
 
 class PdaProgram(IrLeaf[IrSelf, IrSelf]):

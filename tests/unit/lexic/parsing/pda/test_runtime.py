@@ -38,12 +38,15 @@ from lexic.compile import (
     canonical_grammar,
     compile_from_path,
     compile_text,
+    self_grammar_pda,
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
-from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
+from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
+from lexic.parsing import parse_reduced
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda import runtime as rt
 from lexic.parsing.pda.clones import PdaTables, compile_pda
 from lexic.parsing.pda.runtime import PdaFail, parse_pda
 from tests.paths import GROUND_TRUTH
@@ -210,3 +213,106 @@ def test_fail_island_raises_pdafail_regardless_of_fold():
     for inp in ("ab", "cab"):
         with pytest.raises(PdaFail):
             parse_pda(pda, inp, compiled.fold)
+
+
+# ── b1 reduce-path parity: _ReducePdaKernel vs parse_reduced ───────────────
+#
+# The grammar-text (reducer) twin of the parity gate above: self_grammar_pda's
+# compiled reduce PDA parses grammar-text FRAGMENTS (GBNF source describing a
+# one-rule grammar, e.g. 'root ::= "abc"') and must reduce byte-identically
+# to the Earley reducer path (parse_reduced) — no ParseTree on the PDA side,
+# just _ReducePdaKernel feeding cleaned children straight to the reduction
+# bodies. Promoted verbatim from the throwaway
+# zzz_current_work/260706-unified-parse-engine/gate_reduce.py three-gate
+# harness (0 gate failures there).
+
+_REDUCE_GATE1_GBNF: tuple[str, ...] = (
+    'root ::= "abc"',
+    "root ::= [a-z]",
+    'root ::= "a" | "b"',
+    'root ::= "a"*',
+    'root ::= "a" "b" "c"',
+    'root ::= "a" ("b" | "c")+',
+    "root ::= [0-9]+",
+    'root ::= "x" [a-zA-Z_]*',
+)
+"""gate 1's positive-coverage floor: single-rule fragments the self-grammar
+reduce PDA must handle end-to-end (no whole-input PdaFail, clone
+completions > 0), each byte-equal to parse_reduced."""
+
+_REDUCE_GATE2_GBNF: tuple[str, ...] = (
+    'root::="a"',
+    'root  ::=  "a"   "b"',
+    'root ::= "a"|"b"|"c"',
+    "root ::=  [a-z]  [0-9]",
+)
+"""gate 2's capture-cleaning parity: varied whitespace noise around the same
+shapes — the reduce PDA's cleaned children must reduce byte-identically to
+the Earley path regardless of how the noise is laid out."""
+
+
+def _ref_reduce(flavour, text: str):
+    """The Earley reducer's own reduction of ``text`` — the parity oracle."""
+    return parse_reduced(normalize(flavour.grammar), text, flavour.reducer)
+
+
+@pytest.mark.parametrize("text", _REDUCE_GATE1_GBNF)
+def test_reduce_pda_gbnf_single_rule_fragment_is_end_to_end_and_byte_equal(
+    text: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gate 1: no PdaFail, at least one clone completion, byte-equal to parse_reduced."""
+    completions = {"n": 0}
+    kernel_cls = getattr(rt, "_ReducePdaKernel")
+    orig_complete = getattr(kernel_cls, "_complete")
+
+    def _traced(self, frame):
+        completions["n"] += 1
+        orig_complete(self, frame)
+
+    monkeypatch.setattr(kernel_cls, "_complete", _traced)
+    pda = self_grammar_pda(GBNF_FLAVOUR)
+    assert pda is not None
+    got = parse_pda(pda, text)
+    assert completions["n"] > 0
+    assert got == _ref_reduce(GBNF_FLAVOUR, text)
+
+
+@pytest.mark.parametrize("text", _REDUCE_GATE2_GBNF)
+def test_reduce_pda_gbnf_noise_variant_is_byte_equal_to_earley(text: str) -> None:
+    """Gate 2: capture-cleaning parity across varied inter-token whitespace."""
+    pda = self_grammar_pda(GBNF_FLAVOUR)
+    assert pda is not None
+    assert parse_pda(pda, text) == _ref_reduce(GBNF_FLAVOUR, text)
+
+
+def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() -> None:
+    """Gate 3: over every ground-truth grammar file (fed as grammar TEXT, both
+    flavours), wherever the self-grammar reduce PDA recognises a whole file
+    end-to-end it is byte-equal to parse_reduced — asserted; how OFTEN it
+    recognises a whole file is counted, not asserted (per the harness this is
+    promoted from: today every ground-truth file, being multi-rule, whole-input
+    falls back to Earley — 0 recognised, 0 mismatched, out of 8 GBNF + 2 ABNF
+    files — matching gate_reduce.py's own gate-3 output; the gate that matters
+    here is the absence of a silent MISMATCH). ABNF's start rule (``rulelist``)
+    is itself an island, so self_grammar_pda is None and every ABNF input
+    falls back — EXPECTED until Task 6, not a regression.
+    """
+    for flavour in (GBNF_FLAVOUR, ABNF_FLAVOUR):
+        pda = self_grammar_pda(flavour)
+        corpus = sorted(GROUND_TRUTH.glob(f"*{flavour.extensions[0]}"))
+        assert corpus
+        if pda is None:
+            assert flavour is ABNF_FLAVOUR
+            continue
+        recognised = mismatched = 0
+        for path in corpus:
+            text = path.read_text(encoding="utf-8")
+            try:
+                got = parse_pda(pda, text)
+            except PdaFail:
+                continue
+            if got == _ref_reduce(flavour, text):
+                recognised += 1
+            else:
+                mismatched += 1
+        assert mismatched == 0

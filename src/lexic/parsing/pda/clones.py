@@ -24,7 +24,7 @@ longest-match split.
 
 **Item specs.** Each item compiles to a flat, tuple-coded :class:`ItemSpec`
 (``lit`` / ``cc`` / ``ref`` / ``grp``) carrying its quantifier bounds and a
-loop gate — a :class:`StopGate` (non-greedy on ``FIRST(atom) − continuation``,
+loop gate — a :class:`StopGate` (non-greedy on ``FIRST(atom) - continuation``,
 pivot 4) or an :class:`PairGate` (an LL(2) 2-char prefix set, pivot 6). Arm
 selection (rule body and inline group) is a list of FIRST-gated
 :class:`ArmSpec` plus at most one nullable default arm. Every rule clone bakes
@@ -71,12 +71,14 @@ from lexic.ir.nodes import (
     IrRuleRef,
 )
 from lexic.ir.operators import IrNot
+from lexic.parsing.earley.reduce import _OTHER_KIND, Reducer, _plan_for
 from lexic.parsing.earley.tables import ParserTables, compile_tables
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis import GrammarAnalysis
 from lexic.parsing.pda.charsets import CharSet
 from lexic.parsing.pda.flatten import (
     _BUILD_ALT,
+    _BUILD_REDUCE,
     _BUILD_SEQ,
     _BUILD_TRANSPARENT,
     _BUILD_VALUE_STR,
@@ -90,16 +92,22 @@ from lexic.parsing.pda.flatten import (
     _OP_ISLAND,
     _OP_LIT,
     _OP_REF,
+    _R_SPLICE,
     PdaProgram,
+    _all_clones,
     _FlatArm,
     _FlatClone,
     _optimize_program,
 )
+from lexic.parsing.pda.reduce_pda import ReduceComp, ReduceRun, _ReduceCompile
 
 __all__ = [
     "compile_pda",
+    "compile_reduce_pda",
     "PdaTables",
     "PdaProgram",
+    "ReduceComp",
+    "ReduceRun",
     "CloneSpec",
     "CloneKey",
     "IslandRef",
@@ -421,25 +429,49 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     :ivar islands: The island rule names — never cloned.
     :ivar fail_islands: The fail-island subset — references raise ``PdaFail``.
     :ivar clones: The compiled clone table, keyed by :class:`CloneKey`.
+    :ivar reduce: The reduce completion source, or ``None`` for the model path.
+    :ivar completions: Clone key → its :class:`ReduceComp` (reduce path only).
     """
 
-    __slots__ = ("analysis", "fold_config", "islands", "fail_islands", "clones")
+    __slots__ = (
+        "analysis",
+        "fold_config",
+        "islands",
+        "fail_islands",
+        "clones",
+        "reduce",
+        "completions",
+    )
 
     analysis: GrammarAnalysis
     fold_config: Mapping[str, RuleFold]
     islands: frozenset[str]
     fail_islands: frozenset[str]
     clones: dict[CloneKey, CloneSpec]
+    reduce: "_ReduceCompile | None"
+    completions: dict[CloneKey, ReduceComp]
 
     def __init__(
-        self, analysis: GrammarAnalysis, fold_config: Mapping[str, RuleFold]
+        self,
+        analysis: GrammarAnalysis,
+        fold_config: Mapping[str, RuleFold] | None = None,
+        *,
+        reduce: "_ReduceCompile | None" = None,
     ) -> None:
-        """:param analysis: the grammar analysis; :param fold_config: the fold table."""
+        """Prepare the compiler for one target (model fold, or reduce).
+
+        :param analysis: The grammar analysis.
+        :param fold_config: Rule name → :class:`~lexic.parsing.fold.RuleFold`
+            (the model target); ``None``/empty on the reduce path.
+        :param reduce: The reduce completion source, or ``None`` (model path).
+        """
         self.analysis = analysis
-        self.fold_config = fold_config
+        self.fold_config = fold_config or {}
         self.islands = analysis.islands
         self.fail_islands = analysis.fail_islands
         self.clones = {}
+        self.reduce = reduce
+        self.completions = {}
 
     def compile_start(self) -> CloneKey | IslandRef:
         """Compile the start clone (EOF-only tail), or mark the start an island.
@@ -473,6 +505,8 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         fold = self.fold_config.get(name)
         match_only = fold is not None and fold.kind == "value_str"
         self.clones[key] = CloneSpec(name, arms, default, fold, match_only)
+        if self.reduce is not None:
+            self.completions[key] = self.reduce.comp_for(name)
         return key
 
     def compile_arms(
@@ -680,17 +714,62 @@ def _flatten_group(
     return clone
 
 
+def _bake_reduce(clone: _FlatClone, comp: ReduceComp) -> None:
+    """Bake a reduce clone's completion plan in place (the b1 twin of _bake_build).
+
+    :param clone: The clone (or inline group) being retargeted for the reducer.
+    :param comp: Its :class:`ReduceComp`.
+    """
+    clone.mode = _BUILD_REDUCE
+    clone.fold = None
+    clone.fields = ()
+    clone.fast = None
+    clone.defaults = None
+    clone.leaf = False
+    clone.needs_ends = True  # reduce reconstructs cleaned children from item ends
+    clone.reduce_kind = comp.kind
+    clone.reduce_body = comp.body
+    clone.reduce_is_yield = comp.is_yield
+    clone.reduce_span = comp.span_needed
+    clone.reduce_can_drop = comp.can_drop
+
+
+def _reduce_rewrite(
+    shells: "dict[CloneKey, _FlatClone]", completions: "dict[CloneKey, ReduceComp]"
+) -> None:
+    """Retarget every clone for the reducer completion (replaces model optimize).
+
+    A named clone bakes its rule's :class:`ReduceComp`; an inline group (reached
+    only through a ``_OP_GRP`` payload, never a clone key) splices — its ordered
+    children flatten into the caller. The model-specific specialisations
+    (``_OP_VSTR`` inlining, dispatch conversion, leaf marking) are deliberately
+    skipped: the reduce completion reconstructs children from item ends + sinks,
+    so it keeps the un-specialised op-stream.
+    """
+    comp_by_id = {id(shells[key]): comp for key, comp in completions.items()}
+    splice = ReduceComp(_R_SPLICE, None, False, False, False)
+    for clone in _all_clones(list(shells.values())):
+        _bake_reduce(clone, comp_by_id.get(id(clone), splice))
+
+
 def _flatten_program(
-    clones: "dict[CloneKey, CloneSpec]", start_key: "CloneKey | IslandRef"
+    clones: "dict[CloneKey, CloneSpec]",
+    start_key: "CloneKey | IslandRef",
+    completions: "dict[CloneKey, ReduceComp] | None" = None,
 ) -> PdaProgram:
     """Lower the compiled clone table to the flat runtime :class:`PdaProgram`.
 
     Two passes: create an empty :class:`_FlatClone` shell per clone key, then
     fill each (its refs resolve to the live shells, so a recursive reference
-    holds the target object directly — no runtime id lookup).
+    holds the target object directly — no runtime id lookup). The model target
+    then runs :func:`_optimize_program`; the reduce target
+    (``completions`` given) runs :func:`_reduce_rewrite` instead — one flatten,
+    two completion targets.
 
     :param clones: The compiled clone table (:meth:`_PdaCompiler` output).
     :param start_key: The start clone key, or an :class:`IslandRef` opt-out.
+    :param completions: Clone key → :class:`ReduceComp` on the reduce path;
+        ``None`` (the default) for the model path.
     :returns: The flat program.
     """
     shells: dict[CloneKey, _FlatClone] = {
@@ -707,7 +786,10 @@ def _flatten_program(
         )
         clone.mode = _build_mode(spec.fold)
         _bake_build(clone, spec.fold)
-    _optimize_program(list(shells.values()))
+    if completions is None:
+        _optimize_program(list(shells.values()))
+    else:
+        _reduce_rewrite(shells, completions)
     start: _FlatClone | IslandRef = (
         shells[start_key] if isinstance(start_key, CloneKey) else start_key
     )
@@ -736,6 +818,8 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     :ivar program: The flat int-coded runtime program
         (:class:`PdaProgram`) :class:`~lexic.parsing.pda.runtime.PdaKernel`
         walks — the compiled clone table lowered once for the hot loop.
+    :ivar reduce: The reduce runtime context (:class:`ReduceRun`) on a
+        grammar-text (reducer) PDA, else ``None`` — the model path.
     """
 
     __slots__ = (
@@ -744,6 +828,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         "islands",
         "instance_grammar",
         "program",
+        "reduce",
         "_island_tables",
     )
 
@@ -752,21 +837,35 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     islands: frozenset[str]
     instance_grammar: IrAst
     program: PdaProgram
+    reduce: "ReduceRun | None"
     _island_tables: dict[str, ParserTables]
 
     def __init__(
         self,
-        clones: dict[CloneKey, CloneSpec],
+        compiler: "_PdaCompiler",
         start_key: CloneKey | IslandRef,
-        islands: frozenset[str],
         instance_grammar: IrAst,
+        reduce: "ReduceRun | None" = None,
     ) -> None:
-        """Freeze the clone table, lower it to the flat program, seed the cache."""
-        self.clones = clones
+        """Freeze the clone table, lower it to the flat program, seed the cache.
+
+        The clones, island set, and reduce completions come off ``compiler`` (its
+        ``completions`` is populated on the reduce path, empty on the model path);
+        ``reduce`` carries the reduce runtime context, or ``None`` (model path).
+
+        :param compiler: The finished :class:`_PdaCompiler` (clones/islands/
+            completions).
+        :param start_key: The start clone key, or an :class:`IslandRef` opt-out.
+        :param instance_grammar: The Earley-normalised instance grammar.
+        :param reduce: The reduce runtime context, or ``None`` (model path).
+        """
+        completions = compiler.completions if compiler.reduce is not None else None
+        self.clones = compiler.clones
         self.start_key = start_key
-        self.islands = islands
+        self.islands = compiler.islands
         self.instance_grammar = instance_grammar
-        self.program = _flatten_program(clones, start_key)
+        self.program = _flatten_program(compiler.clones, start_key, completions)
+        self.reduce = reduce
         self._island_tables = {}
 
     def island_tables(self, name: str) -> ParserTables:
@@ -807,4 +906,39 @@ def compile_pda(
     analysis = GrammarAnalysis(lifted)
     compiler = _PdaCompiler(analysis, fold_config)
     start_key = compiler.compile_start()
-    return PdaTables(compiler.clones, start_key, compiler.islands, instance_grammar)
+    return PdaTables(compiler, start_key, instance_grammar)
+
+
+def compile_reduce_pda(
+    lifted: IrAst, instance_grammar: IrAst, reducer: Reducer
+) -> PdaTables:
+    """Compile the predictive-parser tables for a grammar-text (reducer) parse.
+
+    The b1 twin of :func:`compile_pda`: one recognition compile (same analysis,
+    clones, islands), but each clone bakes a :class:`ReduceComp` completion read
+    from the reducer's compiled :class:`~lexic.parsing.earley.reduce.ReducePlan`
+    (H5 — the single home the Earley fused path also reads) rather than a model
+    :class:`~lexic.parsing.fold.RuleFold`. The runtime feeds each clone's cleaned
+    children to its reduction ``body.eval`` — no intermediate ParseTree.
+
+    :param lifted: The lifted codegen grammar the analysis and clones are cut
+        against (``lift_optional_nullables(build_codegen_grammar(canonical))``).
+    :param instance_grammar: The Earley-normalised instance grammar
+        (``normalize(lifted)``) — island sub-parses reduce over it.
+    :param reducer: The flavour's reducer (its reductions / noise / literal
+        policy compile into the clone completions).
+    :returns: The compiled :class:`PdaTables` (its :attr:`~PdaTables.reduce` set).
+    :raises UnsupportedConstructError: On an atom the clone compiler cannot
+        handle, a custom rule noise policy, or a custom terminal-leaf policy the
+        reduce runtime cannot reconstruct (the whole-grammar opt-out).
+    """
+    tables = compile_tables(instance_grammar)
+    plan = _plan_for(reducer, tables)
+    if plan.literal_kind == _OTHER_KIND:
+        raise UnsupportedConstructError("reduce: custom terminal-leaf policy")
+    name_to_rid = {name: rid for rid, name in enumerate(tables.decode.rule_names)}
+    analysis = GrammarAnalysis(lifted)
+    compiler = _PdaCompiler(analysis, reduce=_ReduceCompile(reducer, plan, name_to_rid))
+    start_key = compiler.compile_start()
+    run = ReduceRun(reducer, plan, tables, name_to_rid)
+    return PdaTables(compiler, start_key, instance_grammar, reduce=run)

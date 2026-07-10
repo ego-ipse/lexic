@@ -92,7 +92,7 @@ from lexic.ir.operators import IrNot
 from lexic.parsing import parse as engine_parse
 from lexic.parsing import parse_reduced as engine_parse_reduced
 from lexic.parsing import recognize as engine_recognize
-from lexic.parsing.normalize import normalize
+from lexic.parsing.earley.normalize import normalize
 
 # ── The pre-cutover Lark ABNF meta-grammar, recovered verbatim ─────────
 # Source: git HEAD:src/lexic/grammars/abnf.py (the ``META_GRAMMAR`` string, RFC

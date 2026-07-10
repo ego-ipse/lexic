@@ -21,11 +21,15 @@ import pytest
 
 from lexic.codegen import build_codegen_grammar
 from lexic.compile import canonical_grammar, compile_from_path, compile_text
-from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
+from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
+from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.earley.tables import ParserTables
 from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda.charsets import CharSet
 from lexic.parsing.pda.clones import (
     CC,
     GRP,
@@ -38,9 +42,22 @@ from lexic.parsing.pda.clones import (
     ItemSpec,
     PairGate,
     PdaTables,
+    ReduceRun,
     StopGate,
+    _reduce_rewrite,
     compile_pda,
+    compile_reduce_pda,
 )
+from lexic.parsing.pda.flatten import (
+    _BUILD_REDUCE,
+    _BUILD_TRANSPARENT,
+    _R_DROP,
+    _R_KEEP,
+    _R_SPLICE,
+    _all_clones,
+    _FlatClone,
+)
+from lexic.parsing.pda.reduce_pda import ReduceComp
 from lexic.parsing.pda.runtime import PdaFail, parse_pda
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.test_analysis import _PINNED_ISLANDS
@@ -343,3 +360,116 @@ def test_island_tables_is_memoised_per_island_rule():
     second = pda.island_tables(name)
     assert first is second
     assert isinstance(first, ParserTables)
+
+
+# ── compile_reduce_pda (b1 grammar-text path) ───────────────────────────
+
+
+def _reduce_pda_for(flavour: IrFlavour) -> PdaTables:
+    """Compile ``flavour``'s self-grammar reduce PDA directly.
+
+    The b1 twin of :func:`_pda_for`, bypassing :mod:`lexic.compile`'s cache:
+    :func:`~lexic.compile.self_grammar_pda` composes exactly this, plus the
+    whole-grammar-opt-out-to-``None`` conversion — see ``test_compile.py``
+    for that seam.
+    """
+    reducer = flavour.reducer
+    if not isinstance(reducer, Reducer):
+        raise UnsupportedConstructError(f"{flavour.name!r} carries no parse Reducer")
+    lifted = lift_optional_nullables(flavour.grammar)
+    instance_grammar = normalize(lifted)
+    return compile_reduce_pda(lifted, instance_grammar, reducer)
+
+
+def test_compile_reduce_pda_builds_a_reduce_pda_for_the_gbnf_self_grammar():
+    """compile_reduce_pda succeeds on GBNF's own self-grammar and sets .reduce
+    to a ReduceRun bundling the flavour's own reducer."""
+    pda = _reduce_pda_for(GBNF_FLAVOUR)
+    assert isinstance(pda, PdaTables)
+    assert isinstance(pda.reduce, ReduceRun)
+    assert pda.reduce.reducer is GBNF_FLAVOUR.reducer
+
+
+def test_compile_reduce_pda_gbnf_start_rule_is_a_clone_not_an_island():
+    """GBNF's start rule ("grammar") is not itself an island — the start key
+    is a real CloneKey the predictive runtime can enter directly."""
+    pda = _reduce_pda_for(GBNF_FLAVOUR)
+    assert isinstance(pda.start_key, CloneKey)
+    assert pda.start_key.name == "grammar"
+
+
+def test_compile_reduce_pda_abnf_start_rule_is_an_island():
+    """ABNF's start rule ("rulelist") is itself an island — compile_reduce_pda
+    still succeeds (the whole-grammar None opt-out is compile.py's job, not
+    the compiler's), but the start key is an IslandRef marker.
+    """
+    pda = _reduce_pda_for(ABNF_FLAVOUR)
+    assert isinstance(pda.start_key, IslandRef)
+
+
+def test_every_reduce_clone_is_baked_build_reduce_never_a_model_mode():
+    """_reduce_rewrite retargets every reachable clone (named rule + inline
+    group) to _BUILD_REDUCE with a well-formed reduce_kind — the reduce
+    target skips the model-specific optimizer passes entirely.
+    """
+    pda = _reduce_pda_for(GBNF_FLAVOUR)
+    start = pda.program.start
+    assert isinstance(start, _FlatClone)  # not an IslandRef opt-out
+    for clone in _all_clones([start]):
+        assert clone.mode == _BUILD_REDUCE
+        assert clone.reduce_kind in (_R_KEEP, _R_DROP, _R_SPLICE)
+        assert clone.needs_ends is True
+
+
+# ── _reduce_rewrite / _bake_reduce (unit-level) ─────────────────────────
+
+
+def _bare_flat_clone() -> _FlatClone:
+    """An empty _FlatClone shell — the pre-bake state _flatten_program leaves
+    every clone in before its first pass fills mode/selectors/default."""
+    clone = _FlatClone.__new__(_FlatClone)
+    clone.selectors = ()
+    clone.default = None
+    clone.mode = _BUILD_TRANSPARENT  # placeholder, overwritten by _bake_reduce
+    return clone
+
+
+def test_reduce_rewrite_bakes_a_keep_completion_onto_its_own_clone():
+    """A clone whose key has a KEEP completion bakes body/is_yield/span/can_drop
+    verbatim off the ReduceComp — the exact _bake_reduce contract."""
+    key = CloneKey("root", CharSet.from_chars(""))
+    shell = _bare_flat_clone()
+    comp = ReduceComp(_R_KEEP, "sentinel-body", True, False, True)
+    _reduce_rewrite({key: shell}, {key: comp})
+    assert shell.mode == _BUILD_REDUCE
+    assert shell.reduce_kind == _R_KEEP
+    assert shell.reduce_body == "sentinel-body"
+    assert shell.reduce_is_yield is True
+    assert shell.reduce_span is False
+    assert shell.reduce_can_drop is True
+    assert shell.needs_ends is True
+    assert shell.fold is None
+    assert shell.fast is None
+
+
+def test_reduce_rewrite_bakes_a_drop_completion_onto_its_own_clone():
+    """A DROP-noise rule's clone bakes _R_DROP with no body."""
+    key = CloneKey("n", CharSet.from_chars(""))
+    shell = _bare_flat_clone()
+    comp = ReduceComp(_R_DROP, None, False, False, False)
+    _reduce_rewrite({key: shell}, {key: comp})
+    assert shell.reduce_kind == _R_DROP
+    assert shell.reduce_body is None
+
+
+def test_reduce_rewrite_defaults_a_clone_with_no_completion_to_splice():
+    """An inline group's shell never appears in ``completions`` (only named
+    rules do — groups are reached via a _OP_GRP payload, never a clone key
+    of their own) — _reduce_rewrite defaults it to SPLICE, flattening its
+    ordered children straight into the caller.
+    """
+    key = CloneKey("grp", CharSet.from_chars(""))
+    shell = _bare_flat_clone()
+    _reduce_rewrite({key: shell}, {})
+    assert shell.reduce_kind == _R_SPLICE
+    assert shell.reduce_body is None

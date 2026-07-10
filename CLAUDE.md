@@ -336,6 +336,14 @@ src/lexic/
       errors.py           PdaFail — the predictive-parse failure signal, homed in
                           a leaf module so runtime.py and islands.py share it
                           without a cycle; runtime re-exports it (260706 Task 2b)
+      reduce_pda.py       ReduceComp/ReduceRun/_ReduceCompile — the b1 reduce
+                          (grammar-text) completion, the twin of the model fold:
+                          a ReduceComp read straight off the reducer's compiled
+                          ReducePlan (H5, no re-derivation) that clones.py bakes.
+                          A leaf w.r.t. the clone compiler (imports flatten's
+                          _R_* runtime constants + earley reduce, never clones —
+                          clones imports these back); split out of clones.py for
+                          C0302 headroom (260706 unified-parse-engine, Task 4)
 
 tests/
   unit/lexic/           structural mirror of src/lexic/

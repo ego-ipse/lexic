@@ -74,12 +74,13 @@ user-facing diagnostics. It never surfaces to the caller.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrSelf
+from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrStr, IrTuple
+from lexic.parsing.earley.reduce import _DROP_KIND
 from lexic.parsing.fold import ModelFold, RuleFold
-from lexic.parsing.pda.clones import PdaTables
+from lexic.parsing.pda.clones import PdaTables, ReduceRun
 from lexic.parsing.pda.errors import PdaFail
 from lexic.parsing.pda.flatten import (
     _BUILD_DISPATCH,
@@ -99,6 +100,8 @@ from lexic.parsing.pda.flatten import (
     _OP_LIT1,
     _OP_REF1,
     _OP_VSTR,
+    _R_DROP,
+    _R_SPLICE,
     _FlatArm,
     _FlatClone,
 )
@@ -666,7 +669,9 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         A ``value_str`` frame slices its whole span, an ``alternation`` passes
         the first sub-model through, and a ``sequence`` binds each field to its
         item span or sub-model collection; a transparent frame builds nothing
-        (its children already funnelled to ``_F_OUT``).
+        (its children already funnelled to ``_F_OUT``). The grammar-text
+        (reducer) path overrides this in :class:`_ReducePdaKernel` — the model
+        kernel is unchanged, so its hot path carries no reduce branch.
         """
         self.stack.pop()
         mode = frame[_F_MODE]
@@ -813,15 +818,145 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         return fold.ctor(**kwargs)
 
 
+class _ReducePdaKernel(PdaKernel):
+    """The grammar-text (b1) twin of :class:`PdaKernel` — reducer completion.
+
+    Shares the whole recognition machinery (``run`` / ``_drive`` / ``_enter`` /
+    ``_quant_step`` / the terminal matchers) and only overrides the two
+    completion callbacks — :meth:`_complete` (feed the reducer's cleaned children
+    to its reduction ``body.eval``, no intermediate ParseTree) and
+    :meth:`_island` (reduce the windowed Earley sub-parse through the same
+    :class:`~lexic.parsing.earley.reduce.Reducer`). The model :class:`PdaKernel`
+    is therefore left byte-for-byte unchanged — its hot path carries no reduce
+    branch (the model-path perf guard). "One PDA compilation, one frame/island
+    stack; only the completion callback differs" (the plan's settled design).
+
+    :ivar reduce: The reduce runtime context (reducer, plan, tables, policy).
+    """
+
+    __slots__ = ("reduce",)
+
+    reduce: ReduceRun
+
+    def __init__(self, tables: PdaTables, text: str) -> None:
+        """Prepare a reduce parse; ``tables.reduce`` supplies the completion context.
+
+        :param tables: A reduce PDA (``tables.reduce`` is set).
+        :param text: The grammar-text input to parse.
+        """
+        super().__init__(tables, text, None)
+        self.reduce = cast(ReduceRun, tables.reduce)
+
+    def _complete(self, frame: list[Any]) -> None:
+        """Complete a reduce clone: evaluate its reduction body, splice, or drop.
+
+        A ``KEEP`` clone feeds the reducer's cleaned children
+        (:meth:`_reduce_parts`) to its reduction ``body.eval`` and reports the IR
+        to the caller; a ``SPLICE`` (inline group) flattens its ordered children
+        into the caller; a ``DROP`` (noise) clone contributes nothing. The b1
+        completion callback — the sole per-path difference from the model build.
+        """
+        clone = frame[_F_CLONE]
+        kind = clone.reduce_kind
+        self.stack.pop()
+        if kind == _R_DROP:
+            return
+        parts = self._reduce_parts(frame)
+        out = frame[_F_OUT]
+        if kind == _R_SPLICE:
+            out.extend(parts)
+            return
+        reducer = self.reduce.reducer
+        if clone.reduce_is_yield:
+            value: IrSelf = IrStr(self._reduce_span(frame))
+        else:
+            span = IrStr(self._reduce_span(frame)) if clone.reduce_span else IrNone
+            value = clone.reduce_body.eval(reducer, span, IrTuple(*parts))
+        out.append(value)
+
+    def _reduce_parts(self, frame: list[Any]) -> list[IrSelf]:
+        """The clone's cleaned children in source order (the ``nc`` channel).
+
+        Reconstructed from the frame's per-item ends + sinks: a terminal item
+        contributes its KEEP_RAW char leaves (dropped under a DROP literal
+        policy); a reference / group / island item contributes the captured
+        sub-results already collected in its sink (a DROP child left its sink
+        empty; a SPLICE group flattened its children in). The single home for the
+        cleaning policy is the compiled
+        :class:`~lexic.parsing.earley.reduce.ReducePlan` the clone baked from —
+        this reconstructs, it does not re-derive (H5).
+        """
+        arm = frame[_F_ARM]
+        ends = frame[_F_ENDS]
+        sinks = frame[_F_SINKS]
+        text = self.text
+        char_leaf = self.reduce.tables.char_leaf
+        lit_keep = self.reduce.literal_keep
+        parts: list[IrSelf] = []
+        prev = frame[_F_START]
+        for i in range(arm.n):
+            end = ends[i]
+            if arm.kinds[i] <= _OP_CC:  # terminal (LIT / CC) — KEEP_RAW leaves
+                if lit_keep and end > prev:
+                    parts.extend(char_leaf(c) for c in text[prev:end])
+            else:  # ref / group / island — captured sub-results
+                sub = sinks[i] if sinks else None
+                if sub:
+                    parts.extend(sub)
+            prev = end
+        return parts
+
+    def _reduce_span(self, frame: list[Any]) -> str:
+        """The clone's whole matched span (a YIELD rule's value).
+
+        :raises PdaFail: When a DROP-noise span is reachable beneath the rule —
+            the span is not one contiguous slice, so the parse defers to the
+            Earley fold (rare; the self-grammar's span rules are islands).
+        """
+        if frame[_F_CLONE].reduce_can_drop:
+            raise PdaFail(
+                "reduce: YIELD span over a droppable subtree — engine fallback"
+            )
+        return self.text[frame[_F_START] : self.pos]
+
+    def _island(self, name: str, sink: list[object]) -> None:
+        """Resolve an island reference on the reduce path: sub-parse, reduce, splice.
+
+        The windowed Earley sub-parse over the island rule's tables reduces
+        through the flavour's :class:`~lexic.parsing.earley.reduce.Reducer` (the
+        same fold the whole-input engine path runs) to IR, spliced into the
+        current children unless the island rule is DROP-noise.
+        """
+        run = self.reduce
+        tree, end = island_parse(
+            self.tables.island_tables(name), self.text, self.pos, name
+        )
+        reducer = run.reducer
+        value = reducer.eval(reducer, tree, ())
+        rid = run.name_to_rid.get(name)
+        if (
+            rid is None or run.plan.noise_kind[rid] != _DROP_KIND
+        ) and value is not None:
+            sink.append(value)
+        self.pos += end
+
+
 def parse_pda(tables: PdaTables, text: str, fold: ModelFold | None = None) -> object:
-    """Parse ``text`` to a model with the fused predictive runtime.
+    """Parse ``text`` with the fused predictive runtime — model or reduce.
+
+    On a reduce PDA (``tables.reduce`` set — the grammar-text path) the
+    :class:`_ReducePdaKernel` drives the reducer's bodies and returns an
+    ``IrAst``; otherwise :class:`PdaKernel` builds and returns a model.
 
     :param tables: The compiled predictive-parser tables.
     :param text: The input to parse.
-    :param fold: The full-grammar fold for splicing island sub-models; ``None``
-        (the island-free path) makes any island reference raise :class:`PdaFail`.
-    :returns: The start rule's model instance.
+    :param fold: The full-grammar fold for splicing island sub-models (model
+        path only); ``None`` (the island-free path) makes any island reference
+        raise :class:`PdaFail`.
+    :returns: The start rule's model instance, or (reduce PDA) its ``IrAst``.
     :raises PdaFail: On any deterministic-parse failure (caught by the compile
         seam, which retries on the full engine).
     """
+    if tables.reduce is not None:
+        return _ReducePdaKernel(tables, text).run()
     return PdaKernel(tables, text, fold).run()

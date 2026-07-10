@@ -20,8 +20,10 @@ from lexic.compile import (
     compile_text,
     parse_grammar,
     reset_cache_for_tests,
+    self_grammar_pda,
 )
 from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.flavour import IrFlavour
@@ -29,6 +31,7 @@ from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
 from lexic.parsing import ParserTables, parse_first
 from lexic.parsing.fold import ModelFold
+from lexic.parsing.pda.clones import PdaTables
 from tests.paths import GENERATED, GROUND_TRUTH
 
 
@@ -541,4 +544,52 @@ def test_normalized_grammar_memo_is_reused_across_parse_calls(monkeypatch):
     count_after_first = len(calls)
     canonical_grammar('root ::= "y"\n', GBNF_FLAVOUR)
 
+    assert len(calls) == count_after_first
+
+
+# ── self_grammar_pda ──
+
+
+def test_self_grammar_pda_builds_for_gbnf():
+    """GBNF's self-grammar compiles to a real reduce PDA (its start rule,
+    "grammar", is not itself an island)."""
+    pda = self_grammar_pda(GBNF_FLAVOUR)
+    assert isinstance(pda, PdaTables)
+    assert pda.reduce is not None
+
+
+def test_self_grammar_pda_is_none_for_abnf():
+    """ABNF's start rule ("rulelist") is itself an island — the whole-grammar
+    opt-out — so self_grammar_pda returns None rather than a PDA whose start
+    can never be predictively entered."""
+    assert self_grammar_pda(ABNF_FLAVOUR) is None
+
+
+def test_self_grammar_pda_is_cached_per_flavour_name():
+    """A second call for the same flavour returns the identical PdaTables
+    object — no recompilation."""
+    first = self_grammar_pda(GBNF_FLAVOUR)
+    second = self_grammar_pda(GBNF_FLAVOUR)
+    assert first is second
+
+
+def test_self_grammar_pda_none_result_is_cached_too(monkeypatch):
+    """The None opt-out result is itself memoised: a second call for the same
+    (island-start) flavour never recompiles — mirrors
+    ``test_normalized_grammar_memo_is_reused_across_parse_calls``'s spy idiom.
+    """
+    calls: list[object] = []
+    original_compile_reduce_pda = compile_module.compile_reduce_pda
+
+    def spy(lifted, instance_grammar, reducer):
+        calls.append(lifted)
+        return original_compile_reduce_pda(lifted, instance_grammar, reducer)
+
+    monkeypatch.setattr(compile_module, "compile_reduce_pda", spy)
+
+    self_grammar_pda(ABNF_FLAVOUR)
+    count_after_first = len(calls)
+    result = self_grammar_pda(ABNF_FLAVOUR)
+
+    assert result is None
     assert len(calls) == count_after_first

@@ -74,7 +74,12 @@ from lexic.parsing.fold import (
     collapsed_fold_tables,
     lift_optional_nullables,
 )
-from lexic.parsing.pda.clones import IslandRef, PdaTables, compile_pda
+from lexic.parsing.pda.clones import (
+    IslandRef,
+    PdaTables,
+    compile_pda,
+    compile_reduce_pda,
+)
 from lexic.parsing.pda.runtime import PdaFail, parse_pda
 
 
@@ -145,10 +150,52 @@ _CACHE: dict[Hashable, CompiledGrammar] = {}
 
 _NORM_GRAMMAR_CACHE: dict[str, IrAst] = {}
 
+_SELF_PDA_CACHE: dict[str, PdaTables | None] = {}
+
 
 def reset_cache_for_tests() -> None:
     """Public test seam: clear the compile cache."""
     _CACHE.clear()
+
+
+def self_grammar_pda(flavour: IrFlavour) -> PdaTables | None:
+    """The flavour's self-grammar reduce PDA (grammar-text path), cached per name.
+
+    Compiles a predictive PDA for ``flavour.grammar`` whose completion feeds the
+    flavour's :class:`~lexic.parsing.earley.reduce.Reducer` bodies (b1 — no
+    intermediate ParseTree), over the reducer's *own* grammar (``flavour.grammar``
+    lifted + normalised, so rule names match the reducer's reductions — never the
+    codegen-hoisted shape). ``None`` on a whole-grammar opt-out — an unsupported
+    construct, or a start rule that is itself an island (ABNF ``rulelist`` today).
+
+    This is the grammar-text speedup's capability, **wired but not routed**:
+    :func:`parse_grammar` stays Earley-routed (the flip is a later gated act).
+    Building it here proves the b1 capture end-to-end (island splices reduce
+    through the same :class:`Reducer`); flavours whose start rule is an island
+    return ``None`` and stay on the engine path.
+
+    :param flavour: The grammar flavour.
+    :returns: The compiled reduce :class:`PdaTables`, or ``None`` on an opt-out.
+    """
+    key = flavour.name
+    if key in _SELF_PDA_CACHE:
+        return _SELF_PDA_CACHE[key]
+    reducer = flavour.reducer
+    if not isinstance(reducer, Reducer):
+        raise UnsupportedConstructError(
+            f"compile: flavour {flavour.name!r} carries no parse Reducer"
+        )
+    lifted = lift_optional_nullables(flavour.grammar)
+    instance_grammar = normalize(lifted)
+    try:
+        pda: PdaTables | None = compile_reduce_pda(lifted, instance_grammar, reducer)
+    except UnsupportedConstructError:
+        pda = None
+    else:
+        if isinstance(pda.start_key, IslandRef):
+            pda = None  # start rule is itself an island — whole-grammar opt-out
+    _SELF_PDA_CACHE[key] = pda
+    return pda
 
 
 def _normalized_grammar(flavour: IrFlavour) -> IrAst:

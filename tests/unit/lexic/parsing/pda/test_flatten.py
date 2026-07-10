@@ -24,6 +24,7 @@ from lexic.parsing.pda.clones import IslandRef
 from lexic.parsing.pda.flatten import (
     _BUILD_ALT,
     _BUILD_DISPATCH,
+    _BUILD_REDUCE,
     _BUILD_SEQ,
     _BUILD_TRANSPARENT,
     _BUILD_VALUE_STR,
@@ -46,6 +47,9 @@ from lexic.parsing.pda.flatten import (
     _OP_REF,
     _OP_REF1,
     _OP_VSTR,
+    _R_DROP,
+    _R_KEEP,
+    _R_SPLICE,
     _TERMINAL_OPS,
     PdaProgram,
     _FlatArm,
@@ -102,15 +106,22 @@ def test_gate_codes_are_distinct():
 
 
 def test_build_mode_codes_are_pairwise_distinct():
-    """Every clone build-mode (including dispatch) is a distinct int."""
+    """Every clone build-mode (including dispatch and reduce) is a distinct int."""
     modes = [
         _BUILD_TRANSPARENT,
         _BUILD_VALUE_STR,
         _BUILD_ALT,
         _BUILD_SEQ,
         _BUILD_DISPATCH,
+        _BUILD_REDUCE,
     ]
     assert len(modes) == len(set(modes))
+
+
+def test_reduce_completion_kinds_are_pairwise_distinct():
+    """The reduce completion kinds (KEEP/DROP/SPLICE) are distinct ints."""
+    kinds = [_R_KEEP, _R_DROP, _R_SPLICE]
+    assert len(kinds) == len(set(kinds))
 
 
 def test_mode_code_matches_bind_modes_order():
@@ -147,6 +158,8 @@ def test_flatclone_declares_exactly_the_selector_and_fold_build_fields():
     """_FlatClone carries exactly the arm-selector + fold/build fields, no extras."""
     expected = {"selectors", "default", "mode", "fold", "fields"}
     expected |= {"fast", "defaults", "leaf", "needs_ends"}
+    expected |= {"reduce_kind", "reduce_body", "reduce_is_yield"}
+    expected |= {"reduce_span", "reduce_can_drop"}
     assert set(_FlatClone.__slots__) == expected
 
 
