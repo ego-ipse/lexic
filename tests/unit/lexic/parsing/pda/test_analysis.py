@@ -154,8 +154,8 @@ def _self_grammar_analysis(name: str) -> GrammarAnalysis:
 @pytest.mark.parametrize(
     ("factory", "expected_count"),
     [
-        (lambda: _self_grammar_analysis("gbnf"), 8),
-        (lambda: _self_grammar_analysis("abnf"), 7),
+        (lambda: _self_grammar_analysis("gbnf"), 7),
+        (lambda: _self_grammar_analysis("abnf"), 4),
         (lambda: _lifted_analysis("json.gbnf"), 0),
         (lambda: _lifted_analysis("chess.gbnf"), 0),
     ],
@@ -163,12 +163,17 @@ def _self_grammar_analysis(name: str) -> GrammarAnalysis:
 )
 def test_island_counts_match_the_coverage_map(factory, expected_count):
     """The island counts sit exactly where the coverage map put them:
-    GBNF-self 17→8 (P2: cc-esc family k2 ×8 + cc-neg k3), ABNF-self 9→7
-    (P2: defined/element k2), chess 1→0 (P2: nonpawn k3), json 4→0 (P6:
-    ``ws`` noise-greedy; P3: ``value``/``array-item2``/``object-item2``
-    noise-skip). The GBNF/ABNF spine's P3 decisions need the folding-aware
-    comment scanner (their noise includes ``#``/``;`` comments, which poison
-    the char-set residual FIRST) — that extension rides the P5 probe work."""
+    GBNF-self 17→8→7 (P2: cc-esc family k2 ×8 + cc-neg k3; P4: left-factoring
+    ``quantifier`` into ``q-counted``/``q-tail`` removes the ``quantifier``
+    island — alternation, cc-first, cc-item, cc-nfirst, n, quant-opt, sequence
+    remain), ABNF-self 9→7→4 (P2: defined/element k2; P4: left-factoring
+    ``repeat``, ``num-val``, ``cvbody`` removes their islands — alternation,
+    concatenation, rule, rulelist remain), chess 1→0 (P2: nonpawn k3), json
+    4→0 (P6: ``ws`` noise-greedy; P3: ``value``/``array-item2``/
+    ``object-item2`` noise-skip). The GBNF/ABNF spine's P3 decisions need the
+    folding-aware comment scanner (their noise includes ``#``/``;`` comments,
+    which poison the char-set residual FIRST) — that extension rides the P5
+    probe work."""
     assert len(factory().islands) == expected_count
 
 

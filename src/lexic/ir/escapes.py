@@ -12,6 +12,8 @@ from abc import ABC
 from functools import cache
 from typing import ClassVar
 
+from lexic.exceptions import UnsupportedConstructError
+
 
 class EscapeCodec(ABC):
     """Generic encode/decode/read_escape algorithms parameterised by tables."""
@@ -22,6 +24,15 @@ class EscapeCodec(ABC):
     HEX_ESCAPES: ClassVar[tuple[tuple[str, int], ...]] = ()
     """Hex tag chars + digit counts.  e.g. (("x", 2), ("u", 4), ("U", 8))"""
 
+    CLASS_SHORT: ClassVar[dict[int, str]] = {}
+    """Code point → its short spelling inside a bracket class."""
+
+    CLASS_META: ClassVar[frozenset[str]] = frozenset()
+    """Characters that take a backslash inside a bracket class."""
+
+    QUOTE_SAFE: ClassVar[tuple[tuple[int, int], ...]] = ()
+    """Inclusive code-point ranges spellable inside the quoted literal form."""
+
     def decode(self, source: str) -> str:
         """Decode a flavour-text source string into canonical Python."""
         return self._decode_re().sub(self._replace, source)
@@ -30,6 +41,40 @@ class EscapeCodec(ABC):
         """Encode canonical Python into the flavour's escape syntax."""
         table = self._encode_table()
         return "".join(table.get(c, c) for c in value)
+
+    def encode_point(self, cp: int) -> str:
+        """Spell one code point for safe use inside a bracket class.
+
+        The emit-side inverse of the class-escape reduce rules: the
+        :data:`CLASS_SHORT` spelling first, a backslash before a
+        :data:`CLASS_META` character, the bare glyph when printable, then the
+        narrowest :data:`HEX_ESCAPES` form that fits.
+
+        :param cp: The code point to spell.
+        :returns: The class-safe member text.
+        :raises UnsupportedConstructError: If no hex form is wide enough.
+        """
+        if cp in self.CLASS_SHORT:
+            return self.CLASS_SHORT[cp]
+        ch = chr(cp)
+        if ch in self.CLASS_META:
+            return "\\" + ch
+        if ch.isprintable():
+            return ch
+        for tag, width in self.HEX_ESCAPES:
+            if cp < 16**width:
+                return f"\\{tag}{cp:0{width}x}"
+        raise UnsupportedConstructError(
+            f"{type(self).__name__}: no hex escape fits code point {cp:#x}"
+        )
+
+    def spellable(self, text: str) -> bool:
+        """Whether every character fits the quoted literal form.
+
+        :param text: The candidate literal text.
+        :returns: True when each code point falls in a :data:`QUOTE_SAFE` range.
+        """
+        return all(any(lo <= ord(c) <= hi for lo, hi in self.QUOTE_SAFE) for c in text)
 
     def read_escape(self, source: str, i: int) -> tuple[str, int]:
         """Parse one escape starting at source[i] == '\\'.  Returns (char, new_i)."""

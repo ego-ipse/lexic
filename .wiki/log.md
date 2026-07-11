@@ -6,6 +6,16 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-11 — Task 6.5 (unified-parse-engine): P4 self-grammar left-factor lands, def-free
+
+Left-factored the two owned self-grammars at author level, grammar + reductions co-edited: GBNF `quantifier` (arms `q-opt|q-star|q-plus|q-counted`; `q-counted -> "{" decits q-tail`, tail rules `"}"` / `",}"` / `"," decits "}"`), ABNF `repeat` (`repeat-num (decits repeat-tail) | repeat-nolo`), `num-val` (per-radix `num-x|num-d|num-b`, each `"%" mark hexits <tail>`), `cvbody` (`cvnac* (cvalpha cvany*)?` — an inline optional group, the first in an authored self-grammar; its synthetic splices case items flat into the channel). Deleted: `q-exact/q-atleast/q-between`, `repeat-exact/repeat-range/lo-bound`, `num-single/num-range/num-seq/dec-*/bin-*`, `cvexp/cvlit`.
+
+**Folds are pure algebra** (user ruling — a first attempt with six `IrLambda` handlers was rejected and rewritten): tail rules reduce to type-distinct markers, parents branch via `IrPipe(IrArg(i), IrTypeMap(...))`; `cvbody` dispatches on `IrArg(-1)` with `IrSequence` coercion lifting the lead `IrLiteral`s to per-char items. See [[decisions]] 2026-07-11 (pure-algebra ruling).
+
+**Gates:** GT `parse_grammar` IrAst **byte-parity vs pre-task HEAD** (all ten GT files; `parity_65.py` + captured baseline in the plan dir); self-host + canonical fixpoints both flavours; islands exactly per coverage map — **GBNF-self 8→7** (`quantifier` out), **ABNF-self 7→4** (`repeat`, `num-val`, `cvbody` out), json/chess 0, no new islands (the factored tails demote via the standing P2 k-window gates); instance perf untouched (structurally: byte-identical canonical grammar; measured: json 0.205 ms, chess 0.059 ms pure-PDA). run_checks EXIT 0; 4 test-pin ports (deleted-rule fixtures + island counts) to the Sonnet lane. Residual ABNF islands (`alternation`/`concatenation`/`rule`/`rulelist`) are exactly the 6.6/P5 targets.
+
+---
+
 ## 2026-07-11 — Task 6.4 (unified-parse-engine): P6 + P3 land, json island-free (16×), P2 flag deleted
 
 **Cleanup:** `P2_DEMOTION_ENABLED` deleted entirely (user directive: no legacy staging seams pre-v1) — demotion is unconditional; the flag-OFF A/B tests died with their symbol. `DELEGATES_ENABLED` kept deliberately (the standing delegation A/B gate) and marked for Task-8 consolidation.

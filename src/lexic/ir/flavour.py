@@ -17,7 +17,7 @@ from abc import ABC
 from typing import ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrStr
+from lexic.ir.base import IrInt, IrLeaf, IrNone, IrSelf, IrStr
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch, IrEmitter
@@ -53,6 +53,69 @@ class IrEscape(IrLeaf[IrSelf, IrStr]):
                 f"IrEscape: cannot encode non-string node {type(n).__name__}"
             )
         return IrStr(codec.encode(n))
+
+
+class IrEscapePoint(IrLeaf[IrSelf, IrStr]):
+    """Spell the focus code point through the **dispatcher's** codec,
+    bracket-class context.
+
+    The class-member sibling of :class:`IrEscape`: same fieldless shape, same
+    codec-via-``d`` flow, but the focus is an integer code point (an
+    ``IrChr``/``IrInt`` leaf) and the spelling rules are the codec's
+    class-context tables (``CLASS_SHORT``/``CLASS_META`` + hex fallback).
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrStr:
+        """Return ``IrStr(d.escapes.encode_point(int(n)))``.
+
+        :param d: Dispatcher; must carry an ``escapes`` :class:`EscapeCodec`.
+        :param n: The code-point leaf to spell.
+        :param _nc: Pre-walked children (unused).
+        :returns: The class-safe member text as an :class:`IrStr`.
+        :raises UnsupportedConstructError: If ``d`` carries no escape codec or
+            ``n`` is not an integer code point.
+        """
+        codec = getattr(d, "escapes", IrNone)
+        if not isinstance(codec, EscapeCodec):
+            raise UnsupportedConstructError(
+                f"IrEscapePoint: dispatcher {type(d).__name__} carries no codec"
+            )
+        if not isinstance(n, int):
+            raise UnsupportedConstructError(
+                f"IrEscapePoint: focus must be a code point, got {type(n).__name__!r}"
+            )
+        return IrStr(codec.encode_point(int(n)))
+
+
+class IrSpellable(IrLeaf[IrSelf, IrInt]):
+    """Truth test — does the focus str-leaf fit the **dispatcher's** quoted
+    literal form?
+
+    Reads the codec via ``d`` like :class:`IrEscape` and applies its
+    ``QUOTE_SAFE`` ranges; the natural :class:`~lexic.ir.action.IrCond` test
+    for a quoted-form-vs-numeric-fallback emit branch.
+    """
+
+    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrInt:
+        """Return ``IrInt(d.escapes.spellable(str(n)))``.
+
+        :param d: Dispatcher; must carry an ``escapes`` :class:`EscapeCodec`.
+        :param n: The str-leaf whose text to test.
+        :param _nc: Pre-walked children (unused).
+        :returns: ``IrInt(1)`` when every character is spellable, else ``IrInt(0)``.
+        :raises UnsupportedConstructError: If ``d`` carries no escape codec or
+            ``n`` is not a str-leaf.
+        """
+        codec = getattr(d, "escapes", IrNone)
+        if not isinstance(codec, EscapeCodec):
+            raise UnsupportedConstructError(
+                f"IrSpellable: dispatcher {type(d).__name__} carries no codec"
+            )
+        if not isinstance(n, str):
+            raise UnsupportedConstructError(
+                f"IrSpellable: focus must be a str-leaf, got {type(n).__name__!r}"
+            )
+        return IrInt(codec.spellable(n))
 
 
 class IrFlavour(IrEmitter, ABC):

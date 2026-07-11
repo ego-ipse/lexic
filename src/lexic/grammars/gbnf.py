@@ -15,7 +15,7 @@ this file be completely auto-generated.
 
 from __future__ import annotations
 
-from typing import ClassVar, cast
+from typing import ClassVar
 
 from lexic.ir.action import (
     IrAction,
@@ -36,11 +36,11 @@ from lexic.ir.action import (
     IrJoin,
     IrPipe,
     IrRaise,
+    IrThis,
     IrUnradix,
 )
 from lexic.ir.base import (
     IrInt,
-    IrLambda,
     IrNone,
     IrNoneType,
     IrSelf,
@@ -49,7 +49,7 @@ from lexic.ir.base import (
     IrTuple,
 )
 from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrEscape, IrFlavour
+from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -69,10 +69,12 @@ from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
 
 class _GbnfEscapes(EscapeCodec):
-    """GBNF escape tables for quoted string literals."""
+    """GBNF escape tables — quoted string literals + bracket-class members."""
 
     SHORT_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
     HEX_ESCAPES = (("x", 2), ("u", 4), ("U", 8))
+    CLASS_SHORT = {0x0A: "\\n", 0x09: "\\t", 0x0D: "\\r"}
+    CLASS_META = frozenset("\\]-^")
 
 
 GBNF_ESCAPES = _GbnfEscapes()
@@ -122,49 +124,6 @@ same forms the other way (digit runs via :class:`IrUnradix`).
 """
 
 
-_CC_SHORT: dict[int, str] = {ord("\n"): "\\n", ord("\t"): "\\t", ord("\r"): "\\r"}
-"""Code points GBNF spells with a short escape inside a class."""
-
-_CC_META = frozenset("\\]-^")
-"""Class metacharacters that must be backslash-escaped inside ``[...]``."""
-
-
-def _escape_cc_point(cp: int) -> str:
-    """Spell one code point for safe use inside a GBNF ``[...]`` class.
-
-    The emit-side inverse of the ``ccesc-*``/``cchex*`` reduce rules: short
-    escapes for ``\\n``/``\\t``/``\\r``, a backslash before a class metacharacter
-    (``\\``/``]``/``-``/``^``), a ``\\xNN``/``\\uNNNN``/``\\UNNNNNNNN`` hex form for
-    a non-printable point, and the bare glyph otherwise.
-
-    :param cp: The code point to spell.
-    :returns: The class-safe member text.
-    """
-    if cp in _CC_SHORT:
-        return _CC_SHORT[cp]
-    ch = chr(cp)
-    if ch in _CC_META:
-        return "\\" + ch
-    if ch.isprintable():
-        return ch
-    if cp <= 0xFF:
-        return f"\\x{cp:02x}"
-    if cp <= 0xFFFF:
-        return f"\\u{cp:04x}"
-    return f"\\U{cp:08x}"
-
-
-def _emit_cc_chr(_d: IrSelf, n: IrSelf, _nc: object) -> IrLiteral:
-    """Render a single ``IrChr`` class member with class-context escaping."""
-    return IrLiteral(_escape_cc_point(int(cast(int, n))))
-
-
-def _emit_cc_range(_d: IrSelf, n: IrSelf, _nc: object) -> IrLiteral:
-    """Render an ``IrRange`` as ``lo-hi``, each endpoint class-escaped."""
-    rng = cast(IrRange, n)
-    return IrLiteral(f"{_escape_cc_point(int(rng.lo))}-{_escape_cc_point(int(rng.hi))}")
-
-
 GBNF_ACTIONS = IrTypeMap(
     IrAction(
         IrLiteral,
@@ -186,9 +145,19 @@ GBNF_ACTIONS = IrTypeMap(
     ),
     # Class members escape per GBNF class-context rules (mirrors ccesc-*/cchex*
     # on the reduce side): a raw glyph would let '\', ']', '-' corrupt the class
-    # on reparse. IrChr wins over the bare-IrStr run leaf by MRO.
-    IrAction(IrRange, IrLambda(_emit_cc_range)),
-    IrAction(IrChr, IrLambda(_emit_cc_chr)),
+    # on reparse. The codec's CLASS_SHORT/CLASS_META tables carry the data;
+    # IrEscapePoint reaches them via the dispatcher, like IrEscape.
+    IrAction(
+        IrRange,
+        IrConcat(
+            parts=IrTuple(
+                IrPipe(IrField("lo", IrInt), IrEscapePoint()),
+                IrLiteral("-"),
+                IrPipe(IrField("hi", IrInt), IrEscapePoint()),
+            )
+        ),
+    ),
+    IrAction(IrChr, IrEscapePoint()),
     # Bare IrStr: the run leaf inside a class — encoded units emit verbatim.
     # Concrete str-leaves (IrLiteral/IrRuleRef) win by MRO.
     IrAction(IrStr, IrEmit()),
@@ -570,9 +539,7 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("q-opt"))),
                 IrSequence(IrItem(IrRuleRef("q-star"))),
                 IrSequence(IrItem(IrRuleRef("q-plus"))),
-                IrSequence(IrItem(IrRuleRef("q-exact"))),
-                IrSequence(IrItem(IrRuleRef("q-atleast"))),
-                IrSequence(IrItem(IrRuleRef("q-between"))),
+                IrSequence(IrItem(IrRuleRef("q-counted"))),
             ),
         ),
         IrRule(
@@ -640,35 +607,16 @@ GBNF_GRAMMAR = IrAst(
         IrRule("q-opt", IrAlternation(IrSequence(IrItem(IrLiteral("?"))))),
         IrRule("q-star", IrAlternation(IrSequence(IrItem(IrLiteral("*"))))),
         IrRule("q-plus", IrAlternation(IrSequence(IrItem(IrLiteral("+"))))),
+        # Left-factored counted forms: the shared `{ decits` prefix is consumed
+        # once, then `q-tail` decides the arm (`}` exact / `,}` at-least / `,`
+        # decits `}` between) — so `quantifier`'s four arms separate at k=1.
         IrRule(
-            "q-exact",
+            "q-counted",
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("{")),
                     IrItem(IrRuleRef("decits")),
-                    IrItem(IrLiteral("}")),
-                )
-            ),
-        ),
-        IrRule(
-            "q-atleast",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("{")),
-                    IrItem(IrRuleRef("decits")),
-                    IrItem(IrLiteral(",}")),
-                )
-            ),
-        ),
-        IrRule(
-            "q-between",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("{")),
-                    IrItem(IrRuleRef("decits")),
-                    IrItem(IrLiteral(",")),
-                    IrItem(IrRuleRef("decits")),
-                    IrItem(IrLiteral("}")),
+                    IrItem(IrRuleRef("q-tail")),
                 )
             ),
         ),
@@ -775,6 +723,17 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)))
             ),
         ),
+        # The counted-quantifier tail after the shared `{ decits` prefix: `}`
+        # (exact) / `,}` (at-least) / `,` decits `}` (between). `q-exact-t`
+        # separates at k=1; `q-atleast-t` vs `q-between-t` at k=2 (`}` vs digit).
+        IrRule(
+            "q-tail",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("q-exact-t"))),
+                IrSequence(IrItem(IrRuleRef("q-atleast-t"))),
+                IrSequence(IrItem(IrRuleRef("q-between-t"))),
+            ),
+        ),
         IrRule(
             "hexch",
             IrAlternation(
@@ -836,6 +795,18 @@ GBNF_GRAMMAR = IrAst(
             "digit",
             IrAlternation(
                 IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))))
+            ),
+        ),
+        IrRule("q-exact-t", IrAlternation(IrSequence(IrItem(IrLiteral("}"))))),
+        IrRule("q-atleast-t", IrAlternation(IrSequence(IrItem(IrLiteral(",}"))))),
+        IrRule(
+            "q-between-t",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral(",")),
+                    IrItem(IrRuleRef("decits")),
+                    IrItem(IrLiteral("}")),
+                )
             ),
         ),
         IrRule(
@@ -950,6 +921,20 @@ _HEX_GLYPH = IrPipe(IrPipe(IrJoin(IrArgs()), IrUnradix(16, IrInt)), IrGlyph())
 _DEC_INT = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
 """Joined decimal digit-run args -> an ``IrInt`` bound."""
 
+_Q_MIRROR = IrStr("=")
+"""``q-exact-t`` marker: the ``{n}`` upper bound mirrors ``lo``."""
+
+_Q_LO = IrPipe(IrArg(0), IrUnradix(10, IrInt))
+"""The counted form's shared ``{n`` digit-run arg decoded to the lower bound."""
+
+_Q_HI = IrTypeMap(
+    IrAction(IrInt, IrThis()),
+    IrAction(IrNoneType, IrThis()),
+    IrAction(IrStr, _Q_LO),
+)
+"""Counted-tail marker → the upper bound: a decoded ``{m,n}`` bound or the open
+``{n,}`` ``IrNone`` rides through; the ``_Q_MIRROR`` sentinel mirrors ``lo``."""
+
 GBNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(
         IrRuleRef("grammar"),
@@ -984,23 +969,13 @@ GBNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("q-star"), IrBuild(IrQuantifier, IrTuple(IrInt(0), IrNone))),
     IrTuple(IrRuleRef("q-plus"), IrBuild(IrQuantifier, IrTuple(IrInt(1), IrNone))),
     IrTuple(
-        IrRuleRef("q-exact"),
-        IrBuild(IrQuantifier, IrTuple(_DEC_INT, _DEC_INT)),
+        IrRuleRef("q-counted"),
+        IrBuild(IrQuantifier, IrTuple(_Q_LO, IrPipe(IrArg(1), _Q_HI))),
     ),
-    IrTuple(
-        IrRuleRef("q-atleast"),
-        IrBuild(IrQuantifier, IrTuple(_DEC_INT, IrNone)),
-    ),
-    IrTuple(
-        IrRuleRef("q-between"),
-        IrBuild(
-            IrQuantifier,
-            IrTuple(
-                IrPipe(IrArg(0), IrUnradix(10, IrInt)),
-                IrPipe(IrArg(1), IrUnradix(10, IrInt)),
-            ),
-        ),
-    ),
+    IrTuple(IrRuleRef("q-tail"), IrArg(0)),
+    IrTuple(IrRuleRef("q-exact-t"), _Q_MIRROR),
+    IrTuple(IrRuleRef("q-atleast-t"), IrNone),
+    IrTuple(IrRuleRef("q-between-t"), _DEC_INT),
     IrTuple(IrRuleRef("decits"), IrJoin(IrArgs())),
     # ── literal assembly ──────────────────────────────────────────────
     IrTuple(IrRuleRef("literal"), IrBuild(IrLiteral, IrTuple(IrJoin(IrArgs())))),

@@ -69,7 +69,7 @@ keeps the module large.
 from __future__ import annotations
 
 import string
-from typing import ClassVar, cast
+from typing import ClassVar
 
 from lexic.ir.action import (
     IrAction,
@@ -81,19 +81,24 @@ from lexic.ir.action import (
     IrCompare,
     IrConcat,
     IrCond,
+    IrEach,
     IrEmit,
     IrField,
     IrGlyph,
     IrIsA,
     IrJoin,
+    IrLen,
+    IrMerge,
+    IrOrd,
     IrPipe,
+    IrRadix,
     IrRaise,
+    IrThis,
     IrUnradix,
 )
 from lexic.ir.base import (
     IrChr,
     IrInt,
-    IrLambda,
     IrNone,
     IrNoneType,
     IrSelf,
@@ -102,7 +107,7 @@ from lexic.ir.base import (
     IrTuple,
 )
 from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
+from lexic.ir.flavour import IrFlavour, IrSpellable
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -121,10 +126,12 @@ from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
 
 class _AbnfEscapes(EscapeCodec):
-    """Identity codec — ABNF literals are canonical Python."""
+    """Identity codec — ABNF literals are canonical Python; the quoted
+    char-val body admits printable ASCII except the double quote (RFC 7405)."""
 
     SHORT_ESCAPES: ClassVar[dict[str, str]] = {}
     HEX_ESCAPES: ClassVar[tuple[tuple[str, int], ...]] = ()
+    QUOTE_SAFE: ClassVar[tuple[tuple[int, int], ...]] = ((0x20, 0x21), (0x23, 0x7E))
 
 
 ABNF_ESCAPES = _AbnfEscapes()
@@ -172,60 +179,56 @@ predicates; pulling the two specials out collapses its inner branches.
 """
 
 
-def _abnf_charclass(_d, n, _nc) -> IrStr:
-    """Render a structured char class as ABNF hex atom(s)/range(s).
-
-    One ``%xNN-MM`` per :class:`IrRange` element; one ``%xNN`` per single
-    :class:`~lexic.ir.base.IrChr` code point; parenthesised alternation when
-    more than one atom results.
-    """
-    rendered: list[str] = []
-    for element in n:
-        if isinstance(element, IrRange):
-            rendered.append(f"%x{int(element.lo):02X}-{int(element.hi):02X}")
-        else:
-            rendered.append(f"%x{int(element):02X}")
-    if len(rendered) == 1:
-        return IrStr(rendered[0])
-    return IrStr("(" + " / ".join(rendered) + ")")
-
-
-def _cv_spellable(char: str) -> bool:
-    """True when ``char`` fits an ABNF ``char-val`` body (RFC 7405).
-
-    A ``char-val`` body admits printable ASCII except the double quote
-    (``%x20-21`` / ``%x23-7E``); anything else — the quote, control code
-    points, or non-ASCII — cannot be spelled between the quotes.
-
-    :param char: A single character.
-    :returns: Whether it is char-val-spellable.
-    """
-    return 0x20 <= ord(char) <= 0x7E and char != '"'
-
-
-def _abnf_literal(_d, n, _nc) -> IrStr:
-    """Render a canonical (case-sensitive) :class:`IrLiteral` as ABNF.
-
-    A literal whose characters are all char-val-spellable emits as an RFC 7405
-    case-sensitive char-val (``%s"..."``) so it round-trips without the vanilla
-    char-val case folding. Any literal holding a quote, a control point, or a
-    non-ASCII character falls back to ``%x`` num-val — ``%xNN`` for one code
-    point, dot-joined ``%xNN.NN`` (num-seq) for several — which the reducer
-    decodes back to the identical case-sensitive literal.
-
-    :param n: The :class:`IrLiteral` being emitted.
-    :returns: The ABNF spelling.
-    """
-    text = str(n)
-    if all(_cv_spellable(char) for char in text):
-        return IrStr(f'%s"{text}"')
-    body = ".".join(f"{ord(char):02X}" for char in text)
-    return IrStr(f"%x{body}")
-
-
 ABNF_ACTIONS = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_abnf_literal)),
-    IrAction(IrCharClass, IrLambda(_abnf_charclass)),
+    # A literal whose characters all fit the codec's QUOTE_SAFE ranges emits
+    # as an RFC 7405 case-sensitive char-val (%s"...") — no case folding on
+    # reparse; anything else (quote, control point, non-ASCII) falls back to
+    # %x num-val, dot-joined per code point (num-seq), which the reducer
+    # decodes back to the identical case-sensitive literal.
+    IrAction(
+        IrLiteral,
+        IrCond(
+            test=IrSpellable(),
+            then_op=IrConcat(parts=IrTuple(IrLiteral('%s"'), IrEmit(), IrLiteral('"'))),
+            else_op=IrConcat(
+                parts=IrTuple(
+                    IrLiteral("%x"),
+                    IrJoin(
+                        parts=IrEach(IrPipe(IrOrd(), IrRadix(16, 2))),
+                        separator=IrLiteral("."),
+                    ),
+                )
+            ),
+        ),
+    ),
+    # One %xNN / %xNN-MM per class element (the IrChr/IrRange actions below);
+    # a single element emits bare, several parenthesise as an alternation.
+    IrAction(
+        IrCharClass,
+        IrCond(
+            test=IrCompare(IrLen(), IrOp("=="), IrInt(1)),
+            then_op=IrJoin(parts=IrChildren()),
+            else_op=IrConcat(
+                parts=IrTuple(
+                    IrLiteral("("),
+                    IrJoin(parts=IrChildren(), separator=IrLiteral(" / ")),
+                    IrLiteral(")"),
+                )
+            ),
+        ),
+    ),
+    IrAction(IrChr, IrConcat(parts=IrTuple(IrLiteral("%x"), IrRadix(16, 2)))),
+    IrAction(
+        IrRange,
+        IrConcat(
+            parts=IrTuple(
+                IrLiteral("%x"),
+                IrPipe(IrField("lo", IrInt), IrRadix(16, 2)),
+                IrLiteral("-"),
+                IrPipe(IrField("hi", IrInt), IrRadix(16, 2)),
+            )
+        ),
+    ),
     # ABNF has no native negation — strict declarative refusal.
     IrAction(
         IrNot,
@@ -547,11 +550,15 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("prose"))),
             ),
         ),
+        # Left-factored: `repeat-num` consumes the leading digit run once, then
+        # `repeat-tail` decides exact (`""`) vs range (`"*" hi-bound`); the
+        # no-lower-bound `"*" hi-bound` form is `repeat-nolo`. `repeat`'s two
+        # arms separate at k=1 (digit vs `*`).
         IrRule(
             "repeat",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("repeat-exact"))),
-                IrSequence(IrItem(IrRuleRef("repeat-range"))),
+                IrSequence(IrItem(IrRuleRef("repeat-num"))),
+                IrSequence(IrItem(IrRuleRef("repeat-nolo"))),
             ),
         ),
         IrRule(
@@ -586,16 +593,16 @@ ABNF_GRAMMAR = IrAst(
                 )
             ),
         ),
+        # Left-factored by radix: `%` then the mark (x/d/b) picks the family at
+        # k=2; each family consumes its digit run once, then its tail decides
+        # single (`""`) / range (`"-" hexits`) / — hex only — sequence
+        # (`"." hexglyph` ...).
         IrRule(
             "num-val",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("num-single"))),
-                IrSequence(IrItem(IrRuleRef("num-range"))),
-                IrSequence(IrItem(IrRuleRef("num-seq"))),
-                IrSequence(IrItem(IrRuleRef("dec-single"))),
-                IrSequence(IrItem(IrRuleRef("dec-range"))),
-                IrSequence(IrItem(IrRuleRef("bin-single"))),
-                IrSequence(IrItem(IrRuleRef("bin-range"))),
+                IrSequence(IrItem(IrRuleRef("num-x"))),
+                IrSequence(IrItem(IrRuleRef("num-d"))),
+                IrSequence(IrItem(IrRuleRef("num-b"))),
             ),
         ),
         IrRule(
@@ -620,23 +627,42 @@ ABNF_GRAMMAR = IrAst(
                 )
             ),
         ),
-        IrRule("repeat-exact", IrAlternation(IrSequence(IrItem(IrRuleRef("decits"))))),
         IrRule(
-            "repeat-range",
+            "repeat-num",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("lo-bound")),
-                    IrItem(IrLiteral("*")),
-                    IrItem(IrRuleRef("hi-bound")),
+                    IrItem(IrRuleRef("decits")), IrItem(IrRuleRef("repeat-tail"))
                 )
             ),
         ),
+        IrRule(
+            "repeat-nolo",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("*")), IrItem(IrRuleRef("hi-bound")))
+            ),
+        ),
         IrRule("dquote", IrAlternation(IrSequence(IrItem(IrLiteral('"')))), False),
+        # Left-factored: the shared leading non-alpha run (`cvnac*`) is consumed
+        # once; an inline optional group `(cvalpha cvany*)?` then decides — an
+        # alpha turns the body into the RFC 7405 case-insensitive expansion,
+        # else it stays a plain case-sensitive literal. Separates on the first
+        # post-run char (alpha vs the closing `"`); the group splices its case
+        # items flat into `cvbody`'s channel.
         IrRule(
             "cvbody",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cvexp"))),
-                IrSequence(IrItem(IrRuleRef("cvlit"))),
+                IrSequence(
+                    IrItem(IrRuleRef("cvnac"), IrQuantifier(0, IrNone)),
+                    IrItem(
+                        IrAlternation(
+                            IrSequence(
+                                IrItem(IrRuleRef("cvalpha")),
+                                IrItem(IrRuleRef("cvany"), IrQuantifier(0, IrNone)),
+                            )
+                        ),
+                        IrQuantifier(0, 1),
+                    ),
+                )
             ),
         ),
         IrRule("smark", IrAlternation(IrSequence(IrItem(IrLiteral("s")))), False),
@@ -648,79 +674,35 @@ ABNF_GRAMMAR = IrAst(
         ),
         IrRule("imark", IrAlternation(IrSequence(IrItem(IrLiteral("i")))), False),
         IrRule(
-            "num-single",
+            "num-x",
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("%")),
                     IrItem(IrRuleRef("xmark")),
                     IrItem(IrRuleRef("hexits")),
+                    IrItem(IrRuleRef("x-tail")),
                 )
             ),
         ),
         IrRule(
-            "num-range",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("%")),
-                    IrItem(IrRuleRef("xmark")),
-                    IrItem(IrRuleRef("hexits")),
-                    IrItem(IrLiteral("-")),
-                    IrItem(IrRuleRef("hexits")),
-                )
-            ),
-        ),
-        IrRule(
-            "num-seq",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("%")),
-                    IrItem(IrRuleRef("xmark")),
-                    IrItem(IrRuleRef("hexglyph")),
-                    IrItem(IrRuleRef("hexdot"), IrQuantifier(1, IrNone)),
-                )
-            ),
-        ),
-        IrRule(
-            "dec-single",
+            "num-d",
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("%")),
                     IrItem(IrRuleRef("dmark")),
                     IrItem(IrRuleRef("hexits")),
+                    IrItem(IrRuleRef("d-tail")),
                 )
             ),
         ),
         IrRule(
-            "dec-range",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("%")),
-                    IrItem(IrRuleRef("dmark")),
-                    IrItem(IrRuleRef("hexits")),
-                    IrItem(IrLiteral("-")),
-                    IrItem(IrRuleRef("hexits")),
-                )
-            ),
-        ),
-        IrRule(
-            "bin-single",
+            "num-b",
             IrAlternation(
                 IrSequence(
                     IrItem(IrLiteral("%")),
                     IrItem(IrRuleRef("bmark")),
                     IrItem(IrRuleRef("hexits")),
-                )
-            ),
-        ),
-        IrRule(
-            "bin-range",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrLiteral("%")),
-                    IrItem(IrRuleRef("bmark")),
-                    IrItem(IrRuleRef("hexits")),
-                    IrItem(IrLiteral("-")),
-                    IrItem(IrRuleRef("hexits")),
+                    IrItem(IrRuleRef("b-tail")),
                 )
             ),
         ),
@@ -743,28 +725,41 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)))
             ),
         ),
+        # The digit-led `repeat`'s tail after the leading `1*DIGIT`: empty
+        # (exact `N`) or `"*" hi-bound` (range `N*M` / `N*`). Empty vs `*`
+        # separates at k=1.
         IrRule(
-            "lo-bound",
-            IrAlternation(IrSequence(IrItem(IrRuleRef("decits"), IrQuantifier(0)))),
+            "repeat-tail",
+            IrAlternation(
+                IrSequence(),
+                IrSequence(IrItem(IrLiteral("*")), IrItem(IrRuleRef("hi-bound"))),
+            ),
         ),
         IrRule(
             "hi-bound",
             IrAlternation(IrSequence(IrItem(IrRuleRef("decits"), IrQuantifier(0)))),
         ),
         IrRule(
-            "cvexp",
+            "cvnac",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("cvnai"), IrQuantifier(0, IrNone)),
-                    IrItem(IrRuleRef("cvalpha")),
-                    IrItem(IrRuleRef("cvany"), IrQuantifier(0, IrNone)),
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(32), IrChr(33)),
+                            IrRange(IrChr(35), IrChr(64)),
+                            IrRange(IrChr(91), IrChr(96)),
+                            IrRange(IrChr(123), IrChr(126)),
+                        )
+                    )
                 )
             ),
         ),
+        IrRule("cvalpha", IrAlternation(IrSequence(IrItem(IrRuleRef("alpha"))))),
         IrRule(
-            "cvlit",
+            "cvany",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cvnac"), IrQuantifier(0, IrNone)))
+                IrSequence(IrItem(IrRuleRef("cvalpha"))),
+                IrSequence(IrItem(IrRuleRef("cvnai"))),
             ),
         ),
         IrRule(
@@ -788,44 +783,25 @@ ABNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "hexglyph",
+            "x-tail",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("hexdig"), IrQuantifier(1, IrNone)))
-            ),
-        ),
-        IrRule(
-            "hexdot",
-            IrAlternation(
-                IrSequence(IrItem(IrLiteral(".")), IrItem(IrRuleRef("hexglyph")))
+                IrSequence(),
+                IrSequence(IrItem(IrRuleRef("x-range"))),
+                IrSequence(IrItem(IrRuleRef("x-seq"))),
             ),
         ),
         IrRule("dmark", IrAlternation(IrSequence(IrItem(IrLiteral("d")))), False),
+        IrRule(
+            "d-tail",
+            IrAlternation(IrSequence(), IrSequence(IrItem(IrRuleRef("d-range")))),
+        ),
         IrRule("bmark", IrAlternation(IrSequence(IrItem(IrLiteral("b")))), False),
         IrRule(
+            "b-tail",
+            IrAlternation(IrSequence(), IrSequence(IrItem(IrRuleRef("b-range")))),
+        ),
+        IrRule(
             "cvnai",
-            IrAlternation(
-                IrSequence(
-                    IrItem(
-                        IrCharClass(
-                            IrRange(IrChr(32), IrChr(33)),
-                            IrRange(IrChr(35), IrChr(64)),
-                            IrRange(IrChr(91), IrChr(96)),
-                            IrRange(IrChr(123), IrChr(126)),
-                        )
-                    )
-                )
-            ),
-        ),
-        IrRule("cvalpha", IrAlternation(IrSequence(IrItem(IrRuleRef("alpha"))))),
-        IrRule(
-            "cvany",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cvalpha"))),
-                IrSequence(IrItem(IrRuleRef("cvnai"))),
-            ),
-        ),
-        IrRule(
-            "cvnac",
             IrAlternation(
                 IrSequence(
                     IrItem(
@@ -853,6 +829,42 @@ ABNF_GRAMMAR = IrAst(
                 ),
             ),
         ),
+        IrRule(
+            "x-range",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("-")), IrItem(IrRuleRef("hexits")))
+            ),
+        ),
+        IrRule(
+            "x-seq",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("hexdot"), IrQuantifier(1, IrNone)))
+            ),
+        ),
+        IrRule(
+            "d-range",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("-")), IrItem(IrRuleRef("hexits")))
+            ),
+        ),
+        IrRule(
+            "b-range",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("-")), IrItem(IrRuleRef("hexits")))
+            ),
+        ),
+        IrRule(
+            "hexdot",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral(".")), IrItem(IrRuleRef("hexglyph")))
+            ),
+        ),
+        IrRule(
+            "hexglyph",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("hexdig"), IrQuantifier(1, IrNone)))
+            ),
+        ),
     ),
     "rulelist",
 )
@@ -878,19 +890,65 @@ reduced and kept. The reduce-side mirror of the emit ``IrMap`` tables."""
 # ── Decode helpers: hex code points off args; joined decimal count ────────
 
 _cp0 = IrPipe(IrArg(0), IrUnradix(16, IrChr))
-"""First hex digit-run arg → an ``IrChr`` code point."""
-_cp1 = IrPipe(IrArg(1), IrUnradix(16, IrChr))
-"""Second hex digit-run arg → an ``IrChr`` code point."""
+"""The leading hex digit-run arg → an ``IrChr`` code point (num-range hi)."""
 _dp0 = IrPipe(IrArg(0), IrUnradix(10, IrChr))
-_dp1 = IrPipe(IrArg(1), IrUnradix(10, IrChr))
 _bp0 = IrPipe(IrArg(0), IrUnradix(2, IrChr))
-_bp1 = IrPipe(IrArg(1), IrUnradix(2, IrChr))
-"""``%d``/``%b`` code-point endpoints — the same first/second digit-run args
-decoded in base 10 / base 2."""
+"""``%d``/``%b`` range-hi endpoints — the leading digit-run arg decoded in
+base 10 / base 2."""
 _hex_glyph = IrPipe(IrJoin(IrArgs()), IrPipe(IrUnradix(16, IrInt), IrGlyph()))
 """Joined hex digit-run args → the decoded character (num-seq glyph)."""
 _dec = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
 """Joined decimal digit-run args → an ``IrInt`` count."""
+
+_R_MIRROR = IrStr("=")
+"""``repeat-tail`` empty-arm marker: the ``N`` exact upper bound mirrors ``lo``."""
+
+_R_LO = IrPipe(IrArg(0), IrUnradix(10, IrInt))
+"""The digit-led ``repeat``'s leading ``1*DIGIT`` arg decoded to the lower bound."""
+
+_R_HI = IrTypeMap(
+    IrAction(IrInt, IrThis()),
+    IrAction(IrNoneType, IrThis()),
+    IrAction(IrStr, _R_LO),
+)
+"""``repeat-num`` tail marker → the upper bound: a decoded ``N*M`` bound or the
+open ``N*`` ``IrNone`` rides through; the ``_R_MIRROR`` sentinel mirrors ``lo``."""
+
+_x_glyph = IrPipe(IrArg(0), IrPipe(IrUnradix(16, IrInt), IrGlyph()))
+"""The leading hex-run arg decoded to its glyph (a num-seq's first character)."""
+
+_NUM_X = IrTypeMap(
+    IrAction(IrNoneType, IrBuild(IrCharClass, IrTuple(_cp0))),
+    IrAction(
+        IrChr,
+        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_cp0, IrThis())))),
+    ),
+    IrAction(
+        IrStr,
+        IrBuild(IrLiteral, IrTuple(IrConcat(parts=IrTuple(_x_glyph, IrThis())))),
+    ),
+)
+"""``%x`` tail marker → the num-val: empty (``IrNone``) → a single-point class,
+an ``IrChr`` range hi → a range class, joined ``.``-glyphs → the num-seq literal."""
+
+_NUM_D = IrTypeMap(
+    IrAction(IrNoneType, IrBuild(IrCharClass, IrTuple(_dp0))),
+    IrAction(
+        IrChr,
+        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_dp0, IrThis())))),
+    ),
+)
+_NUM_B = IrTypeMap(
+    IrAction(IrNoneType, IrBuild(IrCharClass, IrTuple(_bp0))),
+    IrAction(
+        IrChr,
+        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_bp0, IrThis())))),
+    ),
+)
+"""``%d``/``%b`` tail markers → single-point or range char classes, base 10 / 2."""
+
+_CV_LIT = IrBuild(IrLiteral, IrTuple(IrJoin(IrArgs())))
+"""All-non-alpha char-val body — one literal of the joined characters."""
 
 # Case-insensitive char-val: each letter maps to a build-expression that
 # constructs ``IrItem(IrCharClass(IrChr(lower), IrChr(upper)))`` — the RFC 7405
@@ -924,37 +982,13 @@ _CV_CASE: IrMap[IrStr, IrSelf] = IrMap(
 """Letter → the per-char case-class item build-expression (RFC 7405)."""
 
 
-def _merge_rules(_d: IrSelf, _n: IrSelf, nc: IrTuple) -> IrAst:
-    """Fold the parsed rules into an :class:`IrAst`, merging same-named ones.
-
-    RFC 5234 §3.3 incremental (``=/``) arms extend an existing rule; both ``=``
-    and ``=/`` reduce to a plain :class:`IrRule`, so a rule whose name was
-    already seen has its alternation arms appended to that earlier rule (the
-    Lark path's ``_build_start`` merge, pointed the other way). The start rule
-    is the first name defined.
-
-    :param nc: the reduced rules, in source order.
-    :returns: the assembled ``IrAst``.
-    """
-    merged: list[IrRule] = []
-    position: dict[str, int] = {}
-    for ruleobj in nc:
-        rule = cast(IrRule, ruleobj)
-        if rule.name in position:
-            base = merged[position[rule.name]]
-            merged[position[rule.name]] = IrRule(
-                base.name, IrAlternation(*base.body, *rule.body)
-            )
-        else:
-            position[rule.name] = len(merged)
-            merged.append(rule)
-    return IrAst(IrSeq(*merged), merged[0].name if merged else IrStr(""))
-
-
 # Dyads in an annotated tuple so each value widens to ``IrSelf`` (the invariant
 # ``IrTuple`` would otherwise reject the heterogeneous bodies under ``IrMap``).
 ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
-    IrTuple(IrRuleRef("rulelist"), IrLambda(_merge_rules)),
+    # RFC 5234 §3.3 incremental (=/) arms extend an existing rule: both = and
+    # =/ reduce to a plain IrRule, and IrMerge appends a re-seen name's arms
+    # to the earlier rule. The start rule is the first name defined.
+    IrTuple(IrRuleRef("rulelist"), IrMerge()),
     IrTuple(IrRuleRef("rl-item"), IrArg(0)),
     IrTuple(IrRuleRef("rl-final"), IrArg(0)),
     IrTuple(IrRuleRef("rule"), IrBuild(IrRule)),
@@ -985,24 +1019,20 @@ ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     ),
     IrTuple(IrRuleRef("repeat"), IrArg(0)),
     IrTuple(
-        IrRuleRef("repeat-exact"),
-        IrBuild(
-            IrQuantifier,
-            IrTuple(
-                IrPipe(IrArg(0), IrUnradix(10, IrInt)),
-                IrPipe(IrArg(0), IrUnradix(10, IrInt)),
-            ),
-        ),
+        IrRuleRef("repeat-num"),
+        IrBuild(IrQuantifier, IrTuple(_R_LO, IrPipe(IrArg(1), _R_HI))),
     ),
     IrTuple(
-        IrRuleRef("repeat-range"),
-        IrBuild(IrQuantifier, IrTuple(IrArg(0), IrArg(1))),
+        IrRuleRef("repeat-nolo"),
+        IrBuild(IrQuantifier, IrTuple(IrInt(0), IrArg(0))),
+    ),
+    # present → forward the range hi (an IrInt bound or IrNone); empty → the
+    # exact-form sentinel (the bound mirrors lo).
+    IrTuple(
+        IrRuleRef("repeat-tail"),
+        IrCond(test=IrArgs(), then_op=IrArg(0), else_op=_R_MIRROR),
     ),
     # bounds own their own emptiness: IrArgs() is falsy when the rule matched empty.
-    IrTuple(
-        IrRuleRef("lo-bound"),
-        IrCond(test=IrArgs(), then_op=_dec, else_op=IrInt(0)),
-    ),
     IrTuple(
         IrRuleRef("hi-bound"),
         IrCond(test=IrArgs(), then_op=_dec, else_op=IrNone),
@@ -1026,14 +1056,28 @@ ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("rulename"), IrBuild(IrRuleRef, IrTuple(YIELD))),
     # char-val (RFC 7405 case-insensitive): forward the body's reduction.
     IrTuple(IrRuleRef("char-val"), IrArg(0)),
-    IrTuple(IrRuleRef("cvbody"), IrArg(0)),
-    # ≥1 letter → IrAlternation(IrSequence(per-char items)).
+    # The channel is the leading run's IrLiteral chars, then — when an alpha
+    # made it the RFC 7405 expansion — the group's spliced case items. The last
+    # arg's type picks the branch: an IrItem closes the expansion (leading
+    # literals coerce to items under IrSequence), an IrLiteral joins into the
+    # plain case-sensitive literal; an empty channel is the empty literal.
     IrTuple(
-        IrRuleRef("cvexp"),
-        IrBuild(IrAlternation, IrTuple(IrBuild(IrSequence))),
+        IrRuleRef("cvbody"),
+        IrCond(
+            test=IrArgs(),
+            then_op=IrPipe(
+                IrArg(-1),
+                IrTypeMap(
+                    IrAction(
+                        IrItem,
+                        IrBuild(IrAlternation, IrTuple(IrBuild(IrSequence))),
+                    ),
+                    IrAction(IrLiteral, _CV_LIT),
+                ),
+            ),
+            else_op=_CV_LIT,
+        ),
     ),
-    # all non-alpha → one IrLiteral of the joined characters.
-    IrTuple(IrRuleRef("cvlit"), IrBuild(IrLiteral, IrTuple(IrJoin(IrArgs())))),
     IrTuple(IrRuleRef("cvany"), IrArg(0)),
     # a letter → its case-class item; a non-letter → an IrLiteral item.
     IrTuple(IrRuleRef("cvalpha"), IrPipe(YIELD, _CV_CASE)),
@@ -1041,26 +1085,30 @@ ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
         IrRuleRef("cvnai"),
         IrBuild(IrItem, IrTuple(IrBuild(IrLiteral, IrTuple(YIELD)))),
     ),
-    IrTuple(IrRuleRef("cvnac"), YIELD),
+    IrTuple(IrRuleRef("cvnac"), IrBuild(IrLiteral, IrTuple(YIELD))),
     # num-val → IrCharClass over code points (IrChr endpoints), one branch
     # per radix (base 16 / 10 / 2); num-seq → a case-sensitive IrLiteral.
     IrTuple(IrRuleRef("num-val"), IrArg(0)),
-    IrTuple(IrRuleRef("num-single"), IrBuild(IrCharClass, IrTuple(_cp0))),
+    IrTuple(IrRuleRef("num-x"), IrPipe(IrArg(1), _NUM_X)),
+    IrTuple(IrRuleRef("num-d"), IrPipe(IrArg(1), _NUM_D)),
+    IrTuple(IrRuleRef("num-b"), IrPipe(IrArg(1), _NUM_B)),
+    # tails: present → forward the range hi / seq glyphs; empty → IrNone (single).
     IrTuple(
-        IrRuleRef("num-range"),
-        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_cp0, _cp1)))),
+        IrRuleRef("x-tail"),
+        IrCond(test=IrArgs(), then_op=IrArg(0), else_op=IrNone),
     ),
-    IrTuple(IrRuleRef("dec-single"), IrBuild(IrCharClass, IrTuple(_dp0))),
     IrTuple(
-        IrRuleRef("dec-range"),
-        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_dp0, _dp1)))),
+        IrRuleRef("d-tail"),
+        IrCond(test=IrArgs(), then_op=IrArg(0), else_op=IrNone),
     ),
-    IrTuple(IrRuleRef("bin-single"), IrBuild(IrCharClass, IrTuple(_bp0))),
     IrTuple(
-        IrRuleRef("bin-range"),
-        IrBuild(IrCharClass, IrTuple(IrBuild(IrRange, IrTuple(_bp0, _bp1)))),
+        IrRuleRef("b-tail"),
+        IrCond(test=IrArgs(), then_op=IrArg(0), else_op=IrNone),
     ),
-    IrTuple(IrRuleRef("num-seq"), IrBuild(IrLiteral, IrTuple(IrJoin(IrArgs())))),
+    IrTuple(IrRuleRef("x-range"), _cp0),
+    IrTuple(IrRuleRef("x-seq"), IrJoin(IrArgs())),
+    IrTuple(IrRuleRef("d-range"), _dp0),
+    IrTuple(IrRuleRef("b-range"), _bp0),
     IrTuple(IrRuleRef("hexdot"), IrArg(0)),
     IrTuple(IrRuleRef("hexglyph"), _hex_glyph),
     IrTuple(IR_DEFAULT, YIELD),

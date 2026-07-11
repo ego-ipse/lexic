@@ -447,25 +447,37 @@ def _hexdig(ch: str) -> ParseTree:
     return ParseTree(IrRuleRef("HEXDIG"), IrSeq(IrLiteral(ch)))
 
 
-def test_num_single_yields_ircharclass_chr():
-    """num-single over a hexits subtree yields IrCharClass(IrChr('A'))."""
+def test_num_x_empty_tail_yields_ircharclass_chr():
+    """num-x over a hexits subtree with an empty x-tail yields IrCharClass(IrChr('A')).
+
+    Ported from the pre-P4 test_num_single_yields_ircharclass_chr — num-single
+    is gone (left-factored into num-x + x-tail); the empty x-tail is the
+    single-point case.
+    """
     hexits = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("4"), _hexdig("1")))
+    x_tail = ParseTree(IrRuleRef("x-tail"), IrSeq())
     tree = ParseTree(
-        IrRuleRef("num-single"),
-        IrSeq(IrLiteral("%"), IrLiteral("x"), hexits),
+        IrRuleRef("num-x"),
+        IrSeq(IrLiteral("%"), IrLiteral("x"), hexits, x_tail),
     )
     result = ABNF_REDUCER.apply(tree)
     assert isinstance(result, IrCharClass)
     assert result == IrCharClass(IrChr("A"))
 
 
-def test_num_range_yields_ircharclass_range():
-    """num-range over two hexits subtrees yields IrCharClass(IrRange('A','Z'))."""
+def test_num_x_range_tail_yields_ircharclass_range():
+    """num-x with an x-range x-tail yields IrCharClass(IrRange('A','Z')).
+
+    Ported from the pre-P4 test_num_range_yields_ircharclass_range — num-range
+    is gone (left-factored into num-x + x-tail/x-range).
+    """
     lo = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("4"), _hexdig("1")))
     hi = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("5"), _hexdig("A")))
+    x_range = ParseTree(IrRuleRef("x-range"), IrSeq(IrLiteral("-"), hi))
+    x_tail = ParseTree(IrRuleRef("x-tail"), IrSeq(x_range))
     tree = ParseTree(
-        IrRuleRef("num-range"),
-        IrSeq(IrLiteral("%"), IrLiteral("x"), lo, IrLiteral("-"), hi),
+        IrRuleRef("num-x"),
+        IrSeq(IrLiteral("%"), IrLiteral("x"), lo, x_tail),
     )
     result = ABNF_REDUCER.apply(tree)
     assert isinstance(result, IrCharClass)
@@ -795,6 +807,19 @@ def test_ci_string_matches_bare_literal_expansion():
     assert seq[0].atom == IrCharClass(IrChr("a"), IrChr("A"))
     assert seq[1].atom == IrCharClass(IrChr("b"), IrChr("B"))
     assert seq[2].atom == IrCharClass(IrChr("c"), IrChr("C"))
+
+
+def test_empty_char_val_reduces_to_empty_literal():
+    """``\"\"`` (empty char-val body) → ``IrLiteral(\"\")``.
+
+    P4 left-factored ``cvbody`` into a shared ``cvnac*`` run followed by an
+    inline optional ``(cvalpha cvany*)?`` group; the reduction is an
+    ``IrCond`` keyed on ``IrArgs()`` truthiness — this pins its empty-channel
+    branch (``else_op``), a code path the alpha/non-alpha cases above don't
+    exercise.
+    """
+    ast = _reduce('foo = ""\n')
+    assert _item(ast).atom == IrLiteral("")
 
 
 # ── (5) %d / %b values, parity with the equivalent %x spelling ─────────
