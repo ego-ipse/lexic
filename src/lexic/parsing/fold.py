@@ -65,7 +65,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.earley.tables import RUN_STR, ParserTables
 from lexic.parsing.pda.analysis import nullable_names
@@ -203,14 +203,20 @@ class ModelBody(
         )
 
 
-def _subtree_text(node: ParseTree | IrLiteral) -> str:
-    """All consumed chars under ``node``, in source order (iterative)."""
+def _subtree_text(node: ParseTree | IrLiteral | PayloadLeaf) -> str:
+    """All consumed chars under ``node``, in source order (iterative).
+
+    A delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` contributes its
+    recorded span text (its interior was folded by the sub-run, not walked).
+    """
     parts: list[str] = []
-    stack: list[ParseTree | IrLiteral] = [node]
+    stack: list[ParseTree | IrLiteral | PayloadLeaf] = [node]
     while stack:
         k = stack.pop()
         if isinstance(k, ParseTree):
             stack.extend(reversed(k.kids))
+        elif isinstance(k, PayloadLeaf):
+            parts.append(k.text)
         else:
             parts.append(str(k))
     return "".join(parts)
@@ -383,25 +389,33 @@ class ModelFold:
         return models[0] if models else None
 
     def _models_at(
-        self, kid: ParseTree | IrLiteral, results: dict[int, object]
+        self, kid: ParseTree | IrLiteral | PayloadLeaf, results: dict[int, object]
     ) -> list[object]:
-        """Folded models at/under a kid slot, looking through synthetic layers."""
+        """Folded models at/under a kid slot, looking through synthetic layers.
+
+        A delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` contributes
+        its pre-built sub-model directly (the PDA sub-run already folded it) —
+        the same already-folded-child pass-through the PDA-side island splice
+        performs.
+        """
         kid_id = id(kid)
         if kid_id in results:  # directly folded — the common case, no walk
             model = results[kid_id]
             return [] if model is None else [model]
         out: list[object] = []
-        stack: list[ParseTree | IrLiteral] = [kid]
+        stack: list[ParseTree | IrLiteral | PayloadLeaf] = [kid]
         while stack:
             k = stack.pop()
-            if not isinstance(k, ParseTree):
-                continue
-            if id(k) in results:
-                model = results[id(k)]
-                if model is not None:
-                    out.append(model)
-            else:  # synthetic / non-model layer — descend
-                stack.extend(reversed(k.kids))
+            if isinstance(k, PayloadLeaf):  # delegated pre-folded sub-model
+                if k.payload is not None:
+                    out.append(k.payload)
+            elif isinstance(k, ParseTree):
+                if id(k) in results:
+                    model = results[id(k)]
+                    if model is not None:
+                        out.append(model)
+                else:  # synthetic / non-model layer — descend
+                    stack.extend(reversed(k.kids))
         return out
 
     def _first_model_under(self, node: ParseTree, results: dict[int, object]) -> object:

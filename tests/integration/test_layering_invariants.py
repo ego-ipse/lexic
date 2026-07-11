@@ -167,6 +167,23 @@ def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
         assert "from lexic.codegen" not in content, f"{name} imports lexic.codegen"
 
 
+def test_earley_never_imports_pda():
+    """The Earley engine (``parsing/earley``) never imports the PDA package.
+
+    The intra-``parsing`` arrow runs one way — ``pda → earley`` only. Island-
+    interior delegation (Task 6.2) is threaded through this seam without
+    reversing it: the delegate table is an opaque-callable slot the kernel
+    invokes (``Kernel.delegates`` / :data:`~lexic.parsing.earley.kernel.Delegate`),
+    populated by ``pda`` and passed in through :mod:`lexic.parsing.pda.islands`;
+    the kernel itself imports nothing from ``pda`` and stays PDA-agnostic.
+    """
+    earley = SRC / "parsing" / "earley"
+    bad = _grep(earley, "from lexic.parsing.pda") + _grep(
+        earley, "import lexic.parsing.pda"
+    )
+    assert not bad, f"earley imports pda (delegation must stay opaque): {bad}"
+
+
 def test_pda_entry_points_imported_only_via_compile_seam():
     """Only compile.py imports the PDA entry points among top-level runtime modules.
 
@@ -182,7 +199,10 @@ def test_pda_entry_points_imported_only_via_compile_seam():
             continue
         for line in p.read_text().splitlines():
             stripped = line.strip()
-            if "pda.clones" not in stripped and "pda.runtime" not in stripped:
+            if not any(
+                mod in stripped
+                for mod in ("pda.clones", "pda.runtime", "pda.reduce_runtime")
+            ):
                 continue
             if stripped.startswith(("from lexic.parsing", "import lexic.parsing")):
                 offenders.append(f"{p.name}: {stripped}")

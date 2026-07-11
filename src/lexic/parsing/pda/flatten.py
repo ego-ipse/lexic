@@ -41,8 +41,12 @@ _TERMINAL_OPS = frozenset((_OP_LIT, _OP_CC, _OP_LIT1, _OP_CC1))
 """The op-codes that consume input without descending — the ``_OP_VSTR``
 inlining licence (a clone is inlinable iff every arm is all-terminal)."""
 
-_GATE_STOP, _GATE_PAIR = 0, 1
-"""Flat loop-gate codes: single-char stop-set, LL(2) 2-char pair set."""
+_GATE_STOP, _GATE_PAIR, _GATE_KWIN = 0, 1, 2
+"""Flat loop-gate codes: single-char stop-set, LL(2) 2-char pair set, and the
+``k``-window gate (Task 6.3 part c) — a set of ``≤k``-length pre-resolved
+``(chars, negated)`` position windows the runtime matches EOF-exactly against
+``text[pos:pos+k]`` (the P2 demotion of a loop the single-char stop-set /
+LL(2) pair could not separate)."""
 
 _BUILD_TRANSPARENT, _BUILD_VALUE_STR, _BUILD_ALT, _BUILD_SEQ = 0, 1, 2, 3
 """Flat clone build-modes — how a completed frame folds to a model (or, for
@@ -92,6 +96,40 @@ _MODE_CODE = {
 
 _HI_UNBOUNDED = -1
 """The flat ``his`` sentinel for an unbounded (``None``) quantifier upper bound."""
+
+
+def _window_admits(text: str, pos: int, windows: Any) -> bool:
+    """Whether the input at ``pos`` is EOF-exactly consistent with a k-window.
+
+    The runtime test for a ``k``-window gate (Task 6.3 part c) — a loop
+    take/skip gate (:data:`_GATE_KWIN`) or an arm selector
+    (:attr:`_FlatClone.kwin_selectors`). ``windows`` is a set of ``≤k``-length
+    windows, each a tuple of pre-resolved ``(chars, negated)`` position sets. A
+    position at or past end-of-input is the EOF sentinel ``""`` — matched
+    **only** by a positive set that carries it (a FOLLOW-extended END position),
+    never by a negated (co-finite) set. Consistency with any one window admits;
+    the demoted branches are pairwise separable, so at most one side's windows
+    can be consistent with a given lookahead.
+
+    :param text: The whole input.
+    :param pos: The cursor position the window is peeked from.
+    :param windows: The ``taken`` / arm windows — a tuple of
+        ``((chars, negated), ...)`` tuples.
+    :returns: ``True`` iff the lookahead is consistent with some window.
+    """
+    n = len(text)
+    for win in windows:
+        ok = True
+        for j, (chars, negated) in enumerate(win):
+            p = pos + j
+            char = text[p] if p < n else ""
+            member = (char != "" and char not in chars) if negated else char in chars
+            if not member:
+                ok = False
+                break
+        if ok:
+            return True
+    return False
 
 
 class _FlatArm(IrLeaf[IrSelf, IrSelf]):
@@ -145,6 +183,13 @@ class _FlatClone(IrLeaf[IrSelf, IrSelf]):
 
     :ivar selectors: FIRST-gated arms as ``(chars, negated, arm)`` triples;
         ``arm`` is the target :class:`_FlatClone` on a dispatch clone.
+    :ivar kwin_selectors: ``None`` on the single-char path; a tuple of
+        ``(windows, arm)`` pairs on a ``k``-window-gated alternation (Task 6.3
+        part c), where ``windows`` is a tuple of ``≤k``-length
+        ``((chars, negated), ...)`` position windows. When set, the runtime
+        selects an arm by EOF-exact window match (:meth:`~lexic.parsing.pda
+        .runtime.PdaKernel._select_arm_kwin`) instead of the lead char, and the
+        dispatch/leaf specialisations are skipped for this clone.
     :ivar default: The all-nullable default :class:`_FlatArm`, or ``None``; on
         a dispatch clone the default target clone or :data:`_DISPATCH_EMPTY`.
     :ivar mode: The build-mode (one of the ``_BUILD_*`` constants).
@@ -180,6 +225,7 @@ class _FlatClone(IrLeaf[IrSelf, IrSelf]):
 
     __slots__ = (
         "selectors",
+        "kwin_selectors",
         "default",
         "mode",
         "fold",
@@ -196,6 +242,7 @@ class _FlatClone(IrLeaf[IrSelf, IrSelf]):
     )
 
     selectors: tuple[tuple[frozenset[str], bool, Any], ...]
+    kwin_selectors: Any
     default: Any
     mode: int
     fold: Any  # RuleFold | None — Any-typed like payloads: hot-loop reads
@@ -217,15 +264,22 @@ class PdaProgram(IrLeaf[IrSelf, IrSelf]):
     :ivar start: The start :class:`_FlatClone`, or an
         :class:`~lexic.parsing.pda.clones.IslandRef` when the start rule is
         itself an island (the whole-grammar opt-out).
+    :ivar delegates: The island-interior
+        :class:`~lexic.parsing.pda.delegate_compile.DelegateSource` (Task 6.2),
+        or ``None`` — the lazy per-island delegate-clone table the island
+        Earley sub-parses thread in. Homed here (not on ``PdaTables``) so the
+        artifact's attribute count is untouched.
     """
 
-    __slots__ = ("start",)
+    __slots__ = ("start", "delegates")
 
     start: Any  # _FlatClone | IslandRef — the island marker lives in pda_tables
+    delegates: Any  # DelegateSource | None — the delegate_compile leaf
 
-    def __init__(self, start: Any) -> None:
-        """Bind the entry clone (or island opt-out marker)."""
+    def __init__(self, start: Any, delegates: Any = None) -> None:
+        """Bind the entry clone (or island opt-out marker) and delegate source."""
         self.start = start
+        self.delegates = delegates
 
 
 # ── post-flatten optimizer passes ──────────────────────────────────────────
@@ -235,7 +289,10 @@ def _clone_arms(clone: _FlatClone) -> list[_FlatArm]:
     """A clone's arms (gated + default), skipping dispatch clones' targets."""
     if clone.mode == _BUILD_DISPATCH:
         return []
-    arms = [arm for _chars, _negated, arm in clone.selectors]
+    if clone.kwin_selectors is not None:
+        arms = [arm for _windows, arm in clone.kwin_selectors]
+    else:
+        arms = [arm for _chars, _negated, arm in clone.selectors]
     if clone.default is not None:
         arms.append(clone.default)
     return arms
@@ -303,8 +360,8 @@ def _convert_dispatch(clone: _FlatClone) -> None:
     pass-through, so entering the selected target with the parent's sink is
     observationally identical to the frame it replaces.
     """
-    if clone.mode != _BUILD_ALT:
-        return
+    if clone.mode != _BUILD_ALT or clone.kwin_selectors is not None:
+        return  # a k-window-gated alternation selects by window, not lead char
     targets = [_unit_ref_target(arm) for _chars, _negated, arm in clone.selectors]
     if any(target is None for target in targets):
         return

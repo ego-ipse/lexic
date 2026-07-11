@@ -29,7 +29,6 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.earley.tables import ParserTables
 from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.pda.charsets import CharSet
 from lexic.parsing.pda.clones import (
     CC,
     GRP,
@@ -44,21 +43,19 @@ from lexic.parsing.pda.clones import (
     PdaTables,
     ReduceRun,
     StopGate,
-    _reduce_rewrite,
     compile_pda,
     compile_reduce_pda,
 )
 from lexic.parsing.pda.flatten import (
     _BUILD_REDUCE,
-    _BUILD_TRANSPARENT,
     _R_DROP,
     _R_KEEP,
     _R_SPLICE,
     _all_clones,
     _FlatClone,
 )
-from lexic.parsing.pda.reduce_pda import ReduceComp
-from lexic.parsing.pda.runtime import PdaFail, parse_pda
+from lexic.parsing.pda.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime import PdaFail
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.test_analysis import _PINNED_ISLANDS
 
@@ -128,11 +125,11 @@ def _all_specs(pda: PdaTables) -> Iterator[ItemSpec]:
 _PINNED_CLONE_COUNTS: dict[str, int] = {
     "arithmetic.gbnf": 32,
     "c.gbnf": 15,
-    "chess.gbnf": 8,
+    "chess.gbnf": 10,  # +2 at P2: nonpawn demoted from island → cloned (k-gate)
     "japanese.gbnf": 12,
     "json.gbnf": 1,
-    "json_arr.gbnf": 30,
-    "json_ws.gbnf": 29,
+    "json_arr.gbnf": 36,
+    "json_ws.gbnf": 35,
     "list.gbnf": 2,
     "arithmetic.abnf": 10,
     "json.abnf": 1,
@@ -284,11 +281,12 @@ def test_hand_grammar_unbounded_negated_charclass_gets_stopgate():
 
 
 def test_hand_grammar_ref_to_a_genuine_island_carries_islandref():
-    """``x ::= "a"? "a"`` has an ungatable optional/mandatory-literal overlap —
-    ``x`` is flagged an island, and a ref to it from ``root`` carries an
-    :class:`IslandRef`, never a :class:`CloneKey`.
+    """``x ::= n "x" | n "y"`` shares an unbounded digit prefix across arms —
+    ungatable at any ``k ≤ 3`` (the old ``"a"? "a"`` fixture now legitimately
+    demotes under P2), so ``x`` is flagged an island, and a ref to it from
+    ``root`` carries an :class:`IslandRef`, never a :class:`CloneKey`.
     """
-    pda = _pda_from_text('root ::= x\nx ::= "a"? "a"\n')
+    pda = _pda_from_text('root ::= x\nx ::= n "x" | n "y"\nn ::= [0-9]+\n')
     assert pda.islands == frozenset({"x"})
     root = _sole_clone(pda, "root")
     ref_spec = root.arms[0].specs[0]
@@ -421,55 +419,5 @@ def test_every_reduce_clone_is_baked_build_reduce_never_a_model_mode():
         assert clone.needs_ends is True
 
 
-# ── _reduce_rewrite / _bake_reduce (unit-level) ─────────────────────────
-
-
-def _bare_flat_clone() -> _FlatClone:
-    """An empty _FlatClone shell — the pre-bake state _flatten_program leaves
-    every clone in before its first pass fills mode/selectors/default."""
-    clone = _FlatClone.__new__(_FlatClone)
-    clone.selectors = ()
-    clone.default = None
-    clone.mode = _BUILD_TRANSPARENT  # placeholder, overwritten by _bake_reduce
-    return clone
-
-
-def test_reduce_rewrite_bakes_a_keep_completion_onto_its_own_clone():
-    """A clone whose key has a KEEP completion bakes body/is_yield/span/can_drop
-    verbatim off the ReduceComp — the exact _bake_reduce contract."""
-    key = CloneKey("root", CharSet.from_chars(""))
-    shell = _bare_flat_clone()
-    comp = ReduceComp(_R_KEEP, "sentinel-body", True, False, True)
-    _reduce_rewrite({key: shell}, {key: comp})
-    assert shell.mode == _BUILD_REDUCE
-    assert shell.reduce_kind == _R_KEEP
-    assert shell.reduce_body == "sentinel-body"
-    assert shell.reduce_is_yield is True
-    assert shell.reduce_span is False
-    assert shell.reduce_can_drop is True
-    assert shell.needs_ends is True
-    assert shell.fold is None
-    assert shell.fast is None
-
-
-def test_reduce_rewrite_bakes_a_drop_completion_onto_its_own_clone():
-    """A DROP-noise rule's clone bakes _R_DROP with no body."""
-    key = CloneKey("n", CharSet.from_chars(""))
-    shell = _bare_flat_clone()
-    comp = ReduceComp(_R_DROP, None, False, False, False)
-    _reduce_rewrite({key: shell}, {key: comp})
-    assert shell.reduce_kind == _R_DROP
-    assert shell.reduce_body is None
-
-
-def test_reduce_rewrite_defaults_a_clone_with_no_completion_to_splice():
-    """An inline group's shell never appears in ``completions`` (only named
-    rules do — groups are reached via a _OP_GRP payload, never a clone key
-    of their own) — _reduce_rewrite defaults it to SPLICE, flattening its
-    ordered children straight into the caller.
-    """
-    key = CloneKey("grp", CharSet.from_chars(""))
-    shell = _bare_flat_clone()
-    _reduce_rewrite({key: shell}, {})
-    assert shell.reduce_kind == _R_SPLICE
-    assert shell.reduce_body is None
+# The unit-level _reduce_rewrite/_bake_reduce tests live in test_reduce_pda.py
+# (the functions moved there with the option-(a) rebuild, 2026-07-11).

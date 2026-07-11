@@ -24,17 +24,30 @@ excludes end-of-input, since EOF is not a character to exclude *from*.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import ClassVar, Final
 
-from lexic.ir.nodes import IrCharClass, IrRange
+from lexic.ir.nodes import IrCharClass
 
 __all__ = ["CharSet", "MAX_RANGE_EXPANSION"]
 
 MAX_RANGE_EXPANSION: Final[int] = 300_000
-"""Widest single :class:`IrRange` that :meth:`CharSet.from_charclass` will
-enumerate; a wider range falls back to the conservative :attr:`CharSet.ANY`
-rather than materialising up to the full Unicode code-point space."""
+"""Widest interval cover that :meth:`CharSet.from_charclass` will enumerate
+on either side (the class itself, or its complement); when BOTH sides
+exceed this, it falls back to the conservative :attr:`CharSet.ANY` rather
+than materialising up to the full Unicode code-point space."""
+
+
+def _span_size(intervals: Iterable[tuple[int, int]]) -> int:
+    """Total code points covered by a ``(lo, hi)`` inclusive interval cover."""
+    return sum(hi - lo + 1 for lo, hi in intervals)
+
+
+def _expand(intervals: Iterable[tuple[int, int]]) -> frozenset[str]:
+    """Materialise every code point in a ``(lo, hi)`` interval cover to glyphs."""
+    return frozenset(chr(point) for lo, hi in intervals for point in range(lo, hi + 1))
+
 
 _EOF_ONLY: Final[frozenset[str]] = frozenset({""})
 """Used to keep the EOF sentinel out of set-difference tests against a
@@ -159,45 +172,48 @@ class CharSet:
 
     @classmethod
     def from_charclass(cls, cc: IrCharClass) -> "CharSet":
-        """Expand a character class to its exact positive member set.
+        """Expand a character class to its exact member set.
 
-        Each :class:`IrRange` expands to its constituent glyphs; each single
-        :class:`IrChr` contributes one glyph. A range wider than
-        :data:`MAX_RANGE_EXPANSION` is not enumerated — it falls back to the
-        conservative :attr:`ANY` instead.
+        Enumerates whichever side is smaller — the class's own coalesced
+        intervals (a positive set), or its complement's intervals within
+        ``[0, MAX_CODEPOINT]`` (a negated set) — using
+        :meth:`IrCharClass.intervals`/:meth:`IrCharClass.complement` (the
+        canonicaliser's own interval math, not re-derived here). Falls back
+        to the conservative :attr:`ANY` only when BOTH sides exceed
+        :data:`MAX_RANGE_EXPANSION`: exact by construction otherwise.
 
         :param cc: The character class to expand.
-        :returns: The exact positive set, or :attr:`ANY` if a range exceeded
-            the expansion cap.
+        :returns: The exact positive or negated set, or :attr:`ANY` when
+            both the class and its complement exceed the expansion cap.
         """
-        chars: set[str] = set()
-        for element in cc:
-            if isinstance(element, IrRange):
-                lo, hi = int(element.lo), int(element.hi)
-                if hi - lo > MAX_RANGE_EXPANSION:
-                    return cls.ANY
-                chars.update(chr(point) for point in range(lo, hi + 1))
-            else:
-                chars.add(str(element))
-        return cls(frozenset(chars), False)
+        positive = cc.intervals()
+        if _span_size(positive) <= MAX_RANGE_EXPANSION:
+            return cls(_expand(positive), False)
+        gaps = cc.complement().intervals()
+        if _span_size(gaps) <= MAX_RANGE_EXPANSION:
+            return cls(_expand(gaps), True)
+        return cls.ANY
 
     @classmethod
     def from_not(cls, inner: IrCharClass) -> "CharSet":
         """Complement of ``inner``'s expansion — the ``IrNot(charclass)`` case.
 
-        The positive expansion is negated; if ``inner`` itself only fit the
-        conservative :attr:`ANY` (its expansion exceeded the cap), the
-        complement is unknown too, so this stays :attr:`ANY` rather than
-        guessing.
+        :meth:`from_charclass` already picked whichever side of ``inner`` is
+        small, storing it as either a positive or a negated set over the same
+        ``chars``; flipping that stored polarity is exactly the complement,
+        regardless of which side was chosen — no re-derivation needed. Only
+        when ``inner`` exceeded the cap on both sides (its own expansion is
+        already the conservative :attr:`ANY`) does the complement stay
+        :attr:`ANY` too, rather than guessing.
 
         :param inner: The character class being negated.
         :returns: The complement set, or :attr:`ANY` when ``inner`` itself
-            exceeded the expansion cap.
+            exceeded the expansion cap on both sides.
         """
         positive = cls.from_charclass(inner)
-        if positive.negated:
+        if positive == cls.ANY:
             return cls.ANY
-        return cls(positive.chars, True)
+        return cls(positive.chars, not positive.negated)
 
     @classmethod
     def from_chars(cls, *chars: str) -> "CharSet":

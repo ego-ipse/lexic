@@ -17,6 +17,11 @@ what scales; duplicate rule names are immaterial to the parser.
                ``zzz_current_work/Disputed.md`` measured its regression
                claims against; kept byte-exact so this harness reproduces
                those numbers against whatever grammar is at HEAD.
+  gbnf-self-emit  the GBNF-of-GBNF source (``GBNF_FLAVOUR.apply(grammar)``) —
+               an **engine-only** workload (no Lark counterpart; the embedded
+               Lark reducer is ABNF-specific), added for the two-flavour Task-7
+               gate (D3). Its pre-lever Earley baseline is saved here by
+               ``--save`` and read back as the GBNF gate reference.
 
 Timing (unchanged): interleaved samples (one of every variant per round, so
 machine drift hits all alike), median ± stdev in ms, gc disabled around each
@@ -73,6 +78,7 @@ from types import ModuleType
 from typing import Any, Callable
 
 from lexic.grammars.abnf import ABNF_FLAVOUR
+from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.base import IrAtom, IrNone, IrSeq
 from lexic.ir.canonical import canonicalize
 from lexic.ir.nodes import (
@@ -93,6 +99,7 @@ from lexic.parsing import parse as engine_parse
 from lexic.parsing import parse_reduced as engine_parse_reduced
 from lexic.parsing import recognize as engine_recognize
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.reduce import Reducer
 
 # ── The pre-cutover Lark ABNF meta-grammar, recovered verbatim ─────────
 # Source: git HEAD:src/lexic/grammars/abnf.py (the ``META_GRAMMAR`` string, RFC
@@ -136,6 +143,13 @@ QUANTIFIER: /[0-9]*\*[0-9]*|[0-9]+/
 BASE_TEXT = str(ABNF_FLAVOUR.apply(ABNF_FLAVOUR.grammar))
 NORM_GRAMMAR = normalize(ABNF_FLAVOUR.grammar)
 REDUCER = ABNF_FLAVOUR.reducer
+# GBNF self-emit — the engine-only workload (D3). There is no pure-Lark
+# counterpart: the embedded Lark reducer above is ABNF-specific, so the GBNF
+# side runs only the engine stages, exactly as the ``recognize`` row is
+# engine-only on the ABNF side.
+GBNF_BASE_TEXT = str(GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar))
+GBNF_NORM_GRAMMAR = normalize(GBNF_FLAVOUR.grammar)
+GBNF_REDUCER = GBNF_FLAVOUR.reducer
 SIZES = (1, 2, 4)
 LARK_HINT = "run: uv run --with lark python tools/benchmark/parse_bench.py"
 BASELINE_PATH = Path(__file__).parent / "bench_baseline.json"
@@ -143,16 +157,29 @@ BASELINE_PATH = Path(__file__).parent / "bench_baseline.json"
 
 @dataclass(frozen=True, slots=True)
 class Workload:
-    """One timed corpus: a name and the base text repeated per :data:`SIZES`."""
+    """One timed corpus and the engine grammar/reducer it parses against.
+
+    :ivar name: The workload's label in the report and saved baseline.
+    :ivar base_text: The unrepeated base corpus (repeated per :data:`SIZES`).
+    :ivar norm_grammar: The normalized self-grammar the engine variants parse.
+    :ivar reducer: The flavour reducer for the ``parse+reduce`` stage.
+    :ivar lark: Whether the ABNF-specific Lark side applies (GBNF has none).
+    """
 
     name: str
     base_text: str
+    norm_grammar: IrAst
+    reducer: Reducer
+    lark: bool = True
 
 
 SUBSET_TEXT = (Path(__file__).parent / "corpus_subset_920.abnf").read_text()
 WORKLOADS: tuple[Workload, ...] = (
-    Workload("self-emit", BASE_TEXT),
-    Workload("subset-920", SUBSET_TEXT),
+    Workload("self-emit", BASE_TEXT, NORM_GRAMMAR, REDUCER),
+    Workload("subset-920", SUBSET_TEXT, NORM_GRAMMAR, REDUCER),
+    Workload(
+        "gbnf-self-emit", GBNF_BASE_TEXT, GBNF_NORM_GRAMMAR, GBNF_REDUCER, lark=False
+    ),
 )
 
 Variant = Callable[[str], object]
@@ -439,26 +466,35 @@ def make_input(base_text: str, repeat: int) -> str:
     return base_text * repeat
 
 
-def build_variants(lark_mod: ModuleType | None) -> dict[str, Variant]:
+def build_variants(
+    workload: Workload, lark_mod: ModuleType | None
+) -> dict[str, Variant]:
     """Map ``"stage:engine"`` names to their timed one-shot callables.
 
-    Grammar construction and table compilation happen here, once, outside every
-    timed loop; the loop's warm-up primes any remaining lazy state so the two
-    sides stay symmetric.
+    Grammar construction and table compilation happen here, once per workload,
+    outside every timed loop; the loop's warm-up primes any remaining lazy
+    state so the two sides stay symmetric. The engine variants close over the
+    workload's own normalized grammar/reducer; the Lark side is added only for
+    the ABNF workloads (``workload.lark``), the GBNF workload being engine-only.
 
+    :param workload: The workload supplying the engine grammar and reducer.
     :param lark_mod: The ``lark`` module, or ``None`` to omit the Lark side.
     :returns: An ordered name → callable mapping of timed variants.
     """
+    norm = workload.norm_grammar
+    reducer = workload.reducer
     variants: dict[str, Variant] = {
-        "recognize:engine": lambda t: engine_recognize(NORM_GRAMMAR, t),
-        "parse:engine": lambda t: engine_parse(NORM_GRAMMAR, t),
-        "parse+reduce:engine": lambda t: engine_parse_reduced(NORM_GRAMMAR, t, REDUCER),
+        "recognize:engine": lambda t: engine_recognize(norm, t),
+        "parse:engine": lambda t: engine_parse(norm, t),
+        "parse+reduce:engine": lambda t: engine_parse_reduced(norm, t, reducer),
     }
-    if lark_mod is not None:
+    if workload.lark and lark_mod is not None:
         parser = lark_mod.Lark(META_GRAMMAR, parser="earley", ambiguity="resolve")
-        reducer = _make_lark_reducer(lark_mod)
+        lark_reducer = _make_lark_reducer(lark_mod)
         variants["parse:lark"] = parser.parse
-        variants["parse+reduce:lark"] = lambda t: reducer.transform(parser.parse(t))
+        variants["parse+reduce:lark"] = lambda t: lark_reducer.transform(
+            parser.parse(t)
+        )
     return variants
 
 
@@ -721,12 +757,26 @@ def _print_header(have_lark: bool) -> None:
 
 
 def _save_baseline(all_medians: dict[str, dict[str, float]]) -> None:
-    """Write per workload × size × stage × engine median ms and µs/char.
+    """Additively persist each workload's per size × stage median ms and µs/char.
+
+    Merge, not overwrite: a workload already present in the file is preserved
+    (the ABNF ``self-emit`` / ``subset-920`` rows are the pinned Task-0 grammar-
+    text baseline the Task-7 gate reads — see PLAN_v3 §Measured facts), and only
+    workloads absent from the file are written. The GBNF ``gbnf-self-emit`` row
+    is the new pre-lever baseline (D3); re-baselining an existing workload is a
+    deliberate delete-then-save, never a silent side effect of ``--save``.
 
     :param all_medians: Workload name → ``"x{n}/{stage}:{engine}"`` → median ms.
     """
-    baseline: dict[str, dict[str, dict[str, dict[str, float]]]] = {}
+    existing: dict[str, dict] = {}
+    if BASELINE_PATH.exists():
+        existing = json.loads(BASELINE_PATH.read_text())
+    baseline: dict[str, dict] = dict(existing)
+    added, preserved = [], []
     for workload in WORKLOADS:
+        if workload.name in existing:
+            preserved.append(workload.name)
+            continue
         medians = all_medians[workload.name]
         by_size: dict[str, dict[str, dict[str, float]]] = {}
         for repeat in SIZES:
@@ -741,8 +791,12 @@ def _save_baseline(all_medians: dict[str, dict[str, float]]) -> None:
                 if key.startswith(prefix)
             }
         baseline[workload.name] = by_size
+        added.append(workload.name)
     BASELINE_PATH.write_text(json.dumps(baseline, indent=2, sort_keys=True))
-    print(f"baseline saved → {BASELINE_PATH.name}")
+    print(
+        f"baseline saved → {BASELINE_PATH.name}  "
+        f"(added: {added or '—'}; preserved existing: {preserved or '—'})"
+    )
 
 
 def main() -> None:
@@ -758,10 +812,12 @@ def main() -> None:
             f"{'PASS' if ok else 'FAIL'}\n"
         )
 
-    variants = build_variants(lark_mod)
     all_medians: dict[str, dict[str, float]] = {}
     for workload in WORKLOADS:
-        print(f"--- workload: {workload.name} ---\n")
+        wl_have_lark = have_lark and workload.lark
+        variants = build_variants(workload, lark_mod)
+        tag = "" if workload.lark else "  (engine-only)"
+        print(f"--- workload: {workload.name}{tag} ---\n")
         medians: dict[str, float] = {}
         for repeat in SIZES:
             text = make_input(workload.base_text, repeat)
@@ -771,7 +827,9 @@ def main() -> None:
                 medians[f"x{repeat}/{name}"] = statistics.median(series)
             _report_scale(samples, text, rounds, len(workload.base_text))
         all_medians[workload.name] = medians
-        _verdict(workload.name, medians, have_lark, len(workload.base_text) * SIZES[-1])
+        _verdict(
+            workload.name, medians, wl_have_lark, len(workload.base_text) * SIZES[-1]
+        )
 
     _diagnose(all_medians["self-emit"], have_lark)
 

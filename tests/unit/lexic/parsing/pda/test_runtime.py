@@ -46,9 +46,10 @@ from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
 from lexic.parsing import parse_reduced
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.pda import runtime as rt
+from lexic.parsing.pda import reduce_runtime as rrt
 from lexic.parsing.pda.clones import PdaTables, compile_pda
-from lexic.parsing.pda.runtime import PdaFail, parse_pda
+from lexic.parsing.pda.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime import PdaFail
 from tests.paths import GROUND_TRUTH
 
 # ── fixtures ────────────────────────────────────────────────────────────
@@ -262,7 +263,7 @@ def test_reduce_pda_gbnf_single_rule_fragment_is_end_to_end_and_byte_equal(
 ) -> None:
     """Gate 1: no PdaFail, at least one clone completion, byte-equal to parse_reduced."""
     completions = {"n": 0}
-    kernel_cls = getattr(rt, "_ReducePdaKernel")
+    kernel_cls = getattr(rrt, "_ReducePdaKernel")
     orig_complete = getattr(kernel_cls, "_complete")
 
     def _traced(self, frame):

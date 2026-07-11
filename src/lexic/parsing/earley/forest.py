@@ -95,6 +95,40 @@ class ParseTree(IrNamedTuple[IrRuleRef, IrSeq]):
         return tuple.__new__(cls, (symbol, kids))
 
 
+class PayloadLeaf(IrLeaf[IrSelf, IrSelf]):
+    """A pre-folded family child spliced in by island-interior delegation.
+
+    When the PDA delegates a conflict-free rule's interior, its sub-run yields a
+    finished payload (a model instance on the instance path, or a reduced IR
+    fragment on the reduce path) plus the consumed span text. The kernel injects
+    a completed item for the delegated rule and records, on the waiter it
+    advances, a family whose consumed child IS this leaf — the same slot a
+    scanned character occupies. It therefore decodes as a normal terminal-like
+    family child (:class:`ChildDerivs` / :meth:`~lexic.parsing.earley.kernel
+    .Kernel._child` / :class:`~lexic.parsing.earley.kernel.FastTree`), and the
+    :class:`~lexic.parsing.fold.ModelFold` / :class:`~lexic.parsing.earley.reduce
+    .Reducer` pass its :attr:`payload` straight through as an already-folded
+    child (mirroring the PDA-side island splice). Not a :class:`ParseTree` and
+    not an :class:`~lexic.ir.nodes.IrLiteral`, so every kid-walk that
+    discriminates on those two leaves it alone.
+
+    :ivar payload: The pre-built value — a model instance / reduced IR fragment
+        (``None`` for a nullable empty match).
+    :ivar text: The consumed span text (read by ``text`` / ``gtext`` folds and
+        the reduce ``YIELD`` walk).
+    """
+
+    __slots__ = ("payload", "text")
+
+    payload: object
+    text: str
+
+    def __init__(self, payload: object, text: str) -> None:
+        """:param payload: the pre-built value; :param text: its consumed span."""
+        self.payload = payload
+        self.text = text
+
+
 class SppfNode(IrNamedTuple[EarleyItem, int]):
     """A shared, packed forest handle for a dotted item over its span — pure data.
 
@@ -336,7 +370,8 @@ class ChildDerivs(IrLeaf[IrSelf, IrSelf]):
         :returns: A command iterator the :class:`Trampoline` drives.
         """
         child = self._child
-        if isinstance(child, IrLiteral):  # terminal leaf — its own sole derivation
+        if isinstance(child, (IrLiteral, PayloadLeaf)):
+            # terminal leaf / delegated payload — its own sole derivation
             yield (EMIT, child)
             return
         derivs = iter(NodeDerivs(cast(SppfNode, child), self._ctx))

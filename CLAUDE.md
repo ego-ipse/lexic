@@ -17,7 +17,8 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. New plans copy `zzz_current_work/TEMPLATE.md` (goal,
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
-  Current: `zzz_current_work/260706-unified-parse-engine/PLAN_v3.md`.
+  Current: `zzz_current_work/260706-unified-parse-engine/PLAN_v5.md`
+  (Tasks 0–5 ledger lives in `PLAN_v3.md`; v4 superseded).
 - **Cutover complete (2026-05-13).** The IrItem-based pipeline is the only pipeline. Old Atom shape, `atoms.py`, `new_gbnf/`, `flavours.py` are all gone. See `.wiki/lexic/cutover-plan.md` and `.wiki/lexic/slice-b-status.md` for what remains.
 - **RuleSpec cutover complete (2026-07-04).** The `RuleSpec` middle layer, `ir/derive.py`, `ir/spec.py`, `ir/emit.py`, `ir/naming.py`, `ir/topo.py`, `parsing/models.py`, and the whole `utils/` package are gone. One canonical `IrAst` drives codegen, instance parsing, emission, generation, and round-trip. See `zzz_current_work/260703-ir-codegen/PLAN.md` for the effort that landed it.
 
@@ -275,17 +276,53 @@ src/lexic/
                           hybrid-PDA analysis substrate; 260705 effort)
       analysis.py         GrammarAnalysis — FIRST/hard-FIRST/FOLLOW/nullability
                           fixpoints + pivot-6 decision taxonomy (island/stopset/
-                          LL(2) pairs) over a lifted codegen grammar; islands +
-                          fail_islands (semantic F1 stop-set-escape rules whose refs
-                          must fail to the engine, a subset of islands); open
-                          IrTypeMap atom dispatch, raising default; homes
+                          LL(2) pairs/k-window) over a lifted codegen grammar;
+                          islands + fail_islands (semantic F1 stop-set-escape rules
+                          whose refs must fail to the engine, a subset of islands);
+                          open IrTypeMap atom dispatch, raising default; homes
                           nullable_names (single source for fold's
-                          lift_optional_nullables) (hybrid-PDA; 260705 effort)
+                          lift_optional_nullables). The public `taxonomy: Taxonomy`
+                          attribute is ALSO the P2 gate-spec channel (option a,
+                          Task 6.3c): a demoted decision's k-window gate is STORED
+                          there — `arm_gates` keyed by rule name (rule bodies only;
+                          an inline group's arm overlap stays a hard note → the
+                          rule islands), `loop_gates` keyed by id(IrItem) (node
+                          identity — analysis and clone compiler walk the same
+                          lifted tree) — and the clone compiler reads it back,
+                          never recomputes (dual-source divergence risk). The
+                          2-char LL(2) prefix machinery lives in kwindow.py as
+                          free fns; loop_policy calls it there (hybrid-PDA;
+                          260705/260706 efforts)
+      kwindow.py          FIRST_k over CharSet tuples — the k-window (bounded-
+                          lookahead) P2 substrate (Task 6.3). KWindowFirst fixpoint
+                          + arm_gate/loop_gate: whether an arm-selection or loop
+                          take/skip decision separates at k ≤ 3 (positionwise
+                          CharSet overlap, END/MORE/UNK-tagged ≤k tuples;
+                          rule-FOLLOW extension; soft FOLLOW only — hard FOLLOW is
+                          unsound here); windows_of (deterministic tag-drop cook →
+                          the stored gate-spec shape); never-empty prefix-set
+                          invariant is a real UnsupportedConstructError (opt-out),
+                          not an assert. P2_DEMOTION_ENABLED master switch — **ON
+                          (True) since part (c) landed (2026-07-11)**; False is the
+                          A/B test seam. Also homes the superseded 2-char LL(2)
+                          prefix machinery (two_prefix_seq/atom_two_prefix/
+                          group_two_prefix — the PairGate source, moved from
+                          analysis.py for C0302). A leaf w.r.t. analysis.py (takes
+                          the rule table + FOLLOW as args); open IrTypeMap atom
+                          dispatch, raising default (260706 unified-parse-engine,
+                          Task 6.3)
       clones.py           (was pda_tables.py) compile_pda(lifted, instance_grammar,
                           fold_config) → PdaTables — per-(rule, hard-continuation)
                           clone compiler (pivot 3); flat tuple-coded ItemSpec
-                          (lit/cc/ref/grp) + StopGate/PairGate loop gates,
-                          FIRST-gated ArmSpec + baked RuleFold; islands not cloned
+                          (lit/cc/ref/grp) + StopGate/PairGate/KTupleGate loop
+                          gates, FIRST-gated ArmSpec (+ per-arm `windows` on a
+                          demoted alternation — attached inside compile_arms' own
+                          enumeration so window↔arm alignment cannot drift) + baked
+                          RuleFold; the k-window gates are READ from
+                          analysis.taxonomy (arm_gates/loop_gates — the option-(a)
+                          spec channel), never recomputed, and a FIRST-overlapping
+                          alternation with no spec raises (the anti-trap drift
+                          tripwire → whole-grammar opt-out); islands not cloned
                           (IslandRef marker + lazy per-island ParserTables cache;
                           IslandRef.fail marks a fail-island — a semantic F1 escape
                           whose ref raises PdaFail, never parsed); open IrTypeMap
@@ -300,14 +337,19 @@ src/lexic/
       flatten.py          (was pda_flatten.py) The leaf half of the flatten: the
                           int-coded runtime program (_FlatClone/_FlatArm/PdaProgram,
                           _OP_* op-codes, pre-resolved (chars,negated) membership
-                          sets) + the post-flatten optimizer passes
-                          (_optimize_program: exactly-once terminal/call
-                          specialisation, value_str inlining, frame-less leaf
-                          marking, pass-through dispatch conversion). Imports
+                          sets; _GATE_KWIN + _FlatClone.kwin_selectors + the
+                          EOF-exact _window_admits ≤k matcher — the P2 k-window
+                          runtime half: end-of-input matches only an EOF-carrying
+                          positive set, never a negated one) + the post-flatten
+                          optimizer passes (_optimize_program: exactly-once
+                          terminal/call specialisation, value_str inlining,
+                          frame-less leaf marking, pass-through dispatch conversion
+                          — skipped for a kwin-selecting clone). Imports
                           nothing from clones.py (a leaf w.r.t. the compiler +
                           specs); the kernel walks it (split out of clones.py for
                           C0302; hybrid-PDA; 260705 effort)
-      runtime.py          (was pda_kernel.py) PdaKernel/parse_pda — the fused
+      runtime.py          (was pda_kernel.py) PdaKernel + prefix_run (the
+                          island-interior delegation entry seam) — the fused
                           predictive runtime: an explicit descent stack of flat
                           list frames (no Python recursion; the earley/kernel.py
                           int-array explicit-stack precedent — PdaKernel is the
@@ -326,7 +368,26 @@ src/lexic/
                           text, fold); fold=None ⇒ island raises PdaFail, the
                           island-free path; a fail-island ref always raises
                           PdaFail, independent of fold). PdaFail is internal,
-                          never user-facing (hybrid-PDA; 260705 effort)
+                          never user-facing (hybrid-PDA; 260705 effort). Also
+                          _finish_delegate (fail-soft + window-edge rule, shared
+                          by both delegate paths) (260706 Task 6.2)
+      reduce_runtime.py   _ReducePdaKernel (the b1 grammar-text twin, overrides
+                          only _complete/_island/_delegate_run) + parse_pda (the
+                          public model-vs-reduce entry). Imports PdaKernel + the
+                          _F_* frame constants from runtime, never the reverse;
+                          split out of runtime.py for C0302 headroom (260706
+                          Task 6.2)
+      delegate_compile.py DelegateSource — the lazy per-island delegate-clone
+                          selector for island-interior delegation (Task 6.2):
+                          picks conflict-free, non-nullable, semantic interior
+                          rules above a triviality floor (DELEGATES_ENABLED gate)
+                          and compiles each to a PDA clone cut against its
+                          sub-grammar hard FOLLOW. A leaf w.r.t. the clone
+                          compiler — the (_PdaCompiler, _flatten_clones) seam is
+                          injected — attached to PdaProgram.delegates, so the
+                          runtime island Earley sub-parse (kernel.delegates)
+                          runs conflict-free interior rules on their clones
+                          rather than the item machinery (260706 Task 6.2)
       islands.py          island sub-parse + splice — island_parse/island_run/
                           island_derivation, the cold-path Earley escape shed
                           from PdaKernel as free functions (a leaf: imports
@@ -339,11 +400,14 @@ src/lexic/
       reduce_pda.py       ReduceComp/ReduceRun/_ReduceCompile — the b1 reduce
                           (grammar-text) completion, the twin of the model fold:
                           a ReduceComp read straight off the reducer's compiled
-                          ReducePlan (H5, no re-derivation) that clones.py bakes.
-                          A leaf w.r.t. the clone compiler (imports flatten's
-                          _R_* runtime constants + earley reduce, never clones —
-                          clones imports these back); split out of clones.py for
-                          C0302 headroom (260706 unified-parse-engine, Task 4)
+                          ReducePlan (H5, no re-derivation) that clones.py bakes;
+                          also _bake_reduce/_reduce_rewrite (the reduce retarget of
+                          the flat clones, moved from clones.py at Task 6.3c for
+                          C0302). A leaf w.r.t. the clone compiler (imports
+                          flatten's _R_* runtime constants + earley reduce, never
+                          clones — clones imports these back); split out of
+                          clones.py for C0302 headroom (260706 unified-parse-
+                          engine, Task 4)
 
 tests/
   unit/lexic/           structural mirror of src/lexic/

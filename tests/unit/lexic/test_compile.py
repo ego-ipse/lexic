@@ -775,12 +775,14 @@ def test_compiledgrammar_parse_falls_back_to_engine_on_pdafail(monkeypatch):
 
 def test_compiledgrammar_parse_still_works_when_pda_is_none():
     """A whole-grammar pda=None opt-out (start rule itself an island) still
-    parses correctly via the engine-only path."""
-    text = 'root ::= "a"? "a"\n'
+    parses correctly via the engine-only path. The start island shares an
+    unbounded digit prefix across its arms — ungatable at any ``k ≤ 3`` (the
+    old ``"a"? "a"`` fixture now legitimately demotes under P2)."""
+    text = 'root ::= n "x" | n "y"\nn ::= [0-9]+\n'
     cg = compile_text(text, flavour="gbnf")
     assert cg.pda is None
-    assert cg.parse("a").to_text() == "a"
-    assert cg.parse("aa").to_text() == "aa"
+    assert cg.parse("12x").to_text() == "12x"
+    assert cg.parse("7y").to_text() == "7y"
 
 
 # ── _flavour_reducer: the single home for the Reducer narrowing check ──────

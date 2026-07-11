@@ -1,44 +1,17 @@
 """Grammar analysis + decision taxonomy — the PDA compiler's oracle.
 
-:class:`GrammarAnalysis` computes, over a *lifted codegen grammar*
-(``lift_optional_nullables(build_codegen_grammar(canonical))``), the classical
-predictive-parser fixpoints plus the pivot-6 decision taxonomy:
-
-- **nullability** — which rules derive the empty string (fixpoint);
-- **FIRST** — leading characters over :class:`~lexic.parsing.pda.charsets.CharSet`,
-  so an ``IrNot`` loop's co-finite FIRST stays exact (pivot 1);
-- **hard-FIRST** — FIRST with nullable items skipped: the chars a construct
-  *requires* to progress. Drives loop stop-sets; full FIRST drives entry gates
-  (pivot 4, ``begin-object ::= ws "{" ws``);
-- **FOLLOW** — the chars that may follow each rule (fixpoint, EOF-seeded at the
-  start rule via the ``""`` sentinel); a **hard FOLLOW** sibling skips nullable
-  followers (the per-clone tail the PDA compiler bakes);
-- **2-char prefix sets** — the LL(2) discriminator for an optional atom whose
-  FIRST collides with its continuation (chess ``fxf5`` vs ``f5``, pivot 6);
-- **the taxonomy** — each decision point classified ``island`` / ``stopset`` /
-  ``("pairs", set)``, yielding :attr:`~GrammarAnalysis.conflicts` (the island
-  set), :attr:`~GrammarAnalysis.demoted`, and :attr:`~GrammarAnalysis.fail_islands`
-  (semantic F1 stop-set-escape rules whose references must fail to the engine).
-
-**Open dispatch, no isinstance ladders.** Every per-atom-type decision routes
-through a module-level :class:`~lexic.ir.mapping.IrTypeMap` of
-:class:`~lexic.ir.base.IrLambda` bodies (the ``codegen.binding.mode_for``
-idiom): the atom is dispatched, the analysis rides the dispatcher slot ``d``,
-extra scalar context rides ``nc`` on a cursor leaf. An unknown atom type raises
-:exc:`~lexic.exceptions.UnsupportedConstructError` — never a silent classify.
-
-.. warning::
-   **EOF-drop caveat.** A negated :class:`CharSet` cannot carry the ``""`` EOF
-   sentinel, so an EOF membership can silently drop when the FOLLOW fixpoint
-   unions with negatable FIRSTs, under-detecting an EOF-only FIRST ∩ FOLLOW
-   overlap (0 parity mismatches over all 10 ground-truth grammars; the PDA's
-   ``PdaFail`` → full-engine fallback bounds it).
+:class:`GrammarAnalysis`, over a *lifted codegen grammar*, runs the predictive
+fixpoints (nullability, FIRST/hard-FIRST, FOLLOW/hard-FOLLOW, LL(2) prefixes) and
+classifies each decision ``island`` / ``stopset`` / ``("pairs", set)`` into
+:attr:`conflicts` / :attr:`demoted` / :attr:`fail_islands`, via an open dispatch
+raising :exc:`~lexic.exceptions.UnsupportedConstructError` on an unknown atom.
 """
 
 from __future__ import annotations
 
 from typing import Mapping, Sequence, cast
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction
 from lexic.ir.base import IrAtom, IrLambda, IrLeaf, IrNoneType, IrSelf
 from lexic.ir.mapping import IrTypeMap
@@ -52,13 +25,10 @@ from lexic.ir.nodes import (
     IrRuleRef,
 )
 from lexic.ir.operators import IrNot
+from lexic.parsing.pda import kwindow
 from lexic.parsing.pda.charsets import CharSet
 
-__all__ = ["GrammarAnalysis", "nullable_names"]
-
-_MAX_PAIR_PRODUCT = 4096
-"""Cap on the ``|FIRST(a)| * |FIRST(b)|`` product a 2-char prefix set will
-enumerate; a wider product is treated as non-derivable (``None``)."""
+__all__ = ["GrammarAnalysis", "Taxonomy", "nullable_names"]
 
 _EOF: CharSet = CharSet.from_chars("")
 """The FOLLOW-set seed for the start rule: the empty-string end-of-input
@@ -319,58 +289,6 @@ def _hard_alternation(d: "GrammarAnalysis", n: IrSelf, _nc: object) -> CharSet:
     return out
 
 
-# ── single-char-set dispatch bodies (LL(2) machinery) ─────────────────────
-
-
-def _single_literal(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The single leading char of a non-empty literal, as a one-element set."""
-    text = str(n)
-    return frozenset({text[0]}) if text else None
-
-
-def _single_charclass(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The member set of a positive char class; ``None`` if it went co-finite."""
-    assert isinstance(n, IrCharClass)
-    cs = CharSet.from_charclass(n)
-    return None if cs.negated else cs.chars
-
-
-def _single_none(_d: object, _n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """Rule refs, groups and negations are not single deterministic chars."""
-    return None
-
-
-# ── 2-char prefix dispatch bodies ─────────────────────────────────────────
-
-
-def _two_literal(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The 2-char prefix of a ≥2-char literal, else ``None``."""
-    text = str(n)
-    return frozenset({text[:2]}) if len(text) >= 2 else None
-
-
-def _two_group(d: "GrammarAnalysis", n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The union of the arms' 2-char prefixes, or ``None`` if any is underivable."""
-    assert isinstance(n, IrAlternation)
-    return d.group_two_prefix(n)
-
-
-def _two_none(_d: object, _n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """A char class, negation or rule ref yields no standalone 2-char prefix."""
-    return None
-
-
-def _lead_literal(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """A leading ≥2-char literal's 2-char prefix, else ``None`` (literal-only)."""
-    text = str(n)
-    return frozenset({text[:2]}) if len(text) >= 2 else None
-
-
-def _lead_none(_d: object, _n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """Only a leading literal short-circuits a sequence's 2-char prefix."""
-    return None
-
-
 # ── stop-set-eligibility dispatch bodies ──────────────────────────────────
 
 
@@ -473,30 +391,6 @@ _HARD: IrTypeMap = IrTypeMap(
     IrAction(IrAlternation, IrLambda(_hard_alternation)),
 )
 
-_SINGLE: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_single_literal)),
-    IrAction(IrCharClass, IrLambda(_single_charclass)),
-    IrAction(IrNot, IrLambda(_single_none)),
-    IrAction(IrRuleRef, IrLambda(_single_none)),
-    IrAction(IrAlternation, IrLambda(_single_none)),
-)
-
-_TWO_PREFIX: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_two_literal)),
-    IrAction(IrCharClass, IrLambda(_two_none)),
-    IrAction(IrNot, IrLambda(_two_none)),
-    IrAction(IrRuleRef, IrLambda(_two_none)),
-    IrAction(IrAlternation, IrLambda(_two_group)),
-)
-
-_LEAD_PREFIX: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_lead_literal)),
-    IrAction(IrCharClass, IrLambda(_lead_none)),
-    IrAction(IrNot, IrLambda(_lead_none)),
-    IrAction(IrRuleRef, IrLambda(_lead_none)),
-    IrAction(IrAlternation, IrLambda(_lead_none)),
-)
-
 _STOPSET_ATOM: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_stopset_no)),
     IrAction(IrCharClass, IrLambda(_stopset_yes)),
@@ -555,26 +449,42 @@ def nullable_names(rules: Sequence[IrRule]) -> frozenset[str]:
 # ── the analysis ──────────────────────────────────────────────────────────
 
 
-class _Taxonomy(IrLeaf[IrSelf, IrSelf]):
-    """The classified per-rule notes — the taxonomy result, held as one slot.
+class Taxonomy(IrLeaf[IrSelf, IrSelf]):
+    """The classified per-rule notes + gate specs — the taxonomy result.
+
+    Also the **gate-spec channel** (Task 6.3 part c, option a): when P2 demotion
+    is on, the k-window gates the classification consulted are *stored* here —
+    single source of truth — and the clone compiler reads them back instead of
+    recomputing (which would risk a divergent second derivation).
 
     :ivar conflicts: Rule name → island-worthy notes (presence marks an island).
     :ivar demoted: Rule name → stop-set / LL(2) demotion notes.
     :ivar fail: The fail-island rule names — semantic rules that fired the F1
         stop-set-escape branch (a subset of :attr:`conflicts`' keys).
+    :ivar arm_gates: Rule name → per-arm k-window sets (aligned to the rule
+        body's arms) for a demoted rule-body arm selection. Rule bodies only —
+        an inline group's arm overlap stays a hard note (the rule islands).
+    :ivar loop_gates: ``id(item)`` (the looping :class:`~lexic.ir.nodes.IrItem`
+        node — analysis and clone compiler walk the same lifted tree, so node
+        identity is the exact decision key) → the ``taken`` k-window set for a
+        demoted loop take/skip decision.
     """
 
-    __slots__ = ("conflicts", "demoted", "fail")
+    __slots__ = ("conflicts", "demoted", "fail", "arm_gates", "loop_gates")
 
     conflicts: dict[str, list[str]]
     demoted: dict[str, list[str]]
     fail: set[str]
+    arm_gates: dict[str, tuple[tuple[tuple[CharSet, ...], ...], ...]]
+    loop_gates: dict[int, tuple[tuple[CharSet, ...], ...]]
 
     def __init__(self) -> None:
-        """Seed the note maps and the fail-island set empty."""
+        """Seed the note maps, the fail-island set and the gate stores empty."""
         self.conflicts = {}
         self.demoted = {}
         self.fail = set()
+        self.arm_gates = {}
+        self.loop_gates = {}
 
 
 class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
@@ -594,7 +504,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         "first",
         "hard",
         "_follows",
-        "_tax",
+        "taxonomy",
     )
 
     rules: dict[str, IrRule]
@@ -603,7 +513,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     first: dict[str, CharSet]
     hard: dict[str, CharSet]
     _follows: tuple[dict[str, CharSet], dict[str, CharSet]]
-    _tax: _Taxonomy
+    taxonomy: Taxonomy
 
     def __init__(self, grammar: IrAst) -> None:
         """Run every fixpoint and classify every rule of the lifted grammar."""
@@ -616,7 +526,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             self._follow_fixpoint(hard=False),
             self._follow_fixpoint(hard=True),
         )
-        self._tax = _Taxonomy()
+        self.taxonomy = Taxonomy()
         self._classify()
 
     @property
@@ -632,24 +542,24 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     @property
     def conflicts(self) -> dict[str, list[str]]:
         """Rule name → island-worthy conflict notes (presence marks an island)."""
-        return self._tax.conflicts
+        return self.taxonomy.conflicts
 
     @property
     def demoted(self) -> dict[str, list[str]]:
         """Rule name → stop-set / LL(2) demotion notes."""
-        return self._tax.demoted
+        return self.taxonomy.demoted
 
     @property
     def islands(self) -> frozenset[str]:
         """The island rule set — the names keying :attr:`conflicts`."""
-        return frozenset(self._tax.conflicts)
+        return frozenset(self.taxonomy.conflicts)
 
     @property
     def fail_islands(self) -> frozenset[str]:
         """Semantic F1 stop-set-escape rules — a reference must raise ``PdaFail``
         (engine fallback), not parse via longest-match. A subset of
         :attr:`islands`."""
-        return frozenset(self._tax.fail)
+        return frozenset(self.taxonomy.fail)
 
     # ── nullability queries ────────────────────────────────────────────
 
@@ -742,61 +652,6 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     changed = True
         return self.hard
 
-    # ── 2-char prefix sets (LL(2)) ─────────────────────────────────────
-
-    def _single_chars(self, atom: IrAtom) -> frozenset[str] | None:
-        """The finite positive single-char set of ``atom``, or ``None``.
-
-        A literal contributes its leading char, a positive char class its
-        members; refs, groups, negations and co-finite classes yield ``None``.
-        """
-        return cast("frozenset[str] | None", _SINGLE.resolve(atom).eval(self, atom, ()))
-
-    def two_prefix_seq(self, items: Sequence[IrItem]) -> frozenset[str] | None:
-        """The 2-char prefix set of a sequence, or ``None`` (not derivable).
-
-        A leading ≥2-char literal supplies it; else the first two non-nullable
-        single-char atoms' cross-product, subject to :data:`_MAX_PAIR_PRODUCT`.
-        """
-        if items and not self.item_nullable(items[0]):
-            lead = cast(
-                "frozenset[str] | None",
-                _LEAD_PREFIX.resolve(items[0].atom).eval(self, items[0].atom, ()),
-            )
-            if lead is not None:
-                return lead
-        if len(items) < 2:
-            return None
-        first_item, second_item = items[0], items[1]
-        if self.item_nullable(first_item) or self.item_nullable(second_item):
-            return None
-        first_chars = self._single_chars(first_item.atom)
-        second_chars = self._single_chars(second_item.atom)
-        if first_chars is None or second_chars is None:
-            return None
-        if len(first_chars) * len(second_chars) > _MAX_PAIR_PRODUCT:
-            return None
-        return frozenset(a + b for a in first_chars for b in second_chars)
-
-    def group_two_prefix(self, group: IrAlternation) -> frozenset[str] | None:
-        """The union of a group's arms' 2-char prefixes, else ``None``."""
-        out: set[str] = set()
-        for arm in group:
-            sub = self.two_prefix_seq(_items(arm))
-            if sub is None:
-                return None
-            out |= sub
-        return frozenset(out)
-
-    def atom_two_prefix(self, atom: IrAtom) -> frozenset[str] | None:
-        """The standalone 2-char prefix set of ``atom``, or ``None``.
-
-        :raises UnsupportedConstructError: On an unregistered atom type.
-        """
-        return cast(
-            "frozenset[str] | None", _TWO_PREFIX.resolve(atom).eval(self, atom, ())
-        )
-
     # ── loop policy (the pivot-6 taxonomy) ─────────────────────────────
 
     def loop_policy(
@@ -811,8 +666,8 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         lo = int(item.quantifier.lo)
         hi = _hi(item)
         if lo == 0 and hi == 1:
-            taken = self.atom_two_prefix(atom)
-            skip = self.two_prefix_seq(list(rest))
+            taken = kwindow.atom_two_prefix(self, atom)
+            skip = kwindow.two_prefix_seq(self, list(rest))
             if taken is not None and skip is not None and not taken & skip:
                 return ("pairs", taken)
         if hi is None and self._stopset_eligible(atom):
@@ -822,6 +677,36 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     def _stopset_eligible(self, atom: IrAtom) -> bool:
         """Whether ``atom`` is a single-char loop atom (char class / negation)."""
         return cast(bool, _STOPSET_ATOM.resolve(atom).eval(self, atom, ()))
+
+    def _k_window_arm_gate(
+        self, arms: Sequence[Sequence[IrItem]], ext_follow: CharSet
+    ) -> tuple[int, list[set[kwindow.Pref]]] | None:
+        """Smallest ``k ≤ 3`` at which ``arms`` separate (delegates to kwindow)."""
+        return kwindow.arm_gate(self.rules, arms, ext_follow)
+
+    def _k_window_loop_gate(
+        self, items: Sequence[IrItem], idx: int, rule_follow: CharSet
+    ) -> tuple[int, set[kwindow.Pref], set[kwindow.Pref]] | None:
+        """Smallest ``k ≤ 3`` at which item ``idx``'s loop separates (delegates)."""
+        return kwindow.loop_gate(self.rules, items, idx, rule_follow)
+
+    def _store_loop_gate(
+        self, item: IrItem, spec: tuple[tuple[CharSet, ...], ...]
+    ) -> None:
+        """File a demoted loop's ``taken`` windows under the item node's identity.
+
+        :raises UnsupportedConstructError: If the same node already carries a
+            *different* spec — a shared node at two decision sites with distinct
+            FOLLOWs, which the identity key cannot express (a confident-wrong
+            gate would be silent, so the whole grammar opts out instead).
+        """
+        key = id(item)
+        prior = self.taxonomy.loop_gates.get(key)
+        if prior is not None and prior != spec:
+            raise UnsupportedConstructError(
+                "pda analysis: conflicting k-window loop gates for one item node"
+            )
+        self.taxonomy.loop_gates[key] = spec
 
     # ── FOLLOW ─────────────────────────────────────────────────────────
 
@@ -894,11 +779,11 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             for arm in arms:
                 self.seq_conflicts(arm, scope, notes)
             if notes.hard:
-                self._tax.conflicts[name] = notes.hard
+                self.taxonomy.conflicts[name] = notes.hard
             if notes.soft:
-                self._tax.demoted[name] = notes.soft
+                self.taxonomy.demoted[name] = notes.soft
             if notes.f1 and self.rules[name].semantic:
-                self._tax.fail.add(name)
+                self.taxonomy.fail.add(name)
 
     def arm_conflicts(
         self,
@@ -909,13 +794,35 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     ) -> None:
         """Flag pairwise FIRST overlaps and empty-arm-vs-FOLLOW ambiguities.
 
+        Under P2 demotion, a k-window-separable overlap is demoted and its
+        per-arm window sets are **stored** in :attr:`Taxonomy.arm_gates` (the
+        gate-spec channel the clone compiler reads back). The licence is
+        rule-body-only — ``label`` is then exactly the rule name, the store
+        key; an inline group's overlap (a bracketed ``label``, never a rule
+        name) stays a hard note, so the enclosing rule islands.
+
         :param ext_follow: The FOLLOW set at the alternation's end.
         :param label: The note-label prefix (rule name or group tag).
         """
         infos = [(self.seq_first(arm), _seq_nullable(self, arm)) for arm in arms]
+        overlaps: list[tuple[int, int]] = []
         for i, (first_i, _) in enumerate(infos):
             for j, (first_j, _) in enumerate(infos[i + 1 :], i + 1):
                 if first_i.overlaps(first_j):
+                    overlaps.append((i, j))
+        if overlaps:
+            gate = (
+                self._k_window_arm_gate(list(arms), ext_follow)
+                if kwindow.P2_DEMOTION_ENABLED and label in self.rules
+                else None
+            )
+            if gate is not None:
+                self.taxonomy.arm_gates[label] = tuple(
+                    kwindow.windows_of(s) for s in gate[1]
+                )
+                notes.soft.append(f"{label}: arms k-window separable (demoted)")
+            else:
+                for i, j in overlaps:
                     notes.hard.append(f"{label}: arms {i}/{j} FIRST overlap")
         if any(nullable for _, nullable in infos):
             for i, (first_i, nullable) in enumerate(infos):
@@ -946,7 +853,16 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         if self.atom_first(atom).overlaps(self.hard_cont_at(items, k, scope.tail)):
             policy = self.loop_policy(item, items[k + 1 :])
             if policy == "island":
-                notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
+                gate = (
+                    self._k_window_loop_gate(items, k, scope.tail)
+                    if kwindow.P2_DEMOTION_ENABLED
+                    else None
+                )
+                if gate is not None:
+                    self._store_loop_gate(items[k], kwindow.windows_of(gate[1]))
+                    notes.soft.append(f"{scope.rule}[{k}]: loop k-window (demoted)")
+                else:
+                    notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
             elif policy == "stopset":
                 if self._stopset_escapes_soft_follow(items, k, scope):
                     notes.hard.append(

@@ -11,7 +11,7 @@ plan, never :mod:`lexic.parsing.pda.clones` (which imports *these* back).
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import Mapping, NamedTuple, TypeVar
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrSelf
@@ -23,9 +23,18 @@ from lexic.parsing.earley.reduce import (
     Reducer,
 )
 from lexic.parsing.earley.tables import ParserTables
-from lexic.parsing.pda.flatten import _R_DROP, _R_KEEP
+from lexic.parsing.pda.flatten import (
+    _BUILD_REDUCE,
+    _R_DROP,
+    _R_KEEP,
+    _R_SPLICE,
+    _all_clones,
+    _FlatClone,
+)
 
 __all__ = ["ReduceComp", "ReduceRun"]
+
+_K = TypeVar("_K")
 
 
 class ReduceComp(NamedTuple):
@@ -34,7 +43,7 @@ class ReduceComp(NamedTuple):
 
     Read straight off the compiled :class:`~lexic.parsing.earley.reduce.ReducePlan`
     (the single home the Earley fused path also reads — H5, no re-derivation);
-    baked onto the flat clone by :func:`~lexic.parsing.pda.clones._bake_reduce`.
+    baked onto the flat clone by :func:`_bake_reduce`.
 
     :ivar kind: :data:`~lexic.parsing.pda.flatten._R_KEEP` /
         :data:`~lexic.parsing.pda.flatten._R_DROP` /
@@ -145,3 +154,42 @@ class ReduceRun(IrLeaf[IrSelf, IrSelf]):
         self.tables = tables
         self.name_to_rid = name_to_rid
         self.literal_keep = plan.literal_kind == _KEEP_KIND
+
+
+def _bake_reduce(clone: _FlatClone, comp: ReduceComp) -> None:
+    """Bake a reduce clone's completion plan in place (the b1 twin of
+    :func:`~lexic.parsing.pda.clones._bake_build`).
+
+    :param clone: The clone (or inline group) being retargeted for the reducer.
+    :param comp: Its :class:`ReduceComp`.
+    """
+    clone.mode = _BUILD_REDUCE
+    clone.fold = None
+    clone.fields = ()
+    clone.fast = None
+    clone.defaults = None
+    clone.leaf = False
+    clone.needs_ends = True  # reduce reconstructs cleaned children from item ends
+    clone.reduce_kind = comp.kind
+    clone.reduce_body = comp.body
+    clone.reduce_is_yield = comp.is_yield
+    clone.reduce_span = comp.span_needed
+    clone.reduce_can_drop = comp.can_drop
+
+
+def _reduce_rewrite(
+    shells: Mapping[_K, _FlatClone], completions: Mapping[_K, ReduceComp]
+) -> None:
+    """Retarget every clone for the reducer completion (replaces model optimize).
+
+    A named clone bakes its rule's :class:`ReduceComp`; an inline group (reached
+    only through a ``_OP_GRP`` payload, never a clone key) splices — its ordered
+    children flatten into the caller. The model-specific specialisations
+    (``_OP_VSTR`` inlining, dispatch conversion, leaf marking) are deliberately
+    skipped: the reduce completion reconstructs children from item ends + sinks,
+    so it keeps the un-specialised op-stream.
+    """
+    comp_by_id = {id(shells[key]): comp for key, comp in completions.items()}
+    splice = ReduceComp(_R_SPLICE, None, False, False, False)
+    for clone in _all_clones(list(shells.values())):
+        _bake_reduce(clone, comp_by_id.get(id(clone), splice))

@@ -15,7 +15,7 @@ from __future__ import annotations
 from lexic.ir.base import IrTuple
 from lexic.parsing.earley.engine import EarleyParser
 from lexic.parsing.earley.forest import DERIVATION_STREAM, ParseTree, SppfNode
-from lexic.parsing.earley.kernel import FastTree, Kernel
+from lexic.parsing.earley.kernel import Delegate, FastTree, Kernel
 from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables
 from lexic.parsing.pda.errors import PdaFail
 
@@ -31,7 +31,11 @@ through :data:`~lexic.parsing.earley.forest.DERIVATION_STREAM`'s ``eval`` (state
 
 
 def island_parse(
-    tables: ParserTables, text: str, pos: int, name: str
+    tables: ParserTables,
+    text: str,
+    pos: int,
+    name: str,
+    delegates: dict[int, Delegate] | None = None,
 ) -> tuple[ParseTree, int]:
     """Longest completion of island ``name`` over a doubling window from ``pos``.
 
@@ -43,15 +47,17 @@ def island_parse(
     :param text: The full input.
     :param pos: The cursor position the window opens at.
     :param name: The island rule name (for the failure message).
+    :param delegates: The island-interior delegate table (rule_id → callable),
+        or ``None`` (pure-Earley interior — the pre-delegation behaviour).
     :returns: ``(tree, end)`` — the derivation and its consumed length.
     :raises PdaFail: When the island completes over no window.
     """
     remaining = len(text) - pos
     window = ISLAND_WINDOW
-    best = island_run(tables, text[pos : pos + window])
+    best = island_run(tables, text[pos : pos + window], delegates)
     while window < remaining and (best is None or best[2] == min(window, remaining)):
         window *= 2
-        best = island_run(tables, text[pos : pos + window])
+        best = island_run(tables, text[pos : pos + window], delegates)
     if best is None:
         raise PdaFail(f"island {name!r}: no match at {pos}")
     kern, item, end = best
@@ -61,15 +67,20 @@ def island_parse(
     return tree, end
 
 
-def island_run(tables: ParserTables, window: str) -> tuple[Kernel, int, int] | None:
+def island_run(
+    tables: ParserTables,
+    window: str,
+    delegates: dict[int, Delegate] | None = None,
+) -> tuple[Kernel, int, int] | None:
     """Run the island start rule over ``window``, longest origin-0 completion.
 
     :param tables: The island rule's compiled tables.
     :param window: The candidate window text.
+    :param delegates: The island-interior delegate table, or ``None``.
     :returns: ``(kernel, accepting_item, end)`` for the longest completion, or
         ``None`` when the rule never completes in the window.
     """
-    kern = Kernel(tables, window)
+    kern = Kernel(tables, window, delegates=delegates)
     result = kern.longest_start_completion()
     if result is None:
         return None

@@ -33,7 +33,7 @@ from lexic.ir.base import IrLambda, IrLeaf, IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
-from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
@@ -84,6 +84,8 @@ class Yield(IrLeaf[IrSelf, IrSelf]):
         :param n: The parse node (or terminal leaf) whose text to recover.
         :returns: The subtree source text as an :class:`IrStr`.
         """
+        if isinstance(n, PayloadLeaf):  # delegated child — its recorded span text
+            return IrStr(n.text)
         if not isinstance(n, ParseTree):
             return IrStr(str(n))
         parts: list[str] = []
@@ -289,6 +291,11 @@ class _FastReduce(IrLeaf[IrSelf, IrSelf]):
             return
         k = kids[idx]
         reducer = self.reducer
+        if isinstance(k, PayloadLeaf):  # delegated child — pre-reduced IR, pass through
+            if k.payload is not None:
+                parts.append(k.payload)
+            frame[2] = idx + 1
+            return
         if isinstance(k, ParseTree) and str(k.symbol).startswith(SYNTHETIC_PREFIX):
             self.stack.append([k, k.kids, 0, [], _SPLICE, None])
             return

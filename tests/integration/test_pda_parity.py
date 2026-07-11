@@ -41,7 +41,10 @@ from lexic.generate import generate
 from lexic.grammars import flavour_for_extension
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.parsing import parse_first
-from lexic.parsing.pda.runtime import PdaFail, parse_pda
+from lexic.parsing.pda.clones import KTupleGate
+from lexic.parsing.pda.flatten import _all_clones
+from lexic.parsing.pda.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime import PdaFail
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.test_runtime import _arithmetic_bench_corpus
 
@@ -252,3 +255,66 @@ def test_pda_engine_differential_on_bench_corpus(stem: str) -> None:
     tally = _Tally()
     _check_one(cg, text, tally)
     _report(f"{stem} (bench corpus)", cg, tally)
+
+
+# ── P2 k-window demotion — the anti-trap gates (Task 6.3 part c) ──────────
+#
+# Island-move + byte-parity alone are insufficient here: a demoted decision
+# compiled with an empty/wrong gate would mis-parse → PdaFail → engine
+# fallback, so both gates would PASS while the PDA is unsound AND slower
+# (task63fix finding F2). These tests therefore drive the demoted decisions
+# through ``parse_pda`` directly — a ``PdaFail`` IS a failure, no fallback
+# masks a wrong gate — and pin the gates' structural presence.
+
+_CHESS_ADVERSARIAL: tuple[str, ...] = (
+    "1. e4 e5\n2. Nf3 Nf6\n",  # plain nonpawn — the take/skip skip side
+    "1. Nbd2 Ngf6\n2. N1d2 Qh4+\n",  # file + rank disambiguation (take side, k=3)
+    "1. Nxe4 Nfxe4\n2. exd5 O-O\n",  # captures with and without disambiguation
+    "1. e8=Q Kxe8\n2. Nb1xd2 Rfe8+\n",  # promotion; full file+rank+capture form
+    "1. e4 e5\n2. Nf3 Nc6\n3. Bb5 a6\n",  # multi-line loop continuation
+)
+
+
+def test_p2_chess_parses_pure_pda_with_zero_fallback() -> None:
+    """Chess is island-free post-P2 (``nonpawn`` demoted at k=3) and every
+    adversarial disambiguation input parses on the pure PDA — an empty or
+    wrong loop gate would raise ``PdaFail`` right here. The structural pin
+    reads the spec table (the compiler intermediate; ``_all_clones`` cannot
+    walk past dispatch/ref targets from the start shell)."""
+    cg = compile_from_path(GROUND_TRUTH / "chess.gbnf")
+    assert cg.pda is not None
+    assert sorted(cg.pda.islands) == []
+    nonpawn = [spec for key, spec in cg.pda.clones.items() if key.name == "nonpawn"]
+    assert nonpawn, "nonpawn must be cloned now (demoted, not islanded)"
+    assert any(
+        isinstance(item.gate, KTupleGate)
+        for spec in nonpawn
+        for arm in spec.arms
+        for item in arm.specs
+    ), "the demoted nonpawn loop must carry a k-window gate"
+    for text in _CHESS_ADVERSARIAL:
+        pda_model = cast(GrammarModel, parse_pda(cg.pda, text, cg.fold))
+        engine_model = _forced_engine(cg, text)
+        assert pda_model.semantic_dump() == engine_model.semantic_dump()
+        assert pda_model.to_text() == text
+
+
+def test_p2_lo_gt_k_arm_gate_is_eof_exact_end_to_end() -> None:
+    """The ``lo > k`` → k=3 digit-vs-EOF arm separation (the re-bless hard
+    constraint) exercised through the real compiled runtime: selecting
+    ``"12"`` requires the EOF-carrying window position to match exactly at
+    end-of-input, never a generic character."""
+    cg = compile_text(
+        'root ::= [0-9]{4,} "x" | "12"\n', flavour="gbnf", cache_key="p2-lo-gt-k-eof"
+    )
+    assert cg.pda is not None
+    assert not cg.pda.islands
+    clones = _all_clones([cg.pda.program.start])
+    assert any(clone.kwin_selectors is not None for clone in clones), (
+        "the demoted alternation must select by k-window"
+    )
+    assert cast(GrammarModel, parse_pda(cg.pda, "12", cg.fold)).to_text() == "12"
+    for text in ("1234x", "1234567x"):
+        assert cast(GrammarModel, parse_pda(cg.pda, text, cg.fold)).to_text() == text
+    with pytest.raises(PdaFail):
+        parse_pda(cg.pda, "123x", cg.fold)  # 3 digits < lo=4 — in no arm's language

@@ -156,16 +156,16 @@ def test_flatarm_declares_exactly_the_parallel_per_item_arrays():
 
 def test_flatclone_declares_exactly_the_selector_and_fold_build_fields():
     """_FlatClone carries exactly the arm-selector + fold/build fields, no extras."""
-    expected = {"selectors", "default", "mode", "fold", "fields"}
+    expected = {"selectors", "kwin_selectors", "default", "mode", "fold", "fields"}
     expected |= {"fast", "defaults", "leaf", "needs_ends"}
     expected |= {"reduce_kind", "reduce_body", "reduce_is_yield"}
     expected |= {"reduce_span", "reduce_can_drop"}
     assert set(_FlatClone.__slots__) == expected
 
 
-def test_pdaprogram_declares_a_single_start_slot():
-    """PdaProgram carries only the entry clone (or island opt-out marker)."""
-    assert PdaProgram.__slots__ == ("start",)
+def test_pdaprogram_declares_start_and_delegates_slots():
+    """PdaProgram carries the entry clone (or island opt-out) + delegate source."""
+    assert PdaProgram.__slots__ == ("start", "delegates")
 
 
 def test_pdaprogram_init_binds_start_verbatim():
@@ -173,6 +173,7 @@ def test_pdaprogram_init_binds_start_verbatim():
     sentinel = object()
     program = PdaProgram(sentinel)
     assert program.start is sentinel
+    assert program.delegates is None  # default; the artifact attaches the source
 
 
 # ── _specialize_terminals + _inline_value_strs + _mark_leaves ──────────────
@@ -323,7 +324,7 @@ def test_island_ref_flattens_to_op_island_carrying_the_rule_name():
     """A ref to a genuine (non-fail) island flattens to _OP_ISLAND with the
     island's rule name as payload — the runtime's splice-in marker.
     """
-    pda = _pda_from_text('root ::= x\nx ::= "a"? "a"\n')
+    pda = _pda_from_text('root ::= x\nx ::= n "x" | n "y"\nn ::= [0-9]+\n')
     assert "x" in pda.islands
     arm = _only_arm(pda.program.start)
     assert arm.kinds == (_OP_ISLAND,)
@@ -342,9 +343,11 @@ def test_fail_island_ref_flattens_to_op_fail_carrying_the_rule_name():
 
 def test_start_rule_itself_an_island_flattens_the_program_to_a_bare_islandref():
     """When the start rule is itself an island, PdaProgram.start is the
-    IslandRef marker directly — no _FlatClone entry point at all.
+    IslandRef marker directly — no _FlatClone entry point at all. The fixture
+    shares an unbounded digit prefix across arms, ungatable at any ``k ≤ 3``
+    (the old ``"a"? "a"`` shape now legitimately demotes under P2).
     """
-    pda = _pda_from_text('root ::= "a"? "a"\n')
+    pda = _pda_from_text('root ::= n "x" | n "y"\nn ::= [0-9]+\n')
     assert pda.islands == frozenset({"root"})
     assert pda.program.start == IslandRef("root", fail=False)
 

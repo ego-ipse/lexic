@@ -35,23 +35,19 @@ slices ``text[a:b]`` rather than building sub-models).
 
 **Open dispatch, no isinstance ladders.** Per-atom-type compilation routes
 through the module-level :data:`_ATOM_SPEC` :class:`~lexic.ir.mapping.IrTypeMap`
-whose bodies are :class:`~lexic.ir.base.IrLambda` leaves — the ``analysis.py``
-idiom: the atom is dispatched, the compiler rides the dispatcher slot ``d``,
-and the per-item context (bounds, gate, continuation) rides ``nc`` on a small
-:class:`_ItemCtx` cursor. An unregistered atom type misses every table and
-raises :exc:`~lexic.exceptions.UnsupportedConstructError` (via ``IrTypeMap``'s
-:exc:`~lexic.exceptions.IrKeyError`) — the Task-6 seam converts that to "no PDA
-for this grammar".
+(the ``analysis.py`` idiom: the compiler rides the dispatcher slot ``d``, the
+per-item context rides ``nc`` on an :class:`_ItemCtx` cursor); an unregistered
+atom type raises :exc:`~lexic.exceptions.UnsupportedConstructError` — the
+Task-6 seam converts that to "no PDA for this grammar".
 
 The spec NamedTuples are the compiler's *intermediate* (and the shape the
 structural tests pin). :func:`_flatten_program` lowers them, once per
 :func:`compile_pda`, into the flat int-coded :class:`PdaProgram`
-(:class:`_FlatClone` / :class:`_FlatArm`, ``_OP_*`` op-codes, pre-resolved
-``(chars, negated)`` membership sets) that :class:`~lexic.parsing.pda.runtime.PdaKernel`
-walks with integer dispatch — the ``tables.py``/``kernel.py`` philosophy. The
-lowering is a build-time cost only; the two representations are kept in lockstep
-on :class:`PdaTables` (``.clones`` for islands/introspection, ``.program`` for
-the hot loop).
+(:class:`_FlatClone` / :class:`_FlatArm`, ``_OP_*`` op-codes) that
+:class:`~lexic.parsing.pda.runtime.PdaKernel` walks with integer dispatch —
+the ``tables.py``/``kernel.py`` philosophy. The lowering is a build-time cost
+only; the two representations stay in lockstep on :class:`PdaTables`
+(``.clones`` for islands/introspection, ``.program`` for the hot loop).
 """
 
 from __future__ import annotations
@@ -76,12 +72,13 @@ from lexic.parsing.earley.tables import ParserTables, compile_tables
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis import GrammarAnalysis
 from lexic.parsing.pda.charsets import CharSet
+from lexic.parsing.pda.delegate_compile import DelegateSource
 from lexic.parsing.pda.flatten import (
     _BUILD_ALT,
-    _BUILD_REDUCE,
     _BUILD_SEQ,
     _BUILD_TRANSPARENT,
     _BUILD_VALUE_STR,
+    _GATE_KWIN,
     _GATE_PAIR,
     _GATE_STOP,
     _HI_UNBOUNDED,
@@ -92,14 +89,17 @@ from lexic.parsing.pda.flatten import (
     _OP_ISLAND,
     _OP_LIT,
     _OP_REF,
-    _R_SPLICE,
     PdaProgram,
-    _all_clones,
     _FlatArm,
     _FlatClone,
     _optimize_program,
 )
-from lexic.parsing.pda.reduce_pda import ReduceComp, ReduceRun, _ReduceCompile
+from lexic.parsing.pda.reduce_pda import (
+    ReduceComp,
+    ReduceRun,
+    _reduce_rewrite,
+    _ReduceCompile,
+)
 
 __all__ = [
     "compile_pda",
@@ -116,6 +116,7 @@ __all__ = [
     "GroupSpec",
     "StopGate",
     "PairGate",
+    "KTupleGate",
     "ITEM_KINDS",
     "LIT",
     "CC",
@@ -136,10 +137,6 @@ ITEM_KINDS: tuple[str, ...] = (LIT, CC, REF, GRP)
 class CloneKey(NamedTuple):
     """A clone's identity — a rule compiled for one hard continuation.
 
-    Hashable (``str`` + frozen :class:`CharSet`), so it keys
-    :attr:`PdaTables.clones` and rides a ``ref`` :class:`ItemSpec` as its
-    resolved target.
-
     :ivar name: The rule name.
     :ivar tail: The hard continuation the clone's loop stop-sets are exact for.
     """
@@ -151,17 +148,14 @@ class CloneKey(NamedTuple):
 class IslandRef(NamedTuple):
     """A reference to an island rule — not cloned; parsed by Earley sub-parse.
 
-    The ``ref`` :class:`ItemSpec` target for a rule in :attr:`PdaTables.islands`;
-    the runtime resolves it via :meth:`PdaTables.island_tables` rather than a
-    clone — unless :attr:`fail` is set, when the reference instead raises
-    :class:`~lexic.parsing.pda.runtime.PdaFail` so the compile seam falls back to
-    the full engine (a semantic F1 stop-set-escape rule, whose longest-match
-    split would silently diverge — see
-    :attr:`~lexic.parsing.pda.analysis.GrammarAnalysis.fail_islands`).
+    The ``ref`` :class:`ItemSpec` target for a rule in :attr:`PdaTables.islands`,
+    resolved via :meth:`PdaTables.island_tables` rather than a clone.
 
     :ivar name: The island rule name.
-    :ivar fail: When ``True``, a fail-island — the reference raises ``PdaFail``
-        rather than being parsed by longest-match.
+    :ivar fail: When ``True``, a fail-island (a semantic F1 stop-set-escape
+        rule, :attr:`~lexic.parsing.pda.analysis.GrammarAnalysis.fail_islands`)
+        — the reference raises :class:`~lexic.parsing.pda.runtime.PdaFail`
+        (engine fallback) rather than risking a divergent longest-match parse.
     """
 
     name: str
@@ -172,11 +166,8 @@ class IslandRef(NamedTuple):
 
 
 class StopGate(NamedTuple):
-    """A non-greedy single-char loop gate: continue while the next char matches.
-
-    The stop-set semantics of pivot 4 — the loop keeps consuming while the
-    lookahead char is in ``charset`` (``FIRST(atom) − hard-continuation``) and
-    stops the moment the continuation could begin.
+    """A non-greedy single-char loop gate (pivot 4): continue while the next
+    char is in ``charset`` (``FIRST(atom) − hard-continuation``).
 
     :ivar charset: The chars that keep the loop going.
     """
@@ -185,16 +176,28 @@ class StopGate(NamedTuple):
 
 
 class PairGate(NamedTuple):
-    """An LL(2) loop gate: continue while the next two chars are a taken prefix.
-
-    The pivot-6 discriminator for an optional atom whose FIRST collides with
-    its continuation (chess ``fxf5`` vs ``f5``) — the loop takes another
-    iteration only when ``text[pos:pos+2]`` is in ``pairs``.
+    """An LL(2) loop gate (pivot 6): take another iteration only when
+    ``text[pos:pos+2]`` is a taken prefix (chess ``fxf5`` vs ``f5``).
 
     :ivar pairs: The 2-char prefixes that select "take another iteration".
     """
 
     pairs: frozenset[str]
+
+
+class KTupleGate(NamedTuple):
+    """A ``k``-window loop gate (P2): take another iteration iff
+    ``text[pos:pos+k]`` EOF-exactly matches a ``taken`` window.
+
+    The analysis-sourced generalisation of :class:`PairGate` past ``k = 2``,
+    read back from :attr:`~lexic.parsing.pda.analysis.Taxonomy.loop_gates`,
+    never recomputed (chess ``nonpawn`` — separable at ``k = 3`` via
+    rule-FOLLOW).
+
+    :ivar windows: The ``taken`` windows — ``≤k``-length CharSet tuples.
+    """
+
+    windows: tuple[tuple[CharSet, ...], ...]
 
 
 # ── item and arm specs ────────────────────────────────────────────────────
@@ -218,7 +221,7 @@ class ItemSpec(NamedTuple):
     payload: str | CharSet | CloneKey | IslandRef | GroupSpec
     lo: int
     hi: int | None
-    gate: StopGate | PairGate
+    gate: StopGate | PairGate | KTupleGate
 
 
 class ArmSpec(NamedTuple):
@@ -227,10 +230,15 @@ class ArmSpec(NamedTuple):
     :ivar first: The arm's FIRST char set — the runtime selects this arm when
         the lookahead char is a member.
     :ivar specs: The arm's item specs, in order.
+    :ivar windows: The arm's k-window selection set (analysis-sourced —
+        :attr:`~lexic.parsing.pda.analysis.Taxonomy.arm_gates`), or ``None`` on
+        the single-char path; every gated arm of a demoted alternation carries
+        its own set.
     """
 
     first: CharSet
     specs: tuple[ItemSpec, ...]
+    windows: tuple[tuple[CharSet, ...], ...] | None = None
 
 
 class GroupSpec(NamedTuple):
@@ -281,22 +289,30 @@ sentinel), mirroring the FOLLOW-set seed in :mod:`lexic.parsing.pda.analysis`.""
 
 
 def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order.
-
-    :param seq: A sequence arm (or any node sequence).
-    :returns: Its :class:`IrItem` children — anything else is skipped.
-    """
+    """The :class:`IrItem` members of a sequence arm, in order."""
     return [i for i in seq if isinstance(i, IrItem)]
 
 
 def _hi(item: IrItem) -> int | None:
-    """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded).
-
-    :param item: The quantified item.
-    :returns: ``int(hi)``, or ``None`` for the unbounded sentinel.
-    """
+    """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
     hi = item.quantifier.hi
     return None if isinstance(hi, IrNoneType) else int(hi)
+
+
+def _firsts_overlap(arms: Sequence[ArmSpec]) -> bool:
+    """Whether any two gated arms' FIRST sets overlap (the drift tripwire)."""
+    return any(
+        arms[i].first.overlaps(arms[j].first)
+        for i in range(len(arms))
+        for j in range(i + 1, len(arms))
+    )
+
+
+def _flat_windows(
+    windows: tuple[tuple[CharSet, ...], ...],
+) -> tuple[tuple[tuple[frozenset[str], bool], ...], ...]:
+    """Pre-resolve CharSet windows to the ``((chars, negated), ...)`` flat form."""
+    return tuple(tuple((cs.chars, cs.negated) for cs in win) for win in windows)
 
 
 # ── per-item context cursor (rides the argument channel) ───────────────────
@@ -304,10 +320,6 @@ def _hi(item: IrItem) -> int | None:
 
 class _ItemCtx(IrLeaf[IrSelf, IrSelf]):
     """The per-item compile context the :data:`_ATOM_SPEC` bodies read off ``nc``.
-
-    Rides ``nc`` so the atom-type bodies build their :class:`ItemSpec` without
-    threading the bounds, gate and continuation as extra positional arguments
-    through the typed dispatch protocol.
 
     :ivar lo: The item's quantifier lower bound.
     :ivar hi: The item's quantifier upper bound, or ``None``.
@@ -320,10 +332,14 @@ class _ItemCtx(IrLeaf[IrSelf, IrSelf]):
     lo: int
     hi: int | None
     cont: CharSet
-    gate: StopGate | PairGate
+    gate: StopGate | PairGate | KTupleGate
 
     def __init__(
-        self, lo: int, hi: int | None, cont: CharSet, gate: StopGate | PairGate
+        self,
+        lo: int,
+        hi: int | None,
+        cont: CharSet,
+        gate: StopGate | PairGate | KTupleGate,
     ) -> None:
         """Bind one item's bounds, continuation and gate."""
         self.lo = lo
@@ -418,10 +434,8 @@ _ATOM_SPEC: IrTypeMap = IrTypeMap(
 class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     """Builds the per-(rule, hard-continuation) clone table for one grammar.
 
-    Holds the compile-time state (the growing ``clones`` table, the analysis,
-    the island set, the baked fold config) and IS the dispatcher slot ``d``
-    handed to every :data:`_ATOM_SPEC` body, whose ``ensure_rule`` /
-    ``compile_arms`` / ``analysis`` / ``islands`` it reads directly.
+    Holds the compile-time state and IS the dispatcher slot ``d`` handed to
+    every :data:`_ATOM_SPEC` body.
 
     :ivar analysis: The grammar analysis (FIRST/hard/FOLLOW/nullability +
         loop taxonomy) the clones are cut against.
@@ -458,13 +472,7 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         *,
         reduce: "_ReduceCompile | None" = None,
     ) -> None:
-        """Prepare the compiler for one target (model fold, or reduce).
-
-        :param analysis: The grammar analysis.
-        :param fold_config: Rule name → :class:`~lexic.parsing.fold.RuleFold`
-            (the model target); ``None``/empty on the reduce path.
-        :param reduce: The reduce completion source, or ``None`` (model path).
-        """
+        """Prepare the compiler for one target (model fold, or reduce)."""
         self.analysis = analysis
         self.fold_config = fold_config or {}
         self.islands = analysis.islands
@@ -474,12 +482,8 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.completions = {}
 
     def compile_start(self) -> CloneKey | IslandRef:
-        """Compile the start clone (EOF-only tail), or mark the start an island.
-
-        :returns: The start :class:`CloneKey`, or an :class:`IslandRef` when the
-            start rule is itself an island (the Task-6 whole-grammar opt-out),
-            flagged :attr:`~IslandRef.fail` for a fail-island start.
-        """
+        """Compile the start clone (EOF-only tail), or return the
+        :class:`IslandRef` opt-out when the start rule is itself an island."""
         start = self.analysis.start
         if start in self.islands:
             return IslandRef(start, start in self.fail_islands)
@@ -490,18 +494,17 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
         Cycle-safe: the key is reserved with :data:`_PENDING` before the body is
         compiled, so a recursive reference resolves to it; a second call with
-        the same key reuses the finished clone.
-
-        :param name: The rule to clone (never an island — callers check first).
-        :param tail: The clone's hard continuation.
-        :returns: The clone's key.
+        the same key reuses the finished clone. ``name`` is never an island —
+        callers check first.
         """
         key = CloneKey(name, tail)
         if key in self.clones:
             return key
         self.clones[key] = _PENDING
         rule = self.analysis.rules[name]
-        arms, default = self.compile_arms(rule.body, tail)
+        arms, default = self.compile_arms(
+            rule.body, tail, self.analysis.taxonomy.arm_gates.get(name)
+        )
         fold = self.fold_config.get(name)
         match_only = fold is not None and fold.kind == "value_str"
         self.clones[key] = CloneSpec(name, arms, default, fold, match_only)
@@ -510,28 +513,41 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         return key
 
     def compile_arms(
-        self, node: IrAlternation, tail: CharSet
+        self,
+        node: IrAlternation,
+        tail: CharSet,
+        windows: "tuple[tuple[tuple[CharSet, ...], ...], ...] | None" = None,
     ) -> tuple[tuple[ArmSpec, ...], tuple[ItemSpec, ...] | None]:
         """Compile the arms of a rule body or inline group against ``tail``.
 
         Each arm becomes a FIRST-gated :class:`ArmSpec` (dropped when its FIRST
         is empty — an empty arm never gates); an all-nullable arm additionally
-        becomes the single default (last such arm wins).
+        becomes the single default (last such arm wins). ``windows`` — a demoted
+        rule body's stored arm-gate spec, aligned to ``node``'s arms — is
+        attached inside this same enumeration, so window↔arm alignment cannot
+        drift past the empty-FIRST drop.
 
-        :param node: The :class:`IrAlternation` (rule body or inline group).
-        :param tail: The continuation the arms' items are cut against.
+        :param windows: The rule's per-arm k-window sets, or ``None``.
         :returns: ``(gated arms, default specs | None)``.
+        :raises UnsupportedConstructError: When gated arms' FIRSTs overlap with
+            no k-window spec to select by (analysis/compiler drift — a wrong arm
+            would silently mis-parse, so the grammar opts out instead).
         """
         arms: list[ArmSpec] = []
         default: tuple[ItemSpec, ...] | None = None
-        for arm in node:
+        for idx, arm in enumerate(node):
             items = _items(arm)
             specs = self._compile_seq(items, tail)
             first = self.analysis.seq_first(items)
             if all(self.analysis.item_nullable(i) for i in items):
                 default = specs
             if not first.is_empty():
-                arms.append(ArmSpec(first, specs))
+                win = windows[idx] if windows is not None else None
+                arms.append(ArmSpec(first, specs, win))
+        if windows is None and _firsts_overlap(arms):
+            raise UnsupportedConstructError(
+                "pda: arm FIRST overlap without a k-window gate spec"
+            )
         return tuple(arms), default
 
     def _compile_seq(
@@ -540,55 +556,59 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         """Compile a sequence of items, each cut against its hard continuation."""
         analysis = self.analysis
         return tuple(
-            self._compile_item(
-                item, analysis.hard_cont_at(items, k, tail), items[k + 1 :]
-            )
-            for k, item in enumerate(items)
+            self._compile_item(items, k, analysis.hard_cont_at(items, k, tail))
+            for k in range(len(items))
         )
 
     def _compile_item(
-        self, item: IrItem, cont: CharSet, rest: Sequence[IrItem]
+        self, items: Sequence[IrItem], idx: int, cont: CharSet
     ) -> ItemSpec:
-        """Compile one item to its :class:`ItemSpec` via the atom dispatch table.
+        """Compile item ``idx`` to its :class:`ItemSpec` via the atom dispatch table.
 
-        :param item: The quantified item.
+        :param items: The enclosing arm's items.
+        :param idx: The item's index in ``items``.
         :param cont: The item's hard continuation (loop-gate / ref-tail base).
-        :param rest: The items following ``item`` in the arm (the LL(2) skip
-            side).
         :returns: The item's spec.
         :raises UnsupportedConstructError: On an unregistered atom type.
         """
+        item = items[idx]
         atom = item.atom
         lo = int(item.quantifier.lo)
         hi = _hi(item)
-        gate = self._loop_gate(item, cont, rest)
+        gate = self._loop_gate(items, idx, cont)
         ctx = _ItemCtx(lo, hi, cont, gate)
         return cast(ItemSpec, _ATOM_SPEC.resolve(atom).eval(self, atom, (ctx,)))
 
     def _loop_gate(
-        self, item: IrItem, cont: CharSet, rest: Sequence[IrItem]
-    ) -> StopGate | PairGate:
-        """The loop-continuation gate — a stop-set, or an LL(2) pair set.
+        self, items: Sequence[IrItem], idx: int, cont: CharSet
+    ) -> StopGate | PairGate | KTupleGate:
+        """The loop-continuation gate — stop-set, LL(2) pair, or k-window set.
 
         Defaults to the non-greedy stop-set (``FIRST(atom) − continuation``); a
         looping item whose FIRST overlaps its continuation upgrades to an LL(2)
-        :class:`PairGate` when the taxonomy says ``pairs`` (a ``stopset`` /
-        ``island`` verdict keeps the stop-set — an island's enclosing rule is
-        not cloned, so reaching it here is the non-gatable fallback).
+        :class:`PairGate` when the taxonomy says ``pairs``, or to the
+        :class:`KTupleGate` the analysis stored for exactly this item node
+        (:attr:`~lexic.parsing.pda.analysis.Taxonomy.loop_gates` — the demoted
+        take/skip decision a single-char stop-set could not make).
 
-        :param item: The quantified item.
+        :param items: The enclosing arm's items.
+        :param idx: The looping item's index.
         :param cont: The item's hard continuation.
-        :param rest: The items following ``item`` in the arm (the LL(2) skip side).
         :returns: The loop gate.
         """
         analysis = self.analysis
+        item = items[idx]
+        rest = list(items[idx + 1 :])
         lo = int(item.quantifier.lo)
         hi = _hi(item)
         first = analysis.atom_first(item.atom)
         if (hi is None or hi > lo) and first.overlaps(cont):
-            policy = analysis.loop_policy(item, list(rest))
+            policy = analysis.loop_policy(item, rest)
             if isinstance(policy, tuple):
                 return PairGate(policy[1])
+            kspec = analysis.taxonomy.loop_gates.get(id(item))
+            if kspec is not None:
+                return KTupleGate(kspec)
         return StopGate(first.subtract(cont))
 
 
@@ -611,10 +631,12 @@ def _build_mode(fold: RuleFold | None) -> int:
     raise UnsupportedConstructError(f"pda: unknown fold kind {kind!r}")
 
 
-def _flatten_gate(gate: StopGate | PairGate) -> tuple[int, object]:
+def _flatten_gate(gate: StopGate | PairGate | KTupleGate) -> tuple[int, object]:
     """Lower a loop gate to its ``(code, data)`` flat pair."""
     if isinstance(gate, PairGate):
         return _GATE_PAIR, gate.pairs
+    if isinstance(gate, KTupleGate):
+        return _GATE_KWIN, _flat_windows(gate.windows)
     cs = gate.charset
     return _GATE_STOP, (cs.chars, cs.negated)
 
@@ -622,13 +644,8 @@ def _flatten_gate(gate: StopGate | PairGate) -> tuple[int, object]:
 def _flatten_arm(
     specs: Sequence[ItemSpec], shells: "dict[CloneKey, _FlatClone]"
 ) -> _FlatArm:
-    """Lower a sequence of :class:`ItemSpec` to a :class:`_FlatArm`.
-
-    :param specs: The arm's item specs, in order.
-    :param shells: The clone-key → :class:`_FlatClone` map (refs resolve to the
-        live shell object, so recursion needs no id indirection).
-    :returns: The flattened arm.
-    """
+    """Lower a sequence of :class:`ItemSpec` to a :class:`_FlatArm` (refs
+    resolve to the live shell objects, so recursion needs no id indirection)."""
     kinds: list[int] = []
     payloads: list[object] = []
     los: list[int] = []
@@ -675,11 +692,7 @@ def _flatten_item(
 
 
 def _bake_build(clone: _FlatClone, fold: RuleFold | None) -> None:
-    """Bake a clone's fold and fused-build plan (fields/fast/defaults) in place.
-
-    :param clone: The clone (or group) being filled.
-    :param fold: Its :class:`~lexic.parsing.fold.RuleFold`, or ``None``.
-    """
+    """Bake a clone's fold and fused-build plan (fields/fast/defaults) in place."""
     clone.fold = fold
     clone.leaf = False  # granted by _mark_leaves once the arm shapes are final
     clone.needs_ends = fold is not None and any(
@@ -697,15 +710,41 @@ def _bake_build(clone: _FlatClone, fold: RuleFold | None) -> None:
     clone.defaults = dict(fold.fast.defaults)
 
 
+def _flatten_selectors(
+    arms: Sequence[ArmSpec], shells: "dict[CloneKey, _FlatClone]"
+) -> tuple[tuple[tuple[frozenset[str], bool, _FlatArm], ...], object]:
+    """Lower an alternation's arm selectors — single-char, or ``k``-window.
+
+    A demoted alternation (every gated arm carries :attr:`ArmSpec.windows`)
+    lowers to ``kwin_selectors`` — pre-resolved ``(windows, arm)`` pairs the
+    runtime matches EOF-exactly — leaving the single-char ``selectors`` empty;
+    otherwise the FIRST-gated ``(chars, negated, arm)`` triples are built and
+    ``kwin_selectors`` is ``None``.
+
+    :returns: ``(selectors, kwin_selectors)`` — at most one non-empty.
+    """
+    if arms and arms[0].windows is not None:
+        kwin = tuple(
+            (
+                _flat_windows(cast("tuple[tuple[CharSet, ...], ...]", arm.windows)),
+                _flatten_arm(arm.specs, shells),
+            )
+            for arm in arms
+        )
+        return (), kwin
+    selectors = tuple(
+        (arm.first.chars, arm.first.negated, _flatten_arm(arm.specs, shells))
+        for arm in arms
+    )
+    return selectors, None
+
+
 def _flatten_group(
     group: GroupSpec, shells: "dict[CloneKey, _FlatClone]"
 ) -> _FlatClone:
     """Lower an inline group to a transparent :class:`_FlatClone`."""
     clone = _FlatClone.__new__(_FlatClone)
-    clone.selectors = tuple(
-        (arm.first.chars, arm.first.negated, _flatten_arm(arm.specs, shells))
-        for arm in group.arms
-    )
+    clone.selectors, clone.kwin_selectors = _flatten_selectors(group.arms, shells)
     clone.default = (
         _flatten_arm(group.default, shells) if group.default is not None else None
     )
@@ -714,73 +753,25 @@ def _flatten_group(
     return clone
 
 
-def _bake_reduce(clone: _FlatClone, comp: ReduceComp) -> None:
-    """Bake a reduce clone's completion plan in place (the b1 twin of _bake_build).
-
-    :param clone: The clone (or inline group) being retargeted for the reducer.
-    :param comp: Its :class:`ReduceComp`.
-    """
-    clone.mode = _BUILD_REDUCE
-    clone.fold = None
-    clone.fields = ()
-    clone.fast = None
-    clone.defaults = None
-    clone.leaf = False
-    clone.needs_ends = True  # reduce reconstructs cleaned children from item ends
-    clone.reduce_kind = comp.kind
-    clone.reduce_body = comp.body
-    clone.reduce_is_yield = comp.is_yield
-    clone.reduce_span = comp.span_needed
-    clone.reduce_can_drop = comp.can_drop
-
-
-def _reduce_rewrite(
-    shells: "dict[CloneKey, _FlatClone]", completions: "dict[CloneKey, ReduceComp]"
-) -> None:
-    """Retarget every clone for the reducer completion (replaces model optimize).
-
-    A named clone bakes its rule's :class:`ReduceComp`; an inline group (reached
-    only through a ``_OP_GRP`` payload, never a clone key) splices — its ordered
-    children flatten into the caller. The model-specific specialisations
-    (``_OP_VSTR`` inlining, dispatch conversion, leaf marking) are deliberately
-    skipped: the reduce completion reconstructs children from item ends + sinks,
-    so it keeps the un-specialised op-stream.
-    """
-    comp_by_id = {id(shells[key]): comp for key, comp in completions.items()}
-    splice = ReduceComp(_R_SPLICE, None, False, False, False)
-    for clone in _all_clones(list(shells.values())):
-        _bake_reduce(clone, comp_by_id.get(id(clone), splice))
-
-
-def _flatten_program(
+def _flatten_clones(
     clones: "dict[CloneKey, CloneSpec]",
-    start_key: "CloneKey | IslandRef",
-    completions: "dict[CloneKey, ReduceComp] | None" = None,
-) -> PdaProgram:
-    """Lower the compiled clone table to the flat runtime :class:`PdaProgram`.
+    completions: "dict[CloneKey, ReduceComp] | None",
+) -> "dict[CloneKey, _FlatClone]":
+    """Lower a compiled clone table to its live :class:`_FlatClone` shells.
 
-    Two passes: create an empty :class:`_FlatClone` shell per clone key, then
-    fill each (its refs resolve to the live shells, so a recursive reference
-    holds the target object directly — no runtime id lookup). The model target
-    then runs :func:`_optimize_program`; the reduce target
-    (``completions`` given) runs :func:`_reduce_rewrite` instead — one flatten,
-    two completion targets.
-
-    :param clones: The compiled clone table (:meth:`_PdaCompiler` output).
-    :param start_key: The start clone key, or an :class:`IslandRef` opt-out.
-    :param completions: Clone key → :class:`ReduceComp` on the reduce path;
-        ``None`` (the default) for the model path.
-    :returns: The flat program.
+    Two passes: create an empty shell per clone key, then fill each (refs
+    resolve to the live shells — no runtime id lookup). The model target then
+    runs :func:`_optimize_program`; the reduce target (``completions`` given)
+    runs :func:`_reduce_rewrite` instead. Shared by :func:`_flatten_program`
+    and the per-island delegate compile, which each own an independent shell
+    set the optimiser mutates in place.
     """
     shells: dict[CloneKey, _FlatClone] = {
         key: _FlatClone.__new__(_FlatClone) for key in clones
     }
     for key, spec in clones.items():
         clone = shells[key]
-        clone.selectors = tuple(
-            (arm.first.chars, arm.first.negated, _flatten_arm(arm.specs, shells))
-            for arm in spec.arms
-        )
+        clone.selectors, clone.kwin_selectors = _flatten_selectors(spec.arms, shells)
         clone.default = (
             _flatten_arm(spec.default, shells) if spec.default is not None else None
         )
@@ -790,6 +781,17 @@ def _flatten_program(
         _optimize_program(list(shells.values()))
     else:
         _reduce_rewrite(shells, completions)
+    return shells
+
+
+def _flatten_program(
+    clones: "dict[CloneKey, CloneSpec]",
+    start_key: "CloneKey | IslandRef",
+    completions: "dict[CloneKey, ReduceComp] | None" = None,
+) -> PdaProgram:
+    """Lower the compiled clone table to the flat runtime :class:`PdaProgram`
+    (``completions`` given on the reduce path, ``None`` on the model path)."""
+    shells = _flatten_clones(clones, completions)
     start: _FlatClone | IslandRef = (
         shells[start_key] if isinstance(start_key, CloneKey) else start_key
     )
@@ -802,11 +804,8 @@ def _flatten_program(
 class PdaTables(IrLeaf[IrSelf, IrSelf]):
     """The compiled predictive-parser artifact — the sibling of :class:`ParserTables`.
 
-    Owns the clone table, the start key, the island set, and a lazy per-island
-    :class:`ParserTables` cache (Task 4/5's runtime resolves island references
-    through :meth:`island_tables`). The clone table is complete and immutable
-    after :func:`compile_pda`; only the island cache fills lazily (in place, the
-    :class:`ParserTables` scanning-cache precedent).
+    Complete and immutable after :func:`compile_pda`; only the island cache
+    fills lazily (in place, the :class:`ParserTables` scanning-cache precedent).
 
     :ivar clones: Clone key → its :class:`CloneSpec`.
     :ivar start_key: The start clone's key, or an :class:`IslandRef` when the
@@ -815,9 +814,8 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         :attr:`~lexic.parsing.pda.analysis.GrammarAnalysis.islands`).
     :ivar instance_grammar: The Earley-normalised instance grammar island
         tables are built over.
-    :ivar program: The flat int-coded runtime program
-        (:class:`PdaProgram`) :class:`~lexic.parsing.pda.runtime.PdaKernel`
-        walks — the compiled clone table lowered once for the hot loop.
+    :ivar program: The flat int-coded runtime program (:class:`PdaProgram`)
+        :class:`~lexic.parsing.pda.runtime.PdaKernel` walks.
     :ivar reduce: The reduce runtime context (:class:`ReduceRun`) on a
         grammar-text (reducer) PDA, else ``None`` — the model path.
     """
@@ -847,17 +845,12 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         instance_grammar: IrAst,
         reduce: "ReduceRun | None" = None,
     ) -> None:
-        """Freeze the clone table, lower it to the flat program, seed the cache.
+        """Freeze the clone table, lower it to the flat program, seed the caches.
 
-        The clones, island set, and reduce completions come off ``compiler`` (its
-        ``completions`` is populated on the reduce path, empty on the model path);
-        ``reduce`` carries the reduce runtime context, or ``None`` (model path).
-
-        :param compiler: The finished :class:`_PdaCompiler` (clones/islands/
-            completions).
-        :param start_key: The start clone key, or an :class:`IslandRef` opt-out.
-        :param instance_grammar: The Earley-normalised instance grammar.
-        :param reduce: The reduce runtime context, or ``None`` (model path).
+        The clones, island set and reduce completions come off ``compiler``.
+        The island-interior delegate source is attached to :attr:`program` by
+        the compile entry points (:func:`_attach_delegates`), so the artifact's
+        own attribute set stays put.
         """
         completions = compiler.completions if compiler.reduce is not None else None
         self.clones = compiler.clones
@@ -869,19 +862,46 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         self._island_tables = {}
 
     def island_tables(self, name: str) -> ParserTables:
-        """The :class:`ParserTables` for island rule ``name``, built once and cached.
-
-        Compiled over :attr:`instance_grammar` with ``name`` as the start rule —
-        the Earley sub-parser the runtime runs for a conflicted rule.
-
-        :param name: The island rule name.
-        :returns: Its compiled tables (memoised per island rule).
-        """
+        """The :class:`ParserTables` for island rule ``name``, built once and
+        cached — compiled over :attr:`instance_grammar` with ``name`` as the
+        start rule (the Earley sub-parser for a conflicted rule)."""
         cached = self._island_tables.get(name)
         if cached is None:
             cached = compile_tables(IrAst(self.instance_grammar.rules, name))
             self._island_tables[name] = cached
         return cached
+
+    def island_delegates(self, name: str) -> "dict[int, _FlatClone]":
+        """The island-interior delegate clones for island ``name`` (rule_id →
+        clone), computed once by the program's
+        :class:`~lexic.parsing.pda.delegate_compile.DelegateSource` — empty when
+        nothing delegates. The runtime wraps each into a fail-soft callable and
+        threads it through the island Earley sub-parse (the keys are island
+        tables rule ids, the predictor's ``rid``)."""
+        return cast("dict[int, _FlatClone]", self.program.delegates.for_island(name))
+
+    def reset_delegate_cache(self) -> None:
+        """Drop the per-island delegate cache — a test seam for the A/B parity
+        gate, which toggles ``DELEGATES_ENABLED`` and recomputes each side."""
+        self.program.delegates.reset()
+
+
+def _attach_delegates(
+    tables: PdaTables, lifted: IrAst, compiler: "_PdaCompiler"
+) -> None:
+    """Attach the island-interior :class:`DelegateSource` to ``tables.program``
+    (built from ``lifted`` + the compiler's fold/reduce target; the injected
+    ``(_PdaCompiler, _flatten_clones)`` seam keeps the delegate leaf import-free
+    of this module)."""
+    name_to_rid = {
+        str(rule.name): i for i, rule in enumerate(tables.instance_grammar.rules)
+    }
+    tables.program.delegates = DelegateSource(
+        lifted,
+        name_to_rid,
+        (compiler.fold_config, compiler.reduce),
+        (_PdaCompiler, _flatten_clones),
+    )
 
 
 def compile_pda(
@@ -899,14 +919,15 @@ def compile_pda(
     :param fold_config: Rule name → its :class:`~lexic.parsing.fold.RuleFold`,
         baked into each rule clone.
     :returns: The compiled :class:`PdaTables`.
-    :raises UnsupportedConstructError: On an atom the analysis or the clone
-        compiler cannot handle (the Task-6 seam reads this as "no PDA for this
-        grammar").
+    :raises UnsupportedConstructError: On anything the analysis or the clone
+        compiler cannot handle (the Task-6 seam reads this as "no PDA").
     """
     analysis = GrammarAnalysis(lifted)
     compiler = _PdaCompiler(analysis, fold_config)
     start_key = compiler.compile_start()
-    return PdaTables(compiler, start_key, instance_grammar)
+    tables = PdaTables(compiler, start_key, instance_grammar)
+    _attach_delegates(tables, lifted, compiler)
+    return tables
 
 
 def compile_reduce_pda(
@@ -921,12 +942,6 @@ def compile_reduce_pda(
     :class:`~lexic.parsing.fold.RuleFold`. The runtime feeds each clone's cleaned
     children to its reduction ``body.eval`` — no intermediate ParseTree.
 
-    :param lifted: The lifted codegen grammar the analysis and clones are cut
-        against (``lift_optional_nullables(build_codegen_grammar(canonical))``).
-    :param instance_grammar: The Earley-normalised instance grammar
-        (``normalize(lifted)``) — island sub-parses reduce over it.
-    :param reducer: The flavour's reducer (its reductions / noise / literal
-        policy compile into the clone completions).
     :returns: The compiled :class:`PdaTables` (its :attr:`~PdaTables.reduce` set).
     :raises UnsupportedConstructError: On an atom the clone compiler cannot
         handle, a custom rule noise policy, or a custom terminal-leaf policy the
@@ -941,4 +956,6 @@ def compile_reduce_pda(
     compiler = _PdaCompiler(analysis, reduce=_ReduceCompile(reducer, plan, name_to_rid))
     start_key = compiler.compile_start()
     run = ReduceRun(reducer, plan, tables, name_to_rid)
-    return PdaTables(compiler, start_key, instance_grammar, reduce=run)
+    pda = PdaTables(compiler, start_key, instance_grammar, reduce=run)
+    _attach_delegates(pda, lifted, compiler)
+    return pda

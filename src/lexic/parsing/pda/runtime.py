@@ -74,13 +74,14 @@ user-facing diagnostics. It never surfaces to the caller.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from functools import partial
+from typing import Any
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrStr, IrTuple
-from lexic.parsing.earley.reduce import _DROP_KIND
+from lexic.ir.base import IrLeaf, IrSelf
+from lexic.parsing.earley.kernel import Delegate
 from lexic.parsing.fold import ModelFold, RuleFold
-from lexic.parsing.pda.clones import PdaTables, ReduceRun
+from lexic.parsing.pda.clones import PdaTables
 from lexic.parsing.pda.errors import PdaFail
 from lexic.parsing.pda.flatten import (
     _BUILD_DISPATCH,
@@ -88,6 +89,7 @@ from lexic.parsing.pda.flatten import (
     _BUILD_TRANSPARENT,
     _BUILD_VALUE_STR,
     _DISPATCH_EMPTY,
+    _GATE_KWIN,
     _GATE_PAIR,
     _M_GTEXT,
     _M_MODEL,
@@ -100,14 +102,13 @@ from lexic.parsing.pda.flatten import (
     _OP_LIT1,
     _OP_REF1,
     _OP_VSTR,
-    _R_DROP,
-    _R_SPLICE,
     _FlatArm,
     _FlatClone,
+    _window_admits,
 )
 from lexic.parsing.pda.islands import island_parse
 
-__all__ = ["PdaFail", "PdaKernel", "parse_pda"]
+__all__ = ["PdaFail", "PdaKernel"]
 
 _EMPTY_SLOT: Any = None
 """An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
@@ -144,6 +145,33 @@ _F_ARM, _F_I, _F_COUNT, _F_OUT, _F_MODE, _F_CLONE, _F_START, _F_ENDS, _F_SINKS =
 )
 
 
+def _finish_delegate(
+    sub: "PdaKernel", clone: _FlatClone, window_text: str, pos: int
+) -> tuple[int, object] | None:
+    """Drive a delegate sub-kernel to completion — fail-soft + window-edge rule.
+
+    The shared body of both :meth:`PdaKernel._delegate_run` and its reduce twin:
+    the only per-path difference is which sub-kernel (model vs reduce) is built,
+    so that construction stays on each override and the completion / decline
+    logic lives here.
+
+    :param sub: A fresh sub-kernel over ``window_text`` (model or reduce).
+    :param clone: The delegable rule's flat clone.
+    :param window_text: The island window (the sub-parse's whole input).
+    :param pos: The start position within ``window_text``.
+    :returns: ``(end, payload)``, or ``None`` when the sub-run fails
+        (:class:`PdaFail`) or reaches the window edge (a possibly-truncated span
+        — fall through so the island doubling window grows).
+    """
+    try:
+        end, payload = sub.prefix_run(clone, pos)
+    except PdaFail:
+        return None
+    if end == len(window_text):
+        return None
+    return end, payload
+
+
 class PdaKernel(IrLeaf[IrSelf, IrSelf]):
     """One predictive parse of ``text`` over a compiled :class:`PdaProgram`.
 
@@ -162,13 +190,14 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         :class:`PdaFail`).
     """
 
-    __slots__ = ("tables", "text", "pos", "stack", "fold")
+    __slots__ = ("tables", "text", "pos", "stack", "fold", "_deleg")
 
     tables: PdaTables
     text: str
     pos: int
     stack: list[list[Any]]
     fold: ModelFold | None
+    _deleg: dict[str, dict[int, Delegate]]
 
     def __init__(
         self, tables: PdaTables, text: str, fold: ModelFold | None = None
@@ -186,6 +215,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         self.pos = 0
         self.stack = []
         self.fold = fold
+        self._deleg = {}
 
     # ── the driver ────────────────────────────────────────────────────
 
@@ -209,6 +239,44 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         if not holder:
             raise PdaFail("start rule produced no model")
         return holder[0]
+
+    def prefix_run(self, clone: _FlatClone, pos: int) -> tuple[int, object]:
+        """Drive a self-contained sub-run of ``clone`` from ``pos`` — the
+        island-interior delegation entry seam (Task 6.2, D-a).
+
+        Initialises a *fresh* descent stack at ``clone`` and ``pos`` and drives
+        until that clone's own frame completes — its subtree drains the fresh
+        stack, so completion is detected by the stack returning to empty, not by
+        end-of-input. Unlike :meth:`run` there is **no** trailing-input / EOF
+        check: the caller (an island Earley predictor) files a completed span of
+        length ``end`` and consumes only that far. The sub-run is exactly the
+        entry mode :func:`parse_pda` already trusts, just anchored at an
+        arbitrary clone and position instead of the start clone at ``0``.
+
+        Nested islands beneath ``clone`` resolve through the usual
+        :meth:`_island` path (the shared cursor's ``fold`` / ``tables`` are
+        untouched). :class:`_ReducePdaKernel` inherits this unchanged; its
+        overridden :meth:`_complete` makes the payload the reduced IR fragment.
+
+        :param clone: The delegable clone to run (never an island rule).
+        :param pos: The start cursor position in :attr:`text`.
+        :returns: ``(end, payload)`` — the position just past the clone's match
+            and the model / reduced-IR it produced (``None`` when the clone
+            builds nothing, e.g. a nullable empty arm).
+        :raises PdaFail: On any deterministic-parse failure inside the sub-run;
+            the delegate wrapper catches it and falls through to prediction.
+        """
+        saved_stack, saved_pos = self.stack, self.pos
+        self.stack = []
+        self.pos = pos
+        try:
+            holder: list[object] = []
+            self._enter(clone, holder)
+            self._drive()
+            end = self.pos
+        finally:
+            self.stack, self.pos = saved_stack, saved_pos
+        return end, (holder[0] if holder else None)
 
     def _drive(self) -> None:
         """Drain the frame stack — the fused hot loop.
@@ -353,6 +421,13 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
                 pos += llen
                 count += 1
             return pos
+        if arm.gate_kinds[i] == _GATE_KWIN:
+            while (hi < 0 or count < hi) and _window_admits(text, pos, gate):
+                if not text.startswith(lit, pos):
+                    raise PdaFail(f"expected {lit!r} at {pos}")
+                pos += llen
+                count += 1
+            return pos
         chars, negated = gate
         while hi < 0 or count < hi:
             char = text[pos : pos + 1]
@@ -389,6 +464,11 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
                 pos += 1
                 count += 1
             return pos
+        if arm.gate_kinds[i] == _GATE_KWIN:
+            while (hi < 0 or count < hi) and _window_admits(text, pos, gate):
+                pos += 1
+                count += 1
+            return pos
         gchars, gnegated = gate
         while hi < 0 or count < hi:
             char = text[pos : pos + 1]
@@ -403,8 +483,11 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         """Whether item ``i``'s loop gate admits another iteration at ``pos``."""
         text = self.text
         gate = arm.gate_data[i]
-        if arm.gate_kinds[i] == _GATE_PAIR:
+        gk = arm.gate_kinds[i]
+        if gk == _GATE_PAIR:
             return text[pos : pos + 2] in gate
+        if gk == _GATE_KWIN:
+            return _window_admits(text, pos, gate)
         chars, negated = gate
         char = text[pos : pos + 1]
         if negated:
@@ -442,6 +525,24 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
             raise PdaFail(f"no arm at {pos}")
         return default
 
+    def _select_arm_kwin(self, clone: _FlatClone, pos: int) -> _FlatArm:
+        """The clone's ``k``-window-gated arm at ``pos``, or its default.
+
+        The demoted-alternation selector (Task 6.3 part c): the arms' single-char
+        FIRSTs collide, so selection matches ``text[pos:pos+k]`` EOF-exactly
+        against each arm's window set in order (:meth:`_window_admits`). The
+        windows are pairwise separable, so at most one arm can match.
+
+        :raises PdaFail: When no arm's window matches and there is no default.
+        """
+        for windows, candidate in clone.kwin_selectors:
+            if _window_admits(self.text, pos, windows):
+                return candidate
+        default = clone.default
+        if default is None:
+            raise PdaFail(f"no arm at {pos}")
+        return default
+
     def _enter(self, clone: _FlatClone, out: list[object]) -> bool:
         """Select ``clone``'s arm at the cursor and push its (flat) frame.
 
@@ -471,6 +572,12 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
                 if nxt is _DISPATCH_EMPTY:
                     return False  # the empty (nullable) arm — nothing consumed
             clone = nxt
+        if clone.kwin_selectors is not None:
+            arm = self._select_arm_kwin(clone, self.pos)
+            self.stack.append(
+                [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
+            )
+            return True
         if clone.leaf:
             self.pos = self._run_leaf(clone, out, self.pos)
             return False
@@ -641,9 +748,11 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
     def _island(self, name: str, sink: list[object]) -> None:
         """Resolve an island reference: a windowed Earley sub-parse, spliced.
 
-        The island rule parses over a doubling window from the cursor; the
-        longest completion folds through :attr:`fold` and its sub-model appends
-        to ``sink``. The cursor advances past the consumed island span.
+        The island rule parses over a doubling window from the cursor — with its
+        conflict-free interior rules delegated to their PDA clones
+        (:meth:`_delegates`) — and the longest completion folds through
+        :attr:`fold`, its sub-model appending to ``sink``. The cursor advances
+        past the consumed island span.
 
         :param name: The island rule name.
         :param sink: The enclosing sink the sub-model splices into.
@@ -653,13 +762,73 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         fold = self.fold
         if fold is None:
             raise PdaFail(f"island {name!r} at {self.pos}: no fold for splice")
-        tree, end = island_parse(
-            self.tables.island_tables(name), self.text, self.pos, name
-        )
+        tree, end = self._island_subparse(name)
         model = fold.apply(tree)
         if model is not None:
             sink.append(model)
         self.pos += end
+
+    # ── island-interior delegation ────────────────────────────────────
+
+    def _island_subparse(self, name: str) -> tuple[Any, int]:
+        """Windowed Earley sub-parse of island ``name`` from the cursor, delegated.
+
+        The shared island entry of both completions (model / reduce): the island
+        tables over the cursor's window, with this cursor's interior delegate
+        table threaded in.
+
+        :param name: The island rule name.
+        :returns: ``(tree, consumed length)``.
+        """
+        return island_parse(
+            self.tables.island_tables(name),
+            self.text,
+            self.pos,
+            name,
+            self._delegates(name),
+        )
+
+    def _delegates(self, name: str) -> dict[int, Delegate]:
+        """The island ``name``'s interior delegate table, wrapped and cached.
+
+        Wraps each of the island's delegable clones
+        (:meth:`~lexic.parsing.pda.clones.PdaTables.island_delegates`) as a
+        fail-soft callable bound to this cursor's :meth:`_delegate_run` (the
+        kernel supplies the model-vs-reduce sub-kernel choice). Cached per island
+        name on this cursor.
+
+        :param name: The island rule name.
+        :returns: rule_id → its delegate callable (empty when nothing delegates).
+        """
+        cached = self._deleg.get(name)
+        if cached is None:
+            cached = {
+                rid: partial(self._delegate_run, clone)
+                for rid, clone in self.tables.island_delegates(name).items()
+            }
+            self._deleg[name] = cached
+        return cached
+
+    def _delegate_run(
+        self, clone: _FlatClone, window_text: str, pos: int
+    ) -> tuple[int, object] | None:
+        """Run a delegable clone as a self-contained sub-parse over the window.
+
+        The model-path :data:`~lexic.parsing.earley.kernel.Delegate` body: a
+        fresh :class:`PdaKernel` over ``window_text`` drives ``clone`` to
+        completion from ``pos`` (:meth:`prefix_run`) and builds its sub-model.
+        On any :class:`PdaFail`, or when the sub-run reaches the window edge (a
+        possibly-truncated span — fall through so the island doubling window
+        grows instead of filing a short span), returns ``None`` and the island
+        predictor falls back to normal Earley prediction.
+
+        :param clone: The delegable rule's flat clone.
+        :param window_text: The island window (the sub-parse's whole input).
+        :param pos: The start position within ``window_text``.
+        :returns: ``(end, sub_model)``, or ``None`` (declined — the safety net).
+        """
+        sub = PdaKernel(self.tables, window_text, self.fold)
+        return _finish_delegate(sub, clone, window_text, pos)
 
     # ── frame completion → fused model build ──────────────────────────
 
@@ -816,147 +985,3 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
             else:
                 raise UnsupportedConstructError(f"pda: unknown field mode {mode!r}")
         return fold.ctor(**kwargs)
-
-
-class _ReducePdaKernel(PdaKernel):
-    """The grammar-text (b1) twin of :class:`PdaKernel` — reducer completion.
-
-    Shares the whole recognition machinery (``run`` / ``_drive`` / ``_enter`` /
-    ``_quant_step`` / the terminal matchers) and only overrides the two
-    completion callbacks — :meth:`_complete` (feed the reducer's cleaned children
-    to its reduction ``body.eval``, no intermediate ParseTree) and
-    :meth:`_island` (reduce the windowed Earley sub-parse through the same
-    :class:`~lexic.parsing.earley.reduce.Reducer`). The model :class:`PdaKernel`
-    is therefore left byte-for-byte unchanged — its hot path carries no reduce
-    branch (the model-path perf guard). "One PDA compilation, one frame/island
-    stack; only the completion callback differs" (the plan's settled design).
-
-    :ivar reduce: The reduce runtime context (reducer, plan, tables, policy).
-    """
-
-    __slots__ = ("reduce",)
-
-    reduce: ReduceRun
-
-    def __init__(self, tables: PdaTables, text: str) -> None:
-        """Prepare a reduce parse; ``tables.reduce`` supplies the completion context.
-
-        :param tables: A reduce PDA (``tables.reduce`` is set).
-        :param text: The grammar-text input to parse.
-        """
-        super().__init__(tables, text, None)
-        self.reduce = cast(ReduceRun, tables.reduce)
-
-    def _complete(self, frame: list[Any]) -> None:
-        """Complete a reduce clone: evaluate its reduction body, splice, or drop.
-
-        A ``KEEP`` clone feeds the reducer's cleaned children
-        (:meth:`_reduce_parts`) to its reduction ``body.eval`` and reports the IR
-        to the caller; a ``SPLICE`` (inline group) flattens its ordered children
-        into the caller; a ``DROP`` (noise) clone contributes nothing. The b1
-        completion callback — the sole per-path difference from the model build.
-        """
-        clone = frame[_F_CLONE]
-        kind = clone.reduce_kind
-        self.stack.pop()
-        if kind == _R_DROP:
-            return
-        parts = self._reduce_parts(frame)
-        out = frame[_F_OUT]
-        if kind == _R_SPLICE:
-            out.extend(parts)
-            return
-        reducer = self.reduce.reducer
-        if clone.reduce_is_yield:
-            value: IrSelf = IrStr(self._reduce_span(frame))
-        else:
-            span = IrStr(self._reduce_span(frame)) if clone.reduce_span else IrNone
-            value = clone.reduce_body.eval(reducer, span, IrTuple(*parts))
-        out.append(value)
-
-    def _reduce_parts(self, frame: list[Any]) -> list[IrSelf]:
-        """The clone's cleaned children in source order (the ``nc`` channel).
-
-        Reconstructed from the frame's per-item ends + sinks: a terminal item
-        contributes its KEEP_RAW char leaves (dropped under a DROP literal
-        policy); a reference / group / island item contributes the captured
-        sub-results already collected in its sink (a DROP child left its sink
-        empty; a SPLICE group flattened its children in). The single home for the
-        cleaning policy is the compiled
-        :class:`~lexic.parsing.earley.reduce.ReducePlan` the clone baked from —
-        this reconstructs, it does not re-derive (H5).
-        """
-        arm = frame[_F_ARM]
-        ends = frame[_F_ENDS]
-        sinks = frame[_F_SINKS]
-        text = self.text
-        char_leaf = self.reduce.tables.char_leaf
-        lit_keep = self.reduce.literal_keep
-        parts: list[IrSelf] = []
-        prev = frame[_F_START]
-        for i in range(arm.n):
-            end = ends[i]
-            if arm.kinds[i] <= _OP_CC:  # terminal (LIT / CC) — KEEP_RAW leaves
-                if lit_keep and end > prev:
-                    parts.extend(char_leaf(c) for c in text[prev:end])
-            else:  # ref / group / island — captured sub-results
-                sub = sinks[i] if sinks else None
-                if sub:
-                    parts.extend(sub)
-            prev = end
-        return parts
-
-    def _reduce_span(self, frame: list[Any]) -> str:
-        """The clone's whole matched span (a YIELD rule's value).
-
-        :raises PdaFail: When a DROP-noise span is reachable beneath the rule —
-            the span is not one contiguous slice, so the parse defers to the
-            Earley fold (rare; the self-grammar's span rules are islands).
-        """
-        if frame[_F_CLONE].reduce_can_drop:
-            raise PdaFail(
-                "reduce: YIELD span over a droppable subtree — engine fallback"
-            )
-        return self.text[frame[_F_START] : self.pos]
-
-    def _island(self, name: str, sink: list[object]) -> None:
-        """Resolve an island reference on the reduce path: sub-parse, reduce, splice.
-
-        The windowed Earley sub-parse over the island rule's tables reduces
-        through the flavour's :class:`~lexic.parsing.earley.reduce.Reducer` (the
-        same fold the whole-input engine path runs) to IR, spliced into the
-        current children unless the island rule is DROP-noise.
-        """
-        run = self.reduce
-        tree, end = island_parse(
-            self.tables.island_tables(name), self.text, self.pos, name
-        )
-        reducer = run.reducer
-        value = reducer.eval(reducer, tree, ())
-        rid = run.name_to_rid.get(name)
-        if (
-            rid is None or run.plan.noise_kind[rid] != _DROP_KIND
-        ) and value is not None:
-            sink.append(value)
-        self.pos += end
-
-
-def parse_pda(tables: PdaTables, text: str, fold: ModelFold | None = None) -> object:
-    """Parse ``text`` with the fused predictive runtime — model or reduce.
-
-    On a reduce PDA (``tables.reduce`` set — the grammar-text path) the
-    :class:`_ReducePdaKernel` drives the reducer's bodies and returns an
-    ``IrAst``; otherwise :class:`PdaKernel` builds and returns a model.
-
-    :param tables: The compiled predictive-parser tables.
-    :param text: The input to parse.
-    :param fold: The full-grammar fold for splicing island sub-models (model
-        path only); ``None`` (the island-free path) makes any island reference
-        raise :class:`PdaFail`.
-    :returns: The start rule's model instance, or (reduce PDA) its ``IrAst``.
-    :raises PdaFail: On any deterministic-parse failure (caught by the compile
-        seam, which retries on the full engine).
-    """
-    if tables.reduce is not None:
-        return _ReducePdaKernel(tables, text).run()
-    return PdaKernel(tables, text, fold).run()

@@ -1,4 +1,48 @@
 {
+  "gbnf-self-emit": {
+    "x1": {
+      "parse+reduce:engine": {
+        "median_ms": 42.9968885,
+        "us_per_char": 16.323799734244496
+      },
+      "parse:engine": {
+        "median_ms": 77.180588,
+        "us_per_char": 29.301665907365226
+      },
+      "recognize:engine": {
+        "median_ms": 20.4962425,
+        "us_per_char": 7.781413249810175
+      }
+    },
+    "x2": {
+      "parse+reduce:engine": {
+        "median_ms": 87.231855,
+        "us_per_char": 16.55881833712984
+      },
+      "parse:engine": {
+        "median_ms": 164.99215500000003,
+        "us_per_char": 31.31969533029613
+      },
+      "recognize:engine": {
+        "median_ms": 40.576860499999995,
+        "us_per_char": 7.70251717919514
+      }
+    },
+    "x4": {
+      "parse+reduce:engine": {
+        "median_ms": 188.99500949999998,
+        "us_per_char": 17.938022921412298
+      },
+      "parse:engine": {
+        "median_ms": 366.2902255,
+        "us_per_char": 34.76558708238421
+      },
+      "recognize:engine": {
+        "median_ms": 83.6644685,
+        "us_per_char": 7.940818954062262
+      }
+    }
+  },
   "self-emit": {
     "x1": {
       "parse+reduce:engine": {

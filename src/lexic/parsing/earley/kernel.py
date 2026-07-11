@@ -29,10 +29,12 @@ ints.
 
 from __future__ import annotations
 
+from typing import Callable
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrSeq
 from lexic.parsing.earley.chart import Chart, EarleyItem
-from lexic.parsing.earley.forest import ParseTree, SppfNode
+from lexic.parsing.earley.forest import ParseTree, PayloadLeaf, SppfNode
 from lexic.parsing.earley.tables import (
     ADVANCE,
     ORIGIN_BITS,
@@ -42,9 +44,17 @@ from lexic.parsing.earley.tables import (
     predecessor_chain,
 )
 
-KLink = tuple[int, int, "int | str"]
+KLink = tuple[int, int, "int | str | PayloadLeaf"]
 """One packed SPPF family: ``(predecessor_item, predecessor_end, child)`` —
-``child`` is a packed handle (completed sub-derivation) or the scanned char."""
+``child`` is a packed handle (completed sub-derivation), the scanned char, or a
+delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` (island-interior
+delegation)."""
+
+Delegate = Callable[[str, int], "tuple[int, object] | None"]
+"""An island-interior delegate: ``(window_text, pos) -> (end, payload) | None``.
+Opaque to the kernel (the ``pda`` package builds and populates it); ``None``
+means the delegate declined, so the predictor falls through to normal
+prediction (the fail-soft safety net). See :meth:`Kernel._seed`."""
 
 
 class KernelState(IrLeaf[IrSelf, IrSelf]):
@@ -108,26 +118,49 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         recognition, which never reads the forest).
     :ivar cols: Per-column packed items, in insertion order.
     :ivar st: The mutable index state (:class:`KernelState`).
-    :ivar accept: The packed accepting item after :meth:`run`, else ``-1``.
+    :ivar delegates: rule_id → its island-interior :data:`Delegate`, or an
+        empty mapping (the common non-island case). Opaque callables the
+        ``pda`` package populates; the kernel only invokes them in
+        :meth:`_seed` (the kernel stays PDA-agnostic — see
+        :mod:`lexic.parsing.pda.islands`).
+    :ivar delegated: handle of an injected delegated completion → its
+        :class:`~lexic.parsing.earley.forest.PayloadLeaf` (empty on every
+        non-island parse).
     """
 
-    __slots__ = ("tables", "text", "record_links", "cols", "st", "accept")
+    __slots__ = (
+        "tables",
+        "text",
+        "record_links",
+        "cols",
+        "st",
+        "delegates",
+        "delegated",
+    )
 
     tables: ParserTables
     text: str
     record_links: bool
     cols: list[list[int]]
     st: KernelState
-    accept: int
+    delegates: dict[int, Delegate]
+    delegated: dict[int, PayloadLeaf]
 
     def __init__(
-        self, tables: ParserTables, text: str, record_links: bool = True
+        self,
+        tables: ParserTables,
+        text: str,
+        record_links: bool = True,
+        delegates: dict[int, Delegate] | None = None,
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
         :param tables: The compiled grammar.
         :param text: The input string.
         :param record_links: Record SPPF provenance (skip for recognition).
+        :param delegates: rule_id → island-interior :data:`Delegate`, or
+            ``None`` (no delegation — every non-island parse). Populated by the
+            ``pda`` package for island sub-parses only.
         :raises UnsupportedConstructError: If ``text`` exceeds the packed
             column capacity (``2**ORIGIN_BITS - 1`` chars).
         """
@@ -141,7 +174,19 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         self.record_links = record_links
         self.cols = [[] for _ in range(len(text) + 1)]
         self.st = KernelState(len(text) + 1)
-        self.accept = -1
+        self.delegates = delegates or {}
+        self.delegated = {}
+
+    @property
+    def accept(self) -> int:
+        """The packed accepting item after :meth:`run` (``-1`` on no parse).
+
+        Computed on read from the final column rather than stored — one fewer
+        per-parse slot, and only read a handful of times after a full run (the
+        island path reads its completion off
+        :meth:`longest_start_completion` instead, never this).
+        """
+        return self._accept_item(len(self.text))
 
     # ── the driver ────────────────────────────────────────────────────
 
@@ -158,7 +203,6 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             self._close(i)
             self._scan(i)
         self._close(n)
-        self.accept = self._accept_item(n)
         return self
 
     def _close(self, i: int) -> None:
@@ -171,6 +215,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         nxt = codes.next_sym
         nullables = codes.nullable_completes
         predicted_i = self.st.predicted[i]
+        delegated = self.delegated
         for it in self.cols[i]:
             sym = nxt[it >> ORIGIN_BITS]
             if sym > 0:  # predict — and Aycock-Horspool over a nullable target
@@ -187,6 +232,11 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 # span (_leo_resolve stops on same-column steps), so the
                 # completer would only re-derive deduped items and identical
                 # families.
+                if delegated:  # island-interior delegation (empty otherwise)
+                    payload = delegated.get((it << ORIGIN_BITS) | i)
+                    if payload is not None:
+                        self._complete_delegated(i, it, payload)
+                        continue
                 if it & ORIGIN_MASK != i:
                     self._complete(i, it)
             # else: terminal — scanned between columns via the scannable index
@@ -223,7 +273,26 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         shape changes, the language and derivation sets do not. At column
         ``n == len(text)`` the char slice is ``""``, which no charset
         contains — only always-seed arms file, exactly the EOF rule.
+
+        Invariant — **delegation is a sound replacement.** When ``rid`` carries
+        an island-interior :data:`Delegate` and the sub-run succeeds, the arm
+        seeding below is *skipped* and a completed ``rid`` item is injected at
+        the sub-run's end column instead (:meth:`_inject_delegate`): the normal
+        completer advances the by-then-fully-populated ``waiting[i][rid]`` at
+        ``_close(end)``, so late waiters (added after this predict) are covered.
+        A delegable rule is conflict-free, so its parse from ``i`` is the unique
+        one the grammar admits there — the injected span is a true derivation.
+        A declined delegate (``None``) falls through to normal seeding (the
+        fail-soft net); delegation never runs on a non-island parse
+        (``delegates`` is empty).
         """
+        if self.delegates:
+            delegate = self.delegates.get(rid)
+            if delegate is not None:
+                result = delegate(self.text, i)
+                if result is not None:
+                    self._inject_delegate(i, rid, result[0], result[1])
+                    return
         items_i = self.cols[i]
         waiting_i = self.st.waiting[i]
         scannable_i = self.st.scannable[i]
@@ -359,6 +428,70 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 links[key] = [entry]
             elif entry not in bucket:
                 bucket.append(entry)
+
+    # ── island-interior delegation ────────────────────────────────────
+
+    def _inject_delegate(self, i: int, rid: int, end: int, payload: object) -> None:
+        """File a delegated completion of ``rid`` over ``[i, end]`` (origin ``i``).
+
+        Adds one completed ``rid`` item to column ``end`` (so ``_close(end)``
+        runs the completer once column ``i`` is fully closed and every waiter
+        facing ``rid`` is present) and records the pre-built ``payload`` and the
+        consumed span as a :class:`~lexic.parsing.earley.forest.PayloadLeaf` on
+        :attr:`KernelState.delegated`. Deduped against column ``end`` so a rule
+        predicted twice at ``i`` files its span once. On the recognition path
+        (``record_links`` off) no leaf is stored — the completion still advances
+        waiters, exactly what recognition needs.
+
+        :param i: The delegated rule's start column.
+        :param rid: The delegated rule id.
+        :param end: The sub-run's end column (``> i`` — nullable rules are never
+            delegated, so the completion is non-empty and the normal completer
+            fires on it).
+        :param payload: The sub-run's pre-built value (model / reduced IR).
+        """
+        codes = self.tables.codes
+        done = codes.rule_seed_gates[rid][0][0] >> ORIGIN_BITS  # first arm's dot-0 code
+        nxt = codes.next_sym
+        while nxt[done] != 0:  # walk to that arm's completed code
+            done += 1
+        it = (done << ORIGIN_BITS) | i
+        seen_end = self.st.seen[end]
+        if it in seen_end:
+            return
+        seen_end.add(it)
+        self.cols[end].append(it)
+        if self.record_links:
+            self.delegated[(it << ORIGIN_BITS) | end] = PayloadLeaf(
+                payload, self.text[i:end]
+            )
+
+    def _complete_delegated(self, end: int, it: int, payload: PayloadLeaf) -> None:
+        """Advance every waiter on a delegated ``rid`` completion, payload-child.
+
+        The completer for an injected delegated item: like :meth:`_complete` but
+        the recorded family's consumed child IS the :class:`~lexic.parsing.earley
+        .forest.PayloadLeaf` (the pre-folded sub-result), so the decoders splice
+        it straight through — no ``rid`` sub-derivation is ever walked. Leo is
+        not attempted (a delegated span is a self-contained sub-parse, not a
+        right-recursion chain).
+        """
+        c = self.tables.codes
+        origin = it & ORIGIN_MASK
+        wl = self.st.waiting[origin].get(c.arm_rule[c.code_arm[it >> ORIGIN_BITS]])
+        if not wl:
+            return
+        self._advance_all(end, wl)
+        if self.record_links:
+            links = self.st.links
+            for w in wl:
+                key = ((w + ADVANCE) << ORIGIN_BITS) | end
+                entry: KLink = (w, origin, payload)
+                bucket = links.get(key)
+                if bucket is None:
+                    links[key] = [entry]
+                elif entry not in bucket:
+                    bucket.append(entry)
 
     def _scan(self, i: int) -> None:
         """Scan at ``text[i]``: advance items facing a matching terminal.
@@ -622,10 +755,12 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 links += (dkey, (self.decode_item(pred), pend, self._child(child)))
         return chart
 
-    def _child(self, child: int | str) -> IrSelf:
-        """Decode a packed family child — a handle or a scanned char."""
+    def _child(self, child: int | str | PayloadLeaf) -> IrSelf:
+        """Decode a packed family child — a handle, a scanned char, or a payload."""
         if isinstance(child, int):
             return SppfNode(self.decode_item(child >> ORIGIN_BITS), child & ORIGIN_MASK)
+        if isinstance(child, PayloadLeaf):  # delegated pre-folded child
+            return child
         return self.tables.char_leaf(child)
 
 
@@ -725,7 +860,10 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         chain = predecessor_chain(self.kernel.st.links, item, end, base)
         if chain is None:
             return None  # missing (no build) or ambiguous (fall back)
-        return [c if isinstance(c, int) else t.char_leaf(c) for _, _, c in chain]
+        return [
+            c if isinstance(c, (int, PayloadLeaf)) else t.char_leaf(c)
+            for _, _, c in chain
+        ]
 
     def _pending(self, resolved: list) -> list:
         """Swap memoised kids in place; return frames for those still unbuilt."""

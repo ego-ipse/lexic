@@ -80,7 +80,8 @@ from lexic.parsing.pda.clones import (
     compile_pda,
     compile_reduce_pda,
 )
-from lexic.parsing.pda.runtime import PdaFail, parse_pda
+from lexic.parsing.pda.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime import PdaFail
 
 
 def _flavour_reducer(flavour: IrFlavour) -> Reducer:

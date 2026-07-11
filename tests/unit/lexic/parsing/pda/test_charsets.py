@@ -14,7 +14,7 @@ from __future__ import annotations
 import hypothesis.strategies as st
 from hypothesis import given, settings
 
-from lexic.ir.nodes import IrCharClass, IrChr, IrRange
+from lexic.ir.nodes import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
 from lexic.parsing.pda.charsets import MAX_RANGE_EXPANSION, CharSet
 
 _A = frozenset({"a", "b"})
@@ -231,20 +231,114 @@ def test_from_charclass_mixes_ranges_and_single_chars():
 
 
 def test_from_charclass_caps_a_wide_range_to_any():
-    """A range past MAX_RANGE_EXPANSION falls back to ANY instead of expanding."""
+    """A range roughly bisecting the code-point space is too big to enumerate
+    on EITHER side (positive or complement) — the only case ANY remains."""
     cc = IrCharClass(IrRange(IrChr(0), IrChr(MAX_RANGE_EXPANSION + 2)))
     assert CharSet.from_charclass(cc) == CharSet.ANY
 
 
 def test_from_charclass_cap_is_a_strict_greater_than(monkeypatch):
-    """The expansion cap check is strict '>': exactly at cap still expands."""
+    """The expansion cap check is strict '>': exactly at cap still expands
+    positive; one past it is too big for both sides here, so it falls to ANY."""
     monkeypatch.setattr("lexic.parsing.pda.charsets.MAX_RANGE_EXPANSION", 5)
-    at_cap = IrCharClass(IrRange(IrChr(0), IrChr(5)))
+    at_cap = IrCharClass(IrRange(IrChr(0), IrChr(4)))  # 5 code points
     assert CharSet.from_charclass(at_cap) == CharSet(
-        frozenset(chr(c) for c in range(6)), False
+        frozenset(chr(c) for c in range(5)), False
     )
-    over_cap = IrCharClass(IrRange(IrChr(0), IrChr(6)))
+    over_cap = IrCharClass(IrRange(IrChr(0), IrChr(5)))  # 6 code points
     assert CharSet.from_charclass(over_cap) == CharSet.ANY
+
+
+# ── from_charclass / from_not — exact beyond the cap (P1) ────────────────
+#
+# Reference oracle: a plain Python membership scan over the raw (lo, hi)
+# ranges used to author the IrCharClass — independent of anything
+# CharSet/IrCharClass compute internally (no intervals()/complement() calls
+# in the oracle itself, so it can't share a bug with the code under test).
+
+
+def _ranges_to_charclass(ranges: list[tuple[int, int]]) -> IrCharClass:
+    return IrCharClass(
+        *(IrChr(lo) if lo == hi else IrRange(IrChr(lo), IrChr(hi)) for lo, hi in ranges)
+    )
+
+
+def _reference_member(ranges: list[tuple[int, int]], cp: int) -> bool:
+    """Independent membership oracle: brute-force scan of the raw ranges."""
+    return any(lo <= cp <= hi for lo, hi in ranges)
+
+
+def test_from_charclass_exact_for_a_small_positive_class():
+    """A small class stays positive and exact — no cap involved."""
+    ranges = [(ord("a"), ord("e")), (ord("x"), ord("x"))]
+    cc = _ranges_to_charclass(ranges)
+    cs = CharSet.from_charclass(cc)
+    assert not cs.negated
+    for cp in range(200):
+        assert cs.has(chr(cp)) == _reference_member(ranges, cp)
+
+
+def test_from_charclass_goes_negated_when_the_complement_is_small():
+    """A near-universal class (small complement) expands the complement
+    side exactly, instead of widening the whole thing to ANY."""
+    gap = 0x2028  # an arbitrary interior code point excluded from the class
+    ranges = [(0, gap - 1), (gap + 1, MAX_CODEPOINT)]
+    cc = _ranges_to_charclass(ranges)
+    cs = CharSet.from_charclass(cc)
+    assert cs.negated
+    assert cs.chars == frozenset({chr(gap)})
+    for cp in (0, 1, gap - 1, gap, gap + 1, MAX_CODEPOINT):
+        assert cs.has(chr(cp)) == _reference_member(ranges, cp)
+
+
+def test_from_charclass_stays_any_when_both_sides_exceed_the_cap():
+    """A range roughly bisecting the code-point space stays ANY: neither the
+    positive set nor its complement fits under the expansion cap."""
+    ranges = [(0, MAX_CODEPOINT // 2)]
+    cc = _ranges_to_charclass(ranges)
+    assert CharSet.from_charclass(cc) == CharSet.ANY
+
+
+def test_from_not_exact_complement_when_inner_is_near_universal():
+    """from_not exactly complements a near-universal inner class instead of
+    ANY-ing — the complement of a small-complement class is small-positive."""
+    gap = 0x2028
+    ranges = [(0, gap - 1), (gap + 1, MAX_CODEPOINT)]
+    cc = _ranges_to_charclass(ranges)
+    cs = CharSet.from_not(cc)
+    assert not cs.negated
+    assert cs.chars == frozenset({chr(gap)})
+    for cp in (0, 1, gap - 1, gap, gap + 1, MAX_CODEPOINT):
+        assert cs.has(chr(cp)) == (not _reference_member(ranges, cp))
+
+
+def test_from_not_stays_any_when_inner_exceeds_the_cap_on_both_sides():
+    """from_not falls back to ANY only when inner's own from_charclass did."""
+    ranges = [(0, MAX_CODEPOINT // 2)]
+    cc = _ranges_to_charclass(ranges)
+    assert CharSet.from_not(cc) == CharSet.ANY
+
+
+@given(
+    ranges=st.lists(
+        st.tuples(st.integers(0, 500), st.integers(0, 500)).map(
+            lambda pair: (min(pair), max(pair))
+        ),
+        min_size=1,
+        max_size=6,
+    )
+)
+@settings(max_examples=200)
+def test_from_charclass_matches_reference_over_random_small_ranges(
+    ranges: list[tuple[int, int]],
+) -> None:
+    """Brute-force fuzz: from_charclass's has() agrees with the independent
+    range-scan oracle over every code point the ranges could plausibly touch,
+    plus the far extreme (MAX_CODEPOINT)."""
+    cc = _ranges_to_charclass(ranges)
+    cs = CharSet.from_charclass(cc)
+    for cp in (*range(600), MAX_CODEPOINT):
+        assert cs.has(chr(cp)) == _reference_member(ranges, cp)
 
 
 # ── from_not ─────────────────────────────────────────────────────────────

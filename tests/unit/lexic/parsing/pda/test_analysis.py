@@ -15,7 +15,7 @@ import pytest
 from lexic.codegen import build_codegen_grammar
 from lexic.compile import canonical_grammar
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars import flavour_for_extension
+from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir.base import IrAtom, IrNone, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
@@ -32,6 +32,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda import kwindow
 from lexic.parsing.pda.analysis import GrammarAnalysis, nullable_names
 from lexic.parsing.pda.charsets import CharSet
 from tests.paths import GROUND_TRUTH
@@ -65,6 +66,11 @@ def _lifted_analysis(stem: str) -> GrammarAnalysis:
     return GrammarAnalysis(lifted)
 
 
+def _items(arm: IrSequence) -> list[IrItem]:
+    """The :class:`IrItem` members of one sequence arm, in order."""
+    return [i for i in arm if isinstance(i, IrItem)]
+
+
 # ── the island / demotion parity gate (pinned to the PoC's M1 output) ──────
 #
 # Deviation from the PoC: json ``ws`` is islanded, not stop-set-demoted. The
@@ -75,35 +81,43 @@ def _lifted_analysis(stem: str) -> GrammarAnalysis:
 # ``root ::= x "ab"?`` / ``x ::= [a-c]*`` regression below. arithmetic ``ws``
 # stays demoted: its only FIRST∩FOLLOW overlap is ``\n``, a *hard* follower
 # (``ws "\n"``), so its stop-set is call-site invariant and sound.
+#
+# P1 (exact co-finite ``from_charclass``/``from_not``, ``charsets.py``):
+# json's ``char``/``string`` islands are gone — their ``[^"\\]`` exclusion no
+# longer widens to ANY, so the escape-vs-literal-char split resolves exactly
+# (json/json_arr/json_ws/json.abnf all lose their ``string`` entry; json/
+# json.abnf also lose ``char``). ``c.gbnf``'s ``singlelinecomment`` and
+# ``list.gbnf``'s ``item`` drop out of the demoted set entirely (not just
+# un-islanded) — their own ``[^\n]*``-shaped loops now resolve with no
+# FIRST∩FOLLOW overlap at all, so no stop-gate is needed.
 _PINNED_ISLANDS: dict[str, list[str]] = {
     "arithmetic.gbnf": [],
     "c.gbnf": [
         "factor",
         "forinit",
-        "multilinecomment",
         "relationoperator",
         "statement",
         "statement-arm7",
     ],
-    "chess.gbnf": ["nonpawn"],
+    "chess.gbnf": [],
     "japanese.gbnf": [],
-    "json.gbnf": ["array-item2", "char", "object-item2", "string", "value", "ws"],
-    "json_arr.gbnf": ["number", "string"],
-    "json_ws.gbnf": ["number", "string"],
+    "json.gbnf": ["array-item2", "object-item2", "value", "ws"],
+    "json_arr.gbnf": ["number"],
+    "json_ws.gbnf": ["number"],
     "list.gbnf": [],
     "arithmetic.abnf": [],
-    "json.abnf": ["array-item2", "char", "object-item2", "string", "value", "ws"],
+    "json.abnf": ["array-item2", "object-item2", "value", "ws"],
 }
 
 _PINNED_DEMOTED: dict[str, list[str]] = {
     "arithmetic.gbnf": ["ws"],
-    "c.gbnf": ["singlelinecomment"],
-    "chess.gbnf": ["pawn"],
+    "c.gbnf": ["multilinecomment"],
+    "chess.gbnf": ["nonpawn", "pawn"],
     "japanese.gbnf": [],
     "json.gbnf": [],
     "json_arr.gbnf": [],
     "json_ws.gbnf": [],
-    "list.gbnf": ["item"],
+    "list.gbnf": [],
     "arithmetic.abnf": [],
     "json.abnf": [],
 }
@@ -127,6 +141,123 @@ def test_islands_are_the_conflict_keys():
     """``islands`` is exactly the set of rules carrying an island conflict."""
     analysis = _lifted_analysis("json.gbnf")
     assert analysis.islands == frozenset(analysis.conflicts)
+
+
+# ── P2 k-window demotion (flag OFF baseline / flag ON gated behavior) ──────
+
+
+def _self_grammar_analysis(name: str) -> GrammarAnalysis:
+    """Analysis of a flavour's own lifted self-grammar (gbnf/abnf)."""
+    return GrammarAnalysis(lift_optional_nullables(get_flavour(name).grammar))
+
+
+def test_p2_demotion_flag_defaults_to_true():
+    """The master switch defaults ``True`` — P2 k-window demotion is live
+    (Task 6.3 part c landed; ``False`` remains the A/B test seam)."""
+    assert kwindow.P2_DEMOTION_ENABLED is True
+
+
+@pytest.fixture
+def _demotion_disabled():
+    """Flip ``kwindow.P2_DEMOTION_ENABLED`` off for one test, restoring the
+    prior value afterwards — the toggle must never leak between tests."""
+    prior = kwindow.P2_DEMOTION_ENABLED
+    kwindow.P2_DEMOTION_ENABLED = False
+    try:
+        yield
+    finally:
+        kwindow.P2_DEMOTION_ENABLED = prior
+
+
+@pytest.mark.parametrize(
+    ("factory", "pre_p2", "post_p2"),
+    [
+        (lambda: _self_grammar_analysis("gbnf"), 17, 8),
+        (lambda: _self_grammar_analysis("abnf"), 9, 7),
+        (lambda: _lifted_analysis("json.gbnf"), 4, 4),
+        (lambda: _lifted_analysis("chess.gbnf"), 1, 0),
+    ],
+    ids=["gbnf-self", "abnf-self", "json.gbnf", "chess.gbnf"],
+)
+def test_island_set_reverts_to_pre_p2_with_demotion_disabled(
+    factory, pre_p2, post_p2, _demotion_disabled
+):
+    """With ``P2_DEMOTION_ENABLED`` forced off (the A/B seam) the island count
+    is the pre-P2 baseline; the default (ON) count is pinned by the same
+    factory outside the fixture in
+    :func:`test_island_set_default_is_post_p2`."""
+    assert kwindow.P2_DEMOTION_ENABLED is False
+    assert len(factory().islands) == pre_p2
+    assert pre_p2 >= post_p2
+
+
+@pytest.mark.parametrize(
+    ("factory", "expected_count"),
+    [
+        (lambda: _self_grammar_analysis("gbnf"), 8),
+        (lambda: _self_grammar_analysis("abnf"), 7),
+        (lambda: _lifted_analysis("json.gbnf"), 4),
+        (lambda: _lifted_analysis("chess.gbnf"), 0),
+    ],
+    ids=["gbnf-self", "abnf-self", "json.gbnf", "chess.gbnf"],
+)
+def test_island_set_default_is_post_p2(factory, expected_count):
+    """Under the live default the island counts moved exactly as the coverage
+    map predicts: GBNF-self 17→8 (cc-esc family k2 ×8 + cc-neg k3), ABNF-self
+    9→7 (defined/element k2), chess 1→0 (nonpawn k3); json unchanged."""
+    assert kwindow.P2_DEMOTION_ENABLED is True
+    assert len(factory().islands) == expected_count
+
+
+def test_demotes_chess_nonpawn_loop():
+    """Chess's ``nonpawn`` loop (an island pre-P2) demotes to a k-window gate
+    under the live default, and the taxonomy STORES the gate spec (the
+    option-(a) channel the clone compiler reads back)."""
+    analysis = _lifted_analysis("chess.gbnf")
+    assert "nonpawn" not in analysis.islands
+    assert analysis.demoted["nonpawn"] == ["nonpawn[1]: loop k-window (demoted)"]
+
+    items = _items(analysis.rules["nonpawn"].body[0])
+    assert id(items[1]) in analysis.taxonomy.loop_gates
+    gate = kwindow.loop_gate(analysis.rules, items, 1, analysis.follow["nonpawn"])
+    assert gate is not None
+    assert analysis.taxonomy.loop_gates[id(items[1])] == kwindow.windows_of(gate[1])
+
+
+def test_demotes_gbnf_self_cc_esc_arm():
+    """The GBNF self-grammar's ``cc-esc`` arm-selection (an island pre-P2)
+    demotes under the live default, and the taxonomy STORES the per-arm
+    windows aligned to the rule body's arms."""
+    analysis = _self_grammar_analysis("gbnf")
+    assert "cc-esc" not in analysis.islands
+    assert analysis.demoted["cc-esc"] == ["cc-esc: arms k-window separable (demoted)"]
+
+    arms = [_items(arm) for arm in analysis.rules["cc-esc"].body]
+    stored = analysis.taxonomy.arm_gates["cc-esc"]
+    assert len(stored) == len(arms)
+    gate = kwindow.arm_gate(analysis.rules, arms, analysis.follow["cc-esc"])
+    assert gate is not None
+    assert stored == tuple(kwindow.windows_of(s) for s in gate[1])
+
+
+def test_group_arm_overlap_stays_an_island():
+    """An inline group's arm overlap never demotes (no rule-name store key) —
+    the enclosing rule islands even with P2 live, so the clone compiler never
+    meets an overlapping group without a spec."""
+    assert kwindow.P2_DEMOTION_ENABLED is True
+    grp = IrAlternation(
+        IrSequence(_item(IrLiteral("ab"))), IrSequence(_item(IrLiteral("ac")))
+    )
+    root = _rule("root", IrSequence(_item(grp)))
+    analysis = _analysis(root, start="root")
+    assert "root" in analysis.islands
+    assert "root" not in analysis.taxonomy.arm_gates
+
+
+def test_flag_restored_after_demotion_tests():
+    """Sanity: the flag fixtures restored the module flag, so later tests
+    (and the rest of the suite) see the live default ``True`` again."""
+    assert kwindow.P2_DEMOTION_ENABLED is True
 
 
 def test_loop_over_soft_only_follower_islands():

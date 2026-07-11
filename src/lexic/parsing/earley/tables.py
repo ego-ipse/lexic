@@ -51,7 +51,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
 
 ORIGIN_BITS = 20
 """Bits reserved for an origin / end column in a packed item or handle."""
@@ -62,9 +62,11 @@ ORIGIN_MASK = (1 << ORIGIN_BITS) - 1
 ADVANCE = 1 << ORIGIN_BITS
 """Adding this to a packed item advances its dot by one (codes are dot-dense)."""
 
-KLink = tuple[int, int, "int | str"]
+KLink = tuple[int, int, int | str | PayloadLeaf]
 """One packed SPPF family: ``(predecessor_item, predecessor_end, child)`` —
-``child`` is a packed handle (completed sub-derivation) or the scanned char."""
+``child`` is a packed handle (completed sub-derivation), the scanned char, or a
+delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` (island-interior
+delegation — a pre-folded child spliced onto the waiter it advances)."""
 
 
 def predecessor_chain(

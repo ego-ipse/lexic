@@ -6,6 +6,21 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ---
 
+## 2026-07-11 — P2 gate-spec channel: analysis stores, compiler reads (unified-parse-engine Task 6.3c)
+
+**Decision:** The k-window gates the analysis consults during demotion are **stored on the taxonomy** and read back by the clone compiler — never recomputed. `GrammarAnalysis.taxonomy` (the renamed `_tax` slot, now a public **attribute** — deliberately not a property/method, so the R0904 20-public-method and R0902 7-slot caps are both untouched) is a `Taxonomy` carrying `arm_gates: dict[str, windows-per-arm]` and `loop_gates: dict[int, taken-windows]`.
+
+- **Why option (a) (store) over recompute-in-compiler?** Dual derivation of the same soundness-critical spec is a divergence risk (task63fix F1: the seam previously carried *no* spec — the gates were computed and discarded). Single source of truth; the compiler's only job is alignment.
+- **Arm gates keyed by rule name, licensed for rule bodies ONLY.** `arm_conflicts`' `label` for a rule body IS the rule name (`label in self.rules` is the discriminator — bracketed group labels can never collide with rule names). An inline group's arm overlap now stays a **hard note → the rule islands**, which strictly dominates the old part-(b) whole-grammar opt-out (the engine parses one rule instead of everything). Corpus has no such group.
+- **Loop gates keyed by `id(IrItem)` — node identity.** Analysis and clone compiler walk the *same* lifted tree (`compile_pda` builds the analysis from the `lifted` it compiles), so the item node is the exact decision identity; label-keying (`rule[idx]`) is ambiguous between a rule arm's item k and a group sub-arm's item k. A conflicting re-store under one id raises (`UnsupportedConstructError` → whole-grammar opt-out) — the shared-node hazard is closed, not assumed away.
+- **Specs stored cooked** (`kwindow.windows_of`: END/MORE/UNK tags dropped — the runtime's positionwise consistency test never reads them (task63fix finding 4) — dedup'd, deterministically sorted so specs compare with `!=`).
+- **Alignment lives inside `compile_arms`' own enumeration** (`windows[idx]` attached in the same loop that drops empty-FIRST arms) — window↔arm drift is structurally impossible rather than checked after the fact. A FIRST-overlapping alternation reaching the compiler with **no** spec raises — the anti-trap tripwire (F2: an empty gate mis-parses, PdaFail-falls-back, and passes island-move + parity gates while unsound and slower).
+- **Verified live:** chess `nonpawn` (loop, k=3) 0.0% fallback + 8.6× faster than the 6.2 island-hit path; `lo>k` EOF-exact arm selection end-to-end; GBNF-self 17→8 / ABNF-self 9→7 island moves exactly per the coverage map.
+
+**Impact:** `Taxonomy` is public (`analysis.__all__`); `KTupleGate`/`ArmSpec.windows` reinstated in `clones.py` as read-side only; LL(2) 2-prefix machinery now lives in `kwindow.py` as free fns (`loop_policy` calls across); `_bake_reduce`/`_reduce_rewrite` live in `reduce_pda.py`. `P2_DEMOTION_ENABLED` defaults **True**; `False` is the A/B seam. See [[architecture]], the PLAN_v5 ledger, and log 2026-07-11.
+
+---
+
 ## 2026-07-06 — One IR fold type: `ModelFold` + `ModelBody` (unified-parse-engine Task 3)
 
 **Decision:** The instance fold's authored form is now **one IR-native type**, `ModelFold` (`parsing/fold.py`), whose `bodies` is a per-rule `IrMap[IrRuleRef, ModelBody]` — the *same shape* the grammar-text `Reducer` carries its `reductions` in (a per-rule `IrMap` to `IrSelf` bodies). A `ModelBody(kind, ctor, n_items, fields, fast)` (an `IrNamedTuple`, `_child_attrs=()`) carries the model constructor as an `IrLambda` (`IrNone` for an `alternation`, which has none) plus structural metadata. On construction `ModelFold` **bakes** every body (`ModelBody.bake()`) to the flat-runtime `config: dict[str, RuleFold]` (`.baked`) — the record the PDA clone compiler and the engine-fallback `apply` consume **byte-for-byte unchanged**. `RuleFold`/`FieldFold`/`FastCtor` survive as that lowered/baked representation; `ModelBody.of(rf)` is the inverse lift and `ModelFold.from_config(dict)` the direct-from-baked (lowered) constructor.

@@ -16,7 +16,8 @@ import dataclasses
 import pytest
 
 from lexic.compile import compile_from_path
-from lexic.parsing.pda.runtime import PdaFail, parse_pda
+from lexic.parsing.pda.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime import PdaFail
 from tests.paths import GROUND_TRUTH
 
 # The pinned fallback input: a valid assignment followed by extra blank lines.

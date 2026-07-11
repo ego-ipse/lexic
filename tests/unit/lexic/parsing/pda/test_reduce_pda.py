@@ -37,8 +37,22 @@ from lexic.parsing.earley.reduce import (
     _plan_for,
 )
 from lexic.parsing.earley.tables import compile_tables
-from lexic.parsing.pda.flatten import _R_DROP, _R_KEEP
-from lexic.parsing.pda.reduce_pda import ReduceComp, ReduceRun, _ReduceCompile
+from lexic.parsing.pda.charsets import CharSet
+from lexic.parsing.pda.clones import CloneKey
+from lexic.parsing.pda.flatten import (
+    _BUILD_REDUCE,
+    _BUILD_TRANSPARENT,
+    _R_DROP,
+    _R_KEEP,
+    _R_SPLICE,
+    _FlatClone,
+)
+from lexic.parsing.pda.reduce_pda import (
+    ReduceComp,
+    ReduceRun,
+    _reduce_rewrite,
+    _ReduceCompile,
+)
 
 # ── fixture grammar + reducer ────────────────────────────────────────────
 #
@@ -209,3 +223,60 @@ def test_reducerun_literal_keep_false_when_the_terminal_policy_is_drop():
     DROP (the fixture's own reducer, and every shipping flavour's)."""
     run = _run_for(_REDUCER)
     assert run.literal_keep is False
+
+
+# ── _reduce_rewrite / _bake_reduce (unit-level) ─────────────────────────
+# Ported from test_clones.py when the functions moved here (option-(a)
+# rebuild, 2026-07-11).
+
+
+def _bare_flat_clone() -> _FlatClone:
+    """An empty _FlatClone shell — the pre-bake state _flatten_program leaves
+    every clone in before its first pass fills mode/selectors/default."""
+    clone = _FlatClone.__new__(_FlatClone)
+    clone.selectors = ()
+    clone.kwin_selectors = None
+    clone.default = None
+    clone.mode = _BUILD_TRANSPARENT  # placeholder, overwritten by _bake_reduce
+    return clone
+
+
+def test_reduce_rewrite_bakes_a_keep_completion_onto_its_own_clone():
+    """A clone whose key has a KEEP completion bakes body/is_yield/span/can_drop
+    verbatim off the ReduceComp — the exact _bake_reduce contract."""
+    key = CloneKey("root", CharSet.from_chars(""))
+    shell = _bare_flat_clone()
+    comp = ReduceComp(_R_KEEP, "sentinel-body", True, False, True)
+    _reduce_rewrite({key: shell}, {key: comp})
+    assert shell.mode == _BUILD_REDUCE
+    assert shell.reduce_kind == _R_KEEP
+    assert shell.reduce_body == "sentinel-body"
+    assert shell.reduce_is_yield is True
+    assert shell.reduce_span is False
+    assert shell.reduce_can_drop is True
+    assert shell.needs_ends is True
+    assert shell.fold is None
+    assert shell.fast is None
+
+
+def test_reduce_rewrite_bakes_a_drop_completion_onto_its_own_clone():
+    """A DROP-noise rule's clone bakes _R_DROP with no body."""
+    key = CloneKey("n", CharSet.from_chars(""))
+    shell = _bare_flat_clone()
+    comp = ReduceComp(_R_DROP, None, False, False, False)
+    _reduce_rewrite({key: shell}, {key: comp})
+    assert shell.reduce_kind == _R_DROP
+    assert shell.reduce_body is None
+
+
+def test_reduce_rewrite_defaults_a_clone_with_no_completion_to_splice():
+    """An inline group's shell never appears in ``completions`` (only named
+    rules do — groups are reached via a _OP_GRP payload, never a clone key
+    of their own) — _reduce_rewrite defaults it to SPLICE, flattening its
+    ordered children straight into the caller.
+    """
+    key = CloneKey("grp", CharSet.from_chars(""))
+    shell = _bare_flat_clone()
+    _reduce_rewrite({key: shell}, {})
+    assert shell.reduce_kind == _R_SPLICE
+    assert shell.reduce_body is None
