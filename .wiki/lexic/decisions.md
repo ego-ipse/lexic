@@ -6,6 +6,22 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ---
 
+## 2026-07-11 — P6/P3 noise levers: attribution over hardcoding; peeks are fail-soft (Task 6.4)
+
+**Decision 1 — the P6 licence carries a third clause.** SIM_60's pinned two-clause condition (`hard_follow ∩ FIRST = ∅` ∧ `gap ⊆ FIRST`) is sufficient for json but unsound in general: it would license a non-semantic loop eating into a *semantic* optional follower (`root ::= x "ab"?`, `x ::= [a-c]*` noise — `semantic_dump` changes). The plan's own risk note demands precision, so the licence adds `gap ∩ sem_follow(rule) = ∅`, where `sem_follow` is a FOLLOW fixpoint over *semantically-attributable* chars only (`pda/noise.py`): terminals count only inside semantic rules; a ref to a non-semantic rule contributes nothing (its subtree is excluded from `semantic_dump` wholesale, so chars stolen from it are noise↔noise by construction); a ref to a semantic rule contributes its *decomposition*, not its noise-polluted raw FIRST. This reproduces the SIM's json justification ("ws is the sole whitespace-leading rule") without hardcoding it.
+
+**Decision 2 — W is grammar-derived, not per-flavour.** The P3 skippable alphabet is ⋃FIRST over **nullable** non-semantic rules: nullability is what separates a noise *run* (ws, filler) from a required-but-dropped token marker (dquote, defined) — exactly the ⚠ 6.0 constraint, with W itself derived. Gives json whitespace, ABNF ws+`;`, GBNF ws+`#` (matching the SIM's hand-pinned sets).
+
+**Decision 3 — the P3 peek is non-consuming, hence fail-soft by construction.** The runtime skips the maximal W run only to *look*; the winning arm/iteration re-parses its noise from the original position. A wrong pick can therefore only fail-then-fallback, never silently mis-build — so the analysis separability conditions are a *determinism* (zero-fallback perf) guarantee, and mixed-terminal poisoning / end-open bailing in `ResidualFirst` err conservative without soundness pressure. Corollary: comment-bearing noise (GBNF `#…`, ABNF `;…`) poisons the char-set residual FIRST (the skip could land inside a comment body), so the GBNF/ABNF spine's P3 decisions stay islands until the folding-aware structured scanner lands with P5 (which needs it regardless).
+
+**Decision 4 — stored gates are honored in every clone.** The compiler consulted taxonomy gates only under its per-clone hard-cont overlap heuristic; a clone whose hard tail didn't overlap the loop FIRST silently baked a stop-set that ate the soft-only noise run the gate exists to adjudicate (caught live by a `\t`-bearing json input). Rule: a stored gate is the analysis's decision for that node — judged against the rule's soft FOLLOW, which covers every clone — and is read back unconditionally.
+
+**Decision 5 — staging flags die once their lever lands.** `P2_DEMOTION_ENABLED` deleted (user ruling: pre-v1, no legacy); flag-seam tests deleted with their symbol. `DELEGATES_ENABLED` stays until Task 8 — it is the still-standing delegation A/B gate, not a landed lever's leftover.
+
+**Impact:** json island-free (16× vs 6.2 on the instance path: 751→46 ms); `Taxonomy` carries four gate channels; `pda/noise.py` + `test_noise.py` new; `_gate_take`/`_select_gated` shared runtime helpers in `flatten.py`.
+
+---
+
 ## 2026-07-11 — P2 gate-spec channel: analysis stores, compiler reads (unified-parse-engine Task 6.3c)
 
 **Decision:** The k-window gates the analysis consults during demotion are **stored on the taxonomy** and read back by the clone compiler — never recomputed. `GrammarAnalysis.taxonomy` (the renamed `_tax` slot, now a public **attribute** — deliberately not a property/method, so the R0904 20-public-method and R0902 7-slot caps are both untouched) is a `Taxonomy` carrying `arm_gates: dict[str, windows-per-arm]` and `loop_gates: dict[int, taken-windows]`.

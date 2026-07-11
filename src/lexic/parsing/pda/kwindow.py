@@ -47,7 +47,6 @@ from lexic.ir.operators import IrNot
 from lexic.parsing.pda.charsets import CharSet
 
 __all__ = [
-    "P2_DEMOTION_ENABLED",
     "KWindowFirst",
     "Pref",
     "END",
@@ -63,17 +62,6 @@ __all__ = [
     "group_two_prefix",
     "atom_two_prefix",
 ]
-
-P2_DEMOTION_ENABLED = True
-"""Master switch for P2 k-window demotion (Task 6.3, ON since part c landed).
-A decision that separates at ``k ≤ 3`` is demoted from island to the k-window
-gate the runtime executes (:data:`~lexic.parsing.pda.flatten._GATE_KWIN` loops,
-:attr:`~lexic.parsing.pda.flatten._FlatClone.kwin_selectors` arm selection, the
-EOF-exact :func:`~lexic.parsing.pda.flatten._window_admits` matcher), compiled
-from the analysis-**stored** gate spec (:class:`~lexic.parsing.pda.analysis
-.Taxonomy` ``arm_gates``/``loop_gates`` — single source, never recomputed).
-When ``False`` the islanding path does not consult the k-window gates and the
-island set is identical to pre-P2 (the A/B test seam)."""
 
 END, MORE, UNK = "END", "MORE", "UNK"
 """A prefix state: END — the tuple is a complete derivation (may be extended by

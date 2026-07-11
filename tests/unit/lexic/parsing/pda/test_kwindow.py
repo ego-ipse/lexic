@@ -30,7 +30,6 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.pda import kwindow
 from lexic.parsing.pda.analysis import GrammarAnalysis
 from lexic.parsing.pda.charsets import CharSet
 from lexic.parsing.pda.kwindow import (
@@ -396,9 +395,3 @@ def test_chess_nonpawn_loop_separates_at_k3():
 def test_json_value_arm_gate_stays_island():
     """json's ``value`` alternation is genuinely not k-window separable."""
     assert _arm_k(_ground_truth_analysis("json.gbnf"), "value") is None
-
-
-def test_p2_demotion_enabled_by_default():
-    """The master switch defaults to ``True`` — P2 k-window demotion is live
-    (Task 6.3 part c); ``False`` remains the A/B test seam."""
-    assert kwindow.P2_DEMOTION_ENABLED is True

@@ -101,12 +101,12 @@ _PINNED_ISLANDS: dict[str, list[str]] = {
     ],
     "chess.gbnf": [],
     "japanese.gbnf": [],
-    "json.gbnf": ["array-item2", "object-item2", "value", "ws"],
+    "json.gbnf": [],
     "json_arr.gbnf": ["number"],
     "json_ws.gbnf": ["number"],
     "list.gbnf": [],
     "arithmetic.abnf": [],
-    "json.abnf": ["array-item2", "object-item2", "value", "ws"],
+    "json.abnf": [],
 }
 
 _PINNED_DEMOTED: dict[str, list[str]] = {
@@ -114,12 +114,12 @@ _PINNED_DEMOTED: dict[str, list[str]] = {
     "c.gbnf": ["multilinecomment"],
     "chess.gbnf": ["nonpawn", "pawn"],
     "japanese.gbnf": [],
-    "json.gbnf": [],
+    "json.gbnf": ["array-item2", "object-item2", "value", "ws"],
     "json_arr.gbnf": [],
     "json_ws.gbnf": [],
     "list.gbnf": [],
     "arithmetic.abnf": [],
-    "json.abnf": [],
+    "json.abnf": ["array-item2", "object-item2", "value", "ws"],
 }
 
 
@@ -151,68 +151,31 @@ def _self_grammar_analysis(name: str) -> GrammarAnalysis:
     return GrammarAnalysis(lift_optional_nullables(get_flavour(name).grammar))
 
 
-def test_p2_demotion_flag_defaults_to_true():
-    """The master switch defaults ``True`` — P2 k-window demotion is live
-    (Task 6.3 part c landed; ``False`` remains the A/B test seam)."""
-    assert kwindow.P2_DEMOTION_ENABLED is True
-
-
-@pytest.fixture
-def _demotion_disabled():
-    """Flip ``kwindow.P2_DEMOTION_ENABLED`` off for one test, restoring the
-    prior value afterwards — the toggle must never leak between tests."""
-    prior = kwindow.P2_DEMOTION_ENABLED
-    kwindow.P2_DEMOTION_ENABLED = False
-    try:
-        yield
-    finally:
-        kwindow.P2_DEMOTION_ENABLED = prior
-
-
-@pytest.mark.parametrize(
-    ("factory", "pre_p2", "post_p2"),
-    [
-        (lambda: _self_grammar_analysis("gbnf"), 17, 8),
-        (lambda: _self_grammar_analysis("abnf"), 9, 7),
-        (lambda: _lifted_analysis("json.gbnf"), 4, 4),
-        (lambda: _lifted_analysis("chess.gbnf"), 1, 0),
-    ],
-    ids=["gbnf-self", "abnf-self", "json.gbnf", "chess.gbnf"],
-)
-def test_island_set_reverts_to_pre_p2_with_demotion_disabled(
-    factory, pre_p2, post_p2, _demotion_disabled
-):
-    """With ``P2_DEMOTION_ENABLED`` forced off (the A/B seam) the island count
-    is the pre-P2 baseline; the default (ON) count is pinned by the same
-    factory outside the fixture in
-    :func:`test_island_set_default_is_post_p2`."""
-    assert kwindow.P2_DEMOTION_ENABLED is False
-    assert len(factory().islands) == pre_p2
-    assert pre_p2 >= post_p2
-
-
 @pytest.mark.parametrize(
     ("factory", "expected_count"),
     [
         (lambda: _self_grammar_analysis("gbnf"), 8),
         (lambda: _self_grammar_analysis("abnf"), 7),
-        (lambda: _lifted_analysis("json.gbnf"), 4),
+        (lambda: _lifted_analysis("json.gbnf"), 0),
         (lambda: _lifted_analysis("chess.gbnf"), 0),
     ],
     ids=["gbnf-self", "abnf-self", "json.gbnf", "chess.gbnf"],
 )
-def test_island_set_default_is_post_p2(factory, expected_count):
-    """Under the live default the island counts moved exactly as the coverage
-    map predicts: GBNF-self 17→8 (cc-esc family k2 ×8 + cc-neg k3), ABNF-self
-    9→7 (defined/element k2), chess 1→0 (nonpawn k3); json unchanged."""
-    assert kwindow.P2_DEMOTION_ENABLED is True
+def test_island_counts_match_the_coverage_map(factory, expected_count):
+    """The island counts sit exactly where the coverage map put them:
+    GBNF-self 17→8 (P2: cc-esc family k2 ×8 + cc-neg k3), ABNF-self 9→7
+    (P2: defined/element k2), chess 1→0 (P2: nonpawn k3), json 4→0 (P6:
+    ``ws`` noise-greedy; P3: ``value``/``array-item2``/``object-item2``
+    noise-skip). The GBNF/ABNF spine's P3 decisions need the folding-aware
+    comment scanner (their noise includes ``#``/``;`` comments, which poison
+    the char-set residual FIRST) — that extension rides the P5 probe work."""
     assert len(factory().islands) == expected_count
 
 
 def test_demotes_chess_nonpawn_loop():
-    """Chess's ``nonpawn`` loop (an island pre-P2) demotes to a k-window gate
-    under the live default, and the taxonomy STORES the gate spec (the
-    option-(a) channel the clone compiler reads back)."""
+    """Chess's ``nonpawn`` loop (an island pre-P2) demotes to a k-window gate,
+    and the taxonomy STORES the gate spec (the option-(a) channel the clone
+    compiler reads back)."""
     analysis = _lifted_analysis("chess.gbnf")
     assert "nonpawn" not in analysis.islands
     assert analysis.demoted["nonpawn"] == ["nonpawn[1]: loop k-window (demoted)"]
@@ -226,8 +189,8 @@ def test_demotes_chess_nonpawn_loop():
 
 def test_demotes_gbnf_self_cc_esc_arm():
     """The GBNF self-grammar's ``cc-esc`` arm-selection (an island pre-P2)
-    demotes under the live default, and the taxonomy STORES the per-arm
-    windows aligned to the rule body's arms."""
+    demotes, and the taxonomy STORES the per-arm windows aligned to the rule
+    body's arms."""
     analysis = _self_grammar_analysis("gbnf")
     assert "cc-esc" not in analysis.islands
     assert analysis.demoted["cc-esc"] == ["cc-esc: arms k-window separable (demoted)"]
@@ -240,11 +203,27 @@ def test_demotes_gbnf_self_cc_esc_arm():
     assert stored == tuple(kwindow.windows_of(s) for s in gate[1])
 
 
+@pytest.mark.parametrize("stem", ["json.gbnf", "json.abnf"])
+def test_json_p3_demotions_store_their_peek_specs(stem: str):
+    """json's remaining ws-led decisions demote via P3 and STORE their specs
+    in the taxonomy channels: ``value`` an arm gate (7 post-noise selectors),
+    ``array-item2``/``object-item2`` loop gates taking on the separator."""
+    analysis = _lifted_analysis(stem)
+    assert analysis.demoted["value"] == ["value: arms noise-skip separable (demoted)"]
+    w, sets = analysis.taxonomy.pn_arm_gates["value"]
+    assert w == CharSet.from_chars(" ", "\t", "\n", "\r")
+    assert len(sets) == len(analysis.rules["value"].body)
+    for name in ("array-item2", "object-item2"):
+        assert analysis.demoted[name] == [f"{name}[1]: loop noise-skip (demoted)"]
+        items = _items(analysis.rules[name].body[0])
+        stored = analysis.taxonomy.pn_loop_gates[id(items[1])]
+        assert stored == (w, CharSet.from_chars(","))
+
+
 def test_group_arm_overlap_stays_an_island():
     """An inline group's arm overlap never demotes (no rule-name store key) —
-    the enclosing rule islands even with P2 live, so the clone compiler never
-    meets an overlapping group without a spec."""
-    assert kwindow.P2_DEMOTION_ENABLED is True
+    the enclosing rule islands, so the clone compiler never meets an
+    overlapping group without a spec."""
     grp = IrAlternation(
         IrSequence(_item(IrLiteral("ab"))), IrSequence(_item(IrLiteral("ac")))
     )
@@ -254,10 +233,49 @@ def test_group_arm_overlap_stays_an_island():
     assert "root" not in analysis.taxonomy.arm_gates
 
 
-def test_flag_restored_after_demotion_tests():
-    """Sanity: the flag fixtures restored the module flag, so later tests
-    (and the rest of the suite) see the live default ``True`` again."""
-    assert kwindow.P2_DEMOTION_ENABLED is True
+def test_noise_greedy_licence_denied_for_semantic_soft_follower():
+    """P6 precision (the plan's risk clause): a NON-semantic rule whose
+    over-eatable gap char is reachable via a *semantic* soft-follower keeps
+    the island — over-eating would change ``semantic_dump``, not just the
+    split between noise fields."""
+    x = IrRule(
+        "x",
+        IrAlternation(
+            IrSequence(_item(IrCharClass(IrRange(IrChr(97), IrChr(99))), lo=0, hi=None))
+        ),
+        semantic=False,
+    )
+    root = _rule(
+        "root", IrSequence(_item(IrRuleRef("x")), _item(IrLiteral("ab"), lo=0, hi=1))
+    )
+    analysis = _analysis(root, x, start="root")
+    assert "x" in analysis.islands
+    assert analysis.fail_islands == frozenset()  # non-semantic: island, never fail
+
+
+def test_noise_greedy_licence_granted_for_noise_only_soft_follower():
+    """The json-``ws`` shape in miniature: two adjacent non-semantic noise
+    runs share an alphabet, so the escaping stop-set is licensed greedy —
+    demoted, not islanded (the split between the two noise fields is the only
+    thing that moves)."""
+    ws_cc = IrCharClass(IrChr(32), IrChr(9))
+    x = IrRule(
+        "x",
+        IrAlternation(IrSequence(_item(ws_cc, lo=0, hi=None))),
+        semantic=False,
+    )
+    y = IrRule(
+        "y",
+        IrAlternation(IrSequence(_item(ws_cc, lo=0, hi=None))),
+        semantic=False,
+    )
+    root = _rule(
+        "root",
+        IrSequence(_item(IrRuleRef("x")), _item(IrRuleRef("y")), _item(IrLiteral("q"))),
+    )
+    analysis = _analysis(root, x, y, start="root")
+    assert "x" not in analysis.islands
+    assert analysis.demoted["x"] == ["x[0]: loop stop-set applied (noise-greedy)"]
 
 
 def test_loop_over_soft_only_follower_islands():
@@ -334,15 +352,17 @@ def test_fail_islands_subset_of_islands_for_every_ground_truth(stem: str):
 
 
 @pytest.mark.parametrize("stem", ["json.gbnf", "json.abnf"])
-def test_fail_islands_empty_for_non_semantic_ws_escape(stem: str):
-    """json's ``ws`` fires the F1 stop-set-escape branch but is ``semantic=False``
-    (structural-noise, via ``@non-semantic``) — it stays a normal parse-island,
-    not a fail-island, so ``fail_islands`` is empty (the perf-preserving
-    guarantee of ruling B: a non-semantic F1 escape does not force an engine
-    fallback).
+def test_json_ws_escape_is_noise_greedy_licensed(stem: str):
+    """json's ``ws`` fires the F1 stop-set-escape branch but is
+    ``semantic=False`` and its over-eatable gap is provably noise↔noise (no
+    hard follower is whitespace-led; no whitespace can follow ``ws`` as
+    semantic content) — the P6 licence demotes it to a plain greedy stop-set:
+    not an island, not a fail-island (``semantic_dump``/``to_text`` are
+    unchanged, only the split between adjacent noise fields moves).
     """
     analysis = _lifted_analysis(stem)
-    assert "ws" in analysis.islands
+    assert "ws" not in analysis.islands
+    assert analysis.demoted["ws"] == ["ws[0]: loop stop-set applied (noise-greedy)"]
     assert analysis.fail_islands == frozenset()
 
 

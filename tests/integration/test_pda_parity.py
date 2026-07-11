@@ -41,7 +41,7 @@ from lexic.generate import generate
 from lexic.grammars import flavour_for_extension
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.parsing import parse_first
-from lexic.parsing.pda.clones import KTupleGate
+from lexic.parsing.pda.clones import KTupleGate, PeekGate
 from lexic.parsing.pda.flatten import _all_clones
 from lexic.parsing.pda.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime import PdaFail
@@ -318,3 +318,47 @@ def test_p2_lo_gt_k_arm_gate_is_eof_exact_end_to_end() -> None:
         assert cast(GrammarModel, parse_pda(cg.pda, text, cg.fold)).to_text() == text
     with pytest.raises(PdaFail):
         parse_pda(cg.pda, "123x", cg.fold)  # 3 digits < lo=4 — in no arm's language
+
+
+# ── P3 noise-skip peek — the anti-trap gates (Task 6.4) ────────────────────
+
+_JSON_ADVERSARIAL: tuple[str, ...] = (
+    # THE regression sample: the stored peek gate must be honored in every
+    # clone — a clone whose HARD tail doesn't overlap the loop FIRST would
+    # otherwise compile a whitespace-admitting stop-set that eats the " ]"
+    # noise run (caught live during Task 6.4; pinned forever).
+    '{ "x" : [ 1 , 2 ,\t3 ] ,\n "y" : { } }',
+    '{"a": [1, 2.5e-3, "s", true, null], "b": {"c": false}}',
+    "  [ 1 ]  ",
+    "[ ]",
+    '{ "a" : [ ] , "b" : { "c" : [ 1 , [ 2 ] ] } }',
+    "[ 1\t,\n 2 ,  3 ]",
+)
+
+
+def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
+    """json is island-free post-P3 (``value``/``*-item2`` peek-demoted on top
+    of P6's ``ws``) and whitespace-heavy adversarial inputs parse on the pure
+    PDA — driven through ``parse_pda`` directly, so a wrong peek gate fails
+    here rather than hiding behind the engine fallback."""
+    cg = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    assert cg.pda is not None
+    assert sorted(cg.pda.islands) == []
+    value_clones = [s for key, s in cg.pda.clones.items() if key.name == "value"]
+    assert value_clones
+    assert all(arm.peek is not None for spec in value_clones for arm in spec.arms), (
+        "value must select by post-noise peek"
+    )
+    item2 = [s for key, s in cg.pda.clones.items() if key.name == "array-item2"]
+    assert item2
+    assert any(
+        isinstance(item.gate, PeekGate)
+        for spec in item2
+        for arm in spec.arms
+        for item in arm.specs
+    ), "the array-item loop must carry a peek gate"
+    for text in _JSON_ADVERSARIAL:
+        pda_model = cast(GrammarModel, parse_pda(cg.pda, text, cg.fold))
+        engine_model = _forced_engine(cg, text)
+        assert pda_model.semantic_dump() == engine_model.semantic_dump()
+        assert pda_model.to_text() == text

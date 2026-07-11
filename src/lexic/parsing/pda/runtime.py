@@ -89,8 +89,7 @@ from lexic.parsing.pda.flatten import (
     _BUILD_TRANSPARENT,
     _BUILD_VALUE_STR,
     _DISPATCH_EMPTY,
-    _GATE_KWIN,
-    _GATE_PAIR,
+    _GATE_STOP,
     _M_GTEXT,
     _M_MODEL,
     _M_MODELS,
@@ -104,7 +103,8 @@ from lexic.parsing.pda.flatten import (
     _OP_VSTR,
     _FlatArm,
     _FlatClone,
-    _window_admits,
+    _gate_take,
+    _select_gated,
 )
 from lexic.parsing.pda.islands import island_parse
 
@@ -414,26 +414,19 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
             pos += llen
             count += 1
         gate = arm.gate_data[i]
-        if arm.gate_kinds[i] == _GATE_PAIR:
-            while (hi < 0 or count < hi) and text[pos : pos + 2] in gate:
+        gk = arm.gate_kinds[i]
+        if gk == _GATE_STOP:  # the hot path, membership kept inline
+            chars, negated = gate
+            while hi < 0 or count < hi:
+                char = text[pos : pos + 1]
+                if (char == "" or char in chars) if negated else char not in chars:
+                    break
                 if not text.startswith(lit, pos):
                     raise PdaFail(f"expected {lit!r} at {pos}")
                 pos += llen
                 count += 1
             return pos
-        if arm.gate_kinds[i] == _GATE_KWIN:
-            while (hi < 0 or count < hi) and _window_admits(text, pos, gate):
-                if not text.startswith(lit, pos):
-                    raise PdaFail(f"expected {lit!r} at {pos}")
-                pos += llen
-                count += 1
-            return pos
-        chars, negated = gate
-        while hi < 0 or count < hi:
-            char = text[pos : pos + 1]
-            admit = (char != "" and char not in chars) if negated else char in chars
-            if not admit:
-                break
+        while (hi < 0 or count < hi) and _gate_take(text, pos, gk, gate):
             if not text.startswith(lit, pos):
                 raise PdaFail(f"expected {lit!r} at {pos}")
             pos += llen
@@ -459,40 +452,24 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
             pos += 1
             count += 1
         gate = arm.gate_data[i]
-        if arm.gate_kinds[i] == _GATE_PAIR:
-            while (hi < 0 or count < hi) and text[pos : pos + 2] in gate:
+        gk = arm.gate_kinds[i]
+        if gk == _GATE_STOP:  # the hot path, membership kept inline
+            gchars, gnegated = gate
+            while hi < 0 or count < hi:
+                char = text[pos : pos + 1]
+                if (char == "" or char in gchars) if gnegated else char not in gchars:
+                    break
                 pos += 1
                 count += 1
             return pos
-        if arm.gate_kinds[i] == _GATE_KWIN:
-            while (hi < 0 or count < hi) and _window_admits(text, pos, gate):
-                pos += 1
-                count += 1
-            return pos
-        gchars, gnegated = gate
-        while hi < 0 or count < hi:
-            char = text[pos : pos + 1]
-            admit = (char != "" and char not in gchars) if gnegated else char in gchars
-            if not admit:
-                break
+        while (hi < 0 or count < hi) and _gate_take(text, pos, gk, gate):
             pos += 1
             count += 1
         return pos
 
     def _gate_admits(self, arm: _FlatArm, i: int, pos: int) -> bool:
         """Whether item ``i``'s loop gate admits another iteration at ``pos``."""
-        text = self.text
-        gate = arm.gate_data[i]
-        gk = arm.gate_kinds[i]
-        if gk == _GATE_PAIR:
-            return text[pos : pos + 2] in gate
-        if gk == _GATE_KWIN:
-            return _window_admits(text, pos, gate)
-        chars, negated = gate
-        char = text[pos : pos + 1]
-        if negated:
-            return char != "" and char not in chars
-        return char in chars
+        return _gate_take(self.text, pos, arm.gate_kinds[i], arm.gate_data[i])
 
     # ── descent ────────────────────────────────────────────────────────
 
@@ -519,24 +496,6 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         """
         for chars, negated, candidate in clone.selectors:
             if (char != "" and char not in chars) if negated else char in chars:
-                return candidate
-        default = clone.default
-        if default is None:
-            raise PdaFail(f"no arm at {pos}")
-        return default
-
-    def _select_arm_kwin(self, clone: _FlatClone, pos: int) -> _FlatArm:
-        """The clone's ``k``-window-gated arm at ``pos``, or its default.
-
-        The demoted-alternation selector (Task 6.3 part c): the arms' single-char
-        FIRSTs collide, so selection matches ``text[pos:pos+k]`` EOF-exactly
-        against each arm's window set in order (:meth:`_window_admits`). The
-        windows are pairwise separable, so at most one arm can match.
-
-        :raises PdaFail: When no arm's window matches and there is no default.
-        """
-        for windows, candidate in clone.kwin_selectors:
-            if _window_admits(self.text, pos, windows):
                 return candidate
         default = clone.default
         if default is None:
@@ -572,10 +531,10 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
                 if nxt is _DISPATCH_EMPTY:
                     return False  # the empty (nullable) arm — nothing consumed
             clone = nxt
-        if clone.kwin_selectors is not None:
-            arm = self._select_arm_kwin(clone, self.pos)
+        if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+            gated = _select_gated(self.text, self.pos, clone)
             self.stack.append(
-                [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
+                [gated, 0, 0, out, clone.mode, clone, self.pos, [0] * gated.n, None]
             )
             return True
         if clone.leaf:

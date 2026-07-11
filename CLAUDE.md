@@ -276,7 +276,11 @@ src/lexic/
                           hybrid-PDA analysis substrate; 260705 effort)
       analysis.py         GrammarAnalysis — FIRST/hard-FIRST/FOLLOW/nullability
                           fixpoints + pivot-6 decision taxonomy (island/stopset/
-                          LL(2) pairs/k-window) over a lifted codegen grammar;
+                          LL(2) pairs/k-window/noise-skip; the P6 noise-greedy
+                          licence demotes a non-semantic F1 escape whose
+                          over-eatable gap is provably noise↔noise — three-clause
+                          test incl. gap ∩ sem_follow = ∅) over a lifted codegen
+                          grammar;
                           islands + fail_islands (semantic F1 stop-set-escape rules
                           whose refs must fail to the engine, a subset of islands);
                           open IrTypeMap atom dispatch, raising default; homes
@@ -284,12 +288,17 @@ src/lexic/
                           lift_optional_nullables). The public `taxonomy: Taxonomy`
                           attribute is ALSO the P2 gate-spec channel (option a,
                           Task 6.3c): a demoted decision's k-window gate is STORED
-                          there — `arm_gates` keyed by rule name (rule bodies only;
-                          an inline group's arm overlap stays a hard note → the
-                          rule islands), `loop_gates` keyed by id(IrItem) (node
-                          identity — analysis and clone compiler walk the same
-                          lifted tree) — and the clone compiler reads it back,
-                          never recomputes (dual-source divergence risk). The
+                          there — `arm_gates`/`pn_arm_gates` keyed by rule name
+                          (rule bodies only; an inline group's arm overlap stays
+                          a hard note → the rule islands), `loop_gates`/
+                          `pn_loop_gates` keyed by id(IrItem) (node identity —
+                          analysis and clone compiler walk the same lifted tree)
+                          — and the clone compiler reads it back, never
+                          recomputes; a stored gate is honored in EVERY clone,
+                          before any hard-cont overlap heuristic (a clone tail
+                          may not overlap while the soft-only noise run still
+                          needs the gate). The demotion cascade is P2 k-window
+                          then P3 noise-skip. The
                           2-char LL(2) prefix machinery lives in kwindow.py as
                           free fns; loop_policy calls it there (hybrid-PDA;
                           260705/260706 efforts)
@@ -302,25 +311,48 @@ src/lexic/
                           unsound here); windows_of (deterministic tag-drop cook →
                           the stored gate-spec shape); never-empty prefix-set
                           invariant is a real UnsupportedConstructError (opt-out),
-                          not an assert. P2_DEMOTION_ENABLED master switch — **ON
-                          (True) since part (c) landed (2026-07-11)**; False is the
-                          A/B test seam. Also homes the superseded 2-char LL(2)
-                          prefix machinery (two_prefix_seq/atom_two_prefix/
-                          group_two_prefix — the PairGate source, moved from
-                          analysis.py for C0302). A leaf w.r.t. analysis.py (takes
-                          the rule table + FOLLOW as args); open IrTypeMap atom
-                          dispatch, raising default (260706 unified-parse-engine,
-                          Task 6.3)
+                          not an assert. P2 demotion is UNCONDITIONAL — the
+                          P2_DEMOTION_ENABLED staging flag was deleted at Task 6.4
+                          (no legacy seams pre-v1). Also homes the superseded
+                          2-char LL(2) prefix machinery (two_prefix_seq/
+                          atom_two_prefix/group_two_prefix — the PairGate source,
+                          moved from analysis.py for C0302). A leaf w.r.t.
+                          analysis.py (takes the rule table + FOLLOW as args);
+                          open IrTypeMap atom dispatch, raising default (260706
+                          unified-parse-engine, Task 6.3)
+      noise.py            Noise/semantic attribution — the P6 licence + P3
+                          noise-skip substrate (Task 6.4). P6:
+                          sem_follow_table(analysis) → rule → the chars that can
+                          follow it as SEMANTIC content, via two decomposed
+                          fixpoints (semantic-FIRST: terminals count only inside
+                          semantic rules, a ref to a non-semantic rule contributes
+                          nothing — its subtree is excluded from semantic_dump
+                          wholesale; then the FOLLOW feed re-run over those
+                          firsts, seeded empty). P3: noise_alphabet (W = ⋃FIRST
+                          over NULLABLE non-semantic rules — json whitespace,
+                          never hardcoded; required noise token markers like
+                          dquote contribute nothing), ResidualFirst (first
+                          non-W chars: pure-W atoms transparent, W-free opaque,
+                          a MIXED terminal poisons — which is why the GBNF/ABNF
+                          spines' comment-bearing decisions stay islands until
+                          the folding-aware scanner lands with P5), and
+                          peek_arm_gate/peek_loop_gate (does the decision separate
+                          on its first post-noise char; the runtime peek is
+                          non-consuming ⇒ structurally fail-soft — the conditions
+                          buy determinism, not bare soundness). A leaf w.r.t.
+                          analysis.py (takes the analysis as an Any-typed oracle,
+                          kwindow precedent); open IrTypeMap atom dispatch,
+                          raising default (260706 unified-parse-engine)
       clones.py           (was pda_tables.py) compile_pda(lifted, instance_grammar,
                           fold_config) → PdaTables — per-(rule, hard-continuation)
                           clone compiler (pivot 3); flat tuple-coded ItemSpec
-                          (lit/cc/ref/grp) + StopGate/PairGate/KTupleGate loop
-                          gates, FIRST-gated ArmSpec (+ per-arm `windows` on a
-                          demoted alternation — attached inside compile_arms' own
-                          enumeration so window↔arm alignment cannot drift) + baked
-                          RuleFold; the k-window gates are READ from
-                          analysis.taxonomy (arm_gates/loop_gates — the option-(a)
-                          spec channel), never recomputed, and a FIRST-overlapping
+                          (lit/cc/ref/grp) + StopGate/PairGate/KTupleGate/PeekGate
+                          loop gates, FIRST-gated ArmSpec (+ per-arm `windows`
+                          (P2) / `peek` (P3) on a demoted alternation — attached
+                          inside compile_arms' own enumeration so spec↔arm
+                          alignment cannot drift) + baked RuleFold; the gates are
+                          READ from analysis.taxonomy (the option-(a) spec
+                          channel), never recomputed, and a FIRST-overlapping
                           alternation with no spec raises (the anti-trap drift
                           tripwire → whole-grammar opt-out); islands not cloned
                           (IslandRef marker + lazy per-island ParserTables cache;
@@ -340,11 +372,17 @@ src/lexic/
                           sets; _GATE_KWIN + _FlatClone.kwin_selectors + the
                           EOF-exact _window_admits ≤k matcher — the P2 k-window
                           runtime half: end-of-input matches only an EOF-carrying
-                          positive set, never a negated one) + the post-flatten
+                          positive set, never a negated one; _GATE_PEEK +
+                          _FlatClone.pn_selectors + _skip_noise/_peek_admits —
+                          the P3 noise-skip runtime half: skip the maximal W run
+                          NON-consuming, decide on the first post-noise char, the
+                          winner re-parses its noise; _gate_take (the shared
+                          per-gate admit) + _select_gated (the kwin/pn arm
+                          selector the kernel calls)) + the post-flatten
                           optimizer passes (_optimize_program: exactly-once
                           terminal/call specialisation, value_str inlining,
                           frame-less leaf marking, pass-through dispatch conversion
-                          — skipped for a kwin-selecting clone). Imports
+                          — skipped for a kwin/pn-selecting clone). Imports
                           nothing from clones.py (a leaf w.r.t. the compiler +
                           specs); the kernel walks it (split out of clones.py for
                           C0302; hybrid-PDA; 260705 effort)

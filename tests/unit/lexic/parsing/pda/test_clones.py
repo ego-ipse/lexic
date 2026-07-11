@@ -29,6 +29,7 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.earley.tables import ParserTables
 from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda.charsets import CharSet
 from lexic.parsing.pda.clones import (
     CC,
     GRP,
@@ -127,12 +128,12 @@ _PINNED_CLONE_COUNTS: dict[str, int] = {
     "c.gbnf": 15,
     "chess.gbnf": 10,  # +2 at P2: nonpawn demoted from island → cloned (k-gate)
     "japanese.gbnf": 12,
-    "json.gbnf": 1,
+    "json.gbnf": 126,  # island-free at P3: the whole grammar clones
     "json_arr.gbnf": 36,
     "json_ws.gbnf": 35,
     "list.gbnf": 2,
     "arithmetic.abnf": 10,
-    "json.abnf": 1,
+    "json.abnf": 126,  # the GBNF twin, also island-free at P3
 }
 
 _ALL_STEMS: tuple[str, ...] = tuple(sorted(_PINNED_CLONE_COUNTS))
@@ -231,25 +232,29 @@ def test_arithmetic_ws_stopgate_excludes_newline_only_when_the_tail_reaches_it()
     assert saw_excluding and saw_including
 
 
-def test_json_ws_is_islanded_never_cloned():
-    """json's ``ws ::= ( " " | "\\t" | "\\n" | "\\r" )*`` is islanded, not cloned.
+def test_json_ws_is_cloned_with_a_greedy_whitespace_stopgate():
+    """json's ``ws`` is CLONED under the P6 noise-greedy licence, not islanded.
 
-    Its ``[ \\t\\n\\r]*`` loop runs up to a *soft-only* whitespace follower
-    (``value ws`` abutting ``value-separator ::= ws "," ws``), so the per-clone
-    hard stop-set would greedily over-eat — the same latent silent-wrong-model
-    the ``x ::= [a-c]*`` / ``root ::= x "ab"?`` regression exercises. ``ws``
-    therefore opts out of cloning entirely, and every ref to it carries an
-    :class:`IslandRef`.
+    Its ``[ \\t\\n\\r]*`` loop still runs up to a *soft-only* whitespace
+    follower (``value ws`` abutting ``value-separator ::= ws "," ws``) — but
+    ``ws`` is ``semantic=False``, no hard follower is whitespace-led, and no
+    whitespace can follow it as semantic content, so the greedy over-eat is
+    noise↔noise (the split between adjacent ``ws`` fields moves; bytes and
+    ``semantic_dump`` do not). Every ``ws`` clone bakes the plain greedy
+    whitespace :class:`StopGate` (its hard tails carry no whitespace, so
+    nothing is subtracted).
     """
     pda = _pda_for(GROUND_TRUTH / "json.gbnf")
-    assert "ws" in pda.islands
-    assert not _clones_named(pda, "ws")
-    ws_refs = [
-        spec
-        for spec in _all_specs(pda)
-        if spec.kind == REF and spec.payload == IslandRef("ws")
-    ]
-    assert ws_refs
+    assert "ws" not in pda.islands
+    ws_clones = _clones_named(pda, "ws")
+    assert ws_clones
+    for clone in ws_clones:
+        gate = clone.arms[0].specs[0].gate
+        assert isinstance(gate, StopGate)
+        assert gate.charset == CharSet.from_chars(" ", "\t", "\n", "\r")
+    assert not any(
+        spec.kind == REF and spec.payload == IslandRef("ws") for spec in _all_specs(pda)
+    )
 
 
 # ── small hand-grammar shapes ───────────────────────────────────────────────
@@ -352,7 +357,7 @@ def test_hand_grammar_empty_alternation_arm_becomes_the_default_not_a_gated_arm(
 
 def test_island_tables_is_memoised_per_island_rule():
     """island_tables(name) returns the identical ParserTables object on repeat calls."""
-    pda = _pda_for(GROUND_TRUTH / "json.gbnf")
+    pda = _pda_for(GROUND_TRUTH / "json_arr.gbnf")  # json itself is island-free now
     name = next(iter(pda.islands))
     first = pda.island_tables(name)
     second = pda.island_tables(name)

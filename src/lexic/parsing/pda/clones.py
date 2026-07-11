@@ -12,26 +12,23 @@ that fall back to Earley sub-parses.
 that reaches it, because the loop stop-sets it bakes are call-site-exact
 (pivot 4). :meth:`_PdaCompiler.ensure_rule` reserves the clone key before
 compiling the body (a :data:`_PENDING` placeholder), so a recursive reference
-resolves to the in-progress key rather than looping; a second reference with
-the same ``(name, tail)`` reuses the same clone. Island rules are never cloned
-— a reference to one carries an :class:`IslandRef` marker instead of a
-:class:`CloneKey`. A **fail-island** reference (``IslandRef.fail`` — a semantic
-F1 stop-set-escape rule, from
+resolves to the in-progress key; a second reference with the same
+``(name, tail)`` reuses the clone. Island rules are never cloned — a reference
+carries an :class:`IslandRef` marker instead of a :class:`CloneKey`; a
+**fail-island** reference (``IslandRef.fail``, from
 :attr:`~lexic.parsing.pda.analysis.GrammarAnalysis.fail_islands`) is not even
-parsed: the runtime raises :class:`~lexic.parsing.pda.runtime.PdaFail` so the
-compile seam falls back to the full engine rather than risk a silently divergent
-longest-match split.
+parsed — the runtime raises :class:`~lexic.parsing.pda.runtime.PdaFail` so the
+compile seam falls back to the full engine.
 
 **Item specs.** Each item compiles to a flat, tuple-coded :class:`ItemSpec`
 (``lit`` / ``cc`` / ``ref`` / ``grp``) carrying its quantifier bounds and a
-loop gate — a :class:`StopGate` (non-greedy on ``FIRST(atom) - continuation``,
-pivot 4) or an :class:`PairGate` (an LL(2) 2-char prefix set, pivot 6). Arm
-selection (rule body and inline group) is a list of FIRST-gated
-:class:`ArmSpec` plus at most one nullable default arm. Every rule clone bakes
-its :class:`~lexic.parsing.fold.RuleFold` so Task 4's fused runtime needs no
-per-parse config lookup; a ``value_str`` clone is flagged
-:attr:`~CloneSpec.match_only` (its interior is pure-terminal — the runtime
-slices ``text[a:b]`` rather than building sub-models).
+loop gate — :class:`StopGate` (pivot 4), :class:`PairGate` (pivot 6),
+:class:`KTupleGate` (P2) or :class:`PeekGate` (P3). Arm selection (rule body
+and inline group) is a list of FIRST-gated :class:`ArmSpec` plus at most one
+nullable default arm. Every rule clone bakes its
+:class:`~lexic.parsing.fold.RuleFold`; a ``value_str`` clone is flagged
+:attr:`~CloneSpec.match_only` (pure-terminal interior — the runtime slices
+``text[a:b]`` rather than building sub-models).
 
 **Open dispatch, no isinstance ladders.** Per-atom-type compilation routes
 through the module-level :data:`_ATOM_SPEC` :class:`~lexic.ir.mapping.IrTypeMap`
@@ -80,6 +77,7 @@ from lexic.parsing.pda.flatten import (
     _BUILD_VALUE_STR,
     _GATE_KWIN,
     _GATE_PAIR,
+    _GATE_PEEK,
     _GATE_STOP,
     _HI_UNBOUNDED,
     _MODE_CODE,
@@ -117,6 +115,7 @@ __all__ = [
     "StopGate",
     "PairGate",
     "KTupleGate",
+    "PeekGate",
     "ITEM_KINDS",
     "LIT",
     "CC",
@@ -153,8 +152,7 @@ class IslandRef(NamedTuple):
 
     :ivar name: The island rule name.
     :ivar fail: When ``True``, a fail-island (a semantic F1 stop-set-escape
-        rule, :attr:`~lexic.parsing.pda.analysis.GrammarAnalysis.fail_islands`)
-        — the reference raises :class:`~lexic.parsing.pda.runtime.PdaFail`
+        rule) — the reference raises :class:`~lexic.parsing.pda.runtime.PdaFail`
         (engine fallback) rather than risking a divergent longest-match parse.
     """
 
@@ -189,15 +187,30 @@ class KTupleGate(NamedTuple):
     """A ``k``-window loop gate (P2): take another iteration iff
     ``text[pos:pos+k]`` EOF-exactly matches a ``taken`` window.
 
-    The analysis-sourced generalisation of :class:`PairGate` past ``k = 2``,
-    read back from :attr:`~lexic.parsing.pda.analysis.Taxonomy.loop_gates`,
-    never recomputed (chess ``nonpawn`` — separable at ``k = 3`` via
-    rule-FOLLOW).
+    The analysis-sourced generalisation of :class:`PairGate` past ``k = 2``
+    (:attr:`~lexic.parsing.pda.analysis.Taxonomy.loop_gates`, never
+    recomputed) — chess ``nonpawn``, separable at ``k = 3`` via rule-FOLLOW.
 
     :ivar windows: The ``taken`` windows — ``≤k``-length CharSet tuples.
     """
 
     windows: tuple[tuple[CharSet, ...], ...]
+
+
+class PeekGate(NamedTuple):
+    """A P3 noise-skip loop gate: skip the maximal ``W`` run without consuming,
+    take another iteration iff the first post-noise char is in ``take``.
+
+    Analysis-sourced (:attr:`~lexic.parsing.pda.analysis.Taxonomy
+    .pn_loop_gates`), never recomputed; the iteration re-parses the noise
+    normally, so the peek is recognition-only and fail-soft.
+
+    :ivar w: The skippable noise alphabet.
+    :ivar take: The post-noise chars that select another iteration.
+    """
+
+    w: CharSet
+    take: CharSet
 
 
 # ── item and arm specs ────────────────────────────────────────────────────
@@ -209,19 +222,17 @@ class ItemSpec(NamedTuple):
     :ivar kind: One of :data:`ITEM_KINDS`.
     :ivar payload: The kind-specific body: the literal ``str`` (``lit``), the
         member :class:`CharSet` (``cc``), the resolved :class:`CloneKey` /
-        :class:`IslandRef` target (``ref``), or the :class:`GroupSpec`
-        (``grp``).
+        :class:`IslandRef` target (``ref``), or the :class:`GroupSpec` (``grp``).
     :ivar lo: The quantifier lower bound (mandatory iterations).
     :ivar hi: The quantifier upper bound, or ``None`` (unbounded).
-    :ivar gate: The loop-continuation gate consulted past the ``lo``
-        mandatory iterations.
+    :ivar gate: The loop gate consulted past the ``lo`` mandatory iterations.
     """
 
     kind: str
     payload: str | CharSet | CloneKey | IslandRef | GroupSpec
     lo: int
     hi: int | None
-    gate: StopGate | PairGate | KTupleGate
+    gate: StopGate | PairGate | KTupleGate | PeekGate
 
 
 class ArmSpec(NamedTuple):
@@ -231,22 +242,25 @@ class ArmSpec(NamedTuple):
         the lookahead char is a member.
     :ivar specs: The arm's item specs, in order.
     :ivar windows: The arm's k-window selection set (analysis-sourced —
-        :attr:`~lexic.parsing.pda.analysis.Taxonomy.arm_gates`), or ``None`` on
-        the single-char path; every gated arm of a demoted alternation carries
-        its own set.
+        :attr:`~lexic.parsing.pda.analysis.Taxonomy.arm_gates`), or ``None``;
+        every gated arm of a P2-demoted alternation carries its own set.
+    :ivar peek: The arm's P3 noise-skip ``(W, post-noise chars)`` selector
+        (analysis-sourced — :attr:`~lexic.parsing.pda.analysis.Taxonomy
+        .pn_arm_gates`), or ``None``; every gated arm of a P3-demoted
+        alternation carries one (same ``W``).
     """
 
     first: CharSet
     specs: tuple[ItemSpec, ...]
     windows: tuple[tuple[CharSet, ...], ...] | None = None
+    peek: tuple[CharSet, CharSet] | None = None
 
 
 class GroupSpec(NamedTuple):
     """An inline ``(...)`` group's arm selection — the ``grp`` payload.
 
     :ivar arms: The FIRST-gated arms.
-    :ivar default: The all-nullable default arm's specs, or ``None`` when the
-        group has no nullable arm.
+    :ivar default: The all-nullable default arm's specs, or ``None``.
     """
 
     arms: tuple[ArmSpec, ...]
@@ -261,11 +275,9 @@ class CloneSpec(NamedTuple):
         selects on its own FIRST).
     :ivar default: The all-nullable default arm's specs, or ``None``.
     :ivar fold: The rule's baked :class:`~lexic.parsing.fold.RuleFold`, or
-        ``None`` for a helper rule with no fold config (a transparent,
-        no-constructor clone the runtime descends through).
-    :ivar match_only: ``True`` for a ``value_str`` rule — its interior is
-        pure-terminal, so the runtime matches to find the span end and slices
-        ``text[a:b]`` instead of building sub-models below it.
+        ``None`` for a transparent helper clone.
+    :ivar match_only: ``True`` for a ``value_str`` rule — pure-terminal
+        interior, the runtime slices ``text[a:b]`` instead of building below.
     """
 
     name: str
@@ -332,14 +344,14 @@ class _ItemCtx(IrLeaf[IrSelf, IrSelf]):
     lo: int
     hi: int | None
     cont: CharSet
-    gate: StopGate | PairGate | KTupleGate
+    gate: StopGate | PairGate | KTupleGate | PeekGate
 
     def __init__(
         self,
         lo: int,
         hi: int | None,
         cont: CharSet,
-        gate: StopGate | PairGate | KTupleGate,
+        gate: StopGate | PairGate | KTupleGate | PeekGate,
     ) -> None:
         """Bind one item's bounds, continuation and gate."""
         self.lo = lo
@@ -366,11 +378,8 @@ def _spec_charclass(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
 
 
 def _spec_not(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
-    """Compile ``IrNot(charclass)`` to a co-finite ``cc`` spec (polarity flipped).
-
-    :raises UnsupportedConstructError: If the negation wraps anything other
-        than an :class:`IrCharClass`.
-    """
+    """Compile ``IrNot(charclass)`` to a co-finite ``cc`` spec (polarity
+    flipped); anything but an inner :class:`IrCharClass` raises."""
     ctx = cast(_ItemCtx, nc[0])
     inner = cast(IrNot, n)[0]
     if not isinstance(inner, IrCharClass):
@@ -384,11 +393,10 @@ def _spec_not(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
 def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     """Compile a rule reference to a ``ref`` spec — an island marker or a clone.
 
-    A reference to an island rule carries an :class:`IslandRef` (flagged
-    :attr:`~IslandRef.fail` for a fail-island — a semantic F1 escape); otherwise
-    the target clone's tail is the item's hard continuation, widened by the
-    atom's own hard-FIRST when the reference repeats (it may follow itself), and
-    the clone is compiled (or reused) via :meth:`_PdaCompiler.ensure_rule`.
+    An island reference carries an :class:`IslandRef` (flagged for a
+    fail-island); otherwise the target clone's tail is the item's hard
+    continuation, widened by the atom's own hard-FIRST when the reference
+    repeats, and the clone is compiled (or reused) via ``ensure_rule``.
     """
     ctx = cast(_ItemCtx, nc[0])
     compiler = cast(_PdaCompiler, d)
@@ -502,8 +510,9 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
             return key
         self.clones[key] = _PENDING
         rule = self.analysis.rules[name]
+        tax = self.analysis.taxonomy
         arms, default = self.compile_arms(
-            rule.body, tail, self.analysis.taxonomy.arm_gates.get(name)
+            rule.body, tail, tax.arm_gates.get(name), tax.pn_arm_gates.get(name)
         )
         fold = self.fold_config.get(name)
         match_only = fold is not None and fold.kind == "value_str"
@@ -517,20 +526,20 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         node: IrAlternation,
         tail: CharSet,
         windows: "tuple[tuple[tuple[CharSet, ...], ...], ...] | None" = None,
+        peeks: "tuple[CharSet, tuple[CharSet, ...]] | None" = None,
     ) -> tuple[tuple[ArmSpec, ...], tuple[ItemSpec, ...] | None]:
         """Compile the arms of a rule body or inline group against ``tail``.
 
         Each arm becomes a FIRST-gated :class:`ArmSpec` (dropped when its FIRST
         is empty — an empty arm never gates); an all-nullable arm additionally
-        becomes the single default (last such arm wins). ``windows`` — a demoted
-        rule body's stored arm-gate spec, aligned to ``node``'s arms — is
-        attached inside this same enumeration, so window↔arm alignment cannot
-        drift past the empty-FIRST drop.
+        becomes the single default (last such arm wins). ``windows`` (P2) /
+        ``peeks`` (P3) — a demoted rule body's stored gate spec, aligned to
+        ``node``'s arms — are attached inside this same enumeration, so
+        spec↔arm alignment cannot drift past the empty-FIRST drop.
 
-        :param windows: The rule's per-arm k-window sets, or ``None``.
         :returns: ``(gated arms, default specs | None)``.
         :raises UnsupportedConstructError: When gated arms' FIRSTs overlap with
-            no k-window spec to select by (analysis/compiler drift — a wrong arm
+            no gate spec to select by (analysis/compiler drift — a wrong arm
             would silently mis-parse, so the grammar opts out instead).
         """
         arms: list[ArmSpec] = []
@@ -543,10 +552,11 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                 default = specs
             if not first.is_empty():
                 win = windows[idx] if windows is not None else None
-                arms.append(ArmSpec(first, specs, win))
-        if windows is None and _firsts_overlap(arms):
+                peek = (peeks[0], peeks[1][idx]) if peeks is not None else None
+                arms.append(ArmSpec(first, specs, win, peek))
+        if windows is None and peeks is None and _firsts_overlap(arms):
             raise UnsupportedConstructError(
-                "pda: arm FIRST overlap without a k-window gate spec"
+                "pda: arm FIRST overlap without a gate spec"
             )
         return tuple(arms), default
 
@@ -581,7 +591,7 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
     def _loop_gate(
         self, items: Sequence[IrItem], idx: int, cont: CharSet
-    ) -> StopGate | PairGate | KTupleGate:
+    ) -> StopGate | PairGate | KTupleGate | PeekGate:
         """The loop-continuation gate — stop-set, LL(2) pair, or k-window set.
 
         Defaults to the non-greedy stop-set (``FIRST(atom) − continuation``); a
@@ -602,13 +612,22 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         lo = int(item.quantifier.lo)
         hi = _hi(item)
         first = analysis.atom_first(item.atom)
-        if (hi is None or hi > lo) and first.overlaps(cont):
-            policy = analysis.loop_policy(item, rest)
-            if isinstance(policy, tuple):
-                return PairGate(policy[1])
+        if hi is None or hi > lo:
+            # A stored gate is the analysis's DECISION for this item node —
+            # honor it in EVERY clone, before any overlap heuristic: `cont` is
+            # one clone's hard tail, and no overlap there does NOT make a
+            # plain stop-set safe (it could still eat the soft-only noise run
+            # the gate exists to adjudicate).
             kspec = analysis.taxonomy.loop_gates.get(id(item))
             if kspec is not None:
                 return KTupleGate(kspec)
+            pspec = analysis.taxonomy.pn_loop_gates.get(id(item))
+            if pspec is not None:
+                return PeekGate(*pspec)
+            if first.overlaps(cont):
+                policy = analysis.loop_policy(item, rest)
+                if isinstance(policy, tuple):
+                    return PairGate(policy[1])
         return StopGate(first.subtract(cont))
 
 
@@ -631,12 +650,19 @@ def _build_mode(fold: RuleFold | None) -> int:
     raise UnsupportedConstructError(f"pda: unknown fold kind {kind!r}")
 
 
-def _flatten_gate(gate: StopGate | PairGate | KTupleGate) -> tuple[int, object]:
+def _flatten_gate(
+    gate: StopGate | PairGate | KTupleGate | PeekGate,
+) -> tuple[int, object]:
     """Lower a loop gate to its ``(code, data)`` flat pair."""
     if isinstance(gate, PairGate):
         return _GATE_PAIR, gate.pairs
     if isinstance(gate, KTupleGate):
         return _GATE_KWIN, _flat_windows(gate.windows)
+    if isinstance(gate, PeekGate):
+        return _GATE_PEEK, (
+            (gate.w.chars, gate.w.negated),
+            (gate.take.chars, gate.take.negated),
+        )
     cs = gate.charset
     return _GATE_STOP, (cs.chars, cs.negated)
 
@@ -712,16 +738,14 @@ def _bake_build(clone: _FlatClone, fold: RuleFold | None) -> None:
 
 def _flatten_selectors(
     arms: Sequence[ArmSpec], shells: "dict[CloneKey, _FlatClone]"
-) -> tuple[tuple[tuple[frozenset[str], bool, _FlatArm], ...], object]:
-    """Lower an alternation's arm selectors — single-char, or ``k``-window.
+) -> tuple[tuple[tuple[frozenset[str], bool, _FlatArm], ...], object, object]:
+    """Lower an alternation's arm selectors — single-char, k-window, or peek.
 
-    A demoted alternation (every gated arm carries :attr:`ArmSpec.windows`)
-    lowers to ``kwin_selectors`` — pre-resolved ``(windows, arm)`` pairs the
-    runtime matches EOF-exactly — leaving the single-char ``selectors`` empty;
-    otherwise the FIRST-gated ``(chars, negated, arm)`` triples are built and
-    ``kwin_selectors`` is ``None``.
+    P2 (:attr:`ArmSpec.windows`) lowers to ``kwin_selectors``; P3
+    (:attr:`ArmSpec.peek`) to ``pn_selectors``; otherwise the FIRST-gated
+    single-char triples are built.
 
-    :returns: ``(selectors, kwin_selectors)`` — at most one non-empty.
+    :returns: ``(selectors, kwin_selectors, pn_selectors)`` — at most one set.
     """
     if arms and arms[0].windows is not None:
         kwin = tuple(
@@ -731,12 +755,23 @@ def _flatten_selectors(
             )
             for arm in arms
         )
-        return (), kwin
+        return (), kwin, None
+    if arms and arms[0].peek is not None:
+        w = cast("tuple[CharSet, CharSet]", arms[0].peek)[0]
+        sels = tuple(
+            (
+                cast("tuple[CharSet, CharSet]", arm.peek)[1].chars,
+                cast("tuple[CharSet, CharSet]", arm.peek)[1].negated,
+                _flatten_arm(arm.specs, shells),
+            )
+            for arm in arms
+        )
+        return (), None, ((w.chars, w.negated), sels)
     selectors = tuple(
         (arm.first.chars, arm.first.negated, _flatten_arm(arm.specs, shells))
         for arm in arms
     )
-    return selectors, None
+    return selectors, None, None
 
 
 def _flatten_group(
@@ -744,7 +779,9 @@ def _flatten_group(
 ) -> _FlatClone:
     """Lower an inline group to a transparent :class:`_FlatClone`."""
     clone = _FlatClone.__new__(_FlatClone)
-    clone.selectors, clone.kwin_selectors = _flatten_selectors(group.arms, shells)
+    clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
+        group.arms, shells
+    )
     clone.default = (
         _flatten_arm(group.default, shells) if group.default is not None else None
     )
@@ -771,7 +808,9 @@ def _flatten_clones(
     }
     for key, spec in clones.items():
         clone = shells[key]
-        clone.selectors, clone.kwin_selectors = _flatten_selectors(spec.arms, shells)
+        clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
+            spec.arms, shells
+        )
         clone.default = (
             _flatten_arm(spec.default, shells) if spec.default is not None else None
         )

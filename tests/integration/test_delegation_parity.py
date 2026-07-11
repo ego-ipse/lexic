@@ -144,22 +144,21 @@ def test_delegation_instance_parity(stem: str) -> None:
 
 
 def test_delegation_fires_where_expected() -> None:
-    """The island set matches the post-P2 map and delegation is non-vacuous.
+    """The island set matches the post-6.4 map and delegation is non-vacuous.
 
-    Guards against a silently no-op harness: the island counts match the
-    post-6.3 (P2-live) baseline — chess ``nonpawn`` left the island set
-    entirely (demoted to a pure-PDA k-window gate, so chess no longer
-    delegates at all) — and the islands whose interiors carry the payoff runs
-    actually delegate (json ``value``; the synthetic grammar below).
+    Guards against a silently no-op harness: chess and json are island-free
+    now (P2 demoted chess ``nonpawn``; P6+P3 demoted json ``ws``/``value``/
+    ``*-item2``), so neither delegates at all — the non-vacuity witness is the
+    synthetic long-interior island grammar
+    (:func:`test_delegation_synthetic_long_interior` pins that its ``digits``
+    interior actually delegates); this test pins that the bench grammars'
+    island sets stay where the map put them.
     """
-    expected = {"chess.gbnf": 0, "json.gbnf": 4, "json.abnf": 4}
+    expected = {"chess.gbnf": 0, "json.gbnf": 0, "json.abnf": 0}
     for stem, count in expected.items():
         cg, _specs, _start = _grammar_for(stem)
         assert cg.pda is not None
         assert len(cg.pda.islands) == count, f"{stem}: island set changed"
-    js, _s, _t = _grammar_for("json.gbnf")
-    assert js.pda is not None
-    assert js.pda.island_delegates("value"), "json value should delegate"
 
 
 # ── the synthetic long-interior island grammar ────────────────────────────

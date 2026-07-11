@@ -236,6 +236,7 @@ def _bare_flat_clone() -> _FlatClone:
     clone = _FlatClone.__new__(_FlatClone)
     clone.selectors = ()
     clone.kwin_selectors = None
+    clone.pn_selectors = None
     clone.default = None
     clone.mode = _BUILD_TRANSPARENT  # placeholder, overwritten by _bake_reduce
     return clone

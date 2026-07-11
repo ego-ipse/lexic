@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.ir.base import IrLeaf, IrSelf
+from lexic.parsing.pda.errors import PdaFail
 
 _OP_LIT, _OP_CC, _OP_REF, _OP_GRP, _OP_ISLAND, _OP_FAIL = 0, 1, 2, 3, 4, 5
 """Flat item op-codes: literal, char class, clone reference, inline group,
@@ -41,12 +42,17 @@ _TERMINAL_OPS = frozenset((_OP_LIT, _OP_CC, _OP_LIT1, _OP_CC1))
 """The op-codes that consume input without descending — the ``_OP_VSTR``
 inlining licence (a clone is inlinable iff every arm is all-terminal)."""
 
-_GATE_STOP, _GATE_PAIR, _GATE_KWIN = 0, 1, 2
-"""Flat loop-gate codes: single-char stop-set, LL(2) 2-char pair set, and the
+_GATE_STOP, _GATE_PAIR, _GATE_KWIN, _GATE_PEEK = 0, 1, 2, 3
+"""Flat loop-gate codes: single-char stop-set, LL(2) 2-char pair set, the
 ``k``-window gate (Task 6.3 part c) — a set of ``≤k``-length pre-resolved
 ``(chars, negated)`` position windows the runtime matches EOF-exactly against
 ``text[pos:pos+k]`` (the P2 demotion of a loop the single-char stop-set /
-LL(2) pair could not separate)."""
+LL(2) pair could not separate) — and the P3 noise-skip peek gate (Task 6.4):
+``((w_chars, w_negated), (take_chars, take_negated))`` — skip the maximal
+``W``-noise run *without consuming*, take another iteration iff the first
+post-noise char is in ``take`` (the iteration then re-parses the noise
+normally — the peek is recognition-only, so a wrong take fails the parse
+rather than silently mis-building)."""
 
 _BUILD_TRANSPARENT, _BUILD_VALUE_STR, _BUILD_ALT, _BUILD_SEQ = 0, 1, 2, 3
 """Flat clone build-modes — how a completed frame folds to a model (or, for
@@ -132,6 +138,81 @@ def _window_admits(text: str, pos: int, windows: Any) -> bool:
     return False
 
 
+def _skip_noise(text: str, pos: int, chars: frozenset, negated: bool) -> int:
+    """The position past the maximal ``W``-noise run at ``pos`` (non-consuming).
+
+    The P3 peek's first half: ``(chars, negated)`` is the pre-resolved
+    skippable alphabet ``W``; the caller inspects the char at the returned
+    position without ever moving the real cursor.
+    """
+    n = len(text)
+    while pos < n:
+        ch = text[pos]
+        member = (ch not in chars) if negated else (ch in chars)
+        if not member:
+            break
+        pos += 1
+    return pos
+
+
+def _peek_admits(text: str, pos: int, gate: Any) -> bool:
+    """Whether a P3 peek gate (:data:`_GATE_PEEK`) takes another iteration.
+
+    Skips the maximal noise run, then tests the first post-noise char against
+    the ``take`` set — end-of-input is never a member (the loop exits).
+    """
+    (w_chars, w_negated), (t_chars, t_negated) = gate
+    p = _skip_noise(text, pos, w_chars, w_negated)
+    ch = text[p : p + 1]
+    if t_negated:
+        return ch != "" and ch not in t_chars
+    return ch in t_chars
+
+
+def _gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
+    """Whether a flat loop gate of kind ``gk`` admits another iteration at ``pos``."""
+    if gk == _GATE_STOP:
+        ch = text[pos : pos + 1]
+        chars, negated = gate
+        return (ch != "" and ch not in chars) if negated else ch in chars
+    if gk == _GATE_PAIR:
+        return text[pos : pos + 2] in gate
+    if gk == _GATE_KWIN:
+        return _window_admits(text, pos, gate)
+    return _peek_admits(text, pos, gate)
+
+
+def _select_gated(text: str, pos: int, clone: "_FlatClone") -> Any:
+    """The gated arm of a k-window or noise-skip alternation at ``pos``.
+
+    A P2 clone matches ``text[pos:pos+k]`` EOF-exactly against each arm's
+    window set; a P3 clone skips the maximal ``W``-noise run *without
+    consuming* and selects the arm containing the first post-noise char (the
+    winner re-parses its own noise — the peek is recognition-only, so a wrong
+    pick fails the parse rather than silently mis-building). The gate sets are
+    pairwise separable, so at most one arm can match.
+
+    :raises PdaFail: When no arm's gate matches and there is no default.
+    """
+    got = None
+    if clone.kwin_selectors is not None:
+        for windows, candidate in clone.kwin_selectors:
+            if _window_admits(text, pos, windows):
+                got = candidate
+                break
+    else:
+        (w_chars, w_negated), sels = clone.pn_selectors
+        p = _skip_noise(text, pos, w_chars, w_negated)
+        ch = text[p : p + 1]
+        for chars, negated, candidate in sels:
+            if (ch != "" and ch not in chars) if negated else ch in chars:
+                got = candidate
+                break
+    if got is None and clone.default is None:
+        raise PdaFail(f"no arm at {pos}")
+    return got if got is not None else clone.default
+
+
 class _FlatArm(IrLeaf[IrSelf, IrSelf]):
     """One arm lowered to parallel int-coded arrays — the hot-loop unit.
 
@@ -190,6 +271,13 @@ class _FlatClone(IrLeaf[IrSelf, IrSelf]):
         selects an arm by EOF-exact window match (:meth:`~lexic.parsing.pda
         .runtime.PdaKernel._select_arm_kwin`) instead of the lead char, and the
         dispatch/leaf specialisations are skipped for this clone.
+    :ivar pn_selectors: ``None`` on the single-char path; a
+        ``((w_chars, w_negated), ((chars, negated, arm), ...))`` pair on a P3
+        noise-skip alternation (Task 6.4): the runtime skips the maximal
+        ``W``-noise run without consuming and selects the arm containing the
+        first post-noise char (:meth:`~lexic.parsing.pda.runtime.PdaKernel
+        ._select_arm_peek`); the winner re-parses its own noise. The
+        dispatch/leaf specialisations are skipped for this clone.
     :ivar default: The all-nullable default :class:`_FlatArm`, or ``None``; on
         a dispatch clone the default target clone or :data:`_DISPATCH_EMPTY`.
     :ivar mode: The build-mode (one of the ``_BUILD_*`` constants).
@@ -226,6 +314,7 @@ class _FlatClone(IrLeaf[IrSelf, IrSelf]):
     __slots__ = (
         "selectors",
         "kwin_selectors",
+        "pn_selectors",
         "default",
         "mode",
         "fold",
@@ -243,6 +332,7 @@ class _FlatClone(IrLeaf[IrSelf, IrSelf]):
 
     selectors: tuple[tuple[frozenset[str], bool, Any], ...]
     kwin_selectors: Any
+    pn_selectors: Any
     default: Any
     mode: int
     fold: Any  # RuleFold | None — Any-typed like payloads: hot-loop reads
@@ -291,6 +381,8 @@ def _clone_arms(clone: _FlatClone) -> list[_FlatArm]:
         return []
     if clone.kwin_selectors is not None:
         arms = [arm for _windows, arm in clone.kwin_selectors]
+    elif clone.pn_selectors is not None:
+        arms = [arm for _chars, _negated, arm in clone.pn_selectors[1]]
     else:
         arms = [arm for _chars, _negated, arm in clone.selectors]
     if clone.default is not None:
@@ -362,6 +454,8 @@ def _convert_dispatch(clone: _FlatClone) -> None:
     """
     if clone.mode != _BUILD_ALT or clone.kwin_selectors is not None:
         return  # a k-window-gated alternation selects by window, not lead char
+    if clone.pn_selectors is not None:
+        return  # a noise-skip alternation selects by post-noise peek
     targets = [_unit_ref_target(arm) for _chars, _negated, arm in clone.selectors]
     if any(target is None for target in targets):
         return
