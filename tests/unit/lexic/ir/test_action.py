@@ -1,3 +1,5 @@
+# pylint: disable=too-many-lines
+# Test files may exceed max-module-lines (user ruling, 2026-07-04).
 """Tests for ir/action.py — action-algebra nodes built on the IrSelf substrate.
 
 Action algebra uses ``.eval(d, n, nc)`` to produce typed values.
@@ -20,6 +22,7 @@ from lexic.ir.action import (
     IrCompare,
     IrConcat,
     IrCond,
+    IrEach,
     IrEmit,
     IrField,
     IrGlyph,
@@ -27,9 +30,13 @@ from lexic.ir.action import (
     IrIsA,
     IrJoin,
     IrLeaf,
+    IrLen,
+    IrMerge,
     IrOp,
+    IrOrd,
     IrPass,
     IrPipe,
+    IrRadix,
     IrRaise,
     IrRebuild,
     IrReturn,
@@ -52,6 +59,7 @@ from lexic.ir.base import (
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
+    IrAst,
     IrCharClass,
     IrItem,
     IrLiteral,
@@ -958,3 +966,248 @@ def test_irglyph_composes_with_irunradix_via_irpipe():
     """
     result = IrPipe(IrUnradix(16, IrInt), IrGlyph()).eval(IrNone, IrStr("41"), ())
     assert result == IrStr("A")
+
+
+# ── IrRadix ───────────────────────────────────────────────────────────
+
+
+def test_irradix_spells_decimal_focus_in_base():
+    """IrRadix(base, width).eval spells the focus integer in ``base``, no
+    padding when ``width`` is left at its default (0)."""
+    assert IrRadix(16).eval(IrNone, IrInt(65), ()) == IrStr("41")
+    assert IrRadix(2).eval(IrNone, IrInt(5), ()) == IrStr("101")
+
+
+def test_irradix_zero_pads_to_width():
+    """IrRadix(base, width) zero-pads the spelled digits to ``width``."""
+    assert IrRadix(16, 2).eval(IrNone, IrInt(65), ()) == IrStr("41")
+    assert IrRadix(16, 4).eval(IrNone, IrInt(0x41), ()) == IrStr("0041")
+
+
+def test_irradix_zero_focus_spells_a_single_zero_digit():
+    """IrRadix on a zero focus spells "0", padded to width if given."""
+    assert IrRadix(16).eval(IrNone, IrInt(0), ()) == IrStr("0")
+    assert IrRadix(16, 4).eval(IrNone, IrInt(0), ()) == IrStr("0000")
+
+
+def test_irradix_uses_uppercase_digits():
+    """IrRadix spells base>10 digits uppercase (e.g. hex 'A'-'F')."""
+    assert IrRadix(16).eval(IrNone, IrInt(0xABCDEF), ()) == IrStr("ABCDEF")
+
+
+def test_irradix_non_int_focus_raises():
+    """IrRadix.eval raises UnsupportedConstructError when the focus isn't an int."""
+    with pytest.raises(UnsupportedConstructError, match="non-negative integer"):
+        IrRadix(16).eval(IrNone, IrStr("x"), ())
+
+
+def test_irradix_negative_focus_raises():
+    """IrRadix.eval raises UnsupportedConstructError on a negative integer focus."""
+    with pytest.raises(UnsupportedConstructError, match="non-negative integer"):
+        IrRadix(16).eval(IrNone, IrInt(-1), ())
+
+
+def test_irradix_repr_is_codegen():
+    """IrRadix repr renders as a valid constructor expression.
+
+    The default-valued ``width=0`` is omitted from the trailing run.
+    """
+    assert repr(IrRadix(16, 2)) == "IrRadix(16, 2)"
+    assert repr(IrRadix(16)) == "IrRadix(16)"
+
+
+def test_irradix_inverts_irunradix_round_trip():
+    """IrRadix(base, width) ∘ IrUnradix(base, IrInt) round-trips a digit string.
+
+    The emit-side spelling (IrRadix) is the inverse of the reduce-side decode
+    (IrUnradix) — decoding then re-spelling a zero-padded hex run returns it.
+    """
+    decoded = IrUnradix(16, IrInt).eval(IrNone, IrStr("0041"), ())
+    respelled = IrRadix(16, 4).eval(IrNone, decoded, ())
+    assert respelled == IrStr("0041")
+
+
+# ── IrOrd ─────────────────────────────────────────────────────────────
+
+
+def test_irord_is_a_plain_leaf():
+    """IrOrd is a plain IrLeaf body carrying no IR-node children."""
+    assert isinstance(IrOrd(), IrLeaf)
+    assert not IrOrd().children()
+
+
+def test_irord_returns_codepoint_of_single_char():
+    """IrOrd.eval on a single-character focus yields its code point."""
+    assert IrOrd().eval(IrNone, IrStr("A"), ()) == IrInt(65)
+
+
+def test_irord_multi_char_focus_raises():
+    """IrOrd.eval raises UnsupportedConstructError on a multi-character focus."""
+    with pytest.raises(UnsupportedConstructError, match="single character"):
+        IrOrd().eval(IrNone, IrStr("AB"), ())
+
+
+def test_irord_empty_focus_raises():
+    """IrOrd.eval raises UnsupportedConstructError on an empty focus."""
+    with pytest.raises(UnsupportedConstructError, match="single character"):
+        IrOrd().eval(IrNone, IrStr(""), ())
+
+
+def test_irord_repr_is_codegen():
+    """IrOrd repr renders as a valid constructor expression."""
+    assert repr(IrOrd()) == "IrOrd()"
+
+
+def test_irord_inverts_irglyph_round_trip():
+    """IrOrd ∘ IrGlyph round-trips a character through its code point."""
+    codepoint = IrOrd().eval(IrNone, IrStr("あ"), ())
+    respelled = IrGlyph().eval(IrNone, codepoint, ())
+    assert respelled == IrStr("あ")
+
+
+# ── IrLen ─────────────────────────────────────────────────────────────
+
+
+def test_irlen_is_a_plain_leaf():
+    """IrLen is a plain IrLeaf body carrying no IR-node children."""
+    assert isinstance(IrLen(), IrLeaf)
+    assert not IrLen().children()
+
+
+def test_irlen_counts_tuple_shaped_focus():
+    """IrLen.eval on a tuple-shaped focus returns its element count."""
+    seq = IrSequence(IrItem(IrLiteral("a")), IrItem(IrLiteral("b")))
+    assert IrLen().eval(IrNone, seq, ()) == IrInt(2)
+
+
+def test_irlen_counts_str_leaf_focus():
+    """IrLen.eval on a str-leaf focus returns its character count."""
+    assert IrLen().eval(IrNone, IrLiteral("abc"), ()) == IrInt(3)
+
+
+def test_irlen_empty_focus_is_zero():
+    """IrLen.eval on an empty tuple/str focus returns IrInt(0)."""
+    assert IrLen().eval(IrNone, IrSequence(), ()) == IrInt(0)
+    assert IrLen().eval(IrNone, IrLiteral(""), ()) == IrInt(0)
+
+
+def test_irlen_unsized_focus_raises():
+    """IrLen.eval raises UnsupportedConstructError on an unsized focus."""
+    with pytest.raises(UnsupportedConstructError, match="no length"):
+        IrLen().eval(IrNone, IrInt(5), ())
+
+
+def test_irlen_repr_is_codegen():
+    """IrLen repr renders as a valid constructor expression."""
+    assert repr(IrLen()) == "IrLen()"
+
+
+def test_irlen_composes_as_ircompare_operand():
+    """IrLen is the natural IrCompare operand for arity-branching bodies."""
+    seq = IrSequence(IrItem(IrLiteral("a")))
+    cmp = IrCompare(IrLen(), IrOp("=="), IrInt(1))
+    assert cmp.eval(IrNone, seq, ()) == 1
+
+
+# ── IrEach ────────────────────────────────────────────────────────────
+
+
+def test_ireach_maps_body_over_tuple_elements():
+    """IrEach(body) evaluates body once per element of a tuple-shaped focus."""
+    focus = IrTuple(IrInt(1), IrInt(2), IrInt(3))
+    result = IrEach(IrThis()).eval(IrNone, focus, ())
+    assert result == IrTuple(IrInt(1), IrInt(2), IrInt(3))
+    assert isinstance(result, IrTuple)
+
+
+def test_ireach_maps_body_over_str_chars():
+    """IrEach(body) lifts each character of a str-leaf focus to IrStr, then
+    evaluates body against it."""
+    result = IrEach(IrThis()).eval(IrNone, IrStr("ab"), ())
+    assert result == IrTuple(IrStr("a"), IrStr("b"))
+
+
+def test_ireach_empty_focus_yields_empty_tuple():
+    """IrEach over an empty tuple/str focus yields an empty IrTuple."""
+    assert IrEach(IrThis()).eval(IrNone, IrTuple(), ()) == IrTuple()
+    assert IrEach(IrThis()).eval(IrNone, IrStr(""), ()) == IrTuple()
+
+
+def test_ireach_non_iterable_focus_raises():
+    """IrEach.eval raises UnsupportedConstructError on a non-iterable focus."""
+    with pytest.raises(UnsupportedConstructError, match="no elements"):
+        IrEach(IrThis()).eval(IrNone, IrInt(5), ())
+
+
+def test_ireach_body_receives_fresh_empty_nc():
+    """IrEach starts each per-element body with a fresh empty nc, like every
+    other focus shift (IrAt's precedent) — IrArgs() in the body must read empty
+    even though the caller passed args."""
+    focus = IrTuple(IrInt(1), IrInt(2))
+    result = IrEach(IrArgs()).eval(IrNone, focus, (IrLiteral("ignored"),))
+    assert result == IrTuple(IrTuple(), IrTuple())
+
+
+def test_ireach_repr_is_codegen():
+    """IrEach repr renders as a valid constructor expression."""
+    assert repr(IrEach(IrThis())) == "IrEach(IrThis())"
+
+
+def test_ireach_applies_a_computing_body_per_element():
+    """IrEach with a non-identity body (IrOrd) transforms each element."""
+    result = IrEach(IrOrd()).eval(IrNone, IrStr("AB"), ())
+    assert result == IrTuple(IrInt(65), IrInt(66))
+
+
+# ── IrMerge ───────────────────────────────────────────────────────────
+
+
+def test_irmerge_is_a_plain_leaf():
+    """IrMerge is a plain IrLeaf body carrying no IR-node children."""
+    assert isinstance(IrMerge(), IrLeaf)
+    assert not IrMerge().children()
+
+
+def test_irmerge_folds_distinct_rules_into_an_ast():
+    """IrMerge folds distinctly-named nc rules into one IrAst, start = first name."""
+    rule_a = IrRule("a", IrAlternation(IrSequence(IrItem(IrLiteral("x")))))
+    rule_b = IrRule("b", IrAlternation(IrSequence(IrItem(IrLiteral("y")))))
+    result = IrMerge().eval(IrNone, IrNone, (rule_a, rule_b))
+    assert isinstance(result, IrAst)
+    assert result.start == "a"
+    assert list(result.rules) == [rule_a, rule_b]
+
+
+def test_irmerge_appends_arms_of_same_named_rules_in_source_order():
+    """A rule name seen twice on nc has its later arms appended to the
+    earlier rule's alternation, in source order — the ABNF ``=/`` shape."""
+    first = IrRule("a", IrAlternation(IrSequence(IrItem(IrLiteral("x")))))
+    second = IrRule("a", IrAlternation(IrSequence(IrItem(IrLiteral("y")))))
+    result = IrMerge().eval(IrNone, IrNone, (first, second))
+    assert isinstance(result, IrAst)
+    rules = list(result.rules)
+    assert len(rules) == 1
+    assert rules[0].name == "a"
+    assert list(rules[0].body) == [
+        IrSequence(IrItem(IrLiteral("x"))),
+        IrSequence(IrItem(IrLiteral("y"))),
+    ]
+
+
+def test_irmerge_empty_nc_yields_empty_ast_with_blank_start():
+    """IrMerge with no nc rules yields IrAst(IrSeq(), IrStr(""))."""
+    result = IrMerge().eval(IrNone, IrNone, ())
+    assert isinstance(result, IrAst)
+    assert not list(result.rules)
+    assert result.start == ""
+
+
+def test_irmerge_non_irrule_arg_raises():
+    """IrMerge.eval raises UnsupportedConstructError on a non-IrRule nc element."""
+    with pytest.raises(UnsupportedConstructError, match="expected IrRule"):
+        IrMerge().eval(IrNone, IrNone, (IrLiteral("not-a-rule"),))
+
+
+def test_irmerge_repr_is_codegen():
+    """IrMerge repr renders as a valid constructor expression."""
+    assert repr(IrMerge()) == "IrMerge()"

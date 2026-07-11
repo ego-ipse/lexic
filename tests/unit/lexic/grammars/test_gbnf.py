@@ -6,6 +6,7 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import (
+    GBNF_ACTIONS,
     GBNF_ESCAPES,
     GBNF_FLAVOUR,
     GBNF_GRAMMAR,
@@ -14,7 +15,7 @@ from lexic.grammars.gbnf import (
     GBNF_REDUCER,
     GBNF_REDUCTIONS,
 )
-from lexic.ir.base import IrNone
+from lexic.ir.base import IrLambda, IrNone
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
@@ -33,7 +34,7 @@ from lexic.ir.operators import IrNot
 from lexic.parsing import derivations, parse_reduced
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, Reducer
-from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
+from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES, contains_ir_type
 
 
 def test_subclass():
@@ -660,3 +661,17 @@ def test_charclass_range_vs_dash_is_unambiguous():
     assert isinstance(result, IrAst)
     atom = _first_item(result).atom
     assert atom == IrCharClass(IrRange(IrChr("0"), IrChr("9")))
+
+
+# ── Structural guard: gbnf.py is data + pure IR algebra, no procedural bodies ──
+
+
+def test_gbnf_actions_and_reductions_carry_no_irlambda():
+    """GBNF_ACTIONS and GBNF_REDUCTIONS contain no :class:`IrLambda` anywhere.
+
+    gbnf.py holds zero ``def`` beyond dataclass/ABC machinery — its emit and
+    parse halves are pure IR algebra. A stray :class:`IrLambda` escape hatch
+    creeping back into either table would be a regression from that ruling.
+    """
+    assert not contains_ir_type(GBNF_ACTIONS.values(), IrLambda)
+    assert not contains_ir_type(GBNF_REDUCTIONS.values(), IrLambda)

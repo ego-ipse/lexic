@@ -6,6 +6,12 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-11 — Task 6.5 addendum: TOTAL def purge from the grammar modules
+
+Follow-up user escalation to the pure-algebra ruling: the "grandfathered" HEAD-era handlers go too — `gbnf.py`/`abnf.py` now contain **zero** `def`s and zero `IrLambda`s. The logic moved to its architectural homes: `EscapeCodec` (ir/escapes.py) gains the generic `encode_point` (class-member escape cascade: `CLASS_SHORT` → `CLASS_META` backslash → printable glyph → narrowest `HEX_ESCAPES` form) and `spellable` (`QUOTE_SAFE` ranges) algorithms over per-flavour ClassVar data; ir/flavour.py gains the dispatcher-codec leaves `IrEscapePoint` and `IrSpellable` (the `IrEscape` pattern); ir/action.py gains the generic nodes `IrRadix` (emit-side inverse of `IrUnradix`, uppercase digits + zero-pad), `IrOrd` (inverse of `IrGlyph`), `IrLen`, `IrEach` (variadic `IrAt` — maps a body over a tuple-shaped node's elements or a str-leaf's chars, clean channel), and `IrMerge` (the `=/` same-name rule merge, formerly `_merge_rules`). ABNF's literal/charclass emit actions are now `IrCond`/`IrTypeMap`-shaped algebra (`%s"…"` vs dot-joined `%x` via `IrSpellable`; per-element `%x` forms via the `IrChr`/`IrRange` actions + `IrLen`-keyed parenthesisation); `IrRange` endpoint reads go through `IrField` (scalar-payload record — `IrAt` has no children there, caught live). Gates: **emit byte-parity 22/22** (both self-emits + all GT canonical emits, both flavours, vs pre-purge baseline `emit_65b_baseline.json`), GT reduce byte-parity + selfhost unchanged, suite 1990/1 untouched, run_checks EXIT 0. New ir/ surface exported from `lexic.ir`; Sonnet lane owes the mirror tests. See [[decisions]].
+
+---
+
 ## 2026-07-11 — Task 6.5 (unified-parse-engine): P4 self-grammar left-factor lands, def-free
 
 Left-factored the two owned self-grammars at author level, grammar + reductions co-edited: GBNF `quantifier` (arms `q-opt|q-star|q-plus|q-counted`; `q-counted -> "{" decits q-tail`, tail rules `"}"` / `",}"` / `"," decits "}"`), ABNF `repeat` (`repeat-num (decits repeat-tail) | repeat-nolo`), `num-val` (per-radix `num-x|num-d|num-b`, each `"%" mark hexits <tail>`), `cvbody` (`cvnac* (cvalpha cvany*)?` — an inline optional group, the first in an authored self-grammar; its synthetic splices case items flat into the channel). Deleted: `q-exact/q-atleast/q-between`, `repeat-exact/repeat-range/lo-bound`, `num-single/num-range/num-seq/dec-*/bin-*`, `cvexp/cvlit`.

@@ -11,6 +11,7 @@ from hypothesis import given, settings
 from lexic.compile import parse_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import (
+    ABNF_ACTIONS,
     ABNF_ESCAPES,
     ABNF_FLAVOUR,
     ABNF_GRAMMAR,
@@ -18,7 +19,7 @@ from lexic.grammars.abnf import (
     ABNF_REDUCER,
     ABNF_REDUCTIONS,
 )
-from lexic.ir.base import IrNone, IrSeq
+from lexic.ir.base import IrLambda, IrNone, IrSeq
 from lexic.ir.canonical import canonicalize
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrFlavour
@@ -40,7 +41,7 @@ from lexic.parsing import parse, recognize
 from lexic.parsing.earley.forest import ParseTree
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import YIELD, Reducer
-from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
+from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES, contains_ir_type
 
 
 def test_abnf_flavour_is_a_flavour():
@@ -898,3 +899,17 @@ def test_incremental_extensions_with_intervening_comments():
         IrLiteral("+"),
         IrLiteral("0"),
     ]
+
+
+# ── Structural guard: abnf.py is data + pure IR algebra, no procedural bodies ──
+
+
+def test_abnf_actions_and_reductions_carry_no_irlambda():
+    """ABNF_ACTIONS and ABNF_REDUCTIONS contain no :class:`IrLambda` anywhere.
+
+    abnf.py holds zero ``def`` beyond dataclass/ABC machinery — its emit and
+    parse halves are pure IR algebra. A stray :class:`IrLambda` escape hatch
+    creeping back into either table would be a regression from that ruling.
+    """
+    assert not contains_ir_type(ABNF_ACTIONS.values(), IrLambda)
+    assert not contains_ir_type(ABNF_REDUCTIONS.values(), IrLambda)

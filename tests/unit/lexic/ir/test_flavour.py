@@ -12,12 +12,12 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars.abnf import ABNF_FLAVOUR
+from lexic.grammars.abnf import ABNF_ESCAPES, ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_ESCAPES, GBNF_FLAVOUR
-from lexic.ir.base import IrNone, IrStr
+from lexic.ir.base import IrInt, IrNone, IrStr
 from lexic.ir.escapes import CANONICAL_ESCAPES
-from lexic.ir.flavour import IrEscape, IrFlavour
-from lexic.ir.nodes import IrLiteral, IrQuantifier
+from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour, IrSpellable
+from lexic.ir.nodes import IrChr, IrLiteral, IrQuantifier
 from lexic.ir.walk import IrEmitter
 
 
@@ -154,3 +154,82 @@ def test_irescape_non_string_node_raises():
 def test_irescape_repr_is_codegen():
     """IrEscape repr is 'IrEscape()' — fieldless leaf."""
     assert repr(IrEscape()) == "IrEscape()"
+
+
+# ── IrEscapePoint ─────────────────────────────────────────────────────
+
+
+def test_irescapepoint_encodes_via_gbnf_flavour_codec():
+    """IrEscapePoint.eval under GBNF_FLAVOUR spells a code-point leaf via
+    GBNF_ESCAPES.encode_point — the class-member sibling of IrEscape."""
+    result = IrEscapePoint().eval(GBNF_FLAVOUR, IrChr(10), ())
+    assert result == GBNF_ESCAPES.encode_point(10)
+    assert isinstance(result, IrStr)
+
+
+def test_irescapepoint_result_is_irstr():
+    """IrEscapePoint.eval returns an IrStr (not just str)."""
+    result = IrEscapePoint().eval(GBNF_FLAVOUR, IrChr(ord("a")), ())
+    assert isinstance(result, IrStr)
+
+
+def test_irescapepoint_dispatcher_without_escapes_raises():
+    """IrEscapePoint.eval raises UnsupportedConstructError when the
+    dispatcher has no escapes codec."""
+    with pytest.raises(UnsupportedConstructError):
+        IrEscapePoint().eval(IrNone, IrChr(10), ())
+
+
+def test_irescapepoint_non_codepoint_node_raises():
+    """IrEscapePoint.eval raises UnsupportedConstructError for a focus that
+    isn't an integer code point."""
+    with pytest.raises(UnsupportedConstructError):
+        IrEscapePoint().eval(GBNF_FLAVOUR, IrLiteral("a"), ())
+
+
+def test_irescapepoint_repr_is_codegen():
+    """IrEscapePoint repr is 'IrEscapePoint()' — fieldless leaf."""
+    assert repr(IrEscapePoint()) == "IrEscapePoint()"
+
+
+# ── IrSpellable ───────────────────────────────────────────────────────
+
+
+def test_irspellable_true_via_abnf_flavour_codec():
+    """IrSpellable.eval under ABNF_FLAVOUR tests the focus against
+    ABNF_ESCAPES' QUOTE_SAFE ranges — true for plain printable ASCII."""
+    result = IrSpellable().eval(ABNF_FLAVOUR, IrLiteral("abc"), ())
+    assert result == IrInt(1)
+    assert isinstance(result, IrInt)
+
+
+def test_irspellable_false_for_unsafe_char():
+    """IrSpellable.eval is false when a character falls outside QUOTE_SAFE
+    (RFC 7405 char-val excludes the quote)."""
+    result = IrSpellable().eval(ABNF_FLAVOUR, IrLiteral('a"b'), ())
+    assert result == IrInt(0)
+
+
+def test_irspellable_matches_codec_spellable():
+    """IrSpellable.eval matches the dispatcher's own codec.spellable call."""
+    result = IrSpellable().eval(ABNF_FLAVOUR, IrLiteral('a"b'), ())
+    assert bool(result) == ABNF_ESCAPES.spellable('a"b')
+
+
+def test_irspellable_dispatcher_without_escapes_raises():
+    """IrSpellable.eval raises UnsupportedConstructError when the dispatcher
+    has no escapes codec."""
+    with pytest.raises(UnsupportedConstructError):
+        IrSpellable().eval(IrNone, IrLiteral("a"), ())
+
+
+def test_irspellable_non_string_node_raises():
+    """IrSpellable.eval raises UnsupportedConstructError for a non-str-leaf
+    focus."""
+    with pytest.raises(UnsupportedConstructError):
+        IrSpellable().eval(ABNF_FLAVOUR, IrQuantifier(1, 1), ())
+
+
+def test_irspellable_repr_is_codegen():
+    """IrSpellable repr is 'IrSpellable()' — fieldless leaf."""
+    assert repr(IrSpellable()) == "IrSpellable()"
