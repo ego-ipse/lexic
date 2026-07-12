@@ -24,6 +24,7 @@ from typing import Any
 
 from lexic.ir.base import IrLeaf, IrSelf
 from lexic.parsing.pda.errors import PdaFail
+from lexic.parsing.pda.scanner import scan_gate_take
 
 _OP_LIT, _OP_CC, _OP_REF, _OP_GRP, _OP_ISLAND, _OP_FAIL = 0, 1, 2, 3, 4, 5
 """Flat item op-codes: literal, char class, clone reference, inline group,
@@ -42,7 +43,7 @@ _TERMINAL_OPS = frozenset((_OP_LIT, _OP_CC, _OP_LIT1, _OP_CC1))
 """The op-codes that consume input without descending — the ``_OP_VSTR``
 inlining licence (a clone is inlinable iff every arm is all-terminal)."""
 
-_GATE_STOP, _GATE_PAIR, _GATE_KWIN, _GATE_PEEK = 0, 1, 2, 3
+_GATE_STOP, _GATE_PAIR, _GATE_KWIN, _GATE_PEEK, _GATE_SCAN = 0, 1, 2, 3, 4
 """Flat loop-gate codes: single-char stop-set, LL(2) 2-char pair set, the
 ``k``-window gate (Task 6.3 part c) — a set of ``≤k``-length pre-resolved
 ``(chars, negated)`` position windows the runtime matches EOF-exactly against
@@ -52,7 +53,11 @@ LL(2) pair could not separate) — and the P3 noise-skip peek gate (Task 6.4):
 ``W``-noise run *without consuming*, take another iteration iff the first
 post-noise char is in ``take`` (the iteration then re-parses the noise
 normally — the peek is recognition-only, so a wrong take fails the parse
-rather than silently mis-building)."""
+rather than silently mis-building) — and the P3 *structured* / P5 gate
+(:data:`_GATE_SCAN`, Task 6.6), a :class:`~lexic.parsing.pda.scanner.ScanGate`
+the runtime consults via
+:func:`~lexic.parsing.pda.scanner.scan_gate_take` (folding-aware
+comment-bearing noise, and the rulename probe)."""
 
 _BUILD_TRANSPARENT, _BUILD_VALUE_STR, _BUILD_ALT, _BUILD_SEQ = 0, 1, 2, 3
 """Flat clone build-modes — how a completed frame folds to a model (or, for
@@ -179,7 +184,9 @@ def _gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
         return text[pos : pos + 2] in gate
     if gk == _GATE_KWIN:
         return _window_admits(text, pos, gate)
-    return _peek_admits(text, pos, gate)
+    if gk == _GATE_PEEK:
+        return _peek_admits(text, pos, gate)
+    return scan_gate_take(text, pos, gate)  # _GATE_SCAN — the ScanGate itself
 
 
 def _select_gated(text: str, pos: int, clone: "_FlatClone") -> Any:

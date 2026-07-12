@@ -33,7 +33,7 @@ build) and ``flatten`` (runtime dispatch) both import it, never the reverse.
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, NamedTuple
 
 from lexic.ir.base import IrLeaf, IrNoneType, IrSelf
 from lexic.ir.nodes import (
@@ -49,11 +49,21 @@ from lexic.parsing.pda.charsets import CharSet
 
 __all__ = [
     "Recognizer",
+    "ScanGate",
+    "SG_MATCH",
+    "SG_SCAN",
+    "SG_PROBE",
     "build_recognizer",
     "scan_run",
     "scan_run_any",
     "scan_match",
+    "scan_gate_take",
 ]
+
+SG_MATCH, SG_SCAN, SG_PROBE = 0, 1, 2
+"""ScanGate kinds: recogniser-match loop (pure folding, ABNF ``rule[5]``);
+skip-then-peek loop (P3 structured noise-skip); skip-then-probe loop (P5 —
+the post-noise char is rulename-led in both branches, GBNF ``sequence[1]``)."""
 
 _NA_CS, _NA_LIT, _NA_REF = 0, 1, 2
 """Flat noise-atom kinds: char-set membership, literal string, rule reference."""
@@ -274,3 +284,61 @@ def scan_match(text: str, pos: int, rec: Recognizer, ridx: int) -> bool:
     """
     end = _match_rule(text, pos, rec, ridx)
     return end > pos
+
+
+class ScanGate(NamedTuple):
+    """A folding-aware structured-noise loop gate (P3 structured / P5 probe).
+
+    The analysis-sourced spec the clone compiler stores and the runtime consults
+    via :func:`scan_gate_take`; the loop iteration then re-parses the noise
+    normally, so the gate is recognition-only and fail-soft.
+
+    :ivar kind: :data:`SG_MATCH` / :data:`SG_SCAN` / :data:`SG_PROBE`.
+    :ivar rec: The recogniser (noise closure, plus a probe's discriminator rules).
+    :ivar roots: The noise-root indices skipped before the decision (``SG_MATCH``
+        carries the single loop-body noise root).
+    :ivar take: ``(chars, negated)`` post-noise take-set (``SG_SCAN``/``SG_PROBE``),
+        or ``None``.
+    :ivar probe: ``(name_idx, noise_idx, defined_literal, take_on_match)`` for
+        ``SG_PROBE`` — after the take-set peek misses on an overlap char, match
+        ``rulename`` then a noise run then ``defined_literal``; ``take_on_match``
+        is the loop polarity (GBNF ``sequence`` exits on a matched rule header).
+    """
+
+    kind: int
+    rec: Recognizer
+    roots: tuple[int, ...]
+    take: "tuple[frozenset[str], bool] | None" = None
+    probe: "tuple[int, int, str, bool] | None" = None
+
+
+def _peek_member(text: str, pos: int, take: "tuple[frozenset[str], bool]") -> bool:
+    """Whether the char at ``pos`` is in the ``(chars, negated)`` take-set."""
+    ch = text[pos : pos + 1]
+    chars, negated = take
+    return (ch != "" and ch not in chars) if negated else ch in chars
+
+
+def scan_gate_take(text: str, pos: int, gate: ScanGate) -> bool:
+    """Whether the structured-noise loop gate admits another iteration at ``pos``.
+
+    ``SG_MATCH`` takes iff a noise-root instance begins here (folding);
+    ``SG_SCAN`` skips the maximal noise run then tests the post-noise char
+    against ``take``; ``SG_PROBE`` does the same, and on an overlap char runs the
+    ``rulename … defined`` probe to break the tie.
+    """
+    if gate.kind == SG_MATCH:
+        return scan_match(text, pos, gate.rec, gate.roots[0])
+    p = scan_run_any(text, pos, gate.rec, gate.roots)
+    if gate.take is not None and _peek_member(text, p, gate.take):
+        return True
+    if gate.kind == SG_SCAN or gate.probe is None:
+        return False
+    name_idx, noise_idx, defined, take_on_match = gate.probe
+    ch = text[p : p + 1]
+    name_lead = _match_rule(text, p, gate.rec, name_idx)
+    if name_lead < 0 or ch == "":
+        return False  # not a rulename-led overlap char — plain exit
+    after = scan_run(text, name_lead, gate.rec, noise_idx)
+    matched = text.startswith(defined, after)
+    return take_on_match if matched else not take_on_match

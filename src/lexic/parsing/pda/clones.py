@@ -1,50 +1,41 @@
 """Clone compiler — the predictive-parser artifact beside :class:`ParserTables`.
 
-:func:`compile_pda` turns a *lifted codegen grammar* (the same shape
-:class:`~lexic.parsing.pda.analysis.GrammarAnalysis` runs on —
-``lift_optional_nullables(build_codegen_grammar(canonical))``) into
-:class:`PdaTables`: the per-(rule, hard-continuation) **clones** a
-deterministic table-driven parser (Task 4's runtime) walks, plus the island
-set and a lazy per-island :class:`ParserTables` cache for the conflicted rules
-that fall back to Earley sub-parses.
+:func:`compile_pda` turns a *lifted codegen grammar*
+(``lift_optional_nullables(build_codegen_grammar(canonical))`` — the shape
+:class:`~lexic.parsing.pda.analysis.GrammarAnalysis` runs on) into
+:class:`PdaTables`: the per-(rule, hard-continuation) **clones** the runtime
+walks, plus the island set and a lazy per-island :class:`ParserTables` cache
+for the conflicted rules that fall back to Earley sub-parses.
 
 **Clones (pivot 3).** A rule is compiled once per distinct *hard continuation*
-that reaches it, because the loop stop-sets it bakes are call-site-exact
-(pivot 4). :meth:`_PdaCompiler.ensure_rule` reserves the clone key before
-compiling the body (a :data:`_PENDING` placeholder), so a recursive reference
-resolves to the in-progress key; a second reference with the same
-``(name, tail)`` reuses the clone. Island rules are never cloned — a reference
-carries an :class:`IslandRef` marker instead of a :class:`CloneKey`; a
-**fail-island** reference (``IslandRef.fail``, from
-:attr:`~lexic.parsing.pda.analysis.GrammarAnalysis.fail_islands`) is not even
-parsed — the runtime raises :class:`~lexic.parsing.pda.runtime.PdaFail` so the
-compile seam falls back to the full engine.
+that reaches it (its loop stop-sets are call-site-exact, pivot 4).
+:meth:`_PdaCompiler.ensure_rule` reserves the clone key with a :data:`_PENDING`
+placeholder before compiling, so recursion resolves to the in-progress key and
+a repeat ``(name, tail)`` reuses the clone. Island rules are never cloned — a
+reference carries an :class:`IslandRef` (a ``fail`` one raises
+:class:`~lexic.parsing.pda.runtime.PdaFail`, forcing the engine fallback).
 
-**Item specs.** Each item compiles to a flat, tuple-coded :class:`ItemSpec`
-(``lit`` / ``cc`` / ``ref`` / ``grp``) carrying its quantifier bounds and a
-loop gate — :class:`StopGate` (pivot 4), :class:`PairGate` (pivot 6),
-:class:`KTupleGate` (P2) or :class:`PeekGate` (P3). Arm selection (rule body
-and inline group) is a list of FIRST-gated :class:`ArmSpec` plus at most one
-nullable default arm. Every rule clone bakes its
-:class:`~lexic.parsing.fold.RuleFold`; a ``value_str`` clone is flagged
-:attr:`~CloneSpec.match_only` (pure-terminal interior — the runtime slices
-``text[a:b]`` rather than building sub-models).
+**Item specs.** Each item compiles to a flat :class:`ItemSpec`
+(``lit``/``cc``/``ref``/``grp``) with its bounds and a loop gate —
+:class:`StopGate` (pivot 4), :class:`PairGate` (pivot 6), :class:`KTupleGate`
+(P2), :class:`PeekGate` (P3 char-set) or :class:`ScanGate` (P3 structured
+noise-skip / P5 probe, folding-aware via :mod:`~lexic.parsing.pda.scanner`).
+Arm selection is FIRST-gated :class:`ArmSpec` plus at most one nullable default.
+Every rule clone bakes its :class:`~lexic.parsing.fold.RuleFold`; a
+``value_str`` clone is :attr:`~CloneSpec.match_only` (the runtime slices
+``text[a:b]`` instead of building below).
 
-**Open dispatch, no isinstance ladders.** Per-atom-type compilation routes
-through the module-level :data:`_ATOM_SPEC` :class:`~lexic.ir.mapping.IrTypeMap`
-(the ``analysis.py`` idiom: the compiler rides the dispatcher slot ``d``, the
-per-item context rides ``nc`` on an :class:`_ItemCtx` cursor); an unregistered
-atom type raises :exc:`~lexic.exceptions.UnsupportedConstructError` — the
-Task-6 seam converts that to "no PDA for this grammar".
+**Open dispatch.** Per-atom compilation routes through the module-level
+:data:`_ATOM_SPEC` :class:`~lexic.ir.mapping.IrTypeMap` (the ``analysis.py``
+idiom — compiler on ``d``, per-item context on ``nc`` via :class:`_ItemCtx`);
+an unregistered atom raises :exc:`~lexic.exceptions.UnsupportedConstructError`
+(the Task-6 "no PDA" seam).
 
-The spec NamedTuples are the compiler's *intermediate* (and the shape the
-structural tests pin). :func:`_flatten_program` lowers them, once per
-:func:`compile_pda`, into the flat int-coded :class:`PdaProgram`
-(:class:`_FlatClone` / :class:`_FlatArm`, ``_OP_*`` op-codes) that
-:class:`~lexic.parsing.pda.runtime.PdaKernel` walks with integer dispatch —
-the ``tables.py``/``kernel.py`` philosophy. The lowering is a build-time cost
-only; the two representations stay in lockstep on :class:`PdaTables`
-(``.clones`` for islands/introspection, ``.program`` for the hot loop).
+The spec NamedTuples are the compiler's *intermediate* (the shape tests pin);
+:func:`_flatten_program` lowers them once into the flat int-coded
+:class:`PdaProgram` the :class:`~lexic.parsing.pda.runtime.PdaKernel` walks. The
+two stay in lockstep on :class:`PdaTables` (``.clones`` for introspection,
+``.program`` for the hot loop).
 """
 
 from __future__ import annotations
@@ -78,6 +69,7 @@ from lexic.parsing.pda.flatten import (
     _GATE_KWIN,
     _GATE_PAIR,
     _GATE_PEEK,
+    _GATE_SCAN,
     _GATE_STOP,
     _HI_UNBOUNDED,
     _MODE_CODE,
@@ -98,6 +90,7 @@ from lexic.parsing.pda.reduce_pda import (
     _reduce_rewrite,
     _ReduceCompile,
 )
+from lexic.parsing.pda.scanner import ScanGate
 
 __all__ = [
     "compile_pda",
@@ -232,7 +225,7 @@ class ItemSpec(NamedTuple):
     payload: str | CharSet | CloneKey | IslandRef | GroupSpec
     lo: int
     hi: int | None
-    gate: StopGate | PairGate | KTupleGate | PeekGate
+    gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate
 
 
 class ArmSpec(NamedTuple):
@@ -344,14 +337,14 @@ class _ItemCtx(IrLeaf[IrSelf, IrSelf]):
     lo: int
     hi: int | None
     cont: CharSet
-    gate: StopGate | PairGate | KTupleGate | PeekGate
+    gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate
 
     def __init__(
         self,
         lo: int,
         hi: int | None,
         cont: CharSet,
-        gate: StopGate | PairGate | KTupleGate | PeekGate,
+        gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate,
     ) -> None:
         """Bind one item's bounds, continuation and gate."""
         self.lo = lo
@@ -591,7 +584,7 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
     def _loop_gate(
         self, items: Sequence[IrItem], idx: int, cont: CharSet
-    ) -> StopGate | PairGate | KTupleGate | PeekGate:
+    ) -> StopGate | PairGate | KTupleGate | PeekGate | ScanGate:
         """The loop-continuation gate — stop-set, LL(2) pair, or k-window set.
 
         Defaults to the non-greedy stop-set (``FIRST(atom) − continuation``); a
@@ -624,6 +617,9 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
             pspec = analysis.taxonomy.pn_loop_gates.get(id(item))
             if pspec is not None:
                 return PeekGate(*pspec)
+            sspec = analysis.taxonomy.struct_loop_gates.get(id(item))
+            if sspec is not None:
+                return sspec  # a folding-aware ScanGate (P3 structured / P5)
             if first.overlaps(cont):
                 policy = analysis.loop_policy(item, rest)
                 if isinstance(policy, tuple):
@@ -651,7 +647,7 @@ def _build_mode(fold: RuleFold | None) -> int:
 
 
 def _flatten_gate(
-    gate: StopGate | PairGate | KTupleGate | PeekGate,
+    gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate,
 ) -> tuple[int, object]:
     """Lower a loop gate to its ``(code, data)`` flat pair."""
     if isinstance(gate, PairGate):
@@ -663,6 +659,8 @@ def _flatten_gate(
             (gate.w.chars, gate.w.negated),
             (gate.take.chars, gate.take.negated),
         )
+    if isinstance(gate, ScanGate):
+        return _GATE_SCAN, gate  # runtime-ready; scan_gate_take reads it directly
     cs = gate.charset
     return _GATE_STOP, (cs.chars, cs.negated)
 

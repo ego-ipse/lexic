@@ -109,17 +109,21 @@ _PINNED_ISLANDS: dict[str, list[str]] = {
     "json.abnf": [],
 }
 
+# Task 6.6 (soft-gap classification): json ``array`` joins the demoted set —
+# its item loop's FIRST overlaps only *soft* followers, a class the old
+# hard-continuation guard never classified (it silently baked a greedy
+# stop-set); the P3 noise-skip gate now carries it.
 _PINNED_DEMOTED: dict[str, list[str]] = {
     "arithmetic.gbnf": ["ws"],
     "c.gbnf": ["multilinecomment"],
     "chess.gbnf": ["nonpawn", "pawn"],
     "japanese.gbnf": [],
-    "json.gbnf": ["array-item2", "object-item2", "value", "ws"],
+    "json.gbnf": ["array", "array-item2", "object-item2", "value", "ws"],
     "json_arr.gbnf": [],
     "json_ws.gbnf": [],
     "list.gbnf": [],
     "arithmetic.abnf": [],
-    "json.abnf": ["array-item2", "object-item2", "value", "ws"],
+    "json.abnf": ["array", "array-item2", "object-item2", "value", "ws"],
 }
 
 
@@ -154,26 +158,27 @@ def _self_grammar_analysis(name: str) -> GrammarAnalysis:
 @pytest.mark.parametrize(
     ("factory", "expected_count"),
     [
-        (lambda: _self_grammar_analysis("gbnf"), 7),
-        (lambda: _self_grammar_analysis("abnf"), 4),
+        (lambda: _self_grammar_analysis("gbnf"), 4),
+        (lambda: _self_grammar_analysis("abnf"), 1),
         (lambda: _lifted_analysis("json.gbnf"), 0),
         (lambda: _lifted_analysis("chess.gbnf"), 0),
     ],
     ids=["gbnf-self", "abnf-self", "json.gbnf", "chess.gbnf"],
 )
 def test_island_counts_match_the_coverage_map(factory, expected_count):
-    """The island counts sit exactly where the coverage map put them:
-    GBNF-self 17→8→7 (P2: cc-esc family k2 ×8 + cc-neg k3; P4: left-factoring
-    ``quantifier`` into ``q-counted``/``q-tail`` removes the ``quantifier``
-    island — alternation, cc-first, cc-item, cc-nfirst, n, quant-opt, sequence
-    remain), ABNF-self 9→7→4 (P2: defined/element k2; P4: left-factoring
-    ``repeat``, ``num-val``, ``cvbody`` removes their islands — alternation,
-    concatenation, rule, rulelist remain), chess 1→0 (P2: nonpawn k3), json
-    4→0 (P6: ``ws`` noise-greedy; P3: ``value``/``array-item2``/
-    ``object-item2`` noise-skip). The GBNF/ABNF spine's P3 decisions need the
-    folding-aware comment scanner (their noise includes ``#``/``;`` comments,
-    which poison the char-set residual FIRST) — that extension rides the P5
-    probe work."""
+    """The island counts after the Task-6.6 P3 *structured* noise-skip and the
+    P5 rulename probe land (the folding-aware scanner —
+    :mod:`lexic.parsing.pda.scanner`).
+
+    GBNF-self 7→**4**: the structured skip demotes ``alternation`` (bar-arm ``n``
+    run) and ``quant-opt`` (ws-quant ``n`` run), and the P5 probe demotes
+    ``sequence`` (its exit skips the inter-rule ``n`` to the next rule's
+    rulename, which overlaps the item lead — the ``rulename n* "::="`` header
+    probe breaks the tie); ``cc-first``/``cc-item``/``cc-nfirst``/``n`` remain
+    islands. ABNF-self 4→**1**: ``rule[5]`` demotes via the pure-folding
+    ``c-wsp`` match gate, ``alternation``/``concatenation`` via the structured
+    skip; ``rulelist`` remains until its boundary-shift left-factor. chess/json
+    stay 0 (their noise is char-set ``ws``, already demoted at 6.4)."""
     assert len(factory().islands) == expected_count
 
 

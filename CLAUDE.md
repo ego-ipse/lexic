@@ -446,6 +446,25 @@ src/lexic/
                           clones — clones imports these back); split out of
                           clones.py for C0302 headroom (260706 unified-parse-
                           engine, Task 4)
+      taxonomy.py         Taxonomy (+ private _GateStore) — the analysis'
+                          classified-notes + gate-spec result record: conflicts/
+                          demoted/fail plus the five gate families behind named
+                          property accessors (arm_gates/loop_gates/pn_arm_gates/
+                          pn_loop_gates/struct_loop_gates on one store slot);
+                          store_struct_loop owns the conflicting-re-store
+                          opt-out tripwire. A leaf (imports charsets + scanner);
+                          moved out of analysis.py by pure motion (260706
+                          Task 6.6, C0302)
+      scanner.py          structured-noise recognizer leaf (imports lexic.ir +
+                          charsets only) — build_recognizer(rules, roots)
+                          compiles the acyclic noise-root closure from its own
+                          IrAst (None on cycles/inline-groups/undefined refs →
+                          the decision stays island); non-consuming runtime
+                          scan_run/scan_run_any/scan_match; ScanGate
+                          (SG_MATCH/SG_SCAN/SG_PROBE) + scan_gate_take — the
+                          folding-aware P3-structured/P5 loop-gate runtime half
+                          (LWS folding falls out of arm-in-order-with-reset)
+                          (260706 unified-parse-engine, Task 6.6)
 
 tests/
   unit/lexic/           structural mirror of src/lexic/

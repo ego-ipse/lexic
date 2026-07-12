@@ -29,10 +29,13 @@ from lexic.parsing.pda import kwindow
 from lexic.parsing.pda.charsets import CharSet
 from lexic.parsing.pda.noise import (
     noise_alphabet,
+    noise_greedy_licensed,
     peek_arm_gate,
     peek_loop_gate,
-    sem_follow_table,
+    stopset_escapes_soft_follow,
+    structured_loop_gate,
 )
+from lexic.parsing.pda.taxonomy import Taxonomy
 
 __all__ = ["GrammarAnalysis", "Taxonomy", "nullable_names"]
 
@@ -462,59 +465,8 @@ def nullable_names(rules: Sequence[IrRule]) -> frozenset[str]:
 # ── the analysis ──────────────────────────────────────────────────────────
 
 
-class Taxonomy(IrLeaf[IrSelf, IrSelf]):
-    """The classified per-rule notes + gate specs — the taxonomy result.
-
-    Also the **gate-spec channel** (Task 6.3 part c, option a): when P2 demotion
-    is on, the k-window gates the classification consulted are *stored* here —
-    single source of truth — and the clone compiler reads them back instead of
-    recomputing (which would risk a divergent second derivation).
-
-    :ivar conflicts: Rule name → island-worthy notes (presence marks an island).
-    :ivar demoted: Rule name → stop-set / LL(2) demotion notes.
-    :ivar fail: The fail-island rule names — semantic rules that fired the F1
-        stop-set-escape branch (a subset of :attr:`conflicts`' keys).
-    :ivar arm_gates: Rule name → per-arm k-window sets (aligned to the rule
-        body's arms) for a demoted rule-body arm selection. Rule bodies only —
-        an inline group's arm overlap stays a hard note (the rule islands).
-    :ivar loop_gates: ``id(item)`` (the looping :class:`~lexic.ir.nodes.IrItem`
-        node — analysis and clone compiler walk the same lifted tree, so node
-        identity is the exact decision key) → the ``taken`` k-window set for a
-        demoted loop take/skip decision.
-    :ivar pn_arm_gates: Rule name → ``(W, per-arm post-noise selectors)`` for a
-        P3 noise-skip arm demotion (rule bodies only, aligned like
-        :attr:`arm_gates`).
-    :ivar pn_loop_gates: ``id(item)`` → ``(W, take set)`` for a P3 noise-skip
-        loop demotion.
-    """
-
-    __slots__ = (
-        "conflicts",
-        "demoted",
-        "fail",
-        "arm_gates",
-        "loop_gates",
-        "pn_arm_gates",
-        "pn_loop_gates",
-    )
-
-    conflicts: dict[str, list[str]]
-    demoted: dict[str, list[str]]
-    fail: set[str]
-    arm_gates: dict[str, tuple[tuple[tuple[CharSet, ...], ...], ...]]
-    loop_gates: dict[int, tuple[tuple[CharSet, ...], ...]]
-    pn_arm_gates: dict[str, tuple[CharSet, tuple[CharSet, ...]]]
-    pn_loop_gates: dict[int, tuple[CharSet, CharSet]]
-
-    def __init__(self) -> None:
-        """Seed the note maps, the fail-island set and the gate stores empty."""
-        self.conflicts = {}
-        self.demoted = {}
-        self.fail = set()
-        self.arm_gates = {}
-        self.loop_gates = {}
-        self.pn_arm_gates = {}
-        self.pn_loop_gates = {}
+# Taxonomy (and its _GateStore) moved to lexic.parsing.pda.taxonomy by pure
+# motion (C0302 headroom, Task 6.6); re-exported above for the public surface.
 
 
 class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
@@ -763,7 +715,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             notes.soft.append(f"{scope.rule}[{k}]: loop k-window (demoted)")
             return True
         w = noise_alphabet(self)
-        take = peek_loop_gate(self, items, k, self._cont_at(items, k, scope.tail), w)
+        take = peek_loop_gate(self, items, k, self.cont_at(items, k, scope.tail), w)
         if take is not None:
             key = id(items[k])
             prior = self.taxonomy.pn_loop_gates.get(key)
@@ -773,6 +725,11 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 )
             self.taxonomy.pn_loop_gates[key] = (w, take)
             notes.soft.append(f"{scope.rule}[{k}]: loop noise-skip (demoted)")
+            return True
+        struct = structured_loop_gate(self, items, k, scope)
+        if struct is not None:
+            self.taxonomy.store_struct_loop(id(items[k]), struct)
+            notes.soft.append(f"{scope.rule}[{k}]: loop structured-noise (demoted)")
             return True
         return False
 
@@ -911,15 +868,16 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         if self.atom_nullable(atom) and (hi is None or hi - lo > 1):
             notes.hard.append(f"{scope.rule}[{k}]: unbounded loop over nullable atom")
             return
-        if self.atom_first(atom).overlaps(self.hard_cont_at(items, k, scope.tail)):
+        first = self.atom_first(atom)
+        if first.overlaps(self.hard_cont_at(items, k, scope.tail)):
             policy = self.loop_policy(item, items[k + 1 :])
             if policy == "island":
                 if not self._demote_loop(items, k, scope, notes):
                     notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
             elif policy == "stopset":
-                if not self._stopset_escapes_soft_follow(items, k, scope):
+                if not stopset_escapes_soft_follow(self, items, k, scope):
                     notes.soft.append(f"{scope.rule}[{k}]: loop stop-set applied")
-                elif self._noise_greedy_licensed(items, k, scope):
+                elif noise_greedy_licensed(self, items, k, scope):
                     notes.soft.append(
                         f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)"
                     )
@@ -930,50 +888,38 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     notes.f1 = True
             else:
                 notes.soft.append(f"{scope.rule}[{k}]: LL(2) pair gate")
+            return
+        self._soft_gap_conflict(items, k, scope, notes)
 
-    def _stopset_escapes_soft_follow(
-        self, items: Sequence[IrItem], k: int, scope: "_Scope"
-    ) -> bool:
-        """Whether item ``k``'s non-greedy stop-set is *not* call-site invariant.
+    def _soft_gap_conflict(
+        self, items: Sequence[IrItem], k: int, scope: "_Scope", notes: "_Notes"
+    ) -> None:
+        """Classify a loop whose FIRST overlaps only *soft* followers.
 
-        A stop-set is sound only when its continuation is invariant across
-        reference sites. An all-nullable rest runs to the rule's FOLLOW; the PDA
-        cuts each clone against its own *hard* tail, so a soft-only follower also
-        in ``FIRST(atom)`` is over-eaten (``x ::= [a-c]*`` / ``root ::= x "ab"?``
-        silent wrong model) — a **semantic** such rule becomes a fail-island.
-
-        :returns: ``True`` iff the stop-set can escape into the soft FOLLOW.
+        The hard-continuation guard above misses this class entirely: the baked
+        stop-set is ``FIRST − hard cont``, so the loop greedily eats chars a
+        nullable follower in the same arm needed (GBNF ``grammar``'s
+        ``rules-rest*`` taking the trailing newline that belonged to the final
+        ``n?``, then demanding a rule at EOF). Silent before Task 6.6 only
+        because every affected spine rule was an island. Cascade: the P6
+        noise-greedy licence (greedy stays sound — noise↔noise re-split), then
+        the standard loop-demotion gates, else a hard note (the rule islands
+        rather than carry a confident-wrong gate).
         """
-        if not all(self.item_nullable(i) for i in items[k + 1 :]):
-            return False
-        gap = self._cont_at(items, k, scope.tail).subtract(scope.hard_tail)
-        return self.atom_first(items[k].atom).overlaps(gap)
-
-    def _noise_greedy_licensed(
-        self, items: Sequence[IrItem], k: int, scope: "_Scope"
-    ) -> bool:
-        """The P6 noise-greedy licence — an escaping stop-set may eat greedily
-        when the over-eaten split is provably noise↔noise.
-
-        Licensed iff (SIM_60's pinned condition + the plan's precision clause):
-        a rule-body scope on a ``semantic=False`` rule; no hard (required)
-        follower in the loop's own alphabet; and no over-eatable char — the
-        SIM's ``gap``, the soft-only followers intersected with the loop's
-        alphabet (the intersection also structurally excludes the retained EOF
-        sentinel) — can follow the rule as *semantic* content
-        (:func:`~lexic.parsing.pda.noise.sem_follow_table` — a gap char
-        reachable via a semantic soft-follower keeps the island). Then the
-        same bytes land in a different split between adjacent noise fields:
-        ``semantic_dump`` and ``to_text`` are unchanged.
-        """
-        if not scope.body or self.rules[scope.rule].semantic:
-            return False
-        first = self.atom_first(items[k].atom)
-        if scope.hard_tail.overlaps(first):
-            return False
-        gap = self._cont_at(items, k, scope.tail).subtract(scope.hard_tail)
-        eatable = gap.subtract(gap.subtract(first))
-        return not sem_follow_table(self)[scope.rule].overlaps(eatable)
+        gap = self.cont_at(items, k, scope.tail).subtract(
+            self.hard_cont_at(items, k, scope.tail)
+        )
+        if not self.atom_first(items[k].atom).overlaps(gap):
+            return
+        if noise_greedy_licensed(self, items, k, scope):
+            notes.soft.append(
+                f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)"
+            )
+            return
+        if not self._demote_loop(items, k, scope, notes):
+            notes.hard.append(
+                f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable"
+            )
 
     def _sub_conflict(
         self, items: Sequence[IrItem], k: int, scope: "_Scope", notes: "_Notes"
@@ -982,7 +928,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         item = items[k]
         atom = item.atom
         hi = _hi(item)
-        eff = self._cont_at(items, k, scope.tail)
+        eff = self.cont_at(items, k, scope.tail)
         hard_eff = self.hard_cont_at(items, k, scope.hard_tail)
         if hi is None or hi > 1:
             eff = eff.union(self.atom_first(atom))
@@ -990,7 +936,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         ctx = _ConflictCtx(notes, _Cont(eff, hard_eff), scope.rule, k)
         _SEQ_ATOM.resolve(atom).eval(self, atom, (ctx,))
 
-    def _cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:
+    def cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:
         """The continuation char set after item ``k`` (rest of arm, then tail)."""
         rest = items[k + 1 :]
         cont = self.seq_first(rest)
