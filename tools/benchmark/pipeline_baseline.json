@@ -2,55 +2,55 @@
   "compile_time": {
     "arithmetic.gbnf": {
       "canonical_grammar": {
-        "best_ms": 5.321363998518791,
-        "median_ms": 5.433624999568565
+        "best_ms": 3.5155110017512925,
+        "median_ms": 3.603885001211893
       },
       "compile_text": {
-        "best_ms": 24.938247999671148,
-        "median_ms": 25.299644999904558
+        "best_ms": 24.15755100082606,
+        "median_ms": 24.952088002464734
       }
     },
     "c.gbnf": {
       "canonical_grammar": {
-        "best_ms": 29.085193000355503,
-        "median_ms": 29.387159000179963
+        "best_ms": 17.973081005038694,
+        "median_ms": 18.384996001259424
       },
       "compile_text": {
-        "best_ms": 87.2542480010452,
-        "median_ms": 87.82826399874466
+        "best_ms": 80.10748899687314,
+        "median_ms": 82.25347599363886
       }
     },
     "json.gbnf": {
       "canonical_grammar": {
-        "best_ms": 25.32204700037255,
-        "median_ms": 25.637909000579384
+        "best_ms": 13.38598900474608,
+        "median_ms": 13.439107002341188
       },
       "compile_text": {
-        "best_ms": 66.72198100022797,
-        "median_ms": 67.43016700056614
+        "best_ms": 72.87041199742816,
+        "median_ms": 73.58830599696375
       }
     }
   },
   "instance_parse": {
     "arithmetic.gbnf": {
-      "best_ms": 11.070811000536196,
+      "best_ms": 11.170192003191914,
       "chars": 4800,
-      "median_ms": 11.502979999931995
+      "median_ms": 11.481090004963335
     },
     "c.gbnf": {
-      "best_ms": 3.0333600006997585,
+      "best_ms": 3.179876999638509,
       "chars": 3289,
-      "median_ms": 3.363838999575819
+      "median_ms": 3.2966450016829185
     },
     "chess.gbnf": {
-      "best_ms": 39.52141599984316,
+      "best_ms": 6.455333001213148,
       "chars": 4203,
-      "median_ms": 40.252315000543604
+      "median_ms": 6.599250002182089
     },
     "json.gbnf": {
-      "best_ms": 298.5240639991389,
+      "best_ms": 13.551506002841052,
       "chars": 4233,
-      "median_ms": 309.0051500003028
+      "median_ms": 13.975544003187679
     }
   }
 }
