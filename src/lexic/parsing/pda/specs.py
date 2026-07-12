@@ -1,0 +1,194 @@
+"""Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin.
+
+The flat, tuple-coded records :func:`~lexic.parsing.pda.clones.compile_pda`
+produces before :func:`~lexic.parsing.pda.clones._flatten_program` lowers them
+into the int-coded runtime :class:`~lexic.parsing.pda.flatten.PdaProgram`: the
+clone/arm/item/group specs plus the loop gates (:class:`StopGate`,
+:class:`PairGate`, :class:`KTupleGate`, :class:`PeekGate` — the folding-aware
+:class:`~lexic.parsing.pda.scanner.ScanGate` completes the union), and the
+clone key / island reference targets.
+
+A leaf w.r.t. the compiler — pure data definitions, imported by
+:mod:`lexic.parsing.pda.clones` (which re-exposes them as its public surface);
+imports only :class:`~lexic.parsing.pda.charsets.CharSet`,
+:class:`~lexic.parsing.fold.RuleFold`, and
+:class:`~lexic.parsing.pda.scanner.ScanGate`.
+"""
+
+from __future__ import annotations
+
+from typing import NamedTuple
+
+from lexic.parsing.fold import RuleFold
+from lexic.parsing.pda.charsets import CharSet
+from lexic.parsing.pda.scanner import ScanGate
+
+__all__ = [
+    "CloneKey",
+    "IslandRef",
+    "StopGate",
+    "PairGate",
+    "KTupleGate",
+    "PeekGate",
+    "ItemSpec",
+    "ArmSpec",
+    "GroupSpec",
+    "CloneSpec",
+]
+
+
+# ── clone keys and reference targets ──────────────────────────────────────
+
+
+class CloneKey(NamedTuple):
+    """A clone's identity — a rule compiled for one hard continuation.
+
+    :ivar name: The rule name.
+    :ivar tail: The hard continuation the clone's loop stop-sets are exact for.
+    """
+
+    name: str
+    tail: CharSet
+
+
+class IslandRef(NamedTuple):
+    """A reference to an island rule — not cloned; parsed by Earley sub-parse.
+
+    The ``ref`` :class:`ItemSpec` target for a rule in :attr:`PdaTables.islands`,
+    resolved via :meth:`PdaTables.island_tables` rather than a clone.
+
+    :ivar name: The island rule name.
+    :ivar fail: When ``True``, a fail-island (a semantic F1 stop-set-escape
+        rule) — the reference raises :class:`~lexic.parsing.pda.runtime.PdaFail`
+        (engine fallback) rather than risking a divergent longest-match parse.
+    """
+
+    name: str
+    fail: bool = False
+
+
+# ── loop gates (pivot 4 / pivot 6) ────────────────────────────────────────
+
+
+class StopGate(NamedTuple):
+    """A non-greedy single-char loop gate (pivot 4): continue while the next
+    char is in ``charset`` (``FIRST(atom) − hard-continuation``).
+
+    :ivar charset: The chars that keep the loop going.
+    """
+
+    charset: CharSet
+
+
+class PairGate(NamedTuple):
+    """An LL(2) loop gate (pivot 6): take another iteration only when
+    ``text[pos:pos+2]`` is a taken prefix (chess ``fxf5`` vs ``f5``).
+
+    :ivar pairs: The 2-char prefixes that select "take another iteration".
+    """
+
+    pairs: frozenset[str]
+
+
+class KTupleGate(NamedTuple):
+    """A ``k``-window loop gate (P2): take another iteration iff
+    ``text[pos:pos+k]`` EOF-exactly matches a ``taken`` window.
+
+    The analysis-sourced generalisation of :class:`PairGate` past ``k = 2``
+    (:attr:`~lexic.parsing.pda.analysis.Taxonomy.loop_gates`, never
+    recomputed) — chess ``nonpawn``, separable at ``k = 3`` via rule-FOLLOW.
+
+    :ivar windows: The ``taken`` windows — ``≤k``-length CharSet tuples.
+    """
+
+    windows: tuple[tuple[CharSet, ...], ...]
+
+
+class PeekGate(NamedTuple):
+    """A P3 noise-skip loop gate: skip the maximal ``W`` run without consuming,
+    take another iteration iff the first post-noise char is in ``take``.
+
+    Analysis-sourced (:attr:`~lexic.parsing.pda.analysis.Taxonomy
+    .pn_loop_gates`), never recomputed; the iteration re-parses the noise
+    normally, so the peek is recognition-only and fail-soft.
+
+    :ivar w: The skippable noise alphabet.
+    :ivar take: The post-noise chars that select another iteration.
+    """
+
+    w: CharSet
+    take: CharSet
+
+
+# ── item and arm specs ────────────────────────────────────────────────────
+
+
+class ItemSpec(NamedTuple):
+    """One compiled arm item — flat, tuple-coded, production-named.
+
+    :ivar kind: One of :data:`~lexic.parsing.pda.clones.ITEM_KINDS`.
+    :ivar payload: The kind-specific body: the literal ``str`` (``lit``), the
+        member :class:`CharSet` (``cc``), the resolved :class:`CloneKey` /
+        :class:`IslandRef` target (``ref``), or the :class:`GroupSpec` (``grp``).
+    :ivar lo: The quantifier lower bound (mandatory iterations).
+    :ivar hi: The quantifier upper bound, or ``None`` (unbounded).
+    :ivar gate: The loop gate consulted past the ``lo`` mandatory iterations.
+    """
+
+    kind: str
+    payload: str | CharSet | CloneKey | IslandRef | GroupSpec
+    lo: int
+    hi: int | None
+    gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate
+
+
+class ArmSpec(NamedTuple):
+    """One FIRST-gated arm of a rule clone or inline group.
+
+    :ivar first: The arm's FIRST char set — the runtime selects this arm when
+        the lookahead char is a member.
+    :ivar specs: The arm's item specs, in order.
+    :ivar windows: The arm's k-window selection set (analysis-sourced —
+        :attr:`~lexic.parsing.pda.analysis.Taxonomy.arm_gates`), or ``None``;
+        every gated arm of a P2-demoted alternation carries its own set.
+    :ivar peek: The arm's P3 noise-skip ``(W, post-noise chars)`` selector
+        (analysis-sourced — :attr:`~lexic.parsing.pda.analysis.Taxonomy
+        .pn_arm_gates`), or ``None``; every gated arm of a P3-demoted
+        alternation carries one (same ``W``).
+    """
+
+    first: CharSet
+    specs: tuple[ItemSpec, ...]
+    windows: tuple[tuple[CharSet, ...], ...] | None = None
+    peek: tuple[CharSet, CharSet] | None = None
+
+
+class GroupSpec(NamedTuple):
+    """An inline ``(...)`` group's arm selection — the ``grp`` payload.
+
+    :ivar arms: The FIRST-gated arms.
+    :ivar default: The all-nullable default arm's specs, or ``None``.
+    """
+
+    arms: tuple[ArmSpec, ...]
+    default: tuple[ItemSpec, ...] | None
+
+
+class CloneSpec(NamedTuple):
+    """One rule compiled for one hard continuation — a clone body.
+
+    :ivar name: The rule name this clone stands for.
+    :ivar arms: The FIRST-gated arms (after arm hoisting every non-empty arm
+        selects on its own FIRST).
+    :ivar default: The all-nullable default arm's specs, or ``None``.
+    :ivar fold: The rule's baked :class:`~lexic.parsing.fold.RuleFold`, or
+        ``None`` for a transparent helper clone.
+    :ivar match_only: ``True`` for a ``value_str`` rule — pure-terminal
+        interior, the runtime slices ``text[a:b]`` instead of building below.
+    """
+
+    name: str
+    arms: tuple[ArmSpec, ...]
+    default: tuple[ItemSpec, ...] | None
+    fold: RuleFold | None
+    match_only: bool

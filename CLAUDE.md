@@ -339,22 +339,28 @@ src/lexic/
                           separate on its first post-noise char; the runtime
                           peek is non-consuming ⇒ structurally fail-soft — the
                           conditions buy determinism, not bare soundness).
-                          Task 6.6 adds the STRUCTURED (folding-aware) tail
-                          over scanner.py: noise_roots, structured_loop_gate →
-                          SG_MATCH (_match_gate — exact-match loop over a
-                          non-semantic ref, licensed by _exit_is_noise or
-                          _sem_follow_clear, the P6 precision clause on an
-                          exact gate: GBNF n, ABNF rule/rulelist c-wsp*) /
-                          SG_SCAN (skip leading noise roots, peek disjoint
-                          content leads: spine alternation/concatenation/
-                          quant-opt/rl-cont) / SG_PROBE (P5 — overlap explained
-                          by the unique next-construct header ref(R) noise*
-                          lit(L), refutation licence via _post_noise_follow
-                          with the header occurrence skipped: GBNF sequence's
-                          `rulename n* "::="`). A leaf w.r.t. analysis.py
+                          The STRUCTURED (folding-aware) tail lives in
+                          structured.py (below); noise.py exposes
+                          sem_follow_table to it. A leaf w.r.t. analysis.py
                           (takes the analysis as an Any-typed oracle, kwindow
                           precedent); open IrTypeMap atom dispatch, raising
                           default (260706 unified-parse-engine)
+      structured.py       P3-structured / P5-probe folding-aware loop gates
+                          (Task 6.6, split out of noise.py for C0302 headroom):
+                          noise_roots, structured_loop_gate → SG_MATCH
+                          (_match_gate — exact-match loop over a non-semantic
+                          ref, licensed by _exit_is_noise or _sem_follow_clear,
+                          the P6 precision clause on an exact gate: GBNF n, ABNF
+                          rule/rulelist c-wsp*) / SG_SCAN (skip leading noise
+                          roots, peek disjoint content leads: spine alternation/
+                          concatenation/quant-opt/rl-cont) / SG_PROBE (P5 —
+                          overlap explained by the unique next-construct header
+                          ref(R) noise* lit(L), refutation licence via
+                          _post_noise_follow with the header occurrence skipped:
+                          GBNF sequence's `rulename n* "::="`). A leaf w.r.t.
+                          analysis.py (Any-typed oracle, kwindow/noise
+                          precedent); reads noise.sem_follow_table for the P6
+                          clause; imports scanner + charsets + ir
       clones.py           (was pda_tables.py) compile_pda(lifted, instance_grammar,
                           fold_config) → PdaTables — per-(rule, hard-continuation)
                           clone compiler (pivot 3); flat tuple-coded ItemSpec
@@ -373,12 +379,22 @@ src/lexic/
                           whose ref raises PdaFail, never parsed); open IrTypeMap
                           atom dispatch, raising default. The CloneSpec/ItemSpec
                           NamedTuples are the compiler INTERMEDIATE (what tests
-                          pin); the spec→flat bridge (_flatten_program etc.) lowers
+                          pin) — they live in specs.py (below) and clones re-exposes
+                          them (its ITEM_KINDS/LIT/CC/REF/GRP vocabulary stays
+                          here); the spec→flat bridge (_flatten_program etc.) lowers
                           them once per compile into the int-coded PdaProgram, kept
                           on PdaTables alongside .clones (.clones for islands/
                           introspection, .program for the loop). compile_pda,
                           PdaTables, IslandRef, spec NamedTuples import from here
                           (Task 8 flatten; hybrid-PDA; 260705 effort)
+      specs.py            The clone/arm/item/group specs + loop gates
+                          (CloneKey/IslandRef/StopGate/PairGate/KTupleGate/
+                          PeekGate/ItemSpec/ArmSpec/GroupSpec/CloneSpec) — the
+                          compiler-intermediate NamedTuple vocabulary tests pin,
+                          split out of clones.py for C0302 headroom. A pure-data
+                          leaf w.r.t. the compiler; imports only charsets
+                          (CharSet), fold (RuleFold) and scanner (ScanGate);
+                          clones re-exposes it as its public surface
       flatten.py          (was pda_flatten.py) The leaf half of the flatten: the
                           int-coded runtime program (_FlatClone/_FlatArm/PdaProgram,
                           _OP_* op-codes, pre-resolved (chars,negated) membership

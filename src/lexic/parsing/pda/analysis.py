@@ -33,8 +33,8 @@ from lexic.parsing.pda.noise import (
     peek_arm_gate,
     peek_loop_gate,
     stopset_escapes_soft_follow,
-    structured_loop_gate,
 )
+from lexic.parsing.pda.structured import structured_loop_gate
 from lexic.parsing.pda.taxonomy import Taxonomy
 
 __all__ = ["GrammarAnalysis", "Taxonomy", "nullable_names"]
