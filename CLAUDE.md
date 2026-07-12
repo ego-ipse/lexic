@@ -78,10 +78,11 @@ A second cutover (Lark→Earley, 2026-07-02/03) is also complete:
 **`src/lexic/parsing/` is a native Earley engine, not a Lark wrapper** — Lark
 is gone from source entirely (it survives only as
 `tools/benchmark/parse_bench.py`'s external reference baseline). This one
-engine drives *both* grammar-text parsing (`parse_grammar` → `parse_reduced`
-against each flavour's own self-grammar) and generated-instance parsing
-(`CompiledGrammar.parse` → `parse_first` + a fold) — there is no separate
-meta-grammar-parser layer anymore. `IrFlavour` (`ir/flavour.py`) carries its
+engine drives *both* grammar-text parsing (`parse_grammar` — PDA-first since
+the Task-7 flip 2026-07-12, `parse_reduced` against each flavour's own
+self-grammar as the completion) and generated-instance parsing
+(`CompiledGrammar.parse` → PDA-first, `parse_first` + a fold as the
+completion) — there is no separate meta-grammar-parser layer anymore. `IrFlavour` (`ir/flavour.py`) carries its
 self-grammar and parse policy as data (`grammar: ClassVar[IrAst]`,
 `reducer: ClassVar[IrDispatch]`), not as parser methods — see §Flavour system.
 
@@ -333,21 +334,33 @@ src/lexic/
                           never hardcoded; required noise token markers like
                           dquote contribute nothing), ResidualFirst (first
                           non-W chars: pure-W atoms transparent, W-free opaque,
-                          a MIXED terminal poisons — which is why the GBNF/ABNF
-                          spines' comment-bearing decisions stay islands until
-                          the folding-aware scanner lands with P5), and
-                          peek_arm_gate/peek_loop_gate (does the decision separate
-                          on its first post-noise char; the runtime peek is
-                          non-consuming ⇒ structurally fail-soft — the conditions
-                          buy determinism, not bare soundness). A leaf w.r.t.
-                          analysis.py (takes the analysis as an Any-typed oracle,
-                          kwindow precedent); open IrTypeMap atom dispatch,
-                          raising default (260706 unified-parse-engine)
+                          a MIXED terminal poisons — the char-set P3's limit),
+                          and peek_arm_gate/peek_loop_gate (does the decision
+                          separate on its first post-noise char; the runtime
+                          peek is non-consuming ⇒ structurally fail-soft — the
+                          conditions buy determinism, not bare soundness).
+                          Task 6.6 adds the STRUCTURED (folding-aware) tail
+                          over scanner.py: noise_roots, structured_loop_gate →
+                          SG_MATCH (_match_gate — exact-match loop over a
+                          non-semantic ref, licensed by _exit_is_noise or
+                          _sem_follow_clear, the P6 precision clause on an
+                          exact gate: GBNF n, ABNF rule/rulelist c-wsp*) /
+                          SG_SCAN (skip leading noise roots, peek disjoint
+                          content leads: spine alternation/concatenation/
+                          quant-opt/rl-cont) / SG_PROBE (P5 — overlap explained
+                          by the unique next-construct header ref(R) noise*
+                          lit(L), refutation licence via _post_noise_follow
+                          with the header occurrence skipped: GBNF sequence's
+                          `rulename n* "::="`). A leaf w.r.t. analysis.py
+                          (takes the analysis as an Any-typed oracle, kwindow
+                          precedent); open IrTypeMap atom dispatch, raising
+                          default (260706 unified-parse-engine)
       clones.py           (was pda_tables.py) compile_pda(lifted, instance_grammar,
                           fold_config) → PdaTables — per-(rule, hard-continuation)
                           clone compiler (pivot 3); flat tuple-coded ItemSpec
-                          (lit/cc/ref/grp) + StopGate/PairGate/KTupleGate/PeekGate
-                          loop gates, FIRST-gated ArmSpec (+ per-arm `windows`
+                          (lit/cc/ref/grp) + StopGate/PairGate/KTupleGate/
+                          PeekGate/ScanGate (6.6 structured) loop gates,
+                          FIRST-gated ArmSpec (+ per-arm `windows`
                           (P2) / `peek` (P3) on a demoted alternation — attached
                           inside compile_arms' own enumeration so spec↔arm
                           alignment cannot drift) + baked RuleFold; the gates are
@@ -490,10 +503,14 @@ generated/              auto-generated Pydantic modules — git-ignored; never e
 grammar text ──► _scan_directives(text, flavour.line_comment) ──► (start, non_semantic)
              │    [private helper in compile.py — pre-lexical comment scan]
              └──► parse_grammar(text, flavour)  [public seam, compile.py]
-                  = parse_reduced(normalize(flavour.grammar), text, flavour.reducer)
-                                                                   │  (lexic.parsing — the
-                                                                   │   Earley engine; flavour.grammar
-                                                                   │   is IrAst, flavour.reducer a Reducer)
+                  = PDA-first (Task 7 flip, 2026-07-12): parse_pda over
+                    self_grammar_pda(flavour) — the reduce PDA compiled over
+                    normalize(lift_optional_nullables(flavour.grammar)) —
+                    PdaFail → parse_reduced(normalize(flavour.grammar), text,
+                    flavour.reducer) as the Earley completion. The two sides
+                    run different normalised grammars BY DESIGN (ε-channel
+                    absorbed by the authored reduce bodies; guarded by the
+                    differential sweep — REVIEW_PRE7.md finding 4)
                                                                    ▼
                                                                  IrAst
                                                                    │  canonicalize(ast)  [ir/canonical.py —

@@ -302,6 +302,7 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("wschar"))),
                 IrSequence(IrItem(IrRuleRef("comment-line"))),
             ),
+            False,
         ),
         IrRule(
             "rulename",

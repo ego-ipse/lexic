@@ -106,8 +106,8 @@ class _ParseRoute:
     ``pda_first`` is the routing **policy datum** (not a code-path fork): the
     PDA attempt is identical across paths (``parse_pda`` dispatches model vs
     reduce on ``tables.reduce``); :meth:`earley` — the fallback completion — is
-    the sole per-path difference. Flipping grammar-text to PDA-first is a later
-    gated act: set the reduce route's ``pda_first`` ``True``, no new code path.
+    the sole per-path difference. Both paths are PDA-first since the Task-7
+    flip (2026-07-12).
 
     :ivar pda: The predictive PDA, or ``None`` (engine-only).
     :ivar pda_first: Whether to try the PDA before the Earley completion.
@@ -156,16 +156,18 @@ class _ModelRoute(_ParseRoute):
 
 @dataclass(frozen=True)
 class _ReduceRoute(_ParseRoute):
-    """Grammar-text path: Earley-only (``parse_reduced``) — ``pda_first`` is ``False``.
+    """Grammar-text path: PDA-first (Task 7 flip), ``parse_reduced`` completion.
 
-    NOTE — Task-7 landmine, do NOT reconcile here: ``grammar`` is
-    ``normalize(flavour.grammar)`` (un-lifted), but ``pda`` (from
-    :func:`self_grammar_pda`) is compiled over
-    ``normalize(lift_optional_nullables(flavour.grammar))`` — two *different*
-    normalised grammars. This is inert while ``pda_first`` is ``False`` (the PDA
-    never runs). The PDA-first flip must first reconcile them (repoint the reduce
-    completion onto the lifted grammar, or drop the lift) — a gated act, ruled
-    for the Task-7 pinch point, not now.
+    The two sides deliberately run *different* normalised grammars: the PDA
+    (from :func:`self_grammar_pda`) is compiled over
+    ``normalize(lift_optional_nullables(flavour.grammar))``, the Earley
+    completion over ``normalize(flavour.grammar)`` (un-lifted) — each side
+    internally consistent, reductions keyed by rule name. The one structural
+    divergence class is the ε-channel (a lifted nullable ``R`` from ``R?``
+    runs its reduction on empty children where the un-lifted route skips the
+    node); the authored reduce bodies absorb it, and the Task-7 differential
+    sweep (whole corpus + adversarial battery, byte-equal IrAst) is the
+    standing guard. See ``REVIEW_PRE7.md`` finding 4 in the plan dir.
 
     :ivar grammar: The Earley-normalised (un-lifted) self-grammar.
     :ivar reducer: The flavour's reduction policy.
@@ -259,11 +261,10 @@ def self_grammar_pda(flavour: IrFlavour) -> PdaTables | None:
     codegen-hoisted shape). ``None`` on a whole-grammar opt-out — an unsupported
     construct, or a start rule that is itself an island (ABNF ``rulelist`` today).
 
-    This is the grammar-text speedup's capability, **wired but not routed**:
-    :func:`parse_grammar` stays Earley-routed (the flip is a later gated act).
-    Building it here proves the b1 capture end-to-end (island splices reduce
-    through the same :class:`Reducer`); flavours whose start rule is an island
-    return ``None`` and stay on the engine path.
+    Routed PDA-first by :func:`parse_grammar` since the Task-7 flip
+    (2026-07-12); the b1 capture runs end-to-end (island splices reduce
+    through the same :class:`Reducer`). A flavour whose grammar opts out
+    returns ``None`` and stays on the engine path.
 
     :param flavour: The grammar flavour.
     :returns: The compiled reduce :class:`PdaTables`, or ``None`` on an opt-out.
@@ -312,7 +313,7 @@ def parse_grammar(text: str, flavour: IrFlavour) -> IrAst:
     """
     reducer = _flavour_reducer(flavour)
     route = _ReduceRoute(
-        self_grammar_pda(flavour), False, _normalized_grammar(flavour), reducer
+        self_grammar_pda(flavour), True, _normalized_grammar(flavour), reducer
     )
     ast = route.run(text)
     if not isinstance(ast, IrAst):

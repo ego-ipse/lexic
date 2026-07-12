@@ -358,6 +358,28 @@ def test_abnf_grammar_rule_names_include_core():
         assert expected in names, f"Missing rule: {expected}"
 
 
+def test_abnf_grammar_rulelist_left_factor_shape():
+    """The Task 6.6 ``rulelist`` left-factor: ``rl-cont`` exists, and the old
+    ``rl-item``/``rl-final``/``endrule`` helper rules are gone."""
+    names = {r.name for r in ABNF_GRAMMAR.rules}
+    assert "rl-cont" in names
+    assert not ({"rl-item", "rl-final", "endrule"} & names)
+
+
+def test_abnf_grammar_rule_arm_shape_is_factored():
+    """``rule``'s single arm is ``[rulename, c-wsp*, defined, c-wsp*, alternation]``
+    — the factored shape ``rl-cont`` was split out of."""
+    rule = next(r for r in ABNF_GRAMMAR.rules if r.name == "rule")
+    arm = rule.body[0]
+    assert [str(item.atom) for item in arm] == [
+        "rulename",
+        "c-wsp",
+        "defined",
+        "c-wsp",
+        "alternation",
+    ]
+
+
 # ── ABNF_GRAMMAR emits as well-formed ABNF ───────────────────────────
 
 

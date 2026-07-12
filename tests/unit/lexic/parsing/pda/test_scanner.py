@@ -11,20 +11,26 @@ from __future__ import annotations
 import pytest
 
 from lexic.grammars import get_flavour
-from lexic.ir.base import IrNone, IrSeq
+from lexic.ir.base import IrChr, IrNone, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
+    IrCharClass,
     IrItem,
     IrLiteral,
     IrQuantifier,
+    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.scanner import (
+    SG_PROBE,
+    SG_SCAN,
+    ScanGate,
     build_recognizer,
+    scan_gate_take,
     scan_match,
     scan_run,
     scan_run_any,
@@ -154,6 +160,82 @@ def test_scan_run_any_skips_union_of_noise_roots():
     assert scan_run_any("\n\n", 0, rec, roots) == 2
     # immediate content
     assert scan_run_any("q = x", 0, rec, roots) == 0
+
+
+# ── scan_gate_take — SG_PROBE (P5 rulename-probe) coverage ──────────────────
+
+
+@pytest.fixture(name="probe_gate")
+def _probe_gate():
+    """A tiny ``name``/``ws`` recognizer + ``ScanGate(SG_PROBE, ...)`` — the
+    GBNF ``sequence[1]`` shape in miniature: take on ``{`` directly, else
+    probe ``name ws* "::="`` (``take_on_match=False`` — a matched header
+    refutes the take reading)."""
+    name_rule = IrRule(
+        "name",
+        IrAlternation(
+            IrSequence(
+                IrItem(
+                    IrCharClass(IrRange(IrChr("a"), IrChr("z"))),
+                    IrQuantifier(1, IrNone),
+                )
+            )
+        ),
+    )
+    ws_rule = IrRule(
+        "ws",
+        IrAlternation(
+            IrSequence(IrItem(IrCharClass(IrChr(" ")), IrQuantifier(0, IrNone)))
+        ),
+        False,
+    )
+    rules = {"name": name_rule, "ws": ws_rule}
+    rec = build_recognizer(rules, frozenset({"name", "ws"}))
+    assert rec is not None
+    name_idx, ws_idx = rec.index["name"], rec.index["ws"]
+    gate = ScanGate(
+        SG_PROBE,
+        rec,
+        (ws_idx,),
+        (frozenset({"{"}), False),
+        (name_idx, ws_idx, "::=", False),
+    )
+    return gate
+
+
+def test_sg_probe_take_char_admits_without_probing(probe_gate):
+    """A char in the take-set admits the loop directly — no probe needed."""
+    assert scan_gate_take("{", 0, probe_gate) is True
+
+
+def test_sg_probe_header_match_is_refuted(probe_gate):
+    """A rulename-led overlap char followed by a matching header (``::=``)
+    refutes the take reading (``take_on_match=False``) — the loop exits."""
+    assert scan_gate_take("abc::=", 0, probe_gate) is False
+
+
+def test_sg_probe_rulename_led_header_absent_admits(probe_gate):
+    """Rulename-led but no ``::=`` header after it — the take reading stands."""
+    assert scan_gate_take("abcXYZ", 0, probe_gate) is True
+
+
+def test_sg_probe_eof_exits(probe_gate):
+    """End of input is neither a take char nor rulename-led — the loop exits."""
+    assert scan_gate_take("", 0, probe_gate) is False
+
+
+def test_sg_probe_non_take_non_name_char_exits(probe_gate):
+    """A char that is neither in the take-set nor a rulename lead exits."""
+    assert scan_gate_take("!!!", 0, probe_gate) is False
+
+
+def test_sg_scan_with_no_take_set_always_declines(probe_gate):
+    """``SG_SCAN`` with ``gate.take is None`` is the defensive always-``False``
+    path — it never reaches the probe machinery."""
+    rec = probe_gate.rec
+    ws_idx = probe_gate.roots[0]
+    gate = ScanGate(SG_SCAN, rec, (ws_idx,), None)
+    assert scan_gate_take("{", 0, gate) is False
 
 
 def test_single_literal_recognizer():

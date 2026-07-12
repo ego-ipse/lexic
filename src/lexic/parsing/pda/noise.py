@@ -756,27 +756,66 @@ def structured_loop_gate(
     roots = noise_roots(analysis)
     if not roots:
         return None
-    gate = _match_gate(analysis, roots, items, k)
+    gate = _match_gate(analysis, roots, items, k, scope)
     if gate is not None:
         return gate
     return _scan_or_probe_gate(analysis, roots, items, k, scope)
 
 
 def _match_gate(
-    analysis: Any, roots: "frozenset[str]", items: Sequence[IrItem], k: int
+    analysis: Any, roots: "frozenset[str]", items: Sequence[IrItem], k: int, scope: Any
 ) -> "ScanGate | None":
-    """The pure-folding ``SG_MATCH`` gate (ABNF ``rule[5]``), or ``None``."""
+    """The pure-folding ``SG_MATCH`` gate, or ``None``.
+
+    Take another iteration iff a *complete* instance of the loop atom's rule
+    matches at the cursor — exact recognition, no greed. Licensed for a loop
+    over a non-semantic rule whose over-take is provably noise↔noise, via
+    either arm-local structure (:func:`_exit_is_noise` — ABNF ``rule[5]``) or
+    the P6 precision clause (:func:`_sem_follow_clear` — every over-takeable
+    char cannot follow the rule as semantic content; GBNF ``n``'s
+    ``nunit+`` loop, whose ``#``-overlap with the trailing ``tail-comment``
+    the exact match resolves: an incomplete ``comment-line`` simply does not
+    match, so the tail comment keeps its chars).
+    """
     atom = items[k].atom
-    if (
-        not isinstance(atom, IrRuleRef)
-        or str(atom) not in roots
-        or not _exit_is_noise(analysis, items, k)
+    if not isinstance(atom, IrRuleRef):
+        return None
+    target = analysis.rules.get(str(atom))
+    if target is None or target.semantic:
+        return None
+    if not (
+        _exit_is_noise(analysis, items, k)
+        or _sem_follow_clear(analysis, items, k, scope)
     ):
         return None
-    rec = build_recognizer(analysis.rules, roots)
+    rec = build_recognizer(analysis.rules, roots | {str(atom)})
     if rec is None:
         return None
     return ScanGate(SG_MATCH, rec, (rec.index[str(atom)],))
+
+
+def _sem_follow_clear(
+    analysis: Any, items: Sequence[IrItem], k: int, scope: Any
+) -> bool:
+    """The P6 precision clause for an exact-match gate.
+
+    ``True`` iff the loop sits in a rule body, everything after it in the arm
+    is non-semantic references (or nothing), and no over-takeable char — the
+    loop atom's FIRST intersected with its effective continuation — can follow
+    the rule as *semantic* content (:func:`sem_follow_table`). Then any
+    over-take only re-splits adjacent noise: same bytes, unchanged reduction.
+    """
+    if not scope.body:
+        return False
+    for item in items[k + 1 :]:
+        atom = item.atom
+        target = analysis.rules.get(str(atom)) if isinstance(atom, IrRuleRef) else None
+        if target is None or target.semantic:
+            return False
+    first = analysis.atom_first(items[k].atom)
+    cont = analysis.cont_at(items, k, scope.tail)
+    eatable = first.subtract(first.subtract(cont))
+    return not sem_follow_table(analysis)[scope.rule].overlaps(eatable)
 
 
 def _scan_or_probe_gate(

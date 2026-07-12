@@ -158,7 +158,7 @@ def _self_grammar_analysis(name: str) -> GrammarAnalysis:
 @pytest.mark.parametrize(
     ("factory", "expected_count"),
     [
-        (lambda: _self_grammar_analysis("gbnf"), 4),
+        (lambda: _self_grammar_analysis("gbnf"), 3),
         (lambda: _self_grammar_analysis("abnf"), 0),
         (lambda: _lifted_analysis("json.gbnf"), 0),
         (lambda: _lifted_analysis("chess.gbnf"), 0),
@@ -170,12 +170,16 @@ def test_island_counts_match_the_coverage_map(factory, expected_count):
     P5 rulename probe land (the folding-aware scanner —
     :mod:`lexic.parsing.pda.scanner`).
 
-    GBNF-self 7→**4**: the structured skip demotes ``alternation`` (bar-arm ``n``
-    run) and ``quant-opt`` (ws-quant ``n`` run), and the P5 probe demotes
+    GBNF-self 7→**3**: the structured skip demotes ``alternation`` (bar-arm ``n``
+    run) and ``quant-opt`` (ws-quant ``n`` run), the P5 probe demotes
     ``sequence`` (its exit skips the inter-rule ``n`` to the next rule's
     rulename, which overlaps the item lead — the ``rulename n* "::="`` header
-    probe breaks the tie); ``cc-first``/``cc-item``/``cc-nfirst``/``n`` remain
-    islands. ABNF-self 4→**0**: the ``rule``/``rulelist`` trailing ``c-wsp*``
+    probe breaks the tie), and ``n`` itself demotes via the exact-match gate's
+    P6 precision clause (:func:`~lexic.parsing.pda.noise._sem_follow_clear` —
+    ``nunit+``'s ``#``-overlap with the trailing ``tail-comment`` is resolved
+    by exact recognition, not greed: an incomplete ``comment-line`` simply
+    fails to match); ``cc-first``/``cc-item``/``cc-nfirst`` remain islands.
+    ABNF-self 4→**0**: the ``rule``/``rulelist`` trailing ``c-wsp*``
     loops demote via the pure-folding match gate, ``alternation``/
     ``concatenation`` via the structured skip, and the ``rulelist``
     boundary-shift left-factor (``filler* rule rl-cont* c-wsp* c-nl?``) turns
@@ -332,6 +336,78 @@ def test_loop_over_hard_follower_stays_demoted():
     assert "ws" not in analysis.islands
     assert "ws" in analysis.demoted
     assert analysis.hard_follow["ws"].has("a")
+
+
+# ── soft-gap classification (Task 6.6): the un-gatable hard note vs the
+# P6-licensed noise-greedy twin ─────────────────────────────────────────────
+
+
+def _soft_gap_shape(*, noise: bool) -> GrammarAnalysis:
+    """The ``root ::= a w* t?`` soft-gap shape: ``w*``'s FIRST overlaps only
+    the soft ``t?`` follower (no hard overlap — the rest is nullable, so the
+    top-level ``hard_cont_at`` check falls through to EOF and misses this
+    class entirely). Both ``w`` and ``t`` share one alphabet (``[a-c]``), so
+    no k-window prefix can separate them either — genuinely not gatable.
+
+    :param noise: When ``True``, the shaped rule is wrapped ``semantic=False``
+        and referenced from a semantic start rule (the P6 licence applies);
+        when ``False`` it IS the (semantic) start rule (the licence is denied).
+    """
+    cc = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
+    shaped = _rule(
+        "shaped",
+        IrSequence(
+            _item(IrLiteral("X")),
+            _item(cc, lo=0, hi=None),
+            _item(cc, lo=0, hi=1),
+        ),
+    )
+    if not noise:
+        return _analysis(shaped, start="shaped")
+    shaped = IrRule(shaped.name, shaped.body, semantic=False)
+    top = _rule("top", IrSequence(_item(IrRuleRef("shaped"))))
+    return _analysis(top, shaped, start="top")
+
+
+def test_soft_gap_loop_islands_as_not_gatable():
+    """The soft-gap shape, un-licensed (the rule itself is semantic and IS the
+    start rule): no gate separates ``w*`` from ``t?``, so it islands with the
+    exact hard note the soft-gap classification adds."""
+    analysis = _soft_gap_shape(noise=False)
+    assert analysis.islands == frozenset({"shaped"})
+    assert analysis.conflicts["shaped"] == [
+        "shaped[1]: loop over-eats soft FOLLOW, not gatable"
+    ]
+    assert "shaped" not in analysis.demoted
+
+
+def test_soft_gap_loop_licensed_noise_greedy_when_noise_to_noise():
+    """The same shape, wrapped ``semantic=False`` under a semantic start rule:
+    the P6 licence grants it (noise↔noise re-split) — demoted, not islanded."""
+    analysis = _soft_gap_shape(noise=True)
+    assert "shaped" not in analysis.islands
+    assert analysis.demoted["shaped"] == [
+        "shaped[1]: loop stop-set applied (noise-greedy)"
+    ]
+
+
+# ── structured-noise gate coverage (Task 6.6): GBNF/ABNF self-grammars ─────
+
+
+@pytest.mark.parametrize(
+    ("name", "root_rule", "expected_kinds"),
+    [("gbnf", "grammar", [0, 0, 1, 1, 1, 2]), ("abnf", "rulelist", [0, 0, 1, 1, 1])],
+)
+def test_self_grammar_struct_gate_kinds(name: str, root_rule: str, expected_kinds):
+    """The flavour's start rule carries no conflicts (its noise-skip decisions
+    all demote via a structured gate — SG_SCAN/SG_MATCH/SG_PROBE), and the
+    self-grammar's full struct-gate kind multiset matches exactly. GBNF carries
+    a second ``SG_MATCH`` (six gates total) since ``n``'s own ``nunit+`` loop
+    now demotes via the exact-match gate's P6 precision clause."""
+    analysis = _self_grammar_analysis(name)
+    assert root_rule not in analysis.conflicts
+    kinds = sorted(gate.kind for gate in analysis.taxonomy.struct_loop_gates.values())
+    assert kinds == expected_kinds
 
 
 # ── fail_islands (Option B — F1 semantic guard) ────────────────────────────

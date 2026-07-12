@@ -708,18 +708,19 @@ def test_parseroute_run_skips_parse_pda_when_pda_is_none(monkeypatch):
     """pda_first=True with pda=None goes straight to earley — parse_pda is
     never called (there is nothing to try)."""
 
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+
     def _boom(*_args, **_kwargs):
         raise AssertionError("parse_pda must not be called when pda is None")
 
     monkeypatch.setattr(compile_module, "parse_pda", _boom)
-    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     route = _ModelRoute(None, True, cg.instance_grammar, cg.tables, cg.fold)
     text = "x=1\n"
     expected = cg.fold.apply(parse_first(cg.instance_grammar, text, cg.tables))
     assert route.run(text) == expected
 
 
-# ── parse_grammar stays Earley-routed (C2 — load-bearing) ──────────────────
+# ── parse_grammar is PDA-first (Task 7 flip), Earley the completion ────────
 
 
 def test_parse_grammar_matches_parse_reduced_structurally():
@@ -730,19 +731,29 @@ def test_parse_grammar_matches_parse_reduced_structurally():
     assert parse_grammar(text, GBNF_FLAVOUR) == parse_reduced(grammar, text, reducer)
 
 
-def test_parse_grammar_never_consults_the_pda_even_though_one_is_wired(monkeypatch):
-    """STRONG pin: GBNF's self-grammar PDA is wired (self_grammar_pda is not
-    None) but parse_grammar never reaches it — routing stays pda_first=False.
-    Forcing parse_pda to raise must not change parse_grammar's result at all.
-    """
+def test_parse_grammar_is_pda_first_with_earley_fallback(monkeypatch):
+    """STRONG pin (Task 7 flip): parse_grammar consults the wired PDA first,
+    and a PdaFail degrades to the identical Earley result — never an error,
+    never a different AST."""
     text = 'root ::= "abc" | "def"\n'
     assert self_grammar_pda(GBNF_FLAVOUR) is not None
     expected = parse_grammar(text, GBNF_FLAVOUR)
 
-    def _boom(*_args, **_kwargs):
-        raise AssertionError("parse_grammar must stay Earley-routed (C2)")
+    calls: list[object] = []
+    real_parse_pda = compile_module.parse_pda
 
-    monkeypatch.setattr(compile_module, "parse_pda", _boom)
+    def spy(*args, **kwargs):
+        calls.append(args)
+        return real_parse_pda(*args, **kwargs)
+
+    monkeypatch.setattr(compile_module, "parse_pda", spy)
+    assert parse_grammar(text, GBNF_FLAVOUR) == expected
+    assert calls, "parse_grammar must consult the PDA first (Task 7 flip)"
+
+    def _fail(*_args, **_kwargs):
+        raise PdaFail("forced (test)")
+
+    monkeypatch.setattr(compile_module, "parse_pda", _fail)
     assert parse_grammar(text, GBNF_FLAVOUR) == expected
 
 

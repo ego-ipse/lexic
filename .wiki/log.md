@@ -6,6 +6,16 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-12 — Task 7: THE FLIP — `parse_grammar` is PDA-first, gate PASS both flavours
+
+Preceded by the ⚑ pre-Task-7 adversarial pass (`REVIEW_PRE7.md` in the plan dir): 6.2 open-risk #2 discharged (union-FOLLOW conservativeness ⇒ a delegate's filed span is the site parse; the risk collapses into gate soundness), the `_ReduceRoute` landmine narrowed to the ε-channel divergence class (empirically byte-equal corpus-wide), FIRST_k pins verified, one HIGH latent hole found and fixed (soft-gap loop classification, see the 6.6 entry).
+
+`_ReduceRoute` flipped `pda_first=True`. **First gate run: ABNF beat baseline 1.8–2.0×, GBNF MISSED (0.7×)** — profiling attributed it to rule `n`: 404/448 island hits on the GBNF workload (a windowed Earley sub-parse per whitespace run). Lever within the 6.6 design: `_match_gate`'s SG_MATCH licence extended to any **non-semantic** ref atom via `_sem_follow_clear` (the P6 precision clause applied to an *exact-match* gate — rest-of-arm all non-semantic, over-takeable chars ∉ `sem_follow(rule)`), and `nunit` flagged `semantic=False` in gbnf.py (structural noise; `IrRule.__eq__` excludes the flag, so canonical/selfhost fixpoints, GT byte-parity and the emit baseline are all untouched — verified). `n` demotes to an exact-match gate — strictly sounder than a greedy stop-set (an incomplete `comment-line` at a tail comment does not match, so the tail comment keeps its chars). **GBNF-self islands 4→3 (`cc-first`/`cc-item`/`cc-nfirst`).**
+
+**Second gate run: all nine workload×size cells beat the pre-lever Earley baselines 1.7–2.0×.** Differential sweep: whole GT corpus + both self-emits byte-equal IrAst PDA-vs-Earley; multi-copy x2/x4 (IrMerge-heavy incremental rules) byte-equal; subset-920 x1/x2/x4 byte-equal; json_arr/json_ws remain the two known fail-soft Earley fallbacks (the GBNF empty-first-arm residual — `REVIEW_PRE7.md` finding 2). CLAUDE.md pipeline prose updated (PDA-first both paths).
+
+---
+
 ## 2026-07-12 — Task 6.6 (unified-parse-engine): P5 probe + structured noise gates land — ABNF PDA exists, GBNF-self 4 islands
 
 The folding-aware structured-noise machinery (`pda/scanner.py`, landed as a slice last session) is now wired end-to-end: analysis (`noise.py` `structured_loop_gate` — SG_MATCH pure-folding / SG_SCAN skip-then-peek / SG_PROBE skip-then-probe), taxonomy channel (`struct_loop_gates`, `store_struct_loop` tripwire), clone compile read-side, flatten/runtime (`_GATE_SCAN` in `_gate_take`).
