@@ -302,26 +302,11 @@ ABNF_GRAMMAR = IrAst(
             "rulelist",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("rl-item"), IrQuantifier(0, IrNone)),
-                    IrItem(IrRuleRef("rl-final")),
-                )
-            ),
-        ),
-        IrRule(
-            "rl-item",
-            IrAlternation(
-                IrSequence(
                     IrItem(IrRuleRef("filler"), IrQuantifier(0, IrNone)),
                     IrItem(IrRuleRef("rule")),
-                )
-            ),
-        ),
-        IrRule(
-            "rl-final",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("filler"), IrQuantifier(0, IrNone)),
-                    IrItem(IrRuleRef("endrule")),
+                    IrItem(IrRuleRef("rl-cont"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("c-nl"), IrQuantifier(0)),
                 )
             ),
         ),
@@ -342,24 +327,35 @@ ABNF_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("defined")),
                     IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
                     IrItem(IrRuleRef("alternation")),
-                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                    IrItem(IrRuleRef("c-nl")),
                 )
             ),
         ),
         IrRule(
-            "endrule",
+            "rl-cont",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("rulename")),
                     IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                    IrItem(IrRuleRef("defined")),
-                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                    IrItem(IrRuleRef("alternation")),
-                    IrItem(IrRuleRef("c-wsp"), IrQuantifier(0, IrNone)),
-                    IrItem(IrRuleRef("c-nl"), IrQuantifier(0)),
+                    IrItem(IrRuleRef("c-nl")),
+                    IrItem(IrRuleRef("filler"), IrQuantifier(0, IrNone)),
+                    IrItem(IrRuleRef("rule")),
                 )
             ),
+        ),
+        IrRule(
+            "c-wsp",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("wsp"))),
+                IrSequence(IrItem(IrRuleRef("c-nl")), IrItem(IrRuleRef("wsp"))),
+            ),
+            False,
+        ),
+        IrRule(
+            "c-nl",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("comment"))),
+                IrSequence(IrItem(IrRuleRef("crlf"))),
+            ),
+            False,
         ),
         IrRule(
             "comment",
@@ -392,14 +388,6 @@ ABNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "c-wsp",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("wsp"))),
-                IrSequence(IrItem(IrRuleRef("c-nl")), IrItem(IrRuleRef("wsp"))),
-            ),
-            False,
-        ),
-        IrRule(
             "defined",
             IrAlternation(
                 IrSequence(IrItem(IrLiteral("="))), IrSequence(IrItem(IrLiteral("=/")))
@@ -416,19 +404,12 @@ ABNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "c-nl",
+            "wsp",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("comment"))),
-                IrSequence(IrItem(IrRuleRef("crlf"))),
+                IrSequence(IrItem(IrRuleRef("sp"))),
+                IrSequence(IrItem(IrRuleRef("htab"))),
             ),
             False,
-        ),
-        IrRule(
-            "cchar",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("htab"))),
-                IrSequence(IrItem(IrCharClass(IrRange(IrChr(32), IrChr(126))))),
-            ),
         ),
         IrRule(
             "crlf",
@@ -440,12 +421,11 @@ ABNF_GRAMMAR = IrAst(
             False,
         ),
         IrRule(
-            "wsp",
+            "cchar",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("sp"))),
                 IrSequence(IrItem(IrRuleRef("htab"))),
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(32), IrChr(126))))),
             ),
-            False,
         ),
         IrRule(
             "alpha",
@@ -488,10 +468,10 @@ ABNF_GRAMMAR = IrAst(
                 )
             ),
         ),
+        IrRule("sp", IrAlternation(IrSequence(IrItem(IrLiteral(" ")))), False),
         IrRule("htab", IrAlternation(IrSequence(IrItem(IrLiteral("\t")))), False),
         IrRule("cr", IrAlternation(IrSequence(IrItem(IrLiteral("\r")))), False),
         IrRule("lf", IrAlternation(IrSequence(IrItem(IrLiteral("\n")))), False),
-        IrRule("sp", IrAlternation(IrSequence(IrItem(IrLiteral(" ")))), False),
         IrRule(
             "digit",
             IrAlternation(
@@ -550,10 +530,6 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("prose"))),
             ),
         ),
-        # Left-factored: `repeat-num` consumes the leading digit run once, then
-        # `repeat-tail` decides exact (`""`) vs range (`"*" hi-bound`); the
-        # no-lower-bound `"*" hi-bound` form is `repeat-nolo`. `repeat`'s two
-        # arms separate at k=1 (digit vs `*`).
         IrRule(
             "repeat",
             IrAlternation(
@@ -593,10 +569,6 @@ ABNF_GRAMMAR = IrAst(
                 )
             ),
         ),
-        # Left-factored by radix: `%` then the mark (x/d/b) picks the family at
-        # k=2; each family consumes its digit run once, then its tail decides
-        # single (`""`) / range (`"-" hexits`) / — hex only — sequence
-        # (`"." hexglyph` ...).
         IrRule(
             "num-val",
             IrAlternation(
@@ -642,12 +614,6 @@ ABNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule("dquote", IrAlternation(IrSequence(IrItem(IrLiteral('"')))), False),
-        # Left-factored: the shared leading non-alpha run (`cvnac*`) is consumed
-        # once; an inline optional group `(cvalpha cvany*)?` then decides — an
-        # alpha turns the body into the RFC 7405 case-insensitive expansion,
-        # else it stays a plain case-sensitive literal. Separates on the first
-        # post-run char (alpha vs the closing `"`); the group splices its case
-        # items flat into `cvbody`'s channel.
         IrRule(
             "cvbody",
             IrAlternation(
@@ -725,9 +691,6 @@ ABNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)))
             ),
         ),
-        # The digit-led `repeat`'s tail after the leading `1*DIGIT`: empty
-        # (exact `N`) or `"*" hi-bound` (range `N*M` / `N*`). Empty vs `*`
-        # separates at k=1.
         IrRule(
             "repeat-tail",
             IrAlternation(
@@ -989,10 +952,8 @@ ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     # =/ reduce to a plain IrRule, and IrMerge appends a re-seen name's arms
     # to the earlier rule. The start rule is the first name defined.
     IrTuple(IrRuleRef("rulelist"), IrMerge()),
-    IrTuple(IrRuleRef("rl-item"), IrArg(0)),
-    IrTuple(IrRuleRef("rl-final"), IrArg(0)),
+    IrTuple(IrRuleRef("rl-cont"), IrArg(0)),
     IrTuple(IrRuleRef("rule"), IrBuild(IrRule)),
-    IrTuple(IrRuleRef("endrule"), IrBuild(IrRule)),
     IrTuple(IrRuleRef("alternation"), IrBuild(IrAlternation)),
     IrTuple(IrRuleRef("altrest"), IrArg(0)),
     IrTuple(IrRuleRef("concatenation"), IrBuild(IrSequence)),

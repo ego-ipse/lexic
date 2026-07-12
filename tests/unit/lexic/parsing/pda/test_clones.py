@@ -401,13 +401,14 @@ def test_compile_reduce_pda_gbnf_start_rule_is_a_clone_not_an_island():
     assert pda.start_key.name == "grammar"
 
 
-def test_compile_reduce_pda_abnf_start_rule_is_an_island():
-    """ABNF's start rule ("rulelist") is itself an island — compile_reduce_pda
-    still succeeds (the whole-grammar None opt-out is compile.py's job, not
-    the compiler's), but the start key is an IslandRef marker.
-    """
+def test_compile_reduce_pda_abnf_start_rule_is_a_clone_not_an_island():
+    """ABNF's start rule ("rulelist") is a real clone since the Task-6.6
+    boundary-shift left-factor (``filler* rule rl-cont* c-wsp* c-nl?``) — the
+    start key is a CloneKey the predictive runtime can enter directly (before
+    the factor it was the last ABNF island, the whole-grammar opt-out)."""
     pda = _reduce_pda_for(ABNF_FLAVOUR)
-    assert isinstance(pda.start_key, IslandRef)
+    assert isinstance(pda.start_key, CloneKey)
+    assert pda.start_key.name == "rulelist"
 
 
 def test_every_reduce_clone_is_baked_build_reduce_never_a_model_mode():

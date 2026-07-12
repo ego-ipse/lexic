@@ -561,11 +561,13 @@ def test_self_grammar_pda_builds_for_gbnf():
     assert pda.reduce is not None
 
 
-def test_self_grammar_pda_is_none_for_abnf():
-    """ABNF's start rule ("rulelist") is itself an island — the whole-grammar
-    opt-out — so self_grammar_pda returns None rather than a PDA whose start
-    can never be predictively entered."""
-    assert self_grammar_pda(ABNF_FLAVOUR) is None
+def test_self_grammar_pda_builds_for_abnf():
+    """ABNF's self-grammar compiles to a real reduce PDA since the Task-6.6
+    ``rulelist`` boundary-shift left-factor removed the start island (the P5
+    exit criterion: the ABNF PDA exists at all)."""
+    pda = self_grammar_pda(ABNF_FLAVOUR)
+    assert isinstance(pda, PdaTables)
+    assert pda.reduce is not None
 
 
 def test_self_grammar_pda_is_cached_per_flavour_name():
@@ -578,24 +580,26 @@ def test_self_grammar_pda_is_cached_per_flavour_name():
 
 def test_self_grammar_pda_none_result_is_cached_too(monkeypatch):
     """The None opt-out result is itself memoised: a second call for the same
-    (island-start) flavour never recompiles — mirrors
+    flavour never recompiles — mirrors
     ``test_normalized_grammar_memo_is_reused_across_parse_calls``'s spy idiom.
+    Since no shipped flavour opts out anymore (Task 6.6), the opt-out is
+    forced by stubbing the compiler to raise the totality escape.
     """
     calls: list[object] = []
-    original_compile_reduce_pda = compile_module.compile_reduce_pda
 
-    def spy(lifted, instance_grammar, reducer):
-        calls.append(lifted)
-        return original_compile_reduce_pda(lifted, instance_grammar, reducer)
+    def spy(*args):
+        calls.append(args[0])
+        raise UnsupportedConstructError("forced opt-out (test)")
 
     monkeypatch.setattr(compile_module, "compile_reduce_pda", spy)
+    monkeypatch.setattr(compile_module, "_SELF_PDA_CACHE", {})
 
-    self_grammar_pda(ABNF_FLAVOUR)
+    assert self_grammar_pda(ABNF_FLAVOUR) is None
     count_after_first = len(calls)
     result = self_grammar_pda(ABNF_FLAVOUR)
 
     assert result is None
-    assert len(calls) == count_after_first
+    assert len(calls) == count_after_first == 1
 
 
 # ── the one internal parse seam: _ParseRoute / _ModelRoute / _ReduceRoute ──

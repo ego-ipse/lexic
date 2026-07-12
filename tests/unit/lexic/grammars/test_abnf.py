@@ -782,7 +782,7 @@ def test_inline_comment_inside_definition():
 
 
 def test_final_rule_without_trailing_newline():
-    """The last rule in a file may omit its line ending (``rl-final``)."""
+    """The last rule in a file may omit its line ending (``rulelist``'s trailing ``c-nl?``)."""
     ast = _reduce('foo = "-"\nbar = "+"')
     assert [r.name for r in ast.rules] == ["foo", "bar"]
     assert _item(ast, rule_index=1).atom == IrLiteral("+")

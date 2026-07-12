@@ -124,17 +124,42 @@ class _ReducePdaKernel(PdaKernel):
         return parts
 
     def _reduce_span(self, frame: list[Any]) -> str:
-        """The clone's whole matched span (a YIELD rule's value).
+        """The clone's matched span (a YIELD rule's value).
 
-        :raises PdaFail: When a DROP-noise span is reachable beneath the rule —
-            the span is not one contiguous slice, so the parse defers to the
-            Earley fold (rare; the self-grammar's span rules are islands).
+        A rule with no droppable descendant yields one contiguous slice. With
+        a DROP-noise rule reachable beneath (ABNF ``cchar``'s ``htab``), the
+        span is stitched the way the Earley fold walks it: terminal items
+        contribute their raw slices, reference items the *kept* string values
+        their subtrees reduced to — a DROP child left its sink empty, so its
+        chars vanish from the yield exactly as on the engine path.
+
+        :raises PdaFail: When a stitched child reduced to a non-string — a
+            BUILD node under a YIELD span, a shape the stitch cannot express
+            (defers to the Earley fold).
         """
-        if frame[_F_CLONE].reduce_can_drop:
-            raise PdaFail(
-                "reduce: YIELD span over a droppable subtree — engine fallback"
-            )
-        return self.text[frame[_F_START] : self.pos]
+        if not frame[_F_CLONE].reduce_can_drop:
+            return self.text[frame[_F_START] : self.pos]
+        arm = frame[_F_ARM]
+        ends = frame[_F_ENDS]
+        sinks = frame[_F_SINKS]
+        text = self.text
+        parts: list[str] = []
+        prev = frame[_F_START]
+        for i in range(arm.n):
+            end = ends[i]
+            if arm.kinds[i] <= _OP_CC:  # terminal (LIT / CC) — raw slice
+                parts.append(text[prev:end])
+            else:  # ref / group / island — the subtree's kept strings
+                sub = sinks[i] if sinks else None
+                for value in sub or ():
+                    if not isinstance(value, str):
+                        raise PdaFail(
+                            "reduce: non-string child under a YIELD span — "
+                            "engine fallback"
+                        )
+                    parts.append(value)
+            prev = end
+        return "".join(parts)
 
     def _island(self, name: str, sink: list[object]) -> None:
         """Resolve an island reference on the reduce path: sub-parse, reduce, splice.

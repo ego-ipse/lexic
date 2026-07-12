@@ -159,7 +159,7 @@ def _self_grammar_analysis(name: str) -> GrammarAnalysis:
     ("factory", "expected_count"),
     [
         (lambda: _self_grammar_analysis("gbnf"), 4),
-        (lambda: _self_grammar_analysis("abnf"), 1),
+        (lambda: _self_grammar_analysis("abnf"), 0),
         (lambda: _lifted_analysis("json.gbnf"), 0),
         (lambda: _lifted_analysis("chess.gbnf"), 0),
     ],
@@ -175,10 +175,14 @@ def test_island_counts_match_the_coverage_map(factory, expected_count):
     ``sequence`` (its exit skips the inter-rule ``n`` to the next rule's
     rulename, which overlaps the item lead — the ``rulename n* "::="`` header
     probe breaks the tie); ``cc-first``/``cc-item``/``cc-nfirst``/``n`` remain
-    islands. ABNF-self 4→**1**: ``rule[5]`` demotes via the pure-folding
-    ``c-wsp`` match gate, ``alternation``/``concatenation`` via the structured
-    skip; ``rulelist`` remains until its boundary-shift left-factor. chess/json
-    stay 0 (their noise is char-set ``ws``, already demoted at 6.4)."""
+    islands. ABNF-self 4→**0**: the ``rule``/``rulelist`` trailing ``c-wsp*``
+    loops demote via the pure-folding match gate, ``alternation``/
+    ``concatenation`` via the structured skip, and the ``rulelist``
+    boundary-shift left-factor (``filler* rule rl-cont* c-wsp* c-nl?``) turns
+    the old unbounded last-rule-vs-more-rules decision into a post-noise
+    alpha-vs-EOF scan gate — the ABNF self-grammar PDA exists at all only
+    because of it. chess/json stay 0 (their noise is char-set ``ws``, already
+    demoted at 6.4)."""
     assert len(factory().islands) == expected_count
 
 
