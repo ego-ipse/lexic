@@ -31,6 +31,7 @@ from lexic.parsing.pda.structured import (
     _probe_candidate,
     _sem_follow_clear,
     noise_roots,
+    structured_arm_gate,
 )
 from tests.unit.lexic.parsing.pda.test_analysis import _self_grammar_analysis
 from tests.unit.lexic.parsing.pda.test_noise import _WS, _analysis, _item, _noise_rule
@@ -307,3 +308,25 @@ def test_probe_candidate_finds_the_unique_spec_with_no_interference():
         "ws",
         "::=",
     )
+
+
+# ── structured_arm_gate (Task 4/4b): the empty-arm ARM gate ────────────────
+
+
+def test_structured_arm_gate_denies_on_two_nullable_arms():
+    """Two nullable (but non-empty) arms deny ``structured_arm_gate`` outright
+    — the licence demands EXACTLY one nullable escape arm, so two candidates
+    (``len(nullable) != 1``) make the escape choice itself ambiguous and the
+    function returns ``None`` before ever inspecting noise leads."""
+    ws = _noise_rule("ws", IrSequence(_item(_WS, lo=0, hi=None)))
+    arm0 = IrSequence(
+        _item(IrRuleRef("ws"), lo=0, hi=1), _item(IrLiteral("x"), lo=0, hi=1)
+    )
+    arm1 = IrSequence(
+        _item(IrRuleRef("ws"), lo=0, hi=1), _item(IrLiteral("y"), lo=0, hi=1)
+    )
+    a = IrRule("a", IrAlternation(arm0, arm1))
+    top = IrRule("top", IrAlternation(IrSequence(_item(IrRuleRef("a")))))
+    analysis = _analysis(top, a, ws, start="top")
+    arms = [[i for i in arm if isinstance(i, IrItem)] for arm in (arm0, arm1)]
+    assert structured_arm_gate(analysis, arms, "a") is None

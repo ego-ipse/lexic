@@ -35,6 +35,7 @@ from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda import kwindow
 from lexic.parsing.pda.analysis import GrammarAnalysis, nullable_names
 from lexic.parsing.pda.charsets import CharSet
+from lexic.parsing.pda.scanner import SG_PROBE, SG_SCAN
 from tests.paths import GROUND_TRUTH
 
 # ── helpers ───────────────────────────────────────────────────────────────
@@ -408,6 +409,126 @@ def test_self_grammar_struct_gate_kinds(name: str, root_rule: str, expected_kind
     assert root_rule not in analysis.conflicts
     kinds = sorted(gate.kind for gate in analysis.taxonomy.struct_loop_gates.values())
     assert kinds == expected_kinds
+
+
+# ── struct_arm_gates (Task 4/4b): the empty-arm ARM gate ───────────────────
+
+
+def test_gbnf_self_arm_struct_gate():
+    """GBNF self's ``arm`` (``sequence | empty-seq``) is the only rule
+    carrying a stored ``struct_arm_gates`` entry: the escape (the empty
+    ``empty-seq`` arm) sits at index 1, and the ambiguity resolves via the P5
+    rulename-probe — ``arm``'s exit skips ``n`` into the next rule's
+    ``rulename n* "::="`` header, which overlaps the item's own lead."""
+    analysis = _self_grammar_analysis("gbnf")
+    assert set(analysis.taxonomy.struct_arm_gates) == {"arm"}
+    gate = analysis.taxonomy.struct_arm_gates["arm"]
+    assert gate.escape == 1
+    assert gate.gate.kind == SG_PROBE
+    assert analysis.demoted["arm"] == ["arm: empty-arm structured-noise (demoted)"]
+    assert "arm" not in analysis.islands
+    assert sorted(analysis.islands) == ["cc-first", "cc-item", "cc-nfirst"]
+
+
+def test_abnf_self_has_no_struct_arm_gates():
+    """ABNF's self-grammar has no empty-arm alternation shaped like GBNF's
+    ``arm`` — the store stays empty."""
+    analysis = _self_grammar_analysis("abnf")
+    assert analysis.taxonomy.struct_arm_gates == {}
+
+
+def sg_scan_arm_fixture_analysis() -> GrammarAnalysis:
+    """A hand-authored grammar mirroring GBNF's own ``arm`` shape (a content
+    arm plus a trailing empty arm) that demotes to ``SG_SCAN`` — the take/exit
+    content leads are disjoint, unlike the GBNF self-grammar's own ``arm``,
+    which escalates to ``SG_PROBE`` because its exit overlaps a rulename
+    header. Shared with ``test_scanner``'s ``scan_gate_take`` pin."""
+    text = (
+        "# @non-semantic ws\n"
+        'top ::= arm ws "y"\n'
+        "arm ::= seq |\n"
+        'seq ::= ws? "x"\n'
+        'ws ::= " "+\n'
+    )
+    canonical = canonical_grammar(text, get_flavour("gbnf"))
+    lifted = lift_optional_nullables(build_codegen_grammar(canonical))
+    return GrammarAnalysis(lifted)
+
+
+def test_instance_grammar_empty_last_arm_demotes_to_sg_scan():
+    """The :func:`sg_scan_arm_fixture_analysis` shape demotes to ``SG_SCAN``."""
+    analysis = sg_scan_arm_fixture_analysis()
+    gate = analysis.taxonomy.struct_arm_gates["arm"]
+    assert gate.gate.kind == SG_SCAN
+    assert gate.escape == 1
+    assert analysis.demoted["arm"] == ["arm: empty-arm structured-noise (demoted)"]
+    assert "arm" not in analysis.islands
+
+
+def test_inline_group_empty_arm_never_stores_struct_gate():
+    """An empty arm inside an inline ``(...)`` group never reaches the
+    struct-arm store: its label is a bracketed group tag (``r[0]grp``), never
+    a rule name, so ``_demote_struct_arm`` is never even attempted — the
+    greedy note stays the plain (non-structured) form."""
+    ws = IrRule(
+        "ws",
+        IrAlternation(IrSequence(_item(IrCharClass(IrChr(32)), lo=1, hi=None))),
+        semantic=False,
+    )
+    seq = _rule(
+        "seq",
+        IrSequence(_item(IrRuleRef("ws"), lo=0, hi=1), _item(IrLiteral("x"))),
+    )
+    grp = IrAlternation(IrSequence(_item(IrRuleRef("seq"))), IrSequence())
+    root = _rule(
+        "r",
+        IrSequence(
+            _item(grp), _item(IrRuleRef("ws"), lo=0, hi=1), _item(IrLiteral("z"))
+        ),
+    )
+    analysis = _analysis(root, seq, ws, start="r")
+    assert analysis.taxonomy.struct_arm_gates == {}
+    assert analysis.demoted["r"] == ["r[0]grp: arm 0 FIRST hits FOLLOW (greedy)"]
+
+
+def test_noise_free_empty_last_arm_denies_structured_demotion():
+    """A noise-free grammar's empty-arm greedy overlap can never license a
+    structured-noise gate: ``noise_roots`` is empty (no non-semantic rule is
+    referenced nullable anywhere), so ``structured_arm_gate`` denies at its
+    very first guard and the plain greedy note survives (DENY per the plan)."""
+    text = 'top ::= a "x"\na ::= "x" |\n'
+    canonical = canonical_grammar(text, get_flavour("gbnf"))
+    lifted = lift_optional_nullables(build_codegen_grammar(canonical))
+    analysis = GrammarAnalysis(lifted)
+    assert analysis.taxonomy.struct_arm_gates == {}
+    assert analysis.demoted["a"] == ["a: arm 0 FIRST hits FOLLOW (greedy)"]
+    assert "a" not in analysis.islands
+
+
+def test_empty_middle_arm_licenses_sg_scan_with_escape_at_middle_index():
+    """An empty arm in the MIDDLE of a three-arm alternation licenses exactly
+    like a trailing one — ``escape`` just tracks whichever index the single
+    nullable arm sits at, and the two gated arms' content unions into one
+    take-set."""
+    text = (
+        "# @non-semantic ws\n"
+        'top ::= a ws "y"\n'
+        "a ::= seq1 | | seq2\n"
+        'seq1 ::= ws? "x"\n'
+        'seq2 ::= "w"\n'
+        'ws ::= " "+\n'
+    )
+    canonical = canonical_grammar(text, get_flavour("gbnf"))
+    lifted = lift_optional_nullables(build_codegen_grammar(canonical))
+    analysis = GrammarAnalysis(lifted)
+    gate = analysis.taxonomy.struct_arm_gates["a"]
+    assert gate.escape == 1
+    assert gate.gate.kind == SG_SCAN
+    assert gate.gate.take is not None
+    chars, negated = gate.gate.take
+    assert chars == frozenset({"x", "w"})
+    assert negated is False
+    assert "a" not in analysis.islands
 
 
 # ── fail_islands (Option B — F1 semantic guard) ────────────────────────────

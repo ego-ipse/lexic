@@ -35,6 +35,10 @@ from lexic.parsing.pda.scanner import (
     scan_run,
     scan_run_any,
 )
+from tests.unit.lexic.parsing.pda.test_analysis import (
+    _self_grammar_analysis,
+    sg_scan_arm_fixture_analysis,
+)
 
 
 def _rules(name: str) -> dict[str, IrRule]:
@@ -246,3 +250,52 @@ def test_single_literal_recognizer():
     rec = build_recognizer(rules, frozenset({"r"}))
     assert rec is not None
     assert scan_run("  x", 0, rec, rec.index["r"]) == 2
+
+
+# ── scan_gate_take — struct ARM gates (Task 4/4b) ───────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("text", "admits"),
+    [
+        ("| foo", False),  # bar-arm continuation: escape to the empty arm
+        ("  | foo", False),  # noise-led bar-arm continuation: same escape
+        ("\nfoo ::= x", False),  # noise then the next rule's header: escape
+        ('"x"', True),  # ordinary sequence content: take
+        ("foo bar", True),  # a bare rulename sequence: take
+    ],
+)
+def test_gbnf_self_arm_gate_scan_gate_take(text, admits):
+    """The GBNF self-grammar's ``arm`` ``SG_PROBE`` gate (``sequence |
+    empty-seq``): a rulename-led overlap followed by ``::=`` refutes the take
+    reading (escape to the empty arm — the ``bar-arm``/next-rule-header
+    shapes), while ordinary sequence content and a bare rulename both take."""
+    analysis = _self_grammar_analysis("gbnf")
+    gate = analysis.taxonomy.struct_arm_gates["arm"]
+    assert scan_gate_take(text, 0, gate.gate) is admits
+
+
+@pytest.fixture(name="sg_scan_arm_gate")
+def _sg_scan_arm_gate():
+    """The ``SG_SCAN`` gate off :func:`sg_scan_arm_fixture_analysis` (shared
+    with ``test_analysis.test_instance_grammar_empty_last_arm_demotes_to_sg_scan``)."""
+    analysis = sg_scan_arm_fixture_analysis()
+    gate = analysis.taxonomy.struct_arm_gates["arm"]
+    assert gate.gate.kind == SG_SCAN
+    return gate.gate
+
+
+@pytest.mark.parametrize(
+    ("text", "admits"),
+    [
+        ("x", True),  # content lead, no noise
+        ("  x", True),  # leading noise skipped, then content lead
+        ("|", False),  # not the take char (arm content starts with x, not |)
+        ("  |", False),  # noise skipped, still not the take char
+        ("", False),  # end of input: escape
+    ],
+)
+def test_sg_scan_arm_gate_scan_gate_take(sg_scan_arm_gate, text, admits):
+    """The hand-authored ``SG_SCAN`` arm gate: a post-noise ``x`` admits,
+    anything else (including EOF) escapes to the empty arm."""
+    assert scan_gate_take(text, 0, sg_scan_arm_gate) is admits
