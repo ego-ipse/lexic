@@ -118,28 +118,38 @@ parsing/
     normalize.py      desugar IR into classical Earley shape (§6)
     lexruns.py        derived run terminals (§5)
     trampoline.py     depth-safe generator driver
-  pda/              the predictive PDA (imports from earley/)
-    charsets.py       CharSet — polarity-aware co-finite char sets (§9)
-    analysis.py       GrammarAnalysis — fixpoints + the decision taxonomy (§10)
-    kwindow.py        FIRST_k over CharSet tuples — bounded-lookahead gates (§10)
-    noise.py          noise/semantic attribution — peek + structured gates (§10)
-    scanner.py        structured-noise recognizer + ScanGate runtime (§10)
-    taxonomy.py       Taxonomy — classified notes + the stored gate specs (§10)
-    clones.py         the clone compiler, model and reduce variants (§11)
-    flatten.py        the int-coded runtime program + optimizer passes (§11)
-    runtime.py        PdaKernel — the fused model runtime (§12)
-    reduce_runtime.py the reduce twin of the runtime (§12)
-    reduce_pda.py     the reduce completion read off the ReducePlan (§12)
-    islands.py        the windowed Earley island sub-parse (§13)
-    delegate_compile.py DelegateSource — island-interior delegation (§13)
-    errors.py         PdaFail — internal, never user-facing
+  pda/              the predictive PDA (imports earley/) — a one-way
+    │               core ← analysis ← compiler ← runtime chain
+    core/             shared leaves (imported everywhere, import ~nothing)
+      charsets.py       CharSet — polarity-aware co-finite char sets (§9)
+      scanner.py        structured-noise recognizer + ScanGate runtime (§10)
+      errors.py         PdaFail — internal, never user-facing
+    analysis/         decide every point, then store the gate specs (§10)
+      analysis.py       GrammarAnalysis — fixpoints + the decision taxonomy
+      noise.py          noise/semantic attribution — peek + structured gates
+      structured.py     folding-aware structured/probe gates
+      kwindow.py        FIRST_k over CharSet tuples — bounded-lookahead gates
+      taxonomy.py       Taxonomy — classified notes + the stored gate specs
+    compiler/         compile the IrAst into flat int-coded tables (§11)
+      clones.py         the clone compiler, model and reduce variants
+      specs.py          the compiler-intermediate NamedTuple vocabulary
+      flatten.py        the int-coded runtime program + optimizer passes
+      reduce_pda.py     the reduce completion read off the ReducePlan (§12)
+      delegate_compile.py DelegateSource — island-interior delegation (§13)
+    runtime/          execute the tables — the fused model build (§12)
+      runtime.py        PdaKernel — the fused model runtime
+      reduce_runtime.py the reduce twin of the runtime
+      build.py          frame-slot layout + the fused model-build tail
+      islands.py        the windowed Earley island sub-parse (§13)
 ```
 
-Layering: the whole package is a leaf w.r.t. `lexic.codegen` and
-`lexic.grammars`; `pda/` imports `earley/`, never the reverse;
-`reduce_runtime` imports `runtime`, never the reverse; `flatten` imports
-nothing from `clones`. Cross-module imports use **public names only** — a
-name two modules share is public at its defining module; `_underscore`
+Each folder carries its own `README.md` orientation note. Layering: the
+whole package is a leaf w.r.t. `lexic.codegen` and `lexic.grammars`; `pda/`
+imports `earley/`, never the reverse. Inside `pda/` the arrows point one
+way — `core ← analysis ← compiler ← runtime`: `analysis/` imports only
+`core/`, `compiler/` imports `analysis/` + `core/`, `runtime/` executes
+what `compiler/` produced. Cross-module imports use **public names only** —
+a name two modules share is public at its defining module; `_underscore`
 names never cross a module boundary. Consumers import the package root
 only. All of this is enforced by `tests/integration/
 test_layering_invariants.py`.
