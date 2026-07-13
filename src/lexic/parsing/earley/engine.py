@@ -80,16 +80,17 @@ def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
     """The strict single derivation of an accepted kernel parse.
 
     Fast path: :class:`~lexic.parsing.earley.kernel.FastTree` over the packed
-    links. Slow path (a key packing more than one family): the trampolined
-    :data:`~lexic.parsing.earley.forest.BUILD_TREE` over the decoded chart, which
-    raises on a second derivation.
+    links. Slow path (a key packing more than one family, or a many-production
+    root): the trampolined :data:`~lexic.parsing.earley.forest.BUILD_TREE` over
+    the decoded chart, which raises on a second derivation.
 
     :raises UnsupportedConstructError: On ambiguous input or no derivation.
     """
     handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
-    tree = FastTree(kernel).build(handle)
-    if isinstance(tree, ParseTree):
-        return tree
+    if not kernel.root_ambiguous:
+        tree = FastTree(kernel).build(handle)
+        if isinstance(tree, ParseTree):
+            return tree
     built = BUILD_TREE.eval(d, kernel.accept_node(), IrTuple(kernel.to_chart()))
     if not isinstance(built, ParseTree):
         raise UnsupportedConstructError("parsing: no derivation")
@@ -169,9 +170,10 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
         kernel = Kernel(tables, str(nc[0]), True).run()
         _require_accept(kernel, n)
         handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
-        tree = FastTree(kernel).build(handle)
-        if isinstance(tree, ParseTree):
-            return tree
+        if not kernel.root_ambiguous:
+            tree = FastTree(kernel).build(handle)
+            if isinstance(tree, ParseTree):
+                return tree
         if collapsed is not None:  # run terminals shape the chart — re-parse plain
             kernel = _run_kernel(n, nc, True)
             _require_accept(kernel, n)
@@ -216,9 +218,10 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
         kernel = Kernel(collapsed_tables(reducer, n), str(nc[0]), True).run()
         _require_accept(kernel, n)
         handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
-        fused = FusedReduce(kernel, reducer).build(handle)
-        if fused is not None:
-            return fused
+        if not kernel.root_ambiguous:
+            fused = FusedReduce(kernel, reducer).build(handle)
+            if fused is not None:
+                return fused
         # The collapsed chart's shapes are reducer-specific — the general
         # tree path needs a plain parse.
         plain = _run_kernel(n, nc, True)

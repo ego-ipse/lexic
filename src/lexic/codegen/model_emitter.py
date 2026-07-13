@@ -319,10 +319,17 @@ class ModuleEmitter:
         return out.getvalue()
 
     def emit_class(self, bind: RuleBinding) -> str:
-        """Render one class definition (fields + ``__grammar__`` footer)."""
+        """Render one class definition (fields + ``__grammar__`` footer).
+
+        A rule that is a unit-ref arm of several alternations subclasses all of
+        them (multiple inheritance — the bases are pre-ordered most-derived
+        first so the MRO linearizes); a parentless rule subclasses
+        :class:`~lexic.base.GrammarModel`.
+        """
         out = StringIO()
         rule = self._rules[bind.rule_name]
-        out.write(f"\n\nclass {bind.class_name}({bind.parent_class_name}):\n")
+        bases = ", ".join(bind.parent_class_names) or "GrammarModel"
+        out.write(f"\n\nclass {bind.class_name}({bases}):\n")
         self._write_fields(bind, rule, out)
         out.write(f"    __grammar__: ClassVar[IrRule] = {rule!r}\n")
         return out.getvalue()

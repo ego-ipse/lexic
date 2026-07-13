@@ -91,7 +91,13 @@ from lexic.parsing.earley.engine import (
     RECOGNIZE,
     EarleyParser,
 )
-from lexic.parsing.earley.forest import BUILD_TREE, BuildTree, ParseTree, SppfNode
+from lexic.parsing.earley.forest import (
+    BUILD_TREE,
+    BuildTree,
+    ParseTree,
+    RootNode,
+    SppfNode,
+)
 from lexic.parsing.earley.kernel import FastTree, Kernel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
@@ -160,7 +166,10 @@ def parse_forest(grammar: IrAst, text: str) -> IrSelf:
 
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
-    :returns: The root :class:`~lexic.parsing.earley.forest.SppfNode`, or
+    :returns: The forest root — a single-production
+        :class:`~lexic.parsing.earley.forest.SppfNode`, a
+        :class:`~lexic.parsing.earley.forest.RootNode` packing the start
+        symbol's alternative whole-input productions, or
         :data:`~lexic.ir.base.IrNone` if ``text`` does not parse.
     """
     return PARSE_FOREST.eval(EarleyParser(), grammar, IrTuple(IrStr(text)))
@@ -204,6 +213,7 @@ __all__ = [
     "ParseTree",
     "ParserTables",
     "Reducer",
+    "RootNode",
     "RuleFold",
     "SppfNode",
     "compile_tables",

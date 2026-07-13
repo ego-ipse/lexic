@@ -106,16 +106,20 @@ def has_ruleref(node: IrNode) -> bool:
 
 @dataclass(frozen=True)
 class RuleBinding:
-    """One rule's codegen identity: class, kind, parent, bound fields.
+    """One rule's codegen identity: class, kind, parents, bound fields.
 
     ``fields`` maps each generated field name to its :class:`IrBind`, in item
     order; only ``sequence``-kind rules carry fields (``value_str`` emits the
     implicit ``value`` field, ``alternation`` is a field-less pass-through).
+
+    ``parent_class_names`` holds every alternation the rule is a unit-ref arm of
+    (deterministically ordered — see :func:`_parent_rules`); an empty tuple
+    means the class subclasses :class:`~lexic.base.GrammarModel` directly.
     """
 
     rule_name: str
     class_name: str
-    parent_class_name: str
+    parent_class_names: tuple[str, ...]
     kind: RuleKind
     fields: dict[str, IrBind]
 
@@ -182,26 +186,104 @@ def unit_ref_arm(arm: IrSequence) -> IrRuleRef | IrNoneType:
     return atom if isinstance(atom, IrRuleRef) else IrNone
 
 
-def _parent_rules(rules: Sequence[IrRule]) -> dict[str, str]:
-    """Map each rule named as a unit-ref alternation arm to its alternation.
+def _direct_parents(rules: Sequence[IrRule]) -> dict[str, list[str]]:
+    """Map each unit-ref alternation arm to its owning alternations, in grammar order.
 
     Post arm-hoisting every non-empty arm of an ``alternation``-kind rule is a
     unit ref, so this covers original single-ref arms and synthesized
-    ``-arm<N>`` rules alike. Helper rules never appear as arms and stay
-    parentless (``GrammarModel``).
+    ``-arm<N>`` rules alike. A rule that is a unit-ref arm of several
+    alternations lists all of them (multiple inheritance). Helper rules never
+    appear as arms and stay absent (``GrammarModel``).
 
     :param rules: The codegen grammar's rules.
-    :returns: Child rule name → parent rule name.
+    :returns: Child rule name → its owning alternation names, in grammar order.
     """
-    parent_of: dict[str, str] = {}
+    parents_of: dict[str, list[str]] = {}
     for rule in rules:
         if classify_rule(rule) != "alternation":
             continue
         for arm in non_empty_arms(rule.body):
             ref = unit_ref_arm(arm)
-            if not isinstance(ref, IrNoneType):
-                parent_of[str(ref)] = str(rule.name)
-    return parent_of
+            if isinstance(ref, IrNoneType):
+                continue
+            parents = parents_of.setdefault(str(ref), [])
+            if str(rule.name) not in parents:
+                parents.append(str(rule.name))
+    return parents_of
+
+
+def _ancestor_closure(direct: dict[str, list[str]]) -> dict[str, set[str]]:
+    """Transitive parent-alternation closure of each rule.
+
+    :param direct: Child → direct parent alternations (see :func:`_direct_parents`).
+    :returns: Each rule name → the set of all its (transitive) parent names.
+    """
+    closure: dict[str, set[str]] = {}
+
+    def ancestors(name: str) -> set[str]:
+        cached = closure.get(name)
+        if cached is not None:
+            return cached
+        closure[name] = set()  # seed first — terminates on an accidental cycle
+        acc: set[str] = set()
+        for parent in direct.get(name, ()):
+            acc.add(parent)
+            acc |= ancestors(parent)
+        closure[name] = acc
+        return acc
+
+    for name in direct:
+        ancestors(name)
+    return closure
+
+
+def _order_bases(
+    parents: list[str], ancestors: dict[str, set[str]], grammar_order: dict[str, int]
+) -> tuple[str, ...]:
+    """Order a rule's parent alternations most-derived first (MRO-linearizable).
+
+    Python's C3 linearization rejects bases ``(B1, B2)`` where ``B2`` is a base
+    of ``B1``, so a parent that is itself a (transitive) unit-ref arm of another
+    parent must precede it. Repeatedly emit the parents that are an ancestor of
+    no other remaining parent (the most-derived ones), grammar order breaking
+    ties.
+
+    :param parents: The owning alternations, in grammar order.
+    :param ancestors: The transitive parent closure (see :func:`_ancestor_closure`).
+    :param grammar_order: Rule name → its index in the codegen grammar.
+    :returns: The bases tuple, most-derived first.
+    """
+    remaining = list(parents)
+    result: list[str] = []
+    while remaining:
+        derived = [
+            p
+            for p in remaining
+            if not any(p in ancestors.get(q, ()) for q in remaining if q != p)
+        ]
+        pick = min(derived, key=lambda name: grammar_order[name])
+        result.append(pick)
+        remaining.remove(pick)
+    return tuple(result)
+
+
+def _parent_rules(rules: Sequence[IrRule]) -> dict[str, tuple[str, ...]]:
+    """Map each unit-ref alternation arm to its owning alternations, MRO-ordered.
+
+    A rule that is a unit-ref arm of several alternations subclasses all of
+    them; the tuple is ordered most-derived first so the emitted multi-base
+    class linearizes (see :func:`_order_bases`).
+
+    :param rules: The codegen grammar's rules.
+    :returns: Child rule name → its parent alternation names, MRO-ordered.
+    """
+    direct = _direct_parents(rules)
+    ancestors = _ancestor_closure(direct)
+    grammar_order = {str(rule.name): index for index, rule in enumerate(rules)}
+    return {
+        child: _order_bases(parents, ancestors, grammar_order)
+        for child, parents in direct.items()
+    }
 
 
 # ── field naming: tier-2 lookup bodies ────────────────────────────────
@@ -418,17 +500,17 @@ def bind_fields(
 
 
 def _bind_rule(
-    rule: IrRule, parent_rules: dict[str, str], non_semantic: frozenset[str]
+    rule: IrRule, parent_rules: dict[str, tuple[str, ...]], non_semantic: frozenset[str]
 ) -> RuleBinding:
     """Build one rule's binding."""
     kind = classify_rule(rule)
     arms = non_empty_arms(rule.body)
     fields = bind_fields(arms[0], non_semantic) if kind == "sequence" else {}
-    parent = parent_rules.get(str(rule.name))
+    parents = parent_rules.get(str(rule.name), ())
     return RuleBinding(
         rule_name=str(rule.name),
         class_name=class_name_for(str(rule.name)),
-        parent_class_name=class_name_for(parent) if parent else "GrammarModel",
+        parent_class_names=tuple(class_name_for(p) for p in parents),
         kind=kind,
         fields=fields,
     )
@@ -453,8 +535,7 @@ def compute_binding(ast: IrAst) -> list[RuleBinding]:
     }
 
     def parent_edge(name: str) -> list[str]:
-        parent = parent_rules.get(name)
-        return [parent] if parent is not None else []
+        return list(parent_rules.get(name, ()))
 
     order = RuleOrder(by_name, ast.start, parent_edge).ordered_parents_first()
     return [by_name[name] for name in order]

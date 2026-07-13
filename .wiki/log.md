@@ -6,6 +6,55 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-13 — Vyx-parse Tasks 1–2: L1 multi-membership codegen + L2 root arm-choice packing
+
+Fixed both lexic bugs pinned by the probe. **L1 (multiple inheritance):**
+`RuleBinding.parent_class_name: str` → `parent_class_names: tuple[str, ...]`;
+`codegen/binding.py::_parent_rules` now returns every owning alternation of a
+unit-ref arm, ordered most-derived first (`_order_bases` over the transitive
+parent closure so a base that is itself an arm of another base precedes it —
+C3-linearizable). `model_emitter.py` emits `class Unquoted(BareVal, Value):`,
+`GrammarModel` when parentless; `RuleOrder.ordered_parents_first` already walks
+all parent edges. A rule that is an arm of ≥2 alternations is now an instance of
+all of them, so no field typed with a "losing" alternation class rejects it.
+**L2 (per-symbol root packing):** the SPPF's referenced-symbol case already packs
+alternative productions (each completion advances the parent waiter, so the
+advanced handle collects one family per production); only the **start** symbol —
+which has no parent waiter — dropped its alternatives, since `accept_node()`
+returned the first accepting item. New `RootNode` (`parsing/earley/forest.py`)
+packs every accepting production (`kernel.accept_items()`/`root_ambiguous`);
+`RootDerivs` chains their `NodeDerivs`; `DerivationStream.eval` and `BuildTree`
+branch on it. Single-production accepts still return the bare `SppfNode` (no
+behaviour change). `is_ambiguous` honest, `derivations` complete, strict `parse`
+raises; the engine's fast paths (`_single_tree`/`ParseFirst`/`ParseReduced`)
+skip `FastTree`/`FusedReduce` when `root_ambiguous`. `RootNode` re-exported from
+`lexic.parsing`. Full suite green (2187 passed). Also surfaced a **separate
+pre-existing bug L4** (embedded right-recursive/nullable-tail ambiguity
+undercount, Leo-deferred family reconstruction) — diagnosed (root cause in
+`_leo_resolve`/`_expand_chain` collapsing an ambiguous chain) but NOT yet fixed;
+tracked in FINDINGS.md L4.
+
+---
+
+## 2026-07-13 — Vyx-parse probe: two engine-adjacent bugs + vyx defect catalogue
+
+New effort dir `zzz_current_work/260713-vyx-parse/` (FINDINGS.md + probe/).
+Pushed the vyx D-layer grammar (assembled from `/home/mika/projects/vyx/spec/`
+per-section `grammar:` fragments, mechanically corrected) through the full
+pipeline. Compiles (103 classes), recognition 17/18 on realistic packets. Two
+lexic bugs pinned with minimal repros: **L1** — `codegen/binding.py::
+_parent_rules` is last-writer-wins, so a rule that is an arm of ≥2 alternations
+(vyx's norm; never occurs in the existing ground-truth set) gets one parent and
+every field typed with a losing alternation class fails at fold-ctor. **L2** —
+SPPF forest construction never packs alternative productions of one symbol
+(`v ::= a | b`, both arms deriving `"x"` → 1 derivation, `amb=0`); only
+within-production split ambiguity (the `sss` fixture shape) is packed, so
+`is_ambiguous` under-reports and strict `parse` fails to raise. Fifteen vyx
+spec-fragment defects (V1–V15) catalogued in FINDINGS.md. Draft PLAN.md with
+six pending user rulings.
+
+---
+
 ## 2026-07-13 — Parsing totality-cleanup consolidation
 
 Closed out the effort that made `lexic.parsing` own its public API. Two

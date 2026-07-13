@@ -156,6 +156,39 @@ class SppfNode(IrNamedTuple[EarleyItem, int]):
         return tuple.__new__(cls, (item, end))
 
 
+class RootNode(IrNamedTuple[IrRuleRef, IrSeq]):
+    """A symbol node packing the start symbol's alternative whole-input productions.
+
+    A non-terminal referenced *inside* a rule packs its alternative productions
+    automatically: the parent's waiter is advanced once per completion, so the
+    advanced handle collects one packed family per production (Scott 2008). The
+    **start** symbol has no such parent — its whole-input completions sit in the
+    final column as separate accepting items with nothing aggregating them. This
+    node is that missing aggregation: it holds the start symbol and one
+    :class:`SppfNode` production handle per accepting item, and
+    :class:`RootDerivs` enumerates the union of their derivations. Scalar-only
+    payload for the walk (``_child_attrs = ()``); the productions are read by the
+    enumerator, not walked as IR children.
+
+    :ivar symbol: The start rule this root derives.
+    :ivar productions: One completed-production :class:`SppfNode` per accepting
+        item, in chart order.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    symbol: IrRuleRef
+    productions: IrSeq
+
+    def __new__(cls, symbol: IrRuleRef, productions: IrSeq) -> Self:
+        """Fast positional constructor.
+
+        :param symbol: The start rule this root derives.
+        :param productions: The accepting production handles, in chart order.
+        :returns: A new :class:`RootNode`.
+        """
+        return tuple.__new__(cls, (symbol, productions))
+
+
 class ForestCtx(IrLeaf[IrSelf, IrSelf]):
     """Per-read forest cursor — the chart plus the open-handle cycle guard.
 
@@ -291,6 +324,41 @@ class NodeDerivs(IrLeaf[IrSelf, IrSelf]):
             kids = yield (ADVANCE, prefixes)
 
 
+class RootDerivs(IrLeaf[IrSelf, IrSelf]):
+    """Trampoline generator: the union of a :class:`RootNode`'s productions' trees.
+
+    Chains each accepting production's :class:`NodeDerivs` in order, so the start
+    symbol's whole-input derivations across all its productions enumerate as one
+    stream — the honest per-symbol packing the referenced-symbol case gets for
+    free from parent-waiter aggregation.
+
+    :ivar _node: The :class:`RootNode` whose productions to enumerate.
+    :ivar _ctx: The forest cursor (chart + open-handle guard).
+    """
+
+    __slots__ = ("_node", "_ctx")
+
+    _node: RootNode
+    _ctx: ForestCtx
+
+    def __init__(self, node: RootNode, ctx: ForestCtx) -> None:
+        """:param node: the root symbol node; :param ctx: the forest cursor."""
+        self._node = node
+        self._ctx = ctx
+
+    def __iter__(self) -> Iterator[tuple[object, object]]:
+        """Yield ``(EMIT, ParseTree)`` for every production's derivation.
+
+        :returns: A command iterator the :class:`Trampoline` drives.
+        """
+        for production in self._node.productions:
+            derivs = iter(NodeDerivs(cast(SppfNode, production), self._ctx))
+            tree = yield (ADVANCE, derivs)
+            while tree is not EXHAUSTED:
+                yield (EMIT, tree)
+                tree = yield (ADVANCE, derivs)
+
+
 class PrefixSource(IrLeaf[IrSelf, IrSelf]):
     """Trampoline generator: a handle's kid-sequence prefixes.
 
@@ -408,11 +476,14 @@ class DerivationStream(IrLeaf[IrSelf, IrSelf]):
         """Return handle ``n``'s lazy :class:`ParseTree` :class:`IrStream`.
 
         :param _d: Dispatcher (unused — recursion is trampolined, not dispatched).
-        :param n: The completed :class:`SppfNode` handle.
+        :param n: The completed :class:`SppfNode` handle, or a :class:`RootNode`
+            packing several accepting productions.
         :param nc: ``(chart | ForestCtx,)``.
         :returns: The handle's :class:`ParseTree` stream.
         """
         ctx = _forest_ctx(nc[0])
+        if isinstance(n, RootNode):
+            return IrStream(Trampoline(RootDerivs(n, ctx)))
         return IrStream(Trampoline(NodeDerivs(cast(SppfNode, n), ctx)))
 
 
@@ -454,14 +525,15 @@ class BuildTree(IrLeaf[IrSelf, IrSelf]):
         """Return the sole :class:`ParseTree` the root ``n`` packs.
 
         :param d: Dispatcher, forwarded to the lazy stream.
-        :param n: The accepting :class:`SppfNode` to reconstruct.
+        :param n: The accepting :class:`SppfNode`, or a :class:`RootNode`
+            packing several accepting productions, to reconstruct.
         :param nc: ``(chart,)``.
         :returns: The single :class:`ParseTree` derivation for the handle.
         :raises UnsupportedConstructError: If the handle packs no derivation, or
             more than one (ambiguous input).
         """
-        node = cast(SppfNode, n)
-        stream = DERIVATION_STREAM.eval(d, node, IrTuple(nc[0]))
+        symbol = n.symbol if isinstance(n, RootNode) else cast(SppfNode, n).item[0]
+        stream = DERIVATION_STREAM.eval(d, n, IrTuple(nc[0]))
         first: IrSelf = IrNone
         for index, tree in enumerate(stream):
             if index == 0:
@@ -469,13 +541,11 @@ class BuildTree(IrLeaf[IrSelf, IrSelf]):
                 continue
             raise UnsupportedConstructError(  # a second derivation ⇒ ambiguous
                 f"parsing: ambiguous input — more than one derivation of "
-                f"{node.item[0]!r}; use the forest enumeration entry "
+                f"{symbol!r}; use the forest enumeration entry "
                 "(parse_forest / derivations) instead"
             )
         if isinstance(first, IrNoneType):
-            raise UnsupportedConstructError(
-                f"parsing: no derivation of {node.item[0]!r}"
-            )
+            raise UnsupportedConstructError(f"parsing: no derivation of {symbol!r}")
         return first
 
 

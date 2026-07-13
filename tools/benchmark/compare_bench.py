@@ -62,6 +62,10 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import Callable
 
+from lark_refs import lark_variants
+from parse_bench import SIZES, interleaved, load_lark, make_input
+from pipeline_bench import _INSTANCE_WORKLOADS, GROUND_TRUTH
+
 from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.grammars.abnf import ABNF_FLAVOUR
@@ -77,9 +81,6 @@ from lexic.parsing.products import (
     earley_model,
     earley_reduce,
 )
-from lark_refs import lark_variants
-from parse_bench import SIZES, interleaved, load_lark, make_input
-from pipeline_bench import GROUND_TRUTH, _INSTANCE_WORKLOADS
 
 Path = Callable[[str], object]
 # column order; absent paths render "—". Both Lark parsers race every sample.

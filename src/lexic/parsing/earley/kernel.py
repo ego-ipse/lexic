@@ -34,7 +34,7 @@ from typing import Callable
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrSeq
 from lexic.parsing.earley.chart import Chart, EarleyItem
-from lexic.parsing.earley.forest import ParseTree, PayloadLeaf, SppfNode
+from lexic.parsing.earley.forest import ParseTree, PayloadLeaf, RootNode, SppfNode
 from lexic.parsing.earley.tables import (
     ADVANCE,
     ORIGIN_BITS,
@@ -563,6 +563,35 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 return it
         return -1
 
+    def accept_items(self) -> list[int]:
+        """Every completed start item spanning the whole input (origin 0).
+
+        Two or more items means the start symbol derives the whole input via
+        distinct productions — genuine arm ambiguity with no parent waiter to
+        aggregate it (see :class:`~lexic.parsing.earley.forest.RootNode`).
+
+        :returns: The accepting items, in chart order (empty on no parse).
+        """
+        n = len(self.text)
+        accepts = self.tables.codes.accept_codes
+        return [
+            it
+            for it in self.cols[n]
+            if it >> ORIGIN_BITS in accepts and it & ORIGIN_MASK == 0
+        ]
+
+    @property
+    def root_ambiguous(self) -> bool:
+        """Whether the start symbol completes the whole input via ≥2 productions.
+
+        The gate the single-derivation fast paths consult: a many-production
+        root cannot be built by :class:`FastTree` off one accepting item (the
+        sibling productions live in other items), so those paths fall through to
+        the trampolined enumeration over the :class:`~lexic.parsing.earley.forest
+        .RootNode`.
+        """
+        return len(self.accept_items()) > 1
+
     # ── windowed prefix completion (islands) ──────────────────────────
 
     def longest_start_completion(self) -> tuple[int, int] | None:
@@ -732,10 +761,23 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         )
 
     def accept_node(self) -> IrSelf:
-        """The accepting :class:`SppfNode` over the whole input, or IrNone."""
-        if self.accept < 0:
+        """The forest root over the whole input, or :data:`IrNone` on no parse.
+
+        A single accepting production returns its :class:`SppfNode` directly (the
+        common case — no aggregation needed). Two or more accepting productions
+        return a :class:`RootNode` packing them, so the enumeration readers see
+        every arm the start symbol derives the input through.
+        """
+        items = self.accept_items()
+        if not items:
             return IrNone
-        return SppfNode(self.decode_item(self.accept), len(self.text))
+        n = len(self.text)
+        if len(items) == 1:
+            return SppfNode(self.decode_item(items[0]), n)
+        symbol = self.decode_item(items[0])[0]
+        return RootNode(
+            symbol, IrSeq(*(SppfNode(self.decode_item(it), n) for it in items))
+        )
 
     def to_chart(self) -> Chart:
         """Decode the packed SPPF into the IR-native :class:`Chart`.

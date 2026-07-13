@@ -292,23 +292,88 @@ def _small_ast() -> IrAst:
 def test_compute_binding_assigns_alternation_arm_parents():
     """Rules named as unit-ref arms inherit the alternation's class."""
     by_name = {b.rule_name: b for b in compute_binding(_small_ast())}
-    assert by_name["a"].parent_class_name == "Choice"
-    assert by_name["b"].parent_class_name == "Choice"
-    assert by_name["choice"].parent_class_name == "GrammarModel"
+    assert by_name["a"].parent_class_names == ("Choice",)
+    assert by_name["b"].parent_class_names == ("Choice",)
+    assert by_name["choice"].parent_class_names == ()
 
 
 def test_compute_binding_orders_parents_before_subclasses():
-    """A binding never precedes the binding of its parent class."""
+    """A binding never precedes the binding of any of its parent classes."""
     bindings = compute_binding(_small_ast())
     positions = {b.class_name: i for i, b in enumerate(bindings)}
     for binding in bindings:
-        if binding.parent_class_name in positions:
-            assert positions[binding.parent_class_name] < positions[binding.class_name]
+        for parent in binding.parent_class_names:
+            if parent in positions:
+                assert positions[parent] < positions[binding.class_name]
 
 
 def test_compute_binding_starts_with_the_start_rule():
     """The start rule (parentless here) leads the emission order."""
     assert compute_binding(_small_ast())[0].rule_name == "start"
+
+
+# ── multi-membership arms (L1) ────────────────────────────────────────
+#
+# A rule that is a unit-ref arm of two or more alternations subclasses all of
+# them (multiple inheritance). The single-parent last-writer-wins map silently
+# dropped every parent but one, so a field typed with a "losing" alternation
+# class rejected the instance at fold-ctor time.
+
+
+def _multi_membership_ast() -> IrAst:
+    """value → bare_val | unquoted; bare_val → unquoted | num.
+
+    ``unquoted`` is a unit-ref arm of BOTH ``value`` and ``bare_val`` (multi
+    membership), and ``bare_val`` is itself an arm of ``value`` — so ``BareVal``
+    is a subclass of ``Value`` and must precede it in ``Unquoted``'s bases for
+    the MRO to linearize.
+    """
+    return IrAst(
+        IrSeq(
+            IrRule(
+                "value", IrAlternation(IrRuleRef("bare_val"), IrRuleRef("unquoted"))
+            ),
+            IrRule("bare_val", IrAlternation(IrRuleRef("unquoted"), IrRuleRef("num"))),
+            IrRule("unquoted", IrLiteral("u")),
+            IrRule("num", IrLiteral("0")),
+        ),
+        "value",
+    )
+
+
+def test_multi_membership_arm_lists_all_parents():
+    """A rule that is an arm of two alternations lists both parents."""
+    by_name = {b.rule_name: b for b in compute_binding(_multi_membership_ast())}
+    assert set(by_name["unquoted"].parent_class_names) == {"Value", "BareVal"}
+
+
+def test_multi_membership_bases_ordered_most_derived_first():
+    """A base that subclasses another base precedes it (MRO-linearizable order).
+
+    ``BareVal`` is itself an arm of ``Value`` (so ``BareVal`` subclasses
+    ``Value``); Python's C3 linearization rejects ``(Value, BareVal)``, so the
+    bases must be ordered ``(BareVal, Value)``.
+    """
+    by_name = {b.rule_name: b for b in compute_binding(_multi_membership_ast())}
+    assert by_name["unquoted"].parent_class_names == ("BareVal", "Value")
+
+
+def test_multi_membership_parents_all_emitted_before_child():
+    """Every parent alternation is emitted before the multi-membership subclass."""
+    bindings = compute_binding(_multi_membership_ast())
+    positions = {b.class_name: i for i, b in enumerate(bindings)}
+    for parent in bindings[
+        next(i for i, b in enumerate(bindings) if b.rule_name == "unquoted")
+    ].parent_class_names:
+        assert positions[parent] < positions["Unquoted"]
+
+
+def test_multi_membership_parent_order_is_deterministic():
+    """The parent tuple is stable across repeated bindings of the same grammar."""
+    ast = _multi_membership_ast()
+    first = {b.rule_name: b.parent_class_names for b in compute_binding(ast)}
+    second = {b.rule_name: b.parent_class_names for b in compute_binding(ast)}
+    assert first == second
 
 
 def test_compute_binding_flags_noise_fields_from_the_ast():
