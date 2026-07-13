@@ -7,8 +7,9 @@ machinery (``run`` / ``_drive`` / ``_enter`` / ``prefix_run`` / the terminal
 matchers) and only overrides the two completion callbacks (:meth:`_complete`,
 :meth:`_island`) plus the delegate sub-run. :func:`parse_pda` — the single
 public runtime entry — dispatches model vs reduce here so both kernels live
-behind one seam. A leaf w.r.t. the model kernel: it imports from ``runtime``
-(``PdaKernel`` + the frame-slot constants), never the reverse.
+behind one seam. A leaf w.r.t. the model kernel: it imports ``PdaKernel`` from
+``runtime`` and the frame-slot vocabulary / delegate-completion from ``build``,
+never the reverse.
 """
 
 from __future__ import annotations
@@ -16,21 +17,21 @@ from __future__ import annotations
 from typing import Any, cast
 
 from lexic.ir.base import IrNone, IrSelf, IrStr, IrTuple
-from lexic.parsing.earley.reduce import _DROP_KIND
+from lexic.parsing.earley.reduce import DROP_KIND
 from lexic.parsing.fold import ModelFold
+from lexic.parsing.pda.build import (
+    F_ARM,
+    F_CLONE,
+    F_ENDS,
+    F_OUT,
+    F_SINKS,
+    F_START,
+    finish_delegate,
+)
 from lexic.parsing.pda.clones import PdaTables, ReduceRun
 from lexic.parsing.pda.errors import PdaFail
-from lexic.parsing.pda.flatten import _OP_CC, _R_DROP, _R_SPLICE, _FlatClone
-from lexic.parsing.pda.runtime import (
-    _F_ARM,
-    _F_CLONE,
-    _F_ENDS,
-    _F_OUT,
-    _F_SINKS,
-    _F_START,
-    PdaKernel,
-    _finish_delegate,
-)
+from lexic.parsing.pda.flatten import OP_CC, R_DROP, R_SPLICE, FlatClone
+from lexic.parsing.pda.runtime import PdaKernel
 
 __all__ = ["parse_pda"]
 
@@ -73,14 +74,14 @@ class _ReducePdaKernel(PdaKernel):
         into the caller; a ``DROP`` (noise) clone contributes nothing. The b1
         completion callback — the sole per-path difference from the model build.
         """
-        clone = frame[_F_CLONE]
+        clone = frame[F_CLONE]
         kind = clone.reduce_kind
         self.stack.pop()
-        if kind == _R_DROP:
+        if kind == R_DROP:
             return
         parts = self._reduce_parts(frame)
-        out = frame[_F_OUT]
-        if kind == _R_SPLICE:
+        out = frame[F_OUT]
+        if kind == R_SPLICE:
             out.extend(parts)
             return
         reducer = self.reduce.reducer
@@ -103,17 +104,17 @@ class _ReducePdaKernel(PdaKernel):
         :class:`~lexic.parsing.earley.reduce.ReducePlan` the clone baked from —
         this reconstructs, it does not re-derive (H5).
         """
-        arm = frame[_F_ARM]
-        ends = frame[_F_ENDS]
-        sinks = frame[_F_SINKS]
+        arm = frame[F_ARM]
+        ends = frame[F_ENDS]
+        sinks = frame[F_SINKS]
         text = self.text
         char_leaf = self.reduce.tables.char_leaf
         lit_keep = self.reduce.literal_keep
         parts: list[IrSelf] = []
-        prev = frame[_F_START]
+        prev = frame[F_START]
         for i in range(arm.n):
             end = ends[i]
-            if arm.kinds[i] <= _OP_CC:  # terminal (LIT / CC) — KEEP_RAW leaves
+            if arm.kinds[i] <= OP_CC:  # terminal (LIT / CC) — KEEP_RAW leaves
                 if lit_keep and end > prev:
                     parts.extend(char_leaf(c) for c in text[prev:end])
             else:  # ref / group / island — captured sub-results
@@ -137,17 +138,17 @@ class _ReducePdaKernel(PdaKernel):
             BUILD node under a YIELD span, a shape the stitch cannot express
             (defers to the Earley fold).
         """
-        if not frame[_F_CLONE].reduce_can_drop:
-            return self.text[frame[_F_START] : self.pos]
-        arm = frame[_F_ARM]
-        ends = frame[_F_ENDS]
-        sinks = frame[_F_SINKS]
+        if not frame[F_CLONE].reduce_can_drop:
+            return self.text[frame[F_START] : self.pos]
+        arm = frame[F_ARM]
+        ends = frame[F_ENDS]
+        sinks = frame[F_SINKS]
         text = self.text
         parts: list[str] = []
-        prev = frame[_F_START]
+        prev = frame[F_START]
         for i in range(arm.n):
             end = ends[i]
-            if arm.kinds[i] <= _OP_CC:  # terminal (LIT / CC) — raw slice
+            if arm.kinds[i] <= OP_CC:  # terminal (LIT / CC) — raw slice
                 parts.append(text[prev:end])
             else:  # ref / group / island — the subtree's kept strings
                 sub = sinks[i] if sinks else None
@@ -176,14 +177,12 @@ class _ReducePdaKernel(PdaKernel):
         reducer = run.reducer
         value = reducer.eval(reducer, tree, ())
         rid = run.name_to_rid.get(name)
-        if (
-            rid is None or run.plan.noise_kind[rid] != _DROP_KIND
-        ) and value is not None:
+        if (rid is None or run.plan.noise_kind[rid] != DROP_KIND) and value is not None:
             sink.append(value)
         self.pos += end
 
     def _delegate_run(
-        self, clone: _FlatClone, window_text: str, pos: int
+        self, clone: FlatClone, window_text: str, pos: int
     ) -> tuple[int, object] | None:
         """Run a delegable clone as a reduce sub-parse (the b1 delegate body).
 
@@ -198,7 +197,7 @@ class _ReducePdaKernel(PdaKernel):
         :returns: ``(end, reduced_ir)``, or ``None`` (declined).
         """
         sub = _ReducePdaKernel(self.tables, window_text)
-        return _finish_delegate(sub, clone, window_text, pos)
+        return finish_delegate(sub, clone, window_text, pos)
 
 
 def parse_pda(tables: PdaTables, text: str, fold: ModelFold | None = None) -> object:

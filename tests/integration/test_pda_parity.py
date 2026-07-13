@@ -42,7 +42,7 @@ from lexic.grammars import flavour_for_extension
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.parsing import parse_first
 from lexic.parsing.pda.clones import KTupleGate, PeekGate
-from lexic.parsing.pda.flatten import _all_clones
+from lexic.parsing.pda.flatten import all_clones
 from lexic.parsing.pda.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime import PdaFail
 from tests.paths import GROUND_TRUTH
@@ -279,7 +279,7 @@ def test_p2_chess_parses_pure_pda_with_zero_fallback() -> None:
     """Chess is island-free post-P2 (``nonpawn`` demoted at k=3) and every
     adversarial disambiguation input parses on the pure PDA — an empty or
     wrong loop gate would raise ``PdaFail`` right here. The structural pin
-    reads the spec table (the compiler intermediate; ``_all_clones`` cannot
+    reads the spec table (the compiler intermediate; ``all_clones`` cannot
     walk past dispatch/ref targets from the start shell)."""
     cg = compile_from_path(GROUND_TRUTH / "chess.gbnf")
     assert cg.pda is not None
@@ -309,7 +309,7 @@ def test_p2_lo_gt_k_arm_gate_is_eof_exact_end_to_end() -> None:
     )
     assert cg.pda is not None
     assert not cg.pda.islands
-    clones = _all_clones([cg.pda.program.start])
+    clones = all_clones([cg.pda.program.start])
     assert any(clone.kwin_selectors is not None for clone in clones), (
         "the demoted alternation must select by k-window"
     )

@@ -346,9 +346,9 @@ class _FastReduce(IrLeaf[IrSelf, IrSelf]):
 
 # ── Fused kernel reduction (the product path) ─────────────────────────
 
-_DROP_KIND, _KEEP_KIND, _OTHER_KIND = 0, 1, 2
+DROP_KIND, KEEP_KIND, OTHER_KIND = 0, 1, 2
 """Compiled noise/literal policy kinds — DROP, KEEP_REDUCED (KEEP_RAW for the
-literal policy), and anything else (an :data:`_OTHER_KIND` noise policy makes
+literal policy), and anything else (an :data:`OTHER_KIND` noise policy makes
 the fused fold miss so the legacy tree path handles it)."""
 
 
@@ -417,20 +417,20 @@ class ReducePlan(IrLeaf[IrSelf, IrSelf]):
         for ref in decode.rule_refs:
             body = reducer.noise.resolve(ref)
             if body is DROP:
-                kinds.append(_DROP_KIND)
+                kinds.append(DROP_KIND)
             elif body is KEEP_REDUCED:
-                kinds.append(_KEEP_KIND)
+                kinds.append(KEEP_KIND)
             else:
-                kinds.append(_OTHER_KIND)
+                kinds.append(OTHER_KIND)
         self.noise_kind = tuple(kinds)
         self.can_drop = self._reach_drop(tables, kinds)
         literal = reducer.literal
         if literal is DROP:
-            self.literal_kind = _DROP_KIND
+            self.literal_kind = DROP_KIND
         elif literal is KEEP_RAW:
-            self.literal_kind = _KEEP_KIND
+            self.literal_kind = KEEP_KIND
         else:
-            self.literal_kind = _OTHER_KIND
+            self.literal_kind = OTHER_KIND
         self.bodies: list[IrSelf | None] = [None] * len(kinds)
         self.mentions: list[bool] = [False] * len(kinds)
 
@@ -474,7 +474,7 @@ class ReducePlan(IrLeaf[IrSelf, IrSelf]):
             for rid, targets in enumerate(refs_of):
                 if can[rid]:
                     continue
-                if any(kinds[t] == _DROP_KIND or can[t] for t in targets):
+                if any(kinds[t] == DROP_KIND or can[t] for t in targets):
                     can[rid] = True
                     changed = True
         return tuple(can)
@@ -485,7 +485,7 @@ _PLANS: dict[tuple[int, int], tuple[object, object, ReducePlan]] = {}
 references pin both ids, so recycled ids can never alias live entries."""
 
 
-def _plan_for(reducer: "Reducer", tables: ParserTables) -> ReducePlan:
+def plan_for(reducer: "Reducer", tables: ParserTables) -> ReducePlan:
     """The cached :class:`ReducePlan` for a ``(reducer, tables)`` pair."""
     key = (id(reducer), id(tables))
     entry = _PLANS.get(key)
@@ -532,7 +532,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         """:param kernel: the finished kernel; :param reducer: the policies."""
         self.kernel = kernel
         self.reducer = reducer
-        self.plan = _plan_for(reducer, kernel.tables)
+        self.plan = plan_for(reducer, kernel.tables)
         self.memo = {}
         self.stack = []
 
@@ -591,10 +591,10 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
             self.stack.append([k, sub, 0, [], True])
             return True
         kind = plan.noise_kind[rid]
-        if kind == _DROP_KIND:  # contributes nothing; never reduced
+        if kind == DROP_KIND:  # contributes nothing; never reduced
             frame[2] += 1
             return True
-        if kind != _KEEP_KIND:  # KEEP_RAW / custom noise — legacy path
+        if kind != KEEP_KIND:  # KEEP_RAW / custom noise — legacy path
             return False
         return self._keep_reduced(frame, k, rid)
 
@@ -620,9 +620,9 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
     def _literal(self, frame: list, char: str) -> None:
         """Apply the literal policy to a scanned char kid."""
         kind = self.plan.literal_kind
-        if kind == _KEEP_KIND:
+        if kind == KEEP_KIND:
             frame[3].append(self.kernel.tables.char_leaf(char))
-        elif kind == _OTHER_KIND:
+        elif kind == OTHER_KIND:
             reducer = self.reducer
             leaf = self.kernel.tables.char_leaf(char)
             frame[3].extend(reducer.literal.eval(reducer, leaf, ()))
@@ -696,7 +696,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
                     out.append(k[1])
                 continue
             rid = self._rule_of(k)
-            if plan.noise_kind[rid] == _DROP_KIND:
+            if plan.noise_kind[rid] == DROP_KIND:
                 continue
             if not plan.can_drop[rid]:  # pure span — no droppable descendant
                 item = k >> ORIGIN_BITS

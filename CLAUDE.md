@@ -396,25 +396,27 @@ src/lexic/
                           (CharSet), fold (RuleFold) and scanner (ScanGate);
                           clones re-exposes it as its public surface
       flatten.py          (was pda_flatten.py) The leaf half of the flatten: the
-                          int-coded runtime program (_FlatClone/_FlatArm/PdaProgram,
-                          _OP_* op-codes, pre-resolved (chars,negated) membership
-                          sets; _GATE_KWIN + _FlatClone.kwin_selectors + the
+                          int-coded runtime program (FlatClone/FlatArm/PdaProgram,
+                          OP_* op-codes, pre-resolved (chars,negated) membership
+                          sets; GATE_KWIN + FlatClone.kwin_selectors + the
                           EOF-exact _window_admits ≤k matcher — the P2 k-window
                           runtime half: end-of-input matches only an EOF-carrying
-                          positive set, never a negated one; _GATE_PEEK +
-                          _FlatClone.pn_selectors + _skip_noise/_peek_admits —
+                          positive set, never a negated one; GATE_PEEK +
+                          FlatClone.pn_selectors + _skip_noise/_peek_admits —
                           the P3 noise-skip runtime half: skip the maximal W run
                           NON-consuming, decide on the first post-noise char, the
-                          winner re-parses its noise; _gate_take (the shared
-                          per-gate admit) + _select_gated (the kwin/pn arm
+                          winner re-parses its noise; gate_take (the shared
+                          per-gate admit) + select_gated (the kwin/pn arm
                           selector the kernel calls)) + the post-flatten
-                          optimizer passes (_optimize_program: exactly-once
+                          optimizer passes (optimize_program: exactly-once
                           terminal/call specialisation, value_str inlining,
                           frame-less leaf marking, pass-through dispatch conversion
                           — skipped for a kwin/pn-selecting clone). Imports
                           nothing from clones.py (a leaf w.r.t. the compiler +
                           specs); the kernel walks it (split out of clones.py for
-                          C0302; hybrid-PDA; 260705 effort)
+                          C0302; hybrid-PDA; 260705 effort). Its op-codes, flat
+                          records and gate helpers are PUBLIC by name — no `_`
+                          vocabulary crosses a module boundary
       runtime.py          (was pda_kernel.py) PdaKernel + prefix_run (the
                           island-interior delegation entry seam) — the fused
                           predictive runtime: an explicit descent stack of flat
@@ -435,15 +437,28 @@ src/lexic/
                           text, fold); fold=None ⇒ island raises PdaFail, the
                           island-free path; a fail-island ref always raises
                           PdaFail, independent of fold). PdaFail is internal,
-                          never user-facing (hybrid-PDA; 260705 effort). Also
-                          _finish_delegate (fail-soft + window-edge rule, shared
-                          by both delegate paths) (260706 Task 6.2)
+                          never user-facing (hybrid-PDA; 260705 effort). The
+                          frame-slot vocabulary (F_*), the fused model-build tail
+                          and finish_delegate live in build.py (below); runtime
+                          imports them by public name
+      build.py            The frame-slot layout (F_ARM..F_SINKS) + the fused
+                          model-build tail (build_sequence/build_fast/
+                          build_validated per-field slot dispatch, alt_model
+                          pass-through, leaf_mismatch empty-arm build) +
+                          finish_delegate (fail-soft + window-edge delegate
+                          completion). Free functions reading only text + a
+                          frame/clone (never the kernel cursor), shed out of
+                          runtime.py so runtime AND reduce_runtime share the
+                          frame vocabulary by public name rather than a private
+                          cross-module import; a leaf importing flatten (records
+                          + M_* modes) + fold (RuleFold) + errors (PdaFail),
+                          never runtime
       reduce_runtime.py   _ReducePdaKernel (the b1 grammar-text twin, overrides
                           only _complete/_island/_delegate_run) + parse_pda (the
-                          public model-vs-reduce entry). Imports PdaKernel + the
-                          _F_* frame constants from runtime, never the reverse;
-                          split out of runtime.py for C0302 headroom (260706
-                          Task 6.2)
+                          public model-vs-reduce entry). Imports PdaKernel from
+                          runtime and the F_* frame vocabulary / finish_delegate
+                          from build, never the reverse; split out of runtime.py
+                          for C0302 headroom (260706 Task 6.2)
       delegate_compile.py DelegateSource — the lazy per-island delegate-clone
                           selector for island-interior delegation (Task 6.2):
                           picks conflict-free, non-nullable, semantic interior
@@ -464,11 +479,11 @@ src/lexic/
       errors.py           PdaFail — the predictive-parse failure signal, homed in
                           a leaf module so runtime.py and islands.py share it
                           without a cycle; runtime re-exports it (260706 Task 2b)
-      reduce_pda.py       ReduceComp/ReduceRun/_ReduceCompile — the b1 reduce
+      reduce_pda.py       ReduceComp/ReduceRun/ReduceCompile — the b1 reduce
                           (grammar-text) completion, the twin of the model fold:
                           a ReduceComp read straight off the reducer's compiled
                           ReducePlan (H5, no re-derivation) that clones.py bakes;
-                          also _bake_reduce/_reduce_rewrite (the reduce retarget of
+                          also _bake_reduce/reduce_rewrite (the reduce retarget of
                           the flat clones, moved from clones.py at Task 6.3c for
                           C0302). A leaf w.r.t. the clone compiler (imports
                           flatten's _R_* runtime constants + earley reduce, never

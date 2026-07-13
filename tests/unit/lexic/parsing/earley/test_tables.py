@@ -7,7 +7,7 @@ a dot is ``+ 1``. This file covers the coding scheme, the ``next_sym``
 discriminator, nullable/accept-code fixpoints, memoisation, per-char scan
 caching, the ``UnsupportedConstructError`` guards on unnormalised input, and
 (Task 2) the per-arm FIRST seed-gate semantics in ``rule_seed_gates`` /
-``_FirstGates``. ``_expand_atom``'s charset extraction (moved home from
+``_FirstGates``. ``expand_atom``'s charset extraction (moved home from
 ``lexruns.py``) also lives here now — see that module's test file for a
 back-compat re-export smoke test.
 """
@@ -41,10 +41,10 @@ from lexic.parsing.earley.tables import (
     DecodeTables,
     ParserTables,
     RunTerm,
-    _expand_atom,
     atom_accepts,
     build_tables,
     compile_tables,
+    expand_atom,
 )
 from tests._ir_fixtures import digit_grammar as _digit_grammar
 from tests._ir_fixtures import sss_grammar as _sss_grammar
@@ -117,45 +117,45 @@ def test_atom_accepts_negated_non_charclass_raises():
         atom_accepts(IrNot(IrRuleRef("x")), "a")
 
 
-# ── _expand_atom (moved home from lexruns.py — mirror-rule relocation) ──
+# ── expand_atom (moved home from lexruns.py — mirror-rule relocation) ──
 
 
 def test_expand_atom_single_char_literal_returns_its_char():
     """A single-char IrLiteral expands to a one-char frozenset."""
-    assert _expand_atom(IrLiteral("a")) == frozenset("a")
+    assert expand_atom(IrLiteral("a")) == frozenset("a")
 
 
 def test_expand_atom_multichar_literal_returns_none():
     """A literal longer than one char is not a char-unit — poisoned."""
-    assert _expand_atom(IrLiteral("ab")) is None
+    assert expand_atom(IrLiteral("ab")) is None
 
 
 def test_expand_atom_charclass_with_ranges_returns_charset():
     """A range char-class expands to every char in the range."""
     atom = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
-    assert _expand_atom(atom) == frozenset("abc")
+    assert expand_atom(atom) == frozenset("abc")
 
 
 def test_expand_atom_charclass_with_bare_chr_returns_charset():
     """A char-class with a bare IrChr element expands to that one char."""
     atom = IrCharClass(IrChr("q"))
-    assert _expand_atom(atom) == frozenset("q")
+    assert expand_atom(atom) == frozenset("q")
 
 
 def test_expand_atom_over_cap_range_poisons():
     """A range wider than the expansion cap poisons to None."""
     atom = IrCharClass(IrRange(IrChr(chr(0)), IrChr(chr(0x2000))))
-    assert _expand_atom(atom) is None
+    assert expand_atom(atom) is None
 
 
 def test_expand_atom_ruleref_is_not_a_terminal_atom():
     """An IrRuleRef is never a char-unit — poisoned regardless of shape."""
-    assert _expand_atom(IrRuleRef("digit")) is None
+    assert expand_atom(IrRuleRef("digit")) is None
 
 
 def test_expand_atom_negated_charclass_poisons():
     """A negated char-class is not a positive char-unit — poisoned to None."""
-    assert _expand_atom(IrNot(IrCharClass(IrChr('"')))) is None
+    assert expand_atom(IrNot(IrCharClass(IrChr('"')))) is None
 
 
 # ── Grammar builders ─────────────────────────────────────────────────────

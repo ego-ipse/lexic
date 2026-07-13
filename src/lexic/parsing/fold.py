@@ -131,7 +131,7 @@ def _alt_ctor(*_args: object, **_kwargs: object) -> None:
     """Stand-in constructor for an ``alternation`` fold — never invoked.
 
     An alternation rule passes its matched arm's sub-model through
-    (:meth:`ModelFold._first_model_under`, the PDA's ``_BUILD_ALT``), so its
+    (:meth:`ModelFold._first_model_under`, the PDA's ``BUILD_ALT``), so its
     baked :class:`RuleFold` never calls a constructor; this keeps the ``ctor``
     slot a plain callable while :class:`ModelBody` records the absence as
     :data:`~lexic.ir.base.IrNone`.

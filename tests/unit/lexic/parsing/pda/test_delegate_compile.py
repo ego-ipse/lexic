@@ -12,7 +12,7 @@ from lexic.compile import compile_text
 from lexic.parsing.pda import delegate_compile
 from lexic.parsing.pda.analysis import GrammarAnalysis
 from lexic.parsing.pda.delegate_compile import DelegateSource, _delegable
-from lexic.parsing.pda.flatten import _FlatClone
+from lexic.parsing.pda.flatten import FlatClone
 
 # An alternation island (``item``: both arms share FIRST ``[0-9]``) with a long
 # island-free interior run (``digits``); ``wrapped`` references the ``item``
@@ -69,7 +69,7 @@ def test_source_for_island_returns_flat_clones_for_delegables() -> None:
     assert delegates, "the item island should delegate its island-free interior"
     names = {cg.instance_grammar.rules[rid].name for rid in delegates}
     assert "digits" in names and "wrapped" not in names
-    assert all(isinstance(clone, _FlatClone) for clone in delegates.values())
+    assert all(isinstance(clone, FlatClone) for clone in delegates.values())
 
 
 def test_disabled_flag_yields_no_delegates() -> None:

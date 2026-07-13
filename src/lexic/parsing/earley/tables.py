@@ -125,7 +125,7 @@ Charset = frozenset[str] | None
 """An exact character set, or ``None`` — poisoned (unknown / too large)."""
 
 
-def _expand_atom(atom: IrSelf) -> Charset:
+def expand_atom(atom: IrSelf) -> Charset:
     """The exact single-char set a terminal atom matches, or poisoned.
 
     A literal qualifies only at length 1 (a longer literal is not a
@@ -741,14 +741,14 @@ class _FirstGates(IrLeaf[IrSelf, IrSelf]):
         """Begin-chars of terminal symbol ``sym`` (< 0), or poisoned.
 
         A multi-char literal is begun by its first char; a :class:`RunTerm`
-        by any char of its set; the rest is :func:`_expand_atom`.
+        by any char of its set; the rest is :func:`expand_atom`.
         """
         atom = self.atoms[-sym - 1]
         if isinstance(atom, IrLiteral):
             return frozenset(atom[0]) if atom else frozenset()
         if isinstance(atom, RunTerm):
             return atom.charset
-        return _expand_atom(atom)
+        return expand_atom(atom)
 
     def _arm_first(self, base: int, first: list[set[str] | None]) -> Charset:
         """The FIRST of the arm at ``base``, with nullable-prefix continuation.

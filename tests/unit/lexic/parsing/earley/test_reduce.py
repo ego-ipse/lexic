@@ -52,7 +52,7 @@ from lexic.parsing.earley.reduce import (
     Reducer,
     ResolveSource,
     Yield,
-    _plan_for,
+    plan_for,
 )
 from lexic.parsing.earley.tables import ORIGIN_BITS, compile_tables
 from lexic.parsing.earley.trampoline import Trampoline
@@ -562,13 +562,13 @@ def test_fused_reduce_yield_span_is_exact_substring():
 
 
 def test_reduce_plan_memoises_same_reducer_tables_pair():
-    """_plan_for(reducer, tables) called twice on the same pair returns the same object."""
+    """plan_for(reducer, tables) called twice on the same pair returns the same object."""
     g = _word_phrase_grammar()
     tables = compile_tables(g)
     reducer = _reducer(("phrase", _YIELD))
 
-    plan1 = _plan_for(reducer, tables)
-    plan2 = _plan_for(reducer, tables)
+    plan1 = plan_for(reducer, tables)
+    plan2 = plan_for(reducer, tables)
     assert plan1 is plan2
 
 
@@ -655,9 +655,9 @@ def test_reduce_plan_noise_and_literal_kind_and_synthetic_tables():
 
     ws_rid = tables.decode.rule_ids["ws"]
     word_rid = tables.decode.rule_ids["word"]
-    assert plan.noise_kind[ws_rid] == 0  # _DROP_KIND
-    assert plan.noise_kind[word_rid] == 1  # _KEEP_KIND
-    assert plan.literal_kind == 1  # _KEEP_KIND (default KEEP_RAW)
+    assert plan.noise_kind[ws_rid] == 0  # DROP_KIND
+    assert plan.noise_kind[word_rid] == 1  # KEEP_KIND
+    assert plan.literal_kind == 1  # KEEP_KIND (default KEEP_RAW)
     assert plan.synthetic == (False,) * len(plan.synthetic)
 
 

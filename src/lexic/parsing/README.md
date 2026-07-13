@@ -282,7 +282,7 @@ most one nullable default. Every clone bakes its `RuleFold`; islands are not
 cloned (`IslandRef`, §13). The `CloneSpec`/`ItemSpec` NamedTuples are the
 compiler *intermediate* (what the structural tests pin); `flatten.py` lowers
 them once per compile into the int-coded `PdaProgram`
-(`_FlatClone`/`_FlatArm`, `_OP_*` op-codes, pre-resolved membership sets, the
+(`FlatClone`/`FlatArm`, `_OP_*` op-codes, pre-resolved membership sets, the
 gate runtimes — the EOF-exact ≤k window matcher, the non-consuming
 noise-skip peek) and runs the post-flatten optimizer passes (exactly-once
 terminal/call specialisation, `value_str` inlining, frame-less leaf marking,

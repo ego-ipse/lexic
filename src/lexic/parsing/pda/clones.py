@@ -55,40 +55,40 @@ from lexic.ir.nodes import (
     IrRuleRef,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing.earley.reduce import _OTHER_KIND, Reducer, _plan_for
+from lexic.parsing.earley.reduce import OTHER_KIND, Reducer, plan_for
 from lexic.parsing.earley.tables import ParserTables, compile_tables
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis import GrammarAnalysis
 from lexic.parsing.pda.charsets import CharSet
 from lexic.parsing.pda.delegate_compile import DelegateSource
 from lexic.parsing.pda.flatten import (
-    _BUILD_ALT,
-    _BUILD_SEQ,
-    _BUILD_TRANSPARENT,
-    _BUILD_VALUE_STR,
-    _GATE_KWIN,
-    _GATE_PAIR,
-    _GATE_PEEK,
-    _GATE_SCAN,
-    _GATE_STOP,
-    _HI_UNBOUNDED,
-    _MODE_CODE,
-    _OP_CC,
-    _OP_FAIL,
-    _OP_GRP,
-    _OP_ISLAND,
-    _OP_LIT,
-    _OP_REF,
+    BUILD_ALT,
+    BUILD_SEQ,
+    BUILD_TRANSPARENT,
+    BUILD_VALUE_STR,
+    GATE_KWIN,
+    GATE_PAIR,
+    GATE_PEEK,
+    GATE_SCAN,
+    GATE_STOP,
+    HI_UNBOUNDED,
+    MODE_CODE,
+    OP_CC,
+    OP_FAIL,
+    OP_GRP,
+    OP_ISLAND,
+    OP_LIT,
+    OP_REF,
+    FlatArm,
+    FlatClone,
     PdaProgram,
-    _FlatArm,
-    _FlatClone,
-    _optimize_program,
+    optimize_program,
 )
 from lexic.parsing.pda.reduce_pda import (
     ReduceComp,
+    ReduceCompile,
     ReduceRun,
-    _reduce_rewrite,
-    _ReduceCompile,
+    reduce_rewrite,
 )
 from lexic.parsing.pda.scanner import ScanGate
 from lexic.parsing.pda.specs import (
@@ -326,7 +326,7 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     islands: frozenset[str]
     fail_islands: frozenset[str]
     clones: dict[CloneKey, CloneSpec]
-    reduce: "_ReduceCompile | None"
+    reduce: "ReduceCompile | None"
     completions: dict[CloneKey, ReduceComp]
 
     def __init__(
@@ -334,7 +334,7 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         analysis: GrammarAnalysis,
         fold_config: Mapping[str, RuleFold] | None = None,
         *,
-        reduce: "_ReduceCompile | None" = None,
+        reduce: "ReduceCompile | None" = None,
     ) -> None:
         """Prepare the compiler for one target (model fold, or reduce)."""
         self.analysis = analysis
@@ -498,14 +498,14 @@ def _build_mode(fold: RuleFold | None) -> int:
     :raises UnsupportedConstructError: On a fold kind outside the vocabulary.
     """
     if fold is None:
-        return _BUILD_TRANSPARENT
+        return BUILD_TRANSPARENT
     kind = fold.kind
     if kind == "value_str":
-        return _BUILD_VALUE_STR
+        return BUILD_VALUE_STR
     if kind == "alternation":
-        return _BUILD_ALT
+        return BUILD_ALT
     if kind == "sequence":
-        return _BUILD_SEQ
+        return BUILD_SEQ
     raise UnsupportedConstructError(f"pda: unknown fold kind {kind!r}")
 
 
@@ -514,24 +514,24 @@ def _flatten_gate(
 ) -> tuple[int, object]:
     """Lower a loop gate to its ``(code, data)`` flat pair."""
     if isinstance(gate, PairGate):
-        return _GATE_PAIR, gate.pairs
+        return GATE_PAIR, gate.pairs
     if isinstance(gate, KTupleGate):
-        return _GATE_KWIN, _flat_windows(gate.windows)
+        return GATE_KWIN, _flat_windows(gate.windows)
     if isinstance(gate, PeekGate):
-        return _GATE_PEEK, (
+        return GATE_PEEK, (
             (gate.w.chars, gate.w.negated),
             (gate.take.chars, gate.take.negated),
         )
     if isinstance(gate, ScanGate):
-        return _GATE_SCAN, gate  # runtime-ready; scan_gate_take reads it directly
+        return GATE_SCAN, gate  # runtime-ready; scan_gate_take reads it directly
     cs = gate.charset
-    return _GATE_STOP, (cs.chars, cs.negated)
+    return GATE_STOP, (cs.chars, cs.negated)
 
 
 def _flatten_arm(
-    specs: Sequence[ItemSpec], shells: "dict[CloneKey, _FlatClone]"
-) -> _FlatArm:
-    """Lower a sequence of :class:`ItemSpec` to a :class:`_FlatArm` (refs
+    specs: Sequence[ItemSpec], shells: "dict[CloneKey, FlatClone]"
+) -> FlatArm:
+    """Lower a sequence of :class:`ItemSpec` to a :class:`FlatArm` (refs
     resolve to the live shell objects, so recursion needs no id indirection)."""
     kinds: list[int] = []
     payloads: list[object] = []
@@ -544,11 +544,11 @@ def _flatten_arm(
         kinds.append(kind)
         payloads.append(payload)
         los.append(spec.lo)
-        his.append(_HI_UNBOUNDED if spec.hi is None else spec.hi)
+        his.append(HI_UNBOUNDED if spec.hi is None else spec.hi)
         gate_kind, gate_body = _flatten_gate(spec.gate)
         gate_kinds.append(gate_kind)
         gate_data.append(gate_body)
-    arm = _FlatArm.__new__(_FlatArm)
+    arm = FlatArm.__new__(FlatArm)
     arm.n = len(kinds)
     arm.kinds = tuple(kinds)
     arm.payloads = tuple(payloads)
@@ -560,25 +560,25 @@ def _flatten_arm(
 
 
 def _flatten_item(
-    spec: ItemSpec, shells: "dict[CloneKey, _FlatClone]"
+    spec: ItemSpec, shells: "dict[CloneKey, FlatClone]"
 ) -> tuple[int, object]:
     """Lower one :class:`ItemSpec` to its ``(op-code, payload)`` flat pair."""
     kind = spec.kind
     payload = spec.payload
     if kind == LIT:
-        return _OP_LIT, str(payload)
+        return OP_LIT, str(payload)
     if kind == CC:
         cs = cast(CharSet, payload)
-        return _OP_CC, (cs.chars, cs.negated)
+        return OP_CC, (cs.chars, cs.negated)
     if kind == GRP:
-        return _OP_GRP, _flatten_group(cast(GroupSpec, payload), shells)
+        return OP_GRP, _flatten_group(cast(GroupSpec, payload), shells)
     target = payload  # REF
     if isinstance(target, IslandRef):
-        return (_OP_FAIL if target.fail else _OP_ISLAND), target.name
-    return _OP_REF, shells[cast(CloneKey, target)]
+        return (OP_FAIL if target.fail else OP_ISLAND), target.name
+    return OP_REF, shells[cast(CloneKey, target)]
 
 
-def _bake_build(clone: _FlatClone, fold: RuleFold | None) -> None:
+def _bake_build(clone: FlatClone, fold: RuleFold | None) -> None:
     """Bake a clone's fold and fused-build plan (fields/fast/defaults) in place."""
     clone.fold = fold
     clone.leaf = False  # granted by _mark_leaves once the arm shapes are final
@@ -590,16 +590,14 @@ def _bake_build(clone: _FlatClone, fold: RuleFold | None) -> None:
         clone.fast = None
         clone.defaults = None
         return
-    clone.fields = tuple(
-        (f.item, _MODE_CODE[f.mode], f.name, f.lo) for f in fold.fields
-    )
+    clone.fields = tuple((f.item, MODE_CODE[f.mode], f.name, f.lo) for f in fold.fields)
     clone.fast = fold.fast.make
     clone.defaults = dict(fold.fast.defaults)
 
 
 def _flatten_selectors(
-    arms: Sequence[ArmSpec], shells: "dict[CloneKey, _FlatClone]"
-) -> tuple[tuple[tuple[frozenset[str], bool, _FlatArm], ...], object, object]:
+    arms: Sequence[ArmSpec], shells: "dict[CloneKey, FlatClone]"
+) -> tuple[tuple[tuple[frozenset[str], bool, FlatArm], ...], object, object]:
     """Lower an alternation's arm selectors — single-char, k-window, or peek.
 
     P2 (:attr:`ArmSpec.windows`) lowers to ``kwin_selectors``; P3
@@ -635,18 +633,16 @@ def _flatten_selectors(
     return selectors, None, None
 
 
-def _flatten_group(
-    group: GroupSpec, shells: "dict[CloneKey, _FlatClone]"
-) -> _FlatClone:
-    """Lower an inline group to a transparent :class:`_FlatClone`."""
-    clone = _FlatClone.__new__(_FlatClone)
+def _flatten_group(group: GroupSpec, shells: "dict[CloneKey, FlatClone]") -> FlatClone:
+    """Lower an inline group to a transparent :class:`FlatClone`."""
+    clone = FlatClone.__new__(FlatClone)
     clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
         group.arms, shells
     )
     clone.default = (
         _flatten_arm(group.default, shells) if group.default is not None else None
     )
-    clone.mode = _BUILD_TRANSPARENT
+    clone.mode = BUILD_TRANSPARENT
     _bake_build(clone, None)
     return clone
 
@@ -654,18 +650,18 @@ def _flatten_group(
 def _flatten_clones(
     clones: "dict[CloneKey, CloneSpec]",
     completions: "dict[CloneKey, ReduceComp] | None",
-) -> "dict[CloneKey, _FlatClone]":
-    """Lower a compiled clone table to its live :class:`_FlatClone` shells.
+) -> "dict[CloneKey, FlatClone]":
+    """Lower a compiled clone table to its live :class:`FlatClone` shells.
 
     Two passes: create an empty shell per clone key, then fill each (refs
     resolve to the live shells — no runtime id lookup). The model target then
-    runs :func:`_optimize_program`; the reduce target (``completions`` given)
-    runs :func:`_reduce_rewrite` instead. Shared by :func:`_flatten_program`
+    runs :func:`optimize_program`; the reduce target (``completions`` given)
+    runs :func:`reduce_rewrite` instead. Shared by :func:`_flatten_program`
     and the per-island delegate compile, which each own an independent shell
     set the optimiser mutates in place.
     """
-    shells: dict[CloneKey, _FlatClone] = {
-        key: _FlatClone.__new__(_FlatClone) for key in clones
+    shells: dict[CloneKey, FlatClone] = {
+        key: FlatClone.__new__(FlatClone) for key in clones
     }
     for key, spec in clones.items():
         clone = shells[key]
@@ -678,9 +674,9 @@ def _flatten_clones(
         clone.mode = _build_mode(spec.fold)
         _bake_build(clone, spec.fold)
     if completions is None:
-        _optimize_program(list(shells.values()))
+        optimize_program(list(shells.values()))
     else:
-        _reduce_rewrite(shells, completions)
+        reduce_rewrite(shells, completions)
     return shells
 
 
@@ -692,7 +688,7 @@ def _flatten_program(
     """Lower the compiled clone table to the flat runtime :class:`PdaProgram`
     (``completions`` given on the reduce path, ``None`` on the model path)."""
     shells = _flatten_clones(clones, completions)
-    start: _FlatClone | IslandRef = (
+    start: FlatClone | IslandRef = (
         shells[start_key] if isinstance(start_key, CloneKey) else start_key
     )
     return PdaProgram(start)
@@ -771,14 +767,14 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
             self._island_tables[name] = cached
         return cached
 
-    def island_delegates(self, name: str) -> "dict[int, _FlatClone]":
+    def island_delegates(self, name: str) -> "dict[int, FlatClone]":
         """The island-interior delegate clones for island ``name`` (rule_id →
         clone), computed once by the program's
         :class:`~lexic.parsing.pda.delegate_compile.DelegateSource` — empty when
         nothing delegates. The runtime wraps each into a fail-soft callable and
         threads it through the island Earley sub-parse (the keys are island
         tables rule ids, the predictor's ``rid``)."""
-        return cast("dict[int, _FlatClone]", self.program.delegates.for_island(name))
+        return cast("dict[int, FlatClone]", self.program.delegates.for_island(name))
 
     def reset_delegate_cache(self) -> None:
         """Drop the per-island delegate cache — a test seam for the A/B parity
@@ -848,12 +844,12 @@ def compile_reduce_pda(
         reduce runtime cannot reconstruct (the whole-grammar opt-out).
     """
     tables = compile_tables(instance_grammar)
-    plan = _plan_for(reducer, tables)
-    if plan.literal_kind == _OTHER_KIND:
+    plan = plan_for(reducer, tables)
+    if plan.literal_kind == OTHER_KIND:
         raise UnsupportedConstructError("reduce: custom terminal-leaf policy")
     name_to_rid = {name: rid for rid, name in enumerate(tables.decode.rule_names)}
     analysis = GrammarAnalysis(lifted)
-    compiler = _PdaCompiler(analysis, reduce=_ReduceCompile(reducer, plan, name_to_rid))
+    compiler = _PdaCompiler(analysis, reduce=ReduceCompile(reducer, plan, name_to_rid))
     start_key = compiler.compile_start()
     run = ReduceRun(reducer, plan, tables, name_to_rid)
     pda = PdaTables(compiler, start_key, instance_grammar, reduce=run)

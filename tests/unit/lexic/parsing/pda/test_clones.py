@@ -48,12 +48,12 @@ from lexic.parsing.pda.clones import (
     compile_reduce_pda,
 )
 from lexic.parsing.pda.flatten import (
-    _BUILD_REDUCE,
-    _R_DROP,
-    _R_KEEP,
-    _R_SPLICE,
-    _all_clones,
-    _FlatClone,
+    BUILD_REDUCE,
+    R_DROP,
+    R_KEEP,
+    R_SPLICE,
+    FlatClone,
+    all_clones,
 )
 from lexic.parsing.pda.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime import PdaFail
@@ -412,18 +412,18 @@ def test_compile_reduce_pda_abnf_start_rule_is_a_clone_not_an_island():
 
 
 def test_every_reduce_clone_is_baked_build_reduce_never_a_model_mode():
-    """_reduce_rewrite retargets every reachable clone (named rule + inline
-    group) to _BUILD_REDUCE with a well-formed reduce_kind — the reduce
+    """reduce_rewrite retargets every reachable clone (named rule + inline
+    group) to BUILD_REDUCE with a well-formed reduce_kind — the reduce
     target skips the model-specific optimizer passes entirely.
     """
     pda = _reduce_pda_for(GBNF_FLAVOUR)
     start = pda.program.start
-    assert isinstance(start, _FlatClone)  # not an IslandRef opt-out
-    for clone in _all_clones([start]):
-        assert clone.mode == _BUILD_REDUCE
-        assert clone.reduce_kind in (_R_KEEP, _R_DROP, _R_SPLICE)
+    assert isinstance(start, FlatClone)  # not an IslandRef opt-out
+    for clone in all_clones([start]):
+        assert clone.mode == BUILD_REDUCE
+        assert clone.reduce_kind in (R_KEEP, R_DROP, R_SPLICE)
         assert clone.needs_ends is True
 
 
-# The unit-level _reduce_rewrite/_bake_reduce tests live in test_reduce_pda.py
+# The unit-level reduce_rewrite/_bake_reduce tests live in test_reduce_pda.py
 # (the functions moved there with the option-(a) rebuild, 2026-07-11).

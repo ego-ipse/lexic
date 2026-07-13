@@ -36,9 +36,9 @@ from lexic.parsing.earley.tables import (
     Charset,
     ParserTables,
     RunTerm,
-    _expand_atom,
     build_tables,
     compile_tables,
+    expand_atom,
 )
 
 RunShape = tuple[frozenset[str], bool, int]
@@ -89,7 +89,7 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
         atom = self.tables.terms.atoms[-sym - 1]
         if isinstance(atom, IrLiteral):
             return frozenset(atom[0]) if atom else frozenset()
-        return _expand_atom(atom)
+        return expand_atom(atom)
 
     def _first_sets(self) -> list[set[str] | None]:
         """Per-rule FIRST char sets by least fixpoint (poison propagates)."""
@@ -199,7 +199,7 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
                 return None
             sym = syms[0]
             if sym < 0:
-                charset = _expand_atom(self.tables.terms.atoms[-sym - 1])
+                charset = expand_atom(self.tables.terms.atoms[-sym - 1])
             else:
                 charset = self._rule_charset(sym - 1, visiting | {rid})
             if charset is None or union & charset:
@@ -221,7 +221,7 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
             return None
         if unit < 0:
             atom = self.tables.terms.atoms[-unit - 1]
-            charset = _expand_atom(atom)
+            charset = expand_atom(atom)
             unit_rid = -1
         else:
             unit_rid = unit - 1
