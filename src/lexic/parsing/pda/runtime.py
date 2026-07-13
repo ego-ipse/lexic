@@ -119,6 +119,7 @@ from lexic.parsing.pda.flatten import (
     select_gated,
 )
 from lexic.parsing.pda.islands import island_parse
+from lexic.parsing.pda.scanner import scan_gate_take
 
 __all__ = ["PdaFail", "PdaKernel"]
 
@@ -457,6 +458,30 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
             raise PdaFail(f"no arm at {pos}")
         return default
 
+    def _chase_dispatch(self, clone: FlatClone, char: str) -> "FlatClone | None":
+        """Chase a frame-less dispatch alternation to its concrete target clone.
+
+        :param clone: A :data:`~lexic.parsing.pda.flatten.BUILD_DISPATCH` clone.
+        :param char: The lookahead char selecting each dispatch step.
+        :returns: The concrete target clone, or ``None`` when the dispatch lands
+            on its empty (nullable) arm (the caller then consumes nothing).
+        :raises PdaFail: When no selector matches and there is no default.
+        """
+        while clone.mode == BUILD_DISPATCH:
+            nxt = None
+            for chars, negated, target in clone.selectors:
+                if (char != "" and char not in chars) if negated else char in chars:
+                    nxt = target
+                    break
+            if nxt is None:
+                nxt = clone.default
+                if nxt is None:
+                    raise PdaFail(f"no arm at {self.pos}")
+                if nxt is DISPATCH_EMPTY:
+                    return None
+            clone = nxt
+        return clone
+
     def _enter(self, clone: FlatClone, out: list[object]) -> bool:
         """Select ``clone``'s arm at the cursor and push its (flat) frame.
 
@@ -473,29 +498,30 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         :raises PdaFail: When no arm's FIRST matches and there is no default.
         """
         char = self.text[self.pos : self.pos + 1]
-        while clone.mode == BUILD_DISPATCH:
-            nxt = None
-            for chars, negated, target in clone.selectors:
-                if (char != "" and char not in chars) if negated else char in chars:
-                    nxt = target
-                    break
-            if nxt is None:
-                nxt = clone.default
-                if nxt is None:
-                    raise PdaFail(f"no arm at {self.pos}")
-                if nxt is DISPATCH_EMPTY:
-                    return False  # the empty (nullable) arm — nothing consumed
-            clone = nxt
+        if clone.mode == BUILD_DISPATCH:
+            chased = self._chase_dispatch(clone, char)
+            if chased is None:
+                return False  # the empty (nullable) arm — nothing consumed
+            clone = chased
         if clone.kwin_selectors is not None or clone.pn_selectors is not None:
             gated = select_gated(self.text, self.pos, clone)
             self.stack.append(
                 [gated, 0, 0, out, clone.mode, clone, self.pos, [0] * gated.n, None]
             )
             return True
+        gate = clone.struct_arm
+        if gate is not None and not scan_gate_take(self.text, self.pos, gate):
+            arm = clone.default
+            if arm is None:
+                raise PdaFail(f"no arm at {self.pos}")
+            self.stack.append(
+                [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
+            )
+            return True
         if clone.leaf:
             self.pos = self._run_leaf(clone, out, self.pos)
             return False
-        arm: FlatArm | None = None
+        arm = None
         for chars, negated, candidate in clone.selectors:
             if (char != "" and char not in chars) if negated else char in chars:
                 arm = candidate

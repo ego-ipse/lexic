@@ -55,7 +55,7 @@ F_ARM, F_I, F_COUNT, F_OUT, F_MODE, F_CLONE, F_START, F_ENDS, F_SINKS = range(9)
 
 
 def finish_delegate(
-    sub: "Any", clone: FlatClone, window_text: str, pos: int
+    sub: Any, clone: FlatClone, window_text: str, pos: int
 ) -> tuple[int, object] | None:
     """Drive a delegate sub-kernel to completion — fail-soft + window-edge rule.
 

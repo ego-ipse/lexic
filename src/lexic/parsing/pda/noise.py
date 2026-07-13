@@ -417,7 +417,7 @@ class ResidualFirst(IrLeaf[IrSelf, IrSelf]):
 
     analysis: Any
     w: CharSet
-    table: "dict[str, CharSet | None]"
+    table: dict[str, CharSet | None]
 
     def __init__(self, analysis: Any, w: CharSet) -> None:
         """Solve the per-rule residual-FIRST fixpoint over ``analysis.rules``."""

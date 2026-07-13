@@ -136,9 +136,7 @@ def _compile_item(
     return None
 
 
-def _closure(
-    rules: Mapping[str, IrRule], roots: "frozenset[str]"
-) -> "list[str] | None":
+def _closure(rules: Mapping[str, IrRule], roots: frozenset[str]) -> "list[str] | None":
     """The acyclic rule closure reachable from ``roots``, or ``None``.
 
     ``None`` when a reference leaves ``rules`` (undefined), an inline group is
@@ -174,7 +172,7 @@ def _closure(
 
 
 def build_recognizer(
-    rules: Mapping[str, IrRule], roots: "frozenset[str]"
+    rules: Mapping[str, IrRule], roots: frozenset[str]
 ) -> "Recognizer | None":
     """Compile the acyclic closure of ``roots`` into a flat :class:`Recognizer`.
 
@@ -309,8 +307,8 @@ class ScanGate(NamedTuple):
     kind: int
     rec: Recognizer
     roots: tuple[int, ...]
-    take: "tuple[frozenset[str], bool] | None" = None
-    probe: "tuple[int, int, str, bool] | None" = None
+    take: tuple[frozenset[str], bool] | None = None
+    probe: tuple[int, int, str, bool] | None = None
 
 
 class ArmGate(NamedTuple):
@@ -330,7 +328,7 @@ class ArmGate(NamedTuple):
     escape: int
 
 
-def _peek_member(text: str, pos: int, take: "tuple[frozenset[str], bool]") -> bool:
+def _peek_member(text: str, pos: int, take: tuple[frozenset[str], bool]) -> bool:
     """Whether the char at ``pos`` is in the ``(chars, negated)`` take-set."""
     ch = text[pos : pos + 1]
     chars, negated = take

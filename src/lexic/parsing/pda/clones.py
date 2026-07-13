@@ -90,8 +90,9 @@ from lexic.parsing.pda.reduce_pda import (
     ReduceRun,
     reduce_rewrite,
 )
-from lexic.parsing.pda.scanner import ScanGate
+from lexic.parsing.pda.scanner import ArmGate, ScanGate
 from lexic.parsing.pda.specs import (
+    ArmGates,
     ArmSpec,
     CloneKey,
     CloneSpec,
@@ -116,6 +117,7 @@ __all__ = [
     "IslandRef",
     "ItemSpec",
     "ArmSpec",
+    "ArmGates",
     "GroupSpec",
     "StopGate",
     "PairGate",
@@ -174,6 +176,29 @@ def _firsts_overlap(arms: Sequence[ArmSpec]) -> bool:
         for i in range(len(arms))
         for j in range(i + 1, len(arms))
     )
+
+
+def _resolve_struct_arm(
+    struct_arm: ArmGate | None, default_idx: int | None
+) -> ScanGate | None:
+    """The empty-arm gate's :class:`ScanGate`, validated against the default arm.
+
+    :param struct_arm: The stored :class:`~lexic.parsing.pda.scanner.ArmGate`, or
+        ``None``.
+    :param default_idx: The body index of the nullable default arm the compiler
+        picked, or ``None`` when no arm is all-nullable.
+    :returns: The gate's :class:`ScanGate` (its escape aligned to ``default_idx``),
+        or ``None`` when no gate is stored.
+    :raises UnsupportedConstructError: When the gate's escape index does not
+        match ``default_idx`` (analysis/compiler drift).
+    """
+    if struct_arm is None:
+        return None
+    if default_idx != struct_arm.escape:
+        raise UnsupportedConstructError(
+            "pda: structured arm gate escape does not match the nullable default arm"
+        )
+    return struct_arm.gate
 
 
 def _flat_windows(
@@ -277,7 +302,7 @@ def _spec_alternation(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     eff = ctx.cont
     if ctx.hi is None or ctx.hi > 1:
         eff = eff.union(compiler.analysis.atom_hard(cast(IrAtom, n)))
-    arms, default = compiler.compile_arms(cast(IrAlternation, n), eff)
+    arms, default, _ = compiler.compile_arms(cast(IrAlternation, n), eff)
     return ItemSpec(GRP, GroupSpec(arms, default), ctx.lo, ctx.hi, ctx.gate)
 
 
@@ -326,7 +351,7 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     islands: frozenset[str]
     fail_islands: frozenset[str]
     clones: dict[CloneKey, CloneSpec]
-    reduce: "ReduceCompile | None"
+    reduce: ReduceCompile | None
     completions: dict[CloneKey, ReduceComp]
 
     def __init__(
@@ -334,7 +359,7 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         analysis: GrammarAnalysis,
         fold_config: Mapping[str, RuleFold] | None = None,
         *,
-        reduce: "ReduceCompile | None" = None,
+        reduce: ReduceCompile | None = None,
     ) -> None:
         """Prepare the compiler for one target (model fold, or reduce)."""
         self.analysis = analysis
@@ -367,12 +392,18 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.clones[key] = _PENDING
         rule = self.analysis.rules[name]
         tax = self.analysis.taxonomy
-        arms, default = self.compile_arms(
-            rule.body, tail, tax.arm_gates.get(name), tax.pn_arm_gates.get(name)
+        arms, default, struct = self.compile_arms(
+            rule.body,
+            tail,
+            ArmGates(
+                tax.arm_gates.get(name),
+                tax.pn_arm_gates.get(name),
+                tax.struct_arm_gates.get(name),
+            ),
         )
         fold = self.fold_config.get(name)
         match_only = fold is not None and fold.kind == "value_str"
-        self.clones[key] = CloneSpec(name, arms, default, fold, match_only)
+        self.clones[key] = CloneSpec(name, arms, default, fold, match_only, struct)
         if self.reduce is not None:
             self.completions[key] = self.reduce.comp_for(name)
         return key
@@ -381,40 +412,50 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self,
         node: IrAlternation,
         tail: CharSet,
-        windows: "tuple[tuple[tuple[CharSet, ...], ...], ...] | None" = None,
-        peeks: "tuple[CharSet, tuple[CharSet, ...]] | None" = None,
-    ) -> tuple[tuple[ArmSpec, ...], tuple[ItemSpec, ...] | None]:
+        gates: ArmGates = ArmGates(),
+    ) -> tuple[tuple[ArmSpec, ...], tuple[ItemSpec, ...] | None, ScanGate | None]:
         """Compile the arms of a rule body or inline group against ``tail``.
 
         Each arm becomes a FIRST-gated :class:`ArmSpec` (dropped when its FIRST
         is empty — an empty arm never gates); an all-nullable arm additionally
-        becomes the single default (last such arm wins). ``windows`` (P2) /
-        ``peeks`` (P3) — a demoted rule body's stored gate spec, aligned to
-        ``node``'s arms — are attached inside this same enumeration, so
-        spec↔arm alignment cannot drift past the empty-FIRST drop.
+        becomes the single default (last such arm wins). ``gates`` bundles a
+        demoted rule body's stored specs — ``windows`` (P2) / ``peeks`` (P3)
+        aligned to ``node``'s arms, and the empty-arm ``struct_arm`` gate — all
+        attached inside this one enumeration, so spec↔arm alignment cannot drift
+        past the empty-FIRST drop; the ``struct_arm`` escape index is validated
+        here against the nullable default arm the compiler actually picks.
 
-        :returns: ``(gated arms, default specs | None)``.
+        :returns: ``(gated arms, default specs | None, struct-arm ScanGate | None)``.
         :raises UnsupportedConstructError: When gated arms' FIRSTs overlap with
-            no gate spec to select by (analysis/compiler drift — a wrong arm
-            would silently mis-parse, so the grammar opts out instead).
+            no gate spec to select by, or a ``struct_arm`` gate's escape index
+            does not match the nullable default arm (analysis/compiler drift —
+            a wrong arm would silently mis-parse, so the grammar opts out).
         """
+        windows, peeks = gates.windows, gates.peeks
         arms: list[ArmSpec] = []
         default: tuple[ItemSpec, ...] | None = None
+        default_idx: int | None = None
         for idx, arm in enumerate(node):
             items = _items(arm)
             specs = self._compile_seq(items, tail)
             first = self.analysis.seq_first(items)
             if all(self.analysis.item_nullable(i) for i in items):
                 default = specs
+                default_idx = idx
             if not first.is_empty():
-                win = windows[idx] if windows is not None else None
-                peek = (peeks[0], peeks[1][idx]) if peeks is not None else None
-                arms.append(ArmSpec(first, specs, win, peek))
+                arms.append(
+                    ArmSpec(
+                        first,
+                        specs,
+                        windows[idx] if windows is not None else None,
+                        (peeks[0], peeks[1][idx]) if peeks is not None else None,
+                    )
+                )
         if windows is None and peeks is None and _firsts_overlap(arms):
             raise UnsupportedConstructError(
                 "pda: arm FIRST overlap without a gate spec"
             )
-        return tuple(arms), default
+        return tuple(arms), default, _resolve_struct_arm(gates.struct_arm, default_idx)
 
     def _compile_seq(
         self, items: Sequence[IrItem], tail: CharSet
@@ -529,7 +570,7 @@ def _flatten_gate(
 
 
 def _flatten_arm(
-    specs: Sequence[ItemSpec], shells: "dict[CloneKey, FlatClone]"
+    specs: Sequence[ItemSpec], shells: dict[CloneKey, FlatClone]
 ) -> FlatArm:
     """Lower a sequence of :class:`ItemSpec` to a :class:`FlatArm` (refs
     resolve to the live shell objects, so recursion needs no id indirection)."""
@@ -560,7 +601,7 @@ def _flatten_arm(
 
 
 def _flatten_item(
-    spec: ItemSpec, shells: "dict[CloneKey, FlatClone]"
+    spec: ItemSpec, shells: dict[CloneKey, FlatClone]
 ) -> tuple[int, object]:
     """Lower one :class:`ItemSpec` to its ``(op-code, payload)`` flat pair."""
     kind = spec.kind
@@ -596,7 +637,7 @@ def _bake_build(clone: FlatClone, fold: RuleFold | None) -> None:
 
 
 def _flatten_selectors(
-    arms: Sequence[ArmSpec], shells: "dict[CloneKey, FlatClone]"
+    arms: Sequence[ArmSpec], shells: dict[CloneKey, FlatClone]
 ) -> tuple[tuple[tuple[frozenset[str], bool, FlatArm], ...], object, object]:
     """Lower an alternation's arm selectors — single-char, k-window, or peek.
 
@@ -633,7 +674,7 @@ def _flatten_selectors(
     return selectors, None, None
 
 
-def _flatten_group(group: GroupSpec, shells: "dict[CloneKey, FlatClone]") -> FlatClone:
+def _flatten_group(group: GroupSpec, shells: dict[CloneKey, FlatClone]) -> FlatClone:
     """Lower an inline group to a transparent :class:`FlatClone`."""
     clone = FlatClone.__new__(FlatClone)
     clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
@@ -642,15 +683,16 @@ def _flatten_group(group: GroupSpec, shells: "dict[CloneKey, FlatClone]") -> Fla
     clone.default = (
         _flatten_arm(group.default, shells) if group.default is not None else None
     )
+    clone.struct_arm = None
     clone.mode = BUILD_TRANSPARENT
     _bake_build(clone, None)
     return clone
 
 
 def _flatten_clones(
-    clones: "dict[CloneKey, CloneSpec]",
-    completions: "dict[CloneKey, ReduceComp] | None",
-) -> "dict[CloneKey, FlatClone]":
+    clones: dict[CloneKey, CloneSpec],
+    completions: dict[CloneKey, ReduceComp] | None,
+) -> dict[CloneKey, FlatClone]:
     """Lower a compiled clone table to its live :class:`FlatClone` shells.
 
     Two passes: create an empty shell per clone key, then fill each (refs
@@ -671,6 +713,7 @@ def _flatten_clones(
         clone.default = (
             _flatten_arm(spec.default, shells) if spec.default is not None else None
         )
+        clone.struct_arm = spec.struct_arm
         clone.mode = _build_mode(spec.fold)
         _bake_build(clone, spec.fold)
     if completions is None:
@@ -681,9 +724,9 @@ def _flatten_clones(
 
 
 def _flatten_program(
-    clones: "dict[CloneKey, CloneSpec]",
-    start_key: "CloneKey | IslandRef",
-    completions: "dict[CloneKey, ReduceComp] | None" = None,
+    clones: dict[CloneKey, CloneSpec],
+    start_key: CloneKey | IslandRef,
+    completions: dict[CloneKey, ReduceComp] | None = None,
 ) -> PdaProgram:
     """Lower the compiled clone table to the flat runtime :class:`PdaProgram`
     (``completions`` given on the reduce path, ``None`` on the model path)."""
@@ -731,15 +774,15 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     islands: frozenset[str]
     instance_grammar: IrAst
     program: PdaProgram
-    reduce: "ReduceRun | None"
+    reduce: ReduceRun | None
     _island_tables: dict[str, ParserTables]
 
     def __init__(
         self,
-        compiler: "_PdaCompiler",
+        compiler: _PdaCompiler,
         start_key: CloneKey | IslandRef,
         instance_grammar: IrAst,
-        reduce: "ReduceRun | None" = None,
+        reduce: ReduceRun | None = None,
     ) -> None:
         """Freeze the clone table, lower it to the flat program, seed the caches.
 
@@ -783,9 +826,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         self.program.delegates.reset()
 
 
-def _attach_delegates(
-    tables: PdaTables, lifted: IrAst, compiler: "_PdaCompiler"
-) -> None:
+def _attach_delegates(tables: PdaTables, lifted: IrAst, compiler: _PdaCompiler) -> None:
     """Attach the island-interior :class:`DelegateSource` to ``tables.program``
     (built from ``lifted`` + the compiler's fold/reduce target; the injected
     ``(_PdaCompiler, _flatten_clones)`` seam keeps the delegate leaf import-free

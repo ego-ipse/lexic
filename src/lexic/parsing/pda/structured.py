@@ -69,8 +69,8 @@ def noise_roots(analysis: Any) -> frozenset[str]:
 
 
 def _leading_roots(
-    analysis: Any, all_roots: "frozenset[str]", atom: Any, seen: "frozenset[str]"
-) -> "frozenset[str]":
+    analysis: Any, all_roots: frozenset[str], atom: Any, seen: frozenset[str]
+) -> frozenset[str]:
     """The noise roots that lead the loop body — the only noise the gate skips.
 
     Skipping the *global* noise set is unsound: at ABNF ``concatenation`` it
@@ -97,10 +97,10 @@ def _leading_roots(
 
 def _seq_leading_roots(
     analysis: Any,
-    all_roots: "frozenset[str]",
+    all_roots: frozenset[str],
     items: Sequence[IrItem],
-    seen: "frozenset[str]",
-) -> "frozenset[str]":
+    seen: frozenset[str],
+) -> frozenset[str]:
     """The leading noise roots of one sequence — up to the first content atom."""
     out: set[str] = set()
     for item in items:
@@ -115,7 +115,7 @@ def _seq_leading_roots(
 
 
 def _content_first(
-    analysis: Any, roots: "frozenset[str]", atom: Any, seen: "frozenset[str]"
+    analysis: Any, roots: frozenset[str], atom: Any, seen: frozenset[str]
 ) -> CharSet:
     """The first *content* (non-noise) chars reachable at ``atom``'s start."""
     if isinstance(atom, IrRuleRef):
@@ -136,9 +136,9 @@ def _content_first(
 
 def _seq_content(
     analysis: Any,
-    roots: "frozenset[str]",
+    roots: frozenset[str],
     items: Sequence[IrItem],
-    seen: "frozenset[str]",
+    seen: frozenset[str],
 ) -> CharSet:
     """Content FIRST of a sequence — leading noise-root refs skipped."""
     out = CharSet.EMPTY
@@ -152,7 +152,7 @@ def _seq_content(
     return out
 
 
-def _noise_or_nullable(analysis: Any, roots: "frozenset[str]", item: IrItem) -> bool:
+def _noise_or_nullable(analysis: Any, roots: frozenset[str], item: IrItem) -> bool:
     """Whether ``item`` is nullable or a noise-root reference (scanner-skipped)."""
     atom = item.atom
     if isinstance(atom, IrRuleRef) and str(atom) in roots:
@@ -161,7 +161,7 @@ def _noise_or_nullable(analysis: Any, roots: "frozenset[str]", item: IrItem) -> 
 
 
 def _post_noise_follow(
-    analysis: Any, roots: "frozenset[str]", skip: int | None = None
+    analysis: Any, roots: frozenset[str], skip: int | None = None
 ) -> dict[str, CharSet]:
     """Rule → the *content* (non-noise) chars reachable after it once the noise
     run is skipped — the sound exit set for a P3 loop peek.
@@ -186,7 +186,7 @@ def _post_noise_follow(
 
 def _grow_post_noise(
     analysis: Any,
-    roots: "frozenset[str]",
+    roots: frozenset[str],
     follow: dict[str, CharSet],
     skip: int | None,
 ) -> bool:
@@ -216,7 +216,7 @@ def _grow_post_noise(
 
 def _follow_content(
     analysis: Any,
-    roots: "frozenset[str]",
+    roots: frozenset[str],
     rest: Sequence[IrItem],
     tail: CharSet,
 ) -> CharSet:
@@ -252,7 +252,7 @@ def _exit_is_noise(analysis: Any, items: Sequence[IrItem], k: int) -> bool:
     return True
 
 
-def _root_idxs(rec: Recognizer, names: "frozenset[str]") -> tuple[int, ...]:
+def _root_idxs(rec: Recognizer, names: frozenset[str]) -> tuple[int, ...]:
     """The recognizer indices of ``names``, sorted for determinism."""
     return tuple(sorted(rec.index[n] for n in names))
 
@@ -279,7 +279,7 @@ def structured_loop_gate(
 
 
 def _match_gate(
-    analysis: Any, roots: "frozenset[str]", items: Sequence[IrItem], k: int, scope: Any
+    analysis: Any, roots: frozenset[str], items: Sequence[IrItem], k: int, scope: Any
 ) -> "ScanGate | None":
     """The pure-folding ``SG_MATCH`` gate, or ``None``.
 
@@ -336,7 +336,7 @@ def _sem_follow_clear(
 
 
 def _scan_or_probe_gate(
-    analysis: Any, roots: "frozenset[str]", items: Sequence[IrItem], k: int, scope: Any
+    analysis: Any, roots: frozenset[str], items: Sequence[IrItem], k: int, scope: Any
 ) -> "ScanGate | None":
     """The skip-then-peek ``SG_SCAN`` gate, escalating to ``SG_PROBE`` when the
     post-noise take and exit content leads overlap."""
@@ -353,7 +353,7 @@ def _scan_or_probe_gate(
 
 
 def _scan_from(
-    analysis: Any, lead: "frozenset[str]", take: CharSet, exit_cs: CharSet
+    analysis: Any, lead: frozenset[str], take: CharSet, exit_cs: CharSet
 ) -> "ScanGate | None":
     """Build the ``SG_SCAN`` gate for a skip-then-peek decision, escalating to
     ``SG_PROBE`` when the post-noise take and exit content leads overlap.
@@ -424,7 +424,7 @@ def structured_arm_gate(
 
 
 def _probe_gate(
-    analysis: Any, lead: "frozenset[str]", take: CharSet, exit_cs: CharSet
+    analysis: Any, lead: frozenset[str], take: CharSet, exit_cs: CharSet
 ) -> "ScanGate | None":
     """The P5 skip-then-probe gate (GBNF ``sequence[1]``), or ``None``.
 
@@ -458,8 +458,8 @@ def _probe_gate(
 
 
 def _probe_candidate(
-    analysis: Any, lead: "frozenset[str]", overlap: CharSet
-) -> "tuple[str, str, str] | None":
+    analysis: Any, lead: frozenset[str], overlap: CharSet
+) -> tuple[str, str, str] | None:
     """The unique ``(R, noise root, L)`` header spec explaining ``overlap``.
 
     Scans every semantic rule's arms for the header shape

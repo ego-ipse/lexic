@@ -39,7 +39,7 @@ _WS = IrCharClass(IrChr(32), IrChr(9))
 """A tiny whitespace class (space + tab) for the hand grammars."""
 
 
-def _item(atom, lo: int = 1, hi: "int | None" = 1) -> IrItem:
+def _item(atom, lo: int = 1, hi: int | None = 1) -> IrItem:
     """An item with explicit bounds (``hi=None`` → unbounded)."""
     return IrItem(atom, IrQuantifier(lo, IrNone if hi is None else hi))
 

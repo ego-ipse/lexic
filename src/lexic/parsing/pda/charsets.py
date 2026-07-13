@@ -80,8 +80,8 @@ class CharSet:
     chars: frozenset[str]
     negated: bool = False
 
-    EMPTY: ClassVar["CharSet"]
-    ANY: ClassVar["CharSet"]
+    EMPTY: ClassVar[CharSet]
+    ANY: ClassVar[CharSet]
 
     def has(self, ch: str) -> bool:
         """Whether ``ch`` is a member.
@@ -96,7 +96,7 @@ class CharSet:
             return ch != "" and ch not in self.chars
         return ch in self.chars
 
-    def union(self, other: "CharSet") -> "CharSet":
+    def union(self, other: CharSet) -> CharSet:
         """Set union — exact for every real character.
 
         .. note::
@@ -120,7 +120,7 @@ class CharSet:
             return CharSet(self.chars - other.chars, True)
         return CharSet(other.chars - self.chars, True)
 
-    def subtract(self, other: "CharSet") -> "CharSet":
+    def subtract(self, other: CharSet) -> CharSet:
         """Set difference ``self − other``, exact across all four polarity
         combinations, including the EOF sentinel.
 
@@ -138,7 +138,7 @@ class CharSet:
             return CharSet(self.chars | other.chars, True)
         return CharSet(other.chars - self.chars, False)
 
-    def overlaps(self, other: "CharSet") -> bool:
+    def overlaps(self, other: CharSet) -> bool:
         """Whether ``self`` and ``other`` share any member, including the EOF
         sentinel, exact across all four polarity combinations.
 
@@ -171,7 +171,7 @@ class CharSet:
         return not self.negated and not self.chars
 
     @classmethod
-    def from_charclass(cls, cc: IrCharClass) -> "CharSet":
+    def from_charclass(cls, cc: IrCharClass) -> CharSet:
         """Expand a character class to its exact member set.
 
         Enumerates whichever side is smaller — the class's own coalesced
@@ -195,7 +195,7 @@ class CharSet:
         return cls.ANY
 
     @classmethod
-    def from_not(cls, inner: IrCharClass) -> "CharSet":
+    def from_not(cls, inner: IrCharClass) -> CharSet:
         """Complement of ``inner``'s expansion — the ``IrNot(charclass)`` case.
 
         :meth:`from_charclass` already picked whichever side of ``inner`` is
@@ -216,7 +216,7 @@ class CharSet:
         return cls(positive.chars, not positive.negated)
 
     @classmethod
-    def from_chars(cls, *chars: str) -> "CharSet":
+    def from_chars(cls, *chars: str) -> CharSet:
         """Build an exact positive set from explicit single-character strings.
 
         Used for e.g. a literal's leading character, or FOLLOW-set EOF

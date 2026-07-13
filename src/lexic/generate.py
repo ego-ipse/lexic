@@ -65,26 +65,26 @@ def _item(nc: Sequence[IrSelf]) -> IrItem:
     return item
 
 
-def _gen_literal(_d: "_Generator", n: IrLiteral, nc: Sequence[IrSelf]) -> str:
+def _gen_literal(_d: _Generator, n: IrLiteral, nc: Sequence[IrSelf]) -> str:
     """Emit a literal verbatim, repeated when quantified."""
     q = _item(nc).quantifier
     return n * _pick_count(q, _d.rng) if q != _UNIT else n
 
 
-def _gen_charclass(_d: "_Generator", n: IrCharClass, nc: Sequence[IrSelf]) -> str:
+def _gen_charclass(_d: _Generator, n: IrCharClass, nc: Sequence[IrSelf]) -> str:
     """Emit sampled characters from a char class under its quantifier."""
     count = _pick_count(_item(nc).quantifier, _d.rng)
     return "".join(chr(n.sample(_d.rng)) for _ in range(count))
 
 
-def _gen_ruleref(_d: "_Generator", n: IrRuleRef, nc: Sequence[IrSelf]) -> str:
+def _gen_ruleref(_d: _Generator, n: IrRuleRef, nc: Sequence[IrSelf]) -> str:
     """Expand a rule ref, recursing at ``max_depth - 1`` under its quantifier."""
     count = _pick_count(_item(nc).quantifier, _d.rng)
     child = _Generator(rng=_d.rng, rules=_d.rules, max_depth=_d.max_depth - 1)
     return "".join(child.run(str(n)) for _ in range(count))
 
 
-def _gen_group(_d: "_Generator", n: IrAlternation, nc: Sequence[IrSelf]) -> str:
+def _gen_group(_d: _Generator, n: IrAlternation, nc: Sequence[IrSelf]) -> str:
     """Expand an inline group, repeated under its quantifier."""
     count = _pick_count(_item(nc).quantifier, _d.rng)
     return "".join(_d.alternation(n) for _ in range(count))

@@ -19,7 +19,7 @@ from lexic.grammars.abnf import ABNF_GRAMMAR
 from lexic.grammars.gbnf import GBNF_GRAMMAR
 from lexic.parsing.pda import reduce_runtime as rr
 from lexic.parsing.pda.reduce_runtime import parse_pda
-from lexic.parsing.pda.runtime import PdaFail, PdaKernel
+from lexic.parsing.pda.runtime import PdaKernel
 from lexic.parsing.products import _reduce_product
 from tests.integration.test_pda_parity import _ALL_STEMS
 from tests.paths import GROUND_TRUTH
@@ -101,9 +101,11 @@ _GBNF_GOOD_STEMS: tuple[str, ...] = tuple(
     for stem in _ALL_STEMS
     if stem.endswith(".gbnf") and stem not in {"json_arr.gbnf", "json_ws.gbnf"}
 )
-"""``test_pda_parity``'s full ground-truth stem list, narrowed to the six
-GBNF files the self-grammar reduce PDA parses end-to-end (excluding the two
-known ``PdaFail`` residues pinned below)."""
+"""``test_pda_parity``'s full ground-truth stem list, narrowed to the six GBNF
+files without an empty-first-arm rule; ``json_arr``/``json_ws`` (whose ``ws``
+rule leads with an empty arm) are pinned separately below — they too parse
+pure-PDA once the empty-arm structured gate demotes the self-grammar's ``arm``
+decision."""
 
 
 @pytest.mark.parametrize("stem", _GBNF_GOOD_STEMS)
@@ -126,12 +128,11 @@ def test_reduce_pda_gbnf_self_emit_matches_parse_grammar() -> None:
 
 
 @pytest.mark.parametrize("stem", ["json_arr.gbnf", "json_ws.gbnf"])
-def test_reduce_pda_gbnf_json_ws_variants_still_pdafail(stem: str) -> None:
-    """``json_arr.gbnf``/``json_ws.gbnf`` still raise ``PdaFail`` on the direct
-    reduce-PDA call — the recorded empty-first-arm residue. Removing this pin
-    is EXPECTED (not a regression) once the struct arm gate lands."""
+def test_reduce_pda_gbnf_empty_first_arm_variants_pure_pda(stem: str) -> None:
+    """``json_arr.gbnf``/``json_ws.gbnf`` — whose ``ws`` rule has an empty first
+    arm — parse pure-PDA (no ``PdaFail``) byte-equal to ``parse_grammar``: the
+    empty-arm structured gate demotes the self-grammar's ``arm`` decision."""
     pda = _reduce_pda(GBNF_FLAVOUR)
     assert pda is not None
     text = (GROUND_TRUTH / stem).read_text(encoding="utf-8")
-    with pytest.raises(PdaFail):
-        parse_pda(pda, text)
+    assert parse_pda(pda, text) == parse_grammar(text, GBNF_FLAVOUR)

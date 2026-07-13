@@ -87,9 +87,9 @@ class _FeedCtx(IrLeaf[IrSelf, IrSelf]):
 
     eff: CharSet
     rule: str
-    pass_: "_FollowPass"
+    pass_: _FollowPass
 
-    def __init__(self, eff: CharSet, rule: str, pass_: "_FollowPass") -> None:
+    def __init__(self, eff: CharSet, rule: str, pass_: _FollowPass) -> None:
         self.eff = eff
         self.rule = rule
         self.pass_ = pass_
@@ -172,12 +172,12 @@ class _ConflictCtx(IrLeaf[IrSelf, IrSelf]):
 
     __slots__ = ("notes", "cont", "rule", "index")
 
-    notes: "_Notes"
-    cont: "_Cont"
+    notes: _Notes
+    cont: _Cont
     rule: str
     index: int
 
-    def __init__(self, notes: "_Notes", cont: "_Cont", rule: str, index: int) -> None:
+    def __init__(self, notes: _Notes, cont: _Cont, rule: str, index: int) -> None:
         self.notes = notes
         self.cont = cont
         self.rule = rule
@@ -220,7 +220,7 @@ class _Nullability(IrLeaf[IrSelf, IrSelf]):
 # ── nullability dispatch bodies ───────────────────────────────────────────
 
 
-def _null_ruleref(d: "GrammarAnalysis | _Nullability", n: IrSelf, _nc: object) -> bool:
+def _null_ruleref(d: GrammarAnalysis | _Nullability, n: IrSelf, _nc: object) -> bool:
     """A rule ref is nullable iff its target is currently known nullable."""
     return str(n) in d.nullable
 
@@ -236,7 +236,7 @@ def _null_never(_d: object, _n: IrSelf, _nc: object) -> bool:
 
 
 def _null_alternation(
-    d: "GrammarAnalysis | _Nullability", n: IrSelf, _nc: object
+    d: GrammarAnalysis | _Nullability, n: IrSelf, _nc: object
 ) -> bool:
     """A group is nullable iff any arm's items are all nullable."""
     assert isinstance(n, IrAlternation)
@@ -267,13 +267,13 @@ def _first_not(_d: object, n: IrSelf, _nc: object) -> CharSet:
     return CharSet.ANY
 
 
-def _first_ruleref(d: "GrammarAnalysis", n: IrSelf, _nc: object) -> CharSet:
+def _first_ruleref(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
     """FIRST of a rule ref: the target's current FIRST; undefined ref → ANY."""
     got = d.first.get(str(n))
     return CharSet.ANY if got is None else got
 
 
-def _first_alternation(d: "GrammarAnalysis", n: IrSelf, _nc: object) -> CharSet:
+def _first_alternation(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
     """FIRST of a group: the union of its arms' sequence FIRSTs."""
     assert isinstance(n, IrAlternation)
     out = CharSet.EMPTY
@@ -285,18 +285,18 @@ def _first_alternation(d: "GrammarAnalysis", n: IrSelf, _nc: object) -> CharSet:
 # ── hard-FIRST dispatch bodies ────────────────────────────────────────────
 
 
-def _hard_terminal(d: "GrammarAnalysis", n: IrSelf, _nc: object) -> CharSet:
+def _hard_terminal(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
     """hard-FIRST of a terminal atom equals its FIRST (it is not nullable)."""
     return d.atom_first(cast(IrAtom, n))
 
 
-def _hard_ruleref(d: "GrammarAnalysis", n: IrSelf, _nc: object) -> CharSet:
+def _hard_ruleref(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
     """hard-FIRST of a rule ref: the target's current hard-FIRST; else ANY."""
     got = d.hard.get(str(n))
     return CharSet.ANY if got is None else got
 
 
-def _hard_alternation(d: "GrammarAnalysis", n: IrSelf, _nc: object) -> CharSet:
+def _hard_alternation(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
     """hard-FIRST of a group: the union of its arms' sequence hard-FIRSTs."""
     assert isinstance(n, IrAlternation)
     out = CharSet.EMPTY
@@ -321,7 +321,7 @@ def _stopset_no(_d: object, _n: IrSelf, _nc: object) -> bool:
 # ── FOLLOW-feed dispatch bodies ───────────────────────────────────────────
 
 
-def _feed_ruleref(d: "GrammarAnalysis", n: IrSelf, nc: Sequence[IrSelf]) -> bool:
+def _feed_ruleref(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> bool:
     """Union the effective continuation into a defined ref target's FOLLOW.
 
     :returns: ``True`` iff the target's FOLLOW set grew.
@@ -338,7 +338,7 @@ def _feed_ruleref(d: "GrammarAnalysis", n: IrSelf, nc: Sequence[IrSelf]) -> bool
     return False
 
 
-def _feed_alternation(d: "GrammarAnalysis", n: IrSelf, nc: Sequence[IrSelf]) -> bool:
+def _feed_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> bool:
     """Feed the effective continuation into each of a group's arms."""
     assert isinstance(n, IrAlternation)
     ctx = cast(_FeedCtx, nc[0])
@@ -357,14 +357,14 @@ def _feed_terminal(_d: object, _n: IrSelf, _nc: object) -> bool:
 # ── sequence-conflict dispatch bodies ─────────────────────────────────────
 
 
-def _seq_ruleref(d: "GrammarAnalysis", n: IrSelf, nc: Sequence[IrSelf]) -> None:
+def _seq_ruleref(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> None:
     """Flag a rule ref whose target the grammar never defines."""
     if str(n) not in d.rules:
         ctx = cast(_ConflictCtx, nc[0])
         ctx.notes.hard.append(f"{ctx.rule}[{ctx.index}]: undefined ref {str(n)!r}")
 
 
-def _seq_alternation(d: "GrammarAnalysis", n: IrSelf, nc: Sequence[IrSelf]) -> None:
+def _seq_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> None:
     """Recurse conflict analysis into an inline group's arms."""
     assert isinstance(n, IrAlternation)
     ctx = cast(_ConflictCtx, nc[0])
@@ -435,19 +435,19 @@ _SEQ_ATOM: IrTypeMap = IrTypeMap(
 # ── nullability helpers (shared by solver and analysis) ────────────────────
 
 
-def _item_nullable(d: "GrammarAnalysis | _Nullability", item: IrItem) -> bool:
+def _item_nullable(d: GrammarAnalysis | _Nullability, item: IrItem) -> bool:
     """Whether ``item`` can consume nothing: ``lo == 0`` or a nullable atom."""
     if int(item.quantifier.lo) == 0:
         return True
     return cast(bool, _NULLABLE.resolve(item.atom).eval(d, item.atom, ()))
 
 
-def _seq_nullable(d: "GrammarAnalysis | _Nullability", items: Sequence[IrItem]) -> bool:
+def _seq_nullable(d: GrammarAnalysis | _Nullability, items: Sequence[IrItem]) -> bool:
     """Whether every item in a sequence arm is nullable (empty arm → True)."""
     return all(_item_nullable(d, i) for i in items)
 
 
-def _rule_nullable(d: "GrammarAnalysis | _Nullability", rule: IrRule) -> bool:
+def _rule_nullable(d: GrammarAnalysis | _Nullability, rule: IrRule) -> bool:
     """Whether any arm of ``rule`` is all-nullable."""
     return any(_seq_nullable(d, _items(arm)) for arm in rule.body)
 
@@ -683,7 +683,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         arms: list[Sequence[IrItem]],
         ext_follow: CharSet,
         label: str,
-        notes: "_Notes",
+        notes: _Notes,
     ) -> bool:
         """The rule-body arm-overlap demotion cascade — P2 k-window, then the
         P3 noise-skip peek — storing the winning gate spec in its taxonomy
@@ -704,7 +704,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         return False
 
     def _demote_struct_arm(
-        self, arms: Sequence[Sequence[IrItem]], label: str, notes: "_Notes"
+        self, arms: Sequence[Sequence[IrItem]], label: str, notes: _Notes
     ) -> bool:
         """The empty-arm structured-noise demotion: store the scan gate + escape
         arm index in its taxonomy channel plus the soft note. ``False`` ⇒ no
@@ -717,7 +717,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         return True
 
     def _demote_loop(
-        self, items: Sequence[IrItem], k: int, scope: "_Scope", notes: "_Notes"
+        self, items: Sequence[IrItem], k: int, scope: _Scope, notes: _Notes
     ) -> bool:
         """The loop take/skip demotion cascade — P2 k-window, then the P3
         noise-skip peek — storing the spec under the item node's identity plus
@@ -772,7 +772,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         items: Sequence[IrItem],
         tail: CharSet,
         rule: str,
-        pass_: "_FollowPass",
+        pass_: _FollowPass,
     ) -> bool:
         """Feed FOLLOW contributions of a sequence whose continuation is ``tail``.
 
@@ -828,7 +828,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         arms: Sequence[Sequence[IrItem]],
         ext_follow: CharSet,
         label: str,
-        notes: "_Notes",
+        notes: _Notes,
     ) -> None:
         """Flag pairwise FIRST overlaps and empty-arm-vs-FOLLOW ambiguities.
 
@@ -870,7 +870,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     notes.soft.append(f"{label}: arm {i} FIRST hits FOLLOW (greedy)")
 
     def seq_conflicts(
-        self, items: Sequence[IrItem], scope: "_Scope", notes: "_Notes"
+        self, items: Sequence[IrItem], scope: _Scope, notes: _Notes
     ) -> None:
         """Classify every decision point in one sequence arm."""
         for k in range(len(items)):
@@ -878,7 +878,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             self._sub_conflict(items, k, scope, notes)
 
     def _loop_conflict(
-        self, items: Sequence[IrItem], k: int, scope: "_Scope", notes: "_Notes"
+        self, items: Sequence[IrItem], k: int, scope: _Scope, notes: _Notes
     ) -> None:
         """Classify item ``k``'s continue/exit decision (the pivot-6 taxonomy)."""
         item = items[k]
@@ -914,7 +914,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         self._soft_gap_conflict(items, k, scope, notes)
 
     def _soft_gap_conflict(
-        self, items: Sequence[IrItem], k: int, scope: "_Scope", notes: "_Notes"
+        self, items: Sequence[IrItem], k: int, scope: _Scope, notes: _Notes
     ) -> None:
         """Classify a loop whose FIRST overlaps only *soft* followers.
 
@@ -944,7 +944,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             )
 
     def _sub_conflict(
-        self, items: Sequence[IrItem], k: int, scope: "_Scope", notes: "_Notes"
+        self, items: Sequence[IrItem], k: int, scope: _Scope, notes: _Notes
     ) -> None:
         """Dispatch item ``k``'s atom for undefined-ref / group-recursion checks."""
         item = items[k]

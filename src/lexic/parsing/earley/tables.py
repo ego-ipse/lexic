@@ -147,7 +147,7 @@ def expand_atom(atom: IrSelf) -> Charset:
     return frozenset(chars)
 
 
-def atom_accepts(atom: "IrLiteral | IrCharClass | IrNot | RunTerm", char: str) -> bool:
+def atom_accepts(atom: IrLiteral | IrCharClass | IrNot | RunTerm, char: str) -> bool:
     """Whether a terminal atom can **begin** with ``char`` — the scan filter.
 
     A multi-char literal is begun by its first character (the full match is
@@ -604,7 +604,7 @@ class _TableBuilder:
         self.codes.append((arm_id, -(self._term_id(term) + 1)))
         self.codes.append((arm_id, 0))
 
-    def _term_id(self, atom: "IrLiteral | IrCharClass | IrNot | RunTerm") -> int:
+    def _term_id(self, atom: IrLiteral | IrCharClass | IrNot | RunTerm) -> int:
         """The term_id for ``atom``, minting one on first sight."""
         tid = self.terms.get(atom)
         if tid is None:

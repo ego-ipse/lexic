@@ -92,7 +92,7 @@ class Yield(IrLeaf[IrSelf, IrSelf]):
         for k in n.kids:
             if (
                 isinstance(k, ParseTree)
-                and cast("Reducer", d).noise.resolve(k.symbol) is DROP
+                and cast(Reducer, d).noise.resolve(k.symbol) is DROP
             ):
                 continue
             parts.append(str(self.eval(d, k, ())))
@@ -148,9 +148,9 @@ class ResolveSource(IrLeaf[IrSelf, IrSelf]):
 
     _node: ParseTree
     _ctx: ReduceCtx
-    _reducer: "Reducer"
+    _reducer: Reducer
 
-    def __init__(self, node: ParseTree, ctx: ReduceCtx, reducer: "Reducer") -> None:
+    def __init__(self, node: ParseTree, ctx: ReduceCtx, reducer: Reducer) -> None:
         """:param node: the tree; :param ctx: the cursor; :param reducer: the policy."""
         self._node = node
         self._ctx = ctx
@@ -201,9 +201,9 @@ class ReduceSource(IrLeaf[IrSelf, IrSelf]):
 
     _node: ParseTree
     _ctx: ReduceCtx
-    _reducer: "Reducer"
+    _reducer: Reducer
 
-    def __init__(self, node: ParseTree, ctx: ReduceCtx, reducer: "Reducer") -> None:
+    def __init__(self, node: ParseTree, ctx: ReduceCtx, reducer: Reducer) -> None:
         """:param node: the tree; :param ctx: the cursor; :param reducer: the policy."""
         self._node = node
         self._ctx = ctx
@@ -260,11 +260,11 @@ class _FastReduce(IrLeaf[IrSelf, IrSelf]):
 
     __slots__ = ("reducer", "ctx", "_ctx_nc", "stack")
 
-    reducer: "Reducer"
-    ctx: "ReduceCtx"
+    reducer: Reducer
+    ctx: ReduceCtx
     stack: list[list]
 
-    def __init__(self, reducer: "Reducer", ctx: "ReduceCtx") -> None:
+    def __init__(self, reducer: Reducer, ctx: ReduceCtx) -> None:
         """:param reducer: the policy; :param ctx: the reduction cursor."""
         self.reducer = reducer
         self.ctx = ctx
@@ -402,7 +402,7 @@ class ReducePlan(IrLeaf[IrSelf, IrSelf]):
         "mentions",
     )
 
-    def __init__(self, reducer: "Reducer", tables: ParserTables) -> None:
+    def __init__(self, reducer: Reducer, tables: ParserTables) -> None:
         """Compile ``reducer``'s policies against ``tables``' rule numbering.
 
         :param reducer: The reducer whose tables to compile.
@@ -434,7 +434,7 @@ class ReducePlan(IrLeaf[IrSelf, IrSelf]):
         self.bodies: list[IrSelf | None] = [None] * len(kinds)
         self.mentions: list[bool] = [False] * len(kinds)
 
-    def body(self, reducer: "Reducer", rid: int) -> IrSelf:
+    def body(self, reducer: Reducer, rid: int) -> IrSelf:
         """Rule ``rid``'s reduction body, resolved lazily and cached.
 
         The single home for reduction-body resolution + YIELD-mention flagging:
@@ -485,7 +485,7 @@ _PLANS: dict[tuple[int, int], tuple[object, object, ReducePlan]] = {}
 references pin both ids, so recycled ids can never alias live entries."""
 
 
-def plan_for(reducer: "Reducer", tables: ParserTables) -> ReducePlan:
+def plan_for(reducer: Reducer, tables: ParserTables) -> ReducePlan:
     """The cached :class:`ReducePlan` for a ``(reducer, tables)`` pair."""
     key = (id(reducer), id(tables))
     entry = _PLANS.get(key)
@@ -523,12 +523,12 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
     __slots__ = ("kernel", "reducer", "plan", "memo", "stack")
 
     kernel: Kernel
-    reducer: "Reducer"
+    reducer: Reducer
     plan: ReducePlan
     memo: dict[int, IrSelf]
     stack: list[list]
 
-    def __init__(self, kernel: Kernel, reducer: "Reducer") -> None:
+    def __init__(self, kernel: Kernel, reducer: Reducer) -> None:
         """:param kernel: the finished kernel; :param reducer: the policies."""
         self.kernel = kernel
         self.reducer = reducer
@@ -754,7 +754,7 @@ _COLLAPSED: dict[tuple[int, int], tuple[object, object, ParserTables]] = {}
 tables). Strong references pin both ids against reuse."""
 
 
-def _run_mode(reducer: "Reducer", tables: ParserTables, unit_rid: int) -> int | None:
+def _run_mode(reducer: Reducer, tables: ParserTables, unit_rid: int) -> int | None:
     """The per-char contribution mode a collapsed run must reconstruct.
 
     ``None`` means the unit's contributions cannot be reconstructed from the
@@ -789,7 +789,7 @@ def _run_mode(reducer: "Reducer", tables: ParserTables, unit_rid: int) -> int | 
     return modes.pop() if len(modes) == 1 else None
 
 
-def collapsed_tables(reducer: "Reducer", grammar: IrAst) -> ParserTables:
+def collapsed_tables(reducer: Reducer, grammar: IrAst) -> ParserTables:
     """Tables for ``grammar`` with every run provable safe *for this reducer*
     collapsed to a :class:`~lexic.parsing.earley.tables.RunTerm`.
 

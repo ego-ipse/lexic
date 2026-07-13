@@ -189,7 +189,7 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
     return scan_gate_take(text, pos, gate)  # GATE_SCAN — the ScanGate itself
 
 
-def select_gated(text: str, pos: int, clone: "FlatClone") -> Any:
+def select_gated(text: str, pos: int, clone: FlatClone) -> Any:
     """The gated arm of a k-window or noise-skip alternation at ``pos``.
 
     A P2 clone matches ``text[pos:pos+k]`` EOF-exactly against each arm's
@@ -287,6 +287,12 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         dispatch/leaf specialisations are skipped for this clone.
     :ivar default: The all-nullable default :class:`FlatArm`, or ``None``; on
         a dispatch clone the default target clone or :data:`DISPATCH_EMPTY`.
+    :ivar struct_arm: The empty-arm structured-noise
+        :class:`~lexic.parsing.pda.scanner.ScanGate`, or ``None``. When set, the
+        runtime consults :func:`~lexic.parsing.pda.scanner.scan_gate_take` before
+        the FIRST-gated selection: a take admits the gated arms, a refusal
+        selects :attr:`default` (the escape arm). Dispatch conversion is skipped
+        for such a clone (the gate branch must survive).
     :ivar mode: The build-mode (one of the ``_BUILD_*`` constants).
     :ivar fold: The rule's :class:`~lexic.parsing.fold.RuleFold`, or ``None``
         (transparent).
@@ -323,6 +329,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         "kwin_selectors",
         "pn_selectors",
         "default",
+        "struct_arm",
         "mode",
         "fold",
         "fields",
@@ -341,6 +348,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     kwin_selectors: Any
     pn_selectors: Any
     default: Any
+    struct_arm: Any  # ScanGate | None — the empty-arm gate, consulted at select
     mode: int
     fold: Any  # RuleFold | None — Any-typed like payloads: hot-loop reads
     fields: tuple[tuple[int, int, str, int], ...]
@@ -463,6 +471,8 @@ def _convert_dispatch(clone: FlatClone) -> None:
         return  # a k-window-gated alternation selects by window, not lead char
     if clone.pn_selectors is not None:
         return  # a noise-skip alternation selects by post-noise peek
+    if clone.struct_arm is not None:
+        return  # an empty-arm gate must run before any lead-char dispatch
     targets = [_unit_ref_target(arm) for _chars, _negated, arm in clone.selectors]
     if any(target is None for target in targets):
         return

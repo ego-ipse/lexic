@@ -21,11 +21,12 @@ from typing import NamedTuple
 
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.charsets import CharSet
-from lexic.parsing.pda.scanner import ScanGate
+from lexic.parsing.pda.scanner import ArmGate, ScanGate
 
 __all__ = [
     "CloneKey",
     "IslandRef",
+    "ArmGates",
     "StopGate",
     "PairGate",
     "KTupleGate",
@@ -163,6 +164,25 @@ class ArmSpec(NamedTuple):
     peek: tuple[CharSet, CharSet] | None = None
 
 
+class ArmGates(NamedTuple):
+    """The analysis-sourced arm-demotion specs for one alternation, bundled.
+
+    A rule body's stored gate specs, read from the
+    :class:`~lexic.parsing.pda.analysis.Taxonomy` and handed to
+    :meth:`~lexic.parsing.pda.clones._PdaCompiler.compile_arms` together so the
+    per-arm alignment stays inside one enumeration. An inline group passes the
+    empty default (no demotion).
+
+    :ivar windows: P2 k-window per-arm selection sets, or ``None``.
+    :ivar peeks: P3 noise-skip ``(W, per-arm post-noise selectors)``, or ``None``.
+    :ivar struct_arm: The empty-arm structured-noise :class:`ArmGate`, or ``None``.
+    """
+
+    windows: tuple[tuple[tuple[CharSet, ...], ...], ...] | None = None
+    peeks: tuple[CharSet, tuple[CharSet, ...]] | None = None
+    struct_arm: ArmGate | None = None
+
+
 class GroupSpec(NamedTuple):
     """An inline ``(...)`` group's arm selection — the ``grp`` payload.
 
@@ -185,6 +205,10 @@ class CloneSpec(NamedTuple):
         ``None`` for a transparent helper clone.
     :ivar match_only: ``True`` for a ``value_str`` rule — pure-terminal
         interior, the runtime slices ``text[a:b]`` instead of building below.
+    :ivar struct_arm: The empty-arm structured-noise gate (a
+        :class:`~lexic.parsing.pda.scanner.ScanGate`), or ``None``. When set, the
+        runtime consults it before the FIRST-gated selection: a take admits the
+        gated arms, a refusal selects the nullable :attr:`default` (escape) arm.
     """
 
     name: str
@@ -192,3 +216,4 @@ class CloneSpec(NamedTuple):
     default: tuple[ItemSpec, ...] | None
     fold: RuleFold | None
     match_only: bool
+    struct_arm: ScanGate | None = None

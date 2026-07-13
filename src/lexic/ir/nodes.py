@@ -130,7 +130,7 @@ class IrSequence(IrSeq["IrItem"]):
     ``IrStr`` mid-emit) are undisturbed. Idempotent on canonical input.
     """
 
-    def __new__(cls, *items: "IrItem | IrAtom") -> Self:
+    def __new__(cls, *items: IrItem | IrAtom) -> Self:
         """Construct a sequence, wrapping bare atoms to unit ``IrItem`` nodes.
 
         :param items: Elements — each an ``IrItem`` (kept), an ``IrAtom``
@@ -162,7 +162,7 @@ class IrAlternation(IrSeq[IrSequence], IrAtom):
     Idempotent on canonical input.
     """
 
-    def __new__(cls, *arms: "IrSequence | IrItem | IrAtom") -> Self:
+    def __new__(cls, *arms: IrSequence | IrItem | IrAtom) -> Self:
         """Construct an alternation, wrapping bare arms to single-item sequences.
 
         :param arms: Arms — each an ``IrSequence`` (kept), an ``IrItem`` or
@@ -184,7 +184,7 @@ class IrAlternation(IrSeq[IrSequence], IrAtom):
 # ── Concrete composite records ────────────────────────────────────────
 
 
-class IrBounds(IrLeaf, IrNamedTuple[int, "int | IrNoneType"]):
+class IrBounds(IrLeaf, IrNamedTuple[int, int | IrNoneType]):
     """Shared ``(lo, hi)`` bounds — type-aware equality plus in-bounds membership.
 
     Abstract base for :class:`IrQuantifier` (int counts) and :class:`IrRange`
@@ -301,7 +301,7 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
                 parts.append(_escape_regex_point(int(el)))
         return "".join(parts)
 
-    def sample(self, rng: "random.Random") -> int:
+    def sample(self, rng: random.Random) -> int:
         """Pick one covered code point uniformly, without materialising members.
 
         A complement class can span the whole Unicode range; enumerating its
@@ -365,7 +365,7 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
         return points
 
     @staticmethod
-    def _coalesce(raw: "list[tuple[int, int]]") -> "list[tuple[int, int]]":
+    def _coalesce(raw: list[tuple[int, int]]) -> list[tuple[int, int]]:
         """Sort ``raw`` spans and merge overlapping/adjacent ones into a cover.
 
         The single home for the interval merge algorithm — :meth:`intervals`
@@ -402,7 +402,7 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
         return self._coalesce(raw)
 
     @classmethod
-    def from_intervals(cls, spans: "Iterable[tuple[int, int]]") -> "IrCharClass":
+    def from_intervals(cls, spans: Iterable[tuple[int, int]]) -> IrCharClass:
         """Build a normalised class from ``(lo, hi)`` intervals, coalescing first.
 
         Members are constructed directly (``IrChr`` for a single point, an
@@ -415,7 +415,7 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
         return cls(*(cls._span(lo, hi) for lo, hi in cls._coalesce(list(spans))))
 
     @staticmethod
-    def _span(lo: int, hi: int) -> "IrRange | IrChr":
+    def _span(lo: int, hi: int) -> IrRange | IrChr:
         """A single code point renders as ``IrChr``; a wider span as ``IrRange``."""
         return IrChr(lo) if lo == hi else IrRange(IrChr(lo), IrChr(hi))
 
@@ -472,7 +472,7 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier], init=False):
     quantifier: IrQuantifier = IrQuantifier()
 
     def __new__(
-        cls, atom: "IrAtom | IrSequence", quantifier: IrQuantifier = IrQuantifier()
+        cls, atom: IrAtom | IrSequence, quantifier: IrQuantifier = IrQuantifier()
     ) -> Self:
         """Construct an item, wrapping a bare sequence group to an alternation.
 
@@ -521,7 +521,7 @@ class IrRule(IrNamedTuple[IrStr, IrAlternation, bool], init=False):
     def __new__(
         cls,
         name: str,
-        body: "IrAlternation | IrSequence | IrItem | IrAtom",
+        body: IrAlternation | IrSequence | IrItem | IrAtom,
         semantic: bool = True,
     ) -> Self:
         """Construct a rule, lifting a non-alternation body to a single-arm one.
