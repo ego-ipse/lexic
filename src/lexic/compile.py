@@ -101,7 +101,7 @@ class CompiledGrammar:
     classes: dict[str, type]
     grammar: IrAst
     codegen_grammar: IrAst
-    fold: ModelFold
+    fold: ModelFold[GrammarModel]
 
     def parse(self, text: str) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
@@ -149,18 +149,12 @@ def parse_grammar(text: str, flavour: IrFlavour) -> IrAst:
 
     :param text: Grammar source in ``flavour``'s syntax.
     :param flavour: The grammar flavour (e.g. ``GBNF_FLAVOUR``).
-    :returns: The reduced grammar AST.
+    :returns: The reduced grammar :class:`IrAst`.
     :raises UnsupportedConstructError: If the flavour carries no ``Reducer``,
         ``text`` does not parse, or the reduction is not an ``IrAst``.
     """
     reducer = _flavour_reducer(flavour)
-    ast = parse_reduced(flavour.grammar, text, reducer)
-    if not isinstance(ast, IrAst):
-        raise UnsupportedConstructError(
-            f"compile: flavour {flavour.name!r} reduction produced "
-            f"{type(ast).__name__!r}, not an IrAst"
-        )
-    return ast
+    return parse_reduced(flavour.grammar, text, reducer)
 
 
 def _stem_for_text(text: str) -> str:

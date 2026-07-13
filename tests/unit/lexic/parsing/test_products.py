@@ -7,7 +7,7 @@ thin wrappers, already covered in ``test_compile.py``) and pin the parts of
 the module those wrappers never touch: the Earley-completion entries as a
 route-forcing seam, ``_reduce_product``/``_model_product`` memoisation by
 object identity (including the ``reset_product_cache`` test seam), and the
-two boundary checks (``_as_ir``'s type narrowing, ``parse_reduced``'s
+two boundary checks (``_as_ast``'s type narrowing, ``parse_reduced``'s
 reducer-shape guard).
 """
 
@@ -25,7 +25,7 @@ from lexic.ir.nodes import IrAst
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.products import (
-    _as_ir,
+    _as_ast,
     _model_product,
     _reduce_product,
     earley_model,
@@ -146,19 +146,19 @@ def test_reset_product_cache_forces_model_product_recompilation():
 # ── boundary checks ─────────────────────────────────────────────────────────
 
 
-def test_as_ir_returns_an_ir_self_value_unchanged():
-    """_as_ir is a pure narrowing — an IrSelf value passes through as-is."""
+def test_as_ast_returns_an_ir_ast_value_unchanged():
+    """_as_ast is a pure narrowing — an IrAst value passes through as-is."""
     ast = earley_reduce(
         normalize(GBNF_FLAVOUR.grammar), 'root ::= "x"\n', GBNF_FLAVOUR.reducer
     )
-    assert _as_ir(ast) is ast
+    assert _as_ast(ast) is ast
 
 
-def test_as_ir_raises_on_a_non_ir_value():
-    """_as_ir raises UnsupportedConstructError on anything that isn't IrSelf —
-    the PDA producing a non-IR value would otherwise pass silently."""
+def test_as_ast_raises_on_a_non_ir_ast_value():
+    """_as_ast raises UnsupportedConstructError on anything that isn't an IrAst —
+    the reduction producing a non-IrAst value would otherwise pass silently."""
     with pytest.raises(UnsupportedConstructError):
-        _as_ir("not IR")
+        _as_ast("not an IrAst")
 
 
 def test_parse_reduced_raises_on_a_non_reducer():

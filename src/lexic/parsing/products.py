@@ -22,6 +22,7 @@ package root, the sole surface ``compile.py`` (and every other consumer) sees.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrSelf, IrStr, IrTuple
@@ -64,9 +65,9 @@ def earley_reduce(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
     return PARSE_REDUCED.eval(EarleyParser(), grammar, IrTuple(IrStr(text), reducer))
 
 
-def earley_model(
-    grammar: IrAst, text: str, fold: ModelFold, tables: ParserTables | None = None
-) -> object:
+def earley_model[M](
+    grammar: IrAst, text: str, fold: ModelFold[M], tables: ParserTables | None = None
+) -> M:
     """Parse ``text`` and fold it to a model through the Earley engine.
 
     The instance product's Earley completion — ``parse_first`` (deterministic
@@ -75,7 +76,7 @@ def earley_model(
 
     :param grammar: The Earley-normalised instance grammar.
     :param text: The input string.
-    :param fold: The positional ParseTree → model fold.
+    :param fold: The positional ParseTree → model fold producing ``M``.
     :param tables: Optional pre-built run-collapsed tables for ``grammar``.
     :returns: The model the start rule folds to.
     :raises UnsupportedConstructError: If ``text`` does not parse.
@@ -180,8 +181,8 @@ def _model_product(grammar: IrAst, fold: ModelFold) -> _ModelProduct:
 # ── the public product entries ─────────────────────────────────────────────
 
 
-def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
-    """Parse grammar-text ``text`` to IR — PDA-first, Earley reduce completion.
+def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrAst:
+    """Parse grammar-text ``text`` to its :class:`IrAst` — PDA-first, Earley reduce.
 
     Takes the **authored** grammar; lifting, normalisation and PDA compilation
     are internal, memoised per ``(grammar, reducer)`` identity. Each parse runs
@@ -191,18 +192,19 @@ def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
     :param grammar: The authored grammar (e.g. a flavour's self-grammar).
     :param text: The grammar source to parse.
     :param reducer: The flavour's reduction policy.
-    :returns: The reduced IR.
+    :returns: The reduced grammar :class:`IrAst`.
     :raises UnsupportedConstructError: When ``reducer`` is not a :class:`Reducer`,
-        or ``text`` does not parse / parses ambiguously on the completion.
+        ``text`` does not parse / parses ambiguously, or the reduction is not an
+        :class:`IrAst`.
     """
     product = _reduce_product(grammar, reducer)
     try:
-        return _as_ir(parse_pda(product.pda, text, None))
+        return _as_ast(parse_pda(product.pda, text, None))
     except PdaFail:
-        return earley_reduce(product.earley_grammar, text, reducer)
+        return _as_ast(earley_reduce(product.earley_grammar, text, reducer))
 
 
-def parse_model(grammar: IrAst, text: str, fold: ModelFold) -> object:
+def parse_model[M](grammar: IrAst, text: str, fold: ModelFold[M]) -> M:
     """Parse instance ``text`` to a model — PDA-first, Earley + fold completion.
 
     Takes the **authored** codegen grammar; lifting, normalisation, PDA and
@@ -212,21 +214,25 @@ def parse_model(grammar: IrAst, text: str, fold: ModelFold) -> object:
 
     :param grammar: The authored codegen grammar.
     :param text: The instance input to parse.
-    :param fold: The positional ParseTree → model fold.
+    :param fold: The positional ParseTree → model fold producing ``M``.
     :returns: The model the start rule folds to.
     :raises UnsupportedConstructError: If ``text`` does not parse.
     """
     product = _model_product(grammar, fold)
     try:
-        return parse_pda(product.pda, text, fold)
+        return cast(M, parse_pda(product.pda, text, fold))
     except PdaFail:
         return earley_model(product.instance_grammar, text, fold, product.tables)
 
 
-def _as_ir(value: object) -> IrSelf:
-    """Narrow a reduce PDA result to :class:`IrSelf` (the reduce product's type)."""
-    if not isinstance(value, IrSelf):
+def _as_ast(value: object) -> IrAst:
+    """Narrow a reduce result to :class:`IrAst` — the grammar-text product's type.
+
+    The reduce product always folds grammar source to an :class:`IrAst`; a
+    non-``IrAst`` result means the reducer's top body did not build one.
+    """
+    if not isinstance(value, IrAst):
         raise UnsupportedConstructError(
-            f"parse_reduced: PDA produced {type(value).__name__!r}, not IR"
+            f"parse_reduced: reduction produced {type(value).__name__!r}, not an IrAst"
         )
     return value

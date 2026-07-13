@@ -41,7 +41,7 @@ derivation; e.g. json_ws's ``int`` is genuinely ambiguous).
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Mapping, NamedTuple
+from typing import Callable, ClassVar, Mapping, NamedTuple, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import (
@@ -222,8 +222,14 @@ def _subtree_text(node: ParseTree | IrLiteral | PayloadLeaf) -> str:
     return "".join(parts)
 
 
-class ModelFold:
+class ModelFold[M]:
     """The one authored instance-fold — an IR body-table plus its runtime.
+
+    Generic in ``M``, the model type the start rule folds to: a fold built for
+    a codegen grammar produces ``ModelFold[GrammarModel]`` and
+    :meth:`apply` returns a ``GrammarModel`` — the engine stays a leaf w.r.t.
+    :mod:`lexic.base`, so the concrete model type rides the type parameter the
+    caller (``compile.py``) binds rather than an import.
 
     The authored form is :attr:`bodies`, a per-rule
     :class:`~lexic.ir.mapping.IrMap` from each rule's
@@ -275,7 +281,7 @@ class ModelFold:
         self.config = config
 
     @classmethod
-    def from_config(cls, config: Mapping[str, RuleFold]) -> "ModelFold":
+    def from_config(cls, config: Mapping[str, RuleFold]) -> "ModelFold[object]":
         """Build a fold from a baked ``dict[str, RuleFold]`` (the lowered form).
 
         Lifts each :class:`RuleFold` to a :class:`ModelBody` (via
@@ -324,8 +330,13 @@ class ModelFold:
         names = tables.decode.rule_names
         return not any(names[rid] in self.config for rid in leaf_rids)
 
-    def apply(self, root: ParseTree) -> object:
-        """Fold the parse tree of a start-rule match into its model."""
+    def apply(self, root: ParseTree) -> M:
+        """Fold the parse tree of a start-rule match into its model.
+
+        :returns: The start rule's model — of the type ``M`` this fold's
+            constructors were built to produce (the ``results`` table holds the
+            mixed intermediate outputs; only the start node's is the model).
+        """
         results: dict[int, object] = {}
         stack: list[tuple[ParseTree, bool]] = [(root, False)]
         push = stack.append
@@ -338,7 +349,7 @@ class ModelFold:
                         push((k, False))
                 continue
             self._fold_node(node, results)
-        return results[id(root)]
+        return cast(M, results[id(root)])
 
     # ── per-node folding ────────────────────────────────────────────
 
