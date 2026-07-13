@@ -212,7 +212,7 @@ def test_exit_is_noise_licenses_an_optional_noise_only_run_to_arm_end():
 # ── _probe_candidate (P5 uniqueness + refutation licence) ──────────────────
 
 
-def _name_ws_headers(*extra: IrRule, start: str, headers: "tuple[IrRule, ...]"):
+def _name_ws_headers(*extra: IrRule, start: str, headers: tuple[IrRule, ...]):
     """A hand grammar: ``name`` ([a-z]+), a noise ``ws``, and the given header
     rules, wired to a ``start`` rule that references every header (so each is
     reachable)."""

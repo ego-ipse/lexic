@@ -396,9 +396,12 @@ src/lexic/
                           FIRST-gated ArmSpec (+ per-arm `windows`
                           (P2) / `peek` (P3) on a demoted alternation — attached
                           inside compile_arms' own enumeration so spec↔arm
-                          alignment cannot drift) + baked RuleFold; the gates are
-                          READ from analysis.taxonomy (the option-(a) spec
-                          channel), never recomputed, and a FIRST-overlapping
+                          alignment cannot drift; the empty-arm `struct_arm`
+                          ScanGate (bundled with windows/peeks into ArmGates)
+                          rides on CloneSpec, its ArmGate.escape validated
+                          against the nullable default arm) + baked RuleFold; the
+                          gates are READ from analysis.taxonomy (the option-(a)
+                          spec channel), never recomputed, and a FIRST-overlapping
                           alternation with no spec raises (the anti-trap drift
                           tripwire → whole-grammar opt-out); islands not cloned
                           (IslandRef marker + lazy per-island ParserTables cache;
@@ -416,12 +419,15 @@ src/lexic/
                           (Task 8 flatten; hybrid-PDA; 260705 effort)
       specs.py            The clone/arm/item/group specs + loop gates
                           (CloneKey/IslandRef/StopGate/PairGate/KTupleGate/
-                          PeekGate/ItemSpec/ArmSpec/GroupSpec/CloneSpec) — the
-                          compiler-intermediate NamedTuple vocabulary tests pin,
-                          split out of clones.py for C0302 headroom. A pure-data
-                          leaf w.r.t. the compiler; imports only charsets
-                          (CharSet), fold (RuleFold) and scanner (ScanGate);
-                          clones re-exposes it as its public surface
+                          PeekGate/ItemSpec/ArmSpec/ArmGates/GroupSpec/CloneSpec)
+                          — the compiler-intermediate NamedTuple vocabulary tests
+                          pin, split out of clones.py for C0302 headroom.
+                          ArmGates bundles a body's demotion specs
+                          (windows/peeks/struct_arm) so compile_arms takes one
+                          param; CloneSpec.struct_arm is the empty-arm ScanGate. A
+                          pure-data leaf w.r.t. the compiler; imports only charsets
+                          (CharSet), fold (RuleFold) and scanner (ScanGate,
+                          ArmGate); clones re-exposes it as its public surface
       flatten.py          (was pda_flatten.py) The leaf half of the flatten: the
                           int-coded runtime program (FlatClone/FlatArm/PdaProgram,
                           OP_* op-codes, pre-resolved (chars,negated) membership
@@ -432,13 +438,17 @@ src/lexic/
                           FlatClone.pn_selectors + _skip_noise/_peek_admits —
                           the P3 noise-skip runtime half: skip the maximal W run
                           NON-consuming, decide on the first post-noise char, the
-                          winner re-parses its noise; gate_take (the shared
-                          per-gate admit) + select_gated (the kwin/pn arm
-                          selector the kernel calls)) + the post-flatten
-                          optimizer passes (optimize_program: exactly-once
-                          terminal/call specialisation, value_str inlining,
-                          frame-less leaf marking, pass-through dispatch conversion
-                          — skipped for a kwin/pn-selecting clone). Imports
+                          winner re-parses its noise; GATE_SCAN + the empty-arm
+                          FlatClone.struct_arm ScanGate the kernel consults via
+                          scanner.scan_gate_take before FIRST-select (a take
+                          admits the gated arms, a refusal picks the escape
+                          default arm); gate_take (the shared per-gate admit) +
+                          select_gated (the kwin/pn arm selector the kernel
+                          calls)) + the post-flatten optimizer passes
+                          (optimize_program: exactly-once terminal/call
+                          specialisation, value_str inlining, frame-less leaf
+                          marking, pass-through dispatch conversion — skipped for
+                          a kwin/pn/struct_arm-selecting clone). Imports
                           nothing from clones.py (a leaf w.r.t. the compiler +
                           specs); the kernel walks it (split out of clones.py for
                           C0302; hybrid-PDA; 260705 effort). Its op-codes, flat
@@ -452,8 +462,13 @@ src/lexic/
                           class cursor) over the flat PdaProgram, building the
                           model directly during the walk (fold fusion — no
                           ParseTree). Int-coded op dispatch, terminal quantifier
-                          loops matched inline (no per-char call). Per-parse state
-                          on the cursor, tables shared; capture frames own per-item
+                          loops matched inline (no per-char call). _enter selects
+                          a clone's arm — _chase_dispatch chases a frame-less
+                          dispatch alternation, then kwin/pn select_gated, then an
+                          empty-arm struct_arm ScanGate (scan_gate_take: refuse ⇒
+                          escape default arm) before the FIRST-gated select. Per-
+                          parse state on the cursor, tables shared; capture frames
+                          own per-item
                           span (ends) + sub-model (sinks) capture bubbling to the
                           nearest bound item, transparent frames (groups /
                           fold=None clones) funnel through; the thin _island
