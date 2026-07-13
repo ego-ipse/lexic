@@ -34,7 +34,7 @@ from lexic.parsing.pda.noise import (
     peek_loop_gate,
     stopset_escapes_soft_follow,
 )
-from lexic.parsing.pda.structured import structured_loop_gate
+from lexic.parsing.pda.structured import structured_arm_gate, structured_loop_gate
 from lexic.parsing.pda.taxonomy import Taxonomy
 
 __all__ = ["GrammarAnalysis", "Taxonomy", "nullable_names"]
@@ -703,6 +703,19 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             return True
         return False
 
+    def _demote_struct_arm(
+        self, arms: Sequence[Sequence[IrItem]], label: str, notes: "_Notes"
+    ) -> bool:
+        """The empty-arm structured-noise demotion: store the scan gate + escape
+        arm index in its taxonomy channel plus the soft note. ``False`` ⇒ no
+        licence (the caller keeps today's greedy behavior)."""
+        gate = structured_arm_gate(self, list(arms), label)
+        if gate is None:
+            return False
+        self.taxonomy.store_struct_arm(label, gate)
+        notes.soft.append(f"{label}: empty-arm structured-noise (demoted)")
+        return True
+
     def _demote_loop(
         self, items: Sequence[IrItem], k: int, scope: "_Scope", notes: "_Notes"
     ) -> bool:
@@ -843,8 +856,17 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 for i, j in overlaps:
                     notes.hard.append(f"{label}: arms {i}/{j} FIRST overlap")
         if any(nullable for _, nullable in infos):
-            for i, (first_i, nullable) in enumerate(infos):
-                if not nullable and first_i.overlaps(ext_follow):
+            greedy = [
+                i
+                for i, (first_i, nullable) in enumerate(infos)
+                if not nullable and first_i.overlaps(ext_follow)
+            ]
+            if not (
+                greedy
+                and label in self.rules
+                and self._demote_struct_arm(arms, label, notes)
+            ):
+                for i in greedy:
                     notes.soft.append(f"{label}: arm {i} FIRST hits FOLLOW (greedy)")
 
     def seq_conflicts(

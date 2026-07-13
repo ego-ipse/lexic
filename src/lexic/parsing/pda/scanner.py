@@ -50,6 +50,7 @@ from lexic.parsing.pda.charsets import CharSet
 __all__ = [
     "Recognizer",
     "ScanGate",
+    "ArmGate",
     "SG_MATCH",
     "SG_SCAN",
     "SG_PROBE",
@@ -310,6 +311,23 @@ class ScanGate(NamedTuple):
     roots: tuple[int, ...]
     take: "tuple[frozenset[str], bool] | None" = None
     probe: "tuple[int, int, str, bool] | None" = None
+
+
+class ArmGate(NamedTuple):
+    """A structured arm-selection gate — a scan gate plus the escape arm index.
+
+    The analysis-sourced spec for an alternation with a single empty/all-nullable
+    escape arm whose gated (content) arms lead with skippable noise. The runtime
+    consults :attr:`gate` via :func:`scan_gate_take`: a ``True`` admits the gated
+    arms (whose FIRST sets then separate them), a ``False`` selects the escape
+    arm at :attr:`escape`.
+
+    :ivar gate: The folding-aware :class:`ScanGate` (``SG_SCAN`` / ``SG_PROBE``).
+    :ivar escape: The nullable escape arm's index in the rule body.
+    """
+
+    gate: ScanGate
+    escape: int
 
 
 def _peek_member(text: str, pos: int, take: "tuple[frozenset[str], bool]") -> bool:

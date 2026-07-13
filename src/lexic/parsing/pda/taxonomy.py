@@ -11,7 +11,7 @@ from __future__ import annotations
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrSelf
 from lexic.parsing.pda.charsets import CharSet
-from lexic.parsing.pda.scanner import ScanGate
+from lexic.parsing.pda.scanner import ArmGate, ScanGate
 
 __all__ = ["Taxonomy"]
 
@@ -23,23 +23,32 @@ def _spec_key(gate: ScanGate) -> tuple:
     return (gate.kind, gate.roots, gate.take, gate.probe)
 
 
+def _arm_spec_key(arm: ArmGate) -> tuple:
+    """An :class:`ArmGate`'s stable identity — its scan gate's spec plus the
+    escape arm index; the conflicting-re-store tripwire compares these."""
+    return (_spec_key(arm.gate), arm.escape)
+
+
 class _GateStore(IrLeaf[IrSelf, IrSelf]):
-    """The five gate-spec families, one slot each — :class:`Taxonomy`'s store.
+    """The six gate-spec families, one slot each — :class:`Taxonomy`'s store.
 
     :ivar arm: Rule name → per-arm k-window sets (P2).
     :ivar loop: ``id(item)`` → the ``taken`` k-window set (P2).
     :ivar pn_arm: Rule name → ``(W, per-arm post-noise selectors)`` (P3).
     :ivar pn_loop: ``id(item)`` → ``(W, take set)`` (P3).
     :ivar struct_loop: ``id(item)`` → a folding-aware ScanGate (P3/P5).
+    :ivar struct_arm: Rule name → a folding-aware :class:`ArmGate` (empty-arm
+        structured-noise / probe demotion, P3/P5).
     """
 
-    __slots__ = ("arm", "loop", "pn_arm", "pn_loop", "struct_loop")
+    __slots__ = ("arm", "loop", "pn_arm", "pn_loop", "struct_loop", "struct_arm")
 
     arm: dict[str, tuple[tuple[tuple[CharSet, ...], ...], ...]]
     loop: dict[int, tuple[tuple[CharSet, ...], ...]]
     pn_arm: dict[str, tuple[CharSet, tuple[CharSet, ...]]]
     pn_loop: dict[int, tuple[CharSet, CharSet]]
     struct_loop: dict[int, ScanGate]
+    struct_arm: dict[str, ArmGate]
 
     def __init__(self) -> None:
         """Seed every gate family empty."""
@@ -48,6 +57,7 @@ class _GateStore(IrLeaf[IrSelf, IrSelf]):
         self.pn_arm = {}
         self.pn_loop = {}
         self.struct_loop = {}
+        self.struct_arm = {}
 
 
 class Taxonomy(IrLeaf[IrSelf, IrSelf]):
@@ -56,7 +66,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
     Also the **gate-spec channel** (Task 6.3 part c, option a): when P2 demotion
     is on, the k-window gates the classification consulted are *stored* here —
     single source of truth — and the clone compiler reads them back instead of
-    recomputing (which would risk a divergent second derivation). The five gate
+    recomputing (which would risk a divergent second derivation). The six gate
     families live on one :class:`_GateStore`; the named accessors below are the
     public channel.
 
@@ -116,6 +126,16 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         verbatim (Task 6.6)."""
         return self.gates.struct_loop
 
+    @property
+    def struct_arm_gates(self) -> dict[str, ArmGate]:
+        """Rule name → the folding-aware
+        :class:`~lexic.parsing.pda.scanner.ArmGate` for an empty-arm alternation
+        demoted by structured noise-skip / rulename-probe — the scan gate plus
+        the escape arm index, stored verbatim for the clone compiler. Rule
+        bodies only (the store key is the rule name); an inline group's empty
+        arm stays a hard note (the rule islands)."""
+        return self.gates.struct_arm
+
     def store_struct_loop(self, key: int, gate: ScanGate) -> None:
         """File a structured loop gate under the looping item node's identity.
 
@@ -131,3 +151,18 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
                 "pda analysis: conflicting structured loop gates for one item node"
             )
         self.gates.struct_loop[key] = gate
+
+    def store_struct_arm(self, name: str, gate: ArmGate) -> None:
+        """File a structured empty-arm gate under its enclosing rule name.
+
+        :raises UnsupportedConstructError: If the rule already carries a
+            *different* spec — the identity key (rule name) cannot express two
+            distinct arm decisions for one rule, so the whole grammar opts out
+            rather than carry a confident-wrong gate.
+        """
+        prior = self.gates.struct_arm.get(name)
+        if prior is not None and _arm_spec_key(prior) != _arm_spec_key(gate):
+            raise UnsupportedConstructError(
+                "pda analysis: conflicting structured arm gates for one rule"
+            )
+        self.gates.struct_arm[name] = gate

@@ -315,8 +315,12 @@ src/lexic/
                           recomputes; a stored gate is honored in EVERY clone,
                           before any hard-cont overlap heuristic (a clone tail
                           may not overlap while the soft-only noise run still
-                          needs the gate). The demotion cascade is P2 k-window
-                          then P3 noise-skip. The
+                          needs the gate). The loop demotion cascade is P2
+                          k-window then P3 noise-skip then P3-structured; the
+                          empty-arm greedy branch routes through
+                          structured_arm_gate (a single nullable escape arm +
+                          noise-led gated arms → an ArmGate stored under the rule
+                          name), deny = today's greedy note. The
                           2-char LL(2) prefix machinery lives in kwindow.py as
                           free fns; loop_policy calls it there (hybrid-PDA;
                           260705/260706 efforts)
@@ -374,7 +378,13 @@ src/lexic/
                           overlap explained by the unique next-construct header
                           ref(R) noise* lit(L), refutation licence via
                           _post_noise_follow with the header occurrence skipped:
-                          GBNF sequence's `rulename n* "::="`). A leaf w.r.t.
+                          GBNF sequence's `rulename n* "::="`). Also
+                          structured_arm_gate → an ArmGate for an empty-arm
+                          alternation (single nullable escape arm + noise-led
+                          gated arms): the same skip-then-peek/probe tail
+                          (_scan_from, shared with the loop path) selecting the
+                          gated arms vs the escape arm — GBNF self `arm ::=
+                          sequence | empty-seq` demotes SG_PROBE. A leaf w.r.t.
                           analysis.py (Any-typed oracle, kwindow/noise
                           precedent); reads noise.sem_follow_table for the P6
                           clause; imports scanner + charsets + ir
@@ -509,10 +519,12 @@ src/lexic/
                           engine, Task 4)
       taxonomy.py         Taxonomy (+ private _GateStore) — the analysis'
                           classified-notes + gate-spec result record: conflicts/
-                          demoted/fail plus the five gate families behind named
+                          demoted/fail plus the six gate families behind named
                           property accessors (arm_gates/loop_gates/pn_arm_gates/
-                          pn_loop_gates/struct_loop_gates on one store slot);
-                          store_struct_loop owns the conflicting-re-store
+                          pn_loop_gates/struct_loop_gates/struct_arm_gates on one
+                          store slot; struct_arm keyed by RULE NAME → an ArmGate,
+                          the empty-arm structured demotion); store_struct_loop
+                          and store_struct_arm own the conflicting-re-store
                           opt-out tripwire. A leaf (imports charsets + scanner);
                           moved out of analysis.py by pure motion (260706
                           Task 6.6, C0302)
@@ -524,7 +536,10 @@ src/lexic/
                           scan_run/scan_run_any/scan_match; ScanGate
                           (SG_MATCH/SG_SCAN/SG_PROBE) + scan_gate_take — the
                           folding-aware P3-structured/P5 loop-gate runtime half
-                          (LWS folding falls out of arm-in-order-with-reset)
+                          (LWS folding falls out of arm-in-order-with-reset);
+                          ArmGate(gate, escape) — the empty-arm arm-select twin
+                          of ScanGate (True admits the gated arms, False selects
+                          the escape arm at `escape`)
                           (260706 unified-parse-engine, Task 6.6)
 
 tests/

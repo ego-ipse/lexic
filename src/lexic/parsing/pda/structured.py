@@ -29,6 +29,7 @@ from lexic.parsing.pda.scanner import (
     SG_MATCH,
     SG_PROBE,
     SG_SCAN,
+    ArmGate,
     Recognizer,
     ScanGate,
     build_recognizer,
@@ -37,6 +38,7 @@ from lexic.parsing.pda.scanner import (
 __all__ = [
     "noise_roots",
     "structured_loop_gate",
+    "structured_arm_gate",
 ]
 
 
@@ -347,12 +349,78 @@ def _scan_or_probe_gate(
     exit_cs = _follow_content(
         analysis, lead, items[k + 1 :], _post_noise_follow(analysis, lead)[scope.rule]
     )
+    return _scan_from(analysis, lead, take, exit_cs)
+
+
+def _scan_from(
+    analysis: Any, lead: "frozenset[str]", take: CharSet, exit_cs: CharSet
+) -> "ScanGate | None":
+    """Build the ``SG_SCAN`` gate for a skip-then-peek decision, escalating to
+    ``SG_PROBE`` when the post-noise take and exit content leads overlap.
+
+    Shared by the loop (:func:`_scan_or_probe_gate`) and arm
+    (:func:`structured_arm_gate`) skip-then-peek paths: both reduce to a
+    ``lead`` noise set, a ``take`` content lead and an ``exit_cs`` exit lead.
+    """
     if take.overlaps(exit_cs):
         return _probe_gate(analysis, lead, take, exit_cs)
     rec = build_recognizer(analysis.rules, lead)
     if rec is None:
         return None
     return ScanGate(SG_SCAN, rec, _root_idxs(rec, lead), (take.chars, take.negated))
+
+
+def _arm_nullable(analysis: Any, arm: Sequence[IrSelf]) -> bool:
+    """Whether every item of an alternation arm can consume nothing (empty arm)."""
+    return all(analysis.item_nullable(item) for item in _items(arm))
+
+
+def structured_arm_gate(
+    analysis: Any, arms: Sequence[Sequence[IrSelf]], label: str
+) -> "ArmGate | None":
+    """A folding-aware gate for an empty-arm alternation, or ``None``.
+
+    Licensed for an alternation with a *single* empty/all-nullable escape arm
+    whose gated (content) arms lead with skippable noise: skip that leading
+    noise non-consuming and admit the gated arms on a disjoint post-noise
+    content lead (``SG_SCAN``), escalating to ``SG_PROBE`` when the take/exit
+    content overlap is explained by the next construct's header (GBNF ``rule``'s
+    ``rulename n* "::="``, see :func:`_probe_gate`). The runtime selects the
+    escape arm when the gate refuses; the gated arms then separate among
+    themselves by their own FIRST sets.
+
+    Denial (``None``) leaves the caller's greedy behavior — a gate must never
+    silently pick a wrong arm. Inline-group arms never reach here: ``label`` is
+    a rule name (the taxonomy store key), never a bracketed group tag.
+
+    :param arms: The alternation's arms (item sequences), in body order.
+    :param label: The enclosing rule name — the FOLLOW anchor and store key.
+    :returns: The :class:`~lexic.parsing.pda.scanner.ArmGate` (scan gate + escape
+        arm index), or ``None`` on a licence miss.
+    """
+    roots = noise_roots(analysis)
+    if not roots or label not in analysis.rules:
+        return None
+    nullable = [i for i, arm in enumerate(arms) if _arm_nullable(analysis, arm)]
+    if len(nullable) != 1:
+        return None
+    escape = nullable[0]
+    gated = [_items(arm) for i, arm in enumerate(arms) if i != escape]
+    if not gated:
+        return None
+    lead: frozenset[str] = frozenset()
+    for arm in gated:
+        lead |= _seq_leading_roots(analysis, roots, arm, frozenset())
+    if not lead:
+        return None
+    take = CharSet.EMPTY
+    for arm in gated:
+        take = take.union(_seq_content(analysis, lead, arm, frozenset()))
+    if take.is_empty() or take.negated:
+        return None
+    exit_cs = _post_noise_follow(analysis, lead)[label]
+    scan = _scan_from(analysis, lead, take, exit_cs)
+    return None if scan is None else ArmGate(scan, escape)
 
 
 def _probe_gate(

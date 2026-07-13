@@ -6,6 +6,12 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-13 — Empty-arm ARM gate (analysis half)
+
+Closed the empty-arm greedy fallback's analysis side. `structured.py` gains `structured_arm_gate(analysis, arms, label)` → an `ArmGate` (a `scanner.ScanGate` plus the escape arm index): for an alternation with a single empty/all-nullable escape arm whose gated arms lead with skippable noise, skip that noise non-consuming and admit the gated arms on a disjoint post-noise content lead (`SG_SCAN`), escalating to `SG_PROBE` when the take/exit overlap is the next construct's header (GBNF `rule`'s `rulename n* "::="`). The skip-then-peek/probe tail is shared with the loop path via a new `_scan_from` helper. `taxonomy.py` gains a sixth gate family `struct_arm` (rule name → `ArmGate`) with `struct_arm_gates` accessor + `store_struct_arm` (same conflicting-re-store tripwire). `analysis.py`'s `arm_conflicts` empty-arm greedy branch routes through `_demote_struct_arm` before falling back to today's greedy soft note (deny = today's behavior). Islands provably unchanged (only the soft branch is touched): GBNF self `arm ::= sequence | empty-seq` demotes `SG_PROBE`, escape=1 — the fix for the json_arr/json_ws grammar-text (reduce) fallbacks. `scanner.py` homes the new `ArmGate` NamedTuple. Runtime wiring (clones/flatten/runtime reading the channel back) is Task 4b. Suite 2150 green; `run_checks.sh` EXIT 0 (pyright + pylint 10.00/10).
+
+---
+
 ## 2026-07-13 — Totality cleanup: engine owns its API, no opt-out, no private imports
 
 Landed in atomic sub-steps (parsing owns its public API; no whole-grammar opt-out; no cross-module private imports).
