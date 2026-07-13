@@ -6,6 +6,64 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ---
 
+## 2026-07-11 — Reduction bodies are pure IR algebra; type-branching pipes into an `IrTypeMap` (Task 6.5)
+
+**Decision (user ruling, hard):** flavour reduction bodies contain **zero Python functions**. A left-factored rule whose fold must branch on *what the tail matched* does it in the algebra: the tail rules reduce to type-distinct markers (a decoded `IrInt`, `IrNone`, an `IrChr`, a joined `IrStr`, or a sentinel like `_Q_MIRROR = IrStr("=")` — data, not code), and the parent's body is `IrPipe(IrArg(i), IrTypeMap(IrAction(<type>, <branch>), …))` — `IrPipe` rebinds the focus to the marker, `IrTypeMap` dispatches on its concrete type, and the argument channel rides through so branches still read the shared leading run (`IrThis()` is the marker itself, `IrArg(0)` the lead). An `IrLambda(def …)` in a grammar module is a review-blocking offence — **with no legacy exemption** (user escalation, same day): the HEAD-era handlers were purged in the same landing. Emit-side spelling went to its architectural homes — the class-point escape cascade and quoted-form spellability are now generic `EscapeCodec` algorithms (`encode_point`/`spellable`, ir/escapes.py) over per-flavour ClassVar *data* (`CLASS_SHORT`/`CLASS_META`/`QUOTE_SAFE`), reached from the actions via the dispatcher-codec leaves `IrEscapePoint`/`IrSpellable` (ir/flavour.py, the `IrEscape` pattern); the `=/` rule merge became the generic `IrMerge` action node; and the algebra gained the generic fillers `IrRadix` (emit-side inverse of `IrUnradix`), `IrOrd` (inverse of `IrGlyph`), `IrLen`, and `IrEach` (the variadic sibling of `IrAt`). Emit output byte-parity (22 artefacts: both self-emits + all GT canonical emits under both flavours) pinned the purge as observably free.
+
+**Why:** grammar modules are data (the flavour = metadata + grammar + reducer + emit actions ruling). A Python `isinstance` ladder hides fold semantics from every IR consumer (no walk, no rebuild, no repr-as-codegen), silently swaps error typing (`int()` `ValueError` vs `IrUnradix`'s `UnsupportedConstructError`), and erodes the self-hosting endgame (an auto-generated flavour module cannot contain hand-written procedures). Task 6.5's six lambda folds were all expressible: `IrTypeMap`-over-a-piped-marker was sufficient for every branch shape (`q-counted`, `repeat-num`, `num-x/d/b`).
+
+**Corollary — channel flattening comes from the grammar, not the fold.** Where a fold seems to need per-element mapping or arg slicing (ABNF `cvbody`: leading chars become *items* only when an alpha follows), restructure the *authored grammar* instead: an **inline group** desugars (`normalize`) to a synthetic rule whose parts **splice flat** into the parent's channel — the same machinery every quantified ref already rides — so `cvnac* (cvalpha cvany*)?` hands `cvbody` lead chars and case items in one flat channel, `IrArg(-1)`'s type picks the branch, and `IrSequence`'s authoring coercion (bare `IrLiteral` atoms lift to `IrItem`s) rebuilds the per-char expansion byte-identically. First inline group in an authored self-grammar; the reduce path treats it exactly like the quantifier synthetics it has always spliced.
+
+**Impact:** `gbnf.py`/`abnf.py` reductions are def-free; `IrThis` joined both import blocks; `cvbody-tail` never existed in the landed shape. GT `parse_grammar` output byte-identical to pre-task HEAD (oracle-verified), so the decision cost nothing observable.
+
+---
+
+## 2026-07-11 — P6/P3 noise levers: attribution over hardcoding; peeks are fail-soft (Task 6.4)
+
+**Decision 1 — the P6 licence carries a third clause.** SIM_60's pinned two-clause condition (`hard_follow ∩ FIRST = ∅` ∧ `gap ⊆ FIRST`) is sufficient for json but unsound in general: it would license a non-semantic loop eating into a *semantic* optional follower (`root ::= x "ab"?`, `x ::= [a-c]*` noise — `semantic_dump` changes). The plan's own risk note demands precision, so the licence adds `gap ∩ sem_follow(rule) = ∅`, where `sem_follow` is a FOLLOW fixpoint over *semantically-attributable* chars only (`pda/noise.py`): terminals count only inside semantic rules; a ref to a non-semantic rule contributes nothing (its subtree is excluded from `semantic_dump` wholesale, so chars stolen from it are noise↔noise by construction); a ref to a semantic rule contributes its *decomposition*, not its noise-polluted raw FIRST. This reproduces the SIM's json justification ("ws is the sole whitespace-leading rule") without hardcoding it.
+
+**Decision 2 — W is grammar-derived, not per-flavour.** The P3 skippable alphabet is ⋃FIRST over **nullable** non-semantic rules: nullability is what separates a noise *run* (ws, filler) from a required-but-dropped token marker (dquote, defined) — exactly the ⚠ 6.0 constraint, with W itself derived. Gives json whitespace, ABNF ws+`;`, GBNF ws+`#` (matching the SIM's hand-pinned sets).
+
+**Decision 3 — the P3 peek is non-consuming, hence fail-soft by construction.** The runtime skips the maximal W run only to *look*; the winning arm/iteration re-parses its noise from the original position. A wrong pick can therefore only fail-then-fallback, never silently mis-build — so the analysis separability conditions are a *determinism* (zero-fallback perf) guarantee, and mixed-terminal poisoning / end-open bailing in `ResidualFirst` err conservative without soundness pressure. Corollary: comment-bearing noise (GBNF `#…`, ABNF `;…`) poisons the char-set residual FIRST (the skip could land inside a comment body), so the GBNF/ABNF spine's P3 decisions stay islands until the folding-aware structured scanner lands with P5 (which needs it regardless).
+
+**Decision 4 — stored gates are honored in every clone.** The compiler consulted taxonomy gates only under its per-clone hard-cont overlap heuristic; a clone whose hard tail didn't overlap the loop FIRST silently baked a stop-set that ate the soft-only noise run the gate exists to adjudicate (caught live by a `\t`-bearing json input). Rule: a stored gate is the analysis's decision for that node — judged against the rule's soft FOLLOW, which covers every clone — and is read back unconditionally.
+
+**Decision 5 — staging flags die once their lever lands.** `P2_DEMOTION_ENABLED` deleted (user ruling: pre-v1, no legacy); flag-seam tests deleted with their symbol. `DELEGATES_ENABLED` stays until Task 8 — it is the still-standing delegation A/B gate, not a landed lever's leftover.
+
+**Impact:** json island-free (16× vs 6.2 on the instance path: 751→46 ms); `Taxonomy` carries four gate channels; `pda/noise.py` + `test_noise.py` new; `_gate_take`/`_select_gated` shared runtime helpers in `flatten.py`.
+
+---
+
+## 2026-07-11 — P2 gate-spec channel: analysis stores, compiler reads (unified-parse-engine Task 6.3c)
+
+**Decision:** The k-window gates the analysis consults during demotion are **stored on the taxonomy** and read back by the clone compiler — never recomputed. `GrammarAnalysis.taxonomy` (the renamed `_tax` slot, now a public **attribute** — deliberately not a property/method, so the R0904 20-public-method and R0902 7-slot caps are both untouched) is a `Taxonomy` carrying `arm_gates: dict[str, windows-per-arm]` and `loop_gates: dict[int, taken-windows]`.
+
+- **Why option (a) (store) over recompute-in-compiler?** Dual derivation of the same soundness-critical spec is a divergence risk (task63fix F1: the seam previously carried *no* spec — the gates were computed and discarded). Single source of truth; the compiler's only job is alignment.
+- **Arm gates keyed by rule name, licensed for rule bodies ONLY.** `arm_conflicts`' `label` for a rule body IS the rule name (`label in self.rules` is the discriminator — bracketed group labels can never collide with rule names). An inline group's arm overlap now stays a **hard note → the rule islands**, which strictly dominates the old part-(b) whole-grammar opt-out (the engine parses one rule instead of everything). Corpus has no such group.
+- **Loop gates keyed by `id(IrItem)` — node identity.** Analysis and clone compiler walk the *same* lifted tree (`compile_pda` builds the analysis from the `lifted` it compiles), so the item node is the exact decision identity; label-keying (`rule[idx]`) is ambiguous between a rule arm's item k and a group sub-arm's item k. A conflicting re-store under one id raises (`UnsupportedConstructError` → whole-grammar opt-out) — the shared-node hazard is closed, not assumed away.
+- **Specs stored cooked** (`kwindow.windows_of`: END/MORE/UNK tags dropped — the runtime's positionwise consistency test never reads them (task63fix finding 4) — dedup'd, deterministically sorted so specs compare with `!=`).
+- **Alignment lives inside `compile_arms`' own enumeration** (`windows[idx]` attached in the same loop that drops empty-FIRST arms) — window↔arm drift is structurally impossible rather than checked after the fact. A FIRST-overlapping alternation reaching the compiler with **no** spec raises — the anti-trap tripwire (F2: an empty gate mis-parses, PdaFail-falls-back, and passes island-move + parity gates while unsound and slower).
+- **Verified live:** chess `nonpawn` (loop, k=3) 0.0% fallback + 8.6× faster than the 6.2 island-hit path; `lo>k` EOF-exact arm selection end-to-end; GBNF-self 17→8 / ABNF-self 9→7 island moves exactly per the coverage map.
+
+**Impact:** `Taxonomy` is public (`analysis.__all__`); `KTupleGate`/`ArmSpec.windows` reinstated in `clones.py` as read-side only; LL(2) 2-prefix machinery now lives in `kwindow.py` as free fns (`loop_policy` calls across); `_bake_reduce`/`_reduce_rewrite` live in `reduce_pda.py`. `P2_DEMOTION_ENABLED` defaults **True**; `False` is the A/B seam. See [[architecture]], the PLAN_v5 ledger, and log 2026-07-11.
+
+---
+
+## 2026-07-06 — One IR fold type: `ModelFold` + `ModelBody` (unified-parse-engine Task 3)
+
+**Decision:** The instance fold's authored form is now **one IR-native type**, `ModelFold` (`parsing/fold.py`), whose `bodies` is a per-rule `IrMap[IrRuleRef, ModelBody]` — the *same shape* the grammar-text `Reducer` carries its `reductions` in (a per-rule `IrMap` to `IrSelf` bodies). A `ModelBody(kind, ctor, n_items, fields, fast)` (an `IrNamedTuple`, `_child_attrs=()`) carries the model constructor as an `IrLambda` (`IrNone` for an `alternation`, which has none) plus structural metadata. On construction `ModelFold` **bakes** every body (`ModelBody.bake()`) to the flat-runtime `config: dict[str, RuleFold]` (`.baked`) — the record the PDA clone compiler and the engine-fallback `apply` consume **byte-for-byte unchanged**. `RuleFold`/`FieldFold`/`FastCtor` survive as that lowered/baked representation; `ModelBody.of(rf)` is the inverse lift and `ModelFold.from_config(dict)` the direct-from-baked (lowered) constructor.
+
+- **Why merge `PositionalFold` into `ModelFold` rather than add a wrapper?** The task called for *one* fold type; the old `PositionalFold` was only the runtime executor over `dict[str, RuleFold]`. Absorbing its `apply`/`run_ok` onto `ModelFold` (which reads the same `self.config`) keeps the runtime logic unchanged while making the authored form the IR body-table. `collapsed_fold_tables(grammar, fold)` re-signs to `ModelFold`; nothing else in the engine changes.
+- **Why `IrLambda(cls)` for the ctor?** It is the sanctioned procedural escape and `IrLambda(cls).eval IS cls` (free unwrap) — so baking recovers the exact constructor with zero indirection. Proven by `spike_bake.py` (176 rules across all 10 ground truths bake runtime-identically; 0 rules need an arbitrary body).
+- **Name reclaimed.** The retired wrapper-rule `ModelFold` (`parsing/models.py`, deleted 2026-07-04) is unrelated; the name is now the one authored instance-fold.
+- **Behavior-frozen.** A differential over 600 generated samples × both parse paths (PDA + engine) is byte-identical before/after; no perf loss (the flat clone is unchanged).
+
+**Why:** unify the *authored* fold to an IR body-table so Task 4 can express the `Reducer` as the same per-rule `IrMap`-to-`IrSelf`-body type. The lowered `RuleFold` int-mode contract with the flat clone is deliberately preserved — the change is at the authoring seam, not the runtime.
+
+**Impact:** New public exports `ModelFold`, `ModelBody` (`parsing/fold.py`); `PositionalFold` removed. `compile._fold_config` now returns the `IrMap` body-table; `_build_pda` takes `fold.baked`. See [[public-api]], [[architecture]].
+
+---
+
 ## 2026-06-05 — Phase-0a algebra: `IrScalar`/`IrInt`, `IrOp` (no `Cmp` enum), `IrTuple.eval -> IrSelf`
 
 **Decision:** Added the value-aware action algebra, deviating from the plan's prescribed shapes on four points:

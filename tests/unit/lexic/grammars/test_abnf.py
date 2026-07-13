@@ -11,6 +11,7 @@ from hypothesis import given, settings
 from lexic.compile import parse_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import (
+    ABNF_ACTIONS,
     ABNF_ESCAPES,
     ABNF_FLAVOUR,
     ABNF_GRAMMAR,
@@ -18,7 +19,7 @@ from lexic.grammars.abnf import (
     ABNF_REDUCER,
     ABNF_REDUCTIONS,
 )
-from lexic.ir.base import IrNone, IrSeq
+from lexic.ir.base import IrLambda, IrNone, IrSeq
 from lexic.ir.canonical import canonicalize
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrFlavour
@@ -37,10 +38,10 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing import parse, recognize
-from lexic.parsing.forest import ParseTree
-from lexic.parsing.normalize import normalize
-from lexic.parsing.reduce import YIELD, Reducer
-from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES
+from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.reduce import YIELD, Reducer
+from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES, contains_ir_type
 
 
 def test_abnf_flavour_is_a_flavour():
@@ -357,6 +358,28 @@ def test_abnf_grammar_rule_names_include_core():
         assert expected in names, f"Missing rule: {expected}"
 
 
+def test_abnf_grammar_rulelist_left_factor_shape():
+    """The Task 6.6 ``rulelist`` left-factor: ``rl-cont`` exists, and the old
+    ``rl-item``/``rl-final``/``endrule`` helper rules are gone."""
+    names = {r.name for r in ABNF_GRAMMAR.rules}
+    assert "rl-cont" in names
+    assert not ({"rl-item", "rl-final", "endrule"} & names)
+
+
+def test_abnf_grammar_rule_arm_shape_is_factored():
+    """``rule``'s single arm is ``[rulename, c-wsp*, defined, c-wsp*, alternation]``
+    — the factored shape ``rl-cont`` was split out of."""
+    rule = next(r for r in ABNF_GRAMMAR.rules if r.name == "rule")
+    arm = rule.body[0]
+    assert [str(item.atom) for item in arm] == [
+        "rulename",
+        "c-wsp",
+        "defined",
+        "c-wsp",
+        "alternation",
+    ]
+
+
 # ── ABNF_GRAMMAR emits as well-formed ABNF ───────────────────────────
 
 
@@ -447,25 +470,37 @@ def _hexdig(ch: str) -> ParseTree:
     return ParseTree(IrRuleRef("HEXDIG"), IrSeq(IrLiteral(ch)))
 
 
-def test_num_single_yields_ircharclass_chr():
-    """num-single over a hexits subtree yields IrCharClass(IrChr('A'))."""
+def test_num_x_empty_tail_yields_ircharclass_chr():
+    """num-x over a hexits subtree with an empty x-tail yields IrCharClass(IrChr('A')).
+
+    Ported from the pre-P4 test_num_single_yields_ircharclass_chr — num-single
+    is gone (left-factored into num-x + x-tail); the empty x-tail is the
+    single-point case.
+    """
     hexits = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("4"), _hexdig("1")))
+    x_tail = ParseTree(IrRuleRef("x-tail"), IrSeq())
     tree = ParseTree(
-        IrRuleRef("num-single"),
-        IrSeq(IrLiteral("%"), IrLiteral("x"), hexits),
+        IrRuleRef("num-x"),
+        IrSeq(IrLiteral("%"), IrLiteral("x"), hexits, x_tail),
     )
     result = ABNF_REDUCER.apply(tree)
     assert isinstance(result, IrCharClass)
     assert result == IrCharClass(IrChr("A"))
 
 
-def test_num_range_yields_ircharclass_range():
-    """num-range over two hexits subtrees yields IrCharClass(IrRange('A','Z'))."""
+def test_num_x_range_tail_yields_ircharclass_range():
+    """num-x with an x-range x-tail yields IrCharClass(IrRange('A','Z')).
+
+    Ported from the pre-P4 test_num_range_yields_ircharclass_range — num-range
+    is gone (left-factored into num-x + x-tail/x-range).
+    """
     lo = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("4"), _hexdig("1")))
     hi = ParseTree(IrRuleRef("hexits"), IrSeq(_hexdig("5"), _hexdig("A")))
+    x_range = ParseTree(IrRuleRef("x-range"), IrSeq(IrLiteral("-"), hi))
+    x_tail = ParseTree(IrRuleRef("x-tail"), IrSeq(x_range))
     tree = ParseTree(
-        IrRuleRef("num-range"),
-        IrSeq(IrLiteral("%"), IrLiteral("x"), lo, IrLiteral("-"), hi),
+        IrRuleRef("num-x"),
+        IrSeq(IrLiteral("%"), IrLiteral("x"), lo, x_tail),
     )
     result = ABNF_REDUCER.apply(tree)
     assert isinstance(result, IrCharClass)
@@ -769,7 +804,7 @@ def test_inline_comment_inside_definition():
 
 
 def test_final_rule_without_trailing_newline():
-    """The last rule in a file may omit its line ending (``rl-final``)."""
+    """The last rule in a file may omit its line ending (``rulelist``'s trailing ``c-nl?``)."""
     ast = _reduce('foo = "-"\nbar = "+"')
     assert [r.name for r in ast.rules] == ["foo", "bar"]
     assert _item(ast, rule_index=1).atom == IrLiteral("+")
@@ -795,6 +830,19 @@ def test_ci_string_matches_bare_literal_expansion():
     assert seq[0].atom == IrCharClass(IrChr("a"), IrChr("A"))
     assert seq[1].atom == IrCharClass(IrChr("b"), IrChr("B"))
     assert seq[2].atom == IrCharClass(IrChr("c"), IrChr("C"))
+
+
+def test_empty_char_val_reduces_to_empty_literal():
+    """``\"\"`` (empty char-val body) → ``IrLiteral(\"\")``.
+
+    P4 left-factored ``cvbody`` into a shared ``cvnac*`` run followed by an
+    inline optional ``(cvalpha cvany*)?`` group; the reduction is an
+    ``IrCond`` keyed on ``IrArgs()`` truthiness — this pins its empty-channel
+    branch (``else_op``), a code path the alpha/non-alpha cases above don't
+    exercise.
+    """
+    ast = _reduce('foo = ""\n')
+    assert _item(ast).atom == IrLiteral("")
 
 
 # ── (5) %d / %b values, parity with the equivalent %x spelling ─────────
@@ -873,3 +921,17 @@ def test_incremental_extensions_with_intervening_comments():
         IrLiteral("+"),
         IrLiteral("0"),
     ]
+
+
+# ── Structural guard: abnf.py is data + pure IR algebra, no procedural bodies ──
+
+
+def test_abnf_actions_and_reductions_carry_no_irlambda():
+    """ABNF_ACTIONS and ABNF_REDUCTIONS contain no :class:`IrLambda` anywhere.
+
+    abnf.py holds zero ``def`` beyond dataclass/ABC machinery — its emit and
+    parse halves are pure IR algebra. A stray :class:`IrLambda` escape hatch
+    creeping back into either table would be a regression from that ruling.
+    """
+    assert not contains_ir_type(ABNF_ACTIONS.values(), IrLambda)
+    assert not contains_ir_type(ABNF_REDUCTIONS.values(), IrLambda)

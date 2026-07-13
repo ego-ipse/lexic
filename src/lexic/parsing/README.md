@@ -1,325 +1,409 @@
-# `lexic.parsing` — IR-native Earley parsing
+# `lexic.parsing` — the IR-native parse engine (predictive PDA + Earley)
 
-`parsing` is the Lark replacement: a scannerless [Earley](https://en.wikipedia.org/wiki/Earley_parser)
-parser that runs **directly over an `IrAst`**. No meta-grammar string, no Lark
-grammar generation, no external parser. The premise is that **an `IrAst` already
-*is* a grammar** — a set of named rules, each an alternation of sequences of
-atoms — so it can drive a parser as-is.
+`parsing` is a self-contained parse engine that runs **directly over an
+`IrAst`**: a deterministic **predictive PDA** for the common case, backed by a
+scannerless [Earley](https://en.wikipedia.org/wiki/Earley_parser) engine (full
+SPPF, Scott 2008) as the sound completion. No meta-grammar strings, no
+external parser. The premise: an `IrAst` already *is* a grammar — named rules,
+each an alternation of sequences of atoms — so it drives a parser as-is.
 
-The self-hosting fixpoint is the proof: take the ABNF-of-ABNF grammar expressed
-as IR (`grammars/abnf.py`'s `ABNF_GRAMMAR`), emit its own source text, parse
-that text back with itself, reduce, and recover the identical `IrAst`.
+**One engine, two products, both PDA-first, both owned here:**
 
-**On the product metric (text → `IrAst`) this engine beats Lark ~2×** — see §12.
+- **grammar-text → `IrAst`** — `parse_reduced(grammar, text, reducer)`:
+  parse text against a grammar (e.g. a flavour's self-grammar) and fold it
+  to IR through the `Reducer`.
+- **instance text → model** — `parse_model(grammar, text, fold)`: parse
+  input against a compiled grammar's rules and build the model object
+  through the `ModelFold`.
+
+Both entries run the PDA first — a table-driven predictive walk that builds
+the product *during* the parse (no intermediate `ParseTree`) — and complete
+on the Earley engine whenever the PDA cannot decide deterministically. That
+policy, the PDA compilation, and its per-grammar memoisation all live inside
+this package; consumers see only the two calls. `compile.py` (the runtime's
+sole consumer) imports nothing but this package's root API.
+
+The self-hosting fixpoint is the standing proof of the first product: emit
+the ABNF-of-ABNF grammar (`grammars/abnf.py`'s `ABNF_GRAMMAR`) as text,
+parse that text with itself, reduce, and recover the identical `IrAst`.
 
 ```
-grammar (IrAst) ──► normalize() ──► compile_tables() ──► ParserTables   (once per grammar)
-                                                              │
-text (str) ─────────────────────────────► Kernel(tables, text).run()    (per parse)
-                                                              │
-                             ┌────────────────────────────────┼─────────────────────┐
-                             ▼                                ▼                     ▼
-                     FastTree → ParseTree        FusedReduce → IrAst        to_chart() → Chart
-                     (single derivation)         (the product path)         (forest readers:
-                             │                                              derivations,
-                     Reducer → IrAst                                        is_ambiguous, …)
+parse_reduced(grammar, text, reducer)                 parse_model(grammar, text, fold)
+        │  (once per grammar, memoised)                       │  (once per grammar, memoised)
+        ├─ lift + normalize ─► reduce PDA tables              ├─ lift + normalize ─► model PDA tables
+        └─ normalize ────────► Earley tables                  └─ lift + normalize ─► Earley tables
+        │  (per parse)                                        │  (per parse)
+        ├─ PDA walk ───────────────────► IrAst                ├─ PDA walk ───────────────────► model
+        └─ on PdaFail: fused Earley reduce ─► IrAst           └─ on PdaFail: parse_first + fold ─► model
 ```
+
+The two grammar-text routes deliberately run **different normalised
+grammars** (the PDA over the lifted grammar, the Earley completion over the
+unlifted one). The divergence class is the ε-channel — a lifted nullable `R`
+(from `R?`) matches ε and runs its reduction on empty children where the
+unlifted route skips the node — and the authored reduce bodies absorb it;
+the differential tests are the guard.
 
 ---
 
-## 1. Public API
+## 1. Public API (`__init__.py`)
 
-Six functions in `__init__.py`. Each is a thin wrapper that boxes the input and
-drives exactly one `IrSelf` orchestration node in `engine.py`. Per the IR's
-no-`IrBool` rule, a truth value is an `IrInt ∈ {0, 1}`.
+Two product entries and six Earley functions. Everything a consumer needs
+is exported from the package root; nothing outside `lexic.parsing` imports
+its submodules (enforced by the layering test).
 
 | Function | Returns | Meaning |
 |---|---|---|
+| `parse_reduced(grammar, text, reducer)` | `IrAst` | **Grammar-text product.** PDA-first, fused Earley reduce completion. Takes the authored grammar; normalisation, lifting, PDA/table compilation are internal, memoised per (grammar, reducer) identity — the compiled tables bake the reducer's plan, so the reducer is part of the key. The grammar-text product always folds to an `IrAst`; a non-`IrAst` reduction is an `UnsupportedConstructError`, never a silent `object`. |
+| `parse_model(grammar, text, fold: ModelFold[M])` | `M` | **Instance product.** PDA-first, `parse_first` + fold completion. Same authored-grammar contract; memoised per (grammar, fold) identity — the tables bake the fold's rule records and the collapsed lexical runs. Generic in the model type `M` the fold produces: the engine stays a leaf w.r.t. `lexic.base`, so the concrete model type rides the fold's type parameter rather than an import — `compile.py` binds `ModelFold[GrammarModel]`, so `CompiledGrammar.parse` types as `GrammarModel`. |
 | `recognize(grammar, text)` | `IrInt` 0/1 | Does `text` derive from the start rule? (No forest built.) |
 | `parse(grammar, text)` | `ParseTree` | The single derivation. **Raises** on no-parse *or* ambiguity. |
-| `parse_reduced(grammar, text, reducer)` | `IrSelf` | **The product path**: text → reduced IR in one fused pass. Raises like `parse`. |
+| `parse_first(grammar, text, tables=None)` | `ParseTree` | The *first* derivation — deterministic under ambiguity. Raises only on no-parse. |
 | `parse_forest(grammar, text)` | `SppfNode` \| `IrNone` | The shared packed parse forest root, or `IrNone` on no-parse. |
 | `derivations(grammar, text)` | `IrSeq[ParseTree]` | *Every* derivation, nothing silently dropped. |
-| `is_ambiguous(grammar, text)` | `IrInt` 0/1 | Does the input have more than one derivation? (Short-circuits at 2.) |
+| `is_ambiguous(grammar, text)` | `IrInt` 0/1 | More than one derivation? (Short-circuits at 2.) |
 
-```python
-from lexic.parsing import parse, parse_reduced, recognize
-from lexic.parsing.normalize import normalize
+Also exported from the root: `Reducer`, `ModelFold` (and its authoring
+types), `ParseTree`, `SppfNode`, `ParserTables`, `compile_tables`,
+`normalize`, `lift_optional_nullables` — plus the rest of the forest/chart
+toolkit the root exports today (`Chart`, `Links`, `Link`, `EarleyItem`,
+`Kernel`, `FastTree`, `EarleyParser`, `BuildTree`), which stays. Per the
+IR's no-`IrBool` rule, a truth value is an `IrInt ∈ {0, 1}`.
 
-g = normalize(MY_GRAMMAR)            # desugar to classical Earley shape first
-assert recognize(g, "input text")    # IrInt(1)
-tree = parse(g, "input text")        # a ParseTree
-ir = parse_reduced(g, "input text", MY_REDUCER)   # straight to IR — fastest
-```
+> **Two grammar contracts.** The product entries take the **authored**
+> grammar and own the whole compilation pipeline internally. The tree/forest
+> functions (`recognize` through `is_ambiguous`) are the lower-level Earley
+> toolkit and take an **Earley-normalised** grammar (every quantifier
+> `(1, 1)`, every group a named rule — `normalize()` is exported for this).
+> The forest functions are Earley-only by construction: the PDA is
+> fold-fused and never builds a tree or an SPPF.
 
-> **The grammar must be normalised first** (§6). The parser assumes classical
-> Earley shape: every quantifier is `(1, 1)` and every group is a named rule.
-> Multi-char literals stay atomic (§5). `normalize()` is the caller's
-> responsibility — kept separate so the desugaring stays isolated.
-
----
+`PdaFail` — the PDA's non-determinism signal — is internal to the package.
+It is raised and caught inside the product entries; no caller ever sees it.
 
 ## 2. The design in one sentence
 
 **The grammar compiles once; the paid loop runs over the compiled form.**
-`compile_tables()` is the parser's "codegen moment": exactly as `codegen/`
-emits Python classes from a `RuleSpec` (grammar stays ground truth, the classes
-are its compiled representation), `tables.py` compiles an `IrAst` into flat
-int-coded tables, and `kernel.py` runs Earley over them with no per-item IR
-dispatch, no IR object as a hot-path key, and no tuple allocation per advance.
+`compile_tables()` and the PDA compile are the parser's "codegen moment":
+exactly as `codegen/` emits Python classes from an `IrAst`, `earley/tables.py`
+and `pda/clones.py` compile an `IrAst` into flat int-coded tables, and
+`earley/kernel.py` / `pda/runtime.py` run over them with no per-item IR
+dispatch, no IR object as a hot-path key, and no tuple allocation per
+advance.
 
-The IR seams sit at the edges, all IR-native:
+The IR seams sit at the edges, all IR-native: the compiles walk the grammar
+in; `FusedReduce` (grammar-text) and `ModelFold` / the fused PDA build
+(instance) carry the products out; `Kernel.to_chart()` decodes the packed
+SPPF into the IR-native `Chart` for the forest readers. State objects
+(`ParserTables`, `Kernel`, `PdaKernel`) ARE-AN `IrLeaf`; logic lives on
+classes and per-parse state on cursors — but inside the kernels the per-item
+work is list indexing and int arithmetic, deliberately: the package's
+compiled-form zone, the scoped relaxation of per-item IR dispatch that the
+measured performance floor demands.
 
-- **in:** `compile_tables(IrAst) → ParserTables` walks the grammar (memoised
-  per grammar object, like constructing a `lark.Lark`);
-- **out (product):** `FusedReduce` folds the packed forest to IR against the
-  flavour's `Reducer` policy tables (`IrMap`s of IR bodies);
-- **out (general):** `Kernel.to_chart()` decodes the packed SPPF into the
-  IR-native `Chart` for the trampolined forest readers.
+## 3. Package layout
 
-State objects (`ParserTables`, `Kernel`, `KernelState`) ARE-AN `IrLeaf`; logic
-lives on classes and per-parse state on cursors — but inside the kernel the
-per-item work is list indexing and int arithmetic, deliberately: this is the
-package's compiled-form zone, the scoped relaxation of per-item IR dispatch
-that the measured ~2× IrSelf-purity floor demanded.
+```
+parsing/
+  __init__.py       the public API (§1): two product entries + the Earley toolkit
+  fold.py           ModelFold — the authored instance fold (§8)
+  earley/           the Earley engine (imports only itself)
+    tables.py         ParserTables, compile_tables (memoised per IrAst identity)
+    kernel.py         Kernel — predict/scan/complete, Leo, packed SPPF; FastTree;
+                      longest_start_completion (the PDA island seam)
+    chart.py          Chart/Links — the decoded SPPF; EarleyItem
+    engine.py         per-capability orchestration nodes behind the public API
+    forest.py         ParseTree, SppfNode, trampolined enumeration
+    reduce.py         Reducer, FusedReduce, ReducePlan — forest → IrAst (§7)
+    normalize.py      desugar IR into classical Earley shape (§6)
+    lexruns.py        derived run terminals (§5)
+    trampoline.py     depth-safe generator driver
+  pda/              the predictive PDA (imports earley/) — a one-way
+    │               core ← analysis ← compiler ← runtime chain
+    core/             shared leaves (imported everywhere, import ~nothing)
+      charsets.py       CharSet — polarity-aware co-finite char sets (§9)
+      scanner.py        structured-noise recognizer + ScanGate runtime (§10)
+      errors.py         PdaFail — internal, never user-facing
+    analysis/         decide every point, then store the gate specs (§10)
+      analysis.py       GrammarAnalysis — fixpoints + the decision taxonomy
+      noise.py          noise/semantic attribution — peek + structured gates
+      structured.py     folding-aware structured/probe gates
+      kwindow.py        FIRST_k over CharSet tuples — bounded-lookahead gates
+      taxonomy.py       Taxonomy — classified notes + the stored gate specs
+    compiler/         compile the IrAst into flat int-coded tables (§11)
+      clones.py         the clone compiler, model and reduce variants
+      specs.py          the compiler-intermediate NamedTuple vocabulary
+      flatten.py        the int-coded runtime program + optimizer passes
+      reduce_pda.py     the reduce completion read off the ReducePlan (§12)
+      delegate_compile.py DelegateSource — island-interior delegation (§13)
+    runtime/          execute the tables — the fused model build (§12)
+      runtime.py        PdaKernel — the fused model runtime
+      reduce_runtime.py the reduce twin of the runtime
+      build.py          frame-slot layout + the fused model-build tail
+      islands.py        the windowed Earley island sub-parse (§13)
+```
 
-## 3. The compiled tables (`tables.py`)
+Each folder carries its own `README.md` orientation note. Layering: the
+whole package is a leaf w.r.t. `lexic.codegen` and `lexic.grammars`; `pda/`
+imports `earley/`, never the reverse. Inside `pda/` the arrows point one
+way — `core ← analysis ← compiler ← runtime`: `analysis/` imports only
+`core/`, `compiler/` imports `analysis/` + `core/`, `runtime/` executes
+what `compiler/` produced. Cross-module imports use **public names only** —
+a name two modules share is public at its defining module; `_underscore`
+names never cross a module boundary. Consumers import the package root
+only. All of this is enforced by `tests/integration/
+test_layering_invariants.py`.
+
+## 4. The Earley tables and kernel (`earley/tables.py`, `earley/kernel.py`)
 
 Every dotted position of every arm gets one int `code`, laid out so
 consecutive dots are consecutive ints — **advancing an item's dot is `+ 1`**.
-One flat list discriminates the classic Earley trichotomy with a single index:
+One flat list discriminates the classic Earley trichotomy with a single
+index: `next_sym[code]` is `rule_id + 1` (predict), `-(term_id + 1)` (scan),
+or `0` (complete). An **Earley item** is the single int `code << 20 | origin`;
+an SPPF handle `(item, end)` packs the same way again.
 
-| `next_sym[code]` | meaning |
-|---|---|
-| `rule_id + 1` (> 0) | dot faces that non-terminal — predict |
-| `-(term_id + 1)` (< 0) | dot faces that terminal atom — scan |
-| `0` | dot past the arm's end — complete |
+`Kernel(tables, text, record_links).run()` is the whole loop: close each
+column to a fixpoint, scan between columns.
 
-An **Earley item** is the single int `code << 20 | origin` (a single-digit
-CPython int for realistic grammars — set/dict operations at the primitive
-floor); an **SPPF handle** `(item, end)` packs the same way again. Value-equal
-arms of one rule intern to a single arm (the IR node IS its value), matching
-the legacy item tuples' value semantics.
-
-`ParserTables` splits along consumers: `CodeTables` (the code-space half the
-loop indexes per item), `DecodeTables` (the IR-space half used only when
-results decode back to IR), plus the terminal atoms, per-terminal scan kinds
-(`term_lens`), and two per-grammar lazy caches (char → accepting terminals,
-char → interned `IrLiteral`). `nullable_completes` precomputes the
-Aycock-Horspool advance set per nullable rule.
-
-## 4. The kernel (`kernel.py`)
-
-`Kernel(tables, text, record_links).run()` is the whole Earley loop: close
-each column to a fixpoint (predict / complete, dispatched by one `next_sym`
-index), scan between columns. Per-column indexes are position-indexed lists of
-small containers keyed by bare `rule_id`/`term_id` ints — `seen` (dedup),
-`waiting` (completer), `scannable` (scanner), `predicted`, and the Leo memo.
-
-- **SPPF (Scott 2008), preserved in full.** `st.links[handle]` records packed
-  families `(predecessor, pred_end, child)`; a key reached two ways files an
-  additional family; identical families dedup; ≥ 2 families ⇒ ambiguity
-  point. `child` is a packed handle or the consumed text itself.
-- **Aycock-Horspool nullable advance**, recording the completer's own
-  empty-completion handle so the two provenances collapse into one family.
-- **Leo right recursion (Leo 1991).** A deterministic right-recursive
-  completion jumps to the chain's topmost item; the skipped completions are
-  deferred in `st.leo_links` (a *bucket* per top — converging ambiguous
-  chains each file their bottom) and rebuilt lazily by `expand_leo`, O(chain),
-  only when a derivation actually walks them. The climb rejects
-  **same-column (empty-span) steps** — they are cycle- and ambiguity-prone
-  and carry no asymptotic benefit, so the normal completer (which records
-  every family) handles them; columns then strictly decrease up the climb and
-  no cycle guard is needed. (This also fixes a legacy bug where a second
-  chain converging on an already-deferred top silently lost its family.)
-- **Recognition skips the forest** (`record_links=False`) — no links, no
-  allocation beyond the chart itself.
+- **SPPF (Scott 2008).** Packed families with dedup; ≥ 2 families ⇒ an
+  ambiguity point. Recognition skips the forest entirely
+  (`record_links=False`).
+- **Aycock-Horspool nullable advance**, provenances collapsed into one
+  family.
+- **Leo right recursion (Leo 1991).** Deterministic right-recursive
+  completions jump to the chain's top; skipped completions are deferred in
+  per-top buckets and rebuilt lazily, O(chain), only when a derivation walks
+  them. Same-column (empty-span) steps are rejected from the climb — the
+  normal completer handles them — so columns strictly decrease and no cycle
+  guard is needed.
+- **`longest_start_completion`** — a public windowed prefix-completion seam:
+  run a rule over a text window, return the longest completion. The PDA
+  island sub-parse (§13) drives it; additive, off the `run()` fast path.
 
 `FastTree` is the unambiguous fast path: an explicit-stack walk of the packed
-links building the single `ParseTree` (memoised per handle); any key packing
-more than one family aborts to the trampolined enumeration over the decoded
-chart. Depth lives in lists, never the C stack (N = 60,000 verified).
+links building the single `ParseTree`; any multi-family key aborts to the
+trampolined enumeration over the decoded chart. Depth lives in lists, never
+the C stack.
 
-## 5. Scanning: chars, literals, runs
+## 5. Scanning: chars, literals, runs (`earley/lexruns.py`)
 
 The scanner resolves which terminals a character can begin once per distinct
-char (cached on the tables), then reads each column's `scannable` bucket:
+char (cached on the tables). A char class advances one column; a multi-char
+literal is atomic (one `text.startswith`, k columns); a **run terminal**
+consumes its maximal run in one step. Run terminals are the *derived* lexer:
+a synthetic star/plus rule collapses into a single maximal-munch `RunTerm`
+only when three proofs hold — fixed charset, derivation uniqueness (pairwise
+disjoint alternatives, so the collapse hides no ambiguity from the SPPF), and
+follow disjointness (`FOLLOW(rule) ∩ charset = ∅`, so no continuation ever
+needs a shorter match). The reducer-side licence is
+`reduce.collapsed_tables` (a run may only collapse when its per-char
+reduction contributions reconstruct from the run text); the fold-side sibling
+is `fold.collapsed_fold_tables` (safe iff no constructor-bearing rule sits
+among a run's unit leaves). Collapsed tables are per (policy, grammar) and
+memoised; `parse`/`recognize`/forest readers keep plain tables and exact
+`ParseTree` shapes.
 
-- a **char class** advances one column;
-- a **multi-char literal** is atomic — one C-level `text.startswith` and the
-  advance lands k columns ahead (`normalize` no longer splits literals);
-- a **run terminal** (§7) consumes its maximal run in one step and lands at
-  the run's end.
+## 6. Normalisation (`earley/normalize.py`)
 
-## 6. Normalisation (`normalize.py`)
+Two `IrTransformer` canonicalisations precede either compiled form: inline
+groups hoist to fresh synthetic rules (prefix `__`), and non-`(1, 1)`
+quantifiers desugar to synthetic right-recursive rules (`*`/`?` nullable; Leo
+keeps the recursion linear). Large *bounded* counts (`{lo, hi}`) still unroll
+`hi`-deep at desugar time — the one remaining rough edge.
 
-Two canonicalisations precede Earley, both `IrTransformer`s:
+## 7. Reduction (`earley/reduce.py`) — the grammar-text meta-notation seam
 
-1. **Flatten inline groups** — an `IrAlternation` used as an atom is hoisted
-   to a fresh synthetic rule (prefix `__`), keeping its quantifier.
-2. **Desugar quantifiers** — a non-`(1, 1)` quantifier becomes a synthetic
-   right-recursive rule (`*` → `X = "" / elem X`; `+` → `X = elem / elem X`;
-   `?` → `X = "" / elem`; bounded counts unrolled). The `*`/`?` rules are
-   *nullable*; Leo (§4) keeps the right recursion linear where it survives.
-
-Large *bounded* counts (`{lo, hi}`) still unroll `hi`-deep at desugar time —
-the one remaining rough edge.
-
-## 7. Run terminals (`lexruns.py`) — the derived lexer
-
-Lark's decisive constant-factor advantage was never a C parser (it has no C
-extensions): its *dynamic lexer* matches hand-declared tokens with compiled
-regexes, so its Earley loop steps over **tokens** (~5 chars each on the ABNF
-workload) while a scannerless engine steps over **chars**. `lexruns.py`
-closes that gap by *deriving* the token layer from the grammar — and unlike
-Lark's silently-incomplete maximal munch, the collapse is **proved** safe:
-
-A synthetic star/plus rule collapses into a single maximal-munch `RunTerm`
-when:
-
-1. **Fixed charset** — the unit resolves to a set of single chars (a terminal,
-   or transitively a rule whose every arm is one such atom);
-2. **Derivation uniqueness** — charset-rule alternatives are pairwise
-   disjoint, so the collapse cannot hide ambiguity from the SPPF;
-3. **Follow disjointness** — `FOLLOW(rule) ∩ charset = ∅` (classic
-   FIRST/FOLLOW over the compiled tables), so no continuation can ever
-   require a shorter-than-maximal match.
-
-A char class too large to expand poisons the sets it touches and the affected
-rules simply stay per-char. The reducer-side half of the decision lives in
-`reduce.collapsed_tables(reducer, grammar)`: a run may only collapse when its
-per-char reduction contributions are reconstructible from the run text — the
-unit's leaf rules are DROP noise (`RUN_DROP`: contribute nothing) or YIELD
-text rules (`RUN_STR`: one `IrStr` per char), or a bare terminal under the
-literal policy (`RUN_LEAF`). Anything else stays per-char for that reducer.
-Collapsed tables are therefore **per (reducer, grammar)** and memoised; only
-`parse_reduced` uses them — `parse`/`recognize`/forest readers keep the plain
-tables and their exact `ParseTree` shapes.
-
-On the ABNF self-host workload all six repetition rules collapse (wsp runs,
-rulename tails, digit/hex runs, char-val bodies), which is most of the input.
-
-## 8. Reduction (`reduce.py`) — the meta-notation seam
-
-A flavour's "meta notation" is unchanged: `reductions` (an `IrMap` from a
+A flavour's "meta notation" is its `Reducer`: `reductions` (an `IrMap` from a
 rule's `IrRuleRef` to a body folding the rule's matched children into IR) and
-a cleaning policy (`noise` per child rule: `DROP`/`KEEP_REDUCED`/…;
-`literal` for terminal leaves). `YIELD` recovers a subtree's source text.
+a cleaning policy (`noise` per child rule, `literal` for terminal leaves;
+`YIELD` recovers a subtree's source text). Two folds implement it:
+**`FusedReduce`** — one explicit-stack pass folds the packed SPPF straight to
+IR, no intermediate `ParseTree`; a `ReducePlan` (cached per reducer × tables)
+compiles the policies against the rule numbering, `YIELD` bodies reduce to
+O(1) source spans when `can_drop` reachability allows, and any shape the plan
+can't compile falls back to a plain parse + the general **`Reducer`-over-
+`ParseTree`** fold. The reduce PDA (§12) reads this same `ReducePlan` — one
+compiled policy, three consumers.
 
-Two folds implement it:
+## 8. The instance fold (`fold.py`) — text → model
 
-- **`FusedReduce` — the product path.** One explicit-stack pass folds the
-  packed SPPF straight to IR: no intermediate `ParseTree`. A `ReducePlan`
-  (cached per reducer × tables) compiles the policies against the rule
-  numbering; synthetic nodes splice; run children reconstruct per §7; and a
-  rule whose body IS `YIELD` reduces to its **source span** —
-  `text[origin:end]`, O(1) — whenever no DROP-noise rule is reachable
-  beneath it (`can_drop` reachability), skipping the whole subtree. Bodies
-  receive the matched span text as `n` (computed only when the body mentions
-  `YIELD`) and the cleaned children on `nc`. Any shape the plan can't
-  compile (ambiguity, KEEP_RAW/custom noise) returns a miss and the caller
-  falls back to a fresh plain-tables parse + the legacy fold — behaviour
-  identical, just slower.
-- **`Reducer` over a `ParseTree`** — the general fold, driven by the
-  iterative `_FastReduce` (explicit stack) with the trampolined
-  `ReduceSource`/`ResolveSource` as its lineage. Feeds on `parse()` output.
+Instance parsing runs over the **real codegen grammar** (no wrapper rules, no
+name protocol): `normalize()` replaces items in place, so `kids[i] ↔ items[i]`
+positionally. `ModelFold[M]` is a positional tree → model fold, generic in the
+model type `M` it produces (`apply -> M`), whose
+authored form is a per-rule IR body-table (`IrMap[IrRuleRef, ModelBody]`)
+baking to flat runtime records (`RuleFold`/`FieldFold`/`FastCtor`) on
+construction — the same baked records every PDA clone carries (§11). Per
+`kind`: `value_str` → `ctor(value=<subtree text>)`; `alternation` →
+pass-through (the matched arm's sub-model identifies itself); `sequence` →
+per-field slot reads (`text`/`gtext` take consumed text, `model`/`models`
+collect sub-models through synthetic layers). The Earley completion runs
+`parse_first` because an all-nullable arm would otherwise make the empty
+match ambiguous; `lift_optional_nullables` (`R? → R` for nullable `R`)
+encodes that policy at normalise time for both compiled paths.
 
-## 9. Forest & ambiguity (`forest.py`, `chart.py`)
+## 9. `CharSet` (`pda/charsets.py`) — the analysis substrate
 
-Ambiguity is never silently resolved: `parse`/`parse_reduced` raise on it;
-`parse_forest`/`derivations`/`is_ambiguous` expose every reading. The general
-readers work over the IR-native decoded `Chart` (`Kernel.to_chart()` expands
-all deferred Leo chains first): `SppfNode` handles, the lazy replayable
-`IrStream`, and the depth-safe trampolined enumeration cogens (`NodeDerivs`,
-`PrefixSource`, `ChildDerivs`) are unchanged from the pre-kernel engine.
-`BuildTree` is the strict single-derivation façade over that path.
+A polarity-aware `(chars, negated)` character set: when `negated`, the set is
+every character *except* `chars`. Every operation (`has`/`union`/`subtract`/
+`overlaps`) is exact across all four polarity combinations, so an
+`IrNot`-derived loop's co-finite FIRST stays exact instead of poisoning its
+rule into a fake island. FOLLOW seeds end-of-input as the character `""` in a
+*positive* set; `CharSet.ANY` excludes it.
 
-## 10. Module map
+## 10. The analysis (`pda/analysis.py` + its leaves) — decide, then store
 
-| Module | Responsibility |
-|---|---|
-| `tables.py` | `ParserTables`/`CodeTables`/`DecodeTables`, `RunTerm`, `compile_tables` (memoised) / `build_tables` (variants). |
-| `kernel.py` | `Kernel` — the flat Earley loop (predict/scan/complete, Leo, packed SPPF), `FastTree`, decode to `Chart`. |
-| `lexruns.py` | Run-terminal derivation: charset resolution, FIRST/FOLLOW, the three collapse proofs. |
-| `normalize.py` | Desugar IR into classical Earley shape (groups, quantifiers). |
-| `reduce.py` | `Reducer` + policies, `FusedReduce`, `ReducePlan`, `collapsed_tables`. |
-| `engine.py` | The `IrSelf` orchestration nodes the public API drives. |
-| `forest.py` | `ParseTree`/`SppfNode`, trampolined enumeration, `IrStream`, `BuildTree`. |
-| `chart.py` | The decoded IR-native SPPF (`Chart`/`Links`). |
-| `item.py` | `EarleyItem` — the decoded dotted-arm tuple. |
-| `trampoline.py` | Depth-safe generator driver for the forest/reduce walks. |
+`GrammarAnalysis` runs over a lifted grammar and computes the classical
+predictive fixpoints — nullability, FIRST (over `CharSet`), **hard-FIRST**
+(the chars a construct *requires*), FOLLOW and hard-FOLLOW — then classifies
+every decision point (arm selection; loop take/skip). A decision no gate
+family can make deterministic becomes an **island** (§13); everything else
+compiles to a gate. The gate families, tried in order:
 
-## 11. Invariants
+- **1- and 2-char lookahead** — disjoint FIRST sets, or 2-char prefix
+  separation (`PairGate`).
+- **k-window** (`kwindow.py`) — FIRST_k over `CharSet` tuples: does the
+  decision separate positionwise at k ≤ 3 (END/MORE/UNK-tagged ≤k windows,
+  rule-FOLLOW extension, *soft* FOLLOW only — hard FOLLOW is unsound here)?
+  → `KTupleGate`.
+- **noise-skip peek** (`noise.py`) — skip the maximal noise run
+  (W = ⋃FIRST over nullable non-semantic rules, derived from the grammar,
+  never hardcoded) non-consuming and decide on the first post-noise char
+  → `PeekGate`.
+- **structured scan** (`noise.py` + `scanner.py`) — folding-aware gates over
+  a compiled noise recognizer, for loops AND for arm selection (including
+  alternations with an empty/all-nullable arm): `SG_MATCH` (exact-match loop
+  over a non-semantic ref, licensed by noise-only exits or a semantic-follow
+  clearance check), `SG_SCAN` (skip noise roots, peek disjoint content
+  leads), `SG_PROBE` (overlap refuted by the unique next-construct header,
+  e.g. GBNF's `rulename n* "::="` — which also covers an empty arm abutting
+  the next rule) → `ScanGate`.
+- **noise-greedy licence** (`noise.py`) — a greedy over-eat is provably
+  noise↔noise re-splitting only (`sem_follow_table`: the chars that can
+  follow a rule as *semantic* content), so greedy is safe.
 
-- **Grammar is canonical.** The parser never mutates the grammar; the tables
-  are its compiled representation, rebuilt from it alone.
-- **Full SPPF.** Nullable completion (Aycock-Horspool), sharing and packed
-  families (Scott 2008), exact ambiguity — including under Leo and under run
-  collapse (both proved, §4/§7).
-- **Depth-safe.** No tree walk recurses through the C stack (explicit
-  stacks + trampoline; N = 60,000 verified).
-- **One way per task.** One parse function, one fused product entry, one
-  emit method.
-- **The compiled-form zone is scoped.** Per-item IR dispatch is compiled away
-  *inside* `kernel.py`/`tables.py` only; every seam in and out of the zone is
-  IR-native, and orchestration, normalisation and reduction policy stay
-  `IrSelf` end to end.
+A gated decision's spec is **stored** on the public `taxonomy: Taxonomy`
+attribute — the clone compiler *reads* it back, never recomputes. A decision
+the cascade cannot license — including an arm-FIRST overlap with no stored
+spec — **islands its rule**: sound and fail-soft, never a guessed gate,
+never a whole-grammar refusal. That call is made in the analysis itself:
+the island set is closed before the clone compiler runs. A stored gate spec
+the compiler cannot attach to the arms it sees (taxonomy↔compiler
+misalignment) is a **hard error**, not an island — drift is a bug. Every
+per-atom-type decision routes through an open `IrTypeMap` with a raising
+default (a genuine boundary error, not a downgrade); `nullable_names` here
+is the single source `fold.lift_optional_nullables` reads.
 
-## 12. Benchmark results
+## 11. The clone compiler (`pda/clones.py`, `pda/flatten.py`)
 
-Measured with `zzz_current_work/bench_parsing.py` (2026-07-01), a
-stage-for-stage race against **Lark 1.3.1** (`parser='earley'`, pure Python —
-it ships no compiled extensions) on the ABNF self-host workload. Interleaved
-medians; the `parse+reduce` row is the product: text → `IrAst`.
-Fixpoint holds on every path.
+The clone compiler is **total**: it always returns tables. A rule is
+compiled once per distinct **hard continuation** that reaches it (a
+*clone*), because the stop-sets it bakes are call-site-exact. Each item
+lowers to a tuple-coded `ItemSpec` (`lit`/`cc`/`ref`/`grp`) carrying its
+bounds and loop gate (`StopGate`/`PairGate`/`KTupleGate`/`PeekGate`/
+`ScanGate`); arm selection is FIRST-gated `ArmSpec`s (per-arm gate specs are
+attached inside the compiler's own arm enumeration so spec↔arm alignment
+cannot drift) plus at most one nullable default. Every clone bakes its
+`RuleFold`; island rules are not cloned (`IslandRef`, §13). A start rule
+that is itself an island — or a reducer whose policy the reduce runtime
+cannot reconstruct (a grammar-global condition with no enclosing rule) —
+compiles to a start that fails immediately to the Earley completion: the
+tables are still total, there is no `None` and no windowed self-parse of
+the whole input. The `CloneSpec`/`ItemSpec`
+NamedTuples are the compiler *intermediate* (what the structural tests pin);
+`flatten.py` lowers them once per compile into the int-coded `PdaProgram`
+(flat clone/arm records, op-codes, pre-resolved membership sets, the gate
+runtimes — the EOF-exact ≤k window matcher, the non-consuming noise-skip
+peek, the arm-side scan selector) and runs the post-flatten optimizer passes
+(exactly-once terminal/call specialisation, `value_str` inlining, frame-less
+leaf marking, pass-through dispatch conversion). The reduce variant of the
+compile retargets the flat clones for the grammar-text product
+(`reduce_pda.py` bakes its completions straight off the reducer's compiled
+`ReducePlan` — no re-derivation). Everything `flatten.py` exposes to its
+sibling consumers (op-codes, flat records, gate helpers) is public by name.
 
-### ABNF self-host (920 chars/copy)
+## 12. The fused runtime (`pda/runtime.py`, `pda/reduce_runtime.py`)
 
-| input | stage | Lark | `parsing` | ratio |
-|---|---|---|---|---|
-| x1 (920 ch) | recognize | 18.7 ms | **8.0 ms** | **0.42×** |
-| | parse | 26.6 ms | 34.1 ms | 1.28× |
-| | **parse+reduce** | 27.0 ms | **15.0 ms** | **0.55×** |
-| x2 (1840 ch) | recognize | 36.9 ms | **15.2 ms** | **0.41×** |
-| | parse | 52.4 ms | 64.3 ms | 1.23× |
-| | **parse+reduce** | 53.7 ms | **28.9 ms** | **0.54×** |
-| x4 (3680 ch) | recognize | 74.9 ms | **32.3 ms** | **0.43×** |
-| | parse | 108.7 ms | 137.1 ms | 1.26× |
-| | **parse+reduce** | 109.9 ms | **62.1 ms** | **0.56×** |
+`PdaKernel` is the model runtime: an explicit descent stack of flat list
+frames (no Python recursion) walks the int-coded `PdaProgram`, **building the
+model during the walk** — no `ParseTree`. Terminal quantifier loops match
+inline; capture frames own per-item spans and sub-model sinks, capture
+bubbles to the nearest bound item through transparent frames (groups,
+no-constructor clones) exactly as `ModelFold` collects. The reduce kernel
+(`reduce_runtime.py`) is the grammar-text twin: it shares the whole
+recognition machinery and overrides only the completion callbacks, producing
+reduced IR (including the O(1) `YIELD` span stitch, mirroring
+`FusedReduce`). One internal dispatch serves both behind the product
+entries. On *any* non-deterministic point the runtime raises **`PdaFail`**
+(`errors.py`) — caught inside the product entries, which retry on the Earley
+completion; the completion owns user-facing diagnostics.
 
-**The product beats Lark ~2× (44-48% faster) and recognition ~2.4×, stable
-across sizes.** The rows are independent races, not an additive ladder — each
-entry runs its own optimal pipeline: `recognize` on maximally collapsed
-tables with no forest; `parse` on plain per-char tables (its contract is the
-exact reducer-agnostic `ParseTree` — the one row still above Lark);
-`parse_reduced` on reducer-collapsed tables plus the fused fold. The product
-comparison is honest: Lark's row is likewise its one-call parse + transform
-riding on its token-collapsed lexer.
+## 13. Islands and delegation (`pda/islands.py`, `pda/delegate_compile.py`)
 
-### Deep right-recursion — `S = "a"*`
+**Islands are the engine's only escape mechanism, and they are per-rule.**
+A decision no gate family can license makes its rule an island: the ref is
+compiled as an `IslandRef` marker with a lazy per-island `ParserTables`
+cache, and the runtime runs a **windowed Earley sub-parse**
+(`longest_start_completion`, doubling window) over just that span, folds the
+sub-tree, and splices the sub-product into the current capture. A
+**fail-island** (a semantic escape whose ref must fail to the full engine)
+raises `PdaFail` instead. `DelegateSource` cuts island cost from the inside:
+it selects conflict-free, non-nullable, semantic *interior* rules of an
+island above a triviality floor and compiles each to its own PDA clone cut
+against the sub-grammar's hard FOLLOW, so the island's Earley sub-parse runs
+those interiors on clones rather than the item machinery — always on,
+unconditional. Everything here is fail-soft: a declined delegate falls
+through to normal prediction; a failed island fails the PDA parse into the
+Earley completion.
 
-Linear (µs/N flat), no stack overflow, and 2.5–3× **faster** than Lark:
+## 14. Invariants
 
-| N | parse→tree | µs/N | Lark | ratio | | recognize | µs/N | Lark | ratio |
-|---|---|---|---|---|---|---|---|---|---|
-| 400 | 3.50 ms | 8.8 | 10.75 ms | 0.3× | | (1600) 6.91 ms | 4.3 | 16.17 ms | 0.4× |
-| 1600 | 14.10 ms | 8.8 | 40.49 ms | 0.3× | | (6400) 28.40 ms | 4.4 | 71.95 ms | 0.4× |
+- **Grammar is canonical.** Neither engine mutates the grammar; every table
+  is its compiled representation, rebuilt from it alone.
+- **PDA-first, engine-sound, total.** The PDA is an optimisation, never a
+  semantics: any non-deterministic point raises `PdaFail` internally and the
+  Earley completion reparses. Islands are the only escape — per-rule,
+  fail-soft. There is **no whole-grammar opt-out and no PDA-less mode**;
+  `UnsupportedConstructError` marks genuine boundary errors only and is
+  never caught into a downgrade.
+- **The engine owns its API.** Both products are package-root entries;
+  consumers import the root only; `PdaFail` never crosses the package
+  boundary. No `_underscore` name crosses any module boundary.
+- **Gates are stored, not recomputed.** The analysis is the one place a
+  demotion decision is made; the clone compiler reads `taxonomy` back. An
+  unexplained overlap islands the rule — never a guessed gate.
+- **Full SPPF.** Nullable completion, packed families, exact ambiguity —
+  including under Leo and under run collapse (both proved, §4/§5). Ambiguity
+  is never silently resolved on the strict path; `parse_first` is the one
+  deliberate first-derivation entry.
+- **Depth-safe.** No walk recurses through the C stack — explicit stacks and
+  the trampoline everywhere, including the PDA descent stack.
+- **The compiled-form zone is scoped.** Per-item IR dispatch is compiled
+  away inside the kernels and tables only; every seam in and out is
+  IR-native, and orchestration, normalisation, analysis, and policy stay
+  `IrSelf`/open-dispatch end to end.
 
-### Lineage
+## 15. Performance
 
-The pre-kernel, per-item-IrSelf engine's history (3.33× → 2.22× on the
-product through OPT1–OPT-REDUCE) is recorded in
-`zzz_current_work/postleo/HANDOVER_postleo.md`; the compile/kernel/runs
-rework plan and its measured phase gates are in
-`zzz_current_work/postleo/PLAN_obliterate_lark.md`. Phase results:
-kernel (A) 2.22× → 1.45×; fused reduce (B) → 1.07×; derived runs (C) →
-**0.52×**.
+Benchmarks live in `tools/benchmark/`: `parse_bench.py` (grammar-text and
+instance workloads on the ground-truth corpus and both self-grammars; Lark is
+kept as an external reference baseline) and `pipeline_bench.py` (compile
+pipeline). Saved baselines sit next to them. Characteristics: the Earley
+engine alone beats Lark's Earley on the grammar-text product roughly 2×, with
+linear deep right recursion; the PDA-first paths add roughly another 2× on
+grammar text where the self-grammars gate deterministically, and up to an
+order of magnitude on deterministic instance grammars — with the Earley
+completion bounding the worst case at engine speed. Re-run the harness for
+current numbers rather than trusting any figure written here.
 
 ## References
 
 - J. Earley (1970), *An Efficient Context-Free Parsing Algorithm*.
-- J. Aycock & R. N. Horspool (2002), *Practical Earley Parsing* — nullable completion.
-- J. M. I. M. Leo (1991), *A general context-free parsing algorithm running in
-  linear time on every LR(k) grammar without using lookahead* — right-recursion.
-- E. Scott (2008), *SPPF-Style Parsing From Earley Recognisers* — the shared packed
-  parse forest via provenance links.
+- J. Aycock & R. N. Horspool (2002), *Practical Earley Parsing* — nullable
+  completion.
+- J. M. I. M. Leo (1991), *A general context-free parsing algorithm running
+  in linear time on every LR(k) grammar without using lookahead* —
+  right-recursion.
+- E. Scott (2008), *SPPF-Style Parsing From Earley Recognisers* — the shared
+  packed parse forest.

@@ -11,6 +11,7 @@ import pytest
 import lexic
 import lexic.compile as compile_module
 from lexic.base import GrammarModel
+from lexic.codegen import resolve_out_dir
 from lexic.compile import (
     CompiledGrammar,
     _scan_directives,
@@ -20,16 +21,30 @@ from lexic.compile import (
     parse_grammar,
     reset_cache_for_tests,
 )
-from lexic.codegen import resolve_out_dir
 from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
-from lexic.parsing import ParserTables, parse_first
-from lexic.parsing.fold import PositionalFold
+from lexic.parsing import normalize
+from lexic.parsing.fold import ModelFold
+from lexic.parsing.pda.compiler.clones import PdaTables
+from lexic.parsing.pda.compiler.specs import IslandRef
+from lexic.parsing.products import (
+    _model_product,
+    _reduce_product,
+    earley_model,
+    earley_reduce,
+)
 from tests.paths import GENERATED, GROUND_TRUTH
+
+
+def _prod(cg):
+    """The instance product for a CompiledGrammar — its instance_grammar / tables /
+    pda (the fields the artefact no longer carries; memoised per (grammar, fold))."""
+    return _model_product(cg.codegen_grammar, cg.fold)
 
 
 class _FlavourWithBadReducer(IrFlavour):
@@ -135,25 +150,18 @@ def test_compiled_grammar_parse_roundtrips():
 
 def test_compiled_grammar_grammar_field_is_the_canonical_ast():
     """CompiledGrammar.grammar is the canonical grammar AST (the re-emit
-    source), and instance_grammar the Earley-normalised instance grammar."""
+    source), and codegen_grammar the post-pass grammar the fold binds against."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     assert isinstance(cg.grammar, IrAst)
-    assert isinstance(cg.instance_grammar, IrAst)
+    assert isinstance(cg.codegen_grammar, IrAst)
     text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
     assert cg.grammar == canonical_grammar(text, GBNF_FLAVOUR)
 
 
 def test_compiled_grammar_fold_field_is_positional_fold():
-    """CompiledGrammar.fold is the ParseTree -> model-instance PositionalFold."""
+    """CompiledGrammar.fold is the ParseTree -> model-instance ModelFold."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    assert isinstance(cg.fold, PositionalFold)
-
-
-def test_compiled_grammar_tables_field_is_parser_tables():
-    """CompiledGrammar.tables is a ParserTables, compiled once at build time
-    (see collapsed_instance_tables)."""
-    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    assert isinstance(cg.tables, ParserTables)
+    assert isinstance(cg.fold, ModelFold)
 
 
 @pytest.mark.parametrize(
@@ -164,16 +172,18 @@ def test_compiled_grammar_tables_field_is_parser_tables():
     ],
 )
 def test_collapsed_and_plain_tables_parse_to_the_same_model(grammar_file, text):
-    """CompiledGrammar's built-in collapsed-tables parse (cg.parse) matches a
-    plain-tables parse (parse_first with no tables=) on model_dump()/to_text().
+    """CompiledGrammar's built-in PDA-first parse (cg.parse) matches the forced
+    Earley completion (``earley_model`` over the instance grammar) on
+    model_dump()/to_text().
 
     The fold-config run-collapse licence changes the packed chart shape
     (fewer, longer terminal leaves) but must never change observable output —
     this is the in-suite spot-check of the author's full equality harness.
     """
     cg = compile_from_path(GROUND_TRUTH / grammar_file)
+    p = _prod(cg)
     collapsed_model = cg.parse(text)
-    plain_model = cg.fold.apply(parse_first(cg.instance_grammar, text))
+    plain_model = earley_model(p.instance_grammar, text, cg.fold)
     assert isinstance(plain_model, GrammarModel)
     assert collapsed_model.model_dump() == plain_model.model_dump()
     assert collapsed_model.to_text() == plain_model.to_text() == text
@@ -523,22 +533,100 @@ def test_scan_directives_start_and_non_semantic_coexist():
     assert non_semantic == frozenset({"ws"})
 
 
-def test_normalized_grammar_memo_is_reused_across_parse_calls(monkeypatch):
-    """The per-flavour self-grammar normalization memo means a second
-    canonical_grammar call for the same flavour never re-normalizes the
-    self-grammar (identity is preserved across calls, keeping the engine's
-    identity-memoised table compilation hot)."""
-    calls: list[object] = []
-    original_normalize = compile_module.normalize
+# ── the reduce product (grammar-text): built + memoised in the engine ──────
 
-    def spy(grammar):
-        calls.append(grammar)
-        return original_normalize(grammar)
 
-    monkeypatch.setattr(compile_module, "normalize", spy)
+def test_reduce_product_builds_for_gbnf():
+    """GBNF's self-grammar compiles to a real reduce PDA (its start rule,
+    "grammar", is not itself an island)."""
+    product = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
+    assert isinstance(product.pda, PdaTables)
+    assert product.pda.reduce is not None
+    assert not isinstance(product.pda.start_key, IslandRef)
 
-    canonical_grammar('root ::= "x"\n', GBNF_FLAVOUR)
-    count_after_first = len(calls)
-    canonical_grammar('root ::= "y"\n', GBNF_FLAVOUR)
 
-    assert len(calls) == count_after_first
+def test_reduce_product_builds_for_abnf():
+    """ABNF's self-grammar compiles to a real reduce PDA since the
+    ``rulelist`` boundary-shift left-factor removed the start island."""
+    product = _reduce_product(ABNF_FLAVOUR.grammar, ABNF_FLAVOUR.reducer)
+    assert isinstance(product.pda, PdaTables)
+    assert product.pda.reduce is not None
+    assert not isinstance(product.pda.start_key, IslandRef)
+
+
+def test_reduce_product_is_memoised_per_identity():
+    """A second call for the same (grammar, reducer) identity returns the
+    identical compiled product — no recompilation."""
+    first = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
+    second = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
+    assert first is second
+
+
+# PARSEGRAMMAR
+
+
+def test_parse_grammar_matches_earley_reduce():
+    """parse_grammar's result equals the Earley reduce completion over the
+    flavour's own normalised self-grammar and reducer — the PDA-first product
+    and its completion agree (byte-equal IrAst)."""
+    text = 'root ::= "abc"\n'
+    reducer = getattr(compile_module, "_flavour_reducer")(GBNF_FLAVOUR)
+    expected = earley_reduce(normalize(GBNF_FLAVOUR.grammar), text, reducer)
+    assert parse_grammar(text, GBNF_FLAVOUR) == expected
+
+
+def test_parse_grammar_pda_and_earley_agree_on_an_alternation():
+    """The PDA route (parse_grammar) and the forced Earley route agree on an
+    alternation input — the differential guard, no PdaFail divergence."""
+    text = 'root ::= "abc" | "def"\n'
+    reducer = getattr(compile_module, "_flavour_reducer")(GBNF_FLAVOUR)
+    assert parse_grammar(text, GBNF_FLAVOUR) == earley_reduce(
+        normalize(GBNF_FLAVOUR.grammar), text, reducer
+    )
+
+
+# ── CompiledGrammar.parse: PDA-first product, Earley + fold the completion ──
+
+
+def test_compiledgrammar_parse_returns_a_model():
+    """A compiled grammar parses to the expected model and round-trips."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    inst = cg.parse("x=1\n")
+    assert isinstance(inst, GrammarModel)
+    assert inst.to_text() == "x=1\n"
+
+
+def test_compiledgrammar_parse_pda_and_earley_agree():
+    """cg.parse (PDA-first) yields the same model as the forced Earley
+    completion (``earley_model`` over the instance grammar) — the fallback path
+    is behaviour-identical, not a raised error reaching the caller."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    p = _prod(cg)
+    text = "x=1\n"
+    model = cg.parse(text)
+    expected = earley_model(p.instance_grammar, text, cg.fold, p.tables)
+    assert isinstance(expected, GrammarModel)
+    assert model.model_dump() == expected.model_dump()
+    assert model.to_text() == text
+
+
+def test_compiledgrammar_parse_start_island_completes_on_earley():
+    """A start rule that is itself an island compiles to an immediate-PdaFail
+    start (its ``start_key`` is an ``IslandRef``); ``cg.parse`` still parses
+    correctly, completing on the Earley engine per parse — no ``None`` channel.
+    The start island shares an unbounded digit prefix across its arms —
+    ungatable at any ``k <= 3``."""
+    text = 'root ::= n "x" | n "y"\nn ::= [0-9]+\n'
+    cg = compile_text(text, flavour="gbnf")
+    assert isinstance(_prod(cg).pda.start_key, IslandRef)
+    assert cg.parse("12x").to_text() == "12x"
+    assert cg.parse("7y").to_text() == "7y"
+
+
+# ── _flavour_reducer: the single home for the Reducer narrowing check ──────
+
+
+def test_flavour_reducer_returns_the_flavours_own_reducer():
+    """_flavour_reducer(flavour) returns exactly the flavour's reducer ClassVar."""
+    reducer = getattr(compile_module, "_flavour_reducer")(GBNF_FLAVOUR)
+    assert reducer is GBNF_FLAVOUR.reducer

@@ -1,16 +1,26 @@
-"""Positional ParseTree → object fold — the instance-parsing bridge.
+"""ParseTree → object fold — the instance-parsing bridge.
 
-The successor of the retired wrapper-rule ``ModelFold``: instance parsing runs
-over the *real* codegen grammar and field extraction is positional.
-``normalize()`` replaces items in place, so an original item is always exactly
-one symbol slot in the normalized arm — for a rule's :class:`ParseTree` node,
-``kids[i] ↔ items[i]``. No ``--f<idx>`` wrapper rules, no name protocol.
+The one authored instance-fold is :class:`ModelFold`: a per-rule IR body-table
+(:attr:`ModelFold.bodies`, an :class:`~lexic.ir.mapping.IrMap` from each rule's
+:class:`~lexic.ir.nodes.IrRuleRef` to its :class:`ModelBody`) — the same shape
+the grammar-text :class:`~lexic.parsing.earley.reduce.Reducer` carries its
+reductions in. A :class:`ModelBody` carries the model constructor as an
+:class:`~lexic.ir.base.IrLambda` plus structural metadata (kind / n_items /
+fields / fast); :meth:`ModelBody.bake` lowers it losslessly to a
+:class:`RuleFold`, the flat-runtime record the predictive PDA's clone compiler
+and this fold's own :meth:`~ModelFold.apply` consume unchanged.
 
-Config is plain data built by the compile seam (:mod:`lexic.compile`):
-per rule a :class:`RuleFold` — ``(kind, ctor, n_items, fields)`` with each
-field a ``(item, mode, name, lo)`` :class:`FieldFold`. Constructors are opaque
-callables; modes are the :data:`~lexic.ir.bind.BIND_MODES` vocabulary. This
-module never sees ``RuleSpec``, pydantic, or :mod:`lexic.codegen`.
+Instance parsing runs over the *real* codegen grammar and field extraction is
+positional. ``normalize()`` replaces items in place, so an original item is
+always exactly one symbol slot in the normalized arm — for a rule's
+:class:`ParseTree` node, ``kids[i] ↔ items[i]``. No ``--f<idx>`` wrapper rules,
+no name protocol.
+
+The baked config is plain data: per rule a :class:`RuleFold` — ``(kind, ctor,
+n_items, fields)`` with each field a ``(item, mode, name, lo)``
+:class:`FieldFold`. Constructors are opaque callables; modes are the
+:data:`~lexic.ir.bind.BIND_MODES` vocabulary. This module never sees
+``RuleSpec``, pydantic, or :mod:`lexic.codegen`.
 
 Fold behavior per kind:
 
@@ -31,11 +41,20 @@ derivation; e.g. json_ws's ``int`` is genuinely ambiguous).
 
 from __future__ import annotations
 
-from typing import Callable, Iterator, Mapping, NamedTuple
+from typing import Callable, ClassVar, Mapping, NamedTuple, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNoneType, IrSeq
+from lexic.ir.base import (
+    IrLambda,
+    IrNamedTuple,
+    IrNone,
+    IrNoneType,
+    IrSelf,
+    IrSeq,
+    IrTuple,
+)
 from lexic.ir.bind import BIND_MODES
+from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -46,9 +65,10 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing.forest import ParseTree
-from lexic.parsing.lexruns import collapse_runs, unit_leaves
-from lexic.parsing.tables import RUN_STR, ParserTables
+from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
+from lexic.parsing.earley.tables import RUN_STR, ParserTables
+from lexic.parsing.pda.analysis.analysis import nullable_names
 
 FOLD_KINDS: tuple[str, ...] = ("value_str", "sequence", "alternation")
 """The rule-kind vocabulary a :class:`RuleFold` may carry."""
@@ -70,6 +90,24 @@ class FieldFold(NamedTuple):
     lo: int
 
 
+class FastCtor(NamedTuple):
+    """A validation-skip construction licence — plain data, builder opaque.
+
+    Granted per rule by the compile seam (which owns the pydantic knowledge)
+    when the model class provably needs no per-field validation; the PDA
+    runtime then builds instances through :attr:`make` instead of the
+    validated constructor. The engine-side fold ignores it — the engine path
+    stays the validated reference.
+
+    :ivar make: ``(parts, keys) -> model`` — the class's parts constructor.
+    :ivar defaults: Field name → default for every optional field; the
+        runtime seeds each ``parts`` dict from a copy of it.
+    """
+
+    make: Callable[[dict[str, object], set[str]], object]
+    defaults: Mapping[str, object]
+
+
 class RuleFold(NamedTuple):
     """One rule's fold config — plain data, constructor opaque.
 
@@ -78,48 +116,155 @@ class RuleFold(NamedTuple):
     :ivar n_items: Kid-slot count of the single non-empty sequence arm
         (``0`` for the other kinds; a zero-kid mismatch = empty-arm match).
     :ivar fields: The bound fields, in item order.
+    :ivar fast: The rule's :class:`FastCtor` licence, or ``None`` (the
+        validated constructor is used everywhere).
     """
 
     kind: str
     ctor: Callable[..., object]
     n_items: int
     fields: tuple[FieldFold, ...]
+    fast: FastCtor | None = None
 
 
-def _subtree_text(node: ParseTree | IrLiteral) -> str:
-    """All consumed chars under ``node``, in source order (iterative)."""
+def _alt_ctor(*_args: object, **_kwargs: object) -> None:
+    """Stand-in constructor for an ``alternation`` fold — never invoked.
+
+    An alternation rule passes its matched arm's sub-model through
+    (:meth:`ModelFold._first_model_under`, the PDA's ``BUILD_ALT``), so its
+    baked :class:`RuleFold` never calls a constructor; this keeps the ``ctor``
+    slot a plain callable while :class:`ModelBody` records the absence as
+    :data:`~lexic.ir.base.IrNone`.
+    """
+    return None
+
+
+class ModelBody(
+    IrNamedTuple[str, "IrSelf", int, "tuple[FieldFold, ...]", "FastCtor | None"]
+):
+    """One rule's model-fold body — the IR-native authored form.
+
+    The only IR-carried field is the model constructor, wrapped in
+    :class:`~lexic.ir.base.IrLambda` (:data:`~lexic.ir.base.IrNone` for an
+    ``alternation``, which has no constructor); ``kind`` / ``n_items`` /
+    ``fields`` / ``fast`` are structural metadata mapping 1:1 onto the baked
+    :class:`RuleFold`'s flat-clone build plan. :meth:`bake` lowers this
+    losslessly to a :class:`RuleFold` — the flat clone and the engine fold are
+    byte-for-byte unchanged. Scalar payload only, so ``_child_attrs`` is empty
+    (the ``IrLambda`` is never walked as a grammar child).
+
+    :ivar kind: One of :data:`FOLD_KINDS`.
+    :ivar ctor: ``IrLambda(model_class)``, or :data:`~lexic.ir.base.IrNone` for
+        an ``alternation``.
+    :ivar n_items: Kid-slot count of the single non-empty sequence arm.
+    :ivar fields: The bound fields, in item order.
+    :ivar fast: The rule's :class:`FastCtor` licence, or ``None``.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    kind: str
+    ctor: IrSelf
+    n_items: int
+    fields: tuple[FieldFold, ...]
+    fast: FastCtor | None = None
+
+    def bake(self) -> RuleFold:
+        """Lower to the flat-runtime :class:`RuleFold` (ctor recovered for free).
+
+        The constructor is read straight off the :class:`~lexic.ir.base.IrLambda`
+        (``.eval`` IS the wrapped callable); the structural metadata passes
+        through untouched — it already IS the closed vocabulary the flatten pass
+        int-codes.
+
+        :returns: The runtime-identical :class:`RuleFold`.
+        """
+        ctor = _alt_ctor if self.ctor is IrNone else self.ctor.eval
+        return RuleFold(self.kind, ctor, self.n_items, self.fields, self.fast)
+
+    @classmethod
+    def of(cls, rule_fold: RuleFold) -> "ModelBody":
+        """Lift a baked :class:`RuleFold` back into the IR body form.
+
+        The inverse of :meth:`bake`: the constructor is re-wrapped in
+        :class:`~lexic.ir.base.IrLambda` (:data:`~lexic.ir.base.IrNone` for an
+        ``alternation``), the structural metadata carried over verbatim.
+        ``ModelBody.of(rf).bake()`` is runtime-identical to ``rf``.
+
+        :param rule_fold: The baked record to lift.
+        :returns: The equivalent :class:`ModelBody`.
+        """
+        ctor = IrNone if rule_fold.kind == "alternation" else IrLambda(rule_fold.ctor)
+        return cls(
+            rule_fold.kind,
+            ctor,
+            rule_fold.n_items,
+            rule_fold.fields,
+            rule_fold.fast,
+        )
+
+
+def _subtree_text(node: ParseTree | IrLiteral | PayloadLeaf) -> str:
+    """All consumed chars under ``node``, in source order (iterative).
+
+    A delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` contributes its
+    recorded span text (its interior was folded by the sub-run, not walked).
+    """
     parts: list[str] = []
-    stack: list[ParseTree | IrLiteral] = [node]
+    stack: list[ParseTree | IrLiteral | PayloadLeaf] = [node]
     while stack:
         k = stack.pop()
         if isinstance(k, ParseTree):
             stack.extend(reversed(k.kids))
+        elif isinstance(k, PayloadLeaf):
+            parts.append(k.text)
         else:
             parts.append(str(k))
     return "".join(parts)
 
 
-class PositionalFold:
-    """Bottom-up ParseTree → model-instance fold over per-rule positional config.
+class ModelFold[M]:
+    """The one authored instance-fold — an IR body-table plus its runtime.
 
-    The runtime mirror of :class:`~lexic.parsing.reduce.Reducer`: same
-    explicit-stack discipline, but the outputs are opaque constructor results
-    rather than IR nodes, so it lives outside the IrSelf dispatch algebra.
+    Generic in ``M``, the model type the start rule folds to: a fold built for
+    a codegen grammar produces ``ModelFold[GrammarModel]`` and
+    :meth:`apply` returns a ``GrammarModel`` — the engine stays a leaf w.r.t.
+    :mod:`lexic.base`, so the concrete model type rides the type parameter the
+    caller (``compile.py``) binds rather than an import.
 
-    :ivar config: Rule name → its :class:`RuleFold`. Synthetic (``__rep``/
+    The authored form is :attr:`bodies`, a per-rule
+    :class:`~lexic.ir.mapping.IrMap` from each rule's
+    :class:`~lexic.ir.nodes.IrRuleRef` to its :class:`ModelBody` (an
+    :class:`~lexic.ir.base.IrSelf`) — the same shape the grammar-text
+    :class:`~lexic.parsing.earley.reduce.Reducer` carries its reductions in. On
+    construction every body is :meth:`~ModelBody.bake`\\ d to the flat-runtime
+    :class:`RuleFold` table :attr:`config`, which drives both this fold's
+    :meth:`apply` (the engine-fallback path) and — via :attr:`baked` — the
+    predictive PDA's clone compiler; both consumers are byte-for-byte unchanged
+    from the retired plain-data config.
+
+    Bottom-up ParseTree → model-instance fold: the runtime mirror of the
+    :class:`~lexic.parsing.earley.reduce.Reducer`, same explicit-stack
+    discipline, but the outputs are opaque constructor results rather than IR
+    nodes, so it lives outside the IrSelf dispatch algebra.
+
+    :ivar bodies: Rule ref → its :class:`ModelBody` (the authored IR body-table).
+    :ivar config: Rule name → baked :class:`RuleFold`. Synthetic (``__rep``/
         ``__opt``/``__grp``) nodes are absent from it and looked through.
     """
 
-    __slots__ = ("config",)
+    __slots__ = ("bodies", "config")
 
-    def __init__(self, config: Mapping[str, RuleFold]) -> None:
-        """Validate and hold the fold config.
+    def __init__(self, bodies: IrMap) -> None:
+        """Bake the IR body-table to its flat-runtime config, then validate.
 
-        :param config: Rule name → :class:`RuleFold`.
+        :param bodies: Rule ref → :class:`ModelBody`.
         :raises UnsupportedConstructError: On a kind outside
             :data:`FOLD_KINDS` or a field mode outside
             :data:`~lexic.ir.bind.BIND_MODES`.
         """
+        config: dict[str, RuleFold] = {
+            str(ref): body.bake() for ref, body in bodies.items()
+        }
         for rule_name, rule_fold in config.items():
             if rule_fold.kind not in FOLD_KINDS:
                 raise UnsupportedConstructError(
@@ -132,7 +277,35 @@ class PositionalFold:
                         f"fold: field {rule_name}.{field.name} has unknown "
                         f"mode {field.mode!r} (expected one of {BIND_MODES})"
                     )
-        self.config = dict(config)
+        self.bodies = bodies
+        self.config = config
+
+    @classmethod
+    def from_config(cls, config: Mapping[str, RuleFold]) -> "ModelFold[object]":
+        """Build a fold from a baked ``dict[str, RuleFold]`` (the lowered form).
+
+        Lifts each :class:`RuleFold` to a :class:`ModelBody` (via
+        :meth:`ModelBody.of`) and constructs the IR body-table — the inverse of
+        :attr:`baked`. The authored path (:mod:`lexic.compile`) builds the body
+        table directly; this is the direct-from-baked seam for callers holding
+        the lowered config.
+
+        :param config: Rule name → :class:`RuleFold`.
+        :returns: The equivalent fold.
+        """
+        return cls(
+            IrMap(
+                *(
+                    IrTuple(IrRuleRef(name), ModelBody.of(rule_fold))
+                    for name, rule_fold in config.items()
+                )
+            )
+        )
+
+    @property
+    def baked(self) -> dict[str, RuleFold]:
+        """The baked rule name → :class:`RuleFold` table (the PDA clone input)."""
+        return self.config
 
     def run_ok(self, tables: ParserTables, unit_rid: int) -> bool:
         """The run-collapse licence: may this lexical run collapse to one leaf?
@@ -157,22 +330,26 @@ class PositionalFold:
         names = tables.decode.rule_names
         return not any(names[rid] in self.config for rid in leaf_rids)
 
-    def apply(self, root: ParseTree) -> object:
-        """Fold the parse tree of a start-rule match into its model."""
+    def apply(self, root: ParseTree) -> M:
+        """Fold the parse tree of a start-rule match into its model.
+
+        :returns: The start rule's model — of the type ``M`` this fold's
+            constructors were built to produce (the ``results`` table holds the
+            mixed intermediate outputs; only the start node's is the model).
+        """
         results: dict[int, object] = {}
         stack: list[tuple[ParseTree, bool]] = [(root, False)]
+        push = stack.append
         while stack:
             node, expanded = stack.pop()
             if not expanded:
-                stack.append((node, True))
-                stack.extend(
-                    (k, False)
-                    for k in node.kids
-                    if isinstance(k, ParseTree) and id(k) not in results
-                )
+                push((node, True))
+                for k in node.kids:
+                    if k.__class__ is ParseTree and id(k) not in results:
+                        push((k, False))
                 continue
             self._fold_node(node, results)
-        return results[id(root)]
+        return cast(M, results[id(root)])
 
     # ── per-node folding ────────────────────────────────────────────
 
@@ -183,8 +360,7 @@ class PositionalFold:
         if rule_fold.kind == "value_str":
             results[id(node)] = rule_fold.ctor(value=_subtree_text(node))
         elif rule_fold.kind == "alternation":
-            models = list(self._models_under_kids(node, results))
-            results[id(node)] = models[0] if models else None
+            results[id(node)] = self._first_model_under(node, results)
         else:
             results[id(node)] = self._fold_sequence(node, rule_fold, results)
 
@@ -218,69 +394,51 @@ class PositionalFold:
         if mode == "gtext":
             text = _subtree_text(kid)
             return None if (not text and lo == 0) else text
-        models = list(self._models_at(kid, results))
+        models = self._models_at(kid, results)
         if mode == "models":
             return models
         return models[0] if models else None
 
     def _models_at(
-        self, kid: ParseTree | IrLiteral, results: dict[int, object]
-    ) -> Iterator[object]:
-        """Folded models at/under a kid slot, looking through synthetic layers."""
-        stack: list[ParseTree | IrLiteral] = [kid]
+        self, kid: ParseTree | IrLiteral | PayloadLeaf, results: dict[int, object]
+    ) -> list[object]:
+        """Folded models at/under a kid slot, looking through synthetic layers.
+
+        A delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` contributes
+        its pre-built sub-model directly (the PDA sub-run already folded it) —
+        the same already-folded-child pass-through the PDA-side island splice
+        performs.
+        """
+        kid_id = id(kid)
+        if kid_id in results:  # directly folded — the common case, no walk
+            model = results[kid_id]
+            return [] if model is None else [model]
+        out: list[object] = []
+        stack: list[ParseTree | IrLiteral | PayloadLeaf] = [kid]
         while stack:
             k = stack.pop()
-            if not isinstance(k, ParseTree):
-                continue
-            if id(k) in results:
-                model = results[id(k)]
-                if model is not None:
-                    yield model
-            else:  # synthetic / non-model layer — descend
-                stack.extend(reversed(k.kids))
+            if isinstance(k, PayloadLeaf):  # delegated pre-folded sub-model
+                if k.payload is not None:
+                    out.append(k.payload)
+            elif isinstance(k, ParseTree):
+                if id(k) in results:
+                    model = results[id(k)]
+                    if model is not None:
+                        out.append(model)
+                else:  # synthetic / non-model layer — descend
+                    stack.extend(reversed(k.kids))
+        return out
 
-    def _models_under_kids(
-        self, node: ParseTree, results: dict[int, object]
-    ) -> Iterator[object]:
+    def _first_model_under(self, node: ParseTree, results: dict[int, object]) -> object:
+        """The first folded model under ``node``'s kids, or ``None``."""
         for kid in node.kids:
-            yield from self._models_at(kid, results)
+            models = self._models_at(kid, results)
+            if models:
+                return models[0]
+        return None
 
 
 # ── optional-nullable lift (engine-ambiguity policy) ──────────────────
-
-
-def _nullable_names(rules: tuple[IrRule, ...]) -> set[str]:
-    """Rule names that can derive the empty string (fixpoint)."""
-
-    def item_nullable(item: IrItem, known: set[str]) -> bool:
-        if int(item.quantifier.lo) == 0:
-            return True
-        atom = item.atom
-        if isinstance(atom, IrRuleRef):
-            return str(atom) in known
-        if isinstance(atom, IrLiteral):
-            return not str(atom)
-        if isinstance(atom, IrAlternation):
-            return any(
-                all(item_nullable(i, known) for i in arm if isinstance(i, IrItem))
-                for arm in atom
-            )
-        return False
-
-    known: set[str] = set()
-    changed = True
-    while changed:
-        changed = False
-        for rule in rules:
-            if str(rule.name) in known:
-                continue
-            if any(
-                all(item_nullable(i, known) for i in arm if isinstance(i, IrItem))
-                for arm in rule.body
-            ):
-                known.add(str(rule.name))
-                changed = True
-    return known
 
 
 def lift_optional_nullables(grammar: IrAst) -> IrAst:
@@ -296,7 +454,7 @@ def lift_optional_nullables(grammar: IrAst) -> IrAst:
     :returns: The lifted grammar (same rule order, same item positions).
     """
     rules = tuple(grammar.rules)
-    nullable = _nullable_names(rules)
+    nullable = nullable_names(rules)
 
     def lift_item(item: IrItem) -> IrItem:
         atom = item.atom
@@ -330,24 +488,24 @@ def lift_optional_nullables(grammar: IrAst) -> IrAst:
 # ── instance-path run collapse (the fold-config licence) ──────────────
 
 
-_COLLAPSED: dict[tuple[int, int], tuple[PositionalFold, IrAst, ParserTables]] = {}
+_COLLAPSED: dict[tuple[int, int], tuple[ModelFold, IrAst, ParserTables]] = {}
 """Collapsed instance-tables memo — (id(fold), id(grammar)) → (fold, grammar,
 tables). Strong references pin both ids against reuse."""
 
 
-def collapsed_fold_tables(grammar: IrAst, fold: PositionalFold) -> ParserTables:
+def collapsed_fold_tables(grammar: IrAst, fold: ModelFold) -> ParserTables:
     """Instance tables with every fold-safe lexical run collapsed.
 
     The grammar-side proof (charset, uniqueness, follow disjointness) comes
-    from :func:`~lexic.parsing.lexruns.run_candidates`; the fold-side licence
-    (:meth:`PositionalFold.run_ok`) keeps only runs whose collapsed multi-char
+    from :func:`~lexic.parsing.earley.lexruns.run_candidates`; the fold-side licence
+    (:meth:`ModelFold.run_ok`) keeps only runs whose collapsed multi-char
     leaf hides structure the fold looks through anyway. Every kept run is
-    :data:`~lexic.parsing.tables.RUN_STR` (text-preserving): the run text
+    :data:`~lexic.parsing.earley.tables.RUN_STR` (text-preserving): the run text
     stays a leaf in the tree so ``to_text()`` round-trips exactly — never
     ``RUN_DROP``. Memoised per ``(fold, grammar)``.
 
     :param grammar: The Earley-normalised instance grammar.
-    :param fold: The configured :class:`PositionalFold` for that grammar.
+    :param fold: The configured :class:`ModelFold` for that grammar.
     :returns: The collapsed tables (the plain tables when nothing collapses).
     """
     key = (id(fold), id(grammar))

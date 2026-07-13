@@ -22,6 +22,7 @@ from lexic.codegen.aliases import (
 from lexic.codegen.binding import (
     RuleBinding,
     class_name_for,
+    has_ruleref,
     non_empty_arms,
 )
 from lexic.exceptions import UnsupportedConstructError
@@ -105,10 +106,14 @@ def _ref_class(name: str, class_by_rule: dict[str, str]) -> str:
 
 
 def _group_union_type(alt: IrAlternation, class_by_rule: dict[str, str]) -> str:
-    """Type for a ref-bearing inline group: its single class or a ``Union``.
+    """Type for a model-mode inline group: its single class or a ``Union``.
 
-    Only single unit-ref arms contribute; a group with mixed/multi-item arms
-    (no clean ref arm) has no sub-model type and folds to ``str``.
+    Model mode is reached only for all-unit-ref groups (see
+    :func:`~lexic.codegen.binding._all_unit_ref_arms`), so every arm
+    contributes exactly one ref. A ref-less result is unreachable and raises —
+    a mixed or multi-item group would have folded as ``gtext``.
+
+    :raises UnsupportedConstructError: If no arm is a single unit ref.
     """
     arm_refs = [
         arm[0].atom
@@ -116,7 +121,10 @@ def _group_union_type(alt: IrAlternation, class_by_rule: dict[str, str]) -> str:
         if len(arm) == 1 and isinstance(arm[0].atom, IrRuleRef)
     ]
     if not arm_refs:
-        return "str"
+        raise UnsupportedConstructError(
+            f"_group_union_type: model-mode group {alt!r} has no unit-ref arm "
+            "(a mixed/multi-item group folds as gtext, not model)"
+        )
     names = [_ref_class(str(ref), class_by_rule) for ref in arm_refs]
     return names[0] if len(names) == 1 else f"Union[{', '.join(names)}]"
 
@@ -162,7 +170,15 @@ def _ty_charclass(d: _FieldTyper, n: IrCharClass, nc: Sequence[IrSelf]) -> str:
 
 
 def _ty_group_gtext(d: _FieldTyper, n: IrAlternation, nc: Sequence[IrSelf]) -> str:
-    """Gtext-mode body: a literal-only group types as its pattern alias."""
+    """Gtext-mode body: literal-only group → pattern alias; ref-bearing → ``str``.
+
+    A closed regex is not derivable through rulerefs, so a ref-bearing group
+    (mixed literal/ref arms, or multi-item ref arms) types as plain ``str`` —
+    validation stays at parse level. Literal-only groups keep their anchored
+    pattern alias byte-identically.
+    """
+    if has_ruleref(n):
+        return "str"
     return _pattern_type(regex_for_group(n, _typer_item(nc).quantifier), d.aliases)
 
 

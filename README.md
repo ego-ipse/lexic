@@ -103,7 +103,25 @@ Eight ground-truth `.gbnf` grammars live in `resources/ground_truth/`, plus two 
 
 ## Performance
 
-The engine is pure Python with full SPPF semantics, benchmarked against Lark's Earley mode on grammar-text parsing (`tools/benchmark/parse_bench.py`, baseline JSON alongside). As of July 2026 the text→IR product runs at ~17 µs/char vs Lark's ~30 — about 1.75× faster full-vs-full — via exact (proved, never approximated) lexical-run collapse, seed-pair prediction tables, and FIRST-gated prediction.
+`lexic.parsing` runs two engines behind one API: a deterministic **predictive PDA** — the default fast path, which builds the typed result *during* the parse (no intermediate tree) — backed by a scannerless **Earley** engine (full SPPF, Scott 2008) as the sound completion. Both are pure Python, zero parser dependencies. `tools/benchmark/compare_bench.py` races both against **Lark** — under *both* its LALR and Earley parsers — on the same inputs, so the paths compare directly.
+
+Representative throughput (µs/char, lower is faster; single machine, July 2026):
+
+| input | lark-lalr | lark-earley | earley | **pda** |
+|---|---|---|---|---|
+| ABNF self-emit *(grammar text)* | — | ~29 | ~16 | **~9** |
+| GBNF self-emit *(grammar text)* | — | ~20 | ~18 | **~9** |
+| arithmetic *(instance)* | 1.9 | 24 | 14 | **2.6** |
+| c *(instance)* | 1.2 | 21 | 8 | **1.1** |
+| chess *(instance)* | 1.0 | 10 | 9 | **1.6** |
+| json *(instance)* | 0.9 | 14 | 64 | **3.5** |
+
+Reading the numbers fairly:
+
+- **Grammar-text** (parsing grammar *source* → IR): the PDA runs ~9 µs/char — about 2× the engine's own Earley and ~2–3× Lark. LALR is not viable for the two meta-grammars (their rulename↔ruleref overlap needs unbounded lookahead — the same reason the PDA compiles a probe gate), so Lark runs Earley there.
+- **Instances** (parsing strings against a compiled grammar → typed model): Lark's **LALR** + contextual lexer is genuinely fast, competitive with or faster than the PDA — but note the asymmetry: Lark yields a *generic parse tree*, while `earley`/`pda` build the **typed Pydantic model**, so those columns include construction Lark's do not. Lark's own *Earley* parser is 5–25× slower than its LALR.
+
+Lark is measured at its native output (`parser.parse` → Tree), never a second-pass transform, so the comparison is fair to it; where LALR cannot handle a grammar it is reported, never silently swapped for Earley. The PDA closes the deterministic-parse gap via exact (proved, never approximated) lexical-run collapse, per-call-site clone tables read from a stored gate analysis, and FIRST-gated prediction. See the benchmark's docstring for the full methodology.
 
 ## Development
 

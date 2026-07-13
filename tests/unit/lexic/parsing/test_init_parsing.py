@@ -14,42 +14,51 @@ API changes from the int-kernel rework:
 
 from __future__ import annotations
 
+from lexic.grammars.gbnf import GBNF_FLAVOUR
+from lexic.ir.nodes import IrAst
 from lexic.parsing import (
     BUILD_TREE,
-    PARSE_REDUCED,
     Chart,
     EarleyItem,
     EarleyParser,
+    FastCtor,
     FastTree,
+    FieldFold,
     Kernel,
     Link,
     Links,
+    ModelBody,
+    ModelFold,
     ParserTables,
     ParseTree,
     Reducer,
+    RuleFold,
     SppfNode,
     compile_tables,
     derivations,
     is_ambiguous,
+    lift_optional_nullables,
+    normalize,
     parse,
     parse_forest,
+    parse_model,
     parse_reduced,
     recognize,
 )
-from lexic.parsing.chart import Chart as ChartDirect
-from lexic.parsing.chart import EarleyItem as EarleyItemDirect
-from lexic.parsing.chart import Link as LinkDirect
-from lexic.parsing.chart import Links as LinksDirect
-from lexic.parsing.engine import PARSE_REDUCED as PARSE_REDUCED_DIRECT
-from lexic.parsing.engine import EarleyParser as EarleyParserDirect
-from lexic.parsing.forest import BUILD_TREE as BUILD_TREE_DIRECT
-from lexic.parsing.forest import ParseTree as ParseTreeDirect
-from lexic.parsing.forest import SppfNode as SppfNodeDirect
-from lexic.parsing.kernel import FastTree as FastTreeDirect
-from lexic.parsing.kernel import Kernel as KernelDirect
-from lexic.parsing.reduce import Reducer as ReducerDirect
-from lexic.parsing.tables import ParserTables as ParserTablesDirect
-from lexic.parsing.tables import compile_tables as compile_tables_direct
+from lexic.parsing.earley.chart import Chart as ChartDirect
+from lexic.parsing.earley.chart import EarleyItem as EarleyItemDirect
+from lexic.parsing.earley.chart import Link as LinkDirect
+from lexic.parsing.earley.chart import Links as LinksDirect
+from lexic.parsing.earley.engine import EarleyParser as EarleyParserDirect
+from lexic.parsing.earley.forest import BUILD_TREE as BUILD_TREE_DIRECT
+from lexic.parsing.earley.forest import ParseTree as ParseTreeDirect
+from lexic.parsing.earley.forest import SppfNode as SppfNodeDirect
+from lexic.parsing.earley.kernel import FastTree as FastTreeDirect
+from lexic.parsing.earley.kernel import Kernel as KernelDirect
+from lexic.parsing.earley.reduce import Reducer as ReducerDirect
+from lexic.parsing.earley.tables import ParserTables as ParserTablesDirect
+from lexic.parsing.earley.tables import compile_tables as compile_tables_direct
+from lexic.parsing.products import earley_model, earley_reduce
 
 
 def test_chart_re_exported_from_package():
@@ -148,7 +157,7 @@ def test_compile_tables_re_exported_from_package():
     assert compile_tables is compile_tables_direct
 
 
-# ── Phase B: parse_reduced / PARSE_REDUCED ─────────────────────────────
+# ── Phase B: the product entries + the new root exports ────────────────
 
 
 def test_parse_reduced_callable_from_package():
@@ -156,7 +165,40 @@ def test_parse_reduced_callable_from_package():
     assert callable(parse_reduced)
 
 
-def test_parse_reduced_singleton_re_exported_from_package():
-    """PARSE_REDUCED is importable from the package top-level (not in __all__,
-    but still reachable — __all__ only governs `from module import *`)."""
-    assert PARSE_REDUCED is PARSE_REDUCED_DIRECT
+def test_parse_model_callable_from_package():
+    """parse_model is importable and callable from the package top-level."""
+    assert callable(parse_model)
+
+
+def test_new_root_exports_are_reachable():
+    """The engine exports its normalisation, fold, and fold-authoring types at
+    the package root (what compile.py imports, root-API-only)."""
+    for obj in (
+        normalize,
+        lift_optional_nullables,
+        ModelFold,
+        ModelBody,
+        RuleFold,
+        FieldFold,
+        FastCtor,
+    ):
+        assert obj is not None
+
+
+def test_product_entries_take_the_authored_grammar_pda_first():
+    """parse_reduced (the grammar-text product) takes the AUTHORED self-grammar
+    and returns the reduced IrAst — PDA-first with the Earley completion inside,
+    equal to the forced Earley completion."""
+    text = 'root ::= "abc"\n'
+    got = parse_reduced(GBNF_FLAVOUR.grammar, text, GBNF_FLAVOUR.reducer)
+    assert isinstance(got, IrAst)
+    assert got == earley_reduce(
+        normalize(GBNF_FLAVOUR.grammar), text, GBNF_FLAVOUR.reducer
+    )
+
+
+def test_earley_completions_are_submodule_importable():
+    """The Earley-completion / route-forcing seam lives on the products
+    submodule (tests-only), not the package root."""
+    assert callable(earley_reduce)
+    assert callable(earley_model)

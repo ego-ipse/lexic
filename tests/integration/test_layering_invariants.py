@@ -1,7 +1,8 @@
-"""Layering invariants enforced via static grep over src/lexic/."""
+"""Layering invariants enforced via static grep / AST over src/lexic/."""
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -11,6 +12,62 @@ SRC = ROOT / "src" / "lexic"
 def _grep(directory: Path, needle: str) -> list[Path]:
     """Return list of .py files in directory containing needle."""
     return [p for p in directory.rglob("*.py") if needle in p.read_text()]
+
+
+def _module_name(path: Path) -> str:
+    """The dotted module name of a file under ``src/`` (``src/lexic/a/b.py`` →
+    ``lexic.a.b``)."""
+    return ".".join(path.relative_to(SRC.parent).with_suffix("").parts)
+
+
+def _from_imports(tree: ast.AST) -> "list[tuple[str, str]]":
+    """Every absolute ``from <module> import <name>`` as ``(module, name)``."""
+    out: list[tuple[str, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            out.extend((node.module, alias.name) for alias in node.names)
+    return out
+
+
+def test_no_cross_module_private_imports_in_src():
+    """No ``from <module> import _name`` crosses a module boundary in ``src/``.
+
+    A name two modules share is that module's public surface — it is renamed
+    public at its defining module (the underscore dropped), never imported
+    across the boundary. Permanent enforcement of directive 4.
+    """
+    offenders: list[str] = []
+    for path in SRC.rglob("*.py"):
+        mod = _module_name(path)
+        for module, name in _from_imports(ast.parse(path.read_text())):
+            if module != mod and name.startswith("_"):
+                offenders.append(f"{mod}: from {module} import {name}")
+    assert not offenders, f"cross-module private imports: {offenders}"
+
+
+def test_runtime_imports_parsing_root_only():
+    """Only ``compile.py`` imports ``lexic.parsing`` among top-level runtime
+    modules, and only the package **root** — never a submodule.
+
+    The engine owns its API: consumers import ``lexic.parsing`` (the product
+    entries + the exported toolkit), never ``lexic.parsing.earley`` /
+    ``.fold`` / ``.pda`` / ``.products``. Permanent enforcement of directive 1.
+    """
+    offenders: list[str] = []
+    for path in SRC.glob("*.py"):  # top-level runtime modules only
+        tree = ast.parse(path.read_text())
+        mods = [m for m, _ in _from_imports(tree)]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                mods.extend(alias.name for alias in node.names)
+        for module in mods:
+            if module != "lexic.parsing" and not module.startswith("lexic.parsing."):
+                continue
+            if path.name != "compile.py":
+                offenders.append(f"{path.name}: imports {module} (only compile.py may)")
+            elif module != "lexic.parsing":
+                offenders.append(f"{path.name}: imports {module} (root only)")
+    assert not offenders, f"parsing import-layering violations: {offenders}"
 
 
 def test_ir_does_not_import_grammars_parsing_codegen():
@@ -145,6 +202,72 @@ def test_retired_ir_modules_are_gone():
             "lexic.ir.topo",
         ):
             assert module not in content, f"{p}: residual {module} reference"
+
+
+def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
+    """The core substrate, analysis, clone compiler and runtime modules exist
+    inside lexic.parsing.pda and carry no grammars/codegen import.
+
+    ``test_engine_package_does_not_import_grammars_or_codegen`` already
+    greps every ``.py`` under ``lexic.parsing`` generically (``rglob``), so
+    these modules are covered by accident of directory placement; this pins
+    that placement (and the absence of the two forbidden imports) explicitly
+    by name, so a future reshuffle can't silently drop them from scope.
+    """
+    pda = SRC / "parsing" / "pda"
+    for rel in (
+        "core/charsets.py",
+        "analysis/analysis.py",
+        "compiler/clones.py",
+        "runtime/runtime.py",
+    ):
+        path = pda / rel
+        assert path.exists(), f"{rel} missing from lexic.parsing.pda"
+        content = path.read_text()
+        assert "from lexic.grammars" not in content, f"{rel} imports lexic.grammars"
+        assert "from lexic.codegen" not in content, f"{rel} imports lexic.codegen"
+
+
+def test_earley_never_imports_pda():
+    """The Earley engine (``parsing/earley``) never imports the PDA package.
+
+    The intra-``parsing`` arrow runs one way — ``pda → earley`` only. Island-
+    interior delegation (Task 6.2) is threaded through this seam without
+    reversing it: the delegate table is an opaque-callable slot the kernel
+    invokes (``Kernel.delegates`` / :data:`~lexic.parsing.earley.kernel.Delegate`),
+    populated by ``pda`` and passed in through :mod:`lexic.parsing.pda.runtime.islands`;
+    the kernel itself imports nothing from ``pda`` and stays PDA-agnostic.
+    """
+    earley = SRC / "parsing" / "earley"
+    bad = _grep(earley, "from lexic.parsing.pda") + _grep(
+        earley, "import lexic.parsing.pda"
+    )
+    assert not bad, f"earley imports pda (delegation must stay opaque): {bad}"
+
+
+def test_pda_entry_points_imported_only_via_compile_seam():
+    """Only compile.py imports the PDA entry points among top-level runtime modules.
+
+    ``pda.clones``/``pda.runtime`` are sub-paths of ``lexic.parsing``, so
+    ``test_engine_imported_by_runtime_only_via_compile_seam``'s ``"from
+    lexic.parsing"`` prefix check already covers them generically; this pins
+    that coverage explicitly for the PDA modules by name. Post-Task-2 no runtime
+    module imports them at all — the products own the PDA behind the root API.
+    """
+    offenders = []
+    for p in SRC.glob("*.py"):  # top-level modules only, not subpackages
+        if p.name == "compile.py":
+            continue
+        for line in p.read_text().splitlines():
+            stripped = line.strip()
+            if not any(
+                mod in stripped
+                for mod in ("pda.clones", "pda.runtime", "pda.reduce_runtime")
+            ):
+                continue
+            if stripped.startswith(("from lexic.parsing", "import lexic.parsing")):
+                offenders.append(f"{p.name}: {stripped}")
+    assert not offenders, f"PDA entry points bypass the compile.py seam: {offenders}"
 
 
 def test_single_codegen_entry_and_emit_path():

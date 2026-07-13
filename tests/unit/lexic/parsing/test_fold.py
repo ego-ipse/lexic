@@ -1,10 +1,11 @@
 """Tests for lexic.parsing.fold — the positional instance-parsing bridge.
 
-A plain-data config (rule name → RuleFold) drives PositionalFold over
-``parse_first`` trees of the *real* instance grammar — no wrapper rules.
-End-to-end fold behaviors run through the compiled pipeline fixtures
-(``arithmetic`` / ``optional_shapes`` in conftest); the generic-fold sections
-use opaque dict constructors to prove the fold needs no pydantic knowledge.
+An IR body-table (IrMap[IrRuleRef, ModelBody]) that bakes to RuleFold config
+drives ModelFold over ``parse_first`` trees of the *real* instance grammar —
+no wrapper rules. End-to-end fold behaviors run through the compiled pipeline
+fixtures (``arithmetic`` / ``optional_shapes`` in conftest); the generic-fold
+sections use opaque dict constructors to prove the fold needs no pydantic
+knowledge.
 """
 
 from __future__ import annotations
@@ -13,7 +14,8 @@ import pytest
 
 from lexic.compile import compile_text, reset_cache_for_tests
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrSeq
+from lexic.ir.base import IrNone, IrSeq, IrTuple
+from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -25,28 +27,35 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.parsing import parse_first
+from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
+from lexic.parsing.earley.tables import compile_tables
 from lexic.parsing.fold import (
     FieldFold,
-    PositionalFold,
+    ModelBody,
+    ModelFold,
     RuleFold,
-    _nullable_names,
     collapsed_fold_tables,
     lift_optional_nullables,
 )
-from lexic.parsing.forest import ParseTree
-from lexic.parsing.normalize import SYNTHETIC_PREFIX, normalize
-from lexic.parsing.tables import compile_tables
+from lexic.parsing.products import _model_product
 from tests._ir_fixtures import malformed_synthetic_rule, nested_synthetic_grammar
 from tests.paths import GROUND_TRUTH
 
 # ── the compiled config — structure ─────────────────────────────────────
 
 
+def _prod(cg):
+    """The instance product for a CompiledGrammar — its instance_grammar/tables/pda
+    (the fields the artefact no longer carries; memoised per (grammar, fold))."""
+    return _model_product(cg.codegen_grammar, cg.fold)
+
+
 def test_instance_grammar_is_normalized(arithmetic):
     """The compiled instance grammar is Earley-normalized: parse_first accepts
     it directly (tables.py raises 'run normalize() before compiling' on a raw
     grammar, so a successful parse is itself proof of normalization)."""
-    tree = parse_first(arithmetic.instance_grammar, "x=1\n")
+    tree = parse_first(_prod(arithmetic).instance_grammar, "x=1\n")
     assert tree is not None
 
 
@@ -77,26 +86,26 @@ def test_unquantified_literals_stay_inline_no_field(arithmetic):
     assert root_item.n_items == 5
 
 
-# ── PositionalFold construction — config validation ─────────────────────
+# ── ModelFold construction — config validation ─────────────────────
 
 
 def test_fold_rejects_unknown_kind():
     """A config kind outside FOLD_KINDS is refused at construction."""
     config = {"r": RuleFold("mystery", dict, 0, ())}
     with pytest.raises(UnsupportedConstructError, match="unknown kind"):
-        PositionalFold(config)
+        ModelFold.from_config(config)
 
 
 def test_fold_rejects_unknown_mode():
     """A field mode outside BIND_MODES is refused at construction."""
     config = {"r": RuleFold("sequence", dict, 1, (FieldFold(0, "bogus", "x", 1),))}
     with pytest.raises(UnsupportedConstructError, match="unknown mode"):
-        PositionalFold(config)
+        ModelFold.from_config(config)
 
 
 def test_fold_kid_count_mismatch_raises():
     """Non-zero kids that match neither n_items nor the empty arm raise."""
-    fold = PositionalFold({"r": RuleFold("sequence", dict, 2, ())})
+    fold = ModelFold.from_config({"r": RuleFold("sequence", dict, 2, ())})
     node = ParseTree(IrRuleRef("r"), IrSeq(IrLiteral("a")))
     with pytest.raises(UnsupportedConstructError, match="do not match"):
         fold.apply(node)
@@ -108,12 +117,12 @@ def test_fold_sequence_zero_item_arm_takes_the_equal_length_path():
     mismatch branch — both end up calling ctor() with no kwargs, but a
     kid-count mismatch there would incorrectly raise (kids=0, n_items=0 are
     equal, so ``if len(kids) != rule_fold.n_items`` is False from the start)."""
-    fold = PositionalFold({"r": RuleFold("sequence", dict, 0, ())})
+    fold = ModelFold.from_config({"r": RuleFold("sequence", dict, 0, ())})
     node = ParseTree(IrRuleRef("r"), IrSeq())
     assert fold.apply(node) == {}
 
 
-# ── PositionalFold.apply — fold behaviors end-to-end ────────────────────
+# ── ModelFold.apply — fold behaviors end-to-end ────────────────────
 
 
 def test_sequence_kwargs_by_position(arithmetic):
@@ -230,7 +239,7 @@ def test_fold_is_generic_over_opaque_constructors():
             start="pair",
         )
     )
-    fold = PositionalFold(
+    fold = ModelFold.from_config(
         {
             "pair": RuleFold(
                 "sequence",
@@ -244,46 +253,6 @@ def test_fold_is_generic_over_opaque_constructors():
     )
     assert fold.apply(parse_first(grammar, "ab")) == {"a": "a", "b": "b"}
     assert fold.apply(parse_first(grammar, "")) == {}
-
-
-# ── _nullable_names ──────────────────────────────────────────────────────
-
-
-def test_nullable_names_empty_literal():
-    """A rule whose body is an empty literal is nullable."""
-    rule = IrRule("empty", IrAlternation(IrSequence(IrItem(IrLiteral("")))))
-    assert "empty" in _nullable_names((rule,))
-
-
-def test_nullable_names_lo_zero_item():
-    """A rule whose sole item has quantifier lo=0 is nullable."""
-    rule = IrRule(
-        "zero_lo", IrAlternation(IrSequence(IrItem(IrLiteral("x"), IrQuantifier(0, 1))))
-    )
-    assert "zero_lo" in _nullable_names((rule,))
-
-
-def test_nullable_names_alternation_arm():
-    """A rule with one empty arm (among others) is nullable."""
-    rule = IrRule(
-        "alt", IrAlternation(IrSequence(), IrSequence(IrItem(IrLiteral("y"))))
-    )
-    assert "alt" in _nullable_names((rule,))
-
-
-def test_nullable_names_transitive_ref():
-    """A rule that refs a nullable rule is transitively nullable (fixpoint)."""
-    empty = IrRule("empty", IrAlternation(IrSequence(IrItem(IrLiteral("")))))
-    transitive = IrRule(
-        "transitive", IrAlternation(IrSequence(IrItem(IrRuleRef("empty"))))
-    )
-    assert "transitive" in _nullable_names((empty, transitive))
-
-
-def test_nullable_names_excludes_non_nullable():
-    """A rule requiring a non-empty literal is not nullable."""
-    rule = IrRule("solid", IrAlternation(IrSequence(IrItem(IrLiteral("z")))))
-    assert "solid" not in _nullable_names((rule,))
 
 
 # ── lift_optional_nullables ──────────────────────────────────────────────
@@ -359,34 +328,36 @@ def test_collapsed_fold_tables_collapses_a_run_on_arithmetic(arithmetic):
     """arithmetic.gbnf's num/ident charclass runs collapse to RunTerm leaves.
 
     A collapsed run shows up as a ``lens == 0`` terminal — see
-    :class:`~lexic.parsing.tables.TermTables`.
+    :class:`~lexic.parsing.earley.tables.TermTables`.
     """
-    plain = compile_tables(arithmetic.instance_grammar)
-    collapsed = collapsed_fold_tables(arithmetic.instance_grammar, arithmetic.fold)
+    plain = compile_tables(_prod(arithmetic).instance_grammar)
+    collapsed = collapsed_fold_tables(
+        _prod(arithmetic).instance_grammar, arithmetic.fold
+    )
     assert collapsed is not plain
     assert any(length == 0 for length in collapsed.terms.lens)
 
 
 def test_collapsed_fold_tables_memoises_per_fold_and_grammar(arithmetic):
     """The same (fold, grammar) pair returns the identical tables object."""
-    first = collapsed_fold_tables(arithmetic.instance_grammar, arithmetic.fold)
-    second = collapsed_fold_tables(arithmetic.instance_grammar, arithmetic.fold)
+    first = collapsed_fold_tables(_prod(arithmetic).instance_grammar, arithmetic.fold)
+    second = collapsed_fold_tables(_prod(arithmetic).instance_grammar, arithmetic.fold)
     assert first is second
 
 
 def test_collapsed_fold_tables_returns_plain_when_no_candidates(optional_shapes):
     """A grammar with no star/plus run candidates gets back the plain tables."""
-    plain = compile_tables(optional_shapes.instance_grammar)
+    plain = compile_tables(_prod(optional_shapes).instance_grammar)
     collapsed = collapsed_fold_tables(
-        optional_shapes.instance_grammar, optional_shapes.fold
+        _prod(optional_shapes).instance_grammar, optional_shapes.fold
     )
     assert collapsed is plain
 
 
 def test_compiled_tables_are_the_collapsed_ones(arithmetic):
     """CompiledGrammar.tables is exactly the memoised collapsed tables."""
-    assert arithmetic.tables is collapsed_fold_tables(
-        arithmetic.instance_grammar, arithmetic.fold
+    assert _prod(arithmetic).tables is collapsed_fold_tables(
+        _prod(arithmetic).instance_grammar, arithmetic.fold
     )
 
 
@@ -398,33 +369,33 @@ def test_collapsed_fold_tables_memo_keys_on_identity_not_equality():
     cg1 = compile_text(text)
     reset_cache_for_tests()  # force a genuinely fresh second compile
     cg2 = compile_text(text)
-    assert cg1.instance_grammar == cg2.instance_grammar
-    assert cg1.instance_grammar is not cg2.instance_grammar
-    assert cg1.tables is not cg2.tables
+    assert _prod(cg1).instance_grammar == _prod(cg2).instance_grammar
+    assert _prod(cg1).instance_grammar is not _prod(cg2).instance_grammar
+    assert _prod(cg1).tables is not _prod(cg2).tables
 
 
 def test_collapsed_fold_tables_distinct_fold_objects_do_not_share_cache(arithmetic):
     """A fold object with an identical config is still a distinct object —
     collapsed_fold_tables must recompute, not alias, for it."""
-    duplicate_fold = PositionalFold(dict(arithmetic.fold.config))
-    first = collapsed_fold_tables(arithmetic.instance_grammar, arithmetic.fold)
-    second = collapsed_fold_tables(arithmetic.instance_grammar, duplicate_fold)
+    duplicate_fold = ModelFold.from_config(dict(arithmetic.fold.config))
+    first = collapsed_fold_tables(_prod(arithmetic).instance_grammar, arithmetic.fold)
+    second = collapsed_fold_tables(_prod(arithmetic).instance_grammar, duplicate_fold)
     assert first is not second
 
 
-# ── PositionalFold.run_ok (the run-collapse licence) ─────────────────────
+# ── ModelFold.run_ok (the run-collapse licence) ─────────────────────
 
 
 def test_run_ok_true_for_bare_terminal_unit(digit_grammar):
     """A bare-terminal run unit (unit_rid == -1) is always fold-safe."""
-    fold = PositionalFold({})
+    fold = ModelFold.from_config({})
     tables = compile_tables(digit_grammar)
     assert fold.run_ok(tables, -1) is True
 
 
 def test_run_ok_false_when_unit_is_a_config_rule(digit_grammar):
     """A run whose unit resolves to a constructor-bearing rule is not safe."""
-    fold = PositionalFold({"digit": RuleFold("value_str", dict, 1, ())})
+    fold = ModelFold.from_config({"digit": RuleFold("value_str", dict, 1, ())})
     tables = compile_tables(digit_grammar)
     digit_rid = tables.decode.rule_ids["digit"]
     assert fold.run_ok(tables, digit_rid) is False
@@ -432,7 +403,7 @@ def test_run_ok_false_when_unit_is_a_config_rule(digit_grammar):
 
 def test_run_ok_true_when_leaf_rule_untracked_by_fold(digit_grammar):
     """A leaf rule absent from the fold config hides no model structure."""
-    fold = PositionalFold({})
+    fold = ModelFold.from_config({})
     tables = compile_tables(digit_grammar)
     digit_rid = tables.decode.rule_ids["digit"]
     assert fold.run_ok(tables, digit_rid) is True
@@ -449,7 +420,7 @@ def test_run_ok_false_for_malformed_synthetic_shape():
     g = IrAst(rules=IrSeq(bad), start=f"{SYNTHETIC_PREFIX}bad")
     tables = compile_tables(g)
     rid = tables.decode.rule_ids[f"{SYNTHETIC_PREFIX}bad"]
-    fold = PositionalFold({})
+    fold = ModelFold.from_config({})
     assert fold.run_ok(tables, rid) is False
 
 
@@ -461,7 +432,7 @@ def test_run_ok_false_when_transitive_leaf_is_a_config_rule():
     g = nested_synthetic_grammar()
     tables = compile_tables(g)
     outer_rid = tables.decode.rule_ids[f"{SYNTHETIC_PREFIX}outer"]
-    fold = PositionalFold({"digit": RuleFold("value_str", dict, 0, ())})
+    fold = ModelFold.from_config({"digit": RuleFold("value_str", dict, 0, ())})
     assert fold.run_ok(tables, outer_rid) is False
 
 
@@ -471,7 +442,7 @@ def test_run_ok_true_when_transitive_leaf_untracked():
     g = nested_synthetic_grammar()
     tables = compile_tables(g)
     outer_rid = tables.decode.rule_ids[f"{SYNTHETIC_PREFIX}outer"]
-    fold = PositionalFold({})
+    fold = ModelFold.from_config({})
     assert fold.run_ok(tables, outer_rid) is True
 
 
@@ -479,7 +450,9 @@ def test_ambiguous_input_folds_deterministically(arithmetic):
     """parse_first under collapsed tables equals the plain-tables fold output."""
     text = "ab1+cd2*34/x9-z=result0\n"
     collapsed_model = arithmetic.parse(text)
-    plain_model = arithmetic.fold.apply(parse_first(arithmetic.instance_grammar, text))
+    plain_model = arithmetic.fold.apply(
+        parse_first(_prod(arithmetic).instance_grammar, text)
+    )
     assert collapsed_model.model_dump() == plain_model.model_dump()
     assert collapsed_model.to_text() == plain_model.to_text() == text
 
@@ -497,6 +470,63 @@ def test_run_collapsed_leaf_text_reads_identically(arithmetic):
 
 def test_fold_value_str_via_hand_tree():
     """value_str folds to ctor(value=<all consumed chars under the node>)."""
-    fold = PositionalFold({"w": RuleFold("value_str", dict, 0, ())})
+    fold = ModelFold.from_config({"w": RuleFold("value_str", dict, 0, ())})
     node = ParseTree(IrRuleRef("w"), IrSeq(IrLiteral("a"), IrLiteral("bc")))
     assert fold.apply(node) == {"value": "abc"}
+
+
+# ── ModelBody / ModelFold — the IR-native body-table ─────────────────────
+
+
+def test_model_body_of_bake_round_trips_sequence():
+    """ModelBody.of(rf).bake() is runtime-identical to rf for a sequence body."""
+    rf = RuleFold("sequence", dict, 2, (FieldFold(0, "model", "a", 1),))
+    baked = ModelBody.of(rf).bake()
+    assert baked.kind == rf.kind
+    assert baked.n_items == rf.n_items
+    assert baked.fields == rf.fields
+    assert baked.fast == rf.fast
+    assert baked.ctor is rf.ctor
+
+
+def test_model_body_of_bake_round_trips_value_str():
+    """Same round trip for a value_str body."""
+    rf = RuleFold("value_str", dict, 0, ())
+    baked = ModelBody.of(rf).bake()
+    assert baked.kind == rf.kind
+    assert baked.n_items == rf.n_items
+    assert baked.fields == rf.fields
+    assert baked.ctor is rf.ctor
+
+
+def test_model_body_of_bake_alternation_ctor_is_not_the_original():
+    """An alternation body's ctor is IrNone in between — bake() hands back a
+    stand-in constructor (_alt_ctor), never the original rf.ctor object, but
+    the metadata is preserved."""
+    rf = RuleFold("alternation", dict, 0, ())
+    body = ModelBody.of(rf)
+    assert body.ctor is IrNone
+    baked = body.bake()
+    assert baked.ctor is not rf.ctor
+    assert baked.kind == rf.kind
+    assert baked.n_items == rf.n_items
+    assert baked.fields == rf.fields
+    assert baked.fast == rf.fast
+
+
+def test_model_fold_from_config_round_trips_baked():
+    """ModelFold.from_config(cfg).baked == cfg round-trips a small config."""
+    cfg = {
+        "r": RuleFold("sequence", dict, 1, (FieldFold(0, "text", "a", 1),)),
+        "w": RuleFold("value_str", dict, 0, ()),
+    }
+    assert ModelFold.from_config(cfg).baked == cfg
+
+
+def test_model_fold_bodies_is_the_passed_ir_map():
+    """ModelFold(bodies).bodies is the exact IrMap passed to the constructor."""
+    bodies = IrMap(
+        IrTuple(IrRuleRef("r"), ModelBody.of(RuleFold("value_str", dict, 1, ())))
+    )
+    fold = ModelFold(bodies)
+    assert fold.bodies is bodies

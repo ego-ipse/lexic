@@ -16,22 +16,24 @@ Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)
              compute_binding ──► codegen  (classes w/ Annotated IrBind
                      │                     fields, __grammar__ footers)
                      ▼
-          fold config (plain data) ──► PositionalFold (lexic.parsing.fold)
-                     │
-                     ▼
-   instance grammar = normalize(lift_optional_nullables(codegen_grammar))
-   — the SAME normalize as the grammar-text path, so the engine's
-   identity-memoised tables are shared shapes; tables are run-collapsed
-   under the fold-config licence at build time.
+          IR body-table ──► ModelFold (bakes to the runtime fold records)
 
 ``canonical_grammar(text, flavour)`` is the public front half (parse +
 canonicalize + directive flags → flagged ``IrAst``); ``generate.py`` and
 transpilers build on it.
 
+``CompiledGrammar`` carries the codegen grammar + its fold; ``parse`` hands
+them to the engine's ``parse_model`` product, and ``parse_grammar`` hands the
+flavour's authored self-grammar + reducer to ``parse_reduced``. Both products
+own the whole PDA-first-→-Earley-completion pipeline internally (lifting,
+normalisation, PDA/table compilation, memoisation) — one public call each, no
+predictive-PDA sibling on the artefact and no whole-grammar opt-out.
+
 Runtime seams: lexic.codegen (codegen, build_codegen_grammar,
-compute_binding) and the engine (lexic.parsing / .fold / .normalize /
-.reduce). compile.py is the single runtime module importing either; no
-private-symbol imports cross the seams.
+compute_binding) and the engine (lexic.parsing — root API only:
+``parse_model`` / ``parse_reduced`` / ``ModelFold`` + fold-authoring types /
+``Reducer``). compile.py is the single runtime module importing either; it
+imports the ``lexic.parsing`` package root only, no submodule or private name.
 """
 
 from __future__ import annotations
@@ -51,20 +53,35 @@ from lexic.codegen import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
-from lexic.ir.base import IrSeq
+from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple
 from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import IrAst, IrRule
-from lexic.parsing import ParserTables, parse_first, parse_reduced
-from lexic.parsing.fold import (
+from lexic.ir.mapping import IrMap
+from lexic.ir.nodes import IrAst, IrRule, IrRuleRef
+from lexic.parsing import (
+    FastCtor,
     FieldFold,
-    PositionalFold,
-    RuleFold,
-    collapsed_fold_tables,
-    lift_optional_nullables,
+    ModelBody,
+    ModelFold,
+    Reducer,
+    parse_model,
+    parse_reduced,
 )
-from lexic.parsing.normalize import normalize
-from lexic.parsing.reduce import Reducer
+
+
+def _flavour_reducer(flavour: IrFlavour) -> Reducer:
+    """The flavour's :class:`Reducer`, narrowed once — the single home for the check.
+
+    :param flavour: The grammar flavour.
+    :returns: Its ``reducer`` ClassVar, narrowed to :class:`Reducer`.
+    :raises UnsupportedConstructError: When the flavour carries no ``Reducer``.
+    """
+    reducer = flavour.reducer
+    if not isinstance(reducer, Reducer):
+        raise UnsupportedConstructError(
+            f"compile: flavour {flavour.name!r} carries no parse Reducer"
+        )
+    return reducer
 
 
 @dataclass(frozen=True)
@@ -74,28 +91,39 @@ class CompiledGrammar:
     :ivar classes: Generated model classes by class name.
     :ivar grammar: The canonical grammar AST (what the user's grammar IS —
         the transpile/re-emit source; also the generated module's GRAMMAR).
-    :ivar instance_grammar: The Earley-normalised instance grammar (held so
-        the engine's identity-memoised table compilation stays hot).
+    :ivar codegen_grammar: The post-pass codegen grammar the fold binds against
+        — the engine key :meth:`parse` hands to
+        :func:`~lexic.parsing.parse_model` (the engine memoises its lifted /
+        normalised / PDA / run-collapsed compilation per this grammar's identity).
     :ivar fold: The positional ParseTree → model-instance fold.
-    :ivar tables: The instance grammar's run-collapsed tables — every lexical
-        run the fold-config licence proves safe steps in one scan (compiled
-        once at build time; see
-        :func:`~lexic.parsing.fold.collapsed_fold_tables`).
     """
 
     classes: dict[str, type]
     grammar: IrAst
-    instance_grammar: IrAst
-    fold: PositionalFold
-    tables: ParserTables
+    codegen_grammar: IrAst
+    fold: ModelFold[GrammarModel]
 
     def parse(self, text: str) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
 
+        Delegates to the engine's :func:`~lexic.parsing.parse_model` product,
+        which runs the predictive PDA first and completes on the Earley engine
+        on any non-deterministic point (that completion owns the user-facing
+        diagnostics). ``PdaFail`` never surfaces.
+
         :raises UnsupportedConstructError: If ``text`` does not parse, or the
             fold produced no model for the start rule.
         """
-        model = self.fold.apply(parse_first(self.instance_grammar, text, self.tables))
+        return self._ensure_model(parse_model(self.codegen_grammar, text, self.fold))
+
+    @staticmethod
+    def _ensure_model(model: object) -> GrammarModel:
+        """Assert the start rule folded to a :class:`GrammarModel`.
+
+        :param model: The object the PDA or the fold produced for the start rule.
+        :returns: ``model`` narrowed to :class:`GrammarModel`.
+        :raises UnsupportedConstructError: When ``model`` is not a model instance.
+        """
         if not isinstance(model, GrammarModel):
             raise UnsupportedConstructError(
                 f"compile: start rule folded to {type(model).__name__!r}, "
@@ -106,51 +134,27 @@ class CompiledGrammar:
 
 _CACHE: dict[Hashable, CompiledGrammar] = {}
 
-_NORM_GRAMMAR_CACHE: dict[str, IrAst] = {}
-
 
 def reset_cache_for_tests() -> None:
     """Public test seam: clear the compile cache."""
     _CACHE.clear()
 
 
-def _normalized_grammar(flavour: IrFlavour) -> IrAst:
-    """Return the flavour's Earley-normalised self-grammar, memoised by name.
-
-    The identity of the returned :class:`IrAst` is stable across calls, so the
-    engine's object-identity table memoisation (``compile_tables``) stays hot.
-
-    :param flavour: The grammar flavour whose ``grammar`` ClassVar to normalise.
-    :returns: The normalised self-grammar.
-    """
-    cached = _NORM_GRAMMAR_CACHE.get(flavour.name)
-    if cached is None:
-        cached = normalize(flavour.grammar)
-        _NORM_GRAMMAR_CACHE[flavour.name] = cached
-    return cached
-
-
 def parse_grammar(text: str, flavour: IrFlavour) -> IrAst:
     """Parse grammar source into its IR AST via the flavour's engine path.
 
+    Delegates to the engine's :func:`~lexic.parsing.parse_reduced` product over
+    the flavour's authored self-grammar and its :class:`Reducer` (PDA-first,
+    Earley reduce completion inside the engine, memoised per flavour identity).
+
     :param text: Grammar source in ``flavour``'s syntax.
     :param flavour: The grammar flavour (e.g. ``GBNF_FLAVOUR``).
-    :returns: The reduced grammar AST.
+    :returns: The reduced grammar :class:`IrAst`.
     :raises UnsupportedConstructError: If the flavour carries no ``Reducer``,
         ``text`` does not parse, or the reduction is not an ``IrAst``.
     """
-    reducer = flavour.reducer
-    if not isinstance(reducer, Reducer):
-        raise UnsupportedConstructError(
-            f"compile: flavour {flavour.name!r} carries no parse Reducer"
-        )
-    ast = parse_reduced(_normalized_grammar(flavour), text, reducer)
-    if not isinstance(ast, IrAst):
-        raise UnsupportedConstructError(
-            f"compile: flavour {flavour.name!r} reduction produced "
-            f"{type(ast).__name__!r}, not an IrAst"
-        )
-    return ast
+    reducer = _flavour_reducer(flavour)
+    return parse_reduced(flavour.grammar, text, reducer)
 
 
 def _stem_for_text(text: str) -> str:
@@ -245,23 +249,61 @@ def canonical_grammar(
     return IrAst(rules=rules, start=start)
 
 
+def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor | None:
+    """Grant a rule's :class:`~lexic.parsing.fold.FastCtor` licence, or refuse.
+
+    The class-level half comes from :meth:`GrammarModel.fast_construct`
+    (no validators / post-init / config / non-``None`` defaults); the
+    fold-level half checks that every field the fold can leave unset (a
+    ``gtext`` or ``model`` bind whose item can match nothing, ``lo == 0``)
+    has a default to fall back on, and that the fold's field names cover
+    every non-defaulted model field.
+
+    :param cls: The rule's generated model class.
+    :param kind: The rule's fold kind.
+    :param fields: The rule's bound fields.
+    :returns: The licence, or ``None`` (validated construction only).
+    """
+    if kind == "alternation" or not issubclass(cls, GrammarModel):
+        return None
+    parts = cls.fast_construct()
+    if parts is None:
+        return None
+    make, defaults = parts
+    names = {"value"} if kind == "value_str" else {f.name for f in fields}
+    model_names = set(cls.model_fields)
+    if not names <= model_names:
+        return None
+    if any(n not in names and n not in defaults for n in model_names):
+        return None
+    for field in fields:
+        skippable = field.mode in ("gtext", "model") and field.lo == 0
+        if skippable and field.name not in defaults:
+            return None
+    return FastCtor(make, defaults)
+
+
 def _fold_config(
     codegen_grammar: IrAst, binding: list[RuleBinding], classes: dict[str, type]
-) -> dict[str, RuleFold]:
-    """Build the fold's plain-data config from the binding view + classes.
+) -> IrMap:
+    """Build the fold's IR body-table from the binding view + classes.
 
-    Per rule: kind and constructor from the binding, ``n_items`` from the
-    codegen grammar's single non-empty sequence arm, and one
-    :class:`~lexic.parsing.fold.FieldFold` per bound field (`lo` read from the
-    bound item's quantifier — consumed by the ``gtext`` absence rule).
+    Per rule a :class:`~lexic.parsing.fold.ModelBody`: kind from the binding,
+    the model constructor wrapped in :class:`~lexic.ir.base.IrLambda`
+    (:data:`~lexic.ir.base.IrNone` for an ``alternation``, which has none),
+    ``n_items`` from the codegen grammar's single non-empty sequence arm, and
+    one :class:`~lexic.parsing.fold.FieldFold` per bound field (`lo` read from
+    the bound item's quantifier — consumed by the ``gtext`` absence rule).
 
     :param codegen_grammar: The post-pass grammar the binding was computed on.
     :param binding: The binding view, in emission order.
     :param classes: Generated classes by class name.
-    :returns: Rule name → :class:`~lexic.parsing.fold.RuleFold`.
+    :returns: An :class:`~lexic.ir.mapping.IrMap` from each rule's
+        :class:`~lexic.ir.nodes.IrRuleRef` to its
+        :class:`~lexic.parsing.fold.ModelBody`.
     """
     rules = {str(rule.name): rule for rule in codegen_grammar.rules}
-    config: dict[str, RuleFold] = {}
+    dyads: list[IrTuple] = []
     for bound in binding:
         arms = [arm for arm in rules[bound.rule_name].body if arm]
         items = arms[0] if bound.kind == "sequence" and arms else ()
@@ -269,10 +311,13 @@ def _fold_config(
             FieldFold(bind.item, bind.mode, name, int(items[bind.item].quantifier.lo))
             for name, bind in bound.fields.items()
         )
-        config[bound.rule_name] = RuleFold(
-            bound.kind, classes[bound.class_name], len(items), fields
+        cls = classes[bound.class_name]
+        ctor = IrNone if bound.kind == "alternation" else IrLambda(cls)
+        body = ModelBody(
+            bound.kind, ctor, len(items), fields, _fast_ctor(cls, bound.kind, fields)
         )
-    return config
+        dyads.append(IrTuple(IrRuleRef(bound.rule_name), body))
+    return IrMap(*dyads)
 
 
 def _compile_core(
@@ -283,14 +328,12 @@ def _compile_core(
     codegen_grammar = build_codegen_grammar(ast)
     binding = compute_binding(codegen_grammar)
     classes = codegen(ast, codegen_grammar, binding, stem, out_dir)
-    fold = PositionalFold(_fold_config(codegen_grammar, binding, classes))
-    instance_grammar = normalize(lift_optional_nullables(codegen_grammar))
+    fold = ModelFold(_fold_config(codegen_grammar, binding, classes))
     return CompiledGrammar(
         classes=classes,
         grammar=ast,
-        instance_grammar=instance_grammar,
+        codegen_grammar=codegen_grammar,
         fold=fold,
-        tables=collapsed_fold_tables(instance_grammar, fold),
     )
 
 

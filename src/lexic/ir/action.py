@@ -43,10 +43,11 @@ from lexic.ir.base import (
     IrNone,
     IrScalar,
     IrSelf,
+    IrSeq,
     IrStr,
     IrTuple,
 )
-from lexic.ir.nodes import IrLiteral
+from lexic.ir.nodes import IrAlternation, IrAst, IrLiteral, IrRule
 from lexic.ir.operators import IrOp
 
 # ── Control-flow exception ────────────────────────────────────────────
@@ -156,6 +157,59 @@ class IrGlyph(IrLeaf[IrSelf, IrStr]):
                 f"{type(n).__name__!r}"
             )
         return IrStr(chr(n))
+
+
+class IrRadix(IrNamedTuple[int, int]):
+    """Spell the focus integer as digits in ``base`` — the emit-side inverse
+    of :class:`IrUnradix`.
+
+    Digits are ``0-9A-Z`` (uppercase); the result is zero-padded to ``width``.
+    ``IrPipe(IrOrd(), IrRadix(16, 2))`` spells a character as its two-digit
+    hex code point.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    base: int
+    width: int = 0
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrStr:
+        """Spell ``int(n)`` in ``self.base``, zero-padded to ``self.width``.
+
+        :raises UnsupportedConstructError: If the focus is not a non-negative
+            integer.
+        """
+        if not isinstance(n, int) or int(n) < 0:
+            raise UnsupportedConstructError(
+                f"IrRadix: focus must be a non-negative integer, got "
+                f"{type(n).__name__!r}"
+            )
+        value = int(n)
+        digits = ""
+        while value:
+            digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[value % self.base] + digits
+            value //= self.base
+        return IrStr((digits or "0").rjust(self.width, "0"))
+
+
+class IrOrd(IrLeaf[IrSelf, IrInt]):
+    """Focus character → its code point — ``IrInt(ord(str(n)))``.
+
+    The inverse of :class:`IrGlyph`: text decodes to a neutral code point
+    where a spelled form is being built (emit-side num-val assembly).
+    """
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrInt:
+        """Return the focus's code point.
+
+        :raises UnsupportedConstructError: If the focus is not a single
+            character.
+        """
+        text = str(n)
+        if len(text) != 1:
+            raise UnsupportedConstructError(
+                f"IrOrd: focus must be a single character, got {text!r}"
+            )
+        return IrInt(ord(text))
 
 
 # ── Comparison ────────────────────────────────────────────────────────
@@ -305,6 +359,57 @@ class IrAt[Ir_co: IrSelf](IrNamedTuple[int, IrSelf]):
         return self.body.eval(d, n.children()[self.selector], IrTuple())
 
 
+class IrEach[Ir_co: IrSelf](IrNamedTuple[IrSelf]):
+    """Map ``body`` over the focus's elements — an ``IrTuple`` of the results.
+
+    The variadic sibling of :class:`IrAt`: ``n`` is rebound to each element in
+    turn (a tuple-shaped node's elements; a str-leaf's characters, each lifted
+    to :class:`~lexic.ir.base.IrStr`), and like every focus shift the body
+    starts with a clean argument channel.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("body",)
+    body: IrSelf
+
+    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrTuple:
+        """Evaluate ``body`` once per element of the focus.
+
+        :param d: Dispatcher, forwarded unchanged for sub-dispatch.
+        :param n: The tuple-shaped or str-leaf focus to iterate.
+        :param _nc: Arguments (not forwarded — a focus shift starts clean).
+        :returns: The per-element results as an :class:`IrTuple`.
+        :raises UnsupportedConstructError: If the focus has no elements to map.
+        """
+        if isinstance(n, tuple):
+            elements: tuple[IrSelf, ...] = tuple(n)
+        elif isinstance(n, str):
+            elements = tuple(IrStr(c) for c in str(n))
+        else:
+            raise UnsupportedConstructError(
+                f"IrEach: focus {type(n).__name__!r} has no elements"
+            )
+        return IrTuple(*(self.body.eval(d, e, IrTuple()) for e in elements))
+
+
+class IrLen(IrLeaf[IrSelf, IrInt]):
+    """Element count of the focus — ``IrInt(len(n))``.
+
+    Counts a tuple-shaped node's elements or a str-leaf's characters; the
+    natural :class:`IrCompare` operand for arity-branching bodies.
+    """
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrInt:
+        """Return the focus's length.
+
+        :raises UnsupportedConstructError: If the focus is unsized.
+        """
+        if not isinstance(n, (tuple, str)):
+            raise UnsupportedConstructError(
+                f"IrLen: focus {type(n).__name__!r} has no length"
+            )
+        return IrInt(len(n))
+
+
 class IrPipe(IrNamedTuple[IrSelf, IrSelf]):
     """Rebind the focus to a computed value, then evaluate ``body``.
 
@@ -442,6 +547,42 @@ class IrBuild(IrNamedTuple[type[IrSelf], IrSelf]):
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Construct ``target`` from raw ``nc`` or the evaluated ``args``."""
         return self.target(*(nc if self.args is IrNone else self.args.eval(d, n, nc)))
+
+
+class IrMerge(IrLeaf[IrSelf, IrSelf]):
+    """Fold the argument channel's rules into an :class:`~lexic.ir.nodes.IrAst`,
+    merging same-named rules.
+
+    Incremental definition (ABNF ``=/``): a rule whose name was already seen
+    has its alternation arms appended to the earlier rule, in source order.
+    The start rule is the first name defined.
+    """
+
+    def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Merge the channel's :class:`~lexic.ir.nodes.IrRule` args into an AST.
+
+        :param _d: Dispatcher (unused).
+        :param _n: Node (unused — the rules arrive on the channel).
+        :param nc: The reduced rules, in source order.
+        :returns: The assembled ``IrAst``.
+        :raises UnsupportedConstructError: If a channel arg is not an ``IrRule``.
+        """
+        merged: list[IrRule] = []
+        position: dict[str, int] = {}
+        for rule in nc:
+            if not isinstance(rule, IrRule):
+                raise UnsupportedConstructError(
+                    f"IrMerge: expected IrRule args, got {type(rule).__name__!r}"
+                )
+            if rule.name in position:
+                base = merged[position[rule.name]]
+                merged[position[rule.name]] = IrRule(
+                    base.name, IrAlternation(*base.body, *rule.body)
+                )
+            else:
+                position[rule.name] = len(merged)
+                merged.append(rule)
+        return IrAst(IrSeq(*merged), merged[0].name if merged else IrStr(""))
 
 
 # ── String concatenation ──────────────────────────────────────────────

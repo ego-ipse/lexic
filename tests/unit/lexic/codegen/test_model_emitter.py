@@ -29,6 +29,7 @@ from lexic.ir.nodes import (
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSequence,
 )
 from lexic.ir.operators import IrNot
 
@@ -117,10 +118,40 @@ def test_group_union_type_single_ref_is_bare_class():
     assert _group_union_type(group, {"a": "A"}) == "A"
 
 
-def test_group_union_type_no_ref_arm_is_str():
-    """A group with no clean ref arm has no model type → ``str``."""
+def test_group_union_type_no_ref_arm_raises():
+    """Model mode is unreachable for a ref-less group — it raises, never ``str``.
+
+    Such a group folds as ``gtext`` in the binding view now, so reaching
+    ``_group_union_type`` with no unit-ref arm is a dispatch dead-end.
+    """
     group = IrAlternation(IrItem(IrLiteral("+")))
-    assert _group_union_type(group, {}) == "str"
+    with pytest.raises(UnsupportedConstructError):
+        _group_union_type(group, {})
+
+
+def test_mixed_ref_group_gtext_types_as_str():
+    """A mixed literal/ref group in gtext mode types as plain ``str``.
+
+    The char-arm2 shape: literal-only arms plus a multi-item ref arm. A closed
+    regex is not derivable through the ref, so the field type is a flat ``str``.
+    """
+    group = IrAlternation(
+        IrSequence(IrItem(IrLiteral("n"))),
+        IrSequence(
+            IrItem(IrLiteral("u")), IrItem(IrRuleRef("hexdig"), IrQuantifier(4, 4))
+        ),
+    )
+    item = IrItem(group)
+    assert _base_field_type(item, "gtext", {"hexdig": "Hexdig"}, {}) == "str"
+
+
+def test_literal_only_group_gtext_keeps_pattern_alias():
+    """A literal-only group in gtext mode keeps its anchored pattern alias."""
+    group = IrAlternation(IrItem(IrLiteral("+")), IrItem(IrLiteral("-")))
+    item = IrItem(group)
+    assert _base_field_type(item, "gtext", {}, {}) == (
+        'Annotated[str, StringConstraints(pattern=r"^(\\+|\\-)$")]'
+    )
 
 
 # ── field wrapping (Optional / List / empty-arm) ──────────────────────
