@@ -10,7 +10,7 @@ parse, itself pinned against the full engine by
 
 Delegation is unconditional in the compiled artifact, so the A/B toggle here
 swaps ``pda.program.delegates`` for a no-delegates
-:class:`~lexic.parsing.pda.delegate_compile.DelegateSource` variant
+:class:`~lexic.parsing.pda.compiler.delegate_compile.DelegateSource` variant
 (:class:`~tests.unit.lexic.parsing.pda.test_delegate_compile._NoDelegates`,
 built from the real source's own construction ingredients through its
 constructor seam) and back; the per-island delegate cache is busted between
@@ -43,14 +43,14 @@ from lexic.compile import (
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.parsing.pda.clones import PdaTables
-from lexic.parsing.pda.delegate_compile import DelegateSource
-from lexic.parsing.pda.reduce_runtime import parse_pda
-from lexic.parsing.pda.runtime import PdaFail
-from lexic.parsing.pda.specs import IslandRef
+from lexic.parsing.pda.compiler.clones import PdaTables
+from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
+from lexic.parsing.pda.compiler.specs import IslandRef
+from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _model_product, _reduce_product
 from tests.integration.test_pda_parity import _ALL_STEMS, _grammar_for
-from tests.unit.lexic.parsing.pda.test_delegate_compile import _NoDelegates
+from tests.unit.lexic.parsing.pda.compiler.test_delegate_compile import _NoDelegates
 
 
 def _prod(cg):

@@ -5,7 +5,7 @@ the four **island-free** grammars, this module is the *wide* matrix: all 10
 ground-truth grammars (islands included — c/chess/json/json_arr/json_ws all
 carry at least one), each driven through both internal seams directly:
 
-- **forced-PDA** — :func:`~lexic.parsing.pda.runtime.parse_pda` with the real
+- **forced-PDA** — :func:`~lexic.parsing.pda.runtime.runtime.parse_pda` with the real
   fold supplied (so island references splice their Earley sub-parse);
 - **forced-engine** — ``cg.fold.apply(parse_first(_prod(cg).instance_grammar, text,
   _prod(cg).tables))``, the same call :meth:`~lexic.compile.CompiledGrammar.parse`'s
@@ -41,14 +41,14 @@ from lexic.generate import generate
 from lexic.grammars import flavour_for_extension
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.parsing import parse_first
-from lexic.parsing.pda.clones import KTupleGate, PeekGate
-from lexic.parsing.pda.flatten import all_clones
-from lexic.parsing.pda.reduce_runtime import parse_pda
-from lexic.parsing.pda.runtime import PdaFail
-from lexic.parsing.pda.specs import IslandRef
+from lexic.parsing.pda.compiler.clones import KTupleGate, PeekGate
+from lexic.parsing.pda.compiler.flatten import all_clones
+from lexic.parsing.pda.compiler.specs import IslandRef
+from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.pda.test_runtime import _arithmetic_bench_corpus
+from tests.unit.lexic.parsing.pda.runtime.test_runtime import _arithmetic_bench_corpus
 
 
 def _prod(cg):

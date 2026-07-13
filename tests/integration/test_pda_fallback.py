@@ -3,7 +3,7 @@
 :meth:`~lexic.compile.CompiledGrammar.parse` delegates to
 :func:`~lexic.parsing.parse_model`, which runs the predictive PDA first and
 completes on a whole-input engine reparse on any
-:class:`~lexic.parsing.pda.runtime.PdaFail`. This module pins one input that
+:class:`~lexic.parsing.pda.runtime.runtime.PdaFail`. This module pins one input that
 genuinely forces that completion on a real ground-truth grammar (arithmetic's
 trailing-whitespace stop-set residue, pivot 4) and proves it both fires and
 returns the engine-correct model — ``PdaFail`` never leaks to the public
@@ -18,9 +18,9 @@ import pytest
 
 from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
-from lexic.parsing.pda.reduce_runtime import parse_pda
-from lexic.parsing.pda.runtime import PdaFail
-from lexic.parsing.pda.specs import IslandRef
+from lexic.parsing.pda.compiler.specs import IslandRef
+from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _model_product, earley_model
 from tests.paths import GROUND_TRUTH
 

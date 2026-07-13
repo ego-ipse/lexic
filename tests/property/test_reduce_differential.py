@@ -6,7 +6,7 @@ pass via fallback and never isolate the PDA. This module instead drives the
 two routes independently, straight off ``GBNF_FLAVOUR``'s own self-grammar
 (the meta-grammar GBNF text is parsed *against*):
 
-- the raw reduce PDA (:func:`~lexic.parsing.pda.reduce_runtime.parse_pda` over
+- the raw reduce PDA (:func:`~lexic.parsing.pda.runtime.reduce_runtime.parse_pda` over
   the compiled reduce product, ``fold=None``), and
 - the forced Earley completion (:func:`~lexic.parsing.products.earley_reduce`
   over the normalised, *unlifted* self-grammar).
@@ -41,8 +41,8 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrAst
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.pda.reduce_runtime import parse_pda
-from lexic.parsing.pda.runtime import PdaFail
+from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _as_ast, _reduce_product, earley_reduce
 
 _product = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)

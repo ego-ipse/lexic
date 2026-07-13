@@ -68,7 +68,7 @@ from lexic.ir.nodes import (
 from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.earley.tables import RUN_STR, ParserTables
-from lexic.parsing.pda.analysis import nullable_names
+from lexic.parsing.pda.analysis.analysis import nullable_names
 
 FOLD_KINDS: tuple[str, ...] = ("value_str", "sequence", "alternation")
 """The rule-kind vocabulary a :class:`RuleFold` may carry."""

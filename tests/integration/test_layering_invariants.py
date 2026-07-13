@@ -205,9 +205,8 @@ def test_retired_ir_modules_are_gone():
 
 
 def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
-    """charsets/analysis/pda.clones/pda.runtime (2026-07-05 hybrid-PDA effort,
-    relocated into lexic.parsing.pda/ 2026-07-09) exist inside lexic.parsing
-    and carry no grammars/codegen import.
+    """The core substrate, analysis, clone compiler and runtime modules exist
+    inside lexic.parsing.pda and carry no grammars/codegen import.
 
     ``test_engine_package_does_not_import_grammars_or_codegen`` already
     greps every ``.py`` under ``lexic.parsing`` generically (``rglob``), so
@@ -216,12 +215,17 @@ def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
     by name, so a future reshuffle can't silently drop them from scope.
     """
     pda = SRC / "parsing" / "pda"
-    for name in ("charsets.py", "analysis.py", "clones.py", "runtime.py"):
-        path = pda / name
-        assert path.exists(), f"{name} missing from lexic.parsing.pda"
+    for rel in (
+        "core/charsets.py",
+        "analysis/analysis.py",
+        "compiler/clones.py",
+        "runtime/runtime.py",
+    ):
+        path = pda / rel
+        assert path.exists(), f"{rel} missing from lexic.parsing.pda"
         content = path.read_text()
-        assert "from lexic.grammars" not in content, f"{name} imports lexic.grammars"
-        assert "from lexic.codegen" not in content, f"{name} imports lexic.codegen"
+        assert "from lexic.grammars" not in content, f"{rel} imports lexic.grammars"
+        assert "from lexic.codegen" not in content, f"{rel} imports lexic.codegen"
 
 
 def test_earley_never_imports_pda():
@@ -231,7 +235,7 @@ def test_earley_never_imports_pda():
     interior delegation (Task 6.2) is threaded through this seam without
     reversing it: the delegate table is an opaque-callable slot the kernel
     invokes (``Kernel.delegates`` / :data:`~lexic.parsing.earley.kernel.Delegate`),
-    populated by ``pda`` and passed in through :mod:`lexic.parsing.pda.islands`;
+    populated by ``pda`` and passed in through :mod:`lexic.parsing.pda.runtime.islands`;
     the kernel itself imports nothing from ``pda`` and stays PDA-agnostic.
     """
     earley = SRC / "parsing" / "earley"

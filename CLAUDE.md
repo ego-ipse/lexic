@@ -290,274 +290,282 @@ src/lexic/
       lexruns.py, trampoline.py
     pda/                the predictive PDA (imports from earley/)
       __init__.py         empty — no re-exports
-      charsets.py         CharSet — polarity-aware co-finite char sets (the
-                          hybrid-PDA analysis substrate; 260705 effort)
-      analysis.py         GrammarAnalysis — FIRST/hard-FIRST/FOLLOW/nullability
-                          fixpoints + pivot-6 decision taxonomy (island/stopset/
-                          LL(2) pairs/k-window/noise-skip; the P6 noise-greedy
-                          licence demotes a non-semantic F1 escape whose
-                          over-eatable gap is provably noise↔noise — three-clause
-                          test incl. gap ∩ sem_follow = ∅) over a lifted codegen
-                          grammar;
-                          islands + fail_islands (semantic F1 stop-set-escape rules
-                          whose refs must fail to the engine, a subset of islands);
-                          open IrTypeMap atom dispatch, raising default; homes
-                          nullable_names (single source for fold's
-                          lift_optional_nullables). The public `taxonomy: Taxonomy`
-                          attribute is ALSO the P2 gate-spec channel (option a,
-                          Task 6.3c): a demoted decision's k-window gate is STORED
-                          there — `arm_gates`/`pn_arm_gates` keyed by rule name
-                          (rule bodies only; an inline group's arm overlap stays
-                          a hard note → the rule islands), `loop_gates`/
-                          `pn_loop_gates` keyed by id(IrItem) (node identity —
-                          analysis and clone compiler walk the same lifted tree)
-                          — and the clone compiler reads it back, never
-                          recomputes; a stored gate is honored in EVERY clone,
-                          before any hard-cont overlap heuristic (a clone tail
-                          may not overlap while the soft-only noise run still
-                          needs the gate). The loop demotion cascade is P2
-                          k-window then P3 noise-skip then P3-structured; the
-                          empty-arm greedy branch routes through
-                          structured_arm_gate (a single nullable escape arm +
-                          noise-led gated arms → an ArmGate stored under the rule
-                          name), deny = today's greedy note. The
-                          2-char LL(2) prefix machinery lives in kwindow.py as
-                          free fns; loop_policy calls it there (hybrid-PDA;
-                          260705/260706 efforts)
-      kwindow.py          FIRST_k over CharSet tuples — the k-window (bounded-
-                          lookahead) P2 substrate (Task 6.3). KWindowFirst fixpoint
-                          + arm_gate/loop_gate: whether an arm-selection or loop
-                          take/skip decision separates at k ≤ 3 (positionwise
-                          CharSet overlap, END/MORE/UNK-tagged ≤k tuples;
-                          rule-FOLLOW extension; soft FOLLOW only — hard FOLLOW is
-                          unsound here); windows_of (deterministic tag-drop cook →
-                          the stored gate-spec shape); never-empty prefix-set
-                          invariant is a real UnsupportedConstructError (opt-out),
-                          not an assert. P2 demotion is UNCONDITIONAL — the
-                          P2_DEMOTION_ENABLED staging flag was deleted at Task 6.4
-                          (no legacy seams pre-v1). Also homes the superseded
-                          2-char LL(2) prefix machinery (two_prefix_seq/
-                          atom_two_prefix/group_two_prefix — the PairGate source,
-                          moved from analysis.py for C0302). A leaf w.r.t.
-                          analysis.py (takes the rule table + FOLLOW as args);
-                          open IrTypeMap atom dispatch, raising default (260706
-                          unified-parse-engine, Task 6.3)
-      noise.py            Noise/semantic attribution — the P6 licence + P3
-                          noise-skip substrate (Task 6.4). P6:
-                          sem_follow_table(analysis) → rule → the chars that can
-                          follow it as SEMANTIC content, via two decomposed
-                          fixpoints (semantic-FIRST: terminals count only inside
-                          semantic rules, a ref to a non-semantic rule contributes
-                          nothing — its subtree is excluded from semantic_dump
-                          wholesale; then the FOLLOW feed re-run over those
-                          firsts, seeded empty). P3: noise_alphabet (W = ⋃FIRST
-                          over NULLABLE non-semantic rules — json whitespace,
-                          never hardcoded; required noise token markers like
-                          dquote contribute nothing), ResidualFirst (first
-                          non-W chars: pure-W atoms transparent, W-free opaque,
-                          a MIXED terminal poisons — the char-set P3's limit),
-                          and peek_arm_gate/peek_loop_gate (does the decision
-                          separate on its first post-noise char; the runtime
-                          peek is non-consuming ⇒ structurally fail-soft — the
-                          conditions buy determinism, not bare soundness).
-                          The STRUCTURED (folding-aware) tail lives in
-                          structured.py (below); noise.py exposes
-                          sem_follow_table to it. A leaf w.r.t. analysis.py
-                          (takes the analysis as an Any-typed oracle, kwindow
-                          precedent); open IrTypeMap atom dispatch, raising
-                          default (260706 unified-parse-engine)
-      structured.py       P3-structured / P5-probe folding-aware loop gates
-                          (Task 6.6, split out of noise.py for C0302 headroom):
-                          noise_roots, structured_loop_gate → SG_MATCH
-                          (_match_gate — exact-match loop over a non-semantic
-                          ref, licensed by _exit_is_noise or _sem_follow_clear,
-                          the P6 precision clause on an exact gate: GBNF n, ABNF
-                          rule/rulelist c-wsp*) / SG_SCAN (skip leading noise
-                          roots, peek disjoint content leads: spine alternation/
-                          concatenation/quant-opt/rl-cont) / SG_PROBE (P5 —
-                          overlap explained by the unique next-construct header
-                          ref(R) noise* lit(L), refutation licence via
-                          _post_noise_follow with the header occurrence skipped:
-                          GBNF sequence's `rulename n* "::="`). Also
-                          structured_arm_gate → an ArmGate for an empty-arm
-                          alternation (single nullable escape arm + noise-led
-                          gated arms): the same skip-then-peek/probe tail
-                          (_scan_from, shared with the loop path) selecting the
-                          gated arms vs the escape arm — GBNF self `arm ::=
-                          sequence | empty-seq` demotes SG_PROBE. A leaf w.r.t.
-                          analysis.py (Any-typed oracle, kwindow/noise
-                          precedent); reads noise.sem_follow_table for the P6
-                          clause; imports scanner + charsets + ir
-      clones.py           (was pda_tables.py) compile_pda(lifted, instance_grammar,
-                          fold_config) → PdaTables — per-(rule, hard-continuation)
-                          clone compiler (pivot 3); flat tuple-coded ItemSpec
-                          (lit/cc/ref/grp) + StopGate/PairGate/KTupleGate/
-                          PeekGate/ScanGate (6.6 structured) loop gates,
-                          FIRST-gated ArmSpec (+ per-arm `windows`
-                          (P2) / `peek` (P3) on a demoted alternation — attached
-                          inside compile_arms' own enumeration so spec↔arm
-                          alignment cannot drift; the empty-arm `struct_arm`
-                          ScanGate (bundled with windows/peeks into ArmGates)
-                          rides on CloneSpec, its ArmGate.escape validated
-                          against the nullable default arm) + baked RuleFold; the
-                          gates are READ from analysis.taxonomy (the option-(a)
-                          spec channel), never recomputed, and a FIRST-overlapping
-                          alternation with no spec raises (the anti-trap drift
-                          tripwire → whole-grammar opt-out); islands not cloned
-                          (IslandRef marker + lazy per-island ParserTables cache;
-                          IslandRef.fail marks a fail-island — a semantic F1 escape
-                          whose ref raises PdaFail, never parsed); open IrTypeMap
-                          atom dispatch, raising default. The CloneSpec/ItemSpec
-                          NamedTuples are the compiler INTERMEDIATE (what tests
-                          pin) — they live in specs.py (below) and clones re-exposes
-                          them (its ITEM_KINDS/LIT/CC/REF/GRP vocabulary stays
-                          here); the spec→flat bridge (_flatten_program etc.) lowers
-                          them once per compile into the int-coded PdaProgram, kept
-                          on PdaTables alongside .clones (.clones for islands/
-                          introspection, .program for the loop). compile_pda,
-                          PdaTables, IslandRef, spec NamedTuples import from here
-                          (Task 8 flatten; hybrid-PDA; 260705 effort)
-      specs.py            The clone/arm/item/group specs + loop gates
-                          (CloneKey/IslandRef/StopGate/PairGate/KTupleGate/
-                          PeekGate/ItemSpec/ArmSpec/ArmGates/GroupSpec/CloneSpec)
-                          — the compiler-intermediate NamedTuple vocabulary tests
-                          pin, split out of clones.py for C0302 headroom.
-                          ArmGates bundles a body's demotion specs
-                          (windows/peeks/struct_arm) so compile_arms takes one
-                          param; CloneSpec.struct_arm is the empty-arm ScanGate. A
-                          pure-data leaf w.r.t. the compiler; imports only charsets
-                          (CharSet), fold (RuleFold) and scanner (ScanGate,
-                          ArmGate); clones re-exposes it as its public surface
-      flatten.py          (was pda_flatten.py) The leaf half of the flatten: the
-                          int-coded runtime program (FlatClone/FlatArm/PdaProgram,
-                          OP_* op-codes, pre-resolved (chars,negated) membership
-                          sets; GATE_KWIN + FlatClone.kwin_selectors + the
-                          EOF-exact _window_admits ≤k matcher — the P2 k-window
-                          runtime half: end-of-input matches only an EOF-carrying
-                          positive set, never a negated one; GATE_PEEK +
-                          FlatClone.pn_selectors + _skip_noise/_peek_admits —
-                          the P3 noise-skip runtime half: skip the maximal W run
-                          NON-consuming, decide on the first post-noise char, the
-                          winner re-parses its noise; GATE_SCAN + the empty-arm
-                          FlatClone.struct_arm ScanGate the kernel consults via
-                          scanner.scan_gate_take before FIRST-select (a take
-                          admits the gated arms, a refusal picks the escape
-                          default arm); gate_take (the shared per-gate admit) +
-                          select_gated (the kwin/pn arm selector the kernel
-                          calls)) + the post-flatten optimizer passes
-                          (optimize_program: exactly-once terminal/call
-                          specialisation, value_str inlining, frame-less leaf
-                          marking, pass-through dispatch conversion — skipped for
-                          a kwin/pn/struct_arm-selecting clone). Imports
-                          nothing from clones.py (a leaf w.r.t. the compiler +
-                          specs); the kernel walks it (split out of clones.py for
-                          C0302; hybrid-PDA; 260705 effort). Its op-codes, flat
-                          records and gate helpers are PUBLIC by name — no `_`
-                          vocabulary crosses a module boundary
-      runtime.py          (was pda_kernel.py) PdaKernel + prefix_run (the
-                          island-interior delegation entry seam) — the fused
-                          predictive runtime: an explicit descent stack of flat
-                          list frames (no Python recursion; the earley/kernel.py
-                          int-array explicit-stack precedent — PdaKernel is the
-                          class cursor) over the flat PdaProgram, building the
-                          model directly during the walk (fold fusion — no
-                          ParseTree). Int-coded op dispatch, terminal quantifier
-                          loops matched inline (no per-char call). _enter selects
-                          a clone's arm — _chase_dispatch chases a frame-less
-                          dispatch alternation, then kwin/pn select_gated, then an
-                          empty-arm struct_arm ScanGate (scan_gate_take: refuse ⇒
-                          escape default arm) before the FIRST-gated select. Per-
-                          parse state on the cursor, tables shared; capture frames
-                          own per-item
-                          span (ends) + sub-model (sinks) capture bubbling to the
-                          nearest bound item, transparent frames (groups /
-                          fold=None clones) funnel through; the thin _island
-                          dispatcher (owns the cursor state) delegates the
-                          windowed Earley sub-parse to islands.py, folds it
-                          through the supplied ModelFold and splices the
-                          sub-model into the current capture (PdaKernel(tables,
-                          text, fold); fold=None ⇒ island raises PdaFail, the
-                          island-free path; a fail-island ref always raises
-                          PdaFail, independent of fold). PdaFail is internal,
-                          never user-facing (hybrid-PDA; 260705 effort). The
-                          frame-slot vocabulary (F_*), the fused model-build tail
-                          and finish_delegate live in build.py (below); runtime
-                          imports them by public name
-      build.py            The frame-slot layout (F_ARM..F_SINKS) + the fused
-                          model-build tail (build_sequence/build_fast/
-                          build_validated per-field slot dispatch, alt_model
-                          pass-through, leaf_mismatch empty-arm build) +
-                          finish_delegate (fail-soft + window-edge delegate
-                          completion). Free functions reading only text + a
-                          frame/clone (never the kernel cursor), shed out of
-                          runtime.py so runtime AND reduce_runtime share the
-                          frame vocabulary by public name rather than a private
-                          cross-module import; a leaf importing flatten (records
-                          + M_* modes) + fold (RuleFold) + errors (PdaFail),
-                          never runtime
-      reduce_runtime.py   _ReducePdaKernel (the b1 grammar-text twin, overrides
-                          only _complete/_island/_delegate_run) + parse_pda (the
-                          public model-vs-reduce entry). Imports PdaKernel from
-                          runtime and the F_* frame vocabulary / finish_delegate
-                          from build, never the reverse; split out of runtime.py
-                          for C0302 headroom (260706 Task 6.2)
-      delegate_compile.py DelegateSource — the lazy per-island delegate-clone
-                          selector for island-interior delegation: picks
-                          conflict-free, non-nullable, semantic interior
-                          rules above a triviality floor (delegation is
-                          unconditional) and compiles each to a PDA clone cut
-                          against its
-                          sub-grammar hard FOLLOW. A leaf w.r.t. the clone
-                          compiler — the (_PdaCompiler, _flatten_clones) seam is
-                          injected — attached to PdaProgram.delegates, so the
-                          runtime island Earley sub-parse (kernel.delegates)
-                          runs conflict-free interior rules on their clones
-                          rather than the item machinery (260706 Task 6.2)
-      islands.py          island sub-parse + splice — island_parse/island_run/
-                          island_derivation, the cold-path Earley escape shed
-                          from PdaKernel as free functions (a leaf: imports
-                          earley/ + errors, never runtime; the +6% mixin penalty
-                          is hot-path only, so the cold island path moves out for
-                          C0302 headroom) (260706 unified-parse-engine, Task 2b)
-      errors.py           PdaFail — the predictive-parse failure signal, homed in
-                          a leaf module so runtime.py and islands.py share it
-                          without a cycle; runtime re-exports it (260706 Task 2b)
-      reduce_pda.py       ReduceComp/ReduceRun/ReduceCompile — the b1 reduce
-                          (grammar-text) completion, the twin of the model fold:
-                          a ReduceComp read straight off the reducer's compiled
-                          ReducePlan (H5, no re-derivation) that clones.py bakes;
-                          also _bake_reduce/reduce_rewrite (the reduce retarget of
-                          the flat clones, moved from clones.py at Task 6.3c for
-                          C0302). A leaf w.r.t. the clone compiler (imports
-                          flatten's _R_* runtime constants + earley reduce, never
-                          clones — clones imports these back); split out of
-                          clones.py for C0302 headroom (260706 unified-parse-
-                          engine, Task 4)
-      taxonomy.py         Taxonomy (+ private _GateStore) — the analysis'
-                          classified-notes + gate-spec result record: conflicts/
-                          demoted/fail plus the six gate families behind named
-                          property accessors (arm_gates/loop_gates/pn_arm_gates/
-                          pn_loop_gates/struct_loop_gates/struct_arm_gates on one
-                          store slot; struct_arm keyed by RULE NAME → an ArmGate,
-                          the empty-arm structured demotion); store_struct_loop
-                          and store_struct_arm own the conflicting-re-store
-                          opt-out tripwire. A leaf (imports charsets + scanner);
-                          moved out of analysis.py by pure motion (260706
-                          Task 6.6, C0302)
-      scanner.py          structured-noise recognizer leaf (imports lexic.ir +
-                          charsets only) — build_recognizer(rules, roots)
-                          compiles the acyclic noise-root closure from its own
-                          IrAst (None on cycles/inline-groups/undefined refs →
-                          the decision stays island); non-consuming runtime
-                          scan_run/scan_run_any/scan_match; ScanGate
-                          (SG_MATCH/SG_SCAN/SG_PROBE) + scan_gate_take — the
-                          folding-aware P3-structured/P5 loop-gate runtime half
-                          (LWS folding falls out of arm-in-order-with-reset);
-                          ArmGate(gate, escape) — the empty-arm arm-select twin
-                          of ScanGate (True admits the gated arms, False selects
-                          the escape arm at `escape`)
-                          (260706 unified-parse-engine, Task 6.6)
+      core/               shared leaves — CharSet, ScanGate scanner, PdaFail
+        __init__.py       core package
+        charsets.py         CharSet — polarity-aware co-finite char sets (the
+                            hybrid-PDA analysis substrate; 260705 effort)
+        scanner.py          structured-noise recognizer leaf (imports lexic.ir +
+                            charsets only) — build_recognizer(rules, roots)
+                            compiles the acyclic noise-root closure from its own
+                            IrAst (None on cycles/inline-groups/undefined refs →
+                            the decision stays island); non-consuming runtime
+                            scan_run/scan_run_any/scan_match; ScanGate
+                            (SG_MATCH/SG_SCAN/SG_PROBE) + scan_gate_take — the
+                            folding-aware P3-structured/P5 loop-gate runtime half
+                            (LWS folding falls out of arm-in-order-with-reset);
+                            ArmGate(gate, escape) — the empty-arm arm-select twin
+                            of ScanGate (True admits the gated arms, False selects
+                            the escape arm at `escape`)
+                            (260706 unified-parse-engine, Task 6.6)
 
+        errors.py           PdaFail — the predictive-parse failure signal, homed in
+                            a leaf module so runtime.py and islands.py share it
+                            without a cycle; runtime re-exports it (260706 Task 2b)
+      analysis/           decide every point, then store the gate specs
+        __init__.py       analysis package
+        analysis.py         GrammarAnalysis — FIRST/hard-FIRST/FOLLOW/nullability
+                            fixpoints + pivot-6 decision taxonomy (island/stopset/
+                            LL(2) pairs/k-window/noise-skip; the P6 noise-greedy
+                            licence demotes a non-semantic F1 escape whose
+                            over-eatable gap is provably noise↔noise — three-clause
+                            test incl. gap ∩ sem_follow = ∅) over a lifted codegen
+                            grammar;
+                            islands + fail_islands (semantic F1 stop-set-escape rules
+                            whose refs must fail to the engine, a subset of islands);
+                            open IrTypeMap atom dispatch, raising default; homes
+                            nullable_names (single source for fold's
+                            lift_optional_nullables). The public `taxonomy: Taxonomy`
+                            attribute is ALSO the P2 gate-spec channel (option a,
+                            Task 6.3c): a demoted decision's k-window gate is STORED
+                            there — `arm_gates`/`pn_arm_gates` keyed by rule name
+                            (rule bodies only; an inline group's arm overlap stays
+                            a hard note → the rule islands), `loop_gates`/
+                            `pn_loop_gates` keyed by id(IrItem) (node identity —
+                            analysis and clone compiler walk the same lifted tree)
+                            — and the clone compiler reads it back, never
+                            recomputes; a stored gate is honored in EVERY clone,
+                            before any hard-cont overlap heuristic (a clone tail
+                            may not overlap while the soft-only noise run still
+                            needs the gate). The loop demotion cascade is P2
+                            k-window then P3 noise-skip then P3-structured; the
+                            empty-arm greedy branch routes through
+                            structured_arm_gate (a single nullable escape arm +
+                            noise-led gated arms → an ArmGate stored under the rule
+                            name), deny = today's greedy note. The
+                            2-char LL(2) prefix machinery lives in kwindow.py as
+                            free fns; loop_policy calls it there (hybrid-PDA;
+                            260705/260706 efforts)
+        noise.py            Noise/semantic attribution — the P6 licence + P3
+                            noise-skip substrate (Task 6.4). P6:
+                            sem_follow_table(analysis) → rule → the chars that can
+                            follow it as SEMANTIC content, via two decomposed
+                            fixpoints (semantic-FIRST: terminals count only inside
+                            semantic rules, a ref to a non-semantic rule contributes
+                            nothing — its subtree is excluded from semantic_dump
+                            wholesale; then the FOLLOW feed re-run over those
+                            firsts, seeded empty). P3: noise_alphabet (W = ⋃FIRST
+                            over NULLABLE non-semantic rules — json whitespace,
+                            never hardcoded; required noise token markers like
+                            dquote contribute nothing), ResidualFirst (first
+                            non-W chars: pure-W atoms transparent, W-free opaque,
+                            a MIXED terminal poisons — the char-set P3's limit),
+                            and peek_arm_gate/peek_loop_gate (does the decision
+                            separate on its first post-noise char; the runtime
+                            peek is non-consuming ⇒ structurally fail-soft — the
+                            conditions buy determinism, not bare soundness).
+                            The STRUCTURED (folding-aware) tail lives in
+                            structured.py (below); noise.py exposes
+                            sem_follow_table to it. A leaf w.r.t. analysis.py
+                            (takes the analysis as an Any-typed oracle, kwindow
+                            precedent); open IrTypeMap atom dispatch, raising
+                            default (260706 unified-parse-engine)
+        structured.py       P3-structured / P5-probe folding-aware loop gates
+                            (Task 6.6, split out of noise.py for C0302 headroom):
+                            noise_roots, structured_loop_gate → SG_MATCH
+                            (_match_gate — exact-match loop over a non-semantic
+                            ref, licensed by _exit_is_noise or _sem_follow_clear,
+                            the P6 precision clause on an exact gate: GBNF n, ABNF
+                            rule/rulelist c-wsp*) / SG_SCAN (skip leading noise
+                            roots, peek disjoint content leads: spine alternation/
+                            concatenation/quant-opt/rl-cont) / SG_PROBE (P5 —
+                            overlap explained by the unique next-construct header
+                            ref(R) noise* lit(L), refutation licence via
+                            _post_noise_follow with the header occurrence skipped:
+                            GBNF sequence's `rulename n* "::="`). Also
+                            structured_arm_gate → an ArmGate for an empty-arm
+                            alternation (single nullable escape arm + noise-led
+                            gated arms): the same skip-then-peek/probe tail
+                            (_scan_from, shared with the loop path) selecting the
+                            gated arms vs the escape arm — GBNF self `arm ::=
+                            sequence | empty-seq` demotes SG_PROBE. A leaf w.r.t.
+                            analysis.py (Any-typed oracle, kwindow/noise
+                            precedent); reads noise.sem_follow_table for the P6
+                            clause; imports scanner + charsets + ir
+        kwindow.py          FIRST_k over CharSet tuples — the k-window (bounded-
+                            lookahead) P2 substrate (Task 6.3). KWindowFirst fixpoint
+                            + arm_gate/loop_gate: whether an arm-selection or loop
+                            take/skip decision separates at k ≤ 3 (positionwise
+                            CharSet overlap, END/MORE/UNK-tagged ≤k tuples;
+                            rule-FOLLOW extension; soft FOLLOW only — hard FOLLOW is
+                            unsound here); windows_of (deterministic tag-drop cook →
+                            the stored gate-spec shape); never-empty prefix-set
+                            invariant is a real UnsupportedConstructError (opt-out),
+                            not an assert. P2 demotion is UNCONDITIONAL — the
+                            P2_DEMOTION_ENABLED staging flag was deleted at Task 6.4
+                            (no legacy seams pre-v1). Also homes the superseded
+                            2-char LL(2) prefix machinery (two_prefix_seq/
+                            atom_two_prefix/group_two_prefix — the PairGate source,
+                            moved from analysis.py for C0302). A leaf w.r.t.
+                            analysis.py (takes the rule table + FOLLOW as args);
+                            open IrTypeMap atom dispatch, raising default (260706
+                            unified-parse-engine, Task 6.3)
+        taxonomy.py         Taxonomy (+ private _GateStore) — the analysis'
+                            classified-notes + gate-spec result record: conflicts/
+                            demoted/fail plus the six gate families behind named
+                            property accessors (arm_gates/loop_gates/pn_arm_gates/
+                            pn_loop_gates/struct_loop_gates/struct_arm_gates on one
+                            store slot; struct_arm keyed by RULE NAME → an ArmGate,
+                            the empty-arm structured demotion); store_struct_loop
+                            and store_struct_arm own the conflicting-re-store
+                            opt-out tripwire. A leaf (imports charsets + scanner);
+                            moved out of analysis.py by pure motion (260706
+                            Task 6.6, C0302)
+      compiler/           the clone compiler — IrAst → flat int-coded tables
+        __init__.py       compiler package
+        clones.py           (was pda_tables.py) compile_pda(lifted, instance_grammar,
+                            fold_config) → PdaTables — per-(rule, hard-continuation)
+                            clone compiler (pivot 3); flat tuple-coded ItemSpec
+                            (lit/cc/ref/grp) + StopGate/PairGate/KTupleGate/
+                            PeekGate/ScanGate (6.6 structured) loop gates,
+                            FIRST-gated ArmSpec (+ per-arm `windows`
+                            (P2) / `peek` (P3) on a demoted alternation — attached
+                            inside compile_arms' own enumeration so spec↔arm
+                            alignment cannot drift; the empty-arm `struct_arm`
+                            ScanGate (bundled with windows/peeks into ArmGates)
+                            rides on CloneSpec, its ArmGate.escape validated
+                            against the nullable default arm) + baked RuleFold; the
+                            gates are READ from analysis.taxonomy (the option-(a)
+                            spec channel), never recomputed, and a FIRST-overlapping
+                            alternation with no spec raises (the anti-trap drift
+                            tripwire → whole-grammar opt-out); islands not cloned
+                            (IslandRef marker + lazy per-island ParserTables cache;
+                            IslandRef.fail marks a fail-island — a semantic F1 escape
+                            whose ref raises PdaFail, never parsed); open IrTypeMap
+                            atom dispatch, raising default. The CloneSpec/ItemSpec
+                            NamedTuples are the compiler INTERMEDIATE (what tests
+                            pin) — they live in specs.py (below) and clones re-exposes
+                            them (its ITEM_KINDS/LIT/CC/REF/GRP vocabulary stays
+                            here); the spec→flat bridge (_flatten_program etc.) lowers
+                            them once per compile into the int-coded PdaProgram, kept
+                            on PdaTables alongside .clones (.clones for islands/
+                            introspection, .program for the loop). compile_pda,
+                            PdaTables, IslandRef, spec NamedTuples import from here
+                            (Task 8 flatten; hybrid-PDA; 260705 effort)
+        specs.py            The clone/arm/item/group specs + loop gates
+                            (CloneKey/IslandRef/StopGate/PairGate/KTupleGate/
+                            PeekGate/ItemSpec/ArmSpec/ArmGates/GroupSpec/CloneSpec)
+                            — the compiler-intermediate NamedTuple vocabulary tests
+                            pin, split out of clones.py for C0302 headroom.
+                            ArmGates bundles a body's demotion specs
+                            (windows/peeks/struct_arm) so compile_arms takes one
+                            param; CloneSpec.struct_arm is the empty-arm ScanGate. A
+                            pure-data leaf w.r.t. the compiler; imports only charsets
+                            (CharSet), fold (RuleFold) and scanner (ScanGate,
+                            ArmGate); clones re-exposes it as its public surface
+        flatten.py          (was pda_flatten.py) The leaf half of the flatten: the
+                            int-coded runtime program (FlatClone/FlatArm/PdaProgram,
+                            OP_* op-codes, pre-resolved (chars,negated) membership
+                            sets; GATE_KWIN + FlatClone.kwin_selectors + the
+                            EOF-exact _window_admits ≤k matcher — the P2 k-window
+                            runtime half: end-of-input matches only an EOF-carrying
+                            positive set, never a negated one; GATE_PEEK +
+                            FlatClone.pn_selectors + _skip_noise/_peek_admits —
+                            the P3 noise-skip runtime half: skip the maximal W run
+                            NON-consuming, decide on the first post-noise char, the
+                            winner re-parses its noise; GATE_SCAN + the empty-arm
+                            FlatClone.struct_arm ScanGate the kernel consults via
+                            scanner.scan_gate_take before FIRST-select (a take
+                            admits the gated arms, a refusal picks the escape
+                            default arm); gate_take (the shared per-gate admit) +
+                            select_gated (the kwin/pn arm selector the kernel
+                            calls)) + the post-flatten optimizer passes
+                            (optimize_program: exactly-once terminal/call
+                            specialisation, value_str inlining, frame-less leaf
+                            marking, pass-through dispatch conversion — skipped for
+                            a kwin/pn/struct_arm-selecting clone). Imports
+                            nothing from clones.py (a leaf w.r.t. the compiler +
+                            specs); the kernel walks it (split out of clones.py for
+                            C0302; hybrid-PDA; 260705 effort). Its op-codes, flat
+                            records and gate helpers are PUBLIC by name — no `_`
+                            vocabulary crosses a module boundary
+        reduce_pda.py       ReduceComp/ReduceRun/ReduceCompile — the b1 reduce
+                            (grammar-text) completion, the twin of the model fold:
+                            a ReduceComp read straight off the reducer's compiled
+                            ReducePlan (H5, no re-derivation) that clones.py bakes;
+                            also _bake_reduce/reduce_rewrite (the reduce retarget of
+                            the flat clones, moved from clones.py at Task 6.3c for
+                            C0302). A leaf w.r.t. the clone compiler (imports
+                            flatten's _R_* runtime constants + earley reduce, never
+                            clones — clones imports these back); split out of
+                            clones.py for C0302 headroom (260706 unified-parse-
+                            engine, Task 4)
+        delegate_compile.py DelegateSource — the lazy per-island delegate-clone
+                            selector for island-interior delegation: picks
+                            conflict-free, non-nullable, semantic interior
+                            rules above a triviality floor (delegation is
+                            unconditional) and compiles each to a PDA clone cut
+                            against its
+                            sub-grammar hard FOLLOW. A leaf w.r.t. the clone
+                            compiler — the (_PdaCompiler, _flatten_clones) seam is
+                            injected — attached to PdaProgram.delegates, so the
+                            runtime island Earley sub-parse (kernel.delegates)
+                            runs conflict-free interior rules on their clones
+                            rather than the item machinery (260706 Task 6.2)
+      runtime/            the fused predictive runtime — execute the tables
+        __init__.py       runtime package
+        runtime.py          (was pda_kernel.py) PdaKernel + prefix_run (the
+                            island-interior delegation entry seam) — the fused
+                            predictive runtime: an explicit descent stack of flat
+                            list frames (no Python recursion; the earley/kernel.py
+                            int-array explicit-stack precedent — PdaKernel is the
+                            class cursor) over the flat PdaProgram, building the
+                            model directly during the walk (fold fusion — no
+                            ParseTree). Int-coded op dispatch, terminal quantifier
+                            loops matched inline (no per-char call). _enter selects
+                            a clone's arm — _chase_dispatch chases a frame-less
+                            dispatch alternation, then kwin/pn select_gated, then an
+                            empty-arm struct_arm ScanGate (scan_gate_take: refuse ⇒
+                            escape default arm) before the FIRST-gated select. Per-
+                            parse state on the cursor, tables shared; capture frames
+                            own per-item
+                            span (ends) + sub-model (sinks) capture bubbling to the
+                            nearest bound item, transparent frames (groups /
+                            fold=None clones) funnel through; the thin _island
+                            dispatcher (owns the cursor state) delegates the
+                            windowed Earley sub-parse to islands.py, folds it
+                            through the supplied ModelFold and splices the
+                            sub-model into the current capture (PdaKernel(tables,
+                            text, fold); fold=None ⇒ island raises PdaFail, the
+                            island-free path; a fail-island ref always raises
+                            PdaFail, independent of fold). PdaFail is internal,
+                            never user-facing (hybrid-PDA; 260705 effort). The
+                            frame-slot vocabulary (F_*), the fused model-build tail
+                            and finish_delegate live in build.py (below); runtime
+                            imports them by public name
+        reduce_runtime.py   _ReducePdaKernel (the b1 grammar-text twin, overrides
+                            only _complete/_island/_delegate_run) + parse_pda (the
+                            public model-vs-reduce entry). Imports PdaKernel from
+                            runtime and the F_* frame vocabulary / finish_delegate
+                            from build, never the reverse; split out of runtime.py
+                            for C0302 headroom (260706 Task 6.2)
+        build.py            The frame-slot layout (F_ARM..F_SINKS) + the fused
+                            model-build tail (build_sequence/build_fast/
+                            build_validated per-field slot dispatch, alt_model
+                            pass-through, leaf_mismatch empty-arm build) +
+                            finish_delegate (fail-soft + window-edge delegate
+                            completion). Free functions reading only text + a
+                            frame/clone (never the kernel cursor), shed out of
+                            runtime.py so runtime AND reduce_runtime share the
+                            frame vocabulary by public name rather than a private
+                            cross-module import; a leaf importing flatten (records
+                            + M_* modes) + fold (RuleFold) + errors (PdaFail),
+                            never runtime
+        islands.py          island sub-parse + splice — island_parse/island_run/
+                            island_derivation, the cold-path Earley escape shed
+                            from PdaKernel as free functions (a leaf: imports
+                            earley/ + errors, never runtime; the +6% mixin penalty
+                            is hot-path only, so the cold island path moves out for
+                            C0302 headroom) (260706 unified-parse-engine, Task 2b)
 tests/
   unit/lexic/           structural mirror of src/lexic/
   integration/          test_compile_grammar_{gbnf,abnf}, test_cross_flavour,

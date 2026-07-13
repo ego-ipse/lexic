@@ -6,7 +6,7 @@ product, the run-collapsed Earley tables), all memoised per
 **(grammar identity, reducer/fold identity)** — the compiled tables bake the
 reducer plan / fold records, so grammar identity alone is a wrong key. Each
 parse runs the PDA first and completes on the Earley engine on any
-:class:`~lexic.parsing.pda.runtime.PdaFail`; :class:`PdaFail` never escapes.
+:class:`~lexic.parsing.pda.runtime.runtime.PdaFail`; :class:`PdaFail` never escapes.
 
 The Earley-completion entries — :func:`earley_reduce` (fused reduce over a
 normalised grammar) and :func:`earley_model` (``parse_first`` + fold) — are the
@@ -32,9 +32,9 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.earley.tables import ParserTables
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
-from lexic.parsing.pda.clones import PdaTables, compile_pda, compile_reduce_pda
-from lexic.parsing.pda.reduce_runtime import parse_pda
-from lexic.parsing.pda.runtime import PdaFail
+from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda, compile_reduce_pda
+from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.runtime import PdaFail
 
 __all__ = [
     "parse_reduced",

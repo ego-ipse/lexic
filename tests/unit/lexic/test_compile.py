@@ -30,8 +30,8 @@ from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
 from lexic.parsing import normalize
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.pda.clones import PdaTables
-from lexic.parsing.pda.specs import IslandRef
+from lexic.parsing.pda.compiler.clones import PdaTables
+from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.products import (
     _model_product,
     _reduce_product,

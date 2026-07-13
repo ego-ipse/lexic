@@ -35,14 +35,14 @@ Module map:
 - :mod:`.fold`        — :class:`~lexic.parsing.fold.ModelFold`, forest →
                         ``GrammarModel`` (the instance product).
 - :mod:`.earley.normalize` — desugar IR into classical Earley-shaped rules.
-- :mod:`.pda.charsets`    — :class:`~lexic.parsing.pda.charsets.CharSet`, the PDA analysis
+- :mod:`.pda.charsets`    — :class:`~lexic.parsing.pda.core.charsets.CharSet`, the PDA analysis
                         substrate (polarity-aware co-finite char sets).
-- :mod:`.pda.analysis`    — :class:`~lexic.parsing.pda.analysis.GrammarAnalysis`,
+- :mod:`.pda.analysis`    — :class:`~lexic.parsing.pda.analysis.analysis.GrammarAnalysis`,
                         FIRST/FOLLOW/nullability + the island/stopset/LL(2) taxonomy.
-- :mod:`.pda.clones`  — :func:`~lexic.parsing.pda.clones.compile_pda`, the
+- :mod:`.pda.clones`  — :func:`~lexic.parsing.pda.compiler.clones.compile_pda`, the
                         per-(rule, continuation) clone compiler.
 - :mod:`.pda.flatten` — the int-coded PDA runtime program + optimizer passes.
-- :mod:`.pda.runtime`  — :class:`~lexic.parsing.pda.runtime.PdaKernel`, the fused
+- :mod:`.pda.runtime`  — :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel`, the fused
                         predictive runtime (parse + fold, no ``ParseTree``).
 
 The forest is a full SPPF (Scott 2008): nullable-rule completion (Aycock-Horspool)
