@@ -13,6 +13,7 @@ from lexic.parsing.pda import delegate_compile
 from lexic.parsing.pda.analysis import GrammarAnalysis
 from lexic.parsing.pda.delegate_compile import DelegateSource, _delegable
 from lexic.parsing.pda.flatten import FlatClone
+from lexic.parsing.products import _model_product
 
 # An alternation island (``item``: both arms share FIRST ``[0-9]``) with a long
 # island-free interior run (``digits``); ``wrapped`` references the ``item``
@@ -28,11 +29,16 @@ short ::= "z"
 """
 
 
+def _prod(cg):
+    """The instance product for a CompiledGrammar (pda / instance_grammar / tables)."""
+    return _model_product(cg.codegen_grammar, cg.fold)
+
+
 def _compiled():
     """Compile ``_G`` and return its (analysis, DelegateSource, CompiledGrammar)."""
     cg = compile_text(_G, cache_key="delegate-compile-unit")
-    assert cg.pda is not None
-    source = cg.pda.program.delegates
+    assert _prod(cg).pda is not None
+    source = _prod(cg).pda.program.delegates
     assert isinstance(source, DelegateSource)
     lifted = source.lifted
     return GrammarAnalysis(lifted), source, cg
@@ -67,7 +73,7 @@ def test_source_for_island_returns_flat_clones_for_delegables() -> None:
     _analysis, source, cg = _compiled()
     delegates = source.for_island("item")
     assert delegates, "the item island should delegate its island-free interior"
-    names = {cg.instance_grammar.rules[rid].name for rid in delegates}
+    names = {_prod(cg).instance_grammar.rules[rid].name for rid in delegates}
     assert "digits" in names and "wrapped" not in names
     assert all(isinstance(clone, FlatClone) for clone in delegates.values())
 

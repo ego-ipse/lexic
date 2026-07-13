@@ -14,8 +14,8 @@ from lexic.codegen.passes import build_codegen_grammar
 from lexic.compile import canonical_grammar, compile_from_path
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrAst
-from lexic.parsing import parse_reduced
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.products import earley_reduce
 from tests.paths import GROUND_TRUTH
 
 # All 7 ground-truth fixtures produce "root" as the start rule.
@@ -116,8 +116,8 @@ def test_grammar_parse_round_trip_idempotent(fixture: str) -> None:
     """Parse → IrAst → parse again of the *original text* yields equal IrAst objects."""
     text = (GROUND_TRUTH / fixture).read_text(encoding="utf-8")
     norm = normalize(GBNF_FLAVOUR.grammar)
-    ast1 = parse_reduced(norm, text, GBNF_FLAVOUR.reducer)
-    ast2 = parse_reduced(norm, text, GBNF_FLAVOUR.reducer)
+    ast1 = earley_reduce(norm, text, GBNF_FLAVOUR.reducer)
+    ast2 = earley_reduce(norm, text, GBNF_FLAVOUR.reducer)
     assert isinstance(ast1, IrAst)
     assert ast1 == ast2, (
         f"{fixture}: two parses of the same text produced different IrAst objects"

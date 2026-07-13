@@ -38,18 +38,18 @@ from lexic.compile import (
     canonical_grammar,
     compile_from_path,
     compile_text,
-    self_grammar_pda,
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
-from lexic.parsing import parse_reduced
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda import reduce_runtime as rrt
 from lexic.parsing.pda.clones import PdaTables, compile_pda
 from lexic.parsing.pda.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime import PdaFail
+from lexic.parsing.pda.specs import IslandRef
+from lexic.parsing.products import _model_product, _reduce_product, earley_reduce
 from tests.paths import GROUND_TRUTH
 
 # ── fixtures ────────────────────────────────────────────────────────────
@@ -92,6 +92,11 @@ def _arithmetic_bench_corpus(target_len: int = 4800) -> str:
 # ── helpers ───────────────────────────────────────────────────────────────
 
 
+def _reduce_pda(flavour):
+    """The flavour's self-grammar reduce PDA (built + memoised in the engine)."""
+    return _reduce_product(flavour.grammar, flavour.reducer).pda
+
+
 def _compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:
     """Compile a ground-truth grammar both ways: the engine artifact + its PdaTables.
 
@@ -106,7 +111,8 @@ def _compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:
     canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
     compiled = compile_from_path(path)
-    pda = compile_pda(lifted, compiled.instance_grammar, compiled.fold.config)
+    instance = _model_product(compiled.codegen_grammar, compiled.fold).instance_grammar
+    pda = compile_pda(lifted, instance, compiled.fold.config)
     return compiled, pda
 
 
@@ -216,12 +222,12 @@ def test_fail_island_raises_pdafail_regardless_of_fold():
             parse_pda(pda, inp, compiled.fold)
 
 
-# ── b1 reduce-path parity: _ReducePdaKernel vs parse_reduced ───────────────
+# ── b1 reduce-path parity: _ReducePdaKernel vs earley_reduce ───────────────
 #
 # The grammar-text (reducer) twin of the parity gate above: self_grammar_pda's
 # compiled reduce PDA parses grammar-text FRAGMENTS (GBNF source describing a
 # one-rule grammar, e.g. 'root ::= "abc"') and must reduce byte-identically
-# to the Earley reducer path (parse_reduced) — no ParseTree on the PDA side,
+# to the Earley reducer path (earley_reduce) — no ParseTree on the PDA side,
 # just _ReducePdaKernel feeding cleaned children straight to the reduction
 # bodies. Promoted verbatim from the throwaway
 # zzz_current_work/260706-unified-parse-engine/gate_reduce.py three-gate
@@ -239,7 +245,7 @@ _REDUCE_GATE1_GBNF: tuple[str, ...] = (
 )
 """gate 1's positive-coverage floor: single-rule fragments the self-grammar
 reduce PDA must handle end-to-end (no whole-input PdaFail, clone
-completions > 0), each byte-equal to parse_reduced."""
+completions > 0), each byte-equal to earley_reduce."""
 
 _REDUCE_GATE2_GBNF: tuple[str, ...] = (
     'root::="a"',
@@ -254,14 +260,14 @@ the Earley path regardless of how the noise is laid out."""
 
 def _ref_reduce(flavour, text: str):
     """The Earley reducer's own reduction of ``text`` — the parity oracle."""
-    return parse_reduced(normalize(flavour.grammar), text, flavour.reducer)
+    return earley_reduce(normalize(flavour.grammar), text, flavour.reducer)
 
 
 @pytest.mark.parametrize("text", _REDUCE_GATE1_GBNF)
 def test_reduce_pda_gbnf_single_rule_fragment_is_end_to_end_and_byte_equal(
     text: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Gate 1: no PdaFail, at least one clone completion, byte-equal to parse_reduced."""
+    """Gate 1: no PdaFail, at least one clone completion, byte-equal to earley_reduce."""
     completions = {"n": 0}
     kernel_cls = getattr(rrt, "_ReducePdaKernel")
     orig_complete = getattr(kernel_cls, "_complete")
@@ -271,8 +277,8 @@ def test_reduce_pda_gbnf_single_rule_fragment_is_end_to_end_and_byte_equal(
         orig_complete(self, frame)
 
     monkeypatch.setattr(kernel_cls, "_complete", _traced)
-    pda = self_grammar_pda(GBNF_FLAVOUR)
-    assert pda is not None
+    pda = _reduce_pda(GBNF_FLAVOUR)
+    assert not isinstance(pda.start_key, IslandRef)
     got = parse_pda(pda, text)
     assert completions["n"] > 0
     assert got == _ref_reduce(GBNF_FLAVOUR, text)
@@ -281,30 +287,28 @@ def test_reduce_pda_gbnf_single_rule_fragment_is_end_to_end_and_byte_equal(
 @pytest.mark.parametrize("text", _REDUCE_GATE2_GBNF)
 def test_reduce_pda_gbnf_noise_variant_is_byte_equal_to_earley(text: str) -> None:
     """Gate 2: capture-cleaning parity across varied inter-token whitespace."""
-    pda = self_grammar_pda(GBNF_FLAVOUR)
-    assert pda is not None
+    pda = _reduce_pda(GBNF_FLAVOUR)
+    assert not isinstance(pda.start_key, IslandRef)
     assert parse_pda(pda, text) == _ref_reduce(GBNF_FLAVOUR, text)
 
 
 def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() -> None:
     """Gate 3: over every ground-truth grammar file (fed as grammar TEXT, both
     flavours), wherever the self-grammar reduce PDA recognises a whole file
-    end-to-end it is byte-equal to parse_reduced — asserted; how OFTEN it
+    end-to-end it is byte-equal to earley_reduce — asserted; how OFTEN it
     recognises a whole file is counted, not asserted (per the harness this is
     promoted from: today every ground-truth file, being multi-rule, whole-input
     falls back to Earley — 0 recognised, 0 mismatched, out of 8 GBNF + 2 ABNF
     files — matching gate_reduce.py's own gate-3 output; the gate that matters
-    here is the absence of a silent MISMATCH). ABNF's start rule (``rulelist``)
-    is itself an island, so self_grammar_pda is None and every ABNF input
-    falls back — EXPECTED until Task 6, not a regression.
+    here is the absence of a silent MISMATCH). Both flavours now compile a real
+    reduce PDA (the ``rulelist`` boundary-shift left-factor removed ABNF's start
+    island).
     """
     for flavour in (GBNF_FLAVOUR, ABNF_FLAVOUR):
-        pda = self_grammar_pda(flavour)
+        pda = _reduce_pda(flavour)
         corpus = sorted(GROUND_TRUTH.glob(f"*{flavour.extensions[0]}"))
         assert corpus
-        if pda is None:
-            assert flavour is ABNF_FLAVOUR
-            continue
+        assert not isinstance(pda.start_key, IslandRef)
         recognised = mismatched = 0
         for path in corpus:
             text = path.read_text(encoding="utf-8")

@@ -34,7 +34,6 @@ from lexic.compile import (
     CompiledGrammar,
     compile_text,
     parse_grammar,
-    self_grammar_pda,
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
@@ -43,7 +42,15 @@ from lexic.parsing.pda import delegate_compile
 from lexic.parsing.pda.clones import PdaTables
 from lexic.parsing.pda.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime import PdaFail
+from lexic.parsing.pda.specs import IslandRef
+from lexic.parsing.products import _model_product, _reduce_product
 from tests.integration.test_pda_parity import _ALL_STEMS, _grammar_for
+
+
+def _prod(cg):
+    """The instance product for a CompiledGrammar (pda / instance_grammar / tables)."""
+    return _model_product(cg.codegen_grammar, cg.fold)
+
 
 # ── the A/B toggle ────────────────────────────────────────────────────────
 
@@ -104,7 +111,7 @@ def _instance_ab(cg: CompiledGrammar, text: str) -> None:
     succeeding PDA parse into a failing one, so an on-fail / off-succeed split is
     an assertion failure.
     """
-    pda = cg.pda
+    pda = _prod(cg).pda
     assert pda is not None
 
     def _parse() -> object:
@@ -128,7 +135,7 @@ def _instance_ab(cg: CompiledGrammar, text: str) -> None:
 def test_delegation_instance_parity(stem: str) -> None:
     """On-vs-off parity across seeded generated samples of every grammar."""
     cg, specs, start = _grammar_for(stem)
-    if cg.pda is None:
+    if isinstance(_prod(cg).pda.start_key, IslandRef):
         pytest.skip(f"{stem}: whole-grammar PDA opt-out")
     checked = 0
     for seed in range(40):
@@ -157,8 +164,8 @@ def test_delegation_fires_where_expected() -> None:
     expected = {"chess.gbnf": 0, "json.gbnf": 0, "json.abnf": 0}
     for stem, count in expected.items():
         cg, _specs, _start = _grammar_for(stem)
-        assert cg.pda is not None
-        assert len(cg.pda.islands) == count, f"{stem}: island set changed"
+        assert not isinstance(_prod(cg).pda.start_key, IslandRef)
+        assert len(_prod(cg).pda.islands) == count, f"{stem}: island set changed"
 
 
 # ── the synthetic long-interior island grammar ────────────────────────────
@@ -167,10 +174,11 @@ def test_delegation_fires_where_expected() -> None:
 def test_delegation_synthetic_long_interior() -> None:
     """A long digit run under an alternation island: delegates fire, parity holds."""
     cg = compile_text(_SYNTH_GRAMMAR, cache_key="delegation-synth")
-    assert cg.pda is not None
-    assert sorted(cg.pda.islands) == ["item"], "synthetic island set"
+    assert not isinstance(_prod(cg).pda.start_key, IslandRef)
+    assert sorted(_prod(cg).pda.islands) == ["item"], "synthetic island set"
     names = {
-        cg.instance_grammar.rules[rid].name for rid in cg.pda.island_delegates("item")
+        _prod(cg).instance_grammar.rules[rid].name
+        for rid in _prod(cg).pda.island_delegates("item")
     }
     assert "digits" in names, "the long-run rule must delegate"
     for text in _SYNTH_SAMPLES:
@@ -211,7 +219,7 @@ def test_delegation_reduce_path_is_behaviour_neutral() -> None:
     un-routed reduce PDA stops. The ABNF reduce PDA opts out whole-grammar
     (``rulelist`` is a start island), so it has no forced-PDA path to A/B yet.
     """
-    pda = self_grammar_pda(GBNF_FLAVOUR)
+    pda = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer).pda
     assert pda is not None, "GBNF self-grammar reduce PDA should exist"
     fresh = _with_delegates(pda, True, lambda: pda.island_delegates("charclass"))
     assert fresh, "the reduce path must carry at least one delegating island"

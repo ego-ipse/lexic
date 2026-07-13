@@ -6,6 +6,18 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-13 — Totality cleanup: engine owns its API, no opt-out, no private imports
+
+Landed in atomic sub-steps (parsing owns its public API; no whole-grammar opt-out; no cross-module private imports).
+
+**Sub-step 1 — directive 4 + the runtime C0302 shed.** All 66 cross-module `_name` imports renamed PUBLIC at their defining module (`flatten`'s op-codes/gate-codes/build-modes/mode-codes/reduce-kinds/`FlatArm`/`FlatClone`/`optimize_program`/`all_clones`/`gate_take`/`select_gated`; `runtime`'s `F_*` frame vocabulary + `finish_delegate`; `earley.reduce`'s `*_KIND`/`plan_for`; `tables.expand_atom`; `reduce_pda.reduce_rewrite`/`ReduceCompile`). Cross-module `_name` imports in `src/`: 66 → 0 (AST-enforced permanently). New leaf `pda/build.py` (frame-slot vocabulary + fused model-build tail + `finish_delegate`) shed out of `runtime.py` (946 → 764).
+
+**Sub-step 2 — the product API + no opt-out.** New `parsing/products.py`: the two PRODUCT entries `parse_reduced(grammar, text, reducer)` (grammar-text → IrAst) and `parse_model(grammar, text, fold)` (instance → model), each taking the AUTHORED grammar, PDA-first with the Earley completion INSIDE the engine, memoised per (grammar, reducer/fold) identity; the Earley-completion entries `earley_reduce`/`earley_model` are the completions AND the tests' route-forcing seam. `PdaFail` never surfaces. `compile.py` deleted the route classes (`_ParseRoute`/`_ModelRoute`/`_ReduceRoute`), `_build_pda`, `self_grammar_pda`, and every `PdaTables | None` opt-out (0 remain); `CompiledGrammar` is now `(classes, grammar, codegen_grammar, fold)` and imports `lexic.parsing` root-only. `compile_reduce_pda` is total — an unreconstructable reduce policy compiles to an immediate-PdaFail start (an `IslandRef` over empty clones), never `None`. Totality rests on the existing analysis pre-pass: `arm_conflicts`/`_demote_arms` already islands every un-demotable rule-body AND inline-group overlap, so `compile_arms`' overlap raise is a pure drift hard-error (unreachable on correctly-analysed grammars — the whole real corpus + both self-grammars hit zero opt-out sites). Two permanent AST layering checks added (no cross-module `_name`; runtime imports `lexic.parsing` root only). Differential parity: whole GT corpus + both self-grammar emits byte-equal PDA-route vs Earley-route. Compile-time got faster (PDA/tables now build lazily in the product, not eagerly at compile: json compile_text 73.6 → 51.6 ms); parse perf neutral within noise.
+
+Wiki page-level sweep (public-api.md, architecture.md, decisions.md, flavour-system.md, error-vocabulary.md) deferred to the effort's consolidation task.
+
+---
+
 ## 2026-07-12 — Task 7: THE FLIP — `parse_grammar` is PDA-first, gate PASS both flavours
 
 Preceded by the ⚑ pre-Task-7 adversarial pass (`REVIEW_PRE7.md` in the plan dir): 6.2 open-risk #2 discharged (union-FOLLOW conservativeness ⇒ a delegate's filed span is the site parse; the risk collapses into gate soundness), the `_ReduceRoute` landmine narrowed to the ε-channel divergence class (empirically byte-equal corpus-wide), FIRST_k pins verified, one HIGH latent hole found and fixed (soft-gap loop classification, see the 6.6 entry).

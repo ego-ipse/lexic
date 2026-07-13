@@ -52,7 +52,6 @@ from lexic.parsing import (
     parse,
     parse_first,
     parse_forest,
-    parse_reduced,
     recognize,
 )
 from lexic.parsing.earley.engine import (
@@ -70,6 +69,7 @@ from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.earley.tables import RUN_STR, RunTerm, build_tables, compile_tables
+from lexic.parsing.products import earley_reduce
 
 # ── Grammar builders ──────────────────────────────────────────────────
 
@@ -617,7 +617,7 @@ def test_parse_single_derivation_unambiguous_roundtrip(
     assert _tree_to_text(tree) == text
 
 
-# ── ParseReduced / PARSE_REDUCED / parse_reduced ──────────────────────
+# ── ParseReduced / PARSE_REDUCED / earley_reduce ──────────────────────
 
 _YIELD = IrJoin(parts=IrArgs(), separator=IrLiteral(""), empty=IrLiteral(""))
 """Concatenate reduced children — the string-yield body (mirrors test_reduce.py)."""
@@ -639,32 +639,32 @@ def test_parse_reduced_singleton_is_parse_reduced_instance():
 
 
 def test_parse_reduced_matches_reducer_apply_parse(digit_grammar: IrAst):
-    """parse_reduced(g, t, reducer) equals reducer.apply(parse(g, t)) — unambiguous."""
+    """earley_reduce(g, t, reducer) equals reducer.apply(parse(g, t)) — unambiguous."""
     reducer = _digit_reducer()
-    result = parse_reduced(digit_grammar, "7", reducer)
+    result = earley_reduce(digit_grammar, "7", reducer)
     expected = reducer.apply(parse(digit_grammar, "7"))
     assert str(result) == str(expected)
 
 
 def test_parse_reduced_raises_on_invalid_input(digit_grammar: IrAst):
-    """parse_reduced() raises UnsupportedConstructError when the input does not parse."""
+    """earley_reduce() raises UnsupportedConstructError when the input does not parse."""
     reducer = _digit_reducer()
     with pytest.raises(UnsupportedConstructError):
-        parse_reduced(digit_grammar, "z", reducer)
+        earley_reduce(digit_grammar, "z", reducer)
 
 
 def test_parse_reduced_raises_on_ambiguous_input(sss_grammar: IrAst):
-    """parse_reduced() raises UnsupportedConstructError on ambiguous input."""
+    """earley_reduce() raises UnsupportedConstructError on ambiguous input."""
     reducer = _s_reducer()
     with pytest.raises(UnsupportedConstructError):
-        parse_reduced(sss_grammar, "aaa", reducer)
+        earley_reduce(sss_grammar, "aaa", reducer)
 
 
 def test_parse_reduced_raises_on_non_reducer_argument(digit_grammar: IrAst):
-    """parse_reduced() raises UnsupportedConstructError when reducer isn't a Reducer."""
+    """earley_reduce() raises UnsupportedConstructError when reducer isn't a Reducer."""
     with pytest.raises(UnsupportedConstructError, match="Reducer"):
         # Testing a wrong type.
-        parse_reduced(digit_grammar, "5", "not a reducer")  # type: ignore
+        earley_reduce(digit_grammar, "5", "not a reducer")  # type: ignore
 
 
 # ── ParseFirst / PARSE_FIRST / parse_first ─────────────────────────────

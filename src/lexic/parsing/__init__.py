@@ -54,21 +54,27 @@ in linear time, so ``*``/``+`` over long repeated input is O(n). Large *bounded*
 counts (``{lo, hi}``) still unroll to ``hi`` nested rules and recurse ``hi``-deep at
 desugar time — the one remaining rough edge.
 
-Public API — each is a thin wrapper that boxes the text and drives one
-:class:`~lexic.ir.base.IrSelf` orchestration node in :mod:`.earley.engine`; the node owns
-all the logic and the wrapper returns its result verbatim (a truth value is an
+Public API — two **product** entries (:mod:`.products`) that take the AUTHORED
+grammar and own the whole PDA-first-→-Earley-completion pipeline internally
+(memoised per grammar + reducer/fold identity), plus the lower-level Earley
+toolkit that takes an Earley-normalised grammar (a truth value is an
 :class:`~lexic.ir.base.IrInt` ∈ {0, 1}, per the IR's no-``IrBool`` rule):
 
+- :func:`parse_reduced` — grammar-text → ``IrAst`` (the grammar-text product).
+- :func:`parse_model` — instance text → model (the instance product).
 - :func:`recognize` — does ``text`` derive from the start rule.
 - :func:`parse` — the strict single derivation as a :class:`.earley.forest.ParseTree`.
 - :func:`parse_first` — the FIRST derivation, deterministic under ambiguity
-  (the instance-parse entry, see :mod:`.fold`).
-- :func:`parse_reduced` — parse and fold straight to IR in one pass (the
-  grammar-text product path).
+  (the instance completion, see :mod:`.fold`).
 - :func:`parse_forest` — the SPPF root :class:`.earley.forest.SppfNode`, or
   :data:`~lexic.ir.base.IrNone` on no parse.
 - :func:`derivations` — ALL derivations as an :class:`~lexic.ir.base.IrSeq`.
 - :func:`is_ambiguous` — whether the input has more than one derivation.
+
+The tree/forest readers (:func:`recognize` … :func:`is_ambiguous`) each box the
+text and drive one :class:`~lexic.ir.base.IrSelf` orchestration node in
+:mod:`.earley.engine`. ``PdaFail`` is internal to the products and never
+surfaces.
 """
 
 from __future__ import annotations
@@ -82,14 +88,23 @@ from lexic.parsing.earley.engine import (
     PARSE,
     PARSE_FIRST,
     PARSE_FOREST,
-    PARSE_REDUCED,
     RECOGNIZE,
     EarleyParser,
 )
 from lexic.parsing.earley.forest import BUILD_TREE, BuildTree, ParseTree, SppfNode
 from lexic.parsing.earley.kernel import FastTree, Kernel
+from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.earley.tables import ParserTables, compile_tables
+from lexic.parsing.fold import (
+    FastCtor,
+    FieldFold,
+    ModelBody,
+    ModelFold,
+    RuleFold,
+    lift_optional_nullables,
+)
+from lexic.parsing.products import parse_model, parse_reduced
 
 
 def recognize(grammar: IrAst, text: str) -> IrInt:
@@ -140,23 +155,6 @@ def parse_first(
     return PARSE_FIRST.eval(EarleyParser(), grammar, IrTuple(*args))
 
 
-def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
-    """Parse ``text`` and fold it straight to IR — the one-pass product path.
-
-    Equivalent to ``reducer.apply(parse(grammar, text))`` but fused: the
-    packed forest reduces directly, with no intermediate
-    :class:`~lexic.parsing.earley.forest.ParseTree` in the common unambiguous case.
-
-    :param grammar: The grammar, Earley-normalised.
-    :param text: The input string.
-    :param reducer: The flavour's reduction policy.
-    :returns: The reduced IR of the single derivation.
-    :raises UnsupportedConstructError: If ``text`` does not parse, or parses
-        ambiguously.
-    """
-    return PARSE_REDUCED.eval(EarleyParser(), grammar, IrTuple(IrStr(text), reducer))
-
-
 def parse_forest(grammar: IrAst, text: str) -> IrSelf:
     """Parse ``text`` into its shared packed parse forest (SPPF).
 
@@ -195,20 +193,28 @@ __all__ = [
     "Chart",
     "EarleyParser",
     "EarleyItem",
+    "FastCtor",
     "FastTree",
+    "FieldFold",
     "Kernel",
     "Link",
     "Links",
+    "ModelBody",
+    "ModelFold",
     "ParseTree",
     "ParserTables",
     "Reducer",
+    "RuleFold",
     "SppfNode",
     "compile_tables",
     "derivations",
     "is_ambiguous",
+    "lift_optional_nullables",
+    "normalize",
     "parse",
     "parse_first",
     "parse_forest",
+    "parse_model",
     "parse_reduced",
     "recognize",
 ]

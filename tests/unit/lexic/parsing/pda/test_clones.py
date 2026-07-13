@@ -57,6 +57,7 @@ from lexic.parsing.pda.flatten import (
 )
 from lexic.parsing.pda.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime import PdaFail
+from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.test_analysis import _PINNED_ISLANDS
 
@@ -77,7 +78,11 @@ def _pda_for(path: Path) -> PdaTables:
     canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
     compiled = compile_from_path(path)
-    return compile_pda(lifted, compiled.instance_grammar, compiled.fold.config)
+    return compile_pda(
+        lifted,
+        _model_product(compiled.codegen_grammar, compiled.fold).instance_grammar,
+        compiled.fold.config,
+    )
 
 
 def _pda_from_text(text: str) -> PdaTables:
@@ -85,7 +90,11 @@ def _pda_from_text(text: str) -> PdaTables:
     canonical = canonical_grammar(text, GBNF_FLAVOUR)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
     compiled = compile_text(text, flavour="gbnf")
-    return compile_pda(lifted, compiled.instance_grammar, compiled.fold.config)
+    return compile_pda(
+        lifted,
+        _model_product(compiled.codegen_grammar, compiled.fold).instance_grammar,
+        compiled.fold.config,
+    )
 
 
 def _clones_named(pda: PdaTables, name: str) -> list[CloneSpec]:

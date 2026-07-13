@@ -7,8 +7,8 @@ carry at least one), each driven through both internal seams directly:
 
 - **forced-PDA** — :func:`~lexic.parsing.pda.runtime.parse_pda` with the real
   fold supplied (so island references splice their Earley sub-parse);
-- **forced-engine** — ``cg.fold.apply(parse_first(cg.instance_grammar, text,
-  cg.tables))``, the same call :meth:`~lexic.compile.CompiledGrammar.parse`'s
+- **forced-engine** — ``cg.fold.apply(parse_first(_prod(cg).instance_grammar, text,
+  _prod(cg).tables))``, the same call :meth:`~lexic.compile.CompiledGrammar.parse`'s
   fallback branch makes.
 
 The correctness bar is ruling 1 (semantic parity, not raw ``model_dump()``
@@ -45,8 +45,17 @@ from lexic.parsing.pda.clones import KTupleGate, PeekGate
 from lexic.parsing.pda.flatten import all_clones
 from lexic.parsing.pda.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime import PdaFail
+from lexic.parsing.pda.specs import IslandRef
+from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.test_runtime import _arithmetic_bench_corpus
+
+
+def _prod(cg):
+    """The instance product for a CompiledGrammar — pda / instance_grammar / tables
+    (memoised per (grammar, fold); the artefact no longer carries them)."""
+    return _model_product(cg.codegen_grammar, cg.fold)
+
 
 # ── fixtures ────────────────────────────────────────────────────────────
 
@@ -152,7 +161,7 @@ def _grammar_for(stem: str) -> tuple[CompiledGrammar, dict, str]:
 
 def _forced_engine(cg: CompiledGrammar, text: str) -> GrammarModel:
     """Parse ``text`` via the forced-engine seam (bypassing the PDA entirely)."""
-    tree = parse_first(cg.instance_grammar, text, cg.tables)
+    tree = parse_first(_prod(cg).instance_grammar, text, _prod(cg).tables)
     return cast(GrammarModel, cg.fold.apply(tree))
 
 
@@ -165,12 +174,12 @@ def _check_one(cg: CompiledGrammar, text: str, tally: _Tally) -> None:
     """
     engine_model = _forced_engine(cg, text)
     assert engine_model.to_text() == text
-    if cg.pda is None:
+    if isinstance(_prod(cg).pda.start_key, IslandRef):
         tally["checked"] += 1
         tally["engine_only"] += 1
         return
     try:
-        pda_model = cast(GrammarModel, parse_pda(cg.pda, text, cg.fold))
+        pda_model = cast(GrammarModel, parse_pda(_prod(cg).pda, text, cg.fold))
     except PdaFail:
         tally["fallback"] += 1
         tally["checked"] += 1
@@ -186,12 +195,12 @@ def _check_one(cg: CompiledGrammar, text: str, tally: _Tally) -> None:
 def _report(stem: str, cg: CompiledGrammar, tally: _Tally) -> None:
     """Print the per-grammar summary line (reported, not asserted)."""
     n = tally["checked"] or 1
-    if cg.pda is None:
+    if isinstance(_prod(cg).pda.start_key, IslandRef):
         print(
             f"{stem:16s} checked={tally['checked']:3d} ENGINE-ONLY (whole-grammar PDA opt-out)"
         )
         return
-    islands = sorted(cg.pda.islands)
+    islands = sorted(_prod(cg).pda.islands)
     exact = (
         f"{tally['model_dump_exact'] / tally['pda_ok']:5.1%}"
         if tally["pda_ok"]
@@ -282,9 +291,11 @@ def test_p2_chess_parses_pure_pda_with_zero_fallback() -> None:
     reads the spec table (the compiler intermediate; ``all_clones`` cannot
     walk past dispatch/ref targets from the start shell)."""
     cg = compile_from_path(GROUND_TRUTH / "chess.gbnf")
-    assert cg.pda is not None
-    assert sorted(cg.pda.islands) == []
-    nonpawn = [spec for key, spec in cg.pda.clones.items() if key.name == "nonpawn"]
+    assert not isinstance(_prod(cg).pda.start_key, IslandRef)
+    assert sorted(_prod(cg).pda.islands) == []
+    nonpawn = [
+        spec for key, spec in _prod(cg).pda.clones.items() if key.name == "nonpawn"
+    ]
     assert nonpawn, "nonpawn must be cloned now (demoted, not islanded)"
     assert any(
         isinstance(item.gate, KTupleGate)
@@ -293,7 +304,7 @@ def test_p2_chess_parses_pure_pda_with_zero_fallback() -> None:
         for item in arm.specs
     ), "the demoted nonpawn loop must carry a k-window gate"
     for text in _CHESS_ADVERSARIAL:
-        pda_model = cast(GrammarModel, parse_pda(cg.pda, text, cg.fold))
+        pda_model = cast(GrammarModel, parse_pda(_prod(cg).pda, text, cg.fold))
         engine_model = _forced_engine(cg, text)
         assert pda_model.semantic_dump() == engine_model.semantic_dump()
         assert pda_model.to_text() == text
@@ -307,17 +318,22 @@ def test_p2_lo_gt_k_arm_gate_is_eof_exact_end_to_end() -> None:
     cg = compile_text(
         'root ::= [0-9]{4,} "x" | "12"\n', flavour="gbnf", cache_key="p2-lo-gt-k-eof"
     )
-    assert cg.pda is not None
-    assert not cg.pda.islands
-    clones = all_clones([cg.pda.program.start])
+    assert not isinstance(_prod(cg).pda.start_key, IslandRef)
+    assert not _prod(cg).pda.islands
+    clones = all_clones([_prod(cg).pda.program.start])
     assert any(clone.kwin_selectors is not None for clone in clones), (
         "the demoted alternation must select by k-window"
     )
-    assert cast(GrammarModel, parse_pda(cg.pda, "12", cg.fold)).to_text() == "12"
+    assert cast(GrammarModel, parse_pda(_prod(cg).pda, "12", cg.fold)).to_text() == "12"
     for text in ("1234x", "1234567x"):
-        assert cast(GrammarModel, parse_pda(cg.pda, text, cg.fold)).to_text() == text
+        assert (
+            cast(GrammarModel, parse_pda(_prod(cg).pda, text, cg.fold)).to_text()
+            == text
+        )
     with pytest.raises(PdaFail):
-        parse_pda(cg.pda, "123x", cg.fold)  # 3 digits < lo=4 — in no arm's language
+        parse_pda(
+            _prod(cg).pda, "123x", cg.fold
+        )  # 3 digits < lo=4 — in no arm's language
 
 
 # ── P3 noise-skip peek — the anti-trap gates (Task 6.4) ────────────────────
@@ -342,14 +358,14 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
     PDA — driven through ``parse_pda`` directly, so a wrong peek gate fails
     here rather than hiding behind the engine fallback."""
     cg = compile_from_path(GROUND_TRUTH / "json.gbnf")
-    assert cg.pda is not None
-    assert sorted(cg.pda.islands) == []
-    value_clones = [s for key, s in cg.pda.clones.items() if key.name == "value"]
+    assert not isinstance(_prod(cg).pda.start_key, IslandRef)
+    assert sorted(_prod(cg).pda.islands) == []
+    value_clones = [s for key, s in _prod(cg).pda.clones.items() if key.name == "value"]
     assert value_clones
     assert all(arm.peek is not None for spec in value_clones for arm in spec.arms), (
         "value must select by post-noise peek"
     )
-    item2 = [s for key, s in cg.pda.clones.items() if key.name == "array-item2"]
+    item2 = [s for key, s in _prod(cg).pda.clones.items() if key.name == "array-item2"]
     assert item2
     assert any(
         isinstance(item.gate, PeekGate)
@@ -358,7 +374,7 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
         for item in arm.specs
     ), "the array-item loop must carry a peek gate"
     for text in _JSON_ADVERSARIAL:
-        pda_model = cast(GrammarModel, parse_pda(cg.pda, text, cg.fold))
+        pda_model = cast(GrammarModel, parse_pda(_prod(cg).pda, text, cg.fold))
         engine_model = _forced_engine(cg, text)
         assert pda_model.semantic_dump() == engine_model.semantic_dump()
         assert pda_model.to_text() == text

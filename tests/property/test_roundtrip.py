@@ -7,15 +7,17 @@ reproducible and replayable.
 
 from __future__ import annotations
 
-import dataclasses
 import random
+from typing import cast
 
 import hypothesis.strategies as st
 from hypothesis import HealthCheck, given, settings
 
+from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.generate import generate
 from lexic.parse import parse
+from lexic.parsing.products import _model_product, earley_model
 from tests.paths import GROUND_TRUTH as _GRAMMAR_DIR
 
 
@@ -51,25 +53,27 @@ def test_arithmetic_roundtrip(seed: int, all_grammar_specs: dict) -> None:
     _roundtrip("arithmetic", all_grammar_specs["arithmetic"], seed)
 
 
-# The Task-6 PDA→engine fallback wiring means the public parse() above is
-# PDA-first (see compile.py's CompiledGrammar.parse) — a future PDA
-# regression could in principle mask an engine-side round-trip break by
-# always falling back before the broken engine path is ever exercised. This
-# canary forces the non-PDA path directly (a ``pda=None`` copy) on one
+# The public parse() above is PDA-first (see compile.py's
+# CompiledGrammar.parse) — a future PDA regression could in principle mask an
+# engine-side round-trip break by always falling back before the broken engine
+# path is ever exercised. This canary forces the Earley route directly (the
+# engine's ``earley_model`` completion over the instance grammar) on one
 # grammar, budget-capped well below the public-parse property above, so the
 # engine's own round-trip guarantee stays independently proven in CI.
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
 @settings(max_examples=15, suppress_health_check=[HealthCheck.too_slow])
 def test_arithmetic_roundtrip_engine_forced(seed: int, all_grammar_specs: dict) -> None:
-    """Engine-forced canary: arithmetic round-trips with the PDA disabled."""
+    """Engine-forced canary: arithmetic round-trips through the forced Earley route."""
     rng = random.Random(seed)
     text = generate("root", all_grammar_specs["arithmetic"], rng=rng, max_depth=4)
     if not text:
         return
-    engine_only = dataclasses.replace(
-        compile_from_path(_GRAMMAR_DIR / "arithmetic.gbnf"), pda=None
+    cg = compile_from_path(_GRAMMAR_DIR / "arithmetic.gbnf")
+    product = _model_product(cg.codegen_grammar, cg.fold)
+    inst = cast(
+        GrammarModel,
+        earley_model(product.instance_grammar, text, cg.fold, product.tables),
     )
-    inst = engine_only.parse(text)
     assert inst.to_text() == text, (
         f"Engine-forced round-trip failed [arithmetic] seed={seed}:\n"
         f"  generated: {text!r}\n"

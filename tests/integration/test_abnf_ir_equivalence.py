@@ -21,8 +21,9 @@ import pytest
 
 from lexic.grammars.abnf import ABNF_FLAVOUR, ABNF_GRAMMAR, ABNF_REDUCER
 from lexic.ir.nodes import IrAst
-from lexic.parsing import is_ambiguous, parse_reduced
+from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.products import earley_reduce
 from tests._ir_fixtures import JSON_RULE_NAMES
 from tests.integration._abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
 from tests.paths import GROUND_TRUTH
@@ -100,8 +101,8 @@ def test_corpus_matches_golden_keys() -> None:
 
 @pytest.mark.parametrize("key", _CORPUS, ids=list(_CORPUS))
 def test_reduces_to_golden_fingerprint(key: str, norm_grammar: IrAst) -> None:
-    """parse_reduced yields the golden start rule and rule set."""
-    ast = parse_reduced(norm_grammar, _CORPUS[key], ABNF_REDUCER)
+    """earley_reduce yields the golden start rule and rule set."""
+    ast = earley_reduce(norm_grammar, _CORPUS[key], ABNF_REDUCER)
     assert isinstance(ast, IrAst)
     assert _fingerprint(ast) == _GOLDEN[key]
 
@@ -115,8 +116,8 @@ def test_corpus_unambiguous(key: str, norm_grammar: IrAst) -> None:
 @pytest.mark.parametrize("key", _CORPUS, ids=list(_CORPUS))
 def test_emit_reparse_preserves_fingerprint(key: str, norm_grammar: IrAst) -> None:
     """Emitting the reduced AST as ABNF and re-parsing keeps the rule fingerprint."""
-    ast = parse_reduced(norm_grammar, _CORPUS[key], ABNF_REDUCER)
+    ast = earley_reduce(norm_grammar, _CORPUS[key], ABNF_REDUCER)
     assert isinstance(ast, IrAst)
-    reparsed = parse_reduced(norm_grammar, str(ABNF_FLAVOUR.apply(ast)), ABNF_REDUCER)
+    reparsed = earley_reduce(norm_grammar, str(ABNF_FLAVOUR.apply(ast)), ABNF_REDUCER)
     assert isinstance(reparsed, IrAst)
     assert _fingerprint(reparsed) == _fingerprint(ast)

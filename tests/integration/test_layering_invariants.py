@@ -1,7 +1,8 @@
-"""Layering invariants enforced via static grep over src/lexic/."""
+"""Layering invariants enforced via static grep / AST over src/lexic/."""
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -11,6 +12,62 @@ SRC = ROOT / "src" / "lexic"
 def _grep(directory: Path, needle: str) -> list[Path]:
     """Return list of .py files in directory containing needle."""
     return [p for p in directory.rglob("*.py") if needle in p.read_text()]
+
+
+def _module_name(path: Path) -> str:
+    """The dotted module name of a file under ``src/`` (``src/lexic/a/b.py`` →
+    ``lexic.a.b``)."""
+    return ".".join(path.relative_to(SRC.parent).with_suffix("").parts)
+
+
+def _from_imports(tree: ast.AST) -> "list[tuple[str, str]]":
+    """Every absolute ``from <module> import <name>`` as ``(module, name)``."""
+    out: list[tuple[str, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            out.extend((node.module, alias.name) for alias in node.names)
+    return out
+
+
+def test_no_cross_module_private_imports_in_src():
+    """No ``from <module> import _name`` crosses a module boundary in ``src/``.
+
+    A name two modules share is that module's public surface — it is renamed
+    public at its defining module (the underscore dropped), never imported
+    across the boundary. Permanent enforcement of directive 4.
+    """
+    offenders: list[str] = []
+    for path in SRC.rglob("*.py"):
+        mod = _module_name(path)
+        for module, name in _from_imports(ast.parse(path.read_text())):
+            if module != mod and name.startswith("_"):
+                offenders.append(f"{mod}: from {module} import {name}")
+    assert not offenders, f"cross-module private imports: {offenders}"
+
+
+def test_runtime_imports_parsing_root_only():
+    """Only ``compile.py`` imports ``lexic.parsing`` among top-level runtime
+    modules, and only the package **root** — never a submodule.
+
+    The engine owns its API: consumers import ``lexic.parsing`` (the product
+    entries + the exported toolkit), never ``lexic.parsing.earley`` /
+    ``.fold`` / ``.pda`` / ``.products``. Permanent enforcement of directive 1.
+    """
+    offenders: list[str] = []
+    for path in SRC.glob("*.py"):  # top-level runtime modules only
+        tree = ast.parse(path.read_text())
+        mods = [m for m, _ in _from_imports(tree)]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                mods.extend(alias.name for alias in node.names)
+        for module in mods:
+            if module != "lexic.parsing" and not module.startswith("lexic.parsing."):
+                continue
+            if path.name != "compile.py":
+                offenders.append(f"{path.name}: imports {module} (only compile.py may)")
+            elif module != "lexic.parsing":
+                offenders.append(f"{path.name}: imports {module} (root only)")
+    assert not offenders, f"parsing import-layering violations: {offenders}"
 
 
 def test_ir_does_not_import_grammars_parsing_codegen():
@@ -190,8 +247,8 @@ def test_pda_entry_points_imported_only_via_compile_seam():
     ``pda.clones``/``pda.runtime`` are sub-paths of ``lexic.parsing``, so
     ``test_engine_imported_by_runtime_only_via_compile_seam``'s ``"from
     lexic.parsing"`` prefix check already covers them generically; this pins
-    that coverage explicitly for the PDA modules by name (Task 6's
-    ``CompiledGrammar.pda`` + fallback chain is the one sanctioned caller).
+    that coverage explicitly for the PDA modules by name. Post-Task-2 no runtime
+    module imports them at all — the products own the PDA behind the root API.
     """
     offenders = []
     for p in SRC.glob("*.py"):  # top-level modules only, not subpackages

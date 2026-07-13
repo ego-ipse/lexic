@@ -235,12 +235,29 @@ src/lexic/
                         quantifier suffix, absorbed from utils/quantifiers.py)
 
   parsing/
-    __init__.py         Public API: recognize, parse, parse_first, parse_reduced,
-                        parse_forest, derivations, is_ambiguous — a native Earley
-                        engine (SPPF, Scott 2008) over IrAst-shaped grammars, not
-                        a Lark wrapper. Drives BOTH grammar-text parsing
-                        (flavour.grammar + flavour.reducer) and generated-instance
-                        parsing (the codegen grammar + ModelFold)
+    __init__.py         Public API: the two PRODUCT entries parse_reduced
+                        (grammar-text → IrAst) + parse_model (instance → model)
+                        — each takes the AUTHORED grammar, PDA-first with the
+                        Earley completion INSIDE the engine, memoised per
+                        (grammar, reducer/fold) identity — plus the lower-level
+                        Earley toolkit (recognize, parse, parse_first,
+                        parse_forest, derivations, is_ambiguous — normalised-
+                        grammar contract) and the exported types (Reducer,
+                        ModelFold + authoring types, ParserTables, compile_tables,
+                        normalize, lift_optional_nullables, the forest/chart
+                        toolkit). A native Earley engine (SPPF, Scott 2008) over
+                        IrAst-shaped grammars, not a Lark wrapper. PdaFail never
+                        surfaces
+    products.py         The two product entries + the per-identity memoisation
+                        (parse_reduced/parse_model — authored grammar, lift +
+                        normalize + PDA/table compile internal, PDA-first-→-
+                        PdaFail-→-Earley-completion) + the Earley-completion
+                        entries earley_reduce (fused reduce over a normalised
+                        grammar) / earley_model (parse_first + fold) — the
+                        completions the products call AND the seam tests force to
+                        exercise the Earley route. A leaf inside lexic.parsing
+                        (imports earley + pda by public name); __init__ re-exports
+                        the two product entries at the root
     fold.py             ModelFold — THE one authored instance-fold: a per-rule
                         IR body-table (`bodies: IrMap[IrRuleRef, ModelBody]` —
                         the reducer-shaped authored form) that bakes to the

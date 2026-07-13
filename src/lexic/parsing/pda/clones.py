@@ -838,20 +838,34 @@ def compile_reduce_pda(
     :class:`~lexic.parsing.fold.RuleFold`. The runtime feeds each clone's cleaned
     children to its reduction ``body.eval`` — no intermediate ParseTree.
 
+    Always returns tables (the compiler is total). A reducer whose terminal-leaf
+    policy the reduce runtime cannot reconstruct (a grammar-global condition with
+    no enclosing rule) compiles to an **immediate-PdaFail start** — an
+    :class:`IslandRef` start over an empty clone table, so
+    :func:`~lexic.parsing.pda.reduce_runtime.parse_pda` raises
+    :class:`~lexic.parsing.pda.runtime.PdaFail` on the first step and the caller
+    completes on the Earley reduce per parse (no ``None`` channel, no windowed
+    self-parse of the whole input).
+
     :returns: The compiled :class:`PdaTables` (its :attr:`~PdaTables.reduce` set).
     :raises UnsupportedConstructError: On an atom the clone compiler cannot
-        handle, a custom rule noise policy, or a custom terminal-leaf policy the
-        reduce runtime cannot reconstruct (the whole-grammar opt-out).
+        handle (a genuine boundary error, never a downgrade).
     """
     tables = compile_tables(instance_grammar)
     plan = plan_for(reducer, tables)
-    if plan.literal_kind == OTHER_KIND:
-        raise UnsupportedConstructError("reduce: custom terminal-leaf policy")
     name_to_rid = {name: rid for rid, name in enumerate(tables.decode.rule_names)}
     analysis = GrammarAnalysis(lifted)
+    run = ReduceRun(reducer, plan, tables, name_to_rid)
+    if plan.literal_kind == OTHER_KIND:
+        # Reduce policy the runtime cannot reconstruct → immediate-PdaFail start.
+        return PdaTables(
+            _PdaCompiler(analysis),
+            IslandRef(analysis.start),
+            instance_grammar,
+            reduce=run,
+        )
     compiler = _PdaCompiler(analysis, reduce=ReduceCompile(reducer, plan, name_to_rid))
     start_key = compiler.compile_start()
-    run = ReduceRun(reducer, plan, tables, name_to_rid)
     pda = PdaTables(compiler, start_key, instance_grammar, reduce=run)
     _attach_delegates(pda, lifted, compiler)
     return pda
