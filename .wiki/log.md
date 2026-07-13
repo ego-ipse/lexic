@@ -6,6 +6,29 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-13 — Parsing totality-cleanup consolidation
+
+Closed out the effort that made `lexic.parsing` own its public API. Two
+product entries (`parse_reduced`/`parse_model`) with the Earley completion
+inside the engine, memoised per (grammar, reducer/fold) identity; `compile.py`
+imports the root API only; no opt-out (`PdaTables | None` gone — a decision no
+gate licenses is a per-rule island); no cross-module `_underscore` imports —
+the last two enforced by permanent AST checks in `test_layering_invariants.py`.
+`DELEGATES_ENABLED` and "legacy" prose removed (delegation unconditional). The
+empty-arm reduce fallback is closed by a structured ARM gate (`struct_arm`
+taxonomy channel + `ArmGate`): json_arr/json_ws parse pure-PDA, differential
+byte-equal to Earley. The public product API returns honest concrete types —
+`parse_reduced -> IrAst`, `ModelFold[M]` → `parse_model -> M` (the engine stays
+a leaf w.r.t. `lexic.base`; the model type rides the fold's type parameter). A
+new ε-channel reduce differential property test guards the PDA↔Earley
+equivalence (no divergence). `src/lexic/parsing/README.md` installed from the
+end-state spec. Optimization harvest landed nothing (evidence-gated): every
+pinned bench cell at/above the Task-0 baseline except gbnf-self-emit +9% (the
+SG_PROBE gate cost, accepted; probe fast-path → FOLLOWUP). Suite 2168;
+`run_checks.sh` EXIT 0.
+
+---
+
 ## 2026-07-13 — Empty-arm ARM gate (runtime half)
 
 Wired the stored `struct_arm_gates` into the predictive runtime. `specs.py` bundles a body's demotion specs into `ArmGates(windows, peeks, struct_arm)` (one `compile_arms` param) and adds `CloneSpec.struct_arm: ScanGate | None`; `clones.py`'s `compile_arms` resolves the empty-arm `ArmGate` (validating `escape` against the nullable default arm it picks — drift is a hard error) onto the CloneSpec. `flatten.py` gives `FlatClone` a `struct_arm` slot and skips dispatch conversion for a struct-arm clone. `runtime.py`'s `_enter` consults `scanner.scan_gate_take` before the FIRST-gated select — a take admits the gated arms, a refusal selects the escape (nullable default) arm — shared by both the model (`PdaKernel`) and grammar-text (`_ReducePdaKernel`, which reuses `_enter`) paths; the dispatch chase was extracted to `_chase_dispatch` so the inline hot-path select loop stays. **json_arr/json_ws now parse pure-PDA on the reduce path** (byte-equal to Earley); one constructed instance-path grammar exercises SG_SCAN end-to-end. `test_reduce_runtime.py`'s json_arr/json_ws "still PdaFail" pins flipped to pure-PDA; `test_flatten.py` slot pin gains `struct_arm`. Whole GT corpus + both self-emits byte-equal PDA-vs-Earley, both flavours. Bench: instance neutral; reduce self-emit/subset-920 neutral; **gbnf-self-emit product +~8% (184.5→~200ms)** — the SG_PROBE gate runs `scan_gate_take` on every GBNF self-grammar `arm` decision (inherent to closing the fallback with a probe; the reduce path can't dispatch-convert it away). **This one cell's +8% is an accepted, logged deferral to the evidence-gated optimization pass** — the candidate is a probe fast-path (memoise `scan_gate_take` per position, or a cheap first-char pre-check before the full rulename-probe); the cell measures self-grammar parsing, which pays the gate cost with no empty-arm benefit, while the grammars that benefit (json_arr/json_ws) go Earley-fallback → pure-PDA. Suite 2150 green; `run_checks.sh` EXIT 0.

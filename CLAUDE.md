@@ -502,10 +502,11 @@ src/lexic/
                           from build, never the reverse; split out of runtime.py
                           for C0302 headroom (260706 Task 6.2)
       delegate_compile.py DelegateSource — the lazy per-island delegate-clone
-                          selector for island-interior delegation (Task 6.2):
-                          picks conflict-free, non-nullable, semantic interior
-                          rules above a triviality floor (DELEGATES_ENABLED gate)
-                          and compiles each to a PDA clone cut against its
+                          selector for island-interior delegation: picks
+                          conflict-free, non-nullable, semantic interior
+                          rules above a triviality floor (delegation is
+                          unconditional) and compiles each to a PDA clone cut
+                          against its
                           sub-grammar hard FOLLOW. A leaf w.r.t. the clone
                           compiler — the (_PdaCompiler, _flatten_clones) seam is
                           injected — attached to PdaProgram.delegates, so the
@@ -581,14 +582,15 @@ generated/              auto-generated Pydantic modules — git-ignored; never e
 grammar text ──► _scan_directives(text, flavour.line_comment) ──► (start, non_semantic)
              │    [private helper in compile.py — pre-lexical comment scan]
              └──► parse_grammar(text, flavour)  [public seam, compile.py]
-                  = PDA-first (Task 7 flip, 2026-07-12): parse_pda over
-                    self_grammar_pda(flavour) — the reduce PDA compiled over
-                    normalize(lift_optional_nullables(flavour.grammar)) —
-                    PdaFail → parse_reduced(normalize(flavour.grammar), text,
-                    flavour.reducer) as the Earley completion. The two sides
-                    run different normalised grammars BY DESIGN (ε-channel
-                    absorbed by the authored reduce bodies; guarded by the
-                    differential sweep — REVIEW_PRE7.md finding 4)
+                  = parse_reduced(flavour.grammar, text, flavour.reducer) —
+                    the engine's grammar-text product: PDA-first with the fused
+                    Earley reduce completion INSIDE the engine, memoised per
+                    (grammar, reducer) identity (lift/normalize/PDA compilation
+                    all internal). Returns an IrAst. The PDA (lifted grammar)
+                    and the Earley completion (unlifted) run different
+                    normalised grammars by design — the ε-channel is absorbed by
+                    the authored reduce bodies, guarded by the reduce
+                    differential property test. PdaFail never surfaces.
                                                                    ▼
                                                                  IrAst
                                                                    │  canonicalize(ast)  [ir/canonical.py —
@@ -625,17 +627,15 @@ grammar text ──► _scan_directives(text, flavour.line_comment) ──► (s
                      fast)]; bakes to dict[str, RuleFold] via .baked)
                                        │
                                        ▼
-          instance_grammar = normalize(lift_optional_nullables(codegen_grammar))
-          — the SAME normalize as the grammar-text path, so the engine's
-          identity-memoised tables are shared shapes
-                                       │
-                                       ▼
-          CompiledGrammar(classes, grammar=canonical ast, instance_grammar, fold, tables,
-                          pda=_build_pda(lifted, instance_grammar, fold.baked))
-          .parse(text) = PDA-first: parse_pda(pda, text, fold) when pda is not None,
-                         PdaFail → engine fallback fold.apply(parse_first(instance_grammar,
-                         text, tables)). pda is None on whole-grammar opt-out (unsupported
-                         construct, or start rule is itself an island).
+          CompiledGrammar(classes, grammar=canonical ast, codegen_grammar, fold)
+          .parse(text) = parse_model(codegen_grammar, text, fold) — the engine's
+                         instance product: PDA-first with the parse_first + fold
+                         Earley completion INSIDE the engine, memoised per
+                         (grammar, fold) identity (lift/normalize/PDA/run-collapsed
+                         table compilation all internal to the product). Returns
+                         the start rule's GrammarModel. NO opt-out — a decision no
+                         gate family can license is a per-rule island (fail-soft);
+                         PdaFail never surfaces.
 ```
 
 Entry points: `compile_text(text, flavour)` and `compile_from_path(path)` in

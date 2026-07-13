@@ -7,87 +7,94 @@ SPPF, Scott 2008) as the sound completion. No meta-grammar strings, no
 external parser. The premise: an `IrAst` already *is* a grammar — named rules,
 each an alternation of sequences of atoms — so it drives a parser as-is.
 
-**One engine, two jobs, both PDA-first:**
+**One engine, two products, both PDA-first, both owned here:**
 
-- **grammar-text → `IrAst`** — `parse_grammar` (in `compile.py`) parses a
-  `.gbnf`/`.abnf` text against the flavour's own self-grammar
-  (`GBNF_GRAMMAR`/`ABNF_GRAMMAR`). It runs the **reduce PDA** first
-  (`self_grammar_pda(flavour)` → `parse_pda`); on `PdaFail` it completes with
-  `parse_reduced` — the fused Earley pass that folds the forest to IR through
-  the flavour's `Reducer`.
-- **instance text → `GrammarModel`** — `CompiledGrammar.parse` parses input
-  against the *codegen grammar*. It runs the **model PDA** first
-  (`parse_pda(pda, text, fold)` — the fold is fused into the walk, no
-  `ParseTree` is ever built); on `PdaFail` it completes with
-  `parse_first` + `ModelFold.apply`.
+- **grammar-text → `IrAst`** — `parse_reduced(grammar, text, reducer)`:
+  parse text against a grammar (e.g. a flavour's self-grammar) and fold it
+  to IR through the `Reducer`.
+- **instance text → model** — `parse_model(grammar, text, fold)`: parse
+  input against a compiled grammar's rules and build the model object
+  through the `ModelFold`.
 
-The self-hosting fixpoint is the standing proof of the first job: emit the
-ABNF-of-ABNF grammar (`grammars/abnf.py`'s `ABNF_GRAMMAR`) as text, parse that
-text with itself, reduce, and recover the identical `IrAst`.
+Both entries run the PDA first — a table-driven predictive walk that builds
+the product *during* the parse (no intermediate `ParseTree`) — and complete
+on the Earley engine whenever the PDA cannot decide deterministically. That
+policy, the PDA compilation, and its per-grammar memoisation all live inside
+this package; consumers see only the two calls. `compile.py` (the runtime's
+sole consumer) imports nothing but this package's root API.
+
+The self-hosting fixpoint is the standing proof of the first product: emit
+the ABNF-of-ABNF grammar (`grammars/abnf.py`'s `ABNF_GRAMMAR`) as text,
+parse that text with itself, reduce, and recover the identical `IrAst`.
 
 ```
-── grammar-text path (compile.py parse_grammar) ────────────────────────────────
-flavour.grammar ─► lift_optional_nullables ─► normalize ─► compile_reduce_pda ─► PdaTables   (once/flavour)
-text ─► parse_pda(pda, text, fold=None) ──────────────────────────► IrAst                    (per parse)
-          └─PdaFail─► parse_reduced(normalize(flavour.grammar), text, flavour.reducer) ─► IrAst
-
-── instance path (compile.py CompiledGrammar.parse) ────────────────────────────
-codegen grammar ─► lift_optional_nullables ─► normalize ─┬─► compile_pda ─► PdaTables        (once/grammar)
-                                                         └─► compile_tables ─► ParserTables
-text ─► parse_pda(pda, text, fold) ───────────────────────────────► GrammarModel             (per parse)
-          └─PdaFail─► fold.apply(parse_first(instance_grammar, text, tables)) ─► GrammarModel
+parse_reduced(grammar, text, reducer)                 parse_model(grammar, text, fold)
+        │  (once per grammar, memoised)                       │  (once per grammar, memoised)
+        ├─ lift + normalize ─► reduce PDA tables              ├─ lift + normalize ─► model PDA tables
+        └─ normalize ────────► Earley tables                  └─ lift + normalize ─► Earley tables
+        │  (per parse)                                        │  (per parse)
+        ├─ PDA walk ───────────────────► IrAst                ├─ PDA walk ───────────────────► model
+        └─ on PdaFail: fused Earley reduce ─► IrAst           └─ on PdaFail: parse_first + fold ─► model
 ```
 
-The two grammar-text routes deliberately run **different normalised grammars**
-(the PDA over the lifted grammar, the Earley completion over the unlifted
-one). The divergence class is the ε-channel — a lifted nullable `R` (from
-`R?`) matches ε and runs its reduction on empty children where the unlifted
-route skips the node — and the authored reduce bodies absorb it; the
-whole-corpus differential tests are the guard.
+The two grammar-text routes deliberately run **different normalised
+grammars** (the PDA over the lifted grammar, the Earley completion over the
+unlifted one). The divergence class is the ε-channel — a lifted nullable `R`
+(from `R?`) matches ε and runs its reduction on empty children where the
+unlifted route skips the node — and the authored reduce bodies absorb it;
+the differential tests are the guard.
 
 ---
 
 ## 1. Public API (`__init__.py`)
 
-Seven functions, all Earley-side. Each is a thin wrapper that boxes the input
-and drives exactly one `IrSelf` orchestration node in `earley/engine.py`. Per
-the IR's no-`IrBool` rule, a truth value is an `IrInt ∈ {0, 1}`.
+Two product entries and six Earley functions. Everything a consumer needs
+is exported from the package root; nothing outside `lexic.parsing` imports
+its submodules (enforced by the layering test).
 
 | Function | Returns | Meaning |
 |---|---|---|
+| `parse_reduced(grammar, text, reducer)` | `IrAst` | **Grammar-text product.** PDA-first, fused Earley reduce completion. Takes the authored grammar; normalisation, lifting, PDA/table compilation are internal, memoised per (grammar, reducer) identity — the compiled tables bake the reducer's plan, so the reducer is part of the key. The grammar-text product always folds to an `IrAst`; a non-`IrAst` reduction is an `UnsupportedConstructError`, never a silent `object`. |
+| `parse_model(grammar, text, fold: ModelFold[M])` | `M` | **Instance product.** PDA-first, `parse_first` + fold completion. Same authored-grammar contract; memoised per (grammar, fold) identity — the tables bake the fold's rule records and the collapsed lexical runs. Generic in the model type `M` the fold produces: the engine stays a leaf w.r.t. `lexic.base`, so the concrete model type rides the fold's type parameter rather than an import — `compile.py` binds `ModelFold[GrammarModel]`, so `CompiledGrammar.parse` types as `GrammarModel`. |
 | `recognize(grammar, text)` | `IrInt` 0/1 | Does `text` derive from the start rule? (No forest built.) |
 | `parse(grammar, text)` | `ParseTree` | The single derivation. **Raises** on no-parse *or* ambiguity. |
-| `parse_first(grammar, text, tables=None)` | `ParseTree` | The *first* derivation — deterministic under ambiguity. The instance-path completion (§8). Raises only on no-parse. |
-| `parse_reduced(grammar, text, reducer)` | `IrSelf` | Text → reduced IR in one fused pass — the grammar-text completion (§7). Raises like `parse`. |
+| `parse_first(grammar, text, tables=None)` | `ParseTree` | The *first* derivation — deterministic under ambiguity. Raises only on no-parse. |
 | `parse_forest(grammar, text)` | `SppfNode` \| `IrNone` | The shared packed parse forest root, or `IrNone` on no-parse. |
 | `derivations(grammar, text)` | `IrSeq[ParseTree]` | *Every* derivation, nothing silently dropped. |
-| `is_ambiguous(grammar, text)` | `IrInt` 0/1 | Does the input have more than one derivation? (Short-circuits at 2.) |
+| `is_ambiguous(grammar, text)` | `IrInt` 0/1 | More than one derivation? (Short-circuits at 2.) |
 
-The PDA is driven through `compile.py` (the sole runtime seam), not through
-`__init__.py`: `pda/clones.py`'s `compile_pda` / `compile_reduce_pda` →
-`PdaTables`, and `pda/reduce_runtime.py`'s `parse_pda(tables, text, fold)` —
-the single public runtime entry, dispatching the model kernel (`fold` given)
-vs the reduce kernel (`fold=None`) behind one seam.
+Also exported from the root: `Reducer`, `ModelFold` (and its authoring
+types), `ParseTree`, `SppfNode`, `ParserTables`, `compile_tables`,
+`normalize`, `lift_optional_nullables` — plus the rest of the forest/chart
+toolkit the root exports today (`Chart`, `Links`, `Link`, `EarleyItem`,
+`Kernel`, `FastTree`, `EarleyParser`, `BuildTree`), which stays. Per the
+IR's no-`IrBool` rule, a truth value is an `IrInt ∈ {0, 1}`.
 
-> **The grammar must be normalised first** (§6): every quantifier `(1, 1)`,
-> every group a named rule. `normalize()` is the caller's responsibility —
-> kept separate so the desugaring stays isolated. Both compiled paths
-> normalise `lift_optional_nullables(grammar)` (§8), so the engine's
-> identity-memoised tables are shared shapes.
+> **Two grammar contracts.** The product entries take the **authored**
+> grammar and own the whole compilation pipeline internally. The tree/forest
+> functions (`recognize` through `is_ambiguous`) are the lower-level Earley
+> toolkit and take an **Earley-normalised** grammar (every quantifier
+> `(1, 1)`, every group a named rule — `normalize()` is exported for this).
+> The forest functions are Earley-only by construction: the PDA is
+> fold-fused and never builds a tree or an SPPF.
+
+`PdaFail` — the PDA's non-determinism signal — is internal to the package.
+It is raised and caught inside the product entries; no caller ever sees it.
 
 ## 2. The design in one sentence
 
 **The grammar compiles once; the paid loop runs over the compiled form.**
-`compile_tables()` / `compile_pda()` are the parser's "codegen moment":
+`compile_tables()` and the PDA compile are the parser's "codegen moment":
 exactly as `codegen/` emits Python classes from an `IrAst`, `earley/tables.py`
 and `pda/clones.py` compile an `IrAst` into flat int-coded tables, and
 `earley/kernel.py` / `pda/runtime.py` run over them with no per-item IR
-dispatch, no IR object as a hot-path key, and no tuple allocation per advance.
+dispatch, no IR object as a hot-path key, and no tuple allocation per
+advance.
 
-The IR seams sit at the edges, all IR-native: `compile_tables`/`compile_pda`
-walk the grammar in; `FusedReduce` (grammar-text) and `ModelFold` / the fused
-PDA build (instance) carry the products out; `Kernel.to_chart()` decodes the
-packed SPPF into the IR-native `Chart` for the forest readers. State objects
+The IR seams sit at the edges, all IR-native: the compiles walk the grammar
+in; `FusedReduce` (grammar-text) and `ModelFold` / the fused PDA build
+(instance) carry the products out; `Kernel.to_chart()` decodes the packed
+SPPF into the IR-native `Chart` for the forest readers. State objects
 (`ParserTables`, `Kernel`, `PdaKernel`) ARE-AN `IrLeaf`; logic lives on
 classes and per-parse state on cursors — but inside the kernels the per-item
 work is list indexing and int arithmetic, deliberately: the package's
@@ -98,7 +105,7 @@ measured performance floor demands.
 
 ```
 parsing/
-  __init__.py       the seven-function Earley API (§1)
+  __init__.py       the public API (§1): two product entries + the Earley toolkit
   fold.py           ModelFold — the authored instance fold (§8)
   earley/           the Earley engine (imports only itself)
     tables.py         ParserTables, compile_tables (memoised per IrAst identity)
@@ -118,10 +125,10 @@ parsing/
     noise.py          noise/semantic attribution — peek + structured gates (§10)
     scanner.py        structured-noise recognizer + ScanGate runtime (§10)
     taxonomy.py       Taxonomy — classified notes + the stored gate specs (§10)
-    clones.py         compile_pda / compile_reduce_pda — the clone compiler (§11)
+    clones.py         the clone compiler, model and reduce variants (§11)
     flatten.py        the int-coded runtime program + optimizer passes (§11)
     runtime.py        PdaKernel — the fused model runtime (§12)
-    reduce_runtime.py _ReducePdaKernel + parse_pda, the public entry (§12)
+    reduce_runtime.py the reduce twin of the runtime (§12)
     reduce_pda.py     the reduce completion read off the ReducePlan (§12)
     islands.py        the windowed Earley island sub-parse (§13)
     delegate_compile.py DelegateSource — island-interior delegation (§13)
@@ -131,8 +138,11 @@ parsing/
 Layering: the whole package is a leaf w.r.t. `lexic.codegen` and
 `lexic.grammars`; `pda/` imports `earley/`, never the reverse;
 `reduce_runtime` imports `runtime`, never the reverse; `flatten` imports
-nothing from `clones`. `compile.py` is the only runtime module that imports
-any of it.
+nothing from `clones`. Cross-module imports use **public names only** — a
+name two modules share is public at its defining module; `_underscore`
+names never cross a module boundary. Consumers import the package root
+only. All of this is enforced by `tests/integration/
+test_layering_invariants.py`.
 
 ## 4. The Earley tables and kernel (`earley/tables.py`, `earley/kernel.py`)
 
@@ -206,11 +216,12 @@ can't compile falls back to a plain parse + the general **`Reducer`-over-
 `ParseTree`** fold. The reduce PDA (§12) reads this same `ReducePlan` — one
 compiled policy, three consumers.
 
-## 8. The instance fold (`fold.py`) — text → `GrammarModel`
+## 8. The instance fold (`fold.py`) — text → model
 
 Instance parsing runs over the **real codegen grammar** (no wrapper rules, no
 name protocol): `normalize()` replaces items in place, so `kids[i] ↔ items[i]`
-positionally. `ModelFold` is a generic positional tree → object fold whose
+positionally. `ModelFold[M]` is a positional tree → model fold, generic in the
+model type `M` it produces (`apply -> M`), whose
 authored form is a per-rule IR body-table (`IrMap[IrRuleRef, ModelBody]`)
 baking to flat runtime records (`RuleFold`/`FieldFold`/`FastCtor`) on
 construction — the same baked records every PDA clone carries (§11). Per
@@ -233,12 +244,12 @@ rule into a fake island. FOLLOW seeds end-of-input as the character `""` in a
 
 ## 10. The analysis (`pda/analysis.py` + its leaves) — decide, then store
 
-`GrammarAnalysis` runs over a lifted codegen grammar and computes the
-classical predictive fixpoints — nullability, FIRST (over `CharSet`),
-**hard-FIRST** (the chars a construct *requires*), FOLLOW and hard-FOLLOW —
-then classifies every decision point (arm selection; loop take/skip). A
-decision no gate family can make deterministic becomes an **island** (§13);
-everything else compiles to a gate. The gate families, tried in order:
+`GrammarAnalysis` runs over a lifted grammar and computes the classical
+predictive fixpoints — nullability, FIRST (over `CharSet`), **hard-FIRST**
+(the chars a construct *requires*), FOLLOW and hard-FOLLOW — then classifies
+every decision point (arm selection; loop take/skip). A decision no gate
+family can make deterministic becomes an **island** (§13); everything else
+compiles to a gate. The gate families, tried in order:
 
 - **1- and 2-char lookahead** — disjoint FIRST sets, or 2-char prefix
   separation (`PairGate`).
@@ -251,44 +262,56 @@ everything else compiles to a gate. The gate families, tried in order:
   never hardcoded) non-consuming and decide on the first post-noise char
   → `PeekGate`.
 - **structured scan** (`noise.py` + `scanner.py`) — folding-aware gates over
-  a compiled noise recognizer: `SG_MATCH` (exact-match loop over a
-  non-semantic ref, licensed by noise-only exits or a semantic-follow
+  a compiled noise recognizer, for loops AND for arm selection (including
+  alternations with an empty/all-nullable arm): `SG_MATCH` (exact-match loop
+  over a non-semantic ref, licensed by noise-only exits or a semantic-follow
   clearance check), `SG_SCAN` (skip noise roots, peek disjoint content
   leads), `SG_PROBE` (overlap refuted by the unique next-construct header,
-  e.g. GBNF's `rulename n* "::="`) → `ScanGate`.
+  e.g. GBNF's `rulename n* "::="` — which also covers an empty arm abutting
+  the next rule) → `ScanGate`.
 - **noise-greedy licence** (`noise.py`) — a greedy over-eat is provably
   noise↔noise re-splitting only (`sem_follow_table`: the chars that can
   follow a rule as *semantic* content), so greedy is safe.
 
 A gated decision's spec is **stored** on the public `taxonomy: Taxonomy`
-attribute — the clone compiler *reads* it back, never recomputes; a
-FIRST-overlapping alternation with no stored spec **raises** (the anti-drift
-tripwire → whole-grammar opt-out). Loops overlapping only *soft* (nullable)
-continuations classify through the same cascade — never a silent greedy
-stop-set. Every per-atom-type decision routes through an open `IrTypeMap`
-with a raising default; `nullable_names` here is the single source
-`fold.lift_optional_nullables` reads.
+attribute — the clone compiler *reads* it back, never recomputes. A decision
+the cascade cannot license — including an arm-FIRST overlap with no stored
+spec — **islands its rule**: sound and fail-soft, never a guessed gate,
+never a whole-grammar refusal. That call is made in the analysis itself:
+the island set is closed before the clone compiler runs. A stored gate spec
+the compiler cannot attach to the arms it sees (taxonomy↔compiler
+misalignment) is a **hard error**, not an island — drift is a bug. Every
+per-atom-type decision routes through an open `IrTypeMap` with a raising
+default (a genuine boundary error, not a downgrade); `nullable_names` here
+is the single source `fold.lift_optional_nullables` reads.
 
 ## 11. The clone compiler (`pda/clones.py`, `pda/flatten.py`)
 
-`compile_pda(lifted, instance_grammar, fold_config) → PdaTables`. A rule is
-compiled once per distinct **hard continuation** that reaches it (a *clone*),
-because the stop-sets it bakes are call-site-exact. Each item lowers to a
-tuple-coded `ItemSpec` (`lit`/`cc`/`ref`/`grp`) carrying its bounds and loop
-gate (`StopGate`/`PairGate`/`KTupleGate`/`PeekGate`/`ScanGate`); arm
-selection is FIRST-gated `ArmSpec`s (per-arm gate specs are attached inside
-`compile_arms`' own enumeration so spec↔arm alignment cannot drift) plus at
-most one nullable default. Every clone bakes its `RuleFold`; islands are not
-cloned (`IslandRef`, §13). The `CloneSpec`/`ItemSpec` NamedTuples are the
-compiler *intermediate* (what the structural tests pin); `flatten.py` lowers
-them once per compile into the int-coded `PdaProgram`
-(`FlatClone`/`FlatArm`, `_OP_*` op-codes, pre-resolved membership sets, the
-gate runtimes — the EOF-exact ≤k window matcher, the non-consuming
-noise-skip peek) and runs the post-flatten optimizer passes (exactly-once
-terminal/call specialisation, `value_str` inlining, frame-less leaf marking,
-pass-through dispatch conversion). `compile_reduce_pda` retargets the flat
-clones for the reduce product (`reduce_pda.py` bakes `ReduceComp`s straight
-off the reducer's compiled `ReducePlan` — no re-derivation).
+The clone compiler is **total**: it always returns tables. A rule is
+compiled once per distinct **hard continuation** that reaches it (a
+*clone*), because the stop-sets it bakes are call-site-exact. Each item
+lowers to a tuple-coded `ItemSpec` (`lit`/`cc`/`ref`/`grp`) carrying its
+bounds and loop gate (`StopGate`/`PairGate`/`KTupleGate`/`PeekGate`/
+`ScanGate`); arm selection is FIRST-gated `ArmSpec`s (per-arm gate specs are
+attached inside the compiler's own arm enumeration so spec↔arm alignment
+cannot drift) plus at most one nullable default. Every clone bakes its
+`RuleFold`; island rules are not cloned (`IslandRef`, §13). A start rule
+that is itself an island — or a reducer whose policy the reduce runtime
+cannot reconstruct (a grammar-global condition with no enclosing rule) —
+compiles to a start that fails immediately to the Earley completion: the
+tables are still total, there is no `None` and no windowed self-parse of
+the whole input. The `CloneSpec`/`ItemSpec`
+NamedTuples are the compiler *intermediate* (what the structural tests pin);
+`flatten.py` lowers them once per compile into the int-coded `PdaProgram`
+(flat clone/arm records, op-codes, pre-resolved membership sets, the gate
+runtimes — the EOF-exact ≤k window matcher, the non-consuming noise-skip
+peek, the arm-side scan selector) and runs the post-flatten optimizer passes
+(exactly-once terminal/call specialisation, `value_str` inlining, frame-less
+leaf marking, pass-through dispatch conversion). The reduce variant of the
+compile retargets the flat clones for the grammar-text product
+(`reduce_pda.py` bakes its completions straight off the reducer's compiled
+`ReducePlan` — no re-derivation). Everything `flatten.py` exposes to its
+sibling consumers (op-codes, flat records, gate helpers) is public by name.
 
 ## 12. The fused runtime (`pda/runtime.py`, `pda/reduce_runtime.py`)
 
@@ -297,44 +320,49 @@ frames (no Python recursion) walks the int-coded `PdaProgram`, **building the
 model during the walk** — no `ParseTree`. Terminal quantifier loops match
 inline; capture frames own per-item spans and sub-model sinks, capture
 bubbles to the nearest bound item through transparent frames (groups,
-no-constructor clones) exactly as `ModelFold` collects. `_ReducePdaKernel`
+no-constructor clones) exactly as `ModelFold` collects. The reduce kernel
 (`reduce_runtime.py`) is the grammar-text twin: it shares the whole
 recognition machinery and overrides only the completion callbacks, producing
-reduced IR per the baked `ReduceComp`s (including the O(1) `YIELD` span
-stitch, mirroring `FusedReduce`). `parse_pda(tables, text, fold)` is the one
-public entry dispatching the two. On *any* non-deterministic point the
-runtime raises **`PdaFail`** (`errors.py`) — internal, caught by the compile
-seam, retried on the Earley completion which owns user-facing diagnostics.
+reduced IR (including the O(1) `YIELD` span stitch, mirroring
+`FusedReduce`). One internal dispatch serves both behind the product
+entries. On *any* non-deterministic point the runtime raises **`PdaFail`**
+(`errors.py`) — caught inside the product entries, which retry on the Earley
+completion; the completion owns user-facing diagnostics.
 
 ## 13. Islands and delegation (`pda/islands.py`, `pda/delegate_compile.py`)
 
-A decision no gate family can license makes its rule an **island**: the ref
-is compiled as an `IslandRef` marker with a lazy per-island `ParserTables`
+**Islands are the engine's only escape mechanism, and they are per-rule.**
+A decision no gate family can license makes its rule an island: the ref is
+compiled as an `IslandRef` marker with a lazy per-island `ParserTables`
 cache, and the runtime runs a **windowed Earley sub-parse**
 (`longest_start_completion`, doubling window) over just that span, folds the
-sub-tree, and splices the sub-model into the current capture. A
+sub-tree, and splices the sub-product into the current capture. A
 **fail-island** (a semantic escape whose ref must fail to the full engine)
-always raises `PdaFail` instead. `DelegateSource` cuts island cost from the
-inside: it selects conflict-free, non-nullable, semantic *interior* rules of
-an island above a triviality floor and compiles each to its own PDA clone cut
+raises `PdaFail` instead. `DelegateSource` cuts island cost from the inside:
+it selects conflict-free, non-nullable, semantic *interior* rules of an
+island above a triviality floor and compiles each to its own PDA clone cut
 against the sub-grammar's hard FOLLOW, so the island's Earley sub-parse runs
-those interiors on clones rather than the item machinery. Everything here is
-fail-soft: a declined delegate falls through to normal prediction; a failed
-island fails the PDA parse into the Earley completion.
+those interiors on clones rather than the item machinery — always on,
+unconditional. Everything here is fail-soft: a declined delegate falls
+through to normal prediction; a failed island fails the PDA parse into the
+Earley completion.
 
 ## 14. Invariants
 
 - **Grammar is canonical.** Neither engine mutates the grammar; every table
   is its compiled representation, rebuilt from it alone.
-- **PDA-first, engine-sound.** The PDA is an optimisation, never a
-  semantics: any non-deterministic point raises `PdaFail` and the Earley
-  completion reparses. Whole grammars opt out (no PDA) rather than parse a
-  construct the compiler can't handle soundly — totality escapes are
-  `UnsupportedConstructError` or `pda=None`, never a wrong parse.
+- **PDA-first, engine-sound, total.** The PDA is an optimisation, never a
+  semantics: any non-deterministic point raises `PdaFail` internally and the
+  Earley completion reparses. Islands are the only escape — per-rule,
+  fail-soft. There is **no whole-grammar opt-out and no PDA-less mode**;
+  `UnsupportedConstructError` marks genuine boundary errors only and is
+  never caught into a downgrade.
+- **The engine owns its API.** Both products are package-root entries;
+  consumers import the root only; `PdaFail` never crosses the package
+  boundary. No `_underscore` name crosses any module boundary.
 - **Gates are stored, not recomputed.** The analysis is the one place a
-  demotion decision is made; the clone compiler reads `taxonomy` and raises
-  on any unexplained overlap (drift becomes a loud opt-out, not a wrong
-  gate).
+  demotion decision is made; the clone compiler reads `taxonomy` back. An
+  unexplained overlap islands the rule — never a guessed gate.
 - **Full SPPF.** Nullable completion, packed families, exact ambiguity —
   including under Leo and under run collapse (both proved, §4/§5). Ambiguity
   is never silently resolved on the strict path; `parse_first` is the one
