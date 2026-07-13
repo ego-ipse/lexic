@@ -778,7 +778,8 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
 
     def reset_delegate_cache(self) -> None:
         """Drop the per-island delegate cache — a test seam for the A/B parity
-        gate, which toggles ``DELEGATES_ENABLED`` and recomputes each side."""
+        gate, which swaps in a no-delegates :class:`DelegateSource` and
+        recomputes each side."""
         self.program.delegates.reset()
 
 

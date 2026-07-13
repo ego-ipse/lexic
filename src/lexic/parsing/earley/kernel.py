@@ -719,7 +719,8 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
     # ── decoding to the IR-native forest ──────────────────────────────
 
     def decode_item(self, item: int) -> EarleyItem:
-        """The legacy :class:`EarleyItem` tuple for a packed ``item``."""
+        """The :class:`EarleyItem` tuple for a packed ``item`` — the readable
+        (non-int-coded) shape the chart/forest readers walk."""
         t = self.tables
         code = item >> ORIGIN_BITS
         aid = t.codes.code_arm[code]

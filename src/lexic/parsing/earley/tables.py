@@ -616,8 +616,9 @@ class _TableBuilder:
         """Lay out one rule's arms as dot-dense code runs.
 
         Value-equal arms of one rule intern to a single arm — the IR node IS
-        its value, so two equal arms are the same arm (matching the legacy
-        item tuples, whose arm field deduped by value).
+        its value, so two equal arms are the same arm (matching
+        :class:`~lexic.parsing.earley.chart.EarleyItem`'s arm field, which
+        dedupes by value).
         """
         seen_arms: set[IrSequence] = set()
         for arm in body:

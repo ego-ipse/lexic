@@ -3,15 +3,12 @@
 Split out of :mod:`lexic.parsing.pda.clones` (C0302 headroom, and a clean
 leaf): given one island's sub-grammar, this picks the conflict-free interior
 rules worth delegating and compiles each to a PDA clone the island's Earley
-sub-parse runs in place of the item machinery. A leaf w.r.t. the clone compiler
-— the two clone-compiler entry points it needs (:class:`_PdaCompiler` and the
-``_flatten_clones`` lowering) arrive as **injected callables** on
-:class:`DelegateSource`, so this module imports nothing from ``clones`` and the
-``clones → delegate_compile`` arrow runs one way.
-
-:data:`DELEGATES_ENABLED` is the master switch: ``False`` skips the compile
-entirely (island sub-parses run pure-Earley — the D-b behaviour-neutral state);
-``True`` delegates. The A/B parity harness toggles it.
+sub-parse runs in place of the item machinery — unconditionally, for every
+island. A leaf w.r.t. the clone compiler — the two clone-compiler entry points
+it needs (:class:`_PdaCompiler` and the ``_flatten_clones`` lowering) arrive as
+**injected callables** on :class:`DelegateSource`, so this module imports
+nothing from ``clones`` and the ``clones → delegate_compile`` arrow runs one
+way.
 """
 
 from __future__ import annotations
@@ -22,13 +19,6 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrNoneType, IrSelf
 from lexic.ir.nodes import IrAst, IrItem, IrRuleRef
 from lexic.parsing.pda.analysis import GrammarAnalysis
-
-DELEGATES_ENABLED = True
-"""Master switch for island-interior delegation. When ``False`` the per-island
-delegate compile is skipped and island sub-parses run pure-Earley (the D-b
-behaviour-neutral state); when ``True`` conflict-free interior rules delegate to
-their PDA clones. Flipping this is the sole behavioural difference the A/B parity
-harness pins."""
 
 _DELEGATE_MIN_ATOMS = 4
 """Triviality floor for delegation: a delegable rule must be able to match a run
@@ -117,9 +107,9 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
     """The lazy per-island delegate compiler — the runtime's delegate table.
 
     Holds one grammar's delegate-compile ingredients and a per-island cache; the
-    runtime asks :meth:`for_island` for a rule_id → flat-clone map, computed once
-    per island under :data:`DELEGATES_ENABLED` and cached. The clone-compiler
-    entry points arrive in ``seams`` (injected as ``(clones._PdaCompiler,
+    runtime asks :meth:`for_island` for a rule_id → flat-clone map, computed
+    once per island and cached. The clone-compiler entry points arrive in
+    ``seams`` (injected as ``(clones._PdaCompiler,
     clones._flatten_clones)``) so this leaf never imports
     :mod:`lexic.parsing.pda.clones`. Attached to the runtime
     :class:`~lexic.parsing.pda.flatten.PdaProgram`, not the artifact, so the
@@ -170,7 +160,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
 
         :param name: The island rule name.
         :returns: rule_id → its delegate flat clone (empty when nothing is
-            delegable, delegation is disabled, or the interior cannot compile).
+            delegable or the interior cannot compile).
         """
         cached = self._cache.get(name)
         if cached is None:
@@ -180,8 +170,6 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
 
     def _compile(self, island_name: str) -> dict[int, object]:
         """Compile island ``island_name``'s delegate clones (uncached)."""
-        if not DELEGATES_ENABLED:
-            return {}
         analysis = GrammarAnalysis(IrAst(self.lifted.rules, island_name))
         delegable = _delegable_names(analysis, island_name)
         if not delegable:

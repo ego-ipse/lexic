@@ -8,9 +8,14 @@ and delegates **off** — the off path is the pre-delegation pure-Earley island
 parse, itself pinned against the full engine by
 :mod:`tests.integration.test_pda_parity`.
 
-The A/B toggle is :data:`lexic.parsing.pda.delegate_compile.DELEGATES_ENABLED`; the
-per-island delegate cache (``PdaTables._island_delegates``) is busted between
-runs so each recomputes under the current flag. Every sample where the on path
+Delegation is unconditional in the compiled artifact, so the A/B toggle here
+swaps ``pda.program.delegates`` for a no-delegates
+:class:`~lexic.parsing.pda.delegate_compile.DelegateSource` variant
+(:class:`~tests.unit.lexic.parsing.pda.test_delegate_compile._NoDelegates`,
+built from the real source's own construction ingredients through its
+constructor seam) and back; the per-island delegate cache is busted between
+runs (:meth:`PdaTables.reset_delegate_cache`) so each recomputes under the
+current source. Every sample where the on path
 succeeds asserts the off path also succeeds (delegation is fail-soft — it must
 never *break* a parse it used to make) and that both yield byte-equal
 ``semantic_dump()`` + ``to_text()`` (instances) / ``IrAst`` (grammar-text).
@@ -38,13 +43,14 @@ from lexic.compile import (
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.parsing.pda import delegate_compile
 from lexic.parsing.pda.clones import PdaTables
+from lexic.parsing.pda.delegate_compile import DelegateSource
 from lexic.parsing.pda.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime import PdaFail
 from lexic.parsing.pda.specs import IslandRef
 from lexic.parsing.products import _model_product, _reduce_product
 from tests.integration.test_pda_parity import _ALL_STEMS, _grammar_for
+from tests.unit.lexic.parsing.pda.test_delegate_compile import _NoDelegates
 
 
 def _prod(cg):
@@ -55,29 +61,28 @@ def _prod(cg):
 # ── the A/B toggle ────────────────────────────────────────────────────────
 
 
-@pytest.fixture(autouse=True)
-def _restore_delegates_flag():
-    """Restore :data:`DELEGATES_ENABLED` after each test (default on)."""
-    saved = delegate_compile.DELEGATES_ENABLED
-    yield
-    delegate_compile.DELEGATES_ENABLED = True
-    assert saved  # the module default must stay on outside the harness
+def _no_delegates_variant(source: DelegateSource) -> DelegateSource:
+    """A no-delegates :class:`DelegateSource` built from ``source``'s own
+    construction ingredients — the off arm of the injection seam, constructed
+    through the same constructor as the real (on) source."""
+    return _NoDelegates(source.lifted, source.name_to_rid, source.target, source.seams)
 
 
-def _with_delegates(pda: PdaTables, flag: bool, run: Callable[[], object]) -> object:
-    """Run ``run`` with delegation forced ``flag``, delegate cache busted first.
+def _with_delegates(pda: PdaTables, on: bool, run: Callable[[], object]) -> object:
+    """Run ``run`` with ``pda.program.delegates`` forced on/off, cache busted first.
 
-    The flag is restored and the (shared, compile-cached) delegate cache is
-    dropped afterwards, so the next reader recomputes lazily under the
-    then-current flag — no stale empty cache leaks between tests.
+    ``on`` runs against the real (compiled) source; ``off`` swaps in a
+    no-delegates variant (:func:`_no_delegates_variant`) for the duration.
+    The real source is restored and the (shared, compile-cached) delegate
+    cache is dropped afterwards, so the next reader recomputes lazily under
+    whichever source is current — no stale cache leaks between tests.
     """
-    saved_flag = delegate_compile.DELEGATES_ENABLED
-    delegate_compile.DELEGATES_ENABLED = flag
-    pda.reset_delegate_cache()  # recompute under the current flag
+    real = pda.program.delegates
+    pda.program.delegates = real if on else _no_delegates_variant(real)
     try:
         return run()
     finally:
-        delegate_compile.DELEGATES_ENABLED = saved_flag
+        pda.program.delegates = real
         pda.reset_delegate_cache()
 
 
@@ -133,10 +138,23 @@ def _instance_ab(cg: CompiledGrammar, text: str) -> None:
 
 @pytest.mark.parametrize("stem", _ALL_STEMS)
 def test_delegation_instance_parity(stem: str) -> None:
-    """On-vs-off parity across seeded generated samples of every grammar."""
+    """On-vs-off parity across seeded generated samples of every grammar.
+
+    A grammar whose (possibly overridden) start rule is itself an island
+    (c.gbnf under the "statement" override — see ``test_pda_parity``)
+    compiles to an immediate-``PdaFail`` start: :meth:`PdaKernel.run` raises
+    before looking at the delegate source or the input (``runtime.py``'s
+    "IslandRef opt-out" branch), so delegation cannot fire either way.
+    Rather than skip the stem outright, this pins that invariant directly —
+    on and off both fail identically on a real generated sample."""
     cg, specs, start = _grammar_for(stem)
-    if isinstance(_prod(cg).pda.start_key, IslandRef):
-        pytest.skip(f"{stem}: whole-grammar PDA opt-out")
+    pda = _prod(cg).pda
+    if isinstance(pda.start_key, IslandRef):
+        text = generate(start, specs, rng=random.Random(0), max_depth=4) or "x"
+        for flag in (True, False):
+            with pytest.raises(PdaFail):
+                _with_delegates(pda, flag, lambda: parse_pda(pda, text, cg.fold))
+        return
     checked = 0
     for seed in range(40):
         text = generate(start, specs, rng=random.Random(seed), max_depth=4)

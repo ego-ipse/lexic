@@ -3,17 +3,27 @@
 Mirror of :mod:`lexic.parsing.pda.delegate_compile`. The end-to-end on-vs-off
 parity + perf payoff live in :mod:`tests.integration.test_delegation_parity`;
 here we pin the classifier (island-free + triviality floor) and the
-:class:`DelegateSource` gate / cache directly.
+:class:`DelegateSource` cache / no-delegates injection mechanism directly.
 """
 
 from __future__ import annotations
 
 from lexic.compile import compile_text
-from lexic.parsing.pda import delegate_compile
 from lexic.parsing.pda.analysis import GrammarAnalysis
 from lexic.parsing.pda.delegate_compile import DelegateSource, _delegable
 from lexic.parsing.pda.flatten import FlatClone
 from lexic.parsing.products import _model_product
+
+
+class _NoDelegates(DelegateSource):
+    """A :class:`DelegateSource` that compiles nothing — the off arm of the
+    A/B injection seam :mod:`tests.integration.test_delegation_parity` uses
+    (delegation is otherwise unconditional). Constructed the same way as
+    the real source; only ``_compile`` differs."""
+
+    def _compile(self, island_name: str) -> dict[int, object]:
+        return {}
+
 
 # An alternation island (``item``: both arms share FIRST ``[0-9]``) with a long
 # island-free interior run (``digits``); ``wrapped`` references the ``item``
@@ -78,17 +88,13 @@ def test_source_for_island_returns_flat_clones_for_delegables() -> None:
     assert all(isinstance(clone, FlatClone) for clone in delegates.values())
 
 
-def test_disabled_flag_yields_no_delegates() -> None:
-    """With ``DELEGATES_ENABLED`` off, ``for_island`` compiles nothing."""
+def test_no_delegates_variant_yields_no_delegates() -> None:
+    """A :class:`_NoDelegates` source, built from the real source's own
+    construction ingredients, compiles nothing for any island — the
+    injection mechanism the A/B parity harness swaps in for its off arm."""
     _analysis, source, _cg = _compiled()
-    saved = delegate_compile.DELEGATES_ENABLED
-    try:
-        delegate_compile.DELEGATES_ENABLED = False
-        source.reset()
-        assert source.for_island("item") == {}
-    finally:
-        delegate_compile.DELEGATES_ENABLED = saved
-        source.reset()
+    off = _NoDelegates(source.lifted, source.name_to_rid, source.target, source.seams)
+    assert off.for_island("item") == {}
 
 
 def test_for_island_is_cached_until_reset() -> None:

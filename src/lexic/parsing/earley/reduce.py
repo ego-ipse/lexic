@@ -349,7 +349,7 @@ class _FastReduce(IrLeaf[IrSelf, IrSelf]):
 DROP_KIND, KEEP_KIND, OTHER_KIND = 0, 1, 2
 """Compiled noise/literal policy kinds — DROP, KEEP_REDUCED (KEEP_RAW for the
 literal policy), and anything else (an :data:`OTHER_KIND` noise policy makes
-the fused fold miss so the legacy tree path handles it)."""
+the fused fold miss so the general tree path handles it)."""
 
 
 class _FusedMiss(Exception):
@@ -510,7 +510,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
 
     A fast-path miss — an ambiguous key, a KEEP_RAW/custom noise policy —
     returns ``None`` from :meth:`build`, and the caller falls back to the
-    legacy tree-then-:class:`Reducer` path. Depth lives in the explicit
+    general tree-then-:class:`Reducer` path. Depth lives in the explicit
     stack, never the C stack.
 
     :ivar kernel: The finished kernel whose links to fold.
@@ -594,7 +594,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         if kind == DROP_KIND:  # contributes nothing; never reduced
             frame[2] += 1
             return True
-        if kind != KEEP_KIND:  # KEEP_RAW / custom noise — legacy path
+        if kind != KEEP_KIND:  # KEEP_RAW / custom noise — the general path handles it
             return False
         return self._keep_reduced(frame, k, rid)
 

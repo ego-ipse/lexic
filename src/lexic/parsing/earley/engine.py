@@ -193,7 +193,7 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
     SPPF straight to IR via :class:`~lexic.parsing.earley.reduce.FusedReduce`,
     skipping the intermediate :class:`ParseTree` entirely. A fused fast-path
     miss (ambiguity, or a noise policy the fold does not compile) falls back
-    to a fresh plain-tables parse and the legacy tree-then-reduce path —
+    to a fresh plain-tables parse and the general tree-then-reduce path —
     behaviour-identical, just slower.
     """
 
@@ -219,7 +219,7 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
         fused = FusedReduce(kernel, reducer).build(handle)
         if fused is not None:
             return fused
-        # The collapsed chart's shapes are reducer-specific — the legacy
+        # The collapsed chart's shapes are reducer-specific — the general
         # tree path needs a plain parse.
         plain = _run_kernel(n, nc, True)
         _require_accept(plain, n)
