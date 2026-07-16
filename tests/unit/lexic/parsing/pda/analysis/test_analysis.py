@@ -16,10 +16,9 @@ from lexic.codegen import build_codegen_grammar
 from lexic.compile import canonical_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
-from lexic.ir.base import IrAtom, IrNone, IrSeq
+from lexic.ir.base import IrAtom
 from lexic.ir.nodes import (
     IrAlternation,
-    IrAst,
     IrCharClass,
     IrChr,
     IrItem,
@@ -35,26 +34,12 @@ from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis, kwindow, nullable_names
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import SG_PROBE, SG_SCAN
+from tests._ir_fixtures import analysis_of as _analysis
+from tests._ir_fixtures import item_of as _item
+from tests._ir_fixtures import rule_of as _rule
 from tests.paths import GROUND_TRUTH
 
 # ── helpers ───────────────────────────────────────────────────────────────
-
-
-def _analysis(*rules: IrRule, start: str | None = None) -> GrammarAnalysis:
-    """A :class:`GrammarAnalysis` over a hand-authored rule list."""
-    resolved = start if start is not None else str(rules[0].name)
-    return GrammarAnalysis(IrAst(rules=IrSeq(*rules), start=resolved))
-
-
-def _rule(name: str, *arms: IrSequence) -> IrRule:
-    """A rule from explicit sequence arms."""
-    return IrRule(name, IrAlternation(*arms))
-
-
-def _item(atom: IrAtom, lo: int = 1, hi: int | None = 1) -> IrItem:
-    """An item with an explicit quantifier (``hi=None`` means unbounded)."""
-    bound = IrNone if hi is None else hi
-    return IrItem(atom, IrQuantifier(lo, bound))
 
 
 def _lifted_analysis(stem: str) -> GrammarAnalysis:

@@ -33,7 +33,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.walk import IrDispatch, IrTransformer
+from lexic.ir.walk import IrBottomUp, IrDispatch
 
 
 def _reserve_helper_name(parent_name: str, taken: set[str]) -> str:
@@ -63,37 +63,30 @@ _EXTRACT_BODY: IrDispatch = IrDispatch(
 
 
 def _hoist_item(d: IrNode, item: IrItem, _nc: object) -> IrItem:
-    """Recurse into the atom; hoist a quantified ref-bearing group to a rule.
+    """Hoist a quantified ref-bearing group atom to a helper rule.
+
+    The bottom-up driver has already rewritten anything nested inside the
+    atom, so the body only decides this item's fate.
 
     :param d: The :class:`_HoistTransformer` driving the walk.
-    :param item: The :class:`IrItem` being rewritten.
-    :param _nc: Pre-dispatched children (unused — recursion is controlled here).
+    :param item: The :class:`IrItem` being rewritten (children final).
+    :param _nc: Pre-dispatched children (unused).
     :returns: The rewritten :class:`IrItem`.
     """
     if not isinstance(d, _HoistTransformer):
         raise TypeError(f"Expected _HoistTransformer, got {type(d).__name__}")
-    new_atom = d.eval(d, item.atom, ())
-    is_quantified = item.quantifier != IrQuantifier(1, 1)
-    if not is_quantified:
-        return (
-            item
-            if new_atom is item.atom
-            else IrItem(atom=new_atom, quantifier=item.quantifier)
-        )
-    extracted = _EXTRACT_BODY.apply(new_atom)
+    if item.quantifier == IrQuantifier(1, 1):
+        return item
+    extracted = _EXTRACT_BODY.apply(item.atom)
     if extracted is IrNone:
-        return (
-            item
-            if new_atom is item.atom
-            else IrItem(atom=new_atom, quantifier=item.quantifier)
-        )
+        return item
     name = _reserve_helper_name(d.parent_name, d.name_set)
     d.name_set.add(name)
     d.helpers.append(IrRule(name=name, body=extracted))
     return IrItem(atom=IrRuleRef(name), quantifier=item.quantifier)
 
 
-class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
+class _HoistTransformer[Iri: IrSelf, Ir_co: IrNode](IrBottomUp[Iri, Ir_co]):
     """Hoist quantified groups-with-rulerefs into synthetic helper rules.
 
     Pure-literal groups (no :class:`IrRuleRef` anywhere) are left intact

@@ -40,6 +40,22 @@ def test_simple_value_str_round_trips():
     assert inst.to_text() == "x"
 
 
+def test_value_str_charclass_with_dash_range_bound_validates():
+    """A class where ``-``–``.`` forms a range behind lower members validates.
+
+    Pins the pydantic-core (Rust regex) failure mode: an unescaped ``--``
+    reads as set difference there, silently dropping members — Python ``re``
+    only warns, so the emitted pattern must escape the dash bound.
+    """
+    text = "root ::= w\nw ::= [A-Za-z0-9_.!&^-]+\n"
+    cg = compile_text(text, flavour="gbnf")
+    w_cls = cg.classes["W"]
+    for sample in ("unit", "ship", "ORD-7291", "depth-limit", "cli.py", "!&^"):
+        assert w_cls(value=sample).to_text() == sample
+    inst = cg.parse("mean-0.5")
+    assert inst.to_text() == "mean-0.5"
+
+
 def test_simple_arithmetic_parses_and_round_trips():
     """Multi-rule sequence grammar: binding kinds are correct and parsing works."""
     text = (
@@ -88,16 +104,47 @@ def test_alternation_produces_correct_subclass():
     text = "root ::= term\nterm ::= num | ident\nnum ::= [0-9]+\nident ::= [a-z]+\n"
     _ast, _cg, by = _binding(text)
     assert by["term"].kind == "alternation"
-    assert by["num"].parent_class_name == "Term"
-    assert by["ident"].parent_class_name == "Term"
+    assert by["num"].parent_class_names == ("Term",)
+    assert by["ident"].parent_class_names == ("Term",)
 
     cg = compile_text(text, flavour="gbnf")
     num_inst = cg.parse("42")
     assert num_inst.to_text() == "42"
     assert type(getattr(num_inst, "term")).__name__ == "Num"
+
     ident_inst = cg.parse("abc")
     assert ident_inst.to_text() == "abc"
     assert type(getattr(ident_inst, "term")).__name__ == "Ident"
+
+
+def test_multi_membership_arm_isinstance_of_all_alternations():
+    """A rule that is an arm of two alternations is an instance of both classes.
+
+    ``unquoted`` is a unit-ref arm of both ``value`` and ``cell``; the parsed
+    ``Unquoted`` instance must be an instance of ``Value`` AND ``Cell`` (the
+    L1 fix — the single-parent map dropped one, so a ``Cell``-typed field
+    rejected an ``Unquoted`` at fold-ctor time). A compact inline grammar keeps
+    the cross-flavour ground-truth set undisturbed.
+    """
+    text = (
+        "line ::= value cell\n"
+        "value ::= unquoted | pipe\n"
+        "cell ::= unquoted | num\n"
+        'unquoted ::= "u"\n'
+        'pipe ::= "|"\n'
+        'num ::= "0"\n'
+        "# @start line\n"
+    )
+    cg = compile_text(text, flavour="gbnf")
+    inst = cg.parse("uu")
+    assert inst.to_text() == "uu"
+    value_field = getattr(inst, "value")
+    value_cls = cg.classes["Value"]
+    cell_cls = cg.classes["Cell"]
+    assert isinstance(value_field, value_cls)
+    assert isinstance(value_field, cell_cls)
+    # The ``unquoted`` arm parsed under ``value`` is nominally both alternations.
+    assert type(value_field).__name__ == "Unquoted"
 
 
 def test_compile_from_path_uses_filename_stem():

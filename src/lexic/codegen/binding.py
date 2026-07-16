@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from functools import cache
 from typing import Literal
 
+from pydantic import BaseModel
+
 from lexic.ir.action import IrAction, IrReturn
 from lexic.ir.base import IrLambda, IrNode, IrNone, IrNoneType, IrSelf, IrStr
 from lexic.ir.bind import IrBind
@@ -42,7 +44,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.order import RuleOrder
+from lexic.ir.order import RuleOrder, refs_in_order
 from lexic.ir.walk import IrDispatch, IrVisitor
 
 RuleKind = Literal["sequence", "alternation", "value_str"]
@@ -77,9 +79,6 @@ LITERAL_NAMES: dict[str, str] = {
     ":": "colon",
     ";": "semicolon",
     "=": "eq",
-    "x": "x",
-    "e": "e",
-    "E": "E",
 }
 
 
@@ -106,18 +105,28 @@ def has_ruleref(node: IrNode) -> bool:
 
 @dataclass(frozen=True)
 class RuleBinding:
-    """One rule's codegen identity: class, kind, parent, bound fields.
+    """One rule's codegen identity: class, kind, parents, bound fields.
 
     ``fields`` maps each generated field name to its :class:`IrBind`, in item
     order; only ``sequence``-kind rules carry fields (``value_str`` emits the
     implicit ``value`` field, ``alternation`` is a field-less pass-through).
+
+    ``parent_class_names`` holds every alternation the rule is a unit-ref arm of
+    (deterministically ordered — see :func:`_parent_rules`); an empty tuple
+    means the class subclasses :class:`~lexic.base.GrammarModel` directly.
+
+    ``schema_joint`` marks a schema expansion joint (see
+    :func:`_schema_joints`): the emitted class carries ``__schema_joint__``,
+    so nested references present a shallow core schema instead of pydantic
+    inlining the whole subtree.
     """
 
     rule_name: str
     class_name: str
-    parent_class_name: str
+    parent_class_names: tuple[str, ...]
     kind: RuleKind
     fields: dict[str, IrBind]
+    schema_joint: bool = False
 
 
 # ── class naming (absorbed to_pascal) ─────────────────────────────────
@@ -125,17 +134,64 @@ class RuleBinding:
 _NAME_SPLIT = re.compile(r"[-_]")
 
 
+_RESERVED_FIELD_NAMES: frozenset[str] = (
+    frozenset(keyword.kwlist)
+    | frozenset(dir(BaseModel))
+    | frozenset({"to_text", "to_grammar", "semantic_dump", "fast_construct"})
+)
+"""Field names that would break or shadow the generated model: Python
+keywords (a ``class: ...`` annotation is a SyntaxError), the pydantic
+``BaseModel`` surface, and ``GrammarModel``'s own methods. The latter are
+static — importing ``lexic.base`` here would couple codegen to the runtime —
+and drift-pinned by a test against the real class."""
+
+_RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
+    {
+        "GrammarModel",
+        "StringConstraints",
+        "Annotated",
+        "ClassVar",
+        "List",
+        "Literal",
+        "Optional",
+        "Union",
+        "IrAlternation",
+        "IrAst",
+        "IrBind",
+        "IrCharClass",
+        "IrChr",
+        "IrItem",
+        "IrLiteral",
+        "IrNone",
+        "IrNot",
+        "IrQuantifier",
+        "IrRange",
+        "IrRule",
+        "IrRuleRef",
+        "IrSeq",
+        "IrSequence",
+    }
+)
+"""Module-scope names the emitted header binds (see the emitter's
+``CANONICAL_IMPORTS``) — a generated class of the same name would shadow
+them for every later annotation resolution. Drift-pinned by a test that
+parses the header."""
+
+
 def class_name_for(rule_name: str) -> str:
-    """PascalCase class name for a rule; keywords get a ``_`` suffix.
+    """PascalCase class name for a rule; reserved names get a ``_`` suffix.
+
+    Reserved: Python keywords and the emitted module's own header bindings.
 
     :param rule_name: The (canonical) rule name.
     :returns: A valid Python class name (``jp-char`` → ``JpChar``,
-        ``true`` → ``True_``).
+        ``true`` → ``True_``, ``annotated`` → ``Annotated_``).
     """
     pascal = "".join(
         part[:1].upper() + part[1:] for part in _NAME_SPLIT.split(rule_name)
     )
-    return pascal + "_" if keyword.iskeyword(pascal) else pascal
+    reserved = keyword.iskeyword(pascal) or pascal in _RESERVED_CLASS_NAMES
+    return pascal + "_" if reserved else pascal
 
 
 # ── kind classification ───────────────────────────────────────────────
@@ -182,26 +238,228 @@ def unit_ref_arm(arm: IrSequence) -> IrRuleRef | IrNoneType:
     return atom if isinstance(atom, IrRuleRef) else IrNone
 
 
-def _parent_rules(rules: Sequence[IrRule]) -> dict[str, str]:
-    """Map each rule named as a unit-ref alternation arm to its alternation.
+def _direct_parents(rules: Sequence[IrRule]) -> dict[str, list[str]]:
+    """Map each unit-ref alternation arm to its owning alternations, in grammar order.
 
     Post arm-hoisting every non-empty arm of an ``alternation``-kind rule is a
     unit ref, so this covers original single-ref arms and synthesized
-    ``-arm<N>`` rules alike. Helper rules never appear as arms and stay
-    parentless (``GrammarModel``).
+    ``-arm<N>`` rules alike. A rule that is a unit-ref arm of several
+    alternations lists all of them (multiple inheritance). Helper rules never
+    appear as arms and stay absent (``GrammarModel``).
 
     :param rules: The codegen grammar's rules.
-    :returns: Child rule name → parent rule name.
+    :returns: Child rule name → its owning alternation names, in grammar order.
     """
-    parent_of: dict[str, str] = {}
+    parents_of: dict[str, list[str]] = {}
     for rule in rules:
         if classify_rule(rule) != "alternation":
             continue
         for arm in non_empty_arms(rule.body):
             ref = unit_ref_arm(arm)
-            if not isinstance(ref, IrNoneType):
-                parent_of[str(ref)] = str(rule.name)
-    return parent_of
+            if isinstance(ref, IrNoneType):
+                continue
+            parents = parents_of.setdefault(str(ref), [])
+            if str(rule.name) not in parents:
+                parents.append(str(rule.name))
+    return parents_of
+
+
+def _reach_closure(direct: dict[str, list[str]]) -> dict[str, set[str]]:
+    """Full transitive parent reachability, cycle-tolerant.
+
+    Chaotic iteration to the least fixpoint, so a unit-arm cycle yields
+    complete (mutually containing) reach sets — unlike the memoised
+    :func:`_ancestor_closure`, whose cycle seed leaves them order-dependent.
+
+    :param direct: Child → direct parent alternations (see :func:`_direct_parents`).
+    :returns: Each rule name → every rule reachable through parent edges.
+    """
+    reach: dict[str, set[str]] = {child: set(ps) for child, ps in direct.items()}
+    changed = True
+    while changed:
+        changed = False
+        for targets in reach.values():
+            step: set[str] = set()
+            for parent in targets:
+                step |= reach.get(parent, set())
+            if not step <= targets:
+                targets |= step
+                changed = True
+    return reach
+
+
+def _break_cycles(
+    direct: dict[str, list[str]], grammar_order: dict[str, int]
+) -> dict[str, list[str]]:
+    """Reduce the parent graph to an acyclic one with unchanged field typing.
+
+    A unit-arm cycle (``s ::= s | "a"``; mutual ``a ::= b | "x"`` /
+    ``b ::= a | "y"``) would emit self-/circularly-inheriting classes. Every
+    cycle member derives the same language, so: an edge into the child's own
+    cycle is dropped (members become siblings), and an edge to an outside
+    parent widens to that parent's whole cycle — every concrete arm then
+    carries every cycle member as a base, preserving ``isinstance`` for a
+    field typed with any member. A widened edge cannot re-close a cycle:
+    mutual reachability between child and any added member would put them in
+    one cycle, which the drop clause already excludes.
+
+    :param direct: Child → direct parent alternations, possibly cyclic.
+    :param grammar_order: Rule name → its index in the codegen grammar.
+    :returns: Child → acyclic parent list, grammar-ordered; children whose
+        every edge was intra-cycle are omitted (their class gets
+        ``GrammarModel``).
+    """
+    reach = _reach_closure(direct)
+
+    def cycle_of(name: str) -> set[str]:
+        mutual = {m for m in reach.get(name, ()) if name in reach.get(m, ())}
+        return mutual | {name}
+
+    out: dict[str, list[str]] = {}
+    for child, parents in direct.items():
+        own = cycle_of(child)
+        acc: list[str] = []
+        for parent in parents:
+            if parent in own:
+                continue
+            acc.extend(m for m in cycle_of(parent) if m not in acc)
+        if acc:
+            out[child] = sorted(acc, key=grammar_order.__getitem__)
+    return out
+
+
+def _ancestor_closure(direct: dict[str, list[str]]) -> dict[str, set[str]]:
+    """Transitive parent-alternation closure of each rule.
+
+    :param direct: Child → direct parent alternations (see :func:`_direct_parents`).
+    :returns: Each rule name → the set of all its (transitive) parent names.
+    """
+    closure: dict[str, set[str]] = {}
+
+    def ancestors(name: str) -> set[str]:
+        cached = closure.get(name)
+        if cached is not None:
+            return cached
+        closure[name] = set()  # seed first — terminates on an accidental cycle
+        acc: set[str] = set()
+        for parent in direct.get(name, ()):
+            acc.add(parent)
+            acc |= ancestors(parent)
+        closure[name] = acc
+        return acc
+
+    for name in direct:
+        ancestors(name)
+    return closure
+
+
+def _order_bases(
+    parents: list[str], ancestors: dict[str, set[str]], grammar_order: dict[str, int]
+) -> tuple[str, ...]:
+    """Order a rule's parent alternations most-derived first (MRO-linearizable).
+
+    Python's C3 linearization rejects bases ``(B1, B2)`` where ``B2`` is a base
+    of ``B1``, so a parent that is itself a (transitive) unit-ref arm of another
+    parent must precede it. Repeatedly emit the parents that are an ancestor of
+    no other remaining parent (the most-derived ones), grammar order breaking
+    ties.
+
+    :param parents: The owning alternations, in grammar order.
+    :param ancestors: The transitive parent closure (see :func:`_ancestor_closure`).
+    :param grammar_order: Rule name → its index in the codegen grammar.
+    :returns: The bases tuple, most-derived first.
+    """
+    remaining = list(parents)
+    result: list[str] = []
+    while remaining:
+        derived = [
+            p
+            for p in remaining
+            if not any(p in ancestors.get(q, ()) for q in remaining if q != p)
+        ]
+        pick = min(derived, key=lambda name: grammar_order[name])
+        result.append(pick)
+        remaining.remove(pick)
+    return tuple(result)
+
+
+_SCHEMA_JOINT_STRIDE = 64
+"""Ref-chain distance between schema expansion joints.
+
+pydantic inlines a completed sub-model's whole core schema into its referrer
+(definition-refs are kept only for recursive models), so an N-rule acyclic
+chain builds an N-deep schema and pydantic's own recursive walks overflow
+near N ≈ 450. Flagging every ``stride``-th class along a chain as a joint
+(a shallow validate-through-the-class schema, see
+:meth:`lexic.base.GrammarModel.__get_pydantic_core_schema__`) bounds every
+inlined schema — and every serializer's Python crossing count — by the
+stride. Grammars shallower than one stride get no joints and are untouched.
+"""
+
+
+def _schema_depths(edges: dict[str, list[str]]) -> dict[str, int]:
+    """Each rule's inlined-schema depth over the ref topology.
+
+    A rule on a ref cycle contributes its own node only — pydantic keeps
+    cycle members as definition-refs, so an edge inside a cycle adds no
+    inlining depth; every cross-cycle edge does. Chaotic iteration over the
+    condensation (cycle edges skipped) — a DAG, so the fixpoint terminates.
+
+    :param edges: Rule name → the rule names its body references.
+    :returns: Rule name → its inlined-schema depth (leaves are 1).
+    """
+    reach = _reach_closure(edges)
+
+    def same_cycle(a: str, b: str) -> bool:
+        return b in reach.get(a, ()) and a in reach.get(b, ())
+
+    depth = dict.fromkeys(edges, 1)
+    changed = True
+    while changed:
+        changed = False
+        for name, refs in edges.items():
+            outside = (depth.get(c, 0) for c in refs if not same_cycle(name, c))
+            new = 1 + max(outside, default=0)
+            if new != depth[name]:
+                depth[name] = new
+                changed = True
+    return depth
+
+
+def _schema_joints(rules: Sequence[IrRule]) -> frozenset[str]:
+    """The rules to flag as schema expansion joints (depth-stride multiples).
+
+    :param rules: The codegen grammar's rules.
+    :returns: The joint rule names — empty for grammars shallower than one
+        stride (every existing ground-truth grammar).
+    """
+    if len(rules) < _SCHEMA_JOINT_STRIDE:
+        return frozenset()  # depth is bounded by rule count — no joint possible
+    edges = {str(rule.name): refs_in_order(rule.body) for rule in rules}
+    depths = _schema_depths(edges)
+    return frozenset(
+        name for name, depth in depths.items() if depth % _SCHEMA_JOINT_STRIDE == 0
+    )
+
+
+def _parent_rules(rules: Sequence[IrRule]) -> dict[str, tuple[str, ...]]:
+    """Map each unit-ref alternation arm to its owning alternations, MRO-ordered.
+
+    A rule that is a unit-ref arm of several alternations subclasses all of
+    them; the tuple is ordered most-derived first so the emitted multi-base
+    class linearizes (see :func:`_order_bases`). Unit-arm cycles are broken
+    first (see :func:`_break_cycles`) so the emitted hierarchy always loads.
+
+    :param rules: The codegen grammar's rules.
+    :returns: Child rule name → its parent alternation names, MRO-ordered.
+    """
+    grammar_order = {str(rule.name): index for index, rule in enumerate(rules)}
+    direct = _break_cycles(_direct_parents(rules), grammar_order)
+    ancestors = _ancestor_closure(direct)
+    return {
+        child: _order_bases(parents, ancestors, grammar_order)
+        for child, parents in direct.items()
+    }
 
 
 # ── field naming: tier-2 lookup bodies ────────────────────────────────
@@ -386,8 +644,9 @@ def bind_fields(
 ) -> dict[str, IrBind]:
     """Bind a sequence arm's items to named fields via the three-tier cascade.
 
-    Structural literals produce no field. Name collisions get a numeric
-    suffix in occurrence order (``ws``, ``ws2``, …).
+    Structural literals produce no field. A reserved name (Python keyword,
+    pydantic surface, ``GrammarModel`` method) gets a ``_`` suffix; name
+    collisions get a numeric suffix in occurrence order (``ws``, ``ws2``, …).
 
     :param items: The rule's single sequence arm.
     :param non_semantic: Names of the grammar's structural-noise rules.
@@ -405,6 +664,8 @@ def bind_fields(
             name = "head" if pattern_pos == 1 else f"part_{pattern_pos}"
         else:
             name = str(base)
+        if name in _RESERVED_FIELD_NAMES:
+            name += "_"
         counts[name] += 1
         if counts[name] > 1:
             name = f"{name}{counts[name]}"
@@ -418,19 +679,23 @@ def bind_fields(
 
 
 def _bind_rule(
-    rule: IrRule, parent_rules: dict[str, str], non_semantic: frozenset[str]
+    rule: IrRule,
+    parent_rules: dict[str, tuple[str, ...]],
+    non_semantic: frozenset[str],
+    joints: frozenset[str],
 ) -> RuleBinding:
     """Build one rule's binding."""
     kind = classify_rule(rule)
     arms = non_empty_arms(rule.body)
     fields = bind_fields(arms[0], non_semantic) if kind == "sequence" else {}
-    parent = parent_rules.get(str(rule.name))
+    parents = parent_rules.get(str(rule.name), ())
     return RuleBinding(
         rule_name=str(rule.name),
         class_name=class_name_for(str(rule.name)),
-        parent_class_name=class_name_for(parent) if parent else "GrammarModel",
+        parent_class_names=tuple(class_name_for(p) for p in parents),
         kind=kind,
         fields=fields,
+        schema_joint=str(rule.name) in joints,
     )
 
 
@@ -448,13 +713,14 @@ def compute_binding(ast: IrAst) -> list[RuleBinding]:
     rules = list(ast.rules)
     parent_rules = _parent_rules(rules)
     non_semantic = ast.non_semantic
+    joints = _schema_joints(rules)
     by_name = {
-        str(rule.name): _bind_rule(rule, parent_rules, non_semantic) for rule in rules
+        str(rule.name): _bind_rule(rule, parent_rules, non_semantic, joints)
+        for rule in rules
     }
 
     def parent_edge(name: str) -> list[str]:
-        parent = parent_rules.get(name)
-        return [parent] if parent is not None else []
+        return list(parent_rules.get(name, ()))
 
     order = RuleOrder(by_name, ast.start, parent_edge).ordered_parents_first()
     return [by_name[name] for name in order]

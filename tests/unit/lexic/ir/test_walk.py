@@ -65,7 +65,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.walk import IrDispatch, IrEmitter, IrTransformer, IrVisitor
+from lexic.ir.walk import IrBottomUp, IrDispatch, IrEmitter, IrTransformer, IrVisitor
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -437,3 +437,91 @@ def test_irvisitor_irreturn_returns_irnone_when_no_match():
     )
     tree = IrAlternation(IrSequence(IrItem(IrLiteral("x"))))
     assert visitor.apply(tree) is IrNone
+
+
+# ── IrBottomUp ───────────────────────────────────────────────────────
+
+
+def _deep_alternation(depth: int) -> IrAlternation:
+    """``depth`` nested single-arm groups around a lone ``"a"`` literal."""
+    node = IrAlternation(IrSequence(IrItem(IrLiteral("a"))))
+    for _ in range(depth):
+        node = IrAlternation(IrSequence(IrItem(node)))
+    return node
+
+
+def test_irbottomup_empty_actions_is_identity():
+    """With no user actions the driver's rebuild IS the transform."""
+    seq = IrSequence(IrItem(IrLiteral("a")), IrItem(IrRuleRef("r")))
+    assert IrBottomUp().apply(seq) == seq
+
+
+def test_irbottomup_body_sees_transformed_children():
+    """A body runs on a node whose children are already in final form."""
+
+    def _swap(_d, _n, _nc):
+        return IrLiteral("Z")
+
+    seen: list[IrItem] = []
+
+    def _record(_d, n, _nc):
+        seen.append(n)
+        return n
+
+    t = IrBottomUp(
+        actions=IrTypeMap(
+            IrAction(IrLiteral, IrLambda(_swap)),
+            IrAction(IrItem, IrLambda(_record)),
+        )
+    )
+    out = t.apply(IrItem(atom=IrLiteral("a")))
+    assert isinstance(out, IrItem)
+    assert out.atom == IrLiteral("Z")
+    assert seen == [out]  # the recorded item already carried the swapped atom
+
+
+def test_irbottomup_transformed_children_ride_the_nc_channel():
+    """Bodies may read the transformed children off ``nc`` directly."""
+    captured: list[tuple[IrSelf, ...]] = []
+
+    def _capture(_d, n, nc):
+        captured.append(tuple(nc))
+        return n
+
+    t = IrBottomUp(actions=IrTypeMap(IrAction(IrSequence, IrLambda(_capture))))
+    t.apply(IrSequence(IrItem(IrLiteral("a"))))
+    assert captured == [(IrItem(IrLiteral("a")),)]
+
+
+def test_irbottomup_deep_tree_does_not_overflow():
+    """A 2000-level nesting transforms without RecursionError.
+
+    The recursive :class:`IrTransformer` overflows here at a few hundred
+    levels; the explicit-stack driver is depth-independent.
+    """
+    deep = _deep_alternation(2000)
+    out = IrBottomUp().apply(deep)
+    assert out == deep
+
+
+def test_irbottomup_shared_subtree_transforms_once():
+    """One object reachable twice is transformed once, spliced everywhere."""
+    calls: list[IrSelf] = []
+
+    def _count(_d, n, _nc):
+        calls.append(n)
+        return n
+
+    t = IrBottomUp(actions=IrTypeMap(IrAction(IrLiteral, IrLambda(_count))))
+    shared = IrItem(IrLiteral("s"))
+    seq = IrSequence(shared, shared)
+    out = t.apply(seq)
+    assert out == seq
+    assert len(calls) == 1
+
+
+def test_irbottomup_irreturn_short_circuits():
+    """An :class:`IrReturn` body unwinds through the iterative driver too."""
+    t = IrBottomUp(actions=IrTypeMap(IrAction(IrRuleRef, IrReturn())))
+    tree = IrAlternation(IrSequence(IrItem(IrRuleRef("hit")), IrItem(IrLiteral("x"))))
+    assert t.apply(tree) == IrRuleRef("hit")

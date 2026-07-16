@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lexic.ir.base import IrNone, IrSeq
+from lexic.ir.base import IrAtom, IrNone, IrSeq
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -17,6 +17,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 
 REQ = IrQuantifier(1, 1)
 OPT = IrQuantifier(0, 1)
@@ -62,6 +63,23 @@ JSON_RULE_NAMES: tuple[str, ...] = (
 def item(atom, q: IrQuantifier = REQ) -> IrItem:
     """Create an IrItem with the given atom and quantifier."""
     return IrItem(atom=atom, quantifier=q)
+
+
+def rule_of(name: str, *arms: IrSequence) -> IrRule:
+    """A rule from explicit sequence arms."""
+    return IrRule(name, IrAlternation(*arms))
+
+
+def item_of(atom: IrAtom, lo: int = 1, hi: int | None = 1) -> IrItem:
+    """An item with an explicit quantifier (``hi=None`` means unbounded)."""
+    bound = IrNone if hi is None else hi
+    return IrItem(atom, IrQuantifier(lo, bound))
+
+
+def analysis_of(*rules: IrRule, start: str | None = None) -> GrammarAnalysis:
+    """A :class:`GrammarAnalysis` over a hand-authored rule list."""
+    resolved = start if start is not None else str(rules[0].name)
+    return GrammarAnalysis(IrAst(rules=IrSeq(*rules), start=resolved))
 
 
 def digit_grammar() -> IrAst:

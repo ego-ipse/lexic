@@ -436,3 +436,26 @@ def test_every_reduce_clone_is_baked_build_reduce_never_a_model_mode():
 
 # The unit-level reduce_rewrite/_bake_reduce tests live in test_reduce_pda.py
 # (the functions moved there with the option-(a) rebuild, 2026-07-11).
+
+
+# ── depth safety: the ensure_rule drain (L7, clone-compiler half) ──────
+
+
+def test_long_ref_chain_compiles_at_constant_stack_depth():
+    """A 300-rule unit-ref chain compiles without RecursionError.
+
+    ``ensure_rule`` used to recurse one Python frame set per chained rule
+    (``compile_arms`` → ``_spec_ruleref`` → ``ensure_rule``); the outermost
+    call now drains a work queue, so chain length no longer consumes stack.
+    Every queued clone is complete on return (no ``_PENDING`` residue).
+    """
+    depth = 300
+    lines = [f'r{i} ::= "[" r{i + 1} "]"' for i in range(depth)]
+    lines.append(f'r{depth} ::= "0"')
+    grammar = "\n".join(lines) + "\n"
+    lifted = lift_optional_nullables(
+        build_codegen_grammar(canonical_grammar(grammar, GBNF_FLAVOUR))
+    )
+    pda = compile_pda(lifted, normalize(lifted), {})
+    assert isinstance(pda.start_key, CloneKey)
+    assert all(spec.name for spec in pda.clones.values())  # no _PENDING left

@@ -6,6 +6,259 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-16 — vyx-parse effort closed: vyx.gbnf is a ground truth
+
+`resources/ground_truth/vyx.gbnf` (92 rules) joins the corpus as a
+first-class ground truth: golden-fingerprinted in
+`test_gbnf_ir_equivalence`, unambiguous, emit-reparse stable; 130
+integration tests in `test_compile_grammar_vyx.py` (compile, recognise +
+`is_ambiguous` 0, byte-exact round-trip incl. non-ASCII content, an
+enumerated exclusion ledger pinning pre-fix spec lines, and a file-level
+`vyx-file` rule that round-trips all 61 vyx spec self.md files —
+markdown-as-NL line capture; fence/section semantics live in the vyx-side
+assembly layer by design). The vyx language decisions (V16–V25, V20
+non-ASCII reversal) are recorded in the effort's FINDINGS; the vyx spec's
+fragments were made honest vyx-side with an extractor parity gate
+(assembled == pinned). Semantic layer scoped in the vyx repo
+(`SEMANTIC_LAYER.vy`). See `zzz_current_work/260713-vyx-parse/PLAN.md`
+OUTCOME + FOLLOWUP.md.
+
+---
+
+## 2026-07-16 — Char-class regex escaping: `-` added to `_CLASS_METACHARS`
+
+`ir/nodes.py`: `_escape_regex_point` now escapes `-` inside `[...]`
+(`_CLASS_METACHARS = "[]^-"`). Unescaped, a range whose LOW bound is `-`
+(e.g. `[!&--.]` from `[A-Za-z0-9_.!&^-]`) reads as **set difference** in
+pydantic-core's Rust regex whenever a lower-codepoint member precedes it —
+the emitted `StringConstraints` pattern silently dropped members and
+`value_str` classes rejected valid text (Python `re` only warns, so tests
+built on `re` never caught it). Found by the vyx Task-3 round-trip gate.
+Escaping the dash unconditionally is valid and position-independent in both
+engines; grammar-text emission is unaffected (flavours spell classes via
+their escape codecs, not `pattern()`), and no `CHARCLASS_NAMES` key contains
+a literal dash member. Pins: unit (`test_charclass_pattern_dash_range_bound_
+is_escaped`) + integration (`test_value_str_charclass_with_dash_range_bound_
+validates`).
+
+---
+
+## 2026-07-16 — Schema expansion joints (pydantic depth cliff fixed) + all transformers on IrBottomUp
+
+**Joints (user-ruled: fix, no depth guard).** pydantic inlines a completed
+sub-model's core schema into its referrer (def-refs only for recursive
+models; unfixed upstream through 2.14.0a1), so long acyclic ref chains built
+chain-deep schemas and pydantic's recursive walks overflowed (~450 rules
+even after leaf-first rebuild). Fix: `codegen/binding.py` computes each
+rule's inlined-schema depth over the ref topology (`_schema_depths` —
+cycle edges add nothing, they stay def-refs; `ir/order.refs_in_order` is the
+new public edge extractor) and flags every 64th class along a chain
+(`_SCHEMA_JOINT_STRIDE`, `RuleBinding.schema_joint`, emitted as
+`__schema_joint__` ClassVar). `GrammarModel.__get_pydantic_core_schema__`
+(base.py) returns, for a *completed* joint, a shallow
+validate-through-the-class schema (`model_validate` + a `_joint_dump`
+serializer threading the caller's options), so schema depth — and dump's
+Python crossings — are bounded by the stride. Grammars under 64 rules
+short-circuit to zero joints; 800-rule chains now compile/parse/round-trip/
+dump/semantic_dump end-to-end.
+
+**IrBottomUp everywhere (user directive).** `normalize._Minting`
+(FlattenGroups/DesugarQuantifiers) and `passes._HoistTransformer` migrated —
+no recursive IR transformer remains. Driver hardening for stateful bodies
+and speed: children push reversed (left-to-right visit order — side-effect
+order matches the recursive walks, so synthetic-rule numbering stays
+compatible; sibling order preserved, nested-group mint order inverts
+inner-first — nothing pins it), per-run body-resolution cache (a table miss
+on the `IrThis` default skips the eval call), identity-preserving rebuild
+(unchanged nodes are reused, compared by child identity — never structural
+equality, which would be quadratic), kids carried in the stack frame
+(`children()` once per node). Perf gate met: passes+normalize micro-bench
+0.479s → 0.520s in isolation, but END-TO-END cold `compile_text` over all
+ground truths is *faster* than the pre-change baseline (0.63s → 0.61s; the
+identity-preserving rebuild and the joint early-exit dominate). Suite 2255;
+gate exit 0.
+
+---
+
+## 2026-07-16 — IrBottomUp: iterative post-order transformer; canonicalize is depth-safe (L7a fixed)
+
+New dispatch preset `IrBottomUp(IrTransformer)` in `ir/walk.py` (re-exported
+from `lexic.ir`), the user-ruled fix for L7a (~300 nested inline groups
+overflowed `canonicalize`'s recursive walk). `IrDispatch.apply` now routes
+through an overridable `_run` strategy (the `IrReturn` catch stays in one
+place); `IrBottomUp._run` drives an explicit work stack: children transform
+first, the node rebuilds via the `children()`/`rebuild()` protocol, then its
+action body runs on a node whose children are already final (they also ride
+the `nc` channel). Bodies are pure per-node combiners — NO `d.eval` recursion
+— and the table-miss default is `IrThis` (the driver's rebuild IS the
+identity). Shared subtrees transform once (id-memo). Trade-off, documented on
+the class: every node is visited, so the preset fits whole-tree normal-form
+passes, not selective/pruning rewrites (those stay on `IrTransformer`).
+
+`ir/canonical.py`'s `_CANON` and `_RENAME` migrated: `_canon_alternation`/
+`_canon_sequence` dropped their child-eval loops; `_canon_not` gained a lift
+for a pre-collapsed operand (bottom-up canonicalises the inner class first,
+so `[^a]`'s single-member operand arrives as a one-char `IrLiteral` — it
+lifts back to a class so rewrite 4 still yields positive spans; without this,
+`IrNot` would leak past canonicalization). Byte-compatible output — the full
+suite passed unchanged.
+
+Depth math after the change: single-arm nesting collapses inside the
+iterative walk (300-deep repro round-trips); multi-arm nesting hoists into
+rule chains (verified 450) and so rides the L7b iterative paths; the
+remaining wall is pydantic-core's `_schema_gather` on ~500-rule ref chains
+(third-party, documented in FINDINGS L7). Repro
+`repro_deep_grammar_recursionerror.py` exits 0. Pins: `test_walk.py`
+IrBottomUp section (2000-deep), `test_deep_grammar.py` nested-groups
+round-trip. Candidates for later migration to the preset: the hoist
+transformers (`codegen/passes.py`), `normalize` — none currently
+depth-threatened post-canonicalize.
+
+---
+
+## 2026-07-16 — Adversarial sweep round 2: codegen cycles, reserved names, depth bombs, cache keys (L5–L8)
+
+Four findings from the Fable adversarial sweep, three fixed same-day
+(FINDINGS L5–L8 in `zzz_current_work/260713-vyx-parse/`):
+
+**L5 — unit-arm cycles** (`codegen/binding.py`): `s ::= s | "a"` emitted
+`class S(S):`; mutual unit arms emitted circular inheritance — both died with
+NameError at module exec. New `_break_cycles` (over a cycle-tolerant
+`_reach_closure`) runs before MRO ordering: intra-cycle parent edges drop
+(members become siblings), a cross-cycle edge widens to the target's whole
+cycle, so every concrete arm subclasses every cycle member and `isinstance`
+holds for fields typed with any of them.
+
+**L6 — reserved rule names** (`codegen/binding.py`): rules named
+`import`/`class` emitted SyntaxError modules; `to-text` emitted a field
+shadowing the method (TypeError); `annotated` shadowed the header's
+`typing.Annotated` and broke every later annotation resolution. Field names
+now mangle via `_RESERVED_FIELD_NAMES` (keywords + `BaseModel` surface +
+`GrammarModel` methods) and class names via `_RESERVED_CLASS_NAMES` (the
+emitted header's bindings), both `_`-suffixed (the `True_` precedent) and
+drift-pinned by tests (the pin immediately caught `fast_construct`).
+
+**L7 — deep-grammar depth bombs**: the 300-rule unit-ref chain died twice —
+pydantic `model_rebuild` recursing across the model chain (fixed: leaf-first
+rebuild order, `codegen/__init__.py::_rebuild_leaf_first`) and the PDA clone
+compiler recursing per chained rule (fixed: `_PdaCompiler.ensure_rule`
+enqueues and the outermost call drains a work queue — constant stack depth,
+callers' fully-compiled-on-return contract unchanged;
+`islands`/`fail_islands` became properties over the analysis). Residual:
+leaf-first is a marginal bound — pydantic-core's `_schema_gather` still walks
+the full nested schema, so depth 320 round-trips but ~500 overflows inside
+pydantic (a pydantic-internals fix or a domain depth cap is a user ruling,
+same bucket as case A). **Case A —
+~300 nested inline groups → RecursionError in `ir/canonical.py`'s
+`_canon_alternation` ↔ `_canon_sequence` — is DEFERRED**: every IrDispatch
+transformer shares the recursion-by-design shape (action bodies own
+recursion), so an iterative driver / ir-level trampoline is a design ruling,
+not a sweep patch. `repro_deep_grammar_recursionerror.py` stays as its pin.
+
+**L8 — cache_key staleness** (`compile.py`): an explicit `cache_key` was used
+as-is, so one key + different grammar text silently served the first
+grammar. The content key is now always folded in
+(`(cache_key, stem, flavour, out_dir)`).
+
+Clean bills from the sweep (fuzzes found nothing): derivations/is_ambiguous/
+strict-parse consistency (60 grammars × 8 inputs), full-pipeline round-trip
+(240 generated samples), PDA-vs-Earley differential, maximal-munch backoff,
+ABNF `%i` + `=/`, degenerate grammar texts, deep input on both engine paths.
+New adversarial pins: `test_unit_arm_cycles.py`, `test_reserved_rule_names.py`,
+`test_deep_grammar.py`, `test_compile_cache.py`. Suite 2236; gate exit 0.
+
+---
+
+## 2026-07-16 — Engine bug sweep: L4 Leo mixed provenance, left-recursion islanding, stack-safe emitter, tests/adversarial/
+
+**L4 (embedded-ambiguity undercount) fixed.** A Leo top can carry *mixed
+provenance* — some SPPF families recorded by the normal completer (a later
+completion of the same rule found ≥2 waiters), others deferred in `leo_links`.
+All three decoders (`Kernel.to_chart`, `FastTree._step`,
+`FusedReduce._collect`) gated `expand_leo` on `key not in links`, silently
+dropping the deferred families whenever any completer family existed
+(`p ::= u u*; u ::= [ab]+` over `"aab"`: 4 derivations at `start=p`, 2 when
+embedded under `w ::= p`). Fix: expand on `leo_links` presence, never gate on
+`links` — `expand_leo` is idempotent (families dedup); invariant documented on
+`expand_leo` itself. Leo stays engaged on every fast path. Probe4 4/4.
+
+**Left recursion now islands structurally** (`pda/analysis/leftrec.py`, new).
+A predictive descent cannot run left recursion — it re-enters the rule at the
+same position before consuming; no gate family can license it. Previously left
+recursion islanded only *by accident* (the recursive arm's FIRST always
+overlaps a consuming escape arm's FIRST ⇒ arm conflict), so a nullable-only
+escape arm (`root ::= root "a" | ""`) or sole-arm degenerate (`x ::= x "a"`)
+compiled to a clone and the PDA descended forever. `left_recursive_names`
+(nullable-prefix left-corner transitive closure; leaf module, Any-typed
+analysis oracle, open IrTypeMap dispatch) feeds `_classify`, which files a
+hard conflict note and skips all other classification for cycle members — the
+rule islands, the Earley island sub-parse handles it natively.
+
+**`GrammarModel.to_text()` is stack-safe** (`base.py`): the mutually recursive
+`to_text`/`_field_text` descent (RecursionError at nesting ~250) is now an
+explicit LIFO work-stack over a new private `_emit_parts()`; byte-identical
+output, `_field_text` deleted. `semantic_dump()` probed to depth 1500 — it
+rides pydantic-core (Rust), no Python recursion, no fix needed.
+
+**New `tests/adversarial/`** (sibling of `tests/property/`, user ruling):
+cross-cutting adversarial edge-case pins graduated from repro scripts —
+`test_deep_nesting.py` (round-trip at depth 400/800),
+`test_left_recursion.py` (the four recursion/nullability quadrants under a
+SIGALRM watchdog, indirect cycles, sole-arm clean rejection). Shared
+hand-authored-grammar helpers (`rule_of`/`item_of`/`analysis_of`) moved to
+`tests/_ir_fixtures.py` (R0801). Suite 2212 passed; `run_checks.sh` exit 0.
+
+---
+
+## 2026-07-13 — Vyx-parse Tasks 1–2: L1 multi-membership codegen + L2 root arm-choice packing
+
+Fixed both lexic bugs pinned by the probe. **L1 (multiple inheritance):**
+`RuleBinding.parent_class_name: str` → `parent_class_names: tuple[str, ...]`;
+`codegen/binding.py::_parent_rules` now returns every owning alternation of a
+unit-ref arm, ordered most-derived first (`_order_bases` over the transitive
+parent closure so a base that is itself an arm of another base precedes it —
+C3-linearizable). `model_emitter.py` emits `class Unquoted(BareVal, Value):`,
+`GrammarModel` when parentless; `RuleOrder.ordered_parents_first` already walks
+all parent edges. A rule that is an arm of ≥2 alternations is now an instance of
+all of them, so no field typed with a "losing" alternation class rejects it.
+**L2 (per-symbol root packing):** the SPPF's referenced-symbol case already packs
+alternative productions (each completion advances the parent waiter, so the
+advanced handle collects one family per production); only the **start** symbol —
+which has no parent waiter — dropped its alternatives, since `accept_node()`
+returned the first accepting item. New `RootNode` (`parsing/earley/forest.py`)
+packs every accepting production (`kernel.accept_items()`/`root_ambiguous`);
+`RootDerivs` chains their `NodeDerivs`; `DerivationStream.eval` and `BuildTree`
+branch on it. Single-production accepts still return the bare `SppfNode` (no
+behaviour change). `is_ambiguous` honest, `derivations` complete, strict `parse`
+raises; the engine's fast paths (`_single_tree`/`ParseFirst`/`ParseReduced`)
+skip `FastTree`/`FusedReduce` when `root_ambiguous`. `RootNode` re-exported from
+`lexic.parsing`. Full suite green (2187 passed). Also surfaced a **separate
+pre-existing bug L4** (embedded right-recursive/nullable-tail ambiguity
+undercount, Leo-deferred family reconstruction) — diagnosed (root cause in
+`_leo_resolve`/`_expand_chain` collapsing an ambiguous chain) but NOT yet fixed;
+tracked in FINDINGS.md L4.
+
+---
+
+## 2026-07-13 — Vyx-parse probe: two engine-adjacent bugs + vyx defect catalogue
+
+New effort dir `zzz_current_work/260713-vyx-parse/` (FINDINGS.md + probe/).
+Pushed the vyx D-layer grammar (assembled from `/home/mika/projects/vyx/spec/`
+per-section `grammar:` fragments, mechanically corrected) through the full
+pipeline. Compiles (103 classes), recognition 17/18 on realistic packets. Two
+lexic bugs pinned with minimal repros: **L1** — `codegen/binding.py::
+_parent_rules` is last-writer-wins, so a rule that is an arm of ≥2 alternations
+(vyx's norm; never occurs in the existing ground-truth set) gets one parent and
+every field typed with a losing alternation class fails at fold-ctor. **L2** —
+SPPF forest construction never packs alternative productions of one symbol
+(`v ::= a | b`, both arms deriving `"x"` → 1 derivation, `amb=0`); only
+within-production split ambiguity (the `sss` fixture shape) is packed, so
+`is_ambiguous` under-reports and strict `parse` fails to raise. Fifteen vyx
+spec-fragment defects (V1–V15) catalogued in FINDINGS.md. Draft PLAN.md with
+six pending user rulings.
+
+---
+
 ## 2026-07-13 — Parsing totality-cleanup consolidation
 
 Closed out the effort that made `lexic.parsing` own its public API. Two

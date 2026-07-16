@@ -297,3 +297,25 @@ def test_module_alternation_class_is_field_less():
     src = _emit("root ::= num | ident\nnum ::= [0-9]+\nident ::= [a-z]+\n")
     root_section = src.split("class Root(GrammarModel):")[1].split("\n\n")[0]
     assert "value:" not in root_section
+
+
+def test_module_parentless_class_subclasses_grammar_model():
+    """A rule that is no alternation's arm subclasses GrammarModel directly."""
+    src = _emit('root ::= "x"\n')
+    assert "class Root(GrammarModel):" in src
+
+
+def test_module_multi_membership_class_emits_multi_base():
+    """A rule that is a unit-ref arm of two alternations emits a multi-base class.
+
+    ``unquoted`` is an arm of both ``value`` and ``bare_val``, and ``bare_val``
+    is itself an arm of ``value``; the bases order most-derived first so the
+    emitted ``class Unquoted(BareVal, Value)`` has a linearizable MRO.
+    """
+    src = _emit(
+        "value ::= bare_val | unquoted\n"
+        "bare_val ::= unquoted | num\n"
+        'unquoted ::= "u"\n'
+        'num ::= "0"\n'
+    )
+    assert "class Unquoted(BareVal, Value):" in src

@@ -872,10 +872,22 @@ def test_charclass_pattern_control_char_escapes_to_hex():
 
 
 def test_charclass_pattern_metachars_are_escaped():
-    """Raw ``]``/``^``/``\\`` in a run are backslash-escaped."""
+    """Raw ``]``/``^``/``-``/``\\`` in a run are backslash-escaped."""
     assert IrCharClass(IrChr("]")).pattern() == "\\]"
     assert IrCharClass(IrChr("^")).pattern() == "\\^"
+    assert IrCharClass(IrChr("-")).pattern() == "\\-"
     assert IrCharClass(IrChr("\\")).pattern() == "\\\\"
+
+
+def test_charclass_pattern_dash_range_bound_is_escaped():
+    """A range whose low bound is ``-`` (0x2D) escapes the dash.
+
+    Unescaped, ``[!&--.]`` reads as set difference in pydantic-core's Rust
+    regex when a lower-codepoint member precedes the ``-``–``.`` range, and
+    the class silently drops members.
+    """
+    cls = IrCharClass(IrChr("!"), IrChr("&"), IrRange(IrChr("-"), IrChr(".")))
+    assert cls.pattern() == "!&\\--."
 
 
 def test_charclass_members_expands_range():

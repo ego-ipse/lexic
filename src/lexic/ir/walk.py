@@ -31,7 +31,7 @@ from __future__ import annotations
 from typing import ClassVar, Sequence, cast
 
 from lexic.exceptions import IrKeyError
-from lexic.ir.action import IrEmit, IrRaise, IrRebuild, IrReturn, IrWalk
+from lexic.ir.action import IrEmit, IrRaise, IrRebuild, IrReturn, IrThis, IrWalk
 from lexic.ir.base import IrCachingTuple, IrNode, IrSelf, IrTuple
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import IrLiteral
@@ -91,7 +91,7 @@ class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](IrCachingTuple[IrTypeMap, IrSelf]):
             return self.default
 
     def apply(self, root: IrNode) -> Ir_co:
-        """Friendly entry — equivalent to ``self.eval(self, root, ())``.
+        """Friendly entry — dispatch ``root`` via the preset's :meth:`_run`.
 
         Catches :class:`~lexic.ir.action.IrReturn` and surfaces its ``.value``
         (or the IrReturn itself) when it satisfies the ``Ir_co`` bound; otherwise
@@ -101,13 +101,25 @@ class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](IrCachingTuple[IrTypeMap, IrSelf]):
         :returns: The dispatched ``Ir_co`` value.
         """
         try:
-            return self.eval(self, root, IrTuple())
+            return self._run(root)
         except IrReturn as ret:
             if isinstance(ret.value, self.bound):
                 return cast(Ir_co, ret.value)
             if isinstance(ret, self.bound):
                 return cast(Ir_co, ret)
             raise
+
+    def _run(self, root: IrNode) -> Ir_co:
+        """The ``apply`` strategy — ``self.eval(self, root, ())``.
+
+        Presets with a different drive (:class:`IrBottomUp`'s iterative
+        post-order walk) override this, keeping :meth:`apply`'s
+        :class:`~lexic.ir.action.IrReturn` handling in one place.
+
+        :param root: Root IR node to dispatch.
+        :returns: The dispatched ``Ir_co`` value.
+        """
+        return self.eval(self, root, IrTuple())
 
 
 # ── Presets ──────────────────────────────────────────────────────────
@@ -125,6 +137,76 @@ class IrTransformer[Iri: IrSelf, Ir_co: IrNode](IrDispatch[Iri, Ir_co]):
     walks each node's children via ``d`` and rebuilds the node."""
 
     default: IrSelf = IrRebuild()
+
+
+class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
+    """Iterative post-order transformer — stack-safe at any tree depth.
+
+    ``apply`` drives an explicit work stack instead of Python recursion:
+    every node's children are transformed first, the node is rebuilt with
+    them, and only then does its action body run — on a node whose children
+    are already in final form (the transformed children also ride the ``nc``
+    channel). Bodies are therefore pure per-node combiners and must NOT
+    recurse (no ``d.eval`` on children); the default on a table miss is
+    :class:`~lexic.ir.action.IrThis` (the driver's rebuild IS the identity
+    transform).
+
+    Trade-off vs :class:`IrTransformer`: the driver visits every node — a
+    body cannot skip or lazily prune a subtree — so this preset fits
+    whole-tree normal-form passes (canonicalize, name folding), not
+    selective rewrites. A shared subtree (one object reachable twice)
+    transforms once and splices everywhere it appeared.
+    """
+
+    default: IrSelf = IrThis()
+
+    def _run(self, root: IrNode) -> Ir_co:
+        """Post-order drive: transform children, rebuild, act — iteratively.
+
+        Per-run fast paths keep the driver at recursive-walk cost: action
+        bodies are resolved once per node *type* (a full miss on the
+        :class:`~lexic.ir.action.IrThis` default skips the call entirely),
+        and a node none of whose children changed is reused instead of
+        rebuilt.
+
+        :param root: Root IR node to transform.
+        :returns: The transformed tree.
+        """
+        identity = isinstance(self.default, IrThis)
+        bodies: dict[type, IrSelf | None] = {}
+        done: dict[int, IrSelf] = {}
+        stack: list[tuple[IrSelf, Sequence[IrSelf] | None]] = [(root, None)]
+        while stack:
+            node, kids = stack.pop()
+            key = id(node)
+            if key in done:
+                continue
+            if kids is None:  # first visit — expand children, revisit after
+                kids = node.children()
+                if kids:
+                    stack.append((node, kids))
+                    # Reversed so pops run left-to-right: the visit order
+                    # (and thus any stateful body's side-effect order, e.g.
+                    # synthetic rule minting) matches the recursive walk's.
+                    stack.extend((kid, None) for kid in reversed(kids))
+                    continue
+            new = tuple(done[id(kid)] for kid in kids)
+            if all(a is b for a, b in zip(new, kids)):
+                rebuilt = node
+            else:
+                rebuilt = node.rebuild(new)
+            node_type = type(rebuilt)
+            try:
+                body = bodies[node_type]
+            except KeyError:
+                try:
+                    body = self.actions[node_type]
+                except KeyError:
+                    resolved = self._resolve_miss(self.actions, rebuilt)
+                    body = None if identity and resolved is self.default else resolved
+                bodies[node_type] = body
+            done[key] = rebuilt if body is None else body.eval(self, rebuilt, new)
+        return cast(Ir_co, done[id(root)])
 
 
 class IrEmitter[Iri: IrSelf, Ir_co: IrLiteral](IrDispatch[Iri, Ir_co]):

@@ -42,3 +42,20 @@ def test_codegen_no_flavour_parameter():
     """Spec invariant: codegen does not take a flavour."""
     sig = inspect.signature(codegen)
     assert "flavour" not in sig.parameters
+
+
+def test_codegen_rebuilds_deep_ref_chain_leaf_first(tmp_path, monkeypatch):
+    """A long unit-ref chain rebuilds without a model_rebuild stack overflow.
+
+    Rebuilding leaf-first keeps each schema build shallow; the naive
+    start-first order overflowed on the whole chain in one descent.
+    """
+    monkeypatch.chdir(tmp_path)
+    Path("generated").mkdir()
+    depth = 300
+    lines = [f'r{i} ::= "[" r{i + 1} "]"' for i in range(depth)]
+    lines.append(f'r{depth} ::= "0"')
+    classes = _codegen("\n".join(lines) + "\n", "test_codegen_deep_chain")
+    assert len(classes) == depth + 1
+    # model_rebuild completed for every class → IrBind metadata is resolvable.
+    assert all(cls.__pydantic_complete__ for cls in classes.values())

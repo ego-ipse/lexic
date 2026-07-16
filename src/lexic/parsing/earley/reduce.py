@@ -721,7 +721,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         """
         kernel = self.kernel
         links = kernel.st.links
-        if handle in kernel.st.leo_links and handle not in links:
+        if handle in kernel.st.leo_links:
             kernel.expand_leo(handle)
         tables = kernel.tables
         item = handle >> ORIGIN_BITS

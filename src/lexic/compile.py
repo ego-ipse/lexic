@@ -346,16 +346,20 @@ def compile_text(
 ) -> CompiledGrammar:
     """Compile from a grammar string, memoised by content by default.
 
-    The default cache key is ``(content sha stem, flavour, resolved out_dir)``
-    — compiling the same source in the same flavour to the same output
+    The cache key is ``(content sha stem, flavour, resolved out_dir)`` —
+    compiling the same source in the same flavour to the same output
     directory returns the cached :class:`CompiledGrammar` (and its class
-    objects). Pass ``cache_key`` to override the key (an explicit key is used
-    as-is, not augmented with ``out_dir``); the test seam
+    objects). An explicit ``cache_key`` is *prepended* to that content key
+    rather than used as-is: ``(cache_key, stem, flavour, resolved out_dir)``.
+    Folding the content stem in means the same key can never serve a stale
+    grammar — different source text under one ``cache_key`` yields distinct
+    entries, while identical text still hits the memo. The test seam
     :func:`reset_cache_for_tests` clears the cache when a caller needs fresh
     class objects.
 
     :param text: Grammar source in ``flavour``'s syntax.
-    :param cache_key: Explicit memo key; ``None`` uses the content default.
+    :param cache_key: Extra key prefix disambiguating otherwise-identical
+        compilations; ``None`` uses the content key alone.
     :param flavour: The grammar flavour name.
     :param out_dir: Directory the generated module is written to; ``None``
         resolves to the project's ``generated/`` directory.
@@ -363,7 +367,8 @@ def compile_text(
     """
     stem = _stem_for_text(text)
     resolved_out_dir = str(resolve_out_dir(out_dir).resolve())
-    key = cache_key if cache_key is not None else (stem, flavour, resolved_out_dir)
+    content_key = (stem, flavour, resolved_out_dir)
+    key = (cache_key, *content_key) if cache_key is not None else content_key
     cached = _CACHE.get(key)
     if cached is not None:
         return cached

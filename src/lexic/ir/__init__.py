@@ -57,7 +57,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrAnd, IrNot, IrOp, IrOpNode
 from lexic.ir.order import RuleOrder, order_by_refs
-from lexic.ir.walk import IrTransformer, IrVisitor
+from lexic.ir.walk import IrBottomUp, IrTransformer, IrVisitor
 
 __all__ = [
     "BIND_MODES",
@@ -74,6 +74,7 @@ __all__ = [
     "IrAt",
     "IrAtom",
     "IrBind",
+    "IrBottomUp",
     "IrChr",
     "IrBounds",
     "IrBuild",

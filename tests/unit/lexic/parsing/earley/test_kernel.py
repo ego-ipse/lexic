@@ -33,7 +33,12 @@ from lexic.parsing.earley.chart import Chart
 from lexic.parsing.earley.forest import ParseTree, SppfNode
 from lexic.parsing.earley.kernel import FastTree, Kernel
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.tables import ADVANCE, ORIGIN_BITS, compile_tables
+from lexic.parsing.earley.tables import (
+    ADVANCE,
+    ORIGIN_BITS,
+    ORIGIN_MASK,
+    compile_tables,
+)
 from tests._ir_fixtures import digit_grammar as _digit_grammar
 from tests._ir_fixtures import word_grammar as _word_grammar
 
@@ -507,6 +512,44 @@ def test_to_chart_idempotent_across_repeat_calls():
     assert len(chart1.links) == len(chart2.links)
 
 
+def _embedded_ambiguous() -> IrAst:
+    """w = p ; p = u u* ; u = [ab]+ — p's split ambiguity embedded under w."""
+    ab = IrCharClass(IrRange(IrChr(97), IrChr(98)))
+    return _norm(
+        IrRule("w", IrAlternation(IrSequence(IrItem(IrRuleRef("p"))))),
+        IrRule(
+            "p",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("u")),
+                    IrItem(IrRuleRef("u"), IrQuantifier(0, IrNone)),
+                )
+            ),
+        ),
+        IrRule("u", IrAlternation(IrSequence(IrItem(ab, IrQuantifier(1, IrNone))))),
+        start="w",
+    )
+
+
+def test_to_chart_expands_leo_links_under_mixed_provenance():
+    """A Leo top that also gained normal-completer families keeps its chains.
+
+    Over "aab" the embedded grammar records p's whole-input completion both
+    through the normal completer (two families in ``links``) and through a
+    deferred Leo chain (one more in ``leo_links``) — mixed provenance.
+    ``to_chart()`` must materialise the deferred family too (L4: the old
+    ``key not in links`` guard silently dropped it).
+    """
+    tables = compile_tables(_embedded_ambiguous())
+    kernel = Kernel(tables, "aab", record_links=True).run()
+    mixed = [k for k in kernel.st.leo_links if k in kernel.st.links]
+    assert mixed  # the L4 precondition: mixed provenance actually occurs here
+    kernel.to_chart()
+    for key in mixed:
+        for entry in kernel.st.leo_links[key]:
+            assert entry in kernel.st.links[key]
+
+
 # ── ORIGIN_BITS capacity error ──────────────────────────────────────────
 
 
@@ -541,3 +584,45 @@ def test_decode_item_returns_earley_item_shape():
     assert rule_ref == IrRuleRef("digit")
     assert dot == len(seq)
     assert origin == 0
+
+
+# ── accept_items / root_ambiguous (L2 root arm-choice) ────────────────
+
+
+def _twin_arm_grammar() -> IrAst:
+    """v ::= a | b, a/b both "x" — the start completes the whole input two ways."""
+    return _norm(
+        IrRule("v", IrAlternation(IrRuleRef("a"), IrRuleRef("b"))),
+        IrRule("a", IrLiteral("x")),
+        IrRule("b", IrLiteral("x")),
+        start="v",
+    )
+
+
+def test_accept_items_lists_every_accepting_production():
+    """A twin-arm start yields two accepting items (one per production)."""
+    kernel = Kernel(compile_tables(_twin_arm_grammar()), "x", record_links=True).run()
+    items = kernel.accept_items()
+    assert len(items) == 2
+    # Both are origin-0 completions of the start rule over the whole input.
+    for it in items:
+        assert it & ORIGIN_MASK == 0
+        assert kernel.decode_item(it)[0] == IrRuleRef("v")
+
+
+def test_accept_items_empty_on_no_parse():
+    """accept_items() is empty when the input does not derive."""
+    kernel = Kernel(compile_tables(_twin_arm_grammar()), "z", record_links=True).run()
+    assert kernel.accept_items() == []
+
+
+def test_root_ambiguous_true_for_twin_arms():
+    """root_ambiguous is True when the start completes via ≥2 productions."""
+    kernel = Kernel(compile_tables(_twin_arm_grammar()), "x", record_links=True).run()
+    assert kernel.root_ambiguous is True
+
+
+def test_root_ambiguous_false_for_single_production():
+    """root_ambiguous is False for an unambiguous single-production accept."""
+    kernel = Kernel(compile_tables(_digit_grammar()), "5", record_links=True).run()
+    assert kernel.root_ambiguous is False

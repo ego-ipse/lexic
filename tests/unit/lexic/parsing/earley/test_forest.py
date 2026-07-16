@@ -37,7 +37,9 @@ from typing import Iterator, cast
 import pytest
 
 import lexic.parsing.earley.forest as forest_mod
+from lexic.compile import canonical_grammar
 from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir.base import IrLeaf, IrNone, IrNoneType, IrSelf, IrSeq, IrTuple
 from lexic.ir.nodes import (
     IrAlternation,
@@ -49,7 +51,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing import derivations, parse, parse_forest
+from lexic.parsing import derivations, is_ambiguous, parse, parse_forest
 from lexic.parsing.earley.chart import Chart
 from lexic.parsing.earley.engine import EarleyParser
 from lexic.parsing.earley.forest import (
@@ -65,12 +67,15 @@ from lexic.parsing.earley.forest import (
     NodeDerivs,
     ParseTree,
     PrefixSource,
+    RootDerivs,
+    RootNode,
     SppfNode,
 )
 from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tables import ORIGIN_BITS, compile_tables
 from lexic.parsing.earley.trampoline import Trampoline
+from lexic.parsing.fold import lift_optional_nullables
 from tests._ir_fixtures import digit_grammar as _digit_grammar
 from tests._ir_fixtures import word_grammar as _word_grammar
 
@@ -471,6 +476,143 @@ def test_parse_forest_returns_ir_none_on_no_parse(digit_grammar: IrAst):
     grammar = digit_grammar
     result = parse_forest(grammar, "z")
     assert isinstance(result, IrNoneType)
+
+
+# ── L2: root arm-choice packing (RootNode) ────────────────────────────
+#
+# The start symbol's whole-input completions sit in the final column as
+# separate accepting items with no parent waiter to aggregate them (a
+# referenced symbol packs its alternatives automatically via the parent's
+# advanced handle). Before the fix the forest root was keyed by ONE specific
+# accepting production, so arm-choice families were dropped: is_ambiguous lied,
+# derivations undercounted, and strict parse never raised. RootNode is the
+# missing symbol-level aggregation. The repros below graduate from
+# ``zzz_current_work/260713-vyx-parse/probe/probe4_engine_repro.py``.
+
+
+def _arms_grammar(gtext: str) -> IrAst:
+    """Canonicalise + Earley-normalise a GBNF grammar string for the repros."""
+    return normalize(lift_optional_nullables(canonical_grammar(gtext, GBNF_FLAVOUR)))
+
+
+def test_root_twin_arms_enumerates_both():
+    """v ::= a | b, a/b both "x": the start packs 2 productions over "x".
+
+    Both arms derive "x", so the start symbol completes the whole input two
+    ways. The true derivation count is 2 (one per arm).
+    """
+    g = _arms_grammar('v ::= a | b\na ::= "x"\nb ::= "x"\n')
+    assert len(derivations(g, "x")) == 2
+    assert int(is_ambiguous(g, "x")) == 1
+
+
+def test_root_twin_arms_strict_parse_raises():
+    """Strict parse() raises on the twin-arm root ambiguity (as documented)."""
+    g = _arms_grammar('v ::= a | b\na ::= "x"\nb ::= "x"\n')
+    with pytest.raises(UnsupportedConstructError):
+        parse(g, "x")
+
+
+def test_root_quantified_leaf_overlap_enumerates_both():
+    """v ::= p | u where p's leaf and u overlap on "|ab": 2 whole-input arms.
+
+    ``p ::= [|] w`` (w = ``[a-z]+``) matches "|ab"; ``u ::= [a-z|]+`` also
+    matches "|ab" whole. Two arms, each a single whole-input derivation ⇒ 2.
+    """
+    g = _arms_grammar("v ::= p | u\np ::= [|] w\nw ::= [a-z]+\nu ::= [a-z|]+\n")
+    assert len(derivations(g, "|ab")) == 2
+    assert int(is_ambiguous(g, "|ab")) == 1
+
+
+def test_root_overlapping_charclass_arms_enumerates_both():
+    """line ::= kv | txt, both matching "a=b": 2 whole-input productions.
+
+    ``kv ::= [a-z]+ "=" [a-z]+`` and ``txt ::= [a-z=]+`` both derive "a=b" as a
+    single derivation each ⇒ 2.
+    """
+    g = _arms_grammar('line ::= kv | txt\nkv ::= [a-z]+ "=" [a-z]+\ntxt ::= [a-z=]+\n')
+    assert len(derivations(g, "a=b")) == 2
+    assert int(is_ambiguous(g, "a=b")) == 1
+
+
+# ── L4: embedded ambiguity through Leo-deferred completions ───────────
+#
+# A Leo top can gain families from BOTH the normal completer and deferred
+# ``leo_links`` chains (mixed provenance). The decoders used to skip
+# ``expand_leo`` whenever the key already had ``links`` families, dropping the
+# deferred derivations: an ambiguous right-recursive/nullable-tailed rule
+# embedded under a parent undercounted — its ambiguity was only fully
+# enumerated when it was the start symbol. The last test graduates probe4's
+# 4th case (``zzz_current_work/260713-vyx-parse/probe/probe4_engine_repro.py``).
+
+
+def test_embedded_ambiguity_matches_start_symbol_count():
+    """p ::= u u* / u ::= [ab]+ over "aab": 4 splits at start AND embedded.
+
+    The four derivations are the compositions of "aab" into u-runs:
+    (aab), (a,ab), (aa,b), (a,a,b). Embedding p under w must not lose any.
+    """
+    at_start = _arms_grammar("p ::= u u*\nu ::= [ab]+\n")
+    embedded = _arms_grammar("w ::= p\np ::= u u*\nu ::= [ab]+\n")
+    assert len(derivations(at_start, "aab")) == 4
+    assert len(derivations(embedded, "aab")) == 4
+    assert int(is_ambiguous(embedded, "aab")) == 1
+
+
+def test_embedded_ambiguity_strict_parse_raises():
+    """Strict parse() raises on the embedded (Leo-deferred) ambiguity too."""
+    embedded = _arms_grammar("w ::= p\np ::= u u*\nu ::= [ab]+\n")
+    with pytest.raises(UnsupportedConstructError):
+        parse(embedded, "aab")
+
+
+def test_charclass_vs_structured_arm_enumerates_all():
+    """v ::= p | u (p ::= "|" u ("|" u)*, u ::= [a-z|]+) over "|a|b": 3.
+
+    v→u whole-input = 1; v→p with items (a, b) = 1; v→p with the single
+    item "a|b" = 1.
+    """
+    g = _arms_grammar('v ::= p | u\np ::= "|" u ("|" u)*\nu ::= [a-z|]+\n')
+    assert len(derivations(g, "|a|b")) == 3
+    assert int(is_ambiguous(g, "|a|b")) == 1
+
+
+# ── RootNode / RootDerivs white-box ───────────────────────────────────
+
+
+def test_accept_node_returns_root_node_on_multi_production():
+    """A many-production accept returns a RootNode packing every accepting arm."""
+    g = _arms_grammar('v ::= a | b\na ::= "x"\nb ::= "x"\n')
+    kernel = Kernel(compile_tables(g), "x", record_links=True).run()
+    node = kernel.accept_node()
+    assert isinstance(node, RootNode)
+    assert len(node.productions) == 2
+    assert all(isinstance(p, SppfNode) for p in node.productions)
+
+
+def test_accept_node_returns_sppf_node_on_single_production(digit_grammar: IrAst):
+    """A single-production accept returns the bare SppfNode (no wrapper)."""
+    kernel = Kernel(compile_tables(digit_grammar), "5", record_links=True).run()
+    assert isinstance(kernel.accept_node(), SppfNode)
+
+
+def test_parse_forest_returns_root_node_on_ambiguous_root():
+    """parse_forest() returns a RootNode when the start symbol is arm-ambiguous."""
+    g = _arms_grammar('v ::= a | b\na ::= "x"\nb ::= "x"\n')
+    assert isinstance(parse_forest(g, "x"), RootNode)
+
+
+def test_root_derivs_chains_production_derivations():
+    """RootDerivs enumerates the union of its productions' NodeDerivs trees."""
+    g = _arms_grammar('v ::= a | b\na ::= "x"\nb ::= "x"\n')
+    kernel = Kernel(compile_tables(g), "x", record_links=True).run()
+    node = kernel.accept_node()
+    assert isinstance(node, RootNode)
+    ctx = ForestCtx(kernel.to_chart())
+    trees = list(Trampoline(RootDerivs(node, ctx)))
+    assert len(trees) == 2
+    assert all(isinstance(t, ParseTree) for t in trees)
+    assert trees[0] != trees[1]
 
 
 # ── IrStream white-box ────────────────────────────────────────────────

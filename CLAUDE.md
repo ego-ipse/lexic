@@ -17,8 +17,14 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. New plans copy `zzz_current_work/TEMPLATE.md` (goal,
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
-  Current: `zzz_current_work/260712-totality-cleanup/PLAN.md`
-  (Tasks 0–5 ledger lives in `PLAN_v3.md`; v4 superseded).
+  Current: `zzz_current_work/260713-vyx-parse/PLAN.md` (CLOSED 2026-07-16,
+  see its OUTCOME + FOLLOWUP.md; vyx-side spec commit pending user).
+  Queued: `260716-ir-native/` runs NEXT — PLAN.md SUPERSEDED by user
+  redirect (scope = new `compile/` subsystem: pure-IR representations +
+  compiled models; `codegen/` untouched until deleted at end); PLAN_v3 in
+  preparation. Then `260712-viz/PLAN_v2.md` (after ir-native, ruling 5).
+  Prior: `260712-totality-cleanup/PLAN.md` (Tasks 0–5 ledger in
+  `PLAN_v3.md`; v4 superseded).
 - **Cutover complete (2026-05-13).** The IrItem-based pipeline is the only pipeline. Old Atom shape, `atoms.py`, `new_gbnf/`, `flavours.py` are all gone. See `.wiki/lexic/cutover-plan.md` and `.wiki/lexic/slice-b-status.md` for what remains.
 - **RuleSpec cutover complete (2026-07-04).** The `RuleSpec` middle layer, `ir/derive.py`, `ir/spec.py`, `ir/emit.py`, `ir/naming.py`, `ir/topo.py`, `parsing/models.py`, and the whole `utils/` package are gone. One canonical `IrAst` drives codegen, instance parsing, emission, generation, and round-trip. See `zzz_current_work/260703-ir-codegen/PLAN.md` for the effort that landed it.
 
@@ -124,7 +130,12 @@ parallel spec object. Instance parsing is a **positional fold**
 src/lexic/
   __init__.py
   base.py               GrammarModel base — to_text(), to_grammar(), semantic_dump()
-                        (walks __grammar__: ClassVar[IrRule] + each field's IrBind)
+                        (walks __grammar__: ClassVar[IrRule] + each field's IrBind);
+                        __get_pydantic_core_schema__ + __schema_joint__ — a
+                        completed joint class presents a shallow validate-through-
+                        the-class schema so pydantic never inlines a chain-deep
+                        schema (see binding._schema_joints; the pydantic ~450-rule
+                        ref-chain RecursionError fix)
   compile.py            compile_text(), compile_from_path(), canonical_grammar(),
                         parse_grammar() — the sole runtime seam onto codegen + the engine
   exceptions.py         LexicError hierarchy (see §Error vocabulary)
@@ -168,7 +179,22 @@ src/lexic/
     walk.py             IrDispatch[Iri,Ir_co] — an IrCachingTuple of
                         (actions, default); actions is an IrTypeMap (not a tuple);
                         presets IrVisitor, IrTransformer, IrEmitter. Does NOT walk
-                        children automatically — action bodies own recursion
+                        children automatically — action bodies own recursion.
+                        EXCEPTION: IrBottomUp (IrTransformer preset) — iterative
+                        post-order driver (explicit stack, depth-independent):
+                        children transform first, the node rebuilds, then its
+                        body runs as a pure per-node combiner (NO d.eval in
+                        bodies; transformed children also ride nc); default
+                        IrThis. EVERY structural transformer runs on it
+                        (canonicalize/_RENAME, normalize's FlattenGroups/
+                        DesugarQuantifiers, passes' _HoistTransformer — none
+                        recursive anymore); a body cannot skip/prune a subtree
+                        (selective rewrites stay on IrTransformer). Driver:
+                        left-to-right visit order (stateful mint order matches
+                        the recursive walks), per-run body cache, identity-
+                        preserving rebuild (child-identity compare, never
+                        structural eq). apply()'s IrReturn catch is shared via
+                        the overridable _run strategy seam
     flavour.py          IrFlavour ABC — IrEmitter subclass + ClassVars (name,
                         extensions, line_comment, escapes: EscapeCodec instance,
                         grammar: IrAst — the flavour's self-grammar, reducer:
@@ -391,6 +417,20 @@ src/lexic/
                             analysis.py (Any-typed oracle, kwindow/noise
                             precedent); reads noise.sem_follow_table for the P6
                             clause; imports scanner + charsets + ir
+        leftrec.py          left_recursive_names(analysis) — the nullable-prefix
+                            left-corner closure. A predictive descent cannot run
+                            left recursion (re-enters at the same position, no
+                            gate can license it), so every cycle member files a
+                            hard conflict note in _classify BEFORE any other
+                            classification → the rule islands unconditionally
+                            (skipping gate analysis). FIRST-overlap conflicts
+                            catch most left recursion by accident; the shapes
+                            only this check catches are the nullable-only escape
+                            arm (root ::= root "a" | "" — the 260716 hang) and
+                            the sole-arm degenerate (x ::= x "a"). A leaf w.r.t.
+                            analysis.py (Any-typed oracle, kwindow/noise
+                            precedent); open IrTypeMap atom dispatch, raising
+                            default
         kwindow.py          FIRST_k over CharSet tuples — the k-window (bounded-
                             lookahead) P2 substrate (Task 6.3). KWindowFirst fixpoint
                             + arm_gate/loop_gate: whether an arm-selection or loop
@@ -722,7 +762,7 @@ records      IrNamedTuple[*Ts](tuple)      IrItem, IrQuantifier, IrRule, IrAst �
 
 **Action-algebra nodes** (`ir/action.py`): `IrField` reads a named attribute and wraps it via a runtime `out: type[IrScalar]` (default `IrStr`; `IrField("min", IrInt)` reads an int) — cast-free, open (any `IrScalar` subtype), no enumerated union; `IrOp(IrStr)` (`ir/operators.py`) is an infix-operator leaf (the node IS its operator string, e.g. `IrOp(">")`; **no `Cmp` enum**) whose `eval` applies the mapped `operator` builtin to the operands in `nc`; `IrCompare(left, op: IrOp, right)` evals both operands and hands them to `op` → `IrInt(0/1)`; `IrAnd(IrSeq[IrSelf])` is a short-circuit conjunction → `IrInt`; `IrLambda` (`ir/base.py`) is the procedural escape hatch; `IrChild`/`IrChildren` resolve children; `IrConcat`/`IrJoin` build strings (`parts: IrTuple`); `IrCond(test: IrSelf, then_op, else_op)` branches on `test.eval(...)` (truthy ⇒ `then_op`); `IrThis` is the identity body returning the dispatched node `n`; `IrReturn` short-circuits — it lazy-evaluates its body against `(d, n, nc)` and re-raises the result via the `_Return` BaseException, defaulting to `IrThis()` so `IrReturn()` surfaces the matched node (the find-first pattern); `IrAction(target_type, body)` binds a node type to a body. Default bodies: `IrPass`, `IrWalk`, `IrRaise`, `IrEmit`, `IrRebuild`. Comparison/branch operands are typed `IrSelf` (not `IrNode`) because `IrNode`'s `Ir_co` is invariant — a value operand like `IrField` wouldn't be assignable to a bare `IrNode` slot.
 
-**Dispatch** (`ir/walk.py`): `IrDispatch[Iri, Ir_co]` is an `IrCachingTuple` of `(actions, default)` — `actions` an `IrTypeMap` (concrete-first MRO type→`IrAction` table, not a plain tuple), `_child_attrs = ()` so the dispatcher is never itself walked as a grammar node. It does **not** walk children automatically — action bodies own recursion. Resolution is the map's own concrete-first MRO lookup (one `getattr` per `type(n).__mro__` entry); falls back to `default` only on a full miss. Entry seams: `eval(d, n, nc)` (protocol) and `apply(root)` (façade, catches `IrReturn`). Presets: `IrVisitor` (default `IrWalk`), `IrTransformer` (default `IrRebuild`), `IrEmitter` (default `IrEmit`).
+**Dispatch** (`ir/walk.py`): `IrDispatch[Iri, Ir_co]` is an `IrCachingTuple` of `(actions, default)` — `actions` an `IrTypeMap` (concrete-first MRO type→`IrAction` table, not a plain tuple), `_child_attrs = ()` so the dispatcher is never itself walked as a grammar node. It does **not** walk children automatically — action bodies own recursion. Resolution is the map's own concrete-first MRO lookup (one `getattr` per `type(n).__mro__` entry); falls back to `default` only on a full miss. Entry seams: `eval(d, n, nc)` (protocol) and `apply(root)` (façade, catches `IrReturn`; the drive itself is the overridable `_run`). Presets: `IrVisitor` (default `IrWalk`), `IrTransformer` (default `IrRebuild`), `IrEmitter` (default `IrEmit`), and `IrBottomUp` (default `IrThis`) — the **iterative post-order** transformer: an explicit-stack `_run` transforms children first, rebuilds the node, then runs its body as a pure per-node combiner (bodies must NOT call `d.eval` on children; the transformed children also ride `nc`). Depth-independent — use it for whole-tree normal-form passes (`ir/canonical.py`'s `_CANON`/`_RENAME` run on it); a body cannot skip or lazily prune a subtree, so selective rewrites stay on `IrTransformer`.
 
 > **Open-set consumer rework complete (2026-07-04).** `generate.py` (`_GEN_ATOM` + `_Generator`), `codegen/model_emitter.py` (`_MODEL_TYPE`/`_GTEXT_TYPE`/`_TEXT_TYPE` per fold-mode, `_VALUE_TYPE`), and `codegen/aliases.py` (`_FRAGMENT`) all moved their atom-type dispatch onto open `IrDispatch`/`IrTypeMap` tables with raising defaults, matching `codegen/binding.py`/`codegen/passes.py`'s idiom; every silent fallback (`generate`'s old `return ""`) is now an explicit `UnsupportedConstructError`, and the post-canon-dead `IrNot` branches are deleted. `_group_union_type` (a ref-arm filter, not a classification ladder) and `_visit_item`'s recursing group-frame `isinstance` were deliberately left as-is — they aren't atom-type dispatch. See the open-classes principle and [[decisions]].
 
@@ -791,6 +831,18 @@ them.
 3. **Positional (Tier 3):** first unmatched pattern field → `head`; subsequent → `part_2`, `part_3` …
 
 Unquantified `IrLiteral` (quantifier `(1,1)`, `_is_structural_literal`) → no field, never reaches Tier 3. Quantified literals always name via Tier 2 (`_literal_token`), never Tier 3.
+
+**Reserved names mangle with a trailing `_`** (the `True_` precedent): field
+names in `_RESERVED_FIELD_NAMES` (Python keywords + the pydantic `BaseModel`
+surface + `GrammarModel`'s methods — a rule named `class` was a SyntaxError,
+`to-text` shadowed the method) and class names in `_RESERVED_CLASS_NAMES`
+(the emitted header's module bindings — a rule named `annotated` broke every
+later `Annotated[...]` resolution). Both sets are drift-pinned by tests
+against the real `GrammarModel` and the emitter's `CANONICAL_IMPORTS`.
+Unit-arm cycles (`s ::= s | "a"`, mutual arms) are broken in `_break_cycles`
+before MRO ordering: intra-cycle parent edges drop, cross-cycle edges widen
+to the whole target cycle (concrete arms carry every member; `isinstance`
+holds for fields typed with any of them).
 
 `_HINT` (always yields a name — used inside `_group_hint` to label literal-only group content) vs `_TIER2` (may yield `IrNone`, routing the field to Tier-3 positional names) is the same hint/field-base distinction the old `_ATOM_HINT`/`_FIELD_BASE` pair drew. Fold **mode** derivation (`mode_for`/`_MODE`, one of `BIND_MODES` — `text`/`gtext`/`model`/`models`) is a sibling `IrDispatch` table in the same module, dispatched on the atom with the owning `IrItem` riding the argument channel so ref/group bodies can read the quantifier.
 

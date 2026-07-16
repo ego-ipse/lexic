@@ -2,17 +2,26 @@
 
 from __future__ import annotations
 
+import ast as pyast
+
 import pytest
 
+from lexic.base import GrammarModel
 from lexic.codegen.binding import (
+    _RESERVED_CLASS_NAMES,
+    _RESERVED_FIELD_NAMES,
+    _SCHEMA_JOINT_STRIDE,
     CHARCLASS_NAMES,
     LITERAL_NAMES,
+    _schema_depths,
+    _schema_joints,
     bind_fields,
     class_name_for,
     classify_rule,
     compute_binding,
     mode_for,
 )
+from lexic.codegen.model_emitter import CANONICAL_IMPORTS
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrChr, IrNone, IrSeq
 from lexic.ir.bind import IrBind
@@ -292,23 +301,207 @@ def _small_ast() -> IrAst:
 def test_compute_binding_assigns_alternation_arm_parents():
     """Rules named as unit-ref arms inherit the alternation's class."""
     by_name = {b.rule_name: b for b in compute_binding(_small_ast())}
-    assert by_name["a"].parent_class_name == "Choice"
-    assert by_name["b"].parent_class_name == "Choice"
-    assert by_name["choice"].parent_class_name == "GrammarModel"
+    assert by_name["a"].parent_class_names == ("Choice",)
+    assert by_name["b"].parent_class_names == ("Choice",)
+    assert by_name["choice"].parent_class_names == ()
 
 
 def test_compute_binding_orders_parents_before_subclasses():
-    """A binding never precedes the binding of its parent class."""
+    """A binding never precedes the binding of any of its parent classes."""
     bindings = compute_binding(_small_ast())
     positions = {b.class_name: i for i, b in enumerate(bindings)}
     for binding in bindings:
-        if binding.parent_class_name in positions:
-            assert positions[binding.parent_class_name] < positions[binding.class_name]
+        for parent in binding.parent_class_names:
+            if parent in positions:
+                assert positions[parent] < positions[binding.class_name]
 
 
 def test_compute_binding_starts_with_the_start_rule():
     """The start rule (parentless here) leads the emission order."""
     assert compute_binding(_small_ast())[0].rule_name == "start"
+
+
+# ── multi-membership arms (L1) ────────────────────────────────────────
+#
+# A rule that is a unit-ref arm of two or more alternations subclasses all of
+# them (multiple inheritance). The single-parent last-writer-wins map silently
+# dropped every parent but one, so a field typed with a "losing" alternation
+# class rejected the instance at fold-ctor time.
+
+
+def _multi_membership_ast() -> IrAst:
+    """value → bare_val | unquoted; bare_val → unquoted | num.
+
+    ``unquoted`` is a unit-ref arm of BOTH ``value`` and ``bare_val`` (multi
+    membership), and ``bare_val`` is itself an arm of ``value`` — so ``BareVal``
+    is a subclass of ``Value`` and must precede it in ``Unquoted``'s bases for
+    the MRO to linearize.
+    """
+    return IrAst(
+        IrSeq(
+            IrRule(
+                "value", IrAlternation(IrRuleRef("bare_val"), IrRuleRef("unquoted"))
+            ),
+            IrRule("bare_val", IrAlternation(IrRuleRef("unquoted"), IrRuleRef("num"))),
+            IrRule("unquoted", IrLiteral("u")),
+            IrRule("num", IrLiteral("0")),
+        ),
+        "value",
+    )
+
+
+def test_multi_membership_arm_lists_all_parents():
+    """A rule that is an arm of two alternations lists both parents."""
+    by_name = {b.rule_name: b for b in compute_binding(_multi_membership_ast())}
+    assert set(by_name["unquoted"].parent_class_names) == {"Value", "BareVal"}
+
+
+def test_multi_membership_bases_ordered_most_derived_first():
+    """A base that subclasses another base precedes it (MRO-linearizable order).
+
+    ``BareVal`` is itself an arm of ``Value`` (so ``BareVal`` subclasses
+    ``Value``); Python's C3 linearization rejects ``(Value, BareVal)``, so the
+    bases must be ordered ``(BareVal, Value)``.
+    """
+    by_name = {b.rule_name: b for b in compute_binding(_multi_membership_ast())}
+    assert by_name["unquoted"].parent_class_names == ("BareVal", "Value")
+
+
+# ── unit-arm cycles (L5) ──────────────────────────────────────────────
+#
+# A rule that is a unit-ref arm of itself, or rules that are unit-ref arms of
+# each other, would emit self-/circularly-inheriting classes (`class S(S):`)
+# and die at module exec. Cycle members all derive the same language, so the
+# parent graph drops intra-cycle edges (members become siblings) and widens an
+# edge to an outside member to that member's whole cycle — concrete arms then
+# carry every member, keeping isinstance for fields typed with any of them.
+
+
+def _self_arm_ast() -> IrAst:
+    """s → s | lit_a: a rule that is a unit-ref arm of itself."""
+    return IrAst(
+        IrSeq(
+            IrRule("s", IrAlternation(IrRuleRef("s"), IrRuleRef("lit_a"))),
+            IrRule("lit_a", IrLiteral("a")),
+        ),
+        "s",
+    )
+
+
+def _mutual_arm_ast() -> IrAst:
+    """a → b | x ; b → a | y: mutually unit-ref-arm alternations."""
+    return IrAst(
+        IrSeq(
+            IrRule("a", IrAlternation(IrRuleRef("b"), IrRuleRef("x"))),
+            IrRule("b", IrAlternation(IrRuleRef("a"), IrRuleRef("y"))),
+            IrRule("x", IrLiteral("x")),
+            IrRule("y", IrLiteral("y")),
+        ),
+        "a",
+    )
+
+
+def test_self_arm_drops_the_self_parent():
+    """The self unit arm contributes no parent edge; other arms keep theirs."""
+    by_name = {b.rule_name: b for b in compute_binding(_self_arm_ast())}
+    assert by_name["s"].parent_class_names == ()
+    assert by_name["lit_a"].parent_class_names == ("S",)
+
+
+def test_mutual_arm_cycle_members_become_siblings():
+    """Neither cycle member subclasses the other — the hierarchy loads."""
+    by_name = {b.rule_name: b for b in compute_binding(_mutual_arm_ast())}
+    assert by_name["a"].parent_class_names == ()
+    assert by_name["b"].parent_class_names == ()
+
+
+def test_mutual_arm_concrete_arms_carry_every_cycle_member():
+    """An arm of either member subclasses BOTH (the widened cross-cycle edge)."""
+    by_name = {b.rule_name: b for b in compute_binding(_mutual_arm_ast())}
+    assert by_name["x"].parent_class_names == ("A", "B")
+    assert by_name["y"].parent_class_names == ("A", "B")
+
+
+def test_cycle_member_keeps_its_outside_parent():
+    """z → a | q over the a↔b cycle: ``a`` keeps ``Z``; arms still reach ``Z``.
+
+    ``x``/``y`` subclass ``(A, B)`` and ``A`` subclasses ``Z``, so instances
+    of either arm satisfy a field typed ``Z`` transitively.
+    """
+    ast = IrAst(
+        IrSeq(
+            IrRule("z", IrAlternation(IrRuleRef("a"), IrRuleRef("q"))),
+            IrRule("a", IrAlternation(IrRuleRef("b"), IrRuleRef("x"))),
+            IrRule("b", IrAlternation(IrRuleRef("a"), IrRuleRef("y"))),
+            IrRule("x", IrLiteral("x")),
+            IrRule("y", IrLiteral("y")),
+            IrRule("q", IrLiteral("q")),
+        ),
+        "z",
+    )
+    by_name = {b.rule_name: b for b in compute_binding(ast)}
+    assert by_name["a"].parent_class_names == ("Z",)
+    assert by_name["b"].parent_class_names == ()
+    assert by_name["x"].parent_class_names == ("A", "B")
+    assert by_name["q"].parent_class_names == ("Z",)
+
+
+# ── reserved names (L6) ───────────────────────────────────────────────
+
+
+def test_class_name_mangles_keywords_and_header_bindings():
+    """Keywords and emitted-header names get the ``_`` suffix; others don't."""
+    assert class_name_for("true") == "True_"
+    assert class_name_for("annotated") == "Annotated_"
+    assert class_name_for("grammar-model") == "GrammarModel_"
+    assert class_name_for("jp-char") == "JpChar"
+
+
+def test_reserved_class_names_cover_the_emitted_header():
+    """Every name the emitter's header binds is in the reserved-class set."""
+    bound = {
+        alias.asname or alias.name
+        for node in pyast.walk(pyast.parse(CANONICAL_IMPORTS))
+        if isinstance(node, pyast.ImportFrom)
+        for alias in node.names
+    }
+    # ``annotations`` (the __future__ import) can never PascalCase-collide.
+    assert bound - {"annotations"} <= _RESERVED_CLASS_NAMES
+
+
+def test_reserved_field_names_cover_grammar_model():
+    """Every public GrammarModel attribute is a reserved field name."""
+    public = {n for n in dir(GrammarModel) if not n.startswith("_")}
+    assert public <= _RESERVED_FIELD_NAMES
+
+
+def test_bind_fields_mangles_reserved_names():
+    """Rule refs named after keywords or model attributes get a ``_`` suffix."""
+    items = [
+        IrItem(IrRuleRef("class")),
+        IrItem(IrRuleRef("to-text")),
+        IrItem(IrRuleRef("value")),
+    ]
+    fields = bind_fields(items, frozenset())
+    assert list(fields) == ["class_", "to_text_", "value"]
+
+
+def test_multi_membership_parents_all_emitted_before_child():
+    """Every parent alternation is emitted before the multi-membership subclass."""
+    bindings = compute_binding(_multi_membership_ast())
+    positions = {b.class_name: i for i, b in enumerate(bindings)}
+    for parent in bindings[
+        next(i for i, b in enumerate(bindings) if b.rule_name == "unquoted")
+    ].parent_class_names:
+        assert positions[parent] < positions["Unquoted"]
+
+
+def test_multi_membership_parent_order_is_deterministic():
+    """The parent tuple is stable across repeated bindings of the same grammar."""
+    ast = _multi_membership_ast()
+    first = {b.rule_name: b.parent_class_names for b in compute_binding(ast)}
+    second = {b.rule_name: b.parent_class_names for b in compute_binding(ast)}
+    assert first == second
 
 
 def test_compute_binding_flags_noise_fields_from_the_ast():
@@ -323,3 +516,56 @@ def test_compute_binding_alternation_and_value_str_have_no_fields():
     by_name = {b.rule_name: b for b in compute_binding(_small_ast())}
     assert by_name["choice"].fields == {}
     assert by_name["a"].fields == {}
+
+
+# ── schema expansion joints (deep ref chains) ─────────────────────────
+
+
+def _chain_rules(depth: int) -> list[IrRule]:
+    """r0 → r1 → … → r<depth>, each a unit-ref wrapper, leaf a literal."""
+    rules = [
+        IrRule(f"r{i}", IrSequence(IrItem(IrRuleRef(f"r{i + 1}"))))
+        for i in range(depth)
+    ]
+    rules.append(IrRule(f"r{depth}", IrSequence(IrItem(IrLiteral("0")))))
+    return rules
+
+
+def test_schema_depths_count_acyclic_chains():
+    """Depth is the inlined-schema nesting: leaf 1, each referrer +1."""
+    edges = {"a": ["b"], "b": ["c"], "c": []}
+    assert _schema_depths(edges) == {"a": 3, "b": 2, "c": 1}
+
+
+def test_schema_depths_cycle_edges_add_no_depth():
+    """Cycle members keep depth from OUTSIDE refs only (pydantic def-refs)."""
+    edges = {"v": ["a", "leaf"], "a": ["v"], "leaf": []}
+    depths = _schema_depths(edges)
+    assert depths["leaf"] == 1
+    assert depths["v"] == 2  # leaf inlines; the v↔a cycle edge does not
+    assert depths["a"] == 1  # a's only ref is intra-cycle — def-ref'd, shallow
+
+
+def test_schema_joints_flag_every_stride_multiple():
+    """A chain longer than one stride gets a joint at each stride multiple."""
+    depth = 2 * _SCHEMA_JOINT_STRIDE + 10
+    joints = _schema_joints(_chain_rules(depth))
+    assert len(joints) == 2
+    depths_of_joints = {depth + 1 - int(name[1:]) for name in joints}
+    assert depths_of_joints == {_SCHEMA_JOINT_STRIDE, 2 * _SCHEMA_JOINT_STRIDE}
+
+
+def test_shallow_grammars_get_no_joints():
+    """Every grammar under one stride deep is untouched (all ground truths)."""
+    assert not _schema_joints(_chain_rules(30))
+    bindings = compute_binding(_multi_membership_ast())
+    assert not any(b.schema_joint for b in bindings)
+
+
+def test_compute_binding_threads_joint_flags():
+    """RuleBinding.schema_joint mirrors the joint set."""
+    depth = _SCHEMA_JOINT_STRIDE + 5
+    rules = _chain_rules(depth)
+    ast = IrAst(IrSeq(*rules), "r0")
+    flagged = {b.rule_name for b in compute_binding(ast) if b.schema_joint}
+    assert len(flagged) == 1
