@@ -30,7 +30,8 @@ from lexic.ir.base import (
     IrStr,
     IrTuple,
 )
-from lexic.ir.nodes import IrAlternation, IrSequence
+from lexic.ir.action import IrArgs, IrJoin
+from lexic.ir.nodes import IrAlternation, IrItem, IrLiteral, IrQuantifier, IrSequence
 
 # ── IrSelf / IrNone / IrAtom contract ─────────────────────────────────
 
@@ -182,6 +183,26 @@ def test_irtuple_repr_is_codegen():
     """repr(IrTuple(...)) reproduces the constructor call."""
     t = IrTuple(IrStr("a"), IrInt(7))
     assert repr(t) == "IrTuple(IrStr('a'), IrInt(7))"
+
+
+def test_record_repr_elision_is_type_strict():
+    """A default-equal value of the WRONG type is never elided (F-REPR-1).
+
+    Empty records compare equal cross-class under tuple equality
+    (``IrArgs() == IrTuple()``), so an equality-only elision would render
+    ``IrJoin(IrArgs())`` as ``IrJoin()`` and reconstruct it with the wrong
+    default ``IrTuple()`` — repr-stable but behaviorally different (the
+    GBNF ``literal`` reduction would join nothing). The elision requires
+    the same concrete type as the declared default.
+    """
+    joined_args = IrJoin(IrArgs())
+    assert repr(joined_args) == "IrJoin(IrArgs())"
+    # same-type defaults still elide (the IrItem precedent stays)
+    assert repr(IrItem(IrLiteral("a"), IrQuantifier(1, 1))) == (
+        "IrItem(IrLiteral('a'))"
+    )
+    # and a genuinely-default empty IrTuple still elides
+    assert repr(IrJoin(IrTuple())) == "IrJoin()"
 
 
 def test_irtuple_eval_rebuilds_with_evaluated_elements():
