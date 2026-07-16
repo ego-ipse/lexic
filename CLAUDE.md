@@ -19,8 +19,10 @@ Read these documents before editing code:
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
   Current: `zzz_current_work/260713-vyx-parse/PLAN.md` (CLOSED 2026-07-16,
   see its OUTCOME + FOLLOWUP.md; vyx-side spec commit pending user).
-  Queued, awaiting user rulings: `260712-viz/PLAN_v2.md` (plan approval),
-  `260716-ir-native/PLAN.md` (six §USER DECISIONS).
+  Queued: `260716-ir-native/` runs NEXT — PLAN.md SUPERSEDED by user
+  redirect (scope = new `compile/` subsystem: pure-IR representations +
+  compiled models; `codegen/` untouched until deleted at end); PLAN_v3 in
+  preparation. Then `260712-viz/PLAN_v2.md` (after ir-native, ruling 5).
   Prior: `260712-totality-cleanup/PLAN.md` (Tasks 0–5 ledger in
   `PLAN_v3.md`; v4 superseded).
 - **Cutover complete (2026-05-13).** The IrItem-based pipeline is the only pipeline. Old Atom shape, `atoms.py`, `new_gbnf/`, `flavours.py` are all gone. See `.wiki/lexic/cutover-plan.md` and `.wiki/lexic/slice-b-status.md` for what remains.
