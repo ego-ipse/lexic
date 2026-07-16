@@ -400,3 +400,54 @@ def test_from_parts_fills_defaults_for_unset_optional_fields():
 
     assert fast == validated
     assert fast.model_dump() == validated.model_dump()
+
+
+# ── schema expansion joints ───────────────────────────────────────────
+
+
+class _JointLeaf(GrammarModel):
+    """A joint-flagged model — nested references see a shallow schema."""
+
+    __schema_joint__: ClassVar[bool] = True
+    v: str
+
+
+class _JointTop(GrammarModel):
+    """References the completed joint through a plain field."""
+
+    child: _JointLeaf
+
+
+def test_joint_class_validates_directly_as_usual():
+    """A joint's OWN schema build takes the default path — normal validation."""
+    leaf = _JointLeaf.model_validate({"v": "x"})
+    assert leaf.v == "x"
+    with pytest.raises(Exception):
+        _JointLeaf.model_validate({"v": 1})
+
+
+def test_joint_nested_dict_input_validates_through_the_class():
+    """Dict input crossing a joint reaches the nested model's validator."""
+    top = _JointTop.model_validate({"child": {"v": "y"}})
+    assert isinstance(top.child, _JointLeaf)
+    assert top.child.v == "y"
+
+
+def test_joint_nested_instance_passes_through():
+    """Instance input crosses the joint unrevalidated (pydantic default)."""
+    leaf = _JointLeaf(v="z")
+    top = _JointTop(child=leaf)
+    assert top.child is leaf
+
+
+def test_joint_nested_dump_delegates_with_mode():
+    """Dumps cross the joint into the nested model's own dump, both modes."""
+    top = _JointTop(child=_JointLeaf(v="d"))
+    assert top.model_dump() == {"child": {"v": "d"}}
+    assert top.model_dump(mode="json") == {"child": {"v": "d"}}
+
+
+def test_non_joint_models_take_the_default_schema_path():
+    """The base flag is False — ordinary generated models are untouched."""
+    assert GrammarModel.__schema_joint__ is False
+    assert _JointTop.__dict__.get("__schema_joint__") is None

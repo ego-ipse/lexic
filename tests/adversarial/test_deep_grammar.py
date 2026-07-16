@@ -42,3 +42,27 @@ def test_deep_ref_chain_round_trips_without_overflow() -> None:
     assert len(compiled.classes) == _DEPTH + 1
     text = "[" * _DEPTH + "0" + "]" * _DEPTH
     assert compiled.parse(text).to_text() == text
+
+
+def test_800_rule_chain_round_trips_and_dumps() -> None:
+    """An 800-rule chain — past pydantic's schema-inlining cliff (~450).
+
+    Schema expansion joints (every ``binding._SCHEMA_JOINT_STRIDE``-th class
+    along an acyclic ref chain presents a shallow validate-through-the-class
+    schema) bound the inlined schema depth, so compile, parse, round-trip,
+    dump, and dict-input validation all hold at depths pydantic alone cannot
+    build.
+    """
+    depth = 800
+    compiled = compile_text(_ref_chain(depth), cache_key="adversarial-deepg-800")
+    text = "[" * depth + "0" + "]" * depth
+    model = compiled.parse(text)
+    assert model.to_text() == text
+    dumped = model.model_dump()
+    steps = 0
+    cursor: object = dumped
+    while isinstance(cursor, dict) and len(cursor) == 1:
+        cursor = next(iter(cursor.values()))
+        steps += 1
+    assert steps == depth + 1  # every chain level serialized to a plain dict
+    assert model.semantic_dump()  # the method still works across joints

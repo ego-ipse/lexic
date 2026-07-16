@@ -3,13 +3,43 @@
 from __future__ import annotations
 
 from dataclasses import fields as dataclass_fields
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, Optional, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, GetCoreSchemaHandler
+from pydantic.main import IncEx
+from pydantic_core import CoreSchema, core_schema
+from pydantic_core.core_schema import SerializationInfo
 
 from lexic.grammars import get_flavour
 from lexic.ir.bind import IrBind
 from lexic.ir.nodes import IrLiteral, IrRule, IrSequence
+
+
+def _joint_dump(model: BaseModel, info: SerializationInfo) -> Any:
+    """Serialize a joint-nested model by delegating to its own ``model_dump``.
+
+    A schema joint is opaque to pydantic-core, so serialization crosses into
+    Python once per joint (once per stride levels, never per level) and
+    re-enters the nested model's own — again Rust-driven — dump with the
+    caller's options threaded through.
+
+    :param model: The nested model behind the joint.
+    :param info: The outer serializer's options.
+    :returns: The nested model's dump under those options.
+    """
+    # ``SerializationInfo`` types include/exclude with the callable-admitting
+    # form, but everything reaching a joint came through a ``model_dump``
+    # entry, which only accepts ``IncEx`` — the cast narrows to that reality.
+    return model.model_dump(
+        mode=info.mode,
+        include=cast(Optional[IncEx], info.include),
+        exclude=cast(Optional[IncEx], info.exclude),
+        by_alias=info.by_alias,
+        exclude_unset=info.exclude_unset,
+        exclude_defaults=info.exclude_defaults,
+        exclude_none=info.exclude_none,
+        round_trip=info.round_trip,
+    )
 
 
 class GrammarModel(BaseModel):
@@ -28,6 +58,38 @@ class GrammarModel(BaseModel):
     """
 
     __grammar__: ClassVar[IrRule]
+    __schema_joint__: ClassVar[bool] = False
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler, /
+    ) -> CoreSchema:
+        """The core schema — shallow at expansion joints, default elsewhere.
+
+        pydantic inlines a completed sub-model's whole core schema into its
+        referrer (definition-refs are kept only for recursive models), so a
+        long acyclic ref chain of generated classes builds a chain-deep
+        schema and pydantic's own recursive schema walks overflow near ~450
+        rules. Codegen flags every stride-th class along a chain with
+        ``__schema_joint__`` (see ``lexic.codegen.binding._schema_joints``);
+        a *completed* joint presents a shallow validate-through-the-class
+        schema instead, bounding every inlined schema — and each dump's
+        Python crossings — by the stride. The class's own schema build (not
+        yet complete) and every non-joint class take the default path, so
+        grammars shallower than one stride are untouched.
+        """
+        if cls.__dict__.get("__schema_joint__", False) and cls.__dict__.get(
+            "__pydantic_complete__", False
+        ):
+            return core_schema.no_info_plain_validator_function(
+                cls.model_validate,
+                serialization=core_schema.plain_serializer_function_ser_schema(
+                    _joint_dump,
+                    info_arg=True,
+                    return_schema=core_schema.any_schema(),
+                ),
+            )
+        return handler(source_type)
 
     @classmethod
     def _bound_fields(cls) -> dict[int, tuple[str, IrBind]]:

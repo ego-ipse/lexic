@@ -163,24 +163,49 @@ class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     def _run(self, root: IrNode) -> Ir_co:
         """Post-order drive: transform children, rebuild, act — iteratively.
 
+        Per-run fast paths keep the driver at recursive-walk cost: action
+        bodies are resolved once per node *type* (a full miss on the
+        :class:`~lexic.ir.action.IrThis` default skips the call entirely),
+        and a node none of whose children changed is reused instead of
+        rebuilt.
+
         :param root: Root IR node to transform.
         :returns: The transformed tree.
         """
+        identity = isinstance(self.default, IrThis)
+        bodies: dict[type, IrSelf | None] = {}
         done: dict[int, IrSelf] = {}
-        stack: list[tuple[IrSelf, bool]] = [(root, False)]
+        stack: list[tuple[IrSelf, Sequence[IrSelf] | None]] = [(root, None)]
         while stack:
-            node, expanded = stack.pop()
+            node, kids = stack.pop()
             key = id(node)
             if key in done:
                 continue
-            kids = node.children()
-            if kids and not expanded:
-                stack.append((node, True))
-                stack.extend((kid, False) for kid in kids)
-                continue
-            new = IrTuple(*(done[id(kid)] for kid in kids))
-            rebuilt = node.rebuild(new) if kids else node
-            done[key] = self.eval(self, rebuilt, new)
+            if kids is None:  # first visit — expand children, revisit after
+                kids = node.children()
+                if kids:
+                    stack.append((node, kids))
+                    # Reversed so pops run left-to-right: the visit order
+                    # (and thus any stateful body's side-effect order, e.g.
+                    # synthetic rule minting) matches the recursive walk's.
+                    stack.extend((kid, None) for kid in reversed(kids))
+                    continue
+            new = tuple(done[id(kid)] for kid in kids)
+            if all(a is b for a, b in zip(new, kids)):
+                rebuilt = node
+            else:
+                rebuilt = node.rebuild(new)
+            node_type = type(rebuilt)
+            try:
+                body = bodies[node_type]
+            except KeyError:
+                try:
+                    body = self.actions[node_type]
+                except KeyError:
+                    resolved = self._resolve_miss(self.actions, rebuilt)
+                    body = None if identity and resolved is self.default else resolved
+                bodies[node_type] = body
+            done[key] = rebuilt if body is None else body.eval(self, rebuilt, new)
         return cast(Ir_co, done[id(root)])
 
 

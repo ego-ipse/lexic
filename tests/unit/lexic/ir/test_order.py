@@ -4,8 +4,16 @@ unreached-rules-alphabetical-last."""
 from __future__ import annotations
 
 from lexic.ir.base import IrSeq
-from lexic.ir.nodes import IrAst, IrItem, IrLiteral, IrRule, IrRuleRef, IrSequence
-from lexic.ir.order import RuleOrder, order_by_refs
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrItem,
+    IrLiteral,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+)
+from lexic.ir.order import RuleOrder, order_by_refs, refs_in_order
 
 
 def _rule(name: str, *refs: str) -> IrRule:
@@ -203,3 +211,13 @@ def test_by_refs_is_a_noop_on_an_already_ordered_ast():
     """Reordering an AST already in canonical order returns an equal AST."""
     ast = IrAst(IrSeq(_rule("root", "b"), _rule("b")), "root")
     assert order_by_refs(ast) == ast
+
+
+def test_refs_in_order_collects_distinct_names_in_body_order():
+    """The public edge extractor: first-seen order, no duplicates."""
+    body = IrAlternation(
+        IrSequence(
+            IrItem(IrRuleRef("b")), IrItem(IrRuleRef("a")), IrItem(IrRuleRef("b"))
+        )
+    )
+    assert refs_in_order(body) == ["b", "a"]

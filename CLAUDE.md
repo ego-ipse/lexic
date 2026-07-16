@@ -124,7 +124,12 @@ parallel spec object. Instance parsing is a **positional fold**
 src/lexic/
   __init__.py
   base.py               GrammarModel base — to_text(), to_grammar(), semantic_dump()
-                        (walks __grammar__: ClassVar[IrRule] + each field's IrBind)
+                        (walks __grammar__: ClassVar[IrRule] + each field's IrBind);
+                        __get_pydantic_core_schema__ + __schema_joint__ — a
+                        completed joint class presents a shallow validate-through-
+                        the-class schema so pydantic never inlines a chain-deep
+                        schema (see binding._schema_joints; the pydantic ~450-rule
+                        ref-chain RecursionError fix)
   compile.py            compile_text(), compile_from_path(), canonical_grammar(),
                         parse_grammar() — the sole runtime seam onto codegen + the engine
   exceptions.py         LexicError hierarchy (see §Error vocabulary)
@@ -174,10 +179,16 @@ src/lexic/
                         children transform first, the node rebuilds, then its
                         body runs as a pure per-node combiner (NO d.eval in
                         bodies; transformed children also ride nc); default
-                        IrThis. Fits whole-tree normal-form passes (canonicalize,
-                        name folding) — a body cannot skip/prune a subtree.
-                        apply()'s IrReturn catch is shared via the overridable
-                        _run strategy seam
+                        IrThis. EVERY structural transformer runs on it
+                        (canonicalize/_RENAME, normalize's FlattenGroups/
+                        DesugarQuantifiers, passes' _HoistTransformer — none
+                        recursive anymore); a body cannot skip/prune a subtree
+                        (selective rewrites stay on IrTransformer). Driver:
+                        left-to-right visit order (stateful mint order matches
+                        the recursive walks), per-run body cache, identity-
+                        preserving rebuild (child-identity compare, never
+                        structural eq). apply()'s IrReturn catch is shared via
+                        the overridable _run strategy seam
     flavour.py          IrFlavour ABC — IrEmitter subclass + ClassVars (name,
                         extensions, line_comment, escapes: EscapeCodec instance,
                         grammar: IrAst — the flavour's self-grammar, reducer:

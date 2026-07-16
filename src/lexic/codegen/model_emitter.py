@@ -332,6 +332,8 @@ class ModuleEmitter:
         out.write(f"\n\nclass {bind.class_name}({bases}):\n")
         self._write_fields(bind, rule, out)
         out.write(f"    __grammar__: ClassVar[IrRule] = {rule!r}\n")
+        if bind.schema_joint:
+            out.write("    __schema_joint__: ClassVar[bool] = True\n")
         return out.getvalue()
 
     def _write_fields(self, bind: RuleBinding, rule: IrRule, out: StringIO) -> None:

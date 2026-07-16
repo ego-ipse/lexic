@@ -10,8 +10,11 @@ from lexic.base import GrammarModel
 from lexic.codegen.binding import (
     _RESERVED_CLASS_NAMES,
     _RESERVED_FIELD_NAMES,
+    _SCHEMA_JOINT_STRIDE,
     CHARCLASS_NAMES,
     LITERAL_NAMES,
+    _schema_depths,
+    _schema_joints,
     bind_fields,
     class_name_for,
     classify_rule,
@@ -513,3 +516,56 @@ def test_compute_binding_alternation_and_value_str_have_no_fields():
     by_name = {b.rule_name: b for b in compute_binding(_small_ast())}
     assert by_name["choice"].fields == {}
     assert by_name["a"].fields == {}
+
+
+# ── schema expansion joints (deep ref chains) ─────────────────────────
+
+
+def _chain_rules(depth: int) -> list[IrRule]:
+    """r0 → r1 → … → r<depth>, each a unit-ref wrapper, leaf a literal."""
+    rules = [
+        IrRule(f"r{i}", IrSequence(IrItem(IrRuleRef(f"r{i + 1}"))))
+        for i in range(depth)
+    ]
+    rules.append(IrRule(f"r{depth}", IrSequence(IrItem(IrLiteral("0")))))
+    return rules
+
+
+def test_schema_depths_count_acyclic_chains():
+    """Depth is the inlined-schema nesting: leaf 1, each referrer +1."""
+    edges = {"a": ["b"], "b": ["c"], "c": []}
+    assert _schema_depths(edges) == {"a": 3, "b": 2, "c": 1}
+
+
+def test_schema_depths_cycle_edges_add_no_depth():
+    """Cycle members keep depth from OUTSIDE refs only (pydantic def-refs)."""
+    edges = {"v": ["a", "leaf"], "a": ["v"], "leaf": []}
+    depths = _schema_depths(edges)
+    assert depths["leaf"] == 1
+    assert depths["v"] == 2  # leaf inlines; the v↔a cycle edge does not
+    assert depths["a"] == 1  # a's only ref is intra-cycle — def-ref'd, shallow
+
+
+def test_schema_joints_flag_every_stride_multiple():
+    """A chain longer than one stride gets a joint at each stride multiple."""
+    depth = 2 * _SCHEMA_JOINT_STRIDE + 10
+    joints = _schema_joints(_chain_rules(depth))
+    assert len(joints) == 2
+    depths_of_joints = {depth + 1 - int(name[1:]) for name in joints}
+    assert depths_of_joints == {_SCHEMA_JOINT_STRIDE, 2 * _SCHEMA_JOINT_STRIDE}
+
+
+def test_shallow_grammars_get_no_joints():
+    """Every grammar under one stride deep is untouched (all ground truths)."""
+    assert not _schema_joints(_chain_rules(30))
+    bindings = compute_binding(_multi_membership_ast())
+    assert not any(b.schema_joint for b in bindings)
+
+
+def test_compute_binding_threads_joint_flags():
+    """RuleBinding.schema_joint mirrors the joint set."""
+    depth = _SCHEMA_JOINT_STRIDE + 5
+    rules = _chain_rules(depth)
+    ast = IrAst(IrSeq(*rules), "r0")
+    flagged = {b.rule_name for b in compute_binding(ast) if b.schema_joint}
+    assert len(flagged) == 1

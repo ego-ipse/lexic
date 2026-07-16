@@ -124,6 +124,22 @@ def _refs_in_order(node: IrSelf, out: list[str]) -> None:
         _refs_in_order(child, out)
 
 
+def refs_in_order(node: IrSelf) -> list[str]:
+    """The distinct ``IrRuleRef`` names under ``node``, in first-seen order.
+
+    The public form of the edge extractor :meth:`RuleOrder.by_refs` uses —
+    consumers building their own relations over a grammar's ref topology
+    (codegen's schema-joint depths) read edges from here rather than
+    re-walking.
+
+    :param node: Subtree root to scan (typically a rule body).
+    :returns: Each referenced rule name once, in body order.
+    """
+    out: list[str] = []
+    _refs_in_order(node, out)
+    return out
+
+
 def order_by_refs(ast: IrAst) -> IrAst:
     """Module-level alias for :meth:`RuleOrder.by_refs`.
 

@@ -44,7 +44,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.order import RuleOrder
+from lexic.ir.order import RuleOrder, refs_in_order
 from lexic.ir.walk import IrDispatch, IrVisitor
 
 RuleKind = Literal["sequence", "alternation", "value_str"]
@@ -114,6 +114,11 @@ class RuleBinding:
     ``parent_class_names`` holds every alternation the rule is a unit-ref arm of
     (deterministically ordered — see :func:`_parent_rules`); an empty tuple
     means the class subclasses :class:`~lexic.base.GrammarModel` directly.
+
+    ``schema_joint`` marks a schema expansion joint (see
+    :func:`_schema_joints`): the emitted class carries ``__schema_joint__``,
+    so nested references present a shallow core schema instead of pydantic
+    inlining the whole subtree.
     """
 
     rule_name: str
@@ -121,6 +126,7 @@ class RuleBinding:
     parent_class_names: tuple[str, ...]
     kind: RuleKind
     fields: dict[str, IrBind]
+    schema_joint: bool = False
 
 
 # ── class naming (absorbed to_pascal) ─────────────────────────────────
@@ -377,6 +383,65 @@ def _order_bases(
     return tuple(result)
 
 
+_SCHEMA_JOINT_STRIDE = 64
+"""Ref-chain distance between schema expansion joints.
+
+pydantic inlines a completed sub-model's whole core schema into its referrer
+(definition-refs are kept only for recursive models), so an N-rule acyclic
+chain builds an N-deep schema and pydantic's own recursive walks overflow
+near N ≈ 450. Flagging every ``stride``-th class along a chain as a joint
+(a shallow validate-through-the-class schema, see
+:meth:`lexic.base.GrammarModel.__get_pydantic_core_schema__`) bounds every
+inlined schema — and every serializer's Python crossing count — by the
+stride. Grammars shallower than one stride get no joints and are untouched.
+"""
+
+
+def _schema_depths(edges: dict[str, list[str]]) -> dict[str, int]:
+    """Each rule's inlined-schema depth over the ref topology.
+
+    A rule on a ref cycle contributes its own node only — pydantic keeps
+    cycle members as definition-refs, so an edge inside a cycle adds no
+    inlining depth; every cross-cycle edge does. Chaotic iteration over the
+    condensation (cycle edges skipped) — a DAG, so the fixpoint terminates.
+
+    :param edges: Rule name → the rule names its body references.
+    :returns: Rule name → its inlined-schema depth (leaves are 1).
+    """
+    reach = _reach_closure(edges)
+
+    def same_cycle(a: str, b: str) -> bool:
+        return b in reach.get(a, ()) and a in reach.get(b, ())
+
+    depth = dict.fromkeys(edges, 1)
+    changed = True
+    while changed:
+        changed = False
+        for name, refs in edges.items():
+            outside = (depth.get(c, 0) for c in refs if not same_cycle(name, c))
+            new = 1 + max(outside, default=0)
+            if new != depth[name]:
+                depth[name] = new
+                changed = True
+    return depth
+
+
+def _schema_joints(rules: Sequence[IrRule]) -> frozenset[str]:
+    """The rules to flag as schema expansion joints (depth-stride multiples).
+
+    :param rules: The codegen grammar's rules.
+    :returns: The joint rule names — empty for grammars shallower than one
+        stride (every existing ground-truth grammar).
+    """
+    if len(rules) < _SCHEMA_JOINT_STRIDE:
+        return frozenset()  # depth is bounded by rule count — no joint possible
+    edges = {str(rule.name): refs_in_order(rule.body) for rule in rules}
+    depths = _schema_depths(edges)
+    return frozenset(
+        name for name, depth in depths.items() if depth % _SCHEMA_JOINT_STRIDE == 0
+    )
+
+
 def _parent_rules(rules: Sequence[IrRule]) -> dict[str, tuple[str, ...]]:
     """Map each unit-ref alternation arm to its owning alternations, MRO-ordered.
 
@@ -614,7 +679,10 @@ def bind_fields(
 
 
 def _bind_rule(
-    rule: IrRule, parent_rules: dict[str, tuple[str, ...]], non_semantic: frozenset[str]
+    rule: IrRule,
+    parent_rules: dict[str, tuple[str, ...]],
+    non_semantic: frozenset[str],
+    joints: frozenset[str],
 ) -> RuleBinding:
     """Build one rule's binding."""
     kind = classify_rule(rule)
@@ -627,6 +695,7 @@ def _bind_rule(
         parent_class_names=tuple(class_name_for(p) for p in parents),
         kind=kind,
         fields=fields,
+        schema_joint=str(rule.name) in joints,
     )
 
 
@@ -644,8 +713,10 @@ def compute_binding(ast: IrAst) -> list[RuleBinding]:
     rules = list(ast.rules)
     parent_rules = _parent_rules(rules)
     non_semantic = ast.non_semantic
+    joints = _schema_joints(rules)
     by_name = {
-        str(rule.name): _bind_rule(rule, parent_rules, non_semantic) for rule in rules
+        str(rule.name): _bind_rule(rule, parent_rules, non_semantic, joints)
+        for rule in rules
     }
 
     def parent_edge(name: str) -> list[str]:

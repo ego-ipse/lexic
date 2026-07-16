@@ -6,6 +6,43 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-16 — Schema expansion joints (pydantic depth cliff fixed) + all transformers on IrBottomUp
+
+**Joints (user-ruled: fix, no depth guard).** pydantic inlines a completed
+sub-model's core schema into its referrer (def-refs only for recursive
+models; unfixed upstream through 2.14.0a1), so long acyclic ref chains built
+chain-deep schemas and pydantic's recursive walks overflowed (~450 rules
+even after leaf-first rebuild). Fix: `codegen/binding.py` computes each
+rule's inlined-schema depth over the ref topology (`_schema_depths` —
+cycle edges add nothing, they stay def-refs; `ir/order.refs_in_order` is the
+new public edge extractor) and flags every 64th class along a chain
+(`_SCHEMA_JOINT_STRIDE`, `RuleBinding.schema_joint`, emitted as
+`__schema_joint__` ClassVar). `GrammarModel.__get_pydantic_core_schema__`
+(base.py) returns, for a *completed* joint, a shallow
+validate-through-the-class schema (`model_validate` + a `_joint_dump`
+serializer threading the caller's options), so schema depth — and dump's
+Python crossings — are bounded by the stride. Grammars under 64 rules
+short-circuit to zero joints; 800-rule chains now compile/parse/round-trip/
+dump/semantic_dump end-to-end.
+
+**IrBottomUp everywhere (user directive).** `normalize._Minting`
+(FlattenGroups/DesugarQuantifiers) and `passes._HoistTransformer` migrated —
+no recursive IR transformer remains. Driver hardening for stateful bodies
+and speed: children push reversed (left-to-right visit order — side-effect
+order matches the recursive walks, so synthetic-rule numbering stays
+compatible; sibling order preserved, nested-group mint order inverts
+inner-first — nothing pins it), per-run body-resolution cache (a table miss
+on the `IrThis` default skips the eval call), identity-preserving rebuild
+(unchanged nodes are reused, compared by child identity — never structural
+equality, which would be quadratic), kids carried in the stack frame
+(`children()` once per node). Perf gate met: passes+normalize micro-bench
+0.479s → 0.520s in isolation, but END-TO-END cold `compile_text` over all
+ground truths is *faster* than the pre-change baseline (0.63s → 0.61s; the
+identity-preserving rebuild and the joint early-exit dominate). Suite 2255;
+gate exit 0.
+
+---
+
 ## 2026-07-16 — IrBottomUp: iterative post-order transformer; canonicalize is depth-safe (L7a fixed)
 
 New dispatch preset `IrBottomUp(IrTransformer)` in `ir/walk.py` (re-exported

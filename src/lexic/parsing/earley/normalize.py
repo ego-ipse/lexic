@@ -18,14 +18,14 @@ Multi-char literals are NOT split: a k-char literal is one scan atom — the
 kernel matches it with ``text.startswith`` and lands the advance k columns
 ahead, so one leaf covers the whole literal.
 
-Each transform is an :class:`~lexic.ir.walk.IrTransformer`: the generic
-:class:`~lexic.ir.action.IrRebuild` default walks and rebuilds the tree, so a
+Each transform is an :class:`~lexic.ir.walk.IrBottomUp`: the iterative
+post-order driver walks and rebuilds the tree (depth-independent), so a
 transform only declares the node types where it *deviates* — no hand-rolled
-``rules → arms → items`` recursion. Both steps mint fresh rule names and
-collect new rules in a mutable :class:`Minter` leaf carried on the transformer
-(reached through the dispatcher ``d``); numeric recursion params (repeat bounds)
-ride the argument channel as :class:`~lexic.ir.base.IrInt`, so ``nc`` stays
-``IrSelf``.
+``rules → arms → items`` recursion, and bodies see children already in final
+form. Both steps mint fresh rule names and collect new rules in a mutable
+:class:`Minter` leaf carried on the transformer (reached through the
+dispatcher ``d``); numeric recursion params (repeat bounds) ride the argument
+channel as :class:`~lexic.ir.base.IrInt`, so ``nc`` stays ``IrSelf``.
 
 Synthetic rules carry the :data:`SYNTHETIC_PREFIX` so a later reduction step can
 recognise and collapse them. The module-level :func:`flatten_groups` /
@@ -60,7 +60,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.walk import IrTransformer
+from lexic.ir.walk import IrBottomUp
 
 _ONE = IrQuantifier(1, 1)
 
@@ -113,10 +113,11 @@ class Minter(IrLeaf[IrSelf, IrSelf]):
 class HoistItem(IrLeaf[IrSelf, IrSelf]):
     """``IrItem`` action: hoist a group atom to a synthetic rule, else identity.
 
-    A group (an :class:`IrAlternation` used as an atom) is recursively flattened
-    (via ``d``), recorded in the minter under a fresh name, and replaced by a
-    ruleref item keeping the original quantifier. Nested groups are hoisted by the
-    recursive ``d.eval`` re-dispatching down through this same action.
+    A group (an :class:`IrAlternation` used as an atom) is recorded in the
+    minter under a fresh name and replaced by a ruleref item keeping the
+    original quantifier. The bottom-up driver has already hoisted any nested
+    groups inside it (inner groups mint before outer ones), so the body only
+    handles this level.
     """
 
     def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrItem:
@@ -126,8 +127,7 @@ class HoistItem(IrLeaf[IrSelf, IrSelf]):
             return item
         minter = cast(_Minting, d).minter
         name = str(minter.eval(d, IrStr("grp"), ()))
-        flattened = cast(IrAlternation, d.eval(d, item.atom, ()))
-        minter += IrRule(name, flattened)
+        minter += IrRule(name, item.atom)
         return IrItem(IrRuleRef(name), item.quantifier)
 
 
@@ -246,19 +246,18 @@ class DesugarItem(IrLeaf[IrSelf, IrSelf]):
 
 
 class CollectRules(IrLeaf[IrSelf, IrSelf]):
-    """``IrAst`` action: transform every rule, then append the minted rules.
+    """``IrAst`` action: append the minted rules to the transformed grammar.
 
-    Walking the rules via ``d`` populates the minter (the per-item actions hoist /
-    desugar as they fire); the result grammar is the transformed rules followed by
-    the collected synthetic rules.
+    The bottom-up driver has already transformed every rule (populating the
+    minter as the per-item actions fired); the body only splices the
+    collected synthetic rules onto the end.
     """
 
     def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrAst:
         """:param n: the grammar; :returns: the rewritten grammar."""
         grammar = cast(IrAst, n)
         minter = cast(_Minting, d).minter
-        rules = tuple(cast(IrRule, d.eval(d, rule, ())) for rule in grammar.rules)
-        return IrAst(rules=IrSeq(*rules, *minter), start=grammar.start)
+        return IrAst(rules=IrSeq(*grammar.rules, *minter), start=grammar.start)
 
 
 EXPAND = Expand()
@@ -266,8 +265,8 @@ OPT_CHAIN = OptChain()
 """Shared numeric-recursion nodes for quantifier desugaring (minter lives on ``d``)."""
 
 
-class _Minting(IrTransformer):
-    """An :class:`IrTransformer` carrying a per-run :class:`Minter` and memo.
+class _Minting(IrBottomUp):
+    """An :class:`IrBottomUp` carrying a per-run :class:`Minter` and memo.
 
     The minter is reached by the action bodies through the dispatcher ``d``; a
     fresh one is supplied per call by the entry-point wrappers. The ``memo``
