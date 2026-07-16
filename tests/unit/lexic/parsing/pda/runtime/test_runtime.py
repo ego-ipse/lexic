@@ -66,8 +66,10 @@ _MAX_DEPTH = 4
 # Mirrors tools/benchmark/pipeline_bench.py's arithmetic instance workload
 # (same snippets, same ~4800-char target) — not imported (that module builds
 # its own corpus for timing, not as an importable package) but pinned here as
-# the same data so this test exercises the actual bench corpus shape.
-_ARITHMETIC_BENCH_SNIPPETS: tuple[str, ...] = (
+# the same data so this test exercises the actual bench corpus shape. Public
+# (not module-private) so tests/golden_fixtures.py can import the same
+# literals rather than duplicating them (pylint R0801).
+ARITHMETIC_BENCH_SNIPPETS: tuple[str, ...] = (
     "x=1\n",
     "y=z\n",
     "a+b=100\n",
@@ -82,7 +84,7 @@ def _arithmetic_bench_corpus(target_len: int = 4800) -> str:
     size = 0
     n = 0
     while size < target_len:
-        piece = _ARITHMETIC_BENCH_SNIPPETS[n % len(_ARITHMETIC_BENCH_SNIPPETS)]
+        piece = ARITHMETIC_BENCH_SNIPPETS[n % len(ARITHMETIC_BENCH_SNIPPETS)]
         pieces.append(piece)
         size += len(piece)
         n += 1

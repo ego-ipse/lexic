@@ -1,0 +1,206 @@
+[
+  {
+    "input": "こんにちは",
+    "model_dump": {
+      "jp_char": [
+        {},
+        {},
+        {},
+        {},
+        {}
+      ],
+      "root_item": []
+    },
+    "runtime_dump": {
+      "jp_char": [
+        {
+          "value": "こ"
+        },
+        {
+          "value": "ん"
+        },
+        {
+          "value": "に"
+        },
+        {
+          "value": "ち"
+        },
+        {
+          "value": "は"
+        }
+      ],
+      "root_item": []
+    },
+    "semantic_dump": {
+      "jp_char": [
+        {},
+        {},
+        {},
+        {},
+        {}
+      ],
+      "root_item": []
+    },
+    "runtime_semantic_dump": {
+      "jp_char": [
+        {
+          "value": "こ"
+        },
+        {
+          "value": "ん"
+        },
+        {
+          "value": "に"
+        },
+        {
+          "value": "ち"
+        },
+        {
+          "value": "は"
+        }
+      ],
+      "root_item": []
+    },
+    "to_text": "こんにちは"
+  },
+  {
+    "input": "ぺ",
+    "model_dump": {
+      "jp_char": [
+        {}
+      ],
+      "root_item": []
+    },
+    "runtime_dump": {
+      "jp_char": [
+        {
+          "value": "ぺ"
+        }
+      ],
+      "root_item": []
+    },
+    "semantic_dump": {
+      "jp_char": [
+        {}
+      ],
+      "root_item": []
+    },
+    "runtime_semantic_dump": {
+      "jp_char": [
+        {
+          "value": "ぺ"
+        }
+      ],
+      "root_item": []
+    },
+    "to_text": "ぺ"
+  },
+  {
+    "input": "〫\t〺ど酋\tモ",
+    "model_dump": {
+      "jp_char": [
+        {}
+      ],
+      "root_item": [
+        {
+          "head": "\t",
+          "jp_char": [
+            {},
+            {},
+            {}
+          ]
+        },
+        {
+          "head": "\t",
+          "jp_char": [
+            {}
+          ]
+        }
+      ]
+    },
+    "runtime_dump": {
+      "jp_char": [
+        {
+          "value": "〫"
+        }
+      ],
+      "root_item": [
+        {
+          "head": "\t",
+          "jp_char": [
+            {
+              "value": "〺"
+            },
+            {
+              "value": "ど"
+            },
+            {
+              "value": "酋"
+            }
+          ]
+        },
+        {
+          "head": "\t",
+          "jp_char": [
+            {
+              "value": "モ"
+            }
+          ]
+        }
+      ]
+    },
+    "semantic_dump": {
+      "jp_char": [
+        {}
+      ],
+      "root_item": [
+        {
+          "head": "\t",
+          "jp_char": [
+            {},
+            {},
+            {}
+          ]
+        },
+        {
+          "head": "\t",
+          "jp_char": [
+            {}
+          ]
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "jp_char": [
+        {
+          "value": "〫"
+        }
+      ],
+      "root_item": [
+        {
+          "head": "\t",
+          "jp_char": [
+            {
+              "value": "〺"
+            },
+            {
+              "value": "ど"
+            },
+            {
+              "value": "酋"
+            }
+          ]
+        },
+        {
+          "head": "\t",
+          "jp_char": [
+            {
+              "value": "モ"
+            }
+          ]
+        }
+      ]
+    },
+    "to_text": "〫\t〺ど酋\tモ"
+  }
+]

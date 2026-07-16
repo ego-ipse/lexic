@@ -1,0 +1,138 @@
+[
+  {
+    "input": "[\n1\n]",
+    "model_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": {
+          "value": {},
+          "arr_item": []
+        }
+      }
+    },
+    "runtime_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": {
+          "value": {
+            "sign": "",
+            "digit": "1",
+            "dot": null,
+            "ee": null,
+            "ws": {
+              "value": "\n"
+            }
+          },
+          "arr_item": []
+        }
+      }
+    },
+    "semantic_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": {
+          "value": {},
+          "arr_item": []
+        }
+      }
+    },
+    "runtime_semantic_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": {
+          "value": {
+            "sign": "",
+            "digit": "1",
+            "dot": null,
+            "ee": null,
+            "ws": {
+              "value": "\n"
+            }
+          },
+          "arr_item": []
+        }
+      }
+    },
+    "to_text": "[\n1\n]"
+  },
+  {
+    "input": "[\n ]",
+    "model_dump": {
+      "arr": {
+        "ws": {
+          "value": " "
+        },
+        "arr_item2": null
+      }
+    },
+    "runtime_dump": {
+      "arr": {
+        "ws": {
+          "value": " "
+        },
+        "arr_item2": null
+      }
+    },
+    "semantic_dump": {
+      "arr": {
+        "ws": {
+          "value": " "
+        },
+        "arr_item2": null
+      }
+    },
+    "runtime_semantic_dump": {
+      "arr": {
+        "ws": {
+          "value": " "
+        },
+        "arr_item2": null
+      }
+    },
+    "to_text": "[\n ]"
+  },
+  {
+    "input": "[\n]",
+    "model_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": null
+      }
+    },
+    "runtime_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": null
+      }
+    },
+    "semantic_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": null
+      }
+    },
+    "runtime_semantic_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": null
+      }
+    },
+    "to_text": "[\n]"
+  }
+]

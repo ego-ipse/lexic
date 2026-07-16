@@ -2,55 +2,55 @@
   "compile_time": {
     "arithmetic.gbnf": {
       "canonical_grammar": {
-        "best_ms": 3.5155110017512925,
-        "median_ms": 3.603885001211893
+        "best_ms": 3.4264839996467344,
+        "median_ms": 3.4540549968369305
       },
       "compile_text": {
-        "best_ms": 24.15755100082606,
-        "median_ms": 24.952088002464734
+        "best_ms": 20.872449997114018,
+        "median_ms": 20.945906995621044
       }
     },
     "c.gbnf": {
       "canonical_grammar": {
-        "best_ms": 17.973081005038694,
-        "median_ms": 18.384996001259424
+        "best_ms": 17.22524399519898,
+        "median_ms": 17.508452998299617
       },
       "compile_text": {
-        "best_ms": 80.10748899687314,
-        "median_ms": 82.25347599363886
+        "best_ms": 65.78645400441019,
+        "median_ms": 66.43780099693686
       }
     },
     "json.gbnf": {
       "canonical_grammar": {
-        "best_ms": 13.38598900474608,
-        "median_ms": 13.439107002341188
+        "best_ms": 13.570663999416865,
+        "median_ms": 13.668517000041902
       },
       "compile_text": {
-        "best_ms": 72.87041199742816,
-        "median_ms": 73.58830599696375
+        "best_ms": 50.70708099810872,
+        "median_ms": 52.0739150015288
       }
     }
   },
   "instance_parse": {
     "arithmetic.gbnf": {
-      "best_ms": 11.170192003191914,
+      "best_ms": 10.813710003276356,
       "chars": 4800,
-      "median_ms": 11.481090004963335
+      "median_ms": 11.674138993839733
     },
     "c.gbnf": {
-      "best_ms": 3.179876999638509,
+      "best_ms": 3.2419290000689216,
       "chars": 3289,
-      "median_ms": 3.2966450016829185
+      "median_ms": 3.277596006228123
     },
     "chess.gbnf": {
-      "best_ms": 6.455333001213148,
+      "best_ms": 6.08141599514056,
       "chars": 4203,
-      "median_ms": 6.599250002182089
+      "median_ms": 6.505479002953507
     },
     "json.gbnf": {
-      "best_ms": 13.551506002841052,
+      "best_ms": 13.704001998121385,
       "chars": 4233,
-      "median_ms": 13.975544003187679
+      "median_ms": 14.016557004651986
     }
   }
 }

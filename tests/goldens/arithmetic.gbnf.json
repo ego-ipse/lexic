@@ -1,0 +1,1150 @@
+[
+  {
+    "input": "x=1\n",
+    "model_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": []
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "",
+              "ws": {
+                "value": ""
+              },
+              "lower": "x"
+            },
+            "expr_item": []
+          },
+          "term": {
+            "ws": {
+              "value": ""
+            },
+            "digit": "1"
+          }
+        }
+      ]
+    },
+    "semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": []
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "",
+              "ws": {
+                "value": ""
+              },
+              "lower": "x"
+            },
+            "expr_item": []
+          },
+          "term": {
+            "ws": {
+              "value": ""
+            },
+            "digit": "1"
+          }
+        }
+      ]
+    },
+    "to_text": "x=1\n"
+  },
+  {
+    "input": "y=z\n",
+    "model_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": []
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "",
+              "ws": {
+                "value": ""
+              },
+              "lower": "y"
+            },
+            "expr_item": []
+          },
+          "term": {
+            "head": "",
+            "ws": {
+              "value": ""
+            },
+            "lower": "z"
+          }
+        }
+      ]
+    },
+    "semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": []
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "",
+              "ws": {
+                "value": ""
+              },
+              "lower": "y"
+            },
+            "expr_item": []
+          },
+          "term": {
+            "head": "",
+            "ws": {
+              "value": ""
+            },
+            "lower": "z"
+          }
+        }
+      ]
+    },
+    "to_text": "y=z\n"
+  },
+  {
+    "input": "a+b=100\n",
+    "model_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": [
+              {
+                "head": "+",
+                "term": {}
+              }
+            ]
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "",
+              "ws": {
+                "value": ""
+              },
+              "lower": "a"
+            },
+            "expr_item": [
+              {
+                "head": "+",
+                "term": {
+                  "head": "",
+                  "ws": {
+                    "value": ""
+                  },
+                  "lower": "b"
+                }
+              }
+            ]
+          },
+          "term": {
+            "ws": {
+              "value": ""
+            },
+            "digit": "100"
+          }
+        }
+      ]
+    },
+    "semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": [
+              {
+                "head": "+",
+                "term": {}
+              }
+            ]
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "",
+              "ws": {
+                "value": ""
+              },
+              "lower": "a"
+            },
+            "expr_item": [
+              {
+                "head": "+",
+                "term": {
+                  "head": "",
+                  "ws": {
+                    "value": ""
+                  },
+                  "lower": "b"
+                }
+              }
+            ]
+          },
+          "term": {
+            "ws": {
+              "value": ""
+            },
+            "digit": "100"
+          }
+        }
+      ]
+    },
+    "to_text": "a+b=100\n"
+  },
+  {
+    "input": "foo=(bar)\n",
+    "model_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": []
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "oo",
+              "ws": {
+                "value": ""
+              },
+              "lower": "f"
+            },
+            "expr_item": []
+          },
+          "term": {
+            "ws": {
+              "value": ""
+            },
+            "ws2": {
+              "value": ""
+            },
+            "expr": {
+              "term": {
+                "head": "ar",
+                "ws": {
+                  "value": ""
+                },
+                "lower": "b"
+              },
+              "expr_item": []
+            }
+          }
+        }
+      ]
+    },
+    "semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": []
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "oo",
+              "ws": {
+                "value": ""
+              },
+              "lower": "f"
+            },
+            "expr_item": []
+          },
+          "term": {
+            "ws": {
+              "value": ""
+            },
+            "ws2": {
+              "value": ""
+            },
+            "expr": {
+              "term": {
+                "head": "ar",
+                "ws": {
+                  "value": ""
+                },
+                "lower": "b"
+              },
+              "expr_item": []
+            }
+          }
+        }
+      ]
+    },
+    "to_text": "foo=(bar)\n"
+  },
+  {
+    "input": "abc123-xyz=42\n",
+    "model_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": [
+              {
+                "head": "-",
+                "term": {}
+              }
+            ]
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "bc123",
+              "ws": {
+                "value": ""
+              },
+              "lower": "a"
+            },
+            "expr_item": [
+              {
+                "head": "-",
+                "term": {
+                  "head": "yz",
+                  "ws": {
+                    "value": ""
+                  },
+                  "lower": "x"
+                }
+              }
+            ]
+          },
+          "term": {
+            "ws": {
+              "value": ""
+            },
+            "digit": "42"
+          }
+        }
+      ]
+    },
+    "semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": [
+              {
+                "head": "-",
+                "term": {}
+              }
+            ]
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "bc123",
+              "ws": {
+                "value": ""
+              },
+              "lower": "a"
+            },
+            "expr_item": [
+              {
+                "head": "-",
+                "term": {
+                  "head": "yz",
+                  "ws": {
+                    "value": ""
+                  },
+                  "lower": "x"
+                }
+              }
+            ]
+          },
+          "term": {
+            "ws": {
+              "value": ""
+            },
+            "digit": "42"
+          }
+        }
+      ]
+    },
+    "to_text": "abc123-xyz=42\n"
+  },
+  {
+    "input": "p=z\t\n",
+    "model_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": []
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "",
+              "ws": {
+                "value": ""
+              },
+              "lower": "p"
+            },
+            "expr_item": []
+          },
+          "term": {
+            "head": "",
+            "ws": {
+              "value": "\t"
+            },
+            "lower": "z"
+          }
+        }
+      ]
+    },
+    "semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": []
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "head": "",
+              "ws": {
+                "value": ""
+              },
+              "lower": "p"
+            },
+            "expr_item": []
+          },
+          "term": {
+            "head": "",
+            "ws": {
+              "value": "\t"
+            },
+            "lower": "z"
+          }
+        }
+      ]
+    },
+    "to_text": "p=z\t\n"
+  },
+  {
+    "input": "((705\t\t)) +o-(\n\t( \n((  (( y)-2)\t))/1)+0*h )=(2)\n",
+    "model_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": [
+              {
+                "head": "+",
+                "term": {}
+              },
+              {
+                "head": "-",
+                "term": {}
+              }
+            ]
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "ws": {
+                "value": ""
+              },
+              "ws2": {
+                "value": " "
+              },
+              "expr": {
+                "term": {
+                  "ws": {
+                    "value": ""
+                  },
+                  "ws2": {
+                    "value": ""
+                  },
+                  "expr": {
+                    "term": {
+                      "ws": {
+                        "value": "\t\t"
+                      },
+                      "digit": "705"
+                    },
+                    "expr_item": []
+                  }
+                },
+                "expr_item": []
+              }
+            },
+            "expr_item": [
+              {
+                "head": "+",
+                "term": {
+                  "head": "",
+                  "ws": {
+                    "value": ""
+                  },
+                  "lower": "o"
+                }
+              },
+              {
+                "head": "-",
+                "term": {
+                  "ws": {
+                    "value": "\n\t"
+                  },
+                  "ws2": {
+                    "value": ""
+                  },
+                  "expr": {
+                    "term": {
+                      "ws": {
+                        "value": " \n"
+                      },
+                      "ws2": {
+                        "value": ""
+                      },
+                      "expr": {
+                        "term": {
+                          "ws": {
+                            "value": ""
+                          },
+                          "ws2": {
+                            "value": ""
+                          },
+                          "expr": {
+                            "term": {
+                              "ws": {
+                                "value": "  "
+                              },
+                              "ws2": {
+                                "value": ""
+                              },
+                              "expr": {
+                                "term": {
+                                  "ws": {
+                                    "value": ""
+                                  },
+                                  "ws2": {
+                                    "value": "\t"
+                                  },
+                                  "expr": {
+                                    "term": {
+                                      "ws": {
+                                        "value": " "
+                                      },
+                                      "ws2": {
+                                        "value": ""
+                                      },
+                                      "expr": {
+                                        "term": {
+                                          "head": "",
+                                          "ws": {
+                                            "value": ""
+                                          },
+                                          "lower": "y"
+                                        },
+                                        "expr_item": []
+                                      }
+                                    },
+                                    "expr_item": [
+                                      {
+                                        "head": "-",
+                                        "term": {
+                                          "ws": {
+                                            "value": ""
+                                          },
+                                          "digit": "2"
+                                        }
+                                      }
+                                    ]
+                                  }
+                                },
+                                "expr_item": []
+                              }
+                            },
+                            "expr_item": []
+                          }
+                        },
+                        "expr_item": [
+                          {
+                            "head": "/",
+                            "term": {
+                              "ws": {
+                                "value": ""
+                              },
+                              "digit": "1"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "expr_item": [
+                      {
+                        "head": "+",
+                        "term": {
+                          "ws": {
+                            "value": ""
+                          },
+                          "digit": "0"
+                        }
+                      },
+                      {
+                        "head": "*",
+                        "term": {
+                          "head": "",
+                          "ws": {
+                            "value": " "
+                          },
+                          "lower": "h"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "term": {
+            "ws": {
+              "value": ""
+            },
+            "ws2": {
+              "value": ""
+            },
+            "expr": {
+              "term": {
+                "ws": {
+                  "value": ""
+                },
+                "digit": "2"
+              },
+              "expr_item": []
+            }
+          }
+        }
+      ]
+    },
+    "semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": [
+              {
+                "head": "+",
+                "term": {}
+              },
+              {
+                "head": "-",
+                "term": {}
+              }
+            ]
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "ws": {
+                "value": ""
+              },
+              "ws2": {
+                "value": " "
+              },
+              "expr": {
+                "term": {
+                  "ws": {
+                    "value": ""
+                  },
+                  "ws2": {
+                    "value": ""
+                  },
+                  "expr": {
+                    "term": {
+                      "ws": {
+                        "value": "\t\t"
+                      },
+                      "digit": "705"
+                    },
+                    "expr_item": []
+                  }
+                },
+                "expr_item": []
+              }
+            },
+            "expr_item": [
+              {
+                "head": "+",
+                "term": {
+                  "head": "",
+                  "ws": {
+                    "value": ""
+                  },
+                  "lower": "o"
+                }
+              },
+              {
+                "head": "-",
+                "term": {
+                  "ws": {
+                    "value": "\n\t"
+                  },
+                  "ws2": {
+                    "value": ""
+                  },
+                  "expr": {
+                    "term": {
+                      "ws": {
+                        "value": " \n"
+                      },
+                      "ws2": {
+                        "value": ""
+                      },
+                      "expr": {
+                        "term": {
+                          "ws": {
+                            "value": ""
+                          },
+                          "ws2": {
+                            "value": ""
+                          },
+                          "expr": {
+                            "term": {
+                              "ws": {
+                                "value": "  "
+                              },
+                              "ws2": {
+                                "value": ""
+                              },
+                              "expr": {
+                                "term": {
+                                  "ws": {
+                                    "value": ""
+                                  },
+                                  "ws2": {
+                                    "value": "\t"
+                                  },
+                                  "expr": {
+                                    "term": {
+                                      "ws": {
+                                        "value": " "
+                                      },
+                                      "ws2": {
+                                        "value": ""
+                                      },
+                                      "expr": {
+                                        "term": {
+                                          "head": "",
+                                          "ws": {
+                                            "value": ""
+                                          },
+                                          "lower": "y"
+                                        },
+                                        "expr_item": []
+                                      }
+                                    },
+                                    "expr_item": [
+                                      {
+                                        "head": "-",
+                                        "term": {
+                                          "ws": {
+                                            "value": ""
+                                          },
+                                          "digit": "2"
+                                        }
+                                      }
+                                    ]
+                                  }
+                                },
+                                "expr_item": []
+                              }
+                            },
+                            "expr_item": []
+                          }
+                        },
+                        "expr_item": [
+                          {
+                            "head": "/",
+                            "term": {
+                              "ws": {
+                                "value": ""
+                              },
+                              "digit": "1"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "expr_item": [
+                      {
+                        "head": "+",
+                        "term": {
+                          "ws": {
+                            "value": ""
+                          },
+                          "digit": "0"
+                        }
+                      },
+                      {
+                        "head": "*",
+                        "term": {
+                          "head": "",
+                          "ws": {
+                            "value": " "
+                          },
+                          "lower": "h"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "term": {
+            "ws": {
+              "value": ""
+            },
+            "ws2": {
+              "value": ""
+            },
+            "expr": {
+              "term": {
+                "ws": {
+                  "value": ""
+                },
+                "digit": "2"
+              },
+              "expr_item": []
+            }
+          }
+        }
+      ]
+    },
+    "to_text": "((705\t\t)) +o-(\n\t( \n((  (( y)-2)\t))/1)+0*h )=(2)\n"
+  },
+  {
+    "input": "((\t\n8\t)\n ) =(\n\n59\n)\n",
+    "model_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": []
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "ws": {
+                "value": ""
+              },
+              "ws2": {
+                "value": " "
+              },
+              "expr": {
+                "term": {
+                  "ws": {
+                    "value": "\t\n"
+                  },
+                  "ws2": {
+                    "value": "\n "
+                  },
+                  "expr": {
+                    "term": {
+                      "ws": {
+                        "value": "\t"
+                      },
+                      "digit": "8"
+                    },
+                    "expr_item": []
+                  }
+                },
+                "expr_item": []
+              }
+            },
+            "expr_item": []
+          },
+          "term": {
+            "ws": {
+              "value": "\n\n"
+            },
+            "ws2": {
+              "value": ""
+            },
+            "expr": {
+              "term": {
+                "ws": {
+                  "value": "\n"
+                },
+                "digit": "59"
+              },
+              "expr_item": []
+            }
+          }
+        }
+      ]
+    },
+    "semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {},
+            "expr_item": []
+          },
+          "term": {}
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "root_item": [
+        {
+          "ws": {
+            "value": ""
+          },
+          "expr": {
+            "term": {
+              "ws": {
+                "value": ""
+              },
+              "ws2": {
+                "value": " "
+              },
+              "expr": {
+                "term": {
+                  "ws": {
+                    "value": "\t\n"
+                  },
+                  "ws2": {
+                    "value": "\n "
+                  },
+                  "expr": {
+                    "term": {
+                      "ws": {
+                        "value": "\t"
+                      },
+                      "digit": "8"
+                    },
+                    "expr_item": []
+                  }
+                },
+                "expr_item": []
+              }
+            },
+            "expr_item": []
+          },
+          "term": {
+            "ws": {
+              "value": "\n\n"
+            },
+            "ws2": {
+              "value": ""
+            },
+            "expr": {
+              "term": {
+                "ws": {
+                  "value": "\n"
+                },
+                "digit": "59"
+              },
+              "expr_item": []
+            }
+          }
+        }
+      ]
+    },
+    "to_text": "((\t\n8\t)\n ) =(\n\n59\n)\n"
+  }
+]

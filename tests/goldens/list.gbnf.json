@@ -1,0 +1,98 @@
+[
+  {
+    "input": "- apple\n",
+    "model_dump": {
+      "item": [
+        {
+          "value": "- apple\n"
+        }
+      ]
+    },
+    "runtime_dump": {
+      "item": [
+        {
+          "value": "- apple\n"
+        }
+      ]
+    },
+    "semantic_dump": {
+      "item": [
+        {
+          "value": "- apple\n"
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "item": [
+        {
+          "value": "- apple\n"
+        }
+      ]
+    },
+    "to_text": "- apple\n"
+  },
+  {
+    "input": "- 󴈻\n",
+    "model_dump": {
+      "item": [
+        {
+          "value": "- 󴈻\n"
+        }
+      ]
+    },
+    "runtime_dump": {
+      "item": [
+        {
+          "value": "- 󴈻\n"
+        }
+      ]
+    },
+    "semantic_dump": {
+      "item": [
+        {
+          "value": "- 󴈻\n"
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "item": [
+        {
+          "value": "- 󴈻\n"
+        }
+      ]
+    },
+    "to_text": "- 󴈻\n"
+  },
+  {
+    "input": "- 񺩿񟅸󗟐\n",
+    "model_dump": {
+      "item": [
+        {
+          "value": "- 񺩿񟅸󗟐\n"
+        }
+      ]
+    },
+    "runtime_dump": {
+      "item": [
+        {
+          "value": "- 񺩿񟅸󗟐\n"
+        }
+      ]
+    },
+    "semantic_dump": {
+      "item": [
+        {
+          "value": "- 񺩿񟅸󗟐\n"
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "item": [
+        {
+          "value": "- 񺩿񟅸󗟐\n"
+        }
+      ]
+    },
+    "to_text": "- 񺩿񟅸󗟐\n"
+  }
+]

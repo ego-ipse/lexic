@@ -92,8 +92,16 @@ class GrammarModel(BaseModel):
         return handler(source_type)
 
     @classmethod
-    def _bound_fields(cls) -> dict[int, tuple[str, IrBind]]:
-        """Item slot → ``(field name, bind)`` from the fields' metadata."""
+    def bound_fields(cls) -> dict[int, tuple[str, IrBind]]:
+        """Item slot → ``(field name, bind)`` from the fields' metadata.
+
+        The neutral accessor onto a class's field bindings — shared by
+        :meth:`to_text`/:meth:`semantic_dump` and by external consumers (e.g.
+        viz) that need the same slot → field mapping without reading pydantic
+        internals directly.
+
+        :returns: Item slot to ``(field name, bind)``, one entry per bound field.
+        """
         bound: dict[int, tuple[str, IrBind]] = {}
         for name, info in cls.model_fields.items():
             for meta in info.metadata:
@@ -135,7 +143,7 @@ class GrammarModel(BaseModel):
         :raises NotImplementedError: On an abstract alternation class (no
             fields at all); call ``to_text`` on the concrete arm instead.
         """
-        binds = self._bound_fields()
+        binds = self.bound_fields()
         if not binds:
             if any(name == "value" for name in type(self).model_fields.keys()):
                 return [str(getattr(self, "value", ""))]
@@ -220,6 +228,6 @@ class GrammarModel(BaseModel):
     def semantic_dump(self) -> dict[str, Any]:
         """Dump only semantic fields (binds with ``semantic=False`` excluded)."""
         exclude = {
-            name for name, bind in self._bound_fields().values() if not bind.semantic
+            name for name, bind in self.bound_fields().values() if not bind.semantic
         }
         return self.model_dump(exclude=exclude)

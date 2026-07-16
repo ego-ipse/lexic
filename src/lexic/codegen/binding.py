@@ -137,7 +137,9 @@ _NAME_SPLIT = re.compile(r"[-_]")
 _RESERVED_FIELD_NAMES: frozenset[str] = (
     frozenset(keyword.kwlist)
     | frozenset(dir(BaseModel))
-    | frozenset({"to_text", "to_grammar", "semantic_dump", "fast_construct"})
+    | frozenset(
+        {"to_text", "to_grammar", "semantic_dump", "fast_construct", "bound_fields"}
+    )
 )
 """Field names that would break or shadow the generated model: Python
 keywords (a ``class: ...`` annotation is a SyntaxError), the pydantic

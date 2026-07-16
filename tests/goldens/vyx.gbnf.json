@@ -1,0 +1,2476 @@
+[
+  {
+    "input": "!I o:inv ^003\n",
+    "model_dump": {
+      "body": null,
+      "lit": "\n",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          },
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": null
+      }
+    },
+    "runtime_dump": {
+      "body": null,
+      "lit": "\n",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "i"
+                },
+                "uq_tail": [
+                  {
+                    "value": "n"
+                  },
+                  {
+                    "value": "v"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "env_field": {
+              "ref_id": {
+                "value": "003"
+              }
+            }
+          }
+        ],
+        "envelope_item3": null
+      }
+    },
+    "semantic_dump": {
+      "body": null,
+      "lit": "\n",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          },
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": null
+      }
+    },
+    "runtime_semantic_dump": {
+      "body": null,
+      "lit": "\n",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "i"
+                },
+                "uq_tail": [
+                  {
+                    "value": "n"
+                  },
+                  {
+                    "value": "v"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "env_field": {
+              "ref_id": {
+                "value": "003"
+              }
+            }
+          }
+        ],
+        "envelope_item3": null
+      }
+    },
+    "to_text": "!I o:inv ^003\n"
+  },
+  {
+    "input": "!I o:wf L41<\nid=ORD-7291\n ship: meth=express carr=DHL\n>",
+    "model_dump": {
+      "body": {},
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L41<"
+          }
+        }
+      }
+    },
+    "runtime_dump": {
+      "body": {
+        "block_body_item": [
+          {
+            "body_line": {
+              "indent": {
+                "value": ""
+              },
+              "kv_pairs": {
+                "kv_pair": {
+                  "key": {
+                    "value": "id"
+                  },
+                  "value": {
+                    "uq_first": {
+                      "value": "O"
+                    },
+                    "uq_tail": [
+                      {
+                        "value": "R"
+                      },
+                      {
+                        "value": "D"
+                      },
+                      {
+                        "value": "-"
+                      },
+                      {
+                        "value": "7"
+                      },
+                      {
+                        "value": "2"
+                      },
+                      {
+                        "value": "9"
+                      },
+                      {
+                        "value": "1"
+                      }
+                    ]
+                  }
+                },
+                "kv_pairs_item": []
+              }
+            }
+          },
+          {
+            "body_line": {
+              "indent": {
+                "value": " "
+              },
+              "scope_path": {
+                "scope_name": {
+                  "value": "ship"
+                },
+                "scope_path_item": []
+              },
+              "scope_line_item": null,
+              "scope_line_item2": [
+                {
+                  "scope_item": {
+                    "key": {
+                      "value": "meth"
+                    },
+                    "value": {
+                      "uq_first": {
+                        "value": "e"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "x"
+                        },
+                        {
+                          "value": "p"
+                        },
+                        {
+                          "value": "r"
+                        },
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "s"
+                        },
+                        {
+                          "value": "s"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "scope_item": {
+                    "key": {
+                      "value": "carr"
+                    },
+                    "value": {
+                      "uq_first": {
+                        "value": "D"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "H"
+                        },
+                        {
+                          "value": "L"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "w"
+                },
+                "uq_tail": [
+                  {
+                    "value": "f"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L41<"
+          }
+        }
+      }
+    },
+    "semantic_dump": {
+      "body": {},
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L41<"
+          }
+        }
+      }
+    },
+    "runtime_semantic_dump": {
+      "body": {
+        "block_body_item": [
+          {
+            "body_line": {
+              "indent": {
+                "value": ""
+              },
+              "kv_pairs": {
+                "kv_pair": {
+                  "key": {
+                    "value": "id"
+                  },
+                  "value": {
+                    "uq_first": {
+                      "value": "O"
+                    },
+                    "uq_tail": [
+                      {
+                        "value": "R"
+                      },
+                      {
+                        "value": "D"
+                      },
+                      {
+                        "value": "-"
+                      },
+                      {
+                        "value": "7"
+                      },
+                      {
+                        "value": "2"
+                      },
+                      {
+                        "value": "9"
+                      },
+                      {
+                        "value": "1"
+                      }
+                    ]
+                  }
+                },
+                "kv_pairs_item": []
+              }
+            }
+          },
+          {
+            "body_line": {
+              "indent": {
+                "value": " "
+              },
+              "scope_path": {
+                "scope_name": {
+                  "value": "ship"
+                },
+                "scope_path_item": []
+              },
+              "scope_line_item": null,
+              "scope_line_item2": [
+                {
+                  "scope_item": {
+                    "key": {
+                      "value": "meth"
+                    },
+                    "value": {
+                      "uq_first": {
+                        "value": "e"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "x"
+                        },
+                        {
+                          "value": "p"
+                        },
+                        {
+                          "value": "r"
+                        },
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "s"
+                        },
+                        {
+                          "value": "s"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "scope_item": {
+                    "key": {
+                      "value": "carr"
+                    },
+                    "value": {
+                      "uq_first": {
+                        "value": "D"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "H"
+                        },
+                        {
+                          "value": "L"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "w"
+                },
+                "uq_tail": [
+                  {
+                    "value": "f"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L41<"
+          }
+        }
+      }
+    },
+    "to_text": "!I o:wf L41<\nid=ORD-7291\n ship: meth=express carr=DHL\n>"
+  },
+  {
+    "input": "!I o:wf L75<\n$P [3]{id nm pr}:\n1 \"Widget A\" 19.99\n2 \"Widget B\" 24.50\n3 \"Widget C\" 12.00\n>",
+    "model_dump": {
+      "body": {},
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L75<"
+          }
+        }
+      }
+    },
+    "runtime_dump": {
+      "body": {
+        "block_body_item": [
+          {
+            "body_line": {
+              "table_header_item": null,
+              "table_header_item2": {
+                "field_list": {
+                  "field_name": {
+                    "value": "id"
+                  },
+                  "field_list_item": [
+                    {
+                      "field_name": {
+                        "value": "nm"
+                      }
+                    },
+                    {
+                      "field_name": {
+                        "value": "pr"
+                      }
+                    }
+                  ]
+                }
+              },
+              "indent": {
+                "value": ""
+              },
+              "tag": {
+                "value": "P"
+              },
+              "count": {
+                "value": "3"
+              }
+            }
+          },
+          {
+            "body_line": {
+              "nl_head": {
+                "nl_first": {
+                  "value": "1"
+                },
+                "nl_inner": []
+              },
+              "nl_text_item": [
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "\""
+                      },
+                      {
+                        "value": "W"
+                      },
+                      {
+                        "value": "i"
+                      },
+                      {
+                        "value": "d"
+                      },
+                      {
+                        "value": "g"
+                      },
+                      {
+                        "value": "e"
+                      },
+                      {
+                        "value": "t"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "A"
+                      },
+                      {
+                        "value": "\""
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "1"
+                      },
+                      {
+                        "value": "9"
+                      },
+                      {
+                        "value": "."
+                      },
+                      {
+                        "value": "9"
+                      },
+                      {
+                        "value": "9"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "body_line": {
+              "nl_head": {
+                "nl_first": {
+                  "value": "2"
+                },
+                "nl_inner": []
+              },
+              "nl_text_item": [
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "\""
+                      },
+                      {
+                        "value": "W"
+                      },
+                      {
+                        "value": "i"
+                      },
+                      {
+                        "value": "d"
+                      },
+                      {
+                        "value": "g"
+                      },
+                      {
+                        "value": "e"
+                      },
+                      {
+                        "value": "t"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "B"
+                      },
+                      {
+                        "value": "\""
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "2"
+                      },
+                      {
+                        "value": "4"
+                      },
+                      {
+                        "value": "."
+                      },
+                      {
+                        "value": "5"
+                      },
+                      {
+                        "value": "0"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "body_line": {
+              "nl_head": {
+                "nl_first": {
+                  "value": "3"
+                },
+                "nl_inner": []
+              },
+              "nl_text_item": [
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "\""
+                      },
+                      {
+                        "value": "W"
+                      },
+                      {
+                        "value": "i"
+                      },
+                      {
+                        "value": "d"
+                      },
+                      {
+                        "value": "g"
+                      },
+                      {
+                        "value": "e"
+                      },
+                      {
+                        "value": "t"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "C"
+                      },
+                      {
+                        "value": "\""
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "1"
+                      },
+                      {
+                        "value": "2"
+                      },
+                      {
+                        "value": "."
+                      },
+                      {
+                        "value": "0"
+                      },
+                      {
+                        "value": "0"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "w"
+                },
+                "uq_tail": [
+                  {
+                    "value": "f"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L75<"
+          }
+        }
+      }
+    },
+    "semantic_dump": {
+      "body": {},
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L75<"
+          }
+        }
+      }
+    },
+    "runtime_semantic_dump": {
+      "body": {
+        "block_body_item": [
+          {
+            "body_line": {
+              "table_header_item": null,
+              "table_header_item2": {
+                "field_list": {
+                  "field_name": {
+                    "value": "id"
+                  },
+                  "field_list_item": [
+                    {
+                      "field_name": {
+                        "value": "nm"
+                      }
+                    },
+                    {
+                      "field_name": {
+                        "value": "pr"
+                      }
+                    }
+                  ]
+                }
+              },
+              "indent": {
+                "value": ""
+              },
+              "tag": {
+                "value": "P"
+              },
+              "count": {
+                "value": "3"
+              }
+            }
+          },
+          {
+            "body_line": {
+              "nl_head": {
+                "nl_first": {
+                  "value": "1"
+                },
+                "nl_inner": []
+              },
+              "nl_text_item": [
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "\""
+                      },
+                      {
+                        "value": "W"
+                      },
+                      {
+                        "value": "i"
+                      },
+                      {
+                        "value": "d"
+                      },
+                      {
+                        "value": "g"
+                      },
+                      {
+                        "value": "e"
+                      },
+                      {
+                        "value": "t"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "A"
+                      },
+                      {
+                        "value": "\""
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "1"
+                      },
+                      {
+                        "value": "9"
+                      },
+                      {
+                        "value": "."
+                      },
+                      {
+                        "value": "9"
+                      },
+                      {
+                        "value": "9"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "body_line": {
+              "nl_head": {
+                "nl_first": {
+                  "value": "2"
+                },
+                "nl_inner": []
+              },
+              "nl_text_item": [
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "\""
+                      },
+                      {
+                        "value": "W"
+                      },
+                      {
+                        "value": "i"
+                      },
+                      {
+                        "value": "d"
+                      },
+                      {
+                        "value": "g"
+                      },
+                      {
+                        "value": "e"
+                      },
+                      {
+                        "value": "t"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "B"
+                      },
+                      {
+                        "value": "\""
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "2"
+                      },
+                      {
+                        "value": "4"
+                      },
+                      {
+                        "value": "."
+                      },
+                      {
+                        "value": "5"
+                      },
+                      {
+                        "value": "0"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "body_line": {
+              "nl_head": {
+                "nl_first": {
+                  "value": "3"
+                },
+                "nl_inner": []
+              },
+              "nl_text_item": [
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "\""
+                      },
+                      {
+                        "value": "W"
+                      },
+                      {
+                        "value": "i"
+                      },
+                      {
+                        "value": "d"
+                      },
+                      {
+                        "value": "g"
+                      },
+                      {
+                        "value": "e"
+                      },
+                      {
+                        "value": "t"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "C"
+                      },
+                      {
+                        "value": "\""
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "1"
+                      },
+                      {
+                        "value": "2"
+                      },
+                      {
+                        "value": "."
+                      },
+                      {
+                        "value": "0"
+                      },
+                      {
+                        "value": "0"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "w"
+                },
+                "uq_tail": [
+                  {
+                    "value": "f"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L75<"
+          }
+        }
+      }
+    },
+    "to_text": "!I o:wf L75<\n$P [3]{id nm pr}:\n1 \"Widget A\" 19.99\n2 \"Widget B\" 24.50\n3 \"Widget C\" 12.00\n>"
+  },
+  {
+    "input": "!I o:wf L93<\n- type=hero title=\"Welcome to Vyx\"\n cta: text=\"Get Started\" url=/docs\n- type=features cols=3\n>",
+    "model_dump": {
+      "body": {},
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L93<"
+          }
+        }
+      }
+    },
+    "runtime_dump": {
+      "body": {
+        "block_body_item": [
+          {
+            "body_line": {
+              "indent": {
+                "value": ""
+              },
+              "seq_item_item": null,
+              "item_head": {
+                "kv_like_item": {
+                  "key": {
+                    "value": "type"
+                  },
+                  "kv_like_item_item": {
+                    "value": {
+                      "uq_first": {
+                        "value": "h"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "r"
+                        },
+                        {
+                          "value": "o"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "item_head_item": [
+                  {
+                    "kv_like_item": {
+                      "key": {
+                        "value": "title"
+                      },
+                      "kv_like_item_item": {
+                        "value": {
+                          "quoted_char": [
+                            {
+                              "value": "W"
+                            },
+                            {
+                              "value": "e"
+                            },
+                            {
+                              "value": "l"
+                            },
+                            {
+                              "value": "c"
+                            },
+                            {
+                              "value": "o"
+                            },
+                            {
+                              "value": "m"
+                            },
+                            {
+                              "value": "e"
+                            },
+                            {
+                              "value": " "
+                            },
+                            {
+                              "value": "t"
+                            },
+                            {
+                              "value": "o"
+                            },
+                            {
+                              "value": " "
+                            },
+                            {
+                              "value": "V"
+                            },
+                            {
+                              "value": "y"
+                            },
+                            {
+                              "value": "x"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "body_line": {
+              "indent": {
+                "value": " "
+              },
+              "scope_path": {
+                "scope_name": {
+                  "value": "cta"
+                },
+                "scope_path_item": []
+              },
+              "scope_line_item": null,
+              "scope_line_item2": [
+                {
+                  "scope_item": {
+                    "key": {
+                      "value": "text"
+                    },
+                    "value": {
+                      "quoted_char": [
+                        {
+                          "value": "G"
+                        },
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "t"
+                        },
+                        {
+                          "value": " "
+                        },
+                        {
+                          "value": "S"
+                        },
+                        {
+                          "value": "t"
+                        },
+                        {
+                          "value": "a"
+                        },
+                        {
+                          "value": "r"
+                        },
+                        {
+                          "value": "t"
+                        },
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "d"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "scope_item": {
+                    "key": {
+                      "value": "url"
+                    },
+                    "value": {
+                      "uq_first": {
+                        "value": "/"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "d"
+                        },
+                        {
+                          "value": "o"
+                        },
+                        {
+                          "value": "c"
+                        },
+                        {
+                          "value": "s"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "body_line": {
+              "indent": {
+                "value": ""
+              },
+              "seq_item_item": null,
+              "item_head": {
+                "kv_like_item": {
+                  "key": {
+                    "value": "type"
+                  },
+                  "kv_like_item_item": {
+                    "value": {
+                      "uq_first": {
+                        "value": "f"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "a"
+                        },
+                        {
+                          "value": "t"
+                        },
+                        {
+                          "value": "u"
+                        },
+                        {
+                          "value": "r"
+                        },
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "s"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "item_head_item": [
+                  {
+                    "kv_like_item": {
+                      "key": {
+                        "value": "cols"
+                      },
+                      "kv_like_item_item": {
+                        "value": {
+                          "uq_first": {
+                            "value": "3"
+                          },
+                          "uq_tail": []
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "w"
+                },
+                "uq_tail": [
+                  {
+                    "value": "f"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L93<"
+          }
+        }
+      }
+    },
+    "semantic_dump": {
+      "body": {},
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L93<"
+          }
+        }
+      }
+    },
+    "runtime_semantic_dump": {
+      "body": {
+        "block_body_item": [
+          {
+            "body_line": {
+              "indent": {
+                "value": ""
+              },
+              "seq_item_item": null,
+              "item_head": {
+                "kv_like_item": {
+                  "key": {
+                    "value": "type"
+                  },
+                  "kv_like_item_item": {
+                    "value": {
+                      "uq_first": {
+                        "value": "h"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "r"
+                        },
+                        {
+                          "value": "o"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "item_head_item": [
+                  {
+                    "kv_like_item": {
+                      "key": {
+                        "value": "title"
+                      },
+                      "kv_like_item_item": {
+                        "value": {
+                          "quoted_char": [
+                            {
+                              "value": "W"
+                            },
+                            {
+                              "value": "e"
+                            },
+                            {
+                              "value": "l"
+                            },
+                            {
+                              "value": "c"
+                            },
+                            {
+                              "value": "o"
+                            },
+                            {
+                              "value": "m"
+                            },
+                            {
+                              "value": "e"
+                            },
+                            {
+                              "value": " "
+                            },
+                            {
+                              "value": "t"
+                            },
+                            {
+                              "value": "o"
+                            },
+                            {
+                              "value": " "
+                            },
+                            {
+                              "value": "V"
+                            },
+                            {
+                              "value": "y"
+                            },
+                            {
+                              "value": "x"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "body_line": {
+              "indent": {
+                "value": " "
+              },
+              "scope_path": {
+                "scope_name": {
+                  "value": "cta"
+                },
+                "scope_path_item": []
+              },
+              "scope_line_item": null,
+              "scope_line_item2": [
+                {
+                  "scope_item": {
+                    "key": {
+                      "value": "text"
+                    },
+                    "value": {
+                      "quoted_char": [
+                        {
+                          "value": "G"
+                        },
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "t"
+                        },
+                        {
+                          "value": " "
+                        },
+                        {
+                          "value": "S"
+                        },
+                        {
+                          "value": "t"
+                        },
+                        {
+                          "value": "a"
+                        },
+                        {
+                          "value": "r"
+                        },
+                        {
+                          "value": "t"
+                        },
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "d"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "scope_item": {
+                    "key": {
+                      "value": "url"
+                    },
+                    "value": {
+                      "uq_first": {
+                        "value": "/"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "d"
+                        },
+                        {
+                          "value": "o"
+                        },
+                        {
+                          "value": "c"
+                        },
+                        {
+                          "value": "s"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "body_line": {
+              "indent": {
+                "value": ""
+              },
+              "seq_item_item": null,
+              "item_head": {
+                "kv_like_item": {
+                  "key": {
+                    "value": "type"
+                  },
+                  "kv_like_item_item": {
+                    "value": {
+                      "uq_first": {
+                        "value": "f"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "a"
+                        },
+                        {
+                          "value": "t"
+                        },
+                        {
+                          "value": "u"
+                        },
+                        {
+                          "value": "r"
+                        },
+                        {
+                          "value": "e"
+                        },
+                        {
+                          "value": "s"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "item_head_item": [
+                  {
+                    "kv_like_item": {
+                      "key": {
+                        "value": "cols"
+                      },
+                      "kv_like_item_item": {
+                        "value": {
+                          "uq_first": {
+                            "value": "3"
+                          },
+                          "uq_tail": []
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "w"
+                },
+                "uq_tail": [
+                  {
+                    "value": "f"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L93<"
+          }
+        }
+      }
+    },
+    "to_text": "!I o:wf L93<\n- type=hero title=\"Welcome to Vyx\"\n cta: text=\"Get Started\" url=/docs\n- type=features cols=3\n>"
+  },
+  {
+    "input": "!I o:wf L28<\nfree prose line\nid=ORD-7291\n>",
+    "model_dump": {
+      "body": {},
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L28<"
+          }
+        }
+      }
+    },
+    "runtime_dump": {
+      "body": {
+        "block_body_item": [
+          {
+            "body_line": {
+              "nl_head": {
+                "nl_first": {
+                  "value": "f"
+                },
+                "nl_inner": [
+                  {
+                    "value": "r"
+                  },
+                  {
+                    "value": "e"
+                  },
+                  {
+                    "value": "e"
+                  }
+                ]
+              },
+              "nl_text_item": [
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "p"
+                      },
+                      {
+                        "value": "r"
+                      },
+                      {
+                        "value": "o"
+                      },
+                      {
+                        "value": "s"
+                      },
+                      {
+                        "value": "e"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "l"
+                      },
+                      {
+                        "value": "i"
+                      },
+                      {
+                        "value": "n"
+                      },
+                      {
+                        "value": "e"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "body_line": {
+              "indent": {
+                "value": ""
+              },
+              "kv_pairs": {
+                "kv_pair": {
+                  "key": {
+                    "value": "id"
+                  },
+                  "value": {
+                    "uq_first": {
+                      "value": "O"
+                    },
+                    "uq_tail": [
+                      {
+                        "value": "R"
+                      },
+                      {
+                        "value": "D"
+                      },
+                      {
+                        "value": "-"
+                      },
+                      {
+                        "value": "7"
+                      },
+                      {
+                        "value": "2"
+                      },
+                      {
+                        "value": "9"
+                      },
+                      {
+                        "value": "1"
+                      }
+                    ]
+                  }
+                },
+                "kv_pairs_item": []
+              }
+            }
+          }
+        ]
+      },
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "w"
+                },
+                "uq_tail": [
+                  {
+                    "value": "f"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L28<"
+          }
+        }
+      }
+    },
+    "semantic_dump": {
+      "body": {},
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L28<"
+          }
+        }
+      }
+    },
+    "runtime_semantic_dump": {
+      "body": {
+        "block_body_item": [
+          {
+            "body_line": {
+              "nl_head": {
+                "nl_first": {
+                  "value": "f"
+                },
+                "nl_inner": [
+                  {
+                    "value": "r"
+                  },
+                  {
+                    "value": "e"
+                  },
+                  {
+                    "value": "e"
+                  }
+                ]
+              },
+              "nl_text_item": [
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "p"
+                      },
+                      {
+                        "value": "r"
+                      },
+                      {
+                        "value": "o"
+                      },
+                      {
+                        "value": "s"
+                      },
+                      {
+                        "value": "e"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "nl_word": {
+                    "nl_tail": [
+                      {
+                        "value": "l"
+                      },
+                      {
+                        "value": "i"
+                      },
+                      {
+                        "value": "n"
+                      },
+                      {
+                        "value": "e"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "body_line": {
+              "indent": {
+                "value": ""
+              },
+              "kv_pairs": {
+                "kv_pair": {
+                  "key": {
+                    "value": "id"
+                  },
+                  "value": {
+                    "uq_first": {
+                      "value": "O"
+                    },
+                    "uq_tail": [
+                      {
+                        "value": "R"
+                      },
+                      {
+                        "value": "D"
+                      },
+                      {
+                        "value": "-"
+                      },
+                      {
+                        "value": "7"
+                      },
+                      {
+                        "value": "2"
+                      },
+                      {
+                        "value": "9"
+                      },
+                      {
+                        "value": "1"
+                      }
+                    ]
+                  }
+                },
+                "kv_pairs_item": []
+              }
+            }
+          }
+        ]
+      },
+      "lit": "",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "w"
+                },
+                "uq_tail": [
+                  {
+                    "value": "f"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L28<"
+          }
+        }
+      }
+    },
+    "to_text": "!I o:wf L28<\nfree prose line\nid=ORD-7291\n>"
+  },
+  {
+    "input": "T:w=o:inv s:@buyer r:@supplier\n!I %w n:7\n",
+    "model_dump": {
+      "body": null,
+      "lit": "\n",
+      "packet_item": [
+        {
+          "definition": {}
+        }
+      ],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": {
+          "template_use": {
+            "tpl_name": {
+              "value": "w"
+            }
+          }
+        },
+        "envelope_item2": [
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": null
+      }
+    },
+    "runtime_dump": {
+      "body": null,
+      "lit": "\n",
+      "packet_item": [
+        {
+          "definition": {
+            "tpl_name": {
+              "value": "w"
+            },
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "i"
+                },
+                "uq_tail": [
+                  {
+                    "value": "n"
+                  },
+                  {
+                    "value": "v"
+                  }
+                ]
+              }
+            },
+            "template_def_item": [
+              {
+                "env_field": {
+                  "agent_id": {
+                    "value": "@buyer"
+                  }
+                }
+              },
+              {
+                "env_field": {
+                  "agent_id": {
+                    "value": "@supplier"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": {
+          "template_use": {
+            "tpl_name": {
+              "value": "w"
+            }
+          }
+        },
+        "envelope_item2": [
+          {
+            "env_field": {
+              "value": "n:7"
+            }
+          }
+        ],
+        "envelope_item3": null
+      }
+    },
+    "semantic_dump": {
+      "body": null,
+      "lit": "\n",
+      "packet_item": [
+        {
+          "definition": {}
+        }
+      ],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": {
+          "template_use": {
+            "tpl_name": {
+              "value": "w"
+            }
+          }
+        },
+        "envelope_item2": [
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": null
+      }
+    },
+    "runtime_semantic_dump": {
+      "body": null,
+      "lit": "\n",
+      "packet_item": [
+        {
+          "definition": {
+            "tpl_name": {
+              "value": "w"
+            },
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "i"
+                },
+                "uq_tail": [
+                  {
+                    "value": "n"
+                  },
+                  {
+                    "value": "v"
+                  }
+                ]
+              }
+            },
+            "template_def_item": [
+              {
+                "env_field": {
+                  "agent_id": {
+                    "value": "@buyer"
+                  }
+                }
+              },
+              {
+                "env_field": {
+                  "agent_id": {
+                    "value": "@supplier"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": {
+          "template_use": {
+            "tpl_name": {
+              "value": "w"
+            }
+          }
+        },
+        "envelope_item2": [
+          {
+            "env_field": {
+              "value": "n:7"
+            }
+          }
+        ],
+        "envelope_item3": null
+      }
+    },
+    "to_text": "T:w=o:inv s:@buyer r:@supplier\n!I %w n:7\n"
+  },
+  {
+    "input": "!I o:env s:@weather L22< city=Porto temp=22 >\n",
+    "model_dump": {
+      "body": {},
+      "lit": "\n",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          },
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L22<"
+          }
+        }
+      }
+    },
+    "runtime_dump": {
+      "body": {
+        "inline_content": {
+          "body_line": {
+            "indent": {
+              "value": ""
+            },
+            "kv_pairs": {
+              "kv_pair": {
+                "key": {
+                  "value": "city"
+                },
+                "value": {
+                  "uq_first": {
+                    "value": "P"
+                  },
+                  "uq_tail": [
+                    {
+                      "value": "o"
+                    },
+                    {
+                      "value": "r"
+                    },
+                    {
+                      "value": "t"
+                    },
+                    {
+                      "value": "o"
+                    }
+                  ]
+                }
+              },
+              "kv_pairs_item": [
+                {
+                  "kv_pair": {
+                    "key": {
+                      "value": "temp"
+                    },
+                    "value": {
+                      "uq_first": {
+                        "value": "2"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "2"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "inline_content_item": []
+        }
+      },
+      "lit": "\n",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "e"
+                },
+                "uq_tail": [
+                  {
+                    "value": "n"
+                  },
+                  {
+                    "value": "v"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "env_field": {
+              "agent_id": {
+                "value": "@weather"
+              }
+            }
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L22<"
+          }
+        }
+      }
+    },
+    "semantic_dump": {
+      "body": {},
+      "lit": "\n",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {}
+          },
+          {
+            "env_field": {}
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L22<"
+          }
+        }
+      }
+    },
+    "runtime_semantic_dump": {
+      "body": {
+        "inline_content": {
+          "body_line": {
+            "indent": {
+              "value": ""
+            },
+            "kv_pairs": {
+              "kv_pair": {
+                "key": {
+                  "value": "city"
+                },
+                "value": {
+                  "uq_first": {
+                    "value": "P"
+                  },
+                  "uq_tail": [
+                    {
+                      "value": "o"
+                    },
+                    {
+                      "value": "r"
+                    },
+                    {
+                      "value": "t"
+                    },
+                    {
+                      "value": "o"
+                    }
+                  ]
+                }
+              },
+              "kv_pairs_item": [
+                {
+                  "kv_pair": {
+                    "key": {
+                      "value": "temp"
+                    },
+                    "value": {
+                      "uq_first": {
+                        "value": "2"
+                      },
+                      "uq_tail": [
+                        {
+                          "value": "2"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "inline_content_item": []
+        }
+      },
+      "lit": "\n",
+      "packet_item": [],
+      "envelope": {
+        "performative": {
+          "kind": {
+            "value": "I"
+          }
+        },
+        "envelope_item": null,
+        "envelope_item2": [
+          {
+            "env_field": {
+              "kind": {
+                "uq_first": {
+                  "value": "e"
+                },
+                "uq_tail": [
+                  {
+                    "value": "n"
+                  },
+                  {
+                    "value": "v"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "env_field": {
+              "agent_id": {
+                "value": "@weather"
+              }
+            }
+          }
+        ],
+        "envelope_item3": {
+          "budget": {
+            "value": "L22<"
+          }
+        }
+      }
+    },
+    "to_text": "!I o:env s:@weather L22< city=Porto temp=22 >\n"
+  }
+]

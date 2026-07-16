@@ -17,14 +17,16 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. New plans copy `zzz_current_work/TEMPLATE.md` (goal,
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
-  Current: `zzz_current_work/260713-vyx-parse/PLAN.md` (CLOSED 2026-07-16,
-  see its OUTCOME + FOLLOWUP.md; vyx-side spec commit pending user).
-  Queued: `260716-ir-native/` runs NEXT — PLAN.md SUPERSEDED by user
-  redirect (scope = new `compile/` subsystem: pure-IR representations +
-  compiled models; `codegen/` untouched until deleted at end); PLAN_v3 in
-  preparation. Then `260712-viz/PLAN_v2.md` (after ir-native, ruling 5).
-  Prior: `260712-totality-cleanup/PLAN.md` (Tasks 0–5 ledger in
-  `PLAN_v3.md`; v4 superseded).
+  Current: `zzz_current_work/260716-ir-native/PLAN_v4.md` (runs NOW,
+  approved; supersedes `PLAN_v3.md` — see `V3_REVIEW.md` for the
+  adversarial-review evidence record) — the unified `compile/` subsystem:
+  pure-IR representations + compiled models, open rule→class binding,
+  flavours-from-text; `codegen/` read-only until deleted at the end.
+  Then `260712-viz/PLAN_v2.md` (after ir-native, ruling 5).
+  Prior: `260713-vyx-parse/PLAN.md` (CLOSED 2026-07-16, see its OUTCOME +
+  FOLLOWUP.md; vyx-side spec commit pending user);
+  `260712-totality-cleanup/PLAN.md` (Tasks 0–5 ledger in `PLAN_v3.md`; v4
+  superseded).
 - **Cutover complete (2026-05-13).** The IrItem-based pipeline is the only pipeline. Old Atom shape, `atoms.py`, `new_gbnf/`, `flavours.py` are all gone. See `.wiki/lexic/cutover-plan.md` and `.wiki/lexic/slice-b-status.md` for what remains.
 - **RuleSpec cutover complete (2026-07-04).** The `RuleSpec` middle layer, `ir/derive.py`, `ir/spec.py`, `ir/emit.py`, `ir/naming.py`, `ir/topo.py`, `parsing/models.py`, and the whole `utils/` package are gone. One canonical `IrAst` drives codegen, instance parsing, emission, generation, and round-trip. See `zzz_current_work/260703-ir-codegen/PLAN.md` for the effort that landed it.
 

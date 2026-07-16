@@ -226,6 +226,48 @@ def test_semantic_dump_excludes_ws():
     assert "ws" not in d
 
 
+# ── bound_fields ──────────────────────────────────────────────────────────────
+
+
+def test_bound_fields_maps_item_slot_to_name_and_bind():
+    """bound_fields() maps each bound item slot to its (field name, bind)."""
+
+    class Ident(GrammarModel):
+        """Identifier model with structural-noise ws."""
+
+        __grammar__: ClassVar[IrRule] = _ident_rule()
+        first: Annotated[str, IrBind(0, "text")]
+        ws: Annotated[Ws, IrBind(1, "model", False)]
+
+    bound = Ident.bound_fields()
+    assert set(bound) == {0, 1}
+    name0, bind0 = bound[0]
+    assert name0 == "first"
+    assert bind0.item == 0
+    name1, bind1 = bound[1]
+    assert name1 == "ws"
+    assert bind1.semantic is False
+
+
+def test_bound_fields_empty_for_value_str_class():
+    """A value_str class (no IrBind fields) has an empty bound_fields() map."""
+    assert not Ws.bound_fields()
+
+
+def test_bound_fields_is_a_classmethod_not_instance_dependent():
+    """bound_fields() reads class-level field metadata, callable on the class."""
+
+    class Ident(GrammarModel):
+        """Identifier model with structural-noise ws."""
+
+        __grammar__: ClassVar[IrRule] = _ident_rule()
+        first: Annotated[str, IrBind(0, "text")]
+        ws: Annotated[Ws, IrBind(1, "model", False)]
+
+    inst = Ident(first="x", ws=Ws(value=" "))
+    assert inst.bound_fields() == Ident.bound_fields()
+
+
 # ── to_grammar ────────────────────────────────────────────────────────────────
 
 

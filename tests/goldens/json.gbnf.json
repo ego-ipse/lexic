@@ -1,0 +1,1704 @@
+[
+  {
+    "input": "\"\\\"\"",
+    "model_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "escape": {
+              "value": "\\"
+            },
+            "kind": "\""
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "escape": {
+              "value": "\\"
+            },
+            "kind": "\""
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "to_text": "\"\\\"\""
+  },
+  {
+    "input": "\"\\\\\"",
+    "model_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "escape": {
+              "value": "\\"
+            },
+            "kind": "\\"
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "escape": {
+              "value": "\\"
+            },
+            "kind": "\\"
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "to_text": "\"\\\\\""
+  },
+  {
+    "input": "\"\\n\"",
+    "model_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "escape": {
+              "value": "\\"
+            },
+            "kind": "n"
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "escape": {
+              "value": "\\"
+            },
+            "kind": "n"
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "to_text": "\"\\n\""
+  },
+  {
+    "input": "\"A\"",
+    "model_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "value": "A"
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "value": "A"
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "to_text": "\"A\""
+  },
+  {
+    "input": "\"\\/\"",
+    "model_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "escape": {
+              "value": "\\"
+            },
+            "kind": "/"
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "escape": {
+              "value": "\\"
+            },
+            "kind": "/"
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "to_text": "\"\\/\""
+  },
+  {
+    "input": "\"\\u0041\"",
+    "model_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "escape": {
+              "value": "\\"
+            },
+            "kind": "u0041"
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [
+          {
+            "escape": {
+              "value": "\\"
+            },
+            "kind": "u0041"
+          }
+        ],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "to_text": "\"\\u0041\""
+  },
+  {
+    "input": "\n{\"\": [\t\r\n]}",
+    "model_dump": {
+      "ws": {
+        "value": "\n"
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": "\n"
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "object_item2": {
+          "member": {
+            "string": {
+              "quotation_mark": {
+                "value": "\""
+              },
+              "char": [],
+              "quotation_mark2": {
+                "value": "\""
+              }
+            },
+            "name_separator": {
+              "ws": {
+                "value": ""
+              },
+              "ws2": {
+                "value": " "
+              }
+            },
+            "value": {
+              "array_item2": null,
+              "begin_array": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": "\t\r\n"
+                }
+              },
+              "end_array": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": ""
+                }
+              }
+            }
+          },
+          "object_item": []
+        },
+        "begin_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        },
+        "end_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "object_item2": {
+          "member": {
+            "string": {
+              "quotation_mark": {
+                "value": "\""
+              },
+              "char": [],
+              "quotation_mark2": {
+                "value": "\""
+              }
+            },
+            "name_separator": {
+              "ws": {
+                "value": ""
+              },
+              "ws2": {
+                "value": " "
+              }
+            },
+            "value": {
+              "array_item2": null,
+              "begin_array": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": "\t\r\n"
+                }
+              },
+              "end_array": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": ""
+                }
+              }
+            }
+          },
+          "object_item": []
+        },
+        "begin_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        },
+        "end_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        }
+      }
+    },
+    "to_text": "\n{\"\": [\t\r\n]}"
+  },
+  {
+    "input": "\"\"",
+    "model_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "quotation_mark": {
+          "value": "\""
+        },
+        "char": [],
+        "quotation_mark2": {
+          "value": "\""
+        }
+      }
+    },
+    "to_text": "\"\""
+  },
+  {
+    "input": "{\"name\": \"alpha\", \"id\": 1, \"ok\": true}",
+    "model_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "object_item2": {
+          "member": {
+            "string": {
+              "quotation_mark": {
+                "value": "\""
+              },
+              "char": [
+                {
+                  "value": "n"
+                },
+                {
+                  "value": "a"
+                },
+                {
+                  "value": "m"
+                },
+                {
+                  "value": "e"
+                }
+              ],
+              "quotation_mark2": {
+                "value": "\""
+              }
+            },
+            "name_separator": {
+              "ws": {
+                "value": ""
+              },
+              "ws2": {
+                "value": " "
+              }
+            },
+            "value": {
+              "quotation_mark": {
+                "value": "\""
+              },
+              "char": [
+                {
+                  "value": "a"
+                },
+                {
+                  "value": "l"
+                },
+                {
+                  "value": "p"
+                },
+                {
+                  "value": "h"
+                },
+                {
+                  "value": "a"
+                }
+              ],
+              "quotation_mark2": {
+                "value": "\""
+              }
+            }
+          },
+          "object_item": [
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "member": {
+                "string": {
+                  "quotation_mark": {
+                    "value": "\""
+                  },
+                  "char": [
+                    {
+                      "value": "i"
+                    },
+                    {
+                      "value": "d"
+                    }
+                  ],
+                  "quotation_mark2": {
+                    "value": "\""
+                  }
+                },
+                "name_separator": {
+                  "ws": {
+                    "value": ""
+                  },
+                  "ws2": {
+                    "value": " "
+                  }
+                },
+                "value": {
+                  "minus": null,
+                  "frac": null,
+                  "exp": null,
+                  "int": {
+                    "digit1_9": {
+                      "value": "1"
+                    },
+                    "digit": []
+                  }
+                }
+              }
+            },
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "member": {
+                "string": {
+                  "quotation_mark": {
+                    "value": "\""
+                  },
+                  "char": [
+                    {
+                      "value": "o"
+                    },
+                    {
+                      "value": "k"
+                    }
+                  ],
+                  "quotation_mark2": {
+                    "value": "\""
+                  }
+                },
+                "name_separator": {
+                  "ws": {
+                    "value": ""
+                  },
+                  "ws2": {
+                    "value": " "
+                  }
+                },
+                "value": {
+                  "value": "true"
+                }
+              }
+            }
+          ]
+        },
+        "begin_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        },
+        "end_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "object_item2": {
+          "member": {
+            "string": {
+              "quotation_mark": {
+                "value": "\""
+              },
+              "char": [
+                {
+                  "value": "n"
+                },
+                {
+                  "value": "a"
+                },
+                {
+                  "value": "m"
+                },
+                {
+                  "value": "e"
+                }
+              ],
+              "quotation_mark2": {
+                "value": "\""
+              }
+            },
+            "name_separator": {
+              "ws": {
+                "value": ""
+              },
+              "ws2": {
+                "value": " "
+              }
+            },
+            "value": {
+              "quotation_mark": {
+                "value": "\""
+              },
+              "char": [
+                {
+                  "value": "a"
+                },
+                {
+                  "value": "l"
+                },
+                {
+                  "value": "p"
+                },
+                {
+                  "value": "h"
+                },
+                {
+                  "value": "a"
+                }
+              ],
+              "quotation_mark2": {
+                "value": "\""
+              }
+            }
+          },
+          "object_item": [
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "member": {
+                "string": {
+                  "quotation_mark": {
+                    "value": "\""
+                  },
+                  "char": [
+                    {
+                      "value": "i"
+                    },
+                    {
+                      "value": "d"
+                    }
+                  ],
+                  "quotation_mark2": {
+                    "value": "\""
+                  }
+                },
+                "name_separator": {
+                  "ws": {
+                    "value": ""
+                  },
+                  "ws2": {
+                    "value": " "
+                  }
+                },
+                "value": {
+                  "minus": null,
+                  "frac": null,
+                  "exp": null,
+                  "int": {
+                    "digit1_9": {
+                      "value": "1"
+                    },
+                    "digit": []
+                  }
+                }
+              }
+            },
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "member": {
+                "string": {
+                  "quotation_mark": {
+                    "value": "\""
+                  },
+                  "char": [
+                    {
+                      "value": "o"
+                    },
+                    {
+                      "value": "k"
+                    }
+                  ],
+                  "quotation_mark2": {
+                    "value": "\""
+                  }
+                },
+                "name_separator": {
+                  "ws": {
+                    "value": ""
+                  },
+                  "ws2": {
+                    "value": " "
+                  }
+                },
+                "value": {
+                  "value": "true"
+                }
+              }
+            }
+          ]
+        },
+        "begin_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        },
+        "end_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        }
+      }
+    },
+    "to_text": "{\"name\": \"alpha\", \"id\": 1, \"ok\": true}"
+  },
+  {
+    "input": "{\"nested\": {\"a\": [1, 2.5e3, -4], \"b\": null}}",
+    "model_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "object_item2": {
+          "member": {
+            "string": {
+              "quotation_mark": {
+                "value": "\""
+              },
+              "char": [
+                {
+                  "value": "n"
+                },
+                {
+                  "value": "e"
+                },
+                {
+                  "value": "s"
+                },
+                {
+                  "value": "t"
+                },
+                {
+                  "value": "e"
+                },
+                {
+                  "value": "d"
+                }
+              ],
+              "quotation_mark2": {
+                "value": "\""
+              }
+            },
+            "name_separator": {
+              "ws": {
+                "value": ""
+              },
+              "ws2": {
+                "value": " "
+              }
+            },
+            "value": {
+              "object_item2": {
+                "member": {
+                  "string": {
+                    "quotation_mark": {
+                      "value": "\""
+                    },
+                    "char": [
+                      {
+                        "value": "a"
+                      }
+                    ],
+                    "quotation_mark2": {
+                      "value": "\""
+                    }
+                  },
+                  "name_separator": {
+                    "ws": {
+                      "value": ""
+                    },
+                    "ws2": {
+                      "value": " "
+                    }
+                  },
+                  "value": {
+                    "array_item2": {
+                      "value": {
+                        "minus": null,
+                        "frac": null,
+                        "exp": null,
+                        "int": {
+                          "digit1_9": {
+                            "value": "1"
+                          },
+                          "digit": []
+                        }
+                      },
+                      "array_item": [
+                        {
+                          "value_separator": {
+                            "ws": {
+                              "value": ""
+                            },
+                            "ws2": {
+                              "value": " "
+                            }
+                          },
+                          "value": {
+                            "minus": null,
+                            "frac": {
+                              "decimal_point": {
+                                "value": "."
+                              },
+                              "digit": [
+                                {
+                                  "value": "5"
+                                }
+                              ]
+                            },
+                            "exp": {
+                              "exp_item": null,
+                              "e": {
+                                "value": "e"
+                              },
+                              "digit": [
+                                {
+                                  "value": "3"
+                                }
+                              ]
+                            },
+                            "int": {
+                              "digit1_9": {
+                                "value": "2"
+                              },
+                              "digit": []
+                            }
+                          }
+                        },
+                        {
+                          "value_separator": {
+                            "ws": {
+                              "value": ""
+                            },
+                            "ws2": {
+                              "value": " "
+                            }
+                          },
+                          "value": {
+                            "minus": {
+                              "value": "-"
+                            },
+                            "frac": null,
+                            "exp": null,
+                            "int": {
+                              "digit1_9": {
+                                "value": "4"
+                              },
+                              "digit": []
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "begin_array": {
+                      "ws": {
+                        "value": ""
+                      },
+                      "ws2": {
+                        "value": ""
+                      }
+                    },
+                    "end_array": {
+                      "ws": {
+                        "value": ""
+                      },
+                      "ws2": {
+                        "value": ""
+                      }
+                    }
+                  }
+                },
+                "object_item": [
+                  {
+                    "value_separator": {
+                      "ws": {
+                        "value": ""
+                      },
+                      "ws2": {
+                        "value": " "
+                      }
+                    },
+                    "member": {
+                      "string": {
+                        "quotation_mark": {
+                          "value": "\""
+                        },
+                        "char": [
+                          {
+                            "value": "b"
+                          }
+                        ],
+                        "quotation_mark2": {
+                          "value": "\""
+                        }
+                      },
+                      "name_separator": {
+                        "ws": {
+                          "value": ""
+                        },
+                        "ws2": {
+                          "value": " "
+                        }
+                      },
+                      "value": {
+                        "value": "null"
+                      }
+                    }
+                  }
+                ]
+              },
+              "begin_object": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": ""
+                }
+              },
+              "end_object": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": ""
+                }
+              }
+            }
+          },
+          "object_item": []
+        },
+        "begin_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        },
+        "end_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "object_item2": {
+          "member": {
+            "string": {
+              "quotation_mark": {
+                "value": "\""
+              },
+              "char": [
+                {
+                  "value": "n"
+                },
+                {
+                  "value": "e"
+                },
+                {
+                  "value": "s"
+                },
+                {
+                  "value": "t"
+                },
+                {
+                  "value": "e"
+                },
+                {
+                  "value": "d"
+                }
+              ],
+              "quotation_mark2": {
+                "value": "\""
+              }
+            },
+            "name_separator": {
+              "ws": {
+                "value": ""
+              },
+              "ws2": {
+                "value": " "
+              }
+            },
+            "value": {
+              "object_item2": {
+                "member": {
+                  "string": {
+                    "quotation_mark": {
+                      "value": "\""
+                    },
+                    "char": [
+                      {
+                        "value": "a"
+                      }
+                    ],
+                    "quotation_mark2": {
+                      "value": "\""
+                    }
+                  },
+                  "name_separator": {
+                    "ws": {
+                      "value": ""
+                    },
+                    "ws2": {
+                      "value": " "
+                    }
+                  },
+                  "value": {
+                    "array_item2": {
+                      "value": {
+                        "minus": null,
+                        "frac": null,
+                        "exp": null,
+                        "int": {
+                          "digit1_9": {
+                            "value": "1"
+                          },
+                          "digit": []
+                        }
+                      },
+                      "array_item": [
+                        {
+                          "value_separator": {
+                            "ws": {
+                              "value": ""
+                            },
+                            "ws2": {
+                              "value": " "
+                            }
+                          },
+                          "value": {
+                            "minus": null,
+                            "frac": {
+                              "decimal_point": {
+                                "value": "."
+                              },
+                              "digit": [
+                                {
+                                  "value": "5"
+                                }
+                              ]
+                            },
+                            "exp": {
+                              "exp_item": null,
+                              "e": {
+                                "value": "e"
+                              },
+                              "digit": [
+                                {
+                                  "value": "3"
+                                }
+                              ]
+                            },
+                            "int": {
+                              "digit1_9": {
+                                "value": "2"
+                              },
+                              "digit": []
+                            }
+                          }
+                        },
+                        {
+                          "value_separator": {
+                            "ws": {
+                              "value": ""
+                            },
+                            "ws2": {
+                              "value": " "
+                            }
+                          },
+                          "value": {
+                            "minus": {
+                              "value": "-"
+                            },
+                            "frac": null,
+                            "exp": null,
+                            "int": {
+                              "digit1_9": {
+                                "value": "4"
+                              },
+                              "digit": []
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "begin_array": {
+                      "ws": {
+                        "value": ""
+                      },
+                      "ws2": {
+                        "value": ""
+                      }
+                    },
+                    "end_array": {
+                      "ws": {
+                        "value": ""
+                      },
+                      "ws2": {
+                        "value": ""
+                      }
+                    }
+                  }
+                },
+                "object_item": [
+                  {
+                    "value_separator": {
+                      "ws": {
+                        "value": ""
+                      },
+                      "ws2": {
+                        "value": " "
+                      }
+                    },
+                    "member": {
+                      "string": {
+                        "quotation_mark": {
+                          "value": "\""
+                        },
+                        "char": [
+                          {
+                            "value": "b"
+                          }
+                        ],
+                        "quotation_mark2": {
+                          "value": "\""
+                        }
+                      },
+                      "name_separator": {
+                        "ws": {
+                          "value": ""
+                        },
+                        "ws2": {
+                          "value": " "
+                        }
+                      },
+                      "value": {
+                        "value": "null"
+                      }
+                    }
+                  }
+                ]
+              },
+              "begin_object": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": ""
+                }
+              },
+              "end_object": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": ""
+                }
+              }
+            }
+          },
+          "object_item": []
+        },
+        "begin_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        },
+        "end_object": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        }
+      }
+    },
+    "to_text": "{\"nested\": {\"a\": [1, 2.5e3, -4], \"b\": null}}"
+  },
+  {
+    "input": "-12.75e-2",
+    "model_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "minus": {
+          "value": "-"
+        },
+        "frac": {
+          "decimal_point": {
+            "value": "."
+          },
+          "digit": [
+            {
+              "value": "7"
+            },
+            {
+              "value": "5"
+            }
+          ]
+        },
+        "exp": {
+          "exp_item": {
+            "value": "-"
+          },
+          "e": {
+            "value": "e"
+          },
+          "digit": [
+            {
+              "value": "2"
+            }
+          ]
+        },
+        "int": {
+          "digit1_9": {
+            "value": "1"
+          },
+          "digit": [
+            {
+              "value": "2"
+            }
+          ]
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "minus": {
+          "value": "-"
+        },
+        "frac": {
+          "decimal_point": {
+            "value": "."
+          },
+          "digit": [
+            {
+              "value": "7"
+            },
+            {
+              "value": "5"
+            }
+          ]
+        },
+        "exp": {
+          "exp_item": {
+            "value": "-"
+          },
+          "e": {
+            "value": "e"
+          },
+          "digit": [
+            {
+              "value": "2"
+            }
+          ]
+        },
+        "int": {
+          "digit1_9": {
+            "value": "1"
+          },
+          "digit": [
+            {
+              "value": "2"
+            }
+          ]
+        }
+      }
+    },
+    "to_text": "-12.75e-2"
+  },
+  {
+    "input": "[true, false, null, 0, \"s\"]",
+    "model_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {}
+    },
+    "runtime_dump": {
+      "ws": {
+        "value": ""
+      },
+      "ws2": {
+        "value": ""
+      },
+      "value": {
+        "array_item2": {
+          "value": {
+            "value": "true"
+          },
+          "array_item": [
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "value": {
+                "value": "false"
+              }
+            },
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "value": {
+                "value": "null"
+              }
+            },
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "value": {
+                "minus": null,
+                "frac": null,
+                "exp": null,
+                "int": {
+                  "value": "0"
+                }
+              }
+            },
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "value": {
+                "quotation_mark": {
+                  "value": "\""
+                },
+                "char": [
+                  {
+                    "value": "s"
+                  }
+                ],
+                "quotation_mark2": {
+                  "value": "\""
+                }
+              }
+            }
+          ]
+        },
+        "begin_array": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        },
+        "end_array": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        }
+      }
+    },
+    "semantic_dump": {
+      "value": {}
+    },
+    "runtime_semantic_dump": {
+      "value": {
+        "array_item2": {
+          "value": {
+            "value": "true"
+          },
+          "array_item": [
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "value": {
+                "value": "false"
+              }
+            },
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "value": {
+                "value": "null"
+              }
+            },
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "value": {
+                "minus": null,
+                "frac": null,
+                "exp": null,
+                "int": {
+                  "value": "0"
+                }
+              }
+            },
+            {
+              "value_separator": {
+                "ws": {
+                  "value": ""
+                },
+                "ws2": {
+                  "value": " "
+                }
+              },
+              "value": {
+                "quotation_mark": {
+                  "value": "\""
+                },
+                "char": [
+                  {
+                    "value": "s"
+                  }
+                ],
+                "quotation_mark2": {
+                  "value": "\""
+                }
+              }
+            }
+          ]
+        },
+        "begin_array": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        },
+        "end_array": {
+          "ws": {
+            "value": ""
+          },
+          "ws2": {
+            "value": ""
+          }
+        }
+      }
+    },
+    "to_text": "[true, false, null, 0, \"s\"]"
+  }
+]
