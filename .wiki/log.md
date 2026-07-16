@@ -6,6 +6,47 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-16 — Engine bug sweep: L4 Leo mixed provenance, left-recursion islanding, stack-safe emitter, tests/adversarial/
+
+**L4 (embedded-ambiguity undercount) fixed.** A Leo top can carry *mixed
+provenance* — some SPPF families recorded by the normal completer (a later
+completion of the same rule found ≥2 waiters), others deferred in `leo_links`.
+All three decoders (`Kernel.to_chart`, `FastTree._step`,
+`FusedReduce._collect`) gated `expand_leo` on `key not in links`, silently
+dropping the deferred families whenever any completer family existed
+(`p ::= u u*; u ::= [ab]+` over `"aab"`: 4 derivations at `start=p`, 2 when
+embedded under `w ::= p`). Fix: expand on `leo_links` presence, never gate on
+`links` — `expand_leo` is idempotent (families dedup); invariant documented on
+`expand_leo` itself. Leo stays engaged on every fast path. Probe4 4/4.
+
+**Left recursion now islands structurally** (`pda/analysis/leftrec.py`, new).
+A predictive descent cannot run left recursion — it re-enters the rule at the
+same position before consuming; no gate family can license it. Previously left
+recursion islanded only *by accident* (the recursive arm's FIRST always
+overlaps a consuming escape arm's FIRST ⇒ arm conflict), so a nullable-only
+escape arm (`root ::= root "a" | ""`) or sole-arm degenerate (`x ::= x "a"`)
+compiled to a clone and the PDA descended forever. `left_recursive_names`
+(nullable-prefix left-corner transitive closure; leaf module, Any-typed
+analysis oracle, open IrTypeMap dispatch) feeds `_classify`, which files a
+hard conflict note and skips all other classification for cycle members — the
+rule islands, the Earley island sub-parse handles it natively.
+
+**`GrammarModel.to_text()` is stack-safe** (`base.py`): the mutually recursive
+`to_text`/`_field_text` descent (RecursionError at nesting ~250) is now an
+explicit LIFO work-stack over a new private `_emit_parts()`; byte-identical
+output, `_field_text` deleted. `semantic_dump()` probed to depth 1500 — it
+rides pydantic-core (Rust), no Python recursion, no fix needed.
+
+**New `tests/adversarial/`** (sibling of `tests/property/`, user ruling):
+cross-cutting adversarial edge-case pins graduated from repro scripts —
+`test_deep_nesting.py` (round-trip at depth 400/800),
+`test_left_recursion.py` (the four recursion/nullability quadrants under a
+SIGALRM watchdog, indirect cycles, sole-arm clean rejection). Shared
+hand-authored-grammar helpers (`rule_of`/`item_of`/`analysis_of`) moved to
+`tests/_ir_fixtures.py` (R0801). Suite 2212 passed; `run_checks.sh` exit 0.
+
+---
+
 ## 2026-07-13 — Vyx-parse Tasks 1–2: L1 multi-membership codegen + L2 root arm-choice packing
 
 Fixed both lexic bugs pinned by the probe. **L1 (multiple inheritance):**

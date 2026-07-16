@@ -391,6 +391,20 @@ src/lexic/
                             analysis.py (Any-typed oracle, kwindow/noise
                             precedent); reads noise.sem_follow_table for the P6
                             clause; imports scanner + charsets + ir
+        leftrec.py          left_recursive_names(analysis) — the nullable-prefix
+                            left-corner closure. A predictive descent cannot run
+                            left recursion (re-enters at the same position, no
+                            gate can license it), so every cycle member files a
+                            hard conflict note in _classify BEFORE any other
+                            classification → the rule islands unconditionally
+                            (skipping gate analysis). FIRST-overlap conflicts
+                            catch most left recursion by accident; the shapes
+                            only this check catches are the nullable-only escape
+                            arm (root ::= root "a" | "" — the 260716 hang) and
+                            the sole-arm degenerate (x ::= x "a"). A leaf w.r.t.
+                            analysis.py (Any-typed oracle, kwindow/noise
+                            precedent); open IrTypeMap atom dispatch, raising
+                            default
         kwindow.py          FIRST_k over CharSet tuples — the k-window (bounded-
                             lookahead) P2 substrate (Task 6.3). KWindowFirst fixpoint
                             + arm_gate/loop_gate: whether an arm-selection or loop

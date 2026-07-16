@@ -40,11 +40,43 @@ class GrammarModel(BaseModel):
         return bound
 
     def to_text(self) -> str:
-        """Emit source text for this model instance."""
+        """Emit source text for this model instance.
+
+        Walks an explicit work-stack rather than recursing into nested
+        models, so emission is stack-safe at any nesting depth. Each stack
+        entry is either resolved text or an unexpanded field value; a model
+        is expanded via :meth:`_emit_parts`, preserving pre-order output.
+        """
+        out: list[str] = []
+        stack: list[object] = [self]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, str):
+                out.append(node)
+            elif isinstance(node, GrammarModel):
+                stack.extend(reversed(GrammarModel._emit_parts(node)))
+            elif isinstance(node, list):
+                stack.extend(reversed(node))
+            else:
+                out.append(str(node))
+        return "".join(out)
+
+    def _emit_parts(self) -> list[object]:
+        """This model's own emission items, deferring nested values.
+
+        Returns the ordered items :meth:`to_text` would emit for this model
+        alone — literal strings for unbound literals, and each bound field's
+        value (str, model, or list) left unexpanded for the walker to
+        resolve. Mirrors ``to_text``'s per-item logic without recursing.
+
+        :returns: The ordered emission items for this model.
+        :raises NotImplementedError: On an abstract alternation class (no
+            fields at all); call ``to_text`` on the concrete arm instead.
+        """
         binds = self._bound_fields()
         if not binds:
             if any(name == "value" for name in type(self).model_fields.keys()):
-                return str(getattr(self, "value", ""))
+                return [str(getattr(self, "value", ""))]
             raise NotImplementedError(
                 f"to_text() is undefined on abstract alternation class "
                 f"{type(self).__name__}; call it on a concrete arm instance."
@@ -52,17 +84,17 @@ class GrammarModel(BaseModel):
         body = self.__grammar__.body
         values = {slot: getattr(self, name, None) for slot, (name, _b) in binds.items()}
         if any(not arm for arm in body) and all(v is None for v in values.values()):
-            return ""  # the rule's empty alternate arm matched — no field set
+            return []  # the rule's empty alternate arm matched — no field set
         arm = next((a for a in body if a), IrSequence())
-        parts: list[str] = []
+        parts: list[object] = []
         for slot, item in enumerate(arm):
             if slot in binds:
                 value = values[slot]
                 if value is not None:
-                    parts.append(_field_text(value))
+                    parts.append(value)
             elif isinstance(item.atom, IrLiteral):
                 parts.append(str(item.atom))
-        return "".join(parts)
+        return parts
 
     def to_grammar(self, flavour: str = "gbnf") -> str:
         """Emit this model's rule as grammar text in the given flavour."""
@@ -129,12 +161,3 @@ class GrammarModel(BaseModel):
             name for name, bind in self._bound_fields().values() if not bind.semantic
         }
         return self.model_dump(exclude=exclude)
-
-
-def _field_text(value: object) -> str:
-    """One field value's text: recurse into models, join lists, else str."""
-    if isinstance(value, list):
-        return "".join(_field_text(v) for v in value)
-    if isinstance(value, GrammarModel):
-        return value.to_text()
-    return str(value)

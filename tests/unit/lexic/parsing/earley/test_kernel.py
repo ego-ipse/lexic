@@ -512,6 +512,44 @@ def test_to_chart_idempotent_across_repeat_calls():
     assert len(chart1.links) == len(chart2.links)
 
 
+def _embedded_ambiguous() -> IrAst:
+    """w = p ; p = u u* ; u = [ab]+ — p's split ambiguity embedded under w."""
+    ab = IrCharClass(IrRange(IrChr(97), IrChr(98)))
+    return _norm(
+        IrRule("w", IrAlternation(IrSequence(IrItem(IrRuleRef("p"))))),
+        IrRule(
+            "p",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrRuleRef("u")),
+                    IrItem(IrRuleRef("u"), IrQuantifier(0, IrNone)),
+                )
+            ),
+        ),
+        IrRule("u", IrAlternation(IrSequence(IrItem(ab, IrQuantifier(1, IrNone))))),
+        start="w",
+    )
+
+
+def test_to_chart_expands_leo_links_under_mixed_provenance():
+    """A Leo top that also gained normal-completer families keeps its chains.
+
+    Over "aab" the embedded grammar records p's whole-input completion both
+    through the normal completer (two families in ``links``) and through a
+    deferred Leo chain (one more in ``leo_links``) — mixed provenance.
+    ``to_chart()`` must materialise the deferred family too (L4: the old
+    ``key not in links`` guard silently dropped it).
+    """
+    tables = compile_tables(_embedded_ambiguous())
+    kernel = Kernel(tables, "aab", record_links=True).run()
+    mixed = [k for k in kernel.st.leo_links if k in kernel.st.links]
+    assert mixed  # the L4 precondition: mixed provenance actually occurs here
+    kernel.to_chart()
+    for key in mixed:
+        for entry in kernel.st.leo_links[key]:
+            assert entry in kernel.st.links[key]
+
+
 # ── ORIGIN_BITS capacity error ──────────────────────────────────────────
 
 

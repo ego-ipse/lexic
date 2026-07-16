@@ -535,15 +535,46 @@ def test_root_overlapping_charclass_arms_enumerates_both():
     assert int(is_ambiguous(g, "a=b")) == 1
 
 
-# NOTE: probe4's 4th case (v ::= p | u, p ::= "|" u ("|" u)*, input "|a|b") is
-# deliberately NOT graduated here. Its honest count is 3 (v→u=1 plus v→p=2), but
-# the engine yields 2 because of a separate pre-existing defect (L4 in
-# FINDINGS.md): right-recursive/nullable-tail ambiguity is undercounted when the
-# ambiguous rule is embedded under a parent (Leo-deferred family reconstruction).
-# That is distinct from the root arm-choice bug fixed here and lives on a code
-# path this fix does not touch. A test would either assert a wrong count (2) or
-# fail (3), so the case is left as a documented finding, not a suite fixture,
-# pending the follow-on L4 engine fix.
+# ── L4: embedded ambiguity through Leo-deferred completions ───────────
+#
+# A Leo top can gain families from BOTH the normal completer and deferred
+# ``leo_links`` chains (mixed provenance). The decoders used to skip
+# ``expand_leo`` whenever the key already had ``links`` families, dropping the
+# deferred derivations: an ambiguous right-recursive/nullable-tailed rule
+# embedded under a parent undercounted — its ambiguity was only fully
+# enumerated when it was the start symbol. The last test graduates probe4's
+# 4th case (``zzz_current_work/260713-vyx-parse/probe/probe4_engine_repro.py``).
+
+
+def test_embedded_ambiguity_matches_start_symbol_count():
+    """p ::= u u* / u ::= [ab]+ over "aab": 4 splits at start AND embedded.
+
+    The four derivations are the compositions of "aab" into u-runs:
+    (aab), (a,ab), (aa,b), (a,a,b). Embedding p under w must not lose any.
+    """
+    at_start = _arms_grammar("p ::= u u*\nu ::= [ab]+\n")
+    embedded = _arms_grammar("w ::= p\np ::= u u*\nu ::= [ab]+\n")
+    assert len(derivations(at_start, "aab")) == 4
+    assert len(derivations(embedded, "aab")) == 4
+    assert int(is_ambiguous(embedded, "aab")) == 1
+
+
+def test_embedded_ambiguity_strict_parse_raises():
+    """Strict parse() raises on the embedded (Leo-deferred) ambiguity too."""
+    embedded = _arms_grammar("w ::= p\np ::= u u*\nu ::= [ab]+\n")
+    with pytest.raises(UnsupportedConstructError):
+        parse(embedded, "aab")
+
+
+def test_charclass_vs_structured_arm_enumerates_all():
+    """v ::= p | u (p ::= "|" u ("|" u)*, u ::= [a-z|]+) over "|a|b": 3.
+
+    v→u whole-input = 1; v→p with items (a, b) = 1; v→p with the single
+    item "a|b" = 1.
+    """
+    g = _arms_grammar('v ::= p | u\np ::= "|" u ("|" u)*\nu ::= [a-z|]+\n')
+    assert len(derivations(g, "|a|b")) == 3
+    assert int(is_ambiguous(g, "|a|b")) == 1
 
 
 # ── RootNode / RootDerivs white-box ───────────────────────────────────

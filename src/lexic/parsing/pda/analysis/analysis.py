@@ -26,6 +26,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing.pda.analysis import kwindow
+from lexic.parsing.pda.analysis.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.noise import (
     noise_alphabet,
     noise_greedy_licensed,
@@ -811,8 +812,20 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     # ── conflict classification ────────────────────────────────────────
 
     def _classify(self) -> None:
-        """Fill :attr:`conflicts` and :attr:`demoted` from every rule."""
+        """Fill :attr:`conflicts` and :attr:`demoted` from every rule.
+
+        A left-recursive rule islands unconditionally, before any other
+        classification: no gate family can license it (a gate only picks an
+        arm — the winning recursive arm still re-enters at the same
+        position), so its decision points are never analysed for gates.
+        """
+        left = left_recursive_names(self)
         for name, rule in self.rules.items():
+            if name in left:
+                self.taxonomy.conflicts[name] = [
+                    f"{name}: left-recursive — predictive descent cannot run it"
+                ]
+                continue
             notes = _Notes()
             scope = _Scope(name, self.follow[name], self.hard_follow[name], body=True)
             arms = [_items(arm) for arm in rule.body]

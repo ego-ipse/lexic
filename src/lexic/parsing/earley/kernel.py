@@ -715,6 +715,15 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
 
         Files each skipped completion's family into :attr:`KernelState.links`
         bottom-up, O(chain), idempotent (families dedup).
+
+        Invariant — **expand on presence, never gate on** ``links``. A Leo top
+        can carry *mixed provenance*: some of its families recorded by the
+        normal completer (a later completion of the same rule found ≥2
+        waiters), others deferred here. ``key in links`` therefore does NOT
+        mean the deferred chains are represented — a caller that skips
+        expansion on that test drops the deferred derivations (the L4
+        embedded-ambiguity undercount). Idempotence makes the unconditional
+        call safe.
         """
         top = key >> ORIGIN_BITS
         end = key & ORIGIN_MASK
@@ -787,9 +796,8 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         by the ambiguity / enumeration paths only — the unambiguous fast path
         (:class:`FastTree`) reads the packed links directly.
         """
-        for key in list(self.st.leo_links):
-            if key not in self.st.links:
-                self.expand_leo(key)
+        for key in self.st.leo_links:
+            self.expand_leo(key)
         chart = Chart()
         links = chart.links
         for key, bucket in self.st.links.items():
@@ -868,7 +876,7 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
                 self.stack.pop()
                 return True
         st = kernel.st
-        if handle in st.leo_links and handle not in st.links:
+        if handle in st.leo_links:
             kernel.expand_leo(handle)
         resolved = self._collect(handle)
         if resolved is None:
