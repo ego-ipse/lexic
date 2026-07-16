@@ -16,6 +16,7 @@ from lexic.codegen.binding import RuleBinding, compute_binding
 from lexic.codegen.model_emitter import emit_module_source
 from lexic.codegen.passes import build_codegen_grammar
 from lexic.ir.nodes import IrAst
+from lexic.ir.order import order_by_refs
 
 __all__ = [
     "RuleBinding",
@@ -148,9 +149,32 @@ def codegen(
     """
     source = emit_module_source(canonical, codegen_grammar, binding, stem=stem)
     classes = _write_and_load(source, stem, [b.class_name for b in binding], out_dir)
-    # Resolve deferred annotations (``from __future__ import annotations`` plus
-    # forward-referenced sibling classes) so each field's ``IrBind`` metadata is
-    # readable — base.py drives ``to_text``/``semantic_dump`` off it.
-    for cls in classes.values():
-        cls.model_rebuild()
+    _rebuild_leaf_first(classes, codegen_grammar, binding)
     return classes
+
+
+def _rebuild_leaf_first(
+    classes: dict[str, type], codegen_grammar: IrAst, binding: list[RuleBinding]
+) -> None:
+    """Resolve each class's deferred annotations, referenced classes first.
+
+    ``from __future__ import annotations`` plus forward-referenced sibling
+    classes leave every field's ``IrBind`` metadata unresolved until
+    ``model_rebuild``. Rebuilding a class whose field types are still
+    incomplete makes pydantic build the whole dependency chain in one Python
+    stack, overflowing on long ref chains. Walking the ref topology
+    leaf-first (reverse of the start-first ref order) so each rebuild sees
+    its dependencies already complete keeps every schema build shallow;
+    mutually recursive rules resolve in any order (pydantic defers the
+    back-references).
+
+    :param classes: Generated classes by class name.
+    :param codegen_grammar: The post-pass grammar carrying the ref topology.
+    :param binding: The binding view mapping rule names to class names.
+    """
+    class_for_rule = {b.rule_name: b.class_name for b in binding}
+    ref_ordered = list(order_by_refs(codegen_grammar).rules)
+    for rule in reversed(ref_ordered):
+        cls = classes.get(class_for_rule.get(str(rule.name), ""))
+        if cls is not None:
+            cls.model_rebuild()

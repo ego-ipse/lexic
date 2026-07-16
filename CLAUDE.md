@@ -806,6 +806,18 @@ them.
 
 Unquantified `IrLiteral` (quantifier `(1,1)`, `_is_structural_literal`) → no field, never reaches Tier 3. Quantified literals always name via Tier 2 (`_literal_token`), never Tier 3.
 
+**Reserved names mangle with a trailing `_`** (the `True_` precedent): field
+names in `_RESERVED_FIELD_NAMES` (Python keywords + the pydantic `BaseModel`
+surface + `GrammarModel`'s methods — a rule named `class` was a SyntaxError,
+`to-text` shadowed the method) and class names in `_RESERVED_CLASS_NAMES`
+(the emitted header's module bindings — a rule named `annotated` broke every
+later `Annotated[...]` resolution). Both sets are drift-pinned by tests
+against the real `GrammarModel` and the emitter's `CANONICAL_IMPORTS`.
+Unit-arm cycles (`s ::= s | "a"`, mutual arms) are broken in `_break_cycles`
+before MRO ordering: intra-cycle parent edges drop, cross-cycle edges widen
+to the whole target cycle (concrete arms carry every member; `isinstance`
+holds for fields typed with any of them).
+
 `_HINT` (always yields a name — used inside `_group_hint` to label literal-only group content) vs `_TIER2` (may yield `IrNone`, routing the field to Tier-3 positional names) is the same hint/field-base distinction the old `_ATOM_HINT`/`_FIELD_BASE` pair drew. Fold **mode** derivation (`mode_for`/`_MODE`, one of `BIND_MODES` — `text`/`gtext`/`model`/`models`) is a sibling `IrDispatch` table in the same module, dispatched on the atom with the owning `IrItem` riding the argument channel so ref/group bodies can read the quantifier.
 
 ## GrammarModel (`base.py`)

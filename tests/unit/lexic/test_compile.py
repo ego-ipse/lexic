@@ -11,7 +11,6 @@ import pytest
 import lexic
 import lexic.compile as compile_module
 from lexic.base import GrammarModel
-from lexic.codegen import resolve_out_dir
 from lexic.compile import (
     CompiledGrammar,
     _scan_directives,
@@ -129,16 +128,17 @@ def test_compile_with_cache_key():
     assert cg1 is cg2
 
 
-def test_compile_and_compile_from_path_share_cache():
-    """compile_from_path(path) should cache-hit after compile_text(text, cache_key=key)."""
-    path = GROUND_TRUTH / "arithmetic.gbnf"
-    resolved = str(path.resolve())
-    stat = path.stat()
-    out_dir = str(resolve_out_dir(None).resolve())
-    key = (resolved, stat.st_mtime, stat.st_size, "gbnf", out_dir)
-    cg1 = compile_text(path.read_text(), cache_key=key)
-    cg2 = compile_from_path(path)
-    assert cg1 is cg2
+def test_cache_key_folds_content_no_stale_serve():
+    """The same cache_key with different text never serves a stale grammar.
+
+    The explicit key is prepended to the content key, so distinct source
+    under one key yields distinct entries — each parses its own input.
+    """
+    first = compile_text('g ::= "1"\n', cache_key="shared-key")
+    second = compile_text('g ::= "2"\n', cache_key="shared-key")
+    assert first is not second
+    assert first.parse("1").to_text() == "1"
+    assert second.parse("2").to_text() == "2"
 
 
 def test_compiled_grammar_parse_roundtrips():

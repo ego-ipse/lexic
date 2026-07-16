@@ -6,6 +6,59 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-16 — Adversarial sweep round 2: codegen cycles, reserved names, depth bombs, cache keys (L5–L8)
+
+Four findings from the Fable adversarial sweep, three fixed same-day
+(FINDINGS L5–L8 in `zzz_current_work/260713-vyx-parse/`):
+
+**L5 — unit-arm cycles** (`codegen/binding.py`): `s ::= s | "a"` emitted
+`class S(S):`; mutual unit arms emitted circular inheritance — both died with
+NameError at module exec. New `_break_cycles` (over a cycle-tolerant
+`_reach_closure`) runs before MRO ordering: intra-cycle parent edges drop
+(members become siblings), a cross-cycle edge widens to the target's whole
+cycle, so every concrete arm subclasses every cycle member and `isinstance`
+holds for fields typed with any of them.
+
+**L6 — reserved rule names** (`codegen/binding.py`): rules named
+`import`/`class` emitted SyntaxError modules; `to-text` emitted a field
+shadowing the method (TypeError); `annotated` shadowed the header's
+`typing.Annotated` and broke every later annotation resolution. Field names
+now mangle via `_RESERVED_FIELD_NAMES` (keywords + `BaseModel` surface +
+`GrammarModel` methods) and class names via `_RESERVED_CLASS_NAMES` (the
+emitted header's bindings), both `_`-suffixed (the `True_` precedent) and
+drift-pinned by tests (the pin immediately caught `fast_construct`).
+
+**L7 — deep-grammar depth bombs**: the 300-rule unit-ref chain died twice —
+pydantic `model_rebuild` recursing across the model chain (fixed: leaf-first
+rebuild order, `codegen/__init__.py::_rebuild_leaf_first`) and the PDA clone
+compiler recursing per chained rule (fixed: `_PdaCompiler.ensure_rule`
+enqueues and the outermost call drains a work queue — constant stack depth,
+callers' fully-compiled-on-return contract unchanged;
+`islands`/`fail_islands` became properties over the analysis). Residual:
+leaf-first is a marginal bound — pydantic-core's `_schema_gather` still walks
+the full nested schema, so depth 320 round-trips but ~500 overflows inside
+pydantic (a pydantic-internals fix or a domain depth cap is a user ruling,
+same bucket as case A). **Case A —
+~300 nested inline groups → RecursionError in `ir/canonical.py`'s
+`_canon_alternation` ↔ `_canon_sequence` — is DEFERRED**: every IrDispatch
+transformer shares the recursion-by-design shape (action bodies own
+recursion), so an iterative driver / ir-level trampoline is a design ruling,
+not a sweep patch. `repro_deep_grammar_recursionerror.py` stays as its pin.
+
+**L8 — cache_key staleness** (`compile.py`): an explicit `cache_key` was used
+as-is, so one key + different grammar text silently served the first
+grammar. The content key is now always folded in
+(`(cache_key, stem, flavour, out_dir)`).
+
+Clean bills from the sweep (fuzzes found nothing): derivations/is_ambiguous/
+strict-parse consistency (60 grammars × 8 inputs), full-pipeline round-trip
+(240 generated samples), PDA-vs-Earley differential, maximal-munch backoff,
+ABNF `%i` + `=/`, degenerate grammar texts, deep input on both engine paths.
+New adversarial pins: `test_unit_arm_cycles.py`, `test_reserved_rule_names.py`,
+`test_deep_grammar.py`, `test_compile_cache.py`. Suite 2236; gate exit 0.
+
+---
+
 ## 2026-07-16 — Engine bug sweep: L4 Leo mixed provenance, left-recursion islanding, stack-safe emitter, tests/adversarial/
 
 **L4 (embedded-ambiguity undercount) fixed.** A Leo top can carry *mixed

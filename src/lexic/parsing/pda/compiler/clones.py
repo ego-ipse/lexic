@@ -339,20 +339,20 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     __slots__ = (
         "analysis",
         "fold_config",
-        "islands",
-        "fail_islands",
         "clones",
         "reduce",
         "completions",
+        "pending",
+        "draining",
     )
 
     analysis: GrammarAnalysis
     fold_config: Mapping[str, RuleFold]
-    islands: frozenset[str]
-    fail_islands: frozenset[str]
     clones: dict[CloneKey, CloneSpec]
     reduce: ReduceCompile | None
     completions: dict[CloneKey, ReduceComp]
+    pending: list[CloneKey]
+    draining: bool
 
     def __init__(
         self,
@@ -364,11 +364,21 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         """Prepare the compiler for one target (model fold, or reduce)."""
         self.analysis = analysis
         self.fold_config = fold_config or {}
-        self.islands = analysis.islands
-        self.fail_islands = analysis.fail_islands
         self.clones = {}
         self.reduce = reduce
         self.completions = {}
+        self.pending = []
+        self.draining = False
+
+    @property
+    def islands(self) -> frozenset[str]:
+        """The island rule names — never cloned (a view onto the analysis)."""
+        return self.analysis.islands
+
+    @property
+    def fail_islands(self) -> frozenset[str]:
+        """The fail-island subset — references raise ``PdaFail``."""
+        return self.analysis.fail_islands
 
     def compile_start(self) -> CloneKey | IslandRef:
         """Compile the start clone (EOF-only tail), or return the
@@ -381,20 +391,36 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     def ensure_rule(self, name: str, tail: CharSet) -> CloneKey:
         """Compile (or reuse) the clone of ``name`` for continuation ``tail``.
 
-        Cycle-safe: the key is reserved with :data:`_PENDING` before the body is
-        compiled, so a recursive reference resolves to it; a second call with
-        the same key reuses the finished clone. ``name`` is never an island —
-        callers check first.
+        Cycle- AND depth-safe: the key is reserved with :data:`_PENDING` and
+        queued; a recursive or repeated reference resolves to the key without
+        re-queueing. The outermost call drains the queue iteratively — a
+        nested call (an :data:`_ATOM_SPEC` body reaching a fresh ref mid-body)
+        only enqueues, so a long rule chain compiles at constant Python stack
+        depth instead of one frame set per rule. On return every queued clone
+        is complete (the callers' contract is unchanged). ``name`` is never an
+        island — callers check first.
         """
         key = CloneKey(name, tail)
-        if key in self.clones:
-            return key
-        self.clones[key] = _PENDING
+        if key not in self.clones:
+            self.clones[key] = _PENDING
+            self.pending.append(key)
+        if not self.draining:
+            self.draining = True
+            try:
+                while self.pending:
+                    self._compile_clone(self.pending.pop())
+            finally:
+                self.draining = False
+        return key
+
+    def _compile_clone(self, key: CloneKey) -> None:
+        """Compile one queued clone body into :attr:`clones` (drain step)."""
+        name = key.name
         rule = self.analysis.rules[name]
         tax = self.analysis.taxonomy
         arms, default, struct = self.compile_arms(
             rule.body,
-            tail,
+            key.tail,
             ArmGates(
                 tax.arm_gates.get(name),
                 tax.pn_arm_gates.get(name),
@@ -406,7 +432,6 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.clones[key] = CloneSpec(name, arms, default, fold, match_only, struct)
         if self.reduce is not None:
             self.completions[key] = self.reduce.comp_for(name)
-        return key
 
     def compile_arms(
         self,

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import ast as pyast
+
 import pytest
 
+from lexic.base import GrammarModel
 from lexic.codegen.binding import (
+    _RESERVED_CLASS_NAMES,
+    _RESERVED_FIELD_NAMES,
     CHARCLASS_NAMES,
     LITERAL_NAMES,
     bind_fields,
@@ -13,6 +18,7 @@ from lexic.codegen.binding import (
     compute_binding,
     mode_for,
 )
+from lexic.codegen.model_emitter import CANONICAL_IMPORTS
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrChr, IrNone, IrSeq
 from lexic.ir.bind import IrBind
@@ -356,6 +362,125 @@ def test_multi_membership_bases_ordered_most_derived_first():
     """
     by_name = {b.rule_name: b for b in compute_binding(_multi_membership_ast())}
     assert by_name["unquoted"].parent_class_names == ("BareVal", "Value")
+
+
+# ── unit-arm cycles (L5) ──────────────────────────────────────────────
+#
+# A rule that is a unit-ref arm of itself, or rules that are unit-ref arms of
+# each other, would emit self-/circularly-inheriting classes (`class S(S):`)
+# and die at module exec. Cycle members all derive the same language, so the
+# parent graph drops intra-cycle edges (members become siblings) and widens an
+# edge to an outside member to that member's whole cycle — concrete arms then
+# carry every member, keeping isinstance for fields typed with any of them.
+
+
+def _self_arm_ast() -> IrAst:
+    """s → s | lit_a: a rule that is a unit-ref arm of itself."""
+    return IrAst(
+        IrSeq(
+            IrRule("s", IrAlternation(IrRuleRef("s"), IrRuleRef("lit_a"))),
+            IrRule("lit_a", IrLiteral("a")),
+        ),
+        "s",
+    )
+
+
+def _mutual_arm_ast() -> IrAst:
+    """a → b | x ; b → a | y: mutually unit-ref-arm alternations."""
+    return IrAst(
+        IrSeq(
+            IrRule("a", IrAlternation(IrRuleRef("b"), IrRuleRef("x"))),
+            IrRule("b", IrAlternation(IrRuleRef("a"), IrRuleRef("y"))),
+            IrRule("x", IrLiteral("x")),
+            IrRule("y", IrLiteral("y")),
+        ),
+        "a",
+    )
+
+
+def test_self_arm_drops_the_self_parent():
+    """The self unit arm contributes no parent edge; other arms keep theirs."""
+    by_name = {b.rule_name: b for b in compute_binding(_self_arm_ast())}
+    assert by_name["s"].parent_class_names == ()
+    assert by_name["lit_a"].parent_class_names == ("S",)
+
+
+def test_mutual_arm_cycle_members_become_siblings():
+    """Neither cycle member subclasses the other — the hierarchy loads."""
+    by_name = {b.rule_name: b for b in compute_binding(_mutual_arm_ast())}
+    assert by_name["a"].parent_class_names == ()
+    assert by_name["b"].parent_class_names == ()
+
+
+def test_mutual_arm_concrete_arms_carry_every_cycle_member():
+    """An arm of either member subclasses BOTH (the widened cross-cycle edge)."""
+    by_name = {b.rule_name: b for b in compute_binding(_mutual_arm_ast())}
+    assert by_name["x"].parent_class_names == ("A", "B")
+    assert by_name["y"].parent_class_names == ("A", "B")
+
+
+def test_cycle_member_keeps_its_outside_parent():
+    """z → a | q over the a↔b cycle: ``a`` keeps ``Z``; arms still reach ``Z``.
+
+    ``x``/``y`` subclass ``(A, B)`` and ``A`` subclasses ``Z``, so instances
+    of either arm satisfy a field typed ``Z`` transitively.
+    """
+    ast = IrAst(
+        IrSeq(
+            IrRule("z", IrAlternation(IrRuleRef("a"), IrRuleRef("q"))),
+            IrRule("a", IrAlternation(IrRuleRef("b"), IrRuleRef("x"))),
+            IrRule("b", IrAlternation(IrRuleRef("a"), IrRuleRef("y"))),
+            IrRule("x", IrLiteral("x")),
+            IrRule("y", IrLiteral("y")),
+            IrRule("q", IrLiteral("q")),
+        ),
+        "z",
+    )
+    by_name = {b.rule_name: b for b in compute_binding(ast)}
+    assert by_name["a"].parent_class_names == ("Z",)
+    assert by_name["b"].parent_class_names == ()
+    assert by_name["x"].parent_class_names == ("A", "B")
+    assert by_name["q"].parent_class_names == ("Z",)
+
+
+# ── reserved names (L6) ───────────────────────────────────────────────
+
+
+def test_class_name_mangles_keywords_and_header_bindings():
+    """Keywords and emitted-header names get the ``_`` suffix; others don't."""
+    assert class_name_for("true") == "True_"
+    assert class_name_for("annotated") == "Annotated_"
+    assert class_name_for("grammar-model") == "GrammarModel_"
+    assert class_name_for("jp-char") == "JpChar"
+
+
+def test_reserved_class_names_cover_the_emitted_header():
+    """Every name the emitter's header binds is in the reserved-class set."""
+    bound = {
+        alias.asname or alias.name
+        for node in pyast.walk(pyast.parse(CANONICAL_IMPORTS))
+        if isinstance(node, pyast.ImportFrom)
+        for alias in node.names
+    }
+    # ``annotations`` (the __future__ import) can never PascalCase-collide.
+    assert bound - {"annotations"} <= _RESERVED_CLASS_NAMES
+
+
+def test_reserved_field_names_cover_grammar_model():
+    """Every public GrammarModel attribute is a reserved field name."""
+    public = {n for n in dir(GrammarModel) if not n.startswith("_")}
+    assert public <= _RESERVED_FIELD_NAMES
+
+
+def test_bind_fields_mangles_reserved_names():
+    """Rule refs named after keywords or model attributes get a ``_`` suffix."""
+    items = [
+        IrItem(IrRuleRef("class")),
+        IrItem(IrRuleRef("to-text")),
+        IrItem(IrRuleRef("value")),
+    ]
+    fields = bind_fields(items, frozenset())
+    assert list(fields) == ["class_", "to_text_", "value"]
 
 
 def test_multi_membership_parents_all_emitted_before_child():
