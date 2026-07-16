@@ -1,0 +1,189 @@
+# Vyx D-layer grammar — assembled from spec/metameta/01-d/*/self.md `grammar:` scopes
+# in section order (R.3), with the vyx-parse effort's settled rulings applied.
+#
+# Mechanical fixes carried from probe/packet.gbnf (F1-F10): JSON-escape decode;
+# null-val = "_"; dropped doubled trailing quotes; single std-perf; definitions
+# are lines; body double-newline untangled; nl-force allows spaces; nl-escape
+# covers the line; template-def no trailing space; schema-def is a body line.
+#
+# Settled rulings applied on top:
+#   R3  charset surgery (lexic stays pure CFG; ordered choice via subtraction):
+#       unquoted excludes " and | everywhere and & < > (D.2 prose); ^ ~ $ _
+#       excluded at first char (they lead ref/spread/subtable/null); a "_" tail
+#       arm keeps bare "_" as null-val. nl-text bans "=" and a colon in its
+#       first token (subsumes "colon-terminated first token"): scope/T:/S:/D:
+#       all carry a first-token colon, so the residual can never claim them.
+#   R6  envelope order (V9): template-use AFTER the performative; budget last.
+#       labeled-val (V13) joins the value alternation. budget left the env-field
+#       set (it is the body opener, envelope-last).
+#   V11 inline body form (Ln< ... >) on the envelope line.
+#   V12 empty dict form D:col{} parses.
+#   V16 loose scope tails: space-separated items mixing bare scalars, key=value,
+#       quoted, and pipes after the "token:".
+#   V17 widened key/scope charset to letters/digits/_ . ! ^ - (keeps " | = : /
+#       excluded; "&" also excluded — it leads the label syntax in scope/seq/
+#       pipe positions, so admitting it into keys makes those arms ambiguous).
+#   V19 pipe elements widen to non-| printables: a pipe's bare element admits
+#       & < > $ etc.; per-element labels (a&p1) fold into the wide element and
+#       are split by the semantic layer (D.4 "rightmost & where left is valid").
+#   V20-RELAXED (user 2026-07-16, supersedes ASCII-only): every content position
+#       that admits printable ASCII also admits codepoints above U+007F
+#       (\x80-\U0010FFFF) — unquoted scalars, quoted content, nl-text, pipe
+#       elements, scope tails, keys. This widens the complement alphabet only;
+#       every structural exclusion above (" | = : / and the ^~$ first-char
+#       leads) is ASCII and stays excluded exactly as ruled.
+#   V21 quoted escapes = "\" + any printable (incl. non-ASCII); unknown escapes
+#       are a soft semantic flag (POSIX_ESCAPE), never a parse failure.
+#   V22 key= with an empty value is legal.
+#   V23 (user 2026-07-16) escaped "\|" (and the "\\", "\n", ... escape family)
+#       is legal inside an unquoted pipe element and never terminates it; the
+#       trailing-empty "|" form (|a|b|) is legal.
+#   V24/V25 REJECTED as language (user 2026-07-16): a bare "|" inside an
+#       unquoted value and a bare "&" kv value stay illegal (Task-4 spec fix).
+#
+# Line-first architecture (ruling 4 + D.17 priority table): the body parses
+# LINES — the ten D.17 priority types, first-char/first-token disjoint after the
+# surgery. table-row and row-annotation are NOT body-line arms; they are the
+# separate start rules the (vyx-side) assembly layer runs on header-claimed
+# lines. Line models keep their literal indent text; depth checks are vyx-side.
+# @start packet
+
+packet ::= (definition "\n")* envelope body? "\n"?
+definition ::= template-def | schema-def
+body ::= inline-body | block-body
+
+# D.13 — envelope is one line; V9 puts template-use after the performative and
+# budget last (the budget's "<" opens the body).
+envelope ::= performative (" " template-use)? (" " env-field)* (" " budget)?
+performative ::= "!" (std-perf | custom-perf)
+std-perf ::= "R" | "I" | "P" | "C" | "U" | "S" | "A" | "N" | "O" | "E" | "H" | "W"
+custom-perf ::= "X:" [A-Z0-9_]+
+
+# body forms — inline (same line as Ln<) or block (newline-delimited lines)
+# Inline bodies separate lines with the "\n" escape (D.12: it costs 2 bytes),
+# not real newlines — internal spaces belong to each line.
+inline-body ::= " " inline-content " " ">"
+inline-content ::= body-line ("\\" "n" body-line)*
+block-body ::= "\n" (body-line "\n")* ">"
+body-line ::= nl-escape | nl-force | template-def | schema-def | dict-def | table-header | seq-item | scope-line | kv-line | nl-text
+
+# D.1 — natural language (V20-RELAXED: tails admit non-ASCII)
+nl-escape ::= "\\" "#"+ [\x20-\x7E\x80-\U0010FFFF]*
+nl-force ::= "# " [\x20-\x7E\x80-\U0010FFFF]*
+nl-text ::= nl-head (" " nl-word)*
+nl-head ::= nl-first nl-inner*
+nl-word ::= nl-tail+
+nl-first ::= [\x21-\x22\x25-\x2C\x2E-\x39\x3B-\x3C\x3F-\x5B\x5D-\x7E\x80-\U0010FFFF]
+nl-inner ::= [\x21-\x39\x3B-\x3C\x3E-\x7E\x80-\U0010FFFF]
+nl-tail ::= [\x21-\x3C\x3E-\x7E\x80-\U0010FFFF]
+
+# D.2 — values (R3 charset surgery; V13 labeled-val in value; V20-RELAXED)
+value ::= pipe-list | spread | ref | quoted | labeled-val | unquoted | null-val
+bare-val ::= quoted | unquoted | null-val
+null-val ::= "_"
+unquoted ::= uq-first uq-tail* | "_" uq-tail+
+uq-first ::= [\x21\x23\x25\x27-\x3B\x3D\x3F-\x5D\x60-\x7B\x7D\x80-\U0010FFFF]
+uq-tail ::= [\x21\x23-\x25\x27-\x3B\x3D\x3F-\x7B\x7D-\x7E\x80-\U0010FFFF]
+quoted ::= "\"" quoted-char* "\""
+quoted-char ::= [\x20-\x21] | [\x23-\x5B] | [\x5D-\x7E] | [\x80-\U0010FFFF] | escaped
+escaped ::= "\\" [\x20-\x7E\x80-\U0010FFFF]
+
+# D.3 — key-value (V17 widened key; V22 empty value; V20-RELAXED)
+kv-pair ::= key "+=" value? | key "=" value?
+kv-pairs ::= kv-pair (" " kv-pair)*
+kv-line ::= indent kv-pairs
+key ::= [A-Za-z0-9_.!^\x80-\U0010FFFF-]+
+kv-like-item ::= key ("=" value?)? | quoted
+
+# D.4 — pipes (V19 wide elements; V23 escaped "\|" + trailing empty "|"; leads
+# ^ ~ $ still disjoint; "\" only appears via pipe-esc so it never splits)
+pipe-list ::= ("&" ref-id)? "|" (pipe-item ("|" pipe-item)* "|"?)?
+pipe-item ::= spread | ref | subtable-ref | pipe-bare
+pipe-bare ::= quoted | pipe-unquoted | null-val
+pipe-unquoted ::= (pipe-first | pipe-esc) (pipe-tail | pipe-esc)* | "_" (pipe-tail | pipe-esc)+
+pipe-esc ::= "\\" [\x20-\x7E\x80-\U0010FFFF]
+pipe-first ::= [\x21\x23\x25-\x5B\x5D\x60-\x7B\x7D\x80-\U0010FFFF]
+pipe-tail ::= [\x21\x23-\x5B\x5D-\x7B\x7D-\x7E\x80-\U0010FFFF]
+
+# D.5 — scopes (V16 loose tails; V17 widened scope-name; V18 shared indent)
+scope-line ::= indent scope-path (" " "&" ref-id)? ":" (" " scope-item)*
+scope-item ::= kv-pair | pipe-list | scope-scalar
+# A loose-tail bare scalar excludes "=" so "key=value" is unambiguously a
+# kv-pair while a bare "packets"/"32"/"consistent-with:" stays a scalar.
+scope-scalar ::= quoted | scope-word | null-val
+scope-word ::= sw-first sw-tail* | "_" sw-tail+
+sw-first ::= [\x21\x23\x25\x27-\x3B\x3F-\x5D\x60-\x7B\x7D\x80-\U0010FFFF]
+sw-tail ::= [\x21\x23-\x25\x27-\x3B\x3F-\x7B\x7D-\x7E\x80-\U0010FFFF]
+scope-name ::= [A-Za-z0-9_.!^\x80-\U0010FFFF-]+
+scope-path ::= scope-name ("/" scope-name)*
+indent ::= " "*
+
+# D.6 — sequence item line (children are separate body-lines, assembly-claimed)
+seq-item ::= indent "- " ("&" ref-id " ")? item-head
+item-head ::= kv-like-item (" " kv-like-item)*
+
+# D.7 — refs
+ref ::= "^" ref-id
+spread ::= "~" ref-id
+ref-id ::= [A-Za-z0-9_-]+
+
+# D.8 — labels
+labeled-val ::= bare-val "&" ref-id
+
+# D.9 — table header line + the assembly-layer start rules (table-row / annotation)
+table-header ::= indent "$" tag (" " "&" ref-id)? " " "[" count "]" ("{" field-list "}")? ":"
+table-row ::= cell (" " cell)*
+tag ::= [A-Za-z0-9]+
+count ::= [0-9]+
+field-list ::= field-name (" " field-name)*
+field-name ::= [A-Za-z0-9_-]+
+cell ::= row-copy | col-copy | pipe-list | spread | ref | subtable-ref | labeled-val | bare-val
+row-copy ::= "**"
+col-copy ::= "*"
+subtable-ref ::= "$" tag
+row-annotation ::= ann-indent row-key "/" scope-path ":" (" " scope-item)*
+ann-indent ::= " "+
+row-key ::= cell
+
+# D.10 — schema
+schema-def ::= "S:" schema-name "=" "{" field-list "}"
+schema-name ::= [A-Za-z0-9.]+
+
+# D.11 — dict (V12 empty entries)
+dict-def ::= "D:" col-name? "{" dict-entries? "}"
+col-name ::= key
+dict-entries ::= dict-entry (" " dict-entry)*
+dict-entry ::= dict-code "=" value?
+dict-code ::= [A-Za-z0-9]+
+
+# D.12 — budget (opens the body)
+budget ::= "L" [0-9]+ "<"
+
+# D.14 — envelope fields (budget removed — it is envelope-last per V9/V15)
+env-field ::= o-field | s-field | r-field | v-field | c-field | pref-field | n-field | label-field | ref-field
+o-field ::= "o:" (pipe-list | bare-val)
+s-field ::= "s:" agent-id
+r-field ::= "r:" agent-id
+v-field ::= "v:" bare-val
+c-field ::= "c:" key "=" bare-val
+pref-field ::= "pref:" key "=" bare-val
+n-field ::= "n:" [0-9]+
+label-field ::= "&" ref-id
+ref-field ::= "^" ref-id
+agent-id ::= "@"? [A-Za-z0-9_-]+
+
+# D.15 — templates
+template-def ::= "T:" tpl-name "=" env-field (" " env-field)*
+template-use ::= "%" tpl-name
+tpl-name ::= [A-Za-z0-9]+
+
+# Ruling 7 — file-level self-hosting start rule. A whole self.md is markdown
+# (D.1: "all text is natural language until structure claims it"), so the file
+# grammar is NL lines end to end — every line captured verbatim, round-trip
+# byte-exact. The fenced "```@:tag" data blocks are a section-extraction concern
+# (the vyx assembly layer / probe data_lines), and their D-data lines are
+# validated as D-constructs separately (the per-construct corpus tests). Not a
+# body-line arm of packet; reached only as its own start rule. Tabs and
+# non-ASCII (V20-RELAXED) both admitted.
+vyx-file ::= file-line ("\n" file-line)*
+file-line ::= [\x09\x20-\x7E\x80-\U0010FFFF]*

@@ -6,6 +6,24 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-16 — Char-class regex escaping: `-` added to `_CLASS_METACHARS`
+
+`ir/nodes.py`: `_escape_regex_point` now escapes `-` inside `[...]`
+(`_CLASS_METACHARS = "[]^-"`). Unescaped, a range whose LOW bound is `-`
+(e.g. `[!&--.]` from `[A-Za-z0-9_.!&^-]`) reads as **set difference** in
+pydantic-core's Rust regex whenever a lower-codepoint member precedes it —
+the emitted `StringConstraints` pattern silently dropped members and
+`value_str` classes rejected valid text (Python `re` only warns, so tests
+built on `re` never caught it). Found by the vyx Task-3 round-trip gate.
+Escaping the dash unconditionally is valid and position-independent in both
+engines; grammar-text emission is unaffected (flavours spell classes via
+their escape codecs, not `pattern()`), and no `CHARCLASS_NAMES` key contains
+a literal dash member. Pins: unit (`test_charclass_pattern_dash_range_bound_
+is_escaped`) + integration (`test_value_str_charclass_with_dash_range_bound_
+validates`).
+
+---
+
 ## 2026-07-16 — Schema expansion joints (pydantic depth cliff fixed) + all transformers on IrBottomUp
 
 **Joints (user-ruled: fix, no depth guard).** pydantic inlines a completed

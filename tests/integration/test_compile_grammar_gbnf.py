@@ -40,6 +40,22 @@ def test_simple_value_str_round_trips():
     assert inst.to_text() == "x"
 
 
+def test_value_str_charclass_with_dash_range_bound_validates():
+    """A class where ``-``–``.`` forms a range behind lower members validates.
+
+    Pins the pydantic-core (Rust regex) failure mode: an unescaped ``--``
+    reads as set difference there, silently dropping members — Python ``re``
+    only warns, so the emitted pattern must escape the dash bound.
+    """
+    text = "root ::= w\nw ::= [A-Za-z0-9_.!&^-]+\n"
+    cg = compile_text(text, flavour="gbnf")
+    w_cls = cg.classes["W"]
+    for sample in ("unit", "ship", "ORD-7291", "depth-limit", "cli.py", "!&^"):
+        assert w_cls(value=sample).to_text() == sample
+    inst = cg.parse("mean-0.5")
+    assert inst.to_text() == "mean-0.5"
+
+
 def test_simple_arithmetic_parses_and_round_trips():
     """Multi-rule sequence grammar: binding kinds are correct and parsing works."""
     text = (

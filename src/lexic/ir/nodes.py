@@ -64,8 +64,14 @@ _SURROGATE_HI = 0xDFFF
 """The UTF-16 surrogate block — excised from :meth:`IrCharClass.sample`'s
 interval choices (a lone surrogate has no valid UTF-8 encoding)."""
 
-_CLASS_METACHARS = frozenset("[]^")
-"""Regex-class metacharacters that need a backslash inside ``[...]``."""
+_CLASS_METACHARS = frozenset("[]^-")
+"""Regex-class metacharacters that need a backslash inside ``[...]``.
+
+``-`` is positional in Python ``re`` (literal only at class start/end), and a
+bare ``--`` reads as set difference in pydantic-core's Rust regex — a range
+whose LOW BOUND is ``-`` (e.g. ``[!&--.]``) silently corrupts the class there.
+Escaping the dash unconditionally is valid in both engines and
+position-independent."""
 
 
 def _escape_regex_point(point: int) -> str:
