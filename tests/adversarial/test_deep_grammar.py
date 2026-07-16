@@ -8,9 +8,11 @@ schema build sees its dependencies already complete and stays shallow. The
 parse side keeps its own stack safety in the PDA clone compiler, so the deep
 chain compiles, parses, and round-trips cleanly.
 
-Note: the nested-inline-groups shape (``r ::= (((..."a"...)))``) overflows a
-different recursive IR walk in ``ir/canonical.py`` and is deferred — not
-exercised here (see FINDINGS.md L7).
+The nested-inline-groups shape (``r ::= (((..."a"...)))``) used to overflow
+the recursive canonicalizer walk instead; ``canonicalize`` now runs on the
+iterative :class:`~lexic.ir.walk.IrBottomUp` driver, which also collapses the
+single-arm nesting to a flat rule, so everything downstream sees a shallow
+tree.
 """
 
 from __future__ import annotations
@@ -18,6 +20,13 @@ from __future__ import annotations
 from lexic.compile import compile_text
 
 _DEPTH = 300
+
+
+def test_deep_nested_groups_round_trip_without_overflow() -> None:
+    """300 nested inline groups canonicalize, compile, and round-trip."""
+    grammar = "r ::= " + "(" * _DEPTH + '"a"' + ")" * _DEPTH + "\n"
+    compiled = compile_text(grammar, cache_key="adversarial-deepg-groups")
+    assert compiled.parse("a").to_text() == "a"
 
 
 def _ref_chain(depth: int) -> str:

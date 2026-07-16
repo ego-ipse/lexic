@@ -6,6 +6,42 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-16 — IrBottomUp: iterative post-order transformer; canonicalize is depth-safe (L7a fixed)
+
+New dispatch preset `IrBottomUp(IrTransformer)` in `ir/walk.py` (re-exported
+from `lexic.ir`), the user-ruled fix for L7a (~300 nested inline groups
+overflowed `canonicalize`'s recursive walk). `IrDispatch.apply` now routes
+through an overridable `_run` strategy (the `IrReturn` catch stays in one
+place); `IrBottomUp._run` drives an explicit work stack: children transform
+first, the node rebuilds via the `children()`/`rebuild()` protocol, then its
+action body runs on a node whose children are already final (they also ride
+the `nc` channel). Bodies are pure per-node combiners — NO `d.eval` recursion
+— and the table-miss default is `IrThis` (the driver's rebuild IS the
+identity). Shared subtrees transform once (id-memo). Trade-off, documented on
+the class: every node is visited, so the preset fits whole-tree normal-form
+passes, not selective/pruning rewrites (those stay on `IrTransformer`).
+
+`ir/canonical.py`'s `_CANON` and `_RENAME` migrated: `_canon_alternation`/
+`_canon_sequence` dropped their child-eval loops; `_canon_not` gained a lift
+for a pre-collapsed operand (bottom-up canonicalises the inner class first,
+so `[^a]`'s single-member operand arrives as a one-char `IrLiteral` — it
+lifts back to a class so rewrite 4 still yields positive spans; without this,
+`IrNot` would leak past canonicalization). Byte-compatible output — the full
+suite passed unchanged.
+
+Depth math after the change: single-arm nesting collapses inside the
+iterative walk (300-deep repro round-trips); multi-arm nesting hoists into
+rule chains (verified 450) and so rides the L7b iterative paths; the
+remaining wall is pydantic-core's `_schema_gather` on ~500-rule ref chains
+(third-party, documented in FINDINGS L7). Repro
+`repro_deep_grammar_recursionerror.py` exits 0. Pins: `test_walk.py`
+IrBottomUp section (2000-deep), `test_deep_grammar.py` nested-groups
+round-trip. Candidates for later migration to the preset: the hoist
+transformers (`codegen/passes.py`), `normalize` — none currently
+depth-threatened post-canonicalize.
+
+---
+
 ## 2026-07-16 — Adversarial sweep round 2: codegen cycles, reserved names, depth bombs, cache keys (L5–L8)
 
 Four findings from the Fable adversarial sweep, three fixed same-day

@@ -31,7 +31,7 @@ from __future__ import annotations
 from typing import ClassVar, Sequence, cast
 
 from lexic.exceptions import IrKeyError
-from lexic.ir.action import IrEmit, IrRaise, IrRebuild, IrReturn, IrWalk
+from lexic.ir.action import IrEmit, IrRaise, IrRebuild, IrReturn, IrThis, IrWalk
 from lexic.ir.base import IrCachingTuple, IrNode, IrSelf, IrTuple
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import IrLiteral
@@ -91,7 +91,7 @@ class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](IrCachingTuple[IrTypeMap, IrSelf]):
             return self.default
 
     def apply(self, root: IrNode) -> Ir_co:
-        """Friendly entry — equivalent to ``self.eval(self, root, ())``.
+        """Friendly entry — dispatch ``root`` via the preset's :meth:`_run`.
 
         Catches :class:`~lexic.ir.action.IrReturn` and surfaces its ``.value``
         (or the IrReturn itself) when it satisfies the ``Ir_co`` bound; otherwise
@@ -101,13 +101,25 @@ class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](IrCachingTuple[IrTypeMap, IrSelf]):
         :returns: The dispatched ``Ir_co`` value.
         """
         try:
-            return self.eval(self, root, IrTuple())
+            return self._run(root)
         except IrReturn as ret:
             if isinstance(ret.value, self.bound):
                 return cast(Ir_co, ret.value)
             if isinstance(ret, self.bound):
                 return cast(Ir_co, ret)
             raise
+
+    def _run(self, root: IrNode) -> Ir_co:
+        """The ``apply`` strategy — ``self.eval(self, root, ())``.
+
+        Presets with a different drive (:class:`IrBottomUp`'s iterative
+        post-order walk) override this, keeping :meth:`apply`'s
+        :class:`~lexic.ir.action.IrReturn` handling in one place.
+
+        :param root: Root IR node to dispatch.
+        :returns: The dispatched ``Ir_co`` value.
+        """
+        return self.eval(self, root, IrTuple())
 
 
 # ── Presets ──────────────────────────────────────────────────────────
@@ -125,6 +137,51 @@ class IrTransformer[Iri: IrSelf, Ir_co: IrNode](IrDispatch[Iri, Ir_co]):
     walks each node's children via ``d`` and rebuilds the node."""
 
     default: IrSelf = IrRebuild()
+
+
+class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
+    """Iterative post-order transformer — stack-safe at any tree depth.
+
+    ``apply`` drives an explicit work stack instead of Python recursion:
+    every node's children are transformed first, the node is rebuilt with
+    them, and only then does its action body run — on a node whose children
+    are already in final form (the transformed children also ride the ``nc``
+    channel). Bodies are therefore pure per-node combiners and must NOT
+    recurse (no ``d.eval`` on children); the default on a table miss is
+    :class:`~lexic.ir.action.IrThis` (the driver's rebuild IS the identity
+    transform).
+
+    Trade-off vs :class:`IrTransformer`: the driver visits every node — a
+    body cannot skip or lazily prune a subtree — so this preset fits
+    whole-tree normal-form passes (canonicalize, name folding), not
+    selective rewrites. A shared subtree (one object reachable twice)
+    transforms once and splices everywhere it appeared.
+    """
+
+    default: IrSelf = IrThis()
+
+    def _run(self, root: IrNode) -> Ir_co:
+        """Post-order drive: transform children, rebuild, act — iteratively.
+
+        :param root: Root IR node to transform.
+        :returns: The transformed tree.
+        """
+        done: dict[int, IrSelf] = {}
+        stack: list[tuple[IrSelf, bool]] = [(root, False)]
+        while stack:
+            node, expanded = stack.pop()
+            key = id(node)
+            if key in done:
+                continue
+            kids = node.children()
+            if kids and not expanded:
+                stack.append((node, True))
+                stack.extend((kid, False) for kid in kids)
+                continue
+            new = IrTuple(*(done[id(kid)] for kid in kids))
+            rebuilt = node.rebuild(new) if kids else node
+            done[key] = self.eval(self, rebuilt, new)
+        return cast(Ir_co, done[id(root)])
 
 
 class IrEmitter[Iri: IrSelf, Ir_co: IrLiteral](IrDispatch[Iri, Ir_co]):

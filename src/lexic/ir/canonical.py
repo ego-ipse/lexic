@@ -47,7 +47,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.ir.order import order_by_refs
-from lexic.ir.walk import IrTransformer
+from lexic.ir.walk import IrBottomUp
 
 _UNIT = IrQuantifier(1, 1)
 
@@ -76,9 +76,16 @@ def _canon_charclass(_d: IrSelf, n: IrSelf, _nc: object) -> IrSelf:
 
 
 def _canon_not(_d: IrSelf, n: IrSelf, _nc: object) -> IrSelf:
-    """Transformer body: rewrite ``IrNot(charclass)`` to positive spans (rewrite 4)."""
+    """Transformer body: rewrite ``IrNot(charclass)`` to positive spans (rewrite 4).
+
+    The bottom-up driver canonicalises the operand first, so a single-member
+    class arrives already collapsed to a one-char literal (rewrite 1) — it
+    lifts back to a class here so the complement still applies.
+    """
     assert isinstance(n, IrNot)
     operand = n[0]
+    if isinstance(operand, IrLiteral) and len(operand) == 1:
+        operand = IrCharClass(IrChr(operand))
     if isinstance(operand, IrCharClass):
         return operand.complement()
     return n
@@ -141,11 +148,14 @@ def _merge_arms(alt: IrAlternation) -> IrAlternation:
     return IrAlternation(*new_arms)
 
 
-def _canon_alternation(d: IrSelf, n: IrSelf, _nc: object) -> IrSelf:
-    """Transformer body: canonicalise arms, then merge char-ish arms (rewrite 2)."""
+def _canon_alternation(_d: IrSelf, n: IrSelf, _nc: object) -> IrSelf:
+    """Transformer body: merge char-ish arms (rewrite 2).
+
+    The bottom-up driver hands the alternation over with every arm already
+    canonicalised — the body only fuses mergeable runs.
+    """
     assert isinstance(n, IrAlternation)
-    arms = [d.eval(d, arm, ()) for arm in n]
-    return _merge_arms(IrAlternation(*arms))
+    return _merge_arms(n)
 
 
 # ── sequence: group inline + literal run merge + empty drop (5, 3, 8b) ──
@@ -205,12 +215,15 @@ def _merge_literal_runs(items: list[IrItem]) -> list[IrItem]:
     return out
 
 
-def _canon_sequence(d: IrSelf, n: IrSelf, _nc: object) -> IrSelf:
-    """Transformer body: canonicalise items, splice groups, drop epsilons, merge runs."""
+def _canon_sequence(_d: IrSelf, n: IrSelf, _nc: object) -> IrSelf:
+    """Transformer body: splice groups, drop epsilons, merge literal runs.
+
+    The bottom-up driver hands the sequence over with every item already
+    canonicalised — the body only restructures this level.
+    """
     assert isinstance(n, IrSequence)
-    items = [d.eval(d, item, ()) for item in n]
     spliced: list[IrItem] = []
-    for item in items:
+    for item in n:
         arm = _single_arm_group(item)
         if arm is not None:
             spliced.extend(arm)
@@ -220,7 +233,7 @@ def _canon_sequence(d: IrSelf, n: IrSelf, _nc: object) -> IrSelf:
     return IrSequence(*_merge_literal_runs(kept))
 
 
-_CANON = IrTransformer(
+_CANON = IrBottomUp(
     actions=IrTypeMap(
         IrAction(IrCharClass, IrLambda(_canon_charclass)),
         IrAction(IrNot, IrLambda(_canon_not)),
@@ -248,7 +261,7 @@ def _rename_ref(_d: IrSelf, n: IrSelf, _nc: object) -> IrSelf:
     return IrRuleRef(fold_name(str(n)))
 
 
-_RENAME = IrTransformer(actions=IrTypeMap(IrAction(IrRuleRef, IrLambda(_rename_ref))))
+_RENAME = IrBottomUp(actions=IrTypeMap(IrAction(IrRuleRef, IrLambda(_rename_ref))))
 
 
 def _fold_names(ast: IrAst) -> IrAst:
