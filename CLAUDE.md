@@ -17,8 +17,12 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. New plans copy `zzz_current_work/TEMPLATE.md` (goal,
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
-  Current: `zzz_current_work/260712-totality-cleanup/PLAN.md`
-  (Tasks 0–5 ledger lives in `PLAN_v3.md`; v4 superseded).
+  Current: `zzz_current_work/260713-vyx-parse/PLAN.md` (CLOSED 2026-07-16,
+  see its OUTCOME + FOLLOWUP.md; vyx-side spec commit pending user).
+  Queued, awaiting user rulings: `260712-viz/PLAN_v2.md` (plan approval),
+  `260716-ir-native/PLAN.md` (six §USER DECISIONS).
+  Prior: `260712-totality-cleanup/PLAN.md` (Tasks 0–5 ledger in
+  `PLAN_v3.md`; v4 superseded).
 - **Cutover complete (2026-05-13).** The IrItem-based pipeline is the only pipeline. Old Atom shape, `atoms.py`, `new_gbnf/`, `flavours.py` are all gone. See `.wiki/lexic/cutover-plan.md` and `.wiki/lexic/slice-b-status.md` for what remains.
 - **RuleSpec cutover complete (2026-07-04).** The `RuleSpec` middle layer, `ir/derive.py`, `ir/spec.py`, `ir/emit.py`, `ir/naming.py`, `ir/topo.py`, `parsing/models.py`, and the whole `utils/` package are gone. One canonical `IrAst` drives codegen, instance parsing, emission, generation, and round-trip. See `zzz_current_work/260703-ir-codegen/PLAN.md` for the effort that landed it.
 

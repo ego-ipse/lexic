@@ -6,6 +6,25 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-16 — vyx-parse effort closed: vyx.gbnf is a ground truth
+
+`resources/ground_truth/vyx.gbnf` (92 rules) joins the corpus as a
+first-class ground truth: golden-fingerprinted in
+`test_gbnf_ir_equivalence`, unambiguous, emit-reparse stable; 130
+integration tests in `test_compile_grammar_vyx.py` (compile, recognise +
+`is_ambiguous` 0, byte-exact round-trip incl. non-ASCII content, an
+enumerated exclusion ledger pinning pre-fix spec lines, and a file-level
+`vyx-file` rule that round-trips all 61 vyx spec self.md files —
+markdown-as-NL line capture; fence/section semantics live in the vyx-side
+assembly layer by design). The vyx language decisions (V16–V25, V20
+non-ASCII reversal) are recorded in the effort's FINDINGS; the vyx spec's
+fragments were made honest vyx-side with an extractor parity gate
+(assembled == pinned). Semantic layer scoped in the vyx repo
+(`SEMANTIC_LAYER.vy`). See `zzz_current_work/260713-vyx-parse/PLAN.md`
+OUTCOME + FOLLOWUP.md.
+
+---
+
 ## 2026-07-16 — Char-class regex escaping: `-` added to `_CLASS_METACHARS`
 
 `ir/nodes.py`: `_escape_regex_point` now escapes `-` inside `[...]`
