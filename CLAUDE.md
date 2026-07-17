@@ -140,7 +140,10 @@ src/lexic/
                         ref-chain RecursionError fix)
   compile/
     __init__.py         compile_text(), compile_from_path(), canonical_grammar(),
-                        parse_grammar() — the sole runtime seam onto codegen + the engine
+                        parse_grammar() — the sole runtime seam onto the engine
+    passes.py           grammar→grammar passes (hoist groups/arms, relax noise)
+    binding.py          per-rule class/kind/parent/field binding view
+    synthesis.py        runtime class synthesis — type() over the binding view
   exceptions.py         LexicError hierarchy (see §Error vocabulary)
   parse.py              parse(text, grammar_path) → GrammarModel  [thin wrapper over compile]
   generate.py           random string generator — walks a rule-name → IrRule mapping

@@ -11,10 +11,11 @@ Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)
                      │             noise rules flagged semantic=False)
                      ▼
           build_codegen_grammar   (groups hoisted, arms hoisted, noise
-                     │             refs relaxed — lexic.codegen.passes)
+                     │             refs relaxed — lexic.compile.passes)
                      ▼
-             compute_binding ──► codegen  (classes w/ Annotated IrBind
-                     │                     fields, __grammar__ footers)
+             compute_binding ──► synthesize  (record classes built at
+                     │                        runtime — __grammar__ + __binds__,
+                     │                        no source emit, no file write)
                      ▼
           IR body-table ──► ModelFold (bakes to the runtime fold records)
 
@@ -29,11 +30,13 @@ own the whole PDA-first-→-Earley-completion pipeline internally (lifting,
 normalisation, PDA/table compilation, memoisation) — one public call each, no
 predictive-PDA sibling on the artefact and no whole-grammar opt-out.
 
-Runtime seams: lexic.codegen (codegen, build_codegen_grammar,
-compute_binding) and the engine (lexic.parsing — root API only:
-``parse_model`` / ``parse_reduced`` / ``ModelFold`` + fold-authoring types /
-``Reducer``). compile.py is the single runtime module importing either; it
-imports the ``lexic.parsing`` package root only, no submodule or private name.
+The grammar→grammar passes, the binding view and runtime class synthesis all
+live inside this package (``lexic.compile.passes`` / ``.binding`` /
+``.synthesis``). The only external runtime seam is the engine (``lexic.parsing``
+— root API only: ``parse_model`` / ``parse_reduced`` / ``ModelFold`` +
+fold-authoring types / ``Reducer``); ``compile/__init__.py`` is the single
+runtime module importing it, and imports the ``lexic.parsing`` package root
+only, no submodule or private name.
 """
 
 from __future__ import annotations
@@ -44,13 +47,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lexic.base import GrammarModel
-from lexic.codegen import (
-    RuleBinding,
-    build_codegen_grammar,
-    codegen,
-    compute_binding,
-    resolve_out_dir,
-)
+from lexic.compile.binding import RuleBinding, compute_binding
+from lexic.compile.passes import build_codegen_grammar
+from lexic.compile.synthesis import synthesize
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple
@@ -317,14 +316,12 @@ def _fold_config(
     return IrMap(*dyads)
 
 
-def _compile_core(
-    text: str, *, stem: str, flavour: str = "gbnf", out_dir: str | Path | None = None
-) -> CompiledGrammar:
+def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGrammar:
     flavour_cls = get_flavour(flavour)
     ast = canonical_grammar(text, flavour_cls)
     codegen_grammar = build_codegen_grammar(ast)
     binding = compute_binding(codegen_grammar)
-    classes = codegen(ast, codegen_grammar, binding, stem, out_dir)
+    classes = synthesize(codegen_grammar, binding, stem)
     fold = ModelFold(_fold_config(codegen_grammar, binding, classes))
     return CompiledGrammar(
         classes=classes,
@@ -339,15 +336,14 @@ def compile_text(
     *,
     cache_key: Hashable | None = None,
     flavour: str = "gbnf",
-    out_dir: str | Path | None = None,
 ) -> CompiledGrammar:
     """Compile from a grammar string, memoised by content by default.
 
-    The cache key is ``(content sha stem, flavour, resolved out_dir)`` —
-    compiling the same source in the same flavour to the same output
-    directory returns the cached :class:`CompiledGrammar` (and its class
-    objects). An explicit ``cache_key`` is *prepended* to that content key
-    rather than used as-is: ``(cache_key, stem, flavour, resolved out_dir)``.
+    The cache key is ``(content sha stem, flavour)`` — compiling the same
+    source in the same flavour returns the cached :class:`CompiledGrammar`
+    (and its class objects; synthesis writes no files, so there is no output
+    directory to key on). An explicit ``cache_key`` is *prepended* to that
+    content key rather than used as-is: ``(cache_key, stem, flavour)``.
     Folding the content stem in means the same key can never serve a stale
     grammar — different source text under one ``cache_key`` yields distinct
     entries, while identical text still hits the memo. The test seam
@@ -358,18 +354,15 @@ def compile_text(
     :param cache_key: Extra key prefix disambiguating otherwise-identical
         compilations; ``None`` uses the content key alone.
     :param flavour: The grammar flavour name.
-    :param out_dir: Directory the generated module is written to; ``None``
-        resolves to the project's ``generated/`` directory.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     stem = _stem_for_text(text)
-    resolved_out_dir = str(resolve_out_dir(out_dir).resolve())
-    content_key = (stem, flavour, resolved_out_dir)
+    content_key = (stem, flavour)
     key = (cache_key, *content_key) if cache_key is not None else content_key
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    cg = _compile_core(text, stem=stem, flavour=flavour, out_dir=out_dir)
+    cg = _compile_core(text, stem=stem, flavour=flavour)
     _CACHE[key] = cg
     return cg
 
@@ -378,27 +371,23 @@ def compile_from_path(
     grammar_path: str | Path,
     *,
     flavour: str | None = None,
-    out_dir: str | Path | None = None,
 ) -> CompiledGrammar:
-    """Compile from a file path; memoised by (path, mtime, size, flavour, out_dir).
+    """Compile from a file path; memoised by (path, mtime, size, flavour).
 
     :param grammar_path: Path to the grammar source file.
     :param flavour: The grammar flavour name; inferred from the file
         extension if omitted.
-    :param out_dir: Directory the generated module is written to; ``None``
-        resolves to the project's ``generated/`` directory.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     path = Path(grammar_path).resolve()
     stat = path.stat()
     if flavour is None:
         flavour = flavour_for_extension(path).name
-    resolved_out_dir = str(resolve_out_dir(out_dir).resolve())
-    key = (str(path), stat.st_mtime, stat.st_size, flavour, resolved_out_dir)
+    key = (str(path), stat.st_mtime, stat.st_size, flavour)
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     text = path.read_text(encoding="utf-8")
-    cg = _compile_core(text, stem=path.stem, flavour=flavour, out_dir=out_dir)
+    cg = _compile_core(text, stem=path.stem, flavour=flavour)
     _CACHE[key] = cg
     return cg

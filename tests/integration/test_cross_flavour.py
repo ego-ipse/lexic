@@ -7,15 +7,13 @@ grammars they describe are equivalent for the unambiguous (non-alpha) parts.
 
 from __future__ import annotations
 
-import sys
-
 from lexic.codegen.binding import compute_binding
 from lexic.codegen.passes import build_codegen_grammar
 from lexic.compile import canonical_grammar, compile_text, parse_grammar
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrLiteral
-from tests.paths import GENERATED, GROUND_TRUTH
+from tests.paths import GROUND_TRUTH
 
 
 def test_arithmetic_grammars_have_same_rule_names():
@@ -97,21 +95,20 @@ def test_gbnf_to_abnf_to_gbnf_round_trip_via_iast():
         assert len(r_g.body) == len(r_a.body)
 
 
-def _generated_source(module_name: str) -> str:
-    """Read a just-written ``generated/<stem>.py`` back from disk."""
-    stem = module_name.rsplit(".", 1)[-1]
-    return (GENERATED / f"{stem}.py").read_text(encoding="utf-8")
-
-
-def test_json_gbnf_and_abnf_compile_to_identical_generated_source():
+def test_json_gbnf_and_abnf_compile_to_the_same_grammar():
     """The headline user-visible fixpoint: compiling json.gbnf and json.abnf
-    through the public :func:`~lexic.compile.compile_text` entry point emits
-    the same Pydantic module source, modulo the docstring's stem line.
+    through the public :func:`~lexic.compile.compile_text` entry point yields
+    the same classes over the same grammar.
 
-    ``json.gbnf`` and ``json.abnf`` describe the same language (RFC 8259) rule
-    for rule; both fold to the same canonical ``IrAst`` (module docstring on
-    both fixtures says so), so codegen driven from either must produce
-    byte-identical classes.
+    Synthesis builds classes at runtime with no source emission (see
+    ``lexic.compile.synthesis``), so byte-identical generated source is no
+    longer a meaningful notion. ``json.gbnf`` and ``json.abnf`` describe the
+    same language (RFC 8259) rule for rule; both fold to the same canonical
+    ``IrAst`` (module docstring on both fixtures says so), so compiling either
+    must produce the same class set over the same post-pass codegen grammar
+    (the grammar the fold and ``__grammar__``/``__binds__`` bind against) —
+    the stricter of the two equalities the artefact exposes, and it holds
+    here alongside the looser canonical-``grammar`` equality.
     """
     gbnf_text = (GROUND_TRUTH / "json.gbnf").read_text(encoding="utf-8")
     abnf_text = (GROUND_TRUTH / "json.abnf").read_text(encoding="utf-8")
@@ -120,19 +117,10 @@ def test_json_gbnf_and_abnf_compile_to_identical_generated_source():
     abnf_compiled = compile_text(abnf_text, flavour="abnf")
 
     assert set(gbnf_compiled.classes) == set(abnf_compiled.classes)
+    assert gbnf_compiled.codegen_grammar == abnf_compiled.codegen_grammar
+    assert gbnf_compiled.grammar == abnf_compiled.grammar
 
-    gbnf_module = next(iter(gbnf_compiled.classes.values())).__module__
-    abnf_module = next(iter(abnf_compiled.classes.values())).__module__
-    assert gbnf_module in sys.modules
-    assert abnf_module in sys.modules
-
-    gbnf_source = _generated_source(gbnf_module)
-    abnf_source = _generated_source(abnf_module)
-
-    # Both sources start with a one-line docstring naming their (distinct,
-    # content-hashed) stem; every line after it must match exactly.
-    gbnf_lines = gbnf_source.splitlines()
-    abnf_lines = abnf_source.splitlines()
-    assert gbnf_lines[0].startswith('"""Generated module: ')
-    assert abnf_lines[0].startswith('"""Generated module: ')
-    assert gbnf_lines[1:] == abnf_lines[1:]
+    for name, gbnf_cls in gbnf_compiled.classes.items():
+        abnf_cls = abnf_compiled.classes[name]
+        assert gbnf_cls.__grammar__ == abnf_cls.__grammar__
+        assert gbnf_cls.bound_fields() == abnf_cls.bound_fields()

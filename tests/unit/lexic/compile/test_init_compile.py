@@ -1,9 +1,7 @@
 """Unit tests for lexic.compile (compile_text/_from_path, canonical_grammar, parse_grammar)."""
 
 import os
-import tempfile
 import time
-from pathlib import Path
 from typing import cast
 
 import pytest
@@ -37,7 +35,7 @@ from lexic.parsing.products import (
     earley_model,
     earley_reduce,
 )
-from tests.paths import GENERATED, GROUND_TRUTH
+from tests.paths import GROUND_TRUTH
 
 
 def _prod(cg):
@@ -235,120 +233,29 @@ def test_compile_from_path_unknown_flavour_raises():
         compile_from_path(GROUND_TRUTH / "arithmetic.gbnf", flavour="abnf")
 
 
-# ── out_dir unit tests ──
+# ── compile_text/compile_from_path memoisation (content/path + flavour keyed) ──
+#
+# Synthesis writes no files and imports no modules, so there is no out_dir
+# parameter and no output directory to key the cache on any more (the whole
+# out_dir dimension of the cache — and every test built around it — died with
+# the file-emitting codegen path). The remaining cache dimensions are content
+# (compile_text) or path/mtime/size (compile_from_path), plus flavour; those
+# are covered here and by the earlier memoisation tests
+# (test_compile_from_path_memoises_by_path_mtime_size,
+# test_compile_from_path_invalidates_on_mtime_change,
+# test_compile_from_path_invalidates_on_size_change_same_mtime,
+# test_compile_memoizes_by_content_by_default,
+# test_reset_cache_for_tests_clears_default_memo,
+# test_cache_key_folds_content_no_stale_serve — the last of which also proves
+# distinct content never shares a memo entry).
 
 
-def _module_stem(cg) -> str:
-    """The generated-module stem, read off a compiled class's public __module__."""
-    cls = next(iter(cg.classes.values()))
-    return cls.__module__.rsplit(".", 1)[-1]
-
-
-def test_compile_text_out_dir_writes_module_there(tmp_path):
-    """An explicit out_dir gets the generated module; default output is untouched."""
-    text = 'root ::= "unique-out-dir-probe-value"\n'
-    cg = compile_text(text, out_dir=tmp_path)
-    stem = _module_stem(cg)
-    assert (tmp_path / f"{stem}.py").exists()
-    assert not (GENERATED / f"{stem}.py").exists()
-
-
-def test_compile_text_out_dir_classes_round_trip(tmp_path):
-    """A model compiled to a custom out_dir parses and round-trips normally."""
-    text = 'root ::= "x"\n'
-    cg = compile_text(text, out_dir=tmp_path)
-    inst = cg.parse("x")
-    assert inst.to_text() == "x"
-
-
-def test_compile_text_default_out_dir_unchanged():
-    """Omitting out_dir keeps writing to the project's generated/ directory."""
-    text = 'root ::= "y"\n'
-    cg = compile_text(text)
-    stem = _module_stem(cg)
-    assert (GENERATED / f"{stem}.py").exists()
-    assert cg.classes
-
-
-def test_compile_text_distinct_out_dirs_do_not_share_the_memo(tmp_path):
-    """Same content, two different out_dirs: distinct cache entries."""
-    text = 'root ::= "z"\n'
-    dir_a = tmp_path / "a"
-    dir_b = tmp_path / "b"
-    cg1 = compile_text(text, out_dir=dir_a)
-    cg2 = compile_text(text, out_dir=dir_b)
-    assert cg1 is not cg2
-    stem = _module_stem(cg1)
-    assert (dir_a / f"{stem}.py").exists()
-    assert (dir_b / f"{stem}.py").exists()
-
-
-def test_compile_text_same_out_dir_hits_the_memo(tmp_path):
-    """Same content, same out_dir: cache-hit, no double compile."""
+def test_compile_text_same_content_and_flavour_hits_the_memo():
+    """Same content, same explicit flavour: cache-hit, no double compile."""
     text = 'root ::= "w"\n'
-    cg1 = compile_text(text, out_dir=tmp_path)
-    cg2 = compile_text(text, out_dir=tmp_path)
+    cg1 = compile_text(text, flavour="gbnf")
+    cg2 = compile_text(text, flavour="gbnf")
     assert cg1 is cg2
-
-
-def test_compile_from_path_out_dir_writes_module_there(tmp_path):
-    """compile_from_path threads out_dir through to codegen the same way."""
-    src = tmp_path / "src" / "root_out_dir.gbnf"
-    src.parent.mkdir()
-    src.write_text('root ::= "a"\n')
-    out_dir = tmp_path / "out"
-    cg = compile_from_path(src, out_dir=out_dir)
-    assert (out_dir / "root_out_dir.py").exists()
-    assert cg.parse("a").to_text() == "a"
-
-
-def test_compile_from_path_distinct_out_dirs_do_not_share_the_memo(tmp_path):
-    """Same path, two different out_dirs: distinct cache entries (memo includes out_dir)."""
-    src = tmp_path / "root_path_out_dir.gbnf"
-    src.write_text('root ::= "q"\n')
-    dir_a = tmp_path / "path_a"
-    dir_b = tmp_path / "path_b"
-    cg1 = compile_from_path(src, out_dir=dir_a)
-    cg2 = compile_from_path(src, out_dir=dir_b)
-    assert cg1 is not cg2
-    assert (dir_a / "root_path_out_dir.py").exists()
-    assert (dir_b / "root_path_out_dir.py").exists()
-
-
-def test_compile_text_out_dir_accepts_a_plain_string():
-    """out_dir works as a plain str, not just a Path."""
-    with tempfile.TemporaryDirectory() as tmp:
-        text = 'root ::= "str-out-dir-probe"\n'
-        cg = compile_text(text, out_dir=tmp)
-        stem = _module_stem(cg)
-        assert (Path(tmp) / f"{stem}.py").exists()
-        assert cg.parse("str-out-dir-probe").to_text() == "str-out-dir-probe"
-
-
-def test_compile_text_out_dir_creates_nested_nonexistent_directory(tmp_path):
-    """A multi-level nonexistent out_dir is created on demand."""
-    nested = tmp_path / "a" / "b" / "c"
-    assert not nested.exists()
-    text = 'root ::= "nested-out-dir-probe"\n'
-    cg = compile_text(text, out_dir=nested)
-    stem = _module_stem(cg)
-    assert (nested / f"{stem}.py").exists()
-
-
-def test_reset_cache_for_tests_regenerates_identical_source(tmp_path):
-    """A fresh compile after reset_cache_for_tests writes byte-identical source
-    to a distinct output directory — fresh objects, same generated text."""
-    text = 'root ::= "reset-cache-probe"\n'
-    dir_a = tmp_path / "first"
-    dir_b = tmp_path / "second"
-    cg1 = compile_text(text, out_dir=dir_a)
-    stem = _module_stem(cg1)
-    source_a = (dir_a / f"{stem}.py").read_text()
-    reset_cache_for_tests()
-    cg2 = compile_text(text, out_dir=dir_b)
-    assert cg1 is not cg2
-    source_b = (dir_b / f"{stem}.py").read_text()
-    assert source_a == source_b
 
 
 # ── canonical_grammar start-resolution unit tests ──
