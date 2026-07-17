@@ -48,12 +48,14 @@ _RANGE_AC = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
 _OPT = IrQuantifier(0, 1)
 _STAR = IrQuantifier(0, IrNone)
 
-# The record spine's inherited IrSelf/tuple protocol surface (R2-4). NOT in
-# the read-only `_RESERVED_FIELD_NAMES` yet: a rule named after one of these
-# generates an unmangled field that shadows the protocol on that class — a
-# KNOWN, user-accepted window (FABLE_T1_REVIEW.md T1-1) until Task 3 re-pins
-# the reserved sets in the ported compile/binding.py. Pinned exactly so any
-# FURTHER surface drift still fails here.
+# The record spine's inherited IrSelf/tuple protocol surface (R2-4). Task 3
+# re-pinned `lexic.compile.binding`'s `_RESERVED_FIELD_NAMES` to the full
+# GrammarModel surface, so these eight names are now reserved there and the
+# window is CLOSED (`public <= _RESERVED_FIELD_NAMES`). The read-only
+# `lexic.codegen.binding` mirror still keeps the pre-Task-3 `dir(BaseModel)`
+# set (its Task-8 deletion retires it), so the eight names stay unreserved
+# there — the codegen branch below still pins the window exactly, so any
+# FURTHER surface drift still fails.
 _SPINE_PROTOCOL_NAMES = frozenset(
     {"bind", "bound", "bound_type", "children", "count", "eval", "index", "rebuild"}
 )
@@ -508,11 +510,17 @@ def _case_reserved_class_names_cover_the_emitted_header(binding: ModuleType) -> 
 
 
 def _case_reserved_field_names_cover_grammar_model(binding: ModuleType) -> None:
-    """Every public GrammarModel attribute outside the known Task-3 window
-    is a reserved field name — and the window is exactly the pinned set."""
+    """Every public GrammarModel attribute is reserved (compile: window closed;
+    codegen: the eight spine names stay in the pre-Task-3 window)."""
     public = {n for n in dir(GrammarModel) if not n.startswith("_")}
-    assert public - _SPINE_PROTOCOL_NAMES <= getattr(binding, "_RESERVED_FIELD_NAMES")
-    assert public & _SPINE_PROTOCOL_NAMES == _SPINE_PROTOCOL_NAMES
+    reserved = getattr(binding, "_RESERVED_FIELD_NAMES")
+    if binding.__name__.startswith("lexic.compile"):
+        assert public <= reserved
+    else:
+        # codegen.binding is read-only until its Task-8 deletion; its
+        # dir(BaseModel) set leaves the eight spine-protocol names unreserved.
+        assert public - _SPINE_PROTOCOL_NAMES <= reserved
+        assert public & _SPINE_PROTOCOL_NAMES == _SPINE_PROTOCOL_NAMES
 
 
 def _case_bind_fields_mangles_reserved_names(binding: ModuleType) -> None:

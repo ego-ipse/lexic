@@ -29,8 +29,6 @@ from dataclasses import dataclass
 from functools import cache
 from typing import Literal
 
-from pydantic import BaseModel
-
 from lexic.ir.action import IrAction, IrReturn
 from lexic.ir.base import IrLambda, IrNode, IrNone, IrNoneType, IrSelf, IrStr
 from lexic.ir.bind import IrBind
@@ -136,18 +134,40 @@ class RuleBinding:
 _NAME_SPLIT = re.compile(r"[-_]")
 
 
-_RESERVED_FIELD_NAMES: frozenset[str] = (
-    frozenset(keyword.kwlist)
-    | frozenset(dir(BaseModel))
-    | frozenset(
-        {"to_text", "to_grammar", "semantic_dump", "fast_construct", "bound_fields"}
-    )
+_RESERVED_FIELD_NAMES: frozenset[str] = frozenset(keyword.kwlist) | frozenset(
+    {
+        # ``GrammarModel``'s whole public surface — the record spine it lives
+        # on (settled 10): a rule named after one of these would generate a
+        # field shadowing the IrSelf/tuple protocol or a GrammarModel method.
+        # The eight spine-protocol names (``bind``/``bound``/``bound_type``/
+        # ``children``/``count``/``eval``/``index``/``rebuild``) are newly
+        # reserved here; ``model_dump``/``model_rebuild`` are GrammarModel's
+        # own methods and stay reserved, but the wider ``model_*``/pydantic
+        # family that ``dir(BaseModel)`` used to pull in (``model_validate``,
+        # ``model_config``, ``model_fields``, …) now UNMANGLES — a deliberate,
+        # named behavior change now that models are not pydantic.
+        "bind",
+        "bound",
+        "bound_fields",
+        "bound_type",
+        "children",
+        "count",
+        "eval",
+        "fast_construct",
+        "index",
+        "model_dump",
+        "model_rebuild",
+        "rebuild",
+        "semantic_dump",
+        "to_grammar",
+        "to_text",
+    }
 )
-"""Field names that would break or shadow the generated model: Python
-keywords (a ``class: ...`` annotation is a SyntaxError), the pydantic
-``BaseModel`` surface, and ``GrammarModel``'s own methods. The latter are
-static — importing ``lexic.base`` here would couple codegen to the runtime —
-and drift-pinned by a test against the real class."""
+"""Field names that would break or shadow the generated model: Python keywords
+(a ``class: ...`` annotation is a SyntaxError) and ``GrammarModel``'s whole
+public surface (its methods plus the inherited IrSelf/tuple protocol). Curated
+as a literal — importing ``lexic.base`` here would couple this module to the
+runtime — and drift-pinned by a test against the real class."""
 
 _RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
     {
@@ -648,8 +668,8 @@ def bind_fields(
 ) -> dict[str, IrBind]:
     """Bind a sequence arm's items to named fields via the three-tier cascade.
 
-    Structural literals produce no field. A reserved name (Python keyword,
-    pydantic surface, ``GrammarModel`` method) gets a ``_`` suffix; name
+    Structural literals produce no field. A reserved name (Python keyword or
+    a ``GrammarModel`` public-surface name) gets a ``_`` suffix; name
     collisions get a numeric suffix in occurrence order (``ws``, ``ws2``, …).
 
     :param items: The rule's single sequence arm.

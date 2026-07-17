@@ -18,7 +18,7 @@ import pytest
 
 from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.ir.action import IrAction
 from lexic.ir.base import IrNone, IrTuple
 from lexic.ir.bind import IrBind
@@ -567,14 +567,13 @@ def test_from_parts_coerces_models_lists():
     assert fast == Root(it=[It(value="a")])
 
 
-# ── trusted-construction window (checked construction is a later wiring) ─────
+# ── checked construction ────────────────────────────────────────────────────
 
 
-def test_missing_required_field_raises_type_error():
-    """A missing required field raises TypeError from the record build —
-    the trusted-construction interim contract until checked construction
-    (FieldValidationError) is wired."""
-    with pytest.raises(TypeError):
+def test_missing_required_field_raises_field_validation_error():
+    """A missing required field raises FieldValidationError — checked
+    construction rewires the record build's interim TypeError."""
+    with pytest.raises(FieldValidationError):
         Ident(first="x")  # type: ignore[call-arg]  # intentional misuse under test
 
 

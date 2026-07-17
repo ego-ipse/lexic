@@ -13,8 +13,8 @@ Task-1 cutover (every item either survives, ported below, or died with its
 exact target):
 
 - The validated keyword constructor → the record constructor (pinned below;
-  a missing required field now raises ``TypeError`` — trusted construction
-  until Task 3 wires ``FieldValidationError``).
+  Task 3 wired checked construction, so a missing required field now raises
+  ``FieldValidationError``).
 - ``__get_pydantic_core_schema__`` / ``_joint_dump`` / ``__schema_joint__``
   / ``IncEx`` / ``SerializationInfo`` — the schema-joint apparatus: DELETED
   with the spine (PLAN.md §NON-CONCERNS). The joint cross-check tests died
@@ -48,6 +48,7 @@ import pytest
 
 from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
+from lexic.exceptions import FieldValidationError
 from lexic.ir.bind import IrBind
 from tests.paths import GROUND_TRUTH
 
@@ -61,14 +62,14 @@ def test_construct_accepts_valid_kwargs():
     assert isinstance(model, GrammarModel)
 
 
-def test_construct_raises_type_error_on_missing_field():
-    """Hand construction with a missing required field raises TypeError —
-    the trusted-construction interim contract (checked construction, raising
-    FieldValidationError, is Task 3's separate wiring)."""
+def test_construct_raises_field_validation_error_on_missing_field():
+    """Hand construction with a missing required field raises
+    FieldValidationError — checked construction rewires the record build's
+    interim TypeError."""
     cg = compile_from_path(GROUND_TRUTH / "list.gbnf")
     model = cg.parse("- apple\n")
     cls = type(model)
-    with pytest.raises(TypeError):
+    with pytest.raises(FieldValidationError):
         cls()
 
 

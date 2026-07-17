@@ -18,10 +18,14 @@ annotations once and caches the result. That resolution branch and the no-op
 :meth:`GrammarModel.model_rebuild` are the emitter shim keeping the old
 codegen path green; both die when the runtime-synthesis flip lands.
 
-Construction is trusted (checked construction is a later, separate wiring):
-the record builds whatever it is handed, coercing ``models``-mode lists to
-tuples (the fold and PDA hand live sink lists; stored raw they would alias
-and kill hashability). :meth:`GrammarModel.model_dump` re-emits those tuples
+Hand construction (``cls(**kwargs)`` via :meth:`GrammarModel.__new__`) is
+checked: missing required fields and per-field IR-intrinsic violations raise
+:exc:`~lexic.exceptions.FieldValidationError`. The trusted parse paths
+(:meth:`GrammarModel._from_parts` / :meth:`GrammarModel.fast_construct`)
+bypass ``__new__`` and stay unchecked, so the PDA hot path pays nothing.
+Construction coerces ``models``-mode lists to tuples (the fold and PDA hand
+live sink lists; stored raw they would alias and kill hashability).
+:meth:`GrammarModel.model_dump` re-emits those tuples
 as lists and serializes by RUNTIME type (ruling 12 — never by declared
 schema), walking an explicit stack so depth never overflows.
 """
@@ -30,10 +34,23 @@ from __future__ import annotations
 
 from typing import Any, Callable, ClassVar, Self, Sequence, cast, get_type_hints
 
+from lexic.exceptions import FieldValidationError
 from lexic.grammars import get_flavour
-from lexic.ir.base import IrNamedTuple, IrSelf
+from lexic.ir.action import IrAction
+from lexic.ir.base import IrLambda, IrNamedTuple, IrNone, IrSelf
 from lexic.ir.bind import IrBind
-from lexic.ir.nodes import IrLiteral, IrRule, IrSequence
+from lexic.ir.mapping import IrTypeMap
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrCharClass,
+    IrItem,
+    IrLiteral,
+    IrQuantifier,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+)
+from lexic.ir.walk import IrDispatch
 
 
 def _binds_from_annotations(cls: type[GrammarModel]) -> dict[int, tuple[str, IrBind]]:
@@ -86,6 +103,162 @@ def _dump_value(
     return value
 
 
+# ── checked construction ──────────────────────────────────────────────
+#
+# Hand construction (``cls(**kwargs)`` — tests, and the Earley completion
+# path) runs IR-intrinsic per-field checks; the trusted parse paths
+# (``_from_parts``/``fast_construct``) bypass ``__new__`` entirely, so the PDA
+# hot path pays nothing. Every check reads the field's own grammar item — char
+# class membership + length bounds, ``Literal``-arm membership, sub-model
+# isinstance — with no engine call and no regex compilation, matching the bar
+# pydantic enforced on hand construction.
+#
+# R7 holes (typed plain ``str`` and never validated even by pydantic, left
+# unchecked deliberately): a bound (always quantified) literal field, and a
+# ref-bearing ``gtext`` group. A value_str whose value is a single char class
+# or a lone literal is likewise not checked — the char-class check is
+# bind-driven (it reads ``IrBind.item.quantifier``) and a value_str field
+# carries no bind; only the multi-arm ``Literal[...]`` value_str is checked.
+
+_UNIT = IrQuantifier(1, 1)
+
+
+class _FieldCheck(IrNamedTuple[str, object, str]):
+    """State carrier for the per-field check dispatch (the ``d`` slot).
+
+    Passed as the dispatcher to :data:`_FIELD_CHECK` so each open body reads
+    the field name, its runtime value and its fold mode without a closure (the
+    ``_FieldTyper`` idiom). ``_child_attrs`` is empty — none of the three is an
+    IR-node child.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    field: str
+    value: object
+    mode: str
+
+
+def _uncovered_char(cc: IrCharClass, value: str) -> str | None:
+    """The first char of ``value`` not covered by ``cc``, or ``None``.
+
+    Tests membership against the class's interval cover, so a ``[^...]``
+    complement is never materialised point-by-point.
+
+    :param cc: The char class the field's characters must fall within.
+    :param value: The field's string value.
+    :returns: The first out-of-class character, or ``None`` if all are covered.
+    """
+    spans = cc.intervals()
+    for ch in value:
+        point = ord(ch)
+        if not any(lo <= point <= hi for lo, hi in spans):
+            return ch
+    return None
+
+
+def _check_charclass(d: _FieldCheck, n: IrSelf, nc: Sequence[IrSelf]) -> IrSelf:
+    """Text-mode char class: every char covered, length within the quantifier."""
+    assert isinstance(n, IrCharClass)
+    value = d.value
+    if not isinstance(value, str):
+        raise FieldValidationError(
+            f"field {d.field!r}: expected a str for char-class field, got "
+            f"{type(value).__name__}"
+        )
+    bad = _uncovered_char(n, value)
+    if bad is not None:
+        raise FieldValidationError(
+            f"field {d.field!r}: character {bad!r} is not in [{n.pattern()}]"
+        )
+    quantifier = cast(IrItem, nc[0]).quantifier
+    if len(value) not in quantifier:
+        raise FieldValidationError(
+            f"field {d.field!r}: length {len(value)} out of bounds {quantifier!r}"
+        )
+    return IrNone
+
+
+def _check_literal(_d: _FieldCheck, _n: IrSelf, _nc: Sequence[IrSelf]) -> IrSelf:
+    """R7 hole: a bound (quantified) literal field is plain ``str`` — unchecked."""
+    return IrNone
+
+
+def _check_model(field: str, value: object) -> None:
+    """A model-mode field holds a sub-model — any :class:`GrammarModel`."""
+    if not isinstance(value, GrammarModel):
+        raise FieldValidationError(
+            f"field {field!r}: expected a sub-model, got {type(value).__name__}"
+        )
+
+
+def _check_ref(d: _FieldCheck, _n: IrSelf, _nc: Sequence[IrSelf]) -> IrSelf:
+    """Model/models mode: the value is a sub-model, or a tuple of sub-models.
+
+    The isinstance target is the :class:`GrammarModel` spine, not the exact arm
+    class: a model carries only its own ``__grammar__``, no rule→class registry
+    (a class→grammar backlink is out of scope, R1), so exact-arm membership is
+    not per-field intrinsic.
+    """
+    value = d.value
+    if d.mode == "models":
+        if not isinstance(value, (tuple, list)):
+            raise FieldValidationError(
+                f"field {d.field!r}: expected a list of sub-models, got "
+                f"{type(value).__name__}"
+            )
+        for element in value:
+            _check_model(d.field, element)
+    else:
+        _check_model(d.field, value)
+    return IrNone
+
+
+def _check_group(d: _FieldCheck, n: IrSelf, nc: Sequence[IrSelf]) -> IrSelf:
+    """Inline group: model/models like a ref; gtext is an R7 hole (plain str)."""
+    if d.mode in ("model", "models"):
+        return _check_ref(d, n, nc)
+    return IrNone
+
+
+# Dispatched on the field's atom; the owning IrItem rides the argument channel
+# and the value/mode/name ride the ``d`` carrier. The raising default refuses
+# an atom type outside this table — no silent unchecked field.
+_FIELD_CHECK: IrDispatch = IrDispatch(
+    actions=IrTypeMap(
+        IrAction(IrCharClass, IrLambda(_check_charclass)),
+        IrAction(IrLiteral, IrLambda(_check_literal)),
+        IrAction(IrRuleRef, IrLambda(_check_ref)),
+        IrAction(IrAlternation, IrLambda(_check_group)),
+    ),
+)
+
+
+def _value_str_literals(rule: IrRule) -> frozenset[str] | None:
+    """The allowed set of a ``Literal[...]`` value_str rule, else ``None``.
+
+    Mirrors the emitter's ``_value_str_type`` ``Literal`` branch: a body whose
+    every arm is a single unit-quantified literal (and which is not the
+    single-item shortcut) is typed ``Literal[...]`` and membership-checked. A
+    single-item value (str / char class) and any ref-bearing body are typed
+    plain ``str`` / a pattern and are not checked here.
+
+    :param rule: The value_str class's own ``__grammar__`` rule.
+    :returns: The permitted literal strings, or ``None`` when not a
+        ``Literal[...]`` value_str.
+    """
+    arms = [arm for arm in rule.body if arm]
+    if len(arms) == 1 and len(arms[0]) == 1:
+        return None
+    if all(
+        len(arm) == 1
+        and isinstance(arm[0].atom, IrLiteral)
+        and arm[0].quantifier == _UNIT
+        for arm in rule.body
+    ):
+        return frozenset(str(arm[0].atom) for arm in arms)
+    return None
+
+
 class GrammarModel(IrNamedTuple):
     """Abstract base for all generated grammar model classes.
 
@@ -120,14 +293,19 @@ class GrammarModel(IrNamedTuple):
             cls._child_attrs = _child_attrs_of(binds)
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Self:
-        """Build the record, coercing ``models``-mode lists to tuples.
+        """Build the record with checked construction (hand-construction path).
 
-        The fold and the PDA hand live sink lists; stored raw they would
-        alias per-parse state and make the record unhashable.
+        Coerces ``models``-mode lists to tuples (the fold and PDA hand live
+        sink lists; stored raw they would alias per-parse state and make the
+        record unhashable), rewires a missing required field to
+        :exc:`FieldValidationError`, and runs the IR-intrinsic per-field checks
+        on the built record. The trusted parse paths bypass this method.
 
         :param args: Leading field values, positionally.
         :param kwargs: Remaining field values, by name.
         :returns: A new immutable record instance.
+        :raises FieldValidationError: On a missing required field or a field
+            value that violates its grammar-intrinsic contract.
         """
         if any(isinstance(value, list) for value in args):
             args = tuple(
@@ -138,7 +316,71 @@ class GrammarModel(IrNamedTuple):
             for name, value in kwargs.items()
             if isinstance(value, list)
         }
-        return super().__new__(cls, *args, **kwargs)
+        cls._check_required(args, kwargs)
+        instance = super().__new__(cls, *args, **kwargs)
+        instance._check_fields()
+        return instance
+
+    @classmethod
+    def _check_required(cls, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+        """Raise :exc:`FieldValidationError` for a missing required field.
+
+        Rewires the record metaclass's ``TypeError`` on the hand-construction
+        path (a genuine ``unexpected fields`` misuse still surfaces as a
+        ``TypeError`` from the record build). Positional args fill the leading
+        fields; keywords fill by name.
+
+        :param args: The positional construction args.
+        :param kwargs: The keyword construction args.
+        :raises FieldValidationError: On a field with no value and no default.
+        """
+        provided = set(cls._fields[: len(args)]) | set(kwargs)
+        for name in cls._fields:
+            if name not in provided and name not in cls._field_defaults:
+                raise FieldValidationError(
+                    f"{cls.__name__} missing required field {name!r}"
+                )
+
+    def _check_fields(self) -> None:
+        """Run every bound field's check; a value_str routes to its own path.
+
+        A None value is an absent optional field (presence is enforced before
+        the build), skipped here. Each bound field dispatches on its atom via
+        :data:`_FIELD_CHECK`, the owning item and the value/mode/name supplied.
+
+        :raises FieldValidationError: On any field-value violation.
+        """
+        cls = type(self)
+        binds = cls.bound_fields()
+        if not binds:
+            self._check_value_str()
+            return
+        arm = next((a for a in cls.__grammar__.body if a), IrSequence())
+        for _slot, (name, bind) in binds.items():
+            value = getattr(self, name)
+            if value is None:
+                continue
+            item = arm[bind.item]
+            _FIELD_CHECK.eval(_FieldCheck(name, value, bind.mode), item.atom, (item,))
+
+    def _check_value_str(self) -> None:
+        """Membership-check a ``Literal[...]`` value_str; nothing else here.
+
+        An abstract alternation class (no ``value`` field) and a plain-``str`` /
+        char-class value_str carry nothing checkable through this path.
+
+        :raises FieldValidationError: When the value is outside the arm set.
+        """
+        if "value" not in self._fields:
+            return
+        allowed = _value_str_literals(type(self).__grammar__)
+        if allowed is None:
+            return
+        value = getattr(self, "value")
+        if value not in allowed:
+            raise FieldValidationError(
+                f"field 'value': {value!r} is not one of {sorted(allowed)}"
+            )
 
     def __eq__(self, other: object) -> bool:
         """Type-aware equality: same concrete class AND equal payload.

@@ -35,8 +35,12 @@ class GrammarAuthoringError(LexicError):
 
 
 class FieldValidationError(LexicError):
-    """A parsed field fails the emitted Pydantic constraints.
+    """A hand-constructed model field violates its grammar-intrinsic contract.
 
-    Stub in Slice B; wired by Slice C when Annotated[str, StringConstraints(...)]
-    emission lands.
+    Raised by :meth:`lexic.base.GrammarModel.__new__` on the hand-construction
+    path when a field's value fails its IR-intrinsic per-field check — a
+    char-class field with an out-of-class character or wrong length, a
+    ``Literal[...]`` value outside its arm set, a model/models field holding a
+    non-model, or a missing required field. The trusted parse paths
+    (``_from_parts``/``fast_construct``) bypass ``__new__`` and are unchecked.
     """
