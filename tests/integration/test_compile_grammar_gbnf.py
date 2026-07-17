@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
-
 from lexic.codegen.binding import compute_binding
 from lexic.codegen.passes import build_codegen_grammar
 from lexic.compile import (
@@ -148,11 +146,11 @@ def test_multi_membership_arm_isinstance_of_all_alternations():
 
 
 def test_compile_from_path_uses_filename_stem():
-    """compile_from_path uses the grammar filename stem as the generated module name."""
+    """compile_from_path names the synthesized classes' module by the filename stem."""
     reset_cache_for_tests()
     cg = compile_from_path(GROUND_TRUTH / "list.gbnf")
-    mod = importlib.import_module("generated.list")
-    assert hasattr(mod, "Root")
+    assert "Root" in cg.classes
+    assert cg.classes["Root"].__module__ == "generated.list"
     assert cg.parse("- apple\n").to_text() == "- apple\n"
 
 
@@ -160,7 +158,7 @@ def test_compile_from_path_ground_truth_uses_filename_stem():
     """compile_from_path on a ground truth grammar uses the .gbnf stem as module name."""
     reset_cache_for_tests()
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    mod = importlib.import_module("generated.arithmetic")
-    assert hasattr(mod, "Root")
+    assert "Root" in cg.classes
+    assert cg.classes["Root"].__module__ == "generated.arithmetic"
     inst = cg.parse("x=1\n")
     assert inst.to_text() == "x=1\n"

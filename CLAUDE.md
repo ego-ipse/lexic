@@ -146,6 +146,9 @@ src/lexic/
                         binding table (field_kwargs/check_supplied_class — the
                         supplied-class kwargs contract)
     synthesis.py        runtime class synthesis — type() over the binding view
+    export.py           export_source(compiled) — reader-first .py view of a
+                        compiled grammar in the record-spine syntax (for humans,
+                        never imported); ruff invoked here only
     notation.py         the IR-constructor notation — load_ir(text) → real IR
                         objects via a generic-apply grammar + curated SYMBOLS
                         whitelist (the no-exec boundary + open-vocabulary
