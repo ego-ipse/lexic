@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.action import IrArgs, IrJoin
 from lexic.ir.base import (
     Field,
     IrAtom,
@@ -30,7 +31,6 @@ from lexic.ir.base import (
     IrStr,
     IrTuple,
 )
-from lexic.ir.action import IrArgs, IrJoin
 from lexic.ir.nodes import IrAlternation, IrItem, IrLiteral, IrQuantifier, IrSequence
 
 # ── IrSelf / IrNone / IrAtom contract ─────────────────────────────────

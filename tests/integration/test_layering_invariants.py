@@ -60,13 +60,26 @@ def test_no_cross_module_private_imports_in_src():
     assert not offenders, f"cross-module private imports: {offenders}"
 
 
-def test_runtime_imports_parsing_root_only():
-    """Only ``compile/__init__.py`` imports ``lexic.parsing`` among runtime
-    modules, and only the package **root** — never a submodule.
+_LICENSED_PARSING = frozenset({"lexic.parsing", "lexic.parsing.earley.reduce"})
+"""The engine imports a ``lexic.compile`` module may make: the package root
+(the product entries + fold toolkit) and the one licensed submodule
+``lexic.parsing.earley.reduce`` — the reduce channel (``Reducer`` sentinels,
+``Yield``/``YIELD``) the notation and loader need, exactly the licence
+``lexic.grammars`` already enjoys de facto (``grammars/gbnf.py``). Every other
+``lexic.parsing`` submodule (``.fold``/``.pda``/``.products``/``.earley.*``)
+stays off-limits."""
 
-    The engine owns its API: consumers import ``lexic.parsing`` (the product
-    entries + the exported toolkit), never ``lexic.parsing.earley`` /
-    ``.fold`` / ``.pda`` / ``.products``. Permanent enforcement of directive 1.
+
+def test_runtime_imports_parsing_are_compile_only_and_licensed():
+    """The compile package is the sole engine consumer, via the licensed surface.
+
+    Among runtime modules, only ``lexic.compile`` package modules import
+    ``lexic.parsing`` at all, and each such import is one of
+    :data:`_LICENSED_PARSING` — the package root or the one licensed reduce
+    submodule. The engine owns its API; no other runtime module reaches it, and
+    no compile module reaches past the licensed surface. Enforcement of
+    directive 1 (widened at Task 4 for the notation/loader reduce-channel
+    licence, MANIFEST_DESIGN §7).
     """
     offenders: list[str] = []
     for path in _runtime_module_files():
@@ -79,12 +92,15 @@ def test_runtime_imports_parsing_root_only():
             if module != "lexic.parsing" and not module.startswith("lexic.parsing."):
                 continue
             rel = path.relative_to(SRC)
-            if path != _COMPILE_SEAM:
+            if not path.is_relative_to(_COMPILE_PKG):
                 offenders.append(
-                    f"{rel}: imports {module} (only compile/__init__.py may)"
+                    f"{rel}: imports {module} (only the compile package may)"
                 )
-            elif module != "lexic.parsing":
-                offenders.append(f"{rel}: imports {module} (root only)")
+            elif module not in _LICENSED_PARSING:
+                offenders.append(
+                    f"{rel}: imports {module} (compile may import only "
+                    f"{sorted(_LICENSED_PARSING)})"
+                )
     assert not offenders, f"parsing import-layering violations: {offenders}"
 
 
@@ -147,16 +163,17 @@ def test_wrapper_models_module_is_gone():
 
 
 def test_engine_imported_by_runtime_only_via_compile_seam():
-    """Runtime modules import the engine only through the compile package seam.
+    """Runtime modules outside the compile package never import the engine.
 
-    ``compile/__init__.py`` is the single sanctioned runtime seam onto the
-    engine; base.py / parse.py / generate.py and the compile package's own
-    submodules must reach parsing behaviour through it, not by importing
-    lexic.parsing directly.
+    The compile package is the single sanctioned runtime consumer of the engine
+    (its own modules' engine imports are governed by
+    :func:`test_runtime_imports_parsing_are_compile_only_and_licensed`);
+    base.py / parse.py / generate.py must reach parsing behaviour through the
+    package, not by importing lexic.parsing directly.
     """
     offenders = []
     for p in _runtime_module_files():
-        if p == _COMPILE_SEAM:
+        if p.is_relative_to(_COMPILE_PKG):
             continue
         for line in p.read_text().splitlines():
             stripped = line.strip()

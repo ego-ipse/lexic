@@ -23,7 +23,7 @@ from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import IrAst
+from lexic.ir.nodes import IrAst, IrLiteral
 from lexic.ir.walk import IrDispatch
 from lexic.parsing import normalize
 from lexic.parsing.fold import ModelFold
@@ -537,3 +537,9 @@ def test_flavour_reducer_returns_the_flavours_own_reducer():
     """_flavour_reducer(flavour) returns exactly the flavour's reducer ClassVar."""
     reducer = getattr(compile_module, "_flavour_reducer")(GBNF_FLAVOUR)
     assert reducer is GBNF_FLAVOUR.reducer
+
+
+def test_load_ir_reexported_from_compile_package() -> None:
+    """``load_ir`` is reachable off the package root (the notation seam)."""
+    assert compile_module.load_ir("IrLiteral('a')") == IrLiteral("a")
+    assert hasattr(compile_module, "load_ir_from_path")

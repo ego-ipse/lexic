@@ -21,6 +21,7 @@ Field naming keeps the three-tier cascade:
 
 from __future__ import annotations
 
+import inspect
 import keyword
 import re
 from collections import defaultdict
@@ -29,6 +30,7 @@ from dataclasses import dataclass
 from functools import cache
 from typing import Literal
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction, IrReturn
 from lexic.ir.base import IrLambda, IrNode, IrNone, IrNoneType, IrSelf, IrStr
 from lexic.ir.bind import IrBind
@@ -748,3 +750,65 @@ def compute_binding(ast: IrAst) -> list[RuleBinding]:
 
     order = RuleOrder(by_name, ast.start, parent_edge).ordered_parents_first()
     return [by_name[name] for name in order]
+
+
+# ── open binding: the supplied-class sugar contract ───────────────────
+#
+# Rule→class binding is open (settled 7): the compile seam builds each rule's
+# fold body from EITHER a full authored ``ModelBody`` (the primitive — total
+# control, what the notation uses) OR a *supplied class* (the sugar — a body
+# derived from this binding view, the class serving as the fold constructor).
+# The fold calls the constructor with the binding's field-name kwargs
+# (``ctor(**kwargs)`` / ``ctor(value=...)``), so a supplied class must accept
+# them; ``check_supplied_class`` enforces that contract loudly.
+
+
+def field_kwargs(binding: RuleBinding) -> frozenset[str]:
+    """The kwarg names the fold hands a rule's constructor.
+
+    A ``value_str`` rule folds through ``ctor(value=<text>)``; a ``sequence``
+    rule through ``ctor(**{field: value})`` over its bound fields; an
+    ``alternation`` passes its matched arm's sub-model through and calls no
+    constructor.
+
+    :param binding: The rule's binding view.
+    :returns: The constructor kwarg names for the rule's kind.
+    """
+    if binding.kind == "value_str":
+        return frozenset({"value"})
+    if binding.kind == "alternation":
+        return frozenset()
+    return frozenset(binding.fields)
+
+
+def check_supplied_class(cls: type, kwargs: frozenset[str]) -> None:
+    """Assert a supplied class accepts the fold's field-name kwargs.
+
+    The fold constructs instances via ``cls(**kwargs)``; a class whose
+    signature rejects one of the kwargs would fail deep inside the parse. This
+    surfaces the mismatch at bind time. A class with a ``**kwargs`` catch-all,
+    or one whose constructor cannot be introspected (a C-level builtin), is
+    trusted.
+
+    :param cls: The supplied constructor class.
+    :param kwargs: The field-name kwargs the fold will pass.
+    :raises UnsupportedConstructError: When ``cls`` accepts none-such kwarg.
+    """
+    try:
+        params = inspect.signature(cls).parameters
+    except TypeError, ValueError:
+        return  # un-introspectable (builtin) — trust the caller
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return
+    accepted = {
+        name
+        for name, p in params.items()
+        if p.kind
+        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    missing = set(kwargs) - accepted
+    if missing:
+        raise UnsupportedConstructError(
+            f"supplied class {cls.__name__!r} does not accept fold kwargs "
+            f"{sorted(missing)} (accepts {sorted(accepted)})"
+        )

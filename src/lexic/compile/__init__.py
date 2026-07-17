@@ -42,12 +42,18 @@ only, no submodule or private name.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Hashable
+from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from lexic.base import GrammarModel
-from lexic.compile.binding import RuleBinding, compute_binding
+from lexic.compile.binding import (
+    RuleBinding,
+    check_supplied_class,
+    compute_binding,
+    field_kwargs,
+)
+from lexic.compile.notation import load_ir, load_ir_from_path
 from lexic.compile.passes import build_codegen_grammar
 from lexic.compile.synthesis import synthesize
 from lexic.exceptions import UnsupportedConstructError
@@ -56,7 +62,7 @@ from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple
 from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrAst, IrRule, IrRuleRef
+from lexic.ir.nodes import IrAst, IrItem, IrRule, IrRuleRef
 from lexic.parsing import (
     FastCtor,
     FieldFold,
@@ -66,6 +72,17 @@ from lexic.parsing import (
     parse_model,
     parse_reduced,
 )
+
+__all__ = [
+    "CompiledGrammar",
+    "canonical_grammar",
+    "compile_from_path",
+    "compile_text",
+    "load_ir",
+    "load_ir_from_path",
+    "parse_grammar",
+    "reset_cache_for_tests",
+]
 
 
 def _flavour_reducer(flavour: IrFlavour) -> Reducer:
@@ -279,39 +296,76 @@ def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor 
     return FastCtor(make, defaults)
 
 
-def _fold_config(
-    codegen_grammar: IrAst, binding: list[RuleBinding], classes: dict[str, type]
-) -> IrMap:
-    """Build the fold's IR body-table from the binding view + classes.
+def _derive_body(bound: RuleBinding, cls: type, items: Sequence[IrItem]) -> ModelBody:
+    """Derive a rule's :class:`~lexic.parsing.fold.ModelBody` from a supplied class.
 
-    Per rule a :class:`~lexic.parsing.fold.ModelBody`: kind from the binding,
-    the model constructor wrapped in :class:`~lexic.ir.base.IrLambda`
-    (:data:`~lexic.ir.base.IrNone` for an ``alternation``, which has none),
-    ``n_items`` from the codegen grammar's single non-empty sequence arm, and
-    one :class:`~lexic.parsing.fold.FieldFold` per bound field (`lo` read from
-    the bound item's quantifier — consumed by the ``gtext`` absence rule).
+    The supplied-class sugar of the open binding table (settled 7): the class
+    is the fold constructor, and the body's structural metadata comes from the
+    binding view + the codegen grammar's sequence arm.
+
+    :param bound: The rule's binding view.
+    :param cls: The supplied constructor class.
+    :param items: The rule's single non-empty sequence arm (empty otherwise).
+    :returns: The rule's fold body.
+    """
+    fields = tuple(
+        FieldFold(bind.item, bind.mode, name, int(items[bind.item].quantifier.lo))
+        for name, bind in bound.fields.items()
+    )
+    if bound.kind == "alternation":
+        return ModelBody("alternation", IrNone, len(items), fields, None)
+    return ModelBody(
+        bound.kind,
+        IrLambda(cls),
+        len(items),
+        fields,
+        _fast_ctor(cls, bound.kind, fields),
+    )
+
+
+def _fold_config(
+    codegen_grammar: IrAst,
+    binding: list[RuleBinding],
+    classes: dict[str, type],
+    overrides: Mapping[str, ModelBody | type] | None = None,
+) -> IrMap:
+    """Build the fold's IR body-table from the binding view — the open table.
+
+    Per rule the compile seam accepts EITHER a full authored
+    :class:`~lexic.parsing.fold.ModelBody` (the primitive — used verbatim) OR a
+    class serving as the fold constructor (the sugar — :func:`_derive_body`
+    builds the body from the binding view). With no ``overrides`` entry a rule
+    falls back to its synthesized class (also a supplied class). ``kind`` /
+    ``n_items`` / ``FieldFold``\\ s all come from the codegen grammar's single
+    non-empty sequence arm (``lo`` from the bound item's quantifier, consumed by
+    the ``gtext`` absence rule).
 
     :param codegen_grammar: The post-pass grammar the binding was computed on.
     :param binding: The binding view, in emission order.
     :param classes: Generated classes by class name.
+    :param overrides: Per-rule fold-body override — a
+        :class:`~lexic.parsing.fold.ModelBody` (primitive) or a constructor
+        class (sugar); ``None`` uses the synthesized classes throughout.
     :returns: An :class:`~lexic.ir.mapping.IrMap` from each rule's
         :class:`~lexic.ir.nodes.IrRuleRef` to its
         :class:`~lexic.parsing.fold.ModelBody`.
     """
+    overrides = overrides or {}
     rules = {str(rule.name): rule for rule in codegen_grammar.rules}
     dyads: list[IrTuple] = []
     for bound in binding:
+        override = overrides.get(bound.rule_name)
+        if isinstance(override, ModelBody):
+            dyads.append(IrTuple(IrRuleRef(bound.rule_name), override))
+            continue
         arms = [arm for arm in rules[bound.rule_name].body if arm]
         items = arms[0] if bound.kind == "sequence" and arms else ()
-        fields = tuple(
-            FieldFold(bind.item, bind.mode, name, int(items[bind.item].quantifier.lo))
-            for name, bind in bound.fields.items()
-        )
-        cls = classes[bound.class_name]
-        ctor = IrNone if bound.kind == "alternation" else IrLambda(cls)
-        body = ModelBody(
-            bound.kind, ctor, len(items), fields, _fast_ctor(cls, bound.kind, fields)
-        )
+        if override is not None:  # a supplied class (sugar) — enforce the contract
+            check_supplied_class(override, field_kwargs(bound))
+            cls = override
+        else:  # the trusted synthesized class
+            cls = classes[bound.class_name]
+        body = _derive_body(bound, cls, items)
         dyads.append(IrTuple(IrRuleRef(bound.rule_name), body))
     return IrMap(*dyads)
 

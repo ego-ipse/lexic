@@ -142,8 +142,14 @@ src/lexic/
     __init__.py         compile_text(), compile_from_path(), canonical_grammar(),
                         parse_grammar() — the sole runtime seam onto the engine
     passes.py           grammar→grammar passes (hoist groups/arms, relax noise)
-    binding.py          per-rule class/kind/parent/field binding view
+    binding.py          per-rule class/kind/parent/field binding view; the open
+                        binding table (field_kwargs/check_supplied_class — the
+                        supplied-class kwargs contract)
     synthesis.py        runtime class synthesis — type() over the binding view
+    notation.py         the IR-constructor notation — load_ir(text) → real IR
+                        objects via a generic-apply grammar + curated SYMBOLS
+                        whitelist (the no-exec boundary + open-vocabulary
+                        registry); structural string decode, YIELD intern
   exceptions.py         LexicError hierarchy (see §Error vocabulary)
   parse.py              parse(text, grammar_path) → GrammarModel  [thin wrapper over compile]
   generate.py           random string generator — walks a rule-name → IrRule mapping
