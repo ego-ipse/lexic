@@ -20,6 +20,21 @@ def _module_name(path: Path) -> str:
     return ".".join(path.relative_to(SRC.parent).with_suffix("").parts)
 
 
+_COMPILE_PKG = SRC / "compile"
+_COMPILE_SEAM = _COMPILE_PKG / "__init__.py"
+
+
+def _runtime_module_files() -> list[Path]:
+    """The runtime seam-scope: top-level runtime modules plus the compile package.
+
+    ``compile.py`` became the ``lexic.compile`` package; the package (its
+    ``__init__``) is now the sole runtime seam onto the engine, so the seam
+    invariants scan the top-level modules together with every module inside
+    ``compile/``.
+    """
+    return sorted(SRC.glob("*.py")) + sorted(_COMPILE_PKG.glob("*.py"))
+
+
 def _from_imports(tree: ast.AST) -> "list[tuple[str, str]]":
     """Every absolute ``from <module> import <name>`` as ``(module, name)``."""
     out: list[tuple[str, str]] = []
@@ -46,7 +61,7 @@ def test_no_cross_module_private_imports_in_src():
 
 
 def test_runtime_imports_parsing_root_only():
-    """Only ``compile.py`` imports ``lexic.parsing`` among top-level runtime
+    """Only ``compile/__init__.py`` imports ``lexic.parsing`` among runtime
     modules, and only the package **root** — never a submodule.
 
     The engine owns its API: consumers import ``lexic.parsing`` (the product
@@ -54,7 +69,7 @@ def test_runtime_imports_parsing_root_only():
     ``.fold`` / ``.pda`` / ``.products``. Permanent enforcement of directive 1.
     """
     offenders: list[str] = []
-    for path in SRC.glob("*.py"):  # top-level runtime modules only
+    for path in _runtime_module_files():
         tree = ast.parse(path.read_text())
         mods = [m for m, _ in _from_imports(tree)]
         for node in ast.walk(tree):
@@ -63,10 +78,13 @@ def test_runtime_imports_parsing_root_only():
         for module in mods:
             if module != "lexic.parsing" and not module.startswith("lexic.parsing."):
                 continue
-            if path.name != "compile.py":
-                offenders.append(f"{path.name}: imports {module} (only compile.py may)")
+            rel = path.relative_to(SRC)
+            if path != _COMPILE_SEAM:
+                offenders.append(
+                    f"{rel}: imports {module} (only compile/__init__.py may)"
+                )
             elif module != "lexic.parsing":
-                offenders.append(f"{path.name}: imports {module} (root only)")
+                offenders.append(f"{rel}: imports {module} (root only)")
     assert not offenders, f"parsing import-layering violations: {offenders}"
 
 
@@ -129,21 +147,47 @@ def test_wrapper_models_module_is_gone():
 
 
 def test_engine_imported_by_runtime_only_via_compile_seam():
-    """Top-level runtime modules import the engine only through compile.py.
+    """Runtime modules import the engine only through the compile package seam.
 
-    ``compile.py`` is the single sanctioned runtime seam onto the engine;
-    base.py / parse.py / generate.py must reach parsing behaviour through it,
-    not by importing lexic.parsing directly.
+    ``compile/__init__.py`` is the single sanctioned runtime seam onto the
+    engine; base.py / parse.py / generate.py and the compile package's own
+    submodules must reach parsing behaviour through it, not by importing
+    lexic.parsing directly.
     """
     offenders = []
-    for p in SRC.glob("*.py"):  # top-level modules only, not subpackages
-        if p.name == "compile.py":
+    for p in _runtime_module_files():
+        if p == _COMPILE_SEAM:
             continue
         for line in p.read_text().splitlines():
             stripped = line.strip()
             if stripped.startswith(("from lexic.parsing", "import lexic.parsing")):
-                offenders.append(f"{p.name}: {stripped}")
-    assert not offenders, f"runtime bypasses the compile.py engine seam: {offenders}"
+                offenders.append(f"{p.relative_to(SRC)}: {stripped}")
+    assert not offenders, (
+        f"runtime bypasses the compile package engine seam: {offenders}"
+    )
+
+
+def test_compile_package_seam_is_init_only():
+    """Outside the compile package, only ``lexic.compile`` (the ``__init__``) is imported.
+
+    The compile package is the sole runtime seam (settled 1): every other
+    ``src/`` module reaches it via ``from lexic.compile import ...`` (the
+    package root), never a submodule (``lexic.compile.passes`` / ``.binding`` /
+    ``.synthesis``). Intra-package imports are unrestricted.
+    """
+    offenders: list[str] = []
+    for path in SRC.rglob("*.py"):
+        if path.is_relative_to(_COMPILE_PKG):
+            continue
+        tree = ast.parse(path.read_text())
+        mods = [m for m, _ in _from_imports(tree)]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                mods.extend(alias.name for alias in node.names)
+        for module in mods:
+            if module.startswith("lexic.compile."):
+                offenders.append(f"{_module_name(path)}: {module}")
+    assert not offenders, f"compile subpackage imported outside the seam: {offenders}"
 
 
 def test_flavours_module_is_gone():
@@ -246,7 +290,7 @@ def test_earley_never_imports_pda():
 
 
 def test_pda_entry_points_imported_only_via_compile_seam():
-    """Only compile.py imports the PDA entry points among top-level runtime modules.
+    """Only the compile seam imports the PDA entry points among runtime modules.
 
     ``pda.clones``/``pda.runtime`` are sub-paths of ``lexic.parsing``, so
     ``test_engine_imported_by_runtime_only_via_compile_seam``'s ``"from
@@ -255,8 +299,8 @@ def test_pda_entry_points_imported_only_via_compile_seam():
     module imports them at all — the products own the PDA behind the root API.
     """
     offenders = []
-    for p in SRC.glob("*.py"):  # top-level modules only, not subpackages
-        if p.name == "compile.py":
+    for p in _runtime_module_files():
+        if p == _COMPILE_SEAM:
             continue
         for line in p.read_text().splitlines():
             stripped = line.strip()

@@ -358,9 +358,18 @@ class GrammarModel(IrNamedTuple):
 
     @classmethod
     def model_rebuild(cls) -> None:
-        """No-op emitter shim — the codegen loader rebuilds every class.
+        """Emitter shim — resolve the binds table while the module is fresh.
 
-        The record spine has no deferred schema to resolve; this exists only
-        so the (read-only) old codegen path stays green and dies with the
-        runtime-synthesis flip.
+        The codegen loader calls this on every class right after loading the
+        generated module, when ``sys.modules[cls.__module__]`` still holds that
+        module and all sibling classes are defined. Resolving the ``Annotated``
+        binds here (rather than lazily on first :meth:`bound_fields`) means the
+        cache is populated at the one safe moment: two grammars whose generated
+        stems collide (``arithmetic.gbnf`` / ``arithmetic.abnf`` both load as
+        ``generated.arithmetic``) each cache their own binds before the other
+        replaces the module in ``sys.modules``, so a later ``get_type_hints``
+        never resolves against the wrong globals. Idempotent; the record spine
+        has no deferred schema of its own. Dies with the runtime-synthesis flip.
         """
+        if "__binds__" not in cls.__dict__:
+            cls.bound_fields()

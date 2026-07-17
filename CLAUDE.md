@@ -138,7 +138,8 @@ src/lexic/
                         the-class schema so pydantic never inlines a chain-deep
                         schema (see binding._schema_joints; the pydantic ~450-rule
                         ref-chain RecursionError fix)
-  compile.py            compile_text(), compile_from_path(), canonical_grammar(),
+  compile/
+    __init__.py         compile_text(), compile_from_path(), canonical_grammar(),
                         parse_grammar() — the sole runtime seam onto codegen + the engine
   exceptions.py         LexicError hierarchy (see §Error vocabulary)
   parse.py              parse(text, grammar_path) → GrammarModel  [thin wrapper over compile]
