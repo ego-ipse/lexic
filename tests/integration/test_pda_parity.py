@@ -48,7 +48,7 @@ from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _model_product
-from tests.paths import GROUND_TRUTH
+from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.runtime.test_runtime import _arithmetic_bench_corpus
 
 
@@ -60,17 +60,11 @@ def _prod(cg):
 
 # ── fixtures ────────────────────────────────────────────────────────────
 
+# The wide matrix: every GBNF ground-truth grammar bar vyx (whose non-default
+# @start corpus is exercised elsewhere) plus both ABNF grammars.
 _ALL_STEMS: tuple[str, ...] = (
-    "arithmetic.gbnf",
-    "c.gbnf",
-    "chess.gbnf",
-    "japanese.gbnf",
-    "json.gbnf",
-    "json_arr.gbnf",
-    "json_ws.gbnf",
-    "list.gbnf",
-    "arithmetic.abnf",
-    "json.abnf",
+    *(g for g in GBNF_GRAMMARS if g != "vyx.gbnf"),
+    *ABNF_GRAMMARS,
 )
 _N_SEEDS = 40
 _MAX_DEPTH = 4

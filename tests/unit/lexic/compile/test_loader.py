@@ -17,7 +17,6 @@ from __future__ import annotations
 import pytest
 
 import lexic.compile as compile_pkg
-import lexic.grammars as grammars_pkg
 from lexic.compile import parse_grammar
 from lexic.compile.loader import load_flavour, load_flavour_from_path
 from lexic.compile.notation import NOTATION_GRAMMAR, load_ir
@@ -168,21 +167,7 @@ def _gbnf_twin_manifest() -> str:
     return repr(sections)
 
 
-@pytest.fixture
-def registry_snapshot(monkeypatch: pytest.MonkeyPatch):
-    """Snapshot/restore the flavour registry + reset the compile cache both ends.
-
-    The compile ``_CACHE`` is flavour-NAME-keyed, so a stale entry could let a
-    twin-flavour integration run pass vacuously; reset it on setup AND teardown
-    (Fable preflight #1). ``monkeypatch`` swaps the flavour registry for a copy
-    (there is no public API for it — ``getattr`` reaches the private dict and
-    ``monkeypatch`` restores the original object on teardown).
-    """
-    registry = getattr(grammars_pkg, "_FLAVOURS")
-    monkeypatch.setattr(grammars_pkg, "_FLAVOURS", dict(registry))
-    compile_pkg.reset_cache_for_tests()
-    yield
-    compile_pkg.reset_cache_for_tests()
+# The ``registry_snapshot`` fixture is shared from ``tests/conftest.py``.
 
 
 # ── section lowering (§12) ───────────────────────────────────────────────
