@@ -574,7 +574,304 @@ def test_missing_required_field_raises_field_validation_error():
     """A missing required field raises FieldValidationError — checked
     construction rewires the record build's interim TypeError."""
     with pytest.raises(FieldValidationError):
-        Ident(first="x")  # type: ignore[call-arg]  # intentional misuse under test
+        Ident(first="x")  # type: ignore[reportCallIssue]  # intentional misuse under test
+
+
+def _op_rule() -> IrRule:
+    """op ::= "+" | "-" — a multi-arm pure-literal value_str rule."""
+    return IrRule(
+        "op",
+        IrAlternation(
+            IrSequence(IrItem(IrLiteral("+"))),
+            IrSequence(IrItem(IrLiteral("-"))),
+        ),
+    )
+
+
+class Op(GrammarModel):
+    """Multi-arm literal value_str model — Literal[...]-checked."""
+
+    __grammar__: ClassVar[IrRule] = _op_rule()
+    value: str
+
+
+def _repeated_eq_rule() -> IrRule:
+    """req ::= "="+ — a bound (quantified) literal field."""
+    return IrRule(
+        "req",
+        IrAlternation(IrSequence(IrItem(IrLiteral("="), IrQuantifier(1, IrNone)))),
+    )
+
+
+class RepeatedEq(GrammarModel):
+    """Model whose bound field's atom is a quantified IrLiteral (R7 hole)."""
+
+    __grammar__: ClassVar[IrRule] = _repeated_eq_rule()
+    __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+        0: ("eqs", IrBind(0, "text")),
+    }
+    eqs: str
+
+
+def _gtext_rule() -> IrRule:
+    """gtxt ::= ("a" | "b") — literal-only inline group, gtext mode."""
+    return IrRule(
+        "gtxt",
+        IrAlternation(
+            IrSequence(
+                IrItem(
+                    IrAlternation(
+                        IrSequence(IrItem(IrLiteral("a"))),
+                        IrSequence(IrItem(IrLiteral("b"))),
+                    )
+                )
+            )
+        ),
+    )
+
+
+class GtextGroup(GrammarModel):
+    """Model with a literal-only inline group bound in gtext mode (R7 hole)."""
+
+    __grammar__: ClassVar[IrRule] = _gtext_rule()
+    __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+        0: ("group", IrBind(0, "gtext")),
+    }
+    group: str
+
+
+def _group_model_rule() -> IrRule:
+    """grp ::= (ident) — ref-bearing inline group, model mode."""
+    return IrRule(
+        "grp",
+        IrAlternation(
+            IrSequence(IrItem(IrAlternation(IrSequence(IrItem(IrRuleRef("ident"))))))
+        ),
+    )
+
+
+class GroupModel(GrammarModel):
+    """Model with a ref-bearing inline group bound in model mode."""
+
+    __grammar__: ClassVar[IrRule] = _group_model_rule()
+    __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+        0: ("group", IrBind(0, "model")),
+    }
+    group: Ident
+
+
+# charclass field ────────────────────────────────────────────────────────────
+
+
+def test_charclass_field_all_covered_chars_constructs():
+    """Every char within the class and length within the item's quantifier
+    constructs cleanly."""
+    inst = Ident(first="x", ws=Ws(value=" "))
+    assert inst.first == "x"
+
+
+def test_charclass_field_out_of_class_char_raises():
+    """A char outside the class raises FieldValidationError naming the char
+    and the pattern."""
+    with pytest.raises(FieldValidationError, match="is not in"):
+        Ident(first="1", ws=Ws(value=" "))
+
+
+def test_charclass_field_length_too_long_raises():
+    """A value longer than the item's quantifier bounds raises
+    FieldValidationError ('length ... out of bounds')."""
+    with pytest.raises(FieldValidationError, match="out of bounds"):
+        Ident(first="ab", ws=Ws(value=" "))
+
+
+def test_charclass_field_length_too_short_raises():
+    """A value shorter than a bound char-class field's quantifier lower
+    bound raises FieldValidationError ('length ... out of bounds'). ``It``
+    itself is a value_str class (no bind), so this needs its own bound
+    fixture rather than reusing ``It``."""
+
+    class Repeated(GrammarModel):
+        """rep ::= [a-z]{2,} — bound char-class field, min length 2."""
+
+        __grammar__: ClassVar[IrRule] = IrRule(
+            "rep",
+            IrAlternation(IrSequence(IrItem(_LOWER, IrQuantifier(2, IrNone)))),
+        )
+        __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+            0: ("chars", IrBind(0, "text")),
+        }
+        chars: str
+
+    with pytest.raises(FieldValidationError, match="out of bounds"):
+        Repeated(chars="a")
+
+
+def test_charclass_field_non_str_value_raises():
+    """A non-str value on a char-class field raises FieldValidationError."""
+    with pytest.raises(FieldValidationError, match="expected a str"):
+        Ident(
+            first=123,  # type: ignore[reportArgumentType]  # intentional misuse under test
+            ws=Ws(value=" "),
+        )
+
+
+# bound literal field — R7 hole ───────────────────────────────────────────────
+
+
+def test_bound_literal_field_wrong_value_does_not_raise():
+    """A bound (quantified) literal field is the R7 hole: plain str, never
+    validated — an unrelated value still constructs."""
+    inst = RepeatedEq(eqs="totally-wrong-value")
+    assert inst.eqs == "totally-wrong-value"
+
+
+# model ref field ──────────────────────────────────────────────────────────────
+
+
+def test_model_field_submodel_value_constructs():
+    """A real sub-model instance on a model-mode field constructs cleanly."""
+    ws = Ws(value=" ")
+    inst = Ident(first="x", ws=ws)
+    assert inst.ws is ws
+
+
+def test_model_field_non_model_value_raises():
+    """A non-model value on a model-mode field raises FieldValidationError."""
+    with pytest.raises(FieldValidationError, match="expected a sub-model"):
+        Ident(
+            first="x",
+            ws="not a model",  # type: ignore[reportArgumentType]  # intentional misuse under test
+        )
+
+
+# models field ─────────────────────────────────────────────────────────────────
+
+
+def test_models_field_list_of_submodels_constructs():
+    """A list of sub-models on a models-mode field constructs, coerced to a
+    tuple."""
+    inst = Root(it=[It(value="a"), It(value="b")])
+    assert inst.it == (It(value="a"), It(value="b"))
+
+
+def test_models_field_non_list_scalar_raises():
+    """A non-list/tuple scalar on a models-mode field raises
+    FieldValidationError."""
+    with pytest.raises(FieldValidationError, match="expected a list of sub-models"):
+        Root(it="not-a-list")  # type: ignore[reportArgumentType]  # intentional misuse under test
+
+
+def test_models_field_element_non_model_raises():
+    """A list containing a non-model element raises FieldValidationError."""
+    bad: list = [It(value="a"), "bad"]
+    with pytest.raises(FieldValidationError, match="expected a sub-model"):
+        Root(it=bad)  # type: ignore[reportArgumentType]  # intentional misuse under test
+
+
+# inline-group field ───────────────────────────────────────────────────────────
+
+
+def test_group_model_field_submodel_value_constructs():
+    """A ref-bearing inline group bound in model mode checks like a ref."""
+    ident = Ident(first="x", ws=Ws(value=" "))
+    inst = GroupModel(group=ident)
+    assert inst.group is ident
+
+
+def test_group_model_field_non_model_value_raises():
+    """A ref-bearing inline group bound in model mode rejects a non-model."""
+    with pytest.raises(FieldValidationError, match="expected a sub-model"):
+        GroupModel(
+            group="not a model"  # type: ignore[reportArgumentType]  # intentional misuse under test
+        )
+
+
+def test_gtext_group_field_wrong_value_does_not_raise():
+    """A literal-only inline group bound in gtext mode is an R7 hole: plain
+    str, never validated."""
+    inst = GtextGroup(group="totally-wrong-value")
+    assert inst.group == "totally-wrong-value"
+
+
+# value_str Literal[...] ─────────────────────────────────────────────────────
+
+
+def test_value_str_literal_arm_value_constructs():
+    """A value within the multi-arm literal set constructs."""
+    assert Op(value="+").value == "+"
+
+
+def test_value_str_literal_out_of_arm_value_raises():
+    """A value outside the multi-arm literal set raises FieldValidationError."""
+    with pytest.raises(FieldValidationError, match="is not one of"):
+        Op(value="*")
+
+
+def test_value_str_single_arm_charclass_is_not_checked():
+    """Narrowing: a single-arm char-class value_str is NOT checked via the
+    value_str path (the check is bind-driven and value_str carries no bind) —
+    an out-of-class value still constructs."""
+    inst = It(value="ZZZ!!!")
+    assert inst.value == "ZZZ!!!"
+
+
+# required-presence ────────────────────────────────────────────────────────────
+
+
+def test_all_required_fields_provided_constructs():
+    """All required fields provided constructs cleanly."""
+    inst = Root(it=[It(value="a")])
+    assert inst.it == (It(value="a"),)
+
+
+def test_optional_field_omitted_constructs():
+    """An optional (defaulted) field left unset does not trip presence
+    checking."""
+
+    class WithOptional(GrammarModel):
+        """Model with a defaulted optional ws field."""
+
+        __grammar__: ClassVar[IrRule] = _ident_rule()
+        __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+            0: ("first", IrBind(0, "text")),
+            1: ("ws", IrBind(1, "model")),
+        }
+        first: str
+        ws: Optional[Ws] = None
+
+    inst = WithOptional(first="x")
+    assert inst.ws is None
+
+
+def test_required_field_omitted_raises_on_another_fixture():
+    """A missing required field raises FieldValidationError on a models-mode
+    fixture too (beyond the base Ident pin)."""
+    with pytest.raises(FieldValidationError, match="missing required field"):
+        Root()  # type: ignore[reportCallIssue]  # intentional misuse under test
+
+
+def test_unexpected_field_raises_type_error_not_field_validation_error():
+    """A genuine unexpected-fields misuse still surfaces as TypeError — the
+    checked-construction rewire targets missing fields only, not extras."""
+    with pytest.raises(TypeError):
+        Ident(
+            first="x",
+            ws=Ws(value=" "),
+            bogus="nope",  # type: ignore[reportCallIssue]  # intentional misuse under test
+        )
+
+
+# parse-path bypass ────────────────────────────────────────────────────────────
+
+
+def test_parse_path_output_reconstructs_via_checked_construction():
+    """Valid parser output passes every check with no false rejection: a
+    parsed model reconstructed via checked kwargs construction is equal to
+    the original."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    model = cg.parse("x=1\n")
+    rebuilt = type(model)(**{name: getattr(model, name) for name in model._fields})
+    assert rebuilt == model
 
 
 # ── the emitter shim ──────────────────────────────────────────────────────────
