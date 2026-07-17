@@ -1,7 +1,7 @@
 [project]
 name = "lexic"
 version = "0.1.0"
-description = "Add your description here"
+description = "Lexic is a grammar engine"
 readme = "README.md"
 authors = [
     { name = "Mika", email = "teihenrique@gmail.com" }
