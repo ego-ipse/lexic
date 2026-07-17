@@ -14,7 +14,8 @@ carry at least one), each driven through both internal seams directly:
 The correctness bar is ruling 1 (semantic parity, not raw ``model_dump()``
 equality — the PDA's greedy stop-set loop may split a ``semantic=False`` run
 differently from the engine's ambiguity resolution): every sample where both
-paths succeed asserts ``semantic_dump()`` equality plus a ``to_text()``
+paths succeed asserts deep semantic equality (:func:`_deep_semantic` —
+``semantic=False`` binds dropped at every level) plus a ``to_text()``
 round-trip on *both* models. A forced-PDA ``PdaFail`` is a **fallback**, not a
 failure — it is tallied, not asserted against (except that the engine path
 alone must still round-trip). The raw ``model_dump()``-exact rate and the
@@ -165,6 +166,26 @@ def _forced_engine(cg: CompiledGrammar, text: str) -> GrammarModel:
     return cast(GrammarModel, cg.fold.apply(tree))
 
 
+def _deep_semantic(value: object) -> object:
+    """The ruling-1 comparator: drop ``semantic=False`` binds at EVERY level.
+
+    ``semantic_dump()``'s exclusion is top-level-only (R2-5); under pydantic
+    the declared-schema erasure (F-DUMP-1) happened to hide nested noise
+    splits too, so ``semantic_dump()`` equality *looked* like the ruling-1
+    bar. The runtime-complete native dump exposes those nested
+    ``semantic=False`` fields, so the noise split the PDA is licensed to
+    make differently (see the module docstring) must be dropped explicitly,
+    at every model level, before comparing.
+    """
+    if isinstance(value, GrammarModel):
+        return {
+            name: _deep_semantic(getattr(value, name)) for name in value.semantic_dump()
+        }
+    if isinstance(value, tuple):
+        return [_deep_semantic(sub) for sub in value]
+    return value
+
+
 def _check_one(cg: CompiledGrammar, text: str, tally: _Tally) -> None:
     """Run both seams on ``text``, tally the outcome, assert what parity demands.
 
@@ -186,7 +207,7 @@ def _check_one(cg: CompiledGrammar, text: str, tally: _Tally) -> None:
         return
     tally["pda_ok"] += 1
     tally["checked"] += 1
-    assert pda_model.semantic_dump() == engine_model.semantic_dump()
+    assert _deep_semantic(pda_model) == _deep_semantic(engine_model)
     assert pda_model.to_text() == text
     if pda_model.model_dump() == engine_model.model_dump():
         tally["model_dump_exact"] += 1
@@ -306,7 +327,7 @@ def test_p2_chess_parses_pure_pda_with_zero_fallback() -> None:
     for text in _CHESS_ADVERSARIAL:
         pda_model = cast(GrammarModel, parse_pda(_prod(cg).pda, text, cg.fold))
         engine_model = _forced_engine(cg, text)
-        assert pda_model.semantic_dump() == engine_model.semantic_dump()
+        assert _deep_semantic(pda_model) == _deep_semantic(engine_model)
         assert pda_model.to_text() == text
 
 
@@ -376,5 +397,5 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
     for text in _JSON_ADVERSARIAL:
         pda_model = cast(GrammarModel, parse_pda(_prod(cg).pda, text, cg.fold))
         engine_model = _forced_engine(cg, text)
-        assert pda_model.semantic_dump() == engine_model.semantic_dump()
+        assert _deep_semantic(pda_model) == _deep_semantic(engine_model)
         assert pda_model.to_text() == text

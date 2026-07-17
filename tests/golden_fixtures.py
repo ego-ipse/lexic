@@ -1,10 +1,13 @@
-"""Golden fixture helper — the pydantic-implementation parity oracle (Task 0).
+"""Golden fixture helper — the parity oracle recorded from pydantic (Task 0).
 
-Pins ``model_dump()``/``semantic_dump()``/``to_text()`` from TODAY's pydantic
-implementation as the byte-form baseline every later ir-native task must
-match against (settled 12,
-``zzz_current_work/260716-ir-native/PLAN_v4.md``). THE parity oracle for
-Tasks 1-8 of that effort.
+The golden FILES were recorded once from the retired pydantic implementation
+(Task 0) and are byte-pinned; the record spine (Task 1) must keep their
+ORACLE keys equal (ruling 12,
+``zzz_current_work/260716-ir-native/PLAN_v4.md``): ``runtime_dump``,
+``runtime_semantic_dump``, ``to_text``. The declared-schema keys
+(``model_dump``/``semantic_dump`` as recorded) characterized the pydantic
+serializer and are retired data — uncomputable on the spine, kept in the
+files as the historical record, no longer asserted.
 
 Byte form (settled 12, pinned here and nowhere else): one fixed
 serialization — ``json.dumps(records, ensure_ascii=False, indent=2,
@@ -22,41 +25,25 @@ dump-dict-equality medium lives in
 Golden files live at ``tests/goldens/<grammar-stem>.json`` (git-tracked), one
 per ground-truth grammar file under ``resources/ground_truth/``, each a JSON
 list of per-input records: ``{"input": str, "model_dump": ..., "runtime_dump":
-..., "semantic_dump": ..., "runtime_semantic_dump": ..., "to_text": str}``.
+..., "semantic_dump": ..., "runtime_semantic_dump": ..., "to_text": str}``
+(the two ``model_dump``/``semantic_dump`` keys exist only in the Task-0
+recordings; :func:`compute_record` now produces the oracle keys alone).
 
-**F-DUMP-1 (coordinator finding, mid-Task-0 addendum).** ``model_dump()`` is
-declared-schema-driven: a nested arm instance riding a field annotated with
-its field-less abstract alternation PARENT serializes as ``{}`` — the whole
-subtree erased, since pydantic-core builds the field's serializer off the
-declared annotation, not the runtime type. Verify on ``arithmetic.gbnf``:
-parse ``"6=k\t \n"``; ``item = model.root_item[0]``; ``item.term.model_dump()``
-is a full dict but ``item.model_dump()["term"] == {}``. Deep grammars
-(c.gbnf, vyx.gbnf) additionally mix erased and full subtrees at schema-joint
-stride boundaries (``__schema_joint__``, ``lexic/base.py``). A golden
-recorded via bare ``model_dump()`` alone would enshrine that artifact as if
-it were meaningful per-grammar data, when for an abstract-typed field it is
-really just ``{}`` regardless of which arm matched — exit criterion 1 and
-settled 12 of PLAN_v4.md assume ``model_dump`` goldens are a meaningful
-oracle; the erasure weakens that (any two arm subtrees compare equal as
-``{}``). Two ways to serialize are recorded side by side per record.
-RULED (PLAN_v4 ruling 12, 2026-07-16): the runtime forms are THE parity
-oracle for Tasks 1–8; the declared-schema forms are characterization-only
-and die with pydantic in Task 8:
+**F-DUMP-1 (coordinator finding, mid-Task-0 addendum — historical).**
+pydantic's ``model_dump()`` was declared-schema-driven: a nested arm
+instance riding a field annotated with its field-less abstract alternation
+PARENT serialized as ``{}`` (the whole subtree erased), so every golden
+record carries two forms side by side. RULED (PLAN_v4 ruling 12,
+2026-07-16): the runtime forms are THE parity oracle for Tasks 1–8; the
+declared-schema forms characterized the retired serializer:
 
-- ``model_dump`` / ``semantic_dump`` — pydantic's default, declared-schema
-  form, warts (the erasure) included. Exactly what the original Task-0
-  brief asked for.
-- ``runtime_dump`` / ``runtime_semantic_dump`` (:func:`runtime_dump`,
-  :func:`runtime_semantic_dump`) — ``model_dump(serialize_as_any=True)``,
-  pydantic's built-in duck-typed/runtime-type serialization. Verified
-  byte-equal to a hand-rolled runtime-type walker on the GT corpus AND
-  through a hand-built schema-joint boundary (no GT grammar reaches the
-  64-rule joint stride) — see
-  ``tests/unit/lexic/test_base_surface_freeze.py``'s cross-check tests,
-  which also record an empirical correction: ``serialize_as_any=True``
-  does NOT degrade through a joint (it bypasses the joint's custom
-  ``_joint_dump`` serializer entirely rather than calling it without the
-  flag), contrary to the addendum's initial worry.
+- ``model_dump`` / ``semantic_dump`` — pydantic's declared-schema form,
+  erasure warts included. Retired recordings; no longer computable.
+- ``runtime_dump`` / ``runtime_semantic_dump`` — recorded from pydantic via
+  ``model_dump(serialize_as_any=True)`` (verified byte-equal to a
+  hand-rolled runtime-type walker on the GT corpus), and byte-equal to the
+  record spine's native ``model_dump()``/``semantic_dump()``, which
+  :func:`runtime_dump`/:func:`runtime_semantic_dump` now delegate to.
 
 :data:`CORPUS` is the representative-input registry per grammar stem —
 drawn from existing round-trip/integration test corpora
@@ -74,6 +61,10 @@ the plan's settled-12 note; a routine code change should make this suite
 FAIL, not need re-running) via::
 
     uv run python -m tests.golden_fixtures
+
+NOTE: regeneration now writes oracle-keys-only records — it would drop the
+Task-0 declared-schema recordings from the files. The Task-0 files are
+byte-pinned; do not regenerate without a ruling.
 """
 
 from __future__ import annotations
@@ -169,51 +160,46 @@ def golden_path(stem: str) -> Path:
 
 
 def runtime_dump(model: GrammarModel) -> dict[str, Any]:
-    """The runtime-type-driven dump — F-DUMP-1's counterpart to ``model_dump()``.
+    """The runtime-type-driven dump — the golden ``runtime_dump`` form.
 
-    ``model_dump(serialize_as_any=True)`` (pydantic's built-in duck-typed
-    serialization): every nested value serializes via ITS OWN runtime type
-    rather than its field's declared annotation, so an arm instance riding
-    an abstract-alternation-typed field dumps in full instead of eroding to
-    ``{}``. See the module docstring's F-DUMP-1 note.
+    On the record spine the native :meth:`~lexic.base.GrammarModel.model_dump`
+    IS runtime-complete (ruling 12), byte-equal to the pydantic
+    ``model_dump(serialize_as_any=True)`` the goldens were recorded with.
 
     :param model: A parsed model instance.
     :returns: The runtime-complete dump.
     """
-    return model.model_dump(serialize_as_any=True)
+    return model.model_dump()
 
 
 def runtime_semantic_dump(model: GrammarModel) -> dict[str, Any]:
-    """:func:`runtime_dump`, with ``model``'s own non-semantic fields excluded.
+    """:func:`runtime_dump` with the model's own non-semantic fields excluded.
 
-    The runtime-type-driven counterpart of :meth:`~lexic.base.GrammarModel.
-    semantic_dump` (same top-level-only exclusion depth, R2-5) — exclusion
-    is computed the same way ``semantic_dump()`` computes it, via the public
-    :meth:`~lexic.base.GrammarModel.bound_fields`.
+    The native :meth:`~lexic.base.GrammarModel.semantic_dump` — the same
+    top-level-only exclusion depth (R2-5) the golden
+    ``runtime_semantic_dump`` form was recorded with.
 
     :param model: A parsed model instance.
     :returns: The runtime-complete dump, semantic exclusions applied.
     """
-    exclude = {
-        name for name, bind in type(model).bound_fields().values() if not bind.semantic
-    }
-    return model.model_dump(exclude=exclude, serialize_as_any=True)
+    return model.semantic_dump()
 
 
 def compute_record(cg: CompiledGrammar, sample: str) -> dict[str, Any]:
-    """Parse ``sample`` and capture the pinned outputs (F-DUMP-1: both dump forms).
+    """Parse ``sample`` and capture the oracle outputs (ruling 12).
+
+    The declared-schema ``model_dump``/``semantic_dump`` keys of the Task-0
+    recordings are NOT produced — they characterized the retired pydantic
+    serializer and exist only in the persisted files.
 
     :param cg: The compiled grammar to parse against.
     :param sample: One representative input.
-    :returns: ``{"input", "model_dump", "runtime_dump", "semantic_dump",
-        "runtime_semantic_dump", "to_text"}``.
+    :returns: ``{"input", "runtime_dump", "runtime_semantic_dump", "to_text"}``.
     """
     model = cg.parse(sample)
     return {
         "input": sample,
-        "model_dump": model.model_dump(),
         "runtime_dump": runtime_dump(model),
-        "semantic_dump": model.semantic_dump(),
         "runtime_semantic_dump": runtime_semantic_dump(model),
         "to_text": model.to_text(),
     }

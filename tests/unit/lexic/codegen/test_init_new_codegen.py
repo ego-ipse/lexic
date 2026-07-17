@@ -44,11 +44,14 @@ def test_codegen_no_flavour_parameter():
     assert "flavour" not in sig.parameters
 
 
-def test_codegen_rebuilds_deep_ref_chain_leaf_first(tmp_path, monkeypatch):
-    """A long unit-ref chain rebuilds without a model_rebuild stack overflow.
+def test_codegen_loads_deep_ref_chain_with_resolvable_binds(tmp_path, monkeypatch):
+    """A long unit-ref chain loads whole and every class's binds resolve.
 
-    Rebuilding leaf-first keeps each schema build shallow; the naive
-    start-first order overflowed on the whole chain in one descent.
+    The pydantic-era assertion (``__pydantic_complete__`` after the
+    leaf-first ``model_rebuild`` walk) died with the record spine —
+    ``model_rebuild`` is a no-op shim now. What survives to pin: the loader
+    returns every class of the chain, and each class's ``IrBind`` metadata
+    resolves through the public ``bound_fields()`` with no depth limit.
     """
     monkeypatch.chdir(tmp_path)
     Path("generated").mkdir()
@@ -57,5 +60,4 @@ def test_codegen_rebuilds_deep_ref_chain_leaf_first(tmp_path, monkeypatch):
     lines.append(f'r{depth} ::= "0"')
     classes = _codegen("\n".join(lines) + "\n", "test_codegen_deep_chain")
     assert len(classes) == depth + 1
-    # model_rebuild completed for every class → IrBind metadata is resolvable.
-    assert all(cls.__pydantic_complete__ for cls in classes.values())
+    assert all(isinstance(cls.bound_fields(), dict) for cls in classes.values())

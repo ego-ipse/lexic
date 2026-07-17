@@ -1,17 +1,28 @@
-"""Unit tests for src/lexic/base.py — GrammarModel over IrRule + IrBind."""
+"""Unit tests for src/lexic/base.py — the GrammarModel record spine.
+
+Model classes here are authored two ways, both supported by the spine:
+
+- ``Annotated[..., IrBind(...)]`` field metadata (module-level classes —
+  this module stringizes annotations via ``from __future__ import
+  annotations``, so these exercise the emitter-shim resolution path);
+- an explicit ``__binds__`` class table (the primary channel runtime
+  synthesis writes; usable on function-local classes whose annotations
+  reference local names the shim could not resolve).
+"""
 
 from __future__ import annotations
 
 from typing import Annotated, ClassVar, List, Optional
 
 import pytest
-from pydantic import ConfigDict, Field, PrivateAttr, field_validator
 
 from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone
+from lexic.ir.action import IrAction
+from lexic.ir.base import IrNone, IrTuple
 from lexic.ir.bind import IrBind
+from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrCharClass,
@@ -51,6 +62,49 @@ class Ws(GrammarModel):
     value: str
 
 
+def _ident_rule() -> IrRule:
+    """ident ::= [a-z] ws — one text field, one model field."""
+    return IrRule(
+        "ident",
+        IrAlternation(IrSequence(IrItem(_LOWER), IrItem(IrRuleRef("ws")))),
+    )
+
+
+class Ident(GrammarModel):
+    """Identifier model — a text field and a nested model field."""
+
+    __grammar__: ClassVar[IrRule] = _ident_rule()
+    first: Annotated[str, IrBind(0, "text")]
+    ws: Annotated[Ws, IrBind(1, "model")]
+
+
+class NoisyIdent(GrammarModel):
+    """Identifier model whose ws bind is structural noise (semantic=False)."""
+
+    __grammar__: ClassVar[IrRule] = _ident_rule()
+    first: Annotated[str, IrBind(0, "text")]
+    ws: Annotated[Ws, IrBind(1, "model", False)]
+
+
+class It(GrammarModel):
+    """Item model — value_str shape over a repeated char class."""
+
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "it", IrAlternation(IrSequence(IrItem(_LOWER, IrQuantifier(1, IrNone))))
+    )
+    value: str
+
+
+class Root(GrammarModel):
+    """Root model — one models-mode list field."""
+
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "root",
+        IrAlternation(IrSequence(IrItem(IrRuleRef("it"), IrQuantifier(1, IrNone)))),
+    )
+    it: Annotated[List[It], IrBind(0, "models")]
+
+
 # ── value_str ─────────────────────────────────────────────────────────────────
 
 
@@ -80,8 +134,12 @@ def test_to_text_sequence_emits_literal():
                 )
             ),
         )
-        first: Annotated[str, IrBind(0, "text")]
-        second: Annotated[str, IrBind(2, "text")]
+        __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+            0: ("first", IrBind(0, "text")),
+            2: ("second", IrBind(2, "text")),
+        }
+        first: str
+        second: str
 
     assert EqExpr(first="x", second="1").to_text() == "x=1"
 
@@ -89,24 +147,8 @@ def test_to_text_sequence_emits_literal():
 # ── sequence with nested GrammarModel ─────────────────────────────────────────
 
 
-def _ident_rule() -> IrRule:
-    """ident ::= [a-z] ws — one text field, one model field."""
-    return IrRule(
-        "ident",
-        IrAlternation(IrSequence(IrItem(_LOWER), IrItem(IrRuleRef("ws")))),
-    )
-
-
 def test_to_text_nested_grammar_model():
     """Nested GrammarModel fields are emitted recursively."""
-
-    class Ident(GrammarModel):
-        """Identifier model."""
-
-        __grammar__: ClassVar[IrRule] = _ident_rule()
-        first: Annotated[str, IrBind(0, "text")]
-        ws: Annotated[Ws, IrBind(1, "model")]
-
     inst = Ident(first="x", ws=Ws(value=" "))
     assert inst.to_text() == "x "
 
@@ -115,25 +157,7 @@ def test_to_text_nested_grammar_model():
 
 
 def test_to_text_list_of_grammar_model():
-    """List-typed fields emit each element in order."""
-
-    class It(GrammarModel):
-        """Item model."""
-
-        __grammar__: ClassVar[IrRule] = IrRule(
-            "it", IrAlternation(IrSequence(IrItem(_LOWER, IrQuantifier(1, IrNone))))
-        )
-        value: str
-
-    class Root(GrammarModel):
-        """Root model."""
-
-        __grammar__: ClassVar[IrRule] = IrRule(
-            "root",
-            IrAlternation(IrSequence(IrItem(IrRuleRef("it"), IrQuantifier(1, IrNone)))),
-        )
-        it: Annotated[List[It], IrBind(0, "models")]
-
+    """models-mode fields emit each element in order (list or tuple storage)."""
     inst = Root(it=[It(value="a"), It(value="b"), It(value="c")])
     assert inst.to_text() == "abc"
 
@@ -153,8 +177,12 @@ def test_to_text_optional_absent():
                 IrSequence(IrItem(_LOWER), IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)))
             ),
         )
-        first: Annotated[str, IrBind(0, "text")]
-        ws: Annotated[Optional[Ws], IrBind(1, "model")] = None
+        __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+            0: ("first", IrBind(0, "text")),
+            1: ("ws", IrBind(1, "model")),
+        }
+        first: str
+        ws: Optional[Ws] = None
 
     assert R(first="x", ws=None).to_text() == "x"
     assert R(first="x", ws=Ws(value=" ")).to_text() == "x "
@@ -201,7 +229,10 @@ def test_to_text_empty_arm_all_fields_absent_is_empty():
                 IrSequence(),
             ),
         )
-        ws: Annotated[Optional[Ws], IrBind(1, "model")] = None
+        __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+            1: ("ws", IrBind(1, "model")),
+        }
+        ws: Optional[Ws] = None
 
     assert Pair().to_text() == ""
     assert Pair(ws=Ws(value=" ")).to_text() == "< >"
@@ -212,15 +243,7 @@ def test_to_text_empty_arm_all_fields_absent_is_empty():
 
 def test_semantic_dump_excludes_ws():
     """semantic_dump() omits fields whose bind carries semantic=False."""
-
-    class Ident(GrammarModel):
-        """Identifier model with structural-noise ws."""
-
-        __grammar__: ClassVar[IrRule] = _ident_rule()
-        first: Annotated[str, IrBind(0, "text")]
-        ws: Annotated[Ws, IrBind(1, "model", False)]
-
-    inst = Ident(first="x", ws=Ws(value=" "))
+    inst = NoisyIdent(first="x", ws=Ws(value=" "))
     d = inst.semantic_dump()
     assert "first" in d
     assert "ws" not in d
@@ -231,15 +254,7 @@ def test_semantic_dump_excludes_ws():
 
 def test_bound_fields_maps_item_slot_to_name_and_bind():
     """bound_fields() maps each bound item slot to its (field name, bind)."""
-
-    class Ident(GrammarModel):
-        """Identifier model with structural-noise ws."""
-
-        __grammar__: ClassVar[IrRule] = _ident_rule()
-        first: Annotated[str, IrBind(0, "text")]
-        ws: Annotated[Ws, IrBind(1, "model", False)]
-
-    bound = Ident.bound_fields()
+    bound = NoisyIdent.bound_fields()
     assert set(bound) == {0, 1}
     name0, bind0 = bound[0]
     assert name0 == "first"
@@ -255,17 +270,184 @@ def test_bound_fields_empty_for_value_str_class():
 
 
 def test_bound_fields_is_a_classmethod_not_instance_dependent():
-    """bound_fields() reads class-level field metadata, callable on the class."""
-
-    class Ident(GrammarModel):
-        """Identifier model with structural-noise ws."""
-
-        __grammar__: ClassVar[IrRule] = _ident_rule()
-        first: Annotated[str, IrBind(0, "text")]
-        ws: Annotated[Ws, IrBind(1, "model", False)]
-
+    """bound_fields() reads class-level metadata, callable on the class."""
     inst = Ident(first="x", ws=Ws(value=" "))
     assert inst.bound_fields() == Ident.bound_fields()
+
+
+def test_bound_fields_explicit_binds_table_wins():
+    """A class-declared __binds__ is used as-is — no annotation resolution."""
+
+    class Declared(GrammarModel):
+        """Model with an explicit binds table beside unannotated fields."""
+
+        __grammar__: ClassVar[IrRule] = _ident_rule()
+        __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+            0: ("first", IrBind(0, "text")),
+        }
+        first: str
+        ws: Optional[Ws] = None
+
+    assert set(Declared.bound_fields()) == {0}
+
+
+def test_bound_fields_resolution_is_cached_on_the_class():
+    """The Annotated-shim resolution runs once; the table is the class's own."""
+    first = Ident.bound_fields()
+    assert Ident.bound_fields() is first
+
+
+# ── equality / hashing (settled 4) ────────────────────────────────────────────
+
+
+class _PairA(GrammarModel):
+    """a ::= "x" — single-field value_str shape, for cross-class eq tests."""
+
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "a", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))
+    )
+    value: str
+
+
+class _PairB(GrammarModel):
+    """b ::= "x" — identical shape to _PairA, distinct class."""
+
+    __grammar__: ClassVar[IrRule] = IrRule(
+        "b", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))
+    )
+    value: str
+
+
+def test_same_class_equal_payload_compares_equal():
+    """Two instances of the same class with equal fields compare equal."""
+    assert _PairA(value="x") == _PairA(value="x")
+
+
+def test_cross_class_equal_payload_compares_unequal():
+    """Type-aware equality: distinct classes never compare equal (settled 4;
+    plain tuple equality would say A('x') == B('x'))."""
+    assert _PairA(value="x") != _PairB(value="x")
+
+
+def test_hash_is_consistent_with_equality():
+    """Equal models hash equal; models are usable as dict/set keys."""
+    one, two = _PairA(value="x"), _PairA(value="x")
+    assert hash(one) == hash(two)
+    assert len({one, two}) == 1
+
+
+# ── list→tuple ctor coercion (settled 11) ─────────────────────────────────────
+
+
+def test_ctor_coerces_models_lists_to_tuples():
+    """A live list handed by the fold/PDA is stored as a tuple."""
+    inst = Root(it=[It(value="a"), It(value="b")])
+    assert isinstance(inst.it, tuple)
+
+
+def test_ctor_coerces_positional_lists_too():
+    """The coercion applies to positional construction as well."""
+    inst = Root([It(value="a")])
+    assert isinstance(inst.it, tuple)
+
+
+def test_coerced_models_field_keeps_hashability():
+    """A model holding a coerced models field is hashable."""
+    inst = Root(it=[It(value="a")])
+    assert hash(inst) == hash(Root(it=[It(value="a")]))
+
+
+# ── the tuple surface (ruling 9, accepted) ────────────────────────────────────
+
+
+def test_models_are_tuples():
+    """A model IS its field tuple: iterable, sized, indexable."""
+    inst = Ident(first="x", ws=Ws(value=" "))
+    assert isinstance(inst, tuple)
+    assert len(inst) == 2
+    assert inst[0] == "x"
+    assert inst.first is inst[0]
+
+
+# ── children / rebuild / _child_attrs (settled 13) ───────────────────────────
+
+
+def test_children_are_bound_field_values_in_item_order():
+    """children() yields the bound fields' values, in item-slot order."""
+    ws = Ws(value=" ")
+    inst = Ident(first="x", ws=ws)
+    kids = inst.children()
+    assert kids == ("x", ws)
+    assert kids[1] is ws
+
+
+def test_children_follow_item_order_not_declaration_order():
+    """children() follows the binds table's ITEM order (settled 13), even
+    when field declaration order differs from item-slot order."""
+
+    class Swapped(GrammarModel):
+        """Fields declared in the reverse of their item-slot order."""
+
+        __grammar__: ClassVar[IrRule] = _ident_rule()
+        __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+            0: ("first", IrBind(0, "text")),
+            1: ("ws", IrBind(1, "model")),
+        }
+        ws: Optional[Ws] = None
+        first: str = ""
+
+    inst = Swapped(ws=Ws(value=" "), first="x")
+    assert inst.children() == ("x", Ws(value=" "))
+
+
+def test_value_str_class_has_no_children():
+    """A value_str class has no binds, hence no IR children."""
+    assert not Ws(value=" ").children()
+
+
+def test_rebuild_splices_bound_fields_in_item_order():
+    """rebuild() replaces the bound fields with new children, keeping type."""
+    inst = Ident(first="x", ws=Ws(value=" "))
+    donor = Ident(first="y", ws=Ws(value="\t"))
+    rebuilt = inst.rebuild(donor.children())
+    assert type(rebuilt) is type(inst)
+    assert rebuilt.first == "y"
+    assert rebuilt.ws == Ws(value="\t")
+
+
+def test_rebuild_of_children_is_identity_shaped():
+    """rebuild(children()) reproduces an equal model."""
+    inst = Ident(first="x", ws=Ws(value=" "))
+    assert inst.rebuild(inst.children()) == inst
+
+
+# ── dispatch admission (settled 13): models reach IrTuple catch-alls ─────────
+
+
+def test_ir_type_map_irtuple_entry_admits_models():
+    """An IrTypeMap's IrTuple entry resolves for a model instance (MRO) —
+    the emit actions' IrAction(IrTuple, ...) catch-all is reachable by
+    models, as intended dispatch openness."""
+    marker = IrLiteral("caught")
+    table = IrTypeMap(IrAction(IrTuple, marker))
+    assert table.resolve(Ident(first="x", ws=Ws(value=" "))) is marker
+
+
+# ── native dump ───────────────────────────────────────────────────────────────
+
+
+def test_model_dump_is_field_ordered_and_runtime_complete():
+    """model_dump() emits every field in declaration order, nested models
+    as dicts, models-mode tuples as lists."""
+    inst = Root(it=[It(value="a"), It(value="b")])
+    assert inst.model_dump() == {"it": [{"value": "a"}, {"value": "b"}]}
+    assert list(Ident(first="x", ws=Ws(value=" ")).model_dump()) == ["first", "ws"]
+
+
+def test_model_dump_reemits_tuples_as_lists():
+    """The dump's models-mode value is a plain list (pydantic dump parity)."""
+    dumped = Root(it=[It(value="a")]).model_dump()
+    assert isinstance(dumped["it"], list)
 
 
 # ── to_grammar ────────────────────────────────────────────────────────────────
@@ -303,113 +485,42 @@ def test_to_grammar_unknown_flavour_raises():
         inst.to_grammar("xyz_unknown_flavour")
 
 
-# ── fast_construct licence ─────────────────────────────────────────────────
+# ── fast_construct licence (trivially granted on the spine) ───────────────────
 
 
-def test_fast_construct_granted_for_a_plain_class():
-    """A plain class with a None-defaulted optional field earns the licence."""
+def test_fast_construct_is_always_granted():
+    """Every record class earns the licence — there is no validation to skip."""
+    ctor, defaults = Ident.fast_construct()
+    assert callable(ctor)
+    assert not defaults
 
-    class Plain(GrammarModel):
-        """Plain model — one required, one None-defaulted field."""
+
+def test_fast_construct_reports_field_defaults():
+    """The licence's defaults dict carries the class's optional defaults."""
+
+    class WithDefault(GrammarModel):
+        """Model with a None-defaulted optional field."""
 
         __grammar__: ClassVar[IrRule] = _ident_rule()
-        first: Annotated[str, IrBind(0, "text")]
-        ws: Annotated[Optional[Ws], IrBind(1, "model")] = None
+        __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+            0: ("first", IrBind(0, "text")),
+            1: ("ws", IrBind(1, "model")),
+        }
+        first: str
+        ws: Optional[Ws] = None
 
-    result = Plain.fast_construct()
-    assert result is not None
-    ctor, defaults = result
-    assert callable(ctor)
+    _ctor, defaults = WithDefault.fast_construct()
     assert defaults == {"ws": None}
-
-
-def test_fast_construct_refused_for_a_validator():
-    """A field validator disqualifies the class — no validation-skip licence."""
-
-    class Validated(GrammarModel):
-        """Model with a field validator decorator."""
-
-        __grammar__: ClassVar[IrRule] = _ws_rule()
-        value: str
-
-        @field_validator("value")
-        @classmethod
-        def _check(cls, v: str) -> str:
-            return v
-
-    assert Validated.fast_construct() is None
-
-
-def test_fast_construct_refused_for_model_config_override():
-    """A non-empty model_config disqualifies the class."""
-
-    class Configured(GrammarModel):
-        """Model with a model_config override."""
-
-        model_config = ConfigDict(frozen=True)
-        __grammar__: ClassVar[IrRule] = _ws_rule()
-        value: str
-
-    assert Configured.fast_construct() is None
-
-
-def test_fast_construct_refused_for_a_private_attr():
-    """A PrivateAttr disqualifies the class."""
-
-    class Private(GrammarModel):
-        """Model with a private attribute."""
-
-        __grammar__: ClassVar[IrRule] = _ws_rule()
-        value: str
-        _cache: str = PrivateAttr(default="x")
-
-    assert Private.fast_construct() is None
-
-
-def test_fast_construct_refused_for_a_non_none_default():
-    """An optional field defaulting to a non-None value disqualifies the class."""
-
-    class DefaultValue(GrammarModel):
-        """Model with a non-None default."""
-
-        __grammar__: ClassVar[IrRule] = _ws_rule()
-        value: str = ""
-
-    assert DefaultValue.fast_construct() is None
-
-
-def test_fast_construct_refused_for_a_default_factory():
-    """A default_factory field disqualifies the class."""
-
-    class FactoryDefault(GrammarModel):
-        """Model with a default_factory field."""
-
-        __grammar__: ClassVar[IrRule] = _ws_rule()
-        value: str
-        items: List[str] = Field(default_factory=list)
-
-    assert FactoryDefault.fast_construct() is None
 
 
 # ── _from_parts equivalence ────────────────────────────────────────────────
 
 
-def test_from_parts_equivalent_to_the_validated_constructor():
-    """_from_parts built via the fast_construct licence matches the validated
-    constructor's model_dump()/semantic_dump()/equality/to_text().
-    """
-
-    class Eq(GrammarModel):
-        """Model exercising a text field and a nested model field."""
-
-        __grammar__: ClassVar[IrRule] = _ident_rule()
-        first: Annotated[str, IrBind(0, "text")]
-        ws: Annotated[Optional[Ws], IrBind(1, "model")] = None
-
-    validated = Eq(first="x", ws=Ws(value=" "))
-    result = Eq.fast_construct()
-    assert result is not None
-    ctor, defaults = result
+def test_from_parts_equivalent_to_the_keyword_constructor():
+    """_from_parts built via the licence matches the keyword constructor's
+    model_dump()/semantic_dump()/equality/to_text()."""
+    validated = Ident(first="x", ws=Ws(value=" "))
+    ctor, defaults = Ident.fast_construct()
     parts = dict(defaults)
     parts.update(first="x", ws=Ws(value=" "))
     fast = ctor(parts, {"first", "ws"})
@@ -422,20 +533,21 @@ def test_from_parts_equivalent_to_the_validated_constructor():
 
 def test_from_parts_fills_defaults_for_unset_optional_fields():
     """_from_parts, seeded from fast_construct's defaults, matches the
-    validated constructor when an optional field is left unset.
-    """
+    keyword constructor when an optional field is left unset."""
 
     class Eq(GrammarModel):
         """Model with an optional field left at its default."""
 
         __grammar__: ClassVar[IrRule] = _ident_rule()
-        first: Annotated[str, IrBind(0, "text")]
-        ws: Annotated[Optional[Ws], IrBind(1, "model")] = None
+        __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+            0: ("first", IrBind(0, "text")),
+            1: ("ws", IrBind(1, "model")),
+        }
+        first: str
+        ws: Optional[Ws] = None
 
     validated = Eq(first="x")
-    result = Eq.fast_construct()
-    assert result is not None
-    ctor, defaults = result
+    ctor, defaults = Eq.fast_construct()
     parts = dict(defaults)
     parts.update(first="x")
     fast = ctor(parts, {"first"})
@@ -444,52 +556,31 @@ def test_from_parts_fills_defaults_for_unset_optional_fields():
     assert fast.model_dump() == validated.model_dump()
 
 
-# ── schema expansion joints ───────────────────────────────────────────
+def test_from_parts_coerces_models_lists():
+    """The fast build coerces a live models-mode list exactly like __new__."""
+    ctor, defaults = Root.fast_construct()
+    parts = dict(defaults)
+    parts["it"] = [It(value="a")]
+    fast = ctor(parts, {"it"})
+    assert isinstance(fast, Root)
+    assert isinstance(fast.it, tuple)
+    assert fast == Root(it=[It(value="a")])
 
 
-class _JointLeaf(GrammarModel):
-    """A joint-flagged model — nested references see a shallow schema."""
-
-    __schema_joint__: ClassVar[bool] = True
-    v: str
+# ── trusted-construction window (checked construction is a later wiring) ─────
 
 
-class _JointTop(GrammarModel):
-    """References the completed joint through a plain field."""
-
-    child: _JointLeaf
-
-
-def test_joint_class_validates_directly_as_usual():
-    """A joint's OWN schema build takes the default path — normal validation."""
-    leaf = _JointLeaf.model_validate({"v": "x"})
-    assert leaf.v == "x"
-    with pytest.raises(Exception):
-        _JointLeaf.model_validate({"v": 1})
+def test_missing_required_field_raises_type_error():
+    """A missing required field raises TypeError from the record build —
+    the trusted-construction interim contract until checked construction
+    (FieldValidationError) is wired."""
+    with pytest.raises(TypeError):
+        Ident(first="x")  # type: ignore[call-arg]  # intentional misuse under test
 
 
-def test_joint_nested_dict_input_validates_through_the_class():
-    """Dict input crossing a joint reaches the nested model's validator."""
-    top = _JointTop.model_validate({"child": {"v": "y"}})
-    assert isinstance(top.child, _JointLeaf)
-    assert top.child.v == "y"
+# ── the emitter shim ──────────────────────────────────────────────────────────
 
 
-def test_joint_nested_instance_passes_through():
-    """Instance input crosses the joint unrevalidated (pydantic default)."""
-    leaf = _JointLeaf(v="z")
-    top = _JointTop(child=leaf)
-    assert top.child is leaf
-
-
-def test_joint_nested_dump_delegates_with_mode():
-    """Dumps cross the joint into the nested model's own dump, both modes."""
-    top = _JointTop(child=_JointLeaf(v="d"))
-    assert top.model_dump() == {"child": {"v": "d"}}
-    assert top.model_dump(mode="json") == {"child": {"v": "d"}}
-
-
-def test_non_joint_models_take_the_default_schema_path():
-    """The base flag is False — ordinary generated models are untouched."""
-    assert GrammarModel.__schema_joint__ is False
-    assert _JointTop.__dict__.get("__schema_joint__") is None
+def test_model_rebuild_is_a_noop():
+    """model_rebuild() exists for the old codegen loader and does nothing."""
+    assert Ident.model_rebuild() is None

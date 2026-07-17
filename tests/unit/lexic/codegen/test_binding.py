@@ -469,10 +469,23 @@ def test_reserved_class_names_cover_the_emitted_header():
     assert bound - {"annotations"} <= _RESERVED_CLASS_NAMES
 
 
+# The record spine's inherited IrSelf/tuple protocol surface (R2-4). NOT in
+# the read-only `_RESERVED_FIELD_NAMES` yet: a rule named after one of these
+# generates an unmangled field that shadows the protocol on that class — a
+# KNOWN, user-accepted window (FABLE_T1_REVIEW.md T1-1) until Task 3 re-pins
+# the reserved sets in the ported compile/binding.py. Pinned exactly so any
+# FURTHER surface drift still fails here.
+_SPINE_PROTOCOL_NAMES = frozenset(
+    {"bind", "bound", "bound_type", "children", "count", "eval", "index", "rebuild"}
+)
+
+
 def test_reserved_field_names_cover_grammar_model():
-    """Every public GrammarModel attribute is a reserved field name."""
+    """Every public GrammarModel attribute outside the known Task-3 window
+    is a reserved field name — and the window is exactly the pinned set."""
     public = {n for n in dir(GrammarModel) if not n.startswith("_")}
-    assert public <= _RESERVED_FIELD_NAMES
+    assert public - _SPINE_PROTOCOL_NAMES <= _RESERVED_FIELD_NAMES
+    assert public & _SPINE_PROTOCOL_NAMES == _SPINE_PROTOCOL_NAMES
 
 
 def test_bind_fields_mangles_reserved_names():

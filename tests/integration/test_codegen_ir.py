@@ -5,9 +5,10 @@ For every ground-truth grammar, drives the front half of the codegen pipeline
 ``build_codegen_grammar`` → ``compute_binding``) and then the emit entry
 (``codegen``), asserting the emitted module:
 
-- imports and every generated class is a valid Pydantic model;
-- carries each field's :class:`~lexic.ir.bind.IrBind` in its metadata and a
-  per-class ``__grammar__: IrRule`` from the codegen grammar;
+- imports and every generated class is a valid GrammarModel record;
+- carries each field's :class:`~lexic.ir.bind.IrBind` (readable through the
+  public ``bound_fields()``) and a per-class ``__grammar__: IrRule`` from the
+  codegen grammar;
 - footers ``GRAMMAR`` (the canonical, pre-pass AST) and ``START`` that re-import
   to the exact objects; and
 - is ruff-format stable (re-formatting the written source is a no-op).
@@ -50,13 +51,12 @@ def _emit(path: Path) -> tuple[IrAst, list[RuleBinding], str, dict[str, type]]:
 
 @pytest.mark.parametrize("path", _GRAMMARS, ids=lambda p: p.name)
 def test_generated_classes_are_valid_models(path: Path):
-    """Every emitted class imports and rebuilds as a Pydantic GrammarModel."""
+    """Every emitted class imports as a GrammarModel record class."""
     _, binding, _, classes = _emit(path)
     assert set(classes) == {b.class_name for b in binding}
     for cls in classes.values():
         assert issubclass(cls, GrammarModel)
-        cls.model_rebuild()
-        cls.model_json_schema()
+        cls.model_rebuild()  # the loader shim — a no-op, but must exist
 
 
 @pytest.mark.parametrize("path", _GRAMMARS, ids=lambda p: p.name)
@@ -67,10 +67,12 @@ def test_fields_carry_irbind_and_grammar_footer(path: Path):
     for name, cls in classes.items():
         assert isinstance(cls.__grammar__, IrRule)
         bind = by_name[name]
+        bound = cls.bound_fields()
         for field_name, ibind in bind.fields.items():
-            metadata = cls.model_fields[field_name].metadata
-            assert ibind in metadata, f"{name}.{field_name} missing {ibind!r}"
             assert isinstance(ibind, IrBind)
+            assert bound[ibind.item] == (field_name, ibind), (
+                f"{name}.{field_name} missing {ibind!r}"
+            )
 
 
 @pytest.mark.parametrize("path", _GRAMMARS, ids=lambda p: p.name)

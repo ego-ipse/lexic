@@ -253,11 +253,11 @@ def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor 
     """Grant a rule's :class:`~lexic.parsing.fold.FastCtor` licence, or refuse.
 
     The class-level half comes from :meth:`GrammarModel.fast_construct`
-    (no validators / post-init / config / non-``None`` defaults); the
-    fold-level half checks that every field the fold can leave unset (a
-    ``gtext`` or ``model`` bind whose item can match nothing, ``lo == 0``)
-    has a default to fall back on, and that the fold's field names cover
-    every non-defaulted model field.
+    (trivially granted on the record spine); the fold-level half checks
+    that every field the fold can leave unset (a ``gtext`` or ``model``
+    bind whose item can match nothing, ``lo == 0``) has a default to fall
+    back on, and that the fold's field names cover every non-defaulted
+    model field.
 
     :param cls: The rule's generated model class.
     :param kind: The rule's fold kind.
@@ -266,12 +266,9 @@ def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor 
     """
     if kind == "alternation" or not issubclass(cls, GrammarModel):
         return None
-    parts = cls.fast_construct()
-    if parts is None:
-        return None
-    make, defaults = parts
+    make, defaults = cls.fast_construct()
     names = {"value"} if kind == "value_str" else {f.name for f in fields}
-    model_names = set(cls.model_fields)
+    model_names = set(cls._fields)
     if not names <= model_names:
         return None
     if any(n not in names and n not in defaults for n in model_names):

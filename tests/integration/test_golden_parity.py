@@ -1,24 +1,14 @@
-"""Golden-check replay: pins the pydantic implementation as the parity oracle.
+"""Golden-check replay: the record spine against the Task-0 parity oracle.
 
 Replays every ``(grammar, input)`` pair recorded in ``tests/goldens/*.json``
-against the LIVE implementation and asserts equality on all five pinned
-outputs (``model_dump()``, ``runtime_dump()``, ``semantic_dump()``,
-``runtime_semantic_dump()``, ``to_text()`` — the ``runtime_*`` pair is
-F-DUMP-1's addition, see ``tests/golden_fixtures.py``'s module docstring).
-This suite is green on today's pydantic implementation by construction (the
-goldens were captured from it — ``tests/golden_fixtures.py``).
-
-RULED (PLAN_v4 ruling 12, 2026-07-16): ``runtime_dump``/``runtime_semantic_dump``
-are THE parity oracle every later ir-native task
-(``zzz_current_work/260716-ir-native/PLAN_v4.md``, Tasks 1-8) must keep
-equal — the runtime-complete dump (``model_dump(serialize_as_any=True)``) is
-the native semantics the new record spine reproduces. ``model_dump``/
-``semantic_dump`` (declared-schema, F-DUMP-1's erasure warts included) are
-characterization-only: they pin today's retired pydantic serializer and die
-with pydantic in Task 8. This suite replays all five regardless — the
-declared-schema pair stays a useful regression net on the pydantic
-implementation itself until then — but only the ``runtime_*`` pair is the
-gate that carries forward.
+against the LIVE implementation and asserts equality on the ORACLE keys
+(PLAN_v4 ruling 12, 2026-07-16): ``runtime_dump``, ``runtime_semantic_dump``
+and ``to_text`` — recorded from pydantic via
+``model_dump(serialize_as_any=True)`` at Task 0, reproduced natively by the
+record spine's ``model_dump()``/``semantic_dump()`` since Task 1. The files'
+``model_dump``/``semantic_dump`` keys (declared-schema, F-DUMP-1's erasure
+warts included) characterized the retired pydantic serializer; they remain
+in the byte-pinned files as the historical record and are not asserted.
 
 The comparison here replays each golden through ``json.loads(json.dumps(...))``
 (the settled-12 byte form) rather than comparing live Python objects
@@ -66,7 +56,7 @@ def test_every_golden_file_has_a_corpus_entry():
 
 @pytest.mark.parametrize("stem, index", _stem_cases())
 def test_golden_record_matches_live_implementation(stem: str, index: int) -> None:
-    """A golden record's five pinned outputs match a fresh live parse."""
+    """A golden record's oracle outputs match a fresh live parse (ruling 12)."""
     golden_records = load_golden(stem)
     sample = CORPUS[stem][index]
     golden = golden_records[index]
@@ -83,9 +73,7 @@ def test_golden_record_matches_live_implementation(stem: str, index: int) -> Non
     live_via_json = json.loads(json.dumps(live, ensure_ascii=False))
 
     assert live_via_json["to_text"] == golden["to_text"]
-    assert live_via_json["model_dump"] == golden["model_dump"]
     assert live_via_json["runtime_dump"] == golden["runtime_dump"]
-    assert live_via_json["semantic_dump"] == golden["semantic_dump"]
     assert live_via_json["runtime_semantic_dump"] == golden["runtime_semantic_dump"]
 
 

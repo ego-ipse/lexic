@@ -6,6 +6,29 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-16 — ir-native Task 1: GrammarModel is an IrNamedTuple record
+
+`base.py` rewritten: models live on the record spine (PLAN_v4 ruling 9 —
+models ARE IrSelf). Pydantic base, schema joints
+(`__get_pydantic_core_schema__`/`_joint_dump`/`__schema_joint__`) and the
+licence-refusal machinery are gone from `base.py`; the native
+`model_dump()` is runtime-complete (ruling 12 — F-DUMP-1's declared-schema
+erasure is gone) with an explicit-stack walk (depth-800 gated);
+`semantic_dump()` keeps the top-level-only exclusion; equality is
+type-aware + hash-consistent; `models`-mode lists coerce to tuples;
+`children()`/`rebuild()` = bound fields in item order; `fast_construct()`
+is always granted (one C-level tuple build). Binds channel: explicit
+`__binds__` (primary) or one-shot `Annotated` resolution (emitter shim,
+dies at the Task-2 flip, as does the no-op `model_rebuild()`). Goldens'
+`runtime_dump`/`runtime_semantic_dump` keys are the parity gate (77/77);
+`test_pda_parity`'s comparator became an explicit deep-semantic view —
+the erasure had been silently hiding a licensed PDA-vs-engine noise-split
+difference. Reserved-name window (rules named `eval`/`count`/… unmangled
+until Task 3) pinned in `test_binding.py`. Details:
+`zzz_current_work/260716-ir-native/TASK1_REPORT.md`.
+
+---
+
 ## 2026-07-16 — vyx-parse effort closed: vyx.gbnf is a ground truth
 
 `resources/ground_truth/vyx.gbnf` (92 rules) joins the corpus as a

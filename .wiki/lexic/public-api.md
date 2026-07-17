@@ -120,15 +120,19 @@ Returned by `compile_text` / `compile_from_path`. Fields:
 
 ## `GrammarModel`
 
-Every generated class subclasses `GrammarModel(BaseModel)` and carries `__grammar__: ClassVar[IrRule]` — its own rule from the codegen grammar — plus every bound field an `IrBind(item, mode, semantic)` in its `Annotated` field metadata.
+Every generated class subclasses `GrammarModel(IrNamedTuple)` — the record spine (2026-07-16 cutover, [[decisions]]): a model IS an immutable IR record (walkable, dispatchable, hashable; the tuple surface — iteration, `len`, indexing — is part of the API). Each class carries `__grammar__: ClassVar[IrRule]` — its own rule from the codegen grammar — and a binds table mapping each bound item slot to `(field name, IrBind(item, mode, semantic))`, read through the public `bound_fields()` (an explicit `__binds__` ClassVar wins; otherwise resolved once from `Annotated` `IrBind` metadata — the emitter-shim path that dies with the runtime-synthesis flip).
 
 | Method | Returns | Notes |
 |---|---|---|
-| `to_text()` | `str` | Lossless round-trip to original source text |
-| `to_grammar(flavour="gbnf")` | `str` | Emits the grammar rule for this class — `get_flavour(flavour).apply(self.__grammar__)`, no `RuleSpec` conversion |
-| `semantic_dump()` | `dict` | `model_dump()` minus fields whose `IrBind.semantic` is `False` (e.g. `ws`) |
+| `to_text()` | `str` | Lossless round-trip to original source text (explicit-stack walk, depth-safe) |
+| `to_grammar(flavour="gbnf")` | `str` | Emits the grammar rule for this class — `get_flavour(flavour).apply(self.__grammar__)` |
+| `model_dump()` | `dict` | The native dump: RUNTIME-complete (serializes by each value's own type, never a declared schema — no arm-subtree erasure), field-order keys, tuples re-emitted as lists, explicit-stack (depth-safe) |
+| `semantic_dump()` | `dict` | `model_dump()` minus the receiver's OWN fields whose `IrBind.semantic` is `False` (top-level-only exclusion) |
+| `bound_fields()` | `dict[int, (name, IrBind)]` | The slot → field map (classmethod) |
+| `children()` / `rebuild(kids)` | | Bound-field values in ITEM order — the IrSelf walk/viz payload |
+| `fast_construct()` | `(ctor, defaults)` | Always granted — a record build is one C-level tuple construction |
 
-`to_text()` raises `NotImplementedError` on an abstract alternation class (no fields, no binds) — call it on a concrete subclass instance.
+Equality is type-aware (same concrete class + payload; the `IrBounds` pattern) and hash-consistent. Construction is trusted (a missing required field raises `TypeError`; per-field checked construction raising `FieldValidationError` is a separate later wiring). `models`-mode lists coerce to tuples at construction. `model_rebuild()` is a no-op shim for the old codegen loader. `to_text()` raises `NotImplementedError` on an abstract alternation class (no fields, no binds) — call it on a concrete subclass instance.
 
 ---
 
