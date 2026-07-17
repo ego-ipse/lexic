@@ -150,6 +150,14 @@ src/lexic/
                         objects via a generic-apply grammar + curated SYMBOLS
                         whitelist (the no-exec boundary + open-vocabulary
                         registry); structural string decode, YIELD intern
+    loader.py           load_flavour(text) → IrFlavour: folds a manifest (ONE
+                        notation IrMap of seven strict sections — identity,
+                        escapes-as-IR-dyads, grammar, reductions, actions) into
+                        a synthesized flavour; DERIVES the reducer noise map +
+                        literal=DROP from the grammar's semantic=False flags
+                        (the loader owns reducer policy — no noise section),
+                        lowers the escape dyads to an EscapeCodec, builds the
+                        Reducer; strict-section rejection via UnsupportedConstructError
   exceptions.py         LexicError hierarchy (see §Error vocabulary)
   parse.py              parse(text, grammar_path) → GrammarModel  [thin wrapper over compile]
   generate.py           random string generator — walks a rule-name → IrRule mapping

@@ -32,11 +32,14 @@ predictive-PDA sibling on the artefact and no whole-grammar opt-out.
 
 The grammar→grammar passes, the binding view and runtime class synthesis all
 live inside this package (``lexic.compile.passes`` / ``.binding`` /
-``.synthesis``). The only external runtime seam is the engine (``lexic.parsing``
-— root API only: ``parse_model`` / ``parse_reduced`` / ``ModelFold`` +
-fold-authoring types / ``Reducer``); ``compile/__init__.py`` is the single
-runtime module importing it, and imports the ``lexic.parsing`` package root
-only, no submodule or private name.
+``.synthesis``). The engine is the package's only external runtime seam: any
+``lexic.compile`` module may import ``lexic.parsing`` (the package root — the
+product entries + fold toolkit + ``Reducer``) and the one licensed submodule
+``lexic.parsing.earley.reduce`` (the reduce channel — the ``DROP`` /
+``KEEP_REDUCED`` / ``YIELD`` sentinels), and nothing else reaches past that
+surface. Outside the package every runtime module reaches compile only through
+``from lexic.compile import ...`` (the ``__init__`` root), never a submodule.
+``test_layering_invariants.py`` pins both halves.
 """
 
 from __future__ import annotations
