@@ -7,9 +7,7 @@ authors = [
     { name = "Mika", email = "teihenrique@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = [
-    "ruff>=0.15.12",
-]
+dependencies = []
 
 [build-system]
 requires = ["hatchling"]
@@ -21,6 +19,7 @@ packages = ["src/lexic"]
 [dependency-groups]
 dev = [
     "hypothesis>=6.152.1",
+    "ruff>=0.15.12",
     "isort>=8.0.1",
     "lark>=1.3.1",
     "pre-commit>=4.5.1",

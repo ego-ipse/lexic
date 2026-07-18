@@ -17,20 +17,20 @@ from lexic.ir.meta import Borg, IrMeta, IrSingleton, Singleton
 # Module-level alias; avoids pylint losing track of Singleton as a value after
 # nested function-local class definitions (``class X(metaclass=Singleton)``)
 # confuse pylint's scope analysis in the reentrant test.
-_Singleton = Singleton
+SingletonRef = Singleton
 
 
-def _class_state(cls: type) -> dict[str, Any]:
+def class_state(cls: type) -> dict[str, Any]:
     """Return the shared state dict Borg keeps for ``cls`` (tests inspect internals)."""
     return Borg._states[cls][0]  # pylint: disable=protected-access
 
 
-def _class_lock(cls: type) -> threading.RLock:
+def class_lock(cls: type) -> threading.RLock:
     """Return the per-class lock Borg stored alongside ``cls``'s shared state."""
     return Borg._states[cls][1]  # pylint: disable=protected-access
 
 
-def _blocks_while_locked(lock: threading.RLock, action) -> bool:
+def blocks_while_locked(lock: threading.RLock, action) -> bool:
     """Run ``action`` in a worker and report whether ``lock`` actually gates it.
 
     The main thread holds ``lock``, starts the worker, and checks that the
@@ -373,7 +373,7 @@ def test_borg_classes_have_independent_locks():
 
     A()
     B()
-    assert _class_lock(A) is not _class_lock(B)
+    assert class_lock(A) is not class_lock(B)
 
 
 def test_borg_dict_routing_empties_instance_dict():
@@ -424,7 +424,7 @@ def test_borg_slots_setattr_serialises_on_lock():
     def mutate() -> None:
         x.value = "threaded"
 
-    assert _blocks_while_locked(_class_lock(C), mutate)
+    assert blocks_while_locked(class_lock(C), mutate)
     assert x.value == "threaded"
 
 
@@ -441,7 +441,7 @@ def test_borg_slots_getattr_serialises_on_lock():
 
     x = C("a")
     seen: list[object] = []
-    assert _blocks_while_locked(_class_lock(C), lambda: seen.append(x.value))
+    assert blocks_while_locked(class_lock(C), lambda: seen.append(x.value))
     assert seen == ["a"]
 
 
@@ -459,7 +459,7 @@ def test_borg_dict_setattr_serialises_on_lock():
     def mutate() -> None:
         x.value = "threaded"
 
-    assert _blocks_while_locked(_class_lock(C), mutate)
+    assert blocks_while_locked(class_lock(C), mutate)
     assert x.value == "threaded"
 
 
@@ -474,7 +474,7 @@ def test_borg_dict_getattr_serialises_on_lock():
 
     x = C("a")
     seen: list[object] = []
-    assert _blocks_while_locked(_class_lock(C), lambda: seen.append(x.value))
+    assert blocks_while_locked(class_lock(C), lambda: seen.append(x.value))
     assert seen == ["a"]
 
 
@@ -489,7 +489,7 @@ def test_borg_overwrite_serialises_on_lock():
 
     C("a")  # first construction registers the class and its lock
     built: list[object] = []
-    assert _blocks_while_locked(_class_lock(C), lambda: built.append(C("b").value))
+    assert blocks_while_locked(class_lock(C), lambda: built.append(C("b").value))
     assert built == ["b"]
 
 
@@ -546,7 +546,7 @@ def test_borg_concurrent_construction_and_mutation_is_consistent():
     for future in futures:
         future.result()  # re-raises any exception raised in a worker
 
-    final_value = _class_state(C)["value"]
+    final_value = class_state(C)["value"]
     assert final_value in range(8)  # whichever writer last won — never torn
 
 
@@ -732,7 +732,7 @@ def test_irsingleton_is_irmeta_subclass():
 
 def test_irsingleton_is_singleton_subclass():
     """Test that IrSingleton inherits from Singleton."""
-    assert issubclass(IrSingleton, _Singleton)
+    assert issubclass(IrSingleton, SingletonRef)
 
 
 def test_irsingleton_returns_same_instance():
@@ -845,4 +845,4 @@ def test_bare_singleton_conflicts_on_irself_subclass():
     subclass ``IrMeta``, so Python's metaclass-conflict rule fires.
     """
     with pytest.raises(TypeError):
-        _Singleton("Bad", (IrSelf,), {})
+        SingletonRef("Bad", (IrSelf,), {})

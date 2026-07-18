@@ -26,10 +26,10 @@ from lexic.ir.nodes import (
 TIMED_OUT: Literal["timed_out"] = "timed_out"
 MEMORY_EXCEEDED: Literal["memory_exceeded"] = "memory_exceeded"
 
-_GuardedResult = Any | Literal["timed_out", "memory_exceeded"]
+GuardedResult = Any | Literal["timed_out", "memory_exceeded"]
 
 
-def _worker(
+def guarded_worker(
     fn: Callable[[], Any],
     mem_bytes: int,
     result_queue: multiprocessing.queues.Queue[tuple[str, Any]],
@@ -47,7 +47,7 @@ def _worker(
     result_queue.put(("ok", value))
 
 
-def guarded(fn: Callable[[], Any], *, seconds: float, mem_bytes: int) -> _GuardedResult:
+def guarded(fn: Callable[[], Any], *, seconds: float, mem_bytes: int) -> GuardedResult:
     """Run ``fn`` in a child process bounded by wall-clock time and virtual memory.
 
     :param fn: The zero-argument callable to run.
@@ -59,7 +59,7 @@ def guarded(fn: Callable[[], Any], *, seconds: float, mem_bytes: int) -> _Guarde
     """
     ctx = multiprocessing.get_context("fork")
     q: multiprocessing.queues.Queue[tuple[str, Any]] = ctx.Queue()
-    proc = ctx.Process(target=_worker, args=(fn, mem_bytes, q))
+    proc = ctx.Process(target=guarded_worker, args=(fn, mem_bytes, q))
     proc.start()
     proc.join(timeout=seconds)
     if proc.is_alive():

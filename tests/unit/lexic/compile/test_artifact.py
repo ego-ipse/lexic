@@ -8,7 +8,7 @@ product and the model narrowing — stays pinned via the public
 Also carries the full-grammar round-trip tests exercising
 ``compile_from_path(...).parse(...)`` (ported from the removed
 ``test_artifact_parse.py``): parse → to_text → parse → dump() equality,
-via the shared :func:`tests.unit.lexic.compile.compile_helpers._roundtrip` helper.
+via the shared :func:`tests.unit.lexic.compile.compile_helpers.roundtrip` helper.
 
 Grammar input notes:
 - arithmetic: root is (expr "=" term "\\n")+.  RHS is *term*, not *expr*, so
@@ -27,7 +27,7 @@ from lexic.compile.artifact import CompiledGrammar as ArtifactCompiledGrammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.model import GrammarModel
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.compile.compile_helpers import _roundtrip
+from tests.unit.lexic.compile.compile_helpers import roundtrip
 
 
 def test_the_package_root_reexports_the_artifact_class():
@@ -68,17 +68,17 @@ def test_compile_text_threads_the_content_stem():
 
 def test_arithmetic_simple():
     """Minimal: single-char ident assigned a single-digit number."""
-    _roundtrip("x=1\n", "arithmetic")
+    roundtrip("x=1\n", "arithmetic")
 
 
 def test_arithmetic_ident_rhs():
     """Ident on both sides of the assignment."""
-    _roundtrip("a=b\n", "arithmetic")
+    roundtrip("a=b\n", "arithmetic")
 
 
 def test_arithmetic_paren_expr():
     """Parenthesised expression as the term on the RHS."""
-    _roundtrip("x=(a+b)\n", "arithmetic")
+    roundtrip("x=(a+b)\n", "arithmetic")
 
 
 # ── list ─────────────────────────────────────────────────────────────────────
@@ -86,12 +86,12 @@ def test_arithmetic_paren_expr():
 
 def test_list_single_item():
     """Round-trip a single list item."""
-    _roundtrip("- foo\n", "list")
+    roundtrip("- foo\n", "list")
 
 
 def test_list_multiple_items():
     """Round-trip multiple list items."""
-    _roundtrip("- foo\n- bar\n- baz\n", "list")
+    roundtrip("- foo\n- bar\n- baz\n", "list")
 
 
 # ── json_ws ───────────────────────────────────────────────────────────────────
@@ -99,17 +99,17 @@ def test_list_multiple_items():
 
 def test_json_ws_empty_object():
     """Simplest valid json_ws input: an empty object."""
-    _roundtrip("{}", "json_ws")
+    roundtrip("{}", "json_ws")
 
 
 def test_json_ws_simple_object():
     """Object with one string key and a number value."""
-    _roundtrip('{"a":1}', "json_ws")
+    roundtrip('{"a":1}', "json_ws")
 
 
 def test_json_ws_nested_object():
     """Nested object — exercises the value→object recursion."""
-    _roundtrip('{"x":{}}', "json_ws")
+    roundtrip('{"x":{}}', "json_ws")
 
 
 # ── chess ─────────────────────────────────────────────────────────────────────
@@ -117,12 +117,12 @@ def test_json_ws_nested_object():
 
 def test_chess_two_move_pairs():
     """Two move pairs (minimum valid chess input: first line + one continuation)."""
-    _roundtrip("1. e4 e5\n2. d4 d5\n", "chess")
+    roundtrip("1. e4 e5\n2. d4 d5\n", "chess")
 
 
 def test_chess_three_move_pairs():
     """Three move pairs — exercises the root_item list."""
-    _roundtrip("1. e4 e5\n2. d4 d5\n3. Nc3 Nf6\n", "chess")
+    roundtrip("1. e4 e5\n2. d4 d5\n3. Nc3 Nf6\n", "chess")
 
 
 # ── japanese ─────────────────────────────────────────────────────────────────
@@ -130,12 +130,12 @@ def test_chess_three_move_pairs():
 
 def test_japanese_hiragana():
     """Hiragana sequence round-trips exactly."""
-    _roundtrip("あいう", "japanese")
+    roundtrip("あいう", "japanese")
 
 
 def test_japanese_single_char():
     """Single hiragana character."""
-    _roundtrip("あ", "japanese")
+    roundtrip("あ", "japanese")
 
 
 # ── Parametrized smoke round-trip ─────────────────────────────────────────────
@@ -155,7 +155,7 @@ def test_japanese_single_char():
 )
 def test_roundtrip_parametrized(grammar: str, text: str):
     """Parametrized round-trip test for all grammars."""
-    _roundtrip(text, grammar)
+    roundtrip(text, grammar)
 
 
 # ── Negative: bad input raises ────────────────────────────────────────────────

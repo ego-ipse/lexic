@@ -74,11 +74,12 @@ from lexic.parsing.products import earley_reduce
 # ── Grammar builders ──────────────────────────────────────────────────
 
 
-def _normalize(g: IrAst) -> IrAst:
+def normalize_grammar(g: IrAst) -> IrAst:
+    """The real normalize(), named for this file's grammar-builder set."""
     return normalize(g)
 
 
-def _quant_grammar(lo: int, hi: int | IrNoneType) -> IrAst:
+def quant_grammar(lo: int, hi: int | IrNoneType) -> IrAst:
     """s = 'a'<lo,hi> — one rule with one quantified literal."""
     q = IrQuantifier(lo, hi)
     rule = IrRule("s", IrAlternation(IrSequence(IrItem(IrLiteral("a"), q))))
@@ -144,7 +145,7 @@ def test_recognize_rejects_empty_parens(expr_grammar: IrAst):
 # ── Negated char-class — the JSON-string shape ────────────────────────
 
 
-def _json_string_grammar() -> IrAst:
+def json_string_grammar() -> IrAst:
     """s = '"' [^"]* '"' — a quoted run of any non-quote chars."""
     quote = IrItem(IrLiteral('"'))
     body_chars = IrItem(IrNot(IrCharClass(IrChr('"'))), IrQuantifier(0, IrNone))
@@ -154,37 +155,37 @@ def _json_string_grammar() -> IrAst:
 
 def test_negated_class_recognizes_empty_body():
     """The JSON-string grammar accepts '""'."""
-    g = _normalize(_json_string_grammar())
+    g = normalize_grammar(json_string_grammar())
     assert recognize(g, '""')
 
 
 def test_negated_class_recognizes_multi_char_body():
     """The JSON-string grammar accepts '"abc"'."""
-    g = _normalize(_json_string_grammar())
+    g = normalize_grammar(json_string_grammar())
     assert recognize(g, '"abc"')
 
 
 def test_negated_class_recognizes_non_alnum_body():
     """The JSON-string grammar accepts a body of spaces and symbols."""
-    g = _normalize(_json_string_grammar())
+    g = normalize_grammar(json_string_grammar())
     assert recognize(g, '"a b!"')
 
 
 def test_negated_class_rejects_quote_in_body():
     """A quote inside the negated set is not matched — '"a"b"' fails."""
-    g = _normalize(_json_string_grammar())
+    g = normalize_grammar(json_string_grammar())
     assert not recognize(g, '"a"b"')
 
 
 def test_negated_class_rejects_unterminated():
     """The JSON-string grammar rejects an unterminated body."""
-    g = _normalize(_json_string_grammar())
+    g = normalize_grammar(json_string_grammar())
     assert not recognize(g, '"abc')
 
 
 def test_negated_class_parses_single_derivation():
     """parse over a negated-class grammar yields one derivation tree."""
-    g = _normalize(_json_string_grammar())
+    g = normalize_grammar(json_string_grammar())
     tree = parse(g, '"abc"')
     assert isinstance(tree, ParseTree)
 
@@ -194,97 +195,97 @@ def test_negated_class_parses_single_derivation():
 
 def test_nullable_star_accepts_empty():
     """* (0,IrNone) normalized: accepts empty string."""
-    g = _normalize(_quant_grammar(0, IrNone))
+    g = normalize_grammar(quant_grammar(0, IrNone))
     assert recognize(g, "")
 
 
 def test_nullable_star_accepts_one():
     """* (0,IrNone) normalized: accepts 'a'."""
-    g = _normalize(_quant_grammar(0, IrNone))
+    g = normalize_grammar(quant_grammar(0, IrNone))
     assert recognize(g, "a")
 
 
 def test_nullable_star_accepts_many():
     """* (0,IrNone) normalized: accepts 'aaa'."""
-    g = _normalize(_quant_grammar(0, IrNone))
+    g = normalize_grammar(quant_grammar(0, IrNone))
     assert recognize(g, "aaa")
 
 
 def test_plus_rejects_empty():
     """+ (1,IrNone) normalized: rejects empty string."""
-    g = _normalize(_quant_grammar(1, IrNone))
+    g = normalize_grammar(quant_grammar(1, IrNone))
     assert not recognize(g, "")
 
 
 def test_plus_accepts_one():
     """+ (1,IrNone) normalized: accepts 'a'."""
-    g = _normalize(_quant_grammar(1, IrNone))
+    g = normalize_grammar(quant_grammar(1, IrNone))
     assert recognize(g, "a")
 
 
 def test_plus_accepts_many():
     """+ (1,IrNone) normalized: accepts 'aaa'."""
-    g = _normalize(_quant_grammar(1, IrNone))
+    g = normalize_grammar(quant_grammar(1, IrNone))
     assert recognize(g, "aaa")
 
 
 def test_optional_accepts_empty():
     """? (0,1) normalized: accepts empty string."""
-    g = _normalize(_quant_grammar(0, 1))
+    g = normalize_grammar(quant_grammar(0, 1))
     assert recognize(g, "")
 
 
 def test_optional_accepts_one():
     """? (0,1) normalized: accepts 'a'."""
-    g = _normalize(_quant_grammar(0, 1))
+    g = normalize_grammar(quant_grammar(0, 1))
     assert recognize(g, "a")
 
 
 def test_optional_rejects_two():
     """? (0,1) normalized: rejects 'aa'."""
-    g = _normalize(_quant_grammar(0, 1))
+    g = normalize_grammar(quant_grammar(0, 1))
     assert not recognize(g, "aa")
 
 
 def test_exact_two_rejects_one():
     """{2,2} normalized: rejects 'a' (too short)."""
-    g = _normalize(_quant_grammar(2, 2))
+    g = normalize_grammar(quant_grammar(2, 2))
     assert not recognize(g, "a")
 
 
 def test_exact_two_accepts_two():
     """{2,2} normalized: accepts 'aa'."""
-    g = _normalize(_quant_grammar(2, 2))
+    g = normalize_grammar(quant_grammar(2, 2))
     assert recognize(g, "aa")
 
 
 def test_exact_two_rejects_three():
     """{2,2} normalized: rejects 'aaa' (too long)."""
-    g = _normalize(_quant_grammar(2, 2))
+    g = normalize_grammar(quant_grammar(2, 2))
     assert not recognize(g, "aaa")
 
 
 def test_bounded_two_to_four_rejects_one():
     """{2,4} normalized: rejects 'a'."""
-    g = _normalize(_quant_grammar(2, 4))
+    g = normalize_grammar(quant_grammar(2, 4))
     assert not recognize(g, "a")
 
 
 def test_bounded_two_to_four_accepts_two():
     """{2,4} normalized: accepts 'aa'."""
-    g = _normalize(_quant_grammar(2, 4))
+    g = normalize_grammar(quant_grammar(2, 4))
     assert recognize(g, "aa")
 
 
 def test_bounded_two_to_four_accepts_four():
     """{2,4} normalized: accepts 'aaaa'."""
-    g = _normalize(_quant_grammar(2, 4))
+    g = normalize_grammar(quant_grammar(2, 4))
     assert recognize(g, "aaaa")
 
 
 def test_bounded_two_to_four_rejects_five():
     """{2,4} normalized: rejects 'aaaaa'."""
-    g = _normalize(_quant_grammar(2, 4))
+    g = normalize_grammar(quant_grammar(2, 4))
     assert not recognize(g, "aaaaa")
 
 
@@ -466,7 +467,7 @@ def test_parse_raises_on_ambiguous_expr_plus(expr_plus_grammar: IrAst):
 
 def test_nullable_star_derivations_single_for_empty():
     """'a'* over '' is unambiguous — exactly one derivation, is_ambiguous False."""
-    g = _normalize(_quant_grammar(0, IrNone))
+    g = normalize_grammar(quant_grammar(0, IrNone))
     result = derivations(g, "")
     assert len(result) == 1
     assert not is_ambiguous(g, "")
@@ -474,7 +475,7 @@ def test_nullable_star_derivations_single_for_empty():
 
 def test_nullable_star_derivations_single_for_one():
     """'a'* over 'a' is unambiguous — exactly one derivation, is_ambiguous False."""
-    g = _normalize(_quant_grammar(0, IrNone))
+    g = normalize_grammar(quant_grammar(0, IrNone))
     result = derivations(g, "a")
     assert len(result) == 1
     assert not is_ambiguous(g, "a")
@@ -488,7 +489,7 @@ def test_nullable_star_derivations_single_for_three():
     recursive 'a'* expansions.  If is_ambiguous returns True here, the
     nullable dedup invariant is broken.
     """
-    g = _normalize(_quant_grammar(0, IrNone))
+    g = normalize_grammar(quant_grammar(0, IrNone))
     result = derivations(g, "aaa")
     assert len(result) == 1
     assert not is_ambiguous(g, "aaa")
@@ -517,7 +518,7 @@ def test_transitively_nullable_unambiguous():
 # ── IsAmbiguous short-circuit ─────────────────────────────────────────
 
 
-def _make_exploding_deriv_stream(t1: ParseTree, t2: ParseTree) -> DerivationStream:
+def make_exploding_deriv_stream(t1: ParseTree, t2: ParseTree) -> DerivationStream:
     """Build a DerivationStream that raises AssertionError if driven past 2 elements."""
 
     class _ExplodingDerivStream(DerivationStream):
@@ -547,7 +548,7 @@ def test_is_ambiguous_short_circuits(sss_grammar: IrAst) -> None:
     """
     real_derivations = derivations(sss_grammar, "aaa")
     assert len(real_derivations) == 2
-    exploding = _make_exploding_deriv_stream(real_derivations[0], real_derivations[1])
+    exploding = make_exploding_deriv_stream(real_derivations[0], real_derivations[1])
     orig = engine_mod.DERIVATION_STREAM
     engine_mod.DERIVATION_STREAM = exploding
     try:
@@ -573,11 +574,11 @@ def test_is_ambiguous_counts(
 
 # ── Catalan oracle — parametrized derivation count ────────────────────
 
-_CATALAN = [1, 1, 2, 5, 14, 42, 132]
+CATALAN = [1, 1, 2, 5, 14, 42, 132]
 """Catalan(n-1) for n in 1..7: exact derivation count for sss 'a'*n."""
 
 
-@pytest.mark.parametrize("n,expected", list(enumerate(_CATALAN, start=1)))
+@pytest.mark.parametrize("n,expected", list(enumerate(CATALAN, start=1)))
 def test_derivations_matches_catalan(sss_grammar: IrAst, n: int, expected: int) -> None:
     """len(derivations(sss, 'a'*n)) == Catalan(n-1) for n in 1..7."""
     result = derivations(sss_grammar, "a" * n)
@@ -587,10 +588,10 @@ def test_derivations_matches_catalan(sss_grammar: IrAst, n: int, expected: int) 
 # ── Round-trip: flattened tree text equals original input ─────────────
 
 
-def _tree_to_text(node: object) -> str:
+def tree_to_text(node: object) -> str:
     """Recursively flatten a ParseTree to its original text."""
     if isinstance(node, ParseTree):
-        return "".join(_tree_to_text(k) for k in node.kids)
+        return "".join(tree_to_text(k) for k in node.kids)
     if isinstance(node, IrLiteral):
         return str(node)
     return ""
@@ -614,23 +615,23 @@ def test_parse_single_derivation_unambiguous_roundtrip(
     """parse(g,t) produces a tree whose flattened text equals the original input."""
     grammar = digit_grammar if grammar_name == "digit" else expr_grammar
     tree = parse(grammar, text)
-    assert _tree_to_text(tree) == text
+    assert tree_to_text(tree) == text
 
 
 # ── ParseReduced / PARSE_REDUCED / earley_reduce ──────────────────────
 
-_YIELD = IrJoin(parts=IrArgs(), separator=IrLiteral(""), empty=IrLiteral(""))
+YIELD = IrJoin(parts=IrArgs(), separator=IrLiteral(""), empty=IrLiteral(""))
 """Concatenate reduced children — the string-yield body (mirrors test_reduce.py)."""
 
 
-def _digit_reducer() -> Reducer:
+def digit_reducer() -> Reducer:
     """A Reducer whose reduction table covers the digit_grammar's 'digit' rule."""
-    return Reducer(reductions=IrMap(IrTuple(IrRuleRef("digit"), _YIELD)))
+    return Reducer(reductions=IrMap(IrTuple(IrRuleRef("digit"), YIELD)))
 
 
-def _s_reducer() -> Reducer:
+def s_reducer() -> Reducer:
     """A Reducer whose reduction table covers the sss_grammar's 's' rule."""
-    return Reducer(reductions=IrMap(IrTuple(IrRuleRef("s"), _YIELD)))
+    return Reducer(reductions=IrMap(IrTuple(IrRuleRef("s"), YIELD)))
 
 
 def test_parse_reduced_singleton_is_parse_reduced_instance():
@@ -640,7 +641,7 @@ def test_parse_reduced_singleton_is_parse_reduced_instance():
 
 def test_parse_reduced_matches_reducer_apply_parse(digit_grammar: IrAst):
     """earley_reduce(g, t, reducer) equals reducer.apply(parse(g, t)) — unambiguous."""
-    reducer = _digit_reducer()
+    reducer = digit_reducer()
     result = earley_reduce(digit_grammar, "7", reducer)
     expected = reducer.apply(parse(digit_grammar, "7"))
     assert str(result) == str(expected)
@@ -648,14 +649,14 @@ def test_parse_reduced_matches_reducer_apply_parse(digit_grammar: IrAst):
 
 def test_parse_reduced_raises_on_invalid_input(digit_grammar: IrAst):
     """earley_reduce() raises UnsupportedConstructError when the input does not parse."""
-    reducer = _digit_reducer()
+    reducer = digit_reducer()
     with pytest.raises(UnsupportedConstructError):
         earley_reduce(digit_grammar, "z", reducer)
 
 
 def test_parse_reduced_raises_on_ambiguous_input(sss_grammar: IrAst):
     """earley_reduce() raises UnsupportedConstructError on ambiguous input."""
-    reducer = _s_reducer()
+    reducer = s_reducer()
     with pytest.raises(UnsupportedConstructError):
         earley_reduce(sss_grammar, "aaa", reducer)
 
@@ -728,7 +729,7 @@ def test_parse_first_raises_on_empty_for_non_nullable(digit_grammar: IrAst):
 # ── ParseFirst: optional pre-built tables parameter (Task 4) ────────────
 
 
-def _digits_plus_grammar() -> IrAst:
+def digits_plus_grammar() -> IrAst:
     """s = [0-9]+ (normalized) — one rule with a collapsible charclass run."""
     rule = IrRule(
         "s",
@@ -744,7 +745,7 @@ def _digits_plus_grammar() -> IrAst:
     return normalize(IrAst(rules=IrSeq(rule), start="s"))
 
 
-def _collapsed_digits_plus_tables(g: IrAst):
+def collapsed_digits_plus_tables(g: IrAst):
     """The grammar-proved run collapse of ``g``, built via RunTerm/build_tables."""
     plain = compile_tables(g)
     candidates = run_candidates(plain)
@@ -757,13 +758,13 @@ def _collapsed_digits_plus_tables(g: IrAst):
 
 def test_parse_first_tables_none_matches_omitted_argument():
     """Passing tables=None explicitly behaves exactly like omitting it."""
-    g = _digits_plus_grammar()
+    g = digits_plus_grammar()
     assert parse_first(g, "123", tables=None) == parse_first(g, "123")
 
 
 def test_parse_first_with_explicit_plain_tables_matches_default():
     """Passing the exact plain compile_tables() object changes nothing."""
-    g = _digits_plus_grammar()
+    g = digits_plus_grammar()
     plain = compile_tables(g)
     assert parse_first(g, "123", tables=plain) == parse_first(g, "123")
 
@@ -772,8 +773,8 @@ def test_parse_first_with_collapsed_tables_still_parses():
     """A run-collapsed tables object still yields a valid derivation for
     unambiguous input, even though the packed chart shape differs from the
     plain per-char tables."""
-    g = _digits_plus_grammar()
-    collapsed = _collapsed_digits_plus_tables(g)
+    g = digits_plus_grammar()
+    collapsed = collapsed_digits_plus_tables(g)
     assert any(length == 0 for length in collapsed.terms.lens)  # a run really collapsed
     tree = parse_first(g, "123", tables=collapsed)
     assert isinstance(tree, ParseTree)

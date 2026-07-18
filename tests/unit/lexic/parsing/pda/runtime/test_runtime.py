@@ -43,32 +43,32 @@ from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime import reduce_runtime as rrt
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
-from tests.integration.pda_parity_helpers import _arithmetic_bench_corpus
+from tests.integration.pda_parity_helpers import arithmetic_bench_corpus
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import (
-    _assert_parity,
-    _compiled_and_pda,
-    _reduce_pda,
-    _ref_reduce,
-    _specs,
+    assert_parity,
+    compiled_and_pda,
+    path_specs,
+    reduce_pda,
+    ref_reduce,
 )
 
 # ── fixtures ────────────────────────────────────────────────────────────
 
-_ISLAND_FREE_STEMS: tuple[str, ...] = (
+ISLAND_FREE_STEMS: tuple[str, ...] = (
     "arithmetic.gbnf",
     "japanese.gbnf",
     "list.gbnf",
     "arithmetic.abnf",
 )
-_N_SEEDS = 50
-_MAX_DEPTH = 4
+N_SEEDS = 50
+MAX_DEPTH = 4
 
 
 # ── the parity gate (generated samples, per island-free grammar) ──────────
 
 
-@pytest.mark.parametrize("stem", _ISLAND_FREE_STEMS)
+@pytest.mark.parametrize("stem", ISLAND_FREE_STEMS)
 def test_pda_engine_parity_on_generated_samples(stem: str) -> None:
     """PDA/engine parity across seeded generated samples of an island-free grammar.
 
@@ -80,11 +80,11 @@ def test_pda_engine_parity_on_generated_samples(stem: str) -> None:
     fallback).
     """
     path = GROUND_TRUTH / stem
-    compiled, pda = _compiled_and_pda(path)
-    specs = _specs(path)
+    compiled, pda = compiled_and_pda(path)
+    specs = path_specs(path)
     checked = fallbacks = 0
-    for seed in range(_N_SEEDS):
-        text = generate("root", specs, rng=random.Random(seed), max_depth=_MAX_DEPTH)
+    for seed in range(N_SEEDS):
+        text = generate("root", specs, rng=random.Random(seed), max_depth=MAX_DEPTH)
         if not text:
             continue  # a star/optional-rooted rule can roll an empty expansion
         try:
@@ -99,14 +99,14 @@ def test_pda_engine_parity_on_generated_samples(stem: str) -> None:
             )
             fallbacks += 1
             continue
-        _assert_parity(engine_model, pda_model, text)
+        assert_parity(engine_model, pda_model, text)
         checked += 1
-    assert checked >= _N_SEEDS // 2, f"{stem}: too few samples actually checked"
+    assert checked >= N_SEEDS // 2, f"{stem}: too few samples actually checked"
     if stem == "arithmetic.gbnf":
         # Documented residue, not a regression trigger: a handful of the
         # trailing-ws-before-"\n" shapes fall back to the engine rather than
         # risk a wrong model (pivot 4 stop-set, F1's sound-islanding sibling).
-        assert fallbacks <= _N_SEEDS // 4
+        assert fallbacks <= N_SEEDS // 4
 
 
 # ── the pinned arithmetic bench corpus ─────────────────────────────────────
@@ -121,14 +121,14 @@ def test_pda_engine_parity_on_arithmetic_bench_corpus() -> None:
     since the PDA either parses the *entire* corpus or defers all of it.
     """
     path = GROUND_TRUTH / "arithmetic.gbnf"
-    compiled, pda = _compiled_and_pda(path)
-    text = _arithmetic_bench_corpus()
+    compiled, pda = compiled_and_pda(path)
+    text = arithmetic_bench_corpus()
     engine_model = compiled.parse(text)
     try:
         pda_model = cast(GrammarModel, parse_pda(pda, text))
     except PdaFail:
         return  # expected stop-set residue — the engine fallback covers it
-    _assert_parity(engine_model, pda_model, text)
+    assert_parity(engine_model, pda_model, text)
 
 
 # ── the F1 semantic guard (Option B) ───────────────────────────────────────
@@ -167,7 +167,7 @@ def test_fail_island_raises_pdafail_regardless_of_fold():
 # zzz_current_work/260706-unified-parse-engine/gate_reduce.py three-gate
 # harness (0 gate failures there).
 
-_REDUCE_GATE1_GBNF: tuple[str, ...] = (
+REDUCE_GATE1_GBNF: tuple[str, ...] = (
     'root ::= "abc"',
     "root ::= [a-z]",
     'root ::= "a" | "b"',
@@ -181,7 +181,7 @@ _REDUCE_GATE1_GBNF: tuple[str, ...] = (
 reduce PDA must handle end-to-end (no whole-input PdaFail, clone
 completions > 0), each byte-equal to earley_reduce."""
 
-_REDUCE_GATE2_GBNF: tuple[str, ...] = (
+REDUCE_GATE2_GBNF: tuple[str, ...] = (
     'root::="a"',
     'root  ::=  "a"   "b"',
     'root ::= "a"|"b"|"c"',
@@ -192,7 +192,7 @@ shapes — the reduce PDA's cleaned children must reduce byte-identically to
 the Earley path regardless of how the noise is laid out."""
 
 
-@pytest.mark.parametrize("text", _REDUCE_GATE1_GBNF)
+@pytest.mark.parametrize("text", REDUCE_GATE1_GBNF)
 def test_reduce_pda_gbnf_single_rule_fragment_is_end_to_end_and_byte_equal(
     text: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -206,19 +206,19 @@ def test_reduce_pda_gbnf_single_rule_fragment_is_end_to_end_and_byte_equal(
         orig_complete(self, frame)
 
     monkeypatch.setattr(kernel_cls, "_complete", _traced)
-    pda = _reduce_pda(GBNF_FLAVOUR)
+    pda = reduce_pda(GBNF_FLAVOUR)
     assert not isinstance(pda.start_key, IslandRef)
     got = parse_pda(pda, text)
     assert completions["n"] > 0
-    assert got == _ref_reduce(GBNF_FLAVOUR, text)
+    assert got == ref_reduce(GBNF_FLAVOUR, text)
 
 
-@pytest.mark.parametrize("text", _REDUCE_GATE2_GBNF)
+@pytest.mark.parametrize("text", REDUCE_GATE2_GBNF)
 def test_reduce_pda_gbnf_noise_variant_is_byte_equal_to_earley(text: str) -> None:
     """Gate 2: capture-cleaning parity across varied inter-token whitespace."""
-    pda = _reduce_pda(GBNF_FLAVOUR)
+    pda = reduce_pda(GBNF_FLAVOUR)
     assert not isinstance(pda.start_key, IslandRef)
-    assert parse_pda(pda, text) == _ref_reduce(GBNF_FLAVOUR, text)
+    assert parse_pda(pda, text) == ref_reduce(GBNF_FLAVOUR, text)
 
 
 def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() -> None:
@@ -234,7 +234,7 @@ def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() 
     island).
     """
     for flavour in (GBNF_FLAVOUR, ABNF_FLAVOUR):
-        pda = _reduce_pda(flavour)
+        pda = reduce_pda(flavour)
         corpus = sorted(GROUND_TRUTH.glob(f"*{flavour.extensions[0]}"))
         assert corpus
         assert not isinstance(pda.start_key, IslandRef)
@@ -245,7 +245,7 @@ def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() 
                 got = parse_pda(pda, text)
             except PdaFail:
                 continue
-            if got == _ref_reduce(flavour, text):
+            if got == ref_reduce(flavour, text):
                 recognised += 1
             else:
                 mismatched += 1

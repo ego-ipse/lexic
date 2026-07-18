@@ -15,15 +15,15 @@ from lexic.ir.nodes import IrRuleRef
 from tests.paths import GROUND_TRUTH
 
 
-def _binding(text: str, **kwargs):
+def binding(text: str, **kwargs):
     """(canonical ast, codegen grammar, {rule_name: RuleBinding}) for a GBNF string."""
     ast = canonical_grammar(text, GBNF_FLAVOUR, **kwargs)
     codegen_grammar = build_codegen_grammar(ast)
-    binding = compute_binding(codegen_grammar)
-    return ast, codegen_grammar, {b.rule_name: b for b in binding}
+    bound = compute_binding(codegen_grammar)
+    return ast, codegen_grammar, {b.rule_name: b for b in bound}
 
 
-def _ws_ref_items(codegen_grammar, rule_name: str):
+def ws_ref_items(codegen_grammar, rule_name: str):
     """The arm-level ``ws`` ref items of ``rule_name`` in the codegen grammar."""
     rule = next(r for r in codegen_grammar.rules if r.name == rule_name)
     arm = next(a for a in rule.body if a)
@@ -63,7 +63,7 @@ def test_simple_arithmetic_parses_and_round_trips():
         "op    ::= [-+*/]\n"
         "num   ::= [0-9]+\n"
     )
-    _ast, _cg, by = _binding(text)
+    _ast, _cg, by = binding(text)
     assert by["expr"].kind == "sequence"
     assert by["op"].kind == "value_str"
     assert by["num"].kind == "value_str"
@@ -76,8 +76,8 @@ def test_simple_arithmetic_parses_and_round_trips():
 def test_non_semantic_ws_transparent_to_round_trip():
     """@non-semantic ws: ws refs relax to min=0 and are absent from to_text output."""
     text = '# @non-semantic ws\nroot ::= ws value ws\nvalue ::= "x"\nws ::= [ \\t]*\n'
-    _ast, codegen_grammar, by = _binding(text)
-    ws_items = _ws_ref_items(codegen_grammar, "root")
+    _ast, codegen_grammar, by = binding(text)
+    ws_items = ws_ref_items(codegen_grammar, "root")
     assert ws_items and all(it.quantifier.lo == 0 for it in ws_items)
     assert "ws" in by["root"].fields
     assert by["root"].fields["ws"].semantic is False
@@ -91,8 +91,8 @@ def test_non_semantic_ws_transparent_to_round_trip():
 def test_explicit_non_semantic_overrides_directive():
     """non_semantic_rules=frozenset() overrides @non-semantic — ws stays required."""
     text = '# @non-semantic ws\nroot ::= ws value\nvalue ::= "x"\nws ::= [ \\t]*\n'
-    _ast, codegen_grammar, by = _binding(text, non_semantic_rules=frozenset())
-    ws_items = _ws_ref_items(codegen_grammar, "root")
+    _ast, codegen_grammar, by = binding(text, non_semantic_rules=frozenset())
+    ws_items = ws_ref_items(codegen_grammar, "root")
     assert ws_items and all(it.quantifier.lo == 1 for it in ws_items)
     assert all(ibind.semantic for ibind in by["root"].fields.values())
 
@@ -100,7 +100,7 @@ def test_explicit_non_semantic_overrides_directive():
 def test_alternation_produces_correct_subclass():
     """Alternation rule: concrete arm is the right subclass and parses correctly."""
     text = "root ::= term\nterm ::= num | ident\nnum ::= [0-9]+\nident ::= [a-z]+\n"
-    _ast, _cg, by = _binding(text)
+    _ast, _cg, by = binding(text)
     assert by["term"].kind == "alternation"
     assert by["num"].parent_class_names == ("Term",)
     assert by["ident"].parent_class_names == ("Term",)

@@ -33,7 +33,7 @@ from lexic.parsing.products import (
     parse_reduced,
     reset_product_cache,
 )
-from tests.unit.lexic.parsing.parsing_helpers import _compiled
+from tests.unit.lexic.parsing.parsing_helpers import compiled
 
 # ── the Earley completions (route-forcing seam) ────────────────────────────
 
@@ -49,7 +49,7 @@ def test_earley_reduce_returns_ir_ast():
 def test_earley_model_returns_model_and_round_trips():
     """earley_model parses instance text over the instance grammar + fold,
     with pre-built run-collapsed tables supplied."""
-    cg = _compiled()
+    cg = compiled()
     product = _model_product(cg.codegen_grammar, cg.fold)
     model = earley_model(product.instance_grammar, "ab", cg.fold, product.tables)
     assert isinstance(model, GrammarModel)
@@ -59,7 +59,7 @@ def test_earley_model_returns_model_and_round_trips():
 def test_earley_model_compiles_its_own_tables_when_none_supplied():
     """earley_model's tables parameter is optional — omitting it compiles plain
     (non-collapsed) tables internally rather than requiring the caller to."""
-    cg = _compiled()
+    cg = compiled()
     product = _model_product(cg.codegen_grammar, cg.fold)
     model = earley_model(product.instance_grammar, "ab", cg.fold)
     assert isinstance(model, GrammarModel)
@@ -83,7 +83,7 @@ def test_parse_reduced_matches_earley_reduce_completion():
 def test_parse_model_matches_earley_model_completion():
     """parse_model (PDA-first) and earley_model (the forced completion) agree
     on the same instance-text input."""
-    cg = _compiled()
+    cg = compiled()
     got = parse_model(cg.codegen_grammar, "ab", cg.fold)
     product = _model_product(cg.codegen_grammar, cg.fold)
     expected = earley_model(product.instance_grammar, "ab", cg.fold, product.tables)
@@ -107,7 +107,7 @@ def test_reduce_product_is_the_same_object_for_the_same_identity():
 def test_model_product_is_the_same_object_for_the_same_identity():
     """Two calls with the identical (grammar, fold) objects return the SAME
     compiled product — no recompilation."""
-    cg = _compiled()
+    cg = compiled()
     first = _model_product(cg.codegen_grammar, cg.fold)
     second = _model_product(cg.codegen_grammar, cg.fold)
     assert first is second
@@ -127,7 +127,7 @@ def test_reset_product_cache_forces_reduce_product_recompilation():
 def test_reset_product_cache_forces_model_product_recompilation():
     """reset_product_cache drops the model cache — the next call for the same
     identity recompiles rather than reusing the stale product."""
-    cg = _compiled()
+    cg = compiled()
     first = _model_product(cg.codegen_grammar, cg.fold)
     reset_product_cache()
     second = _model_product(cg.codegen_grammar, cg.fold)

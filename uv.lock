@@ -117,9 +117,6 @@ wheels = [
 name = "lexic"
 version = "0.1.0"
 source = { editable = "." }
-dependencies = [
-    { name = "ruff" },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -132,10 +129,10 @@ dev = [
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-xdist" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "ruff", specifier = ">=0.15.12" }]
 
 [package.metadata.requires-dev]
 dev = [
@@ -148,6 +145,7 @@ dev = [
     { name = "pyright", specifier = ">=1.1.408" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
+    { name = "ruff", specifier = ">=0.15.12" },
 ]
 
 [[package]]

@@ -27,11 +27,11 @@ ROOT = Path(__file__).resolve().parents[2]
 CLAUDE_MD = ROOT / "CLAUDE.md"
 SRC = ROOT / "src" / "lexic"
 
-_FILENAME_RE = re.compile(r"[\w\-]+\.py")
-_DIR_HEADER_RE = re.compile(r"[\w\-]+/")
+FILENAME_RE = re.compile(r"[\w\-]+\.py")
+DIR_HEADER_RE = re.compile(r"[\w\-]+/")
 
 
-def _extract_layout_block(text: str) -> list[str]:
+def extract_layout_block(text: str) -> list[str]:
     """Lines strictly inside the fenced code block under '## Project layout'."""
     lines = text.splitlines()
     heading = next(
@@ -46,7 +46,7 @@ def _extract_layout_block(text: str) -> list[str]:
     return lines[fence_start + 1 : fence_end]
 
 
-def _listed_src_lexic_paths(block_lines: list[str]) -> set[str]:
+def listed_src_lexic_paths(block_lines: list[str]) -> set[str]:
     """Relative ``src/lexic/`` paths named in the layout block's src/lexic subtree.
 
     Only the subtree rooted at the block's opening ``src/lexic/`` line is
@@ -74,28 +74,29 @@ def _listed_src_lexic_paths(block_lines: list[str]) -> set[str]:
         first = stripped.split()[0]
         while stack and leading_ws <= stack[-1][0]:
             stack.pop()  # dedent past (or sibling of) an enclosing dir header
-        if _DIR_HEADER_RE.fullmatch(first):
+        if DIR_HEADER_RE.fullmatch(first):
             stack.append((leading_ws, first))
             continue
         current_dir = "".join(name for _, name in stack)
         for token in stripped.split():
             token = token.rstrip(",")
-            if _FILENAME_RE.fullmatch(token):
+            if FILENAME_RE.fullmatch(token):
                 listed.add(current_dir + token)
             else:
                 break  # first non-filename token ends this line's file list
     return listed
 
 
-def _actual_src_lexic_paths() -> set[str]:
+def actual_src_lexic_paths() -> set[str]:
+    """Every real ``src/lexic/**/*.py`` path, relative and forward-slashed."""
     return {str(p.relative_to(SRC)).replace("\\", "/") for p in SRC.rglob("*.py")}
 
 
 def test_claude_md_layout_matches_src_lexic_on_disk() -> None:
     """Every module the layout block names exists, and vice versa."""
-    block = _extract_layout_block(CLAUDE_MD.read_text(encoding="utf-8"))
-    listed = _listed_src_lexic_paths(block)
-    actual = _actual_src_lexic_paths()
+    block = extract_layout_block(CLAUDE_MD.read_text(encoding="utf-8"))
+    listed = listed_src_lexic_paths(block)
+    actual = actual_src_lexic_paths()
 
     missing_on_disk = sorted(listed - actual)
     missing_from_doc = sorted(actual - listed)

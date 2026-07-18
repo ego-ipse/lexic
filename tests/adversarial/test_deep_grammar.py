@@ -18,23 +18,23 @@ tree.
 from __future__ import annotations
 
 from lexic.compile import compile_text
-from tests.adversarial.adversarial_helpers import _ref_chain
+from tests.adversarial.adversarial_helpers import ref_chain
 
-_DEPTH = 300
+DEPTH = 300
 
 
 def test_deep_nested_groups_round_trip_without_overflow() -> None:
     """300 nested inline groups canonicalize, compile, and round-trip."""
-    grammar = "r ::= " + "(" * _DEPTH + '"a"' + ")" * _DEPTH + "\n"
+    grammar = "r ::= " + "(" * DEPTH + '"a"' + ")" * DEPTH + "\n"
     compiled = compile_text(grammar, cache_key="adversarial-deepg-groups")
     assert compiled.parse("a").to_text() == "a"
 
 
 def test_deep_ref_chain_round_trips_without_overflow() -> None:
     """A 300-rule ref chain compiles, parses, and round-trips — no RecursionError."""
-    compiled = compile_text(_ref_chain(_DEPTH), cache_key="adversarial-deepg-chain")
-    assert len(compiled.classes) == _DEPTH + 1
-    text = "[" * _DEPTH + "0" + "]" * _DEPTH
+    compiled = compile_text(ref_chain(DEPTH), cache_key="adversarial-deepg-chain")
+    assert len(compiled.classes) == DEPTH + 1
+    text = "[" * DEPTH + "0" + "]" * DEPTH
     assert compiled.parse(text).to_text() == text
 
 
@@ -47,7 +47,7 @@ def test_800_rule_chain_round_trips_and_dumps() -> None:
     RecursionErrors near depth ~800, ``proto_spine_depth_checked``).
     """
     depth = 800
-    compiled = compile_text(_ref_chain(depth), cache_key="adversarial-deepg-800")
+    compiled = compile_text(ref_chain(depth), cache_key="adversarial-deepg-800")
     text = "[" * depth + "0" + "]" * depth
     model = compiled.parse(text)
     assert model.to_text() == text
@@ -66,7 +66,7 @@ def test_800_rule_chain_models_hash_and_compare_at_depth() -> None:
     recursion has headroom there — proto_spine_depth_checked) and two
     independent parses of the same text are equal with equal hashes."""
     depth = 800
-    compiled = compile_text(_ref_chain(depth), cache_key="adversarial-deepg-800")
+    compiled = compile_text(ref_chain(depth), cache_key="adversarial-deepg-800")
     text = "[" * depth + "0" + "]" * depth
     one = compiled.parse(text)
     two = compiled.parse(text)

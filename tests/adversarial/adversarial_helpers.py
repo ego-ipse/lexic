@@ -7,20 +7,20 @@ from contextlib import contextmanager
 from typing import Iterator
 
 
-def _ref_chain(depth: int) -> str:
+def ref_chain(depth: int) -> str:
     """A ``depth``+1 rule unit-ref chain bottoming out at the leaf ``0``."""
     lines = [f'r{i} ::= "[" r{i + 1} "]"' for i in range(depth)]
     lines.append(f'r{depth} ::= "0"')
     return "\n".join(lines) + "\n"
 
 
-def _nested(depth: int) -> str:
+def nested(depth: int) -> str:
     """Return ``depth`` nested arrays wrapped around a single leaf ``0``."""
     return "[" * depth + "0" + "]" * depth
 
 
 @contextmanager
-def _watchdog(seconds: int) -> Iterator[None]:
+def watchdog(seconds: int) -> Iterator[None]:
     """Raise ``TimeoutError`` if the body runs longer than ``seconds``."""
 
     def _trip(_signum: int, _frame: object) -> None:

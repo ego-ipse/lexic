@@ -15,7 +15,7 @@ from lexic.ir.nodes import (
 from lexic.ir.order import RuleOrder, order_by_refs
 
 
-def _rule(name: str, *refs: str) -> IrRule:
+def rule(name: str, *refs: str) -> IrRule:
     """A rule whose body references ``refs``, in the given order, plus a literal tail."""
     items = [IrItem(IrRuleRef(ref)) for ref in refs]
     items.append(IrItem(IrLiteral("x")))
@@ -162,7 +162,7 @@ def test_parents_first_shared_parent_emits_once_before_both_children():
 def test_by_refs_orders_start_first_then_reference_order():
     """Rules reorder start-first, breadth-first by IrRuleRef occurrence."""
     ast = IrAst(
-        IrSeq(_rule("unrelated"), _rule("b"), _rule("root", "b")),
+        IrSeq(rule("unrelated"), rule("b"), rule("root", "b")),
         "root",
     )
     result = order_by_refs(ast)
@@ -172,7 +172,7 @@ def test_by_refs_orders_start_first_then_reference_order():
 def test_by_refs_uses_body_order_for_the_tie_break():
     """When a rule references two others, they appear in body (first-seen) order."""
     ast = IrAst(
-        IrSeq(_rule("second"), _rule("first"), _rule("root", "second", "first")),
+        IrSeq(rule("second"), rule("first"), rule("root", "second", "first")),
         "root",
     )
     result = order_by_refs(ast)
@@ -182,7 +182,7 @@ def test_by_refs_uses_body_order_for_the_tie_break():
 def test_by_refs_unreferenced_rules_are_last_alphabetical():
     """Rules never referenced from start end up last, alphabetically sorted."""
     ast = IrAst(
-        IrSeq(_rule("zeta"), _rule("alpha"), _rule("root")),
+        IrSeq(rule("zeta"), rule("alpha"), rule("root")),
         "root",
     )
     result = order_by_refs(ast)
@@ -191,7 +191,7 @@ def test_by_refs_unreferenced_rules_are_last_alphabetical():
 
 def test_by_refs_preserves_start_name():
     """Reordering never changes the AST's start-rule name."""
-    ast = IrAst(IrSeq(_rule("b"), _rule("a")), "a")
+    ast = IrAst(IrSeq(rule("b"), rule("a")), "a")
     result = order_by_refs(ast)
     assert result.start == "a"
 
@@ -199,7 +199,7 @@ def test_by_refs_preserves_start_name():
 def test_by_refs_only_first_occurrence_of_a_repeated_ref_counts():
     """A rule referenced more than once by the same body still orders once, at first mention."""
     ast = IrAst(
-        IrSeq(_rule("shared"), _rule("root", "shared", "shared")),
+        IrSeq(rule("shared"), rule("root", "shared", "shared")),
         "root",
     )
     result = order_by_refs(ast)
@@ -208,12 +208,12 @@ def test_by_refs_only_first_occurrence_of_a_repeated_ref_counts():
 
 def test_by_refs_is_a_noop_on_an_already_ordered_ast():
     """Reordering an AST already in canonical order returns an equal AST."""
-    ast = IrAst(IrSeq(_rule("root", "b"), _rule("b")), "root")
+    ast = IrAst(IrSeq(rule("root", "b"), rule("b")), "root")
     assert order_by_refs(ast) == ast
 
 
 def test_by_refs_collects_edges_distinct_in_body_order():
     """Ref-edges drive the order first-seen, duplicates ignored (the deleted
     ``refs_in_order`` wrapper's contract, kept pinned on ``by_refs`` itself)."""
-    ast = IrAst(IrSeq(_rule("root", "b", "a", "b"), _rule("a"), _rule("b")), "root")
+    ast = IrAst(IrSeq(rule("root", "b", "a", "b"), rule("a"), rule("b")), "root")
     assert [rule.name for rule in order_by_refs(ast).rules] == ["root", "b", "a"]

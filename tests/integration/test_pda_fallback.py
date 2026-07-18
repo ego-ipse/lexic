@@ -23,7 +23,7 @@ from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import earley_model
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.parsing_helpers import _prod
+from tests.unit.lexic.parsing.parsing_helpers import prod
 
 # The pinned fallback input: a valid assignment followed by extra blank lines.
 # arithmetic's ``ident``/``num``/``term`` all end in their own ``ws ::= [ \t\n]*``,
@@ -34,7 +34,7 @@ from tests.unit.lexic.parsing.parsing_helpers import _prod
 # to consume it (there is no ident/num/"(" to start another iteration), so the
 # PDA reports unconsumed trailing input rather than guess. The engine parses it
 # fine — its ``ws`` isn't cut to one clone's hard tail.
-_FALLBACK_INPUT = "x=1\n\n\n"
+FALLBACK_INPUT = "x=1\n\n\n"
 
 
 def test_arithmetic_stop_set_residue_forces_pda_fallback():
@@ -45,11 +45,11 @@ def test_arithmetic_stop_set_residue_forces_pda_fallback():
     resolve at all.
     """
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    p = _prod(cg)
+    p = prod(cg)
     # arithmetic compiles a real clone start — no whole-grammar opt-out.
     assert not isinstance(p.pda.start_key, IslandRef)
     with pytest.raises(PdaFail):
-        parse_pda(p.pda, _FALLBACK_INPUT, cg.fold)
+        parse_pda(p.pda, FALLBACK_INPUT, cg.fold)
 
 
 def test_pda_fallback_returns_engine_correct_model():
@@ -60,13 +60,13 @@ def test_pda_fallback_returns_engine_correct_model():
     asserts the round-trip, proving the completion is both silent and correct.
     """
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    p = _prod(cg)
+    p = prod(cg)
 
-    model = cg.parse(_FALLBACK_INPUT)
+    model = cg.parse(FALLBACK_INPUT)
     engine_model = cast(
         GrammarModel,
-        earley_model(p.instance_grammar, _FALLBACK_INPUT, cg.fold, p.tables),
+        earley_model(p.instance_grammar, FALLBACK_INPUT, cg.fold, p.tables),
     )
 
     assert model.semantic_dump() == engine_model.semantic_dump()
-    assert model.to_text() == _FALLBACK_INPUT
+    assert model.to_text() == FALLBACK_INPUT

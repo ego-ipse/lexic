@@ -14,7 +14,7 @@ serialization — ``json.dumps(records, ensure_ascii=False, indent=2,
 sort_keys=False)`` (key order = each dict's insertion order, i.e. the field
 declaration order ``dump()`` already produces), newline-terminated.
 Both :func:`write_golden` (regeneration) and :func:`load_golden` (replay) go
-through :func:`_serialize`/``json.loads``, so the byte form has exactly one
+through :func:`serialize_records`/``json.loads``, so the byte form has exactly one
 definition. JSON cannot distinguish a tuple from a list nor an ``IrInt`` from
 a plain ``int`` (C12) — the golden-check test in
 ``tests/integration/test_golden_parity.py`` compares *parsed-back* JSON
@@ -70,7 +70,7 @@ from tests.paths import GROUND_TRUTH
 
 GOLDEN_DIR = Path(__file__).parent / "goldens"
 
-_JSON_SAMPLES = [
+JSON_SAMPLES = [
     '"\\""',
     '"\\\\"',
     '"\\n"',
@@ -137,8 +137,8 @@ CORPUS: dict[str, list[str]] = {
         "- \U000f423b\n",  # gen(seed=1)
         "- \U0007aa7f\U0005f178\U000d77d0\n",  # gen(seed=2)
     ],
-    "json.gbnf": list(_JSON_SAMPLES),
-    "json.abnf": list(_JSON_SAMPLES),
+    "json.gbnf": list(JSON_SAMPLES),
+    "json.abnf": list(JSON_SAMPLES),
     "vyx.gbnf": [text for _label, text in PACKET_SAMPLES],
 }
 
@@ -196,14 +196,16 @@ def compute_records(stem: str) -> list[dict[str, Any]]:
     return [compute_record(cg, sample) for sample in CORPUS[stem]]
 
 
-def _serialize(records: list[dict[str, Any]]) -> str:
+def serialize_records(records: list[dict[str, Any]]) -> str:
     """The pinned byte form (settled 12) for a stem's golden records."""
     return json.dumps(records, ensure_ascii=False, indent=2, sort_keys=False) + "\n"
 
 
 def write_golden(stem: str) -> None:
     """(Re)write the golden file for ``stem`` from the live implementation."""
-    golden_path(stem).write_text(_serialize(compute_records(stem)), encoding="utf-8")
+    golden_path(stem).write_text(
+        serialize_records(compute_records(stem)), encoding="utf-8"
+    )
 
 
 def load_golden(stem: str) -> list[dict[str, Any]]:

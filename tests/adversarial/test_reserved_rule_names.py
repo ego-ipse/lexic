@@ -19,10 +19,10 @@ from lexic.compile import compile_text
 # Each rule name is referenced as a field of ``r`` and must round-trip with no
 # error and no shadowing warning. ``annotated`` PascalCases onto the header's
 # ``typing.Annotated`` import, breaking every later annotation resolution.
-_RESERVED = ["import", "class", "to-text", "semantic-dump", "model-fields", "annotated"]
+RESERVED = ["import", "class", "to-text", "semantic-dump", "model-fields", "annotated"]
 
 
-@pytest.mark.parametrize("rule", _RESERVED)
+@pytest.mark.parametrize("rule", RESERVED)
 def test_reserved_rule_name_round_trips_cleanly(rule: str) -> None:
     """A reserved-name rule compiles, parses, round-trips — warning-free."""
     grammar = f'r ::= {rule} "!"\n{rule} ::= "m"\n'

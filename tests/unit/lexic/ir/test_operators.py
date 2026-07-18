@@ -89,7 +89,7 @@ def test_irop_repr_is_codegen():
 # ── Arity bases ───────────────────────────────────────────────────────
 
 
-class _Gt(DyadicOp):
+class Gt(DyadicOp):
     """Test-only binary operator node over ``>`` — a reusable DyadicOp shape."""
 
     __slots__ = ()
@@ -98,7 +98,7 @@ class _Gt(DyadicOp):
 
 def test_op_node_is_irtuple_and_atom():
     """An operator node is an IrTuple (so a tuple), an IrAtom, and an IrOpNode."""
-    node = _Gt(IrInt(5), IrInt(3))
+    node = Gt(IrInt(5), IrInt(3))
     assert isinstance(node, IrTuple)
     assert isinstance(node, tuple)
     assert isinstance(node, IrAtom)
@@ -107,7 +107,7 @@ def test_op_node_is_irtuple_and_atom():
 
 def test_operands_are_the_flat_tuple_elements():
     """The node IS its operand tuple: operands are elements [0], [1], …"""
-    node = _Gt(IrInt(5), IrInt(3))
+    node = Gt(IrInt(5), IrInt(3))
     assert tuple(node) == (IrInt(5), IrInt(3))
     assert node[0] == IrInt(5)
     assert node[1] == IrInt(3)
@@ -115,20 +115,20 @@ def test_operands_are_the_flat_tuple_elements():
 
 def test_op_is_a_classvar_not_an_element():
     """``op`` is type-level — reachable on the class and instance, not a tuple element."""
-    assert _Gt.op == IrOp(">")
-    assert _Gt(IrInt(5), IrInt(3)).op == IrOp(">")
-    assert tuple(_Gt(IrInt(5), IrInt(3))) == (IrInt(5), IrInt(3))
+    assert Gt.op == IrOp(">")
+    assert Gt(IrInt(5), IrInt(3)).op == IrOp(">")
+    assert tuple(Gt(IrInt(5), IrInt(3))) == (IrInt(5), IrInt(3))
 
 
 def test_dyadic_shape_eval_applies_its_operator():
     """A DyadicOp evaluates its two operands and applies its operator."""
-    assert _Gt(IrInt(5), IrInt(3)).eval(IrNone, IrNone, ()) == IrInt(1)
-    assert _Gt(IrInt(3), IrInt(5)).eval(IrNone, IrNone, ()) == IrInt(0)
+    assert Gt(IrInt(5), IrInt(3)).eval(IrNone, IrNone, ()) == IrInt(1)
+    assert Gt(IrInt(3), IrInt(5)).eval(IrNone, IrNone, ()) == IrInt(0)
 
 
 def test_op_node_repr_is_flat_codegen():
     """repr lists only the operands (op is type-level, not an element)."""
-    assert repr(_Gt(IrInt(5), IrInt(3))) == "_Gt(IrInt(5), IrInt(3))"
+    assert repr(Gt(IrInt(5), IrInt(3))) == "Gt(IrInt(5), IrInt(3))"
 
 
 # ── IrNot (MonadicOp) ─────────────────────────────────────────────────

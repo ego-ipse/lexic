@@ -29,10 +29,10 @@ from lexic.model import GrammarModel
 from tests.integration.codegen_pipeline import canonical_ast
 from tests.paths import GROUND_TRUTH
 
-_GRAMMARS = sorted(GROUND_TRUTH.glob("*.gbnf")) + sorted(GROUND_TRUTH.glob("*.abnf"))
+GRAMMARS = sorted(GROUND_TRUTH.glob("*.gbnf")) + sorted(GROUND_TRUTH.glob("*.abnf"))
 
 
-def _emit(path: Path) -> tuple[list[RuleBinding], dict[str, type]]:
+def emit(path: Path) -> tuple[list[RuleBinding], dict[str, type]]:
     """Run the synthesis path; return (binding, classes)."""
     canonical = canonical_ast(path)
     codegen_grammar = build_codegen_grammar(canonical)
@@ -43,19 +43,19 @@ def _emit(path: Path) -> tuple[list[RuleBinding], dict[str, type]]:
     return binding, classes
 
 
-@pytest.mark.parametrize("path", _GRAMMARS, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", GRAMMARS, ids=lambda p: p.name)
 def test_generated_classes_are_valid_models(path: Path):
     """Every synthesized class is a GrammarModel record class."""
-    binding, classes = _emit(path)
+    binding, classes = emit(path)
     assert set(classes) == {b.class_name for b in binding}
     for cls in classes.values():
         assert issubclass(cls, GrammarModel)
 
 
-@pytest.mark.parametrize("path", _GRAMMARS, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", GRAMMARS, ids=lambda p: p.name)
 def test_fields_carry_irbind_and_grammar_footer(path: Path):
     """Sequence fields expose their IrBind; each class carries an IrRule footer."""
-    binding, classes = _emit(path)
+    binding, classes = emit(path)
     by_name = {b.class_name: b for b in binding}
     for name, cls in classes.items():
         assert isinstance(cls.__grammar__, IrRule)

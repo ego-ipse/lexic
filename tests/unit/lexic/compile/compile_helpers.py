@@ -11,7 +11,7 @@ from lexic.model import GrammarModel
 from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 
-def _roundtrip(text: str, grammar: str) -> GrammarModel:
+def roundtrip(text: str, grammar: str) -> GrammarModel:
     """Assert a full parse round-trip for ``text`` against a ground-truth grammar.
 
     :param text: The instance text to parse.
@@ -41,7 +41,7 @@ def _roundtrip(text: str, grammar: str) -> GrammarModel:
     return inst
 
 
-def _import_hermetic_module(path: Path, name: str) -> types.ModuleType:
+def import_hermetic_module(path: Path, name: str) -> types.ModuleType:
     """Import a written module from disk, hermetically (its own namespace).
 
     :param path: The ``.py`` file to import.

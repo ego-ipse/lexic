@@ -1,6 +1,6 @@
 """Shared helpers for the ``lexic.parsing.pda.runtime`` unit tests.
 
-``_reduce_pda`` is duplicated verbatim (pre-relocation) across
+``reduce_pda`` is duplicated verbatim (pre-relocation) across
 ``test_runtime.py`` and ``test_reduce_runtime.py``.
 """
 
@@ -18,12 +18,12 @@ from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda
 from lexic.parsing.products import _model_product, _reduce_product, earley_reduce
 
 
-def _reduce_pda(flavour):
+def reduce_pda(flavour):
     """The flavour's self-grammar reduce PDA (built + memoised in the engine)."""
     return _reduce_product(flavour.grammar, flavour.reducer).pda
 
 
-def _compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:
+def compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:
     """Compile a ground-truth grammar both ways: the engine artifact + its PdaTables.
 
     Mirrors ``test_clones.py``'s ``_pda_for`` — the same inputs
@@ -42,14 +42,14 @@ def _compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:
     return compiled, pda
 
 
-def _specs(path: Path) -> dict:
+def path_specs(path: Path) -> dict:
     """The rule-name → IrRule view :func:`~lexic.generate.generate` walks."""
     flavour = flavour_for_extension(path)
     canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
     return {r.name: r for r in canonical.rules}
 
 
-def _assert_parity(
+def assert_parity(
     engine_model: GrammarModel, pda_model: GrammarModel, text: str
 ) -> None:
     """Assert ruling 1's semantic-parity contract, not raw ``dump()`` equality."""
@@ -57,6 +57,6 @@ def _assert_parity(
     assert pda_model.to_text() == text
 
 
-def _ref_reduce(flavour, text: str):
+def ref_reduce(flavour, text: str):
     """The Earley reducer's own reduction of ``text`` — the parity oracle."""
     return earley_reduce(normalize(flavour.grammar), text, flavour.reducer)

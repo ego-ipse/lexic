@@ -20,9 +20,9 @@ from lexic.grammars.gbnf import GBNF_GRAMMAR
 from lexic.parsing.pda.runtime import reduce_runtime as rr
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaKernel
-from tests.integration.test_pda_parity import _ALL_STEMS
+from tests.integration.test_pda_parity import ALL_STEMS
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import _reduce_pda
+from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import reduce_pda
 
 
 def test_reduce_kernel_lives_here_and_extends_the_model_kernel() -> None:
@@ -51,7 +51,7 @@ def test_reduce_kernel_overrides_only_the_completion_seams() -> None:
 # ── _reduce_span: YIELD-with-drop stitch (comment interiors) ──────────────
 #
 # ``parse_grammar`` is itself routed PDA-first (the Task-7 flip): it tries
-# ``_reduce_pda(flavour)`` before falling back to the Earley reducer.
+# ``reduce_pda(flavour)`` before falling back to the Earley reducer.
 # These pins therefore exercise the whole ``_ReduceRoute``/``parse_pda`` wiring
 # end-to-end (no PdaFail, no silent divergence) rather than an independent
 # Earley-only oracle — a mismatch here would mean the direct ``parse_pda``
@@ -65,7 +65,7 @@ def test_reduce_span_stitches_a_comment_with_an_embedded_tab() -> None:
     matches ``parse_grammar`` byte-for-byte; the comment interior is noise, so
     the TAB must not derail the fold."""
     text = "root = digit ; a\tb\r\ndigit = %x30-39\r\n"
-    pda = _reduce_pda(ABNF_FLAVOUR)
+    pda = reduce_pda(ABNF_FLAVOUR)
     assert pda is not None
     got = parse_pda(pda, text)
     assert got == parse_grammar(text, ABNF_FLAVOUR)
@@ -76,7 +76,7 @@ def test_reduce_pda_abnf_ground_truth_matches_parse_grammar(stem: str) -> None:
     """Every ``.abnf`` ground-truth file, parsed as grammar TEXT through the
     ABNF self-grammar reduce PDA, is byte-equal to ``parse_grammar`` — no
     ``PdaFail``."""
-    pda = _reduce_pda(ABNF_FLAVOUR)
+    pda = reduce_pda(ABNF_FLAVOUR)
     assert pda is not None
     text = (GROUND_TRUTH / stem).read_text(encoding="utf-8")
     assert parse_pda(pda, text) == parse_grammar(text, ABNF_FLAVOUR)
@@ -85,15 +85,15 @@ def test_reduce_pda_abnf_ground_truth_matches_parse_grammar(stem: str) -> None:
 def test_reduce_pda_abnf_self_emit_matches_parse_grammar() -> None:
     """ABNF's own emitted self-grammar text round-trips through the reduce PDA
     byte-equal to ``parse_grammar`` — the self-hosting fixpoint, PDA-side."""
-    pda = _reduce_pda(ABNF_FLAVOUR)
+    pda = reduce_pda(ABNF_FLAVOUR)
     assert pda is not None
     text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
     assert parse_pda(pda, text) == parse_grammar(text, ABNF_FLAVOUR)
 
 
-_GBNF_GOOD_STEMS: tuple[str, ...] = tuple(
+GBNF_GOOD_STEMS: tuple[str, ...] = tuple(
     stem
-    for stem in _ALL_STEMS
+    for stem in ALL_STEMS
     if stem.endswith(".gbnf") and stem not in {"json_arr.gbnf", "json_ws.gbnf"}
 )
 """``test_pda_parity``'s full ground-truth stem list, narrowed to the six GBNF
@@ -103,12 +103,12 @@ pure-PDA once the empty-arm structured gate demotes the self-grammar's ``arm``
 decision."""
 
 
-@pytest.mark.parametrize("stem", _GBNF_GOOD_STEMS)
+@pytest.mark.parametrize("stem", GBNF_GOOD_STEMS)
 def test_reduce_pda_gbnf_ground_truth_matches_parse_grammar(stem: str) -> None:
     """The seven known-good GBNF texts (six ground-truth files here, the
     self-emit below) parse end-to-end through the GBNF self-grammar reduce PDA
     byte-equal to ``parse_grammar``."""
-    pda = _reduce_pda(GBNF_FLAVOUR)
+    pda = reduce_pda(GBNF_FLAVOUR)
     assert pda is not None
     text = (GROUND_TRUTH / stem).read_text(encoding="utf-8")
     assert parse_pda(pda, text) == parse_grammar(text, GBNF_FLAVOUR)
@@ -116,7 +116,7 @@ def test_reduce_pda_gbnf_ground_truth_matches_parse_grammar(stem: str) -> None:
 
 def test_reduce_pda_gbnf_self_emit_matches_parse_grammar() -> None:
     """GBNF's own emitted self-grammar text — the seventh known-good text."""
-    pda = _reduce_pda(GBNF_FLAVOUR)
+    pda = reduce_pda(GBNF_FLAVOUR)
     assert pda is not None
     text = str(GBNF_FLAVOUR.apply(GBNF_GRAMMAR))
     assert parse_pda(pda, text) == parse_grammar(text, GBNF_FLAVOUR)
@@ -127,7 +127,7 @@ def test_reduce_pda_gbnf_empty_first_arm_variants_pure_pda(stem: str) -> None:
     """``json_arr.gbnf``/``json_ws.gbnf`` — whose ``ws`` rule has an empty first
     arm — parse pure-PDA (no ``PdaFail``) byte-equal to ``parse_grammar``: the
     empty-arm structured gate demotes the self-grammar's ``arm`` decision."""
-    pda = _reduce_pda(GBNF_FLAVOUR)
+    pda = reduce_pda(GBNF_FLAVOUR)
     assert pda is not None
     text = (GROUND_TRUTH / stem).read_text(encoding="utf-8")
     assert parse_pda(pda, text) == parse_grammar(text, GBNF_FLAVOUR)

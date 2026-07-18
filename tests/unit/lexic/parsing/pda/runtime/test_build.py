@@ -43,7 +43,7 @@ from lexic.parsing.pda.runtime.build import (
 )
 
 
-def _frame(slots):
+def make_frame(slots):
     """A 9-slot frame list with the given ``{F_slot: value}`` set (rest ``None``)."""
     frame = [None] * 9
     for idx, val in slots.items():
@@ -98,13 +98,13 @@ def test_finish_delegate_declines_on_a_lexic_error_from_the_fold():
 
 def test_alt_model_returns_the_first_populated_sink():
     """The alternation pass-through returns the first non-empty sink's head."""
-    frame = _frame({F_SINKS: [[], ["m"], []]})
+    frame = make_frame({F_SINKS: [[], ["m"], []]})
     assert alt_model(frame) == "m"
 
 
 def test_alt_model_none_when_no_sinks():
     """No sinks (nothing captured) yields ``None``."""
-    assert alt_model(_frame({F_SINKS: None})) is None
+    assert alt_model(make_frame({F_SINKS: None})) is None
 
 
 # ── leaf_mismatch ────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ def test_leaf_mismatch_nonempty_raises():
 # ── build_fast / build_validated per-field dispatch ─────────────────────────
 
 
-def _seq_clone(fields, *, fast, defaults=None, n_items=None):
+def seq_clone(fields, *, fast, defaults=None, n_items=None):
     """A stub ``sequence`` clone with the given int-coded fields + fast ctor."""
     fold = SimpleNamespace(
         fields=fields,
@@ -150,7 +150,7 @@ def test_build_fast_fills_text_and_model_slots():
     """``M_TEXT`` reads the item span; ``M_MODEL`` reads the sink head."""
     fields = ((0, M_TEXT, "head", 1), (1, M_MODEL, "kid", 1))
     seen = {}
-    clone = _seq_clone(fields, fast=lambda parts, keys: seen.update(parts) or "built")
+    clone = seq_clone(fields, fast=lambda parts, keys: seen.update(parts) or "built")
     frame_ends = [2, 2]
     sinks = [None, ["submodel"]]
     out = build_fast("abXY", clone, 0, frame_ends, sinks)
@@ -162,7 +162,7 @@ def test_build_fast_models_slot_defaults_to_empty_list():
     """``M_MODELS`` with no sink yields ``[]`` (an empty collection field)."""
     fields = ((0, M_MODELS, "kids", 0),)
     seen = {}
-    clone = _seq_clone(fields, fast=lambda parts, keys: seen.update(parts))
+    clone = seq_clone(fields, fast=lambda parts, keys: seen.update(parts))
     build_fast("", clone, 0, [0], None)
     assert seen["kids"] == []
 
@@ -171,9 +171,7 @@ def test_build_fast_gtext_skips_empty_optional_span():
     """An empty ``M_GTEXT`` span with ``lo == 0`` is omitted from parts."""
     fields = ((0, M_GTEXT, "opt", 0),)
     seen = {}
-    clone = _seq_clone(
-        fields, fast=lambda parts, keys: seen.update({"keys": set(keys)})
-    )
+    clone = seq_clone(fields, fast=lambda parts, keys: seen.update({"keys": set(keys)}))
     build_fast("x", clone, 0, [0], None)  # span (0,0) empty, lo 0 -> skipped
     assert "opt" not in seen["keys"]
 
@@ -184,7 +182,9 @@ def test_build_validated_unknown_mode_raises():
         RuleFold, SimpleNamespace(fields=((0, "bogus", "x", 1),), ctor=lambda **kw: kw)
     )
     with pytest.raises(UnsupportedConstructError):
-        build_validated("ab", _frame({F_ENDS: [2], F_SINKS: None, F_START: 0}), fold)
+        build_validated(
+            "ab", make_frame({F_ENDS: [2], F_SINKS: None, F_START: 0}), fold
+        )
 
 
 def test_build_sequence_empty_arm_builds_bare_ctor():
@@ -197,5 +197,5 @@ def test_build_sequence_empty_arm_builds_bare_ctor():
             fields=(),
         ),
     )
-    frame = _frame({F_ARM: SimpleNamespace(n=0)})
+    frame = make_frame({F_ARM: SimpleNamespace(n=0)})
     assert build_sequence("", frame, clone) == ("bare", {})

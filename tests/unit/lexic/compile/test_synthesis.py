@@ -28,7 +28,7 @@ from lexic.ir.nodes import (
 from lexic.model import GrammarModel
 
 
-def _synth(
+def synth(
     text: str, stem: str = "m"
 ) -> tuple[dict[str, type], IrAst, list[RuleBinding]]:
     """Run the front half then synthesize: canonical -> codegen grammar -> binding -> classes.
@@ -44,7 +44,7 @@ def _synth(
     return classes, codegen_grammar, binding
 
 
-def _by_name(binding: list[RuleBinding]) -> dict[str, RuleBinding]:
+def by_name(binding: list[RuleBinding]) -> dict[str, RuleBinding]:
     """Index a binding view by rule name."""
     return {b.rule_name: b for b in binding}
 
@@ -54,19 +54,19 @@ def _by_name(binding: list[RuleBinding]) -> dict[str, RuleBinding]:
 
 def test_synthesize_returns_one_class_per_binding():
     """The returned keys match the binding view's class names, exactly."""
-    classes, _grammar, binding = _synth('root ::= "hi"\n')
+    classes, _grammar, binding = synth('root ::= "hi"\n')
     assert set(classes) == {b.class_name for b in binding}
 
 
 def test_synthesize_classes_are_grammar_model_subclasses():
     """Every synthesized class descends from GrammarModel."""
-    classes, _grammar, _binding = _synth('root ::= "hi"\n')
+    classes, _grammar, _binding = synth('root ::= "hi"\n')
     assert all(issubclass(cls, GrammarModel) for cls in classes.values())
 
 
 def test_synthesize_class_carries_its_own_rule_as_grammar():
     """__grammar__ is the class's own IrRule from the codegen grammar."""
-    classes, codegen_grammar, binding = _synth('root ::= "hi"\n')
+    classes, codegen_grammar, binding = synth('root ::= "hi"\n')
     rules = {str(r.name): r for r in codegen_grammar.rules}
     for bound in binding:
         cls = classes[bound.class_name]
@@ -76,7 +76,7 @@ def test_synthesize_class_carries_its_own_rule_as_grammar():
 
 def test_synthesize_module_and_qualname():
     """__module__ is generated.<stem>; __qualname__ is the class name."""
-    classes, _grammar, _binding = _synth('root ::= "hi"\n', stem="probe_stem")
+    classes, _grammar, _binding = synth('root ::= "hi"\n', stem="probe_stem")
     for name, cls in classes.items():
         assert cls.__module__ == "generated.probe_stem"
         assert cls.__qualname__ == name
@@ -87,14 +87,14 @@ def test_synthesize_module_and_qualname():
 
 def test_synthesize_binds_table_is_a_direct_class_attribute():
     """__binds__ is written directly onto the class (no annotation resolution)."""
-    classes, _grammar, _binding = _synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
+    classes, _grammar, _binding = synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
     assert "__binds__" in classes["Root"].__dict__
 
 
 def test_synthesize_bound_fields_matches_the_binding_view():
     """bound_fields() returns slot -> (name, IrBind), matching the binding's fields."""
-    classes, _grammar, binding = _synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
-    root_binding = _by_name(binding)["root"]
+    classes, _grammar, binding = synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
+    root_binding = by_name(binding)["root"]
     expected = {
         ibind.item: (name, ibind) for name, ibind in root_binding.fields.items()
     }
@@ -104,30 +104,30 @@ def test_synthesize_bound_fields_matches_the_binding_view():
 # ── MI base ordering ─────────────────────────────────────────────────────
 
 
-def _alt_text() -> str:
+def alt_text() -> str:
     """root -> a | b, a/b concrete unit-ref arms of the Root alternation."""
     return 'root ::= a | b\na ::= "x"\nb ::= "y"\n'
 
 
 def test_synthesize_unit_arm_subclasses_its_alternation():
     """A rule that is a unit-ref arm of an alternation subclasses that class."""
-    classes, _grammar, _binding = _synth(_alt_text())
+    classes, _grammar, _binding = synth(alt_text())
     assert issubclass(classes["A"], classes["Root"])
     assert issubclass(classes["B"], classes["Root"])
 
 
 def test_synthesize_parentless_rule_subclasses_grammar_model_directly():
     """A rule with no alternation parent subclasses GrammarModel directly."""
-    classes, _grammar, binding = _synth(_alt_text())
-    root_binding = _by_name(binding)["root"]
+    classes, _grammar, binding = synth(alt_text())
+    root_binding = by_name(binding)["root"]
     assert root_binding.parent_class_names == ()
     assert classes["Root"].__bases__ == (GrammarModel,)
 
 
 def test_synthesize_bases_follow_binding_parent_order():
     """A class's bases are exactly the classes named by its parent_class_names."""
-    classes, _grammar, binding = _synth(_alt_text())
-    a_binding = _by_name(binding)["a"]
+    classes, _grammar, binding = synth(alt_text())
+    a_binding = by_name(binding)["a"]
     assert a_binding.parent_class_names == ("Root",)
     assert classes["A"].__bases__ == (classes["Root"],)
 
@@ -137,24 +137,24 @@ def test_synthesize_bases_follow_binding_parent_order():
 
 def test_value_str_kind_has_single_implicit_value_field():
     """A value_str rule (no rulerefs) gets one implicit `value` field, no binds."""
-    classes, _grammar, binding = _synth('root ::= "hi"\n')
-    assert _by_name(binding)["root"].kind == "value_str"
+    classes, _grammar, binding = synth('root ::= "hi"\n')
+    assert by_name(binding)["root"].kind == "value_str"
     assert classes["Root"]._fields == ("value",)
     assert classes["Root"].bound_fields() == {}
 
 
 def test_alternation_kind_is_field_less():
     """An alternation class has no fields at all and no binds."""
-    classes, _grammar, binding = _synth(_alt_text())
-    assert _by_name(binding)["root"].kind == "alternation"
+    classes, _grammar, binding = synth(alt_text())
+    assert by_name(binding)["root"].kind == "alternation"
     assert classes["Root"]._fields == ()
     assert classes["Root"].bound_fields() == {}
 
 
 def test_sequence_kind_fields_match_bound_field_names_in_item_order():
     """A sequence class's _fields are its bound field names, in item order."""
-    classes, _grammar, binding = _synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
-    root_binding = _by_name(binding)["root"]
+    classes, _grammar, binding = synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
+    root_binding = by_name(binding)["root"]
     expected = tuple(
         name
         for _slot, (name, _bind) in sorted(
@@ -170,7 +170,7 @@ def test_sequence_kind_fields_match_bound_field_names_in_item_order():
 def test_optional_star_quantified_field_defaults_to_none():
     """A field whose item can match zero times (lo == 0) defaults to None;
     a required (lo == 1) sibling field on the same rule does not."""
-    classes, _grammar, _binding = _synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
+    classes, _grammar, _binding = synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
     _make, defaults = classes["Root"].fast_construct()
     assert defaults.get("digit") is None
     assert "word" not in defaults
@@ -202,8 +202,8 @@ def test_empty_alternate_arm_forces_every_field_optional():
 
 def test_models_mode_field_without_empty_arm_has_no_default():
     """A required (lo >= 1) models-mode field is not defaulted."""
-    classes, _grammar, binding = _synth('root ::= (a | b)+\na ::= "x"\nb ::= "y"\n')
-    root_binding = _by_name(binding)["root"]
+    classes, _grammar, binding = synth('root ::= (a | b)+\na ::= "x"\nb ::= "y"\n')
+    root_binding = by_name(binding)["root"]
     (name,) = root_binding.fields
     assert root_binding.fields[name].mode == "models"
     _make, defaults = classes["Root"].fast_construct()
@@ -215,7 +215,7 @@ def test_models_mode_field_without_empty_arm_has_no_default():
 
 def test_construct_a_sequence_class_with_keyword_fields():
     """A sequence class builds via keyword construction like the fold uses."""
-    classes, _grammar, _binding = _synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
+    classes, _grammar, _binding = synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
     inst = classes["Root"](word=classes["Word"](value="ab"), digit="123")
     assert inst.word.value == "ab"
     assert inst.digit == "123"
@@ -223,8 +223,8 @@ def test_construct_a_sequence_class_with_keyword_fields():
 
 def test_construct_coerces_a_models_mode_list_to_a_hashable_tuple():
     """A list argument for a models-mode field coerces to a tuple (hashable)."""
-    classes, _grammar, binding = _synth('root ::= (a | b)+\na ::= "x"\nb ::= "y"\n')
-    root_binding = _by_name(binding)["root"]
+    classes, _grammar, binding = synth('root ::= (a | b)+\na ::= "x"\nb ::= "y"\n')
+    root_binding = by_name(binding)["root"]
     (name,) = root_binding.fields
     a_inst = classes["A"](value="x")
     inst = classes["Root"](**{name: [a_inst]})
@@ -235,14 +235,14 @@ def test_construct_coerces_a_models_mode_list_to_a_hashable_tuple():
 
 def test_to_text_round_trips_a_synthesized_sequence_instance():
     """to_text() reconstructs the source text from a synthesized instance."""
-    classes, _grammar, _binding = _synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
+    classes, _grammar, _binding = synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
     inst = classes["Root"](word=classes["Word"](value="ab"), digit="123")
     assert inst.to_text() == "ab123"
 
 
 def test_dump_and_semantic_dump_behave_on_a_synthesized_instance():
     """dump keeps every field; semantic_dump drops non-semantic ones."""
-    classes, _grammar, _binding = _synth(
+    classes, _grammar, _binding = synth(
         "# @non-semantic ws\nroot ::= word ws num\nword ::= [a-z]+\nnum ::= [0-9]+\n"
         "ws ::= [ ]*\n"
     )

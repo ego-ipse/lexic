@@ -125,7 +125,7 @@ def test_recognition_tables_distinct_grammar_objects_get_distinct_tables():
     assert recognition_tables(g1) is not recognition_tables(g2)
 
 
-_ABNF_SAMPLES = (
+ABNF_SAMPLES = (
     'rule = "a" "b"\r\n',
     "foo = bar / baz\r\n",
     "x = 1*DIGIT\r\n",
@@ -139,7 +139,7 @@ def test_recognition_tables_matches_plain_recognition_on_samples():
     g = normalize(ABNF_GRAMMAR)
     plain = compile_tables(g)
     collapsed = recognition_tables(g)
-    for text in _ABNF_SAMPLES:
+    for text in ABNF_SAMPLES:
         plain_accept = Kernel(plain, text, record_links=False).run().accept >= 0
         collapsed_accept = Kernel(collapsed, text, record_links=False).run().accept >= 0
         assert plain_accept == collapsed_accept, text

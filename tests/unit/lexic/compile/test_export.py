@@ -31,10 +31,11 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.compile.compile_helpers import _import_hermetic_module
+from tests.unit.lexic.compile.compile_helpers import import_hermetic_module
 
 
-def _by_name(binding: list[RuleBinding]) -> dict[str, RuleBinding]:
+def by_name(binding: list[RuleBinding]) -> dict[str, RuleBinding]:
+    """A binding list keyed by rule name."""
     return {b.rule_name: b for b in binding}
 
 
@@ -179,7 +180,7 @@ def test_inline_tables_mode_writes_classvars_and_no_bind_call():
 # ── reserved-class-name drift pin ─────────────────────────────────────────
 
 
-def _header_bound_names(source: str) -> set[str]:
+def header_bound_names(source: str) -> set[str]:
     """The module-scope names a rendered module's imports bind."""
     names: set[str] = set()
     for node in ast.walk(ast.parse(source)):
@@ -200,7 +201,7 @@ def test_reserved_class_names_cover_the_export_header():
         cg = compile_from_path(gt)
         for inline_tables in (False, True):
             source = export_source(cg, inline_tables=inline_tables)
-            shadowable |= _header_bound_names(source)
+            shadowable |= header_bound_names(source)
     shadowable -= {name for name in shadowable if not name[:1].isupper()}
     assert shadowable <= _RESERVED_CLASS_NAMES
 
@@ -237,7 +238,7 @@ def test_export_module_hermetic_import_matches_the_runtime_compile(
     out_path = tmp_path / f"{stem}_twin.py"
     export_module(cg, out_path, inline_tables=inline_tables)
 
-    module = _import_hermetic_module(out_path, f"{stem}_{ext}_{inline_tables}_twin")
+    module = import_hermetic_module(out_path, f"{stem}_{ext}_{inline_tables}_twin")
 
     assert module.GRAMMAR == cg.grammar
     for name, cls in cg.classes.items():

@@ -11,11 +11,11 @@ from tests.integration.abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
 from tests.paths import GROUND_TRUTH
 
 
-def _binding(text: str):
+def binding(text: str):
     """(canonical ast, {rule_name: RuleBinding}) for an ABNF grammar string."""
     ast = canonical_grammar(text, ABNF_FLAVOUR)
-    binding = compute_binding(build_codegen_grammar(ast))
-    return ast, {b.rule_name: b for b in binding}
+    bound = compute_binding(build_codegen_grammar(ast))
+    return ast, {b.rule_name: b for b in bound}
 
 
 def test_compile_arithmetic_abnf_succeeds():
@@ -25,7 +25,7 @@ def test_compile_arithmetic_abnf_succeeds():
     canonicalize's rewrite 7 — ``DIGIT``/``WSP`` become ``digit``/``wsp``.
     """
     text = (GROUND_TRUTH / "arithmetic.abnf").read_text(encoding="utf-8")
-    _ast, by = _binding(text)
+    _ast, by = binding(text)
     assert {"root", "expr", "term", "op", "num", "digit", "wsp"} <= set(by)
     assert by["op"].kind == "value_str"
     assert by["expr"].kind == "sequence"
@@ -35,7 +35,7 @@ def test_compile_arithmetic_abnf_succeeds():
 def test_compile_abnf_non_semantic_directive_propagates_to_referencing_rule():
     """@non-semantic WSP propagates onto any field that references it — the ref
     folds to canonical ``wsp``, same as the rule name."""
-    _ast, by = _binding(NON_SEMANTIC_DIRECTIVE_ABNF)
+    _ast, by = binding(NON_SEMANTIC_DIRECTIVE_ABNF)
     assert any(not ibind.semantic for ibind in by["root"].fields.values())
     assert "wsp" in by["root"].fields
     assert by["root"].fields["wsp"].semantic is False
@@ -49,7 +49,7 @@ def test_compile_abnf_case_insensitive_literal_expanded():
     ``IrItem``s carrying an ``IrCharClass`` atom directly — not a group.
     """
     text = 'root = "Hi"\n'
-    ast, by = _binding(text)
+    ast, by = binding(text)
     assert by["root"].kind == "value_str"
     rule = next(r for r in ast.rules if r.name == "root")
     arm = next(a for a in rule.body if a)

@@ -43,7 +43,7 @@ from tests.unit.lexic.parsing.ir_fixtures import (
     malformed_synthetic_rule,
     nested_synthetic_grammar,
 )
-from tests.unit.lexic.parsing.parsing_helpers import _prod
+from tests.unit.lexic.parsing.parsing_helpers import prod
 
 # ── the compiled config — structure ─────────────────────────────────────
 
@@ -52,7 +52,7 @@ def test_instance_grammar_is_normalized(arithmetic):
     """The compiled instance grammar is Earley-normalized: parse_first accepts
     it directly (tables.py raises 'run normalize() before compiling' on a raw
     grammar, so a successful parse is itself proof of normalization)."""
-    tree = parse_first(_prod(arithmetic).instance_grammar, "x=1\n")
+    tree = parse_first(prod(arithmetic).instance_grammar, "x=1\n")
     assert tree is not None
 
 
@@ -327,9 +327,9 @@ def test_collapsed_fold_tables_collapses_a_run_on_arithmetic(arithmetic):
     A collapsed run shows up as a ``lens == 0`` terminal — see
     :class:`~lexic.parsing.earley.tables.TermTables`.
     """
-    plain = compile_tables(_prod(arithmetic).instance_grammar)
+    plain = compile_tables(prod(arithmetic).instance_grammar)
     collapsed = collapsed_fold_tables(
-        _prod(arithmetic).instance_grammar, arithmetic.fold
+        prod(arithmetic).instance_grammar, arithmetic.fold
     )
     assert collapsed is not plain
     assert any(length == 0 for length in collapsed.terms.lens)
@@ -337,24 +337,24 @@ def test_collapsed_fold_tables_collapses_a_run_on_arithmetic(arithmetic):
 
 def test_collapsed_fold_tables_memoises_per_fold_and_grammar(arithmetic):
     """The same (fold, grammar) pair returns the identical tables object."""
-    first = collapsed_fold_tables(_prod(arithmetic).instance_grammar, arithmetic.fold)
-    second = collapsed_fold_tables(_prod(arithmetic).instance_grammar, arithmetic.fold)
+    first = collapsed_fold_tables(prod(arithmetic).instance_grammar, arithmetic.fold)
+    second = collapsed_fold_tables(prod(arithmetic).instance_grammar, arithmetic.fold)
     assert first is second
 
 
 def test_collapsed_fold_tables_returns_plain_when_no_candidates(optional_shapes):
     """A grammar with no star/plus run candidates gets back the plain tables."""
-    plain = compile_tables(_prod(optional_shapes).instance_grammar)
+    plain = compile_tables(prod(optional_shapes).instance_grammar)
     collapsed = collapsed_fold_tables(
-        _prod(optional_shapes).instance_grammar, optional_shapes.fold
+        prod(optional_shapes).instance_grammar, optional_shapes.fold
     )
     assert collapsed is plain
 
 
 def test_compiled_tables_are_the_collapsed_ones(arithmetic):
     """CompiledGrammar.tables is exactly the memoised collapsed tables."""
-    assert _prod(arithmetic).tables is collapsed_fold_tables(
-        _prod(arithmetic).instance_grammar, arithmetic.fold
+    assert prod(arithmetic).tables is collapsed_fold_tables(
+        prod(arithmetic).instance_grammar, arithmetic.fold
     )
 
 
@@ -366,17 +366,17 @@ def test_collapsed_fold_tables_memo_keys_on_identity_not_equality():
     cg1 = compile_text(text)
     reset_cache_for_tests()  # force a genuinely fresh second compile
     cg2 = compile_text(text)
-    assert _prod(cg1).instance_grammar == _prod(cg2).instance_grammar
-    assert _prod(cg1).instance_grammar is not _prod(cg2).instance_grammar
-    assert _prod(cg1).tables is not _prod(cg2).tables
+    assert prod(cg1).instance_grammar == prod(cg2).instance_grammar
+    assert prod(cg1).instance_grammar is not prod(cg2).instance_grammar
+    assert prod(cg1).tables is not prod(cg2).tables
 
 
 def test_collapsed_fold_tables_distinct_fold_objects_do_not_share_cache(arithmetic):
     """A fold object with an identical config is still a distinct object —
     collapsed_fold_tables must recompute, not alias, for it."""
     duplicate_fold = ModelFold.from_config(dict(arithmetic.fold.config))
-    first = collapsed_fold_tables(_prod(arithmetic).instance_grammar, arithmetic.fold)
-    second = collapsed_fold_tables(_prod(arithmetic).instance_grammar, duplicate_fold)
+    first = collapsed_fold_tables(prod(arithmetic).instance_grammar, arithmetic.fold)
+    second = collapsed_fold_tables(prod(arithmetic).instance_grammar, duplicate_fold)
     assert first is not second
 
 
@@ -448,7 +448,7 @@ def test_ambiguous_input_folds_deterministically(arithmetic):
     text = "ab1+cd2*34/x9-z=result0\n"
     collapsed_model = arithmetic.parse(text)
     plain_model = arithmetic.fold.apply(
-        parse_first(_prod(arithmetic).instance_grammar, text)
+        parse_first(prod(arithmetic).instance_grammar, text)
     )
     assert collapsed_model.dump() == plain_model.dump()
     assert collapsed_model.to_text() == plain_model.to_text() == text

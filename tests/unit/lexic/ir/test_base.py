@@ -252,7 +252,7 @@ def test_irseq_concrete_subclasses_are_irseq():
 # ── IrNamedTuple ──────────────────────────────────────────────────────
 
 
-class _Rec(IrNamedTuple[IrStr, IrInt]):
+class Rec(IrNamedTuple[IrStr, IrInt]):
     """Local test record: two named fields over positional tuple elements."""
 
     __slots__ = ()
@@ -262,14 +262,14 @@ class _Rec(IrNamedTuple[IrStr, IrInt]):
 
 def test_irnamedtuple_named_access_equals_positional():
     """Named field accessors read the same element as positional indexing."""
-    r = _Rec(IrStr("hello"), IrInt(42))
+    r = Rec(IrStr("hello"), IrInt(42))
     assert r.a is r[0]
     assert r.b is r[1]
 
 
 def test_irnamedtuple_construction_is_positional():
-    """_Rec is constructed positionally (inherited IrTuple.__new__)."""
-    r = _Rec(IrStr("x"), IrInt(3))
+    """Rec is constructed positionally (inherited IrTuple.__new__)."""
+    r = Rec(IrStr("x"), IrInt(3))
     assert len(r) == 2
     assert r[0] == "x"
     assert r[1] == 3
@@ -277,13 +277,13 @@ def test_irnamedtuple_construction_is_positional():
 
 def test_irnamedtuple_is_a_tuple():
     """IrNamedTuple instances are native Python tuples."""
-    r = _Rec(IrStr("t"), IrInt(0))
+    r = Rec(IrStr("t"), IrInt(0))
     assert isinstance(r, tuple)
 
 
 def test_irnamedtuple_is_immutable():
     """Assigning to a named field raises AttributeError (tuples are immutable)."""
-    r = _Rec(IrStr("v"), IrInt(1))
+    r = Rec(IrStr("v"), IrInt(1))
     with pytest.raises(AttributeError):
         r.a = IrStr("other")  # type: ignore[misc]
 
@@ -291,14 +291,14 @@ def test_irnamedtuple_is_immutable():
 def test_irnamedtuple_children_returns_all_elements():
     """IrNamedTuple.children() yields all positional elements in order."""
     a, b = IrStr("p"), IrInt(9)
-    r = _Rec(a, b)
+    r = Rec(a, b)
     assert tuple(r.children()) == (a, b)
 
 
 # ── Field / IrCachingTuple ────────────────────────────────────────────
 
 
-class _Cfg(IrCachingTuple[list, int]):
+class Cfg(IrCachingTuple[list, int]):
     """Local caching record: a mutable-default field and a factory field."""
 
     __slots__ = ()
@@ -314,7 +314,7 @@ def test_field_requires_a_default_or_factory():
 
 def test_field_default_factory_produces_fresh_values():
     """A ``default_factory`` field yields an independent value per instance."""
-    a, b = _Cfg(), _Cfg()
+    a, b = Cfg(), Cfg()
     assert a.total == 0
     a_flags, b_flags = a.flags, b.flags
     assert a_flags is not b_flags
@@ -322,22 +322,22 @@ def test_field_default_factory_produces_fresh_values():
 
 def test_field_mutable_default_is_isolated_per_instance():
     """A mutable ``default`` is deep-copied, not shared across instances."""
-    first = _Cfg()
+    first = Cfg()
     first.flags.append(True)
-    second = _Cfg()
+    second = Cfg()
     assert first.flags == [False, True]
     assert second.flags == [False]
 
 
-class _Base(IrCachingTuple[int]):
+class Base(IrCachingTuple[int]):
     """Caching record with a single field, to be extended by a subclass."""
 
     __slots__ = ()
     x: int = Field(default=5)
 
 
-class _Derived(_Base):
-    """Subclass that adds a field; should inherit ``_Base``'s field layout."""
+class Derived(Base):
+    """Subclass that adds a field; should inherit ``Base``'s field layout."""
 
     __slots__ = ()
     y: int = Field(default=7)
@@ -345,31 +345,31 @@ class _Derived(_Base):
 
 def test_ircachingtuple_subclass_inherits_base_fields():
     """A subclass prepends its base's fields, in base-then-own order."""
-    assert _Derived._fields == ("x", "y")
+    assert Derived._fields == ("x", "y")
 
 
 def test_ircachingtuple_resolves_inherited_and_own_defaults():
     """Construction resolves both the inherited and the own field defaults."""
-    d = _Derived()
+    d = Derived()
     assert (d.x, d.y) == (5, 7)
     assert tuple(d) == (5, 7)
 
 
-class _LeftMixin(IrCachingTuple[int]):
+class LeftMixin(IrCachingTuple[int]):
     """One field-bearing caching base for the multiple-inheritance case."""
 
     __slots__ = ()
     a: int = Field(default=1)
 
 
-class _RightMixin(IrCachingTuple[int]):
+class RightMixin(IrCachingTuple[int]):
     """A second, independent field-bearing caching base."""
 
     __slots__ = ()
     b: int = Field(default=2)
 
 
-class _Diamond(_LeftMixin, _RightMixin):
+class Diamond(LeftMixin, RightMixin):
     """Combines two caching bases plus an own field."""
 
     __slots__ = ()
@@ -378,8 +378,8 @@ class _Diamond(_LeftMixin, _RightMixin):
 
 def test_ircachingtuple_merges_all_bases_under_multiple_inheritance():
     """Fields from every caching base are merged (reverse-MRO order), then own."""
-    assert _Diamond._fields == ("b", "a", "c")  # reverse-MRO: RightMixin, LeftMixin
-    d = _Diamond()
+    assert Diamond._fields == ("b", "a", "c")  # reverse-MRO: RightMixin, LeftMixin
+    d = Diamond()
     assert (d.a, d.b, d.c) == (1, 2, 3)
     assert tuple(d) == (2, 1, 3)
 

@@ -37,7 +37,7 @@ from tests.integration.golden_fixtures import (
 from tests.paths import GROUND_TRUTH
 
 
-def _stem_cases() -> list[tuple[str, int]]:
+def stem_cases() -> list[tuple[str, int]]:
     """``(stem, record index)`` for every golden record, for parametrize ids."""
     return [(stem, i) for stem in all_stems() for i in range(len(CORPUS[stem]))]
 
@@ -54,7 +54,7 @@ def test_every_golden_file_has_a_corpus_entry():
     assert on_disk == set(all_stems())
 
 
-@pytest.mark.parametrize("stem, index", _stem_cases())
+@pytest.mark.parametrize("stem, index", stem_cases())
 def test_golden_record_matches_live_implementation(stem: str, index: int) -> None:
     """A golden record's oracle outputs match a fresh live parse (ruling 12)."""
     golden_records = load_golden(stem)

@@ -33,14 +33,14 @@ from lexic.ir.operators import IrNot
 MAX_CODEPOINT = 0x10FFFF
 
 
-def _ast_for(body, start: str = "r", extra: tuple[IrRule, ...] = ()) -> IrAst:
+def ast_for(body, start: str = "r", extra: tuple[IrRule, ...] = ()) -> IrAst:
     """A single-rule (plus optional extra rules) IrAst wrapping ``body``."""
     return IrAst(IrSeq(IrRule("r", body), *extra), start)
 
 
-def _canon_body(body, start: str = "r", extra: tuple[IrRule, ...] = ()):
-    """canonicalize(_ast_for(body, ...)) and return rule "r"'s canonical body."""
-    ast = canonicalize(_ast_for(body, start, extra))
+def canon_body(body, start: str = "r", extra: tuple[IrRule, ...] = ()):
+    """canonicalize(ast_for(body, ...)) and return rule "r"'s canonical body."""
+    ast = canonicalize(ast_for(body, start, extra))
     return next(rule.body for rule in ast.rules if rule.name == "r")
 
 
@@ -49,13 +49,13 @@ def _canon_body(body, start: str = "r", extra: tuple[IrRule, ...] = ()):
 
 def test_rewrite1_one_member_charclass_becomes_literal():
     """A single-code-point char class collapses to an IrLiteral."""
-    result = _canon_body(IrCharClass(IrChr("x")))
+    result = canon_body(IrCharClass(IrChr("x")))
     assert result == IrAlternation(IrSequence(IrItem(IrLiteral("x"))))
 
 
 def test_rewrite1_multi_member_charclass_stays_a_charclass():
     """A multi-member char class is untouched by rewrite 1."""
-    result = _canon_body(IrCharClass(IrChr("x"), IrChr("y")))
+    result = canon_body(IrCharClass(IrChr("x"), IrChr("y")))
     assert isinstance(result[0][0].atom, IrCharClass)
 
 
@@ -67,7 +67,7 @@ def test_rewrite2_merges_single_char_literal_arms_into_one_charclass():
     body = IrAlternation(
         IrSequence(IrItem(IrLiteral("a"))), IrSequence(IrItem(IrLiteral("b")))
     )
-    result = _canon_body(body)
+    result = canon_body(body)
     assert len(result) == 1
     atom = result[0][0].atom
     assert isinstance(atom, IrCharClass)
@@ -80,7 +80,7 @@ def test_rewrite2_does_not_merge_a_multi_char_arm():
         IrSequence(IrItem(IrLiteral("a"))),
         IrSequence(IrItem(IrRuleRef("thing")), IrItem(IrLiteral("b"))),
     )
-    result = _canon_body(body, extra=(IrRule("thing", IrLiteral("T")),))
+    result = canon_body(body, extra=(IrRule("thing", IrLiteral("T")),))
     assert len(result) == 2
 
 
@@ -90,7 +90,7 @@ def test_rewrite2_merges_charclass_arms_via_intervals():
         IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("4"))))),
         IrSequence(IrItem(IrCharClass(IrRange(IrChr("5"), IrChr("9"))))),
     )
-    result = _canon_body(body)
+    result = canon_body(body)
     assert result == IrAlternation(
         IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))))
     )
@@ -106,7 +106,7 @@ def test_rewrite2_does_not_merge_a_multi_char_literal_arm():
         IrSequence(IrItem(IrLiteral("e"))),
         IrSequence(IrItem(IrLiteral("f"))),
     )
-    result = _canon_body(body)
+    result = canon_body(body)
     assert len(result) == 3
     assert isinstance(result[0][0].atom, IrCharClass)
     assert result[0][0].atom.members() == [ord("a"), ord("b")]
@@ -124,7 +124,7 @@ def test_rewrite2_unmergeable_middle_arm_splits_into_two_flushes():
         IrSequence(IrItem(IrLiteral("c"))),
         IrSequence(IrItem(IrLiteral("d"))),
     )
-    result = _canon_body(body, extra=(IrRule("thing", IrLiteral("T")),))
+    result = canon_body(body, extra=(IrRule("thing", IrLiteral("T")),))
     assert len(result) == 3
     first, ref_arm, last = result
     assert isinstance(first[0].atom, IrCharClass)
@@ -140,7 +140,7 @@ def test_rewrite2_does_not_merge_a_quantified_charclass_arm():
         IrSequence(IrItem(IrLiteral("a"))),
         IrSequence(IrItem(IrCharClass(IrChr("b")), IrQuantifier(0, 1))),
     )
-    result = _canon_body(body)
+    result = canon_body(body)
     assert len(result) == 2
     assert str(result[0][0].atom) == "a"
     assert result[1][0].quantifier == IrQuantifier(0, 1)
@@ -152,7 +152,7 @@ def test_rewrite2_merge_collapsing_to_a_single_point_becomes_a_literal():
     body = IrAlternation(
         IrSequence(IrItem(IrLiteral("a"))), IrSequence(IrItem(IrLiteral("a")))
     )
-    result = _canon_body(body)
+    result = canon_body(body)
     assert result == IrAlternation(IrSequence(IrItem(IrLiteral("a"))))
 
 
@@ -167,7 +167,7 @@ def test_rewrite2_merges_a_unicode_complement_arm_without_materialising():
         IrSequence(IrItem(IrNot(IrCharClass(IrChr("a"))))),
         IrSequence(IrItem(IrLiteral("a"))),
     )
-    result = _canon_body(body)
+    result = canon_body(body)
     assert len(result) == 1
     atom = result[0][0].atom
     assert isinstance(atom, IrCharClass)
@@ -184,7 +184,7 @@ def test_rewrite2_unicode_complement_merge_stays_interval_native():
     """
     body = IrAlternation(IrSequence(IrItem(IrNot(IrCharClass(IrChr("a"))))))
     start = time.perf_counter()
-    _canon_body(body)
+    canon_body(body)
     elapsed = time.perf_counter() - start
     assert elapsed < 0.5, (
         f"canonicalize of a Unicode-complement arm took {elapsed:.3f}s"
@@ -199,7 +199,7 @@ def test_rewrite3_merges_adjacent_unquantified_literals():
     body = IrSequence(
         IrItem(IrLiteral("a")), IrItem(IrLiteral("b")), IrItem(IrLiteral("c"))
     )
-    result = _canon_body(body)
+    result = canon_body(body)
     assert result == IrAlternation(IrSequence(IrItem(IrLiteral("abc"))))
 
 
@@ -210,7 +210,7 @@ def test_rewrite3_does_not_merge_across_a_quantified_literal():
         IrItem(IrLiteral("b"), IrQuantifier(0, 1)),
         IrItem(IrLiteral("c")),
     )
-    result = _canon_body(body)
+    result = canon_body(body)
     items = result[0]
     assert [str(item.atom) for item in items] == ["a", "b", "c"]
     assert items[1].quantifier == IrQuantifier(0, 1)
@@ -222,7 +222,7 @@ def test_rewrite3_does_not_merge_across_a_quantified_literal():
 def test_rewrite4_not_charclass_becomes_positive_complement():
     """IrNot of a char class rewrites to its positive Unicode-complement spans."""
     body = IrItem(IrNot(IrCharClass(IrChr("a"))))
-    result = _canon_body(body)
+    result = canon_body(body)
     atom = result[0][0].atom
     assert isinstance(atom, IrCharClass)
     assert atom == IrCharClass(IrChr("a")).complement()
@@ -237,7 +237,7 @@ def test_rewrite5_inlines_a_redundant_unquantified_group():
         IrItem(IrAlternation(IrSequence(IrItem(IrLiteral("a"))))),
         IrItem(IrRuleRef("thing")),
     )
-    result = _canon_body(body, extra=(IrRule("thing", IrLiteral("T")),))
+    result = canon_body(body, extra=(IrRule("thing", IrLiteral("T")),))
     assert result == IrAlternation(
         IrSequence(IrItem(IrLiteral("a")), IrItem(IrRuleRef("thing")))
     )
@@ -255,7 +255,7 @@ def test_rewrite5_does_not_inline_a_multi_arm_group():
             IrSequence(IrItem(IrLiteral("a"))), IrSequence(IrItem(IrRuleRef("thing")))
         )
     )
-    result = _canon_body(body, extra=(IrRule("thing", IrLiteral("T")),))
+    result = canon_body(body, extra=(IrRule("thing", IrLiteral("T")),))
     atom = result[0][0].atom
     assert isinstance(atom, IrAlternation)
     assert len(atom) == 2
@@ -267,7 +267,7 @@ def test_rewrite5_does_not_inline_a_multi_arm_group():
 def test_rewrite6_pushes_quantifier_through_single_item_group():
     """``("!")?`` collapses to the plain quantified literal ``"!"?``."""
     body = IrItem(IrAlternation(IrSequence(IrItem(IrLiteral("!")))), IrQuantifier(0, 1))
-    result = _canon_body(body)
+    result = canon_body(body)
     item = result[0][0]
     assert item.atom == IrLiteral("!")
     assert item.quantifier == IrQuantifier(0, 1)
@@ -279,7 +279,7 @@ def test_rewrite6_leaves_a_quantified_inner_item_untouched():
         IrAlternation(IrSequence(IrItem(IrLiteral("!"), IrQuantifier(0, 1)))),
         IrQuantifier(0, 1),
     )
-    result = _canon_body(body)
+    result = canon_body(body)
     atom = result[0][0].atom
     assert isinstance(atom, IrAlternation)
 
@@ -322,7 +322,7 @@ def test_fold_name_is_lowercase_underscore_to_hyphen():
 def test_rewrite8_charclass_deduped_sorted_and_coalesced():
     """A charclass with duplicate/unsorted/coalescible members normalises."""
     body = IrCharClass(IrChr("c"), IrChr("a"), IrChr("b"))
-    result = _canon_body(body)
+    result = canon_body(body)
     atom = result[0][0].atom
     assert atom == IrCharClass(IrChr("a"), IrChr("b"), IrChr("c")).normalized()
 
@@ -333,7 +333,7 @@ def test_rewrite8_charclass_deduped_sorted_and_coalesced():
 def test_rewrite8b_drops_empty_literal_item_preserving_arm_shape():
     """An ``IrLiteral('')`` (epsilon) item is dropped; the arm shape stays."""
     body = IrSequence(IrItem(IrLiteral("")), IrItem(IrLiteral("x")))
-    result = _canon_body(body)
+    result = canon_body(body)
     assert result == IrAlternation(IrSequence(IrItem(IrLiteral("x"))))
 
 

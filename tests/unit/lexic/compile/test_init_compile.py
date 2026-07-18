@@ -40,10 +40,10 @@ from lexic.parsing.products import (
     earley_reduce,
 )
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.parsing_helpers import _prod
+from tests.unit.lexic.parsing.parsing_helpers import prod
 
 
-class _FlavourWithBadReducer(IrFlavour):
+class FlavourWithBadReducer(IrFlavour):
     """A concrete IrFlavour whose reducer is not a parsing Reducer instance."""
 
     name = "badreducer"
@@ -178,7 +178,7 @@ def test_collapsed_and_plain_tables_parse_to_the_same_model(grammar_file, text):
     this is the in-suite spot-check of the author's full equality harness.
     """
     cg = compile_from_path(GROUND_TRUTH / grammar_file)
-    p = _prod(cg)
+    p = prod(cg)
     collapsed_model = cg.parse(text)
     plain_model = earley_model(p.instance_grammar, text, cg.fold)
     assert isinstance(plain_model, GrammarModel)
@@ -297,7 +297,7 @@ def test_canonical_grammar_flavour_with_non_reducer_raises():
     """canonical_grammar raises UnsupportedConstructError when flavour.reducer
     is not a parsing Reducer instance."""
     with pytest.raises(UnsupportedConstructError, match="no parse Reducer"):
-        canonical_grammar('root ::= "x"\n', _FlavourWithBadReducer())
+        canonical_grammar('root ::= "x"\n', FlavourWithBadReducer())
 
 
 def test_parse_grammar_returns_ir_ast():
@@ -315,7 +315,7 @@ def test_parse_grammar_is_importable_from_the_package_root():
 def test_parse_grammar_flavour_with_non_reducer_raises():
     """parse_grammar raises UnsupportedConstructError on a malformed reducer."""
     with pytest.raises(UnsupportedConstructError, match="no parse Reducer"):
-        parse_grammar('root ::= "x"\n', _FlavourWithBadReducer())
+        parse_grammar('root ::= "x"\n', FlavourWithBadReducer())
 
 
 def test_parse_grammar_malformed_source_raises():
@@ -507,7 +507,7 @@ def test_compiledgrammar_parse_pda_and_earley_agree():
     completion (``earley_model`` over the instance grammar) — the fallback path
     is behaviour-identical, not a raised error reaching the caller."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    p = _prod(cg)
+    p = prod(cg)
     text = "x=1\n"
     model = cg.parse(text)
     expected = earley_model(p.instance_grammar, text, cg.fold, p.tables)
@@ -524,7 +524,7 @@ def test_compiledgrammar_parse_start_island_completes_on_earley():
     ungatable at any ``k <= 3``."""
     text = 'root ::= n "x" | n "y"\nn ::= [0-9]+\n'
     cg = compile_text(text, flavour="gbnf")
-    assert isinstance(_prod(cg).pda.start_key, IslandRef)
+    assert isinstance(prod(cg).pda.start_key, IslandRef)
     assert cg.parse("12x").to_text() == "12x"
     assert cg.parse("7y").to_text() == "7y"
 
@@ -577,47 +577,47 @@ def test_parse_from_path_accepts_an_explicit_flavour_override():
 
 # ── bind_module ──────────────────────────────────────────────────────────
 
-_BIND_MODULE_TEXT = 'root ::= "a" mid "b"\nmid ::= "x" | "y"\n'
+BIND_MODULE_TEXT = 'root ::= "a" mid "b"\nmid ::= "x" | "y"\n'
 
 
-class _HandMid(GrammarModel):
+class HandMid(GrammarModel):
     """A hand-built twin of the compiled ``mid`` class (a value_str rule)."""
 
     value: str
 
 
-class _HandRoot(GrammarModel):
+class HandRoot(GrammarModel):
     """A hand-built twin of the compiled ``root`` class (a sequence rule)."""
 
-    mid: _HandMid
+    mid: HandMid
 
 
 def test_bind_module_binds_a_hand_built_namespace_successfully():
     """A hand-authored namespace binds exactly like the runtime compile's own
     classes — same ``__grammar__``/``__binds__``, and ``_child_attrs`` is left
     untouched (the class-body annotations already derived it)."""
-    cg = compile_text(_BIND_MODULE_TEXT, cache_key="bind-module-happy")
-    before_root_child_attrs = getattr(_HandRoot, "_child_attrs")
-    before_mid_child_attrs = getattr(_HandMid, "_child_attrs")
+    cg = compile_text(BIND_MODULE_TEXT, cache_key="bind-module-happy")
+    before_root_child_attrs = getattr(HandRoot, "_child_attrs")
+    before_mid_child_attrs = getattr(HandMid, "_child_attrs")
 
-    bind_module(cg.grammar, {"Root": _HandRoot, "Mid": _HandMid})
+    bind_module(cg.grammar, {"Root": HandRoot, "Mid": HandMid})
 
-    assert _HandRoot.__grammar__ == cg.classes["Root"].__grammar__
-    assert _HandMid.__grammar__ == cg.classes["Mid"].__grammar__
-    assert _HandRoot.__binds__ == cg.classes["Root"].__binds__
-    assert _HandMid.__binds__ == cg.classes["Mid"].__binds__
-    assert getattr(_HandRoot, "_child_attrs") == before_root_child_attrs
-    assert getattr(_HandMid, "_child_attrs") == before_mid_child_attrs
+    assert HandRoot.__grammar__ == cg.classes["Root"].__grammar__
+    assert HandMid.__grammar__ == cg.classes["Mid"].__grammar__
+    assert HandRoot.__binds__ == cg.classes["Root"].__binds__
+    assert HandMid.__binds__ == cg.classes["Mid"].__binds__
+    assert getattr(HandRoot, "_child_attrs") == before_root_child_attrs
+    assert getattr(HandMid, "_child_attrs") == before_mid_child_attrs
 
-    inst = _HandRoot(mid=_HandMid(value="x"))
+    inst = HandRoot(mid=HandMid(value="x"))
     assert inst.to_text() == "axb"
 
 
 def test_bind_module_raises_when_a_class_is_missing_from_the_namespace():
     """A namespace missing a rule's class names the rule and the class."""
-    cg = compile_text(_BIND_MODULE_TEXT, cache_key="bind-module-missing")
+    cg = compile_text(BIND_MODULE_TEXT, cache_key="bind-module-missing")
     with pytest.raises(UnsupportedConstructError) as exc_info:
-        bind_module(cg.grammar, {"Root": _HandRoot})
+        bind_module(cg.grammar, {"Root": HandRoot})
     message = str(exc_info.value)
     assert "mid" in message
     assert "Mid" in message
@@ -626,9 +626,9 @@ def test_bind_module_raises_when_a_class_is_missing_from_the_namespace():
 def test_bind_module_raises_when_the_namespace_class_is_not_a_grammar_model():
     """A namespace entry that exists but is not a GrammarModel subclass is
     rejected the same way as a missing entry."""
-    cg = compile_text(_BIND_MODULE_TEXT, cache_key="bind-module-not-a-model")
+    cg = compile_text(BIND_MODULE_TEXT, cache_key="bind-module-not-a-model")
     with pytest.raises(UnsupportedConstructError) as exc_info:
-        bind_module(cg.grammar, {"Root": _HandRoot, "Mid": object})
+        bind_module(cg.grammar, {"Root": HandRoot, "Mid": object})
     assert "Mid" in str(exc_info.value)
 
 
@@ -639,9 +639,9 @@ def test_bind_module_raises_on_a_field_shape_mismatch():
     class _WrongFieldMid(GrammarModel):
         wrong_field: str
 
-    cg = compile_text(_BIND_MODULE_TEXT, cache_key="bind-module-mismatch")
+    cg = compile_text(BIND_MODULE_TEXT, cache_key="bind-module-mismatch")
     with pytest.raises(UnsupportedConstructError) as exc_info:
-        bind_module(cg.grammar, {"Root": _HandRoot, "Mid": _WrongFieldMid})
+        bind_module(cg.grammar, {"Root": HandRoot, "Mid": _WrongFieldMid})
     message = str(exc_info.value)
     assert "('wrong_field',)" in message
     assert "('value',)" in message

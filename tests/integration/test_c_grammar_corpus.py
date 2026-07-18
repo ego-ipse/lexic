@@ -20,7 +20,7 @@ from lexic.compile import compile_from_path
 from tests.paths import GROUND_TRUTH
 
 # Each entry documents which statement kind(s)/structural feature it covers.
-_FIXTURES = [
+FIXTURES = [
     pytest.param("int foo(){}float bar(){}", id="multiple-declarations"),
     pytest.param(
         "int add(int x){int y = 1;return y;}",
@@ -63,7 +63,7 @@ _FIXTURES = [
 ]
 
 
-@pytest.mark.parametrize("text", _FIXTURES)
+@pytest.mark.parametrize("text", FIXTURES)
 def test_c_grammar_statement_surface_round_trips(text: str) -> None:
     """Each fixture both parses against c.gbnf and round-trips exactly."""
     cg = compile_from_path(GROUND_TRUTH / "c.gbnf")

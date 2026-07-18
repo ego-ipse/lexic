@@ -59,12 +59,12 @@ from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.pda.analysis.test_analysis import _PINNED_ISLANDS
+from tests.unit.lexic.parsing.pda.analysis.test_analysis import PINNED_ISLANDS
 
 # ── helpers ───────────────────────────────────────────────────────────────
 
 
-def _pda_for(path: Path) -> PdaTables:
+def pda_for(path: Path) -> PdaTables:
     """Compile a ground-truth grammar file to its :class:`PdaTables`.
 
     Drives the same inputs :func:`~lexic.compile._compile_core` builds,
@@ -85,7 +85,7 @@ def _pda_for(path: Path) -> PdaTables:
     )
 
 
-def _pda_from_text(text: str) -> PdaTables:
+def pda_from_text(text: str) -> PdaTables:
     """Compile a hand-authored GBNF snippet to its :class:`PdaTables`."""
     canonical = canonical_grammar(text, GBNF_FLAVOUR)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
@@ -97,42 +97,42 @@ def _pda_from_text(text: str) -> PdaTables:
     )
 
 
-def _clones_named(pda: PdaTables, name: str) -> list[CloneSpec]:
+def clones_named(pda: PdaTables, name: str) -> list[CloneSpec]:
     """Every compiled clone for rule ``name``, across all its hard-continuation tails."""
     return [spec for key, spec in pda.clones.items() if key.name == name]
 
 
-def _sole_clone(pda: PdaTables, name: str) -> CloneSpec:
+def sole_clone(pda: PdaTables, name: str) -> CloneSpec:
     """The one compiled clone for rule ``name`` — asserts exactly one exists."""
-    specs = _clones_named(pda, name)
+    specs = clones_named(pda, name)
     assert len(specs) == 1
     return specs[0]
 
 
-def _walk_specs(specs: Sequence[ItemSpec]) -> Iterator[ItemSpec]:
+def walk_specs(specs: Sequence[ItemSpec]) -> Iterator[ItemSpec]:
     """Yield every :class:`ItemSpec` in ``specs``, recursing into group arms."""
     for spec in specs:
         yield spec
         if spec.kind == GRP:
             group = cast(GroupSpec, spec.payload)
             for arm in group.arms:
-                yield from _walk_specs(arm.specs)
+                yield from walk_specs(arm.specs)
             if group.default is not None:
-                yield from _walk_specs(group.default)
+                yield from walk_specs(group.default)
 
 
-def _all_specs(pda: PdaTables) -> Iterator[ItemSpec]:
+def all_specs(pda: PdaTables) -> Iterator[ItemSpec]:
     """Yield every :class:`ItemSpec` across every clone in ``pda``."""
     for clone in pda.clones.values():
         for arm in clone.arms:
-            yield from _walk_specs(arm.specs)
+            yield from walk_specs(arm.specs)
         if clone.default is not None:
-            yield from _walk_specs(clone.default)
+            yield from walk_specs(clone.default)
 
 
 # ── the headline gate (pinned to the plan's Task-3 ledger line) ───────────
 
-_PINNED_CLONE_COUNTS: dict[str, int] = {
+PINNED_CLONE_COUNTS: dict[str, int] = {
     "arithmetic.gbnf": 32,
     "c.gbnf": 15,
     "chess.gbnf": 10,  # +2 at P2: nonpawn demoted from island → cloned (k-gate)
@@ -145,29 +145,29 @@ _PINNED_CLONE_COUNTS: dict[str, int] = {
     "json.abnf": 126,  # the GBNF twin, also island-free at P3
 }
 
-_ALL_STEMS: tuple[str, ...] = tuple(sorted(_PINNED_CLONE_COUNTS))
+ALL_STEMS: tuple[str, ...] = tuple(sorted(PINNED_CLONE_COUNTS))
 """The pinned island sets are single-homed in ``test_analysis`` (this module's
 gate is the *clone compiler*, not the island computation itself — re-pinning
 the same literal here would be both redundant coverage and R0801 bait)."""
 
 
-@pytest.mark.parametrize("stem", _ALL_STEMS)
+@pytest.mark.parametrize("stem", ALL_STEMS)
 def test_compiles_clean_for_every_ground_truth(stem: str):
     """compile_pda succeeds (no raise) on every ground-truth grammar."""
-    pda = _pda_for(GROUND_TRUTH / stem)
+    pda = pda_for(GROUND_TRUTH / stem)
     assert isinstance(pda, PdaTables)
     assert isinstance(pda.start_key, (CloneKey, IslandRef))
     assert isinstance(pda.instance_grammar, IrAst)
 
 
-@pytest.mark.parametrize("stem", _ALL_STEMS)
+@pytest.mark.parametrize("stem", ALL_STEMS)
 def test_clone_count_matches_pinned(stem: str):
     """The compiled clone count matches the pinned, coordinator-verified value."""
-    pda = _pda_for(GROUND_TRUTH / stem)
-    assert len(pda.clones) == _PINNED_CLONE_COUNTS[stem]
+    pda = pda_for(GROUND_TRUTH / stem)
+    assert len(pda.clones) == PINNED_CLONE_COUNTS[stem]
 
 
-@pytest.mark.parametrize("stem", _ALL_STEMS)
+@pytest.mark.parametrize("stem", ALL_STEMS)
 def test_no_pending_placeholder_leaks(stem: str):
     """Every clone's own name matches its key's — no in-progress placeholder remains.
 
@@ -175,36 +175,36 @@ def test_no_pending_placeholder_leaks(stem: str):
     name) before compiling the body; a real rule is never named ``""``, so a
     name/key mismatch (or an empty name) would mean a placeholder leaked.
     """
-    pda = _pda_for(GROUND_TRUTH / stem)
+    pda = pda_for(GROUND_TRUTH / stem)
     for key, spec in pda.clones.items():
         assert spec.name == key.name
         assert spec.name
 
 
-@pytest.mark.parametrize("stem", sorted(_PINNED_ISLANDS))
+@pytest.mark.parametrize("stem", sorted(PINNED_ISLANDS))
 def test_island_set_matches_pinned(stem: str):
     """The island rule set matches the pinned, coordinator-verified value."""
-    pda = _pda_for(GROUND_TRUTH / stem)
-    assert sorted(pda.islands) == _PINNED_ISLANDS[stem]
+    pda = pda_for(GROUND_TRUTH / stem)
+    assert sorted(pda.islands) == PINNED_ISLANDS[stem]
 
 
-@pytest.mark.parametrize("stem", _ALL_STEMS)
+@pytest.mark.parametrize("stem", ALL_STEMS)
 def test_island_rules_are_never_cloned(stem: str):
     """No CloneKey ever names an island rule — islands opt out of cloning entirely."""
-    pda = _pda_for(GROUND_TRUTH / stem)
+    pda = pda_for(GROUND_TRUTH / stem)
     for key in pda.clones:
         assert key.name not in pda.islands
 
 
-@pytest.mark.parametrize("stem", _ALL_STEMS)
+@pytest.mark.parametrize("stem", ALL_STEMS)
 def test_refs_carry_islandref_iff_their_target_is_an_island(stem: str):
     """A ``ref`` spec's payload is an IslandRef exactly when its target is an island.
 
     Every other ``ref`` spec resolves to a :class:`CloneKey` naming a
     non-island rule — the two payload shapes never cross.
     """
-    pda = _pda_for(GROUND_TRUTH / stem)
-    for spec in _all_specs(pda):
+    pda = pda_for(GROUND_TRUTH / stem)
+    for spec in all_specs(pda):
         if spec.kind != REF:
             continue
         target = spec.payload
@@ -224,7 +224,7 @@ def test_arithmetic_ws_stopgate_excludes_newline_only_when_the_tail_reaches_it()
     ``ws term "\\n"`` shape) — otherwise ``\\n`` stays in the stop-set since the
     loop may safely keep consuming it (the ``ws "=" ...`` shape, pivot 4).
     """
-    pda = _pda_for(GROUND_TRUTH / "arithmetic.gbnf")
+    pda = pda_for(GROUND_TRUTH / "arithmetic.gbnf")
     ws_clones = [(k, s) for k, s in pda.clones.items() if k.name == "ws"]
     assert ws_clones
     saw_excluding = saw_including = False
@@ -253,16 +253,16 @@ def test_json_ws_is_cloned_with_a_greedy_whitespace_stopgate():
     whitespace :class:`StopGate` (its hard tails carry no whitespace, so
     nothing is subtracted).
     """
-    pda = _pda_for(GROUND_TRUTH / "json.gbnf")
+    pda = pda_for(GROUND_TRUTH / "json.gbnf")
     assert "ws" not in pda.islands
-    ws_clones = _clones_named(pda, "ws")
+    ws_clones = clones_named(pda, "ws")
     assert ws_clones
     for clone in ws_clones:
         gate = clone.arms[0].specs[0].gate
         assert isinstance(gate, StopGate)
         assert gate.charset == CharSet.from_chars(" ", "\t", "\n", "\r")
     assert not any(
-        spec.kind == REF and spec.payload == IslandRef("ws") for spec in _all_specs(pda)
+        spec.kind == REF and spec.payload == IslandRef("ws") for spec in all_specs(pda)
     )
 
 
@@ -274,8 +274,8 @@ def test_hand_grammar_optional_literal_gets_pair_gate_on_ll2_discriminator():
     PairGate: FIRST(``"fx"``) overlaps FIRST(``"f1"``) on the leading char,
     but the second char discriminates.
     """
-    pda = _pda_from_text('root ::= "fx"? "f1"\n')
-    root = _sole_clone(pda, "root")
+    pda = pda_from_text('root ::= "fx"? "f1"\n')
+    root = sole_clone(pda, "root")
     fx_spec = root.arms[0].specs[0]
     assert fx_spec.kind == LIT
     assert fx_spec.payload == "fx"
@@ -287,8 +287,8 @@ def test_hand_grammar_unbounded_negated_charclass_gets_stopgate():
     """An unbounded ``[^"]*`` loop with no FIRST/continuation overlap stays a
     plain non-greedy StopGate.
     """
-    pda = _pda_from_text('root ::= [^"]* "\\""\n')
-    root = _sole_clone(pda, "root")
+    pda = pda_from_text('root ::= [^"]* "\\""\n')
+    root = sole_clone(pda, "root")
     loop_spec = root.arms[0].specs[0]
     assert loop_spec.kind == CC
     assert isinstance(loop_spec.gate, StopGate)
@@ -300,9 +300,9 @@ def test_hand_grammar_ref_to_a_genuine_island_carries_islandref():
     demotes under P2), so ``x`` is flagged an island, and a ref to it from
     ``root`` carries an :class:`IslandRef`, never a :class:`CloneKey`.
     """
-    pda = _pda_from_text('root ::= x\nx ::= n "x" | n "y"\nn ::= [0-9]+\n')
+    pda = pda_from_text('root ::= x\nx ::= n "x" | n "y"\nn ::= [0-9]+\n')
     assert pda.islands == frozenset({"x"})
-    root = _sole_clone(pda, "root")
+    root = sole_clone(pda, "root")
     ref_spec = root.arms[0].specs[0]
     assert ref_spec.kind == REF
     assert ref_spec.payload == IslandRef("x")
@@ -321,9 +321,9 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
     returning the wrong model.
     """
     text = 'root ::= x "ab"?\nx ::= [a-c]*\n'
-    pda = _pda_from_text(text)
+    pda = pda_from_text(text)
     assert "x" in pda.islands
-    root = _sole_clone(pda, "root")
+    root = sole_clone(pda, "root")
     ref_spec = root.arms[0].specs[0]
     assert ref_spec.kind == REF
     assert ref_spec.payload == IslandRef("x", fail=True)
@@ -344,8 +344,8 @@ def test_hand_grammar_value_str_rule_clone_is_match_only():
     flagged ``match_only`` — its interior is pure-terminal, no sub-models
     to build below it.
     """
-    pda = _pda_from_text('root ::= lit\nlit ::= "a" | "b"\n')
-    lit_specs = _clones_named(pda, "lit")
+    pda = pda_from_text('root ::= lit\nlit ::= "a" | "b"\n')
+    lit_specs = clones_named(pda, "lit")
     assert lit_specs
     assert all(spec.match_only for spec in lit_specs)
 
@@ -355,8 +355,8 @@ def test_hand_grammar_empty_alternation_arm_becomes_the_default_not_a_gated_arm(
     it becomes the clone's default arm instead (``compile_arms``'s
     "empty arm never gates" rule).
     """
-    pda = _pda_from_text('root ::= opt "z"\nopt ::= "a" | ""\n')
-    opt = _sole_clone(pda, "opt")
+    pda = pda_from_text('root ::= opt "z"\nopt ::= "a" | ""\n')
+    opt = sole_clone(pda, "opt")
     assert len(opt.arms) == 1
     assert opt.default == ()
 
@@ -366,7 +366,7 @@ def test_hand_grammar_empty_alternation_arm_becomes_the_default_not_a_gated_arm(
 
 def test_island_tables_is_memoised_per_island_rule():
     """island_tables(name) returns the identical ParserTables object on repeat calls."""
-    pda = _pda_for(GROUND_TRUTH / "json_arr.gbnf")  # json itself is island-free now
+    pda = pda_for(GROUND_TRUTH / "json_arr.gbnf")  # json itself is island-free now
     name = next(iter(pda.islands))
     first = pda.island_tables(name)
     second = pda.island_tables(name)
@@ -377,10 +377,10 @@ def test_island_tables_is_memoised_per_island_rule():
 # ── compile_reduce_pda (b1 grammar-text path) ───────────────────────────
 
 
-def _reduce_pda_for(flavour: IrFlavour) -> PdaTables:
+def reduce_pda_for(flavour: IrFlavour) -> PdaTables:
     """Compile ``flavour``'s self-grammar reduce PDA directly.
 
-    The b1 twin of :func:`_pda_for`, bypassing :mod:`lexic.compile`'s cache:
+    The b1 twin of :func:`pda_for`, bypassing :mod:`lexic.compile`'s cache:
     :func:`~lexic.compile.self_grammar_pda` composes exactly this, plus the
     whole-grammar-opt-out-to-``None`` conversion — see ``test_compile.py``
     for that seam.
@@ -396,7 +396,7 @@ def _reduce_pda_for(flavour: IrFlavour) -> PdaTables:
 def test_compile_reduce_pda_builds_a_reduce_pda_for_the_gbnf_self_grammar():
     """compile_reduce_pda succeeds on GBNF's own self-grammar and sets .reduce
     to a ReduceRun bundling the flavour's own reducer."""
-    pda = _reduce_pda_for(GBNF_FLAVOUR)
+    pda = reduce_pda_for(GBNF_FLAVOUR)
     assert isinstance(pda, PdaTables)
     assert isinstance(pda.reduce, ReduceRun)
     assert pda.reduce.reducer is GBNF_FLAVOUR.reducer
@@ -405,7 +405,7 @@ def test_compile_reduce_pda_builds_a_reduce_pda_for_the_gbnf_self_grammar():
 def test_compile_reduce_pda_gbnf_start_rule_is_a_clone_not_an_island():
     """GBNF's start rule ("grammar") is not itself an island — the start key
     is a real CloneKey the predictive runtime can enter directly."""
-    pda = _reduce_pda_for(GBNF_FLAVOUR)
+    pda = reduce_pda_for(GBNF_FLAVOUR)
     assert isinstance(pda.start_key, CloneKey)
     assert pda.start_key.name == "grammar"
 
@@ -415,7 +415,7 @@ def test_compile_reduce_pda_abnf_start_rule_is_a_clone_not_an_island():
     boundary-shift left-factor (``filler* rule rl-cont* c-wsp* c-nl?``) — the
     start key is a CloneKey the predictive runtime can enter directly (before
     the factor it was the last ABNF island, the whole-grammar opt-out)."""
-    pda = _reduce_pda_for(ABNF_FLAVOUR)
+    pda = reduce_pda_for(ABNF_FLAVOUR)
     assert isinstance(pda.start_key, CloneKey)
     assert pda.start_key.name == "rulelist"
 
@@ -425,7 +425,7 @@ def test_every_reduce_clone_is_baked_build_reduce_never_a_model_mode():
     group) to BUILD_REDUCE with a well-formed reduce_kind — the reduce
     target skips the model-specific optimizer passes entirely.
     """
-    pda = _reduce_pda_for(GBNF_FLAVOUR)
+    pda = reduce_pda_for(GBNF_FLAVOUR)
     start = pda.program.start
     assert isinstance(start, FlatClone)  # not an IslandRef opt-out
     for clone in all_clones([start]):

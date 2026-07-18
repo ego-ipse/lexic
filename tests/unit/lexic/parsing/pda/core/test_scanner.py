@@ -36,12 +36,12 @@ from lexic.parsing.pda.core.scanner import (
     scan_run_any,
 )
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
-    _self_grammar_analysis,
+    self_grammar_analysis,
     sg_scan_arm_fixture_analysis,
 )
 
 
-def _rules(name: str) -> dict[str, IrRule]:
+def flavour_rules(name: str) -> dict[str, IrRule]:
     """The lifted self-grammar rule table for flavour ``name``."""
     grammar = lift_optional_nullables(get_flavour(name).grammar)
     return {str(r.name): r for r in grammar.rules}
@@ -51,9 +51,9 @@ def _rules(name: str) -> dict[str, IrRule]:
 
 
 @pytest.fixture(name="cwsp")
-def _cwsp():
+def cwsp_fixture():
     """The ABNF ``c-wsp`` recogniser and its root index."""
-    rec = build_recognizer(_rules("abnf"), frozenset({"c-wsp"}))
+    rec = build_recognizer(flavour_rules("abnf"), frozenset({"c-wsp"}))
     assert rec is not None
     return rec, rec.index["c-wsp"]
 
@@ -108,7 +108,7 @@ def test_cwsp_scan_match_is_the_folding_gate(cwsp, text, matches):
 )
 def test_gbnf_n_scan_run_skips_comment_lines(text, end):
     """GBNF ``n = nunit+`` skips whitespace and whole ``#…\\n`` comment lines."""
-    rec = build_recognizer(_rules("gbnf"), frozenset({"n"}))
+    rec = build_recognizer(flavour_rules("gbnf"), frozenset({"n"}))
     assert rec is not None
     assert scan_run(text, 0, rec, rec.index["n"]) == end
 
@@ -155,7 +155,7 @@ def test_scan_run_any_skips_union_of_noise_roots():
     The factored ``rl-cont`` leads with ``c-nl filler*``; skipping the union of
     the noise roots lands on the first content char (a rulename alpha) or EOF.
     """
-    rec = build_recognizer(_rules("abnf"), frozenset({"c-nl", "filler"}))
+    rec = build_recognizer(flavour_rules("abnf"), frozenset({"c-nl", "filler"}))
     assert rec is not None
     roots = (rec.index["c-nl"], rec.index["filler"])
     # blank line, then a comment line, then a rulename start
@@ -170,7 +170,7 @@ def test_scan_run_any_skips_union_of_noise_roots():
 
 
 @pytest.fixture(name="probe_gate")
-def _probe_gate():
+def probe_gate_fixture():
     """A tiny ``name``/``ws`` recognizer + ``ScanGate(SG_PROBE, ...)`` — the
     GBNF ``sequence[1]`` shape in miniature: take on ``{`` directly, else
     probe ``name ws* "::="`` (``take_on_match=False`` — a matched header
@@ -270,13 +270,13 @@ def test_gbnf_self_arm_gate_scan_gate_take(text, admits):
     empty-seq``): a rulename-led overlap followed by ``::=`` refutes the take
     reading (escape to the empty arm — the ``bar-arm``/next-rule-header
     shapes), while ordinary sequence content and a bare rulename both take."""
-    analysis = _self_grammar_analysis("gbnf")
+    analysis = self_grammar_analysis("gbnf")
     gate = analysis.taxonomy.struct_arm_gates["arm"]
     assert scan_gate_take(text, 0, gate.gate) is admits
 
 
 @pytest.fixture(name="sg_scan_arm_gate")
-def _sg_scan_arm_gate():
+def sg_scan_arm_gate_fixture():
     """The ``SG_SCAN`` gate off :func:`sg_scan_arm_fixture_analysis` (shared
     with ``test_analysis.test_instance_grammar_empty_last_arm_demotes_to_sg_scan``)."""
     analysis = sg_scan_arm_fixture_analysis()

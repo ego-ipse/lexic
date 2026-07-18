@@ -42,7 +42,7 @@ from tests.unit.lexic.parsing.ir_fixtures import rule_of as _rule
 # ── helpers ───────────────────────────────────────────────────────────────
 
 
-def _lifted_analysis(stem: str) -> GrammarAnalysis:
+def lifted_analysis(stem: str) -> GrammarAnalysis:
     """Analyse the lifted codegen grammar of a ground-truth grammar file."""
     path = GROUND_TRUTH / stem
     flavour = flavour_for_extension(path)
@@ -51,7 +51,7 @@ def _lifted_analysis(stem: str) -> GrammarAnalysis:
     return GrammarAnalysis(lifted)
 
 
-def _items(arm: IrSequence) -> list[IrItem]:
+def arm_items(arm: IrSequence) -> list[IrItem]:
     """The :class:`IrItem` members of one sequence arm, in order."""
     return [i for i in arm if isinstance(i, IrItem)]
 
@@ -75,7 +75,7 @@ def _items(arm: IrSequence) -> list[IrItem]:
 # ``list.gbnf``'s ``item`` drop out of the demoted set entirely (not just
 # un-islanded) — their own ``[^\n]*``-shaped loops now resolve with no
 # FIRST∩FOLLOW overlap at all, so no stop-gate is needed.
-_PINNED_ISLANDS: dict[str, list[str]] = {
+PINNED_ISLANDS: dict[str, list[str]] = {
     "arithmetic.gbnf": [],
     "c.gbnf": [
         "factor",
@@ -98,7 +98,7 @@ _PINNED_ISLANDS: dict[str, list[str]] = {
 # its item loop's FIRST overlaps only *soft* followers, a class the old
 # hard-continuation guard never classified (it silently baked a greedy
 # stop-set); the P3 noise-skip gate now carries it.
-_PINNED_DEMOTED: dict[str, list[str]] = {
+PINNED_DEMOTED: dict[str, list[str]] = {
     "arithmetic.gbnf": ["ws"],
     "c.gbnf": ["multilinecomment"],
     "chess.gbnf": ["nonpawn", "pawn"],
@@ -112,30 +112,30 @@ _PINNED_DEMOTED: dict[str, list[str]] = {
 }
 
 
-@pytest.mark.parametrize("stem", sorted(_PINNED_ISLANDS))
+@pytest.mark.parametrize("stem", sorted(PINNED_ISLANDS))
 def test_island_set_matches_poc(stem: str):
     """The island rule set equals the PoC's milestone-1 output exactly."""
-    analysis = _lifted_analysis(stem)
-    assert sorted(analysis.islands) == _PINNED_ISLANDS[stem]
+    analysis = lifted_analysis(stem)
+    assert sorted(analysis.islands) == PINNED_ISLANDS[stem]
 
 
-@pytest.mark.parametrize("stem", sorted(_PINNED_DEMOTED))
+@pytest.mark.parametrize("stem", sorted(PINNED_DEMOTED))
 def test_demotion_set_matches_poc(stem: str):
     """The stop-set / LL(2) demotion set equals the PoC's output exactly."""
-    analysis = _lifted_analysis(stem)
-    assert sorted(analysis.demoted) == _PINNED_DEMOTED[stem]
+    analysis = lifted_analysis(stem)
+    assert sorted(analysis.demoted) == PINNED_DEMOTED[stem]
 
 
 def test_islands_are_the_conflict_keys():
     """``islands`` is exactly the set of rules carrying an island conflict."""
-    analysis = _lifted_analysis("json.gbnf")
+    analysis = lifted_analysis("json.gbnf")
     assert analysis.islands == frozenset(analysis.conflicts)
 
 
 # ── P2 k-window demotion (flag OFF baseline / flag ON gated behavior) ──────
 
 
-def _self_grammar_analysis(name: str) -> GrammarAnalysis:
+def self_grammar_analysis(name: str) -> GrammarAnalysis:
     """Analysis of a flavour's own lifted self-grammar (gbnf/abnf)."""
     return GrammarAnalysis(lift_optional_nullables(get_flavour(name).grammar))
 
@@ -143,10 +143,10 @@ def _self_grammar_analysis(name: str) -> GrammarAnalysis:
 @pytest.mark.parametrize(
     ("factory", "expected_count"),
     [
-        (lambda: _self_grammar_analysis("gbnf"), 3),
-        (lambda: _self_grammar_analysis("abnf"), 0),
-        (lambda: _lifted_analysis("json.gbnf"), 0),
-        (lambda: _lifted_analysis("chess.gbnf"), 0),
+        (lambda: self_grammar_analysis("gbnf"), 3),
+        (lambda: self_grammar_analysis("abnf"), 0),
+        (lambda: lifted_analysis("json.gbnf"), 0),
+        (lambda: lifted_analysis("chess.gbnf"), 0),
     ],
     ids=["gbnf-self", "abnf-self", "json.gbnf", "chess.gbnf"],
 )
@@ -179,11 +179,11 @@ def test_demotes_chess_nonpawn_loop():
     """Chess's ``nonpawn`` loop (an island pre-P2) demotes to a k-window gate,
     and the taxonomy STORES the gate spec (the option-(a) channel the clone
     compiler reads back)."""
-    analysis = _lifted_analysis("chess.gbnf")
+    analysis = lifted_analysis("chess.gbnf")
     assert "nonpawn" not in analysis.islands
     assert analysis.demoted["nonpawn"] == ["nonpawn[1]: loop k-window (demoted)"]
 
-    items = _items(analysis.rules["nonpawn"].body[0])
+    items = arm_items(analysis.rules["nonpawn"].body[0])
     assert id(items[1]) in analysis.taxonomy.loop_gates
     gate = kwindow.loop_gate(analysis.rules, items, 1, analysis.follow["nonpawn"])
     assert gate is not None
@@ -194,11 +194,11 @@ def test_demotes_gbnf_self_cc_esc_arm():
     """The GBNF self-grammar's ``cc-esc`` arm-selection (an island pre-P2)
     demotes, and the taxonomy STORES the per-arm windows aligned to the rule
     body's arms."""
-    analysis = _self_grammar_analysis("gbnf")
+    analysis = self_grammar_analysis("gbnf")
     assert "cc-esc" not in analysis.islands
     assert analysis.demoted["cc-esc"] == ["cc-esc: arms k-window separable (demoted)"]
 
-    arms = [_items(arm) for arm in analysis.rules["cc-esc"].body]
+    arms = [arm_items(arm) for arm in analysis.rules["cc-esc"].body]
     stored = analysis.taxonomy.arm_gates["cc-esc"]
     assert len(stored) == len(arms)
     gate = kwindow.arm_gate(analysis.rules, arms, analysis.follow["cc-esc"])
@@ -211,14 +211,14 @@ def test_json_p3_demotions_store_their_peek_specs(stem: str):
     """json's remaining ws-led decisions demote via P3 and STORE their specs
     in the taxonomy channels: ``value`` an arm gate (7 post-noise selectors),
     ``array-item2``/``object-item2`` loop gates taking on the separator."""
-    analysis = _lifted_analysis(stem)
+    analysis = lifted_analysis(stem)
     assert analysis.demoted["value"] == ["value: arms noise-skip separable (demoted)"]
     w, sets = analysis.taxonomy.pn_arm_gates["value"]
     assert w == CharSet.from_chars(" ", "\t", "\n", "\r")
     assert len(sets) == len(analysis.rules["value"].body)
     for name in ("array-item2", "object-item2"):
         assert analysis.demoted[name] == [f"{name}[1]: loop noise-skip (demoted)"]
-        items = _items(analysis.rules[name].body[0])
+        items = arm_items(analysis.rules[name].body[0])
         stored = analysis.taxonomy.pn_loop_gates[id(items[1])]
         assert stored == (w, CharSet.from_chars(","))
 
@@ -327,7 +327,7 @@ def test_loop_over_hard_follower_stays_demoted():
 # P6-licensed noise-greedy twin ─────────────────────────────────────────────
 
 
-def _soft_gap_shape(*, noise: bool) -> GrammarAnalysis:
+def soft_gap_shape(*, noise: bool) -> GrammarAnalysis:
     """The ``root ::= a w* t?`` soft-gap shape: ``w*``'s FIRST overlaps only
     the soft ``t?`` follower (no hard overlap — the rest is nullable, so the
     top-level ``hard_cont_at`` check falls through to EOF and misses this
@@ -358,7 +358,7 @@ def test_soft_gap_loop_islands_as_not_gatable():
     """The soft-gap shape, un-licensed (the rule itself is semantic and IS the
     start rule): no gate separates ``w*`` from ``t?``, so it islands with the
     exact hard note the soft-gap classification adds."""
-    analysis = _soft_gap_shape(noise=False)
+    analysis = soft_gap_shape(noise=False)
     assert analysis.islands == frozenset({"shaped"})
     assert analysis.conflicts["shaped"] == [
         "shaped[1]: loop over-eats soft FOLLOW, not gatable"
@@ -369,7 +369,7 @@ def test_soft_gap_loop_islands_as_not_gatable():
 def test_soft_gap_loop_licensed_noise_greedy_when_noise_to_noise():
     """The same shape, wrapped ``semantic=False`` under a semantic start rule:
     the P6 licence grants it (noise↔noise re-split) — demoted, not islanded."""
-    analysis = _soft_gap_shape(noise=True)
+    analysis = soft_gap_shape(noise=True)
     assert "shaped" not in analysis.islands
     assert analysis.demoted["shaped"] == [
         "shaped[1]: loop stop-set applied (noise-greedy)"
@@ -389,7 +389,7 @@ def test_self_grammar_struct_gate_kinds(name: str, root_rule: str, expected_kind
     self-grammar's full struct-gate kind multiset matches exactly. GBNF carries
     a second ``SG_MATCH`` (six gates total) since ``n``'s own ``nunit+`` loop
     now demotes via the exact-match gate's P6 precision clause."""
-    analysis = _self_grammar_analysis(name)
+    analysis = self_grammar_analysis(name)
     assert root_rule not in analysis.conflicts
     kinds = sorted(gate.kind for gate in analysis.taxonomy.struct_loop_gates.values())
     assert kinds == expected_kinds
@@ -404,7 +404,7 @@ def test_gbnf_self_arm_struct_gate():
     ``empty-seq`` arm) sits at index 1, and the ambiguity resolves via the P5
     rulename-probe — ``arm``'s exit skips ``n`` into the next rule's
     ``rulename n* "::="`` header, which overlaps the item's own lead."""
-    analysis = _self_grammar_analysis("gbnf")
+    analysis = self_grammar_analysis("gbnf")
     assert set(analysis.taxonomy.struct_arm_gates) == {"arm"}
     gate = analysis.taxonomy.struct_arm_gates["arm"]
     assert gate.escape == 1
@@ -417,7 +417,7 @@ def test_gbnf_self_arm_struct_gate():
 def test_abnf_self_has_no_struct_arm_gates():
     """ABNF's self-grammar has no empty-arm alternation shaped like GBNF's
     ``arm`` — the store stays empty."""
-    analysis = _self_grammar_analysis("abnf")
+    analysis = self_grammar_analysis("abnf")
     assert analysis.taxonomy.struct_arm_gates == {}
 
 
@@ -539,10 +539,10 @@ def test_fail_islands_pins_the_f1_escape_rule():
     assert analysis.rules["x"].semantic is True
 
 
-@pytest.mark.parametrize("stem", sorted(_PINNED_ISLANDS))
+@pytest.mark.parametrize("stem", sorted(PINNED_ISLANDS))
 def test_fail_islands_subset_of_islands_for_every_ground_truth(stem: str):
     """``fail_islands`` is a subset of ``islands`` on every ground-truth grammar."""
-    analysis = _lifted_analysis(stem)
+    analysis = lifted_analysis(stem)
     assert analysis.fail_islands <= analysis.islands
 
 
@@ -555,7 +555,7 @@ def test_json_ws_escape_is_noise_greedy_licensed(stem: str):
     not an island, not a fail-island (``semantic_dump``/``to_text`` are
     unchanged, only the split between adjacent noise fields moves).
     """
-    analysis = _lifted_analysis(stem)
+    analysis = lifted_analysis(stem)
     assert "ws" not in analysis.islands
     assert analysis.demoted["ws"] == ["ws[0]: loop stop-set applied (noise-greedy)"]
     assert analysis.fail_islands == frozenset()
@@ -754,7 +754,7 @@ def test_loop_policy_island_when_not_gatable():
 # ── raising default: an unregistered atom type must not silently classify ──
 
 
-class _UnknownAtom(IrAtom):
+class UnknownAtom(IrAtom):
     """An atom type registered in no dispatch table — must trigger the raise."""
 
 
@@ -762,11 +762,11 @@ def test_unregistered_atom_type_raises_on_first():
     """FIRST of an atom type outside every dispatch table raises, not classifies."""
     analysis = _analysis(_rule("s", IrSequence(IrItem(IrLiteral("a")))))
     with pytest.raises(UnsupportedConstructError):
-        analysis.atom_first(_UnknownAtom())
+        analysis.atom_first(UnknownAtom())
 
 
 def test_unregistered_atom_type_raises_on_nullable():
     """Nullability of an unregistered atom type raises rather than defaulting."""
     analysis = _analysis(_rule("s", IrSequence(IrItem(IrLiteral("a")))))
     with pytest.raises(UnsupportedConstructError):
-        analysis.atom_nullable(_UnknownAtom())
+        analysis.atom_nullable(UnknownAtom())

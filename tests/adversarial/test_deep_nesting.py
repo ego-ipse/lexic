@@ -11,10 +11,10 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
-from tests.adversarial.adversarial_helpers import _nested
+from tests.adversarial.adversarial_helpers import nested
 
 # Minimal self-nesting grammar: an array of arrays (or the leaf "0").
-_GRAMMAR = (
+GRAMMAR = (
     'root  ::= array\narray ::= "[" (value ("," value)*)? "]"\nvalue ::= array | "0"\n'
 )
 
@@ -22,7 +22,7 @@ _GRAMMAR = (
 @pytest.mark.parametrize("depth", [400, 800])
 def test_deep_nesting_round_trips(depth: int) -> None:
     """Parsing then re-emitting a deeply nested array is byte-identical."""
-    compiled = compile_text(_GRAMMAR, cache_key=f"adversarial-deep-{depth}")
-    text = _nested(depth)
+    compiled = compile_text(GRAMMAR, cache_key=f"adversarial-deep-{depth}")
+    text = nested(depth)
     model = compiled.parse(text)
     assert model.to_text() == text

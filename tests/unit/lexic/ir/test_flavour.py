@@ -72,16 +72,16 @@ def test_irflavour_grammar_and_reducer_carry_no_default_on_the_abc():
 # provides: the R1 metadata ClassVars, grammar/reducer, and the emitter
 # actions. (Underscore-prefixed names are dataclass/ABC machinery — the
 # inherited emitter protocol — not flavour-authored surface.)
-_R1_ALLOWED = frozenset(
+R1_ALLOWED = frozenset(
     {"name", "extensions", "line_comment", "escapes", "grammar", "reducer", "actions"}
 )
 
 # Public names the inherited emitter protocol already provides (e.g. the
 # dispatch ``default``) — allowed by R1's "beyond IrEmitter inheritance".
-_INHERITED = frozenset(n for n in dir(IrEmitter) if not n.startswith("_"))
+INHERITED = frozenset(n for n in dir(IrEmitter) if not n.startswith("_"))
 
 # The Lark-era flavour methods that R1 deletes and nothing replaces.
-_DELETED_MEMBERS = (
+DELETED_MEMBERS = (
     "parse_quantifier",
     "parse_charclass",
     "normalize_literal",
@@ -89,7 +89,7 @@ _DELETED_MEMBERS = (
 )
 
 
-def _own_public_names(cls: type) -> set[str]:
+def own_public_names(cls: type) -> set[str]:
     """Public names defined directly on ``cls`` — excludes dunders and the
     underscore-prefixed dataclass/ABC internals that the emitter base adds."""
     return {name for name in vars(cls) if not name.startswith("_")}
@@ -107,7 +107,7 @@ def test_flavour_defines_no_members_beyond_r1_surface(flavour_cls: type):
     method) or extra attribute beyond what IrEmitter provides would show up
     here — R1 mandates none.
     """
-    stray = _own_public_names(flavour_cls) - _R1_ALLOWED - _INHERITED
+    stray = own_public_names(flavour_cls) - R1_ALLOWED - INHERITED
     assert not stray, f"{flavour_cls.__name__} defines beyond R1 surface: {stray}"
 
 
@@ -118,7 +118,7 @@ def test_flavour_defines_no_members_beyond_r1_surface(flavour_cls: type):
 )
 def test_flavour_has_no_deleted_lark_members(flavour_cls: type):
     """The Lark-era methods are gone (not even inherited) — R1 replaces none."""
-    present = [m for m in _DELETED_MEMBERS if hasattr(flavour_cls, m)]
+    present = [m for m in DELETED_MEMBERS if hasattr(flavour_cls, m)]
     assert not present, f"{flavour_cls.__name__} still exposes: {present}"
 
 

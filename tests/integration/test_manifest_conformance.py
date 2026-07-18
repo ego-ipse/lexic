@@ -45,19 +45,20 @@ from lexic.ir.flavour import IrFlavour
 from lexic.parsing import Reducer
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GRAMMARS, GROUND_TRUTH
 
-_GBNF_CORPUS = GBNF_GRAMMARS
-_ABNF_CORPUS = ABNF_GRAMMARS
+GBNF_CORPUS = GBNF_GRAMMARS
+ABNF_CORPUS = ABNF_GRAMMARS
 
 
-def _load(stem: str) -> IrFlavour:
+def load(stem: str) -> IrFlavour:
     """Load a shipped manifest by stem (e.g. ``gbnf``)."""
     return load_flavour_from_path(GRAMMARS / f"{stem}.flavour.ir")
 
 
-def _reducer(flavour: IrFlavour) -> Reducer:
-    reducer = flavour.reducer
-    assert isinstance(reducer, Reducer)
-    return reducer
+def reducer(flavour: IrFlavour) -> Reducer:
+    """The flavour's reducer, narrowed to :class:`Reducer` for its policy attrs."""
+    result = flavour.reducer
+    assert isinstance(result, Reducer)
+    return result
 
 
 # The ``registry_snapshot`` fixture is shared from ``tests/conftest.py``.
@@ -68,29 +69,29 @@ def _reducer(flavour: IrFlavour) -> Reducer:
 
 def test_gbnf_identity_repr_and_non_semantic() -> None:
     """GBNF steps 1–3: identity fields, per-section repr, non_semantic (C11)."""
-    loaded = _load("gbnf")
+    loaded = load("gbnf")
     assert loaded.name == "gbnf"
     assert loaded.extensions == (".gbnf",)
     assert loaded.line_comment == "#"
     assert repr(loaded.grammar) == repr(GBNF_GRAMMAR)
-    assert repr(_reducer(loaded).reductions) == repr(GBNF_REDUCTIONS)
+    assert repr(reducer(loaded).reductions) == repr(GBNF_REDUCTIONS)
     assert repr(loaded.actions) == repr(GBNF_ACTIONS)
     assert loaded.grammar.non_semantic == GBNF_GRAMMAR.non_semantic
 
 
 def test_abnf_identity_repr_and_non_semantic() -> None:
     """ABNF steps 1–3."""
-    loaded = _load("abnf")
+    loaded = load("abnf")
     assert loaded.name == "abnf"
     assert loaded.extensions == (".abnf",)
     assert loaded.line_comment == ";"
     assert repr(loaded.grammar) == repr(ABNF_GRAMMAR)
-    assert repr(_reducer(loaded).reductions) == repr(ABNF_REDUCTIONS)
+    assert repr(reducer(loaded).reductions) == repr(ABNF_REDUCTIONS)
     assert repr(loaded.actions) == repr(ABNF_ACTIONS)
     assert loaded.grammar.non_semantic == ABNF_GRAMMAR.non_semantic
 
 
-def _assert_codec_parity(
+def assert_codec_parity(
     loaded: EscapeCodec, authored: EscapeCodec, points: tuple[int, ...]
 ) -> None:
     """Step 4 — behavioural codec parity on a pinned battery (never ``==``)."""
@@ -105,52 +106,52 @@ def _assert_codec_parity(
 
 def test_gbnf_escape_codec_behavioural_parity() -> None:
     """GBNF step 4 — control (CLASS_SHORT), ``]`` (CLASS_META), printables."""
-    _assert_codec_parity(
-        _load("gbnf").escapes, GBNF_ESCAPES, (0x0A, 0x09, 0x5D, ord("A"), ord("-"))
+    assert_codec_parity(
+        load("gbnf").escapes, GBNF_ESCAPES, (0x0A, 0x09, 0x5D, ord("A"), ord("-"))
     )
 
 
 def test_abnf_escape_codec_behavioural_parity() -> None:
     """ABNF step 4 — the identity codec spells only printables."""
-    _assert_codec_parity(
-        _load("abnf").escapes, ABNF_ESCAPES, (ord("A"), ord("-"), ord(" "))
+    assert_codec_parity(
+        load("abnf").escapes, ABNF_ESCAPES, (ord("A"), ord("-"), ord(" "))
     )
 
 
 # ── step 5 (parse parity across the corpus) ───────────────────────────────
 
 
-@pytest.mark.parametrize("grammar_file", _GBNF_CORPUS)
+@pytest.mark.parametrize("grammar_file", GBNF_CORPUS)
 def test_gbnf_parse_parity(grammar_file: str) -> None:
     """GBNF step 5 — loaded vs authored ``parse_grammar`` on every GT grammar."""
     text = (GROUND_TRUTH / grammar_file).read_text(encoding="utf-8")
-    assert parse_grammar(text, _load("gbnf")) == parse_grammar(text, GBNF_FLAVOUR)
+    assert parse_grammar(text, load("gbnf")) == parse_grammar(text, GBNF_FLAVOUR)
 
 
-@pytest.mark.parametrize("grammar_file", _ABNF_CORPUS)
+@pytest.mark.parametrize("grammar_file", ABNF_CORPUS)
 def test_abnf_parse_parity(grammar_file: str) -> None:
     """ABNF step 5."""
     text = (GROUND_TRUTH / grammar_file).read_text(encoding="utf-8")
-    assert parse_grammar(text, _load("abnf")) == parse_grammar(text, ABNF_FLAVOUR)
+    assert parse_grammar(text, load("abnf")) == parse_grammar(text, ABNF_FLAVOUR)
 
 
 # ── step 6 (emit parity on the corpus's canonical IR) ─────────────────────
 
 
-@pytest.mark.parametrize("grammar_file", _GBNF_CORPUS)
+@pytest.mark.parametrize("grammar_file", GBNF_CORPUS)
 def test_gbnf_emit_parity(grammar_file: str) -> None:
     """GBNF step 6 — loaded vs authored emit on the grammar's canonical IR."""
     text = (GROUND_TRUTH / grammar_file).read_text(encoding="utf-8")
     canonical = canonicalize(parse_grammar(text, GBNF_FLAVOUR))
-    assert _load("gbnf").apply(canonical) == GBNF_FLAVOUR.apply(canonical)
+    assert load("gbnf").apply(canonical) == GBNF_FLAVOUR.apply(canonical)
 
 
-@pytest.mark.parametrize("grammar_file", _ABNF_CORPUS)
+@pytest.mark.parametrize("grammar_file", ABNF_CORPUS)
 def test_abnf_emit_parity(grammar_file: str) -> None:
     """ABNF step 6."""
     text = (GROUND_TRUTH / grammar_file).read_text(encoding="utf-8")
     canonical = canonicalize(parse_grammar(text, ABNF_FLAVOUR))
-    assert _load("abnf").apply(canonical) == ABNF_FLAVOUR.apply(canonical)
+    assert load("abnf").apply(canonical) == ABNF_FLAVOUR.apply(canonical)
 
 
 # ── step 7 (integration under the authored name) ──────────────────────────
@@ -159,7 +160,7 @@ def test_abnf_emit_parity(grammar_file: str) -> None:
 @pytest.mark.usefixtures("registry_snapshot")
 def test_gbnf_manifest_drives_the_compile_pipeline() -> None:
     """GBNF step 7 — register → compile → parse → exact ``to_text`` round-trip."""
-    register_flavour(_load("gbnf"))
+    register_flavour(load("gbnf"))
     text = (GROUND_TRUTH / "json.gbnf").read_text(encoding="utf-8")
     cg = compile_pkg.compile_text(text, flavour="gbnf")
     sample = '{"a": [1, true, "x"]}'
@@ -169,7 +170,7 @@ def test_gbnf_manifest_drives_the_compile_pipeline() -> None:
 @pytest.mark.usefixtures("registry_snapshot")
 def test_abnf_manifest_drives_the_compile_pipeline() -> None:
     """ABNF step 7."""
-    register_flavour(_load("abnf"))
+    register_flavour(load("abnf"))
     text = (GROUND_TRUTH / "arithmetic.abnf").read_text(encoding="utf-8")
     cg = compile_pkg.compile_text(text, flavour="abnf")
     sample = "1+2*3"

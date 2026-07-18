@@ -643,7 +643,7 @@ def test_charclass_holds_codepoints_and_ranges():
 # union and would reject it statically.
 
 
-def _canonical_rule(name: str, atom: IrAtom) -> IrRule:
+def canonical_rule(name: str, atom: IrAtom) -> IrRule:
     """Hand-built canonical single-arm rule for a given atom."""
     return IrRule(name, IrAlternation(IrSequence(IrItem(atom))))
 
@@ -752,24 +752,24 @@ def test_iritem_unknown_atom_passes_through():
 def test_irrule_body_coercion_from_alternation():
     """An IrAlternation body is taken as-is."""
     body = IrAlternation(IrSequence(IrItem(IrLiteral("a"))))
-    assert IrRule("x", body) == _canonical_rule("x", IrLiteral("a"))
+    assert IrRule("x", body) == canonical_rule("x", IrLiteral("a"))
 
 
 def test_irrule_body_coercion_from_sequence():
     """An IrSequence body wraps up to a single-arm alternation."""
     body = IrSequence(IrItem(IrLiteral("a")))
-    assert IrRule("x", body) == _canonical_rule("x", IrLiteral("a"))
+    assert IrRule("x", body) == canonical_rule("x", IrLiteral("a"))
 
 
 def test_irrule_body_coercion_from_item():
     """An IrItem body wraps up to a single-arm alternation."""
     body = IrItem(IrLiteral("a"))
-    assert IrRule("x", body) == _canonical_rule("x", IrLiteral("a"))
+    assert IrRule("x", body) == canonical_rule("x", IrLiteral("a"))
 
 
 def test_irrule_body_coercion_from_bare_atom():
     """A bare IrAtom body wraps all the way up to a single-arm alternation."""
-    assert IrRule("x", IrLiteral("a")) == _canonical_rule("x", IrLiteral("a"))
+    assert IrRule("x", IrLiteral("a")) == canonical_rule("x", IrLiteral("a"))
 
 
 def test_irrule_body_alternation_branch_runs_before_atom_branch():
@@ -815,7 +815,7 @@ def test_sugared_rule_equals_and_reprs_as_hand_built_canonical():
     """A sugared single-arm rule equals, and reprs identically to, its
     hand-built canonical form (repr strings compared — no eval, per policy)."""
     sugared = IrRule("cr", IrCharClass(IrChr("\r")))
-    canonical = _canonical_rule("cr", IrCharClass(IrChr("\r")))
+    canonical = canonical_rule("cr", IrCharClass(IrChr("\r")))
     assert sugared == canonical
     assert repr(sugared) == repr(canonical)
 

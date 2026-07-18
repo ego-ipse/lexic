@@ -161,10 +161,46 @@ def _ir_same(a: object, b: object) -> bool:
     return a == b
 
 
-def _model_same(a: object, b: object) -> bool:
-    """Instance agreement: both models reconstruct the same text."""
+def _semantic_same(a: object, b: object) -> bool:
+    """Recursive SEMANTIC equality — the engines' designed contract.
+
+    The PDA's greed over noise is licensed by the analysis (the P6
+    noise-greedy licence: an over-eatable gap must be provably noise↔noise),
+    so on a noise-ambiguous grammar the two engines may attach whitespace to
+    different ``ws?`` slots while agreeing on every SEMANTIC field. This
+    check enforces exactly that promise: same concrete types, semantic-bound
+    fields recursively equal; non-semantic (noise) fields free to differ.
+
+    :param a: One engine's model (or sub-value).
+    :param b: The other engine's model (or sub-value).
+    :returns: ``True`` when the semantic content is identical.
+    """
     if isinstance(a, GrammarModel) and isinstance(b, GrammarModel):
-        return a.to_text() == b.to_text()
+        if type(a) is not type(b):
+            return False
+        binds = type(a).bound_fields()
+        if not binds:  # value_str / alternation leaf — full equality
+            return a == b
+        return all(
+            _semantic_same(getattr(a, name), getattr(b, name))
+            for _slot, (name, bind) in binds.items()
+            if bind.semantic
+        )
+    if isinstance(a, tuple) and isinstance(b, tuple):
+        return len(a) == len(b) and all(_semantic_same(x, y) for x, y in zip(a, b))
+    return a == b
+
+
+def _model_same(a: object, b: object) -> bool:
+    """Instance agreement: same reconstructed text AND same semantic content.
+
+    Text equality alone under-checks (two semantically different parses could
+    in principle re-emit the same text); structural equality over-checks (the
+    licensed noise-attachment freedom would false-alarm). The conjunction is
+    the engines' actual contract.
+    """
+    if isinstance(a, GrammarModel) and isinstance(b, GrammarModel):
+        return a.to_text() == b.to_text() and _semantic_same(a, b)
     return a == b
 
 

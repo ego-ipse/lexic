@@ -60,11 +60,11 @@ from tests.unit.lexic.parsing.ir_fixtures import letter_word_rules
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
-_YIELD = IrJoin(parts=IrArgs(), separator=IrLiteral(""), empty=IrLiteral(""))
+CONCAT_YIELD = IrJoin(parts=IrArgs(), separator=IrLiteral(""), empty=IrLiteral(""))
 """Concatenate reduced children — the string-yield body."""
 
 
-def _leaf_tree(symbol: str, *chars: str) -> ParseTree:
+def leaf_tree(symbol: str, *chars: str) -> ParseTree:
     """A ParseTree whose kids are IrLiteral leaves.
 
     :param symbol: The rule name for the tree's symbol.
@@ -74,7 +74,7 @@ def _leaf_tree(symbol: str, *chars: str) -> ParseTree:
     return ParseTree(IrRuleRef(symbol), IrSeq(*(IrLiteral(c) for c in chars)))
 
 
-def _reducer(*rows: tuple[str, IrSelf]) -> Reducer:
+def make_reducer(*rows: tuple[str, IrSelf]) -> Reducer:
     """Build a Reducer from (rule_name, body) pairs.
 
     :param rows: Pairs of ``(rule_name, body)`` to populate the reduction table.
@@ -90,29 +90,29 @@ def _reducer(*rows: tuple[str, IrSelf]) -> Reducer:
 
 
 def test_reducer_joins_leaf_literals():
-    """Reducer with _YIELD joins IrLiteral leaves into a string."""
-    tree = _leaf_tree("letter", "h")
-    reducer = _reducer(("letter", _YIELD))
+    """Reducer with CONCAT_YIELD joins IrLiteral leaves into a string."""
+    tree = leaf_tree("letter", "h")
+    reducer = make_reducer(("letter", CONCAT_YIELD))
     result = reducer.apply(tree)
     assert str(result) == "h"
 
 
 def test_reducer_joins_multiple_leaves():
-    """Reducer with _YIELD concatenates multiple IrLiteral leaves."""
-    tree = _leaf_tree("word", "h", "i")
-    reducer = _reducer(("word", _YIELD))
+    """Reducer with CONCAT_YIELD concatenates multiple IrLiteral leaves."""
+    tree = leaf_tree("word", "h", "i")
+    reducer = make_reducer(("word", CONCAT_YIELD))
     result = reducer.apply(tree)
     assert str(result) == "hi"
 
 
 def test_reducer_recurses_into_children():
     """Reducer reduces sub-trees before evaluating the parent."""
-    letter_tree = _leaf_tree("letter", "x")
+    letter_tree = leaf_tree("letter", "x")
     word_tree = ParseTree(
         IrRuleRef("word"),
         IrSeq(letter_tree, letter_tree),
     )
-    reducer = _reducer(("letter", _YIELD), ("word", _YIELD))
+    reducer = make_reducer(("letter", CONCAT_YIELD), ("word", CONCAT_YIELD))
     result = reducer.apply(word_tree)
     assert str(result) == "xx"
 
@@ -125,8 +125,8 @@ def test_reducer_callable_body_receives_reduced_children():
         collected.extend(nc)
         return IrLiteral("".join(str(c) for c in nc))
 
-    tree = _leaf_tree("s", "a", "b")
-    reducer = _reducer(("s", IrLambda(capture)))
+    tree = leaf_tree("s", "a", "b")
+    reducer = make_reducer(("s", IrLambda(capture)))
     result = reducer.apply(tree)
     assert len(collected) == 2
     assert str(result) == "ab"
@@ -137,7 +137,7 @@ def test_reducer_callable_body_receives_reduced_children():
 
 def test_reducer_raises_on_missing_reduction():
     """A ParseTree whose symbol has no reduction raises UnsupportedConstructError."""
-    tree = _leaf_tree("missing_rule", "x")
+    tree = leaf_tree("missing_rule", "x")
     reducer = Reducer(reductions=IrMap())
     with pytest.raises(UnsupportedConstructError):
         reducer.apply(tree)
@@ -153,7 +153,7 @@ def test_reducer_splices_synthetic_child_into_parent():
 
     synthetic_child = ParseTree(IrRuleRef(syn_name), IrSeq(IrLiteral("a")))
     parent = ParseTree(IrRuleRef("s"), IrSeq(synthetic_child))
-    reducer = _reducer(("s", _YIELD))
+    reducer = make_reducer(("s", CONCAT_YIELD))
     result = reducer.apply(parent)
     assert str(result) == "a"
 
@@ -166,7 +166,7 @@ def test_reducer_splices_multiple_children_from_synthetic():
         IrSeq(IrLiteral("a"), IrLiteral("b")),
     )
     parent = ParseTree(IrRuleRef("s"), IrSeq(synthetic_child))
-    reducer = _reducer(("s", _YIELD))
+    reducer = make_reducer(("s", CONCAT_YIELD))
     result = reducer.apply(parent)
     assert str(result) == "ab"
 
@@ -178,16 +178,16 @@ def test_reducer_splices_recursive_synthetic():
     inner_syn = ParseTree(IrRuleRef(syn2), IrSeq(IrLiteral("x")))
     outer_syn = ParseTree(IrRuleRef(syn1), IrSeq(inner_syn, IrLiteral("y")))
     parent = ParseTree(IrRuleRef("s"), IrSeq(outer_syn))
-    reducer = _reducer(("s", _YIELD))
+    reducer = make_reducer(("s", CONCAT_YIELD))
     result = reducer.apply(parent)
     assert str(result) == "xy"
 
 
 def test_reducer_non_synthetic_child_not_spliced():
     """Non-synthetic sub-trees are reduced as normal, not spliced."""
-    child = _leaf_tree("letter", "z")
+    child = leaf_tree("letter", "z")
     parent = ParseTree(IrRuleRef("word"), IrSeq(child))
-    reducer = _reducer(("letter", _YIELD), ("word", _YIELD))
+    reducer = make_reducer(("letter", CONCAT_YIELD), ("word", CONCAT_YIELD))
     result = reducer.apply(parent)
     assert str(result) == "z"
 
@@ -199,8 +199,8 @@ def test_reducer_literal_leaves_passed_through_without_reduction():
         # nc should contain the raw IrLiteral
         return nc[0]
 
-    tree = _leaf_tree("s", "q")
-    reducer = _reducer(("s", IrLambda(capture)))
+    tree = leaf_tree("s", "q")
+    reducer = make_reducer(("s", IrLambda(capture)))
     result = reducer.apply(tree)
     assert result == IrLiteral("q")
 
@@ -221,8 +221,8 @@ def test_resolve_source_yields_literal_leaf_contributions():
     rather than checking a singleton type, we check the behavioral guarantee —
     a tree with two literal kids yields two raw contributions via Trampoline.
     """
-    tree = _leaf_tree("s", "a", "b")
-    reducer = _reducer(("s", _YIELD))
+    tree = leaf_tree("s", "a", "b")
+    reducer = make_reducer(("s", CONCAT_YIELD))
     ctx = ReduceCtx()
     contributions = list(Trampoline(ResolveSource(tree, ctx, reducer)))
     # Two IrLiteral leaves → two KEEP_RAW contributions (the leaves themselves)
@@ -245,13 +245,13 @@ def test_resolve_source_drops_noise_children():
         IrTuple(IR_DEFAULT, KEEP_REDUCED),
     )
     reducer = Reducer(
-        reductions=IrMap(IrTuple(IrRuleRef("letter"), _YIELD)),
+        reductions=IrMap(IrTuple(IrRuleRef("letter"), CONCAT_YIELD)),
         noise=noise,
     )
     ctx = ReduceCtx()
 
-    ws_tree = _leaf_tree("ws", " ")
-    letter_tree = _leaf_tree("letter", "x")
+    ws_tree = leaf_tree("ws", " ")
+    letter_tree = leaf_tree("letter", "x")
     parent = ParseTree(IrRuleRef("word"), IrSeq(letter_tree, ws_tree))
 
     contributions = list(Trampoline(ResolveSource(parent, ctx, reducer)))
@@ -273,7 +273,7 @@ def test_reducer_with_normalized_quantified_grammar():
 
     tree = parse(g, "aa")
     # Only 's' in the reduction table — synthetic rule spliced by the Reducer
-    reducer = _reducer(("s", _YIELD))
+    reducer = make_reducer(("s", CONCAT_YIELD))
     result = reducer.apply(tree)
     assert str(result) == "aa"
 
@@ -354,7 +354,7 @@ def test_yield_leaf_returns_str_of_leaf():
 
 def test_yield_tree_concatenates_kept_leaves():
     """YIELD concatenates all leaf characters in a tree with no dropped rules."""
-    tree = _leaf_tree("word", "h", "e", "l", "l", "o")
+    tree = leaf_tree("word", "h", "e", "l", "l", "o")
     reducer = Reducer(reductions=IrMap())
     result = YIELD.eval(reducer, tree, ())
     assert str(result) == "hello"
@@ -388,13 +388,13 @@ def test_reducer_noise_drops_marked_children():
         collected.extend(nc)
         return IrLiteral("".join(str(c) for c in nc))
 
-    ws_tree = _leaf_tree("ws", " ")
-    letter_tree = _leaf_tree("letter", "a")
+    ws_tree = leaf_tree("ws", " ")
+    letter_tree = leaf_tree("letter", "a")
     parent = ParseTree(IrRuleRef("word"), IrSeq(letter_tree, ws_tree, letter_tree))
 
     reductions: IrMap[IrRuleRef, IrSelf] = IrMap(
         IrTuple(IrRuleRef("word"), IrLambda(capture)),
-        IrTuple(IrRuleRef("letter"), _YIELD),
+        IrTuple(IrRuleRef("letter"), CONCAT_YIELD),
     )
     reducer = Reducer(reductions=reductions, noise=noise)
     result = reducer.apply(parent)
@@ -419,7 +419,7 @@ def test_reducer_literal_drop_excludes_inline_terminals():
     # Use YIELD (the real subtree-text node) so the name body reads raw text,
     # not nc (which would be empty when literal=DROP drops its leaf children).
     eq_leaf = IrLiteral("=")
-    name_tree = _leaf_tree("name", "s")
+    name_tree = leaf_tree("name", "s")
     parent = ParseTree(IrRuleRef("stmt"), IrSeq(name_tree, eq_leaf))
 
     noise = IrMap(
@@ -450,7 +450,7 @@ def test_reducer_over_derivations_matches_single_reduce():
     g_raw = IrAst(rules=IrSeq(rule), start="s")
     g = normalize(g_raw)
 
-    reducer = _reducer(("s", _YIELD))
+    reducer = make_reducer(("s", CONCAT_YIELD))
     single = reducer.apply(parse(g, "aa"))
 
     all_derivations = derivations(g, "aa")
@@ -477,7 +477,7 @@ def test_deep_reduce_does_not_crash():
     g = normalize(g_raw)
     n = 1500
     tree = parse(g, "a" * n)
-    reducer = _reducer(("S", _YIELD))
+    reducer = make_reducer(("S", CONCAT_YIELD))
     result = reducer.apply(tree)
     assert str(result) == "a" * n
 
@@ -490,7 +490,7 @@ def test_deep_reduce_does_not_crash():
 # normalize() call is needed before compile_tables().
 
 
-def _word_phrase_grammar() -> IrAst:
+def word_phrase_grammar() -> IrAst:
     """word = letter letter ; letter = [a-z] ; phrase = word ws word ; ws = ' '."""
     word, letter = letter_word_rules()
     ws = IrRule("ws", IrAlternation(IrSequence(IrItem(IrLiteral(" ")))))
@@ -507,24 +507,24 @@ def _word_phrase_grammar() -> IrAst:
     return IrAst(rules=IrSeq(letter, word, ws, phrase), start="phrase")
 
 
-def _run_kernel(tables, text: str) -> Kernel:
+def run_kernel(tables, text: str) -> Kernel:
     """Run a Kernel to completion with link recording on."""
     return Kernel(tables, text, record_links=True).run()
 
 
-def _accept_handle(kernel: Kernel) -> int:
+def accept_handle(kernel: Kernel) -> int:
     """The packed accept handle for a finished, accepting kernel."""
     return (kernel.accept << ORIGIN_BITS) | len(kernel.text)
 
 
 def test_fused_reduce_matches_reducer_apply_on_parse_tree():
     """FusedReduce.build(handle) equals reducer.apply(parse(...)) on a real grammar."""
-    g = _word_phrase_grammar()
+    g = word_phrase_grammar()
     text = "ab cd"
-    reducer = _reducer(
-        ("letter", _YIELD),
-        ("word", _YIELD),
-        ("phrase", _YIELD),
+    reducer = make_reducer(
+        ("letter", CONCAT_YIELD),
+        ("word", CONCAT_YIELD),
+        ("phrase", CONCAT_YIELD),
     )
     reducer = Reducer(
         reductions=reducer.reductions,
@@ -535,8 +535,8 @@ def test_fused_reduce_matches_reducer_apply_on_parse_tree():
     )
 
     tables = compile_tables(g)
-    kernel = _run_kernel(tables, text)
-    handle = _accept_handle(kernel)
+    kernel = run_kernel(tables, text)
+    handle = accept_handle(kernel)
     fused = FusedReduce(kernel, reducer).build(handle)
 
     expected = reducer.apply(parse(g, text))
@@ -546,15 +546,15 @@ def test_fused_reduce_matches_reducer_apply_on_parse_tree():
 
 def test_fused_reduce_yield_span_is_exact_substring():
     """A YIELD-bodied rule with no droppable descendant reduces to the exact substring."""
-    g = _word_phrase_grammar()
-    reducer = _reducer(("word", YIELD), ("letter", YIELD))
+    g = word_phrase_grammar()
+    reducer = make_reducer(("word", YIELD), ("letter", YIELD))
 
     # 'word' isn't the start rule in the shared grammar; drive a sub-parse
     # via its own start so the accept handle sits directly on 'word'.
     word_g = IrAst(rules=g.rules, start="word")
     word_tables = compile_tables(word_g)
-    word_kernel = _run_kernel(word_tables, "he")
-    handle = _accept_handle(word_kernel)
+    word_kernel = run_kernel(word_tables, "he")
+    handle = accept_handle(word_kernel)
     fused = FusedReduce(word_kernel, reducer).build(handle)
 
     assert fused is not None
@@ -563,9 +563,9 @@ def test_fused_reduce_yield_span_is_exact_substring():
 
 def test_reduce_plan_memoises_same_reducer_tables_pair():
     """plan_for(reducer, tables) called twice on the same pair returns the same object."""
-    g = _word_phrase_grammar()
+    g = word_phrase_grammar()
     tables = compile_tables(g)
-    reducer = _reducer(("phrase", _YIELD))
+    reducer = make_reducer(("phrase", CONCAT_YIELD))
 
     plan1 = plan_for(reducer, tables)
     plan2 = plan_for(reducer, tables)
@@ -574,14 +574,14 @@ def test_reduce_plan_memoises_same_reducer_tables_pair():
 
 def test_fused_reduce_returns_none_on_custom_noise_policy():
     """A non-DROP/KEEP_REDUCED noise body forces a fast-path miss (returns None)."""
-    g = _word_phrase_grammar()
+    g = word_phrase_grammar()
     text = "ab cd"
     custom_noise = IrLambda(lambda d, n, nc: IrTuple(n))
     reducer = Reducer(
         reductions=IrMap(
-            IrTuple(IrRuleRef("letter"), _YIELD),
-            IrTuple(IrRuleRef("word"), _YIELD),
-            IrTuple(IrRuleRef("phrase"), _YIELD),
+            IrTuple(IrRuleRef("letter"), CONCAT_YIELD),
+            IrTuple(IrRuleRef("word"), CONCAT_YIELD),
+            IrTuple(IrRuleRef("phrase"), CONCAT_YIELD),
         ),
         noise=IrMap(
             IrTuple(IrRuleRef("ws"), custom_noise),
@@ -590,27 +590,27 @@ def test_fused_reduce_returns_none_on_custom_noise_policy():
     )
 
     tables = compile_tables(g)
-    kernel = _run_kernel(tables, text)
-    handle = _accept_handle(kernel)
+    kernel = run_kernel(tables, text)
+    handle = accept_handle(kernel)
     fused = FusedReduce(kernel, reducer).build(handle)
     assert fused is None
 
 
 def test_fused_reduce_returns_none_on_ambiguous_key(sss_grammar: IrAst):
     """An ambiguous packed key forces a fast-path miss (returns None)."""
-    reducer = _reducer(("s", _YIELD))
+    reducer = make_reducer(("s", CONCAT_YIELD))
     tables = compile_tables(sss_grammar)
-    kernel = _run_kernel(tables, "aaa")
-    handle = _accept_handle(kernel)
+    kernel = run_kernel(tables, "aaa")
+    handle = accept_handle(kernel)
     fused = FusedReduce(kernel, reducer).build(handle)
     assert fused is None
 
 
 def test_reduce_plan_can_drop_true_when_rule_references_drop_noise_rule():
     """A rule referencing a DROP-noise rule has can_drop True (direct reachability)."""
-    g = _word_phrase_grammar()
+    g = word_phrase_grammar()
     reducer = Reducer(
-        reductions=IrMap(IrTuple(IrRuleRef("phrase"), _YIELD)),
+        reductions=IrMap(IrTuple(IrRuleRef("phrase"), CONCAT_YIELD)),
         noise=IrMap(
             IrTuple(IrRuleRef("ws"), DROP),
             IrTuple(IR_DEFAULT, KEEP_REDUCED),
@@ -624,9 +624,9 @@ def test_reduce_plan_can_drop_true_when_rule_references_drop_noise_rule():
 
 def test_reduce_plan_can_drop_false_when_no_drop_reachable():
     """A rule with no path to a DROP-noise rule has can_drop False."""
-    g = _word_phrase_grammar()
+    g = word_phrase_grammar()
     reducer = Reducer(
-        reductions=IrMap(IrTuple(IrRuleRef("word"), _YIELD)),
+        reductions=IrMap(IrTuple(IrRuleRef("word"), CONCAT_YIELD)),
         noise=IrMap(
             IrTuple(IrRuleRef("ws"), DROP),
             IrTuple(IR_DEFAULT, KEEP_REDUCED),
@@ -642,9 +642,9 @@ def test_reduce_plan_can_drop_false_when_no_drop_reachable():
 
 def test_reduce_plan_noise_and_literal_kind_and_synthetic_tables():
     """ReducePlan compiles noise_kind/literal_kind/synthetic against rule ids."""
-    g = _word_phrase_grammar()
+    g = word_phrase_grammar()
     reducer = Reducer(
-        reductions=IrMap(IrTuple(IrRuleRef("phrase"), _YIELD)),
+        reductions=IrMap(IrTuple(IrRuleRef("phrase"), CONCAT_YIELD)),
         noise=IrMap(
             IrTuple(IrRuleRef("ws"), DROP),
             IrTuple(IR_DEFAULT, KEEP_REDUCED),
@@ -678,7 +678,7 @@ def test_fused_reduce_body_mentions_yield_receives_span_as_n():
     # Confirm this body structurally contains YIELD but is not YIELD itself.
     assert mentions_body is not YIELD
 
-    g = _word_phrase_grammar()
+    g = word_phrase_grammar()
     reducer = Reducer(
         reductions=IrMap(
             IrTuple(IrRuleRef("word"), mentions_body),
@@ -689,8 +689,8 @@ def test_fused_reduce_body_mentions_yield_receives_span_as_n():
     tables = compile_tables(word_g)
     word_rid = tables.decode.rule_ids["word"]
 
-    kernel = _run_kernel(tables, "he")
-    handle = _accept_handle(kernel)
+    kernel = run_kernel(tables, "he")
+    handle = accept_handle(kernel)
     fused = FusedReduce(kernel, reducer)
     result = fused.build(handle)
 

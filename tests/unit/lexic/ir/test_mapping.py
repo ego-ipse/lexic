@@ -19,7 +19,7 @@ from lexic.ir.nodes import IrLiteral, IrRuleRef
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
-def _names_map() -> IrMap:
+def names_map() -> IrMap:
     """A small data map: ``[0-9]`` → ``digit``, ``[a-z]`` → ``lower``.
 
     :returns: An IrMap with two string-keyed string-valued dyads.
@@ -30,7 +30,7 @@ def _names_map() -> IrMap:
     )
 
 
-def _default_map() -> IrMap:
+def default_map() -> IrMap:
     """A map with one exact key and a catch-all :data:`IR_DEFAULT` entry.
 
     :returns: IrMap with ``IrStr("a") → IrStr("hitA")`` and default ``IrStr("DEFAULT")``.
@@ -46,7 +46,7 @@ def _default_map() -> IrMap:
 
 def test_both_maps_share_the_ancestor():
     """``IrMap`` and ``IrMultiMap`` are both :class:`IrMapping`."""
-    assert isinstance(_names_map(), IrMapping)
+    assert isinstance(names_map(), IrMapping)
     assert isinstance(IrMultiMap(), IrMapping)
 
 
@@ -55,14 +55,14 @@ def test_both_maps_share_the_ancestor():
 
 def test_key_lookup_returns_value():
     """``m[key]`` returns the stored value directly."""
-    m = _names_map()
+    m = names_map()
     assert m[IrStr("[0-9]")] == IrStr("digit")
     assert m[IrStr("[a-z]")] == IrStr("lower")
 
 
 def test_eval_resolves_and_evaluates():
     """``m.eval(m, key, ())`` resolves the key and evaluates the bound value."""
-    assert _names_map().eval(_names_map(), IrStr("[a-z]"), ()) == IrStr("lower")
+    assert names_map().eval(names_map(), IrStr("[a-z]"), ()) == IrStr("lower")
 
 
 def test_irint_key_resolves_via_index():
@@ -77,7 +77,7 @@ def test_irint_key_resolves_via_index():
 
 def test_get_returns_value_on_hit_and_default_on_miss():
     """``get`` returns the value on a hit and the default on a miss."""
-    m = _names_map()
+    m = names_map()
     assert m.get(IrStr("[0-9]")) == IrStr("digit")
     assert m.get(IrStr("?")) is None
     assert m.get(IrStr("?"), IrStr("fallback")) == IrStr("fallback")
@@ -85,14 +85,14 @@ def test_get_returns_value_on_hit_and_default_on_miss():
 
 def test_contains_is_key_based():
     """``in`` checks keys, not dyads."""
-    m = _names_map()
+    m = names_map()
     assert IrStr("[0-9]") in m
     assert IrStr("?") not in m
 
 
 def test_keys_values_items_canonical_order():
     """``keys``/``values``/``items`` are views in canonical (sorted) order."""
-    m = _names_map()
+    m = names_map()
     assert tuple(m.keys()) == (IrStr("[0-9]"), IrStr("[a-z]"))
     assert tuple(m.values()) == (IrStr("digit"), IrStr("lower"))
     assert tuple(m.items()) == (
@@ -105,19 +105,19 @@ def test_keys_values_items_canonical_order():
 
 def test_iter_yields_dyads_not_keys():
     """``iter(m)`` yields dyads (the walk contract), not keys."""
-    m = _names_map()
+    m = names_map()
     assert all(isinstance(dyad, IrTuple) for dyad in m)
     assert tuple(m) != tuple(m.keys())
 
 
 def test_len_counts_entries():
     """``len(m)`` is the number of entries."""
-    assert len(_names_map()) == 2
+    assert len(names_map()) == 2
 
 
 def test_dict_conversion_round_trips_entries():
     """``dict(m.items())`` builds the plain-dict equivalent."""
-    m = _names_map()
+    m = names_map()
     assert dict(m.items()) == {
         IrStr("[0-9]"): IrStr("digit"),
         IrStr("[a-z]"): IrStr("lower"),
@@ -161,7 +161,7 @@ def test_map_repr_is_codegen_string():
 def test_key_miss_is_doubly_typed_ir_key_error():
     """A subscript miss raises :exc:`IrKeyError` — both
     ``UnsupportedConstructError`` and ``KeyError``."""
-    m = _names_map()
+    m = names_map()
     with pytest.raises(IrKeyError) as exc_info:
         _ = m[IrStr("?")]
     assert isinstance(exc_info.value, UnsupportedConstructError)
@@ -171,7 +171,7 @@ def test_key_miss_is_doubly_typed_ir_key_error():
 def test_eval_miss_raises():
     """``m.eval`` on a missing key raises a key error."""
     with pytest.raises(UnsupportedConstructError):
-        _names_map().eval(_names_map(), IrStr("?"), ())
+        names_map().eval(names_map(), IrStr("?"), ())
 
 
 def test_duplicate_keys_raise():
@@ -185,7 +185,7 @@ def test_duplicate_keys_raise():
 
 def test_setattr_and_delattr_raise():
     """``setattr``/``delattr`` on a frozen map raise :class:`TypeError`."""
-    m = _names_map()
+    m = names_map()
     with pytest.raises(TypeError):
         setattr(m, "foo", "bar")
     with pytest.raises(TypeError):
@@ -225,12 +225,12 @@ def test_irtype_map_miss_raises():
 
 def test_resolve_exact_key_wins_over_default():
     """An exact-key hit takes priority over :data:`IR_DEFAULT`."""
-    assert _default_map().resolve(IrStr("a")) == IrStr("hitA")
+    assert default_map().resolve(IrStr("a")) == IrStr("hitA")
 
 
 def test_resolve_miss_falls_through_to_default():
     """A miss resolves to the :data:`IR_DEFAULT` value instead of raising."""
-    assert _default_map().resolve(IrStr("zzz")) == IrStr("DEFAULT")
+    assert default_map().resolve(IrStr("zzz")) == IrStr("DEFAULT")
 
 
 def test_eval_miss_runs_default_value():
@@ -238,7 +238,7 @@ def test_eval_miss_runs_default_value():
 
     For a self-evaluating scalar default, eval returns it directly.
     """
-    result = _default_map().eval(_default_map(), IrStr("zzz"), ())
+    result = default_map().eval(default_map(), IrStr("zzz"), ())
     assert result == IrStr("DEFAULT")
 
 
@@ -250,7 +250,7 @@ def test_resolve_miss_without_default_raises():
 
 def test_getitem_and_contains_bypass_default():
     """``__getitem__``/``__contains__`` are explicit-key only — no fallback."""
-    m = _default_map()
+    m = default_map()
     assert IR_DEFAULT in m
     assert IrStr("zzz") not in m
     with pytest.raises(IrKeyError):
@@ -259,7 +259,7 @@ def test_getitem_and_contains_bypass_default():
 
 def test_getitem_exact_key_with_default_registered():
     """``m[IrStr("a")]`` returns its value even when a default is present."""
-    assert _default_map()[IrStr("a")] == IrStr("hitA")
+    assert default_map()[IrStr("a")] == IrStr("hitA")
 
 
 def test_irtype_map_honours_default_fallback():

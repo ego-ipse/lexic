@@ -224,7 +224,7 @@ def test_bound_fields_metadata_is_irbind_instances():
 # ── F-DUMP-1 resolved: the native dump is runtime-complete (ruling 12) ─────
 
 
-def _walk_runtime(node: object) -> object:
+def walk_runtime(node: object) -> object:
     """A hand-rolled runtime-type-driven dump — the cross-check reference.
 
     For every field of a model, ``getattr`` and recurse into
@@ -234,9 +234,9 @@ def _walk_runtime(node: object) -> object:
     one trivially validating itself.
     """
     if isinstance(node, GrammarModel):
-        return {name: _walk_runtime(getattr(node, name)) for name in type(node)._fields}
+        return {name: walk_runtime(getattr(node, name)) for name in type(node)._fields}
     if isinstance(node, tuple):
-        return [_walk_runtime(item) for item in node]
+        return [walk_runtime(item) for item in node]
     return node
 
 
@@ -257,7 +257,7 @@ def test_dump_matches_a_runtime_type_walker():
     prior declared-schema serializer)."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     model = cg.parse("6=k\t \n")
-    assert model.dump() == _walk_runtime(model)
+    assert model.dump() == walk_runtime(model)
 
 
 def test_dump_distinguishes_inputs_the_erasure_conflated():

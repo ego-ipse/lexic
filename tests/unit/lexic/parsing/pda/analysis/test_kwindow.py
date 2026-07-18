@@ -43,15 +43,15 @@ from lexic.parsing.pda.analysis.kwindow import (
     separable,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-from tests.unit.lexic.parsing.pda.analysis.test_analysis import _items as _rule_items
+from tests.unit.lexic.parsing.pda.analysis.test_analysis import arm_items as _rule_items
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
-    _lifted_analysis as _ground_truth_analysis,
+    lifted_analysis as _ground_truth_analysis,
 )
 
 EOF = CharSet.from_chars("")
 
 
-def _digits() -> IrCharClass:
+def digits() -> IrCharClass:
     """A ``[0-9]`` char class, fresh each call."""
     return IrCharClass(IrRange(IrChr("0"), IrChr("9")))
 
@@ -76,7 +76,7 @@ def test_literal_more_tag_when_window_is_shorter_than_the_text():
 def test_charclass_contributes_one_position_end_tag():
     """A char class is always exactly one position, tagged END."""
     solver = KWindowFirst({}, 3)
-    cc = _digits()
+    cc = digits()
     prefs = solver.atom_prefixes(cc, 3)
     assert prefs == {((CharSet.from_charclass(cc),), END)}
 
@@ -194,15 +194,15 @@ def test_separable_all_or_nothing_any_collision_fails_whole_decision():
     "arm",
     [
         pytest.param(
-            [IrItem(_digits(), IrQuantifier(4, IrNone)), IrItem(IrLiteral("x"))],
+            [IrItem(digits(), IrQuantifier(4, IrNone)), IrItem(IrLiteral("x"))],
             id="lo-gt-k-unbounded",
         ),
         pytest.param(
-            [IrItem(_digits(), IrQuantifier(4, 8)), IrItem(IrLiteral("x"))],
+            [IrItem(digits(), IrQuantifier(4, 8)), IrItem(IrLiteral("x"))],
             id="lo-gt-k-bounded",
         ),
         pytest.param(
-            [IrItem(_digits(), IrQuantifier(9, 9)), IrItem(IrLiteral("x"))],
+            [IrItem(digits(), IrQuantifier(9, 9)), IrItem(IrLiteral("x"))],
             id="lo-gt-k-fixed",
         ),
         pytest.param([IrItem(IrLiteral("12"))], id="short-literal"),
@@ -223,7 +223,7 @@ def test_arm_prefixes_never_yields_the_empty_set(arm, k):
 def test_finding1_lo_gt_k_unbounded_islands_at_k2_separates_at_k3():
     """``a ::= [0-9]{4,} "x" | "12"``: the false k=2 SEP is gone (island); the
     true separator surfaces only at k=3 (digit-vs-EOF at position 3)."""
-    arm1 = [IrItem(_digits(), IrQuantifier(4, IrNone)), IrItem(IrLiteral("x"))]
+    arm1 = [IrItem(digits(), IrQuantifier(4, IrNone)), IrItem(IrLiteral("x"))]
     arm2 = [IrItem(IrLiteral("12"))]
     assert arm_gate({}, [arm1, arm2], EOF, max_k=2) is None
     got = arm_gate({}, [arm1, arm2], EOF, max_k=3)
@@ -234,7 +234,7 @@ def test_finding1_lo_gt_k_unbounded_islands_at_k2_separates_at_k3():
 def test_finding1_lo_gt_k_bounded_twin_islands_at_k2():
     """The bounded ``{4,8}`` variant (ABNF's ``4*8DIGIT``) fails identically
     to the unbounded one."""
-    arm1 = [IrItem(_digits(), IrQuantifier(4, 8)), IrItem(IrLiteral("x"))]
+    arm1 = [IrItem(digits(), IrQuantifier(4, 8)), IrItem(IrLiteral("x"))]
     arm2 = [IrItem(IrLiteral("12"))]
     assert arm_gate({}, [arm1, arm2], EOF, max_k=2) is None
     got = arm_gate({}, [arm1, arm2], EOF, max_k=3)
@@ -246,7 +246,7 @@ def test_finding1_k3_separation_rides_an_eof_carrying_charset():
     """The k=3 separator is EOF-exact: arm2's "12" is extended by the EOF
     sentinel at position 3, not a generic character — the load-bearing shape
     the part-(c) runtime window matcher must special-case."""
-    arm1 = [IrItem(_digits(), IrQuantifier(4, IrNone)), IrItem(IrLiteral("x"))]
+    arm1 = [IrItem(digits(), IrQuantifier(4, IrNone)), IrItem(IrLiteral("x"))]
     arm2 = [IrItem(IrLiteral("12"))]
     got = arm_gate({}, [arm1, arm2], EOF, max_k=3)
     assert got is not None
@@ -330,19 +330,19 @@ def test_soft_follow_contract_hard_follow_would_be_unsound():
 # ── coverage-map verdict table (real grammars, flag literally False) ───────
 
 
-def _self_analysis(name: str) -> GrammarAnalysis:
+def self_analysis(name: str) -> GrammarAnalysis:
     """Analysis of a flavour's own lifted self-grammar."""
     return GrammarAnalysis(lift_optional_nullables(get_flavour(name).grammar))
 
 
-def _arm_k(analysis: GrammarAnalysis, name: str) -> int | None:
+def arm_k(analysis: GrammarAnalysis, name: str) -> int | None:
     """``arm_gate``'s separating ``k`` for rule ``name``'s arms, or ``None``."""
     arms = [_rule_items(arm) for arm in analysis.rules[name].body]
     got = arm_gate(analysis.rules, arms, analysis.follow[name])
     return got[0] if got else None
 
 
-def _loop_k(analysis: GrammarAnalysis, name: str, idx: int) -> int | None:
+def loop_k(analysis: GrammarAnalysis, name: str, idx: int) -> int | None:
     """``loop_gate``'s separating ``k`` for item ``idx`` of rule ``name``'s
     (single-arm) body, or ``None``."""
     items = _rule_items(analysis.rules[name].body[0])
@@ -366,32 +366,32 @@ def _loop_k(analysis: GrammarAnalysis, name: str, idx: int) -> int | None:
 def test_gbnf_self_arm_gate_separates_at_k2(name):
     """The GBNF self-grammar's charclass/literal-escape family separates
     cleanly at k=2."""
-    assert _arm_k(_self_analysis("gbnf"), name) == 2
+    assert arm_k(self_analysis("gbnf"), name) == 2
 
 
 def test_gbnf_self_cc_neg_arm_gate_separates_at_k3():
     """``cc-neg`` (the negated-charclass arm) needs the wider k=3 window."""
-    assert _arm_k(_self_analysis("gbnf"), "cc-neg") == 3
+    assert arm_k(self_analysis("gbnf"), "cc-neg") == 3
 
 
 @pytest.mark.parametrize("name", ["cc-first", "cc-item", "cc-nfirst"])
 def test_gbnf_self_cc_family_stays_island(name):
     """The remaining ``cc-*`` rules are genuinely not k-window separable."""
-    assert _arm_k(_self_analysis("gbnf"), name) is None
+    assert arm_k(self_analysis("gbnf"), name) is None
 
 
 @pytest.mark.parametrize("name", ["defined", "element"])
 def test_abnf_self_arm_gate_separates_at_k2(name):
     """The ABNF self-grammar's ``defined``/``element`` rules separate at k=2."""
-    assert _arm_k(_self_analysis("abnf"), name) == 2
+    assert arm_k(self_analysis("abnf"), name) == 2
 
 
 def test_chess_nonpawn_loop_separates_at_k3():
     """chess's ``nonpawn`` loop (the file-letter optional item) separates only
     at k=3, via the FOLLOW extension — not rep-depth (Finding 2's re-run)."""
-    assert _loop_k(_ground_truth_analysis("chess.gbnf"), "nonpawn", 1) == 3
+    assert loop_k(_ground_truth_analysis("chess.gbnf"), "nonpawn", 1) == 3
 
 
 def test_json_value_arm_gate_stays_island():
     """json's ``value`` alternation is genuinely not k-window separable."""
-    assert _arm_k(_ground_truth_analysis("json.gbnf"), "value") is None
+    assert arm_k(_ground_truth_analysis("json.gbnf"), "value") is None

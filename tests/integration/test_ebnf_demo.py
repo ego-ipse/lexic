@@ -23,23 +23,26 @@ from lexic.ir.flavour import IrFlavour
 from tests.paths import GRAMMARS, GROUND_TRUTH
 
 
-def _ebnf() -> IrFlavour:
+def ebnf() -> IrFlavour:
+    """The demo EBNF flavour, loaded from its shipped manifest."""
     return load_flavour_from_path(GRAMMARS / "ebnf.flavour.ir")
 
 
-def _gbnf_arithmetic_canonical():
+def gbnf_arithmetic_canonical():
+    """The canonicalized GBNF arithmetic ground-truth grammar."""
     text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
     return canonicalize(parse_grammar(text, GBNF_FLAVOUR))
 
 
-def _ebnf_arithmetic_canonical():
+def ebnf_arithmetic_canonical():
+    """The canonicalized EBNF-demo arithmetic grammar."""
     text = (GROUND_TRUTH / "arithmetic.ebnf").read_text(encoding="utf-8")
-    return canonicalize(parse_grammar(text, _ebnf()))
+    return canonicalize(parse_grammar(text, ebnf()))
 
 
 def test_ebnf_flavour_loads_from_pure_text() -> None:
     """The demo flavour is a loadable manifest with no shipped Python module."""
-    flavour = _ebnf()
+    flavour = ebnf()
     assert isinstance(flavour, IrFlavour)
     assert flavour.name == "ebnf"
     assert flavour.extensions == (".ebnf",)
@@ -47,18 +50,18 @@ def test_ebnf_flavour_loads_from_pure_text() -> None:
 
 def test_ebnf_arithmetic_canonical_equals_gbnf() -> None:
     """Exit criterion 4: arithmetic.ebnf → the SAME canonical IR as arithmetic.gbnf."""
-    assert _ebnf_arithmetic_canonical() == _gbnf_arithmetic_canonical()
+    assert ebnf_arithmetic_canonical() == gbnf_arithmetic_canonical()
 
 
 def test_ebnf_arithmetic_canonical_repr_equals_gbnf() -> None:
     """The repr (canonical codegen form) matches too — no hidden semantic drift."""
-    assert repr(_ebnf_arithmetic_canonical()) == repr(_gbnf_arithmetic_canonical())
+    assert repr(ebnf_arithmetic_canonical()) == repr(gbnf_arithmetic_canonical())
 
 
 def test_ebnf_emit_round_trips() -> None:
     """The flavour emits its own canonical IR back to text that reparses equal."""
-    flavour = _ebnf()
-    canonical = _gbnf_arithmetic_canonical()
+    flavour = ebnf()
+    canonical = gbnf_arithmetic_canonical()
     emitted = flavour.apply(canonical)
     reparsed = canonicalize(parse_grammar(emitted, flavour))
     assert reparsed == canonical

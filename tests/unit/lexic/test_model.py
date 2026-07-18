@@ -32,10 +32,10 @@ from lexic.ir.nodes import (
 from lexic.model import GrammarModel
 from tests.paths import GROUND_TRUTH
 
-_LOWER = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
+LOWER = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
 
 
-def _ws_rule() -> IrRule:
+def ws_rule() -> IrRule:
     """ws ::= [ \\t\\n]* — a value_str rule (implicit value field, no binds)."""
     return IrRule(
         "ws",
@@ -53,22 +53,22 @@ def _ws_rule() -> IrRule:
 class Ws(GrammarModel):
     """Whitespace model — value_str shape."""
 
-    __grammar__: ClassVar[IrRule] = _ws_rule()
+    __grammar__: ClassVar[IrRule] = ws_rule()
     value: str
 
 
-def _ident_rule() -> IrRule:
+def ident_rule() -> IrRule:
     """ident ::= [a-z] ws — one text field, one model field."""
     return IrRule(
         "ident",
-        IrAlternation(IrSequence(IrItem(_LOWER), IrItem(IrRuleRef("ws")))),
+        IrAlternation(IrSequence(IrItem(LOWER), IrItem(IrRuleRef("ws")))),
     )
 
 
 class Ident(GrammarModel):
     """Identifier model — a text field and a nested model field."""
 
-    __grammar__: ClassVar[IrRule] = _ident_rule()
+    __grammar__: ClassVar[IrRule] = ident_rule()
     first: str
     ws: Ws
     __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
@@ -80,7 +80,7 @@ class Ident(GrammarModel):
 class NoisyIdent(GrammarModel):
     """Identifier model whose ws bind is structural noise (semantic=False)."""
 
-    __grammar__: ClassVar[IrRule] = _ident_rule()
+    __grammar__: ClassVar[IrRule] = ident_rule()
     first: str
     ws: Ws
     __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
@@ -93,7 +93,7 @@ class It(GrammarModel):
     """Item model — value_str shape over a repeated char class."""
 
     __grammar__: ClassVar[IrRule] = IrRule(
-        "it", IrAlternation(IrSequence(IrItem(_LOWER, IrQuantifier(1, IrNone))))
+        "it", IrAlternation(IrSequence(IrItem(LOWER, IrQuantifier(1, IrNone))))
     )
     value: str
 
@@ -134,7 +134,7 @@ def test_to_text_sequence_emits_literal():
             "eq-expr",
             IrAlternation(
                 IrSequence(
-                    IrItem(_LOWER),
+                    IrItem(LOWER),
                     IrItem(IrLiteral("=")),
                     IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9")))),
                 )
@@ -180,7 +180,7 @@ def test_to_text_optional_absent():
         __grammar__: ClassVar[IrRule] = IrRule(
             "r",
             IrAlternation(
-                IrSequence(IrItem(_LOWER), IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)))
+                IrSequence(IrItem(LOWER), IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)))
             ),
         )
         __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
@@ -287,7 +287,7 @@ def test_bound_fields_explicit_binds_table_wins():
     class Declared(GrammarModel):
         """Model with an explicit binds table beside unannotated fields."""
 
-        __grammar__: ClassVar[IrRule] = _ident_rule()
+        __grammar__: ClassVar[IrRule] = ident_rule()
         __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
             0: ("first", IrBind(0, "text")),
         }
@@ -300,7 +300,7 @@ def test_bound_fields_explicit_binds_table_wins():
 # ── equality / hashing (settled 4) ────────────────────────────────────────────
 
 
-class _PairA(GrammarModel):
+class PairA(GrammarModel):
     """a ::= "x" — single-field value_str shape, for cross-class eq tests."""
 
     __grammar__: ClassVar[IrRule] = IrRule(
@@ -309,8 +309,8 @@ class _PairA(GrammarModel):
     value: str
 
 
-class _PairB(GrammarModel):
-    """b ::= "x" — identical shape to _PairA, distinct class."""
+class PairB(GrammarModel):
+    """b ::= "x" — identical shape to PairA, distinct class."""
 
     __grammar__: ClassVar[IrRule] = IrRule(
         "b", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))
@@ -320,18 +320,18 @@ class _PairB(GrammarModel):
 
 def test_same_class_equal_payload_compares_equal():
     """Two instances of the same class with equal fields compare equal."""
-    assert _PairA(value="x") == _PairA(value="x")
+    assert PairA(value="x") == PairA(value="x")
 
 
 def test_cross_class_equal_payload_compares_unequal():
     """Type-aware equality: distinct classes never compare equal (settled 4;
     plain tuple equality would say A('x') == B('x'))."""
-    assert _PairA(value="x") != _PairB(value="x")
+    assert PairA(value="x") != PairB(value="x")
 
 
 def test_hash_is_consistent_with_equality():
     """Equal models hash equal; models are usable as dict/set keys."""
-    one, two = _PairA(value="x"), _PairA(value="x")
+    one, two = PairA(value="x"), PairA(value="x")
     assert hash(one) == hash(two)
     assert len({one, two}) == 1
 
@@ -388,7 +388,7 @@ def test_children_follow_item_order_not_declaration_order():
     class Swapped(GrammarModel):
         """Fields declared in the reverse of their item-slot order."""
 
-        __grammar__: ClassVar[IrRule] = _ident_rule()
+        __grammar__: ClassVar[IrRule] = ident_rule()
         __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
             0: ("first", IrBind(0, "text")),
             1: ("ws", IrBind(1, "model")),
@@ -501,7 +501,7 @@ def test_fast_construct_reports_field_defaults():
     class WithDefault(GrammarModel):
         """Model with a None-defaulted optional field."""
 
-        __grammar__: ClassVar[IrRule] = _ident_rule()
+        __grammar__: ClassVar[IrRule] = ident_rule()
         __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
             0: ("first", IrBind(0, "text")),
             1: ("ws", IrBind(1, "model")),
@@ -538,7 +538,7 @@ def test_from_parts_fills_defaults_for_unset_optional_fields():
     class Eq(GrammarModel):
         """Model with an optional field left at its default."""
 
-        __grammar__: ClassVar[IrRule] = _ident_rule()
+        __grammar__: ClassVar[IrRule] = ident_rule()
         __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
             0: ("first", IrBind(0, "text")),
             1: ("ws", IrBind(1, "model")),
@@ -577,7 +577,7 @@ def test_missing_required_field_raises_field_validation_error():
         Ident(first="x")  # type: ignore[reportCallIssue]  # intentional misuse under test
 
 
-def _op_rule() -> IrRule:
+def op_rule() -> IrRule:
     """op ::= "+" | "-" — a multi-arm pure-literal value_str rule."""
     return IrRule(
         "op",
@@ -591,11 +591,11 @@ def _op_rule() -> IrRule:
 class Op(GrammarModel):
     """Multi-arm literal value_str model — Literal[...]-checked."""
 
-    __grammar__: ClassVar[IrRule] = _op_rule()
+    __grammar__: ClassVar[IrRule] = op_rule()
     value: str
 
 
-def _repeated_eq_rule() -> IrRule:
+def repeated_eq_rule() -> IrRule:
     """req ::= "="+ — a bound (quantified) literal field."""
     return IrRule(
         "req",
@@ -606,14 +606,14 @@ def _repeated_eq_rule() -> IrRule:
 class RepeatedEq(GrammarModel):
     """Model whose bound field's atom is a quantified IrLiteral (R7 hole)."""
 
-    __grammar__: ClassVar[IrRule] = _repeated_eq_rule()
+    __grammar__: ClassVar[IrRule] = repeated_eq_rule()
     __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
         0: ("eqs", IrBind(0, "text")),
     }
     eqs: str
 
 
-def _gtext_rule() -> IrRule:
+def gtext_rule() -> IrRule:
     """gtxt ::= ("a" | "b") — literal-only inline group, gtext mode."""
     return IrRule(
         "gtxt",
@@ -633,14 +633,14 @@ def _gtext_rule() -> IrRule:
 class GtextGroup(GrammarModel):
     """Model with a literal-only inline group bound in gtext mode (R7 hole)."""
 
-    __grammar__: ClassVar[IrRule] = _gtext_rule()
+    __grammar__: ClassVar[IrRule] = gtext_rule()
     __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
         0: ("group", IrBind(0, "gtext")),
     }
     group: str
 
 
-def _group_model_rule() -> IrRule:
+def group_model_rule() -> IrRule:
     """grp ::= (ident) — ref-bearing inline group, model mode."""
     return IrRule(
         "grp",
@@ -653,7 +653,7 @@ def _group_model_rule() -> IrRule:
 class GroupModel(GrammarModel):
     """Model with a ref-bearing inline group bound in model mode."""
 
-    __grammar__: ClassVar[IrRule] = _group_model_rule()
+    __grammar__: ClassVar[IrRule] = group_model_rule()
     __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
         0: ("group", IrBind(0, "model")),
     }
@@ -695,7 +695,7 @@ def test_charclass_field_length_too_short_raises():
 
         __grammar__: ClassVar[IrRule] = IrRule(
             "rep",
-            IrAlternation(IrSequence(IrItem(_LOWER, IrQuantifier(2, IrNone)))),
+            IrAlternation(IrSequence(IrItem(LOWER, IrQuantifier(2, IrNone)))),
         )
         __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
             0: ("chars", IrBind(0, "text")),
@@ -831,7 +831,7 @@ def test_optional_field_omitted_constructs():
     class WithOptional(GrammarModel):
         """Model with a defaulted optional ws field."""
 
-        __grammar__: ClassVar[IrRule] = _ident_rule()
+        __grammar__: ClassVar[IrRule] = ident_rule()
         __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
             0: ("first", IrBind(0, "text")),
             1: ("ws", IrBind(1, "model")),

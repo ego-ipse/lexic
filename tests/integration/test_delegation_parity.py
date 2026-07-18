@@ -11,7 +11,7 @@ parse, itself pinned against the full engine by
 Delegation is unconditional in the compiled artifact, so the A/B toggle here
 swaps ``pda.program.delegates`` for a no-delegates
 :class:`~lexic.parsing.pda.compiler.delegate_compile.DelegateSource` variant
-(:class:`~tests.unit.lexic.parsing.pda.test_delegate_compile._NoDelegates`,
+(:class:`~tests.unit.lexic.parsing.pda.test_delegate_compile.NoDelegates`,
 built from the real source's own construction ingredients through its
 constructor seam) and back; the per-island delegate cache is busted between
 runs (:meth:`PdaTables.reset_delegate_cache`) so each recomputes under the
@@ -49,31 +49,31 @@ from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _reduce_product
-from tests.integration.test_pda_parity import _ALL_STEMS, _grammar_for
-from tests.unit.lexic.parsing.parsing_helpers import _prod
-from tests.unit.lexic.parsing.pda.compiler.test_delegate_compile import _NoDelegates
+from tests.integration.test_pda_parity import ALL_STEMS, grammar_for
+from tests.unit.lexic.parsing.parsing_helpers import prod
+from tests.unit.lexic.parsing.pda.compiler.test_delegate_compile import NoDelegates
 
 # ── the A/B toggle ────────────────────────────────────────────────────────
 
 
-def _no_delegates_variant(source: DelegateSource) -> DelegateSource:
+def no_delegates_variant(source: DelegateSource) -> DelegateSource:
     """A no-delegates :class:`DelegateSource` built from ``source``'s own
     construction ingredients — the off arm of the injection seam, constructed
     through the same constructor as the real (on) source."""
-    return _NoDelegates(source.lifted, source.name_to_rid, source.target, source.seams)
+    return NoDelegates(source.lifted, source.name_to_rid, source.target, source.seams)
 
 
-def _with_delegates(pda: PdaTables, on: bool, run: Callable[[], object]) -> object:
+def with_delegates(pda: PdaTables, on: bool, run: Callable[[], object]) -> object:
     """Run ``run`` with ``pda.program.delegates`` forced on/off, cache busted first.
 
     ``on`` runs against the real (compiled) source; ``off`` swaps in a
-    no-delegates variant (:func:`_no_delegates_variant`) for the duration.
+    no-delegates variant (:func:`no_delegates_variant`) for the duration.
     The real source is restored and the (shared, compile-cached) delegate
     cache is dropped afterwards, so the next reader recomputes lazily under
     whichever source is current — no stale cache leaks between tests.
     """
     real = pda.program.delegates
-    pda.program.delegates = real if on else _no_delegates_variant(real)
+    pda.program.delegates = real if on else no_delegates_variant(real)
     try:
         return run()
     finally:
@@ -84,7 +84,7 @@ def _with_delegates(pda: PdaTables, on: bool, run: Callable[[], object]) -> obje
 # ── instance A/B (model path) ─────────────────────────────────────────────
 
 
-_SYNTH_GRAMMAR = """root ::= item+
+SYNTH_GRAMMAR = """root ::= item+
 item ::= a | b
 a ::= digits "x"
 b ::= digits "y"
@@ -95,7 +95,7 @@ arms share FIRST ``[0-9]``), and its interior delegable rule ``digits``
 (``[0-9]+``) is an unbounded run — a long predictive span the delegate resolves
 on its clone instead of the island's Earley item machinery."""
 
-_SYNTH_SAMPLES: tuple[str, ...] = (
+SYNTH_SAMPLES: tuple[str, ...] = (
     "1x2y3x",
     "12345x",
     ("1" * 80 + "x") + ("2" * 120 + "y") + ("3" * 200 + "x"),
@@ -103,7 +103,7 @@ _SYNTH_SAMPLES: tuple[str, ...] = (
 )
 
 
-def _instance_ab(cg: CompiledGrammar, text: str) -> None:
+def instance_ab(cg: CompiledGrammar, text: str) -> None:
     """Assert on-vs-off byte parity of the forced PDA parse of ``text``.
 
     A delegates-on ``PdaFail`` is a legitimate engine fallback only if the
@@ -111,7 +111,7 @@ def _instance_ab(cg: CompiledGrammar, text: str) -> None:
     succeeding PDA parse into a failing one, so an on-fail / off-succeed split is
     an assertion failure.
     """
-    pda = _prod(cg).pda
+    pda = prod(cg).pda
     assert pda is not None
 
     def _parse() -> object:
@@ -120,8 +120,8 @@ def _instance_ab(cg: CompiledGrammar, text: str) -> None:
         except PdaFail:
             return None
 
-    on = _with_delegates(pda, True, _parse)
-    off = _with_delegates(pda, False, _parse)
+    on = with_delegates(pda, True, _parse)
+    off = with_delegates(pda, False, _parse)
     if off is None:
         assert on is None, f"delegation broke a parse the engine makes: {text!r}"
         return
@@ -131,7 +131,7 @@ def _instance_ab(cg: CompiledGrammar, text: str) -> None:
     assert on_m.to_text() == off_m.to_text() == text
 
 
-@pytest.mark.parametrize("stem", _ALL_STEMS)
+@pytest.mark.parametrize("stem", ALL_STEMS)
 def test_delegation_instance_parity(stem: str) -> None:
     """On-vs-off parity across seeded generated samples of every grammar.
 
@@ -142,13 +142,13 @@ def test_delegation_instance_parity(stem: str) -> None:
     "IslandRef opt-out" branch), so delegation cannot fire either way.
     Rather than skip the stem outright, this pins that invariant directly —
     on and off both fail identically on a real generated sample."""
-    cg, specs, start = _grammar_for(stem)
-    pda = _prod(cg).pda
+    cg, specs, start = grammar_for(stem)
+    pda = prod(cg).pda
     if isinstance(pda.start_key, IslandRef):
         text = generate(start, specs, rng=random.Random(0), max_depth=4) or "x"
         for flag in (True, False):
             with pytest.raises(PdaFail):
-                _with_delegates(pda, flag, lambda: parse_pda(pda, text, cg.fold))
+                with_delegates(pda, flag, lambda: parse_pda(pda, text, cg.fold))
         return
     checked = 0
     for seed in range(40):
@@ -156,7 +156,7 @@ def test_delegation_instance_parity(stem: str) -> None:
         if not text:
             continue
         try:
-            _instance_ab(cg, text)
+            instance_ab(cg, text)
         except UnsupportedConstructError:
             continue  # generator overshoot the engine itself rejects
         checked += 1
@@ -176,9 +176,9 @@ def test_delegation_fires_where_expected() -> None:
     """
     expected = {"chess.gbnf": 0, "json.gbnf": 0, "json.abnf": 0}
     for stem, count in expected.items():
-        cg, _specs, _start = _grammar_for(stem)
-        assert not isinstance(_prod(cg).pda.start_key, IslandRef)
-        assert len(_prod(cg).pda.islands) == count, f"{stem}: island set changed"
+        cg, _specs, _start = grammar_for(stem)
+        assert not isinstance(prod(cg).pda.start_key, IslandRef)
+        assert len(prod(cg).pda.islands) == count, f"{stem}: island set changed"
 
 
 # ── the synthetic long-interior island grammar ────────────────────────────
@@ -186,22 +186,22 @@ def test_delegation_fires_where_expected() -> None:
 
 def test_delegation_synthetic_long_interior() -> None:
     """A long digit run under an alternation island: delegates fire, parity holds."""
-    cg = compile_text(_SYNTH_GRAMMAR, cache_key="delegation-synth")
-    assert not isinstance(_prod(cg).pda.start_key, IslandRef)
-    assert sorted(_prod(cg).pda.islands) == ["item"], "synthetic island set"
+    cg = compile_text(SYNTH_GRAMMAR, cache_key="delegation-synth")
+    assert not isinstance(prod(cg).pda.start_key, IslandRef)
+    assert sorted(prod(cg).pda.islands) == ["item"], "synthetic island set"
     names = {
-        _prod(cg).instance_grammar.rules[rid].name
-        for rid in _prod(cg).pda.island_delegates("item")
+        prod(cg).instance_grammar.rules[rid].name
+        for rid in prod(cg).pda.island_delegates("item")
     }
     assert "digits" in names, "the long-run rule must delegate"
-    for text in _SYNTH_SAMPLES:
-        _instance_ab(cg, text)
+    for text in SYNTH_SAMPLES:
+        instance_ab(cg, text)
 
 
 # ── grammar-text A/B (reduce path) ─────────────────────────────────────────
 
 
-def _reduce_outcome(pda: PdaTables, text: str, flag: bool) -> object:
+def reduce_outcome(pda: PdaTables, text: str, flag: bool) -> object:
     """The reduce PDA's observable outcome on ``text`` under delegation ``flag``.
 
     ``('ok', IrAst)`` on a full parse, or ``('fail', message)`` on a
@@ -215,7 +215,7 @@ def _reduce_outcome(pda: PdaTables, text: str, flag: bool) -> object:
         except PdaFail as exc:
             return ("fail", str(exc))
 
-    return _with_delegates(pda, flag, run)
+    return with_delegates(pda, flag, run)
 
 
 def test_delegation_reduce_path_is_behaviour_neutral() -> None:
@@ -227,18 +227,18 @@ def test_delegation_reduce_path_is_behaviour_neutral() -> None:
     routed* today (Task 7 flips ``parse_grammar`` onto it) — it does not complete
     a full grammar-text parse standalone yet — so this pins the achievable
     guarantee: delegation changes nothing observable, the parse reaches the exact
-    same point (and, per :func:`_reduce_outcome`, the same reduced IR wherever it
+    same point (and, per :func:`reduce_outcome`, the same reduced IR wherever it
     does complete) with delegates on and off, up to and including where the
     un-routed reduce PDA stops. The ABNF reduce PDA opts out whole-grammar
     (``rulelist`` is a start island), so it has no forced-PDA path to A/B yet.
     """
     pda = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer).pda
     assert pda is not None, "GBNF self-grammar reduce PDA should exist"
-    fresh = _with_delegates(pda, True, lambda: pda.island_delegates("charclass"))
+    fresh = with_delegates(pda, True, lambda: pda.island_delegates("charclass"))
     assert fresh, "the reduce path must carry at least one delegating island"
     text = str(GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar))
-    on = _reduce_outcome(pda, text, True)
-    off = _reduce_outcome(pda, text, False)
+    on = reduce_outcome(pda, text, True)
+    off = reduce_outcome(pda, text, False)
     assert on == off, "reduce delegation diverges from the pure-Earley island path"
     if isinstance(on, tuple) and on[0] == "ok":
         assert on[1] == parse_grammar(text, GBNF_FLAVOUR)

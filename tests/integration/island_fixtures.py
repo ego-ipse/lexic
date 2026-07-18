@@ -28,10 +28,10 @@ from lexic.ir import (
 )
 from lexic.parsing.fold import FieldFold, ModelFold, RuleFold
 
-_STAR = IrQuantifier(0, IrNone)
-_OPT = IrQuantifier(0, 1)
-_LOWER = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
-_WS = IrCharClass(IrChr(32), IrChr(9), IrChr(10))
+STAR = IrQuantifier(0, IrNone)
+OPT = IrQuantifier(0, 1)
+LOWER = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
+WS = IrCharClass(IrChr(32), IrChr(9), IrChr(10))
 
 GRAMMAR = IrAst(
     IrSeq(
@@ -46,8 +46,8 @@ GRAMMAR = IrAst(
             IrAlternation(
                 IrSequence(
                     IrItem(IrRuleRef("value")),
-                    IrItem(IrRuleRef("rest"), _STAR),
-                    IrItem(IrRuleRef("comma"), _OPT),
+                    IrItem(IrRuleRef("rest"), STAR),
+                    IrItem(IrRuleRef("comma"), OPT),
                 )
             ),
         ),
@@ -60,16 +60,14 @@ GRAMMAR = IrAst(
         IrRule(
             "value",
             IrAlternation(
-                IrSequence(
-                    IrItem(_LOWER), IrItem(_LOWER, _STAR), IrItem(IrRuleRef("ws"))
-                )
+                IrSequence(IrItem(LOWER), IrItem(LOWER, STAR), IrItem(IrRuleRef("ws")))
             ),
         ),
         IrRule(
             "comma",
             IrAlternation(IrSequence(IrItem(IrLiteral(",")), IrItem(IrRuleRef("ws")))),
         ),
-        IrRule("ws", IrAlternation(IrSequence(IrItem(_WS, _STAR))), False),
+        IrRule("ws", IrAlternation(IrSequence(IrItem(WS, STAR))), False),
     ),
     "start",
 )
@@ -81,39 +79,43 @@ NAME_B = "b" * 200
 WHITELIST = {NAME_A: "A", NAME_B: "B"}
 
 
-def _name(head: str, tail: str = "") -> str:
+def name(head: str, tail: str = "") -> str:
+    """The whitelist-name fold: resolve a possibly-truncated identifier."""
     full = head + tail
     if full not in WHITELIST:
         raise UnsupportedConstructError(f"mini-notation: unknown name {full!r}")
     return WHITELIST[full]
 
 
-def _start(v: object = None) -> object:
+def start(v: object = None) -> object:
+    """The ``start`` rule's fold: pass its single child through unchanged."""
     return v
 
 
-def _list(first: object, rest: list[object] | None = None) -> list[object]:
+def make_list(first: object, rest: list[object] | None = None) -> list[object]:
+    """The ``list`` rule's fold: ``first`` plus every ``rest`` element."""
     return [first, *(rest or [])]
 
 
-def _rest(v: object) -> object:
+def unwrap_rest(v: object) -> object:
+    """The ``rest`` rule's fold: pass its single child through unchanged."""
     return v
 
 
-_ALT = RuleFold("alternation", lambda: None, 0, ())
+ALT = RuleFold("alternation", lambda: None, 0, ())
 FOLD = ModelFold.from_config(
     {
-        "start": RuleFold("sequence", _start, 2, (FieldFold(1, "model", "v", 1),)),
+        "start": RuleFold("sequence", start, 2, (FieldFold(1, "model", "v", 1),)),
         "list": RuleFold(
             "sequence",
-            _list,
+            make_list,
             3,
             (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0)),
         ),
-        "rest": RuleFold("sequence", _rest, 2, (FieldFold(1, "model", "v", 1),)),
+        "rest": RuleFold("sequence", unwrap_rest, 2, (FieldFold(1, "model", "v", 1),)),
         "value": RuleFold(
             "sequence",
-            _name,
+            name,
             3,
             (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
         ),
@@ -131,14 +133,16 @@ FOLD = ModelFold.from_config(
 # notation surface: NOTATION_GRAMMAR + NOTATION_FOLD.baked.
 
 
-def _notation_variant() -> tuple[IrAst, ModelFold]:
+def notation_variant() -> tuple[IrAst, ModelFold]:
+    """The notation grammar with ``arglist`` widened to the trailing-comma
+    island shape, plus its matching fold — the splice-path repro fixture."""
     rules = []
     for rule in notation.NOTATION_GRAMMAR.rules:
         if str(rule.name) == "arglist":
             arm = IrSequence(
                 IrItem(IrRuleRef("value")),
-                IrItem(IrRuleRef("arg-rest"), _STAR),
-                IrItem(IrRuleRef("comma"), _OPT),
+                IrItem(IrRuleRef("arg-rest"), STAR),
+                IrItem(IrRuleRef("comma"), OPT),
             )
             rule = IrRule(rule.name, IrAlternation(arm), rule.semantic)
         rules.append(rule)
@@ -149,7 +153,7 @@ def _notation_variant() -> tuple[IrAst, ModelFold]:
     return grammar, ModelFold.from_config(baked)
 
 
-NOTATION_VARIANT_GRAMMAR, NOTATION_VARIANT_FOLD = _notation_variant()
+NOTATION_VARIANT_GRAMMAR, NOTATION_VARIANT_FOLD = notation_variant()
 
 # 280 chars: the 256 window cuts inside the last ``IrChr`` names; the best
 # arglist completion ends short of the edge on a bare-name prefix.

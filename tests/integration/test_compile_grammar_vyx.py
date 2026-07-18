@@ -31,38 +31,38 @@ VYX_GBNF = GROUND_TRUTH / "vyx.gbnf"
 
 
 @lru_cache(maxsize=None)
-def _grammar_text() -> str:
+def grammar_text() -> str:
     """The vyx grammar source, read once."""
     return VYX_GBNF.read_text(encoding="utf-8")
 
 
-def _with_start(start: str) -> str:
+def with_start(start: str) -> str:
     """The vyx grammar source with its start rule swapped to ``start``."""
-    return re.sub(r"# @start \S+", f"# @start {start}", _grammar_text(), count=1)
+    return re.sub(r"# @start \S+", f"# @start {start}", grammar_text(), count=1)
 
 
 @lru_cache(maxsize=None)
-def _start_grammar(start: str):
+def start_grammar(start: str):
     """The normalised vyx grammar (for recognise / is_ambiguous)."""
-    ast = canonical_grammar(_with_start(start), GBNF_FLAVOUR)
+    ast = canonical_grammar(with_start(start), GBNF_FLAVOUR)
     return normalize(lift_optional_nullables(ast))
 
 
 @lru_cache(maxsize=None)
-def _compiled(start: str):
+def compiled(start: str):
     """The compiled vyx grammar rooted at ``start`` (for parse / round-trip)."""
-    return compile_text(_with_start(start), cache_key=f"vyx-rt-{start}")
+    return compile_text(with_start(start), cache_key=f"vyx-rt-{start}")
 
 
-def _nested_body_packet(body: str) -> str:
+def nested_body_packet(body: str) -> str:
     """A block-body packet wrapping ``body`` with an exact L-budget."""
     return f"!I o:wf L{len(body.encode())}<\n{body}>"
 
 
-_TABLE_BODY = (
+TABLE_BODY = (
     '$P [3]{id nm pr}:\n1 "Widget A" 19.99\n2 "Widget B" 24.50\n3 "Widget C" 12.00\n'
 )
-_SEQ_BODY = (
+SEQ_BODY = (
     '- type=hero title="Welcome to Vyx"\n cta: text="Get Started" url=/docs\n'
     "- type=features cols=3\n"
 )
@@ -73,11 +73,11 @@ PACKET_SAMPLES = [
     ("bodyless", "!I o:inv ^003\n"),
     (
         "kv+scope block body",
-        _nested_body_packet("id=ORD-7291\n ship: meth=express carr=DHL\n"),
+        nested_body_packet("id=ORD-7291\n ship: meth=express carr=DHL\n"),
     ),
-    ("table block body", _nested_body_packet(_TABLE_BODY)),
-    ("sequence block body", _nested_body_packet(_SEQ_BODY)),
-    ("nl+kv block body", _nested_body_packet("free prose line\nid=ORD-7291\n")),
+    ("table block body", nested_body_packet(TABLE_BODY)),
+    ("sequence block body", nested_body_packet(SEQ_BODY)),
+    ("nl+kv block body", nested_body_packet("free prose line\nid=ORD-7291\n")),
     ("template def + use", "T:w=o:inv s:@buyer r:@supplier\n!I %w n:7\n"),
     ("inline body (V11)", "!I o:env s:@weather L22< city=Porto temp=22 >\n"),
 ]
@@ -155,7 +155,7 @@ EXCLUDED_LINES = [
 # inline code, a non-ASCII arrow, and the closing comment. Whole-file parse +
 # byte-exact round-trip is the self-hosting gate; the D-data lines inside are
 # validated as D-constructs by the per-construct tests above.
-_FILE_DOC = "\n".join(
+FILE_DOC = "\n".join(
     [
         "```@:demo",
         'full="Demo Block"',
@@ -185,7 +185,7 @@ def test_vyx_grammar_compiles():
 )
 def test_packet_forms_recognised_and_unambiguous(label: str, text: str):
     """Every packet form parses and carries no genuine ambiguity."""
-    grammar = _start_grammar("packet")
+    grammar = start_grammar("packet")
     assert recognize(grammar, text), f"{label}: not recognised"
     assert not is_ambiguous(grammar, text), f"{label}: ambiguous"
 
@@ -195,7 +195,7 @@ def test_packet_forms_recognised_and_unambiguous(label: str, text: str):
 )
 def test_packet_forms_round_trip(label: str, text: str):
     """Every packet form round-trips byte-exact through the generated models."""
-    assert _compiled("packet").parse(text).to_text() == text, f"{label}: round-trip"
+    assert compiled("packet").parse(text).to_text() == text, f"{label}: round-trip"
 
 
 @pytest.mark.parametrize(
@@ -205,7 +205,7 @@ def test_packet_forms_round_trip(label: str, text: str):
 )
 def test_construct_lines_recognised_and_unambiguous(construct: str, line: str):
     """Each representative corpus line recognises under its construct, once."""
-    grammar = _start_grammar(construct)
+    grammar = start_grammar(construct)
     assert recognize(grammar, line), f"{construct}: {line!r} not recognised"
     assert not is_ambiguous(grammar, line), f"{construct}: {line!r} ambiguous"
 
@@ -217,7 +217,7 @@ def test_construct_lines_recognised_and_unambiguous(construct: str, line: str):
 )
 def test_construct_lines_round_trip(construct: str, line: str):
     """Each representative corpus line round-trips byte-exact."""
-    assert _compiled(construct).parse(line).to_text() == line
+    assert compiled(construct).parse(line).to_text() == line
 
 
 @pytest.mark.parametrize(
@@ -233,7 +233,7 @@ def test_excluded_corpus_lines_do_not_match(category: str, line: str):
     both the body grammar and the assembly-layer table-row.
     """
     for start in ("body-line", "table-row"):
-        grammar = _start_grammar(start)
+        grammar = start_grammar(start)
         assert not recognize(grammar, line), (
             f"{category}: {line!r} unexpectedly matched {start}"
         )
@@ -241,7 +241,7 @@ def test_excluded_corpus_lines_do_not_match(category: str, line: str):
 
 def test_file_level_document_round_trips():
     """A whole self.md-shaped document parses, is unambiguous, and round-trips."""
-    grammar = _start_grammar("vyx-file")
-    assert recognize(grammar, _FILE_DOC)
-    assert not is_ambiguous(grammar, _FILE_DOC)
-    assert _compiled("vyx-file").parse(_FILE_DOC).to_text() == _FILE_DOC
+    grammar = start_grammar("vyx-file")
+    assert recognize(grammar, FILE_DOC)
+    assert not is_ambiguous(grammar, FILE_DOC)
+    assert compiled("vyx-file").parse(FILE_DOC).to_text() == FILE_DOC

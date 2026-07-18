@@ -24,7 +24,7 @@ from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.parsing_helpers import _prod
+from tests.unit.lexic.parsing.parsing_helpers import prod
 
 # Mirrors tools/benchmark/pipeline_bench.py's arithmetic instance workload
 # (same snippets, same ~4800-char target) — not imported (that module builds
@@ -41,7 +41,7 @@ ARITHMETIC_BENCH_SNIPPETS: tuple[str, ...] = (
 )
 
 
-def _arithmetic_bench_corpus(target_len: int = 4800) -> str:
+def arithmetic_bench_corpus(target_len: int = 4800) -> str:
     """The pinned arithmetic bench corpus, cycled to at least ``target_len`` chars."""
     pieces: list[str] = []
     size = 0
@@ -58,7 +58,7 @@ def _arithmetic_bench_corpus(target_len: int = 4800) -> str:
 # tools/benchmark/pipeline_bench.py's ``_JSON_ITEMS``/``_json_corpus`` (same
 # items, same target length) — pinned locally since nothing else in the test
 # tree defines it yet.
-_JSON_BENCH_ITEMS: tuple[str, ...] = (
+JSON_BENCH_ITEMS: tuple[str, ...] = (
     '{"name": "alpha", "id": 1, "ok": true}',
     '{"nested": {"a": [1, 2.5e3, -4], "b": null}}',
     '"quote \\" backslash \\\\ unicode \\u0041 tab \\t"',
@@ -68,20 +68,20 @@ _JSON_BENCH_ITEMS: tuple[str, ...] = (
 )
 
 
-def _json_bench_corpus(target_len: int = 4200) -> str:
+def json_bench_corpus(target_len: int = 4200) -> str:
     """One JSON document (single top-level array) of at least ``target_len`` chars."""
     items: list[str] = []
     total = 0
     i = 0
     while total < target_len:
-        piece = _JSON_BENCH_ITEMS[i % len(_JSON_BENCH_ITEMS)]
+        piece = JSON_BENCH_ITEMS[i % len(JSON_BENCH_ITEMS)]
         items.append(piece)
         total += len(piece) + 4
         i += 1
     return "[\n  " + ",\n  ".join(items) + "\n]\n"
 
 
-_START_OVERRIDES: dict[str, str] = {
+START_OVERRIDES: dict[str, str] = {
     # c's natural start ``root ::= (declaration)*`` is ``lo=0`` and rolls
     # empty 70% of the time (``generate``'s ``_pick_count``) — thin coverage
     # over 40 seeds. ``tests/property/conftest.py``'s ``c_statement_grammar``
@@ -92,17 +92,17 @@ _START_OVERRIDES: dict[str, str] = {
 }
 
 
-def _grammar_for(stem: str) -> tuple[CompiledGrammar, dict, str]:
+def grammar_for(stem: str) -> tuple[CompiledGrammar, dict, str]:
     """Compile ``stem``, resolving its generation start rule.
 
     :returns: ``(compiled grammar, {rule_name: IrRule}, start rule name)`` —
         the start defaults to the grammar's own resolved start rule (so
         json/json.abnf generate from ``JSON-text``, not a hardcoded
-        ``"root"``), overridden per :data:`_START_OVERRIDES` where the
+        ``"root"``), overridden per :data:`START_OVERRIDES` where the
         natural start gives thin coverage.
     """
     path = GROUND_TRUTH / stem
-    override = _START_OVERRIDES.get(stem)
+    override = START_OVERRIDES.get(stem)
     if override is None:
         flavour = flavour_for_extension(path)
         canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
@@ -116,13 +116,13 @@ def _grammar_for(stem: str) -> tuple[CompiledGrammar, dict, str]:
     return cg, specs, override
 
 
-def _forced_engine(cg: CompiledGrammar, text: str) -> GrammarModel:
+def forced_engine(cg: CompiledGrammar, text: str) -> GrammarModel:
     """Parse ``text`` via the forced-engine seam (bypassing the PDA entirely)."""
-    tree = parse_first(_prod(cg).instance_grammar, text, _prod(cg).tables)
+    tree = parse_first(prod(cg).instance_grammar, text, prod(cg).tables)
     return cast(GrammarModel, cg.fold.apply(tree))
 
 
-def _deep_semantic(value: object) -> object:
+def deep_semantic(value: object) -> object:
     """The ruling-1 comparator: drop ``semantic=False`` binds at EVERY level.
 
     ``semantic_dump()``'s exclusion is top-level-only (R2-5); the prior
@@ -135,49 +135,49 @@ def _deep_semantic(value: object) -> object:
     """
     if isinstance(value, GrammarModel):
         return {
-            name: _deep_semantic(getattr(value, name)) for name in value.semantic_dump()
+            name: deep_semantic(getattr(value, name)) for name in value.semantic_dump()
         }
     if isinstance(value, tuple):
-        return [_deep_semantic(sub) for sub in value]
+        return [deep_semantic(sub) for sub in value]
     return value
 
 
-def _check_one(cg: CompiledGrammar, text: str, tally: dict) -> None:
+def check_one(cg: CompiledGrammar, text: str, tally: dict) -> None:
     """Run both seams on ``text``, tally the outcome, assert what parity demands.
 
     :raises UnsupportedConstructError: Propagated from the engine path on a
         generator-overshoot input the grammar itself rejects — the caller
         skips the sample rather than counting it.
     """
-    engine_model = _forced_engine(cg, text)
+    engine_model = forced_engine(cg, text)
     assert engine_model.to_text() == text
-    if isinstance(_prod(cg).pda.start_key, IslandRef):
+    if isinstance(prod(cg).pda.start_key, IslandRef):
         tally["checked"] += 1
         tally["engine_only"] += 1
         return
     try:
-        pda_model = cast(GrammarModel, parse_pda(_prod(cg).pda, text, cg.fold))
+        pda_model = cast(GrammarModel, parse_pda(prod(cg).pda, text, cg.fold))
     except PdaFail:
         tally["fallback"] += 1
         tally["checked"] += 1
         return
     tally["pda_ok"] += 1
     tally["checked"] += 1
-    assert _deep_semantic(pda_model) == _deep_semantic(engine_model)
+    assert deep_semantic(pda_model) == deep_semantic(engine_model)
     assert pda_model.to_text() == text
     if pda_model.dump() == engine_model.dump():
         tally["dump_exact"] += 1
 
 
-def _report(stem: str, cg: CompiledGrammar, tally: dict) -> None:
+def report(stem: str, cg: CompiledGrammar, tally: dict) -> None:
     """Print the per-grammar summary line (reported, not asserted)."""
     n = tally["checked"] or 1
-    if isinstance(_prod(cg).pda.start_key, IslandRef):
+    if isinstance(prod(cg).pda.start_key, IslandRef):
         print(
             f"{stem:16s} checked={tally['checked']:3d} ENGINE-ONLY (whole-grammar PDA opt-out)"
         )
         return
-    islands = sorted(_prod(cg).pda.islands)
+    islands = sorted(prod(cg).pda.islands)
     exact = (
         f"{tally['dump_exact'] / tally['pda_ok']:5.1%}" if tally["pda_ok"] else "n/a"
     )

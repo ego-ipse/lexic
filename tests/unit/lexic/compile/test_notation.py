@@ -66,10 +66,10 @@ from lexic.ir.operators import IrNot, IrOp
 from lexic.parsing.earley.reduce import YIELD, Yield
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
 
-_GRAMMARS = Path(__file__).resolve().parents[4] / "src" / "lexic" / "grammars"
+GRAMMARS = Path(__file__).resolve().parents[4] / "src" / "lexic" / "grammars"
 
 
-def _payloads() -> dict[str, object]:
+def payloads() -> dict[str, object]:
     """The lambda-free flavour payloads — the full real manifest data set."""
     return {
         "GBNF_GRAMMAR": GBNF_GRAMMAR,
@@ -87,10 +87,10 @@ def _payloads() -> dict[str, object]:
 # ── payload suite (demo_05 ported) ────────────────────────────────────
 
 
-@pytest.mark.parametrize("name", list(_payloads()))
+@pytest.mark.parametrize("name", list(payloads()))
 def test_full_payload_canonical_repr_roundtrips(name: str) -> None:
     """Every lambda-free flavour payload canonical-repr round-trips."""
-    obj = _payloads()[name]
+    obj = payloads()[name]
     text = repr(obj)
     assert repr(load_ir(text)) == text
 
@@ -106,7 +106,7 @@ def test_grammar_payloads_reconstruct_equal() -> None:
 
 # ── vocabulary + string battery ───────────────────────────────────────
 
-_VOCAB_BATTERY = [
+VOCAB_BATTERY = [
     IrLiteral("a"),
     IrLiteral("it's"),
     IrLiteral('say "hi"'),
@@ -139,7 +139,7 @@ _VOCAB_BATTERY = [
 ]
 
 
-@pytest.mark.parametrize("node", _VOCAB_BATTERY, ids=lambda n: type(n).__name__)
+@pytest.mark.parametrize("node", VOCAB_BATTERY, ids=lambda n: type(n).__name__)
 def test_vocabulary_canonical_repr_roundtrips(node: object) -> None:
     """Each representative node round-trips exactly (canonical spelling)."""
     got = load_ir(repr(node))
@@ -185,19 +185,20 @@ def test_intern_table_maps_yield_to_yield() -> None:
 
 # ── SYMBOLS drift-pin: the no-exec boundary ────────────────────────────
 
-_IR_MODULES = (ir_base, ir_nodes, ir_operators, ir_action, ir_mapping, ir_flavour)
+IR_MODULES = (ir_base, ir_nodes, ir_operators, ir_action, ir_mapping, ir_flavour)
 
 # The non-IR-node names the whitelist admits — pinned as a name set (not a
 # value mapping) so this drift-pin does not re-declare notation's own extras
 # literal; the value identities are asserted separately below. ``Yield`` is
 # itself an ``IrSelf`` subclass, so it sits on the IR-node side of the partition
 # (added manually, but a legitimate node constructor).
-_EXTRA_NAMES = frozenset(
+EXTRA_NAMES = frozenset(
     {"IrNone", "IR_DEFAULT", "YIELD", "UnsupportedConstructError", "True", "False"}
 )
 
 
-def _is_ir_node(val: object) -> bool:
+def is_ir_node(val: object) -> bool:
+    """Whether ``val`` is an IrSelf-subclass class object."""
     return inspect.isclass(val) and issubclass(val, IrSelf)
 
 
@@ -208,11 +209,11 @@ def test_symbols_cover_every_public_ir_node_class() -> None:
     vocabulary automatically, and this pin fails loudly if the filter ever
     stops covering the module surface (the fixpoint would silently regress).
     """
-    for mod in _IR_MODULES:
+    for mod in IR_MODULES:
         for name, val in vars(mod).items():
             if name.startswith("_"):
                 continue
-            if _is_ir_node(val):
+            if is_ir_node(val):
                 assert SYMBOLS.get(name) is val, f"{name} missing from SYMBOLS"
 
 
@@ -224,8 +225,8 @@ def test_symbols_boundary_is_ir_nodes_plus_named_extras() -> None:
     callable can be spelled. The extras are pinned by name here and by value
     identity below.
     """
-    non_ir_names = {name for name, val in SYMBOLS.items() if not _is_ir_node(val)}
-    assert non_ir_names == _EXTRA_NAMES
+    non_ir_names = {name for name, val in SYMBOLS.items() if not is_ir_node(val)}
+    assert non_ir_names == EXTRA_NAMES
 
 
 def test_symbols_extras_resolve_to_the_canonical_values() -> None:
@@ -284,7 +285,7 @@ def test_json_ir_data_file_equals_authored_grammar() -> None:
     ``non_semantic`` is compared explicitly (C11 — ``IrRule.__eq__`` excludes
     ``semantic``, so ``IrAst ==`` is blind to the noise flags).
     """
-    loaded = load_ir_from_path(_GRAMMARS / "json.ir")
+    loaded = load_ir_from_path(GRAMMARS / "json.ir")
     assert isinstance(loaded, IrAst)
     assert loaded == JSON_GRAMMAR
     assert loaded.non_semantic == JSON_GRAMMAR.non_semantic
@@ -352,7 +353,7 @@ def test_emit_ir_width_bound_on_a_breakable_shape() -> None:
 # ── emit_ir refuses IrLambda-bearing values ─────────────────────────────
 
 
-def _lambda_body(_d: object, n: object, _nc: object) -> object:
+def lambda_body(_d: object, n: object, _nc: object) -> object:
     """A stand-in emitter body — never called; only its presence is tested."""
     return n
 
@@ -360,12 +361,12 @@ def _lambda_body(_d: object, n: object, _nc: object) -> object:
 def test_emit_ir_refuses_a_bare_irlambda() -> None:
     """An ``IrLambda`` has no notation spelling — emit refuses it eagerly."""
     with pytest.raises(UnsupportedConstructError):
-        emit_ir(IrLambda(_lambda_body))
+        emit_ir(IrLambda(lambda_body))
 
 
 def test_emit_ir_refuses_an_irlambda_nested_inside_a_record() -> None:
     """The refusal fires however deep the ``IrLambda`` sits in the tree."""
-    action = IrAction(IrLiteral, IrLambda(_lambda_body))
+    action = IrAction(IrLiteral, IrLambda(lambda_body))
     with pytest.raises(UnsupportedConstructError):
         emit_ir(action)
 
@@ -399,7 +400,7 @@ def test_emit_ir_scalar_leaves_spell_as_type_call() -> None:
 
 # ── no trailing commas anywhere ──────────────────────────────────────────
 
-_TRAILING_COMMA = re.compile(r",\s*\)")
+TRAILING_COMMA = re.compile(r",\s*\)")
 
 
 @pytest.mark.parametrize("stem", GBNF_GRAMMARS)
@@ -408,11 +409,11 @@ def test_emit_ir_never_emits_a_trailing_comma(stem: str) -> None:
     before a closing paren — the notation's arglist does not accept one."""
     compiled = compile_from_path(GROUND_TRUTH / stem)
     text = emit_ir(compiled.grammar, width=30)
-    assert not _TRAILING_COMMA.search(text)
+    assert not TRAILING_COMMA.search(text)
 
 
 def test_emit_ir_never_emits_a_trailing_comma_on_a_small_broken_shape() -> None:
     """Same guarantee on the small synthetic shape, forced fully broken."""
     node = IrSequence(*(IrItem(IrLiteral(c)) for c in "abcdefgh"))
     text = emit_ir(node, width=20)
-    assert not _TRAILING_COMMA.search(text)
+    assert not TRAILING_COMMA.search(text)
