@@ -1,18 +1,19 @@
 # Lexic
 
-> **Status:** experimental, pre-1.0, WIP. APIs may change without notice.
+> **Status:** experimental, pre-1.0. APIs may change without notice.
 
-Lexic is the grammar engine layer of [Vyx](https://github.com/) — an agent-to-agent protocol. It compiles grammar files (GBNF, ABNF) into typed Pydantic model classes; instances parse text and round-trip back to grammar.
+Lexic is the grammar engine layer of [Vyx](https://github.com/) — an agent-to-agent protocol. It compiles grammar files (GBNF, ABNF) into typed model classes; instances parse text and round-trip losslessly back to grammar. It has **zero runtime dependencies** — the parser is a native Earley/PDA engine, and model classes are plain Python records (no pydantic).
 
-**Grammar is the ground truth.** Generated classes are Python's view of a grammar, not the source of truth. Every model has a lossless `to_grammar(flavour)` path back to the canonical text.
+**Grammar is the ground truth.** Model classes are Python's *view* of a grammar, not the source of truth. Every model has a lossless `to_grammar(flavour)` path back to canonical grammar text.
 
 ## What it does
 
-- **Compile** a grammar file (`.gbnf` / `.abnf`) into a `CompiledGrammar` bundle (Pydantic classes + a compiled instance grammar + model fold).
+- **Compile** a grammar (`.gbnf` / `.abnf`) into a `CompiledGrammar` — model classes synthesized at runtime + a compiled instance parser.
 - **Parse** text against the compiled grammar into a typed model instance.
-- **Round-trip** an instance back to its original text via `to_text()` — exact, whitespace-preserving.
-- **Re-emit** the grammar from the model via `to_grammar(flavour)` — works across flavours (e.g. compile a GBNF grammar, emit it as ABNF).
-- **Strip structural noise** via `semantic_dump()` — `model_dump()` minus rules marked `@non-semantic` (typically whitespace). Used downstream by Vyx for cross-grammar translation.
+- **Round-trip** an instance back to its exact source via `to_text()` — whitespace-preserving.
+- **Re-emit** the grammar from a model via `to_grammar(flavour)` — across flavours (compile GBNF, emit ABNF, or vice-versa).
+- **Strip structural noise** via `semantic_dump()` — `dump()` minus rules marked `@non-semantic` (typically whitespace). Used downstream by Vyx for cross-grammar translation.
+- **Load pure IR** — parse a grammar to an `IrAst` without building classes (`parse_grammar`), load IR objects from a neutral text notation (`load_ir`), or load a whole flavour from a text manifest (`load_flavour`).
 
 ## Quick start
 
@@ -21,26 +22,52 @@ from lexic.compile import compile_from_path
 
 grammar = compile_from_path("resources/ground_truth/arithmetic.gbnf")
 
-# Parse text → typed Pydantic model
+# Parse text → typed model
 instance = grammar.parse("x = 1\n")
 
 # Exact reconstruction
 assert instance.to_text() == "x = 1\n"
 
-# Emit the grammar back (GBNF by default)
-print(instance.to_grammar())          # GBNF
+# Emit the grammar back
+print(instance.to_grammar())          # GBNF (default)
 print(instance.to_grammar("abnf"))    # ABNF
 
-# Semantic-only dict (no whitespace fields)
+# Dicts: full dump, or semantic-only (no whitespace fields)
+instance.dump()
 instance.semantic_dump()
 ```
 
-For a string-in entry point, use `compile_text`:
+String-in entry point:
 
 ```python
 from lexic.compile import compile_text
 
-grammar = compile_text(open("g.gbnf").read(), flavour="gbnf")
+grammar = compile_text('root ::= "hi"\n', flavour="gbnf")
+```
+
+Runnable, commented walkthroughs live in [`getting_started/`](getting_started/):
+
+| Example | Shows |
+|---|---|
+| `ex01_hello_grammar.py` | Define a grammar inline, compile, parse, round-trip. |
+| `ex02_compile_from_file.py` | Compile a bundled `.gbnf` and read fields. |
+| `ex03_parse_json.py` | Parse nested JSON; `to_text()` and `semantic_dump()`. |
+| `ex04_transpile_flavours.py` | Transpile a grammar GBNF ↔ ABNF via the flavour singletons. |
+| `ex05_inspect_ir.py` | Inspect the `__grammar__: IrRule` behind a compiled class. |
+
+## Two products: models and pure IR
+
+The `compile/` package compiles grammar text into **either or both** of:
+
+- **Compiled models** — classes synthesized at runtime on an immutable record spine (`IrNamedTuple`) via `type(name, bases, ns)`. No source emit, no import, no file write; a model *is* a walkable IR record.
+- **Pure IR** — an `IrAst` (via `parse_grammar`), real IR objects from a neutral, no-`exec` text notation (`load_ir`), or a full `IrFlavour` from a text manifest (`load_flavour`).
+
+```python
+from lexic.compile import parse_grammar, load_ir
+from lexic.grammars import GBNF_FLAVOUR
+
+ast = parse_grammar('root ::= "a" | "b"\n', GBNF_FLAVOUR)   # grammar text → IrAst
+node = load_ir('IrLiteral("x")')                            # notation text → IR object
 ```
 
 ## Supported flavours
@@ -48,17 +75,9 @@ grammar = compile_text(open("g.gbnf").read(), flavour="gbnf")
 | Flavour | Extension | Status |
 |---|---|---|
 | GBNF | `.gbnf` | Production |
-| ABNF (subset) | `.abnf` | Production |
+| ABNF | `.abnf` | Production (RFC 5234 + 7405 subset) |
 
-A *flavour* is the grammar notation. Adding a new one means writing a single flat `grammars/<name>.py` module containing:
-
-- the flavour's own self-grammar, authored directly as an `IrAst` (no meta-grammar string),
-- a `Reducer` (reductions + noise map) folding parse forests back into IR,
-- an `EscapeCodec` instance,
-- emit actions mapping each IR-AST node type to a rendering body (pure algebra: `IrConcat`, `IrJoin`, `IrField`, `IrChild`, `IrChildren`; procedural escape hatch: `IrLambda`),
-- an `IrFlavour` subclass carrying all of the above as data — zero parsing methods.
-
-See [`.wiki/lexic/flavour-system.md`](.wiki/lexic/flavour-system.md) for the step-by-step walkthrough.
+A *flavour* is the grammar notation. A flavour is pure data — a self-grammar (authored as `IrAst`), a `Reducer` (reductions + noise map), an `EscapeCodec`, and emit actions — carried by an `IrFlavour` with **zero parsing methods**. Add one either as a flat `grammars/<name>.py` module or as a **text manifest** loaded with `load_flavour`. See [`.wiki/lexic/flavour-system.md`](.wiki/lexic/flavour-system.md).
 
 ## Architecture
 
@@ -66,7 +85,7 @@ See [`.wiki/lexic/flavour-system.md`](.wiki/lexic/flavour-system.md) for the ste
 grammar text
    │
    ├─► _scan_directives                (start, non_semantic)
-   └─► parse_grammar                   IrAst      [native Earley engine]
+   └─► parse_grammar                   IrAst      [native Earley/PDA engine]
             │
             ▼
       canonicalize                     canonical IrAst   [language-preserving
@@ -76,36 +95,36 @@ grammar text
    build_codegen_grammar               THE codegen grammar
    (hoist groups, hoist arms,               │
     relax non-semantic refs)                │
-            │                               │
-   ┌────────┼───────────────┬───────────────┼──────────────────────┐
-   ▼        ▼                ▼                                      ▼
-compute_binding  codegen (Annotated/IrBind    PositionalFold      flavour.apply
-(class/kind/     fields, __grammar__          (instance parsing    (grammar text,
- parent/field    footers → Pydantic)          over the codegen     either flavour)
- names)                                        grammar directly)
+   ┌────────┬───────────────┬───────────────┼──────────────────────┐
+   ▼        ▼               ▼                                       ▼
+compute_binding      synthesize            PositionalFold        flavour.apply
+(class/kind/         (type() build:        (instance parsing      (grammar text,
+ parent/field        __grammar__ +          over the codegen      either flavour)
+ names)              __binds__, no file)    grammar directly)
 ```
 
-Parsing is a **native Earley engine** (`lexic.parsing` — SPPF, Scott 2008, pure Python, zero parser dependencies). The same engine drives grammar-text parsing (each flavour carries its own self-grammar as IR) and generated-instance parsing — the latter via a positional fold over the real codegen grammar, no intermediate wrapper grammar.
+Parsing is a **native engine** (`lexic.parsing`, pure Python, zero parser dependencies): a deterministic predictive **PDA** fast path that builds the typed result *during* the parse, backed by a scannerless **Earley** engine (full SPPF, Scott 2008) as the sound completion. The one engine drives both grammar-text parsing (each flavour carries its own self-grammar as IR) and generated-instance parsing — the latter a positional fold over the real codegen grammar, no intermediate wrapper grammar.
 
-The IR substrate is **action-driven**: every transformation (canonicalization, codegen, flavour emission) is expressed as a tuple of `IrAction(target_type, body)` plugged into a single dispatcher (`IrDispatch` / `IrVisitor` / `IrTransformer` / `IrEmitter`). New IR node types extend the table; the dispatcher needs no subclassing.
+The IR substrate is **action-driven**: every transformation (canonicalization, class synthesis, flavour emission) is expressed as `IrAction(target_type, body)` entries plugged into one dispatcher (`IrDispatch` / `IrVisitor` / `IrTransformer` / `IrEmitter`). New IR node types extend the table; the dispatcher needs no subclassing. Models live on this same spine — a compiled instance is walkable, dispatchable IR.
 
-For the full architecture, layering rules, and IR substrate documentation, see:
+For the full picture:
 
 - [`.wiki/lexic/architecture.md`](.wiki/lexic/architecture.md) — pipeline, layering, the IR substrate.
 - [`.wiki/lexic/ir-shapes.md`](.wiki/lexic/ir-shapes.md) — every IR node + the action algebra.
+- [`.wiki/lexic/public-api.md`](.wiki/lexic/public-api.md) — the public surface.
 - [`.wiki/lexic/flavour-system.md`](.wiki/lexic/flavour-system.md) — adding flavours.
 
 ## Test grammars
 
-Eight ground-truth `.gbnf` grammars live in `resources/ground_truth/`, plus two `.abnf` siblings (`arithmetic`, `json`) used to check cross-flavour compile parity. Property tests round-trip every valid input through them:
+`resources/ground_truth/` holds nine `.gbnf` grammars plus two `.abnf` siblings (`arithmetic`, `json`) for cross-flavour compile parity. Property tests round-trip every valid input through them:
 
-`arithmetic` · `c` · `chess` · `japanese` · `json` · `json_arr` · `json_ws` · `list`
+`arithmetic` · `c` · `chess` · `japanese` · `json` · `json_arr` · `json_ws` · `list` · `vyx`
 
 ## Performance
 
-`lexic.parsing` runs two engines behind one API: a deterministic **predictive PDA** — the default fast path, which builds the typed result *during* the parse (no intermediate tree) — backed by a scannerless **Earley** engine (full SPPF, Scott 2008) as the sound completion. Both are pure Python, zero parser dependencies. `tools/benchmark/compare_bench.py` races both against **Lark** — under *both* its LALR and Earley parsers — on the same inputs, so the paths compare directly.
+`lexic.parsing` runs two engines behind one API: the deterministic **PDA** (default fast path, builds the typed model with no intermediate tree) backed by scannerless **Earley** (full SPPF) as the sound completion. Both are pure Python with zero parser dependencies. `tools/benchmark/compare_bench.py` races both against **Lark** (LALR and Earley) on the same inputs.
 
-Representative throughput (µs/char, lower is faster; single machine, July 2026):
+Representative throughput (µs/char, lower is faster; single machine, 2026):
 
 | input | lark-lalr | lark-earley | earley | **pda** |
 |---|---|---|---|---|
@@ -116,24 +135,19 @@ Representative throughput (µs/char, lower is faster; single machine, July 2026)
 | chess *(instance)* | 1.0 | 10 | 9 | **1.6** |
 | json *(instance)* | 0.9 | 14 | 64 | **3.5** |
 
-Reading the numbers fairly:
-
-- **Grammar-text** (parsing grammar *source* → IR): the PDA runs ~9 µs/char — about 2× the engine's own Earley and ~2–3× Lark. LALR is not viable for the two meta-grammars (their rulename↔ruleref overlap needs unbounded lookahead — the same reason the PDA compiles a probe gate), so Lark runs Earley there.
-- **Instances** (parsing strings against a compiled grammar → typed model): Lark's **LALR** + contextual lexer is genuinely fast, competitive with or faster than the PDA — but note the asymmetry: Lark yields a *generic parse tree*, while `earley`/`pda` build the **typed Pydantic model**, so those columns include construction Lark's do not. Lark's own *Earley* parser is 5–25× slower than its LALR.
-
-Lark is measured at its native output (`parser.parse` → Tree), never a second-pass transform, so the comparison is fair to it; where LALR cannot handle a grammar it is reported, never silently swapped for Earley. The PDA closes the deterministic-parse gap via exact (proved, never approximated) lexical-run collapse, per-call-site clone tables read from a stored gate analysis, and FIRST-gated prediction. See the benchmark's docstring for the full methodology.
+Reading the numbers fairly: Lark's **LALR** + contextual lexer is genuinely fast — but it yields a *generic parse tree*, while `earley`/`pda` build the **typed model**, so those columns include construction Lark's do not. LALR is not viable for the two meta-grammars (rulename↔ruleref overlap needs unbounded lookahead), so Lark runs Earley there. Lark is measured at its native output, never a second-pass transform; where LALR cannot handle a grammar it is reported, never silently swapped. Compilation itself is fast — building a `CompiledGrammar` is dominated by parsing, with no file I/O or subprocess on the path.
 
 ## Development
 
-Lexic uses [uv](https://docs.astral.sh/uv/) for dependency management. Always prefix commands with `uv run` — never run `pytest` or `ruff` bare.
+Lexic uses [uv](https://docs.astral.sh/uv/). Always prefix commands with `uv run` — never run `pytest` or `ruff` bare.
 
 ```bash
-uv sync                                  # install deps
-uv run pytest tests/ -q                  # full suite (~1360 tests)
+uv sync                                  # install deps (dev-only; no runtime deps)
+uv run pytest tests/ -q                  # full suite (~2570 tests)
 uv run pytest tests/unit/lexic/ -q       # unit only
 uv run pytest tests/integration/ -q      # integration only
 uv run ruff check src/ tests/            # lint
-uv run pylint src/lexic/path/to/file.py  # per-file quality gate
+tools/run_checks.sh                       # the done-gate (ruff + pyright + whole-tree pylint)
 ```
 
 Mechanical lint/format fixes:
@@ -144,8 +158,8 @@ tools/auto_fix.sh   # ruff format → isort → ruff check --fix
 
 ## Project status
 
-Lexic is pre-1.0 and actively churning. The IrItem-based pipeline cutover landed in May 2026; the action-driven substrate landed in late May 2026 ([[decisions]] P12–P18); the Lark→Earley cutover (native engine, Lark removed as a dependency) landed in early July 2026; the RuleSpec→IR-native codegen cutover (one canonical grammar drives codegen, instance parsing, emission, generation and round-trip — no intermediate spec layer) landed in early July 2026. Public invariants live in CLAUDE.md §Key invariants; architecture and decisions live in the wiki.
+Lexic is pre-1.0 and actively developed. One IR-native pipeline drives everything: a native Earley/PDA engine (no third-party parser), a canonical `IrAst` that both flavours converge on, runtime class synthesis on the record spine, and cross-flavour emission — all off the same action-driven IR substrate. Public invariants live in [CLAUDE.md](CLAUDE.md) §Key invariants; architecture and design decisions live in the [wiki](.wiki/).
 
 ## License
 
-TBD.
+LGPL
