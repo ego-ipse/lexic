@@ -20,8 +20,9 @@ from lexic.compile import (
     compile_from_path,
     compile_text,
 )
-from lexic.compile.binding import RuleBinding, compute_binding
+from lexic.compile.binding import _RESERVED_CLASS_NAMES, RuleBinding, compute_binding
 from lexic.compile.export import (
+    _HEADER,
     _binds_repr,
     _field_type,
     _group_model_type,
@@ -199,6 +200,32 @@ def test_ruff_format_actually_reformats_when_available():
     formatted = _ruff_format(messy)
     assert formatted != messy
     ast.parse(formatted)
+
+
+# ── reserved-class-name drift pin (the surviving source-emitter surface) ──
+
+
+def _header_bound_names() -> set[str]:
+    """The module-scope names the exporter's header binds (imports)."""
+    tree = ast.parse(_HEADER.format(stem="probe"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update(alias.asname or alias.name for alias in node.names)
+    return names
+
+
+def test_reserved_class_names_cover_the_export_header():
+    """Every class-shadowable name the exporter's header binds is reserved.
+
+    Re-anchors ``_RESERVED_CLASS_NAMES`` to the sole surviving source emitter
+    (the exporter) — a generated class named after a header binding would
+    shadow it in the rendered ``.py`` view. ``annotations`` (the ``__future__``
+    flag, lowercase) can never collide with a PascalCase class name, so it is
+    not a mangling target.
+    """
+    shadowable = _header_bound_names() - {"annotations"}
+    assert shadowable <= _RESERVED_CLASS_NAMES
 
 
 # ── public entry surface ──────────────────────────────────────────────────

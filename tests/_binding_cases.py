@@ -101,16 +101,6 @@ def _mutual_arm_ast() -> IrAst:
     )
 
 
-def _chain_rules(depth: int) -> list[IrRule]:
-    """r0 → r1 → … → r<depth>, each a unit-ref wrapper, leaf a literal."""
-    rules = [
-        IrRule(f"r{i}", IrSequence(IrItem(IrRuleRef(f"r{i + 1}"))))
-        for i in range(depth)
-    ]
-    rules.append(IrRule(f"r{depth}", IrSequence(IrItem(IrLiteral("0")))))
-    return rules
-
-
 # ── naming lookup tables (re-homed from ir/naming.py) ─────────────────
 
 
@@ -533,50 +523,6 @@ def _case_compute_binding_alternation_and_value_str_have_no_fields(
     assert by_name["a"].fields == {}
 
 
-# ── schema expansion joints (deep ref chains) ─────────────────────────
-
-
-def _case_schema_depths_count_acyclic_chains(binding: ModuleType) -> None:
-    """Depth is the inlined-schema nesting: leaf 1, each referrer +1."""
-    edges = {"a": ["b"], "b": ["c"], "c": []}
-    assert getattr(binding, "_schema_depths")(edges) == {"a": 3, "b": 2, "c": 1}
-
-
-def _case_schema_depths_cycle_edges_add_no_depth(binding: ModuleType) -> None:
-    """Cycle members keep depth from OUTSIDE refs only (cycle edges add none)."""
-    edges = {"v": ["a", "leaf"], "a": ["v"], "leaf": []}
-    depths = getattr(binding, "_schema_depths")(edges)
-    assert depths["leaf"] == 1
-    assert depths["v"] == 2  # leaf inlines; the v↔a cycle edge does not
-    assert depths["a"] == 1  # a's only ref is intra-cycle — def-ref'd, shallow
-
-
-def _case_schema_joints_flag_every_stride_multiple(binding: ModuleType) -> None:
-    """A chain longer than one stride gets a joint at each stride multiple."""
-    stride = getattr(binding, "_SCHEMA_JOINT_STRIDE")
-    depth = 2 * stride + 10
-    joints = getattr(binding, "_schema_joints")(_chain_rules(depth))
-    assert len(joints) == 2
-    depths_of_joints = {depth + 1 - int(name[1:]) for name in joints}
-    assert depths_of_joints == {stride, 2 * stride}
-
-
-def _case_shallow_grammars_get_no_joints(binding: ModuleType) -> None:
-    """Every grammar under one stride deep is untouched (all ground truths)."""
-    assert not getattr(binding, "_schema_joints")(_chain_rules(30))
-    bindings = binding.compute_binding(_multi_membership_ast())
-    assert not any(b.schema_joint for b in bindings)
-
-
-def _case_compute_binding_threads_joint_flags(binding: ModuleType) -> None:
-    """RuleBinding.schema_joint mirrors the joint set."""
-    depth = getattr(binding, "_SCHEMA_JOINT_STRIDE") + 5
-    rules = _chain_rules(depth)
-    ast = IrAst(IrSeq(*rules), "r0")
-    flagged = {b.rule_name for b in binding.compute_binding(ast) if b.schema_joint}
-    assert len(flagged) == 1
-
-
 _CASES: dict[str, Callable[[ModuleType], None]] = {
     "test_charclass_names_keyed_by_canonical_normal_form": (
         _case_charclass_names_keyed_by_canonical_normal_form
@@ -693,19 +639,6 @@ _CASES: dict[str, Callable[[ModuleType], None]] = {
     ),
     "test_compute_binding_alternation_and_value_str_have_no_fields": (
         _case_compute_binding_alternation_and_value_str_have_no_fields
-    ),
-    "test_schema_depths_count_acyclic_chains": (
-        _case_schema_depths_count_acyclic_chains
-    ),
-    "test_schema_depths_cycle_edges_add_no_depth": (
-        _case_schema_depths_cycle_edges_add_no_depth
-    ),
-    "test_schema_joints_flag_every_stride_multiple": (
-        _case_schema_joints_flag_every_stride_multiple
-    ),
-    "test_shallow_grammars_get_no_joints": _case_shallow_grammars_get_no_joints,
-    "test_compute_binding_threads_joint_flags": (
-        _case_compute_binding_threads_joint_flags
     ),
 }
 
