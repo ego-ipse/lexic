@@ -23,6 +23,8 @@ from lexic.compile.notation.parse import NOTATION_GRAMMAR
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrNone, IrNoneType
 from lexic.ir.nodes import IrAst
+from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from tests.paths import GROUND_TRUTH
 
 LIST_GRAMMAR = GROUND_TRUTH / "list.gbnf"
@@ -50,6 +52,14 @@ def test_module_grammar_merges_m_rules_with_notation_rules_minus_start():
     assert non_m_names == notation_names
     assert "start" not in names
     assert m_names  # the statement skeleton contributed rules too
+
+
+def test_module_grammar_island_set_stays_at_the_small_pre_task_0b_names():
+    """Regression pin for the Task 0b inline-verify fix (22x check_generated
+    slowdown): the PDA-gated body-line/inline-binds/type rules must NOT
+    island. Only the pre-existing small-window islands remain."""
+    analysis = GrammarAnalysis(lift_optional_nullables(module_grammar()))
+    assert sorted(analysis.islands) == ["m-imports", "name", "ws"]
 
 
 def test_module_grammar_has_no_duplicate_rule_names():
@@ -168,6 +178,16 @@ def test_verify_module_passes_for_a_real_export(inline_tables: bool):
     """verify_module accepts a genuine export in both table modes and
     returns the same model parse_module would."""
     compiled = compile_from_path(JSON_WS_GRAMMAR)
+    source = export_source(compiled, inline_tables=inline_tables)
+    verified = verify_module(compiled, source)
+    assert verified == parse_module(source)
+
+
+@pytest.mark.parametrize("inline_tables", [False, True])
+def test_parse_module_round_trips_a_small_ground_truth_grammar(inline_tables: bool):
+    """A small GT (arithmetic) exports and verifies cleanly in both modes —
+    the round-trip is not limited to the larger json_ws fixture."""
+    compiled = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     source = export_source(compiled, inline_tables=inline_tables)
     verified = verify_module(compiled, source)
     assert verified == parse_module(source)

@@ -10,7 +10,7 @@ What makes that trustworthy rather than merely convenient:
 
 - **A real parsing engine, not a wrapper.** A native Earley engine (full SPPF, so *any* context-free grammar works — ambiguity, left recursion, the lot) fused with a predictive PDA fast path. Every fast-path decision is licensed by static analysis of *your* grammar; anything unprovable falls back to Earley silently. You never trade correctness for speed — you get both, per rule.
 - **Zero runtime dependencies.** The engine, the record spine the models live on, the formatter that renders generated code — all native. `pip install` pulls in nothing.
-- **Grammars are portable.** Compile GBNF, emit ABNF, or vice-versa: both notations converge on one canonical IR, so a model built from one flavour re-emits in another — transpilation for free.
+- **Grammars are portable.** Compile GBNF, emit ABNF or ISO-style EBNF, or any other direction: the notations converge on one canonical IR, so a model built from one flavour re-emits in another — transpilation for free. Emission is width-aware: long rules wrap at arm/item boundaries and reparse to the identical canonical AST (`width=None` keeps the flat single-line form).
 - **Self-hosting all the way down.** The grammar notations themselves are parsed by the same engine, from grammars authored as data — a flavour is a self-grammar plus fold tables, zero parser code. Lexic even parses its *own generated output*: every exported module is re-parsed by a grammar of generated modules and cross-checked against the compiler's binding view, so drift between compiler and artifact is a test failure, not a surprise.
 - **Generated code that behaves like hand-written code.** Exported twin modules are importable, fully typed, tool-clean under pyright and pylint, and byte-stable under isort + ruff-format — a formatter fixpoint, produced by Lexic's own width-aware layout engine.
 - **Round-trip fidelity is property-tested.** `parse(text).to_text() == text` on every valid input, for every grammar in the corpus, under hypothesis-generated inputs.
@@ -19,7 +19,7 @@ Lexic is the grammar engine layer of [Vyx](https://github.com/) — an agent-to-
 
 ## What it does
 
-- **Compile** a grammar (`.gbnf` / `.abnf`) into a `CompiledGrammar` — model classes synthesized at runtime + a compiled instance parser.
+- **Compile** a grammar (`.gbnf` / `.abnf` / `.ebnf`) into a `CompiledGrammar` — model classes synthesized at runtime + a compiled instance parser.
 - **Parse** text against the compiled grammar into a typed model instance.
 - **Round-trip** an instance back to its exact source via `to_text()` — whitespace-preserving.
 - **Re-emit** the grammar from a model via `to_grammar(flavour)` — across flavours (compile GBNF, emit ABNF, or vice-versa).

@@ -50,6 +50,7 @@ from lexic.ir.base import (
 )
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour
+from lexic.ir.layout import IrDocConcat, IrDocJoin, IrGroup, IrLine, IrNest, IrText
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -178,14 +179,20 @@ GBNF_ACTIONS = IrTypeMap(
     ),
     IrAction(IrRuleRef, IrEmit()),
     IrAction(IrQuantifier, GBNF_QUANTIFIERS),
+    # STRUCTURE levels build layout docs (atoms above stay str-tier, lifted
+    # at the doc joins): each sequence arm is its own fit group, arms break
+    # onto trailing-pipe continuations, a rule is one width-group nested at
+    # the continuation indent. Top-level renders at flat=False, so the
+    # inter-rule IrLines are hard breaks and width=None reproduces the flat
+    # single-line form byte-for-byte.
     IrAction(
         IrItem,
-        IrConcat(
+        IrDocConcat(
             parts=IrTuple(
                 IrCond(
                     test=IrIsA("atom", IrAlternation),
-                    then_op=IrConcat(
-                        parts=IrTuple(IrLiteral("("), IrChild("atom"), IrLiteral(")"))
+                    then_op=IrDocConcat(
+                        parts=IrTuple(IrText("("), IrChild("atom"), IrText(")"))
                     ),
                     else_op=IrChild("atom"),
                 ),
@@ -195,36 +202,45 @@ GBNF_ACTIONS = IrTypeMap(
     ),
     IrAction(
         IrSequence,
-        IrJoin(
-            parts=IrChildren(),
-            separator=IrLiteral(" "),
-            empty=IrLiteral('""'),
+        IrGroup(
+            IrDocJoin(
+                parts=IrChildren(),
+                separator=IrLine(" "),
+                empty=IrText('""'),
+            )
         ),
     ),
     IrAction(
         IrAlternation,
-        IrJoin(
+        IrDocJoin(
             parts=IrChildren(),
-            separator=IrLiteral(" | "),
-            empty=IrLiteral(""),
+            separator=IrLine(" | ", " |"),
+            empty=IrText(""),
         ),
     ),
     IrAction(
         IrRule,
-        IrConcat(parts=IrTuple(IrField("name"), IrLiteral(" ::= "), IrChild("body"))),
+        IrGroup(
+            IrNest(
+                6,
+                IrDocConcat(
+                    parts=IrTuple(IrField("name"), IrText(" ::= "), IrChild("body"))
+                ),
+            )
+        ),
     ),
     IrAction(
         IrAst,
-        IrConcat(parts=IrTuple(IrChild("rules"), IrLiteral("\n"))),
+        IrDocConcat(parts=IrTuple(IrChild("rules"), IrLine())),
     ),
     # The rules collection is the only bare tuple ever dispatched; concrete
     # subclasses (IrSequence, IrAlternation, records) win by MRO.
     IrAction(
         IrTuple,
-        IrJoin(
+        IrDocJoin(
             parts=IrChildren(),
-            separator=IrLiteral("\n"),
-            empty=IrLiteral(""),
+            separator=IrLine(),
+            empty=IrText(""),
         ),
     ),
 )

@@ -105,7 +105,13 @@ ir/
   walk.py        IrDispatch + IrVisitor/IrTransformer/IrEmitter/IrBottomUp (§3)
   canonical.py   canonicalize — the normal form (§4)
   bind.py        IrBind(item, mode, semantic) + BIND_MODES
-  flavour.py     IrFlavour ABC — an IrEmitter + ClassVars, zero parsing methods
+  flavour.py     IrFlavour ABC — an IrEmitter + ClassVars, zero parsing
+                 methods; apply(root, width=88) renders doc-valued emissions
+                 (width=None = flat); core_rules — the std-namespace prelude
+  layout.py      the layout algebra — width-aware doc combinators (IrText/
+                 IrLine/IrCat/IrNest/IrGroup + Sheet, render(width)); doc
+                 nodes double as action-body templates, and IrDocConcat/
+                 IrDocJoin are the doc-tier sums of IrConcat/IrJoin
   order.py       RuleOrder — deterministic start-first ordering
   escapes.py     EscapeCodec ABC + CANONICAL_ESCAPES
   meta.py        IrMeta (dataclass-transform + auto _bound) + singleton metaclasses

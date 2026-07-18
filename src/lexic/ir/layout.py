@@ -22,14 +22,22 @@ Behavior is intrinsic to the nodes (:meth:`IrDoc.layout` for rendering,
 against a mutable :class:`Sheet` cursor; :func:`render` is a flat driver
 over the sheet's explicit stack, so rendering depth never rides the Python
 stack.
+
+Doc nodes double as **action-body templates** (the ``IrLiteral`` dual-role
+precedent): :class:`IrGroup`/:class:`IrNest` evaluate by rebuilding around
+their evaluated interior, :class:`IrLine` is identity data, and
+:class:`IrDocConcat`/:class:`IrDocJoin` are the doc-tier sums of
+:class:`~lexic.ir.action.IrConcat`/:class:`~lexic.ir.action.IrJoin` — the
+concatenation is an :class:`IrCat`, with str-tier parts lifted to
+:class:`IrText` leaves. Flavour emit tables compose these directly.
 """
 
 from __future__ import annotations
 
-from typing import ClassVar, Self, cast
+from typing import ClassVar, Self, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNamedTuple, IrNode, IrSelf, IrSeq, IrStr
+from lexic.ir.base import IrNamedTuple, IrNode, IrSelf, IrSeq, IrStr, IrTuple
 
 
 class Sheet:
@@ -37,10 +45,11 @@ class Sheet:
 
     __slots__ = ("width", "col", "parts", "stack")
 
-    def __init__(self, width: int) -> None:
+    def __init__(self, width: int | None) -> None:
         """Start an empty sheet against ``width``.
 
-        :param width: Target maximum line width.
+        :param width: Target maximum line width; ``None`` = unbounded (every
+            group fits — the flat rendering).
         """
         self.width = width
         self.col = 0
@@ -78,6 +87,8 @@ class Sheet:
         :param doc: The candidate group content.
         :returns: ``True`` when the line cannot overflow.
         """
+        if self.width is None:
+            return True
         col = self.col
         # bottom..top of the pending stack, then the candidate on top — the
         # scan pops LIFO, i.e. candidate first, then the line's continuation.
@@ -170,6 +181,11 @@ class IrLine(IrDoc, IrNamedTuple[str, str]):
     flat: str = ""
     pre: str = ""
 
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Identity — a line is action-body DATA (its fields are plain str,
+        so the record-tier evaluating rebuild cannot run)."""
+        return self
+
     def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
         if flat:
             sheet.write(self.flat)
@@ -200,6 +216,10 @@ class IrNest(IrDoc, IrNamedTuple[int, IrDoc]):
     indent: int
     doc: IrDoc
 
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Template — rebuild around the evaluated interior."""
+        return IrNest(int(self.indent), as_doc(self.doc.eval(d, n, nc)))
+
     def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
         sheet.stack.append((indent + self.indent, flat, self.doc))
 
@@ -218,6 +238,10 @@ class IrGroup(IrDoc, IrNamedTuple[IrDoc]):
 
     doc: IrDoc
 
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Template — rebuild around the evaluated interior."""
+        return IrGroup(as_doc(self.doc.eval(d, n, nc)))
+
     def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
         sheet.stack.append((indent, flat or sheet.fits(self.doc), self.doc))
 
@@ -226,12 +250,75 @@ class IrGroup(IrDoc, IrNamedTuple[IrDoc]):
         return 0, False
 
 
-def render(doc: IrDoc, width: int = 88) -> str:
+def as_doc(value: object) -> IrDoc:
+    """Lift a str-tier value to an :class:`IrText` leaf; docs pass through.
+
+    :param value: An action result — a doc or a str-tier leaf.
+    :returns: The value as a doc node.
+    """
+    return value if isinstance(value, IrDoc) else IrText(str(value))
+
+
+class IrDocConcat(IrDoc, IrNamedTuple[IrTuple]):
+    """The doc-tier sum of :class:`~lexic.ir.action.IrConcat` — evaluated
+    parts concatenate as an :class:`IrCat`, str-tier parts lifted.
+
+    An action node in doc-marker role (assignable to template slots like
+    :class:`IrGroup.doc`); rendering an unevaluated template refuses via the
+    inherited :meth:`IrDoc.layout`.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("parts",)
+    parts: IrTuple = IrTuple()
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrCat:
+        """Evaluate ``parts`` in order; return their :class:`IrCat`.
+
+        :param d: Dispatcher forwarded to each part's ``eval``.
+        :param n: Current node forwarded to each part's ``eval``.
+        :param nc: Pre-walked children forwarded to each part's ``eval``.
+        :returns: The parts as one concatenation doc.
+        """
+        return IrCat(*(as_doc(p.eval(d, n, nc)) for p in self.parts))
+
+
+class IrDocJoin(IrDoc, IrNamedTuple[IrSelf, IrSelf, IrSelf]):
+    """The doc-tier sum of :class:`~lexic.ir.action.IrJoin` — parts
+    interleave with the separator doc into an :class:`IrCat` (a falsy
+    separator is skipped, the str-join neutral); ``empty`` is the fallback
+    when ``parts`` evaluates empty."""
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("parts", "separator", "empty")
+    parts: IrSelf = IrTuple()
+    separator: IrSelf = IrText()
+    empty: IrSelf = IrText()
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrDoc:
+        """Evaluate ``parts``; interleave or return the empty fallback.
+
+        :param d: Dispatcher forwarded to each child's ``eval``.
+        :param n: Current node forwarded to each child's ``eval``.
+        :param nc: Pre-walked children forwarded to each child's ``eval``.
+        :returns: The interleaved concatenation, or ``empty`` when parts is.
+        """
+        rendered = self.parts.eval(d, n, nc)
+        if not rendered:
+            return as_doc(self.empty.eval(d, n, nc))
+        sep = self.separator.eval(d, n, nc)
+        out: list[IrDoc] = []
+        for i, part in enumerate(rendered):
+            if i and sep:
+                out.append(as_doc(sep))
+            out.append(as_doc(part))
+        return IrCat(*out)
+
+
+def render(doc: IrDoc, width: int | None = 88) -> str:
     """Render a doc against ``width`` — deterministic, explicit-stack.
 
     :param doc: The document to render.
-    :param width: Target maximum line width; a line exceeds it only when it
-        contains no break opportunity.
+    :param width: Target maximum line width — a line exceeds it only when it
+        contains no break opportunity; ``None`` renders flat (no limit).
     :returns: The rendered text.
     """
     sheet = Sheet(width)

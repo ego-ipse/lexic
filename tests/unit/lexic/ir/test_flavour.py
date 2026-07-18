@@ -14,10 +14,20 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_ESCAPES, ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_ESCAPES, GBNF_FLAVOUR
-from lexic.ir.base import IrInt, IrNone, IrStr
+from lexic.ir.base import IrInt, IrNone, IrSeq, IrStr
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour, IrSpellable
-from lexic.ir.nodes import IrChr, IrLiteral, IrQuantifier
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrChr,
+    IrItem,
+    IrLiteral,
+    IrQuantifier,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+)
 from lexic.ir.walk import IrEmitter
 
 
@@ -73,7 +83,19 @@ def test_irflavour_grammar_and_reducer_carry_no_default_on_the_abc():
 # actions. (Underscore-prefixed names are dataclass/ABC machinery — the
 # inherited emitter protocol — not flavour-authored surface.)
 R1_ALLOWED = frozenset(
-    {"name", "extensions", "line_comment", "escapes", "grammar", "reducer", "actions"}
+    {
+        "name",
+        "extensions",
+        "line_comment",
+        "escapes",
+        "grammar",
+        "reducer",
+        "actions",
+        # flavour-layout additions (2026-07-18): the width-aware emitter
+        # protocol refinement + the core-rules prelude data ClassVar.
+        "apply",
+        "core_rules",
+    }
 )
 
 # Public names the inherited emitter protocol already provides (e.g. the
@@ -233,3 +255,62 @@ def test_irspellable_non_string_node_raises():
 def test_irspellable_repr_is_codegen():
     """IrSpellable repr is 'IrSpellable()' — fieldless leaf."""
     assert repr(IrSpellable()) == "IrSpellable()"
+
+
+# ── IrFlavour.apply(root, width=...) — the width-aware emitter protocol ──
+
+
+def _wide_rule() -> IrRule:
+    """A rule whose alternation is wide enough to overflow width 88 flat."""
+    names = [f"alternative-name-number-{i}" for i in range(6)]
+    arms = [IrSequence(IrItem(IrRuleRef(name))) for name in names]
+    return IrRule("wide-rule", IrAlternation(*arms))
+
+
+def test_apply_default_width_wraps_a_long_rule():
+    """apply()'s default width=88 breaks a rule too wide to fit one line."""
+    result = GBNF_FLAVOUR.apply(_wide_rule())
+    assert "\n" in result
+    assert all(len(line) <= 88 for line in result.splitlines())
+
+
+def test_apply_width_none_is_flat_and_equals_the_pre_layout_single_line():
+    """width=None renders the doc flat — one line, matching the join-by-space
+    single-line form a str-tier (pre-layout) emitter would have produced."""
+    rule = _wide_rule()
+    flat = GBNF_FLAVOUR.apply(rule, width=None)
+    assert "\n" not in flat
+    expected = "wide-rule ::= " + " | ".join(
+        f"alternative-name-number-{i}" for i in range(6)
+    )
+    assert flat == expected
+
+
+def test_apply_wrapped_and_flat_differ_for_a_wide_rule():
+    """The same rule renders differently at the default width vs width=None."""
+    rule = _wide_rule()
+    assert GBNF_FLAVOUR.apply(rule) != GBNF_FLAVOUR.apply(rule, width=None)
+
+
+def test_apply_narrow_rule_is_unaffected_by_width():
+    """A rule that already fits stays a single line at any width."""
+    rule = IrRule("a", IrAlternation(IrSequence(IrItem(IrLiteral("x")))))
+    assert GBNF_FLAVOUR.apply(rule) == GBNF_FLAVOUR.apply(rule, width=None)
+
+
+def test_apply_on_a_str_tier_result_passes_through_unchanged():
+    """A str-tier emission (e.g. a bare IrQuantifier) ignores width entirely
+    — apply() only renders when the action table produces an IrDoc."""
+    result_default = GBNF_FLAVOUR.apply(IrQuantifier(2, 5))
+    result_flat = GBNF_FLAVOUR.apply(IrQuantifier(2, 5), width=None)
+    assert result_default == result_flat == "{2,5}"
+    assert isinstance(result_default, IrStr)
+
+
+def test_apply_on_an_ast_wraps_each_wide_rule_independently():
+    """apply() on a whole IrAst wraps each rule's own body against width,
+    joined by hard inter-rule breaks."""
+    ast = IrAst(IrSeq(_wide_rule()), "wide-rule")
+    result = GBNF_FLAVOUR.apply(ast)
+    assert all(len(line) <= 88 for line in result.splitlines())
+    assert result.count("wide-rule ::=") == 1

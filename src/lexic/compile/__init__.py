@@ -67,6 +67,7 @@ from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAst, IrItem, IrRule, IrRuleRef
+from lexic.ir.order import refs_in_order
 from lexic.model import GrammarModel
 from lexic.parsing import (
     FastCtor,
@@ -128,12 +129,48 @@ def parse_grammar(text: str, flavour: IrFlavour) -> IrAst:
 
     :param text: Grammar source in ``flavour``'s syntax.
     :param flavour: The grammar flavour (e.g. ``GBNF_FLAVOUR``).
-    :returns: The reduced grammar :class:`IrAst`.
+    :returns: The reduced grammar :class:`IrAst`, with dangling references
+        into the flavour's ``core_rules`` prelude resolved (the referenced
+        core rules appended; nothing else added, nothing overridden).
     :raises UnsupportedConstructError: If the flavour carries no ``Reducer``,
         ``text`` does not parse, or the reduction is not an ``IrAst``.
     """
     reducer = _flavour_reducer(flavour)
-    return parse_reduced(flavour.grammar, text, reducer)
+    return _resolve_prelude(parse_reduced(flavour.grammar, text, reducer), flavour)
+
+
+def _resolve_prelude(ast: IrAst, flavour: IrFlavour) -> IrAst:
+    """Append flavour core rules for dangling refs — to closure, since a core
+    rule may reference further core rules (``crlf`` → ``cr``/``lf``).
+
+    :param ast: The freshly reduced grammar.
+    :param flavour: The flavour whose ``core_rules`` prelude applies.
+    :returns: ``ast`` unchanged when nothing dangles into the prelude.
+    """
+    prelude = flavour.core_rules
+    core: dict[str, IrRule] = {str(key): prelude[key] for key in prelude.keys()}
+    if not core:
+        return ast
+    rules = list(ast.rules)
+    # Rulenames are case-insensitive pre-canonicalization (a ref may spell
+    # ALPHA); fold both sides so the later name-folding pass connects the
+    # appended lowercase rule to the source-case ref.
+    defined = {fold_name(str(rule.name)) for rule in rules}
+    grew = True
+    while grew:
+        grew = False
+        referenced: list[str] = []
+        for rule in rules:
+            refs_in_order(rule.body, referenced)
+        for name in (fold_name(ref) for ref in referenced):
+            rule = core.get(name)
+            if rule is not None and name not in defined:
+                rules.append(rule)
+                defined.add(name)
+                grew = True
+    if len(rules) == len(ast.rules):
+        return ast
+    return IrAst(IrSeq(*rules), ast.start)
 
 
 def _stem_for_text(text: str) -> str:

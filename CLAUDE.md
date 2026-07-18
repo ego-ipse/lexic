@@ -159,7 +159,9 @@ src/lexic/
                         field's IrBind
   compile/
     __init__.py         compile_text(), compile_from_path(), canonical_grammar(),
-                        parse_grammar(), bind_module(), parse_module()/
+                        parse_grammar() (+ the core-rules prelude resolution:
+                        a flavour core rule is appended iff referenced without
+                        being defined, to closure), bind_module(), parse_module()/
                         verify_module(), parse_instance()/
                         parse_instance_from_path() (the one-line entries;
                         string-primary; `parse` itself is the ENGINE's name —
@@ -287,8 +289,11 @@ src/lexic/
     flavour.py          IrFlavour ABC — IrEmitter subclass + ClassVars (name,
                         extensions, line_comment, escapes: EscapeCodec instance,
                         grammar: IrAst — the flavour's self-grammar, reducer:
-                        IrDispatch — a parsing.reduce.Reducer at runtime) + actions.
-                        Zero methods beyond the inherited emitter protocol —
+                        IrDispatch — a parsing.reduce.Reducer at runtime,
+                        core_rules: IrMap — the std-namespace prelude, default
+                        empty) + actions. apply(root, width=88) renders a
+                        doc-valued emission (width=None = flat) — the one
+                        emitter-protocol refinement; otherwise zero methods —
                         parse_quantifier/parse_charclass/normalize_literal/
                         meta_grammar are gone with the Lark path, nothing replaces
                         them as methods
@@ -306,13 +311,19 @@ src/lexic/
     layout.py           layout algebra — width-aware doc combinators on the
                         record spine (IrText/IrLine/IrCat/IrNest/IrGroup +
                         Sheet cursor, intrinsic per-node layout(), iterative
-                        render(width)); the notation emit half builds docs here
+                        render(width; None = flat)); doc nodes double as
+                        action-body TEMPLATES (IrLine identity eval, IrGroup/
+                        IrNest rebuild-around-evaluated-interior) and
+                        IrDocConcat/IrDocJoin are the doc-tier sums of
+                        IrConcat/IrJoin (IrCat-construct, str parts lifted via
+                        as_doc); the notation emit half AND the flavour
+                        structure actions build docs here
     escapes.py          EscapeCodec ABC + CANONICAL_ESCAPES
 
   grammars/
     __init__.py         get_flavour(), flavour_for_extension(), register_flavour()
-                        eagerly registers GBNF_FLAVOUR and ABNF_FLAVOUR singletons
-                        on import
+                        eagerly registers the GBNF_FLAVOUR, ABNF_FLAVOUR and
+                        EBNF_FLAVOUR singletons on import
     gbnf.py             GBNF flavour — one flat module (no subpackage):
                         GBNF_ACTIONS (emit half), GBNF_GRAMMAR + GBNF_REDUCTIONS +
                         GBNF_NOISE + GBNF_REDUCER (parse half — the full GBNF
@@ -320,8 +331,17 @@ src/lexic/
                         _GbnfEscapes + public GBNF_ESCAPES singleton, private
                         _GbnfFlavour + public GBNF_FLAVOUR singleton
     abnf.py             ABNF flavour — same shape as gbnf.py. Full RFC 5234+7405
-                        surface (num-seq, [...] option, comments/folding, %s/%i,
-                        %d/%b, prose-refusal, incremental =/)
+                        surface (num-seq incl. %d/%b dot-sequences, [...] option,
+                        comments/folding, %s/%i + uppercase markers,
+                        prose-refusal, incremental =/); ABNF_CORE_RULES — the
+                        B.1 core-rules prelude (dangling-ref resolution via
+                        IrFlavour.core_rules)
+    ebnf.py             EBNF flavour — same shape as gbnf.py. ISO-family
+                        surface (=/; rules, "," concatenation, {}/[] repetition/
+                        option, postfix * + ?, n * x exact repetition, ".."
+                        ranges, (* *) comments); no native class/negation —
+                        classes expand to quoted alternations, IrNot and
+                        open-bounded counted quantifiers refuse declaratively
     json.py             JSON_GRAMMAR — the JSON grammar (RFC 8259) authored
                         directly as IrAst, not derived from either flavour; the
                         flavour-neutral canonical target both front-ends reduce to

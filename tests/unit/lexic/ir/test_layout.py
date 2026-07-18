@@ -11,7 +11,21 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.layout import IrCat, IrGroup, IrLine, IrNest, IrText, Sheet, render
+from lexic.ir.action import IrField
+from lexic.ir.base import IrNone, IrTuple
+from lexic.ir.layout import (
+    IrCat,
+    IrDocConcat,
+    IrDocJoin,
+    IrGroup,
+    IrLine,
+    IrNest,
+    IrText,
+    Sheet,
+    as_doc,
+    render,
+)
+from lexic.ir.nodes import IrAlternation, IrLiteral, IrRule, IrSequence
 
 # ── render() determinism ────────────────────────────────────────────────
 
@@ -252,3 +266,174 @@ def test_sheet_newline_default_pre_is_empty():
     sheet.newline(0)
     assert "".join(sheet.parts) == "\n"
     assert sheet.col == 0
+
+
+# ── as_doc: str→IrText lift, doc pass-through ─────────────────────────────
+
+
+def test_as_doc_lifts_a_plain_string_to_irtext():
+    """as_doc wraps a bare str-tier value as an IrText leaf."""
+    result = as_doc("hi")
+    assert isinstance(result, IrText)
+    assert result == IrText("hi")
+
+
+def test_as_doc_stringifies_a_non_doc_non_str_value():
+    """as_doc str()s anything that isn't already a doc (e.g. an IrLiteral)."""
+    result = as_doc(IrLiteral("x"))
+    assert result == IrText("x")
+
+
+def test_as_doc_passes_an_existing_doc_through_unchanged():
+    """A value that already is an IrDoc is returned as-is, not re-wrapped."""
+    doc = IrGroup(IrText("x"))
+    assert as_doc(doc) is doc
+
+
+# ── IrLine.eval — identity (line is action-body DATA, not a rebuild) ─────
+
+
+def test_irline_eval_is_identity():
+    """IrLine.eval returns the same instance — its str fields can't rebuild
+    through the evaluating record-tier default."""
+    line = IrLine("x", "y")
+    assert line.eval(IrNone, IrNone, ()) is line
+
+
+# ── IrGroup / IrNest — doc nodes as action-body TEMPLATES ────────────────
+
+
+def test_irgroup_eval_rebuilds_around_the_evaluated_interior():
+    """IrGroup.eval evaluates its interior action node against the
+    dispatcher/node/nc, then rebuilds the group around the result."""
+    node = IrRule("foo", IrAlternation(IrSequence()))
+    template = IrGroup(IrDocConcat(parts=IrTuple(IrField("name"))))
+    result = template.eval(IrNone, node, ())
+    assert isinstance(result, IrGroup)
+    assert result.doc == IrCat(IrText("foo"))
+
+
+def test_irnest_eval_rebuilds_around_the_evaluated_interior():
+    """IrNest.eval preserves its indent and evaluates its interior doc."""
+    node = IrRule("bar", IrAlternation(IrSequence()))
+    template = IrNest(4, IrDocConcat(parts=IrTuple(IrField("name"))))
+    result = template.eval(IrNone, node, ())
+    assert isinstance(result, IrNest)
+    assert result.indent == 4
+    assert result.doc == IrCat(IrText("bar"))
+
+
+def test_irgroup_eval_lifts_a_str_tier_interior_result():
+    """A str-tier action result (e.g. IrField's IrStr) lifts to IrText so the
+    rebuilt group still satisfies the IrDoc.doc slot."""
+    node = IrRule("baz", IrAlternation(IrSequence()))
+    template = IrGroup(IrDocConcat(parts=IrTuple(IrField("name"))))
+    result = template.eval(IrNone, node, ())
+    assert isinstance(result, IrGroup)
+    assert isinstance(result.doc, IrCat)
+
+
+# ── IrDocConcat — the doc-tier sum of IrConcat ────────────────────────────
+
+
+def test_irdocconcat_default_parts_is_empty_tuple():
+    """IrDocConcat() with no args carries an empty parts tuple."""
+    assert IrDocConcat().parts == IrTuple()
+
+
+def test_irdocconcat_eval_concatenates_evaluated_parts_into_an_ircat():
+    """IrDocConcat.eval evaluates each part and returns their IrCat."""
+    node = IrRule("x", IrAlternation(IrSequence()))
+    concat = IrDocConcat(parts=IrTuple(IrField("name"), IrText("!")))
+    result = concat.eval(IrNone, node, ())
+    assert isinstance(result, IrCat)
+    assert render(result, None) == "x!"
+
+
+def test_irdocconcat_lifts_str_tier_parts_to_irtext():
+    """A part whose eval returns a plain str-tier leaf lifts via as_doc."""
+    concat = IrDocConcat(parts=IrTuple(IrLiteral("a"), IrLiteral("b")))
+    result = concat.eval(IrNone, IrNone, ())
+    assert render(result, None) == "ab"
+
+
+# ── IrDocJoin — the doc-tier sum of IrJoin ────────────────────────────────
+
+
+def test_irdocjoin_defaults_are_empty_parts_and_empty_text():
+    """IrDocJoin() with no args: empty parts, empty separator, empty fallback."""
+    join = IrDocJoin()
+    assert join.parts == IrTuple()
+    assert join.separator == IrText()
+    assert join.empty == IrText()
+
+
+def test_irdocjoin_eval_interleaves_parts_with_the_separator():
+    """IrDocJoin.eval places the separator doc between consecutive parts."""
+    parts = IrTuple(IrText("a"), IrText("b"), IrText("c"))
+    join = IrDocJoin(parts=parts, separator=IrText(", "))
+    result = join.eval(IrNone, IrNone, ())
+    assert render(result, None) == "a, b, c"
+
+
+def test_irdocjoin_falsy_separator_is_skipped():
+    """An empty-text separator contributes nothing between parts (the
+    str-join neutral)."""
+    parts = IrTuple(IrText("a"), IrText("b"))
+    join = IrDocJoin(parts=parts, separator=IrText(""))
+    result = join.eval(IrNone, IrNone, ())
+    assert render(result, None) == "ab"
+
+
+def test_irdocjoin_empty_parts_falls_back_to_empty_doc():
+    """When parts evaluates empty, IrDocJoin.eval returns the empty fallback."""
+    join = IrDocJoin(parts=IrTuple(), empty=IrText("<empty>"))
+    result = join.eval(IrNone, IrNone, ())
+    assert render(result, None) == "<empty>"
+
+
+def test_irdocjoin_lifts_str_tier_parts_to_irtext():
+    """Parts that evaluate to plain str-tier leaves lift to IrText."""
+    join = IrDocJoin(
+        parts=IrTuple(IrLiteral("a"), IrLiteral("b")), separator=IrText("-")
+    )
+    result = join.eval(IrNone, IrNone, ())
+    assert render(result, None) == "a-b"
+
+
+# ── render(doc, None) — the flat (unbounded) rendering ────────────────────
+
+
+def test_render_at_width_none_never_breaks_a_group():
+    """width=None: every group fits, so a normally-overflowing group stays flat."""
+    doc = IrGroup(IrCat(IrText("aaaaaaaaaa"), IrLine(" ", ","), IrText("bbbbbbbbbb")))
+    assert render(doc, None) == "aaaaaaaaaa bbbbbbbbbb"
+
+
+def test_render_at_width_none_still_breaks_a_top_level_line():
+    """A bare (ungrouped) IrLine at the top level renders in the root's
+    flat=False frame regardless of width — width=None does not flatten it."""
+    doc = IrCat(IrText("a"), IrLine("", ""), IrText("b"))
+    assert render(doc, None) == "a\nb"
+
+
+def test_render_default_width_is_88():
+    """render()'s width parameter defaults to 88."""
+    doc = IrText("x" * 10)
+    assert render(doc) == "x" * 10
+
+
+# ── Sheet(None) — the always-fits cursor ──────────────────────────────────
+
+
+def test_sheet_with_none_width_always_fits():
+    """A Sheet with width=None reports every candidate as fitting, however wide."""
+    sheet = Sheet(None)
+    assert sheet.fits(IrText("x" * 1000)) is True
+
+
+def test_sheet_with_none_width_fits_even_after_prior_writes():
+    """The always-fits shortcut does not consult the pending stack at all."""
+    sheet = Sheet(None)
+    sheet.write("already on the line " * 20)
+    assert sheet.fits(IrText("more text")) is True

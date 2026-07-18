@@ -1,3 +1,5 @@
+# pylint: disable=too-many-lines
+# Test files may exceed max-module-lines (user ruling, 2026-07-04).
 """ABNF_FLAVOUR — full IrFlavour binding and the native-IR self-grammar."""
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from lexic.compile import parse_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import (
     ABNF_ACTIONS,
+    ABNF_CORE_RULES,
     ABNF_ESCAPES,
     ABNF_FLAVOUR,
     ABNF_GRAMMAR,
@@ -19,6 +22,7 @@ from lexic.grammars.abnf import (
     ABNF_REDUCER,
     ABNF_REDUCTIONS,
 )
+from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.base import IrLambda, IrNone, IrSeq
 from lexic.ir.canonical import canonicalize
 from lexic.ir.escapes import EscapeCodec
@@ -41,7 +45,11 @@ from lexic.parsing import parse, recognize
 from lexic.parsing.earley.forest import ParseTree
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import YIELD, Reducer
-from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES, contains_ir_type
+from tests.unit.lexic.conftest import (
+    GRAMMAR_AST_TYPES,
+    assert_wide_rule_wraps_and_round_trips,
+    contains_ir_type,
+)
 
 
 def test_abnf_flavour_is_a_flavour():
@@ -935,3 +943,128 @@ def test_abnf_actions_and_reductions_carry_no_irlambda():
     """
     assert not contains_ir_type(ABNF_ACTIONS.values(), IrLambda)
     assert not contains_ir_type(ABNF_REDUCTIONS.values(), IrLambda)
+
+
+# ── Width-aware structure emission (trailing-slash wrap / RFC folding) ────
+
+
+def test_wide_alternation_wraps_and_round_trips():
+    """Wide-rule structure-level doc emission: trailing-slash wrap at indent
+    6 (RFC 5234 c-wsp folding, past 'name = '), no over-width line,
+    reparse-canonicalize-equal, and width=None reproduces the flat form."""
+    flat_text = "wide-rule = " + " / ".join(
+        f"alternative-name-number-{i}" for i in range(6)
+    )
+    assert_wide_rule_wraps_and_round_trips(ABNF_FLAVOUR, "/", flat_text)
+
+
+# ── RFC parity: %d / %b dot-sequences ─────────────────────────────────────
+
+
+def test_dec_dot_seq_decodes_crlf():
+    """``%d13.10`` (decimal dot-sequence) decodes to the two-char literal CRLF."""
+    ast = reduce("a = %d13.10\n")
+    assert make_item(ast).atom == IrLiteral("\r\n")
+
+
+def test_bin_dot_seq_decodes_crlf():
+    """``%b1101.1010`` (binary dot-sequence) decodes to the same CRLF literal."""
+    ast = reduce("a = %b1101.1010\n")
+    assert make_item(ast).atom == IrLiteral("\r\n")
+
+
+def test_dec_dot_seq_matches_hex_dot_seq_equivalent():
+    """``%d13.10`` and ``%x0D.0A`` decode to the identical literal."""
+    dec = reduce("a = %d13.10\n")
+    hexa = reduce("a = %x0D.0A\n")
+    assert make_item(dec).atom == make_item(hexa).atom
+
+
+def test_bin_dot_seq_matches_dec_dot_seq_equivalent():
+    """``%b1101.1010`` and ``%d13.10`` decode to the identical literal."""
+    binv = reduce("a = %b1101.1010\n")
+    dec = reduce("a = %d13.10\n")
+    assert make_item(binv).atom == make_item(dec).atom
+
+
+# ── RFC parity: case-insensitive marker letters ────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("upper", "lower"),
+    [
+        ("a = %X41\n", "a = %x41\n"),
+        ("a = %D65\n", "a = %d65\n"),
+        ("a = %B1000001\n", "a = %b1000001\n"),
+        ('a = %S"HI"\n', 'a = %s"HI"\n'),
+        ('a = %I"hi"\n', 'a = %i"hi"\n'),
+    ],
+    ids=["x", "d", "b", "s", "i"],
+)
+def test_uppercase_marker_parses_identically_to_lowercase(upper: str, lower: str):
+    """An uppercase radix/case marker (%X/%D/%B/%S/%I) reduces to the same IR
+    as its lowercase form — the marks are noise, only case affects nothing."""
+    assert reduce(upper) == reduce(lower)
+
+
+# ── RFC parity: canonical fixpoint still holds with the new grammar surface ──
+
+
+def test_canonicalize_abnf_grammar_is_a_fixpoint():
+    """canonicalize(ABNF_GRAMMAR) == ABNF_GRAMMAR — the self-hosting invariant
+    survives the %d/%b dot-sequence and uppercase-marker additions."""
+    assert canonicalize(ABNF_GRAMMAR) == ABNF_GRAMMAR
+
+
+# ── RFC parity: ABNF_CORE_RULES — the flavour's std-namespace prelude ────
+
+
+def test_abnf_core_rules_has_sixteen_entries():
+    """RFC 5234 B.1 core rules: exactly 16 prelude entries."""
+    assert len(list(ABNF_CORE_RULES.keys())) == 16
+
+
+def test_abnf_core_rules_names_are_lowercase():
+    """Every core-rule name folds lowercase (ABNF rulenames are case-insensitive)."""
+    for key in ABNF_CORE_RULES.keys():
+        name = str(key)
+        assert name == name.lower()
+
+
+def test_abnf_core_rules_bodies_are_ir_rules():
+    """Every prelude entry's value is the named IrRule."""
+    for key, rule in ABNF_CORE_RULES.items():
+        assert isinstance(rule, IrRule)
+        assert str(rule.name) == str(key)
+
+
+# ── RFC parity: prelude resolution is dangling-ref-only ───────────────────
+
+
+def test_prelude_injects_dangling_ref_closure():
+    """A grammar referencing ALPHA/CRLF without defining them gets the whole
+    closure appended: word, alpha, crlf, and crlf's own cr/lf dependencies."""
+    ast = parse_grammar("word = 1*ALPHA CRLF\n", ABNF_FLAVOUR)
+    assert {str(r.name) for r in ast.rules} == {"word", "alpha", "crlf", "cr", "lf"}
+
+
+def test_prelude_does_not_inject_a_rule_the_grammar_already_defines():
+    """A grammar defining alpha itself is not overridden by the prelude."""
+    ast = parse_grammar("alpha = %x41\nword = 1*alpha\n", ABNF_FLAVOUR)
+    assert {str(r.name) for r in ast.rules} == {"alpha", "word"}
+
+
+def test_prelude_only_injects_referenced_core_rules():
+    """Referencing one core rule does not pull in unrelated prelude entries."""
+    ast = parse_grammar("word = ALPHA\n", ABNF_FLAVOUR)
+    names = {str(r.name) for r in ast.rules}
+    assert names == {"word", "alpha"}
+    assert "digit" not in names
+    assert "vchar" not in names
+
+
+def test_gbnf_flavour_has_no_prelude_so_grammar_text_is_untouched():
+    """GBNF_FLAVOUR carries no core_rules — parse_grammar never injects
+    anything, even for a rule name that happens to match an ABNF core name."""
+    ast = parse_grammar('alpha ::= "a"\nword ::= alpha\n', GBNF_FLAVOUR)
+    assert {str(r.name) for r in ast.rules} == {"alpha", "word"}

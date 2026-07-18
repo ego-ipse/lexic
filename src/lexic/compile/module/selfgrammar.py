@@ -120,6 +120,7 @@ class MModule(IrNamedTuple[str, tuple, tuple, tuple, IrSelf, bool]):
 # ── lexical pieces (statement layer — newline-significant) ───────────────
 
 _NAME_FIRST = IrCharClass(_rng("A", "Z"), _rng("a", "z"), IrChr("_"))
+_FIELD_FIRST = IrCharClass(_rng("A", "Z"), _rng("a", "z"))
 _NAME_REST = IrCharClass(_rng("0", "9"), _rng("A", "Z"), _rng("a", "z"), IrChr("_"))
 _DIGITS = IrCharClass(_rng("0", "9"))
 # Docstring / string-token content units: anything but quote/backslash
@@ -203,6 +204,10 @@ _MODULE_RULES = [
     ),
     _rule("m-more-name", IrSequence(_lit(", "), _ref("m-name"))),
     _rule("m-name", IrSequence(IrItem(_NAME_FIRST), IrItem(_NAME_REST, _STAR))),
+    # Field names are never underscore-led (keyword-mangle is TRAILING);
+    # the narrower first-char class is what gates a field line against
+    # ``__grammar__`` at one char. ``m-name`` keeps '_' for ``__future__``.
+    _rule("m-field-name", IrSequence(IrItem(_FIELD_FIRST), IrItem(_NAME_REST, _STAR))),
     _rule("m-int", IrSequence(IrItem(_DIGITS, _PLUS))),
     # class block: header, docstring line, then the arm-split body.
     _rule(
@@ -231,29 +236,43 @@ _MODULE_RULES = [
         IrSequence(_lit("\n"), IrItem(IrRuleRef("m-body-line"), _PLUS), _ref("m-gap")),
     ),
     _rule("m-empty-body", IrSequence(_ref("m-gap"))),
+    # body lines split on their FIRST char: an indented line (' ') vs the
+    # ``__binds__`` keyword ('_' — its indent is swallowed, see below); past
+    # the indent, a field name ([A-Za-z] — ``m-field-name``, never
+    # underscore-led) vs ``__grammar__`` ('_'). Both decisions are
+    # FIRST-disjoint, so the whole body parses predictively (no island).
     _rule(
         "m-body-line",
-        IrSequence(_ref("m-field-line")),
-        IrSequence(_ref("m-inline-grammar")),
+        IrSequence(_ref("m-indented-line")),
         IrSequence(_ref("m-inline-binds")),
     ),
+    _rule("m-indented-line", IrSequence(_lit("    "), _ref("m-line-tail"))),
     _rule(
-        "m-field-line",
+        "m-line-tail",
+        IrSequence(_ref("m-field-tail")),
+        IrSequence(_ref("m-grammar-tail")),
+    ),
+    # The union loop rides INSIDE the line rule so the loop-exit has an
+    # in-rule (soft) continuation — ``" |"`` vs ``" ="``/``"\\n"`` separates
+    # at k=2. A standalone ``m-type`` rule would end on the loop (empty soft
+    # FOLLOW, hard FOLLOW unsound for a stored gate) and island.
+    _rule(
+        "m-field-tail",
         IrSequence(
-            _lit("    "),
-            _ref("m-name"),
+            _ref("m-field-name"),
             _lit(": "),
-            _ref("m-type"),
+            _ref("m-type-atom"),
+            IrItem(IrRuleRef("m-type-union"), _STAR),
             IrItem(IrRuleRef("m-default"), _OPT),
             _ref("m-nl"),
         ),
     ),
     _rule("m-default", IrSequence(_lit(" = None"))),
     # type expressions: T, list[T], Literal["…", …], unions with " | ".
-    _rule(
-        "m-type",
-        IrSequence(_ref("m-type-atom"), IrItem(IrRuleRef("m-type-union"), _STAR)),
-    ),
+    # Inside brackets the union/separator tails are one flat loop whose
+    # in-rule exit is "]" — FIRST-disjoint from ' '/',' — so no rule ends
+    # on a loop (the same no-island shape as the field line; the fold
+    # concatenates, so the arg structure is not modelled, only spelled).
     _rule("m-type-union", IrSequence(_lit(" | "), _ref("m-type-atom"))),
     _rule(
         "m-type-atom",
@@ -263,15 +282,21 @@ _MODULE_RULES = [
         "m-type-args",
         IrSequence(
             _lit("["),
-            _ref("m-type-arg"),
-            IrItem(IrRuleRef("m-more-type-arg"), _STAR),
+            _ref("m-arg-unit"),
+            IrItem(IrRuleRef("m-arg-tail"), _STAR),
             _lit("]"),
         ),
     ),
-    _rule("m-more-type-arg", IrSequence(_lit(", "), _ref("m-type-arg"))),
     _rule(
-        "m-type-arg",
-        IrSequence(_ref("m-type")),
+        "m-arg-tail",
+        IrSequence(_ref("m-arg-union")),
+        IrSequence(_ref("m-arg-sep")),
+    ),
+    _rule("m-arg-union", IrSequence(_lit(" | "), _ref("m-arg-unit"))),
+    _rule("m-arg-sep", IrSequence(_lit(", "), _ref("m-arg-unit"))),
+    _rule(
+        "m-arg-unit",
+        IrSequence(_ref("m-type-atom")),
         IrSequence(_ref("m-str-token")),
     ),
     # A raw string token (Literal[...] values) — spelling preserved verbatim.
@@ -299,28 +324,32 @@ _MODULE_RULES = [
     # inline tables — the value's trailing ws swallows the next line's indent,
     # so the ``__binds__`` rule starts at its keyword (documented gap).
     _rule(
-        "m-inline-grammar",
-        IrSequence(_lit("    __grammar__: ClassVar[IrRule] = "), _ref("value")),
+        "m-grammar-tail",
+        IrSequence(_lit("__grammar__: ClassVar[IrRule] = "), _ref("value")),
     ),
+    # Each entry consumes its trailing newline PLUS the next line's leading
+    # 4 spaces (one hoisted before the loop), so loop-take peeks ' ' against
+    # the '}' closer — FIRST-disjoint, no island.
     _rule(
         "m-inline-binds",
         IrSequence(
             _lit(_BINDS_LIT),
+            _lit("    "),
             IrItem(IrRuleRef("m-bind-entry"), _PLUS),
-            _lit("    }"),
+            _lit("}"),
             _ref("m-nl"),
         ),
     ),
     _rule(
         "m-bind-entry",
         IrSequence(
-            _lit("        "),
+            _lit("    "),
             _ref("m-int"),
             _lit(': ("'),
-            _ref("m-name"),
+            _ref("m-field-name"),
             _lit('", '),
             _ref("value"),
-            _lit("),\n"),
+            _lit("),\n    "),
         ),
     ),
     _rule("m-grammar-stmt", IrSequence(_lit("GRAMMAR: IrAst = "), _ref("value"))),
@@ -371,12 +400,13 @@ def _m_name_list(first: str, rest: list[object] | None = None) -> tuple:
     return (first, *(rest or []))
 
 
-def _m_field(name: str, type_text: str, default: object = None) -> MField:
-    return MField(name, type_text, default is not None)
-
-
-def _m_type(atom: str, unions: list[object] | None = None) -> str:
-    return _text(atom, *(unions or []))
+def _m_field_tail(
+    name: str,
+    atom: str,
+    unions: list[object] | None = None,
+    default: object = None,
+) -> MField:
+    return MField(name, _text(atom, *(unions or [])), default is not None)
 
 
 def _m_type_union(atom: str) -> str:
@@ -391,7 +421,7 @@ def _m_type_args(first: str, rest: list[object] | None = None) -> str:
     return "[" + _text(first, *(rest or [])) + "]"
 
 
-def _m_more_type_arg(arg: str) -> str:
+def _m_arg_sep(arg: str) -> str:
     return ", " + arg
 
 
@@ -524,6 +554,12 @@ def _fold_config() -> dict[str, RuleFold]:
                 2,
                 (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
             ),
+            "m-field-name": seq(
+                "sequence",
+                _m_name,
+                2,
+                (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
+            ),
             "m-int": seq("sequence", _m_int, 1, (FieldFold(0, "text", "raw", 1),)),
             "m-class-block": seq(
                 "sequence",
@@ -542,23 +578,22 @@ def _fold_config() -> dict[str, RuleFold]:
             ),
             "m-empty-body": seq("sequence", _m_body, 1, ()),
             "m-body-line": ALT,
-            "m-field-line": seq(
+            "m-indented-line": seq(
+                "sequence", passthrough, 2, (FieldFold(1, "model", "v", 1),)
+            ),
+            "m-line-tail": ALT,
+            "m-field-tail": seq(
                 "sequence",
-                _m_field,
+                _m_field_tail,
                 6,
                 (
-                    FieldFold(1, "model", "name", 1),
-                    FieldFold(3, "model", "type_text", 1),
+                    FieldFold(0, "model", "name", 1),
+                    FieldFold(2, "model", "atom", 1),
+                    FieldFold(3, "models", "unions", 0),
                     FieldFold(4, "model", "default", 0),
                 ),
             ),
             "m-default": seq("sequence", lambda: True, 1, ()),
-            "m-type": seq(
-                "sequence",
-                _m_type,
-                2,
-                (FieldFold(0, "model", "atom", 1), FieldFold(1, "models", "unions", 0)),
-            ),
             "m-type-union": seq(
                 "sequence", _m_type_union, 2, (FieldFold(1, "model", "atom", 1),)
             ),
@@ -574,10 +609,14 @@ def _fold_config() -> dict[str, RuleFold]:
                 4,
                 (FieldFold(1, "model", "first", 1), FieldFold(2, "models", "rest", 0)),
             ),
-            "m-more-type-arg": seq(
-                "sequence", _m_more_type_arg, 2, (FieldFold(1, "model", "arg", 1),)
+            "m-arg-tail": ALT,
+            "m-arg-union": seq(
+                "sequence", _m_type_union, 2, (FieldFold(1, "model", "atom", 1),)
             ),
-            "m-type-arg": ALT,
+            "m-arg-sep": seq(
+                "sequence", _m_arg_sep, 2, (FieldFold(1, "model", "arg", 1),)
+            ),
+            "m-arg-unit": ALT,
             "m-str-token": ALT,
             "m-dq-token": seq(
                 "sequence", _m_dq_token, 3, (FieldFold(1, "text", "raw", 0),)
@@ -585,14 +624,14 @@ def _fold_config() -> dict[str, RuleFold]:
             "m-sq-token": seq(
                 "sequence", _m_sq_token, 3, (FieldFold(1, "text", "raw", 0),)
             ),
-            "m-inline-grammar": seq(
+            "m-grammar-tail": seq(
                 "sequence", _m_inline_grammar, 2, (FieldFold(1, "model", "value", 1),)
             ),
             "m-inline-binds": seq(
                 "sequence",
                 _m_inline_binds,
-                4,
-                (FieldFold(1, "models", "entries", 0),),
+                5,
+                (FieldFold(2, "models", "entries", 0),),
             ),
             "m-bind-entry": seq(
                 "sequence",
@@ -659,7 +698,7 @@ def _expected_fields(
 def _expected_doc(rule: IrRule, flavour_name: str) -> str:
     """The docstring CONTENT (between the triple quotes) for ``rule`` —
     exactly as the exporter renders it, backticks and wrap included."""
-    rendered = docstring_lines(str(get_flavour(flavour_name).apply(rule)))
+    rendered = docstring_lines(str(get_flavour(flavour_name).apply(rule, width=None)))
     text = "\n".join(line[4:] if line.startswith("    ") else line for line in rendered)
     return text[3:-3]  # strip the two triple-quote delimiters
 

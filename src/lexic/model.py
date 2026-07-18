@@ -506,9 +506,13 @@ class GrammarModel(IrNamedTuple):
                 parts.append(str(item.atom))
         return parts
 
-    def to_grammar(self, flavour: str = "gbnf") -> str:
-        """Emit this model's rule as grammar text in the given flavour."""
-        return str(get_flavour(flavour).apply(self.__grammar__))
+    def to_grammar(self, flavour: str = "gbnf", width: int | None = 88) -> str:
+        """Emit this model's rule as grammar text in the given flavour.
+
+        :param flavour: The target flavour name.
+        :param width: Target maximum line width; ``None`` emits flat.
+        """
+        return str(get_flavour(flavour).apply(self.__grammar__, width))
 
     @classmethod
     def fast_construct(

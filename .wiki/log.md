@@ -1,5 +1,26 @@
 # Log
 
+## 2026-07-18 — flavour-layout: width-aware emission + production EBNF
+
+Emission is width-aware end to end: `ir/layout.py` doc nodes double as
+action-body templates (`IrLine` identity eval, `IrGroup`/`IrNest`
+rebuild-around-interior) and `IrDocConcat`/`IrDocJoin` are the doc-tier sums
+of `IrConcat`/`IrJoin` — flavour STRUCTURE actions build docs, atoms stay
+str-tier, `IrFlavour.apply(root, width=88)` renders (`width=None` = flat,
+byte-identical to the old output). Trailing-pipe/-slash continuations; ABNF's
+wrap IS RFC 5234 folding. `to_grammar(flavour, width=88)`. The exporter
+docstring wrap moved onto the algebra (per-word fill groups). ABNF gained
+`%d`/`%b` dot-sequences, uppercase marker letters, and `ABNF_CORE_RULES` —
+the RFC 5234 B.1 prelude injected by dangling-ref resolution only (new
+`IrFlavour.core_rules` + `parse_grammar` closure). NEW `grammars/ebnf.py`:
+the production ISO-family EBNF flavour (exact `n * x` repetition; classes
+expand to quoted alternations; `IrNot`/open-counted refuse), registered with
+`.ebnf`; manifests now all generate from shipped singletons; GT corpus gains
+`json.ebnf`. Selfgrammar PDA gating fixed (no rule ends on a loop; body lines
+FIRST-disjoint) — vyx inline verify 35.7s→13.1s; residual: the notation
+`name` fail-island forces the Earley path for every embedded value (backlog).
+See [[lexic/flavour-system]], [[lexic/generated-modules]].
+
 ## 2026-07-18 — module-selfgrammar complete (whole-file parse-back)
 
 `compile/module/selfgrammar.py`: lexic parses its own exported twin modules —

@@ -43,7 +43,7 @@ from lexic.compile.pipeline.binding import (
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir.base import IrSelf
-from lexic.ir.layout import IrCat, IrNest, IrText, render
+from lexic.ir.layout import IrCat, IrDoc, IrGroup, IrLine, IrNest, IrText, render
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -150,27 +150,16 @@ def docstring_lines(rule_text: str) -> list[str]:
 
     Backslashes and double quotes escape so the text is safe inside a
     ``\"\"\"…\"\"\"`` literal; an over-width rule wraps at spaces onto
-    continuation lines.
+    continuation lines — the fill shape on the layout algebra (each word's
+    group decides its own break against the current line), so a single
+    over-budget token overflows rather than chopping mid-word.
     """
     doc = rule_text.replace("\\", "\\\\").replace('"', '\\"').strip()
-    single = f'    """``{doc}``"""'
-    if len(single) <= WIDTH:
-        return [single]
-    lines: list[str] = []
-    head, budget = '    """``', WIDTH - 8
-    rest = doc
-    while rest:
-        if len(rest) <= budget:
-            lines.append(head + rest)
-            break
-        cut = rest.rfind(" ", 1, budget + 1)
-        if cut < 1:
-            cut = budget
-        lines.append((head + rest[:cut]).rstrip())
-        rest = rest[cut:].lstrip()
-        head, budget = "    ", WIDTH - 4
-    lines[-1] += '``"""'
-    return lines
+    words = doc.split(" ")
+    parts: list[IrDoc] = [IrText('    """``' + words[0])]
+    parts.extend(IrGroup(IrCat(IrLine(" "), IrText(word))) for word in words[1:])
+    parts.append(IrText('``"""'))
+    return render(IrNest(4, IrCat(*parts)), WIDTH).split("\n")
 
 
 def _sequence_field_lines(
@@ -326,7 +315,10 @@ def export_source(
     parts: list[str] = []
     for bind in binding:
         rule = rules[bind.rule_name]
-        rule_text = str(flavour.apply(rule))
+        # Flat emission: docstring_lines owns the wrap (its char-chop moves
+        # onto the layout algebra as its own task); width-broken rule text
+        # would double-wrap here.
+        rule_text = str(flavour.apply(rule, width=None))
         parts.append(
             "\n".join(
                 _class_lines(

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_FLAVOUR
+from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.flavour import IrFlavour
 
@@ -41,10 +42,12 @@ def flavour_for_extension(path: str | Path) -> IrFlavour:
 
 register_flavour(GBNF_FLAVOUR)
 register_flavour(ABNF_FLAVOUR)
+register_flavour(EBNF_FLAVOUR)
 
 
 __all__ = [
     "ABNF_FLAVOUR",
+    "EBNF_FLAVOUR",
     "GBNF_FLAVOUR",
     "IrFlavour",
     "flavour_for_extension",

@@ -35,7 +35,11 @@ from lexic.parsing import derivations
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, Reducer
 from lexic.parsing.products import earley_reduce
-from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES, contains_ir_type
+from tests.unit.lexic.conftest import (
+    GRAMMAR_AST_TYPES,
+    assert_wide_rule_wraps_and_round_trips,
+    contains_ir_type,
+)
 
 
 def test_subclass():
@@ -676,3 +680,16 @@ def test_gbnf_actions_and_reductions_carry_no_irlambda():
     """
     assert not contains_ir_type(GBNF_ACTIONS.values(), IrLambda)
     assert not contains_ir_type(GBNF_REDUCTIONS.values(), IrLambda)
+
+
+# ── Width-aware structure emission (trailing-pipe wrap) ───────────────────
+
+
+def test_wide_alternation_wraps_and_round_trips():
+    """Wide-rule structure-level doc emission: trailing-pipe wrap at indent
+    6 (past 'name ::= '), no over-width line, reparse-canonicalize-equal,
+    and width=None reproduces the pre-wrap flat single-line form."""
+    flat_text = "wide-rule ::= " + " | ".join(
+        f"alternative-name-number-{i}" for i in range(6)
+    )
+    assert_wide_rule_wraps_and_round_trips(GBNF_FLAVOUR, "|", flat_text)

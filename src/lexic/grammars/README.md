@@ -1,6 +1,6 @@
 # `lexic.grammars` — the flavours
 
-A *flavour* is a grammar notation — GBNF, ABNF. The premise here is the
+A *flavour* is a grammar notation — GBNF, ABNF, EBNF. The premise here is the
 package's whole design: **a flavour is data, not code.** It defines zero
 parsing methods and zero emitting methods. It is a bundle of `lexic.ir`
 values — a self-grammar, a reducer, an escape codec, and emit actions — that
@@ -19,9 +19,9 @@ singletons — the same flavour as text, proving the text path.
 | Callable | Role |
 |---|---|
 | `get_flavour(name)` | the registered `IrFlavour` singleton by name |
-| `flavour_for_extension(path)` | pick a flavour from a file extension (`.gbnf`, `.abnf`) |
+| `flavour_for_extension(path)` | pick a flavour from a file extension (`.gbnf`, `.abnf`, `.ebnf`) |
 | `register_flavour(flavour)` | register a new flavour singleton |
-| `GBNF_FLAVOUR`, `ABNF_FLAVOUR` | the built-ins, eagerly registered on import |
+| `GBNF_FLAVOUR`, `ABNF_FLAVOUR`, `EBNF_FLAVOUR` | the built-ins, eagerly registered on import |
 
 `lexic.model.to_grammar(flavour)` resolves a singleton through `get_flavour` and
 calls `flavour.apply(self.__grammar__)`; `lexic.compile` resolves the flavour
@@ -42,8 +42,14 @@ An `IrFlavour` IS-AN `IrEmitter` (from `lexic.ir`) carrying, as class data:
 - **`escapes: EscapeCodec`** — the escape tables (an instance).
 - **`actions: IrTypeMap`** — the emit half: one IR body per IR-AST node type,
   as pure algebra (`IrConcat`, `IrJoin`, `IrField`, `IrChild`, `IrChildren`),
-  with `IrLambda` only as the procedural escape hatch. `apply(root)` walks an
-  IR tree to grammar text.
+  with `IrLambda` only as the procedural escape hatch. STRUCTURE-level
+  actions (item/sequence/alternation/rule/ast) build layout docs
+  (`lexic.ir.layout`); `apply(root, width=88)` renders them width-aware —
+  long rules wrap at arm/item boundaries (`width=None` = flat) and reparse
+  to the identical canonical AST.
+- **`core_rules: IrMap`** (optional) — a std-namespace prelude consumed as
+  dangling-ref resolution only (ABNF ships the RFC 5234 B.1 core rules; a
+  referenced-but-undefined core rule is appended, nothing else ever is).
 
 Each module exposes the class as **private** (`_GbnfFlavour`) and the
 constructed singleton as **public** (`GBNF_FLAVOUR`).
@@ -57,8 +63,15 @@ grammars/
                  GBNF_REDUCER (parse half, full surface, native — no meta-grammar),
                  GBNF_ESCAPES, GBNF_ACTIONS (emit half), the _GbnfFlavour class +
                  GBNF_FLAVOUR singleton
-  abnf.py        ABNF — same shape; full RFC 5234 + 7405 subset (num-seq, [...]
-                 option, comments/folding, %s/%i, %d/%b, prose-refusal, =/)
+  abnf.py        ABNF — same shape; full RFC 5234 + 7405 subset (num-seq incl.
+                 %d/%b dot-sequences, [...] option, comments/folding, %s/%i and
+                 the uppercase markers, prose-refusal, =/); ABNF_CORE_RULES —
+                 the B.1 core-rules prelude
+  ebnf.py        EBNF — same shape; ISO-family surface (=/; rules, "," concat,
+                 {}/[] repetition/option, postfix * + ?, n * x exact repetition,
+                 ".." ranges, (* *) comments); no native class/negation syntax —
+                 classes expand to quoted alternations, IrNot and open-bounded
+                 counted quantifiers refuse declaratively
   json.py        JSON_GRAMMAR — the JSON grammar (RFC 8259) authored directly as
                  IrAst, not derived from either flavour; the flavour-neutral
                  canonical target both front-ends reduce to

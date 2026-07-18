@@ -44,12 +44,15 @@ grammar text
 | `compile_text(text, *, cache_key=None, flavour="gbnf")` | `CompiledGrammar` | String-in. Content-memoised by `(sha stem, flavour)`; `cache_key` prepends an extra prefix. |
 | `compile_from_path(path, *, flavour=None)` | `CompiledGrammar` | Path-in; flavour inferred from the extension. Memoised by `(path, mtime, size, flavour)`, `path.stem` as the class-module stem. |
 | `canonical_grammar(text, flavour, *, non_semantic_rules=None, start=None)` | `IrAst` | The **front half**: parse + canonicalize + directive flags → canonical, semantic-flagged `IrAst`. `generate.py` and transpilers build on this without making classes. |
-| `parse_grammar(text, flavour)` | `IrAst` | The grammar-text → IR seam; runs the engine's `parse_reduced` product over the flavour's self-grammar + `Reducer`. Returns the raw (pre-canonicalize) `IrAst`. |
+| `parse_grammar(text, flavour)` | `IrAst` | The grammar-text → IR seam; runs the engine's `parse_reduced` product over the flavour's self-grammar + `Reducer`. Returns the raw (pre-canonicalize) `IrAst`, with dangling refs into the flavour's `core_rules` prelude resolved (referenced core rules appended, nothing overridden). |
 | `load_ir(text)` / `load_ir_from_path(path)` | `IrSelf` | Real IR objects from the IR-constructor notation (§4). |
 | `reset_cache_for_tests()` | — | Clear the content/path memo when a caller needs fresh class objects. |
 
 `load_flavour(text)` / `load_flavour_from_path(path)` live in
-`lexic.compile.loader`; `export_source(compiled)` in `lexic.compile.export`.
+`lexic.compile.notation.loader`; `export_source(compiled)` /
+`export_module(compiled, path)` in `lexic.compile.module.export`;
+`parse_module` / `verify_module` in `lexic.compile.module.selfgrammar` —
+all re-exported at the package root.
 
 `CompiledGrammar(classes, grammar, codegen_grammar, fold)` — `.parse(text)` is
 the only method callers need. It runs the engine's `parse_model` product
@@ -79,14 +82,24 @@ annotation resolution runs at runtime; the record spine (`lexic.model`) reads
 
 ```
 compile/
-  __init__.py    the public API (§1) + CompiledGrammar; the engine seam, the memo
-  passes.py      build_codegen_grammar — hoist_groups → hoist_arms → relax_non_semantic
-  binding.py     compute_binding → list[RuleBinding]; kind classification; field
-                 naming; the open supplied-class contract; reserved-name sets (§5)
-  synthesis.py   synthesize(codegen_grammar, binding, stem) → dict[str, type] (§2)
-  notation.py    load_ir — the IR-constructor notation (§4)
-  loader.py      load_flavour — a text manifest → IrFlavour (§6)
-  export.py      export_source — a reader .py view of a compiled grammar (§7)
+  __init__.py    the public API (§1); the engine seam, the memo, the
+                 core-rules prelude resolution (parse_grammar appends a
+                 flavour core rule iff referenced-but-undefined)
+  artifact.py    CompiledGrammar — the parse-ready artefact
+  foldkit.py     shared authored-fold vocabulary (ALT, passthrough)
+  pipeline/      grammar → classes (see its README)
+    passes.py      build_codegen_grammar — hoist_groups → hoist_arms →
+                   relax_non_semantic
+    binding.py     compute_binding → list[RuleBinding]; kind classification;
+                   field naming; the open supplied-class contract (§5)
+    synthesis.py   synthesize(codegen_grammar, binding, stem) → dict[str, type]
+  notation/      the IR-constructor notation (see its README)
+    parse.py       load_ir — text → real IR objects (§4)
+    emit.py        emit_ir — IR → notation text over the layout algebra
+    loader.py      load_flavour — a text manifest → IrFlavour (§6)
+  module/        the twin-module surface (see its README)
+    export.py      export_source / export_module — the importable twin (§7)
+    selfgrammar.py parse_module / verify_module — lexic parses its own exports
 ```
 
 Layering: the package reads/writes `lexic.ir`, imports `lexic.grammars` (to
@@ -122,7 +135,7 @@ positional), and reserved names mangle with a trailing `_`: field names in
 names the exporter's header binds), both drift-pinned by tests. See
 [`.wiki/lexic/field-naming.md`](../../../.wiki/lexic/field-naming.md).
 
-## 5. The IR-constructor notation (`notation.py`)
+## 5. The IR-constructor notation (`notation/parse.py`)
 
 `load_ir(text)` parses a neutral text notation into **real IR objects** —
 `IrLiteral`, `IrRule`, `IrAst`, … — through the same fold machinery that builds
@@ -137,7 +150,7 @@ structural (one rule per escape kind), `INTERN` maps `Yield()` to the singleton
 files (and manifests) get comments for free. The round-trip fixpoint —
 `load_ir(repr(node)) == node` over the whole node vocabulary — is the gate.
 
-## 6. The manifest loader (`loader.py`)
+## 6. The manifest loader (`notation/loader.py`)
 
 `load_flavour(text)` folds a manifest — one notation `IrMap` of seven strict
 sections (identity, escapes-as-IR-dyads, grammar, reductions, actions) — into a
@@ -149,23 +162,30 @@ is not manifest-loadable — a named format rule, rejected with
 `UnsupportedConstructError`. Shipped flavours stay authored; the manifests are
 their conformance twins.
 
-## 7. The exporter (`export.py`)
+## 7. The twin-module surface (`module/`)
 
-`export_source(compiled)` renders a compiled grammar as a reader-first `.py`
-view in the record-spine syntax (`GrammarModel` subclasses with `__grammar__`
-and `__binds__`). It reprs only pure grammar-AST records — **never** a
-`Reducer` or a flavour's noise map (an `IrLambda.__repr__` can raise on an
-unlocatable callable). `ruff` is invoked here, and only here in the package, to
-format the output — imported lazily so the dev-tool dependency never touches
-the runtime path.
+`export_source(compiled)` renders a compiled grammar as an **importable twin
+module** in the record-spine syntax (`GrammarModel` subclasses with typed
+defaults-last fields; `GRAMMAR` in the notation via `emit_ir`; a module-end
+`bind_module` call, or inline `__grammar__`/`__binds__` ClassVars under
+`inline_tables=True`). It reprs only pure grammar-AST records — **never** a
+`Reducer` or a flavour's noise map. Formatting is `lexic.ir.layout` — no
+`ruff`, no subprocess — and a fresh export is an isort + ruff-format
+**fixpoint**. Files are written only on the explicit `export_module` path.
+Always-on gates: `ast.parse` + `load_ir(GRAMMAR) == compiled.grammar`.
+
+`selfgrammar.py` closes the loop at file granularity: `parse_module(text)`
+parses an exported twin through a grammar of generated modules, and
+`verify_module(compiled, text)` cross-checks the parse against the binding
+view with the same renderers the exporter used.
 
 ## 8. Invariants
 
 - **Grammar is canonical.** Every product derives from the same canonical
   `IrAst`; every model has a lossless `to_grammar(flavour)` path.
 - **No source emit on the compile path.** Classes are `type()`-built in
-  memory; no file write, no import, no `model_rebuild`, no `ruff` subprocess
-  (the exporter is the one opt-in exception).
+  memory; no file write, no import, no `model_rebuild`, no subprocess —
+  `export_module` is the sole, explicit write seam.
 - **The package is the sole engine seam.** Only `__init__.py` is importable
   from outside; the engine is reached only through it.
 - **No `exec`/`eval`.** The notation's `SYMBOLS` whitelist is the closed

@@ -40,6 +40,7 @@ import lexic.ir.action as _action
 import lexic.ir.base as _base
 import lexic.ir.bind as _bind
 import lexic.ir.flavour as _flavour
+import lexic.ir.layout as _layout
 import lexic.ir.mapping as _mapping
 import lexic.ir.nodes as _nodes
 import lexic.ir.operators as _operators
@@ -65,7 +66,7 @@ from lexic.parsing.earley.reduce import YIELD, Yield
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 
-_IR_MODULES = (_base, _bind, _nodes, _operators, _action, _mapping, _flavour)
+_IR_MODULES = (_base, _bind, _nodes, _operators, _action, _mapping, _flavour, _layout)
 
 
 def _ir_node_symbols() -> dict[str, object]:

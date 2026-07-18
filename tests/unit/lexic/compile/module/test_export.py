@@ -15,7 +15,9 @@ import pytest
 
 from lexic.compile import compile_from_path, compile_text, export_module, export_source
 from lexic.compile.module.export import (
+    WIDTH,
     _group_model_type,
+    docstring_lines,
     field_type,
     value_str_type,
 )
@@ -279,3 +281,84 @@ def test_export_module_stem_defaults_to_the_output_files_stem(tmp_path):
     out_path = tmp_path / "my_grammar_name.py"
     export_module(cg, out_path)
     assert "'my_grammar_name'" in out_path.read_text(encoding="utf-8")
+
+
+# ── docstring_lines — the class docstring fill-wrap ────────────────────────
+
+
+def test_docstring_lines_short_rule_is_one_line():
+    """A rule text that fits under the width renders as a single docstring line."""
+    lines = docstring_lines('a ::= "x"')
+    assert len(lines) == 1
+    assert lines[0] == '    """``a ::= \\"x\\"``"""'
+
+
+def test_docstring_lines_short_rule_starts_and_ends_correctly():
+    """The single line opens ``    \"\"\"`` `` and closes `` \"\"\"``."""
+    lines = docstring_lines("a ::= b")
+    assert lines[0].startswith('    """``')
+    assert lines[0].endswith('``"""')
+
+
+def test_docstring_lines_long_rule_wraps_at_spaces_within_width():
+    """A rule text wider than 88 columns wraps onto continuation lines, each
+    within the width budget."""
+    rule_text = "wide-rule ::= " + " | ".join(
+        f"alternative-name-number-{i}" for i in range(6)
+    )
+    lines = docstring_lines(rule_text)
+    assert len(lines) > 1
+    assert all(len(line) <= WIDTH for line in lines)
+
+
+def test_docstring_lines_long_rule_continuations_are_indented_four_spaces():
+    """Every continuation line (after the first) starts with 4-space indent —
+    the class-body indent level."""
+    rule_text = "wide-rule ::= " + " | ".join(
+        f"alternative-name-number-{i}" for i in range(6)
+    )
+    lines = docstring_lines(rule_text)
+    for line in lines[1:]:
+        assert line.startswith("    ")
+        assert not line.startswith("     ")  # exactly 4, not more
+
+
+def test_docstring_lines_long_rule_closes_with_the_triple_quote():
+    """The last wrapped line ends the docstring with the closing marker."""
+    rule_text = "wide-rule ::= " + " | ".join(
+        f"alternative-name-number-{i}" for i in range(6)
+    )
+    lines = docstring_lines(rule_text)
+    assert lines[-1].endswith('``"""')
+
+
+def test_docstring_lines_word_reassembly_matches_the_source_text():
+    """Rejoining the wrapped words (stripping the docstring wrapper) recovers
+    the original (escaped) rule text — wrapping never drops or duplicates text."""
+    rule_text = "wide-rule ::= " + " | ".join(
+        f"alternative-name-number-{i}" for i in range(6)
+    )
+    lines = docstring_lines(rule_text)
+    joined = " ".join(line.strip() for line in lines)
+    stripped = joined.removeprefix('"""``').removesuffix('``"""')
+    assert stripped == rule_text
+
+
+def test_docstring_lines_single_over_budget_token_overflows_without_chopping():
+    """A single token wider than the whole width is never split mid-word —
+    it lands on its own line and simply overflows the budget."""
+    huge_token = "x" * 120
+    lines = docstring_lines(f"a ::= {huge_token}")
+    overflow_lines = [line for line in lines if huge_token in line]
+    assert len(overflow_lines) == 1
+    # the last word carries the closing ``"""`` glued on with no space
+    assert overflow_lines[0].strip() == huge_token + '``"""'
+    assert len(overflow_lines[0]) > WIDTH
+
+
+def test_docstring_lines_escapes_backslash_and_quote():
+    """Backslashes and double quotes escape so the text is triple-quote-safe."""
+    lines = docstring_lines('a ::= "x" \\ "y"')
+    text = " ".join(lines)
+    assert '\\"x\\"' in text
+    assert "\\\\" in text
