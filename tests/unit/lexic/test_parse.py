@@ -1,9 +1,9 @@
 # tests/test_parser.py
-"""Full round-trip tests: parse → to_text → parse → model_dump() equality.
+"""Full round-trip tests: parse → to_text → parse → dump() equality.
 
 _roundtrip(text, grammar) asserts two things:
   1. inst.to_text() == text  (exact text reconstruction)
-  2. parse(inst.to_text()).model_dump() == inst.model_dump()  (structural equality)
+  2. parse(inst.to_text()).dump() == inst.dump()  (structural equality)
 
 Grammar input notes:
 - arithmetic: root is (expr "=" term "\\n")+.  RHS is *term*, not *expr*, so
@@ -37,10 +37,10 @@ def _roundtrip(text: str, grammar: str):
     )
 
     rt = parse(roundtrip_str, gpath)
-    assert inst.model_dump() == rt.model_dump(), (
-        f"model_dump() mismatch after round-trip for {grammar!r}:\n"
-        f"  original:  {inst.model_dump()}\n"
-        f"  roundtrip: {rt.model_dump()}"
+    assert inst.dump() == rt.dump(), (
+        f"dump() mismatch after round-trip for {grammar!r}:\n"
+        f"  original:  {inst.dump()}\n"
+        f"  roundtrip: {rt.dump()}"
     )
     return inst
 
@@ -64,10 +64,10 @@ def test_arithmetic_paren_expr():
 
 
 def test_arithmetic_type_dispatch():
-    """parse() returns a concrete GrammarModel with a non-None model_dump."""
+    """parse() returns a concrete GrammarModel with a non-None dump."""
     inst = parse("x=1\n", GRAMMAR_DIR / "arithmetic.gbnf")
     assert isinstance(inst, GrammarModel)
-    assert inst.model_dump() is not None
+    assert inst.dump() is not None
 
 
 # ── list ─────────────────────────────────────────────────────────────────────

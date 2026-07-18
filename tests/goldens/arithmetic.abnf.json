@@ -1,65 +1,7 @@
 [
   {
     "input": "6/3",
-    "model_dump": {
-      "expr": {
-        "term": {
-          "num": {
-            "digit": [
-              {
-                "value": "6"
-              }
-            ]
-          }
-        },
-        "expr_item": [
-          {
-            "op": {
-              "value": "/"
-            },
-            "term": {
-              "num": {
-                "digit": [
-                  {
-                    "value": "3"
-                  }
-                ]
-              }
-            }
-          }
-        ]
-      }
-    },
     "runtime_dump": {
-      "expr": {
-        "term": {
-          "num": {
-            "digit": [
-              {
-                "value": "6"
-              }
-            ]
-          }
-        },
-        "expr_item": [
-          {
-            "op": {
-              "value": "/"
-            },
-            "term": {
-              "num": {
-                "digit": [
-                  {
-                    "value": "3"
-                  }
-                ]
-              }
-            }
-          }
-        ]
-      }
-    },
-    "semantic_dump": {
       "expr": {
         "term": {
           "num": {
@@ -121,129 +63,7 @@
   },
   {
     "input": "928/358/763",
-    "model_dump": {
-      "expr": {
-        "term": {
-          "num": {
-            "digit": [
-              {
-                "value": "9"
-              },
-              {
-                "value": "2"
-              },
-              {
-                "value": "8"
-              }
-            ]
-          }
-        },
-        "expr_item": [
-          {
-            "op": {
-              "value": "/"
-            },
-            "term": {
-              "num": {
-                "digit": [
-                  {
-                    "value": "3"
-                  },
-                  {
-                    "value": "5"
-                  },
-                  {
-                    "value": "8"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "op": {
-              "value": "/"
-            },
-            "term": {
-              "num": {
-                "digit": [
-                  {
-                    "value": "7"
-                  },
-                  {
-                    "value": "6"
-                  },
-                  {
-                    "value": "3"
-                  }
-                ]
-              }
-            }
-          }
-        ]
-      }
-    },
     "runtime_dump": {
-      "expr": {
-        "term": {
-          "num": {
-            "digit": [
-              {
-                "value": "9"
-              },
-              {
-                "value": "2"
-              },
-              {
-                "value": "8"
-              }
-            ]
-          }
-        },
-        "expr_item": [
-          {
-            "op": {
-              "value": "/"
-            },
-            "term": {
-              "num": {
-                "digit": [
-                  {
-                    "value": "3"
-                  },
-                  {
-                    "value": "5"
-                  },
-                  {
-                    "value": "8"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "op": {
-              "value": "/"
-            },
-            "term": {
-              "num": {
-                "digit": [
-                  {
-                    "value": "7"
-                  },
-                  {
-                    "value": "6"
-                  },
-                  {
-                    "value": "3"
-                  }
-                ]
-              }
-            }
-          }
-        ]
-      }
-    },
-    "semantic_dump": {
       "expr": {
         "term": {
           "num": {
@@ -369,35 +189,7 @@
   },
   {
     "input": "7",
-    "model_dump": {
-      "expr": {
-        "term": {
-          "num": {
-            "digit": [
-              {
-                "value": "7"
-              }
-            ]
-          }
-        },
-        "expr_item": []
-      }
-    },
     "runtime_dump": {
-      "expr": {
-        "term": {
-          "num": {
-            "digit": [
-              {
-                "value": "7"
-              }
-            ]
-          }
-        },
-        "expr_item": []
-      }
-    },
-    "semantic_dump": {
       "expr": {
         "term": {
           "num": {
@@ -429,35 +221,7 @@
   },
   {
     "input": "6",
-    "model_dump": {
-      "expr": {
-        "term": {
-          "num": {
-            "digit": [
-              {
-                "value": "6"
-              }
-            ]
-          }
-        },
-        "expr_item": []
-      }
-    },
     "runtime_dump": {
-      "expr": {
-        "term": {
-          "num": {
-            "digit": [
-              {
-                "value": "6"
-              }
-            ]
-          }
-        },
-        "expr_item": []
-      }
-    },
-    "semantic_dump": {
       "expr": {
         "term": {
           "num": {
@@ -489,41 +253,7 @@
   },
   {
     "input": "13",
-    "model_dump": {
-      "expr": {
-        "term": {
-          "num": {
-            "digit": [
-              {
-                "value": "1"
-              },
-              {
-                "value": "3"
-              }
-            ]
-          }
-        },
-        "expr_item": []
-      }
-    },
     "runtime_dump": {
-      "expr": {
-        "term": {
-          "num": {
-            "digit": [
-              {
-                "value": "1"
-              },
-              {
-                "value": "3"
-              }
-            ]
-          }
-        },
-        "expr_item": []
-      }
-    },
-    "semantic_dump": {
       "expr": {
         "term": {
           "num": {

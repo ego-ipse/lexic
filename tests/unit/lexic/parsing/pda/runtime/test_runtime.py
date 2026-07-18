@@ -4,7 +4,7 @@
 walk (fold fusion, no :class:`~lexic.parsing.earley.forest.ParseTree`). The
 correctness bar is **user ruling 1**: ``semantic_dump()`` equality +
 ``to_text()`` round-trip against the engine's own
-``fold.apply(parse_first(...))`` path — not raw ``model_dump()`` equality,
+``fold.apply(parse_first(...))`` path — not raw ``dump()`` equality,
 which may differ on ``semantic=False`` fields when the PDA's greedy loop
 splits whitespace-like runs differently from the engine's.
 
@@ -128,7 +128,7 @@ def _specs(path: Path) -> dict:
 def _assert_parity(
     engine_model: GrammarModel, pda_model: GrammarModel, text: str
 ) -> None:
-    """Assert ruling 1's semantic-parity contract, not raw ``model_dump()`` equality."""
+    """Assert ruling 1's semantic-parity contract, not raw ``dump()`` equality."""
     assert pda_model.semantic_dump() == engine_model.semantic_dump()
     assert pda_model.to_text() == text
 

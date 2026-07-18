@@ -172,7 +172,7 @@ def test_compiled_grammar_fold_field_is_positional_fold():
 def test_collapsed_and_plain_tables_parse_to_the_same_model(grammar_file, text):
     """CompiledGrammar's built-in PDA-first parse (cg.parse) matches the forced
     Earley completion (``earley_model`` over the instance grammar) on
-    model_dump()/to_text().
+    dump()/to_text().
 
     The fold-config run-collapse licence changes the packed chart shape
     (fewer, longer terminal leaves) but must never change observable output —
@@ -183,7 +183,7 @@ def test_collapsed_and_plain_tables_parse_to_the_same_model(grammar_file, text):
     collapsed_model = cg.parse(text)
     plain_model = earley_model(p.instance_grammar, text, cg.fold)
     assert isinstance(plain_model, GrammarModel)
-    assert collapsed_model.model_dump() == plain_model.model_dump()
+    assert collapsed_model.dump() == plain_model.dump()
     assert collapsed_model.to_text() == plain_model.to_text() == text
 
 
@@ -513,7 +513,7 @@ def test_compiledgrammar_parse_pda_and_earley_agree():
     model = cg.parse(text)
     expected = earley_model(p.instance_grammar, text, cg.fold, p.tables)
     assert isinstance(expected, GrammarModel)
-    assert model.model_dump() == expected.model_dump()
+    assert model.dump() == expected.dump()
     assert model.to_text() == text
 
 

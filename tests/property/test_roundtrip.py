@@ -37,9 +37,9 @@ def _roundtrip(grammar: str, specs: dict, seed: int) -> None:
         f"  generated: {text!r}\n"
         f"  to_text:   {inst.to_text()!r}"
     )
-    # Second parse verifies parse() is deterministic: same input → same model_dump()
+    # Second parse verifies parse() is deterministic: same input → same dump()
     inst2 = parse(inst.to_text(), gpath)
-    assert inst.model_dump() == inst2.model_dump()
+    assert inst.dump() == inst2.dump()
 
 
 # parse() recompiles the grammar into model classes on every call (~20ms each);
@@ -137,4 +137,4 @@ def test_c_statement_roundtrip(seed: int, c_statement_grammar: tuple) -> None:
         f"  to_text:   {inst.to_text()!r}"
     )
     inst2 = cg.parse(inst.to_text())
-    assert inst.model_dump() == inst2.model_dump()
+    assert inst.dump() == inst2.dump()

@@ -1,29 +1,6 @@
 [
   {
     "input": "{\"a\":1}",
-    "model_dump": {
-      "object": {
-        "ws": {
-          "value": ""
-        },
-        "object_item2": {
-          "ws": {
-            "value": ""
-          },
-          "string": {
-            "x80_u0010fff": "a",
-            "ws": {
-              "value": ""
-            }
-          },
-          "value": {},
-          "object_item": []
-        },
-        "ws2": {
-          "value": ""
-        }
-      }
-    },
     "runtime_dump": {
       "object": {
         "ws": {
@@ -48,29 +25,6 @@
               "value": ""
             }
           },
-          "object_item": []
-        },
-        "ws2": {
-          "value": ""
-        }
-      }
-    },
-    "semantic_dump": {
-      "object": {
-        "ws": {
-          "value": ""
-        },
-        "object_item2": {
-          "ws": {
-            "value": ""
-          },
-          "string": {
-            "x80_u0010fff": "a",
-            "ws": {
-              "value": ""
-            }
-          },
-          "value": {},
           "object_item": []
         },
         "ws2": {
@@ -113,29 +67,7 @@
   },
   {
     "input": "{ } ",
-    "model_dump": {
-      "object": {
-        "ws": {
-          "value": " "
-        },
-        "object_item2": null,
-        "ws2": {
-          "value": " "
-        }
-      }
-    },
     "runtime_dump": {
-      "object": {
-        "ws": {
-          "value": " "
-        },
-        "object_item2": null,
-        "ws2": {
-          "value": " "
-        }
-      }
-    },
-    "semantic_dump": {
       "object": {
         "ws": {
           "value": " "
@@ -161,29 +93,7 @@
   },
   {
     "input": "{}",
-    "model_dump": {
-      "object": {
-        "ws": {
-          "value": ""
-        },
-        "object_item2": null,
-        "ws2": {
-          "value": ""
-        }
-      }
-    },
     "runtime_dump": {
-      "object": {
-        "ws": {
-          "value": ""
-        },
-        "object_item2": null,
-        "ws2": {
-          "value": ""
-        }
-      }
-    },
-    "semantic_dump": {
       "object": {
         "ws": {
           "value": ""

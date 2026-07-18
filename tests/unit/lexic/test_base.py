@@ -436,17 +436,17 @@ def test_ir_type_map_irtuple_entry_admits_models():
 # ── native dump ───────────────────────────────────────────────────────────────
 
 
-def test_model_dump_is_field_ordered_and_runtime_complete():
-    """model_dump() emits every field in declaration order, nested models
+def test_dump_is_field_ordered_and_runtime_complete():
+    """dump() emits every field in declaration order, nested models
     as dicts, models-mode tuples as lists."""
     inst = Root(it=[It(value="a"), It(value="b")])
-    assert inst.model_dump() == {"it": [{"value": "a"}, {"value": "b"}]}
-    assert list(Ident(first="x", ws=Ws(value=" ")).model_dump()) == ["first", "ws"]
+    assert inst.dump() == {"it": [{"value": "a"}, {"value": "b"}]}
+    assert list(Ident(first="x", ws=Ws(value=" ")).dump()) == ["first", "ws"]
 
 
-def test_model_dump_reemits_tuples_as_lists():
+def test_dump_reemits_tuples_as_lists():
     """The dump's models-mode value is a plain list (in-process dump parity)."""
-    dumped = Root(it=[It(value="a")]).model_dump()
+    dumped = Root(it=[It(value="a")]).dump()
     assert isinstance(dumped["it"], list)
 
 
@@ -518,7 +518,7 @@ def test_fast_construct_reports_field_defaults():
 
 def test_from_parts_equivalent_to_the_keyword_constructor():
     """_from_parts built via the licence matches the keyword constructor's
-    model_dump()/semantic_dump()/equality/to_text()."""
+    dump()/semantic_dump()/equality/to_text()."""
     validated = Ident(first="x", ws=Ws(value=" "))
     ctor, defaults = Ident.fast_construct()
     parts = dict(defaults)
@@ -526,7 +526,7 @@ def test_from_parts_equivalent_to_the_keyword_constructor():
     fast = ctor(parts, {"first", "ws"})
 
     assert fast == validated
-    assert fast.model_dump() == validated.model_dump()
+    assert fast.dump() == validated.dump()
     assert fast.semantic_dump() == validated.semantic_dump()
     assert fast.to_text() == validated.to_text()
 
@@ -553,7 +553,7 @@ def test_from_parts_fills_defaults_for_unset_optional_fields():
     fast = ctor(parts, {"first"})
 
     assert fast == validated
-    assert fast.model_dump() == validated.model_dump()
+    assert fast.dump() == validated.dump()
 
 
 def test_from_parts_coerces_models_lists():

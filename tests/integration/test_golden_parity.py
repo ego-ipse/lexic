@@ -5,16 +5,16 @@ against the LIVE implementation and asserts equality on the ORACLE keys
 (PLAN_v4 ruling 12, 2026-07-16): ``runtime_dump``, ``runtime_semantic_dump``
 and ``to_text`` — recorded via the prior ``model_dump(serialize_as_any=True)``
 at Task 0, reproduced natively by the record spine's
-``model_dump()``/``semantic_dump()`` since Task 1. The files'
-``model_dump``/``semantic_dump`` keys (declared-schema, F-DUMP-1's erasure
-warts included) characterized the retired prior serializer; they remain
-in the byte-pinned files as the historical record and are not asserted.
+``dump()``/``semantic_dump()``. The Task-0 recordings also carried
+declared-schema ``model_dump``/``semantic_dump`` keys (F-DUMP-1's erasure
+warts included) that characterized the retired prior serializer; they became
+uncomputable on the spine and were dropped from the files (Task 8b).
 
 The comparison here replays each golden through ``json.loads(json.dumps(...))``
 (the settled-12 byte form) rather than comparing live Python objects
 directly — this is the medium that is blind to tuple-vs-list and
 ``IrInt``-vs-``int`` distinctions (C12). The stricter in-process medium
-(``model_dump()`` dict equality between two independent parses of the same
+(``dump()`` dict equality between two independent parses of the same
 text, without a JSON round trip) is pinned separately in
 ``tests/unit/lexic/test_base_surface_freeze.py``.
 """

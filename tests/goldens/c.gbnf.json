@@ -1,18 +1,6 @@
 [
   {
     "input": "int foo(){}",
-    "model_dump": {
-      "declaration": [
-        {
-          "paramlist": null,
-          "datatype": {},
-          "identifier": {
-            "value": "foo"
-          },
-          "statement": []
-        }
-      ]
-    },
     "runtime_dump": {
       "declaration": [
         {
@@ -22,18 +10,6 @@
               "value": " "
             }
           },
-          "identifier": {
-            "value": "foo"
-          },
-          "statement": []
-        }
-      ]
-    },
-    "semantic_dump": {
-      "declaration": [
-        {
-          "paramlist": null,
-          "datatype": {},
           "identifier": {
             "value": "foo"
           },
@@ -61,26 +37,6 @@
   },
   {
     "input": "char bar(int x){}",
-    "model_dump": {
-      "declaration": [
-        {
-          "paramlist": {
-            "parameter": {
-              "datatype": {},
-              "identifier": {
-                "value": "x"
-              }
-            },
-            "paramlist_item": []
-          },
-          "datatype": {},
-          "identifier": {
-            "value": "bar"
-          },
-          "statement": []
-        }
-      ]
-    },
     "runtime_dump": {
       "declaration": [
         {
@@ -102,26 +58,6 @@
               "value": " "
             }
           },
-          "identifier": {
-            "value": "bar"
-          },
-          "statement": []
-        }
-      ]
-    },
-    "semantic_dump": {
-      "declaration": [
-        {
-          "paramlist": {
-            "parameter": {
-              "datatype": {},
-              "identifier": {
-                "value": "x"
-              }
-            },
-            "paramlist_item": []
-          },
-          "datatype": {},
           "identifier": {
             "value": "bar"
           },
@@ -161,18 +97,6 @@
   },
   {
     "input": "float baz(){}",
-    "model_dump": {
-      "declaration": [
-        {
-          "paramlist": null,
-          "datatype": {},
-          "identifier": {
-            "value": "baz"
-          },
-          "statement": []
-        }
-      ]
-    },
     "runtime_dump": {
       "declaration": [
         {
@@ -182,18 +106,6 @@
               "value": " "
             }
           },
-          "identifier": {
-            "value": "baz"
-          },
-          "statement": []
-        }
-      ]
-    },
-    "semantic_dump": {
-      "declaration": [
-        {
-          "paramlist": null,
-          "datatype": {},
           "identifier": {
             "value": "baz"
           },
@@ -221,26 +133,6 @@
   },
   {
     "input": "int qux(char y){}",
-    "model_dump": {
-      "declaration": [
-        {
-          "paramlist": {
-            "parameter": {
-              "datatype": {},
-              "identifier": {
-                "value": "y"
-              }
-            },
-            "paramlist_item": []
-          },
-          "datatype": {},
-          "identifier": {
-            "value": "qux"
-          },
-          "statement": []
-        }
-      ]
-    },
     "runtime_dump": {
       "declaration": [
         {
@@ -262,26 +154,6 @@
               "value": " "
             }
           },
-          "identifier": {
-            "value": "qux"
-          },
-          "statement": []
-        }
-      ]
-    },
-    "semantic_dump": {
-      "declaration": [
-        {
-          "paramlist": {
-            "parameter": {
-              "datatype": {},
-              "identifier": {
-                "value": "y"
-              }
-            },
-            "paramlist_item": []
-          },
-          "datatype": {},
           "identifier": {
             "value": "qux"
           },
@@ -321,21 +193,6 @@
   },
   {
     "input": "int\t\tG(){T (3*9/J);AaN ();}",
-    "model_dump": {
-      "declaration": [
-        {
-          "paramlist": null,
-          "datatype": {},
-          "identifier": {
-            "value": "G"
-          },
-          "statement": [
-            {},
-            {}
-          ]
-        }
-      ]
-    },
     "runtime_dump": {
       "declaration": [
         {
@@ -391,21 +248,6 @@
               },
               "arglist": null
             }
-          ]
-        }
-      ]
-    },
-    "semantic_dump": {
-      "declaration": [
-        {
-          "paramlist": null,
-          "datatype": {},
-          "identifier": {
-            "value": "G"
-          },
-          "statement": [
-            {},
-            {}
           ]
         }
       ]

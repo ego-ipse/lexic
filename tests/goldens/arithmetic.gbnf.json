@@ -1,20 +1,6 @@
 [
   {
     "input": "x=1\n",
-    "model_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": []
-          },
-          "term": {}
-        }
-      ]
-    },
     "runtime_dump": {
       "root_item": [
         {
@@ -37,20 +23,6 @@
             },
             "digit": "1"
           }
-        }
-      ]
-    },
-    "semantic_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": []
-          },
-          "term": {}
         }
       ]
     },
@@ -83,20 +55,6 @@
   },
   {
     "input": "y=z\n",
-    "model_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": []
-          },
-          "term": {}
-        }
-      ]
-    },
     "runtime_dump": {
       "root_item": [
         {
@@ -120,20 +78,6 @@
             },
             "lower": "z"
           }
-        }
-      ]
-    },
-    "semantic_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": []
-          },
-          "term": {}
         }
       ]
     },
@@ -167,25 +111,6 @@
   },
   {
     "input": "a+b=100\n",
-    "model_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": [
-              {
-                "head": "+",
-                "term": {}
-              }
-            ]
-          },
-          "term": {}
-        }
-      ]
-    },
     "runtime_dump": {
       "root_item": [
         {
@@ -219,25 +144,6 @@
             },
             "digit": "100"
           }
-        }
-      ]
-    },
-    "semantic_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": [
-              {
-                "head": "+",
-                "term": {}
-              }
-            ]
-          },
-          "term": {}
         }
       ]
     },
@@ -281,20 +187,6 @@
   },
   {
     "input": "foo=(bar)\n",
-    "model_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": []
-          },
-          "term": {}
-        }
-      ]
-    },
     "runtime_dump": {
       "root_item": [
         {
@@ -329,20 +221,6 @@
               "expr_item": []
             }
           }
-        }
-      ]
-    },
-    "semantic_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": []
-          },
-          "term": {}
         }
       ]
     },
@@ -387,25 +265,6 @@
   },
   {
     "input": "abc123-xyz=42\n",
-    "model_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": [
-              {
-                "head": "-",
-                "term": {}
-              }
-            ]
-          },
-          "term": {}
-        }
-      ]
-    },
     "runtime_dump": {
       "root_item": [
         {
@@ -439,25 +298,6 @@
             },
             "digit": "42"
           }
-        }
-      ]
-    },
-    "semantic_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": [
-              {
-                "head": "-",
-                "term": {}
-              }
-            ]
-          },
-          "term": {}
         }
       ]
     },
@@ -501,20 +341,6 @@
   },
   {
     "input": "p=z\t\n",
-    "model_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": []
-          },
-          "term": {}
-        }
-      ]
-    },
     "runtime_dump": {
       "root_item": [
         {
@@ -538,20 +364,6 @@
             },
             "lower": "z"
           }
-        }
-      ]
-    },
-    "semantic_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": []
-          },
-          "term": {}
         }
       ]
     },
@@ -585,29 +397,6 @@
   },
   {
     "input": "((705\t\t)) +o-(\n\t( \n((  (( y)-2)\t))/1)+0*h )=(2)\n",
-    "model_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": [
-              {
-                "head": "+",
-                "term": {}
-              },
-              {
-                "head": "-",
-                "term": {}
-              }
-            ]
-          },
-          "term": {}
-        }
-      ]
-    },
     "runtime_dump": {
       "root_item": [
         {
@@ -789,29 +578,6 @@
               "expr_item": []
             }
           }
-        }
-      ]
-    },
-    "semantic_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": [
-              {
-                "head": "+",
-                "term": {}
-              },
-              {
-                "head": "-",
-                "term": {}
-              }
-            ]
-          },
-          "term": {}
         }
       ]
     },
@@ -1003,20 +769,6 @@
   },
   {
     "input": "((\t\n8\t)\n ) =(\n\n59\n)\n",
-    "model_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": []
-          },
-          "term": {}
-        }
-      ]
-    },
     "runtime_dump": {
       "root_item": [
         {
@@ -1071,20 +823,6 @@
               "expr_item": []
             }
           }
-        }
-      ]
-    },
-    "semantic_dump": {
-      "root_item": [
-        {
-          "ws": {
-            "value": ""
-          },
-          "expr": {
-            "term": {},
-            "expr_item": []
-          },
-          "term": {}
         }
       ]
     },

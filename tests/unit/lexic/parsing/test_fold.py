@@ -215,8 +215,8 @@ def test_empty_alternate_arm_folds_with_no_kwargs():
     cg = compile_text('root ::= "<" pair ">"\npair ::= a b |\na ::= "a"\nb ::= "b"\n')
     full = cg.parse("<ab>")
     empty = cg.parse("<>")
-    assert full.model_dump()["pair"] == {"a": {"value": "a"}, "b": {"value": "b"}}
-    assert empty.model_dump()["pair"] == {"a": None, "b": None}
+    assert full.dump()["pair"] == {"a": {"value": "a"}, "b": {"value": "b"}}
+    assert empty.dump()["pair"] == {"a": None, "b": None}
     assert full.to_text() == "<ab>"
     assert empty.to_text() == "<>"
 
@@ -453,7 +453,7 @@ def test_ambiguous_input_folds_deterministically(arithmetic):
     plain_model = arithmetic.fold.apply(
         parse_first(_prod(arithmetic).instance_grammar, text)
     )
-    assert collapsed_model.model_dump() == plain_model.model_dump()
+    assert collapsed_model.dump() == plain_model.dump()
     assert collapsed_model.to_text() == plain_model.to_text() == text
 
 

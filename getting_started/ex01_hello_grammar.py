@@ -27,7 +27,7 @@ def main() -> None:
     text = "Hello World!"
     model = compiled.parse(text)
     print("Parsed model:", model)
-    print("Fields:      ", model.model_dump())
+    print("Fields:      ", model.dump())
     print()
     print("Round-trip:  ", repr(model.to_text()))
     assert model.to_text() == text, "round-trip must be lossless"

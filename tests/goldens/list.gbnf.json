@@ -1,21 +1,7 @@
 [
   {
     "input": "- apple\n",
-    "model_dump": {
-      "item": [
-        {
-          "value": "- apple\n"
-        }
-      ]
-    },
     "runtime_dump": {
-      "item": [
-        {
-          "value": "- apple\n"
-        }
-      ]
-    },
-    "semantic_dump": {
       "item": [
         {
           "value": "- apple\n"
@@ -33,21 +19,7 @@
   },
   {
     "input": "- 󴈻\n",
-    "model_dump": {
-      "item": [
-        {
-          "value": "- 󴈻\n"
-        }
-      ]
-    },
     "runtime_dump": {
-      "item": [
-        {
-          "value": "- 󴈻\n"
-        }
-      ]
-    },
-    "semantic_dump": {
       "item": [
         {
           "value": "- 󴈻\n"
@@ -65,21 +37,7 @@
   },
   {
     "input": "- 񺩿񟅸󗟐\n",
-    "model_dump": {
-      "item": [
-        {
-          "value": "- 񺩿񟅸󗟐\n"
-        }
-      ]
-    },
     "runtime_dump": {
-      "item": [
-        {
-          "value": "- 񺩿񟅸󗟐\n"
-        }
-      ]
-    },
-    "semantic_dump": {
       "item": [
         {
           "value": "- 񺩿񟅸󗟐\n"

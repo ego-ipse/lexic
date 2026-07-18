@@ -1,15 +1,6 @@
 [
   {
     "input": "\"\\\"\"",
-    "model_dump": {
-      "ws": {
-        "value": ""
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": ""
@@ -33,9 +24,6 @@
           "value": "\""
         }
       }
-    },
-    "semantic_dump": {
-      "value": {}
     },
     "runtime_semantic_dump": {
       "value": {
@@ -59,15 +47,6 @@
   },
   {
     "input": "\"\\\\\"",
-    "model_dump": {
-      "ws": {
-        "value": ""
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": ""
@@ -91,9 +70,6 @@
           "value": "\""
         }
       }
-    },
-    "semantic_dump": {
-      "value": {}
     },
     "runtime_semantic_dump": {
       "value": {
@@ -117,15 +93,6 @@
   },
   {
     "input": "\"\\n\"",
-    "model_dump": {
-      "ws": {
-        "value": ""
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": ""
@@ -149,9 +116,6 @@
           "value": "\""
         }
       }
-    },
-    "semantic_dump": {
-      "value": {}
     },
     "runtime_semantic_dump": {
       "value": {
@@ -175,15 +139,6 @@
   },
   {
     "input": "\"A\"",
-    "model_dump": {
-      "ws": {
-        "value": ""
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": ""
@@ -205,9 +160,6 @@
         }
       }
     },
-    "semantic_dump": {
-      "value": {}
-    },
     "runtime_semantic_dump": {
       "value": {
         "quotation_mark": {
@@ -227,15 +179,6 @@
   },
   {
     "input": "\"\\/\"",
-    "model_dump": {
-      "ws": {
-        "value": ""
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": ""
@@ -259,9 +202,6 @@
           "value": "\""
         }
       }
-    },
-    "semantic_dump": {
-      "value": {}
     },
     "runtime_semantic_dump": {
       "value": {
@@ -285,15 +225,6 @@
   },
   {
     "input": "\"\\u0041\"",
-    "model_dump": {
-      "ws": {
-        "value": ""
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": ""
@@ -318,9 +249,6 @@
         }
       }
     },
-    "semantic_dump": {
-      "value": {}
-    },
     "runtime_semantic_dump": {
       "value": {
         "quotation_mark": {
@@ -343,15 +271,6 @@
   },
   {
     "input": "\n{\"\": [\t\r\n]}",
-    "model_dump": {
-      "ws": {
-        "value": "\n"
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": "\n"
@@ -418,9 +337,6 @@
           }
         }
       }
-    },
-    "semantic_dump": {
-      "value": {}
     },
     "runtime_semantic_dump": {
       "value": {
@@ -487,15 +403,6 @@
   },
   {
     "input": "\"\"",
-    "model_dump": {
-      "ws": {
-        "value": ""
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": ""
@@ -513,9 +420,6 @@
         }
       }
     },
-    "semantic_dump": {
-      "value": {}
-    },
     "runtime_semantic_dump": {
       "value": {
         "quotation_mark": {
@@ -531,15 +435,6 @@
   },
   {
     "input": "{\"name\": \"alpha\", \"id\": 1, \"ok\": true}",
-    "model_dump": {
-      "ws": {
-        "value": ""
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": ""
@@ -712,9 +607,6 @@
           }
         }
       }
-    },
-    "semantic_dump": {
-      "value": {}
     },
     "runtime_semantic_dump": {
       "value": {
@@ -887,15 +779,6 @@
   },
   {
     "input": "{\"nested\": {\"a\": [1, 2.5e3, -4], \"b\": null}}",
-    "model_dump": {
-      "ws": {
-        "value": ""
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": ""
@@ -1139,9 +1022,6 @@
           }
         }
       }
-    },
-    "semantic_dump": {
-      "value": {}
     },
     "runtime_semantic_dump": {
       "value": {
@@ -1385,15 +1265,6 @@
   },
   {
     "input": "-12.75e-2",
-    "model_dump": {
-      "ws": {
-        "value": ""
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": ""
@@ -1443,9 +1314,6 @@
         }
       }
     },
-    "semantic_dump": {
-      "value": {}
-    },
     "runtime_semantic_dump": {
       "value": {
         "minus": {
@@ -1493,15 +1361,6 @@
   },
   {
     "input": "[true, false, null, 0, \"s\"]",
-    "model_dump": {
-      "ws": {
-        "value": ""
-      },
-      "ws2": {
-        "value": ""
-      },
-      "value": {}
-    },
     "runtime_dump": {
       "ws": {
         "value": ""
@@ -1601,9 +1460,6 @@
           }
         }
       }
-    },
-    "semantic_dump": {
-      "value": {}
     },
     "runtime_semantic_dump": {
       "value": {

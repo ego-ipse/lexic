@@ -11,14 +11,14 @@ carry at least one), each driven through both internal seams directly:
   _prod(cg).tables))``, the same call :meth:`~lexic.compile.CompiledGrammar.parse`'s
   fallback branch makes.
 
-The correctness bar is ruling 1 (semantic parity, not raw ``model_dump()``
+The correctness bar is ruling 1 (semantic parity, not raw ``dump()``
 equality — the PDA's greedy stop-set loop may split a ``semantic=False`` run
 differently from the engine's ambiguity resolution): every sample where both
 paths succeed asserts deep semantic equality (:func:`_deep_semantic` —
 ``semantic=False`` binds dropped at every level) plus a ``to_text()``
 round-trip on *both* models. A forced-PDA ``PdaFail`` is a **fallback**, not a
 failure — it is tallied, not asserted against (except that the engine path
-alone must still round-trip). The raw ``model_dump()``-exact rate and the
+alone must still round-trip). The raw ``dump()``-exact rate and the
 fallback rate are *reported* (printed) per grammar, not gated — they feed the
 effort's OUTCOME numbers, not a pass/fail bar.
 """
@@ -114,9 +114,7 @@ class _Tally(dict):
     """A per-grammar sample tally — plain counters, printed, never asserted on."""
 
     def __init__(self) -> None:
-        super().__init__(
-            checked=0, pda_ok=0, fallback=0, engine_only=0, model_dump_exact=0
-        )
+        super().__init__(checked=0, pda_ok=0, fallback=0, engine_only=0, dump_exact=0)
 
 
 _START_OVERRIDES: dict[str, str] = {
@@ -203,8 +201,8 @@ def _check_one(cg: CompiledGrammar, text: str, tally: _Tally) -> None:
     tally["checked"] += 1
     assert _deep_semantic(pda_model) == _deep_semantic(engine_model)
     assert pda_model.to_text() == text
-    if pda_model.model_dump() == engine_model.model_dump():
-        tally["model_dump_exact"] += 1
+    if pda_model.dump() == engine_model.dump():
+        tally["dump_exact"] += 1
 
 
 def _report(stem: str, cg: CompiledGrammar, tally: _Tally) -> None:
@@ -217,15 +215,13 @@ def _report(stem: str, cg: CompiledGrammar, tally: _Tally) -> None:
         return
     islands = sorted(_prod(cg).pda.islands)
     exact = (
-        f"{tally['model_dump_exact'] / tally['pda_ok']:5.1%}"
-        if tally["pda_ok"]
-        else "n/a"
+        f"{tally['dump_exact'] / tally['pda_ok']:5.1%}" if tally["pda_ok"] else "n/a"
     )
     print(
         f"{stem:16s} checked={tally['checked']:3d} "
         f"pda_ok={tally['pda_ok']:3d} "
         f"fallback_rate={tally['fallback'] / n:5.1%} "
-        f"model_dump_exact_rate={exact} "
+        f"dump_exact_rate={exact} "
         f"islands({len(islands)})={islands}"
     )
 

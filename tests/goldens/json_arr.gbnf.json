@@ -1,17 +1,6 @@
 [
   {
     "input": "[\n1\n]",
-    "model_dump": {
-      "arr": {
-        "ws": {
-          "value": ""
-        },
-        "arr_item2": {
-          "value": {},
-          "arr_item": []
-        }
-      }
-    },
     "runtime_dump": {
       "arr": {
         "ws": {
@@ -27,17 +16,6 @@
               "value": "\n"
             }
           },
-          "arr_item": []
-        }
-      }
-    },
-    "semantic_dump": {
-      "arr": {
-        "ws": {
-          "value": ""
-        },
-        "arr_item2": {
-          "value": {},
           "arr_item": []
         }
       }
@@ -65,23 +43,7 @@
   },
   {
     "input": "[\n ]",
-    "model_dump": {
-      "arr": {
-        "ws": {
-          "value": " "
-        },
-        "arr_item2": null
-      }
-    },
     "runtime_dump": {
-      "arr": {
-        "ws": {
-          "value": " "
-        },
-        "arr_item2": null
-      }
-    },
-    "semantic_dump": {
       "arr": {
         "ws": {
           "value": " "
@@ -101,23 +63,7 @@
   },
   {
     "input": "[\n]",
-    "model_dump": {
-      "arr": {
-        "ws": {
-          "value": ""
-        },
-        "arr_item2": null
-      }
-    },
     "runtime_dump": {
-      "arr": {
-        "ws": {
-          "value": ""
-        },
-        "arr_item2": null
-      }
-    },
-    "semantic_dump": {
       "arr": {
         "ws": {
           "value": ""

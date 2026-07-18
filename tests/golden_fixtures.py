@@ -1,18 +1,18 @@
 """Golden fixture helper — the parity oracle recorded at Task 0.
 
 The golden FILES were recorded once from the retired prior model
-implementation (Task 0) and are byte-pinned; the record spine (Task 1) must
-keep their ORACLE keys equal (ruling 12,
+implementation (Task 0) and are byte-pinned; the record spine must keep their
+ORACLE keys equal (ruling 12,
 ``zzz_current_work/260716-ir-native/PLAN_v4.md``): ``runtime_dump``,
-``runtime_semantic_dump``, ``to_text``. The declared-schema keys
-(``model_dump``/``semantic_dump`` as recorded) characterized the prior
-serializer and are retired data — uncomputable on the spine, kept in the
-files as the historical record, no longer asserted.
+``runtime_semantic_dump``, ``to_text``. The Task-0 recordings also carried two
+declared-schema keys (``model_dump``/``semantic_dump``) that characterized the
+prior serializer; they became uncomputable on the record spine and were
+dropped from the files (Task 8b) — only the oracle keys remain.
 
 Byte form (settled 12, pinned here and nowhere else): one fixed
 serialization — ``json.dumps(records, ensure_ascii=False, indent=2,
 sort_keys=False)`` (key order = each dict's insertion order, i.e. the field
-declaration order ``model_dump()`` already produces), newline-terminated.
+declaration order ``dump()`` already produces), newline-terminated.
 Both :func:`write_golden` (regeneration) and :func:`load_golden` (replay) go
 through :func:`_serialize`/``json.loads``, so the byte form has exactly one
 definition. JSON cannot distinguish a tuple from a list nor an ``IrInt`` from
@@ -24,26 +24,15 @@ dump-dict-equality medium lives in
 
 Golden files live at ``tests/goldens/<grammar-stem>.json`` (git-tracked), one
 per ground-truth grammar file under ``resources/ground_truth/``, each a JSON
-list of per-input records: ``{"input": str, "model_dump": ..., "runtime_dump":
-..., "semantic_dump": ..., "runtime_semantic_dump": ..., "to_text": str}``
-(the two ``model_dump``/``semantic_dump`` keys exist only in the Task-0
-recordings; :func:`compute_record` now produces the oracle keys alone).
+list of per-input records: ``{"input": str, "runtime_dump": ...,
+"runtime_semantic_dump": ..., "to_text": str}`` — exactly what
+:func:`compute_record` produces.
 
-**F-DUMP-1 (coordinator finding, mid-Task-0 addendum — historical).**
-The prior ``model_dump()`` was declared-schema-driven: a nested arm
-instance riding a field annotated with its field-less abstract alternation
-PARENT serialized as ``{}`` (the whole subtree erased), so every golden
-record carries two forms side by side. RULED (PLAN_v4 ruling 12,
-2026-07-16): the runtime forms are THE parity oracle for Tasks 1–8; the
-declared-schema forms characterized the retired serializer:
-
-- ``model_dump`` / ``semantic_dump`` — the prior declared-schema form,
-  erasure warts included. Retired recordings; no longer computable.
-- ``runtime_dump`` / ``runtime_semantic_dump`` — recorded at Task 0 via
-  the prior ``model_dump(serialize_as_any=True)`` (verified byte-equal to a
-  hand-rolled runtime-type walker on the GT corpus), and byte-equal to the
-  record spine's native ``model_dump()``/``semantic_dump()``, which
-  :func:`runtime_dump`/:func:`runtime_semantic_dump` now delegate to.
+The oracle keys ``runtime_dump`` / ``runtime_semantic_dump`` were recorded at
+Task 0 via the prior ``model_dump(serialize_as_any=True)`` (verified byte-equal
+to a hand-rolled runtime-type walker on the GT corpus), and are byte-equal to
+the record spine's native ``dump()``/``semantic_dump()``, which
+:func:`runtime_dump`/:func:`runtime_semantic_dump` now delegate to.
 
 :data:`CORPUS` is the representative-input registry per grammar stem —
 drawn from existing round-trip/integration test corpora
@@ -62,9 +51,9 @@ FAIL, not need re-running) via::
 
     uv run python -m tests.golden_fixtures
 
-NOTE: regeneration now writes oracle-keys-only records — it would drop the
-Task-0 declared-schema recordings from the files. The Task-0 files are
-byte-pinned; do not regenerate without a ruling.
+NOTE: the files are byte-pinned (oracle keys only); a routine code change
+should make this suite FAIL, not need re-running. Do not regenerate without a
+ruling.
 """
 
 from __future__ import annotations
@@ -162,14 +151,14 @@ def golden_path(stem: str) -> Path:
 def runtime_dump(model: GrammarModel) -> dict[str, Any]:
     """The runtime-type-driven dump — the golden ``runtime_dump`` form.
 
-    On the record spine the native :meth:`~lexic.base.GrammarModel.model_dump`
+    On the record spine the native :meth:`~lexic.base.GrammarModel.dump`
     IS runtime-complete (ruling 12), byte-equal to the prior
     ``model_dump(serialize_as_any=True)`` the goldens were recorded with.
 
     :param model: A parsed model instance.
     :returns: The runtime-complete dump.
     """
-    return model.model_dump()
+    return model.dump()
 
 
 def runtime_semantic_dump(model: GrammarModel) -> dict[str, Any]:
@@ -187,10 +176,6 @@ def runtime_semantic_dump(model: GrammarModel) -> dict[str, Any]:
 
 def compute_record(cg: CompiledGrammar, sample: str) -> dict[str, Any]:
     """Parse ``sample`` and capture the oracle outputs (ruling 12).
-
-    The declared-schema ``model_dump``/``semantic_dump`` keys of the Task-0
-    recordings are NOT produced — they characterized the retired prior
-    serializer and exist only in the persisted files.
 
     :param cg: The compiled grammar to parse against.
     :param sample: One representative input.

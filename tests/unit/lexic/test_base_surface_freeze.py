@@ -23,7 +23,7 @@ exact target):
 - **F-DUMP-1**: the prior declared-schema ``model_dump()`` erased an arm
   instance riding a field annotated with its field-less abstract alternation
   parent to ``{}``. The native dump serializes by RUNTIME type (ruling 12) —
-  the erasure is GONE, pinned by ``test_model_dump_does_not_erase_an_abstract_
+  the erasure is GONE, pinned by ``test_dump_does_not_erase_an_abstract_
   typed_arm_field`` and cross-checked against an independent hand-rolled
   runtime-type walker below.
 - ``fast_construct()``'s prior refusal surface (validators / post-init /
@@ -134,13 +134,13 @@ def test_semantic_dump_does_not_recurse_into_nested_models_own_exclusions():
     assert "ws" in dumped["object_item2"]
 
 
-def test_semantic_dump_equals_model_dump_when_receiver_has_no_own_noise_field():
+def test_semantic_dump_equals_dump_when_receiver_has_no_own_noise_field():
     """A model whose only bound field is itself semantic (no direct
-    non-semantic bind) has semantic_dump() == model_dump() — exclusion never
+    non-semantic bind) has semantic_dump() == dump() — exclusion never
     reaches down through the field's own value."""
     cg = compile_from_path(GROUND_TRUTH / "json_ws.gbnf")
     model = cg.parse('{"a":1}')
-    assert model.semantic_dump() == model.model_dump()
+    assert model.semantic_dump() == model.dump()
 
 
 # ── equality + hashing: settled 4, both halves now live ──────────────────
@@ -179,21 +179,21 @@ def test_models_expose_the_tuple_surface():
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     model = cg.parse("x=1\n")
     assert isinstance(model, tuple)
-    assert len(model) == len(model.model_dump())
+    assert len(model) == len(model.dump())
 
 
-# ── in-process model_dump() dict equality (the stricter medium, C12) ──────
+# ── in-process dump() dict equality (the stricter medium, C12) ────────────
 
 
-def test_model_dump_dict_equality_across_independent_parses():
-    """Two independent parses of the same text produce == model_dump() dicts,
+def test_dump_dict_equality_across_independent_parses():
+    """Two independent parses of the same text produce == dump() dicts,
     compared as live Python objects (no JSON round trip) — the stricter
     medium settled 12 requires beside the JSON goldens, since JSON hides
     tuple-vs-list distinctions the native dump normalizes (tuples re-emit
     as lists)."""
     cg = compile_from_path(GROUND_TRUTH / "json_ws.gbnf")
-    first = cg.parse('{"a":1}').model_dump()
-    second = cg.parse('{"a":1}').model_dump()
+    first = cg.parse('{"a":1}').dump()
+    second = cg.parse('{"a":1}').dump()
     assert first == second
     assert first is not second
 
@@ -230,7 +230,7 @@ def _walk_runtime(node: object) -> object:
     For every field of a model, ``getattr`` and recurse into
     :class:`GrammarModel` values, walk tuples element-wise into lists, pass
     everything else through verbatim. Independent of the spine's own
-    ``model_dump()`` walker so the two cross-check each other rather than
+    ``dump()`` walker so the two cross-check each other rather than
     one trivially validating itself.
     """
     if isinstance(node, GrammarModel):
@@ -240,30 +240,30 @@ def _walk_runtime(node: object) -> object:
     return node
 
 
-def test_model_dump_does_not_erase_an_abstract_typed_arm_field():
+def test_dump_does_not_erase_an_abstract_typed_arm_field():
     """F-DUMP-1 resolved: an arm instance riding a field whose declared
     annotation is its field-less abstract alternation parent dumps IN FULL —
     the native dump serializes by runtime type, never by declared schema."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     model = cg.parse("6=k\t \n")
     item = getattr(model, "root_item")[0]
-    assert item.model_dump()["term"] == item.term.model_dump()
-    assert item.model_dump()["term"] != {}
+    assert item.dump()["term"] == item.term.dump()
+    assert item.dump()["term"] != {}
 
 
-def test_model_dump_matches_a_runtime_type_walker():
+def test_dump_matches_a_runtime_type_walker():
     """The native dump matches the independent hand-rolled runtime-type
     walker on a real ground-truth grammar (the shape that erased under the
     prior declared-schema serializer)."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     model = cg.parse("6=k\t \n")
-    assert model.model_dump() == _walk_runtime(model)
+    assert model.dump() == _walk_runtime(model)
 
 
-def test_model_dump_distinguishes_inputs_the_erasure_conflated():
+def test_dump_distinguishes_inputs_the_erasure_conflated():
     """The measured F-DUMP-1 clincher, inverted: under the prior declared-
     schema dump, model_dump("6=k...") == model_dump("9=z...") because the
     erased arm subtrees carried the distinguishing content. The
     runtime-complete dump keeps them distinct."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    assert cg.parse("6=k\t \n").model_dump() != cg.parse("9=z\t \n").model_dump()
+    assert cg.parse("6=k\t \n").dump() != cg.parse("9=z\t \n").dump()

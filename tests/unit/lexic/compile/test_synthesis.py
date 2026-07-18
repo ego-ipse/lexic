@@ -240,8 +240,8 @@ def test_to_text_round_trips_a_synthesized_sequence_instance():
     assert inst.to_text() == "ab123"
 
 
-def test_model_dump_and_semantic_dump_behave_on_a_synthesized_instance():
-    """model_dump keeps every field; semantic_dump drops non-semantic ones."""
+def test_dump_and_semantic_dump_behave_on_a_synthesized_instance():
+    """dump keeps every field; semantic_dump drops non-semantic ones."""
     classes, _grammar, _binding = _synth(
         "# @non-semantic ws\nroot ::= word ws num\nword ::= [a-z]+\nnum ::= [0-9]+\n"
         "ws ::= [ ]*\n"
@@ -251,7 +251,7 @@ def test_model_dump_and_semantic_dump_behave_on_a_synthesized_instance():
         ws=classes["Ws"](value=" "),
         num=classes["Num"](value="12"),
     )
-    dumped = inst.model_dump()
+    dumped = inst.dump()
     assert dumped == {
         "word": {"value": "ab"},
         "ws": {"value": " "},
@@ -269,4 +269,4 @@ def test_synthesis_matches_end_to_end_compile_text_round_trip():
     cg = compile_text(text)
     inst = cg.parse("ab123")
     assert inst.to_text() == "ab123"
-    assert inst.model_dump() == {"word": {"value": "ab"}, "digit": "123"}
+    assert inst.dump() == {"word": {"value": "ab"}, "digit": "123"}

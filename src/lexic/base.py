@@ -21,7 +21,7 @@ checked: missing required fields and per-field IR-intrinsic violations raise
 bypass ``__new__`` and stay unchecked, so the PDA hot path pays nothing.
 Construction coerces ``models``-mode lists to tuples (the fold and PDA hand
 live sink lists; stored raw they would alias and kill hashability).
-:meth:`GrammarModel.model_dump` re-emits those tuples
+:meth:`GrammarModel.dump` re-emits those tuples
 as lists and serializes by RUNTIME type (ruling 12 — never by declared
 schema), walking an explicit stack so depth never overflows.
 """
@@ -434,7 +434,7 @@ class GrammarModel(IrNamedTuple):
         ]
         return type(self)(*values)
 
-    def model_dump(self) -> dict[str, Any]:
+    def dump(self) -> dict[str, Any]:
         """The native dict dump — runtime-complete, stack-safe (ruling 12).
 
         Serializes every nested value by ITS OWN runtime type (never by a
@@ -458,14 +458,14 @@ class GrammarModel(IrNamedTuple):
         The exclusion is top-level-only — a nested model's own non-semantic
         fields remain in the dump (the measured R2-5 depth).
 
-        :returns: :meth:`model_dump` with this model's own noise fields removed.
+        :returns: :meth:`dump` with this model's own noise fields removed.
         """
         exclude = {
             name
             for name, bind in type(self).bound_fields().values()
             if not bind.semantic
         }
-        return {k: v for k, v in self.model_dump().items() if k not in exclude}
+        return {k: v for k, v in self.dump().items() if k not in exclude}
 
     def to_text(self) -> str:
         """Emit source text for this model instance.
