@@ -7,8 +7,9 @@ these SAME objects rather than each defining its own copy.
 
 from __future__ import annotations
 
-from lexic.compile import notation, selfgrammar
 from lexic.compile.foldkit import ALT, passthrough
+from lexic.compile.module import selfgrammar
+from lexic.compile.notation import parse as notation
 from lexic.parsing import RuleFold
 
 

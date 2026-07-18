@@ -1,4 +1,4 @@
-"""Tests for ``lexic.compile.export`` — the importable ``.py`` twin renderer.
+"""Tests for ``lexic.compile.module.export`` — the importable ``.py`` twin renderer.
 
 Ported from the reader-view exporter (260718 rework): assertions kept
 wherever their target survived; the ruff/subprocess seam, ``_HEADER``,
@@ -14,11 +14,15 @@ import ast
 import pytest
 
 from lexic.compile import compile_from_path, compile_text, export_module, export_source
-from lexic.compile.binding import _RESERVED_CLASS_NAMES, RuleBinding, compute_binding
-from lexic.compile.export import (
+from lexic.compile.module.export import (
     _group_model_type,
     field_type,
     value_str_type,
+)
+from lexic.compile.pipeline.binding import (
+    _RESERVED_CLASS_NAMES,
+    RuleBinding,
+    compute_binding,
 )
 from lexic.ir.base import IrNone
 from lexic.ir.nodes import (

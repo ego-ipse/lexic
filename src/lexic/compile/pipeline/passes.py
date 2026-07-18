@@ -20,7 +20,7 @@ fold.
 
 from __future__ import annotations
 
-from lexic.compile.binding import classify_rule, has_ruleref, unit_ref_arm
+from lexic.compile.pipeline.binding import classify_rule, has_ruleref, unit_ref_arm
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction
 from lexic.ir.base import Field, IrLambda, IrNode, IrNone, IrNoneType, IrSelf, IrSeq

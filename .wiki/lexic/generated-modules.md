@@ -1,6 +1,6 @@
 # Generated Modules — the importable twins
 
-**When to load:** exporting a compiled grammar to a `.py` file; touching `compile/export.py`, `bind_module`, `ir/layout.py`, or the notation emit half; reasoning about twin-vs-runtime class identity.
+**When to load:** exporting a compiled grammar to a `.py` file; touching `compile/module/export.py`, `bind_module`, `ir/layout.py`, or the notation emit half; reasoning about twin-vs-runtime class identity.
 
 See also: [[architecture]], [[ir-shapes]], [[field-naming]], [[public-api]]
 
@@ -29,11 +29,11 @@ Measured (2026-07-18): twin import 3.6–10.6 ms vs 16–79 ms cold compile; the
 No ruff, no subprocess anywhere in `lexic.compile`:
 
 - **`ir/layout.py`** — Wadler-style doc combinators on the record spine (`IrText`/`IrLine(flat, pre)`/`IrCat`/`IrNest`/`IrGroup` + the mutable `Sheet` cursor). Behavior is intrinsic per node (`layout()` render step, `scan()` fit-lookahead); `render(width)` drives an explicit stack. The group fit-check scans the **line continuation** (the sheet's pending stack) so trailing separators count against the line they land on.
-- **the notation emit half** — `emit_ir(node, width)` in `compile/notation.py`: a per-TIER `IrTypeMap` step table (scalar leaf / record via `IrNamedTuple.repr_args` — one elision truth shared with `__repr__` / variadic / mapping-as-dyads / interned singletons / `IrSelf`-repr long tail; `IrLambda` refused eagerly) building layout docs, black-call shape. The exact inverse of `load_ir`: `load_ir(emit_ir(x)) == x` strictly for grammar ASTs; the **repr fixpoint** (`repr(load_ir(emit_ir(x))) == repr(x)`) is the contract for payloads carrying identity-eq leaves (`IrGlyph()` etc.). Broken calls carry black-style trailing commas and strings render double-quote-preferring (`black_quoted`) — **a fresh export is an isort+ruff-format FIXPOINT** (verified over the whole GT corpus, both table modes), so format-on-save never fights regeneration. Trailing commas PARSE via the gateable `arg-tail` shape (`arglist ::= value arg-tail*`, `arg-tail ::= comma arg-val?` — the comma is consumed first, so the loop stays FIRST-disjoint and nothing islands); a bare comma anywhere but last position refuses at fold time (`_arglist` strictness, the unknown-symbol precedent). The exporter's header imports are emitted in sorted (isort-stable) order.
+- **the notation emit half** — `emit_ir(node, width)` in `compile/notation/parse.py`: a per-TIER `IrTypeMap` step table (scalar leaf / record via `IrNamedTuple.repr_args` — one elision truth shared with `__repr__` / variadic / mapping-as-dyads / interned singletons / `IrSelf`-repr long tail; `IrLambda` refused eagerly) building layout docs, black-call shape. The exact inverse of `load_ir`: `load_ir(emit_ir(x)) == x` strictly for grammar ASTs; the **repr fixpoint** (`repr(load_ir(emit_ir(x))) == repr(x)`) is the contract for payloads carrying identity-eq leaves (`IrGlyph()` etc.). Broken calls carry black-style trailing commas and strings render double-quote-preferring (`black_quoted`) — **a fresh export is an isort+ruff-format FIXPOINT** (verified over the whole GT corpus, both table modes), so format-on-save never fights regeneration. Trailing commas PARSE via the gateable `arg-tail` shape (`arglist ::= value arg-tail*`, `arg-tail ::= comma arg-val?` — the comma is consumed first, so the loop stays FIRST-disjoint and nothing islands); a bare comma anywhere but last position refuses at fold time (`_arglist` strictness, the unknown-symbol precedent). The exporter's header imports are emitted in sorted (isort-stable) order.
 
 ## The module self-grammar (L2 — lexic parses its own exports)
 
-`compile/selfgrammar.py` (260718-module-selfgrammar): `module_grammar()` is
+`compile/module/selfgrammar.py` (260718-module-selfgrammar): `module_grammar()` is
 an authored `IrAst` for the canonical exported layout — a strict statement
 skeleton (newlines/4-space indents as REQUIRED literals; `class`/`from`/
 `GRAMMAR`/`bind_module` keywords FIRST-disjoint) embedding the notation
@@ -60,4 +60,4 @@ Every `export_source` call validates in-process: the module `ast.parse`s, and th
 
 ## Reserved class names
 
-`_RESERVED_CLASS_NAMES` (`compile/binding.py`) = `{GrammarModel, ClassVar, Literal}` ∪ the `Ir*` constructor names the notation emits — exactly the header's PascalCase bindings (lowercase `bind_module` and UPPERCASE `GRAMMAR` can never collide with a PascalCase class name). The pydantic/typing-era names (`StringConstraints`, `Annotated`, `List`, `Optional`, `Union`) were trimmed 2026-07-18 — parity-neutral on the whole GT corpus. Drift-pinned against a real export.
+`_RESERVED_CLASS_NAMES` (`compile/pipeline/binding.py`) = `{GrammarModel, ClassVar, Literal}` ∪ the `Ir*` constructor names the notation emits — exactly the header's PascalCase bindings (lowercase `bind_module` and UPPERCASE `GRAMMAR` can never collide with a PascalCase class name). The pydantic/typing-era names (`StringConstraints`, `Annotated`, `List`, `Optional`, `Union`) were trimmed 2026-07-18 — parity-neutral on the whole GT corpus. Drift-pinned against a real export.

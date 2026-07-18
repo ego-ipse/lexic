@@ -9,7 +9,7 @@ regression on the splice path.
 
 from __future__ import annotations
 
-from lexic.compile import notation
+from lexic.compile.notation import parse as notation
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,

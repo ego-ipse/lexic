@@ -26,11 +26,11 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-import lexic.compile.notation as _notation
+import lexic.compile.notation.parse as _notation
 from lexic.compile.artifact import CompiledGrammar
-from lexic.compile.binding import RuleBinding, compute_binding
-from lexic.compile.export import docstring_lines, field_type, value_str_type
 from lexic.compile.foldkit import ALT, passthrough
+from lexic.compile.module.export import docstring_lines, field_type, value_str_type
+from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir.base import IrNamedTuple, IrNone, IrNoneType, IrSelf, IrSeq

@@ -64,7 +64,7 @@ Directive/start resolution precedence (highest first):
 
 ---
 
-### `build_codegen_grammar(ast)` — `compile/passes.py`
+### `build_codegen_grammar(ast)` — `compile/pipeline/passes.py`
 
 ```python
 build_codegen_grammar(ast: IrAst) -> IrAst
@@ -74,7 +74,7 @@ Takes the canonical grammar and applies the three codegen-only passes (`hoist_gr
 
 ---
 
-### `compute_binding(codegen_grammar)` — `compile/binding.py`
+### `compute_binding(codegen_grammar)` — `compile/pipeline/binding.py`
 
 ```python
 compute_binding(ast: IrAst) -> list[RuleBinding]
@@ -84,7 +84,7 @@ The open-table successor of the retired `derive_specs`'s classify/parents/naming
 
 ---
 
-### `synthesize(codegen_grammar, binding, stem)` — `compile/synthesis.py`
+### `synthesize(codegen_grammar, binding, stem)` — `compile/pipeline/synthesis.py`
 
 ```python
 synthesize(codegen_grammar: IrAst, binding: list[RuleBinding], stem: str) -> dict[str, type]

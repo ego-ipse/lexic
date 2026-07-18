@@ -20,9 +20,9 @@ from pathlib import Path
 
 import pytest
 
-from lexic.compile.binding import RuleBinding, compute_binding
-from lexic.compile.passes import build_codegen_grammar
-from lexic.compile.synthesis import synthesize
+from lexic.compile.pipeline.binding import RuleBinding, compute_binding
+from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.synthesis import synthesize
 from lexic.ir.bind import IrBind
 from lexic.ir.nodes import IrRule
 from lexic.model import GrammarModel

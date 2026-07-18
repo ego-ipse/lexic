@@ -2,7 +2,7 @@
 
 ## 2026-07-18 — module-selfgrammar complete (whole-file parse-back)
 
-`compile/selfgrammar.py`: lexic parses its own exported twin modules —
+`compile/module/selfgrammar.py`: lexic parses its own exported twin modules —
 `module_grammar()`/`parse_module()`/`verify_module()`, the L2 binding
 cross-check running per export in `tools/check_generated.py`.
 `compile/foldkit.py` (ALT/passthrough) — the build-path unification seed,
@@ -28,7 +28,7 @@ top of Task 0 below:
   tests pinned the old order; slot-keyed consumers unaffected.
 - **`ir/layout.py`** — the layout algebra (Wadler doc combinators on the
   spine; continuation-aware `fits`). **`emit_ir`** — the notation emit
-  half in `compile/notation.py` (per-tier `IrTypeMap`; the inverse of
+  half in `compile/notation/parse.py` (per-tier `IrTypeMap`; the inverse of
   `load_ir`; spine gained `IrNamedTuple.repr_args`, the shared elision).
   Ruff/subprocess deleted from the compile path.
 - **Exported twin modules** ([[generated-modules]]): `export_module`/
@@ -80,7 +80,7 @@ never fired; models don't read `_child_attrs` anyway (`children()`/
 
 The `compile/` package is the whole compilation subsystem. `codegen/` is
 deleted; classes are synthesized at runtime via `type(name, bases, ns)`
-(`compile/synthesis.py`) with `__grammar__` + a `__binds__` table — no
+(`compile/pipeline/synthesis.py`) with `__grammar__` + a `__binds__` table — no
 source-emit / import / `model_rebuild`, no file write. pydantic is gone from
 `src/` and from `pyproject.toml` (zero runtime deps bar the lazy `ruff`
 exporter subprocess). `GrammarModel.model_dump` was renamed to `dump`

@@ -21,7 +21,7 @@ is a *valid parse* whose fold refuses.
 
 from __future__ import annotations
 
-from lexic.compile.notation import load_ir
+from lexic.compile.notation.parse import load_ir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_GRAMMAR
 from lexic.parsing.fold import lift_optional_nullables

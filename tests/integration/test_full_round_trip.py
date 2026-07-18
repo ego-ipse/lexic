@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import canonical_grammar, compile_from_path
-from lexic.compile.binding import compute_binding
-from lexic.compile.passes import build_codegen_grammar
+from lexic.compile.pipeline.binding import compute_binding
+from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrAst
 from lexic.parsing.earley.normalize import normalize

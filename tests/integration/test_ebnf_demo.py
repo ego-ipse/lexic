@@ -16,7 +16,7 @@ canonicalisation collapses both to one flavour-agnostic tree.
 from __future__ import annotations
 
 from lexic.compile import parse_grammar
-from lexic.compile.loader import load_flavour_from_path
+from lexic.compile.notation.loader import load_flavour_from_path
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir.canonical import canonicalize
 from lexic.ir.flavour import IrFlavour

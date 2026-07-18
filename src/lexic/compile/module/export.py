@@ -32,13 +32,14 @@ from pathlib import Path
 
 from lexic import ir
 from lexic.compile.artifact import CompiledGrammar
-from lexic.compile.binding import (
+from lexic.compile.notation.emit import black_quoted, ir_doc
+from lexic.compile.notation.parse import load_ir
+from lexic.compile.pipeline.binding import (
     RuleBinding,
     class_name_for,
     compute_binding,
     non_empty_arms,
 )
-from lexic.compile.notation import black_quoted, ir_doc, load_ir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir.base import IrSelf

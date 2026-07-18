@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from lexic.compile.binding import compute_binding
-from lexic.compile.passes import build_codegen_grammar
-from lexic.compile.synthesis import synthesize
+from lexic.compile.pipeline.binding import compute_binding
+from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.synthesis import synthesize
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.ir.base import IrSeq
 from lexic.ir.canonical import fold_name

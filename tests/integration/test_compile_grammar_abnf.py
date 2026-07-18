@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from lexic.compile import canonical_grammar
-from lexic.compile.binding import compute_binding
-from lexic.compile.passes import build_codegen_grammar
+from lexic.compile.pipeline.binding import compute_binding
+from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.ir.nodes import IrCharClass, IrItem
 from tests.integration.abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF

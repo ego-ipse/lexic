@@ -1,4 +1,4 @@
-"""Shared test bodies for the ``lexic.compile.binding`` view.
+"""Shared test bodies for the ``lexic.compile.pipeline.binding`` view.
 
 The test bodies live here as module-level functions taking the module under
 test as their sole parameter; ``tests/unit/lexic/compile/test_binding.py``
@@ -683,7 +683,7 @@ CASES: dict[str, Callable[[ModuleType], None]] = {
 def make_binding_tests(binding: ModuleType) -> dict[str, Callable[[], None]]:
     """Bind the shared binding-suite bodies to ``binding``.
 
-    :param binding: ``lexic.compile.binding`` — the module under test.
+    :param binding: ``lexic.compile.pipeline.binding`` — the module under test.
     :returns: ``{test function name: zero-arg callable}``, ready for
         ``globals().update(...)`` in a mirror test module.
     """

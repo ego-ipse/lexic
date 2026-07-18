@@ -25,7 +25,7 @@ import pytest
 
 import lexic.compile as compile_pkg
 from lexic.compile import parse_grammar
-from lexic.compile.loader import load_flavour_from_path
+from lexic.compile.notation.loader import load_flavour_from_path
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, register_flavour
 from lexic.grammars.abnf import (
     ABNF_ACTIONS,

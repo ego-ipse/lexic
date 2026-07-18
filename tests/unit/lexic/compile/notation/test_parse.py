@@ -4,16 +4,13 @@ The gate is the round-trip fixpoint ``repr(load_ir(repr(x))) == repr(x)`` over
 the whole ``lexic.ir`` node vocabulary (ported from ``demo_05``'s full real
 payload suite plus a grammar-AST/string battery), the ``Yield()`` → ``YIELD``
 identity pin (F-INTERN-1), the SYMBOLS whitelist drift-pin (the no-exec
-boundary), and the ``grammars/json.ir`` conformance twin — plus the emit half
-(``emit_ir``), the layout twin of ``repr`` and the exact inverse of
-``load_ir``: ``load_ir(emit_ir(x)) == x``.
+boundary), and the ``grammars/json.ir`` conformance twin.
 """
 
 from __future__ import annotations
 
 import ast
 import inspect
-import re
 from pathlib import Path
 
 import pytest
@@ -24,12 +21,10 @@ import lexic.ir.flavour as ir_flavour
 import lexic.ir.mapping as ir_mapping
 import lexic.ir.nodes as ir_nodes
 import lexic.ir.operators as ir_operators
-from lexic.compile import compile_from_path
-from lexic.compile.notation import (
+from lexic.compile.notation.parse import (
     INTERN,
     NOTATION_GRAMMAR,
     SYMBOLS,
-    emit_ir,
     load_ir,
     load_ir_from_path,
 )
@@ -47,8 +42,7 @@ from lexic.grammars.gbnf import (
     GBNF_REDUCTIONS,
 )
 from lexic.grammars.json import JSON_GRAMMAR
-from lexic.ir.action import IrAction
-from lexic.ir.base import IrChr, IrInt, IrLambda, IrNone, IrSelf
+from lexic.ir.base import IrChr, IrInt, IrNone, IrSelf
 from lexic.ir.mapping import IR_DEFAULT
 from lexic.ir.nodes import (
     IrAlternation,
@@ -64,9 +58,8 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot, IrOp
 from lexic.parsing.earley.reduce import YIELD, Yield
-from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
 
-GRAMMARS = Path(__file__).resolve().parents[4] / "src" / "lexic" / "grammars"
+GRAMMARS = Path(__file__).resolve().parents[5] / "src" / "lexic" / "grammars"
 
 
 def payloads() -> dict[str, object]:
@@ -247,13 +240,8 @@ def test_unknown_symbol_raises_unsupported() -> None:
 
 def test_no_exec_no_eval_in_source() -> None:
     """The notation module contains no ``exec``/``eval`` (USER DECISION 4)."""
-    src = (
-        Path(__file__).resolve().parents[4]
-        / "src"
-        / "lexic"
-        / "compile"
-        / "notation.py"
-    ).read_text()
+    pkg = Path(__file__).resolve().parents[5] / "src" / "lexic" / "compile" / "notation"
+    src = "\n".join(f.read_text() for f in sorted(pkg.glob("*.py")))
     tree = ast.parse(src)
     banned = {
         node.func.id
@@ -289,143 +277,3 @@ def test_json_ir_data_file_equals_authored_grammar() -> None:
     assert isinstance(loaded, IrAst)
     assert loaded == JSON_GRAMMAR
     assert loaded.non_semantic == JSON_GRAMMAR.non_semantic
-
-
-# ── the emit half: load_ir(emit_ir(x)) == x ─────────────────────────────
-
-
-@pytest.mark.parametrize("stem", GBNF_GRAMMARS)
-def test_emit_ir_round_trips_every_ground_truth_canonical_grammar(stem: str) -> None:
-    """Every ground-truth grammar's canonical AST survives emit → load exactly."""
-    compiled = compile_from_path(GROUND_TRUTH / stem)
-    loaded = load_ir(emit_ir(compiled.grammar))
-    assert isinstance(loaded, IrAst)
-    assert loaded == compiled.grammar
-    assert loaded.non_semantic == compiled.grammar.non_semantic
-
-
-@pytest.mark.parametrize("grammar", [GBNF_GRAMMAR, ABNF_GRAMMAR])
-def test_emit_ir_round_trips_the_flavour_self_grammars(grammar: IrAst) -> None:
-    """Each flavour's own self-grammar survives emit → load exactly."""
-    loaded = load_ir(emit_ir(grammar))
-    assert isinstance(loaded, IrAst)
-    assert loaded == grammar
-    assert loaded.non_semantic == grammar.non_semantic
-
-
-@pytest.mark.parametrize("name", ["GBNF_REDUCTIONS", "ABNF_REDUCTIONS"])
-def test_emit_ir_repr_fixpoint_for_the_reduction_maps(name: str) -> None:
-    """The reduction maps carry identity-eq leaves (structural ``==`` is not
-    the right bar there — see the payload suite's own docstring); the repr
-    fixpoint is the documented contract instead."""
-    obj = {"GBNF_REDUCTIONS": GBNF_REDUCTIONS, "ABNF_REDUCTIONS": ABNF_REDUCTIONS}[name]
-    assert repr(load_ir(emit_ir(obj))) == repr(obj)
-
-
-# ── emit_ir width compliance + determinism ──────────────────────────────
-
-
-def test_emit_ir_is_deterministic() -> None:
-    """The same value emits to the same text on repeated calls."""
-    assert emit_ir(GBNF_GRAMMAR) == emit_ir(GBNF_GRAMMAR)
-
-
-@pytest.mark.parametrize("stem", GBNF_GRAMMARS)
-def test_emit_ir_default_width_has_no_overlong_line(stem: str) -> None:
-    """At the default width, every ground-truth grammar's emitted text stays
-    within the target width on every line (each breaks cleanly at that
-    width — no atomic run forces an overflow for these grammars)."""
-    compiled = compile_from_path(GROUND_TRUTH / stem)
-    text = emit_ir(compiled.grammar)
-    assert all(len(line) <= 88 for line in text.split("\n"))
-
-
-def test_emit_ir_width_bound_on_a_breakable_shape() -> None:
-    """A shape with a break opportunity at every level stays within width —
-    each single-char literal item is short enough that a chosen width with
-    real break points never forces an overlong line."""
-    node = IrSequence(*(IrItem(IrLiteral(c)) for c in "abcdefgh"))
-    text = emit_ir(node, width=30)
-    assert all(len(line) <= 30 for line in text.split("\n"))
-    assert load_ir(text) == node
-
-
-# ── emit_ir refuses IrLambda-bearing values ─────────────────────────────
-
-
-def lambda_body(_d: object, n: object, _nc: object) -> object:
-    """A stand-in emitter body — never called; only its presence is tested."""
-    return n
-
-
-def test_emit_ir_refuses_a_bare_irlambda() -> None:
-    """An ``IrLambda`` has no notation spelling — emit refuses it eagerly."""
-    with pytest.raises(UnsupportedConstructError):
-        emit_ir(IrLambda(lambda_body))
-
-
-def test_emit_ir_refuses_an_irlambda_nested_inside_a_record() -> None:
-    """The refusal fires however deep the ``IrLambda`` sits in the tree."""
-    action = IrAction(IrLiteral, IrLambda(lambda_body))
-    with pytest.raises(UnsupportedConstructError):
-        emit_ir(action)
-
-
-# ── scalar / interned / singleton tiers ─────────────────────────────────
-
-
-def test_emit_ir_irnone_spells_as_the_bare_name() -> None:
-    """The absence sentinel spells as its bare class name, not a call."""
-    assert emit_ir(IrNone) == "IrNone"
-
-
-def test_emit_ir_ir_default_spells_as_the_bare_name() -> None:
-    """``IR_DEFAULT`` spells as its bare name too."""
-    assert emit_ir(IR_DEFAULT) == "IR_DEFAULT"
-
-
-def test_emit_ir_yield_interning_round_trips_by_identity() -> None:
-    """The interned YIELD singleton emits as ``Yield()`` and loads back to
-    THE canonical instance, not a fresh repr-equal object (F-INTERN-1)."""
-    text = emit_ir(YIELD)
-    assert text == "Yield()"
-    assert load_ir(text) is YIELD
-
-
-def test_emit_ir_scalar_leaves_spell_as_type_call() -> None:
-    """A value-leaf spells as ``TypeName(payload)``, double-quote-preferring
-    (the black/ruff convention — emitted notation is a formatter fixpoint)."""
-    assert emit_ir(IrLiteral("a")) == 'IrLiteral("a")'
-    assert emit_ir(IrLiteral('say "hi"')) == "IrLiteral('say \"hi\"')"
-    assert emit_ir(IrInt(-3)) == "IrInt(-3)"
-
-
-# ── trailing commas: broken calls carry them, flat calls never ───────────
-
-TRAILING_COMMA = re.compile(r",\s*\)")
-
-
-@pytest.mark.parametrize("stem", GBNF_GRAMMARS)
-def test_emit_ir_broken_calls_carry_trailing_commas_and_round_trip(stem: str) -> None:
-    """Narrow-width (forced-break) output uses black-style trailing commas —
-    and the notation's arg-tail rules read them back to the same AST."""
-    compiled = compile_from_path(GROUND_TRUTH / stem)
-    text = emit_ir(compiled.grammar, width=30)
-    assert TRAILING_COMMA.search(text)  # broken multi-arg calls end ",\n...)"
-    assert load_ir(text) == compiled.grammar
-
-
-def test_emit_ir_flat_calls_never_carry_a_trailing_comma() -> None:
-    """A call that fits flat has NO trailing comma (black semantics)."""
-    node = IrSequence(IrItem(IrLiteral("a")), IrItem(IrLiteral("b")))
-    text = emit_ir(node, width=200)
-    assert "\n" not in text
-    assert not TRAILING_COMMA.search(text)
-
-
-def test_emit_ir_small_broken_shape_round_trips_with_trailing_commas() -> None:
-    """The small synthetic shape, forced fully broken, still round-trips."""
-    node = IrSequence(*(IrItem(IrLiteral(c)) for c in "abcdefgh"))
-    text = emit_ir(node, width=20)
-    assert TRAILING_COMMA.search(text)
-    assert load_ir(text) == node

@@ -11,9 +11,9 @@ subclasses.
 from __future__ import annotations
 
 from lexic.compile import canonical_grammar, compile_text
-from lexic.compile.binding import RuleBinding, compute_binding
-from lexic.compile.passes import build_codegen_grammar
-from lexic.compile.synthesis import synthesize
+from lexic.compile.pipeline.binding import RuleBinding, compute_binding
+from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.synthesis import synthesize
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.base import IrSeq
 from lexic.ir.nodes import (

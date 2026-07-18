@@ -8,8 +8,8 @@ grammars they describe are equivalent for the unambiguous (non-alpha) parts.
 from __future__ import annotations
 
 from lexic.compile import canonical_grammar, compile_text, parse_grammar
-from lexic.compile.binding import compute_binding
-from lexic.compile.passes import build_codegen_grammar
+from lexic.compile.pipeline.binding import compute_binding
+from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrLiteral
@@ -101,7 +101,7 @@ def test_json_gbnf_and_abnf_compile_to_the_same_grammar():
     the same classes over the same grammar.
 
     Synthesis builds classes at runtime with no source emission (see
-    ``lexic.compile.synthesis``), so byte-identical generated source is no
+    ``lexic.compile.pipeline.synthesis``), so byte-identical generated source is no
     longer a meaningful notion. ``json.gbnf`` and ``json.abnf`` describe the
     same language (RFC 8259) rule for rule; both fold to the same canonical
     ``IrAst`` (module docstring on both fixtures says so), so compiling either

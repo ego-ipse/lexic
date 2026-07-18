@@ -1,4 +1,4 @@
-"""Shared test bodies for the ``lexic.compile.passes`` module.
+"""Shared test bodies for the ``lexic.compile.pipeline.passes`` module.
 
 The test bodies live here as module-level functions taking the module under
 test as their sole parameter; ``tests/unit/lexic/compile/test_passes.py``
@@ -393,7 +393,7 @@ CASES: dict[str, Callable[[ModuleType], None]] = {
 def make_passes_tests(passes: ModuleType) -> dict[str, Callable[[], None]]:
     """Bind the shared passes-suite bodies to ``passes``.
 
-    :param passes: ``lexic.compile.passes`` — the module under test.
+    :param passes: ``lexic.compile.pipeline.passes`` — the module under test.
     :returns: ``{test function name: zero-arg callable}``, ready for
         ``globals().update(...)`` in a mirror test module.
     """

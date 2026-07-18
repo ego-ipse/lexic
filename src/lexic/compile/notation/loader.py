@@ -29,7 +29,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-from lexic.compile.notation import load_ir
+from lexic.compile.notation.parse import load_ir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrTuple
 from lexic.ir.escapes import EscapeCodec

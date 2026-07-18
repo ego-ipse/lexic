@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lexic.compile import CompiledGrammar, canonical_grammar, compile_from_path
-from lexic.compile.passes import build_codegen_grammar
+from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.grammars import flavour_for_extension
 from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize

@@ -28,7 +28,7 @@ built. A parentless rule subclasses :class:`GrammarModel` directly.
 
 from __future__ import annotations
 
-from lexic.compile.binding import RuleBinding
+from lexic.compile.pipeline.binding import RuleBinding
 from lexic.ir.bind import IrBind
 from lexic.ir.nodes import IrAst, IrItem, IrRule, IrSequence
 from lexic.model import GrammarModel

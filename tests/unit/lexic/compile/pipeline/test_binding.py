@@ -1,7 +1,7 @@
 """Tests for compile/binding.py — the per-rule binding view.
 
-The actual test bodies live in :mod:`tests.unit.lexic.compile.binding_cases`, bound here to
-:mod:`lexic.compile.binding`.
+The actual test bodies live in :mod:`tests.unit.lexic.compile.pipeline.binding_cases`, bound here to
+:mod:`lexic.compile.pipeline.binding`.
 """
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ import pytest
 
 from lexic.compile import (
     _fold_config,
-    binding,
     build_codegen_grammar,
     canonical_grammar,
     compute_binding,
     synthesize,
 )
-from lexic.compile.binding import (
+from lexic.compile.pipeline import binding
+from lexic.compile.pipeline.binding import (
     RuleBinding,
     RuleKind,
     check_supplied_class,
@@ -30,7 +30,7 @@ from lexic.ir.base import IrLambda
 from lexic.ir.bind import IrBind
 from lexic.ir.mapping import IrMap
 from lexic.parsing.fold import ModelBody
-from tests.unit.lexic.compile.binding_cases import make_binding_tests
+from tests.unit.lexic.compile.pipeline.binding_cases import make_binding_tests
 
 globals().update(make_binding_tests(binding))
 

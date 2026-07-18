@@ -49,17 +49,17 @@ from collections.abc import Hashable, Mapping, Sequence
 from pathlib import Path
 
 from lexic.compile.artifact import CompiledGrammar
-from lexic.compile.binding import (
+from lexic.compile.module.export import export_module, export_source
+from lexic.compile.module.selfgrammar import parse_module, verify_module
+from lexic.compile.notation.parse import load_ir, load_ir_from_path
+from lexic.compile.pipeline.binding import (
     RuleBinding,
     check_supplied_class,
     compute_binding,
     field_kwargs,
 )
-from lexic.compile.export import export_module, export_source
-from lexic.compile.notation import load_ir, load_ir_from_path
-from lexic.compile.passes import build_codegen_grammar
-from lexic.compile.selfgrammar import parse_module, verify_module
-from lexic.compile.synthesis import synthesize
+from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.synthesis import synthesize
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple

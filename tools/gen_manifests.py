@@ -1,7 +1,7 @@
 """Generate the flavour manifests (`grammars/*.flavour.ir`).
 
 A manifest is one IR-constructor-notation expression — an ``IrMap`` of the seven
-sections :func:`lexic.compile.loader.load_flavour` consumes. This dev-time tool
+sections :func:`lexic.compile.notation.loader.load_flavour` consumes. This dev-time tool
 repr-generates them (the demo_05 licence): the ``grammar``/``reductions``/
 ``actions`` sections come straight off the authored singletons via :func:`repr`
 (a superset of the notation), and the ``escapes`` section is spelled as the five

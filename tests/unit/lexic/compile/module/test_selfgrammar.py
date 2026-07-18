@@ -18,8 +18,8 @@ from lexic.compile import (
     parse_module,
     verify_module,
 )
-from lexic.compile.notation import NOTATION_GRAMMAR
-from lexic.compile.selfgrammar import MClass, MField, MModule, module_grammar
+from lexic.compile.module.selfgrammar import MClass, MField, MModule, module_grammar
+from lexic.compile.notation.parse import NOTATION_GRAMMAR
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrNone, IrNoneType
 from lexic.ir.nodes import IrAst

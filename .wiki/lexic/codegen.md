@@ -2,10 +2,10 @@
 
 > **SUPERSEDED (2026-07-18).** `src/lexic/codegen/` is DELETED. The
 > grammar→grammar passes and the binding view now live in the `compile/`
-> package (`compile/passes.py`, `compile/binding.py`); classes are
-> synthesized at runtime via `type()` in `compile/synthesis.py` (no
+> package (`compile/pipeline/passes.py`, `compile/pipeline/binding.py`); classes are
+> synthesized at runtime via `type()` in `compile/pipeline/synthesis.py` (no
 > source-emit `model_emitter.py`, no automatic file write);
-> `compile/export.py` renders an IMPORTABLE twin module on explicit request
+> `compile/module/export.py` renders an IMPORTABLE twin module on explicit request
 > (`export_module` — see [[generated-modules]]). See [[public-api]] and
 > [[architecture]] for the current shape. The content below is historical.
 

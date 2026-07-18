@@ -18,8 +18,8 @@ import pytest
 
 import lexic.compile as compile_pkg
 from lexic.compile import parse_grammar
-from lexic.compile.loader import load_flavour, load_flavour_from_path
-from lexic.compile.notation import NOTATION_GRAMMAR, load_ir
+from lexic.compile.notation.loader import load_flavour, load_flavour_from_path
+from lexic.compile.notation.parse import NOTATION_GRAMMAR, load_ir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR, register_flavour
 from lexic.grammars.gbnf import (
@@ -196,7 +196,7 @@ def test_escape_codec_is_a_fresh_subclass() -> None:
     codec = load_flavour(mini_manifest()).escapes
     assert isinstance(codec, EscapeCodec)
     assert type(codec).__qualname__ == "LoadedEscapes"
-    assert type(codec).__module__ == "lexic.compile.loader"
+    assert type(codec).__module__ == "lexic.compile.notation.loader"
 
 
 def test_derived_noise_map_exact_dyads_by_identity() -> None:
@@ -230,7 +230,7 @@ def test_synthesized_flavour_hygiene() -> None:
     flavour = load_flavour(mini_manifest())
     assert isinstance(flavour, IrFlavour)
     assert type(flavour).__qualname__ == "LoadedMiniFlavour"
-    assert type(flavour).__module__ == "lexic.compile.loader"
+    assert type(flavour).__module__ == "lexic.compile.notation.loader"
 
 
 def test_actions_resolve_not_the_empty_default() -> None:

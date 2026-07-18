@@ -8,8 +8,8 @@ from lexic.compile import (
     compile_text,
     reset_cache_for_tests,
 )
-from lexic.compile.binding import compute_binding
-from lexic.compile.passes import build_codegen_grammar
+from lexic.compile.pipeline.binding import compute_binding
+from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrRuleRef
 from tests.paths import GROUND_TRUTH

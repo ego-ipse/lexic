@@ -2,9 +2,20 @@
 
 > **Status:** experimental, pre-1.0. APIs may change without notice.
 
-Lexic is the grammar engine layer of [Vyx](https://github.com/) — an agent-to-agent protocol. It compiles grammar files (GBNF, ABNF) into typed model classes; instances parse text and round-trip losslessly back to grammar. It has **zero runtime dependencies** — the parser is a native Earley/PDA engine, and model classes are plain Python records.
+Hand Lexic a grammar file and it hands you back a typed Python object model — classes with named, typed fields derived from the grammar's own structure, synthesized in memory at runtime with `type()`. No code generation step, no templates, no schema language on the side. Parse any text the grammar accepts and you get an instance of those classes; call `to_text()` and you get the exact source back, byte for byte.
 
 **Grammar is the ground truth.** Model classes are Python's *view* of a grammar, not the source of truth. Every model has a lossless `to_grammar(flavour)` path back to canonical grammar text.
+
+What makes that trustworthy rather than merely convenient:
+
+- **A real parsing engine, not a wrapper.** A native Earley engine (full SPPF, so *any* context-free grammar works — ambiguity, left recursion, the lot) fused with a predictive PDA fast path. Every fast-path decision is licensed by static analysis of *your* grammar; anything unprovable falls back to Earley silently. You never trade correctness for speed — you get both, per rule.
+- **Zero runtime dependencies.** The engine, the record spine the models live on, the formatter that renders generated code — all native. `pip install` pulls in nothing.
+- **Grammars are portable.** Compile GBNF, emit ABNF, or vice-versa: both notations converge on one canonical IR, so a model built from one flavour re-emits in another — transpilation for free.
+- **Self-hosting all the way down.** The grammar notations themselves are parsed by the same engine, from grammars authored as data — a flavour is a self-grammar plus fold tables, zero parser code. Lexic even parses its *own generated output*: every exported module is re-parsed by a grammar of generated modules and cross-checked against the compiler's binding view, so drift between compiler and artifact is a test failure, not a surprise.
+- **Generated code that behaves like hand-written code.** Exported twin modules are importable, fully typed, tool-clean under pyright and pylint, and byte-stable under isort + ruff-format — a formatter fixpoint, produced by Lexic's own width-aware layout engine.
+- **Round-trip fidelity is property-tested.** `parse(text).to_text() == text` on every valid input, for every grammar in the corpus, under hypothesis-generated inputs.
+
+Lexic is the grammar engine layer of [Vyx](https://github.com/) — an agent-to-agent protocol that needs grammars, not prose, as the wire contract between agents.
 
 ## What it does
 

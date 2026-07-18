@@ -32,7 +32,7 @@ def runtime_module_files() -> list[Path]:
     invariants scan the top-level modules together with every module inside
     ``compile/``.
     """
-    return sorted(SRC.glob("*.py")) + sorted(COMPILE_PKG.glob("*.py"))
+    return sorted(SRC.glob("*.py")) + sorted(COMPILE_PKG.rglob("*.py"))
 
 
 def from_imports(tree: ast.AST) -> "list[tuple[str, str]]":
