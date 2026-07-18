@@ -1,4 +1,5 @@
-"""Tool-clean gate: fresh GT exports must satisfy pyright + pylint defaults.
+"""Tool-clean gate: fresh GT exports must satisfy pyright + pylint defaults
+AND the self-grammar cross-check (verify_module — lexic parses its own output).
 
 Exports every ground-truth grammar in both table modes to a temp dir, then
 runs ``pyright`` and ``pylint`` (DEFAULT configs — the point is that a user
@@ -38,17 +39,18 @@ ACCEPTED_PYLINT = re.compile(
 
 def export_all(out_dir: Path) -> list[Path]:
     """Export every GT grammar in both table modes; return the file list."""
-    from lexic.compile import compile_from_path, export_module
+    from lexic.compile import compile_from_path, export_module, verify_module
 
     files: list[Path] = []
     ground_truth = REPO / "resources" / "ground_truth"
     for gt in sorted(ground_truth.glob("*.gbnf")) + sorted(ground_truth.glob("*.abnf")):
         compiled = compile_from_path(gt)
         stem = f"{gt.stem}_{gt.suffix[1:]}"
-        files.append(export_module(compiled, out_dir / f"{stem}.py"))
-        files.append(
-            export_module(compiled, out_dir / f"{stem}_inline.py", inline_tables=True)
-        )
+        for name, inline in ((f"{stem}.py", False), (f"{stem}_inline.py", True)):
+            path = export_module(compiled, out_dir / name, inline_tables=inline)
+            # L2: lexic parses its own export and cross-checks the binding.
+            verify_module(compiled, path.read_text())
+            files.append(path)
     return files
 
 

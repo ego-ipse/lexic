@@ -204,7 +204,7 @@ _FIELD_CHECK: IrDispatch = IrDispatch(
 def _value_str_literals(rule: IrRule) -> frozenset[str] | None:
     """The allowed set of a ``Literal[...]`` value_str rule, else ``None``.
 
-    Mirrors the emitter's ``_value_str_type`` ``Literal`` branch: a body whose
+    Mirrors the emitter's ``value_str_type`` ``Literal`` branch: a body whose
     every arm is a single unit-quantified literal (and which is not the
     single-item shortcut) is typed ``Literal[...]`` and membership-checked. A
     single-item value (str / char class) and any ref-bearing body are typed

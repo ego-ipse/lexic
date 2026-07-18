@@ -58,6 +58,7 @@ from lexic.compile.binding import (
 from lexic.compile.export import export_module, export_source
 from lexic.compile.notation import load_ir, load_ir_from_path
 from lexic.compile.passes import build_codegen_grammar
+from lexic.compile.selfgrammar import parse_module, verify_module
 from lexic.compile.synthesis import synthesize
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
@@ -89,7 +90,9 @@ __all__ = [
     "parse_instance",
     "parse_instance_from_path",
     "parse_grammar",
+    "parse_module",
     "reset_cache_for_tests",
+    "verify_module",
 ]
 
 

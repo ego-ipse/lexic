@@ -38,10 +38,12 @@ from typing import NamedTuple, cast
 
 import lexic.ir.action as _action
 import lexic.ir.base as _base
+import lexic.ir.bind as _bind
 import lexic.ir.flavour as _flavour
 import lexic.ir.mapping as _mapping
 import lexic.ir.nodes as _nodes
 import lexic.ir.operators as _operators
+from lexic.compile.foldkit import ALT, passthrough
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction
 from lexic.ir.base import (
@@ -75,7 +77,7 @@ from lexic.parsing.earley.reduce import YIELD, Yield
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 
-_IR_MODULES = (_base, _nodes, _operators, _action, _mapping, _flavour)
+_IR_MODULES = (_base, _bind, _nodes, _operators, _action, _mapping, _flavour)
 
 
 def _ir_node_symbols() -> dict[str, object]:
@@ -379,10 +381,6 @@ def _arg_tail(v: object = _ABSENT) -> object:
     return v
 
 
-def _arg_val(v: object) -> object:
-    return v
-
-
 def _pos_int(raw: str) -> int:
     return int(raw)
 
@@ -391,13 +389,9 @@ def _neg_int(raw: str) -> int:
     return -int(raw)
 
 
-def _start(v: object) -> object:
-    return v
-
-
-_ALT = RuleFold("alternation", lambda: None, 0, ())
+_ALT = ALT
 _CONFIG: dict[str, RuleFold] = {
-    "start": RuleFold("sequence", _start, 2, (FieldFold(1, "model", "v", 1),)),
+    "start": RuleFold("sequence", passthrough, 2, (FieldFold(1, "model", "v", 1),)),
     "value": _ALT,
     "nv": RuleFold(
         "sequence",
@@ -421,7 +415,7 @@ _CONFIG: dict[str, RuleFold] = {
         (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0)),
     ),
     "arg-tail": RuleFold("sequence", _arg_tail, 2, (FieldFold(1, "model", "v", 0),)),
-    "arg-val": RuleFold("sequence", _arg_val, 1, (FieldFold(0, "model", "v", 1),)),
+    "arg-val": RuleFold("sequence", passthrough, 1, (FieldFold(0, "model", "v", 1),)),
     "strval": _ALT,
     "sq-str": RuleFold(
         "sequence", _decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)

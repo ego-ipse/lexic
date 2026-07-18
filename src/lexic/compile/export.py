@@ -96,7 +96,7 @@ def _model_base_type(item: IrItem, class_by_rule: dict[str, str]) -> str:
     return "GrammarModel"
 
 
-def _field_type(
+def field_type(
     mode: str, item: IrItem, class_by_rule: dict[str, str], *, optional: bool
 ) -> str:
     """Annotation for one bound field — mode-driven, optionality-wrapped.
@@ -122,7 +122,7 @@ def _is_pure_literal_alt(body: IrAlternation) -> bool:
     )
 
 
-def _value_str_type(rule: IrRule) -> str:
+def value_str_type(rule: IrRule) -> str:
     """Annotation for a ``value_str`` rule's implicit ``value`` field.
 
     A single-item single-arm body is a pass-through — plain ``str`` (a lone
@@ -144,7 +144,7 @@ def _value_str_type(rule: IrRule) -> str:
 # ── class rendering ──────────────────────────────────────────────────────
 
 
-def _docstring_lines(rule_text: str) -> list[str]:
+def docstring_lines(rule_text: str) -> list[str]:
     """The class docstring: the rule in grammar syntax, escaped and wrapped.
 
     Backslashes and double quotes escape so the text is safe inside a
@@ -182,7 +182,7 @@ def _sequence_field_lines(
     for name, ibind in bind.fields.items():
         item = arm[ibind.item]
         optional = empty_arm or (ibind.mode != "models" and item.quantifier.lo == 0)
-        type_str = _field_type(ibind.mode, item, class_by_rule, optional=optional)
+        type_str = field_type(ibind.mode, item, class_by_rule, optional=optional)
         default = " = None" if optional and ibind.mode != "models" else ""
         lines.append(f"    {name}: {type_str}{default}")
     return lines
@@ -233,10 +233,10 @@ def _class_lines(
     """One class definition's lines."""
     bases = ", ".join(bind.parent_class_names) or "GrammarModel"
     lines = [f"class {bind.class_name}({bases}):"]
-    lines.extend(_docstring_lines(rule_text))
+    lines.extend(docstring_lines(rule_text))
     body: list[str] = []
     if bind.kind == "value_str":
-        body.append(f"    value: {_value_str_type(rule)}")
+        body.append(f"    value: {value_str_type(rule)}")
     elif bind.kind == "sequence":
         body.extend(_sequence_field_lines(bind, rule, class_by_rule))
     if inline_tables:

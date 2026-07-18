@@ -74,8 +74,10 @@ node = load_ir('IrLiteral("x")')                            # notation text → 
 
 | Flavour | Extension | Status |
 |---|---|---|
-| GBNF | `.gbnf` | Production |
+| GBNF | `.gbnf` | Production (character-level; token terminals not supported) |
 | ABNF | `.abnf` | Production (RFC 5234 + 7405 subset) |
+
+GBNF's llama.cpp token-level terminals (`<[id]>`, `<token>`, `!<…>`) are **not supported** — lexic parses character streams and has no tokenizer vocabulary; a grammar using them fails to parse.
 
 A *flavour* is the grammar notation. A flavour is pure data — a self-grammar (authored as `IrAst`), a `Reducer` (reductions + noise map), an `EscapeCodec`, and emit actions — carried by an `IrFlavour` with **zero parsing methods**. Add one either as a flat `grammars/<name>.py` module or as a **text manifest** loaded with `load_flavour`. See [`.wiki/lexic/flavour-system.md`](.wiki/lexic/flavour-system.md).
 

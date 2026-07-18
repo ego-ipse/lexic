@@ -1,5 +1,16 @@
 # Log
 
+## 2026-07-18 — module-selfgrammar complete (whole-file parse-back)
+
+`compile/selfgrammar.py`: lexic parses its own exported twin modules —
+`module_grammar()`/`parse_module()`/`verify_module()`, the L2 binding
+cross-check running per export in `tools/check_generated.py`.
+`compile/foldkit.py` (ALT/passthrough) — the build-path unification seed,
+shared by notation + selfgrammar. Export renderers publicized
+(`field_type`/`value_str_type`/`docstring_lines`) as the exporter↔verifier
+contract. See [[lexic/generated-modules]] §module self-grammar. Next:
+`260718-flavour-layout` (compile/ restructure = its Task 0).
+
 **When to load:** checking what changed recently; orienting after a gap in the session.
 
 Append-only chronological record. Most recent entry at top.

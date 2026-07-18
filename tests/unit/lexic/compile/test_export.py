@@ -16,9 +16,9 @@ import pytest
 from lexic.compile import compile_from_path, compile_text, export_module, export_source
 from lexic.compile.binding import _RESERVED_CLASS_NAMES, RuleBinding, compute_binding
 from lexic.compile.export import (
-    _field_type,
     _group_model_type,
-    _value_str_type,
+    field_type,
+    value_str_type,
 )
 from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
@@ -136,20 +136,20 @@ def test_value_str_pure_literal_alternation_types_as_literal():
         IrSequence(IrItem(IrLiteral("false"))),
     )
     rule = IrRule("b", body)
-    assert _value_str_type(rule) == "Literal['true', 'false']"
+    assert value_str_type(rule) == "Literal['true', 'false']"
 
 
 def test_value_str_pattern_body_types_as_plain_str():
     """A single-item single-arm body is a pass-through, never Literal[...]."""
     rule = IrRule("digits", IrAlternation(IrSequence(IrItem(IrLiteral("x")))))
-    assert _value_str_type(rule) == "str"
+    assert value_str_type(rule) == "str"
 
 
 def test_field_type_models_mode_is_always_a_list_never_optional():
     """A models-mode field types as list[...] regardless of ``optional``: an
     absent repetition is an empty list, not a None default."""
     item = IrItem(IrRuleRef("a"), IrQuantifier(0, IrNone))
-    result = _field_type("models", item, {"a": "A"}, optional=True)
+    result = field_type("models", item, {"a": "A"}, optional=True)
     assert result == "list[A]"
 
 

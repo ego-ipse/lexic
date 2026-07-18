@@ -31,6 +31,29 @@ No ruff, no subprocess anywhere in `lexic.compile`:
 - **`ir/layout.py`** — Wadler-style doc combinators on the record spine (`IrText`/`IrLine(flat, pre)`/`IrCat`/`IrNest`/`IrGroup` + the mutable `Sheet` cursor). Behavior is intrinsic per node (`layout()` render step, `scan()` fit-lookahead); `render(width)` drives an explicit stack. The group fit-check scans the **line continuation** (the sheet's pending stack) so trailing separators count against the line they land on.
 - **the notation emit half** — `emit_ir(node, width)` in `compile/notation.py`: a per-TIER `IrTypeMap` step table (scalar leaf / record via `IrNamedTuple.repr_args` — one elision truth shared with `__repr__` / variadic / mapping-as-dyads / interned singletons / `IrSelf`-repr long tail; `IrLambda` refused eagerly) building layout docs, black-call shape. The exact inverse of `load_ir`: `load_ir(emit_ir(x)) == x` strictly for grammar ASTs; the **repr fixpoint** (`repr(load_ir(emit_ir(x))) == repr(x)`) is the contract for payloads carrying identity-eq leaves (`IrGlyph()` etc.). Broken calls carry black-style trailing commas and strings render double-quote-preferring (`black_quoted`) — **a fresh export is an isort+ruff-format FIXPOINT** (verified over the whole GT corpus, both table modes), so format-on-save never fights regeneration. Trailing commas PARSE via the gateable `arg-tail` shape (`arglist ::= value arg-tail*`, `arg-tail ::= comma arg-val?` — the comma is consumed first, so the loop stays FIRST-disjoint and nothing islands); a bare comma anywhere but last position refuses at fold time (`_arglist` strictness, the unknown-symbol precedent). The exporter's header imports are emitted in sorted (isort-stable) order.
 
+## The module self-grammar (L2 — lexic parses its own exports)
+
+`compile/selfgrammar.py` (260718-module-selfgrammar): `module_grammar()` is
+an authored `IrAst` for the canonical exported layout — a strict statement
+skeleton (newlines/4-space indents as REQUIRED literals; `class`/`from`/
+`GRAMMAR`/`bind_module` keywords FIRST-disjoint) embedding the notation
+rules wholesale for expressions plus a type-annotation mini-grammar.
+`parse_module(text)` folds a file to an `MModule` model (`MClass`/`MField`
+records on the spine); `verify_module(compiled, text)` cross-checks it
+against `compute_binding` using the SAME public renderers the exporter used
+(`export.field_type`/`value_str_type`/`docstring_lines`) — so a
+disagreement means the FILE drifted. Catches: renamed/reordered fields,
+annotation drift, dropped defaults, docstring drift, GRAMMAR edits, base
+swaps — each with a named refusal. Runs per export inside
+`tools/check_generated.py`, both table modes. Design notes: multi-arity
+alternation arms split into sibling rules (the fold's one-arity-per-rule
+constraint); parents capture text SPANS over unit rules (the `sq-str`
+precedent) so char-level rules never fold; the field-less-class ambiguity
+is killed by the `m-body` arm split; lines that can only follow an embedded
+expression (`__binds__`) lose leading-indent strictness (the expression's
+trailing ws swallows it — documented gap). `compile/foldkit.py` (ALT,
+passthrough) is the build-path-unification seed shared with the notation.
+
 ## Always-on export gates
 
 Every `export_source` call validates in-process: the module `ast.parse`s, and the rendered `GRAMMAR` text `load_ir`s back to an AST **equal** to `compiled.grammar`. `tools/check_generated.py` is the corpus gate: all GT grammars × both modes must be pyright-clean and pylint-clean under DEFAULT configs, with exactly three accepted exception classes (C0103 on keyword-mangled class names `True_`/`False_`; C0302 module length on large grammars; R0801 gbnf↔abnf twin duplication — same canonical AST by design).

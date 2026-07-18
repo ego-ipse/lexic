@@ -17,12 +17,15 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. New plans copy `zzz_current_work/TEMPLATE.md` (goal,
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
-  Current: TWO plans awaiting approval —
-  `zzz_current_work/260718-module-selfgrammar/PLAN.md` (whole-file
-  parse-back + build-path unification; L1 spike proven) and
-  `zzz_current_work/260718-flavour-layout/PLAN.md` (width-aware grammar
-  emission + production EBNF; spike proven; ruling 3 = default width
-  pending). Triage inventory: `zzz_current_work/260718-backlog/BACKLOG.md`.
+  Current: `zzz_current_work/260718-flavour-layout/PLAN.md` (width-aware
+  emission + production EBNF; Task 0 = the compile/ restructure into
+  pipeline/ + notation/ + module/ subpackages per ruling 4; ruling 3 =
+  default width pending; starts after the user commits
+  module-selfgrammar). Triage: `zzz_current_work/260718-backlog/`.
+  Just completed: `zzz_current_work/260718-module-selfgrammar/PLAN.md`
+  (see its OUTCOME) — `compile/selfgrammar.py` (lexic parses its own
+  exports: parse_module/verify_module, the per-export L2 cross-check in
+  check_generated) + `compile/foldkit.py` (build-path unification seed).
   Just completed: `zzz_current_work/260718-generated-files/PLAN.md` (see
   its OUTCOME) — importable twin modules, IR-native formatting (layout
   algebra + notation emit half), defaults-last fields, two island engine
@@ -156,7 +159,8 @@ src/lexic/
                         field's IrBind
   compile/
     __init__.py         compile_text(), compile_from_path(), canonical_grammar(),
-                        parse_grammar(), bind_module(), parse_instance()/
+                        parse_grammar(), bind_module(), parse_module()/
+                        verify_module(), parse_instance()/
                         parse_instance_from_path() (the one-line entries;
                         string-primary; `parse` itself is the ENGINE's name —
                         lexic.parsing), export re-exports — the sole runtime
@@ -164,6 +168,23 @@ src/lexic/
     artifact.py         CompiledGrammar — the parse-ready artefact (own module
                         so export.py imports it cycle-free); .parse() drives
                         the engine's parse_model product
+    foldkit.py          shared authored-fold vocabulary (ALT, passthrough) —
+                        the build-path unification seed; notation + selfgrammar
+                        consume it
+    selfgrammar.py      the generated-module SELF-GRAMMAR — lexic parses its
+                        own exports: module_grammar() (strict statement
+                        skeleton w/ required newline/indent literals + the
+                        notation rules embedded + a type-annotation
+                        mini-grammar; field-less-class ambiguity killed by the
+                        m-body arm split), parse_module(text) → MModule,
+                        verify_module(compiled, text) — the L2 cross-check
+                        recomputed with the SAME renderers the exporter used
+                        (export.field_type/value_str_type/docstring_lines are
+                        public for exactly this); runs per export inside
+                        tools/check_generated.py. Known gap: lines that can
+                        only follow an embedded expression (__binds__) lose
+                        leading-indent strictness (the expr's trailing ws
+                        swallows it)
     passes.py           grammar→grammar passes (hoist groups/arms, relax noise)
     binding.py          per-rule class/kind/parent/field binding view; the open
                         binding table (field_kwargs/check_supplied_class — the

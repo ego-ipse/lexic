@@ -544,6 +544,22 @@ def test_load_ir_reexported_from_compile_package() -> None:
     assert hasattr(compile_module, "load_ir_from_path")
 
 
+def test_parse_module_reexported_from_compile_package() -> None:
+    """``parse_module`` is reachable off the package root (the self-grammar
+    seam) and parses a real export to a module model."""
+    cg = compile_from_path(GROUND_TRUTH / "list.gbnf")
+    module = compile_module.parse_module(compile_module.export_source(cg))
+    assert module.grammar == cg.grammar
+
+
+def test_verify_module_reexported_from_compile_package() -> None:
+    """``verify_module`` is reachable off the package root and cross-checks
+    a real export against its own compiled grammar."""
+    cg = compile_from_path(GROUND_TRUTH / "list.gbnf")
+    module = compile_module.verify_module(cg, compile_module.export_source(cg))
+    assert module.grammar == cg.grammar
+
+
 # ── parse_instance / parse_instance_from_path (ported from test_artifact_parse.py) ──
 
 
