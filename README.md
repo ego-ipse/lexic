@@ -162,4 +162,4 @@ Lexic is pre-1.0 and actively developed. One IR-native pipeline drives everythin
 
 ## License
 
-LGPL
+Licenced under [LGPL](LICENSE)
