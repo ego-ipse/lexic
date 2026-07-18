@@ -7,9 +7,9 @@ grammars they describe are equivalent for the unambiguous (non-alpha) parts.
 
 from __future__ import annotations
 
-from lexic.codegen.binding import compute_binding
-from lexic.codegen.passes import build_codegen_grammar
 from lexic.compile import canonical_grammar, compile_text, parse_grammar
+from lexic.compile.binding import compute_binding
+from lexic.compile.passes import build_codegen_grammar
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrLiteral

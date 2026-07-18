@@ -4,8 +4,8 @@ An IR body-table (IrMap[IrRuleRef, ModelBody]) that bakes to RuleFold config
 drives ModelFold over ``parse_first`` trees of the *real* instance grammar —
 no wrapper rules. End-to-end fold behaviors run through the compiled pipeline
 fixtures (``arithmetic`` / ``optional_shapes`` in conftest); the generic-fold
-sections use opaque dict constructors to prove the fold needs no pydantic
-knowledge.
+sections use opaque dict constructors to prove the fold needs no knowledge of
+the model layer.
 """
 
 from __future__ import annotations
@@ -222,7 +222,7 @@ def test_empty_alternate_arm_folds_with_no_kwargs():
 
 
 def test_fold_is_generic_over_opaque_constructors():
-    """The fold needs no pydantic: dict constructors work positionally."""
+    """The fold needs no model class: dict constructors work positionally."""
     grammar = normalize(
         IrAst(
             rules=IrSeq(

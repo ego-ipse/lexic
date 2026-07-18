@@ -1,8 +1,7 @@
 """Tests for compile/passes.py — hoist groups, hoist arms, relax noise.
 
-The actual test bodies live in :mod:`tests._passes_cases` (shared with the
-``lexic.codegen.passes`` mirror — see that module's docstring for why), bound
-here to :mod:`lexic.compile.passes`.
+The actual test bodies live in :mod:`tests._passes_cases`, bound here to
+:mod:`lexic.compile.passes`.
 """
 
 from __future__ import annotations

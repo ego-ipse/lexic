@@ -42,7 +42,7 @@ def _roundtrip(grammar: str, specs: dict, seed: int) -> None:
     assert inst.model_dump() == inst2.model_dump()
 
 
-# parse() regenerates Pydantic models from grammar on every call (~20ms each);
+# parse() recompiles the grammar into model classes on every call (~20ms each);
 # suppress_health_check=[HealthCheck.too_slow] acknowledges this known cost.
 
 

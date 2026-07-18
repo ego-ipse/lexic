@@ -1,11 +1,11 @@
-"""Golden fixture helper — the parity oracle recorded from pydantic (Task 0).
+"""Golden fixture helper — the parity oracle recorded at Task 0.
 
-The golden FILES were recorded once from the retired pydantic implementation
-(Task 0) and are byte-pinned; the record spine (Task 1) must keep their
-ORACLE keys equal (ruling 12,
+The golden FILES were recorded once from the retired prior model
+implementation (Task 0) and are byte-pinned; the record spine (Task 1) must
+keep their ORACLE keys equal (ruling 12,
 ``zzz_current_work/260716-ir-native/PLAN_v4.md``): ``runtime_dump``,
 ``runtime_semantic_dump``, ``to_text``. The declared-schema keys
-(``model_dump``/``semantic_dump`` as recorded) characterized the pydantic
+(``model_dump``/``semantic_dump`` as recorded) characterized the prior
 serializer and are retired data — uncomputable on the spine, kept in the
 files as the historical record, no longer asserted.
 
@@ -30,17 +30,17 @@ list of per-input records: ``{"input": str, "model_dump": ..., "runtime_dump":
 recordings; :func:`compute_record` now produces the oracle keys alone).
 
 **F-DUMP-1 (coordinator finding, mid-Task-0 addendum — historical).**
-pydantic's ``model_dump()`` was declared-schema-driven: a nested arm
+The prior ``model_dump()`` was declared-schema-driven: a nested arm
 instance riding a field annotated with its field-less abstract alternation
 PARENT serialized as ``{}`` (the whole subtree erased), so every golden
 record carries two forms side by side. RULED (PLAN_v4 ruling 12,
 2026-07-16): the runtime forms are THE parity oracle for Tasks 1–8; the
 declared-schema forms characterized the retired serializer:
 
-- ``model_dump`` / ``semantic_dump`` — pydantic's declared-schema form,
+- ``model_dump`` / ``semantic_dump`` — the prior declared-schema form,
   erasure warts included. Retired recordings; no longer computable.
-- ``runtime_dump`` / ``runtime_semantic_dump`` — recorded from pydantic via
-  ``model_dump(serialize_as_any=True)`` (verified byte-equal to a
+- ``runtime_dump`` / ``runtime_semantic_dump`` — recorded at Task 0 via
+  the prior ``model_dump(serialize_as_any=True)`` (verified byte-equal to a
   hand-rolled runtime-type walker on the GT corpus), and byte-equal to the
   record spine's native ``model_dump()``/``semantic_dump()``, which
   :func:`runtime_dump`/:func:`runtime_semantic_dump` now delegate to.
@@ -163,7 +163,7 @@ def runtime_dump(model: GrammarModel) -> dict[str, Any]:
     """The runtime-type-driven dump — the golden ``runtime_dump`` form.
 
     On the record spine the native :meth:`~lexic.base.GrammarModel.model_dump`
-    IS runtime-complete (ruling 12), byte-equal to the pydantic
+    IS runtime-complete (ruling 12), byte-equal to the prior
     ``model_dump(serialize_as_any=True)`` the goldens were recorded with.
 
     :param model: A parsed model instance.
@@ -189,7 +189,7 @@ def compute_record(cg: CompiledGrammar, sample: str) -> dict[str, Any]:
     """Parse ``sample`` and capture the oracle outputs (ruling 12).
 
     The declared-schema ``model_dump``/``semantic_dump`` keys of the Task-0
-    recordings are NOT produced — they characterized the retired pydantic
+    recordings are NOT produced — they characterized the retired prior
     serializer and exist only in the persisted files.
 
     :param cg: The compiled grammar to parse against.

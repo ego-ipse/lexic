@@ -1,9 +1,9 @@
 """Adversarial: a deep GRAMMAR structure must not overflow compile-time walks.
 
-A 300-rule unit-ref chain (``r0 ::= "[" r1 "]"`` ... ``r300 ::= "0"``) used to
-overflow the Python stack inside pydantic's ``model_rebuild``; the record
-spine has no schema resolution at all, so the chain-depth pressure now sits
-on the spine's own walks — the explicit-stack ``model_dump()``/``to_text()``
+A 300-rule unit-ref chain (``r0 ::= "[" r1 "]"`` ... ``r300 ::= "0"``) once
+overflowed the Python stack during schema resolution; the record spine has no
+schema resolution at all, so the chain-depth pressure now sits on the spine's
+own walks — the explicit-stack ``model_dump()``/``to_text()``
 and the C-recursive tuple ``hash``/``==``, gated at depth 800 below. The
 parse side keeps its own stack safety in the PDA clone compiler, so the deep
 chain compiles, parses, and round-trips cleanly.
@@ -47,8 +47,8 @@ def test_deep_ref_chain_round_trips_without_overflow() -> None:
 def test_800_rule_chain_round_trips_and_dumps() -> None:
     """An 800-rule chain compiles, parses, round-trips, and dumps whole.
 
-    Under pydantic this depth needed the schema-joint stride machinery; the
-    record spine has no schema to inline — the gate now pins the native
+    This depth once needed the schema-joint stride machinery; the record
+    spine has no schema to inline — the gate now pins the native
     ``model_dump()``'s explicit work stack (a naive recursive dump
     RecursionErrors near depth ~800, ``proto_spine_depth_checked``).
     """

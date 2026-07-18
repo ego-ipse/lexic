@@ -1,12 +1,11 @@
-"""Adversarial codegen tests — reserved rule names must not poison models.
+"""Adversarial tests — reserved rule names must not poison models.
 
-Field names derive from rule names; without mangling, a rule named ``import``
-emitted a SyntaxError module, ``to-text`` emitted a field shadowing the
-emitter method (TypeError at parse), and ``semantic-dump``/``model-fields``
-shadowed silently (pydantic UserWarning, broken method). Reserved names —
-Python keywords, the pydantic surface, GrammarModel's methods, and the
-emitted module's own header bindings — now mangle with a trailing underscore
-(the ``True_`` class-name precedent).
+Field and class names derive from rule names; without mangling, a rule named
+``import`` would produce an invalid Python identifier, and ``to-text`` /
+``semantic-dump`` would shadow a ``GrammarModel`` method. Reserved names —
+Python keywords, ``GrammarModel``'s public surface, and the reserved
+class-name bindings — mangle with a trailing underscore (the ``True_``
+class-name precedent).
 """
 
 from __future__ import annotations

@@ -76,7 +76,7 @@ def test_retired_spec_and_derive_symbols_not_exported() -> None:
 
     ``RuleSpec`` (``ir/spec.py``), ``derive_specs`` and its helpers
     (``ir/derive.py``), ``render_specs`` (``ir/emit.py``) and ``topo_sort``
-    (``ir/topo.py``) are gone; their successors live in ``lexic.codegen``
+    (``ir/topo.py``) are gone; their successors live in ``lexic.compile``
     (binding view + passes) and ``lexic.ir.order``.
     """
     for name in (

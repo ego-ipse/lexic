@@ -10,13 +10,9 @@ equality (two distinct classes with equal payloads never compare equal).
 
 Each class carries ``__grammar__: ClassVar[IrRule]`` — its rule from the
 codegen grammar — and a binds table ``__binds__`` mapping each bound item
-slot to ``(field name, IrBind)``. Synthesis writes the table directly; for
-classes authored with ``Annotated[..., IrBind(...)]`` field metadata (the
-codegen-emitted modules, whose ``from __future__ import annotations`` makes
-every annotation a string), :meth:`GrammarModel.bound_fields` resolves the
-annotations once and caches the result. That resolution branch and the no-op
-:meth:`GrammarModel.model_rebuild` are the emitter shim keeping the old
-codegen path green; both die when the runtime-synthesis flip lands.
+slot to ``(field name, IrBind)``. Runtime synthesis writes the table directly;
+a hand-authored model declares its own; a class with no bound fields inherits
+the empty default.
 
 Hand construction (``cls(**kwargs)`` via :meth:`GrammarModel.__new__`) is
 checked: missing required fields and per-field IR-intrinsic violations raise
@@ -32,7 +28,7 @@ schema), walking an explicit stack so depth never overflows.
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Self, Sequence, cast, get_type_hints
+from typing import Any, Callable, ClassVar, Self, Sequence, cast
 
 from lexic.exceptions import FieldValidationError
 from lexic.grammars import get_flavour
@@ -51,28 +47,6 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.walk import IrDispatch
-
-
-def _binds_from_annotations(cls: type[GrammarModel]) -> dict[int, tuple[str, IrBind]]:
-    """Resolve a class's ``Annotated`` field metadata into its binds table.
-
-    The emitter-shim half of the binds channel: codegen-emitted modules
-    stringize annotations (``from __future__ import annotations``), so the
-    ``IrBind`` metadata only exists after annotation resolution. Every name
-    an emitted module references is a module-level import, so resolution
-    always succeeds there; a hand-authored class using unresolvable local
-    names must declare ``__binds__`` directly instead.
-
-    :param cls: The model class whose annotations carry the binds.
-    :returns: Item slot → ``(field name, bind)``, one entry per bound field.
-    """
-    hints = get_type_hints(cls, include_extras=True)
-    binds: dict[int, tuple[str, IrBind]] = {}
-    for name in cls._fields:
-        for meta in getattr(hints.get(name), "__metadata__", ()):
-            if isinstance(meta, IrBind):
-                binds[meta.item] = (name, meta)
-    return binds
 
 
 def _child_attrs_of(binds: dict[int, tuple[str, IrBind]]) -> tuple[str, ...]:
@@ -110,10 +84,9 @@ def _dump_value(
 # (``_from_parts``/``fast_construct``) bypass ``__new__`` entirely, so the PDA
 # hot path pays nothing. Every check reads the field's own grammar item — char
 # class membership + length bounds, ``Literal``-arm membership, sub-model
-# isinstance — with no engine call and no regex compilation, matching the bar
-# pydantic enforced on hand construction.
+# isinstance — with no engine call and no regex compilation.
 #
-# R7 holes (typed plain ``str`` and never validated even by pydantic, left
+# R7 holes (typed plain ``str`` and never validated, left
 # unchecked deliberately): a bound (always quantified) literal field, and a
 # ref-bearing ``gtext`` group. A value_str whose value is a single char class
 # or a lone literal is likewise not checked — the char-class check is
@@ -278,19 +251,18 @@ class GrammarModel(IrNamedTuple):
     __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {}
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Derive ``_child_attrs`` from an explicitly declared binds table.
+        """Derive ``_child_attrs`` from the class's binds table.
 
-        A class that ships its own ``__binds__`` (runtime synthesis, or a
-        hand-authored model) gets ``_child_attrs`` = bound fields in item
-        order immediately; the ``Annotated`` shim path sets both lazily in
-        :meth:`bound_fields` instead.
+        Every subclass carries a binds table — its own ``__binds__`` (runtime
+        synthesis, or a hand-authored model) or the empty inherited default —
+        so ``_child_attrs`` (bound fields in item order) is set at class
+        creation. A class declaring ``_child_attrs`` itself keeps it.
 
         :param kwargs: Forwarded to ``super().__init_subclass__``.
         """
         super().__init_subclass__(**kwargs)
-        binds = cls.__dict__.get("__binds__")
-        if binds is not None and "_child_attrs" not in cls.__dict__:
-            cls._child_attrs = _child_attrs_of(binds)
+        if "_child_attrs" not in cls.__dict__:
+            cls._child_attrs = _child_attrs_of(cls.__binds__)
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Self:
         """Build the record with checked construction (hand-construction path).
@@ -420,18 +392,13 @@ class GrammarModel(IrNamedTuple):
 
         The neutral accessor onto a class's field bindings — shared by
         :meth:`to_text`/:meth:`semantic_dump` and by external consumers
-        (e.g. viz) that need the same slot → field mapping. An explicitly
-        declared ``__binds__`` wins; otherwise the table is resolved once
-        from ``Annotated`` ``IrBind`` metadata and cached (the emitter shim,
-        see the module docstring).
+        (e.g. viz) that need the same slot → field mapping. Every class carries
+        an explicit ``__binds__`` (runtime synthesis writes it; a hand-authored
+        model declares it); a class with none inherits the empty default.
 
         :returns: Item slot to ``(field name, bind)``, one entry per bound field.
         """
-        if "__binds__" not in cls.__dict__:
-            binds = _binds_from_annotations(cls)
-            cls.__binds__ = binds
-            cls._child_attrs = _child_attrs_of(binds)
-        return cls.__dict__["__binds__"]
+        return cls.__binds__
 
     def children(self) -> Sequence[IrSelf]:
         """Bound-field values in item order — the model's walk/viz payload.
@@ -570,8 +537,8 @@ class GrammarModel(IrNamedTuple):
 
         A record build is one C-level tuple construction from already-folded
         parts; there is no per-field validation to skip, so every class
-        qualifies (the pydantic-era refusal conditions — validators,
-        post-init, config, private attributes — cannot exist on a record).
+        qualifies (a record has no validators, post-init, config, or private
+        attributes that could refuse the licence).
 
         :returns: ``(parts constructor, per-class field defaults)``.
         """
@@ -597,21 +564,3 @@ class GrammarModel(IrNamedTuple):
                 for value in map(parts.get, cls._fields)
             ],
         )
-
-    @classmethod
-    def model_rebuild(cls) -> None:
-        """Emitter shim — resolve the binds table while the module is fresh.
-
-        The codegen loader calls this on every class right after loading the
-        generated module, when ``sys.modules[cls.__module__]`` still holds that
-        module and all sibling classes are defined. Resolving the ``Annotated``
-        binds here (rather than lazily on first :meth:`bound_fields`) means the
-        cache is populated at the one safe moment: two grammars whose generated
-        stems collide (``arithmetic.gbnf`` / ``arithmetic.abnf`` both load as
-        ``generated.arithmetic``) each cache their own binds before the other
-        replaces the module in ``sys.modules``, so a later ``get_type_hints``
-        never resolves against the wrong globals. Idempotent; the record spine
-        has no deferred schema of its own. Dies with the runtime-synthesis flip.
-        """
-        if "__binds__" not in cls.__dict__:
-            cls.bound_fields()

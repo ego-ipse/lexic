@@ -129,8 +129,7 @@ def _value_str_type(rule: IrRule) -> str:
     (`lexic/base.py`): a lone literal is not membership-checked either. A
     multi-arm pure-literal alternation types as ``Literal[...]`` (mirroring
     the permitted-value set); every other shape (a ref-free mixed body) types
-    as plain ``str`` — this view never derives a constraining regex, unlike
-    the retired pydantic-era emitter.
+    as plain ``str`` — this view never derives a constraining regex.
     """
     arms = non_empty_arms(rule.body)
     if len(arms) == 1 and len(arms[0]) == 1:

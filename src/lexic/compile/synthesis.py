@@ -1,12 +1,11 @@
 """Runtime class synthesis — codegen grammar + binding view → model classes.
 
-The runtime successor of :func:`lexic.codegen.emit_module_source` +
-``_write_and_load``: instead of emitting Python source, writing a file and
-importing it, each :class:`~lexic.codegen.binding.RuleBinding` becomes a class
-built directly with ``type(name, bases, ns)``. CPython computes the winning
-metaclass (:class:`~lexic.ir.meta.IrMeta`) from the bases and delegates, so a
-bare ``type(...)`` call yields a proper :class:`~lexic.base.GrammarModel`
-record — no source, no import, no ``model_rebuild``.
+Instead of emitting Python source, writing a file and importing it, each
+:class:`~lexic.compile.binding.RuleBinding` becomes a class built directly with
+``type(name, bases, ns)``. CPython computes the winning metaclass
+(:class:`~lexic.ir.meta.IrMeta`) from the bases and delegates, so a bare
+``type(...)`` call yields a proper :class:`~lexic.base.GrammarModel` record —
+no source, no import.
 
 The namespace each class carries:
 

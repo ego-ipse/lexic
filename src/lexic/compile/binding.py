@@ -17,8 +17,6 @@ Field naming keeps the three-tier cascade:
 3. positional — first unmatched pattern field ``head``, then ``part_N``.
 """
 
-# pylint: disable=duplicate-code  # strangler window: twin of the read-only codegen/ original; removed with codegen/ in Task 8
-
 from __future__ import annotations
 
 import inspect
@@ -117,10 +115,8 @@ class RuleBinding:
     (deterministically ordered — see :func:`_parent_rules`); an empty tuple
     means the class subclasses :class:`~lexic.base.GrammarModel` directly.
 
-    ``schema_joint`` marks a schema expansion joint (see
-    :func:`_schema_joints`): the emitted class carries ``__schema_joint__``,
-    so nested references present a shallow core schema instead of pydantic
-    inlining the whole subtree.
+    ``schema_joint`` marks a rule sitting at a ref-chain depth stride (see
+    :func:`_schema_joints`) — a structural property of the ref topology.
     """
 
     rule_name: str
@@ -142,12 +138,10 @@ _RESERVED_FIELD_NAMES: frozenset[str] = frozenset(keyword.kwlist) | frozenset(
         # on (settled 10): a rule named after one of these would generate a
         # field shadowing the IrSelf/tuple protocol or a GrammarModel method.
         # The eight spine-protocol names (``bind``/``bound``/``bound_type``/
-        # ``children``/``count``/``eval``/``index``/``rebuild``) are newly
-        # reserved here; ``model_dump``/``model_rebuild`` are GrammarModel's
-        # own methods and stay reserved, but the wider ``model_*``/pydantic
-        # family that ``dir(BaseModel)`` used to pull in (``model_validate``,
-        # ``model_config``, ``model_fields``, …) now UNMANGLES — a deliberate,
-        # named behavior change now that models are not pydantic.
+        # ``children``/``count``/``eval``/``index``/``rebuild``) shadow the
+        # inherited IrSelf/tuple protocol; ``model_dump`` is a GrammarModel
+        # method. Only these curated names are reserved — an arbitrary
+        # ``model_*`` name unmangles.
         "bind",
         "bound",
         "bound_fields",
@@ -412,24 +406,19 @@ def _order_bases(
 _SCHEMA_JOINT_STRIDE = 64
 """Ref-chain distance between schema expansion joints.
 
-pydantic inlines a completed sub-model's whole core schema into its referrer
-(definition-refs are kept only for recursive models), so an N-rule acyclic
-chain builds an N-deep schema and pydantic's own recursive walks overflow
-near N ≈ 450. Flagging every ``stride``-th class along a chain as a joint
-(a shallow validate-through-the-class schema, see
-:meth:`lexic.base.GrammarModel.__get_pydantic_core_schema__`) bounds every
-inlined schema — and every serializer's Python crossing count — by the
-stride. Grammars shallower than one stride get no joints and are untouched.
+Flags every ``stride``-th class along a ref chain as a joint, bounding the
+inlined-schema depth any downstream schema builder sees by the stride.
+Grammars shallower than one stride get no joints and are untouched.
 """
 
 
 def _schema_depths(edges: dict[str, list[str]]) -> dict[str, int]:
     """Each rule's inlined-schema depth over the ref topology.
 
-    A rule on a ref cycle contributes its own node only — pydantic keeps
-    cycle members as definition-refs, so an edge inside a cycle adds no
-    inlining depth; every cross-cycle edge does. Chaotic iteration over the
-    condensation (cycle edges skipped) — a DAG, so the fixpoint terminates.
+    A rule on a ref cycle contributes its own node only — cycle members stay
+    definition-refs, so an edge inside a cycle adds no inlining depth; every
+    cross-cycle edge does. Chaotic iteration over the condensation (cycle
+    edges skipped) — a DAG, so the fixpoint terminates.
 
     :param edges: Rule name → the rule names its body references.
     :returns: Rule name → its inlined-schema depth (leaves are 1).

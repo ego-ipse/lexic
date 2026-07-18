@@ -1,13 +1,13 @@
 """IrBind — the field-binding marker generated model fields carry.
 
-An :class:`IrBind` ties one generated Pydantic field to its grammar item slot:
+An :class:`IrBind` ties one generated model field to its grammar item slot:
 ``item`` is the positional index into the rule's single sequence arm, ``mode``
 says how the parse-tree kid at that slot folds into the field value, and
 ``semantic`` is ``False`` for structural-noise fields (whitespace refs).
 
-Pure data: importable by generated modules and readable by ``base.py`` and
-``compile.py`` without touching :mod:`lexic.codegen`. The binding view
-(:mod:`lexic.codegen.binding`) produces these; the fold consumes them.
+Pure data: readable by ``base.py`` and the ``lexic.compile`` package. The
+binding view (:mod:`lexic.compile.binding`) produces these; the fold consumes
+them.
 """
 
 from __future__ import annotations

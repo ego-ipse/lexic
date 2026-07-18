@@ -256,33 +256,6 @@ src/lexic/
                         directly as IrAst, not derived from either flavour; the
                         flavour-neutral canonical target both front-ends reduce to
 
-  codegen/
-    __init__.py         codegen(canonical, codegen_grammar, binding, stem) →
-                        dict[str, type] — writes generated/<stem>.py (ruff-formatted
-                        + model_rebuild()'d so IrBind metadata resolves), loads and
-                        returns classes
-    passes.py           Grammar→grammar codegen passes: hoist_groups (quantified
-                        ref-bearing groups → named helper rules), hoist_arms
-                        (every multi-item/non-ref alternation arm → a named
-                        <rule>-arm<N> rule — restores the single-arm premise the
-                        positional fold rests on), relax_non_semantic (min=0 on
-                        refs to semantic=False rules); build_codegen_grammar()
-                        composes all three
-    binding.py          compute_binding(codegen_grammar) → list[RuleBinding]
-                        (rule_name, class_name, parent_class_name, kind, fields:
-                        dict[str, IrBind]) — the open-table successor of
-                        derive_specs's classify/parents/naming; also hosts
-                        CHARCLASS_NAMES/LITERAL_NAMES, class_name_for (absorbed
-                        to_pascal), has_ruleref
-    model_emitter.py    emit_module_source(canonical, codegen_grammar, binding,
-                        stem) → str — Annotated[<type>, IrBind(...)] fields, a
-                        per-class __grammar__: ClassVar[IrRule] footer (from the
-                        codegen grammar), and module-level GRAMMAR (canonical
-                        IrAst) + START footers
-    aliases.py          PatternAlias, collect_aliases() — module-level type
-                        alias hoisting; also hosts _bounds_to_suffix (regex
-                        quantifier suffix, absorbed from utils/quantifiers.py)
-
   parsing/
     __init__.py         Public API: the two PRODUCT entries parse_reduced
                         (grammar-text → IrAst) + parse_model (instance → model)

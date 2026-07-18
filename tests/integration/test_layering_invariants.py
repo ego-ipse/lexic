@@ -104,38 +104,33 @@ def test_runtime_imports_parsing_are_compile_only_and_licensed():
     assert not offenders, f"parsing import-layering violations: {offenders}"
 
 
-def test_ir_does_not_import_grammars_parsing_codegen():
-    """lexic.ir should be a leaf module, not importing lexic.grammars, the
-    engine (lexic.parsing), or lexic.codegen."""
-    bad = (
-        _grep(SRC / "ir", "from lexic.grammars")
-        + _grep(SRC / "ir", "from lexic.parsing")
-        + _grep(SRC / "ir", "from lexic.codegen")
+def test_ir_does_not_import_grammars_or_parsing():
+    """lexic.ir should be a leaf module, not importing lexic.grammars or the
+    engine (lexic.parsing)."""
+    bad = _grep(SRC / "ir", "from lexic.grammars") + _grep(
+        SRC / "ir", "from lexic.parsing"
     )
     assert not bad, f"lexic.ir leaks: {bad}"
 
 
-def test_codegen_does_not_import_grammars_or_parsing():
-    """lexic.codegen should be a leaf module, not importing lexic.grammars or the engine."""
-    bad = _grep(SRC / "codegen", "from lexic.grammars") + _grep(
-        SRC / "codegen", "from lexic.parsing"
-    )
-    assert not bad, f"lexic.codegen leaks: {bad}"
+def test_no_src_module_imports_pydantic():
+    """No module anywhere in ``src/`` imports pydantic.
+
+    Models live on the IrNamedTuple record spine, not pydantic; the dependency
+    is gone from the runtime entirely.
+    """
+    bad = _grep(SRC, "from pydantic") + _grep(SRC, "import pydantic")
+    assert not bad, f"pydantic imported in src: {bad}"
 
 
-def test_engine_package_does_not_import_grammars_or_codegen():
-    """The Earley engine (lexic.parsing) is a leaf w.r.t. grammars/codegen.
+def test_engine_package_does_not_import_grammars():
+    """The Earley engine (lexic.parsing) is a leaf w.r.t. grammars.
 
     It reads and writes IR only; the flavour reducers live in lexic.grammars
     and the model fold is invoked from the compile seam, never the reverse.
     """
     engine = SRC / "parsing"
-    bad = (
-        _grep(engine, "from lexic.grammars")
-        + _grep(engine, "import lexic.grammars")
-        + _grep(engine, "from lexic.codegen")
-        + _grep(engine, "import lexic.codegen")
-    )
+    bad = _grep(engine, "from lexic.grammars") + _grep(engine, "import lexic.grammars")
     assert not bad, f"lexic.parsing leaks: {bad}"
 
 
@@ -248,7 +243,7 @@ def test_utils_package_is_gone():
 def test_retired_ir_modules_are_gone():
     """The RuleSpec/derive/emit/naming/topo modules died in Task 6.
 
-    Their successors: the binding view + passes (``lexic.codegen``), flavour
+    Their successors: the binding view + passes (``lexic.compile``), flavour
     ``apply`` (emission), and ``lexic.ir.order`` (rule ordering).
     """
     for name in ("derive.py", "spec.py", "emit.py", "naming.py", "topo.py"):
@@ -267,13 +262,13 @@ def test_retired_ir_modules_are_gone():
 
 def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
     """The core substrate, analysis, clone compiler and runtime modules exist
-    inside lexic.parsing.pda and carry no grammars/codegen import.
+    inside lexic.parsing.pda and carry no grammars import.
 
-    ``test_engine_package_does_not_import_grammars_or_codegen`` already
-    greps every ``.py`` under ``lexic.parsing`` generically (``rglob``), so
-    these modules are covered by accident of directory placement; this pins
-    that placement (and the absence of the two forbidden imports) explicitly
-    by name, so a future reshuffle can't silently drop them from scope.
+    ``test_engine_package_does_not_import_grammars`` already greps every
+    ``.py`` under ``lexic.parsing`` generically (``rglob``), so these modules
+    are covered by accident of directory placement; this pins that placement
+    (and the absence of the forbidden import) explicitly by name, so a future
+    reshuffle can't silently drop them from scope.
     """
     pda = SRC / "parsing" / "pda"
     for rel in (
@@ -286,7 +281,6 @@ def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
         assert path.exists(), f"{rel} missing from lexic.parsing.pda"
         content = path.read_text()
         assert "from lexic.grammars" not in content, f"{rel} imports lexic.grammars"
-        assert "from lexic.codegen" not in content, f"{rel} imports lexic.codegen"
 
 
 def test_earley_never_imports_pda():
@@ -331,10 +325,13 @@ def test_pda_entry_points_imported_only_via_compile_seam():
     assert not offenders, f"PDA entry points bypass the compile.py seam: {offenders}"
 
 
-def test_single_codegen_entry_and_emit_path():
-    """One way per task: exactly one codegen entry and one emit-source function."""
-    codegen_init = (SRC / "codegen" / "__init__.py").read_text()
-    assert "def codegen_ir(" not in codegen_init
-    emitter = (SRC / "codegen" / "model_emitter.py").read_text()
-    assert "emit_module_source_ir" not in emitter
-    assert emitter.count("def emit_module_source(") == 1
+def test_codegen_package_is_gone():
+    """Sanity: the codegen package is deleted and imported nowhere in src.
+
+    Its jobs live on the ``lexic.compile`` package (binding view + passes +
+    runtime synthesis).
+    """
+    assert not (SRC / "codegen").exists()
+    for p in SRC.rglob("*.py"):
+        content = p.read_text()
+        assert "lexic.codegen" not in content, f"{p}: residual lexic.codegen"

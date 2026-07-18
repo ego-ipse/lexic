@@ -170,8 +170,8 @@ def build_validated(text: str, frame: list[Any], fold: RuleFold) -> object:
     """Build a ``sequence`` model through the validated constructor.
 
     The no-licence fallback of :func:`build_sequence` — field extraction
-    is identical, but the values pass through ``fold.ctor`` (pydantic
-    validation included).
+    is identical, but the values pass through ``fold.ctor`` (the checked
+    constructor, per-field validation included).
 
     :raises UnsupportedConstructError: On a mode outside
         :data:`~lexic.ir.bind.BIND_MODES`.

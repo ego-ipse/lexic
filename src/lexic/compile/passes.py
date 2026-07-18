@@ -13,11 +13,10 @@ language-preserving-for-instances rewrites::
   place (zero-kid matches discriminate themselves).
 - :func:`relax_non_semantic` — refs to ``semantic=False`` rules get ``min=0``.
 
-``compile.py`` builds the codegen grammar via :func:`build_codegen_grammar`
-and hands it to both the emitter and the instance fold.
+The ``lexic.compile`` package builds the codegen grammar via
+:func:`build_codegen_grammar` and hands it to both synthesis and the instance
+fold.
 """
-
-# pylint: disable=duplicate-code  # strangler window: twin of the read-only codegen/ original; removed with codegen/ in Task 8
 
 from __future__ import annotations
 

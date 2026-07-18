@@ -163,8 +163,8 @@ def _forced_engine(cg: CompiledGrammar, text: str) -> GrammarModel:
 def _deep_semantic(value: object) -> object:
     """The ruling-1 comparator: drop ``semantic=False`` binds at EVERY level.
 
-    ``semantic_dump()``'s exclusion is top-level-only (R2-5); under pydantic
-    the declared-schema erasure (F-DUMP-1) happened to hide nested noise
+    ``semantic_dump()``'s exclusion is top-level-only (R2-5); the prior
+    declared-schema dump's erasure (F-DUMP-1) happened to hide nested noise
     splits too, so ``semantic_dump()`` equality *looked* like the ruling-1
     bar. The runtime-complete native dump exposes those nested
     ``semantic=False`` fields, so the noise split the PDA is licensed to

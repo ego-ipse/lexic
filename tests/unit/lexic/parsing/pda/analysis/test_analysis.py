@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.codegen import build_codegen_grammar
 from lexic.compile import canonical_grammar
+from lexic.compile.passes import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir.base import IrAtom

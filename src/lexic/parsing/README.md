@@ -144,7 +144,7 @@ parsing/
 ```
 
 Each folder carries its own `README.md` orientation note. Layering: the
-whole package is a leaf w.r.t. `lexic.codegen` and `lexic.grammars`; `pda/`
+whole package is a leaf w.r.t. `lexic.compile` and `lexic.grammars`; `pda/`
 imports `earley/`, never the reverse. Inside `pda/` the arrows point one
 way — `core ← analysis ← compiler ← runtime`: `analysis/` imports only
 `core/`, `compiler/` imports `analysis/` + `core/`, `runtime/` executes

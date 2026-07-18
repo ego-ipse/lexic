@@ -1,16 +1,10 @@
-"""Shared test bodies for the codegen/compile ``passes`` mirrors.
+"""Shared test bodies for the ``lexic.compile.passes`` module.
 
-``lexic.codegen.passes`` and ``lexic.compile.passes`` are byte-identical
-modules (``compile.passes`` supersedes ``codegen.passes`` — see
-``zzz_current_work/260716-ir-native/PLAN_v4.md`` Task 2; codegen stays until
-a later task deletes it). Maintaining two verbatim copies of the same test
-suite trips pylint's whole-tree duplicate-code check (R0801), so the actual
-test bodies live here ONCE as module-level functions taking the module under
-test as their sole parameter. ``tests/unit/lexic/codegen/test_passes.py`` and
-``tests/unit/lexic/compile/test_passes.py`` each import their own target
-module and call :func:`make_passes_tests` to populate their globals — two
-real, independently collected test modules, one source of truth for the
-bodies.
+The test bodies live here as module-level functions taking the module under
+test as their sole parameter; ``tests/unit/lexic/compile/test_passes.py``
+imports its target module and calls :func:`make_passes_tests` to populate its
+globals. The parameterization is a vestige of a strangler window when a
+byte-identical twin module existed; only the compile module remains.
 """
 
 from __future__ import annotations
@@ -398,8 +392,7 @@ _CASES: dict[str, Callable[[ModuleType], None]] = {
 def make_passes_tests(passes: ModuleType) -> dict[str, Callable[[], None]]:
     """Bind the shared passes-suite bodies to ``passes``.
 
-    :param passes: ``lexic.codegen.passes`` or ``lexic.compile.passes`` —
-        the module under test.
+    :param passes: ``lexic.compile.passes`` — the module under test.
     :returns: ``{test function name: zero-arg callable}``, ready for
         ``globals().update(...)`` in a mirror test module.
     """

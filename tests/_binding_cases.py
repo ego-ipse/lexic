@@ -1,23 +1,14 @@
-"""Shared test bodies for the codegen/compile ``binding`` mirrors.
+"""Shared test bodies for the ``lexic.compile.binding`` view.
 
-``lexic.codegen.binding`` and ``lexic.compile.binding`` are byte-identical
-modules (``compile.binding`` supersedes ``codegen.binding`` — see
-``zzz_current_work/260716-ir-native/PLAN_v4.md`` Task 2; codegen stays until
-a later task deletes it). Maintaining two verbatim copies of the same test
-suite trips pylint's whole-tree duplicate-code check (R0801), so the actual
-test bodies live here ONCE as module-level functions taking the module under
-test as their sole parameter. ``tests/unit/lexic/codegen/test_binding.py``
-and ``tests/unit/lexic/compile/test_binding.py`` each import their own
-target module and call :func:`make_binding_tests` to populate their globals
-— two real, independently collected test modules, one source of truth for
-the bodies. ``CANONICAL_IMPORTS`` (from ``lexic.codegen.model_emitter``) and
-``GrammarModel`` are the same for both mirrors and stay module-level
-constants here, unparameterized.
+The test bodies live here as module-level functions taking the module under
+test as their sole parameter; ``tests/unit/lexic/compile/test_binding.py``
+imports its target module and calls :func:`make_binding_tests` to populate
+its globals. The parameterization is a vestige of a strangler window when a
+byte-identical twin module existed; only the compile view remains.
 """
 
 from __future__ import annotations
 
-import ast as pyast
 from functools import partial
 from types import ModuleType
 from typing import Callable
@@ -25,7 +16,6 @@ from typing import Callable
 import pytest
 
 from lexic.base import GrammarModel
-from lexic.codegen.model_emitter import CANONICAL_IMPORTS
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrChr, IrNone, IrSeq
 from lexic.ir.bind import IrBind
@@ -47,18 +37,6 @@ _DIGIT = IrCharClass(IrRange(IrChr("0"), IrChr("9")))
 _RANGE_AC = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
 _OPT = IrQuantifier(0, 1)
 _STAR = IrQuantifier(0, IrNone)
-
-# The record spine's inherited IrSelf/tuple protocol surface (R2-4). Task 3
-# re-pinned `lexic.compile.binding`'s `_RESERVED_FIELD_NAMES` to the full
-# GrammarModel surface, so these eight names are now reserved there and the
-# window is CLOSED (`public <= _RESERVED_FIELD_NAMES`). The read-only
-# `lexic.codegen.binding` mirror still keeps the pre-Task-3 `dir(BaseModel)`
-# set (its Task-8 deletion retires it), so the eight names stay unreserved
-# there — the codegen branch below still pins the window exactly, so any
-# FURTHER surface drift still fails.
-_SPINE_PROTOCOL_NAMES = frozenset(
-    {"bind", "bound", "bound_type", "children", "count", "eval", "index", "rebuild"}
-)
 
 
 def _small_ast() -> IrAst:
@@ -497,30 +475,11 @@ def _case_class_name_mangles_keywords_and_header_bindings(
     assert binding.class_name_for("jp-char") == "JpChar"
 
 
-def _case_reserved_class_names_cover_the_emitted_header(binding: ModuleType) -> None:
-    """Every name the emitter's header binds is in the reserved-class set."""
-    bound = {
-        alias.asname or alias.name
-        for node in pyast.walk(pyast.parse(CANONICAL_IMPORTS))
-        if isinstance(node, pyast.ImportFrom)
-        for alias in node.names
-    }
-    # ``annotations`` (the __future__ import) can never PascalCase-collide.
-    assert bound - {"annotations"} <= getattr(binding, "_RESERVED_CLASS_NAMES")
-
-
 def _case_reserved_field_names_cover_grammar_model(binding: ModuleType) -> None:
-    """Every public GrammarModel attribute is reserved (compile: window closed;
-    codegen: the eight spine names stay in the pre-Task-3 window)."""
+    """Every public GrammarModel attribute is a reserved field name."""
     public = {n for n in dir(GrammarModel) if not n.startswith("_")}
     reserved = getattr(binding, "_RESERVED_FIELD_NAMES")
-    if binding.__name__.startswith("lexic.compile"):
-        assert public <= reserved
-    else:
-        # codegen.binding is read-only until its Task-8 deletion; its
-        # dir(BaseModel) set leaves the eight spine-protocol names unreserved.
-        assert public - _SPINE_PROTOCOL_NAMES <= reserved
-        assert public & _SPINE_PROTOCOL_NAMES == _SPINE_PROTOCOL_NAMES
+    assert public <= reserved
 
 
 def _case_bind_fields_mangles_reserved_names(binding: ModuleType) -> None:
@@ -584,7 +543,7 @@ def _case_schema_depths_count_acyclic_chains(binding: ModuleType) -> None:
 
 
 def _case_schema_depths_cycle_edges_add_no_depth(binding: ModuleType) -> None:
-    """Cycle members keep depth from OUTSIDE refs only (pydantic def-refs)."""
+    """Cycle members keep depth from OUTSIDE refs only (cycle edges add none)."""
     edges = {"v": ["a", "leaf"], "a": ["v"], "leaf": []}
     depths = getattr(binding, "_schema_depths")(edges)
     assert depths["leaf"] == 1
@@ -717,9 +676,6 @@ _CASES: dict[str, Callable[[ModuleType], None]] = {
     "test_class_name_mangles_keywords_and_header_bindings": (
         _case_class_name_mangles_keywords_and_header_bindings
     ),
-    "test_reserved_class_names_cover_the_emitted_header": (
-        _case_reserved_class_names_cover_the_emitted_header
-    ),
     "test_reserved_field_names_cover_grammar_model": (
         _case_reserved_field_names_cover_grammar_model
     ),
@@ -757,8 +713,7 @@ _CASES: dict[str, Callable[[ModuleType], None]] = {
 def make_binding_tests(binding: ModuleType) -> dict[str, Callable[[], None]]:
     """Bind the shared binding-suite bodies to ``binding``.
 
-    :param binding: ``lexic.codegen.binding`` or ``lexic.compile.binding`` —
-        the module under test.
+    :param binding: ``lexic.compile.binding`` — the module under test.
     :returns: ``{test function name: zero-arg callable}``, ready for
         ``globals().update(...)`` in a mirror test module.
     """

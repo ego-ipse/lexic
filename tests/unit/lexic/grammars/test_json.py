@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from lexic.codegen import codegen
-from lexic.codegen.binding import compute_binding
-from lexic.codegen.passes import build_codegen_grammar
+from lexic.compile.binding import compute_binding
+from lexic.compile.passes import build_codegen_grammar
+from lexic.compile.synthesis import synthesize
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.ir.base import IrSeq
 from lexic.ir.canonical import fold_name
@@ -144,7 +144,7 @@ def test_binding_view_includes_start_rule():
 
 
 def test_codegen_produces_classes():
-    """``codegen(...)`` generates Pydantic classes without error.
+    """``synthesize(...)`` builds the model classes without error.
 
     The class name folds from the canonical (lowercase) rule name, so
     ``json-text`` -> ``JsonText``, not the old acronym-cased ``JSONText``.
@@ -152,7 +152,7 @@ def test_codegen_produces_classes():
     canonical = _json_ast_with_non_semantic()
     codegen_grammar = build_codegen_grammar(canonical)
     binding = compute_binding(codegen_grammar)
-    classes = codegen(canonical, codegen_grammar, binding, "json_grammar_test")
+    classes = synthesize(codegen_grammar, binding, "json_grammar_test")
     assert isinstance(classes, dict)
     assert len(classes) > 0
     assert "JsonText" in classes

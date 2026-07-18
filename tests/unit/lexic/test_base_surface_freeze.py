@@ -1,14 +1,14 @@
 """Characterization freeze: the surviving public model surface, on the spine.
 
 Task 0 of ``zzz_current_work/260716-ir-native/PLAN_v4.md`` recorded this
-module against the pydantic-backed :class:`~lexic.base.GrammarModel`; Task 1
-(the record spine, ruling 9: models live on ``IrNamedTuple``) ported it. It
-remains the companion to the golden JSON fixtures
+module against the prior model implementation; Task 1 (the record spine,
+ruling 9: models live on ``IrNamedTuple``) ported it. It remains the
+companion to the golden JSON fixtures
 (``tests/golden_fixtures.py``, ``tests/integration/test_golden_parity.py``):
 the goldens pin per-grammar *values*; this module pins the *surface* those
 values are read through.
 
-FREEZE CHECKLIST — how the R4 pydantic-surface inventory resolved at the
+FREEZE CHECKLIST — how the R4 model-surface inventory resolved at the
 Task-1 cutover (every item either survives, ported below, or died with its
 exact target):
 
@@ -20,22 +20,20 @@ exact target):
   with the spine (PLAN.md §NON-CONCERNS). The joint cross-check tests died
   with those exact targets; the *behavior* they guarded (runtime-complete
   dumping) is pinned directly below.
-- **F-DUMP-1**: pydantic's ``model_dump()`` erased an arm instance riding a
-  field annotated with its field-less abstract alternation parent to ``{}``.
-  The native dump serializes by RUNTIME type (ruling 12) — the erasure is
-  GONE, pinned by ``test_model_dump_does_not_erase_an_abstract_typed_arm_
-  field`` and cross-checked against an independent hand-rolled runtime-type
-  walker below.
-- ``fast_construct()``'s pydantic refusal surface (validators / post-init /
-  config / private attributes) — DIED with pydantic; the licence is now
-  trivially granted (pinned in ``tests/unit/lexic/test_base.py``).
+- **F-DUMP-1**: the prior declared-schema ``model_dump()`` erased an arm
+  instance riding a field annotated with its field-less abstract alternation
+  parent to ``{}``. The native dump serializes by RUNTIME type (ruling 12) —
+  the erasure is GONE, pinned by ``test_model_dump_does_not_erase_an_abstract_
+  typed_arm_field`` and cross-checked against an independent hand-rolled
+  runtime-type walker below.
+- ``fast_construct()``'s prior refusal surface (validators / post-init /
+  config / private attributes) — DIED with the prior implementation; the
+  licence is now trivially granted (pinned in ``tests/unit/lexic/test_base.py``).
 - ``model_fields`` — gone; the slot → field mapping reads through the
   public :meth:`~lexic.base.GrammarModel.bound_fields` (pinned below).
 - ``model_dump(exclude=...)`` — :meth:`~lexic.base.GrammarModel.
   semantic_dump` is native (same top-level-only exclusion depth, R2-5 —
   pinned below).
-- ``model_rebuild`` — a no-op shim for the old codegen loader until the
-  runtime-synthesis flip (pinned in ``test_base.py``).
 - The FORWARD-LOOKING ACCEPTANCES recorded at Task 0 are now the live
   surface, pinned below: models are hashable with type-aware equality
   (settled 4 — both halves hold), and expose the tuple surface (iterable,
@@ -156,8 +154,9 @@ def test_same_class_equal_payload_compares_equal():
 
 def test_cross_class_equal_payload_compares_unequal():
     """Distinct classes never compare equal — the type-aware half of
-    settled 4, preserved from pydantic (whose __eq__ also checked the type);
-    detailed cross-class pins live in test_base.py (_PairA/_PairB)."""
+    settled 4, preserved from the prior implementation (whose __eq__ also
+    checked the type); detailed cross-class pins live in test_base.py
+    (_PairA/_PairB)."""
     cg = compile_from_path(GROUND_TRUTH / "json_ws.gbnf")
     model = cg.parse('{"a":1}')
     obj = getattr(model, "object")
@@ -165,7 +164,7 @@ def test_cross_class_equal_payload_compares_unequal():
 
 
 def test_models_are_hashable_consistently_with_equality():
-    """Models are hashable (settled 4's NEW half — pydantic-era models
+    """Models are hashable (settled 4's NEW half — prior-era models
     raised TypeError): equal parses share a hash and coexist in a set."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     one = cg.parse("x=1\n")
@@ -242,8 +241,8 @@ def _walk_runtime(node: object) -> object:
 
 
 def test_model_dump_does_not_erase_an_abstract_typed_arm_field():
-    """F-DUMP-1 resolved: an arm instance riding a field whose pydantic-era
-    annotation was its field-less abstract alternation parent dumps IN FULL —
+    """F-DUMP-1 resolved: an arm instance riding a field whose declared
+    annotation is its field-less abstract alternation parent dumps IN FULL —
     the native dump serializes by runtime type, never by declared schema."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     model = cg.parse("6=k\t \n")
@@ -254,17 +253,17 @@ def test_model_dump_does_not_erase_an_abstract_typed_arm_field():
 
 def test_model_dump_matches_a_runtime_type_walker():
     """The native dump matches the independent hand-rolled runtime-type
-    walker on a real ground-truth grammar (the shape that erased under
-    pydantic's declared-schema serializer)."""
+    walker on a real ground-truth grammar (the shape that erased under the
+    prior declared-schema serializer)."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     model = cg.parse("6=k\t \n")
     assert model.model_dump() == _walk_runtime(model)
 
 
 def test_model_dump_distinguishes_inputs_the_erasure_conflated():
-    """The measured F-DUMP-1 clincher, inverted: under pydantic,
-    model_dump("6=k...") == model_dump("9=z...") because the erased arm
-    subtrees carried the distinguishing content. The runtime-complete dump
-    keeps them distinct."""
+    """The measured F-DUMP-1 clincher, inverted: under the prior declared-
+    schema dump, model_dump("6=k...") == model_dump("9=z...") because the
+    erased arm subtrees carried the distinguishing content. The
+    runtime-complete dump keeps them distinct."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     assert cg.parse("6=k\t \n").model_dump() != cg.parse("9=z\t \n").model_dump()

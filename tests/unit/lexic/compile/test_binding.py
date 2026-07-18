@@ -1,8 +1,7 @@
 """Tests for compile/binding.py — the per-rule binding view.
 
-The actual test bodies live in :mod:`tests._binding_cases` (shared with the
-``lexic.codegen.binding`` mirror — see that module's docstring for why),
-bound here to :mod:`lexic.compile.binding`.
+The actual test bodies live in :mod:`tests._binding_cases`, bound here to
+:mod:`lexic.compile.binding`.
 """
 
 from __future__ import annotations

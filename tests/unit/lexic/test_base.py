@@ -1,18 +1,13 @@
 """Unit tests for src/lexic/base.py — the GrammarModel record spine.
 
-Model classes here are authored two ways, both supported by the spine:
-
-- ``Annotated[..., IrBind(...)]`` field metadata (module-level classes —
-  this module stringizes annotations via ``from __future__ import
-  annotations``, so these exercise the emitter-shim resolution path);
-- an explicit ``__binds__`` class table (the primary channel runtime
-  synthesis writes; usable on function-local classes whose annotations
-  reference local names the shim could not resolve).
+Model classes here declare an explicit ``__binds__`` class table — the binds
+channel runtime synthesis writes and the only channel the spine reads. A
+``value_str`` class carries no binds (just an implicit ``value`` field).
 """
 
 from __future__ import annotations
 
-from typing import Annotated, ClassVar, List, Optional
+from typing import ClassVar, List, Optional
 
 import pytest
 
@@ -74,16 +69,24 @@ class Ident(GrammarModel):
     """Identifier model — a text field and a nested model field."""
 
     __grammar__: ClassVar[IrRule] = _ident_rule()
-    first: Annotated[str, IrBind(0, "text")]
-    ws: Annotated[Ws, IrBind(1, "model")]
+    first: str
+    ws: Ws
+    __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+        0: ("first", IrBind(0, "text")),
+        1: ("ws", IrBind(1, "model")),
+    }
 
 
 class NoisyIdent(GrammarModel):
     """Identifier model whose ws bind is structural noise (semantic=False)."""
 
     __grammar__: ClassVar[IrRule] = _ident_rule()
-    first: Annotated[str, IrBind(0, "text")]
-    ws: Annotated[Ws, IrBind(1, "model", False)]
+    first: str
+    ws: Ws
+    __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+        0: ("first", IrBind(0, "text")),
+        1: ("ws", IrBind(1, "model", False)),
+    }
 
 
 class It(GrammarModel):
@@ -102,7 +105,10 @@ class Root(GrammarModel):
         "root",
         IrAlternation(IrSequence(IrItem(IrRuleRef("it"), IrQuantifier(1, IrNone)))),
     )
-    it: Annotated[List[It], IrBind(0, "models")]
+    it: List[It]
+    __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {
+        0: ("it", IrBind(0, "models")),
+    }
 
 
 # ── value_str ─────────────────────────────────────────────────────────────────
@@ -291,12 +297,6 @@ def test_bound_fields_explicit_binds_table_wins():
     assert set(Declared.bound_fields()) == {0}
 
 
-def test_bound_fields_resolution_is_cached_on_the_class():
-    """The Annotated-shim resolution runs once; the table is the class's own."""
-    first = Ident.bound_fields()
-    assert Ident.bound_fields() is first
-
-
 # ── equality / hashing (settled 4) ────────────────────────────────────────────
 
 
@@ -445,7 +445,7 @@ def test_model_dump_is_field_ordered_and_runtime_complete():
 
 
 def test_model_dump_reemits_tuples_as_lists():
-    """The dump's models-mode value is a plain list (pydantic dump parity)."""
+    """The dump's models-mode value is a plain list (in-process dump parity)."""
     dumped = Root(it=[It(value="a")]).model_dump()
     assert isinstance(dumped["it"], list)
 
@@ -872,11 +872,3 @@ def test_parse_path_output_reconstructs_via_checked_construction():
     model = cg.parse("x=1\n")
     rebuilt = type(model)(**{name: getattr(model, name) for name in model._fields})
     assert rebuilt == model
-
-
-# ── the emitter shim ──────────────────────────────────────────────────────────
-
-
-def test_model_rebuild_is_a_noop():
-    """model_rebuild() exists for the old codegen loader and does nothing."""
-    assert Ident.model_rebuild() is None

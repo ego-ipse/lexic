@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from lexic.codegen.binding import compute_binding
-from lexic.codegen.passes import build_codegen_grammar
 from lexic.compile import (
     canonical_grammar,
     compile_from_path,
     compile_text,
     reset_cache_for_tests,
 )
+from lexic.compile.binding import compute_binding
+from lexic.compile.passes import build_codegen_grammar
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrRuleRef
 from tests.paths import GROUND_TRUTH
@@ -41,8 +41,8 @@ def test_simple_value_str_round_trips():
 def test_value_str_charclass_with_dash_range_bound_validates():
     """A class where ``-``–``.`` forms a range behind lower members validates.
 
-    Pins the pydantic-core (Rust regex) failure mode: an unescaped ``--``
-    reads as set difference there, silently dropping members — Python ``re``
+    Pins the set-difference failure mode: in some regex engines an unescaped
+    ``--`` reads as set difference, silently dropping members — Python ``re``
     only warns, so the emitted pattern must escape the dash bound.
     """
     text = "root ::= w\nw ::= [A-Za-z0-9_.!&^-]+\n"

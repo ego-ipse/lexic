@@ -19,8 +19,8 @@ no name protocol.
 The baked config is plain data: per rule a :class:`RuleFold` — ``(kind, ctor,
 n_items, fields)`` with each field a ``(item, mode, name, lo)``
 :class:`FieldFold`. Constructors are opaque callables; modes are the
-:data:`~lexic.ir.bind.BIND_MODES` vocabulary. This module never sees
-``RuleSpec``, pydantic, or :mod:`lexic.codegen`.
+:data:`~lexic.ir.bind.BIND_MODES` vocabulary. This module sees only IR and its
+own baked config — no binding view, no model synthesis.
 
 Fold behavior per kind:
 
@@ -93,11 +93,10 @@ class FieldFold(NamedTuple):
 class FastCtor(NamedTuple):
     """A validation-skip construction licence — plain data, builder opaque.
 
-    Granted per rule by the compile seam (which owns the pydantic knowledge)
-    when the model class provably needs no per-field validation; the PDA
-    runtime then builds instances through :attr:`make` instead of the
-    validated constructor. The engine-side fold ignores it — the engine path
-    stays the validated reference.
+    Granted per rule by the compile seam when the model class provably needs
+    no per-field validation; the PDA runtime then builds instances through
+    :attr:`make` instead of the validated constructor. The engine-side fold
+    ignores it — the engine path stays the validated reference.
 
     :ivar make: ``(parts, keys) -> model`` — the class's parts constructor.
     :ivar defaults: Field name → default for every optional field; the
