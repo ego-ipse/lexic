@@ -1,6 +1,14 @@
 # codegen — IR-Native Code Generator
 
-**When to load:** working in `src/lexic/codegen/`; adding/changing a codegen pass (`passes.py`), the binding view (`binding.py`), or the emitter (`model_emitter.py`); understanding what a generated module's fields/footers look like; understanding `PatternAlias`/`collect_aliases`.
+> **SUPERSEDED (2026-07-18).** `src/lexic/codegen/` is DELETED. The
+> grammar→grammar passes and the binding view now live in the `compile/`
+> package (`compile/passes.py`, `compile/binding.py`); classes are
+> synthesized at runtime via `type()` in `compile/synthesis.py` (no
+> source-emit `model_emitter.py`, no file write); the reader `.py` view is
+> `compile/export.py`. See [[public-api]] and [[architecture]] for the
+> current shape. The content below is historical.
+
+**When to load:** historical reference only — for current codegen-grammar passes, binding view, and class synthesis see [[public-api]] / [[architecture]] (`compile/` package).
 
 See also: [[architecture]], [[ir-shapes]], [[field-naming]], [[decisions]], [[cutover-plan]]
 

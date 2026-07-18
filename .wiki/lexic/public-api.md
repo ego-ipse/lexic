@@ -23,7 +23,7 @@ Returns a `GrammarModel` instance whose concrete type is the start-rule class.
 
 ---
 
-### `compile_text(text, *, cache_key, flavour, out_dir)` — `compile.py`
+### `compile_text(text, *, cache_key, flavour)` — `compile/__init__.py`
 
 Compiles a grammar string into a `CompiledGrammar`. Use when you have the grammar in memory.
 
@@ -34,15 +34,13 @@ cg = compile_text(grammar_text, flavour="gbnf")
 model = cg.parse("x=1\n")
 ```
 
-`flavour` defaults to `"gbnf"`. **Memoised by content by default** (2026-07-04): the default cache key is `(content sha stem, flavour, resolved out_dir)` — compiling the same source in the same flavour to the same output directory returns the cached `CompiledGrammar` and its class objects, no cold recompile. Pass `cache_key=` to override the key outright (an explicit key is used as-is, not augmented with `out_dir`); `reset_cache_for_tests()` clears the cache when a caller needs fresh class objects. The generated module filename is independently `<out_dir>/anon_<sha1-of-text>.py`.
-
-`out_dir` (`str | Path | None = None`) sets where the generated module is written; `None` resolves to the project's `generated/` directory (today's default, unchanged). This is the *only* way to redirect codegen output — no env var, no global config — and it threads through `compile_from_path` and `codegen()` the same way.
+`flavour` defaults to `"gbnf"`. **Memoised by content by default**: the default cache key is `(content sha stem, flavour)` — compiling the same source in the same flavour returns the cached `CompiledGrammar` and its class objects. Pass `cache_key=` to prepend an extra key prefix; `reset_cache_for_tests()` clears the cache when a caller needs fresh class objects. Classes are synthesized in memory (`type()`) — there is no output directory to key on.
 
 ---
 
-### `compile_from_path(path, *, flavour, out_dir)` — `compile.py`
+### `compile_from_path(path, *, flavour)` — `compile/__init__.py`
 
-Like `compile_text` but reads the file and memoises by `(path, mtime, size, flavour, resolved out_dir)`. Flavour is inferred from the file extension if omitted. Writes `<out_dir>/<stem>.py` where `stem` is the filename without extension (e.g. `arithmetic.gbnf` → `generated/arithmetic.py` by default). **Caution:** two ground-truth grammars that share a stem across flavours (e.g. `json.gbnf` and `json.abnf` both stem to `json`) will overwrite each other's generated module if both are compiled via `compile_from_path` — use `compile_text` (content-hashed stems) when compiling more than one flavour of the "same" grammar in one process, as `tests/integration/test_cross_flavour.py`'s cross-flavour parity test does.
+Like `compile_text` but reads the file and memoises by `(path, mtime, size, flavour)`, using `path.stem` as the class-module stem. Flavour is inferred from the file extension if omitted.
 
 ---
 
@@ -66,7 +64,7 @@ Directive/start resolution precedence (highest first):
 
 ---
 
-### `build_codegen_grammar(ast)` — `codegen/passes.py`
+### `build_codegen_grammar(ast)` — `compile/passes.py`
 
 ```python
 build_codegen_grammar(ast: IrAst) -> IrAst
@@ -76,7 +74,7 @@ Takes the canonical grammar and applies the three codegen-only passes (`hoist_gr
 
 ---
 
-### `compute_binding(codegen_grammar)` — `codegen/binding.py`
+### `compute_binding(codegen_grammar)` — `compile/binding.py`
 
 ```python
 compute_binding(ast: IrAst) -> list[RuleBinding]
@@ -86,13 +84,13 @@ The open-table successor of the retired `derive_specs`'s classify/parents/naming
 
 ---
 
-### `codegen(canonical, codegen_grammar, binding, stem, out_dir=None)` — `codegen/__init__.py`
+### `synthesize(codegen_grammar, binding, stem)` — `compile/synthesis.py`
 
 ```python
-codegen(canonical: IrAst, codegen_grammar: IrAst, binding: list[RuleBinding], stem: str, out_dir: str | Path | None = None) -> dict[str, type]
+synthesize(codegen_grammar: IrAst, binding: list[RuleBinding], stem: str) -> dict[str, type]
 ```
 
-Writes `<out_dir>/<stem>.py` (ruff-formatted) and returns `{class_name: cls}`. **No `flavour` parameter** — codegen is flavour-agnostic (it doesn't even import `lexic.grammars`). `out_dir=None` resolves via `resolve_out_dir()` to the project's `generated/` directory (`_resolve_generated_dir()`'s repo-root search, falling back to a cwd-relative `generated/`); `compile.py` calls `resolve_out_dir()` too, so its memo-key resolution and codegen's write path always agree on where a given `out_dir=None`/explicit value lands.
+Builds the model classes **at runtime** via `type(name, bases, ns)` and returns `{class_name: cls}` — no source emit, no import, no `model_rebuild`, no file write. Each class gets `__grammar__` (its rule) and `__binds__` (the slot table) written directly into `ns`, with `__module__`/`__qualname__` set explicitly (`type` would otherwise default `__module__` to this module). MI bases in binding order. Flavour-agnostic (it does not import `lexic.grammars`).
 
 ---
 
@@ -108,31 +106,30 @@ Returned by `compile_text` / `compile_from_path`. Fields:
 
 | Field | Type | Purpose |
 |---|---|---|
-| `classes` | `dict[str, type]` | Rule name → generated Pydantic class |
-| `grammar` | `IrAst` | The **canonical** grammar (what the user's grammar IS — also the generated module's `GRAMMAR` footer) |
-| `instance_grammar` | `IrAst` | The Earley-normalised **codegen** grammar (held so the engine's identity-memoised `compile_tables` stays hot across repeated `.parse()` calls) |
-| `fold` | `ModelFold` | The one authored instance-fold: an IR body-table (`bodies: IrMap[IrRuleRef, ModelBody]`) that bakes to `config: dict[str, RuleFold]` and folds a `ParseTree` → model-instance positionally over `instance_grammar` (name reclaimed from the retired wrapper-rule bridge) |
-| `tables` | `ParserTables` | `instance_grammar`'s run-collapsed tables (every lexical run the fold-config licence proves safe, compiled once at build time) |
+| `classes` | `dict[str, type]` | Rule name → synthesized model class (`GrammarModel` subclass) |
+| `grammar` | `IrAst` | The **canonical** grammar (what the user's grammar IS — the transpile/re-emit source) |
+| `codegen_grammar` | `IrAst` | The post-pass grammar the fold binds against — the engine key `.parse` hands to `parse_model` (the engine memoises its lifted/normalised/PDA/run-collapsed compilation per this grammar's identity) |
+| `fold` | `ModelFold` | The one authored instance-fold: an IR body-table (`bodies: IrMap[IrRuleRef, ModelBody]`) that bakes to `config: dict[str, RuleFold]` and folds positionally over `codegen_grammar` |
 
-`.parse(text)` is the only method callers need. It runs `self.fold.apply(parse_first(self.instance_grammar, text, self.tables))` — `parse_first` is the engine's deterministic-first-derivation entry (some ground-truth instance grammars, e.g. `json_ws`'s `int`, are genuinely ambiguous). If the fold doesn't produce a `GrammarModel` for the start rule, `.parse` raises `UnsupportedConstructError`.
+`.parse(text)` is the only method callers need. It runs `parse_model(self.codegen_grammar, text, self.fold)` — the engine's instance product (PDA-first, Earley completion inside the engine, memoised per `(grammar, fold)` identity). If the start rule does not fold to a `GrammarModel`, `.parse` raises `UnsupportedConstructError`.
 
 ---
 
 ## `GrammarModel`
 
-Every generated class subclasses `GrammarModel(IrNamedTuple)` — the record spine (2026-07-16 cutover, [[decisions]]): a model IS an immutable IR record (walkable, dispatchable, hashable; the tuple surface — iteration, `len`, indexing — is part of the API). Each class carries `__grammar__: ClassVar[IrRule]` — its own rule from the codegen grammar — and a binds table mapping each bound item slot to `(field name, IrBind(item, mode, semantic))`, read through the public `bound_fields()` (an explicit `__binds__` ClassVar wins; otherwise resolved once from `Annotated` `IrBind` metadata — the emitter-shim path that dies with the runtime-synthesis flip).
+Every synthesized class subclasses `GrammarModel(IrNamedTuple)` — the record spine ([[decisions]]): a model IS an immutable IR record (walkable, dispatchable, hashable; the tuple surface — iteration, `len`, indexing — is part of the API). Each class carries `__grammar__: ClassVar[IrRule]` — its own rule from the codegen grammar — and an explicit `__binds__` ClassVar table mapping each bound item slot to `(field name, IrBind(item, mode, semantic))`, read through the public `bound_fields()`. `synthesize` writes `__binds__` directly (`type()` build) — no `Annotated` resolution, no `model_rebuild`.
 
 | Method | Returns | Notes |
 |---|---|---|
 | `to_text()` | `str` | Lossless round-trip to original source text (explicit-stack walk, depth-safe) |
 | `to_grammar(flavour="gbnf")` | `str` | Emits the grammar rule for this class — `get_flavour(flavour).apply(self.__grammar__)` |
-| `model_dump()` | `dict` | The native dump: RUNTIME-complete (serializes by each value's own type, never a declared schema — no arm-subtree erasure), field-order keys, tuples re-emitted as lists, explicit-stack (depth-safe) |
-| `semantic_dump()` | `dict` | `model_dump()` minus the receiver's OWN fields whose `IrBind.semantic` is `False` (top-level-only exclusion) |
+| `dump()` | `dict` | The native dump (renamed from the pydantic-era `model_dump`): RUNTIME-complete (serializes by each value's own type, never a declared schema — no arm-subtree erasure), field-order keys, tuples re-emitted as lists, explicit-stack (depth-safe) |
+| `semantic_dump()` | `dict` | `dump()` minus the receiver's OWN fields whose `IrBind.semantic` is `False` (top-level-only exclusion) |
 | `bound_fields()` | `dict[int, (name, IrBind)]` | The slot → field map (classmethod) |
 | `children()` / `rebuild(kids)` | | Bound-field values in ITEM order — the IrSelf walk/viz payload |
 | `fast_construct()` | `(ctor, defaults)` | Always granted — a record build is one C-level tuple construction |
 
-Equality is type-aware (same concrete class + payload; the `IrBounds` pattern) and hash-consistent. Construction is trusted (a missing required field raises `TypeError`; per-field checked construction raising `FieldValidationError` is a separate later wiring). `models`-mode lists coerce to tuples at construction. `model_rebuild()` is a no-op shim for the old codegen loader. `to_text()` raises `NotImplementedError` on an abstract alternation class (no fields, no binds) — call it on a concrete subclass instance.
+Equality is type-aware (same concrete class + payload; the `IrBounds` pattern) and hash-consistent. Hand construction (`__new__`) runs IR-intrinsic per-field checked construction raising `FieldValidationError` (charclass membership + bounds, `Literal` membership, model/models `isinstance`, required-presence); an unexpected kwarg still raises `TypeError`. Parse paths (fold/PDA) use trusted construction and bypass the checks. `models`-mode lists coerce to tuples at construction. `to_text()` raises `NotImplementedError` on an abstract alternation class (no fields, no binds) — call it on a concrete subclass instance.
 
 ---
 

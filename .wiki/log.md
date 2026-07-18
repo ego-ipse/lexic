@@ -6,6 +6,32 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-18 — ir-native complete: compile/ subsystem, codegen + pydantic gone
+
+The `compile/` package is the whole compilation subsystem. `codegen/` is
+deleted; classes are synthesized at runtime via `type(name, bases, ns)`
+(`compile/synthesis.py`) with `__grammar__` + a `__binds__` table — no
+source-emit / import / `model_rebuild`, no file write. pydantic is gone from
+`src/` and from `pyproject.toml` (zero runtime deps bar the lazy `ruff`
+exporter subprocess). `GrammarModel.model_dump` was renamed to `dump`
+(no longer a pydantic override). Both `base.py` shims and the strangler
+R0801 suppressions are removed; the schema-joint machinery is gone
+(`FastCtor`/`build_validated` proven LIVE and kept). New surfaces landed
+across the effort: `load_ir` (IR-constructor notation), `load_flavour`
+(manifest → `IrFlavour`), `export_source` (reader `.py` view), the demo
+EBNF flavour. Perf: `compile_text` −67…−79% vs baseline; parse +2…+8%.
+Full record + commit chain: `zzz_current_work/260716-ir-native/PLAN_v4.md`
+OUTCOME + `FOLLOWUP.md` + `NEXT_MILESTONES.md`.
+
+**Wiki drift still to sweep** (flagged, not all fixed this pass):
+`codegen.md` describes the deleted module (mark superseded → `compile/`);
+`public-api.md` / `architecture.md` retain `codegen()`/`out_dir`/
+`_NORM_GRAMMAR_CACHE`/"Pydantic classes" references. The high-traffic
+`public-api.md` + `architecture.md` load-bearing entries are corrected in
+this pass; a full page-by-page sweep of the remaining pages is a follow-up.
+
+---
+
 ## 2026-07-16 — ir-native Task 1: GrammarModel is an IrNamedTuple record
 
 `base.py` rewritten: models live on the record spine (PLAN_v4 ruling 9 —

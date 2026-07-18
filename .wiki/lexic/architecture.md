@@ -6,7 +6,7 @@ See also: [[ir-shapes]], [[flavour-system]], [[error-vocabulary]], [[decisions]]
 
 ## The one-sentence version
 
-Grammar text → `IrAst` → canonicalize → **THE codegen grammar** → generated Pydantic classes + an instance-parsing fold, all off the *same* canonical `IrAst`. Grammar is the ground truth; classes are its Python representation. Every transformation — canonicalization, codegen, flavour emission — is expressed in the same **action-driven IR substrate**, including grammar parsing itself: `lexic.parsing` is a native Earley engine that parses `IrAst`-shaped grammars, not a wrapper around a third-party parser generator.
+Grammar text → `IrAst` → canonicalize → **THE codegen grammar** → model classes synthesized at runtime (on the `IrNamedTuple` record spine, no pydantic) + an instance-parsing fold, all off the *same* canonical `IrAst`. Grammar is the ground truth; classes are its Python representation. Every transformation — canonicalization, class synthesis, flavour emission — is expressed in the same **action-driven IR substrate**, including grammar parsing itself: `lexic.parsing` is a native Earley engine that parses `IrAst`-shaped grammars, not a wrapper around a third-party parser generator.
 
 ## Pipeline (single, post-cutover — no Lark, no RuleSpec)
 
@@ -22,28 +22,29 @@ grammar text
                     │                                 canonicalize + directive flags; start bound,
                     │                                 named rules reconstructed semantic=False)
                     └─► build_codegen_grammar(ast)  THE codegen grammar
-                          (lexic.codegen.passes: hoist_groups → hoist_arms →
+                          (lexic.compile.passes: hoist_groups → hoist_arms →
                            relax_non_semantic)
                           ├─► compute_binding(ast)            list[RuleBinding]
-                          │     (lexic.codegen.binding — class/kind/parent/field
+                          │     (lexic.compile.binding — class/kind/parent/field
                           │      names, open IrDispatch tables)
-                          ├─► codegen(canonical, ast, binding, stem)
-                          │     → generated/<stem>.py + dict[str, type]
+                          ├─► synthesize(ast, binding, stem)
+                          │     (lexic.compile.synthesis — type() build,
+                          │      __grammar__/__binds__, NO file) → dict[str, type]
                           ├─► flavour_singleton.apply(node)   → grammar text
                           └─► IR body-table → parsing/fold.py's
                                 ModelFold (bakes to dict[str, RuleFold]), over
-                                instance_grammar = normalize(lift_optional_nullables(ast))
+                                codegen_grammar = normalize(lift_optional_nullables(ast))
 ```
 
-Each flavour (`GBNF_FLAVOUR`, `ABNF_FLAVOUR`) carries its own self-grammar as raw `IrAst` (`flavour.grammar`) and a `Reducer` (`flavour.reducer`) that folds a parse of grammar *text* back into `IrAst`. `parse_grammar` normalizes and memoises `flavour.grammar` once per flavour name (`compile.py`'s `_NORM_GRAMMAR_CACHE`), then calls `lexic.parsing.parse_reduced` — the same Earley engine that later parses *instances* of the codegen grammar.
+Each flavour (`GBNF_FLAVOUR`, `ABNF_FLAVOUR`) carries its own self-grammar as raw `IrAst` (`flavour.grammar`) and a `Reducer` (`flavour.reducer`) that folds a parse of grammar *text* back into `IrAst`. `parse_grammar` calls `lexic.parsing.parse_reduced` — the same Earley engine that later parses *instances* of the codegen grammar; the self-grammar's normalised/PDA compilation is memoised inside the engine per grammar identity.
 
-Entry points in `compile.py`:
+Entry points in the `compile/` package:
 
 - `compile_text(text, *, cache_key=None, flavour="gbnf")` — string-in.
 - `compile_from_path(path, *, flavour=None)` — path-in (flavour inferred from extension).
 - `canonical_grammar(text, flavour, *, non_semantic_rules=None, start=None)` — the public front half: text → canonical, semantic-flagged `IrAst`. `generate.py` and transpilers (`getting_started/ex04`) build on this directly, without generating classes.
 
-`compile_text` / `compile_from_path` return `CompiledGrammar(classes, grammar, instance_grammar, fold, tables)` — no `lark.Lark` parser, no `lark.Transformer`, no `RuleSpec`. `grammar: IrAst` is the **canonical** grammar (what the user's grammar IS — also the generated module's `GRAMMAR` footer); `instance_grammar: IrAst` is the Earley-normalised codegen grammar (kept so the engine's identity-memoised `compile_tables` stays hot across repeated `.parse()` calls); `fold: ModelFold` folds a `ParseTree` into model instances directly over that grammar's positions — no intermediate wrapper grammar. `compile_from_path` uses `path.stem` as the generated module name; `compile_text` uses `anon_<sha1-of-text>`. See [[public-api]] for the full `CompiledGrammar` contract.
+`compile_text` / `compile_from_path` return `CompiledGrammar(classes, grammar, codegen_grammar, fold)`. `grammar: IrAst` is the **canonical** grammar (what the user's grammar IS); `codegen_grammar: IrAst` is the post-pass grammar the fold binds against and `.parse` hands to `parse_model` (the engine memoises its lifted/normalised/PDA/run-collapsed compilation per this grammar's identity); `fold: ModelFold` folds positionally over that grammar. `compile_from_path` uses `path.stem` as the class-module stem; `compile_text` uses `anon_<sha1-of-text>`. See [[public-api]] for the full `CompiledGrammar` contract.
 
 ## The positional fold replaces the wrapper-rule bridge
 
