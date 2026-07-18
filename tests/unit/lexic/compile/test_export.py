@@ -174,7 +174,11 @@ def test_inline_tables_mode_writes_classvars_and_no_bind_call():
     assert "bind_module" not in source
     for bound in compute_binding(cg.codegen_grammar):
         for name, ibind in bound.fields.items():
-            assert f"{ibind.item}: ({name!r}, {ibind!r})," in source
+            tail = ", False" if not ibind.semantic else ""
+            entry = (
+                f'{ibind.item}: ("{name}", IrBind({ibind.item}, "{ibind.mode}"{tail})),'
+            )
+            assert entry in source  # double-quoted — the formatter-fixpoint form
 
 
 # ── reserved-class-name drift pin ─────────────────────────────────────────

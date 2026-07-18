@@ -133,23 +133,51 @@ FOLD = ModelFold.from_config(
 # notation surface: NOTATION_GRAMMAR + NOTATION_FOLD.baked.
 
 
+def arg_rest_value(v: object) -> object:
+    """The authored ``arg-rest`` fold — pass the comma'd value through."""
+    return v
+
+
 def notation_variant() -> tuple[IrAst, ModelFold]:
-    """The notation grammar with ``arglist`` widened to the trailing-comma
-    island shape, plus its matching fold — the splice-path repro fixture."""
+    """The notation grammar with ``arglist`` widened to the UNGATEABLE
+    trailing-comma island shape (``value arg-rest* comma?`` — loop and
+    optional share FIRST=','), plus its matching fold — the splice-path
+    repro fixture. The STOCK notation now uses the gateable arg-tail shape,
+    so this fixture authors its own ``arg-rest`` rule to stay the island
+    repro the engine tests need."""
     rules = []
     for rule in notation.NOTATION_GRAMMAR.rules:
-        if str(rule.name) == "arglist":
+        rule_name = str(rule.name)
+        if rule_name == "arglist":
             arm = IrSequence(
                 IrItem(IrRuleRef("value")),
                 IrItem(IrRuleRef("arg-rest"), STAR),
                 IrItem(IrRuleRef("comma"), OPT),
             )
-            rule = IrRule(rule.name, IrAlternation(arm), rule.semantic)
+            rules.append(IrRule(rule.name, IrAlternation(arm), rule.semantic))
+            rules.append(
+                IrRule(
+                    "arg-rest",
+                    IrAlternation(
+                        IrSequence(
+                            IrItem(IrRuleRef("comma")), IrItem(IrRuleRef("value"))
+                        )
+                    ),
+                )
+            )
+            continue
+        if rule_name in ("arg-tail", "arg-val"):
+            continue
         rules.append(rule)
     grammar = IrAst(IrSeq(*rules), notation.NOTATION_GRAMMAR.start)
     baked = dict(notation.NOTATION_FOLD.baked)
     arglist = baked["arglist"]
+    baked.pop("arg-tail", None)
+    baked.pop("arg-val", None)
     baked["arglist"] = RuleFold(arglist.kind, arglist.ctor, 3, arglist.fields, None)
+    baked["arg-rest"] = RuleFold(
+        "sequence", arg_rest_value, 2, (FieldFold(1, "model", "v", 1),)
+    )
     return grammar, ModelFold.from_config(baked)
 
 

@@ -157,6 +157,7 @@ def _rng(lo: int | str, hi: int | str) -> IrRange:
 
 _STAR = IrQuantifier(0, IrNone)
 _PLUS = IrQuantifier(1, IrNone)
+_OPT = IrQuantifier(0, 1)
 
 _NAME_FIRST = IrCharClass(_rng("A", "Z"), _rng("a", "z"), IrChr("_"))
 _NAME_REST = IrCharClass(_rng("0", "9"), _rng("A", "Z"), _rng("a", "z"), IrChr("_"))
@@ -207,18 +208,24 @@ NOTATION_GRAMMAR = IrAst(
         _rule("lparen", IrSequence(_lit("("), _ref("ws"))),
         _rule("rparen", IrSequence(_lit(")"), _ref("ws"))),
         _rule("args-opt", IrSequence(_ref("arglist")), IrSequence()),
-        # NOTE deliberately NO trailing-comma support (``F(a,)``): the shape
-        # ``value arg-rest* comma?`` is ungateable (arg-rest and the optional
-        # comma share FIRST=','), so arglist would island and every notation
-        # parse would pay the windowed-Earley cold path. Correct either way
-        # (island truncation fail-softs to the completion since the
-        # valid-prefix fix in parsing/pda/runtime/islands.py), but the fast
-        # path matters here; the emit half never emits trailing commas.
+        # Trailing commas (``F(a,)``) parse via the GATEABLE deferred-decision
+        # shape: an ``arg-tail`` consumes the comma FIRST, then decides
+        # value-vs-nothing — so the loop take/skip stays FIRST-disjoint
+        # (',' vs ')') and nothing islands. The naive shape
+        # ``value arg-rest* comma?`` is ungateable (loop and optional share
+        # FIRST=','). The grammar is deliberately LENIENT (a bare comma is an
+        # empty tail anywhere); ``_arglist`` enforces "empty tail only in
+        # final position" at fold time — the unknown-symbol precedent — so
+        # ``F(a,,b)`` still refuses.
         _rule(
             "arglist",
-            IrSequence(_ref("value"), IrItem(IrRuleRef("arg-rest"), _STAR)),
+            IrSequence(_ref("value"), IrItem(IrRuleRef("arg-tail"), _STAR)),
         ),
-        _rule("arg-rest", IrSequence(_ref("comma"), _ref("value"))),
+        _rule(
+            "arg-tail",
+            IrSequence(_ref("comma"), IrItem(IrRuleRef("arg-val"), _OPT)),
+        ),
+        _rule("arg-val", IrSequence(_ref("value"))),
         _rule("comma", IrSequence(_lit(","), _ref("ws"))),
         _rule("strval", IrSequence(_ref("sq-str")), IrSequence(_ref("dq-str"))),
         _rule(
@@ -348,11 +355,31 @@ def _call_tail(a: list[object] | None = None) -> _Call:
     return _Call(a if a is not None else ())
 
 
+_ABSENT: object = object()
+"""An ``arg-tail`` with no ``arg-val`` — a bare comma — folds to this."""
+
+
 def _arglist(first: object, rest: list[object] | None = None) -> list[object]:
-    return [first, *(rest or [])]
+    """Collect the argument list; refuse a bare comma anywhere but last.
+
+    The grammar leniently parses every bare comma as an empty tail; the fold
+    is where strictness lives (the unknown-symbol precedent): an
+    :data:`_ABSENT` in a non-final position is a stray ``,,`` and refuses,
+    a final one is the trailing comma and drops.
+
+    :raises UnsupportedConstructError: On a stray comma.
+    """
+    tails = rest or []
+    if _ABSENT in tails[:-1]:
+        raise UnsupportedConstructError("notation: stray ',' in argument list")
+    return [first, *(x for x in tails if x is not _ABSENT)]
 
 
-def _arg_rest(v: object) -> object:
+def _arg_tail(v: object = _ABSENT) -> object:
+    return v
+
+
+def _arg_val(v: object) -> object:
     return v
 
 
@@ -393,7 +420,8 @@ _CONFIG: dict[str, RuleFold] = {
         2,
         (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0)),
     ),
-    "arg-rest": RuleFold("sequence", _arg_rest, 2, (FieldFold(1, "model", "v", 1),)),
+    "arg-tail": RuleFold("sequence", _arg_tail, 2, (FieldFold(1, "model", "v", 0),)),
+    "arg-val": RuleFold("sequence", _arg_val, 1, (FieldFold(0, "model", "v", 1),)),
     "strval": _ALT,
     "sq-str": RuleFold(
         "sequence", _decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)
@@ -462,7 +490,9 @@ class _Build(NamedTuple):
 
 
 def _call_doc(name: str, args: list[IrDoc]) -> IrDoc:
-    """The call shape: ``Name(a, b)`` flat, one arg per line when broken."""
+    """The call shape: ``Name(a, b)`` flat; broken, one arg per line with a
+    trailing comma (the black form — a fresh export is a formatter fixpoint;
+    the notation's arg-tail rules read the trailing comma back)."""
     if not args:
         return IrText(name + "()")
     parts: list[IrDoc] = [args[0]]
@@ -472,15 +502,32 @@ def _call_doc(name: str, args: list[IrDoc]) -> IrDoc:
         IrCat(
             IrText(name + "("),
             IrNest(_CALL_INDENT, IrCat(IrLine(), *parts)),
-            IrLine(),
+            IrLine("", ","),
             IrText(")"),
         )
     )
 
 
+def black_quoted(text: str) -> str:
+    """``text`` as a Python string literal, double-quote-preferring.
+
+    The black/ruff-format convention (so emitted notation is a formatter
+    fixpoint): double quotes unless the content contains a double quote and
+    no single quote — exactly the cases where ``repr`` keeps/uses each
+    delimiter with no extra escapes.
+    """
+    plain = repr(text)
+    if plain.startswith('"'):  # content has ' and no " — repr chose double
+        return plain
+    if '"' in text:  # content has " (and maybe ') — single-quoted is minimal
+        return plain
+    body = plain[1:-1].replace("\\'", "'")
+    return f'"{body}"'
+
+
 def _scalar_doc(_d: object, n: object, _nc: object) -> IrText:
     """A value-leaf: ``TypeName(payload_repr)`` — one atomic text."""
-    payload = repr(str(n)) if isinstance(n, str) else repr(int(cast(int, n)))
+    payload = black_quoted(str(n)) if isinstance(n, str) else repr(int(cast(int, n)))
     return IrText(f"{type(n).__name__}({payload})")
 
 
@@ -497,7 +544,11 @@ def _payload_doc(value: object) -> IrText:
     """
     if isinstance(value, type):
         return IrText(value.__name__)
-    if isinstance(value, (bool, str, int)):
+    if isinstance(value, bool):
+        return IrText(repr(value))
+    if isinstance(value, str):
+        return IrText(black_quoted(value))
+    if isinstance(value, int):
         return IrText(repr(value))
     raise UnsupportedConstructError(f"emit_ir: {value!r} has no notation spelling")
 
@@ -551,7 +602,7 @@ _EMIT_STEP: IrDispatch = IrDispatch(
 lambdas — the same objects the notation cannot parse back)."""
 
 
-def _doc_of(root: object) -> IrDoc:
+def ir_doc(root: object) -> IrDoc:
     """Build the doc for ``root`` — iterative post-order over the value tree.
 
     :param root: The IR value to emit.
@@ -593,4 +644,4 @@ def emit_ir(node: IrSelf, width: int = 88) -> str:
     :raises UnsupportedConstructError: On a value the notation cannot
         represent (e.g. an ``IrLambda`` body).
     """
-    return render(_doc_of(node), width)
+    return render(ir_doc(node), width)

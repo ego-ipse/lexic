@@ -17,8 +17,12 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. New plans copy `zzz_current_work/TEMPLATE.md` (goal,
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
-  Current: triage — `zzz_current_work/260718-backlog/BACKLOG.md` (what's
-  left after generated-files; one user decision pending).
+  Current: TWO plans awaiting approval —
+  `zzz_current_work/260718-module-selfgrammar/PLAN.md` (whole-file
+  parse-back + build-path unification; L1 spike proven) and
+  `zzz_current_work/260718-flavour-layout/PLAN.md` (width-aware grammar
+  emission + production EBNF; spike proven; ruling 3 = default width
+  pending). Triage inventory: `zzz_current_work/260718-backlog/BACKLOG.md`.
   Just completed: `zzz_current_work/260718-generated-files/PLAN.md` (see
   its OUTCOME) — importable twin modules, IR-native formatting (layout
   algebra + notation emit half), defaults-last fields, two island engine
@@ -182,9 +186,13 @@ src/lexic/
                         decode, YIELD intern; NOTATION_FOLD public. Emit:
                         emit_ir(node, width) — per-tier IrTypeMap over layout
                         docs; load_ir(emit_ir(x)) == x (repr-fixpoint for
-                        identity-eq-leaf payloads); IrLambda refused; never
-                        emits trailing commas (the grammar refuses them — an
-                        arglist comma? would island and tax every load_ir)
+                        identity-eq-leaf payloads); IrLambda refused; broken
+                        calls emit black-style trailing commas + double-quoted
+                        strings (black_quoted) — a fresh export is an
+                        isort+ruff-format FIXPOINT. Trailing commas PARSE via
+                        the gateable arg-tail shape (comma first, then
+                        value-vs-nothing; zero islands); a bare comma anywhere
+                        but last refuses at fold time (_arglist strictness)
     loader.py           load_flavour(text) → IrFlavour: folds a manifest (ONE
                         notation IrMap of seven strict sections — identity,
                         escapes-as-IR-dyads, grammar, reductions, actions) into

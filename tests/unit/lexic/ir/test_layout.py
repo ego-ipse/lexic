@@ -194,31 +194,32 @@ def test_scan_of_a_flat_group_sums_nested_text_widths():
 
 
 def test_irtext_scan_returns_its_length():
-    """IrText.scan reports its own character width, flat or not."""
-    assert IrText("abc").scan(True, []) == 3
-    assert IrText("").scan(False, []) == 0
+    """IrText.scan reports (own width, line continues), flat or not."""
+    assert IrText("abc").scan(True, []) == (3, False)
+    assert IrText("").scan(False, []) == (0, False)
 
 
-def test_irline_scan_returns_flat_length_when_flat_and_none_when_broken():
-    """A broken IrLine's scan is None — a break that ends the lookahead."""
+def test_irline_scan_counts_pre_and_ends_the_line_when_broken():
+    """A broken IrLine contributes its broken-only ``pre`` width to the
+    CURRENT line and then ends the lookahead — so trailing commas count."""
     line = IrLine("xy", "z")
-    assert line.scan(True, []) == 2
-    assert line.scan(False, []) is None
+    assert line.scan(True, []) == (2, False)
+    assert line.scan(False, []) == (1, True)
 
 
 def test_ircat_irnest_irgroup_scan_push_children_and_return_zero():
     """The container docs contribute zero width themselves — their scan
     step pushes children onto the work list for the caller to continue."""
     work: list = []
-    assert IrCat(IrText("x")).scan(True, work) == 0
+    assert IrCat(IrText("x")).scan(True, work) == (0, False)
     assert work
 
     work2: list = []
-    assert IrNest(2, IrText("x")).scan(True, work2) == 0
+    assert IrNest(2, IrText("x")).scan(True, work2) == (0, False)
     assert work2 == [(True, IrText("x"))]
 
     work3: list = []
-    assert IrGroup(IrText("x")).scan(True, work3) == 0
+    assert IrGroup(IrText("x")).scan(True, work3) == (0, False)
     assert work3 == [(True, IrText("x"))]
 
 

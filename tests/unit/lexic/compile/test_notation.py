@@ -393,27 +393,39 @@ def test_emit_ir_yield_interning_round_trips_by_identity() -> None:
 
 
 def test_emit_ir_scalar_leaves_spell_as_type_call() -> None:
-    """A value-leaf spells as ``TypeName(payload_repr)``."""
-    assert emit_ir(IrLiteral("a")) == "IrLiteral('a')"
+    """A value-leaf spells as ``TypeName(payload)``, double-quote-preferring
+    (the black/ruff convention — emitted notation is a formatter fixpoint)."""
+    assert emit_ir(IrLiteral("a")) == 'IrLiteral("a")'
+    assert emit_ir(IrLiteral('say "hi"')) == "IrLiteral('say \"hi\"')"
     assert emit_ir(IrInt(-3)) == "IrInt(-3)"
 
 
-# ── no trailing commas anywhere ──────────────────────────────────────────
+# ── trailing commas: broken calls carry them, flat calls never ───────────
 
 TRAILING_COMMA = re.compile(r",\s*\)")
 
 
 @pytest.mark.parametrize("stem", GBNF_GRAMMARS)
-def test_emit_ir_never_emits_a_trailing_comma(stem: str) -> None:
-    """Narrow-width (forced-break) output never leaves a trailing comma
-    before a closing paren — the notation's arglist does not accept one."""
+def test_emit_ir_broken_calls_carry_trailing_commas_and_round_trip(stem: str) -> None:
+    """Narrow-width (forced-break) output uses black-style trailing commas —
+    and the notation's arg-tail rules read them back to the same AST."""
     compiled = compile_from_path(GROUND_TRUTH / stem)
     text = emit_ir(compiled.grammar, width=30)
+    assert TRAILING_COMMA.search(text)  # broken multi-arg calls end ",\n...)"
+    assert load_ir(text) == compiled.grammar
+
+
+def test_emit_ir_flat_calls_never_carry_a_trailing_comma() -> None:
+    """A call that fits flat has NO trailing comma (black semantics)."""
+    node = IrSequence(IrItem(IrLiteral("a")), IrItem(IrLiteral("b")))
+    text = emit_ir(node, width=200)
+    assert "\n" not in text
     assert not TRAILING_COMMA.search(text)
 
 
-def test_emit_ir_never_emits_a_trailing_comma_on_a_small_broken_shape() -> None:
-    """Same guarantee on the small synthetic shape, forced fully broken."""
+def test_emit_ir_small_broken_shape_round_trips_with_trailing_commas() -> None:
+    """The small synthetic shape, forced fully broken, still round-trips."""
     node = IrSequence(*(IrItem(IrLiteral(c)) for c in "abcdefgh"))
     text = emit_ir(node, width=20)
-    assert not TRAILING_COMMA.search(text)
+    assert TRAILING_COMMA.search(text)
+    assert load_ir(text) == node

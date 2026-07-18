@@ -38,10 +38,11 @@ from lexic.compile.binding import (
     compute_binding,
     non_empty_arms,
 )
-from lexic.compile.notation import emit_ir, load_ir
+from lexic.compile.notation import black_quoted, ir_doc, load_ir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir.base import IrSelf
+from lexic.ir.layout import IrCat, IrNest, IrText, render
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -154,11 +155,19 @@ def _docstring_lines(rule_text: str) -> list[str]:
     single = f'    """``{doc}``"""'
     if len(single) <= WIDTH:
         return [single]
-    lines: list[str] = ['    """``' + doc[: WIDTH - 11]]
-    rest = doc[WIDTH - 11 :]
+    lines: list[str] = []
+    head, budget = '    """``', WIDTH - 8
+    rest = doc
     while rest:
-        lines.append("    " + rest[: WIDTH - 4])
-        rest = rest[WIDTH - 4 :]
+        if len(rest) <= budget:
+            lines.append(head + rest)
+            break
+        cut = rest.rfind(" ", 1, budget + 1)
+        if cut < 1:
+            cut = budget
+        lines.append((head + rest[:cut]).rstrip())
+        rest = rest[cut:].lstrip()
+        head, budget = "    ", WIDTH - 4
     lines[-1] += '``"""'
     return lines
 
@@ -180,29 +189,35 @@ def _sequence_field_lines(
 
 
 def _indented_ir(prefix: str, node: IrSelf) -> list[str]:
-    """``prefix`` + the node in notation, continuation lines re-indented by 4.
+    """``prefix`` + the node in notation, rendered as ONE layout document.
 
-    The prefix rides the first emitted line, so when the glued first line
-    would overflow, the node re-emits at the prefix-reduced width — the top
-    group then breaks and the first line is just the opening call. (No
-    parenthesized-assignment fallback: the text must stay pure notation so
-    ``load_ir`` can read it back.)
+    The prefix and the node's doc render together (the prefix's leading
+    indent becomes the base ``IrNest``), so column accounting is exact and
+    the continuation indents are the formatter's own (a top-level statement
+    continues at 4, a class-level one at 8) — a fresh export is a
+    ruff-format fixpoint, no post-hoc re-indent pass.
     """
-    text = emit_ir(node, WIDTH - 4)
-    first, *rest = text.split("\n")
-    if len(prefix) + len(first) > WIDTH:
-        text = emit_ir(node, WIDTH - len(prefix))
-        first, *rest = text.split("\n")
-    return [prefix + first] + ["    " + line for line in rest]
+    base = len(prefix) - len(prefix.lstrip(" "))
+    doc = IrCat(IrText(prefix), IrNest(base, ir_doc(node)))
+    return render(doc, WIDTH).split("\n")
 
 
 def _inline_table_lines(bind: RuleBinding, rule: IrRule) -> list[str]:
-    """The ``inline_tables`` ClassVars: ``__grammar__`` and ``__binds__``."""
+    """The ``inline_tables`` ClassVars: ``__grammar__`` and ``__binds__``.
+
+    Strings render double-quoted (:func:`~lexic.compile.notation.black_quoted`)
+    so the inline tables are a formatter fixpoint like the rest of the module.
+    """
     lines = _indented_ir("    __grammar__: ClassVar[IrRule] = ", rule)
     if bind.fields:
         lines.append("    __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {")
         for name, ibind in bind.fields.items():
-            lines.append(f"        {ibind.item}: ({name!r}, {ibind!r}),")
+            args = f"{ibind.item}, {black_quoted(ibind.mode)}"
+            if not ibind.semantic:
+                args += ", False"
+            lines.append(
+                f"        {ibind.item}: ({black_quoted(name)}, IrBind({args})),"
+            )
         lines.append("    }")
     return lines
 
@@ -219,12 +234,16 @@ def _class_lines(
     bases = ", ".join(bind.parent_class_names) or "GrammarModel"
     lines = [f"class {bind.class_name}({bases}):"]
     lines.extend(_docstring_lines(rule_text))
+    body: list[str] = []
     if bind.kind == "value_str":
-        lines.append(f"    value: {_value_str_type(rule)}")
+        body.append(f"    value: {_value_str_type(rule)}")
     elif bind.kind == "sequence":
-        lines.extend(_sequence_field_lines(bind, rule, class_by_rule))
+        body.extend(_sequence_field_lines(bind, rule, class_by_rule))
     if inline_tables:
-        lines.extend(_inline_table_lines(bind, rule))
+        body.extend(_inline_table_lines(bind, rule))
+    if body:  # formatter fixpoint: blank line between docstring and body
+        lines.append("")
+        lines.extend(body)
     return lines
 
 
@@ -232,13 +251,15 @@ def _class_lines(
 
 
 def _import_block(body: str, *, inline_tables: bool) -> str:
-    """The complete header imports for a rendered module body.
+    """The complete header imports for a rendered module body — isort-stable.
 
     ``lexic.ir`` names come from what the body actually references (every
     referenced name is verified against the real ``lexic.ir`` surface);
     ``Literal`` only when a ``Literal[...]`` annotation rendered; ``ClassVar``
     only in ``inline_tables`` mode; ``bind_module`` only when the module ends
-    in the bind call.
+    in the bind call. The lexic block is emitted in sorted module order
+    (``compile`` < ``ir`` < ``model``) so a user's isort/format-on-save pass
+    is a NO-OP on a fresh export — regeneration never fights the formatter.
     """
     ir_names = sorted({n for n in _IR_NAME.findall(body) if hasattr(ir, n)})
     lines = ["from __future__ import annotations", ""]
@@ -249,7 +270,6 @@ def _import_block(body: str, *, inline_tables: bool) -> str:
     ]
     if typing_names:
         lines += [f"from typing import {', '.join(typing_names)}", ""]
-    lines.append("from lexic.model import GrammarModel")
     if not inline_tables:
         lines.append("from lexic.compile import bind_module")
     joined = f"from lexic.ir import {', '.join(ir_names)}"
@@ -259,6 +279,7 @@ def _import_block(body: str, *, inline_tables: bool) -> str:
         lines.append("from lexic.ir import (")
         lines.extend(f"    {name}," for name in ir_names)
         lines.append(")")
+    lines.append("from lexic.model import GrammarModel")
     return "\n".join(lines)
 
 

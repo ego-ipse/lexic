@@ -72,7 +72,8 @@ class Sheet:
         work in its recorded modes, stopping at the first break that will
         actually be taken (an :class:`IrLine` in a non-flat frame) — the
         Wadler ``fits`` with the continuation included, so trailing
-        separators count against the line they land on.
+        separators AND a breaking line's broken-only ``pre`` text count
+        against the line they land on.
 
         :param doc: The candidate group content.
         :returns: ``True`` when the line cannot overflow.
@@ -84,25 +85,21 @@ class Sheet:
         work.append((True, doc))
         while work:
             flat, node = work.pop()
-            step = node.scan(flat, work)
-            if step is None:
-                return col <= self.width
-            col += step
+            width, ends = node.scan(flat, work)
+            col += width
             if col > self.width:
                 return False
-        return col <= self.width
-
-
-_LINE_END = None
+            if ends:
+                return True
+        return True
 
 
 class IrDoc(IrNode[IrSelf, IrSelf]):
     """Role marker + protocol for layout nodes.
 
     :meth:`layout` performs the node's one rendering step against the sheet;
-    :meth:`scan` is the fit-lookahead twin: it returns the node's flat text
-    width (pushing children onto the scan's work list), or ``None`` for a
-    break that ends the line.
+    :meth:`scan` is the fit-lookahead twin: ``(width contributed, line ends
+    here)``, pushing children onto the scan's work list.
     """
 
     def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
@@ -118,8 +115,11 @@ class IrDoc(IrNode[IrSelf, IrSelf]):
             f"layout: {type(self).__name__} does not implement layout()"
         )
 
-    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> int | None:
-        """One fit-lookahead step — width contributed, or ``None`` at a break.
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
+        """One fit-lookahead step — ``(width contributed, line ends here)``.
+
+        A breaking :class:`IrLine` still contributes its broken-only ``pre``
+        text to the CURRENT line before ending it.
 
         :param flat: The scanning frame's flat mode.
         :param work: The scan's work list (push children here).
@@ -153,8 +153,8 @@ class IrText(IrDoc, IrStr):
     def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
         sheet.write(str(self))
 
-    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> int | None:
-        return len(self)
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
+        return len(self), False
 
 
 class IrLine(IrDoc, IrNamedTuple[str, str]):
@@ -176,8 +176,10 @@ class IrLine(IrDoc, IrNamedTuple[str, str]):
             return
         sheet.newline(indent, self.pre)
 
-    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> int | None:
-        return len(self.flat) if flat else _LINE_END
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
+        if flat:
+            return len(self.flat), False
+        return len(self.pre), True
 
 
 class IrCat(IrDoc, IrSeq[IrDoc]):
@@ -186,9 +188,9 @@ class IrCat(IrDoc, IrSeq[IrDoc]):
     def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
         sheet.stack.extend((indent, flat, part) for part in self[::-1])
 
-    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> int | None:
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
         work.extend((flat, part) for part in self[::-1])
-        return 0
+        return 0, False
 
 
 class IrNest(IrDoc, IrNamedTuple[int, IrDoc]):
@@ -201,9 +203,9 @@ class IrNest(IrDoc, IrNamedTuple[int, IrDoc]):
     def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
         sheet.stack.append((indent + self.indent, flat, self.doc))
 
-    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> int | None:
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
         work.append((flat, self.doc))
-        return 0
+        return 0, False
 
 
 class IrGroup(IrDoc, IrNamedTuple[IrDoc]):
@@ -219,9 +221,9 @@ class IrGroup(IrDoc, IrNamedTuple[IrDoc]):
     def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
         sheet.stack.append((indent, flat or sheet.fits(self.doc), self.doc))
 
-    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> int | None:
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
         work.append((flat, self.doc))
-        return 0
+        return 0, False
 
 
 def render(doc: IrDoc, width: int = 88) -> str:

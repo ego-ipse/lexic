@@ -2,7 +2,7 @@
 
 > **Status:** experimental, pre-1.0. APIs may change without notice.
 
-Lexic is the grammar engine layer of [Vyx](https://github.com/) — an agent-to-agent protocol. It compiles grammar files (GBNF, ABNF) into typed model classes; instances parse text and round-trip losslessly back to grammar. It has **zero runtime dependencies** — the parser is a native Earley/PDA engine, and model classes are plain Python records (no pydantic).
+Lexic is the grammar engine layer of [Vyx](https://github.com/) — an agent-to-agent protocol. It compiles grammar files (GBNF, ABNF) into typed model classes; instances parse text and round-trip losslessly back to grammar. It has **zero runtime dependencies** — the parser is a native Earley/PDA engine, and model classes are plain Python records.
 
 **Grammar is the ground truth.** Model classes are Python's *view* of a grammar, not the source of truth. Every model has a lossless `to_grammar(flavour)` path back to canonical grammar text.
 
