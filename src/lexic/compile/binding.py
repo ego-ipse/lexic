@@ -107,9 +107,11 @@ def has_ruleref(node: IrNode) -> bool:
 class RuleBinding:
     """One rule's codegen identity: class, kind, parents, bound fields.
 
-    ``fields`` maps each generated field name to its :class:`IrBind`, in item
-    order; only ``sequence``-kind rules carry fields (``value_str`` emits the
-    implicit ``value`` field, ``alternation`` is a field-less pass-through).
+    ``fields`` maps each generated field name to its :class:`IrBind`, in
+    declaration order — required first, optional after, each group in item
+    order (see :func:`bind_fields`); only ``sequence``-kind rules carry
+    fields (``value_str`` emits the implicit ``value`` field,
+    ``alternation`` is a field-less pass-through).
 
     ``parent_class_names`` holds every alternation the rule is a unit-ref arm of
     (deterministically ordered — see :func:`_parent_rules`); an empty tuple
@@ -149,6 +151,7 @@ _RESERVED_FIELD_NAMES: frozenset[str] = frozenset(keyword.kwlist) | frozenset(
         "fast_construct",
         "index",
         "rebuild",
+        "repr_args",
         "semantic_dump",
         "to_grammar",
         "to_text",
@@ -596,6 +599,17 @@ def _is_semantic_field(item: IrItem, non_semantic: frozenset[str]) -> bool:
     return not (isinstance(item.atom, IrRuleRef) and item.atom in non_semantic)
 
 
+def _is_optional_bind(bind: IrBind, item: IrItem) -> bool:
+    """Whether the field defaults to ``None`` on its own — the emitters' rule.
+
+    A non-``models`` field whose item can match nothing (``lo == 0``) is
+    optional; ``models`` fields stay a required list. The empty-alternate-arm
+    force (every field optional) is a rule-level fact the emitters apply on
+    top — it defaults ALL fields, so declaration order is unconstrained there.
+    """
+    return bind.mode != "models" and item.quantifier.lo == 0
+
+
 def bind_fields(
     items: Sequence[IrItem], non_semantic: frozenset[str]
 ) -> dict[str, IrBind]:
@@ -603,11 +617,19 @@ def bind_fields(
 
     Structural literals produce no field. A reserved name (Python keyword or
     a ``GrammarModel`` public-surface name) gets a ``_`` suffix; name
-    collisions get a numeric suffix in occurrence order (``ws``, ``ws2``, …).
+    collisions get a numeric suffix in occurrence order (``ws``, ``ws2``, …) —
+    naming always runs in item order.
+
+    The returned mapping is in **declaration order**: required fields first,
+    optional (``None``-defaulted) fields after, each group in item order — so
+    the record's constructor signature is well-formed (a defaulted field never
+    precedes a required one; the ``NamedTuple`` convention). Item slots ride
+    each :class:`IrBind`; slot-keyed consumers (``__binds__``, the fold) are
+    order-independent.
 
     :param items: The rule's single sequence arm.
     :param non_semantic: Names of the grammar's structural-noise rules.
-    :returns: Field name → :class:`IrBind`, in item order.
+    :returns: Field name → :class:`IrBind`, required-first declaration order.
     """
     fields: dict[str, IrBind] = {}
     counts: defaultdict[str, int] = defaultdict(int)
@@ -629,7 +651,13 @@ def bind_fields(
         fields[name] = IrBind(
             index, mode_for(item), _is_semantic_field(item, non_semantic)
         )
-    return fields
+    required = {
+        name: bind
+        for name, bind in fields.items()
+        if not _is_optional_bind(bind, items[bind.item])
+    }
+    optional = {name: bind for name, bind in fields.items() if name not in required}
+    return required | optional
 
 
 # ── the binding view ──────────────────────────────────────────────────

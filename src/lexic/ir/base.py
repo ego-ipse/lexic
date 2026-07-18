@@ -794,18 +794,16 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
                 values.append(self[i])
         return cast(Callable[..., Self], type(self))(*values)
 
-    def __repr__(self) -> str:
-        """Codegen repr with the trailing run of default-valued fields omitted.
+    def repr_args(self) -> tuple[object, ...]:
+        """The constructor-arg prefix after trailing-default elision.
 
         Walks the fields from the end and drops each whose value is the same
         concrete type as its declared default AND equals it (``==``, so
         :class:`IrScalar`'s type-aware equality applies), stopping at the
         first field that differs or carries no default (never omittable). The
-        positional prefix that remains is still a valid constructor call — the
-        omitted fields reconstruct to the same defaults:
-        ``IrItem(IrLiteral('a'), IrQuantifier(1, 1))`` renders ``IrItem(IrLiteral('a'))``.
-        A class-valued field renders as its bare ``__name__`` (as in
-        :meth:`IrTuple.__repr__`) so the result stays valid codegen.
+        prefix is still a valid constructor call — the omitted fields
+        reconstruct to the same defaults. One source of elision truth for
+        :meth:`__repr__` and the notation emit half.
 
         The type check is load-bearing, not pedantry: empty records compare
         equal CROSS-CLASS under tuple equality (``IrArgs() == IrTuple()``), so
@@ -813,7 +811,7 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
         which reconstructs with the *wrong* default ``IrTuple()`` — repr-stable
         but behaviorally different (the F-REPR-1 finding, 2026-07-16).
 
-        :returns: Constructor call reproducing this node (defaults elided).
+        :returns: The positional args, trailing default-equal run elided.
         """
         fields, defaults = self._fields, self._field_defaults
         n = len(fields)
@@ -824,9 +822,21 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
             and self[n - 1] == defaults[fields[n - 1]]
         ):
             n -= 1
+        return tuple(self[:n])
+
+    def __repr__(self) -> str:
+        """Codegen repr — constructor call over :meth:`repr_args`.
+
+        ``IrItem(IrLiteral('a'), IrQuantifier(1, 1))`` renders
+        ``IrItem(IrLiteral('a'))``. A class-valued field renders as its bare
+        ``__name__`` (as in :meth:`IrTuple.__repr__`) so the result stays
+        valid codegen.
+
+        :returns: Constructor call reproducing this node (defaults elided).
+        """
         inner = ", ".join(
             element.__name__ if isinstance(element, type) else repr(element)
-            for element in self[:n]
+            for element in self.repr_args()
         )
         return f"{type(self).__name__}({inner})"
 

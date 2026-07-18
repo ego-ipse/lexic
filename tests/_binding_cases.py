@@ -231,6 +231,36 @@ def _case_fields_non_semantic_ref_flags_the_bind(binding: ModuleType) -> None:
     assert fields == {"ws": IrBind(0, "model", False)}
 
 
+def _case_fields_declaration_order_is_required_first(binding: ModuleType) -> None:
+    """Optional fields (non-``models``, ``lo == 0``) sort after required ones,
+    each group in item order, item slots untouched (defaults-last ruling)."""
+    arm = IrSequence(
+        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
+        IrItem(IrRuleRef("value")),
+        IrItem(IrRuleRef("ws"), IrQuantifier(0, 1)),
+    )
+    fields = binding.bind_fields(arm, frozenset({"ws"}))
+    assert list(fields) == ["value", "ws", "ws2"]
+    assert fields["value"] == IrBind(1, "model")
+    assert fields["ws"] == IrBind(0, "model", False)
+    assert fields["ws2"] == IrBind(2, "model", False)
+
+
+def _case_fields_models_mode_stays_required_ahead_of_optionals(
+    binding: ModuleType,
+) -> None:
+    """A ``models`` field (star-quantified ref) is a required list — it keeps
+    its place ahead of ``None``-defaulted fields even at ``lo == 0``."""
+    arm = IrSequence(
+        IrItem(IrLiteral("-"), _OPT),
+        IrItem(IrRuleRef("item"), _STAR),
+    )
+    fields = binding.bind_fields(arm, frozenset())
+    assert list(fields) == ["item", "sign"]
+    assert fields["item"] == IrBind(1, "models")
+    assert fields["sign"] == IrBind(0, "text")
+
+
 def _case_fields_unknown_atom_type_raises(binding: ModuleType) -> None:
     """The tier-2 table refuses an atom type it does not know.
 

@@ -6,6 +6,20 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-18 — generated-files Task 0: dead-code sweep
+
+`GrammarAuthoringError` deleted (`exceptions.py` — a never-raised public
+stub; CLAUDE.md + [[error-vocabulary]] updated). `refs_in_order` deleted
+(`ir/order.py` — production-dead public wrapper; the private
+`_refs_in_order` walker stays, `RuleOrder.by_refs` uses it; its contract
+re-pinned on `by_refs` in the test mirror). `_child_attrs_of` + the
+derive-from-binds branch in `GrammarModel.__init_subclass__` deleted
+(`base.py`) — proven dead: `IrNamedTuple.__init_subclass__` always sets
+`_child_attrs` from annotations into `cls.__dict__` first, so the branch
+never fired; models don't read `_child_attrs` anyway (`children()`/
+`rebuild()` are overridden on `__binds__` item order, settled 13). Effort:
+`zzz_current_work/260718-generated-files/PLAN.md`.
+
 ## 2026-07-18 — ir-native complete: compile/ subsystem, codegen + pydantic gone
 
 The `compile/` package is the whole compilation subsystem. `codegen/` is

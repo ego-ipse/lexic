@@ -49,11 +49,6 @@ from lexic.ir.nodes import (
 from lexic.ir.walk import IrDispatch
 
 
-def _child_attrs_of(binds: dict[int, tuple[str, IrBind]]) -> tuple[str, ...]:
-    """The bound field names in item order — the ``_child_attrs`` payload."""
-    return tuple(name for _slot, (name, _bind) in sorted(binds.items()))
-
-
 def _dump_value(
     value: object, stack: list[tuple[GrammarModel, dict[str, Any]]]
 ) -> object:
@@ -249,20 +244,6 @@ class GrammarModel(IrNamedTuple):
 
     __grammar__: ClassVar[IrRule]
     __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {}
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Derive ``_child_attrs`` from the class's binds table.
-
-        Every subclass carries a binds table — its own ``__binds__`` (runtime
-        synthesis, or a hand-authored model) or the empty inherited default —
-        so ``_child_attrs`` (bound fields in item order) is set at class
-        creation. A class declaring ``_child_attrs`` itself keeps it.
-
-        :param kwargs: Forwarded to ``super().__init_subclass__``.
-        """
-        super().__init_subclass__(**kwargs)
-        if "_child_attrs" not in cls.__dict__:
-            cls._child_attrs = _child_attrs_of(cls.__binds__)
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Self:
         """Build the record with checked construction (hand-construction path).

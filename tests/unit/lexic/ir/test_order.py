@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from lexic.ir.base import IrSeq
 from lexic.ir.nodes import (
-    IrAlternation,
     IrAst,
     IrItem,
     IrLiteral,
@@ -13,7 +12,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.order import RuleOrder, order_by_refs, refs_in_order
+from lexic.ir.order import RuleOrder, order_by_refs
 
 
 def _rule(name: str, *refs: str) -> IrRule:
@@ -213,11 +212,8 @@ def test_by_refs_is_a_noop_on_an_already_ordered_ast():
     assert order_by_refs(ast) == ast
 
 
-def test_refs_in_order_collects_distinct_names_in_body_order():
-    """The public edge extractor: first-seen order, no duplicates."""
-    body = IrAlternation(
-        IrSequence(
-            IrItem(IrRuleRef("b")), IrItem(IrRuleRef("a")), IrItem(IrRuleRef("b"))
-        )
-    )
-    assert refs_in_order(body) == ["b", "a"]
+def test_by_refs_collects_edges_distinct_in_body_order():
+    """Ref-edges drive the order first-seen, duplicates ignored (the deleted
+    ``refs_in_order`` wrapper's contract, kept pinned on ``by_refs`` itself)."""
+    ast = IrAst(IrSeq(_rule("root", "b", "a", "b"), _rule("a"), _rule("b")), "root")
+    assert [rule.name for rule in order_by_refs(ast).rules] == ["root", "b", "a"]

@@ -11,10 +11,11 @@ Source: `exceptions.py`. No bare `raise ValueError` or `raise Exception` for lib
 | Class | Raised by | Message format |
 |---|---|---|
 | `UnsupportedConstructError` | The Earley engine (no parse / ambiguous parse — `lexic.parsing`'s `parse`/`parse_reduced`), reduction bodies (unrecognised construct), `canonical_grammar`'s boundary checks (missing/wrong-shaped `Reducer`, non-`IrAst` reduction result, unknown start rule), atom dispatch tables (unknown atom type), the codegen passes (arm-name collision — `codegen/passes.py`), the instance fold (unknown kind/mode, kid-count mismatch — `parsing/fold.py`) | Rule-first: "rule `foo`: unsupported construct `…`" |
-| `GrammarAuthoringError` | `@grammar_rule` decorator, `ModelEmitter` discriminator analysis | Fragment-quoted: "field `foo.bar`: expected `…`, got `…`" |
-| `FieldValidationError` | Pydantic constraint failures (Slice C) | Field-path-first |
+| `FieldValidationError` | IR-intrinsic per-field checked construction in `GrammarModel.__new__` (charclass membership + bounds, `Literal` membership, model/models `isinstance`, required presence); trusted parse paths (`_from_parts`/`fast_construct`) bypass it | Field-path-first |
 
 All inherit from `LexicError(Exception)`.
+
+`GrammarAuthoringError` was deleted 2026-07-18 (260718-generated-files Task 0): a dead public stub — every planned raiser went with the pydantic-era design, and nothing ever raised it.
 
 ## Dispatch table contract
 
@@ -42,7 +43,3 @@ A silent `pass` or `None` return is never acceptable. This is how unexpected ato
 
 There is no Lark and no `MetaGrammarParser` anymore — `parse_grammar` runs the flavour's own self-grammar through the Earley engine (`parse_reduced`). The engine itself raises `UnsupportedConstructError` when text doesn't parse or parses ambiguously (see `lexic.parsing`'s module docstring). `canonical_grammar` (the public parse+canonicalize+directive front half, superseding the retired `compile_grammar`) adds its own explicit boundary checks, each an `UnsupportedConstructError`: the flavour's `reducer` must be an actual `Reducer` instance, the reduction must produce an `IrAst`, and a resolved `start` rule must actually be defined in the (canonicalized) grammar.
 
-## Stubs (wired in future slices)
-
-- `GrammarAuthoringError` — stub in Slice B; wired in Slice C (discriminator ambiguity) and Slice D (`@grammar_rule` misuse).
-- `FieldValidationError` — stub in Slice B; wired in Slice C when `Annotated[str, StringConstraints(...)]` emission lands.

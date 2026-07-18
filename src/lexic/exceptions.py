@@ -26,14 +26,6 @@ class IrKeyError(UnsupportedConstructError, KeyError):
     """
 
 
-class GrammarAuthoringError(LexicError):
-    """A grammar is malformed in a way the author should fix.
-
-    Stub in Slice B; wired by Slice C (discriminator ambiguity, sidecar refs
-    to unknown classes/fields) and Slice D (@grammar_rule decorator misuse).
-    """
-
-
 class FieldValidationError(LexicError):
     """A hand-constructed model field violates its grammar-intrinsic contract.
 

@@ -17,7 +17,9 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. New plans copy `zzz_current_work/TEMPLATE.md` (goal,
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
-  Current: `zzz_current_work/260712-viz/PLAN_v2.md` (next up, ruling 5).
+  Current: `zzz_current_work/260718-generated-files/PLAN.md` (importable
+  module twins + IR-native formatting; spikes in its `prototype/`).
+  Next up after: `zzz_current_work/260712-viz/PLAN_v2.md` (ruling 5).
   Just completed: `zzz_current_work/260716-ir-native/PLAN_v4.md` (see its
   OUTCOME) — the unified `compile/` subsystem: pure-IR representations +
   compiled models synthesized at runtime, open rule→class binding,
@@ -239,6 +241,10 @@ src/lexic/
                         supplied edge relation; by_refs/order_by_refs (ref-edges,
                         canonicaliser's rule order) and ordered_parents_first
                         (parent-edges, codegen emission order)
+    layout.py           layout algebra — width-aware doc combinators on the
+                        record spine (IrText/IrLine/IrCat/IrNest/IrGroup +
+                        Sheet cursor, intrinsic per-node layout(), iterative
+                        render(width)); the notation emit half builds docs here
     escapes.py          EscapeCodec ABC + CANONICAL_ESCAPES
 
   grammars/
@@ -871,7 +877,6 @@ No bare `raise ValueError` or `raise Exception` for library-level failures.
 | Exception | Raised by |
 |---|---|
 | `UnsupportedConstructError` | Parsers (unknown syntax), atom dispatch tables (unknown type), the engine (no parse / ambiguous parse), `parse_grammar`/`canonical_grammar` boundary checks (missing/wrong-shaped `Reducer`, non-`IrAst` reduction, unknown start rule), the compile passes (arm-name collision), the notation/loader (unknown symbol, non-strict manifest section), the fold (unknown kind/mode, kid-count mismatch) |
-| `GrammarAuthoringError` | `@grammar_rule` decorator (currently unraised — see FOLLOWUP) |
 | `FieldValidationError` | IR-intrinsic per-field checked construction in `GrammarModel.__new__` (charclass membership + bounds, `Literal` membership, model/models `isinstance`, required-presence). Parse paths use trusted construction and bypass it. |
 
 All dispatch tables must have an explicit `raise UnsupportedConstructError(...)` default — never a silent `pass` or bare `None` return.
