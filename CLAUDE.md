@@ -665,9 +665,13 @@ tests/
 resources/ground_truth/ eight .gbnf test grammars (arithmetic, c, chess,
                         japanese, json, json_arr, json_ws, list) plus two .abnf
                         siblings (arithmetic, json) for cross-flavour parity
-generated/              git-ignored scratch dir. Compilation synthesizes classes
-                        in memory via type() and writes NO files; compile.export's
-                        export_source(compiled) renders an on-demand reader .py view.
+generated/              git-ignored; holds the GT corpus's importable twin
+                        modules (from generated.json import JsonText — a
+                        namespace pkg via the repo root). Compilation itself
+                        synthesizes classes in memory via type() and writes NO
+                        files; export_module(compiled, path) is the sole write
+                        seam. Regenerate: uv run python tools/regen_generated.py
+                        (--inline for the self-contained variant).
 ```
 
 ## Architecture
