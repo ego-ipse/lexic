@@ -11,7 +11,6 @@ from typing import ClassVar, List, Optional
 
 import pytest
 
-from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.ir.action import IrAction
@@ -30,6 +29,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.model import GrammarModel
 from tests.paths import GROUND_TRUTH
 
 _LOWER = IrCharClass(IrRange(IrChr("a"), IrChr("z")))

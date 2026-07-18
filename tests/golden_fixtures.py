@@ -62,8 +62,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from lexic.base import GrammarModel
 from lexic.compile import CompiledGrammar, compile_from_path
+from lexic.model import GrammarModel
 from tests.integration.test_compile_grammar_vyx import PACKET_SAMPLES
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.runtime.test_runtime import ARITHMETIC_BENCH_SNIPPETS
@@ -151,7 +151,7 @@ def golden_path(stem: str) -> Path:
 def runtime_dump(model: GrammarModel) -> dict[str, Any]:
     """The runtime-type-driven dump — the golden ``runtime_dump`` form.
 
-    On the record spine the native :meth:`~lexic.base.GrammarModel.dump`
+    On the record spine the native :meth:`~lexic.model.GrammarModel.dump`
     IS runtime-complete (ruling 12), byte-equal to the prior
     ``model_dump(serialize_as_any=True)`` the goldens were recorded with.
 
@@ -164,7 +164,7 @@ def runtime_dump(model: GrammarModel) -> dict[str, Any]:
 def runtime_semantic_dump(model: GrammarModel) -> dict[str, Any]:
     """:func:`runtime_dump` with the model's own non-semantic fields excluded.
 
-    The native :meth:`~lexic.base.GrammarModel.semantic_dump` — the same
+    The native :meth:`~lexic.model.GrammarModel.semantic_dump` — the same
     top-level-only exclusion depth (R2-5) the golden
     ``runtime_semantic_dump`` form was recorded with.
 

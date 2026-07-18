@@ -72,7 +72,7 @@ against. **`synthesize`** (`synthesis.py`) then builds each class with
 `type(class_name, bases, ns)`, writing `__grammar__` (its rule) and `__binds__`
 (the slot → `(field, IrBind)` table) directly into `ns`, with
 `__module__`/`__qualname__` set explicitly and MI bases in binding order. No
-annotation resolution runs at runtime; the record spine (`lexic.base`) reads
+annotation resolution runs at runtime; the record spine (`lexic.model`) reads
 `__binds__` directly.
 
 ## 3. Package layout

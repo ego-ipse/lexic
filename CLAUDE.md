@@ -133,7 +133,7 @@ object, no annotation resolution at runtime. Instance parsing is a **positional 
 ```
 src/lexic/
   __init__.py
-  base.py               GrammarModel base ON IrNamedTuple (models ARE IrSelf) —
+  model.py              GrammarModel base ON IrNamedTuple (models ARE IrSelf) —
                         to_text(), to_grammar(), dump()/semantic_dump() (native
                         runtime-complete dict dump, explicit stack), bound_fields()
                         (item slot → (field, IrBind)); class-level __binds__ table;
@@ -144,7 +144,14 @@ src/lexic/
                         field's IrBind
   compile/
     __init__.py         compile_text(), compile_from_path(), canonical_grammar(),
-                        parse_grammar() — the sole runtime seam onto the engine
+                        parse_grammar(), bind_module(), parse_instance()/
+                        parse_instance_from_path() (the one-line entries;
+                        string-primary; `parse` itself is the ENGINE's name —
+                        lexic.parsing), export re-exports — the sole runtime
+                        seam onto the engine
+    artifact.py         CompiledGrammar — the parse-ready artefact (own module
+                        so export.py imports it cycle-free); .parse() drives
+                        the engine's parse_model product
     passes.py           grammar→grammar passes (hoist groups/arms, relax noise)
     binding.py          per-rule class/kind/parent/field binding view; the open
                         binding table (field_kwargs/check_supplied_class — the
@@ -166,7 +173,6 @@ src/lexic/
                         lowers the escape dyads to an EscapeCodec, builds the
                         Reducer; strict-section rejection via UnsupportedConstructError
   exceptions.py         LexicError hierarchy (see §Error vocabulary)
-  parse.py              parse(text, grammar_path) → GrammarModel  [thin wrapper over compile]
   generate.py           random string generator — walks a rule-name → IrRule mapping
                         (a canonical grammar's rules) directly, no spec layer
 
@@ -718,7 +724,7 @@ lexic (runtime) ↗ lexic.compile, lexic.parsing    runtime NEVER imports the en
 ```
 
 **The two deliberate exceptions:**
-1. `base.py` imports `get_flavour` from `lexic.grammars` to drive `to_grammar()`
+1. `model.py` imports `get_flavour` from `lexic.grammars` to drive `to_grammar()`
    (which calls `get_flavour(flavour).apply(self.__grammar__)` — `__grammar__`
    is already an `IrRule`, no intermediate conversion). The GBNF singleton is
    `lexic.grammars.gbnf.GBNF_FLAVOUR`. Explicit, eager.
@@ -850,7 +856,7 @@ holds for fields typed with any of them).
 
 `_HINT` (always yields a name — used inside `_group_hint` to label literal-only group content) vs `_TIER2` (may yield `IrNone`, routing the field to Tier-3 positional names) is the same hint/field-base distinction the old `_ATOM_HINT`/`_FIELD_BASE` pair drew. Fold **mode** derivation (`mode_for`/`_MODE`, one of `BIND_MODES` — `text`/`gtext`/`model`/`models`) is a sibling `IrDispatch` table in the same module, dispatched on the atom with the owning `IrItem` riding the argument channel so ref/group bodies can read the quantifier.
 
-## GrammarModel (`base.py`)
+## GrammarModel (`model.py`)
 
 Every synthesized class carries `__grammar__: ClassVar[IrRule]` — its own rule from the codegen grammar (post group/arm-hoisting) — and a class-level `__binds__` table mapping each `item slot → (field name, IrBind(item, mode, semantic))`, read via the public `bound_fields()`. No pydantic, no annotation resolution at runtime — `synthesize` writes `__binds__` directly.
 
@@ -868,7 +874,7 @@ Scanned from source comments *before* the grammar is parsed (the self-grammars r
 # @non-semantic ws sp     — mark rules as structural; their refs get min=0
 ```
 
-`_scan_directives(text, line_comment)` — a **private helper in `compile.py`** (no standalone module; the leftover scanner dissolved there once the metadata moved onto `IrRule`) — returns a plain `(start, non_semantic)` tuple (`start: str | None`, `non_semantic: frozenset[str]`); the pre-lexical scan stays out of the parser so comments never become load-bearing. `canonical_grammar()` resolves precedence (explicit arg > directive > positional fallback), canonicalizes, binds the resolved `start` onto the rebuilt `IrAst`, and reconstructs each named rule with `semantic=False`; the codegen passes (`lexic.compile.passes.relax_non_semantic`) and `base.py`'s `semantic_dump()` then read the derived `ast.non_semantic` property. A directive naming a rule the grammar never defines is silently ignored (no rule is flagged for it). A flavour's own self-grammar carries its structural rules the same way — `GBNF_GRAMMAR`/`ABNF_GRAMMAR` flag their noise rules `semantic=False` individually, and `GBNF_NOISE`/`ABNF_NOISE` are built *from `<GRAMMAR>.non_semantic`* (single source of truth feeding the reducer and the codegen passes). There is no `Directives` dataclass and no `parse_directives` symbol.
+`_scan_directives(text, line_comment)` — a **private helper in `compile.py`** (no standalone module; the leftover scanner dissolved there once the metadata moved onto `IrRule`) — returns a plain `(start, non_semantic)` tuple (`start: str | None`, `non_semantic: frozenset[str]`); the pre-lexical scan stays out of the parser so comments never become load-bearing. `canonical_grammar()` resolves precedence (explicit arg > directive > positional fallback), canonicalizes, binds the resolved `start` onto the rebuilt `IrAst`, and reconstructs each named rule with `semantic=False`; the codegen passes (`lexic.compile.passes.relax_non_semantic`) and `model.py`'s `semantic_dump()` then read the derived `ast.non_semantic` property. A directive naming a rule the grammar never defines is silently ignored (no rule is flagged for it). A flavour's own self-grammar carries its structural rules the same way — `GBNF_GRAMMAR`/`ABNF_GRAMMAR` flag their noise rules `semantic=False` individually, and `GBNF_NOISE`/`ABNF_NOISE` are built *from `<GRAMMAR>.non_semantic`* (single source of truth feeding the reducer and the codegen passes). There is no `Directives` dataclass and no `parse_directives` symbol.
 
 ## Error vocabulary (`exceptions.py`)
 
@@ -896,7 +902,7 @@ All dispatch tables must have an explicit `raise UnsupportedConstructError(...)`
 - No grammar-specific hardcoding in generic code.
 - Compiled classes are synthesized at runtime via `type()` — no source-emit template. `generated/` is git-ignored scratch (the exporter's optional output).
 - No pydantic. `import pydantic` appears nowhere in `src/` (pinned by the layering test).
-- The two deliberate runtime import edges (`base.py` → `lexic.grammars` for the flavour singleton; the `lexic.compile` package → the `lexic.parsing` engine seam) are the only ones permitted.
+- The two deliberate runtime import edges (`model.py` → `lexic.grammars` for the flavour singleton; the `lexic.compile` package → the `lexic.parsing` engine seam) are the only ones permitted.
 
 ## Import paths
 
@@ -909,7 +915,7 @@ from lexic.ir.bind import IrBind, BIND_MODES
 from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.order import RuleOrder, order_by_refs
 from lexic.ir.flavour import IrFlavour
-from lexic.base import GrammarModel
+from lexic.model import GrammarModel
 from lexic.compile import canonical_grammar, compile_text, compile_from_path, parse_grammar
 from lexic.grammars import get_flavour, flavour_for_extension, GBNF_FLAVOUR, ABNF_FLAVOUR
 from lexic.parsing import recognize, parse, parse_first, parse_reduced, parse_forest, derivations, is_ambiguous

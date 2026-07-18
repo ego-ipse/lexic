@@ -83,7 +83,7 @@ order. It runs on `IrBottomUp` and is the mandatory second stage of
 
 ## 5. Models live here too
 
-`GrammarModel` (in `lexic.base`) is an `IrNamedTuple` — a compiled model IS an
+`GrammarModel` (in `lexic.model`) is an `IrNamedTuple` — a compiled model IS an
 `IrSelf` record: walkable (`children()` = bound fields in item order),
 dispatchable (the emit-action `IrTuple` catch-all reaches it), hashable, with
 the tuple surface (iteration, `len`, indexing) part of its API. This is why the

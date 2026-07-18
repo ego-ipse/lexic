@@ -31,7 +31,6 @@ from typing import cast
 
 import pytest
 
-from lexic.base import GrammarModel
 from lexic.compile import (
     CompiledGrammar,
     canonical_grammar,
@@ -42,6 +41,7 @@ from lexic.compile.passes import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
+from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda

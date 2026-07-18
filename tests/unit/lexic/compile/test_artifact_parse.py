@@ -1,9 +1,10 @@
-# tests/test_parser.py
-"""Full round-trip tests: parse → to_text → parse → dump() equality.
+"""Tests for the compile package's parse entries (``parse``/``parse_from_path``).
+
+Full round-trip tests: parse → to_text → parse → dump() equality.
 
 _roundtrip(text, grammar) asserts two things:
   1. inst.to_text() == text  (exact text reconstruction)
-  2. parse(inst.to_text()).dump() == inst.dump()  (structural equality)
+  2. parse_from_path(inst.to_text()).dump() == inst.dump()  (structural equality)
 
 Grammar input notes:
 - arithmetic: root is (expr "=" term "\\n")+.  RHS is *term*, not *expr*, so
@@ -17,15 +18,19 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.base import GrammarModel
+from lexic.compile import (
+    compile_from_path,
+    parse_instance,
+    parse_instance_from_path,
+)
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parse import parse
+from lexic.model import GrammarModel
 from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 
 def _roundtrip(text: str, grammar: str):
     gpath = GRAMMAR_DIR / f"{grammar}.gbnf"
-    inst = parse(text, gpath)
+    inst = compile_from_path(gpath).parse(text)
     assert inst is not None
     assert isinstance(inst, GrammarModel)
 
@@ -36,7 +41,7 @@ def _roundtrip(text: str, grammar: str):
         f"  roundtrip: {roundtrip_str!r}"
     )
 
-    rt = parse(roundtrip_str, gpath)
+    rt = compile_from_path(gpath).parse(roundtrip_str)
     assert inst.dump() == rt.dump(), (
         f"dump() mismatch after round-trip for {grammar!r}:\n"
         f"  original:  {inst.dump()}\n"
@@ -64,8 +69,8 @@ def test_arithmetic_paren_expr():
 
 
 def test_arithmetic_type_dispatch():
-    """parse() returns a concrete GrammarModel with a non-None dump."""
-    inst = parse("x=1\n", GRAMMAR_DIR / "arithmetic.gbnf")
+    """The path entry returns a concrete GrammarModel with a non-None dump."""
+    inst = parse_instance_from_path("x=1\n", GRAMMAR_DIR / "arithmetic.gbnf")
     assert isinstance(inst, GrammarModel)
     assert inst.dump() is not None
 
@@ -153,4 +158,30 @@ def test_roundtrip_parametrized(grammar: str, text: str):
 def test_parse_invalid_raises():
     """Completely invalid input for arithmetic must raise a parse error."""
     with pytest.raises(UnsupportedConstructError):
-        parse("THIS IS NOT VALID ARITHMETIC !!!\n", GRAMMAR_DIR / "arithmetic.gbnf")
+        compile_from_path(GRAMMAR_DIR / "arithmetic.gbnf").parse(
+            "THIS IS NOT VALID ARITHMETIC !!!\n"
+        )
+
+
+# ── the string-primary entry (parse takes grammar SOURCE) ─────────────────
+
+
+def test_parse_takes_grammar_source_text():
+    """The unqualified entry takes grammar text, per the string-primary rule."""
+    inst = parse_instance("hi", 'root ::= "hi"\n')
+    assert isinstance(inst, GrammarModel)
+    assert inst.to_text() == "hi"
+
+
+def test_parse_accepts_an_explicit_flavour():
+    """The flavour parameter routes the text through the named front-end."""
+    inst = parse_instance("hi", 'root = "hi"\n', flavour="abnf")
+    assert inst.to_text() == "hi"
+
+
+def test_parse_from_path_accepts_an_explicit_flavour_override():
+    """parse_from_path forwards flavour instead of extension inference."""
+    inst = parse_instance_from_path(
+        "x=1\n", GRAMMAR_DIR / "arithmetic.gbnf", flavour="gbnf"
+    )
+    assert inst.to_text() == "x=1\n"

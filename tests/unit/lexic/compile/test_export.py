@@ -1,42 +1,28 @@
-"""Tests for compile/export.py — the reader-first .py view of a compiled grammar.
+"""Tests for ``lexic.compile.export`` — the importable ``.py`` twin renderer.
 
-Covers: syntactic validity of the rendered source (``ast.parse``), fidelity
-spot-checks against the binding view (every class / rule / bound field named),
-the never-repr-a-reducer-or-lambda invariant (watch-out 4), and the small
-per-helper unit shapes (field typing, optional defaults, union group types).
+Ported from the reader-view exporter (260718 rework): assertions kept
+wherever their target survived; the ruff/subprocess seam, ``_HEADER``,
+``export_module_source`` and ``_binds_repr`` tests went with their symbols
+(the formatter is the layout algebra now, the header is derived from the
+emitted content, and the binds table renders only under ``inline_tables``).
 """
 
 from __future__ import annotations
 
 import ast
-import inspect
-import subprocess
 
 import pytest
 
-from lexic.compile import (
-    CompiledGrammar,
-    canonical_grammar,
-    compile_from_path,
-    compile_text,
-)
+from lexic.compile import compile_from_path, compile_text, export_source
 from lexic.compile.binding import _RESERVED_CLASS_NAMES, RuleBinding, compute_binding
 from lexic.compile.export import (
-    _HEADER,
-    _binds_repr,
     _field_type,
     _group_model_type,
-    _ruff_format,
     _value_str_type,
-    export_module_source,
-    export_source,
 )
-from lexic.compile.passes import build_codegen_grammar
-from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.base import IrNone
 from lexic.ir.nodes import (
     IrAlternation,
-    IrAst,
     IrItem,
     IrLiteral,
     IrQuantifier,
@@ -47,34 +33,20 @@ from lexic.ir.nodes import (
 from tests.paths import GROUND_TRUTH
 
 
-def _synth_binding(text: str) -> tuple[IrAst, list[RuleBinding]]:
-    """canonical -> codegen grammar -> binding, for the small hand-built probes."""
-    canonical = canonical_grammar(text, GBNF_FLAVOUR)
-    codegen_grammar = build_codegen_grammar(canonical)
-    return codegen_grammar, compute_binding(codegen_grammar)
-
-
 def _by_name(binding: list[RuleBinding]) -> dict[str, RuleBinding]:
     return {b.rule_name: b for b in binding}
 
 
-# ── syntactic validity ────────────────────────────────────────────────────
+# ── syntactic validity (also an always-on export gate) ────────────────────
 
 
 @pytest.mark.parametrize("stem", ["list", "json", "arithmetic"])
-def test_export_source_is_valid_python_syntax(stem: str):
-    """The rendered view parses as Python for several ground-truth grammars."""
+@pytest.mark.parametrize("inline_tables", [False, True])
+def test_export_source_is_valid_python_syntax(stem: str, inline_tables: bool):
+    """The rendered module parses as Python in both table modes."""
     cg = compile_from_path(GROUND_TRUTH / f"{stem}.gbnf")
-    source = export_source(cg, stem=stem)
+    source = export_source(cg, stem=stem, inline_tables=inline_tables)
     ast.parse(source)  # raises SyntaxError on failure
-
-
-def test_export_module_source_is_valid_python_without_ruff():
-    """Even the unformatted source (export_module_source, no ruff pass) parses."""
-    cg = compile_text("root ::= word [0-9]*\nword ::= [a-z]+\n")
-    binding = compute_binding(cg.codegen_grammar)
-    source = export_module_source(cg.grammar, cg.codegen_grammar, binding, stem="probe")
-    ast.parse(source)
 
 
 # ── fidelity spot-checks (>= 2 GT grammars) ───────────────────────────────
@@ -102,23 +74,31 @@ def test_export_source_names_every_bound_field(stem: str):
             assert f"{name}:" in source, f"field {name!r} of {bound.class_name} missing"
 
 
+def test_class_docstring_carries_the_rule_in_grammar_syntax():
+    """Each class documents its own rule as flavour-rendered grammar text."""
+    cg = compile_text("root ::= word [0-9]*\nword ::= [a-z]+\n")
+    source = export_source(cg, stem="probe")
+    assert '"""``word ::= [a-z]+``"""' in source
+
+
+def test_fields_render_in_defaults_last_declaration_order():
+    """Required fields precede ``= None`` optionals in the class body."""
+    cg = compile_text("root ::= [0-9]? word\nword ::= [a-z]+\n")
+    source = export_source(cg, stem="probe")
+    body = source.split("class Root(", 1)[1]
+    assert body.index("word: Word") < body.index("digit: str | None = None")
+
+
 # ── watch-out 4: never repr a reducer / noise map ─────────────────────────
 
 
 @pytest.mark.parametrize("stem", ["list", "json", "arithmetic"])
 def test_export_source_never_mentions_lambda_or_reducer(stem: str):
-    """The rendered source carries pure grammar-AST reprs only — no action-algebra."""
+    """The rendered source carries pure grammar-AST notation — no action-algebra."""
     cg = compile_from_path(GROUND_TRUTH / f"{stem}.gbnf")
     source = export_source(cg, stem=stem)
     assert "IrLambda" not in source
     assert "Reducer" not in source
-
-
-def test_export_module_source_takes_no_fold_or_reducer_argument():
-    """export_module_source's signature cannot reach a CompiledGrammar's fold —
-    it only ever sees the two grammars and the binding view."""
-    params = set(inspect.signature(export_module_source).parameters)
-    assert params == {"canonical", "codegen_grammar", "binding", "stem"}
 
 
 # ── field typing / optional defaults / union groups ───────────────────────
@@ -171,82 +151,71 @@ def test_field_type_models_mode_is_always_a_list_never_optional():
     assert result == "list[A]"
 
 
-def test_binds_repr_round_trips_slot_name_and_bind():
-    """Every field's item slot -> (name, IrBind repr) appears in the rendering."""
-    _grammar, binding = _synth_binding("root ::= word [0-9]*\nword ::= [a-z]+\n")
-    root = _by_name(binding)["root"]
-    rendered = _binds_repr(root)
-    for name, ibind in root.fields.items():
-        assert f"{ibind.item}: ({name!r}, {ibind!r})" in rendered
+# ── table modes ───────────────────────────────────────────────────────────
 
 
-# ── ruff formatting: best-effort, never fatal ─────────────────────────────
+def test_default_mode_has_no_dunders_and_ends_in_the_bind_call():
+    """The pretty default: dunder-free classes + a module-end bind call."""
+    cg = compile_text("root ::= word [0-9]*\nword ::= [a-z]+\n")
+    source = export_source(cg, stem="probe")
+    assert "__grammar__" not in source
+    assert "__binds__" not in source
+    assert source.rstrip().endswith("bind_module(GRAMMAR, globals())")
 
 
-def test_ruff_format_returns_unchanged_source_when_ruff_is_unavailable(monkeypatch):
-    """A missing/failing ruff is not fatal — the unformatted source passes through."""
-
-    def _boom(*_args, **_kwargs):
-        raise FileNotFoundError("no ruff on this PATH")
-
-    monkeypatch.setattr(subprocess, "run", _boom)
-    source = "x=1\n"
-    assert _ruff_format(source) == source
-
-
-def test_ruff_format_actually_reformats_when_available():
-    """A real ruff pass reformats messy source into a different, still-valid string."""
-    messy = "class   Foo( GrammarModel ):\n    value:str\n"
-    formatted = _ruff_format(messy)
-    assert formatted != messy
-    ast.parse(formatted)
+def test_inline_tables_mode_writes_classvars_and_no_bind_call():
+    """inline_tables: per-class ``__grammar__``/``__binds__``, no bind call."""
+    cg = compile_text("root ::= word [0-9]*\nword ::= [a-z]+\n")
+    source = export_source(cg, stem="probe", inline_tables=True)
+    assert "__grammar__: ClassVar[IrRule] = " in source
+    assert "__binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {" in source
+    assert "bind_module" not in source
+    for bound in compute_binding(cg.codegen_grammar):
+        for name, ibind in bound.fields.items():
+            assert f"{ibind.item}: ({name!r}, {ibind!r})," in source
 
 
-# ── reserved-class-name drift pin (the surviving source-emitter surface) ──
+# ── reserved-class-name drift pin ─────────────────────────────────────────
 
 
-def _header_bound_names() -> set[str]:
-    """The module-scope names the exporter's header binds (imports)."""
-    tree = ast.parse(_HEADER.format(stem="probe"))
+def _header_bound_names(source: str) -> set[str]:
+    """The module-scope names a rendered module's imports bind."""
     names: set[str] = set()
-    for node in ast.walk(tree):
+    for node in ast.walk(ast.parse(source)):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             names.update(alias.asname or alias.name for alias in node.names)
     return names
 
 
 def test_reserved_class_names_cover_the_export_header():
-    """Every class-shadowable name the exporter's header binds is reserved.
+    """Every class-shadowable name a real export's header binds is reserved.
 
-    Re-anchors ``_RESERVED_CLASS_NAMES`` to the sole surviving source emitter
-    (the exporter) — a generated class named after a header binding would
-    shadow it in the rendered ``.py`` view. ``annotations`` (the ``__future__``
-    flag, lowercase) can never collide with a PascalCase class name, so it is
-    not a mangling target.
+    Union over the GT corpus in both table modes. ``annotations`` (the
+    ``__future__`` flag) and ``bind_module`` are lowercase — never a
+    PascalCase collision target.
     """
-    shadowable = _header_bound_names() - {"annotations"}
+    shadowable: set[str] = set()
+    for gt in sorted(GROUND_TRUTH.glob("*.gbnf")):
+        cg = compile_from_path(gt)
+        for inline_tables in (False, True):
+            source = export_source(cg, inline_tables=inline_tables)
+            shadowable |= _header_bound_names(source)
+    shadowable -= {name for name in shadowable if not name[:1].isupper()}
     assert shadowable <= _RESERVED_CLASS_NAMES
 
 
 # ── public entry surface ──────────────────────────────────────────────────
 
 
-def test_export_source_docstring_names_the_stem():
-    """The rendered module docstring names the caller's stem."""
+def test_export_source_docstring_names_the_stem_and_flavour():
+    """The rendered module docstring names the stem and the source flavour."""
     cg = compile_text('root ::= "hi"\n')
     source = export_source(cg, stem="my_stem")
     assert "'my_stem'" in source
+    assert "(gbnf)" in source
 
 
-def test_export_source_default_stem_is_used_when_omitted():
-    """A caller who omits ``stem`` gets the neutral default, not a crash."""
-    cg = compile_text('root ::= "hi"\n')
-    source = export_source(cg)
-    assert "'grammar'" in source
-
-
-def test_export_source_takes_a_compiled_grammar():
-    """export_source's one required positional is the CompiledGrammar artefact."""
-    params = inspect.signature(export_source).parameters
-    assert "compiled" in params
-    assert params["compiled"].annotation in (CompiledGrammar, "CompiledGrammar")
+def test_export_source_defaults_to_the_compiled_stem():
+    """Without an explicit stem the artefact's own stem names the module."""
+    cg = compile_from_path(GROUND_TRUTH / "list.gbnf")
+    assert "'list'" in export_source(cg)

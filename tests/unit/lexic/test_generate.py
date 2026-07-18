@@ -6,7 +6,7 @@ import random
 
 import pytest
 
-from lexic.compile import canonical_grammar
+from lexic.compile import canonical_grammar, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import _Generator, _pick_count, generate
 from lexic.grammars.gbnf import GBNF_FLAVOUR
@@ -22,7 +22,6 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parse import parse
 from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 
@@ -46,7 +45,7 @@ def test_generate_arithmetic_is_parseable():
     gpath = GRAMMAR_DIR / "arithmetic.gbnf"
     for seed in range(10):
         text = generate("root", specs, rng=random.Random(seed))
-        inst = parse(text, gpath)
+        inst = compile_from_path(gpath).parse(text)
         assert inst.to_text() == text, f"Round-trip failed for seed={seed}: {text!r}"
 
 
@@ -56,7 +55,7 @@ def test_generate_list_is_parseable():
     gpath = GRAMMAR_DIR / "list.gbnf"
     for seed in range(5):
         text = generate("root", specs, rng=random.Random(seed))
-        inst = parse(text, gpath)
+        inst = compile_from_path(gpath).parse(text)
         assert inst.to_text() == text
 
 
@@ -66,7 +65,7 @@ def test_generate_japanese_is_parseable():
     gpath = GRAMMAR_DIR / "japanese.gbnf"
     for seed in range(5):
         text = generate("root", specs, rng=random.Random(seed))
-        inst = parse(text, gpath)
+        inst = compile_from_path(gpath).parse(text)
         assert inst.to_text() == text
 
 

@@ -30,8 +30,8 @@ exact target):
   config / private attributes) — DIED with the prior implementation; the
   licence is now trivially granted (pinned in ``tests/unit/lexic/test_base.py``).
 - ``model_fields`` — gone; the slot → field mapping reads through the
-  public :meth:`~lexic.base.GrammarModel.bound_fields` (pinned below).
-- ``model_dump(exclude=...)`` — :meth:`~lexic.base.GrammarModel.
+  public :meth:`~lexic.model.GrammarModel.bound_fields` (pinned below).
+- ``model_dump(exclude=...)`` — :meth:`~lexic.model.GrammarModel.
   semantic_dump` is native (same top-level-only exclusion depth, R2-5 —
   pinned below).
 - The FORWARD-LOOKING ACCEPTANCES recorded at Task 0 are now the live
@@ -44,10 +44,10 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.exceptions import FieldValidationError
 from lexic.ir.bind import IrBind
+from lexic.model import GrammarModel
 from tests.paths import GROUND_TRUTH
 
 # ── construction ──────────────────────────────────────────────────────────

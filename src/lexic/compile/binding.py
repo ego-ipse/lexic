@@ -115,7 +115,7 @@ class RuleBinding:
 
     ``parent_class_names`` holds every alternation the rule is a unit-ref arm of
     (deterministically ordered — see :func:`_parent_rules`); an empty tuple
-    means the class subclasses :class:`~lexic.base.GrammarModel` directly.
+    means the class subclasses :class:`~lexic.model.GrammarModel` directly.
     """
 
     rule_name: str
@@ -160,19 +160,14 @@ _RESERVED_FIELD_NAMES: frozenset[str] = frozenset(keyword.kwlist) | frozenset(
 """Field names that would break or shadow the generated model: Python keywords
 (a ``class: ...`` annotation is a SyntaxError) and ``GrammarModel``'s whole
 public surface (its methods plus the inherited IrSelf/tuple protocol). Curated
-as a literal — importing ``lexic.base`` here would couple this module to the
+as a literal — importing ``lexic.model`` here would couple this module to the
 runtime — and drift-pinned by a test against the real class."""
 
 _RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
     {
         "GrammarModel",
-        "StringConstraints",
-        "Annotated",
         "ClassVar",
-        "List",
         "Literal",
-        "Optional",
-        "Union",
         "IrAlternation",
         "IrAst",
         "IrBind",
@@ -190,11 +185,13 @@ _RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
         "IrSequence",
     }
 )
-"""Module-scope names a rendered ``.py`` view binds — the exporter's header
-imports (:data:`lexic.compile.export._HEADER`) plus the IR node names that
-appear as bare constructors inside the exported reprs. A generated class of
-the same name would shadow them in that source. Drift-pinned against the
-exporter header by ``test_reserved_class_names_cover_the_export_header``."""
+"""Module-scope names a generated twin module binds — the exporter's header
+imports (``GrammarModel``, ``ClassVar``/``Literal`` from ``typing`` when
+used) plus the IR constructor names that appear in the emitted notation. A
+generated class of the same name would shadow them in that source; lowercase
+(``bind_module``) and UPPERCASE (``GRAMMAR``) bindings can never collide
+with a PascalCase class name. Drift-pinned against a real export by
+``test_reserved_class_names_cover_the_export_header``."""
 
 
 def class_name_for(rule_name: str) -> str:
@@ -204,7 +201,7 @@ def class_name_for(rule_name: str) -> str:
 
     :param rule_name: The (canonical) rule name.
     :returns: A valid Python class name (``jp-char`` → ``JpChar``,
-        ``true`` → ``True_``, ``annotated`` → ``Annotated_``).
+        ``true`` → ``True_``, ``ir-rule`` → ``IrRule_``).
     """
     pascal = "".join(
         part[:1].upper() + part[1:] for part in _NAME_SPLIT.split(rule_name)

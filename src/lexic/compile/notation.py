@@ -208,11 +208,12 @@ NOTATION_GRAMMAR = IrAst(
         _rule("rparen", IrSequence(_lit(")"), _ref("ws"))),
         _rule("args-opt", IrSequence(_ref("arglist")), IrSequence()),
         # NOTE deliberately NO trailing-comma support (``F(a,)``): the shape
-        # ``value arg-rest* comma?`` exposes a PDA gate mis-parse (the arg-rest
-        # loop and the optional comma share FIRST=','; the compiled gate splits
-        # a NAME mid-word and the fold's error escapes as a non-PdaFail, so the
-        # Earley completion never engages) — see 260718-generated-files
-        # FOLLOWUP. The emit half therefore never emits trailing commas.
+        # ``value arg-rest* comma?`` is ungateable (arg-rest and the optional
+        # comma share FIRST=','), so arglist would island and every notation
+        # parse would pay the windowed-Earley cold path. Correct either way
+        # (island truncation fail-softs to the completion since the
+        # valid-prefix fix in parsing/pda/runtime/islands.py), but the fast
+        # path matters here; the emit half never emits trailing commas.
         _rule(
             "arglist",
             IrSequence(_ref("value"), IrItem(IrRuleRef("arg-rest"), _STAR)),
@@ -405,7 +406,7 @@ _CONFIG: dict[str, RuleFold] = {
     "neg-int": RuleFold("sequence", _neg_int, 3, (FieldFold(1, "text", "raw", 1),)),
 }
 
-_NOTATION_FOLD = ModelFold.from_config(_CONFIG)
+NOTATION_FOLD = ModelFold.from_config(_CONFIG)
 
 
 # ── the entry ─────────────────────────────────────────────────────────────
@@ -423,7 +424,7 @@ def load_ir(text: str) -> IrSelf:
     :returns: The reconstructed IR node.
     :raises UnsupportedConstructError: On a parse failure or an unknown symbol.
     """
-    return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, _NOTATION_FOLD))
+    return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_FOLD))
 
 
 def load_ir_from_path(path: str | Path) -> IrSelf:

@@ -119,7 +119,7 @@ from lexic.parsing.pda.runtime.build import (
     finish_delegate,
     leaf_mismatch,
 )
-from lexic.parsing.pda.runtime.islands import island_parse
+from lexic.parsing.pda.runtime.islands import island_parse, island_value
 
 __all__ = ["PdaFail", "PdaKernel"]
 
@@ -679,14 +679,16 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
 
         :param name: The island rule name.
         :param sink: The enclosing sink the sub-model splices into.
-        :raises PdaFail: With no fold to splice (island-free path), or when the
-            island rule completes over no window from the cursor.
+        :raises PdaFail: With no fold to splice (island-free path), when the
+            island rule completes over no window from the cursor, or when the
+            fold refuses the completion (a window-truncated mis-parse — see
+            :func:`~lexic.parsing.pda.runtime.islands.island_value`).
         """
         fold = self.fold
         if fold is None:
             raise PdaFail(f"island {name!r} at {self.pos}: no fold for splice")
         tree, end = self._island_subparse(name)
-        model = fold.apply(tree)
+        model = island_value(lambda: fold.apply(tree), name, self.pos)
         if model is not None:
             sink.append(model)
         self.pos += end

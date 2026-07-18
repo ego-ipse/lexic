@@ -23,7 +23,7 @@ singletons — the same flavour as text, proving the text path.
 | `register_flavour(flavour)` | register a new flavour singleton |
 | `GBNF_FLAVOUR`, `ABNF_FLAVOUR` | the built-ins, eagerly registered on import |
 
-`lexic.base.to_grammar(flavour)` resolves a singleton through `get_flavour` and
+`lexic.model.to_grammar(flavour)` resolves a singleton through `get_flavour` and
 calls `flavour.apply(self.__grammar__)`; `lexic.compile` resolves the flavour
 for a compile the same way. These are the only edges into this package.
 

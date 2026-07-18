@@ -66,11 +66,11 @@ from lark_refs import lark_variants
 from parse_bench import SIZES, interleaved, load_lark, make_input
 from pipeline_bench import _INSTANCE_WORKLOADS, GROUND_TRUTH
 
-from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.flavour import IrFlavour
+from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda

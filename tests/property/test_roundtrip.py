@@ -13,10 +13,9 @@ from typing import cast
 import hypothesis.strategies as st
 from hypothesis import HealthCheck, given, settings
 
-from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
 from lexic.generate import generate
-from lexic.parse import parse
+from lexic.model import GrammarModel
 from lexic.parsing.products import _model_product, earley_model
 from tests.paths import GROUND_TRUTH as _GRAMMAR_DIR
 
@@ -31,14 +30,14 @@ def _roundtrip(grammar: str, specs: dict, seed: int) -> None:
         # guard keeps the helper honest for any that could.)
         return
     gpath = _GRAMMAR_DIR / f"{grammar}.gbnf"
-    inst = parse(text, gpath)
+    inst = compile_from_path(gpath).parse(text)
     assert inst.to_text() == text, (
         f"Round-trip failed [{grammar}] seed={seed}:\n"
         f"  generated: {text!r}\n"
         f"  to_text:   {inst.to_text()!r}"
     )
     # Second parse verifies parse() is deterministic: same input → same dump()
-    inst2 = parse(inst.to_text(), gpath)
+    inst2 = compile_from_path(gpath).parse(inst.to_text())
     assert inst.dump() == inst2.dump()
 
 

@@ -17,11 +17,11 @@ from typing import cast
 
 import pytest
 
-from lexic.base import GrammarModel
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrAst
+from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.products import (

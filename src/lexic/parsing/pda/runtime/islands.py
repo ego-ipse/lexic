@@ -12,6 +12,9 @@ reverse. The thin ``PdaKernel._island`` dispatcher (which owns the cursor state
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
+from lexic.exceptions import LexicError
 from lexic.ir.base import IrTuple
 from lexic.parsing.earley.engine import EarleyParser
 from lexic.parsing.earley.forest import DERIVATION_STREAM, ParseTree, SppfNode
@@ -19,11 +22,44 @@ from lexic.parsing.earley.kernel import Delegate, FastTree, Kernel
 from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables
 from lexic.parsing.pda.core.errors import PdaFail
 
-__all__ = ["ISLAND_WINDOW", "island_derivation", "island_parse", "island_run"]
+__all__ = [
+    "ISLAND_WINDOW",
+    "island_derivation",
+    "island_parse",
+    "island_run",
+    "island_value",
+]
 
 ISLAND_WINDOW = 256
 """Initial character window for an island Earley sub-parse; doubles on demand
 while the best completion still touches the window edge and input remains."""
+
+
+def island_value[T](compute: Callable[[], T], name: str, pos: int) -> T:
+    """Run an island's fold/reduce step, failing SOFT on a library error.
+
+    The window-growth heuristic is a heuristic: a language with the
+    valid-prefix property (e.g. bare identifiers) can complete a TRUNCATED
+    parse strictly inside a window that cut a token, without touching the
+    edge — the spliced sub-model is then wrong, and its fold/reduce step is
+    the first thing to notice (an unknown symbol, a refused field). Such a
+    :class:`~lexic.exceptions.LexicError` reroutes to :class:`PdaFail`, so
+    the Earley completion — which parses the WHOLE input and re-runs the
+    same fold — becomes the authority; a genuine fold error reproduces there
+    identically. Non-library exceptions (authored-constructor bugs) still
+    surface loudly.
+
+    :param compute: The deferred fold/reduce application.
+    :param name: The island rule name (for the failure message).
+    :param pos: The cursor position (for the failure message).
+    :returns: The computed sub-model / IR value.
+    :raises PdaFail: When ``compute`` raises a :class:`LexicError`.
+    """
+    try:
+        return compute()
+    except LexicError as exc:
+        raise PdaFail(f"island {name!r} at {pos}: fold refused the completion") from exc
+
 
 _DERIV_PARSER = EarleyParser()
 """The shared façade dispatcher the island derivation-stream fallback threads

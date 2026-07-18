@@ -29,7 +29,7 @@ class IrKeyError(UnsupportedConstructError, KeyError):
 class FieldValidationError(LexicError):
     """A hand-constructed model field violates its grammar-intrinsic contract.
 
-    Raised by :meth:`lexic.base.GrammarModel.__new__` on the hand-construction
+    Raised by :meth:`lexic.model.GrammarModel.__new__` on the hand-construction
     path when a field's value fails its IR-intrinsic per-field check — a
     char-class field with an out-of-class character or wrong length, a
     ``Literal[...]`` value outside its arm set, a model/models field holding a

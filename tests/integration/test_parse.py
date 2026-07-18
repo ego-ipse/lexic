@@ -1,15 +1,15 @@
-"""Integration tests: parse() round-trips across all 7 grammars."""
+"""Integration tests: compiled-artifact round-trips across all 7 grammars."""
 
 from __future__ import annotations
 
-from lexic.parse import parse
+from lexic.compile import compile_from_path
 from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 
 def _roundtrip(text: str, grammar: str) -> None:
     """Parse text with the named grammar and assert to_text() round-trips."""
     gpath = GRAMMAR_DIR / f"{grammar}.gbnf"
-    inst = parse(text, gpath)
+    inst = compile_from_path(gpath).parse(text)
     assert inst.to_text() == text, (
         f"Round-trip failed for {grammar!r}: {text!r} → {inst.to_text()!r}"
     )

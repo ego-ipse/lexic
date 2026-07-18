@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.ir.nodes import IrAst
 from lexic.parsing.earley.forest import ParseTree
 from lexic.parsing.earley.kernel import Kernel
@@ -27,6 +28,7 @@ from lexic.parsing.pda.runtime.islands import (
     island_derivation,
     island_parse,
     island_run,
+    island_value,
 )
 
 # ── island_run ────────────────────────────────────────────────────────
@@ -112,3 +114,45 @@ def test_island_derivation_returns_the_first_derivation(sss_grammar: IrAst):
     tree = island_derivation(kern, item, end, "s")
     assert isinstance(tree, ParseTree)
     assert tree.symbol == "s"
+
+
+# ── island_value — the splice fail-soft guard ─────────────────────────
+
+
+def test_island_value_passes_the_computed_value_through():
+    """A clean fold/reduce step returns its value untouched."""
+    assert island_value(lambda: "model", "r", 7) == "model"
+
+
+def test_island_value_reroutes_a_lexic_error_to_pdafail():
+    """A library error from the fold (a window-truncated valid-prefix
+    mis-parse — e.g. an unknown symbol) becomes PdaFail, cause preserved,
+    so the Earley completion takes over as the authority."""
+
+    def _refuse() -> str:
+        raise UnsupportedConstructError("notation: unknown symbol 'IrQuan'")
+
+    with pytest.raises(PdaFail) as err:
+        island_value(_refuse, "arglist", 12)
+    assert "arglist" in str(err.value) and "12" in str(err.value)
+    assert isinstance(err.value.__cause__, UnsupportedConstructError)
+
+
+def test_island_value_reroutes_field_validation_errors_too():
+    """The whole LexicError vocabulary reroutes, not just the parse error."""
+
+    def _refuse() -> str:
+        raise FieldValidationError("field 'x': out of class")
+
+    with pytest.raises(PdaFail):
+        island_value(_refuse, "r", 0)
+
+
+def test_island_value_lets_non_library_exceptions_surface():
+    """An authored-constructor bug (non-LexicError) is NOT muted."""
+
+    def _boom() -> str:
+        raise RuntimeError("authored ctor bug")
+
+    with pytest.raises(RuntimeError):
+        island_value(_boom, "r", 0)

@@ -30,7 +30,6 @@ from typing import cast
 
 import pytest
 
-from lexic.base import GrammarModel
 from lexic.compile import (
     CompiledGrammar,
     canonical_grammar,
@@ -41,6 +40,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars import flavour_for_extension
 from lexic.grammars.gbnf import GBNF_FLAVOUR
+from lexic.model import GrammarModel
 from lexic.parsing import parse_first
 from lexic.parsing.pda.compiler.clones import KTupleGate, PeekGate
 from lexic.parsing.pda.compiler.flatten import all_clones

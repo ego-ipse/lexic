@@ -5,7 +5,7 @@ For every ground-truth grammar, drives the front half of the pipeline
 ``build_codegen_grammar`` → ``compute_binding``) and then ``synthesize``,
 asserting each synthesized class:
 
-- is a valid :class:`~lexic.base.GrammarModel` record;
+- is a valid :class:`~lexic.model.GrammarModel` record;
 - carries each field's :class:`~lexic.ir.bind.IrBind` (readable through the
   public ``bound_fields()``) and a per-class ``__grammar__: IrRule`` from the
   codegen grammar.
@@ -20,12 +20,12 @@ from pathlib import Path
 
 import pytest
 
-from lexic.base import GrammarModel
 from lexic.compile.binding import RuleBinding, compute_binding
 from lexic.compile.passes import build_codegen_grammar
 from lexic.compile.synthesis import synthesize
 from lexic.ir.bind import IrBind
 from lexic.ir.nodes import IrRule
+from lexic.model import GrammarModel
 from tests.integration._codegen_pipeline import canonical_ast
 from tests.paths import GROUND_TRUTH
 

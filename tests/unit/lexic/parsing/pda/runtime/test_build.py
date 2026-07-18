@@ -82,6 +82,17 @@ def test_finish_delegate_declines_on_pdafail():
     assert finish_delegate(sub, cast(FlatClone, object()), "abc", 0) is None
 
 
+def test_finish_delegate_declines_on_a_lexic_error_from_the_fold():
+    """A fold refusing the delegate's span (LexicError) declines — the island's
+    own Earley machinery then parses the rule (valid-prefix truncation fix)."""
+
+    def _refuse(clone, pos):
+        raise UnsupportedConstructError("unknown symbol 'IrQuan'")
+
+    sub = SimpleNamespace(prefix_run=_refuse)
+    assert finish_delegate(sub, cast(FlatClone, object()), "abc", 0) is None
+
+
 # ── alt_model ────────────────────────────────────────────────────────────────
 
 

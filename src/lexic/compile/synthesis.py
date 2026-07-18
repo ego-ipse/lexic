@@ -4,7 +4,7 @@ Instead of emitting Python source, writing a file and importing it, each
 :class:`~lexic.compile.binding.RuleBinding` becomes a class built directly with
 ``type(name, bases, ns)``. CPython computes the winning metaclass
 (:class:`~lexic.ir.meta.IrMeta`) from the bases and delegates, so a bare
-``type(...)`` call yields a proper :class:`~lexic.base.GrammarModel` record —
+``type(...)`` call yields a proper :class:`~lexic.model.GrammarModel` record —
 no source, no import.
 
 The namespace each class carries:
@@ -28,10 +28,10 @@ built. A parentless rule subclasses :class:`GrammarModel` directly.
 
 from __future__ import annotations
 
-from lexic.base import GrammarModel
 from lexic.compile.binding import RuleBinding
 from lexic.ir.bind import IrBind
 from lexic.ir.nodes import IrAst, IrItem, IrRule, IrSequence
+from lexic.model import GrammarModel
 
 # A synthesized field's annotation is a neutral placeholder — ``object``. Only
 # field *names* drive ``_fields``; the annotation type is never read at runtime

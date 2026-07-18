@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.compiler.flatten import M_GTEXT, M_MODEL, M_MODELS, FlatClone
 from lexic.parsing.pda.core.errors import PdaFail
@@ -69,12 +69,15 @@ def finish_delegate(
     :param window_text: The island window (the sub-parse's whole input).
     :param pos: The start position within ``window_text``.
     :returns: ``(end, payload)``, or ``None`` when the sub-run fails
-        (:class:`PdaFail`) or reaches the window edge (a possibly-truncated span
-        — fall through so the island doubling window grows).
+        (:class:`PdaFail`), its fold refuses the span (a
+        :class:`~lexic.exceptions.LexicError` — e.g. a window-truncated token
+        that still completes as a valid prefix), or it reaches the window edge
+        (a possibly-truncated span). Declining hands the rule back to the
+        island's own Earley machinery.
     """
     try:
         end, payload = sub.prefix_run(clone, pos)
-    except PdaFail:
+    except PdaFail, LexicError:
         return None
     if end == len(window_text):
         return None

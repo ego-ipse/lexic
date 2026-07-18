@@ -227,7 +227,7 @@ class ModelFold[M]:
     Generic in ``M``, the model type the start rule folds to: a fold built for
     a codegen grammar produces ``ModelFold[GrammarModel]`` and
     :meth:`apply` returns a ``GrammarModel`` — the engine stays a leaf w.r.t.
-    :mod:`lexic.base`, so the concrete model type rides the type parameter the
+    :mod:`lexic.model`, so the concrete model type rides the type parameter the
     caller (``compile.py``) binds rather than an import.
 
     The authored form is :attr:`bodies`, a per-rule

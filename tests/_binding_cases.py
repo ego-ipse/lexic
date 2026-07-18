@@ -15,7 +15,6 @@ from typing import Callable
 
 import pytest
 
-from lexic.base import GrammarModel
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrChr, IrNone, IrSeq
 from lexic.ir.bind import IrBind
@@ -32,6 +31,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
+from lexic.model import GrammarModel
 
 _DIGIT = IrCharClass(IrRange(IrChr("0"), IrChr("9")))
 _RANGE_AC = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
@@ -488,9 +488,16 @@ def _case_cycle_member_keeps_its_outside_parent(binding: ModuleType) -> None:
 def _case_class_name_mangles_keywords_and_header_bindings(
     binding: ModuleType,
 ) -> None:
-    """Keywords and emitted-header names get the ``_`` suffix; others don't."""
+    """Keywords and emitted-header names get the ``_`` suffix; others don't.
+
+    The pydantic/typing-era reservations (``Annotated``, ``Optional``, …)
+    were trimmed with the twin-module header (260718): ``annotated`` now
+    unmangles; the emitted IR constructor names still mangle.
+    """
     assert binding.class_name_for("true") == "True_"
-    assert binding.class_name_for("annotated") == "Annotated_"
+    assert binding.class_name_for("annotated") == "Annotated"
+    assert binding.class_name_for("literal") == "Literal_"
+    assert binding.class_name_for("ir-rule") == "IrRule_"
     assert binding.class_name_for("grammar-model") == "GrammarModel_"
     assert binding.class_name_for("jp-char") == "JpChar"
 

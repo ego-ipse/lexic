@@ -8,7 +8,6 @@ import pytest
 
 import lexic
 import lexic.compile as compile_module
-from lexic.base import GrammarModel
 from lexic.compile import (
     CompiledGrammar,
     _scan_directives,
@@ -25,6 +24,7 @@ from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst, IrLiteral
 from lexic.ir.walk import IrDispatch
+from lexic.model import GrammarModel
 from lexic.parsing import normalize
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.clones import PdaTables

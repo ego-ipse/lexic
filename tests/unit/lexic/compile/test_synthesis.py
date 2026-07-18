@@ -4,13 +4,12 @@ No codegen equivalent exists (source emission is gone), so these tests pin
 the spine :func:`~lexic.compile.synthesis.synthesize` builds directly: class
 identity (module/qualname/``__grammar__``/``__binds__``), MI base ordering,
 per-``kind`` field shape, optional-field defaults, and construction/
-round-trip behavior on the resulting :class:`~lexic.base.GrammarModel`
+round-trip behavior on the resulting :class:`~lexic.model.GrammarModel`
 subclasses.
 """
 
 from __future__ import annotations
 
-from lexic.base import GrammarModel
 from lexic.compile import canonical_grammar, compile_text
 from lexic.compile.binding import RuleBinding, compute_binding
 from lexic.compile.passes import build_codegen_grammar
@@ -26,6 +25,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.model import GrammarModel
 
 
 def _synth(

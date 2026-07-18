@@ -46,16 +46,16 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Hashable, Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 
-from lexic.base import GrammarModel
+from lexic.compile.artifact import CompiledGrammar
 from lexic.compile.binding import (
     RuleBinding,
     check_supplied_class,
     compute_binding,
     field_kwargs,
 )
+from lexic.compile.export import export_module, export_source
 from lexic.compile.notation import load_ir, load_ir_from_path
 from lexic.compile.passes import build_codegen_grammar
 from lexic.compile.synthesis import synthesize
@@ -66,23 +66,28 @@ from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAst, IrItem, IrRule, IrRuleRef
+from lexic.model import GrammarModel
 from lexic.parsing import (
     FastCtor,
     FieldFold,
     ModelBody,
     ModelFold,
     Reducer,
-    parse_model,
     parse_reduced,
 )
 
 __all__ = [
     "CompiledGrammar",
+    "bind_module",
     "canonical_grammar",
     "compile_from_path",
     "compile_text",
+    "export_module",
+    "export_source",
     "load_ir",
     "load_ir_from_path",
+    "parse_instance",
+    "parse_instance_from_path",
     "parse_grammar",
     "reset_cache_for_tests",
 ]
@@ -101,54 +106,6 @@ def _flavour_reducer(flavour: IrFlavour) -> Reducer:
             f"compile: flavour {flavour.name!r} carries no parse Reducer"
         )
     return reducer
-
-
-@dataclass(frozen=True)
-class CompiledGrammar:
-    """Parse-ready artefacts produced by compile().
-
-    :ivar classes: Generated model classes by class name.
-    :ivar grammar: The canonical grammar AST (what the user's grammar IS —
-        the transpile/re-emit source; also the generated module's GRAMMAR).
-    :ivar codegen_grammar: The post-pass codegen grammar the fold binds against
-        — the engine key :meth:`parse` hands to
-        :func:`~lexic.parsing.parse_model` (the engine memoises its lifted /
-        normalised / PDA / run-collapsed compilation per this grammar's identity).
-    :ivar fold: The positional ParseTree → model-instance fold.
-    """
-
-    classes: dict[str, type]
-    grammar: IrAst
-    codegen_grammar: IrAst
-    fold: ModelFold[GrammarModel]
-
-    def parse(self, text: str) -> GrammarModel:
-        """Parse text against the compiled grammar and return a model instance.
-
-        Delegates to the engine's :func:`~lexic.parsing.parse_model` product,
-        which runs the predictive PDA first and completes on the Earley engine
-        on any non-deterministic point (that completion owns the user-facing
-        diagnostics). ``PdaFail`` never surfaces.
-
-        :raises UnsupportedConstructError: If ``text`` does not parse, or the
-            fold produced no model for the start rule.
-        """
-        return self._ensure_model(parse_model(self.codegen_grammar, text, self.fold))
-
-    @staticmethod
-    def _ensure_model(model: object) -> GrammarModel:
-        """Assert the start rule folded to a :class:`GrammarModel`.
-
-        :param model: The object the PDA or the fold produced for the start rule.
-        :returns: ``model`` narrowed to :class:`GrammarModel`.
-        :raises UnsupportedConstructError: When ``model`` is not a model instance.
-        """
-        if not isinstance(model, GrammarModel):
-            raise UnsupportedConstructError(
-                f"compile: start rule folded to {type(model).__name__!r}, "
-                "not a GrammarModel"
-            )
-        return model
 
 
 _CACHE: dict[Hashable, CompiledGrammar] = {}
@@ -385,6 +342,8 @@ def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGra
         grammar=ast,
         codegen_grammar=codegen_grammar,
         fold=fold,
+        flavour=flavour,
+        stem=stem,
     )
 
 
@@ -424,6 +383,56 @@ def compile_text(
     return cg
 
 
+def _expected_fields(bound: RuleBinding) -> tuple[str, ...]:
+    """The record fields a generated class must declare for its binding.
+
+    :param bound: The rule's binding view.
+    :returns: The field names in declaration order (``value_str`` classes
+        carry the implicit ``value`` field; ``alternation`` classes none).
+    """
+    if bound.kind == "value_str":
+        return ("value",)
+    if bound.kind == "alternation":
+        return ()
+    return tuple(bound.fields)
+
+
+def bind_module(grammar: IrAst, namespace: Mapping[str, object]) -> None:
+    """Attach the runtime tables to a generated twin module's classes.
+
+    The module-end call of a dunder-free generated module: recomputes the
+    codegen grammar and binding view from the module's ``GRAMMAR`` (the same
+    deterministic pipeline the runtime runs) and writes each class's
+    ``__grammar__`` + ``__binds__``. ``_child_attrs`` is deliberately left
+    alone — the class-body annotations already derived the runtime-identical
+    value at class creation.
+
+    :param grammar: The module's canonical ``GRAMMAR`` AST.
+    :param namespace: The module namespace (``globals()`` at the call site).
+    :raises UnsupportedConstructError: When a binding's class is missing from
+        the namespace, is not a :class:`~lexic.model.GrammarModel` subclass,
+        or declares fields that do not match its rule's binding.
+    """
+    codegen_grammar = build_codegen_grammar(grammar)
+    rules = {str(rule.name): rule for rule in codegen_grammar.rules}
+    for bound in compute_binding(codegen_grammar):
+        cls = namespace.get(bound.class_name)
+        if not (isinstance(cls, type) and issubclass(cls, GrammarModel)):
+            raise UnsupportedConstructError(
+                f"bind_module: rule {bound.rule_name!r} needs a GrammarModel "
+                f"class named {bound.class_name!r} in the module"
+            )
+        expected = _expected_fields(bound)
+        declared = tuple(cls._fields)
+        if declared != expected:
+            raise UnsupportedConstructError(
+                f"bind_module: class {bound.class_name!r} declares fields "
+                f"{declared}, but rule {bound.rule_name!r} binds {expected}"
+            )
+        cls.__grammar__ = rules[bound.rule_name]
+        cls.__binds__ = {b.item: (n, b) for n, b in bound.fields.items()}
+
+
 def compile_from_path(
     grammar_path: str | Path,
     *,
@@ -448,3 +457,35 @@ def compile_from_path(
     cg = _compile_core(text, stem=path.stem, flavour=flavour)
     _CACHE[key] = cg
     return cg
+
+
+def parse_instance(text: str, grammar: str, *, flavour: str = "gbnf") -> GrammarModel:
+    """Parse ``text`` against grammar SOURCE — the one-line entry.
+
+    Sugar for ``compile_text(grammar, flavour=flavour).parse(text)``; the
+    compilation is memoised by content, so repeated calls with the same
+    grammar reuse the artefact. Callers doing more than one-off parses
+    should hold the :class:`CompiledGrammar` themselves.
+
+    :param text: The instance text to parse.
+    :param grammar: Grammar source in ``flavour``'s syntax.
+    :param flavour: The grammar flavour name.
+    :returns: The start rule's model instance.
+    :raises UnsupportedConstructError: If the grammar or the text refuses.
+    """
+    return compile_text(grammar, flavour=flavour).parse(text)
+
+
+def parse_instance_from_path(
+    text: str, grammar_path: str | Path, *, flavour: str | None = None
+) -> GrammarModel:
+    """Parse ``text`` against a grammar FILE — the path-taking twin.
+
+    :param text: The instance text to parse.
+    :param grammar_path: Path to the grammar source file.
+    :param flavour: The grammar flavour name; inferred from the file
+        extension if omitted.
+    :returns: The start rule's model instance.
+    :raises UnsupportedConstructError: If the grammar or the text refuses.
+    """
+    return compile_from_path(grammar_path, flavour=flavour).parse(text)

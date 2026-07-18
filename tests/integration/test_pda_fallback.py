@@ -16,8 +16,8 @@ from typing import cast
 
 import pytest
 
-from lexic.base import GrammarModel
 from lexic.compile import compile_from_path
+from lexic.model import GrammarModel
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail

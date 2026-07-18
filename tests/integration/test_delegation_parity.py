@@ -34,7 +34,6 @@ from typing import Callable, cast
 
 import pytest
 
-from lexic.base import GrammarModel
 from lexic.compile import (
     CompiledGrammar,
     compile_text,
@@ -43,6 +42,7 @@ from lexic.compile import (
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars.gbnf import GBNF_FLAVOUR
+from lexic.model import GrammarModel
 from lexic.parsing.pda.compiler.clones import PdaTables
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.specs import IslandRef
