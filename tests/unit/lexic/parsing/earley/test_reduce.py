@@ -56,7 +56,7 @@ from lexic.parsing.earley.reduce import (
 )
 from lexic.parsing.earley.tables import ORIGIN_BITS, compile_tables
 from lexic.parsing.earley.trampoline import Trampoline
-from tests._ir_fixtures import letter_word_rules
+from tests.unit.lexic.parsing.ir_fixtures import letter_word_rules
 
 # ── Helpers ───────────────────────────────────────────────────────────
 

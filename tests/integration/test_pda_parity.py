@@ -30,33 +30,26 @@ from typing import cast
 
 import pytest
 
-from lexic.compile import (
-    CompiledGrammar,
-    canonical_grammar,
-    compile_from_path,
-    compile_text,
-)
+from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
-from lexic.grammars import flavour_for_extension
-from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.model import GrammarModel
-from lexic.parsing import parse_first
 from lexic.parsing.pda.compiler.clones import KTupleGate, PeekGate
 from lexic.parsing.pda.compiler.flatten import all_clones
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
-from lexic.parsing.products import _model_product
+from tests.integration.pda_parity_helpers import (
+    _check_one,
+    _deep_semantic,
+    _forced_engine,
+    _grammar_for,
+    _json_bench_corpus,
+    _report,
+)
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
+from tests.unit.lexic.parsing.parsing_helpers import _prod
 from tests.unit.lexic.parsing.pda.runtime.test_runtime import _arithmetic_bench_corpus
-
-
-def _prod(cg):
-    """The instance product for a CompiledGrammar — pda / instance_grammar / tables
-    (memoised per (grammar, fold); the artefact no longer carries them)."""
-    return _model_product(cg.codegen_grammar, cg.fold)
-
 
 # ── fixtures ────────────────────────────────────────────────────────────
 
@@ -72,34 +65,7 @@ _MAX_DEPTH = 4
 # A couple of representative bench-shaped corpora. Arithmetic's is imported
 # from test_runtime.py (its own bench-corpus test already pins the same
 # snippets/target length — reusing it, not re-pinning the literal, sidesteps
-# the whole-tree pylint R0801 duplicate-code gate). json's mirrors
-# tools/benchmark/pipeline_bench.py's ``_JSON_ITEMS``/``_json_corpus`` (same
-# items, same target length) — pinned locally since nothing else in the test
-# tree defines it yet; not imported from the benchmark module itself (the
-# same "not a code donor for tests" precedent test_runtime.py set).
-_JSON_BENCH_ITEMS: tuple[str, ...] = (
-    '{"name": "alpha", "id": 1, "ok": true}',
-    '{"nested": {"a": [1, 2.5e3, -4], "b": null}}',
-    '"quote \\" backslash \\\\ unicode \\u0041 tab \\t"',
-    "-12.75e-2",
-    '[true, false, null, 0, "s"]',
-    '{"deep": [{"x": [[1], [2.0]]}], "y": false}',
-)
-
-
-def _json_bench_corpus(target_len: int = 4200) -> str:
-    """One JSON document (single top-level array) of at least ``target_len`` chars."""
-    items: list[str] = []
-    total = 0
-    i = 0
-    while total < target_len:
-        piece = _JSON_BENCH_ITEMS[i % len(_JSON_BENCH_ITEMS)]
-        items.append(piece)
-        total += len(piece) + 4
-        i += 1
-    return "[\n  " + ",\n  ".join(items) + "\n]\n"
-
-
+# the whole-tree pylint R0801 duplicate-code gate).
 _BENCH_CORPORA: dict[str, str] = {
     "arithmetic.gbnf": _arithmetic_bench_corpus(),
     "json.gbnf": _json_bench_corpus(),
@@ -115,115 +81,6 @@ class _Tally(dict):
 
     def __init__(self) -> None:
         super().__init__(checked=0, pda_ok=0, fallback=0, engine_only=0, dump_exact=0)
-
-
-_START_OVERRIDES: dict[str, str] = {
-    # c's natural start ``root ::= (declaration)*`` is ``lo=0`` and rolls
-    # empty 70% of the time (``generate``'s ``_pick_count``) — thin coverage
-    # over 40 seeds. ``tests/property/conftest.py``'s ``c_statement_grammar``
-    # fixture solves the identical problem the same way: drive generation
-    # from "statement" instead (if/while/for/return/assignment/call/comments
-    # — and c's own islands, e.g. ``relationoperator``/``statement-arm7``).
-    "c.gbnf": "statement",
-}
-
-
-def _grammar_for(stem: str) -> tuple[CompiledGrammar, dict, str]:
-    """Compile ``stem``, resolving its generation start rule.
-
-    :returns: ``(compiled grammar, {rule_name: IrRule}, start rule name)`` —
-        the start defaults to the grammar's own resolved start rule (so
-        json/json.abnf generate from ``JSON-text``, not a hardcoded
-        ``"root"``), overridden per :data:`_START_OVERRIDES` where the
-        natural start gives thin coverage.
-    """
-    path = GROUND_TRUTH / stem
-    override = _START_OVERRIDES.get(stem)
-    if override is None:
-        flavour = flavour_for_extension(path)
-        canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
-        specs = {r.name: r for r in canonical.rules}
-        cg = compile_from_path(path)
-        return cg, specs, str(canonical.start)
-    text = path.read_text(encoding="utf-8") + f"\n# @start {override}\n"
-    canonical = canonical_grammar(text, GBNF_FLAVOUR)
-    specs = {r.name: r for r in canonical.rules}
-    cg = compile_text(text, cache_key=f"pda-parity-{stem}-{override}-start")
-    return cg, specs, override
-
-
-def _forced_engine(cg: CompiledGrammar, text: str) -> GrammarModel:
-    """Parse ``text`` via the forced-engine seam (bypassing the PDA entirely)."""
-    tree = parse_first(_prod(cg).instance_grammar, text, _prod(cg).tables)
-    return cast(GrammarModel, cg.fold.apply(tree))
-
-
-def _deep_semantic(value: object) -> object:
-    """The ruling-1 comparator: drop ``semantic=False`` binds at EVERY level.
-
-    ``semantic_dump()``'s exclusion is top-level-only (R2-5); the prior
-    declared-schema dump's erasure (F-DUMP-1) happened to hide nested noise
-    splits too, so ``semantic_dump()`` equality *looked* like the ruling-1
-    bar. The runtime-complete native dump exposes those nested
-    ``semantic=False`` fields, so the noise split the PDA is licensed to
-    make differently (see the module docstring) must be dropped explicitly,
-    at every model level, before comparing.
-    """
-    if isinstance(value, GrammarModel):
-        return {
-            name: _deep_semantic(getattr(value, name)) for name in value.semantic_dump()
-        }
-    if isinstance(value, tuple):
-        return [_deep_semantic(sub) for sub in value]
-    return value
-
-
-def _check_one(cg: CompiledGrammar, text: str, tally: _Tally) -> None:
-    """Run both seams on ``text``, tally the outcome, assert what parity demands.
-
-    :raises UnsupportedConstructError: Propagated from the engine path on a
-        generator-overshoot input the grammar itself rejects — the caller
-        skips the sample rather than counting it.
-    """
-    engine_model = _forced_engine(cg, text)
-    assert engine_model.to_text() == text
-    if isinstance(_prod(cg).pda.start_key, IslandRef):
-        tally["checked"] += 1
-        tally["engine_only"] += 1
-        return
-    try:
-        pda_model = cast(GrammarModel, parse_pda(_prod(cg).pda, text, cg.fold))
-    except PdaFail:
-        tally["fallback"] += 1
-        tally["checked"] += 1
-        return
-    tally["pda_ok"] += 1
-    tally["checked"] += 1
-    assert _deep_semantic(pda_model) == _deep_semantic(engine_model)
-    assert pda_model.to_text() == text
-    if pda_model.dump() == engine_model.dump():
-        tally["dump_exact"] += 1
-
-
-def _report(stem: str, cg: CompiledGrammar, tally: _Tally) -> None:
-    """Print the per-grammar summary line (reported, not asserted)."""
-    n = tally["checked"] or 1
-    if isinstance(_prod(cg).pda.start_key, IslandRef):
-        print(
-            f"{stem:16s} checked={tally['checked']:3d} ENGINE-ONLY (whole-grammar PDA opt-out)"
-        )
-        return
-    islands = sorted(_prod(cg).pda.islands)
-    exact = (
-        f"{tally['dump_exact'] / tally['pda_ok']:5.1%}" if tally["pda_ok"] else "n/a"
-    )
-    print(
-        f"{stem:16s} checked={tally['checked']:3d} "
-        f"pda_ok={tally['pda_ok']:3d} "
-        f"fallback_rate={tally['fallback'] / n:5.1%} "
-        f"dump_exact_rate={exact} "
-        f"islands({len(islands)})={islands}"
-    )
 
 
 # ── the wide matrix (seeded generated samples, all 10 grammars) ───────────

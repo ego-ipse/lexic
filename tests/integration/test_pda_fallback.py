@@ -21,8 +21,9 @@ from lexic.model import GrammarModel
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
-from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.products import earley_model
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.parsing.parsing_helpers import _prod
 
 # The pinned fallback input: a valid assignment followed by extra blank lines.
 # arithmetic's ``ident``/``num``/``term`` all end in their own ``ws ::= [ \t\n]*``,
@@ -34,11 +35,6 @@ from tests.paths import GROUND_TRUTH
 # PDA reports unconsumed trailing input rather than guess. The engine parses it
 # fine — its ``ws`` isn't cut to one clone's hard tail.
 _FALLBACK_INPUT = "x=1\n\n\n"
-
-
-def _prod(cg):
-    """The instance product for a CompiledGrammar (pda / instance_grammar / tables)."""
-    return _model_product(cg.codegen_grammar, cg.fold)
 
 
 def test_arithmetic_stop_set_residue_forces_pda_fallback():

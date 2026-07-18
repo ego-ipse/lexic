@@ -1,25 +1,25 @@
 # Public API
 
-**When to load:** writing docs, examples, or integration tests; choosing between `parse`, `compile_text`, `compile_from_path`, `canonical_grammar`, `parse_grammar`; understanding `CompiledGrammar` fields or `GrammarModel` methods.
+**When to load:** writing docs, examples, or integration tests; choosing between `parse_instance`, `compile_text`, `compile_from_path`, `canonical_grammar`, `parse_grammar`, `export_module`; understanding `CompiledGrammar` fields or `GrammarModel` methods.
 
-How callers use Lexic. The stable surface lives in `compile.py`, `parse.py`, and `base.py`. Both grammar-text parsing and generated-instance parsing run on the same native Earley engine (`lexic.parsing`) — there is no Lark and no `RuleSpec` anywhere in the call path.
+How callers use Lexic. The stable surface lives in the `compile/` package and `model.py`. Both grammar-text parsing and generated-instance parsing run on the same engine (`lexic.parsing` — PDA-first, Earley completion); there is no Lark and no `RuleSpec` anywhere in the call path. NOTE: `parse` is the ENGINE's name (`lexic.parsing.parse` → a raw `ParseTree`); the compile-side one-liners are `parse_instance`/`parse_instance_from_path`.
 
 ---
 
 ## Entry points
 
-### `parse(text, grammar_path)` — `parse.py`
+### `parse_instance(text, grammar, *, flavour="gbnf")` / `parse_instance_from_path(text, grammar_path, *, flavour=None)` — `compile/__init__.py`
 
-The simplest path. Compiles the grammar (memoised by path + mtime) and parses `text` in one call.
+The one-line entries (string-primary: the unqualified name takes grammar SOURCE; the `_from_path` twin infers flavour from the extension). Compile memoised, then parse.
 
 ```python
-from lexic.parse import parse
+from lexic import parse_instance_from_path
 
-model = parse("x=1\n", "resources/ground_truth/arithmetic.gbnf")
+model = parse_instance_from_path("x=1\n", "resources/ground_truth/arithmetic.gbnf")
 model.to_text()   # → "x=1\n"
 ```
 
-Returns a `GrammarModel` instance whose concrete type is the start-rule class.
+Returns a `GrammarModel` instance whose concrete type is the start-rule class. Callers doing repeated parses should hold the `CompiledGrammar` instead (`old lexic.parse.parse` was deleted 2026-07-18 — its name collided with the engine's public `parse`).
 
 ---
 
@@ -44,17 +44,17 @@ Like `compile_text` but reads the file and memoises by `(path, mtime, size, flav
 
 ---
 
-### `parse_grammar(text, flavour)` — `compile.py` (re-exported from `lexic`)
+### `parse_grammar(text, flavour)` — `compile/__init__.py` (re-exported from `lexic`)
 
 The public grammar-text → `IrAst` seam. Takes an `IrFlavour` singleton (e.g. `GBNF_FLAVOUR`): requires `flavour.reducer` to be an actual `Reducer` instance (else `UnsupportedConstructError`), runs `parse_reduced(normalize(flavour.grammar), text, flavour.reducer)` — the normalised self-grammar memoised per flavour name — and verifies the reduction yields an `IrAst` (else `UnsupportedConstructError`). Returns the **raw** parsed `IrAst` — not yet canonicalized. Use it whenever you need the IR of a grammar without compiling classes (e.g. cross-flavour transpilation: `parse_grammar(text, GBNF_FLAVOUR)` then `ABNF_FLAVOUR.apply(ast)` — see `getting_started/ex04_transpile_flavours.py`).
 
 ---
 
-### `canonical_grammar(text, flavour, *, non_semantic_rules=None, start=None)` — `compile.py`
+### `canonical_grammar(text, flavour, *, non_semantic_rules=None, start=None)` — `compile/__init__.py`
 
-The public **front half** of `compile_text`/`compile_from_path`: parse + canonicalize + directive flags. Returns the canonical, semantic-flagged `IrAst` directly — no `RuleSpec`, no generated classes. This is the successor of the retired `compile_grammar` (which returned `(start_name, list[RuleSpec])`); `generate.py` builds on `canonical_grammar` directly (it needs only the grammar's rules-by-name shape, not generated Pydantic classes).
+The public **front half** of `compile_text`/`compile_from_path`: parse + canonicalize + directive flags. Returns the canonical, semantic-flagged `IrAst` directly — no `RuleSpec`, no generated classes. This is the successor of the retired `compile_grammar` (which returned `(start_name, list[RuleSpec])`); `generate.py` builds on `canonical_grammar` directly (it needs only the grammar's rules-by-name shape, not generated classes).
 
-Internally: resolves `(start, non_semantic)` from source comments (the private `_scan_directives` helper in `compile.py`), calls `parse_grammar(text, flavour)` for the raw `IrAst`, runs `canonicalize(ast)` (`ir/canonical.py` — the language-preserving normal form two flavours of the same language converge on), resolves the start rule (precedence below; canonicalize folds names, so directive/arg names fold too), and reconstructs each named rule with `semantic=False`.
+Internally: resolves `(start, non_semantic)` from source comments (the private `_scan_directives` helper in the compile package), calls `parse_grammar(text, flavour)` for the raw `IrAst`, runs `canonicalize(ast)` (`ir/canonical.py` — the language-preserving normal form two flavours of the same language converge on), resolves the start rule (precedence below; canonicalize folds names, so directive/arg names fold too), and reconstructs each named rule with `semantic=False`.
 
 Directive/start resolution precedence (highest first):
 
@@ -70,7 +70,7 @@ Directive/start resolution precedence (highest first):
 build_codegen_grammar(ast: IrAst) -> IrAst
 ```
 
-Takes the canonical grammar and applies the three codegen-only passes (`hoist_groups` → `hoist_arms` → `relax_non_semantic`) that produce **THE codegen grammar** — the shape every generated class's `__grammar__` and every field's `IrBind` positions are computed against. See [[codegen]].
+Takes the canonical grammar and applies the three codegen-only passes (`hoist_groups` → `hoist_arms` → `relax_non_semantic`) that produce **THE codegen grammar** — the shape every generated class's `__grammar__` and every field's `IrBind` positions are computed against. See [[generated-modules]] for the exported form.
 
 ---
 
@@ -80,7 +80,7 @@ Takes the canonical grammar and applies the three codegen-only passes (`hoist_gr
 compute_binding(ast: IrAst) -> list[RuleBinding]
 ```
 
-The open-table successor of the retired `derive_specs`'s classify/parents/naming jobs. `RuleBinding(rule_name, class_name, parent_class_name, kind, fields: dict[str, IrBind])`, one per rule, parents before subclasses. See [[codegen]], [[field-naming]].
+The open-table successor of the retired `derive_specs`'s classify/parents/naming jobs. `RuleBinding(rule_name, class_name, parent_class_name, kind, fields: dict[str, IrBind])`, one per rule, parents before subclasses. See [[field-naming]].
 
 ---
 
@@ -96,7 +96,7 @@ Builds the model classes **at runtime** via `type(name, bases, ns)` and returns 
 
 ### The instance fold — `parsing/fold.py`
 
-There is no `build_instance_parser`/wrapper-rule bridge anymore (`parsing/models.py` is deleted outright). The **one authored instance-fold** is `ModelFold` (2026-07-06; the name is reclaimed — the retired wrapper-rule `ModelFold` in `parsing/models.py` is unrelated): `compile.py`'s `_compile_core` builds a per-rule **IR body-table** (`IrMap[IrRuleRef, ModelBody]`, from the binding view + generated classes — each `ModelBody` carries its model constructor as an `IrLambda` plus structural metadata `kind`/`n_items`/`fields`/`fast`) and constructs `ModelFold(bodies)`. On construction the fold **bakes** every body to the flat-runtime `config: dict[str, RuleFold]` (`.baked`), the record the PDA clone compiler and the engine-fallback `apply` consume unchanged — byte-for-byte identical to the retired plain-data config. The IR body-table is the *same shape* the grammar-text `Reducer` carries its reductions in (a per-rule `IrMap` to `IrSelf` bodies). The instance grammar is `normalize(lift_optional_nullables(codegen_grammar))` — the *same* codegen grammar `codegen()` emitted classes against, so `kids[i] ↔ items[i]` and field extraction is positional indexing, not a name lookup against a synthetic wrapper grammar. See [[architecture]]'s "positional fold" section.
+There is no `build_instance_parser`/wrapper-rule bridge anymore (`parsing/models.py` is deleted outright). The **one authored instance-fold** is `ModelFold` (2026-07-06; the name is reclaimed — the retired wrapper-rule `ModelFold` in `parsing/models.py` is unrelated): the compile package's `_compile_core` builds a per-rule **IR body-table** (`IrMap[IrRuleRef, ModelBody]`, from the binding view + generated classes — each `ModelBody` carries its model constructor as an `IrLambda` plus structural metadata `kind`/`n_items`/`fields`/`fast`) and constructs `ModelFold(bodies)`. On construction the fold **bakes** every body to the flat-runtime `config: dict[str, RuleFold]` (`.baked`), the record the PDA clone compiler and the engine-fallback `apply` consume unchanged — byte-for-byte identical to the retired plain-data config. The IR body-table is the *same shape* the grammar-text `Reducer` carries its reductions in (a per-rule `IrMap` to `IrSelf` bodies). The instance grammar is `normalize(lift_optional_nullables(codegen_grammar))` — the *same* codegen grammar `synthesize()` built classes against, so `kids[i] ↔ items[i]` and field extraction is positional indexing, not a name lookup against a synthetic wrapper grammar. See [[architecture]]'s "positional fold" section.
 
 ---
 
@@ -110,6 +110,10 @@ Returned by `compile_text` / `compile_from_path`. Fields:
 | `grammar` | `IrAst` | The **canonical** grammar (what the user's grammar IS — the transpile/re-emit source) |
 | `codegen_grammar` | `IrAst` | The post-pass grammar the fold binds against — the engine key `.parse` hands to `parse_model` (the engine memoises its lifted/normalised/PDA/run-collapsed compilation per this grammar's identity) |
 | `fold` | `ModelFold` | The one authored instance-fold: an IR body-table (`bodies: IrMap[IrRuleRef, ModelBody]`) that bakes to `config: dict[str, RuleFold]` and folds positionally over `codegen_grammar` |
+| `flavour` | `str` | The source flavour's name (drives export docstrings) |
+| `stem` | `str` | The grammar stem — the exported module's default identity |
+
+On explicit request `export_module(compiled, path, *, stem=None, inline_tables=False)` writes an importable twin module (`export_source` is the string-taker it wraps) — see [[generated-modules]]. `bind_module(grammar, namespace)` is the twin modules' module-end binder.
 
 `.parse(text)` is the only method callers need. It runs `parse_model(self.codegen_grammar, text, self.fold)` — the engine's instance product (PDA-first, Earley completion inside the engine, memoised per `(grammar, fold)` identity). If the start rule does not fold to a `GrammarModel`, `.parse` raises `UnsupportedConstructError`.
 

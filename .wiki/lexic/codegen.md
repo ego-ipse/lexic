@@ -4,9 +4,10 @@
 > grammar→grammar passes and the binding view now live in the `compile/`
 > package (`compile/passes.py`, `compile/binding.py`); classes are
 > synthesized at runtime via `type()` in `compile/synthesis.py` (no
-> source-emit `model_emitter.py`, no file write); the reader `.py` view is
-> `compile/export.py`. See [[public-api]] and [[architecture]] for the
-> current shape. The content below is historical.
+> source-emit `model_emitter.py`, no automatic file write);
+> `compile/export.py` renders an IMPORTABLE twin module on explicit request
+> (`export_module` — see [[generated-modules]]). See [[public-api]] and
+> [[architecture]] for the current shape. The content below is historical.
 
 **When to load:** historical reference only — for current codegen-grammar passes, binding view, and class synthesis see [[public-api]] / [[architecture]] (`compile/` package).
 

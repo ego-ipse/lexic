@@ -26,7 +26,7 @@ from lexic.compile.synthesis import synthesize
 from lexic.ir.bind import IrBind
 from lexic.ir.nodes import IrRule
 from lexic.model import GrammarModel
-from tests.integration._codegen_pipeline import canonical_ast
+from tests.integration.codegen_pipeline import canonical_ast
 from tests.paths import GROUND_TRUTH
 
 _GRAMMARS = sorted(GROUND_TRUTH.glob("*.gbnf")) + sorted(GROUND_TRUTH.glob("*.abnf"))

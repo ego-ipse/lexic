@@ -20,7 +20,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.nodes import IrLiteral
 from lexic.parsing import derivations, is_ambiguous, parse
 from lexic.parsing.earley.forest import ParseTree
-from tests._ir_fixtures import sss_grammar
+from tests.unit.lexic.parsing.ir_fixtures import sss_grammar
 
 from .conftest import MEMORY_EXCEEDED, TIMED_OUT, guarded, rep_grammar, timed
 

@@ -1,5 +1,7 @@
 """Unit tests for lexic.compile (compile_text/_from_path, canonical_grammar, parse_grammar)."""
 
+from __future__ import annotations
+
 import os
 import time
 from typing import cast
@@ -11,10 +13,13 @@ import lexic.compile as compile_module
 from lexic.compile import (
     CompiledGrammar,
     _scan_directives,
+    bind_module,
     canonical_grammar,
     compile_from_path,
     compile_text,
     parse_grammar,
+    parse_instance,
+    parse_instance_from_path,
     reset_cache_for_tests,
 )
 from lexic.exceptions import UnsupportedConstructError
@@ -30,18 +35,12 @@ from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.clones import PdaTables
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.products import (
-    _model_product,
     _reduce_product,
     earley_model,
     earley_reduce,
 )
 from tests.paths import GROUND_TRUTH
-
-
-def _prod(cg):
-    """The instance product for a CompiledGrammar — its instance_grammar / tables /
-    pda (the fields the artefact no longer carries; memoised per (grammar, fold))."""
-    return _model_product(cg.codegen_grammar, cg.fold)
+from tests.unit.lexic.parsing.parsing_helpers import _prod
 
 
 class _FlavourWithBadReducer(IrFlavour):
@@ -543,3 +542,106 @@ def test_load_ir_reexported_from_compile_package() -> None:
     """``load_ir`` is reachable off the package root (the notation seam)."""
     assert compile_module.load_ir("IrLiteral('a')") == IrLiteral("a")
     assert hasattr(compile_module, "load_ir_from_path")
+
+
+# ── parse_instance / parse_instance_from_path (ported from test_artifact_parse.py) ──
+
+
+def test_arithmetic_type_dispatch():
+    """The path entry returns a concrete GrammarModel with a non-None dump."""
+    inst = parse_instance_from_path("x=1\n", GROUND_TRUTH / "arithmetic.gbnf")
+    assert isinstance(inst, GrammarModel)
+    assert inst.dump() is not None
+
+
+def test_parse_takes_grammar_source_text():
+    """The unqualified entry takes grammar text, per the string-primary rule."""
+    inst = parse_instance("hi", 'root ::= "hi"\n')
+    assert isinstance(inst, GrammarModel)
+    assert inst.to_text() == "hi"
+
+
+def test_parse_accepts_an_explicit_flavour():
+    """The flavour parameter routes the text through the named front-end."""
+    inst = parse_instance("hi", 'root = "hi"\n', flavour="abnf")
+    assert inst.to_text() == "hi"
+
+
+def test_parse_from_path_accepts_an_explicit_flavour_override():
+    """parse_from_path forwards flavour instead of extension inference."""
+    inst = parse_instance_from_path(
+        "x=1\n", GROUND_TRUTH / "arithmetic.gbnf", flavour="gbnf"
+    )
+    assert inst.to_text() == "x=1\n"
+
+
+# ── bind_module ──────────────────────────────────────────────────────────
+
+_BIND_MODULE_TEXT = 'root ::= "a" mid "b"\nmid ::= "x" | "y"\n'
+
+
+class _HandMid(GrammarModel):
+    """A hand-built twin of the compiled ``mid`` class (a value_str rule)."""
+
+    value: str
+
+
+class _HandRoot(GrammarModel):
+    """A hand-built twin of the compiled ``root`` class (a sequence rule)."""
+
+    mid: _HandMid
+
+
+def test_bind_module_binds_a_hand_built_namespace_successfully():
+    """A hand-authored namespace binds exactly like the runtime compile's own
+    classes — same ``__grammar__``/``__binds__``, and ``_child_attrs`` is left
+    untouched (the class-body annotations already derived it)."""
+    cg = compile_text(_BIND_MODULE_TEXT, cache_key="bind-module-happy")
+    before_root_child_attrs = getattr(_HandRoot, "_child_attrs")
+    before_mid_child_attrs = getattr(_HandMid, "_child_attrs")
+
+    bind_module(cg.grammar, {"Root": _HandRoot, "Mid": _HandMid})
+
+    assert _HandRoot.__grammar__ == cg.classes["Root"].__grammar__
+    assert _HandMid.__grammar__ == cg.classes["Mid"].__grammar__
+    assert _HandRoot.__binds__ == cg.classes["Root"].__binds__
+    assert _HandMid.__binds__ == cg.classes["Mid"].__binds__
+    assert getattr(_HandRoot, "_child_attrs") == before_root_child_attrs
+    assert getattr(_HandMid, "_child_attrs") == before_mid_child_attrs
+
+    inst = _HandRoot(mid=_HandMid(value="x"))
+    assert inst.to_text() == "axb"
+
+
+def test_bind_module_raises_when_a_class_is_missing_from_the_namespace():
+    """A namespace missing a rule's class names the rule and the class."""
+    cg = compile_text(_BIND_MODULE_TEXT, cache_key="bind-module-missing")
+    with pytest.raises(UnsupportedConstructError) as exc_info:
+        bind_module(cg.grammar, {"Root": _HandRoot})
+    message = str(exc_info.value)
+    assert "mid" in message
+    assert "Mid" in message
+
+
+def test_bind_module_raises_when_the_namespace_class_is_not_a_grammar_model():
+    """A namespace entry that exists but is not a GrammarModel subclass is
+    rejected the same way as a missing entry."""
+    cg = compile_text(_BIND_MODULE_TEXT, cache_key="bind-module-not-a-model")
+    with pytest.raises(UnsupportedConstructError) as exc_info:
+        bind_module(cg.grammar, {"Root": _HandRoot, "Mid": object})
+    assert "Mid" in str(exc_info.value)
+
+
+def test_bind_module_raises_on_a_field_shape_mismatch():
+    """A class whose declared fields do not match its rule's binding names
+    both the declared and the expected fields in the error message."""
+
+    class _WrongFieldMid(GrammarModel):
+        wrong_field: str
+
+    cg = compile_text(_BIND_MODULE_TEXT, cache_key="bind-module-mismatch")
+    with pytest.raises(UnsupportedConstructError) as exc_info:
+        bind_module(cg.grammar, {"Root": _HandRoot, "Mid": _WrongFieldMid})
+    message = str(exc_info.value)
+    assert "('wrong_field',)" in message
+    assert "('value',)" in message

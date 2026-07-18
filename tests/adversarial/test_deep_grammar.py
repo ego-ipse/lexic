@@ -18,6 +18,7 @@ tree.
 from __future__ import annotations
 
 from lexic.compile import compile_text
+from tests.adversarial.adversarial_helpers import _ref_chain
 
 _DEPTH = 300
 
@@ -27,13 +28,6 @@ def test_deep_nested_groups_round_trip_without_overflow() -> None:
     grammar = "r ::= " + "(" * _DEPTH + '"a"' + ")" * _DEPTH + "\n"
     compiled = compile_text(grammar, cache_key="adversarial-deepg-groups")
     assert compiled.parse("a").to_text() == "a"
-
-
-def _ref_chain(depth: int) -> str:
-    """A ``depth``+1 rule unit-ref chain bottoming out at the leaf ``0``."""
-    lines = [f'r{i} ::= "[" r{i + 1} "]"' for i in range(depth)]
-    lines.append(f'r{depth} ::= "0"')
-    return "\n".join(lines) + "\n"
 
 
 def test_deep_ref_chain_round_trips_without_overflow() -> None:

@@ -17,7 +17,6 @@ from typing import cast
 
 import pytest
 
-from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrAst
@@ -34,13 +33,7 @@ from lexic.parsing.products import (
     parse_reduced,
     reset_product_cache,
 )
-
-_GRAMMAR_TEXT = 'root ::= "a" "b"\n'
-
-
-def _compiled():
-    return compile_text(_GRAMMAR_TEXT, cache_key="products-test-grammar")
-
+from tests.unit.lexic.parsing.parsing_helpers import _compiled
 
 # ── the Earley completions (route-forcing seam) ────────────────────────────
 

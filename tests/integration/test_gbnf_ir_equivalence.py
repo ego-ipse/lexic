@@ -24,8 +24,8 @@ from lexic.ir.nodes import IrAst
 from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.products import earley_reduce
-from tests._ir_fixtures import JSON_RULE_NAMES
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
 # Golden per-file fingerprint: start rule + rule names in source order.
 _GOLDEN: dict[str, tuple[str, tuple[str, ...]]] = {

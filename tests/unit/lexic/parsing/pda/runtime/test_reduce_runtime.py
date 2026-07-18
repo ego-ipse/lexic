@@ -20,14 +20,9 @@ from lexic.grammars.gbnf import GBNF_GRAMMAR
 from lexic.parsing.pda.runtime import reduce_runtime as rr
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaKernel
-from lexic.parsing.products import _reduce_product
 from tests.integration.test_pda_parity import _ALL_STEMS
 from tests.paths import GROUND_TRUTH
-
-
-def _reduce_pda(flavour):
-    """The flavour's self-grammar reduce PDA (built + memoised in the engine)."""
-    return _reduce_product(flavour.grammar, flavour.reducer).pda
+from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import _reduce_pda
 
 
 def test_reduce_kernel_lives_here_and_extends_the_model_kernel() -> None:

@@ -22,7 +22,7 @@ against a fresh live dump for that reason; the stricter in-process
 dump-dict-equality medium lives in
 ``tests/unit/lexic/test_base_surface_freeze.py``.
 
-Golden files live at ``tests/goldens/<grammar-stem>.json`` (git-tracked), one
+Golden files live at ``tests/integration/goldens/<grammar-stem>.json`` (git-tracked), one
 per ground-truth grammar file under ``resources/ground_truth/``, each a JSON
 list of per-input records: ``{"input": str, "runtime_dump": ...,
 "runtime_semantic_dump": ..., "to_text": str}`` — exactly what
@@ -49,7 +49,7 @@ Regenerate every golden file (only after a *ruled* behavior change — see
 the plan's settled-12 note; a routine code change should make this suite
 FAIL, not need re-running) via::
 
-    uv run python -m tests.golden_fixtures
+    uv run python -m tests.integration.golden_fixtures
 
 NOTE: the files are byte-pinned (oracle keys only); a routine code change
 should make this suite FAIL, not need re-running. Do not regenerate without a
@@ -64,9 +64,9 @@ from typing import Any
 
 from lexic.compile import CompiledGrammar, compile_from_path
 from lexic.model import GrammarModel
+from tests.integration.pda_parity_helpers import ARITHMETIC_BENCH_SNIPPETS
 from tests.integration.test_compile_grammar_vyx import PACKET_SAMPLES
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.pda.runtime.test_runtime import ARITHMETIC_BENCH_SNIPPETS
 
 GOLDEN_DIR = Path(__file__).parent / "goldens"
 

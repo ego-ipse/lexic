@@ -13,31 +13,11 @@ regression fails the suite instead of hanging it.
 
 from __future__ import annotations
 
-import signal
-from contextlib import contextmanager
-from typing import Iterator
-
 import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
-
-
-@contextmanager
-def _watchdog(seconds: int) -> Iterator[None]:
-    """Raise ``TimeoutError`` if the body runs longer than ``seconds``."""
-
-    def _trip(_signum: int, _frame: object) -> None:
-        raise TimeoutError(f"parse exceeded its {seconds}s budget")
-
-    old = signal.signal(signal.SIGALRM, _trip)
-    signal.alarm(seconds)
-    try:
-        yield
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old)
-
+from tests.adversarial.adversarial_helpers import _watchdog
 
 # The four recursion/nullability quadrants: only left-rec + nullable used to
 # hang (its three neighbours island or run fine); all four must round-trip.

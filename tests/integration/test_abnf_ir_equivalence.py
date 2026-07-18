@@ -24,9 +24,9 @@ from lexic.ir.nodes import IrAst
 from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.products import earley_reduce
-from tests._ir_fixtures import JSON_RULE_NAMES
-from tests.integration._abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
+from tests.integration.abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
 _INLINE = {
     "non_semantic_directive": NON_SEMANTIC_DIRECTIVE_ABNF,

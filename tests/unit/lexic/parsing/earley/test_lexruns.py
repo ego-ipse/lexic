@@ -38,8 +38,11 @@ from lexic.parsing.earley.lexruns import (
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
 from lexic.parsing.earley.tables import RunTerm, compile_tables
 from lexic.parsing.earley.tables import expand_atom as _expand_atom_canonical
-from tests._ir_fixtures import digit_grammar as _digit_grammar
-from tests._ir_fixtures import malformed_synthetic_rule, nested_synthetic_grammar
+from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
+from tests.unit.lexic.parsing.ir_fixtures import (
+    malformed_synthetic_rule,
+    nested_synthetic_grammar,
+)
 
 # ── expand_atom re-export smoke test (moved home to tables.py) ──────────
 

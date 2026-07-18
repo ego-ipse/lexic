@@ -13,7 +13,7 @@ import ast
 
 import pytest
 
-from lexic.compile import compile_from_path, compile_text, export_source
+from lexic.compile import compile_from_path, compile_text, export_module, export_source
 from lexic.compile.binding import _RESERVED_CLASS_NAMES, RuleBinding, compute_binding
 from lexic.compile.export import (
     _field_type,
@@ -31,6 +31,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.compile.compile_helpers import _import_hermetic_module
 
 
 def _by_name(binding: list[RuleBinding]) -> dict[str, RuleBinding]:
@@ -219,3 +220,53 @@ def test_export_source_defaults_to_the_compiled_stem():
     """Without an explicit stem the artefact's own stem names the module."""
     cg = compile_from_path(GROUND_TRUTH / "list.gbnf")
     assert "'list'" in export_source(cg)
+
+
+# ── export_module: hermetic import parity ──────────────────────────────
+
+
+@pytest.mark.parametrize("stem,ext", [("json", "gbnf"), ("arithmetic", "abnf")])
+@pytest.mark.parametrize("inline_tables", [False, True])
+def test_export_module_hermetic_import_matches_the_runtime_compile(
+    stem: str, ext: str, inline_tables: bool, tmp_path
+):
+    """A written twin module imports hermetically and its classes carry the
+    same ``__grammar__``/``__binds__``/``_fields`` as the runtime compile's
+    own classes, in both table modes, for a GBNF and an ABNF grammar."""
+    cg = compile_from_path(GROUND_TRUTH / f"{stem}.{ext}")
+    out_path = tmp_path / f"{stem}_twin.py"
+    export_module(cg, out_path, inline_tables=inline_tables)
+
+    module = _import_hermetic_module(out_path, f"{stem}_{ext}_{inline_tables}_twin")
+
+    assert module.GRAMMAR == cg.grammar
+    for name, cls in cg.classes.items():
+        twin = getattr(module, name)
+        assert twin.__grammar__ == cls.__grammar__, name
+        assert twin.__binds__ == cls.__binds__, name
+        assert twin._fields == cls._fields, name
+
+
+def test_export_module_creates_parent_directories(tmp_path):
+    """export_module writes into a nested, not-yet-existing directory tree."""
+    cg = compile_text('root ::= "hi"\n')
+    out_path = tmp_path / "a" / "b" / "c" / "twin.py"
+    assert not out_path.parent.exists()
+    export_module(cg, out_path)
+    assert out_path.exists()
+
+
+def test_export_module_returns_the_written_path(tmp_path):
+    """export_module's return value is the path it wrote."""
+    cg = compile_text('root ::= "hi"\n')
+    out_path = tmp_path / "twin.py"
+    returned = export_module(cg, out_path)
+    assert returned == out_path
+
+
+def test_export_module_stem_defaults_to_the_output_files_stem(tmp_path):
+    """Without an explicit stem, the output filename's stem names the module."""
+    cg = compile_text('root ::= "hi"\n')
+    out_path = tmp_path / "my_grammar_name.py"
+    export_module(cg, out_path)
+    assert "'my_grammar_name'" in out_path.read_text(encoding="utf-8")

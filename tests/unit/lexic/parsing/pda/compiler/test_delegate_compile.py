@@ -8,11 +8,10 @@ here we pin the classifier (island-free + triviality floor) and the
 
 from __future__ import annotations
 
-from lexic.compile import compile_text
-from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource, _delegable
 from lexic.parsing.pda.compiler.flatten import FlatClone
-from lexic.parsing.products import _model_product
+from tests.unit.lexic.parsing.parsing_helpers import _prod
+from tests.unit.lexic.parsing.pda.compiler.pda_compiler_helpers import _compiled
 
 
 class _NoDelegates(DelegateSource):
@@ -23,35 +22,6 @@ class _NoDelegates(DelegateSource):
 
     def _compile(self, island_name: str) -> dict[int, object]:
         return {}
-
-
-# An alternation island (``item``: both arms share FIRST ``[0-9]``) with a long
-# island-free interior run (``digits``); ``wrapped`` references the ``item``
-# island (an island-referencing rule the floor must exclude); ``short`` is a
-# below-floor bounded literal.
-_G = """root ::= item wrapped
-item ::= a | b
-a ::= digits "x"
-b ::= digits "y"
-digits ::= [0-9]+
-wrapped ::= "<" item ">"
-short ::= "z"
-"""
-
-
-def _prod(cg):
-    """The instance product for a CompiledGrammar (pda / instance_grammar / tables)."""
-    return _model_product(cg.codegen_grammar, cg.fold)
-
-
-def _compiled():
-    """Compile ``_G`` and return its (analysis, DelegateSource, CompiledGrammar)."""
-    cg = compile_text(_G, cache_key="delegate-compile-unit")
-    assert _prod(cg).pda is not None
-    source = _prod(cg).pda.program.delegates
-    assert isinstance(source, DelegateSource)
-    lifted = source.lifted
-    return GrammarAnalysis(lifted), source, cg
 
 
 def test_delegable_accepts_island_free_long_run() -> None:

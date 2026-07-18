@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from lexic.ir.nodes import IrAlternation, IrLiteral, IrRuleRef, IrSequence
 from lexic.parsing.pda.analysis.leftrec import left_recursive_names
-from tests._ir_fixtures import analysis_of as _analysis
-from tests._ir_fixtures import item_of as _item
-from tests._ir_fixtures import rule_of as _rule
+from tests.unit.lexic.parsing.ir_fixtures import analysis_of as _analysis
+from tests.unit.lexic.parsing.ir_fixtures import item_of as _item
+from tests.unit.lexic.parsing.ir_fixtures import rule_of as _rule
 
 # ── the relation ──────────────────────────────────────────────────────
 

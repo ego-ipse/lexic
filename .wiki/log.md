@@ -6,6 +6,51 @@ Append-only chronological record. Most recent entry at top.
 
 ---
 
+## 2026-07-18 — generated-files: importable twins, IR-native formatting, renames
+
+The 260718-generated-files effort (plan in `zzz_current_work/`), landed on
+top of Task 0 below:
+
+- **Defaults-last field order** (`bind_fields`): required fields first,
+  `= None` optionals after, each group in item order — the record ctor is
+  well-formed; naming/collision numbering unchanged (item order). Zero
+  tests pinned the old order; slot-keyed consumers unaffected.
+- **`ir/layout.py`** — the layout algebra (Wadler doc combinators on the
+  spine; continuation-aware `fits`). **`emit_ir`** — the notation emit
+  half in `compile/notation.py` (per-tier `IrTypeMap`; the inverse of
+  `load_ir`; spine gained `IrNamedTuple.repr_args`, the shared elision).
+  Ruff/subprocess deleted from the compile path.
+- **Exported twin modules** ([[generated-modules]]): `export_module`/
+  `export_source` (explicit-path-only writes, `inline_tables` option),
+  `bind_module` (import-time table attachment), `CompiledGrammar` moved
+  to `compile/artifact.py` (+ `flavour`/`stem`), reserved class names
+  trimmed to the real header. `tools/check_generated.py` is the corpus
+  tool-clean gate (pyright/pylint default configs).
+- **Engine fix — island valid-prefix window truncation, made SOUND (two
+  passes)**: a 256-window cut mid-token can complete a truncated-but-valid
+  island parse short of the edge. Pass 1 (fail-soft): the wrong splice's
+  fold error reroutes (`islands.island_value` LexicError→PdaFail;
+  `build.finish_delegate` declines). Pass 2 (soundness):
+  `Kernel.can_extend_at` — a short-of-edge column's chart is complete
+  evidence for its own window char (seeding is FIRST-gated by it), so
+  refusal is sighted; delegate-landing columns (derived from
+  `Kernel.delegated` handles) and out-of-domain chars answer MAY —
+  and `islands._may_extend` grows on no-completion/edge-touch/probe-MAY,
+  terminating at window ≥ remaining where truncation is impossible.
+  Verified correct with ALL fail-soft guards disabled. Fixpoint-style
+  growth is UNSOUND (balanced-paren counterexample) — don't reintroduce.
+  Regression: `test_island_valid_prefix.py` (islandhood asserted). The
+  notation grammar still refuses trailing commas — now purely a perf
+  choice (arglist would island).
+- **Renames**: `base.py` → `model.py` (location right — the
+  to_grammar→grammars edge pins it out of ir/); `parse.py` DELETED —
+  `parse` is the engine's name; the compile one-liners are
+  `parse_instance`/`parse_instance_from_path`.
+- **Known engine-path divergence (recorded)**: on an ambiguous grammar
+  (json's adjacent `ws?` slots) the PDA's greedy choice and Earley's
+  `parse_first` can build text-equal but structurally different models
+  (noise attachment only). `compare_bench`'s to_text gate is deliberate.
+
 ## 2026-07-18 — generated-files Task 0: dead-code sweep
 
 `GrammarAuthoringError` deleted (`exceptions.py` — a never-raised public

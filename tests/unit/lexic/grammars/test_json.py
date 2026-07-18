@@ -15,7 +15,7 @@ from lexic.ir.nodes import (
     IrRange,
     IrRule,
 )
-from tests._ir_fixtures import JSON_RULE_NAMES
+from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
 # ── Basic structure ───────────────────────────────────────────────────
 

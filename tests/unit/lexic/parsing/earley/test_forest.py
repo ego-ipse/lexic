@@ -76,8 +76,8 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tables import ORIGIN_BITS, compile_tables
 from lexic.parsing.earley.trampoline import Trampoline
 from lexic.parsing.fold import lift_optional_nullables
-from tests._ir_fixtures import digit_grammar as _digit_grammar
-from tests._ir_fixtures import word_grammar as _word_grammar
+from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
+from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
 
 
 def _accept(grammar: IrAst, text: str) -> tuple[EarleyParser, Chart, SppfNode, int]:

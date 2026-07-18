@@ -1,6 +1,6 @@
 """Golden-check replay: the record spine against the Task-0 parity oracle.
 
-Replays every ``(grammar, input)`` pair recorded in ``tests/goldens/*.json``
+Replays every ``(grammar, input)`` pair recorded in ``tests/integration/goldens/*.json``
 against the LIVE implementation and asserts equality on the ORACLE keys
 (PLAN_v4 ruling 12, 2026-07-16): ``runtime_dump``, ``runtime_semantic_dump``
 and ``to_text`` — recorded via the prior ``model_dump(serialize_as_any=True)``
@@ -26,7 +26,7 @@ import json
 import pytest
 
 from lexic.compile import compile_from_path
-from tests.golden_fixtures import (
+from tests.integration.golden_fixtures import (
     CORPUS,
     GOLDEN_DIR,
     all_stems,
@@ -49,7 +49,7 @@ def test_every_corpus_stem_has_a_golden_file():
 
 
 def test_every_golden_file_has_a_corpus_entry():
-    """No stray golden file outside tests/goldens/ lacks a CORPUS entry."""
+    """No stray golden file outside tests/integration/goldens/ lacks a CORPUS entry."""
     on_disk = {p.stem for p in GOLDEN_DIR.glob("*.json")}
     assert on_disk == set(all_stems())
 
@@ -62,7 +62,7 @@ def test_golden_record_matches_live_implementation(stem: str, index: int) -> Non
     golden = golden_records[index]
     assert golden["input"] == sample, (
         f"{stem}[{index}]: golden input drifted from CORPUS — "
-        "regenerate via `uv run python -m tests.golden_fixtures`"
+        "regenerate via `uv run python -m tests.integration.golden_fixtures`"
     )
 
     cg = compile_from_path(GROUND_TRUTH / stem)

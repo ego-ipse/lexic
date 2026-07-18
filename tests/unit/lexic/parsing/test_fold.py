@@ -38,17 +38,14 @@ from lexic.parsing.fold import (
     collapsed_fold_tables,
     lift_optional_nullables,
 )
-from lexic.parsing.products import _model_product
-from tests._ir_fixtures import malformed_synthetic_rule, nested_synthetic_grammar
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.parsing.ir_fixtures import (
+    malformed_synthetic_rule,
+    nested_synthetic_grammar,
+)
+from tests.unit.lexic.parsing.parsing_helpers import _prod
 
 # ── the compiled config — structure ─────────────────────────────────────
-
-
-def _prod(cg):
-    """The instance product for a CompiledGrammar — its instance_grammar/tables/pda
-    (the fields the artefact no longer carries; memoised per (grammar, fold))."""
-    return _model_product(cg.codegen_grammar, cg.fold)
 
 
 def test_instance_grammar_is_normalized(arithmetic):

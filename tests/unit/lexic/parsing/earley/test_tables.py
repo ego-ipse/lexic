@@ -46,9 +46,9 @@ from lexic.parsing.earley.tables import (
     compile_tables,
     expand_atom,
 )
-from tests._ir_fixtures import digit_grammar as _digit_grammar
-from tests._ir_fixtures import sss_grammar as _sss_grammar
-from tests._ir_fixtures import word_grammar as _word_grammar
+from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
+from tests.unit.lexic.parsing.ir_fixtures import sss_grammar as _sss_grammar
+from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
 
 # ── atom_accepts ────────────────────────────────────────────────────────
 

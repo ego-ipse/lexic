@@ -1,6 +1,6 @@
 """Tests for compile/binding.py — the per-rule binding view.
 
-The actual test bodies live in :mod:`tests._binding_cases`, bound here to
+The actual test bodies live in :mod:`tests.unit.lexic.compile.binding_cases`, bound here to
 :mod:`lexic.compile.binding`.
 """
 
@@ -30,7 +30,7 @@ from lexic.ir.base import IrLambda
 from lexic.ir.bind import IrBind
 from lexic.ir.mapping import IrMap
 from lexic.parsing.fold import ModelBody
-from tests._binding_cases import make_binding_tests
+from tests.unit.lexic.compile.binding_cases import make_binding_tests
 
 globals().update(make_binding_tests(binding))
 

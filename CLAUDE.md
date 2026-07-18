@@ -17,8 +17,12 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. New plans copy `zzz_current_work/TEMPLATE.md` (goal,
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
-  Current: `zzz_current_work/260718-generated-files/PLAN.md` (importable
-  module twins + IR-native formatting; spikes in its `prototype/`).
+  Current: triage — `zzz_current_work/260718-backlog/BACKLOG.md` (what's
+  left after generated-files; one user decision pending).
+  Just completed: `zzz_current_work/260718-generated-files/PLAN.md` (see
+  its OUTCOME) — importable twin modules, IR-native formatting (layout
+  algebra + notation emit half), defaults-last fields, two island engine
+  fixes, base→model + parse-entry renames.
   Next up after: `zzz_current_work/260712-viz/PLAN_v2.md` (ruling 5).
   Just completed: `zzz_current_work/260716-ir-native/PLAN_v4.md` (see its
   OUTCOME) — the unified `compile/` subsystem: pure-IR representations +
@@ -68,6 +72,10 @@ uv run pytest tests/unit/lexic/ -q       # unit only
 uv run pytest tests/integration/ -q      # integration only
 uv run ruff check src/ tests/            # lint
 uv run pylint src/lexic/path/to/file.py  # per-file quality gate
+uv run python tools/check_generated.py   # generated-twin tool-clean gate
+                                         # (11 GT × both modes, pyright+pylint
+                                         # DEFAULT configs; accepted: keyword-
+                                         # mangle C0103, C0302, gbnf↔abnf R0801)
 ```
 
 **Mechanical fixes first:** run `tools/auto_fix.sh` before touching code by hand. It runs `ruff format`, `isort`, and `ruff check --fix` in sequence.
@@ -157,13 +165,26 @@ src/lexic/
                         binding table (field_kwargs/check_supplied_class — the
                         supplied-class kwargs contract)
     synthesis.py        runtime class synthesis — type() over the binding view
-    export.py           export_source(compiled) — reader-first .py view of a
-                        compiled grammar in the record-spine syntax (for humans,
-                        never imported); ruff invoked here only
-    notation.py         the IR-constructor notation — load_ir(text) → real IR
-                        objects via a generic-apply grammar + curated SYMBOLS
-                        whitelist (the no-exec boundary + open-vocabulary
-                        registry); structural string decode, YIELD intern
+    export.py           export_source(compiled) / export_module(compiled, path,
+                        *, inline_tables=False) — the IMPORTABLE twin module
+                        (docstring = rule in source flavour; defaults-last typed
+                        fields; GRAMMAR in notation via emit_ir; module-end
+                        bind_module call, or inline __grammar__/__binds__
+                        ClassVars). Files written ONLY on the explicit
+                        export_module path. Always-on gates: ast.parse +
+                        load_ir(GRAMMAR)==compiled.grammar. NO ruff, NO
+                        subprocess — formatting is ir/layout.py.
+                        tools/check_generated.py is the corpus tool-clean gate
+    notation.py         the IR-constructor notation, BOTH halves. Parse:
+                        load_ir(text) → real IR objects via a generic-apply
+                        grammar + curated SYMBOLS whitelist (the no-exec
+                        boundary + open-vocabulary registry); structural string
+                        decode, YIELD intern; NOTATION_FOLD public. Emit:
+                        emit_ir(node, width) — per-tier IrTypeMap over layout
+                        docs; load_ir(emit_ir(x)) == x (repr-fixpoint for
+                        identity-eq-leaf payloads); IrLambda refused; never
+                        emits trailing commas (the grammar refuses them — an
+                        arglist comma? would island and tax every load_ir)
     loader.py           load_flavour(text) → IrFlavour: folds a manifest (ONE
                         notation IrMap of seven strict sections — identity,
                         escapes-as-IR-dyads, grammar, reductions, actions) into
@@ -603,7 +624,11 @@ src/lexic/
                             build_validated per-field slot dispatch, alt_model
                             pass-through, leaf_mismatch empty-arm build) +
                             finish_delegate (fail-soft + window-edge delegate
-                            completion). Free functions reading only text + a
+                            completion — declines on PdaFail AND on a LexicError
+                            from the fold: a window-truncated valid-prefix span
+                            hands the rule back to the island's own Earley
+                            machinery; 260718 valid-prefix fix). Free functions
+                            reading only text + a
                             frame/clone (never the kernel cursor), shed out of
                             runtime.py so runtime AND reduce_runtime share the
                             frame vocabulary by public name rather than a private
@@ -613,9 +638,22 @@ src/lexic/
         islands.py          island sub-parse + splice — island_parse/island_run/
                             island_derivation, the cold-path Earley escape shed
                             from PdaKernel as free functions (a leaf: imports
-                            earley/ + errors, never runtime; the +6% mixin penalty
+                            earley/ + errors + exceptions, never runtime; the +6%
+                            mixin penalty
                             is hot-path only, so the cold island path moves out for
-                            C0302 headroom) (260706 unified-parse-engine, Task 2b)
+                            C0302 headroom) (260706 unified-parse-engine, Task 2b).
+                            island_value — the splice fail-soft guard (260718):
+                            a LexicError from the island's fold/reduce step
+                            reroutes to PdaFail (both kernels' _island wire
+                            through it); non-library exceptions still surface.
+                            _may_extend — the SOUND window-growth rule (260718):
+                            grow on no-completion / edge-touch / the
+                            valid-prefix probe (kernel.can_extend_at — a
+                            short-of-edge column's chart is complete evidence
+                            for its own window char; delegate-landing columns
+                            are blind ⇒ MAY); terminates at window ≥ remaining
+                            where truncation is impossible. Regression:
+                            tests/integration/test_island_valid_prefix.py
 tests/
   unit/lexic/           structural mirror of src/lexic/
   integration/          test_compile_grammar_{gbnf,abnf}, test_cross_flavour,
@@ -841,6 +879,15 @@ them.
 3. **Positional (Tier 3):** first unmatched pattern field → `head`; subsequent → `part_2`, `part_3` …
 
 Unquantified `IrLiteral` (quantifier `(1,1)`, `_is_structural_literal`) → no field, never reaches Tier 3. Quantified literals always name via Tier 2 (`_literal_token`), never Tier 3.
+
+**Declaration order is defaults-last (260718):** naming and collision
+numbering run in item order, then `bind_fields` returns the stable
+required-first partition (optional = non-`models` with `lo == 0`; `models`
+fields are required lists; an empty-arm rule defaults everything so order is
+unconstrained there). The record ctor is therefore well-formed
+(no required-after-defaulted field — the NamedTuple convention); item slots
+ride each `IrBind`, so `__binds__`/the fold are order-independent, and
+`children()`/`rebuild()` follow `__binds__` item order regardless (settled 13).
 
 **Reserved names mangle with a trailing `_`** (the `True_` precedent): field
 names in `_RESERVED_FIELD_NAMES` (Python keywords + the record-spine protocol

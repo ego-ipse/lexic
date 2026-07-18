@@ -26,31 +26,32 @@ input shape the PDA's stop-gate still refuses rather than risk a wrong model —
 from __future__ import annotations
 
 import random
-from pathlib import Path
 from typing import cast
 
 import pytest
 
-from lexic.compile import (
-    CompiledGrammar,
-    canonical_grammar,
-    compile_from_path,
-    compile_text,
-)
+from lexic.compile import canonical_grammar, compile_text
 from lexic.compile.passes import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
-from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
+from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda
+from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime import reduce_runtime as rrt
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
-from lexic.parsing.products import _model_product, _reduce_product, earley_reduce
+from tests.integration.pda_parity_helpers import _arithmetic_bench_corpus
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import (
+    _assert_parity,
+    _compiled_and_pda,
+    _reduce_pda,
+    _ref_reduce,
+    _specs,
+)
 
 # ── fixtures ────────────────────────────────────────────────────────────
 
@@ -62,75 +63,6 @@ _ISLAND_FREE_STEMS: tuple[str, ...] = (
 )
 _N_SEEDS = 50
 _MAX_DEPTH = 4
-
-# Mirrors tools/benchmark/pipeline_bench.py's arithmetic instance workload
-# (same snippets, same ~4800-char target) — not imported (that module builds
-# its own corpus for timing, not as an importable package) but pinned here as
-# the same data so this test exercises the actual bench corpus shape. Public
-# (not module-private) so tests/golden_fixtures.py can import the same
-# literals rather than duplicating them (pylint R0801).
-ARITHMETIC_BENCH_SNIPPETS: tuple[str, ...] = (
-    "x=1\n",
-    "y=z\n",
-    "a+b=100\n",
-    "foo=(bar)\n",
-    "abc123-xyz=42\n",
-)
-
-
-def _arithmetic_bench_corpus(target_len: int = 4800) -> str:
-    """The pinned arithmetic bench corpus, cycled to at least ``target_len`` chars."""
-    pieces: list[str] = []
-    size = 0
-    n = 0
-    while size < target_len:
-        piece = ARITHMETIC_BENCH_SNIPPETS[n % len(ARITHMETIC_BENCH_SNIPPETS)]
-        pieces.append(piece)
-        size += len(piece)
-        n += 1
-    return "".join(pieces)
-
-
-# ── helpers ───────────────────────────────────────────────────────────────
-
-
-def _reduce_pda(flavour):
-    """The flavour's self-grammar reduce PDA (built + memoised in the engine)."""
-    return _reduce_product(flavour.grammar, flavour.reducer).pda
-
-
-def _compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:
-    """Compile a ground-truth grammar both ways: the engine artifact + its PdaTables.
-
-    Mirrors ``test_clones.py``'s ``_pda_for`` — the same inputs
-    ``compile.py``'s (not-yet-landed) Task-6 wiring will use, built entirely
-    through public seams: ``lifted`` from ``canonical_grammar`` +
-    ``build_codegen_grammar`` + ``lift_optional_nullables``,
-    ``instance_grammar``/``fold.config`` read off the already-compiled
-    :class:`CompiledGrammar`.
-    """
-    flavour = flavour_for_extension(path)
-    canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
-    lifted = lift_optional_nullables(build_codegen_grammar(canonical))
-    compiled = compile_from_path(path)
-    instance = _model_product(compiled.codegen_grammar, compiled.fold).instance_grammar
-    pda = compile_pda(lifted, instance, compiled.fold.config)
-    return compiled, pda
-
-
-def _specs(path: Path) -> dict:
-    """The rule-name → IrRule view :func:`~lexic.generate.generate` walks."""
-    flavour = flavour_for_extension(path)
-    canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
-    return {r.name: r for r in canonical.rules}
-
-
-def _assert_parity(
-    engine_model: GrammarModel, pda_model: GrammarModel, text: str
-) -> None:
-    """Assert ruling 1's semantic-parity contract, not raw ``dump()`` equality."""
-    assert pda_model.semantic_dump() == engine_model.semantic_dump()
-    assert pda_model.to_text() == text
 
 
 # ── the parity gate (generated samples, per island-free grammar) ──────────
@@ -258,11 +190,6 @@ _REDUCE_GATE2_GBNF: tuple[str, ...] = (
 """gate 2's capture-cleaning parity: varied whitespace noise around the same
 shapes — the reduce PDA's cleaned children must reduce byte-identically to
 the Earley path regardless of how the noise is laid out."""
-
-
-def _ref_reduce(flavour, text: str):
-    """The Earley reducer's own reduction of ``text`` — the parity oracle."""
-    return earley_reduce(normalize(flavour.grammar), text, flavour.reducer)
 
 
 @pytest.mark.parametrize("text", _REDUCE_GATE1_GBNF)

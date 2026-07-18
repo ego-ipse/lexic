@@ -48,15 +48,10 @@ from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
-from lexic.parsing.products import _model_product, _reduce_product
+from lexic.parsing.products import _reduce_product
 from tests.integration.test_pda_parity import _ALL_STEMS, _grammar_for
+from tests.unit.lexic.parsing.parsing_helpers import _prod
 from tests.unit.lexic.parsing.pda.compiler.test_delegate_compile import _NoDelegates
-
-
-def _prod(cg):
-    """The instance product for a CompiledGrammar (pda / instance_grammar / tables)."""
-    return _model_product(cg.codegen_grammar, cg.fold)
-
 
 # ── the A/B toggle ────────────────────────────────────────────────────────
 

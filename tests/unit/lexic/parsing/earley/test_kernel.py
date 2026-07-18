@@ -11,6 +11,8 @@ its behavioral coverage lives here now, re-expressed over ``Kernel``).
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
@@ -30,7 +32,7 @@ from lexic.ir.nodes import (
 )
 from lexic.parsing import derivations, parse, recognize
 from lexic.parsing.earley.chart import Chart
-from lexic.parsing.earley.forest import ParseTree, SppfNode
+from lexic.parsing.earley.forest import ParseTree, PayloadLeaf, SppfNode
 from lexic.parsing.earley.kernel import FastTree, Kernel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tables import (
@@ -39,8 +41,8 @@ from lexic.parsing.earley.tables import (
     ORIGIN_MASK,
     compile_tables,
 )
-from tests._ir_fixtures import digit_grammar as _digit_grammar
-from tests._ir_fixtures import word_grammar as _word_grammar
+from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
+from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
 
 # ── Grammar helpers ───────────────────────────────────────────────────
 
@@ -626,3 +628,46 @@ def test_root_ambiguous_false_for_single_production():
     """root_ambiguous is False for an unambiguous single-production accept."""
     kernel = Kernel(compile_tables(_digit_grammar()), "5", record_links=True).run()
     assert kernel.root_ambiguous is False
+
+
+# ── can_extend_at — the islands seam's valid-prefix probe ─────────────
+
+
+def test_can_extend_at_true_when_an_item_faces_the_char(sss_grammar):
+    """``s = s s / 'a'`` over 'aa': at col 1 an in-progress item awaits 'a'."""
+    tables = compile_tables(sss_grammar)
+    kern = Kernel(tables, "aa")
+    assert kern.longest_start_completion() is not None
+    assert kern.can_extend_at(1, "a") is True
+
+
+def test_can_extend_at_sighted_refusal_when_nothing_seeds(sss_grammar):
+    """Over 'ax' the col-1 seeds were gated by 'x' and none admitted — the
+    empty scannable is a SIGHTED refusal (probe char == window char)."""
+    tables = compile_tables(sss_grammar)
+    kern = Kernel(tables, "ax")
+    assert kern.longest_start_completion() is not None
+    assert not kern.st.scannable[1]
+    assert kern.can_extend_at(1, "x") is False
+
+
+def test_can_extend_at_out_of_domain_char_answers_may(sss_grammar):
+    """A probe char differing from the column's window char proves nothing —
+    conservative MAY (the gates were evaluated with the other char)."""
+    tables = compile_tables(sss_grammar)
+    kern = Kernel(tables, "ax")
+    kern.longest_start_completion()
+    assert kern.can_extend_at(1, "b") is True
+
+
+def test_can_extend_at_blind_delegate_end_answers_may(sss_grammar):
+    """A delegate-landing column is blind regardless of chart content.
+
+    Landings are derived from ``Kernel.delegated`` handles (low bits = end
+    column) — inject one landing at column 1 and the probe must answer MAY.
+    """
+    tables = compile_tables(sss_grammar)
+    kern = Kernel(tables, "ax")
+    kern.longest_start_completion()
+    kern.delegated[(7 << ORIGIN_BITS) | 1] = cast(PayloadLeaf, None)
+    assert kern.can_extend_at(1, "x") is True

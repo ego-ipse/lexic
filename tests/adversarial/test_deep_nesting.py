@@ -11,16 +11,12 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
+from tests.adversarial.adversarial_helpers import _nested
 
 # Minimal self-nesting grammar: an array of arrays (or the leaf "0").
 _GRAMMAR = (
     'root  ::= array\narray ::= "[" (value ("," value)*)? "]"\nvalue ::= array | "0"\n'
 )
-
-
-def _nested(depth: int) -> str:
-    """Return ``depth`` nested arrays wrapped around a single leaf ``0``."""
-    return "[" * depth + "0" + "]" * depth
 
 
 @pytest.mark.parametrize("depth", [400, 800])
