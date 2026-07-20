@@ -8,7 +8,7 @@ other. This harness does: for each input text it times every applicable path
 and prints them in one row, so "on this string, the PDA is X, Earley is Y,
 Lark is Z" is a direct read.
 
-## The four columns
+## The six columns
 
 - **lark-lalr** / **lark-earley** — the external reference, given every sample a
   native Lark grammar (``lark_refs``) and run under **both** of Lark's parsers,
@@ -21,9 +21,21 @@ Lark is Z" is a direct read.
   Earley.
 - **earley** — the engine's Earley completion (``earley_reduce`` for
   grammar-text, ``earley_model`` for instances) → the typed ``IrAst`` / model.
+- **parse-first** (instance rows only) — ``parse_first`` over the same
+  normalised grammar and collapsed tables the ``earley`` column uses, but
+  WITHOUT the fold: recognition + one derivation → a ``ParseTree``. The
+  decomposition read: ``earley − parse-first`` is the fold's own cost, and
+  ``parse-first`` vs ``pda`` is tree-then-fold Earley against the PDA's fused
+  model build. Like Lark it is verified by recognition only — a ``ParseTree``
+  is not the engine's typed result.
 - **pda** — the engine's full predictive PDA (``parse_pda`` over the compiled
   tables — the exact path the product runs first, islands sub-parsed inline) →
   the typed ``IrAst`` / model.
+- **product** — the public product entry itself (``parse_reduced`` for
+  grammar-text, ``CompiledGrammar.parse`` for instances): PDA-first with the
+  Earley completion inside, memoised per identity. Expected to read ≡ ``pda``;
+  the delta IS the product-entry + memo-lookup overhead. Equality-gated
+  against the reference like the other engine paths.
 
 Because Lark yields a generic ``Tree`` while the engine builds a typed result,
 the two ``lark`` columns omit construction the ``earley`` / ``pda`` columns
@@ -71,6 +83,7 @@ from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.flavour import IrFlavour
 from lexic.model import GrammarModel
+from lexic.parsing import parse_first, parse_reduced
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
@@ -84,7 +97,10 @@ from lexic.parsing.products import (
 
 Path = Callable[[str], object]
 # column order; absent paths render "—". Both Lark parsers race every sample.
-_ORDER = ("lark-lalr", "lark-earley", "earley", "pda")
+_ORDER = ("lark-lalr", "lark-earley", "earley", "parse-first", "pda", "product")
+# engine paths whose outputs are equality-gated against the reference;
+# parse-first yields a ParseTree (not the typed result) — recognition only.
+_ENGINE_COMPARED = ("earley", "pda", "product")
 
 
 @dataclass(slots=True)
@@ -115,10 +131,11 @@ class Case:
 
 
 def _reduce_paths(flavour: IrFlavour, lark: dict[str, Path]) -> dict[str, Path]:
-    """The grammar-text paths for one flavour — both Lark parsers, earley, pda.
+    """The grammar-text paths for one flavour — Lark ×2, earley, pda, product.
 
     All construction (normalisation, reduce-PDA compilation) happens here, once,
-    outside every timed loop.
+    outside every timed loop; the ``product`` column's memoised per-identity
+    compile is warmed by the same ``_reduce_product`` call.
 
     :param flavour: The flavour whose self-grammar parses the input.
     :param lark: The viable native Lark parse callables (``lark-lalr`` /
@@ -126,19 +143,24 @@ def _reduce_paths(flavour: IrFlavour, lark: dict[str, Path]) -> dict[str, Path]:
     :returns: Path name → timed callable, in column order.
     """
     norm = normalize(flavour.grammar)
+    grammar = flavour.grammar
     reducer = flavour.reducer
     assert isinstance(reducer, Reducer)  # narrow the ClassVar[IrDispatch] declaration
-    reduce_pda = _reduce_product(flavour.grammar, reducer).pda
+    reduce_pda = _reduce_product(grammar, reducer).pda
     paths: dict[str, Path] = dict(lark)
     paths["earley"] = lambda t: earley_reduce(norm, t, reducer)
     paths["pda"] = lambda t: parse_pda(reduce_pda, t, None)
+    paths["product"] = lambda t: parse_reduced(grammar, t, reducer)
     return paths
 
 
 def _model_paths(stem: str, lark: dict[str, Path]) -> dict[str, Path]:
-    """The instance paths for one ground-truth grammar — both Lark parsers, earley, pda.
+    """The instance paths for one GT grammar — Lark ×2, earley, parse-first, pda, product.
 
-    Compiles the grammar and builds both products once, outside timing.
+    Compiles the grammar and builds the product once, outside timing. The
+    ``parse-first`` path shares the ``earley`` column's normalised grammar and
+    collapsed tables, minus the fold; ``product`` is the artefact's own
+    :meth:`~lexic.compile.artifact.CompiledGrammar.parse`.
 
     :param stem: The ground-truth grammar file stem (e.g. ``json.gbnf``).
     :param lark: The viable native Lark parse callables (``lark-lalr`` /
@@ -152,7 +174,11 @@ def _model_paths(stem: str, lark: dict[str, Path]) -> dict[str, Path]:
     paths["earley"] = lambda t: earley_model(
         product.instance_grammar, t, fold, product.tables
     )
+    paths["parse-first"] = lambda t: parse_first(
+        product.instance_grammar, t, product.tables
+    )
     paths["pda"] = lambda t: parse_pda(product.pda, t, fold)
+    paths["product"] = compiled.parse
     return paths
 
 
@@ -258,11 +284,12 @@ def check(case: Case) -> None:
     """Run every path once; verify Lark recognises and the engine paths agree.
 
     An engine path that raises :class:`PdaFail` (an island start) is dropped.
-    The two engine paths are cross-checked for output equality (referenced
-    against the PDA, so a message names the lone outlier). Lark is *not*
-    compared on output — its native ``Tree`` is not the engine's typed result —
-    only that it ran (recognition). Mutates ``case`` in place so the timed loop
-    races only the surviving paths.
+    The typed engine paths (``earley`` / ``pda`` / ``product``) are
+    cross-checked for output equality (referenced against the PDA, so a message
+    names the outlier). Lark and ``parse-first`` are *not* compared on output —
+    a Lark ``Tree`` / engine ``ParseTree`` is not the engine's typed result —
+    only that they ran (recognition). Mutates ``case`` in place so the timed
+    loop races only the surviving paths.
 
     :param case: The case to verify (mutated in place).
     """
@@ -273,11 +300,11 @@ def check(case: Case) -> None:
         except PdaFail:
             del case.paths[name]
             print(f"  ! {case.label}: {name} raised PdaFail (island start) — dropped")
-    ref_name = next((n for n in ("pda", "earley") if n in outputs), None)
+    ref_name = next((n for n in ("pda", "earley", "product") if n in outputs), None)
     if ref_name is None:
         return
     reference = outputs[ref_name]
-    for name in ("earley", "pda"):  # lark's native Tree is a different shape
+    for name in _ENGINE_COMPARED:  # lark Tree / parse-first ParseTree: other shapes
         if (
             name in outputs
             and name != ref_name
@@ -327,7 +354,7 @@ def summary(matrix: list[tuple[str, dict[str, float]]]) -> None:
     :param matrix: ``(case label, path → µs/char)`` for every case, in order.
     """
     print("== summary — µs/char (lower is faster) ==")
-    heads = ("lk-lalr", "lk-earley", "earley", "pda")
+    heads = ("lk-lalr", "lk-earley", "earley", "p-first", "pda", "product")
     print(f"  {'input':<26}" + "".join(f"{h:>11}" for h in heads))
     for label, per_char in matrix:
         cells = "".join(
@@ -337,8 +364,11 @@ def summary(matrix: list[tuple[str, dict[str, float]]]) -> None:
     print()
     print("  lark-lalr / lark-earley = native parse → Lark Tree; an empty lk-lalr")
     print("  cell means LALR is not viable for that grammar (see the row's note).")
-    print("  earley / pda = parse → typed IrAst / model, so those two columns")
-    print("  include construction the lark columns omit.")
+    print("  earley / pda / product = parse → typed IrAst / model, so those columns")
+    print("  include construction the lark columns omit. p-first (instances only)")
+    print("  = the earley column minus its fold (recognition + one ParseTree);")
+    print("  earley − p-first reads the fold's cost, p-first vs pda the PDA's")
+    print("  fused-build advantage. product = the public entry; ≈ pda by design.")
     print()
 
 
