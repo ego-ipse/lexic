@@ -13,13 +13,16 @@ Grammar design (the 260718 spike, productionized):
   FIRST-disjoint;
 - the notation rules embedded wholesale for every expression
   (``GRAMMAR``/inline ``__grammar__`` values, ``IrBind`` entries) — module
-  rules take an ``m-`` prefix, merging is concatenation;
+  rules take an ``m-`` prefix, merging is concatenation. The embedded token
+  rules' trailing ``ws`` is rewritten to ``ws-inl`` (space/tab only, no
+  newline) so a value-final statement's own newline is the consuming barrier,
+  never swallowed — ``comma``/``lparen`` keep the newline-permitting ``ws``
+  (a call spans lines after ``(`` or ``,``);
 - the field-less-class ambiguity is killed by the ``m-body`` arm split
   (one nullable gap arm vs blank + body-lines + gap);
-- an embedded expression's trailing ``ws`` swallows the NEXT line's leading
-  indent (noise), so the rules for lines that can only follow an expression
-  (``__binds__``) start at their keyword — a deliberate, documented
-  indent-strictness gap on those lines only.
+- every body line rides through ``m-indented-line`` (the shared leading
+  4-space indent), so ``__binds__`` carries its own indent like every other
+  line — there is no swallowed-indent gap.
 """
 
 from __future__ import annotations
@@ -141,6 +144,7 @@ _MODULE_RULES = [
             _ref("m-imports"),
             IrItem(IrRuleRef("m-class-block"), _STAR),
             _ref("m-grammar-stmt"),
+            _ref("m-gap"),
             IrItem(IrRuleRef("m-bind-stmt"), _OPT),
         ),
     ),
@@ -236,21 +240,18 @@ _MODULE_RULES = [
         IrSequence(_lit("\n"), IrItem(IrRuleRef("m-body-line"), _PLUS), _ref("m-gap")),
     ),
     _rule("m-empty-body", IrSequence(_ref("m-gap"))),
-    # body lines split on their FIRST char: an indented line (' ') vs the
-    # ``__binds__`` keyword ('_' — its indent is swallowed, see below); past
-    # the indent, a field name ([A-Za-z] — ``m-field-name``, never
-    # underscore-led) vs ``__grammar__`` ('_'). Both decisions are
-    # FIRST-disjoint, so the whole body parses predictively (no island).
-    _rule(
-        "m-body-line",
-        IrSequence(_ref("m-indented-line")),
-        IrSequence(_ref("m-inline-binds")),
-    ),
+    # Every body line rides through ``m-indented-line`` (the shared leading
+    # 4-space indent); past the indent the three tails separate on their
+    # keyword — a field name ([A-Za-z] — ``m-field-name``, never
+    # underscore-led) vs ``__grammar__`` vs ``__binds__`` (the two '_'-led
+    # keywords separate at k=3). Predictive, no island.
+    _rule("m-body-line", IrSequence(_ref("m-indented-line"))),
     _rule("m-indented-line", IrSequence(_lit("    "), _ref("m-line-tail"))),
     _rule(
         "m-line-tail",
         IrSequence(_ref("m-field-tail")),
         IrSequence(_ref("m-grammar-tail")),
+        IrSequence(_ref("m-inline-binds")),
     ),
     # The union loop rides INSIDE the line rule so the loop-exit has an
     # in-rule (soft) continuation — ``" |"`` vs ``" ="``/``"\\n"`` separates
@@ -321,11 +322,13 @@ _MODULE_RULES = [
     _rule(
         "m-sq-unit", IrSequence(IrItem(_SQ_PLAIN)), IrSequence(_lit("\\"), IrItem(_ANY))
     ),
-    # inline tables — the value's trailing ws swallows the next line's indent,
-    # so the ``__binds__`` rule starts at its keyword (documented gap).
+    # inline tables — a value-final line, so it OWNS its trailing newline
+    # (``value`` no longer swallows it; ``ws-inl`` stops at the newline).
     _rule(
         "m-grammar-tail",
-        IrSequence(_lit("__grammar__: ClassVar[IrRule] = "), _ref("value")),
+        IrSequence(
+            _lit("__grammar__: ClassVar[IrRule] = "), _ref("value"), _ref("m-nl")
+        ),
     ),
     # Each entry consumes its trailing newline PLUS the next line's leading
     # 4 spaces (one hoisted before the loop), so loop-take peeks ' ' against
@@ -352,9 +355,47 @@ _MODULE_RULES = [
             _lit("),\n    "),
         ),
     ),
-    _rule("m-grammar-stmt", IrSequence(_lit("GRAMMAR: IrAst = "), _ref("value"))),
+    _rule(
+        "m-grammar-stmt",
+        IrSequence(_lit("GRAMMAR: IrAst = "), _ref("value"), _ref("m-nl")),
+    ),
     _rule("m-bind-stmt", IrSequence(_lit("bind_module(GRAMMAR, globals())\n"))),
 ]
+
+# ── the notation token rules whose trailing ``ws`` must NOT cross a newline ─
+# (so a value-final statement's own ``m-nl`` is the consuming barrier).
+# ``comma``/``lparen`` keep the newline-permitting ``ws`` — a call spans lines
+# after ``(`` or ``,``.
+_INLINE_WS_RULES = frozenset(
+    {"rparen", "dq-str", "sq-str", "name", "neg-int", "pos-int"}
+)
+
+_WS_INL = _rule(
+    "ws-inl",
+    IrSequence(IrItem(IrCharClass(IrChr(9), IrChr(32)), _STAR)),
+    semantic=False,
+)
+
+
+def _inline_ws(rule: IrRule) -> IrRule:
+    """Rewrite a notation token rule's trailing ``ws`` ref to ``ws-inl``.
+
+    :param rule: A notation token rule (arity-preserving — only the ref name
+        changes, so the rule's fold entry stays aligned).
+    :returns: The rewritten rule.
+    """
+    arms = [
+        IrSequence(
+            *(
+                IrItem(IrRuleRef("ws-inl"), it.quantifier)
+                if isinstance(it.atom, IrRuleRef) and str(it.atom) == "ws"
+                else it
+                for it in arm
+            )
+        )
+        for arm in rule.body
+    ]
+    return IrRule(rule.name, IrAlternation(*arms), rule.semantic)
 
 
 def module_grammar() -> IrAst:
@@ -363,9 +404,11 @@ def module_grammar() -> IrAst:
     :returns: The merged ``IrAst`` (start ``m-module``).
     """
     notation_rules = [
-        r for r in _notation.NOTATION_GRAMMAR.rules if str(r.name) != "start"
+        _inline_ws(r) if str(r.name) in _INLINE_WS_RULES else r
+        for r in _notation.NOTATION_GRAMMAR.rules
+        if str(r.name) != "start"
     ]
-    return IrAst(IrSeq(*_MODULE_RULES, *notation_rules), "m-module")
+    return IrAst(IrSeq(*_MODULE_RULES, *notation_rules, _WS_INL), "m-module")
 
 
 # ── fold ctors (string composers + record assemblers) ────────────────────
@@ -496,13 +539,13 @@ def _fold_config() -> dict[str, RuleFold]:
             "m-module": seq(
                 "sequence",
                 _m_module,
-                7,
+                8,
                 (
                     FieldFold(0, "model", "doc", 1),
                     FieldFold(3, "model", "imports", 1),
                     FieldFold(4, "models", "classes", 0),
                     FieldFold(5, "model", "grammar", 1),
-                    FieldFold(6, "model", "bind", 0),
+                    FieldFold(7, "model", "bind", 0),
                 ),
             ),
             "m-nl": seq("sequence", lambda: True, 1, ()),
@@ -625,7 +668,7 @@ def _fold_config() -> dict[str, RuleFold]:
                 "sequence", _m_sq_token, 3, (FieldFold(1, "text", "raw", 0),)
             ),
             "m-grammar-tail": seq(
-                "sequence", _m_inline_grammar, 2, (FieldFold(1, "model", "value", 1),)
+                "sequence", _m_inline_grammar, 3, (FieldFold(1, "model", "value", 1),)
             ),
             "m-inline-binds": seq(
                 "sequence",
@@ -644,7 +687,7 @@ def _fold_config() -> dict[str, RuleFold]:
                 ),
             ),
             "m-grammar-stmt": seq(
-                "sequence", passthrough, 2, (FieldFold(1, "model", "v", 1),)
+                "sequence", passthrough, 3, (FieldFold(1, "model", "v", 1),)
             ),
             "m-bind-stmt": seq("sequence", lambda: True, 1, ()),
             "m-gap": seq("sequence", lambda: None, 1, ()),

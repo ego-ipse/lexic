@@ -37,32 +37,12 @@ from __future__ import annotations
 import hypothesis.strategies as st
 from hypothesis import example, given, settings
 
-from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.nodes import IrAst
-from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
-from lexic.parsing.pda.runtime.runtime import PdaFail
-from lexic.parsing.products import _as_ast, _reduce_product, earley_reduce
+from tests.property.reduce_differential_helpers import ReduceDifferential
 
-product = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
-earley_grammar = normalize(GBNF_FLAVOUR.grammar)
-
-
-def pda(text: str) -> IrAst | None:
-    """The raw reduce PDA in isolation — ``None`` on any :class:`PdaFail`."""
-    try:
-        return _as_ast(parse_pda(product.pda, text, None))
-    except PdaFail:
-        return None
-
-
-def earley(text: str) -> IrAst | None:
-    """The forced Earley completion — ``None`` on any unparseable text."""
-    try:
-        return _as_ast(earley_reduce(earley_grammar, text, GBNF_FLAVOUR.reducer))
-    except UnsupportedConstructError:
-        return None
+# Task 4 flip point: ReduceDifferential.earley_grammar becomes
+# normalize(lift_optional_nullables(GBNF_FLAVOUR.grammar)).
+_diff = ReduceDifferential(GBNF_FLAVOUR)
 
 
 # ── the generator — ε-heavy GBNF meta-syntax ───────────────────────────────
@@ -182,13 +162,4 @@ def test_pda_and_earley_agree_on_reduce(text: str) -> None:
     self-grammar, Earley the unlifted one, and this is the guard that the
     authored reduce bodies keep the two routes' IR equivalent despite that.
     """
-    pda_ir = pda(text)
-    if pda_ir is None:
-        return
-    earley_ir = earley(text)
-    assert earley_ir is not None, f"PDA recognised text Earley rejected:\n{text!r}"
-    assert pda_ir == earley_ir, (
-        f"PDA/Earley reduce diverged on:\n{text!r}\n"
-        f"  pda:    {pda_ir!r}\n"
-        f"  earley: {earley_ir!r}"
-    )
+    _diff.assert_agree(text)

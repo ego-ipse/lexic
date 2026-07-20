@@ -61,6 +61,13 @@ _UNIT = IrQuantifier(1, 1)
 
 _IR_NAME = re.compile(r"\bIr[A-Za-z0-9]*\b|\bIR_DEFAULT\b")
 
+# A value-final token (bare name, ``)``, string, int) is followed by its
+# delimiter (``,``/``)``) across only space/tab in an exported module — the
+# module self-grammar's ``ws-inl`` cannot cross a newline. The layout algebra
+# breaks only AFTER ``(``/``,`` (whose ``ws`` DOES cross a newline), so a
+# newline before a delimiter never occurs; this pins the invariant.
+_WS_INL_LEAK = re.compile(r"[\w)]\n[ ]*[,)]")
+
 
 # ── field annotations (readable view — the runtime never reads them) ─────
 
@@ -189,7 +196,14 @@ def _indented_ir(prefix: str, node: IrSelf) -> list[str]:
     """
     base = len(prefix) - len(prefix.lstrip(" "))
     doc = IrCat(IrText(prefix), IrNest(base, ir_doc(node)))
-    return render(doc, WIDTH).split("\n")
+    text = render(doc, WIDTH)
+    leak = _WS_INL_LEAK.search(text)
+    if leak is not None:
+        raise UnsupportedConstructError(
+            f"export: newline before a delimiter breaks module reparse: "
+            f"{leak.group()!r}"
+        )
+    return text.split("\n")
 
 
 def _inline_table_lines(bind: RuleBinding, rule: IrRule) -> list[str]:

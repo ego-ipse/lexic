@@ -29,18 +29,18 @@ from lexic.ir.nodes import IrAst
 from tests.paths import GRAMMARS, GROUND_TRUTH
 
 
-def _manifest_ebnf() -> IrFlavour:
+def manifest_ebnf() -> IrFlavour:
     """The GENERATED EBNF manifest, freshly loaded from disk."""
     return load_flavour_from_path(GRAMMARS / "ebnf.flavour.ir")
 
 
-def _gbnf_canonical(stem: str) -> IrAst:
+def gbnf_canonical(stem: str) -> IrAst:
     """The canonicalized GBNF ground-truth grammar named ``stem``."""
     text = (GROUND_TRUTH / f"{stem}.gbnf").read_text(encoding="utf-8")
     return canonicalize(parse_grammar(text, GBNF_FLAVOUR))
 
 
-def _ebnf_canonical(stem: str) -> IrAst:
+def ebnf_canonical(stem: str) -> IrAst:
     """The canonicalized EBNF ground-truth grammar named ``stem``, parsed
     via the shipped :data:`EBNF_FLAVOUR` singleton."""
     text = (GROUND_TRUTH / f"{stem}.ebnf").read_text(encoding="utf-8")
@@ -51,7 +51,7 @@ def test_ebnf_manifest_loads_and_matches_the_shipped_flavour() -> None:
     """The generated manifest still loads to a flavour with the same
     identity metadata as the shipped ``EBNF_FLAVOUR`` singleton it was
     generated from — the checked-in manifest hasn't drifted from its source."""
-    manifest_flavour = _manifest_ebnf()
+    manifest_flavour = manifest_ebnf()
     assert isinstance(manifest_flavour, IrFlavour)
     assert manifest_flavour.name == EBNF_FLAVOUR.name
     assert manifest_flavour.extensions == EBNF_FLAVOUR.extensions
@@ -60,35 +60,35 @@ def test_ebnf_manifest_loads_and_matches_the_shipped_flavour() -> None:
 def test_ebnf_manifest_grammar_matches_the_shipped_grammar() -> None:
     """The manifest's self-grammar section is byte-for-byte the shipped
     singleton's ``EBNF_GRAMMAR`` — the repr-generation licence held."""
-    assert _manifest_ebnf().grammar == EBNF_FLAVOUR.grammar
+    assert manifest_ebnf().grammar == EBNF_FLAVOUR.grammar
 
 
 def test_ebnf_arithmetic_canonical_equals_gbnf() -> None:
     """Exit criterion 4: arithmetic.ebnf -> the SAME canonical IR as arithmetic.gbnf."""
-    assert _ebnf_canonical("arithmetic") == _gbnf_canonical("arithmetic")
+    assert ebnf_canonical("arithmetic") == gbnf_canonical("arithmetic")
 
 
 def test_ebnf_arithmetic_canonical_repr_equals_gbnf() -> None:
     """The repr (canonical codegen form) matches too — no hidden semantic drift."""
-    assert repr(_ebnf_canonical("arithmetic")) == repr(_gbnf_canonical("arithmetic"))
+    assert repr(ebnf_canonical("arithmetic")) == repr(gbnf_canonical("arithmetic"))
 
 
 def test_ebnf_json_canonical_equals_gbnf() -> None:
     """json.ebnf -> the SAME canonical IR as json.gbnf — parity holds on a
     second, larger ground-truth grammar too."""
-    assert _ebnf_canonical("json") == _gbnf_canonical("json")
+    assert ebnf_canonical("json") == gbnf_canonical("json")
 
 
 def test_ebnf_json_canonical_repr_equals_gbnf() -> None:
     """The repr matches for json too — no hidden semantic drift on the
     larger grammar either."""
-    assert repr(_ebnf_canonical("json")) == repr(_gbnf_canonical("json"))
+    assert repr(ebnf_canonical("json")) == repr(gbnf_canonical("json"))
 
 
 def test_ebnf_emit_round_trips() -> None:
     """The shipped flavour emits its own canonical IR back to text that
     reparses equal."""
-    canonical = _gbnf_canonical("arithmetic")
+    canonical = gbnf_canonical("arithmetic")
     emitted = EBNF_FLAVOUR.apply(canonical)
     reparsed = canonicalize(parse_grammar(emitted, EBNF_FLAVOUR))
     assert reparsed == canonical

@@ -40,8 +40,9 @@ def test_module_grammar_starts_at_m_module():
 
 def test_module_grammar_merges_m_rules_with_notation_rules_minus_start():
     """The rule set is the m-prefixed statement rules plus every notation
-    rule EXCEPT notation's own "start" (the module skeleton supplies its
-    own top-level rule instead)."""
+    rule EXCEPT notation's own "start" (the module skeleton supplies its own
+    top-level rule instead), plus the module's own ``ws-inl`` (space/tab-only
+    trailing whitespace the swapped notation token rules point at)."""
     grammar = module_grammar()
     names = [str(rule.name) for rule in grammar.rules]
     m_names = {n for n in names if n.startswith("m-")}
@@ -49,17 +50,20 @@ def test_module_grammar_merges_m_rules_with_notation_rules_minus_start():
     notation_names = {
         str(rule.name) for rule in NOTATION_GRAMMAR.rules if str(rule.name) != "start"
     }
-    assert non_m_names == notation_names
+    assert non_m_names == notation_names | {"ws-inl"}
     assert "start" not in names
     assert m_names  # the statement skeleton contributed rules too
 
 
-def test_module_grammar_island_set_stays_at_the_small_pre_task_0b_names():
-    """Regression pin for the Task 0b inline-verify fix (22x check_generated
-    slowdown): the PDA-gated body-line/inline-binds/type rules must NOT
-    island. Only the pre-existing small-window islands remain."""
+def test_module_grammar_island_set_is_the_lone_m_imports_island():
+    """Complete-β pin (the value-final-newline fix): the six notation token
+    rules' trailing ``ws`` is rewritten to newline-free ``ws-inl`` and the
+    two grammar statements own an explicit ``m-nl``, so ``name`` and ``ws``
+    de-island (FOLLOW(name) is now identifier-free). Only the benign
+    once-per-file ``m-imports`` island remains."""
     analysis = GrammarAnalysis(lift_optional_nullables(module_grammar()))
-    assert sorted(analysis.islands) == ["m-imports", "name", "ws"]
+    assert sorted(analysis.islands) == ["m-imports"]
+    assert not analysis.fail_islands
 
 
 def test_module_grammar_has_no_duplicate_rule_names():
@@ -75,6 +79,18 @@ def test_m_gap_is_non_semantic():
     grammar = module_grammar()
     gap = next(r for r in grammar.rules if str(r.name) == "m-gap")
     assert gap.semantic is False
+
+
+def test_ws_inl_is_non_semantic_and_newline_free():
+    """ws-inl (the swapped token rules' trailing whitespace) is structural
+    noise over space/tab only — never a newline, so a value-final token
+    stops at the newline its statement owns."""
+    grammar = module_grammar()
+    ws_inl = next(r for r in grammar.rules if str(r.name) == "ws-inl")
+    assert ws_inl.semantic is False
+    members = ws_inl.body[0][0].atom.members()
+    assert ord("\n") not in members
+    assert ord(" ") in members and ord("\t") in members
 
 
 # ── parse_module on a real export (bind-mode) ───────────────────────────

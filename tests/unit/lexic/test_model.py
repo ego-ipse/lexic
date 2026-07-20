@@ -1,4 +1,4 @@
-"""Unit tests for src/lexic/base.py — the GrammarModel record spine.
+"""Unit tests for src/lexic/model.py — the GrammarModel record spine.
 
 Model classes here declare an explicit ``__binds__`` class table — the binds
 channel runtime synthesis writes and the only channel the spine reads. A
@@ -485,7 +485,7 @@ def test_to_grammar_unknown_flavour_raises():
         inst.to_grammar("xyz_unknown_flavour")
 
 
-def _wide_root_instance():
+def wide_root_instance():
     """A compiled instance whose start rule's own body is wide enough to
     overflow width 88 flat — ten long rule-ref items in one sequence."""
     names = [f"item-name-number-{i:02d}" for i in range(10)]
@@ -498,7 +498,7 @@ def _wide_root_instance():
 
 def test_to_grammar_width_none_is_flat_single_line():
     """to_grammar(width=None) renders the rule flat — no line breaks."""
-    inst = _wide_root_instance()
+    inst = wide_root_instance()
     result = inst.to_grammar(width=None)
     assert "\n" not in result
     assert not result.endswith("\n")
@@ -506,7 +506,7 @@ def test_to_grammar_width_none_is_flat_single_line():
 
 def test_to_grammar_default_width_wraps_a_long_rule():
     """to_grammar()'s default width (88) wraps a rule too wide to fit flat."""
-    inst = _wide_root_instance()
+    inst = wide_root_instance()
     result = inst.to_grammar()
     assert "\n" in result
     assert not result.endswith("\n")
@@ -514,7 +514,7 @@ def test_to_grammar_default_width_wraps_a_long_rule():
 
 def test_to_grammar_wrapped_and_flat_differ():
     """The wrapped and flat renderings of the same wide rule are not equal."""
-    inst = _wide_root_instance()
+    inst = wide_root_instance()
     assert inst.to_grammar() != inst.to_grammar(width=None)
 
 

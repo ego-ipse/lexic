@@ -15,6 +15,7 @@ import pytest
 
 from lexic.compile import compile_from_path, compile_text, export_module, export_source
 from lexic.compile.module.export import (
+    _WS_INL_LEAK,
     WIDTH,
     _group_model_type,
     docstring_lines,
@@ -107,6 +108,30 @@ def test_export_source_never_mentions_lambda_or_reducer(stem: str):
     source = export_source(cg, stem=stem)
     assert "IrLambda" not in source
     assert "Reducer" not in source
+
+
+# ── the ws-inl invariant guard (module self-grammar reparse) ──────────────
+
+
+def test_ws_inl_leak_guard_regex_shape():
+    """The guard flags a value-final token (name/``)``) with a newline before
+    its delimiter, but not the valid AFTER-``(``/``,`` layout breaks (whose
+    ``ws`` DOES cross a newline in the module self-grammar)."""
+    assert _WS_INL_LEAK.search("IrNone\n)") is not None
+    assert _WS_INL_LEAK.search("IrRange(a, b)\n,") is not None
+    assert _WS_INL_LEAK.search("IrCharClass(\n    IrRange") is None  # break after (
+    assert _WS_INL_LEAK.search("IrRange(a, b),\n    )") is None  # break after ,
+
+
+@pytest.mark.parametrize("stem", ["list", "json_ws", "arithmetic"])
+def test_export_notation_never_leaks_a_newline_before_a_delimiter(stem: str):
+    """Every real export honours the invariant its module reparse relies on:
+    no value-final token is separated from its ``,``/``)`` by a newline."""
+    cg = compile_from_path(GROUND_TRUTH / f"{stem}.gbnf")
+    for inline_tables in (False, True):
+        source = export_source(cg, stem=stem, inline_tables=inline_tables)
+        grammar_region = source.split("GRAMMAR: IrAst = ", 1)[1]
+        assert _WS_INL_LEAK.search(grammar_region) is None
 
 
 # ── field typing / optional defaults / union groups ───────────────────────
