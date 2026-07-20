@@ -17,11 +17,9 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. New plans copy `zzz_current_work/TEMPLATE.md` (goal,
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
-  Current: `zzz_current_work/260718-flavour-layout/PLAN.md` (width-aware
-  emission + production EBNF; Task 0 = the compile/ restructure into
-  pipeline/ + notation/ + module/ subpackages per ruling 4; ruling 3 =
-  default width pending; starts after the user commits
-  module-selfgrammar). Triage: `zzz_current_work/260718-backlog/`.
+  Current: `zzz_current_work/260719-engine-next/PLAN_V6.md` (gbnf perf fix
+  + convergence + parse perf + module verify; Task 0 = baselines + pinned
+  corpus + pointer, lands first). Triage: `zzz_current_work/260718-backlog/`.
   Just completed: `zzz_current_work/260718-module-selfgrammar/PLAN.md`
   (see its OUTCOME) — `compile/selfgrammar.py` (lexic parses its own
   exports: parse_module/verify_module, the per-export L2 cross-check in
