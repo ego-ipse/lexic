@@ -60,4 +60,4 @@ Every `export_source` call validates in-process: the module `ast.parse`s, and th
 
 ## Reserved class names
 
-`_RESERVED_CLASS_NAMES` (`compile/pipeline/binding.py`) = `{GrammarModel, ClassVar, Literal}` ∪ the `Ir*` constructor names the notation emits — exactly the header's PascalCase bindings (lowercase `bind_module` and UPPERCASE `GRAMMAR` can never collide with a PascalCase class name). The pydantic/typing-era names (`StringConstraints`, `Annotated`, `List`, `Optional`, `Union`) were trimmed 2026-07-18 — parity-neutral on the whole GT corpus. Drift-pinned against a real export.
+`_RESERVED_CLASS_NAMES` (`compile/pipeline/binding.py`) = `{GrammarModel, ClassVar, Literal}` ∪ the `Ir*` constructor names the notation emits — exactly the header's PascalCase bindings (lowercase `bind_module` and UPPERCASE `GRAMMAR` can never collide with a PascalCase class name). The typing-era names (`StringConstraints`, `Annotated`, `List`, `Optional`, `Union`) were trimmed 2026-07-18 — parity-neutral on the whole GT corpus. Drift-pinned against a real export.

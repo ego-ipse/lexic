@@ -203,7 +203,7 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ## 2026-05-08 — Grammar is the ground truth, not the class
 
-**Decision:** Grammar files are canonical. Pydantic classes are Python representations of a grammar, not sources of truth.
+**Decision:** Grammar files are canonical. Generated classes are Python representations of a grammar, not sources of truth.
 
 **Why:** The alternative ("class is canonical") biases every design toward "make the class more expressive" and demotes non-GBNF users (the llama.cpp population who come with existing `.gbnf` files). It also breaks cleanly once ABNF or other flavours land — "the class implies a flavour" only works if there's one notation.
 

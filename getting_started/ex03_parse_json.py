@@ -26,7 +26,7 @@ GRAMMAR_PATH = REPO_ROOT / "resources" / "ground_truth" / "json_ws.gbnf"
 SAMPLE = (
     '{"project": {"name": "Lexic", "version": 0, "ships": true}, '
     '"deps": [{"name": "lark", "extras": ["regex", "standalone"]}, '
-    '{"name": "pydantic", "extras": []}], '
+    '{"name": "click", "extras": []}], '
     '"meta": {"tags": ["grammar", "ir", "transpiler"], '
     '"owners": {"primary": "mika", "backup": null}}}'
 )

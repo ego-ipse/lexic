@@ -1,6 +1,6 @@
 # CLAUDE.md — Lexic
 
-Lexic is the grammar engine layer of Vyx (an agent-to-agent protocol). It compiles grammar files (GBNF, ABNF) into model classes synthesized at runtime on the `IrNamedTuple` record spine (no pydantic); instances parse text and round-trip back to grammar. Grammar is the ground truth — classes are its Python representation, not the other way around.
+Lexic is the grammar engine layer of Vyx (an agent-to-agent protocol). It compiles grammar files (GBNF, ABNF) into model classes synthesized at runtime on the `IrNamedTuple` record spine; instances parse text and round-trip back to grammar. Grammar is the ground truth — classes are its Python representation, not the other way around.
 
 ## Wiki
 
@@ -32,7 +32,7 @@ Read these documents before editing code:
   Just completed: `zzz_current_work/260716-ir-native/PLAN_v4.md` (see its
   OUTCOME) — the unified `compile/` subsystem: pure-IR representations +
   compiled models synthesized at runtime, open rule→class binding,
-  flavours-from-text; `codegen/` and pydantic both deleted.
+  flavours-from-text; the old `codegen/` path deleted.
   Prior: `260713-vyx-parse/PLAN.md` (CLOSED 2026-07-16, see its OUTCOME +
   FOLLOWUP.md; vyx-side spec commit pending user);
   `260712-totality-cleanup/PLAN.md` (Tasks 0–5 ledger in `PLAN_v3.md`; v4
@@ -81,7 +81,16 @@ uv run python tools/check_generated.py   # generated-twin tool-clean gate
                                          # (11 GT × both modes, pyright+pylint
                                          # DEFAULT configs; accepted: keyword-
                                          # mangle C0103, C0302, gbnf↔abnf R0801)
+tools/guarded.sh 8G 600 -- uv run pytest tests/ -q   # memory-capped run
 ```
+
+**Memory-capped runs:** `tools/guarded.sh <mem> <timeout_s> -- <cmd>` runs a
+command in a systemd scope with a hard `MemoryMax` and swap disabled, so a
+runaway allocation is OOM-killed (exit 137) instead of taking the host down.
+The property suite drives hypothesis; at very high `max_examples` the hypothesis
+harness retains memory proportional to examples explored (the parse engine
+itself is leak-free). Run the property suite, and any raised-`max_examples`
+exploration, through `guarded.sh`. Never raise a committed test's `max_examples`.
 
 **Mechanical fixes first:** run `tools/auto_fix.sh` before touching code by hand. It runs `ruff format`, `isort`, and `ruff check --fix` in sequence.
 
@@ -152,8 +161,8 @@ src/lexic/
                         (item slot → (field, IrBind)); class-level __binds__ table;
                         type-aware __eq__/__hash__; list→tuple ctor coercion;
                         IR-intrinsic checked construction in __new__ raising
-                        FieldValidationError (trusted parse paths bypass). No
-                        pydantic — walks __grammar__: ClassVar[IrRule] + each
+                        FieldValidationError (trusted parse paths bypass) —
+                        walks __grammar__: ClassVar[IrRule] + each
                         field's IrBind
   compile/
     __init__.py         compile_text(), compile_from_path(), canonical_grammar(),
@@ -374,7 +383,7 @@ src/lexic/
                         flat-runtime `config: dict[str, RuleFold]` on
                         construction (`.baked`); the same generic positional
                         ParseTree → object fold over the codegen grammar
-                        (kids[i] ↔ items[i], no RuleSpec/pydantic/codegen
+                        (kids[i] ↔ items[i], no RuleSpec/codegen
                         imports). ModelBody(kind, ctor: IrLambda|IrNone,
                         n_items, fields, fast) — ctor via IrLambda, rest
                         structural metadata; `.bake()`→RuleFold and `.of(rf)`
@@ -739,10 +748,10 @@ grammar text ──► _scan_directives(text, flavour.line_comment) ──► (s
                     the engine's grammar-text product: PDA-first with the fused
                     Earley reduce completion INSIDE the engine, memoised per
                     (grammar, reducer) identity (lift/normalize/PDA compilation
-                    all internal). Returns an IrAst. The PDA (lifted grammar)
-                    and the Earley completion (unlifted) run different
-                    normalised grammars by design — the ε-channel is absorbed by
-                    the authored reduce bodies, guarded by the reduce
+                    all internal). Returns an IrAst. Both routes run the same
+                    normalize(lift_optional_nullables(grammar)) — the one
+                    grammar parse_reduced ships; the authored reduce bodies
+                    keep PDA and Earley IR-equal on it, guarded by the reduce
                     differential property test. PdaFail never surfaces.
                                                                    ▼
                                                                  IrAst
@@ -839,7 +848,7 @@ engine, move the thing.
 `tests/integration/test_layering_invariants.py` enforces all of this by
 static grep, including that only the `lexic.compile` package may import
 `lexic.parsing`, that only `compile/__init__.py` is reachable from outside the
-package, and that nothing in `src/` imports pydantic.
+package.
 
 ## IR types (`ir/base.py` + `ir/nodes.py` + `ir/action.py`)
 
@@ -962,11 +971,11 @@ holds for fields typed with any of them).
 
 ## GrammarModel (`model.py`)
 
-Every synthesized class carries `__grammar__: ClassVar[IrRule]` — its own rule from the codegen grammar (post group/arm-hoisting) — and a class-level `__binds__` table mapping each `item slot → (field name, IrBind(item, mode, semantic))`, read via the public `bound_fields()`. No pydantic, no annotation resolution at runtime — `synthesize` writes `__binds__` directly.
+Every synthesized class carries `__grammar__: ClassVar[IrRule]` — its own rule from the codegen grammar (post group/arm-hoisting) — and a class-level `__binds__` table mapping each `item slot → (field name, IrBind(item, mode, semantic))`, read via the public `bound_fields()`. No annotation resolution at runtime — `synthesize` writes `__binds__` directly.
 
 - `to_text()` — walks `__grammar__.body`'s single non-empty arm in item order: a bound slot emits its field's value (recursing into nested `GrammarModel`s, joining lists — `_field_text`); an unbound unquantified `IrLiteral` emits itself; anything else is structural and silent. A `value_str` class (implicit `value` field, no binds) emits `str(self.value)`; a rule whose empty alternate arm matched (all bound values `None`) emits `""`; an abstract alternation class (no fields at all) raises `NotImplementedError` — call `to_text()` on the concrete arm instance instead.
 - `to_grammar(flavour="gbnf")` — `get_flavour(flavour).apply(self.__grammar__)` (no `RuleSpec`/`to_ir_rule()` conversion — `__grammar__` already is the `IrRule` the flavour renders).
-- `dump()` — the native runtime-complete dict dump (explicit stack; serializes by runtime type, `models`-mode lists re-emitted as lists). Renamed from the pydantic-era `model_dump`.
+- `dump()` — the native runtime-complete dict dump (explicit stack; serializes by runtime type, `models`-mode lists re-emitted as lists). The native dict dump.
 - `semantic_dump()` — `dump()` excluding top-level fields whose `IrBind.semantic` is `False` (structural-noise refs, e.g. whitespace).
 
 ## Directives (`compile._scan_directives`)
@@ -1005,7 +1014,7 @@ All dispatch tables must have an explicit `raise UnsupportedConstructError(...)`
 - No `exec` or `eval` anywhere.
 - No grammar-specific hardcoding in generic code.
 - Compiled classes are synthesized at runtime via `type()` — no source-emit template. `generated/` is git-ignored scratch (the exporter's optional output).
-- No pydantic. `import pydantic` appears nowhere in `src/` (pinned by the layering test).
+- No external model/validation library — the `IrNamedTuple` record spine IS the model layer (enforced by the layering test).
 - The two deliberate runtime import edges (`model.py` → `lexic.grammars` for the flavour singleton; the `lexic.compile` package → the `lexic.parsing` engine seam) are the only ones permitted.
 
 ## Import paths

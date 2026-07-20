@@ -65,7 +65,7 @@ All of the naming/mode logic is built as open `IrDispatch`/`IrTypeMap` tables wi
 - **`__grammar__: ClassVar[IrRule]`** footer per class — the class's own rule from the **codegen** grammar (post-pass: this is the shape the class structurally IS and what `to_text()` walks).
 - **Module footer** — `GRAMMAR: IrAst` = the **canonical** (pre-pass) grammar (the transpile/re-emit source — what the user's grammar IS) + `START: str`.
 
-`CANONICAL_IMPORTS` is a fixed string emitted unconditionally at module top (`from __future__ import annotations`, `typing` names, `pydantic.StringConstraints`, `lexic.base.GrammarModel`, the full IR-AST surface from `lexic.ir`) — no per-module import inference, no `# FIXME` placeholders (repr-is-codegen on every IR node means `__grammar__`/`GRAMMAR` always render real, re-importable Python).
+`CANONICAL_IMPORTS` is a fixed string emitted unconditionally at module top (`from __future__ import annotations`, `typing` names, the pattern-constrained string type, `lexic.base.GrammarModel`, the full IR-AST surface from `lexic.ir`) — no per-module import inference, no `# FIXME` placeholders (repr-is-codegen on every IR node means `__grammar__`/`GRAMMAR` always render real, re-importable Python).
 
 ## `codegen/aliases.py` — pattern alias hoisting
 

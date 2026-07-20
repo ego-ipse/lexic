@@ -44,7 +44,16 @@ import lexic.ir.layout as _layout
 import lexic.ir.mapping as _mapping
 import lexic.ir.nodes as _nodes
 import lexic.ir.operators as _operators
-from lexic.compile.foldkit import ALT, passthrough
+from lexic.compile.foldkit import (
+    ABSENT,
+    ALT_BODY,
+    DECODE_INT,
+    absent_tail,
+    first_rest,
+    model_fold,
+    passthrough,
+    seq,
+)
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrNone, IrSelf, IrSeq
 from lexic.ir.mapping import IR_DEFAULT
@@ -61,7 +70,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing import FieldFold, ModelFold, RuleFold, parse_model
+from lexic.parsing import FieldFold, ModelBody, parse_model
 from lexic.parsing.earley.reduce import YIELD, Yield
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
@@ -346,78 +355,57 @@ def _call_tail(a: list[object] | None = None) -> _Call:
     return _Call(a if a is not None else ())
 
 
-_ABSENT: object = object()
-"""An ``arg-tail`` with no ``arg-val`` — a bare comma — folds to this."""
-
-
 def _arglist(first: object, rest: list[object] | None = None) -> list[object]:
     """Collect the argument list; refuse a bare comma anywhere but last.
 
-    The grammar leniently parses every bare comma as an empty tail; the fold
-    is where strictness lives (the unknown-symbol precedent): an
-    :data:`_ABSENT` in a non-final position is a stray ``,,`` and refuses,
-    a final one is the trailing comma and drops.
+    The grammar leniently parses every bare comma as an empty tail (folded to
+    the shared :data:`~lexic.compile.foldkit.ABSENT` marker by ``arg-tail``);
+    the fold is where strictness lives (the unknown-symbol precedent): an
+    :data:`~lexic.compile.foldkit.ABSENT` in a non-final position is a stray
+    ``,,`` and refuses, a final one is the trailing comma and drops. The
+    surviving values ride the shared :func:`~lexic.compile.foldkit.first_rest`
+    collector.
 
     :raises UnsupportedConstructError: On a stray comma.
     """
     tails = rest or []
-    if _ABSENT in tails[:-1]:
+    if ABSENT in tails[:-1]:
         raise UnsupportedConstructError("notation: stray ',' in argument list")
-    return [first, *(x for x in tails if x is not _ABSENT)]
-
-
-def _arg_tail(v: object = _ABSENT) -> object:
-    return v
-
-
-def _pos_int(raw: str) -> int:
-    return int(raw)
+    return list(first_rest(first, [x for x in tails if x is not ABSENT]))
 
 
 def _neg_int(raw: str) -> int:
     return -int(raw)
 
 
-_ALT = ALT
-_CONFIG: dict[str, RuleFold] = {
-    "start": RuleFold("sequence", passthrough, 2, (FieldFold(1, "model", "v", 1),)),
-    "value": _ALT,
-    "nv": RuleFold(
-        "sequence",
-        _nv,
-        2,
-        (FieldFold(0, "model", "sym", 1), FieldFold(1, "model", "call", 0)),
+_BODIES: dict[str, ModelBody] = {
+    "start": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
+    "value": ALT_BODY,
+    "nv": seq(
+        _nv, 2, (FieldFold(0, "model", "sym", 1), FieldFold(1, "model", "call", 0))
     ),
-    "name": RuleFold(
-        "sequence",
-        _name,
-        3,
-        (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
+    "name": seq(
+        _name, 3, (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0))
     ),
-    "ct-opt": _ALT,
-    "call-tail": RuleFold("sequence", _call_tail, 3, (FieldFold(1, "model", "a", 0),)),
-    "args-opt": _ALT,
-    "arglist": RuleFold(
-        "sequence",
+    "ct-opt": ALT_BODY,
+    "call-tail": seq(_call_tail, 3, (FieldFold(1, "model", "a", 0),)),
+    "args-opt": ALT_BODY,
+    "arglist": seq(
         _arglist,
         2,
         (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0)),
     ),
-    "arg-tail": RuleFold("sequence", _arg_tail, 2, (FieldFold(1, "model", "v", 0),)),
-    "arg-val": RuleFold("sequence", passthrough, 1, (FieldFold(0, "model", "v", 1),)),
-    "strval": _ALT,
-    "sq-str": RuleFold(
-        "sequence", _decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)
-    ),
-    "dq-str": RuleFold(
-        "sequence", _decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)
-    ),
-    "intval": _ALT,
-    "pos-int": RuleFold("sequence", _pos_int, 2, (FieldFold(0, "text", "raw", 1),)),
-    "neg-int": RuleFold("sequence", _neg_int, 3, (FieldFold(1, "text", "raw", 1),)),
+    "arg-tail": seq(absent_tail, 2, (FieldFold(1, "model", "v", 0),)),
+    "arg-val": seq(passthrough, 1, (FieldFold(0, "model", "v", 1),)),
+    "strval": ALT_BODY,
+    "sq-str": seq(_decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)),
+    "dq-str": seq(_decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)),
+    "intval": ALT_BODY,
+    "pos-int": seq(DECODE_INT, 2, (FieldFold(0, "text", "raw", 1),)),
+    "neg-int": seq(_neg_int, 3, (FieldFold(1, "text", "raw", 1),)),
 }
 
-NOTATION_FOLD = ModelFold.from_config(_CONFIG)
+NOTATION_FOLD = model_fold(_BODIES)
 
 
 # ── the entry ─────────────────────────────────────────────────────────────

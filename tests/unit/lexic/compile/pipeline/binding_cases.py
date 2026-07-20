@@ -490,8 +490,8 @@ def case_class_name_mangles_keywords_and_header_bindings(
 ) -> None:
     """Keywords and emitted-header names get the ``_`` suffix; others don't.
 
-    The pydantic/typing-era reservations (``Annotated``, ``Optional``, …)
-    were trimmed with the twin-module header (260718): ``annotated`` now
+    The typing-era reservations (``Annotated``, ``Optional``, …) were
+    trimmed with the twin-module header (260718): ``annotated`` now
     unmangles; the emitted IR constructor names still mangle.
     """
     assert binding.class_name_for("true") == "True_"

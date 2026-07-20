@@ -15,7 +15,7 @@ exact target):
 - The validated keyword constructor → the record constructor (pinned below;
   Task 3 wired checked construction, so a missing required field now raises
   ``FieldValidationError``).
-- ``__get_pydantic_core_schema__`` / ``_joint_dump`` / ``__schema_joint__``
+- the custom core-schema hook / ``_joint_dump`` / ``__schema_joint__``
   / ``IncEx`` / ``SerializationInfo`` — the schema-joint apparatus: DELETED
   with the spine (PLAN.md §NON-CONCERNS). The joint cross-check tests died
   with those exact targets; the *behavior* they guarded (runtime-complete

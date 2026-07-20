@@ -31,7 +31,15 @@ from typing import ClassVar
 
 import lexic.compile.notation.parse as _notation
 from lexic.compile.artifact import CompiledGrammar
-from lexic.compile.foldkit import ALT, passthrough
+from lexic.compile.foldkit import (
+    ALT_BODY,
+    DECODE_INT,
+    FIRST_REST,
+    first_rest,
+    model_fold,
+    passthrough,
+    seq,
+)
 from lexic.compile.module.export import docstring_lines, field_type, value_str_type
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.exceptions import UnsupportedConstructError
@@ -51,7 +59,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing import FieldFold, ModelFold, RuleFold, parse_model
+from lexic.parsing import FieldFold, ModelBody, ModelFold, parse_model
 
 __all__ = [
     "MClass",
@@ -435,14 +443,6 @@ def _m_name(head: str, tail: str = "") -> str:
     return head + tail
 
 
-def _m_int(raw: str) -> int:
-    return int(raw)
-
-
-def _m_name_list(first: str, rest: list[object] | None = None) -> tuple:
-    return (first, *(rest or []))
-
-
 def _m_field_tail(
     name: str,
     atom: str,
@@ -461,7 +461,7 @@ def _m_type_atom(name: str, args: object = None) -> str:
 
 
 def _m_type_args(first: str, rest: list[object] | None = None) -> str:
-    return "[" + _text(first, *(rest or [])) + "]"
+    return "[" + _text(*first_rest(first, rest)) + "]"
 
 
 def _m_arg_sep(arg: str) -> str:
@@ -530,14 +530,12 @@ def _m_module(
     )
 
 
-def _fold_config() -> dict[str, RuleFold]:
-    """The module fold table (merged over the notation's own)."""
-    seq = RuleFold
-    cfg = dict(_notation.NOTATION_FOLD.baked)  # the public lowered table
+def _fold_config() -> dict[str, ModelBody]:
+    """The module fold table (merged over the notation's own body table)."""
+    cfg = {str(ref): body for ref, body in _notation.NOTATION_FOLD.bodies.items()}
     cfg.update(
         {
             "m-module": seq(
-                "sequence",
                 _m_module,
                 8,
                 (
@@ -548,12 +546,9 @@ def _fold_config() -> dict[str, RuleFold]:
                     FieldFold(7, "model", "bind", 0),
                 ),
             ),
-            "m-nl": seq("sequence", lambda: True, 1, ()),
-            "m-docstring": seq(
-                "sequence", _m_docstring, 3, (FieldFold(1, "text", "raw", 0),)
-            ),
+            "m-nl": seq(lambda: True, 1, ()),
+            "m-docstring": seq(_m_docstring, 3, (FieldFold(1, "text", "raw", 0),)),
             "m-imports": seq(
-                "sequence",
                 _m_imports,
                 7,
                 (
@@ -563,49 +558,34 @@ def _fold_config() -> dict[str, RuleFold]:
                 ),
             ),
             "m-typing-import": seq(
-                "sequence", _m_typing_import, 4, (FieldFold(1, "model", "names", 1),)
+                _m_typing_import, 4, (FieldFold(1, "model", "names", 1),)
             ),
-            "m-compile-import": seq("sequence", lambda: True, 1, ()),
-            "m-ir-import": seq(
-                "sequence", passthrough, 2, (FieldFold(1, "model", "v", 1),)
-            ),
-            "m-import-tail": ALT,
+            "m-compile-import": seq(lambda: True, 1, ()),
+            "m-ir-import": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
+            "m-import-tail": ALT_BODY,
             "m-import-paren": seq(
-                "sequence",
-                _m_import_paren,
-                3,
-                (FieldFold(1, "models", "lines", 0),),
+                _m_import_paren, 3, (FieldFold(1, "models", "lines", 0),)
             ),
-            "m-import-flat": seq(
-                "sequence", passthrough, 2, (FieldFold(0, "model", "v", 1),)
-            ),
-            "m-import-line": seq(
-                "sequence", passthrough, 3, (FieldFold(1, "model", "v", 1),)
-            ),
+            "m-import-flat": seq(passthrough, 2, (FieldFold(0, "model", "v", 1),)),
+            "m-import-line": seq(passthrough, 3, (FieldFold(1, "model", "v", 1),)),
             "m-name-list": seq(
-                "sequence",
-                _m_name_list,
+                FIRST_REST,
                 2,
                 (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0)),
             ),
-            "m-more-name": seq(
-                "sequence", passthrough, 2, (FieldFold(1, "model", "v", 1),)
-            ),
+            "m-more-name": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
             "m-name": seq(
-                "sequence",
                 _m_name,
                 2,
                 (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
             ),
             "m-field-name": seq(
-                "sequence",
                 _m_name,
                 2,
                 (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
             ),
-            "m-int": seq("sequence", _m_int, 1, (FieldFold(0, "text", "raw", 1),)),
+            "m-int": seq(DECODE_INT, 1, (FieldFold(0, "text", "raw", 1),)),
             "m-class-block": seq(
-                "sequence",
                 _m_class,
                 8,
                 (
@@ -615,18 +595,13 @@ def _fold_config() -> dict[str, RuleFold]:
                     FieldFold(7, "model", "body", 1),
                 ),
             ),
-            "m-body": ALT,
-            "m-filled-body": seq(
-                "sequence", _m_body, 3, (FieldFold(1, "models", "lines", 0),)
-            ),
-            "m-empty-body": seq("sequence", _m_body, 1, ()),
-            "m-body-line": ALT,
-            "m-indented-line": seq(
-                "sequence", passthrough, 2, (FieldFold(1, "model", "v", 1),)
-            ),
-            "m-line-tail": ALT,
+            "m-body": ALT_BODY,
+            "m-filled-body": seq(_m_body, 3, (FieldFold(1, "models", "lines", 0),)),
+            "m-empty-body": seq(_m_body, 1, ()),
+            "m-body-line": ALT_BODY,
+            "m-indented-line": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
+            "m-line-tail": ALT_BODY,
             "m-field-tail": seq(
-                "sequence",
                 _m_field_tail,
                 6,
                 (
@@ -636,48 +611,32 @@ def _fold_config() -> dict[str, RuleFold]:
                     FieldFold(4, "model", "default", 0),
                 ),
             ),
-            "m-default": seq("sequence", lambda: True, 1, ()),
-            "m-type-union": seq(
-                "sequence", _m_type_union, 2, (FieldFold(1, "model", "atom", 1),)
-            ),
+            "m-default": seq(lambda: True, 1, ()),
+            "m-type-union": seq(_m_type_union, 2, (FieldFold(1, "model", "atom", 1),)),
             "m-type-atom": seq(
-                "sequence",
                 _m_type_atom,
                 2,
                 (FieldFold(0, "model", "name", 1), FieldFold(1, "model", "args", 0)),
             ),
             "m-type-args": seq(
-                "sequence",
                 _m_type_args,
                 4,
                 (FieldFold(1, "model", "first", 1), FieldFold(2, "models", "rest", 0)),
             ),
-            "m-arg-tail": ALT,
-            "m-arg-union": seq(
-                "sequence", _m_type_union, 2, (FieldFold(1, "model", "atom", 1),)
-            ),
-            "m-arg-sep": seq(
-                "sequence", _m_arg_sep, 2, (FieldFold(1, "model", "arg", 1),)
-            ),
-            "m-arg-unit": ALT,
-            "m-str-token": ALT,
-            "m-dq-token": seq(
-                "sequence", _m_dq_token, 3, (FieldFold(1, "text", "raw", 0),)
-            ),
-            "m-sq-token": seq(
-                "sequence", _m_sq_token, 3, (FieldFold(1, "text", "raw", 0),)
-            ),
+            "m-arg-tail": ALT_BODY,
+            "m-arg-union": seq(_m_type_union, 2, (FieldFold(1, "model", "atom", 1),)),
+            "m-arg-sep": seq(_m_arg_sep, 2, (FieldFold(1, "model", "arg", 1),)),
+            "m-arg-unit": ALT_BODY,
+            "m-str-token": ALT_BODY,
+            "m-dq-token": seq(_m_dq_token, 3, (FieldFold(1, "text", "raw", 0),)),
+            "m-sq-token": seq(_m_sq_token, 3, (FieldFold(1, "text", "raw", 0),)),
             "m-grammar-tail": seq(
-                "sequence", _m_inline_grammar, 3, (FieldFold(1, "model", "value", 1),)
+                _m_inline_grammar, 3, (FieldFold(1, "model", "value", 1),)
             ),
             "m-inline-binds": seq(
-                "sequence",
-                _m_inline_binds,
-                5,
-                (FieldFold(2, "models", "entries", 0),),
+                _m_inline_binds, 5, (FieldFold(2, "models", "entries", 0),)
             ),
             "m-bind-entry": seq(
-                "sequence",
                 _m_bind_entry,
                 7,
                 (
@@ -686,18 +645,16 @@ def _fold_config() -> dict[str, RuleFold]:
                     FieldFold(5, "model", "value", 1),
                 ),
             ),
-            "m-grammar-stmt": seq(
-                "sequence", passthrough, 3, (FieldFold(1, "model", "v", 1),)
-            ),
-            "m-bind-stmt": seq("sequence", lambda: True, 1, ()),
-            "m-gap": seq("sequence", lambda: None, 1, ()),
+            "m-grammar-stmt": seq(passthrough, 3, (FieldFold(1, "model", "v", 1),)),
+            "m-bind-stmt": seq(lambda: True, 1, ()),
+            "m-gap": seq(lambda: None, 1, ()),
         }
     )
     return cfg
 
 
 MODULE_GRAMMAR = module_grammar()
-MODULE_FOLD: ModelFold = ModelFold.from_config(_fold_config())
+MODULE_FOLD: ModelFold = model_fold(_fold_config())
 
 
 def parse_module(text: str) -> MModule:

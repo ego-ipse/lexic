@@ -127,7 +127,7 @@ Every synthesized class subclasses `GrammarModel(IrNamedTuple)` — the record s
 |---|---|---|
 | `to_text()` | `str` | Lossless round-trip to original source text (explicit-stack walk, depth-safe) |
 | `to_grammar(flavour="gbnf")` | `str` | Emits the grammar rule for this class — `get_flavour(flavour).apply(self.__grammar__)` |
-| `dump()` | `dict` | The native dump (renamed from the pydantic-era `model_dump`): RUNTIME-complete (serializes by each value's own type, never a declared schema — no arm-subtree erasure), field-order keys, tuples re-emitted as lists, explicit-stack (depth-safe) |
+| `dump()` | `dict` | The native dump: RUNTIME-complete (serializes by each value's own type, never a declared schema — no arm-subtree erasure), field-order keys, tuples re-emitted as lists, explicit-stack (depth-safe) |
 | `semantic_dump()` | `dict` | `dump()` minus the receiver's OWN fields whose `IrBind.semantic` is `False` (top-level-only exclusion) |
 | `bound_fields()` | `dict[int, (name, IrBind)]` | The slot → field map (classmethod) |
 | `children()` / `rebuild(kids)` | | Bound-field values in ITEM order — the IrSelf walk/viz payload |

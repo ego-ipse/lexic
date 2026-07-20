@@ -166,7 +166,7 @@ Pure PEG parsers (Rust's `pest`, Python's `pyparsing`, etc.) produce unambiguous
 
 ### Why a separate IR layer
 
-The IR decouples the grammar notation (flavour-specific syntax) from the code generator (Pydantic model emission) and the runtime emitter (`to_gbnf()`, `to_abnf()`). Each new flavour adds one parser and one emitter; the IR and codegen are unchanged.
+The IR decouples the grammar notation (flavour-specific syntax) from the code generator (model class emission) and the runtime emitter (`to_gbnf()`, `to_abnf()`). Each new flavour adds one parser and one emitter; the IR and codegen are unchanged.
 
 In compiler terms: adding a new *source language* only requires a new front-end (parser → IR); adding a new *target language* only requires a new back-end (IR → emitter).
 
@@ -199,4 +199,4 @@ GBNF grammars may contain left-recursive rules (e.g. a recursive expression gram
 - **Named capture / labeled alternatives** — grammar authors cannot name specific arms of an alternation; field names are derived algorithmically from the IR.
 - **Semantic predicates / actions** — grammar rules cannot carry host-language code (deliberate constraint; keeps grammar-as-canonical-truth invariant).
 - **Error recovery / partial parse** — `parse()` fails hard on invalid input; no partial-match or error-tolerant mode.
-- **Recursive type generation** — self-referential rules produce Pydantic models with forward references; these are not yet handled in the new pipeline's `ModelEmitter`.
+- **Recursive type generation** — self-referential rules produce model classes with forward references; these are not yet handled in the new pipeline's `ModelEmitter`.

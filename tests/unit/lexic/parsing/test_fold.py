@@ -10,11 +10,14 @@ the model layer.
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from lexic.compile import compile_text, reset_cache_for_tests
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrSeq, IrTuple
+from lexic.ir.action import IrArg, IrArgs
+from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -527,3 +530,51 @@ def test_model_fold_bodies_is_the_passed_ir_map():
     )
     fold = ModelFold(bodies)
     assert fold.bodies is bodies
+
+
+# ── ModelBody.bake — the channel adapter for non-IrLambda IR bodies ──────
+
+
+def test_model_body_bakes_a_channel_ir_body_ctor():
+    """A non-IrLambda IR body ctor bakes to a kwargs→channel adapter: the fold
+    calls ctor(**kwargs); the body reads IrArg positions in fields order."""
+    body = ModelBody("sequence", IrArg(0), 1, (FieldFold(0, "text", "a", 1),))
+    ctor = body.bake().ctor
+    assert ctor(a="hello") == "hello"
+
+
+def test_model_body_channel_ctor_fills_omitted_optional_with_ir_none():
+    """An optional field omitted from kwargs arrives as IrNone on the channel
+    (a body branches on absence by IrNoneType, since IrNone is truthy)."""
+    body = ModelBody(
+        "sequence",
+        IrArgs(),
+        2,
+        (FieldFold(0, "text", "a", 1), FieldFold(1, "model", "b", 0)),
+    )
+    ctor = body.bake().ctor
+    assert tuple(cast("tuple[object, ...]", ctor(a="x"))) == ("x", IrNone)  # b → IrNone
+
+
+def test_model_body_channel_ctor_value_str_reads_the_value_kwarg():
+    """A value_str IR body reads the sole ``value`` kwarg as its channel."""
+    body = ModelBody("value_str", IrArg(0), 0, ())
+    ctor = body.bake().ctor
+    assert ctor(value="v") == "v"
+
+
+def test_model_body_channel_ctor_empty_arm_is_an_empty_channel():
+    """A fieldless sequence body evaluates over an empty channel (empty arm)."""
+    body = ModelBody("sequence", IrArgs(), 0, ())
+    ctor = body.bake().ctor
+    assert not tuple(cast("tuple[object, ...]", ctor()))
+
+
+def test_model_body_ir_lambda_stays_the_identity_kwargs_ctor():
+    """An IrLambda body bakes to its wrapped kwargs-taking callable unchanged."""
+
+    def marker(**kw: object) -> dict[str, object]:
+        return kw
+
+    body = ModelBody("sequence", IrLambda(marker), 1, (FieldFold(0, "text", "a", 1),))
+    assert body.bake().ctor is marker

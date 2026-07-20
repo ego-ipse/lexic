@@ -96,7 +96,8 @@ class _ReduceProduct:
     :ivar grammar: The authored grammar (held to pin its identity key).
     :ivar reducer: The reduction policy (held to pin its identity key).
     :ivar pda: The reduce PDA (immediate-PdaFail start ⇒ Earley every parse).
-    :ivar earley_grammar: The (un-lifted) normalised grammar the completion runs.
+    :ivar earley_grammar: ``normalize(lift_optional_nullables(grammar))`` — the
+        same lifted, normalised grammar the PDA compiles over.
     """
 
     grammar: IrAst
@@ -153,7 +154,7 @@ def _reduce_product(grammar: IrAst, reducer: Reducer) -> _ReduceProduct:
         grammar,
         reducer,
         compile_reduce_pda(lifted, instance, reducer),
-        normalize(grammar),
+        instance,
     )
     _REDUCE_CACHE[key] = product
     return product
@@ -187,7 +188,8 @@ def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrAst:
     Takes the **authored** grammar; lifting, normalisation and PDA compilation
     are internal, memoised per ``(grammar, reducer)`` identity. Each parse runs
     the reduce PDA first and, on any :class:`PdaFail`, completes on the fused
-    Earley reduce over the (un-lifted) normalised grammar.
+    Earley reduce over the same lifted, normalised grammar the PDA compiled
+    from.
 
     :param grammar: The authored grammar (e.g. a flavour's self-grammar).
     :param text: The grammar source to parse.

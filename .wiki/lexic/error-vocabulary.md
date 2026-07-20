@@ -15,7 +15,7 @@ Source: `exceptions.py`. No bare `raise ValueError` or `raise Exception` for lib
 
 All inherit from `LexicError(Exception)`.
 
-`GrammarAuthoringError` was deleted 2026-07-18 (260718-generated-files Task 0): a dead public stub — every planned raiser went with the pydantic-era design, and nothing ever raised it.
+`GrammarAuthoringError` was deleted 2026-07-18 (260718-generated-files Task 0): a dead public stub — every planned raiser went with the retired schema-validation design, and nothing ever raised it.
 
 ## Dispatch table contract
 

@@ -4,9 +4,7 @@ Factored out of the GBNF/ABNF/EBNF differentials (``test_reduce_differential.py`
 / ``test_reduce_differential_abnf.py`` / ``test_reduce_differential_ebnf.py``) —
 their ``pda()``/``earley()`` wrappers and top-level assertion were identical
 apart from the flavour, tripping pylint's whole-tree ``R0801``. All three now
-construct one ``ReduceDifferential(<FLAVOUR>)`` and call ``.assert_agree(text)``;
-Task 4's completion-grammar flip is therefore a single edit to this class's
-``earley_grammar`` line, applying to all three at once.
+construct one ``ReduceDifferential(<FLAVOUR>)`` and call ``.assert_agree(text)``.
 """
 
 from __future__ import annotations
@@ -16,6 +14,7 @@ from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
+from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _as_ast, _reduce_product, earley_reduce
@@ -24,11 +23,10 @@ from lexic.parsing.products import _as_ast, _reduce_product, earley_reduce
 class ReduceDifferential:
     """The raw reduce PDA vs. the forced Earley completion, for one flavour.
 
-    ``earley_grammar`` stays ``normalize(grammar)`` (unlifted) while the PDA
-    compiles over ``lift_optional_nullables(grammar)`` — see each differential
-    module's docstring for why the two routes running different normalised
-    shapes is BY DESIGN, and the module-level ``# Task 4 flip point`` comment
-    each caller carries next to its own construction of this class.
+    ``earley_grammar`` is ``normalize(lift_optional_nullables(grammar))`` —
+    the same lifted, normalised grammar the PDA compiles over (the product's
+    own ``_reduce_product.earley_grammar``), so this guards the REAL pair
+    ``parse_reduced`` actually runs.
     """
 
     def __init__(self, flavour: IrFlavour) -> None:
@@ -43,7 +41,7 @@ class ReduceDifferential:
         self.flavour = flavour
         self.reducer = reducer
         self.product = _reduce_product(flavour.grammar, reducer)
-        self.earley_grammar = normalize(flavour.grammar)
+        self.earley_grammar = normalize(lift_optional_nullables(flavour.grammar))
 
     def pda(self, text: str) -> IrAst | None:
         """The raw reduce PDA in isolation — ``None`` on any :class:`PdaFail`."""
@@ -62,10 +60,11 @@ class ReduceDifferential:
     def assert_agree(self, text: str) -> None:
         """PDA-recognised text ⊆ Earley-recognised text, equal where both do.
 
-        Only asserts when the PDA recognises the text — the property is
-        one-directional (see the module docstring): the PDA runs the lifted
-        self-grammar, Earley the unlifted one, and this is the guard that the
-        authored reduce bodies keep the two routes' IR equivalent despite that.
+        Only asserts when the PDA recognises the text — the property stays
+        one-directional even on the shared lifted grammar (the PDA's
+        predictive descent can fail-soft to :class:`PdaFail` where the fused
+        Earley completion still recognises), and this is the guard that both
+        routes' IR agree on the one grammar ``parse_reduced`` actually runs.
 
         :param text: The candidate meta-syntax text.
         """

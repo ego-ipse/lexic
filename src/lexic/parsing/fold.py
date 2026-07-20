@@ -41,7 +41,7 @@ derivation; e.g. json_ws's ``int`` is genuinely ambiguous).
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Mapping, NamedTuple, cast
+from typing import Callable, ClassVar, Mapping, NamedTuple, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import (
@@ -168,17 +168,61 @@ class ModelBody(
     fast: FastCtor | None = None
 
     def bake(self) -> RuleFold:
-        """Lower to the flat-runtime :class:`RuleFold` (ctor recovered for free).
+        """Lower to the flat-runtime :class:`RuleFold`, adapting the ctor body.
 
-        The constructor is read straight off the :class:`~lexic.ir.base.IrLambda`
-        (``.eval`` IS the wrapped callable); the structural metadata passes
-        through untouched — it already IS the closed vocabulary the flatten pass
-        int-codes.
+        Three ctor shapes lower to the one ``ctor(**kwargs)`` the fold calls:
 
-        :returns: The runtime-identical :class:`RuleFold`.
+        - :data:`~lexic.ir.base.IrNone` (an ``alternation``) → :func:`_alt_ctor`,
+          the never-called stand-in;
+        - an :class:`~lexic.ir.base.IrLambda` → its wrapped callable (``.eval``
+          IS the callable — identity), which takes the field-name kwargs itself;
+        - any other IR body (a shared idiom in the ``foldkit`` vocabulary) →
+          :meth:`_channel_ctor`, which maps the kwargs onto the body's positional
+          argument channel.
+
+        The structural metadata passes through untouched — it already IS the
+        closed vocabulary the flatten pass int-codes.
+
+        :returns: The runtime :class:`RuleFold`.
         """
-        ctor = _alt_ctor if self.ctor is IrNone else self.ctor.eval
-        return RuleFold(self.kind, ctor, self.n_items, self.fields, self.fast)
+        return RuleFold(
+            self.kind, self._baked_ctor(), self.n_items, self.fields, self.fast
+        )
+
+    def _baked_ctor(self) -> Callable[..., object]:
+        """Resolve the ctor body to the ``ctor(**kwargs)`` callable the fold calls."""
+        if self.ctor is IrNone:
+            return _alt_ctor
+        if isinstance(self.ctor, IrLambda):
+            return self.ctor.eval
+        return self._channel_ctor()
+
+    def _channel_ctor(self) -> Callable[..., object]:
+        """Adapt a pure IR body to a kwargs-taking ctor over its argument channel.
+
+        The fold calls a ctor with field-name kwargs; an IR body reads a
+        positional argument channel (``IrArg(i)``). The closure bridges them: it
+        lays the kwargs out in ``fields`` order, fills an omitted optional with
+        :data:`~lexic.ir.base.IrNone` (a body branches on absence by
+        ``IrNoneType`` type, never falsiness — ``IrNone`` is truthy), and
+        evaluates the body with ``d = n = IrNone`` (the algebra subset never
+        dereferences them). A ``value_str`` body reads the sole ``value`` kwarg;
+        an empty arm (no ``fields``) evaluates over an empty channel.
+
+        :returns: The ``ctor(**kwargs)`` callable.
+        """
+        body = self.ctor
+        kind = self.kind
+        names = tuple(field.name for field in self.fields)
+
+        def ctor(**kwargs: object) -> object:
+            if kind == "value_str":
+                channel: tuple[object, ...] = (kwargs["value"],)
+            else:
+                channel = tuple(kwargs.get(name, IrNone) for name in names)
+            return body.eval(IrNone, IrNone, cast(Sequence[IrSelf], channel))
+
+        return ctor
 
     @classmethod
     def of(cls, rule_fold: RuleFold) -> "ModelBody":

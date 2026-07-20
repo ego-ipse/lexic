@@ -11,21 +11,14 @@ module instead drives the two routes independently, straight off
 - the raw reduce PDA (:func:`~lexic.parsing.pda.runtime.reduce_runtime.parse_pda`
   over the compiled reduce product, ``fold=None``), and
 - the forced Earley completion (:func:`~lexic.parsing.products.earley_reduce`
-  over the normalised, *unlifted* self-grammar).
+  over the same lifted, normalised self-grammar the PDA compiled from).
 
-Per ``_reduce_product``, the PDA compiles over
-``lift_optional_nullables(grammar)`` while ``earley_grammar`` (below) stays
-``normalize(grammar)`` (unlifted) — the two routes run different normalised
-shapes BY DESIGN, and the authored reduce bodies are what's supposed to make
-a lifted-nullable reduction (e.g. an optional ``repeat-opt`` producing empty
-children) agree with the unlifted route's node-skip. This file is the guard
-that they actually do agree: PDA-recognised text must be a subset of
-Earley-recognised text, and wherever both recognise, the reduced
-:class:`IrAst` must be equal.
-
-``ReduceDifferential.earley_grammar`` below is the flip point a later task
-retargets to the lifted grammar for all three flavours' differentials at
-once.
+Per ``_reduce_product``, both routes run
+``normalize(lift_optional_nullables(grammar))`` — the one grammar
+``parse_reduced`` actually ships. This file is the guard that the authored
+reduce bodies keep the two routes' IR equivalent on it: PDA-recognised text
+must be a subset of Earley-recognised text, and wherever both recognise, the
+reduced :class:`IrAst` must be equal.
 
 The generator emits ε-heavy ABNF *meta-syntax*: ``c-wsp`` line folding (a
 bare ``wsp`` char, or a ``c-nl`` — comment / CRLF — followed by one),
@@ -71,8 +64,8 @@ from hypothesis import example, given, settings
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from tests.property.reduce_differential_helpers import ReduceDifferential
 
-# Task 4 flip point: ReduceDifferential.earley_grammar becomes
-# normalize(lift_optional_nullables(ABNF_FLAVOUR.grammar)).
+# ReduceDifferential.earley_grammar runs the same lifted grammar the PDA
+# compiles over — the product's actual (grammar, completion) pair (M29).
 _diff = ReduceDifferential(ABNF_FLAVOUR)
 
 
