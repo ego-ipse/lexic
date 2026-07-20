@@ -597,27 +597,31 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrLiteral("\\")), IrItem(IrRuleRef("lother")))
             ),
         ),
+        # Class members left-factored like the counted-quantifier tail: a unit
+        # is consumed once, then `cc-tail` decides whether a `-` opens a range
+        # (`- cc-hi`) or the class element ends (ε). The empty arm overlaps
+        # FOLLOW only through a trailing `-` (`[a-]`), which a 2-char FOLLOW
+        # window separates from a real range's `- cc-hi` — so the `cc-*first`
+        # arms separate at k=1 (`cc-unit` never leads with `-`) and the class
+        # rules stay off the island path.
         IrRule(
             "cc-first",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-range-nc"))),
-                IrSequence(IrItem(IrRuleRef("cc-unit-nc"))),
+                IrSequence(IrItem(IrRuleRef("cc-item-nc"))),
                 IrSequence(IrItem(IrRuleRef("cc-dash"))),
             ),
         ),
         IrRule(
             "cc-item",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-range"))),
-                IrSequence(IrItem(IrRuleRef("cc-unit"))),
+                IrSequence(IrItem(IrRuleRef("cc-unit")), IrItem(IrRuleRef("cc-tail")))
             ),
         ),
         IrRule("cc-dash", IrAlternation(IrSequence(IrItem(IrLiteral("-"))))),
         IrRule(
             "cc-nfirst",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-range"))),
-                IrSequence(IrItem(IrRuleRef("cc-unit"))),
+                IrSequence(IrItem(IrRuleRef("cc-item"))),
                 IrSequence(IrItem(IrRuleRef("cc-dash"))),
             ),
         ),
@@ -701,29 +705,10 @@ GBNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "cc-range-nc",
+            "cc-item-nc",
             IrAlternation(
                 IrSequence(
-                    IrItem(IrRuleRef("cc-unit-nc")),
-                    IrItem(IrLiteral("-")),
-                    IrItem(IrRuleRef("cc-hi")),
-                )
-            ),
-        ),
-        IrRule(
-            "cc-unit-nc",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-plain-nc"))),
-                IrSequence(IrItem(IrRuleRef("cc-esc"))),
-            ),
-        ),
-        IrRule(
-            "cc-range",
-            IrAlternation(
-                IrSequence(
-                    IrItem(IrRuleRef("cc-unit")),
-                    IrItem(IrLiteral("-")),
-                    IrItem(IrRuleRef("cc-hi")),
+                    IrItem(IrRuleRef("cc-unit-nc")), IrItem(IrRuleRef("cc-tail"))
                 )
             ),
         ),
@@ -732,6 +717,17 @@ GBNF_GRAMMAR = IrAst(
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("cc-plain"))),
                 IrSequence(IrItem(IrRuleRef("cc-esc"))),
+            ),
+        ),
+        # The optional range tail: `- cc-hi` opens a range, the empty arm ends
+        # the element. `cc-hi` is preserved; the empty-arm-vs-FOLLOW ambiguity
+        # is resolved by a 2-char FOLLOW-window arm gate (a bare trailing `-`
+        # is always followed by `]`, a range's `-` never is).
+        IrRule(
+            "cc-tail",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("-")), IrItem(IrRuleRef("cc-hi"))),
+                IrSequence(),
             ),
         ),
         IrRule(
@@ -766,32 +762,10 @@ GBNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "cc-hi",
+            "cc-unit-nc",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-unit"))),
-                IrSequence(IrItem(IrRuleRef("cc-dash"))),
-            ),
-        ),
-        IrRule(
-            "cc-plain-nc",
-            IrAlternation(
-                IrSequence(
-                    IrItem(
-                        IrCharClass(
-                            IrRange(IrChr(0), IrChr(44)),
-                            IrRange(IrChr(46), IrChr(91)),
-                            IrRange(IrChr(95), IrChr(1114111)),
-                        )
-                    )
-                )
-            ),
-        ),
-        IrRule(
-            "cc-esc",
-            IrAlternation(
-                IrSequence(IrItem(IrRuleRef("cc-esc-short"))),
-                IrSequence(IrItem(IrRuleRef("cc-esc-hex"))),
-                IrSequence(IrItem(IrRuleRef("cc-esc-other"))),
+                IrSequence(IrItem(IrRuleRef("cc-plain-nc"))),
+                IrSequence(IrItem(IrRuleRef("cc-esc"))),
             ),
         ),
         IrRule(
@@ -809,6 +783,21 @@ GBNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
+            "cc-esc",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cc-esc-short"))),
+                IrSequence(IrItem(IrRuleRef("cc-esc-hex"))),
+                IrSequence(IrItem(IrRuleRef("cc-esc-other"))),
+            ),
+        ),
+        IrRule(
+            "cc-hi",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("cc-unit"))),
+                IrSequence(IrItem(IrRuleRef("cc-dash"))),
+            ),
+        ),
+        IrRule(
             "digit",
             IrAlternation(
                 IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))))
@@ -823,6 +812,20 @@ GBNF_GRAMMAR = IrAst(
                     IrItem(IrLiteral(",")),
                     IrItem(IrRuleRef("decits")),
                     IrItem(IrLiteral("}")),
+                )
+            ),
+        ),
+        IrRule(
+            "cc-plain-nc",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(
+                            IrRange(IrChr(0), IrChr(44)),
+                            IrRange(IrChr(46), IrChr(91)),
+                            IrRange(IrChr(95), IrChr(1114111)),
+                        )
+                    )
                 )
             ),
         ),
@@ -952,6 +955,20 @@ _Q_HI = IrTypeMap(
 """Counted-tail marker → the upper bound: a decoded ``{m,n}`` bound or the open
 ``{n,}`` ``IrNone`` rides through; the ``_Q_MIRROR`` sentinel mirrors ``lo``."""
 
+_CC_ITEM = IrPipe(
+    IrArg(1),
+    IrTypeMap(
+        IrAction(IrNoneType, IrArg(0)),
+        IrAction(IrChr, IrBuild(IrRange, IrTuple(IrArg(0), IrArg(1)))),
+    ),
+)
+"""``cc-item``/``cc-item-nc`` (``cc-unit cc-tail``) → a bare unit or a range.
+
+The piped subject is ``cc-tail``'s reduction: the empty tail rides through as
+``IrNone`` (arm keeps the unit, :data:`IrArg(0)`), a ``- cc-hi`` tail is the hi
+:class:`IrChr` (arm builds ``IrRange(unit, hi)``). ``IrArg(0)``/``IrArg(1)``
+stay the original unit/tail inside the piped map."""
+
 GBNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(
         IrRuleRef("grammar"),
@@ -1018,14 +1035,11 @@ GBNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("cc-neg"), IrBuild(IrNot, IrTuple(IrBuild(IrCharClass)))),
     IrTuple(IrRuleRef("cc-first"), IrArg(0)),
     IrTuple(IrRuleRef("cc-nfirst"), IrArg(0)),
-    IrTuple(IrRuleRef("cc-item"), IrArg(0)),
+    IrTuple(IrRuleRef("cc-item"), _CC_ITEM),
+    IrTuple(IrRuleRef("cc-item-nc"), _CC_ITEM),
     IrTuple(
-        IrRuleRef("cc-range"),
-        IrBuild(IrRange, IrTuple(IrArg(0), IrArg(1))),
-    ),
-    IrTuple(
-        IrRuleRef("cc-range-nc"),
-        IrBuild(IrRange, IrTuple(IrArg(0), IrArg(1))),
+        IrRuleRef("cc-tail"),
+        IrCond(test=IrArgs(), then_op=IrArg(0), else_op=IrNone),
     ),
     IrTuple(IrRuleRef("cc-hi"), IrArg(0)),
     IrTuple(IrRuleRef("cc-dash"), IrBuild(IrChr, IrTuple(IrStr("-")))),

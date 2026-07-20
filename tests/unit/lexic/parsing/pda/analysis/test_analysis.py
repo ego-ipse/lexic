@@ -143,7 +143,7 @@ def self_grammar_analysis(name: str) -> GrammarAnalysis:
 @pytest.mark.parametrize(
     ("factory", "expected_count"),
     [
-        (lambda: self_grammar_analysis("gbnf"), 3),
+        (lambda: self_grammar_analysis("gbnf"), 0),
         (lambda: self_grammar_analysis("abnf"), 0),
         (lambda: lifted_analysis("json.gbnf"), 0),
         (lambda: lifted_analysis("chess.gbnf"), 0),
@@ -163,7 +163,9 @@ def test_island_counts_match_the_coverage_map(factory, expected_count):
     P6 precision clause (:func:`~lexic.parsing.pda.analysis.noise._sem_follow_clear` —
     ``nunit+``'s ``#``-overlap with the trailing ``tail-comment`` is resolved
     by exact recognition, not greed: an incomplete ``comment-line`` simply
-    fails to match); ``cc-first``/``cc-item``/``cc-nfirst`` remain islands.
+    fails to match); the left-factored ``cc-*`` class family (``cc-item ::=
+    cc-unit cc-tail`` with the empty-arm ``cc-tail`` FOLLOW-window gate) now
+    separates cleanly, so GBNF-self reaches **0** islands.
     ABNF-self 4→**0**: the ``rule``/``rulelist`` trailing ``c-wsp*``
     loops demote via the pure-folding match gate, ``alternation``/
     ``concatenation`` via the structured skip, and the ``rulelist``
@@ -411,7 +413,7 @@ def test_gbnf_self_arm_struct_gate():
     assert gate.gate.kind == SG_PROBE
     assert analysis.demoted["arm"] == ["arm: empty-arm structured-noise (demoted)"]
     assert "arm" not in analysis.islands
-    assert sorted(analysis.islands) == ["cc-first", "cc-item", "cc-nfirst"]
+    assert sorted(analysis.islands) == []
 
 
 def test_abnf_self_has_no_struct_arm_gates():

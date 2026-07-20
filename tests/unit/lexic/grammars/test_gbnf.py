@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.compile import parse_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import (
     GBNF_ACTIONS,
@@ -666,6 +667,53 @@ def test_charclass_range_vs_dash_is_unambiguous():
     assert isinstance(result, IrAst)
     atom = first_item(result).atom
     assert atom == IrCharClass(IrRange(IrChr("0"), IrChr("9")))
+
+
+# ── Left-factored cc-item reshape: language pins over the shipped PDA path ──
+
+
+@pytest.mark.parametrize(
+    "cls",
+    [
+        "[a--]",
+        "[a-]",
+        "[abc-]",
+        "[-a]",
+        "[]",
+        "[^]",
+        "[\\x41-\\x5A]",
+        "[a-zA-Z0-9-]",
+        "[^\\]-]",
+        "[-]",
+        "[^-]",
+        "[^a-z]",
+        "[a--b]",
+        "[--]",
+    ],
+)
+def test_charclass_corpus_accepts(cls):
+    """The reshaped ``cc-item ::= cc-unit cc-tail`` accepts the same class
+    surface as before — the FOLLOW-window arm gate keeps a trailing ``-``
+    (``[a-]``) an ordinary unit while a real range (``[a-z]``) still parses."""
+    result = parse_grammar(f"root ::= {cls}\n", GBNF_FLAVOUR)
+    assert isinstance(result, IrAst)
+
+
+@pytest.mark.parametrize("cls", ["[--a]", "[a-b-c]", "[---]", "[^--a]", "[]-]"])
+def test_charclass_corpus_rejects(cls):
+    """A ``-`` that is neither leading, trailing, nor a range-hi is rejected —
+    the left-factored tail never admits an infix bare dash."""
+    with pytest.raises(UnsupportedConstructError):
+        parse_grammar(f"root ::= {cls}\n", GBNF_FLAVOUR)
+
+
+def test_charclass_range_hi_dash_parses_as_range():
+    """``[\\--a]`` is ``range('-', 'a')`` — ``-`` is a legal range-hi via the
+    preserved ``cc-hi`` (``cc-unit | cc-dash``), so ``[a--b]`` is
+    ``range(a, '-')`` then ``b`` (language-preserving, not a reject)."""
+    result = parse_grammar("root ::= [a--b]\n", GBNF_FLAVOUR)
+    atom = first_item(result).atom
+    assert atom == IrCharClass(IrRange(IrChr("a"), IrChr("-")), IrChr("b"))
 
 
 # ── Structural guard: gbnf.py is data + pure IR algebra, no procedural bodies ──

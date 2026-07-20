@@ -48,11 +48,14 @@ from lexic.parsing.pda.core.charsets import CharSet
 
 __all__ = [
     "KWindowFirst",
+    "FollowWindows",
     "Pref",
     "END",
     "MORE",
     "UNK",
+    "MAX_K",
     "arm_gate",
+    "follow_arm_gate",
     "loop_gate",
     "collide",
     "separable",
@@ -67,6 +70,9 @@ END, MORE, UNK = "END", "MORE", "UNK"
 """A prefix state: END — the tuple is a complete derivation (may be extended by
 FOLLOW); MORE — a longer derivation exists past the window; UNK — the window is
 poisoned (an unexpanded/over-wide construct), which collides with everything."""
+
+MAX_K = 3
+"""The widest lookahead window any gate tries (``k ≤ 3``)."""
 
 _STATE_CAP = 3000
 """Per-arm prefix-set cap; a wider fan-out poisons the arm to ``{((), UNK)}``
@@ -311,20 +317,47 @@ def separable(sets: Sequence[set[Pref]]) -> bool:
     return True
 
 
-def extend_follow(prefs: set[Pref], follow: CharSet, k: int) -> set[Pref]:
-    """Extend each short END prefix by one FOLLOW char, then mark it UNK.
+def _follow_prefs(follow: "CharSet | set[Pref]") -> set[Pref]:
+    """Normalise a FOLLOW argument to a window set.
 
-    An END prefix shorter than ``k`` can be continued by whatever follows the rule
-    at its call site; appending one FOLLOW CharSet (then UNK, since past FOLLOW is
-    unknown) is what lets rule-FOLLOW disambiguate a decision at ``k`` — chess
-    ``nonpawn`` separates only with this extension.
+    A single :class:`CharSet` is the ``k = 1`` special case — one END-extension
+    position, unknown past it (an empty CharSet contributes nothing, the old
+    ``not follow.is_empty()`` guard); a :class:`FollowWindows` set rides through
+    verbatim.
     """
+    if isinstance(follow, CharSet):
+        return set() if follow.is_empty() else {((follow,), UNK)}
+    return follow
+
+
+def extend_follow(prefs: set[Pref], follow: "CharSet | set[Pref]", k: int) -> set[Pref]:
+    """Extend each short END prefix by the FOLLOW windows, capping at ``k``.
+
+    An END prefix shorter than ``k`` can be continued by whatever follows the
+    rule at its call site. ``follow`` is either a single :class:`CharSet` — the
+    ``k = 1`` FOLLOW special case that appends that one char set then marks the
+    result UNK (past FOLLOW is unknown; chess ``nonpawn`` separates only with
+    this) — or a full FOLLOW\\ :sub:`k` window set (:class:`FollowWindows`),
+    each window spliced on and truncated to the remaining budget. A prefix
+    already at ``k`` (or not END) rides through unchanged. The one mechanism:
+    the single-CharSet path is the one-position, one-window degenerate case.
+    """
+    fw = _follow_prefs(follow)
     out: set[Pref] = set()
     for tup, state in prefs:
-        if state == END and len(tup) < k and not follow.is_empty():
-            out.add((tup + (follow,), UNK))
-        else:
+        if state != END or len(tup) >= k or not fw:
             out.add((tup, state))
+            continue
+        room = k - len(tup)
+        for ftup, fstate in fw:
+            clipped = ftup[:room]
+            if len(ftup) > room:
+                merged = MORE
+            elif fstate == END:
+                merged = END
+            else:
+                merged = fstate
+            out.add((tup + clipped, merged))
     return out
 
 
@@ -342,6 +375,140 @@ def windows_of(prefs: set[Pref]) -> tuple[tuple[CharSet, ...], ...]:
     directly comparable.
     """
     return tuple(sorted({tup for tup, _tag in prefs}, key=_window_key))
+
+
+# ── FOLLOW_k windows (the k-deep generalization of FOLLOW) ─────────────────
+
+
+class FollowWindows(IrLeaf[IrSelf, IrSelf]):
+    """FOLLOW\\ :sub:`k` as per-rule CharSet windows — FOLLOW deepened to ``k``.
+
+    For each rule ``R``, :attr:`follow`\\ ``[R]`` is the set of ``≤k``-length
+    prefix windows (:data:`Pref`) that can appear immediately after a complete
+    ``R`` at any reference site. It is a fixpoint over the grammar, EOF-seeded at
+    the start rule: for every occurrence of ``R`` in a rule ``P``'s arm, the set
+    unions :meth:`~KWindowFirst.arm_prefixes` of the arm's remainder (with ``R``'s
+    own loop-back folded in) END-extended by :attr:`follow`\\ ``[P]``. Inline
+    groups recurse — a ref inside a group inherits the group's continuation.
+
+    Built lazily by the caller — only the nullable-greedy arm demotion asks for
+    it, so a grammar that never hits that branch never runs this fixpoint.
+
+    :ivar rules: The rule table (name → :class:`~lexic.ir.nodes.IrRule`).
+    :ivar start: The start rule name (the EOF seed site).
+    :ivar k: The window width.
+    :ivar solver: The shared FIRST\\ :sub:`k` solver — its ``arm_prefixes`` builds
+        the remainder windows and drives the separability check downstream.
+    :ivar follow: Rule name → its FOLLOW\\ :sub:`k` window set.
+    """
+
+    __slots__ = ("rules", "start", "k", "solver", "follow")
+
+    rules: Mapping[str, IrRule]
+    start: str
+    k: int
+    solver: KWindowFirst
+    follow: dict[str, set[Pref]]
+
+    def __init__(self, rules: Mapping[str, IrRule], start: str, k: int) -> None:
+        """Run the FOLLOW\\ :sub:`k` fixpoint over ``rules`` at window ``k``."""
+        self.rules = rules
+        self.start = start
+        self.k = k
+        self.solver = KWindowFirst(rules, k)
+        self.follow = {name: set() for name in rules}
+        if start in self.follow:
+            self.follow[start] = {((), END)}
+        self._solve()
+
+    def _solve(self) -> None:
+        """Grow every rule's FOLLOW\\ :sub:`k` window set to the least fixpoint."""
+        changed = True
+        while changed:
+            changed = False
+            for name, rule in self.rules.items():
+                tail = self.follow[name]
+                for arm in rule.body:
+                    if self._feed_arm(_items(arm), tail):
+                        changed = True
+
+    def _feed_arm(self, items: Sequence[IrItem], tail: set[Pref]) -> bool:
+        """Feed FOLLOW\\ :sub:`k` contributions of one arm continued by ``tail``."""
+        changed = False
+        for i, item in enumerate(items):
+            rest = self._rest_windows(items, i, tail)
+            atom = item.atom
+            if isinstance(atom, IrRuleRef):
+                if self._grow(str(atom), rest):
+                    changed = True
+            elif isinstance(atom, IrAlternation):
+                for sub in atom:
+                    if self._feed_arm(_items(sub), rest):
+                        changed = True
+        return changed
+
+    def _rest_windows(
+        self, items: Sequence[IrItem], i: int, tail: set[Pref]
+    ) -> set[Pref]:
+        """Windows following item ``i``: the remainder's prefixes (item ``i``'s
+        loop-back folded in) END-extended by ``tail``."""
+        item = items[i]
+        hi = item.quantifier.hi
+        if isinstance(hi, IrNoneType) or int(hi) > 1:
+            loop = IrItem(item.atom, IrQuantifier(0, hi))
+            rest_items: list[IrItem] = [loop, *items[i + 1 :]]
+        else:
+            rest_items = list(items[i + 1 :])
+        prefs = self.solver.arm_prefixes(rest_items, self.k)
+        return extend_follow(prefs, tail, self.k)
+
+    def _grow(self, name: str, windows: set[Pref]) -> bool:
+        """Union ``windows`` into rule ``name``'s FOLLOW set; ``True`` if it grew."""
+        if name not in self.follow:
+            return False
+        merged = self.follow[name] | windows
+        if merged != self.follow[name]:
+            self.follow[name] = merged
+            return True
+        return False
+
+
+def follow_arm_gate(
+    rules: Mapping[str, IrRule],
+    start: str,
+    arms: Sequence[Sequence[IrItem]],
+    label: str,
+    max_k: int = MAX_K,
+) -> tuple[tuple[tuple[CharSet, ...], ...], ...] | None:
+    """Per-arm windows at the smallest ``k ≤ max_k`` where ``label``'s arms
+    separate under ``k``-deep FOLLOW, else ``None``.
+
+    Each arm's FIRST\\ :sub:`k` prefixes are END-extended by the rule's
+    FOLLOW\\ :sub:`k` windows — so an empty (escape) arm carries exactly the
+    rule's FOLLOW windows, and a FOLLOW-overlapping literal-led arm is
+    disambiguated past the single FOLLOW char :func:`arm_gate` reaches
+    (``cc-tail``'s ``- cc-hi`` vs a trailing ``-`` before ``]``). The
+    FOLLOW\\ :sub:`k` fixpoint is built here — the empty-arm demotion is its only
+    caller, so a grammar that never reaches one never runs it.
+
+    :param rules: The grammar's rule table.
+    :param start: The start rule (the FOLLOW EOF seed).
+    :param arms: The alternation's arms (each a list of :class:`IrItem`), in
+        body order — the escape (nullable) arm included.
+    :param label: The rule whose FOLLOW windows extend the arms.
+    :param max_k: The widest window to try (``≤ MAX_K``).
+    :returns: The per-arm window tuples at the separating ``k``, or ``None``.
+    """
+    for k in range(2, max_k + 1):
+        fw = FollowWindows(rules, start, k)
+        follow = fw.follow.get(label, set())
+        sets = [
+            extend_follow(fw.solver.arm_prefixes(list(arm), k), follow, k)
+            for arm in arms
+        ]
+        if separable(sets):
+            return tuple(windows_of(s) for s in sets)
+    return None
 
 
 # ── the gate classification (arm-selection + loop take/skip) ───────────────

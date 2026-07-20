@@ -33,14 +33,18 @@ from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.kwindow import (
     END,
+    MAX_K,
     MORE,
     UNK,
+    FollowWindows,
     KWindowFirst,
     arm_gate,
     collide,
     extend_follow,
+    follow_arm_gate,
     loop_gate,
     separable,
+    windows_of,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import arm_items as _rule_items
@@ -375,9 +379,79 @@ def test_gbnf_self_cc_neg_arm_gate_separates_at_k3():
 
 
 @pytest.mark.parametrize("name", ["cc-first", "cc-item", "cc-nfirst"])
-def test_gbnf_self_cc_family_stays_island(name):
-    """The remaining ``cc-*`` rules are genuinely not k-window separable."""
-    assert arm_k(self_analysis("gbnf"), name) is None
+def test_gbnf_self_cc_family_de_islanded(name):
+    """The left-factored ``cc-*`` rules now separate cleanly at k=2 (``cc-unit``
+    never leads with ``-``), so the whole class family is off the island path."""
+    assert arm_k(self_analysis("gbnf"), name) == 2
+
+
+def test_gbnf_self_cc_tail_needs_follow_windows():
+    """``cc-tail`` (``- cc-hi | ε``) does not separate under the FIRST arm gate —
+    the empty arm overlaps FOLLOW through a trailing ``-`` — so it is demoted by
+    the deeper FOLLOW-window gate instead, stored under ``arm_gates``."""
+    an = self_analysis("gbnf")
+    assert arm_k(an, "cc-tail") is None
+    assert "cc-tail" in an.taxonomy.arm_gates
+
+
+def test_follow_windows_cc_tail_separates_take_from_escape():
+    """The FOLLOW\\ :sub:`2` fixpoint gives ``cc-tail`` a separable arm gate: the
+    ``- cc-hi`` take window (``-`` then a non-``]`` cc-hi lead) never collides
+    with the escape (FOLLOW) windows, whose only ``-``-led window is ``- ]``."""
+    an = self_analysis("gbnf")
+    fw = FollowWindows(an.rules, an.start, 2)
+    follow = fw.follow["cc-tail"]
+    take = extend_follow(
+        fw.solver.arm_prefixes(_rule_items(an.rules["cc-tail"].body[0]), 2), follow, 2
+    )
+    escape = extend_follow(fw.solver.arm_prefixes([], 2), follow, 2)
+    assert separable([take, escape])
+    # every take window leads with '-'; the escape's dash-led window is '- ]'.
+    dash = CharSet.from_chars("-")
+    close = CharSet.from_chars("]")
+    take_wins = windows_of(take)
+    assert take_wins and all(w[0] == dash for w in take_wins)
+    esc_dash = [w for w in windows_of(escape) if w[0] == dash]
+    assert esc_dash and all(len(w) >= 2 and w[1] == close for w in esc_dash)
+
+
+def test_follow_arm_gate_returns_cc_tail_windows():
+    """``follow_arm_gate`` returns per-arm windows for ``cc-tail`` in body-arm
+    order (the ``- cc-hi`` take arm, then the ε escape arm) where the plain
+    FIRST :func:`arm_gate` — with only a single FOLLOW char to reach — cannot."""
+    an = self_analysis("gbnf")
+    arms = [_rule_items(a) for a in an.rules["cc-tail"].body]
+    assert arm_gate(an.rules, arms, an.follow["cc-tail"]) is None
+    gate = follow_arm_gate(an.rules, an.start, arms, "cc-tail")
+    assert gate is not None
+    assert len(gate) == 2  # take arm + escape arm, body order
+    dash = CharSet.from_chars("-")
+    assert gate[0] and all(w[0] == dash for w in gate[0])
+
+
+def test_extend_follow_single_charset_is_the_k1_special_case():
+    """A single :class:`CharSet` FOLLOW arg behaves exactly as before — append
+    one char set to each short END prefix, mark it UNK — i.e. the degenerate
+    one-window case of the generalised window extension."""
+    a = CharSet.from_chars("a")
+    b = CharSet.from_chars("b")
+    prefs = {((a,), END), ((a, b), END)}
+    out = extend_follow(prefs, b, 2)
+    assert ((a, b), UNK) in out  # the short END extended by FOLLOW 'b'
+    assert ((a, b), END) in out  # the full-window END rides through unchanged
+    # An empty FOLLOW CharSet contributes nothing (short END rides through).
+    assert extend_follow({((a,), END)}, CharSet.EMPTY, 2) == {((a,), END)}
+
+
+def test_follow_windows_pays_only_when_asked():
+    """``FollowWindows`` is a standalone fixpoint the analysis builds lazily —
+    seeded EOF at the start rule, empty elsewhere before the fixpoint feeds."""
+    an = self_analysis("gbnf")
+    fw = FollowWindows(an.rules, an.start, 2)
+    assert ((), END) in fw.follow[an.start]
+    # No window exceeds the window width (which itself never exceeds MAX_K).
+    assert fw.k <= MAX_K
+    assert all(len(w) <= fw.k for wins in fw.follow.values() for w, _ in wins)
 
 
 @pytest.mark.parametrize("name", ["defined", "element"])
