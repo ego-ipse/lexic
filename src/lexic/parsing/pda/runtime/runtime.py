@@ -116,6 +116,7 @@ from lexic.parsing.pda.runtime.build import (
     alt_model,
     build_fast,
     build_sequence,
+    build_vstr,
     finish_delegate,
     leaf_mismatch,
 )
@@ -144,9 +145,14 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
     :ivar fold: The full-grammar fold used to splice island sub-models, or
         ``None`` on the island-free path (an island reference then raises
         :class:`PdaFail`).
+    :ivar _intern: The per-parse intern memo — repeated identical sub-models
+        built once and shared. Its lifetime is exactly one top-level kernel
+        run: a fresh, empty dict per :class:`PdaKernel` (each island-interior
+        delegate sub-run is a *separate* kernel with its own memo, so island
+        sub-models — spliced by ``id`` — never share across the boundary).
     """
 
-    __slots__ = ("tables", "text", "pos", "stack", "fold", "_deleg")
+    __slots__ = ("tables", "text", "pos", "stack", "fold", "_deleg", "_intern")
 
     tables: PdaTables
     text: str
@@ -154,6 +160,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
     stack: list[list[Any]]
     fold: ModelFold | None
     _deleg: dict[str, dict[int, Delegate]]
+    _intern: dict[Any, object]
 
     def __init__(
         self, tables: PdaTables, text: str, fold: ModelFold | None = None
@@ -172,6 +179,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         self.stack = []
         self.fold = fold
         self._deleg = {}
+        self._intern = {}
 
     # ── the driver ────────────────────────────────────────────────────
 
@@ -557,7 +565,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         text = self.text
         arm = self._select_arm(clone, text[pos : pos + 1], pos)
         if arm.n != clone.fold.n_items:
-            return leaf_mismatch(clone, out, arm.n, pos)
+            return leaf_mismatch(clone, out, arm.n, pos, self._intern)
         start = pos
         ends = [0] * arm.n
         sinks: list[Any] | None = None
@@ -588,7 +596,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
             else:
                 pos = self._match_cc(arm, i, pos)
             ends[i] = pos
-        out.append(build_fast(self.text, clone, start, ends, sinks))
+        out.append(build_fast(self.text, clone, (start, ends, sinks), self._intern))
         return pos
 
     def _match_vstr(self, sink: list[Any], arm: FlatArm, i: int, pos: int) -> int:
@@ -657,13 +665,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
                 pos = self._match_lit(varm, j, pos)
             else:
                 pos = self._match_cc(varm, j, pos)
-        span = text[start:pos]
-        fast = clone.fast
-        sink.append(
-            fast({"value": span}, {"value"})
-            if fast is not None
-            else clone.fold.ctor(value=span)
-        )
+        sink.append(build_vstr(clone, text[start:pos], self._intern))
         return pos
 
     # ── island sub-parse + splice ─────────────────────────────────────
@@ -775,17 +777,17 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         if mode == BUILD_SEQ:
             if clone.fast is not None and frame[F_ARM].n == clone.fold.n_items:
                 model = build_fast(
-                    self.text, clone, frame[F_START], frame[F_ENDS], frame[F_SINKS]
+                    self.text,
+                    clone,
+                    (frame[F_START], frame[F_ENDS], frame[F_SINKS]),
+                    self._intern,
                 )
             else:
-                model = build_sequence(self.text, frame, clone)
+                model = build_sequence(self.text, frame, clone, self._intern)
         elif mode == BUILD_VALUE_STR:
-            span = self.text[frame[F_START] : self.pos]
-            fast = clone.fast
-            if fast is not None:
-                model = fast({"value": span}, {"value"})
-            else:
-                model = clone.fold.ctor(value=span)
+            model = build_vstr(
+                clone, self.text[frame[F_START] : self.pos], self._intern
+            )
         else:  # BUILD_ALT
             model = alt_model(frame)
         if model is not None:

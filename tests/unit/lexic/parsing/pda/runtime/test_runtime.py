@@ -30,7 +30,7 @@ from typing import cast
 
 import pytest
 
-from lexic.compile import canonical_grammar, compile_text
+from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
@@ -43,7 +43,11 @@ from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime import reduce_runtime as rrt
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
-from tests.integration.pda_parity_helpers import arithmetic_bench_corpus
+from tests.integration.pda_parity_helpers import (
+    arithmetic_bench_corpus,
+    deep_semantic,
+    forced_engine,
+)
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import (
     assert_parity,
@@ -129,6 +133,66 @@ def test_pda_engine_parity_on_arithmetic_bench_corpus() -> None:
     except PdaFail:
         return  # expected stop-set residue — the engine fallback covers it
     assert_parity(engine_model, pda_model, text)
+
+
+# ── per-parse interning (Task 5) ───────────────────────────────────────────
+
+
+def _all_models(root: object) -> list[GrammarModel]:
+    """Every :class:`GrammarModel` reachable from ``root``, self first (iterative)."""
+    out: list[GrammarModel] = []
+    stack: list[object] = [root]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, GrammarModel):
+            out.append(value)
+            stack.extend(getattr(value, name) for name in value._fields)
+        elif isinstance(value, tuple):
+            stack.extend(value)
+    return out
+
+
+_INTERN_CORPUS: dict[str, str] = {
+    # repeated scalars (true/false/null/small ints) and repeated key strings
+    "json.gbnf": '[true, true, false, true, 1, 1, 2, 2, "x", "x", null, null]',
+    "chess.gbnf": "1. e4 e5\n2. e4 e5\n3. e4 e5\n4. e4 e5\n",
+    "arithmetic.gbnf": "a=1\na=1\nb=2\nb=2\nc=3\nc=3\n",
+}
+"""Per-grammar inputs with many identical sub-structures — enough repetition
+that interning provably collapses equal models to one instance."""
+
+
+@pytest.mark.parametrize("stem", ["json.gbnf", "chess.gbnf", "arithmetic.gbnf"])
+def test_interning_value_equality_parity(stem: str) -> None:
+    """The interned PDA model equals the un-interned engine (``ModelFold``)
+    reference for every instance case — value-equality parity under interning
+    (Task 5's core gate; robust to islands, whose sub-models are spliced
+    un-interned so equality — not identity — is the bar there)."""
+    compiled = compile_from_path(GROUND_TRUTH / stem)
+    text = _INTERN_CORPUS[stem]
+    pda_model = cast(GrammarModel, compiled.parse(text))
+    engine_model = forced_engine(compiled, text)
+    assert deep_semantic(pda_model) == deep_semantic(engine_model)
+    assert pda_model.to_text() == text == engine_model.to_text()
+
+
+def test_interning_shares_every_equal_submodel_island_free() -> None:
+    """On an island-free grammar every build flows through the interning memo,
+    so no two DISTINCT model instances are ``==`` — repeated sub-models collapse
+    to one shared instance. (arithmetic.gbnf is island-free; the raw PDA run
+    guarantees no engine-fallback bypass of the memo.)"""
+    path = GROUND_TRUTH / "arithmetic.gbnf"
+    compiled, pda = compiled_and_pda(path)
+    text = _INTERN_CORPUS["arithmetic.gbnf"]
+    pda_model = cast(GrammarModel, parse_pda(pda, text, compiled.fold))
+    models = _all_models(pda_model)
+    by_value: dict[tuple[type, GrammarModel], int] = {}
+    for model in models:
+        first = by_value.setdefault((type(model), model), id(model))
+        assert id(model) == first, (
+            f"equal models not shared — {type(model).__name__} {model!r}"
+        )
+    assert len(by_value) < len(models), "corpus had no repeated sub-models to share"
 
 
 # ── the F1 semantic guard (Option B) ───────────────────────────────────────
