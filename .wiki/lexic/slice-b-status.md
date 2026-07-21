@@ -31,7 +31,7 @@ remaining concrete deliverable.
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1 | `lexic/exceptions.py` — `LexicError`, `UnsupportedConstructError`, `GrammarAuthoringError`, `FieldValidationError` | ✓ Done |
+| 1 | `lexic/exceptions.py` — `LexicError`, `UnsupportedConstructError`, `FieldValidationError` (`GrammarAuthoringError` deleted 2026-07-18, never raised) | ✓ Done |
 | 2 | `lexic/ir/regex_portable.py` — `PORTABLE_FEATURES`, `validate_portable`, `features_used` | ✓ Done (see caveat below) |
 | 3 | Move GBNF modules into `grammars/gbnf/` | ✓ Done — differently (see below) |
 | 5 | Import-path sweep across `src/` and `tests/` | ✓ Done as part of cutover |

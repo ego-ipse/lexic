@@ -22,8 +22,8 @@ A function has one job if you can name it with one verb and no "and". If the
 name is `_build_instance_and_filter_tokens_and_handle_lists`, split it.
 
 **Red flag:** a function that takes a `spec` *and* a list of Lark children *and*
-a class *and* builds Pydantic kwargs *and* handles type-hint inspection. That
-is five responsibilities.
+a class *and* builds constructor kwargs *and* handles type-hint inspection.
+That is five responsibilities.
 
 **Rule:** each function/class owns one axis of change. If two unrelated bugs
 could both land in the same function, it's two functions.

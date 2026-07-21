@@ -1,0 +1,316 @@
+[
+  {
+    "input": "int foo(){}",
+    "runtime_dump": {
+      "declaration": [
+        {
+          "paramlist": null,
+          "datatype": {
+            "ws": {
+              "value": " "
+            }
+          },
+          "identifier": {
+            "value": "foo"
+          },
+          "statement": []
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "declaration": [
+        {
+          "paramlist": null,
+          "datatype": {
+            "ws": {
+              "value": " "
+            }
+          },
+          "identifier": {
+            "value": "foo"
+          },
+          "statement": []
+        }
+      ]
+    },
+    "to_text": "int foo(){}"
+  },
+  {
+    "input": "char bar(int x){}",
+    "runtime_dump": {
+      "declaration": [
+        {
+          "paramlist": {
+            "parameter": {
+              "datatype": {
+                "ws": {
+                  "value": " "
+                }
+              },
+              "identifier": {
+                "value": "x"
+              }
+            },
+            "paramlist_item": []
+          },
+          "datatype": {
+            "ws": {
+              "value": " "
+            }
+          },
+          "identifier": {
+            "value": "bar"
+          },
+          "statement": []
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "declaration": [
+        {
+          "paramlist": {
+            "parameter": {
+              "datatype": {
+                "ws": {
+                  "value": " "
+                }
+              },
+              "identifier": {
+                "value": "x"
+              }
+            },
+            "paramlist_item": []
+          },
+          "datatype": {
+            "ws": {
+              "value": " "
+            }
+          },
+          "identifier": {
+            "value": "bar"
+          },
+          "statement": []
+        }
+      ]
+    },
+    "to_text": "char bar(int x){}"
+  },
+  {
+    "input": "float baz(){}",
+    "runtime_dump": {
+      "declaration": [
+        {
+          "paramlist": null,
+          "datatype": {
+            "ws": {
+              "value": " "
+            }
+          },
+          "identifier": {
+            "value": "baz"
+          },
+          "statement": []
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "declaration": [
+        {
+          "paramlist": null,
+          "datatype": {
+            "ws": {
+              "value": " "
+            }
+          },
+          "identifier": {
+            "value": "baz"
+          },
+          "statement": []
+        }
+      ]
+    },
+    "to_text": "float baz(){}"
+  },
+  {
+    "input": "int qux(char y){}",
+    "runtime_dump": {
+      "declaration": [
+        {
+          "paramlist": {
+            "parameter": {
+              "datatype": {
+                "ws": {
+                  "value": " "
+                }
+              },
+              "identifier": {
+                "value": "y"
+              }
+            },
+            "paramlist_item": []
+          },
+          "datatype": {
+            "ws": {
+              "value": " "
+            }
+          },
+          "identifier": {
+            "value": "qux"
+          },
+          "statement": []
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "declaration": [
+        {
+          "paramlist": {
+            "parameter": {
+              "datatype": {
+                "ws": {
+                  "value": " "
+                }
+              },
+              "identifier": {
+                "value": "y"
+              }
+            },
+            "paramlist_item": []
+          },
+          "datatype": {
+            "ws": {
+              "value": " "
+            }
+          },
+          "identifier": {
+            "value": "qux"
+          },
+          "statement": []
+        }
+      ]
+    },
+    "to_text": "int qux(char y){}"
+  },
+  {
+    "input": "int\t\tG(){T (3*9/J);AaN ();}",
+    "runtime_dump": {
+      "declaration": [
+        {
+          "paramlist": null,
+          "datatype": {
+            "ws": {
+              "value": "\t\t"
+            }
+          },
+          "identifier": {
+            "value": "G"
+          },
+          "statement": [
+            {
+              "identifier": {
+                "value": "T"
+              },
+              "ws": {
+                "value": " "
+              },
+              "arglist": {
+                "expression": {
+                  "term": {
+                    "factor": {
+                      "value": "3"
+                    },
+                    "term_item": [
+                      {
+                        "head": "*",
+                        "factor": {
+                          "value": "9"
+                        }
+                      },
+                      {
+                        "head": "/",
+                        "factor": {
+                          "value": "J"
+                        }
+                      }
+                    ]
+                  },
+                  "expression_item": []
+                },
+                "arglist_item": []
+              }
+            },
+            {
+              "identifier": {
+                "value": "AaN"
+              },
+              "ws": {
+                "value": " "
+              },
+              "arglist": null
+            }
+          ]
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "declaration": [
+        {
+          "paramlist": null,
+          "datatype": {
+            "ws": {
+              "value": "\t\t"
+            }
+          },
+          "identifier": {
+            "value": "G"
+          },
+          "statement": [
+            {
+              "identifier": {
+                "value": "T"
+              },
+              "ws": {
+                "value": " "
+              },
+              "arglist": {
+                "expression": {
+                  "term": {
+                    "factor": {
+                      "value": "3"
+                    },
+                    "term_item": [
+                      {
+                        "head": "*",
+                        "factor": {
+                          "value": "9"
+                        }
+                      },
+                      {
+                        "head": "/",
+                        "factor": {
+                          "value": "J"
+                        }
+                      }
+                    ]
+                  },
+                  "expression_item": []
+                },
+                "arglist_item": []
+              }
+            },
+            {
+              "identifier": {
+                "value": "AaN"
+              },
+              "ws": {
+                "value": " "
+              },
+              "arglist": null
+            }
+          ]
+        }
+      ]
+    },
+    "to_text": "int\t\tG(){T (3*9/J);AaN ();}"
+  }
+]

@@ -9,16 +9,14 @@ two routes independently, straight off ``GBNF_FLAVOUR``'s own self-grammar
 - the raw reduce PDA (:func:`~lexic.parsing.pda.runtime.reduce_runtime.parse_pda` over
   the compiled reduce product, ``fold=None``), and
 - the forced Earley completion (:func:`~lexic.parsing.products.earley_reduce`
-  over the normalised, *unlifted* self-grammar).
+  over the same lifted, normalised self-grammar the PDA compiled from).
 
-Per ``_reduce_product``, the PDA compiles over
-``lift_optional_nullables(grammar)`` while ``earley_grammar`` stays
-``normalize(grammar)`` (unlifted) — the two routes run different normalised
-shapes BY DESIGN, and the authored reduce bodies are what's supposed to make
-a lifted-nullable reduction (e.g. an optional ``R?`` producing empty children)
-agree with the unlifted route's node-skip. This file is the guard that they
-actually do agree: PDA-recognised text must be a subset of Earley-recognised
-text, and wherever both recognise, the reduced :class:`IrAst` must be equal.
+Per ``_reduce_product``, both routes run
+``normalize(lift_optional_nullables(grammar))`` — the one grammar
+``parse_reduced`` actually ships. This file is the guard that the authored
+reduce bodies keep the two routes' IR equivalent on it: PDA-recognised text
+must be a subset of Earley-recognised text, and wherever both recognise, the
+reduced :class:`IrAst` must be equal.
 
 A divergence is a release-blocking finding, not a test to weaken — see
 ``zzz_current_work/260712-totality-cleanup/PLAN.md`` Task 6.
@@ -37,44 +35,24 @@ from __future__ import annotations
 import hypothesis.strategies as st
 from hypothesis import example, given, settings
 
-from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.nodes import IrAst
-from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
-from lexic.parsing.pda.runtime.runtime import PdaFail
-from lexic.parsing.products import _as_ast, _reduce_product, earley_reduce
+from tests.property.reduce_differential_helpers import ReduceDifferential
 
-_product = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
-_earley_grammar = normalize(GBNF_FLAVOUR.grammar)
-
-
-def _pda(text: str) -> IrAst | None:
-    """The raw reduce PDA in isolation — ``None`` on any :class:`PdaFail`."""
-    try:
-        return _as_ast(parse_pda(_product.pda, text, None))
-    except PdaFail:
-        return None
-
-
-def _earley(text: str) -> IrAst | None:
-    """The forced Earley completion — ``None`` on any unparseable text."""
-    try:
-        return _as_ast(earley_reduce(_earley_grammar, text, GBNF_FLAVOUR.reducer))
-    except UnsupportedConstructError:
-        return None
+# ReduceDifferential.earley_grammar runs the same lifted grammar the PDA
+# compiles over — the product's actual (grammar, completion) pair (M29).
+_diff = ReduceDifferential(GBNF_FLAVOUR)
 
 
 # ── the generator — ε-heavy GBNF meta-syntax ───────────────────────────────
 
-_NAMES = ("root", "aa", "bb", "cc")
-_LIT_ALPHABET = "abcxyz012 "
-_CHARCLASSES = ("[a-z]", "[A-Z]", "[0-9]", "[abc]", "[^xyz]", "[]", "[^]")
-_QUANTS = ("", "?", "*", "+")
+NAMES = ("root", "aa", "bb", "cc")
+LIT_ALPHABET = "abcxyz012 "
+CHARCLASSES = ("[a-z]", "[A-Z]", "[0-9]", "[abc]", "[^xyz]", "[]", "[^]")
+QUANTS = ("", "?", "*", "+")
 
 
 @st.composite
-def _noise(draw: st.DrawFn, min_units: int, max_units: int) -> str:
+def noise(draw: st.DrawFn, min_units: int, max_units: int) -> str:
     """``n``'s own shape: 0+ (or 1+) of ``wschar`` / ``comment-line``."""
     count = draw(st.integers(min_value=min_units, max_value=max_units))
     units = []
@@ -88,79 +66,81 @@ def _noise(draw: st.DrawFn, min_units: int, max_units: int) -> str:
 
 
 @st.composite
-def _literal(draw: st.DrawFn) -> str:
-    body = draw(st.text(alphabet=_LIT_ALPHABET, max_size=3))
+def literal(draw: st.DrawFn) -> str:
+    """A short double-quoted GBNF literal."""
+    body = draw(st.text(alphabet=LIT_ALPHABET, max_size=3))
     return f'"{body}"'
 
 
 @st.composite
-def _atom(draw: st.DrawFn) -> str:
+def make_atom(draw: st.DrawFn) -> str:
+    """A literal, char class, or rule-name reference, chosen at random."""
     kind = draw(st.integers(min_value=0, max_value=2))
     if kind == 0:
-        return draw(_literal())
+        return draw(literal())
     if kind == 1:
-        return draw(st.sampled_from(_CHARCLASSES))
-    return draw(st.sampled_from(_NAMES))
+        return draw(st.sampled_from(CHARCLASSES))
+    return draw(st.sampled_from(NAMES))
 
 
 @st.composite
-def _item(draw: st.DrawFn) -> str:
+def item(draw: st.DrawFn) -> str:
     """An ``atom`` plus an optional quantifier — ``ws-quant`` allows noise
     before the quantifier symbol, the ε-shape this differential targets."""
-    atom = draw(_atom())
-    quant = draw(st.sampled_from(_QUANTS))
+    atom = draw(make_atom())
+    quant = draw(st.sampled_from(QUANTS))
     if not quant:
         return atom
-    gap = draw(_noise(min_units=0, max_units=1))
+    gap = draw(noise(min_units=0, max_units=1))
     return f"{atom}{gap}{quant}"
 
 
 @st.composite
-def _sequence(draw: st.DrawFn, max_items: int = 3) -> str:
+def sequence(draw: st.DrawFn, max_items: int = 3) -> str:
     """A ``sequence``, or the ``empty-seq`` arm when ``n_items`` is 0."""
     n_items = draw(st.integers(min_value=0, max_value=max_items))
     if n_items == 0:
         return ""
-    leading = draw(_noise(min_units=0, max_units=2))
+    leading = draw(noise(min_units=0, max_units=2))
     parts = [leading]
     for i in range(n_items):
         if i > 0:
-            parts.append(draw(_noise(min_units=1, max_units=3)))
-        parts.append(draw(_item()))
+            parts.append(draw(noise(min_units=1, max_units=3)))
+        parts.append(draw(item()))
     return "".join(parts)
 
 
 @st.composite
-def _alternation(draw: st.DrawFn, max_arms: int = 3) -> str:
+def alternation(draw: st.DrawFn, max_arms: int = 3) -> str:
     """``arm (n(0) "|" arm)*`` — arms (incl. empty ones) joined by ``|``."""
     n_arms = draw(st.integers(min_value=1, max_value=max_arms))
-    arms = [draw(_sequence()) for _ in range(n_arms)]
+    arms = [draw(sequence()) for _ in range(n_arms)]
     out = [arms[0]]
     for arm in arms[1:]:
-        pre_bar = draw(_noise(min_units=0, max_units=1))
+        pre_bar = draw(noise(min_units=0, max_units=1))
         out.append(f"{pre_bar}|{arm}")
     return "".join(out)
 
 
 @st.composite
-def _rule_line(draw: st.DrawFn, name: str) -> str:
+def rule_line(draw: st.DrawFn, name: str) -> str:
     """``rulename n(0) "::=" alternation``."""
-    pre_eq = draw(_noise(min_units=0, max_units=1))
-    alt = draw(_alternation())
+    pre_eq = draw(noise(min_units=0, max_units=1))
+    alt = draw(alternation())
     return f"{name}{pre_eq}::={alt}"
 
 
 @st.composite
 def gbnf_text(draw: st.DrawFn) -> str:
     """``n(0) rule (n rules-rest)* n(0)`` over a fixed rule-name pool."""
-    n_rules = draw(st.integers(min_value=1, max_value=len(_NAMES)))
-    names = _NAMES[:n_rules]
-    leading = draw(_noise(min_units=0, max_units=2))
-    lines = [draw(_rule_line(name)) for name in names]
+    n_rules = draw(st.integers(min_value=1, max_value=len(NAMES)))
+    names = NAMES[:n_rules]
+    leading = draw(noise(min_units=0, max_units=2))
+    lines = [draw(rule_line(name)) for name in names]
     body = lines[0]
     for line in lines[1:]:
-        body += draw(_noise(min_units=1, max_units=2)) + line
-    trailing = draw(_noise(min_units=0, max_units=2))
+        body += draw(noise(min_units=1, max_units=2)) + line
+    trailing = draw(noise(min_units=0, max_units=2))
     return leading + body + trailing
 
 
@@ -180,13 +160,4 @@ def test_pda_and_earley_agree_on_reduce(text: str) -> None:
     self-grammar, Earley the unlifted one, and this is the guard that the
     authored reduce bodies keep the two routes' IR equivalent despite that.
     """
-    pda_ir = _pda(text)
-    if pda_ir is None:
-        return
-    earley_ir = _earley(text)
-    assert earley_ir is not None, f"PDA recognised text Earley rejected:\n{text!r}"
-    assert pda_ir == earley_ir, (
-        f"PDA/Earley reduce diverged on:\n{text!r}\n"
-        f"  pda:    {pda_ir!r}\n"
-        f"  earley: {earley_ir!r}"
-    )
+    _diff.assert_agree(text)

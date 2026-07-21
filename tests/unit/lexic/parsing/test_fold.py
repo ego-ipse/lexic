@@ -4,17 +4,20 @@ An IR body-table (IrMap[IrRuleRef, ModelBody]) that bakes to RuleFold config
 drives ModelFold over ``parse_first`` trees of the *real* instance grammar —
 no wrapper rules. End-to-end fold behaviors run through the compiled pipeline
 fixtures (``arithmetic`` / ``optional_shapes`` in conftest); the generic-fold
-sections use opaque dict constructors to prove the fold needs no pydantic
-knowledge.
+sections use opaque dict constructors to prove the fold needs no knowledge of
+the model layer.
 """
 
 from __future__ import annotations
+
+from typing import cast
 
 import pytest
 
 from lexic.compile import compile_text, reset_cache_for_tests
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrSeq, IrTuple
+from lexic.ir.action import IrArg, IrArgs
+from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -38,24 +41,21 @@ from lexic.parsing.fold import (
     collapsed_fold_tables,
     lift_optional_nullables,
 )
-from lexic.parsing.products import _model_product
-from tests._ir_fixtures import malformed_synthetic_rule, nested_synthetic_grammar
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.parsing.ir_fixtures import (
+    malformed_synthetic_rule,
+    nested_synthetic_grammar,
+)
+from tests.unit.lexic.parsing.parsing_helpers import prod
 
 # ── the compiled config — structure ─────────────────────────────────────
-
-
-def _prod(cg):
-    """The instance product for a CompiledGrammar — its instance_grammar/tables/pda
-    (the fields the artefact no longer carries; memoised per (grammar, fold))."""
-    return _model_product(cg.codegen_grammar, cg.fold)
 
 
 def test_instance_grammar_is_normalized(arithmetic):
     """The compiled instance grammar is Earley-normalized: parse_first accepts
     it directly (tables.py raises 'run normalize() before compiling' on a raw
     grammar, so a successful parse is itself proof of normalization)."""
-    tree = parse_first(_prod(arithmetic).instance_grammar, "x=1\n")
+    tree = parse_first(prod(arithmetic).instance_grammar, "x=1\n")
     assert tree is not None
 
 
@@ -215,14 +215,14 @@ def test_empty_alternate_arm_folds_with_no_kwargs():
     cg = compile_text('root ::= "<" pair ">"\npair ::= a b |\na ::= "a"\nb ::= "b"\n')
     full = cg.parse("<ab>")
     empty = cg.parse("<>")
-    assert full.model_dump()["pair"] == {"a": {"value": "a"}, "b": {"value": "b"}}
-    assert empty.model_dump()["pair"] == {"a": None, "b": None}
+    assert full.dump()["pair"] == {"a": {"value": "a"}, "b": {"value": "b"}}
+    assert empty.dump()["pair"] == {"a": None, "b": None}
     assert full.to_text() == "<ab>"
     assert empty.to_text() == "<>"
 
 
 def test_fold_is_generic_over_opaque_constructors():
-    """The fold needs no pydantic: dict constructors work positionally."""
+    """The fold needs no model class: dict constructors work positionally."""
     grammar = normalize(
         IrAst(
             rules=IrSeq(
@@ -330,9 +330,9 @@ def test_collapsed_fold_tables_collapses_a_run_on_arithmetic(arithmetic):
     A collapsed run shows up as a ``lens == 0`` terminal — see
     :class:`~lexic.parsing.earley.tables.TermTables`.
     """
-    plain = compile_tables(_prod(arithmetic).instance_grammar)
+    plain = compile_tables(prod(arithmetic).instance_grammar)
     collapsed = collapsed_fold_tables(
-        _prod(arithmetic).instance_grammar, arithmetic.fold
+        prod(arithmetic).instance_grammar, arithmetic.fold
     )
     assert collapsed is not plain
     assert any(length == 0 for length in collapsed.terms.lens)
@@ -340,24 +340,24 @@ def test_collapsed_fold_tables_collapses_a_run_on_arithmetic(arithmetic):
 
 def test_collapsed_fold_tables_memoises_per_fold_and_grammar(arithmetic):
     """The same (fold, grammar) pair returns the identical tables object."""
-    first = collapsed_fold_tables(_prod(arithmetic).instance_grammar, arithmetic.fold)
-    second = collapsed_fold_tables(_prod(arithmetic).instance_grammar, arithmetic.fold)
+    first = collapsed_fold_tables(prod(arithmetic).instance_grammar, arithmetic.fold)
+    second = collapsed_fold_tables(prod(arithmetic).instance_grammar, arithmetic.fold)
     assert first is second
 
 
 def test_collapsed_fold_tables_returns_plain_when_no_candidates(optional_shapes):
     """A grammar with no star/plus run candidates gets back the plain tables."""
-    plain = compile_tables(_prod(optional_shapes).instance_grammar)
+    plain = compile_tables(prod(optional_shapes).instance_grammar)
     collapsed = collapsed_fold_tables(
-        _prod(optional_shapes).instance_grammar, optional_shapes.fold
+        prod(optional_shapes).instance_grammar, optional_shapes.fold
     )
     assert collapsed is plain
 
 
 def test_compiled_tables_are_the_collapsed_ones(arithmetic):
     """CompiledGrammar.tables is exactly the memoised collapsed tables."""
-    assert _prod(arithmetic).tables is collapsed_fold_tables(
-        _prod(arithmetic).instance_grammar, arithmetic.fold
+    assert prod(arithmetic).tables is collapsed_fold_tables(
+        prod(arithmetic).instance_grammar, arithmetic.fold
     )
 
 
@@ -369,17 +369,17 @@ def test_collapsed_fold_tables_memo_keys_on_identity_not_equality():
     cg1 = compile_text(text)
     reset_cache_for_tests()  # force a genuinely fresh second compile
     cg2 = compile_text(text)
-    assert _prod(cg1).instance_grammar == _prod(cg2).instance_grammar
-    assert _prod(cg1).instance_grammar is not _prod(cg2).instance_grammar
-    assert _prod(cg1).tables is not _prod(cg2).tables
+    assert prod(cg1).instance_grammar == prod(cg2).instance_grammar
+    assert prod(cg1).instance_grammar is not prod(cg2).instance_grammar
+    assert prod(cg1).tables is not prod(cg2).tables
 
 
 def test_collapsed_fold_tables_distinct_fold_objects_do_not_share_cache(arithmetic):
     """A fold object with an identical config is still a distinct object —
     collapsed_fold_tables must recompute, not alias, for it."""
     duplicate_fold = ModelFold.from_config(dict(arithmetic.fold.config))
-    first = collapsed_fold_tables(_prod(arithmetic).instance_grammar, arithmetic.fold)
-    second = collapsed_fold_tables(_prod(arithmetic).instance_grammar, duplicate_fold)
+    first = collapsed_fold_tables(prod(arithmetic).instance_grammar, arithmetic.fold)
+    second = collapsed_fold_tables(prod(arithmetic).instance_grammar, duplicate_fold)
     assert first is not second
 
 
@@ -451,9 +451,9 @@ def test_ambiguous_input_folds_deterministically(arithmetic):
     text = "ab1+cd2*34/x9-z=result0\n"
     collapsed_model = arithmetic.parse(text)
     plain_model = arithmetic.fold.apply(
-        parse_first(_prod(arithmetic).instance_grammar, text)
+        parse_first(prod(arithmetic).instance_grammar, text)
     )
-    assert collapsed_model.model_dump() == plain_model.model_dump()
+    assert collapsed_model.dump() == plain_model.dump()
     assert collapsed_model.to_text() == plain_model.to_text() == text
 
 
@@ -530,3 +530,51 @@ def test_model_fold_bodies_is_the_passed_ir_map():
     )
     fold = ModelFold(bodies)
     assert fold.bodies is bodies
+
+
+# ── ModelBody.bake — the channel adapter for non-IrLambda IR bodies ──────
+
+
+def test_model_body_bakes_a_channel_ir_body_ctor():
+    """A non-IrLambda IR body ctor bakes to a kwargs→channel adapter: the fold
+    calls ctor(**kwargs); the body reads IrArg positions in fields order."""
+    body = ModelBody("sequence", IrArg(0), 1, (FieldFold(0, "text", "a", 1),))
+    ctor = body.bake().ctor
+    assert ctor(a="hello") == "hello"
+
+
+def test_model_body_channel_ctor_fills_omitted_optional_with_ir_none():
+    """An optional field omitted from kwargs arrives as IrNone on the channel
+    (a body branches on absence by IrNoneType, since IrNone is truthy)."""
+    body = ModelBody(
+        "sequence",
+        IrArgs(),
+        2,
+        (FieldFold(0, "text", "a", 1), FieldFold(1, "model", "b", 0)),
+    )
+    ctor = body.bake().ctor
+    assert tuple(cast("tuple[object, ...]", ctor(a="x"))) == ("x", IrNone)  # b → IrNone
+
+
+def test_model_body_channel_ctor_value_str_reads_the_value_kwarg():
+    """A value_str IR body reads the sole ``value`` kwarg as its channel."""
+    body = ModelBody("value_str", IrArg(0), 0, ())
+    ctor = body.bake().ctor
+    assert ctor(value="v") == "v"
+
+
+def test_model_body_channel_ctor_empty_arm_is_an_empty_channel():
+    """A fieldless sequence body evaluates over an empty channel (empty arm)."""
+    body = ModelBody("sequence", IrArgs(), 0, ())
+    ctor = body.bake().ctor
+    assert not tuple(cast("tuple[object, ...]", ctor()))
+
+
+def test_model_body_ir_lambda_stays_the_identity_kwargs_ctor():
+    """An IrLambda body bakes to its wrapped kwargs-taking callable unchanged."""
+
+    def marker(**kw: object) -> dict[str, object]:
+        return kw
+
+    body = ModelBody("sequence", IrLambda(marker), 1, (FieldFold(0, "text", "a", 1),))
+    assert body.bake().ctor is marker

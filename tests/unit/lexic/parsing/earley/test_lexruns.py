@@ -38,8 +38,11 @@ from lexic.parsing.earley.lexruns import (
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
 from lexic.parsing.earley.tables import RunTerm, compile_tables
 from lexic.parsing.earley.tables import expand_atom as _expand_atom_canonical
-from tests._ir_fixtures import digit_grammar as _digit_grammar
-from tests._ir_fixtures import malformed_synthetic_rule, nested_synthetic_grammar
+from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
+from tests.unit.lexic.parsing.ir_fixtures import (
+    malformed_synthetic_rule,
+    nested_synthetic_grammar,
+)
 
 # ── expand_atom re-export smoke test (moved home to tables.py) ──────────
 
@@ -122,7 +125,7 @@ def test_recognition_tables_distinct_grammar_objects_get_distinct_tables():
     assert recognition_tables(g1) is not recognition_tables(g2)
 
 
-_ABNF_SAMPLES = (
+ABNF_SAMPLES = (
     'rule = "a" "b"\r\n',
     "foo = bar / baz\r\n",
     "x = 1*DIGIT\r\n",
@@ -136,7 +139,7 @@ def test_recognition_tables_matches_plain_recognition_on_samples():
     g = normalize(ABNF_GRAMMAR)
     plain = compile_tables(g)
     collapsed = recognition_tables(g)
-    for text in _ABNF_SAMPLES:
+    for text in ABNF_SAMPLES:
         plain_accept = Kernel(plain, text, record_links=False).run().accept >= 0
         collapsed_accept = Kernel(collapsed, text, record_links=False).run().accept >= 0
         assert plain_accept == collapsed_accept, text

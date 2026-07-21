@@ -24,7 +24,7 @@ from lexic.parsing.earley.trampoline import ADVANCE, EMIT, EXHAUSTED, Trampoline
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
-class _EmitCogen(IrLeaf[IrSelf, IrSelf]):
+class EmitCogen(IrLeaf[IrSelf, IrSelf]):
     """A minimal cogen that emits a fixed sequence of :class:`IrLiteral` values.
 
     :param values: The values to emit, in order.
@@ -47,7 +47,7 @@ class _EmitCogen(IrLeaf[IrSelf, IrSelf]):
             yield (EMIT, v)
 
 
-class _DelegateCogen(IrLeaf[IrSelf, IrSelf]):
+class DelegateCogen(IrLeaf[IrSelf, IrSelf]):
     """A cogen that ``(ADVANCE, child)``\\s into ``child`` and re-emits each value.
 
     :param child: The child cogen to advance into.
@@ -73,7 +73,7 @@ class _DelegateCogen(IrLeaf[IrSelf, IrSelf]):
             received = yield (ADVANCE, sub)
 
 
-class _ChainCogen(IrLeaf[IrSelf, IrSelf]):
+class ChainCogen(IrLeaf[IrSelf, IrSelf]):
     """A cogen that advances into ``next_cogen`` and re-emits exactly once.
 
     Used to build N-deep delegation chains.  The terminal cogen (where
@@ -116,20 +116,20 @@ class _ChainCogen(IrLeaf[IrSelf, IrSelf]):
 def test_trampoline_yields_emit_values_in_order():
     """Trampoline over a single-cogen emitting a, b, c yields them in order."""
     a, b, c = IrLiteral("a"), IrLiteral("b"), IrLiteral("c")
-    result = list(Trampoline(_EmitCogen(a, b, c)))
+    result = list(Trampoline(EmitCogen(a, b, c)))
     assert result == [a, b, c]
 
 
 def test_trampoline_empty_cogen_yields_nothing():
     """Trampoline over a cogen that emits nothing yields an empty sequence."""
-    result = list(Trampoline(_EmitCogen()))
+    result = list(Trampoline(EmitCogen()))
     assert not result
 
 
 def test_trampoline_single_emit():
     """Trampoline over a cogen emitting one value yields exactly that value."""
     v = IrLiteral("x")
-    result = list(Trampoline(_EmitCogen(v)))
+    result = list(Trampoline(EmitCogen(v)))
     assert result == [v]
     assert result[0] is v
 
@@ -140,8 +140,8 @@ def test_trampoline_single_emit():
 def test_trampoline_delegate_flattens_child():
     """A parent that (ADVANCE, child)s and re-emits delivers the child's values."""
     a, b = IrLiteral("p"), IrLiteral("q")
-    child = _EmitCogen(a, b)
-    parent = _DelegateCogen(child)
+    child = EmitCogen(a, b)
+    parent = DelegateCogen(child)
     result = list(Trampoline(parent))
     assert result == [a, b]
 
@@ -149,9 +149,9 @@ def test_trampoline_delegate_flattens_child():
 def test_trampoline_two_level_delegation():
     """Two levels of delegation: grandparent → parent → child."""
     v = IrLiteral("z")
-    child = _EmitCogen(v)
-    parent = _DelegateCogen(child)
-    grandparent = _DelegateCogen(parent)
+    child = EmitCogen(v)
+    parent = DelegateCogen(child)
+    grandparent = DelegateCogen(parent)
     result = list(Trampoline(grandparent))
     assert result == [v]
     assert result[0] is v
@@ -159,7 +159,7 @@ def test_trampoline_two_level_delegation():
 
 def test_trampoline_delegate_empty_child():
     """A parent delegating into an empty child yields nothing."""
-    parent = _DelegateCogen(_EmitCogen())
+    parent = DelegateCogen(EmitCogen())
     result = list(Trampoline(parent))
     assert not result
 
@@ -198,9 +198,9 @@ def test_trampoline_deep_chain_no_stack_overflow():
     sentinel = IrLiteral("deep")
 
     # Build chain: each link advances into the next; leaf emits sentinel.
-    cogen: IrSelf = _ChainCogen(None, sentinel)
+    cogen: IrSelf = ChainCogen(None, sentinel)
     for _ in range(depth):
-        cogen = _ChainCogen(cogen)
+        cogen = ChainCogen(cogen)
 
     result = list(Trampoline(cogen))
     assert result == [sentinel]

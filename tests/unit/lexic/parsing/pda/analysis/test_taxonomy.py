@@ -7,7 +7,7 @@ from lexic.parsing.pda.analysis.taxonomy import Taxonomy
 from lexic.parsing.pda.core.scanner import SG_MATCH, SG_SCAN, Recognizer, ScanGate
 
 
-def _rec() -> Recognizer:
+def rec() -> Recognizer:
     """A trivial recognizer stand-in (identity-unstable across builds)."""
     return Recognizer((), {})
 
@@ -33,16 +33,16 @@ def test_gate_accessors_are_live_views_of_the_store():
 def test_store_struct_loop_accepts_equal_respecification():
     """Re-storing an identical spec (fresh recognizer object) is not a conflict."""
     tax = Taxonomy()
-    tax.store_struct_loop(1, ScanGate(SG_MATCH, _rec(), (0,)))
-    tax.store_struct_loop(1, ScanGate(SG_MATCH, _rec(), (0,)))
+    tax.store_struct_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
+    tax.store_struct_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
     assert tax.struct_loop_gates[1].kind == SG_MATCH
 
 
 def test_store_struct_loop_raises_on_conflicting_spec():
     """A different spec under the same item identity is the opt-out tripwire."""
     tax = Taxonomy()
-    tax.store_struct_loop(1, ScanGate(SG_MATCH, _rec(), (0,)))
+    tax.store_struct_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
     with pytest.raises(UnsupportedConstructError):
         tax.store_struct_loop(
-            1, ScanGate(SG_SCAN, _rec(), (0,), (frozenset("x"), False))
+            1, ScanGate(SG_SCAN, rec(), (0,), (frozenset("x"), False))
         )

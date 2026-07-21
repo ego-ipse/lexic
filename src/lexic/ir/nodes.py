@@ -68,10 +68,9 @@ _CLASS_METACHARS = frozenset("[]^-")
 """Regex-class metacharacters that need a backslash inside ``[...]``.
 
 ``-`` is positional in Python ``re`` (literal only at class start/end), and a
-bare ``--`` reads as set difference in pydantic-core's Rust regex — a range
-whose LOW BOUND is ``-`` (e.g. ``[!&--.]``) silently corrupts the class there.
-Escaping the dash unconditionally is valid in both engines and
-position-independent."""
+bare ``--`` reads as set difference in some regex engines — a range whose LOW
+BOUND is ``-`` (e.g. ``[!&--.]``) silently corrupts the class there. Escaping
+the dash unconditionally is valid everywhere and position-independent."""
 
 
 def _escape_regex_point(point: int) -> str:

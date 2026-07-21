@@ -1,0 +1,8 @@
+(* arithmetic — an EBNF-subset demo flavour; parses to the same canonical IR
+   as arithmetic.gbnf *)
+root  = ( expr, "=", ws, term, "\n" )+ ;
+expr  = term, { ("-" | "+" | "*" | "/"), term } ;
+term  = ident | num | ( "(", ws, expr, ")", ws ) ;
+ident = "a".."z", { "a".."z" | "0".."9" | "_" }, ws ;
+num   = "0".."9"+, ws ;
+ws    = { " " | "\t" | "\n" } ;

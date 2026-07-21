@@ -53,7 +53,7 @@ core ◄──── analysis ◄──── compiler ◄──── runtime
   builds the model directly, its grammar-text twin, the shared frame/build
   vocabulary, and the windowed Earley island escape.
 
-The whole package is a leaf w.r.t. `lexic.codegen` and `lexic.grammars`, and
+The whole package is a leaf w.r.t. `lexic.compile` and `lexic.grammars`, and
 imports `../earley` but never the reverse.
 
 See the package `README.md` (§9–§13) for the analysis, clone compiler, runtime

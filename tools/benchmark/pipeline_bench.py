@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import gc
 import json
+import random
 import statistics
 import sys
 import time
@@ -167,6 +168,104 @@ _INSTANCE_WORKLOADS: tuple[tuple[str, Callable[[], str]], ...] = (
     ("json.gbnf", lambda: _json_corpus(4200)),
 )
 
+# ── Workload A2: non-repeated json corpus (additive; NOT in _INSTANCE_WORKLOADS —
+#    compare_bench.py imports that tuple and double-keys each stem against both
+#    GROUND_TRUTH and lark_refs, so a corpus without its own ground-truth file
+#    stays out of it. Wired into _run_instance_workloads below instead.) ──────
+_VARIED_SEED = 260720
+_VARIED_KEYS = (
+    "id",
+    "name",
+    "email",
+    "active",
+    "score",
+    "tags",
+    "meta",
+    "created_at",
+    "updated_at",
+    "children",
+    "parent",
+    "config",
+    "items",
+    "count",
+    "ratio",
+    "description",
+    "status",
+    "owner",
+    "region",
+    "flags",
+)
+
+
+JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+def _json_varied_scalar(rng: random.Random, kind: str) -> JsonValue:
+    """Build one scalar JSON leaf of the given kind.
+
+    :param rng: The seeded random source (reproducible across runs).
+    :param kind: One of ``"str"``/``"int"``/``"float"``/``"bool"``/``"null"``.
+    :returns: The generated scalar.
+    """
+    if kind == "str":
+        length = rng.randint(3, 12)
+        return "".join(rng.choice("abcdefghijklmnopqrstuvwxyz_") for _ in range(length))
+    if kind == "int":
+        return rng.randint(-10_000, 10_000)
+    if kind == "float":
+        return round(rng.uniform(-1000.0, 1000.0), 4)
+    if kind == "bool":
+        return rng.choice([True, False])
+    return None  # "null"
+
+
+def _json_varied_value(rng: random.Random, depth: int) -> JsonValue:
+    """Build one randomly-shaped JSON-serializable value.
+
+    :param rng: The seeded random source (reproducible across runs).
+    :param depth: Remaining nesting budget; ``0`` forces a scalar leaf.
+    :returns: A JSON-serializable value.
+    """
+    kinds = ("str", "int", "float", "bool", "null")
+    if depth > 0:
+        kinds += ("array", "object")
+    kind = rng.choice(kinds)
+    if kind == "array":
+        return [_json_varied_value(rng, depth - 1) for _ in range(rng.randint(0, 4))]
+    if kind == "object":
+        keys = rng.sample(_VARIED_KEYS, k=rng.randint(1, 5))
+        return {key: _json_varied_value(rng, depth - 1) for key in keys}
+    return _json_varied_scalar(rng, kind)
+
+
+def _json_varied_corpus(target_len: int, seed: int = _VARIED_SEED) -> str:
+    """A single NON-REPEATED JSON document, seeded for reproducibility.
+
+    Unlike :func:`_json_corpus` (which cycles six fixed items — friendly to
+    string/model interning), every value here is freshly drawn from a
+    seeded RNG: object keys sampled per-object from a 20-key pool (never
+    the same set twice), nesting up to 3 levels deep, and every scalar
+    kind mixed in — random lowercase strings, ints, floats, bools, and
+    null — plus arrays and nested objects at every level. Shape mix: a
+    top-level array of independently-generated values, each 0-4 levels
+    deep, each object 1-5 keys wide. No two generated values are expected
+    to repeat, so this corpus does not benefit from interning the way the
+    cycled corpus would — the honest single-pass estimate Task 5's
+    interning gate reads.
+
+    :param target_len: Minimum length of the returned corpus, in characters.
+    :param seed: RNG seed — fixed by default so the corpus is reproducible.
+    :returns: A single top-level JSON array of varied-shape values.
+    """
+    rng = random.Random(seed)
+    items: list[JsonValue] = []
+    text = "[]"
+    while len(text) < target_len:
+        items.append(_json_varied_value(rng, depth=3))
+        text = json.dumps(items, indent=2)
+    return text + "\n"
+
+
 # ── Workload B: compile-time ─────────────────────────────────────────────
 _COMPILE_STEMS = ("json.gbnf", "c.gbnf", "arithmetic.gbnf")
 _WARMUP_GBNF = 'root ::= "a"\n'
@@ -233,8 +332,31 @@ def _run_instance_workloads() -> dict[str, dict[str, float]]:
             f"  {stem:16s} {len(text):6d} chars  best {best:7.2f} ms  "
             f"median {median:7.2f} ms"
         )
+    results["json_varied"] = _run_json_varied_workload()
     print()
     return results
+
+
+def _run_json_varied_workload() -> dict[str, float]:
+    """Time ``CompiledGrammar.parse`` over the non-repeated json corpus.
+
+    Reuses ``json.gbnf`` (the same grammar the cycled ``json.gbnf`` workload
+    compiles) — only the corpus differs, so the two rows read as a direct
+    repeated-vs-non-repeated comparison.
+
+    :returns: ``{"chars", "best_ms", "median_ms"}`` for the ``json_varied`` row.
+    """
+    text = _json_varied_corpus(4600)
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    compiled.parse(text)  # warm-up — not timed
+    best, median = _time_calls(
+        lambda compiled=compiled, text=text: compiled.parse(text), 15
+    )
+    print(
+        f"  {'json_varied':16s} {len(text):6d} chars  best {best:7.2f} ms  "
+        f"median {median:7.2f} ms"
+    )
+    return {"chars": len(text), "best_ms": best, "median_ms": median}
 
 
 def _warm_flavours(flavours: set[IrFlavour]) -> None:

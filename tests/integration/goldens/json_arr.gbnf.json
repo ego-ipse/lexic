@@ -1,0 +1,84 @@
+[
+  {
+    "input": "[\n1\n]",
+    "runtime_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": {
+          "value": {
+            "sign": "",
+            "digit": "1",
+            "dot": null,
+            "ee": null,
+            "ws": {
+              "value": "\n"
+            }
+          },
+          "arr_item": []
+        }
+      }
+    },
+    "runtime_semantic_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": {
+          "value": {
+            "sign": "",
+            "digit": "1",
+            "dot": null,
+            "ee": null,
+            "ws": {
+              "value": "\n"
+            }
+          },
+          "arr_item": []
+        }
+      }
+    },
+    "to_text": "[\n1\n]"
+  },
+  {
+    "input": "[\n ]",
+    "runtime_dump": {
+      "arr": {
+        "ws": {
+          "value": " "
+        },
+        "arr_item2": null
+      }
+    },
+    "runtime_semantic_dump": {
+      "arr": {
+        "ws": {
+          "value": " "
+        },
+        "arr_item2": null
+      }
+    },
+    "to_text": "[\n ]"
+  },
+  {
+    "input": "[\n]",
+    "runtime_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": null
+      }
+    },
+    "runtime_semantic_dump": {
+      "arr": {
+        "ws": {
+          "value": ""
+        },
+        "arr_item2": null
+      }
+    },
+    "to_text": "[\n]"
+  }
+]

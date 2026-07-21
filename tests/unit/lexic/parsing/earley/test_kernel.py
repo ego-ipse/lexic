@@ -11,6 +11,8 @@ its behavioral coverage lives here now, re-expressed over ``Kernel``).
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
@@ -30,7 +32,7 @@ from lexic.ir.nodes import (
 )
 from lexic.parsing import derivations, parse, recognize
 from lexic.parsing.earley.chart import Chart
-from lexic.parsing.earley.forest import ParseTree, SppfNode
+from lexic.parsing.earley.forest import ParseTree, PayloadLeaf, SppfNode
 from lexic.parsing.earley.kernel import FastTree, Kernel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tables import (
@@ -39,20 +41,20 @@ from lexic.parsing.earley.tables import (
     ORIGIN_MASK,
     compile_tables,
 )
-from tests._ir_fixtures import digit_grammar as _digit_grammar
-from tests._ir_fixtures import word_grammar as _word_grammar
+from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
+from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
 
 # ── Grammar helpers ───────────────────────────────────────────────────
 
 
-def _norm(*rules: IrRule, start: str) -> IrAst:
+def norm(*rules: IrRule, start: str) -> IrAst:
     """Build and normalise an IrAst from a sequence of rules."""
     return normalize(IrAst(rules=IrSeq(*rules), start=start))
 
 
-def _star(char: str, rule_name: str = "S") -> IrAst:
+def star(char: str, rule_name: str = "S") -> IrAst:
     """Grammar: S = '<char>'*  (zero or more)."""
-    return _norm(
+    return norm(
         IrRule(
             rule_name,
             IrAlternation(IrSequence(IrItem(IrLiteral(char), IrQuantifier(0, IrNone)))),
@@ -61,9 +63,9 @@ def _star(char: str, rule_name: str = "S") -> IrAst:
     )
 
 
-def _plus(char: str, rule_name: str = "S") -> IrAst:
+def plus(char: str, rule_name: str = "S") -> IrAst:
     """Grammar: S = '<char>'+  (one or more)."""
-    return _norm(
+    return norm(
         IrRule(
             rule_name,
             IrAlternation(IrSequence(IrItem(IrLiteral(char), IrQuantifier(1, IrNone)))),
@@ -72,7 +74,7 @@ def _plus(char: str, rule_name: str = "S") -> IrAst:
     )
 
 
-def _undefined_ref_grammar() -> IrAst:
+def undefined_ref_grammar() -> IrAst:
     """top = missing ; 'missing' is referenced but never defined."""
     return IrAst(
         rules=IrSeq(
@@ -87,14 +89,14 @@ def _undefined_ref_grammar() -> IrAst:
 
 def test_undefined_ref_recognize_never_crashes_and_fails():
     """recognize() on a grammar referencing an undefined rule fails cleanly."""
-    g = _undefined_ref_grammar()
+    g = undefined_ref_grammar()
     assert recognize(g, "anything") == 0
     assert recognize(g, "") == 0
 
 
 def test_undefined_ref_kernel_accept_is_negative():
     """Kernel.run() over an undefined-ref grammar never resolves accept."""
-    tables = compile_tables(_undefined_ref_grammar())
+    tables = compile_tables(undefined_ref_grammar())
     kernel = Kernel(tables, "x").run()
     assert kernel.accept == -1
 
@@ -216,7 +218,7 @@ def test_kernel_cols_grows_one_per_char():
 
 def test_nullable_star_accepts_empty_via_kernel():
     """S = 'a'* (normalized) recognizes the empty string."""
-    g = _star("a")
+    g = star("a")
     tables = compile_tables(g)
     kernel = Kernel(tables, "").run()
     assert kernel.accept >= 0
@@ -224,7 +226,7 @@ def test_nullable_star_accepts_empty_via_kernel():
 
 def test_nullable_star_accepts_single_via_kernel():
     """S = 'a'* recognizes a single 'a'."""
-    g = _star("a")
+    g = star("a")
     tables = compile_tables(g)
     kernel = Kernel(tables, "a").run()
     assert kernel.accept >= 0
@@ -232,7 +234,7 @@ def test_nullable_star_accepts_single_via_kernel():
 
 def test_nullable_star_accepts_many_via_kernel():
     """S = 'a'* recognizes a run of 'a's."""
-    g = _star("a")
+    g = star("a")
     tables = compile_tables(g)
     kernel = Kernel(tables, "aaa").run()
     assert kernel.accept >= 0
@@ -244,49 +246,49 @@ def test_nullable_star_accepts_many_via_kernel():
 
 def test_leo_star_accepts_empty():
     """S = 'a'* accepts the empty string."""
-    g = _star("a")
+    g = star("a")
     assert recognize(g, "") == 1
 
 
 def test_leo_star_accepts_single():
     """S = 'a'* accepts a single 'a'."""
-    g = _star("a")
+    g = star("a")
     assert recognize(g, "a") == 1
 
 
 def test_leo_star_accepts_many():
     """S = 'a'* accepts a run of four 'a's."""
-    g = _star("a")
+    g = star("a")
     assert recognize(g, "aaaa") == 1
 
 
 def test_leo_star_rejects_wrong_char():
     """S = 'a'* rejects input containing a 'b'."""
-    g = _star("a")
+    g = star("a")
     assert recognize(g, "aab") == 0
 
 
 def test_leo_plus_rejects_empty():
     """S = 'a'+ rejects the empty string."""
-    g = _plus("a")
+    g = plus("a")
     assert recognize(g, "") == 0
 
 
 def test_leo_plus_accepts_one():
     """S = 'a'+ accepts a single 'a'."""
-    g = _plus("a")
+    g = plus("a")
     assert recognize(g, "a") == 1
 
 
 def test_leo_plus_accepts_many():
     """S = 'a'+ accepts a run of five 'a's."""
-    g = _plus("a")
+    g = plus("a")
     assert recognize(g, "aaaaa") == 1
 
 
 def test_leo_star_star_sequence():
     """S = 'a'* 'b'* accepts '', 'aaa', 'bbb', 'aabb', rejects 'ba'."""
-    g = _norm(
+    g = norm(
         IrRule(
             "S",
             IrAlternation(
@@ -318,7 +320,7 @@ def test_leo_indirect_ruleref_star():
         "S",
         IrAlternation(IrSequence(IrItem(IrRuleRef("X"), IrQuantifier(0, IrNone)))),
     )
-    g = _norm(s_rule, x_rule, start="S")
+    g = norm(s_rule, x_rule, start="S")
     assert recognize(g, "") == 1
     assert recognize(g, "abba") == 1
     assert recognize(g, "c") == 0
@@ -329,28 +331,28 @@ def test_leo_indirect_ruleref_star():
 
 def test_leo_parse_star_single():
     """S = 'a'* — parse 'a' returns correct tree."""
-    g = _star("a")
+    g = star("a")
     tree = parse(g, "a")
     assert tree is not None
 
 
 def test_leo_parse_star_many():
     """S = 'a'* — parse 'aaaa' returns correct tree."""
-    g = _star("a")
+    g = star("a")
     tree = parse(g, "aaaa")
     assert tree is not None
 
 
 def test_leo_parse_plus_many():
     """S = 'a'+ — parse 'aaaaaa' returns correct tree (deep right-recursion)."""
-    g = _plus("a")
+    g = plus("a")
     tree = parse(g, "aaaaaa")
     assert tree is not None
 
 
 def test_leo_parse_deep_right_recursion():
     """Leo-on-parse: parse 200 'a's — would crash at ~300 without depth safety."""
-    g = _star("a")
+    g = star("a")
     tree = parse(g, "a" * 200)
     assert tree is not None
 
@@ -368,7 +370,7 @@ def test_leo_parse_indirect_ruleref():
         "S",
         IrAlternation(IrSequence(IrItem(IrRuleRef("X"), IrQuantifier(0, IrNone)))),
     )
-    g = _norm(s_rule, x_rule, start="S")
+    g = norm(s_rule, x_rule, start="S")
     tree = parse(g, "abba")
     assert tree is not None
 
@@ -378,7 +380,7 @@ def test_leo_parse_indirect_ruleref():
 
 def test_leo_engages_on_long_input_no_recursion_error():
     """S = 'a'* over 200+ chars does not stack overflow and produces a tree."""
-    g = _star("a")
+    g = star("a")
     text = "a" * 250
     tree = parse(g, text)
     assert isinstance(tree, ParseTree)
@@ -386,7 +388,7 @@ def test_leo_engages_on_long_input_no_recursion_error():
 
 def test_leo_engages_on_long_input_via_kernel_run():
     """Kernel.run() over 200+ chars resolves accept without crashing."""
-    g = _star("a")
+    g = star("a")
     tables = compile_tables(g)
     kernel = Kernel(tables, "a" * 250).run()
     assert kernel.accept >= 0
@@ -495,7 +497,7 @@ def test_to_chart_returns_chart_with_links():
 def test_expand_leo_via_to_chart_reconstructs_unambiguous_derivation():
     """to_chart() (which expands all leo_links) lets derivations() reconstruct
     the single unambiguous derivation for a long right-recursive input."""
-    g = _star("a")
+    g = star("a")
     text = "a" * 60
     trees = derivations(g, text)
     assert len(trees) == 1
@@ -504,7 +506,7 @@ def test_expand_leo_via_to_chart_reconstructs_unambiguous_derivation():
 
 def test_to_chart_idempotent_across_repeat_calls():
     """Calling to_chart() twice on the same finished kernel agrees / no exception."""
-    g = _star("a")
+    g = star("a")
     tables = compile_tables(g)
     kernel = Kernel(tables, "a" * 60, record_links=True).run()
     chart1 = kernel.to_chart()
@@ -512,10 +514,10 @@ def test_to_chart_idempotent_across_repeat_calls():
     assert len(chart1.links) == len(chart2.links)
 
 
-def _embedded_ambiguous() -> IrAst:
+def embedded_ambiguous() -> IrAst:
     """w = p ; p = u u* ; u = [ab]+ — p's split ambiguity embedded under w."""
     ab = IrCharClass(IrRange(IrChr(97), IrChr(98)))
-    return _norm(
+    return norm(
         IrRule("w", IrAlternation(IrSequence(IrItem(IrRuleRef("p"))))),
         IrRule(
             "p",
@@ -540,7 +542,7 @@ def test_to_chart_expands_leo_links_under_mixed_provenance():
     ``to_chart()`` must materialise the deferred family too (L4: the old
     ``key not in links`` guard silently dropped it).
     """
-    tables = compile_tables(_embedded_ambiguous())
+    tables = compile_tables(embedded_ambiguous())
     kernel = Kernel(tables, "aab", record_links=True).run()
     mixed = [k for k in kernel.st.leo_links if k in kernel.st.links]
     assert mixed  # the L4 precondition: mixed provenance actually occurs here
@@ -589,9 +591,9 @@ def test_decode_item_returns_earley_item_shape():
 # ── accept_items / root_ambiguous (L2 root arm-choice) ────────────────
 
 
-def _twin_arm_grammar() -> IrAst:
+def twin_arm_grammar() -> IrAst:
     """v ::= a | b, a/b both "x" — the start completes the whole input two ways."""
-    return _norm(
+    return norm(
         IrRule("v", IrAlternation(IrRuleRef("a"), IrRuleRef("b"))),
         IrRule("a", IrLiteral("x")),
         IrRule("b", IrLiteral("x")),
@@ -601,7 +603,7 @@ def _twin_arm_grammar() -> IrAst:
 
 def test_accept_items_lists_every_accepting_production():
     """A twin-arm start yields two accepting items (one per production)."""
-    kernel = Kernel(compile_tables(_twin_arm_grammar()), "x", record_links=True).run()
+    kernel = Kernel(compile_tables(twin_arm_grammar()), "x", record_links=True).run()
     items = kernel.accept_items()
     assert len(items) == 2
     # Both are origin-0 completions of the start rule over the whole input.
@@ -612,13 +614,13 @@ def test_accept_items_lists_every_accepting_production():
 
 def test_accept_items_empty_on_no_parse():
     """accept_items() is empty when the input does not derive."""
-    kernel = Kernel(compile_tables(_twin_arm_grammar()), "z", record_links=True).run()
+    kernel = Kernel(compile_tables(twin_arm_grammar()), "z", record_links=True).run()
     assert kernel.accept_items() == []
 
 
 def test_root_ambiguous_true_for_twin_arms():
     """root_ambiguous is True when the start completes via ≥2 productions."""
-    kernel = Kernel(compile_tables(_twin_arm_grammar()), "x", record_links=True).run()
+    kernel = Kernel(compile_tables(twin_arm_grammar()), "x", record_links=True).run()
     assert kernel.root_ambiguous is True
 
 
@@ -626,3 +628,46 @@ def test_root_ambiguous_false_for_single_production():
     """root_ambiguous is False for an unambiguous single-production accept."""
     kernel = Kernel(compile_tables(_digit_grammar()), "5", record_links=True).run()
     assert kernel.root_ambiguous is False
+
+
+# ── can_extend_at — the islands seam's valid-prefix probe ─────────────
+
+
+def test_can_extend_at_true_when_an_item_faces_the_char(sss_grammar):
+    """``s = s s / 'a'`` over 'aa': at col 1 an in-progress item awaits 'a'."""
+    tables = compile_tables(sss_grammar)
+    kern = Kernel(tables, "aa")
+    assert kern.longest_start_completion() is not None
+    assert kern.can_extend_at(1, "a") is True
+
+
+def test_can_extend_at_sighted_refusal_when_nothing_seeds(sss_grammar):
+    """Over 'ax' the col-1 seeds were gated by 'x' and none admitted — the
+    empty scannable is a SIGHTED refusal (probe char == window char)."""
+    tables = compile_tables(sss_grammar)
+    kern = Kernel(tables, "ax")
+    assert kern.longest_start_completion() is not None
+    assert not kern.st.scannable[1]
+    assert kern.can_extend_at(1, "x") is False
+
+
+def test_can_extend_at_out_of_domain_char_answers_may(sss_grammar):
+    """A probe char differing from the column's window char proves nothing —
+    conservative MAY (the gates were evaluated with the other char)."""
+    tables = compile_tables(sss_grammar)
+    kern = Kernel(tables, "ax")
+    kern.longest_start_completion()
+    assert kern.can_extend_at(1, "b") is True
+
+
+def test_can_extend_at_blind_delegate_end_answers_may(sss_grammar):
+    """A delegate-landing column is blind regardless of chart content.
+
+    Landings are derived from ``Kernel.delegated`` handles (low bits = end
+    column) — inject one landing at column 1 and the probe must answer MAY.
+    """
+    tables = compile_tables(sss_grammar)
+    kern = Kernel(tables, "ax")
+    kern.longest_start_completion()
+    kern.delegated[(7 << ORIGIN_BITS) | 1] = cast(PayloadLeaf, None)
+    assert kern.can_extend_at(1, "x") is True

@@ -24,11 +24,11 @@ from lexic.ir.nodes import IrAst
 from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.products import earley_reduce
-from tests._ir_fixtures import JSON_RULE_NAMES
-from tests.integration._abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
+from tests.integration.abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
-_INLINE = {
+INLINE = {
     "non_semantic_directive": NON_SEMANTIC_DIRECTIVE_ABNF,
     "case_insensitive_literal": 'root = "Hi"\n',
     # Phase 3 remainder constructs, one fixture each.
@@ -49,7 +49,7 @@ _INLINE = {
 stable id)."""
 
 # Golden per-fixture fingerprint: start rule + rule names in source order.
-_GOLDEN: dict[str, tuple[str, tuple[str, ...]]] = {
+GOLDEN: dict[str, tuple[str, tuple[str, ...]]] = {
     "non_semantic_directive": ("root", ("root", "num", "DIGIT", "WSP")),
     "case_insensitive_literal": ("root", ("root",)),
     "num_sequence": ("false", ("false",)),
@@ -72,18 +72,18 @@ _GOLDEN: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
-def _corpus() -> dict[str, str]:
+def corpus() -> dict[str, str]:
     """The ABNF gate corpus: the inline fixtures plus the ground-truth files."""
-    corpus = dict(_INLINE)
+    result = dict(INLINE)
     for stem in ("arithmetic", "json"):
-        corpus[stem] = (GROUND_TRUTH / f"{stem}.abnf").read_text(encoding="utf-8")
-    return corpus
+        result[stem] = (GROUND_TRUTH / f"{stem}.abnf").read_text(encoding="utf-8")
+    return result
 
 
-_CORPUS = _corpus()
+CORPUS = corpus()
 
 
-def _fingerprint(ast: IrAst) -> tuple[str, tuple[str, ...]]:
+def fingerprint(ast: IrAst) -> tuple[str, tuple[str, ...]]:
     """(start rule, rule names in order) — the golden-comparable shape."""
     return str(ast.start), tuple(str(r.name) for r in ast.rules)
 
@@ -96,28 +96,28 @@ def norm_grammar_fixture() -> IrAst:
 
 def test_corpus_matches_golden_keys() -> None:
     """Every corpus entry has a golden fingerprint and vice versa."""
-    assert set(_CORPUS) == set(_GOLDEN)
+    assert set(CORPUS) == set(GOLDEN)
 
 
-@pytest.mark.parametrize("key", _CORPUS, ids=list(_CORPUS))
+@pytest.mark.parametrize("key", CORPUS, ids=list(CORPUS))
 def test_reduces_to_golden_fingerprint(key: str, norm_grammar: IrAst) -> None:
     """earley_reduce yields the golden start rule and rule set."""
-    ast = earley_reduce(norm_grammar, _CORPUS[key], ABNF_REDUCER)
+    ast = earley_reduce(norm_grammar, CORPUS[key], ABNF_REDUCER)
     assert isinstance(ast, IrAst)
-    assert _fingerprint(ast) == _GOLDEN[key]
+    assert fingerprint(ast) == GOLDEN[key]
 
 
-@pytest.mark.parametrize("key", _CORPUS, ids=list(_CORPUS))
+@pytest.mark.parametrize("key", CORPUS, ids=list(CORPUS))
 def test_corpus_unambiguous(key: str, norm_grammar: IrAst) -> None:
     """Every gate grammar string has exactly one derivation."""
-    assert not is_ambiguous(norm_grammar, _CORPUS[key])
+    assert not is_ambiguous(norm_grammar, CORPUS[key])
 
 
-@pytest.mark.parametrize("key", _CORPUS, ids=list(_CORPUS))
+@pytest.mark.parametrize("key", CORPUS, ids=list(CORPUS))
 def test_emit_reparse_preserves_fingerprint(key: str, norm_grammar: IrAst) -> None:
     """Emitting the reduced AST as ABNF and re-parsing keeps the rule fingerprint."""
-    ast = earley_reduce(norm_grammar, _CORPUS[key], ABNF_REDUCER)
+    ast = earley_reduce(norm_grammar, CORPUS[key], ABNF_REDUCER)
     assert isinstance(ast, IrAst)
     reparsed = earley_reduce(norm_grammar, str(ABNF_FLAVOUR.apply(ast)), ABNF_REDUCER)
     assert isinstance(reparsed, IrAst)
-    assert _fingerprint(reparsed) == _fingerprint(ast)
+    assert fingerprint(reparsed) == fingerprint(ast)

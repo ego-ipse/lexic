@@ -6,6 +6,36 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ---
 
+## 2026-07-21 — Micro-perf floor: in-process A/B only; model count, not per-model cost, bounds the win
+
+**Finding:** the only trustworthy way to measure a parse-engine change below roughly 15% is an **in-process, interleaved A/B** — baseline and candidate run in the same warm process, order randomized per sample, best-of-N reported. Cross-process comparisons (including git-stash-based before/after) and `cProfile` self-time both mislead at this scale: cross-process runs showed an apparent 6–11% win that vanished (and in one case reversed) under in-process A/B, because cold-start and allocator noise dominate a delta that small; `cProfile`'s per-call overhead inflates exactly the highest-call-count helper functions, misdirecting effort toward code that isn't the real steady-state bottleneck.
+
+**Corollary — the parse-time floor is model count, not construction cost.** Runtime micro-optimization of the trusted PDA instance-build path (per-parse interning, call-site fast paths) stacks to roughly 10–12% cumulative before diminishing. The dominant remaining cost is *how many* model objects a parse builds, not the cost of building each one: a typical instance parse builds on the order of 1.5 models per input character, and most of that is one leaf model per character inside a quantified single-charclass run (whitespace, unescaped string content). Reaching substantially further requires collapsing a maximal single-charclass run into one span model instead of one model per character — which changes the generated model API (a `list[Char]`-shaped field becomes a `str`-shaped field), needs matching support in the analysis and clone-compiler layers, and has to account for escape-run heterogeneity (a string containing `\`-escapes is a span/escape/span sequence, not one clean span). Not yet built.
+
+**Why it matters:** any future claim of a double-digit-percent parse-engine speedup should be treated as unproven until re-measured with an in-process interleaved harness; a structural (model-count) change is the only lever known to reach a 30%+ win.
+
+---
+
+## 2026-07-20 — FOLLOW-k arm gates: bounded lookahead windows, not a single FOLLOW char
+
+**Decision:** where a nullable-greedy alternation's escape arm and body arm can't be told apart by each arm's single-character FOLLOW set, the PDA analysis computes a bounded `FOLLOW_k` window (k ≤ 3: a tuple of per-position character sets, EOF/END-tagged, lazily fixpointed only for rules that actually hit this branch) instead of demoting the decision to the Earley completion. The mechanism generalizes the existing single-CharSet `extend_follow` to windows (a single CharSet is the k=1 special case — one code path, not two).
+
+**Why:** the GBNF charclass range-tail choice (does `-` start a range, or is it a literal dash right before the closing `]`?) is exactly this shape — the character that actually disambiguates is one position past the dash, not the dash itself, so a k=1 FOLLOW set can't separate the arms and every hit fell back to a full Earley completion. Reshaping the charclass grammar to route this choice through one empty-arm rule made it a single, analyzable decision point instead of two duplicated concrete-vs-negated rule pairs.
+
+**Impact:** GBNF self-grammar-text parsing, which regressed to superlinear scaling from this one un-gated decision, returns to flat µs/char. The generalization from single FOLLOW to `FOLLOW_k` windows is additive — every previously-gated decision keeps its k=1 gate unchanged; only decisions that previously had no gate at all pick up a new one.
+
+---
+
+## 2026-07-20 — Shared fold idioms as IR bodies, except the absent-tail fill (`IrNone` is a legal value, not just an absence marker)
+
+**Decision:** three fold idioms were duplicated across two hand-authored micro-grammars (the IR-constructor notation and the generated-module self-grammar): first+rest list collection, integer decoding, and filling an omitted trailing optional. The first two were single-homed as pure IR algebra bodies in a shared module and now drive both grammars. The third — filling an omitted optional — stays a small keyword-constructing procedural body, duplicated once, rather than becoming a fourth shared IR body.
+
+**Why:** the naive shared form ("an omitted optional argument becomes `IrNone`") is lossy: `IrNone` is also a value an author can pass *explicitly* in this notation (constructing `IrQuantifier(0, IrNone)` for an open-ended upper bound is legitimate, valid notation), so a generic fill-with-`IrNone` body can't distinguish "the caller wrote `IrNone`" from "the trailing argument was absent" — collapsing the two would silently change what a round-trip reconstructs.
+
+**Impact:** the shared module hosts the two idioms that are genuinely representable as pure IR bodies, plus a named-callable escape hatch for surface-specific procedural logic; the absent-tail idiom is duplicated exactly once instead of copied per call site, and `IrQuantifier(0, IrNone)` continues to round-trip correctly.
+
+---
+
 ## 2026-07-11 — Reduction bodies are pure IR algebra; type-branching pipes into an `IrTypeMap` (Task 6.5)
 
 **Decision (user ruling, hard):** flavour reduction bodies contain **zero Python functions**. A left-factored rule whose fold must branch on *what the tail matched* does it in the algebra: the tail rules reduce to type-distinct markers (a decoded `IrInt`, `IrNone`, an `IrChr`, a joined `IrStr`, or a sentinel like `_Q_MIRROR = IrStr("=")` — data, not code), and the parent's body is `IrPipe(IrArg(i), IrTypeMap(IrAction(<type>, <branch>), …))` — `IrPipe` rebinds the focus to the marker, `IrTypeMap` dispatches on its concrete type, and the argument channel rides through so branches still read the shared leading run (`IrThis()` is the marker itself, `IrArg(0)` the lead). An `IrLambda(def …)` in a grammar module is a review-blocking offence — **with no legacy exemption** (user escalation, same day): the HEAD-era handlers were purged in the same landing. Emit-side spelling went to its architectural homes — the class-point escape cascade and quoted-form spellability are now generic `EscapeCodec` algorithms (`encode_point`/`spellable`, ir/escapes.py) over per-flavour ClassVar *data* (`CLASS_SHORT`/`CLASS_META`/`QUOTE_SAFE`), reached from the actions via the dispatcher-codec leaves `IrEscapePoint`/`IrSpellable` (ir/flavour.py, the `IrEscape` pattern); the `=/` rule merge became the generic `IrMerge` action node; and the algebra gained the generic fillers `IrRadix` (emit-side inverse of `IrUnradix`), `IrOrd` (inverse of `IrGlyph`), `IrLen`, and `IrEach` (the variadic sibling of `IrAt`). Emit output byte-parity (22 artefacts: both self-emits + all GT canonical emits under both flavours) pinned the purge as observably free.
@@ -203,7 +233,7 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ## 2026-05-08 — Grammar is the ground truth, not the class
 
-**Decision:** Grammar files are canonical. Pydantic classes are Python representations of a grammar, not sources of truth.
+**Decision:** Grammar files are canonical. Generated classes are Python representations of a grammar, not sources of truth.
 
 **Why:** The alternative ("class is canonical") biases every design toward "make the class more expressive" and demotes non-GBNF users (the llama.cpp population who come with existing `.gbnf` files). It also breaks cleanly once ABNF or other flavours land — "the class implies a flavour" only works if there's one notation.
 

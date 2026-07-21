@@ -32,24 +32,24 @@ from lexic.parsing.pda.analysis.noise import (
 )
 from lexic.parsing.pda.core.charsets import CharSet
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
-    _lifted_analysis as _ground_truth_analysis,
+    lifted_analysis as _ground_truth_analysis,
 )
 
-_WS = IrCharClass(IrChr(32), IrChr(9))
+WS = IrCharClass(IrChr(32), IrChr(9))
 """A tiny whitespace class (space + tab) for the hand grammars."""
 
 
-def _item(atom, lo: int = 1, hi: int | None = 1) -> IrItem:
+def item(atom, lo: int = 1, hi: int | None = 1) -> IrItem:
     """An item with explicit bounds (``hi=None`` → unbounded)."""
     return IrItem(atom, IrQuantifier(lo, IrNone if hi is None else hi))
 
 
-def _analysis(*rules: IrRule, start: str) -> GrammarAnalysis:
+def make_analysis(*rules: IrRule, start: str) -> GrammarAnalysis:
     """A :class:`GrammarAnalysis` over hand-authored rules."""
     return GrammarAnalysis(IrAst(IrSeq(*rules), start))
 
 
-def _noise_rule(name: str, *arms: IrSequence) -> IrRule:
+def noise_rule(name: str, *arms: IrSequence) -> IrRule:
     """A ``semantic=False`` rule over ``arms``."""
     return IrRule(name, IrAlternation(*arms), semantic=False)
 
@@ -59,15 +59,15 @@ def _noise_rule(name: str, *arms: IrSequence) -> IrRule:
 
 def test_terminal_in_semantic_rule_counts_as_semantic_first():
     """A literal inside a ``semantic=True`` rule contributes its lead char."""
-    root = IrRule("root", IrAlternation(IrSequence(_item(IrLiteral("ab")))))
-    table = _sem_first_table(_analysis(root, start="root"))
+    root = IrRule("root", IrAlternation(IrSequence(item(IrLiteral("ab")))))
+    table = _sem_first_table(make_analysis(root, start="root"))
     assert table["root"] == CharSet.from_chars("a")
 
 
 def test_terminal_in_noise_rule_contributes_nothing():
     """The same literal inside a ``semantic=False`` rule is noise-attributable."""
-    root = _noise_rule("root", IrSequence(_item(IrLiteral("ab"))))
-    table = _sem_first_table(_analysis(root, start="root"))
+    root = noise_rule("root", IrSequence(item(IrLiteral("ab"))))
+    table = _sem_first_table(make_analysis(root, start="root"))
     assert table["root"] == CharSet.EMPTY
 
 
@@ -75,12 +75,12 @@ def test_ref_to_noise_rule_contributes_nothing_even_from_a_semantic_rule():
     """A semantic rule's leading noise ref contributes no semantic FIRST —
     the target's whole subtree is excluded from ``semantic_dump``; the
     semantic chars come from the item after the nullable noise."""
-    ws = _noise_rule("ws", IrSequence(_item(_WS, lo=0, hi=None)))
+    ws = noise_rule("ws", IrSequence(item(WS, lo=0, hi=None)))
     root = IrRule(
         "root",
-        IrAlternation(IrSequence(_item(IrRuleRef("ws")), _item(IrLiteral("q")))),
+        IrAlternation(IrSequence(item(IrRuleRef("ws")), item(IrLiteral("q")))),
     )
-    table = _sem_first_table(_analysis(root, ws, start="root"))
+    table = _sem_first_table(make_analysis(root, ws, start="root"))
     assert table["root"] == CharSet.from_chars("q")
     assert table["ws"] == CharSet.EMPTY
 
@@ -88,20 +88,20 @@ def test_ref_to_noise_rule_contributes_nothing_even_from_a_semantic_rule():
 def test_ref_to_semantic_rule_contributes_its_own_decomposition_not_raw_first():
     """A ref to a semantic rule whose own lead is a noise ref contributes only
     the target's *semantic* part — raw FIRST would be polluted by the noise."""
-    ws = _noise_rule("ws", IrSequence(_item(_WS, lo=0, hi=None)))
+    ws = noise_rule("ws", IrSequence(item(WS, lo=0, hi=None)))
     inner = IrRule(
         "inner",
-        IrAlternation(IrSequence(_item(IrRuleRef("ws")), _item(IrLiteral("z")))),
+        IrAlternation(IrSequence(item(IrRuleRef("ws")), item(IrLiteral("z")))),
     )
-    root = IrRule("root", IrAlternation(IrSequence(_item(IrRuleRef("inner")))))
-    table = _sem_first_table(_analysis(root, inner, ws, start="root"))
+    root = IrRule("root", IrAlternation(IrSequence(item(IrRuleRef("inner")))))
+    table = _sem_first_table(make_analysis(root, inner, ws, start="root"))
     assert table["root"] == CharSet.from_chars("z")
 
 
 def test_undefined_ref_is_conservatively_any():
     """An undefined ref decomposes to ANY — unknown content denies the licence."""
-    root = IrRule("root", IrAlternation(IrSequence(_item(IrRuleRef("ghost")))))
-    table = _sem_first_table(_analysis(root, start="root"))
+    root = IrRule("root", IrAlternation(IrSequence(item(IrRuleRef("ghost")))))
+    table = _sem_first_table(make_analysis(root, start="root"))
     assert table["root"] == CharSet.ANY
 
 
@@ -109,11 +109,11 @@ def test_group_terminals_count_under_the_enclosing_rule_semantics():
     """An inline group's terminals attribute to the ENCLOSING rule: semantic
     inside a semantic rule, noise inside a noise rule."""
     grp = IrAlternation(
-        IrSequence(_item(IrLiteral("x"))), IrSequence(_item(IrLiteral("y")))
+        IrSequence(item(IrLiteral("x"))), IrSequence(item(IrLiteral("y")))
     )
-    root = IrRule("root", IrAlternation(IrSequence(_item(grp))))
-    noise = _noise_rule("noise", IrSequence(_item(grp)))
-    table = _sem_first_table(_analysis(root, noise, start="root"))
+    root = IrRule("root", IrAlternation(IrSequence(item(grp))))
+    noise = noise_rule("noise", IrSequence(item(grp)))
+    table = _sem_first_table(make_analysis(root, noise, start="root"))
     assert table["root"] == CharSet.from_chars("x", "y")
     assert table["noise"] == CharSet.EMPTY
 
@@ -125,17 +125,15 @@ def test_sem_follow_sees_a_semantic_literal_past_a_nullable_noise_run():
     """``root ::= x y "q"`` with ``x``/``y`` nullable noise: ``q`` follows
     ``x`` semantically (through nullable ``y``); the whitespace that also
     follows ``x`` (from ``y``) does NOT — it is noise-attributable."""
-    x = _noise_rule("x", IrSequence(_item(_WS, lo=0, hi=None)))
-    y = _noise_rule("y", IrSequence(_item(_WS, lo=0, hi=None)))
+    x = noise_rule("x", IrSequence(item(WS, lo=0, hi=None)))
+    y = noise_rule("y", IrSequence(item(WS, lo=0, hi=None)))
     root = IrRule(
         "root",
         IrAlternation(
-            IrSequence(
-                _item(IrRuleRef("x")), _item(IrRuleRef("y")), _item(IrLiteral("q"))
-            )
+            IrSequence(item(IrRuleRef("x")), item(IrRuleRef("y")), item(IrLiteral("q")))
         ),
     )
-    follow = sem_follow_table(_analysis(root, x, y, start="root"))
+    follow = sem_follow_table(make_analysis(root, x, y, start="root"))
     assert follow["x"] == CharSet.from_chars("q")
     assert follow["y"] == CharSet.from_chars("q")
 
@@ -143,24 +141,24 @@ def test_sem_follow_sees_a_semantic_literal_past_a_nullable_noise_run():
 def test_sem_follow_sees_an_optional_semantic_follower():
     """The licence-denial shape: ``root ::= x "ab"?`` — the optional literal's
     lead ``a`` follows ``x`` as semantic content even though it is soft-only."""
-    x = _noise_rule(
-        "x", IrSequence(_item(IrCharClass(IrRange(IrChr(97), IrChr(99))), 0, None))
+    x = noise_rule(
+        "x", IrSequence(item(IrCharClass(IrRange(IrChr(97), IrChr(99))), 0, None))
     )
     root = IrRule(
         "root",
         IrAlternation(
-            IrSequence(_item(IrRuleRef("x")), _item(IrLiteral("ab"), lo=0, hi=1))
+            IrSequence(item(IrRuleRef("x")), item(IrLiteral("ab"), lo=0, hi=1))
         ),
     )
-    follow = sem_follow_table(_analysis(root, x, start="root"))
+    follow = sem_follow_table(make_analysis(root, x, start="root"))
     assert follow["x"].has("a")
 
 
 def test_sem_follow_is_seeded_empty_no_eof_sentinel():
     """End-of-input is not semantic content — the start rule's entry never
     carries the EOF sentinel the soft-FOLLOW fixpoint seeds."""
-    root = IrRule("root", IrAlternation(IrSequence(_item(IrLiteral("q")))))
-    follow = sem_follow_table(_analysis(root, start="root"))
+    root = IrRule("root", IrAlternation(IrSequence(item(IrLiteral("q")))))
+    follow = sem_follow_table(make_analysis(root, start="root"))
     assert not follow["root"].has("")
 
 
@@ -183,19 +181,19 @@ def test_json_ws_sem_follow_has_no_whitespace():
 def test_noise_alphabet_is_the_nullable_noise_first_union():
     """``W`` unions FIRST over nullable non-semantic rules only — a required
     (non-nullable) noise token marker contributes nothing."""
-    ws = _noise_rule("ws", IrSequence(_item(_WS, lo=0, hi=None)))
-    dquote = _noise_rule("dquote", IrSequence(_item(IrLiteral('"'))))
+    ws = noise_rule("ws", IrSequence(item(WS, lo=0, hi=None)))
+    dquote = noise_rule("dquote", IrSequence(item(IrLiteral('"'))))
     root = IrRule(
         "root",
         IrAlternation(
             IrSequence(
-                _item(IrRuleRef("ws")),
-                _item(IrRuleRef("dquote")),
-                _item(IrLiteral("q")),
+                item(IrRuleRef("ws")),
+                item(IrRuleRef("dquote")),
+                item(IrLiteral("q")),
             )
         ),
     )
-    w = noise_alphabet(_analysis(root, ws, dquote, start="root"))
+    w = noise_alphabet(make_analysis(root, ws, dquote, start="root"))
     assert w == CharSet.from_chars(" ", "\t")
 
 
@@ -211,13 +209,13 @@ def test_residual_first_transparent_opaque_and_poison():
     analysis = _ground_truth_analysis("json.gbnf")
     w = CharSet.from_chars(" ", "\t")
     rf = ResidualFirst(analysis, w)
-    assert rf.seq([_item(_WS, lo=0, hi=None), _item(IrLiteral("x"))]) == (
+    assert rf.seq([item(WS, lo=0, hi=None), item(IrLiteral("x"))]) == (
         CharSet.from_chars("x"),
         False,
     )
     mixed = IrCharClass(IrChr(32), IrChr(120))  # {space, x} — mixes W and non-W
-    assert rf.seq([_item(mixed)]) is None
-    assert rf.seq([_item(IrRuleRef("ghost"))]) is None  # undefined ref poisons
+    assert rf.seq([item(mixed)]) is None
+    assert rf.seq([item(IrRuleRef("ghost"))]) is None  # undefined ref poisons
 
 
 def test_residual_first_open_end_flag():
@@ -225,7 +223,7 @@ def test_residual_first_open_end_flag():
     its post-noise char could come from the FOLLOW side."""
     analysis = _ground_truth_analysis("json.gbnf")
     rf = ResidualFirst(analysis, CharSet.from_chars(" ", "\t"))
-    got = rf.seq([_item(_WS, lo=0, hi=None), _item(IrLiteral("x"), lo=0, hi=1)])
+    got = rf.seq([item(WS, lo=0, hi=None), item(IrLiteral("x"), lo=0, hi=1)])
     assert got is not None
     assert got == (CharSet.from_chars("x"), True)
 
@@ -263,15 +261,15 @@ def test_json_array_item_peek_loop_gate_takes_on_comma():
 
 def test_peek_arm_gate_bails_on_true_post_noise_overlap():
     """Two arms sharing their post-noise lead do not separate — no gate."""
-    ws = _noise_rule("ws", IrSequence(_item(_WS, lo=0, hi=None)))
+    ws = noise_rule("ws", IrSequence(item(WS, lo=0, hi=None)))
     root = IrRule(
         "root",
         IrAlternation(
-            IrSequence(_item(IrRuleRef("ws")), _item(IrLiteral("ab"))),
-            IrSequence(_item(IrRuleRef("ws")), _item(IrLiteral("ac"))),
+            IrSequence(item(IrRuleRef("ws")), item(IrLiteral("ab"))),
+            IrSequence(item(IrRuleRef("ws")), item(IrLiteral("ac"))),
         ),
     )
-    analysis = _analysis(root, ws, start="root")
+    analysis = make_analysis(root, ws, start="root")
     w = noise_alphabet(analysis)
     arms = [[i for i in arm if isinstance(i, IrItem)] for arm in root.body]
     assert peek_arm_gate(analysis, arms, w) is None

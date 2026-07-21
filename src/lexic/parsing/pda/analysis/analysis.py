@@ -707,6 +707,19 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             return True
         return False
 
+    def _demote_follow_windows(
+        self, arms: Sequence[Sequence[IrItem]], label: str, notes: _Notes
+    ) -> bool:
+        """Empty-arm FOLLOW\\ :sub:`k` demotion via :func:`kwindow.follow_arm_gate`:
+        store the separating per-arm windows (body-arm order) in
+        :attr:`Taxonomy.arm_gates` + the soft note; ``False`` ⇒ no licence."""
+        gate = kwindow.follow_arm_gate(self.rules, self.start, arms, label)
+        if gate is None:
+            return False
+        self.taxonomy.arm_gates[label] = gate
+        notes.soft.append(f"{label}: arms FOLLOW-window separable (demoted)")
+        return True
+
     def _demote_struct_arm(
         self, arms: Sequence[Sequence[IrItem]], label: str, notes: _Notes
     ) -> bool:
@@ -877,11 +890,15 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 for i, (first_i, nullable) in enumerate(infos)
                 if not nullable and first_i.overlaps(ext_follow)
             ]
-            if not (
-                greedy
+            gated = (
+                bool(greedy)
                 and label in self.rules
-                and self._demote_struct_arm(arms, label, notes)
-            ):
+                and (
+                    self._demote_follow_windows(list(arms), label, notes)
+                    or self._demote_struct_arm(arms, label, notes)
+                )
+            )
+            if not gated:
                 for i in greedy:
                     notes.soft.append(f"{label}: arm {i} FIRST hits FOLLOW (greedy)")
 

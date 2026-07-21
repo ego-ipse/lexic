@@ -1,0 +1,34 @@
+json-text = ws, value, ws ;
+ws = ("\t".."\n" | "\r" | " ")* ;
+value = false | null | true | object | array | number | string ;
+false = "false" ;
+null = "null" ;
+true = "true" ;
+object = begin-object, (member, (value-separator, member)*)?, end-object ;
+array = begin-array, (value, (value-separator, value)*)?, end-array ;
+number = minus?, int, frac?, exp? ;
+string = quotation-mark, char*, quotation-mark ;
+begin-object = ws, "{", ws ;
+member = string, name-separator, value ;
+value-separator = ws, ",", ws ;
+end-object = ws, "}", ws ;
+begin-array = ws, "[", ws ;
+end-array = ws, "]", ws ;
+minus = "-" ;
+int = zero | digit1-9, digit* ;
+frac = decimal-point, digit+ ;
+exp = e, (minus | plus)?, digit+ ;
+quotation-mark = "\"" ;
+char = unescaped |
+      escape, (("\"" | "/" | "\\" | "b" | "f" | "n" | "r" | "t") | "u", 4 * hexdig) ;
+name-separator = ws, ":", ws ;
+zero = "0" ;
+digit1-9 = "1".."9" ;
+digit = "0".."9" ;
+decimal-point = "." ;
+e = ("E" | "e") ;
+plus = "+" ;
+unescaped = (" ".."!" | "#".."[" | "]".."\U0010ffff") ;
+escape = "\\" ;
+hexdig = ("0".."9" | "A".."F" | "a".."f") ;
+

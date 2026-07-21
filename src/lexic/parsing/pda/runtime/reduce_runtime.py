@@ -31,6 +31,7 @@ from lexic.parsing.pda.runtime.build import (
     F_START,
     finish_delegate,
 )
+from lexic.parsing.pda.runtime.islands import island_value
 from lexic.parsing.pda.runtime.runtime import PdaKernel
 
 __all__ = ["parse_pda"]
@@ -175,7 +176,7 @@ class _ReducePdaKernel(PdaKernel):
         run = self.reduce
         tree, end = self._island_subparse(name)
         reducer = run.reducer
-        value = reducer.eval(reducer, tree, ())
+        value = island_value(lambda: reducer.eval(reducer, tree, ()), name, self.pos)
         rid = run.name_to_rid.get(name)
         if (rid is None or run.plan.noise_kind[rid] != DROP_KIND) and value is not None:
             sink.append(value)

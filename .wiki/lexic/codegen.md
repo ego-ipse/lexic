@@ -1,6 +1,15 @@
 # codegen — IR-Native Code Generator
 
-**When to load:** working in `src/lexic/codegen/`; adding/changing a codegen pass (`passes.py`), the binding view (`binding.py`), or the emitter (`model_emitter.py`); understanding what a generated module's fields/footers look like; understanding `PatternAlias`/`collect_aliases`.
+> **SUPERSEDED (2026-07-18).** `src/lexic/codegen/` is DELETED. The
+> grammar→grammar passes and the binding view now live in the `compile/`
+> package (`compile/pipeline/passes.py`, `compile/pipeline/binding.py`); classes are
+> synthesized at runtime via `type()` in `compile/pipeline/synthesis.py` (no
+> source-emit `model_emitter.py`, no automatic file write);
+> `compile/module/export.py` renders an IMPORTABLE twin module on explicit request
+> (`export_module` — see [[generated-modules]]). See [[public-api]] and
+> [[architecture]] for the current shape. The content below is historical.
+
+**When to load:** historical reference only — for current codegen-grammar passes, binding view, and class synthesis see [[public-api]] / [[architecture]] (`compile/` package).
 
 See also: [[architecture]], [[ir-shapes]], [[field-naming]], [[decisions]], [[cutover-plan]]
 
@@ -56,7 +65,7 @@ All of the naming/mode logic is built as open `IrDispatch`/`IrTypeMap` tables wi
 - **`__grammar__: ClassVar[IrRule]`** footer per class — the class's own rule from the **codegen** grammar (post-pass: this is the shape the class structurally IS and what `to_text()` walks).
 - **Module footer** — `GRAMMAR: IrAst` = the **canonical** (pre-pass) grammar (the transpile/re-emit source — what the user's grammar IS) + `START: str`.
 
-`CANONICAL_IMPORTS` is a fixed string emitted unconditionally at module top (`from __future__ import annotations`, `typing` names, `pydantic.StringConstraints`, `lexic.base.GrammarModel`, the full IR-AST surface from `lexic.ir`) — no per-module import inference, no `# FIXME` placeholders (repr-is-codegen on every IR node means `__grammar__`/`GRAMMAR` always render real, re-importable Python).
+`CANONICAL_IMPORTS` is a fixed string emitted unconditionally at module top (`from __future__ import annotations`, `typing` names, the pattern-constrained string type, `lexic.base.GrammarModel`, the full IR-AST surface from `lexic.ir`) — no per-module import inference, no `# FIXME` placeholders (repr-is-codegen on every IR node means `__grammar__`/`GRAMMAR` always render real, re-importable Python).
 
 ## `codegen/aliases.py` — pattern alias hoisting
 

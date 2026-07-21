@@ -17,13 +17,13 @@ from typing import cast
 
 import pytest
 
-from lexic.base import GrammarModel
-from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir.nodes import IrAst
+from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
+from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.products import (
     _as_ast,
     _model_product,
@@ -34,13 +34,7 @@ from lexic.parsing.products import (
     parse_reduced,
     reset_product_cache,
 )
-
-_GRAMMAR_TEXT = 'root ::= "a" "b"\n'
-
-
-def _compiled():
-    return compile_text(_GRAMMAR_TEXT, cache_key="products-test-grammar")
-
+from tests.unit.lexic.parsing.parsing_helpers import compiled
 
 # ── the Earley completions (route-forcing seam) ────────────────────────────
 
@@ -56,7 +50,7 @@ def test_earley_reduce_returns_ir_ast():
 def test_earley_model_returns_model_and_round_trips():
     """earley_model parses instance text over the instance grammar + fold,
     with pre-built run-collapsed tables supplied."""
-    cg = _compiled()
+    cg = compiled()
     product = _model_product(cg.codegen_grammar, cg.fold)
     model = earley_model(product.instance_grammar, "ab", cg.fold, product.tables)
     assert isinstance(model, GrammarModel)
@@ -66,7 +60,7 @@ def test_earley_model_returns_model_and_round_trips():
 def test_earley_model_compiles_its_own_tables_when_none_supplied():
     """earley_model's tables parameter is optional — omitting it compiles plain
     (non-collapsed) tables internally rather than requiring the caller to."""
-    cg = _compiled()
+    cg = compiled()
     product = _model_product(cg.codegen_grammar, cg.fold)
     model = earley_model(product.instance_grammar, "ab", cg.fold)
     assert isinstance(model, GrammarModel)
@@ -90,7 +84,7 @@ def test_parse_reduced_matches_earley_reduce_completion():
 def test_parse_model_matches_earley_model_completion():
     """parse_model (PDA-first) and earley_model (the forced completion) agree
     on the same instance-text input."""
-    cg = _compiled()
+    cg = compiled()
     got = parse_model(cg.codegen_grammar, "ab", cg.fold)
     product = _model_product(cg.codegen_grammar, cg.fold)
     expected = earley_model(product.instance_grammar, "ab", cg.fold, product.tables)
@@ -98,6 +92,18 @@ def test_parse_model_matches_earley_model_completion():
     assert isinstance(expected, GrammarModel)
     assert got.semantic_dump() == expected.semantic_dump()
     assert got.to_text() == "ab"
+
+
+def test_reduce_product_earley_grammar_is_lifted_before_normalizing():
+    """``_reduce_product.earley_grammar`` is ``normalize(lift_optional_nullables
+    (grammar))`` — the SAME lifted, normalised grammar the reduce PDA compiles
+    over, not the plain (un-lifted) ``normalize(grammar)`` a stale completion
+    route would use. A PDA/completion item-position mismatch on a grammar with
+    an ``R?`` over a nullable ``R`` is exactly what this pins against."""
+    product = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
+    assert product.earley_grammar == normalize(
+        lift_optional_nullables(GBNF_FLAVOUR.grammar)
+    )
 
 
 # ── per-identity memoisation ────────────────────────────────────────────────
@@ -114,7 +120,7 @@ def test_reduce_product_is_the_same_object_for_the_same_identity():
 def test_model_product_is_the_same_object_for_the_same_identity():
     """Two calls with the identical (grammar, fold) objects return the SAME
     compiled product — no recompilation."""
-    cg = _compiled()
+    cg = compiled()
     first = _model_product(cg.codegen_grammar, cg.fold)
     second = _model_product(cg.codegen_grammar, cg.fold)
     assert first is second
@@ -134,7 +140,7 @@ def test_reset_product_cache_forces_reduce_product_recompilation():
 def test_reset_product_cache_forces_model_product_recompilation():
     """reset_product_cache drops the model cache — the next call for the same
     identity recompiles rather than reusing the stale product."""
-    cg = _compiled()
+    cg = compiled()
     first = _model_product(cg.codegen_grammar, cg.fold)
     reset_product_cache()
     second = _model_product(cg.codegen_grammar, cg.fold)

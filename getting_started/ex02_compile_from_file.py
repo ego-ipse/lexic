@@ -30,8 +30,8 @@ def main() -> None:
     compiled = compile_from_path(GRAMMAR_PATH)
 
     model = compiled.parse(SAMPLE)
-    # Pydantic-native field access: model_dump() returns the structural payload.
-    items = model.model_dump()["item"]
+    # Native field access: dump() returns the structural payload.
+    items = model.dump()["item"]
     print(f"Parsed {len(items)} items from {GRAMMAR_PATH.name}:")
     # Round-trip lines back through the grammar to show each item is itself a model.
     for line in model.to_text().splitlines():

@@ -103,13 +103,13 @@ class RuleOrder:
         edges: dict[str, list[str]] = {}
         for rule in ast.rules:
             refs: list[str] = []
-            _refs_in_order(rule.body, refs)
+            refs_in_order(rule.body, refs)
             edges[rule.name] = refs
         order = cls(by_name, ast.start, lambda n: edges.get(n, [])).ordered()
         return IrAst(IrSeq(*(by_name[name] for name in order)), ast.start)
 
 
-def _refs_in_order(node: IrSelf, out: list[str]) -> None:
+def refs_in_order(node: IrSelf, out: list[str]) -> None:
     """Collect ``IrRuleRef`` names in pre-order (body) traversal order.
 
     :param node: Subtree root to scan.
@@ -121,23 +121,7 @@ def _refs_in_order(node: IrSelf, out: list[str]) -> None:
             out.append(name)
         return
     for child in node.children():
-        _refs_in_order(child, out)
-
-
-def refs_in_order(node: IrSelf) -> list[str]:
-    """The distinct ``IrRuleRef`` names under ``node``, in first-seen order.
-
-    The public form of the edge extractor :meth:`RuleOrder.by_refs` uses —
-    consumers building their own relations over a grammar's ref topology
-    (codegen's schema-joint depths) read edges from here rather than
-    re-walking.
-
-    :param node: Subtree root to scan (typically a rule body).
-    :returns: Each referenced rule name once, in body order.
-    """
-    out: list[str] = []
-    _refs_in_order(node, out)
-    return out
+        refs_in_order(child, out)
 
 
 def order_by_refs(ast: IrAst) -> IrAst:

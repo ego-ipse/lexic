@@ -9,12 +9,13 @@
 | Question | Page |
 |---|---|
 | Which exception class for unknown syntax / unknown atom type? | [[lexic/error-vocabulary]] |
-| How is a Pydantic field name decided for a given atom? | [[lexic/field-naming]] |
+| How is a generated field name decided for a given atom? | [[lexic/field-naming]] |
 | Is this import legal? Which packages can depend on which? | [[lexic/architecture]] |
 | What tasks are done vs pending? | [[lexic/cutover-plan]] |
 | Old `Atom` shape vs new `IrItem` shape — fields, type aliases? | [[lexic/ir-shapes]] |
 | How do I add a new grammar flavour? | [[lexic/flavour-system]] |
 | Which compile function should I call? What does CompiledGrammar contain? | [[lexic/public-api]] |
+| How do exported twin modules work (export_module / bind_module / layout / emit_ir)? | [[lexic/generated-modules]] |
 | Why was design choice X made? | [[lexic/decisions]] |
 | What test file do I create for src/lexic/foo/bar.py? | [[lexic/testing]] |
 | What changed most recently? | [[log]] |
@@ -48,7 +49,8 @@
 | [[lexic/error-vocabulary]] | Exception class → raised-by mapping; dispatch table code pattern with `raise UnsupportedConstructError`; the engine/reducer/`canonical_grammar` error boundary; which stubs are wired in which slice |
 | [[lexic/invariants]] | Round-trip fidelity invariant; closed atom union rule; the ground-truth grammars; what each invariant means for dispatch tables, `to_text()`, and import edges |
 | [[lexic/testing]] | Test file mirror rule (`src/lexic/foo/bar.py` → `tests/unit/lexic/foo/test_bar.py`); `test_init_<pkg>.py` naming for `__init__.py` modules; test commands |
-| [[lexic/codegen]] | What `lexic.codegen` builds now (IR-native — no `RuleSpec`): grammar→grammar passes (`passes.py`), the binding view (`binding.py`), the emitter (`model_emitter.py`), `PatternAlias`/`collect_aliases` |
+| [[lexic/codegen]] | HISTORICAL (superseded banner): the deleted `lexic.codegen` package |
+| [[lexic/generated-modules]] | Importable twin modules: `export_module`/`export_source`, `bind_module`, the layout algebra (`ir/layout.py`), the notation emit half (`emit_ir`), tool-clean gates, reserved names |
 | [[theory/grammar-formats]] | GBNF, ABNF, EBNF syntax reference; operator precedence tables; escape notations; Lexic coverage gaps per format; GBNF vs ABNF vs EBNF comparison table |
 | [[theory/parsing-theory]] | CFGs, PEGs, LL/LR/Earley algorithms; AST vs CST; Visitor vs Transformer patterns; grammar toolchains (Lexic's own native Earley engine, plus Lark/ANTLR4/tree-sitter as external reference points); IR design rationale |
 

@@ -4,7 +4,7 @@
 walk (fold fusion, no :class:`~lexic.parsing.earley.forest.ParseTree`). The
 correctness bar is **user ruling 1**: ``semantic_dump()`` equality +
 ``to_text()`` round-trip against the engine's own
-``fold.apply(parse_first(...))`` path — not raw ``model_dump()`` equality,
+``fold.apply(parse_first(...))`` path — not raw ``dump()`` equality,
 which may differ on ``semantic=False`` fields when the PDA's greedy loop
 splits whitespace-like runs differently from the engine's.
 
@@ -26,115 +26,53 @@ input shape the PDA's stop-gate still refuses rather than risk a wrong model —
 from __future__ import annotations
 
 import random
-from pathlib import Path
 from typing import cast
 
 import pytest
 
-from lexic.base import GrammarModel
-from lexic.codegen import build_codegen_grammar
-from lexic.compile import (
-    CompiledGrammar,
-    canonical_grammar,
-    compile_from_path,
-    compile_text,
-)
+from lexic.compile import canonical_grammar, compile_from_path, compile_text
+from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
-from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
+from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
+from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda
+from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime import reduce_runtime as rrt
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
-from lexic.parsing.products import _model_product, _reduce_product, earley_reduce
+from tests.integration.pda_parity_helpers import (
+    arithmetic_bench_corpus,
+    deep_semantic,
+    forced_engine,
+)
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import (
+    assert_parity,
+    compiled_and_pda,
+    path_specs,
+    reduce_pda,
+    ref_reduce,
+)
 
 # ── fixtures ────────────────────────────────────────────────────────────
 
-_ISLAND_FREE_STEMS: tuple[str, ...] = (
+ISLAND_FREE_STEMS: tuple[str, ...] = (
     "arithmetic.gbnf",
     "japanese.gbnf",
     "list.gbnf",
     "arithmetic.abnf",
 )
-_N_SEEDS = 50
-_MAX_DEPTH = 4
-
-# Mirrors tools/benchmark/pipeline_bench.py's arithmetic instance workload
-# (same snippets, same ~4800-char target) — not imported (that module builds
-# its own corpus for timing, not as an importable package) but pinned here as
-# the same data so this test exercises the actual bench corpus shape.
-_ARITHMETIC_BENCH_SNIPPETS: tuple[str, ...] = (
-    "x=1\n",
-    "y=z\n",
-    "a+b=100\n",
-    "foo=(bar)\n",
-    "abc123-xyz=42\n",
-)
-
-
-def _arithmetic_bench_corpus(target_len: int = 4800) -> str:
-    """The pinned arithmetic bench corpus, cycled to at least ``target_len`` chars."""
-    pieces: list[str] = []
-    size = 0
-    n = 0
-    while size < target_len:
-        piece = _ARITHMETIC_BENCH_SNIPPETS[n % len(_ARITHMETIC_BENCH_SNIPPETS)]
-        pieces.append(piece)
-        size += len(piece)
-        n += 1
-    return "".join(pieces)
-
-
-# ── helpers ───────────────────────────────────────────────────────────────
-
-
-def _reduce_pda(flavour):
-    """The flavour's self-grammar reduce PDA (built + memoised in the engine)."""
-    return _reduce_product(flavour.grammar, flavour.reducer).pda
-
-
-def _compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:
-    """Compile a ground-truth grammar both ways: the engine artifact + its PdaTables.
-
-    Mirrors ``test_clones.py``'s ``_pda_for`` — the same inputs
-    ``compile.py``'s (not-yet-landed) Task-6 wiring will use, built entirely
-    through public seams: ``lifted`` from ``canonical_grammar`` +
-    ``build_codegen_grammar`` + ``lift_optional_nullables``,
-    ``instance_grammar``/``fold.config`` read off the already-compiled
-    :class:`CompiledGrammar`.
-    """
-    flavour = flavour_for_extension(path)
-    canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
-    lifted = lift_optional_nullables(build_codegen_grammar(canonical))
-    compiled = compile_from_path(path)
-    instance = _model_product(compiled.codegen_grammar, compiled.fold).instance_grammar
-    pda = compile_pda(lifted, instance, compiled.fold.config)
-    return compiled, pda
-
-
-def _specs(path: Path) -> dict:
-    """The rule-name → IrRule view :func:`~lexic.generate.generate` walks."""
-    flavour = flavour_for_extension(path)
-    canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
-    return {r.name: r for r in canonical.rules}
-
-
-def _assert_parity(
-    engine_model: GrammarModel, pda_model: GrammarModel, text: str
-) -> None:
-    """Assert ruling 1's semantic-parity contract, not raw ``model_dump()`` equality."""
-    assert pda_model.semantic_dump() == engine_model.semantic_dump()
-    assert pda_model.to_text() == text
+N_SEEDS = 50
+MAX_DEPTH = 4
 
 
 # ── the parity gate (generated samples, per island-free grammar) ──────────
 
 
-@pytest.mark.parametrize("stem", _ISLAND_FREE_STEMS)
+@pytest.mark.parametrize("stem", ISLAND_FREE_STEMS)
 def test_pda_engine_parity_on_generated_samples(stem: str) -> None:
     """PDA/engine parity across seeded generated samples of an island-free grammar.
 
@@ -146,11 +84,11 @@ def test_pda_engine_parity_on_generated_samples(stem: str) -> None:
     fallback).
     """
     path = GROUND_TRUTH / stem
-    compiled, pda = _compiled_and_pda(path)
-    specs = _specs(path)
+    compiled, pda = compiled_and_pda(path)
+    specs = path_specs(path)
     checked = fallbacks = 0
-    for seed in range(_N_SEEDS):
-        text = generate("root", specs, rng=random.Random(seed), max_depth=_MAX_DEPTH)
+    for seed in range(N_SEEDS):
+        text = generate("root", specs, rng=random.Random(seed), max_depth=MAX_DEPTH)
         if not text:
             continue  # a star/optional-rooted rule can roll an empty expansion
         try:
@@ -165,14 +103,14 @@ def test_pda_engine_parity_on_generated_samples(stem: str) -> None:
             )
             fallbacks += 1
             continue
-        _assert_parity(engine_model, pda_model, text)
+        assert_parity(engine_model, pda_model, text)
         checked += 1
-    assert checked >= _N_SEEDS // 2, f"{stem}: too few samples actually checked"
+    assert checked >= N_SEEDS // 2, f"{stem}: too few samples actually checked"
     if stem == "arithmetic.gbnf":
         # Documented residue, not a regression trigger: a handful of the
         # trailing-ws-before-"\n" shapes fall back to the engine rather than
         # risk a wrong model (pivot 4 stop-set, F1's sound-islanding sibling).
-        assert fallbacks <= _N_SEEDS // 4
+        assert fallbacks <= N_SEEDS // 4
 
 
 # ── the pinned arithmetic bench corpus ─────────────────────────────────────
@@ -187,14 +125,93 @@ def test_pda_engine_parity_on_arithmetic_bench_corpus() -> None:
     since the PDA either parses the *entire* corpus or defers all of it.
     """
     path = GROUND_TRUTH / "arithmetic.gbnf"
-    compiled, pda = _compiled_and_pda(path)
-    text = _arithmetic_bench_corpus()
+    compiled, pda = compiled_and_pda(path)
+    text = arithmetic_bench_corpus()
     engine_model = compiled.parse(text)
     try:
         pda_model = cast(GrammarModel, parse_pda(pda, text))
     except PdaFail:
         return  # expected stop-set residue — the engine fallback covers it
-    _assert_parity(engine_model, pda_model, text)
+    assert_parity(engine_model, pda_model, text)
+
+
+# ── per-parse interning (Task 5) ───────────────────────────────────────────
+
+
+def _all_models(root: object) -> list[GrammarModel]:
+    """Every :class:`GrammarModel` reachable from ``root``, self first (iterative)."""
+    out: list[GrammarModel] = []
+    stack: list[object] = [root]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, GrammarModel):
+            out.append(value)
+            stack.extend(getattr(value, name) for name in value._fields)
+        elif isinstance(value, tuple):
+            stack.extend(value)
+    return out
+
+
+_INTERN_CORPUS: dict[str, str] = {
+    # repeated scalars (true/false/null/small ints) and repeated key strings
+    "json.gbnf": '[true, true, false, true, 1, 1, 2, 2, "x", "x", null, null]',
+    "chess.gbnf": "1. e4 e5\n2. e4 e5\n3. e4 e5\n4. e4 e5\n",
+    "arithmetic.gbnf": "a=1\na=1\nb=2\nb=2\nc=3\nc=3\n",
+}
+"""Per-grammar inputs with many identical sub-structures — enough repetition
+that interning provably collapses equal models to one instance."""
+
+
+@pytest.mark.parametrize("stem", ["json.gbnf", "chess.gbnf", "arithmetic.gbnf"])
+def test_interning_value_equality_parity(stem: str) -> None:
+    """The interned PDA model equals the un-interned engine (``ModelFold``)
+    reference for every instance case — value-equality parity under interning
+    (Task 5's core gate; robust to islands, whose sub-models are spliced
+    un-interned so equality — not identity — is the bar there)."""
+    compiled = compile_from_path(GROUND_TRUTH / stem)
+    text = _INTERN_CORPUS[stem]
+    pda_model = cast(GrammarModel, compiled.parse(text))
+    engine_model = forced_engine(compiled, text)
+    assert deep_semantic(pda_model) == deep_semantic(engine_model)
+    assert pda_model.to_text() == text == engine_model.to_text()
+
+
+def test_interning_shares_every_equal_submodel_island_free() -> None:
+    """On an island-free grammar every build flows through the interning memo,
+    so no two DISTINCT model instances are ``==`` — repeated sub-models collapse
+    to one shared instance. (arithmetic.gbnf is island-free; the raw PDA run
+    guarantees no engine-fallback bypass of the memo.)"""
+    path = GROUND_TRUTH / "arithmetic.gbnf"
+    compiled, pda = compiled_and_pda(path)
+    text = _INTERN_CORPUS["arithmetic.gbnf"]
+    pda_model = cast(GrammarModel, parse_pda(pda, text, compiled.fold))
+    models = _all_models(pda_model)
+    by_value: dict[tuple[type, GrammarModel], int] = {}
+    for model in models:
+        first = by_value.setdefault((type(model), model), id(model))
+        assert id(model) == first, (
+            f"equal models not shared — {type(model).__name__} {model!r}"
+        )
+    assert len(by_value) < len(models), "corpus had no repeated sub-models to share"
+
+
+# ── value_str: single-item fast path vs multi-item cold path (lever A) ─────
+
+
+def test_vstr_multi_item_arm_takes_the_cold_span_path():
+    """A ``value_str`` rule whose sole arm has MORE than one terminal item
+    (``"0x" [0-9a-f]+`` — a literal then a char class) routes through
+    ``_vstr_span``, not ``_vstr_once``'s single-item fast path. No ground-truth
+    grammar has a multi-item value_str arm, so this is the only exercise of
+    that cold path — built raw (no fold-fallback engine escape) to prove the
+    PDA itself handles it, not a silent Earley completion."""
+    text = 'root ::= "0x" [0-9a-f]+\n'
+    canonical = canonical_grammar(text, GBNF_FLAVOUR)
+    lifted = lift_optional_nullables(build_codegen_grammar(canonical))
+    compiled = compile_text(text, flavour="gbnf")
+    pda = compile_pda(lifted, normalize(lifted), compiled.fold.config)
+    model = cast(GrammarModel, parse_pda(pda, "0xffa1", compiled.fold))
+    assert model.to_text() == "0xffa1"
 
 
 # ── the F1 semantic guard (Option B) ───────────────────────────────────────
@@ -233,7 +250,7 @@ def test_fail_island_raises_pdafail_regardless_of_fold():
 # zzz_current_work/260706-unified-parse-engine/gate_reduce.py three-gate
 # harness (0 gate failures there).
 
-_REDUCE_GATE1_GBNF: tuple[str, ...] = (
+REDUCE_GATE1_GBNF: tuple[str, ...] = (
     'root ::= "abc"',
     "root ::= [a-z]",
     'root ::= "a" | "b"',
@@ -247,7 +264,7 @@ _REDUCE_GATE1_GBNF: tuple[str, ...] = (
 reduce PDA must handle end-to-end (no whole-input PdaFail, clone
 completions > 0), each byte-equal to earley_reduce."""
 
-_REDUCE_GATE2_GBNF: tuple[str, ...] = (
+REDUCE_GATE2_GBNF: tuple[str, ...] = (
     'root::="a"',
     'root  ::=  "a"   "b"',
     'root ::= "a"|"b"|"c"',
@@ -258,12 +275,7 @@ shapes — the reduce PDA's cleaned children must reduce byte-identically to
 the Earley path regardless of how the noise is laid out."""
 
 
-def _ref_reduce(flavour, text: str):
-    """The Earley reducer's own reduction of ``text`` — the parity oracle."""
-    return earley_reduce(normalize(flavour.grammar), text, flavour.reducer)
-
-
-@pytest.mark.parametrize("text", _REDUCE_GATE1_GBNF)
+@pytest.mark.parametrize("text", REDUCE_GATE1_GBNF)
 def test_reduce_pda_gbnf_single_rule_fragment_is_end_to_end_and_byte_equal(
     text: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -277,19 +289,19 @@ def test_reduce_pda_gbnf_single_rule_fragment_is_end_to_end_and_byte_equal(
         orig_complete(self, frame)
 
     monkeypatch.setattr(kernel_cls, "_complete", _traced)
-    pda = _reduce_pda(GBNF_FLAVOUR)
+    pda = reduce_pda(GBNF_FLAVOUR)
     assert not isinstance(pda.start_key, IslandRef)
     got = parse_pda(pda, text)
     assert completions["n"] > 0
-    assert got == _ref_reduce(GBNF_FLAVOUR, text)
+    assert got == ref_reduce(GBNF_FLAVOUR, text)
 
 
-@pytest.mark.parametrize("text", _REDUCE_GATE2_GBNF)
+@pytest.mark.parametrize("text", REDUCE_GATE2_GBNF)
 def test_reduce_pda_gbnf_noise_variant_is_byte_equal_to_earley(text: str) -> None:
     """Gate 2: capture-cleaning parity across varied inter-token whitespace."""
-    pda = _reduce_pda(GBNF_FLAVOUR)
+    pda = reduce_pda(GBNF_FLAVOUR)
     assert not isinstance(pda.start_key, IslandRef)
-    assert parse_pda(pda, text) == _ref_reduce(GBNF_FLAVOUR, text)
+    assert parse_pda(pda, text) == ref_reduce(GBNF_FLAVOUR, text)
 
 
 def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() -> None:
@@ -305,7 +317,7 @@ def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() 
     island).
     """
     for flavour in (GBNF_FLAVOUR, ABNF_FLAVOUR):
-        pda = _reduce_pda(flavour)
+        pda = reduce_pda(flavour)
         corpus = sorted(GROUND_TRUTH.glob(f"*{flavour.extensions[0]}"))
         assert corpus
         assert not isinstance(pda.start_key, IslandRef)
@@ -316,7 +328,7 @@ def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() 
                 got = parse_pda(pda, text)
             except PdaFail:
                 continue
-            if got == _ref_reduce(flavour, text):
+            if got == ref_reduce(flavour, text):
                 recognised += 1
             else:
                 mismatched += 1

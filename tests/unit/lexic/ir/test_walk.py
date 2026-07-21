@@ -70,7 +70,7 @@ from lexic.ir.walk import IrBottomUp, IrDispatch, IrEmitter, IrTransformer, IrVi
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 
-def _tiny_ast() -> IrAst:
+def tiny_ast() -> IrAst:
     """Build a small AST for traversal tests.
 
     :returns: An IrAst with a single rule ``r`` referencing itself.
@@ -163,7 +163,7 @@ def test_action_body_can_recurse_explicitly_via_dispatcher():
             IrAction(IrNode, IrLambda(_on)),
         )
     )
-    d.apply(_tiny_ast())
+    d.apply(tiny_ast())
     assert IrAst in visited
     assert IrRuleRef in visited
     assert IrItem in visited
@@ -278,7 +278,7 @@ def test_dispatcher_is_frozen_actions_immutable():
 def test_irvisitor_empty_actions_returns_irnone():
     """IrVisitor with no user actions walks via IrWalk and returns IrNone."""
     assert IrVisitor().apply(IrLiteral("a")) is IrNone
-    assert IrVisitor().apply(_tiny_ast()) is IrNone
+    assert IrVisitor().apply(tiny_ast()) is IrNone
 
 
 def test_irvisitor_default_walks_into_children():
@@ -442,7 +442,7 @@ def test_irvisitor_irreturn_returns_irnone_when_no_match():
 # ── IrBottomUp ───────────────────────────────────────────────────────
 
 
-def _deep_alternation(depth: int) -> IrAlternation:
+def deep_alternation(depth: int) -> IrAlternation:
     """``depth`` nested single-arm groups around a lone ``"a"`` literal."""
     node = IrAlternation(IrSequence(IrItem(IrLiteral("a"))))
     for _ in range(depth):
@@ -499,7 +499,7 @@ def test_irbottomup_deep_tree_does_not_overflow():
     The recursive :class:`IrTransformer` overflows here at a few hundred
     levels; the explicit-stack driver is depth-independent.
     """
-    deep = _deep_alternation(2000)
+    deep = deep_alternation(2000)
     out = IrBottomUp().apply(deep)
     assert out == deep
 

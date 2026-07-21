@@ -1,8 +1,184 @@
 # Log
 
+## 2026-07-21 — GBNF charclass PDA regression fixed; reduce completion unified; module self-grammar zero fail-islands; per-parse interning
+
+GBNF charclass parsing (`grammars/gbnf.py`) had regressed to superlinear
+scaling — its range-tail choice fell back to a full Earley completion on
+every hit because no gate could separate the arms with a single-character
+FOLLOW set. Fixed two ways: the charclass grammar factors the "is this a
+range or a trailing dash" choice into one empty-arm rule (the earlier
+`cc-range`/`cc-range-nc` pair deleted), and the PDA analysis gained bounded
+FOLLOW-k lookahead windows (`extend_follow` generalized from a single
+CharSet to a k≤3 window tuple, computed lazily) that can now separate it.
+GBNF self-grammar-text parsing returns to flat µs/char scaling. See
+[[lexic/decisions]].
+
+The grammar-text reduce completion (`parsing/products.py`) now always runs
+against the SAME lifted/normalized grammar the PDA path compiles against —
+the earlier two-route split (an unlifted completion kept only for a
+differential comparison) is gone; the differential property tests exercise
+the actual product route.
+
+The generated-module self-grammar (`compile/module/selfgrammar.py`) reaches
+zero fail-islands: splitting six token rules' trailing whitespace into a
+dedicated fold-transparent rule and spelling the grammar-statement's
+trailing newline explicitly closes both the last identifier-shaped
+fail-island (a bare rule name no longer forces the Earley completion) and
+the leading-indent-after-`__binds__` gap noted below. `m-imports` remains a
+benign non-failing once-per-file island; the vyx inline-mode self-verify
+that motivated this work goes from ~13s to ~0.13s. See
+[[lexic/generated-modules]].
+
+Instance parsing gained a per-parse intern memo on the PDA's trusted
+construction path (records/leaves built identically more than once within
+one parse construct once) plus a fast path for single-item `value_str`
+rules. See [[lexic/decisions]] for the measured perf ceiling this and
+further micro-optimization run into — reaching well past it needs a
+structural (model-count) change, not yet built.
+
+## 2026-07-18 — flavour-layout: width-aware emission + production EBNF
+
+Emission is width-aware end to end: `ir/layout.py` doc nodes double as
+action-body templates (`IrLine` identity eval, `IrGroup`/`IrNest`
+rebuild-around-interior) and `IrDocConcat`/`IrDocJoin` are the doc-tier sums
+of `IrConcat`/`IrJoin` — flavour STRUCTURE actions build docs, atoms stay
+str-tier, `IrFlavour.apply(root, width=88)` renders (`width=None` = flat,
+byte-identical to the old output). Trailing-pipe/-slash continuations; ABNF's
+wrap IS RFC 5234 folding. `to_grammar(flavour, width=88)`. The exporter
+docstring wrap moved onto the algebra (per-word fill groups). ABNF gained
+`%d`/`%b` dot-sequences, uppercase marker letters, and `ABNF_CORE_RULES` —
+the RFC 5234 B.1 prelude injected by dangling-ref resolution only (new
+`IrFlavour.core_rules` + `parse_grammar` closure). NEW `grammars/ebnf.py`:
+the production ISO-family EBNF flavour (exact `n * x` repetition; classes
+expand to quoted alternations; `IrNot`/open-counted refuse), registered with
+`.ebnf`; manifests now all generate from shipped singletons; GT corpus gains
+`json.ebnf`. Selfgrammar PDA gating fixed (no rule ends on a loop; body lines
+FIRST-disjoint) — vyx inline verify 35.7s→13.1s; residual: the notation
+`name` fail-island forces the Earley path for every embedded value (backlog).
+See [[lexic/flavour-system]], [[lexic/generated-modules]].
+
+## 2026-07-18 — module-selfgrammar complete (whole-file parse-back)
+
+`compile/module/selfgrammar.py`: lexic parses its own exported twin modules —
+`module_grammar()`/`parse_module()`/`verify_module()`, the L2 binding
+cross-check running per export in `tools/check_generated.py`.
+`compile/foldkit.py` (ALT/passthrough) — the build-path unification seed,
+shared by notation + selfgrammar. Export renderers publicized
+(`field_type`/`value_str_type`/`docstring_lines`) as the exporter↔verifier
+contract. See [[lexic/generated-modules]] §module self-grammar. Next:
+`260718-flavour-layout` (compile/ restructure = its Task 0).
+
 **When to load:** checking what changed recently; orienting after a gap in the session.
 
 Append-only chronological record. Most recent entry at top.
+
+---
+
+## 2026-07-18 — generated-files: importable twins, IR-native formatting, renames
+
+The 260718-generated-files effort (plan in `zzz_current_work/`), landed on
+top of Task 0 below:
+
+- **Defaults-last field order** (`bind_fields`): required fields first,
+  `= None` optionals after, each group in item order — the record ctor is
+  well-formed; naming/collision numbering unchanged (item order). Zero
+  tests pinned the old order; slot-keyed consumers unaffected.
+- **`ir/layout.py`** — the layout algebra (Wadler doc combinators on the
+  spine; continuation-aware `fits`). **`emit_ir`** — the notation emit
+  half in `compile/notation/parse.py` (per-tier `IrTypeMap`; the inverse of
+  `load_ir`; spine gained `IrNamedTuple.repr_args`, the shared elision).
+  Ruff/subprocess deleted from the compile path.
+- **Exported twin modules** ([[generated-modules]]): `export_module`/
+  `export_source` (explicit-path-only writes, `inline_tables` option),
+  `bind_module` (import-time table attachment), `CompiledGrammar` moved
+  to `compile/artifact.py` (+ `flavour`/`stem`), reserved class names
+  trimmed to the real header. `tools/check_generated.py` is the corpus
+  tool-clean gate (pyright/pylint default configs).
+- **Engine fix — island valid-prefix window truncation, made SOUND (two
+  passes)**: a 256-window cut mid-token can complete a truncated-but-valid
+  island parse short of the edge. Pass 1 (fail-soft): the wrong splice's
+  fold error reroutes (`islands.island_value` LexicError→PdaFail;
+  `build.finish_delegate` declines). Pass 2 (soundness):
+  `Kernel.can_extend_at` — a short-of-edge column's chart is complete
+  evidence for its own window char (seeding is FIRST-gated by it), so
+  refusal is sighted; delegate-landing columns (derived from
+  `Kernel.delegated` handles) and out-of-domain chars answer MAY —
+  and `islands._may_extend` grows on no-completion/edge-touch/probe-MAY,
+  terminating at window ≥ remaining where truncation is impossible.
+  Verified correct with ALL fail-soft guards disabled. Fixpoint-style
+  growth is UNSOUND (balanced-paren counterexample) — don't reintroduce.
+  Regression: `test_island_valid_prefix.py` (islandhood asserted). The
+  notation grammar still refuses trailing commas — now purely a perf
+  choice (arglist would island).
+- **Renames**: `base.py` → `model.py` (location right — the
+  to_grammar→grammars edge pins it out of ir/); `parse.py` DELETED —
+  `parse` is the engine's name; the compile one-liners are
+  `parse_instance`/`parse_instance_from_path`.
+- **Known engine-path divergence (recorded)**: on an ambiguous grammar
+  (json's adjacent `ws?` slots) the PDA's greedy choice and Earley's
+  `parse_first` can build text-equal but structurally different models
+  (noise attachment only). `compare_bench`'s to_text gate is deliberate.
+
+## 2026-07-18 — generated-files Task 0: dead-code sweep
+
+`GrammarAuthoringError` deleted (`exceptions.py` — a never-raised public
+stub; CLAUDE.md + [[error-vocabulary]] updated). `refs_in_order` deleted
+(`ir/order.py` — production-dead public wrapper; the private
+`_refs_in_order` walker stays, `RuleOrder.by_refs` uses it; its contract
+re-pinned on `by_refs` in the test mirror). `_child_attrs_of` + the
+derive-from-binds branch in `GrammarModel.__init_subclass__` deleted
+(`base.py`) — proven dead: `IrNamedTuple.__init_subclass__` always sets
+`_child_attrs` from annotations into `cls.__dict__` first, so the branch
+never fired; models don't read `_child_attrs` anyway (`children()`/
+`rebuild()` are overridden on `__binds__` item order, settled 13). Effort:
+`zzz_current_work/260718-generated-files/PLAN.md`.
+
+## 2026-07-18 — ir-native complete: compile/ subsystem, codegen + pydantic gone
+
+The `compile/` package is the whole compilation subsystem. `codegen/` is
+deleted; classes are synthesized at runtime via `type(name, bases, ns)`
+(`compile/pipeline/synthesis.py`) with `__grammar__` + a `__binds__` table — no
+source-emit / import / `model_rebuild`, no file write. pydantic is gone from
+`src/` and from `pyproject.toml` (zero runtime deps bar the lazy `ruff`
+exporter subprocess). `GrammarModel.model_dump` was renamed to `dump`
+(no longer a pydantic override). Both `base.py` shims and the strangler
+R0801 suppressions are removed; the schema-joint machinery is gone
+(`FastCtor`/`build_validated` proven LIVE and kept). New surfaces landed
+across the effort: `load_ir` (IR-constructor notation), `load_flavour`
+(manifest → `IrFlavour`), `export_source` (reader `.py` view), the demo
+EBNF flavour. Perf: `compile_text` −67…−79% vs baseline; parse +2…+8%.
+Full record + commit chain: `zzz_current_work/260716-ir-native/PLAN_v4.md`
+OUTCOME + `FOLLOWUP.md` + `NEXT_MILESTONES.md`.
+
+**Wiki drift still to sweep** (flagged, not all fixed this pass):
+`codegen.md` describes the deleted module (mark superseded → `compile/`);
+`public-api.md` / `architecture.md` retain `codegen()`/`out_dir`/
+`_NORM_GRAMMAR_CACHE`/"Pydantic classes" references. The high-traffic
+`public-api.md` + `architecture.md` load-bearing entries are corrected in
+this pass; a full page-by-page sweep of the remaining pages is a follow-up.
+
+---
+
+## 2026-07-16 — ir-native Task 1: GrammarModel is an IrNamedTuple record
+
+`base.py` rewritten: models live on the record spine (PLAN_v4 ruling 9 —
+models ARE IrSelf). Pydantic base, schema joints
+(`__get_pydantic_core_schema__`/`_joint_dump`/`__schema_joint__`) and the
+licence-refusal machinery are gone from `base.py`; the native
+`model_dump()` is runtime-complete (ruling 12 — F-DUMP-1's declared-schema
+erasure is gone) with an explicit-stack walk (depth-800 gated);
+`semantic_dump()` keeps the top-level-only exclusion; equality is
+type-aware + hash-consistent; `models`-mode lists coerce to tuples;
+`children()`/`rebuild()` = bound fields in item order; `fast_construct()`
+is always granted (one C-level tuple build). Binds channel: explicit
+`__binds__` (primary) or one-shot `Annotated` resolution (emitter shim,
+dies at the Task-2 flip, as does the no-op `model_rebuild()`). Goldens'
+`runtime_dump`/`runtime_semantic_dump` keys are the parity gate (77/77);
+`test_pda_parity`'s comparator became an explicit deep-semantic view —
+the erasure had been silently hiding a licensed PDA-vs-engine noise-split
+difference. Reserved-name window (rules named `eval`/`count`/… unmangled
+until Task 3) pinned in `test_binding.py`. Details:
+`zzz_current_work/260716-ir-native/TASK1_REPORT.md`.
 
 ---
 

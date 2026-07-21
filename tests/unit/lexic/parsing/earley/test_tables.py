@@ -46,9 +46,9 @@ from lexic.parsing.earley.tables import (
     compile_tables,
     expand_atom,
 )
-from tests._ir_fixtures import digit_grammar as _digit_grammar
-from tests._ir_fixtures import sss_grammar as _sss_grammar
-from tests._ir_fixtures import word_grammar as _word_grammar
+from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
+from tests.unit.lexic.parsing.ir_fixtures import sss_grammar as _sss_grammar
+from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
 
 # ── atom_accepts ────────────────────────────────────────────────────────
 
@@ -161,7 +161,7 @@ def test_expand_atom_negated_charclass_poisons():
 # ── Grammar builders ─────────────────────────────────────────────────────
 
 
-def _nullable_grammar() -> IrAst:
+def nullable_grammar() -> IrAst:
     """nullish = '' ; a single rule whose only arm is empty (nullable)."""
     return IrAst(
         rules=IrSeq(IrRule("nullish", IrAlternation(IrSequence()))),
@@ -169,14 +169,14 @@ def _nullable_grammar() -> IrAst:
     )
 
 
-def _chained_nullable_grammar() -> IrAst:
+def chained_nullable_grammar() -> IrAst:
     """outer = inner ; inner = '' — nullable transitively via a ruleref."""
     inner = IrRule("inner", IrAlternation(IrSequence()))
     outer = IrRule("outer", IrAlternation(IrSequence(IrItem(IrRuleRef("inner")))))
     return IrAst(rules=IrSeq(outer, inner), start="outer")
 
 
-def _non_nullable_grammar() -> IrAst:
+def non_nullable_grammar() -> IrAst:
     """solid = 'a' ; a rule with only a non-empty terminal arm."""
     return IrAst(
         rules=IrSeq(IrRule("solid", IrAlternation(IrSequence(IrItem(IrLiteral("a")))))),
@@ -184,7 +184,7 @@ def _non_nullable_grammar() -> IrAst:
     )
 
 
-def _undefined_ref_grammar() -> IrAst:
+def undefined_ref_grammar() -> IrAst:
     """top = missing ; 'missing' is referenced but never given an IrRule."""
     return IrAst(
         rules=IrSeq(
@@ -260,14 +260,14 @@ def test_next_sym_zero_for_complete_position():
 
 def test_empty_arm_rule_is_nullable():
     """A rule whose only arm is empty has a non-empty nullable_completes entry."""
-    tables = compile_tables(_nullable_grammar())
+    tables = compile_tables(nullable_grammar())
     rid = tables.decode.rule_ids["nullish"]
     assert tables.codes.nullable_completes[rid] != ()
 
 
 def test_chained_nullable_via_ruleref():
     """A rule referencing only a nullable rule is itself nullable (chained)."""
-    tables = compile_tables(_chained_nullable_grammar())
+    tables = compile_tables(chained_nullable_grammar())
     outer_rid = tables.decode.rule_ids["outer"]
     inner_rid = tables.decode.rule_ids["inner"]
     assert tables.codes.nullable_completes[inner_rid] != ()
@@ -276,7 +276,7 @@ def test_chained_nullable_via_ruleref():
 
 def test_non_nullable_rule_has_empty_tuple():
     """A rule with only non-empty terminal arms is NOT nullable — empty tuple."""
-    tables = compile_tables(_non_nullable_grammar())
+    tables = compile_tables(non_nullable_grammar())
     rid = tables.decode.rule_ids["solid"]
     assert tables.codes.nullable_completes[rid] == ()
 
@@ -304,14 +304,14 @@ def test_accept_codes_nonempty_for_defined_start():
 
 def test_undefined_ruleref_gets_empty_rule_dot0():
     """A rule referenced but never defined gets an empty rule_dot0 entry."""
-    tables = compile_tables(_undefined_ref_grammar())
+    tables = compile_tables(undefined_ref_grammar())
     missing_rid = tables.decode.rule_ids["missing"]
     assert tables.codes.rule_dot0[missing_rid] == ()
 
 
 def test_undefined_ruleref_recognizes_nothing():
     """Prediction seeds nothing for an undefined rule — parsing derives no branch."""
-    g = _undefined_ref_grammar()
+    g = undefined_ref_grammar()
     assert recognize(g, "anything") == 0
 
 
@@ -407,7 +407,7 @@ def test_char_leaf_caches_per_distinct_char():
 # ── Negated char-class terminals ─────────────────────────────────────────
 
 
-def _negated_grammar() -> IrAst:
+def negated_grammar() -> IrAst:
     """s = [^"] — one rule with a single negated-char-class terminal."""
     atom = IrNot(IrCharClass(IrChr('"')))
     rule = IrRule("s", IrAlternation(IrSequence(IrItem(atom))))
@@ -416,19 +416,19 @@ def _negated_grammar() -> IrAst:
 
 def test_compile_tables_accepts_negated_charclass_terminal():
     """A normalised IrNot(IrCharClass) compiles without raising."""
-    tables = compile_tables(_negated_grammar())
+    tables = compile_tables(negated_grammar())
     assert isinstance(tables, ParserTables)
 
 
 def test_negated_charclass_compiles_as_length_one_terminal():
     """A negated char-class scans one column, like a plain char-class."""
-    tables = compile_tables(_negated_grammar())
+    tables = compile_tables(negated_grammar())
     assert tables.terms.lens == (1,)
 
 
 def test_terms_for_finds_negated_terminal_outside_set():
     """terms_for finds the negated terminal for a char outside its set."""
-    tables = compile_tables(_negated_grammar())
+    tables = compile_tables(negated_grammar())
     assert len(tables.terms_for("a")) == 1
     assert len(tables.terms_for('"')) == 0
 
@@ -498,14 +498,14 @@ def test_rule_dot0_round_trips_rule_seeds():
 
 def test_rule_seeds_empty_for_undefined_rule():
     """A rule referenced but never defined seeds no pairs — prediction seeds nothing."""
-    tables = compile_tables(_undefined_ref_grammar())
+    tables = compile_tables(undefined_ref_grammar())
     missing_rid = tables.decode.rule_ids["missing"]
     assert tables.codes.rule_seeds[missing_rid] == ()
 
 
 def test_rule_dot0_empty_for_undefined_rule():
     """The derived rule_dot0 view agrees: () for a referenced-but-undefined rule."""
-    tables = compile_tables(_undefined_ref_grammar())
+    tables = compile_tables(undefined_ref_grammar())
     missing_rid = tables.decode.rule_ids["missing"]
     assert tables.codes.rule_dot0[missing_rid] == ()
 
@@ -524,7 +524,7 @@ def test_rule_seed_gates_pair_prefix_matches_rule_seeds():
 
 def test_empty_deriving_arm_gate_is_none():
     """nullish = '' — the empty arm's gate is None (always seed)."""
-    tables = compile_tables(_nullable_grammar())
+    tables = compile_tables(nullable_grammar())
     rid = tables.decode.rule_ids["nullish"]
     ((_shifted, _sym, gate),) = tables.codes.rule_seed_gates[rid]
     assert gate is None
@@ -532,7 +532,7 @@ def test_empty_deriving_arm_gate_is_none():
 
 def test_negated_charclass_arm_gate_is_none():
     """s = [^"] — an IrNot atom poisons the arm's FIRST gate to None."""
-    tables = compile_tables(_negated_grammar())
+    tables = compile_tables(negated_grammar())
     s_rid = tables.decode.rule_ids["s"]
     ((_shifted, _sym, gate),) = tables.codes.rule_seed_gates[s_rid]
     assert gate is None

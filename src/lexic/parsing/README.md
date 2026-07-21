@@ -55,7 +55,7 @@ its submodules (enforced by the layering test).
 | Function | Returns | Meaning |
 |---|---|---|
 | `parse_reduced(grammar, text, reducer)` | `IrAst` | **Grammar-text product.** PDA-first, fused Earley reduce completion. Takes the authored grammar; normalisation, lifting, PDA/table compilation are internal, memoised per (grammar, reducer) identity — the compiled tables bake the reducer's plan, so the reducer is part of the key. The grammar-text product always folds to an `IrAst`; a non-`IrAst` reduction is an `UnsupportedConstructError`, never a silent `object`. |
-| `parse_model(grammar, text, fold: ModelFold[M])` | `M` | **Instance product.** PDA-first, `parse_first` + fold completion. Same authored-grammar contract; memoised per (grammar, fold) identity — the tables bake the fold's rule records and the collapsed lexical runs. Generic in the model type `M` the fold produces: the engine stays a leaf w.r.t. `lexic.base`, so the concrete model type rides the fold's type parameter rather than an import — `compile.py` binds `ModelFold[GrammarModel]`, so `CompiledGrammar.parse` types as `GrammarModel`. |
+| `parse_model(grammar, text, fold: ModelFold[M])` | `M` | **Instance product.** PDA-first, `parse_first` + fold completion. Same authored-grammar contract; memoised per (grammar, fold) identity — the tables bake the fold's rule records and the collapsed lexical runs. Generic in the model type `M` the fold produces: the engine stays a leaf w.r.t. `lexic.model`, so the concrete model type rides the fold's type parameter rather than an import — `compile.py` binds `ModelFold[GrammarModel]`, so `CompiledGrammar.parse` types as `GrammarModel`. |
 | `recognize(grammar, text)` | `IrInt` 0/1 | Does `text` derive from the start rule? (No forest built.) |
 | `parse(grammar, text)` | `ParseTree` | The single derivation. **Raises** on no-parse *or* ambiguity. |
 | `parse_first(grammar, text, tables=None)` | `ParseTree` | The *first* derivation — deterministic under ambiguity. Raises only on no-parse. |
@@ -144,7 +144,7 @@ parsing/
 ```
 
 Each folder carries its own `README.md` orientation note. Layering: the
-whole package is a leaf w.r.t. `lexic.codegen` and `lexic.grammars`; `pda/`
+whole package is a leaf w.r.t. `lexic.compile` and `lexic.grammars`; `pda/`
 imports `earley/`, never the reverse. Inside `pda/` the arrows point one
 way — `core ← analysis ← compiler ← runtime`: `analysis/` imports only
 `core/`, `compiler/` imports `analysis/` + `core/`, `runtime/` executes

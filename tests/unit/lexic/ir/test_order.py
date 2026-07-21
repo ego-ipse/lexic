@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from lexic.ir.base import IrSeq
 from lexic.ir.nodes import (
-    IrAlternation,
     IrAst,
     IrItem,
     IrLiteral,
@@ -16,7 +15,7 @@ from lexic.ir.nodes import (
 from lexic.ir.order import RuleOrder, order_by_refs, refs_in_order
 
 
-def _rule(name: str, *refs: str) -> IrRule:
+def rule(name: str, *refs: str) -> IrRule:
     """A rule whose body references ``refs``, in the given order, plus a literal tail."""
     items = [IrItem(IrRuleRef(ref)) for ref in refs]
     items.append(IrItem(IrLiteral("x")))
@@ -163,7 +162,7 @@ def test_parents_first_shared_parent_emits_once_before_both_children():
 def test_by_refs_orders_start_first_then_reference_order():
     """Rules reorder start-first, breadth-first by IrRuleRef occurrence."""
     ast = IrAst(
-        IrSeq(_rule("unrelated"), _rule("b"), _rule("root", "b")),
+        IrSeq(rule("unrelated"), rule("b"), rule("root", "b")),
         "root",
     )
     result = order_by_refs(ast)
@@ -173,7 +172,7 @@ def test_by_refs_orders_start_first_then_reference_order():
 def test_by_refs_uses_body_order_for_the_tie_break():
     """When a rule references two others, they appear in body (first-seen) order."""
     ast = IrAst(
-        IrSeq(_rule("second"), _rule("first"), _rule("root", "second", "first")),
+        IrSeq(rule("second"), rule("first"), rule("root", "second", "first")),
         "root",
     )
     result = order_by_refs(ast)
@@ -183,7 +182,7 @@ def test_by_refs_uses_body_order_for_the_tie_break():
 def test_by_refs_unreferenced_rules_are_last_alphabetical():
     """Rules never referenced from start end up last, alphabetically sorted."""
     ast = IrAst(
-        IrSeq(_rule("zeta"), _rule("alpha"), _rule("root")),
+        IrSeq(rule("zeta"), rule("alpha"), rule("root")),
         "root",
     )
     result = order_by_refs(ast)
@@ -192,7 +191,7 @@ def test_by_refs_unreferenced_rules_are_last_alphabetical():
 
 def test_by_refs_preserves_start_name():
     """Reordering never changes the AST's start-rule name."""
-    ast = IrAst(IrSeq(_rule("b"), _rule("a")), "a")
+    ast = IrAst(IrSeq(rule("b"), rule("a")), "a")
     result = order_by_refs(ast)
     assert result.start == "a"
 
@@ -200,7 +199,7 @@ def test_by_refs_preserves_start_name():
 def test_by_refs_only_first_occurrence_of_a_repeated_ref_counts():
     """A rule referenced more than once by the same body still orders once, at first mention."""
     ast = IrAst(
-        IrSeq(_rule("shared"), _rule("root", "shared", "shared")),
+        IrSeq(rule("shared"), rule("root", "shared", "shared")),
         "root",
     )
     result = order_by_refs(ast)
@@ -209,15 +208,44 @@ def test_by_refs_only_first_occurrence_of_a_repeated_ref_counts():
 
 def test_by_refs_is_a_noop_on_an_already_ordered_ast():
     """Reordering an AST already in canonical order returns an equal AST."""
-    ast = IrAst(IrSeq(_rule("root", "b"), _rule("b")), "root")
+    ast = IrAst(IrSeq(rule("root", "b"), rule("b")), "root")
     assert order_by_refs(ast) == ast
 
 
-def test_refs_in_order_collects_distinct_names_in_body_order():
-    """The public edge extractor: first-seen order, no duplicates."""
-    body = IrAlternation(
-        IrSequence(
-            IrItem(IrRuleRef("b")), IrItem(IrRuleRef("a")), IrItem(IrRuleRef("b"))
-        )
-    )
-    assert refs_in_order(body) == ["b", "a"]
+def test_by_refs_collects_edges_distinct_in_body_order():
+    """Ref-edges drive the order first-seen, duplicates ignored (the deleted
+    ``refs_in_order`` wrapper's contract, kept pinned on ``by_refs`` itself)."""
+    ast = IrAst(IrSeq(rule("root", "b", "a", "b"), rule("a"), rule("b")), "root")
+    assert [rule.name for rule in order_by_refs(ast).rules] == ["root", "b", "a"]
+
+
+# ── refs_in_order — public direct entry (compile's prelude closure calls it) ──
+
+
+def test_refs_in_order_collects_names_in_pre_order():
+    """refs_in_order walks a subtree and appends each IrRuleRef name, in the
+    order it is first encountered."""
+    out: list[str] = []
+    refs_in_order(rule("root", "b", "a").body, out)
+    assert out == ["b", "a"]
+
+
+def test_refs_in_order_dedupes_a_repeated_ref():
+    """A ref seen more than once appears only at its first occurrence."""
+    out: list[str] = []
+    refs_in_order(rule("root", "b", "a", "b").body, out)
+    assert out == ["b", "a"]
+
+
+def test_refs_in_order_appends_onto_an_existing_accumulator():
+    """The accumulator is not reset — callers may seed it or call repeatedly."""
+    out: list[str] = ["seed"]
+    refs_in_order(rule("root", "a").body, out)
+    assert out == ["seed", "a"]
+
+
+def test_refs_in_order_on_a_ref_free_body_leaves_the_accumulator_untouched():
+    """A body with no IrRuleRef contributes nothing."""
+    out: list[str] = []
+    refs_in_order(rule("root").body, out)
+    assert not out

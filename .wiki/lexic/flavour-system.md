@@ -101,3 +101,23 @@ Both flavours are single flat modules — no `emitter.py`, `escapes.py`, or `met
 9. Mirror tests under `tests/unit/lexic/grammars/test_<name>.py`, plus a golden fingerprint integration test (`tests/integration/test_<name>_ir_equivalence.py` — see [[public-api]]). See [[testing]].
 
 No changes to `compile.py`, `lexic.codegen`, or `lexic.parsing` — the engine and the whole IR-native codegen pipeline (`canonical_grammar` → `build_codegen_grammar` → `compute_binding` → `codegen`) are flavour-agnostic.
+
+
+## Width-aware emission (2026-07-18)
+
+Structure-level emit actions (item/sequence/alternation/rule/ast/rules-tuple)
+build layout docs (`lexic.ir.layout`); atoms stay str-tier and lift at the
+doc joins. `apply(root, width=88)` renders — `width=None` reproduces the flat
+single-line form byte-for-byte. Arms break onto trailing-pipe (GBNF `|`,
+EBNF `|`) / trailing-slash (ABNF `/`) continuations at indent 6; each
+sequence arm and each wide EBNF class expansion is its own fit group. The
+round-trip licence: wrapped emit → parse → canonicalize equals the source
+canonical AST (ABNF's wrap is RFC 5234 c-wsp folding).
+
+Three shipped flavours: GBNF, ABNF, EBNF (`grammars/ebnf.py`, ISO-family;
+exact repetition spells `n * x` prefix — owned by the item action; open or
+bounded counted quantifiers and `IrNot` refuse declaratively). ABNF carries
+`ABNF_CORE_RULES` (RFC 5234 B.1) on the new `IrFlavour.core_rules` ClassVar —
+consumed by `parse_grammar` as dangling-ref resolution ONLY, to closure,
+never overriding a defined name. All three manifests generate from the
+shipped singletons (`tools/gen_manifests.py`).

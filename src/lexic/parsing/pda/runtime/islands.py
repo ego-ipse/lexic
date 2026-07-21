@@ -12,6 +12,9 @@ reverse. The thin ``PdaKernel._island`` dispatcher (which owns the cursor state
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
+from lexic.exceptions import LexicError
 from lexic.ir.base import IrTuple
 from lexic.parsing.earley.engine import EarleyParser
 from lexic.parsing.earley.forest import DERIVATION_STREAM, ParseTree, SppfNode
@@ -19,15 +22,90 @@ from lexic.parsing.earley.kernel import Delegate, FastTree, Kernel
 from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables
 from lexic.parsing.pda.core.errors import PdaFail
 
-__all__ = ["ISLAND_WINDOW", "island_derivation", "island_parse", "island_run"]
+__all__ = [
+    "ISLAND_WINDOW",
+    "island_derivation",
+    "island_parse",
+    "island_run",
+    "island_value",
+]
 
 ISLAND_WINDOW = 256
 """Initial character window for an island Earley sub-parse; doubles on demand
 while the best completion still touches the window edge and input remains."""
 
+
+def island_value[T](compute: Callable[[], T], name: str, pos: int) -> T:
+    """Run an island's fold/reduce step, failing SOFT on a library error.
+
+    The window-growth heuristic is a heuristic: a language with the
+    valid-prefix property (e.g. bare identifiers) can complete a TRUNCATED
+    parse strictly inside a window that cut a token, without touching the
+    edge — the spliced sub-model is then wrong, and its fold/reduce step is
+    the first thing to notice (an unknown symbol, a refused field). Such a
+    :class:`~lexic.exceptions.LexicError` reroutes to :class:`PdaFail`, so
+    the Earley completion — which parses the WHOLE input and re-runs the
+    same fold — becomes the authority; a genuine fold error reproduces there
+    identically. Non-library exceptions (authored-constructor bugs) still
+    surface loudly.
+
+    :param compute: The deferred fold/reduce application.
+    :param name: The island rule name (for the failure message).
+    :param pos: The cursor position (for the failure message).
+    :returns: The computed sub-model / IR value.
+    :raises PdaFail: When ``compute`` raises a :class:`LexicError`.
+    """
+    try:
+        return compute()
+    except LexicError as exc:
+        raise PdaFail(f"island {name!r} at {pos}: fold refused the completion") from exc
+
+
 _DERIV_PARSER = EarleyParser()
 """The shared façade dispatcher the island derivation-stream fallback threads
 through :data:`~lexic.parsing.earley.forest.DERIVATION_STREAM`'s ``eval`` (stateless)."""
+
+
+def _may_extend(
+    best: tuple[Kernel, int, int] | None,
+    text: str,
+    pos: int,
+    window: int,
+    remaining: int,
+) -> bool:
+    """Whether a windowed island result may extend with more input — grow.
+
+    Three grow signals, each an over-approximation (growing is always safe;
+    it can only ever add genuine longest-match input):
+
+    - no completion in the window at all (more context may produce one);
+    - the best completion touches the window edge (the original heuristic —
+      a token cut exactly at the edge);
+    - the **valid-prefix probe**: the FULL text's next character after the
+      completion is scannable at the completion column
+      (:meth:`~lexic.parsing.earley.kernel.Kernel.can_extend_at`) — a
+      language with the valid-prefix property (bare identifiers, call heads)
+      can complete a TRUNCATED parse strictly inside a cut window; if the
+      real next character could extend the island, the stop is not to be
+      trusted. This is the longest-match semantics the window was hiding —
+      not merely a safety net for the fail-soft path.
+
+    :param best: The windowed ``island_run`` result.
+    :param text: The FULL input.
+    :param pos: The island's start position in ``text``.
+    :param window: The current window size.
+    :param remaining: ``len(text) - pos``.
+    :returns: ``True`` when the window must grow before trusting ``best``.
+    """
+    if best is None:
+        return True
+    kern, _item, end = best
+    if end == min(window, remaining):
+        return True
+    nxt = pos + end
+    if nxt >= len(text):
+        return False
+    return kern.can_extend_at(end, text[nxt])
 
 
 def island_parse(
@@ -55,7 +133,7 @@ def island_parse(
     remaining = len(text) - pos
     window = ISLAND_WINDOW
     best = island_run(tables, text[pos : pos + window], delegates)
-    while window < remaining and (best is None or best[2] == min(window, remaining)):
+    while window < remaining and _may_extend(best, text, pos, window, remaining):
         window *= 2
         best = island_run(tables, text[pos : pos + window], delegates)
     if best is None:

@@ -13,7 +13,7 @@ hand-authored GBNF snippets compiled to a real :class:`PdaTables` and
 inspected via ``.program`` — following ``test_clones.py``'s idiom. Every
 name below (the module's own internals) is imported directly rather than
 reached through ``module._name`` attribute access, matching
-``test_lexruns.py``'s precedent; ``_pda_from_text``/``_pda_for`` come from
+``test_lexruns.py``'s precedent; ``pda_from_text``/``pda_for`` come from
 ``test_clones`` rather than duplicated (pylint R0801).
 """
 
@@ -56,12 +56,12 @@ from lexic.parsing.pda.compiler.flatten import (
     PdaProgram,
 )
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.pda.compiler.test_clones import _pda_for, _pda_from_text
+from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_for, pda_from_text
 
 # ── helpers ───────────────────────────────────────────────────────────────
 
 
-def _only_arm(clone: FlatClone) -> FlatArm:
+def only_arm(clone: FlatClone) -> FlatArm:
     """The clone's sole arm, whichever of ``selectors``/``default`` holds it.
 
     Every hand grammar below is small enough to compile to one FIRST-gated
@@ -186,12 +186,12 @@ def test_exactly_once_ref_and_literal_inline_and_specialise_to_a_leaf():
     trailing exactly-once literal specialises to OP_LIT1, and the whole
     sequence clone earns the frame-less leaf licence.
     """
-    pda = _pda_from_text('root ::= lit "x"\nlit ::= "a" | "b"\n')
+    pda = pda_from_text('root ::= lit "x"\nlit ::= "a" | "b"\n')
     root = pda.program.start
     assert root.mode == BUILD_SEQ
     assert root.needs_ends is False
     assert root.leaf is True
-    arm = _only_arm(root)
+    arm = only_arm(root)
     assert arm.n == 2
     assert arm.kinds == (OP_VSTR, OP_LIT1)
     assert arm.los == (1, 1)
@@ -206,11 +206,11 @@ def test_value_str_literal_run_specialises_but_never_earns_the_leaf_flag():
     """A merged literal-run value_str clone specialises its sole item to
     OP_LIT1, but the leaf licence is granted only to BUILD_SEQ clones.
     """
-    pda = _pda_from_text('root ::= "a" "b"\n')
+    pda = pda_from_text('root ::= "a" "b"\n')
     root = pda.program.start
     assert root.mode == BUILD_VALUE_STR
     assert root.leaf is False
-    arm = _only_arm(root)
+    arm = only_arm(root)
     assert arm.kinds == (OP_LIT1,)
     assert arm.payloads == ("ab",)
 
@@ -220,9 +220,9 @@ def test_exactly_once_charclass_specialises_to_cc1_with_a_resolved_charset():
     specialises to OP_CC1; a following ref to a terminal-only value_str
     clone still inlines to OP_VSTR alongside it.
     """
-    pda = _pda_from_text('root ::= [a-c] x\nx ::= "z"\n')
+    pda = pda_from_text('root ::= [a-c] x\nx ::= "z"\n')
     root = pda.program.start
-    arm = _only_arm(root)
+    arm = only_arm(root)
     assert arm.kinds == (OP_CC1, OP_VSTR)
     chars, negated = arm.payloads[0]
     assert chars == frozenset("abc")
@@ -233,9 +233,9 @@ def test_unbounded_terminal_is_never_specialised_to_its_exactly_once_code():
     """A quantified (non-exactly-once) literal keeps the plain OP_LIT code —
     _specialize_terminals only rewrites lo == hi == 1 items.
     """
-    pda = _pda_from_text('root ::= "a"+ x\nx ::= y "q"\ny ::= "p"\n')
+    pda = pda_from_text('root ::= "a"+ x\nx ::= y "q"\ny ::= "p"\n')
     root = pda.program.start
-    arm = _only_arm(root)
+    arm = only_arm(root)
     assert arm.kinds[0] == OP_LIT
     assert arm.los[0] == 1
     assert arm.his[0] == HI_UNBOUNDED
@@ -252,9 +252,9 @@ def test_qualifying_alternation_converts_to_a_frameless_dispatch_clone():
     text = (
         'root ::= alt\nalt ::= a | b\na ::= x "1"\nb ::= y "2"\nx ::= "q"\ny ::= "r"\n'
     )
-    pda = _pda_from_text(text)
+    pda = pda_from_text(text)
     root = pda.program.start
-    arm = _only_arm(root)
+    arm = only_arm(root)
     assert arm.kinds == (OP_REF1,)  # needs_ends False: the call specialises too
     alt_clone = arm.payloads[0]
     assert alt_clone.mode == BUILD_DISPATCH
@@ -270,9 +270,9 @@ def test_dispatch_conversion_skipped_once_value_str_inlining_eats_the_refs():
     _convert_dispatch runs — the alternation no longer has the unit-ref
     shape the dispatch rewrite requires, so it stays BUILD_ALT.
     """
-    pda = _pda_from_text('root ::= alt\nalt ::= a | b\na ::= "1"\nb ::= "2"\n')
+    pda = pda_from_text('root ::= alt\nalt ::= a | b\na ::= "1"\nb ::= "2"\n')
     root = pda.program.start
-    arm = _only_arm(root)
+    arm = only_arm(root)
     alt_clone = arm.payloads[0]
     assert alt_clone.mode == BUILD_ALT
     for _chars, _negated, sub_arm in alt_clone.selectors:
@@ -286,10 +286,10 @@ def test_specialize_calls_is_blocked_by_a_needs_ends_sequence_clone():
     """An exactly-once ref stays OP_REF (never promoted to OP_REF1) when
     its own clone keeps item ends for some other bound field's text span.
     """
-    pda = _pda_from_text('root ::= "a"+ x\nx ::= y "q"\ny ::= "p"\n')
+    pda = pda_from_text('root ::= "a"+ x\nx ::= y "q"\ny ::= "p"\n')
     root = pda.program.start
     assert root.needs_ends is True
-    arm = _only_arm(root)
+    arm = only_arm(root)
     assert arm.kinds[1] == OP_REF
     x_clone = arm.payloads[1]
     assert x_clone.mode == BUILD_SEQ  # not vstr-inlinable: it holds a ruleref
@@ -303,10 +303,10 @@ def test_inline_group_flattens_transparent_with_no_fold_and_no_fast_ctor():
     flattens to a frame-less BUILD_TRANSPARENT clone: no RuleFold, no
     fields, no fast constructor, never leaf-licenced.
     """
-    pda = _pda_from_text('root ::= (x "1" | y "2")\nx ::= "a"\ny ::= "b"\n')
+    pda = pda_from_text('root ::= (x "1" | y "2")\nx ::= "a"\ny ::= "b"\n')
     root = pda.program.start
     assert root.needs_ends is True
-    arm = _only_arm(root)
+    arm = only_arm(root)
     assert arm.kinds == (OP_GRP,)
     group = arm.payloads[0]
     assert group.mode == BUILD_TRANSPARENT
@@ -326,9 +326,9 @@ def test_island_ref_flattens_to_op_island_carrying_the_rule_name():
     """A ref to a genuine (non-fail) island flattens to OP_ISLAND with the
     island's rule name as payload — the runtime's splice-in marker.
     """
-    pda = _pda_from_text('root ::= x\nx ::= n "x" | n "y"\nn ::= [0-9]+\n')
+    pda = pda_from_text('root ::= x\nx ::= n "x" | n "y"\nn ::= [0-9]+\n')
     assert "x" in pda.islands
-    arm = _only_arm(pda.program.start)
+    arm = only_arm(pda.program.start)
     assert arm.kinds == (OP_ISLAND,)
     assert arm.payloads == ("x",)
 
@@ -337,8 +337,8 @@ def test_fail_island_ref_flattens_to_op_fail_carrying_the_rule_name():
     """A ref to a fail-island (the F1 soft-follower-escape shape) flattens
     to OP_FAIL, never spliced by the pure-PDA runtime.
     """
-    pda = _pda_from_text('root ::= x "ab"?\nx ::= [a-c]*\n')
-    arm = _only_arm(pda.program.start)
+    pda = pda_from_text('root ::= x "ab"?\nx ::= [a-c]*\n')
+    arm = only_arm(pda.program.start)
     assert arm.kinds[0] == OP_FAIL
     assert arm.payloads[0] == "x"
 
@@ -349,7 +349,7 @@ def test_start_rule_itself_an_island_flattens_the_program_to_a_bare_islandref():
     shares an unbounded digit prefix across arms, ungatable at any ``k ≤ 3``
     (the old ``"a"? "a"`` shape now legitimately demotes under P2).
     """
-    pda = _pda_from_text('root ::= n "x" | n "y"\nn ::= [0-9]+\n')
+    pda = pda_from_text('root ::= n "x" | n "y"\nn ::= [0-9]+\n')
     assert pda.islands == frozenset({"root"})
     assert pda.program.start == IslandRef("root", fail=False)
 
@@ -361,7 +361,7 @@ def test_every_exactly_once_terminal_is_specialised_across_ground_truth():
     """No reachable arm keeps a bare OP_LIT/OP_CC on an exactly-once item —
     _specialize_terminals is exhaustive, not just true on hand fixtures.
     """
-    pda = _pda_for(GROUND_TRUTH / "arithmetic.gbnf")
+    pda = pda_for(GROUND_TRUTH / "arithmetic.gbnf")
     stack = [pda.program.start] if hasattr(pda.program.start, "mode") else []
     seen: set[int] = set()
     while stack:

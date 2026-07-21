@@ -9,18 +9,33 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "lexic"
 
 
-def _grep(directory: Path, needle: str) -> list[Path]:
+def grep(directory: Path, needle: str) -> list[Path]:
     """Return list of .py files in directory containing needle."""
     return [p for p in directory.rglob("*.py") if needle in p.read_text()]
 
 
-def _module_name(path: Path) -> str:
+def module_name(path: Path) -> str:
     """The dotted module name of a file under ``src/`` (``src/lexic/a/b.py`` →
     ``lexic.a.b``)."""
     return ".".join(path.relative_to(SRC.parent).with_suffix("").parts)
 
 
-def _from_imports(tree: ast.AST) -> "list[tuple[str, str]]":
+COMPILE_PKG = SRC / "compile"
+COMPILE_SEAM = COMPILE_PKG / "__init__.py"
+
+
+def runtime_module_files() -> list[Path]:
+    """The runtime seam-scope: top-level runtime modules plus the compile package.
+
+    ``compile.py`` became the ``lexic.compile`` package; the package (its
+    ``__init__``) is now the sole runtime seam onto the engine, so the seam
+    invariants scan the top-level modules together with every module inside
+    ``compile/``.
+    """
+    return sorted(SRC.glob("*.py")) + sorted(COMPILE_PKG.rglob("*.py"))
+
+
+def from_imports(tree: ast.AST) -> "list[tuple[str, str]]":
     """Every absolute ``from <module> import <name>`` as ``(module, name)``."""
     out: list[tuple[str, str]] = []
     for node in ast.walk(tree):
@@ -38,70 +53,84 @@ def test_no_cross_module_private_imports_in_src():
     """
     offenders: list[str] = []
     for path in SRC.rglob("*.py"):
-        mod = _module_name(path)
-        for module, name in _from_imports(ast.parse(path.read_text())):
+        mod = module_name(path)
+        for module, name in from_imports(ast.parse(path.read_text())):
             if module != mod and name.startswith("_"):
                 offenders.append(f"{mod}: from {module} import {name}")
     assert not offenders, f"cross-module private imports: {offenders}"
 
 
-def test_runtime_imports_parsing_root_only():
-    """Only ``compile.py`` imports ``lexic.parsing`` among top-level runtime
-    modules, and only the package **root** — never a submodule.
+LICENSED_PARSING = frozenset({"lexic.parsing", "lexic.parsing.earley.reduce"})
+"""The engine imports a ``lexic.compile`` module may make: the package root
+(the product entries + fold toolkit) and the one licensed submodule
+``lexic.parsing.earley.reduce`` — the reduce channel (``Reducer`` sentinels,
+``Yield``/``YIELD``) the notation and loader need, exactly the licence
+``lexic.grammars`` already enjoys de facto (``grammars/gbnf.py``). Every other
+``lexic.parsing`` submodule (``.fold``/``.pda``/``.products``/``.earley.*``)
+stays off-limits."""
 
-    The engine owns its API: consumers import ``lexic.parsing`` (the product
-    entries + the exported toolkit), never ``lexic.parsing.earley`` /
-    ``.fold`` / ``.pda`` / ``.products``. Permanent enforcement of directive 1.
+
+def test_runtime_imports_parsing_are_compile_only_and_licensed():
+    """The compile package is the sole engine consumer, via the licensed surface.
+
+    Among runtime modules, only ``lexic.compile`` package modules import
+    ``lexic.parsing`` at all, and each such import is one of
+    :data:`LICENSED_PARSING` — the package root or the one licensed reduce
+    submodule. The engine owns its API; no other runtime module reaches it, and
+    no compile module reaches past the licensed surface. Enforcement of
+    directive 1 (widened at Task 4 for the notation/loader reduce-channel
+    licence, MANIFEST_DESIGN §7).
     """
     offenders: list[str] = []
-    for path in SRC.glob("*.py"):  # top-level runtime modules only
+    for path in runtime_module_files():
         tree = ast.parse(path.read_text())
-        mods = [m for m, _ in _from_imports(tree)]
+        mods = [m for m, _ in from_imports(tree)]
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 mods.extend(alias.name for alias in node.names)
         for module in mods:
             if module != "lexic.parsing" and not module.startswith("lexic.parsing."):
                 continue
-            if path.name != "compile.py":
-                offenders.append(f"{path.name}: imports {module} (only compile.py may)")
-            elif module != "lexic.parsing":
-                offenders.append(f"{path.name}: imports {module} (root only)")
+            rel = path.relative_to(SRC)
+            if not path.is_relative_to(COMPILE_PKG):
+                offenders.append(
+                    f"{rel}: imports {module} (only the compile package may)"
+                )
+            elif module not in LICENSED_PARSING:
+                offenders.append(
+                    f"{rel}: imports {module} (compile may import only "
+                    f"{sorted(LICENSED_PARSING)})"
+                )
     assert not offenders, f"parsing import-layering violations: {offenders}"
 
 
-def test_ir_does_not_import_grammars_parsing_codegen():
-    """lexic.ir should be a leaf module, not importing lexic.grammars, the
-    engine (lexic.parsing), or lexic.codegen."""
-    bad = (
-        _grep(SRC / "ir", "from lexic.grammars")
-        + _grep(SRC / "ir", "from lexic.parsing")
-        + _grep(SRC / "ir", "from lexic.codegen")
+def test_ir_does_not_import_grammars_or_parsing():
+    """lexic.ir should be a leaf module, not importing lexic.grammars or the
+    engine (lexic.parsing)."""
+    bad = grep(SRC / "ir", "from lexic.grammars") + grep(
+        SRC / "ir", "from lexic.parsing"
     )
     assert not bad, f"lexic.ir leaks: {bad}"
 
 
-def test_codegen_does_not_import_grammars_or_parsing():
-    """lexic.codegen should be a leaf module, not importing lexic.grammars or the engine."""
-    bad = _grep(SRC / "codegen", "from lexic.grammars") + _grep(
-        SRC / "codegen", "from lexic.parsing"
-    )
-    assert not bad, f"lexic.codegen leaks: {bad}"
+def test_no_src_module_imports_pydantic():
+    """No module anywhere in ``src/`` imports pydantic.
+
+    Models live on the IrNamedTuple record spine, not pydantic; the dependency
+    is gone from the runtime entirely.
+    """
+    bad = grep(SRC, "from pydantic") + grep(SRC, "import pydantic")
+    assert not bad, f"pydantic imported in src: {bad}"
 
 
-def test_engine_package_does_not_import_grammars_or_codegen():
-    """The Earley engine (lexic.parsing) is a leaf w.r.t. grammars/codegen.
+def test_engine_package_does_not_import_grammars():
+    """The Earley engine (lexic.parsing) is a leaf w.r.t. grammars.
 
     It reads and writes IR only; the flavour reducers live in lexic.grammars
     and the model fold is invoked from the compile seam, never the reverse.
     """
     engine = SRC / "parsing"
-    bad = (
-        _grep(engine, "from lexic.grammars")
-        + _grep(engine, "import lexic.grammars")
-        + _grep(engine, "from lexic.codegen")
-        + _grep(engine, "import lexic.codegen")
-    )
+    bad = grep(engine, "from lexic.grammars") + grep(engine, "import lexic.grammars")
     assert not bad, f"lexic.parsing leaks: {bad}"
 
 
@@ -112,10 +141,10 @@ def test_engine_fold_seam_is_plain_data():
     lexic.ir.bind vocabulary (parsing → ir is a legal edge)."""
     engine = SRC / "parsing"
     bad = (
-        _grep(engine, "from pydantic")
-        + _grep(engine, "import pydantic")
-        + _grep(engine, "from lexic.ir.spec")
-        + _grep(engine, "import lexic.ir.spec")
+        grep(engine, "from pydantic")
+        + grep(engine, "import pydantic")
+        + grep(engine, "from lexic.ir.spec")
+        + grep(engine, "import lexic.ir.spec")
     )
     assert not bad, f"the fold seam leaks beyond plain data: {bad}"
 
@@ -129,21 +158,48 @@ def test_wrapper_models_module_is_gone():
 
 
 def test_engine_imported_by_runtime_only_via_compile_seam():
-    """Top-level runtime modules import the engine only through compile.py.
+    """Runtime modules outside the compile package never import the engine.
 
-    ``compile.py`` is the single sanctioned runtime seam onto the engine;
-    base.py / parse.py / generate.py must reach parsing behaviour through it,
-    not by importing lexic.parsing directly.
+    The compile package is the single sanctioned runtime consumer of the engine
+    (its own modules' engine imports are governed by
+    :func:`test_runtime_imports_parsing_are_compile_only_and_licensed`);
+    base.py / parse.py / generate.py must reach parsing behaviour through the
+    package, not by importing lexic.parsing directly.
     """
     offenders = []
-    for p in SRC.glob("*.py"):  # top-level modules only, not subpackages
-        if p.name == "compile.py":
+    for p in runtime_module_files():
+        if p.is_relative_to(COMPILE_PKG):
             continue
         for line in p.read_text().splitlines():
             stripped = line.strip()
             if stripped.startswith(("from lexic.parsing", "import lexic.parsing")):
-                offenders.append(f"{p.name}: {stripped}")
-    assert not offenders, f"runtime bypasses the compile.py engine seam: {offenders}"
+                offenders.append(f"{p.relative_to(SRC)}: {stripped}")
+    assert not offenders, (
+        f"runtime bypasses the compile package engine seam: {offenders}"
+    )
+
+
+def test_compile_package_seam_is_init_only():
+    """Outside the compile package, only ``lexic.compile`` (the ``__init__``) is imported.
+
+    The compile package is the sole runtime seam (settled 1): every other
+    ``src/`` module reaches it via ``from lexic.compile import ...`` (the
+    package root), never a submodule (``lexic.compile.passes`` / ``.binding`` /
+    ``.synthesis``). Intra-package imports are unrestricted.
+    """
+    offenders: list[str] = []
+    for path in SRC.rglob("*.py"):
+        if path.is_relative_to(COMPILE_PKG):
+            continue
+        tree = ast.parse(path.read_text())
+        mods = [m for m, _ in from_imports(tree)]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                mods.extend(alias.name for alias in node.names)
+        for module in mods:
+            if module.startswith("lexic.compile."):
+                offenders.append(f"{module_name(path)}: {module}")
+    assert not offenders, f"compile subpackage imported outside the seam: {offenders}"
 
 
 def test_flavours_module_is_gone():
@@ -187,7 +243,7 @@ def test_utils_package_is_gone():
 def test_retired_ir_modules_are_gone():
     """The RuleSpec/derive/emit/naming/topo modules died in Task 6.
 
-    Their successors: the binding view + passes (``lexic.codegen``), flavour
+    Their successors: the binding view + passes (``lexic.compile``), flavour
     ``apply`` (emission), and ``lexic.ir.order`` (rule ordering).
     """
     for name in ("derive.py", "spec.py", "emit.py", "naming.py", "topo.py"):
@@ -206,13 +262,13 @@ def test_retired_ir_modules_are_gone():
 
 def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
     """The core substrate, analysis, clone compiler and runtime modules exist
-    inside lexic.parsing.pda and carry no grammars/codegen import.
+    inside lexic.parsing.pda and carry no grammars import.
 
-    ``test_engine_package_does_not_import_grammars_or_codegen`` already
-    greps every ``.py`` under ``lexic.parsing`` generically (``rglob``), so
-    these modules are covered by accident of directory placement; this pins
-    that placement (and the absence of the two forbidden imports) explicitly
-    by name, so a future reshuffle can't silently drop them from scope.
+    ``test_engine_package_does_not_import_grammars`` already greps every
+    ``.py`` under ``lexic.parsing`` generically (``rglob``), so these modules
+    are covered by accident of directory placement; this pins that placement
+    (and the absence of the forbidden import) explicitly by name, so a future
+    reshuffle can't silently drop them from scope.
     """
     pda = SRC / "parsing" / "pda"
     for rel in (
@@ -225,7 +281,6 @@ def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
         assert path.exists(), f"{rel} missing from lexic.parsing.pda"
         content = path.read_text()
         assert "from lexic.grammars" not in content, f"{rel} imports lexic.grammars"
-        assert "from lexic.codegen" not in content, f"{rel} imports lexic.codegen"
 
 
 def test_earley_never_imports_pda():
@@ -239,14 +294,14 @@ def test_earley_never_imports_pda():
     the kernel itself imports nothing from ``pda`` and stays PDA-agnostic.
     """
     earley = SRC / "parsing" / "earley"
-    bad = _grep(earley, "from lexic.parsing.pda") + _grep(
+    bad = grep(earley, "from lexic.parsing.pda") + grep(
         earley, "import lexic.parsing.pda"
     )
     assert not bad, f"earley imports pda (delegation must stay opaque): {bad}"
 
 
 def test_pda_entry_points_imported_only_via_compile_seam():
-    """Only compile.py imports the PDA entry points among top-level runtime modules.
+    """Only the compile seam imports the PDA entry points among runtime modules.
 
     ``pda.clones``/``pda.runtime`` are sub-paths of ``lexic.parsing``, so
     ``test_engine_imported_by_runtime_only_via_compile_seam``'s ``"from
@@ -255,8 +310,8 @@ def test_pda_entry_points_imported_only_via_compile_seam():
     module imports them at all — the products own the PDA behind the root API.
     """
     offenders = []
-    for p in SRC.glob("*.py"):  # top-level modules only, not subpackages
-        if p.name == "compile.py":
+    for p in runtime_module_files():
+        if p == COMPILE_SEAM:
             continue
         for line in p.read_text().splitlines():
             stripped = line.strip()
@@ -270,10 +325,13 @@ def test_pda_entry_points_imported_only_via_compile_seam():
     assert not offenders, f"PDA entry points bypass the compile.py seam: {offenders}"
 
 
-def test_single_codegen_entry_and_emit_path():
-    """One way per task: exactly one codegen entry and one emit-source function."""
-    codegen_init = (SRC / "codegen" / "__init__.py").read_text()
-    assert "def codegen_ir(" not in codegen_init
-    emitter = (SRC / "codegen" / "model_emitter.py").read_text()
-    assert "emit_module_source_ir" not in emitter
-    assert emitter.count("def emit_module_source(") == 1
+def test_codegen_package_is_gone():
+    """Sanity: the codegen package is deleted and imported nowhere in src.
+
+    Its jobs live on the ``lexic.compile`` package (binding view + passes +
+    runtime synthesis).
+    """
+    assert not (SRC / "codegen").exists()
+    for p in SRC.rglob("*.py"):
+        content = p.read_text()
+        assert "lexic.codegen" not in content, f"{p}: residual lexic.codegen"

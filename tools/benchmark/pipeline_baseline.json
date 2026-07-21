@@ -2,55 +2,60 @@
   "compile_time": {
     "arithmetic.gbnf": {
       "canonical_grammar": {
-        "best_ms": 3.5155110017512925,
-        "median_ms": 3.603885001211893
+        "best_ms": 2.63145999997505,
+        "median_ms": 2.6495239999348996
       },
       "compile_text": {
-        "best_ms": 24.15755100082606,
-        "median_ms": 24.952088002464734
+        "best_ms": 3.6987200001021847,
+        "median_ms": 3.7917179997748462
       }
     },
     "c.gbnf": {
       "canonical_grammar": {
-        "best_ms": 17.973081005038694,
-        "median_ms": 18.384996001259424
+        "best_ms": 15.362493999418803,
+        "median_ms": 15.56163499935792
       },
       "compile_text": {
-        "best_ms": 80.10748899687314,
-        "median_ms": 82.25347599363886
+        "best_ms": 19.477369000014733,
+        "median_ms": 19.613769999523356
       }
     },
     "json.gbnf": {
       "canonical_grammar": {
-        "best_ms": 13.38598900474608,
-        "median_ms": 13.439107002341188
+        "best_ms": 12.728077999781817,
+        "median_ms": 12.855171999945014
       },
       "compile_text": {
-        "best_ms": 72.87041199742816,
-        "median_ms": 73.58830599696375
+        "best_ms": 16.3190229995962,
+        "median_ms": 16.3889460000064
       }
     }
   },
   "instance_parse": {
     "arithmetic.gbnf": {
-      "best_ms": 11.170192003191914,
+      "best_ms": 10.962944000311836,
       "chars": 4800,
-      "median_ms": 11.481090004963335
+      "median_ms": 11.115555000287713
     },
     "c.gbnf": {
-      "best_ms": 3.179876999638509,
+      "best_ms": 3.2142740001290804,
       "chars": 3289,
-      "median_ms": 3.2966450016829185
+      "median_ms": 3.2381390001319232
     },
     "chess.gbnf": {
-      "best_ms": 6.455333001213148,
+      "best_ms": 6.705978000354662,
       "chars": 4203,
-      "median_ms": 6.599250002182089
+      "median_ms": 6.7716029998337035
     },
     "json.gbnf": {
-      "best_ms": 13.551506002841052,
+      "best_ms": 12.402475999806484,
       "chars": 4233,
-      "median_ms": 13.975544003187679
+      "median_ms": 12.546931000542827
+    },
+    "json_varied": {
+      "best_ms": 8.22962100028235,
+      "chars": 4626,
+      "median_ms": 8.368625000002794
     }
   }
 }

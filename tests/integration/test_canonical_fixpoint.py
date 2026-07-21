@@ -28,7 +28,7 @@ from lexic.grammars.json import JSON_GRAMMAR
 from lexic.ir.canonical import canonicalize
 from tests.paths import GROUND_TRUTH
 
-_GBNF_GROUND_TRUTH = (
+GBNF_GROUND_TRUTH = (
     "arithmetic",
     "c",
     "chess",
@@ -40,46 +40,47 @@ _GBNF_GROUND_TRUTH = (
 )
 
 
-def _canon_gbnf(stem: str):
+def canon_gbnf(stem: str):
+    """The canonicalized AST of a ground-truth GBNF grammar by stem."""
     text = (GROUND_TRUTH / f"{stem}.gbnf").read_text(encoding="utf-8")
     return canonicalize(parse_grammar(text, GBNF_FLAVOUR))
 
 
 def test_headline_json_fixpoint() -> None:
     """gbnf and abnf JSON both canonicalise to JSON_GRAMMAR."""
-    gbnf = _canon_gbnf("json")
+    gbnf = canon_gbnf("json")
     abnf_text = (GROUND_TRUTH / "json.abnf").read_text(encoding="utf-8")
     abnf = canonicalize(parse_grammar(abnf_text, ABNF_FLAVOUR))
     assert gbnf == abnf
     assert gbnf == JSON_GRAMMAR
 
 
-@pytest.mark.parametrize("stem", _GBNF_GROUND_TRUTH)
+@pytest.mark.parametrize("stem", GBNF_GROUND_TRUTH)
 def test_gbnf_emit_fixpoint(stem: str) -> None:
     """canonicalize(parse(emit(canon))) == canon for every GBNF ground truth."""
-    canon = _canon_gbnf(stem)
+    canon = canon_gbnf(stem)
     emitted = str(GBNF_FLAVOUR.apply(canon))
     reparsed = canonicalize(parse_grammar(emitted, GBNF_FLAVOUR))
     assert reparsed == canon
 
 
-@pytest.mark.parametrize("stem", _GBNF_GROUND_TRUTH)
+@pytest.mark.parametrize("stem", GBNF_GROUND_TRUTH)
 def test_abnf_emit_fixpoint(stem: str) -> None:
     """canonicalize(parse(emit(canon))) == canon through ABNF for every ground truth.
 
     The canonical AST is flavour-agnostic, so ABNF must emit and reparse it back
     to the same shape — this is what the ``%s"..."`` / ``%x`` literal rework buys.
     """
-    canon = _canon_gbnf(stem)
+    canon = canon_gbnf(stem)
     emitted = str(ABNF_FLAVOUR.apply(canon))
     reparsed = canonicalize(parse_grammar(emitted, ABNF_FLAVOUR))
     assert reparsed == canon
 
 
-@pytest.mark.parametrize("stem", _GBNF_GROUND_TRUTH)
+@pytest.mark.parametrize("stem", GBNF_GROUND_TRUTH)
 def test_abnf_emit_is_idempotent(stem: str) -> None:
     """ABNF emission is stable: re-emitting the reparsed canon yields identical text."""
-    canon = _canon_gbnf(stem)
+    canon = canon_gbnf(stem)
     once = str(ABNF_FLAVOUR.apply(canon))
     twice = str(ABNF_FLAVOUR.apply(canonicalize(parse_grammar(once, ABNF_FLAVOUR))))
     assert once == twice
@@ -87,8 +88,8 @@ def test_abnf_emit_is_idempotent(stem: str) -> None:
 
 def test_canonicalize_is_idempotent_on_ground_truths() -> None:
     """Canonicalisation is a fixpoint: canonicalize(canon) == canon."""
-    for stem in _GBNF_GROUND_TRUTH:
-        canon = _canon_gbnf(stem)
+    for stem in GBNF_GROUND_TRUTH:
+        canon = canon_gbnf(stem)
         assert canonicalize(canon) == canon
 
 

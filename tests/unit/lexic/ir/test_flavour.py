@@ -14,10 +14,20 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_ESCAPES, ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_ESCAPES, GBNF_FLAVOUR
-from lexic.ir.base import IrInt, IrNone, IrStr
+from lexic.ir.base import IrInt, IrNone, IrSeq, IrStr
 from lexic.ir.escapes import CANONICAL_ESCAPES
 from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour, IrSpellable
-from lexic.ir.nodes import IrChr, IrLiteral, IrQuantifier
+from lexic.ir.nodes import (
+    IrAlternation,
+    IrAst,
+    IrChr,
+    IrItem,
+    IrLiteral,
+    IrQuantifier,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+)
 from lexic.ir.walk import IrEmitter
 
 
@@ -72,16 +82,28 @@ def test_irflavour_grammar_and_reducer_carry_no_default_on_the_abc():
 # provides: the R1 metadata ClassVars, grammar/reducer, and the emitter
 # actions. (Underscore-prefixed names are dataclass/ABC machinery — the
 # inherited emitter protocol — not flavour-authored surface.)
-_R1_ALLOWED = frozenset(
-    {"name", "extensions", "line_comment", "escapes", "grammar", "reducer", "actions"}
+R1_ALLOWED = frozenset(
+    {
+        "name",
+        "extensions",
+        "line_comment",
+        "escapes",
+        "grammar",
+        "reducer",
+        "actions",
+        # flavour-layout additions (2026-07-18): the width-aware emitter
+        # protocol refinement + the core-rules prelude data ClassVar.
+        "apply",
+        "core_rules",
+    }
 )
 
 # Public names the inherited emitter protocol already provides (e.g. the
 # dispatch ``default``) — allowed by R1's "beyond IrEmitter inheritance".
-_INHERITED = frozenset(n for n in dir(IrEmitter) if not n.startswith("_"))
+INHERITED = frozenset(n for n in dir(IrEmitter) if not n.startswith("_"))
 
 # The Lark-era flavour methods that R1 deletes and nothing replaces.
-_DELETED_MEMBERS = (
+DELETED_MEMBERS = (
     "parse_quantifier",
     "parse_charclass",
     "normalize_literal",
@@ -89,7 +111,7 @@ _DELETED_MEMBERS = (
 )
 
 
-def _own_public_names(cls: type) -> set[str]:
+def own_public_names(cls: type) -> set[str]:
     """Public names defined directly on ``cls`` — excludes dunders and the
     underscore-prefixed dataclass/ABC internals that the emitter base adds."""
     return {name for name in vars(cls) if not name.startswith("_")}
@@ -107,7 +129,7 @@ def test_flavour_defines_no_members_beyond_r1_surface(flavour_cls: type):
     method) or extra attribute beyond what IrEmitter provides would show up
     here — R1 mandates none.
     """
-    stray = _own_public_names(flavour_cls) - _R1_ALLOWED - _INHERITED
+    stray = own_public_names(flavour_cls) - R1_ALLOWED - INHERITED
     assert not stray, f"{flavour_cls.__name__} defines beyond R1 surface: {stray}"
 
 
@@ -118,7 +140,7 @@ def test_flavour_defines_no_members_beyond_r1_surface(flavour_cls: type):
 )
 def test_flavour_has_no_deleted_lark_members(flavour_cls: type):
     """The Lark-era methods are gone (not even inherited) — R1 replaces none."""
-    present = [m for m in _DELETED_MEMBERS if hasattr(flavour_cls, m)]
+    present = [m for m in DELETED_MEMBERS if hasattr(flavour_cls, m)]
     assert not present, f"{flavour_cls.__name__} still exposes: {present}"
 
 
@@ -233,3 +255,62 @@ def test_irspellable_non_string_node_raises():
 def test_irspellable_repr_is_codegen():
     """IrSpellable repr is 'IrSpellable()' — fieldless leaf."""
     assert repr(IrSpellable()) == "IrSpellable()"
+
+
+# ── IrFlavour.apply(root, width=...) — the width-aware emitter protocol ──
+
+
+def wide_rule() -> IrRule:
+    """A rule whose alternation is wide enough to overflow width 88 flat."""
+    names = [f"alternative-name-number-{i}" for i in range(6)]
+    arms = [IrSequence(IrItem(IrRuleRef(name))) for name in names]
+    return IrRule("wide-rule", IrAlternation(*arms))
+
+
+def test_apply_default_width_wraps_a_long_rule():
+    """apply()'s default width=88 breaks a rule too wide to fit one line."""
+    result = GBNF_FLAVOUR.apply(wide_rule())
+    assert "\n" in result
+    assert all(len(line) <= 88 for line in result.splitlines())
+
+
+def test_apply_width_none_is_flat_and_equals_the_pre_layout_single_line():
+    """width=None renders the doc flat — one line, matching the join-by-space
+    single-line form a str-tier (pre-layout) emitter would have produced."""
+    rule = wide_rule()
+    flat = GBNF_FLAVOUR.apply(rule, width=None)
+    assert "\n" not in flat
+    expected = "wide-rule ::= " + " | ".join(
+        f"alternative-name-number-{i}" for i in range(6)
+    )
+    assert flat == expected
+
+
+def test_apply_wrapped_and_flat_differ_for_a_wide_rule():
+    """The same rule renders differently at the default width vs width=None."""
+    rule = wide_rule()
+    assert GBNF_FLAVOUR.apply(rule) != GBNF_FLAVOUR.apply(rule, width=None)
+
+
+def test_apply_narrow_rule_is_unaffected_by_width():
+    """A rule that already fits stays a single line at any width."""
+    rule = IrRule("a", IrAlternation(IrSequence(IrItem(IrLiteral("x")))))
+    assert GBNF_FLAVOUR.apply(rule) == GBNF_FLAVOUR.apply(rule, width=None)
+
+
+def test_apply_on_a_str_tier_result_passes_through_unchanged():
+    """A str-tier emission (e.g. a bare IrQuantifier) ignores width entirely
+    — apply() only renders when the action table produces an IrDoc."""
+    result_default = GBNF_FLAVOUR.apply(IrQuantifier(2, 5))
+    result_flat = GBNF_FLAVOUR.apply(IrQuantifier(2, 5), width=None)
+    assert result_default == result_flat == "{2,5}"
+    assert isinstance(result_default, IrStr)
+
+
+def test_apply_on_an_ast_wraps_each_wide_rule_independently():
+    """apply() on a whole IrAst wraps each rule's own body against width,
+    joined by hard inter-rule breaks."""
+    ast = IrAst(IrSeq(wide_rule()), "wide-rule")
+    result = GBNF_FLAVOUR.apply(ast)
+    assert all(len(line) <= 88 for line in result.splitlines())
+    assert result.count("wide-rule ::=") == 1

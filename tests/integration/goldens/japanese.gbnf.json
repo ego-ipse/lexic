@@ -1,0 +1,132 @@
+[
+  {
+    "input": "こんにちは",
+    "runtime_dump": {
+      "jp_char": [
+        {
+          "value": "こ"
+        },
+        {
+          "value": "ん"
+        },
+        {
+          "value": "に"
+        },
+        {
+          "value": "ち"
+        },
+        {
+          "value": "は"
+        }
+      ],
+      "root_item": []
+    },
+    "runtime_semantic_dump": {
+      "jp_char": [
+        {
+          "value": "こ"
+        },
+        {
+          "value": "ん"
+        },
+        {
+          "value": "に"
+        },
+        {
+          "value": "ち"
+        },
+        {
+          "value": "は"
+        }
+      ],
+      "root_item": []
+    },
+    "to_text": "こんにちは"
+  },
+  {
+    "input": "ぺ",
+    "runtime_dump": {
+      "jp_char": [
+        {
+          "value": "ぺ"
+        }
+      ],
+      "root_item": []
+    },
+    "runtime_semantic_dump": {
+      "jp_char": [
+        {
+          "value": "ぺ"
+        }
+      ],
+      "root_item": []
+    },
+    "to_text": "ぺ"
+  },
+  {
+    "input": "〫\t〺ど酋\tモ",
+    "runtime_dump": {
+      "jp_char": [
+        {
+          "value": "〫"
+        }
+      ],
+      "root_item": [
+        {
+          "head": "\t",
+          "jp_char": [
+            {
+              "value": "〺"
+            },
+            {
+              "value": "ど"
+            },
+            {
+              "value": "酋"
+            }
+          ]
+        },
+        {
+          "head": "\t",
+          "jp_char": [
+            {
+              "value": "モ"
+            }
+          ]
+        }
+      ]
+    },
+    "runtime_semantic_dump": {
+      "jp_char": [
+        {
+          "value": "〫"
+        }
+      ],
+      "root_item": [
+        {
+          "head": "\t",
+          "jp_char": [
+            {
+              "value": "〺"
+            },
+            {
+              "value": "ど"
+            },
+            {
+              "value": "酋"
+            }
+          ]
+        },
+        {
+          "head": "\t",
+          "jp_char": [
+            {
+              "value": "モ"
+            }
+          ]
+        }
+      ]
+    },
+    "to_text": "〫\t〺ど酋\tモ"
+  }
+]

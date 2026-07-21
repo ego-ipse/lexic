@@ -18,9 +18,9 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from tests._ir_fixtures import digit_grammar as _digit_grammar
-from tests._ir_fixtures import sss_grammar as _sss_grammar
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
+from tests.unit.lexic.parsing.ir_fixtures import sss_grammar as _sss_grammar
 
 
 @pytest.fixture

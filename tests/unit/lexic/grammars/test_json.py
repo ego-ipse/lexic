@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from lexic.codegen import codegen
-from lexic.codegen.binding import compute_binding
-from lexic.codegen.passes import build_codegen_grammar
+from lexic.compile.pipeline.binding import compute_binding
+from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.synthesis import synthesize
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.ir.base import IrSeq
 from lexic.ir.canonical import fold_name
@@ -15,7 +15,7 @@ from lexic.ir.nodes import (
     IrRange,
     IrRule,
 )
-from tests._ir_fixtures import JSON_RULE_NAMES
+from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
 # ── Basic structure ───────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ def test_json_grammar_expected_rule_names():
 # ── Canonical-form choices ────────────────────────────────────────────
 
 
-def _find_rule(name: str) -> IrRule:
+def find_rule(name: str) -> IrRule:
     """Return the named rule from JSON_GRAMMAR."""
     for rule in JSON_GRAMMAR.rules:
         if rule.name == name:
@@ -61,7 +61,7 @@ def _find_rule(name: str) -> IrRule:
 
 def test_begin_object_left_brace_is_ir_literal():
     """``begin-object``'s ``{`` is an :class:`IrLiteral`, not a char class."""
-    rule = _find_rule("begin-object")
+    rule = find_rule("begin-object")
     seq = rule.body[0]
     # structure: ws { ws — the literal is the middle item
     middle = seq[1]
@@ -75,7 +75,7 @@ def test_unescaped_uses_positive_ir_ranges():
     ABNF cannot express negated char classes, so the canonical form uses
     ``%x20-21 / %x23-5B / %x5D-10FFFF`` positive ranges.
     """
-    rule = _find_rule("unescaped")
+    rule = find_rule("unescaped")
     seq = rule.body[0]
     atom = seq[0].atom
     assert isinstance(atom, IrCharClass)
@@ -88,7 +88,7 @@ def test_unescaped_uses_positive_ir_ranges():
 
 def test_false_rule_is_ir_literal():
     """``false`` is a multi-char :class:`IrLiteral`, not individual char classes."""
-    rule = _find_rule("false")
+    rule = find_rule("false")
     seq = rule.body[0]
     atom = seq[0].atom
     assert isinstance(atom, IrLiteral)
@@ -97,21 +97,21 @@ def test_false_rule_is_ir_literal():
 
 def test_null_rule_is_ir_literal():
     """``null`` is an :class:`IrLiteral`."""
-    rule = _find_rule("null")
+    rule = find_rule("null")
     seq = rule.body[0]
     assert seq[0].atom == IrLiteral("null")
 
 
 def test_true_rule_is_ir_literal():
     """``true`` is an :class:`IrLiteral`."""
-    rule = _find_rule("true")
+    rule = find_rule("true")
     seq = rule.body[0]
     assert seq[0].atom == IrLiteral("true")
 
 
 def test_ws_uses_charclass():
     """``ws`` uses a single :class:`IrCharClass` for the four whitespace chars."""
-    rule = _find_rule("ws")
+    rule = find_rule("ws")
     seq = rule.body[0]
     atom = seq[0].atom
     assert isinstance(atom, IrCharClass)
@@ -120,7 +120,7 @@ def test_ws_uses_charclass():
 # ── Pipeline smoke tests ──────────────────────────────────────────────
 
 
-def _json_ast_with_non_semantic() -> IrAst:
+def json_ast_with_non_semantic() -> IrAst:
     """``JSON_GRAMMAR`` rebound with the ``ws`` rule flagged ``semantic=False``."""
     rules = (
         IrRule(r.name, r.body, semantic=False) if r.name == "ws" else r
@@ -131,28 +131,28 @@ def _json_ast_with_non_semantic() -> IrAst:
 
 def test_binding_view_succeeds():
     """``compute_binding`` runs without error and returns a non-empty list."""
-    binding = compute_binding(build_codegen_grammar(_json_ast_with_non_semantic()))
+    binding = compute_binding(build_codegen_grammar(json_ast_with_non_semantic()))
     assert isinstance(binding, list)
     assert len(binding) > 0
 
 
 def test_binding_view_includes_start_rule():
     """The binding view includes the start rule (folded name)."""
-    binding = compute_binding(build_codegen_grammar(_json_ast_with_non_semantic()))
+    binding = compute_binding(build_codegen_grammar(json_ast_with_non_semantic()))
     names = {b.rule_name for b in binding}
     assert "json-text" in names
 
 
 def test_codegen_produces_classes():
-    """``codegen(...)`` generates Pydantic classes without error.
+    """``synthesize(...)`` builds the model classes without error.
 
     The class name folds from the canonical (lowercase) rule name, so
     ``json-text`` -> ``JsonText``, not the old acronym-cased ``JSONText``.
     """
-    canonical = _json_ast_with_non_semantic()
+    canonical = json_ast_with_non_semantic()
     codegen_grammar = build_codegen_grammar(canonical)
     binding = compute_binding(codegen_grammar)
-    classes = codegen(canonical, codegen_grammar, binding, "json_grammar_test")
+    classes = synthesize(codegen_grammar, binding, "json_grammar_test")
     assert isinstance(classes, dict)
     assert len(classes) > 0
     assert "JsonText" in classes

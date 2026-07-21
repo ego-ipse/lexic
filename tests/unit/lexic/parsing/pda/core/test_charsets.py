@@ -17,8 +17,8 @@ from hypothesis import given, settings
 from lexic.ir.nodes import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
 from lexic.parsing.pda.core.charsets import MAX_RANGE_EXPANSION, CharSet
 
-_A = frozenset({"a", "b"})
-_B = frozenset({"b", "c"})
+A = frozenset({"a", "b"})
+B = frozenset({"b", "c"})
 
 
 # ── singletons ──────────────────────────────────────────────────────────
@@ -53,14 +53,14 @@ def test_any_singleton_does_not_contain_eof_sentinel():
 
 def test_has_positive_set_contains_listed_chars():
     """A positive set's has() is plain membership in chars."""
-    cs = CharSet(_A, False)
+    cs = CharSet(A, False)
     assert cs.has("a")
     assert not cs.has("c")
 
 
 def test_has_negated_set_excludes_listed_chars():
     """A negated set's has() is membership in the complement of chars."""
-    cs = CharSet(_A, True)
+    cs = CharSet(A, True)
     assert not cs.has("a")
     assert cs.has("c")
 
@@ -91,25 +91,25 @@ def test_is_empty_true_only_for_the_positive_empty_set():
 
 def test_union_positive_positive_is_plain_set_union():
     """positive ∪ positive is plain frozenset union."""
-    result = CharSet(_A, False).union(CharSet(_B, False))
+    result = CharSet(A, False).union(CharSet(B, False))
     assert result == CharSet(frozenset({"a", "b", "c"}), False)
 
 
 def test_union_negated_negated_intersects_the_exclusions():
     """negated ∪ negated intersects the two exclusion sets."""
-    result = CharSet(_A, True).union(CharSet(_B, True))
+    result = CharSet(A, True).union(CharSet(B, True))
     assert result == CharSet(frozenset({"b"}), True)
 
 
 def test_union_positive_negated_shrinks_the_exclusion_by_the_positive_set():
     """positive ∪ negated removes the positive set's chars from the exclusion."""
-    result = CharSet(_A, False).union(CharSet(_B, True))
+    result = CharSet(A, False).union(CharSet(B, True))
     assert result == CharSet(frozenset({"c"}), True)
 
 
 def test_union_negated_positive_shrinks_the_exclusion_by_the_positive_set():
     """negated ∪ positive removes the positive set's chars from the exclusion."""
-    result = CharSet(_A, True).union(CharSet(_B, False))
+    result = CharSet(A, True).union(CharSet(B, False))
     assert result == CharSet(frozenset({"a"}), True)
 
 
@@ -131,13 +131,13 @@ def test_union_drops_eof_when_the_result_is_negated():
 
 def test_subtract_positive_positive_is_plain_set_difference():
     """positive − positive is plain frozenset difference."""
-    result = CharSet(_A, False).subtract(CharSet(_B, False))
+    result = CharSet(A, False).subtract(CharSet(B, False))
     assert result == CharSet(frozenset({"a"}), False)
 
 
 def test_subtract_positive_negated_is_intersection():
     """positive − negated is intersection with the negated set's chars."""
-    result = CharSet(_A, False).subtract(CharSet(_B, True))
+    result = CharSet(A, False).subtract(CharSet(B, True))
     assert result == CharSet(frozenset({"b"}), False)
 
 
@@ -145,7 +145,7 @@ def test_subtract_positive_negated_passes_through_self_eof():
     """A negated ``other`` never removes EOF (it can never have it), so
     subtracting it always keeps ``self``'s own EOF membership.
     """
-    result = CharSet.from_chars("a", "").subtract(CharSet(_A, True))
+    result = CharSet.from_chars("a", "").subtract(CharSet(A, True))
     assert result.has("")
 
 
@@ -160,13 +160,13 @@ def test_overlaps_positive_negated_ignores_eof_on_the_positive_side():
 
 def test_subtract_negated_positive_unions_the_exclusions():
     """negated − positive unions the two exclusion sets."""
-    result = CharSet(_A, True).subtract(CharSet(_B, False))
+    result = CharSet(A, True).subtract(CharSet(B, False))
     assert result == CharSet(frozenset({"a", "b", "c"}), True)
 
 
 def test_subtract_negated_negated_is_the_reverse_difference():
     """negated − negated is the reverse (other − self) chars difference."""
-    result = CharSet(_A, True).subtract(CharSet(_B, True))
+    result = CharSet(A, True).subtract(CharSet(B, True))
     assert result == CharSet(frozenset({"c"}), False)
 
 
@@ -175,38 +175,38 @@ def test_subtract_negated_negated_is_the_reverse_difference():
 
 def test_overlaps_positive_positive_true_when_shared_char():
     """Two positive sets overlap iff they share a char."""
-    assert CharSet(_A, False).overlaps(CharSet(_B, False))
+    assert CharSet(A, False).overlaps(CharSet(B, False))
 
 
 def test_overlaps_positive_positive_false_when_disjoint():
     """Two disjoint positive sets do not overlap."""
-    assert not CharSet(_A, False).overlaps(CharSet(frozenset({"d"}), False))
+    assert not CharSet(A, False).overlaps(CharSet(frozenset({"d"}), False))
 
 
 def test_overlaps_negated_negated_is_always_true_even_when_exclusions_are_disjoint():
     """Two negated sets always overlap, even with disjoint exclusions."""
     disjoint_exclusion = CharSet(frozenset({"d"}), True)
-    assert CharSet(_A, True).overlaps(disjoint_exclusion)
+    assert CharSet(A, True).overlaps(disjoint_exclusion)
 
 
 def test_overlaps_positive_negated_true_when_positive_has_an_uncovered_char():
     """positive overlaps negated when the positive set has a char outside the exclusion."""
-    assert CharSet(_A, False).overlaps(CharSet(_B, True))
+    assert CharSet(A, False).overlaps(CharSet(B, True))
 
 
 def test_overlaps_positive_negated_false_when_positive_is_subset_of_the_exclusion():
     """positive does not overlap negated when it is entirely excluded."""
-    assert not CharSet(_B, False).overlaps(CharSet(_B, True))
+    assert not CharSet(B, False).overlaps(CharSet(B, True))
 
 
 def test_overlaps_negated_positive_true_when_positive_has_an_uncovered_char():
     """negated overlaps positive when the positive set has a char outside the exclusion."""
-    assert CharSet(_A, True).overlaps(CharSet(_B, False))
+    assert CharSet(A, True).overlaps(CharSet(B, False))
 
 
 def test_overlaps_negated_positive_false_when_positive_equals_the_exclusion():
     """negated does not overlap positive when the positive set equals the exclusion."""
-    assert not CharSet(_A, True).overlaps(CharSet(_A, False))
+    assert not CharSet(A, True).overlaps(CharSet(A, False))
 
 
 # ── from_charclass ──────────────────────────────────────────────────────
@@ -257,13 +257,14 @@ def test_from_charclass_cap_is_a_strict_greater_than(monkeypatch):
 # in the oracle itself, so it can't share a bug with the code under test).
 
 
-def _ranges_to_charclass(ranges: list[tuple[int, int]]) -> IrCharClass:
+def ranges_to_charclass(ranges: list[tuple[int, int]]) -> IrCharClass:
+    """An IrCharClass covering exactly the given codepoint ranges."""
     return IrCharClass(
         *(IrChr(lo) if lo == hi else IrRange(IrChr(lo), IrChr(hi)) for lo, hi in ranges)
     )
 
 
-def _reference_member(ranges: list[tuple[int, int]], cp: int) -> bool:
+def reference_member(ranges: list[tuple[int, int]], cp: int) -> bool:
     """Independent membership oracle: brute-force scan of the raw ranges."""
     return any(lo <= cp <= hi for lo, hi in ranges)
 
@@ -271,11 +272,11 @@ def _reference_member(ranges: list[tuple[int, int]], cp: int) -> bool:
 def test_from_charclass_exact_for_a_small_positive_class():
     """A small class stays positive and exact — no cap involved."""
     ranges = [(ord("a"), ord("e")), (ord("x"), ord("x"))]
-    cc = _ranges_to_charclass(ranges)
+    cc = ranges_to_charclass(ranges)
     cs = CharSet.from_charclass(cc)
     assert not cs.negated
     for cp in range(200):
-        assert cs.has(chr(cp)) == _reference_member(ranges, cp)
+        assert cs.has(chr(cp)) == reference_member(ranges, cp)
 
 
 def test_from_charclass_goes_negated_when_the_complement_is_small():
@@ -283,19 +284,19 @@ def test_from_charclass_goes_negated_when_the_complement_is_small():
     side exactly, instead of widening the whole thing to ANY."""
     gap = 0x2028  # an arbitrary interior code point excluded from the class
     ranges = [(0, gap - 1), (gap + 1, MAX_CODEPOINT)]
-    cc = _ranges_to_charclass(ranges)
+    cc = ranges_to_charclass(ranges)
     cs = CharSet.from_charclass(cc)
     assert cs.negated
     assert cs.chars == frozenset({chr(gap)})
     for cp in (0, 1, gap - 1, gap, gap + 1, MAX_CODEPOINT):
-        assert cs.has(chr(cp)) == _reference_member(ranges, cp)
+        assert cs.has(chr(cp)) == reference_member(ranges, cp)
 
 
 def test_from_charclass_stays_any_when_both_sides_exceed_the_cap():
     """A range roughly bisecting the code-point space stays ANY: neither the
     positive set nor its complement fits under the expansion cap."""
     ranges = [(0, MAX_CODEPOINT // 2)]
-    cc = _ranges_to_charclass(ranges)
+    cc = ranges_to_charclass(ranges)
     assert CharSet.from_charclass(cc) == CharSet.ANY
 
 
@@ -304,18 +305,18 @@ def test_from_not_exact_complement_when_inner_is_near_universal():
     ANY-ing — the complement of a small-complement class is small-positive."""
     gap = 0x2028
     ranges = [(0, gap - 1), (gap + 1, MAX_CODEPOINT)]
-    cc = _ranges_to_charclass(ranges)
+    cc = ranges_to_charclass(ranges)
     cs = CharSet.from_not(cc)
     assert not cs.negated
     assert cs.chars == frozenset({chr(gap)})
     for cp in (0, 1, gap - 1, gap, gap + 1, MAX_CODEPOINT):
-        assert cs.has(chr(cp)) == (not _reference_member(ranges, cp))
+        assert cs.has(chr(cp)) == (not reference_member(ranges, cp))
 
 
 def test_from_not_stays_any_when_inner_exceeds_the_cap_on_both_sides():
     """from_not falls back to ANY only when inner's own from_charclass did."""
     ranges = [(0, MAX_CODEPOINT // 2)]
-    cc = _ranges_to_charclass(ranges)
+    cc = ranges_to_charclass(ranges)
     assert CharSet.from_not(cc) == CharSet.ANY
 
 
@@ -335,10 +336,10 @@ def test_from_charclass_matches_reference_over_random_small_ranges(
     """Brute-force fuzz: from_charclass's has() agrees with the independent
     range-scan oracle over every code point the ranges could plausibly touch,
     plus the far extreme (MAX_CODEPOINT)."""
-    cc = _ranges_to_charclass(ranges)
+    cc = ranges_to_charclass(ranges)
     cs = CharSet.from_charclass(cc)
     for cp in (*range(600), MAX_CODEPOINT):
-        assert cs.has(chr(cp)) == _reference_member(ranges, cp)
+        assert cs.has(chr(cp)) == reference_member(ranges, cp)
 
 
 # ── from_not ─────────────────────────────────────────────────────────────
@@ -400,34 +401,35 @@ def test_charset_is_usable_as_a_dict_key():
 
 # ── property: algebra vs. brute-force membership ────────────────────────
 #
-# _OUTSIDE stands in for "any character never drawn into an explicit chars
-# set" — the strategy below only ever draws explicit chars from _ALPHABET/
-# _EOF, so brute-forcing membership over _UNIVERSE (which adds _OUTSIDE)
+# OUTSIDE stands in for "any character never drawn into an explicit chars
+# set" — the strategy below only ever draws explicit chars from ALPHABET/
+# EOF, so brute-forcing membership over UNIVERSE (which adds OUTSIDE)
 # correctly exercises the co-finite (negated) case: a negated set always
-# contains _OUTSIDE, a positive set never does.
+# contains OUTSIDE, a positive set never does.
 #
 # EOF is only ever drawn for a POSITIVE set — matching the real invariant
 # (from_charclass/from_not never see "", from_chars never returns negated)
 # — so a negated set here never carries "" in chars, same as production.
 
-_ALPHABET = ("a", "b", "c", "d", "e")
-_EOF = ""
-_OUTSIDE = "￿"
-_UNIVERSE = (*_ALPHABET, _EOF, _OUTSIDE)
+ALPHABET = ("a", "b", "c", "d", "e")
+EOF = ""
+OUTSIDE = "￿"
+UNIVERSE = (*ALPHABET, EOF, OUTSIDE)
 
 
 @st.composite
-def _charset_strategy(draw: st.DrawFn) -> CharSet:
+def charset_strategy(draw: st.DrawFn) -> CharSet:
+    """A random CharSet, positive or negated, over the fixture alphabet."""
     negated = draw(st.booleans())
-    pool = _ALPHABET if negated else (*_ALPHABET, _EOF)
+    pool = ALPHABET if negated else (*ALPHABET, EOF)
     chars = draw(st.frozensets(st.sampled_from(pool), max_size=4))
     return CharSet(chars, negated)
 
 
-_charsets = _charset_strategy()
+charsets = charset_strategy()
 
 
-@given(a=_charsets, b=_charsets)
+@given(a=charsets, b=charsets)
 @settings(max_examples=200)
 def test_union_matches_membership_up_to_the_documented_eof_cap(
     a: CharSet, b: CharSet
@@ -440,31 +442,31 @@ def test_union_matches_membership_up_to_the_documented_eof_cap(
     too.
     """
     result = a.union(b)
-    for ch in _UNIVERSE:
+    for ch in UNIVERSE:
         if ch == "" and result.negated:
             assert not result.has(ch)
             continue
         assert result.has(ch) == (a.has(ch) or b.has(ch))
 
 
-@given(a=_charsets, b=_charsets)
+@given(a=charsets, b=charsets)
 @settings(max_examples=200)
 def test_subtract_matches_brute_force_membership(a: CharSet, b: CharSet) -> None:
     """subtract matches brute-force membership over the universe, EOF included."""
     result = a.subtract(b)
-    for ch in _UNIVERSE:
+    for ch in UNIVERSE:
         assert result.has(ch) == (a.has(ch) and not b.has(ch))
 
 
-@given(a=_charsets, b=_charsets)
+@given(a=charsets, b=charsets)
 @settings(max_examples=200)
 def test_overlaps_matches_brute_force_membership(a: CharSet, b: CharSet) -> None:
     """overlaps matches brute-force membership over the universe, EOF included."""
-    expected = any(a.has(ch) and b.has(ch) for ch in _UNIVERSE)
+    expected = any(a.has(ch) and b.has(ch) for ch in UNIVERSE)
     assert a.overlaps(b) == expected
 
 
-@given(a=_charsets, b=_charsets)
+@given(a=charsets, b=charsets)
 @settings(max_examples=200)
 def test_subtract_is_intersection_with_the_real_char_complement(
     a: CharSet, b: CharSet
@@ -477,5 +479,5 @@ def test_subtract_is_intersection_with_the_real_char_complement(
     """
     b_complement = CharSet(b.chars, not b.negated)
     result = a.subtract(b)
-    for ch in (*_ALPHABET, _OUTSIDE):
+    for ch in (*ALPHABET, OUTSIDE):
         assert result.has(ch) == (a.has(ch) and b_complement.has(ch))

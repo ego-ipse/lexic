@@ -24,11 +24,11 @@ from lexic.ir.nodes import IrAst
 from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.products import earley_reduce
-from tests._ir_fixtures import JSON_RULE_NAMES
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
 # Golden per-file fingerprint: start rule + rule names in source order.
-_GOLDEN: dict[str, tuple[str, tuple[str, ...]]] = {
+GOLDEN: dict[str, tuple[str, tuple[str, ...]]] = {
     "arithmetic": ("root", ("root", "expr", "term", "ident", "num", "ws")),
     "c": (
         "root",
@@ -174,7 +174,7 @@ _GOLDEN: dict[str, tuple[str, tuple[str, ...]]] = {
 GRAMMARS = sorted(GROUND_TRUTH.glob("*.gbnf"))
 
 
-def _fingerprint(ast: IrAst) -> tuple[str, tuple[str, ...]]:
+def fingerprint(ast: IrAst) -> tuple[str, tuple[str, ...]]:
     """(start rule, rule names in order) — the golden-comparable shape."""
     return str(ast.start), tuple(str(r.name) for r in ast.rules)
 
@@ -187,7 +187,7 @@ def norm_grammar_fixture() -> IrAst:
 
 def test_corpus_is_complete() -> None:
     """Every golden entry has a ground-truth file and vice versa."""
-    assert {p.stem for p in GRAMMARS} == set(_GOLDEN)
+    assert {p.stem for p in GRAMMARS} == set(GOLDEN)
 
 
 @pytest.mark.parametrize("path", GRAMMARS, ids=lambda p: p.stem)
@@ -196,7 +196,7 @@ def test_reduces_to_golden_fingerprint(path: Path, norm_grammar: IrAst) -> None:
     text = path.read_text(encoding="utf-8")
     ast = earley_reduce(norm_grammar, text, GBNF_REDUCER)
     assert isinstance(ast, IrAst)
-    assert _fingerprint(ast) == _GOLDEN[path.stem]
+    assert fingerprint(ast) == GOLDEN[path.stem]
 
 
 @pytest.mark.parametrize("path", GRAMMARS, ids=lambda p: p.stem)
@@ -214,4 +214,4 @@ def test_emit_reparse_preserves_fingerprint(path: Path, norm_grammar: IrAst) -> 
     assert isinstance(ast, IrAst)
     reparsed = earley_reduce(norm_grammar, str(GBNF_FLAVOUR.apply(ast)), GBNF_REDUCER)
     assert isinstance(reparsed, IrAst)
-    assert _fingerprint(reparsed) == _fingerprint(ast)
+    assert fingerprint(reparsed) == fingerprint(ast)
