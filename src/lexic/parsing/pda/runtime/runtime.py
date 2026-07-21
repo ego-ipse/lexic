@@ -643,6 +643,51 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
             varm = clone.default
             if varm is None:
                 raise PdaFail(f"no arm at {pos}")
+        if varm.n != 1:  # the rare multi-item arm — cold, off the hot path
+            return self._vstr_span(clone, sink, varm, pos)
+        kj = varm.kinds[0]  # the common single-item arm — no item loop, no slice
+        if kj == OP_CC1:
+            payload = varm.payloads[0]
+            if (
+                (char == "" or char in payload[0])
+                if payload[1]
+                else (char not in payload[0])
+            ):
+                raise PdaFail(f"char class miss at {pos}")
+            sink.append(build_vstr(clone, char, self._intern))
+            return pos + 1
+        if kj == OP_LIT1:
+            lit = varm.payloads[0]
+            if not text.startswith(lit, pos):
+                raise PdaFail(f"expected {lit!r} at {pos}")
+            sink.append(build_vstr(clone, lit, self._intern))
+            return pos + len(lit)
+        end = (
+            self._match_lit(varm, 0, pos)
+            if kj == OP_LIT
+            else self._match_cc(varm, 0, pos)
+        )
+        sink.append(build_vstr(clone, text[pos:end], self._intern))
+        return end
+
+    def _vstr_span(
+        self, clone: FlatClone, sink: list[Any], varm: FlatArm, pos: int
+    ) -> int:
+        """Match a multi-item ``value_str`` arm — the rare, off-hot-path case.
+
+        A ``value_str`` arm with more than one terminal item (e.g. a literal
+        prefix then a char class). Runs the whole item loop and slices the
+        combined span. Kept separate from :meth:`_vstr_once`'s single-item fast
+        path so the common case carries no loop or extra branch.
+
+        :param clone: The ``value_str`` clone (its fold builds the model).
+        :param sink: The sink the built model appends to.
+        :param varm: The selected multi-item arm.
+        :param pos: The cursor position.
+        :returns: The position after the arm's whole match.
+        :raises PdaFail: On a terminal mismatch.
+        """
+        text = self.text
         start = pos
         for j in range(varm.n):
             kj = varm.kinds[j]
