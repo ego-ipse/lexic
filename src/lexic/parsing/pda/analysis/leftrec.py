@@ -32,6 +32,7 @@ from lexic.ir.action import IrAction
 from lexic.ir.base import IrLambda, IrSelf
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrCharClass,
     IrItem,
@@ -62,6 +63,7 @@ _CORNER_ATOM: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_corner_terminal)),
     IrAction(IrCharClass, IrLambda(_corner_terminal)),
     IrAction(IrNot, IrLambda(_corner_terminal)),
+    IrAction(IrAlphabet, IrLambda(_corner_terminal)),
     IrAction(IrRuleRef, IrLambda(_corner_ruleref)),
     IrAction(IrAlternation, IrLambda(_corner_alternation)),
 )

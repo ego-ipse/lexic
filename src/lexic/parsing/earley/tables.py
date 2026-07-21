@@ -40,6 +40,7 @@ from __future__ import annotations
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrAtom, IrLeaf, IrSelf, IrSeq
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -147,7 +148,9 @@ def expand_atom(atom: IrSelf) -> Charset:
     return frozenset(chars)
 
 
-def atom_accepts(atom: IrLiteral | IrCharClass | IrNot | RunTerm, char: str) -> bool:
+def atom_accepts(
+    atom: IrLiteral | IrCharClass | IrNot | IrAlphabet | RunTerm, char: str
+) -> bool:
     """Whether a terminal atom can **begin** with ``char`` — the scan filter.
 
     A multi-char literal is begun by its first character (the full match is
@@ -162,6 +165,8 @@ def atom_accepts(atom: IrLiteral | IrCharClass | IrNot | RunTerm, char: str) -> 
     :raises UnsupportedConstructError: When ``atom`` is an ``IrNot`` over
         anything other than an ``IrCharClass``.
     """
+    if isinstance(atom, IrAlphabet):
+        return False  # a token terminal matches an id at a boundary, never a char
     if isinstance(atom, IrLiteral):
         return atom.startswith(char)  # IrLiteral IS-A str
     if isinstance(atom, IrCharClass):
@@ -363,7 +368,7 @@ class TermTables(IrLeaf[IrSelf, IrSelf]):
 
     __slots__ = ("atoms", "lens", "literals", "runs")
 
-    atoms: tuple["IrLiteral | IrCharClass | IrNot | RunTerm", ...]
+    atoms: tuple["IrLiteral | IrCharClass | IrNot | IrAlphabet | RunTerm", ...]
     lens: tuple[int, ...]
     literals: tuple[str, ...]
     runs: tuple[RunTerm, ...]
@@ -515,7 +520,9 @@ class _TableBuilder:
         self.grammar = grammar
         self.runs = runs or {}
         self.rule_ids: dict[str, int] = {}
-        self.terms: dict["IrLiteral | IrCharClass | IrNot | RunTerm", int] = {}
+        self.terms: dict[
+            "IrLiteral | IrCharClass | IrNot | IrAlphabet | RunTerm", int
+        ] = {}
         self.arms: list[tuple[IrSequence, int, int]] = []
         self.codes: list[tuple[int, int]] = []
         self.rule_dot0: list[list[int]] = []
@@ -542,7 +549,9 @@ class _TableBuilder:
         """The start rule's id, or ``-1`` when the grammar never defines it."""
         return self.rule_ids.get(str(self.grammar.start), -1)
 
-    def term_atoms(self) -> tuple["IrLiteral | IrCharClass | IrNot | RunTerm", ...]:
+    def term_atoms(
+        self,
+    ) -> tuple["IrLiteral | IrCharClass | IrNot | IrAlphabet | RunTerm", ...]:
         """The terminal atoms in term_id order."""
         return tuple(self.terms)
 
@@ -604,7 +613,9 @@ class _TableBuilder:
         self.codes.append((arm_id, -(self._term_id(term) + 1)))
         self.codes.append((arm_id, 0))
 
-    def _term_id(self, atom: IrLiteral | IrCharClass | IrNot | RunTerm) -> int:
+    def _term_id(
+        self, atom: IrLiteral | IrCharClass | IrNot | IrAlphabet | RunTerm
+    ) -> int:
         """The term_id for ``atom``, minting one on first sight."""
         tid = self.terms.get(atom)
         if tid is None:
@@ -646,7 +657,7 @@ class _TableBuilder:
         atom = item.atom
         if isinstance(atom, IrRuleRef):
             return self._rule_id(str(atom)) + 1
-        if isinstance(atom, (IrLiteral, IrCharClass, IrNot)):
+        if isinstance(atom, (IrLiteral, IrCharClass, IrNot, IrAlphabet)):
             return -(self._term_id(atom) + 1)
         raise UnsupportedConstructError(
             f"parsing: unnormalised atom {type(atom).__name__} — "
@@ -713,7 +724,7 @@ class _FirstGates(IrLeaf[IrSelf, IrSelf]):
     __slots__ = ("builder", "atoms", "nullable_rules", "first")
 
     builder: _TableBuilder
-    atoms: tuple["IrLiteral | IrCharClass | IrNot | RunTerm", ...]
+    atoms: tuple["IrLiteral | IrCharClass | IrNot | IrAlphabet | RunTerm", ...]
     nullable_rules: set[int]
     first: list[set[str] | None]
 

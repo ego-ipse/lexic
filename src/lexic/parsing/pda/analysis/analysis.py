@@ -16,6 +16,7 @@ from lexic.ir.action import IrAction
 from lexic.ir.base import IrAtom, IrLambda, IrLeaf, IrNoneType, IrSelf
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -150,6 +151,11 @@ def _first_not(_d: object, n: IrSelf, _nc: object) -> CharSet:
     return CharSet.ANY
 
 
+def _first_token(_d: object, _n: IrSelf, _nc: object) -> CharSet:
+    """FIRST of a token atom: EMPTY — it matches ids, not chars (forces island)."""
+    return CharSet.EMPTY
+
+
 def _first_ruleref(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
     """FIRST of a rule ref: the target's current FIRST; undefined ref → ANY."""
     got = d.first.get(str(n))
@@ -270,6 +276,7 @@ _NULLABLE: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_null_literal)),
     IrAction(IrCharClass, IrLambda(_null_never)),
     IrAction(IrNot, IrLambda(_null_never)),
+    IrAction(IrAlphabet, IrLambda(_null_never)),
     IrAction(IrRuleRef, IrLambda(_null_ruleref)),
     IrAction(IrAlternation, IrLambda(_null_alternation)),
 )
@@ -278,6 +285,7 @@ _FIRST: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_first_literal)),
     IrAction(IrCharClass, IrLambda(_first_charclass)),
     IrAction(IrNot, IrLambda(_first_not)),
+    IrAction(IrAlphabet, IrLambda(_first_token)),
     IrAction(IrRuleRef, IrLambda(_first_ruleref)),
     IrAction(IrAlternation, IrLambda(_first_alternation)),
 )
@@ -286,6 +294,7 @@ _HARD: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_hard_terminal)),
     IrAction(IrCharClass, IrLambda(_hard_terminal)),
     IrAction(IrNot, IrLambda(_hard_terminal)),
+    IrAction(IrAlphabet, IrLambda(_hard_terminal)),
     IrAction(IrRuleRef, IrLambda(_hard_ruleref)),
     IrAction(IrAlternation, IrLambda(_hard_alternation)),
 )
@@ -294,6 +303,7 @@ _STOPSET_ATOM: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_stopset_no)),
     IrAction(IrCharClass, IrLambda(_stopset_yes)),
     IrAction(IrNot, IrLambda(_stopset_yes)),
+    IrAction(IrAlphabet, IrLambda(_stopset_no)),
     IrAction(IrRuleRef, IrLambda(_stopset_no)),
     IrAction(IrAlternation, IrLambda(_stopset_no)),
 )
@@ -302,6 +312,7 @@ _FOLLOW_FEED: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_feed_terminal)),
     IrAction(IrCharClass, IrLambda(_feed_terminal)),
     IrAction(IrNot, IrLambda(_feed_terminal)),
+    IrAction(IrAlphabet, IrLambda(_feed_terminal)),
     IrAction(IrRuleRef, IrLambda(_feed_ruleref)),
     IrAction(IrAlternation, IrLambda(_feed_alternation)),
 )
@@ -310,6 +321,7 @@ _SEQ_ATOM: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_seq_noop)),
     IrAction(IrCharClass, IrLambda(_seq_noop)),
     IrAction(IrNot, IrLambda(_seq_noop)),
+    IrAction(IrAlphabet, IrLambda(_seq_noop)),
     IrAction(IrRuleRef, IrLambda(_seq_ruleref)),
     IrAction(IrAlternation, IrLambda(_seq_alternation)),
 )
