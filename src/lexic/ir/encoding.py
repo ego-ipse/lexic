@@ -170,3 +170,36 @@ class IrTokenizer(IrNamedTuple[IrStr, IrMap, IrMap], IrEncoding, init=False):
         """The token id → its text (``[id]`` fallback for an unmapped id)."""
         found = self.decode.get(IrChr(ordinal))
         return found if found is not None else IrStr(f"[{ordinal}]")
+
+    def boundaries(self, text: str) -> list[tuple[int, int, int]]:
+        """Segment ``text`` into ``(char_start, char_end, id)`` token spans.
+
+        A deterministic longest-match segmentation over the vocab — the
+        prototype segmenter, whose *algorithm* is the swappable part (ranked
+        byte-level BPE is the fidelity follow-up). A position matching no vocab
+        token advances one character with no token-match point (the
+        unsegmentable / mid-multibyte case). These spans are what the engine
+        scans a token terminal against at boundary columns.
+
+        :param text: The instance text to segment.
+        :returns: The token spans in order — ``(start, end, id)`` over ``text``.
+        """
+        keys = sorted(self.encode.keys(), key=len, reverse=True)
+        spans: list[tuple[int, int, int]] = []
+        cursor = 0
+        while cursor < len(text):
+            match = next((k for k in keys if k and text.startswith(k, cursor)), None)
+            if match is None:
+                cursor += 1
+                continue
+            spans.append((cursor, cursor + len(match), int(self.encode[match])))
+            cursor += len(match)
+        return spans
+
+    def tokenize(self, text: str) -> list[int]:
+        """The token ids of ``text`` under :meth:`boundaries`.
+
+        :param text: The instance text to segment.
+        :returns: The ids of the covering token spans, in order.
+        """
+        return [tid for _, _, tid in self.boundaries(text)]

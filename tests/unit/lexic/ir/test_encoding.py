@@ -149,3 +149,50 @@ def test_from_vocab_derives_the_decode_inverse() -> None:
     tok = IrTokenizer.from_vocab("gpt2", _vocab())
     for text, ident in tok.encode.items():
         assert tok.decode.get(ident) == text
+
+
+# ── segmentation (boundaries / tokenize) ────────────────────────────────
+
+
+def _seg_tok() -> IrTokenizer:
+    return IrTokenizer.from_vocab(
+        "demo",
+        IrMap(
+            IrTuple(IrStr("<think>"), IrChr(0)),
+            IrTuple(IrStr("</think>"), IrChr(1)),
+            IrTuple(IrStr(" hi "), IrChr(2)),
+        ),
+    )
+
+
+def test_boundaries_segments_into_char_aligned_spans() -> None:
+    """boundaries yields (start, end, id) spans covering the input in order."""
+    tok = _seg_tok()
+    assert tok.boundaries("<think> hi </think>") == [(0, 7, 0), (7, 11, 2), (11, 19, 1)]
+
+
+def test_tokenize_returns_the_span_ids() -> None:
+    """tokenize is the id sequence of the covering spans."""
+    assert _seg_tok().tokenize("<think> hi </think>") == [0, 2, 1]
+
+
+def test_boundaries_is_longest_match() -> None:
+    """A longer vocab token wins over a shorter prefix at the same position."""
+    tok = IrTokenizer.from_vocab(
+        "demo",
+        IrMap(IrTuple(IrStr("ab"), IrChr(0)), IrTuple(IrStr("a"), IrChr(1))),
+    )
+    assert tok.tokenize("ab") == [0]
+
+
+def test_boundaries_skips_unsegmentable_chars() -> None:
+    """A position matching no vocab token advances with no token-match point."""
+    tok = IrTokenizer.from_vocab("demo", IrMap(IrTuple(IrStr("a"), IrChr(0))))
+    assert tok.boundaries("zaz") == [(1, 2, 0)]  # only the 'a' is a token point
+
+
+def test_spell_reconstructs_tokenized_text() -> None:
+    """Spelling the tokenized ids back concatenates to the original text."""
+    tok = _seg_tok()
+    text = "<think> hi </think>"
+    assert "".join(str(tok.spell(i)) for i in tok.tokenize(text)) == text

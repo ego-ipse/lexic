@@ -367,9 +367,11 @@ src/lexic/
                         on IrNode (the IrAtom pattern) hosting the universe-
                         relative complement algebra; IrUnicode (singleton, the
                         default; MAX_CODEPOINT + chr/ord) and IrTokenizer
-                        (IrNamedTuple over IrMap encode/decode sections). An
-                        encoding is referenced by name from an IrAlphabet; a
-                        registry is just an IrMap[IrStr, IrEncoding]
+                        (IrNamedTuple over IrMap encode/decode sections;
+                        boundaries(text)/tokenize(text) — longest-match
+                        segmentation, ranked-BPE a follow-up). An encoding is
+                        referenced by name from an IrAlphabet; a registry is
+                        just an IrMap[IrStr, IrEncoding]
 
   grammars/
     __init__.py         get_flavour(), flavour_for_extension(), register_flavour()
