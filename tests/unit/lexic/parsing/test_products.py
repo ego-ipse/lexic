@@ -23,6 +23,7 @@ from lexic.ir.nodes import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
+from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.products import (
     _as_ast,
     _model_product,
@@ -91,6 +92,18 @@ def test_parse_model_matches_earley_model_completion():
     assert isinstance(expected, GrammarModel)
     assert got.semantic_dump() == expected.semantic_dump()
     assert got.to_text() == "ab"
+
+
+def test_reduce_product_earley_grammar_is_lifted_before_normalizing():
+    """``_reduce_product.earley_grammar`` is ``normalize(lift_optional_nullables
+    (grammar))`` — the SAME lifted, normalised grammar the reduce PDA compiles
+    over, not the plain (un-lifted) ``normalize(grammar)`` a stale completion
+    route would use. A PDA/completion item-position mismatch on a grammar with
+    an ``R?`` over a nullable ``R`` is exactly what this pins against."""
+    product = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
+    assert product.earley_grammar == normalize(
+        lift_optional_nullables(GBNF_FLAVOUR.grammar)
+    )
 
 
 # ── per-identity memoisation ────────────────────────────────────────────────

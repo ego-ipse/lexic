@@ -1,5 +1,41 @@
 # Log
 
+## 2026-07-21 — GBNF charclass PDA regression fixed; reduce completion unified; module self-grammar zero fail-islands; per-parse interning
+
+GBNF charclass parsing (`grammars/gbnf.py`) had regressed to superlinear
+scaling — its range-tail choice fell back to a full Earley completion on
+every hit because no gate could separate the arms with a single-character
+FOLLOW set. Fixed two ways: the charclass grammar factors the "is this a
+range or a trailing dash" choice into one empty-arm rule (the earlier
+`cc-range`/`cc-range-nc` pair deleted), and the PDA analysis gained bounded
+FOLLOW-k lookahead windows (`extend_follow` generalized from a single
+CharSet to a k≤3 window tuple, computed lazily) that can now separate it.
+GBNF self-grammar-text parsing returns to flat µs/char scaling. See
+[[lexic/decisions]].
+
+The grammar-text reduce completion (`parsing/products.py`) now always runs
+against the SAME lifted/normalized grammar the PDA path compiles against —
+the earlier two-route split (an unlifted completion kept only for a
+differential comparison) is gone; the differential property tests exercise
+the actual product route.
+
+The generated-module self-grammar (`compile/module/selfgrammar.py`) reaches
+zero fail-islands: splitting six token rules' trailing whitespace into a
+dedicated fold-transparent rule and spelling the grammar-statement's
+trailing newline explicitly closes both the last identifier-shaped
+fail-island (a bare rule name no longer forces the Earley completion) and
+the leading-indent-after-`__binds__` gap noted below. `m-imports` remains a
+benign non-failing once-per-file island; the vyx inline-mode self-verify
+that motivated this work goes from ~13s to ~0.13s. See
+[[lexic/generated-modules]].
+
+Instance parsing gained a per-parse intern memo on the PDA's trusted
+construction path (records/leaves built identically more than once within
+one parse construct once) plus a fast path for single-item `value_str`
+rules. See [[lexic/decisions]] for the measured perf ceiling this and
+further micro-optimization run into — reaching well past it needs a
+structural (model-count) change, not yet built.
+
 ## 2026-07-18 — flavour-layout: width-aware emission + production EBNF
 
 Emission is width-aware end to end: `ir/layout.py` doc nodes double as

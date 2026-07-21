@@ -49,9 +49,14 @@ swaps — each with a named refusal. Runs per export inside
 alternation arms split into sibling rules (the fold's one-arity-per-rule
 constraint); parents capture text SPANS over unit rules (the `sq-str`
 precedent) so char-level rules never fold; the field-less-class ambiguity
-is killed by the `m-body` arm split; lines that can only follow an embedded
-expression (`__binds__`) lose leading-indent strictness (the expression's
-trailing ws swallows it — documented gap). `compile/foldkit.py` (ALT,
+is killed by the `m-body` arm split; six token rules (`rparen`/`dq-str`/
+`sq-str`/`name`/`neg-int`/`pos-int`) split their trailing whitespace into a
+separate fold-transparent `ws-inl` rule (space/tab, no fold entry — like
+`ws`) and `m-grammar-tail`/`m-grammar-stmt` spell their trailing newline
+explicitly, closing the module grammar's last identifier-shaped fail-island
+(a bare `name` no longer forces the Earley completion) and the
+leading-indent-after-`__binds__` gap by construction. `m-imports` remains a
+benign non-failing once-per-file island. `compile/foldkit.py` (ALT,
 passthrough) is the build-path-unification seed shared with the notation.
 
 ## Always-on export gates

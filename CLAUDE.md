@@ -17,9 +17,15 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. New plans copy `zzz_current_work/TEMPLATE.md` (goal,
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
-  Current: `zzz_current_work/260719-engine-next/PLAN_V6.md` (gbnf perf fix
-  + convergence + parse perf + module verify; Task 0 = baselines + pinned
-  corpus + pointer, lands first). Triage: `zzz_current_work/260718-backlog/`.
+  Current: `zzz_current_work/260712-viz/PLAN_v2.md` (ruling 5). Triage:
+  `zzz_current_work/260718-backlog/`.
+  Just completed: `zzz_current_work/260719-engine-next/PLAN_V6.md` (see its
+  OUTCOME) — gbnf charclass PDA regression fixed (FOLLOW-k arm gates),
+  grammar-text reduce completion unified onto one route, module
+  self-grammar reaches zero fail-islands, per-parse interning + a
+  value_str fast path on the instance-parse trusted-build path. A
+  structural (model-count) lever for a larger parse-perf win is scoped but
+  not built — see its FOLLOWUP.md.
   Just completed: `zzz_current_work/260718-module-selfgrammar/PLAN.md`
   (see its OUTCOME) — `compile/selfgrammar.py` (lexic parses its own
   exports: parse_module/verify_module, the per-export L2 cross-check in
@@ -177,9 +183,26 @@ src/lexic/
     artifact.py         CompiledGrammar — the parse-ready artefact (own module
                         so export.py imports it cycle-free); .parse() drives
                         the engine's parse_model product
-    foldkit.py          shared authored-fold vocabulary (ALT, passthrough) —
-                        the build-path unification seed; notation + selfgrammar
-                        consume it
+    foldkit.py          shared authored-fold vocabulary — the build-path
+                        unification seed every hand-authored grammar+fold
+                        pair (notation, module self-grammar) draws from so a
+                        future authored surface never copies a variant.
+                        Pass-throughs: ALT (alternation identity fold),
+                        passthrough (single-field sequence identity ctor).
+                        Shared idioms: first_rest (first+rest list
+                        collector) and the int decode (builtin int), each an
+                        IrNamed leaf (a registry-resolved symbol, the
+                        notation SYMBOLS-whitelist precedent — the IR form
+                        of a non-algebraic ctor read via the argument
+                        channel, since neither returns an honest IR value).
+                        absent_tail (the omitted-trailing-optional fill)
+                        stays a KEYWORD-ctor IrLambda, NOT a channel body:
+                        IrNone is a legitimate notation argument value
+                        (`IrQuantifier(0, IrNone)`), indistinguishable from
+                        an absence-fill if the two were unified (260719
+                        engine-next; see .wiki/lexic/decisions.md).
+                        Surface-specific transforms that aren't shared stay
+                        honest IrLambda citizens on their own surface
     pipeline/            the compile pipeline — grammar → classes
       __init__.py       pipeline package
       passes.py         grammar→grammar passes (hoist groups/arms, relax noise)
@@ -233,10 +256,14 @@ src/lexic/
                         recomputed with the SAME renderers the exporter used
                         (export.field_type/value_str_type/docstring_lines are
                         public for exactly this); runs per export inside
-                        tools/check_generated.py. Known gap: lines that can
-                        only follow an embedded expression (__binds__) lose
-                        leading-indent strictness (the expr's trailing ws
-                        swallows it)
+                        tools/check_generated.py. Complete β: six token
+                        rules split their trailing whitespace into a
+                        fold-transparent ws-inl rule and m-grammar-tail/
+                        m-grammar-stmt spell their trailing newline
+                        explicitly, closing the former leading-indent-
+                        after-__binds__ gap by construction and the
+                        module grammar's last fail-island (bare name);
+                        islands {m-imports} (benign, non-failing), fail {}
   exceptions.py         LexicError hierarchy (see §Error vocabulary)
   generate.py           random string generator — walks a rule-name → IrRule mapping
                         (a canonical grammar's rules) directly, no spec layer
@@ -463,7 +490,14 @@ src/lexic/
                             name), deny = today's greedy note. The
                             2-char LL(2) prefix machinery lives in kwindow.py as
                             free fns; loop_policy calls it there (hybrid-PDA;
-                            260705/260706 efforts)
+                            260705/260706 efforts). The nullable-greedy
+                            empty-arm branch tries `_demote_follow_windows`
+                            (kwindow.follow_arm_gate — a bounded FOLLOW_k
+                            window per arm) BEFORE `_demote_struct_arm`/
+                            soft-greedy — separable at k ≤ 3 stores per-arm
+                            windows into `taxonomy.arm_gates[rule]`; only an
+                            inseparable decision falls through to the
+                            struct/soft-greedy fallbacks (260719 engine-next)
         noise.py            Noise/semantic attribution — the P6 licence + P3
                             noise-skip substrate (Task 6.4). P6:
                             sem_follow_table(analysis) → rule → the chars that can
@@ -538,7 +572,19 @@ src/lexic/
                             (no legacy seams pre-v1). Also homes the superseded
                             2-char LL(2) prefix machinery (two_prefix_seq/
                             atom_two_prefix/group_two_prefix — the PairGate source,
-                            moved from analysis.py for C0302). A leaf w.r.t.
+                            moved from analysis.py for C0302). `extend_follow`
+                            generalizes from a single CharSet to per-rule
+                            FOLLOW_k WINDOWS (a tuple of positionwise CharSets;
+                            a single CharSet is the k=1 special case, one
+                            mechanism, not two) — `FollowWindows` is the lazy
+                            per-rule fixpoint (computed only for rules that hit
+                            the nullable-greedy empty-arm branch; reference sites
+                            via `windows_of`'s arm_prefixes, END-extended by the
+                            parent's follow windows) and `follow_arm_gate` is the
+                            store entry `analysis._demote_follow_windows` calls:
+                            separable at k ≤ 3 ⇒ per-arm windows (escape arm = its
+                            follow windows, body-arm order) (260719 engine-next).
+                            A leaf w.r.t.
                             analysis.py (takes the rule table + FOLLOW as args);
                             open IrTypeMap atom dispatch, raising default (260706
                             unified-parse-engine, Task 6.3)
@@ -674,7 +720,15 @@ src/lexic/
                             never user-facing (hybrid-PDA; 260705 effort). The
                             frame-slot vocabulary (F_*), the fused model-build tail
                             and finish_delegate live in build.py (below); runtime
-                            imports them by public name
+                            imports them by public name. `self._intern`: the
+                            per-parse intern memo (a plain dict on the cursor,
+                            fresh per top-level run), threaded through every
+                            trusted build site — repeated identical sub-models
+                            within one parse construct once. `_vstr_once`
+                            fast-paths the single-item `value_str` arm (OP_CC1/
+                            OP_LIT1: one char-class or literal test, no item
+                            loop, no slice) with `_vstr_span` as the cold
+                            multi-item fallback (260719 engine-next)
         reduce_runtime.py   _ReducePdaKernel (the b1 grammar-text twin, overrides
                             only _complete/_island/_delegate_run) + parse_pda (the
                             public model-vs-reduce entry). Imports PdaKernel from
@@ -696,7 +750,17 @@ src/lexic/
                             frame vocabulary by public name rather than a private
                             cross-module import; a leaf importing flatten (records
                             + M_* modes) + fold (RuleFold) + errors (PdaFail),
-                            never runtime
+                            never runtime. Every build site takes the kernel's
+                            per-parse intern memo (a plain dict, never the
+                            cursor) and shares one instance for repeated
+                            identical sub-models: value_str keyed (ctor, span),
+                            records keyed (ctor, mixed-part-tuple) (text/gtext
+                            by string value, model fields by id, models lists
+                            by element ids), the empty arm keyed (ctor, ())
+                            (INTERN_MISS sentinel). Immutable models make the
+                            sharing transparent; interning is pre-construction
+                            so build_validated's FieldValidationError behaviour
+                            is unchanged (260719 engine-next)
         islands.py          island sub-parse + splice — island_parse/island_run/
                             island_derivation, the cold-path Earley escape shed
                             from PdaKernel as free functions (a leaf: imports

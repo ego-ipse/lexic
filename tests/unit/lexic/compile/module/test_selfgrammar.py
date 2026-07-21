@@ -171,6 +171,19 @@ def test_parse_module_inline_tables_populates_inline_grammar_and_binds():
     assert not item.inline_binds
 
 
+def test_parse_module_inline_binds_indent_is_strict():
+    """The m30 closure: ``__binds__`` rides through ``m-indented-line`` like
+    every other body line, so its leading indent is no longer swallowed by
+    the preceding ``__grammar__`` value's ``ws-inl`` — a mis-indented
+    ``__binds__`` line refuses instead of silently parsing."""
+    compiled = compile_from_path(LIST_GRAMMAR)
+    source = export_source(compiled, inline_tables=True)
+    assert "\n    __binds__: ClassVar" in source
+    tampered = source.replace("\n    __binds__: ClassVar", "\n  __binds__: ClassVar", 1)
+    with pytest.raises(UnsupportedConstructError):
+        parse_module(tampered)
+
+
 # ── parse_module refuses non-module text ────────────────────────────────
 
 

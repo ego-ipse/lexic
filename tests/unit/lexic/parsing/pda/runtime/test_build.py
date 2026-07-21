@@ -216,6 +216,27 @@ def test_build_fast_interns_by_text_and_model_id():
     assert calls["n"] == 2
 
 
+def test_build_fast_interns_models_list_by_element_ids():
+    """``M_MODELS`` keys the intern memo by the tuple of its element ids: the
+    same list of sub-models (by identity) hits, a differing element misses —
+    even when the differing element is value-equal to the one it replaces."""
+    fields = ((0, M_MODELS, "kids", 0),)
+    calls = {"n": 0}
+
+    def fast(_parts, _keys):
+        calls["n"] += 1
+        return object()
+
+    clone = seq_clone(fields, fast=fast)
+    memo: dict = {}
+    kid_a, kid_b = object(), object()
+    a = build_fast("", clone, (0, [0], [[kid_a, kid_b]]), memo)
+    b = build_fast("", clone, (0, [0], [[kid_a, kid_b]]), memo)  # same ids -> hit
+    assert a is b and calls["n"] == 1
+    other = build_fast("", clone, (0, [0], [[kid_a, object()]]), memo)  # new id
+    assert other is not a and calls["n"] == 2
+
+
 def test_build_validated_unknown_mode_raises():
     """A field mode outside BIND_MODES is a hard error in the validated build."""
     fold = cast(

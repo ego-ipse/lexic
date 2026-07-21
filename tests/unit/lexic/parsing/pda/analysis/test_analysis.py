@@ -208,6 +208,27 @@ def test_demotes_gbnf_self_cc_esc_arm():
     assert stored == tuple(kwindow.windows_of(s) for s in gate[1])
 
 
+def test_demotes_gbnf_self_cc_tail_via_follow_windows():
+    """``cc-tail``'s empty-arm overlap doesn't separate under the plain FIRST
+    arm gate (only one FOLLOW char reachable) — ``_demote_follow_windows``
+    reaches for the deeper :func:`kwindow.follow_arm_gate` instead, and the
+    taxonomy STORES the resulting per-arm windows under the same
+    ``arm_gates`` channel the FIRST-gate demotion uses."""
+    analysis = self_grammar_analysis("gbnf")
+    assert "cc-tail" not in analysis.islands
+    assert analysis.demoted["cc-tail"] == [
+        "cc-tail: arms FOLLOW-window separable (demoted)"
+    ]
+
+    arms = [arm_items(arm) for arm in analysis.rules["cc-tail"].body]
+    assert kwindow.arm_gate(analysis.rules, arms, analysis.follow["cc-tail"]) is None
+    stored = analysis.taxonomy.arm_gates["cc-tail"]
+    assert len(stored) == len(arms)
+    gate = kwindow.follow_arm_gate(analysis.rules, analysis.start, arms, "cc-tail")
+    assert gate is not None
+    assert stored == gate
+
+
 @pytest.mark.parametrize("stem", ["json.gbnf", "json.abnf"])
 def test_json_p3_demotions_store_their_peek_specs(stem: str):
     """json's remaining ws-led decisions demote via P3 and STORE their specs

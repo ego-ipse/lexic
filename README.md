@@ -146,19 +146,16 @@ Representative throughput (µs/char, lower is faster; single machine, 2026):
 
 | input | lark-lalr | lark-earley | earley | **pda** |
 |---|---|---|---|---|
-| ABNF self-emit *(grammar text)* | — | ~29 | ~16 | **~9** |
-| GBNF self-emit *(grammar text)* | — | ~19 | ~17 | **~22** |
-| arithmetic *(instance)* | 1.8 | 24 | 21 | **2.5** |
-| c *(instance)* | 1.2 | 21 | 10 | **1.1** |
-| chess *(instance)* | 0.9 | 10 | 12 | **1.6** |
-| json *(instance)* | 0.9 | 14 | 69 | **3.4** |
+| ABNF self-emit *(grammar text)* | — | ~30 | ~15 | **~9** |
+| GBNF self-emit *(grammar text)* | — | ~20 | ~17 | **~8** |
+| arithmetic *(instance)* | 1.9 | 25 | 22 | **2.5** |
+| c *(instance)* | 1.2 | 23 | 12 | **1.1** |
+| chess *(instance)* | 1.0 | 10 | 13 | **1.7** |
+| json *(instance)* | 1.0 | 14 | 76 | **3.1** |
 
-> **WIP.** Two rows are under active optimization and will be re-measured:
-> the GBNF grammar-text PDA currently degrades on large inputs (island
-> sub-parses in the character-class rules; the Earley completion stays
-> flat), and the json instance parse allocates one record per grammar rule
-> match — ~60% of which are duplicated whitespace/delimiter leaves that a
-> planned per-parse intern will share. *(Remove this note when both land.)*
+The PDA path also carries a per-parse intern memo (repeated identical
+sub-models within one parse are built once) and a single-item fast path for
+the common `value_str` terminal match, on top of the numbers above.
 
 Reading the numbers fairly: Lark's **LALR** + contextual lexer is genuinely fast — but it yields a *generic parse tree*, while `earley`/`pda` build the **typed model**, so those columns include construction Lark's do not. LALR is not viable for the two meta-grammars (rulename↔ruleref overlap needs unbounded lookahead), so Lark runs Earley there. Where LALR cannot handle a grammar it is reported, never silently swapped. Compilation itself is dominated by parsing — no file I/O or subprocess on the path.
 
@@ -168,7 +165,7 @@ Lexic uses [uv](https://docs.astral.sh/uv/). Always prefix commands with `uv run
 
 ```bash
 uv sync                                  # install deps (dev-only; no runtime deps)
-uv run pytest tests/ -q                  # full suite (~2820 tests)
+uv run pytest tests/ -q                  # full suite (~2880 tests)
 uv run pytest tests/unit/lexic/ -q       # unit only
 uv run pytest tests/integration/ -q      # integration only
 uv run ruff check src/ tests/            # lint

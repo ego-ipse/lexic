@@ -238,6 +238,22 @@ def test_unknown_symbol_raises_unsupported() -> None:
         load_ir("NotARealSymbol('x')")
 
 
+# ── arglist strictness — trailing comma parses, a stray one refuses ────
+
+
+def test_load_ir_accepts_a_trailing_comma() -> None:
+    """A single trailing comma before ``)`` is the gateable arg-tail shape —
+    it folds to the shared ``ABSENT`` marker and drops, dropping cleanly."""
+    assert load_ir("IrRange(IrChr(0), IrChr(9),)") == IrRange(IrChr(0), IrChr(9))
+
+
+def test_load_ir_refuses_a_stray_non_trailing_comma() -> None:
+    """A bare comma anywhere but last (``,,``) is a stray comma — ``_arglist``
+    refuses it at fold time rather than silently dropping an argument."""
+    with pytest.raises(UnsupportedConstructError, match="stray"):
+        load_ir("IrRange(IrChr(0),, IrChr(9))")
+
+
 def test_no_exec_no_eval_in_source() -> None:
     """The notation module contains no ``exec``/``eval`` (USER DECISION 4)."""
     pkg = Path(__file__).resolve().parents[5] / "src" / "lexic" / "compile" / "notation"
