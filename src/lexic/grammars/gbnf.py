@@ -35,6 +35,7 @@ from lexic.ir.action import (
     IrIsA,
     IrJoin,
     IrPipe,
+    IrRadix,
     IrRaise,
     IrThis,
     IrUnradix,
@@ -171,11 +172,41 @@ GBNF_ACTIONS = IrTypeMap(
             0,
             IrTypeMap(
                 IrAction(IrCharClass, IrApply(IrTuple(IrLiteral("^")))),
+                # A negated token: the "!" prefix rides the same mark channel as
+                # the charclass "^" — IrApply hands it to the alphabet action.
+                IrAction(IrAlphabet, IrApply(IrTuple(IrLiteral("!")))),
                 IrAction(
                     IrSelf,
                     IrRaise(message="{dispatcher}: cannot negate {node_type!r}"),
                 ),
             ),
+        ),
+    ),
+    # A token terminal: the received "!" mark (empty when positive), then the
+    # form dispatched on the inner atom — a text-form literal emits verbatim
+    # (the "<…>" key), an id-form class emits "<[" + decimal id + "]>".
+    IrAction(
+        IrAlphabet,
+        IrConcat(
+            parts=IrTuple(
+                IrJoin(parts=IrArgs()),
+                IrAt(
+                    0,
+                    IrTypeMap(
+                        IrAction(IrLiteral, IrEmit()),
+                        IrAction(
+                            IrCharClass,
+                            IrConcat(
+                                parts=IrTuple(
+                                    IrLiteral("<["),
+                                    IrAt(0, IrRadix(10)),
+                                    IrLiteral("]>"),
+                                )
+                            ),
+                        ),
+                    ),
+                ),
+            )
         ),
     ),
     IrAction(IrRuleRef, IrEmit()),

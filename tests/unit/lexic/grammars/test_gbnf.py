@@ -790,3 +790,45 @@ def test_token_grammar_mixes_tokens_and_chars_in_one_rule():
     assert root[2].atom == IrAlphabet("tokens", IrLiteral("</think>"))
     assert root[3].atom == IrNot(IrCharClass())
     assert root[3].quantifier == IrQuantifier(0, IrNone)
+
+
+# ── token terminal EMIT (round-trip A) ──────────────────────────────────
+
+
+def test_emit_text_form_token():
+    """A text-form alphabet emits its literal key verbatim."""
+    assert GBNF_FLAVOUR.apply(IrAlphabet("tokens", IrLiteral("<think>"))) == "<think>"
+
+
+def test_emit_id_form_token():
+    """An id-form alphabet emits ``<[id]>`` with the decimal id."""
+    assert (
+        GBNF_FLAVOUR.apply(IrAlphabet("tokens", IrCharClass(IrChr(1000)))) == "<[1000]>"
+    )
+
+
+def test_emit_negated_text_form_token():
+    """A negated text-form token emits the ``!`` prefix."""
+    assert (
+        GBNF_FLAVOUR.apply(IrNot(IrAlphabet("tokens", IrLiteral("<think>"))))
+        == "!<think>"
+    )
+
+
+def test_emit_negated_id_form_token():
+    """A negated id-form token emits ``!<[id]>``."""
+    assert (
+        GBNF_FLAVOUR.apply(IrNot(IrAlphabet("tokens", IrCharClass(IrChr(1001)))))
+        == "!<[1001]>"
+    )
+
+
+def test_token_grammar_round_trips_through_parse_emit_parse():
+    """A token grammar is a parse/emit/parse fixpoint (`.` folds to `[^]`)."""
+    txt = (
+        "root ::= <think> thinking </think> .*\n"
+        "thinking ::= !</think>*\n"
+        "r2 ::= <[1000]> !<[1001]>*"
+    )
+    ast = parse_grammar(txt, GBNF_FLAVOUR)
+    assert parse_grammar(GBNF_FLAVOUR.apply(ast), GBNF_FLAVOUR) == ast
