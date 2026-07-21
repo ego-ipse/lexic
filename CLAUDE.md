@@ -620,6 +620,11 @@ src/lexic/
                             opt-out tripwire. A leaf (imports charsets + scanner);
                             moved out of analysis.py by pure motion (260706
                             Task 6.6, C0302)
+        cursors.py          FollowPass/FeedCtx/Notes/Scope/Cont/ConflictCtx — the
+                            inert IrLeaf context records the analysis' dispatch
+                            bodies ride on the nc channel; pure-data leaf (imports
+                            IrLeaf + charsets only), moved out of analysis.py by
+                            pure motion for C0302 headroom
       compiler/           the clone compiler — IrAst → flat int-coded tables
         __init__.py       compiler package
         clones.py           (was pda_tables.py) compile_pda(lifted, instance_grammar,
