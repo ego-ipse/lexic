@@ -21,6 +21,7 @@ from lexic.ir.base import (
 )
 from lexic.ir.nodes import (
     MAX_CODEPOINT,
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrBounds,
@@ -1086,3 +1087,66 @@ def test_charclass_members_and_intervals_agree_on_width():
     cls = IrCharClass.from_intervals([(0, 2), (5, 5)])
     width = sum(hi - lo + 1 for lo, hi in cls.intervals())
     assert width == len(cls.members())
+
+
+# ── IrAlphabet ─────────────────────────────────────────────────────────
+
+
+def test_alphabet_is_an_atom():
+    """An alphabet binding is an :class:`IrAtom`."""
+    assert isinstance(IrAlphabet("gpt2", IrLiteral("<think>")), IrAtom)
+
+
+def test_alphabet_wraps_a_text_form_literal():
+    """A text-form token reuses ``IrLiteral`` as its inner atom."""
+    a = IrAlphabet("gpt2", IrLiteral("<think>"))
+    assert a.encoding == IrStr("gpt2")
+    assert a.inner == IrLiteral("<think>")
+
+
+def test_alphabet_wraps_an_id_form_charclass():
+    """An id-form token reuses ``IrCharClass`` over the id ordinal."""
+    a = IrAlphabet("gpt2", IrCharClass(IrChr(1000)))
+    assert a.inner == IrCharClass(IrChr(1000))
+
+
+def test_alphabet_composes_with_negation():
+    """A negated token nests an ``IrNot`` as the inner atom."""
+    a = IrAlphabet("gpt2", IrNot(IrLiteral("</think>")))
+    assert isinstance(a.inner, IrNot)
+
+
+def test_alphabet_encoding_name_is_wrapped_to_irstr():
+    """The encoding name is stored as an ``IrStr`` reference."""
+    assert isinstance(IrAlphabet("gpt2", IrLiteral("<think>")).encoding, IrStr)
+
+
+def test_alphabet_rides_iritem():
+    """Being an atom, an alphabet binding wraps in ``IrItem`` unchanged."""
+    a = IrAlphabet("gpt2", IrLiteral("<think>"))
+    assert IrItem(a).atom is a
+
+
+def test_alphabet_children_are_the_inner_atom_only():
+    """Only the inner atom is a walked child; the encoding is payload."""
+    a = IrAlphabet("gpt2", IrLiteral("<think>"))
+    assert list(a.children()) == [IrLiteral("<think>")]
+
+
+def test_alphabet_rebuild_keeps_the_encoding():
+    """``rebuild`` replaces the inner atom and preserves the encoding."""
+    a = IrAlphabet("gpt2", IrCharClass(IrChr(0)))
+    rebuilt = a.rebuild([IrCharClass(IrChr(9))])
+    assert rebuilt == IrAlphabet("gpt2", IrCharClass(IrChr(9)))
+
+
+def test_alphabet_equality_distinguishes_encoding():
+    """Same inner, different encoding names compare unequal."""
+    inner = IrCharClass(IrChr(0))
+    assert IrAlphabet("a", inner) != IrAlphabet("b", inner)
+
+
+def test_alphabet_repr_is_codegen():
+    """The repr reproduces the constructor call."""
+    a = IrAlphabet("gpt2", IrLiteral("<think>"))
+    assert repr(a) == "IrAlphabet(IrStr('gpt2'), IrLiteral('<think>'))"

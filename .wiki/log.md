@@ -1,5 +1,24 @@
 # Log
 
+## 2026-07-21 — Token support IR model (prototype): the encoding generalization
+
+Landed the IR-model layer for token-terminal support (`zzz_current_work/
+260721-token-support/PLAN_V7.md`), the encoding generalization: model
+**encoding**, not "token" — UTF and tokenizers are peers. New `ir/encoding.py`
+(`IrEncoding` role marker on `IrNode` hosting the universe-relative complement;
+`IrUnicode` singleton; `IrTokenizer` `IrNamedTuple` over `IrMap` encode/decode);
+`IrAlphabet` binding atom in `ir/nodes.py` (reuses `IrLiteral`/`IrCharClass`/
+`IrNot` as its inner — no token-specific leaf, so the earlier `IrSymText`/
+`IrToken` proposals are both dead); an overridable `_descend` seam on
+`IrBottomUp` (`ir/walk.py`) with a `_CanonDriver` that fences `IrAlphabet` from
+the UTF char-class passes (`ir/canonical.py`); `ir/concretize.py` (registry-
+driven resolution of a token spelling to its id, id-form validated in-universe,
+three refusals). An encoding registry is a plain `IrMap[IrStr, IrEncoding]`.
+Payoff: a concretised token atom is an ordinal `IrCharClass`, so token matching
+is char-class ordinal membership — no engine primitive. Scope was the IR model;
+the GBNF surface (parse/emit), the Earley token-scan route, the mask cursor and
+the BPE tokenizer ingestion are FOLLOWUP that consume this model.
+
 ## 2026-07-21 — GBNF charclass PDA regression fixed; reduce completion unified; module self-grammar zero fail-islands; per-parse interning
 
 GBNF charclass parsing (`grammars/gbnf.py`) had regressed to superlinear

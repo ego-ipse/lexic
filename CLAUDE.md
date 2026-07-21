@@ -290,6 +290,9 @@ src/lexic/
                         IrCharClass (intrinsic pattern()/members()/sample()/
                         normalized()/complement()), IrRuleRef, IrSequence,
                         IrAlternation, IrBounds/IrQuantifier/IrRange, IrItem,
+                        IrAlphabet(encoding-name-ref, inner atom — the alphabet
+                        binding; reuses IrLiteral/IrCharClass/IrNot as the inner,
+                        so no token-specific leaf exists),
                         IrRule(name, body, semantic=True), IrAst(rules, start) —
                         non_semantic is a derived property, not a field
     operators.py        IrOp(IrStr) infix-operator leaf (no Cmp enum), IrOpNode +
@@ -353,6 +356,20 @@ src/lexic/
                         as_doc); the notation emit half AND the flavour
                         structure actions build docs here
     escapes.py          EscapeCodec ABC + CANONICAL_ESCAPES
+    concretize.py       concretize(ast, registry)/concretize_atom — resolve an
+                        IrAlphabet's spelling to an encoding ordinal
+                        (IrLiteral("<think>") → IrCharClass(IrChr(id)); id-form
+                        validated in-universe; negation composes). Registry-
+                        driven language rewrite; the per-atom seam is what an
+                        engine resolves lazily at match time
+    encoding.py         IrEncoding family — the codec giving a char class's
+                        ordinals meaning (universe + resolve/spell). Role marker
+                        on IrNode (the IrAtom pattern) hosting the universe-
+                        relative complement algebra; IrUnicode (singleton, the
+                        default; MAX_CODEPOINT + chr/ord) and IrTokenizer
+                        (IrNamedTuple over IrMap encode/decode sections). An
+                        encoding is referenced by name from an IrAlphabet; a
+                        registry is just an IrMap[IrStr, IrEncoding]
 
   grammars/
     __init__.py         get_flavour(), flavour_for_extension(), register_flavour()

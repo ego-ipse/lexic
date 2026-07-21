@@ -51,6 +51,7 @@ __all__ = [
     "IrRange",
     "IrQuantifier",
     "IrItem",
+    "IrAlphabet",
     "IrRule",
     "IrAst",
     "MAX_CODEPOINT",
@@ -488,6 +489,42 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier], init=False):
         """
         wrapped = IrAlternation(atom) if isinstance(atom, IrSequence) else atom
         return cast(Callable[..., Self], super().__new__)(cls, wrapped, quantifier)
+
+
+class IrAlphabet(IrNamedTuple[IrStr, IrAtom], IrAtom, init=False):
+    """An atom read under a named encoding — the alphabet binding.
+
+    Scopes a pure inner atom to an encoding: ``IrAlphabet("gpt2", IrLiteral(
+    "<think>"))`` is the token whose text is ``<think>``; ``IrAlphabet("gpt2",
+    IrCharClass(IrChr(1000)))`` is token id ``1000``; ``IrAlphabet("gpt2",
+    IrNot(...))`` a negated token. The wrapper is what distinguishes a literal
+    read as token text from a literal read as characters — the inner node types
+    are the ordinary ones (:class:`IrLiteral`, :class:`IrCharClass`,
+    :class:`~lexic.ir.operators.IrNot`), so no token-specific leaf exists.
+
+    ``encoding`` is a **name reference** (an ``IrStr`` — the :class:`IrRuleRef`
+    precedent), resolved against an encoding registry, so the codec is shared,
+    the canonical form stays flavour-neutral, and many encodings coexist. The
+    node carries no codec and no universe: the complement / ``.`` algebra lives
+    on the encoding (which owns the universe). Being an :class:`IrAtom` it rides
+    :class:`IrItem` unchanged.
+
+    Children: the single ``inner`` atom.
+    Non-child payload: ``encoding`` (the registry name reference).
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("inner",)
+    encoding: IrStr
+    inner: IrAtom
+
+    def __new__(cls, encoding: str, inner: IrAtom) -> Self:
+        """Wrap the encoding name to :class:`IrStr`; keep ``inner`` as given.
+
+        :param encoding: The registry name of the governing encoding.
+        :param inner: The pure inner atom (literal / char class / negation).
+        :returns: The alphabet-bound atom.
+        """
+        return cast(Callable[..., Self], super().__new__)(cls, IrStr(encoding), inner)
 
 
 class IrRule(IrNamedTuple[IrStr, IrAlternation, bool], init=False):
