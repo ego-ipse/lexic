@@ -378,9 +378,11 @@ src/lexic/
     gbnf.py             GBNF flavour — one flat module (no subpackage):
                         GBNF_ACTIONS (emit half), GBNF_GRAMMAR + GBNF_REDUCTIONS +
                         GBNF_NOISE + GBNF_REDUCER (parse half — the full GBNF
-                        surface, natively, no Lark meta-grammar), private
-                        _GbnfEscapes + public GBNF_ESCAPES singleton, private
-                        _GbnfFlavour + public GBNF_FLAVOUR singleton
+                        surface, natively, no Lark meta-grammar; incl. the token
+                        terminals <token>/<[id]>/!<…>/. reducing to IrAlphabet
+                        over GBNF_TOKEN_ENCODING="tokens", negation outside),
+                        private _GbnfEscapes + public GBNF_ESCAPES singleton,
+                        private _GbnfFlavour + public GBNF_FLAVOUR singleton
     abnf.py             ABNF flavour — same shape as gbnf.py. Full RFC 5234+7405
                         surface (num-seq incl. %d/%b dot-sequences, [...] option,
                         comments/folding, %s/%i + uppercase markers,

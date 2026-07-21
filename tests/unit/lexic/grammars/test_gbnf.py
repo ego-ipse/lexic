@@ -20,6 +20,7 @@ from lexic.ir.base import IrLambda, IrNone
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -741,3 +742,51 @@ def test_wide_alternation_wraps_and_round_trips():
         f"alternative-name-number-{i}" for i in range(6)
     )
     assert_wide_rule_wraps_and_round_trips(GBNF_FLAVOUR, "|", flat_text)
+
+
+# ── token terminals (README §Tokens) ────────────────────────────────────
+
+
+def _tok_atom(text: str):
+    """Parse a one-rule token grammar and return its first atom."""
+    ast = parse_grammar(f"root ::= {text}", GBNF_FLAVOUR)
+    return ast.rules[0].body[0][0].atom
+
+
+def test_token_text_form_parses_to_alphabet_literal():
+    """``<think>`` → an alphabet over the literal key (brackets included)."""
+    assert _tok_atom("<think>") == IrAlphabet("tokens", IrLiteral("<think>"))
+
+
+def test_token_id_form_parses_to_alphabet_charclass():
+    """``<[1000]>`` → an alphabet over the id ordinal."""
+    assert _tok_atom("<[1000]>") == IrAlphabet("tokens", IrCharClass(IrChr(1000)))
+
+
+def test_token_negated_text_form():
+    """``!<think>`` → negation outside the alphabet."""
+    assert _tok_atom("!<think>") == IrNot(IrAlphabet("tokens", IrLiteral("<think>")))
+
+
+def test_token_negated_id_form():
+    """``!<[1001]>`` → negation outside the id-form alphabet."""
+    assert _tok_atom("!<[1001]>") == IrNot(
+        IrAlphabet("tokens", IrCharClass(IrChr(1001)))
+    )
+
+
+def test_any_char_parses_to_unicode_complement():
+    """``.`` is any Unicode char — an ``IrNot`` of the empty class."""
+    assert _tok_atom(".") == IrNot(IrCharClass())
+
+
+def test_token_grammar_mixes_tokens_and_chars_in_one_rule():
+    """The README root: token atoms and a Unicode ``.`` coexist in one sequence."""
+    ast = parse_grammar(
+        "root ::= <think> body </think> .*\nbody ::= [a-z]", GBNF_FLAVOUR
+    )
+    root = ast.rules[0].body[0]
+    assert root[0].atom == IrAlphabet("tokens", IrLiteral("<think>"))
+    assert root[2].atom == IrAlphabet("tokens", IrLiteral("</think>"))
+    assert root[3].atom == IrNot(IrCharClass())
+    assert root[3].quantifier == IrQuantifier(0, IrNone)
