@@ -456,7 +456,10 @@ src/lexic/
                           IrNot(IrAlphabet) terms) + one _scan branch (atomic
                           token jump at a boundary column, id test instead of
                           startswith). Base Kernel untouched (char grammars never
-                          build a TokenKernel); I5's single token-matching engine
+                          build a TokenKernel); I5's single token-matching engine.
+                          TokenMaskCursor — the capability-C generation cursor
+                          (constrain(): mask()/push(id)/accepts(); mask ==
+                          stateless recompute off the frontier token-terms)
       chart.py            Chart / Links — the decoded SPPF
       engine.py           Per-capability orchestration nodes behind the public API
       forest.py           ParseTree, SppfNode

@@ -92,3 +92,48 @@ def test_concretised_grammar_has_resolved_ids() -> None:
     cg = compile_text("root ::= <think>", tokenizer=_tokenizer())
     atom = cg.grammar.rules[0].body[0][0].atom
     assert atom == IrAlphabet("tokens", IrCharClass(IrChr(0)))
+
+
+# ── capability C: the admissible next-token mask ─────────────────────────
+
+
+def test_mask_cursor_admissible_next_tokens() -> None:
+    """The mask gives the admissible next-token ids at each generation step."""
+    cg = compile_text(_GRAMMAR, tokenizer=_tokenizer())
+    cur = cg.constrain()
+    assert cur.mask() == {0}  # only <think> can open
+    assert not cur.accepts()
+    cur.push(0)  # <think>
+    # any token: a content token via !</think>*, or </think> closing the root
+    assert cur.mask() == set(_VOCAB.values())
+    cur.push(2)  # a  (content, via !</think>*)
+    cur.push(1)  # </think>
+    assert cur.mask() == set()  # nothing more admissible
+    assert cur.accepts()  # a complete parse
+
+
+def test_mask_equals_stateless_oracle() -> None:
+    """The mask equals a brute-force viability oracle at every prefix."""
+    cg = compile_text(_GRAMMAR, tokenizer=_tokenizer())
+    universe = set(_VOCAB.values())
+
+    def viable(ids: list[int]) -> bool:
+        c = cg.constrain()
+        for i in ids:
+            c.push(i)
+        # a prefix is viable if some next token is admissible OR it accepts
+        return bool(c.mask()) or c.accepts()
+
+    for prefix in ([], [0], [0, 2], [0, 2, 1]):
+        cur = cg.constrain()
+        for i in prefix:
+            cur.push(i)
+        oracle = {i for i in universe if viable(prefix + [i])}
+        assert cur.mask() == oracle
+
+
+def test_constrain_without_tokenizer_refuses() -> None:
+    """A char grammar (no bound tokenizer) cannot produce a mask cursor."""
+    cg = compile_text("root ::= [a-z]+")
+    with pytest.raises(UnsupportedConstructError):
+        cg.constrain()

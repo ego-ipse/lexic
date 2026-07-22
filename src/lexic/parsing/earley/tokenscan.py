@@ -13,10 +13,13 @@ token-matching engine.
 
 from __future__ import annotations
 
-from lexic.ir.nodes import IrAlphabet, IrCharClass
+from lexic.ir.encoding import IrTokenizer
+from lexic.ir.nodes import IrAlphabet, IrAst, IrCharClass
 from lexic.ir.operators import IrNot
 from lexic.parsing.earley.kernel import Kernel
-from lexic.parsing.earley.tables import ParserTables
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.tables import ParserTables, compile_tables
+from lexic.parsing.fold import lift_optional_nullables
 
 TokenSpec = tuple[frozenset[int], bool]
 """A token terminal's ``(id-set, negated)`` — the id test the scan applies."""
@@ -100,3 +103,68 @@ class TokenKernel(Kernel):
                 self._advance_all(j, bucket)
                 if self.record_links:
                     self._record_scans(i, j, bucket)
+
+
+class TokenMaskCursor:
+    """Generation-time admissible-next-token mask over a token grammar (capab. C).
+
+    The cursor holds the token ids generated so far. :meth:`mask` reads the set
+    of admissible next-token ids off the frontier column's live token-terms
+    (token-frontier set algebra — no chart re-work beyond the prefix run);
+    :meth:`push` extends by one token; :meth:`accepts` tests whether the current
+    sequence is a complete parse (end-of-input). It recomputes from the prefix
+    each step, so the mask equals a stateless recompute (fp9's correctness gate).
+    Generation is inherently id-space, so this cursor — not a second parse
+    interface — is capability C's surface.
+
+    :ivar ids: The token ids pushed so far (the generated prefix).
+    """
+
+    __slots__ = ("_tables", "_tokenizer", "_specs", "_universe", "ids")
+
+    def __init__(self, grammar: IrAst, tokenizer: IrTokenizer) -> None:
+        """Constrain generation to ``grammar`` under ``tokenizer``.
+
+        :param grammar: The codegen grammar (with resolved token terminals).
+        :param tokenizer: The tokenizer whose id space generation ranges over.
+        """
+        self._tables = compile_tables(normalize(lift_optional_nullables(grammar)))
+        self._tokenizer = tokenizer
+        self._specs = token_term_specs(self._tables)
+        self._universe = frozenset(int(i) for i in tokenizer.decode.keys())
+        self.ids: list[int] = []
+
+    def _run(self) -> tuple[Kernel, int]:
+        """Parse the current prefix; return the kernel and its frontier column."""
+        text = "".join(str(self._tokenizer.spell(i)) for i in self.ids)
+        bounds = {s: (t, e - s) for s, e, t in self._tokenizer.boundaries(text)}
+        return TokenKernel(self._tables, text, bounds).run(), len(text)
+
+    def mask(self) -> set[int]:
+        """The set of token ids admissible right after the current prefix.
+
+        :returns: Admissible next-token ids (empty when only end-of-input is
+            admissible — see :meth:`accepts`).
+        """
+        kernel, frontier = self._run()
+        scannable = kernel.st.scannable[frontier]
+        out: set[int] = set()
+        for tid, (ids, negated) in self._specs.items():
+            if scannable.get(tid):
+                out |= (self._universe - ids) if negated else set(ids) & self._universe
+        return out
+
+    def push(self, token_id: int) -> None:
+        """Extend the generated prefix by one token.
+
+        :param token_id: The generated token's id.
+        """
+        self.ids.append(token_id)
+
+    def accepts(self) -> bool:
+        """Whether the current token sequence is a complete parse (end-of-input).
+
+        :returns: ``True`` when the grammar accepts the prefix as-is.
+        """
+        kernel, _ = self._run()
+        return kernel.accept >= 0
