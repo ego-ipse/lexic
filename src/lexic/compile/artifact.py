@@ -10,9 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.encoding import IrTokenizer
 from lexic.ir.nodes import IrAst
 from lexic.model import GrammarModel
-from lexic.parsing import ModelFold, parse_model
+from lexic.parsing import ModelFold, parse_model, token_model
 
 
 @dataclass(frozen=True)
@@ -38,18 +39,29 @@ class CompiledGrammar:
     fold: ModelFold[GrammarModel]
     flavour: str = "gbnf"
     stem: str = "grammar"
+    tokenizer: IrTokenizer | None = None
 
     def parse(self, text: str) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
 
-        Delegates to the engine's :func:`~lexic.parsing.parse_model` product,
-        which runs the predictive PDA first and completes on the Earley engine
-        on any non-deterministic point (that completion owns the user-facing
-        diagnostics). ``PdaFail`` never surfaces.
+        A **token grammar** (compiled with a bound :attr:`tokenizer`) routes
+        through :func:`~lexic.parsing.token_model`: lexic segments ``text`` with
+        its own tokenizer and every token terminal matches id-granular against
+        that segmentation. A char grammar delegates to
+        :func:`~lexic.parsing.parse_model` (PDA-first, Earley completion;
+        ``PdaFail`` never surfaces).
 
         :raises UnsupportedConstructError: If ``text`` does not parse, or the
             fold produced no model for the start rule.
         """
+        if self.tokenizer is not None:
+            bounds = {
+                start: (tid, end - start)
+                for start, end, tid in self.tokenizer.boundaries(text)
+            }
+            return self._ensure_model(
+                token_model(self.codegen_grammar, text, self.fold, bounds)
+            )
         return self._ensure_model(parse_model(self.codegen_grammar, text, self.fold))
 
     @staticmethod

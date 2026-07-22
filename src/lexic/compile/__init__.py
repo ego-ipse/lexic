@@ -62,8 +62,10 @@ from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.compile.pipeline.synthesis import synthesize
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
-from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple
+from lexic.ir.base import IrLambda, IrNone, IrSeq, IrStr, IrTuple
 from lexic.ir.canonical import canonicalize, fold_name
+from lexic.ir.concretize import concretize
+from lexic.ir.encoding import IrTokenizer, IrUnicode
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAst, IrItem, IrRule, IrRuleRef
@@ -370,9 +372,21 @@ def _fold_config(
     return IrMap(*dyads)
 
 
-def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGrammar:
+def _compile_core(
+    text: str,
+    *,
+    stem: str,
+    flavour: str = "gbnf",
+    tokenizer: IrTokenizer | None = None,
+) -> CompiledGrammar:
     flavour_cls = get_flavour(flavour)
     ast = canonical_grammar(text, flavour_cls)
+    if tokenizer is not None:
+        registry = IrMap(
+            IrTuple(IrStr("unicode"), IrUnicode()),
+            IrTuple(tokenizer.name, tokenizer),
+        )
+        ast = concretize(ast, registry)
     codegen_grammar = build_codegen_grammar(ast)
     binding = compute_binding(codegen_grammar)
     classes = synthesize(codegen_grammar, binding, stem)
@@ -384,6 +398,7 @@ def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGra
         fold=fold,
         flavour=flavour,
         stem=stem,
+        tokenizer=tokenizer,
     )
 
 
@@ -392,6 +407,7 @@ def compile_text(
     *,
     cache_key: Hashable | None = None,
     flavour: str = "gbnf",
+    tokenizer: IrTokenizer | None = None,
 ) -> CompiledGrammar:
     """Compile from a grammar string, memoised by content by default.
 
@@ -413,12 +429,14 @@ def compile_text(
     :returns: The compiled grammar (cached across calls with the same key).
     """
     stem = _stem_for_text(text)
-    content_key = (stem, flavour)
+    content_key: tuple[Hashable, ...] = (stem, flavour)
+    if tokenizer is not None:
+        content_key = (*content_key, id(tokenizer))
     key = (cache_key, *content_key) if cache_key is not None else content_key
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    cg = _compile_core(text, stem=stem, flavour=flavour)
+    cg = _compile_core(text, stem=stem, flavour=flavour, tokenizer=tokenizer)
     _CACHE[key] = cg
     return cg
 

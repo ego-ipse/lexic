@@ -110,7 +110,7 @@ from lexic.parsing.fold import (
     RuleFold,
     lift_optional_nullables,
 )
-from lexic.parsing.products import parse_model, parse_reduced
+from lexic.parsing.products import parse_model, parse_reduced, token_model
 
 
 def recognize(grammar: IrAst, text: str) -> IrInt:
@@ -225,6 +225,7 @@ __all__ = [
     "parse_first",
     "parse_forest",
     "parse_model",
+    "token_model",
     "parse_reduced",
     "recognize",
 ]

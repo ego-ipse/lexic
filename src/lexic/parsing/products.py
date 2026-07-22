@@ -28,9 +28,12 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrSelf, IrStr, IrTuple
 from lexic.ir.nodes import IrAst
 from lexic.parsing.earley.engine import PARSE_FIRST, PARSE_REDUCED, EarleyParser
+from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.kernel import FastTree
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.earley.tables import ParserTables
+from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables, compile_tables
+from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda, compile_reduce_pda
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
@@ -83,6 +86,40 @@ def earley_model[M](
     """
     args = (IrStr(text),) if tables is None else (IrStr(text), tables)
     tree = PARSE_FIRST.eval(EarleyParser(), grammar, IrTuple(*args))
+    return fold.apply(tree)
+
+
+def token_model[M](
+    grammar: IrAst,
+    text: str,
+    fold: ModelFold[M],
+    bounds: dict[int, tuple[int, int]],
+) -> M:
+    """Parse token-segmented ``text`` to a model via the token Earley kernel.
+
+    The instance product for a **token-bearing** grammar: :class:`TokenKernel`
+    scans the token ``bounds`` (char position → ``(id, len)``), :class:`FastTree`
+    builds the single derivation, and ``fold`` builds the model. Char terminals
+    cross token boundaries; token terminals match id-granular. Token grammars
+    island the PDA by construction, so this Earley route is the whole parse.
+
+    :param grammar: The codegen grammar (with resolved token terminals).
+    :param text: The input string.
+    :param fold: The positional ParseTree → model fold producing ``M``.
+    :param bounds: char position → ``(token_id, char_len)`` segmentation.
+    :returns: The model the start rule folds to.
+    :raises UnsupportedConstructError: If ``text`` does not parse.
+    """
+    tables = compile_tables(normalize(lift_optional_nullables(grammar)))
+    kernel = TokenKernel(tables, text, bounds, record_links=True).run()
+    if kernel.accept < 0:
+        raise UnsupportedConstructError(
+            "parsing: input does not parse the token grammar"
+        )
+    handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
+    tree = FastTree(kernel).build(handle)
+    if not isinstance(tree, ParseTree):
+        raise UnsupportedConstructError("parsing: no token derivation")
     return fold.apply(tree)
 
 
