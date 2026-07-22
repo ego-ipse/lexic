@@ -29,6 +29,7 @@ from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -142,6 +143,12 @@ def test_abnf_irnot_raises_unsupported():
     """ABNF has no native negation — IrNot raises UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError):
         ABNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))
+
+
+def test_abnf_token_terminal_refuses_declaratively():
+    """Token terminals are a GBNF surface — ABNF refuses an IrAlphabet (F5)."""
+    with pytest.raises(UnsupportedConstructError, match="token terminals"):
+        ABNF_FLAVOUR.apply(IrAlphabet("tokens", IrLiteral("<think>")))
 
 
 # ── ABNF quantifier emission matrix ──────────────────────────────────

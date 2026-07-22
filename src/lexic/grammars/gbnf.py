@@ -193,7 +193,17 @@ GBNF_ACTIONS = IrTypeMap(
         IrAt(
             0,
             IrTypeMap(
-                IrAction(IrCharClass, IrApply(IrTuple(IrLiteral("^")))),
+                # A negated EMPTY class is any-char → `.` (the raw parse of `.`/
+                # `[^]`); a negated non-empty class marks `^` and delegates to
+                # the class's own action.
+                IrAction(
+                    IrCharClass,
+                    IrCond(
+                        test=IrField("is_empty", IrInt),
+                        then_op=IrLiteral("."),
+                        else_op=IrApply(IrTuple(IrLiteral("^"))),
+                    ),
+                ),
                 IrAction(
                     IrSelf,
                     IrRaise(message="{dispatcher}: cannot negate {node_type!r}"),

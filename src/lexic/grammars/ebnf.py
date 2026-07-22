@@ -69,6 +69,7 @@ from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour
 from lexic.ir.layout import IrDocConcat, IrDocJoin, IrGroup, IrLine, IrNest, IrText
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -484,6 +485,11 @@ EBNF_ACTIONS = IrTypeMap(
     IrAction(
         IrNot,
         IrRaise(message="{dispatcher}: EBNF does not support {node_type!r}"),
+    ),
+    # Token terminals (`<…>`) are a GBNF surface; EBNF refuses declaratively.
+    IrAction(
+        IrAlphabet,
+        IrRaise(message="{dispatcher}: token terminals (<…>) are GBNF-only, not EBNF"),
     ),
     IrAction(IrRuleRef, IrEmit()),
     IrAction(IrQuantifier, _EBNF_QUANTIFIERS),

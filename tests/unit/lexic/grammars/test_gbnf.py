@@ -118,6 +118,13 @@ def test_gbnf_dot_round_trips_through_canonical(grammar: str):
     assert canonical_grammar(emitted, GBNF_FLAVOUR) == ast
 
 
+@pytest.mark.parametrize("grammar", ["root ::= .", "root ::= [^]"])
+def test_gbnf_raw_any_char_emits_dot_off_the_non_canonical_seam(grammar: str):
+    """A raw ``IrNot(empty class)`` (un-canonicalised ``.``/``[^]``) emits ``.``."""
+    emitted = str(GBNF_FLAVOUR.apply(parse_grammar(grammar, GBNF_FLAVOUR)))
+    assert emitted == "root ::= .\n"
+
+
 # ── GBNF_QUANTIFIERS ──────────────────────────────────────────────────
 
 

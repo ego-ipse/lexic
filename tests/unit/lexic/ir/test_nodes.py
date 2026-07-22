@@ -1040,6 +1040,13 @@ def test_charclass_is_any_only_for_full_unicode_span():
     assert not IrCharClass().is_any
 
 
+def test_charclass_is_empty_only_for_no_members():
+    """``is_empty`` is True iff the class has no members (the negated-`.` source)."""
+    assert IrCharClass().is_empty
+    assert not IrCharClass(IrChr(ord("a"))).is_empty
+    assert not IrCharClass(IrRange(IrChr(ord("a")), IrChr(ord("z")))).is_empty
+
+
 # ── IrCharClass interval intrinsics (Task 1): intervals / from_intervals ──
 
 

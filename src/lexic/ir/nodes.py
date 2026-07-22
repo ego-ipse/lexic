@@ -451,6 +451,20 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
         """
         return self.intervals() == [(0, MAX_CODEPOINT)]
 
+    @property
+    def is_empty(self) -> bool:
+        """Whether this class has no members — the empty set.
+
+        ``IrNot(IrCharClass())`` (the raw, un-canonicalised parse of ``.`` /
+        ``[^]``) negates the empty class, so it denotes any character; a flavour
+        with a ``.`` surface reads this on emit to restore that spelling even off
+        the non-canonical ``parse_grammar`` seam (the canonical full-span form is
+        :meth:`is_any`).
+
+        :returns: ``True`` iff the class has no ``IrRange``/``IrChr`` members.
+        """
+        return len(self) == 0
+
     def complement(self) -> "IrCharClass":
         """Return the positive canonical-form class over the Unicode complement.
 
