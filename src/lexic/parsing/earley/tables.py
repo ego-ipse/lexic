@@ -165,8 +165,12 @@ def atom_accepts(
     :raises UnsupportedConstructError: When ``atom`` is an ``IrNot`` over
         anything other than an ``IrCharClass``.
     """
-    if isinstance(atom, IrAlphabet):
-        return False  # a token terminal matches an id at a boundary, never a char
+    # A token terminal (bare or negated) matches an id at a boundary, never a
+    # char — the token-scan branch handles it, so the char scan skips it.
+    if isinstance(atom, IrAlphabet) or (
+        isinstance(atom, IrNot) and isinstance(atom[0], IrAlphabet)
+    ):
+        return False
     if isinstance(atom, IrLiteral):
         return atom.startswith(char)  # IrLiteral IS-A str
     if isinstance(atom, IrCharClass):

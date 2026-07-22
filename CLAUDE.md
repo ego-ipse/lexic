@@ -449,6 +449,14 @@ src/lexic/
                           longest_start_completion — public windowed prefix-completion
                           seam for the PDA island sub-parse (additive, off the main
                           run() fast path; hybrid-PDA 260705)
+      tokenscan.py        TokenKernel — the Kernel subclass that parses a token
+                          grammar against text lexic has segmented into tokens: a
+                          bounds map (char pos → (id, len)) + token_term_specs
+                          (term_id → (ids, negated) off the IrAlphabet/
+                          IrNot(IrAlphabet) terms) + one _scan branch (atomic
+                          token jump at a boundary column, id test instead of
+                          startswith). Base Kernel untouched (char grammars never
+                          build a TokenKernel); I5's single token-matching engine
       chart.py            Chart / Links — the decoded SPPF
       engine.py           Per-capability orchestration nodes behind the public API
       forest.py           ParseTree, SppfNode
