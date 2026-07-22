@@ -28,19 +28,23 @@ TokenSpec = tuple[frozenset[int], bool]
 def token_term_specs(tables: ParserTables) -> dict[int, TokenSpec]:
     """Map each token terminal's ``term_id`` to its ``(id-set, negated)`` spec.
 
-    A token terminal is an :class:`~lexic.ir.nodes.IrAlphabet` (positive) or an
-    :class:`~lexic.ir.operators.IrNot` of one (negated) whose inner char class
-    holds the token ids. Empty for a grammar with no token terminals.
+    A token terminal is always an :class:`~lexic.ir.nodes.IrAlphabet`; negation
+    lives INSIDE it — a positive alphabet's inner is the id char class, a negated
+    one's inner is an :class:`~lexic.ir.operators.IrNot` of that class. Empty for
+    a grammar with no token terminals.
 
     :param tables: The compiled grammar tables.
     :returns: ``term_id -> (frozenset ids, negated)`` for every token terminal.
     """
     specs: dict[int, TokenSpec] = {}
     for tid, atom in enumerate(tables.terms.atoms):
-        negated = isinstance(atom, IrNot)
-        alpha = atom[0] if negated else atom
-        if isinstance(alpha, IrAlphabet) and isinstance(alpha.inner, IrCharClass):
-            specs[tid] = (frozenset(int(m) for m in alpha.inner.members()), negated)
+        if not isinstance(atom, IrAlphabet):
+            continue
+        inner = atom.inner
+        negated = isinstance(inner, IrNot)
+        charclass = inner[0] if negated else inner
+        if isinstance(charclass, IrCharClass):
+            specs[tid] = (frozenset(int(m) for m in charclass.members()), negated)
     return specs
 
 

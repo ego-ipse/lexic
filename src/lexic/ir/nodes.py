@@ -437,6 +437,20 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
         """
         return IrCharClass(*(self._span(lo, hi) for lo, hi in self.intervals()))
 
+    @property
+    def is_any(self) -> bool:
+        """Whether this class covers the whole Unicode range — the ``.`` class.
+
+        ``.`` (any character) canonicalises to the positive full-span class
+        ``[0, MAX_CODEPOINT]`` (via ``IrNot(IrCharClass())`` → :meth:`complement`),
+        indistinguishable in the IR from ``[^]`` or ``[\\x00-\\U0010ffff]``. A
+        flavour whose surface has an any-char token (GBNF ``.``) reads this to
+        restore that spelling on emit.
+
+        :returns: ``True`` iff the coalesced cover is exactly ``[(0, MAX_CODEPOINT)]``.
+        """
+        return self.intervals() == [(0, MAX_CODEPOINT)]
+
     def complement(self) -> "IrCharClass":
         """Return the positive canonical-form class over the Unicode complement.
 

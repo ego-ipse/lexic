@@ -47,7 +47,6 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
 from lexic.ir.walk import IrDispatch
 
 
@@ -190,18 +189,14 @@ def _check_group(d: _FieldCheck, n: IrSelf, nc: Sequence[IrSelf]) -> IrSelf:
     return IrNone
 
 
-def _check_token(d: _FieldCheck, n: IrSelf, _nc: Sequence[IrSelf]) -> IrSelf:
-    """Text-mode token (bare or negated): the field holds the token's text.
+def _check_token(d: _FieldCheck, _n: IrSelf, _nc: Sequence[IrSelf]) -> IrSelf:
+    """Text-mode token: the field holds the token's text.
 
     A plain ``str`` (an R7 hole like a bound literal) — the vocab-membership
-    check needs a tokenizer, which is not a per-field intrinsic. ``IrNot`` only
-    reaches here over an ``IrAlphabet`` (char negation is canonicalised away);
-    anything else is refused.
+    check needs a tokenizer, which is not a per-field intrinsic. The atom is
+    always an ``IrAlphabet`` (negation lives inside it; char negation is
+    canonicalised away).
     """
-    if isinstance(n, IrNot) and not isinstance(n[0], IrAlphabet):
-        raise FieldValidationError(
-            f"field {d.field!r}: IrNot over {type(n[0]).__name__} is not a token"
-        )
     if not isinstance(d.value, str):
         raise FieldValidationError(
             f"field {d.field!r}: expected a str for token field, got "
@@ -218,7 +213,6 @@ _FIELD_CHECK: IrDispatch = IrDispatch(
         IrAction(IrCharClass, IrLambda(_check_charclass)),
         IrAction(IrLiteral, IrLambda(_check_literal)),
         IrAction(IrAlphabet, IrLambda(_check_token)),
-        IrAction(IrNot, IrLambda(_check_token)),
         IrAction(IrRuleRef, IrLambda(_check_ref)),
         IrAction(IrAlternation, IrLambda(_check_group)),
     ),

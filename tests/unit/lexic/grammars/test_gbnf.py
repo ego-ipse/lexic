@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.compile import parse_grammar
+from lexic.compile import canonical_grammar, parse_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import (
     GBNF_ACTIONS,
@@ -20,6 +20,7 @@ from lexic.ir.base import IrLambda, IrNone
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
+    MAX_CODEPOINT,
     IrAlphabet,
     IrAlternation,
     IrAst,
@@ -132,6 +133,26 @@ def test_gbnf_emitter_iremit_default_unreachable():
     registered = set(GBNF_FLAVOUR.actions.keys())
     missing = GRAMMAR_AST_TYPES - registered
     assert not missing, f"GBNF_FLAVOUR missing explicit actions for: {missing}"
+
+
+def test_gbnf_any_char_class_emits_dot():
+    """The full-Unicode char class emits ``.`` — the any-char surface (F8)."""
+    full = IrCharClass(IrRange(IrChr(0), IrChr(MAX_CODEPOINT)))
+    assert GBNF_FLAVOUR.apply(full) == "."
+    # A non-full class still renders as brackets.
+    assert (
+        GBNF_FLAVOUR.apply(IrCharClass(IrRange(IrChr(ord("a")), IrChr(ord("z")))))
+        == "[a-z]"
+    )
+
+
+@pytest.mark.parametrize("grammar", ["root ::= .", "root ::= .*", 'root ::= "a" .'])
+def test_gbnf_dot_round_trips_through_canonical(grammar: str):
+    """``.`` survives parse → canonicalize → emit (ruling §7.2; README `.*`)."""
+    ast = canonical_grammar(grammar, GBNF_FLAVOUR)
+    emitted = str(GBNF_FLAVOUR.apply(ast))
+    assert "." in emitted and "\\x00" not in emitted
+    assert canonical_grammar(emitted, GBNF_FLAVOUR) == ast
 
 
 # ── GBNF_QUANTIFIERS ──────────────────────────────────────────────────
@@ -764,14 +785,14 @@ def test_token_id_form_parses_to_alphabet_charclass():
 
 
 def test_token_negated_text_form():
-    """``!<think>`` → negation outside the alphabet."""
-    assert _tok_atom("!<think>") == IrNot(IrAlphabet("tokens", IrLiteral("<think>")))
+    """``!<think>`` → negation INSIDE the alphabet (the encoding's complement)."""
+    assert _tok_atom("!<think>") == IrAlphabet("tokens", IrNot(IrLiteral("<think>")))
 
 
 def test_token_negated_id_form():
-    """``!<[1001]>`` → negation outside the id-form alphabet."""
-    assert _tok_atom("!<[1001]>") == IrNot(
-        IrAlphabet("tokens", IrCharClass(IrChr(1001)))
+    """``!<[1001]>`` → negation INSIDE the id-form alphabet."""
+    assert _tok_atom("!<[1001]>") == IrAlphabet(
+        "tokens", IrNot(IrCharClass(IrChr(1001)))
     )
 
 
@@ -808,17 +829,17 @@ def test_emit_id_form_token():
 
 
 def test_emit_negated_text_form_token():
-    """A negated text-form token emits the ``!`` prefix."""
+    """A negated text-form token (IrNot INSIDE the alphabet) emits the ``!`` prefix."""
     assert (
-        GBNF_FLAVOUR.apply(IrNot(IrAlphabet("tokens", IrLiteral("<think>"))))
+        GBNF_FLAVOUR.apply(IrAlphabet("tokens", IrNot(IrLiteral("<think>"))))
         == "!<think>"
     )
 
 
 def test_emit_negated_id_form_token():
-    """A negated id-form token emits ``!<[id]>``."""
+    """A negated id-form token (IrNot INSIDE the alphabet) emits ``!<[id]>``."""
     assert (
-        GBNF_FLAVOUR.apply(IrNot(IrAlphabet("tokens", IrCharClass(IrChr(1001)))))
+        GBNF_FLAVOUR.apply(IrAlphabet("tokens", IrNot(IrCharClass(IrChr(1001)))))
         == "!<[1001]>"
     )
 

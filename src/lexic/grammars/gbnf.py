@@ -127,6 +127,21 @@ same forms the other way (digit runs via :class:`IrUnradix`).
 """
 
 
+_TOKEN_ID = IrConcat(
+    parts=IrTuple(IrLiteral("<["), IrAt(0, IrRadix(10)), IrLiteral("]>"))
+)
+"""Id-form token render: ``<[`` + the decimal id + ``]>`` (the inner charclass
+holds one ``IrChr`` id). Shared by the positive and negated alphabet branches."""
+
+_TOKEN_FORM = IrTypeMap(
+    IrAction(IrLiteral, IrEmit()),
+    IrAction(IrCharClass, _TOKEN_ID),
+)
+"""Dispatch a token alphabet's *positive* inner: a text-form ``IrLiteral`` emits
+verbatim (the ``<…>`` key), an id-form ``IrCharClass`` renders via
+:data:`_TOKEN_ID`. Reused as the nested dispatch under a negated (``IrNot``) inner."""
+
+
 GBNF_ACTIONS = IrTypeMap(
     IrAction(
         IrLiteral,
@@ -137,13 +152,22 @@ GBNF_ACTIONS = IrTypeMap(
     # the interior is the dispatched join of the class's own elements.
     IrAction(
         IrCharClass,
-        IrConcat(
-            parts=IrTuple(
-                IrLiteral("["),
-                IrJoin(parts=IrArgs()),
-                IrJoin(parts=IrChildren()),
-                IrLiteral("]"),
-            )
+        IrCond(
+            # An unmarked full-Unicode class IS `.` (any char) — restore that
+            # surface (README §Tokens `.*`); `[^]`/`[\x00-\U0010ffff]` collapse
+            # to it, the same language. A marked (negated) class is never
+            # full-span (canonicalize folds `IrNot(full)` to the empty class),
+            # so the mark channel and the `.` branch never coincide.
+            test=IrField("is_any", IrInt),
+            then_op=IrLiteral("."),
+            else_op=IrConcat(
+                parts=IrTuple(
+                    IrLiteral("["),
+                    IrJoin(parts=IrArgs()),
+                    IrJoin(parts=IrChildren()),
+                    IrLiteral("]"),
+                )
+            ),
         ),
     ),
     # Class members escape per GBNF class-context rules (mirrors ccesc-*/cchex*
@@ -165,16 +189,15 @@ GBNF_ACTIONS = IrTypeMap(
     # Concrete str-leaves (IrLiteral/IrRuleRef) win by MRO.
     IrAction(IrStr, IrEmit()),
     # IrNot contributes its mark and delegates: the operand's own action
-    # places it. The IrTypeMap is the guard — IrSelf is the MRO catch-all.
+    # places it. Only a negated CHAR class reaches here (token negation lives
+    # INSIDE the alphabet, handled by the IrAlphabet action). The IrTypeMap is
+    # the guard — IrSelf is the MRO catch-all.
     IrAction(
         IrNot,
         IrAt(
             0,
             IrTypeMap(
                 IrAction(IrCharClass, IrApply(IrTuple(IrLiteral("^")))),
-                # A negated token: the "!" prefix rides the same mark channel as
-                # the charclass "^" — IrApply hands it to the alphabet action.
-                IrAction(IrAlphabet, IrApply(IrTuple(IrLiteral("!")))),
                 IrAction(
                     IrSelf,
                     IrRaise(message="{dispatcher}: cannot negate {node_type!r}"),
@@ -182,31 +205,22 @@ GBNF_ACTIONS = IrTypeMap(
             ),
         ),
     ),
-    # A token terminal: the received "!" mark (empty when positive), then the
-    # form dispatched on the inner atom — a text-form literal emits verbatim
-    # (the "<…>" key), an id-form class emits "<[" + decimal id + "]>".
+    # A token terminal, dispatched on its inner atom (negation is INSIDE the
+    # alphabet): a text-form IrLiteral emits verbatim (the "<…>" key), an id-form
+    # IrCharClass emits "<[" id "]>", and a negated inner (IrNot) emits "!" then
+    # the positive form of ITS inner.
     IrAction(
         IrAlphabet,
-        IrConcat(
-            parts=IrTuple(
-                IrJoin(parts=IrArgs()),
-                IrAt(
-                    0,
-                    IrTypeMap(
-                        IrAction(IrLiteral, IrEmit()),
-                        IrAction(
-                            IrCharClass,
-                            IrConcat(
-                                parts=IrTuple(
-                                    IrLiteral("<["),
-                                    IrAt(0, IrRadix(10)),
-                                    IrLiteral("]>"),
-                                )
-                            ),
-                        ),
-                    ),
+        IrAt(
+            0,
+            IrTypeMap(
+                IrAction(IrLiteral, IrEmit()),
+                IrAction(IrCharClass, _TOKEN_ID),
+                IrAction(
+                    IrNot,
+                    IrConcat(parts=IrTuple(IrLiteral("!"), IrAt(0, _TOKEN_FORM))),
                 ),
-            )
+            ),
         ),
     ),
     IrAction(IrRuleRef, IrEmit()),
@@ -1062,6 +1076,18 @@ _ALPHA_TEXT = IrBuild(
 """``<text>`` -> ``IrAlphabet("tokens", IrLiteral("<text>"))`` (text-form; the
 angle brackets are part of the key — the GBNF token-text wart)."""
 
+_ALPHA_NOT = IrBuild(
+    IrAlphabet,
+    IrTuple(
+        IrStr(GBNF_TOKEN_ENCODING),
+        IrBuild(IrNot, IrTuple(IrPipe(IrArg(0), IrAt(0, IrThis())))),
+    ),
+)
+"""``!<…>`` -> ``IrAlphabet("tokens", IrNot(inner))`` — negation INSIDE the
+alphabet (the encoding governs the token-universe complement). ``IrArg(0)`` is
+the positive ``token`` result (an ``IrAlphabet``); ``IrAt(0, IrThis())`` reads
+its raw inner atom, which is re-wrapped under an ``IrNot`` in a fresh alphabet."""
+
 _Q_MIRROR = IrStr("=")
 """``q-exact-t`` marker: the ``{n}`` upper bound mirrors ``lo``."""
 
@@ -1188,7 +1214,7 @@ GBNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("tok-text"), _ALPHA_TEXT),
     IrTuple(IrRuleRef("ttfirst"), YIELD),
     IrTuple(IrRuleRef("ttchar"), YIELD),
-    IrTuple(IrRuleRef("token-not"), IrBuild(IrNot, IrTuple(IrArg(0)))),
+    IrTuple(IrRuleRef("token-not"), _ALPHA_NOT),
     IrTuple(
         IrRuleRef("any-char"),
         IrBuild(IrNot, IrTuple(IrBuild(IrCharClass, IrTuple()))),

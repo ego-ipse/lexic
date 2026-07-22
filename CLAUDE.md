@@ -288,7 +288,8 @@ src/lexic/
                         only _bound
     nodes.py            Concrete grammar-AST nodes on the base.py spine: IrLiteral,
                         IrCharClass (intrinsic pattern()/members()/sample()/
-                        normalized()/complement()), IrRuleRef, IrSequence,
+                        normalized()/complement()/is_any — the any-char `.`
+                        predicate), IrRuleRef, IrSequence,
                         IrAlternation, IrBounds/IrQuantifier/IrRange, IrItem,
                         IrAlphabet(encoding-name-ref, inner atom — the alphabet
                         binding; reuses IrLiteral/IrCharClass/IrNot as the inner,
@@ -382,7 +383,8 @@ src/lexic/
                         GBNF_NOISE + GBNF_REDUCER (parse half — the full GBNF
                         surface, natively, no Lark meta-grammar; incl. the token
                         terminals <token>/<[id]>/!<…>/. reducing to IrAlphabet
-                        over GBNF_TOKEN_ENCODING="tokens", negation outside),
+                        over GBNF_TOKEN_ENCODING="tokens", negation INSIDE the
+                        alphabet: !<…> → IrAlphabet(enc, IrNot(inner))),
                         private _GbnfEscapes + public GBNF_ESCAPES singleton,
                         private _GbnfFlavour + public GBNF_FLAVOUR singleton
     abnf.py             ABNF flavour — same shape as gbnf.py. Full RFC 5234+7405
@@ -452,8 +454,8 @@ src/lexic/
       tokenscan.py        TokenKernel — the Kernel subclass that parses a token
                           grammar against text lexic has segmented into tokens: a
                           bounds map (char pos → (id, len)) + token_term_specs
-                          (term_id → (ids, negated) off the IrAlphabet/
-                          IrNot(IrAlphabet) terms) + one _scan branch (atomic
+                          (term_id → (ids, negated) off the IrAlphabet terms,
+                          negation read from the IrNot INSIDE) + one _scan branch (atomic
                           token jump at a boundary column, id test instead of
                           startswith). Base Kernel untouched (char grammars never
                           build a TokenKernel); I5's single token-matching engine.

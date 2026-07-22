@@ -145,14 +145,12 @@ def _first_charclass(_d: object, n: IrSelf, _nc: object) -> CharSet:
 def _first_not(_d: object, n: IrSelf, _nc: object) -> CharSet:
     """FIRST of an ``IrNot``: the complement of its inner class (else ANY).
 
-    A negated token (``IrNot`` over an ``IrAlphabet``) has EMPTY char-FIRST — it
-    matches an id, not a char — like a bare token atom (forces island)."""
+    Only a negated CHAR class reaches here — token negation lives INSIDE the
+    alphabet (a fenced terminal), so ``IrNot`` never wraps an ``IrAlphabet``."""
     assert isinstance(n, IrNot)
     inner = n[0]
     if isinstance(inner, IrCharClass):
         return CharSet.from_not(inner)
-    if isinstance(inner, IrAlphabet):
-        return CharSet.EMPTY
     return CharSet.ANY
 
 

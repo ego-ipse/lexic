@@ -1025,6 +1025,21 @@ def test_charclass_full_range_class_edges():
     assert full.normalized() == full
 
 
+def test_charclass_is_any_only_for_full_unicode_span():
+    """``is_any`` is True iff the coalesced cover is exactly ``[0, MAX_CODEPOINT]``."""
+    assert IrCharClass(IrRange(IrChr(0), IrChr(MAX_CODEPOINT))).is_any
+    # `.` canonicalises to the complement of the empty class — also full-span.
+    assert IrCharClass().complement().is_any
+    # Adjacent spans coalesce to the full span → is_any.
+    assert IrCharClass(
+        IrRange(IrChr(0), IrChr(64)), IrRange(IrChr(65), IrChr(MAX_CODEPOINT))
+    ).is_any
+    # Anything short of the whole range is not any-char.
+    assert not IrCharClass(IrRange(IrChr(ord("a")), IrChr(ord("z")))).is_any
+    assert not IrCharClass(IrRange(IrChr(0), IrChr(MAX_CODEPOINT - 1))).is_any
+    assert not IrCharClass().is_any
+
+
 # ── IrCharClass interval intrinsics (Task 1): intervals / from_intervals ──
 
 
