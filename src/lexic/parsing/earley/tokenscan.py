@@ -14,15 +14,91 @@ token-matching engine.
 from __future__ import annotations
 
 from lexic.ir.encoding import IrTokenizer
-from lexic.ir.nodes import IrAlphabet, IrAst, IrCharClass
+from lexic.ir.nodes import (
+    IrAlphabet,
+    IrAlternation,
+    IrAst,
+    IrCharClass,
+    IrItem,
+    IrLiteral,
+    IrQuantifier,
+    IrRule,
+    IrSeq,
+    IrSequence,
+)
 from lexic.ir.operators import IrNot
-from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.kernel import ORIGIN_BITS, Kernel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tables import ParserTables, compile_tables
 from lexic.parsing.fold import lift_optional_nullables
 
 TokenSpec = tuple[frozenset[int], bool]
 """A token terminal's ``(id-set, negated)`` — the id test the scan applies."""
+
+_UNIT = IrQuantifier(1, 1)
+
+
+def split_literals(ast: IrAst) -> IrAst:
+    """Split every unquantified multi-char literal into single-char literals.
+
+    The char-heavy mask recognises a candidate token's chars one at a time, so
+    the recognizer must be **char-granular**: canonicalization merges a
+    ``"d" "o" "g"`` run into one atomic literal (scanned via ``startswith``), and
+    a prefix landing mid-literal (``"d"`` of ``"dog"``) can then never advance —
+    it reads as dead when it is actually viable. Splitting the literal back to
+    single chars restores per-char advancement. Quantified literals are left as
+    is (a mid-``"ab"+`` split would change the language); no ground-truth grammar
+    quantifies a multi-char literal.
+
+    :param ast: The grammar to make char-granular.
+    :returns: An equivalent grammar with unquantified multi-char literals split.
+    """
+
+    def expand(item: IrItem) -> list[IrItem]:
+        atom = item.atom
+        if (
+            isinstance(atom, IrLiteral)
+            and len(str(atom)) > 1
+            and item.quantifier == _UNIT
+        ):
+            return [IrItem(IrLiteral(ch)) for ch in str(atom)]
+        return [item]
+
+    rules = [
+        IrRule(
+            rule.name,
+            IrAlternation(
+                *(
+                    IrSequence(*(x for item in arm for x in expand(item)))
+                    for arm in rule.body
+                )
+            ),
+            rule.semantic,
+        )
+        for rule in ast.rules
+    ]
+    return IrAst(IrSeq(*rules), ast.start)
+
+
+def viable_prefix(tables: ParserTables, text: str) -> bool:
+    """Whether ``text`` is a viable prefix of the char grammar — the mask oracle.
+
+    Viable = a complete parse (``accept >= 0``) OR some frontier item still faces
+    a symbol (``next_sym != 0``). The items advanced INTO the frontier column by
+    the last scan are ungated (only fresh frontier *seeds* are FIRST-gated on the
+    absent next char), so ``cols[len(text)]`` witnesses extendability with no
+    kernel change — a read-only view over the chart. Requires char-granular
+    ``tables`` (see :func:`split_literals`).
+
+    :param tables: Char-granular compiled tables for the grammar.
+    :param text: The candidate char prefix.
+    :returns: ``True`` when some valid word has ``text`` as a prefix.
+    """
+    kernel = Kernel(tables, text).run()
+    if kernel.accept >= 0:
+        return True
+    next_sym = tables.codes.next_sym
+    return any(next_sym[it >> ORIGIN_BITS] != 0 for it in kernel.cols[len(text)])
 
 
 def token_term_specs(tables: ParserTables) -> dict[int, TokenSpec]:
@@ -121,10 +197,17 @@ class TokenMaskCursor:
     Generation is inherently id-space, so this cursor — not a second parse
     interface — is capability C's surface.
 
+    A grammar with **token terminals** (``IrAlphabet``) uses the token-frontier
+    set algebra above. A **char** grammar (no token terminals) instead ranges the
+    tokenizer's ids over a char-granular recognizer: a token is admissible iff
+    ``prefix+spell(token)`` stays a viable prefix (:func:`viable_prefix`) — the
+    complete, sound char-heavy mask. This form reparses per candidate token
+    (O(vocab) per step); a resumable recognizer is the perf follow-up.
+
     :ivar ids: The token ids pushed so far (the generated prefix).
     """
 
-    __slots__ = ("_tables", "_tokenizer", "_specs", "_universe", "ids")
+    __slots__ = ("_tables", "_tokenizer", "_specs", "_universe", "_char_tables", "ids")
 
     def __init__(self, grammar: IrAst, tokenizer: IrTokenizer) -> None:
         """Constrain generation to ``grammar`` under ``tokenizer``.
@@ -136,6 +219,15 @@ class TokenMaskCursor:
         self._tokenizer = tokenizer
         self._specs = token_term_specs(self._tables)
         self._universe = frozenset(int(i) for i in tokenizer.decode.keys())
+        # A char grammar (no token terminals) drives the char-heavy path over a
+        # char-granular recognizer; a token grammar leaves this None.
+        self._char_tables = (
+            None
+            if self._specs
+            else compile_tables(
+                normalize(lift_optional_nullables(split_literals(grammar)))
+            )
+        )
         self.ids: list[int] = []
 
     def _run(self) -> tuple[Kernel, int]:
@@ -144,18 +236,49 @@ class TokenMaskCursor:
         bounds = {s: (t, e - s) for s, e, t in self._tokenizer.boundaries(text)}
         return TokenKernel(self._tables, text, bounds).run(), len(text)
 
+    def _prefix_text(self) -> str:
+        """The generated prefix spelled to characters (the char-heavy path)."""
+        return "".join(str(self._tokenizer.spell(i)) for i in self.ids)
+
     def mask(self) -> set[int]:
         """The set of token ids admissible right after the current prefix.
 
         :returns: Admissible next-token ids (empty when only end-of-input is
             admissible — see :meth:`accepts`).
         """
+        if self._char_tables is not None:
+            return self._char_mask()
         kernel, frontier = self._run()
         scannable = kernel.st.scannable[frontier]
         out: set[int] = set()
         for tid, (ids, negated) in self._specs.items():
             if scannable.get(tid):
                 out |= (self._universe - ids) if negated else set(ids) & self._universe
+        return out
+
+    def _char_mask(self) -> set[int]:
+        """Char-heavy mask: every id whose char-expansion stays a viable prefix.
+
+        Viability is prefix-monotonic (``viable(s+x) ⇒ viable(s)``), so a token
+        whose FIRST char is already dead is skipped without the full-spelling
+        reparse; the per-first-char result is memoised, collapsing the common
+        case (most of a large vocab starts with a char no live item admits).
+        """
+        assert self._char_tables is not None
+        tables, prefix = self._char_tables, self._prefix_text()
+        first_ok: dict[str, bool] = {}
+        out: set[int] = set()
+        for tid in self._universe:
+            spelling = str(self._tokenizer.spell(tid))
+            if not spelling:
+                continue
+            head = spelling[0]
+            if head not in first_ok:
+                first_ok[head] = viable_prefix(tables, prefix + head)
+            if not first_ok[head]:
+                continue
+            if len(spelling) == 1 or viable_prefix(tables, prefix + spelling):
+                out.add(tid)
         return out
 
     def push(self, token_id: int) -> None:
@@ -170,5 +293,7 @@ class TokenMaskCursor:
 
         :returns: ``True`` when the grammar accepts the prefix as-is.
         """
+        if self._char_tables is not None:
+            return Kernel(self._char_tables, self._prefix_text()).run().accept >= 0
         kernel, _ = self._run()
         return kernel.accept >= 0

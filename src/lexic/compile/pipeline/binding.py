@@ -169,6 +169,7 @@ _RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
         "GrammarModel",
         "ClassVar",
         "Literal",
+        "IrAlphabet",
         "IrAlternation",
         "IrAst",
         "IrBind",
@@ -184,6 +185,7 @@ _RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
         "IrRuleRef",
         "IrSeq",
         "IrSequence",
+        "IrStr",
     }
 )
 """Module-scope names a generated twin module binds — the exporter's header

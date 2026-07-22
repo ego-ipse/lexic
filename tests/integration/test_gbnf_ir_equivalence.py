@@ -72,6 +72,7 @@ GOLDEN: dict[str, tuple[str, tuple[str, ...]]] = {
         ("root", "value", "object", "array", "string", "number", "ws"),
     ),
     "list": ("root", ("root", "item")),
+    "think": ("root", ("root", "thinking")),
     "vyx": (
         "packet",
         (

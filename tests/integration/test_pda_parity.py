@@ -54,9 +54,12 @@ from tests.unit.lexic.parsing.pda.runtime.test_runtime import arithmetic_bench_c
 # ── fixtures ────────────────────────────────────────────────────────────
 
 # The wide matrix: every GBNF ground-truth grammar bar vyx (whose non-default
-# @start corpus is exercised elsewhere) plus both ABNF grammars.
+# @start corpus is exercised elsewhere) and think (a token grammar — generating
+# samples needs a tokenizer to spell token atoms, out of this text-only matrix's
+# scope) plus both ABNF grammars.
+_SKIP_STEMS = frozenset({"vyx.gbnf", "think.gbnf"})
 ALL_STEMS: tuple[str, ...] = (
-    *(g for g in GBNF_GRAMMARS if g != "vyx.gbnf"),
+    *(g for g in GBNF_GRAMMARS if g not in _SKIP_STEMS),
     *ABNF_GRAMMARS,
 )
 N_SEEDS = 40

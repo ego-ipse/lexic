@@ -7,6 +7,8 @@ a round-trippable model. Capability B, README §Tokens, on the real engine.
 
 from __future__ import annotations
 
+from itertools import product
+
 import pytest
 
 from lexic.compile import compile_text, parse_grammar, reset_cache_for_tests
@@ -137,3 +139,107 @@ def test_constrain_without_tokenizer_refuses() -> None:
     cg = compile_text("root ::= [a-z]+")
     with pytest.raises(UnsupportedConstructError):
         cg.constrain()
+
+
+# ── the multi-tokenizer registry surface (compile_text(registry=)) ────────
+
+
+def test_registry_binds_encoding_by_grammar_name() -> None:
+    """``registry=`` binds the grammar's encoding *name*, not the tokenizer's.
+
+    The grammar references ``tokens`` (GBNF's default) while the tokenizer is
+    named ``gpt2`` — the registry key decouples the two.
+    """
+    vocab = IrMap(*(IrTuple(IrStr(t), IrChr(i)) for t, i in _VOCAB.items()))
+    tok = IrTokenizer.from_vocab("gpt2", vocab)
+    registry = IrMap(IrTuple(IrStr("tokens"), tok))
+    cg = compile_text(_GRAMMAR, registry=registry)
+    assert cg.tokenizer is tok  # the sole tokenizer segments instances
+    assert cg.parse("<think>ab</think>").to_text() == "<think>ab</think>"
+
+
+def test_tokenizer_sugar_equals_single_entry_registry() -> None:
+    """``tokenizer=`` is exactly the one-entry registry under the tokenizer name."""
+    tok = _tokenizer()
+    via_sugar = compile_text(_GRAMMAR, tokenizer=tok)
+    reset_cache_for_tests()
+    via_registry = compile_text(_GRAMMAR, registry=IrMap(IrTuple(tok.name, tok)))
+    text = "<think>ab</think>"
+    assert via_sugar.parse(text).dump() == via_registry.parse(text).dump()
+
+
+def test_registry_and_tokenizer_are_mutually_exclusive() -> None:
+    """Passing both ``tokenizer=`` and ``registry=`` is ambiguous — it refuses."""
+    tok = _tokenizer()
+    with pytest.raises(UnsupportedConstructError):
+        compile_text(_GRAMMAR, tokenizer=tok, registry=IrMap(IrTuple(tok.name, tok)))
+
+
+# ── the char-heavy mask (capability C over a CHAR grammar) — F3+F4 ────────
+
+# (grammar, its finite language, vocab) — the differential matrix. Each grammar
+# stresses a different construct: bare sequences/alternation; a char class + an
+# optional; a bounded quantifier.
+_CHAR_CASES = [
+    (
+        'root ::= "c" a1 | "d" "o" "g"\na1 ::= "a" a2 | "o" "t"\na2 ::= "t" | "r"',
+        {"cat", "car", "cot", "dog"},
+        ["c", "a", "t", "r", "d", "o", "g", "ca", "at", "og", "dog", "x", "co"],
+    ),
+    (
+        'root ::= [ab] "x"? "c"',
+        {"ac", "bc", "axc", "bxc"},
+        ["a", "b", "x", "c", "ax", "bc", "xc", "abc", "z"],
+    ),
+    (
+        'root ::= "a" "a"? "a"? "b"',  # 1-3 a's then b: ab, aab, aaab
+        {"ab", "aab", "aaab"},
+        ["a", "b", "aa", "ab", "aab", "aaab", "q"],
+    ),
+]
+
+
+def _tok(vocab: list[str]) -> IrTokenizer:
+    encode = IrMap(*(IrTuple(IrStr(s), IrChr(i)) for i, s in enumerate(vocab)))
+    return IrTokenizer.from_vocab("tokens", encode)
+
+
+def _oracle(
+    vocab: list[str], language: set[str], prefix_ids: tuple[int, ...]
+) -> set[int]:
+    """Brute-force truth: t admissible iff some valid word extends prefix+spell(t)."""
+    prefix = "".join(vocab[i] for i in prefix_ids)
+    return {
+        t
+        for t in range(len(vocab))
+        if any(w.startswith(prefix + vocab[t]) for w in language)
+    }
+
+
+@pytest.mark.parametrize("grammar, language, vocab", _CHAR_CASES)
+def test_char_heavy_mask_matches_brute_force_oracle(
+    grammar: str, language: set[str], vocab: list[str]
+) -> None:
+    """The char-grammar next-token mask equals a brute-force oracle at every
+    reachable prefix (≤3 tokens), across char classes / optionals / quantifiers —
+    the F3+F4 soundness+completeness gate."""
+    cursor = compile_text(grammar).constrain(_tok(vocab))
+    ids = range(len(vocab))
+    for depth in range(4):
+        for combo in product(ids, repeat=depth):
+            cursor.ids = list(combo)
+            assert cursor.mask() == _oracle(vocab, language, combo), "".join(
+                vocab[i] for i in combo
+            )
+
+
+def test_char_heavy_mask_start_and_accept() -> None:
+    """Spot-check the char mask: only word-openers at the start; accept mid-word."""
+    grammar, _, vocab = _CHAR_CASES[0]
+    tok = _tok(vocab)
+    cursor = compile_text(grammar).constrain(tok)
+    assert {str(tok.spell(i)) for i in cursor.mask()} == {"c", "ca", "co", "d", "dog"}
+    for tid in (0, 1, 2):  # c, a, t → "cat"
+        cursor.push(tid)
+    assert cursor.accepts()
+    assert cursor.mask() == set()

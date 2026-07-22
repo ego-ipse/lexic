@@ -14,6 +14,7 @@
 | What tasks are done vs pending? | [[lexic/cutover-plan]] |
 | Old `Atom` shape vs new `IrItem` shape — fields, type aliases? | [[lexic/ir-shapes]] |
 | How do I add a new grammar flavour? | [[lexic/flavour-system]] |
+| How do token grammars / tokenizers / the next-token mask work? | [[lexic/token-support]] |
 | Which compile function should I call? What does CompiledGrammar contain? | [[lexic/public-api]] |
 | How do exported twin modules work (export_module / bind_module / layout / emit_ir)? | [[lexic/generated-modules]] |
 | Why was design choice X made? | [[lexic/decisions]] |
@@ -51,6 +52,7 @@
 | [[lexic/testing]] | Test file mirror rule (`src/lexic/foo/bar.py` → `tests/unit/lexic/foo/test_bar.py`); `test_init_<pkg>.py` naming for `__init__.py` modules; test commands |
 | [[lexic/codegen]] | HISTORICAL (superseded banner): the deleted `lexic.codegen` package |
 | [[lexic/generated-modules]] | Importable twin modules: `export_module`/`export_source`, `bind_module`, the layout algebra (`ir/layout.py`), the notation emit half (`emit_ir`), tool-clean gates, reserved names |
+| [[lexic/token-support]] | Token grammars: the encoding model (`IrEncoding`/`IrUnicode`/`IrTokenizer` + the BPE merge model + data-driven `boundaries`), `IrAlphabet` binding, `concretize`, the `compile_text(tokenizer=/registry=)` surface, `TokenKernel` + `TokenMaskCursor`, format-is-the-caller's-concern |
 | [[theory/grammar-formats]] | GBNF, ABNF, EBNF syntax reference; operator precedence tables; escape notations; Lexic coverage gaps per format; GBNF vs ABNF vs EBNF comparison table |
 | [[theory/parsing-theory]] | CFGs, PEGs, LL/LR/Earley algorithms; AST vs CST; Visitor vs Transformer patterns; grammar toolchains (Lexic's own native Earley engine, plus Lark/ANTLR4/tree-sitter as external reference points); IR design rationale |
 

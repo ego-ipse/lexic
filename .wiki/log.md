@@ -1,5 +1,35 @@
 # Log
 
+## 2026-07-22 — Char-heavy next-token mask (capability C complete for char grammars)
+
+`TokenMaskCursor` now masks generation against a **char** grammar, not only a
+token grammar: a vocab token is admissible iff `prefix+spell(token)` stays a
+viable prefix. Two new leaves in `parsing/earley/tokenscan.py` — `split_literals`
+(a char-granular transform: canonicalization merges `"d" "o" "g"` into one atomic
+literal, so a mid-literal prefix must be re-split to advance) and `viable_prefix`
+(`accept ≥ 0`, or a frontier item still faces a symbol — read-only over `cols` +
+`next_sym`, **no kernel change**). A differential test pins the mask to a
+brute-force oracle over three grammar shapes (alternation, char-class + optional,
+bounded quantifier). The token-grammar path is untouched. Correctness is complete
+and sound; the naive form reparses per candidate token (O(vocab)/step) — a
+resumable recognizer is the perf follow-up. See [[lexic/token-support]].
+
+## 2026-07-22 — Token support: the BPE merge model, the registry surface, and a wiki page
+
+New page [[lexic/token-support]] documents the token architecture end to end (the
+encoding model, `IrAlphabet` binding, `concretize`, the compile surface,
+`TokenKernel`/`TokenMaskCursor`, format-is-the-caller's-concern). Landed with it:
+`IrTokenizer` now carries a real BPE **merge model** (`merges: IrTuple`, rank =
+position; `from_merges`; `boundaries` runs the ranked-merge rewrite when merges
+are present, longest-match when empty — `src/lexic/ir/encoding.py`). `compile_text`
+gained a `registry=` surface (`IrMap[IrStr, IrEncoding]`, binds encoding names;
+`tokenizer=` is one-entry sugar; both-given refuses). `IrStr` joined the `lexic.ir`
+public surface (token twins render it). `think.gbnf` is a ground-truth token
+grammar (capability-A: read/emit/round-trip, no tokenizer); its twin is
+tool-clean. Format handling stays a caller concern — an HF `tokenizer.json` is
+parsed by lexic's own `json.gbnf` in a test, never in `src`. Byte-level segmentation
+is deferred (byte-column engine effort; the char-column coupling invariant).
+
 ## 2026-07-22 — F14 CODECFOLD: `EscapeCodec` onto the IR spine + dead-resolve removal
 
 `EscapeCodec` is now an `IrNamedTuple` record (an `IrSelf`, one `tables: IrMap`
