@@ -125,17 +125,9 @@ from lexic.ir.nodes import (
 from lexic.ir.operators import IrNot, IrOp
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
-
-class _AbnfEscapes(EscapeCodec):
-    """Identity codec — ABNF literals are canonical Python; the quoted
-    char-val body admits printable ASCII except the double quote (RFC 7405)."""
-
-    SHORT_ESCAPES: ClassVar[dict[str, str]] = {}
-    HEX_ESCAPES: ClassVar[tuple[tuple[str, int], ...]] = ()
-    QUOTE_SAFE: ClassVar[tuple[tuple[int, int], ...]] = ((0x20, 0x21), (0x23, 0x7E))
-
-
-ABNF_ESCAPES = _AbnfEscapes()
+# Identity codec — ABNF literals are canonical Python; the quoted char-val body
+# admits printable ASCII except the double quote (RFC 7405).
+ABNF_ESCAPES = EscapeCodec.from_tables(quote_safe=((0x20, 0x21), (0x23, 0x7E)))
 """Singleton escape codec for ABNF."""
 
 

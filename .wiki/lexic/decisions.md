@@ -6,6 +6,20 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ---
 
+## 2026-07-22 — `EscapeCodec` is an `IrSelf` record, the emit-spell refinement over `IrUnicode` (NOT an `IrEncoding`)
+
+**Decision:** The escape codec is an `IrNamedTuple` record (an `IrSelf` on the IR spine — the `IrTokenizer` precedent), one `tables: IrMap` field holding the five named escape tables (IR-native). It is emit-only (`encode`/`encode_point`/`spellable`) and is **not** an `IrEncoding`.
+
+**Why an `IrSelf` (not a plain ABC):** everything is an `IrSelf`; a runtime object isolated from the spine (a plain ABC with `dict`/`frozenset` class-vars) violates the core principle. The record carries IR-native data (`IrMap`/`IrTuple`), so its runtime shape equals its manifest-serialized shape.
+
+**Why NOT an `IrEncoding`:** the encoding contract (`universe`/`resolve`/`spell`) does not fit an emit-only spelling policy. Forcing it would (a) revive the dead `resolve` half (the parse side decodes escapes structurally in the reductions — `decode`/`read_escape` had zero runtime callers and were deleted), (b) break the `spell` never-raises contract (`encode_point` can raise), and (c) churn "maps are `IrMap`" purity onto the hot emit tables for no functional gain — the codec is read only by three emit bodies (`IrEscape`/`IrEscapePoint`/`IrSpellable`), never named from an `IrAlphabet`, never walked.
+
+**The conceptual place:** escaping IS the flavour's **spell refinement over `IrUnicode`** — `IrChr.eval`/`__str__` = `chr` is the neutral `IrUnicode.spell` (the canonical spelling); per-flavour escaping is applied at *emit* by the codec, never by the leaf, keeping the canonical IR flavour-neutral (cross-flavour convergence preserved).
+
+**Shape note:** one `tables: IrMap` field (not five) keeps the `__new__` at two args (avoids `R0913` on a 5-table constructor) and mirrors the manifest `escapes` section exactly; `from_tables(**spec)` is the plain-Python authoring convenience, ergonomic `.short`/`.hex`/… property accessors read the sub-tables.
+
+---
+
 ## 2026-07-21 — Micro-perf floor: in-process A/B only; model count, not per-model cost, bounds the win
 
 **Finding:** the only trustworthy way to measure a parse-engine change below roughly 15% is an **in-process, interleaved A/B** — baseline and candidate run in the same warm process, order randomized per sample, best-of-N reported. Cross-process comparisons (including git-stash-based before/after) and `cProfile` self-time both mislead at this scale: cross-process runs showed an apparent 6–11% win that vanished (and in one case reversed) under in-process A/B, because cold-start and allocator noise dominate a delta that small; `cProfile`'s per-call overhead inflates exactly the highest-call-count helper functions, misdirecting effort toward code that isn't the real steady-state bottleneck.

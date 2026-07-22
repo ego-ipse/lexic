@@ -533,11 +533,18 @@ class IrChr(IrInt):
         return super().__new__(cls, value)
 
     def __str__(self) -> str:
-        """The glyph for this code point."""
+        """The raw glyph for this code point — the neutral ``IrUnicode.spell``.
+
+        This ``chr`` is the neutral, canonical spelling (``IrUnicode`` is the
+        default encoding); per-flavour *escaping* is applied at emit by the
+        flavour's ``EscapeCodec``, never by the leaf, so the canonical IR stays
+        flavour-neutral.
+        """
         return chr(int(self))
 
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrStr:
-        """Evaluate to the glyph as an ``IrStr`` (emit-side use)."""
+        """Evaluate to the raw glyph (the neutral ``IrUnicode.spell``; see
+        :meth:`__str__`) as an ``IrStr`` — emit-side use."""
         return IrStr(chr(int(self)))
 
 

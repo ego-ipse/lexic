@@ -1,5 +1,20 @@
 # Log
 
+## 2026-07-22 — F14 CODECFOLD: `EscapeCodec` onto the IR spine + dead-resolve removal
+
+`EscapeCodec` is now an `IrNamedTuple` record (an `IrSelf`, one `tables: IrMap`
+field, IR-native — the `IrTokenizer` precedent), **not** an `IrEncoding` (the
+`universe`/`resolve`/`spell` contract does not fit an emit-only spelling policy;
+would revive dead code + break `spell`'s never-raise contract). The three flavour
+codecs are `EscapeCodec.from_tables(...)` instances (data, not subclasses); the
+manifest loader builds the record; `gen_manifests` reads its fields (manifest
+byte-identical). The runtime-dead resolve half (`decode`/`read_escape`/
+`_decode_re`/`_replace`) + `CANONICAL_ESCAPES` were deleted (parse decodes escapes
+structurally in the reductions), with their direct tests removed across five
+files. `IrChr.eval=chr` documented as the neutral `IrUnicode.spell` (escaping is
+emit-only). See `decisions.md` (2026-07-22) and `zzz_current_work/260721-token-
+support/PLAN_V8.5_F14_CODECFOLD.md`. Suite green (2948), run_checks 0.
+
 ## 2026-07-21 — Token support IR model (prototype): the encoding generalization
 
 Landed the IR-model layer for token-terminal support (`zzz_current_work/

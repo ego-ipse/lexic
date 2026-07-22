@@ -180,26 +180,24 @@ def _derive_reducer(grammar: IrAst, reductions: IrMap) -> Reducer:
 
 
 def _lower_escapes(tables: IrMap) -> EscapeCodec:
-    """Lower the five escape IR-dyad tables to a synthesized ``EscapeCodec``.
+    """Lower the five escape IR-dyad tables to an ``EscapeCodec`` record.
 
     :param tables: The ``escapes`` section — an ``IrMap`` of the five tables.
-    :returns: One anonymous ``EscapeCodec`` subclass instance carrying the tables.
+    :returns: The ``EscapeCodec`` record carrying the five tables.
     :raises UnsupportedConstructError: On a missing/unknown table or a malformed
         dyad shape.
     """
     _validate_escape_keys(tables)
-    namespace = {
-        "SHORT_ESCAPES": _short_map(tables["short"]),
-        "HEX_ESCAPES": _hex_tuple(tables["hex"]),
-        "CLASS_SHORT": _class_short_map(tables["class-short"]),
-        "CLASS_META": frozenset(
-            str(char) for char in _require(tables["class-meta"], IrTuple, "class-meta")
-        ),
-        "QUOTE_SAFE": _range_tuple(tables["quote-safe"], "quote-safe"),
-        "__module__": __name__,
-        "__qualname__": "LoadedEscapes",
-    }
-    return type("LoadedEscapes", (EscapeCodec,), namespace)()
+    class_meta = "".join(
+        str(char) for char in _require(tables["class-meta"], IrTuple, "class-meta")
+    )
+    return EscapeCodec.from_tables(
+        short=_short_map(tables["short"]),
+        hexes=_hex_tuple(tables["hex"]),
+        class_short=_class_short_map(tables["class-short"]),
+        class_meta=class_meta,
+        quote_safe=_range_tuple(tables["quote-safe"], "quote-safe"),
+    )
 
 
 def _validate_escape_keys(tables: IrMap) -> None:

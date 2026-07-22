@@ -61,36 +61,6 @@ def test_line_comment_token():
     assert GBNF_FLAVOUR.line_comment == "#"
 
 
-def test_decode_newline():
-    """Backslash-n decodes to newline."""
-    assert GBNF_ESCAPES.decode(r"\n") == "\n"
-
-
-def test_decode_tab():
-    """Backslash-t decodes to tab."""
-    assert GBNF_ESCAPES.decode(r"\t") == "\t"
-
-
-def test_decode_carriage_return():
-    """Backslash-r decodes to carriage return."""
-    assert GBNF_ESCAPES.decode(r"\r") == "\r"
-
-
-def test_decode_backslash():
-    """Double backslash decodes to single backslash."""
-    assert GBNF_ESCAPES.decode(r"\\") == "\\"
-
-
-def test_decode_quote():
-    """Escaped quote decodes to double quote."""
-    assert GBNF_ESCAPES.decode(r"\"") == '"'
-
-
-def test_decode_plain_text():
-    """Plain text decodes unchanged."""
-    assert GBNF_ESCAPES.decode("abc") == "abc"
-
-
 def test_encode_newline():
     """Newline encodes to backslash-n."""
     assert GBNF_ESCAPES.encode("\n") == r"\n"
@@ -114,13 +84,6 @@ def test_encode_quote():
 def test_encode_plain_text():
     """Plain text encodes unchanged."""
     assert GBNF_ESCAPES.encode("abc") == "abc"
-
-
-def test_round_trip():
-    """encode(decode(x)) == x for a variety of characters."""
-    escapes = GBNF_ESCAPES
-    for raw in ["\n", "\t", "\\", '"', "hello", "\x00"]:
-        assert escapes.decode(escapes.encode(raw)) == raw
 
 
 def test_gbnf_emitter_iremit_default_unreachable():

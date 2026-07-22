@@ -70,17 +70,13 @@ from lexic.ir.nodes import (
 from lexic.ir.operators import IrNot, IrOp
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
-
-class _GbnfEscapes(EscapeCodec):
-    """GBNF escape tables — quoted string literals + bracket-class members."""
-
-    SHORT_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
-    HEX_ESCAPES = (("x", 2), ("u", 4), ("U", 8))
-    CLASS_SHORT = {0x0A: "\\n", 0x09: "\\t", 0x0D: "\\r"}
-    CLASS_META = frozenset("\\]-^")
-
-
-GBNF_ESCAPES = _GbnfEscapes()
+# GBNF escape tables — quoted string literals + bracket-class members.
+GBNF_ESCAPES = EscapeCodec.from_tables(
+    short={"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"},
+    hexes=(("x", 2), ("u", 4), ("U", 8)),
+    class_short={0x0A: "\\n", 0x09: "\\t", 0x0D: "\\r"},
+    class_meta="\\]-^",
+)
 """Singleton escape codec for GBNF."""
 
 

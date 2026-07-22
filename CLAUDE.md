@@ -356,7 +356,12 @@ src/lexic/
                         IrConcat/IrJoin (IrCat-construct, str parts lifted via
                         as_doc); the notation emit half AND the flavour
                         structure actions build docs here
-    escapes.py          EscapeCodec ABC + CANONICAL_ESCAPES
+    escapes.py          EscapeCodec — an IrNamedTuple record (IrSelf on the
+                        spine, one `tables: IrMap` field; the IrTokenizer
+                        precedent), NOT an IrEncoding: the flavour's emit-only
+                        spell refinement over IrUnicode (encode/encode_point/
+                        spellable). Parse decodes escapes structurally in the
+                        reductions, so there is no resolve/decode half
     concretize.py       concretize(ast, registry)/concretize_atom — resolve an
                         IrAlphabet's spelling to an encoding ordinal
                         (IrLiteral("<think>") → IrCharClass(IrChr(id)); id-form

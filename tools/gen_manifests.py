@@ -40,7 +40,7 @@ from lexic.grammars.gbnf import (
     GBNF_GRAMMAR,
     GBNF_REDUCTIONS,
 )
-from lexic.ir.base import IrInt, IrStr, IrTuple
+from lexic.ir.base import IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import (
@@ -53,32 +53,22 @@ from lexic.ir.nodes import (
 def escapes_as_ir(codec: EscapeCodec) -> IrMap:
     """The five codec tables spelled as IR dyads (ruling D1).
 
+    The codec's ``short``/``hex``/``class_short``/``quote_safe`` fields are
+    already the IR-native tables, passed through verbatim; ``class-meta`` is
+    re-sorted by code point for a deterministic manifest.
+
     :param codec: The escape codec to serialize.
     :returns: The ``escapes`` section ``IrMap`` of the five named tables.
     """
     return IrMap(
-        IrTuple(
-            IrStr("short"),
-            IrMap(
-                *(IrTuple(IrStr(k), IrStr(v)) for k, v in codec.SHORT_ESCAPES.items())
-            ),
-        ),
-        IrTuple(
-            IrStr("hex"),
-            IrTuple(*(IrTuple(IrStr(t), IrInt(n)) for t, n in codec.HEX_ESCAPES)),
-        ),
-        IrTuple(
-            IrStr("class-short"),
-            IrMap(*(IrTuple(IrInt(k), IrStr(v)) for k, v in codec.CLASS_SHORT.items())),
-        ),
+        IrTuple(IrStr("short"), codec.short),
+        IrTuple(IrStr("hex"), codec.hexes),
+        IrTuple(IrStr("class-short"), codec.class_short),
         IrTuple(
             IrStr("class-meta"),
-            IrTuple(*(IrStr(c) for c in sorted(codec.CLASS_META))),
+            IrTuple(*(IrStr(c) for c in sorted(str(m) for m in codec.class_meta))),
         ),
-        IrTuple(
-            IrStr("quote-safe"),
-            IrTuple(*(IrTuple(IrInt(a), IrInt(b)) for a, b in codec.QUOTE_SAFE)),
-        ),
+        IrTuple(IrStr("quote-safe"), codec.quote_safe),
     )
 
 

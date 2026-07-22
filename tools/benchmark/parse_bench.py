@@ -209,8 +209,8 @@ _CANONICAL_HEX_ESCAPES = (("x", 2), ("u", 4), ("U", 8))
 def _canonical_read_escape(source: str, i: int) -> tuple[str, int]:
     """Parse one canonical escape at ``source[i] == '\\'`` → (char, new_i).
 
-    Recovered from ``EscapeCodec.read_escape`` for the ``CANONICAL_ESCAPES``
-    tables; used only to split a decoded char-class pattern into units.
+    A self-contained canonical-escape reader (the escape reduce rules
+    inverted); used only to split a decoded char-class pattern into units.
 
     :param source: The pattern text.
     :param i: Index of the backslash.

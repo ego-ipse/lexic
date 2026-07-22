@@ -83,27 +83,16 @@ from lexic.ir.nodes import (
 from lexic.ir.operators import IrAnd, IrNot, IrOp
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
-
-class _EbnfEscapes(EscapeCodec):
-    """EBNF escape tables — quoted-terminal body + ``..``-endpoint spelling."""
-
-    SHORT_ESCAPES: ClassVar[dict[str, str]] = {
-        "n": "\n",
-        "t": "\t",
-        "r": "\r",
-        '"': '"',
-        "'": "'",
-        "\\": "\\",
-    }
-    HEX_ESCAPES: ClassVar[tuple[tuple[str, int], ...]] = (("x", 2), ("u", 4), ("U", 8))
-    CLASS_SHORT: ClassVar[dict[int, str]] = {0x0A: "\\n", 0x09: "\\t", 0x0D: "\\r"}
-    # The EBNF "class context" is a double-quoted ``..`` endpoint / member
-    # terminal — its metas are the QUOTE and the backslash (not GBNF's
-    # bracket metas; the parse side still accepts ``\-``/``\^``/``\]``).
-    CLASS_META: ClassVar[frozenset[str]] = frozenset('\\"')
-
-
-EBNF_ESCAPES = _EbnfEscapes()
+# EBNF escape tables — quoted-terminal body + ``..``-endpoint spelling. The
+# EBNF "class context" is a double-quoted ``..`` endpoint / member terminal —
+# its metas are the QUOTE and the backslash (not GBNF's bracket metas; the parse
+# side still accepts ``\-``/``\^``/``\]``).
+EBNF_ESCAPES = EscapeCodec.from_tables(
+    short={"n": "\n", "t": "\t", "r": "\r", '"': '"', "'": "'", "\\": "\\"},
+    hexes=(("x", 2), ("u", 4), ("U", 8)),
+    class_short={0x0A: "\\n", 0x09: "\\t", 0x0D: "\\r"},
+    class_meta='\\"',
+)
 """Singleton escape codec for EBNF."""
 
 

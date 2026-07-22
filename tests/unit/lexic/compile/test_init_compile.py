@@ -25,7 +25,7 @@ from lexic.compile import (
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.escapes import CANONICAL_ESCAPES
+from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst, IrLiteral
 from lexic.ir.walk import IrDispatch
@@ -48,7 +48,7 @@ class FlavourWithBadReducer(IrFlavour):
 
     name = "badreducer"
     extensions = (".bad",)
-    escapes = CANONICAL_ESCAPES
+    escapes = EscapeCodec()
     # Intentionally not a Reducer — this fixture exercises compile_grammar's
     # error path when a flavour carries a malformed reducer.
     reducer = cast(IrDispatch, "not-a-reducer")
