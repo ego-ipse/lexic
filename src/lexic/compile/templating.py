@@ -32,6 +32,7 @@ from typing import Callable, ClassVar, Self, Sequence, cast
 
 from lexic.compile.artifact import CompiledGrammar
 from lexic.compile.foldkit import ALT_BODY, model_fold
+from lexic.model import GrammarModel
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir.action import IrAction
@@ -467,17 +468,70 @@ class Template(IrNamedTuple[SpanPair, IrMap], init=False):
         lifted = _lift_spec(spec)
         return cast(Callable[..., Self], super().__new__)(cls, span, lifted)
 
-    def run(self, text: str) -> dict[str, object]:
+    def run(self, text: str) -> Extracted:
         """Extract the spec'd paths of ``text`` — one parse, then the post-pass.
 
         :param text: The document to extract from.
         :returns: Spec key → the kept :class:`~lexic.model.GrammarModel` or the
-            nested dict (spec keys absent from the document are absent).
+            nested level (spec keys absent from the document are absent) — an
+            :class:`Extracted`, a plain dict plus the typed path reads.
         :raises UnsupportedConstructError: On a parse failure (wrapped with the
             document path) or a shape/spec level mismatch.
         """
         entries = _parse_step(self.span.spans, self.span.span_fold, text, "<document>")
         return _extract(self.span, self.spec, entries, "")
+
+
+class Extracted(dict[str, object]):
+    """One extraction level — a plain dict plus typed path reads.
+
+    Dict access stays available (``out['"model"']``); :meth:`model` and
+    :meth:`section` walk a key path and check the endpoint's kind, so a
+    consumer reads kept models without per-level narrowing and a miss
+    raises with the failing path spelled out.
+    """
+
+    def model(self, *path: str) -> GrammarModel:
+        """The kept :class:`~lexic.model.GrammarModel` at ``path``.
+
+        :param path: Spec keys, outermost first.
+        :returns: The kept model.
+        :raises UnsupportedConstructError: When the path is absent or ends on
+            a nested section instead of a kept model.
+        """
+        value = self._walk(path)
+        if not isinstance(value, GrammarModel):
+            raise UnsupportedConstructError(
+                f"extracted at {'.'.join(path)}: a nested section, not a kept model"
+            )
+        return value
+
+    def section(self, *path: str) -> Extracted:
+        """The nested extraction level at ``path``.
+
+        :param path: Spec keys, outermost first.
+        :returns: The nested :class:`Extracted`.
+        :raises UnsupportedConstructError: When the path is absent or ends on
+            a kept model instead of a section.
+        """
+        value = self._walk(path)
+        if not isinstance(value, Extracted):
+            raise UnsupportedConstructError(
+                f"extracted at {'.'.join(path)}: a kept model, not a section"
+            )
+        return value
+
+    def _walk(self, path: tuple[str, ...]) -> object:
+        """The raw value at ``path``, raising with the failing prefix."""
+        node: object = self
+        for depth, key in enumerate(path):
+            if not isinstance(node, Extracted) or key not in node:
+                raise UnsupportedConstructError(
+                    f"extracted at {'.'.join(path[: depth + 1])}: no such key "
+                    "(absent from the document or not in the spec)"
+                )
+            node = node[key]
+        return node
 
 
 def _parse_step(grammar: IrAst, fold: ModelFold, text: str, path: str) -> object:
@@ -488,9 +542,7 @@ def _parse_step(grammar: IrAst, fold: ModelFold, text: str, path: str) -> object
         raise UnsupportedConstructError(f"template at {path}: {err}") from err
 
 
-def _extract(
-    pair: SpanPair, spec: IrMap, entries: object, path: str
-) -> dict[str, object]:
+def _extract(pair: SpanPair, spec: IrMap, entries: object, path: str) -> Extracted:
     """Drive one spec level over one parsed section level."""
     if not isinstance(entries, list):
         raise UnsupportedConstructError(
@@ -500,7 +552,7 @@ def _extract(
     spans: dict[str, str] = {}
     for each in cast("list[SpanEntry]", entries):
         spans.setdefault(str(each.key), str(each.value))
-    out: dict[str, object] = {}
+    out = Extracted()
     for key, want in spec.items():
         span = spans.get(str(key))
         if span is None:

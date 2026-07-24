@@ -44,7 +44,7 @@ from lexic.ir.nodes import MAX_CODEPOINT, IrCharClass, IrChr
 Vocab = Mapping[str, int] | IrMap
 """A pythonic ``spelling → id`` vocab a builder coerces to the spine."""
 
-Merges = Sequence[tuple[str, str]] | IrTuple
+Merges = Sequence[Sequence[str]] | IrTuple
 """Ordered merge dyads — position is rank; coerced to the ``ranks`` map."""
 
 Specials = Sequence[str] | IrTuple
@@ -469,7 +469,9 @@ class IrSplitMerged(IrNamedTuple[str], IrPretoken):
         return pieces
 
 
-class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, bool]):
+class IrTokenPipeline(
+    IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, bool], init=False
+):
     """The segmentation pipeline's data — everything before/around the rewrite.
 
     :ivar specials: Atomic-match spellings (HF ``added_tokens``), matched
@@ -489,6 +491,26 @@ class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, bool]):
     normalize: IrTuple = IrTuple()
     pretokens: IrTuple = IrTuple()
     byte_fallback: bool = False
+
+    def __new__(
+        cls,
+        specials: Specials = IrTuple(),
+        remap: IrMap = IrMap(),
+        normalize: IrTuple = IrTuple(),
+        pretokens: IrTuple = IrTuple(),
+        byte_fallback: bool = False,
+    ) -> Self:
+        """Construct the pipeline, lifting plain spelling sequences.
+
+        Authoring coercion (the ``IrRule`` precedent): ``specials`` may be a
+        plain ``Sequence[str]`` — it lifts to the stored ``IrTuple`` of
+        ``IrStr``, matching the ``Vocab``/``Merges`` builder convention. An
+        ``IrTuple`` passes through unchanged.
+        """
+        lifted = specials if isinstance(specials, IrTuple) else _specials_tuple(specials)
+        return cast(Callable[..., Self], super().__new__)(
+            cls, lifted, remap, normalize, pretokens, byte_fallback
+        )
 
 
 _WMeta = list[tuple[int, int, bool]]

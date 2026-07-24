@@ -62,6 +62,7 @@ from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.compile.pipeline.synthesis import synthesize
 from lexic.compile.templating import (
     KEEP,
+    Extracted,
     Keep,
     MapShape,
     SpanEntry,
@@ -101,6 +102,7 @@ __all__ = [
     "export_module",
     "export_source",
     "KEEP",
+    "Extracted",
     "Keep",
     "load_ir",
     "load_ir_from_path",

@@ -256,3 +256,32 @@ def test_template_and_template_of_spanify_produce_equivalent_results() -> None:
     template_leaf = _model(_section(via_template["b"])["c"]).to_text()
     spanify_leaf = _model(_section(via_spanify["b"])["c"]).to_text()
     assert template_leaf == spanify_leaf
+
+
+# ── Extracted: typed path reads over a run's output ──────────────────────
+
+
+def test_run_returns_an_extracted_dict():
+    """run() output IS a dict (existing consumers) and an Extracted."""
+    out = _run_keep_all()
+    assert isinstance(out, dict) and isinstance(out, Extracted)
+
+
+def test_extracted_model_walks_to_a_kept_model():
+    """model(*path) returns the kept GrammarModel at the path."""
+    out = _run_keep_all()
+    key = next(iter(out))
+    assert out.model(key) is out[key]
+
+
+def test_extracted_model_raises_with_the_path_on_a_miss():
+    """An absent key raises naming the failing path."""
+    with pytest.raises(UnsupportedConstructError, match="no such key"):
+        _run_keep_all().model("absent")
+
+
+def test_extracted_section_rejects_a_kept_model():
+    """section() on a KEEP leaf raises — kind-checked reads."""
+    out = _run_keep_all()
+    with pytest.raises(UnsupportedConstructError, match="not a section"):
+        out.section(next(iter(out)))

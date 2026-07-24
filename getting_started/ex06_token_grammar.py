@@ -76,6 +76,14 @@ def main() -> None:
     # (which would close the block immediately).
     print("After <think>:          ", _spell(tokenizer, cursor.mask()))
 
+    # The cursor keeps ONE live chart across the generation: each push extends
+    # it in place (the prefix is never reparsed), each mask explores candidate
+    # continuations on top and rolls them back.
+    for token in ("hi", " ", "there", "</think>"):
+        cursor.push(VOCAB[token])
+    assert cursor.accepts(), "a closed block is a complete parse (trailing .*)"
+    print("Sequence accepted:      ", cursor.ids)
+
 
 def _spell(tokenizer: IrTokenizer, ids: set[int]) -> list[str]:
     """The token texts for a mask of ids, sorted for a stable printout."""
