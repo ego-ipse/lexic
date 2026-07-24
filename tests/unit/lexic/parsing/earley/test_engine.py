@@ -38,7 +38,6 @@ from lexic.ir.nodes import (
     IrItem,
     IrLiteral,
     IrQuantifier,
-    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -70,6 +69,7 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.earley.tables import RUN_STR, RunTerm, build_tables, compile_tables
 from lexic.parsing.products import earley_reduce
+from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
 
 # ── Grammar builders ──────────────────────────────────────────────────
 
@@ -727,22 +727,6 @@ def test_parse_first_raises_on_empty_for_non_nullable(digit_grammar: IrAst):
 
 
 # ── ParseFirst: optional pre-built tables parameter (Task 4) ────────────
-
-
-def digits_plus_grammar() -> IrAst:
-    """s = [0-9]+ (normalized) — one rule with a collapsible charclass run."""
-    rule = IrRule(
-        "s",
-        IrAlternation(
-            IrSequence(
-                IrItem(
-                    IrCharClass(IrRange(IrChr("0"), IrChr("9"))),
-                    IrQuantifier(1, IrNone),
-                )
-            )
-        ),
-    )
-    return normalize(IrAst(rules=IrSeq(rule), start="s"))
 
 
 def collapsed_digits_plus_tables(g: IrAst):

@@ -79,6 +79,7 @@ from typing import Any
 
 from lexic.ir.base import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel import Delegate
+from lexic.parsing.earley.tables import tier_for
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.clones import PdaTables
 from lexic.parsing.pda.compiler.flatten import (
@@ -753,7 +754,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         :returns: ``(tree, consumed length)``.
         """
         return island_parse(
-            self.tables.island_tables(name),
+            self.tables.island_tables(name, tier_for(len(self.text))),
             self.text,
             self.pos,
             name,

@@ -23,10 +23,12 @@ from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAst
 from lexic.model import GrammarModel
+from lexic.parsing.earley import tables as tables_mod
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.products import (
+    _MODEL_CACHE,
     _model_product,
     _reduce_product,
     earley_model,
@@ -175,3 +177,29 @@ def test_parse_reduced_raises_on_a_non_reducer():
         parse_reduced(
             GBNF_FLAVOUR.grammar, 'root ::= "x"\n', cast(Reducer, "not-a-reducer")
         )
+
+
+# ── packing-tier selection ──────────────────────────────────────────────────
+
+
+def test_model_product_is_distinct_per_tier():
+    """The model cache keys the packing tier — per-tier products coexist and
+    each replays from its own key."""
+    cg = compiled()
+    small = _model_product(cg.codegen_grammar, cg.fold, 8)
+    default = _model_product(cg.codegen_grammar, cg.fold)
+    assert small is not default
+    assert small.tables.packing.bits == 8
+    assert _model_product(cg.codegen_grammar, cg.fold, 8) is small
+
+
+def test_parse_model_picks_the_tier_by_input_size(monkeypatch):
+    """parse_model keys its product at tier_for(len(text)) — under a small
+    first tier a short input lands on the small-tier cache key."""
+    cg = compiled()
+    monkeypatch.setattr(tables_mod, "TIERS", (8, 28))
+    reset_product_cache()
+    model = parse_model(cg.codegen_grammar, "ab", cg.fold)
+    assert model.to_text() == "ab"
+    assert (id(cg.codegen_grammar), id(cg.fold), 8) in _MODEL_CACHE
+    reset_product_cache()

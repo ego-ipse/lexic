@@ -33,12 +33,14 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing import parse_first, recognize
+from lexic.parsing.earley import tables as tables_mod
 from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tables import (
     ADVANCE,
     ORIGIN_BITS,
     RUN_STR,
+    TIERS,
     CodeTables,
     DecodeTables,
     ParserTables,
@@ -47,9 +49,11 @@ from lexic.parsing.earley.tables import (
     build_tables,
     compile_tables,
     expand_atom,
+    tier_for,
 )
 from lexic.parsing.fold import lift_optional_nullables
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
+from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
 from tests.unit.lexic.parsing.ir_fixtures import sss_grammar as _sss_grammar
 from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
 
@@ -675,3 +679,38 @@ def test_small_tier_capacity_boundary_is_exact():
     assert len(kernel.cols) == 256
     with pytest.raises(UnsupportedConstructError):
         Kernel(tables, "7" * 256)
+
+
+# ── tier selection (TIERS / tier_for; parse entries pick by input size) ──
+
+
+def test_tier_for_picks_the_smallest_covering_tier():
+    """tier_for returns the first TIERS entry with length < 2**bits."""
+    assert tier_for(0) == TIERS[0]
+    assert tier_for(2 ** TIERS[0] - 1) == TIERS[0]
+    assert tier_for(2 ** TIERS[0]) == TIERS[1]
+
+
+def test_tier_for_backstop_is_the_last_tier():
+    """Beyond every tier's capacity the LAST tier returns — the kernel
+    capacity raise stays the backstop."""
+    assert tier_for(2 ** TIERS[-1]) == TIERS[-1]
+    assert tier_for(2 ** (TIERS[-1] + 1)) == TIERS[-1]
+
+
+def test_parse_entries_pick_the_tier_by_input_size(monkeypatch):
+    """With TIERS overridden to (8, 28), a 300-char input overflows the
+    8-bit tier and routes to the 28-bit one on every parse entry."""
+    monkeypatch.setattr(tables_mod, "TIERS", (8, 28))
+    grammar = digits_plus_grammar()
+    assert recognize(grammar, "7" * 300) == 1
+    assert parse_first(grammar, "7" * 300)
+
+
+def test_parse_entries_capacity_backstop_raises_beyond_the_last_tier(monkeypatch):
+    """With only an 8-bit tier available, a 300-char input hits the kernel
+    capacity raise — the backstop, never a silent wrap."""
+    monkeypatch.setattr(tables_mod, "TIERS", (8,))
+    grammar = digits_plus_grammar()
+    with pytest.raises(UnsupportedConstructError):
+        parse_first(grammar, "7" * 300)

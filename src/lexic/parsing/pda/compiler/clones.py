@@ -56,7 +56,7 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing.earley.reduce import OTHER_KIND, Reducer, plan_for
-from lexic.parsing.earley.tables import ParserTables, compile_tables
+from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables, compile_tables
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
@@ -800,7 +800,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     instance_grammar: IrAst
     program: PdaProgram
     reduce: ReduceRun | None
-    _island_tables: dict[str, ParserTables]
+    _island_tables: dict[tuple[str, int], ParserTables]
 
     def __init__(
         self,
@@ -825,14 +825,16 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         self.reduce = reduce
         self._island_tables = {}
 
-    def island_tables(self, name: str) -> ParserTables:
-        """The :class:`ParserTables` for island rule ``name``, built once and
-        cached — compiled over :attr:`instance_grammar` with ``name`` as the
-        start rule (the Earley sub-parser for a conflicted rule)."""
-        cached = self._island_tables.get(name)
+    def island_tables(self, name: str, bits: int = ORIGIN_BITS) -> ParserTables:
+        """The :class:`ParserTables` for island rule ``name``, built once per
+        ``(name, bits)`` and cached — compiled over :attr:`instance_grammar`
+        with ``name`` as the start rule (the Earley sub-parser for a
+        conflicted rule), at the run's packing tier ``bits`` (an island window
+        can span the whole remaining input)."""
+        cached = self._island_tables.get((name, bits))
         if cached is None:
-            cached = compile_tables(IrAst(self.instance_grammar.rules, name))
-            self._island_tables[name] = cached
+            cached = compile_tables(IrAst(self.instance_grammar.rules, name), bits)
+            self._island_tables[(name, bits)] = cached
         return cached
 
     def island_delegates(self, name: str) -> "dict[int, FlatClone]":
