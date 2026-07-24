@@ -481,7 +481,12 @@ src/lexic/
                         rule among a run's unit leaves)
     earley/             the Earley engine (self-contained; imports only itself)
       __init__.py         empty — no re-exports
-      tables.py           ParserTables, compile_tables() (memoised by IrAst identity)
+      tables.py           ParserTables, compile_tables() (memoised per (IrAst
+                          identity, bits)); Packing — the origin-bits tier as one
+                          record on ParserTables.packing; TIERS (28, 40) +
+                          tier_for(length) — parse entries pick the smallest tier
+                          covering the input, islands inherit the run's tier, the
+                          kernel capacity raise stays the backstop
       kernel.py           Kernel (predict/scan/complete, Leo optimisation), FastTree;
                           longest_start_completion — public windowed prefix-completion
                           seam for the PDA island sub-parse (additive, off the main
