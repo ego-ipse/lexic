@@ -51,6 +51,7 @@ __all__ = [
     "IrRange",
     "IrQuantifier",
     "IrItem",
+    "IrAlphabet",
     "IrRule",
     "IrAst",
     "MAX_CODEPOINT",
@@ -436,6 +437,34 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
         """
         return IrCharClass(*(self._span(lo, hi) for lo, hi in self.intervals()))
 
+    @property
+    def is_any(self) -> bool:
+        """Whether this class covers the whole Unicode range — the ``.`` class.
+
+        ``.`` (any character) canonicalises to the positive full-span class
+        ``[0, MAX_CODEPOINT]`` (via ``IrNot(IrCharClass())`` → :meth:`complement`),
+        indistinguishable in the IR from ``[^]`` or ``[\\x00-\\U0010ffff]``. A
+        flavour whose surface has an any-char token (GBNF ``.``) reads this to
+        restore that spelling on emit.
+
+        :returns: ``True`` iff the coalesced cover is exactly ``[(0, MAX_CODEPOINT)]``.
+        """
+        return self.intervals() == [(0, MAX_CODEPOINT)]
+
+    @property
+    def is_empty(self) -> bool:
+        """Whether this class has no members — the empty set.
+
+        ``IrNot(IrCharClass())`` (the raw, un-canonicalised parse of ``.`` /
+        ``[^]``) negates the empty class, so it denotes any character; a flavour
+        with a ``.`` surface reads this on emit to restore that spelling even off
+        the non-canonical ``parse_grammar`` seam (the canonical full-span form is
+        :meth:`is_any`).
+
+        :returns: ``True`` iff the class has no ``IrRange``/``IrChr`` members.
+        """
+        return len(self) == 0
+
     def complement(self) -> "IrCharClass":
         """Return the positive canonical-form class over the Unicode complement.
 
@@ -488,6 +517,42 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier], init=False):
         """
         wrapped = IrAlternation(atom) if isinstance(atom, IrSequence) else atom
         return cast(Callable[..., Self], super().__new__)(cls, wrapped, quantifier)
+
+
+class IrAlphabet(IrNamedTuple[IrStr, IrAtom], IrAtom, init=False):
+    """An atom read under a named encoding — the alphabet binding.
+
+    Scopes a pure inner atom to an encoding: ``IrAlphabet("gpt2", IrLiteral(
+    "<think>"))`` is the token whose text is ``<think>``; ``IrAlphabet("gpt2",
+    IrCharClass(IrChr(1000)))`` is token id ``1000``; ``IrAlphabet("gpt2",
+    IrNot(...))`` a negated token. The wrapper is what distinguishes a literal
+    read as token text from a literal read as characters — the inner node types
+    are the ordinary ones (:class:`IrLiteral`, :class:`IrCharClass`,
+    :class:`~lexic.ir.operators.IrNot`), so no token-specific leaf exists.
+
+    ``encoding`` is a **name reference** (an ``IrStr`` — the :class:`IrRuleRef`
+    precedent), resolved against an encoding registry, so the codec is shared,
+    the canonical form stays flavour-neutral, and many encodings coexist. The
+    node carries no codec and no universe: the complement / ``.`` algebra lives
+    on the encoding (which owns the universe). Being an :class:`IrAtom` it rides
+    :class:`IrItem` unchanged.
+
+    Children: the single ``inner`` atom.
+    Non-child payload: ``encoding`` (the registry name reference).
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("inner",)
+    encoding: IrStr
+    inner: IrAtom
+
+    def __new__(cls, encoding: str, inner: IrAtom) -> Self:
+        """Wrap the encoding name to :class:`IrStr`; keep ``inner`` as given.
+
+        :param encoding: The registry name of the governing encoding.
+        :param inner: The pure inner atom (literal / char class / negation).
+        :returns: The alphabet-bound atom.
+        """
+        return cast(Callable[..., Self], super().__new__)(cls, IrStr(encoding), inner)
 
 
 class IrRule(IrNamedTuple[IrStr, IrAlternation, bool], init=False):

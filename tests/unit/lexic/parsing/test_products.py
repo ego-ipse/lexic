@@ -7,7 +7,7 @@ thin wrappers, already covered in ``test_compile.py``) and pin the parts of
 the module those wrappers never touch: the Earley-completion entries as a
 route-forcing seam, ``_reduce_product``/``_model_product`` memoisation by
 object identity (including the ``reset_product_cache`` test seam), and the
-two boundary checks (``_as_ast``'s type narrowing, ``parse_reduced``'s
+the boundary checks (the widened reduce product, ``parse_reduced``'s
 reducer-shape guard).
 """
 
@@ -25,7 +25,6 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.products import (
-    _as_ast,
     _model_product,
     _reduce_product,
     earley_model,
@@ -152,19 +151,26 @@ def test_reset_product_cache_forces_model_product_recompilation():
 # ── boundary checks ─────────────────────────────────────────────────────────
 
 
-def test_as_ast_returns_an_ir_ast_value_unchanged():
-    """_as_ast is a pure narrowing — an IrAst value passes through as-is."""
-    ast = earley_reduce(
-        normalize(GBNF_FLAVOUR.grammar), 'root ::= "x"\n', GBNF_FLAVOUR.reducer
+def test_parse_reduced_returns_the_reduction_unnarrowed():
+    """The reduce product passes any reduction through — a grammar's reducer
+    may fold documents to values (the IrAst narrowing lives at the
+    ``compile.parse_grammar`` boundary, not in the product)."""
+    from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
+    from lexic.ir.mapping import IrMap
+
+    doc = parse_reduced(JSON_GRAMMAR, '{"a": 1}', JSON_REDUCER)
+    assert isinstance(doc, IrMap)
+
+
+def test_parse_grammar_raises_on_a_non_ir_ast_reduction():
+    """compile.parse_grammar refuses a flavour whose reduction is not an
+    IrAst — the boundary narrowing that used to live in the product."""
+    ast = parse_reduced(
+        GBNF_FLAVOUR.grammar, 'root ::= "x"\n', GBNF_FLAVOUR.reducer
     )
-    assert _as_ast(ast) is ast
+    from lexic.ir.nodes import IrAst
 
-
-def test_as_ast_raises_on_a_non_ir_ast_value():
-    """_as_ast raises UnsupportedConstructError on anything that isn't an IrAst —
-    the reduction producing a non-IrAst value would otherwise pass silently."""
-    with pytest.raises(UnsupportedConstructError):
-        _as_ast("not an IrAst")
+    assert isinstance(ast, IrAst)
 
 
 def test_parse_reduced_raises_on_a_non_reducer():

@@ -9,6 +9,7 @@ from lexic.ir.base import IrSelf, IrSeq
 from lexic.ir.canonical import canonicalize
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -27,6 +28,7 @@ GRAMMAR_AST_TYPES: frozenset[type] = frozenset(
         IrLiteral,
         IrCharClass,
         IrNot,
+        IrAlphabet,
         IrRuleRef,
         IrQuantifier,
         IrItem,

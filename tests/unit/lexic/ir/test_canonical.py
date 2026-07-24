@@ -16,6 +16,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrSeq
 from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -378,3 +379,55 @@ def test_canonicalize_is_idempotent_on_a_composite_grammar():
     once = canonicalize(ast)
     twice = canonicalize(once)
     assert twice == once
+
+
+# ── IrAlphabet fencing (a foreign encoding — the UTF passes must not touch it) ──
+
+
+def _alpha_item(inner, quant: IrQuantifier = IrQuantifier()) -> IrItem:
+    """A sequence item wrapping ``inner`` in a token-encoding alphabet."""
+    return IrItem(IrAlphabet("tok", inner), quant)
+
+
+def test_canonicalize_does_not_collapse_id_form_token_to_a_glyph():
+    """A lone token id stays an ordinal class, not a UTF glyph literal."""
+    body = IrSequence(_alpha_item(IrCharClass(IrChr(1000))))
+    inner = canon_body(body)[0][0].atom.inner
+    assert inner == IrCharClass(IrChr(1000))
+
+
+def test_canonicalize_does_not_complement_a_negated_token():
+    """A negated token keeps its ``IrNot`` — no ``MAX_CODEPOINT`` blow-up."""
+    body = IrSequence(_alpha_item(IrNot(IrCharClass(IrChr(1001)))))
+    inner = canon_body(body)[0][0].atom.inner
+    assert inner == IrNot(IrCharClass(IrChr(1001)))
+
+
+def test_canonicalize_leaves_text_form_token_literal_verbatim():
+    """A text-form token literal is preserved as-is."""
+    body = IrSequence(_alpha_item(IrLiteral("<think>")))
+    inner = canon_body(body)[0][0].atom.inner
+    assert inner == IrLiteral("<think>")
+
+
+def test_canonicalize_does_not_merge_token_and_char_arms():
+    """A token arm and a char arm must never fuse into one class."""
+    body = IrAlternation(
+        IrSequence(_alpha_item(IrCharClass(IrChr(1)))),
+        IrSequence(IrItem(IrCharClass(IrChr(97)))),
+    )
+    canon = canon_body(body)
+    assert len(canon) == 2  # two distinct arms, not one merged class
+    assert canon[0][0].atom == IrAlphabet("tok", IrCharClass(IrChr(1)))
+    assert canon[1][0].atom == IrLiteral("a")  # the char arm still canonicalises
+
+
+def test_canonicalize_still_canonicalises_around_an_alphabet():
+    """Fencing the alphabet does not stop the rest of the rule normalising."""
+    body = IrSequence(
+        IrItem(IrCharClass(IrChr(48), IrChr(49), IrChr(50))),  # [012] -> [0-2]
+        _alpha_item(IrCharClass(IrChr(5))),
+    )
+    canon = canon_body(body)
+    assert canon[0][0].atom == IrCharClass(IrRange(IrChr(48), IrChr(50)))
+    assert canon[0][1].atom == IrAlphabet("tok", IrCharClass(IrChr(5)))

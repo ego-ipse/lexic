@@ -29,6 +29,7 @@ from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -89,28 +90,12 @@ def test_abnf_escapes_is_an_escape_codec():
     assert isinstance(ABNF_ESCAPES, EscapeCodec)
 
 
-def test_decode_is_identity():
-    """Decode is identity. ABNF literals are already canonical Python strings."""
-    assert ABNF_ESCAPES.decode("hello") == "hello"
-    assert ABNF_ESCAPES.decode("") == ""
-    assert ABNF_ESCAPES.decode("ab\\cd") == "ab\\cd"
-    assert ABNF_ESCAPES.decode("\\n") == "\\n"
-    assert ABNF_ESCAPES.decode("\\t") == "\\t"
-
-
 def test_encode_is_identity():
     """Encode is identity. ABNF literals are already canonical Python strings."""
     assert ABNF_ESCAPES.encode("hello") == "hello"
     assert ABNF_ESCAPES.encode("") == ""
     assert ABNF_ESCAPES.encode("ab\\cd") == "ab\\cd"
     assert ABNF_ESCAPES.encode("\n") == "\n"
-
-
-def test_read_escape_passes_through_unknown():
-    """read_escape on an unrecognised sequence returns the raw follow-char."""
-    char, new_i = ABNF_ESCAPES.read_escape("\\n", 0)
-    assert char == "n"
-    assert new_i == 2
 
 
 def test_abnf_emitter_iremit_default_unreachable():
@@ -158,6 +143,12 @@ def test_abnf_irnot_raises_unsupported():
     """ABNF has no native negation — IrNot raises UnsupportedConstructError."""
     with pytest.raises(UnsupportedConstructError):
         ABNF_FLAVOUR.apply(IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z")))))
+
+
+def test_abnf_token_terminal_refuses_declaratively():
+    """Token terminals are a GBNF surface — ABNF refuses an IrAlphabet (F5)."""
+    with pytest.raises(UnsupportedConstructError, match="token terminals"):
+        ABNF_FLAVOUR.apply(IrAlphabet("tokens", IrLiteral("<think>")))
 
 
 # ── ABNF quantifier emission matrix ──────────────────────────────────

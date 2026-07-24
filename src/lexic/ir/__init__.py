@@ -37,12 +37,16 @@ from lexic.ir.base import (
     IrScalar,
     IrSelf,
     IrSeq,
+    IrStr,
 )
 from lexic.ir.bind import BIND_MODES, IrBind
 from lexic.ir.canonical import canonicalize, fold_name
-from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
+from lexic.ir.concretize import concretize, concretize_atom
+from lexic.ir.encoding import IrEncoding, IrTokenizer, IrUnicode
+from lexic.ir.escapes import EscapeCodec
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrBounds,
@@ -61,10 +65,10 @@ from lexic.ir.walk import IrBottomUp, IrTransformer, IrVisitor
 
 __all__ = [
     "BIND_MODES",
-    "CANONICAL_ESCAPES",
     "IR_DEFAULT",
     "EscapeCodec",
     "IrAction",
+    "IrAlphabet",
     "IrAlternation",
     "IrAnd",
     "IrApply",
@@ -85,6 +89,7 @@ __all__ = [
     "IrConcat",
     "IrCond",
     "IrEach",
+    "IrEncoding",
     "IrField",
     "IrIndex",
     "IrInt",
@@ -113,14 +118,19 @@ __all__ = [
     "IrSelf",
     "IrSeq",
     "IrSequence",
+    "IrStr",
+    "IrTokenizer",
     "IrTransformer",
     "IrTypeMap",
+    "IrUnicode",
     "IrUnradix",
     "IrVisitor",
     "IrQuantifier",
     "IrRange",
     "RuleOrder",
     "canonicalize",
+    "concretize",
+    "concretize_atom",
     "fold_name",
     "order_by_refs",
 ]

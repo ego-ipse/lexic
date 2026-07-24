@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.compile import parse_grammar
+from lexic.compile import canonical_grammar, parse_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import (
     GBNF_ACTIONS,
@@ -20,6 +20,8 @@ from lexic.ir.base import IrLambda, IrNone
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
+    MAX_CODEPOINT,
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -35,6 +37,8 @@ from lexic.ir.operators import IrNot
 from lexic.parsing import derivations
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, Reducer
+from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.products import earley_reduce
 from tests.unit.lexic.conftest import (
     GRAMMAR_AST_TYPES,
@@ -57,36 +61,6 @@ def test_metadata():
 def test_line_comment_token():
     """GBNF_FLAVOUR line comment marker is '#'."""
     assert GBNF_FLAVOUR.line_comment == "#"
-
-
-def test_decode_newline():
-    """Backslash-n decodes to newline."""
-    assert GBNF_ESCAPES.decode(r"\n") == "\n"
-
-
-def test_decode_tab():
-    """Backslash-t decodes to tab."""
-    assert GBNF_ESCAPES.decode(r"\t") == "\t"
-
-
-def test_decode_carriage_return():
-    """Backslash-r decodes to carriage return."""
-    assert GBNF_ESCAPES.decode(r"\r") == "\r"
-
-
-def test_decode_backslash():
-    """Double backslash decodes to single backslash."""
-    assert GBNF_ESCAPES.decode(r"\\") == "\\"
-
-
-def test_decode_quote():
-    """Escaped quote decodes to double quote."""
-    assert GBNF_ESCAPES.decode(r"\"") == '"'
-
-
-def test_decode_plain_text():
-    """Plain text decodes unchanged."""
-    assert GBNF_ESCAPES.decode("abc") == "abc"
 
 
 def test_encode_newline():
@@ -114,13 +88,6 @@ def test_encode_plain_text():
     assert GBNF_ESCAPES.encode("abc") == "abc"
 
 
-def test_round_trip():
-    """encode(decode(x)) == x for a variety of characters."""
-    escapes = GBNF_ESCAPES
-    for raw in ["\n", "\t", "\\", '"', "hello", "\x00"]:
-        assert escapes.decode(escapes.encode(raw)) == raw
-
-
 def test_gbnf_emitter_iremit_default_unreachable():
     """Every IR-AST node type has an explicit action — IrEmit default never fires.
 
@@ -131,6 +98,33 @@ def test_gbnf_emitter_iremit_default_unreachable():
     registered = set(GBNF_FLAVOUR.actions.keys())
     missing = GRAMMAR_AST_TYPES - registered
     assert not missing, f"GBNF_FLAVOUR missing explicit actions for: {missing}"
+
+
+def test_gbnf_any_char_class_emits_dot():
+    """The full-Unicode char class emits ``.`` — the any-char surface (F8)."""
+    full = IrCharClass(IrRange(IrChr(0), IrChr(MAX_CODEPOINT)))
+    assert GBNF_FLAVOUR.apply(full) == "."
+    # A non-full class still renders as brackets.
+    assert (
+        GBNF_FLAVOUR.apply(IrCharClass(IrRange(IrChr(ord("a")), IrChr(ord("z")))))
+        == "[a-z]"
+    )
+
+
+@pytest.mark.parametrize("grammar", ["root ::= .", "root ::= .*", 'root ::= "a" .'])
+def test_gbnf_dot_round_trips_through_canonical(grammar: str):
+    """``.`` survives parse → canonicalize → emit (ruling §7.2; README `.*`)."""
+    ast = canonical_grammar(grammar, GBNF_FLAVOUR)
+    emitted = str(GBNF_FLAVOUR.apply(ast))
+    assert "." in emitted and "\\x00" not in emitted
+    assert canonical_grammar(emitted, GBNF_FLAVOUR) == ast
+
+
+@pytest.mark.parametrize("grammar", ["root ::= .", "root ::= [^]"])
+def test_gbnf_raw_any_char_emits_dot_off_the_non_canonical_seam(grammar: str):
+    """A raw ``IrNot(empty class)`` (un-canonicalised ``.``/``[^]``) emits ``.``."""
+    emitted = str(GBNF_FLAVOUR.apply(parse_grammar(grammar, GBNF_FLAVOUR)))
+    assert emitted == "root ::= .\n"
 
 
 # ── GBNF_QUANTIFIERS ──────────────────────────────────────────────────
@@ -741,3 +735,149 @@ def test_wide_alternation_wraps_and_round_trips():
         f"alternative-name-number-{i}" for i in range(6)
     )
     assert_wide_rule_wraps_and_round_trips(GBNF_FLAVOUR, "|", flat_text)
+
+
+# ── token terminals (README §Tokens) ────────────────────────────────────
+
+
+def _tok_atom(text: str):
+    """Parse a one-rule token grammar and return its first atom."""
+    ast = parse_grammar(f"root ::= {text}", GBNF_FLAVOUR)
+    return ast.rules[0].body[0][0].atom
+
+
+def test_token_text_form_parses_to_alphabet_literal():
+    """``<think>`` → an alphabet over the literal key (brackets included)."""
+    assert _tok_atom("<think>") == IrAlphabet("tokens", IrLiteral("<think>"))
+
+
+def test_token_id_form_parses_to_alphabet_charclass():
+    """``<[1000]>`` → an alphabet over the id ordinal."""
+    assert _tok_atom("<[1000]>") == IrAlphabet("tokens", IrCharClass(IrChr(1000)))
+
+
+def test_token_negated_text_form():
+    """``!<think>`` → negation INSIDE the alphabet (the encoding's complement)."""
+    assert _tok_atom("!<think>") == IrAlphabet("tokens", IrNot(IrLiteral("<think>")))
+
+
+def test_token_negated_id_form():
+    """``!<[1001]>`` → negation INSIDE the id-form alphabet."""
+    assert _tok_atom("!<[1001]>") == IrAlphabet(
+        "tokens", IrNot(IrCharClass(IrChr(1001)))
+    )
+
+
+def test_any_char_parses_to_unicode_complement():
+    """``.`` is any Unicode char — an ``IrNot`` of the empty class."""
+    assert _tok_atom(".") == IrNot(IrCharClass())
+
+
+def test_token_grammar_mixes_tokens_and_chars_in_one_rule():
+    """The README root: token atoms and a Unicode ``.`` coexist in one sequence."""
+    ast = parse_grammar(
+        "root ::= <think> body </think> .*\nbody ::= [a-z]", GBNF_FLAVOUR
+    )
+    root = ast.rules[0].body[0]
+    assert root[0].atom == IrAlphabet("tokens", IrLiteral("<think>"))
+    assert root[2].atom == IrAlphabet("tokens", IrLiteral("</think>"))
+    assert root[3].atom == IrNot(IrCharClass())
+    assert root[3].quantifier == IrQuantifier(0, IrNone)
+
+
+# ── token terminal EMIT (round-trip A) ──────────────────────────────────
+
+
+def test_emit_text_form_token():
+    """A text-form alphabet emits its literal key verbatim."""
+    assert GBNF_FLAVOUR.apply(IrAlphabet("tokens", IrLiteral("<think>"))) == "<think>"
+
+
+def test_emit_id_form_token():
+    """An id-form alphabet emits ``<[id]>`` with the decimal id."""
+    assert (
+        GBNF_FLAVOUR.apply(IrAlphabet("tokens", IrCharClass(IrChr(1000)))) == "<[1000]>"
+    )
+
+
+def test_emit_negated_text_form_token():
+    """A negated text-form token (IrNot INSIDE the alphabet) emits the ``!`` prefix."""
+    assert (
+        GBNF_FLAVOUR.apply(IrAlphabet("tokens", IrNot(IrLiteral("<think>"))))
+        == "!<think>"
+    )
+
+
+def test_emit_negated_id_form_token():
+    """A negated id-form token (IrNot INSIDE the alphabet) emits ``!<[id]>``."""
+    assert (
+        GBNF_FLAVOUR.apply(IrAlphabet("tokens", IrNot(IrCharClass(IrChr(1001)))))
+        == "!<[1001]>"
+    )
+
+
+def test_token_grammar_round_trips_through_parse_emit_parse():
+    """A token grammar is a parse/emit/parse fixpoint (`.` folds to `[^]`)."""
+    txt = (
+        "root ::= <think> thinking </think> .*\n"
+        "thinking ::= !</think>*\n"
+        "r2 ::= <[1000]> !<[1001]>*"
+    )
+    ast = parse_grammar(txt, GBNF_FLAVOUR)
+    assert parse_grammar(GBNF_FLAVOUR.apply(ast), GBNF_FLAVOUR) == ast
+
+
+# ── token id-range terminal `<[lo-hi]>` (README §Tokens) ─────────────────
+
+
+def test_token_id_range_form_parses_to_alphabet_charclass_range():
+    """``<[5-10]>`` → an alphabet over an ``IrRange`` inside the char class."""
+    assert _tok_atom("<[5-10]>") == IrAlphabet(
+        "tokens", IrCharClass(IrRange(IrChr(5), IrChr(10)))
+    )
+
+
+def test_token_id_single_form_still_parses_to_single_chr():
+    """``<[5]>`` — the single-id form still reduces to one ``IrChr`` (regression pin)."""
+    assert _tok_atom("<[5]>") == IrAlphabet("tokens", IrCharClass(IrChr(5)))
+
+
+def test_token_negated_id_range_form():
+    """``!<[5-10]>`` → negation INSIDE the alphabet, wrapping the range class."""
+    assert _tok_atom("!<[5-10]>") == IrAlphabet(
+        "tokens", IrNot(IrCharClass(IrRange(IrChr(5), IrChr(10))))
+    )
+
+
+def test_token_id_range_round_trips_through_parse_emit_parse():
+    """``<[5-10]>`` is a parse/emit/parse and grammar-text fixpoint."""
+    ast = parse_grammar("root ::= <[5-10]>", GBNF_FLAVOUR)
+    emitted = str(GBNF_FLAVOUR.apply(ast))
+    assert emitted == "root ::= <[5-10]>\n"
+    assert parse_grammar(emitted, GBNF_FLAVOUR) == ast
+
+
+def test_token_id_range_emits_lo_dash_hi():
+    """A hand-built range-alphabet renders ``<[lo-hi]>``."""
+    assert (
+        GBNF_FLAVOUR.apply(
+            IrAlphabet("tokens", IrCharClass(IrRange(IrChr(5), IrChr(10))))
+        )
+        == "<[5-10]>"
+    )
+
+
+def test_token_id_range_multidigit_round_trips():
+    """A multi-digit range (``<[100-4095]>``) round-trips both sides of the dash."""
+    ast = parse_grammar("root ::= <[100-4095]>", GBNF_FLAVOUR)
+    emitted = str(GBNF_FLAVOUR.apply(ast))
+    assert emitted == "root ::= <[100-4095]>\n"
+    assert parse_grammar(emitted, GBNF_FLAVOUR) == ast
+
+
+def test_gbnf_self_grammar_id_range_tail_split_is_island_free():
+    """The ``tok-id``/``tok-id-tail`` left-factored split keeps the GBNF
+    self-grammar free of islands and fail-islands."""
+    analysis = GrammarAnalysis(lift_optional_nullables(GBNF_FLAVOUR.grammar))
+    assert sorted(analysis.islands) == []
+    assert sorted(analysis.fail_islands) == []

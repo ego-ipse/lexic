@@ -29,7 +29,7 @@ from lexic.grammars.gbnf import (
     GBNF_REDUCTIONS,
 )
 from lexic.ir.action import IrAction, IrEmit
-from lexic.ir.base import IrInt, IrSeq, IrStr, IrTuple
+from lexic.ir.base import IrInt, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
@@ -126,30 +126,20 @@ def replacing(name: str, value: object) -> str:
 
 
 def escapes_as_ir(codec: EscapeCodec) -> IrMap:
-    """The five codec tables as IR dyads (ruling D1) — the generation shape."""
+    """The five codec tables as IR dyads (ruling D1) — the generation shape.
+
+    The record's fields are already IR-native; ``class-meta`` re-sorts for a
+    deterministic manifest (mirrors ``tools/gen_manifests.escapes_as_ir``).
+    """
     return IrMap(
-        IrTuple(
-            IrStr("short"),
-            IrMap(
-                *(IrTuple(IrStr(k), IrStr(v)) for k, v in codec.SHORT_ESCAPES.items())
-            ),
-        ),
-        IrTuple(
-            IrStr("hex"),
-            IrTuple(*(IrTuple(IrStr(t), IrInt(n)) for t, n in codec.HEX_ESCAPES)),
-        ),
-        IrTuple(
-            IrStr("class-short"),
-            IrMap(*(IrTuple(IrInt(k), IrStr(v)) for k, v in codec.CLASS_SHORT.items())),
-        ),
+        IrTuple(IrStr("short"), codec.short),
+        IrTuple(IrStr("hex"), codec.hexes),
+        IrTuple(IrStr("class-short"), codec.class_short),
         IrTuple(
             IrStr("class-meta"),
-            IrTuple(*(IrStr(c) for c in sorted(codec.CLASS_META))),
+            IrTuple(*(IrStr(c) for c in sorted(str(m) for m in codec.class_meta))),
         ),
-        IrTuple(
-            IrStr("quote-safe"),
-            IrTuple(*(IrTuple(IrInt(a), IrInt(b)) for a, b in codec.QUOTE_SAFE)),
-        ),
+        IrTuple(IrStr("quote-safe"), codec.quote_safe),
     )
 
 
@@ -182,21 +172,21 @@ def test_identity_fields_lower() -> None:
 
 
 def test_escape_tables_lower() -> None:
-    """The five escape IR-dyad tables lower to the codec's class attrs."""
+    """The five escape IR-dyad tables lower to the codec record's IR fields."""
     codec = load_flavour(mini_manifest()).escapes
-    assert codec.SHORT_ESCAPES == {"n": "\n"}
-    assert codec.HEX_ESCAPES == (("x", 2),)
-    assert codec.CLASS_SHORT == {10: "\\n"}
-    assert codec.CLASS_META == frozenset({"\\", "]"})
-    assert codec.QUOTE_SAFE == ((32, 126),)
+    assert codec.short == IrMap(IrTuple(IrStr("n"), IrStr("\n")))
+    assert codec.hexes == IrTuple(IrTuple(IrStr("x"), IrInt(2)))
+    assert codec.class_short == IrMap(IrTuple(IrInt(10), IrStr("\\n")))
+    assert {str(m) for m in codec.class_meta} == {"\\", "]"}
+    assert codec.quote_safe == IrTuple(IrTuple(IrInt(32), IrInt(126)))
 
 
-def test_escape_codec_is_a_fresh_subclass() -> None:
-    """Lowering synthesizes one anonymous EscapeCodec subclass with hygiene set."""
+def test_escape_codec_is_an_irself_record() -> None:
+    """Lowering builds an EscapeCodec record (an IrSelf on the spine), not a
+    synthesized subclass."""
     codec = load_flavour(mini_manifest()).escapes
     assert isinstance(codec, EscapeCodec)
-    assert type(codec).__qualname__ == "LoadedEscapes"
-    assert type(codec).__module__ == "lexic.compile.notation.loader"
+    assert isinstance(codec, IrSelf)  # on the IR spine, not an isolated ABC
 
 
 def test_derived_noise_map_exact_dyads_by_identity() -> None:
@@ -334,9 +324,8 @@ def test_gbnf_twin_escape_codec_parity() -> None:
     """The lowered codec matches the authored one behaviorally (settled 9 step 4)."""
     codec = load_flavour(gbnf_twin_manifest()).escapes
     assert codec.encode("\n\t\\") == GBNF_ESCAPES.encode("\n\t\\")
-    assert codec.decode(r"\n\x41") == GBNF_ESCAPES.decode(r"\n\x41")
-    assert codec.encode_point(10) == GBNF_ESCAPES.encode_point(10)  # CLASS_SHORT
-    assert codec.encode_point(93) == GBNF_ESCAPES.encode_point(93)  # ']' CLASS_META
+    assert codec.encode_point(10) == GBNF_ESCAPES.encode_point(10)  # class_short
+    assert codec.encode_point(93) == GBNF_ESCAPES.encode_point(93)  # ']' class_meta
     assert codec.encode_point(65) == GBNF_ESCAPES.encode_point(65)  # printable
 
 
@@ -377,7 +366,9 @@ def test_loads_are_independent() -> None:
     first, second = load_flavour(text), load_flavour(text)
     assert first is not second
     assert type(first) is not type(second)  # distinct synthesized classes
-    assert type(first.escapes) is not type(second.escapes)
+    # The codec is an immutable EscapeCodec record (no shared mutable state to
+    # worry about); two loads yield equal-by-value records.
+    assert first.escapes == second.escapes
     # §10 steps 2–6 hold between the two loads.
     assert repr(first.grammar) == repr(second.grammar)
     assert first.grammar.non_semantic == second.grammar.non_semantic

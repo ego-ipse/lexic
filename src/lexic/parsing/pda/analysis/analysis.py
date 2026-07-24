@@ -16,6 +16,7 @@ from lexic.ir.action import IrAction
 from lexic.ir.base import IrAtom, IrLambda, IrLeaf, IrNoneType, IrSelf
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -26,6 +27,14 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.parsing.pda.analysis import kwindow
+from lexic.parsing.pda.analysis.cursors import (
+    ConflictCtx,
+    Cont,
+    FeedCtx,
+    FollowPass,
+    Notes,
+    Scope,
+)
 from lexic.parsing.pda.analysis.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.noise import (
     noise_alphabet,
@@ -57,135 +66,6 @@ def _hi(item: IrItem) -> int | None:
     """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
     hi = item.quantifier.hi
     return None if isinstance(hi, IrNoneType) else int(hi)
-
-
-# ── context cursors (ride the argument channel) ───────────────────────────
-
-
-class _FollowPass(IrLeaf[IrSelf, IrSelf]):
-    """The fixpoint-constant of one FOLLOW pass: target table + hard flag.
-
-    :ivar tgt: The FOLLOW table being grown (soft or hard).
-    :ivar hard: ``True`` for a *hard* FOLLOW pass (nullable followers skipped).
-    """
-
-    __slots__ = ("tgt", "hard")
-
-    tgt: dict[str, CharSet]
-    hard: bool
-
-    def __init__(self, tgt: dict[str, CharSet], hard: bool) -> None:
-        self.tgt = tgt
-        self.hard = hard
-
-
-class _FeedCtx(IrLeaf[IrSelf, IrSelf]):
-    """FOLLOW-feed context riding ``nc`` for the :data:`_FOLLOW_FEED` bodies.
-
-    :ivar eff: The continuation char set feeding this atom's FOLLOW.
-    :ivar rule: The enclosing rule name (the recursion anchor).
-    :ivar pass_: The FOLLOW pass constant (target table + hard flag).
-    """
-
-    __slots__ = ("eff", "rule", "pass_")
-
-    eff: CharSet
-    rule: str
-    pass_: _FollowPass
-
-    def __init__(self, eff: CharSet, rule: str, pass_: _FollowPass) -> None:
-        self.eff = eff
-        self.rule = rule
-        self.pass_ = pass_
-
-
-class _Notes(IrLeaf[IrSelf, IrSelf]):
-    """The conflict-note accumulators for one rule, appended in place.
-
-    :ivar hard: Island-worthy conflict notes (their presence marks an island).
-    :ivar soft: Stop-set / LL(2) demotion notes.
-    :ivar f1: Set when the F1 stop-set-escape branch fired (fail-island seed).
-    """
-
-    __slots__ = ("hard", "soft", "f1")
-
-    hard: list[str]
-    soft: list[str]
-    f1: bool
-
-    def __init__(self) -> None:
-        self.hard = []
-        self.soft = []
-        self.f1 = False
-
-
-class _Scope(IrLeaf[IrSelf, IrSelf]):
-    """The enclosing rule and its FOLLOW tail — the conflict-walk context.
-
-    :ivar rule: The enclosing rule name (the note-label anchor).
-    :ivar tail: The (soft) FOLLOW char set at the arm's end.
-    :ivar hard_tail: The *hard* FOLLOW at the arm's end — the per-clone tail the
-        PDA compiler bakes; a char in ``tail`` but not ``hard_tail`` is a
-        soft-only follower (the F1 escape route).
-    :ivar body: ``True`` for a rule-body scope (``tail`` IS the rule's FOLLOW);
-        ``False`` inside an inline group. The P6 noise-greedy licence is
-        rule-body-only.
-    """
-
-    __slots__ = ("rule", "tail", "hard_tail", "body")
-
-    rule: str
-    tail: CharSet
-    hard_tail: CharSet
-    body: bool
-
-    def __init__(
-        self, rule: str, tail: CharSet, hard_tail: CharSet, body: bool
-    ) -> None:
-        self.rule = rule
-        self.tail = tail
-        self.hard_tail = hard_tail
-        self.body = body
-
-
-class _Cont(IrLeaf[IrSelf, IrSelf]):
-    """A soft/hard continuation pair — the set a decision is cut against.
-
-    :ivar soft: The soft (classical) continuation char set.
-    :ivar hard: The hard continuation — the per-clone tail a nested loop cuts to.
-    """
-
-    __slots__ = ("soft", "hard")
-
-    soft: CharSet
-    hard: CharSet
-
-    def __init__(self, soft: CharSet, hard: CharSet) -> None:
-        self.soft = soft
-        self.hard = hard
-
-
-class _ConflictCtx(IrLeaf[IrSelf, IrSelf]):
-    """Per-item conflict-classification context for the :data:`_SEQ_ATOM` bodies.
-
-    :ivar notes: The rule's note accumulators.
-    :ivar cont: The group's effective soft/hard continuation (for a group recurse).
-    :ivar rule: The enclosing rule name.
-    :ivar index: The item's positional index (for note labelling).
-    """
-
-    __slots__ = ("notes", "cont", "rule", "index")
-
-    notes: _Notes
-    cont: _Cont
-    rule: str
-    index: int
-
-    def __init__(self, notes: _Notes, cont: _Cont, rule: str, index: int) -> None:
-        self.notes = notes
-        self.cont = cont
-        self.rule = rule
-        self.index = index
 
 
 class _Nullability(IrLeaf[IrSelf, IrSelf]):
@@ -263,12 +143,20 @@ def _first_charclass(_d: object, n: IrSelf, _nc: object) -> CharSet:
 
 
 def _first_not(_d: object, n: IrSelf, _nc: object) -> CharSet:
-    """FIRST of an ``IrNot``: the complement of its inner class (else ANY)."""
+    """FIRST of an ``IrNot``: the complement of its inner class (else ANY).
+
+    Only a negated CHAR class reaches here — token negation lives INSIDE the
+    alphabet (a fenced terminal), so ``IrNot`` never wraps an ``IrAlphabet``."""
     assert isinstance(n, IrNot)
     inner = n[0]
     if isinstance(inner, IrCharClass):
         return CharSet.from_not(inner)
     return CharSet.ANY
+
+
+def _first_token(_d: object, _n: IrSelf, _nc: object) -> CharSet:
+    """FIRST of a token atom: EMPTY — it matches ids, not chars (forces island)."""
+    return CharSet.EMPTY
 
 
 def _first_ruleref(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
@@ -333,7 +221,7 @@ def _feed_ruleref(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> bool:
     name = str(n)
     if name not in d.rules:
         return False
-    ctx = cast(_FeedCtx, nc[0])
+    ctx = cast(FeedCtx, nc[0])
     tgt = ctx.pass_.tgt
     grown = tgt[name].union(ctx.eff)
     if grown != tgt[name]:
@@ -345,7 +233,7 @@ def _feed_ruleref(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> bool:
 def _feed_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> bool:
     """Feed the effective continuation into each of a group's arms."""
     assert isinstance(n, IrAlternation)
-    ctx = cast(_FeedCtx, nc[0])
+    ctx = cast(FeedCtx, nc[0])
     changed = False
     for arm in n:
         if d.feed_seq(_items(arm), ctx.eff, ctx.rule, ctx.pass_):
@@ -364,17 +252,17 @@ def _feed_terminal(_d: object, _n: IrSelf, _nc: object) -> bool:
 def _seq_ruleref(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> None:
     """Flag a rule ref whose target the grammar never defines."""
     if str(n) not in d.rules:
-        ctx = cast(_ConflictCtx, nc[0])
+        ctx = cast(ConflictCtx, nc[0])
         ctx.notes.hard.append(f"{ctx.rule}[{ctx.index}]: undefined ref {str(n)!r}")
 
 
 def _seq_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> None:
     """Recurse conflict analysis into an inline group's arms."""
     assert isinstance(n, IrAlternation)
-    ctx = cast(_ConflictCtx, nc[0])
+    ctx = cast(ConflictCtx, nc[0])
     sub_arms = [_items(arm) for arm in n]
     label = f"{ctx.rule}[{ctx.index}]grp"
-    scope = _Scope(ctx.rule, ctx.cont.soft, ctx.cont.hard, body=False)
+    scope = Scope(ctx.rule, ctx.cont.soft, ctx.cont.hard, body=False)
     d.arm_conflicts(sub_arms, ctx.cont.soft, label, ctx.notes)
     for sub in sub_arms:
         d.seq_conflicts(sub, scope, ctx.notes)
@@ -391,6 +279,7 @@ _NULLABLE: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_null_literal)),
     IrAction(IrCharClass, IrLambda(_null_never)),
     IrAction(IrNot, IrLambda(_null_never)),
+    IrAction(IrAlphabet, IrLambda(_null_never)),
     IrAction(IrRuleRef, IrLambda(_null_ruleref)),
     IrAction(IrAlternation, IrLambda(_null_alternation)),
 )
@@ -399,6 +288,7 @@ _FIRST: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_first_literal)),
     IrAction(IrCharClass, IrLambda(_first_charclass)),
     IrAction(IrNot, IrLambda(_first_not)),
+    IrAction(IrAlphabet, IrLambda(_first_token)),
     IrAction(IrRuleRef, IrLambda(_first_ruleref)),
     IrAction(IrAlternation, IrLambda(_first_alternation)),
 )
@@ -407,6 +297,7 @@ _HARD: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_hard_terminal)),
     IrAction(IrCharClass, IrLambda(_hard_terminal)),
     IrAction(IrNot, IrLambda(_hard_terminal)),
+    IrAction(IrAlphabet, IrLambda(_hard_terminal)),
     IrAction(IrRuleRef, IrLambda(_hard_ruleref)),
     IrAction(IrAlternation, IrLambda(_hard_alternation)),
 )
@@ -415,6 +306,7 @@ _STOPSET_ATOM: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_stopset_no)),
     IrAction(IrCharClass, IrLambda(_stopset_yes)),
     IrAction(IrNot, IrLambda(_stopset_yes)),
+    IrAction(IrAlphabet, IrLambda(_stopset_no)),
     IrAction(IrRuleRef, IrLambda(_stopset_no)),
     IrAction(IrAlternation, IrLambda(_stopset_no)),
 )
@@ -423,6 +315,7 @@ _FOLLOW_FEED: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_feed_terminal)),
     IrAction(IrCharClass, IrLambda(_feed_terminal)),
     IrAction(IrNot, IrLambda(_feed_terminal)),
+    IrAction(IrAlphabet, IrLambda(_feed_terminal)),
     IrAction(IrRuleRef, IrLambda(_feed_ruleref)),
     IrAction(IrAlternation, IrLambda(_feed_alternation)),
 )
@@ -431,6 +324,7 @@ _SEQ_ATOM: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_seq_noop)),
     IrAction(IrCharClass, IrLambda(_seq_noop)),
     IrAction(IrNot, IrLambda(_seq_noop)),
+    IrAction(IrAlphabet, IrLambda(_seq_noop)),
     IrAction(IrRuleRef, IrLambda(_seq_ruleref)),
     IrAction(IrAlternation, IrLambda(_seq_alternation)),
 )
@@ -687,7 +581,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         arms: list[Sequence[IrItem]],
         ext_follow: CharSet,
         label: str,
-        notes: _Notes,
+        notes: Notes,
     ) -> bool:
         """The rule-body arm-overlap demotion cascade — P2 k-window, then the
         P3 noise-skip peek — storing the winning gate spec in its taxonomy
@@ -708,7 +602,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         return False
 
     def _demote_follow_windows(
-        self, arms: Sequence[Sequence[IrItem]], label: str, notes: _Notes
+        self, arms: Sequence[Sequence[IrItem]], label: str, notes: Notes
     ) -> bool:
         """Empty-arm FOLLOW\\ :sub:`k` demotion via :func:`kwindow.follow_arm_gate`:
         store the separating per-arm windows (body-arm order) in
@@ -721,7 +615,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         return True
 
     def _demote_struct_arm(
-        self, arms: Sequence[Sequence[IrItem]], label: str, notes: _Notes
+        self, arms: Sequence[Sequence[IrItem]], label: str, notes: Notes
     ) -> bool:
         """The empty-arm structured-noise demotion: store the scan gate + escape
         arm index in its taxonomy channel plus the soft note. ``False`` ⇒ no
@@ -734,7 +628,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         return True
 
     def _demote_loop(
-        self, items: Sequence[IrItem], k: int, scope: _Scope, notes: _Notes
+        self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
     ) -> bool:
         """The loop take/skip demotion cascade — P2 k-window, then the P3
         noise-skip peek — storing the spec under the item node's identity plus
@@ -774,7 +668,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         """
         tgt = {name: CharSet.EMPTY for name in self.rules}
         tgt[self.start] = _EOF
-        pass_ = _FollowPass(tgt, hard)
+        pass_ = FollowPass(tgt, hard)
         changed = True
         while changed:
             changed = False
@@ -789,7 +683,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         items: Sequence[IrItem],
         tail: CharSet,
         rule: str,
-        pass_: _FollowPass,
+        pass_: FollowPass,
     ) -> bool:
         """Feed FOLLOW contributions of a sequence whose continuation is ``tail``.
 
@@ -811,7 +705,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             eff = cont
             if hi is None or hi > 1:
                 eff = eff.union(self.atom_hard(atom) if hard else self.atom_first(atom))
-            ctx = _FeedCtx(eff, rule, pass_)
+            ctx = FeedCtx(eff, rule, pass_)
             if cast(bool, _FOLLOW_FEED.resolve(atom).eval(self, atom, (ctx,))):
                 changed = True
             if hard:
@@ -839,8 +733,8 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     f"{name}: left-recursive — predictive descent cannot run it"
                 ]
                 continue
-            notes = _Notes()
-            scope = _Scope(name, self.follow[name], self.hard_follow[name], body=True)
+            notes = Notes()
+            scope = Scope(name, self.follow[name], self.hard_follow[name], body=True)
             arms = [_items(arm) for arm in rule.body]
             self.arm_conflicts(arms, self.follow[name], name, notes)
             for arm in arms:
@@ -857,7 +751,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         arms: Sequence[Sequence[IrItem]],
         ext_follow: CharSet,
         label: str,
-        notes: _Notes,
+        notes: Notes,
     ) -> None:
         """Flag pairwise FIRST overlaps and empty-arm-vs-FOLLOW ambiguities.
 
@@ -903,7 +797,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     notes.soft.append(f"{label}: arm {i} FIRST hits FOLLOW (greedy)")
 
     def seq_conflicts(
-        self, items: Sequence[IrItem], scope: _Scope, notes: _Notes
+        self, items: Sequence[IrItem], scope: Scope, notes: Notes
     ) -> None:
         """Classify every decision point in one sequence arm."""
         for k in range(len(items)):
@@ -911,7 +805,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             self._sub_conflict(items, k, scope, notes)
 
     def _loop_conflict(
-        self, items: Sequence[IrItem], k: int, scope: _Scope, notes: _Notes
+        self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
     ) -> None:
         """Classify item ``k``'s continue/exit decision (the pivot-6 taxonomy)."""
         item = items[k]
@@ -947,7 +841,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         self._soft_gap_conflict(items, k, scope, notes)
 
     def _soft_gap_conflict(
-        self, items: Sequence[IrItem], k: int, scope: _Scope, notes: _Notes
+        self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
     ) -> None:
         """Classify a loop whose FIRST overlaps only *soft* followers.
 
@@ -977,7 +871,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             )
 
     def _sub_conflict(
-        self, items: Sequence[IrItem], k: int, scope: _Scope, notes: _Notes
+        self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
     ) -> None:
         """Dispatch item ``k``'s atom for undefined-ref / group-recursion checks."""
         item = items[k]
@@ -988,7 +882,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         if hi is None or hi > 1:
             eff = eff.union(self.atom_first(atom))
             hard_eff = hard_eff.union(self.atom_hard(atom))
-        ctx = _ConflictCtx(notes, _Cont(eff, hard_eff), scope.rule, k)
+        ctx = ConflictCtx(notes, Cont(eff, hard_eff), scope.rule, k)
         _SEQ_ATOM.resolve(atom).eval(self, atom, (ctx,))
 
     def cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:

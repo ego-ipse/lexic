@@ -59,6 +59,8 @@ from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
+    IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrRule,
@@ -525,3 +527,35 @@ def test_irbottomup_irreturn_short_circuits():
     t = IrBottomUp(actions=IrTypeMap(IrAction(IrRuleRef, IrReturn())))
     tree = IrAlternation(IrSequence(IrItem(IrRuleRef("hit")), IrItem(IrLiteral("x"))))
     assert t.apply(tree) == IrRuleRef("hit")
+
+
+# ── IrBottomUp._descend seam (opaque-subtree fencing) ───────────────────
+
+
+def _rewrite_charclass_to(text: str):
+    """A body that rewrites any dispatched char class to ``IrLiteral(text)``."""
+    return IrLambda(lambda _d, _n, _nc: IrLiteral(text))
+
+
+def test_bottomup_descend_seam_fences_a_subtree():
+    """Overriding ``_descend`` to return () leaves that node's subtree verbatim."""
+
+    class _Fenced(IrBottomUp):
+        def _descend(self, node):
+            return () if isinstance(node, IrItem) else tuple(node.children())
+
+    driver = _Fenced(
+        actions=IrTypeMap(IrAction(IrCharClass, _rewrite_charclass_to("REWRITTEN")))
+    )
+    # the char class sits UNDER an IrItem, which the driver fences → not rewritten
+    tree = IrSequence(IrItem(IrCharClass(IrChr(65))))
+    assert driver.apply(tree) == tree
+
+
+def test_bottomup_default_descend_reaches_every_node():
+    """Without an override, ``_descend`` recurses fully (the char class rewrites)."""
+    driver = IrBottomUp(
+        actions=IrTypeMap(IrAction(IrCharClass, _rewrite_charclass_to("X")))
+    )
+    tree = IrSequence(IrItem(IrCharClass(IrChr(65))))
+    assert driver.apply(tree) == IrSequence(IrItem(IrLiteral("X")))

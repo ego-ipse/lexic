@@ -18,6 +18,7 @@ GBNF_GRAMMARS: tuple[str, ...] = (
     "json_arr.gbnf",
     "json_ws.gbnf",
     "list.gbnf",
+    "think.gbnf",
     "vyx.gbnf",
 )
 """Every GBNF ground-truth grammar (the shared corpus for cross-file gates)."""

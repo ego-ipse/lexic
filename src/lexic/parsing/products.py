@@ -28,9 +28,12 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrSelf, IrStr, IrTuple
 from lexic.ir.nodes import IrAst
 from lexic.parsing.earley.engine import PARSE_FIRST, PARSE_REDUCED, EarleyParser
+from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.kernel import FastTree
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.earley.tables import ParserTables
+from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables, compile_tables
+from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda, compile_reduce_pda
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
@@ -83,6 +86,40 @@ def earley_model[M](
     """
     args = (IrStr(text),) if tables is None else (IrStr(text), tables)
     tree = PARSE_FIRST.eval(EarleyParser(), grammar, IrTuple(*args))
+    return fold.apply(tree)
+
+
+def token_model[M](
+    grammar: IrAst,
+    text: str,
+    fold: ModelFold[M],
+    bounds: dict[int, tuple[int, int]],
+) -> M:
+    """Parse token-segmented ``text`` to a model via the token Earley kernel.
+
+    The instance product for a **token-bearing** grammar: :class:`TokenKernel`
+    scans the token ``bounds`` (char position → ``(id, len)``), :class:`FastTree`
+    builds the single derivation, and ``fold`` builds the model. Char terminals
+    cross token boundaries; token terminals match id-granular. Token grammars
+    island the PDA by construction, so this Earley route is the whole parse.
+
+    :param grammar: The codegen grammar (with resolved token terminals).
+    :param text: The input string.
+    :param fold: The positional ParseTree → model fold producing ``M``.
+    :param bounds: char position → ``(token_id, char_len)`` segmentation.
+    :returns: The model the start rule folds to.
+    :raises UnsupportedConstructError: If ``text`` does not parse.
+    """
+    tables = compile_tables(normalize(lift_optional_nullables(grammar)))
+    kernel = TokenKernel(tables, text, bounds, record_links=True).run()
+    if kernel.accept < 0:
+        raise UnsupportedConstructError(
+            "parsing: input does not parse the token grammar"
+        )
+    handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
+    tree = FastTree(kernel).build(handle)
+    if not isinstance(tree, ParseTree):
+        raise UnsupportedConstructError("parsing: no token derivation")
     return fold.apply(tree)
 
 
@@ -182,28 +219,33 @@ def _model_product(grammar: IrAst, fold: ModelFold) -> _ModelProduct:
 # ── the public product entries ─────────────────────────────────────────────
 
 
-def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrAst:
-    """Parse grammar-text ``text`` to its :class:`IrAst` — PDA-first, Earley reduce.
+def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
+    """Parse ``text`` to its reduction — PDA-first, fused Earley completion.
 
-    Takes the **authored** grammar; lifting, normalisation and PDA compilation
-    are internal, memoised per ``(grammar, reducer)`` identity. Each parse runs
-    the reduce PDA first and, on any :class:`PdaFail`, completes on the fused
-    Earley reduce over the same lifted, normalised grammar the PDA compiled
-    from.
+    The engine's REDUCE product over any authored ``(grammar, reducer)`` pair:
+    a flavour self-grammar folding grammar text to an ``IrAst``, or any other
+    grammar whose reducer folds its documents to values — a reducer is
+    something any grammar can have. Lifting, normalisation and PDA compilation
+    are internal, memoised per ``(grammar, reducer)`` identity. Each parse
+    runs the reduce PDA first and, on any :class:`PdaFail`, completes on the
+    fused Earley reduce over the same lifted, normalised grammar the PDA
+    compiled from. Result-shape narrowing (grammar text must fold to an
+    ``IrAst``) belongs to the caller's boundary (``compile.parse_grammar``),
+    not to the product.
 
-    :param grammar: The authored grammar (e.g. a flavour's self-grammar).
-    :param text: The grammar source to parse.
-    :param reducer: The flavour's reduction policy.
-    :returns: The reduced grammar :class:`IrAst`.
-    :raises UnsupportedConstructError: When ``reducer`` is not a :class:`Reducer`,
-        ``text`` does not parse / parses ambiguously, or the reduction is not an
-        :class:`IrAst`.
+    :param grammar: The authored grammar.
+    :param text: The input to parse.
+    :param reducer: The grammar's reduction policy.
+    :returns: Whatever the reducer's top body builds.
+    :raises UnsupportedConstructError: When ``reducer`` is not a
+        :class:`Reducer`, or ``text`` does not parse / parses ambiguously on
+        the Earley completion.
     """
     product = _reduce_product(grammar, reducer)
     try:
-        return _as_ast(parse_pda(product.pda, text, None))
+        return cast(IrSelf, parse_pda(product.pda, text, None))
     except PdaFail:
-        return _as_ast(earley_reduce(product.earley_grammar, text, reducer))
+        return cast(IrSelf, earley_reduce(product.earley_grammar, text, reducer))
 
 
 def parse_model[M](grammar: IrAst, text: str, fold: ModelFold[M]) -> M:
@@ -227,14 +269,3 @@ def parse_model[M](grammar: IrAst, text: str, fold: ModelFold[M]) -> M:
         return earley_model(product.instance_grammar, text, fold, product.tables)
 
 
-def _as_ast(value: object) -> IrAst:
-    """Narrow a reduce result to :class:`IrAst` — the grammar-text product's type.
-
-    The reduce product always folds grammar source to an :class:`IrAst`; a
-    non-``IrAst`` result means the reducer's top body did not build one.
-    """
-    if not isinstance(value, IrAst):
-        raise UnsupportedConstructError(
-            f"parse_reduced: reduction produced {type(value).__name__!r}, not an IrAst"
-        )
-    return value

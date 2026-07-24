@@ -60,10 +60,22 @@ from lexic.compile.pipeline.binding import (
 )
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.compile.pipeline.synthesis import synthesize
+from lexic.compile.templating import (
+    KEEP,
+    Keep,
+    MapShape,
+    SpanEntry,
+    SpanPair,
+    Template,
+    spanify,
+    template,
+)
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
-from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple
+from lexic.ir.base import IrLambda, IrNone, IrSeq, IrStr, IrTuple
 from lexic.ir.canonical import canonicalize, fold_name
+from lexic.ir.concretize import concretize
+from lexic.ir.encoding import IrTokenizer, IrUnicode
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAst, IrItem, IrRule, IrRuleRef
@@ -78,21 +90,31 @@ from lexic.parsing import (
     parse_reduced,
 )
 
+# Case-insensitive order — keeps this list and the submodules' own __all__
+# blocks from sharing linter-length runs of identical lines.
 __all__ = [
-    "CompiledGrammar",
     "bind_module",
     "canonical_grammar",
     "compile_from_path",
     "compile_text",
+    "CompiledGrammar",
     "export_module",
     "export_source",
+    "KEEP",
+    "Keep",
     "load_ir",
     "load_ir_from_path",
+    "MapShape",
+    "parse_grammar",
     "parse_instance",
     "parse_instance_from_path",
-    "parse_grammar",
     "parse_module",
     "reset_cache_for_tests",
+    "SpanEntry",
+    "SpanPair",
+    "spanify",
+    "Template",
+    "template",
     "verify_module",
 ]
 
@@ -136,7 +158,13 @@ def parse_grammar(text: str, flavour: IrFlavour) -> IrAst:
         ``text`` does not parse, or the reduction is not an ``IrAst``.
     """
     reducer = _flavour_reducer(flavour)
-    return _resolve_prelude(parse_reduced(flavour.grammar, text, reducer), flavour)
+    reduced = parse_reduced(flavour.grammar, text, reducer)
+    if not isinstance(reduced, IrAst):
+        raise UnsupportedConstructError(
+            f"parse_grammar: reduction produced {type(reduced).__name__!r}, "
+            "not an IrAst"
+        )
+    return _resolve_prelude(reduced, flavour)
 
 
 def _resolve_prelude(ast: IrAst, flavour: IrFlavour) -> IrAst:
@@ -370,9 +398,61 @@ def _fold_config(
     return IrMap(*dyads)
 
 
-def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGrammar:
+def _encoding_registry(
+    tokenizer: IrTokenizer | None, registry: IrMap | None
+) -> IrMap | None:
+    """The name → encoding registry concretize binds against — ``unicode`` always
+    present, ``tokenizer=`` sugar for a single-entry registry.
+
+    :param tokenizer: The single-tokenizer sugar (bound under its own ``name``).
+    :param registry: An explicit ``IrMap[IrStr, IrEncoding]`` (entries win over
+        the default ``unicode``); the grammar's encoding *names* are its keys.
+    :returns: The resolved registry, or ``None`` for a plain char grammar.
+    :raises UnsupportedConstructError: When both ``tokenizer`` and ``registry``
+        are given (ambiguous).
+    """
+    if tokenizer is not None and registry is not None:
+        raise UnsupportedConstructError(
+            "compile: pass tokenizer= or registry=, not both"
+        )
+    unicode = IrTuple(IrStr("unicode"), IrUnicode())
+    if registry is not None:
+        bound = {IrStr("unicode"): IrUnicode(), **dict(registry.items())}
+        return IrMap(*(IrTuple(name, enc) for name, enc in bound.items()))
+    if tokenizer is not None:
+        return IrMap(unicode, IrTuple(tokenizer.name, tokenizer))
+    return None
+
+
+def _segmentation_tokenizer(registry: IrMap | None) -> IrTokenizer | None:
+    """The tokenizer that segments an instance — the registry's sole tokenizer.
+
+    Instance parse / generation segment one text with one tokenizer; ``unicode``
+    never segments tokens. Zero or multiple tokenizers ⇒ no auto segmentation
+    (a char grammar, or a compile-only multi-encoding binding).
+
+    :param registry: The resolved encoding registry (or ``None``).
+    :returns: The single :class:`IrTokenizer` in ``registry``, else ``None``.
+    """
+    if registry is None:
+        return None
+    toks = [enc for enc in registry.values() if isinstance(enc, IrTokenizer)]
+    return toks[0] if len(toks) == 1 else None
+
+
+def _compile_core(
+    text: str,
+    *,
+    stem: str,
+    flavour: str = "gbnf",
+    tokenizer: IrTokenizer | None = None,
+    registry: IrMap | None = None,
+) -> CompiledGrammar:
     flavour_cls = get_flavour(flavour)
     ast = canonical_grammar(text, flavour_cls)
+    resolved = _encoding_registry(tokenizer, registry)
+    if resolved is not None:
+        ast = concretize(ast, resolved)
     codegen_grammar = build_codegen_grammar(ast)
     binding = compute_binding(codegen_grammar)
     classes = synthesize(codegen_grammar, binding, stem)
@@ -384,6 +464,7 @@ def _compile_core(text: str, *, stem: str, flavour: str = "gbnf") -> CompiledGra
         fold=fold,
         flavour=flavour,
         stem=stem,
+        tokenizer=_segmentation_tokenizer(resolved),
     )
 
 
@@ -392,6 +473,8 @@ def compile_text(
     *,
     cache_key: Hashable | None = None,
     flavour: str = "gbnf",
+    tokenizer: IrTokenizer | None = None,
+    registry: IrMap | None = None,
 ) -> CompiledGrammar:
     """Compile from a grammar string, memoised by content by default.
 
@@ -410,15 +493,26 @@ def compile_text(
     :param cache_key: Extra key prefix disambiguating otherwise-identical
         compilations; ``None`` uses the content key alone.
     :param flavour: The grammar flavour name.
+    :param tokenizer: A single tokenizer bound under its own ``name`` — sugar
+        for a one-entry ``registry``.
+    :param registry: An ``IrMap[IrStr, IrEncoding]`` binding the grammar's
+        encoding *names* to encodings (``unicode`` is always present); the
+        general form of ``tokenizer=``. Pass one or the other, not both.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     stem = _stem_for_text(text)
-    content_key = (stem, flavour)
+    content_key: tuple[Hashable, ...] = (stem, flavour)
+    if tokenizer is not None:
+        content_key = (*content_key, id(tokenizer))
+    if registry is not None:
+        content_key = (*content_key, id(registry))
     key = (cache_key, *content_key) if cache_key is not None else content_key
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    cg = _compile_core(text, stem=stem, flavour=flavour)
+    cg = _compile_core(
+        text, stem=stem, flavour=flavour, tokenizer=tokenizer, registry=registry
+    )
     _CACHE[key] = cg
     return cg
 

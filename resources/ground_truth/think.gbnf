@@ -1,0 +1,4 @@
+# Match a thinking block: <think>...</think>
+# Using token strings (requires these to be single tokens in the vocab)
+root ::= <think> thinking </think> .*
+thinking ::= !</think>*

@@ -160,6 +160,20 @@ class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
 
     default: IrSelf = IrThis()
 
+    def _descend(self, node: IrSelf) -> Sequence[IrSelf]:
+        """Children the driver recurses into — an overridable strategy seam.
+
+        Defaults to the node's own :meth:`~lexic.ir.base.IrSelf.children`. A
+        pass that must treat some node as **opaque** (its subtree in a foreign
+        domain the pass does not own) overrides this to return ``()`` for that
+        node — the node is still visited and rebuilt, but its subtree is left
+        verbatim. Mirrors the overridable ``_run`` seam.
+
+        :param node: The node about to be expanded.
+        :returns: The children to recurse into (``()`` to fence the subtree).
+        """
+        return node.children()
+
     def _run(self, root: IrNode) -> Ir_co:
         """Post-order drive: transform children, rebuild, act — iteratively.
 
@@ -182,7 +196,7 @@ class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
             if key in done:
                 continue
             if kids is None:  # first visit — expand children, revisit after
-                kids = node.children()
+                kids = self._descend(node)
                 if kids:
                     stack.append((node, kids))
                     # Reversed so pops run left-to-right: the visit order

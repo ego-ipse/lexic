@@ -113,7 +113,7 @@ ir/
                  nodes double as action-body templates, and IrDocConcat/
                  IrDocJoin are the doc-tier sums of IrConcat/IrJoin
   order.py       RuleOrder — deterministic start-first ordering
-  escapes.py     EscapeCodec ABC + CANONICAL_ESCAPES
+  escapes.py     EscapeCodec ABC (emit-side encode/encode_point/spellable)
   meta.py        IrMeta (dataclass-transform + auto _bound) + singleton metaclasses
 ```
 

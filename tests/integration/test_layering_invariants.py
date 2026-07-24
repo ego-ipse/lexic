@@ -64,43 +64,56 @@ LICENSED_PARSING = frozenset({"lexic.parsing", "lexic.parsing.earley.reduce"})
 """The engine imports a ``lexic.compile`` module may make: the package root
 (the product entries + fold toolkit) and the one licensed submodule
 ``lexic.parsing.earley.reduce`` — the reduce channel (``Reducer`` sentinels,
-``Yield``/``YIELD``) the notation and loader need, exactly the licence
-``lexic.grammars`` already enjoys de facto (``grammars/gbnf.py``). Every other
+``Yield``/``YIELD``) the notation and loader need. Every other
 ``lexic.parsing`` submodule (``.fold``/``.pda``/``.products``/``.earley.*``)
 stays off-limits."""
 
+GRAMMARS_PARSING = frozenset({"lexic.parsing.earley.reduce"})
+"""The one engine import a ``lexic.grammars`` module may make — the reduce
+channel its flavour reducers are built from. The package root (product
+entries, fold toolkit) is compile-only."""
+
+
+def _engine_imports(path: Path) -> list[str]:
+    """Every ``lexic.parsing`` module ``path`` imports, in either import form."""
+    tree = ast.parse(path.read_text())
+    mods = [m for m, _ in from_imports(tree)]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            mods.extend(alias.name for alias in node.names)
+    return [m for m in mods if m == "lexic.parsing" or m.startswith("lexic.parsing.")]
+
+
+def _engine_licence(path: Path) -> frozenset[str]:
+    """The engine imports ``path`` is licensed to make (empty = none at all)."""
+    if path.is_relative_to(COMPILE_PKG):
+        return LICENSED_PARSING
+    if path.is_relative_to(SRC / "grammars"):
+        return GRAMMARS_PARSING
+    return frozenset()
+
 
 def test_runtime_imports_parsing_are_compile_only_and_licensed():
-    """The compile package is the sole engine consumer, via the licensed surface.
+    """Every module under ``src/lexic`` honors its engine-import licence.
 
-    Among runtime modules, only ``lexic.compile`` package modules import
-    ``lexic.parsing`` at all, and each such import is one of
-    :data:`LICENSED_PARSING` — the package root or the one licensed reduce
-    submodule. The engine owns its API; no other runtime module reaches it, and
-    no compile module reaches past the licensed surface. Enforcement of
-    directive 1 (widened at Task 4 for the notation/loader reduce-channel
-    licence, MANIFEST_DESIGN §7).
+    The scan rglobs the WHOLE tree (future packages are covered by
+    construction, not by remembering to extend a glob): the engine imports
+    itself freely; ``lexic.compile`` modules may import
+    :data:`LICENSED_PARSING`; ``lexic.grammars`` modules may import the
+    :data:`GRAMMARS_PARSING` reduce channel; every other module may not
+    import ``lexic.parsing`` at all. Enforcement of directive 1.
     """
     offenders: list[str] = []
-    for path in runtime_module_files():
-        tree = ast.parse(path.read_text())
-        mods = [m for m, _ in from_imports(tree)]
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                mods.extend(alias.name for alias in node.names)
-        for module in mods:
-            if module != "lexic.parsing" and not module.startswith("lexic.parsing."):
+    for path in SRC.rglob("*.py"):
+        if path.is_relative_to(SRC / "parsing"):
+            continue
+        licence = _engine_licence(path)
+        for module in _engine_imports(path):
+            if module in licence:
                 continue
             rel = path.relative_to(SRC)
-            if not path.is_relative_to(COMPILE_PKG):
-                offenders.append(
-                    f"{rel}: imports {module} (only the compile package may)"
-                )
-            elif module not in LICENSED_PARSING:
-                offenders.append(
-                    f"{rel}: imports {module} (compile may import only "
-                    f"{sorted(LICENSED_PARSING)})"
-                )
+            allowed = f"may import only {sorted(licence)}" if licence else "may not"
+            offenders.append(f"{rel}: imports {module} ({allowed})")
     assert not offenders, f"parsing import-layering violations: {offenders}"
 
 

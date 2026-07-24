@@ -563,12 +563,17 @@ def test_kernel_construction_rejects_input_at_capacity():
         Kernel(tables, huge)
 
 
-def test_kernel_construction_accepts_input_just_under_capacity_len_check():
-    """A text one shorter than ADVANCE does not raise at construction time."""
+def test_kernel_construction_accepts_input_under_capacity():
+    """A text under the ADVANCE ceiling constructs one column per char + 1.
+
+    The exact ``ADVANCE - 1`` boundary is memory-infeasible at the production
+    ORIGIN_BITS (one list per column); the strict side of the guard is pinned
+    by the rejection test at exactly ``ADVANCE``.
+    """
     tables = compile_tables(_digit_grammar())
-    text = "a" * (ADVANCE - 1)
+    text = "a" * 4096
     kernel = Kernel(tables, text)
-    assert len(kernel.cols) == ADVANCE
+    assert len(kernel.cols) == len(text) + 1
 
 
 # ── decode_item ──────────────────────────────────────────────────────────

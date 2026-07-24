@@ -1,4 +1,4 @@
-"""EscapeCodec ABC — encode/decode/read_escape via fake subclass + canonical instance."""
+"""EscapeCodec record — emit-side encode/encode_point/spellable via from_tables."""
 
 from __future__ import annotations
 
@@ -7,53 +7,26 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_ESCAPES
 from lexic.grammars.gbnf import GBNF_ESCAPES
-from lexic.ir.escapes import CANONICAL_ESCAPES, EscapeCodec
+from lexic.ir.escapes import EscapeCodec
 
-
-class Codec(EscapeCodec):
-    """Minimal EscapeCodec subclass used for ABC-algorithm tests."""
-
-    SHORT_ESCAPES = {"n": "\n", "t": "\t", '"': '"', "\\": "\\"}
-    HEX_ESCAPES = (("x", 2), ("u", 4))
-
-
-C = Codec()
-
-
-class ClassCodec(EscapeCodec):
-    """A codec with bracket-class + quoted-form tables, for encode_point/spellable.
-
-    ``CLASS_SHORT`` and ``CLASS_META`` deliberately overlap the same code
-    points (``-`` is claimed by both) so the priority-order tests can prove
-    ``CLASS_SHORT`` wins over the ``CLASS_META`` backslash.
-    """
-
-    SHORT_ESCAPES = {"n": "\n"}
-    HEX_ESCAPES = (("x", 2), ("u", 4))
-    CLASS_SHORT = {0x2D: "SHORT-DASH"}  # '-'
-    CLASS_META = frozenset("-^")
-    QUOTE_SAFE = ((0x20, 0x21), (0x23, 0x7E))  # excludes '"' (0x22)
-
-
-CC = ClassCodec()
-
-
-@pytest.mark.parametrize(
-    "src,expected",
-    [
-        (r"\n", "\n"),
-        (r"\t", "\t"),
-        (r"\\", "\\"),
-        (r"\"", '"'),
-        (r"\x41", "A"),
-        (r"é", "é"),
-        (r"hello\nworld", "hello\nworld"),
-        ("plain", "plain"),
-    ],
+# Minimal codec for the encode algorithm test.
+C = EscapeCodec.from_tables(
+    short={"n": "\n", "t": "\t", '"': '"', "\\": "\\"},
+    hexes=(("x", 2), ("u", 4)),
 )
-def test_decode_short_and_hex(src, expected):
-    """decode handles short escapes, hex escapes, and bare text uniformly."""
-    assert C.decode(src) == expected
+
+
+# A codec with bracket-class + quoted-form tables, for encode_point/spellable.
+# ``class_short`` and ``class_meta`` deliberately overlap the same code point
+# (``-`` is claimed by both) so the priority-order test can prove ``class_short``
+# wins over the ``class_meta`` backslash.
+CC = EscapeCodec.from_tables(
+    short={"n": "\n"},
+    hexes=(("x", 2), ("u", 4)),
+    class_short={0x2D: "SHORT-DASH"},  # '-'
+    class_meta="-^",
+    quote_safe=((0x20, 0x21), (0x23, 0x7E)),  # excludes '"' (0x22)
+)
 
 
 @pytest.mark.parametrize(
@@ -70,39 +43,6 @@ def test_decode_short_and_hex(src, expected):
 def test_encode_inverts_short_table(canonical, expected):
     """encode produces the source-form for each canonical char in SHORT_ESCAPES."""
     assert C.encode(canonical) == expected
-
-
-def test_encode_decode_roundtrip_on_canonical_python():
-    """Round-trip: encode then decode returns the original canonical string."""
-    s = "tab\there\nnewline"
-    assert C.decode(C.encode(s)) == s
-
-
-def test_read_escape_short():
-    """read_escape returns the canonical char and advances past the 2-char escape."""
-    assert C.read_escape(r"\nrest", 0) == ("\n", 2)
-
-
-def test_read_escape_hex():
-    """read_escape decodes hex escapes and advances past the full sequence."""
-    assert C.read_escape(r"\x41rest", 0) == ("A", 4)
-
-
-def test_read_escape_unrecognised_returns_literal_char():
-    """An unrecognised follow-char is returned as itself."""
-    assert C.read_escape(r"\zrest", 0) == ("z", 2)
-
-
-def test_canonical_escapes_supports_posix_meta():
-    """POSIX bracket-meta chars must be readable as themselves when escaped."""
-    assert CANONICAL_ESCAPES.read_escape(r"\]rest", 0) == ("]", 2)
-    assert CANONICAL_ESCAPES.read_escape(r"\-rest", 0) == ("-", 2)
-    assert CANONICAL_ESCAPES.read_escape(r"\^rest", 0) == ("^", 2)
-
-
-def test_canonical_escapes_decodes_python_control_and_hex():
-    """The canonical codec decodes \\n and \\xNN as expected."""
-    assert CANONICAL_ESCAPES.decode(r"a\nb\x41") == "a\nbA"
 
 
 # ── encode_point — priority order, via a local codec ────────────────────

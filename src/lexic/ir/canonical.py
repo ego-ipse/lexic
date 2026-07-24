@@ -34,6 +34,7 @@ from lexic.ir.action import IrAction
 from lexic.ir.base import IrLambda, IrSelf, IrSeq
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -233,7 +234,25 @@ def _canon_sequence(_d: IrSelf, n: IrSelf, _nc: object) -> IrSelf:
     return IrSequence(*_merge_literal_runs(kept))
 
 
-_CANON = IrBottomUp(
+class _CanonDriver(IrBottomUp):
+    """Canonicalize's bottom-up driver, fencing :class:`IrAlphabet`.
+
+    An alphabet's inner atom lives in a *foreign* encoding (a token id space,
+    not Unicode), so the UTF char-class rewrites here must not touch it — a lone
+    token id would collapse to a UTF glyph literal, a negated token would
+    complement against ``MAX_CODEPOINT``. Fencing the descent (the ``_descend``
+    seam) leaves each alphabet's subtree verbatim while the surrounding grammar
+    canonicalises normally; the alphabet is an opaque atom to every outer pass.
+    """
+
+    def _descend(self, node: IrSelf) -> "tuple[IrSelf, ...]":
+        """Recurse into every node except an :class:`IrAlphabet` (opaque)."""
+        if isinstance(node, IrAlphabet):
+            return ()
+        return tuple(node.children())
+
+
+_CANON = _CanonDriver(
     actions=IrTypeMap(
         IrAction(IrCharClass, IrLambda(_canon_charclass)),
         IrAction(IrNot, IrLambda(_canon_not)),
