@@ -5,7 +5,7 @@ JSON_REDUCER)`` — the engine's reduce product over the grammar's own kit —
 and the typed values feed :class:`~lexic.ir.encoding.IrTokenizer` directly.
 stdlib ``json`` appears only as the test-side oracle; the ``tokenizers`` lib
 is the reference tokenize oracle. Fixtures are FETCHED, never committed
-(``tools/fetch_tokenizers.sh``); every test skips when the file is absent.
+(``tools/fetch_tokenizers.py``); every test skips when the file is absent.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ SMOLLM2 = (
 
 pytestmark = pytest.mark.skipif(
     not SMOLLM2.is_file(),
-    reason="real tokenizer fixture absent — run tools/fetch_tokenizers.sh",
+    reason="real tokenizer fixture absent — run tools/fetch_tokenizers.py",
 )
 
 

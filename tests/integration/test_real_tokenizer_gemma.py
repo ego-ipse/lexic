@@ -1,7 +1,7 @@
 """gemma-4 through the json reducer + the full pipeline — the SLOW lane.
 
 The 31 MB ``tokenizer.json`` reduce takes ~75 s, so this module is opt-in:
-set ``LEXIC_SLOW=1`` (and fetch the fixture — ``tools/fetch_tokenizers.sh``).
+set ``LEXIC_SLOW=1`` (and fetch the fixture — ``tools/fetch_tokenizers.py``).
 It pins the second real family end to end: arrays-form merges, the
 ``Replace`` normalizer, ``Split(MergedWithPrevious)``, ``byte_fallback``,
 added-token vocab extension — reference-exact against the ``tokenizers``
@@ -32,7 +32,7 @@ GEMMA = (
 
 pytestmark = pytest.mark.skipif(
     not (os.environ.get("LEXIC_SLOW") and GEMMA.is_file()),
-    reason="slow lane — set LEXIC_SLOW=1 and run tools/fetch_tokenizers.sh",
+    reason="slow lane — set LEXIC_SLOW=1 and run tools/fetch_tokenizers.py",
 )
 
 _CORPUS = SHARED_CORPUS + ("\x07bell",)
