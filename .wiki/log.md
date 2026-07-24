@@ -1,5 +1,22 @@
 # Log
 
+## 2026-07-24 — Packing tiers: input-sized origin-bits, tier selection at the parse entries
+
+The packed-item scheme's origin bits are now a per-tables tier instead of a
+module constant: `Packing(bits, mask, advance)` rides on
+`ParserTables.packing`, every table builder takes a `bits` parameter with a
+per-`(identity, bits)` memo, and the parse entries pick the smallest tier of
+`TIERS = (28, 40)` covering the input (`tier_for`). Islands inherit the
+run's tier (`PdaTables.island_tables(name, bits)`); the model product keys
+its cache 3-way `(grammar, fold, bits)`; the reduce product stays tier-free
+(its Earley completion picks per parse); the kernel capacity raise remains
+the backstop beyond the last tier. The kernel holds no copied tier fields —
+hot methods hoist `tables.packing` locals at method top. Also: the per-char
+scanning caches (`terms_for`/`char_leaf`) moved from `ParserTables` onto
+`TermTables` (they read `terms.atoms`), and `token_model` gained a
+per-`(grammar, bits)` tables memo (it had been recompiling per call —
+`normalize` mints a fresh IrAst). See [[lexic/architecture]].
+
 ## 2026-07-21 — GBNF charclass PDA regression fixed; reduce completion unified; module self-grammar zero fail-islands; per-parse interning
 
 GBNF charclass parsing (`grammars/gbnf.py`) had regressed to superlinear
