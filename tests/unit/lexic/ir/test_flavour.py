@@ -15,7 +15,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_ESCAPES, ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_ESCAPES, GBNF_FLAVOUR
 from lexic.ir.base import IrInt, IrNone, IrSeq, IrStr
-from lexic.ir.escapes import CANONICAL_ESCAPES
+from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour, IrSpellable
 from lexic.ir.nodes import (
     IrAlternation,
@@ -37,7 +37,7 @@ def test_concrete_flavour_with_required_attrs_works():
     class _Fake(IrFlavour):
         name = "fake"
         extensions = (".fake",)
-        escapes = CANONICAL_ESCAPES
+        escapes = EscapeCodec()
         line_comment = "#"
 
     assert _Fake.name == "fake"
@@ -51,7 +51,7 @@ def test_default_line_comment_is_empty_string():
     class _F(IrFlavour):
         name = "f"
         extensions = ()
-        escapes = CANONICAL_ESCAPES
+        escapes = EscapeCodec()
 
     assert _F.line_comment == ""
 

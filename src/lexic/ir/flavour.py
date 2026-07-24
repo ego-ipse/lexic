@@ -66,7 +66,7 @@ class IrEscapePoint(IrLeaf[IrSelf, IrStr]):
     The class-member sibling of :class:`IrEscape`: same fieldless shape, same
     codec-via-``d`` flow, but the focus is an integer code point (an
     ``IrChr``/``IrInt`` leaf) and the spelling rules are the codec's
-    class-context tables (``CLASS_SHORT``/``CLASS_META`` + hex fallback).
+    class-context tables (``class_short``/``class_meta`` + hex fallback).
     """
 
     def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrStr:
@@ -96,7 +96,7 @@ class IrSpellable(IrLeaf[IrSelf, IrInt]):
     literal form?
 
     Reads the codec via ``d`` like :class:`IrEscape` and applies its
-    ``QUOTE_SAFE`` ranges; the natural :class:`~lexic.ir.action.IrCond` test
+    ``quote_safe`` ranges; the natural :class:`~lexic.ir.action.IrCond` test
     for a quoted-form-vs-numeric-fallback emit branch.
     """
 

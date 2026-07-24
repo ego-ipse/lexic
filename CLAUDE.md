@@ -17,8 +17,12 @@ Read these documents before editing code:
   own progress ledger and, on completion, an OUTCOME note. Check the newest
   one when orienting. New plans copy `zzz_current_work/TEMPLATE.md` (goal,
   rulings, dispatch-policy table, tasks with gates, one-line ledger).
-  Current: `zzz_current_work/260712-viz/PLAN_v2.md` (ruling 5). Triage:
+  Current: `zzz_current_work/260724-token-clean/PLAN.md` (the token
+  feature rebuilt clean — rulings 1–10 recorded there; prior knowledge in
+  `260721-token-support/`, `260722-token-prod/`, `260724-token-full/`).
+  Triage:
   `zzz_current_work/260718-backlog/`.
+  Next up after: `zzz_current_work/260712-viz/PLAN_v2.md` (ruling 5).
   Just completed: `zzz_current_work/260719-engine-next/PLAN_V6.md` (see its
   OUTCOME) — gbnf charclass PDA regression fixed (FOLLOW-k arm gates),
   grammar-text reduce completion unified onto one route, module
@@ -34,7 +38,6 @@ Read these documents before editing code:
   its OUTCOME) — importable twin modules, IR-native formatting (layout
   algebra + notation emit half), defaults-last fields, two island engine
   fixes, base→model + parse-entry renames.
-  Next up after: `zzz_current_work/260712-viz/PLAN_v2.md` (ruling 5).
   Just completed: `zzz_current_work/260716-ir-native/PLAN_v4.md` (see its
   OUTCOME) — the unified `compile/` subsystem: pure-IR representations +
   compiled models synthesized at runtime, open rule→class binding,
@@ -203,6 +206,20 @@ src/lexic/
                         engine-next; see .wiki/lexic/decisions.md).
                         Surface-specific transforms that aren't shared stay
                         honest IrLambda citizens on their own surface
+    templating.py       generic span templating over any reduction pair
+                        (grammar, fold) — spec-independent: spanify() clones
+                        every entry-reaching rule as `-tm` (original fold
+                        bodies), the entry clone captures raw key/value
+                        spans over `-sk` skip twins (skip_rules — matched
+                        structure, no fold bodies) with the generic
+                        (key_decode(k), v) ctor; Template(span, spec).run()
+                        is the post-pass driver (parse once → drive the
+                        KEEP/nested spec, re-parsing spans re-rooted at
+                        shape.value / the section clone; path-wrapped
+                        errors). All spine records (Template/MapShape/
+                        SpanPair; KEEP = interned Keep() singleton); the
+                        compiler knows no format — a format's pair+shape is
+                        an application authored where used
     pipeline/            the compile pipeline — grammar → classes
       __init__.py       pipeline package
       passes.py         grammar→grammar passes (hoist groups/arms, relax noise)
@@ -288,8 +305,12 @@ src/lexic/
                         only _bound
     nodes.py            Concrete grammar-AST nodes on the base.py spine: IrLiteral,
                         IrCharClass (intrinsic pattern()/members()/sample()/
-                        normalized()/complement()), IrRuleRef, IrSequence,
+                        normalized()/complement()/is_any — the any-char `.`
+                        predicate), IrRuleRef, IrSequence,
                         IrAlternation, IrBounds/IrQuantifier/IrRange, IrItem,
+                        IrAlphabet(encoding-name-ref, inner atom — the alphabet
+                        binding; reuses IrLiteral/IrCharClass/IrNot as the inner,
+                        so no token-specific leaf exists),
                         IrRule(name, body, semantic=True), IrAst(rules, start) —
                         non_semantic is a derived property, not a field
     operators.py        IrOp(IrStr) infix-operator leaf (no Cmp enum), IrOpNode +
@@ -352,7 +373,28 @@ src/lexic/
                         IrConcat/IrJoin (IrCat-construct, str parts lifted via
                         as_doc); the notation emit half AND the flavour
                         structure actions build docs here
-    escapes.py          EscapeCodec ABC + CANONICAL_ESCAPES
+    escapes.py          EscapeCodec — an IrNamedTuple record (IrSelf on the
+                        spine, one `tables: IrMap` field; the IrTokenizer
+                        precedent), NOT an IrEncoding: the flavour's emit-only
+                        spell refinement over IrUnicode (encode/encode_point/
+                        spellable). Parse decodes escapes structurally in the
+                        reductions, so there is no resolve/decode half
+    concretize.py       concretize(ast, registry)/concretize_atom — resolve an
+                        IrAlphabet's spelling to an encoding ordinal
+                        (IrLiteral("<think>") → IrCharClass(IrChr(id)); id-form
+                        validated in-universe; negation composes). Registry-
+                        driven language rewrite; the per-atom seam is what an
+                        engine resolves lazily at match time
+    encoding.py         IrEncoding family — the codec giving a char class's
+                        ordinals meaning (universe + resolve/spell). Role marker
+                        on IrNode (the IrAtom pattern) hosting the universe-
+                        relative complement algebra; IrUnicode (singleton, the
+                        default; MAX_CODEPOINT + chr/ord) and IrTokenizer
+                        (IrNamedTuple over IrMap encode/decode sections;
+                        boundaries(text)/tokenize(text) — longest-match
+                        segmentation, ranked-BPE a follow-up). An encoding is
+                        referenced by name from an IrAlphabet; a registry is
+                        just an IrMap[IrStr, IrEncoding]
 
   grammars/
     __init__.py         get_flavour(), flavour_for_extension(), register_flavour()
@@ -361,9 +403,12 @@ src/lexic/
     gbnf.py             GBNF flavour — one flat module (no subpackage):
                         GBNF_ACTIONS (emit half), GBNF_GRAMMAR + GBNF_REDUCTIONS +
                         GBNF_NOISE + GBNF_REDUCER (parse half — the full GBNF
-                        surface, natively, no Lark meta-grammar), private
-                        _GbnfEscapes + public GBNF_ESCAPES singleton, private
-                        _GbnfFlavour + public GBNF_FLAVOUR singleton
+                        surface, natively, no Lark meta-grammar; incl. the token
+                        terminals <token>/<[id]>/!<…>/. reducing to IrAlphabet
+                        over GBNF_TOKEN_ENCODING="tokens", negation INSIDE the
+                        alphabet: !<…> → IrAlphabet(enc, IrNot(inner))),
+                        private _GbnfEscapes + public GBNF_ESCAPES singleton,
+                        private _GbnfFlavour + public GBNF_FLAVOUR singleton
     abnf.py             ABNF flavour — same shape as gbnf.py. Full RFC 5234+7405
                         surface (num-seq incl. %d/%b dot-sequences, [...] option,
                         comments/folding, %s/%i + uppercase markers,
@@ -428,6 +473,17 @@ src/lexic/
                           longest_start_completion — public windowed prefix-completion
                           seam for the PDA island sub-parse (additive, off the main
                           run() fast path; hybrid-PDA 260705)
+      tokenscan.py        TokenKernel — the Kernel subclass that parses a token
+                          grammar against text lexic has segmented into tokens: a
+                          bounds map (char pos → (id, len)) + token_term_specs
+                          (term_id → (ids, negated) off the IrAlphabet terms,
+                          negation read from the IrNot INSIDE) + one _scan branch (atomic
+                          token jump at a boundary column, id test instead of
+                          startswith). Base Kernel untouched (char grammars never
+                          build a TokenKernel); I5's single token-matching engine.
+                          TokenMaskCursor — the capability-C generation cursor
+                          (constrain(): mask()/push(id)/accepts(); mask ==
+                          stateless recompute off the frontier token-terms)
       chart.py            Chart / Links — the decoded SPPF
       engine.py           Per-capability orchestration nodes behind the public API
       forest.py           ParseTree, SppfNode
@@ -599,6 +655,11 @@ src/lexic/
                             opt-out tripwire. A leaf (imports charsets + scanner);
                             moved out of analysis.py by pure motion (260706
                             Task 6.6, C0302)
+        cursors.py          FollowPass/FeedCtx/Notes/Scope/Cont/ConflictCtx — the
+                            inert IrLeaf context records the analysis' dispatch
+                            bodies ride on the nc channel; pure-data leaf (imports
+                            IrLeaf + charsets only), moved out of analysis.py by
+                            pure motion for C0302 headroom
       compiler/           the clone compiler — IrAst → flat int-coded tables
         __init__.py       compiler package
         clones.py           (was pda_tables.py) compile_pda(lifted, instance_grammar,

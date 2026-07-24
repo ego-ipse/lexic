@@ -37,6 +37,7 @@ from lexic.ir.base import IrLambda, IrNamedTuple, IrNone, IrSelf
 from lexic.ir.bind import IrBind
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrCharClass,
     IrItem,
@@ -188,6 +189,22 @@ def _check_group(d: _FieldCheck, n: IrSelf, nc: Sequence[IrSelf]) -> IrSelf:
     return IrNone
 
 
+def _check_token(d: _FieldCheck, _n: IrSelf, _nc: Sequence[IrSelf]) -> IrSelf:
+    """Text-mode token: the field holds the token's text.
+
+    A plain ``str`` (an R7 hole like a bound literal) — the vocab-membership
+    check needs a tokenizer, which is not a per-field intrinsic. The atom is
+    always an ``IrAlphabet`` (negation lives inside it; char negation is
+    canonicalised away).
+    """
+    if not isinstance(d.value, str):
+        raise FieldValidationError(
+            f"field {d.field!r}: expected a str for token field, got "
+            f"{type(d.value).__name__}"
+        )
+    return IrNone
+
+
 # Dispatched on the field's atom; the owning IrItem rides the argument channel
 # and the value/mode/name ride the ``d`` carrier. The raising default refuses
 # an atom type outside this table — no silent unchecked field.
@@ -195,6 +212,7 @@ _FIELD_CHECK: IrDispatch = IrDispatch(
     actions=IrTypeMap(
         IrAction(IrCharClass, IrLambda(_check_charclass)),
         IrAction(IrLiteral, IrLambda(_check_literal)),
+        IrAction(IrAlphabet, IrLambda(_check_token)),
         IrAction(IrRuleRef, IrLambda(_check_ref)),
         IrAction(IrAlternation, IrLambda(_check_group)),
     ),

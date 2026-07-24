@@ -19,6 +19,7 @@ from lexic.ir.canonical import canonicalize
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -255,6 +256,12 @@ def test_emit_irnot_raises_unsupported():
     """EBNF has no native negation — IrNot refuses declaratively."""
     with pytest.raises(UnsupportedConstructError):
         EBNF_FLAVOUR.apply(IrNot(IrCharClass(IrChr("a"))))
+
+
+def test_emit_token_terminal_refuses_declaratively():
+    """Token terminals are a GBNF surface — EBNF refuses an IrAlphabet (F5)."""
+    with pytest.raises(UnsupportedConstructError, match="token terminals"):
+        EBNF_FLAVOUR.apply(IrAlphabet("tokens", IrLiteral("<think>")))
 
 
 def test_emit_bounded_counted_quantifier_raises_unsupported():

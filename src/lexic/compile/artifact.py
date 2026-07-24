@@ -10,9 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.encoding import IrTokenizer
 from lexic.ir.nodes import IrAst
 from lexic.model import GrammarModel
-from lexic.parsing import ModelFold, parse_model
+from lexic.parsing import ModelFold, TokenMaskCursor, parse_model, token_model
 
 
 @dataclass(frozen=True)
@@ -38,19 +39,51 @@ class CompiledGrammar:
     fold: ModelFold[GrammarModel]
     flavour: str = "gbnf"
     stem: str = "grammar"
+    tokenizer: IrTokenizer | None = None
 
     def parse(self, text: str) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
 
-        Delegates to the engine's :func:`~lexic.parsing.parse_model` product,
-        which runs the predictive PDA first and completes on the Earley engine
-        on any non-deterministic point (that completion owns the user-facing
-        diagnostics). ``PdaFail`` never surfaces.
+        A **token grammar** (compiled with a bound :attr:`tokenizer`) routes
+        through :func:`~lexic.parsing.token_model`: lexic segments ``text`` with
+        its own tokenizer and every token terminal matches id-granular against
+        that segmentation. A char grammar delegates to
+        :func:`~lexic.parsing.parse_model` (PDA-first, Earley completion;
+        ``PdaFail`` never surfaces).
 
         :raises UnsupportedConstructError: If ``text`` does not parse, or the
             fold produced no model for the start rule.
         """
+        if self.tokenizer is not None:
+            bounds = {
+                start: (tid, end - start)
+                for start, end, tid in self.tokenizer.boundaries(text)
+            }
+            return self._ensure_model(
+                token_model(self.codegen_grammar, text, self.fold, bounds)
+            )
         return self._ensure_model(parse_model(self.codegen_grammar, text, self.fold))
+
+    def constrain(self, tokenizer: IrTokenizer | None = None) -> TokenMaskCursor:
+        """A generation cursor: the admissible next-token mask (capability C).
+
+        Returns a :class:`~lexic.parsing.TokenMaskCursor` over this grammar and
+        the bound (or supplied) tokenizer — ``mask()`` gives the admissible
+        next-token ids at the current prefix, ``push(id)`` advances, ``accepts()``
+        tests end-of-input. Generation is inherently id-space, so this is a
+        separate surface from :meth:`parse`, not a second parse interface.
+
+        :param tokenizer: The tokenizer to range over; defaults to the one bound
+            at compile time.
+        :returns: A fresh mask cursor at the empty prefix.
+        :raises UnsupportedConstructError: When no tokenizer is available.
+        """
+        tok = tokenizer if tokenizer is not None else self.tokenizer
+        if tok is None:
+            raise UnsupportedConstructError(
+                "compile: constrain() needs a tokenizer (none was bound)"
+            )
+        return TokenMaskCursor(self.codegen_grammar, tok)
 
     @staticmethod
     def _ensure_model(model: object) -> GrammarModel:

@@ -17,7 +17,13 @@ from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
 from lexic.parsing.pda.runtime.runtime import PdaFail
-from lexic.parsing.products import _as_ast, _reduce_product, earley_reduce
+from lexic.parsing.products import _reduce_product, earley_reduce
+
+
+def _narrow(value: object) -> IrAst:
+    """The flavour differential compares grammar reductions — assert the shape."""
+    assert isinstance(value, IrAst), type(value).__name__
+    return value
 
 
 class ReduceDifferential:
@@ -46,14 +52,14 @@ class ReduceDifferential:
     def pda(self, text: str) -> IrAst | None:
         """The raw reduce PDA in isolation — ``None`` on any :class:`PdaFail`."""
         try:
-            return _as_ast(parse_pda(self.product.pda, text, None))
+            return _narrow(parse_pda(self.product.pda, text, None))
         except PdaFail:
             return None
 
     def earley(self, text: str) -> IrAst | None:
         """The forced Earley completion — ``None`` on any unparseable text."""
         try:
-            return _as_ast(earley_reduce(self.earley_grammar, text, self.reducer))
+            return _narrow(earley_reduce(self.earley_grammar, text, self.reducer))
         except UnsupportedConstructError:
             return None
 

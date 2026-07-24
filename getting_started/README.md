@@ -10,6 +10,7 @@ self-contained — `uv run python getting_started/<file>.py`.
 | [`ex03_parse_json.py`](ex03_parse_json.py) | Parsing nested JSON via `json_ws.gbnf`; `to_text()` and `semantic_dump()`. |
 | [`ex04_transpile_flavours.py`](ex04_transpile_flavours.py) | GBNF → IR AST → ABNF via `parse_grammar` + flavour singleton. |
 | [`ex05_inspect_ir.py`](ex05_inspect_ir.py) | Walking `compiled.grammar` / `model.__grammar__` (`IrRule`) + emitting via either flavour. |
+| [`ex06_token_grammar.py`](ex06_token_grammar.py) | Token grammars: an `IrTokenizer` + `<think>…</think>` GBNF → parse token-granular, round-trip, and the `constrain()` next-token mask (capabilities A/B/C). |
 
 ## What you'll learn
 

@@ -48,4 +48,4 @@ zzz_current_work/
 generated/
 
 # ── Obsidian internals ──
-.wiki/.obsidian/
+.wiki/.obsidian/resources/tokenizers/

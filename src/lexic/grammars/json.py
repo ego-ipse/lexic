@@ -15,7 +15,19 @@ expressed as positive :class:`IrRange` spans; rules are in canonical order
 
 from __future__ import annotations
 
-from lexic.ir.base import IrNone, IrSeq
+from lexic.ir.action import (
+    IrArg,
+    IrArgs,
+    IrBuild,
+    IrGlyph,
+    IrJoin,
+    IrPipe,
+    IrRaise,
+    IrUnradix,
+)
+from lexic.ir.base import IrInt, IrNone, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir.encoding import IrUtf
+from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -29,6 +41,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
 JSON_GRAMMAR = IrAst(
     IrSeq(
@@ -52,6 +65,7 @@ JSON_GRAMMAR = IrAst(
                     )
                 )
             ),
+            semantic=False,
         ),
         IrRule(
             "value",
@@ -150,6 +164,7 @@ JSON_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("ws")),
                 )
             ),
+            semantic=False,
         ),
         IrRule(
             "member",
@@ -170,6 +185,7 @@ JSON_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("ws")),
                 )
             ),
+            semantic=False,
         ),
         IrRule(
             "end-object",
@@ -180,6 +196,7 @@ JSON_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("ws")),
                 )
             ),
+            semantic=False,
         ),
         IrRule(
             "begin-array",
@@ -190,6 +207,7 @@ JSON_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("ws")),
                 )
             ),
+            semantic=False,
         ),
         IrRule(
             "end-array",
@@ -200,6 +218,7 @@ JSON_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("ws")),
                 )
             ),
+            semantic=False,
         ),
         IrRule("minus", IrAlternation(IrSequence(IrItem(IrLiteral("-"))))),
         IrRule(
@@ -237,7 +256,11 @@ JSON_GRAMMAR = IrAst(
                 )
             ),
         ),
-        IrRule("quotation-mark", IrAlternation(IrSequence(IrItem(IrLiteral('"'))))),
+        IrRule(
+            "quotation-mark",
+            IrAlternation(IrSequence(IrItem(IrLiteral('"')))),
+            semantic=False,
+        ),
         IrRule(
             "char",
             IrAlternation(
@@ -278,6 +301,7 @@ JSON_GRAMMAR = IrAst(
                     IrItem(IrRuleRef("ws")),
                 )
             ),
+            semantic=False,
         ),
         IrRule("zero", IrAlternation(IrSequence(IrItem(IrLiteral("0"))))),
         IrRule(
@@ -330,3 +354,103 @@ JSON_GRAMMAR = IrAst(
     "json-text",
 )
 """The JSON grammar (RFC 8259) as a canonical :class:`IrAst`."""
+
+
+# ── the reduction kit (a reducer is something any grammar can have) ───────
+
+_HEX4 = IrPipe(
+    IrPipe(
+        IrJoin(IrTuple(IrArg(1), IrArg(2), IrArg(3), IrArg(4))),
+        IrUnradix(16, IrInt),
+    ),
+    IrGlyph(),
+)
+"""The ``\\uXXXX`` escape's four hex-digit args → one code-unit char."""
+
+_CHAR = IrPipe(
+    YIELD,
+    IrMap(
+        *(
+            IrTuple(IrStr("\\" + key), IrStr(val))
+            for key, val in (
+                ('"', '"'),
+                ("\\", "\\"),
+                ("/", "/"),
+                ("b", "\b"),
+                ("f", "\f"),
+                ("n", "\n"),
+                ("r", "\r"),
+                ("t", "\t"),
+            )
+        ),
+        IrTuple(
+            IR_DEFAULT,
+            IrPipe(
+                IrArg(0),
+                IrMap(
+                    IrTuple(IrStr("\\"), _HEX4),
+                    IrTuple(IR_DEFAULT, IrArg(0)),
+                ),
+            ),
+        ),
+    ),
+)
+"""One string char, decoded by value-keyed dispatch on its source text.
+
+The eight short escapes are exact two-char keys of the char's ``YIELD`` text
+(the anonymous short-class terminal never reaches the channel under
+``literal=DROP`` — its text does). Everything else is either an unescaped
+char (the channel's one ``unescaped`` arg) or the ``\\uXXXX`` unit escape —
+told apart by the channel's ``escape`` marker (``unescaped`` excludes the
+backslash, so the marker is unambiguous), with the four ``hexdig`` args
+decoding through :data:`_HEX4`."""
+
+JSON_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
+    IrTuple(IrRuleRef("json-text"), IrArg(0)),
+    IrTuple(IrRuleRef("value"), IrArg(0)),
+    IrTuple(IrRuleRef("object"), IrBuild(IrMap)),
+    IrTuple(IrRuleRef("member"), IrBuild(IrTuple)),
+    IrTuple(IrRuleRef("array"), IrBuild(IrTuple)),
+    # A json string's escapes denote UTF-16 code units — each decodes
+    # per-unit in _CHAR, then the assembled string passes through the IrUtf
+    # codec once (surrogate pairs combine into their code points).
+    IrTuple(IrRuleRef("string"), IrPipe(IrJoin(IrArgs()), IrUtf())),
+    IrTuple(IrRuleRef("char"), _CHAR),
+    IrTuple(IrRuleRef("escape"), IrStr("\\")),
+    IrTuple(IrRuleRef("true"), IrInt(1)),
+    IrTuple(IrRuleRef("false"), IrInt(0)),
+    IrTuple(IrRuleRef("null"), IrNone),
+    # Integer forms decode to IrInt (IrInt('-12') == -12 — the scalar
+    # constructor IS the sign-aware decode). Fractional / exponent forms
+    # refuse loudly: the IR carries no float leaf (a pending vocabulary
+    # decision), and a raw-string stand-in would be indistinguishable from
+    # a json string — value-space fidelity beats partial coverage.
+    IrTuple(IrRuleRef("number"), IrBuild(IrInt, IrTuple(IrJoin(IrArgs())))),
+    IrTuple(IrRuleRef("int"), IrJoin(IrArgs())),
+    IrTuple(
+        IrRuleRef("frac"),
+        IrRaise(message="json: fractional numbers have no IR value (no float leaf)"),
+    ),
+    IrTuple(
+        IrRuleRef("exp"),
+        IrRaise(message="json: exponent numbers have no IR value (no float leaf)"),
+    ),
+    IrTuple(IrRuleRef("minus"), IrStr("-")),
+    IrTuple(IrRuleRef("plus"), IrStr("+")),
+    IrTuple(IrRuleRef("zero"), IrStr("0")),
+    IrTuple(IrRuleRef("decimal-point"), IrStr(".")),
+    IrTuple(IR_DEFAULT, YIELD),
+)
+"""Per-rule reductions: parse tree → the json value as IR (objects ``IrMap``,
+arrays ``IrTuple``, strings decoded ``IrStr``, truth ``IrInt``, null
+``IrNone``). Paired with :data:`JSON_NOISE`."""
+
+JSON_NOISE: IrMap = IrMap(
+    *(IrTuple(IrRuleRef(name), DROP) for name in JSON_GRAMMAR.non_semantic),
+    IrTuple(IR_DEFAULT, KEEP_REDUCED),
+)
+"""Child-contribution policy, derived from the grammar's own noise flags
+(``escape`` stays semantic — it is :data:`_CHAR`'s dispatch marker)."""
+
+JSON_REDUCER = Reducer(reductions=JSON_REDUCTIONS, noise=JSON_NOISE, literal=DROP)
+"""The configured json reducer — the grammar's parse half."""

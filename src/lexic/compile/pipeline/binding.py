@@ -34,6 +34,7 @@ from lexic.ir.base import IrLambda, IrNode, IrNone, IrNoneType, IrSelf, IrStr
 from lexic.ir.bind import IrBind
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -168,6 +169,7 @@ _RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
         "GrammarModel",
         "ClassVar",
         "Literal",
+        "IrAlphabet",
         "IrAlternation",
         "IrAst",
         "IrBind",
@@ -183,6 +185,7 @@ _RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
         "IrRuleRef",
         "IrSeq",
         "IrSequence",
+        "IrStr",
     }
 )
 """Module-scope names a generated twin module binds — the exporter's header
@@ -492,6 +495,21 @@ def _group_field(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> IrSelf:
     return IrNone if hint in {"inline", "lit", "cc"} else IrStr(hint)
 
 
+def _alphabet_field(_d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
+    """Name a token atom ``tok`` — the token-terminal field.
+
+    A token terminal (an ``IrAlphabet``; negation lives inside it) captures its
+    token's text, like a char class, so it takes a stable ``tok`` base
+    (collision-numbered ``tok2``… in item order).
+    """
+    return IrStr("tok")
+
+
+def _alphabet_mode(_d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
+    """Mode of a token atom: ``text`` — its token's chars."""
+    return IrStr("text")
+
+
 # _HINT always yields a name (used to label literal-only group content);
 # _TIER2 may yield IrNone, routing the field to the tier-3 positional names.
 # Both inherit IrDispatch's raising default: an unregistered atom type fails
@@ -501,6 +519,7 @@ _HINT: IrDispatch = IrDispatch(
         IrAction(IrLiteral, IrLambda(_literal_field)),
         IrAction(IrRuleRef, IrLambda(_ref_field)),
         IrAction(IrCharClass, IrLambda(_charclass_hint)),
+        IrAction(IrAlphabet, IrLambda(_alphabet_field)),
         IrAction(IrAlternation, IrLambda(_group_hint)),
     ),
 )
@@ -510,6 +529,7 @@ _TIER2: IrDispatch = IrDispatch(
         IrAction(IrLiteral, IrLambda(_literal_field)),
         IrAction(IrRuleRef, IrLambda(_ref_field)),
         IrAction(IrCharClass, IrLambda(_charclass_field)),
+        IrAction(IrAlphabet, IrLambda(_alphabet_field)),
         IrAction(IrAlternation, IrLambda(_group_field)),
     ),
 )
@@ -567,6 +587,7 @@ _MODE: IrDispatch = IrDispatch(
     actions=IrTypeMap(
         IrAction(IrLiteral, IrLiteral("text")),
         IrAction(IrCharClass, IrLiteral("text")),
+        IrAction(IrAlphabet, IrLambda(_alphabet_mode)),
         IrAction(IrRuleRef, IrLambda(_ref_mode)),
         IrAction(IrAlternation, IrLambda(_group_mode)),
     ),

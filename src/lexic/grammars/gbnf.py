@@ -35,6 +35,7 @@ from lexic.ir.action import (
     IrIsA,
     IrJoin,
     IrPipe,
+    IrRadix,
     IrRaise,
     IrThis,
     IrUnradix,
@@ -53,6 +54,7 @@ from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour
 from lexic.ir.layout import IrDocConcat, IrDocJoin, IrGroup, IrLine, IrNest, IrText
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -68,17 +70,13 @@ from lexic.ir.nodes import (
 from lexic.ir.operators import IrNot, IrOp
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
-
-class _GbnfEscapes(EscapeCodec):
-    """GBNF escape tables — quoted string literals + bracket-class members."""
-
-    SHORT_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
-    HEX_ESCAPES = (("x", 2), ("u", 4), ("U", 8))
-    CLASS_SHORT = {0x0A: "\\n", 0x09: "\\t", 0x0D: "\\r"}
-    CLASS_META = frozenset("\\]-^")
-
-
-GBNF_ESCAPES = _GbnfEscapes()
+# GBNF escape tables — quoted string literals + bracket-class members.
+GBNF_ESCAPES = EscapeCodec.from_tables(
+    short={"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"},
+    hexes=(("x", 2), ("u", 4), ("U", 8)),
+    class_short={0x0A: "\\n", 0x09: "\\t", 0x0D: "\\r"},
+    class_meta="\\]-^",
+)
 """Singleton escape codec for GBNF."""
 
 
@@ -125,6 +123,42 @@ same forms the other way (digit runs via :class:`IrUnradix`).
 """
 
 
+_TOKEN_ID = IrConcat(
+    parts=IrTuple(
+        IrLiteral("<["),
+        IrAt(
+            0,
+            IrTypeMap(
+                IrAction(IrChr, IrRadix(10)),
+                IrAction(
+                    IrRange,
+                    IrConcat(
+                        parts=IrTuple(
+                            IrPipe(IrField("lo", IrInt), IrRadix(10)),
+                            IrLiteral("-"),
+                            IrPipe(IrField("hi", IrInt), IrRadix(10)),
+                        )
+                    ),
+                ),
+            ),
+        ),
+        IrLiteral("]>"),
+    )
+)
+"""Id-form token render: ``<[`` + the decimal id + ``]>`` for a single
+``IrChr``, ``<[`` + lo + ``-`` + hi + ``]>`` for an inclusive ``IrRange`` —
+the inner charclass holds exactly one element either way. Shared by the
+positive and negated alphabet branches."""
+
+_TOKEN_FORM = IrTypeMap(
+    IrAction(IrLiteral, IrEmit()),
+    IrAction(IrCharClass, _TOKEN_ID),
+)
+"""Dispatch a token alphabet's *positive* inner: a text-form ``IrLiteral`` emits
+verbatim (the ``<…>`` key), an id-form ``IrCharClass`` renders via
+:data:`_TOKEN_ID`. Reused as the nested dispatch under a negated (``IrNot``) inner."""
+
+
 GBNF_ACTIONS = IrTypeMap(
     IrAction(
         IrLiteral,
@@ -135,13 +169,22 @@ GBNF_ACTIONS = IrTypeMap(
     # the interior is the dispatched join of the class's own elements.
     IrAction(
         IrCharClass,
-        IrConcat(
-            parts=IrTuple(
-                IrLiteral("["),
-                IrJoin(parts=IrArgs()),
-                IrJoin(parts=IrChildren()),
-                IrLiteral("]"),
-            )
+        IrCond(
+            # An unmarked full-Unicode class IS `.` (any char) — restore that
+            # surface (README §Tokens `.*`); `[^]`/`[\x00-\U0010ffff]` collapse
+            # to it, the same language. A marked (negated) class is never
+            # full-span (canonicalize folds `IrNot(full)` to the empty class),
+            # so the mark channel and the `.` branch never coincide.
+            test=IrField("is_any", IrInt),
+            then_op=IrLiteral("."),
+            else_op=IrConcat(
+                parts=IrTuple(
+                    IrLiteral("["),
+                    IrJoin(parts=IrArgs()),
+                    IrJoin(parts=IrChildren()),
+                    IrLiteral("]"),
+                )
+            ),
         ),
     ),
     # Class members escape per GBNF class-context rules (mirrors ccesc-*/cchex*
@@ -163,16 +206,46 @@ GBNF_ACTIONS = IrTypeMap(
     # Concrete str-leaves (IrLiteral/IrRuleRef) win by MRO.
     IrAction(IrStr, IrEmit()),
     # IrNot contributes its mark and delegates: the operand's own action
-    # places it. The IrTypeMap is the guard — IrSelf is the MRO catch-all.
+    # places it. Only a negated CHAR class reaches here (token negation lives
+    # INSIDE the alphabet, handled by the IrAlphabet action). The IrTypeMap is
+    # the guard — IrSelf is the MRO catch-all.
     IrAction(
         IrNot,
         IrAt(
             0,
             IrTypeMap(
-                IrAction(IrCharClass, IrApply(IrTuple(IrLiteral("^")))),
+                # A negated EMPTY class is any-char → `.` (the raw parse of `.`/
+                # `[^]`); a negated non-empty class marks `^` and delegates to
+                # the class's own action.
+                IrAction(
+                    IrCharClass,
+                    IrCond(
+                        test=IrField("is_empty", IrInt),
+                        then_op=IrLiteral("."),
+                        else_op=IrApply(IrTuple(IrLiteral("^"))),
+                    ),
+                ),
                 IrAction(
                     IrSelf,
                     IrRaise(message="{dispatcher}: cannot negate {node_type!r}"),
+                ),
+            ),
+        ),
+    ),
+    # A token terminal, dispatched on its inner atom (negation is INSIDE the
+    # alphabet): a text-form IrLiteral emits verbatim (the "<…>" key), an id-form
+    # IrCharClass emits "<[" id "]>", and a negated inner (IrNot) emits "!" then
+    # the positive form of ITS inner.
+    IrAction(
+        IrAlphabet,
+        IrAt(
+            0,
+            IrTypeMap(
+                IrAction(IrLiteral, IrEmit()),
+                IrAction(IrCharClass, _TOKEN_ID),
+                IrAction(
+                    IrNot,
+                    IrConcat(parts=IrTuple(IrLiteral("!"), IrAt(0, _TOKEN_FORM))),
                 ),
             ),
         ),
@@ -464,6 +537,9 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("charclass"))),
                 IrSequence(IrItem(IrRuleRef("rulename"))),
                 IrSequence(IrItem(IrRuleRef("group"))),
+                IrSequence(IrItem(IrRuleRef("token"))),
+                IrSequence(IrItem(IrRuleRef("token-not"))),
+                IrSequence(IrItem(IrRuleRef("any-char"))),
             ),
         ),
         IrRule(
@@ -476,6 +552,9 @@ GBNF_GRAMMAR = IrAst(
                 IrSequence(IrItem(IrRuleRef("literal"))),
                 IrSequence(IrItem(IrRuleRef("charclass"))),
                 IrSequence(IrItem(IrRuleRef("group"))),
+                IrSequence(IrItem(IrRuleRef("token"))),
+                IrSequence(IrItem(IrRuleRef("token-not"))),
+                IrSequence(IrItem(IrRuleRef("any-char"))),
             ),
         ),
         IrRule(
@@ -506,6 +585,20 @@ GBNF_GRAMMAR = IrAst(
                 )
             ),
         ),
+        IrRule(
+            "token",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("tok-id"))),
+                IrSequence(IrItem(IrRuleRef("tok-text"))),
+            ),
+        ),
+        IrRule(
+            "token-not",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("!")), IrItem(IrRuleRef("token")))
+            ),
+        ),
+        IrRule("any-char", IrAlternation(IrSequence(IrItem(IrLiteral("."))))),
         IrRule(
             "ws-quant",
             IrAlternation(
@@ -548,6 +641,30 @@ GBNF_GRAMMAR = IrAst(
                     IrItem(IrLiteral("]")),
                 ),
                 IrSequence(IrItem(IrLiteral("[^]"))),
+            ),
+        ),
+        # The id-range tail is left-factored like cc-tail: one `<[ decits`
+        # prefix, then the tail separates on `]>` vs `- decits ]>` at k=1 —
+        # FIRST-disjoint, so the token rules stay off the island path.
+        IrRule(
+            "tok-id",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("<[")),
+                    IrItem(IrRuleRef("decits")),
+                    IrItem(IrRuleRef("tok-id-tail")),
+                )
+            ),
+        ),
+        IrRule(
+            "tok-text",
+            IrAlternation(
+                IrSequence(
+                    IrItem(IrLiteral("<")),
+                    IrItem(IrRuleRef("ttfirst")),
+                    IrItem(IrRuleRef("ttchar"), IrQuantifier(0, IrNone)),
+                    IrItem(IrLiteral(">")),
+                )
             ),
         ),
         IrRule(
@@ -623,6 +740,45 @@ GBNF_GRAMMAR = IrAst(
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("cc-item"))),
                 IrSequence(IrItem(IrRuleRef("cc-dash"))),
+            ),
+        ),
+        IrRule(
+            "decits",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)))
+            ),
+        ),
+        IrRule(
+            "tok-id-tail",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("]>"))),
+                IrSequence(
+                    IrItem(IrLiteral("-")),
+                    IrItem(IrRuleRef("decits")),
+                    IrItem(IrLiteral("]>")),
+                ),
+            ),
+        ),
+        IrRule(
+            "ttfirst",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(
+                            IrChr(">"), IrChr("["), IrChr("\n"), IrChr("\r")
+                        ).complement()
+                    )
+                )
+            ),
+        ),
+        IrRule(
+            "ttchar",
+            IrAlternation(
+                IrSequence(
+                    IrItem(
+                        IrCharClass(IrChr(">"), IrChr("\n"), IrChr("\r")).complement()
+                    )
+                )
             ),
         ),
         IrRule("q-opt", IrAlternation(IrSequence(IrItem(IrLiteral("?"))))),
@@ -731,9 +887,9 @@ GBNF_GRAMMAR = IrAst(
             ),
         ),
         IrRule(
-            "decits",
+            "digit",
             IrAlternation(
-                IrSequence(IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)))
+                IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))))
             ),
         ),
         # The counted-quantifier tail after the shared `{ decits` prefix: `}`
@@ -795,12 +951,6 @@ GBNF_GRAMMAR = IrAst(
             IrAlternation(
                 IrSequence(IrItem(IrRuleRef("cc-unit"))),
                 IrSequence(IrItem(IrRuleRef("cc-dash"))),
-            ),
-        ),
-        IrRule(
-            "digit",
-            IrAlternation(
-                IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))))
             ),
         ),
         IrRule("q-exact-t", IrAlternation(IrSequence(IrItem(IrLiteral("}"))))),
@@ -923,7 +1073,6 @@ GBNF_GRAMMAR = IrAst(
     ),
     "grammar",
 )
-"""The GBNF grammar of GBNF as a canonical :class:`IrAst`."""
 
 GBNF_NOISE: IrMap = IrMap(
     *(IrTuple(IrRuleRef(name), DROP) for name in GBNF_GRAMMAR.non_semantic),
@@ -940,6 +1089,60 @@ _HEX_GLYPH = IrPipe(IrPipe(IrJoin(IrArgs()), IrUnradix(16, IrInt)), IrGlyph())
 
 _DEC_INT = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
 """Joined decimal digit-run args -> an ``IrInt`` bound."""
+
+GBNF_TOKEN_ENCODING = "tokens"
+"""The registry name GBNF's single token alphabet binds to. A tokenizer supplied
+at parse time is bound under this name; every ``<…>``/``<[…]>`` terminal reduces
+to an :class:`~lexic.ir.nodes.IrAlphabet` referencing it."""
+
+_TOK_LO = IrPipe(IrArg(0), IrUnradix(10, IrChr))
+"""The id-form's shared ``<[ decits`` digit-run arg decoded to the (low) id."""
+
+_TOK_UNIT = IrPipe(
+    IrArg(1),
+    IrTypeMap(
+        IrAction(IrNoneType, _TOK_LO),
+        IrAction(
+            IrStr,
+            IrBuild(IrRange, IrTuple(_TOK_LO, IrPipe(IrArg(1), IrUnradix(10, IrChr)))),
+        ),
+    ),
+)
+"""``tok-id``'s single charclass element, branched on the tail (the
+:data:`_CC_ITEM` idiom): a bare ``]>`` tail (``IrNone``) keeps the single id,
+a ``- decits ]>`` tail (the hi digit run) builds the inclusive ``IrRange``."""
+
+_ALPHA_ID = IrBuild(
+    IrAlphabet,
+    IrTuple(IrStr(GBNF_TOKEN_ENCODING), IrBuild(IrCharClass, IrTuple(_TOK_UNIT))),
+)
+"""``<[decits]>`` -> ``IrAlphabet("tokens", IrCharClass(IrChr(id)))``;
+``<[lo-hi]>`` -> the same alphabet over ``IrCharClass(IrRange(lo, hi))``."""
+
+_ALPHA_TEXT = IrBuild(
+    IrAlphabet,
+    IrTuple(
+        IrStr(GBNF_TOKEN_ENCODING),
+        IrBuild(
+            IrLiteral,
+            IrTuple(IrJoin(IrTuple(IrStr("<"), IrJoin(IrArgs()), IrStr(">")))),
+        ),
+    ),
+)
+"""``<text>`` -> ``IrAlphabet("tokens", IrLiteral("<text>"))`` (text-form; the
+angle brackets are part of the key — the GBNF token-text wart)."""
+
+_ALPHA_NOT = IrBuild(
+    IrAlphabet,
+    IrTuple(
+        IrStr(GBNF_TOKEN_ENCODING),
+        IrBuild(IrNot, IrTuple(IrPipe(IrArg(0), IrAt(0, IrThis())))),
+    ),
+)
+"""``!<…>`` -> ``IrAlphabet("tokens", IrNot(inner))`` — negation INSIDE the
+alphabet (the encoding governs the token-universe complement). ``IrArg(0)`` is
+the positive ``token`` result (an ``IrAlphabet``); ``IrAt(0, IrThis())`` reads
+its raw inner atom, which is re-wrapped under an ``IrNot`` in a fresh alphabet."""
 
 _Q_MIRROR = IrStr("=")
 """``q-exact-t`` marker: the ``{n}`` upper bound mirrors ``lo``."""
@@ -1061,6 +1264,21 @@ GBNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("cchex4"), _HEX_CHR),
     IrTuple(IrRuleRef("cchex8"), _HEX_CHR),
     IrTuple(IrRuleRef("cc-esc-other"), IrBuild(IrChr, IrTuple(IrArg(0)))),
+    # ── token terminals (README §Tokens) ──────────────────────────────
+    IrTuple(IrRuleRef("token"), IrArg(0)),
+    IrTuple(IrRuleRef("tok-id"), _ALPHA_ID),
+    IrTuple(
+        IrRuleRef("tok-id-tail"),
+        IrCond(test=IrArgs(), then_op=IrArg(0), else_op=IrNone),
+    ),
+    IrTuple(IrRuleRef("tok-text"), _ALPHA_TEXT),
+    IrTuple(IrRuleRef("ttfirst"), YIELD),
+    IrTuple(IrRuleRef("ttchar"), YIELD),
+    IrTuple(IrRuleRef("token-not"), _ALPHA_NOT),
+    IrTuple(
+        IrRuleRef("any-char"),
+        IrBuild(IrNot, IrTuple(IrBuild(IrCharClass, IrTuple()))),
+    ),
     IrTuple(IR_DEFAULT, YIELD),
 )
 """Per-rule reductions: parse tree -> IR. Escapes decode structurally (one
