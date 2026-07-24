@@ -32,7 +32,9 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing import recognize
+from lexic.parsing import parse_first, recognize
+from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tables import (
     ADVANCE,
     ORIGIN_BITS,
@@ -46,6 +48,7 @@ from lexic.parsing.earley.tables import (
     compile_tables,
     expand_atom,
 )
+from lexic.parsing.fold import lift_optional_nullables
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import sss_grammar as _sss_grammar
 from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
@@ -366,32 +369,32 @@ def test_compile_tables_rejects_alternation_atom():
 def test_terms_for_consistent_across_repeat_calls():
     """terms_for(char) called twice with the same char returns the same term ids."""
     tables = compile_tables(_digit_grammar())
-    first = tables.terms_for("5")
-    second = tables.terms_for("5")
+    first = tables.terms.terms_for("5")
+    second = tables.terms.terms_for("5")
     assert first == second
 
 
 def test_terms_for_caches_per_distinct_char():
     """Repeated calls with the same char do not grow the term cache."""
     tables = compile_tables(_digit_grammar())
-    tables.terms_for("5")
-    tables.terms_for("5")
-    tables.terms_for("5")
-    assert tables.cache_sizes[0] == 1
+    tables.terms.terms_for("5")
+    tables.terms.terms_for("5")
+    tables.terms.terms_for("5")
+    assert tables.terms.cache_sizes[0] == 1
 
 
 def test_terms_for_correctness_digit_matches_and_rejects():
     """terms_for finds the digit terminal for a digit char, none for a letter."""
     tables = compile_tables(_digit_grammar())
-    assert len(tables.terms_for("7")) == 1
-    assert len(tables.terms_for("z")) == 0
+    assert len(tables.terms.terms_for("7")) == 1
+    assert len(tables.terms.terms_for("z")) == 0
 
 
 def test_char_leaf_returns_interned_literal():
     """char_leaf(char) called twice with the same char returns the same object."""
     tables = compile_tables(_digit_grammar())
-    leaf1 = tables.char_leaf("3")
-    leaf2 = tables.char_leaf("3")
+    leaf1 = tables.terms.char_leaf("3")
+    leaf2 = tables.terms.char_leaf("3")
     assert leaf1 is leaf2
     assert leaf1 == IrLiteral("3")
 
@@ -399,9 +402,9 @@ def test_char_leaf_returns_interned_literal():
 def test_char_leaf_caches_per_distinct_char():
     """Repeated calls with the same char do not grow the leaf cache."""
     tables = compile_tables(_digit_grammar())
-    tables.char_leaf("3")
-    tables.char_leaf("3")
-    assert tables.cache_sizes[1] == 1
+    tables.terms.char_leaf("3")
+    tables.terms.char_leaf("3")
+    assert tables.terms.cache_sizes[1] == 1
 
 
 # ── Negated char-class terminals ─────────────────────────────────────────
@@ -429,8 +432,8 @@ def test_negated_charclass_compiles_as_length_one_terminal():
 def test_terms_for_finds_negated_terminal_outside_set():
     """terms_for finds the negated terminal for a char outside its set."""
     tables = compile_tables(negated_grammar())
-    assert len(tables.terms_for("a")) == 1
-    assert len(tables.terms_for('"')) == 0
+    assert len(tables.terms.terms_for("a")) == 1
+    assert len(tables.terms.terms_for('"')) == 0
 
 
 # ── Table types ────────────────────────────────────────────────────────
@@ -628,3 +631,47 @@ def test_run_term_arm_gate_is_the_run_charset():
 def test_advance_is_one_shifted_by_origin_bits():
     """ADVANCE == 1 << ORIGIN_BITS, per the packing scheme."""
     assert ADVANCE == 1 << ORIGIN_BITS
+
+
+# ── origin-bits tiering (compile_tables(grammar, bits)) ─────────────────
+
+
+def _tiny() -> IrAst:
+    """The digit grammar, engine-normalised — the tier tests' substrate."""
+    return normalize(lift_optional_nullables(_digit_grammar()))
+
+
+def test_tables_carry_their_tier():
+    """compile_tables(g, bits) stamps the Packing tier on the tables."""
+    tables = compile_tables(_tiny(), 8)
+    assert (tables.packing.bits, tables.packing.mask, tables.packing.advance) == (
+        8,
+        255,
+        256,
+    )
+
+
+def test_tier_memo_is_per_bits():
+    """The compile memo keys on (grammar identity, bits) — tiers coexist."""
+    grammar = _tiny()
+    small, default = compile_tables(grammar, 8), compile_tables(grammar)
+    assert small is not default
+    assert compile_tables(grammar, 8) is small
+
+
+def test_cross_tier_parse_results_are_identical():
+    """The same input parses to the same derivation at B=8 and the default tier."""
+    grammar = _tiny()
+    tree_small = parse_first(grammar, "7", compile_tables(grammar, 8))
+    tree_default = parse_first(grammar, "7", compile_tables(grammar))
+    assert tree_small == tree_default
+
+
+def test_small_tier_capacity_boundary_is_exact():
+    """At B=8 a 255-char input constructs and a 256-char input refuses."""
+    grammar = _tiny()
+    tables = compile_tables(grammar, 8)
+    kernel = Kernel(tables, "7" * 255)
+    assert len(kernel.cols) == 256
+    with pytest.raises(UnsupportedConstructError):
+        Kernel(tables, "7" * 256)

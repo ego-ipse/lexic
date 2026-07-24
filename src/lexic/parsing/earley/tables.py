@@ -19,10 +19,11 @@ trichotomy with a single list index (no ``isinstance``, no dispatch table):
 ``0``                   dot past the arm's end — complete
 ======================  ==========================================
 
-An **Earley item** is the single int ``code << ORIGIN_BITS | origin`` — dedup
-is ``set[int]`` membership, advance is ``item + ADVANCE``, and no tuple is ever
-allocated on the hot path. An **SPPF handle** ``(item, end)`` packs the same
-way again: ``item << ORIGIN_BITS | end``.
+An **Earley item** is the single int ``code << bits | origin`` (``bits`` being
+the tables' :class:`Packing` tier, default :data:`ORIGIN_BITS`) — dedup is
+``set[int]`` membership, advance is ``item + packing.advance``, and no tuple is
+ever allocated on the hot path. An **SPPF handle** ``(item, end)`` packs the
+same way again: ``item << bits | end``.
 
 The tables split along their consumers: :class:`CodeTables` is the code-space
 half the kernel loop indexes per item; :class:`DecodeTables` is the IR-space
@@ -63,6 +64,29 @@ ORIGIN_MASK = (1 << ORIGIN_BITS) - 1
 ADVANCE = 1 << ORIGIN_BITS
 """Adding this to a packed item advances its dot by one (codes are dot-dense)."""
 
+
+class Packing(IrLeaf[IrSelf, IrSelf]):
+    """One packing tier — the origin-bits triple as a single value-object.
+
+    :ivar bits: Bits reserved for an origin / end column in a packed item.
+    :ivar mask: ``(1 << bits) - 1`` — extracts the origin (or a handle's end).
+    :ivar advance: ``1 << bits`` — the dot-advance addend and the input-length
+        capacity ceiling.
+    """
+
+    __slots__ = ("bits", "mask", "advance")
+
+    bits: int
+    mask: int
+    advance: int
+
+    def __init__(self, bits: int) -> None:
+        """Derive the mask and advance of tier ``bits``."""
+        self.bits = bits
+        self.mask = (1 << bits) - 1
+        self.advance = 1 << bits
+
+
 KLink = tuple[int, int, int | str | PayloadLeaf]
 """One packed SPPF family: ``(predecessor_item, predecessor_end, child)`` —
 ``child`` is a packed handle (completed sub-derivation), the scanned char, or a
@@ -71,7 +95,7 @@ delegation — a pre-folded child spliced onto the waiter it advances)."""
 
 
 def predecessor_chain(
-    links: dict[int, list[KLink]], item: int, end: int, base: int
+    links: dict[int, list[KLink]], item: int, end: int, base: int, bits: int
 ) -> list[KLink] | None:
     """Walk a packed handle's single-link predecessor chain down to ``base``.
 
@@ -83,14 +107,15 @@ def predecessor_chain(
     :param item: The handle's packed item (dot strictly past ``base``).
     :param end: The handle's column.
     :param base: The arm's dot-0 code — the chain stops here.
+    :param bits: The tables' packing tier (``ParserTables.packing.bits``).
     :returns: The chain's ``(predecessor_item, predecessor_end, child)``
         triples in source order, or ``None`` when a key is missing or packs
         more than one family — the caller's cue to bail (no build, or fall
         back to the ambiguity-aware path).
     """
     chain: list[KLink] = []
-    while (item >> ORIGIN_BITS) != base:
-        bucket = links.get((item << ORIGIN_BITS) | end)
+    while (item >> bits) != base:
+        bucket = links.get((item << bits) | end)
         if bucket is None or len(bucket) > 1:
             return None
         item, end, child = bucket[0]
@@ -239,7 +264,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
     :ivar code_arm: code → its arm_id.
     :ivar arm_rule: arm_id → owning rule_id.
     :ivar arm_base: arm_id → the arm's dot-0 code.
-    :ivar rule_seed_gates: rule_id → the ``(dot-0 code << ORIGIN_BITS,
+    :ivar rule_seed_gates: rule_id → the ``(dot-0 code << bits,
         next_sym, gate)`` triples the predictor files per arm (empty when the
         rule is referenced but never defined — prediction seeds nothing).
         This is the stored primitive: the dot-0 codes pre-shifted, pre-paired
@@ -274,10 +299,11 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
     nullable_completes: tuple[tuple[int, ...], ...]
     accept_codes: frozenset[int]
 
-    def __init__(self, builder: _TableBuilder) -> None:
+    def __init__(self, builder: _TableBuilder, bits: int) -> None:
         """Freeze the code-space half of a finished builder.
 
         :param builder: The builder whose numbering to adopt.
+        :param bits: The packing tier the seeds pre-shift by.
         """
         self.next_sym = tuple(sym for _, sym in builder.codes)
         self.code_arm = tuple(aid for aid, _ in builder.codes)
@@ -285,7 +311,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
         self.arm_base = tuple(base for _, _, base in builder.arms)
         self.rule_seed_gates = tuple(
             tuple(
-                (code << ORIGIN_BITS, self.next_sym[code], gate)
+                (code << bits, self.next_sym[code], gate)
                 for code, gate in zip(dot0, gates)
             )
             for dot0, gates in zip(builder.rule_dot0, builder.seed_gates())
@@ -295,7 +321,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
 
     @property
     def rule_seeds(self) -> tuple[tuple[tuple[int, int], ...], ...]:
-        """rule_id → the ``(dot-0 code << ORIGIN_BITS, next_sym)`` seed pairs.
+        """rule_id → the ``(dot-0 code << bits, next_sym)`` seed pairs.
 
         The gate-free pair view of ``rule_seed_gates``, rebuilt per access —
         compile-time / test surface only; the hot per-parse path reads
@@ -308,15 +334,18 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
 
     @property
     def rule_dot0(self) -> tuple[tuple[int, ...], ...]:
-        """rule_id → the dot-0 codes of its arms, recovered from the seeds.
+        """rule_id → the dot-0 codes of its arms, recovered from the arm tables.
 
         The compile-time (FIRST/FOLLOW analysis) view of the seed column,
-        rebuilt per access — never on a hot or per-rule-loop path.
+        rebuilt per access — never on a hot or per-rule-loop path. Arms are
+        laid out rule by rule in arm order, so grouping ``arm_base`` by
+        ``arm_rule`` recovers each rule's dot-0 codes in source order (an
+        undefined rule keeps its empty entry).
         """
-        return tuple(
-            tuple(shifted >> ORIGIN_BITS for shifted, _, _ in seeds)
-            for seeds in self.rule_seed_gates
-        )
+        out: list[list[int]] = [[] for _ in self.rule_seed_gates]
+        for rid, base in zip(self.arm_rule, self.arm_base):
+            out[rid].append(base)
+        return tuple(tuple(bases) for bases in out)
 
 
 class DecodeTables(IrLeaf[IrSelf, IrSelf]):
@@ -355,7 +384,10 @@ class TermTables(IrLeaf[IrSelf, IrSelf]):
     discriminate the scan kind, then ``literals`` or ``runs`` for the matching
     branch — never ``atoms``, which exists for the IR-space consumers
     (:mod:`~lexic.parsing.earley.lexruns`'s FIRST/FOLLOW analysis) that need the
-    atom node itself.
+    atom node itself. Also hosts the two lazily-filled per-char caches
+    (``char → accepting term ids``, ``char → interned IrLiteral leaf``) —
+    per-grammar and monotone, so sharing across parses is safe and amortises
+    the fills.
 
     :ivar atoms: term_id → the terminal atom node.
     :ivar lens: term_id → scan kind: the literal's length, ``1`` for a char
@@ -369,12 +401,14 @@ class TermTables(IrLeaf[IrSelf, IrSelf]):
         run-terminal branch.
     """
 
-    __slots__ = ("atoms", "lens", "literals", "runs")
+    __slots__ = ("atoms", "lens", "literals", "runs", "_char_terms", "_char_leaves")
 
     atoms: tuple["IrLiteral | IrCharClass | IrNot | IrAlphabet | RunTerm", ...]
     lens: tuple[int, ...]
     literals: tuple[str, ...]
     runs: tuple[RunTerm, ...]
+    _char_terms: dict[str, tuple[int, ...]]
+    _char_leaves: dict[str, IrLiteral]
 
     def __init__(self, builder: _TableBuilder) -> None:
         """Freeze the terminal-atom tables of a finished builder.
@@ -385,53 +419,8 @@ class TermTables(IrLeaf[IrSelf, IrSelf]):
         self.lens = builder.term_lens()
         self.literals = builder.term_literals()
         self.runs = builder.term_runs()
-
-
-class ParserTables(IrLeaf[IrSelf, IrSelf]):
-    """The compiled, immutable form of one normalised grammar.
-
-    Composes the code-space and IR-space halves with the terminal tables and
-    the two lazily-filled scanning caches (``char → accepting term ids``,
-    ``char → interned IrLiteral leaf``). The caches are per-grammar and
-    monotone, so sharing one ``ParserTables`` across parses is safe and
-    amortises the fills.
-
-    :ivar codes: The :class:`CodeTables` the kernel loop indexes.
-    :ivar decode: The :class:`DecodeTables` for IR decoding.
-    :ivar terms: The :class:`TermTables` for terminal atoms and scan kinds.
-    :ivar start_id: the start rule's rule_id (``-1`` when never defined).
-    """
-
-    __slots__ = (
-        "codes",
-        "decode",
-        "terms",
-        "start_id",
-        "_char_terms",
-        "_char_leaves",
-        "_empty_trees",
-    )
-
-    codes: CodeTables
-    decode: DecodeTables
-    terms: TermTables
-    start_id: int
-    _char_terms: dict[str, tuple[int, ...]]
-    _char_leaves: dict[str, IrLiteral]
-    _empty_trees: dict[int, ParseTree | None]
-
-    def __init__(self, builder: _TableBuilder) -> None:
-        """Freeze a finished builder's accumulated state.
-
-        :param builder: The builder whose numbering to adopt.
-        """
-        self.codes = CodeTables(builder)
-        self.decode = DecodeTables(builder)
-        self.terms = TermTables(builder)
-        self.start_id = builder.start_id()
         self._char_terms = {}
         self._char_leaves = {}
-        self._empty_trees = {}
 
     @property
     def cache_sizes(self) -> tuple[int, int]:
@@ -450,12 +439,69 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         cached = self._char_terms.get(char)
         if cached is None:
             cached = tuple(
-                tid
-                for tid, atom in enumerate(self.terms.atoms)
-                if atom_accepts(atom, char)
+                tid for tid, atom in enumerate(self.atoms) if atom_accepts(atom, char)
             )
             self._char_terms[char] = cached
         return cached
+
+    def char_leaf(self, char: str) -> IrLiteral:
+        """The interned :class:`IrLiteral` leaf for a scanned ``char``.
+
+        :param char: The consumed character.
+        :returns: One shared leaf per distinct character.
+        """
+        leaf = self._char_leaves.get(char)
+        if leaf is None:
+            leaf = IrLiteral(char)
+            self._char_leaves[char] = leaf
+        return leaf
+
+
+class ParserTables(IrLeaf[IrSelf, IrSelf]):
+    """The compiled, immutable form of one normalised grammar.
+
+    Composes the code-space and IR-space halves with the terminal tables
+    (which carry the per-char scanning caches) and the packing tier the
+    parse's items pack with. The lazy caches are per-grammar and monotone,
+    so sharing one ``ParserTables`` across parses is safe.
+
+    :ivar codes: The :class:`CodeTables` the kernel loop indexes.
+    :ivar decode: The :class:`DecodeTables` for IR decoding.
+    :ivar terms: The :class:`TermTables` for terminal atoms, scan kinds and
+        the per-char caches.
+    :ivar start_id: the start rule's rule_id (``-1`` when never defined).
+    :ivar packing: The :class:`Packing` tier — every seed pre-shifts by its
+        ``bits``; ``advance - 1`` is the input-length capacity ceiling.
+    """
+
+    __slots__ = (
+        "codes",
+        "decode",
+        "terms",
+        "start_id",
+        "packing",
+        "_empty_trees",
+    )
+
+    codes: CodeTables
+    decode: DecodeTables
+    terms: TermTables
+    start_id: int
+    packing: Packing
+    _empty_trees: dict[int, ParseTree | None]
+
+    def __init__(self, builder: _TableBuilder, bits: int = ORIGIN_BITS) -> None:
+        """Freeze a finished builder's accumulated state.
+
+        :param builder: The builder whose numbering to adopt.
+        :param bits: The packing tier for this table set.
+        """
+        self.codes = CodeTables(builder, bits)
+        self.decode = DecodeTables(builder)
+        self.terms = TermTables(builder)
+        self.start_id = builder.start_id()
+        self.packing = Packing(bits)
+        self._empty_trees = {}
 
     def empty_tree(self, rid: int) -> ParseTree | None:
         """Rule ``rid``'s unique empty-match :class:`ParseTree`, or ``None``.
@@ -489,18 +535,6 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         self._empty_trees[rid] = tree
         return tree
 
-    def char_leaf(self, char: str) -> IrLiteral:
-        """The interned :class:`IrLiteral` leaf for a scanned ``char``.
-
-        :param char: The consumed character.
-        :returns: One shared leaf per distinct character.
-        """
-        leaf = self._char_leaves.get(char)
-        if leaf is None:
-            leaf = IrLiteral(char)
-            self._char_leaves[char] = leaf
-        return leaf
-
 
 class _TableBuilder:
     """One-shot builder walking a normalised grammar into :class:`ParserTables`.
@@ -530,9 +564,10 @@ class _TableBuilder:
         self.codes: list[tuple[int, int]] = []
         self.rule_dot0: list[list[int]] = []
 
-    def build(self) -> ParserTables:
-        """Compile the grammar.
+    def build(self, bits: int = ORIGIN_BITS) -> ParserTables:
+        """Compile the grammar at packing tier ``bits``.
 
+        :param bits: The origin-bits tier the tables pack with.
         :returns: The finished tables.
         :raises UnsupportedConstructError: On a non-normalised construct
             (a quantifier other than ``(1, 1)``, or a group/negation atom).
@@ -546,7 +581,7 @@ class _TableBuilder:
                 self._compile_rule(self.rule_ids[name], rule.body)
             else:
                 self._compile_run_rule(self.rule_ids[name], spec)
-        return ParserTables(self)
+        return ParserTables(self, bits)
 
     def start_id(self) -> int:
         """The start rule's id, or ``-1`` when the grammar never defines it."""
@@ -816,34 +851,39 @@ class _FirstGates(IrLeaf[IrSelf, IrSelf]):
 
 
 def build_tables(
-    grammar: IrAst, runs: dict[str, tuple[RunTerm, bool]] | None = None
+    grammar: IrAst,
+    runs: dict[str, tuple[RunTerm, bool]] | None = None,
+    bits: int = ORIGIN_BITS,
 ) -> ParserTables:
     """Build tables for ``grammar``, optionally collapsing run rules (uncached).
 
     :param grammar: An Earley-normalised grammar.
     :param runs: rule name → ``(run_term, has_empty_arm)`` collapse spec.
+    :param bits: The origin-bits packing tier.
     :returns: Fresh tables (callers memoise their own variants).
     :raises UnsupportedConstructError: On a non-normalised construct.
     """
-    return _TableBuilder(grammar, runs).build()
+    return _TableBuilder(grammar, runs).build(bits)
 
 
-_CACHE: dict[int, tuple[IrAst, ParserTables]] = {}
-"""Compile memo — id(grammar) → (the grammar, its tables). The strong grammar
-reference pins the id, so a recycled id can never alias a live entry."""
+_CACHE: dict[tuple[int, int], tuple[IrAst, ParserTables]] = {}
+"""Compile memo — (id(grammar), bits) → (the grammar, its tables). The strong
+grammar reference pins the id, so a recycled id can never alias a live
+entry."""
 
 
-def compile_tables(grammar: IrAst) -> ParserTables:
+def compile_tables(grammar: IrAst, bits: int = ORIGIN_BITS) -> ParserTables:
     """The :class:`ParserTables` for ``grammar``, compiled once and memoised.
 
     :param grammar: An Earley-normalised grammar (see
         :func:`lexic.parsing.earley.normalize.normalize`).
+    :param bits: The origin-bits packing tier (input capacity ``2**bits - 1``).
     :returns: The compiled tables (shared across parses of the same grammar).
     :raises UnsupportedConstructError: On a non-normalised construct.
     """
-    entry = _CACHE.get(id(grammar))
+    entry = _CACHE.get((id(grammar), bits))
     if entry is not None:
         return entry[1]
-    tables = _TableBuilder(grammar).build()
-    _CACHE[id(grammar)] = (grammar, tables)
+    tables = _TableBuilder(grammar).build(bits)
+    _CACHE[(id(grammar), bits)] = (grammar, tables)
     return tables

@@ -109,7 +109,7 @@ class _ReducePdaKernel(PdaKernel):
         ends = frame[F_ENDS]
         sinks = frame[F_SINKS]
         text = self.text
-        char_leaf = self.reduce.tables.char_leaf
+        char_leaf = self.reduce.tables.terms.char_leaf
         lit_keep = self.reduce.literal_keep
         parts: list[IrSelf] = []
         prev = frame[F_START]

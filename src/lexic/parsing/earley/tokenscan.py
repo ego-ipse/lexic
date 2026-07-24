@@ -27,7 +27,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
-from lexic.parsing.earley.kernel import ORIGIN_BITS, Kernel
+from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tables import ParserTables, compile_tables
 from lexic.parsing.fold import lift_optional_nullables
@@ -98,7 +98,8 @@ def viable_prefix(tables: ParserTables, text: str) -> bool:
     if kernel.accept >= 0:
         return True
     next_sym = tables.codes.next_sym
-    return any(next_sym[it >> ORIGIN_BITS] != 0 for it in kernel.cols[len(text)])
+    bits = kernel.tables.packing.bits
+    return any(next_sym[it >> bits] != 0 for it in kernel.cols[len(text)])
 
 
 def token_term_specs(tables: ParserTables) -> dict[int, TokenSpec]:

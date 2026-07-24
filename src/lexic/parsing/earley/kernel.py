@@ -9,9 +9,9 @@ advance. The IR seams sit at the edges: :func:`~lexic.parsing.earley.tables
 .compile_tables` walks the grammar in, and :meth:`Kernel.to_chart` decodes the
 finished SPPF out for the IR-native forest readers.
 
-**Packing.** With ``B = ORIGIN_BITS``:
+**Packing.** With ``B = tables.packing.bits`` (the tables' tier):
 
-- an *item* is ``code << B | origin`` — advance is ``+ ADVANCE``; for
+- an *item* is ``code << B | origin`` — advance is ``+ packing.advance``; for
   realistic grammars this stays a single-digit CPython int, so set/dict
   operations on items run at the primitive floor;
 - a *handle* (item over a span, the SPPF link key) is ``item << B | end``;
@@ -36,9 +36,6 @@ from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrSeq
 from lexic.parsing.earley.chart import Chart, EarleyItem
 from lexic.parsing.earley.forest import ParseTree, PayloadLeaf, RootNode, SppfNode
 from lexic.parsing.earley.tables import (
-    ADVANCE,
-    ORIGIN_BITS,
-    ORIGIN_MASK,
     ParserTables,
     RunTerm,
     predecessor_chain,
@@ -162,12 +159,12 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             ``None`` (no delegation — every non-island parse). Populated by the
             ``pda`` package for island sub-parses only.
         :raises UnsupportedConstructError: If ``text`` exceeds the packed
-            column capacity (``2**ORIGIN_BITS - 1`` chars).
+            column capacity (``tables.packing.advance - 1`` chars).
         """
-        if len(text) >= ADVANCE:
+        if len(text) >= tables.packing.advance:
             raise UnsupportedConstructError(
                 f"parsing: input of {len(text)} chars exceeds the packed "
-                f"column capacity ({ADVANCE - 1})"
+                f"column capacity ({tables.packing.advance - 1})"
             )
         self.tables = tables
         self.text = text
@@ -216,8 +213,10 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         nullables = codes.nullable_completes
         predicted_i = self.st.predicted[i]
         delegated = self.delegated
+        pk = self.tables.packing
+        bits, mask = pk.bits, pk.mask
         for it in self.cols[i]:
-            sym = nxt[it >> ORIGIN_BITS]
+            sym = nxt[it >> bits]
             if sym > 0:  # predict — and Aycock-Horspool over a nullable target
                 rid = sym - 1
                 if rid not in predicted_i:
@@ -233,11 +232,11 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 # completer would only re-derive deduped items and identical
                 # families.
                 if delegated:  # island-interior delegation (empty otherwise)
-                    payload = delegated.get((it << ORIGIN_BITS) | i)
+                    payload = delegated.get((it << bits) | i)
                     if payload is not None:
                         self._complete_delegated(i, it, payload)
                         continue
-                if it & ORIGIN_MASK != i:
+                if it & mask != i:
                     self._complete(i, it)
             # else: terminal — scanned between columns via the scannable index
 
@@ -327,12 +326,14 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         nxt = self.tables.codes.next_sym
         waiting_j = self.st.waiting[j]
         scannable_j = self.st.scannable[j]
+        pk = self.tables.packing
+        bits, advance = pk.bits, pk.advance
         for it in source:
-            adv = it + ADVANCE
+            adv = it + advance
             if adv not in seen_j:
                 seen_j.add(adv)
                 items_j.append(adv)
-                s = nxt[adv >> ORIGIN_BITS]
+                s = nxt[adv >> bits]
                 if s > 0:
                     bucket = waiting_j.get(s - 1)
                     if bucket is None:
@@ -353,17 +354,19 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         files for that arm's empty completion — so the two provenances dedup
         into one family (no spurious ambiguity).
         """
-        adv = it + ADVANCE
+        pk = self.tables.packing
+        bits = pk.bits
+        adv = it + pk.advance
         seen_i = self.st.seen[i]
         if adv not in seen_i:
             seen_i.add(adv)
             self.cols[i].append(adv)
-            s = self.tables.codes.next_sym[adv >> ORIGIN_BITS]
+            s = self.tables.codes.next_sym[adv >> bits]
             if s:
                 self._file(i, adv, s)
         if self.record_links:
             links = self.st.links
-            key = (adv << ORIGIN_BITS) | i
+            key = (adv << bits) | i
             bucket = links.get(key)
             if bucket is None:  # completes is never empty — no empty bucket
                 bucket = links[key] = []
@@ -371,7 +374,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 entry: KLink = (
                     it,
                     i,
-                    (((done_code << ORIGIN_BITS) | i) << ORIGIN_BITS) | i,
+                    (((done_code << bits) | i) << bits) | i,
                 )
                 if entry not in bucket:
                     bucket.append(entry)
@@ -399,15 +402,16 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
     def _complete(self, i: int, it: int) -> None:
         """Earley completer: advance every item waiting on the finished rule."""
         c = self.tables.codes
-        origin = it & ORIGIN_MASK
-        wl = self.st.waiting[origin].get(c.arm_rule[c.code_arm[it >> ORIGIN_BITS]])
+        bits = self.tables.packing.bits
+        origin = it & self.tables.packing.mask
+        wl = self.st.waiting[origin].get(c.arm_rule[c.code_arm[it >> bits]])
         if not wl:
             return
         if (
             len(wl) == 1
             # the awaited ref is the sole waiter's last symbol — the Leo
             # precondition, probed here so the miss costs no call
-            and c.next_sym[(wl[0] >> ORIGIN_BITS) + 1] == 0
+            and c.next_sym[(wl[0] >> bits) + 1] == 0
             and self._try_leo(i, it, wl[0])
         ):
             return
@@ -415,13 +419,15 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         # same-pass appends (advancing files a new waiter when origin == i).
         self._advance_all(i, wl)
         if self.record_links:
-            self._record_families(i, wl, origin, (it << ORIGIN_BITS) | i)
+            self._record_families(i, wl, origin, (it << bits) | i)
 
     def _record_families(self, i: int, wl: list[int], origin: int, child: int) -> None:
         """Record one packed family per advanced waiter (Scott 2008, deduped)."""
         links = self.st.links
+        pk = self.tables.packing
+        bits, advance = pk.bits, pk.advance
         for w in wl:
-            key = ((w + ADVANCE) << ORIGIN_BITS) | i
+            key = ((w + advance) << bits) | i
             entry: KLink = (w, origin, child)
             bucket = links.get(key)
             if bucket is None:
@@ -451,20 +457,19 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         :param payload: The sub-run's pre-built value (model / reduced IR).
         """
         codes = self.tables.codes
-        done = codes.rule_seed_gates[rid][0][0] >> ORIGIN_BITS  # first arm's dot-0 code
+        bits = self.tables.packing.bits
+        done = codes.rule_seed_gates[rid][0][0] >> bits  # first arm's dot-0 code
         nxt = codes.next_sym
         while nxt[done] != 0:  # walk to that arm's completed code
             done += 1
-        it = (done << ORIGIN_BITS) | i
+        it = (done << bits) | i
         seen_end = self.st.seen[end]
         if it in seen_end:
             return
         seen_end.add(it)
         self.cols[end].append(it)
         if self.record_links:
-            self.delegated[(it << ORIGIN_BITS) | end] = PayloadLeaf(
-                payload, self.text[i:end]
-            )
+            self.delegated[(it << bits) | end] = PayloadLeaf(payload, self.text[i:end])
 
     def _complete_delegated(self, end: int, it: int, payload: PayloadLeaf) -> None:
         """Advance every waiter on a delegated ``rid`` completion, payload-child.
@@ -477,15 +482,18 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         right-recursion chain).
         """
         c = self.tables.codes
-        origin = it & ORIGIN_MASK
-        wl = self.st.waiting[origin].get(c.arm_rule[c.code_arm[it >> ORIGIN_BITS]])
+        pk = self.tables.packing
+        bits = pk.bits
+        origin = it & pk.mask
+        wl = self.st.waiting[origin].get(c.arm_rule[c.code_arm[it >> bits]])
         if not wl:
             return
         self._advance_all(end, wl)
         if self.record_links:
             links = self.st.links
+            advance = pk.advance
             for w in wl:
-                key = ((w + ADVANCE) << ORIGIN_BITS) | end
+                key = ((w + advance) << bits) | end
                 entry: KLink = (w, origin, payload)
                 bucket = links.get(key)
                 if bucket is None:
@@ -502,7 +510,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         the run's end.
         """
         text = self.text
-        terms = self.tables.terms_for(text[i])
+        terms = self.tables.terms.terms_for(text[i])
         if not terms:
             return
         scannable_i = self.st.scannable[i]
@@ -546,8 +554,10 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         """Record the consumed-text family for each scanned advance."""
         child = self.text[i:j]
         links = self.st.links
+        pk = self.tables.packing
+        bits, advance = pk.bits, pk.advance
         for it in bucket:
-            key = ((it + ADVANCE) << ORIGIN_BITS) | j
+            key = ((it + advance) << bits) | j
             entry: KLink = (it, i, child)
             fam = links.get(key)
             if fam is None:
@@ -558,8 +568,10 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
     def _accept_item(self, n: int) -> int:
         """The completed start item spanning the whole input, else ``-1``."""
         accepts = self.tables.codes.accept_codes
+        pk = self.tables.packing
+        bits, mask = pk.bits, pk.mask
         for it in self.cols[n]:
-            if it >> ORIGIN_BITS in accepts and it & ORIGIN_MASK == 0:
+            if it >> bits in accepts and it & mask == 0:
                 return it
         return -1
 
@@ -574,11 +586,9 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         """
         n = len(self.text)
         accepts = self.tables.codes.accept_codes
-        return [
-            it
-            for it in self.cols[n]
-            if it >> ORIGIN_BITS in accepts and it & ORIGIN_MASK == 0
-        ]
+        pk = self.tables.packing
+        bits, mask = pk.bits, pk.mask
+        return [it for it in self.cols[n] if it >> bits in accepts and it & mask == 0]
 
     @property
     def root_ambiguous(self) -> bool:
@@ -616,6 +626,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         self.st.predicted[0].add(tables.start_id)
         self._seed(0, tables.start_id)
         accepts = tables.codes.accept_codes
+        bits, mask = tables.packing.bits, tables.packing.mask
         best: tuple[int, int] | None = None
         n = len(self.text)
         for j in range(n + 1):
@@ -624,7 +635,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 continue
             self._close(j)
             for it in col:
-                if it >> ORIGIN_BITS in accepts and it & ORIGIN_MASK == 0:
+                if it >> bits in accepts and it & mask == 0:
                     best = (it, j)
             if j < n:
                 self._scan(j)
@@ -659,12 +670,13 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         :param char: The next character of the full input.
         :returns: ``True`` when ``char`` may be consumable at ``col``.
         """
-        if any(handle & ORIGIN_MASK == col for handle in self.delegated):
+        mask = self.tables.packing.mask
+        if any(handle & mask == col for handle in self.delegated):
             return True
         if col >= len(self.text) or self.text[col] != char:
             return True
         return any(
-            self.st.scannable[col].get(tid) for tid in self.tables.terms_for(char)
+            self.st.scannable[col].get(tid) for tid in self.tables.terms.terms_for(char)
         )
 
     # ── Leo right-recursion ───────────────────────────────────────────
@@ -679,24 +691,24 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         :returns: ``True`` when Leo handled the completion.
         """
         c = self.tables.codes
-        scode = sole >> ORIGIN_BITS
-        if self._leo_sole(sole & ORIGIN_MASK, c.arm_rule[c.code_arm[scode]]) < 0:
+        pk = self.tables.packing
+        bits, mask = pk.bits, pk.mask
+        scode = sole >> bits
+        if self._leo_sole(sole & mask, c.arm_rule[c.code_arm[scode]]) < 0:
             return False  # chain length 1 — normal completion is cheaper
-        top = self._leo_resolve(
-            i, done & ORIGIN_MASK, c.arm_rule[c.code_arm[done >> ORIGIN_BITS]]
-        )
+        top = self._leo_resolve(i, done & mask, c.arm_rule[c.code_arm[done >> bits]])
         if top < 0:  # nullable cycle — run the normal completer
             return False
         seen_i = self.st.seen[i]
         if top not in seen_i:
             seen_i.add(top)
             self.cols[i].append(top)
-            s = c.next_sym[top >> ORIGIN_BITS]
+            s = c.next_sym[top >> bits]
             if s:
                 self._file(i, top, s)
         if self.record_links:
-            key = (top << ORIGIN_BITS) | i
-            entry: KLink = (sole, done & ORIGIN_MASK, (done << ORIGIN_BITS) | i)
+            key = (top << bits) | i
+            entry: KLink = (sole, done & mask, (done << bits) | i)
             bucket = self.st.leo_links.get(key)
             if bucket is None:
                 self.st.leo_links[key] = [entry]
@@ -710,7 +722,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         if wl is None or len(wl) != 1:
             return -1
         sole = wl[0]
-        if self.tables.codes.next_sym[(sole >> ORIGIN_BITS) + 1] == 0:
+        if self.tables.codes.next_sym[(sole >> self.tables.packing.bits) + 1] == 0:
             return sole
         return -1
 
@@ -732,17 +744,18 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             memo = leo_col.get(rid)
             if memo is not None:
                 return memo
+        pk = self.tables.packing
         found = self._leo_sole(col, rid)
-        if found < 0 or (found & ORIGIN_MASK) == col:
+        if found < 0 or (found & pk.mask) == col:
             result = -1  # no sole waiter, or an empty-span step — no jump
         else:
             c = self.tables.codes
             parent = self._leo_resolve(
                 cur,
-                found & ORIGIN_MASK,
-                c.arm_rule[c.code_arm[found >> ORIGIN_BITS]],
+                found & pk.mask,
+                c.arm_rule[c.code_arm[found >> pk.bits]],
             )
-            result = parent if parent >= 0 else found + ADVANCE
+            result = parent if parent >= 0 else found + pk.advance
         if col != cur:
             leo_col[rid] = result
         return result
@@ -762,8 +775,9 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         embedded-ambiguity undercount). Idempotence makes the unconditional
         call safe.
         """
-        top = key >> ORIGIN_BITS
-        end = key & ORIGIN_MASK
+        pk = self.tables.packing
+        top = key >> pk.bits
+        end = key & pk.mask
         for bottom in self.st.leo_links[key]:
             self._expand_chain(top, end, bottom)
 
@@ -771,10 +785,11 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         """Rebuild one deferred chain from its bottom family up to ``top``."""
         links = self.st.links
         c = self.tables.codes
+        packing = self.tables.packing
         waiter, waiter_end, child = bottom
         while True:
-            adv = waiter + ADVANCE
-            k = (adv << ORIGIN_BITS) | end
+            adv = waiter + packing.advance
+            k = (adv << packing.bits) | end
             entry: KLink = (waiter, waiter_end, child)
             bucket = links.get(k)
             if bucket is None:
@@ -787,8 +802,8 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             # awaiting it there is the next chain link (deterministic by
             # construction — that is why Leo fired).
             child = k
-            waiter_end = waiter & ORIGIN_MASK
-            rid = c.arm_rule[c.code_arm[waiter >> ORIGIN_BITS]]
+            waiter_end = waiter & packing.mask
+            rid = c.arm_rule[c.code_arm[waiter >> packing.bits]]
             waiter = self.st.waiting[waiter_end][rid][0]
 
     # ── decoding to the IR-native forest ──────────────────────────────
@@ -797,13 +812,13 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         """The :class:`EarleyItem` tuple for a packed ``item`` — the readable
         (non-int-coded) shape the chart/forest readers walk."""
         t = self.tables
-        code = item >> ORIGIN_BITS
+        code = item >> t.packing.bits
         aid = t.codes.code_arm[code]
         return (
             t.decode.rule_refs[t.codes.arm_rule[aid]],
             t.decode.arm_seqs[aid],
             code - t.codes.arm_base[aid],
-            item & ORIGIN_MASK,
+            item & t.packing.mask,
         )
 
     def accept_node(self) -> IrSelf:
@@ -837,8 +852,9 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             self.expand_leo(key)
         chart = Chart()
         links = chart.links
+        pk = self.tables.packing
         for key, bucket in self.st.links.items():
-            dkey = (self.decode_item(key >> ORIGIN_BITS), key & ORIGIN_MASK)
+            dkey = (self.decode_item(key >> pk.bits), key & pk.mask)
             for pred, pend, child in bucket:
                 links += (dkey, (self.decode_item(pred), pend, self._child(child)))
         return chart
@@ -846,10 +862,11 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
     def _child(self, child: int | str | PayloadLeaf) -> IrSelf:
         """Decode a packed family child — a handle, a scanned char, or a payload."""
         if isinstance(child, int):
-            return SppfNode(self.decode_item(child >> ORIGIN_BITS), child & ORIGIN_MASK)
+            pk = self.tables.packing
+            return SppfNode(self.decode_item(child >> pk.bits), child & pk.mask)
         if isinstance(child, PayloadLeaf):  # delegated pre-folded child
             return child
-        return self.tables.char_leaf(child)
+        return self.tables.terms.char_leaf(child)
 
 
 class FastTree(IrLeaf[IrSelf, IrSelf]):
@@ -867,7 +884,7 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
     :ivar stack: Work frames ``(handle, dest, slot, resolved | None)``.
     """
 
-    __slots__ = ("kernel", "memo", "stack")
+    __slots__ = ("kernel", "memo", "stack", "_bits", "_mask")
 
     kernel: Kernel
     memo: dict[int, ParseTree]
@@ -878,6 +895,8 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         self.kernel = kernel
         self.memo = {}
         self.stack = []
+        self._bits = kernel.tables.packing.bits
+        self._mask = kernel.tables.packing.mask
 
     def build(self, handle: int) -> IrSelf:
         """The single :class:`ParseTree` under ``handle``, or :data:`IrNone`.
@@ -904,10 +923,10 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
             dest[slot] = cached
             self.stack.pop()
             return True
-        item = handle >> ORIGIN_BITS
-        if item & ORIGIN_MASK == handle & ORIGIN_MASK:  # zero-width
+        item = handle >> self._bits
+        if item & self._mask == handle & self._mask:  # zero-width
             t = kernel.tables
-            tree = t.empty_tree(t.codes.arm_rule[t.codes.code_arm[item >> ORIGIN_BITS]])
+            tree = t.empty_tree(t.codes.arm_rule[t.codes.code_arm[item >> self._bits]])
             if tree is not None:  # the shared input-independent derivation
                 dest[slot] = tree
                 self.stack.pop()
@@ -929,7 +948,7 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
     def _build(self, handle: int, dest: list, slot: int, resolved: list) -> None:
         """Assemble and memoise the node's tree; pop its frame."""
         t = self.kernel.tables
-        rid = t.codes.arm_rule[t.codes.code_arm[handle >> (2 * ORIGIN_BITS)]]
+        rid = t.codes.arm_rule[t.codes.code_arm[handle >> (2 * self._bits)]]
         tree = ParseTree(t.decode.rule_refs[rid], IrSeq(*resolved))
         self.memo[handle] = tree
         dest[slot] = tree
@@ -942,14 +961,14 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         caller falls back to the trampolined enumeration.
         """
         t = self.kernel.tables
-        item = handle >> ORIGIN_BITS
-        end = handle & ORIGIN_MASK
-        base = t.codes.arm_base[t.codes.code_arm[item >> ORIGIN_BITS]]
-        chain = predecessor_chain(self.kernel.st.links, item, end, base)
+        item = handle >> self._bits
+        end = handle & self._mask
+        base = t.codes.arm_base[t.codes.code_arm[item >> self._bits]]
+        chain = predecessor_chain(self.kernel.st.links, item, end, base, self._bits)
         if chain is None:
             return None  # missing (no build) or ambiguous (fall back)
         return [
-            c if isinstance(c, (int, PayloadLeaf)) else t.char_leaf(c)
+            c if isinstance(c, (int, PayloadLeaf)) else t.terms.char_leaf(c)
             for _, _, c in chain
         ]
 
@@ -965,9 +984,9 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
                 if cached is not None:
                     resolved[idx] = cached
                     continue
-                if (child >> ORIGIN_BITS) & ORIGIN_MASK == child & ORIGIN_MASK:
+                if (child >> self._bits) & self._mask == child & self._mask:
                     tree = tables.empty_tree(
-                        codes.arm_rule[codes.code_arm[child >> (2 * ORIGIN_BITS)]]
+                        codes.arm_rule[codes.code_arm[child >> (2 * self._bits)]]
                     )
                     if tree is not None:  # zero-width — the shared derivation
                         resolved[idx] = tree
