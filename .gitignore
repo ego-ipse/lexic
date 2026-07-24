@@ -47,5 +47,5 @@ zzz_current_work/
 # ── Generated grammar modules (reproducible build products) ──
 generated/
 
-# ── Obsidian internals ──
-.wiki/.obsidian/resources/tokenizers/
+# ── Fetched tokenizer fixtures (LGPL — never committed) ──
+resources/tokenizers/
