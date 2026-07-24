@@ -491,6 +491,10 @@ src/lexic/
                           longest_start_completion — public windowed prefix-completion
                           seam for the PDA island sub-parse (additive, off the main
                           run() fast path; hybrid-PDA 260705)
+      resume.py           ResumableKernel — mark/extend/rollback on one growing
+                          chart (recognition-only; per-column truncation, the
+                          junction re-seed makes a re-opened column
+                          char-independent); the generation mask's substrate
       tokenscan.py        TokenKernel — the Kernel subclass that parses a token
                           grammar against text lexic has segmented into tokens: a
                           bounds map (char pos → (id, len)) + token_term_specs

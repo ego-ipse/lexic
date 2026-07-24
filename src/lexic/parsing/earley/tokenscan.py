@@ -29,6 +29,7 @@ from lexic.ir.nodes import (
 from lexic.ir.operators import IrNot
 from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.resume import ResumableKernel
 from lexic.parsing.earley.tables import ParserTables, compile_tables
 from lexic.parsing.fold import lift_optional_nullables
 
@@ -80,26 +81,39 @@ def split_literals(ast: IrAst) -> IrAst:
     return IrAst(IrSeq(*rules), ast.start)
 
 
-def viable_prefix(tables: ParserTables, text: str) -> bool:
-    """Whether ``text`` is a viable prefix of the char grammar — the mask oracle.
+def frontier_viable(kernel: Kernel) -> bool:
+    """Whether a finished kernel's text is a viable prefix of its grammar.
 
     Viable = a complete parse (``accept >= 0``) OR some frontier item still faces
     a symbol (``next_sym != 0``). The items advanced INTO the frontier column by
     the last scan are ungated (only fresh frontier *seeds* are FIRST-gated on the
     absent next char), so ``cols[len(text)]`` witnesses extendability with no
-    kernel change — a read-only view over the chart. Requires char-granular
-    ``tables`` (see :func:`split_literals`).
+    kernel change — a read-only view over the chart.
+
+    :param kernel: A kernel whose :meth:`~lexic.parsing.earley.kernel.Kernel.run`
+        (or resumable extension) has finished.
+    :returns: ``True`` when some valid word has the kernel's text as a prefix.
+    """
+    if kernel.accept >= 0:
+        return True
+    next_sym = kernel.tables.codes.next_sym
+    bits = kernel.tables.packing.bits
+    return any(next_sym[it >> bits] != 0 for it in kernel.cols[len(kernel.text)])
+
+
+def viable_prefix(tables: ParserTables, text: str) -> bool:
+    """Whether ``text`` is a viable prefix of the char grammar — the mask oracle.
+
+    One fresh recognition run read through :func:`frontier_viable`. Requires
+    char-granular ``tables`` (see :func:`split_literals`); the resumable mask
+    path answers the same question incrementally, and the differential tests
+    hold the two equal.
 
     :param tables: Char-granular compiled tables for the grammar.
     :param text: The candidate char prefix.
     :returns: ``True`` when some valid word has ``text`` as a prefix.
     """
-    kernel = Kernel(tables, text).run()
-    if kernel.accept >= 0:
-        return True
-    next_sym = tables.codes.next_sym
-    bits = kernel.tables.packing.bits
-    return any(next_sym[it >> bits] != 0 for it in kernel.cols[len(text)])
+    return frontier_viable(Kernel(tables, text).run())
 
 
 def token_term_specs(tables: ParserTables) -> dict[int, TokenSpec]:
@@ -125,8 +139,12 @@ def token_term_specs(tables: ParserTables) -> dict[int, TokenSpec]:
     return specs
 
 
-class TokenKernel(Kernel):
+class TokenKernel(ResumableKernel):
     """A :class:`Kernel` that also scans token terminals at boundary columns.
+
+    Subclasses :class:`~lexic.parsing.earley.resume.ResumableKernel`, so a token
+    chart can also grow (`extend`) across generation steps — the mask cursor's
+    ``push(id)`` reuse; a plain one-shot parse never calls the resume surface.
 
     :ivar bounds: char position → ``(token_id, char_len)`` — lexic's own token
         segmentation of the input (from :meth:`~lexic.ir.encoding.IrTokenizer
@@ -186,29 +204,75 @@ class TokenKernel(Kernel):
                     self._record_scans(i, j, bucket)
 
 
+TrieNode = tuple[dict[str, "TrieNode"], list[int]]
+"""One spelling-trie node — ``(edges by next char, token ids ending here)``."""
+
+
+def spelling_trie(tokenizer: IrTokenizer, universe: frozenset[int]) -> TrieNode:
+    """The char trie over every token's spelling — the mask DFS substrate.
+
+    Built once per cursor; shared prefixes across the vocab collapse to one
+    path, which is exactly what makes the resumable mask per-token
+    O(spelling length) instead of O(prefix + spelling) reparses.
+
+    :param tokenizer: The tokenizer whose spellings to index.
+    :param universe: The token ids to include (empty spellings are skipped —
+        an empty token consumes nothing and is never admissible).
+    :returns: The trie root.
+    """
+    root: TrieNode = ({}, [])
+    for tid in universe:
+        spelling = str(tokenizer.spell(tid))
+        if not spelling:
+            continue
+        node = root
+        for char in spelling:
+            child = node[0].get(char)
+            if child is None:
+                child = node[0][char] = ({}, [])
+            node = child
+        node[1].append(tid)
+    return root
+
+
 class TokenMaskCursor:
     """Generation-time admissible-next-token mask over a token grammar (capab. C).
 
-    The cursor holds the token ids generated so far. :meth:`mask` reads the set
-    of admissible next-token ids off the frontier column's live token-terms
-    (token-frontier set algebra — no chart re-work beyond the prefix run);
-    :meth:`push` extends by one token; :meth:`accepts` tests whether the current
-    sequence is a complete parse (end-of-input). It recomputes from the prefix
-    each step, so the mask equals a stateless recompute (fp9's correctness gate).
+    The cursor holds the token ids generated so far ON A LIVE CHART — one
+    :class:`ResumableKernel` parses the whole generation exactly once:
+    :meth:`push` extends it by the accepted token's spelling (never rolled
+    back — the E6-3 reuse), :meth:`mask` explores candidate continuations
+    with mark/extend/rollback and :meth:`accepts` reads the chart's accept.
     Generation is inherently id-space, so this cursor — not a second parse
     interface — is capability C's surface.
 
-    A grammar with **token terminals** (``IrAlphabet``) uses the token-frontier
-    set algebra above. A **char** grammar (no token terminals) instead ranges the
-    tokenizer's ids over a char-granular recognizer: a token is admissible iff
-    ``prefix+spell(token)`` stays a viable prefix (:func:`viable_prefix`) — the
-    complete, sound char-heavy mask. This form reparses per candidate token
-    (O(vocab) per step); a resumable recognizer is the perf follow-up.
+    A grammar with **token terminals** (``IrAlphabet``) reads the mask off the
+    frontier column's live token-terms (token-frontier set algebra — no
+    exploration needed). A **char** grammar (no token terminals) instead
+    drives a trie-DFS over the vocab's spellings on a char-granular
+    recognizer (:func:`split_literals`): shared prefixes extend once, dead
+    branches prune on an empty column, and a token is admitted iff the chart
+    stays viable at its spelling's end (:func:`frontier_viable`) — the same
+    admitted set as the stateless per-token :func:`viable_prefix` recompute,
+    at per-token O(spelling length).
+
+    ``ids`` is the public prefix state and may be assigned directly (the
+    stateless-recompute contract): every read syncs the chart to it — a
+    common-prefix rollback plus extension, so an unchanged prefix costs one
+    list compare and a normal generation step extends by one token.
 
     :ivar ids: The token ids pushed so far (the generated prefix).
     """
 
-    __slots__ = ("_tables", "_tokenizer", "_specs", "_universe", "_char_tables", "ids")
+    __slots__ = (
+        "_tokenizer",
+        "_specs",
+        "_universe",
+        "_kern",
+        "_trie",
+        "_committed",
+        "ids",
+    )
 
     def __init__(self, grammar: IrAst, tokenizer: IrTokenizer) -> None:
         """Constrain generation to ``grammar`` under ``tokenizer``.
@@ -216,30 +280,54 @@ class TokenMaskCursor:
         :param grammar: The codegen grammar (with resolved token terminals).
         :param tokenizer: The tokenizer whose id space generation ranges over.
         """
-        self._tables = compile_tables(normalize(lift_optional_nullables(grammar)))
+        tables = compile_tables(normalize(lift_optional_nullables(grammar)))
         self._tokenizer = tokenizer
-        self._specs = token_term_specs(self._tables)
+        self._specs = token_term_specs(tables)
         self._universe = frozenset(tokenizer.ids())
-        # A char grammar (no token terminals) drives the char-heavy path over a
-        # char-granular recognizer; a token grammar leaves this None.
-        self._char_tables = (
-            None
-            if self._specs
-            else compile_tables(
+        if self._specs:  # token grammar — the frontier set algebra
+            self._kern: ResumableKernel = TokenKernel(tables, "", {}).run()
+            self._trie: TrieNode | None = None
+        else:  # char grammar — trie-DFS over a char-granular recognizer
+            char_tables = compile_tables(
                 normalize(lift_optional_nullables(split_literals(grammar)))
             )
-        )
+            self._kern = ResumableKernel(char_tables, "", False).run()
+            self._trie = spelling_trie(tokenizer, self._universe)
+        self._committed: list[tuple[int, int]] = []  # (token id, char end)
         self.ids: list[int] = []
 
-    def _run(self) -> tuple[Kernel, int]:
-        """Parse the current prefix; return the kernel and its frontier column."""
-        text = "".join(str(self._tokenizer.spell(i)) for i in self.ids)
-        bounds = {s: (t, e - s) for s, e, t in self._tokenizer.boundaries(text)}
-        return TokenKernel(self._tables, text, bounds).run(), len(text)
+    def _sync(self) -> None:
+        """Bring the live chart in line with :attr:`ids` (no-op when equal).
 
-    def _prefix_text(self) -> str:
-        """The generated prefix spelled to characters (the char-heavy path)."""
-        return "".join(str(self._tokenizer.spell(i)) for i in self.ids)
+        Shares the longest committed prefix: later tokens roll back (pure
+        truncation — the boundary map purges with them), missing ones extend.
+        """
+        committed = self._committed
+        if [tid for tid, _ in committed] == self.ids:
+            return
+        ids = list(self.ids)
+        k = 0
+        while k < len(committed) and k < len(ids) and committed[k][0] == ids[k]:
+            k += 1
+        kern = self._kern
+        if len(committed) > k:
+            cut = committed[k - 1][1] if k else 0
+            kern.rollback(cut)
+            del committed[k:]
+            if isinstance(kern, TokenKernel):
+                for pos in [p for p in kern.bounds if p >= cut]:
+                    del kern.bounds[pos]
+        for tid in ids[k:]:
+            self._extend_token(tid)
+
+    def _extend_token(self, token_id: int) -> None:
+        """Grow the committed chart by one token's spelling."""
+        kern = self._kern
+        spelling = str(self._tokenizer.spell(token_id))
+        if isinstance(kern, TokenKernel):  # record the boundary for the token scan
+            kern.bounds[len(kern.text)] = (token_id, len(spelling))
+        kern.extend(spelling)
+        self._committed.append((token_id, len(kern.text)))
 
     def mask(self) -> set[int]:
         """The set of token ids admissible right after the current prefix.
@@ -247,54 +335,61 @@ class TokenMaskCursor:
         :returns: Admissible next-token ids (empty when only end-of-input is
             admissible — see :meth:`accepts`).
         """
-        if self._char_tables is not None:
-            return self._char_mask()
-        kernel, frontier = self._run()
-        scannable = kernel.st.scannable[frontier]
+        self._sync()
+        if self._trie is not None:
+            return self._char_mask(self._trie)
+        kernel = self._kern
+        scannable = kernel.st.scannable[len(kernel.text)]
         out: set[int] = set()
         for tid, (ids, negated) in self._specs.items():
             if scannable.get(tid):
                 out |= (self._universe - ids) if negated else set(ids) & self._universe
         return out
 
-    def _char_mask(self) -> set[int]:
-        """Char-heavy mask: every id whose char-expansion stays a viable prefix.
+    def _char_mask(self, trie: TrieNode) -> set[int]:
+        """Trie-DFS mask: explore spellings on the live chart, rollback each.
 
-        Viability is prefix-monotonic (``viable(s+x) ⇒ viable(s)``), so a token
-        whose FIRST char is already dead is skipped without the full-spelling
-        reparse; the per-first-char result is memoised, collapsing the common
-        case (most of a large vocab starts with a char no live item admits).
+        Iterative DFS with an explicit frame stack (edge iterator + the mark
+        taken before descending). A char whose extension leaves the new
+        column empty is a dead branch for every continuation — prune; a node
+        holding ids admits them iff the chart is viable there.
         """
-        assert self._char_tables is not None
-        tables, prefix = self._char_tables, self._prefix_text()
-        first_ok: dict[str, bool] = {}
+        kern = self._kern
         out: set[int] = set()
-        for tid in self._universe:
-            spelling = str(self._tokenizer.spell(tid))
-            if not spelling:
+        stack = [(iter(trie[0].items()), kern.mark())]
+        while stack:
+            edges, m = stack[-1]
+            step = next(edges, None)
+            if step is None:
+                stack.pop()
+                kern.rollback(m)
                 continue
-            head = spelling[0]
-            if head not in first_ok:
-                first_ok[head] = viable_prefix(tables, prefix + head)
-            if not first_ok[head]:
+            char, (child_edges, child_ids) = step
+            inner = kern.mark()
+            kern.extend(char)
+            if not kern.cols[len(kern.text)]:
+                kern.rollback(inner)  # no item consumed the char — dead branch
                 continue
-            if len(spelling) == 1 or viable_prefix(tables, prefix + spelling):
-                out.add(tid)
+            if child_ids and frontier_viable(kern):
+                out.update(child_ids)
+            if child_edges:
+                stack.append((iter(child_edges.items()), inner))
+            else:
+                kern.rollback(inner)
         return out
 
     def push(self, token_id: int) -> None:
-        """Extend the generated prefix by one token.
+        """Extend the generated prefix by one token — the chart grows in place.
 
         :param token_id: The generated token's id.
         """
         self.ids.append(token_id)
+        self._sync()
 
     def accepts(self) -> bool:
         """Whether the current token sequence is a complete parse (end-of-input).
 
         :returns: ``True`` when the grammar accepts the prefix as-is.
         """
-        if self._char_tables is not None:
-            return Kernel(self._char_tables, self._prefix_text()).run().accept >= 0
-        kernel, _ = self._run()
-        return kernel.accept >= 0
+        self._sync()
+        return self._kern.accept >= 0

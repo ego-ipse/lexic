@@ -29,7 +29,8 @@ ints.
 
 from __future__ import annotations
 
-from typing import Callable
+from itertools import islice
+from typing import Callable, Self
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrSeq
@@ -187,7 +188,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
 
     # ── the driver ────────────────────────────────────────────────────
 
-    def run(self) -> Kernel:
+    def run(self) -> Self:
         """Build the chart: close each column to a fixpoint, scan one char.
 
         :returns: ``self``, with :attr:`accept` resolved.
@@ -202,20 +203,23 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         self._close(n)
         return self
 
-    def _close(self, i: int) -> None:
+    def _close(self, i: int, start: int = 0) -> None:
         """Close column ``i`` to a fixpoint (predict / complete each item).
 
         The plain ``for`` over the live list picks up the items predict and
-        complete append mid-pass — the Earley fixpoint.
+        complete append mid-pass — the Earley fixpoint. ``start`` skips the
+        first ``start`` items (the resumable close-from-index: they were
+        fully processed by an earlier close of this column); an ``islice``
+        iterator picks up mid-pass appends exactly like the plain loop.
         """
         codes = self.tables.codes
         nxt = codes.next_sym
         nullables = codes.nullable_completes
         predicted_i = self.st.predicted[i]
         delegated = self.delegated
-        pk = self.tables.packing
-        bits, mask = pk.bits, pk.mask
-        for it in self.cols[i]:
+        bits, mask = self.tables.packing.bits, self.tables.packing.mask
+        col = self.cols[i]
+        for it in islice(col, start, None) if start else col:
             sym = nxt[it >> bits]
             if sym > 0:  # predict — and Aycock-Horspool over a nullable target
                 rid = sym - 1
