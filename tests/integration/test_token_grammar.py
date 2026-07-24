@@ -8,6 +8,7 @@ a round-trippable model. Capability B, README §Tokens, on the real engine.
 from __future__ import annotations
 
 from itertools import product
+from time import perf_counter
 
 import pytest
 
@@ -243,3 +244,24 @@ def test_char_heavy_mask_start_and_accept() -> None:
         cursor.push(tid)
     assert cursor.accepts()
     assert cursor.mask() == set()
+
+
+def test_char_mask_cost_is_prefix_independent():
+    """E6-5: mask() on the live chart does not rescan the committed prefix —
+    a 600-char prefix masks in comparable time to an empty one (the old
+    stateless path reparsed the whole prefix per candidate token; margin 10×
+    holds ~50× of headroom against that regression)."""
+    cursor = compile_text('root ::= [0-9]+"\\n"').constrain(
+        _tok([str(d) for d in range(10)] + ["12", "345", "\n"])
+    )
+
+    def once() -> float:
+        start = perf_counter()
+        cursor.mask()
+        return perf_counter() - start
+
+    t_short = min(once() for _ in range(5))
+    for _ in range(300):
+        cursor.push(10)  # "12" — 600 committed chars
+    t_long = min(once() for _ in range(5))
+    assert t_long <= max(10 * t_short, 1e-3), (t_short, t_long)
