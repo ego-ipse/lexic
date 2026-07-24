@@ -18,7 +18,7 @@ from pathlib import Path
 
 from lexic.compile import compile_from_path
 from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.encoding import IrTokenizer
+from lexic.ir.encoding import IrTokenizer, IrTokenPipeline
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrChr
 from lexic.model import GrammarModel
@@ -128,7 +128,8 @@ def _tokenizer_from_hf(doc: dict[str, object]) -> IrTokenizer:
     dyads = IrTuple(
         *(IrTuple(IrStr(a), IrStr(b)) for a, b in (str(m).split(" ") for m in merges))
     )
-    return IrTokenizer.from_merges("hf-bpe", encode, dyads, _added_specials(doc))
+    pipeline = IrTokenPipeline(_added_specials(doc))
+    return IrTokenizer.from_merges("hf-bpe", encode, dyads, pipeline=pipeline)
 
 
 def test_hf_tokenizer_json_parses_via_lexic() -> None:

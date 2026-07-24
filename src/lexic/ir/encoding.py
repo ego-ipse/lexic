@@ -20,6 +20,7 @@ just an ``IrMap[IrStr, IrEncoding]``.
 
 from __future__ import annotations
 
+import unicodedata
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import ClassVar, Self, cast
@@ -275,8 +276,296 @@ def _specials_tuple(specials: Specials) -> IrTuple:
     return IrTuple(*(IrStr(s) for s in specials))
 
 
+def _with_specials(
+    pipeline: "IrTokenPipeline", specials: Specials
+) -> "IrTokenPipeline":
+    """Fold builder-sugar specials into the pipeline record.
+
+    :raises UnsupportedConstructError: When both channels carry specials.
+    """
+    coerced = _specials_tuple(specials)
+    if not coerced:
+        return pipeline
+    if pipeline.specials:
+        raise UnsupportedConstructError(
+            "tokenizer: pass specials either directly or on the pipeline, not both"
+        )
+    return IrTokenPipeline(
+        coerced,
+        pipeline.remap,
+        pipeline.normalize,
+        pipeline.pretokens,
+        pipeline.byte_fallback,
+    )
+
+
+# ── the pre-tokenization vocabulary (data-only split specs) ───────────────
+
+_CONTRACTIONS = ("'s", "'t", "'re", "'ve", "'m", "'ll", "'d")
+"""The GPT-2 pattern's literal contraction alternatives, in pattern order."""
+
+
+def _is_letter(ch: str) -> bool:
+    """Unicode ``\\p{L}`` membership."""
+    return unicodedata.category(ch).startswith("L")
+
+
+def _is_number(ch: str) -> bool:
+    """Unicode ``\\p{N}`` membership."""
+    return unicodedata.category(ch).startswith("N")
+
+
+def _is_other(ch: str) -> bool:
+    """The GPT-2 pattern's ``[^\\s\\p{L}\\p{N}]`` class."""
+    return not ch.isspace() and not _is_letter(ch) and not _is_number(ch)
+
+
+def _run_end(text: str, i: int, pred: Callable[[str], bool]) -> int:
+    """The end of the ``pred``-satisfying run starting at ``i``."""
+    n = len(text)
+    while i < n and pred(text[i]):
+        i += 1
+    return i
+
+
+def _gpt2_piece(text: str, i: int) -> str:
+    """One GPT-2 pre-token at ``i`` — the pattern's first-match alternative.
+
+    The alternatives in order: a literal contraction; an optional single
+    space then a letter / number / other run; a whitespace run not followed
+    by non-space (backtracking one char when it is — the last whitespace char
+    is left to prefix the next piece); a whitespace run.
+    """
+    n = len(text)
+    for word in _CONTRACTIONS:
+        if text.startswith(word, i):
+            return word
+    j = i + 1 if text[i] == " " and i + 1 < n else i
+    head = text[j] if j < n else ""
+    if head and _is_letter(head):
+        return text[i : _run_end(text, j, _is_letter)]
+    if head and _is_number(head):
+        return text[i : _run_end(text, j, _is_number)]
+    if head and _is_other(head):
+        return text[i : _run_end(text, j, _is_other)]
+    k = _run_end(text, i, str.isspace)
+    if k < n and k - i >= 2:
+        return text[i : k - 1]
+    return text[i:k]
+
+
+def _gpt2_split(text: str) -> list[str]:
+    """Split ``text`` into GPT-2 pre-tokens (the fixed byte-level pattern)."""
+    pieces: list[str] = []
+    i = 0
+    while i < len(text):
+        piece = _gpt2_piece(text, i)
+        pieces.append(piece)
+        i += len(piece)
+    return pieces
+
+
+def _byte_unicode() -> dict[int, str]:
+    """The GPT-2 byte → printable-char table (the byte-level remap)."""
+    keep = [*range(0x21, 0x7F), *range(0xA1, 0xAD), *range(0xAE, 0x100)]
+    table = {b: chr(b) for b in keep}
+    fill = 0
+    for b in range(256):
+        if b not in table:
+            table[b] = chr(0x100 + fill)
+            fill += 1
+    return table
+
+
+BYTE_LEVEL_REMAP: IrMap = IrMap(
+    *(IrTuple(IrChr(b), IrStr(ch)) for b, ch in sorted(_byte_unicode().items()))
+)
+"""The standard byte-level working alphabet — byte ordinal → working char
+(space → ``Ġ``, newline → ``Ċ``, …); the ``remap`` a ByteLevel tokenizer
+carries."""
+
+
+class IrPretoken(IrNode):
+    """Role marker for pre-token split specs — the :class:`IrAtom` pattern.
+
+    A spec is a data record whose :meth:`split` partitions one piece of text
+    into smaller pieces (their concatenation IS the input — offsets stay
+    derivable). Open-set: a new family subclasses this and the pipeline
+    accepts it without any dispatch-table edit.
+    """
+
+    @abstractmethod
+    def split(self, text: str) -> list[str]:
+        """Partition ``text`` into pre-token pieces (concatenation-preserving)."""
+
+
+class IrDigits(IrNamedTuple[bool], IrPretoken):
+    """HF ``Digits`` — separate number chars from everything else.
+
+    ``individual`` splits every number char into its own piece; otherwise
+    number runs stay whole.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    individual: bool = True
+
+    def split(self, text: str) -> list[str]:
+        """Pieces alternating number / non-number content."""
+        pieces: list[str] = []
+        start = 0
+        i = 0
+        while i < len(text):
+            if not _is_number(text[i]):
+                i += 1
+                continue
+            if start < i:
+                pieces.append(text[start:i])
+            end = i + 1 if self.individual else _run_end(text, i, _is_number)
+            pieces.append(text[i:end])
+            start = i = end
+        if start < len(text):
+            pieces.append(text[start:])
+        return pieces
+
+
+class IrByteLevel(IrNamedTuple, IrPretoken):
+    """HF ``ByteLevel(use_regex=True)`` — the fixed GPT-2 pre-token pattern.
+
+    The regex split only; the byte → working-char conversion is the
+    tokenizer's ``remap`` data (:data:`BYTE_LEVEL_REMAP`), applied after
+    splitting.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+
+    def split(self, text: str) -> list[str]:
+        """The GPT-2 pattern's pieces."""
+        return _gpt2_split(text)
+
+
+class IrSplitMerged(IrNamedTuple[str], IrPretoken):
+    """HF ``Split(pattern, MergedWithPrevious)`` — separator sticks backward."""
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    text: str
+
+    def split(self, text: str) -> list[str]:
+        """Pieces ending at (and including) each separator occurrence."""
+        sep = str(self.text)
+        if not sep:
+            return [text] if text else []
+        pieces: list[str] = []
+        start = i = 0
+        while i < len(text):
+            if not text.startswith(sep, i):
+                i += 1
+                continue
+            pieces.append(text[start : i + len(sep)])
+            i += len(sep)
+            start = i
+        if start < len(text):
+            pieces.append(text[start:])
+        return pieces
+
+
+class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, bool]):
+    """The segmentation pipeline's data — everything before/around the rewrite.
+
+    :ivar specials: Atomic-match spellings (HF ``added_tokens``), matched
+        whole before anything else.
+    :ivar remap: Byte ordinal → working char (:data:`BYTE_LEVEL_REMAP` for a
+        byte-level tokenizer); empty ⇒ text is its own working alphabet.
+    :ivar normalize: Ordered ``IrTuple(src, dst)`` replaces applied to each
+        gap before pre-splitting (HF ``Replace`` normalizers).
+    :ivar pretokens: Ordered :class:`IrPretoken` split specs.
+    :ivar byte_fallback: An uncovered symbol yields its utf-8 bytes as
+        ``<0xNN>`` vocab tokens instead of no token.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    specials: IrTuple = IrTuple()
+    remap: IrMap = IrMap()
+    normalize: IrTuple = IrTuple()
+    pretokens: IrTuple = IrTuple()
+    byte_fallback: bool = False
+
+
+_WMeta = list[tuple[int, int, bool]]
+"""Per working char: its original span ``(start, end)`` + a starts-source
+flag (the first working char derived from that source instance)."""
+
+
+def _identity_meta(base: int, length: int) -> _WMeta:
+    """The no-pipeline meta — every char is its own aligned source."""
+    return [(base + i, base + i + 1, True) for i in range(length)]
+
+
+def _replace_pass(text: str, meta: _WMeta, src: str, dst: str) -> tuple[str, _WMeta]:
+    """One ordered replace over ``(text, meta)`` — dst chars share src's span."""
+    out: list[str] = []
+    out_meta: _WMeta = []
+    i = 0
+    while i < len(text):
+        if not src or not text.startswith(src, i):
+            out.append(text[i])
+            out_meta.append(meta[i])
+            i += 1
+            continue
+        span = (meta[i][0], meta[i + len(src) - 1][1])
+        for k, ch in enumerate(dst):
+            out.append(ch)
+            out_meta.append((span[0], span[1], k == 0))
+        i += len(src)
+    return "".join(out), out_meta
+
+
+def _piece_slices(
+    text: str, meta: _WMeta, pretokens: IrTuple
+) -> list[tuple[str, _WMeta]]:
+    """Fold the split specs over ``text``, slicing ``meta`` alongside.
+
+    :raises UnsupportedConstructError: On a spec that is not an
+        :class:`IrPretoken`.
+    """
+    pieces = [(text, meta)]
+    for spec in pretokens:
+        if not isinstance(spec, IrPretoken):
+            raise UnsupportedConstructError(
+                f"tokenizer: unsupported pre-token spec {type(spec).__name__!r}"
+            )
+        split: list[tuple[str, _WMeta]] = []
+        for ptext, pmeta in pieces:
+            at = 0
+            for part in spec.split(ptext):
+                split.append((part, pmeta[at : at + len(part)]))
+                at += len(part)
+        pieces = split
+    return pieces
+
+
+def _remap_piece(text: str, meta: _WMeta, remap: IrMap) -> tuple[str, _WMeta]:
+    """Convert a piece to its working alphabet — utf-8 bytes through ``remap``."""
+    out: list[str] = []
+    out_meta: _WMeta = []
+    for ch, (start, end, first) in zip(text, meta):
+        for k, byte in enumerate(ch.encode("utf-8")):
+            out.append(str(remap[IrChr(byte)]))
+            out_meta.append((start, end, first and k == 0))
+    return "".join(out), out_meta
+
+
+def _span_of(meta: _WMeta, start: int, end: int) -> tuple[int, int] | None:
+    """The original span of working range ``[start, end)`` — ``None`` when a
+    boundary falls inside a source char (the documented byte-level caveat)."""
+    if not meta[start][2]:
+        return None
+    if end < len(meta) and not meta[end][2]:
+        return None
+    return (meta[start][0], meta[end - 1][1])
+
+
 class IrTokenizer(
-    IrNamedTuple[IrStr, IrMap, IrMap, IrMap, IrTuple], IrEncoding, init=False
+    IrNamedTuple[IrStr, IrMap, IrMap, IrMap, IrTokenPipeline], IrEncoding, init=False
 ):
     """A token encoding — ordinals are vocab ids. The vocab is an ``IrMap``.
 
@@ -301,9 +590,14 @@ class IrTokenizer(
     base leads (the ``IrLiteral(IrStr, IrAtom)`` order); :class:`IrEncoding` is
     the role marker.
 
+    The segmentation pipeline beyond the rewrite — specials, the byte-level
+    ``remap``, ``Replace`` normalizers, pre-token split specs, byte fallback —
+    is one :class:`IrTokenPipeline` record on the ``pipeline`` field (empty
+    default: plain text in, ranked merge / longest match out).
+
     Children: none walked — every field is codec data (``_child_attrs = ()``,
-    the :class:`~lexic.ir.nodes.IrBounds` precedent). ``ranks``/``specials`` carry
-    empty defaults so a vocab-only tokenizer's repr elides them (repr-codegen
+    the :class:`~lexic.ir.nodes.IrBounds` precedent). ``ranks``/``pipeline``
+    carry empty defaults so a plain tokenizer's repr elides them (repr-codegen
     stable). Construction goes through the builders (they coerce ``name`` and
     derive ``decode``); the record itself is the plain positional constructor the
     notation/repr reconstruct from.
@@ -314,11 +608,20 @@ class IrTokenizer(
     encode: IrMap
     decode: IrMap
     ranks: IrMap = IrMap()
-    specials: IrTuple = IrTuple()
+    pipeline: IrTokenPipeline = IrTokenPipeline()
+
+    @property
+    def specials(self) -> IrTuple:
+        """The atomic-match spellings — the pipeline's first stage."""
+        return self.pipeline.specials
 
     @classmethod
     def from_vocab(
-        cls, name: str, vocab: Vocab, specials: Specials = IrTuple()
+        cls,
+        name: str,
+        vocab: Vocab,
+        specials: Specials = IrTuple(),
+        pipeline: IrTokenPipeline = IrTokenPipeline(),
     ) -> Self:
         """Build a vocab-only tokenizer from the forward ``spelling → id`` map.
 
@@ -326,49 +629,58 @@ class IrTokenizer(
 
         :param name: The registry name.
         :param vocab: The vocab — a pythonic ``Mapping`` or a ready ``IrMap``.
-        :param specials: Spellings matched atomically before the rewrite.
+        :param specials: Spellings matched atomically (sugar folded into
+            ``pipeline`` — pass one or the other).
+        :param pipeline: The segmentation pipeline data.
         :returns: The tokenizer, with the inverse ``decode`` map derived.
         """
-        return cls._build(name, _vocab_map(vocab), IrMap(), _specials_tuple(specials))
+        merged = _with_specials(pipeline, specials)
+        return cls._build(name, _vocab_map(vocab), IrMap(), merged)
 
     @classmethod
     def from_merges(
-        cls, name: str, vocab: Vocab, merges: Merges, specials: Specials = IrTuple()
+        cls,
+        name: str,
+        vocab: Vocab,
+        merges: Merges,
+        pipeline: IrTokenPipeline = IrTokenPipeline(),
     ) -> Self:
         """Build a merge-based tokenizer from a vocab + ordered merge dyads.
 
         Segmentation runs the ranked-merge rewrite (the reference algorithm);
         the ordered dyads index into the stored ``ranks`` map (position = rank).
+        Specials ride ``pipeline`` (``IrTokenPipeline(specials=...)``).
 
         :param name: The registry name.
         :param vocab: The vocab — a pythonic ``Mapping`` or a ready ``IrMap``.
         :param merges: Ordered ``(left, right)`` dyads; position is rank.
-        :param specials: Spellings matched atomically before the rewrite.
+        :param pipeline: The segmentation pipeline data.
         :returns: The tokenizer, carrying the merge model.
         """
-        return cls._build(
-            name, _vocab_map(vocab), _rank_map(merges), _specials_tuple(specials)
-        )
+        return cls._build(name, _vocab_map(vocab), _rank_map(merges), pipeline)
 
     @classmethod
-    def _build(cls, name: str, encode: IrMap, ranks: IrMap, specials: IrTuple) -> Self:
+    def _build(
+        cls, name: str, encode: IrMap, ranks: IrMap, pipeline: IrTokenPipeline
+    ) -> Self:
         """Derive ``decode``, coerce ``name``, validate specials, construct.
 
         :param name: The registry name (coerced to ``IrStr``).
         :param encode: The vocab (spelling → id).
         :param ranks: The merge dyad → rank map (empty for vocab-only).
-        :param specials: The atomic-match spellings (each must be in ``encode``).
+        :param pipeline: The segmentation pipeline (its specials must be in
+            ``encode``).
         :returns: The constructed tokenizer.
         :raises UnsupportedConstructError: When a special is not in the vocab.
         """
-        for spelling in specials:
+        for spelling in pipeline.specials:
             if IrStr(spelling) not in encode:
                 raise UnsupportedConstructError(
                     f"tokenizer: special {str(spelling)!r} is not in the vocab"
                 )
         decode = IrMap(*(IrTuple(i, s) for s, i in encode.items()))
         construct = cast(Callable[..., Self], cls)
-        return construct(IrStr(name), encode, decode, ranks, specials)
+        return construct(IrStr(name), encode, decode, ranks, pipeline)
 
     @property
     def universe(self) -> int:
@@ -402,86 +714,122 @@ class IrTokenizer(
     def boundaries(self, text: str) -> list[tuple[int, int, int]]:
         """Segment ``text`` into ``(char_start, char_end, id)`` token spans.
 
-        The *algorithm* is selected by the tokenizer's own data (the intrinsic,
+        The *algorithm* is the tokenizer's own data (the intrinsic,
         data-driven method — the :meth:`IrCharClass.complement` precedent):
-        :attr:`specials` (if any) are matched atomically first (HF ``added_tokens``
-        — a ``<think>`` is one token, never split by the rewrite), then each gap
-        runs the vocab model — with :attr:`ranks` empty a deterministic
-        longest-match, otherwise the ranked-merge rewrite (the reference BPE
-        algorithm — exact, not an approximation), driven entirely by
-        :attr:`ranks` and :attr:`encode`, no hard-coded tables. A position
-        covered by no vocab token yields no token-match point (the
-        unsegmentable / mid-multibyte case). These spans are what the engine
-        scans a token terminal against at boundary columns.
+        the pipeline's specials match atomically first, each gap normalizes,
+        pre-splits and remaps per :attr:`pipeline`, then every piece runs the
+        vocab model — with :attr:`ranks` empty a deterministic longest-match,
+        otherwise the ranked-merge rewrite (the reference BPE algorithm —
+        exact), driven entirely by :attr:`ranks` and :attr:`encode`. A token
+        whose working-alphabet boundary falls inside a source char (the
+        byte-level mid-char case) yields no span here — :meth:`tokenize`
+        still carries its id. These spans are what the engine scans a token
+        terminal against at boundary columns.
 
         :param text: The instance text to segment.
-        :returns: The token spans in order — ``(start, end, id)`` over ``text``.
+        :returns: The char-aligned token spans — ``(start, end, id)``.
         """
-        if self.specials:
-            return self._segment_with_specials(text)
-        return self._segment_plain(text, 0)
+        out: list[tuple[int, int, int]] = []
+        for tid, span in self._segments(text):
+            if span is not None:
+                out.append((span[0], span[1], tid))
+        return out
 
-    def _segment_plain(self, chunk: str, base: int) -> list[tuple[int, int, int]]:
-        """Segment a special-free ``chunk`` via the vocab model, offset by ``base``.
+    def tokenize(self, text: str) -> list[int]:
+        """The COMPLETE id sequence of ``text`` — every pipeline token.
 
-        :param chunk: The gap text (already free of :attr:`specials`).
-        :param base: The char offset of ``chunk`` within the whole input.
-        :returns: The covering spans, offset into the whole input.
-        """
-        raw = self._merge_segment(chunk) if self.ranks else self._longest_match(chunk)
-        return [(start + base, end + base, tid) for start, end, tid in raw]
-
-    def _segment_with_specials(self, text: str) -> list[tuple[int, int, int]]:
-        """Match :attr:`specials` atomically (longest-first), rewrite the gaps.
+        Overrides the ABC's boundaries-derived default: under a byte-level
+        pipeline a token may end mid-source-char and so carry no char-aligned
+        span, but its id is still part of the segmentation.
 
         :param text: The instance text to segment.
-        :returns: The covering spans in order over ``text``.
+        :returns: The ids of every token, in order.
         """
+        return [tid for tid, _ in self._segments(text)]
+
+    def _segments(self, text: str) -> list[tuple[int, tuple[int, int] | None]]:
+        """Every token of ``text`` as ``(id, char_span_or_None)``, in order."""
         specials = sorted((str(s) for s in self.specials), key=len, reverse=True)
-        spans: list[tuple[int, int, int]] = []
+        if not specials:
+            return self._gap_tokens(text, 0)
+        out: list[tuple[int, tuple[int, int] | None]] = []
         cursor = gap = 0
         while cursor < len(text):
-            hit = next((s for s in specials if s and text.startswith(s, cursor)), None)
+            hit = next((s for s in specials if text.startswith(s, cursor)), None)
             if hit is None:
                 cursor += 1
                 continue
             if cursor > gap:
-                spans.extend(self._segment_plain(text[gap:cursor], gap))
-            spans.append((cursor, cursor + len(hit), int(self.encode[IrStr(hit)])))
+                out.extend(self._gap_tokens(text[gap:cursor], gap))
+            tid = int(self.encode[IrStr(hit)])
+            out.append((tid, (cursor, cursor + len(hit))))
             cursor = gap = cursor + len(hit)
         if len(text) > gap:
-            spans.extend(self._segment_plain(text[gap:], gap))
-        return spans
+            out.extend(self._gap_tokens(text[gap:], gap))
+        return out
 
-    def _longest_match(self, text: str) -> list[tuple[int, int, int]]:
-        """Longest-match segmentation over the vocab (the ``ranks``-empty model).
+    def _gap_tokens(
+        self, gap: str, base: int
+    ) -> list[tuple[int, tuple[int, int] | None]]:
+        """One special-free gap through the pipeline — normalize, split, remap,
+        rewrite."""
+        line = self.pipeline
+        work, meta = gap, _identity_meta(base, len(gap))
+        for dyad in line.normalize:
+            work, meta = _replace_pass(work, meta, str(dyad[0]), str(dyad[1]))
+        out: list[tuple[int, tuple[int, int] | None]] = []
+        for ptext, pmeta in _piece_slices(work, meta, line.pretokens):
+            if line.remap:
+                ptext, pmeta = _remap_piece(ptext, pmeta, line.remap)
+            symbols = (
+                self._merge_symbols(ptext) if self.ranks else self._match_symbols(ptext)
+            )
+            for spelling, start, end in symbols:
+                out.extend(self._symbol_tokens(spelling, _span_of(pmeta, start, end)))
+        return out
 
-        :param text: The instance text to segment.
-        :returns: The covering token spans in order.
-        """
+    def _symbol_tokens(
+        self, spelling: str, span: tuple[int, int] | None
+    ) -> list[tuple[int, tuple[int, int] | None]]:
+        """A final symbol's tokens — its vocab id, byte fallback, or nothing."""
+        found = self.encode.get(IrStr(spelling))
+        if found is not None:
+            return [(int(found), span)]
+        if not self.pipeline.byte_fallback:
+            return []
+        data = spelling.encode("utf-8")
+        out: list[tuple[int, tuple[int, int] | None]] = []
+        for byte in data:
+            tid = self.encode.get(IrStr(f"<0x{byte:02X}>"))
+            if tid is None:
+                return []
+            out.append((int(tid), span if len(data) == 1 else None))
+        return out
+
+    def _match_symbols(self, text: str) -> list[tuple[str, int, int]]:
+        """Longest-match symbols over the vocab (the ``ranks``-empty model)."""
         keys = sorted(self.encode.keys(), key=len, reverse=True)
-        spans: list[tuple[int, int, int]] = []
+        symbols: list[tuple[str, int, int]] = []
         cursor = 0
         while cursor < len(text):
             match = next((k for k in keys if k and text.startswith(k, cursor)), None)
             if match is None:
                 cursor += 1
                 continue
-            spans.append((cursor, cursor + len(match), int(self.encode[match])))
+            symbols.append((str(match), cursor, cursor + len(match)))
             cursor += len(match)
-        return spans
+        return symbols
 
-    def _merge_segment(self, text: str) -> list[tuple[int, int, int]]:
-        """Ranked-merge (BPE) segmentation — the ``ranks``-present model.
+    def _merge_symbols(self, text: str) -> list[tuple[str, int, int]]:
+        """Ranked-merge (BPE) symbols — the ``ranks``-present model.
 
         Starts from single-character symbols, then repeatedly applies the
-        lowest-rank adjacent merge (leftmost occurrence) until none applies — the
-        reference algorithm's fixpoint, order-independent in the final symbols. A
-        final symbol carried by no vocab entry yields no span (unsegmentable),
-        mirroring :meth:`_longest_match`.
+        lowest-rank adjacent merge (leftmost occurrence) until none applies —
+        the reference algorithm's fixpoint, order-independent in the final
+        symbols.
 
-        :param text: The instance text to segment.
-        :returns: The covering token spans in order.
+        :param text: One working-alphabet piece.
+        :returns: The final ``(spelling, start, end)`` symbols in order.
         """
         ranks = self.ranks
         symbols = [(ch, i, i + 1) for i, ch in enumerate(text)]
@@ -491,11 +839,7 @@ class IrTokenizer(
                 break
             left, right = symbols[at], symbols[at + 1]
             symbols[at : at + 2] = [(left[0] + right[0], left[1], right[2])]
-        return [
-            (start, end, int(self.encode[IrStr(sp)]))
-            for sp, start, end in symbols
-            if IrStr(sp) in self.encode
-        ]
+        return symbols
 
     @staticmethod
     def _lowest_merge(symbols: list[tuple[str, int, int]], ranks: IrMap) -> int:
