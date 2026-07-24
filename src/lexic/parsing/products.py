@@ -32,7 +32,7 @@ from lexic.parsing.earley.forest import ParseTree
 from lexic.parsing.earley.kernel import FastTree
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables, compile_tables
+from lexic.parsing.earley.tables import ParserTables, compile_tables
 from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda, compile_reduce_pda
@@ -116,7 +116,7 @@ def token_model[M](
         raise UnsupportedConstructError(
             "parsing: input does not parse the token grammar"
         )
-    handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
+    handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
     tree = FastTree(kernel).build(handle)
     if not isinstance(tree, ParseTree):
         raise UnsupportedConstructError("parsing: no token derivation")

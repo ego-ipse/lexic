@@ -42,7 +42,7 @@ from lexic.parsing.earley.forest import (
 from lexic.parsing.earley.kernel import FastTree, Kernel
 from lexic.parsing.earley.lexruns import recognition_tables
 from lexic.parsing.earley.reduce import FusedReduce, Reducer, collapsed_tables
-from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables, compile_tables
+from lexic.parsing.earley.tables import ParserTables, compile_tables
 
 _MATCH = IrInt(1)
 _NO_MATCH = IrInt(0)
@@ -86,7 +86,7 @@ def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
 
     :raises UnsupportedConstructError: On ambiguous input or no derivation.
     """
-    handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
+    handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
     if not kernel.root_ambiguous:
         tree = FastTree(kernel).build(handle)
         if isinstance(tree, ParseTree):
@@ -169,7 +169,7 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
         tables = collapsed if collapsed is not None else compile_tables(n)
         kernel = Kernel(tables, str(nc[0]), True).run()
         _require_accept(kernel, n)
-        handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
+        handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
         if not kernel.root_ambiguous:
             tree = FastTree(kernel).build(handle)
             if isinstance(tree, ParseTree):
@@ -217,7 +217,7 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
             )
         kernel = Kernel(collapsed_tables(reducer, n), str(nc[0]), True).run()
         _require_accept(kernel, n)
-        handle = (kernel.accept << ORIGIN_BITS) | len(kernel.text)
+        handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
         if not kernel.root_ambiguous:
             fused = FusedReduce(kernel, reducer).build(handle)
             if fused is not None:

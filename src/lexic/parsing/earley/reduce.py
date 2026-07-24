@@ -38,8 +38,6 @@ from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
 from lexic.parsing.earley.tables import (
-    ORIGIN_BITS,
-    ORIGIN_MASK,
     RUN_DROP,
     RUN_LEAF,
     RUN_STR,
@@ -520,7 +518,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
     :ivar stack: Work frames ``[handle, kids, idx, parts, is_splice]``.
     """
 
-    __slots__ = ("kernel", "reducer", "plan", "memo", "stack")
+    __slots__ = ("kernel", "reducer", "plan", "memo", "stack", "_bits", "_mask")
 
     kernel: Kernel
     reducer: Reducer
@@ -531,6 +529,8 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
     def __init__(self, kernel: Kernel, reducer: Reducer) -> None:
         """:param kernel: the finished kernel; :param reducer: the policies."""
         self.kernel = kernel
+        self._bits = kernel.tables.packing.bits
+        self._mask = kernel.tables.packing.mask
         self.reducer = reducer
         self.plan = plan_for(reducer, kernel.tables)
         self.memo = {}
@@ -576,7 +576,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         if mode == RUN_STR:  # the unit rule YIELDs its char
             frame[3].extend(IrStr(c) for c in s)
         elif mode == RUN_LEAF:  # bare terminal unit under KEEP_RAW
-            leaf = self.kernel.tables.char_leaf
+            leaf = self.kernel.tables.terms.char_leaf
             frame[3].extend(leaf(c) for c in s)
         frame[2] += 1
 
@@ -621,10 +621,10 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         """Apply the literal policy to a scanned char kid."""
         kind = self.plan.literal_kind
         if kind == KEEP_KIND:
-            frame[3].append(self.kernel.tables.char_leaf(char))
+            frame[3].append(self.kernel.tables.terms.char_leaf(char))
         elif kind == OTHER_KIND:
             reducer = self.reducer
-            leaf = self.kernel.tables.char_leaf(char)
+            leaf = self.kernel.tables.terms.char_leaf(char)
             frame[3].extend(reducer.literal.eval(reducer, leaf, ()))
         frame[2] += 1
 
@@ -699,8 +699,8 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
             if plan.noise_kind[rid] == DROP_KIND:
                 continue
             if not plan.can_drop[rid]:  # pure span — no droppable descendant
-                item = k >> ORIGIN_BITS
-                out.append(text[item & ORIGIN_MASK : k & ORIGIN_MASK])
+                item = k >> self._bits
+                out.append(text[item & self._mask : k & self._mask])
                 continue
             sub = self._collect(k)
             if sub is None:
@@ -711,7 +711,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
     def _rule_of(self, handle: int) -> int:
         """The rule_id owning ``handle``'s item."""
         codes = self.kernel.tables.codes
-        return codes.arm_rule[codes.code_arm[handle >> (2 * ORIGIN_BITS)]]
+        return codes.arm_rule[codes.code_arm[handle >> (2 * self._bits)]]
 
     def _collect(self, handle: int) -> list | None:
         """Raw kids of ``handle`` in source order (chars and packed handles).
@@ -724,10 +724,10 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         if handle in kernel.st.leo_links:
             kernel.expand_leo(handle)
         tables = kernel.tables
-        item = handle >> ORIGIN_BITS
-        end = handle & ORIGIN_MASK
-        base = tables.codes.arm_base[tables.codes.code_arm[item >> ORIGIN_BITS]]
-        chain = predecessor_chain(links, item, end, base)
+        item = handle >> self._bits
+        end = handle & self._mask
+        base = tables.codes.arm_base[tables.codes.code_arm[item >> self._bits]]
+        chain = predecessor_chain(links, item, end, base, self._bits)
         if chain is None:
             return None
         return self._chain_kids(chain)
@@ -742,7 +742,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         for pred_item, _, child in chain:
             if isinstance(child, str):
                 # the consumed terminal is what the predecessor's dot faces
-                tid = -nxt[pred_item >> ORIGIN_BITS] - 1
+                tid = -nxt[pred_item >> self._bits] - 1
                 if lens[tid] == 0:  # a collapsed run — carry its RunTerm
                     child = (atoms[tid], child)
             kids.append(child)

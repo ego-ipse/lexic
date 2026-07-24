@@ -19,7 +19,7 @@ from lexic.ir.base import IrTuple
 from lexic.parsing.earley.engine import EarleyParser
 from lexic.parsing.earley.forest import DERIVATION_STREAM, ParseTree, SppfNode
 from lexic.parsing.earley.kernel import Delegate, FastTree, Kernel
-from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables
+from lexic.parsing.earley.tables import ParserTables
 from lexic.parsing.pda.core.errors import PdaFail
 
 __all__ = [
@@ -139,7 +139,7 @@ def island_parse(
     if best is None:
         raise PdaFail(f"island {name!r}: no match at {pos}")
     kern, item, end = best
-    tree = FastTree(kern).build((item << ORIGIN_BITS) | end)
+    tree = FastTree(kern).build((item << kern.tables.packing.bits) | end)
     if not isinstance(tree, ParseTree):  # ambiguous — take the first derivation
         tree = island_derivation(kern, item, end, name)
     return tree, end
