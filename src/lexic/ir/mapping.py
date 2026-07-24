@@ -33,6 +33,7 @@ from typing import (
     Sequence,
     ValuesView,
     final,
+    overload,
 )
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
@@ -108,6 +109,45 @@ class IrMapping[K, V, R](IrLeaf[IrSelf, IrSelf]):
     def get(self, key: object, default: R | None = None) -> R | None:
         """Read under ``key``, or ``default`` on a miss (never raises)."""
         return self._table.get(key, default)
+
+    @overload
+    def at(self, *keys: object) -> R: ...
+    @overload
+    def at[T](self, *keys: object, into: type[T]) -> T: ...
+    def at[T](self, *keys: object, into: type[T] | None = None) -> object:
+        """Chained read down nested maps — one call, path-carrying errors.
+
+        ``doc.at("model", "vocab", into=IrMap)`` walks ``doc["model"]["vocab"]``
+        and asserts the result's type in one step, so a consumer of nested
+        reduced values reads structurally without per-level narrowing.
+
+        :param keys: The key path, outermost first (at least one).
+        :param into: Optional expected type of the final value — checked, so
+            the return is honestly ``T``.
+        :returns: The value at the path.
+        :raises IrKeyError: When a key on the path is absent.
+        :raises UnsupportedConstructError: When an interior value is not a
+            mapping, or the final value is not ``into``.
+        """
+        node: object = self
+        for depth, key in enumerate(keys):
+            if not isinstance(node, IrMapping):
+                raise UnsupportedConstructError(
+                    f"at {'.'.join(map(str, keys[:depth]))}: expected a nested "
+                    f"mapping, got {type(node).__name__}"
+                )
+            try:
+                node = node[key]
+            except IrKeyError:
+                raise IrKeyError(
+                    f"at {'.'.join(map(str, keys[: depth + 1]))}: no entry"
+                ) from None
+        if into is not None and not isinstance(node, into):
+            raise UnsupportedConstructError(
+                f"at {'.'.join(map(str, keys))}: expected {into.__name__}, "
+                f"got {type(node).__name__}"
+            )
+        return node
 
     def keys(self) -> KeysView[K]:
         """Key view over ``_table`` (canonical order for :class:`IrMap`)."""
