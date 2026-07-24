@@ -23,6 +23,7 @@ from __future__ import annotations
 import unicodedata
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from heapq import heappop, heappush
 from typing import ClassVar, Self, cast
 
 from lexic.exceptions import UnsupportedConstructError
@@ -825,33 +826,57 @@ class IrTokenizer(
 
         Starts from single-character symbols, then repeatedly applies the
         lowest-rank adjacent merge (leftmost occurrence) until none applies —
-        the reference algorithm's fixpoint, order-independent in the final
-        symbols.
+        the reference fixpoint, driven by a heap agenda over the live pairs:
+        symbols form a doubly linked list of slots (a merge keeps the LEFT
+        slot, so slot order is text order and the heap's ``(rank, slot)`` key
+        reproduces the leftmost-lowest selection exactly). Ranks are unique
+        per dyad, so a popped entry is current iff the slot's live pair still
+        carries the popped rank — the staleness test needs no versioning.
 
         :param text: One working-alphabet piece.
         :returns: The final ``(spelling, start, end)`` symbols in order.
         """
-        ranks = self.ranks
-        symbols = [(ch, i, i + 1) for i, ch in enumerate(text)]
-        while len(symbols) > 1:
-            at = self._lowest_merge(symbols, ranks)
-            if at < 0:
-                break
-            left, right = symbols[at], symbols[at + 1]
-            symbols[at : at + 2] = [(left[0] + right[0], left[1], right[2])]
-        return symbols
+        count = len(text)
+        if count == 0:
+            return []
+        spell = list(text)
+        ends = list(range(1, count + 1))
+        nxt = list(range(1, count)) + [-1]
+        prv = [-1] + list(range(count - 1))
+        alive = [True] * count
+        agenda: list[tuple[int, int]] = []
+        for i in range(count - 1):
+            self._file_pair(agenda, spell, i, i + 1)
+        while agenda:
+            rank, i = heappop(agenda)
+            j = nxt[i]
+            if not alive[i] or j < 0 or self._pair_rank(spell[i], spell[j]) != rank:
+                continue  # stale — a neighbor merged since this entry filed
+            spell[i] += spell[j]
+            ends[i] = ends[j]
+            alive[j] = False
+            nxt[i] = nxt[j]
+            if nxt[i] >= 0:
+                prv[nxt[i]] = i
+            for left in (prv[i], i):
+                if left >= 0 and nxt[left] >= 0:
+                    self._file_pair(agenda, spell, left, nxt[left])
+        out: list[tuple[str, int, int]] = []
+        slot = 0  # a merge keeps the left slot, so slot 0 is always the head
+        while slot >= 0:
+            out.append((spell[slot], slot, ends[slot]))
+            slot = nxt[slot]
+        return out
 
-    @staticmethod
-    def _lowest_merge(symbols: list[tuple[str, int, int]], ranks: IrMap) -> int:
-        """The index of the lowest-rank adjacent merge, or ``-1`` if none apply.
+    def _pair_rank(self, left: str, right: str) -> int | None:
+        """The merge rank of the adjacent dyad, or ``None`` when it never merges."""
+        found = self.ranks.get(IrTuple(IrStr(left), IrStr(right)))
+        return None if found is None else int(found)
 
-        :param symbols: The current ``(spelling, start, end)`` symbols in order.
-        :param ranks: The merge dyad → rank index.
-        :returns: The left index of the winning adjacent pair, or ``-1``.
-        """
-        best_rank, best_at = -1, -1
-        for j in range(len(symbols) - 1):
-            found = ranks.get(IrTuple(IrStr(symbols[j][0]), IrStr(symbols[j + 1][0])))
-            if found is not None and (best_at < 0 or int(found) < best_rank):
-                best_rank, best_at = int(found), j
-        return best_at
+    def _file_pair(
+        self, agenda: list[tuple[int, int]], spell: list[str], left: int, right: int
+    ) -> None:
+        """Queue slots ``(left, right)``'s dyad on the agenda if it merges."""
+        rank = self._pair_rank(spell[left], spell[right])
+        if rank is not None:
+            heappush(agenda, (rank, left))

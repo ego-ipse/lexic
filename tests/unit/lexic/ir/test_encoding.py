@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from itertools import product
 from typing import Callable, cast
 
@@ -608,3 +609,43 @@ def test_tokenize_equals_ordinals_of_boundaries_for_tokenizer() -> None:
     tok = _seg_tok()
     text = "<think> hi </think>"
     assert tok.tokenize(text) == [ordinal for _, _, ordinal in tok.boundaries(text)]
+
+
+# ── heap ranked-merge ≡ the reference scan loop (randomized differential) ──
+
+
+def _scan_merge_oracle(ranks: dict[tuple[str, str], int], text: str) -> list[str]:
+    """The reference per-pass scan loop — lowest rank, leftmost occurrence."""
+    symbols = list(text)
+    while len(symbols) > 1:
+        best_rank, best_at = -1, -1
+        for j in range(len(symbols) - 1):
+            rank = ranks.get((symbols[j], symbols[j + 1]))
+            if rank is not None and (best_at < 0 or rank < best_rank):
+                best_rank, best_at = rank, j
+        if best_at < 0:
+            break
+        symbols[best_at : best_at + 2] = [symbols[best_at] + symbols[best_at + 1]]
+    return symbols
+
+
+def test_heap_merge_matches_the_scan_oracle_randomized() -> None:
+    """The heap agenda reproduces the scan loop's symbols exactly — 300 seeded
+    random (merge table, text) cases over a small alphabet, adversarial for
+    overlap/staleness (repeated chars force chained same-dyad merges)."""
+    rng = random.Random(1729)
+    for _ in range(300):
+        alphabet = "ab" if rng.random() < 0.5 else "abc"
+        pool = list(alphabet)
+        merges = []
+        for _ in range(rng.randrange(1, 8)):
+            dyad = (rng.choice(pool), rng.choice(pool))
+            if dyad in merges:
+                continue
+            merges.append(dyad)
+            pool.append(dyad[0] + dyad[1])
+        text = "".join(rng.choice(alphabet) for _ in range(rng.randrange(0, 13)))
+        vocab = {s: i for i, s in enumerate(pool)}
+        tok = IrTokenizer.from_merges("diff", vocab, merges)
+        want = _scan_merge_oracle({d: r for r, d in enumerate(merges)}, text)
+        assert tok.tokenize(text) == [vocab[s] for s in want], (merges, text)
