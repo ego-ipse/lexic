@@ -19,6 +19,8 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
+from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
+from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
@@ -155,21 +157,14 @@ def test_parse_reduced_returns_the_reduction_unnarrowed():
     """The reduce product passes any reduction through — a grammar's reducer
     may fold documents to values (the IrAst narrowing lives at the
     ``compile.parse_grammar`` boundary, not in the product)."""
-    from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-    from lexic.ir.mapping import IrMap
-
     doc = parse_reduced(JSON_GRAMMAR, '{"a": 1}', JSON_REDUCER)
     assert isinstance(doc, IrMap)
 
 
-def test_parse_grammar_raises_on_a_non_ir_ast_reduction():
-    """compile.parse_grammar refuses a flavour whose reduction is not an
-    IrAst — the boundary narrowing that used to live in the product."""
-    ast = parse_reduced(
-        GBNF_FLAVOUR.grammar, 'root ::= "x"\n', GBNF_FLAVOUR.reducer
-    )
-    from lexic.ir.nodes import IrAst
-
+def test_flavour_reduction_is_an_ir_ast():
+    """A flavour's reduction still narrows to IrAst at the compile boundary —
+    the product itself passes it through unnarrowed."""
+    ast = parse_reduced(GBNF_FLAVOUR.grammar, 'root ::= "x"\n', GBNF_FLAVOUR.reducer)
     assert isinstance(ast, IrAst)
 
 

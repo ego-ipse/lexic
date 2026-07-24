@@ -1,4 +1,4 @@
-"""The two product entries — grammar-text → IR, instance text → model.
+"""The two product entries — reduce (text → the reducer's value), model (text → model).
 
 Both take the **authored** grammar and own the whole compilation pipeline
 internally: lift + normalise, compile the predictive PDA (and, for the model
@@ -267,5 +267,3 @@ def parse_model[M](grammar: IrAst, text: str, fold: ModelFold[M]) -> M:
         return cast(M, parse_pda(product.pda, text, fold))
     except PdaFail:
         return earley_model(product.instance_grammar, text, fold, product.tables)
-
-

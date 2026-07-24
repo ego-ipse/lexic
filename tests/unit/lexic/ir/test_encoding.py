@@ -9,7 +9,7 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrAtom, IrInt, IrNode, IrNone, IrStr, IrTuple
-from lexic.ir.encoding import IrEncoding, IrTokenizer, IrUnicode
+from lexic.ir.encoding import IrEncoding, IrTokenizer, IrUnicode, IrUtf
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
 
@@ -53,6 +53,80 @@ def test_unicode_universe_is_max_codepoint() -> None:
 def test_unicode_is_an_encoding() -> None:
     """``IrUnicode`` is an :class:`IrEncoding`."""
     assert isinstance(IrUnicode(), IrEncoding)
+
+
+# ── IrUtf ──────────────────────────────────────────────────────────────
+
+
+def test_utf_is_singleton() -> None:
+    """``IrUtf()`` returns the one shared instance."""
+    assert IrUtf() is IrUtf()
+
+
+def test_utf_is_an_encoding() -> None:
+    """``IrUtf`` is an :class:`IrEncoding`."""
+    assert isinstance(IrUtf(), IrEncoding)
+
+
+def test_utf_repr_is_codegen() -> None:
+    """The repr reproduces the singleton's constructor."""
+    assert repr(IrUtf()) == "IrUtf()"
+
+
+def test_utf_universe_is_the_code_unit_ceiling() -> None:
+    """The UTF-16 universe tops out at ``0xFFFF``."""
+    assert IrUtf().universe == 0xFFFF
+
+
+def test_utf_ids_is_the_whole_code_unit_range() -> None:
+    """``ids`` is every code unit, as the plain ``range``."""
+    assert IrUtf().ids() == range(0x10000)
+
+
+def test_utf_resolve_bmp_glyph() -> None:
+    """A single BMP glyph resolves to its code unit."""
+    assert IrUtf().resolve("a") == IrChr(97)
+
+
+def test_utf_resolve_astral_char_is_unmapped() -> None:
+    """A single astral char has no one code-unit ordinal — ``IrNone``."""
+    assert IrUtf().resolve("😀") is IrNone
+
+
+def test_utf_resolve_multichar_is_unmapped() -> None:
+    """A multi-character spelling has no single ordinal — ``IrNone``."""
+    assert IrUtf().resolve("ab") is IrNone
+
+
+def test_utf_boundaries_pairs_the_astral_char() -> None:
+    """An astral char yields its surrogate pair, both spanning its one position."""
+    assert IrUtf().boundaries("a😀") == [
+        (0, 1, 97),
+        (1, 2, 0xD83D),
+        (1, 2, 0xDE00),
+    ]
+
+
+def test_utf_combine_folds_a_surrogate_pair() -> None:
+    """Adjacent high/low surrogate units combine into their code point."""
+    pair = chr(0xD83D) + chr(0xDE00)
+    assert IrUtf().combine(pair) == IrStr("😀")
+
+
+def test_utf_combine_unpaired_high_surrogate_passes_through() -> None:
+    """A lone high surrogate with no following low unit is left unchanged."""
+    text = chr(0xD83D) + "x"
+    assert IrUtf().combine(text) == IrStr(text)
+
+
+def test_utf_combine_text_without_surrogates_is_unchanged() -> None:
+    """Text with no surrogate units combines to itself."""
+    assert IrUtf().combine("abc") == IrStr("abc")
+
+
+def test_utf_eval_combines_the_focus_text() -> None:
+    """As an action body, ``eval`` is :meth:`IrUtf.combine` over the focus node."""
+    assert IrUtf().eval(IrNone, IrStr("a😀b"), ()) == IrStr("a😀b")
 
 
 # ── IrTokenizer ────────────────────────────────────────────────────────

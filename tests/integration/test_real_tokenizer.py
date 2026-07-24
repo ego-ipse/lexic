@@ -18,6 +18,7 @@ import pytest
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir.base import IrInt, IrNone, IrStr
 from lexic.ir.encoding import IrTokenizer
+from lexic.ir.mapping import IrMap
 from lexic.parsing import parse_reduced
 
 SMOLLM2 = (
@@ -37,7 +38,7 @@ def _de_ir(v: object) -> object:
     """The oracle shim — reduce values to stdlib-json shapes (type-faithful)."""
     if v is IrNone:
         return None
-    if hasattr(v, "items"):
+    if isinstance(v, IrMap):
         return {str(k): _de_ir(x) for k, x in v.items()}
     if isinstance(v, tuple) and not isinstance(v, str):
         return [_de_ir(x) for x in v]
@@ -53,16 +54,22 @@ def _text() -> str:
 
 
 @pytest.fixture(scope="module", name="document")
-def _document(text: str):
+def _document(text: str) -> IrMap:
     """One reduce of the whole real file."""
-    return parse_reduced(JSON_GRAMMAR, text, JSON_REDUCER)
+    doc = parse_reduced(JSON_GRAMMAR, text, JSON_REDUCER)
+    assert isinstance(doc, IrMap)
+    return doc
 
 
 @pytest.fixture(scope="module", name="tokenizer")
-def _tokenizer(document) -> IrTokenizer:
+def _tokenizer(document: IrMap) -> IrTokenizer:
     """The IrTokenizer built straight off the reduction's typed values."""
     model = document[IrStr("model")]
-    merges = [tuple(str(m).partition(" ")[::2]) for m in model[IrStr("merges")]]
+    assert isinstance(model, IrMap)
+    merges: list[tuple[str, str]] = []
+    for entry in model[IrStr("merges")]:
+        left, _, right = str(entry).partition(" ")
+        merges.append((left, right))
     specials = [str(t[IrStr("content")]) for t in document[IrStr("added_tokens")]]
     return IrTokenizer.from_merges("smollm2", model[IrStr("vocab")], merges, specials)
 
@@ -74,14 +81,16 @@ def _reference():
     return lib.Tokenizer.from_file(str(SMOLLM2))
 
 
-def test_reducer_matches_stdlib_on_whole_file(document, text: str) -> None:
+def test_reducer_matches_stdlib_on_whole_file(document: IrMap, text: str) -> None:
     """The json reducer equals stdlib json on the ENTIRE real document."""
     assert _de_ir(document) == stdlib_json.loads(text)
 
 
-def test_model_type_is_bpe(document) -> None:
+def test_model_type_is_bpe(document: IrMap) -> None:
     """The reduction reads model.type directly."""
-    assert str(document[IrStr("model")][IrStr("type")]) == "BPE"
+    model = document[IrStr("model")]
+    assert isinstance(model, IrMap)
+    assert str(model[IrStr("type")]) == "BPE"
 
 
 def test_real_model_sizes(tokenizer: IrTokenizer) -> None:

@@ -386,15 +386,22 @@ src/lexic/
                         driven language rewrite; the per-atom seam is what an
                         engine resolves lazily at match time
     encoding.py         IrEncoding family — the codec giving a char class's
-                        ordinals meaning (universe + resolve/spell). Role marker
-                        on IrNode (the IrAtom pattern) hosting the universe-
-                        relative complement algebra; IrUnicode (singleton, the
-                        default; MAX_CODEPOINT + chr/ord) and IrTokenizer
-                        (IrNamedTuple over IrMap encode/decode sections;
-                        boundaries(text)/tokenize(text) — longest-match
-                        segmentation, ranked-BPE a follow-up). An encoding is
-                        referenced by name from an IrAlphabet; a registry is
-                        just an IrMap[IrStr, IrEncoding]
+                        ordinals meaning (universe + resolve/spell/boundaries/
+                        ids + derived tokenize — the whole engine coupling).
+                        Role marker on IrNode (the IrAtom pattern) hosting the
+                        universe-relative complement algebra; three children:
+                        IrUnicode (singleton, the DEFAULT; ordinals ARE code
+                        points, MAX_CODEPOINT + chr/ord), IrUtf (singleton, the
+                        unit-level transform child — UTF-16 code units,
+                        surrogate-pair combining as intrinsic combine()/action
+                        eval; the reduce-side unit-decode step), IrTokenizer
+                        (IrNamedTuple; ranks: IrMap is the STORED merge model
+                        (IrInt rank values, merges the derived emission view),
+                        pythonic Mapping/Sequence builders, specials
+                        atomic-first, exact ranked-merge BPE + longest-match
+                        segmentation). An encoding is referenced by name from
+                        an IrAlphabet; a registry is just an
+                        IrMap[IrStr, IrEncoding]
 
   grammars/
     __init__.py         get_flavour(), flavour_for_extension(), register_flavour()
@@ -423,7 +430,13 @@ src/lexic/
                         open-bounded counted quantifiers refuse declaratively
     json.py             JSON_GRAMMAR — the JSON grammar (RFC 8259) authored
                         directly as IrAst, not derived from either flavour; the
-                        flavour-neutral canonical target both front-ends reduce to
+                        flavour-neutral canonical target both front-ends reduce
+                        to. Carries its reduction kit like the flavours do
+                        (JSON_REDUCTIONS/JSON_NOISE/JSON_REDUCER — a reducer is
+                        something any grammar can have): documents fold to
+                        typed IR values (IrMap/IrTuple/decoded IrStr via
+                        IrUtf/IrInt/IrNone) through
+                        parse_reduced(JSON_GRAMMAR, text, JSON_REDUCER)
 
   parsing/
     __init__.py         Public API: the two PRODUCT entries parse_reduced

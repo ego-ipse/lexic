@@ -31,6 +31,7 @@ from lexic.ir.base import (
     IrNode,
     IrNone,
     IrNoneType,
+    IrSelf,
     IrStr,
     IrTuple,
 )
