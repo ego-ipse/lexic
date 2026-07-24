@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import json as stdlib_json  # oracle only — never in src
+
+import pytest
+
 from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.compile.pipeline.synthesis import synthesize
-from lexic.grammars.json import JSON_GRAMMAR
-from lexic.ir.base import IrSeq
+from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
+from lexic.ir.base import IrInt, IrNone, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.ir.canonical import fold_name
+from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAst,
     IrCharClass,
@@ -15,6 +21,7 @@ from lexic.ir.nodes import (
     IrRange,
     IrRule,
 )
+from lexic.parsing import parse_reduced
 from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
 # ── Basic structure ───────────────────────────────────────────────────
@@ -156,3 +163,161 @@ def test_codegen_produces_classes():
     assert isinstance(classes, dict)
     assert len(classes) > 0
     assert "JsonText" in classes
+
+
+# ── JSON_REDUCER — scalars ─────────────────────────────────────────────
+
+
+def reduce(text: str) -> IrSelf:
+    """Reduce ``text`` through ``JSON_GRAMMAR``/``JSON_REDUCER``."""
+    return parse_reduced(JSON_GRAMMAR, text, JSON_REDUCER)
+
+
+def test_reduce_true_is_irint_one():
+    """``true`` reduces to ``IrInt(1)``."""
+    assert reduce("true") == IrInt(1)
+
+
+def test_reduce_false_is_irint_zero():
+    """``false`` reduces to ``IrInt(0)``."""
+    assert reduce("false") == IrInt(0)
+
+
+def test_reduce_null_is_irnone():
+    """``null`` reduces to the ``IrNone`` singleton, by identity."""
+    assert reduce("null") is IrNone
+
+
+def test_reduce_integer_is_irint():
+    """A plain integer reduces to ``IrInt``."""
+    assert reduce("42") == IrInt(42)
+
+
+def test_reduce_negative_integer_is_irint():
+    """A negative integer reduces to ``IrInt`` (sign-aware decode)."""
+    assert reduce("-7") == IrInt(-7)
+
+
+def test_reduce_fractional_number_raises():
+    """A fractional number refuses — the IR carries no float leaf."""
+    with pytest.raises(UnsupportedConstructError, match="no float leaf"):
+        reduce("1.5")
+
+
+def test_reduce_exponent_number_raises():
+    """An exponent number refuses — the IR carries no float leaf."""
+    with pytest.raises(UnsupportedConstructError, match="no float leaf"):
+        reduce("1e5")
+
+
+# ── JSON_REDUCER — strings ──────────────────────────────────────────────
+
+
+def test_reduce_plain_string():
+    """A string with no escapes reduces to its own text."""
+    assert reduce('"hello"') == IrStr("hello")
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ('"a\\nb"', "a\nb"),
+        ('"a\\tb"', "a\tb"),
+        ('"a\\"b"', 'a"b'),
+        ('"a\\\\b"', "a\\b"),
+        ('"a\\/b"', "a/b"),
+    ],
+)
+def test_reduce_short_escape(text: str, expected: str):
+    """Each short escape decodes to its literal character."""
+    assert reduce(text) == IrStr(expected)
+
+
+def test_reduce_unicode_escape():
+    """A ``\\uXXXX`` escape decodes to its BMP glyph."""
+    assert reduce('"\\u0041"') == IrStr("A")
+
+
+def test_reduce_astral_surrogate_pair_matches_stdlib():
+    """A surrogate-pair escape combines into its astral code point."""
+    text = '"\\ud83d\\ude00"'
+    assert reduce(text) == IrStr(stdlib_json.loads(text))
+
+
+def test_reduce_literal_astral_char_passes_through():
+    """A literal (unescaped) astral char in the source text is unchanged."""
+    assert reduce('"😀"') == IrStr("😀")
+
+
+# ── JSON_REDUCER — objects / arrays ──────────────────────────────────────
+
+
+def test_reduce_object_is_irmap_with_decoded_keys_and_typed_values():
+    """An object reduces to an ``IrMap`` of decoded string keys → typed values."""
+    doc = reduce('{"a": 1, "b": true}')
+    assert doc == IrMap(
+        IrTuple(IrStr("a"), IrInt(1)),
+        IrTuple(IrStr("b"), IrInt(1)),
+    )
+
+
+def test_reduce_array_is_irtuple_of_typed_values():
+    """An array reduces to a plain tuple of typed values."""
+    assert reduce("[1, null, false]") == IrTuple(IrInt(1), IrNone, IrInt(0))
+
+
+def test_reduce_nested_object_and_array():
+    """A nested document reduces recursively through the same reductions."""
+    doc = reduce('{"xs": [1, {"y": 2}]}')
+    assert doc == IrMap(
+        IrTuple(
+            IrStr("xs"),
+            IrTuple(IrInt(1), IrMap(IrTuple(IrStr("y"), IrInt(2)))),
+        ),
+    )
+
+
+def test_reduce_empty_object():
+    """An empty object reduces to an empty ``IrMap``."""
+    assert reduce("{}") == IrMap()
+
+
+def test_reduce_empty_array():
+    """An empty array reduces to an empty tuple."""
+    assert reduce("[]") == IrTuple()
+
+
+def test_reduce_is_whitespace_insensitive():
+    """Extra whitespace around tokens does not change the reduced value."""
+    assert reduce('{"a":1,"b":2}') == reduce(' { "a" : 1 , "b" : 2 } ')
+
+
+# ── JSON_REDUCER — oracle: agreement with stdlib ``json`` ────────────────
+
+
+def _de_ir(value: object) -> object:
+    """De-IR shim — reduce IR values to stdlib-json shapes (type-faithful)."""
+    if value is IrNone:
+        return None
+    if isinstance(value, IrMap):
+        return {str(k): _de_ir(v) for k, v in value.items()}
+    if isinstance(value, tuple) and not isinstance(value, str):
+        return [_de_ir(v) for v in value]
+    if isinstance(value, IrInt):
+        return int(value)
+    return str(value)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"a": [1, 2, 3], "b": {"c": null, "d": true, "e": false}}',
+        '["\\u0041\\ud83d\\ude00", "plain", 0, -12]',
+        "{}",
+        "[]",
+        '{"nested": {"deep": [1, [2, [3]]]}}',
+    ],
+)
+def test_reduce_matches_stdlib_oracle(text: str):
+    """The de-IR'd reduction matches ``json.loads`` on a handful of documents."""
+    assert _de_ir(reduce(text)) == stdlib_json.loads(text)

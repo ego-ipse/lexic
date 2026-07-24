@@ -10,7 +10,17 @@ Canonical-form choices: names are lowercase/hyphenated; single code points are
 :class:`IrLiteral`; multi-char keywords are :class:`IrLiteral`; char-point sets
 are one normalised :class:`IrCharClass` (sorted, ranges coalesced); negation is
 expressed as positive :class:`IrRange` spans; rules are in canonical order
-(start first, first-reference order).
+(start first, first-reference order). Structural rules carry
+``semantic=False`` — compile-channel metadata excluded from rule equality, so
+every fixpoint/parity pin above still holds.
+
+The grammar also carries its reduction kit (a reducer is something any
+grammar can have, exactly like the flavours): ``JSON_REDUCTIONS`` /
+``JSON_NOISE`` / ``JSON_REDUCER`` fold a document to typed IR values —
+objects ``IrMap``, arrays ``IrTuple``, strings decoded ``IrStr`` (escapes
+per-unit, surrogate pairs combined through :class:`~lexic.ir.encoding.IrUtf`),
+integers ``IrInt``, truth ``IrInt(0|1)``, null ``IrNone`` — via
+``parse_reduced(JSON_GRAMMAR, text, JSON_REDUCER)``.
 """
 
 from __future__ import annotations
