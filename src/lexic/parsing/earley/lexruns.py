@@ -32,6 +32,7 @@ from lexic.ir.base import IrLeaf, IrSelf
 from lexic.ir.nodes import IrAst, IrLiteral
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
 from lexic.parsing.earley.tables import (
+    ORIGIN_BITS,
     RUN_DROP,
     Charset,
     ParserTables,
@@ -268,7 +269,9 @@ def run_candidates(tables: ParserTables) -> dict[str, RunShape]:
 
 
 def collapse_runs(
-    grammar: IrAst, run_mode: Callable[[ParserTables, int], int | None]
+    grammar: IrAst,
+    run_mode: Callable[[ParserTables, int], int | None],
+    bits: int = ORIGIN_BITS,
 ) -> ParserTables:
     """Tables for ``grammar`` with every licensed candidate run collapsed.
 
@@ -279,23 +282,24 @@ def collapse_runs(
 
     :param grammar: An Earley-normalised grammar.
     :param run_mode: The collapse licence, ``(tables, unit_rid) → mode | None``.
+    :param bits: The packing tier the tables compile at.
     :returns: The collapsed tables (the plain tables when nothing collapses).
     """
-    plain = compile_tables(grammar)
+    plain = compile_tables(grammar, bits)
     runs: dict[str, tuple[RunTerm, bool]] = {}
     for name, (charset, has_empty, unit_rid) in run_candidates(plain).items():
         mode = run_mode(plain, unit_rid)
         if mode is not None:
             runs[name] = (RunTerm(charset, 1, mode), has_empty)
-    return build_tables(grammar, runs) if runs else plain
+    return build_tables(grammar, runs, bits) if runs else plain
 
 
-_RECOGNITION: dict[int, tuple[IrAst, ParserTables]] = {}
-"""Recognition-tables memo — id(grammar) → (grammar, tables). The strong
-grammar reference pins the id against reuse."""
+_RECOGNITION: dict[tuple[int, int], tuple[IrAst, ParserTables]] = {}
+"""Recognition-tables memo — (id(grammar), bits) → (grammar, tables). The
+strong grammar reference pins the id against reuse."""
 
 
-def recognition_tables(grammar: IrAst) -> ParserTables:
+def recognition_tables(grammar: IrAst, bits: int = ORIGIN_BITS) -> ParserTables:
     """Tables with **every** grammar-proved run collapsed — recognition only.
 
     Recognition builds no tree and no SPPF, so the reducer-side
@@ -304,13 +308,14 @@ def recognition_tables(grammar: IrAst) -> ParserTables:
     The recognised language is identical by the follow-disjointness proof.
 
     :param grammar: An Earley-normalised grammar.
+    :param bits: The packing tier the tables compile at.
     :returns: The maximally collapsed tables (plain when nothing collapses).
     """
-    entry = _RECOGNITION.get(id(grammar))
+    entry = _RECOGNITION.get((id(grammar), bits))
     if entry is not None:
         return entry[1]
-    tables = collapse_runs(grammar, lambda _tables, _rid: RUN_DROP)
-    _RECOGNITION[id(grammar)] = (grammar, tables)
+    tables = collapse_runs(grammar, lambda _tables, _rid: RUN_DROP, bits)
+    _RECOGNITION[(id(grammar), bits)] = (grammar, tables)
     return tables
 
 

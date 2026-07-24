@@ -27,7 +27,7 @@ from lexic.ir.flavour import IrFlavour
 from lexic.ir.nodes import IrAst
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.earley.tables import ParserTables
+from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import (
     CC,
@@ -459,3 +459,18 @@ def test_long_ref_chain_compiles_at_constant_stack_depth():
     pda = compile_pda(lifted, normalize(lifted), {})
     assert isinstance(pda.start_key, CloneKey)
     assert all(spec.name for spec in pda.clones.values())  # no _PENDING left
+
+
+# ── island tables inherit the run's packing tier ─────────────────────────
+
+
+def test_island_tables_cache_per_name_and_tier():
+    """island_tables(name, bits) compiles at the requested tier, caches per
+    (name, bits), and keeps tiers distinct."""
+    pda = pda_from_text('root ::= "a" "b"\n')
+    small = pda.island_tables("root", 8)
+    assert small.packing.bits == 8
+    assert pda.island_tables("root", 8) is small
+    default = pda.island_tables("root")
+    assert default is not small
+    assert default.packing.bits == ORIGIN_BITS

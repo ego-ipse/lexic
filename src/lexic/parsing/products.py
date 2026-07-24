@@ -4,7 +4,10 @@ Both take the **authored** grammar and own the whole compilation pipeline
 internally: lift + normalise, compile the predictive PDA (and, for the model
 product, the run-collapsed Earley tables), all memoised per
 **(grammar identity, reducer/fold identity)** — the compiled tables bake the
-reducer plan / fold records, so grammar identity alone is a wrong key. Each
+reducer plan / fold records, so grammar identity alone is a wrong key. Earley
+tables pack at the tier the input's size picks
+(:func:`~lexic.parsing.earley.tables.tier_for` — the model product keys it, the
+reduce completion picks it per parse). Each
 parse runs the PDA first and completes on the Earley engine on any
 :class:`~lexic.parsing.pda.runtime.runtime.PdaFail`; :class:`PdaFail` never escapes.
 
@@ -32,7 +35,12 @@ from lexic.parsing.earley.forest import ParseTree
 from lexic.parsing.earley.kernel import FastTree
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.earley.tables import ParserTables, compile_tables
+from lexic.parsing.earley.tables import (
+    ORIGIN_BITS,
+    ParserTables,
+    compile_tables,
+    tier_for,
+)
 from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda, compile_reduce_pda
@@ -110,7 +118,7 @@ def token_model[M](
     :returns: The model the start rule folds to.
     :raises UnsupportedConstructError: If ``text`` does not parse.
     """
-    tables = compile_tables(normalize(lift_optional_nullables(grammar)))
+    tables = _token_tables(grammar, tier_for(len(text)))
     kernel = TokenKernel(tables, text, bounds, record_links=True).run()
     if kernel.accept < 0:
         raise UnsupportedConstructError(
@@ -163,13 +171,31 @@ class _ModelProduct:
 
 
 _REDUCE_CACHE: dict[tuple[int, int], _ReduceProduct] = {}
-_MODEL_CACHE: dict[tuple[int, int], _ModelProduct] = {}
+_MODEL_CACHE: dict[tuple[int, int, int], _ModelProduct] = {}
+_TOKEN_TABLES: dict[tuple[int, int], tuple[IrAst, ParserTables]] = {}
 
 
 def reset_product_cache() -> None:
     """Test seam: drop the per-identity product caches."""
     _REDUCE_CACHE.clear()
     _MODEL_CACHE.clear()
+    _TOKEN_TABLES.clear()
+
+
+def _token_tables(grammar: IrAst, bits: int) -> ParserTables:
+    """The token product's Earley tables, memoised per ``(grammar, bits)``.
+
+    The token grammar normalises to a fresh ``IrAst`` per call, so the
+    identity-keyed :func:`compile_tables` memo alone would recompile every
+    parse — this memo pins the AUTHORED grammar's identity instead.
+    """
+    key = (id(grammar), bits)
+    entry = _TOKEN_TABLES.get(key)
+    if entry is not None and entry[0] is grammar:
+        return entry[1]
+    tables = compile_tables(normalize(lift_optional_nullables(grammar)), bits)
+    _TOKEN_TABLES[key] = (grammar, tables)
+    return tables
 
 
 def _reduce_product(grammar: IrAst, reducer: Reducer) -> _ReduceProduct:
@@ -197,9 +223,16 @@ def _reduce_product(grammar: IrAst, reducer: Reducer) -> _ReduceProduct:
     return product
 
 
-def _model_product(grammar: IrAst, fold: ModelFold) -> _ModelProduct:
-    """The compiled instance product for ``(grammar, fold)``, memoised by identity."""
-    key = (id(grammar), id(fold))
+def _model_product(
+    grammar: IrAst, fold: ModelFold, bits: int = ORIGIN_BITS
+) -> _ModelProduct:
+    """The compiled instance product for ``(grammar, fold, bits)``, memoised.
+
+    Keyed by identity plus the packing tier ``bits`` (the Earley tables pack
+    at it). The PDA half is tier-independent but rides the key — a second
+    tier for the same pair only ever compiles for a beyond-first-tier input.
+    """
+    key = (id(grammar), id(fold), bits)
     cached = _MODEL_CACHE.get(key)
     if cached is not None and cached.grammar is grammar and cached.fold is fold:
         return cached
@@ -210,7 +243,7 @@ def _model_product(grammar: IrAst, fold: ModelFold) -> _ModelProduct:
         fold,
         compile_pda(lifted, instance, fold.baked),
         instance,
-        collapsed_fold_tables(instance, fold),
+        collapsed_fold_tables(instance, fold, bits),
     )
     _MODEL_CACHE[key] = product
     return product
@@ -253,8 +286,10 @@ def parse_model[M](grammar: IrAst, text: str, fold: ModelFold[M]) -> M:
 
     Takes the **authored** codegen grammar; lifting, normalisation, PDA and
     run-collapsed table compilation are internal, memoised per ``(grammar,
-    fold)`` identity. Each parse runs the model PDA first and, on any
-    :class:`PdaFail`, completes on ``parse_first`` + ``fold``.
+    fold)`` identity plus the packing tier the input's size picks
+    (:func:`~lexic.parsing.earley.tables.tier_for`). Each parse runs the model
+    PDA first and, on any :class:`PdaFail`, completes on ``parse_first`` +
+    ``fold``.
 
     :param grammar: The authored codegen grammar.
     :param text: The instance input to parse.
@@ -262,7 +297,7 @@ def parse_model[M](grammar: IrAst, text: str, fold: ModelFold[M]) -> M:
     :returns: The model the start rule folds to.
     :raises UnsupportedConstructError: If ``text`` does not parse.
     """
-    product = _model_product(grammar, fold)
+    product = _model_product(grammar, fold, tier_for(len(text)))
     try:
         return cast(M, parse_pda(product.pda, text, fold))
     except PdaFail:

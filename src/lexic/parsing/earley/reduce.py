@@ -38,6 +38,7 @@ from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
 from lexic.parsing.earley.tables import (
+    ORIGIN_BITS,
     RUN_DROP,
     RUN_LEAF,
     RUN_STR,
@@ -749,9 +750,9 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         return kids
 
 
-_COLLAPSED: dict[tuple[int, int], tuple[object, object, ParserTables]] = {}
-"""Collapsed-tables memo — (id(reducer), id(grammar)) → (reducer, grammar,
-tables). Strong references pin both ids against reuse."""
+_COLLAPSED: dict[tuple[int, int, int], tuple[object, object, ParserTables]] = {}
+"""Collapsed-tables memo — (id(reducer), id(grammar), bits) → (reducer,
+grammar, tables). Strong references pin both ids against reuse."""
 
 
 def _run_mode(reducer: Reducer, tables: ParserTables, unit_rid: int) -> int | None:
@@ -789,24 +790,27 @@ def _run_mode(reducer: Reducer, tables: ParserTables, unit_rid: int) -> int | No
     return modes.pop() if len(modes) == 1 else None
 
 
-def collapsed_tables(reducer: Reducer, grammar: IrAst) -> ParserTables:
+def collapsed_tables(
+    reducer: Reducer, grammar: IrAst, bits: int = ORIGIN_BITS
+) -> ParserTables:
     """Tables for ``grammar`` with every run provable safe *for this reducer*
     collapsed to a :class:`~lexic.parsing.earley.tables.RunTerm`.
 
     The grammar-side proof (charset, uniqueness, follow disjointness) comes
     from :func:`~lexic.parsing.earley.lexruns.run_candidates`; the reducer-side
     check (:func:`_run_mode`) keeps only runs whose per-char contributions
-    the fused fold can reconstruct. Memoised per ``(reducer, grammar)``.
+    the fused fold can reconstruct. Memoised per ``(reducer, grammar, bits)``.
 
     :param reducer: The reduction policy the collapse must respect.
     :param grammar: An Earley-normalised grammar.
+    :param bits: The packing tier the tables compile at.
     :returns: The collapsed tables (the plain tables when nothing collapses).
     """
-    key = (id(reducer), id(grammar))
+    key = (id(reducer), id(grammar), bits)
     entry = _COLLAPSED.get(key)
     if entry is not None:
         return entry[2]
-    tables = collapse_runs(grammar, partial(_run_mode, reducer))
+    tables = collapse_runs(grammar, partial(_run_mode, reducer), bits)
     _COLLAPSED[key] = (reducer, grammar, tables)
     return tables
 

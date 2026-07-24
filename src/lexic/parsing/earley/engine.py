@@ -42,7 +42,7 @@ from lexic.parsing.earley.forest import (
 from lexic.parsing.earley.kernel import FastTree, Kernel
 from lexic.parsing.earley.lexruns import recognition_tables
 from lexic.parsing.earley.reduce import FusedReduce, Reducer, collapsed_tables
-from lexic.parsing.earley.tables import ParserTables, compile_tables
+from lexic.parsing.earley.tables import ParserTables, compile_tables, tier_for
 
 _MATCH = IrInt(1)
 _NO_MATCH = IrInt(0)
@@ -50,7 +50,7 @@ _NO_MATCH = IrInt(0)
 
 
 def _run_kernel(n: IrSelf, nc: Sequence[IrSelf], record_links: bool) -> Kernel:
-    """Compile ``n`` (memoised), run one kernel over ``nc[0]``.
+    """Compile ``n`` (memoised, tier picked by input size), run one kernel.
 
     :param n: The grammar (an :class:`~lexic.ir.nodes.IrAst`).
     :param nc: ``(IrStr(text), ...)``.
@@ -61,7 +61,8 @@ def _run_kernel(n: IrSelf, nc: Sequence[IrSelf], record_links: bool) -> Kernel:
         raise UnsupportedConstructError(
             f"parsing: expected an IrAst grammar, got {type(n).__name__}"
         )
-    return Kernel(compile_tables(n), str(nc[0]), record_links).run()
+    text = str(nc[0])
+    return Kernel(compile_tables(n, tier_for(len(text))), text, record_links).run()
 
 
 def _require_accept(kernel: Kernel, n: IrSelf) -> None:
@@ -112,7 +113,9 @@ class Recognize(IrLeaf[IrSelf, IrSelf]):
             raise UnsupportedConstructError(
                 f"parsing: expected an IrAst grammar, got {type(n).__name__}"
             )
-        kernel = Kernel(recognition_tables(n), str(nc[0]), False).run()
+        text = str(nc[0])
+        tables = recognition_tables(n, tier_for(len(text)))
+        kernel = Kernel(tables, text, False).run()
         return _MATCH if kernel.accept >= 0 else _NO_MATCH
 
 
@@ -165,9 +168,13 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
             raise UnsupportedConstructError(
                 f"parsing: expected an IrAst grammar, got {type(n).__name__}"
             )
+        text = str(nc[0])
         collapsed = nc[1] if len(nc) > 1 and isinstance(nc[1], ParserTables) else None
-        tables = collapsed if collapsed is not None else compile_tables(n)
-        kernel = Kernel(tables, str(nc[0]), True).run()
+        if collapsed is not None:
+            tables = collapsed
+        else:
+            tables = compile_tables(n, tier_for(len(text)))
+        kernel = Kernel(tables, text, True).run()
         _require_accept(kernel, n)
         handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
         if not kernel.root_ambiguous:
@@ -215,7 +222,9 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
             raise UnsupportedConstructError(
                 f"parsing: expected a Reducer, got {type(reducer).__name__}"
             )
-        kernel = Kernel(collapsed_tables(reducer, n), str(nc[0]), True).run()
+        text = str(nc[0])
+        tables = collapsed_tables(reducer, n, tier_for(len(text)))
+        kernel = Kernel(tables, text, True).run()
         _require_accept(kernel, n)
         handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
         if not kernel.root_ambiguous:

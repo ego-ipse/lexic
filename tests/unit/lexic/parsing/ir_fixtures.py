@@ -16,7 +16,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
+from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 
 REQ = IrQuantifier(1, 1)
@@ -119,6 +119,17 @@ def word_grammar() -> IrAst:
     """word = letter letter ; letter = [a-z]."""
     word, letter = letter_word_rules()
     return IrAst(rules=IrSeq(word, letter), start="word")
+
+
+def digits_plus_grammar() -> IrAst:
+    """s = [0-9]+ (normalized) — one rule with a collapsible charclass run."""
+    rule = IrRule(
+        "s",
+        IrAlternation(
+            IrSequence(IrItem(IrCharClass(IrRange(IrChr("0"), IrChr("9"))), PLUS))
+        ),
+    )
+    return normalize(IrAst(rules=IrSeq(rule), start="s"))
 
 
 def sss_grammar() -> IrAst:

@@ -67,7 +67,7 @@ from lexic.ir.nodes import (
 )
 from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
-from lexic.parsing.earley.tables import RUN_STR, ParserTables
+from lexic.parsing.earley.tables import ORIGIN_BITS, RUN_STR, ParserTables
 from lexic.parsing.pda.analysis.analysis import nullable_names
 
 FOLD_KINDS: tuple[str, ...] = ("value_str", "sequence", "alternation")
@@ -531,12 +531,14 @@ def lift_optional_nullables(grammar: IrAst) -> IrAst:
 # ── instance-path run collapse (the fold-config licence) ──────────────
 
 
-_COLLAPSED: dict[tuple[int, int], tuple[ModelFold, IrAst, ParserTables]] = {}
-"""Collapsed instance-tables memo — (id(fold), id(grammar)) → (fold, grammar,
-tables). Strong references pin both ids against reuse."""
+_COLLAPSED: dict[tuple[int, int, int], tuple[ModelFold, IrAst, ParserTables]] = {}
+"""Collapsed instance-tables memo — (id(fold), id(grammar), bits) → (fold,
+grammar, tables). Strong references pin both ids against reuse."""
 
 
-def collapsed_fold_tables(grammar: IrAst, fold: ModelFold) -> ParserTables:
+def collapsed_fold_tables(
+    grammar: IrAst, fold: ModelFold, bits: int = ORIGIN_BITS
+) -> ParserTables:
     """Instance tables with every fold-safe lexical run collapsed.
 
     The grammar-side proof (charset, uniqueness, follow disjointness) comes
@@ -545,19 +547,21 @@ def collapsed_fold_tables(grammar: IrAst, fold: ModelFold) -> ParserTables:
     leaf hides structure the fold looks through anyway. Every kept run is
     :data:`~lexic.parsing.earley.tables.RUN_STR` (text-preserving): the run text
     stays a leaf in the tree so ``to_text()`` round-trips exactly — never
-    ``RUN_DROP``. Memoised per ``(fold, grammar)``.
+    ``RUN_DROP``. Memoised per ``(fold, grammar, bits)``.
 
     :param grammar: The Earley-normalised instance grammar.
     :param fold: The configured :class:`ModelFold` for that grammar.
+    :param bits: The packing tier the tables compile at.
     :returns: The collapsed tables (the plain tables when nothing collapses).
     """
-    key = (id(fold), id(grammar))
+    key = (id(fold), id(grammar), bits)
     entry = _COLLAPSED.get(key)
     if entry is not None:
         return entry[2]
     tables = collapse_runs(
         grammar,
         lambda plain, unit_rid: RUN_STR if fold.run_ok(plain, unit_rid) else None,
+        bits,
     )
     _COLLAPSED[key] = (fold, grammar, tables)
     return tables

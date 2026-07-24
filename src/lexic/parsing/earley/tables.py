@@ -64,6 +64,23 @@ ORIGIN_MASK = (1 << ORIGIN_BITS) - 1
 ADVANCE = 1 << ORIGIN_BITS
 """Adding this to a packed item advances its dot by one (codes are dot-dense)."""
 
+TIERS = (28, 40)
+"""The packing tiers parse entries choose from, smallest first."""
+
+
+def tier_for(length: int) -> int:
+    """The smallest packing tier whose capacity covers ``length``.
+
+    :param length: The input length in characters.
+    :returns: The first tier of :data:`TIERS` with ``length < 2**bits`` — the
+        last tier when none covers it (the kernel capacity raise stays the
+        backstop).
+    """
+    for bits in TIERS:
+        if length < (1 << bits):
+            return bits
+    return TIERS[-1]
+
 
 class Packing(IrLeaf[IrSelf, IrSelf]):
     """One packing tier — the origin-bits triple as a single value-object.
