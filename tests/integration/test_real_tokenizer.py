@@ -16,10 +16,17 @@ from pathlib import Path
 import pytest
 
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.base import IrInt, IrNone, IrStr
-from lexic.ir.encoding import IrTokenizer
+from lexic.ir.base import IrInt, IrNone, IrStr, IrTuple
+from lexic.ir.encoding import (
+    BYTE_LEVEL_REMAP,
+    IrByteLevel,
+    IrDigits,
+    IrTokenizer,
+    IrTokenPipeline,
+)
 from lexic.ir.mapping import IrMap
 from lexic.parsing import parse_reduced
+from tests.integration.tokenizer_corpus import SHARED_CORPUS
 
 SMOLLM2 = (
     Path(__file__).resolve().parents[2]
@@ -71,7 +78,16 @@ def _tokenizer(document: IrMap) -> IrTokenizer:
         left, _, right = str(entry).partition(" ")
         merges.append((left, right))
     specials = [str(t[IrStr("content")]) for t in document[IrStr("added_tokens")]]
-    return IrTokenizer.from_merges("smollm2", model[IrStr("vocab")], merges, specials)
+    pipeline = IrTokenPipeline(
+        IrTuple(*(IrStr(s) for s in specials)),
+        BYTE_LEVEL_REMAP,
+        IrTuple(),
+        IrTuple(IrDigits(True), IrByteLevel()),
+        False,
+    )
+    return IrTokenizer.from_merges(
+        "smollm2", model[IrStr("vocab")], merges, pipeline=pipeline
+    )
 
 
 @pytest.fixture(scope="module", name="reference")
@@ -113,9 +129,25 @@ def test_specials_path_matches_reference(tokenizer, reference) -> None:
     assert tokenizer.tokenize(text) == reference.encode(text).ids
 
 
-def test_byte_level_gap_is_pinned_until_the_pipeline_closes_it(
-    tokenizer, reference
-) -> None:
-    """Byte-level remap + pre-tokenization is the KNOWN gap — pinned unequal."""
+def test_byte_level_matches_reference(tokenizer, reference) -> None:
+    """The full pipeline closes the byte-level gap — spacey text is exact."""
     text = "Hello world"
-    assert tokenizer.tokenize(text) != reference.encode(text).ids
+    assert tokenizer.tokenize(text) == reference.encode(text).ids
+
+
+_CORPUS = SHARED_CORPUS + (
+    "Hello",
+    "line1\n\nline2",
+    "CamelCase snake_case",
+    "3.14 * r**2",
+    "",
+    " ",
+    "\n",
+    'quote "inside" it',
+)
+
+
+def test_curated_corpus_is_reference_exact(tokenizer, reference) -> None:
+    """Every curated case tokenizes reference-exact (the headline gate)."""
+    for case in _CORPUS:
+        assert tokenizer.tokenize(case) == reference.encode(case).ids, repr(case)

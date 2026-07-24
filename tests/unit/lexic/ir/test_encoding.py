@@ -9,7 +9,13 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrAtom, IrInt, IrNode, IrNone, IrStr, IrTuple
-from lexic.ir.encoding import IrEncoding, IrTokenizer, IrUnicode, IrUtf
+from lexic.ir.encoding import (
+    IrEncoding,
+    IrTokenizer,
+    IrTokenPipeline,
+    IrUnicode,
+    IrUtf,
+)
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
 
@@ -472,7 +478,7 @@ def _special_tok() -> IrTokenizer:
         "tokens",
         _special_vocab(),
         IrTuple(IrTuple(IrStr("h"), IrStr("i"))),
-        IrTuple(IrStr("<think>"), IrStr("</think>")),
+        pipeline=IrTokenPipeline(IrTuple(IrStr("<think>"), IrStr("</think>"))),
     )
 
 
