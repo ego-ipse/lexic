@@ -79,6 +79,8 @@ Runnable, commented walkthroughs live in [`getting_started/`](getting_started/):
 The `compile/` package compiles grammar text into **either or both** of:
 
 - **Compiled models** — classes synthesized at runtime on an immutable record spine (`IrNamedTuple`) via `type(name, bases, ns)`. No source emit, no import, no file write; a model *is* a walkable IR record. Files are written only on the explicit `export_module` path.
+
+  Because those classes are built at runtime, a type checker cannot see their fields: `model.item` works, but reads as unknown (the repo spells this `getattr(model, "item")` to say so). When you want *statically typed* field access, export the twin module — `export_module` writes a real `.py` with real annotations, and lexic parses its own export back to verify it.
 - **Pure IR** — an `IrAst` (via `parse_grammar`), real IR objects from a neutral, no-`exec` text notation (`load_ir`), or a full `IrFlavour` from a text manifest (`load_flavour`).
 
 ```python

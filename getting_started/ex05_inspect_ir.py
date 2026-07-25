@@ -16,7 +16,6 @@ Run::
 from __future__ import annotations
 
 from lexic import compile_text
-from lexic.ir.nodes import IrItem, IrLiteral
 
 
 def main() -> None:
@@ -32,14 +31,11 @@ num  ::= [0-9]+
         print(f"\n── rule {rule.name!r} ──")
         for arm_index, arm in enumerate(rule.body):
             print(f"  arm[{arm_index}]:")
+            # Every IR node's repr IS its constructor call (repr-is-codegen),
+            # so one uniform line renders any atom type — no per-type branch,
+            # and a new atom type needs no edit here.
             for i, item in enumerate(arm):
-                atom = item.atom
-                if isinstance(atom, IrLiteral):
-                    print(f"    [{i}] literal {atom!r} (×{item.quantifier})")
-                elif isinstance(item, IrItem):
-                    print(
-                        f"    [{i}] {type(atom).__name__} {atom} (×{item.quantifier})"
-                    )
+                print(f"    [{i}] {item.atom!r} (×{item.quantifier})")
 
     # Now show how the grammar drives round-trip emission.
     model = compiled.parse("3+4")

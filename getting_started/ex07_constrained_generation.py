@@ -42,7 +42,8 @@ def main() -> None:
     encode = IrMap(*(IrTuple(IrStr(t), IrChr(i)) for t, i in VOCAB.items()))
     tokenizer = IrTokenizer.from_vocab("tokens", encode)
     cursor = compile_text(GRAMMAR, cache_key="ex07").constrain(tokenizer)
-    spell = {i: t for t, i in VOCAB.items()}
+    # The tokenizer already inverts id → spelling; no side table needed.
+    spell = tokenizer.spell
 
     rng = random.Random(7)
     steps: list[str] = []
@@ -52,10 +53,10 @@ def main() -> None:
             break
         choice = rng.choice(sorted(admissible))
         cursor.push(choice)
-        steps.append(spell[choice])
+        steps.append(str(spell(choice)))
         print(
-            f"step {len(steps):>2}: picked {spell[choice]!r:5} "
-            f"from {sorted(spell[i] for i in admissible)}"
+            f"step {len(steps):>2}: picked {str(spell(choice))!r:5} "
+            f"from {sorted(str(spell(i)) for i in admissible)}"
         )
 
     generated = "".join(steps)
