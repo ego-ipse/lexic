@@ -8,8 +8,6 @@ is built the same way a real caller would build one, not hand-assembled IR.
 
 from __future__ import annotations
 
-from typing import cast
-
 import pytest
 
 from lexic.compile import (
@@ -50,14 +48,8 @@ _SHAPE = MapShape("sect", "entry", "key", "val")
 _TOY_DOC = "(a=1, b=(c=22, d=(e=3)), f=4)"
 
 
-def _model(value: object) -> GrammarModel:
-    """Narrow a Template.run() leaf to the GrammarModel it always is."""
-    return cast(GrammarModel, value)
-
-
-def _section(value: object) -> dict[str, object]:
-    """Narrow a Template.run() nested value to the dict it always is."""
-    return cast("dict[str, object]", value)
+# Template.run() is flat and path-keyed, and every value is a kept
+# GrammarModel — so these tests need no narrowing helpers at all.
 
 
 # ── extraction basics ────────────────────────────────────────────────────
@@ -66,43 +58,40 @@ def _section(value: object) -> dict[str, object]:
 def test_single_top_level_keep_extracts_a_plain_value() -> None:
     """A single top-level KEEP extracts a plain scalar value."""
     result = template(_TOY_COMPILED, _SHAPE, {"f": KEEP}).run(_TOY_DOC)
-    assert _model(result["f"]).to_text() == "4"
+    assert result[("f",)].to_text() == "4"
 
 
 def test_nested_spec_extracts_a_value_inside_a_section() -> None:
     """A nested spec two levels deep extracts a value inside a section."""
     result = template(_TOY_COMPILED, _SHAPE, {"b": {"c": KEEP}}).run(_TOY_DOC)
-    inner = _section(result["b"])
-    assert _model(inner["c"]).to_text() == "22"
+    assert result[("b", "c")].to_text() == "22"
 
 
 def test_spec_with_multiple_keys_extracts_all_specified_values() -> None:
     """A spec naming multiple top-level keys extracts all of them at once."""
     result = template(_TOY_COMPILED, _SHAPE, {"a": KEEP, "f": KEEP}).run(_TOY_DOC)
-    texts = {k: _model(v).to_text() for k, v in result.items()}
-    assert texts == {"a": "1", "f": "4"}
+    texts = {tuple(str(p) for p in k): v.to_text() for k, v in result.items()}
+    assert texts == {("a",): "1", ("f",): "4"}
 
 
 def test_extraction_is_whitespace_insensitive() -> None:
     """The same spec extracts identically regardless of document whitespace."""
     t = template(_TOY_COMPILED, _SHAPE, {"b": {"c": KEEP}})
     result = t.run(_TOY_DOC.replace(" ", ""))
-    inner = _section(result["b"])
-    assert _model(inner["c"]).to_text() == "22"
+    assert result[("b", "c")].to_text() == "22"
 
 
 def test_deep_three_level_spec_extracts_a_value() -> None:
     """A spec three levels deep extracts alongside a shallower key in one run."""
     spec = {"a": KEEP, "b": {"d": {"e": KEEP}}}
     result = template(_TOY_COMPILED, _SHAPE, spec).run(_TOY_DOC)
-    leaf = _section(_section(result["b"])["d"])
-    assert _model(leaf["e"]).to_text() == "3"
+    assert result[("b", "d", "e")].to_text() == "3"
 
 
 def test_kept_leaf_is_a_grammar_model_instance() -> None:
     """A KEEP leaf yields a real GrammarModel instance, not a raw scalar."""
     result = template(_TOY_COMPILED, _SHAPE, {"f": KEEP}).run(_TOY_DOC)
-    assert isinstance(result["f"], GrammarModel)
+    assert isinstance(result[("f",)], GrammarModel)
 
 
 # ── spec-absent keys ─────────────────────────────────────────────────────
@@ -135,8 +124,8 @@ def test_one_span_pair_serves_two_different_templates() -> None:
     pair = spanify(_TOY_COMPILED, _SHAPE)
     first = Template(pair, {"f": KEEP}).run(_TOY_DOC)
     second = Template(pair, {"a": KEEP}).run(_TOY_DOC)
-    assert _model(first["f"]).to_text() == "4"
-    assert _model(second["a"]).to_text() == "1"
+    assert first[("f",)].to_text() == "4"
+    assert second[("a",)].to_text() == "1"
 
 
 # ── skip_rules() ─────────────────────────────────────────────────────────
@@ -257,9 +246,7 @@ def test_template_and_template_of_spanify_produce_equivalent_results() -> None:
     spec = {"b": {"c": KEEP}}
     via_template = template(_TOY_COMPILED, _SHAPE, spec).run(_TOY_DOC)
     via_spanify = Template(spanify(_TOY_COMPILED, _SHAPE), spec).run(_TOY_DOC)
-    template_leaf = _model(_section(via_template["b"])["c"]).to_text()
-    spanify_leaf = _model(_section(via_spanify["b"])["c"]).to_text()
-    assert template_leaf == spanify_leaf
+    assert via_template[("b", "c")].to_text() == via_spanify[("b", "c")].to_text()
 
 
 # ── the run product is on the spine ──────────────────────────────────────
@@ -274,26 +261,28 @@ def test_run_returns_an_ir_map() -> None:
 def test_run_keys_match_plain_strings() -> None:
     """IrStr keys hash-match plain str, so a caller subscripts natively."""
     out = template(_TOY_COMPILED, _SHAPE, {"f": KEEP}).run(_TOY_DOC)
-    assert set(out.keys()) == {"f"}
+    assert set(out.keys()) == {("f",)}
 
 
 def test_kept_leaf_is_a_grammar_model_not_a_wrapper() -> None:
     """A KEEP leaf is the GrammarModel itself — no wrapper type."""
     out = template(_TOY_COMPILED, _SHAPE, {"f": KEEP}).run(_TOY_DOC)
-    assert isinstance(out["f"], GrammarModel)
+    assert isinstance(out[("f",)], GrammarModel)
 
 
-def test_nested_level_is_an_ir_map_again() -> None:
-    """A nested spec level extracts to another IrMap (same shape, recursive)."""
+def test_nested_spec_flattens_to_a_path_key() -> None:
+    """A nested spec yields a PATH key, not a nested map — so the value type
+    stays GrammarModel and a read never has to narrow."""
     out = template(_TOY_COMPILED, _SHAPE, {"b": {"c": KEEP}}).run(_TOY_DOC)
-    assert isinstance(out["b"], IrMap)
+    assert set(out.keys()) == {("b", "c")}
+    assert isinstance(out[("b", "c")], GrammarModel)
 
 
 def test_absent_key_raises_ir_key_error() -> None:
     """A spec key absent from the document is absent from the map."""
     out = template(_TOY_COMPILED, _SHAPE, {"f": KEEP}).run(_TOY_DOC)
     with pytest.raises(IrKeyError):
-        _ = out["absent"]
+        _ = out[("absent",)]
 
 
 def test_span_fold_product_is_a_span_level() -> None:
@@ -311,7 +300,7 @@ def test_spec_key_absent_from_document_is_silently_omitted() -> None:
     """A spec key the document does not carry is simply absent — extraction is
     a projection, not a schema check, so a partial document is not an error."""
     out = template(_TOY_COMPILED, _SHAPE, {"f": KEEP, "nope": KEEP}).run(_TOY_DOC)
-    assert set(out.keys()) == {"f"}
+    assert set(out.keys()) == {("f",)}
 
 
 def test_every_spec_key_absent_yields_an_empty_map() -> None:
@@ -339,5 +328,4 @@ def test_keep_over_a_section_value_yields_the_section_model() -> None:
     """KEEP on a value that IS a section keeps the whole section as one model —
     the mirror of the nested-spec-over-a-leaf case, and legal."""
     out = template(_TOY_COMPILED, _SHAPE, {"b": KEEP}).run(_TOY_DOC)
-    assert isinstance(out["b"], GrammarModel)
-    assert out["b"].to_text() == "(c=22, d=(e=3))"
+    assert out[("b",)].to_text() == "(c=22, d=(e=3))"
