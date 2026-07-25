@@ -43,6 +43,7 @@ from lexic.ir.encoding import (
     IrTokenizer,
     IrTokenPipeline,
     IrUnicodeForm,
+    IrUnknown,
 )
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAst
@@ -168,7 +169,22 @@ def _pipeline(doc: IrMap, model: IrMap, added: list[IrMap]) -> IrTokenPipeline:
         IrTuple(*pretokens),
         # A json true reduces to IrInt(1); the SPELLING table is this format's.
         BYTE_FALLBACK if model.get(IrStr("byte_fallback")) == 1 else IrMap(),
+        _unknown(model),
     )
+
+
+def _unknown(model: IrMap) -> IrUnknown:
+    """``model.unk_token`` + ``fuse_unk`` as the uncovered-symbol fallback.
+
+    Read rather than refused, because a document may declare an unknown
+    token it can never reach: gemma4 does, and its byte fallback covers all
+    256 bytes, so nothing uncovered ever gets that far. Refusing the
+    declaration would reject a file that tokenizes perfectly.
+    """
+    unk = model.get(IrStr("unk_token"))
+    if unk is None or not isinstance(unk, IrStr):
+        return IrUnknown()
+    return IrUnknown(str(unk), model.get(IrStr("fuse_unk")) == 1)
 
 
 def _spec(step: IrMap) -> IrPretoken:

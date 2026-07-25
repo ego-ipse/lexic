@@ -9,6 +9,7 @@ from typing import Callable, cast
 
 import pytest
 
+from lexic.api.pretokens import BYTE_FALLBACK
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrAtom, IrInt, IrNode, IrNone, IrStr, IrTuple
 from lexic.ir.encoding import (
@@ -19,6 +20,7 @@ from lexic.ir.encoding import (
     IrTokenPipeline,
     IrUnicode,
     IrUnicodeForm,
+    IrUnknown,
     IrUtf,
 )
 from lexic.ir.mapping import IrMap
@@ -276,10 +278,22 @@ def test_boundaries_is_longest_match() -> None:
     assert tok.tokenize("ab") == [0]
 
 
-def test_boundaries_skips_unsegmentable_chars() -> None:
-    """A position matching no vocab token advances with no token-match point."""
+def test_input_a_vocabulary_cannot_carry_is_skipped_at_seeding() -> None:
+    """What the vocabulary cannot carry is skipped BEFORE merging, not after.
+
+    This looks like a silent drop and is not the same thing: it is the
+    reference behaviour, and it is what lets the surviving neighbours become
+    adjacent and merge across the gap. Dropping the symbol after seeding
+    instead leaves them unmerged — a different token stream — and refusing
+    rejects input that real vocabularies tokenize fine (smollm2 has no entry
+    for 21 of the 256 byte characters).
+
+    A caller who wants such input REPRESENTED declares a byte fallback or an
+    unknown symbol; the chain below covers that.
+    """
     tok = IrTokenizer.from_vocab("demo", IrMap(IrTuple(IrStr("a"), IrChr(0))))
-    assert tok.boundaries("zaz") == [(1, 2, 0)]  # only the 'a' is a token point
+    assert tok.boundaries("zaz") == [(1, 2, 0)]  # only the 'a' is carried
+    assert tok.boundaries("a") == [(0, 1, 0)]
 
 
 def test_spell_reconstructs_tokenized_text() -> None:
@@ -397,13 +411,13 @@ def test_merge_prefers_the_lower_rank_pair() -> None:
 def test_merge_spans_track_original_char_offsets() -> None:
     """Merged spans carry the original character offsets, in order."""
     tok = _merge_tok()
-    assert tok.boundaries("bc abc") == [(0, 2, 5), (3, 6, 4)]  # 'bc', skip ' ', 'abc'
+    assert tok.boundaries("bc abc") == [(0, 2, 5), (3, 6, 4)]  # ' ' not carried
 
 
-def test_merge_skips_unsegmentable_symbols() -> None:
-    """A final symbol carried by no vocab entry yields no span."""
+def test_merge_skips_what_no_vocab_entry_carries() -> None:
+    """Both models agree: uncovered input is skipped at seeding, not after."""
     tok = _merge_tok()
-    assert tok.boundaries("zabc") == [(1, 4, 4)]  # 'z' unknown, then 'abc'
+    assert tok.boundaries("zabc") == [(1, 4, 4)]
 
 
 def test_merge_spell_reconstructs_text() -> None:
@@ -759,3 +773,62 @@ def test_a_pipeline_applies_normalizers_in_order():
     for step in pipeline.normalize:
         text, meta = IrNormalizer.ensure(step).apply(text, meta)
     assert text == "a-b"
+
+
+# ── the uncovered-symbol fallback chain ──────────────────────────────────
+
+
+def _fallback_tok(vocab: dict[str, int], **pipeline):
+    """A vocab-only tokenizer with the given pipeline data."""
+    return IrTokenizer.from_vocab(
+        "t",
+        IrMap(*(IrTuple(IrStr(k), IrChr(i)) for k, i in vocab.items())),
+        pipeline=IrTokenPipeline(**pipeline),
+    )
+
+
+def test_byte_fallback_is_reachable_on_the_vocab_only_path():
+    """The whole fallback path was dead here — the char never became a symbol.
+
+    ``_match_symbols`` advanced past an unmatched char instead of emitting
+    it, so ``_symbol_tokens`` was never given the chance to apply a fallback.
+    No shipped fixture reached it (all four are merge-based), which is why a
+    MAJOR sat green.
+    """
+    tok = _fallback_tok({"h": 0, "e": 1, "<0x5A>": 2}, byte_fallback=BYTE_FALLBACK)
+    assert tok.tokenize("hZe") == [0, 2, 1]
+
+
+def test_the_unknown_symbol_covers_what_bytes_do_not():
+    """Last resort before refusing — and only when the vocab declares one."""
+    tok = _fallback_tok({"h": 0, "e": 1, "<unk>": 9}, unknown=IrUnknown("<unk>"))
+    assert tok.tokenize("hZZe") == [0, 9, 9, 1]
+
+
+def test_fused_unknowns_collapse_into_one():
+    """``fuse`` is a declared fact; ignoring it would be the silent-drop class."""
+    tok = _fallback_tok({"h": 0, "e": 1, "<unk>": 9}, unknown=IrUnknown("<unk>", True))
+    assert tok.tokenize("hZZe") == [0, 9, 1]
+
+
+def test_byte_fallback_wins_over_the_unknown_symbol():
+    """Bytes are the more informative answer, so they are tried first."""
+    tok = _fallback_tok(
+        {"h": 0, "<0x5A>": 2, "<unk>": 9},
+        byte_fallback=BYTE_FALLBACK,
+        unknown=IrUnknown("<unk>"),
+    )
+    assert tok.tokenize("hZ") == [0, 2]
+
+
+def test_with_no_fallback_an_uncovered_char_is_skipped_not_invented():
+    """No fallback declared ⇒ the char is not carried, and nothing is made up.
+
+    The raise inside ``_symbol_tokens`` remains as a safety net for a symbol
+    that survives seeding and still resolves to nothing — unreachable once
+    seeding filters on the same predicate, which is where a safety net
+    belongs.
+    """
+    tok = _fallback_tok({"h": 0, "e": 1})
+    assert tok.tokenize("hZe") == [0, 1]
+    assert tok.tokenize("he") == [0, 1]
