@@ -260,6 +260,82 @@ def test_a_unicode_form_normalizer_is_read() -> None:
     assert tok.pipeline.normalize == (IrUnicodeForm("NFD"),)
 
 
+@pytest.mark.parametrize(
+    ("knob", "value"),
+    [
+        ("end_of_word_suffix", '"</w>"'),
+        ("continuing_subword_prefix", '"##"'),
+        ("ignore_merges", "true"),
+    ],
+)
+def test_a_model_knob_this_reader_does_not_implement_refuses(knob, value) -> None:
+    """Each of these changes the token stream, and each was read past.
+
+    Measured divergences on minimal documents: ``end_of_word_suffix`` [6,7]
+    vs [6,3]; ``continuing_subword_prefix`` [7,5,5,6] vs [0,1,2,2,3];
+    ``ignore_merges`` [9] vs [6,3]. Every shipped fixture leaves all three at
+    a default, which is why ignoring them stayed green.
+    """
+    with pytest.raises(UnsupportedConstructError, match="does not implement"):
+        _load(_document(model_extra=f'"{knob}": {value}, '))
+
+
+@pytest.mark.parametrize("unset", ["null", '""', "false"])
+def test_the_four_spellings_of_unset_are_all_accepted(unset) -> None:
+    """ "Not set" is written four ways ACROSS THE SHIPPED FILES, so all pass.
+
+    ``ignore_merges`` is absent on one fixture and ``false`` on the rest; the
+    two affix knobs are ``""`` on two and ``null`` on the others. A check
+    written as ``is not None`` refuses three of the four real files — the
+    exact failure this effort keeps producing: a rule correct in principle
+    that rejects valid input.
+    """
+    tok = _load(_document(model_extra=f'"end_of_word_suffix": {unset}, '))
+    assert tok.tokenize("hello") == [6, 3]
+    assert _load(_document()).tokenize("hello") == [6, 3]  # absent, the fourth
+
+
+def test_dropout_is_a_permanent_refusal() -> None:
+    """Not a future feature: non-determinism cannot coexist with round-trip.
+
+    It "refused" before only by accident — the json reducer has no float
+    leaf, so ``0.5`` failed to parse. ``dropout: 0`` would have sailed
+    through.
+    """
+    with pytest.raises(UnsupportedConstructError, match="does not implement"):
+        _load(_document(model_extra='"dropout": 1, '))
+
+
+@pytest.mark.parametrize("flag", ["lstrip", "rstrip"])
+def test_an_added_token_that_moves_a_boundary_refuses(flag) -> None:
+    """``lstrip``/``rstrip`` pull adjacent whitespace into the special's span."""
+    with pytest.raises(UnsupportedConstructError, match="moves a token boundary"):
+        _load(
+            _document(added_tokens=f'[{{"id": 9, "content": "<e>", "{flag}": true}}]')
+        )
+
+
+def test_normalized_is_refused_only_when_a_normalizer_exists() -> None:
+    """The conditional that keeps a real file loading.
+
+    ``normalized`` decides whether a special is matched before or after
+    normalization. With no normalizer declared the flag is inert — and that
+    is exactly how one shipped fixture sets it, so an unconditional refusal
+    would reject a file that tokenizes perfectly.
+    """
+    inert = _load(
+        _document(added_tokens='[{"id": 9, "content": "<e>", "normalized": true}]')
+    )
+    assert inert.pipeline.specials == (IrStr("<e>"),)
+    with pytest.raises(UnsupportedConstructError, match="declares a normalizer"):
+        _load(
+            _document(
+                normalizer='{"type": "NFC"}',
+                added_tokens='[{"id": 9, "content": "<e>", "normalized": true}]',
+            )
+        )
+
+
 def test_an_unimplemented_normalizer_refuses() -> None:
     """A normalizer with no spec refuses rather than being skipped."""
     with pytest.raises(UnsupportedConstructError, match="unimplemented normalizer"):
