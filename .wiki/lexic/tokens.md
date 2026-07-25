@@ -73,6 +73,14 @@ that names it ([[decisions]]). `lexic.api.pretokens` holds the
 `tokenizer.json` families and their byte table; the spine stays neutral about
 whose pipeline it is.
 
+A reader **refuses what it cannot honour** rather than reading past it: a
+section or flag that changes what gets segmented is an error, not a shorter
+answer. The test is whether the setting CHANGES the result, not whether it is
+present — a flag whose effect depends on the content (does normalization
+alter this token?) must be judged against the content, or it rejects files
+that tokenize identically either way. Sections that act on an
+already-segmented sequence are out of scope and say so.
+
 Everything in a pipeline is **derived from a document's own sections**, never
 fitted to a family. Two traps the readers must handle and the spine must not
 know about:
@@ -88,6 +96,38 @@ tokenizer, so the sole-vocabulary check counts by identity, not by entry.
 A vocabulary is per-deployment, not per-grammar: `compiled.bind(tok)` returns
 a new artefact against a different vocabulary without recompiling
 ([[public-api]]).
+
+### The segmentation model
+
+`IrSegmenter` is the role — `symbols(tok, text)` turns one working-alphabet
+piece into the vocabulary symbols covering it. Two ship: `IrLongestMatch`
+(merge-free) and `IrRankedMerge` (the reference BPE fixpoint). The BUILDERS
+choose: `from_vocab` means longest match, `from_merges` means ranked merge,
+so the model is decided where it is already known rather than re-derived per
+gap. `with_segmenter` attaches another — Unigram or WordPiece are declarable
+outside `ir/` without touching the spine.
+
+Both shipped models are singletons, not empty records: an empty
+`IrNamedTuple` compares EQUAL to any other empty one, which would make two
+tokenizers differing only in model compare equal — and the compile caches
+key on tokenizer equality.
+
+**What a vocabulary cannot carry is skipped at SEEDING**, by `carries`: in
+the vocabulary, byte-fallback-able, or covered by the unknown symbol. That
+is not a silent drop but the reference behaviour, and it is what lets the
+surviving neighbours become adjacent and merge ACROSS the gap. Dropping the
+symbol after seeding instead leaves them unmerged — a different token
+stream — and refusing rejects input real vocabularies handle (a byte-level
+vocabulary may simply have no entry for some byte characters). The raise in
+the token resolver is the safety net for a symbol that survives seeding and
+still resolves to nothing.
+
+`IrUnknown(spelling, fuse)` is the last resort before that raise: vocab →
+byte fallback → unknown → refuse.
+
+`universe` is the **highest ordinal, inclusive**, for every encoding. Reading
+it as exclusive refuses the ceiling value itself; reading an exclusive one as
+inclusive admits an ordinal past the end.
 
 ### The segmentation pipeline
 
