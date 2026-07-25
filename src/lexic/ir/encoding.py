@@ -286,7 +286,21 @@ class IrPretoken(IrNode):
         """Partition ``text`` into pre-token pieces (concatenation-preserving)."""
 
 
-class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, IrMap]):
+class IrUnknown(IrNamedTuple[str, bool]):
+    """The fallback symbol for input the vocabulary does not cover.
+
+    :ivar spelling: The vocab spelling emitted for an uncovered symbol.
+        Empty ⇒ there is no fallback, and an uncovered symbol REFUSES rather
+        than vanishing.
+    :ivar fuse: Whether consecutive fallbacks collapse into one token.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    spelling: str = ""
+    fuse: bool = False
+
+
+class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, IrMap, IrUnknown]):
     """The segmentation pipeline's data — everything before/around the rewrite.
 
     :ivar specials: Atomic-match spellings, matched whole before anything else.
@@ -313,6 +327,7 @@ class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, IrMap]):
     normalize: IrTuple = IrTuple()
     pretokens: IrTuple = IrTuple()
     byte_fallback: IrMap = IrMap()
+    unknown: IrUnknown = IrUnknown()
 
 
 _WMeta = list[tuple[int, int, bool]]
@@ -692,25 +707,87 @@ class IrTokenizer(
             )
             for spelling, start, end in symbols:
                 out.extend(self._symbol_tokens(spelling, _span_of(pmeta, start, end)))
-        return out
+        return self._fuse_unknown(out)
+
+    def _fuse_unknown(
+        self, tokens: list[tuple[int, tuple[int, int] | None]]
+    ) -> list[tuple[int, tuple[int, int] | None]]:
+        """Collapse runs of the unknown token into one, when asked."""
+        unknown = self.encode.get(IrStr(str(self.pipeline.unknown.spelling)))
+        if unknown is None or not self.pipeline.unknown.fuse:
+            return tokens
+        fused: list[tuple[int, tuple[int, int] | None]] = []
+        for tid, span in tokens:
+            if tid == int(unknown) and fused and fused[-1][0] == int(unknown):
+                continue
+            fused.append((tid, span))
+        return fused
 
     def _symbol_tokens(
         self, spelling: str, span: tuple[int, int] | None
     ) -> list[tuple[int, tuple[int, int] | None]]:
-        """A final symbol's tokens — its vocab id, byte fallback, or nothing."""
+        """A final symbol's tokens — its vocab id, byte fallback, or unknown.
+
+        :raises UnsupportedConstructError: When nothing covers the symbol.
+            Returning no tokens instead would drop the input silently, which
+            is a wrong answer dressed as a shorter one.
+        """
         found = self.encode.get(IrStr(spelling))
         if found is not None:
             return [(int(found), span)]
+        bytes_out = self._byte_tokens(spelling, span)
+        if bytes_out is not None:
+            return bytes_out
+        unknown = self.encode.get(IrStr(str(self.pipeline.unknown.spelling)))
+        if unknown is not None:
+            return [(int(unknown), span)]
+        raise UnsupportedConstructError(
+            f"encoding: {spelling!r} is not in the vocabulary, and neither "
+            "byte fallback nor an unknown symbol covers it"
+        )
+
+    def _seed(self, text: str) -> tuple[list[str], list[int], list[int]]:
+        """The merge model's starting symbols — one per CARRIED char.
+
+        :param text: One working-alphabet piece.
+        :returns: The seed spellings, their start offsets and their ends, in
+            text order.
+        """
+        kept = [i for i, ch in enumerate(text) if self._carries(ch)]
+        return [text[i] for i in kept], kept, [i + 1 for i in kept]
+
+    def _carries(self, spelling: str) -> bool:
+        """Whether anything in this vocabulary can carry ``spelling``.
+
+        The seeding filter for both models. A vocabulary need not cover every
+        input — a byte-level vocabulary may simply have no entry for some of
+        the 256 byte characters — and what it cannot carry is skipped HERE,
+        which lets the NEIGHBOURS become adjacent and merge across the gap.
+        Dropping the symbol later instead leaves those neighbours unmerged,
+        a different token stream; refusing outright rejects input that
+        tokenizes fine. Which bytes are uncovered is a property of the
+        vocabulary, knowable when it is built rather than per input.
+        """
+        if self.encode.get(IrStr(spelling)) is not None:
+            return True
+        if self._byte_tokens(spelling, None) is not None:
+            return True
+        return self.encode.get(IrStr(str(self.pipeline.unknown.spelling))) is not None
+
+    def _byte_tokens(
+        self, spelling: str, span: tuple[int, int] | None
+    ) -> list[tuple[int, tuple[int, int] | None]] | None:
+        """``spelling`` as byte-fallback tokens, or ``None`` when uncovered."""
         table = self.pipeline.byte_fallback
         if not table:
-            return []
+            return None
         data = spelling.encode("utf-8")
         out: list[tuple[int, tuple[int, int] | None]] = []
         for byte in data:
             spelt = table.get(IrChr(byte))
             tid = None if spelt is None else self.encode.get(spelt)
             if tid is None:
-                return []
+                return None
             out.append((int(tid), span if len(data) == 1 else None))
         return out
 
@@ -722,6 +799,12 @@ class IrTokenizer(
         while cursor < len(text):
             match = next((k for k in keys if k and text.startswith(k, cursor)), None)
             if match is None:
+                # Emit it when anything can carry it: skipping unconditionally
+                # discarded the char before _symbol_tokens could apply a
+                # fallback, which made byte fallback and the unknown symbol
+                # unreachable on this path entirely.
+                if self._carries(text[cursor]):
+                    symbols.append((text[cursor], cursor, cursor + 1))
                 cursor += 1
                 continue
             symbols.append((str(match), cursor, cursor + len(match)))
@@ -743,11 +826,26 @@ class IrTokenizer(
         :param text: One working-alphabet piece.
         :returns: The final ``(spelling, start, end)`` symbols in order.
         """
-        count = len(text)
-        if count == 0:
+        spell, starts, ends = self._seed(text)
+        if not spell:
             return []
-        spell = list(text)
-        ends = list(range(1, count + 1))
+        nxt = self._merge_to_fixpoint(spell, ends)
+        out: list[tuple[str, int, int]] = []
+        slot = 0  # a merge keeps the left slot, so slot 0 is always the head
+        while slot >= 0:
+            out.append((spell[slot], starts[slot], ends[slot]))
+            slot = nxt[slot]
+        return out
+
+    def _merge_to_fixpoint(self, spell: list[str], ends: list[int]) -> list[int]:
+        """Apply ranked merges until none applies, rewriting ``spell``/``ends``.
+
+        :param spell: The seed spellings; merged in place.
+        :param ends: Their end offsets; extended in place as symbols join.
+        :returns: The live-successor list — walk it from slot 0 for the
+            surviving symbols in text order.
+        """
+        count = len(spell)
         nxt = list(range(1, count)) + [-1]
         prv = [-1] + list(range(count - 1))
         alive = [True] * count
@@ -768,12 +866,7 @@ class IrTokenizer(
             for left in (prv[i], i):
                 if left >= 0 and nxt[left] >= 0:
                     self._file_pair(agenda, spell, left, nxt[left])
-        out: list[tuple[str, int, int]] = []
-        slot = 0  # a merge keeps the left slot, so slot 0 is always the head
-        while slot >= 0:
-            out.append((spell[slot], slot, ends[slot]))
-            slot = nxt[slot]
-        return out
+        return nxt
 
     def _pair_rank(self, left: str, right: str) -> int | None:
         """The merge rank of the adjacent dyad, or ``None`` when it never merges."""
