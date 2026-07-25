@@ -35,7 +35,7 @@ from lexic.api.pretokens import (
 )
 from lexic.compile import Reducer, parse_reduced
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrSelf, IrStr, IrTuple
+from lexic.ir.base import IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.encoding import (
     IrNormalizer,
     IrPretoken,
@@ -128,10 +128,14 @@ def tokenizer_of(doc: IrMap, name: str) -> IrTokenizer:
         raise UnsupportedConstructError(
             f"tokenizer.json: {kind} model — only BPE is supported"
         )
+    _refuse_unsupported_model(model)
     added = [
         IrMap.ensure(t, "an added_tokens entry")
         for t in IrTuple.ensure(doc.get(IrStr("added_tokens"), IrTuple()))
     ]
+    _refuse_unsupported_specials(
+        added, bool(_normalizers(doc.get(IrStr("normalizer"))))
+    )
     return IrTokenizer.from_merges(
         name,
         _vocab(model, added),
@@ -186,6 +190,82 @@ def _pipeline(doc: IrMap, model: IrMap, added: list[IrMap]) -> IrTokenPipeline:
         BYTE_FALLBACK if model.get(IrStr("byte_fallback")) == 1 else IrMap(),
         _unknown(model),
     )
+
+
+MODEL_KNOBS = (
+    "end_of_word_suffix",
+    "continuing_subword_prefix",
+    "ignore_merges",
+    "dropout",
+)
+"""Model fields that change segmentation and have no spec here.
+
+Every shipped fixture leaves all four at a default, which is why ignoring
+them stayed green — and why ignoring them is still a wrong answer for the
+files that do not.
+"""
+
+
+def _is_unset(value: IrSelf | None) -> bool:
+    """Whether a document says "not set" — in any of the four spellings.
+
+    Absent, ``null``, ``""`` and ``false`` all occur across the shipped
+    fixtures for these same fields: ``ignore_merges`` is absent on one and
+    ``false`` on the rest; the two affix knobs are ``""`` on two and ``null``
+    on the others. A check written as ``is not None`` refuses three of the
+    four real files.
+    """
+    return value is None or value is IrNone or value == "" or value == 0
+
+
+def _refuse_unsupported_model(model: IrMap) -> None:
+    """Refuse a model knob set to something this reader does not implement.
+
+    The same shape ``_normalizers`` uses: a field that changes what gets
+    segmented is refused, not skipped. ``dropout`` is a PERMANENT refusal
+    rather than a future feature — it makes tokenization non-deterministic,
+    which cannot coexist with round-trip fidelity.
+
+    :raises UnsupportedConstructError: On a non-default knob.
+    """
+    for knob in MODEL_KNOBS:
+        value = model.get(IrStr(knob))
+        if not _is_unset(value):
+            raise UnsupportedConstructError(
+                f"tokenizer.json: {knob!r} is set to {value!r}, which this "
+                "reader does not implement — refusing rather than segmenting "
+                "as though it were unset"
+            )
+
+
+def _refuse_unsupported_specials(added: list[IrMap], normalized: bool) -> None:
+    """Refuse added-token flags that move a token boundary.
+
+    ``lstrip``/``rstrip`` pull adjacent whitespace into the special's span,
+    which IS a boundary change. ``normalized`` decides whether the special is
+    matched before or after normalization — inert when the document declares
+    no normalizer, which is exactly how one shipped fixture sets it, so
+    refusing it unconditionally would reject a file that tokenizes fine.
+
+    :param added: The added-token entries.
+    :param normalized: Whether the document carries any normalizer.
+    :raises UnsupportedConstructError: On a flag that would move a boundary.
+    """
+    for entry in added:
+        for flag in ("lstrip", "rstrip"):
+            if entry.get(IrStr(flag)) == 1:
+                raise UnsupportedConstructError(
+                    f"tokenizer.json: added token "
+                    f"{str(entry[IrStr('content')])!r} sets {flag!r}, which "
+                    "moves a token boundary"
+                )
+        if normalized and entry.get(IrStr("normalized")) == 1:
+            raise UnsupportedConstructError(
+                f"tokenizer.json: added token "
+                f"{str(entry[IrStr('content')])!r} is 'normalized' and the "
+                "document declares a normalizer — specials are matched before "
+                "normalization here, so the two disagree"
+            )
 
 
 def _unknown(model: IrMap) -> IrUnknown:
