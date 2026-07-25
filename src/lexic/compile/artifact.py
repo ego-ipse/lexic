@@ -83,7 +83,7 @@ class CompiledGrammar:
             raise UnsupportedConstructError(
                 "compile: constrain() needs a tokenizer (none was bound)"
             )
-        return TokenMaskCursor(self.codegen_grammar, tok)
+        return TokenMaskCursor.of(self.codegen_grammar, tok)
 
     @staticmethod
     def _ensure_model(model: object) -> GrammarModel:
