@@ -1,4 +1,4 @@
-"""The D1 caller-owns-format seam — a format → Mapping → tokenizer, no src module.
+"""The caller-owns-format seam — a format → Mapping → tokenizer.
 
 A tokenizer is built from a *Mapping*. *How* that Mapping was produced — parsed
 from any external format (CSV/JSON/GPT-2 merges/…) via a lexic ``(grammar,
@@ -8,8 +8,13 @@ folds (a ``token<TAB>id`` vocab file and a ``left right`` merges file, the shape
 real exports lower to), parses fixtures straight into ``IrMap``/``IrTuple`` via the
 engine's own ``parse_model`` product, and feeds them to
 ``IrTokenizer.from_vocab`` / ``from_merges``. It mirrors ``compile/notation`` —
-which parses IR-constructor text into real IR the same way — proving the seam
-without any format module in ``src``.
+which parses IR-constructor text into real IR the same way.
+
+Scope note: this proves the MODEL carries no format knowledge. `lexic.api`
+does ship readers for third-party formats, deliberately — a reader takes the
+grammar+reducer that parse its document as parameters, so it privileges no
+formulation. What must stay format-free is `lexic.ir`, and that is what this
+test pins.
 """
 
 from __future__ import annotations
