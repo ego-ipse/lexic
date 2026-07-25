@@ -5,7 +5,7 @@ the four **island-free** grammars, this module is the *wide* matrix: all 10
 ground-truth grammars (islands included — c/chess/json/json_arr/json_ws all
 carry at least one), each driven through both internal seams directly:
 
-- **forced-PDA** — :func:`~lexic.parsing.pda.runtime.runtime.parse_pda` with the real
+- **forced-PDA** — :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` with the real
   fold supplied (so island references splice their Earley sub-parse);
 - **forced-engine** — ``cg.fold.apply(parse_first(prod(cg).instance_grammar, text,
   prod(cg).tables))``, the same call :meth:`~lexic.compile.CompiledGrammar.parse`'s
@@ -26,18 +26,16 @@ effort's OUTCOME numbers, not a pass/fail bar.
 from __future__ import annotations
 
 import random
-from typing import cast
 
 import pytest
 
 from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
-from lexic.model import GrammarModel
 from lexic.parsing.pda.compiler.clones import KTupleGate, PeekGate
 from lexic.parsing.pda.compiler.flatten import all_clones
 from lexic.parsing.pda.compiler.specs import IslandRef
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.reduce_runtime import pda_model
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from tests.integration.pda_parity_helpers import (
     check_one,
@@ -141,7 +139,7 @@ def test_pda_engine_differential_on_bench_corpus(stem: str) -> None:
 # compiled with an empty/wrong gate would mis-parse → PdaFail → engine
 # fallback, so both gates would PASS while the PDA is unsound AND slower
 # (task63fix finding F2). These tests therefore drive the demoted decisions
-# through ``parse_pda`` directly — a ``PdaFail`` IS a failure, no fallback
+# through ``pda_model`` directly — a ``PdaFail`` IS a failure, no fallback
 # masks a wrong gate — and pin the gates' structural presence.
 
 CHESS_ADVERSARIAL: tuple[str, ...] = (
@@ -173,10 +171,10 @@ def test_p2_chess_parses_pure_pda_with_zero_fallback() -> None:
         for item in arm.specs
     ), "the demoted nonpawn loop must carry a k-window gate"
     for text in CHESS_ADVERSARIAL:
-        pda_model = cast(GrammarModel, parse_pda(prod(cg).pda, text, cg.fold))
+        built = pda_model(prod(cg).pda, text, cg.fold)
         engine_model = forced_engine(cg, text)
-        assert deep_semantic(pda_model) == deep_semantic(engine_model)
-        assert pda_model.to_text() == text
+        assert deep_semantic(built) == deep_semantic(engine_model)
+        assert built.to_text() == text
 
 
 def test_p2_lo_gt_k_arm_gate_is_eof_exact_end_to_end() -> None:
@@ -193,13 +191,11 @@ def test_p2_lo_gt_k_arm_gate_is_eof_exact_end_to_end() -> None:
     assert any(clone.kwin_selectors is not None for clone in clones), (
         "the demoted alternation must select by k-window"
     )
-    assert cast(GrammarModel, parse_pda(prod(cg).pda, "12", cg.fold)).to_text() == "12"
+    assert pda_model(prod(cg).pda, "12", cg.fold).to_text() == "12"
     for text in ("1234x", "1234567x"):
-        assert (
-            cast(GrammarModel, parse_pda(prod(cg).pda, text, cg.fold)).to_text() == text
-        )
+        assert pda_model(prod(cg).pda, text, cg.fold).to_text() == text
     with pytest.raises(PdaFail):
-        parse_pda(
+        pda_model(
             prod(cg).pda, "123x", cg.fold
         )  # 3 digits < lo=4 — in no arm's language
 
@@ -223,7 +219,7 @@ JSON_ADVERSARIAL: tuple[str, ...] = (
 def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
     """json is island-free post-P3 (``value``/``*-item2`` peek-demoted on top
     of P6's ``ws``) and whitespace-heavy adversarial inputs parse on the pure
-    PDA — driven through ``parse_pda`` directly, so a wrong peek gate fails
+    PDA — driven through ``pda_model`` directly, so a wrong peek gate fails
     here rather than hiding behind the engine fallback."""
     cg = compile_from_path(GROUND_TRUTH / "json.gbnf")
     assert not isinstance(prod(cg).pda.start_key, IslandRef)
@@ -242,7 +238,7 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
         for item in arm.specs
     ), "the array-item loop must carry a peek gate"
     for text in JSON_ADVERSARIAL:
-        pda_model = cast(GrammarModel, parse_pda(prod(cg).pda, text, cg.fold))
+        built = pda_model(prod(cg).pda, text, cg.fold)
         engine_model = forced_engine(cg, text)
-        assert deep_semantic(pda_model) == deep_semantic(engine_model)
-        assert pda_model.to_text() == text
+        assert deep_semantic(built) == deep_semantic(engine_model)
+        assert built.to_text() == text

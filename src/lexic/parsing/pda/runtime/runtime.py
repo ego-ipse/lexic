@@ -130,12 +130,20 @@ _EMPTY_SLOT: Any = None
 each slot later holding a sub-model list) without narrowing their type."""
 
 
-class PdaKernel(IrLeaf[IrSelf, IrSelf]):
+class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
     """One predictive parse of ``text`` over a compiled :class:`PdaProgram`.
 
     Construct per parse, call :meth:`run` once; it returns the start clone's
     model. Per-parse state (:attr:`pos`, :attr:`stack`) is mutable on the
     kernel; :attr:`tables` is the shared, immutable compiled artifact.
+
+    Generic in ``M``, the product the start clone folds to — the
+    :class:`~lexic.parsing.fold.ModelFold` parameter's own type parameter, so
+    a caller's model type rides through instead of decaying to ``object``.
+    ``M`` is deliberately unbounded: :meth:`~lexic.ir.base.IrSelf
+    .__init_subclass__` derives ``_bound`` from the last OWN type parameter
+    only when that parameter carries one, so an unbounded ``M`` leaves the
+    inherited ``_bound`` (``IrSelf``) intact.
 
     :ivar tables: The compiled predictive-parser tables (its
         :attr:`~lexic.parsing.pda.compiler.clones.PdaTables.program` is walked).
@@ -159,12 +167,12 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
     text: str
     pos: int
     stack: list[list[Any]]
-    fold: ModelFold | None
+    fold: ModelFold[M] | None
     _deleg: dict[str, dict[int, Delegate]]
     _intern: dict[Any, object]
 
     def __init__(
-        self, tables: PdaTables, text: str, fold: ModelFold | None = None
+        self, tables: PdaTables, text: str, fold: ModelFold[M] | None = None
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
@@ -184,10 +192,10 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
 
     # ── the driver ────────────────────────────────────────────────────
 
-    def run(self) -> object:
+    def run(self) -> M:
         """Parse the whole input and return the start clone's model.
 
-        :returns: The model instance the start rule folds to.
+        :returns: The model instance the start rule folds to, typed ``M``.
         :raises PdaFail: On any deterministic-parse failure — a terminal
             mismatch, no viable arm, an unresolved island reference, trailing
             input, or a start rule that is itself an island (the whole-grammar
@@ -196,7 +204,7 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         start = self.tables.program.start
         if not isinstance(start, FlatClone):  # IslandRef opt-out
             raise PdaFail(f"start rule {start.name!r} is an island — no PDA")
-        holder: list[object] = []
+        holder: list[Any] = []
         self._enter(start, holder)
         self._drive()
         if self.pos != len(self.text):
@@ -215,8 +223,9 @@ class PdaKernel(IrLeaf[IrSelf, IrSelf]):
         end-of-input. Unlike :meth:`run` there is **no** trailing-input / EOF
         check: the caller (an island Earley predictor) files a completed span of
         length ``end`` and consumes only that far. The sub-run is exactly the
-        entry mode :func:`parse_pda` already trusts, just anchored at an
-        arbitrary clone and position instead of the start clone at ``0``.
+        entry mode :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model`
+        already trusts, just anchored at an arbitrary clone and position
+        instead of the start clone at ``0``.
 
         Nested islands beneath ``clone`` resolve through the usual
         :meth:`_island` path (the shared cursor's ``fold`` / ``tables`` are

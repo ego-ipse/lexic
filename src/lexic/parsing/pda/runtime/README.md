@@ -48,7 +48,7 @@ whole recognition machinery** (`run` / `_drive` / `_enter` / `prefix_run` /
 the terminal matchers) and overrides only the two completion callbacks
 (`_complete`, `_island`) plus the delegate sub-run — so the reduce path builds
 an `IrAst` where the model path builds a model, on identical recognition.
-`parse_pda` is the single public runtime entry and dispatches model vs reduce
+`pda_model` and `pda_reduce` are the public runtime entries, one per product
 here, so both kernels live behind one seam. A leaf w.r.t. the model kernel: it
 imports `PdaKernel` from `runtime` and the frame vocabulary from `build`, never
 the reverse.

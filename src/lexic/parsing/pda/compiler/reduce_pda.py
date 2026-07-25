@@ -120,7 +120,7 @@ class ReduceRun(IrLeaf[IrSelf, IrSelf]):
     """The runtime context a reduce PDA carries — reducer, plan, instance tables.
 
     Bundled on :attr:`~lexic.parsing.pda.compiler.clones.PdaTables.reduce` so
-    :func:`~lexic.parsing.pda.runtime.runtime.parse_pda` can drive the b1 reduce
+    :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_reduce` can drive the b1 reduce
     completion (:data:`~lexic.parsing.pda.compiler.flatten.BUILD_REDUCE`): the reducer's
     reduction bodies evaluate over cleaned children, ``char_leaf`` supplies the
     KEEP_RAW terminal leaves, ``name_to_rid`` resolves an island rule's noise

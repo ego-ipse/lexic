@@ -21,7 +21,7 @@ from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.model import GrammarModel
 from lexic.parsing import parse_first
 from lexic.parsing.pda.compiler.specs import IslandRef
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.reduce_runtime import pda_model
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
@@ -156,16 +156,16 @@ def check_one(cg: CompiledGrammar, text: str, tally: dict) -> None:
         tally["engine_only"] += 1
         return
     try:
-        pda_model = cast(GrammarModel, parse_pda(prod(cg).pda, text, cg.fold))
+        built = pda_model(prod(cg).pda, text, cg.fold)
     except PdaFail:
         tally["fallback"] += 1
         tally["checked"] += 1
         return
     tally["pda_ok"] += 1
     tally["checked"] += 1
-    assert deep_semantic(pda_model) == deep_semantic(engine_model)
-    assert pda_model.to_text() == text
-    if pda_model.dump() == engine_model.dump():
+    assert deep_semantic(built) == deep_semantic(engine_model)
+    assert built.to_text() == text
+    if built.dump() == engine_model.dump():
         tally["dump_exact"] += 1
 
 

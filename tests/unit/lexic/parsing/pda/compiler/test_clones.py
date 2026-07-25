@@ -55,7 +55,7 @@ from lexic.parsing.pda.compiler.flatten import (
     all_clones,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.reduce_runtime import pda_model
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH
@@ -316,7 +316,7 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
     is a soft-only follower absent from ``x``'s hard clone tail (``{""}``), so a
     non-greedy stop-set would greedily eat it — ``x`` must island. Islanding
     routes the ref through an :class:`IslandRef`, so the pure-PDA
-    :func:`~lexic.parsing.pda.runtime.runtime.parse_pda` refuses ("ab" and "cab") with a
+    :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` refuses ("ab" and "cab") with a
     :exc:`~lexic.parsing.pda.runtime.runtime.PdaFail` (→ engine fallback) rather than
     returning the wrong model.
     """
@@ -336,7 +336,7 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
     )
     for inp in ("ab", "cab"):
         with pytest.raises(PdaFail):
-            parse_pda(live, inp)
+            pda_model(live, inp)
 
 
 def test_hand_grammar_value_str_rule_clone_is_match_only():

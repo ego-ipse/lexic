@@ -19,7 +19,7 @@ import pytest
 from lexic.compile import compile_from_path
 from lexic.model import GrammarModel
 from lexic.parsing.pda.compiler.specs import IslandRef
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.reduce_runtime import pda_model
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import earley_model
 from tests.paths import GROUND_TRUTH
@@ -49,7 +49,7 @@ def test_arithmetic_stop_set_residue_forces_pda_fallback():
     # arithmetic compiles a real clone start — no whole-grammar opt-out.
     assert not isinstance(p.pda.start_key, IslandRef)
     with pytest.raises(PdaFail):
-        parse_pda(p.pda, FALLBACK_INPUT, cg.fold)
+        pda_model(p.pda, FALLBACK_INPUT, cg.fold)
 
 
 def test_pda_fallback_returns_engine_correct_model():

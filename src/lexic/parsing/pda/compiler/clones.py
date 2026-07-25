@@ -911,7 +911,7 @@ def compile_reduce_pda(
     policy the reduce runtime cannot reconstruct (a grammar-global condition with
     no enclosing rule) compiles to an **immediate-PdaFail start** — an
     :class:`IslandRef` start over an empty clone table, so
-    :func:`~lexic.parsing.pda.runtime.reduce_runtime.parse_pda` raises
+    :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` raises
     :class:`~lexic.parsing.pda.runtime.runtime.PdaFail` on the first step and the caller
     completes on the Earley reduce per parse (no ``None`` channel, no windowed
     self-parse of the whole input).

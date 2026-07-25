@@ -25,7 +25,6 @@ package root, the sole surface ``compile.py`` (and every other consumer) sees.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrSelf, IrStr, IrTuple
@@ -44,7 +43,7 @@ from lexic.parsing.earley.tables import (
 from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda, compile_reduce_pda
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail
 
 __all__ = [
@@ -276,9 +275,9 @@ def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
     """
     product = _reduce_product(grammar, reducer)
     try:
-        return cast(IrSelf, parse_pda(product.pda, text, None))
+        return pda_reduce(product.pda, text)
     except PdaFail:
-        return cast(IrSelf, earley_reduce(product.earley_grammar, text, reducer))
+        return earley_reduce(product.earley_grammar, text, reducer)
 
 
 def parse_model[M](grammar: IrAst, text: str, fold: ModelFold[M]) -> M:
@@ -299,6 +298,6 @@ def parse_model[M](grammar: IrAst, text: str, fold: ModelFold[M]) -> M:
     """
     product = _model_product(grammar, fold, tier_for(len(text)))
     try:
-        return cast(M, parse_pda(product.pda, text, fold))
+        return pda_model(product.pda, text, fold)
     except PdaFail:
         return earley_model(product.instance_grammar, text, fold, product.tables)

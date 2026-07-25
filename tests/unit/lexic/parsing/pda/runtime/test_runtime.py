@@ -1,6 +1,6 @@
 """Tests for lexic.parsing.pda.runtime.runtime — the fused-runtime parity gate (Task 4).
 
-:func:`~lexic.parsing.pda.runtime.runtime.parse_pda` builds a model directly during the
+:func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` builds a model directly during the
 walk (fold fusion, no :class:`~lexic.parsing.earley.forest.ParseTree`). The
 correctness bar is **user ruling 1**: ``semantic_dump()`` equality +
 ``to_text()`` round-trip against the engine's own
@@ -41,7 +41,7 @@ from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime import reduce_runtime as rrt
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from tests.integration.pda_parity_helpers import (
     arithmetic_bench_corpus,
@@ -96,14 +96,14 @@ def test_pda_engine_parity_on_generated_samples(stem: str) -> None:
         except UnsupportedConstructError:
             continue  # generator overshoot the engine itself rejects
         try:
-            pda_model = cast(GrammarModel, parse_pda(pda, text))
+            built = pda_model(pda, text)
         except PdaFail:
             assert stem == "arithmetic.gbnf", (
                 f"{stem}: unexpected PdaFail on {text!r} (island-free grammar)"
             )
             fallbacks += 1
             continue
-        assert_parity(engine_model, pda_model, text)
+        assert_parity(engine_model, built, text)
         checked += 1
     assert checked >= N_SEEDS // 2, f"{stem}: too few samples actually checked"
     if stem == "arithmetic.gbnf":
@@ -129,10 +129,10 @@ def test_pda_engine_parity_on_arithmetic_bench_corpus() -> None:
     text = arithmetic_bench_corpus()
     engine_model = compiled.parse(text)
     try:
-        pda_model = cast(GrammarModel, parse_pda(pda, text))
+        built = pda_model(pda, text)
     except PdaFail:
         return  # expected stop-set residue — the engine fallback covers it
-    assert_parity(engine_model, pda_model, text)
+    assert_parity(engine_model, built, text)
 
 
 # ── per-parse interning (Task 5) ───────────────────────────────────────────
@@ -170,10 +170,10 @@ def test_interning_value_equality_parity(stem: str) -> None:
     un-interned so equality — not identity — is the bar there)."""
     compiled = compile_from_path(GROUND_TRUTH / stem)
     text = _INTERN_CORPUS[stem]
-    pda_model = cast(GrammarModel, compiled.parse(text))
+    built = cast(GrammarModel, compiled.parse(text))
     engine_model = forced_engine(compiled, text)
-    assert deep_semantic(pda_model) == deep_semantic(engine_model)
-    assert pda_model.to_text() == text == engine_model.to_text()
+    assert deep_semantic(built) == deep_semantic(engine_model)
+    assert built.to_text() == text == engine_model.to_text()
 
 
 def test_interning_shares_every_equal_submodel_island_free() -> None:
@@ -184,8 +184,8 @@ def test_interning_shares_every_equal_submodel_island_free() -> None:
     path = GROUND_TRUTH / "arithmetic.gbnf"
     compiled, pda = compiled_and_pda(path)
     text = _INTERN_CORPUS["arithmetic.gbnf"]
-    pda_model = cast(GrammarModel, parse_pda(pda, text, compiled.fold))
-    models = _all_models(pda_model)
+    built = pda_model(pda, text, compiled.fold)
+    models = _all_models(built)
     by_value: dict[tuple[type, GrammarModel], int] = {}
     for model in models:
         first = by_value.setdefault((type(model), model), id(model))
@@ -210,7 +210,7 @@ def test_vstr_multi_item_arm_takes_the_cold_span_path():
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
     compiled = compile_text(text, flavour="gbnf")
     pda = compile_pda(lifted, normalize(lifted), compiled.fold.config)
-    model = cast(GrammarModel, parse_pda(pda, "0xffa1", compiled.fold))
+    model = pda_model(pda, "0xffa1", compiled.fold)
     assert model.to_text() == "0xffa1"
 
 
@@ -236,7 +236,7 @@ def test_fail_island_raises_pdafail_regardless_of_fold():
     pda = compile_pda(lifted, normalize(lifted), compiled.fold.config)
     for inp in ("ab", "cab"):
         with pytest.raises(PdaFail):
-            parse_pda(pda, inp, compiled.fold)
+            pda_model(pda, inp, compiled.fold)
 
 
 # ── b1 reduce-path parity: _ReducePdaKernel vs earley_reduce ───────────────
@@ -291,7 +291,7 @@ def test_reduce_pda_gbnf_single_rule_fragment_is_end_to_end_and_byte_equal(
     monkeypatch.setattr(kernel_cls, "_complete", _traced)
     pda = reduce_pda(GBNF_FLAVOUR)
     assert not isinstance(pda.start_key, IslandRef)
-    got = parse_pda(pda, text)
+    got = pda_reduce(pda, text)
     assert completions["n"] > 0
     assert got == ref_reduce(GBNF_FLAVOUR, text)
 
@@ -301,7 +301,7 @@ def test_reduce_pda_gbnf_noise_variant_is_byte_equal_to_earley(text: str) -> Non
     """Gate 2: capture-cleaning parity across varied inter-token whitespace."""
     pda = reduce_pda(GBNF_FLAVOUR)
     assert not isinstance(pda.start_key, IslandRef)
-    assert parse_pda(pda, text) == ref_reduce(GBNF_FLAVOUR, text)
+    assert pda_reduce(pda, text) == ref_reduce(GBNF_FLAVOUR, text)
 
 
 def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() -> None:
@@ -325,7 +325,7 @@ def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() 
         for path in corpus:
             text = path.read_text(encoding="utf-8")
             try:
-                got = parse_pda(pda, text)
+                got = pda_reduce(pda, text)
             except PdaFail:
                 continue
             if got == ref_reduce(flavour, text):
