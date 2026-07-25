@@ -701,6 +701,37 @@ def test_unicode_form_composes_and_keeps_offsets_derivable():
     assert [m[:2] for m in meta] == [(0, 2), (2, 3)]
 
 
+@pytest.mark.parametrize(
+    ("form", "text"),
+    [
+        ("NFC", "\u1100\u1161"),  # Hangul jamo L+V compose ACROSS a starter
+        ("NFC", "\u09c7\u09be"),  # Bengali two-part vowel, both ccc=0
+        ("NFKC", "\u09c7\u09be"),
+        ("NFKD", "\u304b\u0301\uff9e"),  # halfwidth mark decomposes AND reorders
+        ("NFD", "\u00e9cole"),
+        ("NFC", "Hello world"),
+    ],
+)
+def test_unicode_form_matches_the_stdlib_across_starter_boundaries(form, text):
+    """Normalization is NOT confined to a starter plus its combining marks.
+
+    That assumption produced silently wrong ids on real Qwen3 text — Hangul
+    ``가`` tokenized as two ids instead of one — because jamo V has ``ccc=0``
+    and so began its own run while composing with the jamo L before it. Every
+    case here crosses a boundary the old chunking split.
+    """
+    got, _ = IrUnicodeForm(form).apply(text, _meta(0, len(text)))
+    assert got == unicodedata.normalize(form, text)
+
+
+def test_unicode_form_keeps_spans_in_step_with_the_text():
+    """Every output char stays attributable, whatever the chunking did."""
+    text = "\u1100\u1161x\u09c7\u09be"
+    got, meta = IrUnicodeForm("NFC").apply(text, _meta(0, len(text)))
+    assert len(got) == len(meta)
+    assert meta[0][:2] == (0, 2)  # the composed syllable spans both jamo
+
+
 def test_unicode_form_decomposes_too():
     """NFD is the same machinery in the other direction (one char → two)."""
     text, _ = IrUnicodeForm("NFD").apply("é", _meta(0, 1))

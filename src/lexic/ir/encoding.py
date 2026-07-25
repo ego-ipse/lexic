@@ -378,22 +378,32 @@ UnicodeForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
 class IrUnicodeForm(IrNamedTuple[str], IrNormalizer):
     """A Unicode normalization form (``NFC`` / ``NFD`` / ``NFKC`` / ``NFKD``).
 
-    Applied per starter run — a base char plus its following combining marks
-    — which is the unit normalization is defined over, and which keeps every
-    output char attributable to one source span.
+    Applied over the largest chunks that can be normalized independently,
+    so that every output char stays attributable to one source span while
+    the result equals normalizing the whole text at once.
+
+    Chunking is the subtle part. "A starter plus its combining marks" is NOT
+    the right unit: composition and canonical reordering both cross that
+    boundary whenever a STARTER participates — Hangul jamo (``U+1100 U+1161``
+    → ``U+AC00``), Indic two-part vowels (``U+09C7 U+09BE`` → ``U+09CB``),
+    halfwidth voiced marks that decompose to a reordering mark. A chunk may
+    therefore end before a char only when that char attaches to nothing
+    before it AND the junction pair is already normalized — a conservative
+    test, so a doubtful boundary merges rather than splits.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     form: UnicodeForm = "NFC"
 
     def apply(self, text: str, meta: _WMeta) -> tuple[str, _WMeta]:
-        """The normalized text; a run's output chars share the run's span."""
+        """The normalized text; a chunk's output chars share its source span."""
         out: list[str] = []
         out_meta: _WMeta = []
         i = 0
-        while i < len(text):
+        n = len(text)
+        while i < n:
             j = i + 1
-            while j < len(text) and unicodedata.combining(text[j]):
+            while j < n and not self._divides(text, j):
                 j += 1
             span = (meta[i][0], meta[j - 1][1])
             for k, ch in enumerate(unicodedata.normalize(self.form, text[i:j])):
@@ -401,6 +411,19 @@ class IrUnicodeForm(IrNamedTuple[str], IrNormalizer):
                 out_meta.append((span[0], span[1], k == 0))
             i = j
         return "".join(out), out_meta
+
+    def _divides(self, text: str, i: int) -> bool:
+        """Whether a chunk may end before ``text[i]`` without changing the result.
+
+        Conservative: anything that might interact merges into one chunk.
+        """
+        prev, cur = text[i - 1], text[i]
+        if prev < "\x80" and cur < "\x80":
+            return True  # ASCII interacts with nothing — the common path
+        if unicodedata.combining(cur):
+            return False  # attaches to what precedes
+        pair = prev + cur
+        return unicodedata.normalize(self.form, pair) == pair
 
 
 def _piece_slices(
