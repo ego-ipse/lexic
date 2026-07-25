@@ -90,6 +90,30 @@ def test_cl100k_alternatives(text: str, expected: list[str]) -> None:
     assert IrQwenSplit().split(text) == expected
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("'ſt", ["'ſ", "t"]),  # (?i:) is case FOLDING — ſ folds to s
+        ("IT'S", ["IT", "'S"]),
+        # ... and must NOT over-match: no contraction fires, so this is the
+        # optional-prefix + letter-run alternative, one piece.
+        ("'ẞ", ["'ẞ"]),
+        ("a\x1c!", ["a", "\x1c!"]),  # \x1c is NOT White_Space, so it is "other"
+        ("a\x1d\x1d!", ["a", "\x1d\x1d!"]),
+        (" \x1c ", [" \x1c", " "]),
+    ],
+)
+def test_qwen_matches_the_engine_that_defines_the_pattern(text, expected) -> None:
+    """``\\s`` means Unicode White_Space and ``(?i:)`` means case folding.
+
+    Python's ``str.isspace()`` and ``str.lower()`` are neither. Both gaps
+    reached real Qwen3 ids — U+001C–U+001F landed in the whitespace
+    alternatives instead of ``[^\\s\\p{L}\\p{N}]``, and ``ſ`` never folded
+    to ``s``.
+    """
+    assert IrQwenSplit().split(text) == expected
+
+
 def test_cl100k_differs_from_the_gpt2_pattern() -> None:
     """The two fixed patterns are genuinely different specs, not aliases."""
     assert IrQwenSplit().split("abc123") != IrByteLevel().split("abc123")

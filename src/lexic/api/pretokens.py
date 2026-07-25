@@ -49,9 +49,24 @@ def _is_number(ch: str) -> bool:
     return unicodedata.category(ch).startswith("N")
 
 
+_NOT_WHITE_SPACE = "\x1c\x1d\x1e\x1f"
+"""``str.isspace()`` is True for these; Unicode ``White_Space`` is not.
+
+The patterns spell whitespace as ``\\s``, which in the engine that defines
+them means the White_Space property. Using ``str.isspace()`` puts these four
+separators in the whitespace alternatives instead of ``[^\\s\\p{L}\\p{N}]``,
+which changes real ids.
+"""
+
+
+def _is_space(ch: str) -> bool:
+    """Unicode ``White_Space`` — what ``\\s`` means, not what Python means."""
+    return ch.isspace() and ch not in _NOT_WHITE_SPACE
+
+
 def _is_other(ch: str) -> bool:
-    """The GPT-2 pattern's ``[^\\s\\p{L}\\p{N}]`` class."""
-    return not ch.isspace() and not _is_letter(ch) and not _is_number(ch)
+    """The patterns' ``[^\\s\\p{L}\\p{N}]`` class."""
+    return not _is_space(ch) and not _is_letter(ch) and not _is_number(ch)
 
 
 def _run_end(text: str, i: int, pred: Callable[[str], bool]) -> int:
@@ -82,7 +97,7 @@ def _gpt2_piece(text: str, i: int) -> str:
         return text[i : _run_end(text, j, _is_number)]
     if head and _is_other(head):
         return text[i : _run_end(text, j, _is_other)]
-    k = _run_end(text, i, str.isspace)
+    k = _run_end(text, i, _is_space)
     if k < n and k - i >= 2:
         return text[i : k - 1]
     return text[i:k]
@@ -117,6 +132,27 @@ rather than approximated.
 """
 
 
+def _contraction_at(text: str, i: int) -> str:
+    """The source slice matching a ``(?i:)`` contraction at ``i``, else ``""``.
+
+    ``(?i:)`` is Unicode case FOLDING, which ``str.lower()`` is not — it
+    leaves ``U+017F ſ`` alone where folding maps it to ``s``. Folding can also
+    change length (``U+0130`` → two chars), so the source slice is found by
+    folding candidate slices rather than by measuring the folded string: a
+    slice length taken from the folded form can mis-cut the source.
+
+    Every alternative begins with an apostrophe, so the scan starts there and
+    costs nothing elsewhere.
+    """
+    if text[i] != "'":
+        return ""
+    for word in _CONTRACTIONS:
+        for length in range(1, len(word) + 2):
+            if text[i : i + length].casefold() == word:
+                return text[i : i + length]
+    return ""
+
+
 def _qwen_piece(text: str, i: int) -> str:
     """One Qwen pre-token at ``i`` — the pattern's first-match alternative.
 
@@ -127,10 +163,9 @@ def _qwen_piece(text: str, i: int) -> str:
     not followed by non-space (backtracking one char when it is); whitespace.
     """
     n = len(text)
-    low = text[i : i + 3].lower()
-    for word in _CONTRACTIONS:
-        if low.startswith(word):
-            return text[i : i + len(word)]
+    contraction = _contraction_at(text, i)
+    if contraction:
+        return contraction
     head = text[i]
     if _is_letter(head):
         return text[i : _run_end(text, i, _is_letter)]
@@ -154,7 +189,7 @@ def _qwen_space(text: str, i: int) -> str:
     ``\\s+(?!\\S)`` (leaving one space to prefix the next piece), then a
     plain ``\\s+``.
     """
-    k = _run_end(text, i, str.isspace)
+    k = _run_end(text, i, _is_space)
     nl = _last_newline_run(text, i, k)
     if nl > i:
         return text[i:nl]
