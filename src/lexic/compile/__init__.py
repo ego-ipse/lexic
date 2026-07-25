@@ -496,8 +496,10 @@ def compile_text(
     :param cache_key: Extra key prefix disambiguating otherwise-identical
         compilations; ``None`` uses the content key alone.
     :param flavour: The grammar flavour name.
-    :param tokenizer: A single tokenizer bound under its own ``name`` — sugar
-        for a one-entry ``registry``.
+    :param tokenizer: A single tokenizer, bound under its own ``name``. NOT
+        a sugar channel for ``registry=``: the two COMPOSE over a default
+        ``unicode``, and passing both is supported — only binding one name to
+        two different encodings is an error.
     :param registry: An ``IrMap[IrStr, IrEncoding]`` binding the grammar's
         encoding *names* to encodings (``unicode`` is always present); the
         general form of ``tokenizer=``; the two compose.

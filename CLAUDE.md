@@ -45,6 +45,7 @@ Always prefix with `uv run`. Never run `pytest` or `ruff` bare.
 
 ```bash
 uv run pytest tests/ -q                  # full suite
+uv run pytest tests/ -q -n auto          # ... in parallel (~3x); same result, xdist is a dev dep
 tools/guarded.sh 8G 600 -- uv run pytest tests/ -q   # memory-capped (use for property tests)
 tools/auto_fix.sh                        # ruff format + isort + ruff --fix — run before hand-fixing lint
 tools/run_checks.sh                      # THE done-gate; work is done when this exits 0
