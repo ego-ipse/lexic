@@ -486,6 +486,152 @@ def _span_of(meta: _WMeta, start: int, end: int) -> tuple[int, int] | None:
     return (meta[start][0], meta[end - 1][1])
 
 
+def _merge_rank(tok: IrTokenizer, left: str, right: str) -> int | None:
+    """The merge rank of the dyad, or ``None`` when it is not a merge."""
+    found = tok.ranks.get(IrTuple(IrStr(left), IrStr(right)))
+    return None if found is None else int(found)
+
+
+def _file_pair(
+    tok: IrTokenizer,
+    agenda: list[tuple[int, int]],
+    spell: list[str],
+    left: int,
+    right: int,
+) -> None:
+    """Queue slots ``(left, right)``'s dyad on the agenda if it merges."""
+    rank = _merge_rank(tok, spell[left], spell[right])
+    if rank is not None:
+        heappush(agenda, (rank, left))
+
+
+class IrSegmenter(IrNode):
+    """Role marker for segmentation models — the :class:`IrAtom` pattern.
+
+    A model turns one working-alphabet piece into the vocabulary symbols that
+    cover it. Which model applies was a two-way branch on ``ranks`` being
+    non-empty, inside the spine — a closed dispatch where the project's rule
+    is an open one, and the reason Unigram (Viterbi over scores) and
+    WordPiece (a continuation prefix) could not be expressed at all.
+
+    Open-set: a new model subclasses this and a tokenizer carries it. The
+    builders already know which one applies — ``from_vocab`` means longest
+    match, ``from_merges`` means ranked merge — so the choice is made where
+    it was always known instead of re-derived per gap.
+    """
+
+    @abstractmethod
+    def symbols(self, tok: IrTokenizer, text: str) -> list[tuple[str, int, int]]:
+        """The ``(spelling, start, end)`` symbols covering ``text``, in order.
+
+        :param tok: The tokenizer whose vocabulary and data to segment with.
+        :param text: One working-alphabet piece.
+        """
+
+
+class IrLongestMatch(IrSegmenter, metaclass=IrSingleton):
+    """Longest vocabulary match at each position — the merge-free model.
+
+    A singleton, like the stateless encodings: the model carries no data, so
+    every instance IS the same one. An empty record would instead compare
+    EQUAL to any other empty record, which would make a longest-match
+    tokenizer indistinguishable from a ranked-merge one.
+    """
+
+    def __new__(cls) -> Self:
+        """Return the singleton instance."""
+        return super().__new__(cls)
+
+    def __repr__(self) -> str:
+        """Codegen repr — the singleton's constructor."""
+        return "IrLongestMatch()"
+
+    def symbols(self, tok: IrTokenizer, text: str) -> list[tuple[str, int, int]]:
+        """Longest-match symbols over the vocab."""
+        keys = sorted(tok.encode.keys(), key=len, reverse=True)
+        symbols: list[tuple[str, int, int]] = []
+        cursor = 0
+        while cursor < len(text):
+            match = next((k for k in keys if k and text.startswith(k, cursor)), None)
+            if match is None:
+                # Emit it when anything can carry it; skipping unconditionally
+                # discarded the char before a fallback could apply.
+                if tok.carries(text[cursor]):
+                    symbols.append((text[cursor], cursor, cursor + 1))
+                cursor += 1
+                continue
+            symbols.append((str(match), cursor, cursor + len(match)))
+            cursor += len(match)
+        return symbols
+
+
+class IrRankedMerge(IrSegmenter, metaclass=IrSingleton):
+    """The ranked-merge (BPE) rewrite — the reference fixpoint.
+
+    Starts from single-character symbols, then repeatedly applies the
+    lowest-rank adjacent merge (leftmost occurrence) until none applies,
+    driven by a heap agenda over the live pairs: symbols form a doubly linked
+    list of slots (a merge keeps the LEFT slot, so slot order is text order
+    and the heap's ``(rank, slot)`` key reproduces leftmost-lowest exactly).
+    Ranks are unique per dyad, so a popped entry is current iff the slot's
+    live pair still carries the popped rank — the staleness test needs no
+    versioning.
+
+    A singleton for the same reason as :class:`IrLongestMatch`.
+    """
+
+    def __new__(cls) -> Self:
+        """Return the singleton instance."""
+        return super().__new__(cls)
+
+    def __repr__(self) -> str:
+        """Codegen repr — the singleton's constructor."""
+        return "IrRankedMerge()"
+
+    def symbols(self, tok: IrTokenizer, text: str) -> list[tuple[str, int, int]]:
+        """The final symbols after the merge fixpoint."""
+        kept = [i for i, ch in enumerate(text) if tok.carries(ch)]
+        if not kept:
+            return []
+        spell = [text[i] for i in kept]
+        ends = [i + 1 for i in kept]
+        nxt = self._merge(tok, spell, ends)
+        out: list[tuple[str, int, int]] = []
+        slot = 0  # a merge keeps the left slot, so slot 0 is always the head
+        while slot >= 0:
+            out.append((spell[slot], kept[slot], ends[slot]))
+            slot = nxt[slot]
+        return out
+
+    def _merge(self, tok: IrTokenizer, spell: list[str], ends: list[int]) -> list[int]:
+        """Apply ranked merges until none applies, rewriting ``spell``/``ends``.
+
+        :returns: The live-successor list — walk it from slot 0.
+        """
+        count = len(spell)
+        nxt = list(range(1, count)) + [-1]
+        prv = [-1] + list(range(count - 1))
+        alive = [True] * count
+        agenda: list[tuple[int, int]] = []
+        for i in range(count - 1):
+            _file_pair(tok, agenda, spell, i, i + 1)
+        while agenda:
+            rank, i = heappop(agenda)
+            j = nxt[i]
+            if not alive[i] or j < 0 or _merge_rank(tok, spell[i], spell[j]) != rank:
+                continue  # stale — a neighbor merged since this entry filed
+            spell[i] += spell[j]
+            ends[i] = ends[j]
+            alive[j] = False
+            nxt[i] = nxt[j]
+            if nxt[i] >= 0:
+                prv[nxt[i]] = i
+            for left in (prv[i], i):
+                if left >= 0 and nxt[left] >= 0:
+                    _file_pair(tok, agenda, spell, left, nxt[left])
+        return nxt
+
+
 class IrTokenizer(
     IrNamedTuple[IrStr, IrMap, IrMap, IrMap, IrTokenPipeline], IrEncoding, init=False
 ):
@@ -532,6 +678,7 @@ class IrTokenizer(
     decode: IrMap
     ranks: IrMap = IrMap()
     pipeline: IrTokenPipeline = IrTokenPipeline()
+    segmenter: IrSegmenter = IrLongestMatch()
 
     @property
     def specials(self) -> IrTuple:
@@ -556,7 +703,9 @@ class IrTokenizer(
         :param pipeline: The segmentation pipeline data.
         :returns: The tokenizer, with the inverse ``decode`` map derived.
         """
-        return cls._build(name, _vocab_map(vocab), IrMap(), pipeline)
+        return cls._build(
+            name, _vocab_map(vocab), (IrMap(), IrLongestMatch()), pipeline
+        )
 
     @classmethod
     def from_merges(
@@ -578,17 +727,27 @@ class IrTokenizer(
         :param pipeline: The segmentation pipeline data.
         :returns: The tokenizer, carrying the merge model.
         """
-        return cls._build(name, _vocab_map(vocab), _rank_map(merges), pipeline)
+        return cls._build(
+            name, _vocab_map(vocab), (_rank_map(merges), IrRankedMerge()), pipeline
+        )
 
     @classmethod
     def _build(
-        cls, name: str, encode: IrMap, ranks: IrMap, pipeline: IrTokenPipeline
+        cls,
+        name: str,
+        encode: IrMap,
+        model: tuple[IrMap, IrSegmenter],
+        pipeline: IrTokenPipeline,
     ) -> Self:
         """Derive ``decode``, coerce ``name``, validate specials, construct.
 
         :param name: The registry name (coerced to ``IrStr``).
         :param encode: The vocab (spelling → id).
-        :param ranks: The merge dyad → rank map (empty for vocab-only).
+        :param model: How symbols are formed — the merge dyad → rank map
+            (empty for vocab-only) and the segmentation model that reads it.
+            One parameter because the two are chosen together: a builder that
+            supplies ranks means the ranked merge, and one that does not means
+            longest match.
         :param pipeline: The segmentation pipeline (its specials must be in
             ``encode``).
         :returns: The constructed tokenizer.
@@ -601,7 +760,8 @@ class IrTokenizer(
                 )
         decode = IrMap(*(IrTuple(i, s) for s, i in encode.items()))
         construct = cast(Callable[..., Self], cls)
-        return construct(IrStr(name), encode, decode, ranks, pipeline)
+        ranks, segmenter = model
+        return construct(IrStr(name), encode, decode, ranks, pipeline, segmenter)
 
     @property
     def universe(self) -> int:
@@ -617,6 +777,22 @@ class IrTokenizer(
         """The token id → its text (``[id]`` fallback for an unmapped id)."""
         found = self.decode.get(IrChr(ordinal))
         return found if found is not None else IrStr(f"[{ordinal}]")
+
+    def with_segmenter(self, segmenter: IrSegmenter) -> Self:
+        """This tokenizer under a different segmentation model.
+
+        The attach point for the open seam: the builders name the two shipped
+        models, and a model declared elsewhere — Unigram, WordPiece — reaches
+        a tokenizer through here. Returns a new tokenizer; the record is
+        immutable.
+
+        :param segmenter: The model to segment with.
+        :returns: A copy carrying ``segmenter``.
+        """
+        construct = cast(Callable[..., Self], type(self))
+        return construct(
+            self.name, self.encode, self.decode, self.ranks, self.pipeline, segmenter
+        )
 
     @property
     def merges(self) -> IrTuple:
@@ -702,9 +878,7 @@ class IrTokenizer(
         for ptext, pmeta in _piece_slices(work, meta, line.pretokens):
             if line.remap:
                 ptext, pmeta = _remap_piece(ptext, pmeta, line.remap)
-            symbols = (
-                self._merge_symbols(ptext) if self.ranks else self._match_symbols(ptext)
-            )
+            symbols = self.segmenter.symbols(self, ptext)
             for spelling, start, end in symbols:
                 out.extend(self._symbol_tokens(spelling, _span_of(pmeta, start, end)))
         return self._fuse_unknown(out)
@@ -746,17 +920,7 @@ class IrTokenizer(
             "byte fallback nor an unknown symbol covers it"
         )
 
-    def _seed(self, text: str) -> tuple[list[str], list[int], list[int]]:
-        """The merge model's starting symbols — one per CARRIED char.
-
-        :param text: One working-alphabet piece.
-        :returns: The seed spellings, their start offsets and their ends, in
-            text order.
-        """
-        kept = [i for i, ch in enumerate(text) if self._carries(ch)]
-        return [text[i] for i in kept], kept, [i + 1 for i in kept]
-
-    def _carries(self, spelling: str) -> bool:
+    def carries(self, spelling: str) -> bool:
         """Whether anything in this vocabulary can carry ``spelling``.
 
         The seeding filter for both models. A vocabulary need not cover every
@@ -790,93 +954,3 @@ class IrTokenizer(
                 return None
             out.append((int(tid), span if len(data) == 1 else None))
         return out
-
-    def _match_symbols(self, text: str) -> list[tuple[str, int, int]]:
-        """Longest-match symbols over the vocab (the ``ranks``-empty model)."""
-        keys = sorted(self.encode.keys(), key=len, reverse=True)
-        symbols: list[tuple[str, int, int]] = []
-        cursor = 0
-        while cursor < len(text):
-            match = next((k for k in keys if k and text.startswith(k, cursor)), None)
-            if match is None:
-                # Emit it when anything can carry it: skipping unconditionally
-                # discarded the char before _symbol_tokens could apply a
-                # fallback, which made byte fallback and the unknown symbol
-                # unreachable on this path entirely.
-                if self._carries(text[cursor]):
-                    symbols.append((text[cursor], cursor, cursor + 1))
-                cursor += 1
-                continue
-            symbols.append((str(match), cursor, cursor + len(match)))
-            cursor += len(match)
-        return symbols
-
-    def _merge_symbols(self, text: str) -> list[tuple[str, int, int]]:
-        """Ranked-merge (BPE) symbols — the ``ranks``-present model.
-
-        Starts from single-character symbols, then repeatedly applies the
-        lowest-rank adjacent merge (leftmost occurrence) until none applies —
-        the reference fixpoint, driven by a heap agenda over the live pairs:
-        symbols form a doubly linked list of slots (a merge keeps the LEFT
-        slot, so slot order is text order and the heap's ``(rank, slot)`` key
-        reproduces the leftmost-lowest selection exactly). Ranks are unique
-        per dyad, so a popped entry is current iff the slot's live pair still
-        carries the popped rank — the staleness test needs no versioning.
-
-        :param text: One working-alphabet piece.
-        :returns: The final ``(spelling, start, end)`` symbols in order.
-        """
-        spell, starts, ends = self._seed(text)
-        if not spell:
-            return []
-        nxt = self._merge_to_fixpoint(spell, ends)
-        out: list[tuple[str, int, int]] = []
-        slot = 0  # a merge keeps the left slot, so slot 0 is always the head
-        while slot >= 0:
-            out.append((spell[slot], starts[slot], ends[slot]))
-            slot = nxt[slot]
-        return out
-
-    def _merge_to_fixpoint(self, spell: list[str], ends: list[int]) -> list[int]:
-        """Apply ranked merges until none applies, rewriting ``spell``/``ends``.
-
-        :param spell: The seed spellings; merged in place.
-        :param ends: Their end offsets; extended in place as symbols join.
-        :returns: The live-successor list — walk it from slot 0 for the
-            surviving symbols in text order.
-        """
-        count = len(spell)
-        nxt = list(range(1, count)) + [-1]
-        prv = [-1] + list(range(count - 1))
-        alive = [True] * count
-        agenda: list[tuple[int, int]] = []
-        for i in range(count - 1):
-            self._file_pair(agenda, spell, i, i + 1)
-        while agenda:
-            rank, i = heappop(agenda)
-            j = nxt[i]
-            if not alive[i] or j < 0 or self._pair_rank(spell[i], spell[j]) != rank:
-                continue  # stale — a neighbor merged since this entry filed
-            spell[i] += spell[j]
-            ends[i] = ends[j]
-            alive[j] = False
-            nxt[i] = nxt[j]
-            if nxt[i] >= 0:
-                prv[nxt[i]] = i
-            for left in (prv[i], i):
-                if left >= 0 and nxt[left] >= 0:
-                    self._file_pair(agenda, spell, left, nxt[left])
-        return nxt
-
-    def _pair_rank(self, left: str, right: str) -> int | None:
-        """The merge rank of the adjacent dyad, or ``None`` when it never merges."""
-        found = self.ranks.get(IrTuple(IrStr(left), IrStr(right)))
-        return None if found is None else int(found)
-
-    def _file_pair(
-        self, agenda: list[tuple[int, int]], spell: list[str], left: int, right: int
-    ) -> None:
-        """Queue slots ``(left, right)``'s dyad on the agenda if it merges."""
-        rank = self._pair_rank(spell[left], spell[right])
-        if rank is not None:
-            heappush(agenda, (rank, left))
