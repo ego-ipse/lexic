@@ -96,11 +96,15 @@ def _check_universe(charclass: IrCharClass, encoding: IrEncoding) -> None:
 
     ``universe`` is derived, not stored — on a tokenizer it is a max over the
     whole vocab — so it is read ONCE here rather than per member.
+
+    The ceiling is INCLUSIVE: reading it as exclusive refused the ceiling
+    value itself, so a grammar naming the highest code point was rejected as
+    out of range.
     """
     ceiling = encoding.universe
     for member in charclass:
         top = int(member.hi) if isinstance(member, IrRange) else int(member)
-        if top >= ceiling:
+        if top > ceiling:
             raise UnsupportedConstructError(
                 f"token id {top} is outside the encoding's universe ({ceiling})"
             )

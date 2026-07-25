@@ -69,7 +69,14 @@ class IrEncoding(IrNode):
     @property
     @abstractmethod
     def universe(self) -> int:
-        """The highest ordinal in this alphabet — the complement / ``.`` ceiling."""
+        """The highest ordinal in this alphabet — INCLUSIVE.
+
+        The ceiling for complement and ``.``. Inclusive because that is what
+        "highest" means and what two of the three encodings always returned;
+        the third returned one PAST it, and the two consumers disagreed about
+        which convention they were reading — one refused a valid ceiling
+        value, the other admitted an ordinal past the end.
+        """
 
     @abstractmethod
     def resolve(self, spelling: str) -> IrChr | IrNoneType:
@@ -765,8 +772,12 @@ class IrTokenizer(
 
     @property
     def universe(self) -> int:
-        """One past the highest id — the id-space size (derived, not stored)."""
-        return max((int(i) for i in self.decode.keys()), default=-1) + 1
+        """The highest id — inclusive, like every other encoding.
+
+        Derived, not stored. ``-1`` for an empty vocabulary, which makes the
+        complement of anything empty rather than a single phantom ordinal.
+        """
+        return max((int(i) for i in self.decode.keys()), default=-1)
 
     def resolve(self, spelling: str) -> IrChr | IrNoneType:
         """A token's text → its id, or :data:`IrNone` when not one vocab token."""

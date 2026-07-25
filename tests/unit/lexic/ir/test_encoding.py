@@ -12,6 +12,7 @@ import pytest
 from lexic.api.pretokens import BYTE_FALLBACK
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrAtom, IrInt, IrNode, IrNone, IrStr, IrTuple
+from lexic.ir.concretize import _check_universe
 from lexic.ir.encoding import (
     IrEncoding,
     IrLongestMatch,
@@ -173,10 +174,17 @@ def test_tokenizer_spell_unmapped_id_falls_back_to_bracket() -> None:
     assert tok.spell(99) == IrStr("[99]")
 
 
-def test_tokenizer_universe_is_id_space_size() -> None:
-    """The universe is one past the highest id."""
+def test_tokenizer_universe_is_the_highest_id() -> None:
+    """INCLUSIVE, like every other encoding — the ABC says "highest ordinal".
+
+    This returned one PAST the highest id while the other two encodings
+    returned the value itself, and the two consumers disagreed about which
+    they were reading: the range check refused the ceiling value, and the
+    complement admitted an ordinal past the end of the vocabulary.
+    """
     tok = IrTokenizer.from_vocab("gpt2", _vocab())
-    assert tok.universe == 3
+    assert tok.universe == 2  # ids are 0, 1, 2
+    assert IrTokenizer.from_vocab("empty", IrMap()).universe == -1
 
 
 def test_tokenizer_equality_and_hash_are_structural() -> None:
@@ -214,17 +222,21 @@ def test_unicode_complement_tops_at_max_codepoint() -> None:
 
 
 def test_tokenizer_complement_tops_at_vocab_ceiling() -> None:
-    """The token complement spans only the id universe (``!<[1]>`` / ``.``)."""
-    tok = IrTokenizer.from_vocab("gpt2", _vocab())  # universe 3
+    """The token complement spans only REAL ids (``!<[1]>`` / ``.``).
+
+    It used to end at ``(2, 3)`` — id 3 is in no vocabulary. The complement
+    of "not token 1" admitted a token that does not exist.
+    """
+    tok = IrTokenizer.from_vocab("gpt2", _vocab())  # ids 0..2
     comp = tok.complement(IrCharClass(IrChr(1)))
-    assert comp.intervals() == [(0, 0), (2, 3)]
+    assert comp.intervals() == [(0, 0), (2, 2)]
 
 
 def test_complement_reuses_charclass_intervals_over_ranges() -> None:
     """Complement works over ranged members via the shared interval math."""
     tok = IrTokenizer.from_vocab("gpt2", _vocab())
     comp = tok.complement(IrCharClass(IrRange(IrChr(0), IrChr(1))))
-    assert comp.intervals() == [(2, 3)]
+    assert comp.intervals() == [(2, 2)]
 
 
 # ── a registry is just an IrMap[IrStr, IrEncoding] (no bespoke class) ────
@@ -898,3 +910,15 @@ def test_a_third_model_needs_no_change_to_the_spine():
     odd = tok.with_segmenter(EveryOtherChar())
     assert tok.tokenize("abab") == [0, 1, 0, 1]
     assert odd.tokenize("abab") == [0, 0]  # every other char, as declared
+
+
+def test_the_highest_code_point_is_a_valid_grammar_member():
+    """The range check read an INCLUSIVE ceiling as exclusive.
+
+    ``IrUnicode.universe`` is ``MAX_CODEPOINT`` itself, so ``>=`` rejected a
+    grammar naming the highest code point as out of range — a valid member
+    refused by an off-by-one.
+    """
+    _check_universe(IrCharClass(IrChr(MAX_CODEPOINT)), IrUnicode())
+    with pytest.raises(UnsupportedConstructError, match="outside the encoding"):
+        _check_universe(IrCharClass(IrChr(MAX_CODEPOINT + 1)), IrUnicode())
