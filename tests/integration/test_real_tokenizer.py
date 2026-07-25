@@ -14,7 +14,7 @@ import json as stdlib_json  # oracle only — never in src
 
 import pytest
 
-from ext.API import hf
+from ext.API import cache
 from lexic.api.json_tokenizer import tokenizer_of
 from lexic.api.pretokens import IrByteLevel, IrDigits
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
@@ -24,10 +24,10 @@ from lexic.ir.mapping import IrMap
 from lexic.parsing import parse_reduced
 from tests.integration.tokenizer_corpus import SHARED_CORPUS
 
-SMOLLM2 = hf.CACHE / "smollm2.tokenizer.json"
+SMOLLM2 = cache.path("smollm2")
 
 pytestmark = pytest.mark.skipif(
-    hf.cached("smollm2") is None,
+    cache.cached("smollm2") is None,
     reason="real tokenizer fixture absent — run 'uv run python -m ext.API.hf'",
 )
 
