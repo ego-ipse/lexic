@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ext.API import hf
+from ext.API import cache
 from lexic.api.json_tokenizer import read_from_path
 from lexic.compile import compile_from_path
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
@@ -42,7 +42,7 @@ TEXT = "<think>The user asked 2+2. It is 4.</think>The answer is 4."
 
 def main() -> None:
     """Read a real vocabulary, then parse and constrain a thinking block."""
-    cached = hf.cached("qwen3")
+    cached = cache.cached("qwen3")
     if cached is None:
         print("qwen3 tokenizer not cached — skipping.")
         print("  fetch it with:  uv run python -m ext.API.hf")

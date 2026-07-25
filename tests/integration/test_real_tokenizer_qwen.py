@@ -24,17 +24,17 @@ import unicodedata
 
 import pytest
 
-from ext.API import hf
+from ext.API import cache
 from lexic.api.json_tokenizer import read_from_path
 from lexic.api.pretokens import IrCl100k
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir.encoding import IrTokenizer, IrUnicodeForm
 from tests.integration.tokenizer_corpus import SHARED_CORPUS
 
-QWEN = hf.CACHE / "qwen3.tokenizer.json"
+QWEN = cache.path("qwen3")
 
 pytestmark = pytest.mark.skipif(
-    not (os.environ.get("LEXIC_SLOW") and hf.cached("qwen3")),
+    not (os.environ.get("LEXIC_SLOW") and cache.cached("qwen3")),
     reason="slow lane — set LEXIC_SLOW=1 and run 'uv run python -m ext.API.hf'",
 )
 

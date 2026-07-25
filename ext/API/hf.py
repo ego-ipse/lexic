@@ -8,12 +8,12 @@ third-party artefact. What an artefact means is not this module's business —
 
 **Any repo, any file.** :data:`FIXTURES` is the set this repository's own test
 suite prefetches, not a permitted list — :func:`download` takes any repo id
-the hub serves, so callers are not limited to the two families that happen to
-be pinned here.
+the hub serves, so callers are not limited to the families pinned here.
 
-Nothing fetched is ever committed: files from the hub are third-party and
-their licences vary, so the cache is gitignored and the suite skips when it
-is empty.
+Importing this module needs ``huggingface_hub``. Asking whether a fixture is
+already present does NOT — that is :mod:`ext.API.cache`, which is
+dependency-free precisely so tests and examples can skip cleanly in an
+environment without the fetch extras.
 
 Run ``uv run python -m ext.API.hf`` to prefetch the fixtures, or
 ``uv run python -m ext.API.hf <org/model> ...`` for anything else.
@@ -25,10 +25,11 @@ import shutil
 import sys
 from pathlib import Path
 
-__all__ = ["CACHE", "FIXTURES", "cached", "download"]
+from huggingface_hub import hf_hub_download
 
-CACHE = Path(__file__).resolve().parents[2] / "resources" / "tokenizers"
-"""The gitignored cache. Entries are named ``<name>.<filename>``."""
+from ext.API.cache import CACHE, cached, path
+
+__all__ = ["FIXTURES", "download"]
 
 FIXTURES: dict[str, str] = {
     "smollm2": "HuggingFaceTB/SmolLM2-135M",
@@ -39,26 +40,8 @@ FIXTURES: dict[str, str] = {
 and a prefetch list — NOT a restriction on what :func:`download` accepts."""
 
 
-def cached(name: str, filename: str = "tokenizer.json") -> Path | None:
-    """The cached file for ``name``, or ``None`` when absent.
-
-    Never touches the network — this is what a test asks before it skips.
-
-    :param name: The cache name (a :data:`FIXTURES` alias, or whatever
-        :func:`download` stored it under).
-    :param filename: The file fetched from the repo.
-    :returns: The cached file, or ``None``.
-    """
-    path = CACHE / f"{name}.{filename}"
-    return path if path.is_file() and path.stat().st_size else None
-
-
 def download(repo: str, *, name: str = "", filename: str = "tokenizer.json") -> Path:
     """Fetch ``filename`` from any hub repo into the cache, unless already there.
-
-    The only function here that reaches the network. ``huggingface_hub`` is a
-    dev dependency, imported here alone so importing this module never needs
-    it.
 
     :param repo: A hub repo id (``"org/model"``), or a :data:`FIXTURES` alias.
     :param name: The cache name; defaults to the alias when one was given,
@@ -71,10 +54,8 @@ def download(repo: str, *, name: str = "", filename: str = "tokenizer.json") -> 
     have = cached(name, filename)
     if have is not None:
         return have
-    from huggingface_hub import hf_hub_download  # pylint: disable=C0415
-
     CACHE.mkdir(parents=True, exist_ok=True)
-    out = CACHE / f"{name}.{filename}"
+    out = path(name, filename)
     shutil.copyfile(hf_hub_download(repo_id=repo_id, filename=filename), out)
     return out
 

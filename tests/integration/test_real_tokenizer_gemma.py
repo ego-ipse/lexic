@@ -15,17 +15,17 @@ import os
 
 import pytest
 
-from ext.API import hf
+from ext.API import cache
 from lexic.api.json_tokenizer import read_from_path
 from lexic.api.pretokens import IrSplitMerged
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir.encoding import IrReplace, IrTokenizer
 from tests.integration.tokenizer_corpus import SHARED_CORPUS
 
-GEMMA = hf.CACHE / "gemma4.tokenizer.json"
+GEMMA = cache.path("gemma4")
 
 pytestmark = pytest.mark.skipif(
-    not (os.environ.get("LEXIC_SLOW") and hf.cached("gemma4")),
+    not (os.environ.get("LEXIC_SLOW") and cache.cached("gemma4")),
     reason="slow lane — set LEXIC_SLOW=1 and run 'uv run python -m ext.API.hf'",
 )
 
