@@ -442,16 +442,19 @@ def _compile_core(
     flavour_cls = get_flavour(flavour)
     ast = canonical_grammar(text, flavour_cls)
     resolved = encoding_registry(tokenizer, registry)
-    # concretize COMMUTES with build_codegen_grammar, so the unresolved
-    # codegen grammar is built once and resolved beside the canonical AST.
-    # Retaining it is what makes `bind()` a re-resolve instead of a recompile.
+    # Resolution is for MATCHING, not for meaning. concretize COMMUTES with
+    # build_codegen_grammar, so the unresolved codegen grammar is built once
+    # and resolved beside it; the ENGINE gets the resolved form (ids match a
+    # segmentation) while everything that carries meaning back to the user —
+    # the canonical AST and each class's `__grammar__` — keeps the AUTHORED
+    # form. A vocabulary is a lens on a grammar, never part of what it says,
+    # so binding one must not make `to_grammar()` lossy.
     unresolved = build_codegen_grammar(ast)
     codegen_grammar = unresolved
     if resolved is not None:
-        ast = concretize(ast, resolved)
         codegen_grammar = concretize(unresolved, resolved)
     binding = compute_binding(codegen_grammar)
-    classes = synthesize(codegen_grammar, binding, stem)
+    classes = synthesize(unresolved, binding, stem)
     fold = ModelFold(_fold_config(codegen_grammar, binding, classes))
     return CompiledGrammar(
         classes=classes,

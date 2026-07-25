@@ -23,6 +23,7 @@ import pytest
 
 from lexic.compile import compile_from_path, compile_text, reset_cache_for_tests
 from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir.base import IrStr, IrTuple
 from lexic.ir.encoding import IrTokenizer
 from lexic.ir.mapping import IrMap
@@ -226,3 +227,65 @@ def test_a_char_grammar_still_constrains_with_any_vocabulary() -> None:
     char = compile_text("root ::= [a-z]+", cache_key="constrain-char")
     assert char.constrain(LOW).mask()
     assert char.constrain(HIGH).mask()
+
+
+# ── the emit source is the AUTHORED grammar, never a vocabulary's ids ────
+
+
+AUTHORED = "root ::= <think> thinking </think>"
+
+
+def test_to_grammar_emits_the_authored_spelling_not_ids(compiled) -> None:
+    """A vocabulary is a lens on a grammar, not part of what it says.
+
+    Binding one used to degrade `to_grammar()` from lossless to lossy — the
+    user writes `<think>`, the artefact emitted `<[0]>` — which breaks the
+    headline invariant that every class has a lossless `to_grammar`. The
+    round-trip through `to_text` passed throughout, which is why it hid.
+    """
+    emitted = str(compiled.parse(TEXT).to_grammar("gbnf"))
+    assert AUTHORED in emitted
+    assert "<[0]>" not in emitted
+
+
+def test_rebound_artefacts_emit_the_same_authored_grammar(compiled) -> None:
+    """Both vocabularies emit the SAME text — and it is the authored one.
+
+    The bind-order bug (whichever artefact compiled first won for both) is
+    not merely fixed here, it is impossible: the classes no longer carry any
+    vocabulary's ids, so there is nothing to be stale.
+    """
+    low_emit = str(compiled.parse(TEXT).to_grammar("gbnf"))
+    high_emit = str(compiled.bind(HIGH).parse(TEXT).to_grammar("gbnf"))
+    assert low_emit == high_emit
+    assert AUTHORED in low_emit
+
+
+def test_bind_order_does_not_change_either_artefact() -> None:
+    """Reverse the order and both still emit the authored grammar."""
+    reset_cache_for_tests()
+    high_first = compile_text(_GRAMMAR, tokenizer=HIGH, cache_key="order-high")
+    rebound_low = high_first.bind(LOW)
+    for artefact in (high_first, rebound_low):
+        assert AUTHORED in str(artefact.parse(TEXT).to_grammar("gbnf"))
+
+
+def test_the_canonical_grammar_is_not_vocabulary_locked(compiled) -> None:
+    """`compiled.grammar` is the transpile/re-emit source — it must stay authored.
+
+    `export_module` writes a twin's GRAMMAR from this, so baking ids here put
+    one vocabulary into committed source and made the twin unusable with any
+    other.
+    """
+    assert AUTHORED in str(GBNF_FLAVOUR.apply(compiled.grammar))
+
+
+def test_the_engine_still_matches_on_resolved_ids(compiled) -> None:
+    """Guard the guard: resolution must still REACH the engine.
+
+    If it did not, token grammars would stop parsing id-granular and these
+    tests would pass over a broken parser.
+    """
+    matched = compiled.codegen_grammar.rules[0].body[0][0].atom
+    assert "IrChr(0)" in repr(matched)  # LOW's <think>
+    assert compiled.parse(TEXT).to_text() == TEXT
