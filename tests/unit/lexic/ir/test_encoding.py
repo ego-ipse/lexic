@@ -14,8 +14,11 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrAtom, IrInt, IrNode, IrNone, IrStr, IrTuple
 from lexic.ir.encoding import (
     IrEncoding,
+    IrLongestMatch,
     IrNormalizer,
+    IrRankedMerge,
     IrReplace,
+    IrSegmenter,
     IrTokenizer,
     IrTokenPipeline,
     IrUnicode,
@@ -24,6 +27,7 @@ from lexic.ir.encoding import (
     IrUtf,
 )
 from lexic.ir.mapping import IrMap
+from lexic.ir.meta import IrSingleton
 from lexic.ir.nodes import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
 
 
@@ -369,13 +373,19 @@ def test_vocab_only_repr_elides_trailing_empty_ranks() -> None:
 
 
 def test_merge_tokenizer_repr_shows_ranks() -> None:
-    """A merge tokenizer's repr renders the stored rank map (present, not elided)."""
+    """A merge tokenizer's repr renders the stored rank map (present, not elided).
+
+    Asserted by containment rather than by suffix: the field ORDER is not the
+    subject, and pinning it made this fail when the segmentation model joined
+    the record.
+    """
     tok = _merge_tok()
-    assert repr(tok).endswith(
-        ", IrMap(IrTuple(IrTuple(IrStr('a'), IrStr('b')), IrInt(0)), "
+    assert (
+        "IrMap(IrTuple(IrTuple(IrStr('a'), IrStr('b')), IrInt(0)), "
         "IrTuple(IrTuple(IrStr('ab'), IrStr('c')), IrInt(1)), "
-        "IrTuple(IrTuple(IrStr('b'), IrStr('c')), IrInt(2))))"
-    )
+        "IrTuple(IrTuple(IrStr('b'), IrStr('c')), IrInt(2)))"
+    ) in repr(tok)
+    assert repr(tok).endswith("IrRankedMerge())")  # the model rides along
 
 
 def test_ranks_indexes_each_dyad_by_position() -> None:
@@ -832,3 +842,59 @@ def test_with_no_fallback_an_uncovered_char_is_skipped_not_invented():
     tok = _fallback_tok({"h": 0, "e": 1})
     assert tok.tokenize("hZe") == [0, 1]
     assert tok.tokenize("he") == [0, 1]
+
+
+# ── the segmentation model is an OPEN seam ───────────────────────────────
+
+
+def test_the_builders_choose_the_model_they_already_knew():
+    """``from_vocab`` means longest match; ``from_merges`` means ranked merge.
+
+    This was a two-way branch on ``ranks`` being non-empty, re-derived inside
+    the spine on every gap. The builders knew the answer at construction.
+    """
+    vocab = IrMap(*(IrTuple(IrStr(k), IrChr(i)) for k, i in {"a": 0, "b": 1}.items()))
+    assert IrTokenizer.from_vocab("t", vocab).segmenter == IrLongestMatch()
+    assert (
+        IrTokenizer.from_merges("t", vocab, [("a", "b")]).segmenter == IrRankedMerge()
+    )
+
+
+def test_the_two_models_are_distinguishable():
+    """Singletons, not empty records — an empty record equals any other.
+
+    Were these value-equal-by-emptiness, a longest-match tokenizer would
+    compare EQUAL to a ranked-merge one, and the compile caches now key on
+    tokenizer equality.
+    """
+    assert IrLongestMatch() is IrLongestMatch()
+    assert IrLongestMatch() != IrRankedMerge()
+
+
+def test_a_third_model_needs_no_change_to_the_spine():
+    """The deliverable: a model declared OUTSIDE ``ir/`` just works.
+
+    Unigram (Viterbi over scores) and WordPiece (a continuation prefix) are
+    not expressible as either shipped model; with a closed branch they were
+    not expressible at all. This stand-in proves the seam, not the algorithm.
+    """
+
+    class EveryOtherChar(IrSegmenter, metaclass=IrSingleton):
+        """A deliberately silly model — its only job is to not be built in.
+
+        Declared exactly as the shipped models are: a stateless strategy is a
+        singleton, so instances compare by identity and two different models
+        never collide.
+        """
+
+        def __new__(cls) -> "EveryOtherChar":
+            return super().__new__(cls)
+
+        def symbols(self, tok, text):
+            return [(ch, i, i + 1) for i, ch in enumerate(text) if i % 2 == 0]
+
+    vocab = IrMap(*(IrTuple(IrStr(k), IrChr(i)) for k, i in {"a": 0, "b": 1}.items()))
+    tok = IrTokenizer.from_vocab("t", vocab)
+    odd = tok.with_segmenter(EveryOtherChar())
+    assert tok.tokenize("abab") == [0, 1, 0, 1]
+    assert odd.tokenize("abab") == [0, 0]  # every other char, as declared
