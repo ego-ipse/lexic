@@ -146,9 +146,17 @@ not the history.
 An `IrTokenizer` is built from a vocab (longest-match) or from a vocab plus
 ordered merges (exact ranked-merge BPE), with specials matched atomically. It
 carries its own segmentation pipeline — byte-level remapping, normalizers,
-pre-token splitters, byte fallback — so a real HF `tokenizer.json` loads
-through lexic's own JSON grammar and reducer with no format module in `src`
-(`ex11`).
+pre-token splitters, byte fallback — every field of it **derived from a
+document's own sections**, never fitted to one family.
+
+Reading a `tokenizer.json` is `lexic.api.json_tokenizer`, which takes the
+grammar+reducer that parse the document as *parameters*, so it privileges no
+formulation (`ex11`, `ex12`). Fetching one is `ext/API/`, outside the shipped
+package. `lexic.ir` models the tokenizer and knows neither — a format that
+merely happens to be hosted somewhere does not belong to that host.
+
+A vocabulary is per-deployment, not per-grammar: `compiled.bind(tok)` returns
+a new artefact against another vocabulary without recompiling.
 
 **Boundary:** token spans are char-aligned. Under a byte-level pipeline a token
 can end mid-code-point; `tokenize()` still returns its id, but that token gets

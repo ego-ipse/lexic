@@ -210,14 +210,35 @@ class CompiledGrammar:
         tests end-of-input. Generation is inherently id-space, so this is a
         separate surface from :meth:`parse`, not a second parse interface.
 
+        Supplying a vocabulary is how a CHAR grammar generates: it has no
+        token terminals, so any vocabulary drives it. A grammar that
+        SEGMENTS is different — its terminals are already resolved to the
+        bound vocabulary's ids, so ranging over another one matches nothing
+        and yields an empty mask, which reads as "this grammar is
+        unsatisfiable" rather than as an error. That combination is refused;
+        :meth:`bind` is how a token grammar changes vocabulary.
+
         :param tokenizer: The tokenizer to range over; defaults to the one bound
             at compile time.
         :returns: A fresh mask cursor at the empty prefix.
-        :raises UnsupportedConstructError: When no tokenizer is available.
+        :raises UnsupportedConstructError: When no tokenizer is available, or
+            when a segmented grammar is given a vocabulary other than its own.
         """
         tok = tokenizer if tokenizer is not None else self.tokens.tokenizer
         if tok is None:
             raise UnsupportedConstructError(
                 "compile: constrain() needs a tokenizer (none was bound)"
+            )
+        bound = self.tokens.tokenizer
+        if (
+            self.tokens.segmented
+            and tokenizer is not None
+            and tokenizer is not bound
+            and tokenizer != bound
+        ):
+            raise UnsupportedConstructError(
+                "compile: this grammar's terminals are resolved against the "
+                "bound vocabulary, so constraining it with another matches "
+                "nothing — use compiled.bind(tokenizer).constrain() instead"
             )
         return TokenMaskCursor.of(self.codegen_grammar, tok)

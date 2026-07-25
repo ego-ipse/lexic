@@ -27,9 +27,9 @@ from lexic.ir.nodes import IrChr
 __all__ = [
     "BYTE_FALLBACK",
     "BYTE_LEVEL_REMAP",
-    "CL100K_PATTERN",
+    "QWEN_PATTERN",
     "IrByteLevel",
-    "IrCl100k",
+    "IrQwenSplit",
     "IrDigits",
     "IrSplitMerged",
 ]
@@ -99,20 +99,26 @@ def _gpt2_split(text: str) -> list[str]:
     return pieces
 
 
-CL100K_PATTERN = (
+QWEN_PATTERN = (
     "(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| "
     "?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
 )
-"""The cl100k / GPT-4 pre-token pattern, verbatim as documents spell it.
+"""Qwen's pre-token pattern, verbatim as documents spell it.
+
+**Not** OpenAI's cl100k, despite the family resemblance: cl100k groups
+digits as ``\\p{N}{1,3}`` where this emits them singly. Naming this class
+after cl100k would have been a lie in both directions — it would claim
+support this does not have, and refuse a genuine cl100k document under a
+class named for it.
 
 Matched as a LITERAL, never compiled: it is the discriminator that says
-"this document wants :class:`IrCl100k`". A document carrying any other regex
-is refused rather than approximated.
+"this document wants :class:`IrQwenSplit`". Any other regex is refused
+rather than approximated.
 """
 
 
-def _cl100k_piece(text: str, i: int) -> str:
-    """One cl100k pre-token at ``i`` — the pattern's first-match alternative.
+def _qwen_piece(text: str, i: int) -> str:
+    """One Qwen pre-token at ``i`` — the pattern's first-match alternative.
 
     In order: a case-insensitive contraction; an optional single non-newline
     non-alphanumeric prefix then a letter run; ONE number char (this pattern
@@ -138,10 +144,10 @@ def _cl100k_piece(text: str, i: int) -> str:
     if j < n and _is_other(text[j]):
         end = _run_end(text, j, _is_other)
         return text[i : _run_end(text, end, lambda c: c in "\r\n")]
-    return _cl100k_space(text, i)
+    return _qwen_space(text, i)
 
 
-def _cl100k_space(text: str, i: int) -> str:
+def _qwen_space(text: str, i: int) -> str:
     """The pattern's three whitespace alternatives, in order.
 
     ``\\s*[\\r\\n]+`` (through the final newline run), then
@@ -170,12 +176,12 @@ def _last_newline_run(text: str, start: int, end: int) -> int:
     return last
 
 
-def _cl100k_split(text: str) -> list[str]:
-    """Split ``text`` into cl100k pre-tokens."""
+def _qwen_split(text: str) -> list[str]:
+    """Split ``text`` into Qwen pre-tokens."""
     pieces: list[str] = []
     i = 0
     while i < len(text):
-        piece = _cl100k_piece(text, i)
+        piece = _qwen_piece(text, i)
         pieces.append(piece)
         i += len(piece)
     return pieces
@@ -280,10 +286,10 @@ class IrSplitMerged(IrNamedTuple[str], IrPretoken):
         return pieces
 
 
-class IrCl100k(IrNamedTuple, IrPretoken):
-    """The cl100k / GPT-4 pre-token pattern — a fixed pattern, like ByteLevel.
+class IrQwenSplit(IrNamedTuple, IrPretoken):
+    """The Qwen pre-token pattern — a fixed pattern, like ByteLevel.
 
-    Documents spell it as a ``Split`` step carrying :data:`CL100K_PATTERN`
+    Documents spell it as a ``Split`` step carrying :data:`QWEN_PATTERN`
     with ``Isolated`` behaviour. Hand-implemented rather than compiled,
     because its ``\\p{L}`` / ``\\p{N}`` classes have no stdlib ``re``
     spelling — the same reason :class:`IrByteLevel` is.
@@ -293,4 +299,4 @@ class IrCl100k(IrNamedTuple, IrPretoken):
 
     def split(self, text: str) -> list[str]:
         """The cl100k pattern's pieces."""
-        return _cl100k_split(text)
+        return _qwen_split(text)

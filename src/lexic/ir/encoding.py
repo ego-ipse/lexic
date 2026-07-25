@@ -290,8 +290,13 @@ class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, IrMap]):
     """The segmentation pipeline's data — everything before/around the rewrite.
 
     :ivar specials: Atomic-match spellings, matched whole before anything else.
-    :ivar remap: Ordinal → working char; empty ⇒ text is its own working
-        alphabet. A byte-level vocabulary supplies its own table here.
+    :ivar remap: utf-8 BYTE → working char; empty ⇒ text is its own working
+        alphabet. Non-empty means the vocabulary is spelled over a byte
+        alphabet, so each source char is decomposed to its utf-8 bytes and
+        each byte mapped through this table. The table is data, but the utf-8
+        decomposition is not — a vocabulary over some other byte encoding is
+        not expressible today. Named honestly rather than as the more general
+        "ordinal → char" it is not.
     :ivar normalize: Ordered :class:`IrNormalizer` steps applied to each gap
         before pre-splitting.
     :ivar pretokens: Ordered :class:`IrPretoken` split specs.

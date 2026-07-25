@@ -27,10 +27,10 @@ from pathlib import Path
 from lexic.api.pretokens import (
     BYTE_FALLBACK,
     BYTE_LEVEL_REMAP,
-    CL100K_PATTERN,
+    QWEN_PATTERN,
     IrByteLevel,
-    IrCl100k,
     IrDigits,
+    IrQwenSplit,
     IrSplitMerged,
 )
 from lexic.compile import Reducer, parse_reduced
@@ -199,8 +199,8 @@ def _split(step: IrMap) -> IrPretoken:
     behaviour = str(step[IrStr("behavior")])
     regex = pattern.get(IrStr("Regex"))
     if regex is not None:
-        if str(regex) == CL100K_PATTERN and behaviour == "Isolated":
-            return IrCl100k()
+        if str(regex) == QWEN_PATTERN and behaviour == "Isolated":
+            return IrQwenSplit()
         raise UnsupportedConstructError(
             f"tokenizer.json: unimplemented Split regex ({behaviour})"
         )

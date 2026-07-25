@@ -198,3 +198,31 @@ def test_the_path_cache_keys_the_vocabulary_by_value(tmp_path) -> None:
     assert low.codegen_grammar != high.codegen_grammar
     assert compile_from_path(path, tokenizer=LOW) is low  # equal vocab ⇒ hit
     assert compile_from_path(path) is not low  # unbound is its own artefact
+
+
+def test_constraining_a_token_grammar_with_a_foreign_vocabulary_refuses() -> None:
+    """The silent-empty-mask trap: refuse, don't return "unsatisfiable".
+
+    A segmented grammar's terminals are already resolved to the BOUND
+    vocabulary's ids, so ranging over another matches nothing. That produced
+    an empty mask — which a caller reads as "this grammar admits no token",
+    i.e. a confidently wrong answer with no error. ``bind`` is the one way to
+    change a token grammar's vocabulary.
+    """
+    reset_cache_for_tests()
+    compiled = compile_text(_GRAMMAR, tokenizer=LOW, cache_key="constrain-guard")
+    assert sorted(compiled.bind(HIGH).constrain().mask()) == [7]  # the right way
+    with pytest.raises(UnsupportedConstructError, match="bind"):
+        compiled.constrain(HIGH)
+
+
+def test_a_char_grammar_still_constrains_with_any_vocabulary() -> None:
+    """The guard must not break generation over CHAR grammars.
+
+    A char grammar has no token terminals, so any vocabulary drives it —
+    that is capability C as documented, and four callers plus ex07 rely on
+    it. The refusal above is specific to a grammar that SEGMENTS.
+    """
+    char = compile_text("root ::= [a-z]+", cache_key="constrain-char")
+    assert char.constrain(LOW).mask()
+    assert char.constrain(HIGH).mask()
