@@ -104,11 +104,21 @@ def test_id_form_token_grammar_parses() -> None:
     assert cg.parse("<think></think>").to_text() == "<think></think>"
 
 
-def test_concretised_grammar_has_resolved_ids() -> None:
-    """After compile, a text-form token's canonical grammar carries its id."""
+def test_resolution_reaches_the_engine_and_stops_there() -> None:
+    """Ids are for MATCHING; the authored spelling is what the grammar SAYS.
+
+    Concretization still happens — the codegen grammar the engine parses
+    against carries the resolved id — but it no longer reaches the canonical
+    AST or a class's ``__grammar__``. Binding a vocabulary must not make
+    ``to_grammar()`` lossy: this test previously asserted the opposite, which
+    is how the loss went unnoticed.
+    """
     cg = compile_text("root ::= <think>", tokenizer=_tokenizer())
-    atom = cg.grammar.rules[0].body[0][0].atom
-    assert atom == IrAlphabet("tokens", IrCharClass(IrChr(0)))
+    authored = cg.grammar.rules[0].body[0][0].atom
+    matched = cg.codegen_grammar.rules[0].body[0][0].atom
+    assert authored == IrAlphabet("tokens", IrLiteral("<think>"))
+    assert matched == IrAlphabet("tokens", IrCharClass(IrChr(0)))
+    assert "<think>" in str(cg.parse("<think>").to_grammar("gbnf"))
 
 
 # ── capability C: the admissible next-token mask ─────────────────────────
