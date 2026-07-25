@@ -37,7 +37,7 @@ from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
 from lexic.ir.nodes import IrAst, IrRuleRef
 from lexic.parsing import Reducer
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED
+from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD
 
 __all__ = ["load_flavour", "load_flavour_from_path"]
 
@@ -173,7 +173,7 @@ def _derive_reducer(grammar: IrAst, reductions: IrMap) -> Reducer:
         *(IrTuple(IrRuleRef(name), DROP) for name in grammar.non_semantic),
         IrTuple(IR_DEFAULT, KEEP_REDUCED),
     )
-    return Reducer(reductions=reductions, noise=noise, literal=DROP)
+    return Reducer(actions=reductions, default=YIELD, noise=noise, literal=DROP)
 
 
 # ── escapes (ruling D1) ──────────────────────────────────────────────────

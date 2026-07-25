@@ -33,7 +33,7 @@ from typing import ClassVar, Sequence, cast
 from lexic.exceptions import IrKeyError
 from lexic.ir.action import IrEmit, IrRaise, IrRebuild, IrReturn, IrThis, IrWalk
 from lexic.ir.base import IrCachingTuple, IrNode, IrSelf, IrTuple
-from lexic.ir.mapping import IrTypeMap
+from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import IrLiteral
 
 
@@ -44,14 +44,16 @@ class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](IrCachingTuple[IrTypeMap, IrSelf]):
     invoke it. ``_child_attrs`` is ``()`` so the dispatcher is never walked as
     a grammar node.
 
-    :param actions: Action table — an :class:`~lexic.ir.mapping.IrTypeMap` of
-        :class:`~lexic.ir.action.IrAction` dyads; concrete ``target_type`` keys
-        win over abstract ones via MRO order.
+    :param actions: Action table — an :class:`~lexic.ir.mapping.IrMap` whose
+        ``resolve`` picks the body. An :class:`~lexic.ir.mapping.IrTypeMap`
+        (the usual case) keys on ``target_type``, concrete winning over
+        abstract via MRO order; the plain ``IrMap`` keys on the dispatched
+        VALUE, which is what a rule-ref-keyed dispatcher needs.
     :param default: Body invoked when no action matches (presets override).
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
-    actions: IrTypeMap = IrTypeMap()
+    actions: IrMap = IrTypeMap()
     default: IrSelf = IrRaise()
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:
@@ -74,7 +76,7 @@ class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](IrCachingTuple[IrTypeMap, IrSelf]):
             body = self._resolve_miss(actions, n)
         return body.eval(d, n, nc)
 
-    def _resolve_miss(self, actions: IrTypeMap, n: IrSelf) -> IrSelf:
+    def _resolve_miss(self, actions: IrMap, n: IrSelf) -> IrSelf:
         """Slow-path resolution: MRO walk + ``IR_DEFAULT``, else ``default``.
 
         Reached only when ``type(n)`` is not an exact key — rare in practice

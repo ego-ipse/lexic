@@ -429,9 +429,9 @@ def test_abnf_reductions_covers_all_structural_rules():
 
 
 def test_abnf_reductions_covers_terminal_rules():
-    """Terminal rules resolve through IR_DEFAULT → YIELD (no explicit entry)."""
+    """Terminal rules fall through to the reducer's ``default`` → YIELD."""
     for rule_name in ("ALPHA", "DIGIT", "HEXDIG", "CR", "LF", "SP", "HTAB", "DQUOTE"):
-        assert ABNF_REDUCTIONS.resolve(IrRuleRef(rule_name)) is YIELD, (
+        assert ABNF_REDUCER.body(IrRuleRef(rule_name)) is YIELD, (
             f"Expected YIELD for {rule_name!r}"
         )
 
@@ -441,7 +441,7 @@ def test_abnf_reductions_covers_terminal_rules():
 
 def test_rulename_reduction_yields_irruleref():
     """rulename reduction: children joined -> IrRuleRef."""
-    reducer = Reducer(reductions=ABNF_REDUCTIONS)
+    reducer = Reducer(actions=ABNF_REDUCTIONS)
     tree = ParseTree(IrRuleRef("rulename"), IrSeq(IrLiteral("a"), IrLiteral("b")))
     result = reducer.apply(tree)
     assert isinstance(result, IrRuleRef)

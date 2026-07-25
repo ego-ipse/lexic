@@ -208,7 +208,7 @@ def test_reducer_literal_is_drop() -> None:
 def test_yield_survives_by_identity() -> None:
     """F-INTERN-1: a manifest spelling ``Yield()`` loads THE ``YIELD`` singleton."""
     assert "Yield()" in mini_manifest()
-    reductions = reducer(load_flavour(mini_manifest())).reductions
+    reductions = reducer(load_flavour(mini_manifest())).actions
     assert reductions.get(IrRuleRef("start")) is YIELD
 
 
@@ -316,7 +316,7 @@ def test_gbnf_twin_section_repr_parity() -> None:
     loaded = load_flavour(gbnf_twin_manifest())
     assert repr(loaded.grammar) == repr(GBNF_GRAMMAR)
     assert loaded.grammar.non_semantic == GBNF_GRAMMAR.non_semantic  # C11
-    assert repr(reducer(loaded).reductions) == repr(GBNF_REDUCTIONS)
+    assert repr(reducer(loaded).actions) == repr(GBNF_REDUCTIONS)
     assert repr(loaded.actions) == repr(GBNF_ACTIONS)
 
 
@@ -372,7 +372,7 @@ def test_loads_are_independent() -> None:
     # §10 steps 2–6 hold between the two loads.
     assert repr(first.grammar) == repr(second.grammar)
     assert first.grammar.non_semantic == second.grammar.non_semantic
-    assert repr(reducer(first).reductions) == repr(reducer(second).reductions)
+    assert repr(reducer(first).actions) == repr(reducer(second).actions)
     assert repr(first.actions) == repr(second.actions)
     assert first.escapes.encode("\n\t") == second.escapes.encode("\n\t")
 

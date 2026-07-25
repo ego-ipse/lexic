@@ -222,7 +222,7 @@ class ReduceSource(IrLeaf[IrSelf, IrSelf]):
         while element is not EXHAUSTED:
             parts.append(element)
             element = yield (ADVANCE, children)
-        body = self._reducer.reductions.resolve(node.symbol)
+        body = self._reducer.body(node.symbol)
         reduced = body.eval(self._reducer, node, IrTuple(*parts))
         self._ctx.red[id(node)] = reduced
         yield (EMIT, reduced)
@@ -327,7 +327,7 @@ class _FastReduce(IrLeaf[IrSelf, IrSelf]):
         """
         reducer = self.reducer
         if purpose == _REDUCE:
-            body = reducer.reductions.resolve(node.symbol)
+            body = reducer.body(node.symbol)
             reduced = body.eval(reducer, node, IrTuple(*parts))
             self.ctx.red[id(node)] = reduced
         self.stack.pop()
@@ -448,7 +448,7 @@ class ReducePlan(IrLeaf[IrSelf, IrSelf]):
         """
         body = self.bodies[rid]
         if body is None:
-            body = reducer.reductions.resolve(self.refs[rid])
+            body = reducer.body(self.refs[rid])
             self.bodies[rid] = body
             self.mentions[rid] = _mentions_yield(body)
         return body
@@ -783,7 +783,7 @@ def _run_mode(reducer: Reducer, tables: ParserTables, unit_rid: int) -> int | No
         noise = reducer.noise.resolve(ref)
         if noise is DROP:
             modes.add(RUN_DROP)
-        elif noise is KEEP_REDUCED and reducer.reductions.resolve(ref) is YIELD:
+        elif noise is KEEP_REDUCED and reducer.body(ref) is YIELD:
             modes.add(RUN_STR)
         else:
             return None
@@ -818,11 +818,23 @@ def collapsed_tables(
 class Reducer(IrDispatch):
     """Bottom-up fold of a :class:`~lexic.parsing.earley.forest.ParseTree` into IR.
 
+    A **real** dispatcher, not one beside a dispatcher: the reduction table IS
+    :attr:`~lexic.ir.walk.IrDispatch.actions` and the fallback body IS
+    :attr:`~lexic.ir.walk.IrDispatch.default`. Only resolution differs from the
+    usual preset — dispatch is on ``tree.symbol`` (a *value*, so a plain
+    value-keyed ``IrMap``) rather than on ``type(n)``, which is what
+    :meth:`body` does.
+
+    Not parameterised by a product type: :meth:`eval` is the PER-NODE
+    protocol, re-entered on children through :data:`KEEP_REDUCED`, so its
+    results are heterogeneous — only the start rule's reduction is the
+    "product", and typing ``eval`` by it would be false at every child.
+
     Each node's children are resolved first (governed by ``noise`` / ``literal``),
     then the body bound to the node's ``symbol`` is evaluated with those resolved
     children on the argument channel (``nc``) and the tree as ``n``. Dispatch is
     on ``tree.symbol`` (a *value*, :class:`~lexic.ir.nodes.IrRuleRef`) via the
-    ``reductions`` :class:`IrMap` — correct because every node is a ``ParseTree``,
+    ``actions`` :class:`IrMap` — correct because every node is a ``ParseTree``,
     which is why this overrides ``eval`` rather than reusing the type-keyed table.
 
     The fold is driven by the depth-safe iterative :class:`_FastReduce` (an
@@ -831,18 +843,27 @@ class Reducer(IrDispatch):
     re-entrant ``eval`` carrying that cursor (the ``noise`` policy's
     :data:`KEEP_REDUCED`) returns the memoised reduction.
 
-    :ivar reductions: Rule ref → reduction body, resolved with ``IR_DEFAULT``
-        fallback (a flavour points it at ``YIELD`` for its text rules); a miss
-        with no default raises.
+    :ivar actions: Rule ref → reduction body (the inherited table); a miss
+        falls through to ``default``.
+    :ivar default: Body for a rule with no entry — a flavour points it at
+        ``YIELD`` for its text rules (the inherited fallback).
     :ivar noise: Rule ref → child-contribution body (``DROP``/``KEEP_REDUCED``),
         defaulting (``IR_DEFAULT``) to ``KEEP_REDUCED``.
     :ivar literal: Contribution body for terminal-leaf children (default
         ``KEEP_RAW``).
     """
 
-    reductions: IrMap = IrMap()
     noise: IrMap = IrMap(IrTuple(IR_DEFAULT, KEEP_REDUCED))
     literal: IrSelf = KEEP_RAW
+
+    def body(self, symbol: IrSelf) -> IrSelf:
+        """The reduction body for ``symbol`` — the value-keyed resolve.
+
+        One dict probe, falling through to :attr:`default` on a miss; the
+        per-node hot read of the whole fold.
+        """
+        found = self.actions.get(symbol)
+        return self.default if found is None else found
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """Reduce ``n`` (a :class:`~lexic.parsing.earley.forest.ParseTree`) to its IR.

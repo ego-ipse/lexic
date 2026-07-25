@@ -626,12 +626,12 @@ YIELD = IrJoin(parts=IrArgs(), separator=IrLiteral(""), empty=IrLiteral(""))
 
 def digit_reducer() -> Reducer:
     """A Reducer whose reduction table covers the digit_grammar's 'digit' rule."""
-    return Reducer(reductions=IrMap(IrTuple(IrRuleRef("digit"), YIELD)))
+    return Reducer(actions=IrMap(IrTuple(IrRuleRef("digit"), YIELD)))
 
 
 def s_reducer() -> Reducer:
     """A Reducer whose reduction table covers the sss_grammar's 's' rule."""
-    return Reducer(reductions=IrMap(IrTuple(IrRuleRef("s"), YIELD)))
+    return Reducer(actions=IrMap(IrTuple(IrRuleRef("s"), YIELD)))
 
 
 def test_parse_reduced_singleton_is_parse_reduced_instance():
