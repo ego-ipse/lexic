@@ -45,6 +45,7 @@ from lexic.ir.nodes import (
 from lexic.parsing import Reducer
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD
 from tests.paths import GROUND_TRUTH
+from tools.gen_manifests import escapes_as_ir
 
 # ── manifest fixtures ────────────────────────────────────────────────────
 
@@ -123,24 +124,6 @@ def replacing(name: str, value: object) -> str:
     """The minimal manifest with section ``name``'s value replaced."""
     dyads = [IrTuple(d[0], value) if str(d[0]) == name else d for d in mini_dyads()]
     return repr(IrMap(*dyads))
-
-
-def escapes_as_ir(codec: EscapeCodec) -> IrMap:
-    """The five codec tables as IR dyads (ruling D1) — the generation shape.
-
-    The record's fields are already IR-native; ``class-meta`` re-sorts for a
-    deterministic manifest (mirrors ``tools/gen_manifests.escapes_as_ir``).
-    """
-    return IrMap(
-        IrTuple(IrStr("short"), codec.short),
-        IrTuple(IrStr("hex"), codec.hexes),
-        IrTuple(IrStr("class-short"), codec.class_short),
-        IrTuple(
-            IrStr("class-meta"),
-            IrTuple(*(IrStr(c) for c in sorted(str(m) for m in codec.class_meta))),
-        ),
-        IrTuple(IrStr("quote-safe"), codec.quote_safe),
-    )
 
 
 def gbnf_twin_manifest() -> str:

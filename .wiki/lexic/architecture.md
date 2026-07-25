@@ -123,8 +123,24 @@ lexic.ir          Pure data + substrate (incl. the layout algebra, ir/layout.py)
 lexic.grammars    Flavour layer (IrFlavour subclasses + singletons; owns each flavour's self-grammar + reducer).
 lexic.parsing     The Earley engine + predictive PDA. Reads/writes IR only; imports neither grammars nor compile.
 lexic.compile     The compilation subsystem (a package): passes, binding, synthesis, export, notation, loader, artifact. The sole runtime seam onto the engine.
+lexic.api         Readers for third-party formats. Runtime modules: they reach the engine only through the lexic.compile seam.
 lexic (runtime)   model.py (GrammarModel), generate.py, exceptions.py. Imports lexic.ir + lexic.grammars (flavour singleton, model.py only) + lexic.compile.
 ```
+
+Outside the shipped package, `ext/API/` holds clients that **fetch**
+third-party artefacts. The split is deliberate and worth keeping straight:
+
+| | job | ships |
+|---|---|---|
+| `ext/API/` | **get** the artefact (network, cache) | no |
+| `lexic.api` | **read** the format | yes |
+| `lexic.ir` | **model** it — knows neither | yes |
+
+A format that merely happens to be hosted somewhere does not belong to that
+host, and a network client has no business in a grammar engine's wheel. A
+reader takes the grammar+reducer that read its document as **parameters**, so
+it privileges no formulation ([[decisions]]) — that is what makes a
+third-party format reader legitimate inside `src`.
 
 ## Layering rules — review-blocking offences
 

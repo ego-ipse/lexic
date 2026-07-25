@@ -1,5 +1,23 @@
 # Log
 
+## Vendor formats moved out of `ir/`; readers get a home
+
+`ir/encoding.py` had modelled one vendor's tokenizer pipeline directly — a
+hand-implemented GPT-2 pattern, its byte table, and node types named after
+that vendor's stages. The spine now keeps only `IrPretoken` (the concept);
+the format's vocabulary lives in `lexic.api.pretokens` beside its reader.
+New invariant in [[invariants]]: **no third-party format, product or model
+name appears in `lexic.ir`**, enforceable by grep. Rationale in
+[[decisions]].
+
+New package `lexic.api` — readers for third-party formats, taking the
+grammar+reducer that parse a document as parameters so they privilege no
+formulation. Fetching lives outside the shipped package in `ext/API/`; see
+the get / read / model split in [[architecture]].
+
+Also: `IrSelf.ensure` (the boundary narrow, [[ir-shapes]]) and
+`CompiledGrammar.bind` + `TokenBinding` ([[public-api]], [[tokens]]).
+
 ## 2026-07-25 — Tokens: the encoding family, token terminals, generation masks
 
 An encoding now gives a char class's ordinals their meaning — `IrEncoding`

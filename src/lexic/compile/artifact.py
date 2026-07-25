@@ -10,10 +10,92 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.encoding import IrTokenizer
+from lexic.ir.base import IrStr, IrTuple
+from lexic.ir.concretize import concretize
+from lexic.ir.encoding import IrEncoding, IrTokenizer, IrUnicode
+from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing import ModelFold, TokenMaskCursor, parse_model, token_model
+
+
+def encoding_registry(
+    tokenizer: IrTokenizer | None, registry: IrMap | None
+) -> IrMap | None:
+    """The name → encoding registry concretize binds against.
+
+    The two inputs COMPOSE — ``registry=`` binds names, ``tokenizer=`` also
+    binds that one under its own ``name`` — over a default ``unicode``. They
+    are not alternatives, so passing both is fine; only a genuine conflict
+    (the same name bound to two different encodings) is an error.
+
+    :param tokenizer: A tokenizer to bind under its own ``name``.
+    :param registry: An explicit ``IrMap[IrStr, IrEncoding]``; the grammar's
+        encoding *names* are its keys. Entries win over the default ``unicode``.
+    :returns: The resolved registry, or ``None`` for a plain char grammar.
+    :raises UnsupportedConstructError: When ``tokenizer.name`` is already bound
+        to a different encoding by ``registry``.
+    """
+    if tokenizer is None and registry is None:
+        return None
+    bound: dict[IrStr, IrEncoding] = {IrStr("unicode"): IrUnicode()}
+    if registry is not None:
+        bound |= {IrStr(name): enc for name, enc in registry.items()}
+    if tokenizer is not None:
+        name = IrStr(tokenizer.name)
+        existing = bound.get(name)
+        if existing is not None and existing is not tokenizer and name != "unicode":
+            raise UnsupportedConstructError(
+                f"compile: encoding name {str(name)!r} is bound by registry= "
+                "and by tokenizer= to different encodings"
+            )
+        bound[name] = tokenizer
+    return IrMap(*(IrTuple(name, enc) for name, enc in bound.items()))
+
+
+def segmentation_tokenizer(registry: IrMap | None) -> IrTokenizer | None:
+    """The registry's sole tokenizer — the bound vocabulary.
+
+    Segmentation and generation both want one tokenizer; ``unicode`` is never
+    it. Zero or multiple tokenizers ⇒ none is implied. Whether it SEGMENTS is
+    a separate question, answered against the grammar.
+
+    Counted by IDENTITY, not by entry: ``tokenizer=`` and ``registry=``
+    compose, so one tokenizer bound under two names (its own and the
+    grammar's) is still ONE tokenizer. Counting entries made that supported
+    combination silently lose its segmentation.
+
+    :param registry: The resolved encoding registry (or ``None``).
+    :returns: The single :class:`IrTokenizer` in ``registry``, else ``None``.
+    """
+    if registry is None:
+        return None
+    toks = {id(enc): enc for enc in registry.values() if isinstance(enc, IrTokenizer)}
+    return next(iter(toks.values())) if len(toks) == 1 else None
+
+
+@dataclass(frozen=True)
+class TokenBinding:
+    """What a compiled grammar knows about tokens — one value, three facts.
+
+    The first two are separate questions and conflating them broke
+    additivity: a tokenizer can be bound to a grammar that does not segment.
+
+    :ivar tokenizer: The bound vocabulary. Supplies the segmentation for a
+        token grammar's parse AND the vocabulary for ``constrain`` — a char
+        grammar may carry one for the latter alone.
+    :ivar segmented: Whether the grammar's terminals reference an encoding, so
+        its input must be segmented into tokens. Derived from the grammar, so
+        binding a tokenizer to a char grammar cannot move it.
+    :ivar unresolved: The codegen grammar BEFORE its alphabets were resolved
+        to ids — what :meth:`CompiledGrammar.bind` re-concretizes. Retained
+        because resolution is lossy: ordinals are baked and the spellings are
+        gone, so a rebind cannot start from ``codegen_grammar``.
+    """
+
+    tokenizer: IrTokenizer | None = None
+    segmented: bool = False
+    unresolved: IrAst | None = None
 
 
 @dataclass(frozen=True)
@@ -31,6 +113,8 @@ class CompiledGrammar:
     :ivar flavour: The source flavour's name (drives the export docstrings).
     :ivar stem: The grammar stem (file stem / content-hash stem) — the
         exported module's default identity.
+    :ivar tokens: What this grammar knows about tokens — the bound vocabulary
+        and whether the grammar segments. See :class:`TokenBinding`.
     """
 
     classes: dict[str, type]
@@ -39,30 +123,83 @@ class CompiledGrammar:
     fold: ModelFold[GrammarModel]
     flavour: str = "gbnf"
     stem: str = "grammar"
-    tokenizer: IrTokenizer | None = None
+    tokens: TokenBinding = TokenBinding()
 
     def parse(self, text: str) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
 
-        A **token grammar** (compiled with a bound :attr:`tokenizer`) routes
-        through :func:`~lexic.parsing.token_model`: lexic segments ``text`` with
-        its own tokenizer and every token terminal matches id-granular against
-        that segmentation. A char grammar delegates to
+        A **token grammar** — one whose terminals reference an encoding —
+        routes through :func:`~lexic.parsing.token_model`: lexic segments
+        ``text`` with the bound tokenizer and every token terminal matches
+        id-granular against that segmentation. A char grammar delegates to
         :func:`~lexic.parsing.parse_model` (PDA-first, Earley completion;
         ``PdaFail`` never surfaces).
+
+        The route is chosen by the GRAMMAR, not by whether a tokenizer happens
+        to be bound: a char grammar is unaffected by token machinery (the
+        additivity invariant), and a tokenizer bound to one is there for
+        :meth:`constrain`, which needs a vocabulary for char grammars too.
 
         :raises UnsupportedConstructError: If ``text`` does not parse, or the
             fold produced no model for the start rule.
         """
-        if self.tokenizer is not None:
+        tok = self.tokens.tokenizer
+        if tok is not None and self.tokens.segmented:
             bounds = {
-                start: (tid, end - start)
-                for start, end, tid in self.tokenizer.boundaries(text)
+                start: (tid, end - start) for start, end, tid in tok.boundaries(text)
             }
-            return self._ensure_model(
-                token_model(self.codegen_grammar, text, self.fold, bounds)
+            return GrammarModel.ensure(
+                token_model(self.codegen_grammar, text, self.fold, bounds),
+                "compile: the start rule's fold",
             )
-        return self._ensure_model(parse_model(self.codegen_grammar, text, self.fold))
+        return GrammarModel.ensure(
+            parse_model(self.codegen_grammar, text, self.fold),
+            "compile: the start rule's fold",
+        )
+
+    def bind(
+        self, tokenizer: IrTokenizer, registry: IrMap | None = None
+    ) -> CompiledGrammar:
+        """This grammar against a different vocabulary — a NEW artefact.
+
+        Re-resolves the retained unresolved codegen grammar against the new
+        registry and reuses the classes, binding and fold unchanged. That is
+        sound because they are **invariant** under which tokenizer is bound:
+        field naming dispatches on the atom type (``IrAlphabet``), which
+        resolution preserves — it rewrites only the inner ordinals. So two
+        vocabularies give identical class names, ``__binds__`` and fold keys,
+        and only the codegen grammar differs (and only where the ids do).
+
+        Measured at ~18× cheaper than recompiling, a ratio that grows with
+        grammar size: the skipped stages scale with the grammar, while
+        resolution scales with the count of alphabet atoms.
+
+        Returns a new artefact rather than mutating: the engine memoises its
+        tables per grammar identity, and a rebound grammar SHOULD be a
+        different identity because its ids differ.
+
+        :param tokenizer: The vocabulary to bind.
+        :param registry: Further name → encoding bindings, composed as at
+            compile time.
+        :returns: A new artefact bound to ``tokenizer``.
+        """
+        source = self.tokens.unresolved
+        if source is None:  # compiled before a rebindable form was retained
+            source = self.codegen_grammar
+        resolved = encoding_registry(tokenizer, registry)
+        return CompiledGrammar(
+            classes=self.classes,
+            grammar=self.grammar,
+            codegen_grammar=(
+                source if resolved is None else concretize(source, resolved)
+            ),
+            fold=self.fold,
+            flavour=self.flavour,
+            stem=self.stem,
+            tokens=TokenBinding(
+                segmentation_tokenizer(resolved), self.tokens.segmented, source
+            ),
+        )
 
     def constrain(self, tokenizer: IrTokenizer | None = None) -> TokenMaskCursor:
         """A generation cursor: the admissible next-token mask (capability C).
@@ -78,24 +215,9 @@ class CompiledGrammar:
         :returns: A fresh mask cursor at the empty prefix.
         :raises UnsupportedConstructError: When no tokenizer is available.
         """
-        tok = tokenizer if tokenizer is not None else self.tokenizer
+        tok = tokenizer if tokenizer is not None else self.tokens.tokenizer
         if tok is None:
             raise UnsupportedConstructError(
                 "compile: constrain() needs a tokenizer (none was bound)"
             )
         return TokenMaskCursor.of(self.codegen_grammar, tok)
-
-    @staticmethod
-    def _ensure_model(model: object) -> GrammarModel:
-        """Assert the start rule folded to a :class:`GrammarModel`.
-
-        :param model: The object the PDA or the fold produced for the start rule.
-        :returns: ``model`` narrowed to :class:`GrammarModel`.
-        :raises UnsupportedConstructError: When ``model`` is not a model instance.
-        """
-        if not isinstance(model, GrammarModel):
-            raise UnsupportedConstructError(
-                f"compile: start rule folded to {type(model).__name__!r}, "
-                "not a GrammarModel"
-            )
-        return model

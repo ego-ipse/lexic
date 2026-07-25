@@ -24,7 +24,7 @@ import unicodedata
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from heapq import heappop, heappush
-from typing import ClassVar, Self, cast
+from typing import ClassVar, Literal, Self, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import (
@@ -269,90 +269,7 @@ def _rank_map(merges: Merges) -> IrMap:
     return IrMap(*(IrTuple(dyad, IrInt(i)) for i, dyad in enumerate(dyads)))
 
 
-# ── the pre-tokenization vocabulary (data-only split specs) ───────────────
-
-_CONTRACTIONS = ("'s", "'t", "'re", "'ve", "'m", "'ll", "'d")
-"""The GPT-2 pattern's literal contraction alternatives, in pattern order."""
-
-
-def _is_letter(ch: str) -> bool:
-    """Unicode ``\\p{L}`` membership."""
-    return unicodedata.category(ch).startswith("L")
-
-
-def _is_number(ch: str) -> bool:
-    """Unicode ``\\p{N}`` membership."""
-    return unicodedata.category(ch).startswith("N")
-
-
-def _is_other(ch: str) -> bool:
-    """The GPT-2 pattern's ``[^\\s\\p{L}\\p{N}]`` class."""
-    return not ch.isspace() and not _is_letter(ch) and not _is_number(ch)
-
-
-def _run_end(text: str, i: int, pred: Callable[[str], bool]) -> int:
-    """The end of the ``pred``-satisfying run starting at ``i``."""
-    n = len(text)
-    while i < n and pred(text[i]):
-        i += 1
-    return i
-
-
-def _gpt2_piece(text: str, i: int) -> str:
-    """One GPT-2 pre-token at ``i`` — the pattern's first-match alternative.
-
-    The alternatives in order: a literal contraction; an optional single
-    space then a letter / number / other run; a whitespace run not followed
-    by non-space (backtracking one char when it is — the last whitespace char
-    is left to prefix the next piece); a whitespace run.
-    """
-    n = len(text)
-    for word in _CONTRACTIONS:
-        if text.startswith(word, i):
-            return word
-    j = i + 1 if text[i] == " " and i + 1 < n else i
-    head = text[j] if j < n else ""
-    if head and _is_letter(head):
-        return text[i : _run_end(text, j, _is_letter)]
-    if head and _is_number(head):
-        return text[i : _run_end(text, j, _is_number)]
-    if head and _is_other(head):
-        return text[i : _run_end(text, j, _is_other)]
-    k = _run_end(text, i, str.isspace)
-    if k < n and k - i >= 2:
-        return text[i : k - 1]
-    return text[i:k]
-
-
-def _gpt2_split(text: str) -> list[str]:
-    """Split ``text`` into GPT-2 pre-tokens (the fixed byte-level pattern)."""
-    pieces: list[str] = []
-    i = 0
-    while i < len(text):
-        piece = _gpt2_piece(text, i)
-        pieces.append(piece)
-        i += len(piece)
-    return pieces
-
-
-def _byte_unicode() -> dict[int, str]:
-    """The GPT-2 byte → printable-char table (the byte-level remap)."""
-    keep = [*range(0x21, 0x7F), *range(0xA1, 0xAD), *range(0xAE, 0x100)]
-    table = {b: chr(b) for b in keep}
-    fill = 0
-    for b in range(256):
-        if b not in table:
-            table[b] = chr(0x100 + fill)
-            fill += 1
-    return table
-
-
-BYTE_LEVEL_REMAP: IrMap = IrMap(
-    *(IrTuple(IrChr(b), IrStr(ch)) for b, ch in sorted(_byte_unicode().items()))
-)
-"""The standard byte-level working alphabet — byte ordinal → working char
-(space → ``Ġ``, newline → ``Ċ``, …); the ``remap`` a ByteLevel tokenizer
-carries."""
+# ── the pre-tokenization contract ─────────────────────────────────────────
 
 
 class IrPretoken(IrNode):
@@ -369,84 +286,14 @@ class IrPretoken(IrNode):
         """Partition ``text`` into pre-token pieces (concatenation-preserving)."""
 
 
-class IrDigits(IrNamedTuple[bool], IrPretoken):
-    """HF ``Digits`` — separate number chars from everything else.
-
-    ``individual`` splits every number char into its own piece; otherwise
-    number runs stay whole.
-    """
-
-    _child_attrs: ClassVar[tuple[str, ...]] = ()
-    individual: bool = True
-
-    def split(self, text: str) -> list[str]:
-        """Pieces alternating number / non-number content."""
-        pieces: list[str] = []
-        start = 0
-        i = 0
-        while i < len(text):
-            if not _is_number(text[i]):
-                i += 1
-                continue
-            if start < i:
-                pieces.append(text[start:i])
-            end = i + 1 if self.individual else _run_end(text, i, _is_number)
-            pieces.append(text[i:end])
-            start = i = end
-        if start < len(text):
-            pieces.append(text[start:])
-        return pieces
-
-
-class IrByteLevel(IrNamedTuple, IrPretoken):
-    """HF ``ByteLevel(use_regex=True)`` — the fixed GPT-2 pre-token pattern.
-
-    The regex split only; the byte → working-char conversion is the
-    tokenizer's ``remap`` data (:data:`BYTE_LEVEL_REMAP`), applied after
-    splitting.
-    """
-
-    _child_attrs: ClassVar[tuple[str, ...]] = ()
-
-    def split(self, text: str) -> list[str]:
-        """The GPT-2 pattern's pieces."""
-        return _gpt2_split(text)
-
-
-class IrSplitMerged(IrNamedTuple[str], IrPretoken):
-    """HF ``Split(pattern, MergedWithPrevious)`` — separator sticks backward."""
-
-    _child_attrs: ClassVar[tuple[str, ...]] = ()
-    text: str
-
-    def split(self, text: str) -> list[str]:
-        """Pieces ending at (and including) each separator occurrence."""
-        sep = str(self.text)
-        if not sep:
-            return [text] if text else []
-        pieces: list[str] = []
-        start = i = 0
-        while i < len(text):
-            if not text.startswith(sep, i):
-                i += 1
-                continue
-            pieces.append(text[start : i + len(sep)])
-            i += len(sep)
-            start = i
-        if start < len(text):
-            pieces.append(text[start:])
-        return pieces
-
-
 class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, bool]):
     """The segmentation pipeline's data — everything before/around the rewrite.
 
-    :ivar specials: Atomic-match spellings (HF ``added_tokens``), matched
-        whole before anything else.
-    :ivar remap: Byte ordinal → working char (:data:`BYTE_LEVEL_REMAP` for a
-        byte-level tokenizer); empty ⇒ text is its own working alphabet.
-    :ivar normalize: Ordered ``IrTuple(src, dst)`` replaces applied to each
-        gap before pre-splitting (HF ``Replace`` normalizers).
+    :ivar specials: Atomic-match spellings, matched whole before anything else.
+    :ivar remap: Ordinal → working char; empty ⇒ text is its own working
+        alphabet. A byte-level vocabulary supplies its own table here.
+    :ivar normalize: Ordered :class:`IrNormalizer` steps applied to each gap
+        before pre-splitting.
     :ivar pretokens: Ordered :class:`IrPretoken` split specs.
     :ivar byte_fallback: An uncovered symbol yields its utf-8 bytes as
         ``<0xNN>`` vocab tokens instead of no token.
@@ -487,6 +334,65 @@ def _replace_pass(text: str, meta: _WMeta, src: str, dst: str) -> tuple[str, _WM
             out_meta.append((span[0], span[1], k == 0))
         i += len(src)
     return "".join(out), out_meta
+
+
+class IrNormalizer(IrNode):
+    """Role marker for text-normalization steps — the :class:`IrAtom` pattern.
+
+    A step rewrites the working text before pre-splitting, carrying the
+    char-span metadata forward so token offsets stay derivable. Open-set: a
+    new family subclasses this and the pipeline accepts it without any
+    dispatch-table edit — the :class:`IrPretoken` arrangement, one stage
+    earlier.
+    """
+
+    @abstractmethod
+    def apply(self, text: str, meta: _WMeta) -> tuple[str, _WMeta]:
+        """Rewrite ``text``, mapping each output char back to a source span."""
+
+
+class IrReplace(IrNamedTuple[str, str], IrNormalizer):
+    """Replace every occurrence of ``src`` with ``dst``."""
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    src: str
+    dst: str
+
+    def apply(self, text: str, meta: _WMeta) -> tuple[str, _WMeta]:
+        """The replaced text; each ``dst`` char shares the matched span."""
+        return _replace_pass(text, meta, str(self.src), str(self.dst))
+
+
+UnicodeForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
+"""The four Unicode normalization forms — the only values that normalize."""
+
+
+class IrUnicodeForm(IrNamedTuple[str], IrNormalizer):
+    """A Unicode normalization form (``NFC`` / ``NFD`` / ``NFKC`` / ``NFKD``).
+
+    Applied per starter run — a base char plus its following combining marks
+    — which is the unit normalization is defined over, and which keeps every
+    output char attributable to one source span.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    form: UnicodeForm = "NFC"
+
+    def apply(self, text: str, meta: _WMeta) -> tuple[str, _WMeta]:
+        """The normalized text; a run's output chars share the run's span."""
+        out: list[str] = []
+        out_meta: _WMeta = []
+        i = 0
+        while i < len(text):
+            j = i + 1
+            while j < len(text) and unicodedata.combining(text[j]):
+                j += 1
+            span = (meta[i][0], meta[j - 1][1])
+            for k, ch in enumerate(unicodedata.normalize(self.form, text[i:j])):
+                out.append(ch)
+                out_meta.append((span[0], span[1], k == 0))
+            i = j
+        return "".join(out), out_meta
 
 
 def _piece_slices(
@@ -549,8 +455,8 @@ class IrTokenizer(
     (:attr:`merges` — sort on rank), needed only at emission. ``ranks`` is
     **empty** for a vocab-only tokenizer (:meth:`from_vocab` — segmentation is
     longest-match) and non-empty for a merge-based one (:meth:`from_merges` —
-    the ranked-merge rewrite). ``specials`` is the atomic-match set (HF's
-    ``added_tokens``): an ``IrTuple`` of ``IrStr`` spellings matched **whole**,
+    the ranked-merge rewrite). ``specials`` is the atomic-match set: an
+    ``IrTuple`` of ``IrStr`` spellings matched **whole**,
     before the merge/longest rewrite, so a special like ``<think>`` is one token
     even amid BPE content. Built from a Mapping alone; *how* that Mapping was
     produced (parsed from any format via a grammar/reduction, or handed in
@@ -744,8 +650,8 @@ class IrTokenizer(
         rewrite."""
         line = self.pipeline
         work, meta = gap, _identity_meta(base, len(gap))
-        for dyad in line.normalize:
-            work, meta = _replace_pass(work, meta, str(dyad[0]), str(dyad[1]))
+        for step in line.normalize:
+            work, meta = IrNormalizer.ensure(step, "a normalize step").apply(work, meta)
         out: list[tuple[int, tuple[int, int] | None]] = []
         for ptext, pmeta in _piece_slices(work, meta, line.pretokens):
             if line.remap:

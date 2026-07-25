@@ -20,32 +20,27 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from lexic.compile import parse_grammar
 from lexic.grammars.abnf import (
     ABNF_ACTIONS,
-    ABNF_ESCAPES,
-    ABNF_GRAMMAR,
+    ABNF_FLAVOUR,
     ABNF_REDUCTIONS,
 )
 from lexic.grammars.ebnf import (
     EBNF_ACTIONS,
-    EBNF_ESCAPES,
     EBNF_FLAVOUR,
-    EBNF_GRAMMAR,
     EBNF_REDUCTIONS,
 )
 from lexic.grammars.gbnf import (
     GBNF_ACTIONS,
-    GBNF_ESCAPES,
     GBNF_FLAVOUR,
-    GBNF_GRAMMAR,
     GBNF_REDUCTIONS,
 )
 from lexic.ir.base import IrStr, IrTuple
+from lexic.ir.canonical import canonicalize
 from lexic.ir.escapes import EscapeCodec
+from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap, IrTypeMap
-from lexic.ir.nodes import (
-    IrAst,
-)
 
 # ── section spelling ──────────────────────────────────────────────────────
 
@@ -72,26 +67,23 @@ def escapes_as_ir(codec: EscapeCodec) -> IrMap:
     )
 
 
-def format_manifest(
-    name: str,
-    extensions: tuple[str, ...],
-    line_comment: str,
-    codec: EscapeCodec,
-    grammar: IrAst,
-    reductions: IrMap,
-    actions: IrTypeMap,
-) -> str:
+def format_manifest(flavour: IrFlavour, reductions: IrMap, actions: IrTypeMap) -> str:
     """One manifest as readable notation text — each section on its own line.
 
-    Section values are ``repr``'d (a superset of the notation); the surrounding
-    ``IrMap(...)`` is laid out by hand so the file is greppable and hand-editable.
+    Five of the seven sections are the flavour's own ClassVars, so it is
+    passed whole rather than unpacked at every call site (a flavour is data).
+
+    :param flavour: The flavour whose metadata, escapes and grammar to emit.
+    :param reductions: Its reduce table.
+    :param actions: Its emit actions.
+    :returns: The manifest as notation text.
     """
     sections = [
-        ("name", repr(IrStr(name))),
-        ("extensions", repr(IrTuple(*(IrStr(e) for e in extensions)))),
-        ("line-comment", repr(IrStr(line_comment))),
-        ("escapes", repr(escapes_as_ir(codec))),
-        ("grammar", repr(grammar)),
+        ("name", repr(IrStr(flavour.name))),
+        ("extensions", repr(IrTuple(*(IrStr(e) for e in flavour.extensions)))),
+        ("line-comment", repr(IrStr(flavour.line_comment))),
+        ("escapes", repr(escapes_as_ir(flavour.escapes))),
+        ("grammar", repr(flavour.grammar)),
         ("reductions", repr(reductions)),
         ("actions", repr(actions)),
     ]
@@ -126,39 +118,15 @@ def main() -> None:
     """Generate the three manifests + the demo EBNF corpus grammar."""
     _write(
         _GRAMMARS / "gbnf.flavour.ir",
-        format_manifest(
-            "gbnf",
-            (".gbnf",),
-            "#",
-            GBNF_ESCAPES,
-            GBNF_GRAMMAR,
-            GBNF_REDUCTIONS,
-            GBNF_ACTIONS,
-        ),
+        format_manifest(GBNF_FLAVOUR, GBNF_REDUCTIONS, GBNF_ACTIONS),
     )
     _write(
         _GRAMMARS / "abnf.flavour.ir",
-        format_manifest(
-            "abnf",
-            (".abnf",),
-            ";",
-            ABNF_ESCAPES,
-            ABNF_GRAMMAR,
-            ABNF_REDUCTIONS,
-            ABNF_ACTIONS,
-        ),
+        format_manifest(ABNF_FLAVOUR, ABNF_REDUCTIONS, ABNF_ACTIONS),
     )
     _write(
         _GRAMMARS / "ebnf.flavour.ir",
-        format_manifest(
-            "ebnf",
-            (".ebnf",),
-            "",
-            EBNF_ESCAPES,
-            EBNF_GRAMMAR,
-            EBNF_REDUCTIONS,
-            EBNF_ACTIONS,
-        ),
+        format_manifest(EBNF_FLAVOUR, EBNF_REDUCTIONS, EBNF_ACTIONS),
     )
     _write(_GROUND_TRUTH / "arithmetic.ebnf", ARITHMETIC_EBNF)
     _write(_GROUND_TRUTH / "json.ebnf", _json_ebnf())
@@ -166,9 +134,6 @@ def main() -> None:
 
 def _json_ebnf() -> str:
     """The json GT in EBNF — the canonical json.gbnf emitted at width 88."""
-    from lexic.compile import parse_grammar
-    from lexic.ir.canonical import canonicalize
-
     text = (_GROUND_TRUTH / "json.gbnf").read_text(encoding="utf-8")
     canonical = canonicalize(parse_grammar(text, GBNF_FLAVOUR))
     return str(EBNF_FLAVOUR.apply(canonical)) + "\n"

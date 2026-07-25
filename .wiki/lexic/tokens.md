@@ -51,7 +51,62 @@ we do not prescribe to it.** Content is expressed with negation
 3. **Constrain generation** — `compiled.constrain()` → a `TokenMaskCursor`.
 
 `tokenizer=` and `registry=` **compose** over a default `unicode`; only a name
-bound to two different encodings is an error.
+bound to two different encodings is an error. Composing them may bind ONE
+tokenizer under two names (its own and the grammar's) — that is still one
+tokenizer, so the sole-vocabulary check counts by identity, not by entry.
+
+A vocabulary is per-deployment, not per-grammar: `compiled.bind(tok)` returns
+a new artefact against a different vocabulary without recompiling
+([[public-api]]).
+
+## The segmentation pipeline
+
+`IrTokenPipeline` is the data around the merge rewrite: `specials` (atomic,
+matched first), `remap` (ordinal → working char), `normalize` (ordered
+replaces), `pretokens` (ordered `IrPretoken` splits) and `byte_fallback`.
+
+`IrPretoken` is the whole contract — *a spec whose `split` partitions text*
+— and it is **open-set**: a new family subclasses it and the pipeline accepts
+it with no dispatch-table edit. That is deliberate, and it is where a
+format's own split vocabulary belongs: **outside `ir/`**, beside the reader
+that names it ([[decisions]]). `lexic.api.pretokens` holds the
+`tokenizer.json` families and their byte table; the spine stays neutral about
+whose pipeline it is.
+
+Everything in a pipeline is **derived from a document's own sections**, never
+fitted to a family. Two traps the readers must handle and the spine must not
+know about:
+
+- a byte-level step may declare that it contributes **no split of its own**
+  (a family that pre-splits with its own pattern says so); the reader then
+  emits no split spec, rather than a flag reaching an IR node;
+- the byte **remap follows such a step's presence**, decided separately from
+  whether it splits. Composing them may bind ONE
+tokenizer under two names (its own and the grammar's) — that is still one
+tokenizer, so the sole-vocabulary check counts by identity, not by entry.
+
+A vocabulary is per-deployment, not per-grammar: `compiled.bind(tok)` returns
+a new artefact against a different vocabulary without recompiling
+([[public-api]]).
+
+### The segmentation pipeline
+
+`IrTokenPipeline` carries what turns text into pieces before the merge
+rewrite: `specials` (atomic, matched first), `remap` (byte → working char),
+`normalize` (ordered replaces), `pretokens` (ordered `IrPretoken` splits) and
+`byte_fallback`. `IrPretoken` is open-set — a new family subclasses it and
+the pipeline accepts it with no dispatch-table edit.
+
+Every field is **derived from a document's own sections**, never hand-fitted
+to a family; `lexic.api.json_tokenizer` reads them. Two rules that are easy
+to get wrong:
+
+- a byte-level step's **`use_regex=False`** means *byte mapping only, no
+  split of its own* — families that pre-split with their own pattern set it
+  that way, and imposing a default pattern on top corrupts their
+  segmentation;
+- the byte **remap follows a byte-level step's presence**, independent of
+  that flag.
 
 ## Engine constraints worth knowing
 

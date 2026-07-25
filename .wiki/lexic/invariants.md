@@ -14,6 +14,14 @@ Source: `prototyping/next/1_NORTH_STAR.md`. Every change must preserve these.
 
 **One way per task.** One parse function, one emit method, one round-trip method. No alternate APIs, no legacy shims, no "simpler subset" wrappers.
 
+**`ir/` is vendor-neutral.** No third-party format, product or model name
+appears in `lexic.ir` — not in code, not in a docstring, not in an example.
+The spine models the *concept*; a format's own vocabulary is declared beside
+the reader that knows it (`lexic.api`), and `IrPretoken` is open-set so a
+vendor's families need no dispatch-table edit in the engine. A named
+*algorithm* (Earley, the ranked-merge rewrite) is not a vendor. Enforced by
+grep — the same failure mode as a privileged formulation, one tier deeper.
+
 **Arrows go one way.** Runtime depends on IR; codegen depends on IR; runtime does not depend on codegen. The two deliberate exceptions in `compile.py` and `base.py` are fixed and documented. See [[architecture]].
 
 ## Atom union is closed but versioned

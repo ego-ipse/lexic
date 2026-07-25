@@ -48,7 +48,12 @@ import hashlib
 from collections.abc import Hashable, Mapping, Sequence
 from pathlib import Path
 
-from lexic.compile.artifact import CompiledGrammar
+from lexic.compile.artifact import (
+    CompiledGrammar,
+    TokenBinding,
+    encoding_registry,
+    segmentation_tokenizer,
+)
 from lexic.compile.module.export import export_module, export_source
 from lexic.compile.module.selfgrammar import parse_module, verify_module
 from lexic.compile.notation.parse import load_ir, load_ir_from_path
@@ -74,13 +79,13 @@ from lexic.compile.templating import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
-from lexic.ir.base import IrLambda, IrNone, IrSeq, IrStr, IrTuple
+from lexic.ir.base import IrLambda, IrNone, IrSelf, IrSeq, IrTuple
 from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.concretize import concretize
-from lexic.ir.encoding import IrEncoding, IrTokenizer, IrUnicode
+from lexic.ir.encoding import IrTokenizer
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrAst, IrItem, IrRule, IrRuleRef
+from lexic.ir.nodes import IrAlphabet, IrAst, IrItem, IrRule, IrRuleRef
 from lexic.ir.order import refs_in_order
 from lexic.model import GrammarModel
 from lexic.parsing import (
@@ -109,8 +114,10 @@ __all__ = [
     "MapShape",
     "parse_grammar",
     "parse_instance",
+    "parse_reduced",
     "parse_instance_from_path",
     "parse_module",
+    "Reducer",
     "reset_cache_for_tests",
     "SpanEntry",
     "SpanLevel",
@@ -119,6 +126,7 @@ __all__ = [
     "Spec",
     "Template",
     "template",
+    "TokenBinding",
     "verify_module",
 ]
 
@@ -402,54 +410,25 @@ def _fold_config(
     return IrMap(*dyads)
 
 
-def _encoding_registry(
-    tokenizer: IrTokenizer | None, registry: IrMap | None
-) -> IrMap | None:
-    """The name → encoding registry concretize binds against.
+def _is_segmented(ast: IrAst) -> bool:
+    """Whether any terminal references an encoding — i.e. this is a token grammar.
 
-    The two inputs COMPOSE — ``registry=`` binds names, ``tokenizer=`` also
-    binds that one under its own ``name`` — over a default ``unicode``. They
-    are not alternatives, so passing both is fine; only a genuine conflict
-    (the same name bound to two different encodings) is an error.
+    What :meth:`~lexic.compile.artifact.CompiledGrammar.parse` routes on. It is
+    a property of the GRAMMAR, never of whether a tokenizer happens to be
+    bound: binding one to a char grammar must not move it (the additivity
+    invariant), and a char grammar may legitimately carry a tokenizer for
+    :meth:`~lexic.compile.artifact.CompiledGrammar.constrain`.
 
-    :param tokenizer: A tokenizer to bind under its own ``name``.
-    :param registry: An explicit ``IrMap[IrStr, IrEncoding]``; the grammar's
-        encoding *names* are its keys. Entries win over the default ``unicode``.
-    :returns: The resolved registry, or ``None`` for a plain char grammar.
-    :raises UnsupportedConstructError: When ``tokenizer.name`` is already bound
-        to a different encoding by ``registry``.
+    :param ast: The grammar to inspect.
+    :returns: ``True`` when some atom is an :class:`IrAlphabet`.
     """
-    if tokenizer is None and registry is None:
-        return None
-    bound: dict[IrStr, IrEncoding] = {IrStr("unicode"): IrUnicode()}
-    if registry is not None:
-        bound |= {IrStr(name): enc for name, enc in registry.items()}
-    if tokenizer is not None:
-        name = IrStr(tokenizer.name)
-        existing = bound.get(name)
-        if existing is not None and existing is not tokenizer and name != "unicode":
-            raise UnsupportedConstructError(
-                f"compile: encoding name {str(name)!r} is bound by registry= "
-                "and by tokenizer= to different encodings"
-            )
-        bound[name] = tokenizer
-    return IrMap(*(IrTuple(name, enc) for name, enc in bound.items()))
-
-
-def _segmentation_tokenizer(registry: IrMap | None) -> IrTokenizer | None:
-    """The tokenizer that segments an instance — the registry's sole tokenizer.
-
-    Instance parse / generation segment one text with one tokenizer; ``unicode``
-    never segments tokens. Zero or multiple tokenizers ⇒ no auto segmentation
-    (a char grammar, or a compile-only multi-encoding binding).
-
-    :param registry: The resolved encoding registry (or ``None``).
-    :returns: The single :class:`IrTokenizer` in ``registry``, else ``None``.
-    """
-    if registry is None:
-        return None
-    toks = [enc for enc in registry.values() if isinstance(enc, IrTokenizer)]
-    return toks[0] if len(toks) == 1 else None
+    stack: list[IrSelf] = [ast]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, IrAlphabet):
+            return True
+        stack.extend(node.children())
+    return False
 
 
 def _compile_core(
@@ -462,10 +441,15 @@ def _compile_core(
 ) -> CompiledGrammar:
     flavour_cls = get_flavour(flavour)
     ast = canonical_grammar(text, flavour_cls)
-    resolved = _encoding_registry(tokenizer, registry)
+    resolved = encoding_registry(tokenizer, registry)
+    # concretize COMMUTES with build_codegen_grammar, so the unresolved
+    # codegen grammar is built once and resolved beside the canonical AST.
+    # Retaining it is what makes `bind()` a re-resolve instead of a recompile.
+    unresolved = build_codegen_grammar(ast)
+    codegen_grammar = unresolved
     if resolved is not None:
         ast = concretize(ast, resolved)
-    codegen_grammar = build_codegen_grammar(ast)
+        codegen_grammar = concretize(unresolved, resolved)
     binding = compute_binding(codegen_grammar)
     classes = synthesize(codegen_grammar, binding, stem)
     fold = ModelFold(_fold_config(codegen_grammar, binding, classes))
@@ -476,7 +460,11 @@ def _compile_core(
         fold=fold,
         flavour=flavour,
         stem=stem,
-        tokenizer=_segmentation_tokenizer(resolved),
+        tokens=TokenBinding(
+            segmentation_tokenizer(resolved),
+            _is_segmented(codegen_grammar),
+            unresolved,
+        ),
     )
 
 

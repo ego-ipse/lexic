@@ -6,7 +6,7 @@ the resulting model back to its grammar text. Demonstrates the core invariant:
 
 Run::
 
-    uv run python getting_started/01_hello_grammar.py
+    uv run python -m getting_started.ex01_hello_grammar
 """
 
 from __future__ import annotations

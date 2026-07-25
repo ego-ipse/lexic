@@ -745,9 +745,10 @@ def _print_header(have_lark: bool) -> None:
     """
     side = "engine + pure lark" if have_lark else "engine only (lark not installed)"
     print(f"== pure-lark parse benchmark: {side} ==")
-    fixpoint = canonicalize(
-        engine_parse_reduced(NORM_GRAMMAR, BASE_TEXT, REDUCER)
-    ) == canonicalize(ABNF_FLAVOUR.grammar)
+    reduced = IrAst.ensure(
+        engine_parse_reduced(NORM_GRAMMAR, BASE_TEXT, REDUCER), "the reduced grammar"
+    )
+    fixpoint = canonicalize(reduced) == canonicalize(ABNF_FLAVOUR.grammar)
     print(
         f"ABNF self-host, {len(BASE_TEXT)} chars/copy.  engine parse+reduce fixpoint: {fixpoint}"
     )
@@ -799,6 +800,27 @@ def _save_baseline(all_medians: dict[str, dict[str, float]]) -> None:
     )
 
 
+def _run_workload(workload: Workload, lark_mod: ModuleType | None) -> dict[str, float]:
+    """Time one workload across every scale, reporting as it goes.
+
+    :param workload: The workload to run.
+    :param lark_mod: The imported ``lark`` module, or ``None``.
+    :returns: Median seconds per ``"x<repeat>/<variant>"`` key.
+    """
+    variants = build_variants(workload, lark_mod)
+    tag = "" if workload.lark else "  (engine-only)"
+    print(f"--- workload: {workload.name}{tag} ---\n")
+    medians: dict[str, float] = {}
+    for repeat in SIZES:
+        text = make_input(workload.base_text, repeat)
+        rounds = max(7, 40 // repeat)
+        samples = interleaved(variants, text, rounds)
+        for name, series in samples.items():
+            medians[f"x{repeat}/{name}"] = statistics.median(series)
+        _report_scale(samples, text, rounds, len(workload.base_text))
+    return medians
+
+
 def main() -> None:
     """Run the benchmark across all workloads and scales, then diagnose."""
     lark_mod = load_lark()
@@ -814,21 +836,13 @@ def main() -> None:
 
     all_medians: dict[str, dict[str, float]] = {}
     for workload in WORKLOADS:
-        wl_have_lark = have_lark and workload.lark
-        variants = build_variants(workload, lark_mod)
-        tag = "" if workload.lark else "  (engine-only)"
-        print(f"--- workload: {workload.name}{tag} ---\n")
-        medians: dict[str, float] = {}
-        for repeat in SIZES:
-            text = make_input(workload.base_text, repeat)
-            rounds = max(7, 40 // repeat)
-            samples = interleaved(variants, text, rounds)
-            for name, series in samples.items():
-                medians[f"x{repeat}/{name}"] = statistics.median(series)
-            _report_scale(samples, text, rounds, len(workload.base_text))
+        medians = _run_workload(workload, lark_mod)
         all_medians[workload.name] = medians
         _verdict(
-            workload.name, medians, wl_have_lark, len(workload.base_text) * SIZES[-1]
+            workload.name,
+            medians,
+            have_lark and workload.lark,
+            len(workload.base_text) * SIZES[-1],
         )
 
     _diagnose(all_medians["self-emit"], have_lark)

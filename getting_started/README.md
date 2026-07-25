@@ -1,7 +1,7 @@
 # Getting started
 
-Runnable examples covering the public surface of Lexic. Each script is
-self-contained — `uv run python getting_started/<file>.py`.
+Runnable examples covering the public surface of Lexic. Run each **from the
+repository root, as a module** — `uv run python -m getting_started.<name>`.
 
 | Script | What it shows |
 |---|---|

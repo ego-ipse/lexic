@@ -12,7 +12,7 @@ the IR-constructor notation. Lexic then eats its own output twice over:
 
 Run::
 
-    uv run python getting_started/ex08_twin_module.py
+    uv run python -m getting_started.ex08_twin_module
 """
 
 from __future__ import annotations

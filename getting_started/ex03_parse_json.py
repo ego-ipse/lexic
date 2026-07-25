@@ -9,7 +9,7 @@ useful APIs on :class:`GrammarModel`:
 
 Run::
 
-    uv run python getting_started/03_parse_json.py
+    uv run python -m getting_started.ex03_parse_json
 """
 
 from __future__ import annotations

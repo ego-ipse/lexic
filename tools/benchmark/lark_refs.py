@@ -30,7 +30,7 @@ from __future__ import annotations
 from types import ModuleType
 from typing import Callable
 
-from parse_bench import META_GRAMMAR as ABNF_META
+from tools.benchmark.parse_bench import META_GRAMMAR as ABNF_META
 
 # ── instance grammars (LALR) ───────────────────────────────────────────────
 

@@ -231,6 +231,30 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ---
 
+## Vendor formats never enter `ir/`
+
+A tokenizer pipeline was once modelled in `ir/encoding.py` by transliterating
+**one vendor's** stages into IR nodes — a hand-implemented GPT-2 regex, its
+byte table, and node types named after that vendor's pipeline steps. It got
+there the obvious way: the goal was "reference-exact against this vendor",
+and copying that vendor's stages is the shortest path to it.
+
+The cost is not cosmetic. The spine then knows one product's answer instead
+of the question, so a *different* vocabulary reads as unsupported even when
+the concept is identical — and a format's serialization field names start
+leaking onto IR nodes.
+
+The rule: `ir/` models what a thing IS (`IrPretoken` — a spec whose `split`
+partitions text). A format's own vocabulary lives with the reader for that
+format, which `IrPretoken`'s open-set design already anticipates. Reading a
+vendor's file is an application of lexic; being one is not.
+
+Corollary for readers: a reader takes the grammar+reducer that parse its
+document as **parameters**, so it privileges no formulation. That is what
+makes a third-party format reader legitimate inside `src` at all.
+
+---
+
 ## 2026-05-08 — Grammar is the ground truth, not the class
 
 **Decision:** Grammar files are canonical. Generated classes are Python representations of a grammar, not sources of truth.

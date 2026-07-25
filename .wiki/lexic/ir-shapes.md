@@ -19,7 +19,26 @@ Generic identity root and action-protocol base. `Iri` is the input node type; `I
 - `children() -> Sequence` — default empty; `rebuild(new_children) -> Self` — default identity.
 - `.bound` / `.bind(other)` — `_bound` is auto-derived from the **last** own type parameter's bound (i.e. `Ir_co`, since `Iri` comes first), or set explicitly. `.bind` widens-or-raises.
 
+- `Cls.ensure(node, what="")` — the **boundary narrow**: returns `node` typed
+  as `Cls`, else raises `UnsupportedConstructError`. The class-level sibling
+  of `.bind` (which narrows a dispatch result to an instance's `_bound` at
+  runtime); `ensure` narrows an untyped value to a named class *statically* —
+  `IrMap.ensure(x)` is an `IrMap` to a type checker.
+
 `__init_subclass__` derives `_bound` from the class's OWN last type parameter (never the MRO); an explicit `_bound` ClassVar wins.
+
+**Use `ensure`, never `assert isinstance`, at a boundary.** Several seams
+hand a value back wider than the caller can use — `parse_reduced` returns
+`IrSelf` because a reducer folds to whatever its bodies produce, and a
+document's actual shape is runtime information no signature carries.
+Asserting that shape is legitimate; hand-rolling the assert at every seam is
+not, and an `assert` is *stripped by `python -O`*, so the check silently
+vanishes in optimized mode. `ensure` raises. Nothing is coerced: a value of
+the wrong type raises rather than being reinterpreted.
+
+Adding a public method here has a cost worth knowing: every name on
+`GrammarModel`'s public surface is a reserved field name, so a grammar rule
+called `ensure` mangles to `ensure_` ([[field-naming]]).
 
 ### Absence — `IrNone` / `IrNoneType`
 

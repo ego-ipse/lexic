@@ -169,7 +169,7 @@ def test_registry_binds_encoding_by_grammar_name() -> None:
     tok = IrTokenizer.from_vocab("gpt2", vocab)
     registry = IrMap(IrTuple(IrStr("tokens"), tok))
     cg = compile_text(_GRAMMAR, registry=registry)
-    assert cg.tokenizer is tok  # the sole tokenizer segments instances
+    assert cg.tokens.tokenizer is tok  # the sole tokenizer segments instances
     assert cg.parse("<think>ab</think>").to_text() == "<think>ab</think>"
 
 

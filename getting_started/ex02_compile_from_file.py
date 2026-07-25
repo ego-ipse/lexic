@@ -6,7 +6,7 @@ and parses a sample document against it. ``compile_from_path`` caches by
 
 Run::
 
-    uv run python getting_started/02_compile_from_file.py
+    uv run python -m getting_started.ex02_compile_from_file
 """
 
 from __future__ import annotations

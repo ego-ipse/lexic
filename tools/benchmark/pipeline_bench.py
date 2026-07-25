@@ -42,6 +42,7 @@ import random
 import statistics
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Callable
 
@@ -56,6 +57,10 @@ from lexic.compile import (
 )
 from lexic.grammars import flavour_for_extension
 from lexic.ir.flavour import IrFlavour
+from tests.integration.pda_parity_helpers import (
+    ARITHMETIC_BENCH_SNIPPETS as _ARITHMETIC_SNIPPETS,
+)
+from tests.integration.pda_parity_helpers import JSON_BENCH_ITEMS as _JSON_ITEMS
 
 ROOT = Path(__file__).resolve().parents[2]
 GROUND_TRUTH = ROOT / "resources" / "ground_truth"
@@ -64,15 +69,6 @@ BASELINE_PATH = Path(__file__).parent / "pipeline_baseline.json"
 # ── Workload A: instance parse+fold ─────────────────────────────────────
 # Snippets and target lengths pinned verbatim from bench_task7.py so this
 # harness's numbers are directly comparable to that spike's.
-_ARITHMETIC_SNIPPETS = [
-    # root ::= (expr "=" ws term "\n")+ — LHS is a full expr (operators OK),
-    # RHS after "=" is a single term (ident / num / "(" expr ")").
-    "x=1\n",
-    "y=z\n",
-    "a+b=100\n",
-    "foo=(bar)\n",
-    "abc123-xyz=42\n",
-]
 _C_SNIPPETS = [
     # root ::= (declaration)* — no separator required/allowed between them.
     "int foo(){}",
@@ -117,14 +113,6 @@ _CHESS_PAIRS = [
 # containers exercise the PoC's json islands (value/char arm overlaps,
 # string loops) and the ws noise shapes (pivots 4/5). Escapes parse since
 # the 2026-07-05 mixed-group fix (see the 260705 plan ledger).
-_JSON_ITEMS = [
-    '{"name": "alpha", "id": 1, "ok": true}',
-    '{"nested": {"a": [1, 2.5e3, -4], "b": null}}',
-    '"quote \\" backslash \\\\ unicode \\u0041 tab \\t"',
-    "-12.75e-2",
-    '[true, false, null, 0, "s"]',
-    '{"deep": [{"x": [[1], [2.0]]}], "y": false}',
-]
 
 
 def _chess_corpus(target_len: int) -> str:
@@ -271,7 +259,7 @@ _COMPILE_STEMS = ("json.gbnf", "c.gbnf", "arithmetic.gbnf")
 _WARMUP_GBNF = 'root ::= "a"\n'
 
 
-def _corpus(snippets: list[str], target_len: int) -> str:
+def _corpus(snippets: Sequence[str], target_len: int) -> str:
     """Concatenate ``snippets`` round-robin until at least ``target_len`` chars.
 
     :param snippets: Valid input snippets to cycle through.

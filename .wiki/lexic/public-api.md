@@ -112,6 +112,34 @@ Returned by `compile_text` / `compile_from_path`. Fields:
 | `fold` | `ModelFold` | The one authored instance-fold: an IR body-table (`bodies: IrMap[IrRuleRef, ModelBody]`) that bakes to `config: dict[str, RuleFold]` and folds positionally over `codegen_grammar` |
 | `flavour` | `str` | The source flavour's name (drives export docstrings) |
 | `stem` | `str` | The grammar stem — the exported module's default identity |
+| `tokens` | `TokenBinding` | What this grammar knows about tokens (below) |
+
+### `TokenBinding` — three facts, deliberately separate
+
+`tokens.tokenizer` is the bound **vocabulary**; `tokens.segmented` is whether
+the GRAMMAR's terminals reference an encoding; `tokens.unresolved` is the
+codegen grammar before its alphabets were resolved to ids.
+
+The first two are independent questions and conflating them is a defect:
+`.parse` routes on `segmented`, which is a property of the grammar, so
+binding a tokenizer to a char grammar cannot turn it into a token parse (the
+additivity invariant, [[invariants]]). A char grammar may legitimately carry
+a vocabulary — `constrain()` needs one too.
+
+`tokens.unresolved` exists because resolution is lossy: ordinals are baked
+and spellings are gone, so a rebind cannot start from `codegen_grammar`.
+
+### `.bind(tokenizer, registry=None)` — one grammar, many vocabularies
+
+Compiling is per-grammar; a vocabulary is per-deployment. `bind` re-resolves
+`tokens.unresolved` and returns a **new** artefact, reusing classes, binding
+and fold unchanged — they are invariant under which tokenizer is bound,
+because field naming dispatches on the atom TYPE (`IrAlphabet`) and
+resolution rewrites only the inner ordinals. Roughly an order of magnitude
+cheaper than recompiling, and the ratio grows with grammar size.
+
+New artefact, never a mutation: the engine memoises tables per grammar
+identity, and a rebound grammar genuinely *is* a different identity.
 
 On explicit request `export_module(compiled, path, *, stem=None, inline_tables=False)` writes an importable twin module (`export_source` is the string-taker it wraps) — see [[generated-modules]]. `bind_module(grammar, namespace)` is the twin modules' module-end binder.
 
