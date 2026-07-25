@@ -17,13 +17,24 @@ the ``lexic.compile`` seam, never ``lexic.parsing`` directly.
 from __future__ import annotations
 
 from lexic.api.json_tokenizer import PRETOKENS, read, read_from_path, tokenizer_of
-from lexic.api.pretokens import BYTE_LEVEL_REMAP, IrByteLevel, IrDigits, IrSplitMerged
+from lexic.api.pretokens import (
+    BYTE_FALLBACK,
+    BYTE_LEVEL_REMAP,
+    QWEN_PATTERN,
+    IrByteLevel,
+    IrDigits,
+    IrQwenSplit,
+    IrSplitMerged,
+)
 
 __all__ = [
+    "BYTE_FALLBACK",
     "BYTE_LEVEL_REMAP",
     "IrByteLevel",
     "IrDigits",
+    "IrQwenSplit",
     "IrSplitMerged",
+    "QWEN_PATTERN",
     "PRETOKENS",
     "read",
     "read_from_path",

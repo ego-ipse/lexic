@@ -357,3 +357,38 @@ def test_constrain_names_which_wrong_it_is() -> None:
     bound = compile_text(_GRAMMAR, tokenizer=LOW, cache_key="diag-bound")
     with pytest.raises(UnsupportedConstructError, match="another vocabulary"):
         bound.constrain(HIGH)
+
+
+def test_two_equal_vocabularies_count_as_one() -> None:
+    """The sole-vocabulary check counts by VALUE, not by object identity.
+
+    Counting entries lost segmentation when one vocabulary was bound under
+    two names; counting identities lost it for two EQUAL vocabularies built
+    separately — which is what a caller constructing one per call hits, and
+    the failure is silent (a token grammar quietly falls back to a char
+    parse).
+    """
+    twin = _tokenizer(_VOCAB_LOW)  # equal to LOW, a different object
+    assert twin is not LOW and twin == LOW
+    reset_cache_for_tests()
+    compiled = compile_text(
+        _GRAMMAR,
+        tokenizer=LOW,
+        registry=IrMap(IrTuple(IrStr("other"), twin)),
+        cache_key="equal-vocabs",
+    )
+    assert compiled.tokens.tokenizer is not None
+    assert compiled.parse(TEXT).to_text() == TEXT
+
+
+def test_bind_requires_a_rebindable_source() -> None:
+    """`bind` no longer falls back to the resolved grammar in silence.
+
+    That fallback was a staging seam for artefacts compiled before the
+    unresolved form was retained. None exist, and re-resolving an ALREADY
+    resolved grammar would have produced ids-of-ids rather than an error.
+    """
+    reset_cache_for_tests()
+    compiled = compile_text(_GRAMMAR, tokenizer=LOW, cache_key="rebindable")
+    assert compiled.tokens.unresolved is not None
+    assert compiled.bind(HIGH).parse(TEXT).to_text() == TEXT

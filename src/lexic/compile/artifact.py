@@ -60,18 +60,20 @@ def segmentation_tokenizer(registry: IrMap | None) -> IrTokenizer | None:
     it. Zero or multiple tokenizers ⇒ none is implied. Whether it SEGMENTS is
     a separate question, answered against the grammar.
 
-    Counted by IDENTITY, not by entry: ``tokenizer=`` and ``registry=``
-    compose, so one tokenizer bound under two names (its own and the
-    grammar's) is still ONE tokenizer. Counting entries made that supported
-    combination silently lose its segmentation.
+    Counted by VALUE, not by entry and not by identity: ``tokenizer=`` and
+    ``registry=`` compose, so one vocabulary bound under two names (its own
+    and the grammar's) is still ONE vocabulary. Counting entries made that
+    supported combination silently lose its segmentation; counting identities
+    did the same for two equal vocabularies built separately, which is what a
+    caller constructing one per call would hit.
 
     :param registry: The resolved encoding registry (or ``None``).
     :returns: The single :class:`IrTokenizer` in ``registry``, else ``None``.
     """
     if registry is None:
         return None
-    toks = {id(enc): enc for enc in registry.values() if isinstance(enc, IrTokenizer)}
-    return next(iter(toks.values())) if len(toks) == 1 else None
+    toks = {enc for enc in registry.values() if isinstance(enc, IrTokenizer)}
+    return next(iter(toks)) if len(toks) == 1 else None
 
 
 @dataclass(frozen=True)
@@ -189,9 +191,7 @@ class CompiledGrammar:
             compile time.
         :returns: A new artefact bound to ``tokenizer``.
         """
-        source = self.tokens.unresolved
-        if source is None:  # compiled before a rebindable form was retained
-            source = self.codegen_grammar
+        source = IrAst.ensure(self.tokens.unresolved, "compile: the unresolved grammar")
         resolved = encoding_registry(tokenizer, registry)
         return CompiledGrammar(
             classes=self.classes,

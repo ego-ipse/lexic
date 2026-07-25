@@ -227,7 +227,8 @@ tests/
   property/             hypothesis round-trip + reduce differentials
   paths.py              GROUND_TRUTH / GENERATED / tokenizer-fixture paths
 ext/API/                NOT shipped — clients that FETCH third-party artefacts
-  hf.py                 the Hugging Face hub: cached/download the tokenizer fixtures
+  cache.py              where fetched artefacts live locally; imports only pathlib
+  hf.py                 the Hugging Face hub: download into that cache
 resources/ground_truth/ .gbnf + .abnf + .ebnf corpus used as fixtures
 generated/              git-ignored; importable twin modules (export_module output)
 ```
