@@ -39,7 +39,7 @@ def _kept_type(ext: str, text: str) -> GrammarModel:
     """Extract ``model.type`` from ``text`` via the compiled json ``ext`` grammar."""
     compiled = compile_from_path(GROUND_TRUTH / f"json.{ext}")
     out = template(compiled, _SHAPE, _SPEC).run(text)
-    kept = out['"model"']['"type"']  # type: ignore[index]
+    kept = out['"model"']['"type"']
     assert isinstance(kept, GrammarModel)
     return kept
 
