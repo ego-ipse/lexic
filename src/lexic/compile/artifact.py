@@ -144,6 +144,12 @@ class CompiledGrammar:
             fold produced no model for the start rule.
         """
         tok = self.tokens.tokenizer
+        if self.tokens.segmented and tok is None:
+            raise UnsupportedConstructError(
+                "compile: this grammar's terminals name an encoding, so "
+                "parsing needs a vocabulary — compile with tokenizer= or "
+                "registry=, or bind one. (Reading and emitting it needs none.)"
+            )
         if tok is not None and self.tokens.segmented:
             bounds = {
                 start: (tid, end - start) for start, end, tid in tok.boundaries(text)
@@ -236,9 +242,14 @@ class CompiledGrammar:
             and tokenizer is not bound
             and tokenizer != bound
         ):
+            # Two different wrongs, so two different diagnoses: a grammar
+            # resolved against ANOTHER vocabulary, versus one never resolved
+            # at all. Both point at bind(); saying "the bound vocabulary"
+            # when nothing was bound sends the reader looking for it.
+            against = "another vocabulary" if bound is not None else "no vocabulary yet"
             raise UnsupportedConstructError(
-                "compile: this grammar's terminals are resolved against the "
-                "bound vocabulary, so constraining it with another matches "
+                f"compile: this grammar's terminals are resolved against "
+                f"{against}, so constraining it with this one matches "
                 "nothing — use compiled.bind(tokenizer).constrain() instead"
             )
         return TokenMaskCursor.of(self.codegen_grammar, tok)

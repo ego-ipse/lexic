@@ -289,3 +289,71 @@ def test_the_engine_still_matches_on_resolved_ids(compiled) -> None:
     matched = compiled.codegen_grammar.rules[0].body[0][0].atom
     assert "IrChr(0)" in repr(matched)  # LOW's <think>
     assert compiled.parse(TEXT).to_text() == TEXT
+
+
+# ── segmented + no vocabulary: refuse at PARSE, never at compile ─────────
+
+
+def test_a_token_grammar_compiles_and_emits_with_no_vocabulary() -> None:
+    """Capability A: reading and emitting a token grammar needs no tokenizer.
+
+    The plan said to refuse this at COMPILE time. That would have deleted a
+    documented capability — README §Tokens: "read/emit token grammars with
+    **no** tokenizer at all". Compiling must stay legal; only parsing needs
+    a vocabulary.
+    """
+    reset_cache_for_tests()
+    compiled = compile_text(_GRAMMAR, cache_key="cap-a")
+    assert compiled.classes
+    assert compiled.tokens.segmented
+    assert compiled.tokens.tokenizer is None
+    assert AUTHORED in str(GBNF_FLAVOUR.apply(compiled.grammar))
+
+
+def test_parsing_without_a_vocabulary_refuses_instead_of_leaking() -> None:
+    """It leaked ``IrKeyError: no entry for IrAlphabet`` from inside dispatch.
+
+    An engine-internal key error tells a caller nothing about what they did
+    wrong; the fix is a message naming the missing thing and the two ways to
+    supply it.
+    """
+    reset_cache_for_tests()
+    compiled = compile_text(_GRAMMAR, cache_key="cap-a-parse")
+    with pytest.raises(UnsupportedConstructError, match="needs a vocabulary"):
+        compiled.parse(TEXT)
+    assert compiled.bind(LOW).parse(TEXT).to_text() == TEXT  # ... and this is how
+
+
+def test_two_tokenizers_in_a_registry_refuse_at_parse() -> None:
+    """``tokenizer=`` and ``registry=`` compose — onto TWO vocabularies they
+    imply no sole one, and that artefact cannot parse.
+
+    Reachable through the documented composing surface, so it must fail with
+    a diagnosis rather than an internal key error.
+    """
+    other = _tokenizer({"x": 0}, name="other")
+    reset_cache_for_tests()
+    compiled = compile_text(
+        _GRAMMAR,
+        tokenizer=LOW,
+        registry=IrMap(IrTuple(IrStr("other"), other)),
+        cache_key="two-toks",
+    )
+    assert compiled.tokens.tokenizer is None
+    with pytest.raises(UnsupportedConstructError, match="needs a vocabulary"):
+        compiled.parse(TEXT)
+
+
+def test_constrain_names_which_wrong_it_is() -> None:
+    """Two different wrongs deserve two diagnoses, both pointing at bind().
+
+    Saying "the bound vocabulary" when nothing was bound sends the reader
+    looking for something that does not exist.
+    """
+    reset_cache_for_tests()
+    unbound = compile_text(_GRAMMAR, cache_key="diag-unbound")
+    with pytest.raises(UnsupportedConstructError, match="no vocabulary yet"):
+        unbound.constrain(HIGH)
+    bound = compile_text(_GRAMMAR, tokenizer=LOW, cache_key="diag-bound")
+    with pytest.raises(UnsupportedConstructError, match="another vocabulary"):
+        bound.constrain(HIGH)
