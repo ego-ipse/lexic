@@ -102,7 +102,11 @@ from lexic.parsing.earley.kernel import FastTree, Kernel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.earley.tables import ParserTables, compile_tables
-from lexic.parsing.earley.tokenscan import TokenMaskCursor
+from lexic.parsing.earley.tokenscan import (
+    CharTrieCursor,
+    TokenMaskCursor,
+    TokenTermCursor,
+)
 from lexic.parsing.fold import (
     FastCtor,
     FieldFold,
@@ -226,7 +230,9 @@ __all__ = [
     "parse_first",
     "parse_forest",
     "parse_model",
+    "CharTrieCursor",
     "TokenMaskCursor",
+    "TokenTermCursor",
     "token_model",
     "parse_reduced",
     "recognize",

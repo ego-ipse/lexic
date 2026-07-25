@@ -13,6 +13,8 @@ token-matching engine.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+
 from lexic.ir.encoding import IrTokenizer
 from lexic.ir.nodes import (
     IrAlphabet,
@@ -235,8 +237,8 @@ def spelling_trie(tokenizer: IrTokenizer, universe: frozenset[int]) -> TrieNode:
     return root
 
 
-class TokenMaskCursor:
-    """Generation-time admissible-next-token mask over a token grammar (capab. C).
+class TokenMaskCursor[K: ResumableKernel](ABC):
+    """Generation-time admissible-next-token mask over a grammar (capability C).
 
     The cursor holds the token ids generated so far ON A LIVE CHART — one
     :class:`ResumableKernel` parses the whole generation exactly once:
@@ -246,61 +248,88 @@ class TokenMaskCursor:
     Generation is inherently id-space, so this cursor — not a second parse
     interface — is capability C's surface.
 
-    A grammar with **token terminals** (``IrAlphabet``) reads the mask off the
-    frontier column's live token-terms (token-frontier set algebra — no
-    exploration needed). A **char** grammar (no token terminals) instead
-    drives a trie-DFS over the vocab's spellings on a char-granular
-    recognizer (:func:`split_literals`): shared prefixes extend once, dead
-    branches prune on an empty column, and a token is admitted iff the chart
-    stays viable at its spelling's end (:func:`frontier_viable`) — the same
-    admitted set as the stateless per-token :func:`viable_prefix` recompute,
-    at per-token O(spelling length).
+    Two grammars, two cursors (:meth:`of` picks): :class:`TokenTermCursor`
+    reads the mask straight off the frontier's live token-terms, while
+    :class:`CharTrieCursor` explores a spelling trie on a char-granular
+    recognizer. This base owns everything that does not differ — the prefix
+    state, the chart sync, :meth:`push` and :meth:`accepts`.
 
     ``ids`` is the public prefix state and may be assigned directly (the
     stateless-recompute contract): every read syncs the chart to it — a
     common-prefix rollback plus extension, so an unchanged prefix costs one
     list compare and a normal generation step extends by one token.
 
+    Generic in ``K``, the recognizer it drives, so a subclass that needs the
+    token kernel's own surface (the boundary map) reads it off ``_kern``
+    directly instead of re-narrowing.
+
     :ivar ids: The token ids pushed so far (the generated prefix).
     """
 
-    __slots__ = (
-        "_tokenizer",
-        "_specs",
-        "_universe",
-        "_kern",
-        "_trie",
-        "_committed",
-        "ids",
-    )
+    __slots__ = ("_tokenizer", "_universe", "_kern", "_committed", "ids")
 
-    def __init__(self, grammar: IrAst, tokenizer: IrTokenizer) -> None:
-        """Constrain generation to ``grammar`` under ``tokenizer``.
+    _kern: K
+
+    def __init__(self, tokenizer: IrTokenizer, kern: K) -> None:
+        """Bind the cursor to a started kernel over the empty prefix.
+
+        :param tokenizer: The tokenizer whose id space generation ranges over.
+        :param kern: The live recognizer, already ``run()`` at ``""``.
+        """
+        self._tokenizer = tokenizer
+        self._universe = frozenset(tokenizer.ids())
+        self._kern = kern
+        self._committed: list[tuple[int, int]] = []  # (token id, char end)
+        self.ids: list[int] = []
+
+    @staticmethod
+    def of(grammar: IrAst, tokenizer: IrTokenizer) -> TokenMaskCursor:
+        """The cursor for ``grammar`` — token-term or char-trie.
+
+        A grammar carrying token terminals (:class:`~lexic.ir.nodes.IrAlphabet`)
+        gets the frontier set algebra; any other grammar gets the trie DFS over
+        a char-granular recognizer.
 
         :param grammar: The codegen grammar (with resolved token terminals).
         :param tokenizer: The tokenizer whose id space generation ranges over.
+        :returns: A fresh cursor at the empty prefix.
         """
         tables = compile_tables(normalize(lift_optional_nullables(grammar)))
-        self._tokenizer = tokenizer
-        self._specs = token_term_specs(tables)
-        self._universe = frozenset(tokenizer.ids())
-        if self._specs:  # token grammar — the frontier set algebra
-            self._kern: ResumableKernel = TokenKernel(tables, "", {}).run()
-            self._trie: TrieNode | None = None
-        else:  # char grammar — trie-DFS over a char-granular recognizer
-            char_tables = compile_tables(
-                normalize(lift_optional_nullables(split_literals(grammar)))
-            )
-            self._kern = ResumableKernel(char_tables, "", False).run()
-            self._trie = spelling_trie(tokenizer, self._universe)
-        self._committed: list[tuple[int, int]] = []  # (token id, char end)
-        self.ids: list[int] = []
+        specs = token_term_specs(tables)
+        if specs:
+            return TokenTermCursor(tokenizer, TokenKernel(tables, "", {}).run(), specs)
+        char_tables = compile_tables(
+            normalize(lift_optional_nullables(split_literals(grammar)))
+        )
+        return CharTrieCursor(tokenizer, ResumableKernel(char_tables, "", False).run())
+
+    @abstractmethod
+    def mask(self) -> set[int]:
+        """The set of token ids admissible right after the current prefix.
+
+        :returns: Admissible next-token ids (empty when only end-of-input is
+            admissible — see :meth:`accepts`).
+        """
+
+    def _purge(self, cut: int) -> None:
+        """Drop per-cursor state for chart positions at or past ``cut``.
+
+        Nothing to drop by default; :class:`TokenTermCursor` purges its
+        boundary map.
+        """
+
+    def _record(self, token_id: int, spelling: str) -> None:
+        """Note the token about to be appended at the chart's current end.
+
+        A no-op by default; :class:`TokenTermCursor` files the boundary its
+        scan reads.
+        """
 
     def _sync(self) -> None:
         """Bring the live chart in line with :attr:`ids` (no-op when equal).
 
         Shares the longest committed prefix: later tokens roll back (pure
-        truncation — the boundary map purges with them), missing ones extend.
+        truncation — per-cursor state purges with them), missing ones extend.
         """
         committed = self._committed
         if [tid for tid, _ in committed] == self.ids:
@@ -309,14 +338,11 @@ class TokenMaskCursor:
         k = 0
         while k < len(committed) and k < len(ids) and committed[k][0] == ids[k]:
             k += 1
-        kern = self._kern
         if len(committed) > k:
             cut = committed[k - 1][1] if k else 0
-            kern.rollback(cut)
+            self._kern.rollback(cut)
             del committed[k:]
-            if isinstance(kern, TokenKernel):
-                for pos in [p for p in kern.bounds if p >= cut]:
-                    del kern.bounds[pos]
+            self._purge(cut)
         for tid in ids[k:]:
             self._extend_token(tid)
 
@@ -324,20 +350,61 @@ class TokenMaskCursor:
         """Grow the committed chart by one token's spelling."""
         kern = self._kern
         spelling = str(self._tokenizer.spell(token_id))
-        if isinstance(kern, TokenKernel):  # record the boundary for the token scan
-            kern.bounds[len(kern.text)] = (token_id, len(spelling))
+        self._record(token_id, spelling)
         kern.extend(spelling)
         self._committed.append((token_id, len(kern.text)))
 
-    def mask(self) -> set[int]:
-        """The set of token ids admissible right after the current prefix.
+    def push(self, token_id: int) -> None:
+        """Extend the generated prefix by one token — the chart grows in place.
 
-        :returns: Admissible next-token ids (empty when only end-of-input is
-            admissible — see :meth:`accepts`).
+        :param token_id: The generated token's id.
+        """
+        self.ids.append(token_id)
+        self._sync()
+
+    def accepts(self) -> bool:
+        """Whether the current token sequence is a complete parse (end-of-input).
+
+        :returns: ``True`` when the grammar accepts the prefix as-is.
         """
         self._sync()
-        if self._trie is not None:
-            return self._char_mask(self._trie)
+        return self._kern.accept >= 0
+
+
+class TokenTermCursor(TokenMaskCursor[TokenKernel]):
+    """Mask cursor for a grammar with token terminals — frontier set algebra.
+
+    The mask reads straight off the frontier column's live token-terms: no
+    exploration, no rollback. The kernel is a :class:`TokenKernel`, so the
+    cursor also files each committed token's boundary for its scan.
+    """
+
+    __slots__ = ("_specs",)
+
+    def __init__(
+        self,
+        tokenizer: IrTokenizer,
+        kern: TokenKernel,
+        specs: dict[int, TokenSpec],
+    ) -> None:
+        """Bind to a started :class:`TokenKernel` and its token-term specs."""
+        super().__init__(tokenizer, kern)
+        self._specs = specs
+
+    def _purge(self, cut: int) -> None:
+        """Drop boundary entries for the rolled-back tail."""
+        bounds = self._kern.bounds
+        for pos in [p for p in bounds if p >= cut]:
+            del bounds[pos]
+
+    def _record(self, token_id: int, spelling: str) -> None:
+        """File the boundary the token scan reads at the chart's current end."""
+        kern = self._kern
+        kern.bounds[len(kern.text)] = (token_id, len(spelling))
+
+    def mask(self) -> set[int]:
+        """The admissible ids — the frontier's waiting token-terms, unioned."""
+        self._sync()
         kernel = self._kern
         scannable = kernel.st.scannable[len(kernel.text)]
         out: set[int] = set()
@@ -346,17 +413,35 @@ class TokenMaskCursor:
                 out |= (self._universe - ids) if negated else set(ids) & self._universe
         return out
 
-    def _char_mask(self, trie: TrieNode) -> set[int]:
-        """Trie-DFS mask: explore spellings on the live chart, rollback each.
+
+class CharTrieCursor(TokenMaskCursor[ResumableKernel]):
+    """Mask cursor for a char grammar — trie DFS over the vocab's spellings.
+
+    Shared prefixes extend once, dead branches prune on an empty column, and a
+    token is admitted iff the chart stays viable at its spelling's end
+    (:func:`frontier_viable`) — the same admitted set as the stateless
+    per-token :func:`viable_prefix` recompute, at per-token O(spelling length).
+    """
+
+    __slots__ = ("_trie",)
+
+    def __init__(self, tokenizer: IrTokenizer, kern: ResumableKernel) -> None:
+        """Bind to a started char-granular recognizer and build the trie."""
+        super().__init__(tokenizer, kern)
+        self._trie = spelling_trie(tokenizer, self._universe)
+
+    def mask(self) -> set[int]:
+        """Explore spellings on the live chart, rolling each back.
 
         Iterative DFS with an explicit frame stack (edge iterator + the mark
         taken before descending). A char whose extension leaves the new
         column empty is a dead branch for every continuation — prune; a node
         holding ids admits them iff the chart is viable there.
         """
+        self._sync()
         kern = self._kern
         out: set[int] = set()
-        stack = [(iter(trie[0].items()), kern.mark())]
+        stack = [(iter(self._trie[0].items()), kern.mark())]
         while stack:
             edges, m = stack[-1]
             step = next(edges, None)
@@ -377,19 +462,3 @@ class TokenMaskCursor:
             else:
                 kern.rollback(inner)
         return out
-
-    def push(self, token_id: int) -> None:
-        """Extend the generated prefix by one token — the chart grows in place.
-
-        :param token_id: The generated token's id.
-        """
-        self.ids.append(token_id)
-        self._sync()
-
-    def accepts(self) -> bool:
-        """Whether the current token sequence is a complete parse (end-of-input).
-
-        :returns: ``True`` when the grammar accepts the prefix as-is.
-        """
-        self._sync()
-        return self._kern.accept >= 0
