@@ -571,24 +571,37 @@ def compile_from_path(
     grammar_path: str | Path,
     *,
     flavour: str | None = None,
+    tokenizer: IrTokenizer | None = None,
+    registry: IrMap | None = None,
 ) -> CompiledGrammar:
     """Compile from a file path; memoised by (path, mtime, size, flavour).
+
+    The path-taking wrapper around :func:`compile_text`, carrying its whole
+    surface: a grammar with token terminals binds a vocabulary here exactly
+    as it would from source.
 
     :param grammar_path: Path to the grammar source file.
     :param flavour: The grammar flavour name; inferred from the file
         extension if omitted.
+    :param tokenizer: A tokenizer to bind under its own ``name``.
+    :param registry: Further name → encoding bindings; composes with
+        ``tokenizer`` (see :func:`compile_text`).
     :returns: The compiled grammar (cached across calls with the same key).
     """
     path = Path(grammar_path).resolve()
     stat = path.stat()
     if flavour is None:
         flavour = flavour_for_extension(path).name
-    key = (str(path), stat.st_mtime, stat.st_size, flavour)
+    # The bound vocabulary is part of the artefact, so it is part of the key.
+    binding = (id(tokenizer), id(registry)) if (tokenizer or registry) else ()
+    key = (str(path), stat.st_mtime, stat.st_size, flavour, binding)
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     text = path.read_text(encoding="utf-8")
-    cg = _compile_core(text, stem=path.stem, flavour=flavour)
+    cg = _compile_core(
+        text, stem=path.stem, flavour=flavour, tokenizer=tokenizer, registry=registry
+    )
     _CACHE[key] = cg
     return cg
 
