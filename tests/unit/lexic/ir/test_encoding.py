@@ -507,14 +507,17 @@ def test_specials_longest_match_wins_over_shorter() -> None:
         IrTuple(IrStr("<ab>"), IrChr(1)),
         IrTuple(IrStr("x"), IrChr(2)),
     )
-    tok = IrTokenizer.from_vocab("t", vocab, IrTuple(IrStr("<a>"), IrStr("<ab>")))
+    pipeline = IrTokenPipeline(IrTuple(IrStr("<a>"), IrStr("<ab>")))
+    tok = IrTokenizer.from_vocab("t", vocab, pipeline)
     assert tok.tokenize("<ab>x") == [1, 2]
 
 
 def test_special_not_in_vocab_refuses() -> None:
     """A special spelling with no vocab id is a construction error."""
     with pytest.raises(UnsupportedConstructError):
-        IrTokenizer.from_vocab("t", _special_vocab(), IrTuple(IrStr("<nope>")))
+        IrTokenizer.from_vocab(
+            "t", _special_vocab(), IrTokenPipeline(IrTuple(IrStr("<nope>")))
+        )
 
 
 def test_empty_specials_elide_from_repr() -> None:
@@ -580,10 +583,11 @@ def test_from_merges_accepts_plain_python_merges() -> None:
     assert plain.tokenize("abc") == _merge_tok().tokenize("abc")
 
 
-def test_specials_from_plain_list_coerce_to_irtuple_of_irstr() -> None:
-    """A plain list of specials coerces to an ``IrTuple`` of ``IrStr``."""
-    tok = IrTokenizer.from_vocab("t", _special_vocab(), ["<think>", "</think>"])
-    assert tok.specials == IrTuple(IrStr("<think>"), IrStr("</think>"))
+def test_specials_ride_the_pipeline_and_read_back_off_the_tokenizer() -> None:
+    """The pipeline is specials' one home; the tokenizer exposes them by property."""
+    specials = IrTuple(IrStr("<think>"), IrStr("</think>"))
+    tok = IrTokenizer.from_vocab("t", _special_vocab(), IrTokenPipeline(specials))
+    assert tok.specials == specials
 
 
 def test_from_vocab_coerces_a_ready_irmap_by_value():

@@ -47,9 +47,6 @@ Vocab = Mapping[str, int] | IrMap
 Merges = Sequence[tuple[str, str]] | IrTuple
 """Ordered merge dyads — position is rank; coerced to the ``ranks`` map."""
 
-Specials = Sequence[str] | IrTuple
-"""Atomic-match spellings a builder coerces to an ``IrTuple`` of ``IrStr``."""
-
 
 class IrEncoding(IrNode):
     """Role marker + shared codec surface — the :class:`IrAtom` pattern.
@@ -270,34 +267,6 @@ def _rank_map(merges: Merges) -> IrMap:
     """Index ordered merge dyads by position into the ``dyad → IrInt`` rank map."""
     dyads = (IrTuple(IrStr(left), IrStr(right)) for left, right in merges)
     return IrMap(*(IrTuple(dyad, IrInt(i)) for i, dyad in enumerate(dyads)))
-
-
-def _specials_tuple(specials: Specials) -> IrTuple:
-    """Coerce atomic-match spellings to an ``IrTuple`` of ``IrStr``."""
-    return IrTuple(*(IrStr(s) for s in specials))
-
-
-def _with_specials(
-    pipeline: "IrTokenPipeline", specials: Specials
-) -> "IrTokenPipeline":
-    """Fold builder-sugar specials into the pipeline record.
-
-    :raises UnsupportedConstructError: When both channels carry specials.
-    """
-    coerced = _specials_tuple(specials)
-    if not coerced:
-        return pipeline
-    if pipeline.specials:
-        raise UnsupportedConstructError(
-            "tokenizer: pass specials either directly or on the pipeline, not both"
-        )
-    return IrTokenPipeline(
-        coerced,
-        pipeline.remap,
-        pipeline.normalize,
-        pipeline.pretokens,
-        pipeline.byte_fallback,
-    )
 
 
 # ── the pre-tokenization vocabulary (data-only split specs) ───────────────
@@ -587,7 +556,8 @@ class IrTokenizer(
     produced (parsed from any format via a grammar/reduction, or handed in
     pre-parsed) is the caller's concern — no file format lives here. The
     builders accept pythonic ``Mapping``/``Sequence`` forms (:data:`Vocab`,
-    :data:`Merges`, :data:`Specials`) and coerce to the spine. The structural
+    :data:`Merges`) and coerce to the spine. Specials ride the pipeline as
+    IR (``IrTuple`` of ``IrStr``). The structural
     base leads (the ``IrLiteral(IrStr, IrAtom)`` order); :class:`IrEncoding` is
     the role marker.
 
@@ -621,22 +591,20 @@ class IrTokenizer(
         cls,
         name: str,
         vocab: Vocab,
-        specials: Specials = IrTuple(),
         pipeline: IrTokenPipeline = IrTokenPipeline(),
     ) -> Self:
         """Build a vocab-only tokenizer from the forward ``spelling → id`` map.
 
         Segmentation is longest-match over the vocab (``ranks`` empty).
+        Specials ride ``pipeline`` — they are pipeline data (matched before
+        remap / normalize / pre-split), so that is their one home.
 
         :param name: The registry name.
         :param vocab: The vocab — a pythonic ``Mapping`` or a ready ``IrMap``.
-        :param specials: Spellings matched atomically (sugar folded into
-            ``pipeline`` — pass one or the other).
         :param pipeline: The segmentation pipeline data.
         :returns: The tokenizer, with the inverse ``decode`` map derived.
         """
-        merged = _with_specials(pipeline, specials)
-        return cls._build(name, _vocab_map(vocab), IrMap(), merged)
+        return cls._build(name, _vocab_map(vocab), IrMap(), pipeline)
 
     @classmethod
     def from_merges(
@@ -650,7 +618,7 @@ class IrTokenizer(
 
         Segmentation runs the ranked-merge rewrite (the reference algorithm);
         the ordered dyads index into the stored ``ranks`` map (position = rank).
-        Specials ride ``pipeline`` (``IrTokenPipeline(specials=...)``).
+        Specials ride ``pipeline``.
 
         :param name: The registry name.
         :param vocab: The vocab — a pythonic ``Mapping`` or a ready ``IrMap``.

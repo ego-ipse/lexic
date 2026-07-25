@@ -77,7 +77,7 @@ from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir.base import IrLambda, IrNone, IrSeq, IrStr, IrTuple
 from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.concretize import concretize
-from lexic.ir.encoding import IrTokenizer, IrUnicode
+from lexic.ir.encoding import IrEncoding, IrTokenizer, IrUnicode
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAst, IrItem, IrRule, IrRuleRef
@@ -405,27 +405,35 @@ def _fold_config(
 def _encoding_registry(
     tokenizer: IrTokenizer | None, registry: IrMap | None
 ) -> IrMap | None:
-    """The name → encoding registry concretize binds against — ``unicode`` always
-    present, ``tokenizer=`` sugar for a single-entry registry.
+    """The name → encoding registry concretize binds against.
 
-    :param tokenizer: The single-tokenizer sugar (bound under its own ``name``).
-    :param registry: An explicit ``IrMap[IrStr, IrEncoding]`` (entries win over
-        the default ``unicode``); the grammar's encoding *names* are its keys.
+    The two inputs COMPOSE — ``registry=`` binds names, ``tokenizer=`` also
+    binds that one under its own ``name`` — over a default ``unicode``. They
+    are not alternatives, so passing both is fine; only a genuine conflict
+    (the same name bound to two different encodings) is an error.
+
+    :param tokenizer: A tokenizer to bind under its own ``name``.
+    :param registry: An explicit ``IrMap[IrStr, IrEncoding]``; the grammar's
+        encoding *names* are its keys. Entries win over the default ``unicode``.
     :returns: The resolved registry, or ``None`` for a plain char grammar.
-    :raises UnsupportedConstructError: When both ``tokenizer`` and ``registry``
-        are given (ambiguous).
+    :raises UnsupportedConstructError: When ``tokenizer.name`` is already bound
+        to a different encoding by ``registry``.
     """
-    if tokenizer is not None and registry is not None:
-        raise UnsupportedConstructError(
-            "compile: pass tokenizer= or registry=, not both"
-        )
-    unicode = IrTuple(IrStr("unicode"), IrUnicode())
+    if tokenizer is None and registry is None:
+        return None
+    bound: dict[IrStr, IrEncoding] = {IrStr("unicode"): IrUnicode()}
     if registry is not None:
-        bound = {IrStr("unicode"): IrUnicode(), **dict(registry.items())}
-        return IrMap(*(IrTuple(name, enc) for name, enc in bound.items()))
+        bound |= {IrStr(name): enc for name, enc in registry.items()}
     if tokenizer is not None:
-        return IrMap(unicode, IrTuple(tokenizer.name, tokenizer))
-    return None
+        name = IrStr(tokenizer.name)
+        existing = bound.get(name)
+        if existing is not None and existing is not tokenizer and name != "unicode":
+            raise UnsupportedConstructError(
+                f"compile: encoding name {str(name)!r} is bound by registry= "
+                "and by tokenizer= to different encodings"
+            )
+        bound[name] = tokenizer
+    return IrMap(*(IrTuple(name, enc) for name, enc in bound.items()))
 
 
 def _segmentation_tokenizer(registry: IrMap | None) -> IrTokenizer | None:
@@ -501,7 +509,7 @@ def compile_text(
         for a one-entry ``registry``.
     :param registry: An ``IrMap[IrStr, IrEncoding]`` binding the grammar's
         encoding *names* to encodings (``unicode`` is always present); the
-        general form of ``tokenizer=``. Pass one or the other, not both.
+        general form of ``tokenizer=``; the two compose.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     stem = _stem_for_text(text)
