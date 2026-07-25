@@ -13,14 +13,16 @@ captures its key/value items as raw spans over the ``-sk`` skip twins
 DERIVED from the compiled grammar's binding — an alternation-kind clone is the
 shared pass-through, a sequence-kind clone flatten-collects its entry-reaching
 fields, the entry clone builds a :class:`SpanEntry` — so a section level
-parses to a flat ``list[SpanEntry]``, the driver's own co-designed product.
+parses to a flat :class:`SpanLevel`, the driver's own co-designed product.
 
 :class:`Template` is the retained compile product. :meth:`Template.run` parses
 the document once, then drives the spec as a post-pass: keys match as RAW
 SPANS (the spec is written in the grammar's own surface syntax); a
 :data:`KEEP` leaf re-parses its value span with the compiled pair re-rooted at
 the derived value rule and yields a :class:`~lexic.model.GrammarModel`; a
-nested spec re-parses with the section clone and recurses. Every artifact is a
+nested spec re-parses with the section clone and recurses, so a run's product
+is an ``IrMap`` whose values are models or nested levels — both ``IrSelf``,
+so the level needs no union type. Every artifact is a
 spine record; the re-rooted grammars are retained on the :class:`SpanPair` so
 the engine's identity memoisation stays hot across runs.
 """
