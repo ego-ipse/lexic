@@ -30,8 +30,12 @@ def main() -> None:
     compiled = compile_from_path(GRAMMAR_PATH)
 
     model = compiled.parse(SAMPLE)
-    # Native field access: dump() returns the structural payload.
-    items = model.dump()["item"]
+    # A bound field IS an attribute on the model, and a repeated one is a
+    # tuple of sub-models — dump() is for serialization, not for reading
+    # structure. The classes are synthesized at RUNTIME, though, so a type
+    # checker cannot see their fields; getattr says that out loud. For
+    # statically-typed field access, export the twin module (ex08).
+    items = getattr(model, "item")
     print(f"Parsed {len(items)} items from {GRAMMAR_PATH.name}:")
     # Round-trip lines back through the grammar to show each item is itself a model.
     for line in model.to_text().splitlines():
