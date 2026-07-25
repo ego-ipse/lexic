@@ -3,14 +3,14 @@
 Shed from :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` as free functions
 (Task 2b): a windowed Earley sub-parse over a small real grammar, driven
 through the module's three public entry points directly. The functions are
-already covered end-to-end by the ``parse_pda`` parity/fallback suites, so
+already covered end-to-end by the ``pda_model`` parity/fallback suites, so
 this file targets the function-level contracts (return shapes, the two
 ``PdaFail`` messages) rather than exhaustive behavior.
 
 ``island_derivation``'s ``PdaFail`` ("no derivation") path needs a completion
 that decodes to an empty derivation stream — an internal engine-decode edge
 case with no clean direct fixture; it stays uncovered here and relies on the
-``parse_pda`` integration suites, per the plan's guidance not to force a
+``pda_model`` integration suites, per the plan's guidance not to force a
 brittle fixture.
 """
 

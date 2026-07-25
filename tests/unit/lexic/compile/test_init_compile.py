@@ -502,7 +502,7 @@ def test_compiledgrammar_parse_returns_a_model():
     assert inst.to_text() == "x=1\n"
 
 
-def test_compiledgrammar_parse_pda_and_earley_agree():
+def test_compiledgrammar_pda_and_earley_agree():
     """cg.parse (PDA-first) yields the same model as the forced Earley
     completion (``earley_model`` over the instance grammar) — the fallback path
     is behaviour-identical, not a raised error reaching the caller."""

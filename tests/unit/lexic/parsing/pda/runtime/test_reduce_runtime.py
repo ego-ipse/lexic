@@ -1,24 +1,27 @@
 """Structural mirror for the reduce predictive runtime module.
 
 :mod:`lexic.parsing.pda.runtime.reduce_runtime` homes ``_ReducePdaKernel`` (the b1
-grammar-text twin) and ``parse_pda`` (the model-vs-reduce entry), split out of
-``runtime`` for C0302 headroom. The reduce-path *parity* (byte-equal to
-``parse_reduced``) is exercised in
+grammar-text twin) and the two runtime entries ``pda_reduce`` / ``pda_model``,
+split out of ``runtime`` for C0302 headroom. The reduce-path *parity*
+(byte-equal to ``parse_reduced``) is exercised in
 :mod:`tests.unit.lexic.parsing.pda.test_runtime`; this pins the split — the
-symbols live here, subclass the model kernel, and ``parse_pda`` dispatches on
-``tables.reduce``.
+symbols live here and subclass the model kernel.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from lexic.compile import parse_grammar
+from lexic.compile import compile_text, parse_grammar
+from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.grammars.abnf import ABNF_GRAMMAR
 from lexic.grammars.gbnf import GBNF_GRAMMAR
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.runtime import reduce_runtime as rr
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.reduce_runtime import pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaKernel
 from tests.integration.test_pda_parity import ALL_STEMS
 from tests.paths import GROUND_TRUTH
@@ -32,10 +35,24 @@ def test_reduce_kernel_lives_here_and_extends_the_model_kernel() -> None:
     assert kernel_cls.__module__ == "lexic.parsing.pda.runtime.reduce_runtime"
 
 
-def test_parse_pda_is_the_single_public_entry() -> None:
-    """``parse_pda`` is exported here and is the only public name."""
-    assert callable(rr.parse_pda)
-    assert rr.__all__ == ["parse_pda"]
+def test_the_two_runtime_entries_are_the_only_public_names() -> None:
+    """``pda_reduce`` / ``pda_model`` are the module's whole public surface.
+
+    One entry per product, so neither carries a parameter the other ignores
+    (``fold`` was dead on the reduce branch) and neither returns a union the
+    caller has to cast back.
+    """
+    assert callable(rr.pda_reduce) and callable(rr.pda_model)
+    assert rr.__all__ == ["pda_model", "pda_reduce"]
+
+
+def test_pda_reduce_refuses_a_model_pda() -> None:
+    """The reduce entry rejects tables with no reducer instead of mis-parsing."""
+    compiled = compile_text('root ::= "a"\n')
+    lifted = lift_optional_nullables(compiled.codegen_grammar)
+    model_tables = compile_pda(lifted, normalize(lifted), compiled.fold.config)
+    with pytest.raises(UnsupportedConstructError, match="needs a reduce PDA"):
+        rr.pda_reduce(model_tables, "a")
 
 
 def test_reduce_kernel_overrides_only_the_completion_seams() -> None:
@@ -52,9 +69,9 @@ def test_reduce_kernel_overrides_only_the_completion_seams() -> None:
 #
 # ``parse_grammar`` is itself routed PDA-first (the Task-7 flip): it tries
 # ``reduce_pda(flavour)`` before falling back to the Earley reducer.
-# These pins therefore exercise the whole ``_ReduceRoute``/``parse_pda`` wiring
+# These pins therefore exercise the whole ``_ReduceRoute``/``pda_reduce`` wiring
 # end-to-end (no PdaFail, no silent divergence) rather than an independent
-# Earley-only oracle — a mismatch here would mean the direct ``parse_pda``
+# Earley-only oracle — a mismatch here would mean the direct ``pda_reduce``
 # call and ``parse_grammar``'s own PDA route disagree or one PdaFails and the
 # other doesn't.
 
@@ -67,7 +84,7 @@ def test_reduce_span_stitches_a_comment_with_an_embedded_tab() -> None:
     text = "root = digit ; a\tb\r\ndigit = %x30-39\r\n"
     pda = reduce_pda(ABNF_FLAVOUR)
     assert pda is not None
-    got = parse_pda(pda, text)
+    got = pda_reduce(pda, text)
     assert got == parse_grammar(text, ABNF_FLAVOUR)
 
 
@@ -79,7 +96,7 @@ def test_reduce_pda_abnf_ground_truth_matches_parse_grammar(stem: str) -> None:
     pda = reduce_pda(ABNF_FLAVOUR)
     assert pda is not None
     text = (GROUND_TRUTH / stem).read_text(encoding="utf-8")
-    assert parse_pda(pda, text) == parse_grammar(text, ABNF_FLAVOUR)
+    assert pda_reduce(pda, text) == parse_grammar(text, ABNF_FLAVOUR)
 
 
 def test_reduce_pda_abnf_self_emit_matches_parse_grammar() -> None:
@@ -88,7 +105,7 @@ def test_reduce_pda_abnf_self_emit_matches_parse_grammar() -> None:
     pda = reduce_pda(ABNF_FLAVOUR)
     assert pda is not None
     text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
-    assert parse_pda(pda, text) == parse_grammar(text, ABNF_FLAVOUR)
+    assert pda_reduce(pda, text) == parse_grammar(text, ABNF_FLAVOUR)
 
 
 GBNF_GOOD_STEMS: tuple[str, ...] = tuple(
@@ -111,7 +128,7 @@ def test_reduce_pda_gbnf_ground_truth_matches_parse_grammar(stem: str) -> None:
     pda = reduce_pda(GBNF_FLAVOUR)
     assert pda is not None
     text = (GROUND_TRUTH / stem).read_text(encoding="utf-8")
-    assert parse_pda(pda, text) == parse_grammar(text, GBNF_FLAVOUR)
+    assert pda_reduce(pda, text) == parse_grammar(text, GBNF_FLAVOUR)
 
 
 def test_reduce_pda_gbnf_self_emit_matches_parse_grammar() -> None:
@@ -119,7 +136,7 @@ def test_reduce_pda_gbnf_self_emit_matches_parse_grammar() -> None:
     pda = reduce_pda(GBNF_FLAVOUR)
     assert pda is not None
     text = str(GBNF_FLAVOUR.apply(GBNF_GRAMMAR))
-    assert parse_pda(pda, text) == parse_grammar(text, GBNF_FLAVOUR)
+    assert pda_reduce(pda, text) == parse_grammar(text, GBNF_FLAVOUR)
 
 
 @pytest.mark.parametrize("stem", ["json_arr.gbnf", "json_ws.gbnf"])
@@ -130,4 +147,4 @@ def test_reduce_pda_gbnf_empty_first_arm_variants_pure_pda(stem: str) -> None:
     pda = reduce_pda(GBNF_FLAVOUR)
     assert pda is not None
     text = (GROUND_TRUTH / stem).read_text(encoding="utf-8")
-    assert parse_pda(pda, text) == parse_grammar(text, GBNF_FLAVOUR)
+    assert pda_reduce(pda, text) == parse_grammar(text, GBNF_FLAVOUR)

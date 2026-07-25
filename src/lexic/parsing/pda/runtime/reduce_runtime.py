@@ -5,8 +5,8 @@ stays byte-for-byte unchanged there, and this module homes the grammar-text
 completion — :class:`_ReducePdaKernel`, which shares the whole recognition
 machinery (``run`` / ``_drive`` / ``_enter`` / ``prefix_run`` / the terminal
 matchers) and only overrides the two completion callbacks (:meth:`_complete`,
-:meth:`_island`) plus the delegate sub-run. :func:`parse_pda` — the single
-public runtime entry — dispatches model vs reduce here so both kernels live
+:meth:`_island`) plus the delegate sub-run. The two public runtime entries
+— :func:`pda_reduce` and :func:`pda_model` — live here so both kernels sit
 behind one seam. A leaf w.r.t. the model kernel: it imports ``PdaKernel`` from
 ``runtime`` and the frame-slot vocabulary / delegate-completion from ``build``,
 never the reverse.
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrNone, IrSelf, IrStr, IrTuple
 from lexic.parsing.earley.reduce import DROP_KIND
 from lexic.parsing.fold import ModelFold
@@ -34,10 +35,10 @@ from lexic.parsing.pda.runtime.build import (
 from lexic.parsing.pda.runtime.islands import island_value
 from lexic.parsing.pda.runtime.runtime import PdaKernel
 
-__all__ = ["parse_pda"]
+__all__ = ["pda_model", "pda_reduce"]
 
 
-class _ReducePdaKernel(PdaKernel):
+class _ReducePdaKernel(PdaKernel[IrSelf]):
     """The grammar-text (b1) twin of :class:`PdaKernel` — reducer completion.
 
     Shares the whole recognition machinery (``run`` / ``_drive`` / ``_enter`` /
@@ -201,22 +202,42 @@ class _ReducePdaKernel(PdaKernel):
         return finish_delegate(sub, clone, window_text, pos)
 
 
-def parse_pda(tables: PdaTables, text: str, fold: ModelFold | None = None) -> object:
-    """Parse ``text`` with the fused predictive runtime — model or reduce.
+def pda_reduce(tables: PdaTables, text: str) -> IrSelf:
+    """Parse ``text`` with the fused predictive runtime, reducing to IR.
 
-    On a reduce PDA (``tables.reduce`` set — the grammar-text path) the
-    :class:`_ReducePdaKernel` drives the reducer's bodies and returns an
-    ``IrAst``; otherwise :class:`PdaKernel` builds and returns a model.
+    The grammar-text (b1) entry: :class:`_ReducePdaKernel` drives the
+    reducer's bodies and returns the reduction. Takes no fold — the reduce
+    path splices islands through the reducer, never a
+    :class:`~lexic.parsing.fold.ModelFold`.
+
+    :param tables: The compiled tables of a reduce PDA (``tables.reduce`` set).
+    :param text: The input to parse.
+    :returns: Whatever the reducer's top body builds.
+    :raises PdaFail: On any deterministic-parse failure (caught by the compile
+        seam, which retries on the full engine).
+    :raises UnsupportedConstructError: If ``tables`` is not a reduce PDA.
+    """
+    if tables.reduce is None:
+        raise UnsupportedConstructError(
+            "parsing: pda_reduce needs a reduce PDA — use pda_model"
+        )
+    return _ReducePdaKernel(tables, text).run()
+
+
+def pda_model[M](tables: PdaTables, text: str, fold: ModelFold[M] | None = None) -> M:
+    """Parse ``text`` with the fused predictive runtime, building a model.
+
+    The instance (b2) entry: :class:`PdaKernel` builds the start rule's model
+    directly during the walk. Generic in the fold's own product type, so the
+    caller's model type survives the call.
 
     :param tables: The compiled predictive-parser tables.
     :param text: The input to parse.
-    :param fold: The full-grammar fold for splicing island sub-models (model
-        path only); ``None`` (the island-free path) makes any island reference
-        raise :class:`PdaFail`.
-    :returns: The start rule's model instance, or (reduce PDA) its ``IrAst``.
+    :param fold: The full-grammar fold for splicing island sub-models;
+        ``None`` (the island-free path) makes any island reference raise
+        :class:`PdaFail`.
+    :returns: The start rule's model instance.
     :raises PdaFail: On any deterministic-parse failure (caught by the compile
         seam, which retries on the full engine).
     """
-    if tables.reduce is not None:
-        return _ReducePdaKernel(tables, text).run()
     return PdaKernel(tables, text, fold).run()

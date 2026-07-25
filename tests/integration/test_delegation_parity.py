@@ -46,7 +46,7 @@ from lexic.model import GrammarModel
 from lexic.parsing.pda.compiler.clones import PdaTables
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.specs import IslandRef
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _reduce_product
 from tests.integration.test_pda_parity import ALL_STEMS, grammar_for
@@ -116,7 +116,7 @@ def instance_ab(cg: CompiledGrammar, text: str) -> None:
 
     def _parse() -> object:
         try:
-            return cast(GrammarModel, parse_pda(pda, text, cg.fold))
+            return pda_model(pda, text, cg.fold)
         except PdaFail:
             return None
 
@@ -148,7 +148,7 @@ def test_delegation_instance_parity(stem: str) -> None:
         text = generate(start, specs, rng=random.Random(0), max_depth=4) or "x"
         for flag in (True, False):
             with pytest.raises(PdaFail):
-                with_delegates(pda, flag, lambda: parse_pda(pda, text, cg.fold))
+                with_delegates(pda, flag, lambda: pda_model(pda, text, cg.fold))
         return
     checked = 0
     for seed in range(40):
@@ -211,7 +211,7 @@ def reduce_outcome(pda: PdaTables, text: str, flag: bool) -> object:
 
     def run() -> object:
         try:
-            return ("ok", parse_pda(pda, text))
+            return ("ok", pda_reduce(pda, text))
         except PdaFail as exc:
             return ("fail", str(exc))
 

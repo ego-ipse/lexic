@@ -28,7 +28,7 @@ Lark is Z" is a direct read.
   ``parse-first`` vs ``pda`` is tree-then-fold Earley against the PDA's fused
   model build. Like Lark it is verified by recognition only — a ``ParseTree``
   is not the engine's typed result.
-- **pda** — the engine's full predictive PDA (``parse_pda`` over the compiled
+- **pda** — the engine's full predictive PDA (``pda_reduce``/``pda_model`` over the compiled
   tables — the exact path the product runs first, islands sub-parsed inline) →
   the typed ``IrAst`` / model.
 - **product** — the public product entry itself (``parse_reduced`` for
@@ -86,7 +86,7 @@ from lexic.model import GrammarModel
 from lexic.parsing import parse_first, parse_reduced
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import (
     _model_product,
@@ -146,10 +146,10 @@ def _reduce_paths(flavour: IrFlavour, lark: dict[str, Path]) -> dict[str, Path]:
     grammar = flavour.grammar
     reducer = flavour.reducer
     assert isinstance(reducer, Reducer)  # narrow the ClassVar[IrDispatch] declaration
-    reduce_pda = _reduce_product(grammar, reducer).pda
+    reduce_tables = _reduce_product(grammar, reducer).pda
     paths: dict[str, Path] = dict(lark)
     paths["earley"] = lambda t: earley_reduce(norm, t, reducer)
-    paths["pda"] = lambda t: parse_pda(reduce_pda, t, None)
+    paths["pda"] = lambda t: pda_reduce(reduce_tables, t)
     paths["product"] = lambda t: parse_reduced(grammar, t, reducer)
     return paths
 
@@ -177,7 +177,7 @@ def _model_paths(stem: str, lark: dict[str, Path]) -> dict[str, Path]:
     paths["parse-first"] = lambda t: parse_first(
         product.instance_grammar, t, product.tables
     )
-    paths["pda"] = lambda t: parse_pda(product.pda, t, fold)
+    paths["pda"] = lambda t: pda_model(product.pda, t, fold)
     paths["product"] = compiled.parse
     return paths
 

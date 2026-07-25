@@ -15,7 +15,7 @@ from lexic.ir.nodes import IrAst
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.pda.runtime.reduce_runtime import parse_pda
+from lexic.parsing.pda.runtime.reduce_runtime import pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _reduce_product, earley_reduce
 
@@ -52,7 +52,7 @@ class ReduceDifferential:
     def pda(self, text: str) -> IrAst | None:
         """The raw reduce PDA in isolation — ``None`` on any :class:`PdaFail`."""
         try:
-            return _narrow(parse_pda(self.product.pda, text, None))
+            return _narrow(pda_reduce(self.product.pda, text))
         except PdaFail:
             return None
 
