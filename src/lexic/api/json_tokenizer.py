@@ -25,6 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lexic.api.pretokens import (
+    BYTE_FALLBACK,
     BYTE_LEVEL_REMAP,
     CL100K_PATTERN,
     IrByteLevel,
@@ -165,7 +166,8 @@ def _pipeline(doc: IrMap, model: IrMap, added: list[IrMap]) -> IrTokenPipeline:
         BYTE_LEVEL_REMAP if byte_level else IrMap(),
         IrTuple(*_normalizers(doc.get(IrStr("normalizer")))),
         IrTuple(*pretokens),
-        model.get(IrStr("byte_fallback")) == 1,  # a json true reduces to IrInt(1)
+        # A json true reduces to IrInt(1); the SPELLING table is this format's.
+        BYTE_FALLBACK if model.get(IrStr("byte_fallback")) == 1 else IrMap(),
     )
 
 

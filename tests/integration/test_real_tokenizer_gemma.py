@@ -58,7 +58,7 @@ def test_pipeline_is_derived_from_the_documents_sections(
     """
     assert tokenizer.pipeline.normalize == (IrReplace(" ", "▁"),)
     assert tokenizer.pipeline.pretokens == (IrSplitMerged(" "),)
-    assert tokenizer.pipeline.byte_fallback
+    assert len(tokenizer.pipeline.byte_fallback) == 256  # the spelling table
     assert len(tokenizer.pipeline.remap) == 0  # no ByteLevel ⇒ no remap
 
 

@@ -356,7 +356,9 @@ def test_codegen_package_is_gone():
 # reader that knows it (`lexic.api`). See .wiki/lexic/decisions.md.
 _VENDOR_NAMES = re.compile(
     r"gpt-?2|huggingface|\bhf\b|tokenizer\.json|added_tokens|bytelevel"
-    r"|smollm|gemma|llama|qwen|cl100k|tiktoken|sentencepiece",
+    r"|smollm|gemma|llama|qwen|cl100k|tiktoken|sentencepiece"
+    # Conventions, not names: a vocabulary's spelling for a byte token.
+    r"|<0x",
     re.IGNORECASE,
 )
 
@@ -373,6 +375,15 @@ def test_ir_names_no_third_party_format_or_model():
 
     A named *algorithm* (Earley, the ranked-merge rewrite) is not a vendor,
     so this matches product/format names only.
+
+    **This test is a floor, not a ceiling.** It catches NAMES; it cannot
+    catch a vendor CONVENTION expressed in neutral characters. One got
+    through exactly that way — the spine spelled byte-fallback tokens
+    ``f"<0x{byte:02X}>"``, which is one format's convention and no format's
+    law, while naming no vendor at all. The fix was to take the spelling as
+    DATA (``IrTokenPipeline.byte_fallback`` is the table, written by the
+    reader that knows the format). When adding to `ir/`, ask whether a value
+    is the CONCEPT or one producer's answer to it — grep cannot ask that.
     """
     offenders = [
         f"{p.relative_to(SRC)}:{i}: {line.strip()}"

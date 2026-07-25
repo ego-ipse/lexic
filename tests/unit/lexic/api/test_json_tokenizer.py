@@ -28,6 +28,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir.base import IrStr
 from lexic.ir.encoding import IrReplace, IrUnicodeForm
+from lexic.ir.nodes import IrChr
 from tests.paths import GROUND_TRUTH
 
 
@@ -157,11 +158,16 @@ def test_split_merged_with_previous_reads_its_pattern() -> None:
     assert tok.pipeline.pretokens == (IrSplitMerged("-"),)
 
 
-def test_byte_fallback_is_read_from_the_model() -> None:
-    """A json truth value reduces to IrInt; the loader reads it as the flag."""
-    assert _load(
-        _document(model_extra='"byte_fallback": true, ')
-    ).pipeline.byte_fallback
+def test_byte_fallback_supplies_this_formats_byte_spelling() -> None:
+    """The flag selects a SPELLING TABLE, not a boolean on the spine.
+
+    How a vocabulary spells a byte token (``<0x41>`` here) is that format's
+    convention, so the table is data this module writes and ``lexic.ir``
+    merely consults — it must not know any format's spelling.
+    """
+    on = _load(_document(model_extra='"byte_fallback": true, ')).pipeline
+    assert len(on.byte_fallback) == 256
+    assert str(on.byte_fallback[IrChr(0x41)]) == "<0x41>"
     assert not _load(
         _document(model_extra='"byte_fallback": false, ')
     ).pipeline.byte_fallback
