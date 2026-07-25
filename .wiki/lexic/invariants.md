@@ -19,8 +19,21 @@ appears in `lexic.ir` — not in code, not in a docstring, not in an example.
 The spine models the *concept*; a format's own vocabulary is declared beside
 the reader that knows it (`lexic.api`), and `IrPretoken` is open-set so a
 vendor's families need no dispatch-table edit in the engine. A named
-*algorithm* (Earley, the ranked-merge rewrite) is not a vendor. Enforced by
-grep — the same failure mode as a privileged formulation, one tier deeper.
+*algorithm* (Earley, the ranked-merge rewrite) is not a vendor, and neither
+is ordinary terminology that predates a product — "byte-level" describes a
+vocabulary spelled over bytes; `ByteLevel` is one library's class.
+
+A grep in `test_layering_invariants.py` catches NAMES. **It is a floor, not
+a proof**, and reading it as one is the actual hazard: two escapes so far
+were introduced by the very commits claiming to close this class, and both
+used neutral characters — a byte-token spelling (`<0xNN>`) and a docstring
+generalised past what the code did. Neither names a vendor.
+
+So the question to ask when adding to `ir/` is not "does the grep pass" but
+**"is this value the CONCEPT, or one producer's answer to it?"** A grep
+cannot ask that. Evidence that nothing cheaper will: a targeted adversarial
+review also failed to separate provenance from defect on this exact question
+— it filed the finding, chased it, and withdrew it.
 
 **Arrows go one way.** Runtime depends on IR; codegen depends on IR; runtime does not depend on codegen. The two deliberate exceptions in `compile.py` and `base.py` are fixed and documented. See [[architecture]].
 

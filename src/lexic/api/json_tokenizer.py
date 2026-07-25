@@ -63,6 +63,10 @@ it rather than in the spine."""
 def read(text: str, grammar: IrAst, reducer: Reducer, *, name: str) -> IrTokenizer:
     """Read a ``tokenizer.json`` document into a tokenizer.
 
+    **Start here.** Of the three entries this is the one that parses AND
+    builds: use :func:`read_from_path` when the document is a file, and
+    :func:`tokenizer_of` when you already hold the reduction.
+
     :param text: The document source.
     :param grammar: The json formulation to read it with.
     :param reducer: That formulation's reducer.
@@ -80,6 +84,10 @@ def read_from_path(
     path: str | Path, grammar: IrAst, reducer: Reducer, *, name: str = ""
 ) -> IrTokenizer:
     """Read a ``tokenizer.json`` file into a tokenizer.
+
+    The path-taking wrapper around :func:`read`, per the repo convention that
+    the string-taker gets the unqualified name. It also defaults ``name``
+    from the filename, which the string form cannot.
 
     :param path: The document's path (see :func:`ext.API.hf.cached`).
     :param grammar: The json formulation to read it with.
@@ -99,6 +107,13 @@ def read_from_path(
 
 def tokenizer_of(doc: IrMap, name: str) -> IrTokenizer:
     """Build the tokenizer a reduced ``tokenizer.json`` document describes.
+
+    **Pick this when you already have the document.** The other two parse it
+    for you; this one does not, and takes no grammar or reducer at all — so
+    it is also the entry for a caller who obtained the reduction by some
+    other route. Re-parsing instead is not free: a whole-file reduce is ~8 s
+    for a 2 MB document and ~30 s for an 11 MB one, which is why the
+    real-file suites reduce once and enter here.
 
     :param doc: The reduced document.
     :param name: The tokenizer's name.
