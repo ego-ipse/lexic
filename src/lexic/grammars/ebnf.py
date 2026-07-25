@@ -385,7 +385,6 @@ EBNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("esc-dash"), IrStr("-")),
     IrTuple(IrRuleRef("esc-caret"), IrStr("^")),
     IrTuple(IrRuleRef("esc-rb"), IrStr("]")),
-    IrTuple(IR_DEFAULT, YIELD),
 )
 """Per-rule reductions: parse tree → IR (pure IR algebra, the gbnf/abnf idiom)."""
 
@@ -397,7 +396,9 @@ EBNF_NOISE: IrMap = IrMap(
 """Child-contribution policy: noise drops, every other rule is kept reduced."""
 
 
-EBNF_REDUCER = Reducer(reductions=EBNF_REDUCTIONS, noise=EBNF_NOISE, literal=DROP)
+EBNF_REDUCER = Reducer(
+    actions=EBNF_REDUCTIONS, default=YIELD, noise=EBNF_NOISE, literal=DROP
+)
 """The configured EBNF reducer."""
 
 

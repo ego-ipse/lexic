@@ -98,10 +98,9 @@ NOISE = IrMap(
 REDUCTIONS = IrMap(
     IrTuple(IrRuleRef("root"), NO_YIELD_BODY),
     IrTuple(IrRuleRef("wrap"), IrTuple(YIELD)),  # mentions YIELD, isn't YIELD itself
-    IrTuple(IR_DEFAULT, YIELD),
 )
 
-REDUCER = Reducer(reductions=REDUCTIONS, noise=NOISE, literal=DROP)
+REDUCER = Reducer(actions=REDUCTIONS, default=YIELD, noise=NOISE, literal=DROP)
 
 
 def compile_for(reducer: Reducer = REDUCER) -> ReduceCompile:
@@ -137,8 +136,8 @@ def test_comp_for_drop_noise_rule_is_the_bare_drop_shape():
 
 
 def test_comp_for_default_yield_rule_is_yield_and_span_needed():
-    """A KEEP rule with no explicit reduction (``leaf``) resolves to the
-    IR_DEFAULT body — the YIELD singleton itself, so both is_yield and
+    """A KEEP rule with no explicit reduction (``leaf``) falls through to the
+    reducer's ``default`` — the YIELD singleton itself, so both is_yield and
     span_needed (mentions) are True; it references no other rule, so
     can_drop is False."""
     comp = compile_for().comp_for("leaf")
@@ -213,7 +212,9 @@ def test_reducerun_bundles_its_constructor_arguments_verbatim():
 def test_reducerun_literal_keep_true_when_the_terminal_policy_is_keep_raw():
     """literal_keep derives True exactly when the reducer's terminal-leaf
     policy is KEEP_RAW."""
-    keep_reducer = Reducer(reductions=REDUCTIONS, noise=NOISE, literal=KEEP_RAW)
+    keep_reducer = Reducer(
+        actions=REDUCTIONS, default=YIELD, noise=NOISE, literal=KEEP_RAW
+    )
     run = run_for(keep_reducer)
     assert run.literal_keep is True
 

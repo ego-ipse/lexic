@@ -327,7 +327,7 @@ def test_gbnf_reducer_is_a_reducer():
 
 def test_gbnf_reducer_tables_are_gbnf_reductions_and_noise():
     """GBNF_REDUCER's tables are GBNF_REDUCTIONS and GBNF_NOISE."""
-    assert GBNF_REDUCER.reductions is GBNF_REDUCTIONS
+    assert GBNF_REDUCER.actions is GBNF_REDUCTIONS
     assert GBNF_REDUCER.noise is GBNF_NOISE
 
 

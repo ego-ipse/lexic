@@ -1224,7 +1224,6 @@ ABNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("decglyph"), _dec_glyph),
     IrTuple(IrRuleRef("bindot"), IrArg(0)),
     IrTuple(IrRuleRef("binglyph"), _bin_glyph),
-    IrTuple(IR_DEFAULT, YIELD),
 )
 """Per-rule reductions: parse tree → IR. Numeric rules decode their clean digit
 runs with :class:`~lexic.ir.action.IrUnradix`; structural rules build from clean
@@ -1232,7 +1231,9 @@ runs with :class:`~lexic.ir.action.IrUnradix`; structural rules build from clean
 Paired with :data:`ABNF_NOISE`."""
 
 
-ABNF_REDUCER = Reducer(reductions=ABNF_REDUCTIONS, noise=ABNF_NOISE, literal=DROP)
+ABNF_REDUCER = Reducer(
+    actions=ABNF_REDUCTIONS, default=YIELD, noise=ABNF_NOISE, literal=DROP
+)
 """The configured ABNF reducer: ``ABNF_REDUCTIONS`` plus the cleaning policy."""
 
 

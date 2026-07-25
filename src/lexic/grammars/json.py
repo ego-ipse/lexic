@@ -449,7 +449,6 @@ JSON_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
     IrTuple(IrRuleRef("plus"), IrStr("+")),
     IrTuple(IrRuleRef("zero"), IrStr("0")),
     IrTuple(IrRuleRef("decimal-point"), IrStr(".")),
-    IrTuple(IR_DEFAULT, YIELD),
 )
 """Per-rule reductions: parse tree → the json value as IR (objects ``IrMap``,
 arrays ``IrTuple``, strings decoded ``IrStr``, truth ``IrInt``, null
@@ -462,5 +461,7 @@ JSON_NOISE: IrMap = IrMap(
 """Child-contribution policy, derived from the grammar's own noise flags
 (``escape`` stays semantic — it is :data:`_CHAR`'s dispatch marker)."""
 
-JSON_REDUCER = Reducer(reductions=JSON_REDUCTIONS, noise=JSON_NOISE, literal=DROP)
+JSON_REDUCER = Reducer(
+    actions=JSON_REDUCTIONS, default=YIELD, noise=JSON_NOISE, literal=DROP
+)
 """The configured json reducer — the grammar's parse half."""

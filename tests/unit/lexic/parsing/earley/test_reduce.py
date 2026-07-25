@@ -83,7 +83,7 @@ def make_reducer(*rows: tuple[str, IrSelf]) -> Reducer:
     dyads: tuple[IrTuple[IrRuleRef, IrSelf], ...] = tuple(
         IrTuple(IrRuleRef(name), body) for name, body in rows
     )
-    return Reducer(reductions=IrMap(*dyads))
+    return Reducer(actions=IrMap(*dyads))
 
 
 # ── Basic reduction ───────────────────────────────────────────────────
@@ -138,7 +138,7 @@ def test_reducer_callable_body_receives_reduced_children():
 def test_reducer_raises_on_missing_reduction():
     """A ParseTree whose symbol has no reduction raises UnsupportedConstructError."""
     tree = leaf_tree("missing_rule", "x")
-    reducer = Reducer(reductions=IrMap())
+    reducer = Reducer(actions=IrMap())
     with pytest.raises(UnsupportedConstructError):
         reducer.apply(tree)
 
@@ -245,7 +245,7 @@ def test_resolve_source_drops_noise_children():
         IrTuple(IR_DEFAULT, KEEP_REDUCED),
     )
     reducer = Reducer(
-        reductions=IrMap(IrTuple(IrRuleRef("letter"), CONCAT_YIELD)),
+        actions=IrMap(IrTuple(IrRuleRef("letter"), CONCAT_YIELD)),
         noise=noise,
     )
     ctx = ReduceCtx()
@@ -347,7 +347,7 @@ def test_yield_is_yield_instance():
 def test_yield_leaf_returns_str_of_leaf():
     """YIELD on a terminal leaf returns IrStr(str(n))."""
     n = IrLiteral("abc")
-    reducer = Reducer(reductions=IrMap())
+    reducer = Reducer(actions=IrMap())
     result = YIELD.eval(reducer, n, ())
     assert str(result) == "abc"
 
@@ -355,7 +355,7 @@ def test_yield_leaf_returns_str_of_leaf():
 def test_yield_tree_concatenates_kept_leaves():
     """YIELD concatenates all leaf characters in a tree with no dropped rules."""
     tree = leaf_tree("word", "h", "e", "l", "l", "o")
-    reducer = Reducer(reductions=IrMap())
+    reducer = Reducer(actions=IrMap())
     result = YIELD.eval(reducer, tree, ())
     assert str(result) == "hello"
 
@@ -367,7 +367,7 @@ def test_yield_skips_noise_sub_trees():
     parent = ParseTree(
         IrRuleRef("word"), IrSeq(IrLiteral("a"), ws_tree, IrLiteral("b"))
     )
-    reducer = Reducer(reductions=IrMap(), noise=noise)
+    reducer = Reducer(actions=IrMap(), noise=noise)
     result = YIELD.eval(reducer, parent, ())
     assert str(result) == "ab"
 
@@ -396,7 +396,7 @@ def test_reducer_noise_drops_marked_children():
         IrTuple(IrRuleRef("word"), IrLambda(capture)),
         IrTuple(IrRuleRef("letter"), CONCAT_YIELD),
     )
-    reducer = Reducer(reductions=reductions, noise=noise)
+    reducer = Reducer(actions=reductions, noise=noise)
     result = reducer.apply(parent)
     # ws is dropped — nc should contain only the two letter reductions
     assert len(collected) == 2
@@ -429,7 +429,7 @@ def test_reducer_literal_drop_excludes_inline_terminals():
         IrTuple(IrRuleRef("stmt"), IrLambda(capture)),
         IrTuple(IrRuleRef("name"), YIELD),
     )
-    reducer = Reducer(reductions=reductions, noise=noise, literal=DROP)
+    reducer = Reducer(actions=reductions, noise=noise, literal=DROP)
     reducer.apply(parent)
     # The inline "=" literal is dropped by literal=DROP — only the reduced
     # name subtree arrives in nc.
@@ -527,7 +527,7 @@ def test_fused_reduce_matches_reducer_apply_on_parse_tree():
         ("phrase", CONCAT_YIELD),
     )
     reducer = Reducer(
-        reductions=reducer.reductions,
+        actions=reducer.actions,
         noise=IrMap(
             IrTuple(IrRuleRef("ws"), DROP),
             IrTuple(IR_DEFAULT, KEEP_REDUCED),
@@ -578,7 +578,7 @@ def test_fused_reduce_returns_none_on_custom_noise_policy():
     text = "ab cd"
     custom_noise = IrLambda(lambda d, n, nc: IrTuple(n))
     reducer = Reducer(
-        reductions=IrMap(
+        actions=IrMap(
             IrTuple(IrRuleRef("letter"), CONCAT_YIELD),
             IrTuple(IrRuleRef("word"), CONCAT_YIELD),
             IrTuple(IrRuleRef("phrase"), CONCAT_YIELD),
@@ -610,7 +610,7 @@ def test_reduce_plan_can_drop_true_when_rule_references_drop_noise_rule():
     """A rule referencing a DROP-noise rule has can_drop True (direct reachability)."""
     g = word_phrase_grammar()
     reducer = Reducer(
-        reductions=IrMap(IrTuple(IrRuleRef("phrase"), CONCAT_YIELD)),
+        actions=IrMap(IrTuple(IrRuleRef("phrase"), CONCAT_YIELD)),
         noise=IrMap(
             IrTuple(IrRuleRef("ws"), DROP),
             IrTuple(IR_DEFAULT, KEEP_REDUCED),
@@ -626,7 +626,7 @@ def test_reduce_plan_can_drop_false_when_no_drop_reachable():
     """A rule with no path to a DROP-noise rule has can_drop False."""
     g = word_phrase_grammar()
     reducer = Reducer(
-        reductions=IrMap(IrTuple(IrRuleRef("word"), CONCAT_YIELD)),
+        actions=IrMap(IrTuple(IrRuleRef("word"), CONCAT_YIELD)),
         noise=IrMap(
             IrTuple(IrRuleRef("ws"), DROP),
             IrTuple(IR_DEFAULT, KEEP_REDUCED),
@@ -644,7 +644,7 @@ def test_reduce_plan_noise_and_literal_kind_and_synthetic_tables():
     """ReducePlan compiles noise_kind/literal_kind/synthetic against rule ids."""
     g = word_phrase_grammar()
     reducer = Reducer(
-        reductions=IrMap(IrTuple(IrRuleRef("phrase"), CONCAT_YIELD)),
+        actions=IrMap(IrTuple(IrRuleRef("phrase"), CONCAT_YIELD)),
         noise=IrMap(
             IrTuple(IrRuleRef("ws"), DROP),
             IrTuple(IR_DEFAULT, KEEP_REDUCED),
@@ -680,7 +680,7 @@ def test_fused_reduce_body_mentions_yield_receives_span_as_n():
 
     g = word_phrase_grammar()
     reducer = Reducer(
-        reductions=IrMap(
+        actions=IrMap(
             IrTuple(IrRuleRef("word"), mentions_body),
             IrTuple(IrRuleRef("letter"), YIELD),
         ),

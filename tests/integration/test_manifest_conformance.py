@@ -74,7 +74,7 @@ def test_gbnf_identity_repr_and_non_semantic() -> None:
     assert loaded.extensions == (".gbnf",)
     assert loaded.line_comment == "#"
     assert repr(loaded.grammar) == repr(GBNF_GRAMMAR)
-    assert repr(reducer(loaded).reductions) == repr(GBNF_REDUCTIONS)
+    assert repr(reducer(loaded).actions) == repr(GBNF_REDUCTIONS)
     assert repr(loaded.actions) == repr(GBNF_ACTIONS)
     assert loaded.grammar.non_semantic == GBNF_GRAMMAR.non_semantic
 
@@ -86,7 +86,7 @@ def test_abnf_identity_repr_and_non_semantic() -> None:
     assert loaded.extensions == (".abnf",)
     assert loaded.line_comment == ";"
     assert repr(loaded.grammar) == repr(ABNF_GRAMMAR)
-    assert repr(reducer(loaded).reductions) == repr(ABNF_REDUCTIONS)
+    assert repr(reducer(loaded).actions) == repr(ABNF_REDUCTIONS)
     assert repr(loaded.actions) == repr(ABNF_ACTIONS)
     assert loaded.grammar.non_semantic == ABNF_GRAMMAR.non_semantic
 

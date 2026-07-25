@@ -1279,13 +1279,14 @@ GBNF_REDUCTIONS: IrMap[IrRuleRef, IrSelf] = IrMap(
         IrRuleRef("any-char"),
         IrBuild(IrNot, IrTuple(IrBuild(IrCharClass, IrTuple()))),
     ),
-    IrTuple(IR_DEFAULT, YIELD),
 )
 """Per-rule reductions: parse tree -> IR. Escapes decode structurally (one
 rule per escape kind); numeric runs decode via :class:`IrUnradix`. Paired
 with :data:`GBNF_NOISE`."""
 
-GBNF_REDUCER = Reducer(reductions=GBNF_REDUCTIONS, noise=GBNF_NOISE, literal=DROP)
+GBNF_REDUCER = Reducer(
+    actions=GBNF_REDUCTIONS, default=YIELD, noise=GBNF_NOISE, literal=DROP
+)
 """The configured GBNF reducer: reductions plus the cleaning policy."""
 
 
