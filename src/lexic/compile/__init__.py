@@ -592,9 +592,12 @@ def compile_from_path(
     stat = path.stat()
     if flavour is None:
         flavour = flavour_for_extension(path).name
-    # The bound vocabulary is part of the artefact, so it is part of the key.
-    binding = (id(tokenizer), id(registry)) if (tokenizer or registry) else ()
-    key = (str(path), stat.st_mtime, stat.st_size, flavour, binding)
+    # The bound vocabulary is part of the artefact, so it is part of the key —
+    # BY VALUE. Keying on id() would be unsound: ids are unique only among
+    # LIVE objects, so a dropped tokenizer's address can be reused and hand
+    # back another vocabulary's artefact. Both are hashable (an IrTokenizer is
+    # an IrNamedTuple, a registry an IrMap), and the hash is computed once.
+    key = (str(path), stat.st_mtime, stat.st_size, flavour, tokenizer, registry)
     cached = _CACHE.get(key)
     if cached is not None:
         return cached

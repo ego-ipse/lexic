@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.compile import compile_text, reset_cache_for_tests
+from lexic.compile import compile_from_path, compile_text, reset_cache_for_tests
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrStr, IrTuple
 from lexic.ir.encoding import IrTokenizer
@@ -164,3 +164,37 @@ def test_a_char_grammar_rebind_still_refuses_nothing_for_constrain() -> None:
     with pytest.raises(UnsupportedConstructError):
         char.constrain()  # nothing bound at compile time
     assert char.bind(LOW).constrain().mask()  # ... but a rebind supplies one
+
+
+# ── compile_from_path carries the same surface as compile_text ───────────
+
+
+def test_compile_from_path_binds_a_vocabulary(tmp_path) -> None:
+    """A token grammar in a FILE can bind a vocabulary.
+
+    Only ``compile_text`` could, so a file-based token grammar forced the
+    caller to read the file and call ``compile_text`` — the shim this effort
+    exists to delete. Every token test used ``compile_text``, so nothing
+    caught it; ``ex12`` did.
+    """
+    path = tmp_path / "think.gbnf"
+    path.write_text(_GRAMMAR, encoding="utf-8")
+    compiled = compile_from_path(path, tokenizer=LOW)
+    assert compiled.tokens.segmented
+    assert compiled.parse(TEXT).to_text() == TEXT
+
+
+def test_the_path_cache_keys_the_vocabulary_by_value(tmp_path) -> None:
+    """Two vocabularies over one file give two artefacts — never a stale hit.
+
+    The cache key holds the tokenizer BY VALUE. Keying on ``id()`` would be
+    unsound: ids are unique only among live objects, so a dropped tokenizer's
+    address can be reused and return another vocabulary's artefact.
+    """
+    path = tmp_path / "think.gbnf"
+    path.write_text(_GRAMMAR, encoding="utf-8")
+    low = compile_from_path(path, tokenizer=LOW)
+    high = compile_from_path(path, tokenizer=HIGH)
+    assert low.codegen_grammar != high.codegen_grammar
+    assert compile_from_path(path, tokenizer=LOW) is low  # equal vocab ⇒ hit
+    assert compile_from_path(path) is not low  # unbound is its own artefact
