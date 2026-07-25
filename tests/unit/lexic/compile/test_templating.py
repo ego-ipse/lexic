@@ -16,6 +16,8 @@ from lexic.compile import (
     KEEP,
     Keep,
     MapShape,
+    SpanEntry,
+    SpanLevel,
     SpanPair,
     Template,
     compile_text,
@@ -23,10 +25,12 @@ from lexic.compile import (
     template,
 )
 from lexic.compile.templating import skip_rules
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir.base import IrSelf
+from lexic.ir.mapping import IrMap
 from lexic.ir.order import refs_in_order
 from lexic.model import GrammarModel
+from lexic.parsing import parse_model
 
 _TOY = r"""
 start ::= ws sect ws
@@ -230,7 +234,7 @@ def test_spec_repr_is_pinned_codegen_form() -> None:
     """The lifted spec's repr is the pinned codegen form of the nested dict."""
     t = Template(spanify(_TOY_COMPILED, _SHAPE), {"b": {"c": KEEP}})
     assert (
-        repr(t.spec) == "IrMap(IrTuple(IrStr('b'), IrMap(IrTuple(IrStr('c'), Keep()))))"
+        repr(t.spec) == "Spec(IrTuple(IrStr('b'), Spec(IrTuple(IrStr('c'), Keep()))))"
     )
 
 
@@ -258,30 +262,43 @@ def test_template_and_template_of_spanify_produce_equivalent_results() -> None:
     assert template_leaf == spanify_leaf
 
 
-# ── Extracted: typed path reads over a run's output ──────────────────────
+# ── the run product is on the spine ──────────────────────────────────────
 
 
-def test_run_returns_an_extracted_dict():
-    """run() output IS a dict (existing consumers) and an Extracted."""
-    out = _run_keep_all()
-    assert isinstance(out, dict) and isinstance(out, Extracted)
+def test_run_returns_an_ir_map() -> None:
+    """run() yields an IrMap — the extraction level is an IR value."""
+    out = template(_TOY_COMPILED, _SHAPE, {"f": KEEP}).run(_TOY_DOC)
+    assert isinstance(out, IrMap)
 
 
-def test_extracted_model_walks_to_a_kept_model():
-    """model(*path) returns the kept GrammarModel at the path."""
-    out = _run_keep_all()
-    key = next(iter(out))
-    assert out.model(key) is out[key]
+def test_run_keys_match_plain_strings() -> None:
+    """IrStr keys hash-match plain str, so a caller subscripts natively."""
+    out = template(_TOY_COMPILED, _SHAPE, {"f": KEEP}).run(_TOY_DOC)
+    assert set(out.keys()) == {"f"}
 
 
-def test_extracted_model_raises_with_the_path_on_a_miss():
-    """An absent key raises naming the failing path."""
-    with pytest.raises(UnsupportedConstructError, match="no such key"):
-        _run_keep_all().model("absent")
+def test_kept_leaf_is_a_grammar_model_not_a_wrapper() -> None:
+    """A KEEP leaf is the GrammarModel itself — no wrapper type."""
+    out = template(_TOY_COMPILED, _SHAPE, {"f": KEEP}).run(_TOY_DOC)
+    assert isinstance(out["f"], GrammarModel)
 
 
-def test_extracted_section_rejects_a_kept_model():
-    """section() on a KEEP leaf raises — kind-checked reads."""
-    out = _run_keep_all()
-    with pytest.raises(UnsupportedConstructError, match="not a section"):
-        out.section(next(iter(out)))
+def test_nested_level_is_an_ir_map_again() -> None:
+    """A nested spec level extracts to another IrMap (same shape, recursive)."""
+    out = template(_TOY_COMPILED, _SHAPE, {"b": {"c": KEEP}}).run(_TOY_DOC)
+    assert isinstance(out["b"], IrMap)
+
+
+def test_absent_key_raises_ir_key_error() -> None:
+    """A spec key absent from the document is absent from the map."""
+    out = template(_TOY_COMPILED, _SHAPE, {"f": KEEP}).run(_TOY_DOC)
+    with pytest.raises(IrKeyError):
+        _ = out["absent"]
+
+
+def test_span_fold_product_is_a_span_level() -> None:
+    """The span fold's product is the on-spine SpanLevel, not a plain list."""
+    pair = spanify(_TOY_COMPILED, _SHAPE)
+    level = parse_model(pair.sections, "(a=1, f=4)", pair.span_fold)
+    assert isinstance(level, SpanLevel)
+    assert all(isinstance(each, SpanEntry) for each in level)

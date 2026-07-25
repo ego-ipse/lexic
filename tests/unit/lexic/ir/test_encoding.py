@@ -651,16 +651,7 @@ def test_heap_merge_matches_the_scan_oracle_randomized() -> None:
         assert tok.tokenize(text) == [vocab[s] for s in want], (merges, text)
 
 
-# ── IrTokenPipeline authoring coercion ───────────────────────────────────
-
-
-def test_pipeline_lifts_a_plain_specials_sequence() -> None:
-    """A plain list of spellings lifts to the stored IrTuple of IrStr —
-    the Vocab/Merges builder convention, on the record ctor itself."""
-    lifted = IrTokenPipeline(["<a>", "<b>"])
-    spelled = IrTokenPipeline(IrTuple(IrStr("<a>"), IrStr("<b>")))
-    assert lifted == spelled
-    assert isinstance(lifted.specials, IrTuple)
+# ── IrTokenPipeline ──────────────────────────────────────────────────────
 
 
 def test_pipeline_default_repr_is_bare() -> None:

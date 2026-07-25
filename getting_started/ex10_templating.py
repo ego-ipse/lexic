@@ -48,15 +48,16 @@ def main() -> None:
     extractor = template(compiled, SHAPE, SPEC)  # compile once ...
     out = extractor.run(DOC)  # ... run many
 
-    # Typed path reads — a kept model comes back AS a GrammarModel, and a
-    # wrong or absent path raises with the failing path spelled out.
-    version = out.model('"version"')
-    model_type = out.model('"model"', '"type"')
+    # The result mirrors the spec: a KEEP leaf is a GrammarModel, a nested
+    # spec level is another IrMap. Plain-str keys hash-match the IrStr keys.
+    version = out['"version"']
+    model_type = out['"model"']['"type"']
+
     print("version:   ", version.to_text(), f"({type(version).__name__})")
     print("model.type:", model_type.to_text(), f"({type(model_type).__name__})")
     assert model_type.to_text() == '"BPE"'
     # Absent spec keys are simply absent — "padding"/"decoder" never parsed.
-    assert set(out) == {'"version"', '"model"'}
+    assert set(out.keys()) == {'"version"', '"model"'}
 
 
 if __name__ == "__main__":

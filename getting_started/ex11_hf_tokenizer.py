@@ -38,27 +38,26 @@ TOKENIZER_JSON = """\
 """
 
 
+def _dyad(merge: object) -> tuple[str, str]:
+    """One HF ``"left right"`` merge string as the ``(left, right)`` dyad."""
+    left, right = str(merge).split(" ", 1)
+    return left, right
+
+
 def main() -> None:
     """Reduce the document, lift vocab + merges, build and use the tokenizer."""
     doc = parse_reduced(JSON_GRAMMAR, TOKENIZER_JSON, JSON_REDUCER)
-    assert isinstance(doc, IrMap)
-    assert doc.at("model", "type") == "BPE", "only BPE models here"
+    assert isinstance(doc, IrMap), "a json document reduces to a map"
 
-    # The caller owns the format: vocab is already a map, merges normalise
-    # from HF's "left right" strings to (left, right) dyads — five lines.
-    # ``at(..., into=T)`` walks the nested values with typed, path-carrying
-    # reads; the pipeline lifts a plain specials list itself.
-    vocab = {
-        str(k): int(v) for k, v in doc.at("model", "vocab", into=IrMap).items()
-    }
-    merges = [
-        tuple(str(m).split(" ", 1)) for m in doc.at("model", "merges", into=IrTuple)
-    ]
-    specials = [
-        str(entry.at("content"))
-        for entry in doc.at("added_tokens", into=IrTuple)
-        if isinstance(entry, IrMap)
-    ]
+    # One narrowing at the boundary, then plain reads: IR values ARE their
+    # payloads, so an IrStr is already a str and an IrChr already an int —
+    # nothing here converts, it just reads. The caller owns the format.
+    model = doc["model"]
+    assert model["type"] == "BPE", "only BPE models here"
+
+    vocab = {str(k): int(v) for k, v in model["vocab"].items()}
+    merges = [_dyad(m) for m in model["merges"]]
+    specials = IrTuple(*(entry["content"] for entry in doc["added_tokens"]))
 
     tok = IrTokenizer.from_merges("hf", vocab, merges, IrTokenPipeline(specials))
     ids = tok.tokenize("hello<|end|>")
