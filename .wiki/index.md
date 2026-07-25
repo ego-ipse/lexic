@@ -28,7 +28,7 @@
 
 | Task | Pages to load |
 |---|---|
-| Slice B token reservation (Tasks 33–34) | [[lexic/slice-b-status]], [[lexic/error-vocabulary]] |
+| Working on tokens / encodings / generation masks | [[lexic/tokens]], [[lexic/ir-shapes]] |
 | Adding a new grammar flavour | [[lexic/flavour-system]], [[lexic/ir-shapes]] |
 | Debugging field name collision | [[lexic/field-naming]], [[lexic/decisions]] |
 | Adding a new IR node type | [[lexic/ir-shapes]], [[lexic/invariants]], [[lexic/error-vocabulary]] |
@@ -41,6 +41,7 @@
 
 | Page | Contains |
 |---|---|
+| [[lexic/tokens]] | The encoding family (IrUnicode / IrUtf / IrTokenizer), token terminals, the three capabilities, the mask cursors, and the char-column boundary |
 | [[lexic/public-api]] | `parse`, `compile_text`, `compile_from_path`, `canonical_grammar`, `parse_grammar` signatures; `CompiledGrammar` fields (no `RuleSpec`); `GrammarModel` methods; which entry point to use; directive precedence |
 | [[lexic/architecture]] | Four-layer diagram; the two deliberate runtime→codegen import exceptions (`base.py`, `compile.py`); module ownership table; both pipeline flows |
 | [[lexic/ir-shapes]] | The primitive-node model (`IrScalar`/`IrTuple`/`IrNamedTuple` tiers, no `RuleSpec`); `IrBind`/`BIND_MODES`; `kind` semantics (now on `RuleBinding`); canonicalization; hoisting/non-semantic relaxation (`codegen/passes.py`) |
@@ -61,7 +62,7 @@
 | Page | Contains |
 |---|---|
 | [[lexic/cutover-plan]] | Cutover complete (2026-05-13); what replaced what; Slice B remaining work pointer |
-| [[lexic/slice-b-status]] | Slice B audit post-cutover: Phase 1 done/obsolete breakdown; Phase 2 entirely obsolete; Phase 3 (token reservation) still required |
+| [[lexic/slice-b-status]] | Slice B audit post-cutover: Phase 1 done/obsolete breakdown; Phase 2 entirely obsolete; Phase 3 (token reservation) SHIPPED — see [[lexic/tokens]] |
 | [[lexic/decisions]] | Dated design decisions with reasoning: grammar-is-canonical, parallel-track strategy, `_FIELD_BASE` dispatch table, `CHARCLASS_NAMES` ground truth, `IrItem` quantifier placement, `Flavour` ABC class-attributes-only |
 
 ---

@@ -67,6 +67,12 @@ Runnable, commented walkthroughs live in [`getting_started/`](getting_started/):
 | `ex03_parse_json.py` | Parse nested JSON; `to_text()` and `semantic_dump()`. |
 | `ex04_transpile_flavours.py` | Transpile a grammar between flavours via the singletons. |
 | `ex05_inspect_ir.py` | Inspect the `__grammar__: IrRule` behind a compiled class. |
+| `ex06_token_grammar.py` | Token grammars: parse token-granular, round-trip, next-token mask. |
+| `ex07_constrained_generation.py` | A generation loop: mask → pick → `push` until `accepts()`. |
+| `ex08_twin_module.py` | Export an importable twin; lexic parses its own export back. |
+| `ex09_json_reducer.py` | `parse_reduced` + the JSON reducer kit — values, not model classes. |
+| `ex10_templating.py` | `template(...)`: extract selected paths, skip the rest as raw spans. |
+| `ex11_hf_tokenizer.py` | Load an HF `tokenizer.json` with lexic's own JSON + `IrTokenizer`. |
 
 ## Two products: models and pure IR
 
@@ -87,13 +93,65 @@ node = load_ir('IrLiteral("x")')                            # notation text → 
 
 | Flavour | Extension | Status |
 |---|---|---|
-| GBNF | `.gbnf` | Production (character-level; llama.cpp token terminals not supported) |
+| GBNF | `.gbnf` | Production (character-level, plus llama.cpp token terminals — see §Tokens) |
 | ABNF | `.abnf` | Production (RFC 5234 + 7405, incl. `%d`/`%b`/`%x` sequences, case markers, the B.1 core-rules prelude) |
 | EBNF | `.ebnf` | Production (ISO-family: `=`/`;` rules, `{}`/`[]`, `n * x` repetition, `(* *)` comments) |
 
-GBNF's llama.cpp token-level terminals (`<[id]>`, `<token>`, `!<…>`) are **not supported** — lexic parses character streams and has no tokenizer vocabulary; a grammar using them fails to parse. EBNF has no native character-class or negation syntax: classes emit as quoted alternations where finite, and constructs EBNF cannot spell (negation, open-bounded counted repetition) are refused explicitly rather than approximated.
+GBNF's token-level terminals (`<token>`, `<[id]>`, `<[lo-hi]>`, `!<…>`, `.`) are supported — see §Tokens. EBNF has no native character-class or negation syntax: classes emit as quoted alternations where finite, and constructs EBNF cannot spell (negation, open-bounded counted repetition) are refused explicitly rather than approximated.
 
 A *flavour* is the grammar notation, carried entirely as data: a self-grammar (authored as `IrAst`), a `Reducer` (reduction bodies + a noise policy derived from the grammar's own `semantic=False` flags), an `EscapeCodec`, optional core rules (ABNF's RFC prelude), and emit actions — an `IrFlavour` with **zero parsing methods**. Add one either as a flat `grammars/<name>.py` module or as a **text manifest** loaded with `load_flavour`. See [`.wiki/lexic/flavour-system.md`](.wiki/lexic/flavour-system.md).
+
+## Tokens
+
+Lexic parses character streams by default, and **token streams** when a
+grammar's terminals name tokens instead of characters. Both run on the same
+engine and the same pipeline.
+
+An **encoding** gives a character class's ordinals their meaning. `IrUnicode`
+is the default — ordinals *are* code points. An `IrTokenizer` is a peer, not a
+special case: its ordinals are vocab ids. A grammar's token terminals name an
+encoding, and `compile_text(..., tokenizer=)` binds it.
+
+```gbnf
+root     ::= <think> thinking </think> .*
+thinking ::= !</think>*
+```
+
+`<think>` is the token whose spelling **is** `<think>` — the angle brackets are
+part of the token's text, so a token spelled `hi` is written `<hi>` only if
+`<hi>` is literally in the vocab. `<[7]>` names a token by id, `<[3-9]>` an id
+range, `!<…>` any token except one, and `.` any token at all.
+
+```python
+tok = IrTokenizer.from_vocab("tokens", {"<think>": 0, "</think>": 1, "hi": 2})
+compiled = compile_text(GRAMMAR, tokenizer=tok)
+
+model = compiled.parse("<think>hi</think>")   # parse token-granular
+model.to_text()                               # → char-exact round-trip
+
+cursor = compiled.constrain()                 # constrain generation
+cursor.mask()                                 # → admissible next-token ids
+cursor.push(0)                                # advance; accepts() tests the end
+```
+
+Three capabilities, independent of each other: read/emit token grammars with
+**no** tokenizer at all; parse instances with one; and constrain generation
+token by token. The generation cursor holds a single live chart — `push` grows
+it rather than reparsing the prefix, so `mask()` costs the candidate's spelling,
+not the history.
+
+An `IrTokenizer` is built from a vocab (longest-match) or from a vocab plus
+ordered merges (exact ranked-merge BPE), with specials matched atomically. It
+carries its own segmentation pipeline — byte-level remapping, normalizers,
+pre-token splitters, byte fallback — so a real HF `tokenizer.json` loads
+through lexic's own JSON grammar and reducer with no format module in `src`
+(`ex11`).
+
+**Boundary:** token spans are char-aligned. Under a byte-level pipeline a token
+can end mid-code-point; `tokenize()` still returns its id, but that token gets
+no character span, so `boundaries()` — and therefore token-granular *parsing* —
+covers char-aligned segmentations. This is the documented limit, not a bug to
+route around.
 
 ## Architecture
 

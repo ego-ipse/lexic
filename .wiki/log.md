@@ -1,5 +1,41 @@
 # Log
 
+## 2026-07-25 — Tokens: the encoding family, token terminals, generation masks
+
+An encoding now gives a char class's ordinals their meaning — `IrEncoding`
+with `universe`/`resolve`/`spell`/`boundaries`/`ids` and a derived
+`tokenize`, in three peers: `IrUnicode` (the default; ordinals ARE code
+points), `IrUtf` (UTF-16 code units, owning surrogate-pair combining and the
+JSON reducer's unit decode) and `IrTokenizer` (vocab ids; `ranks` stored,
+ordered merges derived at emission, exact ranked-merge BPE via a heap
+agenda). A tokenizer is a peer of Unicode, not a special case: everything
+UTF-specific is an `IrUnicode` property rather than an assumption in the
+set-math.
+
+Grammar surface: a token terminal is `IrAlphabet(encoding_name, inner)`
+reusing `IrLiteral`/`IrCharClass`/`IrNot`, with negation INSIDE the alphabet
+so the encoding governs the complement universe. No token-specific leaf type
+exists. `concretize` resolves spellings to ordinals against a registry.
+
+Three capabilities: read/emit with no tokenizer; parse instances
+(`TokenKernel` scans id-granular at boundary columns — token terminals island
+the PDA by construction, so char grammars' hot path is untouched); and
+constrain generation (`TokenMaskCursor`, an ABC over `TokenTermCursor` /
+`CharTrieCursor`, holding ONE live chart so `push` grows it instead of
+reparsing the prefix).
+
+Two engine constraints found and pinned: run-collapsed tables cannot be
+resumed (maximal munch depends on input not yet appended, so a committed run
+can never grow — `extend` refuses loudly), and a FRESH empty parse
+under-reports viability because its seeds are FIRST-gated on the absent next
+char, so it must not be used as a viability oracle.
+
+Boundary: token spans are char-aligned; under a byte-level pipeline a token
+may end mid-code-point and so carries no span, though `tokenize()` still
+returns its id. A byte-column engine is a separate unmade decision.
+
+New page: [[lexic/tokens]].
+
 ## 2026-07-24 — Packing tiers: input-sized origin-bits, tier selection at the parse entries
 
 The packed-item scheme's origin bits are now a per-tables tier instead of a
