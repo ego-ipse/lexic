@@ -142,3 +142,57 @@ def test_curated_corpus_is_reference_exact(tokenizer, reference) -> None:
     """Every curated case tokenizes reference-exact (the headline gate)."""
     for case in _CORPUS:
         assert tokenizer.tokenize(case) == reference.encode(case).ids, repr(case)
+
+
+@pytest.fixture(scope="module", name="uncovered")
+def _uncovered(tokenizer: IrTokenizer) -> tuple[str, ...]:
+    """Source characters whose byte this vocabulary has no token for.
+
+    Derived rather than listed, so the cases below follow the fixture. Only
+    the ASCII range: a byte above ``0x7F`` never stands alone in utf-8, so no
+    single source character produces one.
+    """
+    return tuple(
+        chr(int(byte))
+        for byte, working in tokenizer.pipeline.remap.items()
+        if int(byte) < 0x80 and IrStr(str(working)) not in tokenizer.encode
+    )
+
+
+def test_this_vocabulary_really_does_lack_some_bytes(uncovered) -> None:
+    """Guard the guard: the two cases below are vacuous on a total vocabulary.
+
+    A byte-level vocabulary is not obliged to carry all 256 working
+    characters, and this one does not — which is what makes it the fixture
+    that exercises the uncovered-symbol path at all.
+    """
+    assert uncovered
+
+
+def test_an_uncovered_byte_is_reference_exact(tokenizer, reference, uncovered) -> None:
+    """A byte the vocabulary cannot carry still tokenizes exactly.
+
+    Refusing here would reject input the reference accepts; emitting a token
+    for it would invent one. The reference drops it, so this must too.
+    """
+    for char in uncovered:
+        for template in ("%s", "a%sb", "%s!", " %s ", "!%s’"):
+            text = template % char
+            assert tokenizer.tokenize(text) == reference.encode(text).ids, repr(text)
+
+
+def test_an_uncovered_byte_lets_its_neighbours_merge(
+    tokenizer, reference, uncovered
+) -> None:
+    """Dropping a symbol must leave its neighbours ADJACENT, not merely apart.
+
+    Seeding the merge from what the vocabulary can carry makes ``!`` and
+    ``’`` neighbours, so they merge exactly as they would with nothing
+    between them. Seeding that keeps the gap open leaves two tokens where the
+    reference has one — the same wrong answer as dropping the symbol after
+    the merge instead of before it.
+    """
+    for char in uncovered:
+        text = f"!{char}’"
+        assert tokenizer.tokenize(text) == tokenizer.tokenize("!’"), repr(text)
+        assert tokenizer.tokenize(text) == reference.encode(text).ids, repr(text)
