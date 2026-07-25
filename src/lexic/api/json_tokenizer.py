@@ -13,6 +13,13 @@ The json formulation is a **parameter**, never an assumption — pass
 whichever grammar+reducer pair should read the document, including one
 compiled from a ground-truth ``.gbnf``.
 
+**Known limit:** a document containing ANY fractional number cannot be read
+at all — the json value tier has no float leaf, so the reduce fails before
+this module sees a field. The realistic instance is ``"dropout": 0.0``,
+which the reference library writes when asked for it explicitly and which
+means *no* dropout; ``null`` and ``0`` both read fine. Refusing a set
+``dropout`` (below) therefore never gets the chance in that spelling.
+
 Reading is thin because lexic does the parsing: the document arrives as
 typed IR values and this only names which field means what. ``Sequence``
 nesting in the ``normalizer`` / ``pre_tokenizer`` slots is flattened; a
@@ -133,9 +140,7 @@ def tokenizer_of(doc: IrMap, name: str) -> IrTokenizer:
         IrMap.ensure(t, "an added_tokens entry")
         for t in IrTuple.ensure(doc.get(IrStr("added_tokens"), IrTuple()))
     ]
-    _refuse_unsupported_specials(
-        added, bool(_normalizers(doc.get(IrStr("normalizer"))))
-    )
+    _refuse_unsupported_specials(added, _normalizers(doc.get(IrStr("normalizer"))))
     return IrTokenizer.from_merges(
         name,
         _vocab(model, added),
@@ -238,17 +243,37 @@ def _refuse_unsupported_model(model: IrMap) -> None:
             )
 
 
-def _refuse_unsupported_specials(added: list[IrMap], normalized: bool) -> None:
+def _normalizes_away(steps: list[IrNormalizer], content: str) -> bool:
+    """Whether the normalizers actually CHANGE ``content``.
+
+    The deciding question for the ``normalized`` flag. Asking merely whether
+    a normalizer exists over-refuses: a family with an ``NFC`` normalizer and
+    ``normalized: true`` on ASCII specials tokenizes identically either way,
+    and marking ASCII specials that way is a thing real families do.
+    """
+    text = content
+    meta = [(i, i + 1, True) for i in range(len(content))]
+    for step in steps:
+        text, meta = step.apply(text, meta)
+    return text != content
+
+
+def _refuse_unsupported_specials(added: list[IrMap], steps: list[IrNormalizer]) -> None:
     """Refuse added-token flags that move a token boundary.
 
     ``lstrip``/``rstrip`` pull adjacent whitespace into the special's span,
-    which IS a boundary change. ``normalized`` decides whether the special is
-    matched before or after normalization — inert when the document declares
-    no normalizer, which is exactly how one shipped fixture sets it, so
-    refusing it unconditionally would reject a file that tokenizes fine.
+    which IS a boundary change.
+
+    ``normalized`` decides whether the special is matched before or after
+    normalization, and specials are matched FIRST here. That only disagrees
+    with the document when normalization would change the token's own text —
+    so the test is "does the normalizer change THIS content", not "is there a
+    normalizer". The weaker test refuses files that tokenize identically
+    either way, and one shipped fixture sets the flag with no normalizer at
+    all.
 
     :param added: The added-token entries.
-    :param normalized: Whether the document carries any normalizer.
+    :param steps: The document's normalizer steps.
     :raises UnsupportedConstructError: On a flag that would move a boundary.
     """
     for entry in added:
@@ -259,11 +284,11 @@ def _refuse_unsupported_specials(added: list[IrMap], normalized: bool) -> None:
                     f"{str(entry[IrStr('content')])!r} sets {flag!r}, which "
                     "moves a token boundary"
                 )
-        if normalized and entry.get(IrStr("normalized")) == 1:
+        content = str(entry[IrStr("content")])
+        if entry.get(IrStr("normalized")) == 1 and _normalizes_away(steps, content):
             raise UnsupportedConstructError(
-                f"tokenizer.json: added token "
-                f"{str(entry[IrStr('content')])!r} is 'normalized' and the "
-                "document declares a normalizer — specials are matched before "
+                f"tokenizer.json: added token {content!r} is 'normalized' and "
+                "normalization changes it — specials are matched before "
                 "normalization here, so the two disagree"
             )
 

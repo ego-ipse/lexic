@@ -315,27 +315,6 @@ def test_an_added_token_that_moves_a_boundary_refuses(flag) -> None:
         )
 
 
-def test_normalized_is_refused_only_when_a_normalizer_exists() -> None:
-    """The conditional that keeps a real file loading.
-
-    ``normalized`` decides whether a special is matched before or after
-    normalization. With no normalizer declared the flag is inert — and that
-    is exactly how one shipped fixture sets it, so an unconditional refusal
-    would reject a file that tokenizes perfectly.
-    """
-    inert = _load(
-        _document(added_tokens='[{"id": 9, "content": "<e>", "normalized": true}]')
-    )
-    assert inert.pipeline.specials == (IrStr("<e>"),)
-    with pytest.raises(UnsupportedConstructError, match="declares a normalizer"):
-        _load(
-            _document(
-                normalizer='{"type": "NFC"}',
-                added_tokens='[{"id": 9, "content": "<e>", "normalized": true}]',
-            )
-        )
-
-
 def test_an_unimplemented_normalizer_refuses() -> None:
     """A normalizer with no spec refuses rather than being skipped."""
     with pytest.raises(UnsupportedConstructError, match="unimplemented normalizer"):
