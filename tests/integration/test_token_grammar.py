@@ -169,11 +169,20 @@ def test_tokenizer_sugar_equals_single_entry_registry() -> None:
     assert via_sugar.parse(text).dump() == via_registry.parse(text).dump()
 
 
-def test_registry_and_tokenizer_are_mutually_exclusive() -> None:
-    """Passing both ``tokenizer=`` and ``registry=`` is ambiguous — it refuses."""
+def test_registry_and_tokenizer_compose() -> None:
+    """``registry=`` and ``tokenizer=`` bind names together, not exclusively."""
     tok = _tokenizer()
-    with pytest.raises(UnsupportedConstructError):
-        compile_text(_GRAMMAR, tokenizer=tok, registry=IrMap(IrTuple(tok.name, tok)))
+    text = "<think>ab</think>"
+    both = compile_text(_GRAMMAR, tokenizer=tok, registry=IrMap(IrTuple(tok.name, tok)))
+    assert both.parse(text).to_text() == text
+
+
+def test_conflicting_encoding_name_refuses() -> None:
+    """One name bound to two different encodings is a real conflict — it raises."""
+    tok = _tokenizer()
+    other = IrTokenizer.from_vocab("tokens", IrMap(IrTuple(IrStr("z"), IrChr(0))))
+    with pytest.raises(UnsupportedConstructError, match="different encodings"):
+        compile_text(_GRAMMAR, tokenizer=tok, registry=IrMap(IrTuple(tok.name, other)))
 
 
 # ── the char-heavy mask (capability C over a CHAR grammar) — F3+F4 ────────

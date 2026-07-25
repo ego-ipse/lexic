@@ -32,7 +32,7 @@ from lexic.ir.nodes import IrChr
 # encoding name ("tokens") is the one GBNF's token terminals reference.
 # (A longest-match tokenizer matches ``<think>`` whole naturally; a BPE tokenizer
 # with atomic special tokens — HF's added_tokens — does too. See
-# IrTokenizer.from_merges(..., specials=...) and tests/unit/lexic/ir/test_encoding.)
+# IrTokenizer.from_merges(..., IrTokenPipeline(specials)) — see ex11.)
 VOCAB = {"<think>": 0, "</think>": 1, "hi": 2, " ": 3, "there": 4, "!": 5}
 
 # root: a <think>…</think> block, then any trailing tokens (``.*``).
