@@ -12,13 +12,27 @@ from time import perf_counter
 
 import pytest
 
-from lexic.compile import compile_text, parse_grammar, reset_cache_for_tests
+from lexic.compile import (
+    compile_from_path,
+    compile_text,
+    parse_grammar,
+    reset_cache_for_tests,
+)
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir.base import IrStr, IrTuple
 from lexic.ir.encoding import IrTokenizer
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAlphabet, IrCharClass, IrChr, IrLiteral
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.tables import ParserTables, compile_tables
+from lexic.parsing.earley.tokenscan import (
+    TokenMaskCursor,
+    split_literals,
+    viable_prefix,
+)
+from lexic.parsing.fold import lift_optional_nullables
+from tests.paths import GROUND_TRUTH
 
 _VOCAB = {"<think>": 0, "</think>": 1, "a": 2, "b": 3, "<": 4, "/think>": 5}
 _GRAMMAR = "root ::= <think> thinking </think>\nthinking ::= !</think>*"
@@ -274,3 +288,82 @@ def test_char_mask_cost_is_prefix_independent():
         cursor.push(10)  # "12" — 600 committed chars
     t_long = min(once() for _ in range(5))
     assert t_long <= max(10 * t_short, 1e-3), (t_short, t_long)
+
+
+# ── the resumable mask over a RECURSIVE grammar (json.gbnf) ──────────────
+
+_JSON_VOCAB = ["{", "}", "[", "]", ":", ",", '"', "a", "1", "true", "null", "t"]
+"""Structural chars + a string char + a digit + two multi-char tokens. ``t`` and
+``true`` share a trie prefix, so the DFS must not admit one for the other."""
+
+_NESTED = '{"a":{"a":[1,1]}}'
+"""The document the walk builds — objects inside objects inside an array, so
+the mask is exercised at several `{`/`[` depths."""
+
+
+def _json_cursor() -> tuple[TokenMaskCursor, ParserTables, list[int]]:
+    """The live cursor, the oracle's char-granular tables, and the doc's ids."""
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    cursor = compiled.constrain(_tok(_JSON_VOCAB))
+    lifted = lift_optional_nullables(split_literals(compiled.codegen_grammar))
+    ids = [_JSON_VOCAB.index(ch) for ch in _NESTED]
+    return cursor, compile_tables(normalize(lifted)), ids
+
+
+def _viable_mask(tables: ParserTables, prefix_ids: list[int]) -> set[int]:
+    """Brute-force truth: t admissible iff prefix+spell(t) is a viable prefix."""
+    text = "".join(_JSON_VOCAB[i] for i in prefix_ids)
+    return {
+        t
+        for t, spelling in enumerate(_JSON_VOCAB)
+        if viable_prefix(tables, text + spelling)
+    }
+
+
+def test_recursive_mask_matches_the_viable_prefix_oracle_forward() -> None:
+    """Building a nested json document token by token, the live-chart mask
+    equals the stateless recompute at every step — the resumable path over a
+    RECURSIVE grammar (the finite-language cases cannot reach nesting)."""
+    cursor, tables, ids = _json_cursor()
+    for step in range(len(ids)):
+        prefix = ids[:step]
+        cursor.ids = list(prefix)
+        assert cursor.mask() == _viable_mask(tables, prefix), _NESTED[:step]
+
+
+def test_recursive_mask_survives_rollback_across_nesting_depth() -> None:
+    """Reassigning ``ids`` to shorter prefixes rolls the chart back through
+    `{`/`[` depth and still masks correctly — per-column truncation is sound
+    across nesting, not just along a flat prefix."""
+    cursor, tables, ids = _json_cursor()
+    cursor.ids = list(ids)
+    cursor.mask()  # commit the whole document first
+    for step in range(len(ids), -1, -1):  # then walk back out, deepest first
+        prefix = ids[:step]
+        cursor.ids = list(prefix)
+        assert cursor.mask() == _viable_mask(tables, prefix), _NESTED[:step]
+
+
+def test_recursive_mask_re_extends_down_a_different_branch() -> None:
+    """After rolling back to a `{`, extending with a DIFFERENT next token still
+    masks correctly — a re-opened column must be char-independent (the junction
+    re-seed), which a monotonic forward walk never tests."""
+    cursor, tables, ids = _json_cursor()
+    cursor.ids = list(ids)
+    cursor.mask()
+    open_brace = [_JSON_VOCAB.index("{")]
+    for follower in ('"', "}"):  # a member, or the empty object
+        branch = open_brace + [_JSON_VOCAB.index(follower)]
+        cursor.ids = list(branch)
+        assert cursor.mask() == _viable_mask(tables, branch), "{" + follower
+
+
+def test_recursive_mask_accepts_only_a_complete_document() -> None:
+    """``accepts()`` is false at every proper prefix and true at the whole
+    document — the recursion closes exactly once."""
+    cursor, _, ids = _json_cursor()
+    for step in range(len(ids)):
+        cursor.ids = ids[:step]
+        assert not cursor.accepts(), _NESTED[:step]
+    cursor.ids = list(ids)
+    assert cursor.accepts()
