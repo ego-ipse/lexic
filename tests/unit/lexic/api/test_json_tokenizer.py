@@ -15,7 +15,7 @@ import json as _json
 
 import pytest
 
-from lexic.api.json_tokenizer import read, read_from_path
+from lexic.api.json_tokenizer import read, read_from_path, tokenizer_of
 from lexic.api.pretokens import (
     QWEN_PATTERN,
     IrByteLevel,
@@ -23,11 +23,12 @@ from lexic.api.pretokens import (
     IrQwenSplit,
     IrSplitMerged,
 )
-from lexic.compile import compile_from_path
+from lexic.compile import compile_from_path, parse_reduced
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir.base import IrStr
 from lexic.ir.encoding import IrReplace, IrUnicodeForm
+from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrChr
 from tests.paths import GROUND_TRUTH
 
@@ -328,3 +329,17 @@ def test_the_path_entry_defaults_the_name_to_the_file_stem(tmp_path) -> None:
     file = tmp_path / "smollm2.tokenizer.json"
     file.write_text(_document(), encoding="utf-8")
     assert str(read_from_path(file, JSON_GRAMMAR, JSON_REDUCER).name) == ("smollm2")
+
+
+def test_tokenizer_of_needs_no_second_parse() -> None:
+    """The seam that justifies a third entry point exists and is used.
+
+    ``read`` parses and builds; ``tokenizer_of`` only builds. Without it a
+    caller holding the reduction must re-parse, which for the real files
+    costs seconds, not milliseconds. Pinned so the entry is not "simplified"
+    away by a future reviewer counting names rather than callers.
+    """
+    doc = IrMap.ensure(parse_reduced(JSON_GRAMMAR, _document(), JSON_REDUCER))
+    from_doc = tokenizer_of(doc, "t")
+    from_text = read(_document(), JSON_GRAMMAR, JSON_REDUCER, name="t")
+    assert from_doc == from_text

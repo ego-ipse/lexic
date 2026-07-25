@@ -392,3 +392,22 @@ def test_ir_names_no_third_party_format_or_model():
         if _VENDOR_NAMES.search(line)
     ]
     assert not offenders, f"vendor names in lexic.ir: {offenders}"
+
+
+def test_src_never_imports_the_unshipped_ext_package():
+    """``ext/`` is NOT shipped — nothing in ``src`` may depend on it.
+
+    The split is what keeps a network client out of a grammar engine's
+    wheel: ``ext/`` FETCHES an artefact, ``lexic.api`` READS the format,
+    ``lexic.ir`` MODELS it. An import the other way would make the shipped
+    package depend on code that is not in it — an ImportError for every user
+    who installs lexic rather than cloning it, and one no test here would
+    otherwise catch, since the repo always has ``ext/`` on the path.
+    """
+    offenders = [
+        f"{path.relative_to(SRC)}:{i}: {line.strip()}"
+        for path in SRC.rglob("*.py")
+        for i, line in enumerate(path.read_text().splitlines(), 1)
+        if line.startswith(("import ext", "from ext"))
+    ]
+    assert not offenders, f"src imports the unshipped ext package: {offenders}"

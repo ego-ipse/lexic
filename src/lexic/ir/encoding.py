@@ -880,7 +880,17 @@ class IrTokenizer(
         self, gap: str, base: int
     ) -> list[tuple[int, tuple[int, int] | None]]:
         """One special-free gap through the pipeline — normalize, split, remap,
-        rewrite."""
+        rewrite.
+
+        **That order is the contract, not an accident.** `IrPretoken`,
+        `IrNormalizer` and `IrSegmenter` are open in MEMBERSHIP — a new family
+        is accepted without a dispatch-table edit — but not in PLACEMENT: a
+        family joins its stage, it does not choose a new position. No known
+        pipeline wants a different order, and building order-as-data with no
+        consumer would be speculative. A model that genuinely needs a
+        different arrangement is more plausibly a different
+        :class:`IrSegmenter` than a reordered pipeline.
+        """
         line = self.pipeline
         work, meta = gap, _identity_meta(base, len(gap))
         for step in line.normalize:
