@@ -1,5 +1,24 @@
 # Log
 
+## Segmentation gains an open model; the emit source stops carrying ids
+
+`IrSegmenter` joins `IrPretoken` and `IrNormalizer` as an open role: the
+segmentation MODEL was a two-way branch on `ranks` inside the spine, which
+is why families like Unigram and WordPiece could not be expressed at all.
+The builders now name the model they already knew, and `with_segmenter`
+attaches one declared elsewhere. See [[tokens]].
+
+**Resolution is for matching, not for meaning.** Binding a vocabulary used to
+rewrite the canonical AST and each class's `__grammar__`, so `to_grammar()`
+emitted ids where the author wrote spellings — lossy on every bound token
+grammar, against the canonical-grammar invariant. The engine gets the
+resolved form; nothing that carries meaning back to a user does.
+
+Also: `universe` is inclusive everywhere ([[tokens]]); what a vocabulary
+cannot carry is skipped at seeding so neighbours merge across the gap; and
+`lexic.api` readers refuse settings they cannot honour, judged by whether the
+setting changes the result rather than by whether it is set.
+
 ## Vendor formats moved out of `ir/`; readers get a home
 
 `ir/encoding.py` had modelled one vendor's tokenizer pipeline directly — a

@@ -129,6 +129,10 @@ a vocabulary — `constrain()` needs one too.
 `tokens.unresolved` exists because resolution is lossy: ordinals are baked
 and spellings are gone, so a rebind cannot start from `codegen_grammar`.
 
+`.parse` refuses a grammar whose terminals name an encoding when no
+vocabulary is bound — reading and emitting such a grammar needs none, so the
+refusal belongs at parse rather than at compile.
+
 ### `.bind(tokenizer, registry=None)` — one grammar, many vocabularies
 
 Compiling is per-grammar; a vocabulary is per-deployment. `bind` re-resolves
