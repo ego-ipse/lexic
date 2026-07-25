@@ -17,10 +17,10 @@ import pytest
 
 from lexic.api.json_tokenizer import read, read_from_path
 from lexic.api.pretokens import (
-    CL100K_PATTERN,
+    QWEN_PATTERN,
     IrByteLevel,
-    IrCl100k,
     IrDigits,
+    IrQwenSplit,
     IrSplitMerged,
 )
 from lexic.compile import compile_from_path
@@ -230,11 +230,11 @@ def test_the_cl100k_pattern_is_recognised_by_name() -> None:
     tok = _load(
         _document(
             pre_tokenizer='{"type": "Split", "pattern": {"Regex": '
-            + json_str(CL100K_PATTERN)
+            + json_str(QWEN_PATTERN)
             + '}, "behavior": "Isolated"}'
         )
     )
-    assert tok.pipeline.pretokens == (IrCl100k(),)
+    assert tok.pipeline.pretokens == (IrQwenSplit(),)
 
 
 def test_an_unimplemented_split_regex_refuses() -> None:

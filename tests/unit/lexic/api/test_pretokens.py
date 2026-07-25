@@ -19,13 +19,13 @@ import pytest
 from lexic.api.pretokens import (
     BYTE_LEVEL_REMAP,
     IrByteLevel,
-    IrCl100k,
     IrDigits,
+    IrQwenSplit,
     IrSplitMerged,
 )
 
 _SPECS = (
-    IrCl100k(),
+    IrQwenSplit(),
     IrByteLevel(),
     IrDigits(True),
     IrDigits(False),
@@ -62,7 +62,7 @@ def test_splitting_preserves_the_input(spec, text: str) -> None:
     assert "".join(spec.split(text)) == text
 
 
-# ── the cl100k pattern, alternative by alternative ───────────────────────
+# ── the Qwen pattern, alternative by alternative ───────────────────────
 
 
 @pytest.mark.parametrize(
@@ -87,12 +87,12 @@ def test_cl100k_alternatives(text: str, expected: list[str]) -> None:
     one emits ONE digit per piece where GPT-2 takes a run, so ``abc123``
     splits four ways rather than two.
     """
-    assert IrCl100k().split(text) == expected
+    assert IrQwenSplit().split(text) == expected
 
 
 def test_cl100k_differs_from_the_gpt2_pattern() -> None:
     """The two fixed patterns are genuinely different specs, not aliases."""
-    assert IrCl100k().split("abc123") != IrByteLevel().split("abc123")
+    assert IrQwenSplit().split("abc123") != IrByteLevel().split("abc123")
     assert IrByteLevel().split("abc123") == ["abc", "123"]  # runs
 
 

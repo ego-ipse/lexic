@@ -501,11 +501,10 @@ def compile_text(
     :returns: The compiled grammar (cached across calls with the same key).
     """
     stem = _stem_for_text(text)
-    content_key: tuple[Hashable, ...] = (stem, flavour)
-    if tokenizer is not None:
-        content_key = (*content_key, id(tokenizer))
-    if registry is not None:
-        content_key = (*content_key, id(registry))
+    # BY VALUE, like the path twin: keying on id() is unsound because ids are
+    # unique only among LIVE objects, so a dropped vocabulary's address can be
+    # reused and hand back another one's artefact. Both are hashable.
+    content_key: tuple[Hashable, ...] = (stem, flavour, tokenizer, registry)
     key = (cache_key, *content_key) if cache_key is not None else content_key
     cached = _CACHE.get(key)
     if cached is not None:

@@ -1,10 +1,10 @@
 """Qwen3 through the json reducer + the full pipeline — the SLOW lane.
 
 The third real family, and the one that exercises the pipeline shapes the
-other two do not: the **cl100k** pre-token pattern (spelled as
+other two do not: the **Qwen** pre-token pattern (spelled as
 ``Split(Regex, Isolated)``), a **Unicode-form normalizer** (``NFC``), and a
 ``ByteLevel`` step declaring ``use_regex: false`` — i.e. "byte mapping only,
-no split of my own", because cl100k already did the splitting.
+no split of my own", because the pattern already did the splitting.
 
 Each of those was a silent defect before this file existed: the regex Split
 refused outright, the ``NFC`` step was dropped (mis-tokenizing every
@@ -26,7 +26,7 @@ import pytest
 
 from ext.API import cache
 from lexic.api.json_tokenizer import read_from_path
-from lexic.api.pretokens import IrCl100k
+from lexic.api.pretokens import IrQwenSplit
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir.encoding import IrTokenizer, IrUnicodeForm
 from tests.integration.tokenizer_corpus import SHARED_CORPUS
@@ -68,12 +68,12 @@ def test_pipeline_is_derived_from_the_documents_sections(
 ) -> None:
     """The loader READ this family's pipeline — a third distinct shape.
 
-    cl100k pre-split, NFC normalize, and a byte remap that is on despite the
+    Qwen pre-split, NFC normalize, and a byte remap that is on despite the
     ByteLevel step contributing no split of its own. Nothing here overlaps
     smollm2's or gemma's shape, which is what makes the derivation general
     rather than fitted.
     """
-    assert tokenizer.pipeline.pretokens == (IrCl100k(),)
+    assert tokenizer.pipeline.pretokens == (IrQwenSplit(),)
     assert tokenizer.pipeline.normalize == (IrUnicodeForm("NFC"),)
     assert len(tokenizer.pipeline.remap) == 256  # ByteLevel present ⇒ remap on
     assert not tokenizer.pipeline.byte_fallback
