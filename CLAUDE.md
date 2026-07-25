@@ -34,10 +34,10 @@ re-deriving from code** — new API surfaces, design decisions, invariants. Add 
 Code standards are **[docs/STYLE.md](docs/STYLE.md)**. Read it before editing;
 it applies to every change.
 
-Active work plans live at `zzz_current_work/<yymmdd>-<name>/PLAN.md`, one
-directory per effort, each carrying its own progress ledger. Check the newest
-when orienting. `zzz_current_work/` is gitignored — never cite it from
-committed docs.
+Active work plans live at `zzz_current_work/<yymmdd>-<name>/`, one directory
+per effort, each carrying its own spec, checklist and progress ledger (file
+names vary by effort). Check the newest when orienting. `zzz_current_work/` is
+gitignored — never cite it from committed docs.
 
 ## Commands
 
