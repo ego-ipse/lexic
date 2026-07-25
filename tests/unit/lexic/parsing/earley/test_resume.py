@@ -21,9 +21,10 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.lexruns import recognition_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.resume import ResumableKernel
-from lexic.parsing.earley.tables import compile_tables
+from lexic.parsing.earley.tables import ORIGIN_BITS, compile_tables
 from lexic.parsing.earley.tokenscan import frontier_viable
 from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar, word_grammar
 
@@ -133,3 +134,109 @@ def test_extend_refuses_beyond_capacity():
     kern.extend("7" * 255)
     with pytest.raises(UnsupportedConstructError):
         kern.extend("7")
+
+
+# ── adversarial: the junction's edges ─────────────────────────────────────
+
+
+def _spanning_literal() -> IrAst:
+    """root = "a" "bcd" — a multi-char literal that a scan crosses in one jump."""
+    rule = IrRule(
+        "root",
+        IrAlternation(IrSequence(IrItem(IrLiteral("a")), IrItem(IrLiteral("bcd")))),
+    )
+    return normalize(IrAst(rules=IrSeq(rule), start="root"))
+
+
+def test_extend_across_a_literal_landing_past_the_junction() -> None:
+    """A multi-char literal SPANS the old frontier: the scan starts at the
+    re-opened junction column and lands several columns beyond it in one step.
+    The chart must still answer exactly as a fresh parse."""
+    tables = compile_tables(_spanning_literal())
+    kernel = _resumable(tables)
+    kernel.extend("a")  # frontier now at 1 — the junction
+    kernel.extend("bcd")  # one literal scan from 1 straight to 4
+    assert (kernel.accept >= 0, frontier_viable(kernel)) == _fresh(tables, "abcd")
+
+
+def test_extend_empty_string_is_a_no_op() -> None:
+    """``extend("")`` changes nothing — text, columns and answers all hold."""
+    tables = compile_tables(_gated_pair())
+    kernel = _resumable(tables)
+    kernel.extend("a")
+    before = (kernel.text, len(kernel.cols), kernel.accept)
+    kernel.extend("")
+    assert (kernel.text, len(kernel.cols), kernel.accept) == before
+    assert len(kernel.cols) == len(kernel.text) + 1  # no orphan column appended
+
+
+def test_mark_and_rollback_at_column_zero() -> None:
+    """Rolling back to the empty prefix restores an extendable chart.
+
+    NOT compared against ``_fresh(tables, "")``: a fresh empty parse seeds
+    FIRST-gated on the ABSENT next char, so it reports the empty prefix
+    non-viable even though every word extends it. The rolled-back chart has
+    been topped up by the junction re-seed and reports the truthful answer,
+    so the meaningful invariant is that re-extending from column 0 lands
+    exactly where a fresh parse of the same text does.
+    """
+    tables = compile_tables(_gated_pair())
+    kernel = _resumable(tables)
+    start = kernel.mark()
+    assert start == 0
+    kernel.extend("ab")
+    kernel.rollback(start)
+    assert kernel.text == ""
+    assert len(kernel.cols) == 1
+    kernel.extend("ac")  # a DIFFERENT word, from the rolled-back start
+    assert (kernel.accept >= 0, frontier_viable(kernel)) == _fresh(tables, "ac")
+
+
+def test_empty_prefix_viability_is_gated_not_wrong() -> None:
+    """Pins the asymmetry the test above works around: a FRESH empty parse
+    under-reports viability (its seeds are gated on an absent char), while a
+    chart that has been extended and rolled back reports the truth."""
+    tables = compile_tables(_gated_pair())
+    assert not frontier_viable(Kernel(tables, "").run())
+    kernel = _resumable(tables)
+    kernel.extend("a")
+    kernel.rollback(0)
+    assert frontier_viable(kernel)
+
+
+def test_re_extending_the_same_char_files_no_duplicate_items() -> None:
+    """Rollback then re-extend the SAME char: the junction re-seed must not
+    re-file what the gated pass already filed. Items are packed ints, so a
+    duplicated dot-0 item is directly observable as a repeated value."""
+    tables = compile_tables(_gated_pair())
+    kernel = _resumable(tables)
+    mark = kernel.mark()
+    kernel.extend("a")
+    kernel.rollback(mark)
+    kernel.extend("a")  # the same char, through a re-opened column
+    for column in range(len(kernel.text) + 1):
+        items = kernel.cols[column]
+        assert len(items) == len(set(items)), (column, items)
+    assert (kernel.accept >= 0, frontier_viable(kernel)) == _fresh(tables, "a")
+
+
+def test_extend_refuses_run_collapsed_tables() -> None:
+    """Maximal munch and incremental extension are incompatible: a run terminal
+    takes the MAXIMAL run, whose extent depends on input not yet appended, so a
+    committed run could never grow. ``extend`` refuses loudly rather than
+    silently under-parsing (extending "12" then "34" over run-collapsed tables
+    would fail to accept "1234", which a fresh parse accepts)."""
+    tables = recognition_tables(digits_plus_grammar(), ORIGIN_BITS)
+    kernel = ResumableKernel(tables, "", False).run()
+    with pytest.raises(UnsupportedConstructError, match="run-collapsed"):
+        kernel.extend("12")
+
+
+def test_extend_over_plain_tables_handles_the_same_run_grammar() -> None:
+    """The same grammar WITHOUT run collapsing extends correctly — the refusal
+    above is about the collapsed tables, not about runs in the language."""
+    tables = compile_tables(digits_plus_grammar())
+    kernel = _resumable(tables)
+    kernel.extend("12")
+    kernel.extend("34")
+    assert (kernel.accept >= 0, frontier_viable(kernel)) == _fresh(tables, "1234")

@@ -6,7 +6,12 @@ and drives them (the prefix chart is never re-built), :meth:`mark` /
 :meth:`rollback` checkpoint and truncate — every per-parse index is
 per-column (a list indexed by column), so rollback is pure list truncation.
 Recognition-only: SPPF families are parse-global, so :meth:`extend` refuses
-under ``record_links`` (the generation mask never reads a forest).
+under ``record_links`` (the generation mask never reads a forest). It also
+refuses **run-collapsed** tables: a run terminal consumes the MAXIMAL run,
+whose extent depends on input not yet appended, so a committed run could
+never grow — maximal munch and incremental extension are incompatible by
+construction. The resumable path builds plain tables, so this is a tripwire
+against a future wiring rather than a live case.
 
 **The junction re-seed.** A closed final column was seeded FIRST-gated on
 the empty char slice — only always-seed arms filed (the EOF rule). When the
@@ -67,13 +72,20 @@ class ResumableKernel(Kernel):
 
         :param chars: The appended input (empty is a no-op).
         :raises UnsupportedConstructError: Under ``record_links`` (the SPPF
-            is parse-global — rollback could not truncate it), or when the
-            grown input exceeds the packed column capacity.
+            is parse-global — rollback could not truncate it), over
+            run-collapsed tables (maximal munch cannot be incremental — see
+            below), or when the grown input exceeds the packed column capacity.
         """
         if self.record_links:
             raise UnsupportedConstructError(
                 "parsing: extend() is recognition-only — record_links holds "
                 "parse-global state a rollback cannot truncate"
+            )
+        if any(length == 0 for length in self.tables.terms.lens):  # a RunTerm
+            raise UnsupportedConstructError(
+                "parsing: extend() cannot run over run-collapsed tables — a "
+                "run terminal takes the MAXIMAL run, which depends on input "
+                "not yet appended, so a committed run can never be extended"
             )
         if not chars:
             return

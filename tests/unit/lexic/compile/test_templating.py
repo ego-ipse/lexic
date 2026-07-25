@@ -302,3 +302,42 @@ def test_span_fold_product_is_a_span_level() -> None:
     level = parse_model(pair.sections, "(a=1, f=4)", pair.span_fold)
     assert isinstance(level, SpanLevel)
     assert all(isinstance(each, SpanEntry) for each in level)
+
+
+# ── adversarial: spec/document mismatches ────────────────────────────────
+
+
+def test_spec_key_absent_from_document_is_silently_omitted() -> None:
+    """A spec key the document does not carry is simply absent — extraction is
+    a projection, not a schema check, so a partial document is not an error."""
+    out = template(_TOY_COMPILED, _SHAPE, {"f": KEEP, "nope": KEEP}).run(_TOY_DOC)
+    assert set(out.keys()) == {"f"}
+
+
+def test_every_spec_key_absent_yields_an_empty_map() -> None:
+    """All keys missing is the same rule taken to its limit — empty, no raise."""
+    out = template(_TOY_COMPILED, _SHAPE, {"nope": KEEP, "also": KEEP}).run(_TOY_DOC)
+    assert isinstance(out, IrMap) and len(out) == 0
+
+
+def test_nested_spec_over_a_scalar_value_raises_with_the_path() -> None:
+    """A nested spec aimed at a leaf (``a=1``, not a section) cannot parse that
+    span as a section — it raises, naming the failing path."""
+    with pytest.raises(UnsupportedConstructError, match="a"):
+        template(_TOY_COMPILED, _SHAPE, {"a": {"c": KEEP}}).run(_TOY_DOC)
+
+
+def test_nested_spec_deeper_than_the_document_raises() -> None:
+    """A spec nested past the document's own depth raises rather than
+    returning a partial tree."""
+    spec = {"b": {"d": {"e": {"deeper": KEEP}}}}
+    with pytest.raises(UnsupportedConstructError):
+        template(_TOY_COMPILED, _SHAPE, spec).run(_TOY_DOC)
+
+
+def test_keep_over_a_section_value_yields_the_section_model() -> None:
+    """KEEP on a value that IS a section keeps the whole section as one model —
+    the mirror of the nested-spec-over-a-leaf case, and legal."""
+    out = template(_TOY_COMPILED, _SHAPE, {"b": KEEP}).run(_TOY_DOC)
+    assert isinstance(out["b"], GrammarModel)
+    assert out["b"].to_text() == "(c=22, d=(e=3))"
