@@ -120,8 +120,9 @@ thinking ::= !</think>*
 ```
 
 `<think>` is the token whose spelling **is** `<think>` — the angle brackets are
-part of the token's text, so a token spelled `hi` is written `<hi>` only if
-`<hi>` is literally in the vocab. `<[7]>` names a token by id, `<[3-9]>` an id
+part of the token's text. That is llama.cpp's GBNF semantics; lexic describes
+the format rather than prescribing to it. Content between tokens is expressed
+with negation (`!</think>*`). `<[7]>` names a token by id, `<[3-9]>` an id
 range, `!<…>` any token except one, and `.` any token at all.
 
 ```python

@@ -92,11 +92,15 @@ def _resolve_inner(inner: IrSelf, encoding: IrEncoding) -> IrAtom:
 
 
 def _check_universe(charclass: IrCharClass, encoding: IrEncoding) -> None:
-    """Raise if any id in an id-form class lies outside the encoding's universe."""
+    """Raise if any id in an id-form class lies outside the encoding's universe.
+
+    ``universe`` is derived, not stored — on a tokenizer it is a max over the
+    whole vocab — so it is read ONCE here rather than per member.
+    """
+    ceiling = encoding.universe
     for member in charclass:
         top = int(member.hi) if isinstance(member, IrRange) else int(member)
-        if top >= encoding.universe:
+        if top >= ceiling:
             raise UnsupportedConstructError(
-                f"token id {top} is outside the encoding's universe "
-                f"({encoding.universe})"
+                f"token id {top} is outside the encoding's universe ({ceiling})"
             )

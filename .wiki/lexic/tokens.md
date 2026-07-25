@@ -36,9 +36,12 @@ alphabet's spelling to an ordinal against a registry (`IrMap[IrStr,
 IrEncoding]`) — a language-level rewrite, so a token grammar is
 tokenizer-specific once concretized.
 
-**Gotcha:** `<think>` names the token whose spelling IS `<think>`, brackets
-included. `<hi>` is not "the token `hi`" — it refuses at concretize time
-("`'<hi>'` is not one token of the bound encoding").
+`<think>` names the token whose spelling IS `<think>`, brackets included —
+`<hi>` denotes a token literally spelled `<hi>`, and refuses at concretize
+time if the vocab has no such token. That is llama.cpp's GBNF semantics, and
+lexic mirrors it: **grammar is the ground truth, so we describe the format,
+we do not prescribe to it.** Content is expressed with negation
+(`!</think>*`) rather than by naming a bare word.
 
 ## Three capabilities
 
