@@ -25,6 +25,7 @@ from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrChr
 
 __all__ = [
+    "BYTE_FALLBACK",
     "BYTE_LEVEL_REMAP",
     "CL100K_PATTERN",
     "IrByteLevel",
@@ -191,6 +192,16 @@ def _byte_unicode() -> dict[int, str]:
             fill += 1
     return table
 
+
+BYTE_FALLBACK: IrMap = IrMap(
+    *(IrTuple(IrChr(b), IrStr(f"<0x{b:02X}>")) for b in range(256))
+)
+"""Byte ordinal → this format's spelling for it (``<0x41>``).
+
+A convention, not a law: another vocabulary could spell byte tokens any way
+it likes, which is why the spine takes the table as DATA and only this
+module — which knows the format — writes it.
+"""
 
 BYTE_LEVEL_REMAP: IrMap = IrMap(
     *(IrTuple(IrChr(b), IrStr(ch)) for b, ch in sorted(_byte_unicode().items()))

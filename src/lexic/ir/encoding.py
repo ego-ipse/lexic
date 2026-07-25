@@ -286,7 +286,7 @@ class IrPretoken(IrNode):
         """Partition ``text`` into pre-token pieces (concatenation-preserving)."""
 
 
-class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, bool]):
+class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, IrMap]):
     """The segmentation pipeline's data — everything before/around the rewrite.
 
     :ivar specials: Atomic-match spellings, matched whole before anything else.
@@ -295,8 +295,11 @@ class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, bool]):
     :ivar normalize: Ordered :class:`IrNormalizer` steps applied to each gap
         before pre-splitting.
     :ivar pretokens: Ordered :class:`IrPretoken` split specs.
-    :ivar byte_fallback: An uncovered symbol yields its utf-8 bytes as
-        ``<0xNN>`` vocab tokens instead of no token.
+    :ivar byte_fallback: Byte ordinal → the vocabulary's spelling for that
+        byte. Non-empty ⇒ an uncovered symbol yields its utf-8 bytes as those
+        tokens instead of no token. The SPELLING is data because it is a
+        vocabulary's own convention; the spine does not know how any format
+        spells a byte.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
@@ -304,7 +307,7 @@ class IrTokenPipeline(IrNamedTuple[IrTuple, IrMap, IrTuple, IrTuple, bool]):
     remap: IrMap = IrMap()
     normalize: IrTuple = IrTuple()
     pretokens: IrTuple = IrTuple()
-    byte_fallback: bool = False
+    byte_fallback: IrMap = IrMap()
 
 
 _WMeta = list[tuple[int, int, bool]]
@@ -670,12 +673,14 @@ class IrTokenizer(
         found = self.encode.get(IrStr(spelling))
         if found is not None:
             return [(int(found), span)]
-        if not self.pipeline.byte_fallback:
+        table = self.pipeline.byte_fallback
+        if not table:
             return []
         data = spelling.encode("utf-8")
         out: list[tuple[int, tuple[int, int] | None]] = []
         for byte in data:
-            tid = self.encode.get(IrStr(f"<0x{byte:02X}>"))
+            spelt = table.get(IrChr(byte))
+            tid = None if spelt is None else self.encode.get(spelt)
             if tid is None:
                 return []
             out.append((int(tid), span if len(data) == 1 else None))
