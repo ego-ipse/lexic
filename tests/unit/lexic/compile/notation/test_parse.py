@@ -21,6 +21,7 @@ import lexic.ir.flavour as ir_flavour
 import lexic.ir.mapping as ir_mapping
 import lexic.ir.nodes as ir_nodes
 import lexic.ir.operators as ir_operators
+from lexic.api.pretokens import IrByteLevel
 from lexic.compile.notation.parse import (
     INTERN,
     NOTATION_GRAMMAR,
@@ -42,8 +43,9 @@ from lexic.grammars.gbnf import (
     GBNF_REDUCTIONS,
 )
 from lexic.grammars.json import JSON_GRAMMAR
-from lexic.ir.base import IrChr, IrInt, IrNone, IrSelf
-from lexic.ir.mapping import IR_DEFAULT
+from lexic.ir.base import IrChr, IrInt, IrNone, IrSelf, IrStr, IrTuple
+from lexic.ir.encoding import IrTokenizer, IrTokenPipeline
+from lexic.ir.mapping import IR_DEFAULT, IrMap
 from lexic.ir.nodes import (
     IrAlternation,
     IrAst,
@@ -293,3 +295,59 @@ def test_json_ir_data_file_equals_authored_grammar() -> None:
     assert isinstance(loaded, IrAst)
     assert loaded == JSON_GRAMMAR
     assert loaded.non_semantic == JSON_GRAMMAR.non_semantic
+
+
+# ── saving and loading ANY parsed value, not just a grammar ──────────────
+
+
+def test_an_encoding_family_value_round_trips() -> None:
+    """``lexic.ir.encoding``'s nodes were absent from the vocabulary entirely.
+
+    Saving is ``repr``; loading is this. The notation built its table from a
+    fixed list of IR modules and that list omitted ``encoding``, so thirteen
+    node types could be written and never read back — lexic could save a
+    value it could not load. Nothing tokenizer-specific: the same hole would
+    swallow anything added to that module.
+    """
+    tok = IrTokenizer.from_vocab(
+        "demo", IrMap(IrTuple(IrStr("a"), IrChr(0)), IrTuple(IrStr("b"), IrChr(1)))
+    )
+    assert load_ir(repr(tok)) == tok
+    assert IrTokenizer.ensure(load_ir(repr(tok))).tokenize("ab") == [0, 1]
+
+
+def test_a_value_naming_out_of_spine_nodes_needs_its_vocabulary() -> None:
+    """A format's own families live beside its reader, so the spine cannot know them.
+
+    They are supplied per call rather than registered: a boundary any import
+    can widen is not a boundary.
+    """
+    outside = IrTokenizer.from_vocab(
+        "demo",
+        IrMap(IrTuple(IrStr("a"), IrChr(0))),
+        pipeline=IrTokenPipeline(pretokens=IrTuple(IrByteLevel())),
+    )
+    with pytest.raises(UnsupportedConstructError, match="unknown symbol"):
+        load_ir(repr(outside))
+    assert load_ir(repr(outside), {"IrByteLevel": IrByteLevel}) == outside
+
+
+def test_supplied_symbols_must_be_ir_nodes() -> None:
+    """The whitelist IS the no-exec boundary, so the extension keeps it.
+
+    Admitting a plain callable would turn a data format back into evaluation.
+    """
+    with pytest.raises(UnsupportedConstructError, match="no-exec boundary"):
+        load_ir("IrStr('x')", {"os_system": __import__("os").system})
+
+
+def test_the_extra_vocabulary_does_not_outlive_the_call() -> None:
+    """Per call, so one load cannot widen the boundary for the next."""
+    tok = IrTokenizer.from_vocab(
+        "demo",
+        IrMap(IrTuple(IrStr("a"), IrChr(0))),
+        pipeline=IrTokenPipeline(pretokens=IrTuple(IrByteLevel())),
+    )
+    assert load_ir(repr(tok), {"IrByteLevel": IrByteLevel}) == tok
+    with pytest.raises(UnsupportedConstructError, match="unknown symbol"):
+        load_ir(repr(tok))
