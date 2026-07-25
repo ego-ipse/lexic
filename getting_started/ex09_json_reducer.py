@@ -19,7 +19,7 @@ Run::
 from __future__ import annotations
 
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.base import IrInt, IrNone, IrTuple
+from lexic.ir.base import IrInt, IrNone
 from lexic.ir.mapping import IrMap
 from lexic.parsing import parse_reduced
 
@@ -34,14 +34,14 @@ def main() -> None:
 
     # IR values ARE their payloads: IrStr is a str, IrInt an int, IrMap a
     # mapping — read them with plain Python (plain-str keys hash-match IrStr).
-    assert value.get("name") == "lexic"
-    assert value.get("stars") == 3
-    tags = value.get("tags")
-    assert isinstance(tags, IrTuple)  # .get returns IrSelf | None — narrow it
+    assert value["name"] == "lexic"
+    assert value["stars"] == 3
+    assert isinstance(value["stars"], IrInt)
+    tags = value["tags"]
     print("Tags:   ", [str(t) for t in tags])
     assert [str(t) for t in tags] == ["grammar", "élan"]  # \\u00e9 decoded
-    assert value.get("wip") is IrNone
-    assert isinstance(value.get("stars"), IrInt)
+    # Absence is the IrNone sentinel, never Python None.
+    assert value["wip"] is IrNone
 
 
 if __name__ == "__main__":

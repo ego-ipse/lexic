@@ -32,7 +32,6 @@ from typing import Callable, ClassVar, Self, Sequence, cast
 
 from lexic.compile.artifact import CompiledGrammar
 from lexic.compile.foldkit import ALT_BODY, model_fold
-from lexic.model import GrammarModel
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir.action import IrAction
@@ -58,13 +57,16 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.order import refs_in_order
 from lexic.ir.walk import IrBottomUp
+from lexic.model import GrammarModel
 from lexic.parsing import FieldFold, ModelBody, ModelFold, parse_model
 
 __all__ = [
     "KEEP",
     "Keep",
     "MapShape",
+    "Spec",
     "SpanEntry",
+    "SpanLevel",
     "SpanPair",
     "Template",
     "skip_rules",
@@ -86,6 +88,17 @@ class Keep(IrSelf, metaclass=IrSingleton):
 
 KEEP = Keep()
 """The one :class:`Keep` instance — marks a spec path for extraction."""
+
+
+class Spec(IrMap[IrStr, "Keep | Spec"]):
+    """One lifted keep-spec level — raw-span key → :data:`KEEP` or a nested level.
+
+    A named map rather than an alias: the self-reference makes it the IR type
+    a keep-spec IS, so a level reads without narrowing and its repr is
+    reconstructing codegen.
+    """
+
+    __slots__ = ()
 
 
 class MapShape(IrNamedTuple[str, str, str, str]):
@@ -114,7 +127,13 @@ class SpanEntry(IrNamedTuple[str, str]):
     value: str
 
 
-class SpanPair(IrNamedTuple[IrAst, IrAst, ModelFold, IrAst, ModelFold]):
+class SpanLevel(IrSeq[SpanEntry]):
+    """One parsed section level — the span fold's product, in document order."""
+
+
+class SpanPair(
+    IrNamedTuple[IrAst, IrAst, ModelFold[SpanLevel], IrAst, ModelFold[GrammarModel]]
+):
     """The retained span-mode artifacts one :func:`spanify` call produces.
 
     :ivar spans: The span grammar, rooted at the start rule's ``-tm`` clone.
@@ -128,9 +147,9 @@ class SpanPair(IrNamedTuple[IrAst, IrAst, ModelFold, IrAst, ModelFold]):
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     spans: IrAst
     sections: IrAst
-    span_fold: ModelFold
+    span_fold: ModelFold[SpanLevel]
     values: IrAst
-    value_fold: ModelFold
+    value_fold: ModelFold[GrammarModel]
 
 
 class _Retarget(IrNode[IrSelf, IrSelf]):
@@ -205,12 +224,17 @@ def _span_entry(key: str = "", value: str = "") -> SpanEntry:
     return SpanEntry(key, value)
 
 
-def _collect(**fields: object) -> list[SpanEntry]:
-    """A sequence clone's ctor — flatten the reaching fields' span entries."""
+def _collect(**fields: object) -> SpanLevel:
+    """A sequence clone's ctor — flatten the reaching fields' span entries.
+
+    Takes ``**fields`` because that IS the fold's constructor protocol
+    (``rule_fold.ctor(**kwargs)``); the product is on-spine so every
+    downstream read is typed.
+    """
     out: list[SpanEntry] = []
     for value in fields.values():
         _flatten_into(out, value)
-    return out
+    return SpanLevel(*out)
 
 
 def _flatten_into(out: list[SpanEntry], value: object) -> None:
@@ -387,7 +411,7 @@ def _clone_body(view: _ShapeView, name: str) -> ModelBody | None:
     return ModelBody("sequence", IrLambda(_collect), len(arm), fields)
 
 
-def _span_fold(view: _ShapeView) -> ModelFold:
+def _span_fold(view: _ShapeView) -> ModelFold[SpanLevel]:
     """The derived span fold — bodies for the ``-tm`` clones only."""
     bodies: dict[str, ModelBody] = {view.shape.entry + _SPAN: _entry_body(view)}
     for name in view.reaching - {view.shape.entry}:
@@ -424,15 +448,15 @@ def spanify(compiled: CompiledGrammar, shape: MapShape) -> SpanPair:
     return SpanPair(spans, sections, _span_fold(view), values, compiled.fold)
 
 
-def _lift_spec(spec: Mapping[str, object] | IrMap) -> IrMap:
-    """Lift a nested pythonic spec to ``IrMap[IrStr, Keep | IrMap]``."""
+def _lift_spec(spec: Mapping[str, object] | IrMap) -> Spec:
+    """Lift a nested pythonic spec to ``IrMap[IrStr, Keep | Spec]``."""
     dyads = (
         IrTuple(IrStr(key), _lift_value(key, value)) for key, value in spec.items()
     )
-    return IrMap(*dyads)
+    return Spec(*dyads)
 
 
-def _lift_value(key: object, value: object) -> IrSelf:
+def _lift_value(key: object, value: object) -> Keep | Spec:
     """One spec value: :data:`KEEP`, or a nested mapping lifted recursively."""
     if isinstance(value, Keep):
         return value
@@ -443,17 +467,17 @@ def _lift_value(key: object, value: object) -> IrSelf:
     )
 
 
-class Template(IrNamedTuple[SpanPair, IrMap], init=False):
+class Template(IrNamedTuple[SpanPair, Spec], init=False):
     """The retained templating product — a span pair driving a keep-spec.
 
     :ivar span: The compiled span pair (:func:`spanify` output).
-    :ivar spec: The keep-spec — an ``IrMap[IrStr, Keep | IrMap]`` whose keys
-        are RAW SPANS in the grammar's own surface syntax.
+    :ivar spec: The keep-spec — a :data:`Spec` whose keys are RAW SPANS in
+        the grammar's own surface syntax.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     span: SpanPair
-    spec: IrMap
+    spec: Spec
 
     def __new__(cls, span: SpanPair, spec: Mapping[str, object] | IrMap) -> Self:
         """Construct the template, lifting + validating the spec at the seam.
@@ -468,13 +492,16 @@ class Template(IrNamedTuple[SpanPair, IrMap], init=False):
         lifted = _lift_spec(spec)
         return cast(Callable[..., Self], super().__new__)(cls, span, lifted)
 
-    def run(self, text: str) -> Extracted:
+    def run(self, text: str) -> IrMap:
         """Extract the spec'd paths of ``text`` — one parse, then the post-pass.
 
         :param text: The document to extract from.
         :returns: Spec key → the kept :class:`~lexic.model.GrammarModel` or the
-            nested level (spec keys absent from the document are absent) — an
-            :class:`Extracted`, a plain dict plus the typed path reads.
+            nested level (an ``IrMap`` again). Spec keys absent from the
+            document are absent from the result. Left unparameterised on
+            purpose: the values' types depend on the caller's own spec, and
+            spelling the bound (``IrSelf``) would add no information while
+            blocking every read.
         :raises UnsupportedConstructError: On a parse failure (wrapped with the
             document path) or a shape/spec level mismatch.
         """
@@ -482,59 +509,7 @@ class Template(IrNamedTuple[SpanPair, IrMap], init=False):
         return _extract(self.span, self.spec, entries, "")
 
 
-class Extracted(dict[str, object]):
-    """One extraction level — a plain dict plus typed path reads.
-
-    Dict access stays available (``out['"model"']``); :meth:`model` and
-    :meth:`section` walk a key path and check the endpoint's kind, so a
-    consumer reads kept models without per-level narrowing and a miss
-    raises with the failing path spelled out.
-    """
-
-    def model(self, *path: str) -> GrammarModel:
-        """The kept :class:`~lexic.model.GrammarModel` at ``path``.
-
-        :param path: Spec keys, outermost first.
-        :returns: The kept model.
-        :raises UnsupportedConstructError: When the path is absent or ends on
-            a nested section instead of a kept model.
-        """
-        value = self._walk(path)
-        if not isinstance(value, GrammarModel):
-            raise UnsupportedConstructError(
-                f"extracted at {'.'.join(path)}: a nested section, not a kept model"
-            )
-        return value
-
-    def section(self, *path: str) -> Extracted:
-        """The nested extraction level at ``path``.
-
-        :param path: Spec keys, outermost first.
-        :returns: The nested :class:`Extracted`.
-        :raises UnsupportedConstructError: When the path is absent or ends on
-            a kept model instead of a section.
-        """
-        value = self._walk(path)
-        if not isinstance(value, Extracted):
-            raise UnsupportedConstructError(
-                f"extracted at {'.'.join(path)}: a kept model, not a section"
-            )
-        return value
-
-    def _walk(self, path: tuple[str, ...]) -> object:
-        """The raw value at ``path``, raising with the failing prefix."""
-        node: object = self
-        for depth, key in enumerate(path):
-            if not isinstance(node, Extracted) or key not in node:
-                raise UnsupportedConstructError(
-                    f"extracted at {'.'.join(path[: depth + 1])}: no such key "
-                    "(absent from the document or not in the spec)"
-                )
-            node = node[key]
-        return node
-
-
-def _parse_step(grammar: IrAst, fold: ModelFold, text: str, path: str) -> object:
+def _parse_step[M](grammar: IrAst, fold: ModelFold[M], text: str, path: str) -> M:
     """One engine call, wrapped with the document path on failure."""
     try:
         return parse_model(grammar, text, fold)
@@ -542,32 +517,31 @@ def _parse_step(grammar: IrAst, fold: ModelFold, text: str, path: str) -> object
         raise UnsupportedConstructError(f"template at {path}: {err}") from err
 
 
-def _extract(pair: SpanPair, spec: IrMap, entries: object, path: str) -> Extracted:
-    """Drive one spec level over one parsed section level."""
-    if not isinstance(entries, list):
-        raise UnsupportedConstructError(
-            f"template at {path or '<document>'}: expected a section level, "
-            f"got {type(entries).__name__}"
-        )
+def _extract(pair: SpanPair, spec: Spec, entries: SpanLevel, path: str) -> IrMap:
+    """Drive one spec level over one parsed section level.
+
+    Both a kept leaf (a :class:`~lexic.model.GrammarModel`) and a nested
+    level (an ``IrMap``) are ``IrSelf``, so a level needs no union type.
+    """
     spans: dict[str, str] = {}
-    for each in cast("list[SpanEntry]", entries):
+    for each in entries:
         spans.setdefault(str(each.key), str(each.value))
-    out = Extracted()
+    dyads: list[IrTuple] = []
     for key, want in spec.items():
         span = spans.get(str(key))
         if span is None:
             continue
         sub_path = f"{path}.{key}" if path else str(key)
-        out[str(key)] = _extract_value(pair, want, span, sub_path)
-    return out
+        dyads.append(IrTuple(IrStr(key), _extract_value(pair, want, span, sub_path)))
+    return IrMap(*dyads)
 
 
-def _extract_value(pair: SpanPair, want: IrSelf, span: str, path: str) -> object:
+def _extract_value(pair: SpanPair, want: Keep | Spec, span: str, path: str) -> IrSelf:
     """One spec value: a kept leaf re-parse, or a section recursion."""
     if isinstance(want, Keep):
         return _parse_step(pair.values, pair.value_fold, span, path)
     sub = _parse_step(pair.sections, pair.span_fold, span, path)
-    return _extract(pair, cast(IrMap, want), sub, path)
+    return _extract(pair, want, sub, path)
 
 
 def template(
