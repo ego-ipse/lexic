@@ -33,6 +33,7 @@ CACHE = Path(__file__).resolve().parents[2] / "resources" / "tokenizers"
 FIXTURES: dict[str, str] = {
     "smollm2": "HuggingFaceTB/SmolLM2-135M",
     "gemma4": "unsloth/gemma-3-4b-it",
+    "qwen3": "Qwen/Qwen3-0.6B",
 }
 """Short name → repo, for the fixtures the test suite expects. An alias table
 and a prefetch list — NOT a restriction on what :func:`download` accepts."""

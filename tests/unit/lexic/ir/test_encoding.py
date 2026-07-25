@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import unicodedata
 from itertools import product
 from typing import Callable, cast
 
@@ -12,9 +13,12 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrAtom, IrInt, IrNode, IrNone, IrStr, IrTuple
 from lexic.ir.encoding import (
     IrEncoding,
+    IrNormalizer,
+    IrReplace,
     IrTokenizer,
     IrTokenPipeline,
     IrUnicode,
+    IrUnicodeForm,
     IrUtf,
 )
 from lexic.ir.mapping import IrMap
@@ -661,3 +665,66 @@ def test_heap_merge_matches_the_scan_oracle_randomized() -> None:
 def test_pipeline_default_repr_is_bare() -> None:
     """Empty defaults still elide — the repr fixpoint is unchanged."""
     assert repr(IrTokenPipeline()) == "IrTokenPipeline()"
+
+
+# ── IrNormalizer — the open-set normalize stage ──────────────────────────
+
+
+def _meta(base: int, length: int):
+    """Identity char-span metadata over ``length`` chars from ``base``."""
+    return [(base + i, base + i + 1, True) for i in range(length)]
+
+
+def test_replace_rewrites_and_shares_the_matched_span():
+    """Each ``dst`` char maps back to the whole ``src`` span it replaced."""
+    text, meta = IrReplace(" ", "__").apply("a b", _meta(0, 3))
+    assert text == "a__b"
+    assert [m[:2] for m in meta] == [(0, 1), (1, 2), (1, 2), (2, 3)]
+
+
+def test_replace_of_a_longer_source_collapses_its_span():
+    """A many→one replace keeps the output attributable to the source run."""
+    text, meta = IrReplace("ab", "X").apply("ab!", _meta(0, 3))
+    assert text == "X!"
+    assert [m[:2] for m in meta] == [(0, 2), (2, 3)]
+
+
+def test_unicode_form_composes_and_keeps_offsets_derivable():
+    """NFC composes a starter run; its output shares that run's span.
+
+    Composition changes the character count, so without span metadata a
+    token's offsets would drift silently against the source text.
+    """
+    decomposed = unicodedata.normalize("NFD", "éa")  # 3 chars → 2
+    text, meta = IrUnicodeForm("NFC").apply(decomposed, _meta(0, len(decomposed)))
+    assert text == "éa"
+    assert [m[:2] for m in meta] == [(0, 2), (2, 3)]
+
+
+def test_unicode_form_decomposes_too():
+    """NFD is the same machinery in the other direction (one char → two)."""
+    text, _ = IrUnicodeForm("NFD").apply("é", _meta(0, 1))
+    assert text == unicodedata.normalize("NFD", "é")
+    assert len(text) == 2
+
+
+def test_unicode_form_defaults_to_nfc():
+    """The common form is the default."""
+    assert IrUnicodeForm().form == "NFC"
+
+
+def test_normalizers_are_an_open_set_on_the_spine():
+    """Both families satisfy the one role the pipeline consumes."""
+    assert isinstance(IrReplace("a", "b"), IrNormalizer)
+    assert isinstance(IrUnicodeForm("NFC"), IrNormalizer)
+
+
+def test_a_pipeline_applies_normalizers_in_order():
+    """Ordered composition — the second step sees the first's output."""
+    pipeline = IrTokenPipeline(
+        IrTuple(), IrMap(), IrTuple(IrReplace(" ", "_"), IrReplace("_", "-")), IrTuple()
+    )
+    text, meta = "a b", _meta(0, 3)
+    for step in pipeline.normalize:
+        text, meta = IrNormalizer.ensure(step).apply(text, meta)
+    assert text == "a-b"
