@@ -33,12 +33,15 @@ Design notes:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from contextvars import ContextVar
 from pathlib import Path
 from typing import cast
 
 import lexic.ir.action as _action
 import lexic.ir.base as _base
 import lexic.ir.bind as _bind
+import lexic.ir.encoding as _encoding
 import lexic.ir.flavour as _flavour
 import lexic.ir.layout as _layout
 import lexic.ir.mapping as _mapping
@@ -75,7 +78,17 @@ from lexic.parsing.earley.reduce import YIELD, Yield
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 
-_IR_MODULES = (_base, _bind, _nodes, _operators, _action, _mapping, _flavour, _layout)
+_IR_MODULES = (
+    _base,
+    _bind,
+    _nodes,
+    _operators,
+    _action,
+    _mapping,
+    _flavour,
+    _layout,
+    _encoding,
+)
 
 
 def _ir_node_symbols() -> dict[str, object]:
@@ -126,7 +139,21 @@ def _build_symbols() -> dict[str, object]:
 SYMBOLS: dict[str, object] = _build_symbols()
 """The IR-constructor notation's vocabulary — the whitelist that IS the no-exec
 boundary. Every reachable name is either an ``IrSelf``-subclass constructor or
-one of the fixed extras above. Drift-pinned by ``test_notation``."""
+one of the fixed extras above. Drift-pinned by ``test_notation``.
+
+Covers every node type in ``lexic.ir``. A node declared OUTSIDE the spine —
+a format's own families, which is where they belong — is not in here and is
+supplied per call instead; see :func:`load_ir`."""
+
+_EXTRA_SYMBOLS: ContextVar[Mapping[str, type]] = ContextVar(
+    "_EXTRA_SYMBOLS", default={}
+)
+"""The caller-supplied vocabulary for the load in flight.
+
+Per call rather than registered globally: the whitelist is a boundary, and a
+boundary that any import can widen is not one. A context variable rather than
+a parameter because the fold reaches :func:`_resolve` as data, not as an
+argument."""
 
 INTERN: dict[object, object] = {Yield: YIELD}
 """Classes whose zero-arg call returns a canonical shared instance.
@@ -332,9 +359,12 @@ def _resolve(name: str) -> object:
     :returns: The bound symbol.
     :raises UnsupportedConstructError: When ``name`` is not whitelisted.
     """
-    if name not in SYMBOLS:
-        raise UnsupportedConstructError(f"notation: unknown symbol {name!r}")
-    return SYMBOLS[name]
+    if name in SYMBOLS:
+        return SYMBOLS[name]
+    extra = _EXTRA_SYMBOLS.get()
+    if name in extra:
+        return extra[name]
+    raise UnsupportedConstructError(f"notation: unknown symbol {name!r}")
 
 
 def _name(head: str, tail: str = "") -> object:
@@ -411,25 +441,51 @@ NOTATION_FOLD = model_fold(_BODIES)
 # ── the entry ─────────────────────────────────────────────────────────────
 
 
-def load_ir(text: str) -> IrSelf:
+def load_ir(text: str, symbols: Mapping[str, type] | None = None) -> IrSelf:
     """Parse IR-constructor notation into the ``IrSelf`` it evaluates to.
 
     The inverse of :func:`repr`: ``load_ir(repr(node))`` reconstructs ``node``.
     Drives the engine's :func:`~lexic.parsing.parse_model` product over
-    :data:`NOTATION_GRAMMAR` with the notation fold.
+    :data:`NOTATION_GRAMMAR` with the notation fold. Saving is just
+    ``repr(node)``; this is the other half, so **anything lexic parses can be
+    written to a file and read back** — a grammar, a flavour manifest, a
+    tokenizer.
+
+    ``symbols`` extends the vocabulary for THIS call, for a value naming node
+    types declared outside ``lexic.ir`` — a format's own families live beside
+    their reader, so the spine's whitelist cannot know them. Each must be an
+    ``IrSelf`` subclass: the whitelist IS the no-exec boundary, and admitting
+    a plain callable would reopen it.
 
     :param text: IR-constructor notation (the root is an IR node — an
         ``IrAst`` for ``.ir`` data files, an ``IrMap`` for flavour manifests).
+    :param symbols: Extra ``name → IrSelf subclass`` entries for this load.
     :returns: The reconstructed IR node.
-    :raises UnsupportedConstructError: On a parse failure or an unknown symbol.
+    :raises UnsupportedConstructError: On a parse failure, an unknown symbol,
+        or a supplied symbol that is not an ``IrSelf`` subclass.
     """
-    return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_FOLD))
+    if not symbols:
+        return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_FOLD))
+    for name, symbol in symbols.items():
+        if not (isinstance(symbol, type) and issubclass(symbol, IrSelf)):
+            raise UnsupportedConstructError(
+                f"notation: {name!r} is not an IrSelf subclass — the symbol "
+                "table is the no-exec boundary and only IR nodes may enter it"
+            )
+    token = _EXTRA_SYMBOLS.set(symbols)
+    try:
+        return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_FOLD))
+    finally:
+        _EXTRA_SYMBOLS.reset(token)
 
 
-def load_ir_from_path(path: str | Path) -> IrSelf:
+def load_ir_from_path(
+    path: str | Path, symbols: Mapping[str, type] | None = None
+) -> IrSelf:
     """Load IR-constructor notation from a UTF-8 file.
 
     :param path: Path to a ``.ir`` notation file.
+    :param symbols: Extra vocabulary for this load (see :func:`load_ir`).
     :returns: The reconstructed IR node.
     """
-    return load_ir(Path(path).read_text(encoding="utf-8"))
+    return load_ir(Path(path).read_text(encoding="utf-8"), symbols)
