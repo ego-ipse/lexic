@@ -10,14 +10,16 @@ verbose=0
 
 cd "$(cd "$(dirname "${0}")/.." && pwd)"
 
+# Run as MODULES from the repo root — one uniform invocation, and the root is
+# on sys.path for any example that needs it.
 run_example() {
-    local example="${1}"
+    local module="${1}"
     local output rc=0
-    output="$(uv run python "${example}" 2>&1)" || rc="$?"
+    output="$(uv run python -m "${module}" 2>&1)" || rc="$?"
     if [[ "${rc}" -ne 0 ]]; then
-        echo "FAIL: ${example}\n${output}" >&2
+        echo "FAIL: ${module}\n${output}" >&2
     elif (( verbose )); then
-        echo "── ${example} ──"
+        echo "── ${module} ──"
         echo "${output}"
     fi
     return "${rc}"
@@ -25,7 +27,7 @@ run_example() {
 
 failed=0
 for example in getting_started/ex*.py; do
-    run_example "${example}" || failed="$?"
+    run_example "getting_started.$(basename "${example}" .py)" || failed="$?"
 done
 
 exit "${failed}"

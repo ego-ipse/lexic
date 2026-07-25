@@ -9,6 +9,9 @@ it is defined locally.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
@@ -474,3 +477,56 @@ def test_irchr_multichar_glyph_raises():
     """IrChr raises on multi-char glyphs"""
     with pytest.raises(UnsupportedConstructError):
         IrChr("AB")
+
+
+# --- IrSelf.ensure — the boundary narrow -----------------------------------
+
+
+def test_ensure_returns_the_value_when_it_is_an_instance():
+    """A matching value passes through unchanged — identity, not a copy."""
+    node = IrStr("x")
+    assert IrStr.ensure(node) is node
+
+
+def test_ensure_accepts_a_subclass():
+    """Narrowing is isinstance, so a subclass satisfies its base."""
+    node = IrChr(0x41)
+    assert IrScalar.ensure(node) is node
+
+
+def test_ensure_refuses_a_wrong_type_naming_both():
+    """The message names what arrived and what was wanted."""
+    with pytest.raises(UnsupportedConstructError, match="IrStr, not IrInt"):
+        IrInt.ensure(IrStr("x"))
+
+
+def test_ensure_refuses_a_non_ir_value():
+    """It narrows any object, not only IR nodes — the boundary takes anything."""
+    with pytest.raises(UnsupportedConstructError, match="int, not IrStr"):
+        IrStr.ensure(3)
+
+
+def test_ensure_context_is_woven_into_the_message():
+    """``what`` names the subject so a caller's error says which field failed."""
+    with pytest.raises(UnsupportedConstructError, match="the document is int"):
+        IrStr.ensure(3, "the document")
+
+
+def test_ensure_is_a_check_not_an_assert():
+    """It raises under ``-O``, where an ``assert isinstance`` would vanish.
+
+    This is why the narrow is a call rather than an assert: the examples and
+    the boundary seams must fail the same way in optimized mode.
+    """
+    probe = (
+        "from lexic.ir.base import IrStr\n"
+        "from lexic.exceptions import UnsupportedConstructError\n"
+        "try:\n"
+        "    IrStr.ensure(3)\n"
+        "except UnsupportedConstructError:\n"
+        "    print('raised')\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-O", "-c", probe], capture_output=True, text=True, check=True
+    )
+    assert out.stdout.strip() == "raised"

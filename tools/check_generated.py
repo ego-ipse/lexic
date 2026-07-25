@@ -29,6 +29,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from lexic.compile import compile_from_path, export_module, verify_module
+
 REPO = Path(__file__).resolve().parent.parent
 ACCEPTED_PYLINT = re.compile(
     r"C0103.*Class name \"[A-Za-z0-9]+_\" doesn't conform"
@@ -39,8 +41,6 @@ ACCEPTED_PYLINT = re.compile(
 
 def export_all(out_dir: Path) -> list[Path]:
     """Export every GT grammar in both table modes; return the file list."""
-    from lexic.compile import compile_from_path, export_module, verify_module
-
     files: list[Path] = []
     ground_truth = REPO / "resources" / "ground_truth"
     for gt in sorted(ground_truth.glob("*.gbnf")) + sorted(ground_truth.glob("*.abnf")):
@@ -49,7 +49,7 @@ def export_all(out_dir: Path) -> list[Path]:
         for name, inline in ((f"{stem}.py", False), (f"{stem}_inline.py", True)):
             path = export_module(compiled, out_dir / name, inline_tables=inline)
             # L2: lexic parses its own export and cross-checks the binding.
-            verify_module(compiled, path.read_text())
+            verify_module(compiled, path.read_text(encoding="utf-8"))
             files.append(path)
     return files
 
@@ -90,6 +90,10 @@ def run_pylint(files: list[Path]) -> list[str]:
 
 
 def main() -> int:
+    """Export every twin to a temp dir and gate it on pyright + pylint.
+
+    :returns: The process exit code — 0 when every generated module is clean.
+    """
     with tempfile.TemporaryDirectory(prefix="lexic_genchk_") as tmp:
         files = export_all(Path(tmp))
         print(f"exported {len(files)} modules")

@@ -129,6 +129,10 @@ src/lexic/
   exceptions.py                    LexicError hierarchy — UnsupportedConstructError, FieldValidationError
   generate.py                      random string generator — walks a canonical grammar's rules directly
   model.py                         GrammarModel on IrNamedTuple — models ARE IrSelf; to_text/to_grammar/dump
+  api/
+    __init__.py                    Readers for third-party formats — applications of lexic, shipped with it
+    json_tokenizer.py              tokenizer.json → IrTokenizer; the json formulation is a parameter
+    pretokens.py                   that format's own split specs — vendor vocabulary, declared out of ir/
   compile/
     __init__.py                    parse_grammar / canonical_grammar / compile_text — grammar entry points
     artifact.py                    CompiledGrammar — the parse-ready artefact compile_* produces
@@ -222,9 +226,17 @@ tests/
   integration/          cross-module: layering, parity, round-trip, doc drift
   property/             hypothesis round-trip + reduce differentials
   paths.py              GROUND_TRUTH / GENERATED / tokenizer-fixture paths
+ext/API/                NOT shipped — clients that FETCH third-party artefacts
+  hf.py                 the Hugging Face hub: cached/download the tokenizer fixtures
 resources/ground_truth/ .gbnf + .abnf + .ebnf corpus used as fixtures
 generated/              git-ignored; importable twin modules (export_module output)
 ```
+
+`ext/` and `src/lexic/api/` split one job in two: `ext/` **gets** a
+third-party artefact (network, credentials, caching — no business in a
+grammar engine's wheel), `lexic.api` **reads** one, and `lexic.ir` models it
+without knowing either. A format that merely happens to be hosted somewhere
+does not belong to that host.
 
 ## Directives
 
@@ -260,7 +272,7 @@ A directive naming an undefined rule is silently ignored.
   formulation: every mechanism works over ANY formulation of a language through
   the standard pipeline.
 - **Never create git worktrees.**
-- Tokenizer fixtures are fetched (`tools/fetch_tokenizers.py`), never committed
+- Tokenizer fixtures are fetched (`uv run python -m ext.API.hf`), never committed
   — they are LGPL. Tests skip when absent.
 - Commits carry no `Co-Authored-By`; they are entirely the user's.
 

@@ -71,7 +71,7 @@ def test_kept_model_is_a_sub_model_of_the_full_parse():
 
 @pytest.mark.skipif(
     not _FIXTURE.is_file(),
-    reason="real tokenizer fixture absent — run tools/fetch_tokenizers.py",
+    reason="real tokenizer fixture absent — run 'uv run python -m ext.API.hf'",
 )
 def test_real_tokenizer_json_model_type_extracts_via_json_gbnf():
     """The 2 MB real file: templating keeps exactly ``model.type`` — the

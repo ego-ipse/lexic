@@ -1,34 +1,41 @@
-"""Load an HF-style ``tokenizer.json`` with lexic's own machinery.
+"""Read a ``tokenizer.json`` document into a live ``IrTokenizer``.
 
-The format lives entirely in the caller: lexic ships json (grammar + reducer)
-and ``IrTokenizer`` — "HF tokenizer.json" is just an application. The document
-reduces to typed IR values (``parse_reduced`` + the json kit), the vocab and
-merges read straight off the ``IrMap``, and ``IrTokenizer.from_merges`` builds
-the exact ranked-merge BPE. No stdlib ``json``, no format module in src.
+Three responsibilities, three homes — the reason this is three lines rather
+than a format walker:
 
-The inline document below is a miniature of the real schema; the integration
-suite runs the identical flow against the real SmolLM2 and gemma files
-(``tools/fetch_tokenizers.py``, ``tests/integration/test_real_tokenizer*.py``)
-where ``tokenize()`` is pinned reference-exact against the ``tokenizers``
-library.
+- **getting** the file is ``ext/API/hf.py``'s (the hub hosts documents in
+  this format; fetching is not the format's business, and it ships outside
+  the package);
+- **reading** one is ``lexic.api.json_tokenizer``'s, used here;
+- **the model** is ``lexic.ir``'s — ``IrTokenizer`` knows nothing about any
+  file format.
+
+Note what the reader is *given*: the json formulation, as a parameter. It has
+no built-in idea of how json is spelled — pass a different grammar+reducer
+pair (one compiled from a ground-truth ``.gbnf``, say) and the same code
+reads the same document.
+
+Everything about the tokenizer is **derived from the document's own
+sections** — ``model.vocab``/``merges``/``byte_fallback``, ``added_tokens``,
+``normalizer``, ``pre_tokenizer``. Nothing is hand-supplied, which is why the
+integration suite reproduces both real SmolLM2 and gemma segmentation
+reference-exactly (``tests/integration/test_real_tokenizer*.py``).
 
 Run::
 
-    uv run python getting_started/ex11_hf_tokenizer.py
+    uv run python -m getting_started.ex11_hf_tokenizer
 """
 
 from __future__ import annotations
 
+from lexic.api.json_tokenizer import read
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.base import IrTuple
-from lexic.ir.encoding import IrTokenizer, IrTokenPipeline
-from lexic.ir.mapping import IrMap
-from lexic.parsing import parse_reduced
 
 TOKENIZER_JSON = """\
 {
   "version": "1.0",
-  "added_tokens": [{"id": 6, "content": "<|end|>", "special": true}],
+  "added_tokens": [{"id": 7, "content": "<|end|>", "special": true}],
+  "pre_tokenizer": {"type": "Digits", "individual_digits": true},
   "model": {
     "type": "BPE",
     "vocab": {"h": 0, "e": 1, "l": 2, "o": 3, "he": 4, "ll": 5, "hell": 6, "<|end|>": 7},
@@ -38,33 +45,20 @@ TOKENIZER_JSON = """\
 """
 
 
-def _dyad(merge: object) -> tuple[str, str]:
-    """One HF ``"left right"`` merge string as the ``(left, right)`` dyad."""
-    left, right = str(merge).split(" ", 1)
-    return left, right
-
-
 def main() -> None:
-    """Reduce the document, lift vocab + merges, build and use the tokenizer."""
-    doc = parse_reduced(JSON_GRAMMAR, TOKENIZER_JSON, JSON_REDUCER)
-    assert isinstance(doc, IrMap), "a json document reduces to a map"
+    """Build the tokenizer the document describes, then use it."""
+    tok = read(TOKENIZER_JSON, JSON_GRAMMAR, JSON_REDUCER, name="demo")
 
-    # One narrowing at the boundary, then plain reads: IR values ARE their
-    # payloads, so an IrStr is already a str and an IrChr already an int —
-    # nothing here converts, it just reads. The caller owns the format.
-    model = doc["model"]
-    assert model["type"] == "BPE", "only BPE models here"
+    print("pre-tokens read from the document →", tok.pipeline.pretokens)
+    print("specials read from added_tokens   →", tok.pipeline.specials)
 
-    vocab = {str(k): int(v) for k, v in model["vocab"].items()}
-    merges = [_dyad(m) for m in model["merges"]]
-    specials = IrTuple(*(entry["content"] for entry in doc["added_tokens"]))
-
-    tok = IrTokenizer.from_merges("hf", vocab, merges, IrTokenPipeline(specials))
     ids = tok.tokenize("hello<|end|>")
-    print("tokenize('hello<|end|>') →", ids)
-    print("spelled back           →", "".join(str(tok.spell(i)) for i in ids))
+    print("tokenize('hello<|end|>')          →", ids)
+    spelled = "".join(str(tok.spell(i)) for i in ids)
+    print("spelled back                      →", spelled)
+
     assert ids == [6, 3, 7]  # h+e, l+l, he+ll → hell; then o; then the special
-    assert "".join(str(tok.spell(i)) for i in ids) == "hello<|end|>"
+    assert spelled == "hello<|end|>"
 
 
 if __name__ == "__main__":

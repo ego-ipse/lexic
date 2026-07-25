@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -348,3 +349,35 @@ def test_codegen_package_is_gone():
     for p in SRC.rglob("*.py"):
         content = p.read_text()
         assert "lexic.codegen" not in content, f"{p}: residual lexic.codegen"
+
+
+# Third-party formats, products and models — names that must never reach the
+# spine. `ir/` models the CONCEPT; a format's own vocabulary lives beside the
+# reader that knows it (`lexic.api`). See .wiki/lexic/decisions.md.
+_VENDOR_NAMES = re.compile(
+    r"gpt-?2|huggingface|\bhf\b|tokenizer\.json|added_tokens|bytelevel"
+    r"|smollm|gemma|llama|qwen|cl100k|tiktoken|sentencepiece",
+    re.IGNORECASE,
+)
+
+
+def test_ir_names_no_third_party_format_or_model():
+    """``lexic.ir`` is vendor-neutral — in code, docstrings and examples alike.
+
+    A tokenizer pipeline once modelled ONE vendor's stages here (a
+    hand-implemented GPT-2 pattern, its byte table, node types named after
+    that vendor's steps). The spine then knows a product's answer instead of
+    the question, so a different vocabulary reads as unsupported even when
+    the concept is identical — and the format's field names start leaking
+    onto IR nodes.
+
+    A named *algorithm* (Earley, the ranked-merge rewrite) is not a vendor,
+    so this matches product/format names only.
+    """
+    offenders = [
+        f"{p.relative_to(SRC)}:{i}: {line.strip()}"
+        for p in (SRC / "ir").rglob("*.py")
+        for i, line in enumerate(p.read_text().splitlines(), 1)
+        if _VENDOR_NAMES.search(line)
+    ]
+    assert not offenders, f"vendor names in lexic.ir: {offenders}"

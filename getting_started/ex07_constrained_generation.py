@@ -14,7 +14,7 @@ any tokenizer vocab can drive any char grammar.
 
 Run::
 
-    uv run python getting_started/ex07_constrained_generation.py
+    uv run python -m getting_started.ex07_constrained_generation
 """
 
 from __future__ import annotations

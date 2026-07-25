@@ -27,11 +27,10 @@ from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
 # Mirrors tools/benchmark/pipeline_bench.py's arithmetic instance workload
-# (same snippets, same ~4800-char target) — not imported (that module builds
-# its own corpus for timing, not as an importable package) but pinned here as
-# the same data so the runtime parity test exercises the actual bench corpus
-# shape. Public (not module-private) so tests/integration/golden_fixtures.py can import
-# the same literals rather than duplicating them (pylint R0801).
+# (same snippets, same ~4800-char target). This module is the single home:
+# tools/benchmark/pipeline_bench.py and tests/integration/golden_fixtures.py
+# both import these literals, so the benchmark and the parity test provably
+# run the same corpus.
 ARITHMETIC_BENCH_SNIPPETS: tuple[str, ...] = (
     "x=1\n",
     "y=z\n",

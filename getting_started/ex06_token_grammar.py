@@ -16,7 +16,7 @@ concern — see ``tests/integration/test_hf_tokenizer.py``.
 
 Run::
 
-    uv run python getting_started/ex06_token_grammar.py
+    uv run python -m getting_started.ex06_token_grammar
 """
 
 from __future__ import annotations

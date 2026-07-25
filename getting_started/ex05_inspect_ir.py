@@ -10,7 +10,7 @@ AST and prints its shape.
 
 Run::
 
-    uv run python getting_started/ex05_inspect_ir.py
+    uv run python -m getting_started.ex05_inspect_ir
 """
 
 from __future__ import annotations

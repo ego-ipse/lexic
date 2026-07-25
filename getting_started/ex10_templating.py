@@ -13,7 +13,7 @@ format-native.
 
 Run::
 
-    uv run python getting_started/ex10_templating.py
+    uv run python -m getting_started.ex10_templating
 """
 
 from __future__ import annotations

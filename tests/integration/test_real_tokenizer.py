@@ -5,39 +5,30 @@ JSON_REDUCER)`` — the engine's reduce product over the grammar's own kit —
 and the typed values feed :class:`~lexic.ir.encoding.IrTokenizer` directly.
 stdlib ``json`` appears only as the test-side oracle; the ``tokenizers`` lib
 is the reference tokenize oracle. Fixtures are FETCHED, never committed
-(``tools/fetch_tokenizers.py``); every test skips when the file is absent.
+(``uv run python -m ext.API.hf``); every test skips when the file is absent.
 """
 
 from __future__ import annotations
 
 import json as stdlib_json  # oracle only — never in src
-from pathlib import Path
 
 import pytest
 
+from ext.API import hf
+from lexic.api.json_tokenizer import tokenizer_of
+from lexic.api.pretokens import IrByteLevel, IrDigits
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.base import IrInt, IrNone, IrStr, IrTuple
-from lexic.ir.encoding import (
-    BYTE_LEVEL_REMAP,
-    IrByteLevel,
-    IrDigits,
-    IrTokenizer,
-    IrTokenPipeline,
-)
+from lexic.ir.base import IrInt, IrNone, IrStr
+from lexic.ir.encoding import IrTokenizer
 from lexic.ir.mapping import IrMap
 from lexic.parsing import parse_reduced
 from tests.integration.tokenizer_corpus import SHARED_CORPUS
 
-SMOLLM2 = (
-    Path(__file__).resolve().parents[2]
-    / "resources"
-    / "tokenizers"
-    / "smollm2.tokenizer.json"
-)
+SMOLLM2 = hf.CACHE / "smollm2.tokenizer.json"
 
 pytestmark = pytest.mark.skipif(
-    not SMOLLM2.is_file(),
-    reason="real tokenizer fixture absent — run tools/fetch_tokenizers.py",
+    hf.cached("smollm2") is None,
+    reason="real tokenizer fixture absent — run 'uv run python -m ext.API.hf'",
 )
 
 
@@ -70,24 +61,8 @@ def _document(text: str) -> IrMap:
 
 @pytest.fixture(scope="module", name="tokenizer")
 def _tokenizer(document: IrMap) -> IrTokenizer:
-    """The IrTokenizer built straight off the reduction's typed values."""
-    model = document[IrStr("model")]
-    assert isinstance(model, IrMap)
-    merges: list[tuple[str, str]] = []
-    for entry in model[IrStr("merges")]:
-        left, _, right = str(entry).partition(" ")
-        merges.append((left, right))
-    specials = [str(t[IrStr("content")]) for t in document[IrStr("added_tokens")]]
-    pipeline = IrTokenPipeline(
-        IrTuple(*(IrStr(s) for s in specials)),
-        BYTE_LEVEL_REMAP,
-        IrTuple(),
-        IrTuple(IrDigits(True), IrByteLevel()),
-        False,
-    )
-    return IrTokenizer.from_merges(
-        "smollm2", model[IrStr("vocab")], merges, pipeline=pipeline
-    )
+    """The IrTokenizer the document describes, built by the HF loader."""
+    return tokenizer_of(document, "smollm2")
 
 
 @pytest.fixture(scope="module", name="reference")
@@ -107,6 +82,22 @@ def test_model_type_is_bpe(document: IrMap) -> None:
     model = document[IrStr("model")]
     assert isinstance(model, IrMap)
     assert str(model[IrStr("type")]) == "BPE"
+
+
+def test_pipeline_is_derived_from_the_documents_sections(
+    tokenizer: IrTokenizer,
+) -> None:
+    """The loader READ smollm2's pipeline; nothing here was hand-supplied.
+
+    ``pre_tokenizer`` is ``Sequence[Digits(individual), ByteLevel]`` and
+    ``normalizer`` is null, so a correct read gives exactly these two split
+    specs in order, the byte-level remap on, no replaces, and no byte
+    fallback — a mis-read of any section moves one of them.
+    """
+    assert tokenizer.pipeline.pretokens == (IrDigits(True), IrByteLevel())
+    assert len(tokenizer.pipeline.remap) == 256  # ByteLevel ⇒ the remap is on
+    assert tokenizer.pipeline.normalize == ()
+    assert not tokenizer.pipeline.byte_fallback
 
 
 def test_real_model_sizes(tokenizer: IrTokenizer) -> None:

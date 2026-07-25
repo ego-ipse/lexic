@@ -13,7 +13,7 @@ source, and the flavour's ``Reducer`` folds the derivation to an ``IrAst``.
 
 Run::
 
-    uv run python getting_started/ex04_transpile_flavours.py
+    uv run python -m getting_started.ex04_transpile_flavours
 """
 
 from __future__ import annotations

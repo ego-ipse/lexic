@@ -13,12 +13,16 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from lexic.compile import compile_from_path, export_module
+
 REPO = Path(__file__).resolve().parent.parent
 
 
 def main() -> int:
-    from lexic.compile import compile_from_path, export_module
+    """Re-export every ground-truth twin into ``generated/``.
 
+    :returns: The process exit code.
+    """
     inline = "--inline" in sys.argv[1:]
     ground_truth = REPO / "resources" / "ground_truth"
     out = REPO / "generated"

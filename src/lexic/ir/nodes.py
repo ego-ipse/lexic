@@ -522,9 +522,9 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier], init=False):
 class IrAlphabet(IrNamedTuple[IrStr, IrAtom], IrAtom, init=False):
     """An atom read under a named encoding — the alphabet binding.
 
-    Scopes a pure inner atom to an encoding: ``IrAlphabet("gpt2", IrLiteral(
-    "<think>"))`` is the token whose text is ``<think>``; ``IrAlphabet("gpt2",
-    IrCharClass(IrChr(1000)))`` is token id ``1000``; ``IrAlphabet("gpt2",
+    Scopes a pure inner atom to an encoding: ``IrAlphabet("tokens", IrLiteral(
+    "<think>"))`` is the token whose text is ``<think>``; ``IrAlphabet("tokens",
+    IrCharClass(IrChr(1000)))`` is token id ``1000``; ``IrAlphabet("tokens",
     IrNot(...))`` a negated token. The wrapper is what distinguishes a literal
     read as token text from a literal read as characters — the inner node types
     are the ordinary ones (:class:`IrLiteral`, :class:`IrCharClass`,

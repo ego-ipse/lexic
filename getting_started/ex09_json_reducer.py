@@ -13,7 +13,7 @@ the DOCUMENT.
 
 Run::
 
-    uv run python getting_started/ex09_json_reducer.py
+    uv run python -m getting_started.ex09_json_reducer
 """
 
 from __future__ import annotations
@@ -28,15 +28,19 @@ DOC = '{"name": "lexic", "stars": 3, "tags": ["grammar", "\\u00e9lan"], "wip": n
 
 def main() -> None:
     """Reduce a JSON document to IR values and read them off natively."""
-    value = parse_reduced(JSON_GRAMMAR, DOC, JSON_REDUCER)
-    assert isinstance(value, IrMap)
+    # A reducer folds to whatever its bodies produce, so parse_reduced returns
+    # IrSelf — and a JSON document really can be any JSON value. "This one is
+    # an object" is a fact about DOC, not about the API, so the caller states
+    # it: ``ensure`` is the spine's boundary narrow (the class-level sibling
+    # of ``bind``), and unlike an assert it is a real check that raises.
+    value = IrMap.ensure(parse_reduced(JSON_GRAMMAR, DOC, JSON_REDUCER), "document")
     print("Reduced:", value)
 
     # IR values ARE their payloads: IrStr is a str, IrInt an int, IrMap a
     # mapping — read them with plain Python (plain-str keys hash-match IrStr).
     assert value["name"] == "lexic"
     assert value["stars"] == 3
-    assert isinstance(value["stars"], IrInt)
+    assert IrInt.ensure(value["stars"]) == 3  # a JSON number IS an IrInt
     tags = value["tags"]
     print("Tags:   ", [str(t) for t in tags])
     assert [str(t) for t in tags] == ["grammar", "élan"]  # \\u00e9 decoded

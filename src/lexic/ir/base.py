@@ -203,6 +203,38 @@ class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri](metaclass=IrMeta):
             return other
         raise TypeError(f"Cannot bind {other!r} to {self!r}")
 
+    @classmethod
+    def ensure(cls, node: object, what: str = "") -> Self:
+        """Return ``node`` typed as this class, or refuse.
+
+        The boundary narrow. Several seams hand a value back at a type wider
+        than the caller can use — ``parse_reduced`` returns ``IrSelf`` because
+        a reducer folds to whatever its bodies produce, and a document's
+        actual shape is runtime information no signature can carry. Asserting
+        that shape is legitimate; hand-rolling the assert at every seam is
+        not, so this is the one spelling.
+
+        The class-level sibling of :meth:`bind`: ``bind`` narrows a dispatch
+        result to an instance's ``_bound`` at runtime, ``ensure`` narrows an
+        untyped value to a named class *statically* — ``IrMap.ensure(x)`` is
+        an ``IrMap`` to a type checker.
+
+        Not a coercion and not a cast: nothing is converted, and a value of
+        the wrong type raises rather than being reinterpreted.
+
+        :param node: The value to narrow.
+        :param what: What ``node`` is, for the message (e.g. ``"the reduced
+            document"``); omitted, the message just names the types.
+        :returns: ``node``, typed as this class.
+        :raises UnsupportedConstructError: If ``node`` is not an instance.
+        """
+        if isinstance(node, cls):
+            return node
+        subject = f"{what} is" if what else "expected"
+        raise UnsupportedConstructError(
+            f"{subject} {type(node).__name__}, not {cls.__name__}"
+        )
+
 
 @final
 class IrNoneType(IrSelf, metaclass=IrSingleton):
