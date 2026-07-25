@@ -16,6 +16,7 @@ repository root, as a module** — `uv run python -m getting_started.<name>`.
 | [`ex09_json_reducer.py`](ex09_json_reducer.py) | `parse_reduced` + the json reducer kit: a document folds to typed IR values (`IrMap`/`IrTuple`/`IrInt`/`IrNone`) — no model classes. |
 | [`ex10_templating.py`](ex10_templating.py) | `template(compiled, MapShape, spec)`: extract two paths from a document, skip the rest as raw spans. Grammar-native — the same shape fits json.gbnf and json.abnf. |
 | [`ex11_hf_tokenizer.py`](ex11_hf_tokenizer.py) | The HF `tokenizer.json` story end to end: reduce with lexic's own json, lift vocab/merges/specials, `IrTokenizer.from_merges`, exact BPE `tokenize()`. |
+| [`ex12_real_think_flow.py`](ex12_real_think_flow.py) | The `<think>` flow against a REAL 151k model vocabulary: `ext.API.hf` fetches, `lexic.api.json_tokenizer` reads, `think.gbnf` parses and constrains. Skips cleanly when the fixture is absent. |
 
 ## What you'll learn
 
