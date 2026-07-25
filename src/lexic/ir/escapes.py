@@ -11,9 +11,10 @@ It is an :class:`~lexic.ir.base.IrNamedTuple` record (the
 spine, IR-native data, ``_child_attrs = ()``), **not** an
 :class:`~lexic.ir.encoding.IrEncoding`: the encoding contract
 (``universe``/``resolve``/``spell``) does not fit an emit-only spelling policy.
-Its one field is ``tables`` — the five named escape tables as an ``IrMap`` (the
-same shape a manifest's ``escapes`` section spells), IR-native throughout; the
-per-table property accessors narrow by ``isinstance`` (cast-free). The
+Its five fields ARE the five escape tables, IR-native throughout — the schema
+is fixed, so the record tier names it rather than burying it in one keyed map
+(a manifest's ``escapes`` section is lowered onto the fields by the notation
+loader, which raises on an unknown or missing table). The
 encode/encode_point/spellable algorithms are intrinsic and are read via the
 dispatcher's ``escapes`` field by
 :class:`~lexic.ir.flavour.IrEscape` / ``IrEscapePoint`` / ``IrSpellable``.
@@ -21,45 +22,36 @@ dispatcher's ``escapes`` field by
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import ClassVar, Self, cast
+from typing import ClassVar
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrInt, IrNamedTuple, IrStr, IrTuple
 from lexic.ir.mapping import IrMap
 
-_SHORT, _HEX, _CLASS_SHORT, _CLASS_META, _QUOTE_SAFE = (
-    IrStr("short"),
-    IrStr("hex"),
-    IrStr("class-short"),
-    IrStr("class-meta"),
-    IrStr("quote-safe"),
-)
 
+class EscapeCodec(IrNamedTuple[IrMap, IrTuple, IrMap, IrTuple, IrTuple]):
+    """Emit-side encode/encode_point/spellable over five IR-native tables.
 
-class EscapeCodec(IrNamedTuple[IrMap], init=False):
-    """Emit-side encode/encode_point/spellable over an IR-native table map.
+    The five tables are the record's five FIELDS, not entries in one map: the
+    schema is fixed and known, so the record tier names it (a map would make
+    every read re-narrow, and a misspelled table would read empty instead of
+    raising).
 
-    :ivar tables: ``IrMap`` of the five named escape tables — ``short``
-        (``IrMap[IrStr → IrStr]``, source follow-char → canonical char),
-        ``hex`` (``IrTuple`` of ``(tag, width)`` dyads, narrowest first),
-        ``class-short`` (``IrMap[IrInt → IrStr]``, code point → class spelling),
-        ``class-meta`` (``IrTuple`` of ``IrStr``, backslash-escaped class chars),
-        ``quote-safe`` (``IrTuple`` of ``(lo, hi)`` spellable code-point ranges).
+    :ivar short: ``IrMap[IrStr → IrStr]`` — source follow-char → canonical char.
+    :ivar hexes: ``IrTuple`` of ``(tag, width)`` dyads, narrowest first.
+    :ivar class_short: ``IrMap[IrInt → IrStr]`` — code point → class spelling.
+    :ivar class_meta: ``IrTuple`` of ``IrStr`` — backslash-escaped class chars.
+    :ivar quote_safe: ``IrTuple`` of ``(lo, hi)`` spellable code-point ranges.
 
-    Children: none walked — the field is codec data (``_child_attrs = ()``).
+    Children: none walked — every field is codec data (``_child_attrs = ()``).
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
-    tables: IrMap
-
-    def __new__(cls, tables: IrMap = IrMap()) -> Self:
-        """Wrap the five-table ``IrMap`` (the manifest ``escapes`` section shape).
-
-        :param tables: The five named escape tables; missing tables read empty.
-        :returns: The escape codec record.
-        """
-        return cast(Callable[..., Self], super().__new__)(cls, tables)
+    short: IrMap = IrMap()
+    hexes: IrTuple = IrTuple()
+    class_short: IrMap = IrMap()
+    class_meta: IrTuple = IrTuple()
+    quote_safe: IrTuple = IrTuple()
 
     @staticmethod
     def from_tables(
@@ -85,62 +77,14 @@ class EscapeCodec(IrNamedTuple[IrMap], init=False):
         :returns: The escape codec record.
         """
         return EscapeCodec(
+            IrMap(*(IrTuple(IrStr(k), IrStr(v)) for k, v in (short or {}).items())),
+            IrTuple(*(IrTuple(IrStr(t), IrInt(w)) for t, w in hexes)),
             IrMap(
-                IrTuple(
-                    _SHORT,
-                    IrMap(
-                        *(IrTuple(IrStr(k), IrStr(v)) for k, v in (short or {}).items())
-                    ),
-                ),
-                IrTuple(
-                    _HEX, IrTuple(*(IrTuple(IrStr(t), IrInt(w)) for t, w in hexes))
-                ),
-                IrTuple(
-                    _CLASS_SHORT,
-                    IrMap(
-                        *(
-                            IrTuple(IrInt(k), IrStr(v))
-                            for k, v in (class_short or {}).items()
-                        )
-                    ),
-                ),
-                IrTuple(_CLASS_META, IrTuple(*(IrStr(c) for c in class_meta))),
-                IrTuple(
-                    _QUOTE_SAFE,
-                    IrTuple(*(IrTuple(IrInt(lo), IrInt(hi)) for lo, hi in quote_safe)),
-                ),
-            )
+                *(IrTuple(IrInt(k), IrStr(v)) for k, v in (class_short or {}).items())
+            ),
+            IrTuple(*(IrStr(c) for c in class_meta)),
+            IrTuple(*(IrTuple(IrInt(lo), IrInt(hi)) for lo, hi in quote_safe)),
         )
-
-    @property
-    def short(self) -> IrMap:
-        """The ``short`` literal-escape table (``IrStr → IrStr``)."""
-        table = self.tables.get(_SHORT)
-        return table if isinstance(table, IrMap) else IrMap()
-
-    @property
-    def hexes(self) -> IrTuple:
-        """The ``hex`` escape forms — ``(tag, width)`` dyads, narrowest first."""
-        table = self.tables.get(_HEX)
-        return table if isinstance(table, IrTuple) else IrTuple()
-
-    @property
-    def class_short(self) -> IrMap:
-        """The ``class-short`` table (code point → bracket-class spelling)."""
-        table = self.tables.get(_CLASS_SHORT)
-        return table if isinstance(table, IrMap) else IrMap()
-
-    @property
-    def class_meta(self) -> IrTuple:
-        """The ``class-meta`` chars (backslash-escaped inside a class)."""
-        table = self.tables.get(_CLASS_META)
-        return table if isinstance(table, IrTuple) else IrTuple()
-
-    @property
-    def quote_safe(self) -> IrTuple:
-        """The ``quote-safe`` spellable code-point ranges — ``(lo, hi)`` dyads."""
-        table = self.tables.get(_QUOTE_SAFE)
-        return table if isinstance(table, IrTuple) else IrTuple()
 
     def encode(self, value: str) -> str:
         """Encode canonical Python into the flavour's escape syntax.
