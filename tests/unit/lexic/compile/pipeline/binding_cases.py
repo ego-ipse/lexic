@@ -9,6 +9,8 @@ byte-identical twin module existed; only the compile view remains.
 
 from __future__ import annotations
 
+import ast as pyast
+import inspect
 from functools import partial
 from types import ModuleType
 from typing import Callable
@@ -560,7 +562,94 @@ def case_compute_binding_alternation_and_value_str_have_no_fields(
     assert by_name["a"].fields == {}
 
 
+# ── field naming without a regex engine ───────────────────────────────
+
+
+def case_binding_imports_no_regex_engine(binding: ModuleType) -> None:
+    """The module declares no ``re`` import — read from its AST, not its globals.
+
+    A name check (``'re' in vars(binding)``) divides *binds the name* from *uses
+    a regex*, which are not the same question: ``from re import compile`` binds
+    neither. The import statements are the property.
+    """
+    tree = pyast.parse(inspect.getsource(binding))
+    imported = {
+        alias.name.split(".")[0]
+        for node in pyast.walk(tree)
+        if isinstance(node, pyast.Import)
+        for alias in node.names
+    } | {
+        node.module.split(".")[0]
+        for node in pyast.walk(tree)
+        if isinstance(node, pyast.ImportFrom) and node.module
+    }
+    assert "re" not in imported
+
+
+def case_class_name_keeps_empty_parts_between_separators(
+    binding: ModuleType,
+) -> None:
+    """Adjacent separators split into empty parts, as ``re.split`` produced."""
+    assert binding.class_name_for("a--b") == "AB"
+    assert binding.class_name_for("-lead") == "Lead"
+    assert binding.class_name_for("trail-") == "Trail"
+    assert binding.class_name_for("") == ""
+
+
+def case_literal_token_folds_non_ascii_to_underscores(
+    binding: ModuleType,
+) -> None:
+    """``[^0-9A-Za-z]`` is ASCII-only, so a Unicode letter is not alphanumeric.
+
+    Read through ``bind_fields``: a quantified literal names itself, so the
+    field name IS the token.
+    """
+
+    def token(text: str) -> list[str]:
+        item = IrItem(IrLiteral(text), STAR)
+        return list(binding.bind_fields(IrSequence(item), frozenset()))
+
+    assert token("a b") == ["a_b"]
+    assert token("é") == ["lit"]
+    assert token("¹²³") == ["lit"]
+    assert token("!!!") == ["lit"]
+    assert token("abcdefghijklmnop") == ["abcdefghijkl"]
+
+
+def case_pattern_slug_prefixes_digits_and_falls_back_when_empty(
+    binding: ModuleType,
+) -> None:
+    """Bracket drop, slug filter, strip, collapse — in that order.
+
+    Read through ``bind_fields``: a group takes its first atom's hint, and a
+    char class outside the library hints with its slug. An empty slug hints
+    ``cc``, which the group rejects, so the field falls to tier-3 ``head``.
+    """
+
+    def slug(*members: IrChr | IrRange) -> list[str]:
+        group = IrAlternation(IrSequence(IrItem(IrCharClass(*members))))
+        return list(binding.bind_fields(IrSequence(IrItem(group, STAR)), frozenset()))
+
+    assert slug(IrRange(IrChr("a"), IrChr("c"))) == ["a_c"]
+    assert slug(IrRange(IrChr("0"), IrChr("4")), IrRange(IrChr("6"), IrChr("9"))) == [
+        "cc_0_46_9"
+    ]
+    assert slug(IrRange(IrChr("0"), IrChr("9"))) == ["digit"]
+    assert slug(IrChr("É")) == ["head"]
+    assert slug(IrChr("!"), IrChr("?")) == ["head"]
+
+
 CASES: dict[str, Callable[[ModuleType], None]] = {
+    "test_binding_imports_no_regex_engine": case_binding_imports_no_regex_engine,
+    "test_class_name_keeps_empty_parts_between_separators": (
+        case_class_name_keeps_empty_parts_between_separators
+    ),
+    "test_literal_token_folds_non_ascii_to_underscores": (
+        case_literal_token_folds_non_ascii_to_underscores
+    ),
+    "test_pattern_slug_prefixes_digits_and_falls_back_when_empty": (
+        case_pattern_slug_prefixes_digits_and_falls_back_when_empty
+    ),
     "test_charclass_names_keyed_by_canonical_normal_form": (
         case_charclass_names_keyed_by_canonical_normal_form
     ),
