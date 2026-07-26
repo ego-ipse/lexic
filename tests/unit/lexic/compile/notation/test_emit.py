@@ -13,16 +13,18 @@ import re
 
 import pytest
 
-from lexic.compile import compile_from_path
-from lexic.compile.notation.emit import emit_ir
+from lexic import ir
+from lexic.compile import compile_from_path, compile_text
+from lexic.compile.notation.emit import emit_ir, ir_doc
 from lexic.compile.notation.parse import load_ir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_GRAMMAR, ABNF_REDUCTIONS
 from lexic.grammars.gbnf import GBNF_GRAMMAR, GBNF_REDUCTIONS
 from lexic.ir.action import IrAction
 from lexic.ir.base import IrInt, IrLambda, IrNone
+from lexic.ir.layout import render
 from lexic.ir.mapping import IR_DEFAULT
-from lexic.ir.nodes import IrAst, IrItem, IrLiteral, IrSequence
+from lexic.ir.nodes import IrAst, IrItem, IrLiteral, IrQuantifier, IrSequence
 from lexic.parsing.earley.reduce import YIELD
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
 
@@ -162,3 +164,44 @@ def test_emit_ir_small_broken_shape_round_trips_with_trailing_commas() -> None:
     text = emit_ir(node, width=20)
     assert TRAILING_COMMA.search(text)
     assert load_ir(text) == node
+
+
+# ── what emission SPELLED (the header's source of truth) ─────────────────
+
+_SPELLED = re.compile(r"\bIr[A-Za-z0-9]*\b|\bIR_DEFAULT\b")
+
+
+def _rendered_symbols(text: str) -> set[str]:
+    """The public-surface identifiers actually present in rendered notation.
+
+    Reading the page is exactly what the header must stop doing, so this lives
+    in the TEST: it is the independent answer that ``ir_doc``'s report is
+    checked against, not a second implementation of it.
+    """
+    return {n for n in _SPELLED.findall(text) if n in ir.__all__}
+
+
+@pytest.mark.parametrize("stem", GBNF_GRAMMARS)
+def test_ir_doc_reports_the_symbols_it_spelled(stem: str) -> None:
+    """The report equals what got rendered — no extras, nothing missing."""
+    compiled = compile_from_path(GROUND_TRUTH / stem)
+    notation = ir_doc(compiled.grammar)
+    assert set(notation.symbols) == _rendered_symbols(render(notation.doc, 88))
+
+
+def test_ir_doc_does_not_report_an_elided_default() -> None:
+    """``root ::= "a" "b"`` holds a unit ``IrQuantifier`` per item that is never
+    spelled, so a value-walk over-imports it and emission does not."""
+    compiled = compile_text('root ::= "a" "b"\n', cache_key="emit-elision-probe")
+    notation = ir_doc(compiled.grammar)
+    text = render(notation.doc, 88)
+    assert "IrQuantifier" not in text
+    assert "IrQuantifier" not in notation.symbols
+    assert set(notation.symbols) == _rendered_symbols(text)
+
+
+def test_ir_doc_reports_a_bare_name_singleton_by_its_value() -> None:
+    """``IrNone`` is the importable name; ``IrNoneType`` is not what is spelled."""
+    notation = ir_doc(IrItem(IrLiteral("a"), IrQuantifier(0, IrNone)))
+    assert "IrNone" in notation.symbols
+    assert "IrNoneType" not in notation.symbols

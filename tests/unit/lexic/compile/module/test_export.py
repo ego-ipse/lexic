@@ -387,3 +387,37 @@ def test_docstring_lines_escapes_backslash_and_quote():
     text = " ".join(lines)
     assert '\\"x\\"' in text
     assert "\\\\" in text
+
+
+# ── the header is what emission SPELLED, not what the body mentions ───────
+
+
+def test_header_imports_the_literal_the_annotation_used() -> None:
+    """A pure-literal ``value_str`` alternation types as ``Literal[...]``.
+
+    The typing import used to be found by looking for ``Literal[`` anywhere in
+    the finished module; it is now declared by the renderer that produced the
+    annotation. No corpus grammar reaches this branch, so it needs its own
+    grammar.
+    """
+    compiled = compile_text(
+        'root ::= flag\nflag ::= "true" | "false"\n', cache_key="export-literal-header"
+    )
+    source = export_source(compiled, stem="lit")
+    assert "from typing import Literal" in source
+    assert "    value: Literal['true', 'false']" in source
+
+
+def test_header_omits_typing_when_no_annotation_needs_it() -> None:
+    """The same grammar without the literal alternation imports no typing name."""
+    compiled = compile_text('root ::= "a" "b"\n', cache_key="export-no-typing-header")
+    source = export_source(compiled, stem="flat")
+    assert "from typing import" not in source
+
+
+def test_header_omits_an_elided_default() -> None:
+    """``root ::= "a" "b"`` holds a unit ``IrQuantifier`` the notation never
+    spells, so the header must not import it — a value-walk would."""
+    compiled = compile_text('root ::= "a" "b"\n', cache_key="export-elided-header")
+    source = export_source(compiled, stem="flat")
+    assert "IrQuantifier" not in source
