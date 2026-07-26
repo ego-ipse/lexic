@@ -38,6 +38,7 @@ from lexic.ir.base import (
     IrSelf,
     IrSeq,
     IrStr,
+    IrTuple,
 )
 from lexic.ir.bind import BIND_MODES, IrBind
 from lexic.ir.canonical import canonicalize, fold_name
@@ -121,6 +122,7 @@ __all__ = [
     "IrStr",
     "IrTokenizer",
     "IrTransformer",
+    "IrTuple",
     "IrTypeMap",
     "IrUnicode",
     "IrUnradix",
