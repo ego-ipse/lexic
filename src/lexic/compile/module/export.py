@@ -375,6 +375,18 @@ def _module_body(compiled: CompiledGrammar, *, inline_tables: bool) -> _Rendered
     flavour = get_flavour(compiled.flavour)
     binding = compute_binding(compiled.codegen_grammar)
     rules = {str(rule.name): rule for rule in compiled.codegen_grammar.rules}
+    # The DOCSTRING alone renders off the pre-resolution grammar — same rules,
+    # same structure, but a token terminal still spelled the way it was written.
+    # Resolution bakes ordinals and drops the spellings, so a docstring off
+    # ``codegen_grammar`` reads ``<[151667]>`` while ``GRAMMAR`` — which
+    # round-trips to the canonical AST — holds ``<think>``: two resolution
+    # states in one file. Everything else (the field types, and the
+    # ``inline_tables`` ``__grammar__``, which is RUNTIME data the class binds)
+    # keeps the resolved rule.
+    authored = {
+        str(rule.name): rule
+        for rule in (compiled.tokens.unresolved or compiled.codegen_grammar).rules
+    }
     class_by_rule = {bind.rule_name: bind.class_name for bind in binding}
     blocks: list[str] = []
     spelled: frozenset[str] = frozenset()
@@ -387,7 +399,7 @@ def _module_body(compiled: CompiledGrammar, *, inline_tables: bool) -> _Rendered
             bind,
             rule,
             class_by_rule,
-            str(flavour.apply(rule, width=None)),
+            str(flavour.apply(authored.get(bind.rule_name, rule), width=None)),
             inline_tables=inline_tables,
         )
         blocks.append("\n".join(rendered.lines))

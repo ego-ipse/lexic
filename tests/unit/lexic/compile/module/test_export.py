@@ -30,6 +30,7 @@ from lexic.compile.pipeline.binding import (
     compute_binding,
 )
 from lexic.ir.base import IrNone
+from lexic.ir.encoding import IrTokenizer
 from lexic.ir.nodes import (
     IrAlternation,
     IrItem,
@@ -470,3 +471,78 @@ def test_export_imports_no_regex_engine() -> None:
         if isinstance(node, ast.ImportFrom) and node.module
     }
     assert "re" not in imported
+
+
+# ── docstrings and GRAMMAR agree about resolution state ───────────────────
+
+
+def _think_compiled():
+    """``think.gbnf`` against a synthetic vocabulary — no fixture, no download.
+
+    The property is that a docstring shows the SPELLING the grammar was written
+    with, not the id it resolved to. A five-entry vocabulary establishes that as
+    well as a 150 000-entry one, and it runs in the fast lane.
+    """
+    tokenizer = IrTokenizer.from_merges(
+        "tokens", {"<think>": 0, "</think>": 1, "a": 2, "b": 3, "ab": 4}, [("a", "b")]
+    )
+    return compile_from_path(GROUND_TRUTH / "think.gbnf", tokenizer=tokenizer)
+
+
+def test_twin_docstrings_render_the_authored_token_spelling() -> None:
+    """A token terminal reads as ``<think>``, not as ``<[0]>``."""
+    source = export_source(_think_compiled(), stem="think")
+    docstrings = [
+        ln.strip() for ln in source.splitlines() if ln.strip().startswith('"""``')
+    ]
+    assert docstrings
+    assert any("<think>" in line for line in docstrings)
+    assert not any("<[" in line for line in docstrings)
+
+
+def test_twin_docstrings_and_grammar_agree_about_resolution() -> None:
+    """One file, one resolution state.
+
+    ``GRAMMAR`` round-trips to the canonical AST, which holds the authored
+    spellings; a docstring rendered off the resolved codegen grammar put a
+    second, contradictory state in the same module.
+    """
+    source = export_source(_think_compiled(), stem="think")
+    assert "<[" not in source
+
+
+def test_char_grammar_docstrings_are_unchanged_by_the_resolution_rule() -> None:
+    """Nothing to resolve, nothing to change — the rule is not a rewrite."""
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    source = export_source(compiled, stem="json")
+    assert '"""``object ::= begin-object object-item2? end-object``"""' in source
+
+
+def test_inline_grammar_table_keeps_the_resolved_rule() -> None:
+    """``__grammar__`` is RUNTIME data — the docstring rule must not reach it.
+
+    The docstring shows the authored spelling; the ClassVar the class binds has
+    to stay the rule the engine resolved, or an inline-tables export would ship
+    a grammar whose token terminals were never bound to ids.
+
+    Read by AST rather than by slicing the text: ``GRAMMAR`` later in the same
+    module legitimately holds the authored spelling, so any cut that overshoots
+    the statement finds it and reports the wrong thing.
+    """
+    source = export_source(_think_compiled(), stem="think", inline_tables=True)
+    tables = [
+        ast.get_source_segment(source, node.value)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "__grammar__"
+        and node.value is not None
+    ]
+    assert tables
+    for table in tables:
+        assert table
+        # The synthetic vocabulary puts `<think>` at id 0 and `</think>` at 1.
+        assert "IrCharClass(IrChr(" in table
+        assert "<think>" not in table and "</think>" not in table
+    docstrings = [ln for ln in source.splitlines() if ln.strip().startswith('"""``')]
+    assert any("<think>" in line for line in docstrings)
