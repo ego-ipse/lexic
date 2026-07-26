@@ -58,6 +58,12 @@ class _Build(NamedTuple):
     arity: int
 
 
+class _BuildTuple(NamedTuple):
+    """A driver marker: fold the last ``arity`` docs into a plain tuple doc."""
+
+    arity: int
+
+
 class Notation(NamedTuple):
     """What emission produced: the layout doc and the symbols it spelled.
 
@@ -86,6 +92,31 @@ def _call_doc(name: str, args: list[IrDoc]) -> IrDoc:
             IrText(name + "("),
             IrNest(_CALL_INDENT, IrCat(IrLine(), *parts)),
             IrLine("", ","),
+            IrText(")"),
+        )
+    )
+
+
+def _tuple_doc(args: list[IrDoc]) -> IrDoc:
+    """The plain-tuple shape: ``(a, b)`` flat, one element per line broken.
+
+    The arity-1 tail differs from every other trailing comma in the notation.
+    A call's trailing comma is a BREAK artefact — black writes it only when the
+    call breaks — but a one-tuple's comma is the VALUE: ``(x)`` is ``x`` in
+    Python and the parse half refuses it outright. So it renders flat and
+    broken alike, and only the break after it is conditional.
+    """
+    if not args:
+        return IrText("()")
+    parts: list[IrDoc] = [args[0]]
+    for arg in args[1:]:
+        parts.extend((IrText(","), IrLine(" "), arg))
+    tail = IrCat(IrText(","), IrLine("")) if len(args) == 1 else IrLine("", ",")
+    return IrGroup(
+        IrCat(
+            IrText("("),
+            IrNest(_CALL_INDENT, IrCat(IrLine(), *parts)),
+            tail,
             IrText(")"),
         )
     )
@@ -133,7 +164,8 @@ def _payload_doc(value: object) -> _Leaf:
     Payloads are a CLOSED set by the notation's own definition: ``str`` /
     ``int`` / ``bool`` values and bare class names; anything else has no
     spelling. A bare class name IS a symbol the reader must import; a scalar
-    payload is not.
+    payload is not. A plain ``tuple`` never reaches here — it has parts, so
+    :func:`ir_doc` renders it through :func:`_tuple_doc`.
 
     :param value: The payload value.
     :returns: Its notation text and the symbols that text spells.
@@ -220,12 +252,22 @@ def ir_doc(root: object) -> Notation:
     symbols: set[str] = set()
     while plan:
         item = plan.pop()
-        if isinstance(item, _Build):
+        if isinstance(item, (_Build, _BuildTuple)):
             args = docs[len(docs) - item.arity :]
             del docs[len(docs) - item.arity :]
-            docs.append(_call_doc(item.name, args))
+            docs.append(
+                _tuple_doc(args)
+                if isinstance(item, _BuildTuple)
+                else _call_doc(item.name, args)
+            )
             continue
         if not isinstance(item, IrSelf):
+            # A plain tuple is the one payload with parts. The markers above
+            # are NamedTuples, so they have to be taken off the plan first.
+            if isinstance(item, tuple):
+                plan.append(_BuildTuple(len(item)))
+                plan.extend(reversed(item))
+                continue
             leaf = _payload_doc(item)
             symbols.update(leaf.symbols)
             docs.append(leaf.doc)

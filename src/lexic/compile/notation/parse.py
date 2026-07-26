@@ -222,6 +222,7 @@ NOTATION_GRAMMAR = IrAst(
             IrSequence(_ref("nv")),
             IrSequence(_ref("strval")),
             IrSequence(_ref("intval")),
+            IrSequence(_ref("tuple")),
         ),
         _rule("nv", IrSequence(_ref("name"), _ref("ct-opt"))),
         _rule(
@@ -253,6 +254,41 @@ NOTATION_GRAMMAR = IrAst(
             IrSequence(_ref("comma"), IrItem(IrRuleRef("arg-val"), _OPT)),
         ),
         _rule("arg-val", IrSequence(_ref("value"))),
+        # A plain Python tuple — the one composite value that is not a call. A
+        # variadic model field holds one, so ``repr`` emits it and the parse
+        # half has to read it back.
+        #
+        # ``tuplist ::= value tup-tail tup-tail*`` makes at least one comma
+        # MANDATORY, so ``(1)`` has no derivation. That refusal is structural on
+        # purpose — two loaders read a notation artefact, CPython and this half,
+        # and in Python ``(1)`` is ``1`` while ``(1,)`` is a one-tuple. A lenient
+        # arm would make the two disagree about one file with nothing to report
+        # it.
+        #
+        # One mandatory tail plus a STAR, not ``tup-tail+``: normalising a ``+``
+        # over a rule ref yields ``X | X __rep``, whose two arms share a FIRST,
+        # so the analysis islands the loop and every tuple sub-parse escapes to
+        # Earley. The star shape (``ε | X __rep``) gates on FIRST(X) against
+        # FOLLOW and stays a clone. Measured both ways — see
+        # ``proto/rv2_b1_islands.py``. Past the first comma the shape is
+        # ``arglist``'s: the tail consumes the comma FIRST and then decides
+        # value-vs-nothing, keeping the loop gate FIRST-disjoint (',' vs ')'),
+        # with the stray-comma refusal at fold time.
+        _rule("tuple", IrSequence(_ref("lparen"), _ref("tup-opt"), _ref("rparen"))),
+        _rule("tup-opt", IrSequence(_ref("tuplist")), IrSequence()),
+        _rule(
+            "tuplist",
+            IrSequence(
+                _ref("value"),
+                _ref("tup-tail"),
+                IrItem(IrRuleRef("tup-tail"), _STAR),
+            ),
+        ),
+        _rule(
+            "tup-tail",
+            IrSequence(_ref("comma"), IrItem(IrRuleRef("tup-val"), _OPT)),
+        ),
+        _rule("tup-val", IrSequence(_ref("value"))),
         _rule("comma", IrSequence(_lit(","), _ref("ws"))),
         _rule("strval", IrSequence(_ref("sq-str")), IrSequence(_ref("dq-str"))),
         _rule(
@@ -385,23 +421,47 @@ def _call_tail(a: list[object] | None = None) -> _Call:
     return _Call(a if a is not None else ())
 
 
-def _arglist(first: object, rest: list[object] | None = None) -> list[object]:
-    """Collect the argument list; refuse a bare comma anywhere but last.
+def _comma_list(first: object, rest: list[object] | None, what: str) -> tuple:
+    """A comma-separated run; refuse a bare comma anywhere but last.
 
     The grammar leniently parses every bare comma as an empty tail (folded to
-    the shared :data:`~lexic.compile.foldkit.ABSENT` marker by ``arg-tail``);
-    the fold is where strictness lives (the unknown-symbol precedent): an
+    the shared :data:`~lexic.compile.foldkit.ABSENT` marker); the fold is where
+    strictness lives (the unknown-symbol precedent): an
     :data:`~lexic.compile.foldkit.ABSENT` in a non-final position is a stray
     ``,,`` and refuses, a final one is the trailing comma and drops. The
-    surviving values ride the shared :func:`~lexic.compile.foldkit.first_rest`
-    collector.
+    surviving values ride the shared
+    :func:`~lexic.compile.foldkit.first_rest` collector.
 
+    :param first: The head value.
+    :param rest: The repeated tails.
+    :param what: The construct named in the refusal.
+    :returns: The surviving values.
     :raises UnsupportedConstructError: On a stray comma.
     """
     tails = rest or []
     if ABSENT in tails[:-1]:
-        raise UnsupportedConstructError("notation: stray ',' in argument list")
-    return list(first_rest(first, [x for x in tails if x is not ABSENT]))
+        raise UnsupportedConstructError(f"notation: stray ',' in {what}")
+    return first_rest(first, [x for x in tails if x is not ABSENT])
+
+
+def _arglist(first: object, rest: list[object] | None = None) -> list[object]:
+    """The argument list of a call — positionally applied by :func:`_nv`."""
+    return list(_comma_list(first, rest, "argument list"))
+
+
+def _tuplist(first: object, one: object, rest: list[object] | None = None) -> tuple:
+    """A plain tuple's elements: the head, the mandatory tail, then the rest.
+
+    ``one`` is what makes the value a tuple — the grammar cannot derive a
+    parenthesised single value without it, so a one-element result really is
+    ``(x,)`` and never ``(x)``.
+    """
+    return _comma_list(first, [one, *(rest or [])], "tuple")
+
+
+def _tuple(items: tuple | None = None) -> tuple:
+    """``()`` when the parens were empty, else the collected elements."""
+    return items if items is not None else ()
 
 
 def _neg_int(raw: str) -> int:
@@ -427,6 +487,19 @@ _BODIES: dict[str, ModelBody] = {
     ),
     "arg-tail": seq(absent_tail, 2, (FieldFold(1, "model", "v", 0),)),
     "arg-val": seq(passthrough, 1, (FieldFold(0, "model", "v", 1),)),
+    "tuple": seq(_tuple, 3, (FieldFold(1, "model", "items", 0),)),
+    "tup-opt": ALT_BODY,
+    "tuplist": seq(
+        _tuplist,
+        3,
+        (
+            FieldFold(0, "model", "first", 1),
+            FieldFold(1, "model", "one", 1),
+            FieldFold(2, "models", "rest", 0),
+        ),
+    ),
+    "tup-tail": seq(absent_tail, 2, (FieldFold(1, "model", "v", 0),)),
+    "tup-val": seq(passthrough, 1, (FieldFold(0, "model", "v", 1),)),
     "strval": ALT_BODY,
     "sq-str": seq(_decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)),
     "dq-str": seq(_decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)),

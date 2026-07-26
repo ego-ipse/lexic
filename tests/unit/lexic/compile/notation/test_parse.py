@@ -351,3 +351,54 @@ def test_the_extra_vocabulary_does_not_outlive_the_call() -> None:
     assert load_ir(repr(tok), {"IrByteLevel": IrByteLevel}) == tok
     with pytest.raises(UnsupportedConstructError, match="unknown symbol"):
         load_ir(repr(tok))
+
+
+# ── plain tuples: the notation's one non-call composite ────────────────────
+
+
+@pytest.mark.parametrize(
+    "text,want",
+    [
+        ("()", ()),
+        ("(1,)", (1,)),
+        ("(1, 2)", (1, 2)),
+        ("(1, 2,)", (1, 2)),
+        ("('a', 'b')", ("a", "b")),
+        ("(IrStr('a'),)", (IrStr("a"),)),
+        ("((1, 2), (3,))", ((1, 2), (3,))),
+        ("( 1 , 2 )", (1, 2)),
+    ],
+)
+def test_load_ir_reads_a_plain_tuple(text: str, want: tuple) -> None:
+    """A plain tuple is a value: parens, comma-separated, trailing comma ok."""
+    assert load_ir(text) == want
+
+
+def test_load_ir_refuses_a_parenthesised_single_value() -> None:
+    """``(1)`` must REFUSE — it is not a one-tuple in Python either.
+
+    Two loaders read a notation artefact: CPython and this parse half. If the
+    grammar accepted ``(1)`` as a one-tuple they would return different values
+    for one file, and nothing would report it. ``tuplist ::= value tup-tail+``
+    makes the refusal structural — there is no derivation without a comma.
+    """
+    with pytest.raises(UnsupportedConstructError):
+        load_ir("(1)")
+
+
+def test_load_ir_refuses_a_tuple_of_nothing_but_a_comma() -> None:
+    """``(,)`` has no first value, so no derivation."""
+    with pytest.raises(UnsupportedConstructError):
+        load_ir("(,)")
+
+
+def test_load_ir_refuses_a_stray_comma_inside_a_tuple() -> None:
+    """``(1,,2)`` parses leniently and the FOLD refuses it, as in an arg list."""
+    with pytest.raises(UnsupportedConstructError, match="stray"):
+        load_ir("(1,,2)")
+
+
+def test_load_ir_reads_a_plain_tuple_inside_a_spine_node() -> None:
+    """The shape that motivated the arm: a variadic field holding a raw tuple."""
+    node = IrTuple(IrStr("x"), (IrStr("y"), IrStr("z")))
+    assert load_ir(repr(node)) == node
