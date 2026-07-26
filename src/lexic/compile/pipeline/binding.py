@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import inspect
 import keyword
-import re
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -128,7 +127,14 @@ class RuleBinding:
 
 # ── class naming (absorbed to_pascal) ─────────────────────────────────
 
-_NAME_SPLIT = re.compile(r"[-_]")
+
+def _name_parts(rule_name: str) -> list[str]:
+    """Split on ``-`` and ``_``, keeping the empty parts between adjacent ones.
+
+    :param rule_name: The (canonical) rule name.
+    :returns: The word parts, in order.
+    """
+    return rule_name.replace("-", "_").split("_")
 
 
 _RESERVED_FIELD_NAMES: frozenset[str] = frozenset(keyword.kwlist) | frozenset(
@@ -207,9 +213,7 @@ def class_name_for(rule_name: str) -> str:
     :returns: A valid Python class name (``jp-char`` → ``JpChar``,
         ``true`` → ``True_``, ``ir-rule`` → ``IrRule_``).
     """
-    pascal = "".join(
-        part[:1].upper() + part[1:] for part in _NAME_SPLIT.split(rule_name)
-    )
+    pascal = "".join(part[:1].upper() + part[1:] for part in _name_parts(rule_name))
     reserved = keyword.iskeyword(pascal) or pascal in _RESERVED_CLASS_NAMES
     return pascal + "_" if reserved else pascal
 
@@ -425,10 +429,50 @@ def _parent_rules(rules: Sequence[IrRule]) -> dict[str, tuple[str, ...]]:
 
 # ── field naming: tier-2 lookup bodies ────────────────────────────────
 
-_TOKEN_RE = re.compile(r"[^0-9A-Za-z]")
-_BRACKET_RE = re.compile(r"[][^]")
-_NON_SLUG_RE = re.compile(r"[^a-z0-9_]")
-_UNDERSCORE_RUN_RE = re.compile(r"_+")
+_ASCII_ALNUM: frozenset[str] = frozenset(
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+)
+"""``[0-9A-Za-z]`` as a set — ASCII only, unlike :meth:`str.isalnum`."""
+
+_SLUG_CHARS: frozenset[str] = frozenset("0123456789abcdefghijklmnopqrstuvwxyz_")
+"""``[a-z0-9_]`` — what survives in a slug."""
+
+_DROP_BRACKETS = str.maketrans("", "", "[]^")
+"""``[][^]`` as a delete table."""
+
+
+def _to_underscores(text: str) -> str:
+    """Rewrite every non-ASCII-alphanumeric character to ``_``.
+
+    :param text: Arbitrary text.
+    :returns: The rewritten text, same length.
+    """
+    return "".join(c if c in _ASCII_ALNUM else "_" for c in text)
+
+
+def _keep_slug(text: str) -> str:
+    """Drop every character outside ``[a-z0-9_]``.
+
+    :param text: Arbitrary text.
+    :returns: The surviving characters, in order.
+    """
+    return "".join(c for c in text if c in _SLUG_CHARS)
+
+
+def _collapse_underscores(text: str) -> str:
+    """Collapse each run of ``_`` to one.
+
+    :param text: Arbitrary text.
+    :returns: The text with no adjacent underscores.
+    """
+    out: list[str] = []
+    previous_underscore = False
+    for c in text:
+        if c == "_" and previous_underscore:
+            continue
+        previous_underscore = c == "_"
+        out.append(c)
+    return "".join(out)
 
 
 def _literal_token(text: str) -> str:
@@ -436,7 +480,7 @@ def _literal_token(text: str) -> str:
     named = LITERAL_NAMES.get(text)
     if named:
         return named
-    token = _TOKEN_RE.sub("_", text).strip("_").lower()[:12]
+    token = _to_underscores(text).strip("_").lower()[:12]
     return token or "lit"
 
 
@@ -447,8 +491,8 @@ def _charclass_key(cc: IrCharClass) -> str:
 
 def _pattern_slug(key: str) -> str:
     """Identifier-safe slug of a bracketed pattern; empty when nothing survives."""
-    slug = _BRACKET_RE.sub("", key).replace("-", "_").lower()
-    slug = _UNDERSCORE_RUN_RE.sub("_", _NON_SLUG_RE.sub("", slug).strip("_"))
+    slug = key.translate(_DROP_BRACKETS).replace("-", "_").lower()
+    slug = _collapse_underscores(_keep_slug(slug).strip("_"))
     if not slug:
         return ""
     if slug[0].isdigit():
