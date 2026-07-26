@@ -690,6 +690,12 @@ def bind_fields(
     each :class:`IrBind`; slot-keyed consumers (``__binds__``, the fold) are
     order-independent.
 
+    **So this is not the grammar's item order.** Wherever an optional item
+    precedes a required one, the two disagree — ``ws? value`` declares
+    ``value`` first — and it is the language's rule that wins, not the
+    grammar's. Read a field's position in the source from its
+    :class:`IrBind`, never from where it appears in ``_fields``.
+
     :param items: The rule's single sequence arm.
     :param non_semantic: Names of the grammar's structural-noise rules.
     :returns: Field name → :class:`IrBind`, required-first declaration order.
