@@ -27,7 +27,6 @@ to the compiled one.
 from __future__ import annotations
 
 import ast as _pyast
-import re
 from pathlib import Path
 from typing import NamedTuple
 
@@ -60,12 +59,39 @@ WIDTH = 88
 
 _UNIT = IrQuantifier(1, 1)
 
-# A value-final token (bare name, ``)``, string, int) is followed by its
-# delimiter (``,``/``)``) across only space/tab in an exported module — the
-# module self-grammar's ``ws-inl`` cannot cross a newline. The layout algebra
-# breaks only AFTER ``(``/``,`` (whose ``ws`` DOES cross a newline), so a
-# newline before a delimiter never occurs; this pins the invariant.
-_WS_INL_LEAK = re.compile(r"[\w)]\n[ ]*[,)]")
+
+def _ws_inl_leak(text: str) -> str:
+    """The first value-final token separated from its delimiter by a newline.
+
+    A value-final token (bare name, ``)``, string, int) is followed by its
+    delimiter (``,``/``)``) across only space/tab in an exported module — the
+    module self-grammar's ``ws-inl`` cannot cross a newline. The layout algebra
+    breaks only AFTER ``(``/``,`` (whose ``ws`` DOES cross a newline), so a
+    newline before a delimiter never occurs; this finds one if it ever does.
+
+    The word test is ``str.isalnum() or "_"``, which is exactly CPython's
+    ``\\w``: both are ``isalpha() or isdecimal() or isdigit() or isnumeric()``,
+    plus the underscore.
+
+    :param text: Rendered notation.
+    :returns: The offending slice, or ``""`` when the invariant holds.
+    """
+    at = text.find("\n")
+    while at >= 0:
+        # A newline at 0 cannot start a match — no preceding character — but it
+        # must be SKIPPED, not terminated on. Writing `while at > 0` here
+        # returns "" for `"\na\n,"`, where the invariant is violated at 1, and
+        # the caller raises on this, so a false negative ships a broken twin in
+        # silence (403 of 4 617 859 inputs, adversarial pass 2).
+        before = text[at - 1] if at else ""
+        if before in (")", "_") or before.isalnum():
+            after = at + 1
+            while after < len(text) and text[after] == " ":
+                after += 1
+            if after < len(text) and text[after] in ",)":
+                return text[at - 1 : after + 1]
+        at = text.find("\n", at + 1)
+    return ""
 
 
 # ── field annotations (readable view — the runtime never reads them) ─────
@@ -208,11 +234,10 @@ def _indented_ir(prefix: str, node: IrSelf) -> _Rendered:
     notation = ir_doc(node)
     doc = IrCat(IrText(prefix), IrNest(base, notation.doc))
     text = render(doc, WIDTH)
-    leak = _WS_INL_LEAK.search(text)
-    if leak is not None:
+    leak = _ws_inl_leak(text)
+    if leak:
         raise UnsupportedConstructError(
-            f"export: newline before a delimiter breaks module reparse: "
-            f"{leak.group()!r}"
+            f"export: newline before a delimiter breaks module reparse: {leak!r}"
         )
     return _Rendered(text.split("\n"), notation.symbols)
 
