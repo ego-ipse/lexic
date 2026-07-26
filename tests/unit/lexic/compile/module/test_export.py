@@ -10,14 +10,16 @@ emitted content, and the binds table renders only under ``inline_tables``).
 from __future__ import annotations
 
 import ast
+import inspect
 
 import pytest
 
 from lexic.compile import compile_from_path, compile_text, export_module, export_source
+from lexic.compile.module import export
 from lexic.compile.module.export import (
-    _WS_INL_LEAK,
     WIDTH,
     _group_model_type,
+    _ws_inl_leak,
     docstring_lines,
     field_type,
     value_str_type,
@@ -113,14 +115,40 @@ def test_export_source_never_mentions_lambda_or_reducer(stem: str):
 # ── the ws-inl invariant guard (module self-grammar reparse) ──────────────
 
 
-def test_ws_inl_leak_guard_regex_shape():
+def test_ws_inl_leak_guard_shape():
     """The guard flags a value-final token (name/``)``) with a newline before
     its delimiter, but not the valid AFTER-``(``/``,`` layout breaks (whose
     ``ws`` DOES cross a newline in the module self-grammar)."""
-    assert _WS_INL_LEAK.search("IrNone\n)") is not None
-    assert _WS_INL_LEAK.search("IrRange(a, b)\n,") is not None
-    assert _WS_INL_LEAK.search("IrCharClass(\n    IrRange") is None  # break after (
-    assert _WS_INL_LEAK.search("IrRange(a, b),\n    )") is None  # break after ,
+    assert _ws_inl_leak("IrNone\n)")
+    assert _ws_inl_leak("IrRange(a, b)\n,")
+    assert not _ws_inl_leak("IrCharClass(\n    IrRange")  # break after (
+    assert not _ws_inl_leak("IrRange(a, b),\n    )")  # break after ,
+
+
+def test_ws_inl_leak_does_not_stop_at_a_leading_newline():
+    """A newline at index 0 cannot start a match but must not end the scan.
+
+    The scan's predecessor bug: a leading newline terminated it, so every later
+    leak went unreported — and the caller RAISES on a leak, so a false negative
+    ships a broken twin in silence.
+    """
+    assert _ws_inl_leak("\na\n,") == "a\n,"
+    assert _ws_inl_leak("\n\n\nx\n  )") == "x\n  )"
+
+
+def test_ws_inl_leak_reports_the_offending_slice():
+    """The refusal quotes the text it objected to, delimiter included."""
+    assert _ws_inl_leak("IrRange(a, b)\n   ,") == ")\n   ,"
+    assert _ws_inl_leak("a\nb\n)") == "b\n)"
+
+
+def test_ws_inl_leak_word_test_is_unicode_like_the_pattern_it_replaced():
+    """``\\w`` is ``isalnum() or "_"`` — a Unicode letter or digit counts."""
+    assert _ws_inl_leak("é\n)")
+    assert _ws_inl_leak("٣\n)")  # ARABIC-INDIC DIGIT THREE
+    assert _ws_inl_leak("_\n)")
+    assert not _ws_inl_leak("!\n)")
+    assert not _ws_inl_leak(" \n)")
 
 
 @pytest.mark.parametrize("stem", ["list", "json_ws", "arithmetic"])
@@ -131,7 +159,7 @@ def test_export_notation_never_leaks_a_newline_before_a_delimiter(stem: str):
     for inline_tables in (False, True):
         source = export_source(cg, stem=stem, inline_tables=inline_tables)
         grammar_region = source.split("GRAMMAR: IrAst = ", 1)[1]
-        assert _WS_INL_LEAK.search(grammar_region) is None
+        assert not _ws_inl_leak(grammar_region)
 
 
 # ── field typing / optional defaults / union groups ───────────────────────
@@ -421,3 +449,24 @@ def test_header_omits_an_elided_default() -> None:
     compiled = compile_text('root ::= "a" "b"\n', cache_key="export-elided-header")
     source = export_source(compiled, stem="flat")
     assert "IrQuantifier" not in source
+
+
+def test_export_imports_no_regex_engine() -> None:
+    """``export.py`` declares no ``re`` import — read from its AST.
+
+    A name check divides *binds the name* from *uses a regex*;
+    ``from re import compile`` binds neither. The import statements are the
+    property.
+    """
+    tree = ast.parse(inspect.getsource(export))
+    imported = {
+        alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    } | {
+        node.module.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    assert "re" not in imported
