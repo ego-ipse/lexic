@@ -411,3 +411,71 @@ def test_src_never_imports_the_unshipped_ext_package():
         if line.startswith(("import ext", "from ext"))
     ]
     assert not offenders, f"src imports the unshipped ext package: {offenders}"
+
+
+# ── no regex engine in the shipped package ────────────────────────────────
+
+
+def regex_imports(root: Path) -> list[str]:
+    """Every ``import re`` / ``from re import`` under ``root``, by AST.
+
+    AST, not ``grep``: the sibling guards here match substrings and get away
+    with it because their needles are dotted module paths, but a two-letter
+    module name does not. Measured against a substring scan for ``"import re"``
+    on the same tree, that scan is wrong in both directions — it fires on the
+    words in a docstring, and it misses ``from re import compile`` and
+    ``import os, re``, neither of which contains its needle. (It does NOT miss
+    ``import re as regex``, which the needle is a prefix of — the first version
+    of this docstring claimed it did.)
+    """
+    found: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            # Narrowed per branch rather than in one boolean: ``ast.walk``
+            # yields ``AST``, which carries no ``lineno``, and a cast to get at
+            # it would launder the very thing the isinstance establishes.
+            if isinstance(node, ast.Import):
+                if any(
+                    alias.name == "re" or alias.name.startswith("re.")
+                    for alias in node.names
+                ):
+                    found.append(f"{path.relative_to(root)}:{node.lineno}")
+            elif isinstance(node, ast.ImportFrom) and node.module == "re":
+                found.append(f"{path.relative_to(root)}:{node.lineno}")
+    return found
+
+
+def test_src_imports_no_regex_engine():
+    """``src/`` carries no regex engine — every pattern is plain string logic.
+
+    Five in the binding view (two character maps, a complement class, a
+    two-delimiter split, a run-collapse fold) and one in the exporter (a
+    three-position adjacency scan). Each was replaced by the shape it actually
+    was, and each replacement was compared against its regex over an
+    adversarial corpus before landing.
+    """
+    assert not regex_imports(SRC), f"src imports re: {regex_imports(SRC)}"
+
+
+def test_the_regex_guard_catches_a_planted_violation(tmp_path: Path):
+    """A guard nobody has seen fail is a guard nobody knows works.
+
+    ``src/`` is clean, so the test above passes whether or not the scan does
+    anything. So plant every spelling — including the two a substring scan
+    misses and the docstring mention it would flag.
+    """
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "clean.py").write_text(
+        '"""A docstring that says import re, which grep would flag."""\nimport ast\n',
+        encoding="utf-8",
+    )
+    for spelling in (
+        "import re\n",
+        "import re as regex\n",
+        "from re import compile\n",  # a scan for "import re" misses this
+        "import os, re\n",  # and this
+        "import re.foo\n",
+    ):
+        (tmp_path / "sub" / "dirty.py").write_text(spelling, encoding="utf-8")
+        assert regex_imports(tmp_path) == ["sub/dirty.py:1"], spelling
