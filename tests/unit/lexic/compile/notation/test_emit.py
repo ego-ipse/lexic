@@ -21,7 +21,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_GRAMMAR, ABNF_REDUCTIONS
 from lexic.grammars.gbnf import GBNF_GRAMMAR, GBNF_REDUCTIONS
 from lexic.ir.action import IrAction
-from lexic.ir.base import IrInt, IrLambda, IrNone
+from lexic.ir.base import IrInt, IrLambda, IrNone, IrStr, IrTuple
 from lexic.ir.layout import render
 from lexic.ir.mapping import IR_DEFAULT
 from lexic.ir.nodes import IrAst, IrItem, IrLiteral, IrQuantifier, IrSequence
@@ -205,3 +205,60 @@ def test_ir_doc_reports_a_bare_name_singleton_by_its_value() -> None:
     notation = ir_doc(IrItem(IrLiteral("a"), IrQuantifier(0, IrNone)))
     assert "IrNone" in notation.symbols
     assert "IrNoneType" not in notation.symbols
+
+
+# ── plain tuples: the one composite that is not a call ────────────────────
+
+TUPLE_VALUES = [
+    IrTuple(IrStr("x"), ()),
+    IrTuple(IrStr("x"), (IrStr("y"),)),
+    IrTuple(IrStr("x"), (IrStr("y"), IrStr("z"))),
+    IrTuple((IrInt(1), IrInt(2))),
+    IrTuple(((IrInt(1),), (IrInt(2), IrInt(3)))),
+    IrTuple(IrStr("a"), (IrStr("b"),), IrStr("c")),
+    IrTuple((IrStr("only"),)),
+]
+
+
+@pytest.mark.parametrize("width", [200, 20])
+@pytest.mark.parametrize("value", TUPLE_VALUES, ids=range(len(TUPLE_VALUES)))
+def test_emit_ir_round_trips_a_plain_tuple(value: IrTuple, width: int) -> None:
+    """Flat and width-forced-broken, a plain tuple survives the round trip."""
+    assert load_ir(emit_ir(value, width=width)) == value
+
+
+def test_emit_ir_spells_a_one_tuple_comma_flat() -> None:
+    """A one-tuple's comma is the VALUE, not a break artefact.
+
+    In a call the trailing comma appears only when the call breaks (the black
+    form). In a one-tuple it is what makes the value a tuple at all, so it is
+    unconditional — and ``(x)`` would be a different value that the parse half
+    refuses.
+    """
+    text = emit_ir(IrTuple((IrStr("only"),)), width=200)
+    assert text == 'IrTuple((IrStr("only"),))'
+    assert "\n" not in text
+
+
+def test_emit_ir_spells_an_empty_tuple() -> None:
+    """``()`` renders as itself, with nothing to break."""
+    assert emit_ir(IrTuple(IrStr("x"), ()), width=200) == 'IrTuple(IrStr("x"), ())'
+
+
+def test_emit_ir_two_tuple_has_no_trailing_comma_when_flat() -> None:
+    """A flat multi-element tuple carries no trailing comma (black semantics)."""
+    text = emit_ir(IrTuple((IrInt(1), IrInt(2))), width=200)
+    assert text == "IrTuple((IrInt(1), IrInt(2)))"
+
+
+def test_emit_ir_broken_tuple_carries_a_trailing_comma() -> None:
+    """Forced broken, it takes the trailing comma and still round-trips."""
+    value = IrTuple((IrStr("aaaaaaaa"), IrStr("bbbbbbbb"), IrStr("cccccccc")))
+    text = emit_ir(value, width=20)
+    assert TRAILING_COMMA.search(text)
+    assert load_ir(text) == value
+
+
+def test_ir_doc_reports_no_symbol_for_the_parens() -> None:
+    """A plain tuple spells no importable name — the parens are syntax."""
+    assert set(ir_doc((IrStr("a"), IrStr("b"))).symbols) == {"IrStr"}
