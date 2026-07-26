@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import importlib
 
+import pytest
+
 from lexic import ir
-from lexic.ir.base import IrNone
+from lexic.compile import compile_from_path
+from lexic.compile.notation.emit import ir_doc
+from lexic.grammars.abnf import ABNF_GRAMMAR
+from lexic.grammars.gbnf import GBNF_GRAMMAR
+from lexic.ir.base import IrInt, IrNone
 from lexic.ir.base import IrNoneType as _IrNoneType
+from lexic.ir.base import IrStr, IrTuple
+from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
 
 
 def test_module_has_all() -> None:
@@ -150,3 +158,40 @@ def test_new_algebra_ops_are_public() -> None:
     for name in ("IrScalar", "IrInt", "IrOp", "IrCompare", "IrAnd"):
         assert hasattr(ir, name), name
         assert name in ir.__all__, name
+
+
+# ── the surface is closed under what emission spells ──────────────────────
+
+
+def _spine_values() -> list[tuple[str, object]]:
+    """Values lexic itself produces and can write into an importable module."""
+    out: list[tuple[str, object]] = [
+        ("gbnf-self", GBNF_GRAMMAR),
+        ("abnf-self", ABNF_GRAMMAR),
+        # A bare tuple is what a reduced document is BUILT of — the `ir` target
+        # of any grammar whose reduction yields spine tuples.
+        ("bare-tuple", IrTuple(IrStr("a"), IrStr("b"))),
+        ("nested-tuple", IrTuple(IrTuple(IrStr("a")), IrInt(1))),
+    ]
+    out += [
+        (stem, compile_from_path(GROUND_TRUTH / stem).grammar) for stem in GBNF_GRAMMARS
+    ]
+    return out
+
+
+@pytest.mark.parametrize("label,value", _spine_values())
+def test_public_surface_names_every_symbol_emission_spells(
+    label: str, value: object
+) -> None:
+    """A module holding a spine value imports its symbols from ``lexic.ir``.
+
+    So the surface has to be closed under what the notation SPELLS for the
+    values lexic produces — otherwise a generated module names something it
+    cannot import. ``load_ir``'s own ``SYMBOLS`` table is complete (it is built
+    from the private modules); the public surface is the one a header reads.
+    """
+    spelled = set(ir_doc(value).symbols)
+    assert spelled <= set(ir.__all__), (
+        f"{label}: emission spells {sorted(spelled - set(ir.__all__))}, "
+        "which no generated module could import from lexic.ir"
+    )
