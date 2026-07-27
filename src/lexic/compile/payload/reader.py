@@ -362,6 +362,119 @@ def decode(
     return built[-1]
 
 
+def offsets(nodes: Sequence[int]) -> list[int]:
+    """Each record's start in ``NODES`` — one forward scan, building nothing.
+
+    The table is self-describing but not indexable: a record is
+    ``type_id, kind, payload, *child_indices`` and only its ``kind`` says how
+    many slots follow. So reaching record N means walking N records — which is
+    cheap precisely because it constructs no objects, and is why the format
+    needs no offset table of its own.
+
+    :param nodes: The flat node ints.
+    :returns: The start offset of each record, in record order.
+    :raises ValueError: On a kind the table does not define.
+    """
+    out: list[int] = []
+    at, total = 0, len(nodes)
+    while at < total:
+        out.append(at)
+        kind = nodes[at + 1]
+        if not 0 <= kind < len(DECODE):
+            raise ValueError(f"payload: unknown record kind {kind}")
+        at += 3 + nodes[at + 2] * CHILD_SLOTS[kind]
+    return out
+
+
+def children(tables: tuple, index: int) -> tuple[int, ...]:
+    """The record indices one record points at, in order.
+
+    :param tables: ``(types, origins, strs, nodes)``.
+    :param index: A record index.
+    :returns: Its child record indices — empty for a leaf.
+    :raises ValueError: When ``index`` names no record.
+    """
+    nodes = tables[3]
+    starts = offsets(nodes)
+    if not 0 <= index < len(starts):
+        raise ValueError(f"payload: record {index} is not in a table of {len(starts)}")
+    at = starts[index]
+    span = nodes[at + 2] * CHILD_SLOTS[nodes[at + 1]]
+    return tuple(nodes[at + 3 + i] for i in range(span))
+
+
+def subtree(
+    tables: tuple,
+    symbols: dict[str, Any],
+    index: int,
+    expect: tuple[int, int] | None = None,
+) -> Any:
+    """Decode ONE record and only the records it reaches.
+
+    The payload is a queryable compiled form, not merely a serialisation: every
+    child index points at an EARLIER record, so a subtree is a closed set and
+    materialising it costs what THAT subtree costs. Asking for the root is a
+    full decode — it IS the document — and asking for one member of a large
+    object is proportionally cheaper.
+
+    :param tables: ``(types, origins, strs, nodes)``.
+    :param symbols: Symbol name → class or singleton.
+    :param index: The record to materialise.
+    :param expect: ``(digest, shape)``, checked as in :func:`decode`.
+    :returns: The value that record builds.
+    :raises ValueError: On a failed check or a record index out of range.
+    """
+    if expect is not None:
+        _verify(tables, symbols, expect)
+    nodes = tables[3]
+    starts = offsets(nodes)
+    if not 0 <= index < len(starts):
+        raise ValueError(f"payload: record {index} is not in a table of {len(starts)}")
+    ctx = (tables[0], tables[2], symbols)
+    built: dict[int, Any] = {}
+    for record in reaches(tables, starts, index):
+        built[record] = _one(nodes, starts[record], built, ctx)
+    return built[index]
+
+
+def _one(nodes: Sequence[int], here: int, built: dict, ctx: tuple) -> Any:
+    """Build the single record at offset ``here``, its children already built."""
+    tid, kind, payload = nodes[here], nodes[here + 1], nodes[here + 2]
+    span = payload * CHILD_SLOTS[kind]
+    kids = [built[nodes[here + 3 + i]] for i in range(span)]
+    cls = None if tid == PLAIN else ctx[2][ctx[0][tid]]
+    return DECODE[kind](cls, payload, kids, ctx)
+
+
+def reaches(tables: tuple, starts: Sequence[int], index: int) -> list[int]:
+    """Every record ``index`` reaches, in build order (children first).
+
+    Public because it is the size of a subtree, which is the only honest way to
+    read :func:`subtree`'s cost: the win is proportional to what is reached, and
+    bounded below by :func:`offsets`, which walks the whole table.
+
+    :param tables: ``(types, origins, strs, nodes)``.
+    :param starts: The record offsets from :func:`offsets`.
+    :param index: The record to start from.
+    :returns: The reached record indices, ascending.
+    :raises ValueError: On a child index that names no record.
+    """
+    nodes = tables[3]
+    seen: set[int] = set()
+    stack = [index]
+    while stack:
+        record = stack.pop()
+        if record in seen:
+            continue
+        if not 0 <= record < len(starts):
+            raise ValueError(f"payload: child index {record} is not a record")
+        seen.add(record)
+        here = starts[record]
+        span = nodes[here + 2] * CHILD_SLOTS[nodes[here + 1]]
+        stack.extend(nodes[here + 3 + i] for i in range(span))
+    return sorted(seen)
+
+
 def _moved(
     types: Sequence[str], origins: Sequence[str], symbols: dict[str, Any]
 ) -> list[str]:

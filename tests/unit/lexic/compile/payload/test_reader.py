@@ -177,3 +177,49 @@ def test_a_declared_shape_that_is_not_a_digest_is_refused_by_name(bad: object) -
     cls = type("Thing", (str,), {"__shape__": bad})
     with pytest.raises(ValueError, match="not a 64-bit digest"):
         reader.shape_of(("<plain>", "Thing"), {"Thing": cls})
+
+
+def _artefact_tables():
+    """A real compiled document, its tables and its symbols."""
+    compiled = compile_text(NARROW_V1)
+    payload = project(compiled.parse("42"))
+    return payload, {n: compiled.classes[n] for n in payload.symbols}
+
+
+def test_navigating_to_the_root_is_the_whole_document() -> None:
+    """``at`` is not a different reader — the root IS the document."""
+    payload, symbols = _artefact_tables()
+    root = len(reader.offsets(payload.tables[3])) - 1
+    assert repr(reader.subtree(payload.tables, symbols, root)) == repr(
+        reader.decode(payload.tables, symbols)
+    )
+
+
+def test_navigating_to_a_child_agrees_with_the_full_decode() -> None:
+    """A subtree materialised alone is the same value it is inside the whole."""
+    payload, symbols = _artefact_tables()
+    whole = reader.decode(payload.tables, symbols)
+    root = len(reader.offsets(payload.tables[3])) - 1
+    kids = reader.children(payload.tables, root)
+    assert kids
+    assert repr(reader.subtree(payload.tables, symbols, kids[0])) == repr(whole[0])
+
+
+def test_a_subtree_builds_only_what_it_reaches() -> None:
+    """The claim is proportionality, so what it reaches is the measurable part.
+
+    Every child index points at an EARLIER record, which is what makes a
+    subtree a closed set — and what makes the cost of one its own rather than
+    the document's.
+    """
+    payload, _ = _artefact_tables()
+    starts = reader.offsets(payload.tables[3])
+    assert len(reader.reaches(payload.tables, starts, 0)) == 1  # a leaf
+    assert len(reader.reaches(payload.tables, starts, len(starts) - 1)) == len(starts)
+
+
+def test_navigating_past_the_table_refuses() -> None:
+    """An index that names no record is said plainly, not indexed into."""
+    payload, symbols = _artefact_tables()
+    with pytest.raises(ValueError, match="is not in a table of"):
+        reader.subtree(payload.tables, symbols, 10_000)
