@@ -736,7 +736,7 @@ def _check(cond: bool, message: str) -> None:
         raise UnsupportedConstructError(f"verify_module: {message}")
 
 
-class _VerifyCtx(IrNamedTuple[dict, str, bool, dict]):
+class _VerifyCtx(IrNamedTuple[dict, str, bool, dict, dict]):
     """The per-module verify context threaded through the class checks."""
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
@@ -744,13 +744,14 @@ class _VerifyCtx(IrNamedTuple[dict, str, bool, dict]):
     flavour: str
     inline: bool
     shapes: dict
+    authored: dict
 
 
 def _verify_class(
     mclass: MClass, bound: RuleBinding, rule: IrRule, ctx: _VerifyCtx
 ) -> None:
     """One class block against its binding."""
-    class_by_rule, flavour_name, inline, shapes = ctx
+    class_by_rule, flavour_name, inline, shapes, authored = ctx
     _check(
         mclass.name == bound.class_name,
         f"class {mclass.name!r} where {bound.class_name!r} expected",
@@ -771,8 +772,8 @@ def _verify_class(
     )
     if inline:
         _check(
-            mclass.inline_grammar == rule,
-            f"{mclass.name}: inline __grammar__ != codegen rule",
+            mclass.inline_grammar == authored.get(bound.rule_name, rule),
+            f"{mclass.name}: inline __grammar__ != the rule the runtime carries",
         )
         _check(
             mclass.inline_shape == shapes[bound.rule_name],
@@ -821,11 +822,13 @@ def verify_module(compiled: CompiledGrammar, text: str) -> MModule:
         len(module.classes) == len(binding),
         f"{len(module.classes)} classes for {len(binding)} bindings",
     )
+    pre = compiled.tokens.unresolved or compiled.codegen_grammar
     ctx = _VerifyCtx(
         class_by_rule,
         compiled.flavour,
         inline,
-        rule_closure(compiled.tokens.unresolved or compiled.codegen_grammar),
+        rule_closure(pre),
+        {str(rule.name): rule for rule in pre.rules},
     )
     for mclass, bound in zip(module.classes, binding):
         _verify_class(mclass, bound, rules[bound.rule_name], ctx)
