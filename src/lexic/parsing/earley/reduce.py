@@ -29,8 +29,9 @@ from __future__ import annotations
 from functools import partial
 from typing import Iterator, Sequence, cast
 
-from lexic.ir.base import IrLambda, IrLeaf, IrNone, IrSelf, IrStr, IrTuple
+from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.mapping import IR_DEFAULT, IrMap
+from lexic.ir.meta import IrSingleton
 from lexic.ir.nodes import IrAst
 from lexic.ir.walk import IrDispatch
 from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
@@ -52,21 +53,58 @@ from lexic.parsing.earley.trampoline import ADVANCE, EMIT, EXHAUSTED
 # Each body returns its contribution to the parent's argument channel as an
 # IrTuple: drop = zero elements, keep = one, splice = many.
 
-DROP = IrLambda(lambda d, n, nc: IrTuple())
+
+class Drop(IrLeaf[IrSelf, IrSelf], metaclass=IrSingleton):
+    """Contribute nothing — a non-semantic rule or an inline-literal terminal."""
+
+    def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrTuple:
+        """No contribution at all.
+
+        :returns: The empty channel.
+        """
+        return IrTuple()
+
+
+class KeepRaw(IrLeaf[IrSelf, IrSelf], metaclass=IrSingleton):
+    """Contribute the node unchanged — a terminal leaf passed straight through."""
+
+    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrTuple:
+        """The node itself, unreduced.
+
+        :param n: The parse node.
+        :returns: A one-element channel.
+        """
+        return IrTuple(n)
+
+
+class KeepReduced(IrLeaf[IrSelf, IrSelf], metaclass=IrSingleton):
+    """Contribute the reduced node — a semantic sub-rule folded to its IR."""
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrTuple:
+        """The node's own reduction.
+
+        :param d: The driving :class:`Reducer`.
+        :param n: The parse node.
+        :param nc: Threads the :class:`ReduceCtx`, so ``d.eval`` reads the memo.
+        :returns: A one-element channel.
+        """
+        return IrTuple(d.eval(d, n, nc))
+
+
+DROP = Drop()
 """Contribute nothing — a non-semantic rule or an inline-literal terminal."""
 
-KEEP_RAW = IrLambda(lambda d, n, nc: IrTuple(n))
+KEEP_RAW = KeepRaw()
 """Contribute the node unchanged — a terminal leaf passed straight through."""
 
-KEEP_REDUCED = IrLambda(lambda d, n, nc: IrTuple(d.eval(d, n, nc)))
-"""Contribute the reduced node — a semantic sub-rule folded to its IR. ``nc``
-threads the :class:`ReduceCtx` so the re-entrant ``d.eval`` reads the memo."""
+KEEP_REDUCED = KeepReduced()
+"""Contribute the reduced node — a semantic sub-rule folded to its IR."""
 
 
 # ── Subtree text ──────────────────────────────────────────────────────
 
 
-class Yield(IrLeaf[IrSelf, IrSelf]):
+class Yield(IrLeaf[IrSelf, IrSelf], metaclass=IrSingleton):
     """Source text of a parse subtree, skipping non-semantic sub-rule spans.
 
     Collects ``n``'s consumed characters in source order, recursing into

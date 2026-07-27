@@ -21,10 +21,11 @@ Design notes:
 - **The symbol table is the no-exec boundary** (:data:`SYMBOLS`): only
   ``IrSelf``-subclass constructors plus a fixed set of named singletons /
   bools / the boundary exception are reachable. There is no ``exec``/``eval``.
-- **Singleton interning** (:data:`INTERN`): the engine identity-checks
-  :data:`~lexic.parsing.earley.reduce.YIELD` (``node is YIELD``), so a zero-arg
-  call to an interned class returns THE canonical instance — ``Yield()`` yields
-  ``YIELD`` by identity, not a fresh repr-equal object.
+- **Engine sentinels are singleton classes**: the engine identity-checks them
+  (``node is YIELD``, ``body is DROP``), so ``Yield()`` in the notation must be
+  THE singleton rather than a repr-equal twin. That holds by construction —
+  each is an :class:`~lexic.ir.meta.IrSingleton` — rather than by a table of
+  which classes to intern, which is one entry away from a silent wrong answer.
 - **Structural string decode** (:func:`_decode_escapes`): the grammar carries
   one rule per escape kind (short / ``\\xNN`` / ``\\uNNNN`` / ``\\UNNNNNNNN``,
   the ``grammars/gbnf.py`` precedent); the reassembled raw body is decoded by a
@@ -74,7 +75,13 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.parsing import FieldFold, ModelBody, parse_model
-from lexic.parsing.earley.reduce import YIELD, Yield
+from lexic.parsing.earley.reduce import (
+    YIELD,
+    Drop,
+    KeepRaw,
+    KeepReduced,
+    Yield,
+)
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 
@@ -123,9 +130,12 @@ def _build_symbols() -> dict[str, object]:
             "IrNone": IrNone,
             "IR_DEFAULT": IR_DEFAULT,
             "YIELD": YIELD,
-            # The stateless reduce sentinel's class — spelled ``Yield()`` by
-            # repr, interned to its canonical instance (see INTERN).
+            # The reduce sentinels' classes — each spelled ``Name()`` by repr,
+            # and a singleton, so a spelled one IS the engine's own.
             "Yield": Yield,
+            "Drop": Drop,
+            "KeepRaw": KeepRaw,
+            "KeepReduced": KeepReduced,
             # The parser/boundary exception a reduction body may reference.
             "UnsupportedConstructError": UnsupportedConstructError,
             # Booleans — ``IrRule``'s ``semantic`` flag and friends.
@@ -154,14 +164,6 @@ Per call rather than registered globally: the whitelist is a boundary, and a
 boundary that any import can widen is not one. A context variable rather than
 a parameter because the fold reaches :func:`_resolve` as data, not as an
 argument."""
-
-INTERN: dict[object, object] = {Yield: YIELD}
-"""Classes whose zero-arg call returns a canonical shared instance.
-
-The engine identity-checks :data:`~lexic.parsing.earley.reduce.YIELD`, so
-``Yield()`` in the notation must yield THE ``YIELD`` singleton, not a fresh
-repr-equal instance (F-INTERN-1)."""
-
 
 # ── grammar builders ─────────────────────────────────────────────────────
 
@@ -410,8 +412,6 @@ def _name(head: str, tail: str = "") -> object:
 def _nv(sym: object, call: _Call | None = None) -> object:
     if call is None:
         return sym  # bare name: a class, singleton, or bool
-    if not call and sym in INTERN:
-        return INTERN[sym]  # zero-arg call to an interned class → THE instance
     if not callable(sym):  # a bool/singleton spelled with a call — a misuse
         raise UnsupportedConstructError(f"notation: {sym!r} is not callable")
     return sym(*call)  # positional apply — the raw IR class IS the ctor

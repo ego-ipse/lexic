@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from typing import NamedTuple, cast
 
-from lexic.compile.notation.parse import INTERN
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction
 from lexic.ir.base import (
@@ -151,7 +150,8 @@ def _repr_leaf(_d: object, n: object, _nc: object) -> _Leaf:
 
     A bare-name singleton spells as its VALUE (``IrNone``, not ``IrNoneType``),
     which is also the name an importer imports; anything else spells as a call
-    on its own class name.
+    on its own class name — which covers the engine's reduce sentinels, since
+    ``Drop()`` reads back as THE ``DROP`` and needs no tier of its own.
     """
     spelling = repr(n)
     name = spelling if spelling.isidentifier() else type(n).__name__
@@ -180,12 +180,6 @@ def _payload_doc(value: object) -> _Leaf:
     if isinstance(value, int):
         return _Leaf(IrText(repr(value)))
     raise UnsupportedConstructError(f"emit_ir: {value!r} has no notation spelling")
-
-
-def _intern_leaf(node: object) -> tuple[IrText, tuple[str, ...]]:
-    """An interned singleton's zero-arg call and the class name it spells."""
-    name = type(node).__name__
-    return IrText(name + "()"), (name,)
 
 
 def _refuse_lambda(_d: object, n: object, _nc: object) -> IrText:
@@ -219,15 +213,6 @@ _EMIT_STEP: IrDispatch = IrDispatch(
         IrAction(
             type(IR_DEFAULT),
             IrLambda(lambda _d, _n, _nc: _Leaf(IrText("IR_DEFAULT"), ("IR_DEFAULT",))),
-        ),
-        # Interned singletons (the INTERN registry) spell as their zero-arg
-        # call — load_ir's interning maps it back to THE instance.
-        *(
-            IrAction(
-                cast(type[IrSelf], cls),
-                IrLambda(lambda _d, n, _nc: _Leaf(*_intern_leaf(n))),
-            )
-            for cls in INTERN
         ),
         IrAction(IrLambda, IrLambda(_refuse_lambda)),
         # The leaf long tail (IrGlyph, IrThis, …): repr IS codegen and the
