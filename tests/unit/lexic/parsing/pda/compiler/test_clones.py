@@ -26,7 +26,7 @@ from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
 from lexic.ir import IrAst, IrFlavour
 from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import (
     CC,

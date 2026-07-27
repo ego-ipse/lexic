@@ -71,7 +71,13 @@ from lexic.ir import (
     IrTokenPipeline,
     IrTuple,
 )
-from lexic.parsing.earley.reduce import DROP, KEEP_RAW, KEEP_REDUCED, YIELD, Yield
+from lexic.parsing.earley.reduce.policy import (
+    DROP,
+    KEEP_RAW,
+    KEEP_REDUCED,
+    YIELD,
+    Yield,
+)
 
 GRAMMARS = Path(__file__).resolve().parents[5] / "src" / "lexic" / "grammars"
 

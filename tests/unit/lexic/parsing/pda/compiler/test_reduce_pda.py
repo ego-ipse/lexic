@@ -33,14 +33,9 @@ from lexic.ir import (
 )
 from lexic.parsing.earley.kernel.tables import compile_tables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import (
-    DROP,
-    KEEP_RAW,
-    KEEP_REDUCED,
-    YIELD,
-    Reducer,
-    plan_for,
-)
+from lexic.parsing.earley.reduce.fused import plan_for
+from lexic.parsing.earley.reduce.policy import DROP, KEEP_RAW, KEEP_REDUCED, YIELD
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.pda.compiler.clones import CloneKey
 from lexic.parsing.pda.compiler.flatten import (
     BUILD_REDUCE,

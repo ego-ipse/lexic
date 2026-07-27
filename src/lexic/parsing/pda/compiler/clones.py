@@ -60,7 +60,8 @@ from lexic.ir import (
     IrTypeMap,
 )
 from lexic.parsing.earley.kernel.tables import compile_tables
-from lexic.parsing.earley.reduce import OTHER_KIND, Reducer, plan_for
+from lexic.parsing.earley.reduce.fused import OTHER_KIND, plan_for
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource

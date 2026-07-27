@@ -78,7 +78,7 @@ from lexic.parsing.earley.kernel.tables import (
 )
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.products import earley_reduce
 from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
 

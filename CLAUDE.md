@@ -215,7 +215,11 @@ src/lexic/
         trampoline.py           Depth-safe trampoline for the forest/reduce tree walks
       lexruns.py                   Run-terminal detection — where a grammar's lexical layer is *derived*
       normalize.py                 Desugar an IR grammar into classical Earley shape
-      reduce.py                    Forest → IR reduction — the seam where a flavour's meaning attaches
+      reduce/                      Reduction — a parse forest into the reducer's own value
+        __init__.py                the group's package marker
+        fused.py                   The fused reduction — folding straight off the packed forest
+        policy.py                  Reduction policy — what a child contributes, as real nodes
+        reducer.py                 Forest → IR reduction — where a flavour's meaning attaches
       resume.py                    The resumable recognizer — mark / extend / rollback on one growing chart
       tokenscan.py                 The token-scanning kernel — Earley over a token-segmented input
     pda/

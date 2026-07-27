@@ -37,7 +37,13 @@ from lexic.ir import (
     IrTuple,
     render,
 )
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Drop, KeepReduced
+from lexic.parsing.earley.reduce.policy import (
+    DROP,
+    KEEP_REDUCED,
+    YIELD,
+    Drop,
+    KeepReduced,
+)
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
 
 

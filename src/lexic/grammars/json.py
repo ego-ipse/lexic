@@ -55,7 +55,8 @@ from lexic.ir import (
     IrUnradix,
     IrUtf,
 )
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
+from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
+from lexic.parsing.earley.reduce.reducer import Reducer
 
 JSON_GRAMMAR = IrAst(
     IrSeq(

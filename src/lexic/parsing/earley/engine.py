@@ -35,7 +35,8 @@ from lexic.parsing.earley.kernel.forest import (
 from lexic.parsing.earley.kernel.kernel import Kernel
 from lexic.parsing.earley.kernel.tables import ParserTables, compile_tables, tier_for
 from lexic.parsing.earley.lexruns import recognition_tables
-from lexic.parsing.earley.reduce import FusedReduce, Reducer, collapsed_tables
+from lexic.parsing.earley.reduce.fused import FusedReduce, collapsed_tables
+from lexic.parsing.earley.reduce.reducer import Reducer
 
 _MATCH = IrInt(1)
 _NO_MATCH = IrInt(0)
