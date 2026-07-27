@@ -210,11 +210,42 @@ def shape_of(types: Sequence[str], symbols: dict[str, Any]) -> int:
     """
     chunks: list[bytes] = []
     for name in types[1:]:
-        shape = getattr(symbols.get(name), "__shape__", None)
+        shape = _own_shape(symbols.get(name))
         if shape is not None:
             chunks.append(name.encode("utf-8", "surrogatepass"))
-            chunks.append(int(shape).to_bytes(8, "little"))
+            chunks.append(shape.to_bytes(8, "little"))
     return _hashed(chunks) if chunks else 0
+
+
+def _own_shape(cls: Any) -> int | None:
+    """A class's OWN closure digest, or ``None`` when it declares none.
+
+    Own, not inherited: every generated class declares its own, and a caller's
+    subclass of one would otherwise borrow its parent's provenance — passing the
+    shape check on rules that are not its own and skipping the origin check that
+    covers a class carrying no grammar.
+
+    :param cls: The symbol, or ``None`` when the artefact supplied no such name.
+    :returns: The digest, or ``None``.
+    :raises ValueError: When a declared shape is not a 64-bit unsigned int —
+        the artefact would otherwise fail deep inside the digest, on an
+        ``OverflowError`` that names nothing.
+    """
+    if not isinstance(cls, type):
+        return None
+    shape = vars(cls).get("__shape__")
+    if shape is None:
+        return None
+    if (
+        not isinstance(shape, int)
+        or isinstance(shape, bool)
+        or not 0 <= shape < 1 << 64
+    ):
+        raise ValueError(
+            f"payload: {cls.__name__}.__shape__ is {shape!r}, which is not a "
+            "64-bit digest — the class does not come from a lexic compilation"
+        )
+    return shape
 
 
 def digest(tables: tuple) -> int:
@@ -331,7 +362,7 @@ def _moved(
     moved = []
     for name, recorded in zip(types[1:], origins[1:]):
         found = symbols.get(name)
-        if found is None or getattr(found, "__shape__", None) is not None:
+        if found is None or _own_shape(found) is not None:
             continue
         home = getattr(found, "__module__", "")
         if home != recorded:
