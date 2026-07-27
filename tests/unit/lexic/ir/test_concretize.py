@@ -6,7 +6,7 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.concretize import concretize, concretize_atom
-from lexic.ir.encoding import IrTokenizer, IrUnicode
+from lexic.ir.encodings import IrUnicode
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAlphabet,
@@ -21,6 +21,7 @@ from lexic.ir.nodes import (
 from lexic.ir.operators import IrNot
 from lexic.ir.records import IrSeq, IrTuple
 from lexic.ir.scalars import IrStr
+from lexic.ir.tokenizer import IrTokenizer
 
 
 def _registry() -> IrMap:

@@ -41,15 +41,17 @@ from typing import cast
 
 import lexic.ir.action as _action
 import lexic.ir.bind as _bind
-import lexic.ir.encoding as _encoding
+import lexic.ir.encodings as _encodings
 import lexic.ir.flavour as _flavour
 import lexic.ir.layout as _layout
 import lexic.ir.mapping as _mapping
 import lexic.ir.nodes as _nodes
 import lexic.ir.operators as _operators
+import lexic.ir.pipeline as _pipeline
 import lexic.ir.records as _records
 import lexic.ir.scalars as _scalars
 import lexic.ir.spine as _spine
+import lexic.ir.tokenizer as _tokenizer
 from lexic.compile.foldkit import (
     ABSENT,
     ALT_BODY,
@@ -101,7 +103,9 @@ _IR_MODULES = (
     _mapping,
     _flavour,
     _layout,
-    _encoding,
+    _encodings,
+    _pipeline,
+    _tokenizer,
 )
 
 

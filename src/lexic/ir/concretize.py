@@ -18,7 +18,7 @@ lazily at match time; :func:`concretize` is the whole-grammar eager form.
 from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.encoding import IrEncoding
+from lexic.ir.encodings import IrEncoding
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import (
     IrAlphabet,

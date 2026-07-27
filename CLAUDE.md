@@ -172,7 +172,7 @@ src/lexic/
     bind.py                        IrBind — the field-binding marker generated model fields carry
     canonical.py                   canonicalize — the language-preserving normal form for a grammar IrAst
     concretize.py                  concretize — resolve an `IrAlphabet`'s spelling to an id
-    encoding.py                    Encoding family — the codec that gives a char class's ordinals meaning
+    encodings.py                   Encoding family — the codec that gives a char class's ordinals meaning
     escapes.py                     EscapeCodec — the flavour's emit-side spelling of canonical text, on the spine
     flavour.py                     IrFlavour ABC — config bundle every grammar flavour subclasses
     layout.py                      Layout algebra — width-aware document combinators on the record spine
@@ -181,9 +181,11 @@ src/lexic/
     nodes.py                       concrete grammar-AST nodes on the spine.py bases (IrAlphabet lives here)
     operators.py                   Operator-algebra nodes — the operator family, sitting between spine and nodes
     order.py                       RuleOrder — deterministic start-first ordering of grammar rules
+    pipeline.py                    Token pipeline — normalizers, pretokens, and the order they run in
     records.py                     Tuple tiers — a record IS its field tuple (IrTuple/IrSeq/IrNamedTuple/Field)
     scalars.py                     Value leaves — a scalar node IS its payload (IrStr/IrInt/IrChr)
     spine.py                       IR spine — the abstract bases every node sits on (IrSelf/IrNode/IrLeaf)
+    tokenizer.py                   Tokenizer — a vocabulary, and the segmenters that apply it
     walk.py                        Action-driven IR dispatcher on the IrSelf substrate
   parsing/
     __init__.py                    public API: parse_reduced/parse_model products + the Earley toolkit

@@ -12,26 +12,21 @@ import pytest
 from lexic.api.pretokens import BYTE_FALLBACK
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.concretize import _check_universe
-from lexic.ir.encoding import (
-    IrEncoding,
-    IrLongestMatch,
-    IrNormalizer,
-    IrRankedMerge,
-    IrReplace,
-    IrSegmenter,
-    IrTokenizer,
-    IrTokenPipeline,
-    IrUnicode,
-    IrUnicodeForm,
-    IrUnknown,
-    IrUtf,
-)
+from lexic.ir.encodings import IrEncoding, IrUnicode, IrUtf
 from lexic.ir.mapping import IrMap
 from lexic.ir.meta import IrSingleton
 from lexic.ir.nodes import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
+from lexic.ir.pipeline import (
+    IrNormalizer,
+    IrReplace,
+    IrTokenPipeline,
+    IrUnicodeForm,
+    IrUnknown,
+)
 from lexic.ir.records import IrTuple
 from lexic.ir.scalars import IrInt, IrStr
 from lexic.ir.spine import IrAtom, IrNode, IrNone
+from lexic.ir.tokenizer import IrLongestMatch, IrRankedMerge, IrSegmenter, IrTokenizer
 
 
 def _vocab() -> IrMap:
