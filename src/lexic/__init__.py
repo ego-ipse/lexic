@@ -17,6 +17,16 @@ runtime module reaching into the engine behind the type checker's back. This is
 the package façade, which has no layer and no arrow to dodge, and the block
 gives a lazy re-export the type it already had when it was eager. Authorised
 2026-07-27.
+
+REVISIT ON 3.15 — if PEP 810 (explicit lazy imports) lands as expected, this
+whole file collapses to six ``lazy from … import …`` lines: the names stay
+statically visible with their real types, so the ``TYPE_CHECKING`` block, the
+``__getattr__``, the ``_HOMES`` map and the three-way drift pin in
+``test_init_lexic`` all go away. Wait for a RELEASE, not a beta —
+``requires-python`` is a promise to everyone who installs lexic. Note that
+``generate`` would still need checking by hand: its collision with the submodule
+``lexic.generate`` is a name-shadowing problem, not a laziness one, and no import
+mechanism resolves two things wanting one name.
 """
 
 from importlib import import_module

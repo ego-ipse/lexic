@@ -148,6 +148,11 @@ src/lexic/
       emit.py                      The IR-constructor notation's emit half — IR → formatted notation text
       loader.py                    Flavour manifests — one notation expression → a live `IrFlavour`
       parse.py                     The IR-constructor notation — text → real lexic.ir objects
+    payload/
+      __init__.py                  The compiled payload — a parsed value as three flat literals
+      codec.py                     The codec table — one row per kind, carrying BOTH directions
+      encode.py                    Value → the three flat tables — the projection's lexic side
+      reader.py                    The payload's reader — zero lexic imports, by design and by test
     pipeline/
       __init__.py                  The compile pipeline — grammar → classes (passes, binding, synthesis)
       binding.py                   Binding view — the codegen grammar's per-rule class/kind/parent/field map
