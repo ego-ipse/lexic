@@ -34,17 +34,19 @@ from lexic.ir import (
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.kwindow import (
-    END,
     MAX_K,
+    arm_gate,
+    follow_arm_gate,
+    loop_gate,
+)
+from lexic.parsing.pda.analysis.gates.windows import (
+    END,
     MORE,
     UNK,
     FollowWindows,
     KWindowFirst,
-    arm_gate,
     collide,
     extend_follow,
-    follow_arm_gate,
-    loop_gate,
     separable,
     windows_of,
 )
