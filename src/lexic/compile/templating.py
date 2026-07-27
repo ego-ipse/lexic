@@ -120,6 +120,49 @@ class MapShape(IrNamedTuple[str, str, str, str]):
     key_field: str
     value_field: str
 
+    @classmethod
+    def for_entry(cls, compiled: CompiledGrammar, entry: str) -> Self:
+        """Derive the whole shape from the ENTRY rule alone.
+
+        Three of the four names are a function of the grammar, so asking for
+        them is asking the caller to restate what the grammar already says —
+        and a restatement can disagree.
+
+        The **fields** are the entry's own binding: a key/value pair is a
+        sequence with exactly two semantic fields, in document order. The
+        **section** is the rule the value field reaches that in turn reaches the
+        entry — the nesting cycle a mapping level closes, which is what makes it
+        the level rather than merely a rule above it.
+
+        :param compiled: The compiled grammar (any formulation of the language).
+        :param entry: The rule producing one key/value pair.
+        :returns: The resolved shape.
+        :raises UnsupportedConstructError: When the entry is not a rule, does
+            not bind exactly two semantic fields, or closes no nesting cycle.
+        """
+        grammar = compiled.codegen_grammar
+        if entry not in {str(r.name) for r in grammar.rules}:
+            raise UnsupportedConstructError(
+                f"templating: entry {entry!r} is not a rule of the grammar"
+            )
+        bound = {b.rule_name: b for b in compute_binding(grammar)}[entry]
+        fields = [name for name, b in bound.fields.items() if b.semantic]
+        if len(fields) < 2:
+            raise UnsupportedConstructError(
+                f"templating: entry {entry!r} binds {fields!r}, and a key/value "
+                "pair binds at least a key and a value"
+            )
+        # First and last, not "the only two": a separator between them is a
+        # bound field of its own wherever the grammar names it — json's
+        # `member ::= string name-separator value` binds all three.
+        key_field, value_field = fields[0], fields[-1]
+        return cls(
+            _section_for(grammar, entry, bound, value_field),
+            entry,
+            key_field,
+            value_field,
+        )
+
 
 class SpanEntry(IrNamedTuple[str, str]):
     """One extracted ``key → value`` pair, both as raw document spans."""
@@ -297,6 +340,96 @@ class _ShapeView(IrNamedTuple[IrAst, MapShape, "dict[str, RuleBinding]", frozens
             if isinstance(atom, IrRuleRef) and str(atom) in self.reaching:
                 out[field] = bind
         return out
+
+
+def _section_for(
+    grammar: IrAst, entry: str, bound: RuleBinding, value_field: str
+) -> str:
+    """The rule a mapping level is — derived, not declared.
+
+    A level is the rule the VALUE can reach that reaches the entry back: that
+    cycle is what makes nesting possible, and closing it is what distinguishes
+    the level from every other rule sitting above the entry. The nearest such
+    rule is taken, so an outer wrapper that merely contains a level is not
+    mistaken for one.
+
+    :param grammar: The codegen grammar.
+    :param entry: The entry rule.
+    :param bound: The entry's binding.
+    :param value_field: The entry's value field.
+    :returns: The section rule's name.
+    :raises UnsupportedConstructError: When the value closes no cycle back to
+        the entry — the grammar has no nesting level to template.
+    """
+    # What the VALUE OFFERS, not what sits nearest the entry. A level is one of
+    # the things a value can BE — `val ::= num | sect`, `value ::= object | …` —
+    # and asking the entry's neighbourhood instead finds the repetition helper
+    # (`e-more`, `object-item`), which is a continuation, not a level.
+    value_rule = _value_ref(grammar, entry, bound, value_field)
+    offered: list[str] = []
+    refs_in_order(
+        next(r.body for r in grammar.rules if str(r.name) == value_rule), offered
+    )
+    reaches = _reaching(grammar, entry)
+    cycle = {name for name in offered if name in reaches} - {entry}
+    if not cycle:
+        raise UnsupportedConstructError(
+            f"templating: the value of entry {entry!r} offers no rule that "
+            "reaches it back, so the grammar has no mapping level to template"
+        )
+    # Among what it offers, the NEAREST: json's `value` offers both `object` and
+    # `array`, and an array reaches `member` too — through `value` and back into
+    # an object. Only the hop count says which one IS the mapping level.
+    hops = _hops_to(grammar, entry)
+    return min(sorted(cycle), key=lambda name: (hops.get(name, len(hops)), name))
+
+
+def _hops_to(grammar: IrAst, target: str) -> dict[str, int]:
+    """Shortest reference distance from each rule to ``target``."""
+    back: dict[str, list[str]] = {}
+    for rule in grammar.rules:
+        out: list[str] = []
+        refs_in_order(rule.body, out)
+        for ref in out:
+            back.setdefault(ref, []).append(str(rule.name))
+    seen = {target: 0}
+    edge = [target]
+    while edge:
+        nxt: list[str] = []
+        for name in edge:
+            for prev in back.get(name, ()):
+                if prev not in seen:
+                    seen[prev] = seen[name] + 1
+                    nxt.append(prev)
+        edge = nxt
+    return seen
+
+
+def _value_ref(grammar: IrAst, entry: str, bound: RuleBinding, value_field: str) -> str:
+    """The rule name the entry's value field is bound to."""
+    body = next(r.body for r in grammar.rules if str(r.name) == entry)
+    refs: list[str] = []
+    refs_in_order(body, refs)
+    del bound, value_field
+    return refs[-1] if refs else entry
+
+
+def _reaching_from(grammar: IrAst, start: str) -> set[str]:
+    """Every rule reachable FROM ``start`` (the mirror of :func:`_reaching`)."""
+    edges: dict[str, list[str]] = {}
+    for rule in grammar.rules:
+        out: list[str] = []
+        refs_in_order(rule.body, out)
+        edges[str(rule.name)] = out
+    seen: set[str] = set()
+    stack = [start]
+    while stack:
+        name = stack.pop()
+        if name in seen or name not in edges:
+            continue
+        seen.add(name)
+        stack.extend(edges[name])
+    return seen
 
 
 def _resolve_shape(compiled: CompiledGrammar, shape: MapShape) -> _ShapeView:
