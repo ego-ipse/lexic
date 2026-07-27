@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import (
     Any,
     ItemsView,
+    Iterable,
     Iterator,
     KeysView,
     NoReturn,
@@ -55,6 +56,22 @@ IR_DEFAULT = _IrMapDefault()
 :meth:`IrMapping.resolve` resolves to it instead of raising."""
 
 
+def _indexed(cls: type, pairs: Iterable[tuple[Any, Any]]) -> dict[Any, Any]:
+    """``pairs`` as a table, refusing a duplicate key.
+
+    :param cls: The map class, for the refusal message.
+    :param pairs: ``(key, value)`` pairs, in the order the table should hold.
+    :returns: The table.
+    :raises UnsupportedConstructError: On a duplicate key.
+    """
+    table: dict[Any, Any] = {}
+    for key, value in pairs:
+        if key in table:
+            raise UnsupportedConstructError(f"{cls.__name__}: duplicate key {key!r}")
+        table[key] = value
+    return table
+
+
 class IrMapping[K, V, R](IrLeaf[IrSelf, IrSelf]):
     """Common ancestor of the map family — the **container** surface over ``_table``.
 
@@ -76,6 +93,29 @@ class IrMapping[K, V, R](IrLeaf[IrSelf, IrSelf]):
         """Seed an empty map. :class:`IrMap` overrides to index its dyads."""
         obj = object.__new__(cls)
         object.__setattr__(obj, "_table", {})
+        return obj
+
+    @classmethod
+    def from_table(cls, pairs: Iterable[tuple[Any, Any]]) -> Self:
+        """Build from ``(key, value)`` pairs, in the order given.
+
+        The public way to rebuild a map whose table is already known — a reader
+        of a compiled payload, say, which has the pairs and no dyads. Without it
+        a caller has to write ``object.__setattr__(obj, "_table", …)``, naming a
+        private slot across a boundary no import makes visible: rename the slot
+        and every artefact ever written decodes wrong, silently.
+
+        The base is a pure container with no ordering claim, so insertion order
+        is its order; :meth:`IrMap.from_table` overrides to canonicalise, which
+        is the invariant *that* class documents.
+
+        :param pairs: ``(key, value)`` pairs.
+        :returns: The map.
+        :raises UnsupportedConstructError: On a duplicate key — a repeated key
+            is a corrupt table, not a last-one-wins merge.
+        """
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "_table", _indexed(cls, pairs))
         return obj
 
     def __setattr__(self, name: str, value: object) -> NoReturn:
@@ -172,16 +212,26 @@ class IrMap[K, V: IrSelf](IrMapping[K, V, V]):
             :class:`~lexic.ir.base.IrTuple` or an :class:`~lexic.ir.action.IrAction`).
         :raises UnsupportedConstructError: On a duplicate key.
         """
+        return cls.from_table((dyad[0], dyad[1]) for dyad in dyads)
+
+    @classmethod
+    def from_table(cls, pairs: Iterable[tuple[Any, Any]]) -> Self:
+        """Build from pairs, canonicalising the order — this class's invariant.
+
+        ``_table`` is key-repr-sorted so the inherited views and repr are
+        order-stable, and that has to hold however the map was built: a reader
+        rebuilding one from a file cannot be trusted to supply the order,
+        because a file can be edited and the export fixpoint cannot catch a
+        wrong one (a wrongly-ordered map re-encodes to itself). Costs 3x a bare
+        table build at vocabulary scale — 15 ms against 4.6 for 49 152 entries.
+
+        :param pairs: ``(key, value)`` pairs, in any order.
+        :returns: The map, canonically ordered.
+        :raises UnsupportedConstructError: On a duplicate key.
+        """
         obj = object.__new__(cls)
-        table: dict[Any, Any] = {}
-        for dyad in sorted(dyads, key=lambda d: repr(d[0])):
-            key = dyad[0]
-            if key in table:
-                raise UnsupportedConstructError(
-                    f"{cls.__name__}: duplicate key {key!r}"
-                )
-            table[key] = dyad[1]
-        object.__setattr__(obj, "_table", table)
+        ordered = sorted(pairs, key=lambda kv: repr(kv[0]))
+        object.__setattr__(obj, "_table", _indexed(cls, ordered))
         return obj
 
     def resolve(self, n: IrSelf) -> V:
