@@ -13,7 +13,7 @@ is recorded rather than silently decoded as its builtin base.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, NamedTuple
+from typing import Iterable, NamedTuple
 
 from lexic.compile.payload import reader
 from lexic.compile.payload.codec import Row, row_for
@@ -85,9 +85,10 @@ class _Symbols:
     def __init__(self) -> None:
         self.names: list[str] = [SENTINEL]
         self.origins: list[str] = [""]
+        self.owners: dict[str, object] = {}
         self._ids: dict[tuple[str, str], int] = {}
 
-    def intern(self, name: str, origin: str) -> int:
+    def intern(self, name: str, origin: str, owner: object) -> int:
         """This ``(origin, name)`` spec's id, appending it on first sight.
 
         Keyed on the pair rather than on a class object: two compilations of one
@@ -101,6 +102,11 @@ class _Symbols:
             self._ids[key] = got
             self.names.append(name)
             self.origins.append(origin)
+        # The owner is kept so the export gate can decode with the very symbols
+        # the walk saw. Re-deriving them means walking the value a second time
+        # with a second notion of what a container is — and the gate would then
+        # be checking the encoder against that notion instead of against itself.
+        self.owners.setdefault(name, owner)
         return got
 
     def frozen(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -140,14 +146,14 @@ class _Encoder:
                 f"payload: {SENTINEL!r} is the symbol table's sentinel and cannot "
                 "also be a symbol name"
             )
-        return self.symbols.intern(cls.__name__, cls.__module__)
+        return self.symbols.intern(cls.__name__, cls.__module__, cls)
 
     def singleton_id(self, value: object) -> int:
         """Intern a bare-name singleton by its VALUE name.
 
         ``IrNone`` is what an importer imports; ``IrNoneType`` is not.
         """
-        return self.symbols.intern(repr(value), type(value).__module__)
+        return self.symbols.intern(repr(value), type(value).__module__, value)
 
     def str_id(self, text: str) -> int:
         """Intern a payload string."""
@@ -262,11 +268,16 @@ def project(value: object) -> Payload:
     """
     enc = _Encoder()
     enc.walk(value)
+    return _finish(enc)
+
+
+def _finish(enc: _Encoder) -> Payload:
+    """The encoder's tables, frozen into the record an artefact writes."""
     names, origins = enc.symbols.frozen()
     return Payload(names, origins, enc.strings.frozen(), tuple(enc.nodes))
 
 
-def project_checked(value: object, symbols: dict[str, Any]) -> Payload:
+def project_checked(value: object) -> Payload:
     """Project ``value``, and refuse unless the tables are a fixpoint.
 
     ``project(decode(project(v))) == project(v)``. No ``==`` (an always-on
@@ -278,12 +289,13 @@ def project_checked(value: object, symbols: dict[str, Any]) -> Payload:
     tables agree with the encoder, and nothing more.
 
     :param value: The value to project.
-    :param symbols: Symbol name → class, as the artefact will supply them.
     :returns: The payload.
     :raises UnsupportedConstructError: When the tables are not a fixpoint.
     """
-    first = project(value)
-    back = reader.decode(first.types, first.strs, first.nodes, symbols)
+    enc = _Encoder()
+    enc.walk(value)
+    first = _finish(enc)
+    back = reader.decode(first.types, first.strs, first.nodes, enc.symbols.owners)
     if project(back) != first:
         raise UnsupportedConstructError(
             "payload: the tables do not re-encode to themselves — decode is not "

@@ -193,12 +193,19 @@ def digest(types: Sequence[str], strs: Sequence[str], nodes: Sequence[int]) -> i
     """
     head = array.array("q", (len(types), len(strs), len(nodes))).tobytes()
     lens = array.array("q", [len(t) for t in (*types, *strs)]).tobytes()
-    text = ("".join(types) + "".join(strs)).encode("utf-8")
+    # `surrogatepass`: a lone surrogate is a legal `str` and reaches here from
+    # parsed text, so a digest that raises on one is a digest that refuses a
+    # value the projection accepts.
+    text = ("".join(types) + "".join(strs)).encode("utf-8", "surrogatepass")
     try:
         body = b"\x00" + array.array("q", nodes).tobytes()
     except OverflowError:
+        # An 8-byte length, not 2: a 2-byte prefix caps an integer at 65 535
+        # bytes, and `1 << 524288` is a legal Python int. The narrow prefix was
+        # the same defect as the `array('q')` overflow it replaced, one order of
+        # magnitude further out.
         body = b"\x01" + b"".join(
-            len(raw).to_bytes(2, "little") + raw
+            len(raw).to_bytes(8, "little") + raw
             for raw in (
                 n.to_bytes((n.bit_length() + 8) // 8 or 1, "little", signed=True)
                 for n in nodes

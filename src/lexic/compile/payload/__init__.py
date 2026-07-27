@@ -15,5 +15,6 @@ produced the value, never by a flag.
 from __future__ import annotations
 
 from lexic.compile.payload.encode import Payload, project, project_checked
+from lexic.compile.payload.export import export_value, render
 
-__all__ = ["Payload", "project", "project_checked"]
+__all__ = ["Payload", "export_value", "project", "project_checked", "render"]

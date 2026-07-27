@@ -197,7 +197,7 @@ def test_an_unknown_kind_refuses() -> None:
 
 def test_the_export_gate_is_a_fixpoint_not_an_equality() -> None:
     """``==`` refuses ``nan``, which round-trips perfectly; the fixpoint does not."""
-    assert project_checked((float("nan"),), {})
+    assert project_checked((float("nan"),))
 
 
 def test_the_export_gate_runs_where_repr_cannot() -> None:
@@ -205,7 +205,7 @@ def test_the_export_gate_runs_where_repr_cannot() -> None:
     deep = IrTuple()
     for _ in range(600):
         deep = IrTuple(deep)
-    assert project_checked(deep, SPINE)
+    assert project_checked(deep)
 
 
 def test_a_payload_is_its_tables() -> None:
@@ -231,7 +231,7 @@ def test_a_parsed_document_survives_the_projection(stem: str) -> None:
     start = str(compiled.grammar.rules[0].name)
     text = generate(start, rules, rng=random.Random(3))
     model = compiled.parse(text)
-    payload = project_checked(model, dict(compiled.classes))
+    payload = project_checked(model)
     back = reader.decode(
         payload.types,
         payload.strs,
