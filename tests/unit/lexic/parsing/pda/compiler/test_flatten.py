@@ -5,7 +5,7 @@ defines the flat runtime shapes (:class:`~lexic.parsing.pda.compiler.flatten.Fla
 :class:`~lexic.parsing.pda.compiler.flatten.FlatClone`,
 :class:`~lexic.parsing.pda.compiler.flatten.PdaProgram`) and the post-flatten
 optimizer passes (:func:`~lexic.parsing.pda.compiler.flatten.optimize_program` and its
-five sub-passes) that :func:`~lexic.parsing.pda.compiler.clones._flatten_program`
+five sub-passes) that :func:`~lexic.parsing.pda.compiler.clones.flatten_program`
 drives once per :func:`~lexic.parsing.pda.compiler.clones.compile_pda`.
 
 Every case here is built through the public compile path — small

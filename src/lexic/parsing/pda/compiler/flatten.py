@@ -2,7 +2,7 @@
 
 The leaf half of the PDA compiler: the spec NamedTuples in
 :mod:`lexic.parsing.pda.compiler.clones` are the compiler's *intermediate* (and the shape
-the structural tests pin); :func:`~lexic.parsing.pda.compiler.clones._flatten_program`
+the structural tests pin); :func:`~lexic.parsing.pda.compiler.clones.flatten_program`
 lowers them, once per :func:`~lexic.parsing.pda.compiler.clones.compile_pda`, into the
 flat int-coded artifact this module defines — :class:`FlatClone` /
 :class:`FlatArm` carrying ``_OP_*`` op-codes and pre-resolved
@@ -261,7 +261,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
 
     Groups reuse this shape with :data:`BUILD_TRANSPARENT` and no fold —
     entering either selects a FIRST-gated arm at the lookahead char and pushes a
-    frame. Constructed empty (``__new__``) then filled by ``_flatten_program``'s
+    frame. Constructed empty (``__new__``) then filled by ``flatten_program``'s
     second pass so a recursive reference resolves to the live object (no id
     indirection on the hot path).
 

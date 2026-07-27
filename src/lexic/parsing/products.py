@@ -40,7 +40,8 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
-from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda, compile_reduce_pda
+from lexic.parsing.pda.compiler.clones import compile_pda, compile_reduce_pda
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail
 

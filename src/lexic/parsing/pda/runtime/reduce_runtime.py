@@ -20,8 +20,9 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrNone, IrSelf, IrStr, IrTuple
 from lexic.parsing.earley.reduce import DROP_KIND
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.pda.compiler.clones import PdaTables, ReduceRun
+from lexic.parsing.pda.compiler.clones import ReduceRun
 from lexic.parsing.pda.compiler.flatten import OP_CC, R_DROP, R_SPLICE, FlatClone
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import (
     F_ARM,
