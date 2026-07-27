@@ -1,3 +1,4 @@
+(* @non-semantic ws *)
 json-text = ws, value, ws ;
 ws = ("\t".."\n" | "\r" | " ")* ;
 value = false | null | true | object | array | number | string ;

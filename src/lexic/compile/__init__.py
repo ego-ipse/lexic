@@ -256,30 +256,58 @@ def _identity_for(stem: str, text: str) -> str:
     return stem if stem.endswith(tag) else f"{stem}_{tag}"
 
 
-def _scan_directives(text: str, line_comment: str) -> tuple[str | None, frozenset[str]]:
+def _directive_bodies(text: str, flavour: IrFlavour) -> list[str]:
+    """The text inside each comment, for whichever comment form the flavour has.
+
+    A surface that can spell a comment can spell a directive. EBNF has only
+    ``(* *)`` block comments, and a mechanism GBNF and ABNF could express while
+    EBNF structurally could not would be a privileged formulation — it cost
+    ``json.ebnf`` the whole predictive path, because it could not mark ``ws``
+    structural and every parse escaped at position 0.
+
+    :param text: Grammar source text.
+    :param flavour: The flavour, for its comment delimiters.
+    :returns: One entry per comment, stripped of its delimiters.
+    """
+    bodies: list[str] = []
+    if flavour.line_comment:
+        for raw in text.splitlines():
+            line = raw.strip()
+            if line.startswith(flavour.line_comment):
+                bodies.append(line[len(flavour.line_comment) :])
+    if len(flavour.block_comment) == 2:
+        opener, closer = flavour.block_comment[0], flavour.block_comment[1]
+        rest = text
+        while (a := rest.find(opener)) != -1:
+            b = rest.find(closer, a + len(opener))
+            if b == -1:
+                break
+            bodies.append(rest[a + len(opener) : b])
+            rest = rest[b + len(closer) :]
+    return bodies
+
+
+def _scan_directives(
+    text: str, flavour: IrFlavour
+) -> tuple[str | None, frozenset[str]]:
     """Extract ``(start, non_semantic)`` from source comments — a pre-lexical scan.
 
-    A line ``<line_comment> @<name> <args...>`` declares a directive: ``@start
+    A comment reading ``@<name> <args...>`` declares a directive: ``@start
     <rule>`` overrides the start rule, ``@non-semantic <rule> ...`` names
     structural-noise rules. The scan reads the raw source before the parser so
     comments never become load-bearing grammar tokens; ``canonical_grammar``
     resolves precedence and applies the result to the AST.
 
     :param text: Grammar source text.
-    :param line_comment: The flavour's line-comment marker (``#``/``;``); empty
-        disables directive parsing.
+    :param flavour: The flavour, for its comment delimiters. One with neither
+        comment form cannot carry a directive.
     :returns: ``(start, non_semantic)`` — ``start`` is the ``@start`` rule name
         or ``None``; ``non_semantic`` is the set of ``@non-semantic`` names.
     """
-    if not line_comment:
-        return None, frozenset()
     non_semantic: set[str] = set()
     start_rule: str | None = None
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line.startswith(line_comment):
-            continue
-        rest = line[len(line_comment) :].lstrip()
+    for body in _directive_bodies(text, flavour):
+        rest = body.strip()
         if not rest.startswith("@"):
             continue
         parts = rest[1:].split()
@@ -321,7 +349,7 @@ def canonical_grammar(
     (raised by the engine / reducer, or here if the flavour carries no Reducer,
     its reduction does not yield an IrAst, or the start rule is undefined).
     """
-    dir_start, dir_non_semantic = _scan_directives(text, flavour.line_comment)
+    dir_start, dir_non_semantic = _scan_directives(text, flavour)
     if non_semantic_rules is None:
         non_semantic_rules = dir_non_semantic
     parsed = parse_grammar(text, flavour)
@@ -476,9 +504,13 @@ def _compile_core(
     flavour: str = "gbnf",
     tokenizer: IrTokenizer | None = None,
     registry: IrMap | None = None,
+    non_semantic_rules: frozenset[str] | None = None,
+    start: str | None = None,
 ) -> CompiledGrammar:
     flavour_cls = get_flavour(flavour)
-    ast = canonical_grammar(text, flavour_cls)
+    ast = canonical_grammar(
+        text, flavour_cls, non_semantic_rules=non_semantic_rules, start=start
+    )
     resolved = encoding_registry(tokenizer, registry)
     # Resolution is for MATCHING, not for meaning. concretize COMMUTES with
     # build_codegen_grammar, so the unresolved codegen grammar is built once
@@ -516,6 +548,8 @@ def compile_text(
     flavour: str = "gbnf",
     tokenizer: IrTokenizer | None = None,
     registry: IrMap | None = None,
+    non_semantic_rules: frozenset[str] | None = None,
+    start: str | None = None,
 ) -> CompiledGrammar:
     """Compile from a grammar string, memoised by content by default.
 
@@ -541,19 +575,37 @@ def compile_text(
     :param registry: An ``IrMap[IrStr, IrEncoding]`` binding the grammar's
         encoding *names* to encodings (``unicode`` is always present); the
         general form of ``tokenizer=``; the two compose.
+    :param non_semantic_rules: Rules to mark structural noise, as the
+        ``@non-semantic`` directive would. Overrides the directive when given.
+    :param start: The start rule, as ``@start`` would. Overrides it when given.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     stem = _stem_for_text(text)
     # BY VALUE, like the path twin: keying on id() is unsound because ids are
     # unique only among LIVE objects, so a dropped vocabulary's address can be
     # reused and hand back another one's artefact. Both are hashable.
-    content_key: tuple[Hashable, ...] = (stem, flavour, tokenizer, registry)
+    # The directives are part of WHAT WAS COMPILED, so they key the memo too:
+    # without them one source compiled two ways would hand back the first.
+    content_key: tuple[Hashable, ...] = (
+        stem,
+        flavour,
+        tokenizer,
+        registry,
+        non_semantic_rules,
+        start,
+    )
     key = (cache_key, *content_key) if cache_key is not None else content_key
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     cg = _compile_core(
-        text, stem=stem, flavour=flavour, tokenizer=tokenizer, registry=registry
+        text,
+        stem=stem,
+        flavour=flavour,
+        tokenizer=tokenizer,
+        registry=registry,
+        non_semantic_rules=non_semantic_rules,
+        start=start,
     )
     _CACHE[key] = cg
     return cg
@@ -617,6 +669,8 @@ def compile_from_path(
     flavour: str | None = None,
     tokenizer: IrTokenizer | None = None,
     registry: IrMap | None = None,
+    non_semantic_rules: frozenset[str] | None = None,
+    start: str | None = None,
 ) -> CompiledGrammar:
     """Compile from a file path; memoised by (path, mtime, size, flavour).
 
@@ -630,6 +684,9 @@ def compile_from_path(
     :param tokenizer: A tokenizer to bind under its own ``name``.
     :param registry: Further name → encoding bindings; composes with
         ``tokenizer`` (see :func:`compile_text`).
+    :param non_semantic_rules: Rules to mark structural noise, as the
+        ``@non-semantic`` directive would. Overrides the directive when given.
+    :param start: The start rule, as ``@start`` would. Overrides it when given.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     path = Path(grammar_path).resolve()
@@ -641,13 +698,28 @@ def compile_from_path(
     # LIVE objects, so a dropped tokenizer's address can be reused and hand
     # back another vocabulary's artefact. Both are hashable (an IrTokenizer is
     # an IrNamedTuple, a registry an IrMap), and the hash is computed once.
-    key = (str(path), stat.st_mtime, stat.st_size, flavour, tokenizer, registry)
+    key = (
+        str(path),
+        stat.st_mtime,
+        stat.st_size,
+        flavour,
+        tokenizer,
+        registry,
+        non_semantic_rules,
+        start,
+    )
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     text = path.read_text(encoding="utf-8")
     cg = _compile_core(
-        text, stem=path.stem, flavour=flavour, tokenizer=tokenizer, registry=registry
+        text,
+        stem=path.stem,
+        flavour=flavour,
+        tokenizer=tokenizer,
+        registry=registry,
+        non_semantic_rules=non_semantic_rules,
+        start=start,
     )
     _CACHE[key] = cg
     return cg

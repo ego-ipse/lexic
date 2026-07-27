@@ -575,6 +575,7 @@ class _EbnfFlavour(IrFlavour):
     extensions: ClassVar[tuple[str, ...]] = (".ebnf",)
     escapes: ClassVar[EscapeCodec] = EBNF_ESCAPES
     line_comment: ClassVar[str] = ""
+    block_comment: ClassVar[tuple[str, ...]] = ("(*", "*)")
     grammar: ClassVar[IrAst] = EBNF_GRAMMAR
     reducer: ClassVar[Reducer] = EBNF_REDUCER
 

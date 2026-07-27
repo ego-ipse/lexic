@@ -129,7 +129,13 @@ class IrFlavour(IrEmitter, ABC):
     :cvar name: Short flavour identifier (e.g. ``"gbnf"``).
     :cvar extensions: Tuple of file extensions handled.
     :cvar escapes: EscapeCodec subclass for literal escape handling.
-    :cvar line_comment: Line-comment prefix; empty disables @directive parsing.
+    :cvar line_comment: Line-comment prefix, or empty when the surface has none.
+    :cvar block_comment: The ``(open, close)`` block-comment delimiters, or
+        empty when the surface has none — the same "empty means absent"
+        convention as ``line_comment``. A flavour needs ONE of the two forms for its
+        grammars to carry a ``@directive`` — a surface that can spell a comment
+        at all can spell a directive, and a mechanism only some flavours can
+        express would be a privileged formulation.
     :cvar grammar: The flavour's self-grammar (raw, un-normalised) — ground truth.
     :cvar reducer: Parse-tree → IrAst policy (a parsing Reducer at runtime).
     :cvar core_rules: The flavour's std-namespace prelude (name-ref → rule) —
@@ -142,6 +148,7 @@ class IrFlavour(IrEmitter, ABC):
     extensions: ClassVar[tuple[str, ...]]
     escapes: ClassVar[EscapeCodec]
     line_comment: ClassVar[str] = ""
+    block_comment: ClassVar[tuple[str, ...]] = ()
     grammar: ClassVar[IrAst]
     reducer: ClassVar[IrDispatch]
     core_rules: ClassVar[IrMap[IrStr, IrRule]] = IrMap()

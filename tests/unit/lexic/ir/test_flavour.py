@@ -3,7 +3,8 @@
 
 After the Lark cutover the flavour carries **zero methods** beyond the
 inherited emitter protocol: only the R1 ClassVars (``name``, ``extensions``,
-``line_comment``, ``escapes``, ``grammar``, ``reducer``) and the emitter
+``line_comment``, ``block_comment``, ``escapes``, ``grammar``, ``reducer``)
+and the emitter
 ``actions``.
 """
 
@@ -97,6 +98,11 @@ R1_ALLOWED = frozenset(
         # protocol refinement + the core-rules prelude data ClassVar.
         "apply",
         "core_rules",
+        # a flavour declares its comment syntax so DIRECTIVES are not a
+        # privilege of the surfaces that happen to have a line comment: EBNF
+        # has only `(* *)`, and could carry no @directive at all until it could
+        # say so.
+        "block_comment",
     }
 )
 
