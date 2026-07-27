@@ -80,6 +80,7 @@ from lexic.parsing.earley.reduce import (
     Drop,
     KeepRaw,
     KeepReduced,
+    Reducer,
     Yield,
 )
 
@@ -133,6 +134,7 @@ def _build_symbols() -> dict[str, object]:
             # The reduce sentinels' classes — each spelled ``Name()`` by repr,
             # and a singleton, so a spelled one IS the engine's own.
             "Yield": Yield,
+            "Reducer": Reducer,
             "Drop": Drop,
             "KeepRaw": KeepRaw,
             "KeepReduced": KeepReduced,
