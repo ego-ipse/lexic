@@ -29,6 +29,7 @@ from lexic.compile.pipeline.binding import (
     RuleBinding,
     compute_binding,
 )
+from lexic.grammars import get_flavour
 from lexic.ir.base import IrNone
 from lexic.ir.encoding import IrTokenizer
 from lexic.ir.nodes import (
@@ -518,16 +519,21 @@ def test_char_grammar_docstrings_are_unchanged_by_the_resolution_rule() -> None:
     assert '"""``object ::= begin-object object-item2? end-object``"""' in source
 
 
-def test_inline_grammar_table_keeps_the_resolved_rule() -> None:
-    """``__grammar__`` is RUNTIME data — the docstring rule must not reach it.
+def test_inline_grammar_table_carries_the_rule_the_runtime_carries() -> None:
+    """``__grammar__`` is RUNTIME data, so it is the rule the RUNTIME holds.
 
-    The docstring shows the authored spelling; the ClassVar the class binds has
-    to stay the rule the engine resolved, or an inline-tables export would ship
-    a grammar whose token terminals were never bound to ids.
+    The inline table once kept the resolved rule, so a self-contained twin would
+    not ship token terminals unbound to ids. But a twin does not parse — parsing
+    stays on ``CompiledGrammar`` — so the ids buy it nothing, while they cost
+    the authored spelling: the inline twin rendered
+    ``root ::= <[0]> thinking <[1]>`` where the runtime and the bind-mode twin
+    both render ``root ::= <think> thinking </think>``. ``synthesize`` is given
+    the unresolved grammar and ``bind_module`` rebuilds from the twin's own
+    authored ``GRAMMAR``; the inline mode was the one path that disagreed.
 
     Read by AST rather than by slicing the text: ``GRAMMAR`` later in the same
-    module legitimately holds the authored spelling, so any cut that overshoots
-    the statement finds it and reports the wrong thing.
+    module holds the same spelling, so any cut that overshoots the statement
+    finds it and reports the wrong thing.
     """
     source = export_source(_think_compiled(), stem="think", inline_tables=True)
     tables = [
@@ -541,9 +547,9 @@ def test_inline_grammar_table_keeps_the_resolved_rule() -> None:
     assert tables
     for table in tables:
         assert table
-        # The synthetic vocabulary puts `<think>` at id 0 and `</think>` at 1.
-        assert "IrCharClass(IrChr(" in table
-        assert "<think>" not in table and "</think>" not in table
+        # The synthetic vocabulary puts `<think>` at id 0 and `</think>` at 1;
+        # the twin must show the spelling, not the id it resolved to.
+        assert "<think>" in table or "</think>" in table
     docstrings = [ln for ln in source.splitlines() if ln.strip().startswith('"""``')]
     assert any("<think>" in line for line in docstrings)
 
@@ -598,3 +604,25 @@ def test_a_resolved_twin_carries_the_runtime_shape(
     twin = import_hermetic_module(path, "think")
     for name, cls in compiled.classes.items():
         assert getattr(twin, name).__shape__ == cls.__shape__, name
+
+
+@pytest.mark.parametrize("inline_tables", [False, True])
+def test_a_twin_renders_the_same_grammar_text_as_its_runtime(
+    tmp_path, inline_tables: bool
+) -> None:
+    """A twin is its runtime's equal, and ``to_grammar`` is where that shows.
+
+    Both table modes, on a grammar where resolution runs: the inline mode used
+    to carry the resolved rule, so it rendered ``root ::= <[0]> thinking <[1]>``
+    while the runtime and the bind-mode twin rendered the authored spelling.
+    """
+    compiled = _think_compiled()
+    path = export_module(
+        compiled, tmp_path / "think.py", stem="think", inline_tables=inline_tables
+    )
+    twin = import_hermetic_module(path, "think")
+    flavour = get_flavour(compiled.flavour)
+    for name, cls in compiled.classes.items():
+        assert getattr(twin, name).__grammar__ == cls.__grammar__, name
+        rendered = str(flavour.apply(getattr(twin, name).__grammar__, None))
+        assert rendered == str(flavour.apply(cls.__grammar__, None)), name

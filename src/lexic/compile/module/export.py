@@ -277,14 +277,15 @@ def _inline_table_lines(bind: RuleBinding, rule: IrRule, shape: int) -> _Rendere
 class _ClassInput(NamedTuple):
     """Everything one class block is rendered from — its rule, seen four ways.
 
-    ``rule`` is the RESOLVED rule, which the field types and the inline
-    ``__grammar__`` read. ``rule_text`` and ``shape`` come from the
-    pre-resolution one instead: the docstring shows what was written, and
-    provenance must match what the runtime class carries.
+    ``rule`` is the RESOLVED rule, which only the field types read. Everything a
+    class CARRIES — its docstring, its ``__grammar__``, its ``__shape__`` —
+    comes from ``authored``, the pre-resolution rule, because that is what the
+    runtime class carries and a twin is meant to be its equal.
     """
 
     bind: RuleBinding
     rule: IrRule
+    authored: IrRule
     rule_text: str
     shape: int
 
@@ -296,7 +297,7 @@ def _class_lines(
     inline_tables: bool,
 ) -> _Rendered:
     """One class definition's lines, and the header symbols they spell."""
-    bind, rule, rule_text, shape = made
+    bind, rule, authored, rule_text, shape = made
     bases = ", ".join(bind.parent_class_names) or "GrammarModel"
     lines = [f"class {bind.class_name}({bases}):"]
     lines.extend(docstring_lines(rule_text))
@@ -312,7 +313,7 @@ def _class_lines(
     elif bind.kind == "sequence":
         body.extend(_sequence_field_lines(bind, rule, class_by_rule))
     if inline_tables:
-        tables = _inline_table_lines(bind, rule, shape)
+        tables = _inline_table_lines(bind, authored, shape)
         body.extend(tables.lines)
         symbols |= tables.symbols
     if body:  # formatter fixpoint: blank line between docstring and body
@@ -430,13 +431,15 @@ def _module_body(compiled: CompiledGrammar, *, inline_tables: bool) -> _Rendered
     # ``codegen_grammar`` reads ``<[151667]>`` while ``GRAMMAR`` — which
     # round-trips to the canonical AST — holds ``<think>``: two resolution
     # states in one file. Everything else (the field types, and the
-    # The inline ``__grammar__`` keeps the RESOLVED rule on purpose: an
-    # inline-tables twin is self-contained, and shipping token terminals that
-    # were never bound to ids would make it unusable on its own. ``__shape__``
-    # cannot follow it — provenance has to match what the RUNTIME carries, and
-    # ``_compile_core`` calls ``synthesize(unresolved, …)`` while ``bind_module``
-    # rebuilds from the twin's own authored ``GRAMMAR``. So the two resolution
-    # states sit side by side in one class, each for its own reason.
+    # Everything a class CARRIES renders off the pre-resolution grammar, which
+    # is what the runtime carries: `_compile_core` calls
+    # `synthesize(unresolved, …)` and `bind_module` rebuilds from the twin's own
+    # authored `GRAMMAR`. The inline tables once kept the RESOLVED rule so a
+    # self-contained twin would not ship token terminals unbound to ids — but a
+    # twin does not parse, so the ids buy it nothing, and they cost the authored
+    # spelling: `root ::= <[0]> thinking <[1]>` where the runtime and the
+    # bind-mode twin both render `root ::= <think> thinking </think>`.
+    # Only the FIELD TYPES read the resolved rule.
     authored = {
         str(rule.name): rule
         for rule in (compiled.tokens.unresolved or compiled.codegen_grammar).rules
@@ -462,6 +465,7 @@ def _module_body(compiled: CompiledGrammar, *, inline_tables: bool) -> _Rendered
             _ClassInput(
                 bind,
                 rule,
+                authored.get(bind.rule_name, rule),
                 str(flavour.apply(authored.get(bind.rule_name, rule), width=None)),
                 shapes[bind.rule_name],
             ),
