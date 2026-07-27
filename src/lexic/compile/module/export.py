@@ -346,6 +346,35 @@ def _import_block(spelled: frozenset[str], *, inline_tables: bool) -> str:
     return "\n".join(lines)
 
 
+def _grammar_source(source: str, tree: _pyast.Module) -> str:
+    """The text of the module's ``GRAMMAR`` assignment, read structurally.
+
+    Not ``source.split("GRAMMAR: IrAst = ")``: the module docstring renders the
+    grammar in its own flavour, so a grammar with a terminal spelling that
+    phrase put the split in the DOCSTRING and the gate refused a legal grammar.
+    Asking the parsed module which statement assigns ``GRAMMAR`` cannot land
+    anywhere else.
+
+    :param source: The rendered module.
+    :param tree: Its parsed form.
+    :returns: The assignment's right-hand side, verbatim.
+    :raises UnsupportedConstructError: When the module assigns no ``GRAMMAR``.
+    """
+    for node in tree.body:
+        if not isinstance(node, _pyast.AnnAssign) or node.value is None:
+            continue
+        target = node.target
+        if not isinstance(target, _pyast.Name) or target.id != "GRAMMAR":
+            continue
+        segment = _pyast.get_source_segment(source, node.value)
+        if segment is not None:
+            return segment
+    raise UnsupportedConstructError(
+        "export: the rendered module assigns no GRAMMAR, so there is nothing "
+        "to round-trip against the compiled AST"
+    )
+
+
 def _check_export(source: str, canonical: IrAst) -> None:
     """The always-on export gates: valid Python, GRAMMAR round-trips.
 
@@ -354,14 +383,12 @@ def _check_export(source: str, canonical: IrAst) -> None:
         canonical AST.
     """
     try:
-        _pyast.parse(source)
+        tree = _pyast.parse(source)
     except SyntaxError as exc:
         raise UnsupportedConstructError(
             f"export: rendered module is not valid Python: {exc}"
         ) from exc
-    grammar_text = source.split("GRAMMAR: IrAst = ", 1)[1]
-    grammar_text = grammar_text.split("\n\nbind_module(", 1)[0]
-    if load_ir(grammar_text) != canonical:
+    if load_ir(_grammar_source(source, tree)) != canonical:
         raise UnsupportedConstructError(
             "export: rendered GRAMMAR does not round-trip to the compiled AST"
         )

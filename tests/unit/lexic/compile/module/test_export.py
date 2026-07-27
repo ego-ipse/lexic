@@ -546,3 +546,16 @@ def test_inline_grammar_table_keeps_the_resolved_rule() -> None:
         assert "<think>" not in table and "</think>" not in table
     docstrings = [ln for ln in source.splitlines() if ln.strip().startswith('"""``')]
     assert any("<think>" in line for line in docstrings)
+
+
+def test_a_terminal_spelling_the_gates_marker_still_exports() -> None:
+    """The export gate reads the module structurally, never by splitting text.
+
+    The docstring renders the grammar in its own flavour, so a grammar whose
+    terminal spells ``GRAMMAR: IrAst = `` put ``source.split(...)`` inside the
+    DOCSTRING — and a legal grammar was refused with a notation error about its
+    own documentation.
+    """
+    source = export_source(compile_text('root ::= "GRAMMAR: IrAst = oops"'))
+    assert "GRAMMAR: IrAst = oops" in source
+    assert "IrLiteral" in source

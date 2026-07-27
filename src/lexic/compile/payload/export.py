@@ -22,6 +22,7 @@ exactly when the value names a symbol whose own module does not import.
 from __future__ import annotations
 
 import ast as _pyast
+import sys
 from hashlib import blake2b
 from importlib import import_module
 from keyword import iskeyword
@@ -98,6 +99,22 @@ def _sidecar(directory: Path) -> str:
     return path.stem
 
 
+def _provides(origin: str, name: str, owner: object) -> bool:
+    """Does ``origin`` name a live module exporting exactly ``owner`` as ``name``?
+
+    Identity, not presence. ``lexic.ir.base`` merely IMPORTS ``Sequence``, so a
+    symbol called ``Sequence`` would find something there and the artefact would
+    import a class the value was never built from.
+
+    :param origin: The module recorded for the symbol.
+    :param name: The symbol's name.
+    :param owner: The class the encoder actually saw.
+    :returns: Whether the artefact may import ``name`` from ``origin``.
+    """
+    found = sys.modules.get(origin)
+    return found is not None and getattr(found, name, None) is owner
+
+
 def _homes(payload: Payload, module: str | None) -> dict[str, str]:
     """Where each symbol is imported from, refusing one that cannot be.
 
@@ -116,7 +133,16 @@ def _homes(payload: Payload, module: str | None) -> dict[str, str]:
         if origin.split(".")[0] == "lexic" and name in set(ir.__all__):
             homes[name] = SPINE
         elif module is not None:
+            # Ahead of the origin: `module=` is the caller SAYING where the
+            # reader will find their symbols, and an inferred home that quietly
+            # overrode it would export something they did not ask for.
             homes[name] = module
+        elif _provides(origin, name, payload.owners.get(name)):
+            # The origin is a real module that really exports this class, so it
+            # needs no `module=`: only a SYNTHESIZED class is homeless, and the
+            # question is whether the recorded module can supply it, not whether
+            # lexic happens to re-export it from the spine's public surface.
+            homes[name] = origin
         else:
             homeless.append(f"{name} (from {origin})")
     if homeless:

@@ -19,6 +19,7 @@ from lexic.compile import compile_from_path, compile_text, export_module
 from lexic.compile.payload import export_value, project, reader, render
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrInt, IrStr, IrTuple
+from lexic.ir.encoding import IrRankedMerge
 from tests.paths import GROUND_TRUTH, PROJECT_ROOT
 
 SRC = str(PROJECT_ROOT / "src")
@@ -490,3 +491,31 @@ def test_an_artefact_reads_both_inside_a_package_and_outside_one(tmp_path) -> No
         check=True,
     )
     assert got.stdout.strip() == "{'n': 1}"
+
+
+def test_a_class_from_a_non_spine_lexic_module_needs_no_module_argument(
+    tmp_path,
+) -> None:
+    """Only a SYNTHESIZED class is homeless.
+
+    A tokenizer names classes from ``lexic.ir.encoding`` and
+    ``lexic.api.pretokens`` — real modules that really export them — and routing
+    only ``ir.__all__`` to the spine sent every one of those to a ``module=``
+    the caller had no reason to supply.
+    """
+    value = (IrRankedMerge(),)
+    source = render(project(value), READER)
+    assert "from lexic.ir.encoding import (" in source
+    export_value(value, tmp_path / "enc.py")
+    assert _run(tmp_path, "enc")[0] == repr(value)
+
+
+def test_a_home_is_the_origin_only_when_the_origin_really_exports_it() -> None:
+    """Identity, not presence — ``lexic.ir.base`` merely IMPORTS ``Sequence``.
+
+    A grammar with a rule called ``sequence`` once resolved to typing's, so a
+    home is accepted only when the module holds THIS class under THIS name.
+    """
+    impostor = type("Sequence", (str,), {"__module__": "lexic.ir.base"})
+    with pytest.raises(UnsupportedConstructError, match="no importable module"):
+        render(project((impostor("x"),)), READER)
