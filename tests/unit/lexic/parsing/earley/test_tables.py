@@ -17,21 +17,22 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing import parse_first, recognize
 from lexic.parsing.earley import tables as tables_mod
 from lexic.parsing.earley.kernel import Kernel

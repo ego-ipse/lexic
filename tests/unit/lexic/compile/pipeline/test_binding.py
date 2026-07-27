@@ -30,9 +30,7 @@ from lexic.compile.pipeline.binding import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
-from lexic.ir.base import IrLambda
-from lexic.ir.bind import IrBind
-from lexic.ir.mapping import IrMap
+from lexic.ir import IrBind, IrLambda, IrMap
 from lexic.parsing.fold import ModelBody
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
 from tests.unit.lexic.compile.pipeline.binding_cases import make_binding_tests

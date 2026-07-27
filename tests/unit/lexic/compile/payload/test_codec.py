@@ -21,8 +21,7 @@ from lexic import ir
 from lexic.compile.payload.codec import ROWS, row_for
 from lexic.compile.payload.reader import DECODE
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrSelf
-from lexic.ir.nodes import IrLiteral
+from lexic.ir import IrLiteral, IrSelf
 
 
 def _spine_classes() -> list[type]:

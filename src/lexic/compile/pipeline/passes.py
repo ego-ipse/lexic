@@ -22,19 +22,26 @@ from __future__ import annotations
 
 from lexic.compile.pipeline.binding import classify_rule, has_ruleref, unit_ref_arm
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction
-from lexic.ir.base import Field, IrLambda, IrNode, IrNone, IrNoneType, IrSelf, IrSeq
-from lexic.ir.mapping import IrTypeMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    Field,
+    IrAction,
     IrAlternation,
     IrAst,
+    IrBottomUp,
+    IrDispatch,
     IrItem,
+    IrLambda,
+    IrNode,
+    IrNone,
+    IrNoneType,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrTypeMap,
 )
-from lexic.ir.walk import IrBottomUp, IrDispatch
 
 
 def _reserve_helper_name(parent_name: str, taken: set[str]) -> str:

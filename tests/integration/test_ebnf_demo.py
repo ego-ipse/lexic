@@ -23,9 +23,7 @@ from lexic.compile import parse_grammar
 from lexic.compile.notation.loader import load_flavour_from_path
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.grammars.ebnf import EBNF_FLAVOUR
-from lexic.ir.canonical import canonicalize
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst, IrFlavour, canonicalize
 from tests.paths import GRAMMARS, GROUND_TRUTH
 
 

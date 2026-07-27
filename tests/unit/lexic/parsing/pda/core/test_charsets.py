@@ -14,7 +14,7 @@ from __future__ import annotations
 import hypothesis.strategies as st
 from hypothesis import given, settings
 
-from lexic.ir.nodes import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
+from lexic.ir import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
 from lexic.parsing.pda.core.charsets import MAX_RANGE_EXPANSION, CharSet
 
 A = frozenset({"a", "b"})

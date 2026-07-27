@@ -16,24 +16,25 @@ from lexic.grammars.gbnf import (
     GBNF_REDUCER,
     GBNF_REDUCTIONS,
 )
-from lexic.ir.base import IrLambda, IrNone
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
     MAX_CODEPOINT,
     IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
+    IrFlavour,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrMap,
+    IrNone,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing import derivations
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, Reducer

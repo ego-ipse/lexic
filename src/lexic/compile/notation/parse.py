@@ -59,19 +59,21 @@ from lexic.compile.foldkit import (
     seq,
 )
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrSelf, IrSeq
-from lexic.ir.mapping import IR_DEFAULT
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IR_DEFAULT,
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
 )
 from lexic.parsing import FieldFold, ModelBody, parse_model

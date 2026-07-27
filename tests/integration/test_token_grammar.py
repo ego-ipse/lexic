@@ -20,10 +20,16 @@ from lexic.compile import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrAlphabet, IrCharClass, IrChr, IrLiteral
+from lexic.ir import (
+    IrAlphabet,
+    IrCharClass,
+    IrChr,
+    IrLiteral,
+    IrMap,
+    IrStr,
+    IrTokenizer,
+    IrTuple,
+)
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tables import ParserTables, compile_tables
 from lexic.parsing.earley.tokenscan import (

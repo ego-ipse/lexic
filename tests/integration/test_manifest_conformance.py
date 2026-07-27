@@ -39,9 +39,7 @@ from lexic.grammars.gbnf import (
     GBNF_GRAMMAR,
     GBNF_REDUCTIONS,
 )
-from lexic.ir.canonical import canonicalize
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
+from lexic.ir import EscapeCodec, IrFlavour, canonicalize
 from lexic.parsing import Reducer
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GRAMMARS, GROUND_TRUTH
 

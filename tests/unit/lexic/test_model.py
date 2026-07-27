@@ -13,21 +13,22 @@ import pytest
 
 from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
-from lexic.ir.action import IrAction
-from lexic.ir.base import IrNone, IrTuple
-from lexic.ir.bind import IrBind
-from lexic.ir.mapping import IrTypeMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IrAction,
     IrAlternation,
+    IrBind,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
+    IrTuple,
+    IrTypeMap,
 )
 from lexic.model import GrammarModel
 from tests.paths import GROUND_TRUTH

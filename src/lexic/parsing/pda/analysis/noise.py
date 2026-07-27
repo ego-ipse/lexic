@@ -42,18 +42,21 @@ from __future__ import annotations
 
 from typing import Any, Sequence, cast
 
-from lexic.ir.action import IrAction
-from lexic.ir.base import IrLambda, IrLeaf, IrNoneType, IrSelf
-from lexic.ir.mapping import IrTypeMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IrAction,
     IrAlternation,
     IrCharClass,
     IrItem,
+    IrLambda,
+    IrLeaf,
     IrLiteral,
+    IrNoneType,
+    IrNot,
     IrQuantifier,
     IrRuleRef,
+    IrSelf,
+    IrTypeMap,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing.pda.core.charsets import CharSet
 
 __all__ = [

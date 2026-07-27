@@ -12,7 +12,7 @@ from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.nodes import IrLiteral
+from lexic.ir import IrLiteral
 from tests.paths import GROUND_TRUTH
 
 

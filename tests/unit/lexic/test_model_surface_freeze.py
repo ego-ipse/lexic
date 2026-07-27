@@ -46,7 +46,7 @@ import pytest
 
 from lexic.compile import compile_from_path
 from lexic.exceptions import FieldValidationError
-from lexic.ir.bind import IrBind
+from lexic.ir import IrBind
 from lexic.model import GrammarModel
 from tests.paths import GROUND_TRUTH
 

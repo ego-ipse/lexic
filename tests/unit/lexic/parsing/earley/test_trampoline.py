@@ -16,8 +16,7 @@ from __future__ import annotations
 import sys
 from typing import Iterator
 
-from lexic.ir.base import IrLeaf, IrSelf, IrSeq
-from lexic.ir.nodes import IrLiteral
+from lexic.ir import IrLeaf, IrLiteral, IrSelf, IrSeq
 from lexic.parsing.earley.forest import IrStream
 from lexic.parsing.earley.trampoline import ADVANCE, EMIT, EXHAUSTED, Trampoline
 

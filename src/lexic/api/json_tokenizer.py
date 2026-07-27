@@ -42,18 +42,21 @@ from lexic.api.pretokens import (
 )
 from lexic.compile import Reducer, parse_reduced
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrSelf, IrStr, IrTuple
-from lexic.ir.encoding import (
+from lexic.ir import (
+    IrAst,
+    IrMap,
+    IrNone,
     IrNormalizer,
     IrPretoken,
     IrReplace,
+    IrSelf,
+    IrStr,
     IrTokenizer,
     IrTokenPipeline,
+    IrTuple,
     IrUnicodeForm,
     IrUnknown,
 )
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrAst
 
 __all__ = ["PRETOKENS", "read", "read_from_path", "tokenizer_of"]
 

@@ -50,16 +50,17 @@ from __future__ import annotations
 from typing import ClassVar, Iterable, Iterator, Self, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import (
+from lexic.ir import (
     IrLeaf,
+    IrLiteral,
     IrNamedTuple,
     IrNone,
     IrNoneType,
+    IrRuleRef,
     IrSelf,
     IrSeq,
     IrTuple,
 )
-from lexic.ir.nodes import IrLiteral, IrRuleRef
 from lexic.parsing.earley.chart import Chart, EarleyItem
 from lexic.parsing.earley.trampoline import ADVANCE, EMIT, EXHAUSTED, Trampoline
 

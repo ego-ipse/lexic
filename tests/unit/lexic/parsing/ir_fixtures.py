@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from lexic.ir.base import IrAtom, IrNone, IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
+    IrAtom,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize

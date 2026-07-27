@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Generator, Iterable, Iterator, cast
 
-from lexic.ir.base import IrLeaf, IrSelf
+from lexic.ir import IrLeaf, IrSelf
 
 ADVANCE = object()
 """Command tag: ``(ADVANCE, child)`` — drive ``child`` to its next value."""

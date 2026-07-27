@@ -29,9 +29,7 @@ built. A parentless rule subclasses :class:`GrammarModel` directly.
 from __future__ import annotations
 
 from lexic.compile.pipeline.binding import RuleBinding
-from lexic.ir.bind import IrBind
-from lexic.ir.nodes import IrAst, IrItem, IrRule, IrSequence
-from lexic.ir.order import rule_closure
+from lexic.ir import IrAst, IrBind, IrItem, IrRule, IrSequence, rule_closure
 from lexic.model import GrammarModel
 
 # A synthesized field's annotation is a neutral placeholder — ``object``. Only

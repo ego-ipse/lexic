@@ -79,22 +79,24 @@ from typing import Any, Callable
 
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.base import IrAtom, IrNone, IrSeq
-from lexic.ir.canonical import canonicalize
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
+    IrAtom,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
+    canonicalize,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing import parse as engine_parse
 from lexic.parsing import recognize as engine_recognize
 from lexic.parsing.earley.normalize import normalize

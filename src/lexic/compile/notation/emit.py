@@ -15,18 +15,26 @@ from __future__ import annotations
 from typing import NamedTuple, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction
-from lexic.ir.base import (
+from lexic.ir import (
+    IR_DEFAULT,
+    IrAction,
+    IrCat,
+    IrDispatch,
+    IrDoc,
+    IrGroup,
     IrLambda,
+    IrLine,
+    IrMapping,
     IrNamedTuple,
+    IrNest,
     IrNoneType,
     IrScalar,
     IrSelf,
+    IrText,
     IrTuple,
+    IrTypeMap,
+    render,
 )
-from lexic.ir.layout import IrCat, IrDoc, IrGroup, IrLine, IrNest, IrText, render
-from lexic.ir.mapping import IR_DEFAULT, IrMapping, IrTypeMap
-from lexic.ir.walk import IrDispatch
 
 _CALL_INDENT = 4
 

@@ -39,20 +39,23 @@ once per grammar, like building a ``lark.Lark`` instance.
 from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrAtom, IrLeaf, IrSelf, IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlphabet,
     IrAlternation,
     IrAst,
+    IrAtom,
     IrCharClass,
     IrItem,
+    IrLeaf,
     IrLiteral,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
 
 ORIGIN_BITS = 28

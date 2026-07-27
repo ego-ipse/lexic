@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Mapping, NamedTuple, TypeVar
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrSelf
+from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.reduce import (
     DROP_KIND,
     KEEP_KIND,

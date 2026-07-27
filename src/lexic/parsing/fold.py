@@ -44,26 +44,24 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Mapping, NamedTuple, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import (
-    IrLambda,
-    IrNamedTuple,
-    IrNone,
-    IrNoneType,
-    IrSelf,
-    IrSeq,
-    IrTuple,
-)
-from lexic.ir.bind import BIND_MODES
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    BIND_MODES,
     IrAlternation,
     IrAst,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrMap,
+    IrNamedTuple,
+    IrNone,
+    IrNoneType,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrTuple,
 )
 from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves

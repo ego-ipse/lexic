@@ -8,8 +8,7 @@ import resource
 import time
 from typing import Any, Callable, Literal
 
-from lexic.ir.base import IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -18,6 +17,7 @@ from lexic.ir.nodes import (
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
 

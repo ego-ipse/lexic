@@ -26,9 +26,7 @@ from lexic.compile import (
 from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.templating import skip_rules
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
-from lexic.ir.base import IrSelf
-from lexic.ir.mapping import IrMap
-from lexic.ir.order import refs_in_order
+from lexic.ir import IrMap, IrSelf, refs_in_order
 from lexic.model import GrammarModel
 from lexic.parsing import parse_model
 from tests.paths import GROUND_TRUTH

@@ -27,22 +27,28 @@ import pytest
 
 import lexic.parsing.earley.engine as engine_mod
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrArgs, IrJoin
-from lexic.ir.base import IrInt, IrNone, IrNoneType, IrSelf, IrSeq, IrTuple
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
+    IrArgs,
     IrAst,
     IrCharClass,
     IrChr,
+    IrInt,
     IrItem,
+    IrJoin,
     IrLiteral,
+    IrMap,
+    IrNone,
+    IrNoneType,
+    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrTuple,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing import (
     EarleyParser,
     ParseTree,

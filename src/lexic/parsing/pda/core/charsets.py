@@ -28,7 +28,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import ClassVar, Final
 
-from lexic.ir.nodes import IrCharClass
+from lexic.ir import IrCharClass
 
 __all__ = ["CharSet", "MAX_RANGE_EXPANSION"]
 

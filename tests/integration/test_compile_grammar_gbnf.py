@@ -11,7 +11,7 @@ from lexic.compile import (
 from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.nodes import IrRuleRef
+from lexic.ir import IrRuleRef
 from tests.paths import GROUND_TRUTH
 
 

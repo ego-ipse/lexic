@@ -36,29 +36,28 @@ from lexic.compile.artifact import CompiledGrammar
 from lexic.compile.foldkit import ALT_BODY, model_fold
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.ir.action import IrAction
-from lexic.ir.base import (
+from lexic.ir import (
+    IrAction,
+    IrAlternation,
+    IrAst,
+    IrBind,
+    IrBottomUp,
     IrLambda,
+    IrMap,
     IrNamedTuple,
     IrNode,
     IrNoneType,
-    IrSelf,
-    IrSeq,
-    IrStr,
-    IrTuple,
-)
-from lexic.ir.bind import IrBind
-from lexic.ir.mapping import IrMap, IrTypeMap
-from lexic.ir.meta import IrSingleton
-from lexic.ir.nodes import (
-    IrAlternation,
-    IrAst,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrSingleton,
+    IrStr,
+    IrTuple,
+    IrTypeMap,
+    refs_in_order,
 )
-from lexic.ir.order import refs_in_order
-from lexic.ir.walk import IrBottomUp
 from lexic.model import GrammarModel
 from lexic.parsing import FieldFold, ModelBody, ModelFold, parse_model
 

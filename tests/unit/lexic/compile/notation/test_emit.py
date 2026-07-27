@@ -20,17 +20,22 @@ from lexic.compile.notation.parse import load_ir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_GRAMMAR, ABNF_REDUCTIONS
 from lexic.grammars.gbnf import GBNF_GRAMMAR, GBNF_REDUCTIONS
-from lexic.ir.action import IrAction
-from lexic.ir.base import IrInt, IrLambda, IrNone, IrStr, IrTuple
-from lexic.ir.layout import render
-from lexic.ir.mapping import IR_DEFAULT, IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IR_DEFAULT,
+    IrAction,
     IrAst,
+    IrInt,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrMap,
+    IrNone,
     IrQuantifier,
     IrRuleRef,
     IrSequence,
+    IrStr,
+    IrTuple,
+    render,
 )
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Drop, KeepReduced
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH

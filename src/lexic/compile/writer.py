@@ -29,7 +29,7 @@ from pathlib import Path
 from tempfile import mkstemp
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.layout import IrCat, IrDoc, IrGroup, IrLine, IrNest, IrText, render
+from lexic.ir import IrCat, IrDoc, IrGroup, IrLine, IrNest, IrText, render
 
 WIDTH = 88
 """The line budget every emitted module is rendered against."""

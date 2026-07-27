@@ -9,7 +9,7 @@ GrammarAnalysis` owns the instance and re-exports the class.
 from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrSelf
+from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
 

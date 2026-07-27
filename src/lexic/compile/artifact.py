@@ -10,11 +10,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.concretize import concretize
-from lexic.ir.encoding import IrEncoding, IrTokenizer, IrUnicode
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrAst
+from lexic.ir import (
+    IrAst,
+    IrEncoding,
+    IrMap,
+    IrStr,
+    IrTokenizer,
+    IrTuple,
+    IrUnicode,
+    concretize,
+)
 from lexic.model import GrammarModel
 from lexic.parsing import ModelFold, TokenMaskCursor, parse_model, token_model
 

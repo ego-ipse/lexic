@@ -12,7 +12,7 @@ from lexic.compile import notation
 from lexic.compile.notation.emit import emit_ir as _emit_ir
 from lexic.compile.notation.loader import load_flavour as _load_flavour
 from lexic.compile.notation.parse import load_ir as _load_ir
-from lexic.ir.base import IrStr, IrTuple
+from lexic.ir import IrStr, IrTuple
 
 _DOC_NAME = re.compile(r"``([A-Za-z_][A-Za-z0-9_]*)``")
 

@@ -19,7 +19,7 @@ reached through ``module._name`` attribute access, matching
 
 from __future__ import annotations
 
-from lexic.ir.bind import BIND_MODES
+from lexic.ir import BIND_MODES
 from lexic.parsing.pda.compiler.clones import IslandRef
 from lexic.parsing.pda.compiler.flatten import (
     _TERMINAL_OPS,

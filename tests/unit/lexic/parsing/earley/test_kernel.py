@@ -16,18 +16,20 @@ from typing import cast
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrNoneType, IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
+    IrNoneType,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
 from lexic.parsing import derivations, parse, recognize

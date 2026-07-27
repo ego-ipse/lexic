@@ -24,18 +24,25 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrArgs, IrConcat, IrJoin
-from lexic.ir.base import IrLambda, IrNone, IrSelf, IrSeq, IrTuple
-from lexic.ir.mapping import IR_DEFAULT, IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IR_DEFAULT,
     IrAlternation,
+    IrArgs,
     IrAst,
+    IrConcat,
     IrItem,
+    IrJoin,
+    IrLambda,
     IrLiteral,
+    IrMap,
+    IrNone,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrTuple,
 )
 from lexic.parsing import derivations, parse
 from lexic.parsing.earley.forest import ParseTree

@@ -20,8 +20,7 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst, IrMap
 from lexic.model import GrammarModel
 from lexic.parsing.earley import tables as tables_mod
 from lexic.parsing.earley.normalize import normalize

@@ -8,17 +8,19 @@ json ground truth, whose ``ws`` is the licence's motivating case.
 
 from __future__ import annotations
 
-from lexic.ir.base import IrChr, IrNone, IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis

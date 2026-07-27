@@ -17,7 +17,7 @@ import sys
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.nodes import IrLiteral
+from lexic.ir import IrLiteral
 from lexic.parsing import derivations, is_ambiguous, parse
 from lexic.parsing.earley.forest import ParseTree
 from tests.unit.lexic.parsing.ir_fixtures import sss_grammar

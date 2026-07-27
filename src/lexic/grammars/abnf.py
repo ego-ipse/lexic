@@ -71,59 +71,64 @@ from __future__ import annotations
 import string
 from typing import ClassVar
 
-from lexic.ir.action import (
+from lexic.ir import (
+    IR_DEFAULT,
+    EscapeCodec,
     IrAction,
+    IrAlphabet,
+    IrAlternation,
     IrArg,
     IrArgs,
+    IrAst,
     IrBuild,
+    IrCharClass,
     IrChild,
     IrChildren,
+    IrChr,
     IrCompare,
     IrConcat,
     IrCond,
+    IrDocConcat,
+    IrDocJoin,
     IrEach,
     IrEmit,
     IrField,
+    IrFlavour,
     IrGlyph,
+    IrGroup,
+    IrInt,
     IrIsA,
+    IrItem,
     IrJoin,
     IrLen,
+    IrLine,
+    IrLiteral,
+    IrMap,
     IrMerge,
-    IrOrd,
-    IrPipe,
-    IrRadix,
-    IrRaise,
-    IrThis,
-    IrUnradix,
-)
-from lexic.ir.base import (
-    IrChr,
-    IrInt,
+    IrNest,
     IrNone,
     IrNoneType,
-    IrSelf,
-    IrSeq,
-    IrStr,
-    IrTuple,
-)
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour, IrSpellable
-from lexic.ir.layout import IrDocConcat, IrDocJoin, IrGroup, IrLine, IrNest, IrText
-from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
-from lexic.ir.nodes import (
-    IrAlphabet,
-    IrAlternation,
-    IrAst,
-    IrCharClass,
-    IrItem,
-    IrLiteral,
+    IrNot,
+    IrOp,
+    IrOrd,
+    IrPipe,
     IrQuantifier,
+    IrRadix,
+    IrRaise,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrSpellable,
+    IrStr,
+    IrText,
+    IrThis,
+    IrTuple,
+    IrTypeMap,
+    IrUnradix,
 )
-from lexic.ir.operators import IrNot, IrOp
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 
 # Identity codec — ABNF literals are canonical Python; the quoted char-val body

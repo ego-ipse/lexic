@@ -28,8 +28,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from lexic.ir.base import IrLeaf, IrSelf
-from lexic.ir.nodes import IrAst, IrLiteral
+from lexic.ir import IrAst, IrLeaf, IrLiteral, IrSelf
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
 from lexic.parsing.earley.tables import (
     ORIGIN_BITS,

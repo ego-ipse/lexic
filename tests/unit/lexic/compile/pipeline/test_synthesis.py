@@ -15,14 +15,14 @@ from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.compile.pipeline.synthesis import synthesize
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.base import IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrItem,
     IrLiteral,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
 from lexic.model import GrammarModel

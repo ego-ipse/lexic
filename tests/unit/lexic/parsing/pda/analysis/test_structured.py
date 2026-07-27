@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.ir.base import IrChr
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
     IrRange,

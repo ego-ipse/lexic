@@ -35,7 +35,7 @@ from lexic.api.pretokens import (
     _is_space,
     _qwen_piece,
 )
-from lexic.ir.nodes import MAX_CODEPOINT
+from lexic.ir import MAX_CODEPOINT
 
 tokenizers = pytest.importorskip("tokenizers")
 

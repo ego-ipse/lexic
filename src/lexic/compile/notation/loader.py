@@ -36,11 +36,7 @@ from typing import cast
 
 from lexic.compile.notation.parse import load_ir
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrTuple
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.mapping import IrMap, IrTypeMap
-from lexic.ir.nodes import IrAst
+from lexic.ir import EscapeCodec, IrAst, IrFlavour, IrMap, IrTuple, IrTypeMap
 from lexic.parsing import Reducer
 
 __all__ = ["load_flavour", "load_flavour_from_path"]

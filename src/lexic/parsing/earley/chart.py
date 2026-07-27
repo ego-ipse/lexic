@@ -25,9 +25,7 @@ overriding only ``__iadd__`` to add SPPF-dedup on top of the inherited append.
 
 from __future__ import annotations
 
-from lexic.ir.base import IrLeaf, IrSelf
-from lexic.ir.mapping import IrMultiMap
-from lexic.ir.nodes import IrRuleRef, IrSequence
+from lexic.ir import IrLeaf, IrMultiMap, IrRuleRef, IrSelf, IrSequence
 
 EarleyItem = tuple[IrRuleRef, IrSequence, int, int]
 """Earley items — a dotted arm ``(rule_name, arm, dot, origin)`` as a plain tuple."""

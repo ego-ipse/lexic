@@ -34,11 +34,15 @@ from lexic.grammars.gbnf import (
     GBNF_ACTIONS,
     GBNF_FLAVOUR,
 )
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.canonical import canonicalize
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.mapping import IrMap, IrTypeMap
+from lexic.ir import (
+    EscapeCodec,
+    IrFlavour,
+    IrMap,
+    IrStr,
+    IrTuple,
+    IrTypeMap,
+    canonicalize,
+)
 
 # ── section spelling ──────────────────────────────────────────────────────
 

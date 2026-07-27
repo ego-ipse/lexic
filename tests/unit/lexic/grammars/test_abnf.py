@@ -23,25 +23,27 @@ from lexic.grammars.abnf import (
     ABNF_REDUCTIONS,
 )
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.base import IrLambda, IrNone, IrSeq
-from lexic.ir.canonical import canonicalize
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    EscapeCodec,
     IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
+    IrFlavour,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrMap,
+    IrNone,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
+    canonicalize,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing import parse, recognize
 from lexic.parsing.earley.forest import ParseTree
 from lexic.parsing.earley.normalize import normalize

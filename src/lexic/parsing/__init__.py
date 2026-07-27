@@ -79,8 +79,7 @@ surfaces.
 
 from __future__ import annotations
 
-from lexic.ir.base import IrInt, IrSelf, IrSeq, IrStr, IrTuple
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst, IrInt, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.parsing.earley.chart import Chart, EarleyItem, Link, Links
 from lexic.parsing.earley.engine import (
     ENUMERATE,

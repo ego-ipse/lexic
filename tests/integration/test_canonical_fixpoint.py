@@ -25,7 +25,7 @@ from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.grammars.abnf import ABNF_GRAMMAR
 from lexic.grammars.gbnf import GBNF_GRAMMAR
 from lexic.grammars.json import JSON_GRAMMAR
-from lexic.ir.canonical import canonicalize
+from lexic.ir import canonicalize
 from tests.paths import GROUND_TRUTH
 
 GBNF_GROUND_TRUTH = (

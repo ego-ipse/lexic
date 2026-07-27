@@ -15,20 +15,20 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
     IrItem,
     IrLiteral,
+    IrNot,
     IrQuantifier,
     IrRule,
     IrSeq,
     IrSequence,
+    IrTokenizer,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.resume import ResumableKernel

@@ -20,7 +20,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst
 from lexic.parsing.earley.forest import ParseTree
 from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.normalize import normalize

@@ -19,8 +19,7 @@ from lexic.compile import compile_from_path, compile_text, export_module
 from lexic.compile.payload import built_under, export_value, project, reader, render
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
-from lexic.ir.base import IrInt, IrStr, IrTuple
-from lexic.ir.encoding import IrRankedMerge
+from lexic.ir import IrInt, IrRankedMerge, IrStr, IrTuple
 from tests.paths import GROUND_TRUTH, PROJECT_ROOT
 
 SRC = str(PROJECT_ROOT / "src")
