@@ -275,7 +275,13 @@ def _inline_table_lines(bind: RuleBinding, rule: IrRule, shape: int) -> _Rendere
 
 
 class _ClassInput(NamedTuple):
-    """Everything one class block is rendered from — its rule, seen four ways."""
+    """Everything one class block is rendered from — its rule, seen four ways.
+
+    ``rule`` is the RESOLVED rule, which the field types and the inline
+    ``__grammar__`` read. ``rule_text`` and ``shape`` come from the
+    pre-resolution one instead: the docstring shows what was written, and
+    provenance must match what the runtime class carries.
+    """
 
     bind: RuleBinding
     rule: IrRule
@@ -418,20 +424,33 @@ def _module_body(compiled: CompiledGrammar, *, inline_tables: bool) -> _Rendered
     flavour = get_flavour(compiled.flavour)
     binding = compute_binding(compiled.codegen_grammar)
     rules = {str(rule.name): rule for rule in compiled.codegen_grammar.rules}
-    # The DOCSTRING alone renders off the pre-resolution grammar — same rules,
+    # The docstring AND the inline tables render off the pre-resolution grammar — same rules,
     # same structure, but a token terminal still spelled the way it was written.
     # Resolution bakes ordinals and drops the spellings, so a docstring off
     # ``codegen_grammar`` reads ``<[151667]>`` while ``GRAMMAR`` — which
     # round-trips to the canonical AST — holds ``<think>``: two resolution
     # states in one file. Everything else (the field types, and the
-    # ``inline_tables`` ``__grammar__``, which is RUNTIME data the class binds)
-    # keeps the resolved rule.
+    # The inline ``__grammar__`` keeps the RESOLVED rule on purpose: an
+    # inline-tables twin is self-contained, and shipping token terminals that
+    # were never bound to ids would make it unusable on its own. ``__shape__``
+    # cannot follow it — provenance has to match what the RUNTIME carries, and
+    # ``_compile_core`` calls ``synthesize(unresolved, …)`` while ``bind_module``
+    # rebuilds from the twin's own authored ``GRAMMAR``. So the two resolution
+    # states sit side by side in one class, each for its own reason.
     authored = {
         str(rule.name): rule
         for rule in (compiled.tokens.unresolved or compiled.codegen_grammar).rules
     }
     class_by_rule = {bind.rule_name: bind.class_name for bind in binding}
-    shapes = rule_closure(compiled.codegen_grammar)
+    # The UNRESOLVED grammar, the one `synthesize` digests and the one a twin's
+    # own GRAMMAR reconstructs. Resolution bakes ordinals into a token rule, so
+    # digesting the resolved form gave an inline twin a shape that agreed with
+    # neither the runtime nor the bind-mode twin of the same compilation.
+    # The UNRESOLVED grammar, the one `synthesize` digests and the one a twin's
+    # own GRAMMAR reconstructs. Resolution bakes ordinals into a token rule, so
+    # digesting the resolved form gave an inline twin a shape that agreed with
+    # neither the runtime nor the bind-mode twin of the same compilation.
+    shapes = rule_closure(compiled.tokens.unresolved or compiled.codegen_grammar)
     blocks: list[str] = []
     spelled: frozenset[str] = frozenset()
     for bind in binding:
