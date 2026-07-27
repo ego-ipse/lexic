@@ -1,10 +1,17 @@
-"""``export_value`` — a projected value as an importable, self-contained module.
+"""``export_value`` — a projected value as an importable module.
 
-The artefact is the payload's four literals, the symbols it names, and **the
-reader's own source inlined**. Inlined rather than imported because importing
-anything under ``lexic.`` costs the package root, and a ``plain`` payload must
-pay for nothing; it also makes the artefact self-contained, so a payload cannot
-skew against a newer reader.
+The artefact is the payload's four literals, the symbols it names, and an import
+of the **reader emitted beside it**. Emitted rather than imported from ``lexic.``
+because importing anything under that root costs the package root and a ``plain``
+payload must pay for nothing — but emitted *once per directory*, not copied into
+every artefact, which is 330 lines of identical machinery per file and one place
+to forget when the reader changes.
+
+The sidecar's name carries the digest of its own source, so ``payload_reader_x``
+IS a particular reader: an artefact cannot bind to a newer one, and two lexic
+versions writing into one directory leave two sidecars rather than one that
+silently changed under the older artefact. Version skew is impossible by
+construction, which is why nothing checks for it.
 
 There is **no target flag**. Which of the three targets you get is decided by the
 codomain of the reduction that produced the value — by the product the caller
@@ -15,15 +22,15 @@ exactly when the value names a symbol whose own module does not import.
 from __future__ import annotations
 
 import ast as _pyast
-import importlib.util
-import os
-import py_compile
+from hashlib import blake2b
+from importlib import import_module
 from keyword import iskeyword
 from pathlib import Path
 
 from lexic import ir
 from lexic.compile.payload import reader
 from lexic.compile.payload.encode import Payload, project_checked
+from lexic.compile.writer import literal, write_module
 from lexic.exceptions import UnsupportedConstructError
 
 ALIAS = "_sym_"
@@ -42,24 +49,13 @@ SPINE = "lexic.ir"
 
 
 def _reader_source() -> str:
-    """The reader's source, ready to inline: no docstring, no ``__future__``.
+    """The reader's source as the sidecar spells it — verbatim but for a banner.
 
-    Both have to go — a ``__future__`` import is only legal at the top of a file
-    and the artefact supplies its own, and the reader's module docstring would
-    read as a stray string in the middle of one. What replaces them is a line
-    saying where the code came from, because a reader of the artefact should not
-    have to guess.
+    :returns: The sidecar's source.
+    :raises UnsupportedConstructError: When the reader owns an aliased name.
     """
     source = Path(reader.__file__).read_text(encoding="utf-8")
     tree = _pyast.parse(source)
-    drop: set[int] = set()
-    for node in tree.body:
-        future = isinstance(node, _pyast.ImportFrom) and node.module == "__future__"
-        docstring = isinstance(node, _pyast.Expr) and isinstance(
-            node.value, _pyast.Constant
-        )
-        if future or (docstring and node is tree.body[0]):
-            drop.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
     owned = {
         target.id
         for node in tree.body
@@ -75,14 +71,31 @@ def _reader_source() -> str:
             f"payload: the reader owns {clash}, which collides with the alias "
             f"prefix {ALIAS!r} every imported symbol is bound under"
         )
-    kept = [
-        line for number, line in enumerate(source.splitlines(), 1) if number not in drop
-    ]
     banner = (
-        "# The payload reader, inlined from lexic.compile.payload.reader so this\n"
-        "# artefact imports no lexic at all and cannot skew against a newer one."
+        "# Emitted beside the artefacts that import it, from\n"
+        "# lexic.compile.payload.reader, so an artefact reads with no lexic\n"
+        "# installed. The digest in this module's NAME is of this source: a\n"
+        "# newer reader is a different module, never a changed one.\n"
     )
-    return banner + "\n" + "\n".join(kept).strip() + "\n"
+    return banner + source
+
+
+def _sidecar(directory: Path) -> str:
+    """Emit the reader beside the artefacts, named for the digest of its source.
+
+    :param directory: Where the artefact is being written.
+    :returns: The module name the artefact should import the reader from.
+    """
+    source = _reader_source()
+    tag = blake2b(source.encode("utf-8"), digest_size=6).hexdigest()
+    path = directory / f"payload_reader_{tag}.py"
+    if not path.exists():
+        write_module(path, source)
+    # Relative inside a package, absolute outside: the artefact has to spell the
+    # sidecar the way Python resolves it from where the artefact lands, and
+    # whether that place is a package is a fact about the directory.
+    package = (directory / "__init__.py").exists()
+    return ("." if package else "") + path.stem
 
 
 def _homes(payload: Payload, module: str | None) -> dict[str, str]:
@@ -115,24 +128,96 @@ def _homes(payload: Payload, module: str | None) -> dict[str, str]:
     return homes
 
 
-def _header(homes: dict[str, str]) -> list[str]:
-    """The import block and the symbol map, aliased so nothing can shadow."""
-    lines = ["from __future__ import annotations", ""]
+def _verify_module(module: str | None, homes: dict[str, str], payload: Payload) -> None:
+    """If ``module`` already imports, confirm it really provides these symbols.
+
+    A two-step export is legitimate — the twin and the payload can be written in
+    either order — so a module that does not import yet is not an error. One
+    that DOES import and does not provide the symbols is: ``module="json"`` for
+    a twin written to ``generated/json.py`` resolves to the standard library on
+    any path that does not happen to put the twin first, and the artefact then
+    fails at import with a message about the wrong module entirely.
+
+    :param module: The caller's module, or ``None``.
+    :param homes: Symbol name → the module it will be imported from.
+    :param payload: The projected value, for the classes it saw.
+    :raises UnsupportedConstructError: When the module resolves and disagrees.
+    """
+    wanted = sorted(name for name, home in homes.items() if home == module)
+    if module is None or not wanted:
+        return
+    try:
+        found = import_module(module)
+    except ImportError:
+        return  # not written yet — the other half of a two-step export
+    missing = [name for name in wanted if not hasattr(found, name)]
+    if missing:
+        raise UnsupportedConstructError(
+            f"payload: module={module!r} imports from "
+            f"{getattr(found, '__file__', '?')} and does not provide {missing} — "
+            "the artefact would name symbols that module cannot supply"
+        )
+    # Identity only where identity is the right question — for a class that
+    # claims `module` as its own home, anything else under that name is an
+    # impostor. A twin's classes never claim it: a value is parsed with runtime
+    # classes whose module is content-tagged, so `is` would refuse the ordinary
+    # case of exporting a value beside its twin. There the question is the one
+    # the reader asks at decode — do these carry the rules the payload was built
+    # against — asked here, early, where the message can name the module.
+    claimed = [
+        name
+        for name in wanted
+        if getattr(payload.owners.get(name), "__module__", None) == module
+        and getattr(found, name) is not payload.owners[name]
+    ]
+    if claimed:
+        raise UnsupportedConstructError(
+            f"payload: module={module!r} provides {claimed}, but not the classes "
+            "this value was built from — those classes name that module as their "
+            "own, so a different object under the name is a different class"
+        )
+    supplied = {name: getattr(found, name) for name in wanted}
+    supplied.update(
+        {name: getattr(ir, name) for name, home in homes.items() if home == SPINE}
+    )
+    if reader.shape_of(payload.types, supplied) != payload.shape():
+        raise UnsupportedConstructError(
+            f"payload: module={module!r} imports from "
+            f"{getattr(found, '__file__', '?')}, whose classes carry different "
+            "rules than this value was built from — the artefact would decode "
+            "against the wrong grammar"
+        )
+
+
+def _imports(homes: dict[str, str]) -> list[str]:
+    """One parenthesised ``from … import`` per home, aliased so nothing shadows.
+
+    :param homes: Symbol name → the module it is imported from.
+    :returns: The import lines, wrapped to the line budget.
+    """
+    lines: list[str] = []
     for home in sorted(set(homes.values())):
         names = sorted(name for name, where in homes.items() if where == home)
-        joined = ", ".join(f"{name} as {ALIAS}{name}" for name in names)
-        lines.append(f"from {home} import {joined}")
-    lines.append("")
-    lines.append("SYMBOLS = {")
-    lines.extend(f'    "{name}": {ALIAS}{name},' for name in sorted(homes))
-    lines.append("}")
+        lines.append(f"from {home} import (")
+        lines.extend(f"    {name} as {ALIAS}{name}," for name in names)
+        lines.append(")")
     return lines
 
 
-def render(payload: Payload, *, module: str | None = None) -> str:
-    """The artefact's source: header, inlined reader, tables, and the value.
+def _symbol_map(homes: dict[str, str]) -> list[str]:
+    """``SYMBOLS`` — the payload's name for a class, mapped to its alias."""
+    return (
+        ["SYMBOLS = {"]
+        + [f'    "{name}": {ALIAS}{name},' for name in sorted(homes)]
+        + ["}"]
+    )
+
+
+def render(payload: Payload, reader_module: str, *, module: str | None = None) -> str:
+    """The artefact's source: imports, tables, and the value.
 
     :param payload: The projected value.
+    :param reader_module: The emitted reader to import ``decode`` from.
     :param module: Where a non-spine symbol is imported from.
     :returns: The module source.
     :raises UnsupportedConstructError: When a symbol has no importable home.
@@ -145,28 +230,37 @@ def render(payload: Payload, *, module: str | None = None) -> str:
             "header it would write cannot be imported"
         )
     homes = _homes(payload, module)
+    _verify_module(module, homes, payload)
     doc = (
-        '"""A compiled value — the payload, its symbols, and the reader inlined.\n\n'
+        '"""A compiled value — the payload, the symbols it names, and the value.\n\n'
         "Regenerate rather than edit: the tables carry a digest, checked on the\n"
         "way in, so an edit here is refused rather than read as a wrong value.\n"
         '"""'
     )
-    parts = [doc, "\n".join(_header(homes)) if homes else _HEADER_PLAIN]
-    parts.append(_reader_source())
-    parts.append(
-        f"TYPES = {payload.types!r}\n"
-        f"ORIGINS = {payload.origins!r}\n"
-        f"STRS = {payload.strs!r}\n"
-        f"NODES = {payload.nodes!r}\n"
-        f"DIGEST = {payload.digest()!r}\n\n"
-        f"VALUE = decode(TYPES, STRS, NODES, {'SYMBOLS' if homes else '{}'}, DIGEST)"
+    tables = "\n".join(
+        literal(f"{name} = ", table)
+        for name, table in (
+            ("TYPES", payload.types),
+            ("ORIGINS", payload.origins),
+            ("STRS", payload.strs),
+            ("NODES", payload.nodes),
+        )
     )
-    return "\n\n\n".join(parts) + "\n"
-
-
-_HEADER_PLAIN = "from __future__ import annotations"
-"""A ``plain`` payload names no symbol, so it has no imports to write — which is
-the whole reason its reader is inlined."""
+    return (
+        "\n\n\n".join(
+            [
+                doc,
+                "\n".join([f"from {reader_module} import decode"] + _imports(homes)),
+                "\n".join(_symbol_map(homes)) if homes else "SYMBOLS = {}",
+                f"{tables}\n"
+                f"DIGEST = {payload.digest()!r}\n"
+                f"SHAPE = {payload.shape()!r}\n\n"
+                "TABLES = (TYPES, ORIGINS, STRS, NODES)\n"
+                "VALUE = decode(TABLES, SYMBOLS, (DIGEST, SHAPE))",
+            ]
+        )
+        + "\n"
+    )
 
 
 def export_value(value: object, path: str | Path, *, module: str | None = None) -> Path:
@@ -187,32 +281,7 @@ def export_value(value: object, path: str | Path, *, module: str | None = None) 
         symbol with no importable home, or a failed gate.
     """
     target = Path(path)
-    source = render(project_checked(value), module=module)
-    try:
-        _pyast.parse(source)
-    except SyntaxError as exc:
-        raise UnsupportedConstructError(
-            f"payload: the rendered artefact is not valid Python: {exc}"
-        ) from exc
-    # Written through a temporary and moved into place. A previous artefact and
-    # its `.pyc` are a matched pair, and `UNCHECKED_HASH` means the `.pyc` wins:
-    # a failed re-export that left a broken source behind would be imported as
-    # the OLD value, with no error anywhere.
-    staged = target.with_name(target.name + ".staged")
-    staged.write_text(source, encoding="utf-8")
-    try:
-        py_compile.compile(
-            str(staged),
-            cfile=str(staged) + "c",
-            dfile=str(target),
-            doraise=True,
-            invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH,
-        )
-        cache = Path(importlib.util.cache_from_source(str(target)))
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(str(staged) + "c", cache)
-        os.replace(staged, target)
-    finally:
-        staged.unlink(missing_ok=True)
-        Path(str(staged) + "c").unlink(missing_ok=True)
-    return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = project_checked(value)
+    source = render(payload, _sidecar(target.parent), module=module)
+    return write_module(target, source)

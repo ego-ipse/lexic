@@ -48,8 +48,8 @@ def test_an_inlined_reader_decodes_a_payload_with_zero_lexic_modules() -> None:
     payload = project(({"a": [1, 2]}, "x", 3.5, None))
     script = (
         SOURCE.read_text(encoding="utf-8") + "\nimport sys\n"
-        f"VALUE = decode({payload.types!r}, {payload.strs!r}, {payload.nodes!r},"
-        f" {{}}, {payload.digest()!r})\n"
+        f"VALUE = decode({payload.tables!r}, {{}},"
+        f" ({payload.digest()!r}, {payload.shape()!r}))\n"
         "assert VALUE == ({'a': [1, 2]}, 'x', 3.5, None), VALUE\n"
         "print(len([m for m in sys.modules if m.startswith('lexic')]))\n"
     )
@@ -71,4 +71,4 @@ def test_child_slots_covers_every_kind() -> None:
 def test_an_empty_table_refuses_rather_than_indexing_off_the_end() -> None:
     """``built[-1]`` on nothing is an IndexError; the refusal says what happened."""
     with pytest.raises(ValueError, match="empty"):
-        reader.decode(("<plain>",), (), (), {})
+        reader.decode((("<plain>",), ("",), (), ()), {})

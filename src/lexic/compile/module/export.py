@@ -40,6 +40,7 @@ from lexic.compile.pipeline.binding import (
     compute_binding,
     non_empty_arms,
 )
+from lexic.compile.writer import write_module
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir.base import IrSelf
@@ -457,13 +458,15 @@ def export_module(
         file's stem).
     :param inline_tables: See :func:`export_source`.
     :returns: The written path.
+
+    Written through :func:`~lexic.compile.writer.write_module`, the same step a
+    payload goes out through: validated, staged, and byte-compiled, so a twin
+    and its ``.pyc`` land as a matched pair or not at all.
     """
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
     source = export_source(
         compiled,
         stem=stem if stem is not None else target.stem,
         inline_tables=inline_tables,
     )
-    target.write_text(source, encoding="utf-8")
-    return target
+    return write_module(target, source)

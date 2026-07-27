@@ -139,6 +139,7 @@ src/lexic/
     artifact.py                    CompiledGrammar — the parse-ready artefact compile_* produces
     foldkit.py                     Shared authored-fold vocabulary — the build-path unification seed
     templating.py                  Generic templating — extract selected paths of any COMPILED grammar via spans
+    writer.py                      The shared module writer — every .py lexic emits goes out through here
     module/
       __init__.py                  The twin-module surface — export (emit half) + selfgrammar (parse-back half)
       export.py                    export_source / export_module — the importable .py twin
