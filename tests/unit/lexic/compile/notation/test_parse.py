@@ -15,7 +15,10 @@ from pathlib import Path
 
 import pytest
 
-import lexic.ir.action as ir_action
+import lexic.ir.access as ir_access
+import lexic.ir.build as ir_build
+import lexic.ir.compute as ir_compute
+import lexic.ir.control as ir_control
 import lexic.ir.flavour as ir_flavour
 import lexic.ir.mapping as ir_mapping
 import lexic.ir.nodes as ir_nodes
@@ -202,7 +205,10 @@ IR_MODULES = (
     ir_records,
     ir_nodes,
     ir_operators,
-    ir_action,
+    ir_access,
+    ir_compute,
+    ir_control,
+    ir_build,
     ir_mapping,
     ir_flavour,
 )

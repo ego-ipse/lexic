@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrField
+from lexic.ir.access import IrField
 from lexic.ir.layout import (
     IrCat,
     IrDocConcat,
