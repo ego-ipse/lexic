@@ -44,6 +44,31 @@ Like `compile_text` but reads the file and memoises by `(path, mtime, size, flav
 
 ---
 
+### `export_value(value, path, *, module=None)` — `compile/payload/__init__.py`
+
+Writes whatever lexic parsed as an importable module: the value's payload as
+four flat literals, plus an import of the reader emitted beside it. Returns the
+written path, and writes the `.pyc` with it.
+
+Which of the three targets you get — `classes`, `ir`, `plain` — is **not a
+parameter**. It follows from the codomain of the reduction that produced the
+value, and the exporter reads it off the symbols: a model carries its grammar's
+classes, a reduced value carries the spine, plain data carries nothing and so
+reads back with zero lexic modules imported.
+
+`module` names where a reader will find symbols whose own module does not
+import — which is exactly the synthesized classes a `CompiledGrammar` holds,
+since they report a content-tagged module. Passing it also asserts it: if that
+module already imports, the export refuses when it cannot supply the symbols, or
+supplies them from a different compilation. Anything with a real importable
+origin needs no `module` at all.
+
+The value is projected under the fixpoint gate before anything is written, so an
+artefact that cannot be read back is never created. See
+[[generated-modules]] for the artefact's shape and the checks it runs at import.
+
+---
+
 ### `parse_grammar(text, flavour)` — `compile/__init__.py` (re-exported from `lexic`)
 
 The public grammar-text → `IrAst` seam. Takes an `IrFlavour` singleton (e.g. `GBNF_FLAVOUR`): requires `flavour.reducer` to be an actual `Reducer` instance (else `UnsupportedConstructError`), runs `parse_reduced(normalize(flavour.grammar), text, flavour.reducer)` — the normalised self-grammar memoised per flavour name — and verifies the reduction yields an `IrAst` (else `UnsupportedConstructError`). Returns the **raw** parsed `IrAst` — not yet canonicalized. Use it whenever you need the IR of a grammar without compiling classes (e.g. cross-flavour transpilation: `parse_grammar(text, GBNF_FLAVOUR)` then `ABNF_FLAVOUR.apply(ast)` — see `getting_started/ex04_transpile_flavours.py`).
@@ -201,3 +226,5 @@ See `canonical_grammar`'s precedence rules above for how `@start`/`@non-semantic
 | Grammar is a file; parse many strings | `compile_from_path` → `.parse()` |
 | Inspect the canonical grammar without generating code | `canonical_grammar` |
 | Grammar text → raw (not-yet-canonicalized) `IrAst` only (transpile, inspect, re-emit) | `parse_grammar` |
+| Write a compiled grammar as an importable twin | `export_module` |
+| Write a PARSED VALUE as an importable module | `export_value` |

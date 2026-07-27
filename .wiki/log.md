@@ -1,5 +1,35 @@
 # Log
 
+## Compiled payloads: a parsed VALUE as an importable module
+
+`compile/payload/` writes whatever lexic parsed as a module — four flat literals
+(`TYPES`/`ORIGINS`/`STRS`/`NODES`) plus an import of the reader emitted beside
+it. `export_value(value, path, *, module=None)` is the entry.
+
+Three targets, `classes` / `ir` / `plain`, are **one projection over one symbol
+table**, decided by the codomain of the reduction that produced the value —
+there is no target parameter. A `plain` payload reads back with zero lexic
+modules imported.
+
+The reader is lexic-free, and emitted **once per directory** as
+`payload_reader_<tag>.py` where the tag is the digest of its own source, so an
+artefact cannot bind to a different reader. At import an artefact checks a
+digest over its tables, a shape digest over the RULES its symbols carry, and —
+for a symbol carrying no rule — the module it came from.
+
+`compile/writer.py` is now the single last step for both exporters: it renders
+tables through the layout algebra, validates, byte-compiles and lands the module
+so its source and `.pyc` can never disagree. The twin exporter's export gate
+reads its `GRAMMAR` structurally instead of splitting the source text.
+
+Wiki: [[lexic/generated-modules]] (the artefact, the targets, the writer),
+[[lexic/public-api]] (`export_value`), [[lexic/decisions]] (target inferred not
+flagged; the `.pyc` at export; no regex engine in `src/`; sharing keyed on
+identity), [[lexic/invariants]] (module/`.pyc` agreement; refuse rather than read
+wrong; a memo key is valid only while something holds the object).
+
+---
+
 ## Segmentation gains an open model; the emit source stops carrying ids
 
 `IrSegmenter` joins `IrPretoken` and `IrNormalizer` as an open role: the

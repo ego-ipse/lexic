@@ -1,6 +1,6 @@
 # Generated Modules — the importable twins
 
-**When to load:** exporting a compiled grammar to a `.py` file; touching `compile/module/export.py`, `bind_module`, `ir/layout.py`, or the notation emit half; reasoning about twin-vs-runtime class identity.
+**When to load:** exporting a compiled grammar or a parsed VALUE to a `.py` file; touching `compile/module/export.py`, `compile/payload/`, `compile/writer.py`, `bind_module`, `ir/layout.py`, or the notation emit half; reasoning about twin-vs-runtime class identity.
 
 See also: [[architecture]], [[ir-shapes]], [[field-naming]], [[public-api]]
 
@@ -59,10 +59,62 @@ leading-indent-after-`__binds__` gap by construction. `m-imports` remains a
 benign non-failing once-per-file island. `compile/foldkit.py` (ALT,
 passthrough) is the build-path-unification seed shared with the notation.
 
-## Always-on export gates
-
-Every `export_source` call validates in-process: the module `ast.parse`s, and the rendered `GRAMMAR` text `load_ir`s back to an AST **equal** to `compiled.grammar`. `tools/check_generated.py` is the corpus gate: all GT grammars × both modes must be pyright-clean and pylint-clean under DEFAULT configs, with exactly three accepted exception classes (C0103 on keyword-mangled class names `True_`/`False_`; C0302 module length on large grammars; R0801 gbnf↔abnf twin duplication — same canonical AST by design).
 
 ## Reserved class names
 
 `_RESERVED_CLASS_NAMES` (`compile/pipeline/binding.py`) = `{GrammarModel, ClassVar, Literal}` ∪ the `Ir*` constructor names the notation emits — exactly the header's PascalCase bindings (lowercase `bind_module` and UPPERCASE `GRAMMAR` can never collide with a PascalCase class name). The typing-era names (`StringConstraints`, `Annotated`, `List`, `Optional`, `Union`) were trimmed 2026-07-18 — parity-neutral on the whole GT corpus. Drift-pinned against a real export.
+
+## The compiled payload — a parsed VALUE as a module
+
+`export_module` writes a **grammar**'s twin. `export_value(value, path, *, module=None)` (`compile/payload/`) writes a **value**'s artefact: whatever lexic parsed, as an importable module.
+
+The artefact is four flat literals and an import of the reader:
+
+- `TYPES` — the symbols the value names, `TYPES[0]` the "names no symbol" sentinel;
+- `ORIGINS` — the module each symbol was recorded as coming from, as data;
+- `STRS` — every string, interned;
+- `NODES` — a flat int array. Each record is `type_id, kind, payload, *child_indices`, and every child index points at an **earlier** record, so decoding is one forward pass with no recursion.
+
+### One projection, three targets — never a flag
+
+Which target you get is decided by **the codomain of the reduction that produced the value**, and read off the symbols:
+
+| target | the value | symbols | what only it can do |
+|---|---|---|---|
+| `classes` | a model, parsed against a grammar | that grammar's classes | `to_text()` reproduces the source |
+| `ir` | a reduced value on the spine | `lexic.ir` and its submodules | the reduction, structurally |
+| `plain` | builtins only | none | reads with **0 lexic modules** |
+
+There is no target parameter and no channel per target — the projection is one function over one symbol table. A symbol is homed at the spine when the public surface exports it, else at its recorded origin when that module supplies *exactly that class* (identity, not presence — `lexic.ir.base` merely imports `Sequence`), else at an explicit `module=`, which always wins over an inferred home because it is the caller saying where the reader will look. A synthesized class reports a content-tagged module that does not import, which is exactly when `module=` is required.
+
+### The reader is emitted, not imported and not inlined
+
+`compile/payload/reader.py` imports no lexic, by design and by test. Importing *anything* under `lexic.` costs the package root, so a `plain` payload that reached for the installed reader would lose the property that defines it.
+
+It is emitted **once per directory** as `payload_reader_<tag>.py`, and artefacts import `decode` from it. The tag is the digest of the sidecar's own source, so that module name IS a particular reader: an artefact cannot bind to a newer one, and two lexic versions writing into one directory leave two sidecars rather than one that silently changed underneath. Skew is impossible by construction, which is why nothing checks for it. The artefact spells the import both relatively and absolutely under a `try`/`except ImportError`, because whether it lands inside a package is not settled when it is written.
+
+The kind space is closed by construction: `compile/payload/codec.py` declares one row per kind carrying **both** directions, so lexic cannot emit a kind the reader does not read. Rows resolve by **unique most-derived type with a tie refusing** — first-hit MRO is not safe, because the spine puts `IrSelf` ahead of a builtin base and a catch-all row would turn every string leaf into a childless unit.
+
+### What the artefact checks when it is read
+
+- **the digest**, over all four tables — length vector, joined text and the node ints under `blake2b`. Catches an altered table.
+- **the shape**, a digest of the RULES the named symbols carry. Catches a payload read against a different compilation of its grammar, which no table check can see: the tables are intact, the names resolve, and every record decodes to a wrong value. Rules rather than modules, because a generated class's module legitimately MOVES — parsed with runtime classes tagged by content, read back against the twin, which reports its own file.
+- **the origins**, for a symbol carrying no rule. Shape reads 0 for a class the caller wrote, and its module *does* survive the cycle, so a name rebound to another module's class of the same name is refused rather than decoded into the wrong class.
+- **structural checks** in `decode` — a forward-only child index, a symbol id in range.
+
+A collision is impossible by construction rather than by a reserved-name list: every imported symbol is bound under a `_sym_` alias and `SYMBOLS` maps the payload's name to it, so a rule called `decode` cannot shadow the machinery that reads it.
+
+## One writer for every emitted module
+
+`compile/writer.py` is the last step for both exporters.
+
+`literal(prefix, value)` renders a table through the layout algebra, chunking a long string into adjacent literals (cut by **repr** width — a run that escapes to `\uXXXX` is six times its own length written down) and a long int as `int('…')`, since an integer literal cannot be split.
+
+`write_module(path, source)` validates, byte-compiles and lands the module. Two rules live there rather than in either caller:
+
+- **Whoever writes the `.py` writes the `.pyc`.** `UNCHECKED_HASH` makes bytecode outrank its source unconditionally, so leaving the `.pyc` to the first importer is how a reader gets yesterday's value.
+- **Source and cache are never allowed to disagree.** The stale cache is removed first and the fresh one lands last, so every crash window is consistent: old source with no cache reads the old value, new source with no cache reads the new one, and neither reads a mixture. The staged path is unique per call, so two processes exporting into one directory cannot delete each other's scratch.
+
+## Always-on export gates
+
+Every `export_source` call validates in-process: the module `ast.parse`s, and its `GRAMMAR` assignment — located **structurally**, by walking the parsed module, never by splitting the source text — `load_ir`s back to an AST **equal** to `compiled.grammar`. Every `export_value` call runs the **fixpoint gate** first: `project(decode(project(v))) == project(v)`, so an artefact that cannot be read back is never written. Its limit travels with it — a wrong value is a perfectly good fixpoint of a wrong encoder — which is why the `classes` target is gated on `to_text()` instead. `tools/check_generated.py` is the corpus gate: all GT grammars × both modes must be pyright-clean and pylint-clean under DEFAULT configs, with exactly three accepted exception classes (C0103 on keyword-mangled class names `True_`/`False_`; C0302 module length on large grammars; R0801 gbnf↔abnf twin duplication — same canonical AST by design). It gates **every** emitted module: twins in both table modes, payload artefacts in their `ir` and `plain` targets, and the reader sidecar they import.

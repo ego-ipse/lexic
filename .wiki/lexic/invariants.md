@@ -35,6 +35,24 @@ cannot ask that. Evidence that nothing cheaper will: a targeted adversarial
 review also failed to separate provenance from defect on this exact question
 — it filed the finding, chased it, and withdrew it.
 
+**An emitted module and its `.pyc` agree, always.** Lexic writes the
+byte-compiled form itself, under `UNCHECKED_HASH`, which makes it outrank its
+source unconditionally. So every path that lands a module must leave the pair
+consistent at every point — including a crash between two steps. Whoever writes
+the `.py` writes the `.pyc`.
+
+**A compiled artefact refuses rather than reads wrong.** Its tables carry a
+digest; its symbols carry the rules they were built against, or — for a class
+carrying no rule — the module they came from. Each catches a different way the
+value can be right-looking and wrong: an altered table, a recompiled grammar, a
+name rebound to another module's class. None of them is optional, because all
+three failures are silent without it.
+
+**A memo key is valid only while something holds the object.** Any cache keyed
+on `id()` must keep the object alive for the cache's lifetime. An id is reused
+the moment its object is freed, and a lookup then answers confidently about a
+different object — which no test of the cache's own behaviour will show.
+
 **Arrows go one way.** Runtime depends on IR; codegen depends on IR; runtime does not depend on codegen. The two deliberate exceptions in `compile.py` and `base.py` are fixed and documented. See [[architecture]].
 
 ## Atom union is closed but versioned
