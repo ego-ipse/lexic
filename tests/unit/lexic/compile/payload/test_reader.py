@@ -145,3 +145,35 @@ def test_a_sub_model_legal_under_both_grammars_still_reads() -> None:
     supplied = {n: v2.classes[n] for n in payload.types[1:]}
     got = reader.decode(payload.tables, supplied, (payload.digest(), payload.shape()))
     assert got.to_text() == "42"
+
+
+def test_a_subclass_does_not_borrow_its_parents_provenance() -> None:
+    """Own attribute, not inherited.
+
+    Every generated class declares its own ``__shape__``; a caller's subclass of
+    one inherits it through ``hasattr`` and would otherwise pass the shape check
+    on rules that are not its own AND skip the origin check that covers a class
+    carrying no grammar of its own.
+    """
+    num = compile_text(NARROW_V1).classes["Num"]
+    mine = type("Mine", (num,), {"__module__": "my_vocab"})
+    assert hasattr(mine, "__shape__")  # inherited — which is why hasattr is wrong
+    payload = project((mine("42"),))
+    moved = type("Mine", (num,), {"__module__": "somewhere_else"})
+    with pytest.raises(ValueError, match="another module"):
+        reader.decode(
+            payload.tables, {"Mine": moved}, (payload.digest(), payload.shape())
+        )
+
+
+@pytest.mark.parametrize("bad", [-1, 1 << 64, "not an int", True])
+def test_a_declared_shape_that_is_not_a_digest_is_refused_by_name(bad: object) -> None:
+    """A clear refusal, not an ``OverflowError`` from inside the digest.
+
+    ``int(shape).to_bytes(8, ...)`` raises on a negative, an over-wide or a
+    non-numeric value — three different exceptions, none naming the class or
+    saying what is wrong with it.
+    """
+    cls = type("Thing", (str,), {"__shape__": bad})
+    with pytest.raises(ValueError, match="not a 64-bit digest"):
+        reader.shape_of(("<plain>", "Thing"), {"Thing": cls})
