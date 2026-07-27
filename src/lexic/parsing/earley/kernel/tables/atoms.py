@@ -18,6 +18,7 @@ from lexic.ir import (
     IrSelf,
 )
 from lexic.parsing.earley.kernel.forest import PayloadLeaf
+from lexic.parsing.earley.kernel.tables.splits import leftmost_chain
 
 _MAX_CHARSET = 4096
 """Expansion cap for a char-class range — beyond it the set poisons."""
@@ -86,26 +87,27 @@ def predecessor_chain(
         every other site carries the pair in.
     :param base: The arm's dot-0 code — the chain stops here.
     :param bits: The tables' packing tier (``ParserTables.packing.bits``).
-    :param choices: key → which family to take at an ambiguity point. When
-        given, a packed key is no longer a reason to bail: the walk takes the
-        chosen family (0 by default), which is how one derivation is singled
-        out of an ambiguous forest for comparison against another. When
-        ``None`` a packed key bails, which is the fast path's contract.
+    :param choices: keys pinned to one family. When given, a packed key is no
+        longer a reason to bail — the chain is resolved by
+        :func:`~lexic.parsing.earley.kernel.tables.splits.leftmost_chain`, which
+        gives the text of an adjacent-nullable run to the FIRST slot that can
+        take it, and a pinned entry overrides it at that key (which is how the
+        ambiguity check flips one point). When ``None`` a packed key bails,
+        which is the fast path's contract.
     :returns: The chain's ``(predecessor_item, predecessor_end, child)``
         triples in source order, or ``None`` when a key is missing, or packs
         more than one family and no choice was supplied — the caller's cue to
         bail (no build, or fall back to the ambiguity-aware path).
     """
+    if choices is not None:
+        return leftmost_chain(links, handle, base, bits, choices)
     chain: list[KLink] = []
     item, end = handle >> bits, handle & ((1 << bits) - 1)
     while (item >> bits) != base:
-        key = (item << bits) | end
-        bucket = links.get(key)
-        if bucket is None:
+        bucket = links.get((item << bits) | end)
+        if bucket is None or len(bucket) > 1:
             return None
-        if len(bucket) > 1 and choices is None:
-            return None
-        item, end, child = bucket[choices.get(key, 0) if choices else 0]
+        item, end, child = bucket[0]
         chain.append((item, end, child))
     chain.reverse()
     return chain

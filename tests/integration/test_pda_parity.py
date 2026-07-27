@@ -242,3 +242,49 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
         engine_model = forced_engine(cg, text)
         assert deep_semantic(built) == deep_semantic(engine_model)
         assert built.to_text() == text
+
+
+@pytest.mark.parametrize("stem", ["json.gbnf", "json.abnf", "json.ebnf"])
+def test_both_engines_build_the_same_model_not_just_the_same_meaning(
+    stem: str,
+) -> None:
+    """Raw model equality, not `deep_semantic` — the engines must agree.
+
+    Ruling 1 set the bar at semantic parity because "the PDA's greedy stop-set
+    loop may split a `semantic=False` run differently from the engine's
+    ambiguity resolution". That licence made 47 of 200 json inputs invisible:
+    the same characters landing in different `Ws` fields. Under the ruling that
+    the engines are REQUIRED to agree, the split has one defined answer and
+    both paths must produce it — `deep_semantic` would pass either way, so it
+    cannot be the test for this.
+
+    The three JSON formulations are the SPLIT class — the same production
+    carved two ways, which the chain policy now answers. `vyx.gbnf` is
+    deliberately not here: its residual is the ARM class, where the grammar
+    derives one span through two DIFFERENT productions that mean different
+    things. A length preference has no standing over that, lexic's own
+    `means_two_things` already returns True on it, and the model path simply
+    never asks. That is a separate defect, tracked separately, and excluding it
+    here is scoping this test to what the policy decides — not hiding it.
+    """
+    cg, rules, start = grammar_for(stem)
+    product = prod(cg)
+    differed: list[str] = []
+    checked = 0
+    for seed in range(200):
+        text = generate(start, rules, rng=random.Random(seed), max_depth=12)
+        if not text:
+            continue
+        try:
+            want = forced_engine(cg, text)
+            got = pda_model(product.pda, text, cg.fold)
+        except PdaFail, UnsupportedConstructError:
+            continue
+        checked += 1
+        if repr(got) != repr(want):
+            differed.append(f"seed={seed} text={text!r}")
+    assert checked, f"{stem}: nothing compared — the test proves nothing"
+    assert not differed, (
+        f"{stem}: {len(differed)} of {checked} inputs build different models; "
+        f"first: {differed[0]}"
+    )

@@ -204,7 +204,11 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
         _require_accept(kernel, n)
         handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
         if not kernel.root_ambiguous:
-            tree = FastTree(kernel).build(handle)
+            # RESOLVING mode: an empty choices map pins nothing, so the chain
+            # policy decides the splits. Bail mode would decline on exactly the
+            # ambiguous inputs at issue and fall through to the stream, which
+            # takes chart order — the very thing the two engines disagreed on.
+            tree = FastTree(kernel, {}).build(handle)
             if isinstance(tree, ParseTree):
                 return tree
         if collapsed is not None:  # run terminals shape the chart — re-parse plain

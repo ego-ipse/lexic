@@ -218,6 +218,7 @@ src/lexic/
           atoms.py                 Packing tiers, predecessor chains, what one terminal atom accepts
           builder.py               TableBuilder + compile_tables — the mutable half, and the entry point
           records.py               CodeTables / DecodeTables / TermTables / ParserTables — the artefact
+          splits.py                Which slot owns the text — resolving a binarised chain from the left
       lexruns.py                   Run-terminal detection — where a grammar's lexical layer is *derived*
       normalize.py                 Desugar an IR grammar into classical Earley shape
       reduce/                      Reduction — a parse forest into the reducer's own value
