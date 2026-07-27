@@ -502,11 +502,15 @@ def test_a_class_from_a_non_spine_lexic_module_needs_no_module_argument(
     A tokenizer names classes from ``lexic.ir.encoding`` and
     ``lexic.api.pretokens`` — real modules that really export them — and routing
     only ``ir.__all__`` to the spine sent every one of those to a ``module=``
-    the caller had no reason to supply.
+    the caller had no reason to supply. They resolve without one now, and a
+    spine class lands on the spine's own public surface.
     """
     value = (IrRankedMerge(),)
     source = render(project(value), READER)
-    assert "from lexic.ir.encoding import (" in source
+    # `lexic.ir`, not `lexic.ir.encoding`: the façade exports it, so the public
+    # surface IS its home — and the façade being lazy means naming it there
+    # pulls the one module that defines it, not the spine.
+    assert "from lexic.ir import (" in source
     export_value(value, tmp_path / "enc.py")
     assert _run(tmp_path, "enc")[0] == repr(value)
 
