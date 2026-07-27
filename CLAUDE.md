@@ -230,6 +230,7 @@ src/lexic/
           leftrec.py          Left-recursion detection — the predictive-descent impossibility check
           noise.py            Noise/semantic attribution — the P6 licence + P3 noise-skip substrate
           structured.py       P3-structured / P5-probe — folding-aware loop gates
+          windows.py          FIRST_k windows — what a decision point can see ahead
         predicates.py          Per-node predicates + the dispatch tables that read them
         taxonomy.py                Taxonomy — the analysis' classified-notes + gate-spec result record
       compiler/
