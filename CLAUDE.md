@@ -152,6 +152,7 @@ src/lexic/
       __init__.py                  The compiled payload — a parsed value as three flat literals
       codec.py                     The codec table — one row per kind, carrying BOTH directions
       encode.py                    Value → the three flat tables — the projection's lexic side
+      export.py                    export_value — a projected value as an importable, self-contained module
       reader.py                    The payload's reader — zero lexic imports, by design and by test
     pipeline/
       __init__.py                  The compile pipeline — grammar → classes (passes, binding, synthesis)
