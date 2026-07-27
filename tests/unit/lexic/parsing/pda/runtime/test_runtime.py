@@ -41,8 +41,9 @@ from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime import reduce_runtime as rrt
+from lexic.parsing.pda.runtime.islands import IslandPolicy
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
-from lexic.parsing.pda.runtime.runtime import PdaFail
+from lexic.parsing.pda.runtime.runtime import PdaFail, PdaKernel
 from tests.integration.pda_parity_helpers import (
     arithmetic_bench_corpus,
     deep_semantic,
@@ -333,3 +334,22 @@ def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() 
             else:
                 mismatched += 1
         assert mismatched == 0
+
+
+# ── one vocabulary for one concern ─────────────────────────────────────
+
+
+def test_kernel_and_islands_share_one_policy_record():
+    """The kernel holds the SAME record it hands an island, not a twin of it.
+
+    `fold` and `ambiguous` were carried by two records that ordered their
+    fields differently — the kernel's and the island's — and the only thing
+    keeping the hand-off correct was that one call site spelled the swap
+    right. One record cannot be handed over wrong.
+    """
+    compiled, pda = compiled_and_pda(GROUND_TRUTH / "json.gbnf")
+    kern = PdaKernel(pda, "{}", compiled.fold, ambiguous=True)
+    assert isinstance(kern.policy, IslandPolicy)
+    assert kern.policy.fold is compiled.fold
+    assert kern.policy.ambiguous is True
+    assert kern.policy.delegates is None  # filled per island, at the reference

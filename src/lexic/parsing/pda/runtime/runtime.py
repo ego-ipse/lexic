@@ -75,7 +75,7 @@ user-facing diagnostics. It never surfaces to the caller.
 from __future__ import annotations
 
 from functools import partial
-from typing import Any, NamedTuple
+from typing import Any
 
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.kernel import Delegate
@@ -134,18 +134,6 @@ _EMPTY_SLOT: Any = None
 each slot later holding a sub-model list) without narrowing their type."""
 
 
-class Completion[M](NamedTuple):
-    """How a parse is completed — the island fold, and the ambiguity setting.
-
-    One record because the kernel is at pylint's attribute ceiling and these two
-    are the same concern: what an island sub-parse may build, and what it may
-    hand back.
-    """
-
-    fold: ModelFold[M] | None = None
-    ambiguous: bool = False
-
-
 class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
     """One predictive parse of ``text`` over a compiled :class:`PdaProgram`.
 
@@ -167,9 +155,12 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
     :ivar pos: The cursor position (advances monotonically — no backtracking).
     :ivar stack: The explicit descent stack of flat frame lists (see the frame
         layout above).
-    :ivar fold: The full-grammar fold used to splice island sub-models, or
-        ``None`` on the island-free path (an island reference then raises
-        :class:`PdaFail`).
+    :ivar policy: The island policy this parse runs under — the full-grammar
+        fold that splices island sub-models (``None`` on the island-free path,
+        where an island reference raises :class:`PdaFail`) and whether an
+        island may derive its text more than one way. The SAME record is handed
+        to :func:`~lexic.parsing.pda.runtime.islands.island_parse`, with the
+        per-island delegates filled in at the reference.
     :ivar _intern: The per-parse intern memo — repeated identical sub-models
         built once and shared. Its lifetime is exactly one top-level kernel
         run: a fresh, empty dict per :class:`PdaKernel` (each island-interior
@@ -177,13 +168,13 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         sub-models — spliced by ``id`` — never share across the boundary).
     """
 
-    __slots__ = ("tables", "text", "pos", "stack", "completion", "_deleg", "_intern")
+    __slots__ = ("tables", "text", "pos", "stack", "policy", "_deleg", "_intern")
 
     tables: PdaTables
     text: str
     pos: int
     stack: list[list[Any]]
-    completion: Completion[M]
+    policy: IslandPolicy[M]
     _deleg: dict[str, dict[int, Delegate]]
     _intern: dict[Any, object]
 
@@ -207,7 +198,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         """
         self.tables = tables
         self.text = text
-        self.completion = Completion(fold, ambiguous)
+        self.policy = IslandPolicy(ambiguous=ambiguous, fold=fold)
         self.pos = 0
         self.stack = []
         self._deleg = {}
@@ -764,7 +755,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             fold refuses the completion (a window-truncated mis-parse — see
             :func:`~lexic.parsing.pda.runtime.islands.island_value`).
         """
-        fold = self.completion.fold
+        fold = self.policy.fold
         if fold is None:
             raise PdaFail(f"island {name!r} at {self.pos}: no fold for splice")
         tree, end = self._island_subparse(name)
@@ -790,11 +781,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             self.text,
             self.pos,
             name,
-            IslandPolicy(
-                self._delegates(name),
-                self.completion.ambiguous,
-                self.completion.fold,
-            ),
+            self.policy._replace(delegates=self._delegates(name)),
         )
 
     def _delegates(self, name: str) -> dict[int, Delegate]:
@@ -839,8 +826,8 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         sub = PdaKernel(
             self.tables,
             window_text,
-            self.completion.fold,
-            ambiguous=self.completion.ambiguous,
+            self.policy.fold,
+            ambiguous=self.policy.ambiguous,
         )
         return finish_delegate(sub, clone, window_text, pos)
 
