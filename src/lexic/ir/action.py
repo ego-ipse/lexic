@@ -35,20 +35,11 @@ from __future__ import annotations
 from typing import ClassVar, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import (
-    IrInt,
-    IrLeaf,
-    IrNamedTuple,
-    IrNode,
-    IrNone,
-    IrScalar,
-    IrSelf,
-    IrSeq,
-    IrStr,
-    IrTuple,
-)
 from lexic.ir.nodes import IrAlternation, IrAst, IrLiteral, IrRule
 from lexic.ir.operators import IrOp
+from lexic.ir.records import IrNamedTuple, IrSeq, IrTuple
+from lexic.ir.scalars import IrInt, IrScalar, IrStr
+from lexic.ir.spine import IrLeaf, IrNode, IrNone, IrSelf
 
 # ── Control-flow exception ────────────────────────────────────────────
 

@@ -31,8 +31,7 @@ from ext.API import cache
 from lexic.api.json_tokenizer import read_from_path
 from lexic.compile import compile_from_path
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.mapping import IrMap
+from lexic.ir import IrMap, IrStr, IrTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GRAMMAR_PATH = REPO_ROOT / "resources" / "ground_truth" / "think.gbnf"

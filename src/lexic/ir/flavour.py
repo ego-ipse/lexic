@@ -19,11 +19,12 @@ from abc import ABC
 from typing import ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrInt, IrLeaf, IrNode, IrNone, IrSelf, IrStr
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.layout import IrDoc, render
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAst, IrRule
+from lexic.ir.scalars import IrInt, IrStr
+from lexic.ir.spine import IrLeaf, IrNode, IrNone, IrSelf
 from lexic.ir.walk import IrDispatch, IrEmitter
 
 

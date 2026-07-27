@@ -16,11 +16,13 @@ from pathlib import Path
 import pytest
 
 import lexic.ir.action as ir_action
-import lexic.ir.base as ir_base
 import lexic.ir.flavour as ir_flavour
 import lexic.ir.mapping as ir_mapping
 import lexic.ir.nodes as ir_nodes
 import lexic.ir.operators as ir_operators
+import lexic.ir.records as ir_records
+import lexic.ir.scalars as ir_scalars
+import lexic.ir.spine as ir_spine
 from lexic.api.pretokens import IrByteLevel
 from lexic.compile.notation.parse import (
     NOTATION_GRAMMAR,
@@ -133,7 +135,7 @@ VOCAB_BATTERY = [
     IrAlternation(IrSequence(IrItem(IrLiteral("a"))), IrSequence()),
     IrRule("noise", IrAlternation(IrSequence(IrItem(IrLiteral(" ")))), False),
     IrAst(
-        ir_base.IrSeq(
+        ir_records.IrSeq(
             IrRule("root", IrAlternation(IrSequence(IrItem(IrLiteral("a")))))
         ),
         "root",
@@ -194,7 +196,16 @@ def test_every_reduce_sentinel_round_trips_by_identity(sentinel: object) -> None
 
 # ── SYMBOLS drift-pin: the no-exec boundary ────────────────────────────
 
-IR_MODULES = (ir_base, ir_nodes, ir_operators, ir_action, ir_mapping, ir_flavour)
+IR_MODULES = (
+    ir_spine,
+    ir_scalars,
+    ir_records,
+    ir_nodes,
+    ir_operators,
+    ir_action,
+    ir_mapping,
+    ir_flavour,
+)
 
 # The non-IR-node names the whitelist admits — pinned as a name set (not a
 # value mapping) so this drift-pin does not re-declare notation's own extras

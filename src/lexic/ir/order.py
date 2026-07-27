@@ -20,8 +20,9 @@ from collections import deque
 from collections.abc import Callable, Iterable
 from hashlib import blake2b
 
-from lexic.ir.base import IrSelf, IrSeq
 from lexic.ir.nodes import IrAst, IrRule, IrRuleRef
+from lexic.ir.records import IrSeq
+from lexic.ir.spine import IrSelf
 
 
 class RuleOrder:

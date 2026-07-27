@@ -13,9 +13,10 @@ from lexic.compile import compile_from_path
 from lexic.compile.notation.emit import ir_doc
 from lexic.grammars.abnf import ABNF_GRAMMAR
 from lexic.grammars.gbnf import GBNF_GRAMMAR
-from lexic.ir.base import IrInt, IrNone
-from lexic.ir.base import IrNoneType as _IrNoneType
-from lexic.ir.base import IrStr, IrTuple
+from lexic.ir.records import IrTuple
+from lexic.ir.scalars import IrInt, IrStr
+from lexic.ir.spine import IrNone
+from lexic.ir.spine import IrNoneType as _IrNoneType
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH, PROJECT_ROOT
 
 
@@ -271,6 +272,36 @@ def _facade_source() -> tuple[dict[str, str], set[str]]:
         for alias in node.names
     } - {"IrSelf"}
     return homed, eager
+
+
+def test_the_type_checking_block_names_the_same_modules_as_homes() -> None:
+    """The static declarations and the runtime lookup must point at one module.
+
+    They can disagree silently: a ``TYPE_CHECKING`` import of a module that no
+    longer exists costs NOTHING at runtime — ``__getattr__`` still resolves the
+    name — and only a type checker notices, by quietly widening every one of
+    those names to the façade's return type. It happened to 15 names the moment
+    ``base`` split into three, because ``_HOMES`` was repointed and the block
+    was not.
+    """
+    tree = pyast.parse(
+        (PROJECT_ROOT / "src" / "lexic" / "ir" / "__init__.py").read_text("utf-8")
+    )
+    declared = {
+        alias.name: node.module
+        for block in tree.body
+        if isinstance(block, pyast.If)
+        for node in pyast.walk(block)
+        if isinstance(node, pyast.ImportFrom) and node.module
+        for alias in node.names
+    }
+    homed, _ = _facade_source()
+    disagree = {
+        n: (declared[n], homed[n])
+        for n in declared
+        if homed.get(n, declared[n]) != declared[n]
+    }
+    assert not disagree, f"declared vs _HOMES: {disagree}"
 
 
 def test_the_three_statements_of_the_surface_agree() -> None:

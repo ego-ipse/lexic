@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrSeq, IrStr, IrTuple
 from lexic.ir.concretize import concretize, concretize_atom
 from lexic.ir.encoding import IrTokenizer, IrUnicode
 from lexic.ir.mapping import IrMap
@@ -20,6 +19,8 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
+from lexic.ir.records import IrSeq, IrTuple
+from lexic.ir.scalars import IrStr
 
 
 def _registry() -> IrMap:

@@ -40,7 +40,6 @@ from pathlib import Path
 from typing import cast
 
 import lexic.ir.action as _action
-import lexic.ir.base as _base
 import lexic.ir.bind as _bind
 import lexic.ir.encoding as _encoding
 import lexic.ir.flavour as _flavour
@@ -48,6 +47,9 @@ import lexic.ir.layout as _layout
 import lexic.ir.mapping as _mapping
 import lexic.ir.nodes as _nodes
 import lexic.ir.operators as _operators
+import lexic.ir.records as _records
+import lexic.ir.scalars as _scalars
+import lexic.ir.spine as _spine
 from lexic.compile.foldkit import (
     ABSENT,
     ALT_BODY,
@@ -89,7 +91,9 @@ from lexic.parsing.earley.reduce import (
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 
 _IR_MODULES = (
-    _base,
+    _spine,
+    _scalars,
+    _records,
     _bind,
     _nodes,
     _operators,

@@ -16,7 +16,8 @@ from collections.abc import Callable
 from typing import ClassVar, Self, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrNamedTuple
+from lexic.ir.records import IrNamedTuple
+from lexic.ir.spine import IrLeaf
 
 BIND_MODES: tuple[str, ...] = ("text", "gtext", "model", "models")
 """The fold-mode vocabulary — how a bound kid slot becomes a field value.

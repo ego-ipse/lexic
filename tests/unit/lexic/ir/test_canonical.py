@@ -13,7 +13,6 @@ import time
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrSeq
 from lexic.ir.canonical import canonicalize, fold_name
 from lexic.ir.nodes import (
     IrAlphabet,
@@ -30,6 +29,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
+from lexic.ir.records import IrSeq
 
 MAX_CODEPOINT = 0x10FFFF
 

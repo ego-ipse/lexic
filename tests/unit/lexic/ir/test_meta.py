@@ -11,8 +11,8 @@ from typing import Any
 
 import pytest
 
-from lexic.ir.base import IrSelf
 from lexic.ir.meta import Borg, IrMeta, IrSingleton, Singleton
+from lexic.ir.spine import IrSelf
 
 # Module-level alias; avoids pylint losing track of Singleton as a value after
 # nested function-local class definitions (``class X(metaclass=Singleton)``)

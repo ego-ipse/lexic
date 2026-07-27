@@ -12,7 +12,6 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrField
-from lexic.ir.base import IrNone, IrTuple
 from lexic.ir.layout import (
     IrCat,
     IrDocConcat,
@@ -26,6 +25,8 @@ from lexic.ir.layout import (
     render,
 )
 from lexic.ir.nodes import IrAlternation, IrLiteral, IrRule, IrSequence
+from lexic.ir.records import IrTuple
+from lexic.ir.spine import IrNone
 
 # ── render() determinism ────────────────────────────────────────────────
 

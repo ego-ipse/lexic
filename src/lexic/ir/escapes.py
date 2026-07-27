@@ -25,8 +25,9 @@ from __future__ import annotations
 from typing import ClassVar
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrInt, IrNamedTuple, IrStr, IrTuple
 from lexic.ir.mapping import IrMap
+from lexic.ir.records import IrNamedTuple, IrTuple
+from lexic.ir.scalars import IrInt, IrStr
 
 
 class EscapeCodec(IrNamedTuple[IrMap, IrTuple, IrMap, IrTuple, IrTuple]):

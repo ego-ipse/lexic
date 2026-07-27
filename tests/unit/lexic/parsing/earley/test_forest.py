@@ -32,7 +32,7 @@ Preserved unchanged (kept, only construction syntax fixed if needed): ``ParseTre
 from __future__ import annotations
 
 import threading
-from typing import Iterator, cast
+from typing import Iterator, NamedTuple
 
 import pytest
 
@@ -85,7 +85,22 @@ from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
 
 
-def accept(grammar: IrAst, text: str) -> tuple[EarleyParser, Chart, SppfNode, int]:
+class Accepted(NamedTuple):
+    """What an accepting run gives the forest tests.
+
+    A record rather than a bare tuple so ``node`` carries its type at every use
+    site: ``accept_node`` may answer ``IrNone``, and a plain tuple hands that
+    union to every caller, which then narrows it again — or does not, and is
+    quietly wrong about what it is reading.
+    """
+
+    parser: EarleyParser
+    chart: Chart
+    node: SppfNode
+    end: int
+
+
+def accept(grammar: IrAst, text: str) -> Accepted:
     """Run a :class:`Kernel` over ``grammar``/``text`` and unpack for forest tests.
 
     A test-local helper (not a src symbol): compiles and runs the kernel, then
@@ -101,7 +116,11 @@ def accept(grammar: IrAst, text: str) -> tuple[EarleyParser, Chart, SppfNode, in
     assert kernel.accept >= 0
     chart = kernel.to_chart()
     node = kernel.accept_node()
-    return EarleyParser(), chart, cast(SppfNode, node), len(text)
+    # Narrowed, not cast: `accept_node` may answer `IrNone`, and a cast asserts
+    # that away without checking it.
+    if not isinstance(node, SppfNode):
+        raise TypeError(f"{text!r} did not accept to a single SppfNode")
+    return Accepted(EarleyParser(), chart, node, len(text))
 
 
 # ── ParseTree fields ──────────────────────────────────────────────────
@@ -216,7 +235,8 @@ def test_build_tree_recursive_grammar_nests_correctly(expr_grammar: IrAst):
 def test_sppf_node_construction(digit_grammar: IrAst):
     """SppfNode returned by ACCEPTING stores item and end correctly."""
     grammar = digit_grammar
-    _, __, item, end = accept(grammar, "5")
+    got = accept(grammar, "5")
+    item, end = got.node, got.end
     assert not isinstance(item, IrNoneType)
     assert isinstance(item, SppfNode)
     assert isinstance(item.item, tuple)  # raw EarleyItem is a plain tuple
@@ -226,7 +246,8 @@ def test_sppf_node_construction(digit_grammar: IrAst):
 def test_sppf_node_equality_same_item_and_end(digit_grammar: IrAst):
     """Two SppfNode instances with equal item/end are equal (tuple identity)."""
     grammar = digit_grammar
-    _, __, item, ___ = accept(grammar, "5")
+    got = accept(grammar, "5")
+    item = got.node
     # item is the SppfNode; build a second one from the same raw fields
     node_b = SppfNode(item.item, item.end)
     assert item == node_b
@@ -235,7 +256,8 @@ def test_sppf_node_equality_same_item_and_end(digit_grammar: IrAst):
 def test_sppf_node_inequality_different_end(digit_grammar: IrAst):
     """SppfNode instances with different end columns are not equal."""
     grammar = digit_grammar
-    _, _, item, end = accept(grammar, "5")
+    got = accept(grammar, "5")
+    item, end = got.node, got.end
     assert item != SppfNode(item.item, end + 1)
 
 
@@ -245,7 +267,8 @@ def test_sppf_node_inequality_different_end(digit_grammar: IrAst):
 def test_derivations_unambiguous_yields_one_tree(digit_grammar: IrAst):
     """DERIVATIONS returns exactly one ParseTree for an unambiguous parse."""
     grammar = digit_grammar
-    parser, chart, item, _ = accept(grammar, "7")
+    got = accept(grammar, "7")
+    parser, chart, item = got.parser, got.chart, got.node
     assert not isinstance(item, IrNoneType)
     trees = DERIVATIONS.eval(parser, item, IrTuple(chart))
     assert isinstance(trees, IrSeq)
@@ -256,7 +279,8 @@ def test_derivations_unambiguous_yields_one_tree(digit_grammar: IrAst):
 def test_derivations_singleton_matches_parse(digit_grammar: IrAst):
     """The single derivation from DERIVATIONS equals parse()'s result."""
     grammar = digit_grammar
-    parser, chart, item, _ = accept(grammar, "9")
+    got = accept(grammar, "9")
+    parser, chart, item = got.parser, got.chart, got.node
     trees = DERIVATIONS.eval(parser, item, IrTuple(chart))
     expected = parse(grammar, "9")
     assert trees[0] == expected
@@ -264,7 +288,8 @@ def test_derivations_singleton_matches_parse(digit_grammar: IrAst):
 
 def test_derivations_ambiguous_yields_two_trees(sss_grammar: IrAst):
     """DERIVATIONS returns 2 distinct ParseTrees for 's = s s / \"a\"' over 'aaa'."""
-    parser, chart, item, _ = accept(sss_grammar, "aaa")
+    got = accept(sss_grammar, "aaa")
+    parser, chart, item = got.parser, got.chart, got.node
     assert not isinstance(item, IrNoneType)
     trees = DERIVATIONS.eval(parser, item, IrTuple(chart))
     assert len(trees) == 2
@@ -283,14 +308,16 @@ def test_derivations_singleton_is_derivations_instance():
 def test_build_tree_strict_returns_single_tree_for_unambiguous(digit_grammar: IrAst):
     """BUILD_TREE.eval succeeds and returns a ParseTree for unambiguous input."""
     grammar = digit_grammar
-    parser, chart, item, _ = accept(grammar, "4")
+    got = accept(grammar, "4")
+    parser, chart, item = got.parser, got.chart, got.node
     tree = BUILD_TREE.eval(parser, item, IrTuple(chart))
     assert isinstance(tree, ParseTree)
 
 
 def test_build_tree_strict_raises_for_ambiguous(sss_grammar: IrAst):
     """BUILD_TREE.eval raises UnsupportedConstructError for ambiguous input."""
-    parser, chart, item, _ = accept(sss_grammar, "aaa")
+    got = accept(sss_grammar, "aaa")
+    parser, chart, item = got.parser, got.chart, got.node
     assert not isinstance(item, IrNoneType)
     with pytest.raises(UnsupportedConstructError):
         BUILD_TREE.eval(parser, item, IrTuple(chart))
@@ -317,7 +344,8 @@ def test_child_derivs_literal_yields_the_literal_itself(digit_grammar: IrAst):
     Adapted from ``test_child_trees_literal_dispatches_to_whole`` and
     ``test_child_trees_whole_singleton``.
     """
-    _, chart, _, __ = accept(digit_grammar, "5")
+    got = accept(digit_grammar, "5")
+    chart = got.chart
     ctx = ForestCtx(chart)
     lit = IrLiteral("x")
     result = list(Trampoline(ChildDerivs(lit, ctx)))
@@ -331,7 +359,8 @@ def test_child_derivs_sppf_node_yields_parse_tree_derivations(digit_grammar: IrA
     Adapted from ``test_child_trees_sppf_node_dispatches_to_child_trees``.
     """
     grammar = digit_grammar
-    _, chart, item, _ = accept(grammar, "3")
+    got = accept(grammar, "3")
+    chart, item = got.chart, got.node
     assert not isinstance(item, IrNoneType)
     ctx = ForestCtx(chart)
     result = list(Trampoline(ChildDerivs(item, ctx)))
@@ -347,7 +376,8 @@ def test_child_derivs_literal_vs_sppf_dispatch(digit_grammar: IrAst):
     derivations.
     """
     grammar = digit_grammar
-    _, chart, item, _ = accept(grammar, "3")
+    got = accept(grammar, "3")
+    chart, item = got.chart, got.node
     ctx = ForestCtx(chart)
 
     # Literal arm
@@ -396,7 +426,8 @@ def test_prefix_source_yields_irseq_prefixes(sss_grammar: IrAst):
     Adapted from ``test_prefixes_returns_irstream``: the new API is a cogen
     whose emits are IrSeq values (not wrapped in an IrStream).
     """
-    _, chart, item, _ = accept(sss_grammar, "aaa")
+    got = accept(sss_grammar, "aaa")
+    chart, item = got.chart, got.node
     ctx = ForestCtx(chart)
     result = list(Trampoline(PrefixSource(item, ctx)))
     assert len(result) > 0
@@ -410,7 +441,8 @@ def test_derivation_stream_returns_irstream(sss_grammar: IrAst):
     Adapted from ``test_prefixes_returns_irstream``: the top-level lazy stream
     is now accessed via ``DERIVATION_STREAM.eval(d, node, IrTuple(ctx))``.
     """
-    parser, chart, item, _ = accept(sss_grammar, "aaa")
+    got = accept(sss_grammar, "aaa")
+    parser, chart, item = got.parser, got.chart, got.node
     ctx = ForestCtx(chart)
     result = DERIVATION_STREAM.eval(parser, item, IrTuple(ctx))
     assert isinstance(result, IrStream)
@@ -447,7 +479,8 @@ def test_forest_ctx_open_empty_after_full_drain(sss_grammar: IrAst):
     add/discard cycle must be balanced so an exhausted handle is not permanently
     locked out.
     """
-    _, chart, item, _ = accept(sss_grammar, "aaa")
+    got = accept(sss_grammar, "aaa")
+    chart, item = got.chart, got.node
     ctx = ForestCtx(chart)
     trees = list(Trampoline(NodeDerivs(item, ctx)))
     assert len(trees) == 2
@@ -458,7 +491,8 @@ def test_forest_ctx_open_empty_after_full_drain(sss_grammar: IrAst):
 
 def test_forest_ctx_has_chart_and_open_attributes(digit_grammar: IrAst):
     """ForestCtx exposes .chart (Chart) and .open (set) only — no map interface."""
-    _, chart, _, __ = accept(digit_grammar, "5")
+    got = accept(digit_grammar, "5")
+    chart = got.chart
     ctx = ForestCtx(chart)
     assert ctx.chart is chart
     assert isinstance(ctx.open, set)
@@ -589,10 +623,13 @@ def test_accept_node_returns_root_node_on_multi_production():
     """A many-production accept returns a RootNode packing every accepting arm."""
     g = arms_grammar('v ::= a | b\na ::= "x"\nb ::= "x"\n')
     kernel = Kernel(compile_tables(g), "x", record_links=True).run()
-    node = kernel.accept_node()
-    assert isinstance(node, RootNode)
-    assert len(node.productions) == 2
-    assert all(isinstance(p, SppfNode) for p in node.productions)
+    # Filtered rather than asserted: the narrowing has to survive to every read
+    # of `.productions`, and a comprehension carries the element type where an
+    # `assert isinstance` does not.
+    roots = [n for n in (kernel.accept_node(),) if isinstance(n, RootNode)]
+    assert len(roots) == 1
+    assert len(roots[0].productions) == 2
+    assert all(isinstance(p, SppfNode) for p in roots[0].productions)
 
 
 def test_accept_node_returns_sppf_node_on_single_production(digit_grammar: IrAst):
@@ -775,7 +812,8 @@ def test_build_tree_strict_short_circuits(sss_grammar: IrAst):
     A counter-based stream records how many elements were consumed.  We assert
     UnsupportedConstructError is raised AND that the counter never exceeds 2.
     """
-    parser, chart, item, _ = accept(sss_grammar, "aaa")
+    got = accept(sss_grammar, "aaa")
+    parser, chart, item = got.parser, got.chart, got.node
     real_ds = DERIVATIONS.eval(parser, item, IrTuple(chart))
     t1, t2 = real_ds[0], real_ds[1]
 
@@ -808,7 +846,8 @@ def test_build_tree_zero_derivations_raises(digit_grammar: IrAst):
     A broken chart with an accepting item but no links: the fast path cannot find
     children (returns IrNone) and the fallback trampoline path then raises.
     """
-    parser, _chart, item, _ = accept(digit_grammar, "5")
+    got = accept(digit_grammar, "5")
+    parser, _chart, item = got.parser, got.chart, got.node
     empty_chart = _chart.__class__()
     with pytest.raises(UnsupportedConstructError):
         BUILD_TREE.eval(parser, item, IrTuple(empty_chart))

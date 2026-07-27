@@ -29,15 +29,9 @@ import random
 from collections.abc import Callable, Iterable
 from typing import ClassVar, Self, cast
 
-from lexic.ir.base import (
-    IrAtom,
-    IrChr,
-    IrLeaf,
-    IrNamedTuple,
-    IrNoneType,
-    IrSeq,
-    IrStr,
-)
+from lexic.ir.records import IrNamedTuple, IrSeq
+from lexic.ir.scalars import IrChr, IrStr
+from lexic.ir.spine import IrAtom, IrLeaf, IrNoneType
 
 __all__ = [
     # Concrete grammar-AST nodes (defined here)

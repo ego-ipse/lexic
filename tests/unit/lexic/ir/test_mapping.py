@@ -12,9 +12,11 @@ import pytest
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir.action import IrThis
-from lexic.ir.base import IrInt, IrLambda, IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.mapping import IR_DEFAULT, IrMap, IrMapping, IrMultiMap, IrTypeMap
 from lexic.ir.nodes import IrLiteral, IrRuleRef
+from lexic.ir.records import IrTuple
+from lexic.ir.scalars import IrInt, IrStr
+from lexic.ir.spine import IrLambda, IrNone, IrSelf
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
