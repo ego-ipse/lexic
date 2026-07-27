@@ -31,6 +31,7 @@ from __future__ import annotations
 from lexic.compile.pipeline.binding import RuleBinding
 from lexic.ir.bind import IrBind
 from lexic.ir.nodes import IrAst, IrItem, IrRule, IrSequence
+from lexic.ir.order import rule_closure
 from lexic.model import GrammarModel
 
 # A synthesized field's annotation is a neutral placeholder — ``object``. Only
@@ -107,18 +108,22 @@ def _field_namespace(bind: RuleBinding, rule: IrRule) -> dict[str, object]:
     return _sequence_namespace(bind, rule)
 
 
-def _class_namespace(bind: RuleBinding, rule: IrRule, module: str) -> dict[str, object]:
+def _class_namespace(
+    bind: RuleBinding, rule: IrRule, module: str, shape: int
+) -> dict[str, object]:
     """The full ``ns`` for ``type(class_name, bases, ns)``.
 
     :param bind: The rule's binding view.
     :param rule: The class's rule from the codegen grammar (its ``__grammar__``).
     :param module: The synthetic module name (``__module__``).
+    :param shape: The rule's closure digest (its ``__shape__``).
     :returns: The class namespace.
     """
     ns = _field_namespace(bind, rule)
     ns["__module__"] = module
     ns["__qualname__"] = bind.class_name
     ns["__grammar__"] = rule
+    ns["__shape__"] = shape
     ns["__binds__"] = _binds_table(bind)
     return ns
 
@@ -143,6 +148,7 @@ def synthesize(
     :returns: ``{class_name: class}`` for every synthesized class.
     """
     rules = {str(rule.name): rule for rule in codegen_grammar.rules}
+    shapes = rule_closure(codegen_grammar)
     module = f"generated.{identity}"
     classes: dict[str, type] = {}
     for bind in binding:
@@ -150,6 +156,6 @@ def synthesize(
         bases = tuple(classes[name] for name in bind.parent_class_names) or (
             GrammarModel,
         )
-        ns = _class_namespace(bind, rule, module)
+        ns = _class_namespace(bind, rule, module, shapes[bind.rule_name])
         classes[bind.class_name] = type(bind.class_name, bases, ns)
     return classes

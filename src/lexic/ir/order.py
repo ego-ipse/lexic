@@ -18,9 +18,10 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Callable, Iterable
+from hashlib import blake2b
 
 from lexic.ir.base import IrSelf, IrSeq
-from lexic.ir.nodes import IrAst, IrRuleRef
+from lexic.ir.nodes import IrAst, IrRule, IrRuleRef
 
 
 class RuleOrder:
@@ -131,3 +132,51 @@ def order_by_refs(ast: IrAst) -> IrAst:
     :returns: The AST with rules in canonical ref-edge order; start unchanged.
     """
     return RuleOrder.by_refs(ast)
+
+
+def rule_closure(ast: IrAst) -> dict[str, int]:
+    """Each rule's digest over ITSELF and every rule it transitively references.
+
+    A class's own rule is not enough to identify the compilation it belongs to.
+    An alternation is a pass-through — the fold hands its matched arm's model
+    straight up — so it never materialises in a value and never enters a
+    payload's symbol table. Narrow one (``value ::= … | number`` losing its
+    ``number`` arm) and every rule a value NAMES is byte-identical, while the
+    document that value re-emits no longer parses.
+
+    Transitive rather than one hop, and not the whole grammar either: every
+    field slot in a decoded value belongs to a class that IS named, so the rule
+    owning the slot is always reachable — while a rule nothing named can reach
+    genuinely does not bear on that value, and digesting it would refuse a
+    correct artefact.
+
+    :param ast: The grammar whose rules to digest.
+    :returns: Rule name → a 64-bit digest of its reachable subgraph.
+    """
+    bodies = {str(rule.name): rule for rule in ast.rules}
+    edges: dict[str, list[str]] = {}
+    for name, rule in bodies.items():
+        refs: list[str] = []
+        refs_in_order(rule.body, refs)
+        edges[name] = refs
+    return {name: _closure_digest(name, bodies, edges) for name in bodies}
+
+
+def _closure_digest(
+    start: str, bodies: dict[str, IrRule], edges: dict[str, list[str]]
+) -> int:
+    """One rule's closure digest — sorted, so ref order cannot perturb it."""
+    seen: set[str] = set()
+    stack = [start]
+    while stack:
+        name = stack.pop()
+        if name in seen or name not in bodies:
+            continue
+        seen.add(name)
+        stack.extend(edges.get(name, ()))
+    packed = b"".join(
+        len(chunk).to_bytes(8, "little") + chunk
+        for name in sorted(seen)
+        for chunk in (repr(bodies[name]).encode("utf-8", "surrogatepass"),)
+    )
+    return int.from_bytes(blake2b(packed, digest_size=8).digest(), "little")

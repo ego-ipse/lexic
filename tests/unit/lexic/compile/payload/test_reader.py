@@ -16,6 +16,7 @@ import sys
 
 import pytest
 
+from lexic.compile import compile_text
 from lexic.compile.payload import project, reader
 from tests.paths import PROJECT_ROOT
 
@@ -90,22 +91,57 @@ def test_decode_refuses_a_symbol_that_came_from_another_module() -> None:
 
 
 def test_decode_allows_a_generated_class_to_have_moved_module() -> None:
-    """A generated class's module MOVES, legitimately, and its rules do not.
+    """A generated class's module MOVES, legitimately, and its grammar does not.
 
     A value parsed with runtime classes is read back against the twin, which
     reports its own file — so the origin check must not apply where the rules
     already answer the question.
     """
-    rule = "IrRule('root')"
+    shape = 0x5EED
     payload = project(
-        (
-            type("Node", (str,), {"__module__": "generated.x1", "__grammar__": rule})(
-                "v"
-            ),
-        )
+        (type("Node", (str,), {"__module__": "generated.x1", "__shape__": shape})("v"),)
     )
-    twin = type("Node", (str,), {"__module__": "twin_pkg.node", "__grammar__": rule})
+    twin = type("Node", (str,), {"__module__": "twin_pkg.node", "__shape__": shape})
     got = reader.decode(
         payload.tables, {"Node": twin}, (payload.digest(), payload.shape())
     )
     assert got[0].__class__ is twin  # the exact class, not a subclass
+
+
+NARROW_V1 = "root ::= item\nitem ::= num | word\nnum ::= [0-9]+\nword ::= [a-z]+\n"
+NARROW_V2 = "root ::= item\nitem ::= word | punct\nnum ::= [0-9]+\nword ::= [a-z]+\npunct ::= [.]\n"
+
+
+def test_a_narrowed_alternation_is_caught_though_no_named_rule_moved() -> None:
+    """The hole a per-rule digest cannot see.
+
+    An alternation is a pass-through — the fold hands its matched arm's model
+    straight up — so it never materialises in a value and is never a named
+    symbol. Narrow one and every rule the payload NAMES is byte-identical,
+    while the document the decoded value re-emits no longer parses. The
+    closure moves where the bare rule does not.
+    """
+    v1, v2 = compile_text(NARROW_V1), compile_text(NARROW_V2)
+    payload = project(v1.parse("42"))
+    named = list(payload.types[1:])
+    assert all(
+        repr(v1.classes[n].__grammar__) == repr(v2.classes[n].__grammar__)
+        for n in named
+    ), "the premise: no NAMED rule moved"
+    supplied = {n: v2.classes[n] for n in named}
+    with pytest.raises(ValueError, match="shape mismatch"):
+        reader.decode(payload.tables, supplied, (payload.digest(), payload.shape()))
+
+
+def test_a_sub_model_legal_under_both_grammars_still_reads() -> None:
+    """The false positive the closure exists to avoid.
+
+    A lone ``Num`` is a legal ``Num`` under both grammars and re-emits the same
+    text, so refusing it would be wrong — which is what a whole-grammar digest
+    would do, since the grammar around it did change.
+    """
+    v1, v2 = compile_text(NARROW_V1), compile_text(NARROW_V2)
+    payload = project(v1.classes["Num"]("42"))
+    supplied = {n: v2.classes[n] for n in payload.types[1:]}
+    got = reader.decode(payload.tables, supplied, (payload.digest(), payload.shape()))
+    assert got.to_text() == "42"

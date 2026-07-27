@@ -86,7 +86,7 @@ from lexic.ir.encoding import IrTokenizer
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.mapping import IrMap
 from lexic.ir.nodes import IrAlphabet, IrAst, IrItem, IrRule, IrRuleRef
-from lexic.ir.order import refs_in_order
+from lexic.ir.order import refs_in_order, rule_closure
 from lexic.model import GrammarModel
 from lexic.parsing import (
     FastCtor,
@@ -567,7 +567,7 @@ def bind_module(grammar: IrAst, namespace: Mapping[str, object]) -> None:
     The module-end call of a dunder-free generated module: recomputes the
     codegen grammar and binding view from the module's ``GRAMMAR`` (the same
     deterministic pipeline the runtime runs) and writes each class's
-    ``__grammar__`` + ``__binds__``. ``_child_attrs`` is deliberately left
+    ``__grammar__`` + ``__shape__`` + ``__binds__``. ``_child_attrs`` is deliberately left
     alone — the class-body annotations already derived the runtime-identical
     value at class creation.
 
@@ -579,6 +579,7 @@ def bind_module(grammar: IrAst, namespace: Mapping[str, object]) -> None:
     """
     codegen_grammar = build_codegen_grammar(grammar)
     rules = {str(rule.name): rule for rule in codegen_grammar.rules}
+    shapes = rule_closure(codegen_grammar)
     for bound in compute_binding(codegen_grammar):
         cls = namespace.get(bound.class_name)
         if not (isinstance(cls, type) and issubclass(cls, GrammarModel)):
@@ -594,6 +595,7 @@ def bind_module(grammar: IrAst, namespace: Mapping[str, object]) -> None:
                 f"{declared}, but rule {bound.rule_name!r} binds {expected}"
             )
         cls.__grammar__ = rules[bound.rule_name]
+        cls.__shape__ = shapes[bound.rule_name]
         cls.__binds__ = {b.item: (n, b) for n, b in bound.fields.items()}
 
 
