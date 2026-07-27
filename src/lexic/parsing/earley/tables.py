@@ -1,6 +1,6 @@
 """Compiled grammar tables — the parser's "codegen moment".
 
-A normalised :class:`~lexic.ir.nodes.IrAst` compiles **once** into
+A normalised :class:`~lexic.ir.grammar.nodes.IrAst` compiles **once** into
 :class:`ParserTables`: flat, int-coded tables the kernel loop indexes instead of
 interpreting IR nodes per item. Grammar stays ground truth; the tables are a
 compiled *representation* of it, exactly as ``generated/*.py`` is codegen's

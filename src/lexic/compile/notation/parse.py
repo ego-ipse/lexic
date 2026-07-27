@@ -24,7 +24,7 @@ Design notes:
 - **Engine sentinels are singleton classes**: the engine identity-checks them
   (``node is YIELD``, ``body is DROP``), so ``Yield()`` in the notation must be
   THE singleton rather than a repr-equal twin. That holds by construction —
-  each is an :class:`~lexic.ir.meta.IrSingleton` — rather than by a table of
+  each is an :class:`~lexic.ir.spine.meta.IrSingleton` — rather than by a table of
   which classes to intern, which is one entry away from a silent wrong answer.
 - **Structural string decode** (:func:`_decode_escapes`): the grammar carries
   one rule per escape kind (short / ``\\xNN`` / ``\\uNNNN`` / ``\\UNNNNNNNN``,
@@ -39,22 +39,22 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import cast
 
-import lexic.ir.access as _access
-import lexic.ir.bind as _bind
-import lexic.ir.build as _build
-import lexic.ir.compute as _compute
-import lexic.ir.control as _control
-import lexic.ir.encodings as _encodings
+import lexic.ir.action.access as _access
+import lexic.ir.action.build as _build
+import lexic.ir.action.compute as _compute
+import lexic.ir.action.control as _control
+import lexic.ir.action.mapping as _mapping
 import lexic.ir.flavour as _flavour
-import lexic.ir.layout as _layout
-import lexic.ir.mapping as _mapping
-import lexic.ir.nodes as _nodes
-import lexic.ir.operators as _operators
-import lexic.ir.pipeline as _pipeline
-import lexic.ir.records as _records
-import lexic.ir.scalars as _scalars
-import lexic.ir.spine as _spine
-import lexic.ir.tokenizer as _tokenizer
+import lexic.ir.grammar.nodes as _nodes
+import lexic.ir.grammar.operators as _operators
+import lexic.ir.spine.bind as _bind
+import lexic.ir.spine.spine as _spine
+import lexic.ir.spine.records as _records
+import lexic.ir.spine.scalars as _scalars
+import lexic.ir.text.encodings as _encodings
+import lexic.ir.text.layout as _layout
+import lexic.ir.text.pipeline as _pipeline
+import lexic.ir.text.tokenizer as _tokenizer
 from lexic.compile.foldkit import (
     ABSENT,
     ALT_BODY,

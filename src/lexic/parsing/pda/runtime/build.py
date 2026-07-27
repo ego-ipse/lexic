@@ -126,7 +126,7 @@ def build_sequence(
         built once and shared (immutable models make sharing transparent).
     :raises UnsupportedConstructError: On an item count that matches neither
         the bound fields nor the empty arm, or a mode outside
-        :data:`~lexic.ir.bind.BIND_MODES`.
+        :data:`~lexic.ir.spine.bind.BIND_MODES`.
     """
     fold = clone.fold
     arm = frame[F_ARM]
@@ -250,7 +250,7 @@ def build_validated(
     :param memo: The per-parse intern memo (same key scheme as
         :func:`build_fast`).
     :raises UnsupportedConstructError: On a mode outside
-        :data:`~lexic.ir.bind.BIND_MODES`.
+        :data:`~lexic.ir.spine.bind.BIND_MODES`.
     """
     kwargs, key_parts = _validated_fields(text, frame, fold)
     key = (fold.ctor, key_parts)
@@ -270,7 +270,7 @@ def _validated_fields(
     :returns: ``(kwargs, key_parts)`` — absent optionals omitted from ``kwargs``
         (as the validated ctor expects) yet represented in ``key_parts``.
     :raises UnsupportedConstructError: On a mode outside
-        :data:`~lexic.ir.bind.BIND_MODES`.
+        :data:`~lexic.ir.spine.bind.BIND_MODES`.
     """
     ends = frame[F_ENDS]
     sinks = frame[F_SINKS]

@@ -34,7 +34,7 @@ soundness.
 A leaf w.r.t. :mod:`lexic.parsing.pda.analysis.analysis` (the kwindow precedent): the
 analysis is taken as an ``Any``-typed oracle argument (``rules`` /
 ``atom_first`` / ``item_nullable``), so ``analysis`` imports this, never the
-reverse. Atom steps route through open :class:`~lexic.ir.mapping.IrTypeMap`
+reverse. Atom steps route through open :class:`~lexic.ir.action.mapping.IrTypeMap`
 tables with raising defaults.
 """
 

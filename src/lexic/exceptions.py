@@ -18,7 +18,7 @@ class UnsupportedConstructError(LexicError):
 
 
 class IrKeyError(UnsupportedConstructError, KeyError):
-    """A key miss in an :class:`~lexic.ir.mapping.IrMap` lookup.
+    """A key miss in an :class:`~lexic.ir.action.mapping.IrMap` lookup.
 
     Doubly typed: library code catching :exc:`UnsupportedConstructError` and
     ``Mapping`` protocol machinery catching :exc:`KeyError` (e.g.

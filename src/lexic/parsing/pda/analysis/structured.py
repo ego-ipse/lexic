@@ -172,7 +172,7 @@ def _post_noise_follow(
     loop continuation. This fixpoint threads content through noise the way the
     runtime scanner will, keeping the peek honest.
 
-    :param skip: ``id()`` of one :class:`~lexic.ir.nodes.IrItem` occurrence to
+    :param skip: ``id()`` of one :class:`~lexic.ir.grammar.nodes.IrItem` occurrence to
         exclude from the feed — the P5 probe licence removes the candidate
         *header* occurrence itself when asking what else can follow the name
         rule (:func:`_probe_candidate`).

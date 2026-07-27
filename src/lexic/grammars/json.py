@@ -2,7 +2,7 @@
 
 This is the JSON grammar (RFC 8259) authored directly as :class:`IrAst`, the
 ground-truth target the GBNF and ABNF front-ends both reduce to. It is stored in
-**canonical form** — the exact shape :func:`~lexic.ir.canonical.canonicalize`
+**canonical form** — the exact shape :func:`~lexic.ir.grammar.canonical.canonicalize`
 produces — so ``canonicalize(JSON_GRAMMAR) == JSON_GRAMMAR`` and
 ``canonicalize(parse(json.gbnf)) == canonicalize(parse(json.abnf)) == JSON_GRAMMAR``.
 

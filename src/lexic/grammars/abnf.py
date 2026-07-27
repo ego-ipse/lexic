@@ -8,7 +8,7 @@ reducer in one module. :data:`ABNF_FLAVOUR` is the singleton
 ABNF differs from GBNF in three key ways: prefix quantifier ordering on
 :class:`IrItem` (the quantifier emits before the atom), ``%xNN``-style hex
 char-class rendering, and literal spelling — a case-sensitive
-:class:`~lexic.ir.nodes.IrLiteral` renders as an RFC 7405 ``%s"..."`` char-val
+:class:`~lexic.ir.grammar.nodes.IrLiteral` renders as an RFC 7405 ``%s"..."`` char-val
 when every character is char-val-spellable (printable ASCII bar the double
 quote), and falls back to ``%x`` num-val (``%xNN`` / dot-joined ``%xNN.NN``)
 for quotes, control points, or non-ASCII. Vanilla case-insensitive char-val is
@@ -18,7 +18,7 @@ ABNF has no native negated char classes, but canonicalisation rewrites every
 is unreachable on canonical input.
 
 :data:`ABNF_GRAMMAR` is the ABNF grammar of ABNF (RFC 5234 §4 + Appendix
-B.1), authored directly as :class:`~lexic.ir.nodes.IrAst` — no construction
+B.1), authored directly as :class:`~lexic.ir.grammar.nodes.IrAst` — no construction
 helpers, no Lark — and **stored in canonical form**
 (``canonicalize(ABNF_GRAMMAR) == ABNF_GRAMMAR``). Driven by
 :mod:`lexic.parsing` it parses ABNF source into a derivation; the self-hosting
@@ -26,8 +26,8 @@ fixpoint is ``canonicalize(reduce(parse(ABNF_GRAMMAR, emitted)))`` returning
 ``ABNF_GRAMMAR`` — the canonical pass closes the loop, since a merged char
 class re-emits as a parenthesised num-val alternation that reparses un-merged.
 :data:`ABNF_REDUCTIONS` is the "meta notation": an
-:class:`~lexic.ir.mapping.IrMap` from each rule's
-:class:`~lexic.ir.nodes.IrRuleRef` to a body that folds that rule's
+:class:`~lexic.ir.action.mapping.IrMap` from each rule's
+:class:`~lexic.ir.grammar.nodes.IrRuleRef` to a body that folds that rule's
 parse-tree children into an IR node — the mirror of the emit table
 ``ABNF_ACTIONS`` (IR→text), pointed the other way (tree→IR).
 

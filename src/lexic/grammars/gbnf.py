@@ -1099,7 +1099,7 @@ _DEC_INT = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
 GBNF_TOKEN_ENCODING = "tokens"
 """The registry name GBNF's single token alphabet binds to. A tokenizer supplied
 at parse time is bound under this name; every ``<…>``/``<[…]>`` terminal reduces
-to an :class:`~lexic.ir.nodes.IrAlphabet` referencing it."""
+to an :class:`~lexic.ir.grammar.nodes.IrAlphabet` referencing it."""
 
 _TOK_LO = IrPipe(IrArg(0), IrUnradix(10, IrChr))
 """The id-form's shared ``<[ decits`` digit-run arg decoded to the (low) id."""

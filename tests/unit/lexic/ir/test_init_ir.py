@@ -13,10 +13,10 @@ from lexic.compile import compile_from_path
 from lexic.compile.notation.emit import ir_doc
 from lexic.grammars.abnf import ABNF_GRAMMAR
 from lexic.grammars.gbnf import GBNF_GRAMMAR
-from lexic.ir.records import IrTuple
-from lexic.ir.scalars import IrInt, IrStr
-from lexic.ir.spine import IrNone
-from lexic.ir.spine import IrNoneType as _IrNoneType
+from lexic.ir.spine.spine import IrNone
+from lexic.ir.spine.spine import IrNoneType as _IrNoneType
+from lexic.ir.spine.records import IrTuple
+from lexic.ir.spine.scalars import IrInt, IrStr
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH, PROJECT_ROOT
 
 
@@ -88,7 +88,7 @@ def test_retired_spec_and_derive_symbols_not_exported() -> None:
     ``RuleSpec`` (``ir/spec.py``), ``derive_specs`` and its helpers
     (``ir/derive.py``), ``render_specs`` (``ir/emit.py``) and ``topo_sort``
     (``ir/topo.py``) are gone; their successors live in ``lexic.compile``
-    (binding view + passes) and ``lexic.ir.order``.
+    (binding view + passes) and ``lexic.ir.grammar.order``.
     """
     for name in (
         "RuleSpec",
@@ -321,7 +321,7 @@ def test_every_exported_name_resolves_to_its_recorded_module() -> None:
 
     Asked of the MODULE, not of the value's ``__module__``: a type alias like
     ``IrDoc`` reports ``typing`` as its module and is still exactly what
-    ``lexic.ir.layout`` defines under that name.
+    ``lexic.ir.text.layout`` defines under that name.
     """
     homed, _ = _facade_source()
     for name, home in homed.items():

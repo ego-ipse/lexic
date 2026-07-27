@@ -10,7 +10,7 @@ chain compiles, parses, and round-trips cleanly.
 
 The nested-inline-groups shape (``r ::= (((..."a"...)))``) used to overflow
 the recursive canonicalizer walk instead; ``canonicalize`` now runs on the
-iterative :class:`~lexic.ir.walk.IrBottomUp` driver, which also collapses the
+iterative :class:`~lexic.ir.action.walk.IrBottomUp` driver, which also collapses the
 single-arm nesting to a flat rule, so everything downstream sees a shallow
 tree.
 """

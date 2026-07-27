@@ -3,7 +3,7 @@
 Instead of emitting Python source, writing a file and importing it, each
 :class:`~lexic.compile.binding.RuleBinding` becomes a class built directly with
 ``type(name, bases, ns)``. CPython computes the winning metaclass
-(:class:`~lexic.ir.meta.IrMeta`) from the bases and delegates, so a bare
+(:class:`~lexic.ir.spine.meta.IrMeta`) from the bases and delegates, so a bare
 ``type(...)`` call yields a proper :class:`~lexic.model.GrammarModel` record —
 no source, no import.
 

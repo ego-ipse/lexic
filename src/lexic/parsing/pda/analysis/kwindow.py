@@ -178,7 +178,7 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
     poisoning ``{((), UNK)}``). The atom step routes through :data:`_KW_ATOM`; the
     analysis IS the dispatcher slot ``d`` and the per-atom budget rides ``nc``.
 
-    :ivar rules: The rule table (name → :class:`~lexic.ir.nodes.IrRule`).
+    :ivar rules: The rule table (name → :class:`~lexic.ir.grammar.nodes.IrRule`).
     :ivar k: The window width.
     :ivar memo: ``(rule, budget)`` → its prefix set.
     :ivar busy: ``(rule, budget)`` keys currently being computed (cycle guard).
@@ -397,7 +397,7 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
     Built lazily by the caller — only the nullable-greedy arm demotion asks for
     it, so a grammar that never hits that branch never runs this fixpoint.
 
-    :ivar rules: The rule table (name → :class:`~lexic.ir.nodes.IrRule`).
+    :ivar rules: The rule table (name → :class:`~lexic.ir.grammar.nodes.IrRule`).
     :ivar start: The start rule name (the EOF seed site).
     :ivar k: The window width.
     :ivar solver: The shared FIRST\\ :sub:`k` solver — its ``arm_prefixes`` builds

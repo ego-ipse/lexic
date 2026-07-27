@@ -152,7 +152,7 @@ def test_engine_fold_seam_is_plain_data():
     """The instance fold receives plain data: the engine (lexic.parsing,
     fold.py included) never imports pydantic, and never sees the RuleSpec
     shape — constructors arrive as opaque callables, modes as the
-    lexic.ir.bind vocabulary (parsing → ir is a legal edge)."""
+    lexic.ir.spine.bind vocabulary (parsing → ir is a legal edge)."""
     engine = SRC / "parsing"
     bad = (
         grep(engine, "from pydantic")
@@ -258,7 +258,7 @@ def test_retired_ir_modules_are_gone():
     """The RuleSpec/derive/emit/naming/topo modules died in Task 6.
 
     Their successors: the binding view + passes (``lexic.compile``), flavour
-    ``apply`` (emission), and ``lexic.ir.order`` (rule ordering).
+    ``apply`` (emission), and ``lexic.ir.grammar.order`` (rule ordering).
     """
     for name in ("derive.py", "spec.py", "emit.py", "naming.py", "topo.py"):
         assert not (SRC / "ir" / name).exists(), f"ir/{name} still present"

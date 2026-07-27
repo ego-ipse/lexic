@@ -5,7 +5,7 @@ family table IS a shared packed parse forest. This module gives it node shapes
 and enumerates its derivations:
 
 - :class:`ParseTree` — ONE derivation: a non-terminal symbol over a span, with
-  its children (sub-trees, or :class:`~lexic.ir.nodes.IrLiteral` leaves for
+  its children (sub-trees, or :class:`~lexic.ir.grammar.nodes.IrLiteral` leaves for
   consumed characters). The reducible output a
   :class:`~lexic.parsing.earley.reduce.Reducer` folds.
 - :class:`SppfNode` — a shared, packed forest handle for a dotted item over a
@@ -73,7 +73,7 @@ class ParseTree(IrNamedTuple[IrRuleRef, IrSeq]):
     """A derivation node: ``symbol`` matched over the ``kids`` in order.
 
     ``kids`` are the dispatched part (sub-:class:`ParseTree` nodes and consumed
-    :class:`~lexic.ir.nodes.IrLiteral` leaves); ``symbol`` is scalar payload
+    :class:`~lexic.ir.grammar.nodes.IrLiteral` leaves); ``symbol`` is scalar payload
     naming the rule, the key a reduction table looks up. The field is ``kids``
     (not ``children``) to avoid shadowing the :meth:`IrNamedTuple.children`
     protocol method — ``_child_attrs`` still routes the walk through it.
@@ -110,7 +110,7 @@ class PayloadLeaf(IrLeaf[IrSelf, IrSelf]):
     :class:`~lexic.parsing.fold.ModelFold` / :class:`~lexic.parsing.earley.reduce
     .Reducer` pass its :attr:`payload` straight through as an already-folded
     child (mirroring the PDA-side island splice). Not a :class:`ParseTree` and
-    not an :class:`~lexic.ir.nodes.IrLiteral`, so every kid-walk that
+    not an :class:`~lexic.ir.grammar.nodes.IrLiteral`, so every kid-walk that
     discriminates on those two leaves it alone.
 
     :ivar payload: The pre-built value — a model instance / reduced IR fragment
@@ -203,7 +203,7 @@ class ForestCtx(IrLeaf[IrSelf, IrSelf]):
     *mid-production* one is treated as a cycle.
 
     :attr:`open` is a set (membership + ``discard``), so it rides a slot rather
-    than an :class:`~lexic.ir.mapping.IrMultiMap` — the same set-shaped-state
+    than an :class:`~lexic.ir.action.mapping.IrMultiMap` — the same set-shaped-state
     precedent as :attr:`~lexic.parsing.earley.chart.Column.predicted`. Behaviour stays
     on the generator nodes; the cursor only holds state.
 
@@ -414,11 +414,11 @@ class PrefixSource(IrLeaf[IrSelf, IrSelf]):
 class ChildDerivs(IrLeaf[IrSelf, IrSelf]):
     """Trampoline generator: the derivations of one family's consumed child.
 
-    A terminal :class:`~lexic.ir.nodes.IrLiteral` is its own sole derivation; a
+    A terminal :class:`~lexic.ir.grammar.nodes.IrLiteral` is its own sole derivation; a
     completed sub-:class:`SppfNode` yields its own :class:`ParseTree` derivations
     (recursing through the trampoline, never the C stack).
 
-    :ivar _child: The consumed child — an :class:`~lexic.ir.nodes.IrLiteral` leaf
+    :ivar _child: The consumed child — an :class:`~lexic.ir.grammar.nodes.IrLiteral` leaf
         or a sub-:class:`SppfNode`.
     :ivar _ctx: The forest cursor.
     """

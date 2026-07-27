@@ -1,8 +1,8 @@
 """ParseTree → object fold — the instance-parsing bridge.
 
 The one authored instance-fold is :class:`ModelFold`: a per-rule IR body-table
-(:attr:`ModelFold.bodies`, an :class:`~lexic.ir.mapping.IrMap` from each rule's
-:class:`~lexic.ir.nodes.IrRuleRef` to its :class:`ModelBody`) — the same shape
+(:attr:`ModelFold.bodies`, an :class:`~lexic.ir.action.mapping.IrMap` from each rule's
+:class:`~lexic.ir.grammar.nodes.IrRuleRef` to its :class:`ModelBody`) — the same shape
 the grammar-text :class:`~lexic.parsing.earley.reduce.Reducer` carries its
 reductions in. A :class:`ModelBody` carries the model constructor as an
 :class:`~lexic.ir.base.IrLambda` plus structural metadata (kind / n_items /
@@ -19,7 +19,7 @@ no name protocol.
 The baked config is plain data: per rule a :class:`RuleFold` — ``(kind, ctor,
 n_items, fields)`` with each field a ``(item, mode, name, lo)``
 :class:`FieldFold`. Constructors are opaque callables; modes are the
-:data:`~lexic.ir.bind.BIND_MODES` vocabulary. This module sees only IR and its
+:data:`~lexic.ir.spine.bind.BIND_MODES` vocabulary. This module sees only IR and its
 own baked config — no binding view, no model synthesis.
 
 Fold behavior per kind:
@@ -76,7 +76,7 @@ class FieldFold(NamedTuple):
     """One bound field: which kid slot it reads and how it folds.
 
     :ivar item: Positional index into the rule's sequence arm (= kid slot).
-    :ivar mode: One of :data:`~lexic.ir.bind.BIND_MODES`.
+    :ivar mode: One of :data:`~lexic.ir.spine.bind.BIND_MODES`.
     :ivar name: The constructor kwarg the folded value binds to.
     :ivar lo: The item's original quantifier ``lo`` — consumed only by
         ``gtext`` (empty text with ``lo == 0`` means absent, not ``""``).
@@ -273,8 +273,8 @@ class ModelFold[M]:
     caller (``compile.py``) binds rather than an import.
 
     The authored form is :attr:`bodies`, a per-rule
-    :class:`~lexic.ir.mapping.IrMap` from each rule's
-    :class:`~lexic.ir.nodes.IrRuleRef` to its :class:`ModelBody` (an
+    :class:`~lexic.ir.action.mapping.IrMap` from each rule's
+    :class:`~lexic.ir.grammar.nodes.IrRuleRef` to its :class:`ModelBody` (an
     :class:`~lexic.ir.base.IrSelf`) — the same shape the grammar-text
     :class:`~lexic.parsing.earley.reduce.Reducer` carries its reductions in. On
     construction every body is :meth:`~ModelBody.bake`\\ d to the flat-runtime
@@ -301,7 +301,7 @@ class ModelFold[M]:
         :param bodies: Rule ref → :class:`ModelBody`.
         :raises UnsupportedConstructError: On a kind outside
             :data:`FOLD_KINDS` or a field mode outside
-            :data:`~lexic.ir.bind.BIND_MODES`.
+            :data:`~lexic.ir.spine.bind.BIND_MODES`.
         """
         config: dict[str, RuleFold] = {
             str(ref): body.bake() for ref, body in bodies.items()

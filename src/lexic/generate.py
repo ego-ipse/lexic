@@ -5,7 +5,7 @@ Walks a rules-by-name view of a (canonical) grammar: each rule body is an
 random arm and expands each item by its atom kind and quantifier, recursing on
 :class:`IrRuleRef` occurrences. ``max_depth`` decrements on each ref expansion.
 
-Atom expansion is an open :class:`~lexic.ir.walk.IrDispatch` table keyed on the
+Atom expansion is an open :class:`~lexic.ir.action.walk.IrDispatch` table keyed on the
 atom type (``IrLiteral`` / ``IrCharClass`` / ``IrRuleRef`` / ``IrAlternation``
 group), with a raising default — an unregistered atom type fails loudly rather
 than silently generating ``""``. The generator documents itself over canonical

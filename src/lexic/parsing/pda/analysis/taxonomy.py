@@ -100,7 +100,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
 
     @property
     def loop_gates(self) -> dict[int, tuple[tuple[CharSet, ...], ...]]:
-        """``id(item)`` (the looping :class:`~lexic.ir.nodes.IrItem` node —
+        """``id(item)`` (the looping :class:`~lexic.ir.grammar.nodes.IrItem` node —
         analysis and clone compiler walk the same lifted tree, so node identity
         is the exact decision key) → the ``taken`` k-window set for a demoted
         loop take/skip decision."""
