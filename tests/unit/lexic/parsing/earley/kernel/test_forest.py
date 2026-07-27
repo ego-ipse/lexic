@@ -77,7 +77,8 @@ from lexic.parsing.earley.kernel.forest import (
     SppfNode,
 )
 from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, compile_tables
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS
 from lexic.parsing.earley.kernel.trampoline import Trampoline
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables

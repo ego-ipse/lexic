@@ -55,8 +55,12 @@ from lexic.parsing.earley.kernel.forest import BUILD_TREE as BUILD_TREE_DIRECT
 from lexic.parsing.earley.kernel.forest import ParseTree as ParseTreeDirect
 from lexic.parsing.earley.kernel.forest import SppfNode as SppfNodeDirect
 from lexic.parsing.earley.kernel.kernel import Kernel as KernelDirect
-from lexic.parsing.earley.kernel.tables import ParserTables as ParserTablesDirect
-from lexic.parsing.earley.kernel.tables import compile_tables as compile_tables_direct
+from lexic.parsing.earley.kernel.tables.builder import (
+    compile_tables as compile_tables_direct,
+)
+from lexic.parsing.earley.kernel.tables.records import (
+    ParserTables as ParserTablesDirect,
+)
 from lexic.parsing.earley.reduce.reducer import Reducer as ReducerDirect
 from lexic.parsing.products import earley_model, earley_reduce
 

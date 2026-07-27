@@ -40,10 +40,8 @@ from lexic.parsing.earley.kernel.forest import (
     RootNode,
     SppfNode,
 )
-from lexic.parsing.earley.kernel.tables import (
-    ParserTables,
-    RunTerm,
-)
+from lexic.parsing.earley.kernel.tables.atoms import RunTerm
+from lexic.parsing.earley.kernel.tables.records import ParserTables
 
 KLink = tuple[int, int, "int | str | PayloadLeaf"]
 """One packed SPPF family: ``(predecessor_item, predecessor_end, child)`` —

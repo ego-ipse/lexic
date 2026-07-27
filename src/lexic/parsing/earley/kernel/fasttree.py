@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq
 from lexic.parsing.earley.kernel.forest import ParseTree, PayloadLeaf
-from lexic.parsing.earley.kernel.tables import predecessor_chain
+from lexic.parsing.earley.kernel.tables.atoms import predecessor_chain
 
 if TYPE_CHECKING:  # `kernel` imports this module, so the reference is mutual
     from lexic.parsing.earley.kernel.kernel import Kernel

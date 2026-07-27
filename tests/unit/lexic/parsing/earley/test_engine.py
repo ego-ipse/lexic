@@ -70,12 +70,9 @@ from lexic.parsing.earley.kernel.forest import (
     IrStream,
     SppfNode,
 )
-from lexic.parsing.earley.kernel.tables import (
-    RUN_STR,
-    RunTerm,
-    build_tables,
-    compile_tables,
-)
+from lexic.parsing.earley.kernel.tables.atoms import RunTerm
+from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tables
+from lexic.parsing.earley.kernel.tables.records import RUN_STR
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce.reducer import Reducer

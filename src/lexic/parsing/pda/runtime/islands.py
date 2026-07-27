@@ -21,7 +21,7 @@ from lexic.parsing.earley.engine import EarleyParser
 from lexic.parsing.earley.kernel.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest import DERIVATION_STREAM, ParseTree, SppfNode
 from lexic.parsing.earley.kernel.kernel import Delegate, Kernel
-from lexic.parsing.earley.kernel.tables import ParserTables
+from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.pda.core.errors import PdaFail
 
 __all__ = [

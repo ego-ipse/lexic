@@ -137,10 +137,53 @@ def split(module: pathlib.Path, out: pathlib.Path, names: list[str], doc: str) -
     _wire(module, out)
 
 
+def dotted(package: pathlib.Path) -> str:
+    """``package``'s importable dotted name, by walking its ``__init__.py`` chain.
+
+    NOT ``parts[1:]`` — that spells "drop ``src/``", which under ``tests/`` names
+    the package ``unit.…`` and imports a module that does not exist.
+    """
+    parts: list[str] = []
+    here = package
+    while (here / "__init__.py").exists():
+        parts.append(here.name)
+        here = here.parent
+    return ".".join(reversed(parts))
+
+
+def _prune(path: pathlib.Path) -> None:
+    """Drop sibling imports of names the module now defines itself.
+
+    Wiring only ever ADDS, so a name that moved leaves its old import behind —
+    which reads as a circular import rather than as the stale line it is.
+    """
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    local = set(_spans(tree))
+    lines = source.splitlines(keepends=True)
+    package = dotted(path.parent)
+    for node in sorted(tree.body, key=lambda n: -getattr(n, "lineno", 0)):
+        if not (isinstance(node, ast.ImportFrom) and node.module):
+            continue
+        if not node.module.startswith(package):
+            continue
+        keep = [a for a in node.names if a.name not in local]
+        if len(keep) == len(node.names):
+            continue
+        spec = ", ".join(
+            a.name if not a.asname else f"{a.name} as {a.asname}" for a in keep
+        )
+        block = [f"from {node.module} import {spec}\n"] if keep else []
+        lines[node.lineno - 1 : (node.end_lineno or node.lineno)] = block
+    path.write_text("".join(lines), encoding="utf-8")
+
+
 def _wire(*modules: pathlib.Path) -> None:
     """Give each module an import for every free name a sibling defines."""
     package = modules[0].parent
     where = homes(package)
+    for path in modules:
+        _prune(path)
     for path in modules:
         source = path.read_text(encoding="utf-8")
         wanted: dict[str, list[str]] = {}
@@ -151,7 +194,7 @@ def _wire(*modules: pathlib.Path) -> None:
         if not wanted:
             continue
         block = "".join(
-            f"from {'.'.join(package.parts[1:])}.{home} import {', '.join(sorted(got))}\n"
+            f"from {dotted(package)}.{home} import {', '.join(sorted(got))}\n"
             for home, got in sorted(wanted.items())
         )
         lines = source.splitlines(keepends=True)

@@ -205,14 +205,18 @@ src/lexic/
     earley/
       __init__.py                  The Earley engine (SPPF, Scott 2008) over IrAst-shaped grammars
       engine.py                    Earley orchestration — the IR-native façade over the compiled kernel
-      kernel/                    The paid loop — the kernel and the structures it fills
-        __init__.py              the group's package marker
-        chart.py                The IR-native SPPF link table — the decoded form of a kernel parse
-        fasttree.py             The fast tree build — the unambiguous parse's short path
-        forest.py               Parse forest — the shared packed parse forest (SPPF) and its reducible views
-        kernel.py               The flat Earley kernel — the compiled grammar's paid loop
-        tables.py               Compiled grammar tables — the parser's "codegen moment"
-        trampoline.py           Depth-safe trampoline for the forest/reduce tree walks
+      kernel/                      The paid loop — the kernel and the structures it fills
+        __init__.py                the group's package marker
+        chart.py                   The IR-native SPPF link table — the decoded form of a kernel parse
+        fasttree.py                The fast tree build — the unambiguous parse's short path
+        forest.py                  Parse forest — the shared packed parse forest (SPPF) and its reducible views
+        kernel.py                  The flat Earley kernel — the compiled grammar's paid loop
+        trampoline.py              Depth-safe trampoline for the forest/reduce tree walks
+        tables/                    Compiled grammar tables — the parser's "codegen moment"
+          __init__.py              the group's package marker
+          atoms.py                 Packing tiers, predecessor chains, what one terminal atom accepts
+          builder.py               TableBuilder + compile_tables — the mutable half, and the entry point
+          records.py               CodeTables / DecodeTables / TermTables / ParserTables — the artefact
       lexruns.py                   Run-terminal detection — where a grammar's lexical layer is *derived*
       normalize.py                 Desugar an IR grammar into classical Earley shape
       reduce/                      Reduction — a parse forest into the reducer's own value

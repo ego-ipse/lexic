@@ -18,14 +18,13 @@ from lexic.ir import (
     IrTuple,
 )
 from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.tables import (
+from lexic.parsing.earley.kernel.tables.atoms import RunTerm, predecessor_chain
+from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
     RUN_DROP,
     RUN_LEAF,
     RUN_STR,
     ParserTables,
-    RunTerm,
-    predecessor_chain,
 )
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX

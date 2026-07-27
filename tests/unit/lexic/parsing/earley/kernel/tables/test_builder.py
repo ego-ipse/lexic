@@ -25,7 +25,6 @@ from lexic.ir import (
     IrItem,
     IrLiteral,
     IrNone,
-    IrNot,
     IrQuantifier,
     IrRange,
     IrRule,
@@ -33,173 +32,32 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
-from lexic.parsing import parse_first, recognize
-from lexic.parsing.earley.kernel import tables as tables_mod
+from lexic.parsing import parse_first
 from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.tables import (
-    ADVANCE,
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
-    RUN_STR,
-    TIERS,
-    CodeTables,
-    DecodeTables,
     ParserTables,
-    RunTerm,
-    atom_accepts,
-    build_tables,
-    compile_tables,
-    expand_atom,
-    tier_for,
 )
-from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.fold import lift_optional_nullables
+from tests.unit.lexic.parsing.earley.kernel.tables.test_records import (
+    chained_nullable_grammar,
+    negated_grammar,
+    non_nullable_grammar,
+    nullable_grammar,
+    tiny,
+)
+from tests.unit.lexic.parsing.earley.kernel.test_kernel import undefined_ref_grammar
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
-from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
 from tests.unit.lexic.parsing.ir_fixtures import sss_grammar as _sss_grammar
 from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
 
 # ── atom_accepts ────────────────────────────────────────────────────────
 
 
-def test_atom_accepts_literal_matches_same_char():
-    """A single-char IrLiteral accepts its own char."""
-    assert atom_accepts(IrLiteral("x"), "x")
-
-
-def test_atom_accepts_literal_rejects_other_char():
-    """A single-char IrLiteral rejects a different char."""
-    assert not atom_accepts(IrLiteral("x"), "y")
-
-
-def test_atom_accepts_charclass_range_matches():
-    """A range char-class accepts a char within bounds."""
-    atom = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
-    assert atom_accepts(atom, "m")
-
-
-def test_atom_accepts_charclass_range_rejects_outside():
-    """A range char-class rejects a char outside bounds."""
-    atom = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
-    assert not atom_accepts(atom, "0")
-
-
-def test_atom_accepts_charclass_single_chr_matches():
-    """A char-class with a bare IrChr element accepts that exact char."""
-    atom = IrCharClass(IrChr("q"))
-    assert atom_accepts(atom, "q")
-
-
-def test_atom_accepts_charclass_single_chr_rejects_other():
-    """A char-class with a bare IrChr element rejects any other char."""
-    atom = IrCharClass(IrChr("q"))
-    assert not atom_accepts(atom, "r")
-
-
-def test_atom_accepts_negated_charclass_matches_char_outside_set():
-    """A negated char-class accepts a char that is not in the inner set."""
-    atom = IrNot(IrCharClass(IrChr('"')))
-    assert atom_accepts(atom, "a")
-
-
-def test_atom_accepts_negated_charclass_rejects_char_in_set():
-    """A negated char-class rejects a char that is in the inner set."""
-    atom = IrNot(IrCharClass(IrChr('"')))
-    assert not atom_accepts(atom, '"')
-
-
-def test_atom_accepts_negated_range_matches_char_outside_range():
-    """A negated range accepts a char outside the inner range."""
-    atom = IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z"))))
-    assert atom_accepts(atom, "0")
-
-
-def test_atom_accepts_negated_range_rejects_char_in_range():
-    """A negated range rejects a char inside the inner range."""
-    atom = IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z"))))
-    assert not atom_accepts(atom, "m")
-
-
-def test_atom_accepts_negated_non_charclass_raises():
-    """An IrNot over anything but an IrCharClass raises."""
-    with pytest.raises(UnsupportedConstructError):
-        atom_accepts(IrNot(IrRuleRef("x")), "a")
-
-
 # ── expand_atom (moved home from lexruns.py — mirror-rule relocation) ──
 
 
-def test_expand_atom_single_char_literal_returns_its_char():
-    """A single-char IrLiteral expands to a one-char frozenset."""
-    assert expand_atom(IrLiteral("a")) == frozenset("a")
-
-
-def test_expand_atom_multichar_literal_returns_none():
-    """A literal longer than one char is not a char-unit — poisoned."""
-    assert expand_atom(IrLiteral("ab")) is None
-
-
-def test_expand_atom_charclass_with_ranges_returns_charset():
-    """A range char-class expands to every char in the range."""
-    atom = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
-    assert expand_atom(atom) == frozenset("abc")
-
-
-def test_expand_atom_charclass_with_bare_chr_returns_charset():
-    """A char-class with a bare IrChr element expands to that one char."""
-    atom = IrCharClass(IrChr("q"))
-    assert expand_atom(atom) == frozenset("q")
-
-
-def test_expand_atom_over_cap_range_poisons():
-    """A range wider than the expansion cap poisons to None."""
-    atom = IrCharClass(IrRange(IrChr(chr(0)), IrChr(chr(0x2000))))
-    assert expand_atom(atom) is None
-
-
-def test_expand_atom_ruleref_is_not_a_terminal_atom():
-    """An IrRuleRef is never a char-unit — poisoned regardless of shape."""
-    assert expand_atom(IrRuleRef("digit")) is None
-
-
-def test_expand_atom_negated_charclass_poisons():
-    """A negated char-class is not a positive char-unit — poisoned to None."""
-    assert expand_atom(IrNot(IrCharClass(IrChr('"')))) is None
-
-
 # ── Grammar builders ─────────────────────────────────────────────────────
-
-
-def nullable_grammar() -> IrAst:
-    """nullish = '' ; a single rule whose only arm is empty (nullable)."""
-    return IrAst(
-        rules=IrSeq(IrRule("nullish", IrAlternation(IrSequence()))),
-        start="nullish",
-    )
-
-
-def chained_nullable_grammar() -> IrAst:
-    """outer = inner ; inner = '' — nullable transitively via a ruleref."""
-    inner = IrRule("inner", IrAlternation(IrSequence()))
-    outer = IrRule("outer", IrAlternation(IrSequence(IrItem(IrRuleRef("inner")))))
-    return IrAst(rules=IrSeq(outer, inner), start="outer")
-
-
-def non_nullable_grammar() -> IrAst:
-    """solid = 'a' ; a rule with only a non-empty terminal arm."""
-    return IrAst(
-        rules=IrSeq(IrRule("solid", IrAlternation(IrSequence(IrItem(IrLiteral("a")))))),
-        start="solid",
-    )
-
-
-def undefined_ref_grammar() -> IrAst:
-    """top = missing ; 'missing' is referenced but never given an IrRule."""
-    return IrAst(
-        rules=IrSeq(
-            IrRule("top", IrAlternation(IrSequence(IrItem(IrRuleRef("missing")))))
-        ),
-        start="top",
-    )
 
 
 # ── Coding scheme: dot-density, arm_base, completed code ────────────────
@@ -317,12 +175,6 @@ def test_undefined_ruleref_gets_empty_rule_dot0():
     assert tables.codes.rule_dot0[missing_rid] == ()
 
 
-def test_undefined_ruleref_recognizes_nothing():
-    """Prediction seeds nothing for an undefined rule — parsing derives no branch."""
-    g = undefined_ref_grammar()
-    assert recognize(g, "anything") == 0
-
-
 # ── compile_tables memoisation ────────────────────────────────────────────
 
 
@@ -415,13 +267,6 @@ def test_char_leaf_caches_per_distinct_char():
 # ── Negated char-class terminals ─────────────────────────────────────────
 
 
-def negated_grammar() -> IrAst:
-    """s = [^"] — one rule with a single negated-char-class terminal."""
-    atom = IrNot(IrCharClass(IrChr('"')))
-    rule = IrRule("s", IrAlternation(IrSequence(IrItem(atom))))
-    return IrAst(rules=IrSeq(rule), start="s")
-
-
 def test_compile_tables_accepts_negated_charclass_terminal():
     """A normalised IrNot(IrCharClass) compiles without raising."""
     tables = compile_tables(negated_grammar())
@@ -442,14 +287,6 @@ def test_terms_for_finds_negated_terminal_outside_set():
 
 
 # ── Table types ────────────────────────────────────────────────────────
-
-
-def test_parser_tables_composes_code_and_decode_tables():
-    """ParserTables exposes .codes (CodeTables) and .decode (DecodeTables)."""
-    tables = compile_tables(_digit_grammar())
-    assert isinstance(tables.codes, CodeTables)
-    assert isinstance(tables.decode, DecodeTables)
-    assert isinstance(tables, ParserTables)
 
 
 def test_parser_tables_start_id_matches_start_rule():
@@ -474,15 +311,6 @@ def test_rule_seeds_has_one_pair_per_arm():
     tables = compile_tables(_sss_grammar())
     s_rid = tables.decode.rule_ids["s"]
     assert len(tables.codes.rule_seeds[s_rid]) == 2
-
-
-def test_rule_seeds_pair_shifted_code_matches_dot0():
-    """Each pair's first element is the arm's dot-0 code, pre-shifted."""
-    tables = compile_tables(_sss_grammar())
-    s_rid = tables.decode.rule_ids["s"]
-    for shifted, _sym in tables.codes.rule_seeds[s_rid]:
-        dot0_code = shifted >> ORIGIN_BITS
-        assert shifted == dot0_code << ORIGIN_BITS
 
 
 def test_rule_seeds_pair_second_element_matches_next_sym():
@@ -619,36 +447,15 @@ def test_multichar_literal_arm_gate_is_first_char_only():
     assert gate == frozenset("a")
 
 
-def test_run_term_arm_gate_is_the_run_charset():
-    """A collapsed run-terminal arm's gate is the run's own charset."""
-    run = RunTerm(frozenset("ab"), 1, RUN_STR)
-    placeholder = IrRule("s", IrAlternation(IrSequence()))
-    g = IrAst(rules=IrSeq(placeholder), start="s")
-    tables = build_tables(g, runs={"s": (run, False)})
-    s_rid = tables.decode.rule_ids["s"]
-    ((_shifted, _sym, gate),) = tables.codes.rule_seed_gates[s_rid]
-    assert gate == frozenset("ab")
-
-
 # ── Sanity on the module constants ────────────────────────────────────────
-
-
-def test_advance_is_one_shifted_by_origin_bits():
-    """ADVANCE == 1 << ORIGIN_BITS, per the packing scheme."""
-    assert ADVANCE == 1 << ORIGIN_BITS
 
 
 # ── origin-bits tiering (compile_tables(grammar, bits)) ─────────────────
 
 
-def _tiny() -> IrAst:
-    """The digit grammar, engine-normalised — the tier tests' substrate."""
-    return normalize(lift_optional_nullables(_digit_grammar()))
-
-
 def test_tables_carry_their_tier():
     """compile_tables(g, bits) stamps the Packing tier on the tables."""
-    tables = compile_tables(_tiny(), 8)
+    tables = compile_tables(tiny(), 8)
     assert (tables.packing.bits, tables.packing.mask, tables.packing.advance) == (
         8,
         255,
@@ -658,7 +465,7 @@ def test_tables_carry_their_tier():
 
 def test_tier_memo_is_per_bits():
     """The compile memo keys on (grammar identity, bits) — tiers coexist."""
-    grammar = _tiny()
+    grammar = tiny()
     small, default = compile_tables(grammar, 8), compile_tables(grammar)
     assert small is not default
     assert compile_tables(grammar, 8) is small
@@ -666,7 +473,7 @@ def test_tier_memo_is_per_bits():
 
 def test_cross_tier_parse_results_are_identical():
     """The same input parses to the same derivation at B=8 and the default tier."""
-    grammar = _tiny()
+    grammar = tiny()
     tree_small = parse_first(grammar, "7", compile_tables(grammar, 8))
     tree_default = parse_first(grammar, "7", compile_tables(grammar))
     assert tree_small == tree_default
@@ -674,7 +481,7 @@ def test_cross_tier_parse_results_are_identical():
 
 def test_small_tier_capacity_boundary_is_exact():
     """At B=8 a 255-char input constructs and a 256-char input refuses."""
-    grammar = _tiny()
+    grammar = tiny()
     tables = compile_tables(grammar, 8)
     kernel = Kernel(tables, "7" * 255)
     assert len(kernel.cols) == 256
@@ -683,35 +490,3 @@ def test_small_tier_capacity_boundary_is_exact():
 
 
 # ── tier selection (TIERS / tier_for; parse entries pick by input size) ──
-
-
-def test_tier_for_picks_the_smallest_covering_tier():
-    """tier_for returns the first TIERS entry with length < 2**bits."""
-    assert tier_for(0) == TIERS[0]
-    assert tier_for(2 ** TIERS[0] - 1) == TIERS[0]
-    assert tier_for(2 ** TIERS[0]) == TIERS[1]
-
-
-def test_tier_for_backstop_is_the_last_tier():
-    """Beyond every tier's capacity the LAST tier returns — the kernel
-    capacity raise stays the backstop."""
-    assert tier_for(2 ** TIERS[-1]) == TIERS[-1]
-    assert tier_for(2 ** (TIERS[-1] + 1)) == TIERS[-1]
-
-
-def test_parse_entries_pick_the_tier_by_input_size(monkeypatch):
-    """With TIERS overridden to (8, 28), a 300-char input overflows the
-    8-bit tier and routes to the 28-bit one on every parse entry."""
-    monkeypatch.setattr(tables_mod, "TIERS", (8, 28))
-    grammar = digits_plus_grammar()
-    assert recognize(grammar, "7" * 300) == 1
-    assert parse_first(grammar, "7" * 300)
-
-
-def test_parse_entries_capacity_backstop_raises_beyond_the_last_tier(monkeypatch):
-    """With only an 8-bit tier available, a 300-char input hits the kernel
-    capacity raise — the backstop, never a silent wrap."""
-    monkeypatch.setattr(tables_mod, "TIERS", (8,))
-    grammar = digits_plus_grammar()
-    with pytest.raises(UnsupportedConstructError):
-        parse_first(grammar, "7" * 300)

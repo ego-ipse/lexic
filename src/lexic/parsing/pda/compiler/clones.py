@@ -59,7 +59,7 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
-from lexic.parsing.earley.kernel.tables import compile_tables
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.reduce.fused import OTHER_KIND, plan_for
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import RuleFold

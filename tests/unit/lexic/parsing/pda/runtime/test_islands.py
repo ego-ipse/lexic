@@ -23,7 +23,7 @@ from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.ir import IrAst
 from lexic.parsing.earley.kernel.forest import ParseTree
 from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.tables import compile_tables
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.core.errors import PdaFail
