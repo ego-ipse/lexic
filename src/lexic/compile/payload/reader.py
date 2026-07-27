@@ -248,6 +248,27 @@ def _own_shape(cls: Any) -> int | None:
     return shape
 
 
+def reduction_digest(reduction: object) -> int:
+    """A digest of the reduction a value was produced by.
+
+    The grammar half of provenance is checkable at decode — a class carries its
+    rules and the reader recomputes. The reduction half is NOT: an ``ir`` or
+    ``plain`` artefact names spine classes or nothing at all, identical across
+    every grammar and every reduction, so nothing at read time could disagree,
+    and an artefact supplying its own expectation would only be checking itself.
+
+    So it is RECORDED here and asked by the one party that can answer — whoever
+    holds a live reduction and wants to know whether a cached artefact is still
+    current. See :func:`lexic.compile.payload.built_under`.
+
+    :param reduction: The reduction, or anything whose ``repr`` identifies it.
+    :returns: A 64-bit digest, or ``0`` for no reduction.
+    """
+    if reduction is None:
+        return 0
+    return _hashed([repr(reduction).encode("utf-8", "surrogatepass")])
+
+
 def digest(tables: tuple) -> int:
     """A checksum over the four tables — order-sensitive and injective.
 

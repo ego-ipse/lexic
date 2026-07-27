@@ -75,7 +75,7 @@ user-facing diagnostics. It never surfaces to the caller.
 from __future__ import annotations
 
 from functools import partial
-from typing import Any
+from typing import Any, NamedTuple
 
 from lexic.ir.base import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel import Delegate
@@ -121,13 +121,29 @@ from lexic.parsing.pda.runtime.build import (
     finish_delegate,
     leaf_mismatch,
 )
-from lexic.parsing.pda.runtime.islands import island_parse, island_value
+from lexic.parsing.pda.runtime.islands import (
+    IslandPolicy,
+    island_parse,
+    island_value,
+)
 
 __all__ = ["PdaFail", "PdaKernel"]
 
 _EMPTY_SLOT: Any = None
 """An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
 each slot later holding a sub-model list) without narrowing their type."""
+
+
+class Completion[M](NamedTuple):
+    """How a parse is completed — the island fold, and the ambiguity setting.
+
+    One record because the kernel is at pylint's attribute ceiling and these two
+    are the same concern: what an island sub-parse may build, and what it may
+    hand back.
+    """
+
+    fold: ModelFold[M] | None = None
+    ambiguous: bool = False
 
 
 class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
@@ -161,18 +177,23 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         sub-models — spliced by ``id`` — never share across the boundary).
     """
 
-    __slots__ = ("tables", "text", "pos", "stack", "fold", "_deleg", "_intern")
+    __slots__ = ("tables", "text", "pos", "stack", "completion", "_deleg", "_intern")
 
     tables: PdaTables
     text: str
     pos: int
     stack: list[list[Any]]
-    fold: ModelFold[M] | None
+    completion: Completion[M]
     _deleg: dict[str, dict[int, Delegate]]
     _intern: dict[Any, object]
 
     def __init__(
-        self, tables: PdaTables, text: str, fold: ModelFold[M] | None = None
+        self,
+        tables: PdaTables,
+        text: str,
+        fold: ModelFold[M] | None = None,
+        *,
+        ambiguous: bool = False,
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
@@ -181,12 +202,14 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         :param fold: The full-grammar :class:`~lexic.parsing.fold.ModelFold`
             for splicing island sub-models; ``None`` disables island resolution
             (any island reference raises :class:`PdaFail`).
+        :param ambiguous: Whether an island deriving its text more than one way
+            is allowed. Per-parse state, so it rides on the cursor.
         """
         self.tables = tables
         self.text = text
+        self.completion = Completion(fold, ambiguous)
         self.pos = 0
         self.stack = []
-        self.fold = fold
         self._deleg = {}
         self._intern = {}
 
@@ -741,7 +764,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             fold refuses the completion (a window-truncated mis-parse — see
             :func:`~lexic.parsing.pda.runtime.islands.island_value`).
         """
-        fold = self.fold
+        fold = self.completion.fold
         if fold is None:
             raise PdaFail(f"island {name!r} at {self.pos}: no fold for splice")
         tree, end = self._island_subparse(name)
@@ -767,7 +790,11 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             self.text,
             self.pos,
             name,
-            self._delegates(name),
+            IslandPolicy(
+                self._delegates(name),
+                self.completion.ambiguous,
+                self.completion.fold,
+            ),
         )
 
     def _delegates(self, name: str) -> dict[int, Delegate]:
@@ -809,7 +836,12 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         :param pos: The start position within ``window_text``.
         :returns: ``(end, sub_model)``, or ``None`` (declined — the safety net).
         """
-        sub = PdaKernel(self.tables, window_text, self.fold)
+        sub = PdaKernel(
+            self.tables,
+            window_text,
+            self.completion.fold,
+            ambiguous=self.completion.ambiguous,
+        )
         return finish_delegate(sub, clone, window_text, pos)
 
     # ── frame completion → fused model build ──────────────────────────

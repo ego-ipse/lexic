@@ -258,12 +258,20 @@ def _symbol_map(homes: dict[str, str]) -> list[str]:
     )
 
 
-def render(payload: Payload, reader_module: str, *, module: str | None = None) -> str:
+def render(
+    payload: Payload,
+    reader_module: str,
+    *,
+    module: str | None = None,
+    reduction: object = None,
+) -> str:
     """The artefact's source: imports, tables, and the value.
 
     :param payload: The projected value.
     :param reader_module: The emitted reader to import ``decode`` from.
     :param module: Where a non-spine symbol is imported from.
+    :param reduction: The reduction the value was produced by, recorded so a
+        holder of a live one can ask whether the artefact is still current.
     :returns: The module source.
     :raises UnsupportedConstructError: When a symbol has no importable home.
     """
@@ -299,7 +307,8 @@ def render(payload: Payload, reader_module: str, *, module: str | None = None) -
                 "\n".join(_symbol_map(homes)) if homes else "SYMBOLS = {}",
                 f"{tables}\n"
                 f"DIGEST = {payload.digest()!r}\n"
-                f"SHAPE = {payload.shape()!r}\n\n"
+                f"SHAPE = {payload.shape()!r}\n"
+                f"REDUCTION = {reader.reduction_digest(reduction)!r}\n\n"
                 "TABLES = (TYPES, ORIGINS, STRS, NODES)\n"
                 "VALUE = decode(TABLES, SYMBOLS, (DIGEST, SHAPE))",
             ]
@@ -308,7 +317,13 @@ def render(payload: Payload, reader_module: str, *, module: str | None = None) -
     )
 
 
-def export_value(value: object, path: str | Path, *, module: str | None = None) -> Path:
+def export_value(
+    value: object,
+    path: str | Path,
+    *,
+    module: str | None = None,
+    reduction: object = None,
+) -> Path:
     """Write ``value`` as an importable module, and byte-compile it.
 
     The value is projected under the always-on fixpoint gate first, so an
@@ -321,6 +336,10 @@ def export_value(value: object, path: str | Path, *, module: str | None = None) 
     :param value: Anything lexic parsed — a model, reduced IR, or plain data.
     :param path: Where to write.
     :param module: Where a non-spine symbol is imported from.
+    :param reduction: The reduction that produced ``value``. Recorded, not
+        checked at import: an ``ir`` or ``plain`` artefact names spine classes
+        or nothing, so nothing at read time could disagree with it. Ask with
+        :func:`built_under`, which is the only party that can.
     :returns: The written path.
     :raises UnsupportedConstructError: On a value outside the vocabulary, a
         symbol with no importable home, or a failed gate.
@@ -328,5 +347,26 @@ def export_value(value: object, path: str | Path, *, module: str | None = None) 
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = project_checked(value)
-    source = render(payload, _sidecar(target.parent), module=module)
+    source = render(
+        payload, _sidecar(target.parent), module=module, reduction=reduction
+    )
     return write_module(target, source)
+
+
+def built_under(artefact: object, reduction: object) -> bool:
+    """Was ``artefact`` produced by ``reduction``?
+
+    The producer-side half of provenance. The grammar half is checked at decode,
+    because a class carries its rules; a reduction cannot be, because the
+    symbols an ``ir`` or ``plain`` artefact names are the same under every
+    reduction there is. So the question is asked here, by whoever holds a live
+    reduction — which is exactly the party deciding whether a cached artefact
+    needs rebuilding.
+
+    :param artefact: An imported payload module.
+    :param reduction: The reduction to compare against.
+    :returns: Whether the artefact records this reduction. ``False`` when the
+        artefact recorded none — an unknown provenance is not a match.
+    """
+    recorded = getattr(artefact, "REDUCTION", 0)
+    return bool(recorded) and recorded == reader.reduction_digest(reduction)

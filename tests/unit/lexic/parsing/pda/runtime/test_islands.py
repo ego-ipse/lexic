@@ -18,13 +18,17 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.compile import compile_text
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.ir.nodes import IrAst
 from lexic.parsing.earley.forest import ParseTree
 from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tables import compile_tables
+from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.islands import (
+    IslandPolicy,
     island_derivation,
     island_parse,
     island_run,
@@ -95,11 +99,59 @@ def test_island_parse_resolves_an_ambiguous_completion_via_island_derivation(
     """'aaa' under ``s = s s / 'a'`` is genuinely ambiguous (Catalan C_2) —
     the FastTree fast path misses, so island_parse falls through to
     island_derivation for the first derivation. Exercises both functions.
+
+    Under ``ambiguous=True``, because taking a derivation from several is the
+    behaviour being exercised and the default now refuses it.
     """
     tables = compile_tables(sss_grammar)
-    tree, end = island_parse(tables, "aaa", 0, "s")
+    tree, end = island_parse(tables, "aaa", 0, "s", IslandPolicy(ambiguous=True))
     assert isinstance(tree, ParseTree)
     assert end == 3
+
+
+def test_island_parse_refuses_derivations_that_mean_different_things(sss_compiled):
+    """A silently chosen derivation is a wrong answer where an error is available.
+
+    An island is the ONE site where the model path chooses — everywhere else it
+    is predictive and produces one derivation by construction — and the choice
+    is invisible to the round-trip invariant, because ``to_text()`` reproduces
+    the input for whichever derivation was taken.
+    """
+    tables = compile_tables(sss_compiled.codegen_grammar)
+    with pytest.raises(UnsupportedConstructError, match="mean different things"):
+        island_parse(tables, "aaa", 0, "s", IslandPolicy(fold=sss_compiled.fold))
+
+
+def test_island_parse_allows_derivations_that_mean_the_same_thing() -> None:
+    """An inline group like ``([0-9] | [1-9] [0-9]*)`` carves a single digit two
+    ways and folds to one model both times — the arms never materialise a class.
+
+    Refusing that refuses ``{"a":1}`` for a difference nothing downstream can
+    observe, which is why the check is on values and not on derivation count.
+    """
+    compiled = compile_text(
+        'root ::= number\nnumber ::= ("-"? ([0-9] | [1-9] [0-9]{0,15}))',
+        cache_key="inline-ambiguous",
+    )
+    ready = normalize(lift_optional_nullables(compiled.codegen_grammar))
+    tables = compile_tables(ready)
+    tree, end = island_parse(tables, "5", 0, "number", IslandPolicy(fold=compiled.fold))
+    assert isinstance(tree, ParseTree)
+    assert end == 1
+
+
+def test_the_fast_path_declining_is_not_by_itself_ambiguity(sss_grammar: IrAst):
+    """The refusal asks the derivation STREAM, not ``isinstance``.
+
+    ``FastTree`` also declines when a key packs several families or the root has
+    many productions, so reading its miss as "ambiguous" refused ordinary input
+    — 46 tests, including ``{"a":1}``. An unambiguous island whose fast path
+    misses must still parse under the default.
+    """
+    tables = compile_tables(sss_grammar)
+    tree, end = island_parse(tables, "a", 0, "s")
+    assert isinstance(tree, ParseTree)
+    assert end == 1
 
 
 # ── island_derivation ─────────────────────────────────────────────────

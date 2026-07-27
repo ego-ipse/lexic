@@ -55,6 +55,17 @@ def sss_grammar() -> IrAst:
 
 
 @pytest.fixture
+def sss_compiled():
+    """``s = s s / 'a'`` compiled — its tables AND its fold, from one grammar.
+
+    Ambiguity worth refusing is ambiguity of VALUE, so the check needs a fold —
+    and a fold built from a DIFFERENT grammar refuses the trees instead of
+    comparing them, which reads as "no difference" and refuses nothing.
+    """
+    return compile_text('root ::= s\ns ::= s s | "a"', cache_key="sss-compiled")
+
+
+@pytest.fixture
 def expr_plus_grammar() -> IrAst:
     """Ambiguous arithmetic: e = e '+' e / 'a'.
 

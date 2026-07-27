@@ -224,7 +224,13 @@ def pda_reduce(tables: PdaTables, text: str) -> IrSelf:
     return _ReducePdaKernel(tables, text).run()
 
 
-def pda_model[M](tables: PdaTables, text: str, fold: ModelFold[M] | None = None) -> M:
+def pda_model[M](
+    tables: PdaTables,
+    text: str,
+    fold: ModelFold[M] | None = None,
+    *,
+    ambiguous: bool = False,
+) -> M:
     """Parse ``text`` with the fused predictive runtime, building a model.
 
     The instance (b2) entry: :class:`PdaKernel` builds the start rule's model
@@ -236,8 +242,10 @@ def pda_model[M](tables: PdaTables, text: str, fold: ModelFold[M] | None = None)
     :param fold: The full-grammar fold for splicing island sub-models;
         ``None`` (the island-free path) makes any island reference raise
         :class:`PdaFail`.
+    :param ambiguous: Whether an island deriving its text more than one way is
+        allowed; the default refuses.
     :returns: The start rule's model instance.
     :raises PdaFail: On any deterministic-parse failure (caught by the compile
         seam, which retries on the full engine).
     """
-    return PdaKernel(tables, text, fold).run()
+    return PdaKernel(tables, text, fold, ambiguous=ambiguous).run()
