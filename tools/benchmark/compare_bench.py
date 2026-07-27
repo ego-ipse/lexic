@@ -81,7 +81,7 @@ from lexic.ir import IrFlavour
 from lexic.model import GrammarModel
 from lexic.parsing import parse_first, parse_reduced
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import (

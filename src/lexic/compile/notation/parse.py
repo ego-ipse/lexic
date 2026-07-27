@@ -84,14 +84,8 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing import FieldFold, ModelBody, parse_model
-from lexic.parsing.earley.reduce import (
-    YIELD,
-    Drop,
-    KeepRaw,
-    KeepReduced,
-    Reducer,
-    Yield,
-)
+from lexic.parsing.earley.reduce.policy import YIELD, Drop, KeepRaw, KeepReduced, Yield
+from lexic.parsing.earley.reduce.reducer import Reducer
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 

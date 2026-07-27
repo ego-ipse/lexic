@@ -110,7 +110,10 @@ def test_runtime_imports_parsing_are_compile_only_and_licensed():
             continue
         licence = _engine_licence(path)
         for module in _engine_imports(path):
-            if module in licence:
+            # A licensed seam licenses its SUBMODULES: the reduction is a
+            # package (policy / fused / reducer), and the constraint is about
+            # WHICH seam a non-engine module may reach, not which file of it.
+            if any(module == ok or module.startswith(ok + ".") for ok in licence):
                 continue
             rel = path.relative_to(SRC)
             allowed = f"may import only {sorted(licence)}" if licence else "may not"

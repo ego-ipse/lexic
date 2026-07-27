@@ -89,7 +89,8 @@ from lexic.ir import (
     IrTypeMap,
     IrUnradix,
 )
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
+from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
+from lexic.parsing.earley.reduce.reducer import Reducer
 
 # EBNF escape tables — quoted-terminal body + ``..``-endpoint spelling. The
 # EBNF "class context" is a double-quoted ``..`` endpoint / member terminal —

@@ -50,7 +50,7 @@ from lexic.ir import (
     IrTypeMap,
 )
 from lexic.parsing import Reducer
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD
+from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
 from tests.paths import GROUND_TRUTH
 from tools.gen_manifests import escapes_as_ir
 

@@ -100,7 +100,7 @@ from lexic.ir import (
 from lexic.parsing import parse as engine_parse
 from lexic.parsing import recognize as engine_recognize
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.products import earley_reduce as engine_parse_reduced
 
 # ── The pre-cutover Lark ABNF meta-grammar, recovered verbatim ─────────

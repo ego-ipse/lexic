@@ -24,7 +24,7 @@ from lexic.ir import IrAst, IrMap
 from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel import tables as tables_mod
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.products import (
     _MODEL_CACHE,

@@ -12,7 +12,7 @@ from __future__ import annotations
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrFlavour
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.runtime.reduce_runtime import pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail

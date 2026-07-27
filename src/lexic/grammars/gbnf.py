@@ -74,7 +74,8 @@ from lexic.ir import (
     IrTypeMap,
     IrUnradix,
 )
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
+from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
+from lexic.parsing.earley.reduce.reducer import Reducer
 
 # GBNF escape tables — quoted string literals + bracket-class members.
 GBNF_ESCAPES = EscapeCodec.from_tables(

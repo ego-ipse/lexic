@@ -50,19 +50,15 @@ from lexic.parsing.earley.kernel.kernel import Kernel
 from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, compile_tables
 from lexic.parsing.earley.kernel.trampoline import Trampoline
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
-from lexic.parsing.earley.reduce import (
+from lexic.parsing.earley.reduce.fused import FusedReduce, ReducePlan, plan_for
+from lexic.parsing.earley.reduce.policy import (
     DROP,
     KEEP_RAW,
     KEEP_REDUCED,
     YIELD,
-    FusedReduce,
-    ReduceCtx,
-    ReducePlan,
-    Reducer,
-    ResolveSource,
     Yield,
-    plan_for,
 )
+from lexic.parsing.earley.reduce.reducer import ReduceCtx, Reducer, ResolveSource
 from tests.unit.lexic.parsing.ir_fixtures import letter_word_rules
 
 # ── Helpers ───────────────────────────────────────────────────────────

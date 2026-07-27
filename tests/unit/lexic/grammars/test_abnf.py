@@ -47,7 +47,8 @@ from lexic.ir import (
 from lexic.parsing import parse, recognize
 from lexic.parsing.earley.kernel.forest import ParseTree
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import YIELD, Reducer
+from lexic.parsing.earley.reduce.policy import YIELD
+from lexic.parsing.earley.reduce.reducer import Reducer
 from tests.unit.lexic.conftest import (
     GRAMMAR_AST_TYPES,
     assert_wide_rule_wraps_and_round_trips,

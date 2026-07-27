@@ -101,7 +101,7 @@ from lexic.parsing.earley.kernel.forest import (
 from lexic.parsing.earley.kernel.kernel import Kernel
 from lexic.parsing.earley.kernel.tables import ParserTables, compile_tables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.earley.tokenscan import (
     CharTrieCursor,
     TokenMaskCursor,

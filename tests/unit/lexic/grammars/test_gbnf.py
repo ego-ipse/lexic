@@ -37,7 +37,8 @@ from lexic.ir import (
 )
 from lexic.parsing import derivations
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, Reducer
+from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.products import earley_reduce
