@@ -20,7 +20,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
-from lexic.ir import IrAst, IrRuleRef, IrSeq
+from lexic.ir import IrAst, IrInt, IrRuleRef, IrSeq, IrStr
 from lexic.parsing.earley.kernel.forest import ParseTree
 from lexic.parsing.earley.kernel.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
@@ -243,3 +243,43 @@ def test_differs_compares_values_not_their_spelling():
     assert repr(first) != repr(second)  # the proxy disagrees
     assert first == second  # the value does not
     assert not _differs(lambda t: first if t is one else second, one, other)
+
+
+def test_differs_sees_a_difference_of_type():
+    """A wrapped scalar and a bare one are NOT the same value.
+
+    `IrStr("a") == "a"` and `IrInt(1) == 1` — the IR wraps `str` and `int`, so
+    equality alone says two derivations agree when one built a leaf and the
+    other built bare text. A consumer that reads the field sees the
+    difference; the check must too.
+    """
+    one, other = _tree("one"), _tree("other")
+    assert _differs(lambda t: IrStr("a") if t is one else "a", one, other)
+    assert _differs(lambda t: IrInt(1) if t is one else 1, one, other)
+    assert _differs(lambda t: 1 if t is one else True, one, other)
+
+
+def test_differs_does_not_refuse_over_a_value_that_is_never_equal_to_itself():
+    """A float NaN is not an ambiguity with itself.
+
+    `nan != nan`, so a bare `!=` reports a difference between one value and
+    that same value — refusing a document over nothing at all.
+    """
+    one, other = _tree("one"), _tree("other")
+    nan = float("nan")
+    assert not _differs(lambda t: nan if t is one else float("nan"), one, other)
+
+
+def test_differs_does_not_refuse_over_a_value_with_no_value_semantics():
+    """An authored class without `__eq__` compares by identity, and two
+    derivations always build two objects. Refusing on that refuses every
+    ambiguous island whose fold ends in such a constructor — for a difference
+    the object itself declines to define. Cannot tell is not a difference.
+    """
+
+    class Opaque:
+        def __init__(self, value: int) -> None:
+            self.value = value
+
+    one, other = _tree("one"), _tree("other")
+    assert not _differs(lambda t: Opaque(1) if t is one else Opaque(1), one, other)

@@ -256,6 +256,33 @@ def _differs(
     as "no observable difference" here rather than masquerading as one.
     """
     try:
-        return apply(one) != apply(other)
+        return not _same(apply(one), apply(other))
     except LexicError:
         return False
+
+
+def _same(one: object, other: object) -> bool:
+    """Do two built values differ in anything a consumer could observe?
+
+    Type-aware and structural, because bare ``==`` answers the wrong question
+    in both directions. It says two values agree when one is `IrStr("a")` and
+    the other bare ``"a"`` — the IR wraps ``str`` and ``int``, so a leaf and
+    its text compare equal while a consumer reading the field sees two
+    different things. And it says they disagree for a float NaN, which is
+    never equal to itself, or for any authored class that never defined
+    ``__eq__`` — two derivations always build two objects, so identity
+    comparison refuses every island whose fold ends in such a constructor.
+
+    A type that declines to define equality has declined to answer, and the
+    conservative reading of "cannot tell" is the same one a refusing fold
+    gets: no observable difference, no refusal.
+    """
+    if type(one) is not type(other):
+        return False
+    if isinstance(one, (tuple, list)) and isinstance(other, (tuple, list)):
+        return len(one) == len(other) and all(map(_same, one, other))
+    if isinstance(one, dict) and isinstance(other, dict):
+        return one.keys() == other.keys() and all(_same(one[k], other[k]) for k in one)
+    if type(one).__eq__ is object.__eq__:
+        return True
+    return bool(one == other) or (one != one and other != other)
