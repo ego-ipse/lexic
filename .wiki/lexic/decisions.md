@@ -6,6 +6,72 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ---
 
+## Ambiguity is a question about VALUES, and it is asked in one place
+
+**Two derivations that build the same value are not an ambiguity.** A grammar
+routinely derives one text several ways without meaning anything by it: an
+inline group carves a digit two ways and folds identically, and two adjacent
+nullable slots split a gap two ways to the same end. Refusing those refuses
+valid input for a difference no consumer can observe — under the `plain` target,
+where a fold builds dicts, it is not even hypothetical.
+
+**Nor is it asked by counting.** The check compares the values built, not the
+number of derivations found. `repr()` is not the value either: two dicts of one
+content in different key orders are one value and two spellings.
+
+**`same_value` is type-aware and structural**, because bare `==` is wrong in
+both directions. It calls `IrStr("a")` and `"a"` equal — the IR wraps `str` and
+`int`, so a leaf and its text compare equal while a consumer reading the field
+sees two different things. And it calls a float NaN different from itself, and
+two instances of any class that never defined `__eq__` different from each
+other. A type that declined to define equality has declined to answer, and
+"cannot tell" reads as no observable difference, hence no refusal.
+
+**It lives in `parsing/earley/kernel/ambiguity.py`** so the island sub-parse and
+the reduce path decide it once and the same way. The reduce path used to count
+derivations, and the cost was the whole EBNF fallback: that self-grammar has
+adjacent nullable `ws` slots, so every whitespace-carrying EBNF file derived at
+least two ways, reduced to exactly one value, and was refused.
+
+**The forest already records where to look.** A key packing more than one family
+IS an ambiguity point (Scott 2008), so the question is answered by a walk rather
+than by enumerating derivations and hoping the interesting one comes early. One
+flip per point suffices: a fold is compositional, so if no single alternative
+changes the value, no combination does — linear in ambiguity points where
+enumerating derivations is exponential in them.
+
+**A many-production root is not an ambiguity point.** Its sibling productions
+live in other accepting *items*, so `s ::= s s | "a"` over `"aaa"` reads
+unambiguous to a walk that only follows links. Checked separately.
+
+---
+
+## A directive is not a privilege of surfaces with a line comment
+
+`@start` and `@non-semantic` are read from source comments before the parser
+runs. The scan used to take the flavour's `line_comment`, and ISO EBNF has only
+`(* *)` block comments — so directive parsing was disabled for every EBNF
+grammar, and a mechanism GBNF and ABNF could express, EBNF structurally could
+not. That is a privileged formulation.
+
+It was not academic. `json.ebnf` could not mark `ws` structural, so `ws` stayed
+semantic, the stop-set analysis correctly refused to resolve it predictively and
+compiled it as a fail-island, and since `json-text` references `ws` as its first
+item, EVERY parse escaped to Earley at position 0. The same language as
+`json.gbnf`, which compiles 126 clones and no islands.
+
+A flavour now declares whichever comment form it has — `line_comment` or
+`block_comment` — and the scanner reads directives from either. All three JSON
+formulations now compile to byte-identical clone tables.
+
+**The directives are also an argument**, not only a source comment: `Directives`
+overrides what the grammar says, and keys the compile memo, because one source
+compiled two ways must not hand back the first. `Vocabulary` bundles
+`tokenizer` + `registry`, which were never two channels — they compose over a
+default `unicode` before anything reads a terminal.
+
+---
+
 ## The compiled artefact's four rulings
 
 **The target is inferred, never a flag.** `classes` / `ir` / `plain` are one

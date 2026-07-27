@@ -23,7 +23,7 @@ Returns a `GrammarModel` instance whose concrete type is the start-rule class. C
 
 ---
 
-### `compile_text(text, *, cache_key, flavour)` — `compile/__init__.py`
+### `compile_text(text, *, cache_key, flavour, vocabulary, directives)` — `compile/__init__.py`
 
 Compiles a grammar string into a `CompiledGrammar`. Use when you have the grammar in memory.
 
@@ -34,13 +34,26 @@ cg = compile_text(grammar_text, flavour="gbnf")
 model = cg.parse("x=1\n")
 ```
 
+`vocabulary` is the lens the grammar's terminals are read through — `Vocabulary(tokenizer, registry)`. The two were never separate channels: they compose over a default `unicode` before anything reads a terminal.
+
+`directives` says what the grammar's `@directives` would say, as an argument — `Directives(start, non_semantic)`, exactly what the source-comment scan produces. Given explicitly it OVERRIDES the source. Use it when a caller knows a rule is structural noise and does not want to edit the grammar to say so.
+
+```python
+from lexic.compile import Directives, Vocabulary, compile_text
+
+cg = compile_text(text, directives=Directives(non_semantic=frozenset({"ws"})))
+cg = compile_text(text, vocabulary=Vocabulary(tokenizer))
+```
+
+Both are part of the memo key: one source compiled two ways must not hand back the first.
+
 `flavour` defaults to `"gbnf"`. **Memoised by content by default**: the default cache key is `(content sha stem, flavour)` — compiling the same source in the same flavour returns the cached `CompiledGrammar` and its class objects. Pass `cache_key=` to prepend an extra key prefix; `reset_cache_for_tests()` clears the cache when a caller needs fresh class objects. Classes are synthesized in memory (`type()`) — there is no output directory to key on.
 
 ---
 
-### `compile_from_path(path, *, flavour)` — `compile/__init__.py`
+### `compile_from_path(path, *, flavour, vocabulary, directives)` — `compile/__init__.py`
 
-Like `compile_text` but reads the file and memoises by `(path, mtime, size, flavour)`, using `path.stem` as the class-module stem. Flavour is inferred from the file extension if omitted.
+Like `compile_text` but reads the file and memoises by `(path, mtime, size, flavour, vocabulary, directives)`, using `path.stem` as the class-module stem. Flavour is inferred from the file extension if omitted. Carries `compile_text`'s whole surface.
 
 ---
 

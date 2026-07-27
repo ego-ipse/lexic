@@ -1,5 +1,32 @@
 # Log
 
+## Ambiguity is about values; directives are not a line-comment privilege
+
+Two derivations that build the same VALUE are not an ambiguity. The decision
+moved to `parsing/earley/kernel/ambiguity.py`, where the island sub-parse and the
+reduce path both reach it — the reduce path used to count derivations, which
+left the EBNF flavour with no working Earley fallback at all (its self-grammar
+has adjacent nullable `ws` slots, so every whitespace-carrying file derived two
+ways, reduced to one value, and was refused).
+
+`same_value` is type-aware and structural: bare `==` calls `IrStr("a")` and `"a"`
+equal, and calls a NaN — or any class that never defined `__eq__` — different
+from itself. A type that declined to define equality has declined to answer.
+
+Separately, `@directives` stopped being a privilege of surfaces that happen to
+have a line comment. ISO EBNF has only `(* *)`, so directive parsing had been
+disabled for every EBNF grammar; `json.ebnf` therefore could not mark `ws`
+structural, compiled it as a fail-island, and escaped to Earley on EVERY parse.
+A flavour now declares whichever comment form it has. All three JSON
+formulations compile to byte-identical clone tables.
+
+`Vocabulary` and `Directives` put both on the public entry points.
+
+See `lexic/decisions.md` for the reasoning and `lexic/public-api.md` for the
+surface.
+
+---
+
 ## Compiled payloads: a parsed VALUE as an importable module
 
 `compile/payload/` writes whatever lexic parsed as a module — four flat literals
