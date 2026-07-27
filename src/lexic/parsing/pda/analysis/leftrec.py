@@ -20,7 +20,7 @@ where everything before it can consume nothing. ``R`` is left-recursive iff
 A leaf w.r.t. :mod:`lexic.parsing.pda.analysis.analysis` (the kwindow/noise
 precedent): the analysis is taken as an ``Any``-typed oracle argument
 (``rules`` / ``item_nullable``), so ``analysis`` imports this, never the
-reverse. Atom steps route through an open :class:`~lexic.ir.mapping.IrTypeMap`
+reverse. Atom steps route through an open :class:`~lexic.ir.action.mapping.IrTypeMap`
 table with a raising default.
 """
 

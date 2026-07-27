@@ -15,7 +15,7 @@ no ``@directive`` scan) and no native char-class or negation syntax:
 - a char class emits as a parenthesised ``|`` alternation of quoted
   terminals/``..`` ranges (a single member emits bare) and reparses through
   canonicalisation back to the merged class;
-- :class:`~lexic.ir.operators.IrNot` refuses declaratively (the ABNF
+- :class:`~lexic.ir.grammar.operators.IrNot` refuses declaratively (the ABNF
   precedent) — canonicalisation rewrites negation to positive spans first,
   so the raising action is unreachable on canonical input;
 - an open or bounded counted quantifier (``{n,}``/``{m,n}``) refuses at emit:

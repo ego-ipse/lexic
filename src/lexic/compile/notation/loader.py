@@ -1,7 +1,7 @@
 """Flavour manifests — one notation expression → a live :class:`IrFlavour`.
 
 A manifest is a single IR-constructor notation expression (``compile/notation``)
-whose root is an :class:`~lexic.ir.mapping.IrMap` of seven named sections::
+whose root is an :class:`~lexic.ir.action.mapping.IrMap` of seven named sections::
 
     IrMap(
         IrTuple(IrStr('name'),        IrStr('gbnf')),
@@ -14,7 +14,7 @@ whose root is an :class:`~lexic.ir.mapping.IrMap` of seven named sections::
     )
 
 :func:`load_flavour` folds that into an :class:`IrFlavour`: it lowers the escape
-IR dyads to an :class:`~lexic.ir.escapes.EscapeCodec` and synthesizes the flavour
+IR dyads to an :class:`~lexic.ir.text.escapes.EscapeCodec` and synthesizes the flavour
 class by a bare :func:`type` call.
 
 The reduction is **carried, not derived**. A :class:`~lexic.parsing.Reducer` is a
@@ -69,7 +69,7 @@ def load_flavour(text: str) -> IrFlavour:
     """Parse a manifest expression and fold it into an :class:`IrFlavour`.
 
     :param text: A manifest — one IR-constructor notation expression whose root
-        is the section :class:`~lexic.ir.mapping.IrMap`.
+        is the section :class:`~lexic.ir.action.mapping.IrMap`.
     :returns: The synthesized flavour (unregistered).
     :raises UnsupportedConstructError: On any parse error, unknown symbol, or a
         root/section/escape shape violation.

@@ -167,29 +167,37 @@ src/lexic/
     gbnf.py                        GBNF flavour — incl. the token terminals <t>/<[id]>/!<…>/.
     json.py                        JSON grammar as native IR — the canonical, flavour-neutral representation
   ir/
-    __init__.py                    Public IR surface — import everything from here
-    access.py                      Access — reaching into a node (child, field, index, length)
-    build.py                       Build — producing a node (apply, rebuild, walk, emit, raise)
-    bind.py                        IrBind — the field-binding marker generated model fields carry
-    canonical.py                   canonicalize — the language-preserving normal form for a grammar IrAst
-    compute.py                     Compute — turning values into other values (radix, ordinals, joins)
-    control.py                     Control — what runs and in what order (pipe, cond, each, return)
-    concretize.py                  concretize — resolve an `IrAlphabet`'s spelling to an id
-    encodings.py                   Encoding family — the codec that gives a char class's ordinals meaning
-    escapes.py                     EscapeCodec — the flavour's emit-side spelling of canonical text, on the spine
+    __init__.py                    Public IR surface — a LAZY façade; import everything from here
     flavour.py                     IrFlavour ABC — config bundle every grammar flavour subclasses
-    layout.py                      Layout algebra — width-aware document combinators on the record spine
-    mapping.py                     Fast map family — a common IrMapping ancestor owning all shared logic
-    meta.py                        IrMeta (dataclass-transform + _bound derivation); Singleton metaclasses
-    nodes.py                       concrete grammar-AST nodes on the spine.py bases (IrAlphabet lives here)
-    operators.py                   Operator-algebra nodes — the operator family, sitting between spine and nodes
-    order.py                       RuleOrder — deterministic start-first ordering of grammar rules
-    pipeline.py                    Token pipeline — normalizers, pretokens, and the order they run in
-    records.py                     Tuple tiers — a record IS its field tuple (IrTuple/IrSeq/IrNamedTuple/Field)
-    scalars.py                     Value leaves — a scalar node IS its payload (IrStr/IrInt/IrChr)
-    spine.py                       IR spine — the abstract bases every node sits on (IrSelf/IrNode/IrLeaf)
-    tokenizer.py                   Tokenizer — a vocabulary, and the segmenters that apply it
-    walk.py                        Action-driven IR dispatcher on the IrSelf substrate
+    spine/                        The node substrate — everything else is downstream
+      __init__.py                the group's package marker; the façade is the import surface
+      bind.py                       IrBind — the field-binding marker generated model fields carry
+      meta.py                       IrMeta (dataclass-transform + _bound derivation); Singleton metaclasses
+      records.py                    Tuple tiers — a record IS its field tuple (IrTuple/IrSeq/IrNamedTuple)
+      scalars.py                    Value leaves — a scalar node IS its payload (IrStr/IrInt/IrChr)
+      spine.py                      IR spine — the abstract bases every node sits on (IrSelf/IrNode/IrLeaf)
+    action/                       The action algebra + the dispatcher and tables it runs on
+      __init__.py                the group's package marker; the façade is the import surface
+      access.py                     Access — reaching into a node (child, field, index, length)
+      build.py                      Build — producing a node (apply, rebuild, walk, emit, raise)
+      compute.py                    Compute — turning values into other values (radix, ordinals, joins)
+      control.py                    Control — what runs and in what order (pipe, cond, each, return)
+      mapping.py                    Fast map family — a common IrMapping ancestor owning all shared logic
+      walk.py                       Action-driven IR dispatcher on the IrSelf substrate
+    grammar/                      The grammar AST and the language-preserving passes over it
+      __init__.py                the group's package marker; the façade is the import surface
+      canonical.py                  canonicalize — the language-preserving normal form for a grammar IrAst
+      concretize.py                 concretize — resolve an `IrAlphabet`'s spelling to an id
+      nodes.py                      concrete grammar-AST nodes on the spine bases (IrAlphabet lives here)
+      operators.py                  Operator-algebra nodes — the operator family, between spine and nodes
+      order.py                      RuleOrder — deterministic start-first ordering of grammar rules
+    text/                         How characters and documents are spelled
+      __init__.py                the group's package marker; the façade is the import surface
+      encodings.py                  Encoding family — the codec that gives a char class's ordinals meaning
+      escapes.py                    EscapeCodec — the flavour's emit-side spelling of canonical text
+      layout.py                     Layout algebra — width-aware document combinators on the record spine
+      pipeline.py                   Token pipeline — normalizers, pretokens, and the order they run in
+      tokenizer.py                  Tokenizer — a vocabulary, and the segmenters that apply it
   parsing/
     __init__.py                    public API: parse_reduced/parse_model products + the Earley toolkit
     fold.py                        ParseTree → object fold — the instance-parsing bridge

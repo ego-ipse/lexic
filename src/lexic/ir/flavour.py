@@ -19,13 +19,13 @@ from abc import ABC
 from typing import ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.layout import IrDoc, render
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrAst, IrRule
-from lexic.ir.scalars import IrInt, IrStr
-from lexic.ir.spine import IrLeaf, IrNode, IrNone, IrSelf
-from lexic.ir.walk import IrDispatch, IrEmitter
+from lexic.ir.action.mapping import IrMap
+from lexic.ir.action.walk import IrDispatch, IrEmitter
+from lexic.ir.grammar.nodes import IrAst, IrRule
+from lexic.ir.spine.spine import IrLeaf, IrNode, IrNone, IrSelf
+from lexic.ir.spine.scalars import IrInt, IrStr
+from lexic.ir.text.escapes import EscapeCodec
+from lexic.ir.text.layout import IrDoc, render
 
 
 class IrEscape(IrLeaf[IrSelf, IrStr]):

@@ -424,8 +424,8 @@ def _fold_config(
     :param overrides: Per-rule fold-body override — a
         :class:`~lexic.parsing.fold.ModelBody` (primitive) or a constructor
         class (sugar); ``None`` uses the synthesized classes throughout.
-    :returns: An :class:`~lexic.ir.mapping.IrMap` from each rule's
-        :class:`~lexic.ir.nodes.IrRuleRef` to its
+    :returns: An :class:`~lexic.ir.action.mapping.IrMap` from each rule's
+        :class:`~lexic.ir.grammar.nodes.IrRuleRef` to its
         :class:`~lexic.parsing.fold.ModelBody`.
     """
     overrides = overrides or {}

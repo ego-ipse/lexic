@@ -26,7 +26,7 @@ Every rule clone bakes its :class:`~lexic.parsing.fold.RuleFold`; a
 ``text[a:b]`` instead of building below).
 
 **Open dispatch.** Per-atom compilation routes through the module-level
-:data:`_ATOM_SPEC` :class:`~lexic.ir.mapping.IrTypeMap` (the ``analysis.py``
+:data:`_ATOM_SPEC` :class:`~lexic.ir.action.mapping.IrTypeMap` (the ``analysis.py``
 idiom — compiler on ``d``, per-item context on ``nc`` via :class:`_ItemCtx`);
 an unregistered atom raises :exc:`~lexic.exceptions.UnsupportedConstructError`
 (the Task-6 "no PDA" seam).

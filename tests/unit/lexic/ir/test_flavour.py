@@ -14,9 +14,9 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_ESCAPES, ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_ESCAPES, GBNF_FLAVOUR
-from lexic.ir.escapes import EscapeCodec
+from lexic.ir.action.walk import IrEmitter
 from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour, IrSpellable
-from lexic.ir.nodes import (
+from lexic.ir.grammar.nodes import (
     IrAlternation,
     IrAst,
     IrChr,
@@ -27,10 +27,10 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.records import IrSeq
-from lexic.ir.scalars import IrInt, IrStr
-from lexic.ir.spine import IrNone
-from lexic.ir.walk import IrEmitter
+from lexic.ir.spine.spine import IrNone
+from lexic.ir.spine.records import IrSeq
+from lexic.ir.spine.scalars import IrInt, IrStr
+from lexic.ir.text.escapes import EscapeCodec
 
 
 def test_concrete_flavour_with_required_attrs_works():

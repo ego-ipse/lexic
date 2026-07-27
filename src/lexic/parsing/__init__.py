@@ -1,4 +1,4 @@
-"""IR-native parsing — Earley over an :class:`~lexic.ir.nodes.IrAst`, no Lark.
+"""IR-native parsing — Earley over an :class:`~lexic.ir.grammar.nodes.IrAst`, no Lark.
 
 This package is the shape of the Lark replacement. The premise: an ``IrAst``
 *is already a grammar*, so it can drive a parser directly. Given a grammar as IR
@@ -17,7 +17,7 @@ Earley engine on any non-deterministic point. See ``README.md``.
 
 Layering mirrors the rest of ``lexic.ir``: every state object and every engine
 operation IS-AN :class:`~lexic.ir.base.IrSelf`. The Earley operations live in an
-:class:`~lexic.ir.mapping.IrTypeMap` dispatched on the symbol after the dot —
+:class:`~lexic.ir.action.mapping.IrTypeMap` dispatched on the symbol after the dot —
 the same dispatch substrate the emit flavours use, run the other direction.
 
 Module map:

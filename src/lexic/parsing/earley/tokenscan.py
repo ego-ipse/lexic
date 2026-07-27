@@ -121,9 +121,9 @@ def viable_prefix(tables: ParserTables, text: str) -> bool:
 def token_term_specs(tables: ParserTables) -> dict[int, TokenSpec]:
     """Map each token terminal's ``term_id`` to its ``(id-set, negated)`` spec.
 
-    A token terminal is always an :class:`~lexic.ir.nodes.IrAlphabet`; negation
+    A token terminal is always an :class:`~lexic.ir.grammar.nodes.IrAlphabet`; negation
     lives INSIDE it — a positive alphabet's inner is the id char class, a negated
-    one's inner is an :class:`~lexic.ir.operators.IrNot` of that class. Empty for
+    one's inner is an :class:`~lexic.ir.grammar.operators.IrNot` of that class. Empty for
     a grammar with no token terminals.
 
     :param tables: The compiled grammar tables.
@@ -286,7 +286,7 @@ class TokenMaskCursor[K: ResumableKernel](ABC):
     def of(grammar: IrAst, tokenizer: IrTokenizer) -> TokenMaskCursor:
         """The cursor for ``grammar`` — token-term or char-trie.
 
-        A grammar carrying token terminals (:class:`~lexic.ir.nodes.IrAlphabet`)
+        A grammar carrying token terminals (:class:`~lexic.ir.grammar.nodes.IrAlphabet`)
         gets the frontier set algebra; any other grammar gets the trie DFS over
         a char-granular recognizer.
 

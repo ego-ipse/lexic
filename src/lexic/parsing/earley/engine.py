@@ -44,7 +44,7 @@ _NO_MATCH = IrInt(0)
 def _run_kernel(n: IrSelf, nc: Sequence[IrSelf], record_links: bool) -> Kernel:
     """Compile ``n`` (memoised, tier picked by input size), run one kernel.
 
-    :param n: The grammar (an :class:`~lexic.ir.nodes.IrAst`).
+    :param n: The grammar (an :class:`~lexic.ir.grammar.nodes.IrAst`).
     :param nc: ``(IrStr(text), ...)``.
     :param record_links: Whether the kernel records SPPF provenance.
     :returns: The finished kernel.

@@ -15,17 +15,17 @@ from pathlib import Path
 
 import pytest
 
-import lexic.ir.access as ir_access
-import lexic.ir.build as ir_build
-import lexic.ir.compute as ir_compute
-import lexic.ir.control as ir_control
+import lexic.ir.action.access as ir_access
+import lexic.ir.action.build as ir_build
+import lexic.ir.action.compute as ir_compute
+import lexic.ir.action.control as ir_control
+import lexic.ir.action.mapping as ir_mapping
 import lexic.ir.flavour as ir_flavour
-import lexic.ir.mapping as ir_mapping
-import lexic.ir.nodes as ir_nodes
-import lexic.ir.operators as ir_operators
-import lexic.ir.records as ir_records
-import lexic.ir.scalars as ir_scalars
-import lexic.ir.spine as ir_spine
+import lexic.ir.grammar.nodes as ir_nodes
+import lexic.ir.grammar.operators as ir_operators
+import lexic.ir.spine.spine as ir_spine
+import lexic.ir.spine.records as ir_records
+import lexic.ir.spine.scalars as ir_scalars
 from lexic.api.pretokens import IrByteLevel
 from lexic.compile.notation.parse import (
     NOTATION_GRAMMAR,

@@ -1,9 +1,9 @@
 """Forest → IR reduction — the seam where a flavour's meaning attaches.
 
 Recognition proves a derivation exists; reduction turns the derivation into the
-target :class:`~lexic.ir.nodes.IrAst`. A flavour's "meta notation" is a reduction
-table — an :class:`~lexic.ir.mapping.IrMap` from a rule's
-:class:`~lexic.ir.nodes.IrRuleRef` to a body that folds the rule's matched
+target :class:`~lexic.ir.grammar.nodes.IrAst`. A flavour's "meta notation" is a reduction
+table — an :class:`~lexic.ir.action.mapping.IrMap` from a rule's
+:class:`~lexic.ir.grammar.nodes.IrRuleRef` to a body that folds the rule's matched
 children into an IR node — paired with a **cleaning policy**: which children are
 noise (whitespace, delimiters) and so dropped before a body sees them.
 
@@ -427,7 +427,7 @@ class ReducePlan(IrLeaf[IrSelf, IrSelf]):
     reachability closure of DROP-noise rules — a rule whose subtree can never
     contain a dropped span yields its source text as a single O(1) slice.
 
-    :ivar refs: rule_id → the rule's :class:`~lexic.ir.nodes.IrRuleRef`.
+    :ivar refs: rule_id → the rule's :class:`~lexic.ir.grammar.nodes.IrRuleRef`.
     :ivar synthetic: rule_id → minted by normalisation (spliced, never reduced).
     :ivar noise_kind: rule_id → compiled noise policy kind.
     :ivar can_drop: rule_id → whether a DROP-noise rule is reachable beneath it.
@@ -864,8 +864,8 @@ class Reducer(IrDispatch):
     """Bottom-up fold of a :class:`~lexic.parsing.earley.forest.ParseTree` into IR.
 
     A **real** dispatcher, not one beside a dispatcher: the reduction table IS
-    :attr:`~lexic.ir.walk.IrDispatch.actions` and the fallback body IS
-    :attr:`~lexic.ir.walk.IrDispatch.default`. Only resolution differs from the
+    :attr:`~lexic.ir.action.walk.IrDispatch.actions` and the fallback body IS
+    :attr:`~lexic.ir.action.walk.IrDispatch.default`. Only resolution differs from the
     usual preset — dispatch is on ``tree.symbol`` (a *value*, so a plain
     value-keyed ``IrMap``) rather than on ``type(n)``, which is what
     :meth:`body` does.
@@ -878,7 +878,7 @@ class Reducer(IrDispatch):
     Each node's children are resolved first (governed by ``noise`` / ``literal``),
     then the body bound to the node's ``symbol`` is evaluated with those resolved
     children on the argument channel (``nc``) and the tree as ``n``. Dispatch is
-    on ``tree.symbol`` (a *value*, :class:`~lexic.ir.nodes.IrRuleRef`) via the
+    on ``tree.symbol`` (a *value*, :class:`~lexic.ir.grammar.nodes.IrRuleRef`) via the
     ``actions`` :class:`IrMap` — correct because every node is a ``ParseTree``,
     which is why this overrides ``eval`` rather than reusing the type-keyed table.
 

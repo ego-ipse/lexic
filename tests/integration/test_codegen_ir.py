@@ -6,7 +6,7 @@ For every ground-truth grammar, drives the front half of the pipeline
 asserting each synthesized class:
 
 - is a valid :class:`~lexic.model.GrammarModel` record;
-- carries each field's :class:`~lexic.ir.bind.IrBind` (readable through the
+- carries each field's :class:`~lexic.ir.spine.bind.IrBind` (readable through the
   public ``bound_fields()``) and a per-class ``__grammar__: IrRule`` from the
   codegen grammar.
 

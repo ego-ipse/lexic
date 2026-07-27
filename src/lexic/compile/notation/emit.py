@@ -49,7 +49,7 @@ class _Parts(NamedTuple):
 class _Leaf(NamedTuple):
     """A leaf step result: its atomic doc + the symbols that doc spells.
 
-    A leaf's doc is one indivisible :class:`~lexic.ir.layout.IrText`, so the
+    A leaf's doc is one indivisible :class:`~lexic.ir.text.layout.IrText`, so the
     symbol inside it cannot be recovered from the layout tree — the tier that
     chose the spelling is the only thing that knows it, and says so here.
     """
@@ -283,7 +283,7 @@ def emit_ir(node: IrSelf, width: int = 88) -> str:
     (``load_ir(emit_ir(x)) == x``) and the layout twin of ``repr``: same
     constructor syntax and default elision (via
     :meth:`~lexic.ir.base.IrNamedTuple.repr_args`), width-solved by
-    :func:`~lexic.ir.layout.render`.
+    :func:`~lexic.ir.text.layout.render`.
 
     :param node: The IR value to emit.
     :param width: Target maximum line width.

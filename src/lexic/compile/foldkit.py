@@ -217,7 +217,7 @@ def model_fold(bodies: Mapping[str, ModelBody]) -> ModelFold:
 
     The single home for the "dict of :class:`~lexic.parsing.fold.ModelBody` →
     fold" construction — assembles the IR body-table (an
-    :class:`~lexic.ir.mapping.IrMap`) the fold bakes on construction.
+    :class:`~lexic.ir.action.mapping.IrMap`) the fold bakes on construction.
 
     :param bodies: Rule name → its :class:`~lexic.parsing.fold.ModelBody`.
     :returns: The configured fold.

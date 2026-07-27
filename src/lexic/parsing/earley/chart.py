@@ -19,7 +19,7 @@ A :class:`Chart` is produced by :meth:`~lexic.parsing.earley.kernel.Kernel
 empty on a decoded chart and exists for shape compatibility only.
 
 :class:`Chart` IS-A :class:`~lexic.ir.base.IrLeaf` (a mutable leaf, the
-chart exception); :class:`Links` IS-A :class:`~lexic.ir.mapping.IrMultiMap`
+chart exception); :class:`Links` IS-A :class:`~lexic.ir.action.mapping.IrMultiMap`
 overriding only ``__iadd__`` to add SPPF-dedup on top of the inherited append.
 """
 
@@ -34,7 +34,7 @@ Link = tuple[EarleyItem, int, IrSelf]
 """Provenance of one advanced item — a plain ``tuple`` ``(predecessor,
 predecessor_end, child)``: ``[0]`` the item one dot to the left, ``[1]`` the
 column it ends at, ``[2]`` the node consumed to advance the dot (an
-:class:`~lexic.ir.nodes.IrLiteral` terminal leaf, or a
+:class:`~lexic.ir.grammar.nodes.IrLiteral` terminal leaf, or a
 :class:`~lexic.parsing.earley.forest.SppfNode` referencing a completed sub-derivation
 ``(item, end)`` — shared, never flattened, so the forest stays polynomial under
 ambiguity)."""
@@ -43,7 +43,7 @@ ambiguity)."""
 class Links(IrMultiMap[tuple[EarleyItem, int], Link]):
     """The provenance table — ``(advanced_item, end_column)`` → its packed families.
 
-    Subclasses :class:`~lexic.ir.mapping.IrMultiMap`, which already provides the
+    Subclasses :class:`~lexic.ir.action.mapping.IrMultiMap`, which already provides the
     backing-dict singleton tuple, O(1) ``__contains__``, live-bucket
     ``__getitem__``, identity ``__eq__``/``__hash__``, and the in-place
     ``__iadd__`` — so the only custom work is the SPPF dedup: ``links += (key,

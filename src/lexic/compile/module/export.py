@@ -18,7 +18,7 @@ classes — equivalent but distinct objects; they construct, ``to_text()``,
 
 Formatting is IR-native: the grammar renders through the notation emit half
 (:func:`~lexic.compile.notation.emit_ir`, width-solved by the
-:mod:`~lexic.ir.layout` algebra) — no external formatter. Every export is
+:mod:`~lexic.ir.text.layout` algebra) — no external formatter. Every export is
 validated in-process: the module must ``ast.parse`` and the rendered
 ``GRAMMAR`` must :func:`~lexic.compile.notation.load_ir` back to an AST equal
 to the compiled one.
