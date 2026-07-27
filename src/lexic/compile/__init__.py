@@ -213,9 +213,35 @@ def _resolve_prelude(ast: IrAst, flavour: IrFlavour) -> IrAst:
     return IrAst(IrSeq(*rules), ast.start)
 
 
+def _content_tag(text: str) -> str:
+    """A grammar's content identity — the short hash both stems carry."""
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
 def _stem_for_text(text: str) -> str:
     """Stable filename for a grammar string with no path."""
-    return "anon_" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+    return "anon_" + _content_tag(text)
+
+
+def _identity_for(stem: str, text: str) -> str:
+    """A grammar's synthetic-module identity — its stem, content-tagged.
+
+    A generated class's ``__module__`` is ``generated.<identity>``, and that
+    name is what a consumer has to read to tell two grammars apart: the payload
+    projection interns a symbol per ``(module, name)``, so two different
+    grammars whose start rules are both called ``Root`` are distinguishable only
+    if the module is. A bare file stem is not — ``a/g.gbnf`` and ``b/g.gbnf``
+    were ``generated.g`` twice and the two ``Root``s merged silently.
+
+    Distinct from :attr:`CompiledGrammar.stem`, which names the EXPORTED FILE
+    and stays a plain filename. One field was doing both jobs.
+
+    :param stem: The artefact's stem (file stem, or the anon content stem).
+    :param text: The grammar source.
+    :returns: ``<stem>_<12 hex>``, or ``stem`` when it already carries the tag.
+    """
+    tag = _content_tag(text)
+    return stem if stem.endswith(tag) else f"{stem}_{tag}"
 
 
 def _scan_directives(text: str, line_comment: str) -> tuple[str | None, frozenset[str]]:
@@ -454,7 +480,7 @@ def _compile_core(
     if resolved is not None:
         codegen_grammar = concretize(unresolved, resolved)
     binding = compute_binding(codegen_grammar)
-    classes = synthesize(unresolved, binding, stem)
+    classes = synthesize(unresolved, binding, _identity_for(stem, text))
     fold = ModelFold(_fold_config(codegen_grammar, binding, classes))
     return CompiledGrammar(
         classes=classes,

@@ -124,7 +124,7 @@ def _class_namespace(bind: RuleBinding, rule: IrRule, module: str) -> dict[str, 
 
 
 def synthesize(
-    codegen_grammar: IrAst, binding: list[RuleBinding], stem: str
+    codegen_grammar: IrAst, binding: list[RuleBinding], identity: str
 ) -> dict[str, type]:
     """Build the model classes for a codegen grammar directly, no source emit.
 
@@ -136,11 +136,14 @@ def synthesize(
     :param codegen_grammar: The post-pass grammar (each rule is a class's
         ``__grammar__``).
     :param binding: The binding view, parents before subclasses.
-    :param stem: Grammar stem — the synthetic ``__module__`` is ``generated.<stem>``.
+    :param identity: The grammar's content identity — the synthetic
+        ``__module__`` is ``generated.<identity>``. NOT the artefact's ``stem``,
+        which names the exported file: two different grammars can share a
+        filename, and a consumer telling two ``Root``s apart has only this.
     :returns: ``{class_name: class}`` for every synthesized class.
     """
     rules = {str(rule.name): rule for rule in codegen_grammar.rules}
-    module = f"generated.{stem}"
+    module = f"generated.{identity}"
     classes: dict[str, type] = {}
     for bind in binding:
         rule = rules[bind.rule_name]
