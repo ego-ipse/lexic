@@ -22,6 +22,7 @@ from lexic.parsing.earley.kernel.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest import DERIVATION_STREAM, ParseTree, SppfNode
 from lexic.parsing.earley.kernel.kernel import Delegate, Kernel
 from lexic.parsing.earley.kernel.tables.records import ParserTables
+from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.core.errors import PdaFail
 
 __all__ = [
@@ -110,7 +111,7 @@ def _may_extend(
     return kern.can_extend_at(end, text[nxt])
 
 
-class IslandPolicy(NamedTuple):
+class IslandPolicy[M](NamedTuple):
     """How an island's interior is run, and what may come out of it.
 
     ``fold`` is here for the ambiguity question alone: whether two derivations
@@ -120,7 +121,7 @@ class IslandPolicy(NamedTuple):
 
     delegates: dict[int, Delegate] | None = None
     ambiguous: bool = False
-    fold: object = None
+    fold: ModelFold[M] | None = None
 
 
 def island_parse(
@@ -229,7 +230,7 @@ def island_derivation(
     if policy.ambiguous or policy.fold is None:
         return tree
     second = next(walk, None)
-    if isinstance(second, ParseTree) and _differs(policy.fold, tree, second):
+    if isinstance(second, ParseTree) and _differs(policy.fold.apply, tree, second):
         raise UnsupportedConstructError(
             f"parsing: island {name!r} derives the same text two ways that mean "
             "different things — pass ambiguous=True to take the first"
@@ -237,17 +238,24 @@ def island_derivation(
     return tree
 
 
-def _differs(fold: object, one: ParseTree, other: ParseTree) -> bool:
+def _differs(
+    apply: Callable[[ParseTree], object], one: ParseTree, other: ParseTree
+) -> bool:
     """Do two derivations of one span build different values?
+
+    Compares the VALUES, not their spelling: two dicts of the same content in
+    different key orders are one value and two reprs, and refusing a document
+    over that refuses it for a difference no consumer can observe.
+
+    Takes the fold's ``apply`` rather than the fold, so the question it answers
+    is exactly "what do these two build" — a fold that had no ``apply`` used to
+    answer "no difference" to everything, which is a refusal that never fires.
 
     A fold that refuses either tree answers nothing about ambiguity — that is a
     fold failure, and the caller's own completion will report it — so it counts
     as "no observable difference" here rather than masquerading as one.
     """
-    apply = getattr(fold, "apply", None)
-    if apply is None:
-        return False
     try:
-        return repr(apply(one)) != repr(apply(other))
+        return apply(one) != apply(other)
     except LexicError:
         return False

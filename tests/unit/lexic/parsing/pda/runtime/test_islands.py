@@ -20,7 +20,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
-from lexic.ir import IrAst
+from lexic.ir import IrAst, IrRuleRef, IrSeq
 from lexic.parsing.earley.kernel.forest import ParseTree
 from lexic.parsing.earley.kernel.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
@@ -29,6 +29,7 @@ from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.islands import (
     IslandPolicy,
+    _differs,
     island_derivation,
     island_parse,
     island_run,
@@ -208,3 +209,37 @@ def test_island_value_lets_non_library_exceptions_surface():
 
     with pytest.raises(RuntimeError):
         island_value(_boom, "r", 0)
+
+
+# ── _differs — ambiguity is a question about VALUES ────────────────────
+
+
+def _tree(name: str) -> ParseTree:
+    """A distinguishable stand-in derivation — `_differs` only passes it on."""
+    return ParseTree(IrRuleRef(name), IrSeq())
+
+
+def test_differs_sees_a_genuine_difference():
+    """Two derivations that fold to different values ARE an ambiguity.
+
+    The whole point of the check: it must be able to answer YES. Reading the
+    apply off the fold with `getattr` meant anything that was not shaped like a
+    fold silently answered "no observable difference" — a missed ambiguity, and
+    a refusal that never fires is worse than no check at all.
+    """
+    one, other = _tree("one"), _tree("other")
+    assert _differs(lambda t: 1 if t is one else 2, one, other)
+
+
+def test_differs_compares_values_not_their_spelling():
+    """Equal values spelled differently are NOT an ambiguity.
+
+    `repr` is a proxy for a value, and two dicts of the same content built in
+    different key orders have the same value and different reprs. Judging by
+    the spelling refuses a document over a difference no consumer can observe.
+    """
+    one, other = _tree("one"), _tree("other")
+    first, second = {"a": 1, "b": 2}, {"b": 2, "a": 1}
+    assert repr(first) != repr(second)  # the proxy disagrees
+    assert first == second  # the value does not
+    assert not _differs(lambda t: first if t is one else second, one, other)
