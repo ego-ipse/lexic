@@ -31,7 +31,8 @@ from __future__ import annotations
 from typing import ClassVar, Sequence, cast
 
 from lexic.exceptions import IrKeyError
-from lexic.ir.action import IrEmit, IrRaise, IrRebuild, IrReturn, IrThis, IrWalk
+from lexic.ir.build import IrEmit, IrRaise, IrRebuild, IrWalk
+from lexic.ir.control import IrReturn, IrThis
 from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import IrLiteral
 from lexic.ir.records import IrCachingTuple, IrTuple

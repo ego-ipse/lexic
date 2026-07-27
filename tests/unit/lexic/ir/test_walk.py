@@ -45,7 +45,8 @@ Presets
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction, IrEmit, IrRaise, IrRebuild, IrReturn
+from lexic.ir.build import IrAction, IrEmit, IrRaise, IrRebuild
+from lexic.ir.control import IrReturn
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,

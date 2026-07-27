@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.ir.action import IrArgs, IrJoin
+from lexic.ir.access import IrArgs
+from lexic.ir.compute import IrJoin
 from lexic.ir.nodes import IrAlternation, IrItem, IrLiteral, IrQuantifier, IrSequence
 from lexic.ir.records import Field, IrCachingTuple, IrSeq, IrTuple
 from lexic.ir.scalars import IrInt, IrStr

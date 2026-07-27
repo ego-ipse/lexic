@@ -39,8 +39,11 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import cast
 
-import lexic.ir.action as _action
+import lexic.ir.access as _access
 import lexic.ir.bind as _bind
+import lexic.ir.build as _build
+import lexic.ir.compute as _compute
+import lexic.ir.control as _control
 import lexic.ir.encodings as _encodings
 import lexic.ir.flavour as _flavour
 import lexic.ir.layout as _layout
@@ -99,7 +102,10 @@ _IR_MODULES = (
     _bind,
     _nodes,
     _operators,
-    _action,
+    _access,
+    _compute,
+    _control,
+    _build,
     _mapping,
     _flavour,
     _layout,

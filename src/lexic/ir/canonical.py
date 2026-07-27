@@ -30,7 +30,7 @@ left alone.
 from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction
+from lexic.ir.build import IrAction
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlphabet,

@@ -168,9 +168,12 @@ src/lexic/
     json.py                        JSON grammar as native IR — the canonical, flavour-neutral representation
   ir/
     __init__.py                    Public IR surface — import everything from here
-    action.py                      Action-algebra IrNodes — primitive-node model
+    access.py                      Access — reaching into a node (child, field, index, length)
+    build.py                       Build — producing a node (apply, rebuild, walk, emit, raise)
     bind.py                        IrBind — the field-binding marker generated model fields carry
     canonical.py                   canonicalize — the language-preserving normal form for a grammar IrAst
+    compute.py                     Compute — turning values into other values (radix, ordinals, joins)
+    control.py                     Control — what runs and in what order (pipe, cond, each, return)
     concretize.py                  concretize — resolve an `IrAlphabet`'s spelling to an id
     encodings.py                   Encoding family — the codec that gives a char class's ordinals meaning
     escapes.py                     EscapeCodec — the flavour's emit-side spelling of canonical text, on the spine

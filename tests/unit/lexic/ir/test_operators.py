@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrCompare
+from lexic.ir.compute import IrCompare
 from lexic.ir.operators import (
     DyadicOp,
     IrAnd,
