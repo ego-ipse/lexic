@@ -22,10 +22,7 @@ from __future__ import annotations
 import random
 
 from lexic import compile_text
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrChr
+from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 
 # A tiny arithmetic sum: 1-3 digit numbers joined by "+", closed by "=".
 GRAMMAR = """\

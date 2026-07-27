@@ -28,8 +28,10 @@ from __future__ import annotations
 import operator
 from typing import ClassVar, Sequence
 
-from lexic.ir.base import IrAtom, IrInt, IrLambda, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.ir.mapping import IrMap
+from lexic.ir.records import IrSeq, IrTuple
+from lexic.ir.scalars import IrInt, IrStr
+from lexic.ir.spine import IrAtom, IrLambda, IrSelf
 
 # ── Operator leaf ─────────────────────────────────────────────────────
 

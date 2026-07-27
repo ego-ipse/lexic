@@ -45,17 +45,6 @@ from lexic.ir.action import (
     IrWalk,
     _Return,
 )
-from lexic.ir.base import (
-    IrChr,
-    IrInt,
-    IrLambda,
-    IrNamedTuple,
-    IrNode,
-    IrNone,
-    IrSelf,
-    IrStr,
-    IrTuple,
-)
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -70,6 +59,9 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
+from lexic.ir.records import IrNamedTuple, IrTuple
+from lexic.ir.scalars import IrChr, IrInt, IrStr
+from lexic.ir.spine import IrLambda, IrNode, IrNone, IrSelf
 from lexic.ir.walk import IrDispatch, IrEmitter
 
 # ── _Return ──────────────────────────────────────────────────────────

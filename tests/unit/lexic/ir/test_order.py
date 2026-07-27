@@ -3,7 +3,6 @@ unreached-rules-alphabetical-last."""
 
 from __future__ import annotations
 
-from lexic.ir.base import IrSeq
 from lexic.ir.nodes import (
     IrAst,
     IrItem,
@@ -13,6 +12,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.order import RuleOrder, order_by_refs, refs_in_order
+from lexic.ir.records import IrSeq
 
 
 def rule(name: str, *refs: str) -> IrRule:

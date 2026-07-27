@@ -8,17 +8,6 @@ import random
 
 import pytest
 
-from lexic.ir.base import (
-    IrAtom,
-    IrChr,
-    IrInt,
-    IrNamedTuple,
-    IrNode,
-    IrNone,
-    IrNoneType,
-    IrSeq,
-    IrStr,
-)
 from lexic.ir.nodes import (
     MAX_CODEPOINT,
     IrAlphabet,
@@ -35,6 +24,9 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot
+from lexic.ir.records import IrNamedTuple, IrSeq
+from lexic.ir.scalars import IrChr, IrInt, IrStr
+from lexic.ir.spine import IrAtom, IrNode, IrNone, IrNoneType
 
 # ── IrQuantifier ───────────────────────────────────────────────────────
 

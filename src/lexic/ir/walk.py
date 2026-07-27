@@ -32,9 +32,10 @@ from typing import ClassVar, Sequence, cast
 
 from lexic.exceptions import IrKeyError
 from lexic.ir.action import IrEmit, IrRaise, IrRebuild, IrReturn, IrThis, IrWalk
-from lexic.ir.base import IrCachingTuple, IrNode, IrSelf, IrTuple
 from lexic.ir.mapping import IrMap, IrTypeMap
 from lexic.ir.nodes import IrLiteral
+from lexic.ir.records import IrCachingTuple, IrTuple
+from lexic.ir.spine import IrNode, IrSelf
 
 
 class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](IrCachingTuple[IrTypeMap, IrSelf]):

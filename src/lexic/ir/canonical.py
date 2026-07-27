@@ -31,7 +31,6 @@ from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction
-from lexic.ir.base import IrLambda, IrSelf, IrSeq
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlphabet,
@@ -48,6 +47,8 @@ from lexic.ir.nodes import (
 )
 from lexic.ir.operators import IrNot
 from lexic.ir.order import order_by_refs
+from lexic.ir.records import IrSeq
+from lexic.ir.spine import IrLambda, IrSelf
 from lexic.ir.walk import IrBottomUp
 
 _UNIT = IrQuantifier(1, 1)

@@ -27,19 +27,12 @@ from heapq import heappop, heappush
 from typing import ClassVar, Literal, Self, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import (
-    IrInt,
-    IrNamedTuple,
-    IrNode,
-    IrNone,
-    IrNoneType,
-    IrSelf,
-    IrStr,
-    IrTuple,
-)
 from lexic.ir.mapping import IrMap
 from lexic.ir.meta import IrSingleton
 from lexic.ir.nodes import MAX_CODEPOINT, IrCharClass, IrChr
+from lexic.ir.records import IrNamedTuple, IrTuple
+from lexic.ir.scalars import IrInt, IrStr
+from lexic.ir.spine import IrNode, IrNone, IrNoneType, IrSelf
 
 Vocab = Mapping[str, int] | IrMap
 """A pythonic ``spelling → id`` vocab a builder coerces to the spine."""

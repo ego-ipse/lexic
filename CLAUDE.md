@@ -169,7 +169,6 @@ src/lexic/
   ir/
     __init__.py                    Public IR surface — import everything from here
     action.py                      Action-algebra IrNodes — primitive-node model
-    base.py                        IR spine — the abstract base classes shared by every IR node
     bind.py                        IrBind — the field-binding marker generated model fields carry
     canonical.py                   canonicalize — the language-preserving normal form for a grammar IrAst
     concretize.py                  concretize — resolve an `IrAlphabet`'s spelling to an id
@@ -179,9 +178,12 @@ src/lexic/
     layout.py                      Layout algebra — width-aware document combinators on the record spine
     mapping.py                     Fast map family — a common IrMapping ancestor owning all shared logic
     meta.py                        IrMeta (dataclass-transform + _bound derivation); Singleton metaclasses
-    nodes.py                       concrete grammar-AST nodes on the base.py spine (IrAlphabet lives here)
+    nodes.py                       concrete grammar-AST nodes on the spine.py bases (IrAlphabet lives here)
     operators.py                   Operator-algebra nodes — the operator family, sitting between spine and nodes
     order.py                       RuleOrder — deterministic start-first ordering of grammar rules
+    records.py                     Tuple tiers — a record IS its field tuple (IrTuple/IrSeq/IrNamedTuple/Field)
+    scalars.py                     Value leaves — a scalar node IS its payload (IrStr/IrInt/IrChr)
+    spine.py                       IR spine — the abstract bases every node sits on (IrSelf/IrNode/IrLeaf)
     walk.py                        Action-driven IR dispatcher on the IrSelf substrate
   parsing/
     __init__.py                    public API: parse_reduced/parse_model products + the Earley toolkit

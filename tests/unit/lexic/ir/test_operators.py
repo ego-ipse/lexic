@@ -13,7 +13,6 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrCompare
-from lexic.ir.base import IrAtom, IrInt, IrLambda, IrNone, IrSelf, IrStr, IrTuple
 from lexic.ir.operators import (
     DyadicOp,
     IrAnd,
@@ -24,6 +23,9 @@ from lexic.ir.operators import (
     MonadicOp,
     VariadicOp,
 )
+from lexic.ir.records import IrTuple
+from lexic.ir.scalars import IrInt, IrStr
+from lexic.ir.spine import IrAtom, IrLambda, IrNone, IrSelf
 
 # ── IrOp ──────────────────────────────────────────────────────────────
 

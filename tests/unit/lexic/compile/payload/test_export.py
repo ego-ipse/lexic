@@ -180,7 +180,7 @@ def test_the_artefact_records_where_each_symbol_came_from() -> None:
     """``ORIGINS`` is data, not a key: a name that repeats stays recoverable."""
     source = render(project(IrTuple(IrStr("a"))), READER)
     assert "ORIGINS = " in source
-    assert "lexic.ir.base" in source
+    assert "lexic.ir.records" in source
 
 
 def test_the_artefact_has_no_imports_below_its_code() -> None:
@@ -515,12 +515,12 @@ def test_a_class_from_a_non_spine_lexic_module_needs_no_module_argument(
 
 
 def test_a_home_is_the_origin_only_when_the_origin_really_exports_it() -> None:
-    """Identity, not presence — ``lexic.ir.base`` merely IMPORTS ``Sequence``.
+    """Identity, not presence — ``lexic.ir.records`` merely IMPORTS ``Sequence``.
 
     A grammar with a rule called ``sequence`` once resolved to typing's, so a
     home is accepted only when the module holds THIS class under THIS name.
     """
-    impostor = type("Sequence", (str,), {"__module__": "lexic.ir.base"})
+    impostor = type("Sequence", (str,), {"__module__": "lexic.ir.records"})
     with pytest.raises(UnsupportedConstructError, match="no importable module"):
         render(project((impostor("x"),)), READER)
 

@@ -14,7 +14,6 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_ESCAPES, ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_ESCAPES, GBNF_FLAVOUR
-from lexic.ir.base import IrInt, IrNone, IrSeq, IrStr
 from lexic.ir.escapes import EscapeCodec
 from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour, IrSpellable
 from lexic.ir.nodes import (
@@ -28,6 +27,9 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.records import IrSeq
+from lexic.ir.scalars import IrInt, IrStr
+from lexic.ir.spine import IrNone
 from lexic.ir.walk import IrEmitter
 
 

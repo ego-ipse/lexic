@@ -37,8 +37,9 @@ from typing import (
 )
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrSelf, IrTuple
 from lexic.ir.meta import IrSingleton
+from lexic.ir.records import IrTuple
+from lexic.ir.spine import IrLeaf, IrSelf
 
 
 @final

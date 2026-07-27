@@ -22,8 +22,6 @@ the drift pin all go away. Wait for a RELEASE, not a beta.
 from importlib import import_module
 from typing import TYPE_CHECKING
 
-from lexic.ir.base import IrSelf
-
 # `concretize` cannot be lazy: it names BOTH this export and the submodule
 # `lexic.ir.concretize`, so the moment anything imports the module the attribute
 # exists and `__getattr__` — which Python only calls on a MISS — never runs,
@@ -31,6 +29,7 @@ from lexic.ir.base import IrSelf
 # same collision the package root has with `generate`, and no import mechanism
 # resolves two things wanting one name.
 from lexic.ir.concretize import concretize, concretize_atom
+from lexic.ir.spine import IrSelf
 
 if TYPE_CHECKING:
     from lexic.ir.action import (
@@ -64,23 +63,6 @@ if TYPE_CHECKING:
         IrThis,
         IrUnradix,
         IrWalk,
-    )
-    from lexic.ir.base import (
-        Field,
-        IrAtom,
-        IrCachingTuple,
-        IrChr,
-        IrInt,
-        IrLambda,
-        IrLeaf,
-        IrNamedTuple,
-        IrNode,
-        IrNone,
-        IrNoneType,
-        IrScalar,
-        IrSeq,
-        IrStr,
-        IrTuple,
     )
     from lexic.ir.bind import (
         BIND_MODES,
@@ -173,6 +155,27 @@ if TYPE_CHECKING:
         order_by_refs,
         refs_in_order,
         rule_closure,
+    )
+    from lexic.ir.records import (
+        Field,
+        IrCachingTuple,
+        IrNamedTuple,
+        IrSeq,
+        IrTuple,
+    )
+    from lexic.ir.scalars import (
+        IrChr,
+        IrInt,
+        IrScalar,
+        IrStr,
+    )
+    from lexic.ir.spine import (
+        IrAtom,
+        IrLambda,
+        IrLeaf,
+        IrNode,
+        IrNone,
+        IrNoneType,
     )
     from lexic.ir.walk import (
         IrBottomUp,
@@ -312,7 +315,7 @@ _HOMES = {
     "Borg": "lexic.ir.meta",
     "DyadicOp": "lexic.ir.operators",
     "EscapeCodec": "lexic.ir.escapes",
-    "Field": "lexic.ir.base",
+    "Field": "lexic.ir.records",
     "IR_DEFAULT": "lexic.ir.mapping",
     "IrAction": "lexic.ir.action",
     "IrAlphabet": "lexic.ir.nodes",
@@ -323,18 +326,18 @@ _HOMES = {
     "IrArgs": "lexic.ir.action",
     "IrAst": "lexic.ir.nodes",
     "IrAt": "lexic.ir.action",
-    "IrAtom": "lexic.ir.base",
+    "IrAtom": "lexic.ir.spine",
     "BIND_MODES": "lexic.ir.bind",
     "IrBind": "lexic.ir.bind",
     "IrBottomUp": "lexic.ir.walk",
     "IrBounds": "lexic.ir.nodes",
     "IrBuild": "lexic.ir.action",
-    "IrCachingTuple": "lexic.ir.base",
+    "IrCachingTuple": "lexic.ir.records",
     "IrCat": "lexic.ir.layout",
     "IrCharClass": "lexic.ir.nodes",
     "IrChild": "lexic.ir.action",
     "IrChildren": "lexic.ir.action",
-    "IrChr": "lexic.ir.base",
+    "IrChr": "lexic.ir.scalars",
     "IrCompare": "lexic.ir.action",
     "IrConcat": "lexic.ir.action",
     "IrCond": "lexic.ir.action",
@@ -354,12 +357,12 @@ _HOMES = {
     "IrGlyph": "lexic.ir.action",
     "IrGroup": "lexic.ir.layout",
     "IrIndex": "lexic.ir.action",
-    "IrInt": "lexic.ir.base",
+    "IrInt": "lexic.ir.scalars",
     "IrIsA": "lexic.ir.action",
     "IrItem": "lexic.ir.nodes",
     "IrJoin": "lexic.ir.action",
-    "IrLambda": "lexic.ir.base",
-    "IrLeaf": "lexic.ir.base",
+    "IrLambda": "lexic.ir.spine",
+    "IrLeaf": "lexic.ir.spine",
     "IrLen": "lexic.ir.action",
     "IrLine": "lexic.ir.layout",
     "IrLiteral": "lexic.ir.nodes",
@@ -369,11 +372,11 @@ _HOMES = {
     "IrMerge": "lexic.ir.action",
     "IrMeta": "lexic.ir.meta",
     "IrMultiMap": "lexic.ir.mapping",
-    "IrNamedTuple": "lexic.ir.base",
+    "IrNamedTuple": "lexic.ir.records",
     "IrNest": "lexic.ir.layout",
-    "IrNode": "lexic.ir.base",
-    "IrNone": "lexic.ir.base",
-    "IrNoneType": "lexic.ir.base",
+    "IrNode": "lexic.ir.spine",
+    "IrNone": "lexic.ir.spine",
+    "IrNoneType": "lexic.ir.spine",
     "IrNormalizer": "lexic.ir.encoding",
     "IrNot": "lexic.ir.operators",
     "IrOp": "lexic.ir.operators",
@@ -392,20 +395,20 @@ _HOMES = {
     "IrReturn": "lexic.ir.action",
     "IrRule": "lexic.ir.nodes",
     "IrRuleRef": "lexic.ir.nodes",
-    "IrScalar": "lexic.ir.base",
+    "IrScalar": "lexic.ir.scalars",
     "IrSegmenter": "lexic.ir.encoding",
-    "IrSelf": "lexic.ir.base",
-    "IrSeq": "lexic.ir.base",
+    "IrSelf": "lexic.ir.spine",
+    "IrSeq": "lexic.ir.records",
     "IrSequence": "lexic.ir.nodes",
     "IrSingleton": "lexic.ir.meta",
     "IrSpellable": "lexic.ir.flavour",
-    "IrStr": "lexic.ir.base",
+    "IrStr": "lexic.ir.scalars",
     "IrText": "lexic.ir.layout",
     "IrThis": "lexic.ir.action",
     "IrTokenPipeline": "lexic.ir.encoding",
     "IrTokenizer": "lexic.ir.encoding",
     "IrTransformer": "lexic.ir.walk",
-    "IrTuple": "lexic.ir.base",
+    "IrTuple": "lexic.ir.records",
     "IrTypeMap": "lexic.ir.mapping",
     "IrUnicode": "lexic.ir.encoding",
     "IrUnicodeForm": "lexic.ir.encoding",

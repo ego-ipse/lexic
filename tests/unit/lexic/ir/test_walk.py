@@ -46,15 +46,6 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action import IrAction, IrEmit, IrRaise, IrRebuild, IrReturn
-from lexic.ir.base import (
-    IrCachingTuple,
-    IrLambda,
-    IrLeaf,
-    IrNode,
-    IrNone,
-    IrSelf,
-    IrSeq,
-)
 from lexic.ir.mapping import IrTypeMap
 from lexic.ir.nodes import (
     IrAlternation,
@@ -67,6 +58,8 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.records import IrCachingTuple, IrSeq
+from lexic.ir.spine import IrLambda, IrLeaf, IrNode, IrNone, IrSelf
 from lexic.ir.walk import IrBottomUp, IrDispatch, IrEmitter, IrTransformer, IrVisitor
 
 # ── Fixtures ─────────────────────────────────────────────────────────
