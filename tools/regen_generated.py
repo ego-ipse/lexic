@@ -26,6 +26,15 @@ def main() -> int:
     inline = "--inline" in sys.argv[1:]
     ground_truth = REPO / "resources" / "ground_truth"
     out = REPO / "generated"
+    out.mkdir(parents=True, exist_ok=True)
+    # A package, not a bare directory: a twin for `json.gbnf` written as a
+    # top-level module SHADOWS the standard library, and an artifact naming it
+    # imports whichever the path happens to reach first. `generated.json` names
+    # one thing, and matches how a synthesized class already spells its module.
+    (out / "__init__.py").write_text(
+        '"""Generated twin modules — regenerate with tools/regen_generated.py."""\n',
+        encoding="utf-8",
+    )
     written: list[Path] = []
     for src in sorted(ground_truth.glob("*.gbnf")) + sorted(
         ground_truth.glob("*.abnf")

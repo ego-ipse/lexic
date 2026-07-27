@@ -47,15 +47,26 @@ class Payload(NamedTuple):
     origins: tuple[str, ...]
     strs: tuple[str, ...]
     nodes: tuple[int, ...]
+    owners: dict[str, object]
 
     @property
     def symbols(self) -> tuple[str, ...]:
         """The symbols the payload names — empty for a ``plain`` value."""
         return self.types[1:]
 
+    @property
+    def tables(self) -> tuple:
+        """The four literals an artefact writes, in the order the reader takes."""
+        return (self.types, self.origins, self.strs, self.nodes)
+
     def digest(self) -> int:
         """The tables' digest — see :func:`~lexic.compile.payload.reader.digest`."""
-        return reader.digest(self.types, self.strs, self.nodes)
+        return reader.digest(self.tables)
+
+    def shape(self) -> int:
+        """The rules its symbols carry — see
+        :func:`~lexic.compile.payload.reader.shape_of`."""
+        return reader.shape_of(self.types, self.owners)
 
 
 class _Strings:
@@ -272,9 +283,16 @@ def project(value: object) -> Payload:
 
 
 def _finish(enc: _Encoder) -> Payload:
-    """The encoder's tables, frozen into the record an artefact writes."""
+    """The encoder's tables, frozen into the record an artefact writes.
+
+    ``owners`` rides along and is deliberately NOT one of the four literals: it
+    is the classes the walk saw, which the gate decodes with and the exporter
+    reads provenance off, and neither of those is something a file carries.
+    """
     names, origins = enc.symbols.frozen()
-    return Payload(names, origins, enc.strings.frozen(), tuple(enc.nodes))
+    return Payload(
+        names, origins, enc.strings.frozen(), tuple(enc.nodes), enc.symbols.owners
+    )
 
 
 def project_checked(value: object) -> Payload:
@@ -295,8 +313,8 @@ def project_checked(value: object) -> Payload:
     enc = _Encoder()
     enc.walk(value)
     first = _finish(enc)
-    back = reader.decode(first.types, first.strs, first.nodes, enc.symbols.owners)
-    if project(back) != first:
+    back = reader.decode(first.tables, enc.symbols.owners)
+    if project(back).tables != first.tables:
         raise UnsupportedConstructError(
             "payload: the tables do not re-encode to themselves — decode is not "
             "the inverse of encode for this value"

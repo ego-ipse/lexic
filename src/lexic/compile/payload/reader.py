@@ -171,8 +171,47 @@ def _takes_iterable(cls: type) -> bool:
     return issubclass(cls, tuple) and cls.__new__ is tuple.__new__
 
 
-def digest(types: Sequence[str], strs: Sequence[str], nodes: Sequence[int]) -> int:
-    """A checksum over the three tables — order-sensitive and injective.
+def _hashed(chunks: Sequence[bytes]) -> int:
+    """Length-prefixed blake2b over ``chunks`` — injective by construction.
+
+    Each chunk carries its own length, so no concatenation of one can be read
+    as a different split of another. That is the property a separator does not
+    have, and the reason the first digest here collided on ``('a','b')`` against
+    ``('a\x00b')``.
+    """
+    packed = b"".join(len(c).to_bytes(8, "little") + c for c in chunks)
+    return int.from_bytes(hashlib.blake2b(packed, digest_size=8).digest(), "little")
+
+
+def shape_of(types: Sequence[str], symbols: dict[str, Any]) -> int:
+    """A digest of the RULES the named symbols carry — the payload's provenance.
+
+    A generated class knows the rule it was built from, and that rule survives
+    the move from a runtime class to its exported twin while the module name
+    does not: the runtime reports ``generated.json_<hash>`` and the twin reports
+    its own file. So the grammar, not the module, is what identifies which
+    compilation a payload belongs to.
+
+    Regenerate the grammar, re-export the shape, keep an old payload — the rules
+    move, this number moves, and :func:`decode` refuses instead of reading a
+    wrong value. ``0`` when no symbol carries a rule, which is every ``ir`` and
+    ``plain`` payload.
+
+    :param types: The symbol table.
+    :param symbols: Symbol name → class, as the artefact supplies them.
+    :returns: A 64-bit digest of the rules, or ``0`` when there are none.
+    """
+    chunks: list[bytes] = []
+    for name in types[1:]:
+        rule = getattr(symbols.get(name), "__grammar__", None)
+        if rule is not None:
+            chunks.append(name.encode("utf-8", "surrogatepass"))
+            chunks.append(repr(rule).encode("utf-8", "surrogatepass"))
+    return _hashed(chunks) if chunks else 0
+
+
+def digest(tables: tuple) -> int:
+    """A checksum over the four tables — order-sensitive and injective.
 
     The LENGTH VECTOR is digested beside the joined text, so no concatenation of
     one field can be read as a different split of another and no separator is
@@ -186,17 +225,19 @@ def digest(types: Sequence[str], strs: Sequence[str], nodes: Sequence[int]) -> i
     digest changes across the very export/import cycle this defends — which is
     invisible to any in-process check.
 
-    :param types: The symbol table.
-    :param strs: The string table.
-    :param nodes: The flat node table.
+    :param tables: ``(types, origins, strs, nodes)`` — all four, because
+        ``origins`` is part of the artefact and a digest that skipped it would
+        not notice an edit to it.
     :returns: A 64-bit digest.
     """
-    head = array.array("q", (len(types), len(strs), len(nodes))).tobytes()
-    lens = array.array("q", [len(t) for t in (*types, *strs)]).tobytes()
+    types, origins, strs, nodes = tables
+    words = (*types, *origins, *strs)
+    head = array.array("q", (len(types), len(origins), len(strs), len(nodes))).tobytes()
+    lens = array.array("q", [len(t) for t in words]).tobytes()
     # `surrogatepass`: a lone surrogate is a legal `str` and reaches here from
     # parsed text, so a digest that raises on one is a digest that refuses a
     # value the projection accepts.
-    text = ("".join(types) + "".join(strs)).encode("utf-8", "surrogatepass")
+    text = "".join(words).encode("utf-8", "surrogatepass")
     try:
         body = b"\x00" + array.array("q", nodes).tobytes()
     except OverflowError:
@@ -216,21 +257,18 @@ def digest(types: Sequence[str], strs: Sequence[str], nodes: Sequence[int]) -> i
 
 
 def decode(
-    types: Sequence[str],
-    strs: Sequence[str],
-    nodes: Sequence[int],
-    symbols: dict[str, Any],
-    expect: int | None = None,
+    tables: tuple, symbols: dict[str, Any], expect: tuple[int, int] | None = None
 ) -> Any:
     """Rebuild the value. One forward pass; children are always already built.
 
-    :param types: The symbol table; ``TYPES[0]`` is the "names no symbol" sentinel.
-    :param strs: The string table.
-    :param nodes: The flat node table.
+    :param tables: ``(types, origins, strs, nodes)`` — ``types[0]`` is the
+        "names no symbol" sentinel.
     :param symbols: Symbol name → class or singleton. The artefact names its
         symbols and imports them; nothing is guessed from text.
-    :param expect: The digest recorded at export. Supplied, a corrupted table
-        raises instead of decoding to a plausible wrong value.
+    :param expect: What the exporter recorded about itself —
+        ``(digest, shape)``. The digest catches an altered table; the shape
+        catches a payload read against a DIFFERENT compilation of its grammar,
+        which no table check can see because the tables are intact.
     :returns: The decoded value. ``Any`` is the honest type and not a shrug:
         this module cannot name the caller's vocabulary — it imports no lexic,
         and every class it builds arrives in ``symbols``. That is the whole
@@ -238,12 +276,10 @@ def decode(
         projection rather than three return types.
     :raises ValueError: On a digest mismatch or a structurally impossible table.
     """
-    if expect is not None and digest(types, strs, nodes) != expect:
-        raise ValueError(
-            "payload: digest mismatch — the tables were altered since export, "
-            "and decoding them would produce a wrong value silently"
-        )
-    ctx = (types, strs, symbols)
+    if expect is not None:
+        _verify(tables, symbols, expect)
+    ctx = (tables[0], tables[2], symbols)
+    nodes = tables[3]
     built: list[Any] = []
     at, total = 0, len(nodes)
     while at < total:
@@ -253,18 +289,42 @@ def decode(
         # ANOTHER valid earlier record — that is the digest's job — but they
         # catch truncation, forward references and a bad symbol id, which is
         # what a partial write looks like.
-        if not 0 <= tid < len(types):
+        if not 0 <= tid < len(ctx[0]):
             raise ValueError(f"payload: symbol id {tid} out of range")
         if not 0 <= kind < len(DECODE):
             raise ValueError(f"payload: unknown record kind {kind}")
         span = payload * CHILD_SLOTS[kind]
         kids = [_child(built, nodes[at + i]) for i in range(span)]
         at += span
-        cls = None if tid == PLAIN else symbols[types[tid]]
+        cls = None if tid == PLAIN else symbols[ctx[0][tid]]
         built.append(DECODE[kind](cls, payload, kids, ctx))
     if not built:
         raise ValueError("payload: the node table is empty")
     return built[-1]
+
+
+def _verify(tables: tuple, symbols: dict[str, Any], expect: tuple[int, int]) -> None:
+    """Check what the exporter recorded about itself, before reading a record.
+
+    Two different questions. The digest asks whether these are the tables that
+    were written; the shape asks whether the SYMBOLS handed in are the ones they
+    were written against — which no table check can see, because a payload read
+    against a recompiled grammar has intact tables, resolvable names, and every
+    record decoding to a wrong value.
+
+    :raises ValueError: On either mismatch.
+    """
+    if digest(tables) != expect[0]:
+        raise ValueError(
+            "payload: digest mismatch — the tables were altered since export, "
+            "and decoding them would produce a wrong value silently"
+        )
+    if shape_of(tables[0], symbols) != expect[1]:
+        raise ValueError(
+            "payload: shape mismatch — the symbols this payload was given carry "
+            "different rules than the ones it was built against, so the grammar "
+            "was recompiled and this artefact is stale"
+        )
 
 
 def _child(built: list, index: int) -> Any:

@@ -34,7 +34,7 @@ def rt(value: object, symbols: dict | None = None) -> Any:
     """Project and read back, digest-checked."""
     payload = project(value)
     return reader.decode(
-        payload.types, payload.strs, payload.nodes, symbols or {}, payload.digest()
+        payload.tables, symbols or {}, (payload.digest(), payload.shape())
     )
 
 
@@ -168,13 +168,17 @@ def test_the_digest_refuses_an_altered_table() -> None:
     nodes = list(payload.nodes)
     nodes[4] -= 1
     with pytest.raises(ValueError, match="digest mismatch"):
-        reader.decode(payload.types, payload.strs, tuple(nodes), {}, payload.digest())
+        reader.decode(
+            (payload.types, payload.origins, payload.strs, tuple(nodes)),
+            {},
+            (payload.digest(), payload.shape()),
+        )
 
 
 def test_the_digest_is_injective_over_the_joined_text() -> None:
     """``('a','b')`` and ``('a\\x00b')`` are different tables."""
-    one = reader.digest(("<plain>", "a", "b"), (), (0, 5, 0))
-    two = reader.digest(("<plain>", "a\x00b"), (), (0, 5, 0))
+    one = reader.digest((("<plain>", "a", "b"), ("", "", ""), (), (0, 5, 0)))
+    two = reader.digest((("<plain>", "a\x00b"), ("", ""), (), (0, 5, 0)))
     assert one != two
 
 
@@ -186,13 +190,13 @@ def test_the_digest_survives_a_big_integer() -> None:
 def test_structural_checks_catch_a_forward_reference() -> None:
     """Free, and they catch what a partial write looks like."""
     with pytest.raises(ValueError, match="not an earlier record"):
-        reader.decode(("<plain>",), (), (0, reader.K_SEQ, 1, 99), {})
+        reader.decode((("<plain>",), ("",), (), (0, reader.K_SEQ, 1, 99)), {})
 
 
 def test_an_unknown_kind_refuses() -> None:
     """The kind space is closed; an index past the table is the raising default."""
     with pytest.raises(ValueError, match="unknown record kind"):
-        reader.decode(("<plain>",), (), (0, 99, 0), {})
+        reader.decode((("<plain>",), ("",), (), (0, 99, 0)), {})
 
 
 def test_the_export_gate_is_a_fixpoint_not_an_equality() -> None:
@@ -233,10 +237,6 @@ def test_a_parsed_document_survives_the_projection(stem: str) -> None:
     model = compiled.parse(text)
     payload = project_checked(model)
     back = reader.decode(
-        payload.types,
-        payload.strs,
-        payload.nodes,
-        dict(compiled.classes),
-        payload.digest(),
+        payload.tables, dict(compiled.classes), (payload.digest(), payload.shape())
     )
     assert back.to_text() == text

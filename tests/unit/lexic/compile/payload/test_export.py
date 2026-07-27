@@ -7,17 +7,22 @@ can be established from here — which is the whole point of writing one.
 
 from __future__ import annotations
 
+import ast as pyast
 import subprocess
 import sys
+from hashlib import blake2b
+from importlib import import_module
 
 import pytest
 
-from lexic.compile.payload import export_value, project, render
+from lexic.compile import compile_from_path, compile_text, export_module
+from lexic.compile.payload import export_value, project, reader, render
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.base import IrInt, IrStr, IrTuple
-from tests.paths import PROJECT_ROOT
+from tests.paths import GROUND_TRUTH, PROJECT_ROOT
 
 SRC = str(PROJECT_ROOT / "src")
+READER = "payload_reader_probe"  # render() takes the emitted sidecar's name
 
 
 def _run(tmp_path, stem: str, extra: str = "") -> tuple[str, int]:
@@ -163,16 +168,33 @@ def test_nothing_is_written_when_the_gate_refuses(tmp_path) -> None:
 
 def test_the_artefact_records_where_each_symbol_came_from() -> None:
     """``ORIGINS`` is data, not a key: a name that repeats stays recoverable."""
-    source = render(project(IrTuple(IrStr("a"))))
+    source = render(project(IrTuple(IrStr("a"))), READER)
     assert "ORIGINS = " in source
     assert "lexic.ir.base" in source
 
 
-def test_the_inlined_reader_carries_no_future_import() -> None:
-    """It would be illegal mid-file, and the artefact supplies its own."""
-    source = render(project((1, 2)))
-    assert source.count("from __future__ import annotations") == 1
-    assert source.index("from __future__") < source.index("def decode(")
+def test_the_artefact_has_no_imports_below_its_code() -> None:
+    """The inlined reader's own imports must be the module's first statements.
+
+    It carries `import array` / `import hashlib` at its top, so the reader goes
+    ABOVE the symbol header — otherwise those land mid-file and every linter
+    that reads the artefact says so.
+    """
+    source = render(project((1, 2)), READER)
+    assert "from __future__ import annotations" not in source
+    tree = pyast.parse(source)
+    imports = [
+        i
+        for i, node in enumerate(tree.body)
+        if isinstance(node, (pyast.Import, pyast.ImportFrom))
+    ]
+    code = [
+        i
+        for i, node in enumerate(tree.body)
+        if isinstance(node, (pyast.FunctionDef, pyast.Assign))
+    ]
+    assert imports and code
+    assert max(imports) < min(code)
 
 
 # ── what the adversarial pass found ───────────────────────────────────────
@@ -186,8 +208,8 @@ def test_a_callers_class_named_like_a_spine_one_is_not_routed_to_the_spine() -> 
     at all — which is why the origin is recorded in the first place.
     """
     mine = type("IrLiteral", (str,), {"__module__": "vocab"})
-    source = render(project((mine("x"),)), module="vocab")
-    assert "from vocab import IrLiteral as _sym_IrLiteral" in source
+    source = render(project((mine("x"),)), READER, module="vocab")
+    assert "from vocab import (\n    IrLiteral as _sym_IrLiteral,\n)" in source
     assert "from lexic.ir import" not in source
 
 
@@ -231,3 +253,163 @@ def test_the_digest_survives_an_integer_of_any_width(bits: int) -> None:
 def test_the_digest_survives_a_lone_surrogate() -> None:
     """A lone surrogate is a legal ``str`` and reaches the tables from text."""
     assert project(("a\ud800b",)).digest()
+
+
+# ── provenance: which compilation does this payload belong to ─────────────
+
+
+def test_a_payload_refuses_a_recompiled_grammars_classes() -> None:
+    """Regenerate the grammar, keep the payload — and it says so.
+
+    No table check can see this: the tables are intact, the symbol names still
+    resolve, and every record decodes. What changed is the SHAPE behind the
+    names, which is why the artefact records a digest of the rules its symbols
+    carried rather than of the module they came from — a module name does not
+    even survive the move from a runtime class to its twin.
+    """
+    first = compile_text("root ::= item+\nitem ::= [a-z]+\n", cache_key="prov-a")
+    second = compile_text("root ::= word+\nword ::= [A-Z]+\n", cache_key="prov-b")
+    payload = project(first.parse("ab"))
+    seal = (payload.digest(), payload.shape())
+    assert reader.decode(payload.tables, dict(first.classes), seal)
+    with pytest.raises(ValueError, match="shape mismatch"):
+        reader.decode(payload.tables, dict(second.classes), seal)
+
+
+def test_the_shape_survives_the_move_to_a_twin() -> None:
+    """A twin's classes are different objects in a different module — and the
+    same rules, which is the whole reason the rule is what is recorded."""
+    compiled = compile_from_path(GROUND_TRUTH / "list.gbnf")
+    payload = project(compiled.parse("- a\n"))
+    twinned = {
+        name: type(cls.__name__, (object,), {"__grammar__": cls.__grammar__})
+        for name, cls in compiled.classes.items()
+        if hasattr(cls, "__grammar__")
+    }
+    assert reader.shape_of(payload.types, twinned) == payload.shape()
+
+
+def test_a_payload_naming_no_rule_bearing_symbol_has_no_shape() -> None:
+    """`ir` and `plain` payloads name nothing that carries a grammar."""
+    assert project((1, "a")).shape() == 0
+    assert project(IrTuple(IrStr("a"))).shape() == 0
+
+
+def test_the_digest_covers_the_origins_table() -> None:
+    """``ORIGINS`` is part of the artefact, so an edit to it must be caught."""
+    payload = project((1, 2))
+    tampered = (payload.types, ("edited",), payload.strs, payload.nodes)
+    assert reader.digest(tampered) != payload.digest()
+
+
+def test_a_module_that_resolves_to_something_else_refuses() -> None:
+    """``module="json"`` is the standard library on almost every path.
+
+    A twin written to ``generated/json.py`` is only importable as ``json`` if
+    that directory precedes the stdlib, which is a property of the reader's
+    environment and not of the artefact. Checked at export because the module
+    is right here — and the check is skipped when it does not import yet, since
+    exporting the twin and the payload in either order is legitimate.
+    """
+    mine = type("Array", (str,), {"__module__": "json"})
+    with pytest.raises(UnsupportedConstructError, match="does not provide"):
+        render(project((mine("x"),)), READER, module="json")
+
+
+def test_a_module_that_does_not_import_yet_is_allowed() -> None:
+    """The other half of a two-step export is not an error."""
+    mine = type("Root", (str,), {"__module__": "not_written_yet"})
+    assert render(project((mine("x"),)), READER, module="not_written_yet")
+
+
+def test_a_module_providing_a_different_class_of_the_same_name_refuses() -> None:
+    """The name resolving is not the question — whether it is THIS class is."""
+    mine = type("decode", (str,), {"__module__": "lexic.compile.payload.reader"})
+    with pytest.raises(UnsupportedConstructError, match="not the classes"):
+        render(project((mine("x"),)), READER, module="lexic.compile.payload.reader")
+
+
+def test_a_long_string_is_chunked_rather_than_written_on_one_line(tmp_path) -> None:
+    """Wrapping between tuple elements is not enough when ONE element is long."""
+    value = {"doc": "中" * 400}
+    export_value(value, tmp_path / "long_v.py")
+    source = (tmp_path / "long_v.py").read_text(encoding="utf-8")
+    assert max(len(line) for line in source.splitlines()) <= 88
+    assert _run(tmp_path, "long_v")[0] == repr(value)
+
+
+def test_every_import_is_at_the_top_of_the_artefact() -> None:
+    """The inlined reader's own imports share the artefact's one import block.
+
+    Inlining a body that carries its own imports is how the artefact ended up
+    importing halfway down the file — legal Python, and a finding on every
+    linter a user of the artefact runs.
+    """
+    tree = pyast.parse(render(project((IrStr("x"),)), READER))
+    kinds = [type(node).__name__ for node in tree.body]
+    imports = [i for i, kind in enumerate(kinds) if kind in ("Import", "ImportFrom")]
+    assert imports == list(range(1, 1 + len(imports)))  # right after the docstring
+
+
+def test_a_twins_classes_are_accepted_though_they_are_not_the_same_objects(
+    tmp_path,
+) -> None:
+    """Same rules, different objects — the ordinary two-step export.
+
+    A value parsed with runtime classes and exported beside its twin names the
+    TWIN's classes, which are different objects: identity would refuse the case
+    the feature exists for. What the reader needs the symbols to agree on is the
+    rules, so that is what is checked.
+    """
+    compiled = compile_text('root ::= "a" "b"')
+    export_module(compiled, tmp_path / "twin_for_test.py")
+    sys.path.insert(0, str(tmp_path))
+    try:
+        twin = import_module("twin_for_test")
+        assert twin.Root is not compiled.classes["Root"]
+        source = render(project(compiled.parse("ab")), READER, module="twin_for_test")
+    finally:
+        sys.path.remove(str(tmp_path))
+        sys.modules.pop("twin_for_test", None)
+    assert "from twin_for_test import (" in source
+
+
+def test_the_reader_is_emitted_once_per_directory_not_copied_per_artefact(
+    tmp_path,
+) -> None:
+    """The artefact is its data; the machinery that reads it is emitted beside it.
+
+    Inlining the reader put 330 lines of identical code in every artefact — ten
+    artefacts meant ten copies and one place to forget when the reader changed.
+    """
+    export_value({"a": 1}, tmp_path / "one.py")
+    export_value({"b": 2}, tmp_path / "two.py")
+    sidecars = sorted(tmp_path.glob("payload_reader_*.py"))
+    assert len(sidecars) == 1
+    for name in ("one.py", "two.py"):
+        source = (tmp_path / name).read_text(encoding="utf-8")
+        assert f"from {sidecars[0].stem} import decode" in source
+        assert len(source.splitlines()) < 40
+        assert "def decode" not in source
+
+
+def test_the_sidecars_name_is_the_digest_of_its_own_source(tmp_path) -> None:
+    """A newer reader is a different module, never a changed one.
+
+    Version skew is what inlining bought, and the name buys it back: an artefact
+    naming ``payload_reader_<tag>`` cannot bind to a reader with other contents,
+    so two lexic versions writing here leave two sidecars, not one that shifted
+    under the older artefact.
+    """
+    export_value({"a": 1}, tmp_path / "one.py")
+    sidecar = next(iter(tmp_path.glob("payload_reader_*.py")))
+    tag = blake2b(sidecar.read_bytes(), digest_size=6).hexdigest()
+    assert sidecar.stem == f"payload_reader_{tag}"
+
+
+def test_an_artefact_inside_a_package_imports_its_sidecar_relatively(tmp_path) -> None:
+    """How the sidecar is spelled is a fact about where the artefact lands."""
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    export_value({"a": 1}, tmp_path / "one.py")
+    source = (tmp_path / "one.py").read_text(encoding="utf-8")
+    assert "from .payload_reader_" in source
