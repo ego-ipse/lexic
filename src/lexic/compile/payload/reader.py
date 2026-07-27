@@ -184,29 +184,36 @@ def _hashed(chunks: Sequence[bytes]) -> int:
 
 
 def shape_of(types: Sequence[str], symbols: dict[str, Any]) -> int:
-    """A digest of the RULES the named symbols carry — the payload's provenance.
+    """A digest of the GRAMMAR the named symbols carry — the payload's provenance.
 
     A generated class knows the rule it was built from, and that rule survives
     the move from a runtime class to its exported twin while the module name
     does not: the runtime reports ``generated.json_<hash>`` and the twin reports
-    its own file. So the grammar, not the module, is what identifies which
-    compilation a payload belongs to.
+    its own file. So the grammar, not the module, identifies which compilation a
+    payload belongs to.
 
-    Regenerate the grammar, re-export the shape, keep an old payload — the rules
-    move, this number moves, and :func:`decode` refuses instead of reading a
-    wrong value. ``0`` when no symbol carries a rule, which is every ``ir`` and
-    ``plain`` payload.
+    Each class's ``__shape__`` covers its own rule AND every rule that rule
+    transitively references, because its own rule alone is not enough. An
+    alternation is a pass-through — it never materialises in a value, so it is
+    never a named symbol — and narrowing one leaves every named rule identical
+    while the document the value re-emits no longer parses. The closure moves;
+    the bare rule does not.
+
+    Regenerate the grammar, re-export the shape, keep an old payload — the
+    number moves and :func:`decode` refuses instead of reading a wrong value.
+    ``0`` when no symbol carries a grammar, which is every ``ir`` and ``plain``
+    payload.
 
     :param types: The symbol table.
     :param symbols: Symbol name → class, as the artefact supplies them.
-    :returns: A 64-bit digest of the rules, or ``0`` when there are none.
+    :returns: A 64-bit digest of the grammar, or ``0`` when there is none.
     """
     chunks: list[bytes] = []
     for name in types[1:]:
-        rule = getattr(symbols.get(name), "__grammar__", None)
-        if rule is not None:
+        shape = getattr(symbols.get(name), "__shape__", None)
+        if shape is not None:
             chunks.append(name.encode("utf-8", "surrogatepass"))
-            chunks.append(repr(rule).encode("utf-8", "surrogatepass"))
+            chunks.append(int(shape).to_bytes(8, "little"))
     return _hashed(chunks) if chunks else 0
 
 
@@ -308,7 +315,7 @@ def _moved(
 ) -> list[str]:
     """Symbols that came from somewhere other than where they were recorded.
 
-    Only for a class carrying no rule. A generated class's module legitimately
+    Only for a class carrying no grammar. A generated class's module legitimately
     MOVES — a value is parsed with runtime classes tagged by content and read
     back against the twin, which reports its own file — so for those the rules
     are the provenance and :func:`shape_of` is the check. For a class the caller
@@ -324,7 +331,7 @@ def _moved(
     moved = []
     for name, recorded in zip(types[1:], origins[1:]):
         found = symbols.get(name)
-        if found is None or getattr(found, "__grammar__", None) is not None:
+        if found is None or getattr(found, "__shape__", None) is not None:
             continue
         home = getattr(found, "__module__", "")
         if home != recorded:

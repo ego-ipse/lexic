@@ -283,9 +283,9 @@ def test_the_shape_survives_the_move_to_a_twin() -> None:
     compiled = compile_from_path(GROUND_TRUTH / "list.gbnf")
     payload = project(compiled.parse("- a\n"))
     twinned = {
-        name: type(cls.__name__, (object,), {"__grammar__": cls.__grammar__})
+        name: type(cls.__name__, (object,), {"__shape__": cls.__shape__})
         for name, cls in compiled.classes.items()
-        if hasattr(cls, "__grammar__")
+        if hasattr(cls, "__shape__")
     }
     assert reader.shape_of(payload.types, twinned) == payload.shape()
 
