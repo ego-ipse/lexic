@@ -29,9 +29,9 @@ import operator
 from typing import ClassVar, Sequence
 
 from lexic.ir.action.mapping import IrMap
-from lexic.ir.spine.spine import IrAtom, IrLambda, IrSelf
 from lexic.ir.spine.records import IrSeq, IrTuple
 from lexic.ir.spine.scalars import IrInt, IrStr
+from lexic.ir.spine.spine import IrAtom, IrLambda, IrSelf
 
 # ── Operator leaf ─────────────────────────────────────────────────────
 

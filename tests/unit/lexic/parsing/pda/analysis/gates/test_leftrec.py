@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda.analysis.leftrec — nullable-prefix left corners.
+"""Tests for lexic.parsing.pda.analysis.gates.leftrec — nullable-prefix left corners.
 
 ``left_recursive_names`` must flag exactly the rules on a left-recursive
 cycle: those the predictive descent would re-enter at the same position. The
@@ -9,7 +9,7 @@ classification wiring test pins that such a rule islands unconditionally
 from __future__ import annotations
 
 from lexic.ir import IrAlternation, IrLiteral, IrRuleRef, IrSequence
-from lexic.parsing.pda.analysis.leftrec import left_recursive_names
+from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
 from tests.unit.lexic.parsing.ir_fixtures import analysis_of as _analysis
 from tests.unit.lexic.parsing.ir_fixtures import item_of as _item
 from tests.unit.lexic.parsing.ir_fixtures import rule_of as _rule

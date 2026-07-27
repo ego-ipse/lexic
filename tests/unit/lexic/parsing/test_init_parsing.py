@@ -45,19 +45,19 @@ from lexic.parsing import (
     parse_reduced,
     recognize,
 )
-from lexic.parsing.earley.chart import Chart as ChartDirect
-from lexic.parsing.earley.chart import EarleyItem as EarleyItemDirect
-from lexic.parsing.earley.chart import Link as LinkDirect
-from lexic.parsing.earley.chart import Links as LinksDirect
 from lexic.parsing.earley.engine import EarleyParser as EarleyParserDirect
-from lexic.parsing.earley.forest import BUILD_TREE as BUILD_TREE_DIRECT
-from lexic.parsing.earley.forest import ParseTree as ParseTreeDirect
-from lexic.parsing.earley.forest import SppfNode as SppfNodeDirect
-from lexic.parsing.earley.kernel import FastTree as FastTreeDirect
-from lexic.parsing.earley.kernel import Kernel as KernelDirect
+from lexic.parsing.earley.kernel.chart import Chart as ChartDirect
+from lexic.parsing.earley.kernel.chart import EarleyItem as EarleyItemDirect
+from lexic.parsing.earley.kernel.chart import Link as LinkDirect
+from lexic.parsing.earley.kernel.chart import Links as LinksDirect
+from lexic.parsing.earley.kernel.fasttree import FastTree as FastTreeDirect
+from lexic.parsing.earley.kernel.forest import BUILD_TREE as BUILD_TREE_DIRECT
+from lexic.parsing.earley.kernel.forest import ParseTree as ParseTreeDirect
+from lexic.parsing.earley.kernel.forest import SppfNode as SppfNodeDirect
+from lexic.parsing.earley.kernel.kernel import Kernel as KernelDirect
+from lexic.parsing.earley.kernel.tables import ParserTables as ParserTablesDirect
+from lexic.parsing.earley.kernel.tables import compile_tables as compile_tables_direct
 from lexic.parsing.earley.reduce import Reducer as ReducerDirect
-from lexic.parsing.earley.tables import ParserTables as ParserTablesDirect
-from lexic.parsing.earley.tables import compile_tables as compile_tables_direct
 from lexic.parsing.products import earley_model, earley_reduce
 
 

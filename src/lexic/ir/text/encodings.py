@@ -13,9 +13,9 @@ from typing import Self
 from lexic.ir.action.mapping import IrMap
 from lexic.ir.grammar.nodes import MAX_CODEPOINT, IrCharClass, IrChr
 from lexic.ir.spine.meta import IrSingleton
-from lexic.ir.spine.spine import IrNode, IrNone, IrNoneType, IrSelf
 from lexic.ir.spine.records import IrTuple
 from lexic.ir.spine.scalars import IrStr
+from lexic.ir.spine.spine import IrNode, IrNone, IrNoneType, IrSelf
 
 Vocab = Mapping[str, int] | IrMap
 """A pythonic ``spelling → id`` vocab a builder coerces to the spine."""

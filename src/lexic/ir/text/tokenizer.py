@@ -16,9 +16,9 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action.mapping import IrMap
 from lexic.ir.grammar.nodes import IrChr
 from lexic.ir.spine.meta import IrSingleton
-from lexic.ir.spine.spine import IrNode, IrNone, IrNoneType
 from lexic.ir.spine.records import IrNamedTuple, IrTuple
 from lexic.ir.spine.scalars import IrInt, IrStr
+from lexic.ir.spine.spine import IrNode, IrNone, IrNoneType
 from lexic.ir.text.encodings import IrEncoding
 from lexic.ir.text.pipeline import (
     IrNormalizer,

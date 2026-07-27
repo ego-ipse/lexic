@@ -13,9 +13,9 @@ from lexic.ir.grammar.nodes import (
     IrQuantifier,
     IrSequence,
 )
-from lexic.ir.spine.spine import IrNone
 from lexic.ir.spine.records import Field, IrCachingTuple, IrSeq, IrTuple
 from lexic.ir.spine.scalars import IrInt, IrStr
+from lexic.ir.spine.spine import IrNone
 
 
 class LeftMixin(IrCachingTuple[int]):

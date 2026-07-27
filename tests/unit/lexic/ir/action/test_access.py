@@ -36,9 +36,9 @@ from lexic.ir.grammar.nodes import (
     IrSequence,
 )
 from lexic.ir.grammar.operators import IrNot
-from lexic.ir.spine.spine import IrNone, IrSelf
 from lexic.ir.spine.records import IrNamedTuple, IrTuple
 from lexic.ir.spine.scalars import IrChr, IrInt, IrStr
+from lexic.ir.spine.spine import IrNone, IrSelf
 
 
 def test_irfield_reads_string_attribute():

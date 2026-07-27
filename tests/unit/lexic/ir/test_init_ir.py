@@ -13,10 +13,10 @@ from lexic.compile import compile_from_path
 from lexic.compile.notation.emit import ir_doc
 from lexic.grammars.abnf import ABNF_GRAMMAR
 from lexic.grammars.gbnf import GBNF_GRAMMAR
-from lexic.ir.spine.spine import IrNone
-from lexic.ir.spine.spine import IrNoneType as _IrNoneType
 from lexic.ir.spine.records import IrTuple
 from lexic.ir.spine.scalars import IrInt, IrStr
+from lexic.ir.spine.spine import IrNone
+from lexic.ir.spine.spine import IrNoneType as _IrNoneType
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH, PROJECT_ROOT
 
 

@@ -1,11 +1,11 @@
 """The flat Earley kernel — the compiled grammar's paid loop.
 
 This module is the **compiled-form zone** of ``parsing`` (see
-:mod:`lexic.parsing.earley.tables`): the per-item loop runs over int-coded tables
+:mod:`lexic.parsing.earley.kernel.tables`): the per-item loop runs over int-coded tables
 and packed-int items instead of dispatching IR nodes. Logic stays on classes
 and per-parse state on the :class:`Kernel` cursor — but no ``eval`` runs per
 item, no IR object is ever a hot-path key, and no tuple is allocated per
-advance. The IR seams sit at the edges: :func:`~lexic.parsing.earley.tables
+advance. The IR seams sit at the edges: :func:`~lexic.parsing.earley.kernel.tables
 .compile_tables` walks the grammar in, and :meth:`Kernel.to_chart` decodes the
 finished SPPF out for the IR-native forest readers.
 
@@ -34,18 +34,21 @@ from typing import Callable, Self
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq
-from lexic.parsing.earley.chart import Chart, EarleyItem
-from lexic.parsing.earley.forest import ParseTree, PayloadLeaf, RootNode, SppfNode
-from lexic.parsing.earley.tables import (
+from lexic.parsing.earley.kernel.chart import Chart, EarleyItem
+from lexic.parsing.earley.kernel.forest import (
+    PayloadLeaf,
+    RootNode,
+    SppfNode,
+)
+from lexic.parsing.earley.kernel.tables import (
     ParserTables,
     RunTerm,
-    predecessor_chain,
 )
 
 KLink = tuple[int, int, "int | str | PayloadLeaf"]
 """One packed SPPF family: ``(predecessor_item, predecessor_end, child)`` —
 ``child`` is a packed handle (completed sub-derivation), the scanned char, or a
-delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` (island-interior
+delegated :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` (island-interior
 delegation)."""
 
 Delegate = Callable[[str, int], "tuple[int, object] | None"]
@@ -122,7 +125,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         :meth:`_seed` (the kernel stays PDA-agnostic — see
         :mod:`lexic.parsing.pda.runtime.islands`).
     :ivar delegated: handle of an injected delegated completion → its
-        :class:`~lexic.parsing.earley.forest.PayloadLeaf` (empty on every
+        :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` (empty on every
         non-island parse).
     """
 
@@ -447,7 +450,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         Adds one completed ``rid`` item to column ``end`` (so ``_close(end)``
         runs the completer once column ``i`` is fully closed and every waiter
         facing ``rid`` is present) and records the pre-built ``payload`` and the
-        consumed span as a :class:`~lexic.parsing.earley.forest.PayloadLeaf` on
+        consumed span as a :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` on
         :attr:`KernelState.delegated`. Deduped against column ``end`` so a rule
         predicted twice at ``i`` files its span once. On the recognition path
         (``record_links`` off) no leaf is stored — the completion still advances
@@ -584,7 +587,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
 
         Two or more items means the start symbol derives the whole input via
         distinct productions — genuine arm ambiguity with no parent waiter to
-        aggregate it (see :class:`~lexic.parsing.earley.forest.RootNode`).
+        aggregate it (see :class:`~lexic.parsing.earley.kernel.forest.RootNode`).
 
         :returns: The accepting items, in chart order (empty on no parse).
         """
@@ -601,7 +604,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         The gate the single-derivation fast paths consult: a many-production
         root cannot be built by :class:`FastTree` off one accepting item (the
         sibling productions live in other items), so those paths fall through to
-        the trampolined enumeration over the :class:`~lexic.parsing.earley.forest
+        the trampolined enumeration over the :class:`~lexic.parsing.earley.kernel.forest
         .RootNode`.
         """
         return len(self.accept_items()) > 1
@@ -871,129 +874,3 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         if isinstance(child, PayloadLeaf):  # delegated pre-folded child
             return child
         return self.tables.terms.char_leaf(child)
-
-
-class FastTree(IrLeaf[IrSelf, IrSelf]):
-    """Iterative single-derivation builder over the packed SPPF.
-
-    The unambiguous fast path: an explicit work stack (never the C stack)
-    resolves each handle's kids by walking the binarised predecessor chain,
-    memoising built subtrees. :meth:`build` returns :data:`IrNone` on a
-    fast-path miss (a key with more than one family, i.e. ambiguity, or a
-    missing link) so the caller falls back to the trampolined enumeration
-    over the decoded chart.
-
-    :ivar kernel: The finished kernel whose links to walk.
-    :ivar memo: handle → its built :class:`ParseTree`.
-    :ivar stack: Work frames ``(handle, dest, slot, resolved | None)``.
-    """
-
-    __slots__ = ("kernel", "memo", "stack", "_bits", "_mask")
-
-    kernel: Kernel
-    memo: dict[int, ParseTree]
-    stack: list[tuple[int, list, int, list | None]]
-
-    def __init__(self, kernel: Kernel) -> None:
-        """:param kernel: the finished kernel to read."""
-        self.kernel = kernel
-        self.memo = {}
-        self.stack = []
-        self._bits = kernel.tables.packing.bits
-        self._mask = kernel.tables.packing.mask
-
-    def build(self, handle: int) -> IrSelf:
-        """The single :class:`ParseTree` under ``handle``, or :data:`IrNone`.
-
-        :param handle: The packed accepting handle ``(item << B) | end``.
-        :returns: The tree, or :data:`IrNone` on a fast-path miss.
-        """
-        holder: list[IrSelf] = [IrNone]
-        self.stack = [(handle, holder, 0, None)]
-        while self.stack:
-            if not self._step():
-                return IrNone
-        return self.memo.get(handle, IrNone)
-
-    def _step(self) -> bool:
-        """Process the top frame; ``False`` aborts the build (fast-path miss)."""
-        handle, dest, slot, resolved = self.stack[-1]
-        kernel = self.kernel
-        if resolved is not None:  # revisit — every pending kid built in place
-            self._build(handle, dest, slot, resolved)
-            return True
-        cached = self.memo.get(handle)
-        if cached is not None:
-            dest[slot] = cached
-            self.stack.pop()
-            return True
-        item = handle >> self._bits
-        if item & self._mask == handle & self._mask:  # zero-width
-            t = kernel.tables
-            tree = t.empty_tree(t.codes.arm_rule[t.codes.code_arm[item >> self._bits]])
-            if tree is not None:  # the shared input-independent derivation
-                dest[slot] = tree
-                self.stack.pop()
-                return True
-        st = kernel.st
-        if handle in st.leo_links:
-            kernel.expand_leo(handle)
-        resolved = self._collect(handle)
-        if resolved is None:
-            return False
-        pending = self._pending(resolved)
-        if pending:
-            self.stack[-1] = (handle, dest, slot, resolved)
-            self.stack.extend(pending)
-            return True
-        self._build(handle, dest, slot, resolved)
-        return True
-
-    def _build(self, handle: int, dest: list, slot: int, resolved: list) -> None:
-        """Assemble and memoise the node's tree; pop its frame."""
-        t = self.kernel.tables
-        rid = t.codes.arm_rule[t.codes.code_arm[handle >> (2 * self._bits)]]
-        tree = ParseTree(t.decode.rule_refs[rid], IrSeq(*resolved))
-        self.memo[handle] = tree
-        dest[slot] = tree
-        self.stack.pop()
-
-    def _collect(self, handle: int) -> list | None:
-        """Kids of ``handle`` in source order, walking the predecessor chain.
-
-        ``None`` when a key is missing or packs more than one family — the
-        caller falls back to the trampolined enumeration.
-        """
-        t = self.kernel.tables
-        item = handle >> self._bits
-        end = handle & self._mask
-        base = t.codes.arm_base[t.codes.code_arm[item >> self._bits]]
-        chain = predecessor_chain(self.kernel.st.links, item, end, base, self._bits)
-        if chain is None:
-            return None  # missing (no build) or ambiguous (fall back)
-        return [
-            c if isinstance(c, (int, PayloadLeaf)) else t.terms.char_leaf(c)
-            for _, _, c in chain
-        ]
-
-    def _pending(self, resolved: list) -> list:
-        """Swap memoised kids in place; return frames for those still unbuilt."""
-        memo = self.memo
-        tables = self.kernel.tables
-        codes = tables.codes
-        out: list[tuple[int, list, int, None]] = []
-        for idx, child in enumerate(resolved):
-            if isinstance(child, int):  # a packed handle, not yet built
-                cached = memo.get(child)
-                if cached is not None:
-                    resolved[idx] = cached
-                    continue
-                if (child >> self._bits) & self._mask == child & self._mask:
-                    tree = tables.empty_tree(
-                        codes.arm_rule[codes.code_arm[child >> (2 * self._bits)]]
-                    )
-                    if tree is not None:  # zero-width — the shared derivation
-                        resolved[idx] = tree
-                        continue
-                out.append((child, resolved, idx, None))
-        return out

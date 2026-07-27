@@ -30,7 +30,6 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
-from lexic.parsing.pda.analysis import kwindow
 from lexic.parsing.pda.analysis.cursors import (
     ConflictCtx,
     Cont,
@@ -39,15 +38,16 @@ from lexic.parsing.pda.analysis.cursors import (
     Notes,
     Scope,
 )
-from lexic.parsing.pda.analysis.leftrec import left_recursive_names
-from lexic.parsing.pda.analysis.noise import (
+from lexic.parsing.pda.analysis.gates import kwindow
+from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
+from lexic.parsing.pda.analysis.gates.noise import (
     noise_alphabet,
     noise_greedy_licensed,
     peek_arm_gate,
     peek_loop_gate,
     stopset_escapes_soft_follow,
 )
-from lexic.parsing.pda.analysis.structured import (
+from lexic.parsing.pda.analysis.gates.structured import (
     structured_arm_gate,
     structured_loop_gate,
 )

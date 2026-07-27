@@ -135,14 +135,6 @@ if TYPE_CHECKING:
         IrSingleton,
         Singleton,
     )
-    from lexic.ir.spine.spine import (
-        IrAtom,
-        IrLambda,
-        IrLeaf,
-        IrNode,
-        IrNone,
-        IrNoneType,
-    )
     from lexic.ir.spine.records import (
         Field,
         IrCachingTuple,
@@ -155,6 +147,14 @@ if TYPE_CHECKING:
         IrInt,
         IrScalar,
         IrStr,
+    )
+    from lexic.ir.spine.spine import (
+        IrAtom,
+        IrLambda,
+        IrLeaf,
+        IrNode,
+        IrNone,
+        IrNoneType,
     )
     from lexic.ir.text.encodings import (
         IrEncoding,

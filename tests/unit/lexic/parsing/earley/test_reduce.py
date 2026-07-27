@@ -45,8 +45,10 @@ from lexic.ir import (
     IrTuple,
 )
 from lexic.parsing import derivations, parse
-from lexic.parsing.earley.forest import ParseTree
-from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.kernel.forest import ParseTree
+from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, compile_tables
+from lexic.parsing.earley.kernel.trampoline import Trampoline
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
 from lexic.parsing.earley.reduce import (
     DROP,
@@ -61,8 +63,6 @@ from lexic.parsing.earley.reduce import (
     Yield,
     plan_for,
 )
-from lexic.parsing.earley.tables import ORIGIN_BITS, compile_tables
-from lexic.parsing.earley.trampoline import Trampoline
 from tests.unit.lexic.parsing.ir_fixtures import letter_word_rules
 
 # ── Helpers ───────────────────────────────────────────────────────────

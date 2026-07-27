@@ -48,8 +48,8 @@ from lexic.ir.grammar.nodes import (
 )
 from lexic.ir.grammar.operators import IrNot
 from lexic.ir.grammar.order import order_by_refs
-from lexic.ir.spine.spine import IrLambda, IrSelf
 from lexic.ir.spine.records import IrSeq
+from lexic.ir.spine.spine import IrLambda, IrSelf
 
 _UNIT = IrQuantifier(1, 1)
 

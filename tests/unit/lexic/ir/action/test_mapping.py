@@ -14,9 +14,9 @@ from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir.action.control import IrThis
 from lexic.ir.action.mapping import IR_DEFAULT, IrMap, IrMapping, IrMultiMap, IrTypeMap
 from lexic.ir.grammar.nodes import IrLiteral, IrRuleRef
-from lexic.ir.spine.spine import IrLambda, IrNone, IrSelf
 from lexic.ir.spine.records import IrTuple
 from lexic.ir.spine.scalars import IrInt, IrStr
+from lexic.ir.spine.spine import IrLambda, IrNone, IrSelf
 
 # ── Helpers ───────────────────────────────────────────────────────────
 

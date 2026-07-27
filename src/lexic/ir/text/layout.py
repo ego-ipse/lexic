@@ -37,9 +37,9 @@ from __future__ import annotations
 from typing import ClassVar, Self, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.spine.spine import IrNode, IrSelf
 from lexic.ir.spine.records import IrNamedTuple, IrSeq, IrTuple
 from lexic.ir.spine.scalars import IrStr
+from lexic.ir.spine.spine import IrNode, IrSelf
 
 
 class Sheet:

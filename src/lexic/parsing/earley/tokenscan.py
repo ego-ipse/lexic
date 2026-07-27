@@ -1,6 +1,6 @@
 """The token-scanning kernel — Earley over a token-segmented input.
 
-:class:`TokenKernel` is the :class:`~lexic.parsing.earley.kernel.Kernel`
+:class:`TokenKernel` is the :class:`~lexic.parsing.earley.kernel.kernel.Kernel`
 specialisation that parses a grammar with **token terminals** against text
 lexic has segmented into tokens. The base kernel is untouched (char grammars
 never construct a ``TokenKernel``): this subclass adds one ``_scan`` branch —
@@ -29,10 +29,10 @@ from lexic.ir import (
     IrSequence,
     IrTokenizer,
 )
-from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.tables import ParserTables, compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.resume import ResumableKernel
-from lexic.parsing.earley.tables import ParserTables, compile_tables
 from lexic.parsing.fold import lift_optional_nullables
 
 TokenSpec = tuple[frozenset[int], bool]
@@ -92,7 +92,7 @@ def frontier_viable(kernel: Kernel) -> bool:
     absent next char), so ``cols[len(text)]`` witnesses extendability with no
     kernel change — a read-only view over the chart.
 
-    :param kernel: A kernel whose :meth:`~lexic.parsing.earley.kernel.Kernel.run`
+    :param kernel: A kernel whose :meth:`~lexic.parsing.earley.kernel.kernel.Kernel.run`
         (or resumable extension) has finished.
     :returns: ``True`` when some valid word has the kernel's text as a prefix.
     """

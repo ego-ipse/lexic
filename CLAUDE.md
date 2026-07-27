@@ -204,27 +204,32 @@ src/lexic/
     products.py                    The two product entries — reduce (text → the reducer's value), model (text → model)
     earley/
       __init__.py                  The Earley engine (SPPF, Scott 2008) over IrAst-shaped grammars
-      chart.py                     The IR-native SPPF link table — the decoded form of a kernel parse
       engine.py                    Earley orchestration — the IR-native façade over the compiled kernel
-      forest.py                    Parse forest — the shared packed parse forest (SPPF) and its reducible views
-      kernel.py                    The flat Earley kernel — the compiled grammar's paid loop
+      kernel/                    The paid loop — the kernel and the structures it fills
+        __init__.py              the group's package marker
+        chart.py                The IR-native SPPF link table — the decoded form of a kernel parse
+        fasttree.py             The fast tree build — the unambiguous parse's short path
+        forest.py               Parse forest — the shared packed parse forest (SPPF) and its reducible views
+        kernel.py               The flat Earley kernel — the compiled grammar's paid loop
+        tables.py               Compiled grammar tables — the parser's "codegen moment"
+        trampoline.py           Depth-safe trampoline for the forest/reduce tree walks
       lexruns.py                   Run-terminal detection — where a grammar's lexical layer is *derived*
       normalize.py                 Desugar an IR grammar into classical Earley shape
       reduce.py                    Forest → IR reduction — the seam where a flavour's meaning attaches
       resume.py                    The resumable recognizer — mark / extend / rollback on one growing chart
-      tables.py                    Compiled grammar tables — the parser's "codegen moment"
       tokenscan.py                 The token-scanning kernel — Earley over a token-segmented input
-      trampoline.py                Depth-safe trampoline for the forest/reduce tree walks
     pda/
       __init__.py                  The predictive PDA runtime — analysis, clone compiler, flattener, kernel
       analysis/
         __init__.py                The PDA analysis — decide every decision point, then store the gate specs
         analysis.py                Grammar analysis + decision taxonomy — the PDA compiler's oracle
         cursors.py                 Analysis context cursors — the small data records that ride the nc channel
-        kwindow.py                 FIRST_k over CharSet tuples — the k-window (bounded-lookahead) analysis
-        leftrec.py                 Left-recursion detection — the predictive-descent impossibility check
-        noise.py                   Noise/semantic attribution — the P6 licence + P3 noise-skip substrate
-        structured.py              P3-structured / P5-probe — folding-aware loop gates
+        gates/                 The gate analyses — one per decision the PDA must settle
+          __init__.py          the group's package marker
+          kwindow.py          FIRST_k over CharSet tuples — the k-window (bounded-lookahead) analysis
+          leftrec.py          Left-recursion detection — the predictive-descent impossibility check
+          noise.py            Noise/semantic attribution — the P6 licence + P3 noise-skip substrate
+          structured.py       P3-structured / P5-probe — folding-aware loop gates
         taxonomy.py                Taxonomy — the analysis' classified-notes + gate-spec result record
       compiler/
         __init__.py                The PDA clone compiler — an IrAst into flat int-coded tables

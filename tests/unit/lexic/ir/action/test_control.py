@@ -22,9 +22,9 @@ from lexic.ir.grammar.nodes import (
     IrQuantifier,
     IrRuleRef,
 )
-from lexic.ir.spine.spine import IrLambda, IrNode, IrNone
 from lexic.ir.spine.records import IrTuple
 from lexic.ir.spine.scalars import IrInt, IrStr
+from lexic.ir.spine.spine import IrLambda, IrNode, IrNone
 
 
 def test_return_inherits_base_exception_not_exception():

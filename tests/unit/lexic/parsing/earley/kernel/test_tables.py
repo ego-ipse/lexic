@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.earley.tables — CodeTables, DecodeTables, ParserTables,
+"""Tests for lexic.parsing.earley.kernel.tables — CodeTables, DecodeTables, ParserTables,
 compile_tables, atom_accepts.
 
 New module (the compiled "codegen moment" for parsing): every dotted
@@ -34,10 +34,9 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing import parse_first, recognize
-from lexic.parsing.earley import tables as tables_mod
-from lexic.parsing.earley.kernel import Kernel
-from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.tables import (
+from lexic.parsing.earley.kernel import tables as tables_mod
+from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.tables import (
     ADVANCE,
     ORIGIN_BITS,
     RUN_STR,
@@ -52,6 +51,7 @@ from lexic.parsing.earley.tables import (
     expand_atom,
     tier_for,
 )
+from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar

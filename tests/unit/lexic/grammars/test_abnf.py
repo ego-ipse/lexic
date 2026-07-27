@@ -45,7 +45,7 @@ from lexic.ir import (
     canonicalize,
 )
 from lexic.parsing import parse, recognize
-from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.kernel.forest import ParseTree
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import YIELD, Reducer
 from tests.unit.lexic.conftest import (

@@ -24,9 +24,9 @@ from lexic.ir.grammar.nodes import (
     IrRule,
     IrSequence,
 )
-from lexic.ir.spine.spine import IrNone
 from lexic.ir.spine.records import IrNamedTuple, IrTuple
 from lexic.ir.spine.scalars import IrChr, IrInt, IrStr
+from lexic.ir.spine.spine import IrNone
 
 
 def test_ircompare_eq_true_returns_irint_one():

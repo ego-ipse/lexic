@@ -6,7 +6,7 @@ product, the run-collapsed Earley tables), all memoised per
 **(grammar identity, reducer/fold identity)** — the compiled tables bake the
 reducer plan / fold records, so grammar identity alone is a wrong key. Earley
 tables pack at the tier the input's size picks
-(:func:`~lexic.parsing.earley.tables.tier_for` — the model product keys it, the
+(:func:`~lexic.parsing.earley.kernel.tables.tier_for` — the model product keys it, the
 reduce completion picks it per parse). Each
 parse runs the PDA first and completes on the Earley engine on any
 :class:`~lexic.parsing.pda.runtime.runtime.PdaFail`; :class:`PdaFail` never escapes.
@@ -29,16 +29,15 @@ from dataclasses import dataclass
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrSelf, IrStr, IrTuple
 from lexic.parsing.earley.engine import PARSE_FIRST, PARSE_REDUCED, EarleyParser
-from lexic.parsing.earley.forest import ParseTree
-from lexic.parsing.earley.kernel import FastTree
-from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.earley.tables import (
+from lexic.parsing.earley.kernel.fasttree import FastTree, ParseTree
+from lexic.parsing.earley.kernel.tables import (
     ORIGIN_BITS,
     ParserTables,
     compile_tables,
     tier_for,
 )
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda, compile_reduce_pda
@@ -61,7 +60,7 @@ def earley_reduce(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
     """Parse ``text`` and fold it straight to IR in one Earley pass.
 
     The grammar-text product's Earley completion — ``reducer.apply(parse(...))``
-    fused (no intermediate :class:`~lexic.parsing.earley.forest.ParseTree` in the
+    fused (no intermediate :class:`~lexic.parsing.earley.kernel.forest.ParseTree` in the
     common unambiguous case).
 
     :param grammar: The grammar, Earley-normalised (see :mod:`.earley.normalize`).
@@ -285,7 +284,7 @@ def parse_model[M](grammar: IrAst, text: str, fold: ModelFold[M]) -> M:
     Takes the **authored** codegen grammar; lifting, normalisation, PDA and
     run-collapsed table compilation are internal, memoised per ``(grammar,
     fold)`` identity plus the packing tier the input's size picks
-    (:func:`~lexic.parsing.earley.tables.tier_for`). Each parse runs the model
+    (:func:`~lexic.parsing.earley.kernel.tables.tier_for`). Each parse runs the model
     PDA first and, on any :class:`PdaFail`, completes on ``parse_first`` +
     ``fold``.
 

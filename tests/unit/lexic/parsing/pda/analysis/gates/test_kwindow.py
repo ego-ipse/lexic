@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda.analysis.kwindow — the FIRST_k fixpoint + gate functions.
+"""Tests for lexic.parsing.pda.analysis.gates.kwindow — the FIRST_k fixpoint + gate functions.
 
 Pins the fixed (post-Fable-review) semantics of :class:`KWindowFirst`,
 :func:`arm_gate`/:func:`loop_gate`, and their small helpers, against
@@ -33,7 +33,7 @@ from lexic.ir import (
 )
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.kwindow import (
+from lexic.parsing.pda.analysis.gates.kwindow import (
     END,
     MAX_K,
     MORE,

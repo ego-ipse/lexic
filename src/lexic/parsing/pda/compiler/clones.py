@@ -59,8 +59,8 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
+from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, ParserTables, compile_tables
 from lexic.parsing.earley.reduce import OTHER_KIND, Reducer, plan_for
-from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables, compile_tables
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource

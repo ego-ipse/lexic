@@ -9,9 +9,9 @@ from __future__ import annotations
 from typing import ClassVar, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.spine.spine import IrLeaf, IrSelf
 from lexic.ir.spine.records import IrNamedTuple, IrTuple
 from lexic.ir.spine.scalars import IrInt, IrScalar, IrStr
+from lexic.ir.spine.spine import IrLeaf, IrSelf
 
 
 class IrField(IrNamedTuple[str, type[IrScalar]]):

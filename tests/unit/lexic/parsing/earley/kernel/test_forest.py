@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.earley.forest — ParseTree, SppfNode, DERIVATIONS, BuildTree.
+"""Tests for lexic.parsing.earley.kernel.forest — ParseTree, SppfNode, DERIVATIONS, BuildTree.
 
 API changes (old → new):
 
@@ -12,9 +12,9 @@ API changes (old → new):
   are gone); it now exposes only ``chart`` and ``open``.  Sharing / memo tests are
   rewritten as behavioral correctness tests.
 - ``ACCEPTING`` (engine.py) is GONE — the accepting SPPF node and decoded chart are
-  now obtained by running :class:`~lexic.parsing.earley.kernel.Kernel` directly and
-  calling :meth:`~lexic.parsing.earley.kernel.Kernel.accept_node` /
-  :meth:`~lexic.parsing.earley.kernel.Kernel.to_chart`.  The local ``accept`` helper is
+  now obtained by running :class:`~lexic.parsing.earley.kernel.kernel.Kernel` directly and
+  calling :meth:`~lexic.parsing.earley.kernel.kernel.Kernel.accept_node` /
+  :meth:`~lexic.parsing.earley.kernel.kernel.Kernel.to_chart`.  The local ``accept`` helper is
   rewritten on top of ``Kernel`` + ``compile_tables``; its signature and callers are
   unchanged.
 - The old ``chart[0]`` per-column iteration (used to hunt a dot-0 EarleyItem) has no
@@ -36,7 +36,7 @@ from typing import Iterator, NamedTuple
 
 import pytest
 
-import lexic.parsing.earley.forest as forest_mod
+import lexic.parsing.earley.kernel.forest as forest_mod
 from lexic.compile import canonical_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
@@ -57,9 +57,9 @@ from lexic.ir import (
     IrTuple,
 )
 from lexic.parsing import derivations, is_ambiguous, parse, parse_forest
-from lexic.parsing.earley.chart import Chart
 from lexic.parsing.earley.engine import EarleyParser
-from lexic.parsing.earley.forest import (
+from lexic.parsing.earley.kernel.chart import Chart
+from lexic.parsing.earley.kernel.forest import (
     BUILD_TREE,
     DERIVATION_STREAM,
     DERIVATIONS,
@@ -76,10 +76,10 @@ from lexic.parsing.earley.forest import (
     RootNode,
     SppfNode,
 )
-from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, compile_tables
+from lexic.parsing.earley.kernel.trampoline import Trampoline
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.tables import ORIGIN_BITS, compile_tables
-from lexic.parsing.earley.trampoline import Trampoline
 from lexic.parsing.fold import lift_optional_nullables
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
