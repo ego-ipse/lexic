@@ -13,6 +13,7 @@ reverse. The thin ``PdaKernel._island`` dispatcher (which owns the cursor state
 from __future__ import annotations
 
 from collections.abc import Callable
+from operator import ne
 from typing import NamedTuple
 
 from lexic.exceptions import LexicError, UnsupportedConstructError
@@ -123,6 +124,12 @@ class IslandPolicy[M](NamedTuple):
     ambiguous: bool = False
     fold: ModelFold[M] | None = None
 
+    def for_island(self, delegates: dict[int, Delegate] | None) -> IslandPolicy[M]:
+        """This policy with ``delegates`` filled in — what one island reference
+        hands to its sub-parse. The delegates are the only per-island part; the
+        fold and the ambiguity setting belong to the whole parse."""
+        return IslandPolicy(delegates, self.ambiguous, self.fold)
+
 
 def island_parse(
     tables: ParserTables,
@@ -221,21 +228,103 @@ def island_derivation(
     :raises UnsupportedConstructError: When a second derivation builds a
         different value and the setting refuses it.
     """
-    node = SppfNode(kern.decode_item(item), end)
-    stream = DERIVATION_STREAM.eval(_DERIV_PARSER, node, IrTuple(kern.to_chart()))
-    walk = iter(stream)
-    tree = next(walk, None)
-    if not isinstance(tree, ParseTree):
-        raise PdaFail(f"island {name!r}: no derivation")
+    handle = (item << kern.tables.packing.bits) | end
     if policy.ambiguous or policy.fold is None:
+        tree = _one_derivation(kern, handle, name)
         return tree
-    second = next(walk, None)
-    if isinstance(second, ParseTree) and _differs(policy.fold.apply, tree, second):
+    points = _ambiguity_points(kern, handle)
+    tree = _one_derivation(kern, handle, name, {})
+    if points and _means_something_else(kern, handle, points, policy.fold.apply, tree):
         raise UnsupportedConstructError(
             f"parsing: island {name!r} derives the same text two ways that mean "
             "different things — pass ambiguous=True to take the first"
         )
     return tree
+
+
+def _ambiguity_points(kern: Kernel, root: int) -> list[int]:
+    """Every key reachable from ``root`` that packs more than one family.
+
+    The forest already records this: a key with more than one distinct family
+    IS an ambiguity point (Scott 2008), so the question "does this span derive
+    more than one way" is answered by a walk, not by enumerating derivations
+    and hoping the interesting one comes early.
+
+    Every family is followed, not merely the first — a walk down one spine
+    finds only the ambiguity points ON that spine.
+    """
+    bits, mask = kern.tables.packing.bits, kern.tables.packing.mask
+    codes, links = kern.tables.codes, kern.st.links
+    found: set[int] = set()
+    seen: set[int] = set()
+    stack = [root]
+    while stack:
+        handle = stack.pop()
+        if handle in seen:
+            continue
+        seen.add(handle)
+        item = handle >> bits
+        if (item >> bits) == codes.arm_base[codes.code_arm[item >> bits]]:
+            continue
+        bucket = links.get(handle)
+        if bucket is None:
+            continue
+        if len(bucket) > 1:
+            found.add(handle)
+        stack.extend(_reachable(bucket, bits, mask))
+    return sorted(found)
+
+
+def _reachable(bucket: list, bits: int, mask: int) -> list[int]:
+    """The handles a packed family bucket leads to — predecessors and kids."""
+    out: list[int] = []
+    for pitem, pend, child in bucket:
+        out.append((pitem << bits) | pend)
+        if isinstance(child, int) and not isinstance(child, bool):
+            out.append(((child >> bits) << bits) | (child & mask))
+    return out
+
+
+def _means_something_else(
+    kern: Kernel,
+    handle: int,
+    points: list[int],
+    apply: Callable[[ParseTree], object],
+    first: ParseTree,
+) -> bool:
+    """Does flipping any single ambiguity point build a different value?
+
+    One flip per point, rather than every combination: a fold is compositional,
+    so if no single alternative changes the value, no combination of them does.
+    That makes the cost linear in ambiguity points where enumerating
+    derivations is exponential in them — and exact, where taking the first two
+    off the stream is a sample that misses a difference living at the third.
+    """
+    base = apply(first)
+    for key in points:
+        for index in range(1, len(kern.st.links[key])):
+            other = FastTree(kern, {key: index}).build(handle)
+            if isinstance(other, ParseTree) and not _same(base, apply(other)):
+                return True
+    return False
+
+
+def _one_derivation(
+    kern: Kernel, handle: int, name: str, choices: dict[int, int] | None = None
+) -> ParseTree:
+    """The derivation ``choices`` names, or the fast path's when it is ``None``."""
+    tree = FastTree(kern, choices).build(handle)
+    if isinstance(tree, ParseTree):
+        return tree
+    node = SppfNode(
+        kern.decode_item(handle >> kern.tables.packing.bits),
+        handle & kern.tables.packing.mask,
+    )
+    stream = DERIVATION_STREAM.eval(_DERIV_PARSER, node, IrTuple(kern.to_chart()))
+    got = next(iter(stream), None)
+    if not isinstance(got, ParseTree):
+        raise PdaFail(f"island {name!r}: no derivation")
+    return got
 
 
 def _differs(
@@ -285,4 +374,6 @@ def _same(one: object, other: object) -> bool:
         return one.keys() == other.keys() and all(_same(one[k], other[k]) for k in one)
     if type(one).__eq__ is object.__eq__:
         return True
-    return bool(one == other) or (one != one and other != other)
+    # `x != x` is true only of a value that is not equal to itself — NaN.
+    # Spelled through `operator` because it is a deliberate self-comparison.
+    return bool(one == other) or (ne(one, one) and ne(other, other))

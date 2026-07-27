@@ -16,10 +16,13 @@ brittle fixture.
 
 from __future__ import annotations
 
+import random
+
 import pytest
 
-from lexic.compile import compile_text
+from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
+from lexic.generate import generate
 from lexic.ir import IrAst, IrInt, IrRuleRef, IrSeq, IrStr
 from lexic.parsing.earley.kernel.forest import ParseTree
 from lexic.parsing.earley.kernel.kernel import Kernel
@@ -35,6 +38,8 @@ from lexic.parsing.pda.runtime.islands import (
     island_run,
     island_value,
 )
+from lexic.parsing.products import _model_product
+from tests.paths import GROUND_TRUTH
 
 # ── island_run ────────────────────────────────────────────────────────
 
@@ -277,9 +282,42 @@ def test_differs_does_not_refuse_over_a_value_with_no_value_semantics():
     the object itself declines to define. Cannot tell is not a difference.
     """
 
-    class Opaque:
-        def __init__(self, value: int) -> None:
-            self.value = value
-
+    # spelled as a type rather than a class body because its whole point is
+    # having no members at all — least of all __eq__
+    opaque = type("Opaque", (), {})
     one, other = _tree("one"), _tree("other")
-    assert not _differs(lambda t: Opaque(1) if t is one else Opaque(1), one, other)
+    assert not _differs(lambda t: opaque() if t is one else opaque(), one, other)
+
+
+# ── ambiguity is a property of the FOREST, not of the first two derivations ──
+
+
+def _vyx_span(seed: int):
+    """A vyx parse whose forest holds >2 derivations, and its kernel."""
+    compiled = compile_from_path(GROUND_TRUTH / "vyx.gbnf")
+    product = _model_product(compiled.codegen_grammar, compiled.fold)
+    rules = {r.name: r for r in compiled.grammar.rules}
+    text = generate(
+        compiled.grammar.start, rules, rng=random.Random(seed), max_depth=12
+    )
+    kern = Kernel(product.tables, text)
+    best = kern.longest_start_completion()
+    assert best is not None
+    return compiled, kern, best
+
+
+@pytest.mark.parametrize("seed", [79, 108])
+def test_ambiguity_past_the_second_derivation_is_still_ambiguity(seed):
+    """Derivations [0] and [1] agree; a LATER one does not — and it must refuse.
+
+    Taking two derivations off the stream was sufficient under the old rule,
+    where any second derivation was an ambiguity. Comparing by VALUE made an
+    equal second derivation tolerated, so the scan stopped on exactly the case
+    that should have made it keep looking. These two vyx inputs are that case.
+    """
+    compiled, kern, best = _vyx_span(seed)
+    item, end = best
+    with pytest.raises(UnsupportedConstructError):
+        island_derivation(
+            kern, item, end, "vyx", policy=IslandPolicy(fold=compiled.fold)
+        )

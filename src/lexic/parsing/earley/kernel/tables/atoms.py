@@ -69,7 +69,11 @@ class Packing(IrLeaf[IrSelf, IrSelf]):
 
 
 def predecessor_chain(
-    links: dict[int, list[KLink]], item: int, end: int, base: int, bits: int
+    links: dict[int, list[KLink]],
+    handle: int,
+    base: int,
+    bits: int,
+    choices: dict[int, int] | None = None,
 ) -> list[KLink] | None:
     """Walk a packed handle's single-link predecessor chain down to ``base``.
 
@@ -78,21 +82,30 @@ def predecessor_chain(
     are otherwise identical.
 
     :param links: The parse's SPPF family table.
-    :param item: The handle's packed item (dot strictly past ``base``).
-    :param end: The handle's column.
+    :param handle: The packed ``(item << bits) | end`` — the same spelling
+        every other site carries the pair in.
     :param base: The arm's dot-0 code — the chain stops here.
     :param bits: The tables' packing tier (``ParserTables.packing.bits``).
+    :param choices: key → which family to take at an ambiguity point. When
+        given, a packed key is no longer a reason to bail: the walk takes the
+        chosen family (0 by default), which is how one derivation is singled
+        out of an ambiguous forest for comparison against another. When
+        ``None`` a packed key bails, which is the fast path's contract.
     :returns: The chain's ``(predecessor_item, predecessor_end, child)``
-        triples in source order, or ``None`` when a key is missing or packs
-        more than one family — the caller's cue to bail (no build, or fall
-        back to the ambiguity-aware path).
+        triples in source order, or ``None`` when a key is missing, or packs
+        more than one family and no choice was supplied — the caller's cue to
+        bail (no build, or fall back to the ambiguity-aware path).
     """
     chain: list[KLink] = []
+    item, end = handle >> bits, handle & ((1 << bits) - 1)
     while (item >> bits) != base:
-        bucket = links.get((item << bits) | end)
-        if bucket is None or len(bucket) > 1:
+        key = (item << bits) | end
+        bucket = links.get(key)
+        if bucket is None:
             return None
-        item, end, child = bucket[0]
+        if len(bucket) > 1 and choices is None:
+            return None
+        item, end, child = bucket[choices.get(key, 0) if choices else 0]
         chain.append((item, end, child))
     chain.reverse()
     return chain

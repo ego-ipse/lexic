@@ -422,7 +422,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         item = handle >> self._bits
         end = handle & self._mask
         base = tables.codes.arm_base[tables.codes.code_arm[item >> self._bits]]
-        chain = predecessor_chain(links, item, end, base, self._bits)
+        chain = predecessor_chain(links, (item << self._bits) | end, base, self._bits)
         if chain is None:
             return None
         return self._chain_kids(chain)

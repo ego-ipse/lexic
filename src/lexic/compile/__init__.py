@@ -504,13 +504,9 @@ def _compile_core(
     flavour: str = "gbnf",
     tokenizer: IrTokenizer | None = None,
     registry: IrMap | None = None,
-    non_semantic_rules: frozenset[str] | None = None,
-    start: str | None = None,
 ) -> CompiledGrammar:
     flavour_cls = get_flavour(flavour)
-    ast = canonical_grammar(
-        text, flavour_cls, non_semantic_rules=non_semantic_rules, start=start
-    )
+    ast = canonical_grammar(text, flavour_cls)
     resolved = encoding_registry(tokenizer, registry)
     # Resolution is for MATCHING, not for meaning. concretize COMMUTES with
     # build_codegen_grammar, so the unresolved codegen grammar is built once
@@ -548,8 +544,6 @@ def compile_text(
     flavour: str = "gbnf",
     tokenizer: IrTokenizer | None = None,
     registry: IrMap | None = None,
-    non_semantic_rules: frozenset[str] | None = None,
-    start: str | None = None,
 ) -> CompiledGrammar:
     """Compile from a grammar string, memoised by content by default.
 
@@ -575,9 +569,6 @@ def compile_text(
     :param registry: An ``IrMap[IrStr, IrEncoding]`` binding the grammar's
         encoding *names* to encodings (``unicode`` is always present); the
         general form of ``tokenizer=``; the two compose.
-    :param non_semantic_rules: Rules to mark structural noise, as the
-        ``@non-semantic`` directive would. Overrides the directive when given.
-    :param start: The start rule, as ``@start`` would. Overrides it when given.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     stem = _stem_for_text(text)
@@ -586,26 +577,13 @@ def compile_text(
     # reused and hand back another one's artefact. Both are hashable.
     # The directives are part of WHAT WAS COMPILED, so they key the memo too:
     # without them one source compiled two ways would hand back the first.
-    content_key: tuple[Hashable, ...] = (
-        stem,
-        flavour,
-        tokenizer,
-        registry,
-        non_semantic_rules,
-        start,
-    )
+    content_key: tuple[Hashable, ...] = (stem, flavour, tokenizer, registry)
     key = (cache_key, *content_key) if cache_key is not None else content_key
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     cg = _compile_core(
-        text,
-        stem=stem,
-        flavour=flavour,
-        tokenizer=tokenizer,
-        registry=registry,
-        non_semantic_rules=non_semantic_rules,
-        start=start,
+        text, stem=stem, flavour=flavour, tokenizer=tokenizer, registry=registry
     )
     _CACHE[key] = cg
     return cg
@@ -669,8 +647,6 @@ def compile_from_path(
     flavour: str | None = None,
     tokenizer: IrTokenizer | None = None,
     registry: IrMap | None = None,
-    non_semantic_rules: frozenset[str] | None = None,
-    start: str | None = None,
 ) -> CompiledGrammar:
     """Compile from a file path; memoised by (path, mtime, size, flavour).
 
@@ -684,9 +660,6 @@ def compile_from_path(
     :param tokenizer: A tokenizer to bind under its own ``name``.
     :param registry: Further name → encoding bindings; composes with
         ``tokenizer`` (see :func:`compile_text`).
-    :param non_semantic_rules: Rules to mark structural noise, as the
-        ``@non-semantic`` directive would. Overrides the directive when given.
-    :param start: The start rule, as ``@start`` would. Overrides it when given.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     path = Path(grammar_path).resolve()
@@ -705,21 +678,13 @@ def compile_from_path(
         flavour,
         tokenizer,
         registry,
-        non_semantic_rules,
-        start,
     )
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     text = path.read_text(encoding="utf-8")
     cg = _compile_core(
-        text,
-        stem=path.stem,
-        flavour=flavour,
-        tokenizer=tokenizer,
-        registry=registry,
-        non_semantic_rules=non_semantic_rules,
-        start=start,
+        text, stem=path.stem, flavour=flavour, tokenizer=tokenizer, registry=registry
     )
     _CACHE[key] = cg
     return cg

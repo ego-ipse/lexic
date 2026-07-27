@@ -682,14 +682,3 @@ def test_a_block_comment_flavour_can_carry_a_start_directive():
     text = '(* @start second *)\nfirst = "a" ;\nsecond = "b" ;\n'
     ast = canonical_grammar(text, EBNF_FLAVOUR)
     assert ast.start == "second"
-
-
-def test_non_semantic_rules_is_reachable_from_the_public_entry_point():
-    """compile_text takes the directive as an argument, not only in the source.
-
-    A caller who knows a rule is noise had no sanctioned way to say so — the
-    parameter existed on `canonical_grammar` and stopped there.
-    """
-    text = "root ::= ws\nws ::= [ ]*\n"
-    compiled = compile_text(text, non_semantic_rules=frozenset({"ws"}))
-    assert not next(r for r in compiled.grammar.rules if r.name == "ws").semantic

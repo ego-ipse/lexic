@@ -31,17 +31,26 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
     :ivar kernel: The finished kernel whose links to walk.
     :ivar memo: handle → its built :class:`ParseTree`.
     :ivar stack: Work frames ``(handle, dest, slot, resolved | None)``.
+    :ivar choices: key → which family to take at an ambiguity point, or
+        ``None`` for the fast path's "an ambiguity point is a miss" contract.
+        With choices supplied the build no longer misses on ambiguity; it
+        builds THE derivation those choices name, which is what lets two
+        derivations of one span be compared by the values they build.
     """
 
-    __slots__ = ("kernel", "memo", "stack", "_bits", "_mask")
+    __slots__ = ("kernel", "memo", "stack", "choices", "_bits", "_mask")
 
     kernel: Kernel
     memo: dict[int, ParseTree]
     stack: list[tuple[int, list, int, list | None]]
+    choices: dict[int, int] | None
 
-    def __init__(self, kernel: Kernel) -> None:
-        """:param kernel: the finished kernel to read."""
+    def __init__(self, kernel: Kernel, choices: dict[int, int] | None = None) -> None:
+        """:param kernel: the finished kernel to read.
+        :param choices: the family to take at each ambiguity point, if any.
+        """
         self.kernel = kernel
+        self.choices = choices
         self.memo = {}
         self.stack = []
         self._bits = kernel.tables.packing.bits
@@ -110,10 +119,10 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         caller falls back to the trampolined enumeration.
         """
         t = self.kernel.tables
-        item = handle >> self._bits
-        end = handle & self._mask
-        base = t.codes.arm_base[t.codes.code_arm[item >> self._bits]]
-        chain = predecessor_chain(self.kernel.st.links, item, end, base, self._bits)
+        base = t.codes.arm_base[t.codes.code_arm[(handle >> self._bits) >> self._bits]]
+        chain = predecessor_chain(
+            self.kernel.st.links, handle, base, self._bits, self.choices
+        )
         if chain is None:
             return None  # missing (no build) or ambiguous (fall back)
         return [
