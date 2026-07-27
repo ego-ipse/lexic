@@ -6,6 +6,39 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ---
 
+## The compiled artefact's four rulings
+
+**The target is inferred, never a flag.** `classes` / `ir` / `plain` are one
+projection over one symbol table, decided by the codomain of the reduction that
+produced the value. A `target=` parameter would be a channel beside a real one:
+the caller already chose, by choosing a product, and asking again invites the
+two answers to disagree. The rule generalises — if a flag appears in the
+projection, a wrong turn has been taken.
+
+**The `.pyc` is written at export.** `UNCHECKED_HASH` makes byte-compiled output
+outrank its source unconditionally, which is what buys the fast import. Its
+price is that whoever writes the `.py` must write the `.pyc`: leaving it to the
+first importer is how a reader silently gets yesterday's value. The same rule
+orders the two files on disk — the stale cache is dropped before the new source
+lands, and the fresh cache after, so no crash window leaves them disagreeing.
+
+**`src/` carries no regex engine.** Field naming, name mangling and every other
+text transform in the compile path are written as explicit character walks. A
+regex is a second, opaque grammar engine living inside a grammar engine: the
+one thing this codebase should never need to reach for is a different notation
+for "what does this text mean". A static check enforces the absence, and it is a
+floor — it catches an import, not a rewrite of one under another name.
+
+**Record sharing is keyed on identity, plus equal-and-immutable.** Two nodes
+share a record when the source shared the object, OR when they are equal and not
+in-place mutable. Not identity alone: value-sharing is what keeps the tables
+small. Not equality alone: that would merge two lists a caller intends to mutate
+apart. The memo carries a **keepalive** with each key, because a memo key is
+valid only while something holds the object — synthesized children are freed as
+their frame pops, and their ids get handed straight back to different objects.
+
+---
+
 ## 2026-07-21 — Micro-perf floor: in-process A/B only; model count, not per-model cost, bounds the win
 
 **Finding:** the only trustworthy way to measure a parse-engine change below roughly 15% is an **in-process, interleaved A/B** — baseline and candidate run in the same warm process, order randomized per sample, best-of-N reported. Cross-process comparisons (including git-stash-based before/after) and `cProfile` self-time both mislead at this scale: cross-process runs showed an apparent 6–11% win that vanished (and in one case reversed) under in-process A/B, because cold-start and allocator noise dominate a delta that small; `cProfile`'s per-call overhead inflates exactly the highest-call-count helper functions, misdirecting effort toward code that isn't the real steady-state bottleneck.
