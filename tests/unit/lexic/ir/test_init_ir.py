@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ast as pyast
 import importlib
+from importlib import import_module
 
 import pytest
 
@@ -14,7 +16,7 @@ from lexic.grammars.gbnf import GBNF_GRAMMAR
 from lexic.ir.base import IrInt, IrNone
 from lexic.ir.base import IrNoneType as _IrNoneType
 from lexic.ir.base import IrStr, IrTuple
-from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
+from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH, PROJECT_ROOT
 
 
 def test_module_has_all() -> None:
@@ -195,3 +197,92 @@ def test_public_surface_names_every_symbol_emission_spells(
         f"{label}: emission spells {sorted(spelled - set(ir.__all__))}, "
         "which no generated module could import from lexic.ir"
     )
+
+
+def _public_names() -> dict[str, str]:
+    """Every public top-level name each ir module defines, and where."""
+    found: dict[str, str] = {}
+    for path in sorted((PROJECT_ROOT / "src" / "lexic" / "ir").glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        for node in pyast.parse(path.read_text(encoding="utf-8")).body:
+            if isinstance(node, (pyast.ClassDef, pyast.FunctionDef)):
+                if not node.name.startswith("_"):
+                    found[node.name] = f"lexic.ir.{path.stem}"
+            elif isinstance(node, pyast.Assign):
+                for target in node.targets:
+                    named = isinstance(target, pyast.Name)
+                    if (
+                        named
+                        and not target.id.startswith("_")
+                        and target.id[0].isupper()
+                    ):
+                        found[target.id] = f"lexic.ir.{path.stem}"
+    return found
+
+
+def test_the_facade_exports_every_public_name_in_the_package() -> None:
+    """A surface that omits what consumers need is a surface they bypass.
+
+    It once exported 70 of 120 public names — no ``layout``, no ``IrFlavour``,
+    no ``IrLambda``, no ``IrDispatch`` — and 503 import sites reached past it
+    into the submodules, which is what a partial façade earns.
+    """
+    missing = sorted(set(_public_names()) - set(ir.__all__))
+    assert not missing, f"public but not on the façade: {missing}"
+
+
+def _facade_source() -> tuple[dict[str, str], set[str]]:
+    """The façade's ``_HOMES`` map and its eagerly-bound names, read structurally.
+
+    From the SOURCE, as the package root's own pin does: the map is private, and
+    a test that reads it as an attribute asserts against something the module
+    does not offer.
+    """
+    tree = pyast.parse(
+        (PROJECT_ROOT / "src" / "lexic" / "ir" / "__init__.py").read_text("utf-8")
+    )
+    homed: dict[str, str] = {}
+    for node in pyast.walk(tree):
+        if not isinstance(node, pyast.Assign) or not isinstance(node.value, pyast.Dict):
+            continue
+        if not any(
+            isinstance(t, pyast.Name) and t.id == "_HOMES" for t in node.targets
+        ):
+            continue
+        for key, home in zip(node.value.keys, node.value.values):
+            if isinstance(key, pyast.Constant) and isinstance(home, pyast.Constant):
+                homed[str(key.value)] = str(home.value)
+    eager = {
+        alias.name
+        for node in tree.body
+        if isinstance(node, pyast.ImportFrom)
+        and node.module
+        and node.module.startswith("lexic.ir")
+        for alias in node.names
+    } - {"IrSelf"}
+    return homed, eager
+
+
+def test_the_three_statements_of_the_surface_agree() -> None:
+    """``__all__``, ``_HOMES`` and the eager bindings are one surface.
+
+    It is stated three times because three consumers read it — the type
+    checker, the export machinery, and the runtime lookup — so a name joins by
+    joining all three or the façade lies to one of them.
+    """
+    homed, eager = _facade_source()
+    assert set(ir.__all__) == set(homed) | eager
+    assert not (set(homed) & eager), "a name is both lazy and eager"
+
+
+def test_every_exported_name_resolves_to_its_recorded_module() -> None:
+    """``_HOMES`` says where each name lives; that module has to define it.
+
+    Asked of the MODULE, not of the value's ``__module__``: a type alias like
+    ``IrDoc`` reports ``typing`` as its module and is still exactly what
+    ``lexic.ir.layout`` defines under that name.
+    """
+    homed, _ = _facade_source()
+    for name, home in homed.items():
+        assert getattr(import_module(home), name) is getattr(ir, name), (name, home)
