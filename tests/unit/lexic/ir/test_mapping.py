@@ -354,3 +354,55 @@ def test_multimap_table_slot_available_for_subclasses():
     mm: IrMultiMap = IrMultiMap()
     mm += (IrStr("k"), IrStr("v"))
     assert getattr(mm, "_table") == {IrStr("k"): [IrStr("v")]}
+
+
+# ── building a map from a table, without reaching for the slot ────────────
+
+
+def test_ir_map_from_table_matches_the_dyad_constructor() -> None:
+    """``from_table`` and ``IrMap(*dyads)`` build the same map."""
+    dyads = (IrTuple(IrStr("b"), IrInt(2)), IrTuple(IrStr("a"), IrInt(1)))
+    pairs = [(d[0], d[1]) for d in dyads]
+    assert IrMap.from_table(pairs) == IrMap(*dyads)
+
+
+def test_ir_map_from_table_canonicalises_whatever_order_it_is_given() -> None:
+    """``IrMap``'s order is a property of its KEYS, not of the caller's list.
+
+    The reader that motivated this builds a map from a file, and a file can be
+    edited. Sorting here is what keeps ``_table`` canonical by construction
+    rather than by trusting the input — the export fixpoint cannot catch a
+    wrongly-ordered map, because a wrong order re-encodes to itself.
+    """
+    forward = [(IrStr("a"), IrInt(1)), (IrStr("b"), IrInt(2))]
+    assert list(IrMap.from_table(reversed(forward)).keys()) == [IrStr("a"), IrStr("b")]
+    assert list(IrMap.from_table(forward).keys()) == [IrStr("a"), IrStr("b")]
+
+
+def test_from_table_refuses_a_duplicate_key() -> None:
+    """A repeated key is a corrupt table, not a last-one-wins merge."""
+    with pytest.raises(UnsupportedConstructError, match="duplicate key"):
+        IrMap.from_table([(IrStr("a"), IrInt(1)), (IrStr("a"), IrInt(2))])
+
+
+def test_multimap_from_table_keeps_the_order_it_is_given() -> None:
+    """The base container has no canonical order to impose — insertion is it.
+
+    ``IrMultiMap`` documents insertion order and is identity-equal, so
+    canonicalising its table would be inventing an invariant it does not have.
+    """
+    pairs = [(IrStr("b"), [1]), (IrStr("a"), [2])]
+    assert list(IrMultiMap.from_table(pairs).keys()) == [IrStr("b"), IrStr("a")]
+
+
+def test_from_table_needs_no_reach_into_the_private_slot() -> None:
+    """The point of the constructor: a caller never names ``_table``.
+
+    The compiled-payload reader rebuilt a mapping with
+    ``object.__setattr__(obj, "_table", …)``, hard-coding a private slot across
+    a boundary no import makes visible — rename the slot and every artefact
+    ever written decodes wrong, silently.
+    """
+    built = IrMap.from_table([(IrStr("k"), IrInt(1))])
+    assert built[IrStr("k")] == IrInt(1)
+    assert built == IrMap(IrTuple(IrStr("k"), IrInt(1)))
