@@ -44,6 +44,15 @@ def _run(tmp_path, stem: str, extra: str = "") -> tuple[str, int]:
     return lines[0], int(lines[1])
 
 
+def _is_import(node: pyast.stmt) -> bool:
+    """An import statement, or the try/except pair that spells one both ways."""
+    if isinstance(node, (pyast.Import, pyast.ImportFrom)):
+        return True
+    return isinstance(node, pyast.Try) and all(
+        isinstance(inner, (pyast.Import, pyast.ImportFrom)) for inner in node.body
+    )
+
+
 def test_a_plain_artefact_imports_no_lexic_at_all(tmp_path) -> None:
     """The reader is inlined, so a payload naming no symbol pays for nothing."""
     value = ({"a": [1, 2.5]}, "x", None, b"\xff", {3}, 10**30)
@@ -174,20 +183,11 @@ def test_the_artefact_records_where_each_symbol_came_from() -> None:
 
 
 def test_the_artefact_has_no_imports_below_its_code() -> None:
-    """The inlined reader's own imports must be the module's first statements.
-
-    It carries `import array` / `import hashlib` at its top, so the reader goes
-    ABOVE the symbol header — otherwise those land mid-file and every linter
-    that reads the artefact says so.
-    """
+    """Imports first, code after — the order a hand-written module would have."""
     source = render(project((1, 2)), READER)
     assert "from __future__ import annotations" not in source
     tree = pyast.parse(source)
-    imports = [
-        i
-        for i, node in enumerate(tree.body)
-        if isinstance(node, (pyast.Import, pyast.ImportFrom))
-    ]
+    imports = [i for i, node in enumerate(tree.body) if _is_import(node)]
     code = [
         i
         for i, node in enumerate(tree.body)
@@ -346,8 +346,7 @@ def test_every_import_is_at_the_top_of_the_artefact() -> None:
     linter a user of the artefact runs.
     """
     tree = pyast.parse(render(project((IrStr("x"),)), READER))
-    kinds = [type(node).__name__ for node in tree.body]
-    imports = [i for i, kind in enumerate(kinds) if kind in ("Import", "ImportFrom")]
+    imports = [i for i, node in enumerate(tree.body) if _is_import(node)]
     assert imports == list(range(1, 1 + len(imports)))  # right after the docstring
 
 
@@ -452,3 +451,42 @@ def test_a_symbol_rebound_to_another_module_is_refused_at_import(tmp_path) -> No
     )
     assert got.returncode != 0
     assert "another module" in got.stderr
+
+
+def test_a_sidecar_with_the_right_name_and_wrong_contents_is_overwritten(
+    tmp_path,
+) -> None:
+    """The name is DERIVED from the source, so a file wearing it is not it.
+
+    Skipping the write when the path existed let a pre-placed ``decode`` read
+    every artefact in the directory, silently and with no error anywhere.
+    """
+    export_value({"a": 1}, tmp_path / "first.py")
+    sidecar = next(iter(tmp_path.glob("payload_reader_*.py")))
+    sidecar.write_text("def decode(*_a, **_k):\n    return 'owned'\n", encoding="utf-8")
+    export_value({"a": 2}, tmp_path / "second.py")
+    assert "owned" not in sidecar.read_text(encoding="utf-8")
+    assert _run(tmp_path, "second")[0] == "{'a': 2}"
+
+
+def test_an_artefact_reads_both_inside_a_package_and_outside_one(tmp_path) -> None:
+    """Where an artefact lands is not settled when it is written.
+
+    A directory can become a package, or stop being one, long after the export,
+    so the artefact spells the sidecar import both ways round rather than
+    guessing from an ``__init__.py`` that may not be there yet.
+    """
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    export_value({"n": 1}, pkg / "art.py")
+    assert _run(pkg, "art")[0] == "{'n': 1}"
+
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    got = subprocess.run(
+        [sys.executable, "-c", "import pkg.art as m; print(repr(m.VALUE))"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert got.stdout.strip() == "{'n': 1}"

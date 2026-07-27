@@ -89,13 +89,13 @@ def _sidecar(directory: Path) -> str:
     source = _reader_source()
     tag = blake2b(source.encode("utf-8"), digest_size=6).hexdigest()
     path = directory / f"payload_reader_{tag}.py"
-    if not path.exists():
-        write_module(path, source)
-    # Relative inside a package, absolute outside: the artefact has to spell the
-    # sidecar the way Python resolves it from where the artefact lands, and
-    # whether that place is a package is a fact about the directory.
-    package = (directory / "__init__.py").exists()
-    return ("." if package else "") + path.stem
+    # Written every time, never "only if absent". The name is DERIVED from the
+    # source, so a file already sitting there under that name is either this
+    # exact reader or something else wearing its name — and skipping the write
+    # let a pre-placed `decode` read every artefact in the directory, silently.
+    # Rewriting also refreshes a `.pyc` that a hand-edit or a crash left stale.
+    write_module(path, source)
+    return path.stem
 
 
 def _homes(payload: Payload, module: str | None) -> dict[str, str]:
@@ -189,6 +189,25 @@ def _verify_module(module: str | None, homes: dict[str, str], payload: Payload) 
         )
 
 
+def _reader_import(reader_module: str) -> list[str]:
+    """Import the sidecar both ways round.
+
+    Where an artefact lands is not settled when it is written: a directory can
+    become a package, or stop being one, long after the export. Guessing at
+    export time — reading the directory for an ``__init__.py`` — produced a file
+    that imported in exactly one of the two arrangements and raised in the other.
+
+    :param reader_module: The sidecar's module name, unqualified.
+    :returns: The import lines.
+    """
+    return [
+        "try:",
+        f"    from .{reader_module} import decode",
+        "except ImportError:",
+        f"    from {reader_module} import decode",
+    ]
+
+
 def _imports(homes: dict[str, str]) -> list[str]:
     """One parenthesised ``from … import`` per home, aliased so nothing shadows.
 
@@ -250,7 +269,7 @@ def render(payload: Payload, reader_module: str, *, module: str | None = None) -
         "\n\n\n".join(
             [
                 doc,
-                "\n".join([f"from {reader_module} import decode"] + _imports(homes)),
+                "\n".join(_reader_import(reader_module) + _imports(homes)),
                 "\n".join(_symbol_map(homes)) if homes else "SYMBOLS = {}",
                 f"{tables}\n"
                 f"DIGEST = {payload.digest()!r}\n"
