@@ -1,7 +1,7 @@
 """Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin.
 
 The flat, tuple-coded records :func:`~lexic.parsing.pda.compiler.clones.compile_pda`
-produces before :func:`~lexic.parsing.pda.compiler.clones._flatten_program` lowers them
+produces before :func:`~lexic.parsing.pda.compiler.clones.flatten_program` lowers them
 into the int-coded runtime :class:`~lexic.parsing.pda.compiler.flatten.PdaProgram`: the
 clone/arm/item/group specs plus the loop gates (:class:`StopGate`,
 :class:`PairGate`, :class:`KTupleGate`, :class:`PeekGate` — the folding-aware
@@ -22,6 +22,12 @@ from typing import NamedTuple
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
+
+LIT, CC, REF, GRP = "lit", "cc", "ref", "grp"
+"""The :attr:`ItemSpec.kind` tags: literal, char class, rule reference, group.
+
+Here rather than in ``clones`` because the lowering reads them too, and a tag
+shared by the compiler and its lowering belongs to the vocabulary between them."""
 
 __all__ = [
     "CloneKey",
@@ -169,7 +175,7 @@ class ArmGates(NamedTuple):
 
     A rule body's stored gate specs, read from the
     :class:`~lexic.parsing.pda.analysis.analysis.Taxonomy` and handed to
-    :meth:`~lexic.parsing.pda.compiler.clones._PdaCompiler.compile_arms` together so the
+    :meth:`~lexic.parsing.pda.compiler.clones.PdaCompiler.compile_arms` together so the
     per-arm alignment stays inside one enumeration. An inline group passes the
     empty default (no demotion).
 

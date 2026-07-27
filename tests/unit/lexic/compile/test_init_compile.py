@@ -29,8 +29,8 @@ from lexic.ir import EscapeCodec, IrAst, IrDispatch, IrFlavour, IrLiteral
 from lexic.model import GrammarModel
 from lexic.parsing import normalize
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.pda.compiler.clones import PdaTables
 from lexic.parsing.pda.compiler.specs import IslandRef
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.products import (
     _reduce_product,
     earley_model,

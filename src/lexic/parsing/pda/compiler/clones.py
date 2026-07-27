@@ -9,7 +9,7 @@ for the conflicted rules that fall back to Earley sub-parses.
 
 **Clones (pivot 3).** A rule is compiled once per distinct *hard continuation*
 that reaches it (its loop stop-sets are call-site-exact, pivot 4).
-:meth:`_PdaCompiler.ensure_rule` reserves the clone key with a :data:`_PENDING`
+:meth:`PdaCompiler.ensure_rule` reserves the clone key with a :data:`_PENDING`
 placeholder before compiling, so recursion resolves to the in-progress key and
 a repeat ``(name, tail)`` reuses the clone. Island rules are never cloned — a
 reference carries an :class:`IslandRef` (a ``fail`` one raises
@@ -32,7 +32,7 @@ an unregistered atom raises :exc:`~lexic.exceptions.UnsupportedConstructError`
 (the Task-6 "no PDA" seam).
 
 The spec NamedTuples are the compiler's *intermediate* (the shape tests pin);
-:func:`_flatten_program` lowers them once into the flat int-coded
+:func:`flatten_program` lowers them once into the flat int-coded
 :class:`PdaProgram` the :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` walks. The
 two stay in lockstep on :class:`PdaTables` (``.clones`` for introspection,
 ``.program`` for the hot loop).
@@ -59,41 +59,25 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
-from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, ParserTables, compile_tables
+from lexic.parsing.earley.kernel.tables import compile_tables
 from lexic.parsing.earley.reduce import OTHER_KIND, Reducer, plan_for
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.flatten import (
-    BUILD_ALT,
-    BUILD_SEQ,
-    BUILD_TRANSPARENT,
-    BUILD_VALUE_STR,
-    GATE_KWIN,
-    GATE_PAIR,
-    GATE_PEEK,
-    GATE_SCAN,
-    GATE_STOP,
-    HI_UNBOUNDED,
-    MODE_CODE,
-    OP_CC,
-    OP_FAIL,
-    OP_GRP,
-    OP_ISLAND,
-    OP_LIT,
-    OP_REF,
-    FlatArm,
-    FlatClone,
     PdaProgram,
-    optimize_program,
 )
+from lexic.parsing.pda.compiler.lower import flatten_clones
 from lexic.parsing.pda.compiler.reduce_pda import (
     ReduceComp,
     ReduceCompile,
     ReduceRun,
-    reduce_rewrite,
 )
 from lexic.parsing.pda.compiler.specs import (
+    CC,
+    GRP,
+    LIT,
+    REF,
     ArmGates,
     ArmSpec,
     CloneKey,
@@ -106,6 +90,7 @@ from lexic.parsing.pda.compiler.specs import (
     PeekGate,
     StopGate,
 )
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
 
@@ -134,8 +119,6 @@ __all__ = [
     "GRP",
 ]
 
-LIT, CC, REF, GRP = "lit", "cc", "ref", "grp"
-"""The :attr:`ItemSpec.kind` tags: literal, char class, rule reference, group."""
 
 ITEM_KINDS: tuple[str, ...] = (LIT, CC, REF, GRP)
 """The full :attr:`ItemSpec.kind` vocabulary."""
@@ -150,7 +133,7 @@ ITEM_KINDS: tuple[str, ...] = (LIT, CC, REF, GRP)
 
 
 _PENDING = CloneSpec("", (), None, None, False)
-"""In-progress placeholder installed by :meth:`_PdaCompiler.ensure_rule` before
+"""In-progress placeholder installed by :meth:`PdaCompiler.ensure_rule` before
 a clone body is compiled — reserves the key so recursion resolves to it, then
 is overwritten by the finished :class:`CloneSpec`."""
 
@@ -203,13 +186,6 @@ def _resolve_struct_arm(
             "pda: structured arm gate escape does not match the nullable default arm"
         )
     return struct_arm.gate
-
-
-def _flat_windows(
-    windows: tuple[tuple[CharSet, ...], ...],
-) -> tuple[tuple[tuple[frozenset[str], bool], ...], ...]:
-    """Pre-resolve CharSet windows to the ``((chars, negated), ...)`` flat form."""
-    return tuple(tuple((cs.chars, cs.negated) for cs in win) for win in windows)
 
 
 # ── per-item context cursor (rides the argument channel) ───────────────────
@@ -284,7 +260,7 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     repeats, and the clone is compiled (or reused) via ``ensure_rule``.
     """
     ctx = cast(_ItemCtx, nc[0])
-    compiler = cast(_PdaCompiler, d)
+    compiler = cast(PdaCompiler, d)
     name = str(n)
     if name in compiler.islands:
         fail = name in compiler.fail_islands
@@ -302,7 +278,7 @@ def _spec_alternation(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     unions in the group's own hard-FIRST (the group may follow itself).
     """
     ctx = cast(_ItemCtx, nc[0])
-    compiler = cast(_PdaCompiler, d)
+    compiler = cast(PdaCompiler, d)
     eff = ctx.cont
     if ctx.hi is None or ctx.hi > 1:
         eff = eff.union(compiler.analysis.atom_hard(cast(IrAtom, n)))
@@ -324,7 +300,7 @@ _ATOM_SPEC: IrTypeMap = IrTypeMap(
 # ── the compiler ───────────────────────────────────────────────────────────
 
 
-class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
+class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     """Builds the per-(rule, hard-continuation) clone table for one grammar.
 
     Holds the compile-time state and IS the dispatcher slot ``d`` handed to
@@ -560,307 +536,13 @@ class _PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         return StopGate(first.subtract(cont))
 
 
-def _build_mode(fold: RuleFold | None) -> int:
-    """Map a clone's fold to its flat build-mode.
-
-    :param fold: The clone's :class:`~lexic.parsing.fold.RuleFold`, or ``None``.
-    :returns: One of the ``_BUILD_*`` constants.
-    :raises UnsupportedConstructError: On a fold kind outside the vocabulary.
-    """
-    if fold is None:
-        return BUILD_TRANSPARENT
-    kind = fold.kind
-    if kind == "value_str":
-        return BUILD_VALUE_STR
-    if kind == "alternation":
-        return BUILD_ALT
-    if kind == "sequence":
-        return BUILD_SEQ
-    raise UnsupportedConstructError(f"pda: unknown fold kind {kind!r}")
-
-
-def _flatten_gate(
-    gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate,
-) -> tuple[int, object]:
-    """Lower a loop gate to its ``(code, data)`` flat pair."""
-    if isinstance(gate, PairGate):
-        return GATE_PAIR, gate.pairs
-    if isinstance(gate, KTupleGate):
-        return GATE_KWIN, _flat_windows(gate.windows)
-    if isinstance(gate, PeekGate):
-        return GATE_PEEK, (
-            (gate.w.chars, gate.w.negated),
-            (gate.take.chars, gate.take.negated),
-        )
-    if isinstance(gate, ScanGate):
-        return GATE_SCAN, gate  # runtime-ready; scan_gate_take reads it directly
-    cs = gate.charset
-    return GATE_STOP, (cs.chars, cs.negated)
-
-
-def _flatten_arm(
-    specs: Sequence[ItemSpec], shells: dict[CloneKey, FlatClone]
-) -> FlatArm:
-    """Lower a sequence of :class:`ItemSpec` to a :class:`FlatArm` (refs
-    resolve to the live shell objects, so recursion needs no id indirection)."""
-    kinds: list[int] = []
-    payloads: list[object] = []
-    los: list[int] = []
-    his: list[int] = []
-    gate_kinds: list[int] = []
-    gate_data: list[object] = []
-    for spec in specs:
-        kind, payload = _flatten_item(spec, shells)
-        kinds.append(kind)
-        payloads.append(payload)
-        los.append(spec.lo)
-        his.append(HI_UNBOUNDED if spec.hi is None else spec.hi)
-        gate_kind, gate_body = _flatten_gate(spec.gate)
-        gate_kinds.append(gate_kind)
-        gate_data.append(gate_body)
-    arm = FlatArm.__new__(FlatArm)
-    arm.n = len(kinds)
-    arm.kinds = tuple(kinds)
-    arm.payloads = tuple(payloads)
-    arm.los = tuple(los)
-    arm.his = tuple(his)
-    arm.gate_kinds = tuple(gate_kinds)
-    arm.gate_data = tuple(gate_data)
-    return arm
-
-
-def _flatten_item(
-    spec: ItemSpec, shells: dict[CloneKey, FlatClone]
-) -> tuple[int, object]:
-    """Lower one :class:`ItemSpec` to its ``(op-code, payload)`` flat pair."""
-    kind = spec.kind
-    payload = spec.payload
-    if kind == LIT:
-        return OP_LIT, str(payload)
-    if kind == CC:
-        cs = cast(CharSet, payload)
-        return OP_CC, (cs.chars, cs.negated)
-    if kind == GRP:
-        return OP_GRP, _flatten_group(cast(GroupSpec, payload), shells)
-    target = payload  # REF
-    if isinstance(target, IslandRef):
-        return (OP_FAIL if target.fail else OP_ISLAND), target.name
-    return OP_REF, shells[cast(CloneKey, target)]
-
-
-def _bake_build(clone: FlatClone, fold: RuleFold | None) -> None:
-    """Bake a clone's fold and fused-build plan (fields/fast/defaults) in place."""
-    clone.fold = fold
-    clone.leaf = False  # granted by _mark_leaves once the arm shapes are final
-    clone.needs_ends = fold is not None and any(
-        f.mode in ("text", "gtext") for f in fold.fields
-    )
-    if fold is None or fold.fast is None:
-        clone.fields = ()
-        clone.fast = None
-        clone.defaults = None
-        return
-    clone.fields = tuple((f.item, MODE_CODE[f.mode], f.name, f.lo) for f in fold.fields)
-    clone.fast = fold.fast.make
-    clone.defaults = dict(fold.fast.defaults)
-
-
-def _flatten_selectors(
-    arms: Sequence[ArmSpec], shells: dict[CloneKey, FlatClone]
-) -> tuple[tuple[tuple[frozenset[str], bool, FlatArm], ...], object, object]:
-    """Lower an alternation's arm selectors — single-char, k-window, or peek.
-
-    P2 (:attr:`ArmSpec.windows`) lowers to ``kwin_selectors``; P3
-    (:attr:`ArmSpec.peek`) to ``pn_selectors``; otherwise the FIRST-gated
-    single-char triples are built.
-
-    :returns: ``(selectors, kwin_selectors, pn_selectors)`` — at most one set.
-    """
-    if arms and arms[0].windows is not None:
-        kwin = tuple(
-            (
-                _flat_windows(cast("tuple[tuple[CharSet, ...], ...]", arm.windows)),
-                _flatten_arm(arm.specs, shells),
-            )
-            for arm in arms
-        )
-        return (), kwin, None
-    if arms and arms[0].peek is not None:
-        w = cast("tuple[CharSet, CharSet]", arms[0].peek)[0]
-        sels = tuple(
-            (
-                cast("tuple[CharSet, CharSet]", arm.peek)[1].chars,
-                cast("tuple[CharSet, CharSet]", arm.peek)[1].negated,
-                _flatten_arm(arm.specs, shells),
-            )
-            for arm in arms
-        )
-        return (), None, ((w.chars, w.negated), sels)
-    selectors = tuple(
-        (arm.first.chars, arm.first.negated, _flatten_arm(arm.specs, shells))
-        for arm in arms
-    )
-    return selectors, None, None
-
-
-def _flatten_group(group: GroupSpec, shells: dict[CloneKey, FlatClone]) -> FlatClone:
-    """Lower an inline group to a transparent :class:`FlatClone`."""
-    clone = FlatClone.__new__(FlatClone)
-    clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
-        group.arms, shells
-    )
-    clone.default = (
-        _flatten_arm(group.default, shells) if group.default is not None else None
-    )
-    clone.struct_arm = None
-    clone.mode = BUILD_TRANSPARENT
-    _bake_build(clone, None)
-    return clone
-
-
-def _flatten_clones(
-    clones: dict[CloneKey, CloneSpec],
-    completions: dict[CloneKey, ReduceComp] | None,
-) -> dict[CloneKey, FlatClone]:
-    """Lower a compiled clone table to its live :class:`FlatClone` shells.
-
-    Two passes: create an empty shell per clone key, then fill each (refs
-    resolve to the live shells — no runtime id lookup). The model target then
-    runs :func:`optimize_program`; the reduce target (``completions`` given)
-    runs :func:`reduce_rewrite` instead. Shared by :func:`_flatten_program`
-    and the per-island delegate compile, which each own an independent shell
-    set the optimiser mutates in place.
-    """
-    shells: dict[CloneKey, FlatClone] = {
-        key: FlatClone.__new__(FlatClone) for key in clones
-    }
-    for key, spec in clones.items():
-        clone = shells[key]
-        clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
-            spec.arms, shells
-        )
-        clone.default = (
-            _flatten_arm(spec.default, shells) if spec.default is not None else None
-        )
-        clone.struct_arm = spec.struct_arm
-        clone.mode = _build_mode(spec.fold)
-        _bake_build(clone, spec.fold)
-    if completions is None:
-        optimize_program(list(shells.values()))
-    else:
-        reduce_rewrite(shells, completions)
-    return shells
-
-
-def _flatten_program(
-    clones: dict[CloneKey, CloneSpec],
-    start_key: CloneKey | IslandRef,
-    completions: dict[CloneKey, ReduceComp] | None = None,
-) -> PdaProgram:
-    """Lower the compiled clone table to the flat runtime :class:`PdaProgram`
-    (``completions`` given on the reduce path, ``None`` on the model path)."""
-    shells = _flatten_clones(clones, completions)
-    start: FlatClone | IslandRef = (
-        shells[start_key] if isinstance(start_key, CloneKey) else start_key
-    )
-    return PdaProgram(start)
-
-
 # ── the artifact ───────────────────────────────────────────────────────────
 
 
-class PdaTables(IrLeaf[IrSelf, IrSelf]):
-    """The compiled predictive-parser artifact — the sibling of :class:`ParserTables`.
-
-    Complete and immutable after :func:`compile_pda`; only the island cache
-    fills lazily (in place, the :class:`ParserTables` scanning-cache precedent).
-
-    :ivar clones: Clone key → its :class:`CloneSpec`.
-    :ivar start_key: The start clone's key, or an :class:`IslandRef` when the
-        start rule is an island (the whole-grammar opt-out signal for Task 6).
-    :ivar islands: The island rule names (from
-        :attr:`~lexic.parsing.pda.analysis.analysis.GrammarAnalysis.islands`).
-    :ivar instance_grammar: The Earley-normalised instance grammar island
-        tables are built over.
-    :ivar program: The flat int-coded runtime program (:class:`PdaProgram`)
-        :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` walks.
-    :ivar reduce: The reduce runtime context (:class:`ReduceRun`) on a
-        grammar-text (reducer) PDA, else ``None`` — the model path.
-    """
-
-    __slots__ = (
-        "clones",
-        "start_key",
-        "islands",
-        "instance_grammar",
-        "program",
-        "reduce",
-        "_island_tables",
-    )
-
-    clones: dict[CloneKey, CloneSpec]
-    start_key: CloneKey | IslandRef
-    islands: frozenset[str]
-    instance_grammar: IrAst
-    program: PdaProgram
-    reduce: ReduceRun | None
-    _island_tables: dict[tuple[str, int], ParserTables]
-
-    def __init__(
-        self,
-        compiler: _PdaCompiler,
-        start_key: CloneKey | IslandRef,
-        instance_grammar: IrAst,
-        reduce: ReduceRun | None = None,
-    ) -> None:
-        """Freeze the clone table, lower it to the flat program, seed the caches.
-
-        The clones, island set and reduce completions come off ``compiler``.
-        The island-interior delegate source is attached to :attr:`program` by
-        the compile entry points (:func:`_attach_delegates`), so the artifact's
-        own attribute set stays put.
-        """
-        completions = compiler.completions if compiler.reduce is not None else None
-        self.clones = compiler.clones
-        self.start_key = start_key
-        self.islands = compiler.islands
-        self.instance_grammar = instance_grammar
-        self.program = _flatten_program(compiler.clones, start_key, completions)
-        self.reduce = reduce
-        self._island_tables = {}
-
-    def island_tables(self, name: str, bits: int = ORIGIN_BITS) -> ParserTables:
-        """The :class:`ParserTables` for island rule ``name``, built once per
-        ``(name, bits)`` and cached — compiled over :attr:`instance_grammar`
-        with ``name`` as the start rule (the Earley sub-parser for a
-        conflicted rule), at the run's packing tier ``bits`` (an island window
-        can span the whole remaining input)."""
-        cached = self._island_tables.get((name, bits))
-        if cached is None:
-            cached = compile_tables(IrAst(self.instance_grammar.rules, name), bits)
-            self._island_tables[(name, bits)] = cached
-        return cached
-
-    def island_delegates(self, name: str) -> "dict[int, FlatClone]":
-        """The island-interior delegate clones for island ``name`` (rule_id →
-        clone), computed once by the program's
-        :class:`~lexic.parsing.pda.compiler.delegate_compile.DelegateSource` — empty when
-        nothing delegates. The runtime wraps each into a fail-soft callable and
-        threads it through the island Earley sub-parse (the keys are island
-        tables rule ids, the predictor's ``rid``)."""
-        return cast("dict[int, FlatClone]", self.program.delegates.for_island(name))
-
-    def reset_delegate_cache(self) -> None:
-        """Drop the per-island delegate cache — a test seam for the A/B parity
-        gate, which swaps in a no-delegates :class:`DelegateSource` and
-        recomputes each side."""
-        self.program.delegates.reset()
-
-
-def _attach_delegates(tables: PdaTables, lifted: IrAst, compiler: _PdaCompiler) -> None:
+def _attach_delegates(tables: PdaTables, lifted: IrAst, compiler: PdaCompiler) -> None:
     """Attach the island-interior :class:`DelegateSource` to ``tables.program``
     (built from ``lifted`` + the compiler's fold/reduce target; the injected
-    ``(_PdaCompiler, _flatten_clones)`` seam keeps the delegate leaf import-free
+    ``(PdaCompiler, flatten_clones)`` seam keeps the delegate leaf import-free
     of this module)."""
     name_to_rid = {
         str(rule.name): i for i, rule in enumerate(tables.instance_grammar.rules)
@@ -869,7 +551,7 @@ def _attach_delegates(tables: PdaTables, lifted: IrAst, compiler: _PdaCompiler) 
         lifted,
         name_to_rid,
         (compiler.fold_config, compiler.reduce),
-        (_PdaCompiler, _flatten_clones),
+        (PdaCompiler, flatten_clones),
     )
 
 
@@ -892,7 +574,7 @@ def compile_pda(
         compiler cannot handle (the Task-6 seam reads this as "no PDA").
     """
     analysis = GrammarAnalysis(lifted)
-    compiler = _PdaCompiler(analysis, fold_config)
+    compiler = PdaCompiler(analysis, fold_config)
     start_key = compiler.compile_start()
     tables = PdaTables(compiler, start_key, instance_grammar)
     _attach_delegates(tables, lifted, compiler)
@@ -932,12 +614,12 @@ def compile_reduce_pda(
     if plan.literal_kind == OTHER_KIND:
         # Reduce policy the runtime cannot reconstruct → immediate-PdaFail start.
         return PdaTables(
-            _PdaCompiler(analysis),
+            PdaCompiler(analysis),
             IslandRef(analysis.start),
             instance_grammar,
             reduce=run,
         )
-    compiler = _PdaCompiler(analysis, reduce=ReduceCompile(reducer, plan, name_to_rid))
+    compiler = PdaCompiler(analysis, reduce=ReduceCompile(reducer, plan, name_to_rid))
     start_key = compiler.compile_start()
     pda = PdaTables(compiler, start_key, instance_grammar, reduce=run)
     _attach_delegates(pda, lifted, compiler)

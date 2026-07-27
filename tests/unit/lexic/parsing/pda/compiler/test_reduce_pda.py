@@ -236,7 +236,7 @@ def test_reducerun_literal_keep_false_when_the_terminal_policy_is_drop():
 
 
 def bare_flat_clone() -> FlatClone:
-    """An empty FlatClone shell — the pre-bake state _flatten_program leaves
+    """An empty FlatClone shell — the pre-bake state flatten_program leaves
     every clone in before its first pass fills mode/selectors/default."""
     clone = FlatClone.__new__(FlatClone)
     clone.selectors = ()

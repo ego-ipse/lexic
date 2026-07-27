@@ -43,9 +43,9 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.model import GrammarModel
-from lexic.parsing.pda.compiler.clones import PdaTables
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.specs import IslandRef
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _reduce_product

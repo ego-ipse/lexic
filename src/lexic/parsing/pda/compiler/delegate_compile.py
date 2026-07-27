@@ -5,7 +5,7 @@ leaf): given one island's sub-grammar, this picks the conflict-free interior
 rules worth delegating and compiles each to a PDA clone the island's Earley
 sub-parse runs in place of the item machinery — unconditionally, for every
 island. A leaf w.r.t. the clone compiler — the two clone-compiler entry points
-it needs (:class:`_PdaCompiler` and the ``_flatten_clones`` lowering) arrive as
+it needs (:class:`PdaCompiler` and the ``flatten_clones`` lowering) arrive as
 **injected callables** on :class:`DelegateSource`, so this module imports
 nothing from ``clones`` and the ``clones → delegate_compile`` arrow runs one
 way.
@@ -108,8 +108,8 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
     Holds one grammar's delegate-compile ingredients and a per-island cache; the
     runtime asks :meth:`for_island` for a rule_id → flat-clone map, computed
     once per island and cached. The clone-compiler entry points arrive in
-    ``seams`` (injected as ``(clones._PdaCompiler,
-    clones._flatten_clones)``) so this leaf never imports
+    ``seams`` (injected as ``(clones.PdaCompiler,
+    clones.flatten_clones)``) so this leaf never imports
     :mod:`lexic.parsing.pda.compiler.clones`. Attached to the runtime
     :class:`~lexic.parsing.pda.compiler.flatten.PdaProgram`, not the artifact, so the
     ``PdaTables`` attribute count is untouched.

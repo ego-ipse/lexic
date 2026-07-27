@@ -39,7 +39,6 @@ from lexic.parsing.pda.compiler.clones import (
     IslandRef,
     ItemSpec,
     PairGate,
-    PdaTables,
     ReduceRun,
     StopGate,
     compile_pda,
@@ -53,6 +52,7 @@ from lexic.parsing.pda.compiler.flatten import (
     FlatClone,
     all_clones,
 )
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model
 from lexic.parsing.pda.runtime.runtime import PdaFail

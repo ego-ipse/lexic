@@ -81,7 +81,6 @@ from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.kernel import Delegate
 from lexic.parsing.earley.kernel.tables import tier_for
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.pda.compiler.clones import PdaTables
 from lexic.parsing.pda.compiler.flatten import (
     BUILD_DISPATCH,
     BUILD_SEQ,
@@ -102,6 +101,7 @@ from lexic.parsing.pda.compiler.flatten import (
     gate_take,
     select_gated,
 )
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.core.scanner import scan_gate_take
 from lexic.parsing.pda.runtime.build import (
