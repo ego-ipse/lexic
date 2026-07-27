@@ -577,3 +577,24 @@ def test_a_twin_carries_the_same_shape_as_its_runtime_classes(
     twin = import_hermetic_module(path, "tw")
     for name, cls in compiled.classes.items():
         assert getattr(twin, name).__shape__ == cls.__shape__
+
+
+@pytest.mark.parametrize("inline_tables", [False, True])
+def test_a_resolved_twin_carries_the_runtime_shape(
+    tmp_path, inline_tables: bool
+) -> None:
+    """Both table modes, on a grammar where resolution actually RUNS.
+
+    ``synthesize`` digests the unresolved grammar and a twin's own ``GRAMMAR``
+    reconstructs it, so a writer digesting the RESOLVED form gives an inline
+    twin a shape agreeing with neither the runtime nor the bind-mode twin of the
+    same compilation. A grammar with token terminals but NO bound vocabulary
+    cannot show it — nothing resolves, so the two forms are equal.
+    """
+    compiled = _think_compiled()
+    path = export_module(
+        compiled, tmp_path / "think.py", stem="think", inline_tables=inline_tables
+    )
+    twin = import_hermetic_module(path, "think")
+    for name, cls in compiled.classes.items():
+        assert getattr(twin, name).__shape__ == cls.__shape__, name

@@ -822,7 +822,10 @@ def verify_module(compiled: CompiledGrammar, text: str) -> MModule:
         f"{len(module.classes)} classes for {len(binding)} bindings",
     )
     ctx = _VerifyCtx(
-        class_by_rule, compiled.flavour, inline, rule_closure(compiled.codegen_grammar)
+        class_by_rule,
+        compiled.flavour,
+        inline,
+        rule_closure(compiled.tokens.unresolved or compiled.codegen_grammar),
     )
     for mclass, bound in zip(module.classes, binding):
         _verify_class(mclass, bound, rules[bound.rule_name], ctx)
