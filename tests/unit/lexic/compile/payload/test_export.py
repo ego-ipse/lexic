@@ -557,3 +557,33 @@ def test_an_artefact_with_no_recorded_reduction_matches_nothing(tmp_path) -> Non
     finally:
         sys.path.remove(str(tmp_path))
         sys.modules.pop("bare", None)
+
+
+def test_an_artefact_records_the_ambiguity_setting_it_was_built_under(
+    tmp_path,
+) -> None:
+    """The setting changes what the artefact CLAIMS, so it is part of provenance.
+
+    Under the default the value is the only one that text derives. Under
+    ``ambiguous=True`` it is one of several the producer accepted a choice
+    among — the same tables, a weaker claim — so a consumer expecting the strict
+    reading must not be handed the loose one as a match.
+    """
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    reducer = GBNF_FLAVOUR.reducer
+    export_value(compiled.grammar, tmp_path / "strict.py", reduction=reducer)
+    export_value(
+        compiled.grammar, tmp_path / "loose.py", reduction=reducer, ambiguous=True
+    )
+    sys.path.insert(0, str(tmp_path))
+    try:
+        strict, loose = import_module("strict"), import_module("loose")
+        assert strict.AMBIGUOUS is False and loose.AMBIGUOUS is True
+        assert built_under(strict, reducer)
+        assert not built_under(strict, reducer, ambiguous=True)
+        assert built_under(loose, reducer, ambiguous=True)
+        assert not built_under(loose, reducer)
+    finally:
+        sys.path.remove(str(tmp_path))
+        for stem in ("strict", "loose"):
+            sys.modules.pop(stem, None)

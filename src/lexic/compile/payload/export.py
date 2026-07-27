@@ -264,6 +264,7 @@ def render(
     *,
     module: str | None = None,
     reduction: object = None,
+    ambiguous: bool = False,
 ) -> str:
     """The artefact's source: imports, tables, and the value.
 
@@ -272,6 +273,7 @@ def render(
     :param module: Where a non-spine symbol is imported from.
     :param reduction: The reduction the value was produced by, recorded so a
         holder of a live one can ask whether the artefact is still current.
+    :param ambiguous: The ambiguity setting the value was parsed under.
     :returns: The module source.
     :raises UnsupportedConstructError: When a symbol has no importable home.
     """
@@ -308,7 +310,8 @@ def render(
                 f"{tables}\n"
                 f"DIGEST = {payload.digest()!r}\n"
                 f"SHAPE = {payload.shape()!r}\n"
-                f"REDUCTION = {reader.reduction_digest(reduction)!r}\n\n"
+                f"REDUCTION = {reader.reduction_digest(reduction)!r}\n"
+                f"AMBIGUOUS = {bool(ambiguous)!r}\n\n"
                 "TABLES = (TYPES, ORIGINS, STRS, NODES)\n"
                 "VALUE = decode(TABLES, SYMBOLS, (DIGEST, SHAPE))",
             ]
@@ -323,6 +326,7 @@ def export_value(
     *,
     module: str | None = None,
     reduction: object = None,
+    ambiguous: bool = False,
 ) -> Path:
     """Write ``value`` as an importable module, and byte-compile it.
 
@@ -340,6 +344,10 @@ def export_value(
         checked at import: an ``ir`` or ``plain`` artefact names spine classes
         or nothing, so nothing at read time could disagree with it. Ask with
         :func:`built_under`, which is the only party that can.
+    :param ambiguous: The ambiguity setting the value was parsed under. Recorded
+        because it changes what the artefact CLAIMS: under the default the value
+        is the only one that text derives, and under ``True`` it is one of
+        several the producer accepted a choice among.
     :returns: The written path.
     :raises UnsupportedConstructError: On a value outside the vocabulary, a
         symbol with no importable home, or a failed gate.
@@ -348,12 +356,18 @@ def export_value(
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = project_checked(value)
     source = render(
-        payload, _sidecar(target.parent), module=module, reduction=reduction
+        payload,
+        _sidecar(target.parent),
+        module=module,
+        reduction=reduction,
+        ambiguous=ambiguous,
     )
     return write_module(target, source)
 
 
-def built_under(artefact: object, reduction: object) -> bool:
+def built_under(
+    artefact: object, reduction: object, *, ambiguous: bool = False
+) -> bool:
     """Was ``artefact`` produced by ``reduction``?
 
     The producer-side half of provenance. The grammar half is checked at decode,
@@ -365,8 +379,14 @@ def built_under(artefact: object, reduction: object) -> bool:
 
     :param artefact: An imported payload module.
     :param reduction: The reduction to compare against.
-    :returns: Whether the artefact records this reduction. ``False`` when the
-        artefact recorded none — an unknown provenance is not a match.
+    :param ambiguous: The setting to compare against. It is part of the question
+        because it changes the artefact's domain — a value chosen from several
+        derivations is not the value a strict parse would have produced.
+    :returns: Whether the artefact records this reduction AND this setting.
+        ``False`` when the artefact recorded no reduction — an unknown
+        provenance is not a match.
     """
     recorded = getattr(artefact, "REDUCTION", 0)
-    return bool(recorded) and recorded == reader.reduction_digest(reduction)
+    if not recorded or recorded != reader.reduction_digest(reduction):
+        return False
+    return bool(getattr(artefact, "AMBIGUOUS", False)) is bool(ambiguous)
