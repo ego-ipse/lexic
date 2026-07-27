@@ -266,6 +266,7 @@ class IrNoneType(IrSelf, metaclass=IrSingleton):
 
 # Public singleton VALUE — callers pass bare `IrNone`
 IrNone = IrNoneType()
+"""Public singleton instance of ``IrNoneType``. Ir's pythonic answer to ``None``."""
 
 
 class IrNode[Iri: IrSelf, Ir_co: IrSelf = IrSelf](IrSelf[Iri, Ir_co], ABC):

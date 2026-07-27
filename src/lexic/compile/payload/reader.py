@@ -8,8 +8,8 @@ is one forward pass with no recursion).
 
 Nothing here imports lexic. A ``plain`` payload names no symbol at all, so its
 reader must pay for nothing; every class it does build arrives in ``symbols``,
-supplied by the artefact's own imports. This module's source is also what an
-exported payload **inlines**, which is why it stands alone.
+supplied by the artefact's own imports. This module's source is also what is
+emitted beside an artefact as its reader sidecar, which is why it stands alone.
 
 A ``kind`` is an index into :data:`DECODE`: the kind space is closed by
 construction because :mod:`lexic.compile.payload.codec` declares one row per
@@ -303,16 +303,46 @@ def decode(
     return built[-1]
 
 
+def _moved(
+    types: Sequence[str], origins: Sequence[str], symbols: dict[str, Any]
+) -> list[str]:
+    """Symbols that came from somewhere other than where they were recorded.
+
+    Only for a class carrying no rule. A generated class's module legitimately
+    MOVES — a value is parsed with runtime classes tagged by content and read
+    back against the twin, which reports its own file — so for those the rules
+    are the provenance and :func:`shape_of` is the check. For a class the caller
+    wrote, the module survives the cycle intact and is the only provenance there
+    is: shape reads 0 for it, and a name silently rebound to another module's
+    class of the same name would otherwise decode into the wrong class.
+
+    :param types: The symbol table.
+    :param origins: The module each symbol was recorded as coming from.
+    :param symbols: Symbol name → class, as the artefact supplies them.
+    :returns: One ``name: recorded -> found`` line per moved symbol.
+    """
+    moved = []
+    for name, recorded in zip(types[1:], origins[1:]):
+        found = symbols.get(name)
+        if found is None or getattr(found, "__grammar__", None) is not None:
+            continue
+        home = getattr(found, "__module__", "")
+        if home != recorded:
+            moved.append(f"{name}: {recorded} -> {home}")
+    return moved
+
+
 def _verify(tables: tuple, symbols: dict[str, Any], expect: tuple[int, int]) -> None:
     """Check what the exporter recorded about itself, before reading a record.
 
-    Two different questions. The digest asks whether these are the tables that
+    Three different questions. The digest asks whether these are the tables that
     were written; the shape asks whether the SYMBOLS handed in are the ones they
     were written against — which no table check can see, because a payload read
     against a recompiled grammar has intact tables, resolvable names, and every
-    record decoding to a wrong value.
+    record decoding to a wrong value. The origins ask the same of a symbol that
+    carries no rule for shape to weigh.
 
-    :raises ValueError: On either mismatch.
+    :raises ValueError: On any of the three.
     """
     if digest(tables) != expect[0]:
         raise ValueError(
@@ -324,6 +354,12 @@ def _verify(tables: tuple, symbols: dict[str, Any], expect: tuple[int, int]) -> 
             "payload: shape mismatch — the symbols this payload was given carry "
             "different rules than the ones it was built against, so the grammar "
             "was recompiled and this artefact is stale"
+        )
+    moved = _moved(tables[0], tables[1], symbols)
+    if moved:
+        raise ValueError(
+            f"payload: {moved} — the name still resolves, but to a class from "
+            "another module than the one this payload was built against"
         )
 
 
