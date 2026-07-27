@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrSelf, IrStr, IrTuple
+from lexic.ir import IrNone, IrSelf, IrStr, IrTuple
 from lexic.parsing.earley.reduce import DROP_KIND
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.clones import PdaTables, ReduceRun

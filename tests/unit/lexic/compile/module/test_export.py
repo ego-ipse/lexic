@@ -30,16 +30,16 @@ from lexic.compile.pipeline.binding import (
     compute_binding,
 )
 from lexic.grammars import get_flavour
-from lexic.ir.base import IrNone
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrItem,
     IrLiteral,
+    IrNone,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
+    IrTokenizer,
 )
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.compile.compile_helpers import import_hermetic_module

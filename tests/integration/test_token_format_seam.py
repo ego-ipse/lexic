@@ -20,21 +20,24 @@ test pins.
 from __future__ import annotations
 
 from lexic.compile.foldkit import model_fold, seq
-from lexic.ir.base import IrNone, IrSeq, IrStr, IrTuple
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrMap,
+    IrNone,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
+    IrStr,
+    IrTokenizer,
+    IrTuple,
 )
 from lexic.parsing import FieldFold, parse_model
 

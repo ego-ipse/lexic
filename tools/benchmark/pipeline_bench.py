@@ -56,7 +56,7 @@ from lexic.compile import (
     reset_cache_for_tests,
 )
 from lexic.grammars import flavour_for_extension
-from lexic.ir.flavour import IrFlavour
+from lexic.ir import IrFlavour
 from tests.integration.pda_parity_helpers import (
     ARITHMETIC_BENCH_SNIPPETS as _ARITHMETIC_SNIPPETS,
 )

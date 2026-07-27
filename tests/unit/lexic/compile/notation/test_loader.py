@@ -28,19 +28,26 @@ from lexic.grammars.gbnf import (
     GBNF_GRAMMAR,
     GBNF_REDUCTIONS,
 )
-from lexic.ir.action import IrAction, IrEmit
-from lexic.ir.base import IrInt, IrSelf, IrSeq, IrStr, IrTuple
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IR_DEFAULT,
+    EscapeCodec,
+    IrAction,
     IrAlternation,
     IrAst,
+    IrEmit,
+    IrFlavour,
+    IrInt,
     IrItem,
     IrLiteral,
+    IrMap,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrStr,
+    IrTuple,
+    IrTypeMap,
 )
 from lexic.parsing import Reducer
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD

@@ -24,10 +24,7 @@ import pytest
 from lexic.compile import CompiledGrammar, canonical_grammar, compile_text
 from lexic.generate import generate
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrChr
+from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
 
 _TOKEN_GRAMMARS: frozenset[str] = frozenset({"think.gbnf"})

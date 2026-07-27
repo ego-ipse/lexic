@@ -38,29 +38,28 @@ from __future__ import annotations
 from typing import Iterator, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction
-from lexic.ir.base import (
+from lexic.ir import (
     Field,
-    IrInt,
-    IrLeaf,
-    IrNone,
-    IrNoneType,
-    IrSelf,
-    IrSeq,
-    IrStr,
-    IrTuple,
-)
-from lexic.ir.mapping import IrMultiMap, IrTypeMap
-from lexic.ir.nodes import (
+    IrAction,
     IrAlternation,
     IrAst,
+    IrBottomUp,
+    IrInt,
     IrItem,
+    IrLeaf,
+    IrMultiMap,
+    IrNone,
+    IrNoneType,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrStr,
+    IrTuple,
+    IrTypeMap,
 )
-from lexic.ir.walk import IrBottomUp
 
 _ONE = IrQuantifier(1, 1)
 

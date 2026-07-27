@@ -16,8 +16,7 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrNoneType, IrSelf
-from lexic.ir.nodes import IrAst, IrItem, IrRuleRef
+from lexic.ir import IrAst, IrItem, IrLeaf, IrNoneType, IrRuleRef, IrSelf
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 
 _DELEGATE_MIN_ATOMS = 4

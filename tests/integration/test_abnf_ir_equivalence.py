@@ -20,7 +20,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.grammars.abnf import ABNF_FLAVOUR, ABNF_GRAMMAR, ABNF_REDUCER
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst
 from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.products import earley_reduce

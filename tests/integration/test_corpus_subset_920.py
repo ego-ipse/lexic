@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from lexic.compile import parse_grammar
 from lexic.grammars.abnf import ABNF_FLAVOUR
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst
 from tests.paths import BENCHMARK
 
 CORPUS_TEXT = (BENCHMARK / "corpus_subset_920.abnf").read_text()

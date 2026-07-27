@@ -16,8 +16,7 @@ from lexic.compile import compile_from_path
 from lexic.compile.payload import Payload, project, project_checked, reader
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
-from lexic.ir.base import IrInt, IrLambda, IrNone, IrStr, IrTuple
-from lexic.ir.mapping import IR_DEFAULT, IrMap
+from lexic.ir import IR_DEFAULT, IrInt, IrLambda, IrMap, IrNone, IrStr, IrTuple
 from tests.paths import GROUND_TRUTH
 
 SPINE = {

@@ -30,7 +30,7 @@ from lexic.compile.foldkit import (
 from lexic.compile.module import selfgrammar
 from lexic.compile.notation import parse as notation
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLambda, IrNone, IrSelf
+from lexic.ir import IrLambda, IrNone, IrSelf
 from lexic.parsing import ModelBody, ModelFold, RuleFold
 
 # ── the pass-throughs ────────────────────────────────────────────────────

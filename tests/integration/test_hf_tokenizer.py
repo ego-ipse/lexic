@@ -17,10 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lexic.compile import compile_from_path
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.encoding import IrTokenizer, IrTokenPipeline
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrChr
+from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTokenPipeline, IrTuple
 from lexic.model import GrammarModel
 from tests.paths import GROUND_TRUTH
 

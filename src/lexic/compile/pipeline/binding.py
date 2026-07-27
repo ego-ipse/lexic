@@ -28,24 +28,31 @@ from functools import cache
 from typing import Literal
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction, IrReturn
-from lexic.ir.base import IrLambda, IrNode, IrNone, IrNoneType, IrSelf, IrStr
-from lexic.ir.bind import IrBind
-from lexic.ir.mapping import IrTypeMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IrAction,
     IrAlphabet,
     IrAlternation,
     IrAst,
+    IrBind,
     IrCharClass,
+    IrDispatch,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrNode,
+    IrNone,
+    IrNoneType,
     IrQuantifier,
+    IrReturn,
     IrRule,
     IrRuleRef,
+    IrSelf,
     IrSequence,
+    IrStr,
+    IrTypeMap,
+    IrVisitor,
+    RuleOrder,
 )
-from lexic.ir.order import RuleOrder
-from lexic.ir.walk import IrDispatch, IrVisitor
 
 RuleKind = Literal["sequence", "alternation", "value_str"]
 

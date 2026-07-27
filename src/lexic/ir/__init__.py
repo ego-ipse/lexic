@@ -83,6 +83,7 @@ if TYPE_CHECKING:
         IrTuple,
     )
     from lexic.ir.bind import (
+        BIND_MODES,
         IrBind,
     )
     from lexic.ir.canonical import (
@@ -197,6 +198,7 @@ __all__ = [
     "IrAst",
     "IrAt",
     "IrAtom",
+    "BIND_MODES",
     "IrBind",
     "IrBottomUp",
     "IrBounds",
@@ -322,6 +324,7 @@ _HOMES = {
     "IrAst": "lexic.ir.nodes",
     "IrAt": "lexic.ir.action",
     "IrAtom": "lexic.ir.base",
+    "BIND_MODES": "lexic.ir.bind",
     "IrBind": "lexic.ir.bind",
     "IrBottomUp": "lexic.ir.walk",
     "IrBounds": "lexic.ir.nodes",

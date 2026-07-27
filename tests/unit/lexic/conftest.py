@@ -5,22 +5,23 @@ from __future__ import annotations
 from typing import Iterable
 
 from lexic.compile import parse_grammar
-from lexic.ir.base import IrSelf, IrSeq
-from lexic.ir.canonical import canonicalize
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrFlavour,
     IrItem,
     IrLiteral,
+    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    canonicalize,
 )
-from lexic.ir.operators import IrNot
 
 # Canonical set of all grammar-AST IR types that every flavour must cover.
 GRAMMAR_AST_TYPES: frozenset[type] = frozenset(

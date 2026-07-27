@@ -25,10 +25,7 @@ from lexic.compile import (
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import IrAst, IrLiteral
-from lexic.ir.walk import IrDispatch
+from lexic.ir import EscapeCodec, IrAst, IrDispatch, IrFlavour, IrLiteral
 from lexic.model import GrammarModel
 from lexic.parsing import normalize
 from lexic.parsing.fold import ModelFold

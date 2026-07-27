@@ -25,31 +25,35 @@ integers ``IrInt``, truth ``IrInt(0|1)``, null ``IrNone`` — via
 
 from __future__ import annotations
 
-from lexic.ir.action import (
+from lexic.ir import (
+    IR_DEFAULT,
+    IrAlternation,
     IrArg,
     IrArgs,
-    IrBuild,
-    IrGlyph,
-    IrJoin,
-    IrPipe,
-    IrRaise,
-    IrUnradix,
-)
-from lexic.ir.base import IrInt, IrNone, IrSelf, IrSeq, IrStr, IrTuple
-from lexic.ir.encoding import IrUtf
-from lexic.ir.mapping import IR_DEFAULT, IrMap
-from lexic.ir.nodes import (
-    IrAlternation,
     IrAst,
+    IrBuild,
     IrCharClass,
     IrChr,
+    IrGlyph,
+    IrInt,
     IrItem,
+    IrJoin,
     IrLiteral,
+    IrMap,
+    IrNone,
+    IrPipe,
     IrQuantifier,
+    IrRaise,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrStr,
+    IrTuple,
+    IrUnradix,
+    IrUtf,
 )
 from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
 

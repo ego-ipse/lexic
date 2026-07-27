@@ -5,8 +5,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
-from lexic.ir.base import IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -16,6 +15,7 @@ from lexic.ir.nodes import (
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
 from tests.paths import GROUND_TRUTH

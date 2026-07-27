@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from lexic.grammars.gbnf import GBNF_FLAVOUR, GBNF_GRAMMAR, GBNF_REDUCER
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst
 from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.products import earley_reduce

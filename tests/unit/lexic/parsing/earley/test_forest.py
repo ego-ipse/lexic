@@ -40,16 +40,21 @@ import lexic.parsing.earley.forest as forest_mod
 from lexic.compile import canonical_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.ir.base import IrLeaf, IrNone, IrNoneType, IrSelf, IrSeq, IrTuple
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrItem,
+    IrLeaf,
     IrLiteral,
+    IrNone,
+    IrNoneType,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrTuple,
 )
 from lexic.parsing import derivations, is_ambiguous, parse, parse_forest
 from lexic.parsing.earley.chart import Chart

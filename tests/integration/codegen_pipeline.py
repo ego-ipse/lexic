@@ -12,7 +12,7 @@ from pathlib import Path
 
 from lexic.compile import canonical_grammar
 from lexic.grammars import flavour_for_extension
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst
 
 
 def canonical_ast(path: Path) -> IrAst:

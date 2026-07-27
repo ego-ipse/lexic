@@ -27,8 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrSelf, IrStr, IrTuple
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst, IrSelf, IrStr, IrTuple
 from lexic.parsing.earley.engine import PARSE_FIRST, PARSE_REDUCED, EarleyParser
 from lexic.parsing.earley.forest import ParseTree
 from lexic.parsing.earley.kernel import FastTree

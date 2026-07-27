@@ -77,7 +77,7 @@ from typing import Callable
 from lexic.compile import compile_from_path
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.flavour import IrFlavour
+from lexic.ir import IrFlavour
 from lexic.model import GrammarModel
 from lexic.parsing import parse_first, parse_reduced
 from lexic.parsing.earley.normalize import normalize

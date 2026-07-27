@@ -16,7 +16,7 @@ from collections.abc import Callable
 from typing import NamedTuple
 
 from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.ir.base import IrTuple
+from lexic.ir import IrTuple
 from lexic.parsing.earley.engine import EarleyParser
 from lexic.parsing.earley.forest import DERIVATION_STREAM, ParseTree, SppfNode
 from lexic.parsing.earley.kernel import Delegate, FastTree, Kernel

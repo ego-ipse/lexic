@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.ir import concretize
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.encoding import IrTokenizer, IrUnicode
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrChr
+from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple, IrUnicode, concretize
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tables import compile_tables
 from lexic.parsing.earley.tokenscan import TokenKernel, token_term_specs

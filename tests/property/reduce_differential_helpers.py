@@ -10,8 +10,7 @@ construct one ``ReduceDifferential(<FLAVOUR>)`` and call ``.assert_agree(text)``
 from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst, IrFlavour
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.fold import lift_optional_nullables

@@ -18,9 +18,7 @@ from ext.API import cache
 from lexic.api.json_tokenizer import tokenizer_of
 from lexic.api.pretokens import IrByteLevel, IrDigits
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.base import IrInt, IrNone, IrStr
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.mapping import IrMap
+from lexic.ir import IrInt, IrMap, IrNone, IrStr, IrTokenizer
 from lexic.parsing import parse_reduced
 from tests.integration.tokenizer_corpus import SHARED_CORPUS
 

@@ -15,7 +15,7 @@ API changes from the int-kernel rework:
 from __future__ import annotations
 
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst
 from lexic.parsing import (
     BUILD_TREE,
     Chart,

@@ -42,22 +42,30 @@ from lexic.grammars.gbnf import (
     GBNF_REDUCTIONS,
 )
 from lexic.grammars.json import JSON_GRAMMAR
-from lexic.ir.base import IrChr, IrInt, IrNone, IrSelf, IrStr, IrTuple
-from lexic.ir.encoding import IrTokenizer, IrTokenPipeline
-from lexic.ir.mapping import IR_DEFAULT, IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IR_DEFAULT,
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
+    IrInt,
     IrItem,
     IrLiteral,
+    IrMap,
+    IrNone,
+    IrNot,
+    IrOp,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSelf,
     IrSequence,
+    IrStr,
+    IrTokenizer,
+    IrTokenPipeline,
+    IrTuple,
 )
-from lexic.ir.operators import IrNot, IrOp
 from lexic.parsing.earley.reduce import DROP, KEEP_RAW, KEEP_REDUCED, YIELD, Yield
 
 GRAMMARS = Path(__file__).resolve().parents[5] / "src" / "lexic" / "grammars"

@@ -21,8 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from lexic.ir.base import IrNoneType, IrSelf
-from lexic.ir.nodes import IrAlternation, IrItem, IrLiteral, IrRuleRef
+from lexic.ir import IrAlternation, IrItem, IrLiteral, IrNoneType, IrRuleRef, IrSelf
 from lexic.parsing.pda.analysis.noise import sem_follow_table
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import (

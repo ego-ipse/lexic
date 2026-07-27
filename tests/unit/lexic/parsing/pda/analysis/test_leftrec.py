@@ -8,7 +8,7 @@ classification wiring test pins that such a rule islands unconditionally
 
 from __future__ import annotations
 
-from lexic.ir.nodes import IrAlternation, IrLiteral, IrRuleRef, IrSequence
+from lexic.ir import IrAlternation, IrLiteral, IrRuleRef, IrSequence
 from lexic.parsing.pda.analysis.leftrec import left_recursive_names
 from tests.unit.lexic.parsing.ir_fixtures import analysis_of as _analysis
 from tests.unit.lexic.parsing.ir_fixtures import item_of as _item

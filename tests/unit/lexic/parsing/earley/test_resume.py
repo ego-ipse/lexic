@@ -11,15 +11,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrSeq
-from lexic.ir.nodes import (
-    IrAlternation,
-    IrAst,
-    IrItem,
-    IrLiteral,
-    IrRule,
-    IrSequence,
-)
+from lexic.ir import IrAlternation, IrAst, IrItem, IrLiteral, IrRule, IrSeq, IrSequence
 from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.lexruns import recognition_tables
 from lexic.parsing.earley.normalize import normalize

@@ -32,22 +32,25 @@ from typing import Any, Callable, ClassVar, Self, Sequence, cast
 
 from lexic.exceptions import FieldValidationError
 from lexic.grammars import get_flavour
-from lexic.ir.action import IrAction
-from lexic.ir.base import IrLambda, IrNamedTuple, IrNone, IrSelf
-from lexic.ir.bind import IrBind
-from lexic.ir.mapping import IrTypeMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IrAction,
     IrAlphabet,
     IrAlternation,
+    IrBind,
     IrCharClass,
+    IrDispatch,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrNamedTuple,
+    IrNone,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
     IrSequence,
+    IrTypeMap,
 )
-from lexic.ir.walk import IrDispatch
 
 
 def _dump_value(

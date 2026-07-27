@@ -18,21 +18,23 @@ from typing import Callable
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrChr, IrNone, IrSeq
-from lexic.ir.bind import IrBind
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
+    IrBind,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
 from lexic.model import GrammarModel
 
 DIGIT = IrCharClass(IrRange(IrChr("0"), IrChr("9")))

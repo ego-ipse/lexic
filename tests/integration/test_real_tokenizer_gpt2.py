@@ -28,7 +28,7 @@ from ext.API import cache
 from lexic.api.json_tokenizer import read_from_path
 from lexic.api.pretokens import IrByteLevel
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.encoding import IrTokenizer
+from lexic.ir import IrTokenizer
 from tests.integration.tokenizer_corpus import SHARED_CORPUS
 
 GPT2 = cache.path("gpt2")

@@ -29,11 +29,18 @@ from __future__ import annotations
 from functools import partial
 from typing import Iterator, Sequence, cast
 
-from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrStr, IrTuple
-from lexic.ir.mapping import IR_DEFAULT, IrMap
-from lexic.ir.meta import IrSingleton
-from lexic.ir.nodes import IrAst
-from lexic.ir.walk import IrDispatch
+from lexic.ir import (
+    IR_DEFAULT,
+    IrAst,
+    IrDispatch,
+    IrLeaf,
+    IrMap,
+    IrNone,
+    IrSelf,
+    IrSingleton,
+    IrStr,
+    IrTuple,
+)
 from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves

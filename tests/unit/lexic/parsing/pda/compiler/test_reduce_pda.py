@@ -16,16 +16,20 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple
-from lexic.ir.mapping import IR_DEFAULT, IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IR_DEFAULT,
     IrAlternation,
     IrAst,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrMap,
+    IrNone,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
+    IrTuple,
 )
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import (

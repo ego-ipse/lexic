@@ -199,6 +199,15 @@ def test_public_surface_names_every_symbol_emission_spells(
     )
 
 
+def _assigned(node: pyast.stmt) -> list[str]:
+    """The names a top-level assignment binds, annotated or not."""
+    if isinstance(node, pyast.AnnAssign):
+        return [node.target.id] if isinstance(node.target, pyast.Name) else []
+    if isinstance(node, pyast.Assign):
+        return [t.id for t in node.targets if isinstance(t, pyast.Name)]
+    return []
+
+
 def _public_names() -> dict[str, str]:
     """Every public top-level name each ir module defines, and where."""
     found: dict[str, str] = {}

@@ -11,15 +11,20 @@ from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.compile.pipeline.synthesis import synthesize
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.base import IrInt, IrNone, IrSelf, IrSeq, IrStr, IrTuple
-from lexic.ir.canonical import fold_name
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAst,
     IrCharClass,
+    IrInt,
     IrLiteral,
+    IrMap,
+    IrNone,
     IrRange,
     IrRule,
+    IrSelf,
+    IrSeq,
+    IrStr,
+    IrTuple,
+    fold_name,
 )
 from lexic.parsing import parse_reduced
 from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES

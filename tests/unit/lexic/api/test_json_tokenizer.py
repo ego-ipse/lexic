@@ -26,10 +26,7 @@ from lexic.api.pretokens import (
 from lexic.compile import compile_from_path, parse_reduced
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.base import IrStr
-from lexic.ir.encoding import IrReplace, IrUnicodeForm
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrChr
+from lexic.ir import IrChr, IrMap, IrReplace, IrStr, IrUnicodeForm
 from tests.paths import GROUND_TRUTH
 
 

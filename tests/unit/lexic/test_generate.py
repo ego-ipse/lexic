@@ -10,18 +10,19 @@ from lexic.compile import canonical_grammar, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import _Generator, _pick_count, generate
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.base import IrChr, IrNone
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
+    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
 from tests.paths import GROUND_TRUTH as GRAMMAR_DIR
 
 

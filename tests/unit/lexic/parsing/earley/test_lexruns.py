@@ -15,19 +15,20 @@ back-compat import path keeps working.
 from __future__ import annotations
 
 from lexic.grammars.abnf import ABNF_GRAMMAR
-from lexic.ir.base import IrNone, IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
+    IrNot,
     IrQuantifier,
     IrRule,
+    IrSeq,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing.earley.kernel import Kernel
 from lexic.parsing.earley.lexruns import expand_atom as _expand_atom_via_lexruns
 from lexic.parsing.earley.lexruns import (

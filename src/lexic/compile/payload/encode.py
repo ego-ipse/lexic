@@ -18,8 +18,7 @@ from typing import Iterable, NamedTuple
 from lexic.compile.payload import reader
 from lexic.compile.payload.codec import Row, row_for
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNoneType
-from lexic.ir.mapping import IR_DEFAULT
+from lexic.ir import IR_DEFAULT, IrNoneType
 
 SENTINEL = "<plain>"
 """``TYPES[0]`` — "this record names no symbol". Refused as a symbol name: a

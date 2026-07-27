@@ -79,14 +79,26 @@ from lexic.compile.templating import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
-from lexic.ir.base import IrLambda, IrNone, IrSelf, IrSeq, IrTuple
-from lexic.ir.canonical import canonicalize, fold_name
-from lexic.ir.concretize import concretize
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrAlphabet, IrAst, IrItem, IrRule, IrRuleRef
-from lexic.ir.order import refs_in_order, rule_closure
+from lexic.ir import (
+    IrAlphabet,
+    IrAst,
+    IrFlavour,
+    IrItem,
+    IrLambda,
+    IrMap,
+    IrNone,
+    IrRule,
+    IrRuleRef,
+    IrSelf,
+    IrSeq,
+    IrTokenizer,
+    IrTuple,
+    canonicalize,
+    concretize,
+    fold_name,
+    refs_in_order,
+    rule_closure,
+)
 from lexic.model import GrammarModel
 from lexic.parsing import (
     FastCtor,

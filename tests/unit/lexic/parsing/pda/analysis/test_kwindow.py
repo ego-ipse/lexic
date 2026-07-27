@@ -16,17 +16,19 @@ import string
 import pytest
 
 from lexic.grammars import get_flavour
-from lexic.ir.base import IrChr, IrNone, IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
 from lexic.parsing.fold import lift_optional_nullables

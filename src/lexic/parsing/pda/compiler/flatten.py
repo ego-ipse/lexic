@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lexic.ir.base import IrLeaf, IrSelf
+from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.core.scanner import scan_gate_take
 

@@ -20,9 +20,16 @@ are STILL VALID against current ``chart.py`` and are kept below.
 
 from __future__ import annotations
 
-from lexic.ir.base import IrNone, IrNoneType
-from lexic.ir.mapping import IrMultiMap
-from lexic.ir.nodes import IrItem, IrLiteral, IrQuantifier, IrRuleRef, IrSequence
+from lexic.ir import (
+    IrItem,
+    IrLiteral,
+    IrMultiMap,
+    IrNone,
+    IrNoneType,
+    IrQuantifier,
+    IrRuleRef,
+    IrSequence,
+)
 from lexic.parsing.earley.chart import Chart, EarleyItem, Links
 
 # ── Helpers ─────────────────────────────────────────────────

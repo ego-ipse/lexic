@@ -23,8 +23,7 @@ from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst, IrFlavour
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
 from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables

@@ -30,9 +30,7 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Mapping, Self, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLambda, IrNode, IrSelf, IrTuple
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrRuleRef
+from lexic.ir import IrLambda, IrMap, IrNode, IrRuleRef, IrSelf, IrTuple
 from lexic.parsing import ModelBody, ModelFold, RuleFold
 
 __all__ = [

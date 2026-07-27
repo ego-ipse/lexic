@@ -77,7 +77,7 @@ from __future__ import annotations
 from functools import partial
 from typing import Any, NamedTuple
 
-from lexic.ir.base import IrLeaf, IrSelf
+from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel import Delegate
 from lexic.parsing.earley.tables import tier_for
 from lexic.parsing.fold import ModelFold

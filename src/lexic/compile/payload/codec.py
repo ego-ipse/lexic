@@ -23,8 +23,7 @@ from typing import Any, Callable, NamedTuple
 
 from lexic.compile.payload import reader
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrInt, IrLambda, IrSelf, IrStr, IrTuple
-from lexic.ir.mapping import IrMapping
+from lexic.ir import IrInt, IrLambda, IrMapping, IrSelf, IrStr, IrTuple
 
 EncodeFn = Callable[[Any, Any], tuple[int, tuple[Any, ...]]]
 """``(encoder, value) -> (payload, children)`` — the row's encode half.

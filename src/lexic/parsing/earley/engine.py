@@ -24,15 +24,7 @@ from __future__ import annotations
 from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import (
-    IrInt,
-    IrLeaf,
-    IrSelf,
-    IrSeq,
-    IrTuple,
-)
-from lexic.ir.nodes import IrAst
-from lexic.ir.walk import IrDispatch
+from lexic.ir import IrAst, IrDispatch, IrInt, IrLeaf, IrSelf, IrSeq, IrTuple
 from lexic.parsing.earley.forest import (
     BUILD_TREE,
     DERIVATION_STREAM,

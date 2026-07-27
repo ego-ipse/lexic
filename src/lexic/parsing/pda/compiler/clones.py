@@ -43,18 +43,22 @@ from __future__ import annotations
 from typing import Mapping, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction
-from lexic.ir.base import IrAtom, IrLambda, IrLeaf, IrNoneType, IrSelf
-from lexic.ir.mapping import IrTypeMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IrAction,
     IrAlternation,
     IrAst,
+    IrAtom,
     IrCharClass,
     IrItem,
+    IrLambda,
+    IrLeaf,
     IrLiteral,
+    IrNoneType,
+    IrNot,
     IrRuleRef,
+    IrSelf,
+    IrTypeMap,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing.earley.reduce import OTHER_KIND, Reducer, plan_for
 from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables, compile_tables
 from lexic.parsing.fold import RuleFold

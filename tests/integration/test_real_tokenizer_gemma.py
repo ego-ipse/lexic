@@ -19,7 +19,7 @@ from ext.API import cache
 from lexic.api.json_tokenizer import read_from_path
 from lexic.api.pretokens import IrSplitMerged
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.encoding import IrReplace, IrTokenizer
+from lexic.ir import IrReplace, IrTokenizer
 from tests.integration.tokenizer_corpus import SHARED_CORPUS
 
 GEMMA = cache.path("gemma4")

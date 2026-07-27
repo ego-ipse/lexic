@@ -33,7 +33,7 @@ from itertools import islice
 from typing import Callable, Self
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrNone, IrSelf, IrSeq
+from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq
 from lexic.parsing.earley.chart import Chart, EarleyItem
 from lexic.parsing.earley.forest import ParseTree, PayloadLeaf, RootNode, SppfNode
 from lexic.parsing.earley.tables import (

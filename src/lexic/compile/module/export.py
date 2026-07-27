@@ -43,19 +43,25 @@ from lexic.compile.pipeline.binding import (
 from lexic.compile.writer import write_module
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
-from lexic.ir.base import IrSelf
-from lexic.ir.layout import IrCat, IrDoc, IrGroup, IrLine, IrNest, IrText, render
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
+    IrCat,
+    IrDoc,
+    IrGroup,
     IrItem,
+    IrLine,
     IrLiteral,
+    IrNest,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
     IrSequence,
+    IrText,
+    render,
+    rule_closure,
 )
-from lexic.ir.order import rule_closure
 
 WIDTH = 88
 

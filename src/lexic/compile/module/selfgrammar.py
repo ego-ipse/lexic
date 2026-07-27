@@ -44,22 +44,26 @@ from lexic.compile.module.export import docstring_lines, field_type, value_str_t
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
-from lexic.ir.base import IrNamedTuple, IrNone, IrNoneType, IrSelf, IrSeq
-from lexic.ir.bind import IrBind
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
+    IrBind,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNamedTuple,
+    IrNone,
+    IrNoneType,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    rule_closure,
 )
-from lexic.ir.order import rule_closure
 from lexic.parsing import FieldFold, ModelBody, ModelFold, parse_model
 
 __all__ = [

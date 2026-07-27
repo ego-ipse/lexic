@@ -24,10 +24,7 @@ import pytest
 from lexic.compile import compile_from_path, compile_text, reset_cache_for_tests
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrChr
+from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 
 _GRAMMAR = "root ::= <think> thinking </think>\nthinking ::= !</think>*"
 

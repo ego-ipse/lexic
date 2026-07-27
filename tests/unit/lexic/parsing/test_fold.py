@@ -16,18 +16,22 @@ import pytest
 
 from lexic.compile import compile_text, reset_cache_for_tests
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrArg, IrArgs
-from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
+    IrArg,
+    IrArgs,
     IrAst,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrMap,
+    IrNone,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
+    IrTuple,
 )
 from lexic.parsing import parse_first
 from lexic.parsing.earley.forest import ParseTree

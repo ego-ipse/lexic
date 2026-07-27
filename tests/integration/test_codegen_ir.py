@@ -23,8 +23,7 @@ import pytest
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.compile.pipeline.synthesis import synthesize
-from lexic.ir.bind import IrBind
-from lexic.ir.nodes import IrRule
+from lexic.ir import IrBind, IrRule
 from lexic.model import GrammarModel
 from tests.integration.codegen_pipeline import canonical_ast
 from tests.paths import GROUND_TRUTH

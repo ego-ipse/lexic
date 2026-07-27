@@ -13,7 +13,7 @@ from lexic.compile import canonical_grammar, compile_from_path
 from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.products import earley_reduce
 from tests.paths import GROUND_TRUTH
