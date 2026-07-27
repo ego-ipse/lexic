@@ -23,9 +23,16 @@ from lexic.grammars.gbnf import GBNF_GRAMMAR, GBNF_REDUCTIONS
 from lexic.ir.action import IrAction
 from lexic.ir.base import IrInt, IrLambda, IrNone, IrStr, IrTuple
 from lexic.ir.layout import render
-from lexic.ir.mapping import IR_DEFAULT
-from lexic.ir.nodes import IrAst, IrItem, IrLiteral, IrQuantifier, IrSequence
-from lexic.parsing.earley.reduce import YIELD
+from lexic.ir.mapping import IR_DEFAULT, IrMap
+from lexic.ir.nodes import (
+    IrAst,
+    IrItem,
+    IrLiteral,
+    IrQuantifier,
+    IrRuleRef,
+    IrSequence,
+)
+from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Drop, KeepReduced
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
 
 
@@ -262,3 +269,23 @@ def test_emit_ir_broken_tuple_carries_a_trailing_comma() -> None:
 def test_ir_doc_reports_no_symbol_for_the_parens() -> None:
     """A plain tuple spells no importable name — the parens are syntax."""
     assert set(ir_doc((IrStr("a"), IrStr("b"))).symbols) == {"IrStr"}
+
+
+def test_a_reduction_policy_emits_and_reads_back() -> None:
+    """A noise map is IR, so it must survive the notation like any other value.
+
+    It could not before: the policy sentinels were ``IrLambda`` closures whose
+    repr is lambda SOURCE, which emit refuses eagerly — so the one value a
+    manifest would need to carry a reduction was the one it could not spell.
+    """
+    noise = IrMap(
+        IrTuple(IrRuleRef("ws"), DROP),
+        IrTuple(IR_DEFAULT, KEEP_REDUCED),
+    )
+    text = emit_ir(noise, 76)
+    back = load_ir(text, symbols={"Drop": Drop, "KeepReduced": KeepReduced})
+    assert isinstance(back, IrMap)  # a policy reads back AS a policy
+    assert back == noise
+    # Identity, not equality: the engine asks `body is DROP`, and a repr-equal
+    # twin would pass every comparison the tests make and none the engine makes.
+    assert back.resolve(IrRuleRef("ws")) is DROP

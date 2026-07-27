@@ -3,7 +3,7 @@
 The gate is the round-trip fixpoint ``repr(load_ir(repr(x))) == repr(x)`` over
 the whole ``lexic.ir`` node vocabulary (ported from ``demo_05``'s full real
 payload suite plus a grammar-AST/string battery), the ``Yield()`` → ``YIELD``
-identity pin (F-INTERN-1), the SYMBOLS whitelist drift-pin (the no-exec
+sentinel identity pin, the SYMBOLS whitelist drift-pin (the no-exec
 boundary), and the ``grammars/json.ir`` conformance twin.
 """
 
@@ -23,7 +23,6 @@ import lexic.ir.nodes as ir_nodes
 import lexic.ir.operators as ir_operators
 from lexic.api.pretokens import IrByteLevel
 from lexic.compile.notation.parse import (
-    INTERN,
     NOTATION_GRAMMAR,
     SYMBOLS,
     load_ir,
@@ -59,7 +58,7 @@ from lexic.ir.nodes import (
     IrSequence,
 )
 from lexic.ir.operators import IrNot, IrOp
-from lexic.parsing.earley.reduce import YIELD, Yield
+from lexic.parsing.earley.reduce import DROP, KEEP_RAW, KEEP_REDUCED, YIELD, Yield
 
 GRAMMARS = Path(__file__).resolve().parents[5] / "src" / "lexic" / "grammars"
 
@@ -165,7 +164,7 @@ def test_generous_whitespace_and_comments_converge() -> None:
     assert load_ir(text) == IrItem(IrLiteral("a"), IrQuantifier(0, IrNone))
 
 
-# ── the intern contract (F-INTERN-1) ──────────────────────────────────
+# ── engine sentinels are singletons ───────────────────────────────────
 
 
 def test_yield_zero_arg_call_is_the_singleton_by_identity() -> None:
@@ -173,9 +172,16 @@ def test_yield_zero_arg_call_is_the_singleton_by_identity() -> None:
     assert load_ir("Yield()") is YIELD
 
 
-def test_intern_table_maps_yield_to_yield() -> None:
-    """The intern table is exactly the documented F-INTERN-1 contract."""
-    assert INTERN == {Yield: YIELD}
+@pytest.mark.parametrize("sentinel", (YIELD, DROP, KEEP_RAW, KEEP_REDUCED))
+def test_every_reduce_sentinel_round_trips_by_identity(sentinel: object) -> None:
+    """The engine identity-checks these, so a spelled one must BE the engine's.
+
+    Held by construction — each is an ``IrSingleton``, so its zero-arg call is
+    the canonical instance — rather than by a table naming which classes to
+    intern, which is one missing entry away from a silent wrong answer: a
+    repr-equal twin passes every ``==`` and fails every ``is``.
+    """
+    assert load_ir(repr(sentinel)) is sentinel
 
 
 # ── SYMBOLS drift-pin: the no-exec boundary ────────────────────────────
