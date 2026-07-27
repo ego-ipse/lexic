@@ -413,3 +413,42 @@ def test_an_artefact_inside_a_package_imports_its_sidecar_relatively(tmp_path) -
     export_value({"a": 1}, tmp_path / "one.py")
     source = (tmp_path / "one.py").read_text(encoding="utf-8")
     assert "from .payload_reader_" in source
+
+
+def test_a_symbol_rebound_to_another_module_is_refused_at_import(tmp_path) -> None:
+    """The whole cycle: export, move the class behind the name, import.
+
+    In-process this is a function call; the property is about what a FRESH
+    interpreter reads off the artefact and its ``.pyc``, so it is measured
+    there. Note the two ``vocab.py`` bodies differ in LENGTH — CPython
+    invalidates on mtime and size, mtime is second-granular, and two same-size
+    rewrites in one second leave the stale ``.pyc`` answering.
+    """
+    (tmp_path / "impl_old.py").write_text("class Thing(str):\n    pass\n", "utf-8")
+    (tmp_path / "impl_new_elsewhere.py").write_text(
+        "class Thing(str):\n    pass\n", "utf-8"
+    )
+    (tmp_path / "vocab.py").write_text("from impl_old import Thing\n", "utf-8")
+    build = (
+        f"import sys; sys.path[:0] = [{SRC!r}, '.']\n"
+        "from lexic.compile.payload import export_value\n"
+        "from vocab import Thing\n"
+        "export_value((Thing('x'),), 'art.py', module='vocab')\n"
+    )
+    subprocess.run(
+        [sys.executable, "-c", build], cwd=tmp_path, capture_output=True, check=True
+    )
+    assert _run(tmp_path, "art")[0] == "('x',)"
+
+    (tmp_path / "vocab.py").write_text(
+        "from impl_new_elsewhere import Thing\n", "utf-8"
+    )
+    got = subprocess.run(
+        [sys.executable, "-c", "import sys; sys.path.insert(0, '.'); import art"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert got.returncode != 0
+    assert "another module" in got.stderr
