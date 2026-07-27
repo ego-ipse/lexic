@@ -152,6 +152,21 @@ class IrInt(IrScalar, int):
         return str(int(self))
 
 
+def glyph(ordinal: int) -> str:
+    """``chr(ordinal)``, refusing a value past Unicode by name.
+
+    An ordinal only has to be a code point where it becomes a character; an
+    encoding is free to give a larger one meaning of its own, so the check
+    belongs here and not on the leaf's constructor.
+    """
+    if not 0 <= ordinal <= 0x10FFFF:
+        raise UnsupportedConstructError(
+            f"ir: code point {ordinal} (0x{ordinal:X}) is past the top of the "
+            "Unicode range (0x10FFFF) — it spells no character"
+        )
+    return chr(ordinal)
+
+
 class IrChr(IrInt):
     """A code point — build from a 1-char glyph or an int; stores the ordinal."""
 
@@ -174,13 +189,20 @@ class IrChr(IrInt):
         default encoding); per-flavour *escaping* is applied at emit by the
         flavour's ``EscapeCodec``, never by the leaf, so the canonical IR stays
         flavour-neutral.
+
+        :raises UnsupportedConstructError: When the ordinal is past the top of
+            the Unicode range. This is the single point where an ordinal
+            becomes a CHARACTER, so it is where the range is a real
+            constraint — a bare ``chr()`` here handed callers of
+            ``parse_grammar`` and ``compile_text`` a ``ValueError`` naming
+            neither the value nor where it came from.
         """
-        return chr(int(self))
+        return glyph(int(self))
 
     def eval(self, _d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf], /) -> IrStr:
         """Evaluate to the raw glyph (the neutral ``IrUnicode.spell``; see
         :meth:`__str__`) as an ``IrStr`` — emit-side use."""
-        return IrStr(chr(int(self)))
+        return IrStr(glyph(int(self)))
 
 
 # ── Primitive tuple tier ──────────────────────────────────────────────

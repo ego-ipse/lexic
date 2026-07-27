@@ -227,3 +227,20 @@ def test_ensure_is_a_check_not_an_assert():
         [sys.executable, "-O", "-c", probe], capture_output=True, text=True, check=True
     )
     assert out.stdout.strip() == "raised"
+
+
+def test_a_codepoint_past_unicode_refuses_by_name_not_by_chr():
+    """Spelling an out-of-range code point is a LEXIC failure, not a builtin one.
+
+    `chr()` raises a bare `ValueError` whose message names neither the value nor
+    the grammar it came from, and it reached callers of `parse_grammar` and
+    `compile_text` unchanged. STYLE §6: a library failure is a LexicError.
+    """
+    with pytest.raises(UnsupportedConstructError) as caught:
+        str(IrChr(0x110000))
+    assert "0x110000" in str(caught.value) or "1114112" in str(caught.value)
+
+
+def test_the_top_of_the_unicode_range_still_spells():
+    """The boundary itself is valid — the refusal starts one past it."""
+    assert str(IrChr(0x10FFFF)) == chr(0x10FFFF)

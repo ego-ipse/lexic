@@ -12,7 +12,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.grammar.nodes import IrAlternation, IrAst, IrLiteral, IrRule
 from lexic.ir.grammar.operators import IrOp
 from lexic.ir.spine.records import IrNamedTuple, IrSeq, IrTuple
-from lexic.ir.spine.scalars import IrInt, IrScalar, IrStr
+from lexic.ir.spine.scalars import IrInt, IrScalar, IrStr, glyph
 from lexic.ir.spine.spine import IrLeaf, IrSelf
 
 
@@ -57,14 +57,14 @@ class IrGlyph(IrLeaf[IrSelf, IrStr]):
         """Spell the focus code point.
 
         :raises UnsupportedConstructError: If the focus is not an integer
-            code point.
+            code point, or is one past the top of the Unicode range.
         """
         if not isinstance(n, int):
             raise UnsupportedConstructError(
                 f"IrGlyph: focus must be an integer code point, got "
                 f"{type(n).__name__!r}"
             )
-        return IrStr(chr(n))
+        return IrStr(glyph(n))
 
 
 class IrRadix(IrNamedTuple[int, int]):

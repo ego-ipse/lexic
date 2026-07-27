@@ -22,7 +22,7 @@ from lexic.compile import (
     parse_instance_from_path,
     reset_cache_for_tests,
 )
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
@@ -682,3 +682,23 @@ def test_a_block_comment_flavour_can_carry_a_start_directive():
     text = '(* @start second *)\nfirst = "a" ;\nsecond = "b" ;\n'
     ast = canonical_grammar(text, EBNF_FLAVOUR)
     assert ast.start == "second"
+
+
+@pytest.mark.parametrize(
+    ("text", "flavour"),
+    [
+        ("root ::= [\\U00110000]\n", "gbnf"),
+        ("a = %xFFFFFFFF\r\n", "abnf"),
+        ("a = %d4294967295\r\n", "abnf"),
+    ],
+)
+def test_a_codepoint_past_unicode_never_leaves_as_a_builtin_error(text, flavour):
+    """An out-of-range code point is refused as a LexicError, in every context.
+
+    `chr()`'s bare `ValueError` reached callers of `compile_text` naming neither
+    the value nor the grammar. It was also inconsistent WITHIN a flavour: in a
+    char-class context the out-of-range `IrChr` was built silently, re-emitted
+    faithfully, and only detonated later.
+    """
+    with pytest.raises(LexicError):
+        compile_text(text, flavour=flavour)

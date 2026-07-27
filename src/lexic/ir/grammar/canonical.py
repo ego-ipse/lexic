@@ -49,6 +49,7 @@ from lexic.ir.grammar.nodes import (
 from lexic.ir.grammar.operators import IrNot
 from lexic.ir.grammar.order import order_by_refs
 from lexic.ir.spine.records import IrSeq
+from lexic.ir.spine.scalars import glyph
 from lexic.ir.spine.spine import IrLambda, IrSelf
 
 _UNIT = IrQuantifier(1, 1)
@@ -67,7 +68,7 @@ def _canon_cc(cc: IrCharClass) -> IrCharClass | IrLiteral:
     norm = cc.normalized()
     first = norm[0] if len(norm) == 1 else None
     if isinstance(first, IrChr):
-        return IrLiteral(chr(int(first)))
+        return IrLiteral(glyph(int(first)))
     return norm
 
 
