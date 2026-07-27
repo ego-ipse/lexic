@@ -30,8 +30,13 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.tables import RunTerm, compile_tables
-from lexic.parsing.earley.kernel.tables import expand_atom as _expand_atom_canonical
+from lexic.parsing.earley.kernel.tables.atoms import (
+    RunTerm,
+)
+from lexic.parsing.earley.kernel.tables.atoms import (
+    expand_atom as _expand_atom_canonical,
+)
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.lexruns import expand_atom as _expand_atom_via_lexruns
 from lexic.parsing.earley.lexruns import (
     recognition_tables,

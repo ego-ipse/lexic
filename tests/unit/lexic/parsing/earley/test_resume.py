@@ -13,7 +13,8 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAlternation, IrAst, IrItem, IrLiteral, IrRule, IrSeq, IrSequence
 from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, compile_tables
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS
 from lexic.parsing.earley.lexruns import recognition_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.resume import ResumableKernel

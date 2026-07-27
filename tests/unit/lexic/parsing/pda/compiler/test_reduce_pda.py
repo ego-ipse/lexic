@@ -31,7 +31,7 @@ from lexic.ir import (
     IrSequence,
     IrTuple,
 )
-from lexic.parsing.earley.kernel.tables import compile_tables
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce.fused import plan_for
 from lexic.parsing.earley.reduce.policy import DROP, KEEP_RAW, KEEP_REDUCED, YIELD

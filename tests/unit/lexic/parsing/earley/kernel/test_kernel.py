@@ -37,12 +37,8 @@ from lexic.parsing.earley.kernel.chart import Chart
 from lexic.parsing.earley.kernel.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest import ParseTree, PayloadLeaf, SppfNode
 from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.tables import (
-    ADVANCE,
-    ORIGIN_BITS,
-    ORIGIN_MASK,
-    compile_tables,
-)
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ADVANCE, ORIGIN_BITS, ORIGIN_MASK
 from lexic.parsing.earley.normalize import normalize
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar

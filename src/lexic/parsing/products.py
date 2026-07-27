@@ -30,12 +30,9 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrSelf, IrStr, IrTuple
 from lexic.parsing.earley.engine import PARSE_FIRST, PARSE_REDUCED, EarleyParser
 from lexic.parsing.earley.kernel.fasttree import FastTree, ParseTree
-from lexic.parsing.earley.kernel.tables import (
-    ORIGIN_BITS,
-    ParserTables,
-    compile_tables,
-    tier_for,
-)
+from lexic.parsing.earley.kernel.tables.atoms import tier_for
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.earley.tokenscan import TokenKernel

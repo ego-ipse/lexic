@@ -33,7 +33,9 @@ from lexic.parsing.earley.kernel.forest import (
     ParseTree,
 )
 from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.tables import ParserTables, compile_tables, tier_for
+from lexic.parsing.earley.kernel.tables.atoms import tier_for
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.lexruns import recognition_tables
 from lexic.parsing.earley.reduce.fused import FusedReduce, collapsed_tables
 from lexic.parsing.earley.reduce.reducer import Reducer

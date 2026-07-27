@@ -79,7 +79,7 @@ from typing import Any, NamedTuple
 
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.kernel import Delegate
-from lexic.parsing.earley.kernel.tables import tier_for
+from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.flatten import (
     BUILD_DISPATCH,

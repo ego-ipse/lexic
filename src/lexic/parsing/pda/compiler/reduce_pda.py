@@ -15,7 +15,7 @@ from typing import Mapping, NamedTuple, TypeVar
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.earley.kernel.tables import ParserTables
+from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.reduce.fused import DROP_KIND, KEEP_KIND, ReducePlan
 from lexic.parsing.earley.reduce.policy import YIELD
 from lexic.parsing.earley.reduce.reducer import Reducer

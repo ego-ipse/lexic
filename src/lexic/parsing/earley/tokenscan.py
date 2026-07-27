@@ -30,7 +30,8 @@ from lexic.ir import (
     IrTokenizer,
 )
 from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.tables import ParserTables, compile_tables
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.resume import ResumableKernel
 from lexic.parsing.fold import lift_optional_nullables

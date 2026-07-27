@@ -13,7 +13,8 @@ from lexic.ir import (
     IrLeaf,
     IrSelf,
 )
-from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, ParserTables, compile_tables
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.pda.compiler.flatten import (
     FlatClone,
     PdaProgram,

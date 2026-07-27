@@ -99,7 +99,8 @@ from lexic.parsing.earley.kernel.forest import (
     SppfNode,
 )
 from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.tables import ParserTables, compile_tables
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.earley.tokenscan import (

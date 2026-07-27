@@ -29,15 +29,12 @@ from __future__ import annotations
 from typing import Callable
 
 from lexic.ir import IrAst, IrLeaf, IrLiteral, IrSelf
-from lexic.parsing.earley.kernel.tables import (
+from lexic.parsing.earley.kernel.tables.atoms import Charset, RunTerm, expand_atom
+from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tables
+from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
     RUN_DROP,
-    Charset,
     ParserTables,
-    RunTerm,
-    build_tables,
-    compile_tables,
-    expand_atom,
 )
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
 

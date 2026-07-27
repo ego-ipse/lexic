@@ -64,7 +64,11 @@ from lexic.ir import (
     IrTuple,
 )
 from lexic.parsing.earley.kernel.forest import ParseTree, PayloadLeaf
-from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, RUN_STR, ParserTables
+from lexic.parsing.earley.kernel.tables.records import (
+    ORIGIN_BITS,
+    RUN_STR,
+    ParserTables,
+)
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.pda.analysis.analysis import nullable_names
 
