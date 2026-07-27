@@ -30,11 +30,8 @@ from lexic.compile.module.export import (
     field_type,
     value_str_type,
 )
-from lexic.compile.pipeline.binding import (
-    _RESERVED_CLASS_NAMES,
-    RuleBinding,
-    compute_binding,
-)
+from lexic.compile.pipeline.binding import RuleBinding, compute_binding
+from lexic.compile.pipeline.naming import _RESERVED_CLASS_NAMES
 from lexic.grammars import get_flavour
 from lexic.ir import (
     IrAlternation,

@@ -158,6 +158,7 @@ src/lexic/
     pipeline/
       __init__.py                  The compile pipeline — grammar → classes (passes, binding, synthesis)
       binding.py                   Binding view — the codegen grammar's per-rule class/kind/parent/field map
+      naming.py                    What a generated class and its fields are CALLED — spelling, and nothing else
       passes.py                    Grammar→grammar codegen passes — hoist groups, hoist arms, relax noise
       synthesis.py                 Runtime class synthesis — codegen grammar + binding view → model classes
   grammars/

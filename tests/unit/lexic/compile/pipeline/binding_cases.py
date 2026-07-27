@@ -17,6 +17,7 @@ from typing import Callable
 
 import pytest
 
+from lexic.compile.pipeline import naming
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
@@ -108,7 +109,7 @@ def mutual_arm_ast() -> IrAst:
 # ── naming lookup tables (re-homed from ir/naming.py) ─────────────────
 
 
-def case_charclass_names_keyed_by_canonical_normal_form(binding: ModuleType) -> None:
+def case_charclass_names_keyed_by_canonical_normal_form(_binding: ModuleType) -> None:
     """The pattern library is keyed by canonical (post-canonicalize) forms.
 
     The binding view reads the codegen grammar, which is post-canonicalize —
@@ -117,24 +118,24 @@ def case_charclass_names_keyed_by_canonical_normal_form(binding: ModuleType) -> 
     mixed-case ``[a-zA-Z]``/``[a-zA-Z_0-9]``) folded to one normal-form key each
     when derive's non-canonical gate was removed in Task 6.
     """
-    assert binding.CHARCLASS_NAMES["[0-9]"] == "digit"
-    assert binding.CHARCLASS_NAMES["[a-z]"] == "lower"
-    assert binding.CHARCLASS_NAMES["[A-Z]"] == "upper"
-    assert binding.CHARCLASS_NAMES["[0-9A-Fa-f]"] == "hex"
-    assert binding.CHARCLASS_NAMES["[A-Za-z]"] == "letter"
-    assert binding.CHARCLASS_NAMES["[0-9A-Z_a-z]"] == "alnum"
+    assert naming.CHARCLASS_NAMES["[0-9]"] == "digit"
+    assert naming.CHARCLASS_NAMES["[a-z]"] == "lower"
+    assert naming.CHARCLASS_NAMES["[A-Z]"] == "upper"
+    assert naming.CHARCLASS_NAMES["[0-9A-Fa-f]"] == "hex"
+    assert naming.CHARCLASS_NAMES["[A-Za-z]"] == "letter"
+    assert naming.CHARCLASS_NAMES["[0-9A-Z_a-z]"] == "alnum"
     # The pre-canonical spellings are gone — nothing keys off them now.
-    assert "[0-9a-fA-F]" not in binding.CHARCLASS_NAMES
-    assert "[a-zA-Z]" not in binding.CHARCLASS_NAMES
+    assert "[0-9a-fA-F]" not in naming.CHARCLASS_NAMES
+    assert "[a-zA-Z]" not in naming.CHARCLASS_NAMES
 
 
-def case_literal_names_table_content(binding: ModuleType) -> None:
+def case_literal_names_table_content(_binding: ModuleType) -> None:
     """The literal library still maps the punctuation set to stable field names."""
-    assert binding.LITERAL_NAMES["-"] == "sign"
-    assert binding.LITERAL_NAMES["+"] == "sign"
-    assert binding.LITERAL_NAMES["."] == "dot"
-    assert binding.LITERAL_NAMES[","] == "comma"
-    assert binding.LITERAL_NAMES["="] == "eq"
+    assert naming.LITERAL_NAMES["-"] == "sign"
+    assert naming.LITERAL_NAMES["+"] == "sign"
+    assert naming.LITERAL_NAMES["."] == "dot"
+    assert naming.LITERAL_NAMES[","] == "comma"
+    assert naming.LITERAL_NAMES["="] == "eq"
 
 
 # ── class naming ──────────────────────────────────────────────────────
@@ -509,7 +510,7 @@ def case_class_name_mangles_keywords_and_header_bindings(
 def case_reserved_field_names_cover_grammar_model(binding: ModuleType) -> None:
     """Every public GrammarModel attribute is a reserved field name."""
     public = {n for n in dir(GrammarModel) if not n.startswith("_")}
-    reserved = getattr(binding, "_RESERVED_FIELD_NAMES")
+    reserved = getattr(binding, "RESERVED_FIELD_NAMES")
     assert public <= reserved
 
 

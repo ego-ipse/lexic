@@ -34,12 +34,8 @@ from lexic import ir
 from lexic.compile.artifact import CompiledGrammar
 from lexic.compile.notation.emit import black_quoted, ir_doc
 from lexic.compile.notation.parse import load_ir
-from lexic.compile.pipeline.binding import (
-    RuleBinding,
-    class_name_for,
-    compute_binding,
-    non_empty_arms,
-)
+from lexic.compile.pipeline.binding import RuleBinding, compute_binding, non_empty_arms
+from lexic.compile.pipeline.naming import class_name_for
 from lexic.compile.writer import write_module
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour

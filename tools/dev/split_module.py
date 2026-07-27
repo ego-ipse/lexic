@@ -10,7 +10,10 @@ same three mistakes, so this makes them structurally impossible:
   every sibling's definitions, rather than discovered one ``NameError`` per test
   run;
 * a rewrite is a single pass over one alternation, so no rule can match another
-  rule's output.
+  rule's output;
+* a definition's span starts at its first DECORATOR, not at its ``def`` — moving
+  a decorated function otherwise leaves ``@cache`` behind to attach itself to
+  the next definition, which is a bug no test names and no import catches.
 
 Not a general refactoring tool: it knows this repo's layout and is meant to be
 read before it is trusted.
@@ -48,6 +51,14 @@ def _spans(tree: ast.Module) -> dict[str, tuple[int, int]]:
             ]
         if not bound:
             continue
+        # DECORATORS ARE PART OF THE DEFINITION. `lineno` points at the `def`,
+        # not at `@cache` above it, so a span taken from the node alone moves
+        # the function and leaves its decorators behind — silently applying
+        # them to whatever follows. That is how a `@cache` landed on the next
+        # class and turned its construction into a dict hash.
+        start = min(
+            [node.lineno, *(d.lineno for d in getattr(node, "decorator_list", []))]
+        )
         end = node.end_lineno or node.lineno
         nxt = body[i + 1] if i + 1 < len(body) else None
         if (
@@ -57,7 +68,7 @@ def _spans(tree: ast.Module) -> dict[str, tuple[int, int]]:
         ):
             end = nxt.end_lineno or nxt.lineno
         for name in bound:
-            out[name] = (node.lineno, end)
+            out[name] = (start, end)
     return out
 
 
