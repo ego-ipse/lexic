@@ -13,8 +13,9 @@ reverse. The thin ``PdaKernel._island`` dispatcher (which owns the cursor state
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import NamedTuple
 
-from lexic.exceptions import LexicError
+from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir.base import IrTuple
 from lexic.parsing.earley.engine import EarleyParser
 from lexic.parsing.earley.forest import DERIVATION_STREAM, ParseTree, SppfNode
@@ -108,12 +109,25 @@ def _may_extend(
     return kern.can_extend_at(end, text[nxt])
 
 
+class IslandPolicy(NamedTuple):
+    """How an island's interior is run, and what may come out of it.
+
+    ``fold`` is here for the ambiguity question alone: whether two derivations
+    are a real ambiguity is a question about the VALUES they build, and only
+    the fold can answer it.
+    """
+
+    delegates: dict[int, Delegate] | None = None
+    ambiguous: bool = False
+    fold: object = None
+
+
 def island_parse(
     tables: ParserTables,
     text: str,
     pos: int,
     name: str,
-    delegates: dict[int, Delegate] | None = None,
+    policy: IslandPolicy = IslandPolicy(),
 ) -> tuple[ParseTree, int]:
     """Longest completion of island ``name`` over a doubling window from ``pos``.
 
@@ -125,23 +139,30 @@ def island_parse(
     :param text: The full input.
     :param pos: The cursor position the window opens at.
     :param name: The island rule name (for the failure message).
-    :param delegates: The island-interior delegate table (rule_id → callable),
-        or ``None`` (pure-Earley interior — the pre-delegation behaviour).
+    :param policy: The interior delegate table, and whether more than one
+        derivation is allowed. An island is the ONE place the model path chooses
+        between derivations — everywhere else it is predictive and produces one
+        by construction — so it is where the setting is enforced.
     :returns: ``(tree, end)`` — the derivation and its consumed length.
     :raises PdaFail: When the island completes over no window.
+    :raises UnsupportedConstructError: On an ambiguous island under the default
+        setting. The round-trip invariant cannot catch a wrong choice here:
+        ``to_text()`` reproduces the input for whichever derivation was taken.
     """
     remaining = len(text) - pos
     window = ISLAND_WINDOW
-    best = island_run(tables, text[pos : pos + window], delegates)
+    best = island_run(tables, text[pos : pos + window], policy.delegates)
     while window < remaining and _may_extend(best, text, pos, window, remaining):
         window *= 2
-        best = island_run(tables, text[pos : pos + window], delegates)
+        best = island_run(tables, text[pos : pos + window], policy.delegates)
     if best is None:
         raise PdaFail(f"island {name!r}: no match at {pos}")
     kern, item, end = best
     tree = FastTree(kern).build((item << kern.tables.packing.bits) | end)
-    if not isinstance(tree, ParseTree):  # ambiguous — take the first derivation
-        tree = island_derivation(kern, item, end, name)
+    if not isinstance(tree, ParseTree):
+        # The fast path declining is NOT ambiguity — it also declines when a key
+        # packs more than one family or the root has many productions.
+        tree = island_derivation(kern, item, end, name, policy=policy)
     return tree, end
 
 
@@ -166,19 +187,66 @@ def island_run(
     return kern, item, end
 
 
-def island_derivation(kern: Kernel, item: int, end: int, name: str) -> ParseTree:
-    """First derivation of an ambiguous island completion (engine policy).
+def island_derivation(
+    kern: Kernel,
+    item: int,
+    end: int,
+    name: str,
+    *,
+    policy: IslandPolicy = IslandPolicy(),
+) -> ParseTree:
+    """First derivation of an island completion the fast path did not build.
+
+    Under the default setting a SECOND derivation is refused — but only when it
+    builds a DIFFERENT value. A grammar routinely derives one text several ways
+    without meaning anything by it: an inline group like
+    ``([0-9] | [1-9] [0-9]*)`` carves a single digit two ways and folds to the
+    same model both times, because the arms never materialise a class. Refusing
+    that refuses ``{"a":1}`` for a difference no consumer can observe. What is
+    worth refusing is a second derivation that means something ELSE, which is a
+    question about values, not about trees.
+
+    The stream is lazy, so this costs one extra derivation and one fold, and
+    only where the fast path already declined.
 
     :param kern: The island's Earley kernel.
     :param item: The accepting item.
     :param end: The completion's consumed length.
     :param name: The island rule name (for the failure message).
+    :param policy: Carries the ambiguity setting and the fold that answers it.
     :returns: The first derivation tree.
     :raises PdaFail: When the completion decodes to no derivation.
+    :raises UnsupportedConstructError: When a second derivation builds a
+        different value and the setting refuses it.
     """
     node = SppfNode(kern.decode_item(item), end)
     stream = DERIVATION_STREAM.eval(_DERIV_PARSER, node, IrTuple(kern.to_chart()))
-    tree = next(iter(stream), None)
+    walk = iter(stream)
+    tree = next(walk, None)
     if not isinstance(tree, ParseTree):
         raise PdaFail(f"island {name!r}: no derivation")
+    if policy.ambiguous or policy.fold is None:
+        return tree
+    second = next(walk, None)
+    if isinstance(second, ParseTree) and _differs(policy.fold, tree, second):
+        raise UnsupportedConstructError(
+            f"parsing: island {name!r} derives the same text two ways that mean "
+            "different things — pass ambiguous=True to take the first"
+        )
     return tree
+
+
+def _differs(fold: object, one: ParseTree, other: ParseTree) -> bool:
+    """Do two derivations of one span build different values?
+
+    A fold that refuses either tree answers nothing about ambiguity — that is a
+    fold failure, and the caller's own completion will report it — so it counts
+    as "no observable difference" here rather than masquerading as one.
+    """
+    apply = getattr(fold, "apply", None)
+    if apply is None:
+        return False
+    try:
+        return repr(apply(one)) != repr(apply(other))
+    except LexicError:
+        return False

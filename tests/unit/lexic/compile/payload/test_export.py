@@ -16,8 +16,9 @@ from importlib import import_module
 import pytest
 
 from lexic.compile import compile_from_path, compile_text, export_module
-from lexic.compile.payload import export_value, project, reader, render
+from lexic.compile.payload import built_under, export_value, project, reader, render
 from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.ir.base import IrInt, IrStr, IrTuple
 from lexic.ir.encoding import IrRankedMerge
 from tests.paths import GROUND_TRUTH, PROJECT_ROOT
@@ -519,3 +520,40 @@ def test_a_home_is_the_origin_only_when_the_origin_really_exports_it() -> None:
     impostor = type("Sequence", (str,), {"__module__": "lexic.ir.base"})
     with pytest.raises(UnsupportedConstructError, match="no importable module"):
         render(project((impostor("x"),)), READER)
+
+
+def test_an_artefact_records_the_reduction_it_was_built_under(tmp_path) -> None:
+    """The half of provenance that cannot be checked at decode.
+
+    An ``ir`` or ``plain`` artefact names spine classes or nothing at all, and
+    those are identical under every reduction there is — so nothing at read time
+    could disagree, and an artefact supplying its own expectation would only be
+    checking itself. It is recorded, and the party holding a live reduction asks.
+    """
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    export_value(compiled.grammar, tmp_path / "art.py", reduction=GBNF_FLAVOUR.reducer)
+    sys.path.insert(0, str(tmp_path))
+    try:
+        art = import_module("art")
+        assert built_under(art, GBNF_FLAVOUR.reducer)
+        assert not built_under(art, ABNF_FLAVOUR.reducer)
+    finally:
+        sys.path.remove(str(tmp_path))
+        sys.modules.pop("art", None)
+
+
+def test_an_artefact_with_no_recorded_reduction_matches_nothing(tmp_path) -> None:
+    """An unknown provenance is not a match.
+
+    Answering "yes" for an artefact that recorded nothing would make the check
+    weakest exactly where there is least to go on.
+    """
+    export_value({"a": 1}, tmp_path / "bare.py")
+    sys.path.insert(0, str(tmp_path))
+    try:
+        bare = import_module("bare")
+        assert bare.REDUCTION == 0
+        assert not built_under(bare, GBNF_FLAVOUR.reducer)
+    finally:
+        sys.path.remove(str(tmp_path))
+        sys.modules.pop("bare", None)
