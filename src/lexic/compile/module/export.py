@@ -55,6 +55,7 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.ir.order import rule_closure
 
 WIDTH = 88
 
@@ -243,14 +244,20 @@ def _indented_ir(prefix: str, node: IrSelf) -> _Rendered:
     return _Rendered(text.split("\n"), notation.symbols)
 
 
-def _inline_table_lines(bind: RuleBinding, rule: IrRule) -> _Rendered:
-    """The ``inline_tables`` ClassVars: ``__grammar__`` and ``__binds__``.
+def _inline_table_lines(bind: RuleBinding, rule: IrRule, shape: int) -> _Rendered:
+    """The ``inline_tables`` ClassVars: ``__grammar__``, ``__shape__``, ``__binds__``.
 
     Strings render double-quoted (:func:`~lexic.compile.notation.black_quoted`)
     so the inline tables are a formatter fixpoint like the rest of the module.
+
+    ``__shape__`` is written here for the same reason ``bind_module`` writes it:
+    it is the class's provenance, and a twin without it reads as a class with no
+    grammar at all — which makes a payload naming it lose its provenance
+    silently in one direction and be refused in the other.
     """
     grammar = _indented_ir("    __grammar__: ClassVar[IrRule] = ", rule)
     lines = list(grammar.lines)
+    lines.append(f"    __shape__: ClassVar[int] = {shape}")
     # The annotations this function writes by hand are spellings too.
     symbols = grammar.symbols | {"ClassVar", "IrRule"}
     if bind.fields:
@@ -267,15 +274,23 @@ def _inline_table_lines(bind: RuleBinding, rule: IrRule) -> _Rendered:
     return _Rendered(lines, symbols)
 
 
+class _ClassInput(NamedTuple):
+    """Everything one class block is rendered from — its rule, seen four ways."""
+
+    bind: RuleBinding
+    rule: IrRule
+    rule_text: str
+    shape: int
+
+
 def _class_lines(
-    bind: RuleBinding,
-    rule: IrRule,
+    made: _ClassInput,
     class_by_rule: dict[str, str],
-    rule_text: str,
     *,
     inline_tables: bool,
 ) -> _Rendered:
     """One class definition's lines, and the header symbols they spell."""
+    bind, rule, rule_text, shape = made
     bases = ", ".join(bind.parent_class_names) or "GrammarModel"
     lines = [f"class {bind.class_name}({bases}):"]
     lines.extend(docstring_lines(rule_text))
@@ -291,7 +306,7 @@ def _class_lines(
     elif bind.kind == "sequence":
         body.extend(_sequence_field_lines(bind, rule, class_by_rule))
     if inline_tables:
-        tables = _inline_table_lines(bind, rule)
+        tables = _inline_table_lines(bind, rule, shape)
         body.extend(tables.lines)
         symbols |= tables.symbols
     if body:  # formatter fixpoint: blank line between docstring and body
@@ -416,6 +431,7 @@ def _module_body(compiled: CompiledGrammar, *, inline_tables: bool) -> _Rendered
         for rule in (compiled.tokens.unresolved or compiled.codegen_grammar).rules
     }
     class_by_rule = {bind.rule_name: bind.class_name for bind in binding}
+    shapes = rule_closure(compiled.codegen_grammar)
     blocks: list[str] = []
     spelled: frozenset[str] = frozenset()
     for bind in binding:
@@ -424,10 +440,13 @@ def _module_body(compiled: CompiledGrammar, *, inline_tables: bool) -> _Rendered
         # onto the layout algebra as its own task); width-broken rule text
         # would double-wrap here.
         rendered = _class_lines(
-            bind,
-            rule,
+            _ClassInput(
+                bind,
+                rule,
+                str(flavour.apply(authored.get(bind.rule_name, rule), width=None)),
+                shapes[bind.rule_name],
+            ),
             class_by_rule,
-            str(flavour.apply(authored.get(bind.rule_name, rule), width=None)),
             inline_tables=inline_tables,
         )
         blocks.append("\n".join(rendered.lines))

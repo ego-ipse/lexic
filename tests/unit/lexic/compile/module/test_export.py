@@ -559,3 +559,21 @@ def test_a_terminal_spelling_the_gates_marker_still_exports() -> None:
     source = export_source(compile_text('root ::= "GRAMMAR: IrAst = oops"'))
     assert "GRAMMAR: IrAst = oops" in source
     assert "IrLiteral" in source
+
+
+@pytest.mark.parametrize("inline_tables", [False, True])
+def test_a_twin_carries_the_same_shape_as_its_runtime_classes(
+    tmp_path, inline_tables: bool
+) -> None:
+    """Both table modes, because they write the class's tables differently.
+
+    The bind mode attaches ``__shape__`` at import; the inline mode writes it as
+    a ClassVar. Wiring only the first left an inline twin's classes carrying no
+    provenance at all, so a payload naming them lost its shape silently one way
+    and was refused the other.
+    """
+    compiled = compile_text("root ::= item\nitem ::= num | word\nnum ::= [0-9]+\n")
+    path = export_module(compiled, tmp_path / "tw.py", inline_tables=inline_tables)
+    twin = import_hermetic_module(path, "tw")
+    for name, cls in compiled.classes.items():
+        assert getattr(twin, name).__shape__ == cls.__shape__
