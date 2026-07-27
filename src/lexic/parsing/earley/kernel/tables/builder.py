@@ -17,6 +17,7 @@ from lexic.ir import (
     IrLeaf,
     IrLiteral,
     IrNot,
+    IrQuantifier,
     IrRuleRef,
     IrSelf,
     IrSequence,
@@ -26,12 +27,17 @@ from lexic.parsing.earley.kernel.tables.atoms import (
     expand_atom,
 )
 from lexic.parsing.earley.kernel.tables.records import (
-    _EMPTY_RUN,
-    _ONE,
     ORIGIN_BITS,
+    RUN_DROP,
     Charset,
     ParserTables,
 )
+
+_ONE = IrQuantifier(1, 1)
+
+_EMPTY_RUN = RunTerm(frozenset(), 1, RUN_DROP)
+"""Placeholder for :attr:`ParserTables.term_runs`' non-run slots — never
+matches, never read (the kernel only indexes it where ``term_lens`` is 0)."""
 
 _CACHE: dict[tuple[int, int], tuple[IrAst, ParserTables]] = {}
 """Compile memo — (id(grammar), bits) → (the grammar, its tables). The strong

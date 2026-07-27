@@ -46,7 +46,6 @@ from lexic.ir import (
     IrLeaf,
     IrLiteral,
     IrNot,
-    IrQuantifier,
     IrRuleRef,
     IrSelf,
     IrSeq,
@@ -74,18 +73,10 @@ ADVANCE = 1 << ORIGIN_BITS
 """Adding this to a packed item advances its dot by one (codes are dot-dense)."""
 
 
-_ONE = IrQuantifier(1, 1)
-
-
 RUN_DROP, RUN_STR, RUN_LEAF = 0, 1, 2
 """A :class:`RunTerm`'s per-char reduction contribution: nothing (the unit is
 DROP noise), one ``IrStr`` per char (the unit rule YIELDs its text), or one
 interned ``IrLiteral`` leaf per char (a bare terminal unit under KEEP_RAW)."""
-
-
-_EMPTY_RUN = RunTerm(frozenset(), 1, RUN_DROP)
-"""Placeholder for :attr:`ParserTables.term_runs`' non-run slots — never
-matches, never read (the kernel only indexes it where ``term_lens`` is 0)."""
 
 
 class CodeTables(IrLeaf[IrSelf, IrSelf]):
@@ -228,7 +219,8 @@ class TermTables(IrLeaf[IrSelf, IrSelf]):
         loop's multi-char-literal branch indexes a plain ``str`` with no
         per-step narrowing.
     :ivar runs: term_id → the :class:`RunTerm` when ``lens`` is ``0``, else
-        :data:`_EMPTY_RUN`. Same rationale as ``literals``, for the
+        :data:`~lexic.parsing.earley.kernel.tables.builder._EMPTY_RUN`. Same
+        rationale as ``literals``, for the
         run-terminal branch.
     """
 
