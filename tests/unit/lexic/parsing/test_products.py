@@ -18,6 +18,7 @@ from typing import cast
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrAst, IrMap
@@ -202,3 +203,22 @@ def test_parse_model_picks_the_tier_by_input_size(monkeypatch):
     assert model.to_text() == "ab"
     assert (id(cg.codegen_grammar), id(cg.fold), 8) in _MODEL_CACHE
     reset_product_cache()
+
+
+# ── the reduce path decides ambiguity the same way everything else does ──
+
+
+def test_earley_reduce_accepts_derivations_that_reduce_to_one_value():
+    """Two derivations, one meaning, is not an ambiguity — anywhere.
+
+    The islands path stopped counting derivations and started comparing the
+    values they build. The reduce path kept counting, and the cost was the
+    whole EBNF fallback: that self-grammar has adjacent nullable `ws` slots, so
+    EVERY whitespace-carrying EBNF file derives at least two ways and reduced
+    to exactly one value. Earley refused all of them, which left `parse_grammar`
+    for EBNF riding entirely on the PDA never escaping.
+    """
+    product = _reduce_product(EBNF_FLAVOUR.grammar, EBNF_FLAVOUR.reducer)
+    got = earley_reduce(product.earley_grammar, "a = b ;\n", EBNF_FLAVOUR.reducer)
+    assert isinstance(got, IrAst)
+    assert [str(r.name) for r in got.rules] == ["a"]

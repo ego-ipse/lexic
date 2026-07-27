@@ -75,6 +75,7 @@ from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tab
 from lexic.parsing.earley.kernel.tables.records import RUN_STR
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.reduce.policy import KEEP_RAW
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.products import earley_reduce
 from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
@@ -662,11 +663,47 @@ def test_parse_reduced_raises_on_invalid_input(digit_grammar: IrAst):
         earley_reduce(digit_grammar, "z", reducer)
 
 
-def test_parse_reduced_raises_on_ambiguous_input(sss_grammar: IrAst):
-    """earley_reduce() raises UnsupportedConstructError on ambiguous input."""
-    reducer = s_reducer()
+def test_parse_reduced_accepts_derivations_that_reduce_to_one_value(
+    sss_grammar: IrAst,
+):
+    """PORTED, opposite expectation: two derivations of one MEANING are fine.
+
+    `s ::= s s | "a"` over `"aaa"` derives two ways, and under a YIELDing
+    reducer both reduce to `IrStr('aaa')` — verified by enumerating the forest,
+    not assumed. This test asserted a refusal because the reduce path decided
+    ambiguity by counting DERIVATIONS; the islands path had already moved to
+    comparing the VALUES they build, and counting was what left the EBNF
+    flavour with no working Earley fallback. The refusal it used to pin now
+    lives in the test below, on an input that means two things.
+    """
+    assert str(earley_reduce(sss_grammar, "aaa", s_reducer())) == "aaa"
+
+
+def test_parse_reduced_still_refuses_derivations_that_mean_different_things():
+    """Two arms spelling the same text, kept RAW — the arm taken is observable."""
+    grammar = IrAst(
+        IrSeq(
+            IrRule(
+                "s",
+                IrAlternation(
+                    IrSequence(IrItem(IrRuleRef("a"))),
+                    IrSequence(IrItem(IrRuleRef("b"))),
+                ),
+            ),
+            IrRule("a", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))),
+            IrRule("b", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))),
+        ),
+        "s",
+    )
+    reducer = Reducer(
+        actions=IrMap(
+            IrTuple(IrRuleRef("s"), KEEP_RAW),
+            IrTuple(IrRuleRef("a"), YIELD),
+            IrTuple(IrRuleRef("b"), YIELD),
+        )
+    )
     with pytest.raises(UnsupportedConstructError):
-        earley_reduce(sss_grammar, "aaa", reducer)
+        earley_reduce(grammar, "x", reducer)
 
 
 def test_parse_reduced_raises_on_non_reducer_argument(digit_grammar: IrAst):

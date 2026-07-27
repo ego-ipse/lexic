@@ -207,6 +207,7 @@ src/lexic/
       engine.py                    Earley orchestration — the IR-native façade over the compiled kernel
       kernel/                      The paid loop — the kernel and the structures it fills
         __init__.py                the group's package marker
+        ambiguity.py               Does this span mean more than one thing? — the forest's own answer
         chart.py                   The IR-native SPPF link table — the decoded form of a kernel parse
         fasttree.py                The fast tree build — the unambiguous parse's short path
         forest.py                  Parse forest — the shared packed parse forest (SPPF) and its reducible views

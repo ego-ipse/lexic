@@ -21,10 +21,12 @@ compiling the grammar (memoised), running one :class:`~lexic.parsing.earley.kern
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrDispatch, IrInt, IrLeaf, IrSelf, IrSeq, IrTuple
+from lexic.parsing.earley.kernel.ambiguity import means_two_things
 from lexic.parsing.earley.kernel.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest import (
     BUILD_TREE,
@@ -92,6 +94,34 @@ def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
     if not isinstance(built, ParseTree):
         raise UnsupportedConstructError("parsing: no derivation")
     return built
+
+
+def _one_meaning(kernel: Kernel, build: Callable[[ParseTree], object]) -> ParseTree:
+    """The derivation to reduce, refusing only a span that means two things.
+
+    The strict :func:`_single_tree` refuses on a second DERIVATION, which is the
+    rule the island path abandoned: a grammar derives one text several ways
+    without meaning anything by it, and two adjacent nullable slots split a gap
+    two ways to the same end. Under the counting rule every whitespace-carrying
+    EBNF file was refused, because that self-grammar has exactly that shape —
+    so the reduce path's documented Earley completion was dead for the flavour.
+
+    :raises UnsupportedConstructError: When two derivations build different
+        values, or when nothing derives.
+    """
+    handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
+    # An empty choices map takes family 0 at every ambiguity point instead of
+    # bailing on one, so this builds whenever the links are complete — the
+    # enumerating fallback would only reinstate the counting rule.
+    tree = FastTree(kernel, {}).build(handle)
+    if not isinstance(tree, ParseTree):
+        raise UnsupportedConstructError("parsing: no derivation")
+    if means_two_things(kernel, handle, build, tree):
+        raise UnsupportedConstructError(
+            "parsing: ambiguous input — two derivations that mean different "
+            "things; use the forest enumeration entry to choose between them"
+        )
+    return tree
 
 
 class Recognize(IrLeaf[IrSelf, IrSelf]):
@@ -231,7 +261,7 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
         # tree path needs a plain parse.
         plain = _run_kernel(n, nc, True)
         _require_accept(plain, n)
-        return reducer.apply(_single_tree(d, plain))
+        return reducer.apply(_one_meaning(plain, reducer.apply))
 
 
 class ParseForest(IrLeaf[IrSelf, IrSelf]):
