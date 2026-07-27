@@ -146,19 +146,24 @@ def test_multi_membership_arm_isinstance_of_all_alternations():
 
 
 def test_compile_from_path_uses_filename_stem():
-    """compile_from_path names the synthesized classes' module by the filename stem."""
+    """compile_from_path leads the synthesized module name with the filename stem.
+
+    The stem still reads first; a content tag rides behind it, because two
+    different grammars can share a filename and ``__module__`` is what tells
+    their classes apart.
+    """
     reset_cache_for_tests()
     cg = compile_from_path(GROUND_TRUTH / "list.gbnf")
     assert "Root" in cg.classes
-    assert cg.classes["Root"].__module__ == "generated.list"
+    assert cg.classes["Root"].__module__.startswith("generated.list_")
     assert cg.parse("- apple\n").to_text() == "- apple\n"
 
 
 def test_compile_from_path_ground_truth_uses_filename_stem():
-    """compile_from_path on a ground truth grammar uses the .gbnf stem as module name."""
+    """A ground-truth grammar's module name leads with its ``.gbnf`` stem."""
     reset_cache_for_tests()
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     assert "Root" in cg.classes
-    assert cg.classes["Root"].__module__ == "generated.arithmetic"
+    assert cg.classes["Root"].__module__.startswith("generated.arithmetic_")
     inst = cg.parse("x=1\n")
     assert inst.to_text() == "x=1\n"

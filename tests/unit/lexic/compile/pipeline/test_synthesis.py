@@ -10,7 +10,7 @@ subclasses.
 
 from __future__ import annotations
 
-from lexic.compile import canonical_grammar, compile_text
+from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.compile.pipeline.synthesis import synthesize
@@ -270,3 +270,45 @@ def test_synthesis_matches_end_to_end_compile_text_round_trip():
     inst = cg.parse("ab123")
     assert inst.to_text() == "ab123"
     assert inst.dump() == {"word": {"value": "ab"}, "digit": "123"}
+
+
+# ── the synthetic module name identifies CONTENT, not a filename ──────────
+
+
+def test_two_files_with_one_stem_get_different_module_names(tmp_path) -> None:
+    """``g.gbnf`` in two directories is two grammars, not one.
+
+    A generated class's ``__module__`` is its grammar's identity: the payload
+    projection interns a symbol per ``(module, name)``, so two different
+    grammars whose classes are both called ``Root`` are only distinguishable if
+    the module is. Deriving it from the file STEM made ``a/g.gbnf`` and
+    ``b/g.gbnf`` indistinguishable, and the two ``Root``s merged silently.
+    """
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    first = tmp_path / "a" / "g.gbnf"
+    second = tmp_path / "b" / "g.gbnf"
+    first.write_text("root ::= item+\nitem ::= [a-z]+\n", encoding="utf-8")
+    second.write_text("root ::= word+\nword ::= [A-Z]+\n", encoding="utf-8")
+    one = compile_from_path(first).classes["Root"]
+    two = compile_from_path(second).classes["Root"]
+    assert one.__name__ == two.__name__ == "Root"
+    assert one.__module__ != two.__module__
+
+
+def test_the_same_content_gets_the_same_module_name(tmp_path) -> None:
+    """Two names for one grammar are one identity — the hash is of the text."""
+    (tmp_path / "x.gbnf").write_text("root ::= [a-z]+\n", encoding="utf-8")
+    (tmp_path / "y.gbnf").write_text("root ::= [a-z]+\n", encoding="utf-8")
+    one = compile_from_path(tmp_path / "x.gbnf").classes["Root"]
+    two = compile_from_path(tmp_path / "y.gbnf").classes["Root"]
+    assert one.__module__.startswith("generated.x_")
+    assert two.__module__.startswith("generated.y_")
+    assert one.__module__.split("_")[-1] == two.__module__.split("_")[-1]
+
+
+def test_the_module_name_still_reads_as_the_file(tmp_path) -> None:
+    """The stem stays legible — the hash is a suffix, not a replacement."""
+    (tmp_path / "chess.gbnf").write_text("root ::= [a-z]+\n", encoding="utf-8")
+    cls = compile_from_path(tmp_path / "chess.gbnf").classes["Root"]
+    assert cls.__module__.startswith("generated.chess_")
