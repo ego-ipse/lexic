@@ -66,8 +66,8 @@ from lexic.ir.grammar.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.spine.spine import IrLambda, IrLeaf, IrNode, IrNone, IrSelf
 from lexic.ir.spine.records import IrCachingTuple, IrSeq
+from lexic.ir.spine.spine import IrLambda, IrLeaf, IrNode, IrNone, IrSelf
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 

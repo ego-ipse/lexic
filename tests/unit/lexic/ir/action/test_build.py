@@ -31,9 +31,9 @@ from lexic.ir.grammar.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.spine.spine import IrNone, IrSelf
 from lexic.ir.spine.records import IrTuple
 from lexic.ir.spine.scalars import IrChr, IrStr
+from lexic.ir.spine.spine import IrNone, IrSelf
 
 
 def test_irchild_reads_second_child():

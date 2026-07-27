@@ -1,7 +1,7 @@
 """Tests for lexic.parsing.earley.lexruns — run-terminal detection and collapse.
 
 New module: proves a synthetic star/plus rule's collapse to a single
-maximal-munch :class:`~lexic.parsing.earley.tables.RunTerm` (fixed charset,
+maximal-munch :class:`~lexic.parsing.earley.kernel.tables.RunTerm` (fixed charset,
 derivation-uniqueness, follow-disjointness) and reconstructs it as compiled
 tables. This file covers ``run_candidates``'s detection and memoisation,
 ``recognition_tables``'s collapse and result parity with plain tables, and
@@ -29,7 +29,9 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
-from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.tables import RunTerm, compile_tables
+from lexic.parsing.earley.kernel.tables import expand_atom as _expand_atom_canonical
 from lexic.parsing.earley.lexruns import expand_atom as _expand_atom_via_lexruns
 from lexic.parsing.earley.lexruns import (
     recognition_tables,
@@ -37,8 +39,6 @@ from lexic.parsing.earley.lexruns import (
     unit_leaves,
 )
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
-from lexic.parsing.earley.tables import RunTerm, compile_tables
-from lexic.parsing.earley.tables import expand_atom as _expand_atom_canonical
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import (
     malformed_synthetic_rule,

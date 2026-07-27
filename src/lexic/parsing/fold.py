@@ -63,9 +63,9 @@ from lexic.ir import (
     IrSequence,
     IrTuple,
 )
-from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.kernel.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, RUN_STR, ParserTables
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
-from lexic.parsing.earley.tables import ORIGIN_BITS, RUN_STR, ParserTables
 from lexic.parsing.pda.analysis.analysis import nullable_names
 
 FOLD_KINDS: tuple[str, ...] = ("value_str", "sequence", "alternation")
@@ -247,7 +247,7 @@ class ModelBody(
 def _subtree_text(node: ParseTree | IrLiteral | PayloadLeaf) -> str:
     """All consumed chars under ``node``, in source order (iterative).
 
-    A delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` contributes its
+    A delegated :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` contributes its
     recorded span text (its interior was folded by the sub-run, not walked).
     """
     parts: list[str] = []
@@ -445,7 +445,7 @@ class ModelFold[M]:
     ) -> list[object]:
         """Folded models at/under a kid slot, looking through synthetic layers.
 
-        A delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` contributes
+        A delegated :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` contributes
         its pre-built sub-model directly (the PDA sub-run already folded it) —
         the same already-folded-child pass-through the PDA-side island splice
         performs.
@@ -543,7 +543,7 @@ def collapsed_fold_tables(
     from :func:`~lexic.parsing.earley.lexruns.run_candidates`; the fold-side licence
     (:meth:`ModelFold.run_ok`) keeps only runs whose collapsed multi-char
     leaf hides structure the fold looks through anyway. Every kept run is
-    :data:`~lexic.parsing.earley.tables.RUN_STR` (text-preserving): the run text
+    :data:`~lexic.parsing.earley.kernel.tables.RUN_STR` (text-preserving): the run text
     stays a leaf in the tree so ``to_text()`` round-trips exactly — never
     ``RUN_DROP``. Memoised per ``(fold, grammar, bits)``.
 

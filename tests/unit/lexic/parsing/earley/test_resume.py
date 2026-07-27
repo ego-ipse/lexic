@@ -12,11 +12,11 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAlternation, IrAst, IrItem, IrLiteral, IrRule, IrSeq, IrSequence
-from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.tables import ORIGIN_BITS, compile_tables
 from lexic.parsing.earley.lexruns import recognition_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.resume import ResumableKernel
-from lexic.parsing.earley.tables import ORIGIN_BITS, compile_tables
 from lexic.parsing.earley.tokenscan import frontier_viable
 from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar, word_grammar
 

@@ -13,8 +13,8 @@ A leaf w.r.t. :mod:`lexic.parsing.pda.analysis.analysis` (the kwindow/noise prec
 the analysis is taken as an ``Any``-typed oracle argument (``rules`` /
 ``atom_first`` / ``item_nullable`` / ``first`` / ``cont_at``), so ``analysis``
 imports this, never the reverse. The P6 precision clause reads the semantic
-FOLLOW table from :mod:`lexic.parsing.pda.analysis.noise`
-(:func:`~lexic.parsing.pda.analysis.noise.sem_follow_table`).
+FOLLOW table from :mod:`lexic.parsing.pda.analysis.gates.noise`
+(:func:`~lexic.parsing.pda.analysis.gates.noise.sem_follow_table`).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from lexic.ir import IrAlternation, IrItem, IrLiteral, IrNoneType, IrRuleRef, IrSelf
-from lexic.parsing.pda.analysis.noise import sem_follow_table
+from lexic.parsing.pda.analysis.gates.noise import sem_follow_table
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import (
     SG_MATCH,
@@ -317,7 +317,7 @@ def _sem_follow_clear(
     ``True`` iff the loop sits in a rule body, everything after it in the arm
     is non-semantic references (or nothing), and no over-takeable char — the
     loop atom's FIRST intersected with its effective continuation — can follow
-    the rule as *semantic* content (:func:`~lexic.parsing.pda.analysis.noise
+    the rule as *semantic* content (:func:`~lexic.parsing.pda.analysis.gates.noise
     .sem_follow_table`). Then any over-take only re-splits adjacent noise: same
     bytes, unchanged reduction.
     """

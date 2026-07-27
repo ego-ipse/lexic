@@ -30,8 +30,8 @@ from lexic.ir import (
     IrTokenizer,
     IrTuple,
 )
+from lexic.parsing.earley.kernel.tables import ParserTables, compile_tables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.tables import ParserTables, compile_tables
 from lexic.parsing.earley.tokenscan import (
     TokenMaskCursor,
     split_literals,

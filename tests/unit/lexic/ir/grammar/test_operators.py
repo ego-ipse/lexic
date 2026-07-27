@@ -23,9 +23,9 @@ from lexic.ir.grammar.operators import (
     MonadicOp,
     VariadicOp,
 )
-from lexic.ir.spine.spine import IrAtom, IrLambda, IrNone, IrSelf
 from lexic.ir.spine.records import IrTuple
 from lexic.ir.spine.scalars import IrInt, IrStr
+from lexic.ir.spine.spine import IrAtom, IrLambda, IrNone, IrSelf
 
 # ── IrOp ──────────────────────────────────────────────────────────────
 

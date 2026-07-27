@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from lexic.ir.spine.spine import IrAtom, IrLambda, IrNone, IrNoneType
 from lexic.ir.spine.records import Field, IrCachingTuple, IrNode, IrSelf
 from lexic.ir.spine.scalars import IrInt, IrLeaf, IrStr
+from lexic.ir.spine.spine import IrAtom, IrLambda, IrNone, IrNoneType
 
 
 class Cfg(IrCachingTuple[list, int]):

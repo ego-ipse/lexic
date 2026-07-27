@@ -303,7 +303,7 @@ def test_earley_never_imports_pda():
     The intra-``parsing`` arrow runs one way — ``pda → earley`` only. Island-
     interior delegation (Task 6.2) is threaded through this seam without
     reversing it: the delegate table is an opaque-callable slot the kernel
-    invokes (``Kernel.delegates`` / :data:`~lexic.parsing.earley.kernel.Delegate`),
+    invokes (``Kernel.delegates`` / :data:`~lexic.parsing.earley.kernel.kernel.Delegate`),
     populated by ``pda`` and passed in through :mod:`lexic.parsing.pda.runtime.islands`;
     the kernel itself imports nothing from ``pda`` and stays PDA-agnostic.
     """

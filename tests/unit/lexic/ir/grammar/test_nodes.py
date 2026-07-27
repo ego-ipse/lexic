@@ -24,9 +24,9 @@ from lexic.ir.grammar.nodes import (
     IrSequence,
 )
 from lexic.ir.grammar.operators import IrNot
-from lexic.ir.spine.spine import IrAtom, IrNode, IrNone, IrNoneType
 from lexic.ir.spine.records import IrNamedTuple, IrSeq
 from lexic.ir.spine.scalars import IrChr, IrInt, IrStr
+from lexic.ir.spine.spine import IrAtom, IrNode, IrNone, IrNoneType
 
 # ── IrQuantifier ───────────────────────────────────────────────────────
 

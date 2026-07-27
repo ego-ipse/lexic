@@ -38,8 +38,8 @@ from typing import (
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir.spine.meta import IrSingleton
-from lexic.ir.spine.spine import IrLeaf, IrSelf
 from lexic.ir.spine.records import IrTuple
+from lexic.ir.spine.spine import IrLeaf, IrSelf
 
 
 @final

@@ -35,8 +35,8 @@ from lexic.ir.action.build import IrEmit, IrRaise, IrRebuild, IrWalk
 from lexic.ir.action.control import IrReturn, IrThis
 from lexic.ir.action.mapping import IrMap, IrTypeMap
 from lexic.ir.grammar.nodes import IrLiteral
-from lexic.ir.spine.spine import IrNode, IrSelf
 from lexic.ir.spine.records import IrCachingTuple, IrTuple
+from lexic.ir.spine.spine import IrNode, IrSelf
 
 
 class IrDispatch[Iri: IrSelf, Ir_co: IrSelf](IrCachingTuple[IrTypeMap, IrSelf]):

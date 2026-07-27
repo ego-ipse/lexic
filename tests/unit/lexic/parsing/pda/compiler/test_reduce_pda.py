@@ -31,6 +31,7 @@ from lexic.ir import (
     IrSequence,
     IrTuple,
 )
+from lexic.parsing.earley.kernel.tables import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import (
     DROP,
@@ -40,7 +41,6 @@ from lexic.parsing.earley.reduce import (
     Reducer,
     plan_for,
 )
-from lexic.parsing.earley.tables import compile_tables
 from lexic.parsing.pda.compiler.clones import CloneKey
 from lexic.parsing.pda.compiler.flatten import (
     BUILD_REDUCE,

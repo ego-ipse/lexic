@@ -6,8 +6,8 @@ API changes from the int-kernel rework:
 - ``RuleIndex``/``NullableRules``/``Matches``/``AcceptingItem``/``BuildChart``
   (and singletons ``RULE_INDEX``/``NULLABLE``/``MATCHES``/``ACCEPT``/
   ``BUILD_CHART``), plus ``ACCEPTING``, are ALL GONE — that per-item IR
-  dispatch is compiled away into :mod:`lexic.parsing.earley.tables` and
-  :mod:`lexic.parsing.earley.kernel`'s int tables. Their identity/dispatch tests
+  dispatch is compiled away into :mod:`lexic.parsing.earley.kernel.tables` and
+  :mod:`lexic.parsing.earley.kernel.kernel`'s int tables. Their identity/dispatch tests
   are dropped; there is no new home for testing "is this singleton an
   instance of its class" once the class no longer exists.
 - Everything else in this file — the overwhelming majority — is pure
@@ -65,15 +65,20 @@ from lexic.parsing.earley.engine import (
     ParseFirst,
     ParseReduced,
 )
-from lexic.parsing.earley.forest import (
+from lexic.parsing.earley.kernel.forest import (
     DerivationStream,
     IrStream,
     SppfNode,
 )
+from lexic.parsing.earley.kernel.tables import (
+    RUN_STR,
+    RunTerm,
+    build_tables,
+    compile_tables,
+)
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.earley.tables import RUN_STR, RunTerm, build_tables, compile_tables
 from lexic.parsing.products import earley_reduce
 from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
 
@@ -547,7 +552,7 @@ def test_is_ambiguous_short_circuits(sss_grammar: IrAst) -> None:
 
     ``engine.IsAmbiguous.eval`` calls ``DERIVATION_STREAM.eval(...)`` through
     its own module-level import binding (``engine.py`` does
-    ``from lexic.parsing.earley.forest import (..., DERIVATION_STREAM, ...)``), so
+    ``from lexic.parsing.earley.kernel.forest import (..., DERIVATION_STREAM, ...)``), so
     the patch target is ``engine_mod.DERIVATION_STREAM`` — patching only
     ``forest_mod.DERIVATION_STREAM`` would not affect the already-bound name
     ``IsAmbiguous.eval`` actually calls.

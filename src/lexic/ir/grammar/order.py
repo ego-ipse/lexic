@@ -21,8 +21,8 @@ from collections.abc import Callable, Iterable
 from hashlib import blake2b
 
 from lexic.ir.grammar.nodes import IrAst, IrRule, IrRuleRef
-from lexic.ir.spine.spine import IrSelf
 from lexic.ir.spine.records import IrSeq
+from lexic.ir.spine.spine import IrSelf
 
 
 class RuleOrder:

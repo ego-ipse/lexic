@@ -15,9 +15,9 @@ from lexic.ir.action.mapping import IrMap
 from lexic.ir.grammar.concretize import _check_universe
 from lexic.ir.grammar.nodes import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
 from lexic.ir.spine.meta import IrSingleton
-from lexic.ir.spine.spine import IrAtom, IrNode, IrNone
 from lexic.ir.spine.records import IrTuple
 from lexic.ir.spine.scalars import IrInt, IrStr
+from lexic.ir.spine.spine import IrAtom, IrNode, IrNone
 from lexic.ir.text.encodings import IrEncoding, IrUnicode, IrUtf
 from lexic.ir.text.pipeline import (
     IrNormalizer,

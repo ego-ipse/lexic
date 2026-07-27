@@ -10,9 +10,9 @@ from __future__ import annotations
 from typing import ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.spine.spine import IrLeaf, IrNode, IrNone, IrSelf
 from lexic.ir.spine.records import IrNamedTuple, IrTuple
 from lexic.ir.spine.scalars import IrStr
+from lexic.ir.spine.spine import IrLeaf, IrNode, IrNone, IrSelf
 
 
 class _Return(BaseException):

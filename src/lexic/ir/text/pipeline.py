@@ -13,8 +13,8 @@ from collections.abc import Mapping, Sequence
 from typing import ClassVar, Literal
 
 from lexic.ir.action.mapping import IrMap
-from lexic.ir.spine.spine import IrNode
 from lexic.ir.spine.records import IrNamedTuple, IrTuple
+from lexic.ir.spine.spine import IrNode
 
 Vocab = Mapping[str, int] | IrMap
 """A pythonic ``spelling → id`` vocab a builder coerces to the spine."""

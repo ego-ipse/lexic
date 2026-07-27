@@ -48,9 +48,9 @@ import lexic.ir.flavour as _flavour
 import lexic.ir.grammar.nodes as _nodes
 import lexic.ir.grammar.operators as _operators
 import lexic.ir.spine.bind as _bind
-import lexic.ir.spine.spine as _spine
 import lexic.ir.spine.records as _records
 import lexic.ir.spine.scalars as _scalars
+import lexic.ir.spine.spine as _spine
 import lexic.ir.text.encodings as _encodings
 import lexic.ir.text.layout as _layout
 import lexic.ir.text.pipeline as _pipeline

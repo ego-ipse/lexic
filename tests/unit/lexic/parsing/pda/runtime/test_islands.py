@@ -21,10 +21,10 @@ import pytest
 from lexic.compile import compile_text
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.ir import IrAst
-from lexic.parsing.earley.forest import ParseTree
-from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.kernel.forest import ParseTree
+from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.tables import compile_tables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.tables import compile_tables
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.islands import (

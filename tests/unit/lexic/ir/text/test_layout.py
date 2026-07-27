@@ -13,8 +13,8 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action.access import IrField
 from lexic.ir.grammar.nodes import IrAlternation, IrLiteral, IrRule, IrSequence
-from lexic.ir.spine.spine import IrNone
 from lexic.ir.spine.records import IrTuple
+from lexic.ir.spine.spine import IrNone
 from lexic.ir.text.layout import (
     IrCat,
     IrDocConcat,

@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda.analysis.structured — folding-aware loop gates (Task 6.6).
+"""Tests for lexic.parsing.pda.analysis.gates.structured — folding-aware loop gates (Task 6.6).
 
 Pins the P3-structured / P5-probe classification: which comment-bearing /
 LWS-folding loop decisions demote to an ``SG_MATCH`` / ``SG_SCAN`` / ``SG_PROBE``
@@ -24,7 +24,7 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.structured import (
+from lexic.parsing.pda.analysis.gates.structured import (
     _exit_is_noise,
     _probe_candidate,
     _sem_follow_clear,
@@ -33,13 +33,13 @@ from lexic.parsing.pda.analysis.structured import (
 )
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import SG_MATCH, SG_PROBE, SG_SCAN
-from tests.unit.lexic.parsing.pda.analysis.test_analysis import self_grammar_analysis
-from tests.unit.lexic.parsing.pda.analysis.test_noise import (
+from tests.unit.lexic.parsing.pda.analysis.gates.test_noise import (
     WS,
     item,
     make_analysis,
     noise_rule,
 )
+from tests.unit.lexic.parsing.pda.analysis.test_analysis import self_grammar_analysis
 
 
 def test_noise_roots_on_gbnf_self_grammar():

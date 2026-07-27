@@ -56,7 +56,7 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
-from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.kernel.forest import ParseTree, PayloadLeaf
 
 ORIGIN_BITS = 28
 """Bits reserved for an origin / end column in a packed item or handle."""
@@ -110,7 +110,7 @@ class Packing(IrLeaf[IrSelf, IrSelf]):
 KLink = tuple[int, int, int | str | PayloadLeaf]
 """One packed SPPF family: ``(predecessor_item, predecessor_end, child)`` —
 ``child`` is a packed handle (completed sub-derivation), the scanned char, or a
-delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` (island-interior
+delegated :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` (island-interior
 delegation — a pre-folded child spliced onto the waiter it advances)."""
 
 
@@ -119,7 +119,7 @@ def predecessor_chain(
 ) -> list[KLink] | None:
     """Walk a packed handle's single-link predecessor chain down to ``base``.
 
-    Shared by :class:`~lexic.parsing.earley.kernel.FastTree` and
+    Shared by :class:`~lexic.parsing.earley.kernel.kernel.FastTree` and
     :class:`~lexic.parsing.earley.reduce.FusedReduce`, whose kid-collection walks
     are otherwise identical.
 
@@ -289,7 +289,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
         rule is referenced but never defined — prediction seeds nothing).
         This is the stored primitive: the dot-0 codes pre-shifted, pre-paired
         with their symbol, and pre-joined with the arm's FIRST gate, so
-        :meth:`~lexic.parsing.earley.kernel.Kernel._seed` neither re-shifts,
+        :meth:`~lexic.parsing.earley.kernel.kernel.Kernel._seed` neither re-shifts,
         re-indexes ``next_sym``, nor looks up a parallel column per seed.
         ``gate`` is ``None`` — *always seed* (the arm is empty-deriving or
         its FIRST is poisoned) — or the arm's nullable-prefix-closed FIRST
@@ -400,7 +400,7 @@ class TermTables(IrLeaf[IrSelf, IrSelf]):
 
     Split out of :class:`ParserTables` for the same reason :class:`CodeTables`
     and :class:`DecodeTables` are: each consumer indexes only the columns it
-    needs. The scan loop (:mod:`~lexic.parsing.earley.kernel`) reads ``lens`` to
+    needs. The scan loop (:mod:`~lexic.parsing.earley.kernel.kernel`) reads ``lens`` to
     discriminate the scan kind, then ``literals`` or ``runs`` for the matching
     branch — never ``atoms``, which exists for the IR-space consumers
     (:mod:`~lexic.parsing.earley.lexruns`'s FIRST/FOLLOW analysis) that need the
@@ -686,7 +686,7 @@ class _TableBuilder:
 
         Value-equal arms of one rule intern to a single arm — the IR node IS
         its value, so two equal arms are the same arm (matching
-        :class:`~lexic.parsing.earley.chart.EarleyItem`'s arm field, which
+        :class:`~lexic.parsing.earley.kernel.chart.EarleyItem`'s arm field, which
         dedupes by value).
         """
         seen_arms: set[IrSequence] = set()

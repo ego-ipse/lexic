@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda.analysis.noise — semantic-FOLLOW attribution (P6).
+"""Tests for lexic.parsing.pda.analysis.gates.noise — semantic-FOLLOW attribution (P6).
 
 Pins the decomposition that powers the noise-greedy licence: which chars a
 rule can be followed by *as semantic content*. The tests build small
@@ -24,7 +24,7 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.noise import (
+from lexic.parsing.pda.analysis.gates.noise import (
     ResidualFirst,
     _sem_first_table,
     noise_alphabet,

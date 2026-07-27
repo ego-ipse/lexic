@@ -8,9 +8,9 @@ import sys
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.spine.spine import IrNone
 from lexic.ir.spine.records import IrNamedTuple, IrTuple
 from lexic.ir.spine.scalars import IrChr, IrInt, IrLeaf, IrScalar, IrStr
+from lexic.ir.spine.spine import IrNone
 
 
 class Rec(IrNamedTuple[IrStr, IrInt]):
