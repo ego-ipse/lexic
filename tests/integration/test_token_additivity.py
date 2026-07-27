@@ -21,7 +21,7 @@ import random
 
 import pytest
 
-from lexic.compile import CompiledGrammar, canonical_grammar, compile_text
+from lexic.compile import CompiledGrammar, Vocabulary, canonical_grammar, compile_text
 from lexic.generate import generate
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
@@ -62,10 +62,16 @@ def _three_ways(stem: str) -> tuple[CompiledGrammar, ...]:
     return (
         compile_text(text, flavour=flavour, cache_key=f"add-bare-{stem}"),
         compile_text(
-            text, flavour=flavour, tokenizer=_TOK_A, cache_key=f"add-a-{stem}"
+            text,
+            flavour=flavour,
+            vocabulary=Vocabulary(_TOK_A),
+            cache_key=f"add-a-{stem}",
         ),
         compile_text(
-            text, flavour=flavour, tokenizer=_TOK_B, cache_key=f"add-b-{stem}"
+            text,
+            flavour=flavour,
+            vocabulary=Vocabulary(_TOK_B),
+            cache_key=f"add-b-{stem}",
         ),
     )
 

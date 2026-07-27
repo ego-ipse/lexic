@@ -47,6 +47,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Hashable, Mapping, Sequence
 from pathlib import Path
+from typing import NamedTuple
 
 from lexic.compile.artifact import (
     CompiledGrammar,
@@ -112,6 +113,8 @@ from lexic.parsing import (
 # Case-insensitive order — keeps this list and the submodules' own __all__
 # blocks from sharing linter-length runs of identical lines.
 __all__ = [
+    "Directives",
+    "Vocabulary",
     "bind_module",
     "canonical_grammar",
     "compile_from_path",
@@ -156,6 +159,39 @@ def _flavour_reducer(flavour: IrFlavour) -> Reducer:
             f"compile: flavour {flavour.name!r} carries no parse Reducer"
         )
     return reducer
+
+
+class Vocabulary(NamedTuple):
+    """The vocabulary a grammar's terminals are read through — one lens.
+
+    ``tokenizer`` and ``registry`` were never two channels: they COMPOSE over a
+    default ``unicode`` and :func:`encoding_registry` merges them into one
+    resolved registry before anything reads a terminal. Naming the pair is what
+    they always were.
+
+    :ivar tokenizer: A single tokenizer, bound under its own ``name``.
+    :ivar registry: An ``IrMap[IrStr, IrEncoding]`` binding encoding *names* to
+        encodings (``unicode`` is always present) — the general form.
+    """
+
+    tokenizer: IrTokenizer | None = None
+    registry: IrMap | None = None
+
+
+class Directives(NamedTuple):
+    """What a grammar's ``@directives`` say, as an argument.
+
+    Exactly what :func:`_scan_directives` reads out of the source comments, so a
+    caller who already knows can hand it over instead of writing it into the
+    grammar. Given explicitly, it OVERRIDES what the source says.
+
+    :ivar start: The start rule (``@start``), or ``None`` to use the source's.
+    :ivar non_semantic: Rules to mark structural noise (``@non-semantic``), or
+        ``None`` to use the source's.
+    """
+
+    start: str | None = None
+    non_semantic: frozenset[str] | None = None
 
 
 _CACHE: dict[Hashable, CompiledGrammar] = {}
@@ -502,12 +538,17 @@ def _compile_core(
     *,
     stem: str,
     flavour: str = "gbnf",
-    tokenizer: IrTokenizer | None = None,
-    registry: IrMap | None = None,
+    vocabulary: Vocabulary = Vocabulary(),
+    directives: Directives = Directives(),
 ) -> CompiledGrammar:
     flavour_cls = get_flavour(flavour)
-    ast = canonical_grammar(text, flavour_cls)
-    resolved = encoding_registry(tokenizer, registry)
+    ast = canonical_grammar(
+        text,
+        flavour_cls,
+        non_semantic_rules=directives.non_semantic,
+        start=directives.start,
+    )
+    resolved = encoding_registry(vocabulary.tokenizer, vocabulary.registry)
     # Resolution is for MATCHING, not for meaning. concretize COMMUTES with
     # build_codegen_grammar, so the unresolved codegen grammar is built once
     # and resolved beside it; the ENGINE gets the resolved form (ids match a
@@ -542,8 +583,8 @@ def compile_text(
     *,
     cache_key: Hashable | None = None,
     flavour: str = "gbnf",
-    tokenizer: IrTokenizer | None = None,
-    registry: IrMap | None = None,
+    vocabulary: Vocabulary = Vocabulary(),
+    directives: Directives = Directives(),
 ) -> CompiledGrammar:
     """Compile from a grammar string, memoised by content by default.
 
@@ -562,13 +603,10 @@ def compile_text(
     :param cache_key: Extra key prefix disambiguating otherwise-identical
         compilations; ``None`` uses the content key alone.
     :param flavour: The grammar flavour name.
-    :param tokenizer: A single tokenizer, bound under its own ``name``. NOT
-        a sugar channel for ``registry=``: the two COMPOSE over a default
-        ``unicode``, and passing both is supported — only binding one name to
-        two different encodings is an error.
-    :param registry: An ``IrMap[IrStr, IrEncoding]`` binding the grammar's
-        encoding *names* to encodings (``unicode`` is always present); the
-        general form of ``tokenizer=``; the two compose.
+    :param vocabulary: The lens the grammar's terminals are read through — a
+        tokenizer, a name → encoding registry, or both (they compose).
+    :param directives: What the ``@directives`` would say, as an argument;
+        overrides what the source's own comments say.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     stem = _stem_for_text(text)
@@ -577,13 +615,17 @@ def compile_text(
     # reused and hand back another one's artefact. Both are hashable.
     # The directives are part of WHAT WAS COMPILED, so they key the memo too:
     # without them one source compiled two ways would hand back the first.
-    content_key: tuple[Hashable, ...] = (stem, flavour, tokenizer, registry)
+    content_key: tuple[Hashable, ...] = (stem, flavour, vocabulary, directives)
     key = (cache_key, *content_key) if cache_key is not None else content_key
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     cg = _compile_core(
-        text, stem=stem, flavour=flavour, tokenizer=tokenizer, registry=registry
+        text,
+        stem=stem,
+        flavour=flavour,
+        vocabulary=vocabulary,
+        directives=directives,
     )
     _CACHE[key] = cg
     return cg
@@ -645,8 +687,8 @@ def compile_from_path(
     grammar_path: str | Path,
     *,
     flavour: str | None = None,
-    tokenizer: IrTokenizer | None = None,
-    registry: IrMap | None = None,
+    vocabulary: Vocabulary = Vocabulary(),
+    directives: Directives = Directives(),
 ) -> CompiledGrammar:
     """Compile from a file path; memoised by (path, mtime, size, flavour).
 
@@ -657,9 +699,9 @@ def compile_from_path(
     :param grammar_path: Path to the grammar source file.
     :param flavour: The grammar flavour name; inferred from the file
         extension if omitted.
-    :param tokenizer: A tokenizer to bind under its own ``name``.
-    :param registry: Further name → encoding bindings; composes with
-        ``tokenizer`` (see :func:`compile_text`).
+    :param vocabulary: The lens the grammar's terminals are read through
+        (see :func:`compile_text`).
+    :param directives: What the ``@directives`` would say, as an argument.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     path = Path(grammar_path).resolve()
@@ -676,15 +718,19 @@ def compile_from_path(
         stat.st_mtime,
         stat.st_size,
         flavour,
-        tokenizer,
-        registry,
+        vocabulary,
+        directives,
     )
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     text = path.read_text(encoding="utf-8")
     cg = _compile_core(
-        text, stem=path.stem, flavour=flavour, tokenizer=tokenizer, registry=registry
+        text,
+        stem=path.stem,
+        flavour=flavour,
+        vocabulary=vocabulary,
+        directives=directives,
     )
     _CACHE[key] = cg
     return cg

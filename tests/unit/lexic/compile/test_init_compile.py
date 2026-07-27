@@ -12,6 +12,8 @@ import lexic
 import lexic.compile as compile_module
 from lexic.compile import (
     CompiledGrammar,
+    Directives,
+    Vocabulary,
     _scan_directives,
     bind_module,
     canonical_grammar,
@@ -702,3 +704,38 @@ def test_a_codepoint_past_unicode_never_leaves_as_a_builtin_error(text, flavour)
     """
     with pytest.raises(LexicError):
         compile_text(text, flavour=flavour)
+
+
+def test_directives_are_reachable_from_the_public_entry_point():
+    """A caller who knows a rule is noise can say so without editing the grammar.
+
+    `non_semantic_rules` existed on `canonical_grammar` and stopped there, so
+    for an EBNF grammar — which could carry no directive at all until the
+    block-comment channel landed — there was no sanctioned way to say it.
+    """
+    compiled = compile_text(
+        "root ::= ws\nws ::= [ ]*\n",
+        directives=Directives(non_semantic=frozenset({"ws"})),
+    )
+    assert not next(r for r in compiled.grammar.rules if r.name == "ws").semantic
+
+
+def test_directives_key_the_compile_memo():
+    """One source compiled two ways must not hand back the first.
+
+    The memo is keyed by content, so a directive that changes what was compiled
+    has to be part of that key or the second call silently returns the first
+    artefact.
+    """
+    text = "root ::= ws\nws ::= [ ]*\n"
+    plain = compile_text(text)
+    marked = compile_text(text, directives=Directives(non_semantic=frozenset({"ws"})))
+    assert plain is not marked
+    assert next(r for r in plain.grammar.rules if r.name == "ws").semantic
+    assert not next(r for r in marked.grammar.rules if r.name == "ws").semantic
+
+
+def test_a_vocabulary_is_one_lens_not_two_channels():
+    """`tokenizer` and `registry` compose; the record is what they always were."""
+    assert Vocabulary().tokenizer is None
+    assert Vocabulary().registry is None

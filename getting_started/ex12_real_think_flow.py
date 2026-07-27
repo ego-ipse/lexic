@@ -29,7 +29,7 @@ from pathlib import Path
 
 from ext.API import cache
 from lexic.api.json_tokenizer import read_from_path
-from lexic.compile import compile_from_path
+from lexic.compile import Vocabulary, compile_from_path
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrMap, IrStr, IrTuple
 
@@ -55,7 +55,7 @@ def main() -> None:
     # The grammar says `tokens`; this vocabulary is called `qwen3`. The
     # registry binds the GRAMMAR's name, so the two stay decoupled.
     registry = IrMap(IrTuple(IrStr("tokens"), tok))
-    compiled = compile_from_path(GRAMMAR_PATH, registry=registry)
+    compiled = compile_from_path(GRAMMAR_PATH, vocabulary=Vocabulary(registry=registry))
 
     # Capability B — parse. Every terminal matches id-granular against the
     # tokenizer's own segmentation, and the model round-trips char-exact.

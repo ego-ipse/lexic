@@ -14,7 +14,13 @@ import inspect
 
 import pytest
 
-from lexic.compile import compile_from_path, compile_text, export_module, export_source
+from lexic.compile import (
+    Vocabulary,
+    compile_from_path,
+    compile_text,
+    export_module,
+    export_source,
+)
 from lexic.compile.module import export
 from lexic.compile.module.export import (
     WIDTH,
@@ -487,7 +493,9 @@ def _think_compiled():
     tokenizer = IrTokenizer.from_merges(
         "tokens", {"<think>": 0, "</think>": 1, "a": 2, "b": 3, "ab": 4}, [("a", "b")]
     )
-    return compile_from_path(GROUND_TRUTH / "think.gbnf", tokenizer=tokenizer)
+    return compile_from_path(
+        GROUND_TRUTH / "think.gbnf", vocabulary=Vocabulary(tokenizer)
+    )
 
 
 def test_twin_docstrings_render_the_authored_token_spelling() -> None:

@@ -13,6 +13,7 @@ from time import perf_counter
 import pytest
 
 from lexic.compile import (
+    Vocabulary,
     compile_from_path,
     compile_text,
     parse_grammar,
@@ -68,7 +69,7 @@ def test_grammar_text_parses_to_alphabet_terminals() -> None:
 
 def test_one_interface_parses_a_token_instance() -> None:
     """compile_text(grammar, tokenizer=).parse(text) returns a model."""
-    cg = compile_text(_GRAMMAR, tokenizer=_tokenizer())
+    cg = compile_text(_GRAMMAR, vocabulary=Vocabulary(_tokenizer()))
     model = cg.parse("<think>ab</think>")
     assert model.dump() == {
         "tok": "<think>",
@@ -79,14 +80,14 @@ def test_one_interface_parses_a_token_instance() -> None:
 
 def test_token_instance_round_trips() -> None:
     """A parsed token instance round-trips char-exact through to_text."""
-    cg = compile_text(_GRAMMAR, tokenizer=_tokenizer())
+    cg = compile_text(_GRAMMAR, vocabulary=Vocabulary(_tokenizer()))
     for text in ("<think>ab</think>", "<think></think>", "<think>a</think>"):
         assert cg.parse(text).to_text() == text
 
 
 def test_token_instance_matches_id_granular() -> None:
     """A '<' (id 4) does not satisfy the '<think>' (id 0) opening terminal."""
-    cg = compile_text("root ::= <think>", tokenizer=_tokenizer())
+    cg = compile_text("root ::= <think>", vocabulary=Vocabulary(_tokenizer()))
     assert cg.parse("<think>").to_text() == "<think>"
     with pytest.raises(UnsupportedConstructError):
         cg.parse("<")  # same first char, different token
@@ -94,20 +95,20 @@ def test_token_instance_matches_id_granular() -> None:
 
 def test_negated_token_admits_other_ids() -> None:
     """thinking ::= !</think>* consumes any non-</think> tokens."""
-    cg = compile_text(_GRAMMAR, tokenizer=_tokenizer())
+    cg = compile_text(_GRAMMAR, vocabulary=Vocabulary(_tokenizer()))
     assert cg.parse("<think>a<b</think>").to_text() == "<think>a<b</think>"
 
 
 def test_missing_closing_token_rejects() -> None:
     """No </think> token — the parse fails."""
-    cg = compile_text(_GRAMMAR, tokenizer=_tokenizer())
+    cg = compile_text(_GRAMMAR, vocabulary=Vocabulary(_tokenizer()))
     with pytest.raises(UnsupportedConstructError):
         cg.parse("<think>ab")
 
 
 def test_id_form_token_grammar_parses() -> None:
     """The <[id]> id form works through the same interface."""
-    cg = compile_text("root ::= <[0]> <[1]>", tokenizer=_tokenizer())
+    cg = compile_text("root ::= <[0]> <[1]>", vocabulary=Vocabulary(_tokenizer()))
     assert cg.parse("<think></think>").to_text() == "<think></think>"
 
 
@@ -120,7 +121,7 @@ def test_resolution_reaches_the_engine_and_stops_there() -> None:
     ``to_grammar()`` lossy: this test previously asserted the opposite, which
     is how the loss went unnoticed.
     """
-    cg = compile_text("root ::= <think>", tokenizer=_tokenizer())
+    cg = compile_text("root ::= <think>", vocabulary=Vocabulary(_tokenizer()))
     authored = cg.grammar.rules[0].body[0][0].atom
     matched = cg.codegen_grammar.rules[0].body[0][0].atom
     assert authored == IrAlphabet("tokens", IrLiteral("<think>"))
@@ -133,7 +134,7 @@ def test_resolution_reaches_the_engine_and_stops_there() -> None:
 
 def test_mask_cursor_admissible_next_tokens() -> None:
     """The mask gives the admissible next-token ids at each generation step."""
-    cg = compile_text(_GRAMMAR, tokenizer=_tokenizer())
+    cg = compile_text(_GRAMMAR, vocabulary=Vocabulary(_tokenizer()))
     cur = cg.constrain()
     assert cur.mask() == {0}  # only <think> can open
     assert not cur.accepts()
@@ -148,7 +149,7 @@ def test_mask_cursor_admissible_next_tokens() -> None:
 
 def test_mask_equals_stateless_oracle() -> None:
     """The mask equals a brute-force viability oracle at every prefix."""
-    cg = compile_text(_GRAMMAR, tokenizer=_tokenizer())
+    cg = compile_text(_GRAMMAR, vocabulary=Vocabulary(_tokenizer()))
     universe = set(_VOCAB.values())
 
     def viable(ids: list[int]) -> bool:
@@ -185,7 +186,7 @@ def test_registry_binds_encoding_by_grammar_name() -> None:
     vocab = IrMap(*(IrTuple(IrStr(t), IrChr(i)) for t, i in _VOCAB.items()))
     tok = IrTokenizer.from_vocab("gpt2", vocab)
     registry = IrMap(IrTuple(IrStr("tokens"), tok))
-    cg = compile_text(_GRAMMAR, registry=registry)
+    cg = compile_text(_GRAMMAR, vocabulary=Vocabulary(registry=registry))
     assert cg.tokens.tokenizer is tok  # the sole tokenizer segments instances
     assert cg.parse("<think>ab</think>").to_text() == "<think>ab</think>"
 
@@ -193,9 +194,11 @@ def test_registry_binds_encoding_by_grammar_name() -> None:
 def test_tokenizer_sugar_equals_single_entry_registry() -> None:
     """``tokenizer=`` is exactly the one-entry registry under the tokenizer name."""
     tok = _tokenizer()
-    via_sugar = compile_text(_GRAMMAR, tokenizer=tok)
+    via_sugar = compile_text(_GRAMMAR, vocabulary=Vocabulary(tok))
     reset_cache_for_tests()
-    via_registry = compile_text(_GRAMMAR, registry=IrMap(IrTuple(tok.name, tok)))
+    via_registry = compile_text(
+        _GRAMMAR, vocabulary=Vocabulary(registry=IrMap(IrTuple(tok.name, tok)))
+    )
     text = "<think>ab</think>"
     assert via_sugar.parse(text).dump() == via_registry.parse(text).dump()
 
@@ -204,7 +207,9 @@ def test_registry_and_tokenizer_compose() -> None:
     """``registry=`` and ``tokenizer=`` bind names together, not exclusively."""
     tok = _tokenizer()
     text = "<think>ab</think>"
-    both = compile_text(_GRAMMAR, tokenizer=tok, registry=IrMap(IrTuple(tok.name, tok)))
+    both = compile_text(
+        _GRAMMAR, vocabulary=Vocabulary(tok, IrMap(IrTuple(tok.name, tok)))
+    )
     assert both.parse(text).to_text() == text
 
 
@@ -213,7 +218,9 @@ def test_conflicting_encoding_name_refuses() -> None:
     tok = _tokenizer()
     other = IrTokenizer.from_vocab("tokens", IrMap(IrTuple(IrStr("z"), IrChr(0))))
     with pytest.raises(UnsupportedConstructError, match="different encodings"):
-        compile_text(_GRAMMAR, tokenizer=tok, registry=IrMap(IrTuple(tok.name, other)))
+        compile_text(
+            _GRAMMAR, vocabulary=Vocabulary(tok, IrMap(IrTuple(tok.name, other)))
+        )
 
 
 # ── the char-heavy mask (capability C over a CHAR grammar) — F3+F4 ────────

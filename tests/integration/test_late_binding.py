@@ -21,7 +21,12 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.compile import compile_from_path, compile_text, reset_cache_for_tests
+from lexic.compile import (
+    Vocabulary,
+    compile_from_path,
+    compile_text,
+    reset_cache_for_tests,
+)
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
@@ -49,7 +54,7 @@ TEXT = "<think>ab</think>"
 def _compiled():
     """The grammar compiled once against LOW."""
     reset_cache_for_tests()
-    return compile_text(_GRAMMAR, tokenizer=LOW, cache_key="late-binding")
+    return compile_text(_GRAMMAR, vocabulary=Vocabulary(LOW), cache_key="late-binding")
 
 
 def test_the_two_fixtures_really_do_differ(compiled) -> None:
@@ -76,7 +81,7 @@ def test_binding_equals_compiling_against_that_vocabulary(compiled) -> None:
     against the same tokenizer produces, or the shortcut has drifted.
     """
     reset_cache_for_tests()
-    fresh = compile_text(_GRAMMAR, tokenizer=HIGH, cache_key="late-fresh")
+    fresh = compile_text(_GRAMMAR, vocabulary=Vocabulary(HIGH), cache_key="late-fresh")
     assert compiled.bind(HIGH).codegen_grammar == fresh.codegen_grammar
 
 
@@ -132,8 +137,7 @@ def test_one_tokenizer_under_two_names_is_still_one_tokenizer() -> None:
     reset_cache_for_tests()
     cg = compile_text(
         _GRAMMAR,
-        tokenizer=tok,
-        registry=IrMap(IrTuple(IrStr("tokens"), tok)),
+        vocabulary=Vocabulary(tok, IrMap(IrTuple(IrStr("tokens"), tok))),
         cache_key="late-two-names",
     )
     assert cg.tokens.tokenizer is tok
@@ -177,7 +181,7 @@ def test_compile_from_path_binds_a_vocabulary(tmp_path) -> None:
     """
     path = tmp_path / "think.gbnf"
     path.write_text(_GRAMMAR, encoding="utf-8")
-    compiled = compile_from_path(path, tokenizer=LOW)
+    compiled = compile_from_path(path, vocabulary=Vocabulary(LOW))
     assert compiled.tokens.segmented
     assert compiled.parse(TEXT).to_text() == TEXT
 
@@ -191,10 +195,12 @@ def test_the_path_cache_keys_the_vocabulary_by_value(tmp_path) -> None:
     """
     path = tmp_path / "think.gbnf"
     path.write_text(_GRAMMAR, encoding="utf-8")
-    low = compile_from_path(path, tokenizer=LOW)
-    high = compile_from_path(path, tokenizer=HIGH)
+    low = compile_from_path(path, vocabulary=Vocabulary(LOW))
+    high = compile_from_path(path, vocabulary=Vocabulary(HIGH))
     assert low.codegen_grammar != high.codegen_grammar
-    assert compile_from_path(path, tokenizer=LOW) is low  # equal vocab ⇒ hit
+    assert (
+        compile_from_path(path, vocabulary=Vocabulary(LOW)) is low
+    )  # equal vocab ⇒ hit
     assert compile_from_path(path) is not low  # unbound is its own artefact
 
 
@@ -208,7 +214,9 @@ def test_constraining_a_token_grammar_with_a_foreign_vocabulary_refuses() -> Non
     change a token grammar's vocabulary.
     """
     reset_cache_for_tests()
-    compiled = compile_text(_GRAMMAR, tokenizer=LOW, cache_key="constrain-guard")
+    compiled = compile_text(
+        _GRAMMAR, vocabulary=Vocabulary(LOW), cache_key="constrain-guard"
+    )
     assert sorted(compiled.bind(HIGH).constrain().mask()) == [7]  # the right way
     with pytest.raises(UnsupportedConstructError, match="bind"):
         compiled.constrain(HIGH)
@@ -261,7 +269,9 @@ def test_rebound_artefacts_emit_the_same_authored_grammar(compiled) -> None:
 def test_bind_order_does_not_change_either_artefact() -> None:
     """Reverse the order and both still emit the authored grammar."""
     reset_cache_for_tests()
-    high_first = compile_text(_GRAMMAR, tokenizer=HIGH, cache_key="order-high")
+    high_first = compile_text(
+        _GRAMMAR, vocabulary=Vocabulary(HIGH), cache_key="order-high"
+    )
     rebound_low = high_first.bind(LOW)
     for artefact in (high_first, rebound_low):
         assert AUTHORED in str(artefact.parse(TEXT).to_grammar("gbnf"))
@@ -332,8 +342,7 @@ def test_two_tokenizers_in_a_registry_refuse_at_parse() -> None:
     reset_cache_for_tests()
     compiled = compile_text(
         _GRAMMAR,
-        tokenizer=LOW,
-        registry=IrMap(IrTuple(IrStr("other"), other)),
+        vocabulary=Vocabulary(LOW, IrMap(IrTuple(IrStr("other"), other))),
         cache_key="two-toks",
     )
     assert compiled.tokens.tokenizer is None
@@ -351,7 +360,7 @@ def test_constrain_names_which_wrong_it_is() -> None:
     unbound = compile_text(_GRAMMAR, cache_key="diag-unbound")
     with pytest.raises(UnsupportedConstructError, match="no vocabulary yet"):
         unbound.constrain(HIGH)
-    bound = compile_text(_GRAMMAR, tokenizer=LOW, cache_key="diag-bound")
+    bound = compile_text(_GRAMMAR, vocabulary=Vocabulary(LOW), cache_key="diag-bound")
     with pytest.raises(UnsupportedConstructError, match="another vocabulary"):
         bound.constrain(HIGH)
 
@@ -370,8 +379,7 @@ def test_two_equal_vocabularies_count_as_one() -> None:
     reset_cache_for_tests()
     compiled = compile_text(
         _GRAMMAR,
-        tokenizer=LOW,
-        registry=IrMap(IrTuple(IrStr("other"), twin)),
+        vocabulary=Vocabulary(LOW, IrMap(IrTuple(IrStr("other"), twin))),
         cache_key="equal-vocabs",
     )
     assert compiled.tokens.tokenizer is not None
@@ -386,6 +394,8 @@ def test_bind_requires_a_rebindable_source() -> None:
     resolved grammar would have produced ids-of-ids rather than an error.
     """
     reset_cache_for_tests()
-    compiled = compile_text(_GRAMMAR, tokenizer=LOW, cache_key="rebindable")
+    compiled = compile_text(
+        _GRAMMAR, vocabulary=Vocabulary(LOW), cache_key="rebindable"
+    )
     assert compiled.tokens.unresolved is not None
     assert compiled.bind(HIGH).parse(TEXT).to_text() == TEXT
