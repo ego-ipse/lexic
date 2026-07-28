@@ -22,15 +22,18 @@ the same dispatch substrate the emit flavours use, run the other direction.
 
 Module map:
 
-- :mod:`.earley.tables`   — :class:`ParserTables`, the int-coded compiled grammar,
-                        and :func:`compile_tables` (memoised, once per grammar).
-- :mod:`.earley.kernel`   — :class:`Kernel`, the flat Earley loop over the compiled
-                        tables (predict/scan/complete, Leo, packed SPPF), and
-                        :class:`FastTree`, the unambiguous tree builder.
-- :mod:`.earley.chart`    — :class:`Chart` / :class:`Links`, the decoded SPPF the
-                        IR-native forest readers walk, and the ``EarleyItem`` tuple.
+- :mod:`.earley.kernel.tables` — :class:`ParserTables`, the int-coded compiled
+                        grammar, and :func:`compile_tables` (memoised per grammar).
+- :mod:`.earley.kernel.loop`  — what FILLS the chart: :class:`Kernel`, the flat
+                        Earley loop over the compiled tables
+                        (predict/scan/complete), the per-parse index state, and
+                        the Leo right-recursion climb.
+- :mod:`.earley.kernel.forest` — what the filled chart MEANS: :class:`ParseTree`
+                        the reducible derivation, :class:`Chart` / :class:`Links`
+                        the decoded SPPF and the ``EarleyItem`` tuple,
+                        :class:`FastTree` the unambiguous builder, the ambiguity
+                        question, the readout and the walk trampoline.
 - :mod:`.earley.engine`   — the per-capability orchestration nodes the API drives.
-- :mod:`.earley.forest`   — :class:`ParseTree`, the reducible derivation.
 - :mod:`.earley.reduce`   — :class:`Reducer`, forest → ``IrAst`` (grammar-text product).
 - :mod:`.fold`        — :class:`~lexic.parsing.fold.ModelFold`, forest →
                         ``GrammarModel`` (the instance product).
