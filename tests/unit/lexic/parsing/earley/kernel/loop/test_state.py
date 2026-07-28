@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.earley.kernel.state — the per-parse index state.
+"""Tests for lexic.parsing.earley.kernel.loop.state — the per-parse index state.
 
 ``KernelState`` is the kernel's mutable-chart exception: five position-indexed
 column containers plus two parse-global SPPF link tables. ``file_item`` is the
@@ -8,7 +8,7 @@ faces, into ``waiting`` (a rule) or ``scannable`` (an atom).
 
 from __future__ import annotations
 
-from lexic.parsing.earley.kernel.state import KernelState
+from lexic.parsing.earley.kernel.loop.state import KernelState
 
 
 def test_seeds_one_container_per_column() -> None:

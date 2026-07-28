@@ -83,7 +83,7 @@ def _delegable_names(analysis: GrammarAnalysis, island_name: str) -> list[str]:
     (not in :attr:`~GrammarAnalysis.islands`, which already subsumes
     :attr:`~GrammarAnalysis.fail_islands`), non-nullable (a zero-width delegated
     span would bypass the normal completer's non-empty-completion path — see
-    :meth:`~lexic.parsing.earley.kernel.kernel.Kernel._inject_delegate`), semantic (a
+    :meth:`~lexic.parsing.earley.kernel.loop.kernel.Kernel._inject_delegate`), semantic (a
     noise rule carries no model / reduction the splice can pass through), not the
     island root itself, and :func:`_delegable` (island-free + above the floor).
 

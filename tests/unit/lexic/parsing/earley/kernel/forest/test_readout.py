@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.earley.kernel.readout — the decode seam.
+"""Tests for lexic.parsing.earley.kernel.forest.readout — the decode seam.
 
 What a finished kernel says about the parse it built: the accepting items, the
 forest root, the decoded chart (including the deferred Leo chains ``to_chart``
@@ -29,10 +29,9 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing import derivations
-from lexic.parsing.earley.kernel.chart import Chart
-from lexic.parsing.earley.kernel.forest import ParseTree, PayloadLeaf, SppfNode
-from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.readout import (
+from lexic.parsing.earley.kernel.forest.chart import Chart
+from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf, SppfNode
+from lexic.parsing.earley.kernel.forest.readout import (
     accept_item,
     accept_items,
     accept_node,
@@ -41,6 +40,7 @@ from lexic.parsing.earley.kernel.readout import (
     root_ambiguous,
     to_chart,
 )
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ORIGIN_MASK
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar

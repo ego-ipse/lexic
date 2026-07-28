@@ -24,8 +24,8 @@ from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.generate import generate
 from lexic.ir import IrAst, IrInt, IrRuleRef, IrSeq, IrStr
-from lexic.parsing.earley.kernel.forest import ParseTree
-from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables

@@ -51,7 +51,7 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
-from lexic.parsing.earley.kernel.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.tables.atoms import (
     Charset,
     Packing,
@@ -91,7 +91,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
         rule is referenced but never defined — prediction seeds nothing).
         This is the stored primitive: the dot-0 codes pre-shifted, pre-paired
         with their symbol, and pre-joined with the arm's FIRST gate, so
-        :meth:`~lexic.parsing.earley.kernel.kernel.Kernel._seed` neither re-shifts,
+        :meth:`~lexic.parsing.earley.kernel.loop.kernel.Kernel._seed` neither re-shifts,
         re-indexes ``next_sym``, nor looks up a parallel column per seed.
         ``gate`` is ``None`` — *always seed* (the arm is empty-deriving or
         its FIRST is poisoned) — or the arm's nullable-prefix-closed FIRST
@@ -202,7 +202,7 @@ class TermTables(IrLeaf[IrSelf, IrSelf]):
 
     Split out of :class:`ParserTables` for the same reason :class:`CodeTables`
     and :class:`DecodeTables` are: each consumer indexes only the columns it
-    needs. The scan loop (:mod:`~lexic.parsing.earley.kernel.kernel`) reads ``lens`` to
+    needs. The scan loop (:mod:`~lexic.parsing.earley.kernel.loop.kernel`) reads ``lens`` to
     discriminate the scan kind, then ``literals`` or ``runs`` for the matching
     branch — never ``atoms``, which exists for the IR-space consumers
     (:mod:`~lexic.parsing.earley.lexruns`'s FIRST/FOLLOW analysis) that need the

@@ -22,13 +22,13 @@ from collections.abc import Callable
 from operator import ne
 from typing import TYPE_CHECKING
 
-from lexic.parsing.earley.kernel.fasttree import FastTree
-from lexic.parsing.earley.kernel.forest import ParseTree
-from lexic.parsing.earley.kernel.readout import accept_items
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.readout import accept_items
 from lexic.parsing.earley.kernel.tables.splits import is_arm_choice
 
 if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
-    from lexic.parsing.earley.kernel.kernel import Kernel
+    from lexic.parsing.earley.kernel.loop.kernel import Kernel
 
 __all__ = ["ambiguity_points", "means_two_things", "same_value"]
 

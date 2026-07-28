@@ -24,11 +24,19 @@ from typing import NamedTuple
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrTuple
 from lexic.parsing.earley.engine import EarleyParser
-from lexic.parsing.earley.kernel.ambiguity import means_two_things, same_value
-from lexic.parsing.earley.kernel.fasttree import FastTree
-from lexic.parsing.earley.kernel.forest import DERIVATION_STREAM, ParseTree, SppfNode
-from lexic.parsing.earley.kernel.kernel import Delegate, Kernel
-from lexic.parsing.earley.kernel.readout import can_extend_at, decode_item, to_chart
+from lexic.parsing.earley.kernel.forest.ambiguity import means_two_things, same_value
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.forest import (
+    DERIVATION_STREAM,
+    ParseTree,
+    SppfNode,
+)
+from lexic.parsing.earley.kernel.forest.readout import (
+    can_extend_at,
+    decode_item,
+    to_chart,
+)
+from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.core.errors import PdaFail
@@ -74,7 +82,8 @@ def island_value[T](compute: Callable[[], T], name: str, pos: int) -> T:
 
 _DERIV_PARSER = EarleyParser()
 """The shared façade dispatcher the island derivation-stream fallback threads
-through :data:`~lexic.parsing.earley.kernel.forest.DERIVATION_STREAM`'s ``eval`` (stateless)."""
+through :data:`~lexic.parsing.earley.kernel.forest.forest.DERIVATION_STREAM`'s
+``eval`` (stateless)."""
 
 
 def _may_extend(
@@ -94,7 +103,7 @@ def _may_extend(
       a token cut exactly at the edge);
     - the **valid-prefix probe**: the FULL text's next character after the
       completion is scannable at the completion column
-      (:func:`~lexic.parsing.earley.kernel.readout.can_extend_at`) — a
+      (:func:`~lexic.parsing.earley.kernel.forest.readout.can_extend_at`) — a
       language with the valid-prefix property (bare identifiers, call heads)
       can complete a TRUNCATED parse strictly inside a cut window; if the
       real next character could extend the island, the stop is not to be
@@ -149,7 +158,7 @@ def island_parse(
 
     Grows the window while the best completion still touches its edge and input
     remains (the ambiguous-longest-match risk), then decodes the winning
-    completion to a :class:`~lexic.parsing.earley.kernel.forest.ParseTree`.
+    completion to a :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree`.
 
     :param tables: The island rule's :class:`~lexic.parsing.earley.kernel.tables.ParserTables`.
     :param text: The full input.

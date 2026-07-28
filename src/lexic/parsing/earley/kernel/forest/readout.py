@@ -4,11 +4,11 @@ Candidate ``lexic/parsing/earley/kernel/readout.py``. The decode seam, and the
 symmetric counterpart of :mod:`~lexic.parsing.earley.kernel.tables`: where
 ``compile_tables`` walks a grammar *in*, these functions read the finished
 packed SPPF *out* — the accepting items, the forest root, the decoded
-:class:`~lexic.parsing.earley.kernel.chart.Chart`, and the valid-prefix probe an
+:class:`~lexic.parsing.earley.kernel.forest.chart.Chart`, and the valid-prefix probe an
 island window asks of a completion column.
 
 The dependency runs one way: ``kernel`` never imports ``readout``, so a readout
-takes the :class:`~lexic.parsing.earley.kernel.kernel.Kernel` itself and reads its
+takes the :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel` itself and reads its
 four public fields (``tables``, ``text``, ``cols``, ``st``, plus ``delegated``
 for the prefix probe). It calls no method on what it reads — which is what makes
 the seam a seam.
@@ -17,10 +17,10 @@ the seam a seam.
 from __future__ import annotations
 
 from lexic.ir import IrNone, IrSelf, IrSeq
-from lexic.parsing.earley.kernel.chart import Chart, EarleyItem
-from lexic.parsing.earley.kernel.forest import PayloadLeaf, RootNode, SppfNode
-from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.leo import expand_leo
+from lexic.parsing.earley.kernel.forest.chart import Chart, EarleyItem
+from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf, RootNode, SppfNode
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.loop.leo import expand_leo
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 
 
@@ -68,7 +68,7 @@ def accept_items(kern: Kernel) -> list[int]:
 
     Two or more items means the start symbol derives the whole input via
     distinct productions — genuine arm ambiguity with no parent waiter to
-    aggregate it (see :class:`~lexic.parsing.earley.kernel.forest.RootNode`).
+    aggregate it (see :class:`~lexic.parsing.earley.kernel.forest.forest.RootNode`).
 
     :returns: The accepting items, in chart order (empty on no parse).
     """
@@ -83,10 +83,10 @@ def root_ambiguous(kern: Kernel) -> bool:
     """Whether the start symbol completes the whole input via ≥2 productions.
 
     The gate the single-derivation fast paths consult: a many-production root
-    cannot be built by :class:`~lexic.parsing.earley.kernel.fasttree.FastTree` off
+    cannot be built by :class:`~lexic.parsing.earley.kernel.forest.fasttree.FastTree` off
     one accepting item (the sibling productions live in other items), so those
     paths fall through to the trampolined enumeration over the
-    :class:`~lexic.parsing.earley.kernel.forest.RootNode`.
+    :class:`~lexic.parsing.earley.kernel.forest.forest.RootNode`.
     """
     return len(accept_items(kern)) > 1
 
@@ -118,7 +118,7 @@ def to_chart(kern: Kernel) -> Chart:
     Deferred Leo chains are expanded eagerly first, so the decoded chart is
     complete and the forest readers never consult ``leo_links``. Used by the
     ambiguity / enumeration paths only — the unambiguous fast path
-    (:class:`~lexic.parsing.earley.kernel.fasttree.FastTree`) reads the packed
+    (:class:`~lexic.parsing.earley.kernel.forest.fasttree.FastTree`) reads the packed
     links directly.
     """
     st = kern.st

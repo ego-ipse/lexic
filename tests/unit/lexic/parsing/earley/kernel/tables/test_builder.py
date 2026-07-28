@@ -33,11 +33,14 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing import parse_first
-from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
     ParserTables,
+)
+from tests.unit.lexic.parsing.earley.kernel.loop.test_kernel import (
+    undefined_ref_grammar,
 )
 from tests.unit.lexic.parsing.earley.kernel.tables.test_records import (
     chained_nullable_grammar,
@@ -46,7 +49,6 @@ from tests.unit.lexic.parsing.earley.kernel.tables.test_records import (
     nullable_grammar,
     tiny,
 )
-from tests.unit.lexic.parsing.earley.kernel.test_kernel import undefined_ref_grammar
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import sss_grammar as _sss_grammar
 from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar

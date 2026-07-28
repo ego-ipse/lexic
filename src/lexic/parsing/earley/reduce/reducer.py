@@ -7,10 +7,10 @@ table — an :class:`~lexic.ir.action.mapping.IrMap` from a rule's
 children into an IR node — paired with a **cleaning policy**: which children are
 noise (whitespace, delimiters) and so dropped before a body sees them.
 
-:class:`Reducer` folds a :class:`~lexic.parsing.earley.kernel.forest.ParseTree` bottom-up.
+:class:`Reducer` folds a :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` bottom-up.
 The fold is **depth-safe**: a right-recursive derivation is arbitrarily deep, so
 the walk does not recurse through the Python call stack — it is driven by the
-shared :class:`~lexic.parsing.earley.kernel.trampoline.Trampoline`. The per-node generators
+shared :class:`~lexic.parsing.earley.kernel.forest.trampoline.Trampoline`. The per-node generators
 :class:`ReduceSource` (a node → its reduced IR) and :class:`ResolveSource` (a
 node → its resolved children) yield trampoline commands instead of recursing; a
 :class:`ReduceCtx` cursor memoises each node's reduction so the ``noise`` policy's
@@ -36,8 +36,8 @@ from lexic.ir import (
     IrSelf,
     IrTuple,
 )
-from lexic.parsing.earley.kernel.forest import ParseTree, PayloadLeaf
-from lexic.parsing.earley.kernel.trampoline import ADVANCE, EMIT, EXHAUSTED
+from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.kernel.forest.trampoline import ADVANCE, EMIT, EXHAUSTED
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
 from lexic.parsing.earley.reduce.policy import DROP, KEEP_RAW, KEEP_REDUCED
 
@@ -56,7 +56,7 @@ class ReduceCtx(IrLeaf[IrSelf, IrSelf]):
     """Per-reduction cursor — memoises each node's reduced IR by identity.
 
     The mutable per-fold state (the cursor precedent, like
-    :class:`~lexic.parsing.earley.kernel.forest.ForestCtx`): :attr:`red` maps ``id(tree)`` to
+    :class:`~lexic.parsing.earley.kernel.forest.forest.ForestCtx`): :attr:`red` maps ``id(tree)`` to
     the node's reduced IR, filled by :class:`ReduceSource` before it emits. The
     cursor rides the argument channel ``nc`` so the ``noise`` policy's
     :data:`KEEP_REDUCED` re-entry (``d.eval(d, child, (ctx,))``) resolves to the
@@ -84,7 +84,7 @@ class ResolveSource(IrLeaf[IrSelf, IrSelf]):
     reduced; otherwise the child is reduced — depth-safe via a nested
     :class:`ReduceSource` — and the policy body applied).
 
-    :ivar _node: The :class:`~lexic.parsing.earley.kernel.forest.ParseTree` whose children to
+    :ivar _node: The :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` whose children to
         resolve.
     :ivar _ctx: The reduction cursor.
     :ivar _reducer: The driving :class:`Reducer` (the cleaning policy).
@@ -138,7 +138,7 @@ class ReduceSource(IrLeaf[IrSelf, IrSelf]):
     bound to the node's ``symbol`` with those resolved children on the argument
     channel, memoises the result on the cursor, then emits it (exactly once).
 
-    :ivar _node: The :class:`~lexic.parsing.earley.kernel.forest.ParseTree` to reduce.
+    :ivar _node: The :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` to reduce.
     :ivar _ctx: The reduction cursor.
     :ivar _reducer: The driving :class:`Reducer`.
     """
@@ -181,12 +181,12 @@ synthetic node's children into its caller's parts (never itself reduced)."""
 
 
 class _FastReduce(IrLeaf[IrSelf, IrSelf]):
-    """Iterative fold of a :class:`~lexic.parsing.earley.kernel.forest.ParseTree` into IR.
+    """Iterative fold of a :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` into IR.
 
     The non-generator replacement for the :class:`Trampoline`-driven
     :class:`ReduceSource` / :class:`ResolveSource` pair — same depth-safety
     (an explicit stack, not the C call stack), no coroutine machinery. Unlike
-    :class:`~lexic.parsing.earley.kernel.forest._FastTree`, a :class:`ParseTree` is already
+    :class:`~lexic.parsing.earley.kernel.forest.forest._FastTree`, a :class:`ParseTree` is already
     disambiguated (single-derivation by construction), so there is no
     ambiguity fallback: this always completes.
 
@@ -294,7 +294,7 @@ class _FastReduce(IrLeaf[IrSelf, IrSelf]):
 
 
 class Reducer(IrDispatch):
-    """Bottom-up fold of a :class:`~lexic.parsing.earley.kernel.forest.ParseTree` into IR.
+    """Bottom-up fold of a :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` into IR.
 
     A **real** dispatcher, not one beside a dispatcher: the reduction table IS
     :attr:`~lexic.ir.action.walk.IrDispatch.actions` and the fallback body IS
@@ -344,7 +344,7 @@ class Reducer(IrDispatch):
         return self.default if found is None else found
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
-        """Reduce ``n`` (a :class:`~lexic.parsing.earley.kernel.forest.ParseTree`) to its IR.
+        """Reduce ``n`` (a :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree`) to its IR.
 
         :param d: The dispatcher (this reducer).
         :param n: The derivation to fold, or a child re-entered via the memo.

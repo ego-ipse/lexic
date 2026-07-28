@@ -63,7 +63,7 @@ from lexic.ir import (
     IrSequence,
     IrTuple,
 )
-from lexic.parsing.earley.kernel.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
     RUN_STR,
@@ -251,7 +251,7 @@ class ModelBody(
 def _subtree_text(node: ParseTree | IrLiteral | PayloadLeaf) -> str:
     """All consumed chars under ``node``, in source order (iterative).
 
-    A delegated :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` contributes its
+    A delegated :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` contributes its
     recorded span text (its interior was folded by the sub-run, not walked).
     """
     parts: list[str] = []
@@ -449,7 +449,7 @@ class ModelFold[M]:
     ) -> list[object]:
         """Folded models at/under a kid slot, looking through synthetic layers.
 
-        A delegated :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` contributes
+        A delegated :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` contributes
         its pre-built sub-model directly (the PDA sub-run already folded it) —
         the same already-folded-child pass-through the PDA-side island splice
         performs.

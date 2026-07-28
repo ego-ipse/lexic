@@ -49,7 +49,8 @@ The forest is a full SPPF (Scott 2008): nullable-rule completion (Aycock-Horspoo
 and ambiguity are handled — ``parse`` returns the single derivation and raises on
 ambiguous input, while ``parse_forest`` / ``derivations`` / ``is_ambiguous`` expose
 every reading. Quantifier/group desugaring in :mod:`.earley.normalize` is right-recursive;
-the Leo optimisation (in :class:`~lexic.parsing.earley.kernel.kernel.Kernel`) parses that recursion
+the Leo optimisation (in :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel`)
+parses that recursion
 in linear time, so ``*``/``+`` over long repeated input is O(n). Large *bounded*
 counts (``{lo, hi}``) still unroll to ``hi`` nested rules and recurse ``hi``-deep at
 desugar time — the one remaining rough edge.
@@ -89,16 +90,16 @@ from lexic.parsing.earley.engine import (
     RECOGNIZE,
     EarleyParser,
 )
-from lexic.parsing.earley.kernel.chart import Chart, EarleyItem, Link, Links
-from lexic.parsing.earley.kernel.fasttree import FastTree
-from lexic.parsing.earley.kernel.forest import (
+from lexic.parsing.earley.kernel.forest.chart import Chart, EarleyItem, Link, Links
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.forest import (
     BUILD_TREE,
     BuildTree,
     ParseTree,
     RootNode,
     SppfNode,
 )
-from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.normalize import normalize
@@ -132,7 +133,7 @@ def recognize(grammar: IrAst, text: str) -> IrInt:
 def parse(grammar: IrAst, text: str) -> ParseTree:
     """Parse ``text`` into its single derivation tree (strict).
 
-    A single :class:`~lexic.parsing.earley.kernel.forest.ParseTree` cannot honestly represent
+    A single :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` cannot honestly represent
     ambiguity — ambiguous input **raises**. Reach the forest via :func:`parse_forest`
     or :func:`derivations` instead.
 
@@ -173,8 +174,8 @@ def parse_forest(grammar: IrAst, text: str) -> IrSelf:
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
     :returns: The forest root — a single-production
-        :class:`~lexic.parsing.earley.kernel.forest.SppfNode`, a
-        :class:`~lexic.parsing.earley.kernel.forest.RootNode` packing the start
+        :class:`~lexic.parsing.earley.kernel.forest.forest.SppfNode`, a
+        :class:`~lexic.parsing.earley.kernel.forest.forest.RootNode` packing the start
         symbol's alternative whole-input productions, or
         :data:`~lexic.ir.base.IrNone` if ``text`` does not parse.
     """
@@ -187,7 +188,7 @@ def derivations(grammar: IrAst, text: str) -> IrSeq:
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
     :returns: An :class:`~lexic.ir.base.IrSeq` of
-        :class:`~lexic.parsing.earley.kernel.forest.ParseTree` derivations (possibly empty).
+        :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` derivations (possibly empty).
     """
     return ENUMERATE.eval(EarleyParser(), grammar, IrTuple(IrStr(text)))
 

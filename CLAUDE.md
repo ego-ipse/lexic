@@ -208,15 +208,19 @@ src/lexic/
       engine.py                    Earley orchestration — the IR-native façade over the compiled kernel
       kernel/                      The paid loop — the kernel and the structures it fills
         __init__.py                the group's package marker
-        ambiguity.py               Does this span mean more than one thing? — the forest's own answer
-        chart.py                   The IR-native SPPF link table — the decoded form of a kernel parse
-        fasttree.py                The fast tree build — the unambiguous parse's short path
-        forest.py                  Parse forest — the shared packed parse forest (SPPF) and its reducible views
-        kernel.py                  The flat Earley kernel — the compiled grammar's paid loop
-        leo.py                     Leo right-recursion — the deterministic-chain climb and its deferred rebuild
-        readout.py                 Readout — what a finished kernel says: accepting items, forest root, decoded chart
-        state.py                   KernelState — the per-parse index state one Earley parse fills
-        trampoline.py              Depth-safe trampoline for the forest/reduce tree walks
+        loop/                      The paid loop itself — what fills the chart
+          __init__.py              the group's package marker
+          kernel.py                The flat Earley kernel — the compiled grammar's paid loop
+          leo.py                   Leo right-recursion — the deterministic-chain climb and its deferred rebuild
+          state.py                 KernelState — the per-parse index state one Earley parse fills
+        forest/                    What the filled chart MEANS — the SPPF and its readers
+          __init__.py              the group's package marker
+          ambiguity.py             Does this span mean more than one thing? — the forest's own answer
+          chart.py                 The IR-native SPPF link table — the decoded form of a kernel parse
+          fasttree.py              The fast tree build — the unambiguous parse's short path
+          forest.py                Parse forest — the shared packed parse forest (SPPF) and its reducible views
+          readout.py               Readout — what a finished kernel says: accepting items, forest root, decoded chart
+          trampoline.py            Depth-safe trampoline for the forest/reduce tree walks
         tables/                    Compiled grammar tables — the parser's "codegen moment"
           __init__.py              the group's package marker
           atoms.py                 Packing tiers, predecessor chains, what one terminal atom accepts

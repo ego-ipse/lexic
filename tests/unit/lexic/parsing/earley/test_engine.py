@@ -7,7 +7,7 @@ API changes from the int-kernel rework:
   (and singletons ``RULE_INDEX``/``NULLABLE``/``MATCHES``/``ACCEPT``/
   ``BUILD_CHART``), plus ``ACCEPTING``, are ALL GONE — that per-item IR
   dispatch is compiled away into :mod:`lexic.parsing.earley.kernel.tables` and
-  :mod:`lexic.parsing.earley.kernel.kernel`'s int tables. Their identity/dispatch tests
+  :mod:`lexic.parsing.earley.kernel.loop.kernel`'s int tables. Their identity/dispatch tests
   are dropped; there is no new home for testing "is this singleton an
   instance of its class" once the class no longer exists.
 - Everything else in this file — the overwhelming majority — is pure
@@ -65,7 +65,7 @@ from lexic.parsing.earley.engine import (
     ParseFirst,
     ParseReduced,
 )
-from lexic.parsing.earley.kernel.forest import (
+from lexic.parsing.earley.kernel.forest.forest import (
     DerivationStream,
     IrStream,
     SppfNode,
@@ -550,7 +550,7 @@ def test_is_ambiguous_short_circuits(sss_grammar: IrAst) -> None:
 
     ``engine.IsAmbiguous.eval`` calls ``DERIVATION_STREAM.eval(...)`` through
     its own module-level import binding (``engine.py`` does
-    ``from lexic.parsing.earley.kernel.forest import (..., DERIVATION_STREAM, ...)``), so
+    ``from lexic.parsing.earley.kernel.forest.forest import (..., DERIVATION_STREAM, ...)``), so
     the patch target is ``engine_mod.DERIVATION_STREAM`` — patching only
     ``forest_mod.DERIVATION_STREAM`` would not affect the already-bound name
     ``IsAmbiguous.eval`` actually calls.

@@ -175,7 +175,7 @@ class TableBuilder:
 
         Value-equal arms of one rule intern to a single arm — the IR node IS
         its value, so two equal arms are the same arm (matching
-        :class:`~lexic.parsing.earley.kernel.chart.EarleyItem`'s arm field, which
+        :class:`~lexic.parsing.earley.kernel.forest.chart.EarleyItem`'s arm field, which
         dedupes by value).
         """
         seen_arms: set[IrSequence] = set()

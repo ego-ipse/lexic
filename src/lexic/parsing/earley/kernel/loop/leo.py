@@ -2,7 +2,7 @@
 
 Candidate ``lexic/parsing/earley/kernel/leo.py``. Leo's two halves are both
 pure functions of the chart state and the compiled tables, so they take
-:class:`~lexic.parsing.earley.kernel.state.KernelState` and
+:class:`~lexic.parsing.earley.kernel.loop.state.KernelState` and
 :class:`~lexic.parsing.earley.kernel.tables.records.ParserTables` directly and
 never the kernel cursor:
 
@@ -18,7 +18,7 @@ write (it inserts the top item) and calls the climb here.
 
 from __future__ import annotations
 
-from lexic.parsing.earley.kernel.state import KernelState, KLink
+from lexic.parsing.earley.kernel.loop.state import KernelState, KLink
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 
 

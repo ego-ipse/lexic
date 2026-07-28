@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.earley.kernel.kernel — KernelState, Kernel, FastTree.
+"""Tests for lexic.parsing.earley.kernel.loop.kernel — KernelState, Kernel, FastTree.
 
 New module: the flat int-coded Earley loop over compiled ParserTables. This
 file covers the behavioral facts callable through the public surface
@@ -30,12 +30,12 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing import recognize
-from lexic.parsing.earley.kernel.fasttree import FastTree
-from lexic.parsing.earley.kernel.forest import ParseTree
-from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.readout import (
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.readout import (
     accept_item,
 )
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ADVANCE, ORIGIN_BITS
 from lexic.parsing.earley.normalize import normalize

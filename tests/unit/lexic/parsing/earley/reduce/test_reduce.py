@@ -45,12 +45,12 @@ from lexic.ir import (
     IrTuple,
 )
 from lexic.parsing import derivations, parse
-from lexic.parsing.earley.kernel.forest import ParseTree
-from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.readout import accept_item
+from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.readout import accept_item
+from lexic.parsing.earley.kernel.forest.trampoline import Trampoline
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS
-from lexic.parsing.earley.kernel.trampoline import Trampoline
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
 from lexic.parsing.earley.reduce.fused import FusedReduce, ReducePlan, plan_for
 from lexic.parsing.earley.reduce.policy import (

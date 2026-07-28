@@ -17,7 +17,7 @@ from lexic.ir import (
     IrRange,
     IrSelf,
 )
-from lexic.parsing.earley.kernel.forest import PayloadLeaf
+from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
 from lexic.parsing.earley.kernel.tables.splits import leftmost_chain
 
 _MAX_CHARSET = 4096
@@ -29,7 +29,7 @@ Charset = frozenset[str] | None
 KLink = tuple[int, int, int | str | PayloadLeaf]
 """One packed SPPF family: ``(predecessor_item, predecessor_end, child)`` —
 ``child`` is a packed handle (completed sub-derivation), the scanned char, or a
-delegated :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` (island-interior
+delegated :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` (island-interior
 delegation — a pre-folded child spliced onto the waiter it advances)."""
 
 
@@ -78,7 +78,7 @@ def predecessor_chain(
 ) -> list[KLink] | None:
     """Walk a packed handle's single-link predecessor chain down to ``base``.
 
-    Shared by :class:`~lexic.parsing.earley.kernel.kernel.FastTree` and
+    Shared by :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree` and
     :class:`~lexic.parsing.earley.reduce.FusedReduce`, whose kid-collection walks
     are otherwise identical.
 

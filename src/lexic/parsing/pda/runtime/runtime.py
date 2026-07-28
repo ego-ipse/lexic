@@ -1,11 +1,11 @@
 """Fused predictive runtime — parses text to a model, no ParseTree on the path.
 
-The runtime sibling of :class:`~lexic.parsing.earley.kernel.kernel.Kernel`: where the Earley
+The runtime sibling of :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel`: where the Earley
 kernel builds an SPPF a :class:`~lexic.parsing.fold.ModelFold` later folds,
 :class:`PdaKernel` walks the flat int-coded
 :class:`~lexic.parsing.pda.compiler.clones.PdaProgram` and builds the model **directly
 during the walk** — the fold is fused into the parse, so no intermediate
-:class:`~lexic.parsing.earley.kernel.forest.ParseTree` is ever allocated on the deterministic
+:class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` is ever allocated on the deterministic
 path.
 
 **Flat program (Task 8).** The runtime walks the int-coded
@@ -52,12 +52,12 @@ Per build-mode (mirroring :meth:`~lexic.parsing.fold.ModelFold._fold_node`):
 
 **Islands.** A reference to a conflicted (island) rule cannot be walked
 deterministically, so it delegates to a windowed Earley sub-parse: a fresh
-:class:`~lexic.parsing.earley.kernel.kernel.Kernel` over the rule's
+:class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel` over the rule's
 :meth:`~lexic.parsing.pda.compiler.clones.PdaTables.island_tables` runs
-:meth:`~lexic.parsing.earley.kernel.kernel.Kernel.longest_start_completion` over a doubling
+:meth:`~lexic.parsing.earley.kernel.loop.kernel.Kernel.longest_start_completion` over a doubling
 window and takes the longest completion; the decoded
-:class:`~lexic.parsing.earley.kernel.forest.ParseTree` (via
-:class:`~lexic.parsing.earley.kernel.kernel.FastTree`, falling back to the first derivation
+:class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` (via
+:class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree`, falling back to the first derivation
 on ambiguity) folds through the supplied :class:`~lexic.parsing.fold
 .ModelFold` and the resulting sub-model splices into the current capture
 exactly as a clone's model would. The cursor advances past the consumed span.
@@ -78,7 +78,7 @@ from functools import partial
 from typing import Any
 
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.earley.kernel.kernel import Delegate
+from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.flatten import (
@@ -643,7 +643,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
     ) -> tuple[int, object] | None:
         """Run a delegable clone as a self-contained sub-parse over the window.
 
-        The model-path :data:`~lexic.parsing.earley.kernel.kernel.Delegate` body: a
+        The model-path :data:`~lexic.parsing.earley.kernel.loop.kernel.Delegate` body: a
         fresh :class:`PdaKernel` over ``window_text`` drives ``clone`` to
         completion from ``pos`` (:meth:`prefix_run`) and builds its sub-model.
         On any :class:`PdaFail`, or when the sub-run reaches the window edge (a

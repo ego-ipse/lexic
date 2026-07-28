@@ -34,9 +34,9 @@ from typing import Callable, Self
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.earley.kernel.forest import PayloadLeaf
-from lexic.parsing.earley.kernel.leo import leo_resolve, leo_sole
-from lexic.parsing.earley.kernel.state import KernelState, KLink
+from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
+from lexic.parsing.earley.kernel.loop.leo import leo_resolve, leo_sole
+from lexic.parsing.earley.kernel.loop.state import KernelState, KLink
 from lexic.parsing.earley.kernel.tables.atoms import RunTerm
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 
@@ -51,12 +51,12 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
     """One Earley parse over compiled tables — chart, SPPF and driver in one.
 
     Construct per parse, call :meth:`run` once, then read the result through
-    :mod:`~lexic.parsing.earley.kernel.readout` — :func:`~lexic.parsing.earley
+    :mod:`~lexic.parsing.earley.kernel.forest.readout` — :func:`~lexic.parsing.earley
     .kernel.readout.accept_item` for the packed accepting item (``-1`` on no
     parse), then either the single derivation via
-    :class:`~lexic.parsing.earley.kernel.fasttree.FastTree` or the IR-native
-    forest via :func:`~lexic.parsing.earley.kernel.readout.to_chart` /
-    :func:`~lexic.parsing.earley.kernel.readout.accept_node`.
+    :class:`~lexic.parsing.earley.kernel.forest.fasttree.FastTree` or the IR-native
+    forest via :func:`~lexic.parsing.earley.kernel.forest.readout.to_chart` /
+    :func:`~lexic.parsing.earley.kernel.forest.readout.accept_node`.
 
     :ivar tables: The compiled grammar.
     :ivar text: The input.
@@ -70,7 +70,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         :meth:`_seed` (the kernel stays PDA-agnostic — see
         :mod:`lexic.parsing.pda.runtime.islands`).
     :ivar delegated: handle of an injected delegated completion → its
-        :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` (empty on every
+        :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` (empty on every
         non-island parse).
     """
 
@@ -364,7 +364,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         Adds one completed ``rid`` item to column ``end`` (so ``_close(end)``
         runs the completer once column ``i`` is fully closed and every waiter
         facing ``rid`` is present) and records the pre-built ``payload`` and the
-        consumed span as a :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` on
+        consumed span as a :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` on
         :attr:`delegated`. Deduped against column ``end`` so a rule
         predicted twice at ``i`` files its span once. On the recognition path
         (``record_links`` off) no leaf is stored — the completion still advances

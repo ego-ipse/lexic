@@ -17,7 +17,7 @@ from lexic.ir import (
     IrStr,
     IrTuple,
 )
-from lexic.parsing.earley.kernel.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
 
 if TYPE_CHECKING:  # `reducer` imports this module — the reference is mutual
     from lexic.parsing.earley.reduce.reducer import Reducer

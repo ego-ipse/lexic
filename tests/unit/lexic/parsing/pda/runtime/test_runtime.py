@@ -1,7 +1,7 @@
 """Tests for lexic.parsing.pda.runtime.runtime — the fused-runtime parity gate (Task 4).
 
 :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` builds a model directly during the
-walk (fold fusion, no :class:`~lexic.parsing.earley.kernel.forest.ParseTree`). The
+walk (fold fusion, no :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree`). The
 correctness bar is **user ruling 1**: ``semantic_dump()`` equality +
 ``to_text()`` round-trip against the engine's own
 ``fold.apply(parse_first(...))`` path — not raw ``dump()`` equality,

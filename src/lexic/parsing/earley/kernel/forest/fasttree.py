@@ -11,12 +11,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq
-from lexic.parsing.earley.kernel.forest import ParseTree, PayloadLeaf
-from lexic.parsing.earley.kernel.leo import expand_leo
+from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.kernel.loop.leo import expand_leo
 from lexic.parsing.earley.kernel.tables.atoms import predecessor_chain
 
 if TYPE_CHECKING:  # `kernel` imports this module, so the reference is mutual
-    from lexic.parsing.earley.kernel.kernel import Kernel
+    from lexic.parsing.earley.kernel.loop.kernel import Kernel
 
 
 class FastTree(IrLeaf[IrSelf, IrSelf]):

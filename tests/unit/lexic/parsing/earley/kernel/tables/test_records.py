@@ -30,7 +30,9 @@ from lexic.parsing.earley.kernel.tables.records import (
 )
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
-from tests.unit.lexic.parsing.earley.kernel.test_kernel import undefined_ref_grammar
+from tests.unit.lexic.parsing.earley.kernel.loop.test_kernel import (
+    undefined_ref_grammar,
+)
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
 from tests.unit.lexic.parsing.ir_fixtures import sss_grammar as _sss_grammar

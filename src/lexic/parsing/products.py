@@ -29,8 +29,8 @@ from dataclasses import dataclass
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrSelf, IrStr, IrTuple
 from lexic.parsing.earley.engine import PARSE_FIRST, PARSE_REDUCED, EarleyParser
-from lexic.parsing.earley.kernel.fasttree import FastTree, ParseTree
-from lexic.parsing.earley.kernel.readout import accept_handle, accept_item
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
+from lexic.parsing.earley.kernel.forest.readout import accept_handle, accept_item
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
@@ -59,7 +59,7 @@ def earley_reduce(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
     """Parse ``text`` and fold it straight to IR in one Earley pass.
 
     The grammar-text product's Earley completion — ``reducer.apply(parse(...))``
-    fused (no intermediate :class:`~lexic.parsing.earley.kernel.forest.ParseTree` in the
+    fused (no intermediate :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` in the
     common unambiguous case).
 
     :param grammar: The grammar, Earley-normalised (see :mod:`.earley.normalize`).

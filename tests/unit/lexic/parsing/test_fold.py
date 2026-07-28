@@ -34,7 +34,7 @@ from lexic.ir import (
     IrTuple,
 )
 from lexic.parsing import parse_first
-from lexic.parsing.earley.kernel.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
 from lexic.parsing.fold import (

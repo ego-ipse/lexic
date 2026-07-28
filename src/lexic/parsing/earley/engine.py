@@ -1,18 +1,18 @@
 """Earley orchestration — the IR-native façade over the compiled kernel.
 
-The paid loop lives in :mod:`lexic.parsing.earley.kernel.kernel`, running over the
+The paid loop lives in :mod:`lexic.parsing.earley.kernel.loop.kernel`, running over the
 compiled :mod:`~lexic.parsing.earley.kernel.tables`. This module keeps the IR seam: one
 :class:`~lexic.ir.base.IrSelf` orchestration node per public capability, each
-compiling the grammar (memoised), running one :class:`~lexic.parsing.earley.kernel.kernel
+compiling the grammar (memoised), running one :class:`~lexic.parsing.earley.kernel.loop.kernel
 .Kernel`, and reading the result its own way:
 
 - :class:`Recognize` — accept or not; SPPF recording stays off.
 - :class:`Parse` — the strict single derivation via the packed-links
-  :class:`~lexic.parsing.earley.kernel.kernel.FastTree`, falling back to the trampolined
+  :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree`, falling back to the trampolined
   enumeration over the decoded chart on ambiguity.
 - :class:`ParseForest` / :class:`Enumerate` / :class:`IsAmbiguous` — decode
-  the packed SPPF to the IR-native :class:`~lexic.parsing.earley.kernel.chart.Chart` and
-  drive the :mod:`~lexic.parsing.earley.kernel.forest` readers.
+  the packed SPPF to the IR-native :class:`~lexic.parsing.earley.kernel.forest.chart.Chart` and
+  drive the :mod:`~lexic.parsing.earley.kernel.forest.forest` readers.
 
 :class:`EarleyParser` remains the façade dispatcher handed to the readers'
 ``eval`` seams; the per-item type dispatch it once performed is compiled away
@@ -26,22 +26,22 @@ from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrDispatch, IrInt, IrLeaf, IrSelf, IrSeq, IrTuple
-from lexic.parsing.earley.kernel.ambiguity import means_two_things
-from lexic.parsing.earley.kernel.fasttree import FastTree
-from lexic.parsing.earley.kernel.forest import (
+from lexic.parsing.earley.kernel.forest.ambiguity import means_two_things
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.forest import (
     BUILD_TREE,
     DERIVATION_STREAM,
     DERIVATIONS,
     ParseTree,
 )
-from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.readout import (
+from lexic.parsing.earley.kernel.forest.readout import (
     accept_handle,
     accept_item,
     accept_node,
     root_ambiguous,
     to_chart,
 )
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ParserTables
@@ -85,9 +85,9 @@ def _require_accept(kernel: Kernel, n: IrSelf) -> None:
 def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
     """The strict single derivation of an accepted kernel parse.
 
-    Fast path: :class:`~lexic.parsing.earley.kernel.kernel.FastTree` over the packed
+    Fast path: :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree` over the packed
     links. Slow path (a key packing more than one family, or a many-production
-    root): the trampolined :data:`~lexic.parsing.earley.kernel.forest.BUILD_TREE` over
+    root): the trampolined :data:`~lexic.parsing.earley.kernel.forest.forest.BUILD_TREE` over
     the decoded chart, which raises on a second derivation.
 
     :raises UnsupportedConstructError: On ambiguous input or no derivation.
@@ -155,7 +155,7 @@ class Recognize(IrLeaf[IrSelf, IrSelf]):
 class Parse(IrLeaf[IrSelf, IrSelf]):
     """The strict single derivation of ``text`` as a :class:`ParseTree`.
 
-    Fast path: :class:`~lexic.parsing.earley.kernel.kernel.FastTree` over the packed
+    Fast path: :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree` over the packed
     links. Slow path (a key packing more than one family): the trampolined
     stream over the decoded chart, which raises on a second derivation.
     """
@@ -280,7 +280,7 @@ class ParseForest(IrLeaf[IrSelf, IrSelf]):
 
     Returns :data:`~lexic.ir.base.IrNone` when ``text`` does not parse. The
     packed SPPF is decoded so the returned handle's families are readable by
-    the :mod:`~lexic.parsing.earley.kernel.forest` machinery.
+    the :mod:`~lexic.parsing.earley.kernel.forest.forest` machinery.
     """
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:

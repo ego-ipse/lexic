@@ -17,8 +17,8 @@ from lexic.ir import (
     IrStr,
     IrTuple,
 )
-from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.leo import expand_leo
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.loop.leo import expand_leo
 from lexic.parsing.earley.kernel.tables.atoms import RunTerm, predecessor_chain
 from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
@@ -193,7 +193,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
     """Fold the kernel's packed SPPF straight to IR — no intermediate tree.
 
     The product path: instead of materialising a
-    :class:`~lexic.parsing.earley.kernel.forest.ParseTree` and folding it again, one
+    :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` and folding it again, one
     explicit-stack pass walks the packed links, resolves each node's cleaned
     children, and evaluates the reduction bodies in place. Rules whose body IS
     :data:`YIELD` reduce to their **source span** directly — an O(1)

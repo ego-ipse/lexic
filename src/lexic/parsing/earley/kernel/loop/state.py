@@ -9,12 +9,12 @@ the kernel, so ``kernel``, ``leo`` and ``readout`` all sit above it.
 from __future__ import annotations
 
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.earley.kernel.forest import PayloadLeaf
+from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
 
 KLink = tuple[int, int, int | str | PayloadLeaf]
 """One packed SPPF family: ``(predecessor_item, predecessor_end, child)`` —
 ``child`` is a packed handle (completed sub-derivation), the scanned char, or a
-delegated :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` (island-interior
+delegated :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` (island-interior
 delegation)."""
 
 

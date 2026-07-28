@@ -29,8 +29,8 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
-from lexic.parsing.earley.kernel.kernel import Kernel
-from lexic.parsing.earley.kernel.readout import accept_item
+from lexic.parsing.earley.kernel.forest.readout import accept_item
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.atoms import (
     RunTerm,
 )
