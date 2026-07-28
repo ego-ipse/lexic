@@ -11,7 +11,6 @@ type: project
 > none of which exist anymore (see [[cutover-plan]]). Retained as an audit
 > log of the Slice B triage, not as current design reference.
 
-Source plan: `docs/superpowers/plans/2026-04-23-slice-b-pattern-atom-tier-2-5-tokens.md`
 
 ---
 

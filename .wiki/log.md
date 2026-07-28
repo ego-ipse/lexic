@@ -1043,7 +1043,7 @@ Follow-ups in the same pass: **`Field` now requires exactly one of `default`/`de
 
 Added the value-aware action algebra on top of V2: `IrScalar(IrLeaf)` value-leaf base (hosts `eval` + type-aware `__eq__`/`__ne__`/`__hash__`/`__repr__`, all delegating to the primitive); `IrInt(IrScalar, int)`; `IrStr` re-parented onto `IrScalar` (its `__new__`/`eval` dropped). `IrField` now reads typed attrs via `out: type[IrScalar]` (default `IrStr`), made callable by a forwarding `IrScalar.__new__`. Comparison: `IrOp(IrStr)` operator leaf (the node IS its string — **no `Cmp` enum**) + `IrCompare` + short-circuit `IrAnd(IrTuple[IrSelf])`, all returning `IrInt ∈ {0,1}` (no `IrBool`). `IrTuple.eval` relaxed `-> Self` → `-> IrSelf` so reducers can override (no `[T,R]` generic). `IrCond` generalized `field: str` → `test: IrSelf`. New exports: `IrScalar`/`IrInt`/`IrOp`/`IrCompare`/`IrAnd`.
 
-Deviations from the plan (`docs/superpowers/plans/2026-06-04-phase-0a-algebra-expansion.md`) recorded in [[decisions]] (2026-06-05 entry): no `Cmp` enum (→ `IrOp`), `type[IrScalar]`+`__new__` instead of the `type[IrStr]|type[IrInt]` union, `IrScalar` hosting eq/hash/repr, and `IrTuple.eval -> IrSelf` instead of the two-param generic. Full suite 593 passed; `pyright src/ tests/` = 0. [[ir-shapes]] + `CLAUDE.md` updated.
+Deviations from the plan recorded in [[decisions]] (2026-06-05 entry): no `Cmp` enum (→ `IrOp`), `type[IrScalar]`+`__new__` instead of the `type[IrStr]|type[IrInt]` union, `IrScalar` hosting eq/hash/repr, and `IrTuple.eval -> IrSelf` instead of the two-param generic. Full suite 593 passed; `pyright src/ tests/` = 0. [[ir-shapes]] + `CLAUDE.md` updated.
 
 ---
 
@@ -1051,7 +1051,7 @@ Deviations from the plan (`docs/superpowers/plans/2026-06-04-phase-0a-algebra-ex
 
 The coercion-based node model is gone. Nodes now ARE their payload — three tiers: str-leaves (`IrStr`: `IrLiteral`/`IrCharClass`/`IrRuleRef` subclass `str`), variadic collections (`IrTuple`: `IrSequence`/`IrAlternation` subclass `tuple`), and fixed-arity records (`IrComposite` frozen dataclasses). Removed `IrType`, `coerce`, `_ir_field_types`, the load-bearing `__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`__str__` cascade (now `__repr__`-is-codegen). No `.value`/`.items`/`.arms` accessors. Whole-tree `pyright src/ tests/` = 0 (genuine — the old `*args/**kwargs` init had masked ~174 errors); full suite 572 passed; pylint core 10/10.
 
-New decisions recorded in [[decisions]]: type-aware `IrStr.__eq__` (distinct leaf kinds unequal, plain-`str` compatible — fixes `@cache`/tree-equality poisoning); `IrThis` + lazy `IrReturn` for declarative find-first (no `IrCallable`); two type params `[Iri, Ir_co]` with `_bound` from the **last**; no `cast`/suppressions; **open-set consumer rework deferred** to a separate spec (`derive`/`codegen`/`parsing`/`generate` still carry closed-set `isinstance`/`dict[type,…]` ladders — legacy, not the target). [[ir-shapes]] rewritten to V2; `CLAUDE.md` IR-types section and flavour template updated (flavour dataclasses must NOT use `init=False` — it silently empties `actions`). Plan: `docs/superpowers/plans/2026-06-01-ir-primitive-node-model.md` (Tasks 1–16).
+New decisions recorded in [[decisions]]: type-aware `IrStr.__eq__` (distinct leaf kinds unequal, plain-`str` compatible — fixes `@cache`/tree-equality poisoning); `IrThis` + lazy `IrReturn` for declarative find-first (no `IrCallable`); two type params `[Iri, Ir_co]` with `_bound` from the **last**; no `cast`/suppressions; **open-set consumer rework deferred** to a separate spec (`derive`/`codegen`/`parsing`/`generate` still carry closed-set `isinstance`/`dict[type,…]` ladders — legacy, not the target). [[ir-shapes]] rewritten to V2; `CLAUDE.md` IR-types section and flavour template updated (flavour dataclasses must NOT use `init=False` — it silently empties `actions`).
 
 ---
 
@@ -1116,7 +1116,7 @@ Remaining Slice B work: token reservation (Tasks 33–34) — pre-tokenisation s
 
 ## 2026-05-09 — Ingested parallel-track IR cutover plan (Tasks 9–18)
 
-Pulled concrete API and behaviour details from `docs/superpowers/plans/2026-05-08-parallel-track-ir-cutover.md` into the wiki.
+Pulled concrete API and behaviour details from the effort's plan into the wiki.
 - [[decisions]]: added "Cutover commitments (CQ #1, #2, #4)" entry covering no-FIXME, no `ws` hardcoding, fixed canonical imports.
 - [[new-codegen]]: expanded Tasks 9–14 with `CANONICAL_IMPORTS`, `_field_type` rules, `_repr_iritem`, `regex_for_charclass`/`regex_for_group` public surface, `Pattern`/`Pattern2` Tier-3 fallback, `codegen(specs, stem)` signature (no `flavour` parameter).
 - [[cutover-plan]]: replaced 8-bullet checklist with the 17 sub-step cutover sequence; added Slice 3 (`parsing/`) table for Tasks 15–17.
@@ -1185,4 +1185,4 @@ Tasks 3 and 5 deleted from plan — dead weight, no behaviour without `flavours.
 
 ## 2026-05-08 — Plan: parallel-track IR cutover
 
-`docs/superpowers/plans/2026-05-08-parallel-track-ir-cutover.md` created. 18 tasks; builds `new_gbnf/`, `new_codegen/`, `parsing/` against the IrItem shape alongside legacy code, then cuts over atomically in Task 18.
+the effort's plan created. 18 tasks; builds `new_gbnf/`, `new_codegen/`, `parsing/` against the IrItem shape alongside legacy code, then cuts over atomically in Task 18.

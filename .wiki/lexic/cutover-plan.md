@@ -2,7 +2,6 @@
 
 **When to load:** understanding what was done at cutover; checking Slice B remaining work.
 
-Source: `docs/superpowers/plans/2026-05-08-parallel-track-ir-cutover.md`
 
 See also: [[architecture]], [[ir-shapes]], [[slice-b-status]]
 
