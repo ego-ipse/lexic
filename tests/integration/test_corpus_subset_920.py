@@ -1,8 +1,8 @@
 """Fixture-level lock on the disputed benchmark corpus.
 
-``tools/benchmark/corpus_subset_920.abnf`` is the fixed 920-char old-subset-
+``resources/corpora/corpus_subset_920.abnf`` is the fixed 920-char old-subset-
 grammar self-emit that ``zzz_current_work/Disputed.md`` measured its perf
-regression claims against, and ``tools/benchmark/parse_bench.py``'s
+regression claims against, and the benchmark's
 "subset-920" workload times. It is old-subset ABNF syntax, but also valid
 syntax under the current full RFC 5234+7405 ABNF grammar (a strict syntactic
 superset) — pinning that here means a future ABNF grammar change that stops
@@ -14,9 +14,9 @@ from __future__ import annotations
 from lexic.compile import parse_grammar
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.ir import IrAst
-from tests.paths import BENCHMARK
+from tests.paths import CORPORA
 
-CORPUS_TEXT = (BENCHMARK / "corpus_subset_920.abnf").read_text()
+CORPUS_TEXT = (CORPORA / "corpus_subset_920.abnf").read_text()
 
 
 def test_corpus_subset_920_parses_to_ir_ast():
