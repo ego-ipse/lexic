@@ -187,6 +187,10 @@ On explicit request `export_module(compiled, path, *, stem=None, inline_tables=F
 
 `.parse(text)` is the only method callers need. It runs `parse_model(self.codegen_grammar, text, self.fold)` — the engine's instance product (PDA-first, Earley completion inside the engine, memoised per `(grammar, fold)` identity). If the start rule does not fold to a `GrammarModel`, `.parse` raises `UnsupportedConstructError`.
 
+**Ambiguity is refused, by both engines.** A span whose derivations build two different models raises `UnsupportedConstructError` rather than one engine quietly picking — the PDA's "first" and Earley's "first" are not the same first, and a parser that answers an ambiguous question is not answering the question asked. The test is about VALUES, not derivation counts: a grammar routinely derives one text several ways without meaning anything by it, and a *split* — one production carved two ways, same arm, different boundary — has a defined answer (the first slot owns the text) and is never refused. Only an *arm* choice, two different productions over one span, is a question the grammar left open.
+
+The opt-out is a **resolver, not a flag**: `parse_model(grammar, text, fold, resolve=...)` takes a deterministic `Resolver`, handed the derivation in hand and the witness that differs, and whatever it returns is the parse. Its behaviour is the caller's concern, not the engine's. The same resolver reaches whichever engine ends up choosing, so the answer does not depend on which route ran. `CompiledGrammar.parse` does not surface `resolve`; callers who need one use `parse_model` directly.
+
 ---
 
 ## `GrammarModel`

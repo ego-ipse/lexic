@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import importlib
 import sys
-import tempfile
 from pathlib import Path
 
 from lexic import compile_text
@@ -42,6 +41,11 @@ nl ::= "\\n"
 """
 
 DOCUMENT = "width=1920\nheight=1080\ndepth=32\n"
+
+REPO = Path(__file__).resolve().parent.parent
+OUT = REPO / "generated" / "ex13_payload"
+"""Where the artefacts land. Real files, kept — the point is to open them and
+see that a projected value is three flat literals and a digest."""
 
 
 def main() -> None:
@@ -66,35 +70,31 @@ def main() -> None:
     # instead of silently colliding.
     print(f"origins: {sorted(set(payload.origins))}")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        target = Path(tmp) / "config_value.py"
+    OUT.mkdir(parents=True, exist_ok=True)
 
-        # A model names its own classes, so the value module needs somewhere to
-        # import them FROM — that is the twin module, and `module=` names it.
-        # (A `plain` or reduced-`ir` value names only spine classes or nothing,
-        # and needs no companion at all.)
-        export_module(compiled, Path(tmp) / "config_model.py")
+    # A model names its own classes, so the value module needs somewhere to
+    # import them FROM — that is the twin module, and `module=` names it.
+    # (A `plain` or reduced-`ir` value names only spine classes or nothing,
+    # and needs no companion at all.)
+    export_module(compiled, OUT / "config_model.py")
 
-        # ── export: projected under the fixpoint gate, then byte-compiled ──
-        written = export_value(model, target, module="config_model")
-        print(f"wrote {written.name} ({written.stat().st_size} bytes)")
+    # ── export: projected under the fixpoint gate, then byte-compiled ──
+    written = export_value(model, OUT / "config_value.py", module="config_model")
+    print(f"wrote {written.relative_to(REPO)} ({written.stat().st_size} bytes)")
 
-        # ── read it back the way a CONSUMER would ────────────────────
-        # No lexic import here at all: the generated module carries its own
-        # reader. This is the point of the projection — a downstream service
-        # gets the value without the grammar engine in its wheel.
-        # The consumer puts the directory on the path and imports by name,
-        # exactly as it would from a wheel. Importing the VALUE costs a decode
-        # of three flat tables — no grammar is compiled and no text is parsed.
-        sys.path.insert(0, tmp)
-        try:
-            module = importlib.import_module("config_value")
-        finally:
-            sys.path.remove(tmp)
+    # ── read it back the way a CONSUMER would ────────────────────────
+    # The consumer puts the directory on the path and imports by name, exactly
+    # as it would from a wheel. Importing the VALUE costs a decode of three flat
+    # tables — no grammar is compiled and no text is parsed.
+    sys.path.insert(0, str(OUT))
+    try:
+        module = importlib.import_module("config_value")
+    finally:
+        sys.path.remove(str(OUT))
 
-        print(f"rebuilt by import, not by parse: {type(module.VALUE).__name__}")
-        assert module.VALUE.to_text() == DOCUMENT
-        print(f"neighbours written: {sorted(q.name for q in Path(tmp).glob('*.py'))}")
+    print(f"rebuilt by import, not by parse: {type(module.VALUE).__name__}")
+    assert module.VALUE.to_text() == DOCUMENT
+    print(f"artefacts left for inspection: {sorted(q.name for q in OUT.glob('*.py'))}")
 
     # ── provenance is a SEPARATE question from the fixpoint ──────────
     # The grammar half is checked at decode, because a class carries its rules.
