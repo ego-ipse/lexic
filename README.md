@@ -24,6 +24,7 @@ Lexic is the grammar engine layer of Vyx, an agent-to-agent protocol that uses g
 - **Round-trip** an instance back to its exact source via `to_text()` — whitespace-preserving.
 - **Re-emit** the grammar via `to_grammar(flavour)` — in any flavour, width-aware.
 - **Export** a compiled grammar as an importable twin module (`export_module`) — the typed, on-disk form of the same classes — and verify any export by parsing it back (`parse_module` / `verify_module`).
+- **Refuse ambiguity, on every route.** A span whose derivations build two different models raises rather than a parser quietly picking one. The test is about VALUES, not derivation counts: a grammar routinely derives one text several ways without meaning anything by it, so a *split* — one production carved two ways, same arm, different boundary — has a defined answer and is never refused. Only an *arm* choice is. The opt-out is a **resolver, not a flag**: `parse(text, resolve=...)` hands both derivations to a deterministic callable of yours, and reaches whichever engine ends up choosing.
 - **Strip structural noise** via `semantic_dump()` — `dump()` minus fields bound to rules marked `@non-semantic` (typically whitespace).
 - **Work in pure IR** — parse a grammar to an `IrAst` without building classes (`parse_grammar`), construct IR objects from a neutral text notation (`load_ir` / `emit_ir`), or load a whole flavour from a text manifest (`load_flavour`).
 
@@ -207,26 +208,62 @@ For the full picture:
 
 `arithmetic` · `c` · `chess` · `japanese` · `json` · `json_arr` · `json_ws` · `list` · `vyx`
 
-## Performance
+## Performance, and how to read it
 
-`lexic.parsing` runs two engines behind one API: the deterministic **PDA** (default fast path, builds the typed model with no intermediate tree) backed by scannerless **Earley** as the sound completion. `tools/benchmark/compare_bench.py` races both — plus the public product entry — against **Lark** (LALR and Earley) on the same inputs, with a cross-engine equality gate before any timing.
+`tools/benchmark/` races lexic's two engines against **Lark** (LALR + Earley),
+**parsimonious**, **pyparsing** and **ANTLR** — the last on both its Java target
+and its Python runtime.
 
-Representative throughput (µs/char, lower is faster; single machine, 2026):
+**Every engine gets the same grammar.** Each competitor's grammar is derived
+mechanically from the one `IrAst` lexic compiles; nobody gets a hand-tuned
+variant. An earlier version of this benchmark did give each tool its own
+hand-written grammar, and its headline number was meaningless as a result. The
+translations are gated by a differential in *both* directions — every emitted
+grammar must accept what lexic accepts **and refuse what lexic refuses** — because
+a grammar that accepts everything passes an accept-only check. That gate has
+caught five real emitter bugs that would otherwise have printed as "this tool
+cannot express the grammar".
 
-| input | lark-lalr | lark-earley | earley | **pda** |
-|---|---|---|---|---|
-| ABNF self-emit *(grammar text)* | — | ~30 | ~15 | **~9** |
-| GBNF self-emit *(grammar text)* | — | ~20 | ~17 | **~8** |
-| arithmetic *(instance)* | 1.9 | 25 | 22 | **2.5** |
-| c *(instance)* | 1.2 | 23 | 12 | **1.1** |
-| chess *(instance)* | 1.0 | 10 | 13 | **1.7** |
-| json *(instance)* | 1.0 | 14 | 76 | **3.1** |
+µs/char, lower is faster; medians of interleaved rounds, noise floor 0.6–2.6%:
 
-The PDA path also carries a per-parse intern memo (repeated identical
-sub-models within one parse are built once) and a single-item fast path for
-the common `value_str` terminal match, on top of the numbers above.
+| grammar | antlr *(Java)* | lark-lalr | parsimonious | lexic-pda | antlr-py | pyparsing | lexic-earley | lark-earley |
+|---|---|---|---|---|---|---|---|---|
+| arithmetic | **0.28** | 2.7 | 2.8 | 3.2 | 7.8 | 22.0 | 62.9 | 44.8 |
+| csv | **0.08** | 0.7 | 1.2 | 0.9 | 2.1 | 3.7 | 13.7 | 12.0 |
+| json | **0.34** | 3.5 | 2.1 | 2.2 | 9.5 | 11.6 | 36.2 | 40.8 |
+| gbnf-meta | **0.51** | refuses | refuses | *island* | 11.7 | refuses | 66.1 | 186.5 |
+| abnf-meta | **0.26** | refuses | 3.9 | *island* | 13.0 | 92.8 | 63.0 | 131.9 |
+| vyx | **0.33** | refuses | 2.8 | 59.0 | 10.1 | 29.7 | 51.2 | 98.8 |
 
-Reading the numbers fairly: Lark's **LALR** + contextual lexer is genuinely fast — but it yields a *generic parse tree*, while `earley`/`pda` build the **typed model**, so those columns include construction Lark's do not. LALR is not viable for the two meta-grammars (rulename↔ruleref overlap needs unbounded lookahead), so Lark runs Earley there. Where LALR cannot handle a grammar it is reported, never silently swapped. Compilation itself is dominated by parsing — no file I/O or subprocess on the path.
+**ANTLR's Java target is the fastest thing here, by an order of magnitude, on
+every grammar.** That is the honest result and it is not close. It is also a
+*tool+runtime* comparison rather than an algorithmic one — that row is Java and
+every other row is Python — which is exactly the question "what parses this
+grammar fastest" asks. `antlr-py` is the same generated parser on
+`antlr4-python3-runtime`, a pure-Python ATN simulator; the gap between the two
+ANTLR rows is the runtime, not the tool.
+
+Three things the table does not say on its own:
+
+- **The engines do not build the same thing.** lexic returns a *typed model* the
+  source is recoverable from; Lark returns a generic `Tree`, parsimonious a
+  `Node` tree, pyparsing a `ParseResults`, ANTLR a `ParserRuleContext`. Model
+  construction is real work inside lexic's numbers that the others do not pay.
+- **lexic's PDA declines both meta-grammars.** `gbnf-meta` and `abnf-meta` mark
+  their start rules as islands, so the predictive path does not run at all and
+  Earley is the whole parse. Where a fast path does not apply, it is reported —
+  never silently swapped for a different measurement.
+- **`lark-lalr` refuses three of six.** Genuine reduce/reduce and lookahead
+  conflicts, not a harness artefact: the meta-grammars' rulename↔ruleref overlap
+  needs unbounded lookahead, and vyx is not LALR(1). A refusal is a result and is
+  printed as one.
+
+Run it yourself: `uv run python -m tools.benchmark.bench --rounds 3`, or
+`--only json vyx` for a subset. ANTLR needs a JDK; the Java row builds a parser
+and holds a JVM open across the run, warmed until its timings settle, taking one
+round per line on stdin and reporting `System.nanoTime()` around the parse alone
+— so it interleaves with every other column instead of degrading into a separate
+run.
 
 ## Development
 
@@ -251,7 +288,9 @@ tools/auto_fix.sh   # ruff format → isort → ruff check --fix
 
 ## Project status
 
-Lexic is pre-1.0 and actively developed. One IR-native pipeline drives everything: a native Earley/PDA engine (no third-party parser), a canonical `IrAst` that all flavours converge on, runtime class synthesis on the record spine, width-aware cross-flavour emission, and self-verifying module export — all off the same action-driven IR substrate. Public invariants live in [CLAUDE.md](CLAUDE.md) §Key invariants; architecture and design decisions live in the [wiki](.wiki/).
+Lexic is pre-1.0 and actively developed. One IR-native pipeline drives everything: a native Earley/PDA engine (no third-party parser), a canonical `IrAst` that all flavours converge on, runtime class synthesis on the record spine, width-aware cross-flavour emission, and self-verifying module export — all off the same action-driven IR substrate.
+
+Where it stands honestly: correctness and fidelity are the strengths — one grammar compiles to typed classes that round-trip exactly, in any flavour, with ambiguity refused rather than guessed at. Raw throughput is not: a mature generated parser in a JIT'd runtime is an order of magnitude faster, and the benchmark above says so rather than choosing inputs that hide it. Public invariants live in [CLAUDE.md](CLAUDE.md) §Key invariants; architecture and design decisions live in the [wiki](.wiki/).
 
 ## License
 
