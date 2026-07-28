@@ -91,6 +91,17 @@ class Tally(dict):
 def test_pda_engine_differential_on_generated_samples(stem: str) -> None:
     """Forced-PDA vs forced-engine parity across seeded samples of every grammar.
 
+    NOT a duplicate of the raw-equality test below, and the division matters.
+    This is the BROAD differential: it tallies fallbacks, round-trips BOTH
+    models, and exercises the whole-grammar opt-out branch for real (c's
+    override start). It compares at the SEMANTIC bar, which is weaker, and that
+    is deliberate — it is checking that the two paths behave alike across every
+    grammar and every escape, not that they build byte-identical models.
+
+    `test_both_engines_build_the_same_model_not_just_the_same_meaning` owns the
+    equality invariant, at the raw bar, on the grammars that hold it. Two tests,
+    two jobs; neither subsumes the other.
+
     Skips generator-overshoot inputs the engine itself rejects. A forced-PDA
     ``PdaFail`` is tallied as a fallback, not a failure. Every ground-truth
     grammar compiles a PDA under its own natural start rule — except c under
@@ -276,6 +287,10 @@ def test_both_engines_build_the_same_model_not_just_the_same_meaning(
     the engines are REQUIRED to agree, the split has one defined answer and
     both paths must produce it — `deep_semantic` would pass either way, so it
     cannot be the test for this.
+
+    This test owns the EQUALITY invariant and nothing else — the broad
+    differential above owns fallback behaviour, round-trip and the opt-out
+    branch, at the weaker semantic bar. Neither subsumes the other.
 
     Ruled 2026-07-28: the bar is RAW model equality, not `deep_semantic`. A
     grammar declaring a rule `@non-semantic` does not remove it from the model —

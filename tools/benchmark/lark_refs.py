@@ -200,7 +200,10 @@ def lark_mirror_variants(
     reader cannot mistake one question for the other.
 
     A tool that cannot express the grammar is reported, never substituted: LALR
-    refuses `json.gbnf`'s shape outright, and that refusal IS the finding.
+    refuses `json.gbnf`'s shape outright, and that refusal IS the finding. Only
+    Lark's OWN failures are caught (`LarkError` covers both `GrammarError` at
+    build and `UnexpectedToken` at parse) — anything else is our bug, not a
+    tool declining a grammar, and must surface.
 
     :param lark_mod: The imported ``lark`` module.
     :param key: A registry key.
@@ -216,7 +219,7 @@ def lark_mirror_variants(
         try:
             built = lark_mod.Lark(grammar, parser=parser)
             built.parse(probe)
-        except Exception as exc:  # a tool refusing the grammar is a RESULT
+        except lark_mod.exceptions.LarkError as exc:  # refusing IS the result
             notes.append(f"{label}: {type(exc).__name__}")
             continue
         out[label] = built.parse
