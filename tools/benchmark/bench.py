@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import argparse
 import gc
+import os
+import sys
 import time
 from collections.abc import Callable, Sequence
 from math import log10
@@ -201,14 +203,22 @@ def _competitors(bench: Bench) -> tuple[dict[str, Parse], dict[str, str]]:
 
 
 def _engines(bench: Bench) -> tuple[dict[str, Parse], dict[str, str]]:
-    """Every engine to time, and the ones that could not take the grammar."""
+    """Every engine to time, and the ones that could not take the grammar.
+
+    lexic's own rows pass through the SAME :func:`unfaithful` gate as every
+    competitor — corpus, accepts and rejects, both directions. The gate exists
+    so no engine gets a number for a different language, and an engine exempt
+    from it would be exactly the sycophancy the gate is there to prevent.
+    """
     lexic = _lexic(bench)
     competitors, refused = _competitors(bench)
+    working: dict[str, Parse] = {}
     for label, parse in lexic.items():
-        why = refusal(parse, bench.corpus)
-        if why is not None:
-            refused[label] = why
-    working = {k: v for k, v in lexic.items() if k not in refused}
+        wrong = unfaithful(parse, bench)
+        if wrong is None:
+            working[label] = parse
+        else:
+            refused[label] = wrong
     return {**working, **competitors}, refused
 
 
@@ -267,7 +277,37 @@ def _noise_floor(parse: Parse, corpus: str, rounds: int) -> float:
     return abs(first - second) / max(first, second, 1e-9) * 100
 
 
-def _bar(value: float, best: float, worst: float, width: int = 22) -> str:
+BAR_WIDTH = 40
+"""Bar length. Wide enough that a 2x gap reads differently from a 4x one —
+at 22 columns the log scale gave them three characters between them."""
+
+_LEXIC_TINT: dict[str, str] = {
+    "lexic-pda": "\x1b[38;5;39m",
+    "lexic-earley": "\x1b[38;5;208m",
+}
+"""One distinct colour per lexic mode — the two rows this benchmark exists to
+place are findable at a glance. Competitors keep the terminal's default
+foreground: colour marks WHOSE row it is, never better or worse."""
+
+_DIM = "\x1b[2m"
+_RESET = "\x1b[0m"
+
+
+def _use_color(force: bool) -> bool:
+    """Colour when forced, else only on a real terminal nobody opted out of.
+
+    ``NO_COLOR`` (the informal cross-tool convention) wins over tty detection;
+    piped output stays clean ANSI-free text either way.
+    """
+    return force or (sys.stdout.isatty() and "NO_COLOR" not in os.environ)
+
+
+def _paint(text: str, code: str, on: bool) -> str:
+    """``text`` wrapped in one ANSI colour, when colour is on and one applies."""
+    return f"{code}{text}{_RESET}" if on and code else text
+
+
+def _bar(value: float, best: float, worst: float) -> str:
     """A log-scaled bar, full width at the SLOWEST engine in this block.
 
     The scale used to be a fixed two decades, which saturated the moment one
@@ -278,15 +318,21 @@ def _bar(value: float, best: float, worst: float, width: int = 22) -> str:
     """
     span = log10(max(worst / best, 10.0))
     ratio = max(value / best, 1.0)
-    return "█" * min(width, round(log10(ratio) / span * width)) + "·" * width
+    filled = min(BAR_WIDTH, round(log10(ratio) / span * BAR_WIDTH))
+    return "█" * filled + "·" * (BAR_WIDTH - filled)
 
 
 def _report(
-    bench: Bench, timings: dict[str, float], refused: dict[str, str], floor: float
+    bench: Bench,
+    timings: dict[str, float],
+    refused: dict[str, str],
+    floor: float,
+    color: bool,
 ) -> None:
     """One grammar's block: fastest first, with the bar and what each builds."""
     print(
-        f"\n─── {bench.name} · {len(bench.corpus):,} chars · one grammar, every engine"
+        f"\n─── {bench.name} · {len(bench.corpus):,} chars · one grammar, "
+        "every engine · bars log-scaled, full bar = slowest"
     )
     if not timings:
         print("    no engine could parse this grammar")
@@ -295,12 +341,13 @@ def _report(
     worst = ranked[-1][1] if ranked else 1.0
     for name, value in ranked:
         rel = f"{value / best:6.1f}×" if value > best else "   base"
-        shape = _bar(value, best, worst)[:22]
-        print(
-            f"  {name:<13}{value:9.3f} µs/char {rel}  {shape}  {PRODUCT.get(name, '?')}"
-        )
+        tint = _LEXIC_TINT.get(name, "")
+        label = _paint(f"{name:<13}", tint, color)
+        shape = _paint(_bar(value, best, worst), tint, color)
+        print(f"  {label}{value:9.3f} µs/char {rel}  {shape}  {PRODUCT.get(name, '?')}")
     for name, why in sorted(refused.items()):
-        print(f"  {name:<13}{'—':>9}             {why[:92]}")
+        label = _paint(f"{name:<13}", _LEXIC_TINT.get(name, ""), color)
+        print(f"  {label}{'—':>9}             {_paint(why[:96], _DIM, color)}")
     print(f"  {'noise floor':<13}{floor:8.2f}%    smaller differences are not results")
 
 
@@ -331,7 +378,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--only", nargs="*", metavar="NAME", help="benchmark only these grammars"
     )
+    parser.add_argument(
+        "--color",
+        action="store_true",
+        help="force ANSI colour (auto: only on a terminal, honouring NO_COLOR)",
+    )
     args = parser.parse_args(argv)
+    color = _use_color(args.color)
     wanted = set(args.only or ())
     benches = [b for b in BENCHES if not wanted or b.name in wanted]
     if not benches:
@@ -341,7 +394,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         engines, refused = _engines(bench)
         anchor = next(iter(engines.values()), None)
         floor = _noise_floor(anchor, bench.corpus, args.rounds) if anchor else 0.0
-        _report(bench, _interleaved(engines, bench.corpus, args.rounds), refused, floor)
+        _report(
+            bench,
+            _interleaved(engines, bench.corpus, args.rounds),
+            refused,
+            floor,
+            color,
+        )
         _warmup_note(engines)
         for parse in engines.values():
             getattr(parse, "close", lambda: None)()

@@ -451,6 +451,24 @@ def _lark(node: IrSelf, names: dict[str, str], lex: Lex) -> str:
     return emit(node, names, lex)
 
 
+# ── ordered choice (PEG / MatchFirst) — the arm order an author would use ──
+
+
+def _choice_arms(node: IrAlternation) -> list[IrSequence]:
+    """``node``'s arms in the order an ordered-choice author would write them.
+
+    A context-free ``|`` is unordered; PEG's ``/`` (and pyparsing's
+    ``MatchFirst``) commits to the first arm that matches. An EMPTY arm first
+    makes every later arm dead code — ``x-tail = "" / x-range / x-seq`` can
+    never match a range, and the row then reports the tool refusing a grammar
+    when it was only handed a losing order no PEG author would write. Empty
+    arms go last; everything else stays as authored, and the faithfulness
+    differential still judges the result per grammar.
+    """
+    arms = list(node)
+    return [arm for arm in arms if arm] + [arm for arm in arms if not arm]
+
+
 # ── parsimonious (PEG) ─────────────────────────────────────────────────────
 
 
@@ -469,7 +487,7 @@ def peg_grammar(ast: IrAst) -> str:
 
 
 def _peg_alternation(node: IrAlternation, names: dict[str, str]) -> str:
-    return " / ".join(_peg(arm, names) for arm in node)
+    return " / ".join(_peg(arm, names) for arm in _choice_arms(node))
 
 
 def _peg_sequence(node: IrSequence, names: dict[str, str]) -> str:
@@ -498,7 +516,14 @@ def _peg_literal(node: IrLiteral | IrChr, _names: dict[str, str]) -> str:
 
 
 def _peg_charclass(node: IrCharClass, _names: dict[str, str]) -> str:
-    return f'~r"[{_members(node)}]"'
+    """The class inside parsimonious's ``~r"[...]"`` — so ``"`` must be escaped.
+
+    A class holding the double-quote (vyx's ``!-"`` range) would otherwise
+    terminate the regex literal mid-class, and parsimonious's own grammar
+    reader refuses the file — read as "PEG cannot express this grammar" when
+    the only problem was the quoting. ``\\"`` inside a Python regex is ``"``.
+    """
+    return f'~r"[{_members(node, extra=chr(34))}]"'
 
 
 def _peg_ruleref(node: IrRuleRef, names: dict[str, str]) -> str:
@@ -514,7 +539,7 @@ def _peg_not(node: IrNot, _names: dict[str, str]) -> str:
         raise UnsupportedConstructError(
             f"benchmark: PEG cannot express IrNot over {type(inner).__name__}"
         )
-    return f'~r"[^{_members(inner)}]"'
+    return f'~r"[^{_members(inner, extra=chr(34))}]"'
 
 
 _PEG: dict[type, Callable[..., str]] = {
@@ -581,8 +606,13 @@ def pyparsing_parser(ast: IrAst, longest: bool = True) -> pp.ParserElement:
 
 
 def _pp_alternation(node: IrAlternation, fwd: dict[str, pp.Forward], choice):
-    """Whichever alternation `pyparsing_parser` was asked for — see it for why."""
-    return choice([_pp(arm, fwd, choice) for arm in node])
+    """Whichever alternation `pyparsing_parser` was asked for — see it for why.
+
+    Arms in :func:`_choice_arms` order: `Or` keeps the longest whatever the
+    order, and `MatchFirst` needs the empty arm last for the same reason PEG
+    does.
+    """
+    return choice([_pp(arm, fwd, choice) for arm in _choice_arms(node)])
 
 
 def _pp_sequence(node: IrSequence, fwd: dict[str, pp.Forward], choice):

@@ -14,11 +14,14 @@ same job. A flavour's self-grammar round-trips to text, so it compiles through
 the ordinary path like everything else and lexic builds a model from it, with no
 actions anyone else was denied.
 
-**No directives.** `@non-semantic` marks rules skippable noise and lexic's
-codegen pass relaxes references to them, so a grammar carrying one is a grammar
-lexic parses more loosely than it reads. No bench carries one — the test pins
-that — which is why `grammar` and `codegen_grammar` describe the same language
-and the translation is honest without any per-tool compensation.
+**No `@non-semantic`.** It marks rules skippable noise and lexic's codegen pass
+relaxes references to them, so a grammar carrying one is a grammar lexic parses
+more loosely than it reads. No bench carries one — the test pins that — which
+is why `grammar` and `codegen_grammar` describe the same language and the
+translation is honest without any per-tool compensation. `@start` is different
+in kind: it only names the start rule, the emitters read the resolved
+``ast.start``, and every engine parses from the same rule — so a grammar may
+carry one (vyx does).
 """
 
 from __future__ import annotations
@@ -144,6 +147,27 @@ def _json_corpus(items: int) -> str:
     return f'{{"rows": [{body}], "ok": "yes"}}'
 
 
+def _vyx_packet(body: str) -> str:
+    """A block-body vyx packet wrapping ``body`` with an exact L-budget."""
+    return f"!I o:wf L{len(body.encode())}<\n{body}>"
+
+
+def _vyx_corpus(rows: int) -> str:
+    """A template-carrying vyx packet whose block body mixes the line types.
+
+    Each row contributes one kv-line, one indented scope-line, one seq-item and
+    one nl-text prose line — the D.17 body shapes a real packet interleaves.
+    """
+    lines: list[str] = []
+    for n in range(rows):
+        lines.append(f"id=ORD-{n:04d} qty={n % 9 + 1} note=_")
+        lines.append(f" ship: meth=express carr=DHL leg={n % 5}")
+        lines.append(f'- type=feature idx={n} title="Widget {n}"')
+        lines.append("free prose line about the widget catalogue")
+    body = "\n".join(lines) + "\n"
+    return f"T:w=o:inv s:@buyer r:@supplier\n!I %w n:7 L{len(body.encode())}<\n{body}>"
+
+
 def _self_grammar_source(flavour) -> str:
     """A flavour's own self-grammar, as text in that flavour.
 
@@ -205,6 +229,34 @@ BENCHES: tuple[Bench, ...] = (
         _ground_truth("json.abnf"),
         ('a = "x"\r\n', "a = 1*2DIGIT\r\n", '; note here\r\na = "y"\r\n'),
         ("a =", "= b", "a b", "a = %", "a = <"),
+    ),
+    # The vyx D-layer packet grammar (`# @start packet`) — an agent-protocol
+    # language authored as pure CFG (ordered choice spelled by charset
+    # subtraction) over the full Unicode alphabet. The corpus is one packet
+    # with a template definition and a mixed block body; the accepts pin the
+    # envelope forms, pipes, V22 empty values and non-ASCII content; the
+    # rejects pin the ruled-out shapes (V24 bare "|" in an unquoted value,
+    # V25 bare "&" kv value) plus non-packets.
+    _bench(
+        "vyx",
+        _ground_truth("vyx.gbnf"),
+        _vyx_corpus(24),
+        (
+            "!I o:inv ^003\n",
+            "!I o:env s:@weather L22< city=Porto temp=22 >\n",
+            _vyx_packet("deps=^ref tags=|a|b|c\n"),
+            _vyx_packet(' ship/addr: st="x" city=Porto\n'),
+            _vyx_packet("debug-field= mean-unrounded= optional=1\n"),
+            _vyx_packet('note="arrow → café §"\n'),
+            "T:w=o:inv s:@buyer r:@supplier\n!I %w n:7\n",
+        ),
+        (
+            "",
+            "!Z o:inv\n",
+            "?I\n",
+            _vyx_packet("container: type=list|record mix=error\n"),
+            _vyx_packet("create-or-join: key=& tag-exists=join tag-new=create\n"),
+        ),
     ),
 )
 """Every benchmarked language. Adding one is a row here, not a per-tool grammar."""

@@ -42,12 +42,27 @@ EXPECTED: dict[str, frozenset[str]] = {
     # PEG and pyparsing both have POSSESSIVE repetition and cannot back out of a
     # committed one: `seq-rest ::= n item` swallows the NEXT rule's name and
     # there is no way back, so they stop at char 244 of `json.gbnf`. That is a
-    # property of those formalisms, not of the emitters. lark-lalr hits a real
-    # LALR(1) conflict on a grammar that is not LALR(1). lexic's own PDA
-    # declines both self-grammars, and its model fold cannot build the ABNF one
-    # at all — the benchmark reports that rather than hiding it.
+    # property of those formalisms, not of the emitters. The ABNF self-grammar
+    # has no such shape: once the emitters order an EMPTY arm last — the order
+    # any ordered-choice author writes, see `emit._choice_arms` — parsimonious
+    # holds the whole grammar. lark-lalr builds gbnf-meta and then answers a
+    # shift/reduce resolution wrong at parse time: the token partition is
+    # proven adequate (lark-earley parses the corpus over the SAME refined
+    # grammar), so the grammar is simply not LALR(1). On abnf-meta it refuses
+    # at build with a reduce/reduce collision — same verdict, said earlier.
+    # lexic's own PDA declines both self-grammars (island start rule) and the
+    # benchmark reports that rather than hiding it; the Earley rows answer.
     "gbnf-meta": frozenset({"lark-earley", "antlr", "antlr-py"}),
-    "abnf-meta": frozenset({"lark-earley", "antlr", "antlr-py", "pyparsing"}),
+    "abnf-meta": frozenset(
+        {"lark-earley", "antlr", "antlr-py", "pyparsing", "parsimonious"}
+    ),
+    # vyx is authored as pure CFG with disjoint arms (ordered choice spelled by
+    # charset subtraction), so the ordered-choice engines hold it whole —
+    # parsimonious needed only the `"` escape inside `~r"[...]"` (a class with
+    # the `!-"` range terminated the regex literal mid-class; the same
+    # notation-specific-escaping family as the Lark `/` bug). lark-lalr
+    # refuses at build with a reduce/reduce collision: not LALR(1).
+    "vyx": frozenset({"lark-earley", "antlr", "antlr-py", "pyparsing", "parsimonious"}),
 }
 """Which competitors must survive each grammar, pinned.
 
