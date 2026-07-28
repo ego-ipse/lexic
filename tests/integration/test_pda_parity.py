@@ -336,3 +336,70 @@ def test_both_engines_build_the_same_model_not_just_the_same_meaning(
         f"{stem}: {len(differed)} of {checked} inputs build different models; "
         f"first: {differed[0]}"
     )
+
+
+# ── an arm choice is refused, not silently picked ────────────────────────
+
+_ARM_AMBIGUOUS = """root ::= line
+line ::= plain | forced
+plain ::= [a-z#]+
+forced ::= "#" [a-z]*
+"""
+"""One span, two DIFFERENT productions. `#ab` is `plain` whole, or `forced` as
+`#` then `ab` — an arm choice, which is exactly what vyx's `inline-content`
+does and what a split is not."""
+
+
+def test_the_pda_refuses_an_arm_choice_rather_than_answering_it() -> None:
+    """The island gate must run even when the fast path built a tree.
+
+    `island_parse` used to treat `FastTree` succeeding as proof of unambiguity.
+    It is not: measured, `FastTree.build` returns a tree for a completion whose
+    arms mean different things, so the gate never ran and the PDA answered
+    `Forced('#ab')` for an input it had itself classified as needing an island.
+    The reduce path never relied on the fast path as an oracle — `_one_meaning`
+    asks separately — and this is the model path asking too.
+    """
+    cg = compile_text(_ARM_AMBIGUOUS, cache_key="parity-arm-pda")
+    with pytest.raises((UnsupportedConstructError, PdaFail)):
+        pda_model(prod(cg).pda, "#ab", cg.fold)
+
+
+@pytest.mark.xfail(
+    reason="the Earley half is unimplemented: `earley_model` goes through "
+    "`ParseFirst`, which takes the first derivation for parity with a retired "
+    "Lark path. Closing it is the policy unification recorded in DECISIONS.md.",
+    strict=True,
+)
+def test_an_arm_choice_is_refused_by_both_engines_not_answered_differently() -> None:
+    """Neither engine may quietly pick when the arms mean different things.
+
+    This is vyx's divergence in four lines, without vyx's tokenizer. Before the
+    fix the two paths disagreed in silence — Earley folded `Plain('#ab')` and
+    the PDA folded `Forced('#ab')` — because `earley_model` goes through
+    `parse_first` (deterministic under ambiguity by design) while only the
+    reduce path asked `_one_meaning`. Two engines each picking "the first"
+    derivation are not picking the same one.
+
+    A split has a defined answer and is not covered here; `is_arm_choice`
+    separates the two, and this input is on the refusing side of it.
+    """
+    cg = compile_text(_ARM_AMBIGUOUS, cache_key="parity-arm-ambiguous")
+    product = prod(cg)
+    outcomes: dict[str, object] = {}
+    for label, call in (
+        ("earley", lambda: forced_engine(cg, "#ab")),
+        ("pda", lambda: pda_model(product.pda, "#ab", cg.fold)),
+    ):
+        try:
+            outcomes[label] = call()
+        except UnsupportedConstructError, PdaFail:
+            outcomes[label] = REFUSED
+    assert outcomes["earley"] is REFUSED and outcomes["pda"] is REFUSED, (
+        "an ambiguous arm choice must be refused by both engines, not answered "
+        f"differently: {outcomes}"
+    )
+
+
+REFUSED = object()
+"""Sentinel for "this engine declined", distinct from any model it could build."""

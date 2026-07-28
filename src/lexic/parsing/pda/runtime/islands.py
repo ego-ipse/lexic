@@ -183,12 +183,43 @@ def island_parse(
     if best is None:
         raise PdaFail(f"island {name!r}: no match at {pos}")
     kern, item, end = best
-    tree = FastTree(kern).build((item << kern.tables.packing.bits) | end)
+    handle = (item << kern.tables.packing.bits) | end
+    tree = FastTree(kern).build(handle)
     if not isinstance(tree, ParseTree):
         # The fast path declining is NOT ambiguity — it also declines when a key
         # packs more than one family or the root has many productions.
-        tree = island_derivation(kern, item, end, name, policy=policy)
+        return island_derivation(kern, item, end, name, policy=policy), end
+    # ...and the fast path SUCCEEDING is not proof of unambiguity either, which
+    # is what this used to assume. Measured: `FastTree` builds a tree for a
+    # completion whose arms mean different things, so trusting it here answered
+    # an ambiguous input instead of refusing it. The reduce path never relied on
+    # the fast path as an oracle — `_one_meaning` asks this question separately —
+    # and the model path must ask it too.
+    _refuse_two_meanings(kern, handle, tree, name, policy)
     return tree, end
+
+
+def _refuse_two_meanings(
+    kern: Kernel, handle: int, tree: ParseTree, name: str, policy: IslandPolicy
+) -> None:
+    """Raise when this completion derives a second, DIFFERENT value.
+
+    :param kern: The island's Earley kernel.
+    :param handle: The packed accepting item and end.
+    :param tree: The derivation already in hand.
+    :param name: The island rule name (for the failure message).
+    :param policy: Carries the fold that answers the question, and the caller's
+        opt-out.
+    :raises UnsupportedConstructError: When the span means two things and the
+        caller has not opted out.
+    """
+    if policy.ambiguous or policy.fold is None:
+        return
+    if means_two_things(kern, handle, policy.fold.apply, tree):
+        raise UnsupportedConstructError(
+            f"parsing: island {name!r} derives the same text two ways that mean "
+            "different things — pass ambiguous=True to take the first"
+        )
 
 
 def island_run(
