@@ -112,6 +112,52 @@ LARK_GRAMMARS: dict[str, str] = {
 }
 
 
+# ── same-grammar mirrors: the engine's OWN grammar, in Lark ────────────────
+#
+# The grammars above are written the native Lark way, which answers "how fast is
+# each tool idiomatically". It does NOT answer "how fast is each engine", and the
+# two were conflated for an entire effort: `json.gbnf` spells `digit` and `char`
+# as RULES and threads `ws` explicitly, so it asks for a typed model per
+# character, while `JSON_LARK` asks for one token per number or string.
+#
+# A mirror asks Lark the SAME question. Where a tool cannot express the grammar
+# at all — LALR cannot take this one — that is a RESULT to print, not a reason to
+# substitute an easier grammar and keep the row.
+
+JSON_LARK_MIRROR = r"""
+start: ws value ws
+value: object | array | string | number | "true" | "false" | "null"
+object: "{" ws pairs? ws "}"
+pairs: pair (ws "," ws pair)*
+pair: string ws ":" ws value
+array: "[" ws items? ws "]"
+items: value (ws "," ws value)*
+string: "\"" char* "\""
+char: NOSPECIAL | "\\" ESCCHAR | "\\u" HEX HEX HEX HEX
+number: MINUS? digit+ frac? expo?
+frac: "." digit+
+expo: E SIGN? digit+
+digit: DIGIT
+ws: WSCHAR*
+NOSPECIAL: /[^"\\]/
+ESCCHAR: /["\\\/bfnrt]/
+HEX: /[0-9a-fA-F]/
+DIGIT: /[0-9]/
+MINUS: "-"
+E: /[eE]/
+SIGN: /[+-]/
+WSCHAR: /[ \t\n\r]/
+"""
+"""`json.gbnf`'s own structure in Lark: per-char rules, explicit threaded `ws`,
+no `%ignore`. Measured: LALR REFUSES to parse a json corpus with it, and Earley
+takes ~80 µs/char against the engine's PDA at ~3 — so the engine is ~26x faster
+than Lark's general parser on the grammar lexic is actually handed, and Lark's
+fast parser cannot take it. That is the like-for-like comparison."""
+
+LARK_MIRRORS: dict[str, str] = {"json.gbnf": JSON_LARK_MIRROR}
+"""Registry key → the same-grammar mirror, where one has been written."""
+
+
 def lark_variants(
     lark_mod: ModuleType, key: str, probe: str
 ) -> tuple[dict[str, Callable[[str], object]], str]:
@@ -142,3 +188,36 @@ def lark_variants(
         note = f"lalr N/A ({type(exc).__name__})"
     variants["lark-earley"] = lark_mod.Lark(grammar, parser="earley").parse
     return variants, note
+
+
+def lark_mirror_variants(
+    lark_mod: ModuleType, key: str, probe: str
+) -> tuple[dict[str, Callable[[str], object]], str]:
+    """Lark on the ENGINE's grammar — the like-for-like columns, when one exists.
+
+    Same contract as :func:`lark_variants`, over :data:`LARK_MIRRORS` instead of
+    the native grammars, and named ``lark-lalr-same`` / ``lark-earley-same`` so a
+    reader cannot mistake one question for the other.
+
+    A tool that cannot express the grammar is reported, never substituted: LALR
+    refuses `json.gbnf`'s shape outright, and that refusal IS the finding.
+
+    :param lark_mod: The imported ``lark`` module.
+    :param key: A registry key.
+    :param probe: A representative input each parser must handle to count.
+    :returns: ``(name -> parse, note)``; empty when no mirror is written yet.
+    """
+    grammar = LARK_MIRRORS.get(key)
+    if grammar is None:
+        return {}, ""
+    out: dict[str, Callable[[str], object]] = {}
+    notes: list[str] = []
+    for label, parser in (("lark-earley-same", "earley"), ("lark-lalr-same", "lalr")):
+        try:
+            built = lark_mod.Lark(grammar, parser=parser)
+            built.parse(probe)
+        except Exception as exc:  # a tool refusing the grammar is a RESULT
+            notes.append(f"{label}: {type(exc).__name__}")
+            continue
+        out[label] = built.parse
+    return out, "; ".join(notes)

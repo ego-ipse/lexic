@@ -90,13 +90,22 @@ from lexic.parsing.products import (
     earley_model,
     earley_reduce,
 )
-from tools.benchmark.lark_refs import lark_variants
+from tools.benchmark.lark_refs import lark_mirror_variants, lark_variants
 from tools.benchmark.parse_bench import SIZES, interleaved, load_lark, make_input
 from tools.benchmark.pipeline_bench import _INSTANCE_WORKLOADS, GROUND_TRUTH
 
 Path = Callable[[str], object]
 # column order; absent paths render "—". Both Lark parsers race every sample.
-_ORDER = ("lark-lalr", "lark-earley", "earley", "parse-first", "pda", "product")
+_ORDER = (
+    "lark-lalr",
+    "lark-earley",
+    "lark-lalr-same",
+    "lark-earley-same",
+    "earley",
+    "parse-first",
+    "pda",
+    "product",
+)
 # engine paths whose outputs are equality-gated against the reference;
 # parse-first yields a ParseTree (not the typed result) — recognition only.
 _ENGINE_COMPARED = ("earley", "pda", "product")
@@ -241,7 +250,14 @@ def _lark(
     """
     if lark_mod is None:
         return {}, ""
-    return lark_variants(lark_mod, key, probe)
+    native, note = lark_variants(lark_mod, key, probe)
+    # The `-same` columns ask Lark the grammar LEXIC was handed. Native and
+    # same-grammar answer different questions and are labelled apart on purpose:
+    # reading one as the other is what produced "json costs 3x Lark-LALR" for a
+    # gap that does not exist.
+    mirror, mirror_note = lark_mirror_variants(lark_mod, key, probe)
+    notes = [n for n in (note, mirror_note) if n]
+    return {**native, **mirror}, "; ".join(notes)
 
 
 def build_cases(lark_mod: ModuleType | None) -> list[Case]:

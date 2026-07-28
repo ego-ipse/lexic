@@ -254,12 +254,13 @@ RAW_PARITY_STEMS: tuple[str, ...] = tuple(
 )
 """`c.gbnf` is out for a DIFFERENT reason than vyx, and neither is a licence.
 
-Under this module's own `grammar_for`, the PDA raises `PdaFail` on 200 of 200
-generated `c.gbnf` inputs, so every sample is skipped as a fallback and the test
-compares nothing. Measured directly through `compile_from_path` the same grammar
-parses predictively, so the two compilation paths disagree about it — a finding
-in its own right, tracked in V3, not something to paper over by letting the test
-pass vacuously."""
+`START_OVERRIDES` drives its generation from `statement` rather than its natural
+`root`, because `root ::= (declaration)*` rolls empty most of the time. That
+start reaches c's own islands (`relationoperator`, `statement-arm7`), and the
+PDA raises `PdaFail` on 200 of 200 inputs from it — every sample skipped as a
+fallback, so the test compares nothing and its own guard fires. The fallback is
+by design; a row that compares zero samples is not. Re-including this stem needs
+a start that exercises the predictive path, not a change to the bar."""
 
 
 @pytest.mark.parametrize("stem", RAW_PARITY_STEMS)
