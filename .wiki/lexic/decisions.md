@@ -431,3 +431,22 @@ makes a third-party format reader legitimate inside `src` at all.
 **Why:** Flavours have no mutable state — they are configuration bundles. Class attributes are readable, introspectable, and don't require instantiation. `MetaGrammarParser.for_flavour(Cls)` takes the class, not an instance.
 
 **Tradeoff:** The `emitter` class attribute uses `ClassVar[Any]` (typed loosely) to avoid an import cycle. Acceptable — the type is checked at test time.
+
+---
+
+## 2026-07-28 — Engine parity is RAW model equality, not semantic equality
+
+**Decision:** The PDA and the Earley engine must build the *same model*, field for field. `deep_semantic` — which drops `semantic=False` binds at every level — is no longer the parity bar.
+
+This retires "ruling 1", which had licensed the two paths to disagree: *"the PDA's greedy stop-set loop may split a `semantic=False` run differently from the engine's ambiguity resolution."* That licence lived only in a test module's docstring, which is why it could hold for a month without being a decision anyone could find.
+
+**Why:** `@non-semantic ws` does **not** remove whitespace from the model. It is preserved as `Ws('')` *fields*, because `to_text()` round-trip needs the characters stored. So a consumer reading `.ws` can observe a difference the semantic bar declares invisible — the bar was hiding a real disagreement rather than describing an irrelevant one. Under the standing ruling that the engines are *required* to agree, a comparator that passes either way cannot be the test for it.
+
+**What made it affordable:** the adjacent-nullable split fix. A *split* — one production carved two ways, same arm, different boundary — has a defined answer: the first slot owns the text. `is_arm_choice()` (`parsing/earley/kernel/tables/splits.py`) is the structural test that separates it from an *arm* choice, which is two different productions and is still refused. Once both engines resolved splits the same way, all three JSON formulations agreed at raw equality and the semantic licence had nothing left to excuse.
+
+**Impact:**
+
+- `tests/integration/test_pda_parity.py` carries two tests that own different invariants and do not subsume each other: the wide differential (semantic bar) owns fallback behaviour, round-trip and the opt-out branch; `test_both_engines_build_the_same_model_not_just_the_same_meaning` owns raw equality.
+- The semantic licence had been hiding 47 of 200 JSON inputs — the same characters landing in different `Ws` fields.
+- Ambiguity is still **refused by default**. The engines are not permitted to pick. A caller may supply a deterministic resolver, and that resolver's behaviour is the caller's concern, not the engine's — it is not a fallback and not a flag.
+- `RAW_PARITY_STEMS` excludes a stem only with a written reason. Exclusions are debts, not licences.

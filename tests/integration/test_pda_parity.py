@@ -261,17 +261,28 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
 # things — where a length preference has no standing. Adding it here is the
 # fails-before test for that fix.
 RAW_PARITY_STEMS: tuple[str, ...] = tuple(
-    stem for stem in ALL_STEMS if stem not in {"vyx.gbnf", "c.gbnf"}
+    stem for stem in ALL_STEMS if stem not in {"vyx.gbnf"}
 )
-"""`c.gbnf` is out for a DIFFERENT reason than vyx, and neither is a licence.
+"""Only `vyx.gbnf` is out, and it is a named defect rather than a licence."""
 
-`START_OVERRIDES` drives its generation from `statement` rather than its natural
-`root`, because `root ::= (declaration)*` rolls empty most of the time. That
-start reaches c's own islands (`relationoperator`, `statement-arm7`), and the
-PDA raises `PdaFail` on 200 of 200 inputs from it — every sample skipped as a
-fallback, so the test compares nothing and its own guard fires. The fallback is
-by design; a row that compares zero samples is not. Re-including this stem needs
-a start that exercises the predictive path, not a change to the bar."""
+RAW_PARITY_STARTS: dict[str, str] = {
+    # c needs a start chosen for THIS bar. `START_OVERRIDES` drives the wide
+    # differential from `statement`, which is right there — it reaches c's own
+    # islands (`relationoperator`, `statement-arm7`) and so exercises the
+    # fallback that test owns. But the PDA escapes on 200 of 200 inputs from
+    # `statement`, every sample skipped, so the raw bar compared NOTHING and its
+    # own guard fired.
+    #
+    # `declaration` is `root ::= (declaration)*`'s own body, so it is the
+    # language c actually describes rather than a leaf picked to be easy, and it
+    # is non-empty on every seed and predictive on every seed (measured: 40/40
+    # parsed by the PDA, 0 escapes, 0 empty). The two tests need different
+    # starts because they exercise different paths; that is not a bar change.
+    "c.gbnf": "declaration",
+}
+"""Generation starts for the RAW bar, where the wide matrix's start would skip
+every sample. Chosen to stay on the predictive path — never to weaken the
+comparison."""
 
 
 @pytest.mark.parametrize("stem", RAW_PARITY_STEMS)
@@ -298,10 +309,13 @@ def test_both_engines_build_the_same_model_not_just_the_same_meaning(
     so a consumer reading those fields CAN see a difference the semantic bar
     calls invisible.
 
-    12 of the 13 corpus grammars hold at this bar. `vyx.gbnf` is excluded and
-    named in `RAW_PARITY_STEMS` as a known defect, not a licence.
+    Every corpus grammar but one holds at this bar; `vyx.gbnf` is excluded and
+    named in `RAW_PARITY_STEMS` as a known defect, not a licence. `c.gbnf`
+    needs its own generation start (`RAW_PARITY_STARTS`) to reach the
+    predictive path at all — the wide matrix's start escapes to islands on
+    every sample, which compared nothing.
     """
-    cg, rules, start = grammar_for(stem)
+    cg, rules, start = grammar_for(stem, RAW_PARITY_STARTS.get(stem))
     product = prod(cg)
     differed: list[str] = []
     checked = 0

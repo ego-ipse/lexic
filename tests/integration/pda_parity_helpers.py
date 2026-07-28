@@ -91,9 +91,17 @@ START_OVERRIDES: dict[str, str] = {
 }
 
 
-def grammar_for(stem: str) -> tuple[CompiledGrammar, dict, str]:
+def grammar_for(
+    stem: str, start: str | None = None
+) -> tuple[CompiledGrammar, dict, str]:
     """Compile ``stem``, resolving its generation start rule.
 
+    :param stem: The ground-truth file name.
+    :param start: An explicit generation start, winning over
+        :data:`START_OVERRIDES`. A caller passes this when it needs a start
+        chosen for the path it exercises rather than for breadth — the raw
+        parity bar needs one that stays predictive, which is not the same
+        start that gives the wide differential its island coverage.
     :returns: ``(compiled grammar, {rule_name: IrRule}, start rule name)`` —
         the start defaults to the grammar's own resolved start rule (so
         json/json.abnf generate from ``JSON-text``, not a hardcoded
@@ -101,7 +109,7 @@ def grammar_for(stem: str) -> tuple[CompiledGrammar, dict, str]:
         natural start gives thin coverage.
     """
     path = GROUND_TRUTH / stem
-    override = START_OVERRIDES.get(stem)
+    override = start or START_OVERRIDES.get(stem)
     if override is None:
         flavour = flavour_for_extension(path)
         canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)

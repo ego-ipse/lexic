@@ -1,5 +1,28 @@
 # Log
 
+## Parity is raw model equality, and ruling 1 is retired
+
+The PDA and the Earley engine must build the same model field for field.
+`deep_semantic`, which drops `semantic=False` binds at every level, is no longer
+the bar — it passed whether or not the engines agreed, so it could not be the
+test for a requirement that they do.
+
+Ruling 1 had licensed the disagreement, and it lived only in a test module's
+docstring. That is why it survived a month without being a decision anyone could
+look up. `.wiki/lexic/decisions.md` now carries it.
+
+What made the stricter bar affordable was separating a *split* from an *arm
+choice*. A split is one production carved two ways — same arm, different
+boundary — and it has a defined answer: the first slot owns the text. An arm
+choice is two different productions, and that is still refused. `is_arm_choice()`
+in `parsing/earley/kernel/tables/splits.py` is the structural test. Once both
+engines resolved splits identically, the semantic licence had nothing left to
+excuse; it had been hiding 47 of 200 JSON inputs, the same characters landing in
+different `Ws` fields.
+
+Ambiguity is still refused by default. A caller may supply a deterministic
+resolver, whose behaviour is the caller's concern — not a fallback, not a flag.
+
 ## Ambiguity is about values; directives are not a line-comment privilege
 
 Two derivations that build the same VALUE are not an ambiguity. The decision
