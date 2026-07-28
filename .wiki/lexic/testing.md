@@ -24,8 +24,8 @@ src/lexic/foo/__init__.py     →  tests/unit/lexic/foo/test_init_foo.py
 Test files for substantive `__init__.py` modules use **`test_init_<package>.py`**, not `test___init__.py`. This avoids filesystem collision when multiple packages have `__init__.py` tests.
 
 Examples:
-- `src/lexic/new_codegen/__init__.py` → `tests/unit/lexic/new_codegen/test_init_new_codegen.py`
-- `src/lexic/grammars/new_gbnf/__init__.py` → `tests/unit/lexic/grammars/new_gbnf/test_init_new_gbnf.py`
+- `src/lexic/widgets/__init__.py` → `tests/unit/lexic/widgets/test_init_widgets.py`
+- `src/lexic/grammars/widgets/__init__.py` → `tests/unit/lexic/grammars/widgets/test_init_widgets.py`
 
 ---
 
@@ -53,16 +53,16 @@ Run `tools/auto_fix.sh` first to handle format/isort/lint mechanics before touch
 
 ## Test layout for new packages
 
-When creating a new package (e.g. `src/lexic/new_codegen/`):
-1. Create `tests/unit/lexic/new_codegen/__init__.py` (empty)
-2. Create `tests/unit/lexic/new_codegen/test_init_new_codegen.py` for `__init__.py` exports
-3. Create `tests/unit/lexic/new_codegen/test_<module>.py` for each source module
+When creating a new package (e.g. `src/lexic/widgets/`):
+1. Create `tests/unit/lexic/widgets/__init__.py` (empty)
+2. Create `tests/unit/lexic/widgets/test_init_widgets.py` for `__init__.py` exports
+3. Create `tests/unit/lexic/widgets/test_<module>.py` for each source module
 
 ---
 
 ## The engine parity cluster
 
-`tests/integration/test_pda_parity.py` is where the two engines are held to
+`tests/integration/lexic/parity/test_pda_parity.py` is where the two engines are held to
 each other. Two tests live there, they own different invariants, and neither
 subsumes the other — deleting either loses real coverage.
 

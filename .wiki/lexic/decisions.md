@@ -467,7 +467,7 @@ This retires "ruling 1", which had licensed the two paths to disagree: *"the PDA
 
 **Impact:**
 
-- `tests/integration/test_pda_parity.py` carries two tests that own different invariants and do not subsume each other: the wide differential (semantic bar) owns fallback behaviour, round-trip and the opt-out branch; `test_both_engines_build_the_same_model_not_just_the_same_meaning` owns raw equality.
+- `tests/integration/lexic/parity/test_pda_parity.py` carries two tests that own different invariants and do not subsume each other: the wide differential (semantic bar) owns fallback behaviour, round-trip and the opt-out branch; `test_both_engines_build_the_same_model_not_just_the_same_meaning` owns raw equality.
 - The semantic licence had been hiding 47 of 200 JSON inputs — the same characters landing in different `Ws` fields.
 - Ambiguity is still **refused by default**. The engines are not permitted to pick. A caller may supply a deterministic resolver, and that resolver's behaviour is the caller's concern, not the engine's — it is not a fallback and not a flag.
 - `RAW_PARITY_STEMS` excludes a stem only with a written reason. Exclusions are debts, not licences.

@@ -158,7 +158,7 @@ lexic runtime  ↗  lexic.compile, lexic.parsing    (runtime NEVER imports the e
 1. `model.py` imports `get_flavour` from `lexic.grammars` to drive `to_grammar()` (`get_flavour(flavour).apply(self.__grammar__)` — `__grammar__` is already an `IrRule`, no intermediate conversion). The GBNF singleton is `lexic.grammars.gbnf.GBNF_FLAVOUR`.
 2. The `lexic.compile` package is the single runtime seam onto the engine (`lexic.parsing` — `parse_model`, `parse_reduced`; `lexic.parsing.fold`; `lexic.parsing.normalize.normalize`; `lexic.parsing.earley.reduce.Reducer`). Only `compile/__init__.py` is importable from outside the package; the passes / binding / synthesis / notation / loader / export / artifact submodules live inside it. All public, all explicit.
 
-No `TYPE_CHECKING` dodges. No lazy intra-function imports of the engine. `tests/integration/test_layering_invariants.py` enforces all of the above by static grep, including that only the `lexic.compile` package may import `lexic.parsing`, that only `compile/__init__.py` is reachable from outside the package, and that `src/` stays free of any schema-validation framework.
+No `TYPE_CHECKING` dodges. No lazy intra-function imports of the engine. `tests/integration/lexic/invariants/test_layering_invariants.py` enforces all of the above by static grep, including that only the `lexic.compile` package may import `lexic.parsing`, that only `compile/__init__.py` is reachable from outside the package, and that `src/` stays free of any schema-validation framework.
 
 ## Module ownership
 
@@ -183,6 +183,6 @@ src/lexic/
              synthesis, export, notation, loader
 ```
 
-`src/lexic/parsing/` (Lark: `meta_parser.py`, `lark_builder.py`, `transformer/`) is **gone outright** — no `parsing_legacy`/`parsing_old` shim. `lark` is removed from `pyproject.toml`; it survives only as `tools/benchmark/parse_bench.py`'s fixed reference baseline (pure Lark, zero lexic machinery, raced against the native engine — not imported by `src/`).
+`src/lexic/parsing/` (Lark: `meta_parser.py`, `lark_builder.py`, `transformer/`) is **gone outright** — no `parsing_legacy`/`parsing_old` shim. `lark` is not a runtime dependency and `src/` never imports it. It survives as a dev dependency, one competitor among several in `tools/benchmark/` — where its grammar, like every other engine's, is derived mechanically from the one `IrAst` lexic compiles, so a row compares one question rather than several.
 
 `ir/derive.py`, `ir/spec.py` (`RuleSpec`), `ir/emit.py`, `ir/naming.py`, `ir/topo.py`, `parsing/models.py`, and the whole `utils/` package are **also gone outright** (2026-07-04 RuleSpec→IR-native codegen cutover) — no RuleSpec shim of any kind. `IrText` never existed — `IrLiteral` carries both grammar-literal and action-constant roles.
