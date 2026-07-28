@@ -6,8 +6,8 @@ API changes from the int-kernel rework:
 - ``RuleIndex``/``NullableRules``/``Matches``/``AcceptingItem``/``BuildChart``
   (and singletons ``RULE_INDEX``/``NULLABLE``/``MATCHES``/``ACCEPT``/
   ``BUILD_CHART``), plus ``ACCEPTING``, are ALL GONE — that per-item IR
-  dispatch is compiled away into :mod:`lexic.parsing.earley.tables` and
-  :mod:`lexic.parsing.earley.kernel`'s int tables. Their identity/dispatch tests
+  dispatch is compiled away into :mod:`lexic.parsing.earley.kernel.tables` and
+  :mod:`lexic.parsing.earley.kernel.loop.kernel`'s int tables. Their identity/dispatch tests
   are dropped; there is no new home for testing "is this singleton an
   instance of its class" once the class no longer exists.
 - Everything else in this file — the overwhelming majority — is pure
@@ -27,22 +27,28 @@ import pytest
 
 import lexic.parsing.earley.engine as engine_mod
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrArgs, IrJoin
-from lexic.ir.base import IrInt, IrNone, IrNoneType, IrSelf, IrSeq, IrTuple
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
+    IrArgs,
     IrAst,
     IrCharClass,
     IrChr,
+    IrInt,
     IrItem,
+    IrJoin,
     IrLiteral,
+    IrMap,
+    IrNone,
+    IrNoneType,
+    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrTuple,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing import (
     EarleyParser,
     ParseTree,
@@ -59,15 +65,18 @@ from lexic.parsing.earley.engine import (
     ParseFirst,
     ParseReduced,
 )
-from lexic.parsing.earley.forest import (
+from lexic.parsing.earley.kernel.forest.forest import (
     DerivationStream,
     IrStream,
     SppfNode,
 )
+from lexic.parsing.earley.kernel.tables.atoms import RunTerm
+from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tables
+from lexic.parsing.earley.kernel.tables.records import RUN_STR
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.earley.tables import RUN_STR, RunTerm, build_tables, compile_tables
+from lexic.parsing.earley.reduce.policy import KEEP_RAW
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.products import earley_reduce
 from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
 
@@ -541,7 +550,7 @@ def test_is_ambiguous_short_circuits(sss_grammar: IrAst) -> None:
 
     ``engine.IsAmbiguous.eval`` calls ``DERIVATION_STREAM.eval(...)`` through
     its own module-level import binding (``engine.py`` does
-    ``from lexic.parsing.earley.forest import (..., DERIVATION_STREAM, ...)``), so
+    ``from lexic.parsing.earley.kernel.forest.forest import (..., DERIVATION_STREAM, ...)``), so
     the patch target is ``engine_mod.DERIVATION_STREAM`` — patching only
     ``forest_mod.DERIVATION_STREAM`` would not affect the already-bound name
     ``IsAmbiguous.eval`` actually calls.
@@ -654,11 +663,47 @@ def test_parse_reduced_raises_on_invalid_input(digit_grammar: IrAst):
         earley_reduce(digit_grammar, "z", reducer)
 
 
-def test_parse_reduced_raises_on_ambiguous_input(sss_grammar: IrAst):
-    """earley_reduce() raises UnsupportedConstructError on ambiguous input."""
-    reducer = s_reducer()
+def test_parse_reduced_accepts_derivations_that_reduce_to_one_value(
+    sss_grammar: IrAst,
+):
+    """PORTED, opposite expectation: two derivations of one MEANING are fine.
+
+    `s ::= s s | "a"` over `"aaa"` derives two ways, and under a YIELDing
+    reducer both reduce to `IrStr('aaa')` — verified by enumerating the forest,
+    not assumed. This test asserted a refusal because the reduce path decided
+    ambiguity by counting DERIVATIONS; the islands path had already moved to
+    comparing the VALUES they build, and counting was what left the EBNF
+    flavour with no working Earley fallback. The refusal it used to pin now
+    lives in the test below, on an input that means two things.
+    """
+    assert str(earley_reduce(sss_grammar, "aaa", s_reducer())) == "aaa"
+
+
+def test_parse_reduced_still_refuses_derivations_that_mean_different_things():
+    """Two arms spelling the same text, kept RAW — the arm taken is observable."""
+    grammar = IrAst(
+        IrSeq(
+            IrRule(
+                "s",
+                IrAlternation(
+                    IrSequence(IrItem(IrRuleRef("a"))),
+                    IrSequence(IrItem(IrRuleRef("b"))),
+                ),
+            ),
+            IrRule("a", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))),
+            IrRule("b", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))),
+        ),
+        "s",
+    )
+    reducer = Reducer(
+        actions=IrMap(
+            IrTuple(IrRuleRef("s"), KEEP_RAW),
+            IrTuple(IrRuleRef("a"), YIELD),
+            IrTuple(IrRuleRef("b"), YIELD),
+        )
+    )
     with pytest.raises(UnsupportedConstructError):
-        earley_reduce(sss_grammar, "aaa", reducer)
+        earley_reduce(grammar, "x", reducer)
 
 
 def test_parse_reduced_raises_on_non_reducer_argument(digit_grammar: IrAst):

@@ -6,13 +6,13 @@ product, the run-collapsed Earley tables), all memoised per
 **(grammar identity, reducer/fold identity)** — the compiled tables bake the
 reducer plan / fold records, so grammar identity alone is a wrong key. Earley
 tables pack at the tier the input's size picks
-(:func:`~lexic.parsing.earley.tables.tier_for` — the model product keys it, the
+(:func:`~lexic.parsing.earley.kernel.tables.tier_for` — the model product keys it, the
 reduce completion picks it per parse). Each
 parse runs the PDA first and completes on the Earley engine on any
 :class:`~lexic.parsing.pda.runtime.runtime.PdaFail`; :class:`PdaFail` never escapes.
 
 The Earley-completion entries — :func:`earley_reduce` (fused reduce over a
-normalised grammar) and :func:`earley_model` (``parse_first`` + fold) — are the
+normalised grammar) and :func:`earley_model` (gated first derivation + fold) — are the
 per-product completions the product entries call, and the seam tests force to
 exercise the Earley route directly. They take an **Earley-normalised** grammar,
 the low-level contract the tree/forest readers keep.
@@ -27,22 +27,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrSelf, IrStr, IrTuple
-from lexic.ir.nodes import IrAst
-from lexic.parsing.earley.engine import PARSE_FIRST, PARSE_REDUCED, EarleyParser
-from lexic.parsing.earley.forest import ParseTree
-from lexic.parsing.earley.kernel import FastTree
-from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.earley.tables import (
-    ORIGIN_BITS,
-    ParserTables,
-    compile_tables,
-    tier_for,
+from lexic.ir import IrAst, IrSelf, IrStr, IrTuple
+from lexic.parsing.earley.engine import PARSE_REDUCED, EarleyParser, first_meaning
+from lexic.parsing.earley.kernel.forest.ambiguity import (
+    AmbiguityPolicy,
+    Resolver,
+    another_meaning,
 )
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
+from lexic.parsing.earley.kernel.forest.readout import accept_handle, accept_item
+from lexic.parsing.earley.kernel.tables.atoms import tier_for
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
-from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda, compile_reduce_pda
+from lexic.parsing.pda.compiler.clones import compile_pda, compile_reduce_pda
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail
 
@@ -62,7 +64,7 @@ def earley_reduce(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
     """Parse ``text`` and fold it straight to IR in one Earley pass.
 
     The grammar-text product's Earley completion — ``reducer.apply(parse(...))``
-    fused (no intermediate :class:`~lexic.parsing.earley.forest.ParseTree` in the
+    fused (no intermediate :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` in the
     common unambiguous case).
 
     :param grammar: The grammar, Earley-normalised (see :mod:`.earley.normalize`).
@@ -76,23 +78,33 @@ def earley_reduce(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
 
 
 def earley_model[M](
-    grammar: IrAst, text: str, fold: ModelFold[M], tables: ParserTables | None = None
+    grammar: IrAst,
+    text: str,
+    fold: ModelFold[M],
+    tables: ParserTables | None = None,
+    resolve: Resolver | None = None,
 ) -> M:
     """Parse ``text`` and fold it to a model through the Earley engine.
 
-    The instance product's Earley completion — ``parse_first`` (deterministic
-    under ambiguity, since an all-nullable arm would otherwise make the empty
-    match ambiguous) folded through ``fold``.
+    The instance product's Earley completion — :func:`~lexic.parsing.earley
+    .engine.first_meaning` folded through ``fold``. The fold is also the gate's
+    ``build``: a span whose derivations fold to DIFFERENT models is refused
+    unless ``resolve`` settles it, the same question the PDA's island sub-parse
+    asks, so the two engines refuse (or resolve) identically instead of each
+    quietly taking its own "first".
 
     :param grammar: The Earley-normalised instance grammar.
     :param text: The input string.
     :param fold: The positional ParseTree → model fold producing ``M``.
     :param tables: Optional pre-built run-collapsed tables for ``grammar``.
+    :param resolve: The caller's deterministic answer to an ambiguity;
+        ``None`` refuses one.
     :returns: The model the start rule folds to.
-    :raises UnsupportedConstructError: If ``text`` does not parse.
+    :raises UnsupportedConstructError: If ``text`` does not parse, or parses to
+        two different models with no resolver supplied.
     """
-    args = (IrStr(text),) if tables is None else (IrStr(text), tables)
-    tree = PARSE_FIRST.eval(EarleyParser(), grammar, IrTuple(*args))
+    policy = AmbiguityPolicy(fold.apply, resolve)
+    tree = first_meaning(EarleyParser(), grammar, text, tables, policy)
     return fold.apply(tree)
 
 
@@ -101,6 +113,7 @@ def token_model[M](
     text: str,
     fold: ModelFold[M],
     bounds: dict[int, tuple[int, int]],
+    resolve: Resolver | None = None,
 ) -> M:
     """Parse token-segmented ``text`` to a model via the token Earley kernel.
 
@@ -114,20 +127,34 @@ def token_model[M](
     :param text: The input string.
     :param fold: The positional ParseTree → model fold producing ``M``.
     :param bounds: char position → ``(token_id, char_len)`` segmentation.
+    :param resolve: The caller's deterministic resolver, or ``None`` to refuse
+        an ambiguous span — the same contract the char route offers.
     :returns: The model the start rule folds to.
-    :raises UnsupportedConstructError: If ``text`` does not parse.
+    :raises UnsupportedConstructError: If ``text`` does not parse, or means two
+        things and no resolver was supplied.
     """
     tables = _token_tables(grammar, tier_for(len(text)))
     kernel = TokenKernel(tables, text, bounds, record_links=True).run()
-    if kernel.accept < 0:
+    if accept_item(kernel) < 0:
         raise UnsupportedConstructError(
             "parsing: input does not parse the token grammar"
         )
-    handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
-    tree = FastTree(kernel).build(handle)
+    handle = accept_handle(kernel)
+    # RESOLVING mode, as the char route uses. Bail mode declined on exactly the
+    # inputs at issue and reported them as "no token derivation" — so an
+    # ambiguous span and a plain SPLIT both died claiming nothing derived.
+    tree = FastTree(kernel, {}).build(handle)
     if not isinstance(tree, ParseTree):
         raise UnsupportedConstructError("parsing: no token derivation")
-    return fold.apply(tree)
+    witness = another_meaning(kernel, handle, fold.apply, tree)
+    if witness is None:
+        return fold.apply(tree)
+    if resolve is None:
+        raise UnsupportedConstructError(
+            "parsing: ambiguous input — two derivations that mean different "
+            "things; supply a resolver to choose between them"
+        )
+    return fold.apply(resolve(tree, witness))
 
 
 # ── compiled-product records + per-identity memoisation ────────────────────
@@ -280,24 +307,33 @@ def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
         return earley_reduce(product.earley_grammar, text, reducer)
 
 
-def parse_model[M](grammar: IrAst, text: str, fold: ModelFold[M]) -> M:
+def parse_model[M](
+    grammar: IrAst, text: str, fold: ModelFold[M], resolve: Resolver | None = None
+) -> M:
     """Parse instance ``text`` to a model — PDA-first, Earley + fold completion.
 
     Takes the **authored** codegen grammar; lifting, normalisation, PDA and
     run-collapsed table compilation are internal, memoised per ``(grammar,
     fold)`` identity plus the packing tier the input's size picks
-    (:func:`~lexic.parsing.earley.tables.tier_for`). Each parse runs the model
-    PDA first and, on any :class:`PdaFail`, completes on ``parse_first`` +
-    ``fold``.
+    (:func:`~lexic.parsing.earley.kernel.tables.tier_for`). Each parse runs the model
+    PDA first and, on any :class:`PdaFail`, completes on the gated Earley
+    first derivation + ``fold``. A span whose derivations mean two different
+    models is refused by BOTH routes unless ``resolve`` settles it — the same
+    resolver reaches whichever engine ends up choosing.
 
     :param grammar: The authored codegen grammar.
     :param text: The instance input to parse.
     :param fold: The positional ParseTree → model fold producing ``M``.
+    :param resolve: The caller's deterministic answer to an ambiguity;
+        ``None`` refuses one.
     :returns: The model the start rule folds to.
-    :raises UnsupportedConstructError: If ``text`` does not parse.
+    :raises UnsupportedConstructError: If ``text`` does not parse, or parses to
+        two different models with no resolver supplied.
     """
     product = _model_product(grammar, fold, tier_for(len(text)))
     try:
-        return pda_model(product.pda, text, fold)
+        return pda_model(product.pda, text, fold, resolve=resolve)
     except PdaFail:
-        return earley_model(product.instance_grammar, text, fold, product.tables)
+        return earley_model(
+            product.instance_grammar, text, fold, product.tables, resolve
+        )

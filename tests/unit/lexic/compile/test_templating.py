@@ -18,17 +18,18 @@ from lexic.compile import (
     SpanLevel,
     SpanPair,
     Template,
+    compile_from_path,
     compile_text,
     spanify,
     template,
 )
+from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.templating import skip_rules
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
-from lexic.ir.base import IrSelf
-from lexic.ir.mapping import IrMap
-from lexic.ir.order import refs_in_order
+from lexic.ir import IrMap, IrSelf, refs_in_order
 from lexic.model import GrammarModel
 from lexic.parsing import parse_model
+from tests.paths import GROUND_TRUTH
 
 _TOY = r"""
 start ::= ws sect ws
@@ -329,3 +330,49 @@ def test_keep_over_a_section_value_yields_the_section_model() -> None:
     the mirror of the nested-spec-over-a-leaf case, and legal."""
     out = template(_TOY_COMPILED, _SHAPE, {"b": KEEP}).run(_TOY_DOC)
     assert out[("b",)].to_text() == "(c=22, d=(e=3))"
+
+
+def test_the_shape_derives_from_the_entry_rule_alone() -> None:
+    """Three of the four names are a function of the grammar.
+
+    Asking the caller to restate what the grammar already says invites a
+    restatement that disagrees with it.
+    """
+    assert MapShape.for_entry(_TOY_COMPILED, "entry") == _SHAPE
+
+
+def test_the_derived_section_is_what_the_value_offers() -> None:
+    """Not what sits nearest the entry, and not any rule that reaches it.
+
+    ``e-more``/``object-item`` are one hop from the entry and are continuations,
+    not levels; ``array`` reaches ``member`` too, through ``value`` and back
+    into an object. The level is one of the things a VALUE can BE, taken
+    nearest.
+    """
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    assert MapShape.for_entry(compiled, "member") == MapShape(
+        "object", "member", "string", "value"
+    )
+
+
+def test_a_key_value_pair_may_bind_its_separator_too() -> None:
+    """``member ::= string name-separator value`` binds three semantic fields.
+
+    Key and value are the FIRST and LAST of them, so a grammar that names its
+    separator is not refused for naming it.
+    """
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    bound = {b.rule_name: b for b in compute_binding(compiled.codegen_grammar)}
+    assert len([n for n, b in bound["member"].fields.items() if b.semantic]) == 3
+    shape = MapShape.for_entry(compiled, "member")
+    assert (shape.key_field, shape.value_field) == ("string", "value")
+
+
+def test_an_entry_whose_value_closes_no_cycle_is_refused() -> None:
+    """No nesting, no level — said plainly rather than guessed at."""
+    flat = compile_text(
+        'doc ::= pair+\npair ::= key "=" val "\\n"\nkey ::= [a-z]+\nval ::= [0-9]+\n',
+        cache_key="templating-flat",
+    )
+    with pytest.raises(UnsupportedConstructError, match="reaches it back"):
+        MapShape.for_entry(flat, "pair")

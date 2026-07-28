@@ -12,6 +12,8 @@ import lexic
 import lexic.compile as compile_module
 from lexic.compile import (
     CompiledGrammar,
+    Directives,
+    Vocabulary,
     _scan_directives,
     bind_module,
     canonical_grammar,
@@ -22,18 +24,16 @@ from lexic.compile import (
     parse_instance_from_path,
     reset_cache_for_tests,
 )
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_FLAVOUR
+from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import IrAst, IrLiteral
-from lexic.ir.walk import IrDispatch
+from lexic.ir import EscapeCodec, IrAst, IrDispatch, IrFlavour, IrLiteral
 from lexic.model import GrammarModel
 from lexic.parsing import normalize
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.pda.compiler.clones import PdaTables
 from lexic.parsing.pda.compiler.specs import IslandRef
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.products import (
     _reduce_product,
     earley_model,
@@ -362,13 +362,13 @@ def test_canonical_grammar_unknown_directive_rule_is_ignored():
 
 def test_scan_directives_empty_text_defaults_to_none_and_empty_frozenset():
     """No directives at all: the helper defaults to (None, frozenset())."""
-    assert _scan_directives("", line_comment="#") == (None, frozenset())
+    assert _scan_directives("", GBNF_FLAVOUR) == (None, frozenset())
 
 
 def test_scan_directives_no_directives_in_grammar_returns_empty():
     """A grammar with no comments at all has no directives."""
     text = "root ::= expr\nexpr ::= [0-9]+"
-    start, non_semantic = _scan_directives(text, line_comment="#")
+    start, non_semantic = _scan_directives(text, GBNF_FLAVOUR)
     assert start is None
     assert non_semantic == frozenset()
 
@@ -376,21 +376,21 @@ def test_scan_directives_no_directives_in_grammar_returns_empty():
 def test_scan_directives_non_semantic_single_arg():
     """A single @non-semantic directive extracts one rule name."""
     text = "# @non-semantic ws\nroot ::= ws value"
-    _start, non_semantic = _scan_directives(text, line_comment="#")
+    _start, non_semantic = _scan_directives(text, GBNF_FLAVOUR)
     assert non_semantic == frozenset({"ws"})
 
 
 def test_scan_directives_non_semantic_multiple_args():
     """Multiple @non-semantic arguments are all collected."""
     text = "# @non-semantic ws comment_block\nroot ::= ws value"
-    _start, non_semantic = _scan_directives(text, line_comment="#")
+    _start, non_semantic = _scan_directives(text, GBNF_FLAVOUR)
     assert non_semantic == frozenset({"ws", "comment_block"})
 
 
 def test_scan_directives_requires_at_marker():
     """Comments without @<name> are not directives."""
     text = "# this is just a comment\nroot ::= x"
-    start, non_semantic = _scan_directives(text, line_comment="#")
+    start, non_semantic = _scan_directives(text, GBNF_FLAVOUR)
     assert start is None
     assert non_semantic == frozenset()
 
@@ -398,28 +398,28 @@ def test_scan_directives_requires_at_marker():
 def test_scan_directives_respects_line_comment_marker():
     """ABNF uses ';' — '#' is just data inside an ABNF source."""
     text = "; @non-semantic WSP\nroot = WSP value"
-    _start, non_semantic = _scan_directives(text, line_comment=";")
+    _start, non_semantic = _scan_directives(text, ABNF_FLAVOUR)
     assert non_semantic == frozenset({"WSP"})
 
 
 def test_scan_directives_unknown_directive_is_ignored():
     """Unknown directive names are silently ignored."""
     text = "# @future-thing foo\n# @non-semantic ws"
-    _start, non_semantic = _scan_directives(text, line_comment="#")
+    _start, non_semantic = _scan_directives(text, GBNF_FLAVOUR)
     assert non_semantic == frozenset({"ws"})
 
 
 def test_scan_directives_allows_leading_whitespace_before_marker():
     """`  # @non-semantic ws` is the same as `# @non-semantic ws`."""
     text = "  # @non-semantic ws\nroot ::= ws value"
-    _start, non_semantic = _scan_directives(text, line_comment="#")
+    _start, non_semantic = _scan_directives(text, GBNF_FLAVOUR)
     assert non_semantic == frozenset({"ws"})
 
 
 def test_scan_directives_empty_line_comment_disables_directive_parsing():
     """A flavour with no comment marker (line_comment='') has no directive channel."""
     text = "# @non-semantic ws\nroot ::= ws value"
-    start, non_semantic = _scan_directives(text, line_comment="")
+    start, non_semantic = _scan_directives(text, EBNF_FLAVOUR)
     assert start is None
     assert non_semantic == frozenset()
 
@@ -427,14 +427,14 @@ def test_scan_directives_empty_line_comment_disables_directive_parsing():
 def test_scan_directives_start_last_wins():
     """Multiple @start directives: the last value wins."""
     text = "# @start a\n# @start b\n"
-    start, _non_semantic = _scan_directives(text, line_comment="#")
+    start, _non_semantic = _scan_directives(text, GBNF_FLAVOUR)
     assert start == "b"
 
 
 def test_scan_directives_start_and_non_semantic_coexist():
     """@start and @non-semantic directives in the same source both apply."""
     text = "# @start root\n# @non-semantic ws\nroot ::= ws value\n"
-    start, non_semantic = _scan_directives(text, line_comment="#")
+    start, non_semantic = _scan_directives(text, GBNF_FLAVOUR)
     assert start == "root"
     assert non_semantic == frozenset({"ws"})
 
@@ -661,3 +661,81 @@ def test_bind_module_raises_on_a_field_shape_mismatch():
     message = str(exc_info.value)
     assert "('wrong_field',)" in message
     assert "('value',)" in message
+
+
+# ── directives are not a GBNF/ABNF privilege ──────────────────────────
+
+
+def test_a_block_comment_flavour_can_carry_a_directive():
+    """EBNF has only `(* *)` comments, and must still be able to say @non-semantic.
+
+    A mechanism GBNF and ABNF can express and EBNF structurally cannot is a
+    privileged formulation. It was not academic: `json.ebnf` could not mark `ws`
+    structural, so `ws` stayed semantic, compiled to a fail-island, and EVERY
+    parse of that grammar escaped the predictive path at position 0.
+    """
+    text = '(* @non-semantic ws *)\nroot = ws ;\nws = { " " } ;\n'
+    ast = canonical_grammar(text, EBNF_FLAVOUR)
+    assert ast.non_semantic == frozenset({"ws"})
+
+
+def test_a_block_comment_flavour_can_carry_a_start_directive():
+    """The same door opens for @start, not just @non-semantic."""
+    text = '(* @start second *)\nfirst = "a" ;\nsecond = "b" ;\n'
+    ast = canonical_grammar(text, EBNF_FLAVOUR)
+    assert ast.start == "second"
+
+
+@pytest.mark.parametrize(
+    ("text", "flavour"),
+    [
+        ("root ::= [\\U00110000]\n", "gbnf"),
+        ("a = %xFFFFFFFF\r\n", "abnf"),
+        ("a = %d4294967295\r\n", "abnf"),
+    ],
+)
+def test_a_codepoint_past_unicode_never_leaves_as_a_builtin_error(text, flavour):
+    """An out-of-range code point is refused as a LexicError, in every context.
+
+    `chr()`'s bare `ValueError` reached callers of `compile_text` naming neither
+    the value nor the grammar. It was also inconsistent WITHIN a flavour: in a
+    char-class context the out-of-range `IrChr` was built silently, re-emitted
+    faithfully, and only detonated later.
+    """
+    with pytest.raises(LexicError):
+        compile_text(text, flavour=flavour)
+
+
+def test_directives_are_reachable_from_the_public_entry_point():
+    """A caller who knows a rule is noise can say so without editing the grammar.
+
+    `non_semantic_rules` existed on `canonical_grammar` and stopped there, so
+    for an EBNF grammar — which could carry no directive at all until the
+    block-comment channel landed — there was no sanctioned way to say it.
+    """
+    compiled = compile_text(
+        "root ::= ws\nws ::= [ ]*\n",
+        directives=Directives(non_semantic=frozenset({"ws"})),
+    )
+    assert not next(r for r in compiled.grammar.rules if r.name == "ws").semantic
+
+
+def test_directives_key_the_compile_memo():
+    """One source compiled two ways must not hand back the first.
+
+    The memo is keyed by content, so a directive that changes what was compiled
+    has to be part of that key or the second call silently returns the first
+    artefact.
+    """
+    text = "root ::= ws\nws ::= [ ]*\n"
+    plain = compile_text(text)
+    marked = compile_text(text, directives=Directives(non_semantic=frozenset({"ws"})))
+    assert plain is not marked
+    assert next(r for r in plain.grammar.rules if r.name == "ws").semantic
+    assert not next(r for r in marked.grammar.rules if r.name == "ws").semantic
+
+
+def test_a_vocabulary_is_one_lens_not_two_channels():
+    """`tokenizer` and `registry` compose; the record is what they always were."""
+    assert Vocabulary().tokenizer is None
+    assert Vocabulary().registry is None

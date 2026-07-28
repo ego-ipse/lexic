@@ -10,7 +10,7 @@ analysis (and its dispatch bodies) import them back.
 
 from __future__ import annotations
 
-from lexic.ir.base import IrLeaf, IrSelf
+from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.pda.core.charsets import CharSet
 
 

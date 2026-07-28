@@ -1,7 +1,7 @@
 """Tests for lexic.parsing.pda.runtime.runtime — the fused-runtime parity gate (Task 4).
 
 :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` builds a model directly during the
-walk (fold fusion, no :class:`~lexic.parsing.earley.forest.ParseTree`). The
+walk (fold fusion, no :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree`). The
 correctness bar is **user ruling 1**: ``semantic_dump()`` equality +
 ``to_text()`` round-trip against the engine's own
 ``fold.apply(parse_first(...))`` path — not raw ``dump()`` equality,
@@ -41,9 +41,10 @@ from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime import reduce_runtime as rrt
+from lexic.parsing.pda.runtime.islands import IslandPolicy
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
-from lexic.parsing.pda.runtime.runtime import PdaFail
-from tests.integration.pda_parity_helpers import (
+from lexic.parsing.pda.runtime.runtime import PdaFail, PdaKernel
+from tests.integration.lexic.parity.pda_parity_helpers import (
     arithmetic_bench_corpus,
     deep_semantic,
     forced_engine,
@@ -195,25 +196,6 @@ def test_interning_shares_every_equal_submodel_island_free() -> None:
     assert len(by_value) < len(models), "corpus had no repeated sub-models to share"
 
 
-# ── value_str: single-item fast path vs multi-item cold path (lever A) ─────
-
-
-def test_vstr_multi_item_arm_takes_the_cold_span_path():
-    """A ``value_str`` rule whose sole arm has MORE than one terminal item
-    (``"0x" [0-9a-f]+`` — a literal then a char class) routes through
-    ``_vstr_span``, not ``_vstr_once``'s single-item fast path. No ground-truth
-    grammar has a multi-item value_str arm, so this is the only exercise of
-    that cold path — built raw (no fold-fallback engine escape) to prove the
-    PDA itself handles it, not a silent Earley completion."""
-    text = 'root ::= "0x" [0-9a-f]+\n'
-    canonical = canonical_grammar(text, GBNF_FLAVOUR)
-    lifted = lift_optional_nullables(build_codegen_grammar(canonical))
-    compiled = compile_text(text, flavour="gbnf")
-    pda = compile_pda(lifted, normalize(lifted), compiled.fold.config)
-    model = pda_model(pda, "0xffa1", compiled.fold)
-    assert model.to_text() == "0xffa1"
-
-
 # ── the F1 semantic guard (Option B) ───────────────────────────────────────
 
 
@@ -333,3 +315,26 @@ def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() 
             else:
                 mismatched += 1
         assert mismatched == 0
+
+
+# ── one vocabulary for one concern ─────────────────────────────────────
+
+
+def test_kernel_and_islands_share_one_policy_record():
+    """The kernel holds the SAME record it hands an island, not a twin of it.
+
+    `fold` and the resolver were carried by two records that ordered their
+    fields differently — the kernel's and the island's — and the only thing
+    keeping the hand-off correct was that one call site spelled the swap
+    right. One record cannot be handed over wrong.
+    """
+    compiled, pda = compiled_and_pda(GROUND_TRUTH / "json.gbnf")
+
+    def take_first(first, _other):
+        return first
+
+    kern = PdaKernel(pda, "{}", compiled.fold, resolve=take_first)
+    assert isinstance(kern.policy, IslandPolicy)
+    assert kern.policy.fold is compiled.fold
+    assert kern.policy.resolve is take_first
+    assert kern.policy.delegates is None  # filled per island, at the reference

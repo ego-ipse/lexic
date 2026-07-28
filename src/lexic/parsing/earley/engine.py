@@ -1,18 +1,18 @@
 """Earley orchestration — the IR-native façade over the compiled kernel.
 
-The paid loop lives in :mod:`lexic.parsing.earley.kernel`, running over the
-compiled :mod:`~lexic.parsing.earley.tables`. This module keeps the IR seam: one
+The paid loop lives in :mod:`lexic.parsing.earley.kernel.loop.kernel`, running over the
+compiled :mod:`~lexic.parsing.earley.kernel.tables`. This module keeps the IR seam: one
 :class:`~lexic.ir.base.IrSelf` orchestration node per public capability, each
-compiling the grammar (memoised), running one :class:`~lexic.parsing.earley.kernel
+compiling the grammar (memoised), running one :class:`~lexic.parsing.earley.kernel.loop.kernel
 .Kernel`, and reading the result its own way:
 
 - :class:`Recognize` — accept or not; SPPF recording stays off.
 - :class:`Parse` — the strict single derivation via the packed-links
-  :class:`~lexic.parsing.earley.kernel.FastTree`, falling back to the trampolined
+  :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree`, falling back to the trampolined
   enumeration over the decoded chart on ambiguity.
 - :class:`ParseForest` / :class:`Enumerate` / :class:`IsAmbiguous` — decode
-  the packed SPPF to the IR-native :class:`~lexic.parsing.earley.chart.Chart` and
-  drive the :mod:`~lexic.parsing.earley.forest` readers.
+  the packed SPPF to the IR-native :class:`~lexic.parsing.earley.kernel.forest.chart.Chart` and
+  drive the :mod:`~lexic.parsing.earley.kernel.forest.forest` readers.
 
 :class:`EarleyParser` remains the façade dispatcher handed to the readers'
 ``eval`` seams; the per-item type dispatch it once performed is compiled away
@@ -21,28 +21,36 @@ compiling the grammar (memoised), running one :class:`~lexic.parsing.earley.kern
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import (
-    IrInt,
-    IrLeaf,
-    IrSelf,
-    IrSeq,
-    IrTuple,
+from lexic.ir import IrAst, IrDispatch, IrInt, IrLeaf, IrNone, IrSelf, IrSeq, IrTuple
+from lexic.parsing.earley.kernel.forest.ambiguity import (
+    AmbiguityPolicy,
+    another_meaning,
 )
-from lexic.ir.nodes import IrAst
-from lexic.ir.walk import IrDispatch
-from lexic.parsing.earley.forest import (
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.forest import (
     BUILD_TREE,
     DERIVATION_STREAM,
     DERIVATIONS,
     ParseTree,
 )
-from lexic.parsing.earley.kernel import FastTree, Kernel
+from lexic.parsing.earley.kernel.forest.readout import (
+    accept_handle,
+    accept_item,
+    accept_node,
+    root_ambiguous,
+    to_chart,
+)
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.tables.atoms import tier_for
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.lexruns import recognition_tables
-from lexic.parsing.earley.reduce import FusedReduce, Reducer, collapsed_tables
-from lexic.parsing.earley.tables import ParserTables, compile_tables, tier_for
+from lexic.parsing.earley.reduce.fused import FusedReduce, collapsed_tables
+from lexic.parsing.earley.reduce.reducer import Reducer
 
 _MATCH = IrInt(1)
 _NO_MATCH = IrInt(0)
@@ -52,7 +60,7 @@ _NO_MATCH = IrInt(0)
 def _run_kernel(n: IrSelf, nc: Sequence[IrSelf], record_links: bool) -> Kernel:
     """Compile ``n`` (memoised, tier picked by input size), run one kernel.
 
-    :param n: The grammar (an :class:`~lexic.ir.nodes.IrAst`).
+    :param n: The grammar (an :class:`~lexic.ir.grammar.nodes.IrAst`).
     :param nc: ``(IrStr(text), ...)``.
     :param record_links: Whether the kernel records SPPF provenance.
     :returns: The finished kernel.
@@ -70,7 +78,7 @@ def _require_accept(kernel: Kernel, n: IrSelf) -> None:
 
     :raises UnsupportedConstructError: If the input does not derive.
     """
-    if kernel.accept < 0:
+    if accept_item(kernel) < 0:
         start = n.start if isinstance(n, IrAst) else "<grammar>"
         raise UnsupportedConstructError(
             f"parsing: input does not derive from {str(start)!r}"
@@ -80,22 +88,121 @@ def _require_accept(kernel: Kernel, n: IrSelf) -> None:
 def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
     """The strict single derivation of an accepted kernel parse.
 
-    Fast path: :class:`~lexic.parsing.earley.kernel.FastTree` over the packed
+    Fast path: :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree` over the packed
     links. Slow path (a key packing more than one family, or a many-production
-    root): the trampolined :data:`~lexic.parsing.earley.forest.BUILD_TREE` over
+    root): the trampolined :data:`~lexic.parsing.earley.kernel.forest.forest.BUILD_TREE` over
     the decoded chart, which raises on a second derivation.
 
     :raises UnsupportedConstructError: On ambiguous input or no derivation.
     """
-    handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
-    if not kernel.root_ambiguous:
+    handle = accept_handle(kernel)
+    if not root_ambiguous(kernel):
         tree = FastTree(kernel).build(handle)
         if isinstance(tree, ParseTree):
             return tree
-    built = BUILD_TREE.eval(d, kernel.accept_node(), IrTuple(kernel.to_chart()))
+    built = BUILD_TREE.eval(d, accept_node(kernel), IrTuple(to_chart(kernel)))
     if not isinstance(built, ParseTree):
         raise UnsupportedConstructError("parsing: no derivation")
     return built
+
+
+def _one_meaning(kernel: Kernel, build: Callable[[ParseTree], object]) -> ParseTree:
+    """The derivation to reduce, refusing only a span that means two things.
+
+    The strict :func:`_single_tree` refuses on a second DERIVATION, which is the
+    rule the island path abandoned: a grammar derives one text several ways
+    without meaning anything by it, and two adjacent nullable slots split a gap
+    two ways to the same end. Under the counting rule every whitespace-carrying
+    EBNF file was refused, because that self-grammar has exactly that shape —
+    so the reduce path's documented Earley completion was dead for the flavour.
+
+    :raises UnsupportedConstructError: When two derivations build different
+        values, or when nothing derives.
+    """
+    handle = accept_handle(kernel)
+    # An empty choices map takes family 0 at every ambiguity point instead of
+    # bailing on one, so this builds whenever the links are complete — the
+    # enumerating fallback would only reinstate the counting rule.
+    tree = FastTree(kernel, {}).build(handle)
+    if not isinstance(tree, ParseTree):
+        raise UnsupportedConstructError("parsing: no derivation")
+    if another_meaning(kernel, handle, build, tree) is not None:
+        raise UnsupportedConstructError(
+            "parsing: ambiguous input — two derivations that mean different "
+            "things; use the forest enumeration entry to choose between them"
+        )
+    return tree
+
+
+def first_meaning(
+    d: IrSelf,
+    n: IrSelf,
+    text: str,
+    tables: ParserTables | None = None,
+    policy: AmbiguityPolicy | None = None,
+) -> ParseTree:
+    """The first derivation of ``text`` — gated, given a ``policy``, on meaning.
+
+    The model completion's derivation chooser. Without a policy this is the
+    plain deterministic first (what :class:`ParseFirst` returns). With one, the
+    span is asked whether another derivation builds a DIFFERENT value
+    (:func:`~lexic.parsing.earley.kernel.forest.ambiguity.another_meaning`):
+    a real arm choice is refused by default, and the policy's ``resolve`` is
+    the caller's explicit opt-out — a deterministic resolver handed both
+    derivations, whose choice is their concern. A function argument rather than
+    part of the action's ``nc``, because a fold's callable is not an IR value
+    and does not belong on an IR channel.
+
+    :param d: The dispatcher seam the forest readers thread.
+    :param n: The grammar (an :class:`~lexic.ir.grammar.nodes.IrAst`).
+    :param text: The input string.
+    :param tables: Optional pre-built (run-collapsed) tables for ``n``.
+    :param policy: The build that makes the meaning question answerable, and
+        the resolver that settles it; ``None`` skips the question entirely.
+    :returns: The chosen derivation.
+    :raises UnsupportedConstructError: If ``text`` does not parse, or means two
+        things and no resolver was supplied.
+    """
+    if not isinstance(n, IrAst):
+        raise UnsupportedConstructError(
+            f"parsing: expected an IrAst grammar, got {type(n).__name__}"
+        )
+    kernel = Kernel(
+        tables if tables is not None else compile_tables(n, tier_for(len(text))),
+        text,
+        True,
+    ).run()
+    _require_accept(kernel, n)
+    handle = accept_handle(kernel)
+    first: IrSelf = IrNone
+    if not root_ambiguous(kernel):
+        # RESOLVING mode: an empty choices map pins nothing, so the chain
+        # policy decides the splits. Bail mode would decline on exactly the
+        # ambiguous inputs at issue and fall through to the stream, which
+        # takes chart order — the very thing the two engines disagreed on.
+        first = FastTree(kernel, {}).build(handle)
+    if not isinstance(first, ParseTree):
+        if tables is not None:  # run terminals shape the chart — re-parse plain
+            kernel = Kernel(compile_tables(n, tier_for(len(text))), text, True).run()
+            _require_accept(kernel, n)
+            handle = accept_handle(kernel)
+        stream = DERIVATION_STREAM.eval(
+            d, accept_node(kernel), IrTuple(to_chart(kernel))
+        )
+        first = next(iter(stream), IrNone)
+        if not isinstance(first, ParseTree):
+            raise UnsupportedConstructError("parsing: no derivation")
+    if policy is None:
+        return first
+    witness = another_meaning(kernel, handle, policy.build, first)
+    if witness is None:
+        return first
+    if policy.resolve is None:
+        raise UnsupportedConstructError(
+            "parsing: ambiguous input — two derivations that mean different "
+            "things; supply a resolver to choose between them"
+        )
+    return policy.resolve(first, witness)
 
 
 class Recognize(IrLeaf[IrSelf, IrSelf]):
@@ -116,13 +223,13 @@ class Recognize(IrLeaf[IrSelf, IrSelf]):
         text = str(nc[0])
         tables = recognition_tables(n, tier_for(len(text)))
         kernel = Kernel(tables, text, False).run()
-        return _MATCH if kernel.accept >= 0 else _NO_MATCH
+        return _MATCH if accept_item(kernel) >= 0 else _NO_MATCH
 
 
 class Parse(IrLeaf[IrSelf, IrSelf]):
     """The strict single derivation of ``text`` as a :class:`ParseTree`.
 
-    Fast path: :class:`~lexic.parsing.earley.kernel.FastTree` over the packed
+    Fast path: :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree` over the packed
     links. Slow path (a key packing more than one family): the trampolined
     stream over the decoded chart, which raises on a second derivation.
     """
@@ -141,13 +248,17 @@ class Parse(IrLeaf[IrSelf, IrSelf]):
 class ParseFirst(IrLeaf[IrSelf, IrSelf]):
     """The FIRST derivation of ``text`` — deterministic under ambiguity.
 
-    The instance-parsing seam (:mod:`lexic.parsing.fold`): where
-    :class:`Parse` raises on a second derivation, this takes the
-    enumeration's first — parity with the retired Lark path's
-    ``ambiguity="resolve"``. Fast path identical to :class:`Parse`; the
-    lazy stream is only driven one item on the slow path.
+    Where :class:`Parse` raises on a second derivation, this takes the
+    enumeration's first. Not a convenience: a cyclic grammar
+    (``s ::= s | "a"``) derives its text through unboundedly many derivations,
+    so "the single derivation" does not exist there and a deterministic first
+    is what makes such grammars answerable at all. The VALUE-level ambiguity
+    question — does the span mean two things — needs a fold to answer and is
+    asked by :func:`first_meaning`, which the model completion drives; this
+    action is that function without the gate. Fast path identical to
+    :class:`Parse`; the lazy stream is only driven one item on the slow path.
 
-    ``nc`` may carry pre-built :class:`~lexic.parsing.earley.tables.ParserTables` as a
+    ``nc`` may carry pre-built :class:`~lexic.parsing.earley.kernel.tables.ParserTables` as a
     second element — the instance path passes run-collapsed tables (built with
     the fold-config licence in :mod:`lexic.parsing.fold`) so lexical runs step
     in one scan and land as a single multi-char leaf. A collapsed run is
@@ -164,33 +275,9 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
         :returns: a derivation.
         :raises UnsupportedConstructError: If ``text`` does not parse.
         """
-        if not isinstance(n, IrAst):
-            raise UnsupportedConstructError(
-                f"parsing: expected an IrAst grammar, got {type(n).__name__}"
-            )
         text = str(nc[0])
         collapsed = nc[1] if len(nc) > 1 and isinstance(nc[1], ParserTables) else None
-        if collapsed is not None:
-            tables = collapsed
-        else:
-            tables = compile_tables(n, tier_for(len(text)))
-        kernel = Kernel(tables, text, True).run()
-        _require_accept(kernel, n)
-        handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
-        if not kernel.root_ambiguous:
-            tree = FastTree(kernel).build(handle)
-            if isinstance(tree, ParseTree):
-                return tree
-        if collapsed is not None:  # run terminals shape the chart — re-parse plain
-            kernel = _run_kernel(n, nc, True)
-            _require_accept(kernel, n)
-        stream = DERIVATION_STREAM.eval(
-            d, kernel.accept_node(), IrTuple(kernel.to_chart())
-        )
-        first = next(iter(stream), None)
-        if not isinstance(first, ParseTree):
-            raise UnsupportedConstructError("parsing: no derivation")
-        return first
+        return first_meaning(d, n, text, collapsed)
 
 
 class ParseReduced(IrLeaf[IrSelf, IrSelf]):
@@ -226,8 +313,8 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
         tables = collapsed_tables(reducer, n, tier_for(len(text)))
         kernel = Kernel(tables, text, True).run()
         _require_accept(kernel, n)
-        handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
-        if not kernel.root_ambiguous:
+        handle = accept_handle(kernel)
+        if not root_ambiguous(kernel):
             fused = FusedReduce(kernel, reducer).build(handle)
             if fused is not None:
                 return fused
@@ -235,7 +322,7 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
         # tree path needs a plain parse.
         plain = _run_kernel(n, nc, True)
         _require_accept(plain, n)
-        return reducer.apply(_single_tree(d, plain))
+        return reducer.apply(_one_meaning(plain, reducer.apply))
 
 
 class ParseForest(IrLeaf[IrSelf, IrSelf]):
@@ -243,12 +330,12 @@ class ParseForest(IrLeaf[IrSelf, IrSelf]):
 
     Returns :data:`~lexic.ir.base.IrNone` when ``text`` does not parse. The
     packed SPPF is decoded so the returned handle's families are readable by
-    the :mod:`~lexic.parsing.earley.forest` machinery.
+    the :mod:`~lexic.parsing.earley.kernel.forest.forest` machinery.
     """
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: root or IrNone."""
-        return _run_kernel(n, nc, True).accept_node()
+        return accept_node(_run_kernel(n, nc, True))
 
 
 class Enumerate(IrLeaf[IrSelf, IrSelf]):
@@ -257,10 +344,10 @@ class Enumerate(IrLeaf[IrSelf, IrSelf]):
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSeq:
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: every tree."""
         kernel = _run_kernel(n, nc, True)
-        if kernel.accept < 0:
+        if accept_item(kernel) < 0:
             return IrSeq()
-        node = kernel.accept_node()
-        return DERIVATIONS.eval(d, node, IrTuple(kernel.to_chart()))
+        node = accept_node(kernel)
+        return DERIVATIONS.eval(d, node, IrTuple(to_chart(kernel)))
 
 
 class IsAmbiguous(IrLeaf[IrSelf, IrSelf]):
@@ -273,10 +360,10 @@ class IsAmbiguous(IrLeaf[IrSelf, IrSelf]):
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: ``IrInt`` 0/1."""
         kernel = _run_kernel(n, nc, True)
-        if kernel.accept < 0:
+        if accept_item(kernel) < 0:
             return _NO_MATCH
-        node = kernel.accept_node()
-        stream = DERIVATION_STREAM.eval(d, node, IrTuple(kernel.to_chart()))
+        node = accept_node(kernel)
+        stream = DERIVATION_STREAM.eval(d, node, IrTuple(to_chart(kernel)))
         seen = 0
         for _tree in stream:
             seen += 1

@@ -3,7 +3,7 @@
 Lark closes its step-count gap with a hand-declared token layer matched by C
 regexes. This module derives the same layer from the IR instead: a synthetic
 star/plus rule (minted by :mod:`~lexic.parsing.earley.normalize`) collapses into a
-single maximal-munch :class:`~lexic.parsing.earley.tables.RunTerm` when three
+single maximal-munch :class:`~lexic.parsing.earley.kernel.tables.RunTerm` when three
 facts are **proved** about it, so the collapse is exact — never Lark's
 silent maximal-munch approximation:
 
@@ -28,19 +28,15 @@ from __future__ import annotations
 
 from typing import Callable
 
-from lexic.ir.base import IrLeaf, IrSelf
-from lexic.ir.nodes import IrAst, IrLiteral
-from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
-from lexic.parsing.earley.tables import (
+from lexic.ir import IrAst, IrLeaf, IrLiteral, IrSelf
+from lexic.parsing.earley.kernel.tables.atoms import Charset, RunTerm, expand_atom
+from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tables
+from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
     RUN_DROP,
-    Charset,
     ParserTables,
-    RunTerm,
-    build_tables,
-    compile_tables,
-    expand_atom,
 )
+from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
 
 RunShape = tuple[frozenset[str], bool, int]
 """One detected run rule: ``(charset, has_empty_arm, unit_rid)`` —

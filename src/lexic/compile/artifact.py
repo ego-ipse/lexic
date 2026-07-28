@@ -10,13 +10,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.concretize import concretize
-from lexic.ir.encoding import IrEncoding, IrTokenizer, IrUnicode
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrAst
+from lexic.ir import (
+    IrAst,
+    IrEncoding,
+    IrMap,
+    IrStr,
+    IrTokenizer,
+    IrTuple,
+    IrUnicode,
+    concretize,
+)
 from lexic.model import GrammarModel
 from lexic.parsing import ModelFold, TokenMaskCursor, parse_model, token_model
+from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 
 
 def encoding_registry(
@@ -127,7 +133,7 @@ class CompiledGrammar:
     stem: str = "grammar"
     tokens: TokenBinding = TokenBinding()
 
-    def parse(self, text: str) -> GrammarModel:
+    def parse(self, text: str, resolve: Resolver | None = None) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
 
         A **token grammar** — one whose terminals reference an encoding —
@@ -142,8 +148,18 @@ class CompiledGrammar:
         additivity invariant), and a tokenizer bound to one is there for
         :meth:`constrain`, which needs a vocabulary for char grammars too.
 
-        :raises UnsupportedConstructError: If ``text`` does not parse, or the
-            fold produced no model for the start rule.
+        Ambiguity is refused on BOTH routes: a span whose derivations build
+        two different models raises rather than one route quietly picking.
+        ``resolve`` is the caller's explicit opt-out — a deterministic resolver
+        handed both derivations, whose choice is their concern — and it reaches
+        whichever route the grammar selects, so the promise does not depend on
+        whether the terminals happen to name an encoding.
+
+        :param text: The input to parse.
+        :param resolve: The caller's resolver, or ``None`` to refuse ambiguity.
+        :raises UnsupportedConstructError: If ``text`` does not parse, the fold
+            produced no model for the start rule, or the input means two things
+            and no resolver was supplied.
         """
         tok = self.tokens.tokenizer
         if self.tokens.segmented and tok is None:
@@ -157,11 +173,11 @@ class CompiledGrammar:
                 start: (tid, end - start) for start, end, tid in tok.boundaries(text)
             }
             return GrammarModel.ensure(
-                token_model(self.codegen_grammar, text, self.fold, bounds),
+                token_model(self.codegen_grammar, text, self.fold, bounds, resolve),
                 "compile: the start rule's fold",
             )
         return GrammarModel.ensure(
-            parse_model(self.codegen_grammar, text, self.fold),
+            parse_model(self.codegen_grammar, text, self.fold, resolve),
             "compile: the start rule's fold",
         )
 

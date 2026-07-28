@@ -17,11 +17,13 @@ from __future__ import annotations
 from typing import Any, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrSelf, IrStr, IrTuple
-from lexic.parsing.earley.reduce import DROP_KIND
+from lexic.ir import IrNone, IrSelf, IrStr, IrTuple
+from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
+from lexic.parsing.earley.reduce.fused import DROP_KIND
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.pda.compiler.clones import PdaTables, ReduceRun
+from lexic.parsing.pda.compiler.clones import ReduceRun
 from lexic.parsing.pda.compiler.flatten import OP_CC, R_DROP, R_SPLICE, FlatClone
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import (
     F_ARM,
@@ -224,7 +226,13 @@ def pda_reduce(tables: PdaTables, text: str) -> IrSelf:
     return _ReducePdaKernel(tables, text).run()
 
 
-def pda_model[M](tables: PdaTables, text: str, fold: ModelFold[M] | None = None) -> M:
+def pda_model[M](
+    tables: PdaTables,
+    text: str,
+    fold: ModelFold[M] | None = None,
+    *,
+    resolve: Resolver | None = None,
+) -> M:
     """Parse ``text`` with the fused predictive runtime, building a model.
 
     The instance (b2) entry: :class:`PdaKernel` builds the start rule's model
@@ -236,8 +244,10 @@ def pda_model[M](tables: PdaTables, text: str, fold: ModelFold[M] | None = None)
     :param fold: The full-grammar fold for splicing island sub-models;
         ``None`` (the island-free path) makes any island reference raise
         :class:`PdaFail`.
+    :param resolve: The caller's deterministic answer to an island deriving its
+        text more than one way that means different things; the default refuses.
     :returns: The start rule's model instance.
     :raises PdaFail: On any deterministic-parse failure (caught by the compile
         seam, which retries on the full engine).
     """
-    return PdaKernel(tables, text, fold).run()
+    return PdaKernel(tables, text, fold, resolve=resolve).run()

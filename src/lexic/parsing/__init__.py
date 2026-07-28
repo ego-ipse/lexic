@@ -1,4 +1,4 @@
-"""IR-native parsing — Earley over an :class:`~lexic.ir.nodes.IrAst`, no Lark.
+"""IR-native parsing — Earley over an :class:`~lexic.ir.grammar.nodes.IrAst`, no Lark.
 
 This package is the shape of the Lark replacement. The premise: an ``IrAst``
 *is already a grammar*, so it can drive a parser directly. Given a grammar as IR
@@ -17,20 +17,23 @@ Earley engine on any non-deterministic point. See ``README.md``.
 
 Layering mirrors the rest of ``lexic.ir``: every state object and every engine
 operation IS-AN :class:`~lexic.ir.base.IrSelf`. The Earley operations live in an
-:class:`~lexic.ir.mapping.IrTypeMap` dispatched on the symbol after the dot —
+:class:`~lexic.ir.action.mapping.IrTypeMap` dispatched on the symbol after the dot —
 the same dispatch substrate the emit flavours use, run the other direction.
 
 Module map:
 
-- :mod:`.earley.tables`   — :class:`ParserTables`, the int-coded compiled grammar,
-                        and :func:`compile_tables` (memoised, once per grammar).
-- :mod:`.earley.kernel`   — :class:`Kernel`, the flat Earley loop over the compiled
-                        tables (predict/scan/complete, Leo, packed SPPF), and
-                        :class:`FastTree`, the unambiguous tree builder.
-- :mod:`.earley.chart`    — :class:`Chart` / :class:`Links`, the decoded SPPF the
-                        IR-native forest readers walk, and the ``EarleyItem`` tuple.
+- :mod:`.earley.kernel.tables` — :class:`ParserTables`, the int-coded compiled
+                        grammar, and :func:`compile_tables` (memoised per grammar).
+- :mod:`.earley.kernel.loop`  — what FILLS the chart: :class:`Kernel`, the flat
+                        Earley loop over the compiled tables
+                        (predict/scan/complete), the per-parse index state, and
+                        the Leo right-recursion climb.
+- :mod:`.earley.kernel.forest` — what the filled chart MEANS: :class:`ParseTree`
+                        the reducible derivation, :class:`Chart` / :class:`Links`
+                        the decoded SPPF and the ``EarleyItem`` tuple,
+                        :class:`FastTree` the unambiguous builder, the ambiguity
+                        question, the readout and the walk trampoline.
 - :mod:`.earley.engine`   — the per-capability orchestration nodes the API drives.
-- :mod:`.earley.forest`   — :class:`ParseTree`, the reducible derivation.
 - :mod:`.earley.reduce`   — :class:`Reducer`, forest → ``IrAst`` (grammar-text product).
 - :mod:`.fold`        — :class:`~lexic.parsing.fold.ModelFold`, forest →
                         ``GrammarModel`` (the instance product).
@@ -49,7 +52,8 @@ The forest is a full SPPF (Scott 2008): nullable-rule completion (Aycock-Horspoo
 and ambiguity are handled — ``parse`` returns the single derivation and raises on
 ambiguous input, while ``parse_forest`` / ``derivations`` / ``is_ambiguous`` expose
 every reading. Quantifier/group desugaring in :mod:`.earley.normalize` is right-recursive;
-the Leo optimisation (in :class:`~lexic.parsing.earley.kernel.Kernel`) parses that recursion
+the Leo optimisation (in :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel`)
+parses that recursion
 in linear time, so ``*``/``+`` over long repeated input is O(n). Large *bounded*
 counts (``{lo, hi}``) still unroll to ``hi`` nested rules and recurse ``hi``-deep at
 desugar time — the one remaining rough edge.
@@ -79,9 +83,7 @@ surfaces.
 
 from __future__ import annotations
 
-from lexic.ir.base import IrInt, IrSelf, IrSeq, IrStr, IrTuple
-from lexic.ir.nodes import IrAst
-from lexic.parsing.earley.chart import Chart, EarleyItem, Link, Links
+from lexic.ir import IrAst, IrInt, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.parsing.earley.engine import (
     ENUMERATE,
     IS_AMBIGUOUS,
@@ -91,17 +93,21 @@ from lexic.parsing.earley.engine import (
     RECOGNIZE,
     EarleyParser,
 )
-from lexic.parsing.earley.forest import (
+from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.chart import Chart, EarleyItem, Link, Links
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.forest import (
     BUILD_TREE,
     BuildTree,
     ParseTree,
     RootNode,
     SppfNode,
 )
-from lexic.parsing.earley.kernel import FastTree, Kernel
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.earley.tables import ParserTables, compile_tables
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.earley.tokenscan import (
     CharTrieCursor,
     TokenMaskCursor,
@@ -131,7 +137,7 @@ def recognize(grammar: IrAst, text: str) -> IrInt:
 def parse(grammar: IrAst, text: str) -> ParseTree:
     """Parse ``text`` into its single derivation tree (strict).
 
-    A single :class:`~lexic.parsing.earley.forest.ParseTree` cannot honestly represent
+    A single :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` cannot honestly represent
     ambiguity — ambiguous input **raises**. Reach the forest via :func:`parse_forest`
     or :func:`derivations` instead.
 
@@ -149,9 +155,12 @@ def parse_first(
 ) -> ParseTree:
     """Parse ``text`` into its FIRST derivation — deterministic under ambiguity.
 
-    The instance-parsing entry (:mod:`.fold`): parity with the retired Lark
-    path's ``ambiguity="resolve"``. Prefer :func:`parse` (strict) wherever a
-    single honest derivation is required.
+    The tree-level toolkit entry: a cyclic grammar derives its text through
+    unboundedly many derivations, so a deterministic first is what makes such
+    grammars answerable at all. Prefer :func:`parse` (strict) wherever a
+    single honest derivation is required; the value-level ambiguity gate lives
+    in the model product (:func:`parse_model`), where a fold exists to compare
+    what derivations MEAN.
 
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
@@ -172,8 +181,8 @@ def parse_forest(grammar: IrAst, text: str) -> IrSelf:
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
     :returns: The forest root — a single-production
-        :class:`~lexic.parsing.earley.forest.SppfNode`, a
-        :class:`~lexic.parsing.earley.forest.RootNode` packing the start
+        :class:`~lexic.parsing.earley.kernel.forest.forest.SppfNode`, a
+        :class:`~lexic.parsing.earley.kernel.forest.forest.RootNode` packing the start
         symbol's alternative whole-input productions, or
         :data:`~lexic.ir.base.IrNone` if ``text`` does not parse.
     """
@@ -186,7 +195,7 @@ def derivations(grammar: IrAst, text: str) -> IrSeq:
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
     :returns: An :class:`~lexic.ir.base.IrSeq` of
-        :class:`~lexic.parsing.earley.forest.ParseTree` derivations (possibly empty).
+        :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` derivations (possibly empty).
     """
     return ENUMERATE.eval(EarleyParser(), grammar, IrTuple(IrStr(text)))
 
@@ -218,6 +227,7 @@ __all__ = [
     "ParseTree",
     "ParserTables",
     "Reducer",
+    "Resolver",
     "RootNode",
     "RuleFold",
     "SppfNode",

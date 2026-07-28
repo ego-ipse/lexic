@@ -1,6 +1,6 @@
 """The token-scanning kernel — Earley over a token-segmented input.
 
-:class:`TokenKernel` is the :class:`~lexic.parsing.earley.kernel.Kernel`
+:class:`TokenKernel` is the :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel`
 specialisation that parses a grammar with **token terminals** against text
 lexic has segmented into tokens. The base kernel is untouched (char grammars
 never construct a ``TokenKernel``): this subclass adds one ``_scan`` branch —
@@ -15,24 +15,26 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
     IrItem,
     IrLiteral,
+    IrNot,
     IrQuantifier,
     IrRule,
     IrSeq,
     IrSequence,
+    IrTokenizer,
 )
-from lexic.ir.operators import IrNot
-from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.kernel.forest.readout import accept_item
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.resume import ResumableKernel
-from lexic.parsing.earley.tables import ParserTables, compile_tables
 from lexic.parsing.fold import lift_optional_nullables
 
 TokenSpec = tuple[frozenset[int], bool]
@@ -92,11 +94,11 @@ def frontier_viable(kernel: Kernel) -> bool:
     absent next char), so ``cols[len(text)]`` witnesses extendability with no
     kernel change — a read-only view over the chart.
 
-    :param kernel: A kernel whose :meth:`~lexic.parsing.earley.kernel.Kernel.run`
+    :param kernel: A kernel whose :meth:`~lexic.parsing.earley.kernel.loop.kernel.Kernel.run`
         (or resumable extension) has finished.
     :returns: ``True`` when some valid word has the kernel's text as a prefix.
     """
-    if kernel.accept >= 0:
+    if accept_item(kernel) >= 0:
         return True
     next_sym = kernel.tables.codes.next_sym
     bits = kernel.tables.packing.bits
@@ -121,9 +123,9 @@ def viable_prefix(tables: ParserTables, text: str) -> bool:
 def token_term_specs(tables: ParserTables) -> dict[int, TokenSpec]:
     """Map each token terminal's ``term_id`` to its ``(id-set, negated)`` spec.
 
-    A token terminal is always an :class:`~lexic.ir.nodes.IrAlphabet`; negation
+    A token terminal is always an :class:`~lexic.ir.grammar.nodes.IrAlphabet`; negation
     lives INSIDE it — a positive alphabet's inner is the id char class, a negated
-    one's inner is an :class:`~lexic.ir.operators.IrNot` of that class. Empty for
+    one's inner is an :class:`~lexic.ir.grammar.operators.IrNot` of that class. Empty for
     a grammar with no token terminals.
 
     :param tables: The compiled grammar tables.
@@ -286,7 +288,7 @@ class TokenMaskCursor[K: ResumableKernel](ABC):
     def of(grammar: IrAst, tokenizer: IrTokenizer) -> TokenMaskCursor:
         """The cursor for ``grammar`` — token-term or char-trie.
 
-        A grammar carrying token terminals (:class:`~lexic.ir.nodes.IrAlphabet`)
+        A grammar carrying token terminals (:class:`~lexic.ir.grammar.nodes.IrAlphabet`)
         gets the frontier set algebra; any other grammar gets the trie DFS over
         a char-granular recognizer.
 
@@ -368,7 +370,7 @@ class TokenMaskCursor[K: ResumableKernel](ABC):
         :returns: ``True`` when the grammar accepts the prefix as-is.
         """
         self._sync()
-        return self._kern.accept >= 0
+        return accept_item(self._kern) >= 0
 
 
 class TokenTermCursor(TokenMaskCursor[TokenKernel]):

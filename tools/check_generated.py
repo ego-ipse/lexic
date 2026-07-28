@@ -17,6 +17,13 @@ accepted exceptions:
   share the canonical AST BY DESIGN; the duplication only appears when
   linting the whole batch in one invocation, never to a user opening a file.
 
+Every emitted module is gated: the **twins** (one class per rule), the **payload
+artifacts** (flat tables and an import of the reader), and the **reader sidecar**
+they import. Payloads are exported in their ``ir`` and ``plain`` targets, which
+is every projection whose imports resolve from a temp directory; a ``classes``
+payload names the twin it was parsed with, so linting one means putting that
+twin on the import path, and the module surface it exercises is the same tables.
+
 Exit 0 when clean. Run: ``uv run python tools/check_generated.py``.
 """
 
@@ -30,6 +37,7 @@ import tempfile
 from pathlib import Path
 
 from lexic.compile import compile_from_path, export_module, verify_module
+from lexic.compile.payload import export_value
 
 REPO = Path(__file__).resolve().parent.parent
 ACCEPTED_PYLINT = re.compile(
@@ -40,7 +48,11 @@ ACCEPTED_PYLINT = re.compile(
 
 
 def export_all(out_dir: Path) -> list[Path]:
-    """Export every GT grammar in both table modes; return the file list."""
+    """Export every GT grammar as twins and as payload artifacts.
+
+    :param out_dir: Where the modules are written.
+    :returns: Every emitted file, for the linters.
+    """
     files: list[Path] = []
     ground_truth = REPO / "resources" / "ground_truth"
     for gt in sorted(ground_truth.glob("*.gbnf")) + sorted(ground_truth.glob("*.abnf")):
@@ -51,17 +63,40 @@ def export_all(out_dir: Path) -> list[Path]:
             # L2: lexic parses its own export and cross-checks the binding.
             verify_module(compiled, path.read_text(encoding="utf-8"))
             files.append(path)
+        files.append(export_value(compiled.grammar, out_dir / f"{stem}_ir.py"))
+        files.append(
+            export_value(
+                {
+                    "source": gt.read_text(encoding="utf-8"),
+                    "rules": len(compiled.grammar.rules),
+                },
+                out_dir / f"{stem}_plain.py",
+            )
+        )
+    # The reader every artifact imports is emitted too, so it is gated like the
+    # rest — it is the one module a user of an artifact is most likely to open.
+    files.extend(sorted(out_dir.glob("payload_reader_*.py")))
     return files
 
 
-def run_pyright(files: list[Path]) -> list[str]:
-    """Pyright default config over the exports; returns finding lines."""
+def run_pyright(files: list[Path], root: Path) -> list[str]:
+    """Pyright default config over the exports; returns finding lines.
+
+    :param files: The emitted modules.
+    :param root: Where they were written — an artifact imports its reader
+        sidecar from beside itself, so this has to be on the search path or the
+        gate reports an unresolved import that no importer would ever see.
+    :returns: The error lines.
+    """
+    (root / "pyrightconfig.json").write_text(
+        json.dumps({"extraPaths": [str(REPO / "src"), "."]}), encoding="utf-8"
+    )
     result = subprocess.run(
         [sys.executable, "-m", "pyright", "--outputjson", *map(str, files)],
         capture_output=True,
         text=True,
         check=False,
-        cwd=REPO,
+        cwd=root,
     )
     report = json.loads(result.stdout or "{}")
     return [
@@ -97,7 +132,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="lexic_genchk_") as tmp:
         files = export_all(Path(tmp))
         print(f"exported {len(files)} modules")
-        pyright_findings = run_pyright(files)
+        pyright_findings = run_pyright(files, Path(tmp))
         pylint_findings = run_pylint(files)
     for line in pyright_findings:
         print("PYRIGHT", line)

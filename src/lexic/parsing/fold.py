@@ -1,8 +1,8 @@
 """ParseTree → object fold — the instance-parsing bridge.
 
 The one authored instance-fold is :class:`ModelFold`: a per-rule IR body-table
-(:attr:`ModelFold.bodies`, an :class:`~lexic.ir.mapping.IrMap` from each rule's
-:class:`~lexic.ir.nodes.IrRuleRef` to its :class:`ModelBody`) — the same shape
+(:attr:`ModelFold.bodies`, an :class:`~lexic.ir.action.mapping.IrMap` from each rule's
+:class:`~lexic.ir.grammar.nodes.IrRuleRef` to its :class:`ModelBody`) — the same shape
 the grammar-text :class:`~lexic.parsing.earley.reduce.Reducer` carries its
 reductions in. A :class:`ModelBody` carries the model constructor as an
 :class:`~lexic.ir.base.IrLambda` plus structural metadata (kind / n_items /
@@ -19,7 +19,7 @@ no name protocol.
 The baked config is plain data: per rule a :class:`RuleFold` — ``(kind, ctor,
 n_items, fields)`` with each field a ``(item, mode, name, lo)``
 :class:`FieldFold`. Constructors are opaque callables; modes are the
-:data:`~lexic.ir.bind.BIND_MODES` vocabulary. This module sees only IR and its
+:data:`~lexic.ir.spine.bind.BIND_MODES` vocabulary. This module sees only IR and its
 own baked config — no binding view, no model synthesis.
 
 Fold behavior per kind:
@@ -44,30 +44,32 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Mapping, NamedTuple, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import (
-    IrLambda,
-    IrNamedTuple,
-    IrNone,
-    IrNoneType,
-    IrSelf,
-    IrSeq,
-    IrTuple,
-)
-from lexic.ir.bind import BIND_MODES
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    BIND_MODES,
     IrAlternation,
     IrAst,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrMap,
+    IrNamedTuple,
+    IrNone,
+    IrNoneType,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrTuple,
 )
-from lexic.parsing.earley.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.kernel.tables.records import (
+    ORIGIN_BITS,
+    RUN_STR,
+    ParserTables,
+)
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
-from lexic.parsing.earley.tables import ORIGIN_BITS, RUN_STR, ParserTables
 from lexic.parsing.pda.analysis.analysis import nullable_names
 
 FOLD_KINDS: tuple[str, ...] = ("value_str", "sequence", "alternation")
@@ -78,7 +80,7 @@ class FieldFold(NamedTuple):
     """One bound field: which kid slot it reads and how it folds.
 
     :ivar item: Positional index into the rule's sequence arm (= kid slot).
-    :ivar mode: One of :data:`~lexic.ir.bind.BIND_MODES`.
+    :ivar mode: One of :data:`~lexic.ir.spine.bind.BIND_MODES`.
     :ivar name: The constructor kwarg the folded value binds to.
     :ivar lo: The item's original quantifier ``lo`` — consumed only by
         ``gtext`` (empty text with ``lo == 0`` means absent, not ``""``).
@@ -249,7 +251,7 @@ class ModelBody(
 def _subtree_text(node: ParseTree | IrLiteral | PayloadLeaf) -> str:
     """All consumed chars under ``node``, in source order (iterative).
 
-    A delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` contributes its
+    A delegated :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` contributes its
     recorded span text (its interior was folded by the sub-run, not walked).
     """
     parts: list[str] = []
@@ -275,8 +277,8 @@ class ModelFold[M]:
     caller (``compile.py``) binds rather than an import.
 
     The authored form is :attr:`bodies`, a per-rule
-    :class:`~lexic.ir.mapping.IrMap` from each rule's
-    :class:`~lexic.ir.nodes.IrRuleRef` to its :class:`ModelBody` (an
+    :class:`~lexic.ir.action.mapping.IrMap` from each rule's
+    :class:`~lexic.ir.grammar.nodes.IrRuleRef` to its :class:`ModelBody` (an
     :class:`~lexic.ir.base.IrSelf`) — the same shape the grammar-text
     :class:`~lexic.parsing.earley.reduce.Reducer` carries its reductions in. On
     construction every body is :meth:`~ModelBody.bake`\\ d to the flat-runtime
@@ -303,7 +305,7 @@ class ModelFold[M]:
         :param bodies: Rule ref → :class:`ModelBody`.
         :raises UnsupportedConstructError: On a kind outside
             :data:`FOLD_KINDS` or a field mode outside
-            :data:`~lexic.ir.bind.BIND_MODES`.
+            :data:`~lexic.ir.spine.bind.BIND_MODES`.
         """
         config: dict[str, RuleFold] = {
             str(ref): body.bake() for ref, body in bodies.items()
@@ -421,7 +423,12 @@ class ModelFold[M]:
         kwargs: dict[str, object] = {}
         for item, mode, name, lo in rule_fold.fields:
             value = self._fold_field(kids[item], mode, lo, results)
-            if value is not None:
+            # A model field whose sub-rule matched an EMPTY arm folds to None,
+            # and None IS the value the record carries — the PDA's trusted
+            # build reads exactly that out of `parts.get`. Dropping it would
+            # turn "matched empty" into "missing field" and the checked
+            # constructor refuses a required one.
+            if value is not None or mode == "model":
                 kwargs[name] = value
         return rule_fold.ctor(**kwargs)
 
@@ -447,7 +454,7 @@ class ModelFold[M]:
     ) -> list[object]:
         """Folded models at/under a kid slot, looking through synthetic layers.
 
-        A delegated :class:`~lexic.parsing.earley.forest.PayloadLeaf` contributes
+        A delegated :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` contributes
         its pre-built sub-model directly (the PDA sub-run already folded it) —
         the same already-folded-child pass-through the PDA-side island splice
         performs.
@@ -545,7 +552,7 @@ def collapsed_fold_tables(
     from :func:`~lexic.parsing.earley.lexruns.run_candidates`; the fold-side licence
     (:meth:`ModelFold.run_ok`) keeps only runs whose collapsed multi-char
     leaf hides structure the fold looks through anyway. Every kept run is
-    :data:`~lexic.parsing.earley.tables.RUN_STR` (text-preserving): the run text
+    :data:`~lexic.parsing.earley.kernel.tables.RUN_STR` (text-preserving): the run text
     stays a leaf in the tree so ``to_text()`` round-trips exactly — never
     ``RUN_DROP``. Memoised per ``(fold, grammar, bits)``.
 

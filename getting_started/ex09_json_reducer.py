@@ -19,8 +19,7 @@ Run::
 from __future__ import annotations
 
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir.base import IrInt, IrNone
-from lexic.ir.mapping import IrMap
+from lexic.ir import IrInt, IrMap, IrNone
 from lexic.parsing import parse_reduced
 
 DOC = '{"name": "lexic", "stars": 3, "tags": ["grammar", "\\u00e9lan"], "wip": null}'

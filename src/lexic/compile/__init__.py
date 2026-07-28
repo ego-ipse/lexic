@@ -47,6 +47,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Hashable, Mapping, Sequence
 from pathlib import Path
+from typing import NamedTuple
 
 from lexic.compile.artifact import (
     CompiledGrammar,
@@ -79,14 +80,26 @@ from lexic.compile.templating import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
-from lexic.ir.base import IrLambda, IrNone, IrSelf, IrSeq, IrTuple
-from lexic.ir.canonical import canonicalize, fold_name
-from lexic.ir.concretize import concretize
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrAlphabet, IrAst, IrItem, IrRule, IrRuleRef
-from lexic.ir.order import refs_in_order
+from lexic.ir import (
+    IrAlphabet,
+    IrAst,
+    IrFlavour,
+    IrItem,
+    IrLambda,
+    IrMap,
+    IrNone,
+    IrRule,
+    IrRuleRef,
+    IrSelf,
+    IrSeq,
+    IrTokenizer,
+    IrTuple,
+    canonicalize,
+    concretize,
+    fold_name,
+    refs_in_order,
+    rule_closure,
+)
 from lexic.model import GrammarModel
 from lexic.parsing import (
     FastCtor,
@@ -100,6 +113,8 @@ from lexic.parsing import (
 # Case-insensitive order — keeps this list and the submodules' own __all__
 # blocks from sharing linter-length runs of identical lines.
 __all__ = [
+    "Directives",
+    "Vocabulary",
     "bind_module",
     "canonical_grammar",
     "compile_from_path",
@@ -144,6 +159,39 @@ def _flavour_reducer(flavour: IrFlavour) -> Reducer:
             f"compile: flavour {flavour.name!r} carries no parse Reducer"
         )
     return reducer
+
+
+class Vocabulary(NamedTuple):
+    """The vocabulary a grammar's terminals are read through — one lens.
+
+    ``tokenizer`` and ``registry`` were never two channels: they COMPOSE over a
+    default ``unicode`` and :func:`encoding_registry` merges them into one
+    resolved registry before anything reads a terminal. Naming the pair is what
+    they always were.
+
+    :ivar tokenizer: A single tokenizer, bound under its own ``name``.
+    :ivar registry: An ``IrMap[IrStr, IrEncoding]`` binding encoding *names* to
+        encodings (``unicode`` is always present) — the general form.
+    """
+
+    tokenizer: IrTokenizer | None = None
+    registry: IrMap | None = None
+
+
+class Directives(NamedTuple):
+    """What a grammar's ``@directives`` say, as an argument.
+
+    Exactly what :func:`_scan_directives` reads out of the source comments, so a
+    caller who already knows can hand it over instead of writing it into the
+    grammar. Given explicitly, it OVERRIDES what the source says.
+
+    :ivar start: The start rule (``@start``), or ``None`` to use the source's.
+    :ivar non_semantic: Rules to mark structural noise (``@non-semantic``), or
+        ``None`` to use the source's.
+    """
+
+    start: str | None = None
+    non_semantic: frozenset[str] | None = None
 
 
 _CACHE: dict[Hashable, CompiledGrammar] = {}
@@ -213,35 +261,89 @@ def _resolve_prelude(ast: IrAst, flavour: IrFlavour) -> IrAst:
     return IrAst(IrSeq(*rules), ast.start)
 
 
+def _content_tag(text: str) -> str:
+    """A grammar's content identity — the short hash both stems carry."""
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
 def _stem_for_text(text: str) -> str:
     """Stable filename for a grammar string with no path."""
-    return "anon_" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+    return "anon_" + _content_tag(text)
 
 
-def _scan_directives(text: str, line_comment: str) -> tuple[str | None, frozenset[str]]:
+def _identity_for(stem: str, text: str) -> str:
+    """A grammar's synthetic-module identity — its stem, content-tagged.
+
+    A generated class's ``__module__`` is ``generated.<identity>``, and that
+    name is what a consumer has to read to tell two grammars apart: the payload
+    projection interns a symbol per ``(module, name)``, so two different
+    grammars whose start rules are both called ``Root`` are distinguishable only
+    if the module is. A bare file stem is not — ``a/g.gbnf`` and ``b/g.gbnf``
+    were ``generated.g`` twice and the two ``Root``s merged silently.
+
+    Distinct from :attr:`CompiledGrammar.stem`, which names the EXPORTED FILE
+    and stays a plain filename. One field was doing both jobs.
+
+    :param stem: The artefact's stem (file stem, or the anon content stem).
+    :param text: The grammar source.
+    :returns: ``<stem>_<12 hex>``, or ``stem`` when it already carries the tag.
+    """
+    tag = _content_tag(text)
+    return stem if stem.endswith(tag) else f"{stem}_{tag}"
+
+
+def _directive_bodies(text: str, flavour: IrFlavour) -> list[str]:
+    """The text inside each comment, for whichever comment form the flavour has.
+
+    A surface that can spell a comment can spell a directive. EBNF has only
+    ``(* *)`` block comments, and a mechanism GBNF and ABNF could express while
+    EBNF structurally could not would be a privileged formulation — it cost
+    ``json.ebnf`` the whole predictive path, because it could not mark ``ws``
+    structural and every parse escaped at position 0.
+
+    :param text: Grammar source text.
+    :param flavour: The flavour, for its comment delimiters.
+    :returns: One entry per comment, stripped of its delimiters.
+    """
+    bodies: list[str] = []
+    if flavour.line_comment:
+        for raw in text.splitlines():
+            line = raw.strip()
+            if line.startswith(flavour.line_comment):
+                bodies.append(line[len(flavour.line_comment) :])
+    if len(flavour.block_comment) == 2:
+        opener, closer = flavour.block_comment[0], flavour.block_comment[1]
+        rest = text
+        while (a := rest.find(opener)) != -1:
+            b = rest.find(closer, a + len(opener))
+            if b == -1:
+                break
+            bodies.append(rest[a + len(opener) : b])
+            rest = rest[b + len(closer) :]
+    return bodies
+
+
+def _scan_directives(
+    text: str, flavour: IrFlavour
+) -> tuple[str | None, frozenset[str]]:
     """Extract ``(start, non_semantic)`` from source comments — a pre-lexical scan.
 
-    A line ``<line_comment> @<name> <args...>`` declares a directive: ``@start
+    A comment reading ``@<name> <args...>`` declares a directive: ``@start
     <rule>`` overrides the start rule, ``@non-semantic <rule> ...`` names
     structural-noise rules. The scan reads the raw source before the parser so
     comments never become load-bearing grammar tokens; ``canonical_grammar``
     resolves precedence and applies the result to the AST.
 
     :param text: Grammar source text.
-    :param line_comment: The flavour's line-comment marker (``#``/``;``); empty
-        disables directive parsing.
+    :param flavour: The flavour, for its comment delimiters. One with neither
+        comment form cannot carry a directive.
     :returns: ``(start, non_semantic)`` — ``start`` is the ``@start`` rule name
         or ``None``; ``non_semantic`` is the set of ``@non-semantic`` names.
     """
-    if not line_comment:
-        return None, frozenset()
     non_semantic: set[str] = set()
     start_rule: str | None = None
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line.startswith(line_comment):
-            continue
-        rest = line[len(line_comment) :].lstrip()
+    for body in _directive_bodies(text, flavour):
+        rest = body.strip()
         if not rest.startswith("@"):
             continue
         parts = rest[1:].split()
@@ -283,7 +385,7 @@ def canonical_grammar(
     (raised by the engine / reducer, or here if the flavour carries no Reducer,
     its reduction does not yield an IrAst, or the start rule is undefined).
     """
-    dir_start, dir_non_semantic = _scan_directives(text, flavour.line_comment)
+    dir_start, dir_non_semantic = _scan_directives(text, flavour)
     if non_semantic_rules is None:
         non_semantic_rules = dir_non_semantic
     parsed = parse_grammar(text, flavour)
@@ -386,8 +488,8 @@ def _fold_config(
     :param overrides: Per-rule fold-body override — a
         :class:`~lexic.parsing.fold.ModelBody` (primitive) or a constructor
         class (sugar); ``None`` uses the synthesized classes throughout.
-    :returns: An :class:`~lexic.ir.mapping.IrMap` from each rule's
-        :class:`~lexic.ir.nodes.IrRuleRef` to its
+    :returns: An :class:`~lexic.ir.action.mapping.IrMap` from each rule's
+        :class:`~lexic.ir.grammar.nodes.IrRuleRef` to its
         :class:`~lexic.parsing.fold.ModelBody`.
     """
     overrides = overrides or {}
@@ -436,12 +538,17 @@ def _compile_core(
     *,
     stem: str,
     flavour: str = "gbnf",
-    tokenizer: IrTokenizer | None = None,
-    registry: IrMap | None = None,
+    vocabulary: Vocabulary = Vocabulary(),
+    directives: Directives = Directives(),
 ) -> CompiledGrammar:
     flavour_cls = get_flavour(flavour)
-    ast = canonical_grammar(text, flavour_cls)
-    resolved = encoding_registry(tokenizer, registry)
+    ast = canonical_grammar(
+        text,
+        flavour_cls,
+        non_semantic_rules=directives.non_semantic,
+        start=directives.start,
+    )
+    resolved = encoding_registry(vocabulary.tokenizer, vocabulary.registry)
     # Resolution is for MATCHING, not for meaning. concretize COMMUTES with
     # build_codegen_grammar, so the unresolved codegen grammar is built once
     # and resolved beside it; the ENGINE gets the resolved form (ids match a
@@ -454,7 +561,7 @@ def _compile_core(
     if resolved is not None:
         codegen_grammar = concretize(unresolved, resolved)
     binding = compute_binding(codegen_grammar)
-    classes = synthesize(unresolved, binding, stem)
+    classes = synthesize(unresolved, binding, _identity_for(stem, text))
     fold = ModelFold(_fold_config(codegen_grammar, binding, classes))
     return CompiledGrammar(
         classes=classes,
@@ -476,8 +583,8 @@ def compile_text(
     *,
     cache_key: Hashable | None = None,
     flavour: str = "gbnf",
-    tokenizer: IrTokenizer | None = None,
-    registry: IrMap | None = None,
+    vocabulary: Vocabulary = Vocabulary(),
+    directives: Directives = Directives(),
 ) -> CompiledGrammar:
     """Compile from a grammar string, memoised by content by default.
 
@@ -496,26 +603,29 @@ def compile_text(
     :param cache_key: Extra key prefix disambiguating otherwise-identical
         compilations; ``None`` uses the content key alone.
     :param flavour: The grammar flavour name.
-    :param tokenizer: A single tokenizer, bound under its own ``name``. NOT
-        a sugar channel for ``registry=``: the two COMPOSE over a default
-        ``unicode``, and passing both is supported — only binding one name to
-        two different encodings is an error.
-    :param registry: An ``IrMap[IrStr, IrEncoding]`` binding the grammar's
-        encoding *names* to encodings (``unicode`` is always present); the
-        general form of ``tokenizer=``; the two compose.
+    :param vocabulary: The lens the grammar's terminals are read through — a
+        tokenizer, a name → encoding registry, or both (they compose).
+    :param directives: What the ``@directives`` would say, as an argument;
+        overrides what the source's own comments say.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     stem = _stem_for_text(text)
     # BY VALUE, like the path twin: keying on id() is unsound because ids are
     # unique only among LIVE objects, so a dropped vocabulary's address can be
     # reused and hand back another one's artefact. Both are hashable.
-    content_key: tuple[Hashable, ...] = (stem, flavour, tokenizer, registry)
+    # The directives are part of WHAT WAS COMPILED, so they key the memo too:
+    # without them one source compiled two ways would hand back the first.
+    content_key: tuple[Hashable, ...] = (stem, flavour, vocabulary, directives)
     key = (cache_key, *content_key) if cache_key is not None else content_key
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     cg = _compile_core(
-        text, stem=stem, flavour=flavour, tokenizer=tokenizer, registry=registry
+        text,
+        stem=stem,
+        flavour=flavour,
+        vocabulary=vocabulary,
+        directives=directives,
     )
     _CACHE[key] = cg
     return cg
@@ -541,7 +651,7 @@ def bind_module(grammar: IrAst, namespace: Mapping[str, object]) -> None:
     The module-end call of a dunder-free generated module: recomputes the
     codegen grammar and binding view from the module's ``GRAMMAR`` (the same
     deterministic pipeline the runtime runs) and writes each class's
-    ``__grammar__`` + ``__binds__``. ``_child_attrs`` is deliberately left
+    ``__grammar__`` + ``__shape__`` + ``__binds__``. ``_child_attrs`` is deliberately left
     alone — the class-body annotations already derived the runtime-identical
     value at class creation.
 
@@ -553,6 +663,7 @@ def bind_module(grammar: IrAst, namespace: Mapping[str, object]) -> None:
     """
     codegen_grammar = build_codegen_grammar(grammar)
     rules = {str(rule.name): rule for rule in codegen_grammar.rules}
+    shapes = rule_closure(codegen_grammar)
     for bound in compute_binding(codegen_grammar):
         cls = namespace.get(bound.class_name)
         if not (isinstance(cls, type) and issubclass(cls, GrammarModel)):
@@ -568,6 +679,7 @@ def bind_module(grammar: IrAst, namespace: Mapping[str, object]) -> None:
                 f"{declared}, but rule {bound.rule_name!r} binds {expected}"
             )
         cls.__grammar__ = rules[bound.rule_name]
+        cls.__shape__ = shapes[bound.rule_name]
         cls.__binds__ = {b.item: (n, b) for n, b in bound.fields.items()}
 
 
@@ -575,8 +687,8 @@ def compile_from_path(
     grammar_path: str | Path,
     *,
     flavour: str | None = None,
-    tokenizer: IrTokenizer | None = None,
-    registry: IrMap | None = None,
+    vocabulary: Vocabulary = Vocabulary(),
+    directives: Directives = Directives(),
 ) -> CompiledGrammar:
     """Compile from a file path; memoised by (path, mtime, size, flavour).
 
@@ -587,9 +699,9 @@ def compile_from_path(
     :param grammar_path: Path to the grammar source file.
     :param flavour: The grammar flavour name; inferred from the file
         extension if omitted.
-    :param tokenizer: A tokenizer to bind under its own ``name``.
-    :param registry: Further name → encoding bindings; composes with
-        ``tokenizer`` (see :func:`compile_text`).
+    :param vocabulary: The lens the grammar's terminals are read through
+        (see :func:`compile_text`).
+    :param directives: What the ``@directives`` would say, as an argument.
     :returns: The compiled grammar (cached across calls with the same key).
     """
     path = Path(grammar_path).resolve()
@@ -601,13 +713,24 @@ def compile_from_path(
     # LIVE objects, so a dropped tokenizer's address can be reused and hand
     # back another vocabulary's artefact. Both are hashable (an IrTokenizer is
     # an IrNamedTuple, a registry an IrMap), and the hash is computed once.
-    key = (str(path), stat.st_mtime, stat.st_size, flavour, tokenizer, registry)
+    key = (
+        str(path),
+        stat.st_mtime,
+        stat.st_size,
+        flavour,
+        vocabulary,
+        directives,
+    )
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     text = path.read_text(encoding="utf-8")
     cg = _compile_core(
-        text, stem=path.stem, flavour=flavour, tokenizer=tokenizer, registry=registry
+        text,
+        stem=path.stem,
+        flavour=flavour,
+        vocabulary=vocabulary,
+        directives=directives,
     )
     _CACHE[key] = cg
     return cg

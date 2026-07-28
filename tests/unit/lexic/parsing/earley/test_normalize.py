@@ -27,21 +27,22 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_GRAMMAR
 from lexic.grammars.json import JSON_GRAMMAR
-from lexic.ir.base import IrNone, IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing.earley.normalize import (
     SYNTHETIC_PREFIX,
     CollectRules,

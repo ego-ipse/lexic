@@ -16,27 +16,26 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLambda, IrNone, IrSeq, IrTuple
-from lexic.ir.mapping import IR_DEFAULT, IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IR_DEFAULT,
     IrAlternation,
     IrAst,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrMap,
+    IrNone,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
+    IrTuple,
 )
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import (
-    DROP,
-    KEEP_RAW,
-    KEEP_REDUCED,
-    YIELD,
-    Reducer,
-    plan_for,
-)
-from lexic.parsing.earley.tables import compile_tables
+from lexic.parsing.earley.reduce.fused import plan_for
+from lexic.parsing.earley.reduce.policy import DROP, KEEP_RAW, KEEP_REDUCED, YIELD
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.pda.compiler.clones import CloneKey
 from lexic.parsing.pda.compiler.flatten import (
     BUILD_REDUCE,
@@ -232,7 +231,7 @@ def test_reducerun_literal_keep_false_when_the_terminal_policy_is_drop():
 
 
 def bare_flat_clone() -> FlatClone:
-    """An empty FlatClone shell — the pre-bake state _flatten_program leaves
+    """An empty FlatClone shell — the pre-bake state flatten_program leaves
     every clone in before its first pass fills mode/selectors/default."""
     clone = FlatClone.__new__(FlatClone)
     clone.selectors = ()

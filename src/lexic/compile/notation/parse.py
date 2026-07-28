@@ -21,10 +21,11 @@ Design notes:
 - **The symbol table is the no-exec boundary** (:data:`SYMBOLS`): only
   ``IrSelf``-subclass constructors plus a fixed set of named singletons /
   bools / the boundary exception are reachable. There is no ``exec``/``eval``.
-- **Singleton interning** (:data:`INTERN`): the engine identity-checks
-  :data:`~lexic.parsing.earley.reduce.YIELD` (``node is YIELD``), so a zero-arg
-  call to an interned class returns THE canonical instance — ``Yield()`` yields
-  ``YIELD`` by identity, not a fresh repr-equal object.
+- **Engine sentinels are singleton classes**: the engine identity-checks them
+  (``node is YIELD``, ``body is DROP``), so ``Yield()`` in the notation must be
+  THE singleton rather than a repr-equal twin. That holds by construction —
+  each is an :class:`~lexic.ir.spine.meta.IrSingleton` — rather than by a table of
+  which classes to intern, which is one entry away from a silent wrong answer.
 - **Structural string decode** (:func:`_decode_escapes`): the grammar carries
   one rule per escape kind (short / ``\\xNN`` / ``\\uNNNN`` / ``\\UNNNNNNNN``,
   the ``grammars/gbnf.py`` precedent); the reassembled raw body is decoded by a
@@ -38,15 +39,22 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import cast
 
-import lexic.ir.action as _action
-import lexic.ir.base as _base
-import lexic.ir.bind as _bind
-import lexic.ir.encoding as _encoding
+import lexic.ir.action.access as _access
+import lexic.ir.action.build as _build
+import lexic.ir.action.compute as _compute
+import lexic.ir.action.control as _control
+import lexic.ir.action.mapping as _mapping
 import lexic.ir.flavour as _flavour
-import lexic.ir.layout as _layout
-import lexic.ir.mapping as _mapping
-import lexic.ir.nodes as _nodes
-import lexic.ir.operators as _operators
+import lexic.ir.grammar.nodes as _nodes
+import lexic.ir.grammar.operators as _operators
+import lexic.ir.spine.bind as _bind
+import lexic.ir.spine.records as _records
+import lexic.ir.spine.scalars as _scalars
+import lexic.ir.spine.spine as _spine
+import lexic.ir.text.encodings as _encodings
+import lexic.ir.text.layout as _layout
+import lexic.ir.text.pipeline as _pipeline
+import lexic.ir.text.tokenizer as _tokenizer
 from lexic.compile.foldkit import (
     ABSENT,
     ALT_BODY,
@@ -58,36 +66,46 @@ from lexic.compile.foldkit import (
     seq,
 )
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrSelf, IrSeq
-from lexic.ir.mapping import IR_DEFAULT
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IR_DEFAULT,
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
 )
 from lexic.parsing import FieldFold, ModelBody, parse_model
-from lexic.parsing.earley.reduce import YIELD, Yield
+from lexic.parsing.earley.reduce.policy import YIELD, Drop, KeepRaw, KeepReduced, Yield
+from lexic.parsing.earley.reduce.reducer import Reducer
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 
 _IR_MODULES = (
-    _base,
+    _spine,
+    _scalars,
+    _records,
     _bind,
     _nodes,
     _operators,
-    _action,
+    _access,
+    _compute,
+    _control,
+    _build,
     _mapping,
     _flavour,
     _layout,
-    _encoding,
+    _encodings,
+    _pipeline,
+    _tokenizer,
 )
 
 
@@ -123,9 +141,13 @@ def _build_symbols() -> dict[str, object]:
             "IrNone": IrNone,
             "IR_DEFAULT": IR_DEFAULT,
             "YIELD": YIELD,
-            # The stateless reduce sentinel's class — spelled ``Yield()`` by
-            # repr, interned to its canonical instance (see INTERN).
+            # The reduce sentinels' classes — each spelled ``Name()`` by repr,
+            # and a singleton, so a spelled one IS the engine's own.
             "Yield": Yield,
+            "Reducer": Reducer,
+            "Drop": Drop,
+            "KeepRaw": KeepRaw,
+            "KeepReduced": KeepReduced,
             # The parser/boundary exception a reduction body may reference.
             "UnsupportedConstructError": UnsupportedConstructError,
             # Booleans — ``IrRule``'s ``semantic`` flag and friends.
@@ -154,14 +176,6 @@ Per call rather than registered globally: the whitelist is a boundary, and a
 boundary that any import can widen is not one. A context variable rather than
 a parameter because the fold reaches :func:`_resolve` as data, not as an
 argument."""
-
-INTERN: dict[object, object] = {Yield: YIELD}
-"""Classes whose zero-arg call returns a canonical shared instance.
-
-The engine identity-checks :data:`~lexic.parsing.earley.reduce.YIELD`, so
-``Yield()`` in the notation must yield THE ``YIELD`` singleton, not a fresh
-repr-equal instance (F-INTERN-1)."""
-
 
 # ── grammar builders ─────────────────────────────────────────────────────
 
@@ -222,6 +236,7 @@ NOTATION_GRAMMAR = IrAst(
             IrSequence(_ref("nv")),
             IrSequence(_ref("strval")),
             IrSequence(_ref("intval")),
+            IrSequence(_ref("tuple")),
         ),
         _rule("nv", IrSequence(_ref("name"), _ref("ct-opt"))),
         _rule(
@@ -253,6 +268,41 @@ NOTATION_GRAMMAR = IrAst(
             IrSequence(_ref("comma"), IrItem(IrRuleRef("arg-val"), _OPT)),
         ),
         _rule("arg-val", IrSequence(_ref("value"))),
+        # A plain Python tuple — the one composite value that is not a call. A
+        # variadic model field holds one, so ``repr`` emits it and the parse
+        # half has to read it back.
+        #
+        # ``tuplist ::= value tup-tail tup-tail*`` makes at least one comma
+        # MANDATORY, so ``(1)`` has no derivation. That refusal is structural on
+        # purpose — two loaders read a notation artefact, CPython and this half,
+        # and in Python ``(1)`` is ``1`` while ``(1,)`` is a one-tuple. A lenient
+        # arm would make the two disagree about one file with nothing to report
+        # it.
+        #
+        # One mandatory tail plus a STAR, not ``tup-tail+``: normalising a ``+``
+        # over a rule ref yields ``X | X __rep``, whose two arms share a FIRST,
+        # so the analysis islands the loop and every tuple sub-parse escapes to
+        # Earley. The star shape (``ε | X __rep``) gates on FIRST(X) against
+        # FOLLOW and stays a clone. Measured both ways — see
+        # ``proto/rv2_b1_islands.py``. Past the first comma the shape is
+        # ``arglist``'s: the tail consumes the comma FIRST and then decides
+        # value-vs-nothing, keeping the loop gate FIRST-disjoint (',' vs ')'),
+        # with the stray-comma refusal at fold time.
+        _rule("tuple", IrSequence(_ref("lparen"), _ref("tup-opt"), _ref("rparen"))),
+        _rule("tup-opt", IrSequence(_ref("tuplist")), IrSequence()),
+        _rule(
+            "tuplist",
+            IrSequence(
+                _ref("value"),
+                _ref("tup-tail"),
+                IrItem(IrRuleRef("tup-tail"), _STAR),
+            ),
+        ),
+        _rule(
+            "tup-tail",
+            IrSequence(_ref("comma"), IrItem(IrRuleRef("tup-val"), _OPT)),
+        ),
+        _rule("tup-val", IrSequence(_ref("value"))),
         _rule("comma", IrSequence(_lit(","), _ref("ws"))),
         _rule("strval", IrSequence(_ref("sq-str")), IrSequence(_ref("dq-str"))),
         _rule(
@@ -374,8 +424,6 @@ def _name(head: str, tail: str = "") -> object:
 def _nv(sym: object, call: _Call | None = None) -> object:
     if call is None:
         return sym  # bare name: a class, singleton, or bool
-    if not call and sym in INTERN:
-        return INTERN[sym]  # zero-arg call to an interned class → THE instance
     if not callable(sym):  # a bool/singleton spelled with a call — a misuse
         raise UnsupportedConstructError(f"notation: {sym!r} is not callable")
     return sym(*call)  # positional apply — the raw IR class IS the ctor
@@ -385,23 +433,47 @@ def _call_tail(a: list[object] | None = None) -> _Call:
     return _Call(a if a is not None else ())
 
 
-def _arglist(first: object, rest: list[object] | None = None) -> list[object]:
-    """Collect the argument list; refuse a bare comma anywhere but last.
+def _comma_list(first: object, rest: list[object] | None, what: str) -> tuple:
+    """A comma-separated run; refuse a bare comma anywhere but last.
 
     The grammar leniently parses every bare comma as an empty tail (folded to
-    the shared :data:`~lexic.compile.foldkit.ABSENT` marker by ``arg-tail``);
-    the fold is where strictness lives (the unknown-symbol precedent): an
+    the shared :data:`~lexic.compile.foldkit.ABSENT` marker); the fold is where
+    strictness lives (the unknown-symbol precedent): an
     :data:`~lexic.compile.foldkit.ABSENT` in a non-final position is a stray
     ``,,`` and refuses, a final one is the trailing comma and drops. The
-    surviving values ride the shared :func:`~lexic.compile.foldkit.first_rest`
-    collector.
+    surviving values ride the shared
+    :func:`~lexic.compile.foldkit.first_rest` collector.
 
+    :param first: The head value.
+    :param rest: The repeated tails.
+    :param what: The construct named in the refusal.
+    :returns: The surviving values.
     :raises UnsupportedConstructError: On a stray comma.
     """
     tails = rest or []
     if ABSENT in tails[:-1]:
-        raise UnsupportedConstructError("notation: stray ',' in argument list")
-    return list(first_rest(first, [x for x in tails if x is not ABSENT]))
+        raise UnsupportedConstructError(f"notation: stray ',' in {what}")
+    return first_rest(first, [x for x in tails if x is not ABSENT])
+
+
+def _arglist(first: object, rest: list[object] | None = None) -> list[object]:
+    """The argument list of a call — positionally applied by :func:`_nv`."""
+    return list(_comma_list(first, rest, "argument list"))
+
+
+def _tuplist(first: object, one: object, rest: list[object] | None = None) -> tuple:
+    """A plain tuple's elements: the head, the mandatory tail, then the rest.
+
+    ``one`` is what makes the value a tuple — the grammar cannot derive a
+    parenthesised single value without it, so a one-element result really is
+    ``(x,)`` and never ``(x)``.
+    """
+    return _comma_list(first, [one, *(rest or [])], "tuple")
+
+
+def _tuple(items: tuple | None = None) -> tuple:
+    """``()`` when the parens were empty, else the collected elements."""
+    return items if items is not None else ()
 
 
 def _neg_int(raw: str) -> int:
@@ -427,6 +499,19 @@ _BODIES: dict[str, ModelBody] = {
     ),
     "arg-tail": seq(absent_tail, 2, (FieldFold(1, "model", "v", 0),)),
     "arg-val": seq(passthrough, 1, (FieldFold(0, "model", "v", 1),)),
+    "tuple": seq(_tuple, 3, (FieldFold(1, "model", "items", 0),)),
+    "tup-opt": ALT_BODY,
+    "tuplist": seq(
+        _tuplist,
+        3,
+        (
+            FieldFold(0, "model", "first", 1),
+            FieldFold(1, "model", "one", 1),
+            FieldFold(2, "models", "rest", 0),
+        ),
+    ),
+    "tup-tail": seq(absent_tail, 2, (FieldFold(1, "model", "v", 0),)),
+    "tup-val": seq(passthrough, 1, (FieldFold(0, "model", "v", 1),)),
     "strval": ALT_BODY,
     "sq-str": seq(_decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)),
     "dq-str": seq(_decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)),

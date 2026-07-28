@@ -23,11 +23,10 @@ from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst, IrFlavour
+from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import Reducer
-from lexic.parsing.earley.tables import ORIGIN_BITS, ParserTables
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import (
     CC,
@@ -40,7 +39,6 @@ from lexic.parsing.pda.compiler.clones import (
     IslandRef,
     ItemSpec,
     PairGate,
-    PdaTables,
     ReduceRun,
     StopGate,
     compile_pda,
@@ -54,6 +52,7 @@ from lexic.parsing.pda.compiler.flatten import (
     FlatClone,
     all_clones,
 )
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model
 from lexic.parsing.pda.runtime.runtime import PdaFail

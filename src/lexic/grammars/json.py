@@ -2,7 +2,7 @@
 
 This is the JSON grammar (RFC 8259) authored directly as :class:`IrAst`, the
 ground-truth target the GBNF and ABNF front-ends both reduce to. It is stored in
-**canonical form** — the exact shape :func:`~lexic.ir.canonical.canonicalize`
+**canonical form** — the exact shape :func:`~lexic.ir.grammar.canonical.canonicalize`
 produces — so ``canonicalize(JSON_GRAMMAR) == JSON_GRAMMAR`` and
 ``canonicalize(parse(json.gbnf)) == canonicalize(parse(json.abnf)) == JSON_GRAMMAR``.
 
@@ -25,33 +25,38 @@ integers ``IrInt``, truth ``IrInt(0|1)``, null ``IrNone`` — via
 
 from __future__ import annotations
 
-from lexic.ir.action import (
+from lexic.ir import (
+    IR_DEFAULT,
+    IrAlternation,
     IrArg,
     IrArgs,
-    IrBuild,
-    IrGlyph,
-    IrJoin,
-    IrPipe,
-    IrRaise,
-    IrUnradix,
-)
-from lexic.ir.base import IrInt, IrNone, IrSelf, IrSeq, IrStr, IrTuple
-from lexic.ir.encoding import IrUtf
-from lexic.ir.mapping import IR_DEFAULT, IrMap
-from lexic.ir.nodes import (
-    IrAlternation,
     IrAst,
+    IrBuild,
     IrCharClass,
     IrChr,
+    IrGlyph,
+    IrInt,
     IrItem,
+    IrJoin,
     IrLiteral,
+    IrMap,
+    IrNone,
+    IrPipe,
     IrQuantifier,
+    IrRaise,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrStr,
+    IrTuple,
+    IrUnradix,
+    IrUtf,
 )
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
+from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
+from lexic.parsing.earley.reduce.reducer import Reducer
 
 JSON_GRAMMAR = IrAst(
     IrSeq(

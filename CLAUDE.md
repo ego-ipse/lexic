@@ -139,6 +139,7 @@ src/lexic/
     artifact.py                    CompiledGrammar — the parse-ready artefact compile_* produces
     foldkit.py                     Shared authored-fold vocabulary — the build-path unification seed
     templating.py                  Generic templating — extract selected paths of any COMPILED grammar via spans
+    writer.py                      The shared module writer — every .py lexic emits goes out through here
     module/
       __init__.py                  The twin-module surface — export (emit half) + selfgrammar (parse-back half)
       export.py                    export_source / export_module — the importable .py twin
@@ -148,9 +149,16 @@ src/lexic/
       emit.py                      The IR-constructor notation's emit half — IR → formatted notation text
       loader.py                    Flavour manifests — one notation expression → a live `IrFlavour`
       parse.py                     The IR-constructor notation — text → real lexic.ir objects
+    payload/
+      __init__.py                  The compiled payload — a parsed value as three flat literals
+      codec.py                     The codec table — one row per kind, carrying BOTH directions
+      encode.py                    Value → the three flat tables — the projection's lexic side
+      export.py                    export_value — a projected value as an importable, self-contained module
+      reader.py                    The payload's reader — zero lexic imports, by design and by test
     pipeline/
       __init__.py                  The compile pipeline — grammar → classes (passes, binding, synthesis)
       binding.py                   Binding view — the codegen grammar's per-rule class/kind/parent/field map
+      naming.py                    What a generated class and its fields are CALLED — spelling, and nothing else
       passes.py                    Grammar→grammar codegen passes — hoist groups, hoist arms, relax noise
       synthesis.py                 Runtime class synthesis — codegen grammar + binding view → model classes
   grammars/
@@ -160,57 +168,98 @@ src/lexic/
     gbnf.py                        GBNF flavour — incl. the token terminals <t>/<[id]>/!<…>/.
     json.py                        JSON grammar as native IR — the canonical, flavour-neutral representation
   ir/
-    __init__.py                    Public IR surface — import everything from here
-    action.py                      Action-algebra IrNodes — primitive-node model
-    base.py                        IR spine — the abstract base classes shared by every IR node
-    bind.py                        IrBind — the field-binding marker generated model fields carry
-    canonical.py                   canonicalize — the language-preserving normal form for a grammar IrAst
-    concretize.py                  concretize — resolve an `IrAlphabet`'s spelling to an id
-    encoding.py                    Encoding family — the codec that gives a char class's ordinals meaning
-    escapes.py                     EscapeCodec — the flavour's emit-side spelling of canonical text, on the spine
+    __init__.py                    Public IR surface — a LAZY façade; import everything from here
     flavour.py                     IrFlavour ABC — config bundle every grammar flavour subclasses
-    layout.py                      Layout algebra — width-aware document combinators on the record spine
-    mapping.py                     Fast map family — a common IrMapping ancestor owning all shared logic
-    meta.py                        IrMeta (dataclass-transform + _bound derivation); Singleton metaclasses
-    nodes.py                       concrete grammar-AST nodes on the base.py spine (IrAlphabet lives here)
-    operators.py                   Operator-algebra nodes — the operator family, sitting between spine and nodes
-    order.py                       RuleOrder — deterministic start-first ordering of grammar rules
-    walk.py                        Action-driven IR dispatcher on the IrSelf substrate
+    spine/                        The node substrate — everything else is downstream
+      __init__.py                the group's package marker; the façade is the import surface
+      bind.py                       IrBind — the field-binding marker generated model fields carry
+      meta.py                       IrMeta (dataclass-transform + _bound derivation); Singleton metaclasses
+      records.py                    Tuple tiers — a record IS its field tuple (IrTuple/IrSeq/IrNamedTuple)
+      scalars.py                    Value leaves — a scalar node IS its payload (IrStr/IrInt/IrChr)
+      spine.py                      IR spine — the abstract bases every node sits on (IrSelf/IrNode/IrLeaf)
+    action/                       The action algebra + the dispatcher and tables it runs on
+      __init__.py                the group's package marker; the façade is the import surface
+      access.py                     Access — reaching into a node (child, field, index, length)
+      build.py                      Build — producing a node (apply, rebuild, walk, emit, raise)
+      compute.py                    Compute — turning values into other values (radix, ordinals, joins)
+      control.py                    Control — what runs and in what order (pipe, cond, each, return)
+      mapping.py                    Fast map family — a common IrMapping ancestor owning all shared logic
+      walk.py                       Action-driven IR dispatcher on the IrSelf substrate
+    grammar/                      The grammar AST and the language-preserving passes over it
+      __init__.py                the group's package marker; the façade is the import surface
+      canonical.py                  canonicalize — the language-preserving normal form for a grammar IrAst
+      concretize.py                 concretize — resolve an `IrAlphabet`'s spelling to an id
+      nodes.py                      concrete grammar-AST nodes on the spine bases (IrAlphabet lives here)
+      operators.py                  Operator-algebra nodes — the operator family, between spine and nodes
+      order.py                      RuleOrder — deterministic start-first ordering of grammar rules
+    text/                         How characters and documents are spelled
+      __init__.py                the group's package marker; the façade is the import surface
+      encodings.py                  Encoding family — the codec that gives a char class's ordinals meaning
+      escapes.py                    EscapeCodec — the flavour's emit-side spelling of canonical text
+      layout.py                     Layout algebra — width-aware document combinators on the record spine
+      pipeline.py                   Token pipeline — normalizers, pretokens, and the order they run in
+      tokenizer.py                  Tokenizer — a vocabulary, and the segmenters that apply it
   parsing/
     __init__.py                    public API: parse_reduced/parse_model products + the Earley toolkit
     fold.py                        ParseTree → object fold — the instance-parsing bridge
     products.py                    The two product entries — reduce (text → the reducer's value), model (text → model)
     earley/
       __init__.py                  The Earley engine (SPPF, Scott 2008) over IrAst-shaped grammars
-      chart.py                     The IR-native SPPF link table — the decoded form of a kernel parse
       engine.py                    Earley orchestration — the IR-native façade over the compiled kernel
-      forest.py                    Parse forest — the shared packed parse forest (SPPF) and its reducible views
-      kernel.py                    The flat Earley kernel — the compiled grammar's paid loop
+      kernel/                      The paid loop — the kernel and the structures it fills
+        __init__.py                the group's package marker
+        loop/                      The paid loop itself — what fills the chart
+          __init__.py              the group's package marker
+          kernel.py                The flat Earley kernel — the compiled grammar's paid loop
+          leo.py                   Leo right-recursion — the deterministic-chain climb and its deferred rebuild
+          state.py                 KernelState — the per-parse index state one Earley parse fills
+        forest/                    What the filled chart MEANS — the SPPF and its readers
+          __init__.py              the group's package marker
+          ambiguity.py             Does this span mean more than one thing? — the forest's own answer
+          chart.py                 The IR-native SPPF link table — the decoded form of a kernel parse
+          fasttree.py              The fast tree build — the unambiguous parse's short path
+          forest.py                Parse forest — the shared packed parse forest (SPPF) and its reducible views
+          readout.py               Readout — what a finished kernel says: accepting items, forest root, decoded chart
+          trampoline.py            Depth-safe trampoline for the forest/reduce tree walks
+        tables/                    Compiled grammar tables — the parser's "codegen moment"
+          __init__.py              the group's package marker
+          atoms.py                 Packing tiers, predecessor chains, what one terminal atom accepts
+          builder.py               TableBuilder + compile_tables — the mutable half, and the entry point
+          records.py               CodeTables / DecodeTables / TermTables / ParserTables — the artefact
+          splits.py                Which slot owns the text — resolving a binarised chain from the left
       lexruns.py                   Run-terminal detection — where a grammar's lexical layer is *derived*
       normalize.py                 Desugar an IR grammar into classical Earley shape
-      reduce.py                    Forest → IR reduction — the seam where a flavour's meaning attaches
+      reduce/                      Reduction — a parse forest into the reducer's own value
+        __init__.py                the group's package marker
+        fused.py                   The fused reduction — folding straight off the packed forest
+        policy.py                  Reduction policy — what a child contributes, as real nodes
+        reducer.py                 Forest → IR reduction — where a flavour's meaning attaches
       resume.py                    The resumable recognizer — mark / extend / rollback on one growing chart
-      tables.py                    Compiled grammar tables — the parser's "codegen moment"
       tokenscan.py                 The token-scanning kernel — Earley over a token-segmented input
-      trampoline.py                Depth-safe trampoline for the forest/reduce tree walks
     pda/
       __init__.py                  The predictive PDA runtime — analysis, clone compiler, flattener, kernel
       analysis/
         __init__.py                The PDA analysis — decide every decision point, then store the gate specs
         analysis.py                Grammar analysis + decision taxonomy — the PDA compiler's oracle
         cursors.py                 Analysis context cursors — the small data records that ride the nc channel
-        kwindow.py                 FIRST_k over CharSet tuples — the k-window (bounded-lookahead) analysis
-        leftrec.py                 Left-recursion detection — the predictive-descent impossibility check
-        noise.py                   Noise/semantic attribution — the P6 licence + P3 noise-skip substrate
-        structured.py              P3-structured / P5-probe — folding-aware loop gates
+        gates/                 The gate analyses — one per decision the PDA must settle
+          __init__.py          the group's package marker
+          kwindow.py          FIRST_k over CharSet tuples — the k-window (bounded-lookahead) analysis
+          leftrec.py          Left-recursion detection — the predictive-descent impossibility check
+          noise.py            Noise/semantic attribution — the P6 licence + P3 noise-skip substrate
+          structured.py       P3-structured / P5-probe — folding-aware loop gates
+          windows.py          FIRST_k windows — what a decision point can see ahead
+        predicates.py          Per-node predicates + the dispatch tables that read them
         taxonomy.py                Taxonomy — the analysis' classified-notes + gate-spec result record
       compiler/
         __init__.py                The PDA clone compiler — an IrAst into flat int-coded tables
         clones.py                  Clone compiler — the predictive-parser artifact beside `ParserTables`
         delegate_compile.py        Island-interior delegate compile — the per-island clone selector
         flatten.py                 Flat int-coded runtime program + post-flatten optimizer passes
+        lower.py                   Lowering — a compiled clone set into the flat int-coded program
         reduce_pda.py              Reduce (grammar-text) completion — the b1 twin of the model fold
         specs.py                   Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin
+        tables.py                  PdaTables — what a compiled grammar's predictive half IS
       core/
         __init__.py                Shared PDA leaves — CharSet, the ScanGate scanner, PdaFail
         charsets.py                CharSet — polarity-aware co-finite character sets
@@ -220,12 +269,21 @@ src/lexic/
         __init__.py                The fused predictive runtime — execute the compiled tables
         build.py                   Frame vocabulary + the fused model-build tail (PDA runtime leaf)
         islands.py                 Island sub-parse + splice — the cold-path Earley escape for a PDA clone
+        matchers.py                Terminal matching — the PDA runtime's cursor-free recognition leaf
         reduce_runtime.py          Reduce (grammar-text) predictive runtime — the b1 twin of `PdaKernel`
         runtime.py                 Fused predictive runtime — parses text to a model, no ParseTree on the path
 tests/
   unit/lexic/           structural mirror of src/lexic/
-  integration/          cross-module: layering, parity, round-trip, doc drift
-  property/             hypothesis round-trip + reduce differentials
+  integration/lexic/    cross-module, grouped by what a test DEFENDS:
+    parity/               the two engines agreeing — differentials, fallback, islands
+    roundtrip/            grammar ↔ IR ↔ text fidelity, cross-flavour, fixpoint
+    tokens/               the token layer — binding, additivity, real tokenizers
+    codegen/              generated modules, self-grammar, manifests, templating
+    invariants/           the repo's own rules — layering, doc drift, benchmark faithfulness
+    corpora/              big-corpus soak
+  property/lexic/       hypothesis round-trip + reduce differentials
+  adversarial/lexic/    inputs chosen to break a specific assumption
+  performance/lexic/    guarded timing gates
   paths.py              GROUND_TRUTH / GENERATED / tokenizer-fixture paths
 ext/API/                NOT shipped — clients that FETCH third-party artefacts
   cache.py              where fetched artefacts live locally; imports only pathlib
@@ -256,6 +314,12 @@ A directive naming an undefined rule is silently ignored.
 
 - **Grammar is canonical.** Every class has a lossless `to_grammar(flavour)`.
 - **Round-trip fidelity.** `parse(text).to_text() == text` on every valid input.
+- **Ambiguity is refused, by both engines.** A span whose derivations build two
+  different models raises rather than one engine quietly picking — the PDA's
+  "first" and Earley's "first" are not the same first. The question is about
+  VALUES: a *split* (one production carved two ways) has a defined answer and is
+  never refused; only an *arm* choice is. The opt-out is a caller-supplied
+  resolver, not a flag, and it reaches whichever engine chooses.
 - **One way per task.** One parse function, one emit method, one round-trip
   method. No alternate APIs, and no sugar channel beside a real one.
 - **No regression.** The suite stays green.

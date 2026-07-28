@@ -23,7 +23,7 @@ Returns a `GrammarModel` instance whose concrete type is the start-rule class. C
 
 ---
 
-### `compile_text(text, *, cache_key, flavour)` — `compile/__init__.py`
+### `compile_text(text, *, cache_key, flavour, vocabulary, directives)` — `compile/__init__.py`
 
 Compiles a grammar string into a `CompiledGrammar`. Use when you have the grammar in memory.
 
@@ -34,13 +34,51 @@ cg = compile_text(grammar_text, flavour="gbnf")
 model = cg.parse("x=1\n")
 ```
 
+`vocabulary` is the lens the grammar's terminals are read through — `Vocabulary(tokenizer, registry)`. The two were never separate channels: they compose over a default `unicode` before anything reads a terminal.
+
+`directives` says what the grammar's `@directives` would say, as an argument — `Directives(start, non_semantic)`, exactly what the source-comment scan produces. Given explicitly it OVERRIDES the source. Use it when a caller knows a rule is structural noise and does not want to edit the grammar to say so.
+
+```python
+from lexic.compile import Directives, Vocabulary, compile_text
+
+cg = compile_text(text, directives=Directives(non_semantic=frozenset({"ws"})))
+cg = compile_text(text, vocabulary=Vocabulary(tokenizer))
+```
+
+Both are part of the memo key: one source compiled two ways must not hand back the first.
+
 `flavour` defaults to `"gbnf"`. **Memoised by content by default**: the default cache key is `(content sha stem, flavour)` — compiling the same source in the same flavour returns the cached `CompiledGrammar` and its class objects. Pass `cache_key=` to prepend an extra key prefix; `reset_cache_for_tests()` clears the cache when a caller needs fresh class objects. Classes are synthesized in memory (`type()`) — there is no output directory to key on.
 
 ---
 
-### `compile_from_path(path, *, flavour)` — `compile/__init__.py`
+### `compile_from_path(path, *, flavour, vocabulary, directives)` — `compile/__init__.py`
 
-Like `compile_text` but reads the file and memoises by `(path, mtime, size, flavour)`, using `path.stem` as the class-module stem. Flavour is inferred from the file extension if omitted.
+Like `compile_text` but reads the file and memoises by `(path, mtime, size, flavour, vocabulary, directives)`, using `path.stem` as the class-module stem. Flavour is inferred from the file extension if omitted. Carries `compile_text`'s whole surface.
+
+---
+
+### `export_value(value, path, *, module=None)` — `compile/payload/__init__.py`
+
+Writes whatever lexic parsed as an importable module: the value's payload as
+four flat literals, plus an import of the reader emitted beside it. Returns the
+written path, and writes the `.pyc` with it.
+
+Which of the three targets you get — `classes`, `ir`, `plain` — is **not a
+parameter**. It follows from the codomain of the reduction that produced the
+value, and the exporter reads it off the symbols: a model carries its grammar's
+classes, a reduced value carries the spine, plain data carries nothing and so
+reads back with zero lexic modules imported.
+
+`module` names where a reader will find symbols whose own module does not
+import — which is exactly the synthesized classes a `CompiledGrammar` holds,
+since they report a content-tagged module. Passing it also asserts it: if that
+module already imports, the export refuses when it cannot supply the symbols, or
+supplies them from a different compilation. Anything with a real importable
+origin needs no `module` at all.
+
+The value is projected under the fixpoint gate before anything is written, so an
+artefact that cannot be read back is never created. See
+[[generated-modules]] for the artefact's shape and the checks it runs at import.
 
 ---
 
@@ -149,6 +187,10 @@ On explicit request `export_module(compiled, path, *, stem=None, inline_tables=F
 
 `.parse(text)` is the only method callers need. It runs `parse_model(self.codegen_grammar, text, self.fold)` — the engine's instance product (PDA-first, Earley completion inside the engine, memoised per `(grammar, fold)` identity). If the start rule does not fold to a `GrammarModel`, `.parse` raises `UnsupportedConstructError`.
 
+**Ambiguity is refused, by both engines.** A span whose derivations build two different models raises `UnsupportedConstructError` rather than one engine quietly picking — the PDA's "first" and Earley's "first" are not the same first, and a parser that answers an ambiguous question is not answering the question asked. The test is about VALUES, not derivation counts: a grammar routinely derives one text several ways without meaning anything by it, and a *split* — one production carved two ways, same arm, different boundary — has a defined answer (the first slot owns the text) and is never refused. Only an *arm* choice, two different productions over one span, is a question the grammar left open.
+
+The opt-out is a **resolver, not a flag**: `parse_model(grammar, text, fold, resolve=...)` takes a deterministic `Resolver`, handed the derivation in hand and the witness that differs, and whatever it returns is the parse. Its behaviour is the caller's concern, not the engine's. The same resolver reaches whichever engine ends up choosing, so the answer does not depend on which route ran. `CompiledGrammar.parse(text, resolve=...)` surfaces it too, and reaches the **token** route as well as the char one — the promise does not depend on whether a grammar's terminals happen to name an encoding.
+
 ---
 
 ## `GrammarModel`
@@ -188,7 +230,7 @@ See `canonical_grammar`'s precedence rules above for how `@start`/`@non-semantic
 
 ## Grammar-parsing golden gates
 
-`tests/integration/test_gbnf_ir_equivalence.py` and `test_abnf_ir_equivalence.py` used to compare the engine's grammar parse against the (now-deleted) `MetaGrammarParser`/Lark path — they no longer have a second implementation to diff against. Both are now golden fingerprint tests: every ground-truth/fixture grammar must reduce to an `IrAst` with an expected `(start_rule, rule_names)` fingerprint, unambiguously (`is_ambiguous` is false), and re-emitting through the flavour singleton and re-parsing must preserve that fingerprint. `tests/integration/test_cross_flavour.py`'s `test_json_gbnf_and_abnf_compile_to_identical_generated_source` goes further for `json.gbnf`/`json.abnf`: it asserts the full **generated module source** is byte-identical (modulo the docstring's content-hashed stem) — the user-visible form of the canonicalization fixpoint `canonicalize(parse(json.gbnf)) == canonicalize(parse(json.abnf)) == JSON_GRAMMAR`.
+`tests/integration/lexic/roundtrip/test_gbnf_ir_equivalence.py` and `test_abnf_ir_equivalence.py` used to compare the engine's grammar parse against the (now-deleted) `MetaGrammarParser`/Lark path — they no longer have a second implementation to diff against. Both are now golden fingerprint tests: every ground-truth/fixture grammar must reduce to an `IrAst` with an expected `(start_rule, rule_names)` fingerprint, unambiguously (`is_ambiguous` is false), and re-emitting through the flavour singleton and re-parsing must preserve that fingerprint. `tests/integration/lexic/roundtrip/test_cross_flavour.py`'s `test_json_gbnf_and_abnf_compile_to_identical_generated_source` goes further for `json.gbnf`/`json.abnf`: it asserts the full **generated module source** is byte-identical (modulo the docstring's content-hashed stem) — the user-visible form of the canonicalization fixpoint `canonicalize(parse(json.gbnf)) == canonicalize(parse(json.abnf)) == JSON_GRAMMAR`.
 
 ---
 
@@ -201,3 +243,5 @@ See `canonical_grammar`'s precedence rules above for how `@start`/`@non-semantic
 | Grammar is a file; parse many strings | `compile_from_path` → `.parse()` |
 | Inspect the canonical grammar without generating code | `canonical_grammar` |
 | Grammar text → raw (not-yet-canonicalized) `IrAst` only (transpile, inspect, re-emit) | `parse_grammar` |
+| Write a compiled grammar as an importable twin | `export_module` |
+| Write a PARSED VALUE as an importable module | `export_value` |

@@ -15,7 +15,7 @@ no ``@directive`` scan) and no native char-class or negation syntax:
 - a char class emits as a parenthesised ``|`` alternation of quoted
   terminals/``..`` ranges (a single member emits bare) and reparses through
   canonicalisation back to the merged class;
-- :class:`~lexic.ir.operators.IrNot` refuses declaratively (the ABNF
+- :class:`~lexic.ir.grammar.operators.IrNot` refuses declaratively (the ABNF
   precedent) — canonicalisation rewrites negation to positive spans first,
   so the raising action is unreachable on canonical input;
 - an open or bounded counted quantifier (``{n,}``/``{m,n}``) refuses at emit:
@@ -32,57 +32,65 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from lexic.ir.action import (
+from lexic.ir import (
+    IR_DEFAULT,
+    EscapeCodec,
     IrAction,
+    IrAlphabet,
+    IrAlternation,
+    IrAnd,
     IrArg,
     IrArgs,
+    IrAst,
     IrAt,
     IrBuild,
+    IrCharClass,
     IrChild,
     IrChildren,
+    IrChr,
     IrCompare,
     IrConcat,
     IrCond,
+    IrDocConcat,
+    IrDocJoin,
     IrEmit,
+    IrEscape,
+    IrEscapePoint,
     IrField,
+    IrFlavour,
     IrGlyph,
+    IrGroup,
+    IrInt,
     IrIsA,
+    IrItem,
     IrJoin,
     IrLen,
-    IrPipe,
-    IrRaise,
-    IrThis,
-    IrUnradix,
-)
-from lexic.ir.base import (
-    IrChr,
-    IrInt,
+    IrLine,
+    IrLiteral,
+    IrMap,
+    IrNest,
     IrNone,
     IrNoneType,
-    IrSelf,
-    IrSeq,
-    IrStr,
-    IrTuple,
-)
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour
-from lexic.ir.layout import IrDocConcat, IrDocJoin, IrGroup, IrLine, IrNest, IrText
-from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
-from lexic.ir.nodes import (
-    IrAlphabet,
-    IrAlternation,
-    IrAst,
-    IrCharClass,
-    IrItem,
-    IrLiteral,
+    IrNot,
+    IrOp,
+    IrPipe,
     IrQuantifier,
+    IrRaise,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrStr,
+    IrText,
+    IrThis,
+    IrTuple,
+    IrTypeMap,
+    IrUnradix,
 )
-from lexic.ir.operators import IrAnd, IrNot, IrOp
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
+from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
+from lexic.parsing.earley.reduce.reducer import Reducer
 
 # EBNF escape tables — quoted-terminal body + ``..``-endpoint spelling. The
 # EBNF "class context" is a double-quoted ``..`` endpoint / member terminal —
@@ -567,6 +575,7 @@ class _EbnfFlavour(IrFlavour):
     extensions: ClassVar[tuple[str, ...]] = (".ebnf",)
     escapes: ClassVar[EscapeCodec] = EBNF_ESCAPES
     line_comment: ClassVar[str] = ""
+    block_comment: ClassVar[tuple[str, ...]] = ("(*", "*)")
     grammar: ClassVar[IrAst] = EBNF_GRAMMAR
     reducer: ClassVar[Reducer] = EBNF_REDUCER
 

@@ -16,20 +16,30 @@ brittle fixture.
 
 from __future__ import annotations
 
+import random
+
 import pytest
 
+from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
-from lexic.ir.nodes import IrAst
-from lexic.parsing.earley.forest import ParseTree
-from lexic.parsing.earley.kernel import Kernel
-from lexic.parsing.earley.tables import compile_tables
+from lexic.generate import generate
+from lexic.ir import IrAst, IrInt, IrRuleRef, IrSeq, IrStr
+from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.islands import (
+    IslandPolicy,
+    _differs,
     island_derivation,
     island_parse,
     island_run,
     island_value,
 )
+from lexic.parsing.products import _model_product
+from tests.paths import GROUND_TRUTH
 
 # ── island_run ────────────────────────────────────────────────────────
 
@@ -95,11 +105,61 @@ def test_island_parse_resolves_an_ambiguous_completion_via_island_derivation(
     """'aaa' under ``s = s s / 'a'`` is genuinely ambiguous (Catalan C_2) —
     the FastTree fast path misses, so island_parse falls through to
     island_derivation for the first derivation. Exercises both functions.
+
+    Under a take-the-first resolver, because taking a derivation from several
+    is the behaviour being exercised and the default now refuses it.
     """
     tables = compile_tables(sss_grammar)
-    tree, end = island_parse(tables, "aaa", 0, "s")
+    tree, end = island_parse(
+        tables, "aaa", 0, "s", IslandPolicy(resolve=lambda first, other: first)
+    )
     assert isinstance(tree, ParseTree)
     assert end == 3
+
+
+def test_island_parse_refuses_derivations_that_mean_different_things(sss_compiled):
+    """A silently chosen derivation is a wrong answer where an error is available.
+
+    An island is the ONE site where the model path chooses — everywhere else it
+    is predictive and produces one derivation by construction — and the choice
+    is invisible to the round-trip invariant, because ``to_text()`` reproduces
+    the input for whichever derivation was taken.
+    """
+    tables = compile_tables(sss_compiled.codegen_grammar)
+    with pytest.raises(UnsupportedConstructError, match="mean different things"):
+        island_parse(tables, "aaa", 0, "s", IslandPolicy(fold=sss_compiled.fold))
+
+
+def test_island_parse_allows_derivations_that_mean_the_same_thing() -> None:
+    """An inline group like ``([0-9] | [1-9] [0-9]*)`` carves a single digit two
+    ways and folds to one model both times — the arms never materialise a class.
+
+    Refusing that refuses ``{"a":1}`` for a difference nothing downstream can
+    observe, which is why the check is on values and not on derivation count.
+    """
+    compiled = compile_text(
+        'root ::= number\nnumber ::= ("-"? ([0-9] | [1-9] [0-9]{0,15}))',
+        cache_key="inline-ambiguous",
+    )
+    ready = normalize(lift_optional_nullables(compiled.codegen_grammar))
+    tables = compile_tables(ready)
+    tree, end = island_parse(tables, "5", 0, "number", IslandPolicy(fold=compiled.fold))
+    assert isinstance(tree, ParseTree)
+    assert end == 1
+
+
+def test_the_fast_path_declining_is_not_by_itself_ambiguity(sss_grammar: IrAst):
+    """The refusal asks the derivation STREAM, not ``isinstance``.
+
+    ``FastTree`` also declines when a key packs several families or the root has
+    many productions, so reading its miss as "ambiguous" refused ordinary input
+    — 46 tests, including ``{"a":1}``. An unambiguous island whose fast path
+    misses must still parse under the default.
+    """
+    tables = compile_tables(sss_grammar)
+    tree, end = island_parse(tables, "a", 0, "s")
+    assert isinstance(tree, ParseTree)
+    assert end == 1
 
 
 # ── island_derivation ─────────────────────────────────────────────────
@@ -156,3 +216,135 @@ def test_island_value_lets_non_library_exceptions_surface():
 
     with pytest.raises(RuntimeError):
         island_value(_boom, "r", 0)
+
+
+# ── _differs — ambiguity is a question about VALUES ────────────────────
+
+
+def _tree(name: str) -> ParseTree:
+    """A distinguishable stand-in derivation — `_differs` only passes it on."""
+    return ParseTree(IrRuleRef(name), IrSeq())
+
+
+def test_differs_sees_a_genuine_difference():
+    """Two derivations that fold to different values ARE an ambiguity.
+
+    The whole point of the check: it must be able to answer YES. Reading the
+    apply off the fold with `getattr` meant anything that was not shaped like a
+    fold silently answered "no observable difference" — a missed ambiguity, and
+    a refusal that never fires is worse than no check at all.
+    """
+    one, other = _tree("one"), _tree("other")
+    assert _differs(lambda t: 1 if t is one else 2, one, other)
+
+
+def test_differs_compares_values_not_their_spelling():
+    """Equal values spelled differently are NOT an ambiguity.
+
+    `repr` is a proxy for a value, and two dicts of the same content built in
+    different key orders have the same value and different reprs. Judging by
+    the spelling refuses a document over a difference no consumer can observe.
+    """
+    one, other = _tree("one"), _tree("other")
+    first, second = {"a": 1, "b": 2}, {"b": 2, "a": 1}
+    assert repr(first) != repr(second)  # the proxy disagrees
+    assert first == second  # the value does not
+    assert not _differs(lambda t: first if t is one else second, one, other)
+
+
+def test_differs_sees_a_difference_of_type():
+    """A wrapped scalar and a bare one are NOT the same value.
+
+    `IrStr("a") == "a"` and `IrInt(1) == 1` — the IR wraps `str` and `int`, so
+    equality alone says two derivations agree when one built a leaf and the
+    other built bare text. A consumer that reads the field sees the
+    difference; the check must too.
+    """
+    one, other = _tree("one"), _tree("other")
+    assert _differs(lambda t: IrStr("a") if t is one else "a", one, other)
+    assert _differs(lambda t: IrInt(1) if t is one else 1, one, other)
+    assert _differs(lambda t: 1 if t is one else True, one, other)
+
+
+def test_differs_does_not_refuse_over_a_value_that_is_never_equal_to_itself():
+    """A float NaN is not an ambiguity with itself.
+
+    `nan != nan`, so a bare `!=` reports a difference between one value and
+    that same value — refusing a document over nothing at all.
+    """
+    one, other = _tree("one"), _tree("other")
+    nan = float("nan")
+    assert not _differs(lambda t: nan if t is one else float("nan"), one, other)
+
+
+def test_differs_does_not_refuse_over_a_value_with_no_value_semantics():
+    """An authored class without `__eq__` compares by identity, and two
+    derivations always build two objects. Refusing on that refuses every
+    ambiguous island whose fold ends in such a constructor — for a difference
+    the object itself declines to define. Cannot tell is not a difference.
+    """
+
+    # spelled as a type rather than a class body because its whole point is
+    # having no members at all — least of all __eq__
+    opaque = type("Opaque", (), {})
+    one, other = _tree("one"), _tree("other")
+    assert not _differs(lambda t: opaque() if t is one else opaque(), one, other)
+
+
+# ── ambiguity is a property of the FOREST, not of the first two derivations ──
+
+
+def _vyx_span(seed: int):
+    """A vyx parse whose forest holds >2 derivations, and its kernel."""
+    compiled = compile_from_path(GROUND_TRUTH / "vyx.gbnf")
+    product = _model_product(compiled.codegen_grammar, compiled.fold)
+    rules = {r.name: r for r in compiled.grammar.rules}
+    text = generate(
+        compiled.grammar.start, rules, rng=random.Random(seed), max_depth=12
+    )
+    kern = Kernel(product.tables, text)
+    best = kern.longest_start_completion()
+    assert best is not None
+    return compiled, kern, best
+
+
+@pytest.mark.parametrize("seed", [79, 108])
+def test_a_decided_split_past_the_second_derivation_is_accepted(seed):
+    """PORTED, opposite expectation: these two are SPLIT class, and splits decide.
+
+    They were the witnesses that ambiguity past the second derivation is still
+    ambiguity — derivations [0] and [1] agree and a later one does not, which
+    the two-derivation sample could not see. That machinery is unchanged and
+    still exercised by the arm-class case below.
+
+    What changed is the classification: both seeds carry ONLY split-class points
+    (0 arm-class, verified), and a split now has a defined answer — the first
+    slot owns the text. Refusing it would refuse a question the engine can
+    answer, and RFC 8259's own shape is ambiguous, so that refusal is not
+    available. The engines agree on these inputs; nothing is left to refuse.
+    """
+    compiled, kern, best = _vyx_span(seed)
+    item, end = best
+    assert isinstance(
+        island_derivation(
+            kern, item, end, "vyx", policy=IslandPolicy(fold=compiled.fold)
+        ),
+        ParseTree,
+    )
+
+
+@pytest.mark.parametrize("seed", [146, 266])
+def test_an_arm_choice_past_the_second_derivation_still_refuses(seed):
+    """The refusal the split class gave up — one span, two DIFFERENT productions.
+
+    A length preference has no standing over which production the grammar
+    meant, so this stays a refusal, and it is what pins the N >= 3 walk: both
+    seeds carry an arm-class point that the first two derivations do not
+    expose.
+    """
+    compiled, kern, best = _vyx_span(seed)
+    item, end = best
+    with pytest.raises(UnsupportedConstructError):
+        island_derivation(
+            kern, item, end, "vyx", policy=IslandPolicy(fold=compiled.fold)
+        )

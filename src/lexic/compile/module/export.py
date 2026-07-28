@@ -18,7 +18,7 @@ classes — equivalent but distinct objects; they construct, ``to_text()``,
 
 Formatting is IR-native: the grammar renders through the notation emit half
 (:func:`~lexic.compile.notation.emit_ir`, width-solved by the
-:mod:`~lexic.ir.layout` algebra) — no external formatter. Every export is
+:mod:`~lexic.ir.text.layout` algebra) — no external formatter. Every export is
 validated in-process: the module must ``ast.parse`` and the rendered
 ``GRAMMAR`` must :func:`~lexic.compile.notation.load_ir` back to an AST equal
 to the compiled one.
@@ -27,46 +27,75 @@ to the compiled one.
 from __future__ import annotations
 
 import ast as _pyast
-import re
 from pathlib import Path
+from typing import NamedTuple
 
 from lexic import ir
 from lexic.compile.artifact import CompiledGrammar
 from lexic.compile.notation.emit import black_quoted, ir_doc
 from lexic.compile.notation.parse import load_ir
-from lexic.compile.pipeline.binding import (
-    RuleBinding,
-    class_name_for,
-    compute_binding,
-    non_empty_arms,
-)
+from lexic.compile.pipeline.binding import RuleBinding, compute_binding, non_empty_arms
+from lexic.compile.pipeline.naming import class_name_for
+from lexic.compile.writer import write_module
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
-from lexic.ir.base import IrSelf
-from lexic.ir.layout import IrCat, IrDoc, IrGroup, IrLine, IrNest, IrText, render
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
+    IrCat,
+    IrDoc,
+    IrGroup,
     IrItem,
+    IrLine,
     IrLiteral,
+    IrNest,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
     IrSequence,
+    IrText,
+    render,
+    rule_closure,
 )
 
 WIDTH = 88
 
 _UNIT = IrQuantifier(1, 1)
 
-_IR_NAME = re.compile(r"\bIr[A-Za-z0-9]*\b|\bIR_DEFAULT\b")
 
-# A value-final token (bare name, ``)``, string, int) is followed by its
-# delimiter (``,``/``)``) across only space/tab in an exported module — the
-# module self-grammar's ``ws-inl`` cannot cross a newline. The layout algebra
-# breaks only AFTER ``(``/``,`` (whose ``ws`` DOES cross a newline), so a
-# newline before a delimiter never occurs; this pins the invariant.
-_WS_INL_LEAK = re.compile(r"[\w)]\n[ ]*[,)]")
+def _ws_inl_leak(text: str) -> str:
+    """The first value-final token separated from its delimiter by a newline.
+
+    A value-final token (bare name, ``)``, string, int) is followed by its
+    delimiter (``,``/``)``) across only space/tab in an exported module — the
+    module self-grammar's ``ws-inl`` cannot cross a newline. The layout algebra
+    breaks only AFTER ``(``/``,`` (whose ``ws`` DOES cross a newline), so a
+    newline before a delimiter never occurs; this finds one if it ever does.
+
+    The word test is ``str.isalnum() or "_"``, which is exactly CPython's
+    ``\\w``: both are ``isalpha() or isdecimal() or isdigit() or isnumeric()``,
+    plus the underscore.
+
+    :param text: Rendered notation.
+    :returns: The offending slice, or ``""`` when the invariant holds.
+    """
+    at = text.find("\n")
+    while at >= 0:
+        # A newline at 0 cannot start a match — no preceding character — but it
+        # must be SKIPPED, not terminated on. Writing `while at > 0` here
+        # returns "" for `"\na\n,"`, where the invariant is violated at 1, and
+        # the caller raises on this, so a false negative ships a broken twin in
+        # silence (403 of 4 617 859 inputs, adversarial pass 2).
+        before = text[at - 1] if at else ""
+        if before in (")", "_") or before.isalnum():
+            after = at + 1
+            while after < len(text) and text[after] == " ":
+                after += 1
+            if after < len(text) and text[after] in ",)":
+                return text[at - 1 : after + 1]
+        at = text.find("\n", at + 1)
+    return ""
 
 
 # ── field annotations (readable view — the runtime never reads them) ─────
@@ -185,7 +214,18 @@ def _sequence_field_lines(
     return lines
 
 
-def _indented_ir(prefix: str, node: IrSelf) -> list[str]:
+class _Rendered(NamedTuple):
+    """A rendered fragment: its lines + every header symbol it spelled.
+
+    The header is the union of these, so each renderer declares its own
+    spellings. Nothing reads the finished module back to find out what is in it.
+    """
+
+    lines: list[str]
+    symbols: frozenset[str]
+
+
+def _indented_ir(prefix: str, node: IrSelf) -> _Rendered:
     """``prefix`` + the node in notation, rendered as ONE layout document.
 
     The prefix and the node's doc render together (the prefix's leading
@@ -195,26 +235,36 @@ def _indented_ir(prefix: str, node: IrSelf) -> list[str]:
     ruff-format fixpoint, no post-hoc re-indent pass.
     """
     base = len(prefix) - len(prefix.lstrip(" "))
-    doc = IrCat(IrText(prefix), IrNest(base, ir_doc(node)))
+    notation = ir_doc(node)
+    doc = IrCat(IrText(prefix), IrNest(base, notation.doc))
     text = render(doc, WIDTH)
-    leak = _WS_INL_LEAK.search(text)
-    if leak is not None:
+    leak = _ws_inl_leak(text)
+    if leak:
         raise UnsupportedConstructError(
-            f"export: newline before a delimiter breaks module reparse: "
-            f"{leak.group()!r}"
+            f"export: newline before a delimiter breaks module reparse: {leak!r}"
         )
-    return text.split("\n")
+    return _Rendered(text.split("\n"), notation.symbols)
 
 
-def _inline_table_lines(bind: RuleBinding, rule: IrRule) -> list[str]:
-    """The ``inline_tables`` ClassVars: ``__grammar__`` and ``__binds__``.
+def _inline_table_lines(bind: RuleBinding, rule: IrRule, shape: int) -> _Rendered:
+    """The ``inline_tables`` ClassVars: ``__grammar__``, ``__shape__``, ``__binds__``.
 
     Strings render double-quoted (:func:`~lexic.compile.notation.black_quoted`)
     so the inline tables are a formatter fixpoint like the rest of the module.
+
+    ``__shape__`` is written here for the same reason ``bind_module`` writes it:
+    it is the class's provenance, and a twin without it reads as a class with no
+    grammar at all — which makes a payload naming it lose its provenance
+    silently in one direction and be refused in the other.
     """
-    lines = _indented_ir("    __grammar__: ClassVar[IrRule] = ", rule)
+    grammar = _indented_ir("    __grammar__: ClassVar[IrRule] = ", rule)
+    lines = list(grammar.lines)
+    lines.append(f"    __shape__: ClassVar[int] = {shape}")
+    # The annotations this function writes by hand are spellings too.
+    symbols = grammar.symbols | {"ClassVar", "IrRule"}
     if bind.fields:
         lines.append("    __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {")
+        symbols |= {"IrBind"}
         for name, ibind in bind.fields.items():
             args = f"{ibind.item}, {black_quoted(ibind.mode)}"
             if not ibind.semantic:
@@ -223,55 +273,88 @@ def _inline_table_lines(bind: RuleBinding, rule: IrRule) -> list[str]:
                 f"        {ibind.item}: ({black_quoted(name)}, IrBind({args})),"
             )
         lines.append("    }")
-    return lines
+    return _Rendered(lines, symbols)
+
+
+class _ClassInput(NamedTuple):
+    """Everything one class block is rendered from — its rule, seen four ways.
+
+    ``rule`` is the RESOLVED rule, which only the field types read. Everything a
+    class CARRIES — its docstring, its ``__grammar__``, its ``__shape__`` —
+    comes from ``authored``, the pre-resolution rule, because that is what the
+    runtime class carries and a twin is meant to be its equal.
+    """
+
+    bind: RuleBinding
+    rule: IrRule
+    authored: IrRule
+    rule_text: str
+    shape: int
 
 
 def _class_lines(
-    bind: RuleBinding,
-    rule: IrRule,
+    made: _ClassInput,
     class_by_rule: dict[str, str],
-    rule_text: str,
     *,
     inline_tables: bool,
-) -> list[str]:
-    """One class definition's lines."""
+) -> _Rendered:
+    """One class definition's lines, and the header symbols they spell."""
+    bind, rule, authored, rule_text, shape = made
     bases = ", ".join(bind.parent_class_names) or "GrammarModel"
     lines = [f"class {bind.class_name}({bases}):"]
     lines.extend(docstring_lines(rule_text))
+    symbols: frozenset[str] = frozenset()
     body: list[str] = []
     if bind.kind == "value_str":
-        body.append(f"    value: {value_str_type(rule)}")
+        annotation = value_str_type(rule)
+        body.append(f"    value: {annotation}")
+        # Asked of the annotation just produced, not of the finished module:
+        # ``Literal[…]`` is the one form that needs a typing import.
+        if annotation.startswith("Literal["):
+            symbols |= {"Literal"}
     elif bind.kind == "sequence":
         body.extend(_sequence_field_lines(bind, rule, class_by_rule))
     if inline_tables:
-        body.extend(_inline_table_lines(bind, rule))
+        tables = _inline_table_lines(bind, authored, shape)
+        body.extend(tables.lines)
+        symbols |= tables.symbols
     if body:  # formatter fixpoint: blank line between docstring and body
         lines.append("")
         lines.extend(body)
-    return lines
+    return _Rendered(lines, symbols)
 
 
 # ── module assembly ──────────────────────────────────────────────────────
 
 
-def _import_block(body: str, *, inline_tables: bool) -> str:
-    """The complete header imports for a rendered module body — isort-stable.
+def _import_block(spelled: frozenset[str], *, inline_tables: bool) -> str:
+    """The complete header imports for the symbols emission SPELLED — isort-stable.
 
-    ``lexic.ir`` names come from what the body actually references (every
-    referenced name is verified against the real ``lexic.ir`` surface);
-    ``Literal`` only when a ``Literal[...]`` annotation rendered; ``ClassVar``
-    only in ``inline_tables`` mode; ``bind_module`` only when the module ends
-    in the bind call. The lexic block is emitted in sorted module order
-    (``compile`` < ``ir`` < ``model``) so a user's isort/format-on-save pass
-    is a NO-OP on a fresh export — regeneration never fights the formatter.
+    ``spelled`` is what the renderers reported, routed to the module each name
+    lives on. Nothing is read back out of the rendered text: a scan cannot tell
+    a spelling from a mention, and walking the value instead over-imports
+    (the notation elides trailing defaults). ``bind_module`` and
+    ``GrammarModel`` are the module's fixed frame, not derived. The lexic block
+    is emitted in sorted module order (``compile`` < ``ir`` < ``model``) so a
+    user's isort/format-on-save pass is a NO-OP on a fresh export —
+    regeneration never fights the formatter.
+
+    :param spelled: Header symbols the renderers reported.
+    :param inline_tables: Whether the module ends in the bind call.
+    :returns: The header source.
+    :raises UnsupportedConstructError: When a spelled symbol has no home to
+        import it from — silently dropping it would emit a module that cannot
+        import.
     """
-    ir_names = sorted({n for n in _IR_NAME.findall(body) if hasattr(ir, n)})
+    ir_names = sorted(name for name in spelled if name in ir.__all__)
+    typing_names = [name for name in ("ClassVar", "Literal") if name in spelled]
+    homeless = spelled - set(ir_names) - set(typing_names)
+    if homeless:
+        raise UnsupportedConstructError(
+            f"export: emission spelled {sorted(homeless)}, which the header "
+            "cannot import from lexic.ir or typing"
+        )
     lines = ["from __future__ import annotations", ""]
-    typing_names = [
-        name
-        for name, used in (("ClassVar", inline_tables), ("Literal", "Literal[" in body))
-        if used
-    ]
     if typing_names:
         lines += [f"from typing import {', '.join(typing_names)}", ""]
     if not inline_tables:
@@ -287,6 +370,35 @@ def _import_block(body: str, *, inline_tables: bool) -> str:
     return "\n".join(lines)
 
 
+def _grammar_source(source: str, tree: _pyast.Module) -> str:
+    """The text of the module's ``GRAMMAR`` assignment, read structurally.
+
+    Not ``source.split("GRAMMAR: IrAst = ")``: the module docstring renders the
+    grammar in its own flavour, so a grammar with a terminal spelling that
+    phrase put the split in the DOCSTRING and the gate refused a legal grammar.
+    Asking the parsed module which statement assigns ``GRAMMAR`` cannot land
+    anywhere else.
+
+    :param source: The rendered module.
+    :param tree: Its parsed form.
+    :returns: The assignment's right-hand side, verbatim.
+    :raises UnsupportedConstructError: When the module assigns no ``GRAMMAR``.
+    """
+    for node in tree.body:
+        if not isinstance(node, _pyast.AnnAssign) or node.value is None:
+            continue
+        target = node.target
+        if not isinstance(target, _pyast.Name) or target.id != "GRAMMAR":
+            continue
+        segment = _pyast.get_source_segment(source, node.value)
+        if segment is not None:
+            return segment
+    raise UnsupportedConstructError(
+        "export: the rendered module assigns no GRAMMAR, so there is nothing "
+        "to round-trip against the compiled AST"
+    )
+
+
 def _check_export(source: str, canonical: IrAst) -> None:
     """The always-on export gates: valid Python, GRAMMAR round-trips.
 
@@ -295,17 +407,81 @@ def _check_export(source: str, canonical: IrAst) -> None:
         canonical AST.
     """
     try:
-        _pyast.parse(source)
+        tree = _pyast.parse(source)
     except SyntaxError as exc:
         raise UnsupportedConstructError(
             f"export: rendered module is not valid Python: {exc}"
         ) from exc
-    grammar_text = source.split("GRAMMAR: IrAst = ", 1)[1]
-    grammar_text = grammar_text.split("\n\nbind_module(", 1)[0]
-    if load_ir(grammar_text) != canonical:
+    if load_ir(_grammar_source(source, tree)) != canonical:
         raise UnsupportedConstructError(
             "export: rendered GRAMMAR does not round-trip to the compiled AST"
         )
+
+
+def _module_body(compiled: CompiledGrammar, *, inline_tables: bool) -> _Rendered:
+    """Every top-level block of the module, and the symbols they spell.
+
+    ``lines`` are the blocks (classes, ``GRAMMAR``, the bind call), joined by
+    the caller — a block is itself multi-line.
+    """
+    flavour = get_flavour(compiled.flavour)
+    binding = compute_binding(compiled.codegen_grammar)
+    rules = {str(rule.name): rule for rule in compiled.codegen_grammar.rules}
+    # The docstring AND the inline tables render off the pre-resolution grammar — same rules,
+    # same structure, but a token terminal still spelled the way it was written.
+    # Resolution bakes ordinals and drops the spellings, so a docstring off
+    # ``codegen_grammar`` reads ``<[151667]>`` while ``GRAMMAR`` — which
+    # round-trips to the canonical AST — holds ``<think>``: two resolution
+    # states in one file. Everything else (the field types, and the
+    # Everything a class CARRIES renders off the pre-resolution grammar, which
+    # is what the runtime carries: `_compile_core` calls
+    # `synthesize(unresolved, …)` and `bind_module` rebuilds from the twin's own
+    # authored `GRAMMAR`. The inline tables once kept the RESOLVED rule so a
+    # self-contained twin would not ship token terminals unbound to ids — but a
+    # twin does not parse, so the ids buy it nothing, and they cost the authored
+    # spelling: `root ::= <[0]> thinking <[1]>` where the runtime and the
+    # bind-mode twin both render `root ::= <think> thinking </think>`.
+    # Only the FIELD TYPES read the resolved rule.
+    authored = {
+        str(rule.name): rule
+        for rule in (compiled.tokens.unresolved or compiled.codegen_grammar).rules
+    }
+    class_by_rule = {bind.rule_name: bind.class_name for bind in binding}
+    # The UNRESOLVED grammar, the one `synthesize` digests and the one a twin's
+    # own GRAMMAR reconstructs. Resolution bakes ordinals into a token rule, so
+    # digesting the resolved form gave an inline twin a shape that agreed with
+    # neither the runtime nor the bind-mode twin of the same compilation.
+    # The UNRESOLVED grammar, the one `synthesize` digests and the one a twin's
+    # own GRAMMAR reconstructs. Resolution bakes ordinals into a token rule, so
+    # digesting the resolved form gave an inline twin a shape that agreed with
+    # neither the runtime nor the bind-mode twin of the same compilation.
+    shapes = rule_closure(compiled.tokens.unresolved or compiled.codegen_grammar)
+    blocks: list[str] = []
+    spelled: frozenset[str] = frozenset()
+    for bind in binding:
+        rule = rules[bind.rule_name]
+        # Flat emission: docstring_lines owns the wrap (its char-chop moves
+        # onto the layout algebra as its own task); width-broken rule text
+        # would double-wrap here.
+        rendered = _class_lines(
+            _ClassInput(
+                bind,
+                rule,
+                authored.get(bind.rule_name, rule),
+                str(flavour.apply(authored.get(bind.rule_name, rule), width=None)),
+                shapes[bind.rule_name],
+            ),
+            class_by_rule,
+            inline_tables=inline_tables,
+        )
+        blocks.append("\n".join(rendered.lines))
+        spelled |= rendered.symbols
+    grammar = _indented_ir("GRAMMAR: IrAst = ", compiled.grammar)
+    blocks.append("\n".join(grammar.lines))
+    spelled |= grammar.symbols | {"IrAst"}  # the annotation this line writes
+    if not inline_tables:
+        blocks.append("bind_module(GRAMMAR, globals())")
+    return _Rendered(blocks, spelled)
 
 
 def export_source(
@@ -322,28 +498,8 @@ def export_source(
     :raises UnsupportedConstructError: When a validation gate fails.
     """
     stem = stem if stem is not None else compiled.stem
-    flavour = get_flavour(compiled.flavour)
-    binding = compute_binding(compiled.codegen_grammar)
-    rules = {str(rule.name): rule for rule in compiled.codegen_grammar.rules}
-    class_by_rule = {bind.rule_name: bind.class_name for bind in binding}
-    parts: list[str] = []
-    for bind in binding:
-        rule = rules[bind.rule_name]
-        # Flat emission: docstring_lines owns the wrap (its char-chop moves
-        # onto the layout algebra as its own task); width-broken rule text
-        # would double-wrap here.
-        rule_text = str(flavour.apply(rule, width=None))
-        parts.append(
-            "\n".join(
-                _class_lines(
-                    bind, rule, class_by_rule, rule_text, inline_tables=inline_tables
-                )
-            )
-        )
-    parts.append("\n".join(_indented_ir("GRAMMAR: IrAst = ", compiled.grammar)))
-    if not inline_tables:
-        parts.append("bind_module(GRAMMAR, globals())")
-    body = "\n\n\n".join(parts) + "\n"
+    rendered = _module_body(compiled, inline_tables=inline_tables)
+    body = "\n\n\n".join(rendered.lines) + "\n"
     doc = (
         f'"""Generated twin module for grammar {stem!r} '
         f"({compiled.flavour}).\n\n"
@@ -352,7 +508,7 @@ def export_source(
         "Regenerate rather than edit.\n"
         '"""'
     )
-    source = doc + "\n\n" + _import_block(body, inline_tables=inline_tables)
+    source = doc + "\n\n" + _import_block(rendered.symbols, inline_tables=inline_tables)
     source += "\n\n\n" + body
     _check_export(source, compiled.grammar)
     return source
@@ -373,13 +529,15 @@ def export_module(
         file's stem).
     :param inline_tables: See :func:`export_source`.
     :returns: The written path.
+
+    Written through :func:`~lexic.compile.writer.write_module`, the same step a
+    payload goes out through: validated, staged, and byte-compiled, so a twin
+    and its ``.pyc`` land as a matched pair or not at all.
     """
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
     source = export_source(
         compiled,
         stem=stem if stem is not None else target.stem,
         inline_tables=inline_tables,
     )
-    target.write_text(source, encoding="utf-8")
-    return target
+    return write_module(target, source)

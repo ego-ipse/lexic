@@ -3,7 +3,7 @@
 Instead of emitting Python source, writing a file and importing it, each
 :class:`~lexic.compile.binding.RuleBinding` becomes a class built directly with
 ``type(name, bases, ns)``. CPython computes the winning metaclass
-(:class:`~lexic.ir.meta.IrMeta`) from the bases and delegates, so a bare
+(:class:`~lexic.ir.spine.meta.IrMeta`) from the bases and delegates, so a bare
 ``type(...)`` call yields a proper :class:`~lexic.model.GrammarModel` record —
 no source, no import.
 
@@ -29,8 +29,7 @@ built. A parentless rule subclasses :class:`GrammarModel` directly.
 from __future__ import annotations
 
 from lexic.compile.pipeline.binding import RuleBinding
-from lexic.ir.bind import IrBind
-from lexic.ir.nodes import IrAst, IrItem, IrRule, IrSequence
+from lexic.ir import IrAst, IrBind, IrItem, IrRule, IrSequence, rule_closure
 from lexic.model import GrammarModel
 
 # A synthesized field's annotation is a neutral placeholder — ``object``. Only
@@ -107,24 +106,28 @@ def _field_namespace(bind: RuleBinding, rule: IrRule) -> dict[str, object]:
     return _sequence_namespace(bind, rule)
 
 
-def _class_namespace(bind: RuleBinding, rule: IrRule, module: str) -> dict[str, object]:
+def _class_namespace(
+    bind: RuleBinding, rule: IrRule, module: str, shape: int
+) -> dict[str, object]:
     """The full ``ns`` for ``type(class_name, bases, ns)``.
 
     :param bind: The rule's binding view.
     :param rule: The class's rule from the codegen grammar (its ``__grammar__``).
     :param module: The synthetic module name (``__module__``).
+    :param shape: The rule's closure digest (its ``__shape__``).
     :returns: The class namespace.
     """
     ns = _field_namespace(bind, rule)
     ns["__module__"] = module
     ns["__qualname__"] = bind.class_name
     ns["__grammar__"] = rule
+    ns["__shape__"] = shape
     ns["__binds__"] = _binds_table(bind)
     return ns
 
 
 def synthesize(
-    codegen_grammar: IrAst, binding: list[RuleBinding], stem: str
+    codegen_grammar: IrAst, binding: list[RuleBinding], identity: str
 ) -> dict[str, type]:
     """Build the model classes for a codegen grammar directly, no source emit.
 
@@ -136,17 +139,21 @@ def synthesize(
     :param codegen_grammar: The post-pass grammar (each rule is a class's
         ``__grammar__``).
     :param binding: The binding view, parents before subclasses.
-    :param stem: Grammar stem — the synthetic ``__module__`` is ``generated.<stem>``.
+    :param identity: The grammar's content identity — the synthetic
+        ``__module__`` is ``generated.<identity>``. NOT the artefact's ``stem``,
+        which names the exported file: two different grammars can share a
+        filename, and a consumer telling two ``Root``s apart has only this.
     :returns: ``{class_name: class}`` for every synthesized class.
     """
     rules = {str(rule.name): rule for rule in codegen_grammar.rules}
-    module = f"generated.{stem}"
+    shapes = rule_closure(codegen_grammar)
+    module = f"generated.{identity}"
     classes: dict[str, type] = {}
     for bind in binding:
         rule = rules[bind.rule_name]
         bases = tuple(classes[name] for name in bind.parent_class_names) or (
             GrammarModel,
         )
-        ns = _class_namespace(bind, rule, module)
+        ns = _class_namespace(bind, rule, module, shapes[bind.rule_name])
         classes[bind.class_name] = type(bind.class_name, bases, ns)
     return classes

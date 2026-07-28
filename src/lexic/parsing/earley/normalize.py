@@ -4,7 +4,7 @@ The IR is richer than textbook BNF, so two canonicalisations precede Earley.
 Run them in this order — the second assumes the first:
 
 1. **Flatten inline groups** (:class:`FlattenGroups`). An
-   :class:`~lexic.ir.nodes.IrAlternation` used as an atom (a parenthesised group)
+   :class:`~lexic.ir.grammar.nodes.IrAlternation` used as an atom (a parenthesised group)
    is hoisted to a fresh synthetic rule so every atom after the dot is a ruleref
    or a terminal. The hoisted item keeps its quantifier, which step (2) consumes.
 
@@ -18,7 +18,7 @@ Multi-char literals are NOT split: a k-char literal is one scan atom — the
 kernel matches it with ``text.startswith`` and lands the advance k columns
 ahead, so one leaf covers the whole literal.
 
-Each transform is an :class:`~lexic.ir.walk.IrBottomUp`: the iterative
+Each transform is an :class:`~lexic.ir.action.walk.IrBottomUp`: the iterative
 post-order driver walks and rebuilds the tree (depth-independent), so a
 transform only declares the node types where it *deviates* — no hand-rolled
 ``rules → arms → items`` recursion, and bodies see children already in final
@@ -38,29 +38,28 @@ from __future__ import annotations
 from typing import Iterator, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction
-from lexic.ir.base import (
+from lexic.ir import (
     Field,
-    IrInt,
-    IrLeaf,
-    IrNone,
-    IrNoneType,
-    IrSelf,
-    IrSeq,
-    IrStr,
-    IrTuple,
-)
-from lexic.ir.mapping import IrMultiMap, IrTypeMap
-from lexic.ir.nodes import (
+    IrAction,
     IrAlternation,
     IrAst,
+    IrBottomUp,
+    IrInt,
     IrItem,
+    IrLeaf,
+    IrMultiMap,
+    IrNone,
+    IrNoneType,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrStr,
+    IrTuple,
+    IrTypeMap,
 )
-from lexic.ir.walk import IrBottomUp
 
 _ONE = IrQuantifier(1, 1)
 

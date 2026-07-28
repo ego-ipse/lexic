@@ -2,7 +2,7 @@
 
 The leaf half of the PDA compiler: the spec NamedTuples in
 :mod:`lexic.parsing.pda.compiler.clones` are the compiler's *intermediate* (and the shape
-the structural tests pin); :func:`~lexic.parsing.pda.compiler.clones._flatten_program`
+the structural tests pin); :func:`~lexic.parsing.pda.compiler.clones.flatten_program`
 lowers them, once per :func:`~lexic.parsing.pda.compiler.clones.compile_pda`, into the
 flat int-coded artifact this module defines — :class:`FlatClone` /
 :class:`FlatArm` carrying ``_OP_*`` op-codes and pre-resolved
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lexic.ir.base import IrLeaf, IrSelf
+from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.core.scanner import scan_gate_take
 
@@ -93,7 +93,7 @@ empty (nullable) arm — on a selector miss the runtime consumes nothing and
 produces nothing, exactly as the empty arm's zero-item frame would."""
 
 M_TEXT, M_GTEXT, M_MODEL, M_MODELS = 0, 1, 2, 3
-"""Int-coded field-bind modes (:data:`~lexic.ir.bind.BIND_MODES`, in order) —
+"""Int-coded field-bind modes (:data:`~lexic.ir.spine.bind.BIND_MODES`, in order) —
 what :attr:`FlatClone.fields` carries so the fused build never compares mode
 strings."""
 
@@ -261,7 +261,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
 
     Groups reuse this shape with :data:`BUILD_TRANSPARENT` and no fold —
     entering either selects a FIRST-gated arm at the lookahead char and pushes a
-    frame. Constructed empty (``__new__``) then filled by ``_flatten_program``'s
+    frame. Constructed empty (``__new__``) then filled by ``flatten_program``'s
     second pass so a recursive reference resolves to the live object (no id
     indirection on the hot path).
 

@@ -30,9 +30,7 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Mapping, Self, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLambda, IrNode, IrSelf, IrTuple
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrRuleRef
+from lexic.ir import IrLambda, IrMap, IrNode, IrRuleRef, IrSelf, IrTuple
 from lexic.parsing import ModelBody, ModelFold, RuleFold
 
 __all__ = [
@@ -219,7 +217,7 @@ def model_fold(bodies: Mapping[str, ModelBody]) -> ModelFold:
 
     The single home for the "dict of :class:`~lexic.parsing.fold.ModelBody` →
     fold" construction — assembles the IR body-table (an
-    :class:`~lexic.ir.mapping.IrMap`) the fold bakes on construction.
+    :class:`~lexic.ir.action.mapping.IrMap`) the fold bakes on construction.
 
     :param bodies: Rule name → its :class:`~lexic.parsing.fold.ModelBody`.
     :returns: The configured fold.

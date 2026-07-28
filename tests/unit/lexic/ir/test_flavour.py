@@ -3,7 +3,8 @@
 
 After the Lark cutover the flavour carries **zero methods** beyond the
 inherited emitter protocol: only the R1 ClassVars (``name``, ``extensions``,
-``line_comment``, ``escapes``, ``grammar``, ``reducer``) and the emitter
+``line_comment``, ``block_comment``, ``escapes``, ``grammar``, ``reducer``)
+and the emitter
 ``actions``.
 """
 
@@ -14,10 +15,9 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_ESCAPES, ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_ESCAPES, GBNF_FLAVOUR
-from lexic.ir.base import IrInt, IrNone, IrSeq, IrStr
-from lexic.ir.escapes import EscapeCodec
+from lexic.ir.action.walk import IrEmitter
 from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour, IrSpellable
-from lexic.ir.nodes import (
+from lexic.ir.grammar.nodes import (
     IrAlternation,
     IrAst,
     IrChr,
@@ -28,7 +28,10 @@ from lexic.ir.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.walk import IrEmitter
+from lexic.ir.spine.records import IrSeq
+from lexic.ir.spine.scalars import IrInt, IrStr
+from lexic.ir.spine.spine import IrNone
+from lexic.ir.text.escapes import EscapeCodec
 
 
 def test_concrete_flavour_with_required_attrs_works():
@@ -95,6 +98,11 @@ R1_ALLOWED = frozenset(
         # protocol refinement + the core-rules prelude data ClassVar.
         "apply",
         "core_rules",
+        # a flavour declares its comment syntax so DIRECTIVES are not a
+        # privilege of the surfaces that happen to have a line comment: EBNF
+        # has only `(* *)`, and could carry no @directive at all until it could
+        # say so.
+        "block_comment",
     }
 )
 

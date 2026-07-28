@@ -88,7 +88,7 @@ Both patterns automatically dispatch on node type, avoiding explicit `isinstance
 
 **Earley in Lexic (current, post-Lark-cutover):** `lexic.parsing` is a from-scratch Earley engine (SPPF per Scott 2008) over `IrAst`-shaped grammars — not a wrapper around Lark or any other parser generator. `parse` returns the strict single derivation and raises `UnsupportedConstructError` on no-parse or ambiguity; `parse_first` (used for instance parsing) picks a deterministic first derivation instead of raising, matching the historical Lark path's `ambiguity="resolve"` behaviour. `parse_forest`/`derivations`/`is_ambiguous` expose the full SPPF for callers that need it. The Leo optimisation makes right-recursive quantifier desugaring (`*`/`+`) linear in input length; only large bounded counts (`{lo,hi}`) still unroll to `hi` nested rules. See [[lexic/architecture]].
 
-Historically (pre-2026-07 cutover) Lexic ran two separate Lark parsers — an Earley one (`ambiguity="resolve"`) for grammar text via `gbnf/parser.py`-style modules, and a `MetaGrammarParser` using Lark's LALR mode for the generic meta-grammar layer that superseded it. Both are deleted; `lark` is no longer a Lexic dependency (it remains only as `tools/benchmark/parse_bench.py`'s external reference baseline).
+Historically (pre-2026-07 cutover) Lexic ran two separate Lark parsers — an Earley one (`ambiguity="resolve"`) for grammar text via `gbnf/parser.py`-style modules, and a `MetaGrammarParser` using Lark's LALR mode for the generic meta-grammar layer that superseded it. Both are deleted; `lark` is no longer a Lexic dependency — it remains a dev dependency only, as one of the benchmark's competitors.
 
 ### PEG (Parsing Expression Grammars)
 
@@ -118,7 +118,7 @@ These are absent from GBNF and ABNF. Lexic has no `IrNode` type for lookahead pr
 
 ### Lark (Python)
 
-Lexic **used** Lark as its meta-grammar engine historically; it was fully retired in the 2026-07 cutover (see [[lexic/architecture]]) and is no longer a dependency. It survives only as `tools/benchmark/parse_bench.py`'s external reference baseline — pure Lark, zero lexic machinery, timed against the native engine.
+Lexic **used** Lark as its meta-grammar engine historically; it was fully retired in the 2026-07 cutover (see [[lexic/architecture]]) and is no longer a dependency. It survives as one competitor in `tools/benchmark/`, timed against the native engine over a grammar mechanically derived from the same `IrAst` — as are parsimonious, pyparsing and ANTLR.
 
 | Property | Detail |
 |---|---|

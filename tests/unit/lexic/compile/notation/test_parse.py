@@ -3,7 +3,7 @@
 The gate is the round-trip fixpoint ``repr(load_ir(repr(x))) == repr(x)`` over
 the whole ``lexic.ir`` node vocabulary (ported from ``demo_05``'s full real
 payload suite plus a grammar-AST/string battery), the ``Yield()`` → ``YIELD``
-identity pin (F-INTERN-1), the SYMBOLS whitelist drift-pin (the no-exec
+sentinel identity pin, the SYMBOLS whitelist drift-pin (the no-exec
 boundary), and the ``grammars/json.ir`` conformance twin.
 """
 
@@ -15,15 +15,19 @@ from pathlib import Path
 
 import pytest
 
-import lexic.ir.action as ir_action
-import lexic.ir.base as ir_base
+import lexic.ir.action.access as ir_access
+import lexic.ir.action.build as ir_build
+import lexic.ir.action.compute as ir_compute
+import lexic.ir.action.control as ir_control
+import lexic.ir.action.mapping as ir_mapping
 import lexic.ir.flavour as ir_flavour
-import lexic.ir.mapping as ir_mapping
-import lexic.ir.nodes as ir_nodes
-import lexic.ir.operators as ir_operators
+import lexic.ir.grammar.nodes as ir_nodes
+import lexic.ir.grammar.operators as ir_operators
+import lexic.ir.spine.records as ir_records
+import lexic.ir.spine.scalars as ir_scalars
+import lexic.ir.spine.spine as ir_spine
 from lexic.api.pretokens import IrByteLevel
 from lexic.compile.notation.parse import (
-    INTERN,
     NOTATION_GRAMMAR,
     SYMBOLS,
     load_ir,
@@ -43,23 +47,37 @@ from lexic.grammars.gbnf import (
     GBNF_REDUCTIONS,
 )
 from lexic.grammars.json import JSON_GRAMMAR
-from lexic.ir.base import IrChr, IrInt, IrNone, IrSelf, IrStr, IrTuple
-from lexic.ir.encoding import IrTokenizer, IrTokenPipeline
-from lexic.ir.mapping import IR_DEFAULT, IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IR_DEFAULT,
     IrAlternation,
     IrAst,
     IrCharClass,
+    IrChr,
+    IrInt,
     IrItem,
     IrLiteral,
+    IrMap,
+    IrNone,
+    IrNot,
+    IrOp,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSelf,
     IrSequence,
+    IrStr,
+    IrTokenizer,
+    IrTokenPipeline,
+    IrTuple,
 )
-from lexic.ir.operators import IrNot, IrOp
-from lexic.parsing.earley.reduce import YIELD, Yield
+from lexic.parsing.earley.reduce.policy import (
+    DROP,
+    KEEP_RAW,
+    KEEP_REDUCED,
+    YIELD,
+    Yield,
+)
 
 GRAMMARS = Path(__file__).resolve().parents[5] / "src" / "lexic" / "grammars"
 
@@ -126,7 +144,7 @@ VOCAB_BATTERY = [
     IrAlternation(IrSequence(IrItem(IrLiteral("a"))), IrSequence()),
     IrRule("noise", IrAlternation(IrSequence(IrItem(IrLiteral(" ")))), False),
     IrAst(
-        ir_base.IrSeq(
+        ir_records.IrSeq(
             IrRule("root", IrAlternation(IrSequence(IrItem(IrLiteral("a")))))
         ),
         "root",
@@ -165,7 +183,7 @@ def test_generous_whitespace_and_comments_converge() -> None:
     assert load_ir(text) == IrItem(IrLiteral("a"), IrQuantifier(0, IrNone))
 
 
-# ── the intern contract (F-INTERN-1) ──────────────────────────────────
+# ── engine sentinels are singletons ───────────────────────────────────
 
 
 def test_yield_zero_arg_call_is_the_singleton_by_identity() -> None:
@@ -173,14 +191,33 @@ def test_yield_zero_arg_call_is_the_singleton_by_identity() -> None:
     assert load_ir("Yield()") is YIELD
 
 
-def test_intern_table_maps_yield_to_yield() -> None:
-    """The intern table is exactly the documented F-INTERN-1 contract."""
-    assert INTERN == {Yield: YIELD}
+@pytest.mark.parametrize("sentinel", (YIELD, DROP, KEEP_RAW, KEEP_REDUCED))
+def test_every_reduce_sentinel_round_trips_by_identity(sentinel: object) -> None:
+    """The engine identity-checks these, so a spelled one must BE the engine's.
+
+    Held by construction — each is an ``IrSingleton``, so its zero-arg call is
+    the canonical instance — rather than by a table naming which classes to
+    intern, which is one missing entry away from a silent wrong answer: a
+    repr-equal twin passes every ``==`` and fails every ``is``.
+    """
+    assert load_ir(repr(sentinel)) is sentinel
 
 
 # ── SYMBOLS drift-pin: the no-exec boundary ────────────────────────────
 
-IR_MODULES = (ir_base, ir_nodes, ir_operators, ir_action, ir_mapping, ir_flavour)
+IR_MODULES = (
+    ir_spine,
+    ir_scalars,
+    ir_records,
+    ir_nodes,
+    ir_operators,
+    ir_access,
+    ir_compute,
+    ir_control,
+    ir_build,
+    ir_mapping,
+    ir_flavour,
+)
 
 # The non-IR-node names the whitelist admits — pinned as a name set (not a
 # value mapping) so this drift-pin does not re-declare notation's own extras
@@ -351,3 +388,54 @@ def test_the_extra_vocabulary_does_not_outlive_the_call() -> None:
     assert load_ir(repr(tok), {"IrByteLevel": IrByteLevel}) == tok
     with pytest.raises(UnsupportedConstructError, match="unknown symbol"):
         load_ir(repr(tok))
+
+
+# ── plain tuples: the notation's one non-call composite ────────────────────
+
+
+@pytest.mark.parametrize(
+    "text,want",
+    [
+        ("()", ()),
+        ("(1,)", (1,)),
+        ("(1, 2)", (1, 2)),
+        ("(1, 2,)", (1, 2)),
+        ("('a', 'b')", ("a", "b")),
+        ("(IrStr('a'),)", (IrStr("a"),)),
+        ("((1, 2), (3,))", ((1, 2), (3,))),
+        ("( 1 , 2 )", (1, 2)),
+    ],
+)
+def test_load_ir_reads_a_plain_tuple(text: str, want: tuple) -> None:
+    """A plain tuple is a value: parens, comma-separated, trailing comma ok."""
+    assert load_ir(text) == want
+
+
+def test_load_ir_refuses_a_parenthesised_single_value() -> None:
+    """``(1)`` must REFUSE — it is not a one-tuple in Python either.
+
+    Two loaders read a notation artefact: CPython and this parse half. If the
+    grammar accepted ``(1)`` as a one-tuple they would return different values
+    for one file, and nothing would report it. ``tuplist ::= value tup-tail+``
+    makes the refusal structural — there is no derivation without a comma.
+    """
+    with pytest.raises(UnsupportedConstructError):
+        load_ir("(1)")
+
+
+def test_load_ir_refuses_a_tuple_of_nothing_but_a_comma() -> None:
+    """``(,)`` has no first value, so no derivation."""
+    with pytest.raises(UnsupportedConstructError):
+        load_ir("(,)")
+
+
+def test_load_ir_refuses_a_stray_comma_inside_a_tuple() -> None:
+    """``(1,,2)`` parses leniently and the FOLD refuses it, as in an arg list."""
+    with pytest.raises(UnsupportedConstructError, match="stray"):
+        load_ir("(1,,2)")
+
+
+def test_load_ir_reads_a_plain_tuple_inside_a_spine_node() -> None:
+    """The shape that motivated the arm: a variadic field holding a raw tuple."""
+    node = IrTuple(IrStr("x"), (IrStr("y"), IrStr("z")))
+    assert load_ir(repr(node)) == node

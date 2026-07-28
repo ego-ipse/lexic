@@ -44,20 +44,25 @@ from lexic.compile.module.export import docstring_lines, field_type, value_str_t
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
-from lexic.ir.base import IrNamedTuple, IrNone, IrNoneType, IrSelf, IrSeq
-from lexic.ir.bind import IrBind
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
+    IrBind,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNamedTuple,
+    IrNone,
+    IrNoneType,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    rule_closure,
 )
 from lexic.parsing import FieldFold, ModelBody, ModelFold, parse_model
 
@@ -103,9 +108,9 @@ class MField(IrNamedTuple[str, str, bool]):
     has_default: bool = False
 
 
-class MClass(IrNamedTuple[str, tuple, str, tuple, IrSelf, tuple]):
-    """One class block; ``inline_grammar``/``inline_binds`` only under
-    ``inline_tables`` exports (else ``IrNone`` / empty)."""
+class MClass(IrNamedTuple[str, tuple, str, tuple, IrSelf, int, tuple]):
+    """One class block; the inline tables only under ``inline_tables`` exports
+    (else ``IrNone`` / ``0`` / empty)."""
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     name: str
@@ -113,6 +118,7 @@ class MClass(IrNamedTuple[str, tuple, str, tuple, IrSelf, tuple]):
     doc: str
     fields: tuple = ()
     inline_grammar: IrSelf = IrNone
+    inline_shape: int = 0
     inline_binds: tuple = ()
 
 
@@ -251,14 +257,16 @@ _MODULE_RULES = [
     # Every body line rides through ``m-indented-line`` (the shared leading
     # 4-space indent); past the indent the three tails separate on their
     # keyword — a field name ([A-Za-z] — ``m-field-name``, never
-    # underscore-led) vs ``__grammar__`` vs ``__binds__`` (the two '_'-led
-    # keywords separate at k=3). Predictive, no island.
+    # underscore-led) vs ``__grammar__`` vs ``__shape__`` vs ``__binds__`` (the
+    # three '_'-led keywords separate at k=3: ``__g``/``__s``/``__b``).
+    # Predictive, no island.
     _rule("m-body-line", IrSequence(_ref("m-indented-line"))),
     _rule("m-indented-line", IrSequence(_lit("    "), _ref("m-line-tail"))),
     _rule(
         "m-line-tail",
         IrSequence(_ref("m-field-tail")),
         IrSequence(_ref("m-grammar-tail")),
+        IrSequence(_ref("m-shape-tail")),
         IrSequence(_ref("m-inline-binds")),
     ),
     # The union loop rides INSIDE the line rule so the loop-exit has an
@@ -337,6 +345,10 @@ _MODULE_RULES = [
         IrSequence(
             _lit("__grammar__: ClassVar[IrRule] = "), _ref("value"), _ref("m-nl")
         ),
+    ),
+    _rule(
+        "m-shape-tail",
+        IrSequence(_lit("__shape__: ClassVar[int] = "), _ref("pos-int"), _ref("m-nl")),
     ),
     # Each entry consumes its trailing newline PLUS the next line's leading
     # 4 spaces (one hoisted before the loop), so loop-take peeks ' ' against
@@ -472,6 +484,10 @@ def _m_inline_grammar(value: object) -> tuple:
     return ("grammar", value)
 
 
+def _m_inline_shape(value: object) -> tuple:
+    return ("shape", value)
+
+
 def _m_bind_entry(slot: int, name: str, value: object) -> tuple:
     return (slot, name, value)
 
@@ -487,13 +503,18 @@ def _m_body(lines: list[object] | None = None) -> tuple:
 def _m_class(name: str, bases: tuple, doc: str, body: tuple = ()) -> MClass:
     fields = tuple(x for x in body if isinstance(x, MField))
     inline_grammar: IrSelf = IrNone
+    inline_shape = 0
     inline_binds: tuple = ()
     for x in body:
-        if isinstance(x, tuple) and len(x) == 2 and x[0] == "grammar":
+        if not (isinstance(x, tuple) and len(x) == 2):
+            continue
+        if x[0] == "grammar":
             inline_grammar = x[1]
-        elif isinstance(x, tuple) and len(x) == 2 and x[0] == "binds":
+        elif x[0] == "shape":
+            inline_shape = int(x[1])
+        elif x[0] == "binds":
             inline_binds = x[1]
-    return MClass(name, bases, doc, fields, inline_grammar, inline_binds)
+    return MClass(name, bases, doc, fields, inline_grammar, inline_shape, inline_binds)
 
 
 def _m_imports(
@@ -633,6 +654,9 @@ def _fold_config() -> dict[str, ModelBody]:
             "m-grammar-tail": seq(
                 _m_inline_grammar, 3, (FieldFold(1, "model", "value", 1),)
             ),
+            "m-shape-tail": seq(
+                _m_inline_shape, 3, (FieldFold(1, "model", "value", 1),)
+            ),
             "m-inline-binds": seq(
                 _m_inline_binds, 5, (FieldFold(2, "models", "entries", 0),)
             ),
@@ -716,20 +740,22 @@ def _check(cond: bool, message: str) -> None:
         raise UnsupportedConstructError(f"verify_module: {message}")
 
 
-class _VerifyCtx(IrNamedTuple[dict, str, bool]):
+class _VerifyCtx(IrNamedTuple[dict, str, bool, dict, dict]):
     """The per-module verify context threaded through the class checks."""
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     class_by_rule: dict
     flavour: str
     inline: bool
+    shapes: dict
+    authored: dict
 
 
 def _verify_class(
     mclass: MClass, bound: RuleBinding, rule: IrRule, ctx: _VerifyCtx
 ) -> None:
     """One class block against its binding."""
-    class_by_rule, flavour_name, inline = ctx
+    class_by_rule, flavour_name, inline, shapes, authored = ctx
     _check(
         mclass.name == bound.class_name,
         f"class {mclass.name!r} where {bound.class_name!r} expected",
@@ -750,8 +776,12 @@ def _verify_class(
     )
     if inline:
         _check(
-            mclass.inline_grammar == rule,
-            f"{mclass.name}: inline __grammar__ != codegen rule",
+            mclass.inline_grammar == authored.get(bound.rule_name, rule),
+            f"{mclass.name}: inline __grammar__ != the rule the runtime carries",
+        )
+        _check(
+            mclass.inline_shape == shapes[bound.rule_name],
+            f"{mclass.name}: inline __shape__ != the rule's closure digest",
         )
         expected_binds = tuple(
             (b.item, name, IrBind(b.item, b.mode, b.semantic))
@@ -763,7 +793,9 @@ def _verify_class(
         )
     else:
         _check(
-            isinstance(mclass.inline_grammar, IrNoneType) and not mclass.inline_binds,
+            isinstance(mclass.inline_grammar, IrNoneType)
+            and not mclass.inline_shape
+            and not mclass.inline_binds,
             f"{mclass.name}: inline tables in a bind-mode module",
         )
 
@@ -794,7 +826,14 @@ def verify_module(compiled: CompiledGrammar, text: str) -> MModule:
         len(module.classes) == len(binding),
         f"{len(module.classes)} classes for {len(binding)} bindings",
     )
-    ctx = _VerifyCtx(class_by_rule, compiled.flavour, inline)
+    pre = compiled.tokens.unresolved or compiled.codegen_grammar
+    ctx = _VerifyCtx(
+        class_by_rule,
+        compiled.flavour,
+        inline,
+        rule_closure(pre),
+        {str(rule.name): rule for rule in pre.rules},
+    )
     for mclass, bound in zip(module.classes, binding):
         _verify_class(mclass, bound, rules[bound.rule_name], ctx)
     return module

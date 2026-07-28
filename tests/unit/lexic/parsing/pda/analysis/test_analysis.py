@@ -16,20 +16,20 @@ from lexic.compile import canonical_grammar
 from lexic.compile.pipeline.passes import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
-from lexic.ir.base import IrAtom
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
+    IrAtom,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis, kwindow, nullable_names
 from lexic.parsing.pda.core.charsets import CharSet
@@ -160,7 +160,7 @@ def test_island_counts_match_the_coverage_map(factory, expected_count):
     ``sequence`` (its exit skips the inter-rule ``n`` to the next rule's
     rulename, which overlaps the item lead — the ``rulename n* "::="`` header
     probe breaks the tie), and ``n`` itself demotes via the exact-match gate's
-    P6 precision clause (:func:`~lexic.parsing.pda.analysis.noise._sem_follow_clear` —
+    P6 precision clause (:func:`~lexic.parsing.pda.analysis.gates.noise._sem_follow_clear` —
     ``nunit+``'s ``#``-overlap with the trailing ``tail-comment`` is resolved
     by exact recognition, not greed: an incomplete ``comment-line`` simply
     fails to match); the left-factored ``cc-*`` class family (``cc-item ::=

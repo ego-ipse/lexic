@@ -1,5 +1,104 @@
 # Log
 
+## The model path asks the meaning question too, and a pin is consumed
+
+`earley_model` used to take the first derivation without asking whether the
+span meant two things; only the PDA's island path and the reduce path asked.
+Two engines each taking their own "first" answered an ambiguous arm choice
+differently in silence. The Earley completion now gates through the same
+`another_meaning` the islands use (`first_meaning` in `earley/engine.py`), and
+the opt-out is a caller-supplied deterministic `Resolver` handed both
+derivations — it replaced the `ambiguous` bool on `IslandPolicy`, `PdaKernel`,
+`pda_model` and `parse_model`. `ParseFirst` stays: a cyclic grammar has
+unboundedly many derivations, so a deterministic tree-level first is
+load-bearing, not a back-compat seam.
+
+What blocked the gate: `FastTree` with a pinned family did not terminate on a
+cyclic chart (mutual unit arms), because the pin re-applied at every revisit
+of its own key. A pin is now consumed at its first use, naming the one-lap
+unroll — a latent bug in any pinned build over a cyclic chart, not a property
+of the gate. `.wiki/lexic/decisions.md` carries the invariant.
+
+## Parity is raw model equality, and ruling 1 is retired
+
+The PDA and the Earley engine must build the same model field for field.
+`deep_semantic`, which drops `semantic=False` binds at every level, is no longer
+the bar — it passed whether or not the engines agreed, so it could not be the
+test for a requirement that they do.
+
+Ruling 1 had licensed the disagreement, and it lived only in a test module's
+docstring. That is why it survived a month without being a decision anyone could
+look up. `.wiki/lexic/decisions.md` now carries it.
+
+What made the stricter bar affordable was separating a *split* from an *arm
+choice*. A split is one production carved two ways — same arm, different
+boundary — and it has a defined answer: the first slot owns the text. An arm
+choice is two different productions, and that is still refused. `is_arm_choice()`
+in `parsing/earley/kernel/tables/splits.py` is the structural test. Once both
+engines resolved splits identically, the semantic licence had nothing left to
+excuse; it had been hiding 47 of 200 JSON inputs, the same characters landing in
+different `Ws` fields.
+
+Ambiguity is still refused by default. A caller may supply a deterministic
+resolver, whose behaviour is the caller's concern — not a fallback, not a flag.
+
+## Ambiguity is about values; directives are not a line-comment privilege
+
+Two derivations that build the same VALUE are not an ambiguity. The decision
+moved to `parsing/earley/kernel/forest/ambiguity.py`, where the island sub-parse and the
+reduce path both reach it — the reduce path used to count derivations, which
+left the EBNF flavour with no working Earley fallback at all (its self-grammar
+has adjacent nullable `ws` slots, so every whitespace-carrying file derived two
+ways, reduced to one value, and was refused).
+
+`same_value` is type-aware and structural: bare `==` calls `IrStr("a")` and `"a"`
+equal, and calls a NaN — or any class that never defined `__eq__` — different
+from itself. A type that declined to define equality has declined to answer.
+
+Separately, `@directives` stopped being a privilege of surfaces that happen to
+have a line comment. ISO EBNF has only `(* *)`, so directive parsing had been
+disabled for every EBNF grammar; `json.ebnf` therefore could not mark `ws`
+structural, compiled it as a fail-island, and escaped to Earley on EVERY parse.
+A flavour now declares whichever comment form it has. All three JSON
+formulations compile to byte-identical clone tables.
+
+`Vocabulary` and `Directives` put both on the public entry points.
+
+See `lexic/decisions.md` for the reasoning and `lexic/public-api.md` for the
+surface.
+
+---
+
+## Compiled payloads: a parsed VALUE as an importable module
+
+`compile/payload/` writes whatever lexic parsed as a module — four flat literals
+(`TYPES`/`ORIGINS`/`STRS`/`NODES`) plus an import of the reader emitted beside
+it. `export_value(value, path, *, module=None)` is the entry.
+
+Three targets, `classes` / `ir` / `plain`, are **one projection over one symbol
+table**, decided by the codomain of the reduction that produced the value —
+there is no target parameter. A `plain` payload reads back with zero lexic
+modules imported.
+
+The reader is lexic-free, and emitted **once per directory** as
+`payload_reader_<tag>.py` where the tag is the digest of its own source, so an
+artefact cannot bind to a different reader. At import an artefact checks a
+digest over its tables, a shape digest over the RULES its symbols carry, and —
+for a symbol carrying no rule — the module it came from.
+
+`compile/writer.py` is now the single last step for both exporters: it renders
+tables through the layout algebra, validates, byte-compiles and lands the module
+so its source and `.pyc` can never disagree. The twin exporter's export gate
+reads its `GRAMMAR` structurally instead of splitting the source text.
+
+Wiki: [[lexic/generated-modules]] (the artefact, the targets, the writer),
+[[lexic/public-api]] (`export_value`), [[lexic/decisions]] (target inferred not
+flagged; the `.pyc` at export; no regex engine in `src/`; sharing keyed on
+identity), [[lexic/invariants]] (module/`.pyc` agreement; refuse rather than read
+wrong; a memo key is valid only while something holds the object).
+
+---
+
 ## Segmentation gains an open model; the emit source stops carrying ids
 
 `IrSegmenter` joins `IrPretoken` and `IrNormalizer` as an open role: the
@@ -166,8 +265,7 @@ Append-only chronological record. Most recent entry at top.
 
 ## 2026-07-18 — generated-files: importable twins, IR-native formatting, renames
 
-The 260718-generated-files effort (plan in `zzz_current_work/`), landed on
-top of Task 0 below:
+Landed on top of Task 0 below:
 
 - **Defaults-last field order** (`bind_fields`): required fields first,
   `= None` optionals after, each group in item order — the record ctor is
@@ -221,7 +319,7 @@ derive-from-binds branch in `GrammarModel.__init_subclass__` deleted
 `_child_attrs` from annotations into `cls.__dict__` first, so the branch
 never fired; models don't read `_child_attrs` anyway (`children()`/
 `rebuild()` are overridden on `__binds__` item order, settled 13). Effort:
-`zzz_current_work/260718-generated-files/PLAN.md`.
+
 
 ## 2026-07-18 — ir-native complete: compile/ subsystem, codegen + pydantic gone
 
@@ -237,7 +335,7 @@ R0801 suppressions are removed; the schema-joint machinery is gone
 across the effort: `load_ir` (IR-constructor notation), `load_flavour`
 (manifest → `IrFlavour`), `export_source` (reader `.py` view), the demo
 EBNF flavour. Perf: `compile_text` −67…−79% vs baseline; parse +2…+8%.
-Full record + commit chain: `zzz_current_work/260716-ir-native/PLAN_v4.md`
+Full record: the commit chain.
 OUTCOME + `FOLLOWUP.md` + `NEXT_MILESTONES.md`.
 
 **Wiki drift still to sweep** (flagged, not all fixed this pass):
@@ -268,7 +366,7 @@ dies at the Task-2 flip, as does the no-op `model_rebuild()`). Goldens'
 the erasure had been silently hiding a licensed PDA-vs-engine noise-split
 difference. Reserved-name window (rules named `eval`/`count`/… unmangled
 until Task 3) pinned in `test_binding.py`. Details:
-`zzz_current_work/260716-ir-native/TASK1_REPORT.md`.
+
 
 ---
 
@@ -286,7 +384,7 @@ assembly layer by design). The vyx language decisions (V16–V25, V20
 non-ASCII reversal) are recorded in the effort's FINDINGS; the vyx spec's
 fragments were made honest vyx-side with an extractor parity gate
 (assembled == pinned). Semantic layer scoped in the vyx repo
-(`SEMANTIC_LAYER.vy`). See `zzz_current_work/260713-vyx-parse/PLAN.md`
+(`SEMANTIC_LAYER.vy`).
 OUTCOME + FOLLOWUP.md.
 
 ---
@@ -385,7 +483,7 @@ depth-threatened post-canonicalize.
 ## 2026-07-16 — Adversarial sweep round 2: codegen cycles, reserved names, depth bombs, cache keys (L5–L8)
 
 Four findings from the Fable adversarial sweep, three fixed same-day
-(FINDINGS L5–L8 in `zzz_current_work/260713-vyx-parse/`):
+(findings L5–L8):
 
 **L5 — unit-arm cycles** (`codegen/binding.py`): `s ::= s | "a"` emitted
 `class S(S):`; mutual unit arms emitted circular inheritance — both died with
@@ -508,7 +606,7 @@ tracked in FINDINGS.md L4.
 
 ## 2026-07-13 — Vyx-parse probe: two engine-adjacent bugs + vyx defect catalogue
 
-New effort dir `zzz_current_work/260713-vyx-parse/` (FINDINGS.md + probe/).
+
 Pushed the vyx D-layer grammar (assembled from `/home/mika/projects/vyx/spec/`
 per-section `grammar:` fragments, mechanically corrected) through the full
 pipeline. Compiles (103 classes), recognition 17/18 on realistic packets. Two
@@ -923,7 +1021,7 @@ Key landed shape:
 - **`tests/integration/test_{gbnf,abnf}_ir_equivalence.py`** converted from Lark-comparison gates to golden fingerprint tests: every ground-truth/fixture grammar reduces to an `IrAst` with an expected `(start_rule, rule_names)` fingerprint, unambiguously, and stays stable under emit→reparse.
 - `utils/names.to_lark_name` deleted. `test_layering_invariants.py` gained `test_engine_package_does_not_import_grammars_or_codegen` and `test_engine_imported_by_runtime_only_via_compile_seam` (the engine is a leaf; `compile.py` is the only sanctioned runtime→`lexic.parsing` seam).
 
-Open items left for the user (not yet resolved as of this entry): whether `gbnf.py`/`abnf.py`'s C0302 (too-many-lines) waiver stands permanently or the modules split; two ABNF parity gaps (`%d`/`%b` value-sequences, uppercase `%X`/`%D`/`%B`/`%S`/`%I` markers) fail as parse errors rather than an explicit `UnsupportedConstructError`. Wiki pages updated: [[architecture]], [[flavour-system]], [[public-api]], [[error-vocabulary]]; a CLAUDE.md refresh was prepared as a proposal (`zzz_current_work/postleo/CLAUDE_md_refresh_proposal.md`) rather than applied directly.
+Open items left for the user (not yet resolved as of this entry): whether `gbnf.py`/`abnf.py`'s C0302 (too-many-lines) waiver stands permanently or the modules split; two ABNF parity gaps (`%d`/`%b` value-sequences, uppercase `%X`/`%D`/`%B`/`%S`/`%I` markers) fail as parse errors rather than an explicit `UnsupportedConstructError`. Wiki pages updated: [[architecture]], [[flavour-system]], [[public-api]], [[error-vocabulary]]; a CLAUDE.md refresh was prepared as a proposal rather than applied directly.
 
 ---
 
@@ -945,7 +1043,7 @@ Follow-ups in the same pass: **`Field` now requires exactly one of `default`/`de
 
 Added the value-aware action algebra on top of V2: `IrScalar(IrLeaf)` value-leaf base (hosts `eval` + type-aware `__eq__`/`__ne__`/`__hash__`/`__repr__`, all delegating to the primitive); `IrInt(IrScalar, int)`; `IrStr` re-parented onto `IrScalar` (its `__new__`/`eval` dropped). `IrField` now reads typed attrs via `out: type[IrScalar]` (default `IrStr`), made callable by a forwarding `IrScalar.__new__`. Comparison: `IrOp(IrStr)` operator leaf (the node IS its string — **no `Cmp` enum**) + `IrCompare` + short-circuit `IrAnd(IrTuple[IrSelf])`, all returning `IrInt ∈ {0,1}` (no `IrBool`). `IrTuple.eval` relaxed `-> Self` → `-> IrSelf` so reducers can override (no `[T,R]` generic). `IrCond` generalized `field: str` → `test: IrSelf`. New exports: `IrScalar`/`IrInt`/`IrOp`/`IrCompare`/`IrAnd`.
 
-Deviations from the plan (`docs/superpowers/plans/2026-06-04-phase-0a-algebra-expansion.md`) recorded in [[decisions]] (2026-06-05 entry): no `Cmp` enum (→ `IrOp`), `type[IrScalar]`+`__new__` instead of the `type[IrStr]|type[IrInt]` union, `IrScalar` hosting eq/hash/repr, and `IrTuple.eval -> IrSelf` instead of the two-param generic. Full suite 593 passed; `pyright src/ tests/` = 0. [[ir-shapes]] + `CLAUDE.md` updated.
+Deviations from the plan recorded in [[decisions]] (2026-06-05 entry): no `Cmp` enum (→ `IrOp`), `type[IrScalar]`+`__new__` instead of the `type[IrStr]|type[IrInt]` union, `IrScalar` hosting eq/hash/repr, and `IrTuple.eval -> IrSelf` instead of the two-param generic. Full suite 593 passed; `pyright src/ tests/` = 0. [[ir-shapes]] + `CLAUDE.md` updated.
 
 ---
 
@@ -953,7 +1051,7 @@ Deviations from the plan (`docs/superpowers/plans/2026-06-04-phase-0a-algebra-ex
 
 The coercion-based node model is gone. Nodes now ARE their payload — three tiers: str-leaves (`IrStr`: `IrLiteral`/`IrCharClass`/`IrRuleRef` subclass `str`), variadic collections (`IrTuple`: `IrSequence`/`IrAlternation` subclass `tuple`), and fixed-arity records (`IrComposite` frozen dataclasses). Removed `IrType`, `coerce`, `_ir_field_types`, the load-bearing `__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`__str__` cascade (now `__repr__`-is-codegen). No `.value`/`.items`/`.arms` accessors. Whole-tree `pyright src/ tests/` = 0 (genuine — the old `*args/**kwargs` init had masked ~174 errors); full suite 572 passed; pylint core 10/10.
 
-New decisions recorded in [[decisions]]: type-aware `IrStr.__eq__` (distinct leaf kinds unequal, plain-`str` compatible — fixes `@cache`/tree-equality poisoning); `IrThis` + lazy `IrReturn` for declarative find-first (no `IrCallable`); two type params `[Iri, Ir_co]` with `_bound` from the **last**; no `cast`/suppressions; **open-set consumer rework deferred** to a separate spec (`derive`/`codegen`/`parsing`/`generate` still carry closed-set `isinstance`/`dict[type,…]` ladders — legacy, not the target). [[ir-shapes]] rewritten to V2; `CLAUDE.md` IR-types section and flavour template updated (flavour dataclasses must NOT use `init=False` — it silently empties `actions`). Plan: `docs/superpowers/plans/2026-06-01-ir-primitive-node-model.md` (Tasks 1–16).
+New decisions recorded in [[decisions]]: type-aware `IrStr.__eq__` (distinct leaf kinds unequal, plain-`str` compatible — fixes `@cache`/tree-equality poisoning); `IrThis` + lazy `IrReturn` for declarative find-first (no `IrCallable`); two type params `[Iri, Ir_co]` with `_bound` from the **last**; no `cast`/suppressions; **open-set consumer rework deferred** to a separate spec (`derive`/`codegen`/`parsing`/`generate` still carry closed-set `isinstance`/`dict[type,…]` ladders — legacy, not the target). [[ir-shapes]] rewritten to V2; `CLAUDE.md` IR-types section and flavour template updated (flavour dataclasses must NOT use `init=False` — it silently empties `actions`).
 
 ---
 
@@ -1018,7 +1116,7 @@ Remaining Slice B work: token reservation (Tasks 33–34) — pre-tokenisation s
 
 ## 2026-05-09 — Ingested parallel-track IR cutover plan (Tasks 9–18)
 
-Pulled concrete API and behaviour details from `docs/superpowers/plans/2026-05-08-parallel-track-ir-cutover.md` into the wiki.
+Pulled concrete API and behaviour details from the effort's plan into the wiki.
 - [[decisions]]: added "Cutover commitments (CQ #1, #2, #4)" entry covering no-FIXME, no `ws` hardcoding, fixed canonical imports.
 - [[new-codegen]]: expanded Tasks 9–14 with `CANONICAL_IMPORTS`, `_field_type` rules, `_repr_iritem`, `regex_for_charclass`/`regex_for_group` public surface, `Pattern`/`Pattern2` Tier-3 fallback, `codegen(specs, stem)` signature (no `flavour` parameter).
 - [[cutover-plan]]: replaced 8-bullet checklist with the 17 sub-step cutover sequence; added Slice 3 (`parsing/`) table for Tasks 15–17.
@@ -1087,4 +1185,4 @@ Tasks 3 and 5 deleted from plan — dead weight, no behaviour without `flavours.
 
 ## 2026-05-08 — Plan: parallel-track IR cutover
 
-`docs/superpowers/plans/2026-05-08-parallel-track-ir-cutover.md` created. 18 tasks; builds `new_gbnf/`, `new_codegen/`, `parsing/` against the IrItem shape alongside legacy code, then cuts over atomically in Task 18.
+the effort's plan created. 18 tasks; builds `new_gbnf/`, `new_codegen/`, `parsing/` against the IrItem shape alongside legacy code, then cuts over atomically in Task 18.

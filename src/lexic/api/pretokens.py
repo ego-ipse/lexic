@@ -19,10 +19,7 @@ import unicodedata
 from collections.abc import Callable
 from typing import ClassVar
 
-from lexic.ir.base import IrNamedTuple, IrStr, IrTuple
-from lexic.ir.encoding import IrPretoken
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrChr
+from lexic.ir import IrChr, IrMap, IrNamedTuple, IrPretoken, IrStr, IrTuple
 
 __all__ = [
     "BYTE_FALLBACK",

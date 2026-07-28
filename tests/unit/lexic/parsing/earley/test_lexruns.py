@@ -1,7 +1,7 @@
 """Tests for lexic.parsing.earley.lexruns — run-terminal detection and collapse.
 
 New module: proves a synthetic star/plus rule's collapse to a single
-maximal-munch :class:`~lexic.parsing.earley.tables.RunTerm` (fixed charset,
+maximal-munch :class:`~lexic.parsing.earley.kernel.tables.RunTerm` (fixed charset,
 derivation-uniqueness, follow-disjointness) and reconstructs it as compiled
 tables. This file covers ``run_candidates``'s detection and memoisation,
 ``recognition_tables``'s collapse and result parity with plain tables, and
@@ -15,20 +15,29 @@ back-compat import path keeps working.
 from __future__ import annotations
 
 from lexic.grammars.abnf import ABNF_GRAMMAR
-from lexic.ir.base import IrNone, IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
+    IrNone,
+    IrNot,
     IrQuantifier,
     IrRule,
+    IrSeq,
     IrSequence,
 )
-from lexic.ir.operators import IrNot
-from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.kernel.forest.readout import accept_item
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.tables.atoms import (
+    RunTerm,
+)
+from lexic.parsing.earley.kernel.tables.atoms import (
+    expand_atom as _expand_atom_canonical,
+)
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.lexruns import expand_atom as _expand_atom_via_lexruns
 from lexic.parsing.earley.lexruns import (
     recognition_tables,
@@ -36,8 +45,6 @@ from lexic.parsing.earley.lexruns import (
     unit_leaves,
 )
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
-from lexic.parsing.earley.tables import RunTerm, compile_tables
-from lexic.parsing.earley.tables import expand_atom as _expand_atom_canonical
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import (
     malformed_synthetic_rule,
@@ -140,8 +147,10 @@ def test_recognition_tables_matches_plain_recognition_on_samples():
     plain = compile_tables(g)
     collapsed = recognition_tables(g)
     for text in ABNF_SAMPLES:
-        plain_accept = Kernel(plain, text, record_links=False).run().accept >= 0
-        collapsed_accept = Kernel(collapsed, text, record_links=False).run().accept >= 0
+        plain_accept = accept_item(Kernel(plain, text, record_links=False).run()) >= 0
+        collapsed_accept = (
+            accept_item(Kernel(collapsed, text, record_links=False).run()) >= 0
+        )
         assert plain_accept == collapsed_accept, text
 
 

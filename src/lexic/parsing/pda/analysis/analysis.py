@@ -9,24 +9,21 @@ raising :exc:`~lexic.exceptions.UnsupportedConstructError` on an unknown atom.
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence, cast
+__all__ = ["GrammarAnalysis", "Taxonomy", "nullable_names"]
+
+
+from typing import Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.action import IrAction
-from lexic.ir.base import IrAtom, IrLambda, IrLeaf, IrNoneType, IrSelf
-from lexic.ir.mapping import IrTypeMap
-from lexic.ir.nodes import (
-    IrAlphabet,
-    IrAlternation,
+from lexic.ir import (
     IrAst,
-    IrCharClass,
+    IrAtom,
     IrItem,
-    IrLiteral,
+    IrLeaf,
+    IrNoneType,
     IrRule,
-    IrRuleRef,
+    IrSelf,
 )
-from lexic.ir.operators import IrNot
-from lexic.parsing.pda.analysis import kwindow
 from lexic.parsing.pda.analysis.cursors import (
     ConflictCtx,
     Cont,
@@ -35,22 +32,32 @@ from lexic.parsing.pda.analysis.cursors import (
     Notes,
     Scope,
 )
-from lexic.parsing.pda.analysis.leftrec import left_recursive_names
-from lexic.parsing.pda.analysis.noise import (
+from lexic.parsing.pda.analysis.gates import kwindow
+from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
+from lexic.parsing.pda.analysis.gates.noise import (
     noise_alphabet,
     noise_greedy_licensed,
     peek_arm_gate,
     peek_loop_gate,
     stopset_escapes_soft_follow,
 )
-from lexic.parsing.pda.analysis.structured import (
+from lexic.parsing.pda.analysis.gates.structured import (
     structured_arm_gate,
     structured_loop_gate,
 )
+from lexic.parsing.pda.analysis.predicates import (
+    FIRST,
+    FOLLOW_FEED,
+    HARD,
+    NULLABLE,
+    SEQ_ATOM,
+    STOPSET_ATOM,
+    item_nullable,
+    nullable_names,
+    seq_nullable,
+)
 from lexic.parsing.pda.analysis.taxonomy import Taxonomy
 from lexic.parsing.pda.core.charsets import CharSet
-
-__all__ = ["GrammarAnalysis", "Taxonomy", "nullable_names"]
 
 _EOF: CharSet = CharSet.from_chars("")
 """The FOLLOW-set seed for the start rule: the empty-string end-of-input
@@ -68,296 +75,28 @@ def _hi(item: IrItem) -> int | None:
     return None if isinstance(hi, IrNoneType) else int(hi)
 
 
-class _Nullability(IrLeaf[IrSelf, IrSelf]):
-    """The nullability fixpoint as a standalone solver.
-
-    Homes the derives-empty computation both :func:`nullable_names` (for
-    :func:`~lexic.parsing.fold.lift_optional_nullables`) and
-    :class:`GrammarAnalysis` need — one fixpoint, no duplication. Its growing
-    ``nullable`` set is read by the shared :data:`_NULLABLE` bodies whether
-    ``d`` is this solver (mid-fixpoint) or a finished :class:`GrammarAnalysis`.
-    """
-
-    __slots__ = ("rules", "nullable")
-
-    rules: Mapping[str, IrRule]
-    nullable: set[str]
-
-    def __init__(self, rules: Mapping[str, IrRule]) -> None:
-        self.rules = rules
-        self.nullable = set()
-
-    def solve(self) -> frozenset[str]:
-        """Grow ``nullable`` to the least fixpoint and return it frozen."""
-        changed = True
-        while changed:
-            changed = False
-            for name, rule in self.rules.items():
-                if name in self.nullable:
-                    continue
-                if _rule_nullable(self, rule):
-                    self.nullable.add(name)
-                    changed = True
-        return frozenset(self.nullable)
-
-
 # ── nullability dispatch bodies ───────────────────────────────────────────
-
-
-def _null_ruleref(d: GrammarAnalysis | _Nullability, n: IrSelf, _nc: object) -> bool:
-    """A rule ref is nullable iff its target is currently known nullable."""
-    return str(n) in d.nullable
-
-
-def _null_literal(_d: object, n: IrSelf, _nc: object) -> bool:
-    """A literal is nullable iff it is the empty string."""
-    return not str(n)
-
-
-def _null_never(_d: object, _n: IrSelf, _nc: object) -> bool:
-    """A char class or negated class always consumes one char — never nullable."""
-    return False
-
-
-def _null_alternation(
-    d: GrammarAnalysis | _Nullability, n: IrSelf, _nc: object
-) -> bool:
-    """A group is nullable iff any arm's items are all nullable."""
-    assert isinstance(n, IrAlternation)
-    return any(_seq_nullable(d, _items(arm)) for arm in n)
 
 
 # ── FIRST dispatch bodies ─────────────────────────────────────────────────
 
 
-def _first_literal(_d: object, n: IrSelf, _nc: object) -> CharSet:
-    """FIRST of a literal: its leading character (empty literal → empty set)."""
-    text = str(n)
-    return CharSet.from_chars(text[0]) if text else CharSet.EMPTY
-
-
-def _first_charclass(_d: object, n: IrSelf, _nc: object) -> CharSet:
-    """FIRST of a char class: its member set."""
-    assert isinstance(n, IrCharClass)
-    return CharSet.from_charclass(n)
-
-
-def _first_not(_d: object, n: IrSelf, _nc: object) -> CharSet:
-    """FIRST of an ``IrNot``: the complement of its inner class (else ANY).
-
-    Only a negated CHAR class reaches here — token negation lives INSIDE the
-    alphabet (a fenced terminal), so ``IrNot`` never wraps an ``IrAlphabet``."""
-    assert isinstance(n, IrNot)
-    inner = n[0]
-    if isinstance(inner, IrCharClass):
-        return CharSet.from_not(inner)
-    return CharSet.ANY
-
-
-def _first_token(_d: object, _n: IrSelf, _nc: object) -> CharSet:
-    """FIRST of a token atom: EMPTY — it matches ids, not chars (forces island)."""
-    return CharSet.EMPTY
-
-
-def _first_ruleref(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
-    """FIRST of a rule ref: the target's current FIRST; undefined ref → ANY."""
-    got = d.first.get(str(n))
-    return CharSet.ANY if got is None else got
-
-
-def _first_alternation(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
-    """FIRST of a group: the union of its arms' sequence FIRSTs."""
-    assert isinstance(n, IrAlternation)
-    out = CharSet.EMPTY
-    for arm in n:
-        out = out.union(d.seq_first(_items(arm)))
-    return out
-
-
 # ── hard-FIRST dispatch bodies ────────────────────────────────────────────
-
-
-def _hard_terminal(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
-    """hard-FIRST of a terminal atom equals its FIRST (it is not nullable)."""
-    return d.atom_first(cast(IrAtom, n))
-
-
-def _hard_ruleref(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
-    """hard-FIRST of a rule ref: the target's current hard-FIRST; else ANY."""
-    got = d.hard.get(str(n))
-    return CharSet.ANY if got is None else got
-
-
-def _hard_alternation(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
-    """hard-FIRST of a group: the union of its arms' sequence hard-FIRSTs."""
-    assert isinstance(n, IrAlternation)
-    out = CharSet.EMPTY
-    for arm in n:
-        out = out.union(d.seq_hard(_items(arm)))
-    return out
 
 
 # ── stop-set-eligibility dispatch bodies ──────────────────────────────────
 
 
-def _stopset_yes(_d: object, _n: IrSelf, _nc: object) -> bool:
-    """A char class / negated class is a single-char loop → stop-set eligible."""
-    return True
-
-
-def _stopset_no(_d: object, _n: IrSelf, _nc: object) -> bool:
-    """Literals, refs and groups are not stop-set loop atoms."""
-    return False
-
-
 # ── FOLLOW-feed dispatch bodies ───────────────────────────────────────────
-
-
-def _feed_ruleref(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> bool:
-    """Union the effective continuation into a defined ref target's FOLLOW.
-
-    :returns: ``True`` iff the target's FOLLOW set grew.
-    """
-    name = str(n)
-    if name not in d.rules:
-        return False
-    ctx = cast(FeedCtx, nc[0])
-    tgt = ctx.pass_.tgt
-    grown = tgt[name].union(ctx.eff)
-    if grown != tgt[name]:
-        tgt[name] = grown
-        return True
-    return False
-
-
-def _feed_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> bool:
-    """Feed the effective continuation into each of a group's arms."""
-    assert isinstance(n, IrAlternation)
-    ctx = cast(FeedCtx, nc[0])
-    changed = False
-    for arm in n:
-        if d.feed_seq(_items(arm), ctx.eff, ctx.rule, ctx.pass_):
-            changed = True
-    return changed
-
-
-def _feed_terminal(_d: object, _n: IrSelf, _nc: object) -> bool:
-    """A terminal atom has no sub-rule FOLLOW to update."""
-    return False
 
 
 # ── sequence-conflict dispatch bodies ─────────────────────────────────────
 
 
-def _seq_ruleref(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> None:
-    """Flag a rule ref whose target the grammar never defines."""
-    if str(n) not in d.rules:
-        ctx = cast(ConflictCtx, nc[0])
-        ctx.notes.hard.append(f"{ctx.rule}[{ctx.index}]: undefined ref {str(n)!r}")
-
-
-def _seq_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> None:
-    """Recurse conflict analysis into an inline group's arms."""
-    assert isinstance(n, IrAlternation)
-    ctx = cast(ConflictCtx, nc[0])
-    sub_arms = [_items(arm) for arm in n]
-    label = f"{ctx.rule}[{ctx.index}]grp"
-    scope = Scope(ctx.rule, ctx.cont.soft, ctx.cont.hard, body=False)
-    d.arm_conflicts(sub_arms, ctx.cont.soft, label, ctx.notes)
-    for sub in sub_arms:
-        d.seq_conflicts(sub, scope, ctx.notes)
-
-
-def _seq_noop(_d: object, _n: IrSelf, _nc: object) -> None:
-    """A terminal atom contributes no sequence-level conflict."""
-    return None
-
-
 # ── dispatch tables (open, raising default via IrTypeMap miss) ─────────────
-
-_NULLABLE: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_null_literal)),
-    IrAction(IrCharClass, IrLambda(_null_never)),
-    IrAction(IrNot, IrLambda(_null_never)),
-    IrAction(IrAlphabet, IrLambda(_null_never)),
-    IrAction(IrRuleRef, IrLambda(_null_ruleref)),
-    IrAction(IrAlternation, IrLambda(_null_alternation)),
-)
-
-_FIRST: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_first_literal)),
-    IrAction(IrCharClass, IrLambda(_first_charclass)),
-    IrAction(IrNot, IrLambda(_first_not)),
-    IrAction(IrAlphabet, IrLambda(_first_token)),
-    IrAction(IrRuleRef, IrLambda(_first_ruleref)),
-    IrAction(IrAlternation, IrLambda(_first_alternation)),
-)
-
-_HARD: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_hard_terminal)),
-    IrAction(IrCharClass, IrLambda(_hard_terminal)),
-    IrAction(IrNot, IrLambda(_hard_terminal)),
-    IrAction(IrAlphabet, IrLambda(_hard_terminal)),
-    IrAction(IrRuleRef, IrLambda(_hard_ruleref)),
-    IrAction(IrAlternation, IrLambda(_hard_alternation)),
-)
-
-_STOPSET_ATOM: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_stopset_no)),
-    IrAction(IrCharClass, IrLambda(_stopset_yes)),
-    IrAction(IrNot, IrLambda(_stopset_yes)),
-    IrAction(IrAlphabet, IrLambda(_stopset_no)),
-    IrAction(IrRuleRef, IrLambda(_stopset_no)),
-    IrAction(IrAlternation, IrLambda(_stopset_no)),
-)
-
-_FOLLOW_FEED: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_feed_terminal)),
-    IrAction(IrCharClass, IrLambda(_feed_terminal)),
-    IrAction(IrNot, IrLambda(_feed_terminal)),
-    IrAction(IrAlphabet, IrLambda(_feed_terminal)),
-    IrAction(IrRuleRef, IrLambda(_feed_ruleref)),
-    IrAction(IrAlternation, IrLambda(_feed_alternation)),
-)
-
-_SEQ_ATOM: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_seq_noop)),
-    IrAction(IrCharClass, IrLambda(_seq_noop)),
-    IrAction(IrNot, IrLambda(_seq_noop)),
-    IrAction(IrAlphabet, IrLambda(_seq_noop)),
-    IrAction(IrRuleRef, IrLambda(_seq_ruleref)),
-    IrAction(IrAlternation, IrLambda(_seq_alternation)),
-)
 
 
 # ── nullability helpers (shared by solver and analysis) ────────────────────
-
-
-def _item_nullable(d: GrammarAnalysis | _Nullability, item: IrItem) -> bool:
-    """Whether ``item`` can consume nothing: ``lo == 0`` or a nullable atom."""
-    if int(item.quantifier.lo) == 0:
-        return True
-    return cast(bool, _NULLABLE.resolve(item.atom).eval(d, item.atom, ()))
-
-
-def _seq_nullable(d: GrammarAnalysis | _Nullability, items: Sequence[IrItem]) -> bool:
-    """Whether every item in a sequence arm is nullable (empty arm → True)."""
-    return all(_item_nullable(d, i) for i in items)
-
-
-def _rule_nullable(d: GrammarAnalysis | _Nullability, rule: IrRule) -> bool:
-    """Whether any arm of ``rule`` is all-nullable."""
-    return any(_seq_nullable(d, _items(arm)) for arm in rule.body)
-
-
-def nullable_names(rules: Sequence[IrRule]) -> frozenset[str]:
-    """The names of every rule in ``rules`` that derives the empty string.
-
-    The single home of the nullability fixpoint —
-    :func:`~lexic.parsing.fold.lift_optional_nullables` consumes it from here
-    (an intra-package import) rather than keeping its own copy.
-    """
-    return _Nullability({str(r.name): r for r in rules}).solve()
 
 
 # ── the analysis ──────────────────────────────────────────────────────────
@@ -448,11 +187,11 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
         :raises UnsupportedConstructError: On an unregistered atom type.
         """
-        return cast(bool, _NULLABLE.resolve(atom).eval(self, atom, ()))
+        return cast(bool, NULLABLE.resolve(atom).eval(self, atom, ()))
 
     def item_nullable(self, item: IrItem) -> bool:
         """Whether ``item`` can consume nothing (``lo == 0`` or nullable atom)."""
-        return _item_nullable(self, item)
+        return item_nullable(self, item)
 
     # ── FIRST ──────────────────────────────────────────────────────────
 
@@ -461,7 +200,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
         :raises UnsupportedConstructError: On an unregistered atom type.
         """
-        return cast(CharSet, _FIRST.resolve(atom).eval(self, atom, ()))
+        return cast(CharSet, FIRST.resolve(atom).eval(self, atom, ()))
 
     def seq_first(self, items: Sequence[IrItem]) -> CharSet:
         """FIRST set of an item sequence — union until the first non-nullable."""
@@ -494,7 +233,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
         :raises UnsupportedConstructError: On an unregistered atom type.
         """
-        return cast(CharSet, _HARD.resolve(atom).eval(self, atom, ()))
+        return cast(CharSet, HARD.resolve(atom).eval(self, atom, ()))
 
     def seq_hard(self, items: Sequence[IrItem]) -> CharSet:
         """hard-FIRST of a sequence — the first non-nullable item's hard-FIRST."""
@@ -556,7 +295,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
     def _stopset_eligible(self, atom: IrAtom) -> bool:
         """Whether ``atom`` is a single-char loop atom (char class / negation)."""
-        return cast(bool, _STOPSET_ATOM.resolve(atom).eval(self, atom, ()))
+        return cast(bool, STOPSET_ATOM.resolve(atom).eval(self, atom, ()))
 
     def _store_loop_gate(
         self, item: IrItem, spec: tuple[tuple[CharSet, ...], ...]
@@ -690,7 +429,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         Walks the arm right to left carrying the running continuation. Soft mode
         unions each nullable item's FIRST into it; hard mode uses hard-FIRST and
         *skips* nullable items (mirroring the PDA clone tails). Each atom's
-        sub-rule FOLLOW update is delegated to :data:`_FOLLOW_FEED`.
+        sub-rule FOLLOW update is delegated to :data:`FOLLOW_FEED`.
 
         :param tail: The continuation at the arm's end (the rule's FOLLOW).
         :param pass_: The FOLLOW pass constant (target table + hard flag).
@@ -706,7 +445,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             if hi is None or hi > 1:
                 eff = eff.union(self.atom_hard(atom) if hard else self.atom_first(atom))
             ctx = FeedCtx(eff, rule, pass_)
-            if cast(bool, _FOLLOW_FEED.resolve(atom).eval(self, atom, (ctx,))):
+            if cast(bool, FOLLOW_FEED.resolve(atom).eval(self, atom, (ctx,))):
                 changed = True
             if hard:
                 if not self.item_nullable(item):
@@ -765,7 +504,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         :param ext_follow: The FOLLOW set at the alternation's end.
         :param label: The note-label prefix (rule name or group tag).
         """
-        infos = [(self.seq_first(arm), _seq_nullable(self, arm)) for arm in arms]
+        infos = [(self.seq_first(arm), seq_nullable(self, arm)) for arm in arms]
         overlaps: list[tuple[int, int]] = []
         for i, (first_i, _) in enumerate(infos):
             for j, (first_j, _) in enumerate(infos[i + 1 :], i + 1):
@@ -883,7 +622,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             eff = eff.union(self.atom_first(atom))
             hard_eff = hard_eff.union(self.atom_hard(atom))
         ctx = ConflictCtx(notes, Cont(eff, hard_eff), scope.rule, k)
-        _SEQ_ATOM.resolve(atom).eval(self, atom, (ctx,))
+        SEQ_ATOM.resolve(atom).eval(self, atom, (ctx,))
 
     def cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:
         """The continuation char set after item ``k`` (rest of arm, then tail)."""

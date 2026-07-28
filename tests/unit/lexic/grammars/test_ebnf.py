@@ -14,25 +14,27 @@ from lexic.grammars.ebnf import (
     EBNF_GRAMMAR,
     EBNF_REDUCTIONS,
 )
-from lexic.ir.base import IrLambda, IrNone, IrSeq
-from lexic.ir.canonical import canonicalize
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.nodes import (
+from lexic.ir import (
+    EscapeCodec,
     IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
+    IrFlavour,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrNone,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
+    canonicalize,
 )
-from lexic.ir.operators import IrNot
 from tests.unit.lexic.conftest import GRAMMAR_AST_TYPES, contains_ir_type, wide_grammar
 
 

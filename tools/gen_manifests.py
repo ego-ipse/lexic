@@ -2,12 +2,13 @@
 
 A manifest is one IR-constructor-notation expression — an ``IrMap`` of the seven
 sections :func:`lexic.compile.notation.loader.load_flavour` consumes. This dev-time tool
-repr-generates them (the demo_05 licence): the ``grammar``/``reductions``/
+repr-generates them (the demo_05 licence): the ``grammar``/``reduction``/
 ``actions`` sections come straight off the authored singletons via :func:`repr`
 (a superset of the notation), and the ``escapes`` section is spelled as the five
-IR dyad tables (ruling D1). It NEVER reprs a ``Reducer`` or a noise map —
-``IrLambda.__repr__`` can raise, and a manifest carries no noise section (the
-loader derives noise from the self-grammar's ``semantic=False`` flags).
+IR dyad tables (ruling D1). The ``reduction`` section is the flavour's whole
+``Reducer`` — actions, default, noise and literal — which reprs because the
+policy sentinels are real nodes rather than ``IrLambda`` closures whose repr is
+lambda source.
 
 All three manifests are generated from their shipped singletons
 (:mod:`lexic.grammars.gbnf` / :mod:`abnf` / :mod:`ebnf`).
@@ -24,23 +25,24 @@ from lexic.compile import parse_grammar
 from lexic.grammars.abnf import (
     ABNF_ACTIONS,
     ABNF_FLAVOUR,
-    ABNF_REDUCTIONS,
 )
 from lexic.grammars.ebnf import (
     EBNF_ACTIONS,
     EBNF_FLAVOUR,
-    EBNF_REDUCTIONS,
 )
 from lexic.grammars.gbnf import (
     GBNF_ACTIONS,
     GBNF_FLAVOUR,
-    GBNF_REDUCTIONS,
 )
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.canonical import canonicalize
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.mapping import IrMap, IrTypeMap
+from lexic.ir import (
+    EscapeCodec,
+    IrFlavour,
+    IrMap,
+    IrStr,
+    IrTuple,
+    IrTypeMap,
+    canonicalize,
+)
 
 # ── section spelling ──────────────────────────────────────────────────────
 
@@ -67,14 +69,14 @@ def escapes_as_ir(codec: EscapeCodec) -> IrMap:
     )
 
 
-def format_manifest(flavour: IrFlavour, reductions: IrMap, actions: IrTypeMap) -> str:
+def format_manifest(flavour: IrFlavour, actions: IrTypeMap) -> str:
     """One manifest as readable notation text — each section on its own line.
 
-    Five of the seven sections are the flavour's own ClassVars, so it is
+    Six of the seven sections are the flavour's own ClassVars, so it is
     passed whole rather than unpacked at every call site (a flavour is data).
 
-    :param flavour: The flavour whose metadata, escapes and grammar to emit.
-    :param reductions: Its reduce table.
+    :param flavour: The flavour whose metadata, escapes, grammar and reduction
+        to emit.
     :param actions: Its emit actions.
     :returns: The manifest as notation text.
     """
@@ -84,7 +86,7 @@ def format_manifest(flavour: IrFlavour, reductions: IrMap, actions: IrTypeMap) -
         ("line-comment", repr(IrStr(flavour.line_comment))),
         ("escapes", repr(escapes_as_ir(flavour.escapes))),
         ("grammar", repr(flavour.grammar)),
-        ("reductions", repr(reductions)),
+        ("reduction", repr(flavour.reducer)),
         ("actions", repr(actions)),
     ]
     lines = [f"    IrTuple(IrStr({key!r}), {value})" for key, value in sections]
@@ -118,15 +120,15 @@ def main() -> None:
     """Generate the three manifests + the demo EBNF corpus grammar."""
     _write(
         _GRAMMARS / "gbnf.flavour.ir",
-        format_manifest(GBNF_FLAVOUR, GBNF_REDUCTIONS, GBNF_ACTIONS),
+        format_manifest(GBNF_FLAVOUR, GBNF_ACTIONS),
     )
     _write(
         _GRAMMARS / "abnf.flavour.ir",
-        format_manifest(ABNF_FLAVOUR, ABNF_REDUCTIONS, ABNF_ACTIONS),
+        format_manifest(ABNF_FLAVOUR, ABNF_ACTIONS),
     )
     _write(
         _GRAMMARS / "ebnf.flavour.ir",
-        format_manifest(EBNF_FLAVOUR, EBNF_REDUCTIONS, EBNF_ACTIONS),
+        format_manifest(EBNF_FLAVOUR, EBNF_ACTIONS),
     )
     _write(_GROUND_TRUTH / "arithmetic.ebnf", ARITHMETIC_EBNF)
     _write(_GROUND_TRUTH / "json.ebnf", _json_ebnf())

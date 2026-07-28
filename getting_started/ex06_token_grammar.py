@@ -22,11 +22,9 @@ Run::
 from __future__ import annotations
 
 from lexic import compile_text, parse_grammar
+from lexic.compile import Vocabulary
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.ir.base import IrStr, IrTuple
-from lexic.ir.encoding import IrTokenizer
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import IrChr
+from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 
 # A tiny vocab: two special tokens plus a few word/punctuation tokens. The
 # encoding name ("tokens") is the one GBNF's token terminals reference.
@@ -49,7 +47,7 @@ def _tokenizer() -> IrTokenizer:
 def main() -> None:
     """Compile a token grammar and run all three token capabilities."""
     tokenizer = _tokenizer()
-    compiled = compile_text(GRAMMAR, tokenizer=tokenizer, cache_key="ex06")
+    compiled = compile_text(GRAMMAR, vocabulary=Vocabulary(tokenizer), cache_key="ex06")
 
     # Capability A — read / emit, no tokenizer: the token terminals round-trip.
     print("Grammar (re-emitted):")

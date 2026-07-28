@@ -1,0 +1,331 @@
+"""Layout algebra — width-aware document combinators on the record spine.
+
+Wadler-style pretty-printing as IR data: a *doc* tree describes text with
+its break opportunities, and :func:`render` solves the line breaks against a
+width deterministically. Emitters build docs; nothing here knows what the
+text means.
+
+The combinators:
+
+- :class:`IrText` — literal text (the node IS the string; never a newline);
+- :class:`IrLine` — a break opportunity: its ``flat`` text when the
+  enclosing group stays flat, ``pre`` + newline + indent when it breaks;
+- :class:`IrCat` — concatenation (the node IS its parts tuple);
+- :class:`IrNest` — adds relative indent to every break inside its doc;
+- :class:`IrGroup` — the fit unit: renders flat iff its flattened text plus
+  the rest of the current line (the sheet's pending work up to the next
+  break) fits the width, else every direct :class:`IrLine` in it breaks
+  (inner groups re-decide on their own line).
+
+Behavior is intrinsic to the nodes (:meth:`IrDoc.layout` for rendering,
+:meth:`IrDoc.scan` for the fit lookahead — a new doc type implements both)
+against a mutable :class:`Sheet` cursor; :func:`render` is a flat driver
+over the sheet's explicit stack, so rendering depth never rides the Python
+stack.
+
+Doc nodes double as **action-body templates** (the ``IrLiteral`` dual-role
+precedent): :class:`IrGroup`/:class:`IrNest` evaluate by rebuilding around
+their evaluated interior, :class:`IrLine` is identity data, and
+:class:`IrDocConcat`/:class:`IrDocJoin` are the doc-tier sums of
+:class:`~lexic.ir.action.IrConcat`/:class:`~lexic.ir.action.IrJoin` — the
+concatenation is an :class:`IrCat`, with str-tier parts lifted to
+:class:`IrText` leaves. Flavour emit tables compose these directly.
+"""
+
+from __future__ import annotations
+
+from typing import ClassVar, Self, Sequence, cast
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.spine.records import IrNamedTuple, IrSeq, IrTuple
+from lexic.ir.spine.scalars import IrStr
+from lexic.ir.spine.spine import IrNode, IrSelf
+
+
+class Sheet:
+    """The render cursor — output parts, column, work stack, target width."""
+
+    __slots__ = ("width", "col", "parts", "stack")
+
+    def __init__(self, width: int | None) -> None:
+        """Start an empty sheet against ``width``.
+
+        :param width: Target maximum line width; ``None`` = unbounded (every
+            group fits — the flat rendering).
+        """
+        self.width = width
+        self.col = 0
+        self.parts: list[str] = []
+        self.stack: list[tuple[int, bool, IrDoc]] = []
+
+    def write(self, text: str) -> None:
+        """Emit ``text`` on the current line and advance the column.
+
+        :param text: Newline-free text.
+        """
+        self.parts.append(text)
+        self.col += len(text)
+
+    def newline(self, indent: int, pre: str = "") -> None:
+        """Emit ``pre``, break the line, land at ``indent`` columns.
+
+        :param indent: The new line's leading indent.
+        :param pre: Broken-only text emitted before the newline.
+        """
+        self.parts.append(pre + "\n" + " " * indent)
+        self.col = indent
+
+    def fits(self, doc: IrDoc) -> bool:
+        """Whether ``doc`` rendered flat, plus the rest of the current line,
+        stays within the width.
+
+        The lookahead scans ``doc`` in flat mode and then the sheet's pending
+        work in its recorded modes, stopping at the first break that will
+        actually be taken (an :class:`IrLine` in a non-flat frame) — the
+        Wadler ``fits`` with the continuation included, so trailing
+        separators AND a breaking line's broken-only ``pre`` text count
+        against the line they land on.
+
+        :param doc: The candidate group content.
+        :returns: ``True`` when the line cannot overflow.
+        """
+        if self.width is None:
+            return True
+        col = self.col
+        # bottom..top of the pending stack, then the candidate on top — the
+        # scan pops LIFO, i.e. candidate first, then the line's continuation.
+        work: list[tuple[bool, IrDoc]] = [(fl, d) for _i, fl, d in self.stack]
+        work.append((True, doc))
+        while work:
+            flat, node = work.pop()
+            width, ends = node.scan(flat, work)
+            col += width
+            if col > self.width:
+                return False
+            if ends:
+                return True
+        return True
+
+
+class IrDoc(IrNode[IrSelf, IrSelf]):
+    """Role marker + protocol for layout nodes.
+
+    :meth:`layout` performs the node's one rendering step against the sheet;
+    :meth:`scan` is the fit-lookahead twin: ``(width contributed, line ends
+    here)``, pushing children onto the scan's work list.
+    """
+
+    def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
+        """Emit this node's text onto the sheet and/or push work.
+
+        :param sheet: The render cursor (parts, column, stack, width).
+        :param indent: Current indent (columns) for breaks.
+        :param flat: Whether the enclosing group rendered flat.
+        :raises UnsupportedConstructError: When the node type does not
+            implement its rendering step.
+        """
+        raise UnsupportedConstructError(
+            f"layout: {type(self).__name__} does not implement layout()"
+        )
+
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
+        """One fit-lookahead step — ``(width contributed, line ends here)``.
+
+        A breaking :class:`IrLine` still contributes its broken-only ``pre``
+        text to the CURRENT line before ending it.
+
+        :param flat: The scanning frame's flat mode.
+        :param work: The scan's work list (push children here).
+        :raises UnsupportedConstructError: When the node type does not
+            implement its scan step.
+        """
+        raise UnsupportedConstructError(
+            f"layout: {type(self).__name__} does not implement scan()"
+        )
+
+
+class IrText(IrDoc, IrStr):
+    """Literal text — the node IS the string; newlines are refused.
+
+    :class:`IrLine` is the only line device, so column accounting never has
+    to scan text for embedded breaks.
+    """
+
+    def __new__(cls, text: str = "") -> Self:
+        """Construct, refusing embedded newlines.
+
+        :param text: The literal text.
+        :raises UnsupportedConstructError: When ``text`` contains a newline.
+        """
+        if "\n" in text:
+            raise UnsupportedConstructError(
+                f"IrText: embedded newline in {text!r}; break with IrLine"
+            )
+        return cast(Self, super().__new__(cls, text))
+
+    def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
+        sheet.write(str(self))
+
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
+        return len(self), False
+
+
+class IrLine(IrDoc, IrNamedTuple[str, str]):
+    """A break opportunity.
+
+    Renders as ``flat`` when the enclosing group stays flat, and as
+    ``pre`` + newline + indent when it breaks — ``pre`` is the broken-only
+    text (e.g. a trailing comma before a closing bracket:
+    ``IrLine("", ",")``).
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    flat: str = ""
+    pre: str = ""
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Identity — a line is action-body DATA (its fields are plain str,
+        so the record-tier evaluating rebuild cannot run)."""
+        return self
+
+    def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
+        if flat:
+            sheet.write(self.flat)
+            return
+        sheet.newline(indent, self.pre)
+
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
+        if flat:
+            return len(self.flat), False
+        return len(self.pre), True
+
+
+class IrCat(IrDoc, IrSeq[IrDoc]):
+    """Concatenation — the node IS its parts tuple."""
+
+    def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
+        sheet.stack.extend((indent, flat, part) for part in self[::-1])
+
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
+        work.extend((flat, part) for part in self[::-1])
+        return 0, False
+
+
+class IrNest(IrDoc, IrNamedTuple[int, IrDoc]):
+    """Relative indent for every break inside ``doc``."""
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("doc",)
+    indent: int
+    doc: IrDoc
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Template — rebuild around the evaluated interior."""
+        return IrNest(int(self.indent), as_doc(self.doc.eval(d, n, nc)))
+
+    def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
+        sheet.stack.append((indent + self.indent, flat, self.doc))
+
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
+        work.append((flat, self.doc))
+        return 0, False
+
+
+class IrGroup(IrDoc, IrNamedTuple[IrDoc]):
+    """The fit unit: flat iff the flattened group + line continuation fits.
+
+    The lookahead treats a group in the continuation optimistically (scanned
+    flat); if that group then breaks on its own line the estimate was merely
+    conservative for it, never for this one.
+    """
+
+    doc: IrDoc
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
+        """Template — rebuild around the evaluated interior."""
+        return IrGroup(as_doc(self.doc.eval(d, n, nc)))
+
+    def layout(self, sheet: Sheet, indent: int, flat: bool) -> None:
+        sheet.stack.append((indent, flat or sheet.fits(self.doc), self.doc))
+
+    def scan(self, flat: bool, work: list[tuple[bool, IrDoc]]) -> tuple[int, bool]:
+        work.append((flat, self.doc))
+        return 0, False
+
+
+def as_doc(value: object) -> IrDoc:
+    """Lift a str-tier value to an :class:`IrText` leaf; docs pass through.
+
+    :param value: An action result — a doc or a str-tier leaf.
+    :returns: The value as a doc node.
+    """
+    return value if isinstance(value, IrDoc) else IrText(str(value))
+
+
+class IrDocConcat(IrDoc, IrNamedTuple[IrTuple]):
+    """The doc-tier sum of :class:`~lexic.ir.action.IrConcat` — evaluated
+    parts concatenate as an :class:`IrCat`, str-tier parts lifted.
+
+    An action node in doc-marker role (assignable to template slots like
+    :class:`IrGroup.doc`); rendering an unevaluated template refuses via the
+    inherited :meth:`IrDoc.layout`.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("parts",)
+    parts: IrTuple = IrTuple()
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrCat:
+        """Evaluate ``parts`` in order; return their :class:`IrCat`.
+
+        :param d: Dispatcher forwarded to each part's ``eval``.
+        :param n: Current node forwarded to each part's ``eval``.
+        :param nc: Pre-walked children forwarded to each part's ``eval``.
+        :returns: The parts as one concatenation doc.
+        """
+        return IrCat(*(as_doc(p.eval(d, n, nc)) for p in self.parts))
+
+
+class IrDocJoin(IrDoc, IrNamedTuple[IrSelf, IrSelf, IrSelf]):
+    """The doc-tier sum of :class:`~lexic.ir.action.IrJoin` — parts
+    interleave with the separator doc into an :class:`IrCat` (a falsy
+    separator is skipped, the str-join neutral); ``empty`` is the fallback
+    when ``parts`` evaluates empty."""
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("parts", "separator", "empty")
+    parts: IrSelf = IrTuple()
+    separator: IrSelf = IrText()
+    empty: IrSelf = IrText()
+
+    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrDoc:
+        """Evaluate ``parts``; interleave or return the empty fallback.
+
+        :param d: Dispatcher forwarded to each child's ``eval``.
+        :param n: Current node forwarded to each child's ``eval``.
+        :param nc: Pre-walked children forwarded to each child's ``eval``.
+        :returns: The interleaved concatenation, or ``empty`` when parts is.
+        """
+        rendered = self.parts.eval(d, n, nc)
+        if not rendered:
+            return as_doc(self.empty.eval(d, n, nc))
+        sep = self.separator.eval(d, n, nc)
+        out: list[IrDoc] = []
+        for i, part in enumerate(rendered):
+            if i and sep:
+                out.append(as_doc(sep))
+            out.append(as_doc(part))
+        return IrCat(*out)
+
+
+def render(doc: IrDoc, width: int | None = 88) -> str:
+    """Render a doc against ``width`` — deterministic, explicit-stack.
+
+    :param doc: The document to render.
+    :param width: Target maximum line width — a line exceeds it only when it
+        contains no break opportunity; ``None`` renders flat (no limit).
+    :returns: The rendered text.
+    """
+    sheet = Sheet(width)
+    sheet.stack.append((0, False, doc))
+    while sheet.stack:
+        indent, flat, node = sheet.stack.pop()
+        node.layout(sheet, indent, flat)
+    return "".join(sheet.parts)

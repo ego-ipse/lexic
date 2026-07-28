@@ -6,6 +6,126 @@ Significant choices with reasoning. Add an entry whenever a non-obvious decision
 
 ---
 
+## Ambiguity is a question about VALUES, and it is asked in one place
+
+**Two derivations that build the same value are not an ambiguity.** A grammar
+routinely derives one text several ways without meaning anything by it: an
+inline group carves a digit two ways and folds identically, and two adjacent
+nullable slots split a gap two ways to the same end. Refusing those refuses
+valid input for a difference no consumer can observe — under the `plain` target,
+where a fold builds dicts, it is not even hypothetical.
+
+**Nor is it asked by counting.** The check compares the values built, not the
+number of derivations found. `repr()` is not the value either: two dicts of one
+content in different key orders are one value and two spellings.
+
+**`same_value` is type-aware and structural**, because bare `==` is wrong in
+both directions. It calls `IrStr("a")` and `"a"` equal — the IR wraps `str` and
+`int`, so a leaf and its text compare equal while a consumer reading the field
+sees two different things. And it calls a float NaN different from itself, and
+two instances of any class that never defined `__eq__` different from each
+other. A type that declined to define equality has declined to answer, and
+"cannot tell" reads as no observable difference, hence no refusal.
+
+**It lives in `parsing/earley/kernel/forest/ambiguity.py`** so the island
+sub-parse, the reduce path and the Earley model completion decide it once and
+the same way. The reduce path used to count derivations, and the cost was the
+whole EBNF fallback: that self-grammar has adjacent nullable `ws` slots, so
+every whitespace-carrying EBNF file derived at least two ways, reduced to
+exactly one value, and was refused. The model completion used to not ask at
+all — it took the first derivation, and the PDA took a different "first", so
+an ambiguous arm choice was answered two ways in silence; `first_meaning`
+(`earley/engine.py`) now asks on that path too.
+
+**The opt-out is a resolver, not a flag.** `another_meaning` returns the
+differing derivation itself — the witness — so a caller opting out of the
+default refusal supplies a deterministic `Resolver` that is handed both
+derivations and picks; how it picks is the caller's concern. The same
+`AmbiguityPolicy` / `Resolver` vocabulary reaches wherever a derivation is
+chosen: `parse_model`, the PDA's `IslandPolicy`, and the Earley completion.
+
+**A flipped point is consumed at its first visit.** A unit cycle's same-span
+completions make the chart CYCLIC (`a ::= b | "x"` / `b ::= a | "y"`), and a
+pin that re-applied at its own key would name no finite derivation — the
+pinned build walked `a → b → a` forever. Consumed
+(`splits._descend` pops it; `FastTree` copies the caller's map), a pin names
+the one-lap unroll, exactly the alternative whose value answers the question.
+Family 0 needs no guard: the first family recorded for a key can only
+reference completions recorded strictly earlier, so the default walk is
+acyclic by causality.
+
+**The forest already records where to look.** A key packing more than one family
+IS an ambiguity point (Scott 2008), so the question is answered by a walk rather
+than by enumerating derivations and hoping the interesting one comes early. One
+flip per point suffices: a fold is compositional, so if no single alternative
+changes the value, no combination does — linear in ambiguity points where
+enumerating derivations is exponential in them.
+
+**A many-production root is not an ambiguity point.** Its sibling productions
+live in other accepting *items*, so `s ::= s s | "a"` over `"aaa"` reads
+unambiguous to a walk that only follows links. Checked separately.
+
+---
+
+## A directive is not a privilege of surfaces with a line comment
+
+`@start` and `@non-semantic` are read from source comments before the parser
+runs. The scan used to take the flavour's `line_comment`, and ISO EBNF has only
+`(* *)` block comments — so directive parsing was disabled for every EBNF
+grammar, and a mechanism GBNF and ABNF could express, EBNF structurally could
+not. That is a privileged formulation.
+
+It was not academic. `json.ebnf` could not mark `ws` structural, so `ws` stayed
+semantic, the stop-set analysis correctly refused to resolve it predictively and
+compiled it as a fail-island, and since `json-text` references `ws` as its first
+item, EVERY parse escaped to Earley at position 0. The same language as
+`json.gbnf`, which compiles 126 clones and no islands.
+
+A flavour now declares whichever comment form it has — `line_comment` or
+`block_comment` — and the scanner reads directives from either. All three JSON
+formulations now compile to byte-identical clone tables.
+
+**The directives are also an argument**, not only a source comment: `Directives`
+overrides what the grammar says, and keys the compile memo, because one source
+compiled two ways must not hand back the first. `Vocabulary` bundles
+`tokenizer` + `registry`, which were never two channels — they compose over a
+default `unicode` before anything reads a terminal.
+
+---
+
+## The compiled artefact's four rulings
+
+**The target is inferred, never a flag.** `classes` / `ir` / `plain` are one
+projection over one symbol table, decided by the codomain of the reduction that
+produced the value. A `target=` parameter would be a channel beside a real one:
+the caller already chose, by choosing a product, and asking again invites the
+two answers to disagree. The rule generalises — if a flag appears in the
+projection, a wrong turn has been taken.
+
+**The `.pyc` is written at export.** `UNCHECKED_HASH` makes byte-compiled output
+outrank its source unconditionally, which is what buys the fast import. Its
+price is that whoever writes the `.py` must write the `.pyc`: leaving it to the
+first importer is how a reader silently gets yesterday's value. The same rule
+orders the two files on disk — the stale cache is dropped before the new source
+lands, and the fresh cache after, so no crash window leaves them disagreeing.
+
+**`src/` carries no regex engine.** Field naming, name mangling and every other
+text transform in the compile path are written as explicit character walks. A
+regex is a second, opaque grammar engine living inside a grammar engine: the
+one thing this codebase should never need to reach for is a different notation
+for "what does this text mean". A static check enforces the absence, and it is a
+floor — it catches an import, not a rewrite of one under another name.
+
+**Record sharing is keyed on identity, plus equal-and-immutable.** Two nodes
+share a record when the source shared the object, OR when they are equal and not
+in-place mutable. Not identity alone: value-sharing is what keeps the tables
+small. Not equality alone: that would merge two lists a caller intends to mutate
+apart. The memo carries a **keepalive** with each key, because a memo key is
+valid only while something holds the object — synthesized children are freed as
+their frame pops, and their ids get handed straight back to different objects.
+
+---
+
 ## 2026-07-21 — Micro-perf floor: in-process A/B only; model count, not per-model cost, bounds the win
 
 **Finding:** the only trustworthy way to measure a parse-engine change below roughly 15% is an **in-process, interleaved A/B** — baseline and candidate run in the same warm process, order randomized per sample, best-of-N reported. Cross-process comparisons (including git-stash-based before/after) and `cProfile` self-time both mislead at this scale: cross-process runs showed an apparent 6–11% win that vanished (and in one case reversed) under in-process A/B, because cold-start and allocator noise dominate a delta that small; `cProfile`'s per-call overhead inflates exactly the highest-call-count helper functions, misdirecting effort toward code that isn't the real steady-state bottleneck.
@@ -332,3 +452,22 @@ makes a third-party format reader legitimate inside `src` at all.
 **Why:** Flavours have no mutable state — they are configuration bundles. Class attributes are readable, introspectable, and don't require instantiation. `MetaGrammarParser.for_flavour(Cls)` takes the class, not an instance.
 
 **Tradeoff:** The `emitter` class attribute uses `ClassVar[Any]` (typed loosely) to avoid an import cycle. Acceptable — the type is checked at test time.
+
+---
+
+## 2026-07-28 — Engine parity is RAW model equality, not semantic equality
+
+**Decision:** The PDA and the Earley engine must build the *same model*, field for field. `deep_semantic` — which drops `semantic=False` binds at every level — is no longer the parity bar.
+
+This retires "ruling 1", which had licensed the two paths to disagree: *"the PDA's greedy stop-set loop may split a `semantic=False` run differently from the engine's ambiguity resolution."* That licence lived only in a test module's docstring, which is why it could hold for a month without being a decision anyone could find.
+
+**Why:** `@non-semantic ws` does **not** remove whitespace from the model. It is preserved as `Ws('')` *fields*, because `to_text()` round-trip needs the characters stored. So a consumer reading `.ws` can observe a difference the semantic bar declares invisible — the bar was hiding a real disagreement rather than describing an irrelevant one. Under the standing ruling that the engines are *required* to agree, a comparator that passes either way cannot be the test for it.
+
+**What made it affordable:** the adjacent-nullable split fix. A *split* — one production carved two ways, same arm, different boundary — has a defined answer: the first slot owns the text. `is_arm_choice()` (`parsing/earley/kernel/tables/splits.py`) is the structural test that separates it from an *arm* choice, which is two different productions and is still refused. Once both engines resolved splits the same way, all three JSON formulations agreed at raw equality and the semantic licence had nothing left to excuse.
+
+**Impact:**
+
+- `tests/integration/lexic/parity/test_pda_parity.py` carries two tests that own different invariants and do not subsume each other: the wide differential (semantic bar) owns fallback behaviour, round-trip and the opt-out branch; `test_both_engines_build_the_same_model_not_just_the_same_meaning` owns raw equality.
+- The semantic licence had been hiding 47 of 200 JSON inputs — the same characters landing in different `Ws` fields.
+- Ambiguity is still **refused by default**. The engines are not permitted to pick. A caller may supply a deterministic resolver, and that resolver's behaviour is the caller's concern, not the engine's — it is not a fallback and not a flag.
+- `RAW_PARITY_STEMS` excludes a stem only with a written reason. Exclusions are debts, not licences.

@@ -35,16 +35,18 @@ from __future__ import annotations
 
 from typing import Any, Mapping, NamedTuple
 
-from lexic.ir.base import IrLeaf, IrNoneType, IrSelf
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrCharClass,
     IrItem,
+    IrLeaf,
     IrLiteral,
+    IrNoneType,
+    IrNot,
     IrRule,
     IrRuleRef,
+    IrSelf,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing.pda.core.charsets import CharSet
 
 __all__ = [

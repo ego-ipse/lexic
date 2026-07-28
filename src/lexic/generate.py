@@ -5,7 +5,7 @@ Walks a rules-by-name view of a (canonical) grammar: each rule body is an
 random arm and expands each item by its atom kind and quantifier, recursing on
 :class:`IrRuleRef` occurrences. ``max_depth`` decrements on each ref expansion.
 
-Atom expansion is an open :class:`~lexic.ir.walk.IrDispatch` table keyed on the
+Atom expansion is an open :class:`~lexic.ir.action.walk.IrDispatch` table keyed on the
 atom type (``IrLiteral`` / ``IrCharClass`` / ``IrRuleRef`` / ``IrAlternation``
 group), with a raising default — an unregistered atom type fails loudly rather
 than silently generating ``""``. The generator documents itself over canonical
@@ -18,19 +18,23 @@ from __future__ import annotations
 import random as _random
 from typing import ClassVar, Sequence
 
-from lexic.ir.action import IrAction, IrRaise
-from lexic.ir.base import IrLambda, IrNamedTuple, IrNoneType, IrSelf
-from lexic.ir.mapping import IrTypeMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IrAction,
     IrAlternation,
     IrCharClass,
+    IrDispatch,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrNamedTuple,
+    IrNoneType,
     IrQuantifier,
+    IrRaise,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrTypeMap,
 )
-from lexic.ir.walk import IrDispatch
 
 Rules = dict[str, IrRule]
 

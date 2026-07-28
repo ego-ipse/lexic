@@ -14,15 +14,11 @@ from __future__ import annotations
 from typing import Mapping, NamedTuple, TypeVar
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrLeaf, IrSelf
-from lexic.parsing.earley.reduce import (
-    DROP_KIND,
-    KEEP_KIND,
-    YIELD,
-    ReducePlan,
-    Reducer,
-)
-from lexic.parsing.earley.tables import ParserTables
+from lexic.ir import IrLeaf, IrSelf
+from lexic.parsing.earley.kernel.tables.records import ParserTables
+from lexic.parsing.earley.reduce.fused import DROP_KIND, KEEP_KIND, ReducePlan
+from lexic.parsing.earley.reduce.policy import YIELD
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.pda.compiler.flatten import (
     BUILD_REDUCE,
     R_DROP,

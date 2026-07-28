@@ -15,7 +15,7 @@ API changes from the int-kernel rework:
 from __future__ import annotations
 
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.nodes import IrAst
+from lexic.ir import IrAst
 from lexic.parsing import (
     BUILD_TREE,
     Chart,
@@ -45,19 +45,23 @@ from lexic.parsing import (
     parse_reduced,
     recognize,
 )
-from lexic.parsing.earley.chart import Chart as ChartDirect
-from lexic.parsing.earley.chart import EarleyItem as EarleyItemDirect
-from lexic.parsing.earley.chart import Link as LinkDirect
-from lexic.parsing.earley.chart import Links as LinksDirect
 from lexic.parsing.earley.engine import EarleyParser as EarleyParserDirect
-from lexic.parsing.earley.forest import BUILD_TREE as BUILD_TREE_DIRECT
-from lexic.parsing.earley.forest import ParseTree as ParseTreeDirect
-from lexic.parsing.earley.forest import SppfNode as SppfNodeDirect
-from lexic.parsing.earley.kernel import FastTree as FastTreeDirect
-from lexic.parsing.earley.kernel import Kernel as KernelDirect
-from lexic.parsing.earley.reduce import Reducer as ReducerDirect
-from lexic.parsing.earley.tables import ParserTables as ParserTablesDirect
-from lexic.parsing.earley.tables import compile_tables as compile_tables_direct
+from lexic.parsing.earley.kernel.forest.chart import Chart as ChartDirect
+from lexic.parsing.earley.kernel.forest.chart import EarleyItem as EarleyItemDirect
+from lexic.parsing.earley.kernel.forest.chart import Link as LinkDirect
+from lexic.parsing.earley.kernel.forest.chart import Links as LinksDirect
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree as FastTreeDirect
+from lexic.parsing.earley.kernel.forest.forest import BUILD_TREE as BUILD_TREE_DIRECT
+from lexic.parsing.earley.kernel.forest.forest import ParseTree as ParseTreeDirect
+from lexic.parsing.earley.kernel.forest.forest import SppfNode as SppfNodeDirect
+from lexic.parsing.earley.kernel.loop.kernel import Kernel as KernelDirect
+from lexic.parsing.earley.kernel.tables.builder import (
+    compile_tables as compile_tables_direct,
+)
+from lexic.parsing.earley.kernel.tables.records import (
+    ParserTables as ParserTablesDirect,
+)
+from lexic.parsing.earley.reduce.reducer import Reducer as ReducerDirect
 from lexic.parsing.products import earley_model, earley_reduce
 
 

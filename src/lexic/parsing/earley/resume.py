@@ -1,6 +1,6 @@
 """The resumable recognizer — mark / extend / rollback on one growing chart.
 
-:class:`ResumableKernel` is the :class:`~lexic.parsing.earley.kernel.Kernel`
+:class:`ResumableKernel` is the :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel`
 specialisation that parses a *growing* input: :meth:`extend` appends columns
 and drives them (the prefix chart is never re-built), :meth:`mark` /
 :meth:`rollback` checkpoint and truncate — every per-parse index is
@@ -29,7 +29,7 @@ character, so wrong-char seeds never advance (the E6-1 geometry).
 from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.earley.kernel import Kernel
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
 
 
 class ResumableKernel(Kernel):

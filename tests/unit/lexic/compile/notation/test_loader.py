@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 import lexic.compile as compile_pkg
-from lexic.compile import parse_grammar
+from lexic.compile import parse_grammar, parse_reduced
 from lexic.compile.notation.loader import load_flavour, load_flavour_from_path
 from lexic.compile.notation.parse import NOTATION_GRAMMAR, load_ir
 from lexic.exceptions import UnsupportedConstructError
@@ -28,22 +28,29 @@ from lexic.grammars.gbnf import (
     GBNF_GRAMMAR,
     GBNF_REDUCTIONS,
 )
-from lexic.ir.action import IrAction, IrEmit
-from lexic.ir.base import IrInt, IrSelf, IrSeq, IrStr, IrTuple
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    IR_DEFAULT,
+    EscapeCodec,
+    IrAction,
     IrAlternation,
     IrAst,
+    IrEmit,
+    IrFlavour,
+    IrInt,
     IrItem,
     IrLiteral,
+    IrMap,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrStr,
+    IrTuple,
+    IrTypeMap,
 )
 from lexic.parsing import Reducer
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD
+from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
 from tests.paths import GROUND_TRUTH
 from tools.gen_manifests import escapes_as_ir
 
@@ -98,8 +105,17 @@ def mini_dyads() -> list[IrTuple]:
         IrTuple(IrStr("escapes"), mini_escapes()),
         IrTuple(IrStr("grammar"), mini_grammar()),
         IrTuple(
-            IrStr("reductions"),
-            IrMap(IrTuple(IrRuleRef("start"), YIELD), IrTuple(IR_DEFAULT, YIELD)),
+            IrStr("reduction"),
+            Reducer(
+                actions=IrMap(
+                    IrTuple(IrRuleRef("start"), YIELD), IrTuple(IR_DEFAULT, YIELD)
+                ),
+                default=YIELD,
+                noise=IrMap(
+                    IrTuple(IrRuleRef("ws"), DROP), IrTuple(IR_DEFAULT, KEEP_REDUCED)
+                ),
+                literal=DROP,
+            ),
         ),
         IrTuple(IrStr("actions"), IrTypeMap(IrAction(IrLiteral, IrEmit()))),
     ]
@@ -134,7 +150,7 @@ def gbnf_twin_manifest() -> str:
         IrTuple(IrStr("line-comment"), IrStr("#")),
         IrTuple(IrStr("escapes"), escapes_as_ir(GBNF_ESCAPES)),
         IrTuple(IrStr("grammar"), GBNF_GRAMMAR),
-        IrTuple(IrStr("reductions"), GBNF_REDUCTIONS),
+        IrTuple(IrStr("reduction"), GBNF_FLAVOUR.reducer),
         IrTuple(IrStr("actions"), GBNF_ACTIONS),
     )
     return repr(sections)
@@ -172,10 +188,13 @@ def test_escape_codec_is_an_irself_record() -> None:
     assert isinstance(codec, IrSelf)  # on the IR spine, not an isolated ABC
 
 
-def test_derived_noise_map_exact_dyads_by_identity() -> None:
-    """Settled 8: the noise map is derived, and each dyad is a sentinel BY
-    IDENTITY (never by repr — the sentinels are ``IrLambda``s whose repr can
-    raise; per Fable preflight #10)."""
+def test_carried_noise_map_exact_dyads_by_identity() -> None:
+    """The noise map is CARRIED, and each dyad is a sentinel BY IDENTITY.
+
+    Identity is the whole question: the engine asks ``body is DROP``, so a
+    manifest-loaded policy that merely reprs the same would change how every
+    document folds while passing every ``==`` a test could write.
+    """
     noise = reducer(load_flavour(mini_manifest())).noise
     view = dict(noise.items())  # order-insensitive key → body
     assert len(view) == 2
@@ -191,8 +210,8 @@ def test_reducer_literal_is_drop() -> None:
 def test_yield_survives_by_identity() -> None:
     """F-INTERN-1: a manifest spelling ``Yield()`` loads THE ``YIELD`` singleton."""
     assert "Yield()" in mini_manifest()
-    reductions = reducer(load_flavour(mini_manifest())).actions
-    assert reductions.get(IrRuleRef("start")) is YIELD
+    actions = reducer(load_flavour(mini_manifest())).actions
+    assert actions.get(IrRuleRef("start")) is YIELD
 
 
 # ── synthesized-class hygiene (§12) ──────────────────────────────────────
@@ -234,7 +253,7 @@ def test_non_map_root_rejected() -> None:
         load_flavour(repr(mini_grammar()))
 
 
-@pytest.mark.parametrize("section", ["name", "grammar", "escapes", "reductions"])
+@pytest.mark.parametrize("section", ["name", "grammar", "escapes", "reduction"])
 def test_missing_section_rejected(section: str) -> None:
     """A manifest missing any required section is rejected."""
     with pytest.raises(UnsupportedConstructError, match="missing required section"):
@@ -370,3 +389,37 @@ def test_load_flavour_from_path(tmp_path) -> None:
     flavour = load_flavour_from_path(manifest)
     assert flavour.name == "mini"
     assert isinstance(flavour, IrFlavour)
+
+
+def _manifest_with_noise(noise: IrMap) -> str:
+    """The minimal manifest, with only its reduction's noise policy varied."""
+    carried = Reducer(
+        actions=IrMap(IrTuple(IR_DEFAULT, YIELD)),
+        default=YIELD,
+        noise=noise,
+        literal=DROP,
+    )
+    return repr(
+        IrMap(
+            *(
+                IrTuple(d[0], carried) if str(d[0]) == "reduction" else d
+                for d in mini_dyads()
+            )
+        )
+    )
+
+
+def test_one_grammar_supports_several_readings() -> None:
+    """The reason the reduction is carried rather than derived.
+
+    Deriving the noise map from the grammar's own ``semantic=False`` flags made
+    one reading of a grammar the ONLY reading it could have. A reduction is a
+    reading, not a property of the grammar, so two manifests differing in
+    nothing but their policy fold the same text two ways.
+    """
+    drops = IrMap(IrTuple(IrRuleRef("ws"), DROP), IrTuple(IR_DEFAULT, KEEP_REDUCED))
+    keeps = IrMap(IrTuple(IR_DEFAULT, KEEP_REDUCED))
+    dropped = load_flavour(_manifest_with_noise(drops))
+    kept = load_flavour(_manifest_with_noise(keeps))
+    assert parse_reduced(dropped.grammar, "a ", reducer(dropped)) == IrStr("a")
+    assert parse_reduced(kept.grammar, "a ", reducer(kept)) == IrStr("a ")

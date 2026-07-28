@@ -8,7 +8,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.flavour import IrFlavour
+from lexic.ir import IrFlavour
 
 _FLAVOURS: dict[str, IrFlavour] = {}
 

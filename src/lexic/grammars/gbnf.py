@@ -17,58 +17,65 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from lexic.ir.action import (
+from lexic.ir import (
+    IR_DEFAULT,
+    EscapeCodec,
     IrAction,
+    IrAlphabet,
+    IrAlternation,
     IrApply,
     IrArg,
     IrArgs,
+    IrAst,
     IrAt,
     IrBuild,
+    IrCharClass,
     IrChild,
     IrChildren,
+    IrChr,
     IrCompare,
     IrConcat,
     IrCond,
+    IrDocConcat,
+    IrDocJoin,
     IrEmit,
+    IrEscape,
+    IrEscapePoint,
     IrField,
+    IrFlavour,
     IrGlyph,
-    IrIsA,
-    IrJoin,
-    IrPipe,
-    IrRadix,
-    IrRaise,
-    IrThis,
-    IrUnradix,
-)
-from lexic.ir.base import (
+    IrGroup,
     IrInt,
+    IrIsA,
+    IrItem,
+    IrJoin,
+    IrLine,
+    IrLiteral,
+    IrMap,
+    IrNest,
     IrNone,
     IrNoneType,
-    IrSelf,
-    IrSeq,
-    IrStr,
-    IrTuple,
-)
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrEscape, IrEscapePoint, IrFlavour
-from lexic.ir.layout import IrDocConcat, IrDocJoin, IrGroup, IrLine, IrNest, IrText
-from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
-from lexic.ir.nodes import (
-    IrAlphabet,
-    IrAlternation,
-    IrAst,
-    IrCharClass,
-    IrChr,
-    IrItem,
-    IrLiteral,
+    IrNot,
+    IrOp,
+    IrPipe,
     IrQuantifier,
+    IrRadix,
+    IrRaise,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSelf,
+    IrSeq,
     IrSequence,
+    IrStr,
+    IrText,
+    IrThis,
+    IrTuple,
+    IrTypeMap,
+    IrUnradix,
 )
-from lexic.ir.operators import IrNot, IrOp
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD, Reducer
+from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
+from lexic.parsing.earley.reduce.reducer import Reducer
 
 # GBNF escape tables — quoted string literals + bracket-class members.
 GBNF_ESCAPES = EscapeCodec.from_tables(
@@ -1093,7 +1100,7 @@ _DEC_INT = IrPipe(IrJoin(IrArgs()), IrUnradix(10, IrInt))
 GBNF_TOKEN_ENCODING = "tokens"
 """The registry name GBNF's single token alphabet binds to. A tokenizer supplied
 at parse time is bound under this name; every ``<…>``/``<[…]>`` terminal reduces
-to an :class:`~lexic.ir.nodes.IrAlphabet` referencing it."""
+to an :class:`~lexic.ir.grammar.nodes.IrAlphabet` referencing it."""
 
 _TOK_LO = IrPipe(IrArg(0), IrUnradix(10, IrChr))
 """The id-form's shared ``<[ decits`` digit-run arg decoded to the (low) id."""

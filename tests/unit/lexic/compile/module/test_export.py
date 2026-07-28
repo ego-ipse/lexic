@@ -10,32 +10,39 @@ emitted content, and the binds table renders only under ``inline_tables``).
 from __future__ import annotations
 
 import ast
+import inspect
 
 import pytest
 
-from lexic.compile import compile_from_path, compile_text, export_module, export_source
+from lexic.compile import (
+    Vocabulary,
+    compile_from_path,
+    compile_text,
+    export_module,
+    export_source,
+)
+from lexic.compile.module import export
 from lexic.compile.module.export import (
-    _WS_INL_LEAK,
     WIDTH,
     _group_model_type,
+    _ws_inl_leak,
     docstring_lines,
     field_type,
     value_str_type,
 )
-from lexic.compile.pipeline.binding import (
-    _RESERVED_CLASS_NAMES,
-    RuleBinding,
-    compute_binding,
-)
-from lexic.ir.base import IrNone
-from lexic.ir.nodes import (
+from lexic.compile.pipeline.binding import RuleBinding, compute_binding
+from lexic.compile.pipeline.naming import _RESERVED_CLASS_NAMES
+from lexic.grammars import get_flavour
+from lexic.ir import (
     IrAlternation,
     IrItem,
     IrLiteral,
+    IrNone,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
+    IrTokenizer,
 )
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.compile.compile_helpers import import_hermetic_module
@@ -113,14 +120,40 @@ def test_export_source_never_mentions_lambda_or_reducer(stem: str):
 # ── the ws-inl invariant guard (module self-grammar reparse) ──────────────
 
 
-def test_ws_inl_leak_guard_regex_shape():
+def test_ws_inl_leak_guard_shape():
     """The guard flags a value-final token (name/``)``) with a newline before
     its delimiter, but not the valid AFTER-``(``/``,`` layout breaks (whose
     ``ws`` DOES cross a newline in the module self-grammar)."""
-    assert _WS_INL_LEAK.search("IrNone\n)") is not None
-    assert _WS_INL_LEAK.search("IrRange(a, b)\n,") is not None
-    assert _WS_INL_LEAK.search("IrCharClass(\n    IrRange") is None  # break after (
-    assert _WS_INL_LEAK.search("IrRange(a, b),\n    )") is None  # break after ,
+    assert _ws_inl_leak("IrNone\n)")
+    assert _ws_inl_leak("IrRange(a, b)\n,")
+    assert not _ws_inl_leak("IrCharClass(\n    IrRange")  # break after (
+    assert not _ws_inl_leak("IrRange(a, b),\n    )")  # break after ,
+
+
+def test_ws_inl_leak_does_not_stop_at_a_leading_newline():
+    """A newline at index 0 cannot start a match but must not end the scan.
+
+    The scan's predecessor bug: a leading newline terminated it, so every later
+    leak went unreported — and the caller RAISES on a leak, so a false negative
+    ships a broken twin in silence.
+    """
+    assert _ws_inl_leak("\na\n,") == "a\n,"
+    assert _ws_inl_leak("\n\n\nx\n  )") == "x\n  )"
+
+
+def test_ws_inl_leak_reports_the_offending_slice():
+    """The refusal quotes the text it objected to, delimiter included."""
+    assert _ws_inl_leak("IrRange(a, b)\n   ,") == ")\n   ,"
+    assert _ws_inl_leak("a\nb\n)") == "b\n)"
+
+
+def test_ws_inl_leak_word_test_is_unicode_like_the_pattern_it_replaced():
+    """``\\w`` is ``isalnum() or "_"`` — a Unicode letter or digit counts."""
+    assert _ws_inl_leak("é\n)")
+    assert _ws_inl_leak("٣\n)")  # ARABIC-INDIC DIGIT THREE
+    assert _ws_inl_leak("_\n)")
+    assert not _ws_inl_leak("!\n)")
+    assert not _ws_inl_leak(" \n)")
 
 
 @pytest.mark.parametrize("stem", ["list", "json_ws", "arithmetic"])
@@ -131,7 +164,7 @@ def test_export_notation_never_leaks_a_newline_before_a_delimiter(stem: str):
     for inline_tables in (False, True):
         source = export_source(cg, stem=stem, inline_tables=inline_tables)
         grammar_region = source.split("GRAMMAR: IrAst = ", 1)[1]
-        assert _WS_INL_LEAK.search(grammar_region) is None
+        assert not _ws_inl_leak(grammar_region)
 
 
 # ── field typing / optional defaults / union groups ───────────────────────
@@ -387,3 +420,214 @@ def test_docstring_lines_escapes_backslash_and_quote():
     text = " ".join(lines)
     assert '\\"x\\"' in text
     assert "\\\\" in text
+
+
+# ── the header is what emission SPELLED, not what the body mentions ───────
+
+
+def test_header_imports_the_literal_the_annotation_used() -> None:
+    """A pure-literal ``value_str`` alternation types as ``Literal[...]``.
+
+    The typing import used to be found by looking for ``Literal[`` anywhere in
+    the finished module; it is now declared by the renderer that produced the
+    annotation. No corpus grammar reaches this branch, so it needs its own
+    grammar.
+    """
+    compiled = compile_text(
+        'root ::= flag\nflag ::= "true" | "false"\n', cache_key="export-literal-header"
+    )
+    source = export_source(compiled, stem="lit")
+    assert "from typing import Literal" in source
+    assert "    value: Literal['true', 'false']" in source
+
+
+def test_header_omits_typing_when_no_annotation_needs_it() -> None:
+    """The same grammar without the literal alternation imports no typing name."""
+    compiled = compile_text('root ::= "a" "b"\n', cache_key="export-no-typing-header")
+    source = export_source(compiled, stem="flat")
+    assert "from typing import" not in source
+
+
+def test_header_omits_an_elided_default() -> None:
+    """``root ::= "a" "b"`` holds a unit ``IrQuantifier`` the notation never
+    spells, so the header must not import it — a value-walk would."""
+    compiled = compile_text('root ::= "a" "b"\n', cache_key="export-elided-header")
+    source = export_source(compiled, stem="flat")
+    assert "IrQuantifier" not in source
+
+
+def test_export_imports_no_regex_engine() -> None:
+    """``export.py`` declares no ``re`` import — read from its AST.
+
+    A name check divides *binds the name* from *uses a regex*;
+    ``from re import compile`` binds neither. The import statements are the
+    property.
+    """
+    tree = ast.parse(inspect.getsource(export))
+    imported = {
+        alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    } | {
+        node.module.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    assert "re" not in imported
+
+
+# ── docstrings and GRAMMAR agree about resolution state ───────────────────
+
+
+def _think_compiled():
+    """``think.gbnf`` against a synthetic vocabulary — no fixture, no download.
+
+    The property is that a docstring shows the SPELLING the grammar was written
+    with, not the id it resolved to. A five-entry vocabulary establishes that as
+    well as a 150 000-entry one, and it runs in the fast lane.
+    """
+    tokenizer = IrTokenizer.from_merges(
+        "tokens", {"<think>": 0, "</think>": 1, "a": 2, "b": 3, "ab": 4}, [("a", "b")]
+    )
+    return compile_from_path(
+        GROUND_TRUTH / "think.gbnf", vocabulary=Vocabulary(tokenizer)
+    )
+
+
+def test_twin_docstrings_render_the_authored_token_spelling() -> None:
+    """A token terminal reads as ``<think>``, not as ``<[0]>``."""
+    source = export_source(_think_compiled(), stem="think")
+    docstrings = [
+        ln.strip() for ln in source.splitlines() if ln.strip().startswith('"""``')
+    ]
+    assert docstrings
+    assert any("<think>" in line for line in docstrings)
+    assert not any("<[" in line for line in docstrings)
+
+
+def test_twin_docstrings_and_grammar_agree_about_resolution() -> None:
+    """One file, one resolution state.
+
+    ``GRAMMAR`` round-trips to the canonical AST, which holds the authored
+    spellings; a docstring rendered off the resolved codegen grammar put a
+    second, contradictory state in the same module.
+    """
+    source = export_source(_think_compiled(), stem="think")
+    assert "<[" not in source
+
+
+def test_char_grammar_docstrings_are_unchanged_by_the_resolution_rule() -> None:
+    """Nothing to resolve, nothing to change — the rule is not a rewrite."""
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    source = export_source(compiled, stem="json")
+    assert '"""``object ::= begin-object object-item2? end-object``"""' in source
+
+
+def test_inline_grammar_table_carries_the_rule_the_runtime_carries() -> None:
+    """``__grammar__`` is RUNTIME data, so it is the rule the RUNTIME holds.
+
+    The inline table once kept the resolved rule, so a self-contained twin would
+    not ship token terminals unbound to ids. But a twin does not parse — parsing
+    stays on ``CompiledGrammar`` — so the ids buy it nothing, while they cost
+    the authored spelling: the inline twin rendered
+    ``root ::= <[0]> thinking <[1]>`` where the runtime and the bind-mode twin
+    both render ``root ::= <think> thinking </think>``. ``synthesize`` is given
+    the unresolved grammar and ``bind_module`` rebuilds from the twin's own
+    authored ``GRAMMAR``; the inline mode was the one path that disagreed.
+
+    Read by AST rather than by slicing the text: ``GRAMMAR`` later in the same
+    module holds the same spelling, so any cut that overshoots the statement
+    finds it and reports the wrong thing.
+    """
+    source = export_source(_think_compiled(), stem="think", inline_tables=True)
+    tables = [
+        ast.get_source_segment(source, node.value)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "__grammar__"
+        and node.value is not None
+    ]
+    assert tables
+    for table in tables:
+        assert table
+        # The synthetic vocabulary puts `<think>` at id 0 and `</think>` at 1;
+        # the twin must show the spelling, not the id it resolved to.
+        assert "<think>" in table or "</think>" in table
+    docstrings = [ln for ln in source.splitlines() if ln.strip().startswith('"""``')]
+    assert any("<think>" in line for line in docstrings)
+
+
+def test_a_terminal_spelling_the_gates_marker_still_exports() -> None:
+    """The export gate reads the module structurally, never by splitting text.
+
+    The docstring renders the grammar in its own flavour, so a grammar whose
+    terminal spells ``GRAMMAR: IrAst = `` put ``source.split(...)`` inside the
+    DOCSTRING — and a legal grammar was refused with a notation error about its
+    own documentation.
+    """
+    source = export_source(compile_text('root ::= "GRAMMAR: IrAst = oops"'))
+    assert "GRAMMAR: IrAst = oops" in source
+    assert "IrLiteral" in source
+
+
+@pytest.mark.parametrize("inline_tables", [False, True])
+def test_a_twin_carries_the_same_shape_as_its_runtime_classes(
+    tmp_path, inline_tables: bool
+) -> None:
+    """Both table modes, because they write the class's tables differently.
+
+    The bind mode attaches ``__shape__`` at import; the inline mode writes it as
+    a ClassVar. Wiring only the first left an inline twin's classes carrying no
+    provenance at all, so a payload naming them lost its shape silently one way
+    and was refused the other.
+    """
+    compiled = compile_text("root ::= item\nitem ::= num | word\nnum ::= [0-9]+\n")
+    path = export_module(compiled, tmp_path / "tw.py", inline_tables=inline_tables)
+    twin = import_hermetic_module(path, "tw")
+    for name, cls in compiled.classes.items():
+        assert getattr(twin, name).__shape__ == cls.__shape__
+
+
+@pytest.mark.parametrize("inline_tables", [False, True])
+def test_a_resolved_twin_carries_the_runtime_shape(
+    tmp_path, inline_tables: bool
+) -> None:
+    """Both table modes, on a grammar where resolution actually RUNS.
+
+    ``synthesize`` digests the unresolved grammar and a twin's own ``GRAMMAR``
+    reconstructs it, so a writer digesting the RESOLVED form gives an inline
+    twin a shape agreeing with neither the runtime nor the bind-mode twin of the
+    same compilation. A grammar with token terminals but NO bound vocabulary
+    cannot show it — nothing resolves, so the two forms are equal.
+    """
+    compiled = _think_compiled()
+    path = export_module(
+        compiled, tmp_path / "think.py", stem="think", inline_tables=inline_tables
+    )
+    twin = import_hermetic_module(path, "think")
+    for name, cls in compiled.classes.items():
+        assert getattr(twin, name).__shape__ == cls.__shape__, name
+
+
+@pytest.mark.parametrize("inline_tables", [False, True])
+def test_a_twin_renders_the_same_grammar_text_as_its_runtime(
+    tmp_path, inline_tables: bool
+) -> None:
+    """A twin is its runtime's equal, and ``to_grammar`` is where that shows.
+
+    Both table modes, on a grammar where resolution runs: the inline mode used
+    to carry the resolved rule, so it rendered ``root ::= <[0]> thinking <[1]>``
+    while the runtime and the bind-mode twin rendered the authored spelling.
+    """
+    compiled = _think_compiled()
+    path = export_module(
+        compiled, tmp_path / "think.py", stem="think", inline_tables=inline_tables
+    )
+    twin = import_hermetic_module(path, "think")
+    flavour = get_flavour(compiled.flavour)
+    for name, cls in compiled.classes.items():
+        assert getattr(twin, name).__grammar__ == cls.__grammar__, name
+        rendered = str(flavour.apply(getattr(twin, name).__grammar__, None))
+        assert rendered == str(flavour.apply(cls.__grammar__, None)), name

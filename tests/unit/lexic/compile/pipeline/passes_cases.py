@@ -16,15 +16,16 @@ from typing import Callable
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrNone, IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrItem,
     IrLiteral,
+    IrNone,
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
 

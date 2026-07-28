@@ -23,29 +23,32 @@ from lexic.grammars.abnf import (
     ABNF_REDUCTIONS,
 )
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir.base import IrLambda, IrNone, IrSeq
-from lexic.ir.canonical import canonicalize
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.mapping import IrMap
-from lexic.ir.nodes import (
+from lexic.ir import (
+    EscapeCodec,
     IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
+    IrFlavour,
     IrItem,
+    IrLambda,
     IrLiteral,
+    IrMap,
+    IrNone,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
+    canonicalize,
 )
-from lexic.ir.operators import IrNot
 from lexic.parsing import parse, recognize
-from lexic.parsing.earley.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce import YIELD, Reducer
+from lexic.parsing.earley.reduce.policy import YIELD
+from lexic.parsing.earley.reduce.reducer import Reducer
 from tests.unit.lexic.conftest import (
     GRAMMAR_AST_TYPES,
     assert_wide_rule_wraps_and_round_trips,

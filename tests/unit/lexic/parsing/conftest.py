@@ -5,8 +5,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
-from lexic.ir.base import IrSeq
-from lexic.ir.nodes import (
+from lexic.ir import (
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -16,6 +15,7 @@ from lexic.ir.nodes import (
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
 from tests.paths import GROUND_TRUTH
@@ -52,6 +52,17 @@ def sss_grammar() -> IrAst:
     ``(s(s(a) s(a)) s(a))`` and ``(s(a) s(s(a) s(a)))``.
     """
     return _sss_grammar()
+
+
+@pytest.fixture
+def sss_compiled():
+    """``s = s s / 'a'`` compiled — its tables AND its fold, from one grammar.
+
+    Ambiguity worth refusing is ambiguity of VALUE, so the check needs a fold —
+    and a fold built from a DIFFERENT grammar refuses the trees instead of
+    comparing them, which reads as "no difference" and refuses nothing.
+    """
+    return compile_text('root ::= s\ns ::= s s | "a"', cache_key="sss-compiled")
 
 
 @pytest.fixture

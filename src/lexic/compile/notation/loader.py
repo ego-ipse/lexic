@@ -1,7 +1,7 @@
 """Flavour manifests — one notation expression → a live :class:`IrFlavour`.
 
 A manifest is a single IR-constructor notation expression (``compile/notation``)
-whose root is an :class:`~lexic.ir.mapping.IrMap` of seven named sections::
+whose root is an :class:`~lexic.ir.action.mapping.IrMap` of seven named sections::
 
     IrMap(
         IrTuple(IrStr('name'),        IrStr('gbnf')),
@@ -9,16 +9,21 @@ whose root is an :class:`~lexic.ir.mapping.IrMap` of seven named sections::
         IrTuple(IrStr('line-comment'),IrStr('#')),
         IrTuple(IrStr('escapes'),     IrMap( ... five IR-dyad tables ... )),
         IrTuple(IrStr('grammar'),     IrAst( ... the self-grammar ... )),
-        IrTuple(IrStr('reductions'),  IrMap( ... rule ref → reduction body ... )),
+        IrTuple(IrStr('reduction'),   Reducer( ... the whole reduction ... )),
         IrTuple(IrStr('actions'),     IrTypeMap( ... the emit half ... )),
     )
 
 :func:`load_flavour` folds that into an :class:`IrFlavour`: it lowers the escape
-IR dyads to an :class:`~lexic.ir.escapes.EscapeCodec`, **derives** the reducer's
-noise map + ``literal`` policy from the self-grammar's own ``semantic=False``
-flags (the loader owns reducer policy — a manifest carries no noise section),
-builds a real :class:`~lexic.parsing.Reducer`, and synthesizes the flavour class
-by a bare :func:`type` call. The root shape is strict: exactly the seven section
+IR dyads to an :class:`~lexic.ir.text.escapes.EscapeCodec` and synthesizes the flavour
+class by a bare :func:`type` call.
+
+The reduction is **carried, not derived**. A :class:`~lexic.parsing.Reducer` is a
+plain IR record — actions, default, noise, literal — so the manifest spells the
+whole thing and the loader reads it. Deriving the noise map from the grammar's
+own ``semantic=False`` flags made one reading of a grammar the only reading it
+could have; a reduction is a reading, and one grammar must support several.
+
+The root shape is strict: exactly the seven section
 names, each of the declared type — any deviation is an
 :class:`~lexic.exceptions.UnsupportedConstructError` (never ``TypeError`` /
 ``KeyError``). Registration stays the caller's business.
@@ -31,13 +36,8 @@ from typing import cast
 
 from lexic.compile.notation.parse import load_ir
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir.base import IrTuple
-from lexic.ir.escapes import EscapeCodec
-from lexic.ir.flavour import IrFlavour
-from lexic.ir.mapping import IR_DEFAULT, IrMap, IrTypeMap
-from lexic.ir.nodes import IrAst, IrRuleRef
+from lexic.ir import EscapeCodec, IrAst, IrFlavour, IrMap, IrTuple, IrTypeMap
 from lexic.parsing import Reducer
-from lexic.parsing.earley.reduce import DROP, KEEP_REDUCED, YIELD
 
 __all__ = ["load_flavour", "load_flavour_from_path"]
 
@@ -47,7 +47,7 @@ _SECTIONS: tuple[str, ...] = (
     "line-comment",
     "escapes",
     "grammar",
-    "reductions",
+    "reduction",
     "actions",
 )
 """The exact, required section names of a manifest root — strict both ways."""
@@ -69,17 +69,16 @@ def load_flavour(text: str) -> IrFlavour:
     """Parse a manifest expression and fold it into an :class:`IrFlavour`.
 
     :param text: A manifest — one IR-constructor notation expression whose root
-        is the section :class:`~lexic.ir.mapping.IrMap`.
+        is the section :class:`~lexic.ir.action.mapping.IrMap`.
     :returns: The synthesized flavour (unregistered).
     :raises UnsupportedConstructError: On any parse error, unknown symbol, or a
         root/section/escape shape violation.
     """
     sections = _load_sections(text)
     grammar = _section(sections, "grammar", IrAst)
-    reductions = _section(sections, "reductions", IrMap)
+    reducer = _section(sections, "reduction", Reducer)
     actions = _section(sections, "actions", IrTypeMap)
     escapes = _lower_escapes(_section(sections, "escapes", IrMap))
-    reducer = _derive_reducer(grammar, reductions)
     return _synthesize_flavour(sections, grammar, actions, escapes, reducer)
 
 
@@ -156,24 +155,6 @@ def _section[T](sections: IrMap, name: str, expected: type[T]) -> T:
 
 
 # ── reducer policy (settled 8) ───────────────────────────────────────────
-
-
-def _derive_reducer(grammar: IrAst, reductions: IrMap) -> Reducer:
-    """Build the flavour's :class:`Reducer` — the loader owns the noise policy.
-
-    The noise map drops every rule the self-grammar flags ``semantic=False`` and
-    keeps everything else reduced; ``literal`` is the constant ``DROP``. Manifests
-    never spell these engine sentinels — they fall out of the grammar's flags.
-
-    :param grammar: The self-grammar (its ``semantic=False`` rules are the noise).
-    :param reductions: The manifest's reductions map, used verbatim.
-    :returns: The configured reducer.
-    """
-    noise = IrMap(
-        *(IrTuple(IrRuleRef(name), DROP) for name in grammar.non_semantic),
-        IrTuple(IR_DEFAULT, KEEP_REDUCED),
-    )
-    return Reducer(actions=reductions, default=YIELD, noise=noise, literal=DROP)
 
 
 # ── escapes (ruling D1) ──────────────────────────────────────────────────

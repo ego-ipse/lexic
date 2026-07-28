@@ -2,7 +2,7 @@
 
 **When to load:** checking whether a proposed change is safe; understanding what dispatch tables must do; verifying round-trip or property test obligations.
 
-Source: `prototyping/next/1_NORTH_STAR.md`. Every change must preserve these.
+Every change must preserve these.
 
 ## Non-negotiable
 
@@ -10,7 +10,9 @@ Source: `prototyping/next/1_NORTH_STAR.md`. Every change must preserve these.
 
 **Round-trip fidelity.** `parse(text, grammar).to_text() == text` on every grammar-valid input. Property tests on all ground-truth grammars stay green.
 
-**No regression.** The full test suite (1500+ tests, see CLAUDE.md §Commands for the current count) stays green after every change.
+**Ambiguity is refused, by both engines.** A span whose derivations build two different models raises rather than one engine quietly picking — the PDA's "first" and Earley's "first" are not the same first, and a parser that answers an ambiguous question is not answering the question asked. The test is about VALUES, not derivation counts: a grammar routinely derives one text several ways without meaning anything by it. A *split* — one production carved two ways, same arm, different boundary — has a defined answer (the first slot owns the text) and is never refused; only an *arm* choice, two different productions over one span, is a question the grammar left open. The opt-out is a caller-supplied deterministic resolver, not a flag; it reaches whichever engine ends up choosing, so the answer never depends on the route.
+
+**No regression.** The full suite stays green after every change, and `tools/run_checks.sh` exits 0 — it prints a pylint score even while failing, so the exit code is the gate, not the output.
 
 **One way per task.** One parse function, one emit method, one round-trip method. No alternate APIs, no legacy shims, no "simpler subset" wrappers.
 
@@ -34,6 +36,24 @@ So the question to ask when adding to `ir/` is not "does the grep pass" but
 cannot ask that. Evidence that nothing cheaper will: a targeted adversarial
 review also failed to separate provenance from defect on this exact question
 — it filed the finding, chased it, and withdrew it.
+
+**An emitted module and its `.pyc` agree, always.** Lexic writes the
+byte-compiled form itself, under `UNCHECKED_HASH`, which makes it outrank its
+source unconditionally. So every path that lands a module must leave the pair
+consistent at every point — including a crash between two steps. Whoever writes
+the `.py` writes the `.pyc`.
+
+**A compiled artefact refuses rather than reads wrong.** Its tables carry a
+digest; its symbols carry the rules they were built against, or — for a class
+carrying no rule — the module they came from. Each catches a different way the
+value can be right-looking and wrong: an altered table, a recompiled grammar, a
+name rebound to another module's class. None of them is optional, because all
+three failures are silent without it.
+
+**A memo key is valid only while something holds the object.** Any cache keyed
+on `id()` must keep the object alive for the cache's lifetime. An id is reused
+the moment its object is freed, and a lookup then answers confidently about a
+different object — which no test of the cache's own behaviour will show.
 
 **Arrows go one way.** Runtime depends on IR; codegen depends on IR; runtime does not depend on codegen. The two deliberate exceptions in `compile.py` and `base.py` are fixed and documented. See [[architecture]].
 

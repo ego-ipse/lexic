@@ -14,7 +14,8 @@ from lexic.grammars import flavour_for_extension
 from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.pda.compiler.clones import PdaTables, compile_pda
+from lexic.parsing.pda.compiler.clones import compile_pda
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.products import _model_product, _reduce_product, earley_reduce
 
 
