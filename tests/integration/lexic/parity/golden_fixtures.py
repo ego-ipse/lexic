@@ -49,7 +49,7 @@ Regenerate every golden file (only after a *ruled* behavior change — see
 the plan's settled-12 note; a routine code change should make this suite
 FAIL, not need re-running) via::
 
-    uv run python -m tests.integration.golden_fixtures
+    uv run python -m tests.integration.lexic.parity.golden_fixtures
 
 NOTE: the files are byte-pinned (oracle keys only); a routine code change
 should make this suite FAIL, not need re-running. Do not regenerate without a
@@ -64,8 +64,8 @@ from typing import Any
 
 from lexic.compile import CompiledGrammar, compile_from_path
 from lexic.model import GrammarModel
-from tests.integration.pda_parity_helpers import ARITHMETIC_BENCH_SNIPPETS
-from tests.integration.test_compile_grammar_vyx import PACKET_SAMPLES
+from tests.integration.lexic.parity.pda_parity_helpers import ARITHMETIC_BENCH_SNIPPETS
+from tests.integration.lexic.roundtrip.test_compile_grammar_vyx import PACKET_SAMPLES
 from tests.paths import GROUND_TRUTH
 
 GOLDEN_DIR = Path(__file__).parent / "goldens"

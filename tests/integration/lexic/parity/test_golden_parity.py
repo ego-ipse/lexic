@@ -26,7 +26,7 @@ import json
 import pytest
 
 from lexic.compile import compile_from_path
-from tests.integration.golden_fixtures import (
+from tests.integration.lexic.parity.golden_fixtures import (
     CORPUS,
     GOLDEN_DIR,
     all_stems,
@@ -62,7 +62,7 @@ def test_golden_record_matches_live_implementation(stem: str, index: int) -> Non
     golden = golden_records[index]
     assert golden["input"] == sample, (
         f"{stem}[{index}]: golden input drifted from CORPUS — "
-        "regenerate via `uv run python -m tests.integration.golden_fixtures`"
+        "regenerate via `uv run python -m tests.integration.lexic.parity.golden_fixtures`"
     )
 
     cg = compile_from_path(GROUND_TRUTH / stem)

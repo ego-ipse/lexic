@@ -20,7 +20,7 @@ from lexic.api.pretokens import IrByteLevel, IrDigits
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrInt, IrMap, IrNone, IrStr, IrTokenizer
 from lexic.parsing import parse_reduced
-from tests.integration.tokenizer_corpus import SHARED_CORPUS
+from tests.integration.lexic.tokens.tokenizer_corpus import SHARED_CORPUS
 
 SMOLLM2 = cache.path("smollm2")
 

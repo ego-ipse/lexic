@@ -24,7 +24,7 @@ from lexic.ir import IrAst
 from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.products import earley_reduce
-from tests.integration.abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
+from tests.integration.lexic.roundtrip.abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 

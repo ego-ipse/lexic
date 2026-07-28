@@ -18,7 +18,7 @@ tree.
 from __future__ import annotations
 
 from lexic.compile import compile_text
-from tests.adversarial.adversarial_helpers import ref_chain
+from tests.adversarial.lexic.adversarial_helpers import ref_chain
 
 DEPTH = 300
 

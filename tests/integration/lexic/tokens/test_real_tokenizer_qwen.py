@@ -29,7 +29,7 @@ from lexic.api.json_tokenizer import read_from_path
 from lexic.api.pretokens import IrQwenSplit
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrTokenizer, IrUnicodeForm
-from tests.integration.tokenizer_corpus import SHARED_CORPUS
+from tests.integration.lexic.tokens.tokenizer_corpus import SHARED_CORPUS
 
 QWEN = cache.path("qwen3")
 

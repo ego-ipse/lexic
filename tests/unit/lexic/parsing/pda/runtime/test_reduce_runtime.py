@@ -23,7 +23,7 @@ from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.runtime import reduce_runtime as rr
 from lexic.parsing.pda.runtime.reduce_runtime import pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaKernel
-from tests.integration.test_pda_parity import ALL_STEMS
+from tests.integration.lexic.parity.test_pda_parity import ALL_STEMS
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import reduce_pda
 

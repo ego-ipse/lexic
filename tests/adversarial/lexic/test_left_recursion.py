@@ -17,7 +17,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
-from tests.adversarial.adversarial_helpers import watchdog
+from tests.adversarial.lexic.adversarial_helpers import watchdog
 
 # The four recursion/nullability quadrants: only left-rec + nullable used to
 # hang (its three neighbours island or run fine); all four must round-trip.

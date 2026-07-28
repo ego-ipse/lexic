@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
-from tests.adversarial.adversarial_helpers import nested
+from tests.adversarial.lexic.adversarial_helpers import nested
 
 # Minimal self-nesting grammar: an array of arrays (or the leaf "0").
 GRAMMAR = (

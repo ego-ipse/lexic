@@ -36,7 +36,7 @@ import hypothesis.strategies as st
 from hypothesis import example, given, settings
 
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from tests.property.reduce_differential_helpers import ReduceDifferential
+from tests.property.lexic.reduce_differential_helpers import ReduceDifferential
 
 # ReduceDifferential.earley_grammar runs the same lifted grammar the PDA
 # compiles over — the product's actual (grammar, completion) pair (M29).

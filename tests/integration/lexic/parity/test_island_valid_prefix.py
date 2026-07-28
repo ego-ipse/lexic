@@ -27,7 +27,7 @@ from lexic.grammars.gbnf import GBNF_GRAMMAR
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.products import parse_model
-from tests.integration.island_fixtures import (
+from tests.integration.lexic.parity.island_fixtures import (
     FOLD,
     GRAMMAR,
     NAME_A,

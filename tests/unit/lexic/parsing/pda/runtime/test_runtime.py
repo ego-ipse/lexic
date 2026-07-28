@@ -44,7 +44,7 @@ from lexic.parsing.pda.runtime import reduce_runtime as rrt
 from lexic.parsing.pda.runtime.islands import IslandPolicy
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail, PdaKernel
-from tests.integration.pda_parity_helpers import (
+from tests.integration.lexic.parity.pda_parity_helpers import (
     arithmetic_bench_corpus,
     deep_semantic,
     forced_engine,

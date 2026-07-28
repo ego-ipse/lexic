@@ -6,7 +6,7 @@ machinery, and a wrong delegability call would corrupt the parse *without*
 failing. The corpus-level protection is byte-equality between delegates **on**
 and delegates **off** — the off path is the pre-delegation pure-Earley island
 parse, itself pinned against the full engine by
-:mod:`tests.integration.test_pda_parity`.
+:mod:`tests.integration.lexic.parity.test_pda_parity`.
 
 Delegation is unconditional in the compiled artifact, so the A/B toggle here
 swaps ``pda.program.delegates`` for a no-delegates
@@ -49,7 +49,7 @@ from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import _reduce_product
-from tests.integration.test_pda_parity import ALL_STEMS, grammar_for
+from tests.integration.lexic.parity.test_pda_parity import ALL_STEMS, grammar_for
 from tests.unit.lexic.parsing.parsing_helpers import prod
 from tests.unit.lexic.parsing.pda.compiler.test_delegate_compile import NoDelegates
 

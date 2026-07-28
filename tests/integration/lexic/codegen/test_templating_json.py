@@ -22,7 +22,7 @@ from lexic.model import GrammarModel
 from tests.paths import GROUND_TRUTH
 
 _FIXTURE = (
-    Path(__file__).resolve().parents[2]
+    Path(__file__).resolve().parents[4]
     / "resources"
     / "tokenizers"
     / "smollm2.tokenizer.json"

@@ -38,7 +38,7 @@ from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model
 from lexic.parsing.pda.runtime.runtime import PdaFail
 from lexic.parsing.products import earley_model
-from tests.integration.pda_parity_helpers import (
+from tests.integration.lexic.parity.pda_parity_helpers import (
     check_one,
     deep_semantic,
     forced_engine,

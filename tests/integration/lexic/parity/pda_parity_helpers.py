@@ -1,6 +1,6 @@
 """Shared PDA-vs-engine differential helpers (``test_pda_parity.py`` cluster).
 
-Also consumed by ``tests.integration.test_delegation_parity`` (the A/B
+Also consumed by ``tests.integration.lexic.parity.test_delegation_parity`` (the A/B
 delegate-compile toggle drives the same per-grammar generation seam) and
 ``tests.unit.lexic.parsing.pda.runtime.test_runtime``/``golden_fixtures``
 (the arithmetic bench corpus).

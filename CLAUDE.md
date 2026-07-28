@@ -274,8 +274,16 @@ src/lexic/
         runtime.py                 Fused predictive runtime — parses text to a model, no ParseTree on the path
 tests/
   unit/lexic/           structural mirror of src/lexic/
-  integration/          cross-module: layering, parity, round-trip, doc drift
-  property/             hypothesis round-trip + reduce differentials
+  integration/lexic/    cross-module, grouped by what a test DEFENDS:
+    parity/               the two engines agreeing — differentials, fallback, islands
+    roundtrip/            grammar ↔ IR ↔ text fidelity, cross-flavour, fixpoint
+    tokens/               the token layer — binding, additivity, real tokenizers
+    codegen/              generated modules, self-grammar, manifests, templating
+    invariants/           the repo's own rules — layering, doc drift, benchmark faithfulness
+    corpora/              big-corpus soak
+  property/lexic/       hypothesis round-trip + reduce differentials
+  adversarial/lexic/    inputs chosen to break a specific assumption
+  performance/lexic/    guarded timing gates
   paths.py              GROUND_TRUTH / GENERATED / tokenizer-fixture paths
 ext/API/                NOT shipped — clients that FETCH third-party artefacts
   cache.py              where fetched artefacts live locally; imports only pathlib

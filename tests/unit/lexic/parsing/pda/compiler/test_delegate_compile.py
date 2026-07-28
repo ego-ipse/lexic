@@ -1,7 +1,7 @@
 """Unit tests for the island-interior delegate compile (Task 6.2).
 
 Mirror of :mod:`lexic.parsing.pda.compiler.delegate_compile`. The end-to-end on-vs-off
-parity + perf payoff live in :mod:`tests.integration.test_delegation_parity`;
+parity + perf payoff live in :mod:`tests.integration.lexic.parity.test_delegation_parity`;
 here we pin the classifier (island-free + triviality floor) and the
 :class:`DelegateSource` cache / no-delegates injection mechanism directly.
 """
@@ -16,7 +16,7 @@ from tests.unit.lexic.parsing.pda.compiler.pda_compiler_helpers import compiled
 
 class NoDelegates(DelegateSource):
     """A :class:`DelegateSource` that compiles nothing — the off arm of the
-    A/B injection seam :mod:`tests.integration.test_delegation_parity` uses
+    A/B injection seam :mod:`tests.integration.lexic.parity.test_delegation_parity` uses
     (delegation is otherwise unconditional). Constructed the same way as
     the real source; only ``_compile`` differs."""
 
