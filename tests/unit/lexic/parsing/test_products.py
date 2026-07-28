@@ -17,11 +17,12 @@ from typing import cast
 
 import pytest
 
+from lexic.compile import Vocabulary, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir import IrAst, IrMap
+from lexic.ir import IrAst, IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.tables import atoms as tables_mod
 from lexic.parsing.earley.normalize import normalize
@@ -222,3 +223,44 @@ def test_earley_reduce_accepts_derivations_that_reduce_to_one_value():
     got = earley_reduce(product.earley_grammar, "a = b ;\n", EBNF_FLAVOUR.reducer)
     assert isinstance(got, IrAst)
     assert [str(r.name) for r in got.rules] == ["a"]
+
+
+# ── the token route asks the meaning question too ─────────────────────────
+
+_TOKEN_ARM_CHOICE = "root ::= viaone | viatwo\nviaone ::= <a>\nviatwo ::= <a>\n"
+"""Two arms over the SAME token. Segmentation is deterministic, so a token-route
+ambiguity can only come from the grammar — this is the smallest one."""
+
+
+def _token_vocabulary() -> Vocabulary:
+    """A two-entry vocabulary. A vocab is a parameter, not a fetched artefact."""
+    encode = IrMap(
+        *(IrTuple(IrStr(t), IrChr(i)) for t, i in {"<a>": 0, "<b>": 1}.items())
+    )
+    return Vocabulary(IrTokenizer.from_vocab("tokens", encode))
+
+
+def test_the_token_route_refuses_an_arm_choice_like_the_char_route_does():
+    """A token grammar must not silently pick between two meanings.
+
+    `token_model` built with a bail-mode `FastTree` and folded, asking nothing.
+    Token grammars island the PDA by construction, so that Earley route is the
+    WHOLE parse — there was no second route to catch it. The identical grammar
+    shape was refused on the char route and answered `Viaone` here, and a caller
+    could not tell a choice had been made for them.
+    """
+    token_grammar = compile_text(
+        _TOKEN_ARM_CHOICE, vocabulary=_token_vocabulary(), cache_key="tok-arm-choice"
+    )
+    assert token_grammar.tokens.segmented, "this must exercise the token route"
+    with pytest.raises(UnsupportedConstructError, match="ambiguous"):
+        token_grammar.parse("<a>")
+
+
+def test_a_resolver_settles_the_token_route_too():
+    """The opt-out reaches the token route, so it is not a char-only promise."""
+    token_grammar = compile_text(
+        _TOKEN_ARM_CHOICE, vocabulary=_token_vocabulary(), cache_key="tok-arm-resolve"
+    )
+    picked = token_grammar.parse("<a>", resolve=lambda first, _other: first)
+    assert picked.to_text() == "<a>"

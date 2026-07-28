@@ -29,7 +29,11 @@ from dataclasses import dataclass
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrSelf, IrStr, IrTuple
 from lexic.parsing.earley.engine import PARSE_REDUCED, EarleyParser, first_meaning
-from lexic.parsing.earley.kernel.forest.ambiguity import AmbiguityPolicy, Resolver
+from lexic.parsing.earley.kernel.forest.ambiguity import (
+    AmbiguityPolicy,
+    Resolver,
+    another_meaning,
+)
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
 from lexic.parsing.earley.kernel.forest.readout import accept_handle, accept_item
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
@@ -109,6 +113,7 @@ def token_model[M](
     text: str,
     fold: ModelFold[M],
     bounds: dict[int, tuple[int, int]],
+    resolve: Resolver | None = None,
 ) -> M:
     """Parse token-segmented ``text`` to a model via the token Earley kernel.
 
@@ -122,8 +127,11 @@ def token_model[M](
     :param text: The input string.
     :param fold: The positional ParseTree → model fold producing ``M``.
     :param bounds: char position → ``(token_id, char_len)`` segmentation.
+    :param resolve: The caller's deterministic resolver, or ``None`` to refuse
+        an ambiguous span — the same contract the char route offers.
     :returns: The model the start rule folds to.
-    :raises UnsupportedConstructError: If ``text`` does not parse.
+    :raises UnsupportedConstructError: If ``text`` does not parse, or means two
+        things and no resolver was supplied.
     """
     tables = _token_tables(grammar, tier_for(len(text)))
     kernel = TokenKernel(tables, text, bounds, record_links=True).run()
@@ -132,10 +140,21 @@ def token_model[M](
             "parsing: input does not parse the token grammar"
         )
     handle = accept_handle(kernel)
-    tree = FastTree(kernel).build(handle)
+    # RESOLVING mode, as the char route uses. Bail mode declined on exactly the
+    # inputs at issue and reported them as "no token derivation" — so an
+    # ambiguous span and a plain SPLIT both died claiming nothing derived.
+    tree = FastTree(kernel, {}).build(handle)
     if not isinstance(tree, ParseTree):
         raise UnsupportedConstructError("parsing: no token derivation")
-    return fold.apply(tree)
+    witness = another_meaning(kernel, handle, fold.apply, tree)
+    if witness is None:
+        return fold.apply(tree)
+    if resolve is None:
+        raise UnsupportedConstructError(
+            "parsing: ambiguous input — two derivations that mean different "
+            "things; supply a resolver to choose between them"
+        )
+    return fold.apply(resolve(tree, witness))
 
 
 # ── compiled-product records + per-identity memoisation ────────────────────
