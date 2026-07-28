@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 from lexic.parsing.earley.kernel.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest import ParseTree
+from lexic.parsing.earley.kernel.tables.splits import is_arm_choice
 
 if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
     from lexic.parsing.earley.kernel.kernel import Kernel
@@ -152,8 +153,15 @@ def means_two_things(
         other = FastTree(kernel, {}).build(alternate)
         if isinstance(other, ParseTree) and not same_value(base, build(other)):
             return True
+    bits = kernel.tables.packing.bits
     for key in ambiguity_points(kernel, handle):
-        for index in range(1, len(kernel.st.links[key])):
+        bucket = kernel.st.links[key]
+        # A SPLIT has a defined answer — the first slot owns the text — so it is
+        # not an ambiguity and must not be refused or fallen back for. Only a
+        # choice between different ARMS is a question the grammar left open.
+        if not is_arm_choice(bucket, bits):
+            continue
+        for index in range(1, len(bucket)):
             other = FastTree(kernel, {key: index}).build(handle)
             if isinstance(other, ParseTree) and not same_value(base, build(other)):
                 return True

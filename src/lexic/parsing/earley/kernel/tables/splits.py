@@ -85,6 +85,19 @@ def _descend(
     return levels
 
 
+def is_arm_choice(bucket: list[KLink], bits: int) -> bool:
+    """Do this key's families name more than one child ARM?
+
+    The line between the two classes of ambiguity, and the same test the split
+    policy uses to decide what it may answer. Families naming ONE arm over
+    different spans are a split — the grammar has not said which slot owns the
+    text, so the policy does, and a decided split is not an ambiguity. Families
+    naming DIFFERENT arms are a structural choice the grammar stated two ways,
+    which nothing about lengths can settle: that is what the refusal is for.
+    """
+    return len({_arm_of(link[2], bits) for link in bucket}) > 1
+
+
 def _candidates(
     bucket: list[KLink], pinned: int | None, bits: int
 ) -> list[tuple[int, KLink]]:
@@ -96,7 +109,7 @@ def _candidates(
     """
     if pinned is not None:
         return [(pinned, bucket[pinned])]
-    if len({_arm_of(link[2], bits) for link in bucket}) > 1:
+    if is_arm_choice(bucket, bits):
         return [(0, bucket[0])]
     return list(enumerate(bucket))
 

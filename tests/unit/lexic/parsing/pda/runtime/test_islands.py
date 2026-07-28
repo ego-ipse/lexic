@@ -307,13 +307,38 @@ def _vyx_span(seed: int):
 
 
 @pytest.mark.parametrize("seed", [79, 108])
-def test_ambiguity_past_the_second_derivation_is_still_ambiguity(seed):
-    """Derivations [0] and [1] agree; a LATER one does not — and it must refuse.
+def test_a_decided_split_past_the_second_derivation_is_accepted(seed):
+    """PORTED, opposite expectation: these two are SPLIT class, and splits decide.
 
-    Taking two derivations off the stream was sufficient under the old rule,
-    where any second derivation was an ambiguity. Comparing by VALUE made an
-    equal second derivation tolerated, so the scan stopped on exactly the case
-    that should have made it keep looking. These two vyx inputs are that case.
+    They were the witnesses that ambiguity past the second derivation is still
+    ambiguity — derivations [0] and [1] agree and a later one does not, which
+    the two-derivation sample could not see. That machinery is unchanged and
+    still exercised by the arm-class case below.
+
+    What changed is the classification: both seeds carry ONLY split-class points
+    (0 arm-class, verified), and a split now has a defined answer — the first
+    slot owns the text. Refusing it would refuse a question the engine can
+    answer, and RFC 8259's own shape is ambiguous, so that refusal is not
+    available. The engines agree on these inputs; nothing is left to refuse.
+    """
+    compiled, kern, best = _vyx_span(seed)
+    item, end = best
+    assert isinstance(
+        island_derivation(
+            kern, item, end, "vyx", policy=IslandPolicy(fold=compiled.fold)
+        ),
+        ParseTree,
+    )
+
+
+@pytest.mark.parametrize("seed", [146, 266])
+def test_an_arm_choice_past_the_second_derivation_still_refuses(seed):
+    """The refusal the split class gave up — one span, two DIFFERENT productions.
+
+    A length preference has no standing over which production the grammar
+    meant, so this stays a refusal, and it is what pins the N >= 3 walk: both
+    seeds carry an arm-class point that the first two derivations do not
+    expose.
     """
     compiled, kern, best = _vyx_span(seed)
     item, end = best
