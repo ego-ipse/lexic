@@ -45,6 +45,8 @@ from lexic.parsing.fold import (
     collapsed_fold_tables,
     lift_optional_nullables,
 )
+from lexic.parsing.pda.runtime.reduce_runtime import pda_model
+from lexic.parsing.products import _model_product, earley_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.ir_fixtures import (
     malformed_synthetic_rule,
@@ -582,3 +584,27 @@ def test_model_body_ir_lambda_stays_the_identity_kwargs_ctor():
 
     body = ModelBody("sequence", IrLambda(marker), 1, (FieldFold(0, "text", "a", 1),))
     assert body.bake().ctor is marker
+
+
+# ── a required field whose rule matched its EMPTY arm ─────────────────────
+
+
+def test_required_field_matching_the_empty_arm_folds_to_explicit_none():
+    """A required ref whose rule matched its empty arm binds None, not nothing.
+
+    ``t = "" / tr / ts`` over ``"x"``: ``t`` matches the empty arm and folds to
+    no sub-model. The field must carry an explicit ``None`` — the record the
+    PDA's trusted build produces via ``parts.get`` — rather than being dropped
+    from the kwargs, which made the checked constructor refuse the engine's own
+    parse with a missing-required-field error. RFC 5234's bare ``%x31`` (a
+    num-val with no range and no dot-tail) is exactly this shape.
+    """
+    src = 'a = %s"x" t\r\nt = "" / tr / ts\r\ntr = %s"-" %s"h"\r\nts = 1*%s"."\r\n'
+    cg = compile_text(src, cache_key="fold-empty-arm-field", flavour="abnf")
+    product = _model_product(cg.codegen_grammar, cg.fold)
+    via_earley = earley_model(product.instance_grammar, "x", cg.fold, product.tables)
+    via_pda = pda_model(product.pda, "x", cg.fold)
+    assert via_earley == via_pda, "the two engines must build the same record"
+    # A record IS its field tuple; `A` binds one field (`t`), read by index.
+    assert via_earley[0] is None
+    assert via_earley.to_text() == "x"

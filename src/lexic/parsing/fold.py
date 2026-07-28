@@ -423,7 +423,12 @@ class ModelFold[M]:
         kwargs: dict[str, object] = {}
         for item, mode, name, lo in rule_fold.fields:
             value = self._fold_field(kids[item], mode, lo, results)
-            if value is not None:
+            # A model field whose sub-rule matched an EMPTY arm folds to None,
+            # and None IS the value the record carries — the PDA's trusted
+            # build reads exactly that out of `parts.get`. Dropping it would
+            # turn "matched empty" into "missing field" and the checked
+            # constructor refuses a required one.
+            if value is not None or mode == "model":
                 kwargs[name] = value
         return rule_fold.ctor(**kwargs)
 
