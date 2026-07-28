@@ -65,10 +65,18 @@ def main() -> None:
     # the reader needs nothing from lexic to rebuild the value.
     assert all(isinstance(n, int) for n in payload.nodes)
 
-    # `origins` records each symbol's module as DATA, so a rule name that
-    # legitimately repeats across two grammars stays recoverable by inspection
-    # instead of silently colliding.
-    print(f"origins: {sorted(set(payload.origins))}")
+    # `origins` records each symbol's module as DATA — where the class lived
+    # when it was projected, so a rule name repeating across two grammars stays
+    # recoverable by inspection instead of colliding invisibly.
+    #
+    # Compiling in memory means that module is ANONYMOUS (`generated.anon_<hash>`),
+    # and you will see that name inside the exported file. It is provenance, not
+    # an import target, and nothing resolves it: the artefact's actual imports
+    # come from `_homes`, which keeps a recorded origin only when it is a live
+    # module exporting that exact class, and otherwise uses the `module=` you
+    # pass below. So the export imports `config_model` while still recording
+    # where the classes came from. Open the file and both are visible.
+    print(f"origins (provenance, not imports): {sorted(set(payload.origins))}")
 
     OUT.mkdir(parents=True, exist_ok=True)
 
