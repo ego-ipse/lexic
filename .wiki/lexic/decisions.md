@@ -27,11 +27,32 @@ two instances of any class that never defined `__eq__` different from each
 other. A type that declined to define equality has declined to answer, and
 "cannot tell" reads as no observable difference, hence no refusal.
 
-**It lives in `parsing/earley/kernel/ambiguity.py`** so the island sub-parse and
-the reduce path decide it once and the same way. The reduce path used to count
-derivations, and the cost was the whole EBNF fallback: that self-grammar has
-adjacent nullable `ws` slots, so every whitespace-carrying EBNF file derived at
-least two ways, reduced to exactly one value, and was refused.
+**It lives in `parsing/earley/kernel/forest/ambiguity.py`** so the island
+sub-parse, the reduce path and the Earley model completion decide it once and
+the same way. The reduce path used to count derivations, and the cost was the
+whole EBNF fallback: that self-grammar has adjacent nullable `ws` slots, so
+every whitespace-carrying EBNF file derived at least two ways, reduced to
+exactly one value, and was refused. The model completion used to not ask at
+all — it took the first derivation, and the PDA took a different "first", so
+an ambiguous arm choice was answered two ways in silence; `first_meaning`
+(`earley/engine.py`) now asks on that path too.
+
+**The opt-out is a resolver, not a flag.** `another_meaning` returns the
+differing derivation itself — the witness — so a caller opting out of the
+default refusal supplies a deterministic `Resolver` that is handed both
+derivations and picks; how it picks is the caller's concern. The same
+`AmbiguityPolicy` / `Resolver` vocabulary reaches wherever a derivation is
+chosen: `parse_model`, the PDA's `IslandPolicy`, and the Earley completion.
+
+**A flipped point is consumed at its first visit.** A unit cycle's same-span
+completions make the chart CYCLIC (`a ::= b | "x"` / `b ::= a | "y"`), and a
+pin that re-applied at its own key would name no finite derivation — the
+pinned build walked `a → b → a` forever. Consumed
+(`splits._descend` pops it; `FastTree` copies the caller's map), a pin names
+the one-lap unroll, exactly the alternative whose value answers the question.
+Family 0 needs no guard: the first family recorded for a key can only
+reference completions recorded strictly earlier, so the default walk is
+acyclic by causality.
 
 **The forest already records where to look.** A key packing more than one family
 IS an ambiguity point (Scott 2008), so the question is answered by a walk rather

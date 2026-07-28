@@ -18,6 +18,7 @@ from typing import Any, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrNone, IrSelf, IrStr, IrTuple
+from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 from lexic.parsing.earley.reduce.fused import DROP_KIND
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.clones import ReduceRun
@@ -230,7 +231,7 @@ def pda_model[M](
     text: str,
     fold: ModelFold[M] | None = None,
     *,
-    ambiguous: bool = False,
+    resolve: Resolver | None = None,
 ) -> M:
     """Parse ``text`` with the fused predictive runtime, building a model.
 
@@ -243,10 +244,10 @@ def pda_model[M](
     :param fold: The full-grammar fold for splicing island sub-models;
         ``None`` (the island-free path) makes any island reference raise
         :class:`PdaFail`.
-    :param ambiguous: Whether an island deriving its text more than one way is
-        allowed; the default refuses.
+    :param resolve: The caller's deterministic answer to an island deriving its
+        text more than one way that means different things; the default refuses.
     :returns: The start rule's model instance.
     :raises PdaFail: On any deterministic-parse failure (caught by the compile
         seam, which retries on the full engine).
     """
-    return PdaKernel(tables, text, fold, ambiguous=ambiguous).run()
+    return PdaKernel(tables, text, fold, resolve=resolve).run()

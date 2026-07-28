@@ -106,11 +106,13 @@ def test_island_parse_resolves_an_ambiguous_completion_via_island_derivation(
     the FastTree fast path misses, so island_parse falls through to
     island_derivation for the first derivation. Exercises both functions.
 
-    Under ``ambiguous=True``, because taking a derivation from several is the
-    behaviour being exercised and the default now refuses it.
+    Under a take-the-first resolver, because taking a derivation from several
+    is the behaviour being exercised and the default now refuses it.
     """
     tables = compile_tables(sss_grammar)
-    tree, end = island_parse(tables, "aaa", 0, "s", IslandPolicy(ambiguous=True))
+    tree, end = island_parse(
+        tables, "aaa", 0, "s", IslandPolicy(resolve=lambda first, other: first)
+    )
     assert isinstance(tree, ParseTree)
     assert end == 3
 

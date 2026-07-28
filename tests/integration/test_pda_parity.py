@@ -37,6 +37,7 @@ from lexic.parsing.pda.compiler.flatten import all_clones
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.reduce_runtime import pda_model
 from lexic.parsing.pda.runtime.runtime import PdaFail
+from lexic.parsing.products import earley_model
 from tests.integration.pda_parity_helpers import (
     check_one,
     deep_semantic,
@@ -365,12 +366,6 @@ def test_the_pda_refuses_an_arm_choice_rather_than_answering_it() -> None:
         pda_model(prod(cg).pda, "#ab", cg.fold)
 
 
-@pytest.mark.xfail(
-    reason="the Earley half is unimplemented: `earley_model` goes through "
-    "`ParseFirst`, which takes the first derivation for parity with a retired "
-    "Lark path. Closing it is the policy unification recorded in DECISIONS.md.",
-    strict=True,
-)
 def test_an_arm_choice_is_refused_by_both_engines_not_answered_differently() -> None:
     """Neither engine may quietly pick when the arms mean different things.
 
@@ -383,12 +378,21 @@ def test_an_arm_choice_is_refused_by_both_engines_not_answered_differently() -> 
 
     A split has a defined answer and is not covered here; `is_arm_choice`
     separates the two, and this input is on the refusing side of it.
+
+    Both sides call the real MODEL entries. `forced_engine` is deliberately not
+    used: it hand-rolls `parse_first` + fold, and `parse_first` returns a tree
+    with no fold to build values from, so it cannot answer a question about
+    meanings and does not gate. That second route is the same two-entries shape
+    the PDA half had — worth knowing about, not worth asserting here.
     """
     cg = compile_text(_ARM_AMBIGUOUS, cache_key="parity-arm-ambiguous")
-    product = prod(cg)
+    pr = product = prod(cg)
     outcomes: dict[str, object] = {}
     for label, call in (
-        ("earley", lambda: forced_engine(cg, "#ab")),
+        (
+            "earley",
+            lambda: earley_model(pr.instance_grammar, "#ab", cg.fold, pr.tables),
+        ),
         ("pda", lambda: pda_model(product.pda, "#ab", cg.fold)),
     ):
         try:

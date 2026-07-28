@@ -78,6 +78,7 @@ from functools import partial
 from typing import Any
 
 from lexic.ir import IrLeaf, IrSelf
+from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.fold import ModelFold
@@ -189,7 +190,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         text: str,
         fold: ModelFold[M] | None = None,
         *,
-        ambiguous: bool = False,
+        resolve: Resolver | None = None,
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
@@ -198,12 +199,13 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         :param fold: The full-grammar :class:`~lexic.parsing.fold.ModelFold`
             for splicing island sub-models; ``None`` disables island resolution
             (any island reference raises :class:`PdaFail`).
-        :param ambiguous: Whether an island deriving its text more than one way
-            is allowed. Per-parse state, so it rides on the cursor.
+        :param resolve: The caller's deterministic answer to an island that
+            derives its text two ways that mean different things; ``None``
+            refuses one. Per-parse state, so it rides on the cursor.
         """
         self.tables = tables
         self.text = text
-        self.policy = IslandPolicy(ambiguous=ambiguous, fold=fold)
+        self.policy = IslandPolicy(resolve=resolve, fold=fold)
         self.pos = 0
         self.stack = []
         self._deleg = {}
@@ -660,7 +662,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             self.tables,
             window_text,
             self.policy.fold,
-            ambiguous=self.policy.ambiguous,
+            resolve=self.policy.resolve,
         )
         return finish_delegate(sub, clone, window_text, pos)
 

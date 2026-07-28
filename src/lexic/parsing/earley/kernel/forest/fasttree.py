@@ -36,7 +36,10 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         ``None`` for the fast path's "an ambiguity point is a miss" contract.
         With choices supplied the build no longer misses on ambiguity; it
         builds THE derivation those choices name, which is what lets two
-        derivations of one span be compared by the values they build.
+        derivations of one span be compared by the values they build. A pin
+        applies to the OUTERMOST visit of its key and is consumed there: on a
+        cyclic chart the pinned family leads back to its own key, and a pin
+        that re-applied would name no finite derivation at all.
     """
 
     __slots__ = ("kernel", "memo", "stack", "choices", "_bits", "_mask")
@@ -51,7 +54,9 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         :param choices: the family to take at each ambiguity point, if any.
         """
         self.kernel = kernel
-        self.choices = choices
+        # A copy, because the build CONSUMES pinned entries (see
+        # `splits._descend`) — the caller's map must not be eaten.
+        self.choices = choices if choices is None else dict(choices)
         self.memo = {}
         self.stack = []
         self._bits = kernel.tables.packing.bits

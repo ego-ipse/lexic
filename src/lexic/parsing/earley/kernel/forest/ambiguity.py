@@ -11,16 +11,16 @@ an inline group carves a digit two ways and folds the same both times, and two
 adjacent nullable slots split a gap two ways to the same end. Refusing those
 refuses valid input for a difference no consumer can observe.
 
-Shared by both consumers that must answer it — the island sub-parse and the
-reduce path — so that "two derivations, one meaning" is decided once and the
-same way, whichever engine is asking.
+Shared by every consumer that must answer it — the island sub-parse, the reduce
+path and the model completion — so that "two derivations, one meaning" is
+decided once and the same way, whichever engine is asking.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from operator import ne
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
@@ -30,7 +30,40 @@ from lexic.parsing.earley.kernel.tables.splits import is_arm_choice
 if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
     from lexic.parsing.earley.kernel.loop.kernel import Kernel
 
-__all__ = ["ambiguity_points", "means_two_things", "same_value"]
+__all__ = [
+    "AmbiguityPolicy",
+    "Resolver",
+    "ambiguity_points",
+    "another_meaning",
+    "same_value",
+]
+
+type Resolver = Callable[[ParseTree, ParseTree], ParseTree]
+"""A caller's deterministic answer to an ambiguity — the opt-out from refusal.
+
+Given the derivation in hand and one that means something else, returns the
+derivation to keep. How it chooses is the caller's concern; the engine's only
+requirement is that it is deterministic, so both engines given the same pair
+answer the same way. ``lambda first, other: first`` is the degenerate
+take-the-first resolver.
+"""
+
+
+class AmbiguityPolicy(NamedTuple):
+    """How a span that means two things is settled, and by whom.
+
+    ``build`` is what makes the question answerable at all: whether two
+    derivations are a real ambiguity is a question about the VALUES they
+    build. ``resolve`` is the caller's explicit opt-out from the default
+    refusal.
+
+    :ivar build: Turns a derivation into the value it means — a fold's or a
+        reducer's ``apply``.
+    :ivar resolve: Settles a span that means two things; ``None`` refuses it.
+    """
+
+    build: Callable[[ParseTree], object]
+    resolve: Resolver | None = None
 
 
 def ambiguity_points(kernel: Kernel, root: int) -> list[int]:
@@ -125,35 +158,40 @@ def same_value(one: object, other: object) -> bool:
     return bool(one == other) or (ne(one, one) and ne(other, other))
 
 
-def means_two_things(
+def another_meaning(
     kernel: Kernel,
     handle: int,
     build: Callable[[ParseTree], object],
     first: ParseTree,
-) -> bool:
-    """Does any other derivation of ``handle`` build a different value?
+) -> ParseTree | None:
+    """The first other derivation of ``handle`` that builds a DIFFERENT value.
 
     Flips one ambiguity point at a time rather than trying every combination: a
     fold is compositional, so if no single alternative changes the value, no
     combination of them does. That is linear in ambiguity points, where
-    enumerating derivations is exponential in them.
+    enumerating derivations is exponential in them. On a cyclic chart (a unit
+    cycle's same-span completions) a flipped point is consumed at its first
+    visit — see :func:`~lexic.parsing.earley.kernel.tables.splits.leftmost_chain` —
+    so the flip names the one-lap unroll and the walk terminates.
 
-    A predicate rather than a builder, because "means two things" and "nothing
-    built" are different answers and a caller that cannot tell them apart will
-    report one as the other.
+    Returns the differing derivation itself rather than a truth value, because
+    a caller resolving the ambiguity needs the witness in hand, and "means two
+    things" and "nothing built" are different answers a bare predicate would
+    conflate.
 
     :param kernel: The finished kernel.
     :param handle: The packed accepting handle.
     :param build: Turns a derivation into the value it means — a fold's or a
         reducer's ``apply``.
     :param first: The derivation already in hand, to compare the rest against.
-    :returns: ``True`` when two derivations build values that differ.
+    :returns: A derivation whose value differs from ``first``'s, or ``None``
+        when every derivation means the same thing — proven, not sampled.
     """
     base = build(first)
     for alternate in _sibling_roots(kernel, handle):
         other = FastTree(kernel, {}).build(alternate)
         if isinstance(other, ParseTree) and not same_value(base, build(other)):
-            return True
+            return other
     bits = kernel.tables.packing.bits
     for key in ambiguity_points(kernel, handle):
         bucket = kernel.st.links[key]
@@ -165,5 +203,5 @@ def means_two_things(
         for index in range(1, len(bucket)):
             other = FastTree(kernel, {key: index}).build(handle)
             if isinstance(other, ParseTree) and not same_value(base, build(other)):
-                return True
-    return False
+                return other
+    return None

@@ -24,7 +24,11 @@ from typing import NamedTuple
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrTuple
 from lexic.parsing.earley.engine import EarleyParser
-from lexic.parsing.earley.kernel.forest.ambiguity import means_two_things, same_value
+from lexic.parsing.earley.kernel.forest.ambiguity import (
+    Resolver,
+    another_meaning,
+    same_value,
+)
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import (
     DERIVATION_STREAM,
@@ -137,14 +141,14 @@ class IslandPolicy[M](NamedTuple):
     """
 
     delegates: dict[int, Delegate] | None = None
-    ambiguous: bool = False
+    resolve: Resolver | None = None
     fold: ModelFold[M] | None = None
 
     def for_island(self, delegates: dict[int, Delegate] | None) -> IslandPolicy[M]:
         """This policy with ``delegates`` filled in — what one island reference
         hands to its sub-parse. The delegates are the only per-island part; the
-        fold and the ambiguity setting belong to the whole parse."""
-        return IslandPolicy(delegates, self.ambiguous, self.fold)
+        fold and the resolver belong to the whole parse."""
+        return IslandPolicy(delegates, self.resolve, self.fold)
 
 
 def island_parse(
@@ -164,14 +168,14 @@ def island_parse(
     :param text: The full input.
     :param pos: The cursor position the window opens at.
     :param name: The island rule name (for the failure message).
-    :param policy: The interior delegate table, and whether more than one
-        derivation is allowed. An island is the ONE place the model path chooses
-        between derivations — everywhere else it is predictive and produces one
-        by construction — so it is where the setting is enforced.
+    :param policy: The interior delegate table, and the caller's resolver, if
+        any. An island is the ONE place the model path chooses between
+        derivations — everywhere else it is predictive and produces one by
+        construction — so it is where the refusal (or the resolver) applies.
     :returns: ``(tree, end)`` — the derivation and its consumed length.
     :raises PdaFail: When the island completes over no window.
-    :raises UnsupportedConstructError: On an ambiguous island under the default
-        setting. The round-trip invariant cannot catch a wrong choice here:
+    :raises UnsupportedConstructError: On an ambiguous island with no resolver.
+        The round-trip invariant cannot catch a wrong choice here:
         ``to_text()`` reproduces the input for whichever derivation was taken.
     """
     remaining = len(text) - pos
@@ -195,31 +199,36 @@ def island_parse(
     # an ambiguous input instead of refusing it. The reduce path never relied on
     # the fast path as an oracle — `_one_meaning` asks this question separately —
     # and the model path must ask it too.
-    _refuse_two_meanings(kern, handle, tree, name, policy)
-    return tree, end
+    return _settle_two_meanings(kern, handle, tree, name, policy), end
 
 
-def _refuse_two_meanings(
+def _settle_two_meanings(
     kern: Kernel, handle: int, tree: ParseTree, name: str, policy: IslandPolicy
-) -> None:
-    """Raise when this completion derives a second, DIFFERENT value.
+) -> ParseTree:
+    """The derivation to keep when this completion may mean a second thing.
 
     :param kern: The island's Earley kernel.
     :param handle: The packed accepting item and end.
     :param tree: The derivation already in hand.
     :param name: The island rule name (for the failure message).
     :param policy: Carries the fold that answers the question, and the caller's
-        opt-out.
-    :raises UnsupportedConstructError: When the span means two things and the
-        caller has not opted out.
+        resolver.
+    :returns: ``tree`` when every derivation means the same thing, else what
+        the resolver chooses.
+    :raises UnsupportedConstructError: When the span means two things and no
+        resolver was supplied.
     """
-    if policy.ambiguous or policy.fold is None:
-        return
-    if means_two_things(kern, handle, policy.fold.apply, tree):
+    if policy.fold is None:
+        return tree
+    witness = another_meaning(kern, handle, policy.fold.apply, tree)
+    if witness is None:
+        return tree
+    if policy.resolve is None:
         raise UnsupportedConstructError(
             f"parsing: island {name!r} derives the same text two ways that mean "
-            "different things — pass ambiguous=True to take the first"
+            "different things — supply a resolver to choose between them"
         )
+    return policy.resolve(tree, witness)
 
 
 def island_run(
@@ -269,23 +278,18 @@ def island_derivation(
     :param item: The accepting item.
     :param end: The completion's consumed length.
     :param name: The island rule name (for the failure message).
-    :param policy: Carries the ambiguity setting and the fold that answers it.
-    :returns: The first derivation tree.
+    :param policy: Carries the fold that answers the question, and the caller's
+        resolver.
+    :returns: The first derivation tree, or what the resolver chooses.
     :raises PdaFail: When the completion decodes to no derivation.
     :raises UnsupportedConstructError: When a second derivation builds a
-        different value and the setting refuses it.
+        different value and no resolver was supplied.
     """
     handle = (item << kern.tables.packing.bits) | end
-    if policy.ambiguous or policy.fold is None:
-        tree = _one_derivation(kern, handle, name)
-        return tree
+    if policy.fold is None:
+        return _one_derivation(kern, handle, name)
     tree = _one_derivation(kern, handle, name, {})
-    if means_two_things(kern, handle, policy.fold.apply, tree):
-        raise UnsupportedConstructError(
-            f"parsing: island {name!r} derives the same text two ways that mean "
-            "different things — pass ambiguous=True to take the first"
-        )
-    return tree
+    return _settle_two_meanings(kern, handle, tree, name, policy)
 
 
 def _one_derivation(

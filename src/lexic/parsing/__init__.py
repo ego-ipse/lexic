@@ -90,6 +90,7 @@ from lexic.parsing.earley.engine import (
     RECOGNIZE,
     EarleyParser,
 )
+from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 from lexic.parsing.earley.kernel.forest.chart import Chart, EarleyItem, Link, Links
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import (
@@ -151,9 +152,12 @@ def parse_first(
 ) -> ParseTree:
     """Parse ``text`` into its FIRST derivation — deterministic under ambiguity.
 
-    The instance-parsing entry (:mod:`.fold`): parity with the retired Lark
-    path's ``ambiguity="resolve"``. Prefer :func:`parse` (strict) wherever a
-    single honest derivation is required.
+    The tree-level toolkit entry: a cyclic grammar derives its text through
+    unboundedly many derivations, so a deterministic first is what makes such
+    grammars answerable at all. Prefer :func:`parse` (strict) wherever a
+    single honest derivation is required; the value-level ambiguity gate lives
+    in the model product (:func:`parse_model`), where a fold exists to compare
+    what derivations MEAN.
 
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
@@ -220,6 +224,7 @@ __all__ = [
     "ParseTree",
     "ParserTables",
     "Reducer",
+    "Resolver",
     "RootNode",
     "RuleFold",
     "SppfNode",

@@ -25,8 +25,11 @@ from collections.abc import Callable
 from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrAst, IrDispatch, IrInt, IrLeaf, IrSelf, IrSeq, IrTuple
-from lexic.parsing.earley.kernel.forest.ambiguity import means_two_things
+from lexic.ir import IrAst, IrDispatch, IrInt, IrLeaf, IrNone, IrSelf, IrSeq, IrTuple
+from lexic.parsing.earley.kernel.forest.ambiguity import (
+    AmbiguityPolicy,
+    another_meaning,
+)
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import (
     BUILD_TREE,
@@ -123,12 +126,83 @@ def _one_meaning(kernel: Kernel, build: Callable[[ParseTree], object]) -> ParseT
     tree = FastTree(kernel, {}).build(handle)
     if not isinstance(tree, ParseTree):
         raise UnsupportedConstructError("parsing: no derivation")
-    if means_two_things(kernel, handle, build, tree):
+    if another_meaning(kernel, handle, build, tree) is not None:
         raise UnsupportedConstructError(
             "parsing: ambiguous input — two derivations that mean different "
             "things; use the forest enumeration entry to choose between them"
         )
     return tree
+
+
+def first_meaning(
+    d: IrSelf,
+    n: IrSelf,
+    text: str,
+    tables: ParserTables | None = None,
+    policy: AmbiguityPolicy | None = None,
+) -> ParseTree:
+    """The first derivation of ``text`` — gated, given a ``policy``, on meaning.
+
+    The model completion's derivation chooser. Without a policy this is the
+    plain deterministic first (what :class:`ParseFirst` returns). With one, the
+    span is asked whether another derivation builds a DIFFERENT value
+    (:func:`~lexic.parsing.earley.kernel.forest.ambiguity.another_meaning`):
+    a real arm choice is refused by default, and the policy's ``resolve`` is
+    the caller's explicit opt-out — a deterministic resolver handed both
+    derivations, whose choice is their concern. A function argument rather than
+    part of the action's ``nc``, because a fold's callable is not an IR value
+    and does not belong on an IR channel.
+
+    :param d: The dispatcher seam the forest readers thread.
+    :param n: The grammar (an :class:`~lexic.ir.grammar.nodes.IrAst`).
+    :param text: The input string.
+    :param tables: Optional pre-built (run-collapsed) tables for ``n``.
+    :param policy: The build that makes the meaning question answerable, and
+        the resolver that settles it; ``None`` skips the question entirely.
+    :returns: The chosen derivation.
+    :raises UnsupportedConstructError: If ``text`` does not parse, or means two
+        things and no resolver was supplied.
+    """
+    if not isinstance(n, IrAst):
+        raise UnsupportedConstructError(
+            f"parsing: expected an IrAst grammar, got {type(n).__name__}"
+        )
+    kernel = Kernel(
+        tables if tables is not None else compile_tables(n, tier_for(len(text))),
+        text,
+        True,
+    ).run()
+    _require_accept(kernel, n)
+    handle = accept_handle(kernel)
+    first: IrSelf = IrNone
+    if not root_ambiguous(kernel):
+        # RESOLVING mode: an empty choices map pins nothing, so the chain
+        # policy decides the splits. Bail mode would decline on exactly the
+        # ambiguous inputs at issue and fall through to the stream, which
+        # takes chart order — the very thing the two engines disagreed on.
+        first = FastTree(kernel, {}).build(handle)
+    if not isinstance(first, ParseTree):
+        if tables is not None:  # run terminals shape the chart — re-parse plain
+            kernel = Kernel(compile_tables(n, tier_for(len(text))), text, True).run()
+            _require_accept(kernel, n)
+            handle = accept_handle(kernel)
+        stream = DERIVATION_STREAM.eval(
+            d, accept_node(kernel), IrTuple(to_chart(kernel))
+        )
+        first = next(iter(stream), IrNone)
+        if not isinstance(first, ParseTree):
+            raise UnsupportedConstructError("parsing: no derivation")
+    if policy is None:
+        return first
+    witness = another_meaning(kernel, handle, policy.build, first)
+    if witness is None:
+        return first
+    if policy.resolve is None:
+        raise UnsupportedConstructError(
+            "parsing: ambiguous input — two derivations that mean different "
+            "things; supply a resolver to choose between them"
+        )
+    return policy.resolve(first, witness)
 
 
 class Recognize(IrLeaf[IrSelf, IrSelf]):
@@ -174,11 +248,15 @@ class Parse(IrLeaf[IrSelf, IrSelf]):
 class ParseFirst(IrLeaf[IrSelf, IrSelf]):
     """The FIRST derivation of ``text`` — deterministic under ambiguity.
 
-    The instance-parsing seam (:mod:`lexic.parsing.fold`): where
-    :class:`Parse` raises on a second derivation, this takes the
-    enumeration's first — parity with the retired Lark path's
-    ``ambiguity="resolve"``. Fast path identical to :class:`Parse`; the
-    lazy stream is only driven one item on the slow path.
+    Where :class:`Parse` raises on a second derivation, this takes the
+    enumeration's first. Not a convenience: a cyclic grammar
+    (``s ::= s | "a"``) derives its text through unboundedly many derivations,
+    so "the single derivation" does not exist there and a deterministic first
+    is what makes such grammars answerable at all. The VALUE-level ambiguity
+    question — does the span mean two things — needs a fold to answer and is
+    asked by :func:`first_meaning`, which the model completion drives; this
+    action is that function without the gate. Fast path identical to
+    :class:`Parse`; the lazy stream is only driven one item on the slow path.
 
     ``nc`` may carry pre-built :class:`~lexic.parsing.earley.kernel.tables.ParserTables` as a
     second element — the instance path passes run-collapsed tables (built with
@@ -197,37 +275,9 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
         :returns: a derivation.
         :raises UnsupportedConstructError: If ``text`` does not parse.
         """
-        if not isinstance(n, IrAst):
-            raise UnsupportedConstructError(
-                f"parsing: expected an IrAst grammar, got {type(n).__name__}"
-            )
         text = str(nc[0])
         collapsed = nc[1] if len(nc) > 1 and isinstance(nc[1], ParserTables) else None
-        if collapsed is not None:
-            tables = collapsed
-        else:
-            tables = compile_tables(n, tier_for(len(text)))
-        kernel = Kernel(tables, text, True).run()
-        _require_accept(kernel, n)
-        handle = accept_handle(kernel)
-        if not root_ambiguous(kernel):
-            # RESOLVING mode: an empty choices map pins nothing, so the chain
-            # policy decides the splits. Bail mode would decline on exactly the
-            # ambiguous inputs at issue and fall through to the stream, which
-            # takes chart order — the very thing the two engines disagreed on.
-            tree = FastTree(kernel, {}).build(handle)
-            if isinstance(tree, ParseTree):
-                return tree
-        if collapsed is not None:  # run terminals shape the chart — re-parse plain
-            kernel = _run_kernel(n, nc, True)
-            _require_accept(kernel, n)
-        stream = DERIVATION_STREAM.eval(
-            d, accept_node(kernel), IrTuple(to_chart(kernel))
-        )
-        first = next(iter(stream), None)
-        if not isinstance(first, ParseTree):
-            raise UnsupportedConstructError("parsing: no derivation")
-        return first
+        return first_meaning(d, n, text, collapsed)
 
 
 class ParseReduced(IrLeaf[IrSelf, IrSelf]):

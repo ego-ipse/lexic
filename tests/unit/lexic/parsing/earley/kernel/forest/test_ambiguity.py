@@ -8,7 +8,7 @@ from lexic.compile import compile_from_path
 from lexic.generate import generate
 from lexic.parsing.earley.kernel.forest.ambiguity import (
     ambiguity_points,
-    means_two_things,
+    another_meaning,
 )
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
@@ -49,7 +49,7 @@ def test_a_decided_nullable_split_is_not_reported_as_ambiguity():
             continue
         if ambiguity_points(kernel, handle):
             with_points += 1
-        if means_two_things(kernel, handle, compiled.fold.apply, tree):
+        if another_meaning(kernel, handle, compiled.fold.apply, tree) is not None:
             flagged += 1
     assert with_points, "no ambiguous json input generated — the test proves nothing"
     assert not flagged, (

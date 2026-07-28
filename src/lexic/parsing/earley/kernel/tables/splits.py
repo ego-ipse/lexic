@@ -45,7 +45,9 @@ def leftmost_chain(
     :param base: The arm's dot-0 code — the descent stops here.
     :param bits: The tables' packing tier.
     :param choices: Keys pinned to one family; an entry overrides the policy at
-        that key, which is how the ambiguity check flips a single point.
+        that key, which is how the ambiguity check flips a single point. A pin
+        is CONSUMED at its first use (the map is mutated), so on a cyclic chart
+        it names the one-lap unroll rather than a non-terminating constraint.
     :returns: The chain's links in source order, or ``None`` when a key is
         missing or a level has no surviving edge.
     """
@@ -73,7 +75,11 @@ def _descend(
             if bucket is None:
                 return None
             edges = []
-            for index, link in _candidates(bucket, choices.get(key), bits):
+            # A pin is CONSUMED at its first use: on a cyclic chart the pinned
+            # family leads back to its own key, and a pin that re-applied there
+            # would name no finite derivation at all. Consumed, it names the
+            # one-lap unroll — flip the point once, default policy after.
+            for index, link in _candidates(bucket, choices.pop(key, None), bits):
                 predecessor = (link[0] << bits) | link[1]
                 edges.append((predecessor, index, link))
                 below[predecessor] = None

@@ -1,5 +1,24 @@
 # Log
 
+## The model path asks the meaning question too, and a pin is consumed
+
+`earley_model` used to take the first derivation without asking whether the
+span meant two things; only the PDA's island path and the reduce path asked.
+Two engines each taking their own "first" answered an ambiguous arm choice
+differently in silence. The Earley completion now gates through the same
+`another_meaning` the islands use (`first_meaning` in `earley/engine.py`), and
+the opt-out is a caller-supplied deterministic `Resolver` handed both
+derivations — it replaced the `ambiguous` bool on `IslandPolicy`, `PdaKernel`,
+`pda_model` and `parse_model`. `ParseFirst` stays: a cyclic grammar has
+unboundedly many derivations, so a deterministic tree-level first is
+load-bearing, not a back-compat seam.
+
+What blocked the gate: `FastTree` with a pinned family did not terminate on a
+cyclic chart (mutual unit arms), because the pin re-applied at every revisit
+of its own key. A pin is now consumed at its first use, naming the one-lap
+unroll — a latent bug in any pinned build over a cyclic chart, not a property
+of the gate. `.wiki/lexic/decisions.md` carries the invariant.
+
 ## Parity is raw model equality, and ruling 1 is retired
 
 The PDA and the Earley engine must build the same model field for field.
@@ -26,7 +45,7 @@ resolver, whose behaviour is the caller's concern — not a fallback, not a flag
 ## Ambiguity is about values; directives are not a line-comment privilege
 
 Two derivations that build the same VALUE are not an ambiguity. The decision
-moved to `parsing/earley/kernel/ambiguity.py`, where the island sub-parse and the
+moved to `parsing/earley/kernel/forest/ambiguity.py`, where the island sub-parse and the
 reduce path both reach it — the reduce path used to count derivations, which
 left the EBNF flavour with no working Earley fallback at all (its self-grammar
 has adjacent nullable `ws` slots, so every whitespace-carrying file derived two
