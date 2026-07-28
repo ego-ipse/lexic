@@ -306,6 +306,12 @@ A directive naming an undefined rule is silently ignored.
 
 - **Grammar is canonical.** Every class has a lossless `to_grammar(flavour)`.
 - **Round-trip fidelity.** `parse(text).to_text() == text` on every valid input.
+- **Ambiguity is refused, by both engines.** A span whose derivations build two
+  different models raises rather than one engine quietly picking — the PDA's
+  "first" and Earley's "first" are not the same first. The question is about
+  VALUES: a *split* (one production carved two ways) has a defined answer and is
+  never refused; only an *arm* choice is. The opt-out is a caller-supplied
+  resolver, not a flag, and it reaches whichever engine chooses.
 - **One way per task.** One parse function, one emit method, one round-trip
   method. No alternate APIs, and no sugar channel beside a real one.
 - **No regression.** The suite stays green.

@@ -265,8 +265,7 @@ Append-only chronological record. Most recent entry at top.
 
 ## 2026-07-18 — generated-files: importable twins, IR-native formatting, renames
 
-The 260718-generated-files effort (plan in `zzz_current_work/`), landed on
-top of Task 0 below:
+Landed on top of Task 0 below:
 
 - **Defaults-last field order** (`bind_fields`): required fields first,
   `= None` optionals after, each group in item order — the record ctor is
@@ -320,7 +319,7 @@ derive-from-binds branch in `GrammarModel.__init_subclass__` deleted
 `_child_attrs` from annotations into `cls.__dict__` first, so the branch
 never fired; models don't read `_child_attrs` anyway (`children()`/
 `rebuild()` are overridden on `__binds__` item order, settled 13). Effort:
-`zzz_current_work/260718-generated-files/PLAN.md`.
+
 
 ## 2026-07-18 — ir-native complete: compile/ subsystem, codegen + pydantic gone
 
@@ -336,7 +335,7 @@ R0801 suppressions are removed; the schema-joint machinery is gone
 across the effort: `load_ir` (IR-constructor notation), `load_flavour`
 (manifest → `IrFlavour`), `export_source` (reader `.py` view), the demo
 EBNF flavour. Perf: `compile_text` −67…−79% vs baseline; parse +2…+8%.
-Full record + commit chain: `zzz_current_work/260716-ir-native/PLAN_v4.md`
+Full record: the commit chain.
 OUTCOME + `FOLLOWUP.md` + `NEXT_MILESTONES.md`.
 
 **Wiki drift still to sweep** (flagged, not all fixed this pass):
@@ -367,7 +366,7 @@ dies at the Task-2 flip, as does the no-op `model_rebuild()`). Goldens'
 the erasure had been silently hiding a licensed PDA-vs-engine noise-split
 difference. Reserved-name window (rules named `eval`/`count`/… unmangled
 until Task 3) pinned in `test_binding.py`. Details:
-`zzz_current_work/260716-ir-native/TASK1_REPORT.md`.
+
 
 ---
 
@@ -385,7 +384,7 @@ assembly layer by design). The vyx language decisions (V16–V25, V20
 non-ASCII reversal) are recorded in the effort's FINDINGS; the vyx spec's
 fragments were made honest vyx-side with an extractor parity gate
 (assembled == pinned). Semantic layer scoped in the vyx repo
-(`SEMANTIC_LAYER.vy`). See `zzz_current_work/260713-vyx-parse/PLAN.md`
+(`SEMANTIC_LAYER.vy`).
 OUTCOME + FOLLOWUP.md.
 
 ---
@@ -484,7 +483,7 @@ depth-threatened post-canonicalize.
 ## 2026-07-16 — Adversarial sweep round 2: codegen cycles, reserved names, depth bombs, cache keys (L5–L8)
 
 Four findings from the Fable adversarial sweep, three fixed same-day
-(FINDINGS L5–L8 in `zzz_current_work/260713-vyx-parse/`):
+(findings L5–L8):
 
 **L5 — unit-arm cycles** (`codegen/binding.py`): `s ::= s | "a"` emitted
 `class S(S):`; mutual unit arms emitted circular inheritance — both died with
@@ -607,7 +606,7 @@ tracked in FINDINGS.md L4.
 
 ## 2026-07-13 — Vyx-parse probe: two engine-adjacent bugs + vyx defect catalogue
 
-New effort dir `zzz_current_work/260713-vyx-parse/` (FINDINGS.md + probe/).
+
 Pushed the vyx D-layer grammar (assembled from `/home/mika/projects/vyx/spec/`
 per-section `grammar:` fragments, mechanically corrected) through the full
 pipeline. Compiles (103 classes), recognition 17/18 on realistic packets. Two
@@ -1022,7 +1021,7 @@ Key landed shape:
 - **`tests/integration/test_{gbnf,abnf}_ir_equivalence.py`** converted from Lark-comparison gates to golden fingerprint tests: every ground-truth/fixture grammar reduces to an `IrAst` with an expected `(start_rule, rule_names)` fingerprint, unambiguously, and stays stable under emit→reparse.
 - `utils/names.to_lark_name` deleted. `test_layering_invariants.py` gained `test_engine_package_does_not_import_grammars_or_codegen` and `test_engine_imported_by_runtime_only_via_compile_seam` (the engine is a leaf; `compile.py` is the only sanctioned runtime→`lexic.parsing` seam).
 
-Open items left for the user (not yet resolved as of this entry): whether `gbnf.py`/`abnf.py`'s C0302 (too-many-lines) waiver stands permanently or the modules split; two ABNF parity gaps (`%d`/`%b` value-sequences, uppercase `%X`/`%D`/`%B`/`%S`/`%I` markers) fail as parse errors rather than an explicit `UnsupportedConstructError`. Wiki pages updated: [[architecture]], [[flavour-system]], [[public-api]], [[error-vocabulary]]; a CLAUDE.md refresh was prepared as a proposal (`zzz_current_work/postleo/CLAUDE_md_refresh_proposal.md`) rather than applied directly.
+Open items left for the user (not yet resolved as of this entry): whether `gbnf.py`/`abnf.py`'s C0302 (too-many-lines) waiver stands permanently or the modules split; two ABNF parity gaps (`%d`/`%b` value-sequences, uppercase `%X`/`%D`/`%B`/`%S`/`%I` markers) fail as parse errors rather than an explicit `UnsupportedConstructError`. Wiki pages updated: [[architecture]], [[flavour-system]], [[public-api]], [[error-vocabulary]]; a CLAUDE.md refresh was prepared as a proposal rather than applied directly.
 
 ---
 
