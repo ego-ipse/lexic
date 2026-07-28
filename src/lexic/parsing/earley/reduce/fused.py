@@ -18,6 +18,7 @@ from lexic.ir import (
     IrTuple,
 )
 from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.leo import expand_leo
 from lexic.parsing.earley.kernel.tables.atoms import RunTerm, predecessor_chain
 from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
@@ -417,7 +418,7 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         kernel = self.kernel
         links = kernel.st.links
         if handle in kernel.st.leo_links:
-            kernel.expand_leo(handle)
+            expand_leo(kernel.st, kernel.tables, handle)
         tables = kernel.tables
         item = handle >> self._bits
         end = handle & self._mask

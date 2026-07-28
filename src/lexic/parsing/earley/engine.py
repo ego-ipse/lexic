@@ -35,6 +35,13 @@ from lexic.parsing.earley.kernel.forest import (
     ParseTree,
 )
 from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.readout import (
+    accept_handle,
+    accept_item,
+    accept_node,
+    root_ambiguous,
+    to_chart,
+)
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ParserTables
@@ -68,7 +75,7 @@ def _require_accept(kernel: Kernel, n: IrSelf) -> None:
 
     :raises UnsupportedConstructError: If the input does not derive.
     """
-    if kernel.accept < 0:
+    if accept_item(kernel) < 0:
         start = n.start if isinstance(n, IrAst) else "<grammar>"
         raise UnsupportedConstructError(
             f"parsing: input does not derive from {str(start)!r}"
@@ -85,12 +92,12 @@ def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
 
     :raises UnsupportedConstructError: On ambiguous input or no derivation.
     """
-    handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
-    if not kernel.root_ambiguous:
+    handle = accept_handle(kernel)
+    if not root_ambiguous(kernel):
         tree = FastTree(kernel).build(handle)
         if isinstance(tree, ParseTree):
             return tree
-    built = BUILD_TREE.eval(d, kernel.accept_node(), IrTuple(kernel.to_chart()))
+    built = BUILD_TREE.eval(d, accept_node(kernel), IrTuple(to_chart(kernel)))
     if not isinstance(built, ParseTree):
         raise UnsupportedConstructError("parsing: no derivation")
     return built
@@ -109,7 +116,7 @@ def _one_meaning(kernel: Kernel, build: Callable[[ParseTree], object]) -> ParseT
     :raises UnsupportedConstructError: When two derivations build different
         values, or when nothing derives.
     """
-    handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
+    handle = accept_handle(kernel)
     # An empty choices map takes family 0 at every ambiguity point instead of
     # bailing on one, so this builds whenever the links are complete — the
     # enumerating fallback would only reinstate the counting rule.
@@ -142,7 +149,7 @@ class Recognize(IrLeaf[IrSelf, IrSelf]):
         text = str(nc[0])
         tables = recognition_tables(n, tier_for(len(text)))
         kernel = Kernel(tables, text, False).run()
-        return _MATCH if kernel.accept >= 0 else _NO_MATCH
+        return _MATCH if accept_item(kernel) >= 0 else _NO_MATCH
 
 
 class Parse(IrLeaf[IrSelf, IrSelf]):
@@ -202,8 +209,8 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
             tables = compile_tables(n, tier_for(len(text)))
         kernel = Kernel(tables, text, True).run()
         _require_accept(kernel, n)
-        handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
-        if not kernel.root_ambiguous:
+        handle = accept_handle(kernel)
+        if not root_ambiguous(kernel):
             # RESOLVING mode: an empty choices map pins nothing, so the chain
             # policy decides the splits. Bail mode would decline on exactly the
             # ambiguous inputs at issue and fall through to the stream, which
@@ -215,7 +222,7 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
             kernel = _run_kernel(n, nc, True)
             _require_accept(kernel, n)
         stream = DERIVATION_STREAM.eval(
-            d, kernel.accept_node(), IrTuple(kernel.to_chart())
+            d, accept_node(kernel), IrTuple(to_chart(kernel))
         )
         first = next(iter(stream), None)
         if not isinstance(first, ParseTree):
@@ -256,8 +263,8 @@ class ParseReduced(IrLeaf[IrSelf, IrSelf]):
         tables = collapsed_tables(reducer, n, tier_for(len(text)))
         kernel = Kernel(tables, text, True).run()
         _require_accept(kernel, n)
-        handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
-        if not kernel.root_ambiguous:
+        handle = accept_handle(kernel)
+        if not root_ambiguous(kernel):
             fused = FusedReduce(kernel, reducer).build(handle)
             if fused is not None:
                 return fused
@@ -278,7 +285,7 @@ class ParseForest(IrLeaf[IrSelf, IrSelf]):
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: root or IrNone."""
-        return _run_kernel(n, nc, True).accept_node()
+        return accept_node(_run_kernel(n, nc, True))
 
 
 class Enumerate(IrLeaf[IrSelf, IrSelf]):
@@ -287,10 +294,10 @@ class Enumerate(IrLeaf[IrSelf, IrSelf]):
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSeq:
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: every tree."""
         kernel = _run_kernel(n, nc, True)
-        if kernel.accept < 0:
+        if accept_item(kernel) < 0:
             return IrSeq()
-        node = kernel.accept_node()
-        return DERIVATIONS.eval(d, node, IrTuple(kernel.to_chart()))
+        node = accept_node(kernel)
+        return DERIVATIONS.eval(d, node, IrTuple(to_chart(kernel)))
 
 
 class IsAmbiguous(IrLeaf[IrSelf, IrSelf]):
@@ -303,10 +310,10 @@ class IsAmbiguous(IrLeaf[IrSelf, IrSelf]):
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
         """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: ``IrInt`` 0/1."""
         kernel = _run_kernel(n, nc, True)
-        if kernel.accept < 0:
+        if accept_item(kernel) < 0:
             return _NO_MATCH
-        node = kernel.accept_node()
-        stream = DERIVATION_STREAM.eval(d, node, IrTuple(kernel.to_chart()))
+        node = accept_node(kernel)
+        stream = DERIVATION_STREAM.eval(d, node, IrTuple(to_chart(kernel)))
         seen = 0
         for _tree in stream:
             seen += 1

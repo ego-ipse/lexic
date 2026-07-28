@@ -30,6 +30,7 @@ from lexic.ir import (
     IrTokenizer,
 )
 from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.readout import accept_item
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.normalize import normalize
@@ -97,7 +98,7 @@ def frontier_viable(kernel: Kernel) -> bool:
         (or resumable extension) has finished.
     :returns: ``True`` when some valid word has the kernel's text as a prefix.
     """
-    if kernel.accept >= 0:
+    if accept_item(kernel) >= 0:
         return True
     next_sym = kernel.tables.codes.next_sym
     bits = kernel.tables.packing.bits
@@ -369,7 +370,7 @@ class TokenMaskCursor[K: ResumableKernel](ABC):
         :returns: ``True`` when the grammar accepts the prefix as-is.
         """
         self._sync()
-        return self._kern.accept >= 0
+        return accept_item(self._kern) >= 0
 
 
 class TokenTermCursor(TokenMaskCursor[TokenKernel]):

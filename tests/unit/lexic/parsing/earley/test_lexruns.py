@@ -30,6 +30,7 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.readout import accept_item
 from lexic.parsing.earley.kernel.tables.atoms import (
     RunTerm,
 )
@@ -146,8 +147,10 @@ def test_recognition_tables_matches_plain_recognition_on_samples():
     plain = compile_tables(g)
     collapsed = recognition_tables(g)
     for text in ABNF_SAMPLES:
-        plain_accept = Kernel(plain, text, record_links=False).run().accept >= 0
-        collapsed_accept = Kernel(collapsed, text, record_links=False).run().accept >= 0
+        plain_accept = accept_item(Kernel(plain, text, record_links=False).run()) >= 0
+        collapsed_accept = (
+            accept_item(Kernel(collapsed, text, record_links=False).run()) >= 0
+        )
         assert plain_accept == collapsed_accept, text
 
 

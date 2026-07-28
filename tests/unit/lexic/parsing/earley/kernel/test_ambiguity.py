@@ -10,6 +10,7 @@ from lexic.parsing.earley.kernel.ambiguity import ambiguity_points, means_two_th
 from lexic.parsing.earley.kernel.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest import ParseTree
 from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.readout import accept_item
 from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH
 
@@ -37,9 +38,9 @@ def test_a_decided_nullable_split_is_not_reported_as_ambiguity():
         if not text:
             continue
         kernel = Kernel(product.tables, text, True).run()
-        if kernel.accept < 0:
+        if accept_item(kernel) < 0:
             continue
-        handle = (kernel.accept << kernel.tables.packing.bits) | len(text)
+        handle = (accept_item(kernel) << kernel.tables.packing.bits) | len(text)
         tree = FastTree(kernel, {}).build(handle)
         if not isinstance(tree, ParseTree):
             continue

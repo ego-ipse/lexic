@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq
 from lexic.parsing.earley.kernel.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.kernel.leo import expand_leo
 from lexic.parsing.earley.kernel.tables.atoms import predecessor_chain
 
 if TYPE_CHECKING:  # `kernel` imports this module, so the reference is mutual
@@ -91,7 +92,7 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
                 return True
         st = kernel.st
         if handle in st.leo_links:
-            kernel.expand_leo(handle)
+            expand_leo(kernel.st, kernel.tables, handle)
         resolved = self._collect(handle)
         if resolved is None:
             return False

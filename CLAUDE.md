@@ -213,6 +213,9 @@ src/lexic/
         fasttree.py                The fast tree build — the unambiguous parse's short path
         forest.py                  Parse forest — the shared packed parse forest (SPPF) and its reducible views
         kernel.py                  The flat Earley kernel — the compiled grammar's paid loop
+        leo.py                     Leo right-recursion — the deterministic-chain climb and its deferred rebuild
+        readout.py                 Readout — what a finished kernel says: accepting items, forest root, decoded chart
+        state.py                   KernelState — the per-parse index state one Earley parse fills
         trampoline.py              Depth-safe trampoline for the forest/reduce tree walks
         tables/                    Compiled grammar tables — the parser's "codegen moment"
           __init__.py              the group's package marker
@@ -262,6 +265,7 @@ src/lexic/
         __init__.py                The fused predictive runtime — execute the compiled tables
         build.py                   Frame vocabulary + the fused model-build tail (PDA runtime leaf)
         islands.py                 Island sub-parse + splice — the cold-path Earley escape for a PDA clone
+        matchers.py                Terminal matching — the PDA runtime's cursor-free recognition leaf
         reduce_runtime.py          Reduce (grammar-text) predictive runtime — the b1 twin of `PdaKernel`
         runtime.py                 Fused predictive runtime — parses text to a model, no ParseTree on the path
 tests/

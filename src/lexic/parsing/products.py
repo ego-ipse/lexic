@@ -30,6 +30,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrSelf, IrStr, IrTuple
 from lexic.parsing.earley.engine import PARSE_FIRST, PARSE_REDUCED, EarleyParser
 from lexic.parsing.earley.kernel.fasttree import FastTree, ParseTree
+from lexic.parsing.earley.kernel.readout import accept_handle, accept_item
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
@@ -115,11 +116,11 @@ def token_model[M](
     """
     tables = _token_tables(grammar, tier_for(len(text)))
     kernel = TokenKernel(tables, text, bounds, record_links=True).run()
-    if kernel.accept < 0:
+    if accept_item(kernel) < 0:
         raise UnsupportedConstructError(
             "parsing: input does not parse the token grammar"
         )
-    handle = (kernel.accept << kernel.tables.packing.bits) | len(kernel.text)
+    handle = accept_handle(kernel)
     tree = FastTree(kernel).build(handle)
     if not isinstance(tree, ParseTree):
         raise UnsupportedConstructError("parsing: no token derivation")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple, IrUnicode, concretize
+from lexic.parsing.earley.kernel.readout import accept_item
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tokenscan import TokenKernel, token_term_specs
@@ -27,7 +28,7 @@ def _tables_for(grammar: str, tok: IrTokenizer):
 
 def _accepts(tables, tok: IrTokenizer, text: str) -> bool:
     bounds = {s: (tid, e - s) for s, e, tid in tok.boundaries(text)}
-    return TokenKernel(tables, text, bounds).run().accept >= 0
+    return accept_item(TokenKernel(tables, text, bounds).run()) >= 0
 
 
 # ── the README grammar: root ::= <think> thinking </think> ──────────────

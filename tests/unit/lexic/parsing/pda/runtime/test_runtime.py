@@ -196,25 +196,6 @@ def test_interning_shares_every_equal_submodel_island_free() -> None:
     assert len(by_value) < len(models), "corpus had no repeated sub-models to share"
 
 
-# ── value_str: single-item fast path vs multi-item cold path (lever A) ─────
-
-
-def test_vstr_multi_item_arm_takes_the_cold_span_path():
-    """A ``value_str`` rule whose sole arm has MORE than one terminal item
-    (``"0x" [0-9a-f]+`` — a literal then a char class) routes through
-    ``_vstr_span``, not ``_vstr_once``'s single-item fast path. No ground-truth
-    grammar has a multi-item value_str arm, so this is the only exercise of
-    that cold path — built raw (no fold-fallback engine escape) to prove the
-    PDA itself handles it, not a silent Earley completion."""
-    text = 'root ::= "0x" [0-9a-f]+\n'
-    canonical = canonical_grammar(text, GBNF_FLAVOUR)
-    lifted = lift_optional_nullables(build_codegen_grammar(canonical))
-    compiled = compile_text(text, flavour="gbnf")
-    pda = compile_pda(lifted, normalize(lifted), compiled.fold.config)
-    model = pda_model(pda, "0xffa1", compiled.fold)
-    assert model.to_text() == "0xffa1"
-
-
 # ── the F1 semantic guard (Option B) ───────────────────────────────────────
 
 

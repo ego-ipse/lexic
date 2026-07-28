@@ -13,14 +13,14 @@ API changes (old → new):
   rewritten as behavioral correctness tests.
 - ``ACCEPTING`` (engine.py) is GONE — the accepting SPPF node and decoded chart are
   now obtained by running :class:`~lexic.parsing.earley.kernel.kernel.Kernel` directly and
-  calling :meth:`~lexic.parsing.earley.kernel.kernel.Kernel.accept_node` /
-  :meth:`~lexic.parsing.earley.kernel.kernel.Kernel.to_chart`.  The local ``accept`` helper is
+  calling :func:`~lexic.parsing.earley.kernel.readout.accept_node` /
+  :func:`~lexic.parsing.earley.kernel.readout.to_chart`.  The local ``accept`` helper is
   rewritten on top of ``Kernel`` + ``compile_tables``; its signature and callers are
   unchanged.
 - The old ``chart[0]`` per-column iteration (used to hunt a dot-0 EarleyItem) has no
   equivalent — ``Chart`` no longer indexes by column. The one test that did this
   (``test_prefix_source_dot_zero_single_empty_prefix``) is rewritten to build a dot-0
-  ``SppfNode`` directly from ``kernel.decode_item(dot0_item)`` instead of scanning a
+  ``SppfNode`` directly from ``decode_item(kernel.tables, dot0_item)`` instead of scanning a
   column.
 
 Preserved unchanged (kept, only construction syntax fixed if needed): ``ParseTree``,
@@ -77,6 +77,12 @@ from lexic.parsing.earley.kernel.forest import (
     SppfNode,
 )
 from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.readout import (
+    accept_item,
+    accept_node,
+    decode_item,
+    to_chart,
+)
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS
 from lexic.parsing.earley.kernel.trampoline import Trampoline
@@ -114,9 +120,9 @@ def accept(grammar: IrAst, text: str) -> Accepted:
     :returns: ``(parser, chart, accepting_node, len(text))``.
     """
     kernel = Kernel(compile_tables(grammar), text, record_links=True).run()
-    assert kernel.accept >= 0
-    chart = kernel.to_chart()
-    node = kernel.accept_node()
+    assert accept_item(kernel) >= 0
+    chart = to_chart(kernel)
+    node = accept_node(kernel)
     # Narrowed, not cast: `accept_node` may answer `IrNone`, and a cast asserts
     # that away without checking it.
     if not isinstance(node, SppfNode):
@@ -411,10 +417,10 @@ def test_prefix_source_dot_zero_single_empty_prefix(digit_grammar: IrAst):
     kernel = Kernel(tables, "5", record_links=True).run()
     (dot0_code,) = tables.codes.rule_dot0[tables.start_id]
     dot0_item = dot0_code << ORIGIN_BITS  # origin 0
-    dot_zero = kernel.decode_item(dot0_item)
+    dot_zero = decode_item(kernel.tables, dot0_item)
     assert dot_zero[2] == 0  # dot position
     node = SppfNode(dot_zero, 0)
-    chart = kernel.to_chart()
+    chart = to_chart(kernel)
     ctx = ForestCtx(chart)
     prefixes = list(Trampoline(PrefixSource(node, ctx)))
     assert len(prefixes) == 1
@@ -627,7 +633,7 @@ def test_accept_node_returns_root_node_on_multi_production():
     # Filtered rather than asserted: the narrowing has to survive to every read
     # of `.productions`, and a comprehension carries the element type where an
     # `assert isinstance` does not.
-    roots = [n for n in (kernel.accept_node(),) if isinstance(n, RootNode)]
+    roots = [n for n in (accept_node(kernel),) if isinstance(n, RootNode)]
     assert len(roots) == 1
     assert len(roots[0].productions) == 2
     assert all(isinstance(p, SppfNode) for p in roots[0].productions)
@@ -636,7 +642,7 @@ def test_accept_node_returns_root_node_on_multi_production():
 def test_accept_node_returns_sppf_node_on_single_production(digit_grammar: IrAst):
     """A single-production accept returns the bare SppfNode (no wrapper)."""
     kernel = Kernel(compile_tables(digit_grammar), "5", record_links=True).run()
-    assert isinstance(kernel.accept_node(), SppfNode)
+    assert isinstance(accept_node(kernel), SppfNode)
 
 
 def test_parse_forest_returns_root_node_on_ambiguous_root():
@@ -649,9 +655,9 @@ def test_root_derivs_chains_production_derivations():
     """RootDerivs enumerates the union of its productions' NodeDerivs trees."""
     g = arms_grammar('v ::= a | b\na ::= "x"\nb ::= "x"\n')
     kernel = Kernel(compile_tables(g), "x", record_links=True).run()
-    node = kernel.accept_node()
+    node = accept_node(kernel)
     assert isinstance(node, RootNode)
-    ctx = ForestCtx(kernel.to_chart())
+    ctx = ForestCtx(to_chart(kernel))
     trees = list(Trampoline(RootDerivs(node, ctx)))
     assert len(trees) == 2
     assert all(isinstance(t, ParseTree) for t in trees)

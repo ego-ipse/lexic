@@ -194,7 +194,7 @@ class ForestCtx(IrLeaf[IrSelf, IrSelf]):
     """Per-read forest cursor — the chart plus the open-handle cycle guard.
 
     The **mutable** forest-read cursor (the mutable-chart exception, like
-    :class:`~lexic.parsing.earley.kernel.kernel.KernelState`): :attr:`open` holds the
+    :class:`~lexic.parsing.earley.kernel.state.KernelState`): :attr:`open` holds the
     ``(item, end)`` handles whose prefixes are currently being produced. A
     re-entrant :class:`PrefixSource` on an open handle is a genuine empty-span
     (nullable) cycle and emits the single empty prefix to terminate it. A handle

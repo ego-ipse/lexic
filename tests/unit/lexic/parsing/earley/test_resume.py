@@ -13,6 +13,7 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAlternation, IrAst, IrItem, IrLiteral, IrRule, IrSeq, IrSequence
 from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.readout import accept_item
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS
 from lexic.parsing.earley.lexruns import recognition_tables
@@ -37,7 +38,7 @@ def _gated_pair() -> IrAst:
 def _fresh(tables, text: str) -> tuple[bool, bool]:
     """A fresh parse's (accepts, viable) answer for ``text``."""
     kernel = Kernel(tables, text).run()
-    return kernel.accept >= 0, frontier_viable(kernel)
+    return accept_item(kernel) >= 0, frontier_viable(kernel)
 
 
 def _resumable(tables) -> ResumableKernel:
@@ -60,7 +61,7 @@ def test_char_by_char_extension_matches_fresh_parse(grammar, words):
         kern = _resumable(tables)
         for k, char in enumerate(word):
             kern.extend(char)
-            assert (kern.accept >= 0, frontier_viable(kern)) == _fresh(
+            assert (accept_item(kern) >= 0, frontier_viable(kern)) == _fresh(
                 tables, word[: k + 1]
             ), word[: k + 1]
 
@@ -74,14 +75,14 @@ def test_rollback_then_different_char_through_the_same_junction():
     kern.extend("a")
     mark = kern.mark()
     kern.extend("b")
-    assert kern.accept >= 0
+    assert accept_item(kern) >= 0
     kern.rollback(mark)
     assert kern.text == "a"
     kern.extend("c")
-    assert kern.accept >= 0
+    assert accept_item(kern) >= 0
     kern.rollback(mark)
     kern.extend("x")
-    assert kern.accept < 0 and not frontier_viable(kern)
+    assert accept_item(kern) < 0 and not frontier_viable(kern)
 
 
 def test_multi_char_extend_equals_char_by_char():
@@ -92,8 +93,8 @@ def test_multi_char_extend_equals_char_by_char():
     stepped = _resumable(tables)
     for char in "123":
         stepped.extend(char)
-    assert (bulk.accept >= 0, frontier_viable(bulk)) == (
-        stepped.accept >= 0,
+    assert (accept_item(bulk) >= 0, frontier_viable(bulk)) == (
+        accept_item(stepped) >= 0,
         frontier_viable(stepped),
     )
     assert bulk.text == stepped.text == "123"
@@ -149,7 +150,7 @@ def test_extend_across_a_literal_landing_past_the_junction() -> None:
     kernel = _resumable(tables)
     kernel.extend("a")  # frontier now at 1 — the junction
     kernel.extend("bcd")  # one literal scan from 1 straight to 4
-    assert (kernel.accept >= 0, frontier_viable(kernel)) == _fresh(tables, "abcd")
+    assert (accept_item(kernel) >= 0, frontier_viable(kernel)) == _fresh(tables, "abcd")
 
 
 def test_extend_empty_string_is_a_no_op() -> None:
@@ -157,9 +158,9 @@ def test_extend_empty_string_is_a_no_op() -> None:
     tables = compile_tables(_gated_pair())
     kernel = _resumable(tables)
     kernel.extend("a")
-    before = (kernel.text, len(kernel.cols), kernel.accept)
+    before = (kernel.text, len(kernel.cols), accept_item(kernel))
     kernel.extend("")
-    assert (kernel.text, len(kernel.cols), kernel.accept) == before
+    assert (kernel.text, len(kernel.cols), accept_item(kernel)) == before
     assert len(kernel.cols) == len(kernel.text) + 1  # no orphan column appended
 
 
@@ -182,7 +183,7 @@ def test_mark_and_rollback_at_column_zero() -> None:
     assert kernel.text == ""
     assert len(kernel.cols) == 1
     kernel.extend("ac")  # a DIFFERENT word, from the rolled-back start
-    assert (kernel.accept >= 0, frontier_viable(kernel)) == _fresh(tables, "ac")
+    assert (accept_item(kernel) >= 0, frontier_viable(kernel)) == _fresh(tables, "ac")
 
 
 def test_empty_prefix_viability_is_gated_not_wrong() -> None:
@@ -210,7 +211,7 @@ def test_re_extending_the_same_char_files_no_duplicate_items() -> None:
     for column in range(len(kernel.text) + 1):
         items = kernel.cols[column]
         assert len(items) == len(set(items)), (column, items)
-    assert (kernel.accept >= 0, frontier_viable(kernel)) == _fresh(tables, "a")
+    assert (accept_item(kernel) >= 0, frontier_viable(kernel)) == _fresh(tables, "a")
 
 
 def test_extend_refuses_run_collapsed_tables() -> None:
@@ -232,4 +233,4 @@ def test_extend_over_plain_tables_handles_the_same_run_grammar() -> None:
     kernel = _resumable(tables)
     kernel.extend("12")
     kernel.extend("34")
-    assert (kernel.accept >= 0, frontier_viable(kernel)) == _fresh(tables, "1234")
+    assert (accept_item(kernel) >= 0, frontier_viable(kernel)) == _fresh(tables, "1234")

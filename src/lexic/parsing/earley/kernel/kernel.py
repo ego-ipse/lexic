@@ -6,8 +6,8 @@ and packed-int items instead of dispatching IR nodes. Logic stays on classes
 and per-parse state on the :class:`Kernel` cursor — but no ``eval`` runs per
 item, no IR object is ever a hot-path key, and no tuple is allocated per
 advance. The IR seams sit at the edges: :func:`~lexic.parsing.earley.kernel.tables
-.compile_tables` walks the grammar in, and :meth:`Kernel.to_chart` decodes the
-finished SPPF out for the IR-native forest readers.
+.compile_tables` walks the grammar in, and :mod:`~lexic.parsing.earley.kernel
+.readout` decodes the finished SPPF out for the IR-native forest readers.
 
 **Packing.** With ``B = tables.packing.bits`` (the tables' tier):
 
@@ -33,83 +33,30 @@ from itertools import islice
 from typing import Callable, Self
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq
-from lexic.parsing.earley.kernel.chart import Chart, EarleyItem
-from lexic.parsing.earley.kernel.forest import (
-    PayloadLeaf,
-    RootNode,
-    SppfNode,
-)
+from lexic.ir import IrLeaf, IrSelf
+from lexic.parsing.earley.kernel.forest import PayloadLeaf
+from lexic.parsing.earley.kernel.leo import leo_resolve, leo_sole
+from lexic.parsing.earley.kernel.state import KernelState, KLink
 from lexic.parsing.earley.kernel.tables.atoms import RunTerm
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 
-KLink = tuple[int, int, "int | str | PayloadLeaf"]
-"""One packed SPPF family: ``(predecessor_item, predecessor_end, child)`` —
-``child`` is a packed handle (completed sub-derivation), the scanned char, or a
-delegated :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` (island-interior
-delegation)."""
-
-Delegate = Callable[[str, int], "tuple[int, object] | None"]
+Delegate = Callable[[str, int], tuple[int, object] | None]
 """An island-interior delegate: ``(window_text, pos) -> (end, payload) | None``.
 Opaque to the kernel (the ``pda`` package builds and populates it); ``None``
 means the delegate declined, so the predictor falls through to normal
 prediction (the fail-soft safety net). See :meth:`Kernel._seed`."""
 
 
-class KernelState(IrLeaf[IrSelf, IrSelf]):
-    """Per-parse index state — the kernel's mutable-chart exception.
-
-    The five per-column indexes are position-indexed lists (one small
-    container per column, created once); the SPPF tables are parse-global,
-    keyed by packed handles. Everything mutates in place.
-
-    :ivar seen: Per column, the packed items already filed (the dedup set).
-    :ivar waiting: Per column, ``rule_id`` → items whose dot faces that rule.
-    :ivar scannable: Per column, ``term_id`` → items whose dot faces that atom.
-    :ivar predicted: Per column, the ``rule_id``\\ s already predicted.
-    :ivar leo: Per column, ``rule_id`` → memoised Leo top (``-1`` = none).
-    :ivar links: handle → its packed SPPF families.
-    :ivar leo_links: deferred Leo provenance — top handle → the bottom
-        family of every chain that jumped to it (converging ambiguous
-        chains each file theirs), rebuilt into :attr:`links` on demand.
-    """
-
-    __slots__ = (
-        "seen",
-        "waiting",
-        "scannable",
-        "predicted",
-        "leo",
-        "links",
-        "leo_links",
-    )
-
-    seen: list[set[int]]
-    waiting: list[dict[int, list[int]]]
-    scannable: list[dict[int, list[int]]]
-    predicted: list[set[int]]
-    leo: list[dict[int, int]]
-    links: dict[int, list[KLink]]
-    leo_links: dict[int, list[KLink]]
-
-    def __init__(self, columns: int) -> None:
-        """Seed empty per-parse state for ``columns`` columns."""
-        self.seen = [set() for _ in range(columns)]
-        self.waiting = [{} for _ in range(columns)]
-        self.scannable = [{} for _ in range(columns)]
-        self.predicted = [set() for _ in range(columns)]
-        self.leo = [{} for _ in range(columns)]
-        self.links = {}
-        self.leo_links = {}
-
-
 class Kernel(IrLeaf[IrSelf, IrSelf]):
     """One Earley parse over compiled tables — chart, SPPF and driver in one.
 
-    Construct per parse, call :meth:`run` once, then read :attr:`accept` (a
-    packed accepting item, ``-1`` on no parse) and either build the single
-    derivation with :class:`FastTree` or decode to the IR-native forest with
-    :meth:`to_chart` / :meth:`accept_node`.
+    Construct per parse, call :meth:`run` once, then read the result through
+    :mod:`~lexic.parsing.earley.kernel.readout` — :func:`~lexic.parsing.earley
+    .kernel.readout.accept_item` for the packed accepting item (``-1`` on no
+    parse), then either the single derivation via
+    :class:`~lexic.parsing.earley.kernel.fasttree.FastTree` or the IR-native
+    forest via :func:`~lexic.parsing.earley.kernel.readout.to_chart` /
+    :func:`~lexic.parsing.earley.kernel.readout.accept_node`.
 
     :ivar tables: The compiled grammar.
     :ivar text: The input.
@@ -175,17 +122,6 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         self.st = KernelState(len(text) + 1)
         self.delegates = delegates or {}
         self.delegated = {}
-
-    @property
-    def accept(self) -> int:
-        """The packed accepting item after :meth:`run` (``-1`` on no parse).
-
-        Computed on read from the final column rather than stored — one fewer
-        per-parse slot, and only read a handful of times after a full run (the
-        island path reads its completion off
-        :meth:`longest_start_completion` instead, never this).
-        """
-        return self._accept_item(len(self.text))
 
     # ── the driver ────────────────────────────────────────────────────
 
@@ -368,7 +304,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             self.cols[i].append(adv)
             s = self.tables.codes.next_sym[adv >> bits]
             if s:
-                self._file(i, adv, s)
+                self.st.file_item(i, adv, s)
         if self.record_links:
             links = self.st.links
             key = (adv << bits) | i
@@ -383,26 +319,6 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 )
                 if entry not in bucket:
                     bucket.append(entry)
-
-    def _file(self, i: int, item: int, s: int) -> None:
-        """File a just-inserted item under the symbol its dot faces.
-
-        The out-of-line filing used by the rare insert sites (nullable
-        advance, Leo top); the hot loops inline this logic.
-
-        :param i: The column the item was inserted into.
-        :param item: The packed item.
-        :param s: Its non-zero ``next_sym`` discriminator.
-        """
-        if s > 0:
-            index, k = self.st.waiting[i], s - 1
-        else:
-            index, k = self.st.scannable[i], -s - 1
-        bucket = index.get(k)
-        if bucket is None:
-            index[k] = [item]
-        else:
-            bucket.append(item)
 
     def _complete(self, i: int, it: int) -> None:
         """Earley completer: advance every item waiting on the finished rule."""
@@ -449,7 +365,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         runs the completer once column ``i`` is fully closed and every waiter
         facing ``rid`` is present) and records the pre-built ``payload`` and the
         consumed span as a :class:`~lexic.parsing.earley.kernel.forest.PayloadLeaf` on
-        :attr:`KernelState.delegated`. Deduped against column ``end`` so a rule
+        :attr:`delegated`. Deduped against column ``end`` so a rule
         predicted twice at ``i`` files its span once. On the recognition path
         (``record_links`` off) no leaf is stored — the completion still advances
         waiters, exactly what recognition needs.
@@ -570,43 +486,6 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             elif entry not in fam:
                 fam.append(entry)
 
-    def _accept_item(self, n: int) -> int:
-        """The completed start item spanning the whole input, else ``-1``."""
-        accepts = self.tables.codes.accept_codes
-        pk = self.tables.packing
-        bits, mask = pk.bits, pk.mask
-        for it in self.cols[n]:
-            if it >> bits in accepts and it & mask == 0:
-                return it
-        return -1
-
-    def accept_items(self) -> list[int]:
-        """Every completed start item spanning the whole input (origin 0).
-
-        Two or more items means the start symbol derives the whole input via
-        distinct productions — genuine arm ambiguity with no parent waiter to
-        aggregate it (see :class:`~lexic.parsing.earley.kernel.forest.RootNode`).
-
-        :returns: The accepting items, in chart order (empty on no parse).
-        """
-        n = len(self.text)
-        accepts = self.tables.codes.accept_codes
-        pk = self.tables.packing
-        bits, mask = pk.bits, pk.mask
-        return [it for it in self.cols[n] if it >> bits in accepts and it & mask == 0]
-
-    @property
-    def root_ambiguous(self) -> bool:
-        """Whether the start symbol completes the whole input via ≥2 productions.
-
-        The gate the single-derivation fast paths consult: a many-production
-        root cannot be built by :class:`FastTree` off one accepting item (the
-        sibling productions live in other items), so those paths fall through to
-        the trampolined enumeration over the :class:`~lexic.parsing.earley.kernel.forest
-        .RootNode`.
-        """
-        return len(self.accept_items()) > 1
-
     # ── windowed prefix completion (islands) ──────────────────────────
 
     def longest_start_completion(self) -> tuple[int, int] | None:
@@ -646,44 +525,6 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 self._scan(j)
         return best
 
-    def can_extend_at(self, col: int, char: str) -> bool:
-        """Whether the parse at ``col`` could consume ``char`` next — a MAY answer.
-
-        The islands seam's valid-prefix probe: after a windowed
-        :meth:`longest_start_completion`, the caller asks whether the FULL
-        text's next character is viable at a SHORT-OF-EDGE completion column
-        — if it is, the completion may be a window-cut truncation and the
-        window must grow.
-
-        The chart is complete evidence exactly there: seeding is FIRST-gated
-        by the column's own window character, and a short-of-edge column's
-        window character IS the probe character, so every seed viable for it
-        was admitted and registered — an empty/non-matching ``scannable`` is
-        a *sighted* refusal, not blindness. Two conservative escapes remain,
-        each answering MAY (which only ever grows the window):
-
-        - a column where a delegate sub-run landed (the delegate's interior
-          continuation items were never seeded into the chart) — derived
-          from :attr:`delegated`'s handles, whose low bits are the landing
-          column (islands always run with ``record_links``, so every
-          landing is recorded);
-        - a probe character that is NOT the column's window character (an
-          out-of-domain call — the gates were evaluated with a different
-          char, so the chart proves nothing about this one).
-
-        :param col: The completion column to probe (its closure already ran).
-        :param char: The next character of the full input.
-        :returns: ``True`` when ``char`` may be consumable at ``col``.
-        """
-        mask = self.tables.packing.mask
-        if any(handle & mask == col for handle in self.delegated):
-            return True
-        if col >= len(self.text) or self.text[col] != char:
-            return True
-        return any(
-            self.st.scannable[col].get(tid) for tid in self.tables.terms.terms_for(char)
-        )
-
     # ── Leo right-recursion ───────────────────────────────────────────
 
     def _try_leo(self, i: int, done: int, sole: int) -> bool:
@@ -695,180 +536,28 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
 
         :returns: ``True`` when Leo handled the completion.
         """
-        c = self.tables.codes
-        pk = self.tables.packing
-        bits, mask = pk.bits, pk.mask
-        scode = sole >> bits
-        if self._leo_sole(sole & mask, c.arm_rule[c.code_arm[scode]]) < 0:
+        t = self.tables
+        c = t.codes
+        bits, mask = t.packing.bits, t.packing.mask
+        st = self.st
+        if leo_sole(st, t, sole & mask, c.arm_rule[c.code_arm[sole >> bits]]) < 0:
             return False  # chain length 1 — normal completion is cheaper
-        top = self._leo_resolve(i, done & mask, c.arm_rule[c.code_arm[done >> bits]])
+        top = leo_resolve(st, t, i, done & mask, c.arm_rule[c.code_arm[done >> bits]])
         if top < 0:  # nullable cycle — run the normal completer
             return False
-        seen_i = self.st.seen[i]
+        seen_i = st.seen[i]
         if top not in seen_i:
             seen_i.add(top)
             self.cols[i].append(top)
             s = c.next_sym[top >> bits]
             if s:
-                self._file(i, top, s)
+                st.file_item(i, top, s)
         if self.record_links:
             key = (top << bits) | i
             entry: KLink = (sole, done & mask, (done << bits) | i)
-            bucket = self.st.leo_links.get(key)
+            bucket = st.leo_links.get(key)
             if bucket is None:
-                self.st.leo_links[key] = [entry]
+                st.leo_links[key] = [entry]
             elif entry not in bucket:  # a second chain to the same top
                 bucket.append(entry)
         return True
-
-    def _leo_sole(self, col: int, rid: int) -> int:
-        """The deterministic last-symbol waiter for ``rid`` in ``col``, else -1."""
-        wl = self.st.waiting[col].get(rid)
-        if wl is None or len(wl) != 1:
-            return -1
-        sole = wl[0]
-        if self.tables.codes.next_sym[(sole >> self.tables.packing.bits) + 1] == 0:
-            return sole
-        return -1
-
-    def _leo_resolve(self, cur: int, col: int, rid: int) -> int:
-        """Leo's transitive (topmost) item for completing ``rid`` at ``col``.
-
-        Climbs the deterministic chain, memoising per closed column (the
-        current column ``cur`` is recomputed — its waiters may still grow).
-        A **same-column** (empty-span) step stops the climb: those steps are
-        cycle- and ambiguity-prone and carry no asymptotic benefit (Leo's
-        payoff is cross-column right recursion), so the normal completer —
-        which records every family — handles them. Columns then strictly
-        decrease up the climb, so termination needs no cycle guard.
-
-        :returns: The packed topmost item, or ``-1``.
-        """
-        leo_col = self.st.leo[col]
-        if col != cur:
-            memo = leo_col.get(rid)
-            if memo is not None:
-                return memo
-        pk = self.tables.packing
-        found = self._leo_sole(col, rid)
-        if found < 0 or (found & pk.mask) == col:
-            result = -1  # no sole waiter, or an empty-span step — no jump
-        else:
-            c = self.tables.codes
-            parent = self._leo_resolve(
-                cur,
-                found & pk.mask,
-                c.arm_rule[c.code_arm[found >> pk.bits]],
-            )
-            result = parent if parent >= 0 else found + pk.advance
-        if col != cur:
-            leo_col[rid] = result
-        return result
-
-    def expand_leo(self, key: int) -> None:
-        """Rebuild the deferred right-recursion chain under Leo top ``key``.
-
-        Files each skipped completion's family into :attr:`KernelState.links`
-        bottom-up, O(chain), idempotent (families dedup).
-
-        Invariant — **expand on presence, never gate on** ``links``. A Leo top
-        can carry *mixed provenance*: some of its families recorded by the
-        normal completer (a later completion of the same rule found ≥2
-        waiters), others deferred here. ``key in links`` therefore does NOT
-        mean the deferred chains are represented — a caller that skips
-        expansion on that test drops the deferred derivations (the L4
-        embedded-ambiguity undercount). Idempotence makes the unconditional
-        call safe.
-        """
-        pk = self.tables.packing
-        top = key >> pk.bits
-        end = key & pk.mask
-        for bottom in self.st.leo_links[key]:
-            self._expand_chain(top, end, bottom)
-
-    def _expand_chain(self, top: int, end: int, bottom: KLink) -> None:
-        """Rebuild one deferred chain from its bottom family up to ``top``."""
-        links = self.st.links
-        c = self.tables.codes
-        packing = self.tables.packing
-        waiter, waiter_end, child = bottom
-        while True:
-            adv = waiter + packing.advance
-            k = (adv << packing.bits) | end
-            entry: KLink = (waiter, waiter_end, child)
-            bucket = links.get(k)
-            if bucket is None:
-                links[k] = [entry]
-            elif entry not in bucket:
-                bucket.append(entry)
-            if adv == top:
-                return
-            # ``adv`` completes its rule over waiter_origin..end; the lone item
-            # awaiting it there is the next chain link (deterministic by
-            # construction — that is why Leo fired).
-            child = k
-            waiter_end = waiter & packing.mask
-            rid = c.arm_rule[c.code_arm[waiter >> packing.bits]]
-            waiter = self.st.waiting[waiter_end][rid][0]
-
-    # ── decoding to the IR-native forest ──────────────────────────────
-
-    def decode_item(self, item: int) -> EarleyItem:
-        """The :class:`EarleyItem` tuple for a packed ``item`` — the readable
-        (non-int-coded) shape the chart/forest readers walk."""
-        t = self.tables
-        code = item >> t.packing.bits
-        aid = t.codes.code_arm[code]
-        return (
-            t.decode.rule_refs[t.codes.arm_rule[aid]],
-            t.decode.arm_seqs[aid],
-            code - t.codes.arm_base[aid],
-            item & t.packing.mask,
-        )
-
-    def accept_node(self) -> IrSelf:
-        """The forest root over the whole input, or :data:`IrNone` on no parse.
-
-        A single accepting production returns its :class:`SppfNode` directly (the
-        common case — no aggregation needed). Two or more accepting productions
-        return a :class:`RootNode` packing them, so the enumeration readers see
-        every arm the start symbol derives the input through.
-        """
-        items = self.accept_items()
-        if not items:
-            return IrNone
-        n = len(self.text)
-        if len(items) == 1:
-            return SppfNode(self.decode_item(items[0]), n)
-        symbol = self.decode_item(items[0])[0]
-        return RootNode(
-            symbol, IrSeq(*(SppfNode(self.decode_item(it), n) for it in items))
-        )
-
-    def to_chart(self) -> Chart:
-        """Decode the packed SPPF into the IR-native :class:`Chart`.
-
-        Deferred Leo chains are expanded eagerly first, so the decoded chart
-        is complete and the forest readers never consult ``leo_links``. Used
-        by the ambiguity / enumeration paths only — the unambiguous fast path
-        (:class:`FastTree`) reads the packed links directly.
-        """
-        for key in self.st.leo_links:
-            self.expand_leo(key)
-        chart = Chart()
-        links = chart.links
-        pk = self.tables.packing
-        for key, bucket in self.st.links.items():
-            dkey = (self.decode_item(key >> pk.bits), key & pk.mask)
-            for pred, pend, child in bucket:
-                links += (dkey, (self.decode_item(pred), pend, self._child(child)))
-        return chart
-
-    def _child(self, child: int | str | PayloadLeaf) -> IrSelf:
-        """Decode a packed family child — a handle, a scanned char, or a payload."""
-        if isinstance(child, int):
-            pk = self.tables.packing
-            return SppfNode(self.decode_item(child >> pk.bits), child & pk.mask)
-        if isinstance(child, PayloadLeaf):  # delegated pre-folded child
-            return child
-        return self.tables.terms.char_leaf(child)

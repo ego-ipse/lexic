@@ -11,7 +11,7 @@ API changes from the int-kernel rework:
 - ``Chart()`` no longer takes an index and there is no ``chart[i]`` access.
   ``Chart`` is now only ``links`` (a :class:`Links`) + ``leo_links`` (an
   :class:`~lexic.ir.action.mapping.IrMultiMap`) — a pure decoded-forest carrier
-  populated by :meth:`~lexic.parsing.earley.kernel.kernel.Kernel.to_chart`.
+  populated by :func:`~lexic.parsing.earley.kernel.readout.to_chart`.
 
 The ``Link`` / ``Links`` tests (constructing tuples, ``Links()`` ``+=``/``in``/
 ``[]``, multi-family dedup, live-bucket semantics) and ``Chart`` construction

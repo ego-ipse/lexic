@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 from lexic.parsing.earley.kernel.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest import ParseTree
+from lexic.parsing.earley.kernel.readout import accept_items
 from lexic.parsing.earley.kernel.tables.splits import is_arm_choice
 
 if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
@@ -89,7 +90,7 @@ def _sibling_roots(kernel: Kernel, handle: int) -> list[int]:
         return []
     return [
         (item << bits) | len(kernel.text)
-        for item in kernel.accept_items()
+        for item in accept_items(kernel)
         if ((item << bits) | len(kernel.text)) != handle
     ]
 

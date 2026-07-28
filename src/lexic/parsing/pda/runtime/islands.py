@@ -1,13 +1,19 @@
 """Island sub-parse + splice — the cold-path Earley escape for a PDA clone.
 
-Shed from :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` as free functions: an
-island reference already pays a full windowed Earley sub-parse, so the
-call-convention change is off the hot path (unlike the fold-build methods, which
-stay on ``PdaKernel`` for speed — a mixin split there costs ~6%). These take
-only plain values and :mod:`earley <lexic.parsing.earley>` types, never the
-``PdaKernel`` cursor, so this module is a leaf: ``runtime`` imports it, not the
-reverse. The thin ``PdaKernel._island`` dispatcher (which owns the cursor state
-— fold, tables, position) calls :func:`island_parse` here.
+Shed from :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` as free functions,
+for the reason every leaf in this package is shed: these take only plain values
+and :mod:`earley <lexic.parsing.earley>` types, never the ``PdaKernel`` cursor,
+so the module is a leaf — ``runtime`` imports it, not the reverse — and the
+contract between the halves is the argument list rather than an implicit
+``self`` nothing checks. The thin ``PdaKernel._island`` dispatcher (which owns
+the cursor state — fold, tables, position) calls :func:`island_parse` here.
+
+**Not for speed.** Neither shape costs anything measurable: CPython's inline
+``LOAD_ATTR_METHOD_NO_DICT`` cache makes an extra MRO hop free on a ``__slots__``
+class with a stable type version, so a mixin split and a free-function split
+measure the same. Where a group *does* reach back for a private method, the
+method stays — see ``PdaKernel._island`` and ``Kernel._try_leo``, both kept
+because their groups write the cursor's own state.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ from lexic.parsing.earley.kernel.ambiguity import means_two_things, same_value
 from lexic.parsing.earley.kernel.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest import DERIVATION_STREAM, ParseTree, SppfNode
 from lexic.parsing.earley.kernel.kernel import Delegate, Kernel
+from lexic.parsing.earley.kernel.readout import can_extend_at, decode_item, to_chart
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.core.errors import PdaFail
@@ -87,7 +94,7 @@ def _may_extend(
       a token cut exactly at the edge);
     - the **valid-prefix probe**: the FULL text's next character after the
       completion is scannable at the completion column
-      (:meth:`~lexic.parsing.earley.kernel.kernel.Kernel.can_extend_at`) — a
+      (:func:`~lexic.parsing.earley.kernel.readout.can_extend_at`) — a
       language with the valid-prefix property (bare identifiers, call heads)
       can complete a TRUNCATED parse strictly inside a cut window; if the
       real next character could extend the island, the stop is not to be
@@ -109,7 +116,7 @@ def _may_extend(
     nxt = pos + end
     if nxt >= len(text):
         return False
-    return kern.can_extend_at(end, text[nxt])
+    return can_extend_at(kern, end, text[nxt])
 
 
 class IslandPolicy[M](NamedTuple):
@@ -249,10 +256,10 @@ def _one_derivation(
     if isinstance(tree, ParseTree):
         return tree
     node = SppfNode(
-        kern.decode_item(handle >> kern.tables.packing.bits),
+        decode_item(kern.tables, handle >> kern.tables.packing.bits),
         handle & kern.tables.packing.mask,
     )
-    stream = DERIVATION_STREAM.eval(_DERIV_PARSER, node, IrTuple(kern.to_chart()))
+    stream = DERIVATION_STREAM.eval(_DERIV_PARSER, node, IrTuple(to_chart(kern)))
     got = next(iter(stream), None)
     if not isinstance(got, ParseTree):
         raise PdaFail(f"island {name!r}: no derivation")

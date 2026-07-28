@@ -183,3 +183,30 @@ def nested_synthetic_grammar() -> IrAst:
         IrAlternation(IrSequence(IrItem(IrRuleRef(f"{SYNTHETIC_PREFIX}inner")))),
     )
     return IrAst(rules=IrSeq(outer, inner, digit), start=f"{SYNTHETIC_PREFIX}outer")
+
+
+def norm(*rules: IrRule, start: str) -> IrAst:
+    """Build and normalise an IrAst from a sequence of rules."""
+    return normalize(IrAst(rules=IrSeq(*rules), start=start))
+
+
+def star(char: str, rule_name: str = "S") -> IrAst:
+    """Grammar: S = '<char>'*  (zero or more)."""
+    return norm(
+        IrRule(
+            rule_name,
+            IrAlternation(IrSequence(IrItem(IrLiteral(char), IrQuantifier(0, IrNone)))),
+        ),
+        start=rule_name,
+    )
+
+
+def plus_of(char: str, rule_name: str = "S") -> IrAst:
+    """Grammar: S = '<char>'+  (one or more)."""
+    return norm(
+        IrRule(
+            rule_name,
+            IrAlternation(IrSequence(IrItem(IrLiteral(char), IrQuantifier(1, IrNone)))),
+        ),
+        start=rule_name,
+    )

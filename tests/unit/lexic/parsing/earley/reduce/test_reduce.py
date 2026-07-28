@@ -47,6 +47,7 @@ from lexic.ir import (
 from lexic.parsing import derivations, parse
 from lexic.parsing.earley.kernel.forest import ParseTree
 from lexic.parsing.earley.kernel.kernel import Kernel
+from lexic.parsing.earley.kernel.readout import accept_item
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS
 from lexic.parsing.earley.kernel.trampoline import Trampoline
@@ -518,7 +519,7 @@ def run_kernel(tables, text: str) -> Kernel:
 
 def accept_handle(kernel: Kernel) -> int:
     """The packed accept handle for a finished, accepting kernel."""
-    return (kernel.accept << ORIGIN_BITS) | len(kernel.text)
+    return (accept_item(kernel) << ORIGIN_BITS) | len(kernel.text)
 
 
 def test_fused_reduce_matches_reducer_apply_on_parse_tree():
