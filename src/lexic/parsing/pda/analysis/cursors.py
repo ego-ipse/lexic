@@ -57,18 +57,23 @@ class Notes(IrLeaf[IrSelf, IrSelf]):
     :ivar hard: Island-worthy conflict notes (their presence marks an island).
     :ivar soft: Stop-set / LL(2) demotion notes.
     :ivar f1: Set when the F1 stop-set-escape branch fired (fail-island seed).
+    :ivar covered: How many of :attr:`hard` an attempt licence covers (the
+        ungatable-loop notes filed into ``Taxonomy.attempt_loops``); a rule
+        whose every hard note is covered or a body-arm overlap is attemptable.
     """
 
-    __slots__ = ("hard", "soft", "f1")
+    __slots__ = ("hard", "soft", "f1", "covered")
 
     hard: list[str]
     soft: list[str]
     f1: bool
+    covered: int
 
     def __init__(self) -> None:
         self.hard = []
         self.soft = []
         self.f1 = False
+        self.covered = 0
 
 
 class Scope(IrLeaf[IrSelf, IrSelf]):

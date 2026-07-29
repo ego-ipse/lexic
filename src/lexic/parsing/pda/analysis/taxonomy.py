@@ -8,12 +8,30 @@ GrammarAnalysis` owns the instance and re-exports the class.
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
 
-__all__ = ["Taxonomy"]
+__all__ = ["AttemptSpec", "Taxonomy"]
+
+
+class AttemptSpec(NamedTuple):
+    """One conflicted rule's ordered-attempt plan — the third gate class.
+
+    Between k-window demotion (bounded lookahead decides) and islanding
+    (Earley decides), an attemptable rule's arms are TRIED in this order with
+    rollback; a second success is the ambiguity gate's question, asked at the
+    decision point itself.
+
+    :ivar order: Body-arm indices in attempt order — authored order with
+        nullable arms last (a nullable arm tried first succeeds vacuously and
+        makes every later arm dead).
+    """
+
+    order: tuple[int, ...]
 
 
 def _spec_key(gate: ScanGate) -> tuple:
@@ -74,14 +92,28 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
     :ivar demoted: Rule name → stop-set / LL(2) demotion notes.
     :ivar fail: The fail-island rule names — semantic rules that fired the F1
         stop-set-escape branch (a subset of :attr:`conflicts`' keys).
+    :ivar attempts: Conflicted-but-attemptable rule name → its
+        :class:`AttemptSpec`. A subset of :attr:`conflicts`' keys: rules whose
+        EVERY island-worthy note an attempt can settle — a body-arm FIRST
+        overlap (ordered attempt + the second-success gate) or an ungatable
+        loop (greedy take + rollback; a loop extent is a SPLIT with a defined
+        answer, so no gate). Never left-recursive rules (no arm order helps
+        re-entry at the same position) and never fail islands.
+    :ivar attempt_loops: ``id(item)`` of every ungatable-loop decision an
+        attempt licence covers (the identity-key convention of
+        :attr:`loop_gates` — analysis and clone compiler walk the same lifted
+        tree). Greedy take with rollback IS Earley's split answer (the first
+        slot owns the text), so membership is the whole spec.
     :ivar gates: The :class:`_GateStore` behind the per-family accessors.
     """
 
-    __slots__ = ("conflicts", "demoted", "fail", "gates")
+    __slots__ = ("conflicts", "demoted", "fail", "attempts", "attempt_loops", "gates")
 
     conflicts: dict[str, list[str]]
     demoted: dict[str, list[str]]
     fail: set[str]
+    attempts: dict[str, AttemptSpec]
+    attempt_loops: set[int]
     gates: _GateStore
 
     def __init__(self) -> None:
@@ -89,6 +121,8 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         self.conflicts = {}
         self.demoted = {}
         self.fail = set()
+        self.attempts = {}
+        self.attempt_loops = set()
         self.gates = _GateStore()
 
     @property
