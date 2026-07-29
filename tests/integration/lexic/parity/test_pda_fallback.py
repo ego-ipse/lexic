@@ -56,8 +56,8 @@ def test_pda_fallback_returns_engine_correct_model():
     """``CompiledGrammar.parse`` swallows the ``PdaFail`` and matches the engine.
 
     Compares against the forced Earley completion (``earley_model`` over the
-    instance grammar) on ``semantic_dump()`` — ruling 1's parity bar — and
-    asserts the round-trip, proving the completion is both silent and correct.
+    instance grammar) on ``semantic_dump()`` and asserts the round-trip,
+    proving the completion is both silent and correct.
     """
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
     p = prod(cg)

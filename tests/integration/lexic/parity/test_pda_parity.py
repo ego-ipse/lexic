@@ -11,16 +11,17 @@ carry at least one), each driven through both internal seams directly:
   prod(cg).tables))``, the same call :meth:`~lexic.compile.CompiledGrammar.parse`'s
   fallback branch makes.
 
-The correctness bar is ruling 1 (semantic parity, not raw ``dump()``
-equality — the PDA's greedy stop-set loop may split a ``semantic=False`` run
-differently from the engine's ambiguity resolution): every sample where both
-paths succeed asserts deep semantic equality (:func:`deep_semantic` —
-``semantic=False`` binds dropped at every level) plus a ``to_text()``
-round-trip on *both* models. A forced-PDA ``PdaFail`` is a **fallback**, not a
-failure — it is tallied, not asserted against (except that the engine path
-alone must still round-trip). The raw ``dump()``-exact rate and the
-fallback rate are *reported* (printed) per grammar, not gated — they feed the
-effort's OUTCOME numbers, not a pass/fail bar.
+Two bars, two tests. The broad differential compares every sample where both
+paths succeed at the SEMANTIC bar (:func:`deep_semantic` — ``semantic=False``
+binds dropped at every level) plus a ``to_text()`` round-trip on *both*
+models; it owns fallback behaviour and the opt-out branch across every
+grammar and every escape. The EQUALITY invariant — both engines build the
+same model, field for field (ruled 2026-07-28) — is owned by
+``test_both_engines_build_the_same_model_not_just_the_same_meaning`` below,
+at the raw bar, on the grammars that hold it. A forced-PDA ``PdaFail`` is a
+**fallback**, not a failure — it is tallied, not asserted against (except
+that the engine path alone must still round-trip). The raw ``dump()``-exact
+rate and the fallback rate are *reported* (printed) per grammar, not gated.
 """
 
 from __future__ import annotations
@@ -261,10 +262,12 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
 # ARM class — one span through two different productions that mean different
 # things — where a length preference has no standing. Adding it here is the
 # fails-before test for that fix.
-RAW_PARITY_STEMS: tuple[str, ...] = tuple(
-    stem for stem in ALL_STEMS if stem not in {"vyx.gbnf"}
-)
-"""Only `vyx.gbnf` is out, and it is a named defect rather than a licence."""
+RAW_PARITY_STEMS: tuple[str, ...] = ALL_STEMS
+"""Every wide-matrix stem. `vyx.gbnf` never reaches `ALL_STEMS` (excluded one
+level up, in `_SKIP_STEMS`) — subtracting it here was a no-op that read as an
+exclusion. Its raw-parity divergence is real and is a cross-span arm choice
+the island gate cannot see; `test_the_pda_refuses_a_cross_span_arm_choice_too`
+pins the defect in four grammar lines (xfail, strict)."""
 
 RAW_PARITY_STARTS: dict[str, str] = {
     # c needs a start chosen for THIS bar. `START_OVERRIDES` drives the wide
@@ -407,3 +410,36 @@ def test_an_arm_choice_is_refused_by_both_engines_not_answered_differently() -> 
 
 REFUSED = object()
 """Sentinel for "this engine declined", distinct from any model it could build."""
+
+
+_CROSS_SPAN_AMBIGUOUS = """root ::= item tail
+item ::= "a" | "ab"
+tail ::= "bc" | "c"
+"""
+"""An arm choice whose arms span DIFFERENT lengths, so it never presents as
+one span meaning two things to a local gate: over `abc`, `item` is `a` (and
+`tail` its `bc` arm) or `ab` (and `tail` its `c` arm). Not a split — the
+derivations differ by ARMS on both rules, not by a boundary inside one
+production. This is vyx's raw-parity defect in four lines (there: an unquoted
+value's tail absorbing `\\n\\#` vs ending so they parse as escape items)."""
+
+
+def test_earley_refuses_a_cross_span_arm_choice() -> None:
+    """The whole-grammar view sees the full input derived two ways — refused."""
+    cg = compile_text(_CROSS_SPAN_AMBIGUOUS, cache_key="parity-cross-span-earley")
+    pr = prod(cg)
+    with pytest.raises(UnsupportedConstructError):
+        earley_model(pr.instance_grammar, "abc", cg.fold, pr.tables)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="island longest-match silently decides a cross-span arm choice: the "
+    "island's same-span gate never sees the shorter arm (different end), so the "
+    "public parse answers where the Earley gate refuses",
+)
+def test_the_pda_refuses_a_cross_span_arm_choice_too() -> None:
+    """The PDA must not answer what the other engine refuses as an arm choice."""
+    cg = compile_text(_CROSS_SPAN_AMBIGUOUS, cache_key="parity-cross-span-pda")
+    with pytest.raises((UnsupportedConstructError, PdaFail)):
+        pda_model(prod(cg).pda, "abc", cg.fold)

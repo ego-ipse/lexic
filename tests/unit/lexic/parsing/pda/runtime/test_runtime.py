@@ -2,11 +2,11 @@
 
 :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` builds a model directly during the
 walk (fold fusion, no :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree`). The
-correctness bar is **user ruling 1**: ``semantic_dump()`` equality +
-``to_text()`` round-trip against the engine's own
-``fold.apply(parse_first(...))`` path — not raw ``dump()`` equality,
-which may differ on ``semantic=False`` fields when the PDA's greedy loop
-splits whitespace-like runs differently from the engine's.
+bar here is ``semantic_dump()`` equality + ``to_text()`` round-trip against
+the engine's own ``fold.apply(parse_first(...))`` path; the raw-equality
+invariant — both engines build the SAME model, field for field (ruled
+2026-07-28) — is owned by the integration raw-parity test, which covers
+these grammars too.
 
 Scoped to the four **island-free** ground-truth grammars (arithmetic.gbnf,
 japanese.gbnf, list.gbnf, arithmetic.abnf — see the pinned island sets in
@@ -79,10 +79,9 @@ def test_pda_engine_parity_on_generated_samples(stem: str) -> None:
 
     Skips generator-overshoot inputs the engine itself rejects. Tolerates the
     known arithmetic stop-set fallback residue (a small minority of samples,
-    ruling 1's engine-fallback path — not a parity failure); any *other*
-    grammar's :exc:`PdaFail` is a genuine, unexpected divergence and fails the
-    test outright (these four are island-free — nothing should force a
-    fallback).
+    the engine-fallback path — not a parity failure); any *other* grammar's
+    :exc:`PdaFail` is a genuine, unexpected divergence and fails the test
+    outright (these four are island-free — nothing should force a fallback).
     """
     path = GROUND_TRUTH / stem
     compiled, pda = compiled_and_pda(path)

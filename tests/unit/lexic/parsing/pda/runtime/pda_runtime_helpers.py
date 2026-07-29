@@ -53,7 +53,8 @@ def path_specs(path: Path) -> dict:
 def assert_parity(
     engine_model: GrammarModel, pda_model: GrammarModel, text: str
 ) -> None:
-    """Assert ruling 1's semantic-parity contract, not raw ``dump()`` equality."""
+    """Assert semantic parity + round-trip (the raw-equality invariant is owned
+    by the integration raw-parity test)."""
     assert pda_model.semantic_dump() == engine_model.semantic_dump()
     assert pda_model.to_text() == text
 

@@ -1,5 +1,45 @@
 # Log
 
+## A cross-span arm choice is the island gate's blind spot
+
+vyx's raw-parity exclusion said "known defect"; it is now a four-line pinned
+one. `item ::= "a" | "ab"` with `tail ::= "bc" | "c"` over `abc` derives two
+values by ARMS on both rules — the gated Earley path refuses it, the public
+PDA path answers it, because the island's ambiguity gate asks only whether ONE
+span means two things and the competing arm ends at a different span:
+longest-match decides an arm choice it never recognised as one. (A boundary
+shift inside one production — `rest ::= [a-z]*` absorbing what the shorter
+item leaves — is a SPLIT, decided identically by both engines; verified before
+pinning.) `test_the_pda_refuses_a_cross_span_arm_choice_too` is a strict
+xfail until the fix; the raw-parity stem list's vyx subtraction, which never
+subtracted anything (`_SKIP_STEMS` removes vyx a level up), now says so.
+
+## The island window grows on chart evidence, and only then
+
+`island_parse`'s growth probe asked `can_extend_at` at the completion column —
+a question the chart answers identically at every window size, so one
+persistent scanner grew the window to the end of the input, re-parsing from
+scratch each round; and a question a window-cut multi-char literal never
+reaches, so a truncated longest match could splice as the answer. Both are the
+same wrong column. The predicate is now liveness in the edge zone (the last
+`max(terms.lens)` columns of `seen`) — sound because every completion inside
+the window is already known and anything reachable beyond it leaves an item
+there. `can_extend_at` deleted; `island_run` returns the kernel even on a
+miss. On the vyx benchmark this removed all 78 growth re-parses and the
+PDA-slower-than-Earley reading (59 → 40 µs/char, 0.79× Earley).
+`.wiki/lexic/decisions.md` carries the soundness argument.
+
+## The wiki stops tracking finished work
+
+`cutover-plan.md` and `slice-b-status.md` were task status for efforts that
+ended months ago, and `index.md` still routed "What tasks are done vs pending?"
+to the first. Both pages deleted; the routing row and the "Active work" section
+went with them (`decisions.md` moved to the reference table). Task state lives
+in the active plan directory, not the wiki. Riding along: `codegen.md`'s
+see-also and `theory/grammar-formats.md`'s "token syntax unimplemented" gap
+bullet — token terminals have shipped (see [[lexic/tokens]]), so the gap
+section shrank to the `root`-convention note.
+
 ## The model path asks the meaning question too, and a pin is consumed
 
 `earley_model` used to take the first derivation without asking whether the
