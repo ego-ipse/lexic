@@ -126,6 +126,37 @@ their frame pops, and their ids get handed straight back to different objects.
 
 ---
 
+## 2026-07-29 — The island seam declares cross-span uncertainty instead of longest-matching through it
+
+**Decision:** after `island_parse` picks the longest completion end `E`, any
+other origin-0 completion end `E' < E` whose next character the island's
+continuation accepts raises `PdaFail`. The continuation evidence is the
+analysis' soft FOLLOW of the island rule, carried as
+`PdaTables.island_follow` (whose key set IS the island set; `islands` is a
+derived property) and threaded per reference via `IslandPolicy.follow`.
+`follow=None` (a caller without analysis — the direct-call test seam) keeps
+plain longest-match; every runtime route passes the real set.
+
+**Why:** longest-match is only a DEFINED answer while no shorter completion
+could also compose. A cross-span arm choice (`item ::= "a" | "ab"` then
+`tail ::= "bc" | "c"` over `abc`) never shows the same-span gate one span
+with two meanings — the PDA answered what gated Earley refuses, a public
+invariant breach. `parse_model` falls back on `PdaFail` to **gated**
+`earley_model`, so bailing is fully correct: the fallback refuses iff the
+ambiguity is real. Soundness of the candidate set is the edge-liveness
+window predicate (no completion reachable beyond `E`); soundness of the
+check is FOLLOW ⊇ any one site's continuation — every error is a spurious
+bail, never a wrong commit.
+
+**The accepted cost:** k=1 FOLLOW over-approximates. vyx's benchmark corpus
+trips it at the first island (`template-def`, ends 9/30, a space genuinely
+in rule-level FOLLOW), so the vyx PDA route bails and the row runs gated
+Earley until the ordered-attempt gate lands — correctness now, the speed
+returns with the attempt design, which SEES each cross-span point and can
+try the alternative composition instead of guessing from one character.
+With the bail, vyx holds raw parity (0/194 divergent; row added for real —
+its old "exclusion" subtracted a stem that was never in the list).
+
 ## 2026-07-29 — Island window growth: chart liveness at the edge zone, not a completion-column probe
 
 **Decision:** `island_parse` grows its doubling window iff the windowed chart

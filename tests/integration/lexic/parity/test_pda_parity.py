@@ -262,12 +262,13 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
 # ARM class — one span through two different productions that mean different
 # things — where a length preference has no standing. Adding it here is the
 # fails-before test for that fix.
-RAW_PARITY_STEMS: tuple[str, ...] = ALL_STEMS
-"""Every wide-matrix stem. `vyx.gbnf` never reaches `ALL_STEMS` (excluded one
-level up, in `_SKIP_STEMS`) — subtracting it here was a no-op that read as an
-exclusion. Its raw-parity divergence is real and is a cross-span arm choice
-the island gate cannot see; `test_the_pda_refuses_a_cross_span_arm_choice_too`
-pins the defect in four grammar lines (xfail, strict)."""
+RAW_PARITY_STEMS: tuple[str, ...] = ALL_STEMS + ("vyx.gbnf",)
+"""Every wide-matrix stem, PLUS vyx — added explicitly because `_SKIP_STEMS`
+removes it from `ALL_STEMS` one level up (this list once "subtracted" it, a
+no-op that read as an exclusion). Its divergence was a cross-span arm choice
+the island gate could not see; the island seam's composition check now bails
+those to the gated engine (`test_the_pda_refuses_a_cross_span_arm_choice_too`
+pins the four-line shape), so the row holds at the raw bar."""
 
 RAW_PARITY_STARTS: dict[str, str] = {
     # c needs a start chosen for THIS bar. `START_OVERRIDES` drives the wide
@@ -313,11 +314,12 @@ def test_both_engines_build_the_same_model_not_just_the_same_meaning(
     so a consumer reading those fields CAN see a difference the semantic bar
     calls invisible.
 
-    Every corpus grammar but one holds at this bar; `vyx.gbnf` is excluded and
-    named in `RAW_PARITY_STEMS` as a known defect, not a licence. `c.gbnf`
-    needs its own generation start (`RAW_PARITY_STARTS`) to reach the
-    predictive path at all — the wide matrix's start escapes to islands on
-    every sample, which compared nothing.
+    Every corpus grammar holds at this bar — vyx included, since the island
+    seam's composition check bails its cross-span arm choices to the gated
+    engine instead of longest-matching through them. `c.gbnf` needs its own
+    generation start (`RAW_PARITY_STARTS`) to reach the predictive path at
+    all — the wide matrix's start escapes to islands on every sample, which
+    compared nothing.
     """
     cg, rules, start = grammar_for(stem, RAW_PARITY_STARTS.get(stem))
     product = prod(cg)
@@ -420,8 +422,9 @@ tail ::= "bc" | "c"
 one span meaning two things to a local gate: over `abc`, `item` is `a` (and
 `tail` its `bc` arm) or `ab` (and `tail` its `c` arm). Not a split — the
 derivations differ by ARMS on both rules, not by a boundary inside one
-production. This is vyx's raw-parity defect in four lines (there: an unquoted
-value's tail absorbing `\\n\\#` vs ending so they parse as escape items)."""
+production. This is the shape that kept vyx out of raw parity, in four lines
+(there: an unquoted value's tail absorbing `\\n\\#` vs ending so they parse
+as escape items)."""
 
 
 def test_earley_refuses_a_cross_span_arm_choice() -> None:
@@ -432,14 +435,16 @@ def test_earley_refuses_a_cross_span_arm_choice() -> None:
         earley_model(pr.instance_grammar, "abc", cg.fold, pr.tables)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="island longest-match silently decides a cross-span arm choice: the "
-    "island's same-span gate never sees the shorter arm (different end), so the "
-    "public parse answers where the Earley gate refuses",
-)
 def test_the_pda_refuses_a_cross_span_arm_choice_too() -> None:
-    """The PDA must not answer what the other engine refuses as an arm choice."""
+    """The PDA must not answer what the other engine refuses as an arm choice.
+
+    The island seam cannot settle a second completion end whose next character
+    the continuation accepts (`item`'s FOLLOW holds `b` via `tail`), so it
+    bails — and the public path completes on the gated engine, which refuses.
+    Longest-match answered `Item('ab')` here before the composition check.
+    """
     cg = compile_text(_CROSS_SPAN_AMBIGUOUS, cache_key="parity-cross-span-pda")
     with pytest.raises((UnsupportedConstructError, PdaFail)):
         pda_model(prod(cg).pda, "abc", cg.fold)
+    with pytest.raises(UnsupportedConstructError):
+        cg.parse("abc")

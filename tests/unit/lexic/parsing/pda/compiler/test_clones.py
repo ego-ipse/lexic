@@ -473,3 +473,16 @@ def test_island_tables_cache_per_name_and_tier():
     default = pda.island_tables("root")
     assert default is not small
     assert default.packing.bits == ORIGIN_BITS
+
+
+def test_island_follow_carries_a_charset_per_island():
+    """Every island name keys a follow CharSet holding what can follow it —
+    the continuation evidence the island seam's cross-span check reads."""
+    pda = pda_from_text(
+        'root ::= item tail\nitem ::= "a" | "ab"\ntail ::= "bc" | "c"\n'
+    )
+    assert "item" in pda.islands
+    assert set(pda.island_follow) == set(pda.islands)
+    follow = pda.island_follow["item"]
+    assert follow.has("b") and follow.has("c")
+    assert not follow.has("z")

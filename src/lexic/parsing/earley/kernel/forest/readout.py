@@ -77,6 +77,29 @@ def accept_items(kern: Kernel) -> list[int]:
     return [it for it in kern.cols[n] if it >> bits in accepts and it & mask == 0]
 
 
+def start_completion_ends(kern: Kernel) -> tuple[int, ...]:
+    """Every distinct end column where the start rule completes from origin 0.
+
+    The island seam's cross-span evidence: after a windowed
+    ``longest_start_completion`` drove the chart, these are ALL the spans the
+    island could be — the (fixed) growth predicate guarantees none is
+    reachable beyond the longest. More than one end is an arm choice the
+    same-span gate cannot see; whether it must refuse is the caller's
+    composition question.
+
+    :returns: Ascending distinct completion ends (empty on no completion).
+    """
+    accepts = kern.tables.codes.accept_codes
+    bits, mask = kern.tables.packing.bits, kern.tables.packing.mask
+    ends = {
+        j
+        for j, col in enumerate(kern.cols)
+        for it in col
+        if it >> bits in accepts and it & mask == 0
+    }
+    return tuple(sorted(ends))
+
+
 def root_ambiguous(kern: Kernel) -> bool:
     """Whether the start symbol completes the whole input via ≥2 productions.
 

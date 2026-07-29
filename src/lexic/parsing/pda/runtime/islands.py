@@ -35,10 +35,15 @@ from lexic.parsing.earley.kernel.forest.forest import (
     ParseTree,
     SppfNode,
 )
-from lexic.parsing.earley.kernel.forest.readout import decode_item, to_chart
+from lexic.parsing.earley.kernel.forest.readout import (
+    decode_item,
+    start_completion_ends,
+    to_chart,
+)
 from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.fold import ModelFold
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
 
 __all__ = [
@@ -117,18 +122,24 @@ class IslandPolicy[M](NamedTuple):
 
     ``fold`` is here for the ambiguity question alone: whether two derivations
     are a real ambiguity is a question about the VALUES they build, and only
-    the fold can answer it.
+    the fold can answer it. ``follow`` is the island rule's continuation
+    charset (analysis soft FOLLOW) — the cross-span composition evidence;
+    ``None`` (a caller without analysis) accepts plain longest-match.
     """
 
     delegates: dict[int, Delegate] | None = None
     resolve: Resolver | None = None
     fold: ModelFold[M] | None = None
+    follow: CharSet | None = None
 
-    def for_island(self, delegates: dict[int, Delegate] | None) -> IslandPolicy[M]:
-        """This policy with ``delegates`` filled in — what one island reference
-        hands to its sub-parse. The delegates are the only per-island part; the
-        fold and the resolver belong to the whole parse."""
-        return IslandPolicy(delegates, self.resolve, self.fold)
+    def for_island(
+        self, delegates: dict[int, Delegate] | None, follow: CharSet | None
+    ) -> IslandPolicy[M]:
+        """This policy with the per-island parts filled in — what one island
+        reference hands to its sub-parse. The delegates and the follow set are
+        the only per-island parts; the fold and the resolver belong to the
+        whole parse."""
+        return IslandPolicy(delegates, self.resolve, self.fold, follow)
 
 
 def island_parse(
@@ -143,6 +154,12 @@ def island_parse(
     Grows the window while the chart is still live at its edge and input
     remains (the ambiguous-longest-match risk), then decodes the winning
     completion to a :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree`.
+
+    Longest-match is only a DEFINED answer while no shorter completion could
+    also compose: with ``policy.follow`` set, a second completion end whose
+    next character the continuation accepts is a cross-span arm choice this
+    seam cannot settle — it raises :class:`PdaFail`, and the engine's gated
+    completion over the whole input refuses or answers with the full picture.
 
     :param tables: The island rule's :class:`~lexic.parsing.earley.kernel.tables.ParserTables`.
     :param text: The full input.
@@ -167,6 +184,13 @@ def island_parse(
     if best is None:
         raise PdaFail(f"island {name!r}: no match at {pos}")
     item, end = best
+    if policy.follow is not None:
+        for alt in start_completion_ends(kern):
+            if alt < end and policy.follow.has(text[pos + alt]):
+                raise PdaFail(
+                    f"island {name!r} at {pos}: arm choice spans two ends "
+                    f"({alt}, {end}) and the shorter could compose"
+                )
     handle = (item << kern.tables.packing.bits) | end
     tree = FastTree(kern).build(handle)
     if not isinstance(tree, ParseTree):

@@ -28,6 +28,7 @@ from lexic.parsing.pda.compiler.specs import (
     CloneSpec,
     IslandRef,
 )
+from lexic.parsing.pda.core.charsets import CharSet
 
 if TYPE_CHECKING:  # `clones` imports this module — the reference is mutual
     from lexic.parsing.pda.compiler.clones import PdaCompiler
@@ -42,8 +43,12 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     :ivar clones: Clone key → its :class:`CloneSpec`.
     :ivar start_key: The start clone's key, or an :class:`IslandRef` when the
         start rule is an island (the whole-grammar opt-out signal for Task 6).
-    :ivar islands: The island rule names (from
-        :attr:`~lexic.parsing.pda.analysis.analysis.GrammarAnalysis.islands`).
+    :ivar island_follow: Island rule name → its soft-FOLLOW
+        :class:`~lexic.parsing.pda.core.charsets.CharSet` — the continuation
+        evidence the island seam's cross-span check reads. Rule-level (union
+        over reference sites), so ⊇ any one site's continuation: an error can
+        only be a spurious bail, never a wrong commit. Its key set IS the
+        island set (:attr:`islands` reads it back).
     :ivar instance_grammar: The Earley-normalised instance grammar island
         tables are built over.
     :ivar program: The flat int-coded runtime program (:class:`PdaProgram`)
@@ -55,7 +60,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     __slots__ = (
         "clones",
         "start_key",
-        "islands",
+        "island_follow",
         "instance_grammar",
         "program",
         "reduce",
@@ -64,7 +69,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
 
     clones: dict[CloneKey, CloneSpec]
     start_key: CloneKey | IslandRef
-    islands: frozenset[str]
+    island_follow: dict[str, CharSet]
     instance_grammar: IrAst
     program: PdaProgram
     reduce: ReduceRun | None
@@ -87,11 +92,17 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         completions = compiler.completions if compiler.reduce is not None else None
         self.clones = compiler.clones
         self.start_key = start_key
-        self.islands = compiler.islands
+        follow = compiler.analysis.follow
+        self.island_follow = {name: follow[name] for name in compiler.islands}
         self.instance_grammar = instance_grammar
         self.program = flatten_program(compiler.clones, start_key, completions)
         self.reduce = reduce
         self._island_tables = {}
+
+    @property
+    def islands(self) -> frozenset[str]:
+        """The island rule names — :attr:`island_follow`'s key set."""
+        return frozenset(self.island_follow)
 
     def island_tables(self, name: str, bits: int = ORIGIN_BITS) -> ParserTables:
         """The :class:`ParserTables` for island rule ``name``, built once per

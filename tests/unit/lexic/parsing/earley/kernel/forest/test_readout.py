@@ -34,6 +34,7 @@ from lexic.parsing.earley.kernel.forest.readout import (
     accept_node,
     decode_item,
     root_ambiguous,
+    start_completion_ends,
     to_chart,
 )
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
@@ -193,3 +194,27 @@ def test_root_ambiguous_false_for_single_production():
     """root_ambiguous is False for an unambiguous single-production accept."""
     kernel = Kernel(compile_tables(_digit_grammar()), "5", record_links=True).run()
     assert root_ambiguous(kernel) is False
+
+
+# ── start_completion_ends — the island seam's cross-span evidence ─────
+
+
+def test_start_completion_ends_lists_every_origin_zero_end(sss_grammar):
+    """``s = s s / 'a'`` over 'aaa' completes from origin 0 at 1, 2 and 3."""
+    kern = Kernel(compile_tables(sss_grammar), "aaa")
+    kern.longest_start_completion()
+    assert start_completion_ends(kern) == (1, 2, 3)
+
+
+def test_start_completion_ends_single_on_unambiguous(sss_grammar):
+    """A one-char window has the single end its one completion spans."""
+    kern = Kernel(compile_tables(sss_grammar), "a")
+    kern.longest_start_completion()
+    assert start_completion_ends(kern) == (1,)
+
+
+def test_start_completion_ends_empty_on_no_parse(sss_grammar):
+    """No origin-0 completion anywhere → no ends."""
+    kern = Kernel(compile_tables(sss_grammar), "x")
+    kern.longest_start_completion()
+    assert not start_completion_ends(kern)

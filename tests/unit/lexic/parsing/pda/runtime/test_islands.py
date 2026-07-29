@@ -40,6 +40,7 @@ from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.islands import (
     ISLAND_WINDOW,
@@ -111,6 +112,42 @@ def test_island_parse_raises_pda_fail_with_position_on_no_match(digit_grammar: I
     tables = compile_tables(digit_grammar)
     with pytest.raises(PdaFail, match=r"island 'digit': no match at 0"):
         island_parse(tables, "x", 0, "digit")
+
+
+def _cross_span_tables():
+    """``x ::= "a" | "ab"`` — an arm choice whose arms span different ends."""
+    x = IrRule(
+        "x",
+        IrAlternation(
+            IrSequence(IrItem(IrLiteral("a"))),
+            IrSequence(IrItem(IrLiteral("ab"))),
+        ),
+    )
+    return compile_tables(IrAst(rules=IrSeq(x), start="x"))
+
+
+def test_island_parse_bails_when_a_shorter_end_could_compose():
+    """A second completion end whose next char the continuation accepts is a
+    cross-span arm choice the seam cannot settle — PdaFail names both ends."""
+    policy = IslandPolicy(follow=CharSet(frozenset("b")))
+    with pytest.raises(PdaFail, match=r"arm choice spans two ends \(1, 2\)"):
+        island_parse(_cross_span_tables(), "abc", 0, "x", policy)
+
+
+def test_island_parse_commits_longest_when_the_shorter_cannot_compose():
+    """A shorter end whose next char the continuation refuses is no
+    alternative — longest-match stays the defined answer."""
+    policy = IslandPolicy(follow=CharSet(frozenset("z")))
+    tree, end = island_parse(_cross_span_tables(), "abc", 0, "x", policy)
+    assert isinstance(tree, ParseTree)
+    assert end == 2
+
+
+def test_island_parse_without_follow_keeps_plain_longest_match():
+    """No continuation evidence (the direct-call seam) — legacy longest-match."""
+    tree, end = island_parse(_cross_span_tables(), "abc", 0, "x")
+    assert isinstance(tree, ParseTree)
+    assert end == 2
 
 
 def test_island_parse_grows_past_a_window_cut_multi_char_literal():

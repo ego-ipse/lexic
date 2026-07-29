@@ -616,7 +616,9 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             self.text,
             self.pos,
             name,
-            self.policy.for_island(self._delegates(name)),
+            self.policy.for_island(
+                self._delegates(name), self.tables.island_follow.get(name)
+            ),
         )
 
     def _delegates(self, name: str) -> dict[int, Delegate]:

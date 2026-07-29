@@ -1,5 +1,18 @@
 # Log
 
+## The island seam bails on what it cannot settle
+
+The cross-span blind spot below is closed: `island_parse` now checks every
+shorter completion end against the island's continuation charset
+(`PdaTables.island_follow`, analysis soft FOLLOW) and raises `PdaFail` when
+one could compose — the public route completes on gated Earley, which
+refuses iff the ambiguity is real. The strict xfail flipped to a passing
+test that also asserts the public refusal; vyx entered raw parity for real
+and holds (0 divergent). The accepted cost: the one-character FOLLOW probe
+over-approximates, and vyx's own benchmark corpus trips it at the first
+island — that row runs the engine until the ordered-attempt gate replaces
+guessing with trying. `.wiki/lexic/decisions.md` carries the reasoning.
+
 ## A cross-span arm choice is the island gate's blind spot
 
 vyx's raw-parity exclusion said "known defect"; it is now a four-line pinned
