@@ -3,15 +3,13 @@
 Candidate ``lexic/parsing/earley/kernel/readout.py``. The decode seam, and the
 symmetric counterpart of :mod:`~lexic.parsing.earley.kernel.tables`: where
 ``compile_tables`` walks a grammar *in*, these functions read the finished
-packed SPPF *out* — the accepting items, the forest root, the decoded
-:class:`~lexic.parsing.earley.kernel.forest.chart.Chart`, and the valid-prefix probe an
-island window asks of a completion column.
+packed SPPF *out* — the accepting items, the forest root, and the decoded
+:class:`~lexic.parsing.earley.kernel.forest.chart.Chart`.
 
 The dependency runs one way: ``kernel`` never imports ``readout``, so a readout
 takes the :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel` itself and reads its
-four public fields (``tables``, ``text``, ``cols``, ``st``, plus ``delegated``
-for the prefix probe). It calls no method on what it reads — which is what makes
-the seam a seam.
+public fields (``tables``, ``text``, ``cols``, ``st``). It calls no method on
+what it reads — which is what makes the seam a seam.
 """
 
 from __future__ import annotations
@@ -146,39 +144,3 @@ def child_node(tables: ParserTables, child: int | str | PayloadLeaf) -> IrSelf:
     if isinstance(child, PayloadLeaf):  # delegated pre-folded child
         return child
     return tables.terms.char_leaf(child)
-
-
-def can_extend_at(kern: Kernel, col: int, char: str) -> bool:
-    """Whether the parse at ``col`` could consume ``char`` next — a MAY answer.
-
-    The islands seam's valid-prefix probe: after a windowed
-    ``longest_start_completion``, the caller asks whether the FULL text's next
-    character is viable at a SHORT-OF-EDGE completion column — if it is, the
-    completion may be a window-cut truncation and the window must grow.
-
-    The chart is complete evidence exactly there: seeding is FIRST-gated by the
-    column's own window character, and a short-of-edge column's window character
-    IS the probe character, so every seed viable for it was admitted and
-    registered — an empty/non-matching ``scannable`` is a *sighted* refusal, not
-    blindness. Two conservative escapes remain, each answering MAY (which only
-    ever grows the window):
-
-    - a column where a delegate sub-run landed (the delegate's interior
-      continuation items were never seeded into the chart) — derived from
-      ``delegated``'s handles, whose low bits are the landing column (islands
-      always run with ``record_links``, so every landing is recorded);
-    - a probe character that is NOT the column's window character (an
-      out-of-domain call — the gates were evaluated with a different char, so
-      the chart proves nothing about this one).
-
-    :param col: The completion column to probe (its closure already ran).
-    :param char: The next character of the full input.
-    :returns: ``True`` when ``char`` may be consumable at ``col``.
-    """
-    mask = kern.tables.packing.mask
-    if any(handle & mask == col for handle in kern.delegated):
-        return True
-    if col >= len(kern.text) or kern.text[col] != char:
-        return True
-    scannable_col = kern.st.scannable[col]
-    return any(scannable_col.get(tid) for tid in kern.tables.terms.terms_for(char))

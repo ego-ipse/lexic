@@ -126,6 +126,39 @@ their frame pops, and their ids get handed straight back to different objects.
 
 ---
 
+## 2026-07-29 — Island window growth: chart liveness at the edge zone, not a completion-column probe
+
+**Decision:** `island_parse` grows its doubling window iff the windowed chart
+has an item filed in the edge zone — the last `max(terms.lens)` columns
+(`_may_extend` in `pda/runtime/islands.py`). The three old signals (no
+completion yet; completion touches the edge; `can_extend_at` at the completion
+column) are deleted, along with `can_extend_at` itself.
+
+**Why it is sound:** `longest_start_completion` scans the whole window, so
+every completion inside it is already known — more input can only add a
+completion that consumes past the edge, and any derivation doing so leaves
+visible evidence: a scanner filed at the edge column, or a multi-char literal
+the window cut, whose scanner files nothing but sits at most the longest
+literal short of the edge (hence the zone, not the single column). Runs cut by
+the window land ON the edge; a declined delegate falls through to normal
+seeding, so its continuations are ordinary items.
+
+**Why the old probe was wrong twice.** Divergent: probing the completion
+column re-answers identically at every window size (columns are a function of
+the text prefix), so one persistent scanner — vyx's line interiors — grew the
+window to the end of the input, re-parsing from scratch each time (~37× the
+corpus through `island_run` on the vyx benchmark; the "anomaly" of the PDA
+measuring slower than Earley there). Unsound: a multi-char literal can jump
+the probed column without filing an item in it, so the probe answered "don't
+grow" while a longer completion was reachable — a truncated longest match
+spliced as the answer (`test_island_parse_grows_past_a_window_cut_multi_char_literal`
+pins the shape).
+
+**Impact:** `island_run` returns `(kern, completion | None)` — the kernel is
+the predicate's evidence even on a miss, and a dead-chart no-match now fails
+fast instead of growing to the end of the input first. `island_value`'s
+fold-refusal reroute stays as the last line of defence.
+
 ## 2026-07-21 — Micro-perf floor: in-process A/B only; model count, not per-model cost, bounds the win
 
 **Finding:** the only trustworthy way to measure a parse-engine change below roughly 15% is an **in-process, interleaved A/B** — baseline and candidate run in the same warm process, order randomized per sample, best-of-N reported. Cross-process comparisons (including git-stash-based before/after) and `cProfile` self-time both mislead at this scale: cross-process runs showed an apparent 6–11% win that vanished (and in one case reversed) under in-process A/B, because cold-start and allocator noise dominate a delta that small; `cProfile`'s per-call overhead inflates exactly the highest-call-count helper functions, misdirecting effort toward code that isn't the real steady-state bottleneck.
@@ -195,7 +228,7 @@ their frame pops, and their ids get handed straight back to different objects.
 - **Alignment lives inside `compile_arms`' own enumeration** (`windows[idx]` attached in the same loop that drops empty-FIRST arms) — window↔arm drift is structurally impossible rather than checked after the fact. A FIRST-overlapping alternation reaching the compiler with **no** spec raises — the anti-trap tripwire (F2: an empty gate mis-parses, PdaFail-falls-back, and passes island-move + parity gates while unsound and slower).
 - **Verified live:** chess `nonpawn` (loop, k=3) 0.0% fallback + 8.6× faster than the 6.2 island-hit path; `lo>k` EOF-exact arm selection end-to-end; GBNF-self 17→8 / ABNF-self 9→7 island moves exactly per the coverage map.
 
-**Impact:** `Taxonomy` is public (`analysis.__all__`); `KTupleGate`/`ArmSpec.windows` reinstated in `clones.py` as read-side only; LL(2) 2-prefix machinery now lives in `kwindow.py` as free fns (`loop_policy` calls across); `_bake_reduce`/`_reduce_rewrite` live in `reduce_pda.py`. `P2_DEMOTION_ENABLED` defaults **True**; `False` is the A/B seam. See [[architecture]], the PLAN_v5 ledger, and log 2026-07-11.
+**Impact:** `Taxonomy` is public (`analysis.__all__`); `KTupleGate`/`ArmSpec.windows` reinstated in `clones.py` as read-side only; LL(2) 2-prefix machinery now lives in `kwindow.py` as free fns (`loop_policy` calls across); `_bake_reduce`/`_reduce_rewrite` live in `reduce_pda.py`. `P2_DEMOTION_ENABLED` defaults **True**; `False` is the A/B seam. See [[architecture]] and log 2026-07-11.
 
 ---
 

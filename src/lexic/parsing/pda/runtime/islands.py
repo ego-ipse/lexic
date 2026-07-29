@@ -35,11 +35,7 @@ from lexic.parsing.earley.kernel.forest.forest import (
     ParseTree,
     SppfNode,
 )
-from lexic.parsing.earley.kernel.forest.readout import (
-    can_extend_at,
-    decode_item,
-    to_chart,
-)
+from lexic.parsing.earley.kernel.forest.readout import decode_item, to_chart
 from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.fold import ModelFold
@@ -55,22 +51,21 @@ __all__ = [
 
 ISLAND_WINDOW = 256
 """Initial character window for an island Earley sub-parse; doubles on demand
-while the best completion still touches the window edge and input remains."""
+while the chart is still live at the window edge and input remains."""
 
 
 def island_value[T](compute: Callable[[], T], name: str, pos: int) -> T:
     """Run an island's fold/reduce step, failing SOFT on a library error.
 
-    The window-growth heuristic is a heuristic: a language with the
-    valid-prefix property (e.g. bare identifiers) can complete a TRUNCATED
-    parse strictly inside a window that cut a token, without touching the
-    edge — the spliced sub-model is then wrong, and its fold/reduce step is
-    the first thing to notice (an unknown symbol, a refused field). Such a
-    :class:`~lexic.exceptions.LexicError` reroutes to :class:`PdaFail`, so
-    the Earley completion — which parses the WHOLE input and re-runs the
-    same fold — becomes the authority; a genuine fold error reproduces there
-    identically. Non-library exceptions (authored-constructor bugs) still
-    surface loudly.
+    The last line of defence under the windowed sub-parse: should a window
+    ever cut a token and splice a truncated completion (the growth predicate
+    reads the chart's own evidence, but the fold is the final authority), the
+    fold/reduce step is the first thing to notice — an unknown symbol, a
+    refused field. Such a :class:`~lexic.exceptions.LexicError` reroutes to
+    :class:`PdaFail`, so the Earley completion — which parses the WHOLE input
+    and re-runs the same fold — becomes the authority; a genuine fold error
+    reproduces there identically. Non-library exceptions (authored-constructor
+    bugs) still surface loudly.
 
     :param compute: The deferred fold/reduce application.
     :param name: The island rule name (for the failure message).
@@ -90,46 +85,31 @@ through :data:`~lexic.parsing.earley.kernel.forest.forest.DERIVATION_STREAM`'s
 ``eval`` (stateless)."""
 
 
-def _may_extend(
-    best: tuple[Kernel, int, int] | None,
-    text: str,
-    pos: int,
-    window: int,
-    remaining: int,
-) -> bool:
-    """Whether a windowed island result may extend with more input — grow.
+def _may_extend(kern: Kernel) -> bool:
+    """Whether more input could lengthen the island — chart liveness at the edge.
 
-    Three grow signals, each an over-approximation (growing is always safe;
-    it can only ever add genuine longest-match input):
+    ``longest_start_completion`` scans the whole window, so every completion
+    inside it is already known: more input can only add a completion that
+    consumes PAST the window edge, and any derivation doing so leaves an item
+    the chart can see near it — either one filed at the edge column itself, or
+    a scanner whose multi-char literal the window cut, which files nothing and
+    sits at most the longest literal short of it. A dead edge zone is therefore
+    a *sighted* refusal: no extension of the input can change the answer, with
+    or without a completion in hand.
 
-    - no completion in the window at all (more context may produce one);
-    - the best completion touches the window edge (the original heuristic —
-      a token cut exactly at the edge);
-    - the **valid-prefix probe**: the FULL text's next character after the
-      completion is scannable at the completion column
-      (:func:`~lexic.parsing.earley.kernel.forest.readout.can_extend_at`) — a
-      language with the valid-prefix property (bare identifiers, call heads)
-      can complete a TRUNCATED parse strictly inside a cut window; if the
-      real next character could extend the island, the stop is not to be
-      trusted. This is the longest-match semantics the window was hiding —
-      not merely a safety net for the fail-soft path.
+    Every other scan kind is visible at the edge itself: a char class advances
+    one column at a time, a run terminal cut by the window lands ON the edge,
+    and a delegate either lands in the chart or declines into normal seeding.
+    Probing anywhere short of the edge is not sound — a multi-char literal can
+    jump a probed column without ever filing an item in it.
 
-    :param best: The windowed ``island_run`` result.
-    :param text: The FULL input.
-    :param pos: The island's start position in ``text``.
-    :param window: The current window size.
-    :param remaining: ``len(text) - pos``.
-    :returns: ``True`` when the window must grow before trusting ``best``.
+    :param kern: The finished windowed kernel.
+    :returns: ``True`` when input beyond the window may still be consumable.
     """
-    if best is None:
-        return True
-    kern, _item, end = best
-    if end == min(window, remaining):
-        return True
-    nxt = pos + end
-    if nxt >= len(text):
-        return False
-    return can_extend_at(kern, end, text[nxt])
+    edge = len(kern.text)
+    reach = max(kern.tables.terms.lens, default=1)
+    seen = kern.st.seen
+    return any(seen[col] for col in range(max(0, edge - max(reach, 1) + 1), edge + 1))
 
 
 class IslandPolicy[M](NamedTuple):
@@ -160,7 +140,7 @@ def island_parse(
 ) -> tuple[ParseTree, int]:
     """Longest completion of island ``name`` over a doubling window from ``pos``.
 
-    Grows the window while the best completion still touches its edge and input
+    Grows the window while the chart is still live at its edge and input
     remains (the ambiguous-longest-match risk), then decodes the winning
     completion to a :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree`.
 
@@ -180,13 +160,13 @@ def island_parse(
     """
     remaining = len(text) - pos
     window = ISLAND_WINDOW
-    best = island_run(tables, text[pos : pos + window], policy.delegates)
-    while window < remaining and _may_extend(best, text, pos, window, remaining):
+    kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
+    while window < remaining and _may_extend(kern):
         window *= 2
-        best = island_run(tables, text[pos : pos + window], policy.delegates)
+        kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
     if best is None:
         raise PdaFail(f"island {name!r}: no match at {pos}")
-    kern, item, end = best
+    item, end = best
     handle = (item << kern.tables.packing.bits) | end
     tree = FastTree(kern).build(handle)
     if not isinstance(tree, ParseTree):
@@ -235,21 +215,18 @@ def island_run(
     tables: ParserTables,
     window: str,
     delegates: dict[int, Delegate] | None = None,
-) -> tuple[Kernel, int, int] | None:
+) -> tuple[Kernel, tuple[int, int] | None]:
     """Run the island start rule over ``window``, longest origin-0 completion.
 
     :param tables: The island rule's compiled tables.
     :param window: The candidate window text.
     :param delegates: The island-interior delegate table, or ``None``.
-    :returns: ``(kernel, accepting_item, end)`` for the longest completion, or
+    :returns: The kernel — its chart is the growth predicate's evidence even
+        on a miss — and ``(accepting_item, end)`` for the longest completion,
         ``None`` when the rule never completes in the window.
     """
     kern = Kernel(tables, window, delegates=delegates)
-    result = kern.longest_start_completion()
-    if result is None:
-        return None
-    item, end = result
-    return kern, item, end
+    return kern, kern.longest_start_completion()
 
 
 def island_derivation(
