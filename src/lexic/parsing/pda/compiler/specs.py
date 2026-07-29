@@ -215,6 +215,12 @@ class CloneSpec(NamedTuple):
         :class:`~lexic.parsing.pda.core.scanner.ScanGate`), or ``None``. When set, the
         runtime consults it before the FIRST-gated selection: a take admits the
         gated arms, a refusal selects the nullable :attr:`default` (escape) arm.
+    :ivar attempt_follow: The rule's soft-FOLLOW :class:`CharSet` on an
+        ATTEMPT clone, else ``None``. Non-``None`` marks the clone's arms as
+        ordered attempts — :attr:`arms` is stored already in attempt order
+        (nullable arms last), FIRSTs may overlap, and the runtime tries arms
+        with rollback instead of selecting one; the follow set is the
+        cross-span composition evidence its second-success audit reads.
     """
 
     name: str
@@ -223,3 +229,4 @@ class CloneSpec(NamedTuple):
     fold: RuleFold | None
     match_only: bool
     struct_arm: ScanGate | None = None
+    attempt_follow: CharSet | None = None

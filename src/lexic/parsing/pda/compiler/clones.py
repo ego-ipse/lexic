@@ -353,8 +353,10 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
     @property
     def islands(self) -> frozenset[str]:
-        """The island rule names — never cloned (a view onto the analysis)."""
-        return self.analysis.islands
+        """The island residue — conflicted rules no attempt can settle, never
+        cloned. Attemptable rules (``taxonomy.attempts``) clone instead, with
+        their arms in attempt order."""
+        return self.analysis.islands - frozenset(self.analysis.taxonomy.attempts)
 
     @property
     def fail_islands(self) -> frozenset[str]:
@@ -399,18 +401,31 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         name = key.name
         rule = self.analysis.rules[name]
         tax = self.analysis.taxonomy
-        arms, default, struct = self.compile_arms(
-            rule.body,
-            key.tail,
-            ArmGates(
-                tax.arm_gates.get(name),
-                tax.pn_arm_gates.get(name),
-                tax.struct_arm_gates.get(name),
-            ),
-        )
+        attempt = tax.attempts.get(name)
+        if attempt is not None:
+            arms, default, struct = self.compile_arms(
+                rule.body, key.tail, order=attempt.order
+            )
+            # A single-gated-arm attempt rule (islanded for its loops alone)
+            # has no arm choice to try — its licensed loops carry the whole
+            # licence in their gates, so it runs as an ordinary clone.
+            follow = self.analysis.follow[name] if len(arms) > 1 else None
+        else:
+            arms, default, struct = self.compile_arms(
+                rule.body,
+                key.tail,
+                ArmGates(
+                    tax.arm_gates.get(name),
+                    tax.pn_arm_gates.get(name),
+                    tax.struct_arm_gates.get(name),
+                ),
+            )
+            follow = None
         fold = self.fold_config.get(name)
         match_only = fold is not None and fold.kind == "value_str"
-        self.clones[key] = CloneSpec(name, arms, default, fold, match_only, struct)
+        self.clones[key] = CloneSpec(
+            name, arms, default, fold, match_only, struct, follow
+        )
         if self.reduce is not None:
             self.completions[key] = self.reduce.comp_for(name)
 
@@ -419,6 +434,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         node: IrAlternation,
         tail: CharSet,
         gates: ArmGates = ArmGates(),
+        order: tuple[int, ...] | None = None,
     ) -> tuple[tuple[ArmSpec, ...], tuple[ItemSpec, ...] | None, ScanGate | None]:
         """Compile the arms of a rule body or inline group against ``tail``.
 
@@ -431,17 +447,26 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         past the empty-FIRST drop; the ``struct_arm`` escape index is validated
         here against the nullable default arm the compiler actually picks.
 
+        With ``order`` (an ATTEMPT rule's ``AttemptSpec.order``) the arms are
+        emitted in attempt order rather than authored order, and the
+        overlap-without-gate raise is skipped — overlapping FIRSTs are the
+        attempt case, tried in order by the runtime rather than selected.
+
         :returns: ``(gated arms, default specs | None, struct-arm ScanGate | None)``.
         :raises UnsupportedConstructError: When gated arms' FIRSTs overlap with
-            no gate spec to select by, or a ``struct_arm`` gate's escape index
-            does not match the nullable default arm (analysis/compiler drift —
-            a wrong arm would silently mis-parse, so the grammar opts out).
+            no gate spec to select by (and no attempt ``order``), or a
+            ``struct_arm`` gate's escape index does not match the nullable
+            default arm (analysis/compiler drift — a wrong arm would silently
+            mis-parse, so the grammar opts out).
         """
         windows, peeks = gates.windows, gates.peeks
         arms: list[ArmSpec] = []
         default: tuple[ItemSpec, ...] | None = None
         default_idx: int | None = None
-        for idx, arm in enumerate(node):
+        pairs = (
+            list(enumerate(node)) if order is None else [(i, node[i]) for i in order]
+        )
+        for idx, arm in pairs:
             items = _items(arm)
             specs = self._compile_seq(items, tail)
             first = self.analysis.seq_first(items)
@@ -457,7 +482,12 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                         (peeks[0], peeks[1][idx]) if peeks is not None else None,
                     )
                 )
-        if windows is None and peeks is None and _firsts_overlap(arms):
+        if (
+            order is None
+            and windows is None
+            and peeks is None
+            and _firsts_overlap(arms)
+        ):
             raise UnsupportedConstructError(
                 "pda: arm FIRST overlap without a gate spec"
             )
@@ -530,6 +560,13 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
             sspec = analysis.taxonomy.struct_loop_gates.get(id(item))
             if sspec is not None:
                 return sspec  # a folding-aware ScanGate (P3 structured / P5)
+            if id(item) in analysis.taxonomy.attempt_loops:
+                # The attempt licence: possessive greedy — take while a member,
+                # nothing subtracted. Sound because a possessive take that also
+                # completes globally IS the split's defined answer (the first
+                # slot owns the text), and one that over-commits fails the
+                # parse into the gated engine rather than mis-building.
+                return StopGate(first)
             if first.overlaps(cont):
                 policy = analysis.loop_policy(item, rest)
                 if isinstance(policy, tuple):

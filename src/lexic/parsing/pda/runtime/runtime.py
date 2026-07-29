@@ -77,6 +77,7 @@ from __future__ import annotations
 from functools import partial
 from typing import Any
 
+from lexic.exceptions import LexicError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
@@ -138,6 +139,16 @@ __all__ = ["PdaFail", "PdaKernel"]
 _EMPTY_SLOT: Any = None
 """An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
 each slot later holding a sub-model list) without narrowing their type."""
+
+
+def _admits(char: str, chars: Any, negated: Any) -> bool:
+    """Whether an attempt entry's FIRST pre-filter admits the lookahead.
+
+    ``chars is None`` is the nullable default entry — always admitted.
+    """
+    if chars is None:
+        return True
+    return (char != "" and char not in chars) if negated else char in chars
 
 
 class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
@@ -457,6 +468,9 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             if chased is None:
                 return False  # the empty (nullable) arm — nothing consumed
             clone = chased
+        if clone.attempt is not None:
+            self._attempt(clone, out)
+            return False  # the winning arm was consumed inline
         if clone.kwin_selectors is not None or clone.pn_selectors is not None:
             gated = select_gated(self.text, self.pos, clone)
             self.stack.append(
@@ -641,6 +655,85 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             }
             self._deleg[name] = cached
         return cached
+
+    def _attempt(self, clone: FlatClone, out: list[object]) -> None:
+        """Try an attempt clone's entries in order — the third gate class, live.
+
+        Each entry runs as a self-contained sub-run from the cursor
+        (:meth:`_attempt_run` — rolled back by construction on failure). The
+        first success is audited against the REMAINING admitted entries before
+        it commits: a second success on the SAME span is a value question this
+        seam does not settle, and one on a DIFFERENT span whose next character
+        the rule's continuation accepts is a cross-span arm choice — both bail
+        to the gated engine, which refuses iff the ambiguity is real.
+
+        :param clone: The attempt clone (``clone.attempt`` is set).
+        :param out: The parent sink the winning arm's values splice into.
+        :raises PdaFail: When no entry succeeds, or the audit cannot settle.
+        """
+        follow, entries = clone.attempt
+        pos = self.pos
+        text = self.text
+        char = text[pos : pos + 1]
+        winner = -1
+        best: tuple[int, list[object]] | None = None
+        for idx, (chars, negated, sub) in enumerate(entries):
+            if not _admits(char, chars, negated):
+                continue
+            best = self._attempt_run(sub, pos)
+            if best is not None:
+                winner = idx
+                break
+        if best is None:
+            raise PdaFail(f"attempt: no arm matches at {pos}")
+        end, values = best
+        for chars, negated, sub in entries[winner + 1 :]:
+            if not _admits(char, chars, negated):
+                continue
+            other = self._attempt_run(sub, pos)
+            if other is None:
+                continue
+            alt = other[0]
+            if alt == end:
+                raise PdaFail(
+                    f"attempt at {pos}: two arms span [{pos}, {end}) — "
+                    "a value question for the gated engine"
+                )
+            if follow.has(text[alt : alt + 1]):
+                raise PdaFail(
+                    f"attempt at {pos}: arm choice spans two ends ({alt}, {end}) "
+                    "and the alternative could compose"
+                )
+        out.extend(values)
+        self.pos = end
+
+    def _attempt_run(self, sub: FlatClone, pos: int) -> tuple[int, list[object]] | None:
+        """One arm attempt as a self-contained sub-run — fail-soft, rolled back.
+
+        :meth:`prefix_run`'s discipline (fresh stack, restored cursor) with two
+        differences the attempt seam needs: EVERY value the arm reports is
+        returned (a transparent arm splices several), and there is no
+        window-edge decline — the window here is the whole input, so an EOF
+        completion is a legitimate success. A refusing fold
+        (:class:`~lexic.exceptions.LexicError`) fails the ARM, not the parse —
+        a later arm may be the one that composes.
+
+        :param sub: The entry's single-arm clone.
+        :param pos: The attempt position.
+        :returns: ``(end, values)``, or ``None`` when the arm fails.
+        """
+        saved_stack, saved_pos = self.stack, self.pos
+        self.stack = []
+        self.pos = pos
+        holder: list[object] = []
+        try:
+            self._enter(sub, holder)
+            self._drive()
+            return self.pos, holder
+        except PdaFail, LexicError:
+            return None
+        finally:
+            self.stack, self.pos = saved_stack, saved_pos
 
     def _delegate_run(
         self, clone: FlatClone, window_text: str, pos: int

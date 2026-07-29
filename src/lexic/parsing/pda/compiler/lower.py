@@ -7,7 +7,7 @@ arm, item and selector becomes ints in one pass. What it produces is defined in
 
 from __future__ import annotations
 
-from typing import Sequence, cast
+from typing import Any, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.fold import RuleFold
@@ -217,9 +217,62 @@ def _flatten_group(group: GroupSpec, shells: dict[CloneKey, FlatClone]) -> FlatC
         _flatten_arm(group.default, shells) if group.default is not None else None
     )
     clone.struct_arm = None
+    clone.attempt = None
     clone.mode = BUILD_TRANSPARENT
     _bake_build(clone, None)
     return clone
+
+
+def _attempt_sub(clone: FlatClone, reduce_mode: bool) -> FlatClone:
+    """A single-arm sub-clone shell copying ``clone``'s FINAL baked state.
+
+    Called after the optimize / reduce-rewrite passes, so the copied build
+    plan (and, on the reduce path, the completion fields) is what the parent
+    actually runs with. ``selectors``/``default`` are the caller's to set.
+    """
+    sub = FlatClone.__new__(FlatClone)
+    sub.kwin_selectors = None
+    sub.pn_selectors = None
+    sub.struct_arm = None
+    sub.attempt = None
+    sub.mode = clone.mode
+    sub.fold = clone.fold
+    sub.fields = clone.fields
+    sub.fast = clone.fast
+    sub.defaults = clone.defaults
+    sub.leaf = False
+    sub.needs_ends = clone.needs_ends
+    if reduce_mode:
+        sub.reduce_kind = clone.reduce_kind
+        sub.reduce_body = clone.reduce_body
+        sub.reduce_is_yield = clone.reduce_is_yield
+        sub.reduce_span = clone.reduce_span
+        sub.reduce_can_drop = clone.reduce_can_drop
+    return sub
+
+
+def _attempt_entries(
+    clone: FlatClone, reduce_mode: bool
+) -> tuple[tuple[Any, Any, FlatClone], ...]:
+    """An attempt clone's ordered entry list — one single-arm sub-clone each.
+
+    Every sub-clone SHARES the parent's :class:`FlatArm` (op specialisation
+    reached it once, through the parent) and the parent's baked build plan, so
+    a sub-run builds exactly the model the rule would. The nullable default,
+    when present, is the last entry, always admitted (``chars is None``).
+    """
+    entries: list[tuple[Any, Any, FlatClone]] = []
+    for chars, negated, arm in clone.selectors:
+        sub = _attempt_sub(clone, reduce_mode)
+        sub.selectors = ((chars, negated, arm),)
+        sub.default = None
+        entries.append((chars, negated, sub))
+    if clone.default is not None:
+        sub = _attempt_sub(clone, reduce_mode)
+        sub.selectors = ()
+        sub.default = clone.default
+        entries.append((None, None, sub))
+    return tuple(entries)
 
 
 def flatten_clones(
@@ -247,12 +300,25 @@ def flatten_clones(
             _flatten_arm(spec.default, shells) if spec.default is not None else None
         )
         clone.struct_arm = spec.struct_arm
+        # The attempt MARKER must exist before the optimizer runs (the vstr /
+        # leaf / dispatch licences all refuse attempt clones); the entries are
+        # built after it, from the parent's final baked state.
+        clone.attempt = (
+            (spec.attempt_follow, ()) if spec.attempt_follow is not None else None
+        )
         clone.mode = _build_mode(spec.fold)
         _bake_build(clone, spec.fold)
     if completions is None:
         optimize_program(list(shells.values()))
     else:
         reduce_rewrite(shells, completions)
+    for key, spec in clones.items():
+        if spec.attempt_follow is not None:
+            clone = shells[key]
+            clone.attempt = (
+                spec.attempt_follow,
+                _attempt_entries(clone, completions is not None),
+            )
     return shells
 
 
