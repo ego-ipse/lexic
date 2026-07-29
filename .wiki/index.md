@@ -11,7 +11,6 @@
 | Which exception class for unknown syntax / unknown atom type? | [[lexic/error-vocabulary]] |
 | How is a generated field name decided for a given atom? | [[lexic/field-naming]] |
 | Is this import legal? Which packages can depend on which? | [[lexic/architecture]] |
-| What tasks are done vs pending? | [[lexic/cutover-plan]] |
 | Old `Atom` shape vs new `IrItem` shape — fields, type aliases? | [[lexic/ir-shapes]] |
 | How do I add a new grammar flavour? | [[lexic/flavour-system]] |
 | Which compile function should I call? What does CompiledGrammar contain? | [[lexic/public-api]] |
@@ -56,15 +55,6 @@
 | [[lexic/generated-modules]] | Every module lexic emits: twins (`export_module`/`bind_module`) and compiled payloads (`export_value`, the three targets, the reader sidecar); the layout algebra (`ir/layout.py`), the notation emit half (`emit_ir`), the shared writer, tool-clean gates, reserved names |
 | [[theory/grammar-formats]] | GBNF, ABNF, EBNF syntax reference; operator precedence tables; escape notations; Lexic coverage gaps per format; GBNF vs ABNF vs EBNF comparison table |
 | [[theory/parsing-theory]] | CFGs, PEGs, LL/LR/Earley algorithms; AST vs CST; Visitor vs Transformer patterns; grammar toolchains (Lexic's own native Earley engine, plus Lark/ANTLR4/tree-sitter as external reference points); IR design rationale |
-
----
-
-## Active work
-
-| Page | Contains |
-|---|---|
-| [[lexic/cutover-plan]] | Cutover complete (2026-05-13); what replaced what; Slice B remaining work pointer |
-| [[lexic/slice-b-status]] | Slice B audit post-cutover: Phase 1 done/obsolete breakdown; Phase 2 entirely obsolete; Phase 3 (token reservation) SHIPPED — see [[lexic/tokens]] |
 | [[lexic/decisions]] | Dated design decisions with reasoning: grammar-is-canonical, parallel-track strategy, `_FIELD_BASE` dispatch table, `CHARCLASS_NAMES` ground truth, `IrItem` quantifier placement, `Flavour` ABC class-attributes-only |
 
 ---
