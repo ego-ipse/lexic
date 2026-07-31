@@ -471,11 +471,19 @@ def _vstr_inlinable(clone: Any) -> bool:
     """The ``OP_VSTR`` licence: a terminal-only ``value_str`` clone.
 
     Never an attempt clone — the inline matcher selects one arm by FIRST,
-    which is exactly the decision an attempt clone exists to NOT make that way.
+    which is exactly the decision an attempt clone exists to NOT make that
+    way — and never a windowed / peeked / struct-gated clone: the inline
+    matcher's ``select_arm`` reads ``selectors`` only, and a gated clone's
+    live arms hang off its gate structures (a k-window ``value_str`` inlined
+    here selected from an EMPTY list and failed every mandatory iteration —
+    latent while such rules islanded, exposed when they began to run).
     """
     return (
         clone.mode == BUILD_VALUE_STR
         and clone.attempt is None
+        and clone.kwin_selectors is None
+        and clone.pn_selectors is None
+        and clone.struct_arm is None
         and all(
             all(kind in _TERMINAL_OPS for kind in arm.kinds)
             for arm in _clone_arms(clone)
@@ -543,6 +551,10 @@ def _mark_leaves(clone: FlatClone) -> None:
     it, so the runtime builds its model inline without a frame.
     """
     if clone.mode != BUILD_SEQ or clone.fast is None:
+        return
+    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+        return  # a gated selection cannot run frame-lessly by lead char
+    if clone.struct_arm is not None or clone.attempt is not None:
         return
     inline_ops = _TERMINAL_OPS | {OP_VSTR}
     clone.leaf = all(

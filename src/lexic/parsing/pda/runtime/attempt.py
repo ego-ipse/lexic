@@ -102,29 +102,28 @@ class KernelCaches(IrLeaf[IrSelf, IrSelf]):
         :data:`PROBE_DEPTH`, past which a boundary raises
         :class:`~lexic.parsing.pda.core.errors.ProbeFork` (undecidable reads
         as viable).
-    :ivar runs: The packrat memo — ``(id(clone), pos, at_cap)`` → a finished
-        attempt sub-run's ``(end, values)``, or ``None`` for one that FAILED.
-        Sound because a sub-run is a pure function of the clone and position
-        over one kernel's fixed text and tables — except at the probe-depth
-        cap, where a boundary forks instead of resolving, hence the third key
-        part. The values are immutable models, only ever ``extend``-read, so
-        a hit splices the same objects the miss built (the intern memo's own
-        sharing rule).
+    :ivar uncertain: Set when a probe's drive resolved a both-viable
+        boundary GREEDILY (probes never nest — the exponential chain of a
+        rules-list grammar probing every later line is cut to one linear
+        drive); the probe's outcome is then a SAMPLED path, and the outer
+        verdict treats it conservatively — an uncertain outcome on a
+        decisive side reads as a fork, which is a fallback, never a wrong
+        commit.
     """
 
-    __slots__ = ("deleg", "intern", "probing", "runs")
+    __slots__ = ("deleg", "intern", "probing", "uncertain")
 
     deleg: dict[str, dict[int, Delegate]]
     intern: dict[Any, object]
     probing: int
-    runs: dict[tuple[int, int, bool], tuple[int, list[object]] | None]
+    uncertain: bool
 
     def __init__(self) -> None:
-        """Seed the memos empty, the probe depth zero."""
+        """Seed the memos empty, the probe depth zero, certainty clean."""
         self.deleg = {}
         self.intern = {}
         self.probing = 0
-        self.runs = {}
+        self.uncertain = False
 
 
 def frames_copy(stack: list[list[Any]]) -> list[list[Any]]:

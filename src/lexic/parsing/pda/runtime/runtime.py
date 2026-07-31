@@ -768,11 +768,24 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             frame[F_I] = i + 1
             frame[F_ENDS][i] = pos
             return i + 1
-        if self._stop_viable(arm, i, char):
-            if self._caches.probing >= PROBE_DEPTH:
-                raise ProbeFork(
-                    f"attempt loop at {pos}: taking and stopping are both viable"
-                )
+        rest_verdict = _arm_rest_verdict(arm, i, char)
+        if self._caches.probing:
+            # Inside a probe boundaries resolve GREEDILY by class — probes
+            # never nest. The terminator-theft shape prefers its own
+            # mandatory continuation (stop); the chain shapes take. Either
+            # way the probe's outcome becomes a SAMPLED path (uncertain),
+            # which the outer verdict reads conservatively.
+            if rest_verdict == _ADMITS_HARD:
+                self._caches.uncertain = True
+                frame[F_COUNT] = 0
+                frame[F_I] = i + 1
+                frame[F_ENDS][i] = pos
+                return i + 1
+            if self._stop_viable_from(rest_verdict, char):
+                self._caches.uncertain = True
+        elif rest_verdict == _ADMITS_HARD or self._stop_viable_from(
+            rest_verdict, char
+        ):
             verdict = self._fork_verdict(arm, i, pos, got)
             if verdict == _STOP_FORCED:
                 frame[F_COUNT] = 0
@@ -788,6 +801,21 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         frame[F_COUNT] += 1
         self.pos = end
         return i
+
+    def _stop_viable_from(self, rest_verdict: int, char: str) -> bool:
+        """The ancestor half of :meth:`_stop_viable`, from a precomputed
+        own-arm verdict."""
+        if rest_verdict == _ADMITS_HARD:
+            return True
+        if rest_verdict != _ASCEND:
+            return False
+        for frame in self.stack[-2::-1]:
+            verdict = _arm_rest_verdict(frame[F_ARM], frame[F_I], char)
+            if verdict in (_ADMITS, _ADMITS_HARD):
+                return True
+            if verdict == _DEAD:
+                return False
+        return char == ""
 
     def _stop_viable(self, arm: FlatArm, i: int, char: str) -> bool:
         """Whether the boundary char is viable BEYOND this arm, site-exactly.
@@ -860,10 +888,10 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         :param taken: The iteration's ``(end, values)`` (the take side's seed).
         :returns: :data:`_TAKE` / :data:`_STOP_FORCED` / :data:`_FORKED`.
         """
-        stop = self._probe(arm, i, pos, None)
+        stop, _stop_unc = self._probe(arm, i, pos, None)
         if stop is None:
             return _TAKE
-        take = self._probe(arm, i, pos, taken)
+        take, _take_unc = self._probe(arm, i, pos, taken)
         if take is None:
             return _STOP_FORCED
         if len(take) != len(stop) or any(
@@ -984,7 +1012,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         i: int,
         pos: int,
         taken: tuple[int, list[object]] | None,
-    ) -> list[object] | None:
+    ) -> tuple[list[object] | None, bool]:
         """One side of a boundary, run to end-of-input on a copied stack.
 
         The continuation from a boundary is runnable because the live stack
@@ -997,10 +1025,11 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
 
         :param taken: ``None`` for the stop side; the iteration's
             ``(end, values)`` for the take side.
-        :returns: The root output values on a full-input completion, else
-            ``None``.
-        :raises ProbeFork: A deeper undecidable boundary — the caller bails
-            (undecidable never reads as "this side failed").
+        :returns: ``(values | None, uncertain)`` — the root output on a
+            full-input completion, and whether the drive greedily sampled any
+            both-viable boundary on the way (the caller's conservatism).
+        :raises ProbeFork: An undecidable boundary past the depth cap — the
+            caller bails (undecidable never reads as "this side failed").
         """
         caches = self._caches
         saved_stack, saved_pos = self.stack, self.pos
@@ -1019,17 +1048,21 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         self.stack = probe
         self.pos = start
         caches.probing += 1
+        saved_unc = caches.uncertain
+        caches.uncertain = False
         try:
             if taken is not None:
                 self._sink_for(top, arm, i).extend(taken[1])
             self._drive()
-            return root_out if self.pos == len(self.text) else None
+            done = root_out if self.pos == len(self.text) else None
+            return done, caches.uncertain
         except ProbeFork:
             raise
         except PdaFail, LexicError:
-            return None
+            return None, caches.uncertain
         finally:
             caches.probing -= 1
+            caches.uncertain = saved_unc
             self.stack, self.pos = saved_stack, saved_pos
 
     def _delegate_run(
