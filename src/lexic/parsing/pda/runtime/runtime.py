@@ -368,7 +368,12 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             need = True
         else:
             hi = arm.his[i]
-            need = (hi < 0 or count < hi) and gate_take(
+            due = hi < 0 or count < hi
+            if due and arm.gate_kinds[i] == GATE_ATTEMPT:
+                frame[F_I] = i
+                self.pos = pos
+                return self._attempt_iteration(frame, arm, i, pos)
+            need = due and gate_take(
                 self.text, pos, arm.gate_kinds[i], arm.gate_data[i]
             )
         if not need:
@@ -377,10 +382,6 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             frame[F_ENDS][i] = pos
             self.pos = pos
             return i + 1
-        if count >= arm.los[i] and arm.gate_kinds[i] == GATE_ATTEMPT:
-            frame[F_I] = i
-            self.pos = pos
-            return self._attempt_iteration(frame, arm, i, pos)
         frame[F_COUNT] = count + 1
         frame[F_I] = i
         self.pos = pos
@@ -677,15 +678,30 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         (an optional item's FIRST routinely overlaps its successor's).
 
         A boundary char viable for BOTH the iteration and the loop's soft
-        continuation is an arm choice in loop clothing — a shorter extent may
-        compose into a different-valued whole parse, a question only the gated
-        engine's whole-input view can settle — so it bails rather than commits.
+        continuation MAY be an arm choice in loop clothing — a shorter extent
+        composing into a different-valued whole parse. The one-char signal
+        over-approximates wildly (an optional item's FIRST routinely shares a
+        separator char with its successor's), so the decision is made by
+        TRYING the stop side: the arm-rest probe
+        (:func:`~lexic.parsing.pda.compiler.lower._rest_clone`) runs from the
+        cursor, and only when stopping ALSO parses is the boundary a genuine
+        local fork — bailed to the gated engine, whose whole-input view owns
+        the question. A failing probe licenses the iteration.
 
         :returns: The driver continuation index, exactly as :meth:`_quant_step`.
-        :raises PdaFail: On a both-viable boundary (the gated engine decides).
+        :raises PdaFail: On a genuinely forked boundary (the gated engine
+            decides), including every both-viable boundary of an arm-FINAL
+            loop (its empty rest-probe succeeds vacuously — stop viability
+            then belongs to the enclosing frames, which no local probe sees).
         """
         char = self.text[pos : pos + 1]
-        if _admits(char, *arm.gate_data[i][1]):
+        first, follow, rest = arm.gate_data[i]
+        if not _admits(char, *first):
+            frame[F_COUNT] = 0
+            frame[F_I] = i + 1
+            frame[F_ENDS][i] = pos
+            return i + 1
+        if _admits(char, *follow) and self._attempt_run(rest, pos) is not None:
             raise PdaFail(f"attempt loop at {pos}: taking and stopping are both viable")
         k = arm.kinds[i]
         got: tuple[int, list[object]] | None = None

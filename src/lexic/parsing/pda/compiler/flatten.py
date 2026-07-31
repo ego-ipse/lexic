@@ -177,16 +177,30 @@ def _peek_admits(text: str, pos: int, gate: Any) -> bool:
 def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
     """Whether a flat loop gate of kind ``gk`` admits another iteration at ``pos``.
 
-    :data:`GATE_ATTEMPT` carries ``((first), (soft continuation))`` pairs and
-    admits on the first — an ADMISSION only; the driver runs the admitted
-    iteration as a sub-run and closes the loop when it fails, or bails when
-    the boundary char is viable for BOTH sets
-    (:meth:`PdaKernel._attempt_iteration`).
+    :data:`GATE_ATTEMPT` here is the TERMINAL attempt loop's decision (the
+    driver routes non-terminal attempt items to
+    :meth:`PdaKernel._attempt_iteration` before consulting a gate): take while
+    the char is in the FIRST alone, and a char viable for BOTH the FIRST and
+    the stored soft continuation is an arm choice in loop clothing — with no
+    sub-run to consult, the terminal loop bails to the gated engine.
+
+    :raises PdaFail: A terminal attempt boundary whose char both sets accept.
     """
-    if gk in (GATE_STOP, GATE_ATTEMPT):
+    if gk == GATE_STOP:
         ch = text[pos : pos + 1]
-        chars, negated = gate if gk == GATE_STOP else gate[0]
+        chars, negated = gate
         return (ch != "" and ch not in chars) if negated else ch in chars
+    if gk == GATE_ATTEMPT:
+        ch = text[pos : pos + 1]
+        chars, negated = gate[0]
+        take = (ch != "" and ch not in chars) if negated else ch in chars
+        if take:
+            fchars, fnegated = gate[1]
+            if (ch != "" and ch not in fchars) if fnegated else ch in fchars:
+                raise PdaFail(
+                    f"attempt loop at {pos}: taking and stopping are both viable"
+                )
+        return take
     if gk == GATE_PAIR:
         return text[pos : pos + 2] in gate
     if gk == GATE_KWIN:
