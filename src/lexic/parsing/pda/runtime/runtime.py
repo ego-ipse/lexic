@@ -146,11 +146,16 @@ from lexic.parsing.pda.runtime.matchers import (
 
 __all__ = ["PdaFail", "PdaKernel"]
 
-_DEAD, _ASCEND, _ADMITS = 0, 1, 2
+_DEAD, _ASCEND, _ADMITS, _ADMITS_HARD = 0, 1, 2, 3
 """An arm-rest walk's verdicts: a mandatory non-admitting item kills the
 stop side; a fully-skippable rest defers to the enclosing frame; an
-admitting item is same-arm (split) or ancestor-arm (fork) viability,
-per the caller's level."""
+admitting OPTIONAL item is same-arm chain viability (the greedy split);
+an admitting MANDATORY item is the terminator-theft shape — a possessive
+take would steal the char the arm's own continuation requires, so the
+probes decide (gbnf-meta's rule terminator: ``ws | '\n' next-rule``)."""
+
+_TAKE, _STOP_FORCED, _FORKED = 0, 1, 2
+"""A both-viable boundary's resolutions (:meth:`PdaKernel._fork_verdict`)."""
 
 _EMPTY_SLOT: Any = None
 """An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
@@ -191,7 +196,7 @@ def _arm_rest_verdict(arm: FlatArm, i: int, char: str) -> int:
     """The rest-of-arm walk past item ``i`` — dead, ascend, or admits."""
     for j in range(i + 1, arm.n):
         if _item_admits(arm, j, char):
-            return _ADMITS
+            return _ADMITS_HARD if arm.los[j] > 0 else _ADMITS
         if arm.los[j] > 0:
             return _DEAD
     return _ASCEND
@@ -329,7 +334,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             self.stack, self.pos = saved_stack, saved_pos
         return end, (holder[0] if holder else None)
 
-    def _drive(self) -> None:
+    def _drive(self, floor: int = 0) -> None:
         """Drain the frame stack — the fused hot loop.
 
         The outer loop processes the top frame; the inner loop runs its items
@@ -345,7 +350,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         """
         stack = self.stack
         text = self.text
-        while stack:
+        while len(stack) > floor:
             frame = stack[-1]
             arm = frame[F_ARM]
             kinds = arm.kinds
@@ -764,9 +769,17 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             frame[F_ENDS][i] = pos
             return i + 1
         if self._stop_viable(arm, i, char):
-            if self._caches.probing >= PROBE_DEPTH or self._fork_is_real(
-                arm, i, pos, got
-            ):
+            if self._caches.probing >= PROBE_DEPTH:
+                raise ProbeFork(
+                    f"attempt loop at {pos}: taking and stopping are both viable"
+                )
+            verdict = self._fork_verdict(arm, i, pos, got)
+            if verdict == _STOP_FORCED:
+                frame[F_COUNT] = 0
+                frame[F_I] = i + 1
+                frame[F_ENDS][i] = pos
+                return i + 1
+            if verdict == _FORKED:
                 raise ProbeFork(
                     f"attempt loop at {pos}: taking and stopping are both viable"
                 )
@@ -794,11 +807,13 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         probe costs a value comparison, never a wrong commit).
         """
         verdict = _arm_rest_verdict(arm, i, char)
+        if verdict == _ADMITS_HARD:
+            return True  # the arm's own mandatory continuation wants the char
         if verdict != _ASCEND:
-            return False  # dead, or a same-arm split (greedy take)
+            return False  # dead, or an optional same-arm split (greedy take)
         for frame in self.stack[-2::-1]:
             verdict = _arm_rest_verdict(frame[F_ARM], frame[F_I], char)
-            if verdict == _ADMITS:
+            if verdict in (_ADMITS, _ADMITS_HARD):
                 return True
             if verdict == _DEAD:
                 return False
@@ -823,36 +838,39 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         self.pos = pos
         return i + 1
 
-    def _fork_is_real(
+    def _fork_verdict(
         self,
         arm: FlatArm,
         i: int,
         pos: int,
         taken: tuple[int, list[object]],
-    ) -> bool:
-        """Whether a both-viable boundary genuinely forks the parse's VALUE.
+    ) -> int:
+        """A both-viable boundary's resolution — take, stop, or fork.
 
         Ambiguity is a question about values, asked as the forest gate asks
         it — on completions, one flip at the decision point (a fold is
-        compositional; later boundaries get their own audits). The STOP side
-        runs to end-of-input first; no completion → taking is FORCED, soundly
-        (the alternative derives nothing). Otherwise the TAKE side runs the
-        same way, and only DIFFERENT values are a real fork — equal values
-        are a benign split (an optional chain whose item fits either slot),
-        which the doctrine never refuses.
+        compositional; later boundaries get their own audits). Both sides run
+        to end-of-input: stop dead → taking is FORCED, soundly (the
+        alternative derives nothing); take dead while stop completes → STOP
+        is forced (Earley's split answer is maximal SUBJECT TO SUCCESS — the
+        gbnf-meta terminator theft resolves here); both complete → equal
+        values are a benign split (committed as the take), different values
+        are the gated engine's question.
 
         :param taken: The iteration's ``(end, values)`` (the take side's seed).
-        :returns: ``True`` when the gated engine must decide.
+        :returns: :data:`_TAKE` / :data:`_STOP_FORCED` / :data:`_FORKED`.
         """
         stop = self._probe(arm, i, pos, None)
         if stop is None:
-            return False
+            return _TAKE
         take = self._probe(arm, i, pos, taken)
-        return (
-            take is None
-            or len(take) != len(stop)
-            or any(not same_value(a, b) for a, b in zip(take, stop))
-        )
+        if take is None:
+            return _STOP_FORCED
+        if len(take) != len(stop) or any(
+            not same_value(a, b) for a, b in zip(take, stop)
+        ):
+            return _FORKED
+        return _TAKE
 
     def _attempt(self, clone: FlatClone, out: list[object]) -> None:
         """Try an attempt clone's entries in order — the third gate class, live.
@@ -927,46 +945,38 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
     def _attempt_run(self, sub: FlatClone, pos: int) -> tuple[int, list[object]] | None:
         """One arm attempt as a self-contained sub-run — fail-soft, rolled back.
 
-        :meth:`prefix_run`'s discipline (fresh stack, restored cursor) with two
-        differences the attempt seam needs: EVERY value the arm reports is
-        returned (a transparent arm splices several), and there is no
-        window-edge decline — the window here is the whole input, so an EOF
-        completion is a legitimate success. A refusing fold
-        (:class:`~lexic.exceptions.LexicError`) fails the ARM, not the parse —
-        a later arm may be the one that composes.
-
-        Memoized (packrat) on :attr:`KernelCaches.runs` — probes re-drive the
-        same continuation, re-reaching identical ``(clone, pos)`` sub-runs; a
-        :class:`ProbeFork` is never memoized (it propagates as the verdict).
+        Runs ON TOP of the live stack, bounded by a depth watermark (not a
+        severed fresh stack): nested boundaries' viability walks and probes
+        then see the TRUE continuation — the severed form mis-resolved any
+        fork whose alternative lived in an enclosing frame (gbnf-meta's rule
+        terminator). EVERY value the arm reports is returned (a transparent
+        arm splices several); an EOF completion is a legitimate success; a
+        refusing fold (:class:`~lexic.exceptions.LexicError`) fails the ARM,
+        not the parse. Deliberately unmemoized — a sub-run's outcome depends
+        on the enclosing continuation, so ``(clone, pos)`` is not a sound
+        key (and the memo measured zero hits when it was).
 
         :param sub: The entry's single-arm clone.
         :param pos: The attempt position.
         :returns: ``(end, values)``, or ``None`` when the arm fails.
         """
-        caches = self._caches
-        key = (id(sub), pos, caches.probing >= PROBE_DEPTH)
-        runs = caches.runs
-        if key in runs:
-            return runs[key]
-        saved_stack, saved_pos = self.stack, self.pos
-        self.stack = []
+        saved_pos = self.pos
+        floor = len(self.stack)
         self.pos = pos
         holder: list[object] = []
-        result: tuple[int, list[object]] | None
         try:
             self._enter(sub, holder)
-            self._drive()
-            result = (self.pos, holder)
+            self._drive(floor)
+            return self.pos, holder
         except ProbeFork:
             # Undecidable is NOT failure: swallowing it as this arm's miss
             # would let a later arm commit what the gated engine may refuse.
             raise
         except PdaFail, LexicError:
-            result = None
+            return None
         finally:
-            self.stack, self.pos = saved_stack, saved_pos
-        caches.runs[key] = result
-        return result
+            del self.stack[floor:]
+            self.pos = saved_pos
 
     def _probe(
         self,

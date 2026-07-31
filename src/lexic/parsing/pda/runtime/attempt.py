@@ -24,7 +24,7 @@ __all__ = [
     "sole_admitted",
 ]
 
-PROBE_DEPTH = 8
+PROBE_DEPTH = 24
 """Stop-probe nesting cap. Past it a boundary reads as undecidable
 (:class:`~lexic.parsing.pda.core.errors.ProbeFork` — viable, so the parse
 bails to the gated engine); the cap only ever costs a fallback, never a
