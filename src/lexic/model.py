@@ -491,29 +491,32 @@ class GrammarModel(IrNamedTuple):
             if isinstance(node, str):
                 out.append(node)
             elif isinstance(node, GrammarModel):
-                stack.extend(reversed(GrammarModel._emit_parts(node)))
+                parts = GrammarModel.emit_parts(node)
+                stack.extend(part for _field, part in reversed(parts))
             elif isinstance(node, (list, tuple)):
                 stack.extend(reversed(node))
             else:
                 out.append(str(node))
         return "".join(out)
 
-    def _emit_parts(self) -> list[object]:
-        """This model's own emission items, deferring nested values.
+    def emit_parts(self) -> list[tuple[str | None, object]]:
+        """This model's own emission items, TAGGED with their field names.
 
-        Returns the ordered items :meth:`to_text` would emit for this model
-        alone — literal strings for unbound literals, and each bound field's
-        value (str, model, or tuple) left unexpanded for the walker to
-        resolve. Mirrors ``to_text``'s per-item logic without recursing.
+        Each item is ``(field, part)``: the bound field's name, or ``None``
+        for structural literals and ``value_str`` payloads; the part is a
+        literal string or the field's unexpanded value (str, model, or
+        tuple). :meth:`to_text` consumes this stream ignoring the tags;
+        span derivation folds it WITH them — one traversal, so derived
+        spans cannot drift from emission.
 
-        :returns: The ordered emission items for this model.
+        :returns: The ordered, tagged emission items for this model.
         :raises NotImplementedError: On an abstract alternation class (no
-            fields at all); call ``to_text`` on the concrete arm instead.
+            fields at all); call it on the concrete arm instead.
         """
         binds = type(self).bound_fields()
         if not binds:
             if "value" in self._fields:
-                return [str(getattr(self, "value", ""))]
+                return [(None, str(getattr(self, "value", "")))]
             raise NotImplementedError(
                 f"to_text() is undefined on abstract alternation class "
                 f"{type(self).__name__}; call it on a concrete arm instance."
@@ -523,14 +526,14 @@ class GrammarModel(IrNamedTuple):
         if any(not arm for arm in body) and all(v is None for v in values.values()):
             return []  # the rule's empty alternate arm matched — no field set
         arm = next((a for a in body if a), IrSequence())
-        parts: list[object] = []
+        parts: list[tuple[str | None, object]] = []
         for slot, item in enumerate(arm):
             if slot in binds:
                 value = values[slot]
                 if value is not None:
-                    parts.append(value)
+                    parts.append((binds[slot][0], value))
             elif isinstance(item.atom, IrLiteral):
-                parts.append(str(item.atom))
+                parts.append((None, str(item.atom)))
         return parts
 
     def to_grammar(self, flavour: str = "gbnf", width: int | None = 88) -> str:
