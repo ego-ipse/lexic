@@ -75,15 +75,20 @@ def _attrs(attrs: dict[str, str | None] | None) -> str:
 
 
 def live_page(source: str, flavour: str, sections: dict[str, str],
-              input_text: str = "") -> str:
+              input_text: str = "", flavours: list[str] | None = None,
+              examples: list[str] | None = None) -> str:
     """The live shell — editors enabled, current sections pre-filled."""
-    return render(_page("live", source, flavour, sections, input_text), None)
+    return render(
+        _page("live", source, flavour, sections, input_text,
+              flavours or [], examples or []),
+        None,
+    )
 
 
 def artifact(source: str, flavour: str, sections: dict[str, str],
              input_text: str = "") -> str:
     """A frozen session — sections in the DOM, editing off."""
-    return render(_page("artifact", source, flavour, sections, input_text), None)
+    return render(_page("artifact", source, flavour, sections, input_text, [], []), None)
 
 
 def fragments(sections: dict[str, str]) -> str:
@@ -104,11 +109,11 @@ def fragments(sections: dict[str, str]) -> str:
 
 
 def _page(mode: str, source: str, flavour: str, sections: dict[str, str],
-          input_text: str) -> IrDoc:
+          input_text: str, flavours: list[str], examples: list[str]) -> IrDoc:
     return IrCat(
         raw("<!DOCTYPE html>"),
         el("html", {"lang": "en"}, _head(),
-           _body(mode, source, flavour, sections, input_text)),
+           _body(mode, source, flavour, sections, input_text, flavours, examples)),
     )
 
 
@@ -123,17 +128,18 @@ def _head() -> IrDoc:
 
 
 def _body(mode: str, source: str, flavour: str, sections: dict[str, str],
-          input_text: str) -> IrDoc:
+          input_text: str, flavours: list[str], examples: list[str]) -> IrDoc:
     return el(
         "body",
         {"data-mode": mode, "data-flavour": flavour},
-        _side(source, sections, input_text),
+        _side(source, sections, input_text, flavour, flavours, examples),
         _main(sections),
         el("script", None, raw(_SCRIPT)),
     )
 
 
-def _side(source: str, sections: dict[str, str], input_text: str) -> IrDoc:
+def _side(source: str, sections: dict[str, str], input_text: str,
+          flavour: str, flavours: list[str], examples: list[str]) -> IrDoc:
     return el(
         "div",
         {"id": "side"},
@@ -143,6 +149,7 @@ def _side(source: str, sections: dict[str, str], input_text: str) -> IrDoc:
             el("h1", None, "opsis"),
             el("span", {"id": "mode-tag"}),
         ),
+        _controls(flavour, flavours, examples),
         el(
             "textarea",
             {"id": "grammar", "spellcheck": "false", "placeholder": "type a grammar…"},
@@ -158,6 +165,25 @@ def _side(source: str, sections: dict[str, str], input_text: str) -> IrDoc:
     )
 
 
+def _controls(flavour: str, flavours: list[str], examples: list[str]) -> IrDoc:
+    """The live pickers — hidden entirely in artifact mode (empty lists)."""
+    if not flavours and not examples:
+        return raw("")
+    flavour_opts = [
+        el("option", {"value": f, **({"selected": None} if f == flavour else {})}, f)
+        for f in flavours
+    ]
+    example_opts = [el("option", {"value": ""}, "example…")] + [
+        el("option", {"value": e}, e) for e in examples
+    ]
+    return el(
+        "div",
+        {"id": "controls"},
+        el("select", {"id": "flavour"}, *flavour_opts),
+        el("select", {"id": "example"}, *example_opts),
+    )
+
+
 def _main(sections: dict[str, str]) -> IrDoc:
     empty = el("div", {"class": "placeholder"}, "compile a grammar to begin")
     return el(
@@ -170,6 +196,7 @@ def _main(sections: dict[str, str]) -> IrDoc:
             el("button", {"data-tab": "railroad"}, "Railroad"),
             el("button", {"data-tab": "verdicts"}, "Verdicts"),
             el("button", {"data-tab": "pipeline"}, "Pipeline"),
+            el("button", {"data-tab": "module"}, "Module"),
             el("button", {"data-tab": "instance"}, "Instance"),
             el("button", {"data-tab": "engine"}, "Engine"),
             el(
@@ -197,6 +224,11 @@ def _main(sections: dict[str, str]) -> IrDoc:
             "div",
             {"class": "view", "id": "view-pipeline", "hidden": None},
             raw(sections["pipeline"]) if "pipeline" in sections else empty,
+        ),
+        el(
+            "div",
+            {"class": "view", "id": "view-module", "hidden": None},
+            raw(sections["module"]) if "module" in sections else empty,
         ),
         el(
             "div",
@@ -352,6 +384,16 @@ _RULES: tuple[tuple[str, dict[str, str]], ...] = (
     (".pl-removed", {"color": "var(--err)",
                      "text-decoration": "line-through"}),
     (".pl-same", {"color": "var(--dim)"}),
+    ("#controls", {"display": "flex", "gap": "8px", "padding": "8px 14px",
+                   "border-bottom": "1px solid var(--edge)"}),
+    ("#controls select", {"flex": "1", "background": "var(--bg)",
+                          "color": "var(--text)", "border":
+                          "1px solid var(--edge)", "font": "inherit",
+                          "padding": "3px 6px", "border-radius": "6px"}),
+    (".rr rect.tok", {"fill": "#2a1f30", "stroke": "var(--cyc)"}),
+    (".rr text.tok", {"fill": "var(--cyc)"}),
+    (".pysrc", {"background": "var(--panel)", "padding": "14px",
+                "border-radius": "8px", "white-space": "pre-wrap"}),
 )
 
 
@@ -370,7 +412,7 @@ def _css() -> str:
 _JS_BOOT = """
 "use strict";
 const MODE = document.body.dataset.mode;
-const FLAVOUR = document.body.dataset.flavour;
+let FLAVOUR = document.body.dataset.flavour;
 const status_ = document.getElementById("status");
 const editor = document.getElementById("grammar");
 const input = document.getElementById("input");
@@ -379,6 +421,7 @@ const views = {
   railroad: document.getElementById("view-railroad"),
   verdicts: document.getElementById("view-verdicts"),
   pipeline: document.getElementById("view-pipeline"),
+  module: document.getElementById("view-module"),
   instance: document.getElementById("view-instance"),
   engine: document.getElementById("view-engine"),
 };
@@ -526,5 +569,28 @@ document.getElementById("view-engine").addEventListener("input", e => {
 });
 """
 
+_JS_PICKERS = """
+const flavourSel = document.getElementById("flavour");
+const exampleSel = document.getElementById("example");
+if (flavourSel) flavourSel.addEventListener("change", () => {
+  FLAVOUR = flavourSel.value;
+  document.getElementById("mode-tag").textContent = "live · " + FLAVOUR;
+  if (editor.value.trim()) compile();
+});
+if (exampleSel) exampleSel.addEventListener("change", async () => {
+  if (!exampleSel.value) return;
+  const r = await fetch("/example?name=" + encodeURIComponent(exampleSel.value));
+  if (!r.ok) return;
+  editor.value = await r.text();
+  const ext = exampleSel.value.split(".").pop();
+  if (flavourSel && [...flavourSel.options].some(o => o.value === ext)) {
+    flavourSel.value = ext;
+    FLAVOUR = ext;
+    document.getElementById("mode-tag").textContent = "live · " + FLAVOUR;
+  }
+  compile();
+});
+"""
+
 _SCRIPT = (_JS_BOOT + _JS_TABS + _JS_GOTO + _JS_LIVE + _JS_COMPILE
-           + _JS_PARSE + _JS_SYNC + _JS_SCRUB)
+           + _JS_PARSE + _JS_SYNC + _JS_SCRUB + _JS_PICKERS)

@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from lexic.compile import compile_text
+from html import escape
+
+from lexic.compile import compile_text, export_source
 from lexic.exceptions import LexicError
 
 from opsis.eidolon import Topology
@@ -54,6 +56,7 @@ class Praxis:
             "railroad": railroad_html(ast),
             "verdicts": verdicts_html(cg),
             "pipeline": pipeline_html(text, flavour, cg),
+            "module": f'<pre class="pysrc">{escape(export_source(cg))}</pre>',
         }
         if self.input:
             self.sections.update(self.parse(self.input))

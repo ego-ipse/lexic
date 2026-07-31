@@ -12,10 +12,32 @@ from __future__ import annotations
 
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+
+import lexic.grammars
+from lexic.ir.flavour import IrFlavour
 
 from opsis.praxis import Praxis
 from opsis.shell import artifact, fragments, live_page
+
+_GROUND = Path(__file__).parents[2] / "resources" / "ground_truth"
+"""The example corpus — repo-relative, a prototype convenience."""
+
+
+def flavour_names() -> list[str]:
+    """Every registered flavour, discovered from the public singletons."""
+    return sorted(
+        type(v).name for v in vars(lexic.grammars).values()
+        if isinstance(v, IrFlavour)
+    )
+
+
+def example_names() -> list[str]:
+    """The ground-truth grammars available as examples."""
+    if not _GROUND.is_dir():
+        return []
+    return sorted(p.name for p in _GROUND.iterdir() if p.suffix in (".gbnf", ".abnf", ".ebnf"))
 
 _MAX_BODY = 2 * 1024 * 1024
 
@@ -27,10 +49,18 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 — http.server's contract
         praxis = self.server.praxis
-        if self.path == "/":
+        url = urlsplit(self.path)
+        if url.path == "/":
             self._send(live_page(praxis.source, praxis.flavour, praxis.sections,
-                                 praxis.input))
-        elif self.path == "/freeze":
+                                 praxis.input, flavour_names(), example_names()))
+        elif url.path == "/example":
+            name = parse_qs(url.query).get("name", [""])[0]
+            if name in example_names():
+                self._send((_GROUND / name).read_text(encoding="utf-8"),
+                           kind="text/plain")
+            else:
+                self.send_error(404)
+        elif url.path == "/freeze":
             if not praxis.sections:
                 self._send("nothing compiled yet", code=409, kind="text/plain")
             else:

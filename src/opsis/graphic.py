@@ -22,12 +22,14 @@ from typing import Any, Sequence
 
 from lexic.ir import (
     IrAction,
+    IrAlphabet,
     IrAlternation,
     IrCharClass,
     IrInt,
     IrItem,
     IrLeaf,
     IrLiteral,
+    IrNot,
     IrRuleRef,
     IrSelf,
     IrSequence,
@@ -140,6 +142,20 @@ class _LayClass(IrLeaf[IrSelf, IrSelf]):
         return _box("cls", "[" + class_spec(n) + "]", rx=2)
 
 
+class _LayAlphabet(IrLeaf[IrSelf, IrSelf]):
+    """A token terminal — the tokenizer alphabet's spelling in a box."""
+
+    def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
+        inner = n.inner
+        if isinstance(inner, IrNot):
+            label = f"!{inner[0]}"
+        elif isinstance(inner, IrLiteral):
+            label = str(inner)
+        else:
+            label = f"{n.encoding}:*"
+        return _box("tok", label, rx=4)
+
+
 class _LayRef(IrLeaf[IrSelf, IrSelf]):
     """A rule reference — navigable box."""
 
@@ -238,6 +254,7 @@ class _LayItem(IrLeaf[IrSelf, IrSelf]):
 RAIL_ACTIONS: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, _LayLiteral()),
     IrAction(IrCharClass, _LayClass()),
+    IrAction(IrAlphabet, _LayAlphabet()),
     IrAction(IrRuleRef, _LayRef()),
     IrAction(IrSequence, _LaySequence()),
     IrAction(IrAlternation, _LayAlternation()),
