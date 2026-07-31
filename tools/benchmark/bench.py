@@ -33,7 +33,7 @@ from math import log10
 import lark
 import parsimonious
 
-from lexic.parsing.pda.runtime.reduce_runtime import pda_model
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from lexic.parsing.products import _model_product, earley_model
 from tools.benchmark.antlr_build import antlr_parser
 from tools.benchmark.antlr_java import java_antlr_parser

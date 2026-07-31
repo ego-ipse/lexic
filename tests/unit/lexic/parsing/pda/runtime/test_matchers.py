@@ -24,6 +24,7 @@ from lexic.parsing.pda.compiler.flatten import (
     all_clones,
 )
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from lexic.parsing.pda.runtime.matchers import (
     match_arm,
     match_cc,
@@ -31,7 +32,6 @@ from lexic.parsing.pda.runtime.matchers import (
     select_arm,
     vstr_once,
 )
-from lexic.parsing.pda.runtime.reduce_runtime import pda_model
 
 
 def pda_for(text: str):

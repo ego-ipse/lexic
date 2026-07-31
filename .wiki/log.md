@@ -1,5 +1,19 @@
 # Log
 
+## The ordered-attempt gate lands end-to-end
+
+The third decision class is live: analysis classifies attemptable rules and
+licensed loops (`Taxonomy.attempts`/`attempt_loops`), the clone compiler
+builds canonical attempt clones with ordered entries (+ pure-Python prefix
+steps for admission), and the kernel tries arms as watermarked sub-runs with
+value-probed loop boundaries — committing only past an audit, bailing
+`PdaFail`/`ProbeFork` to gated Earley otherwise. Packrat memoization was
+implemented, measured (zero hits, unsound key) and removed.
+`.wiki/lexic/decisions.md` carries the reasoning. The kernel also grew a
+package: `pda/runtime/kernel/{kernel,decisions,reduce_runtime}.py` —
+`decisions.py` hosts the attempt/probe method group the kernel inherits;
+`admission.py` (ex `attempt.py`) holds the flat admission/scratch leaves.
+
 ## The island seam bails on what it cannot settle
 
 The cross-span blind spot below is closed: `island_parse` now checks every

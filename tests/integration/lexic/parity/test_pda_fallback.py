@@ -3,7 +3,7 @@
 :meth:`~lexic.compile.CompiledGrammar.parse` delegates to
 :func:`~lexic.parsing.parse_model`, which runs the predictive PDA first and
 completes on a whole-input engine reparse on any
-:class:`~lexic.parsing.pda.runtime.runtime.PdaFail`. This module pins one input that
+:class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`. This module pins one input that
 genuinely forces that completion on a real ground-truth grammar (arithmetic's
 trailing-whitespace stop-set residue, pivot 4) and proves it both fires and
 returns the engine-correct model — ``PdaFail`` never leaks to the public
@@ -20,11 +20,12 @@ from lexic.compile import compile_from_path
 from lexic.grammars import get_flavour
 from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_reduce_pda
 from lexic.parsing.pda.compiler.specs import IslandRef
-from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
-from lexic.parsing.pda.runtime.runtime import PdaFail
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.products import earley_model, earley_reduce
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
@@ -79,7 +80,9 @@ def test_pda_fallback_returns_engine_correct_model():
 # ── the reduce twin completes and agrees (T5) ─────────────────────────────
 
 
-@pytest.mark.parametrize("flavour_name, stem", [("gbnf", "json.gbnf"), ("abnf", "json.abnf")])
+@pytest.mark.parametrize(
+    "flavour_name, stem", [("gbnf", "json.gbnf"), ("abnf", "json.abnf")]
+)
 def test_reduce_pda_completes_and_agrees_on_flavour_corpora(
     flavour_name: str, stem: str
 ) -> None:
@@ -94,11 +97,13 @@ def test_reduce_pda_completes_and_agrees_on_flavour_corpora(
     engages the moment a hoisted reduce grammar exists.
     """
     flavour = get_flavour(flavour_name)
+    reducer = flavour.reducer
+    assert isinstance(reducer, Reducer)  # the ABC widens; a flavour narrows
     pda = compile_reduce_pda(
         lift_optional_nullables(flavour.grammar),
         normalize(flavour.grammar),
-        flavour.reducer,
+        reducer,
     )
     text = (GROUND_TRUTH / stem).read_text(encoding="utf-8")
     value = pda_reduce(pda, text)  # PdaFail here = the trap, not a tally
-    assert value == earley_reduce(normalize(flavour.grammar), text, flavour.reducer)
+    assert value == earley_reduce(normalize(flavour.grammar), text, reducer)

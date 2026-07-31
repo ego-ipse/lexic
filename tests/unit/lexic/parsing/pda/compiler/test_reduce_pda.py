@@ -5,7 +5,7 @@ model fold.
 fully self-contained hand-authored meta-grammar + matching custom
 :class:`~lexic.parsing.earley.reduce.Reducer` — never the real GBNF/ABNF
 self-grammars (those drive the end-to-end ``compile_reduce_pda`` gates in
-``test_clones.py``/``test_runtime.py``/``test_compile.py``). This keeps the
+``test_clones.py``/``test_kernel.py``/``test_compile.py``). This keeps the
 module's own branch logic (DROP/KEEP/unknown-rule/custom-noise-policy;
 YIELD-body detection; ``literal_keep`` derivation) pinned independent of any
 particular flavour's grammar text.

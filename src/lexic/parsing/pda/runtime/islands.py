@@ -1,6 +1,6 @@
 """Island sub-parse + splice — the cold-path Earley escape for a PDA clone.
 
-Shed from :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` as free functions,
+Shed from :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` as free functions,
 for the reason every leaf in this package is shed: these take only plain values
 and :mod:`earley <lexic.parsing.earley>` types, never the ``PdaKernel`` cursor,
 so the module is a leaf — ``runtime`` imports it, not the reverse — and the

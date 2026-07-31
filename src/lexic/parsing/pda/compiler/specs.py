@@ -67,7 +67,7 @@ class IslandRef(NamedTuple):
 
     :ivar name: The island rule name.
     :ivar fail: When ``True``, a fail-island (a semantic F1 stop-set-escape
-        rule) — the reference raises :class:`~lexic.parsing.pda.runtime.runtime.PdaFail`
+        rule) — the reference raises :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`
         (engine fallback) rather than risking a divergent longest-match parse.
     """
 

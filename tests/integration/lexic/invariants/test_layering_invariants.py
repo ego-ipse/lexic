@@ -292,7 +292,7 @@ def test_hybrid_pda_modules_are_swept_by_the_leaf_invariant():
         "core/charsets.py",
         "analysis/analysis.py",
         "compiler/clones.py",
-        "runtime/runtime.py",
+        "runtime/kernel/kernel.py",
     ):
         path = pda / rel
         assert path.exists(), f"{rel} missing from lexic.parsing.pda"

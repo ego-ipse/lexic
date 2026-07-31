@@ -1,11 +1,11 @@
-"""Tests for lexic.parsing.pda.runtime.attempt — the attempt-seam leaves."""
+"""Tests for lexic.parsing.pda.runtime.admission — the attempt-seam leaves."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from lexic.ir import IrSelf, IrStr
-from lexic.parsing.pda.runtime.attempt import KernelCaches, admits, frames_copy
+from lexic.parsing.pda.runtime.admission import KernelCaches, admits, frames_copy
 from lexic.parsing.pda.runtime.build import F_ENDS, F_OUT, F_SINKS
 
 # ── admits — the FIRST pre-filter ─────────────────────────────────────
@@ -36,8 +36,8 @@ def test_admits_eof_never_passes_a_negated_set():
 def test_kernel_caches_seed_empty_with_probe_depth_zero():
     """A fresh scratch: empty memos, probe depth zero, certainty clean."""
     caches = KernelCaches()
-    assert caches.deleg == {}
-    assert caches.intern == {}
+    assert not caches.deleg
+    assert not caches.intern
     assert caches.probing == 0
     assert caches.uncertain is False
 
@@ -79,7 +79,7 @@ def test_frames_copy_mutations_never_reach_the_originals():
     copies[0][F_ENDS][0] = 99
     copies[0][F_OUT].append(IrStr("probe"))
     assert frame[F_ENDS] == [3, 7]
-    assert holder == []
+    assert not holder
 
 
 def test_frames_copy_shares_sink_contents_but_not_the_lists():

@@ -1,11 +1,11 @@
 """Differential CI: PDA vs engine, across all 10 ground-truth grammars (Task 7).
 
-Where :mod:`tests.unit.lexic.parsing.pda.test_runtime` scopes its parity gate to
+Where :mod:`tests.unit.lexic.parsing.pda.runtime.kernel.test_kernel` scopes its parity gate to
 the four **island-free** grammars, this module is the *wide* matrix: all 10
 ground-truth grammars (islands included — c/chess/json/json_arr/json_ws all
 carry at least one), each driven through both internal seams directly:
 
-- **forced-PDA** — :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` with the real
+- **forced-PDA** — :func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model` with the real
   fold supplied (so island references splice their Earley sub-parse);
 - **forced-engine** — ``cg.fold.apply(parse_first(prod(cg).instance_grammar, text,
   prod(cg).tables))``, the same call :meth:`~lexic.compile.CompiledGrammar.parse`'s
@@ -36,8 +36,8 @@ from lexic.generate import generate
 from lexic.parsing.pda.compiler.clones import KTupleGate, PeekGate
 from lexic.parsing.pda.compiler.flatten import all_clones
 from lexic.parsing.pda.compiler.specs import IslandRef
-from lexic.parsing.pda.runtime.reduce_runtime import pda_model
-from lexic.parsing.pda.runtime.runtime import PdaFail
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from lexic.parsing.products import earley_model
 from tests.integration.lexic.parity.pda_parity_helpers import (
     check_one,
@@ -49,7 +49,9 @@ from tests.integration.lexic.parity.pda_parity_helpers import (
 )
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
-from tests.unit.lexic.parsing.pda.runtime.test_runtime import arithmetic_bench_corpus
+from tests.unit.lexic.parsing.pda.runtime.kernel.test_kernel import (
+    arithmetic_bench_corpus,
+)
 
 # ── fixtures ────────────────────────────────────────────────────────────
 
@@ -66,7 +68,7 @@ N_SEEDS = 40
 MAX_DEPTH = 4
 
 # A couple of representative bench-shaped corpora. Arithmetic's is imported
-# from test_runtime.py (its own bench-corpus test already pins the same
+# from test_kernel.py (its own bench-corpus test already pins the same
 # snippets/target length — reusing it, not re-pinning the literal, sidesteps
 # the whole-tree pylint R0801 duplicate-code gate).
 BENCH_CORPORA: dict[str, str] = {

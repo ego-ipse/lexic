@@ -126,6 +126,50 @@ their frame pops, and their ids get handed straight back to different objects.
 
 ---
 
+## 2026-07-31 — The attempt gate: ordered trying is the third answer beyond demotion and islanding
+
+**Decision:** a decision point the k-window cannot settle and left recursion
+does not forbid may be classified `attempts` (analysis `Taxonomy.attempts`,
+`AttemptSpec.order` with nullable arms last) instead of islanding: the runtime
+tries the arms in order as self-contained sub-runs and commits the first
+success — after an **audit** of the remaining admitted arms. A second success
+on the same span, or on a different span whose next character the rule's soft
+FOLLOW accepts, raises `PdaFail` — the gated engine then refuses iff the
+ambiguity is real. Licensed optional loops run the same way per iteration
+(`GATE_ATTEMPT`): a failing iteration closes the loop instead of failing the
+arm, and a boundary where taking AND stopping are both viable is resolved by
+probing both sides to end-of-input and comparing completed VALUES
+(`same_value`, exactly the forest gate's question) — equal is a benign split,
+one side dead forces the other, different values raise `ProbeFork`.
+
+**The load-bearing choices:**
+
+- **Sub-runs are watermarked, not severed.** An attempt runs ON TOP of the
+  live stack (`_drive(floor)`); nested viability walks and probes see the true
+  continuation. A severed fresh stack mis-resolves any fork whose alternative
+  lives in an enclosing frame.
+- **Probes never nest.** Inside a probe, both-viable boundaries resolve
+  greedily by viability class and mark the outcome `uncertain`; the sampled
+  verdict is trusted. Nested probing is exponential (measured — a 24-deep
+  probe chain), and conservative bailing on `uncertain` regressed working
+  grammars.
+- **No memoization.** A sub-run's outcome depends on the enclosing
+  continuation, so `(clone, pos)` is not a sound packrat key — and the memo
+  measured zero hits before removal. The prototype's memoized numbers priced
+  recognition without model building or the value-ambiguity invariant.
+- **Attempt clones are canonical.** Every reference to an attemptable rule
+  redirects to one clone compiled at the analysis' hard FOLLOW
+  (`_spec_ruleref`); per-call-site clones fragmented the table ~60% for
+  nothing.
+- **Optimizer licences exclude gated clones.** `OP_VSTR` inlining, leaf
+  marking and dispatch conversion all require `attempt`/`kwin`/`pn`/`struct`
+  to be absent — `select_arm` reads plain selectors, which gated clones leave
+  empty; inlining one mis-parses (the abnf `defined` regression).
+- **`ProbeFork` is a `PdaFail` subtype meaning UNDECIDABLE, not failed** — an
+  arm miss must not swallow it, or a later arm commits what the gated engine
+  may refuse. Public soundness is unchanged: `parse_model` falls back on any
+  `PdaFail` to gated Earley.
+
 ## 2026-07-29 — The island seam declares cross-span uncertainty instead of longest-matching through it
 
 **Decision:** after `island_parse` picks the longest completion end `E`, any

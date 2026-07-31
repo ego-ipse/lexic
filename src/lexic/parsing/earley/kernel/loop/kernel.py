@@ -491,7 +491,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
     def longest_start_completion(self) -> tuple[int, int] | None:
         """Longest whole-prefix completion of the start rule (origin 0).
 
-        The islands seam (:mod:`lexic.parsing.pda.runtime.runtime`): seed the start
+        The islands seam (:mod:`lexic.parsing.pda.runtime.kernel.kernel`): seed the start
         rule at column 0, drive the chart column by column over the window,
         and after closing each reachable column record the widest completed
         start item spanning ``[0, j]``. A later column overwrites an earlier

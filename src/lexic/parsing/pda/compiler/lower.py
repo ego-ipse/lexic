@@ -13,6 +13,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.compiler.flatten import (
     BUILD_ALT,
+    BUILD_DISPATCH,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
@@ -21,20 +22,19 @@ from lexic.parsing.pda.compiler.flatten import (
     GATE_PAIR,
     GATE_PEEK,
     GATE_SCAN,
-    BUILD_DISPATCH,
     GATE_STOP,
     HI_UNBOUNDED,
-    OP_CC1,
-    OP_LIT1,
-    OP_REF1,
-    OP_VSTR,
     MODE_CODE,
     OP_CC,
+    OP_CC1,
     OP_FAIL,
     OP_GRP,
     OP_ISLAND,
     OP_LIT,
+    OP_LIT1,
     OP_REF,
+    OP_REF1,
+    OP_VSTR,
     FlatArm,
     FlatClone,
     PdaProgram,
@@ -318,12 +318,16 @@ def _clone_prefix_steps(
     nested attempt or an alternation yields nothing here (branch fan-out is
     handled at the entry's top level, where each arm is its own prefix).
     """
-    if (
-        not isinstance(clone, FlatClone)
-        or clone.attempt is not None
+    if not isinstance(clone, FlatClone):
+        return None
+    gated = (
+        clone.attempt is not None
         or clone.struct_arm is not None
         or clone.kwin_selectors is not None
         or clone.pn_selectors is not None
+    )
+    if (
+        gated
         or clone.default is not None
         or clone.mode == BUILD_DISPATCH
         or len(clone.selectors) != 1
@@ -341,7 +345,7 @@ def _arm_prefix(arm: FlatArm) -> tuple[tuple[Any, ...], ...] | None:
 
     The attempt entries' cheap admission (the recognition prototype's run
     mode, applied to decisions, without importing a regex engine): one pass
-    of :func:`~lexic.parsing.pda.runtime.attempt.prefix_admits` decides
+    of :func:`~lexic.parsing.pda.runtime.admission.prefix_admits` decides
     whether the arm can reach past its leading terminals — a reject skips
     the arm's sub-run AND its audit, soundly (a prefix miss means the arm
     cannot match; every possessive seam was disjointness-checked at build).

@@ -13,7 +13,7 @@ that reaches it (its loop stop-sets are call-site-exact, pivot 4).
 placeholder before compiling, so recursion resolves to the in-progress key and
 a repeat ``(name, tail)`` reuses the clone. Island rules are never cloned — a
 reference carries an :class:`IslandRef` (a ``fail`` one raises
-:class:`~lexic.parsing.pda.runtime.runtime.PdaFail`, forcing the engine fallback).
+:class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`, forcing the engine fallback).
 
 **Item specs.** Each item compiles to a flat :class:`ItemSpec`
 (``lit``/``cc``/``ref``/``grp``) with its bounds and a loop gate —
@@ -33,7 +33,7 @@ an unregistered atom raises :exc:`~lexic.exceptions.UnsupportedConstructError`
 
 The spec NamedTuples are the compiler's *intermediate* (the shape tests pin);
 :func:`flatten_program` lowers them once into the flat int-coded
-:class:`PdaProgram` the :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` walks. The
+:class:`PdaProgram` the :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks. The
 two stay in lockstep on :class:`PdaTables` (``.clones`` for introspection,
 ``.program`` for the hot loop).
 """
@@ -666,8 +666,8 @@ def compile_reduce_pda(
     policy the reduce runtime cannot reconstruct (a grammar-global condition with
     no enclosing rule) compiles to an **immediate-PdaFail start** — an
     :class:`IslandRef` start over an empty clone table, so
-    :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` raises
-    :class:`~lexic.parsing.pda.runtime.runtime.PdaFail` on the first step and the caller
+    :func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model` raises
+    :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail` on the first step and the caller
     completes on the Earley reduce per parse (no ``None`` channel, no windowed
     self-parse of the whole input).
 

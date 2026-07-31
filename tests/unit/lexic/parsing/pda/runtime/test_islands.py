@@ -1,6 +1,6 @@
 """Tests for lexic.parsing.pda.runtime.islands — the island sub-parse + splice.
 
-Shed from :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` as free functions
+Shed from :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` as free functions
 (Task 2b): a windowed Earley sub-parse over a small real grammar, driven
 through the module's three public entry points directly. The functions are
 already covered end-to-end by the ``pda_model`` parity/fallback suites, so

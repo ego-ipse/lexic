@@ -2,7 +2,7 @@
 
 Homed in its own leaf module so both the runtime (:mod:`.runtime`) and the
 island escape (:mod:`.islands`) can raise it without an import cycle; the
-runtime re-exports it, so ``from lexic.parsing.pda.runtime.runtime import PdaFail``
+runtime re-exports it, so ``from lexic.parsing.pda.runtime.kernel.kernel import PdaFail``
 still resolves.
 """
 

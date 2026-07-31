@@ -627,9 +627,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             notes.hard.append(
                 f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable"
             )
-            self.taxonomy.attempt_loops[id(items[k])] = self.beyond_at(
-                items, k, scope
-            )
+            self.taxonomy.attempt_loops[id(items[k])] = self.beyond_at(items, k, scope)
             notes.covered += 1
 
     def _sub_conflict(

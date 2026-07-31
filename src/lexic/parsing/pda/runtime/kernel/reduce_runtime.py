@@ -1,6 +1,6 @@
 """Reduce (grammar-text) predictive runtime — the b1 twin of :class:`PdaKernel`.
 
-Split out of :mod:`lexic.parsing.pda.runtime.runtime` (C0302 headroom): the model kernel
+Split out of :mod:`lexic.parsing.pda.runtime.kernel.kernel` (C0302 headroom): the model kernel
 stays byte-for-byte unchanged there, and this module homes the grammar-text
 completion — :class:`_ReducePdaKernel`, which shares the whole recognition
 machinery (``run`` / ``_drive`` / ``_enter`` / ``prefix_run`` / the terminal
@@ -35,7 +35,7 @@ from lexic.parsing.pda.runtime.build import (
     finish_delegate,
 )
 from lexic.parsing.pda.runtime.islands import island_value
-from lexic.parsing.pda.runtime.runtime import PdaKernel
+from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 
 __all__ = ["pda_model", "pda_reduce"]
 

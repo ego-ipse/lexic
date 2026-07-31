@@ -14,8 +14,8 @@ from lexic.ir import IrAst, IrFlavour
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.pda.runtime.reduce_runtime import pda_reduce
-from lexic.parsing.pda.runtime.runtime import PdaFail
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_reduce
 from lexic.parsing.products import _reduce_product, earley_reduce
 
 

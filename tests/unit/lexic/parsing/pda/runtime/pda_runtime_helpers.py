@@ -1,7 +1,7 @@
 """Shared helpers for the ``lexic.parsing.pda.runtime`` unit tests.
 
 ``reduce_pda`` is duplicated verbatim (pre-relocation) across
-``test_runtime.py`` and ``test_reduce_runtime.py``.
+``test_kernel.py`` and ``test_reduce_runtime.py``.
 """
 
 from __future__ import annotations

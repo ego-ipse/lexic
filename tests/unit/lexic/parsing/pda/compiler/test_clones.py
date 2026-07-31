@@ -54,8 +54,8 @@ from lexic.parsing.pda.compiler.flatten import (
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.runtime.reduce_runtime import pda_model
-from lexic.parsing.pda.runtime.runtime import PdaFail
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import PINNED_ISLANDS
@@ -324,8 +324,9 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
     is a soft-only follower absent from ``x``'s hard clone tail (``{""}``), so a
     non-greedy stop-set would greedily eat it — ``x`` must island. Islanding
     routes the ref through an :class:`IslandRef`, so the pure-PDA
-    :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` refuses ("ab" and "cab") with a
-    :exc:`~lexic.parsing.pda.runtime.runtime.PdaFail` (→ engine fallback) rather than
+    :func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model` refuses
+    ("ab" and "cab") with a
+    :exc:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail` (→ engine fallback) rather than
     returning the wrong model.
     """
     text = 'root ::= x "ab"?\nx ::= [a-c]*\n'

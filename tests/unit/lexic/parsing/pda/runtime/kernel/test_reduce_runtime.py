@@ -1,10 +1,10 @@
 """Structural mirror for the reduce predictive runtime module.
 
-:mod:`lexic.parsing.pda.runtime.reduce_runtime` homes ``_ReducePdaKernel`` (the b1
+:mod:`lexic.parsing.pda.runtime.kernel.reduce_runtime` homes ``_ReducePdaKernel`` (the b1
 grammar-text twin) and the two runtime entries ``pda_reduce`` / ``pda_model``,
 split out of ``runtime`` for C0302 headroom. The reduce-path *parity*
 (byte-equal to ``parse_reduced``) is exercised in
-:mod:`tests.unit.lexic.parsing.pda.test_runtime`; this pins the split — the
+:mod:`tests.unit.lexic.parsing.pda.runtime.kernel.test_kernel`; this pins the split — the
 symbols live here and subclass the model kernel.
 """
 
@@ -20,9 +20,9 @@ from lexic.grammars.gbnf import GBNF_GRAMMAR
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
-from lexic.parsing.pda.runtime import reduce_runtime as rr
-from lexic.parsing.pda.runtime.reduce_runtime import pda_reduce
-from lexic.parsing.pda.runtime.runtime import PdaKernel
+from lexic.parsing.pda.runtime.kernel import reduce_runtime as rr
+from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_reduce
 from tests.integration.lexic.parity.test_pda_parity import ALL_STEMS
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import reduce_pda
@@ -32,7 +32,7 @@ def test_reduce_kernel_lives_here_and_extends_the_model_kernel() -> None:
     """``_ReducePdaKernel`` is defined in reduce_runtime, subclassing PdaKernel."""
     kernel_cls = getattr(rr, "_ReducePdaKernel")
     assert issubclass(kernel_cls, PdaKernel)
-    assert kernel_cls.__module__ == "lexic.parsing.pda.runtime.reduce_runtime"
+    assert kernel_cls.__module__ == "lexic.parsing.pda.runtime.kernel.reduce_runtime"
 
 
 def test_the_two_runtime_entries_are_the_only_public_names() -> None:

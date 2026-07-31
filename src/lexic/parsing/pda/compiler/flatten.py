@@ -6,8 +6,9 @@ the structural tests pin); :func:`~lexic.parsing.pda.compiler.clones.flatten_pro
 lowers them, once per :func:`~lexic.parsing.pda.compiler.clones.compile_pda`, into the
 flat int-coded artifact this module defines — :class:`FlatClone` /
 :class:`FlatArm` carrying ``_OP_*`` op-codes and pre-resolved
-``(chars, negated)`` membership sets, which :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel`
-walks with integer dispatch (the ``tables.py``/``kernel.py`` philosophy).
+``(chars, negated)`` membership sets, which
+:class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks with
+integer dispatch (the ``tables.py``/``kernel.py`` philosophy).
 
 :func:`optimize_program` then runs the specialisation passes that carve the
 hot-loop op-codes (exactly-once terminals, inlinable ``value_str`` references,
@@ -69,7 +70,7 @@ unit ruleref, and the alternation itself is a pass-through (the matched arm's
 sub-model reports straight to the parent sink) — so the post-flatten pass
 rewrites qualifying clones into dispatch tables whose selectors carry the
 target :class:`FlatClone` directly and the runtime chases them in
-:meth:`~lexic.parsing.pda.runtime.runtime.PdaKernel._enter` without a frame."""
+:meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._enter` without a frame."""
 
 BUILD_REDUCE = 5
 """The grammar-text (reducer) completion mode — the b1 twin of the model build
@@ -79,7 +80,7 @@ on completion, feeds the reducer's cleaned children to its reduction
 DROP-noise rule its subtree is dropped from), or splices its parts straight
 into the caller (:data:`R_SPLICE`, an inline group). One PDA compilation, one
 frame/island stack — only this completion callback differs from the model
-modes; see :mod:`lexic.parsing.pda.runtime.runtime`."""
+modes; see :mod:`lexic.parsing.pda.runtime.kernel.kernel`."""
 
 R_KEEP, R_DROP, R_SPLICE = 0, 1, 2
 """Reduce completion kinds (:data:`BUILD_REDUCE` clones): KEEP evaluates the
@@ -303,7 +304,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         ``((w_chars, w_negated), ((chars, negated, arm), ...))`` pair on a P3
         noise-skip alternation (Task 6.4): the runtime skips the maximal
         ``W``-noise run without consuming and selects the arm containing the
-        first post-noise char (:meth:`~lexic.parsing.pda.runtime.runtime.PdaKernel
+        first post-noise char (:meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel
         ._select_arm_peek`); the winner re-parses its own noise. The
         dispatch/leaf specialisations are skipped for this clone.
     :ivar default: The all-nullable default :class:`FlatArm`, or ``None``; on
@@ -334,7 +335,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         the fused build seeds each parts dict from, or ``None``.
     :ivar leaf: ``True`` for a fast-licenced ``sequence`` clone whose every arm
         is all-terminal (``OP_VSTR`` included) — the runtime runs it
-        frame-lessly in :meth:`~lexic.parsing.pda.runtime.runtime.PdaKernel._run_leaf`.
+        frame-lessly in :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._run_leaf`.
     :ivar needs_ends: ``True`` when any bound field reads an item span (a
         ``text``/``gtext`` mode) — only then does a frame allocate and write
         per-item end positions.

@@ -2,7 +2,7 @@
 
 Also consumed by ``tests.integration.lexic.parity.test_delegation_parity`` (the A/B
 delegate-compile toggle drives the same per-grammar generation seam) and
-``tests.unit.lexic.parsing.pda.runtime.test_runtime``/``golden_fixtures``
+``tests.unit.lexic.parsing.pda.runtime.kernel.test_kernel``/``golden_fixtures``
 (the arithmetic bench corpus).
 """
 
@@ -21,8 +21,8 @@ from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.model import GrammarModel
 from lexic.parsing import parse_first
 from lexic.parsing.pda.compiler.specs import IslandRef
-from lexic.parsing.pda.runtime.reduce_runtime import pda_model
-from lexic.parsing.pda.runtime.runtime import PdaFail
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
 

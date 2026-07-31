@@ -9,7 +9,7 @@ tables pack at the tier the input's size picks
 (:func:`~lexic.parsing.earley.kernel.tables.tier_for` — the model product keys it, the
 reduce completion picks it per parse). Each
 parse runs the PDA first and completes on the Earley engine on any
-:class:`~lexic.parsing.pda.runtime.runtime.PdaFail`; :class:`PdaFail` never escapes.
+:class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`; :class:`PdaFail` never escapes.
 
 The Earley-completion entries — :func:`earley_reduce` (fused reduce over a
 normalised grammar) and :func:`earley_model` (gated first derivation + fold) — are the
@@ -45,8 +45,8 @@ from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda, compile_reduce_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
-from lexic.parsing.pda.runtime.runtime import PdaFail
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model, pda_reduce
 
 __all__ = [
     "parse_reduced",

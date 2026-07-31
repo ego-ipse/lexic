@@ -1,6 +1,6 @@
 """Attempt-seam leaves — the admission test, the kernel scratch, the stack copy.
 
-Shed from :mod:`lexic.parsing.pda.runtime.runtime` for the reason every leaf in
+Shed from :mod:`lexic.parsing.pda.runtime.kernel.kernel` for the reason every leaf in
 this package is shed: these take only plain values and frame lists, never the
 ``PdaKernel`` cursor, so ``runtime`` imports them and not the reverse. The
 attempt/probe DRIVERS stay methods — their group writes the cursor's own state

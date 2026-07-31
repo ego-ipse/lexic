@@ -52,7 +52,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     :ivar instance_grammar: The Earley-normalised instance grammar island
         tables are built over.
     :ivar program: The flat int-coded runtime program (:class:`PdaProgram`)
-        :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` walks.
+        :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks.
     :ivar reduce: The reduce runtime context (:class:`ReduceRun`) on a
         grammar-text (reducer) PDA, else ``None`` — the model path.
     """
