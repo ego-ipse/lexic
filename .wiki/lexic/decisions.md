@@ -126,6 +126,42 @@ their frame pops, and their ids get handed straight back to different objects.
 
 ---
 
+## 2026-07-31 — Structured-gate licences are selection-side: the semantic flag gates attribution, not recognition
+
+**Decision:** the P3/P5 structured gate family (scan / probe / arm escape)
+derives its run-forming noise roots from the ``semantic`` flag as before,
+but falls back to a flag-independent derivation (``run_roots`` — any rule
+referenced with a nullable quantifier) when the flag yields nothing; the
+P5 header match (``ref(R) noise* lit(L)``) likewise accepts a SEMANTIC
+middle rule on a second pass, strict pass first. The value-attribution
+licences (``_match_gate`` and its noise↔noise clauses) keep the strict
+flag — an over-take there re-splits value content.
+
+**Why:** a self-emitted meta grammar declares no ``@non-semantic`` rules —
+its noise is semantic on purpose (round-trip keeps exact spacing) — so
+every noise-aware licence silently vanished for the whole formulation and
+its decision points fell to attempts and islands (correct-by-fallback,
+never predictive). But scan/probe gates are recognition-only: the winner
+re-parses its own noise, so the flag's job (who owns the chars in the
+MODEL) is simply not in question at selection time. With the fallback, the
+GBNF meta grammar's loop boundaries license the P5 rulename-probe gate
+(the ``rulename n* "::="`` header refutes the take reading) and the
+empty-first-arm alternation (``ws ::= | " " ...``) licenses the arm
+escape — all decided on the compiled scanner hot path.
+
+**What it bought, measured:** gbnf-meta from refused to 5.2 µs/char
+(0.08× Earley); abnf-meta 8.1 → 6.0 (0.10×); every bench row at
+0.05–0.10× Earley; raw parity 194 checked / 0 divergent, PDA fallbacks
+11 → 6. Directive-carrying grammars are unchanged by construction: the
+fallback fires only when the strict derivation is empty, and the strict
+header pass wins whenever it is unique.
+
+**The rejected alternative:** deciding these boundaries at runtime
+(bounded frontier simulation over the upcoming text, probe backtracking).
+It reached correctness but cost 35–65 µs/char on the meta rows —
+re-deriving at every boundary what the compile can bake once. Runtime
+search is a slower Earley; the gate artifact is the PDA's way.
+
 ## 2026-07-31 — The attempt gate: ordered trying is the third answer beyond demotion and islanding
 
 **Decision:** a decision point the k-window cannot settle and left recursion

@@ -1,5 +1,21 @@
 # Log
 
+## The meta grammars go predictive — licences relaxed, not machinery added
+
+The gbnf-meta "trailing input at 244" family is closed at COMPILE time:
+the structured gate analyses now derive run-forming noise without the
+``semantic`` flag when the flag yields nothing, and the P5 header match
+accepts a semantic middle rule on a strict-first second pass
+(``run_roots`` / ``relaxed_mid`` in ``analysis/gates/structured.py`` —
+the whole change is one file). The meta loop boundaries compile to the
+existing SG_PROBE/SG_SCAN gates and run on the scanner hot path: every
+bench row is now 0.05–0.10× Earley (gbnf-meta 5.2 µs/char from refused,
+abnf-meta 6.0 from 8.1), raw parity 194/0, fallbacks 11 → 6. The island
+valid-prefix fixture pins its island with a left-recursive arm now that
+the plain trailing-comma shape gates. ``decisions.md`` carries the
+selection-vs-attribution reasoning and the rejected runtime-search
+alternative.
+
 ## The ordered-attempt gate lands end-to-end
 
 The third decision class is live: analysis classifies attemptable rules and
