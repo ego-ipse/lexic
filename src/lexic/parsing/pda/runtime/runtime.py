@@ -192,14 +192,24 @@ def _clone_admits(clone: FlatClone, char: str) -> bool:
     return False
 
 
-def _arm_rest_verdict(arm: FlatArm, i: int, char: str) -> int:
-    """The rest-of-arm walk past item ``i`` — dead, ascend, or admits."""
+def _arm_rest_scan(arm: FlatArm, i: int, char: str) -> tuple[int, bool]:
+    """The rest-of-arm walk past item ``i`` — ``(verdict, optional-admit seen)``.
+
+    An optional admitting item does NOT settle the walk (both the chain and
+    the terminator class can coexist — gbnf's ``bar-arm*`` admits the newline
+    the rule's MANDATORY ``nl`` also wants, and the hard class must win); a
+    mandatory item settles it either way (admits → the terminator class;
+    refuses → the char cannot flow past, the stop side is dead).
+    """
+    opt = False
     for j in range(i + 1, arm.n):
         if _item_admits(arm, j, char):
-            return _ADMITS_HARD if arm.los[j] > 0 else _ADMITS
-        if arm.los[j] > 0:
-            return _DEAD
-    return _ASCEND
+            if arm.los[j] > 0:
+                return _ADMITS_HARD, opt
+            opt = True
+        elif arm.los[j] > 0:
+            return _DEAD, opt
+    return _ASCEND, opt
 
 
 class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
@@ -768,24 +778,22 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             frame[F_I] = i + 1
             frame[F_ENDS][i] = pos
             return i + 1
-        rest_verdict = _arm_rest_verdict(arm, i, char)
+        cls = self._beyond_class(arm, i, char)
         if self._caches.probing:
             # Inside a probe boundaries resolve GREEDILY by class — probes
-            # never nest. The terminator-theft shape prefers its own
-            # mandatory continuation (stop); the chain shapes take. Either
-            # way the probe's outcome becomes a SAMPLED path (uncertain),
-            # which the outer verdict reads conservatively.
-            if rest_verdict == _ADMITS_HARD:
+            # never nest. The terminator class (a MANDATORY item anywhere up
+            # the live chain wants the char) prefers stop; the chain class
+            # takes. Either way the probe's outcome becomes a SAMPLED path
+            # (uncertain).
+            if cls == _ADMITS_HARD:
                 self._caches.uncertain = True
                 frame[F_COUNT] = 0
                 frame[F_I] = i + 1
                 frame[F_ENDS][i] = pos
                 return i + 1
-            if self._stop_viable_from(rest_verdict, char):
+            if cls == _ADMITS:
                 self._caches.uncertain = True
-        elif rest_verdict == _ADMITS_HARD or self._stop_viable_from(
-            rest_verdict, char
-        ):
+        elif cls in (_ADMITS, _ADMITS_HARD):
             verdict = self._fork_verdict(arm, i, pos, got)
             if verdict == _STOP_FORCED:
                 frame[F_COUNT] = 0
@@ -802,50 +810,33 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         self.pos = end
         return i
 
-    def _stop_viable_from(self, rest_verdict: int, char: str) -> bool:
-        """The ancestor half of :meth:`_stop_viable`, from a precomputed
-        own-arm verdict."""
-        if rest_verdict == _ADMITS_HARD:
-            return True
-        if rest_verdict != _ASCEND:
-            return False
-        for frame in self.stack[-2::-1]:
-            verdict = _arm_rest_verdict(frame[F_ARM], frame[F_I], char)
-            if verdict in (_ADMITS, _ADMITS_HARD):
-                return True
-            if verdict == _DEAD:
-                return False
-        return char == ""
+    def _beyond_class(self, arm: FlatArm, i: int, char: str) -> int:
+        """The boundary's viability CLASS over the whole live chain.
+
+        :returns: :data:`_ADMITS_HARD` when a MANDATORY item anywhere up the
+            live chain wants the char (the terminator class — stopping is the
+            strong prior); :data:`_ADMITS` for optional-item viability only
+            (the chain class — taking is); :data:`_DEAD` when no stop side
+            exists. Optional admits never settle the walk — a hard admit
+            deeper up outranks them.
+        """
+        verdict, opt = _arm_rest_scan(arm, i, char)
+        if verdict == _ASCEND:
+            for frame in self.stack[-2::-1]:
+                verdict, o = _arm_rest_scan(frame[F_ARM], frame[F_I], char)
+                opt = opt or o
+                if verdict != _ASCEND:
+                    break
+        if verdict in (_ADMITS_HARD, _DEAD) and verdict == _ADMITS_HARD:
+            return _ADMITS_HARD
+        if verdict == _DEAD:
+            return _ADMITS if opt else _DEAD
+        return _ADMITS if (opt or char == "") else _DEAD
 
     def _stop_viable(self, arm: FlatArm, i: int, char: str) -> bool:
-        """Whether the boundary char is viable BEYOND this arm, site-exactly.
-
-        The fork trigger the compiler cannot compute: rule-level FOLLOW
-        unions every reference site (measured — all 319 spurious corpus
-        probes were its pollution), but the live stack IS this site's
-        continuation, so walk it. In the OWN arm an admitting later item is
-        the greedy-split case (no probe — the parity sweeps hold at 0
-        divergent under it) and a mandatory non-admitting item kills
-        stop-viability outright; only when the whole rest is skippable does
-        the walk ascend. An ANCESTOR item admitting the char is the
-        invisible-alternative fork (seed-146's escape items live in the
-        grandparent's arm) — probe. A resumed item's own re-iteration is
-        skipped: that alternative is audited at ITS boundary when the parent
-        actually resumes. Clone admission is conservative-MAY (a spurious
-        probe costs a value comparison, never a wrong commit).
-        """
-        verdict = _arm_rest_verdict(arm, i, char)
-        if verdict == _ADMITS_HARD:
-            return True  # the arm's own mandatory continuation wants the char
-        if verdict != _ASCEND:
-            return False  # dead, or an optional same-arm split (greedy take)
-        for frame in self.stack[-2::-1]:
-            verdict = _arm_rest_verdict(frame[F_ARM], frame[F_I], char)
-            if verdict in (_ADMITS, _ADMITS_HARD):
-                return True
-            if verdict == _DEAD:
-                return False
-        return char == ""
+        """Whether the boundary char is viable BEYOND another iteration —
+        the island branch's trigger (:meth:`_beyond_class` in truth form)."""
+        return self._beyond_class(arm, i, char) in (_ADMITS, _ADMITS_HARD)
 
     def _attempt_island(
         self, frame: list[Any], arm: FlatArm, i: int, pos: int
