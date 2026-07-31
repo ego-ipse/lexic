@@ -577,7 +577,9 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             if policy == "island":
                 if not self._demote_loop(items, k, scope, notes):
                     notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
-                    self.taxonomy.attempt_loops.add(id(item))
+                    self.taxonomy.attempt_loops[id(item)] = self.cont_at(
+                        items, k, scope.tail
+                    )
                     notes.covered += 1
             elif policy == "stopset":
                 if not stopset_escapes_soft_follow(self, items, k, scope):
@@ -625,7 +627,9 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             notes.hard.append(
                 f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable"
             )
-            self.taxonomy.attempt_loops.add(id(items[k]))
+            self.taxonomy.attempt_loops[id(items[k])] = self.cont_at(
+                items, k, scope.tail
+            )
             notes.covered += 1
 
     def _sub_conflict(

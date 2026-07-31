@@ -520,13 +520,13 @@ def test_compiledgrammar_parse_start_island_completes_on_earley():
     """A start rule that is itself an island compiles to an immediate-PdaFail
     start (its ``start_key`` is an ``IslandRef``); ``cg.parse`` still parses
     correctly, completing on the Earley engine per parse — no ``None`` channel.
-    The start island shares an unbounded digit prefix across its arms —
-    ungatable at any ``k <= 3``."""
-    text = 'root ::= n "x" | n "y"\nn ::= [0-9]+\n'
+    The start island is LEFT-RECURSIVE — the island class no attempt order can
+    settle (the digit-prefix overlap shape now legitimately attempts)."""
+    text = 'root ::= root "a" | "b"\n'
     cg = compile_text(text, flavour="gbnf")
     assert isinstance(prod(cg).pda.start_key, IslandRef)
-    assert cg.parse("12x").to_text() == "12x"
-    assert cg.parse("7y").to_text() == "7y"
+    assert cg.parse("baa").to_text() == "baa"
+    assert cg.parse("b").to_text() == "b"
 
 
 # ── _flavour_reducer: the single home for the Reducer narrowing check ──────

@@ -34,6 +34,7 @@ __all__ = [
     "IslandRef",
     "ArmGates",
     "StopGate",
+    "AttemptGate",
     "PairGate",
     "KTupleGate",
     "PeekGate",
@@ -85,6 +86,27 @@ class StopGate(NamedTuple):
     """
 
     charset: CharSet
+
+
+class AttemptGate(NamedTuple):
+    """An attempt-licensed loop gate — the atom's full FIRST, as ADMISSION.
+
+    Past the mandatory count, an admitted iteration is ATTEMPTED as a
+    self-contained sub-run; a failure closes the loop at the current count
+    instead of failing the arm. The loop thereby takes maximally subject to
+    its iterations actually parsing — the split's defined answer (the first
+    slot owns the text) — where a plain stop-set take would COMMIT on one
+    character and fail the arm on a later mismatch.
+
+    :ivar charset: The atom's FIRST — a pre-filter, never a commitment.
+    :ivar follow: The decision's SOFT continuation. A boundary char in BOTH
+        sets is an arm choice in loop clothing — a shorter extent may compose
+        into a different-valued whole parse — so the runtime bails to the
+        gated engine there instead of committing another iteration.
+    """
+
+    charset: CharSet
+    follow: CharSet
 
 
 class PairGate(NamedTuple):
@@ -146,7 +168,7 @@ class ItemSpec(NamedTuple):
     payload: str | CharSet | CloneKey | IslandRef | GroupSpec
     lo: int
     hi: int | None
-    gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate
+    gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate
 
 
 class ArmSpec(NamedTuple):

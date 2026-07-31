@@ -133,7 +133,7 @@ def all_specs(pda: PdaTables) -> Iterator[ItemSpec]:
 
 PINNED_CLONE_COUNTS: dict[str, int] = {
     "arithmetic.gbnf": 32,
-    "c.gbnf": 15,
+    "c.gbnf": 157,  # attempt: statement/factor/forinit/statement-arm7 now clone
     "chess.gbnf": 10,  # +2 at P2: nonpawn demoted from island → cloned (k-gate)
     "japanese.gbnf": 12,
     "json.gbnf": 126,  # island-free at P3: the whole grammar clones
@@ -180,11 +180,20 @@ def test_no_pending_placeholder_leaks(stem: str):
         assert spec.name
 
 
-@pytest.mark.parametrize("stem", sorted(PINNED_ISLANDS))
+PINNED_RESIDUE: dict[str, list[str]] = {
+    **PINNED_ISLANDS,
+    "c.gbnf": ["relationoperator"],
+}
+"""The compiler-level island RESIDUE — the analysis' islands minus the
+attemptable set (which clones instead). Only c.gbnf differs: four of its five
+analysis islands attempt; `relationoperator` (fail class) stays."""
+
+
+@pytest.mark.parametrize("stem", sorted(PINNED_RESIDUE))
 def test_island_set_matches_pinned(stem: str):
-    """The island rule set matches the pinned, coordinator-verified value."""
+    """The compiled island residue matches the pinned value."""
     pda = pda_for(GROUND_TRUTH / stem)
-    assert sorted(pda.islands) == PINNED_ISLANDS[stem]
+    assert sorted(pda.islands) == PINNED_RESIDUE[stem]
 
 
 @pytest.mark.parametrize("stem", ALL_STEMS)
@@ -294,13 +303,13 @@ def test_hand_grammar_unbounded_negated_charclass_gets_stopgate():
 
 
 def test_hand_grammar_ref_to_a_genuine_island_carries_islandref():
-    """``x ::= n "x" | n "y"`` shares an unbounded digit prefix across arms —
-    ungatable at any ``k ≤ 3`` (the old ``"a"? "a"`` fixture now legitimately
-    demotes under P2), so ``x`` is flagged an island, and a ref to it from
+    """``x ::= x "a" | "b"`` is LEFT-RECURSIVE — the island class no attempt
+    order can settle (the unbounded digit-prefix overlap shape it replaces now
+    legitimately attempts), so ``x`` is flagged an island, and a ref to it from
     ``root`` carries an :class:`IslandRef`, never a :class:`CloneKey`.
     """
-    pda = pda_from_text('root ::= x\nx ::= n "x" | n "y"\nn ::= [0-9]+\n')
-    assert pda.islands == frozenset({"x"})
+    pda = pda_from_text('root ::= x\nx ::= x "a" | "b"\n')
+    assert pda.islands == frozenset({"x", "x-arm1"})  # the hoisted arm too
     root = sole_clone(pda, "root")
     ref_spec = root.arms[0].specs[0]
     assert ref_spec.kind == REF
@@ -477,12 +486,12 @@ def test_island_tables_cache_per_name_and_tier():
 
 def test_island_follow_carries_a_charset_per_island():
     """Every island name keys a follow CharSet holding what can follow it —
-    the continuation evidence the island seam's cross-span check reads."""
-    pda = pda_from_text(
-        'root ::= item tail\nitem ::= "a" | "ab"\ntail ::= "bc" | "c"\n'
-    )
+    the continuation evidence the island seam's cross-span check reads. The
+    fixture islands by LEFT RECURSION (the cross-span overlap shape it
+    replaces now attempts instead of islanding)."""
+    pda = pda_from_text('root ::= item "e"\nitem ::= item "d" | "a"\n')
     assert "item" in pda.islands
     assert set(pda.island_follow) == set(pda.islands)
     follow = pda.island_follow["item"]
-    assert follow.has("b") and follow.has("c")
+    assert follow.has("d") and follow.has("e")
     assert not follow.has("z")

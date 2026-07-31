@@ -102,8 +102,13 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
     :ivar attempt_loops: ``id(item)`` of every ungatable-loop decision an
         attempt licence covers (the identity-key convention of
         :attr:`loop_gates` — analysis and clone compiler walk the same lifted
-        tree). Greedy take with rollback IS Earley's split answer (the first
-        slot owns the text), so membership is the whole spec.
+        tree) → the decision's SOFT continuation. Greedy attempted take is
+        Earley's split answer (the first slot owns the text) — EXCEPT at a
+        boundary whose char is viable both as another iteration and as the
+        continuation: there a shorter extent may compose into a
+        different-valued whole parse, which is an arm choice in loop
+        clothing, so the runtime bails to the gated engine instead of
+        committing. The stored set is that check's evidence.
     :ivar gates: The :class:`_GateStore` behind the per-family accessors.
     """
 
@@ -113,7 +118,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
     demoted: dict[str, list[str]]
     fail: set[str]
     attempts: dict[str, AttemptSpec]
-    attempt_loops: set[int]
+    attempt_loops: dict[int, CharSet]
     gates: _GateStore
 
     def __init__(self) -> None:
@@ -122,7 +127,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         self.demoted = {}
         self.fail = set()
         self.attempts = {}
-        self.attempt_loops = set()
+        self.attempt_loops = {}
         self.gates = _GateStore()
 
     @property

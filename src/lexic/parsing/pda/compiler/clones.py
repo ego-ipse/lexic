@@ -55,6 +55,7 @@ from lexic.ir import (
     IrLiteral,
     IrNoneType,
     IrNot,
+    IrRule,
     IrRuleRef,
     IrSelf,
     IrTypeMap,
@@ -81,6 +82,7 @@ from lexic.parsing.pda.compiler.specs import (
     REF,
     ArmGates,
     ArmSpec,
+    AttemptGate,
     CloneKey,
     CloneSpec,
     GroupSpec,
@@ -206,14 +208,14 @@ class _ItemCtx(IrLeaf[IrSelf, IrSelf]):
     lo: int
     hi: int | None
     cont: CharSet
-    gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate
+    gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate
 
     def __init__(
         self,
         lo: int,
         hi: int | None,
         cont: CharSet,
-        gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate,
+        gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate,
     ) -> None:
         """Bind one item's bounds, continuation and gate."""
         self.lo = lo
@@ -396,31 +398,48 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                 self.draining = False
         return key
 
-    def _compile_clone(self, key: CloneKey) -> None:
-        """Compile one queued clone body into :attr:`clones` (drain step)."""
-        name = key.name
-        rule = self.analysis.rules[name]
+    def _clone_shape(
+        self, name: str, rule: IrRule, tail: CharSet
+    ) -> tuple[
+        tuple[ArmSpec, ...],
+        tuple[ItemSpec, ...] | None,
+        ScanGate | None,
+        CharSet | None,
+    ]:
+        """One clone body's compiled arms — the attempt / gated split.
+
+        An attemptable rule's arms compile in attempt order with no gate
+        specs; every other rule gets its stored demotion gates. A
+        single-gated-arm attempt rule (islanded for its loops alone) has no
+        arm choice to try — its licensed loops carry the whole licence in
+        their gates, so it runs as an ordinary clone (``follow`` is ``None``).
+
+        :returns: ``(arms, default, struct gate, attempt follow | None)``.
+        """
         tax = self.analysis.taxonomy
         attempt = tax.attempts.get(name)
         if attempt is not None:
             arms, default, struct = self.compile_arms(
-                rule.body, key.tail, order=attempt.order
+                rule.body, tail, order=attempt.order
             )
-            # A single-gated-arm attempt rule (islanded for its loops alone)
-            # has no arm choice to try — its licensed loops carry the whole
-            # licence in their gates, so it runs as an ordinary clone.
             follow = self.analysis.follow[name] if len(arms) > 1 else None
-        else:
-            arms, default, struct = self.compile_arms(
-                rule.body,
-                key.tail,
-                ArmGates(
-                    tax.arm_gates.get(name),
-                    tax.pn_arm_gates.get(name),
-                    tax.struct_arm_gates.get(name),
-                ),
-            )
-            follow = None
+            return arms, default, struct, follow
+        arms, default, struct = self.compile_arms(
+            rule.body,
+            tail,
+            ArmGates(
+                tax.arm_gates.get(name),
+                tax.pn_arm_gates.get(name),
+                tax.struct_arm_gates.get(name),
+            ),
+        )
+        return arms, default, struct, None
+
+    def _compile_clone(self, key: CloneKey) -> None:
+        """Compile one queued clone body into :attr:`clones` (drain step)."""
+        name = key.name
+        rule = self.analysis.rules[name]
+        arms, default, struct, follow = self._clone_shape(name, rule, key.tail)
         fold = self.fold_config.get(name)
         match_only = fold is not None and fold.kind == "value_str"
         self.clones[key] = CloneSpec(
@@ -463,10 +482,9 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         arms: list[ArmSpec] = []
         default: tuple[ItemSpec, ...] | None = None
         default_idx: int | None = None
-        pairs = (
-            list(enumerate(node)) if order is None else [(i, node[i]) for i in order]
-        )
-        for idx, arm in pairs:
+        for idx, arm in (
+            enumerate(node) if order is None else ((i, node[i]) for i in order)
+        ):
             items = _items(arm)
             specs = self._compile_seq(items, tail)
             first = self.analysis.seq_first(items)
@@ -524,7 +542,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
     def _loop_gate(
         self, items: Sequence[IrItem], idx: int, cont: CharSet
-    ) -> StopGate | PairGate | KTupleGate | PeekGate | ScanGate:
+    ) -> StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate:
         """The loop-continuation gate — stop-set, LL(2) pair, or k-window set.
 
         Defaults to the non-greedy stop-set (``FIRST(atom) − continuation``); a
@@ -560,13 +578,17 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
             sspec = analysis.taxonomy.struct_loop_gates.get(id(item))
             if sspec is not None:
                 return sspec  # a folding-aware ScanGate (P3 structured / P5)
-            if id(item) in analysis.taxonomy.attempt_loops:
-                # The attempt licence: possessive greedy — take while a member,
-                # nothing subtracted. Sound because a possessive take that also
-                # completes globally IS the split's defined answer (the first
-                # slot owns the text), and one that over-commits fails the
-                # parse into the gated engine rather than mis-building.
-                return StopGate(first)
+            licence = analysis.taxonomy.attempt_loops.get(id(item))
+            if licence is not None:
+                # The attempt licence: FIRST admits an iteration ATTEMPT —
+                # the runtime runs it as a sub-run and a failure closes the
+                # loop, so the loop takes maximally subject to its iterations
+                # actually parsing (the split's defined answer). A plain
+                # stop-set here would commit on one character and fail the
+                # arm on any later mismatch inside the iteration. The stored
+                # soft continuation guards the boundary where taking and
+                # stopping are BOTH viable — an arm choice in loop clothing.
+                return AttemptGate(first, licence)
             if first.overlaps(cont):
                 policy = analysis.loop_policy(item, rest)
                 if isinstance(policy, tuple):

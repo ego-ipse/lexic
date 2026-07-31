@@ -89,10 +89,12 @@ from lexic.parsing.pda.compiler.flatten import (
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
     DISPATCH_EMPTY,
+    GATE_ATTEMPT,
     OP_CC,
     OP_CC1,
     OP_FAIL,
     OP_GRP,
+    OP_ISLAND,
     OP_LIT,
     OP_LIT1,
     OP_REF1,
@@ -375,6 +377,10 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             frame[F_ENDS][i] = pos
             self.pos = pos
             return i + 1
+        if count >= arm.los[i] and arm.gate_kinds[i] == GATE_ATTEMPT:
+            frame[F_I] = i
+            self.pos = pos
+            return self._attempt_iteration(frame, arm, i, pos)
         frame[F_COUNT] = count + 1
         frame[F_I] = i
         self.pos = pos
@@ -656,6 +662,56 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             self._deleg[name] = cached
         return cached
 
+    def _attempt_iteration(
+        self, frame: list[Any], arm: FlatArm, i: int, pos: int
+    ) -> int:
+        """One ATTEMPTED optional loop iteration — failure closes the loop.
+
+        The licensed-loop semantics (:data:`GATE_ATTEMPT`): the gate's FIRST
+        admission is a pre-filter, not a commitment. The iteration runs as a
+        self-contained sub-run, and a failure — or a zero-width success, which
+        could never advance the loop — CLOSES the loop at the current count
+        instead of failing the arm. The loop thereby takes maximally subject
+        to its iterations actually parsing: the split's defined answer, where
+        a committed take would fail the whole arm on any interior mismatch
+        (an optional item's FIRST routinely overlaps its successor's).
+
+        A boundary char viable for BOTH the iteration and the loop's soft
+        continuation is an arm choice in loop clothing — a shorter extent may
+        compose into a different-valued whole parse, a question only the gated
+        engine's whole-input view can settle — so it bails rather than commits.
+
+        :returns: The driver continuation index, exactly as :meth:`_quant_step`.
+        :raises PdaFail: On a both-viable boundary (the gated engine decides).
+        """
+        char = self.text[pos : pos + 1]
+        if _admits(char, *arm.gate_data[i][1]):
+            raise PdaFail(f"attempt loop at {pos}: taking and stopping are both viable")
+        k = arm.kinds[i]
+        got: tuple[int, list[object]] | None = None
+        if k <= OP_GRP:  # OP_REF / OP_GRP — a clone entry, attempted
+            got = self._attempt_run(arm.payloads[i], pos)
+        elif k == OP_ISLAND:
+            sink = self._sink_for(frame, arm, i)
+            try:
+                self._island(arm.payloads[i], sink)
+            except PdaFail:
+                got = None
+            else:
+                frame[F_COUNT] += 1
+                return i
+        # OP_FAIL: an attempted fail-island iteration fails soft — loop closes
+        if got is None or got[0] == pos:
+            frame[F_COUNT] = 0
+            frame[F_I] = i + 1
+            frame[F_ENDS][i] = pos
+            return i + 1
+        end, values = got
+        self._sink_for(frame, arm, i).extend(values)
+        frame[F_COUNT] += 1
+        self.pos = end
+        return i
+
     def _attempt(self, clone: FlatClone, out: list[object]) -> None:
         """Try an attempt clone's entries in order — the third gate class, live.
 
@@ -673,8 +729,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         """
         follow, entries = clone.attempt
         pos = self.pos
-        text = self.text
-        char = text[pos : pos + 1]
+        char = self.text[pos : pos + 1]
         winner = -1
         best: tuple[int, list[object]] | None = None
         for idx, (chars, negated, sub) in enumerate(entries):
@@ -686,8 +741,26 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
                 break
         if best is None:
             raise PdaFail(f"attempt: no arm matches at {pos}")
-        end, values = best
-        for chars, negated, sub in entries[winner + 1 :]:
+        self._attempt_audit(entries[winner + 1 :], pos, best[0], follow)
+        out.extend(best[1])
+        self.pos = best[0]
+
+    def _attempt_audit(
+        self, rest: tuple[Any, ...], pos: int, end: int, follow: Any
+    ) -> None:
+        """Refuse a commit a later admitted entry could contest.
+
+        :param rest: The entries after the winner, in attempt order.
+        :param pos: The attempt position.
+        :param end: The winner's end.
+        :param follow: The rule's soft-FOLLOW CharSet.
+        :raises PdaFail: A later entry succeeding on the SAME span (a value
+            question this seam does not settle) or on a DIFFERENT span whose
+            next character ``follow`` accepts (a cross-span arm choice) —
+            either way the gated engine decides.
+        """
+        char = self.text[pos : pos + 1]
+        for chars, negated, sub in rest:
             if not _admits(char, chars, negated):
                 continue
             other = self._attempt_run(sub, pos)
@@ -699,13 +772,11 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
                     f"attempt at {pos}: two arms span [{pos}, {end}) — "
                     "a value question for the gated engine"
                 )
-            if follow.has(text[alt : alt + 1]):
+            if follow.has(self.text[alt : alt + 1]):
                 raise PdaFail(
                     f"attempt at {pos}: arm choice spans two ends ({alt}, {end}) "
                     "and the alternative could compose"
                 )
-        out.extend(values)
-        self.pos = end
 
     def _attempt_run(self, sub: FlatClone, pos: int) -> tuple[int, list[object]] | None:
         """One arm attempt as a self-contained sub-run — fail-soft, rolled back.

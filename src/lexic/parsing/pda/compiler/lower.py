@@ -16,6 +16,7 @@ from lexic.parsing.pda.compiler.flatten import (
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
+    GATE_ATTEMPT,
     GATE_KWIN,
     GATE_PAIR,
     GATE_PEEK,
@@ -43,6 +44,7 @@ from lexic.parsing.pda.compiler.specs import (
     GRP,
     LIT,
     ArmSpec,
+    AttemptGate,
     CloneKey,
     CloneSpec,
     GroupSpec,
@@ -84,7 +86,7 @@ def _build_mode(fold: RuleFold | None) -> int:
 
 
 def _flatten_gate(
-    gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate,
+    gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate,
 ) -> tuple[int, object]:
     """Lower a loop gate to its ``(code, data)`` flat pair."""
     if isinstance(gate, PairGate):
@@ -98,6 +100,11 @@ def _flatten_gate(
         )
     if isinstance(gate, ScanGate):
         return GATE_SCAN, gate  # runtime-ready; scan_gate_take reads it directly
+    if isinstance(gate, AttemptGate):
+        return GATE_ATTEMPT, (
+            (gate.charset.chars, gate.charset.negated),
+            (gate.follow.chars, gate.follow.negated),
+        )
     cs = gate.charset
     return GATE_STOP, (cs.chars, cs.negated)
 
